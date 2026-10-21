@@ -6,6 +6,7 @@ import {
   canvasOrigin,
   insertCanvasNode,
   type StageAuthorization,
+  storyboardFingerprint,
 } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import * as Y from 'yjs'
@@ -468,6 +469,7 @@ async function completedAssetWake(
   nodeIds: readonly string[] = ['a'],
   stage = '素材',
   lookIds: string[] = ['a'],
+  beforeWake?: (run: { authorizationId: string; projectId: string }) => Promise<void>,
 ) {
   const run = await proposal([...nodeIds], params, stage)
   // 分镜表把 lookIds 当作人物素材引用，还没定稿。
@@ -483,6 +485,7 @@ async function completedAssetWake(
     nodes: nodeIds.map((nodeId) => ({ nodeId, outcome: 'completed' })),
   })
   expect(report.status).toBe(200)
+  await beforeWake?.(run)
   const wake = await stageRunWakeContent(
     run.conversationId,
     { kind: 'user', userId: USER_ID },
@@ -529,6 +532,38 @@ it('does not continue to first frames after a batch that was not proposed as the
 it('does not continue to first frames while other storyboard assets still have no image', async () => {
   // 分镜表引用 a 和 b，这一批只出了 a，b 还没有图。
   const wake = await completedAssetWake(undefined, ['board'], ['a'], '素材', ['a', 'b'])
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
+})
+
+it('does not continue to first frames twice while a first-frame authorization for the same table is open', async () => {
+  const wake = await completedAssetWake(undefined, ['board'], ['a'], '素材', ['a'], async (run) => {
+    // 上一轮唤醒已经为这张表、这份镜头表登记了首帧授权，还没跑完。
+    const [row] = await db
+      .select()
+      .from(schema.agent_stage_authorizations)
+      .where(eq(schema.agent_stage_authorizations.id, run.authorizationId))
+    const id = crypto.randomUUID()
+    await db.insert(schema.agent_stage_authorizations).values({
+      ...row!,
+      id,
+      proposal_key: `${row!.proposal_key}:frames`,
+      execution_token_hash: null,
+      state: {
+        ...row!.state,
+        id,
+        stage: '首帧',
+        status: 'pending',
+        run: undefined,
+        storyboard: {
+          storyboardId: 'board',
+          fingerprint: storyboardFingerprint([
+            { id: 'shot-1', description: '嫩芽破土', lookIds: ['a'] },
+          ]),
+        },
+      },
+    })
+  })
   expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
   expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
 })

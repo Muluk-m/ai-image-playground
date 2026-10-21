@@ -405,7 +405,7 @@ export async function stageRunWakeContent(
       : undefined
   if (storyboardId)
     guidance.push(
-      `这一批全部完成，它们是分镜表 ${storyboardId} 引用的素材，这一轮沿用直接出图：分镜表引用的素材都有图之后，本轮直接调用 runStoryboardFrames（storyboardId: "${storyboardId}"；用户当初只要重出某几镜时沿用当时的 shotIds，否则不传）出首帧，不要停下来等用户说继续，也不要手工建首帧节点。不要重跑已完成的节点；除了这张分镜表的首帧，这一轮不要自行发起别的付费运行，出视频等其他阶段先向用户说明并等他同意。`,
+      `这一批全部完成，它们是分镜表 ${storyboardId} 引用的素材，这一轮沿用直接出图：分镜表引用的素材都有图之后，本轮直接调用 runStoryboardFrames（storyboardId: "${storyboardId}"，出整张表的首帧，不传 shotIds），不要停下来等用户说继续，也不要手工建首帧节点。不要重跑已完成的节点；除了这张分镜表的首帧，这一轮不要自行发起别的付费运行，出视频等其他阶段先向用户说明并等他同意。`,
     )
   else guidance.push('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
   return {
@@ -438,31 +438,56 @@ async function draftStoryboardUsing(
   const doc = new Y.Doc()
   try {
     Y.applyUpdate(doc, await accessCanvasDocument(userId, projectId))
-    const matches = readCanvasDocument(doc)
-      .nodes.filter((node) => {
-        if (
-          node.type !== 'storyboard' ||
-          node.data.confirmed?.fingerprint === storyboardFingerprint(node.data.shots)
-        )
-          return false
-        const assets = new Set(
-          node.data.shots.flatMap((shot) => [
-            ...shot.lookIds,
-            ...(shot.locationId !== undefined ? [shot.locationId] : []),
-          ]),
-        )
-        if (!nodeIds.every((id) => assets.has(id))) return false
-        // 这批之外的素材得早就有图：这批自己的结果可能还没同步回画布，按回报算已完成，不在这里查。
-        const batch = new Set(nodeIds)
-        return storyboardMissingAssetNodes(doc, node.id).every((asset) => batch.has(asset.id))
-      })
-      .map((node) => node.id)
+    const graph = readCanvasDocument(doc)
+    const matches = graph.nodes.filter((node) => {
+      if (
+        node.type !== 'storyboard' ||
+        node.data.confirmed?.fingerprint === storyboardFingerprint(node.data.shots)
+      )
+        return false
+      const assets = new Set(
+        node.data.shots.flatMap((shot) => [
+          ...shot.lookIds,
+          ...(shot.locationId !== undefined ? [shot.locationId] : []),
+        ]),
+      )
+      if (!nodeIds.every((id) => assets.has(id))) return false
+      // 这批之外的素材得早就有图：这批自己的结果可能还没同步回画布，按回报算已完成，不在这里查。
+      const batch = new Set(nodeIds)
+      if (!storyboardMissingAssetNodes(doc, node.id).every((asset) => batch.has(asset.id)))
+        return false
+      // 只接「第一次出首帧」：这张表已经有出过图的首帧或宫格，就是重出某几镜，范围要用户定，不自动整表重出。
+      return !graph.nodes.some(
+        (one) =>
+          (one.type === 'image' || one.type === 'video') &&
+          one.data.meta?.storyboardId === node.id &&
+          (one.data.meta.storyboardRole === 'frame' || one.data.meta.storyboardRole === 'grid') &&
+          Boolean(one.data.fileId || one.data.mediaId),
+      )
+    })
     if (matches.length > 1)
       log.info(
-        { projectId, nodeIds, storyboardIds: matches },
+        { projectId, nodeIds, storyboardIds: matches.map((node) => node.id) },
         'stage run wake: asset batch used by several draft storyboards, not continuing to first frames',
       )
-    return matches.length === 1 ? matches[0] : undefined
+    const board = matches.length === 1 ? matches[0] : undefined
+    if (board?.type !== 'storyboard') return undefined
+    // 同一张表、同一份镜头表已经有待确认或进行中的首帧授权（比如上一轮唤醒已经接过）：不再接一次，免得重复扣费。
+    // 同一会话的轮次是串行的，唤醒内容在轮开始时才算，所以上一轮登记的授权这里看得到。
+    const [pending] = await db
+      .select({ id: table.id })
+      .from(table)
+      .where(
+        and(
+          eq(table.user_id, userId),
+          eq(table.project_id, projectId),
+          sql`${table.state}->'storyboard'->>'storyboardId' = ${board.id}`,
+          sql`${table.state}->'storyboard'->>'fingerprint' = ${storyboardFingerprint(board.data.shots)}`,
+          sql`${table.state}->>'status' in ('pending', 'active')`,
+        ),
+      )
+      .limit(1)
+    return pending ? undefined : board.id
   } catch (err) {
     log.warn(
       { err, projectId, nodeIds },
