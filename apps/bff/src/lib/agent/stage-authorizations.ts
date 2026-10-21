@@ -419,8 +419,10 @@ export async function proposeStageAuthorizationInTransaction(
   )
     throw new StageAuthorizationError('stage_authorization_scope')
   // 首帧阶段按分镜表去重：上面 assertStageOwnership 已对项目行 FOR UPDATE，同一项目的提案在这里串行，
-  // 后到的事务一定看得到先到的那份。同一张表、同一份镜头表、同一批节点和规格已经有待确认或进行中的授权时，
-  // 直接交回它，不再登记第二份：重复或并发的唤醒不会铺出两份首帧、扣两次费。
+  // 后到的事务一定看得到先到的那份。同一张表、同一份镜头表任何时候最多一份没结束的授权：
+  // - 节点、规格都一致的直接交回，重复或并发的唤醒不会铺出两份首帧、扣两次费；
+  // - 规格不同、还待确认的旧提案作废（记 ended），由这次的新提案取代，旧卡确认会被拒绝；
+  // - 规格不同、已经确认在跑的，拒绝这次提案，等它结束再说，不让两份首帧并行扣费。
   if (input.storyboard) {
     const open = await openStoryboardAuthorizations(
       tx,
@@ -431,6 +433,14 @@ export async function proposeStageAuthorizationInTransaction(
     )
     const reusable = open.find((row) => proposalAgrees(row, input))
     if (reusable) return reusable.state
+    if (open.some((row) => row.state.status === 'active'))
+      throw new StageAuthorizationError('stage_authorization_storyboard_busy')
+    for (const row of open)
+      await save(tx, {
+        ...row.state,
+        status: 'ended',
+        audit: [...row.state.audit, { kind: 'ended', at: now }],
+      })
   }
   const priced = await pricedCharges(tx, input.userId, input.nodes)
   const state: StageAuthorization = {

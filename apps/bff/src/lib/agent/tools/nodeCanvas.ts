@@ -666,6 +666,13 @@ async function proposing<T>(propose: () => Promise<T>): Promise<T> {
       error.code === 'stage_authorization_price_unavailable'
     )
       return invalid('无法为这些节点计价，授权没有创建。请确认模型可用后再提案。')
+    if (
+      error instanceof StageAuthorizationError &&
+      error.code === 'stage_authorization_storyboard_busy'
+    )
+      return invalid(
+        '这张分镜表按当前镜头表的首帧阶段已经确认、正在进行，规格不同的新首帧阶段没有登记，也没有扣费。向用户说明，等这一阶段结束后再发起；不要换参数反复重试。',
+      )
     throw error
   }
 }

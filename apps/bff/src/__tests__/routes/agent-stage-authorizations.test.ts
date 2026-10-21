@@ -1475,6 +1475,27 @@ it('reuses the open first-frame authorization when two wakes propose the same st
   expect(changed.id).not.toBe(left.id)
 })
 
+it('keeps at most one open first-frame authorization per storyboard when the spec differs', async () => {
+  const seed = await fixture()
+  const base = await frameProposalInput(seed.authorizationId, 'spec-1:frames')
+  const first = await proposeStageAuthorization(base)
+  const doubled = (proposalKey: string) => ({
+    ...base,
+    proposalKey,
+    nodes: base.nodes.map((node) => ({ ...node, quantity: 2 })),
+  })
+  // 还待确认的旧提案规格不同：作废，换成新提案，不会留下两份都能确认的授权。
+  const second = await proposeStageAuthorization(doubled('spec-2:frames'))
+  expect(second.id).not.toBe(first.id)
+  expect(await (await request(first.id)).json()).toMatchObject({ status: 'ended' })
+  // 已经确认在跑的：规格不同的新提案被拒绝，不并行登记第二份。
+  await markActive(second.id)
+  await expect(
+    proposeStageAuthorization({ ...base, proposalKey: 'spec-3:frames' }),
+  ).rejects.toThrow('stage_authorization_storyboard_busy')
+  expect(await (await request(second.id)).json()).toMatchObject({ status: 'active' })
+})
+
 it('does not reuse an expired active first-frame authorization', async () => {
   const seed = await fixture()
   const first = await proposeStageAuthorization(
