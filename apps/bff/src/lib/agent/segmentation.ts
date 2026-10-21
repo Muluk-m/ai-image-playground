@@ -2,6 +2,7 @@ import type { AgentMaskPromptPoint, AgentNormalizedBox } from '@image-playground
 import sharp from 'sharp'
 import { config } from '../../config'
 import { log } from '../logger'
+import { labelComponents } from './mask-regions'
 import type { AgentFetch } from './model'
 import { providerFetch } from './provider-fetch'
 
@@ -426,20 +427,108 @@ export function dilateMask(
   return out
 }
 
-/** 选中的蒙版放大回原图尺寸（平滑放大后取阈值，边缘不起锯齿），再外扩。 */
+/** 二值图的方形内收：对补集外扩再取补。图片边缘之外不算空白，贴边的蒙版不会被啃掉。 */
+export function erodeMask(
+  source: Uint8Array,
+  width: number,
+  height: number,
+  radius: number,
+): Uint8Array {
+  if (radius <= 0) return source.slice()
+  const inverse = new Uint8Array(source.length)
+  for (let i = 0; i < source.length; i++) inverse[i] = source[i] ? 0 : 255
+  const grown = dilateMask(inverse, width, height, radius)
+  for (let i = 0; i < grown.length; i++) grown[i] = grown[i] ? 0 : 255
+  return grown
+}
+
+/** 清理半径：约每 160px 长边 1px，3–12px。闭运算补上窄于两倍半径的缺口。 */
+export function cleanupRadius(width: number, height: number): number {
+  return Math.min(12, Math.max(3, Math.round(Math.max(width, height) / 160)))
+}
+
+/** 方框均值后取半：把放大后的台阶边磨成顺滑的曲线，不改变大块形状。窗口在图边按实有像素算。 */
+function smoothMask(source: Uint8Array, width: number, height: number, radius: number) {
+  const rows = new Float32Array(source.length)
+  const prefix = new Float64Array(width + 1)
+  for (let y = 0; y < height; y++) {
+    const base = y * width
+    for (let x = 0; x < width; x++) prefix[x + 1] = prefix[x]! + (source[base + x] ? 1 : 0)
+    for (let x = 0; x < width; x++) {
+      const lo = x - radius < 0 ? 0 : x - radius
+      const hi = x + radius + 1 > width ? width : x + radius + 1
+      rows[base + x] = (prefix[hi]! - prefix[lo]!) / (hi - lo)
+    }
+  }
+  // 竖向按行推进一个滑动窗口，逐行顺序读写，对缓存友好。
+  const out = new Uint8Array(source.length)
+  const column = new Float32Array(width)
+  for (let y = 0; y < Math.min(height, radius); y++)
+    for (let x = 0; x < width; x++) column[x]! += rows[y * width + x]!
+  for (let y = 0; y < height; y++) {
+    const enter = y + radius
+    if (enter < height) for (let x = 0; x < width; x++) column[x]! += rows[enter * width + x]!
+    const leave = y - radius - 1
+    if (leave >= 0) for (let x = 0; x < width; x++) column[x]! -= rows[leave * width + x]!
+    const count = Math.min(height, y + radius + 1) - Math.max(0, y - radius)
+    const base = y * width
+    for (let x = 0; x < width; x++) out[base + x] = column[x]! / count >= 0.5 ? 255 : 0
+  }
+  return out
+}
+
+/**
+ * 分割结果的清理，在外扩之前做：
+ * 1. 闭运算：把对象内部、边上窄于两倍半径的缺口补上（大衣下摆那种一格一格的锯齿块）；
+ * 2. 填洞：不碰边、面积很小的空洞填满（杯把手围出的那种大空洞保留）；
+ * 3. 去碎块：远小于主体、也只占画面一点点的孤立小块去掉；
+ * 4. 磨边：台阶状的边界磨顺。
+ * 清理后什么都不剩（不该发生）就原样返回，绝不把用户的选择清空。
+ */
+export function cleanMask(source: Uint8Array, width: number, height: number): Uint8Array {
+  const radius = cleanupRadius(width, height)
+  const total = width * height
+  let mask = erodeMask(dilateMask(source, width, height, radius), width, height, radius)
+  let area = 0
+  for (const value of mask) if (value) area++
+  if (!area) return source.slice()
+
+  const holes = labelComponents(mask, false, width, height, false)
+  const holeMax = Math.max(64, Math.min(total * 0.0015, area * 0.05))
+  for (let i = 0; i < total; i++) {
+    const label = holes.labels[i]!
+    if (label && !holes.touchesBorder[label] && holes.areas[label]! <= holeMax) mask[i] = 255
+  }
+
+  const parts = labelComponents(mask, true, width, height, true)
+  const largest = Math.max(...parts.areas)
+  const islandMax = Math.min(largest * 0.1, total * 0.002)
+  for (let i = 0; i < total; i++) {
+    const label = parts.labels[i]!
+    if (label && parts.areas[label]! < islandMax) mask[i] = 0
+  }
+
+  mask = smoothMask(mask, width, height, Math.max(1, Math.round(radius / 2)))
+  return mask.some((value) => value) ? mask : source.slice()
+}
+
+/** 选中的蒙版放大回原图尺寸（平滑放大后取阈值，边缘不起锯齿），清理后再外扩。 */
 export async function shapeMask(
   mask: SegmentationMask,
   width: number,
   height: number,
   radius = dilationRadius(width, height),
 ): Promise<SegmentationMask> {
+  // 清理在分割服务交回的分辨率上做（长边 ≤1024），比在原图尺寸上做快几倍。
+  const cleaned = new Uint8Array(mask.width * mask.height)
+  for (let i = 0; i < cleaned.length; i++) cleaned[i] = mask.data[i]! >= 128 ? 255 : 0
+  const source = cleanMask(cleaned, mask.width, mask.height)
   let binary: Uint8Array
   if (mask.width === width && mask.height === height) {
-    binary = new Uint8Array(width * height)
-    for (let i = 0; i < binary.length; i++) binary[i] = mask.data[i]! >= 128 ? 255 : 0
+    binary = source
   } else {
     // sharp 对单通道 raw 也可能交回三通道，按 info.channels 取第一个通道。
-    const { data, info } = await sharp(Buffer.from(mask.data), {
+    const { data, info } = await sharp(Buffer.from(source), {
       raw: { width: mask.width, height: mask.height, channels: 1 },
     })
       .resize(width, height, { fit: 'fill', kernel: 'cubic' })

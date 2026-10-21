@@ -96,6 +96,12 @@ const parameters = Type.Object({
         '可选的提示点：至少一个落在目标上最有代表性的位置；对象挨着不想改的东西时，在那里放一个 include=false 的点。',
     }),
   ),
+  invert: Type.Optional(
+    Type.Boolean({
+      description:
+        '用户要改的是主体以外的部分（换背景、改背景颜色等）时为 true：此时 target 写「背景」，box、points 与 segmentPrompt 都指向要保留的主体（例如人物），系统会取反，并把主体边缘一圈（发丝）也交给模型重画。只改主体本身时不要写。',
+    }),
+  ),
   instances: Type.Optional(
     Type.Array(
       Type.Object({
@@ -241,6 +247,7 @@ async function propose(
     keep?: string[]
     box: AgentNormalizedBox
     points?: AgentMaskPromptPoint[]
+    invert?: boolean
     instances?: InstanceParams[]
   },
   signal?: AbortSignal,
@@ -258,6 +265,12 @@ async function propose(
   const box = cleanBox(params.box)
   const points = cleanPoints(params.points)
   const instances = cleanInstances(params.instances)
+  const invert = params.invert === true
+  if (invert && instances)
+    throw new AgentToolError(
+      'invalid_params',
+      '换背景（invert）时只框要保留的那一个主体，不要同时写 instances',
+    )
   const keep = [...new Set((params.keep ?? []).map((one) => one.trim()).filter(Boolean))]
 
   const imageId = context.images.identify(params.imageId)
@@ -342,6 +355,7 @@ async function propose(
     segmentation: segmented ? 'server' : 'box',
     ...(maskMediaId ? { maskMediaId } : {}),
     ...(regions ? { regions } : {}),
+    ...(invert ? { invert: true } : {}),
     model,
     ...(switchedFrom ? { switchedFrom } : {}),
   }
@@ -376,7 +390,7 @@ export function maskProposalTool(context: AgentToolContext): AgentTool {
 }
 
 const MASK_PROPOSAL_DESCRIPTION =
-  '用户只想改图里某个对象或局部、而本轮没有附带选区时，先用它请用户确认修改范围：你给出对象名、英文分割提示与外接框，系统据此圈出蒙版，用户在卡片上确认，或者点选增减、调整范围、加标注。画面里有几个相似对象时用 instances 逐个列出并标出要改的，卡片会按编号显示。发出后这一轮结束；确认后用户会带着蒙版作为下一条消息回来，再按选区调 editImage。生成只改蒙版内，蒙版外像素与原图一致。'
+  '用户只想改图里某个对象或局部、而本轮没有附带选区时，先用它请用户确认修改范围：你给出对象名、英文分割提示与外接框，系统据此圈出蒙版，用户在卡片上确认，或者点选增减、调整范围、加标注。画面里有几个相似对象时用 instances 逐个列出并标出要改的，卡片会按编号显示。要换背景时用 invert：框住要保留的主体，系统取反。发出后这一轮结束；确认后用户会带着蒙版作为下一条消息回来，再按选区调 editImage。生成只改蒙版内，蒙版外像素与原图一致。'
 
 /** 只给预扣估算与清单用的声明；不需要运行期 context。 */
 export const maskProposalDeclaration = {

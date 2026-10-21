@@ -192,6 +192,25 @@ export function dilateMask(mask: TargetMask, radius: number): TargetMask {
   return { data, width, height }
 }
 
+/**
+ * 反选时往主体边缘里收多少像素：服务端分割外扩的那一圈（4–8px，随长边增长）再加约 12px
+ * （8–16px），让发梢、肩线这一圈落进重绘区，由模型对着新背景重画，而不是留一道旧背景的边。
+ */
+export function invertInset(width: number, height: number): number {
+  const long = Math.max(width, height)
+  return (
+    Math.min(8, Math.max(4, Math.round(long / 256))) +
+    Math.min(16, Math.max(8, Math.round(long / 128)))
+  )
+}
+
+/** 反选：主体以外的全部都要改，并往主体里吃进 `inset` 像素。 */
+export function invertMask(mask: TargetMask, inset: number): TargetMask {
+  const outside = new Uint8Array(mask.data.length)
+  for (let index = 0; index < outside.length; index++) outside[index] = mask.data[index] ? 0 : 1
+  return dilateMask({ data: outside, width: mask.width, height: mask.height }, inset)
+}
+
 export function maskArea(mask: TargetMask): number {
   let count = 0
   for (const value of mask.data) if (value) count++
