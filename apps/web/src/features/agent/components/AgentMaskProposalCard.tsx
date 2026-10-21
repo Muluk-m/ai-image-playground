@@ -15,6 +15,8 @@ import {
   addClick,
   annotationRegions,
   editMaskRgba,
+  invertInset,
+  invertMask,
   type MaskAnnotation,
   type MaskRegionView,
   maskAnswerReference,
@@ -41,6 +43,7 @@ type Snapshot = {
   pixels: ImageData
   annotations: MaskAnnotation[]
   regions: RegionState[]
+  inverted: boolean
   regionMask?: { number: number; pixels: ImageData }
 }
 
@@ -86,6 +89,27 @@ function readTarget(canvas: HTMLCanvasElement): TargetMask {
   for (let index = 0; index < target.length; index++)
     target[index] = data[index * 4 + 3]! >= 128 ? 1 : 0
   return { data: target, width: canvas.width, height: canvas.height }
+}
+
+/** 二值蒙版 → 白色不透明 = 目标的画布。 */
+function canvasFromTarget(mask: TargetMask): HTMLCanvasElement {
+  const canvas = canvasOf(mask.width, mask.height)
+  const rgba = new Uint8ClampedArray(new ArrayBuffer(mask.width * mask.height * 4))
+  for (let index = 0; index < mask.data.length; index++)
+    if (mask.data[index]) rgba.set([255, 255, 255, 255], index * 4)
+  context2d(canvas).putImageData(new ImageData(rgba, mask.width, mask.height), 0, 0)
+  return canvas
+}
+
+/** 画的时候用的粗略反选：直接取补集，不内收；松手后再按 {@link invertMask} 精确算。 */
+function complementCanvas(mask: HTMLCanvasElement): HTMLCanvasElement {
+  const canvas = canvasOf(mask.width, mask.height)
+  const context = canvas.getContext('2d')!
+  context.fillStyle = '#fff'
+  context.fillRect(0, 0, canvas.width, canvas.height)
+  context.globalCompositeOperation = 'destination-out'
+  context.drawImage(mask, 0, 0)
+  return canvas
 }
 
 function maskDataUrl(mask: TargetMask): string {
@@ -351,6 +375,8 @@ export default function AgentMaskProposalCard({
   const [submitting, setSubmitting] = useState(false)
   const [writing, setWriting] = useState(false)
   const [other, setOther] = useState('')
+  // 反选：卡片上点选、画笔调整的始终是主体；显示与确认时取它以外的部分（往主体里收一圈）。
+  const [inverted, setInverted] = useState(proposal.invert === true)
   const locked = answered || running || submitting
   const ready = status === 'suggested' || status === 'rough'
   const numbered = regions.length > 1
@@ -363,7 +389,12 @@ export default function AgentMaskProposalCard({
     const context = preview?.getContext('2d')
     if (!mask || !preview || !context) return
     const scale = preview.width / Math.max(1, imageRef.current?.getBoundingClientRect().width ?? 1)
-    paintOverlay(preview, mask, look, scale)
+    const shown = !inverted
+      ? mask
+      : pointerRef.current
+        ? complementCanvas(mask)
+        : canvasFromTarget(invertMask(readTarget(mask), invertInset(mask.width, mask.height)))
+    paintOverlay(preview, shown, look, scale)
     context.save()
     // 没选中的相似对象只画一个虚线框，点编号就能加进来。
     if (numbered) {
@@ -422,7 +453,7 @@ export default function AgentMaskProposalCard({
       context.stroke()
     }
     context.restore()
-  }, [annotations, look, numbered, regions, sketch])
+  }, [annotations, inverted, look, numbered, regions, sketch])
 
   // 帧里总是跑最新的那版重绘：排帧之后样式（建议 → 已调整）变了，也按新的画。
   const redrawNowRef = useRef(redrawNow)
@@ -516,6 +547,7 @@ export default function AgentMaskProposalCard({
       pixels: extra.pixels ?? context2d(mask).getImageData(0, 0, mask.width, mask.height),
       annotations,
       regions,
+      inverted,
       ...(extra.regionMask ? { regionMask: extra.regionMask } : {}),
     })
     const limit = Math.max(
@@ -542,6 +574,7 @@ export default function AgentMaskProposalCard({
       pixels: context2d(mask).getImageData(0, 0, mask.width, mask.height),
       annotations,
       regions,
+      inverted,
       ...(previous.regionMask && regionCanvas
         ? {
             regionMask: {
@@ -556,6 +589,7 @@ export default function AgentMaskProposalCard({
       context2d(regionCanvas).putImageData(previous.regionMask.pixels, 0, 0)
     setAnnotations(previous.annotations)
     setRegions(previous.regions)
+    setInverted(previous.inverted)
     setHistory({ undo: undoRef.current.length > 0, redo: redoRef.current.length > 0 })
     redraw()
   }
@@ -591,6 +625,12 @@ export default function AgentMaskProposalCard({
     const keep = context2d(current)
     keep.clearRect(0, 0, current.width, current.height)
     keep.drawImage(next, 0, 0)
+  }
+
+  const toggleInverted = () => {
+    if (!maskRef.current || locked || refining || drawing) return
+    remember()
+    setInverted((current) => !current)
   }
 
   const toggleRegion = (number: number) => {
@@ -775,7 +815,10 @@ export default function AgentMaskProposalCard({
     setSubmitting(true)
     try {
       // 服务端分割时已经外扩过一圈；用户手画的部分按他画的来，不再另外外扩。
-      const target = readTarget(mask)
+      const subject = readTarget(mask)
+      const target = inverted
+        ? invertMask(subject, invertInset(subject.width, subject.height))
+        : subject
       if (maskArea(target) === 0) {
         showToast(t('maskProposal.empty'), 'error')
         return
@@ -892,6 +935,19 @@ export default function AgentMaskProposalCard({
         <Button
           type="button"
           variant="ghost"
+          size="sm"
+          aria-pressed={inverted}
+          title={t('maskProposal.invertTitle')}
+          disabled={locked || drawing || refining || !ready}
+          onClick={toggleInverted}
+        >
+          <Icon name="replace" />
+          {t('maskProposal.invert')}
+        </Button>
+        <span className="studio-artifact-edit-tool-divider" />
+        <Button
+          type="button"
+          variant="ghost"
           size="icon-sm"
           aria-label={t('maskProposal.undo')}
           title={t('maskProposal.undo')}
@@ -993,7 +1049,11 @@ export default function AgentMaskProposalCard({
       </div>
       {ready && (
         <p className="studio-mask-proposal-hint">
-          {tool === 'point' ? t('maskProposal.pointHint') : t('maskProposal.edgeHint')}
+          {inverted
+            ? t('maskProposal.invertHint')
+            : tool === 'point'
+              ? t('maskProposal.pointHint')
+              : t('maskProposal.edgeHint')}
         </p>
       )}
       {numbered && (
