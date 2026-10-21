@@ -100,6 +100,8 @@ export interface AgentClarificationMessage {
   readonly turnId: string
   readonly question: string
   readonly options: readonly string[]
+  /** 范围确认卡：智能体提议的修改范围，用户确认或调整后带着蒙版回答。 */
+  readonly maskProposal?: import('@image-playground/shared').AgentMaskProposal
 }
 
 /** 对话里对一张已有图做的本地步骤，例如去背景。不进服务端事件流。 */
