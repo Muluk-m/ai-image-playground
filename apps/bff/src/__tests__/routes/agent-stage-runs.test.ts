@@ -465,17 +465,20 @@ async function addStoryboard(projectId: string, id = 'board') {
 async function completedAssetWake(
   params?: AgentTurnParams,
   storyboards: readonly string[] = ['board'],
+  nodeIds: readonly string[] = ['a'],
 ) {
-  const run = await proposal(['a'], params)
+  const run = await proposal([...nodeIds], params)
   // 分镜表把 a 当作人物素材引用，还没定稿。
   for (const id of storyboards) await addStoryboard(run.projectId, id)
   const token = await confirm(run.authorizationId)
-  expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
-  await submitted(run.authorizationId, 'a-1', 'task-a', 'completed', 6)
+  for (const id of nodeIds)
+    expect((await preflight(run.authorizationId, token, id, `${id}-1`)).status).toBe(200)
+  for (const id of nodeIds)
+    await submitted(run.authorizationId, `${id}-1`, `task-${id}`, 'completed', 6)
   const report = await request(run.authorizationId, '/report', {
     executionToken: token,
     deviceId: DEVICE,
-    nodes: [{ nodeId: 'a', outcome: 'completed' }],
+    nodes: nodeIds.map((nodeId) => ({ nodeId, outcome: 'completed' })),
   })
   expect(report.status).toBe(200)
   const wake = await stageRunWakeContent(
@@ -504,6 +507,13 @@ it('keeps asking before the next paid stage when auto-submit was off', async () 
 
 it('does not push an ordinary direct batch on to first frames when no draft storyboard uses it', async () => {
   const wake = await completedAssetWake(undefined, [])
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
+})
+
+it('does not continue to first frames when the batch mixes in nodes the storyboard does not use', async () => {
+  // 分镜表只引用 a，这一批还带了不相干的 b。
+  const wake = await completedAssetWake(undefined, ['board'], ['a', 'b'])
   expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
   expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
 })

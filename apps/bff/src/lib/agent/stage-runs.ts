@@ -395,7 +395,10 @@ export async function stageRunWakeContent(
   // 直接出图开着、为一张还没定稿的分镜表出的素材全部出完：接着出首帧是同一条流程的下一步，不该停下来
   // 等一句「继续」。普通节点批次、首帧阶段本身、已经定稿过的分镜表都不在此列；出视频等别的付费阶段仍要先问。
   const storyboardId =
-    completed === run.nodes.length && state.turn?.autoSubmit === true && !state.storyboard
+    completed > 0 &&
+    completed === run.nodes.length &&
+    state.turn?.autoSubmit === true &&
+    !state.storyboard
       ? await draftStoryboardUsing(owner.userId, state.projectId, state.nodeIds)
       : undefined
   if (storyboardId)
@@ -419,7 +422,8 @@ export async function stageRunWakeContent(
 }
 
 /**
- * 这批节点被哪张还没定稿的分镜表当作人物或地点素材引用。只有恰好一张表命中时才返回它；
+ * 这批节点是不是某一张还没定稿的分镜表的素材批：批里每个节点都得是这张表引用的人物或地点素材，
+ * 混进了普通节点或别的素材就不算。只有恰好一张表命中时才返回它；
  * 没有命中、或多张草稿表共用这批素材而无法确定是哪一张时，都不接着出首帧，交给用户决定。
  * 读画布出错时记一条告警再按没有处理：不自动推进付费阶段是更安全的退路。
  */
@@ -428,21 +432,25 @@ async function draftStoryboardUsing(
   projectId: string,
   nodeIds: readonly string[],
 ): Promise<string | undefined> {
-  const ids = new Set(nodeIds)
+  if (!nodeIds.length) return undefined
   const doc = new Y.Doc()
   try {
     Y.applyUpdate(doc, await accessCanvasDocument(userId, projectId))
     const matches = readCanvasDocument(doc)
-      .nodes.filter(
-        (node) =>
-          node.type === 'storyboard' &&
-          node.data.confirmed?.fingerprint !== storyboardFingerprint(node.data.shots) &&
-          node.data.shots.some(
-            (shot) =>
-              shot.lookIds.some((id) => ids.has(id)) ||
-              (shot.locationId !== undefined && ids.has(shot.locationId)),
-          ),
-      )
+      .nodes.filter((node) => {
+        if (
+          node.type !== 'storyboard' ||
+          node.data.confirmed?.fingerprint === storyboardFingerprint(node.data.shots)
+        )
+          return false
+        const assets = new Set(
+          node.data.shots.flatMap((shot) => [
+            ...shot.lookIds,
+            ...(shot.locationId !== undefined ? [shot.locationId] : []),
+          ]),
+        )
+        return nodeIds.every((id) => assets.has(id))
+      })
       .map((node) => node.id)
     if (matches.length > 1)
       log.info(
