@@ -42,11 +42,13 @@ import * as Y from 'yjs'
 import { executeCanvasCommand } from '../../canvasCommands'
 import { accessCanvasDocument } from '../../canvasSyncStore'
 import { isCapabilityEnabled } from '../../capabilities'
+import type { BffTransaction } from '../../private-overlay'
 import { agentCanvasProject } from '../node-canvas-view'
 import {
   proposeStageAuthorization,
   proposeStageAuthorizationInTransaction,
   readStageAuthorization,
+  readStageProposal,
   StageAuthorizationError,
   type StageChargeInput,
   type StageProposalInput,
@@ -659,6 +661,19 @@ async function proposing<T>(propose: () => Promise<T>): Promise<T> {
     throw error
   }
 }
+const STAGE_NOTE = {
+  direct:
+    '直接出图：阶段授权已登记，原标签页会立即开跑，没有确认卡，也不等待撤销。不要说待确认。只有 taskIds 中的任务已提交。不得声称已生成。',
+  pending:
+    '阶段授权待确认；用户确认前不会提交或扣费。确认后只由原标签页运行，实际提交与花费应查询授权状态。不得声称已生成。',
+  storyboardDirect: '原标签页开跑前确认这条授权，分镜表随之定稿。',
+  storyboardPending: '用户确认这条授权时分镜表随之定稿。',
+}
+function canvasStageNote(direct: boolean, storyboard: boolean): string {
+  const base = direct ? STAGE_NOTE.direct : STAGE_NOTE.pending
+  if (!storyboard) return base
+  return base + (direct ? STAGE_NOTE.storyboardDirect : STAGE_NOTE.storyboardPending)
+}
 /** runNodes 与首帧阶段共用的回执。直接出图偏好只看本轮请求。 */
 function canvasStageResult(
   context: AgentToolContext,
@@ -692,17 +707,7 @@ function canvasStageResult(
         text: JSON.stringify({
           ...canvasRun,
           submitted: false,
-          note: `${
-            direct
-              ? '直接出图：阶段授权已登记，原标签页会立即开跑，没有确认卡，也不等待撤销。不要说待确认。只有 taskIds 中的任务已提交。不得声称已生成。'
-              : '阶段授权待确认；用户确认前不会提交或扣费。确认后只由原标签页运行，实际提交与花费应查询授权状态。不得声称已生成。'
-          }${
-            storyboard
-              ? direct
-                ? '原标签页开跑前确认这条授权，分镜表随之定稿。'
-                : '用户确认这条授权时分镜表随之定稿。'
-              : ''
-          }`,
+          note: canvasStageNote(direct, Boolean(storyboard)),
         }),
       },
     ],
@@ -848,6 +853,35 @@ function prepareFrames(
   }
 }
 const scratchOrigin: CanvasOrigin = 'agent:storyboard-frames'
+/** 同一调用 ID 已登记的提案。不是这张分镜表的首帧阶段时按提案冲突处理，不能冒充重放。 */
+async function priorFrameProposal(
+  userId: string,
+  conversationId: string,
+  proposalKey: string,
+  storyboardId: string,
+  tx?: BffTransaction,
+): Promise<StageAuthorization | undefined> {
+  const prior = await readStageProposal(userId, conversationId, proposalKey, tx)
+  if (!prior) return undefined
+  if (prior.stage !== '首帧' || prior.storyboard?.storyboardId !== storyboardId)
+    throw new StageAuthorizationError('stage_authorization_conflict')
+  return prior
+}
+/**
+ * 重放同一次调用时返回首次登记的授权。镜头表摘要按当前画布重算；
+ * 镜头表已经改过（指纹不同）就不附摘要，确认时也会因过时被拒。
+ */
+function replayedStoryboard(
+  doc: Y.Doc,
+  authorization: StageAuthorization,
+): StageStoryboard | undefined {
+  const ref = authorization.storyboard
+  if (!ref) return undefined
+  const board = readCanvasDocument(doc).nodes.find((node) => node.id === ref.storyboardId)
+  if (board?.type !== 'storyboard' || storyboardFingerprint(board.data.shots) !== ref.fingerprint)
+    return undefined
+  return { ref, summary: storyboardStageSummary(board.id, board.data.shots) }
+}
 
 export const runStoryboardFrames = defineAgentTool({
   name: 'runStoryboardFrames',
@@ -883,6 +917,15 @@ export const runStoryboardFrames = defineAgentTool({
     const before = await load()
     let fingerprint: string
     try {
+      // 同一次调用已登记过就原样返回，不按可能已改过的画布重新校验或提案。
+      const prior = await priorFrameProposal(
+        userId,
+        context.conversationId,
+        `${context.turnId}:${callId}`,
+        params.storyboardId,
+      )
+      if (prior)
+        return canvasStageResult(context, project.id, prior, replayedStoryboard(before, prior))
       const board = getNode(before, params.storyboardId)
       if (board.type !== 'storyboard') return invalid(`节点不是分镜表：${params.storyboardId}`)
       if (!board.data.shots.length)
@@ -905,7 +948,7 @@ export const runStoryboardFrames = defineAgentTool({
       before.destroy()
     }
     // 铺节点与登记授权在同一事务里：计价或提案失败时，本次铺出或改动的节点一起回滚。
-    let proposed: { authorization: StageAuthorization; storyboard: StageStoryboard } | undefined
+    let proposed: { authorization: StageAuthorization; storyboard?: StageStoryboard } | undefined
     await proposing(() =>
       executeCanvasCommand(
         userId,
@@ -920,10 +963,24 @@ export const runStoryboardFrames = defineAgentTool({
             invalid('分镜表刚被改过，请重新读取后再发起首帧阶段。')
           prepareFrames(doc, params.storyboardId, mode, origin)
         },
-        async (tx, state) => {
+        async (tx, state, replay) => {
           const saved = new Y.Doc()
           try {
             Y.applyUpdate(saved, state)
+            if (replay) {
+              // 首次执行已在同一事务里登记了授权，这里只取回它。
+              const prior = await priorFrameProposal(
+                userId,
+                context.conversationId,
+                `${context.turnId}:${callId}`,
+                params.storyboardId,
+                tx,
+              )
+              if (!prior) return invalid('首帧阶段授权没有登记，请重新读取画布后再试。')
+              const storyboard = replayedStoryboard(saved, prior)
+              proposed = { authorization: prior, ...(storyboard ? { storyboard } : {}) }
+              return
+            }
             const graph = readCanvasDocument(saved)
             const board = graph.nodes.find((node) => node.id === params.storyboardId)
             if (

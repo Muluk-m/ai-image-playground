@@ -355,6 +355,28 @@ export async function proposeStageAuthorizationInTransaction(
   if (!proposalAgrees(row, input)) throw new StageAuthorizationError('stage_authorization_conflict')
   return row.state
 }
+/**
+ * 同一次工具调用（proposalKey）已经登记过的提案。幂等重放时直接返回它，
+ * 不再按当前画布重新提案：画布在首次登记后可能已被改过。
+ */
+export async function readStageProposal(
+  userId: string,
+  conversationId: string,
+  proposalKey: string,
+  tx: BffTransaction | typeof db = db,
+): Promise<StageAuthorization | undefined> {
+  const [row] = await tx
+    .select({ state: table.state })
+    .from(table)
+    .where(
+      and(
+        eq(table.user_id, userId),
+        eq(table.conversation_id, conversationId),
+        eq(table.proposal_key, proposalKey),
+      ),
+    )
+  return row?.state
+}
 export async function readStageAuthorization(userId: string, id: string) {
   return db.transaction(async (tx) => (await maybeExpire(tx, await owned(tx, userId, id))).state)
 }

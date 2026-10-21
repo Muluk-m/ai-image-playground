@@ -966,6 +966,40 @@ it('re-runs one shot individually and refuses confirmation after the shot table 
   expect(board?.type === 'storyboard' && board.data.confirmed).toBeFalsy()
 })
 
+it('replays the same first-frame call with its original authorization after the shot table changed', async () => {
+  const { context, run, graph, stageRows } = await storyboardFixture()
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'lin' })
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'sill' })
+  const call = () =>
+    runStoryboardFrames
+      .create(context)
+      .execute('frames-replay', { storyboardId: 'board' }, undefined, undefined)
+  const first = await call()
+  const authorizationId = first.details?.canvasRun?.authorizationId
+  expect(authorizationId).toBeTruthy()
+  const rows = await stageRows()
+  const nodes = (await graph()).nodes.length
+  expect((await call()).details?.canvasRun).toMatchObject({
+    authorizationId,
+    storyboard: { shotCount: 2 },
+  })
+  await run(applyScriptPlan, {
+    scriptNodeId: 'script',
+    storyboardId: 'board',
+    assets: [],
+    shots: [
+      { id: 'shot-1', description: '林夏蹲在窗台前', lookIds: ['lin'], locationId: 'sill' },
+      { id: 'shot-2', description: '窗台特写，换成黄昏', lookIds: [], locationId: 'sill' },
+    ],
+  })
+  // 镜头表改过之后重放：仍返回首次的授权，不另建授权也不按新表重铺，只是不再附过时的摘要。
+  const replayed = await call()
+  expect(replayed.details?.canvasRun?.authorizationId).toBe(authorizationId)
+  expect(replayed.details?.canvasRun?.storyboard).toBeUndefined()
+  expect(await stageRows()).toBe(rows)
+  expect((await graph()).nodes.length).toBe(nodes)
+})
+
 it('rolls back laid-out first frames when the stage proposal cannot be registered', async () => {
   const { context, run, graph, stageRows } = await storyboardFixture()
   await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'lin' })
