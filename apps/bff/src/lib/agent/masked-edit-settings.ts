@@ -11,6 +11,7 @@ for (const [key, names] of Object.entries({
     'minMatchedFraction',
     'maxFlatDifference',
   ],
+  regions: ['minPixels', 'changedDelta', 'minChangedFraction', 'maxRetries'],
   rescale: [
     'maxScaleDifference',
     'maxAspectDifference',
@@ -32,7 +33,7 @@ for (const [key, names] of Object.entries({
 }
 if (
   Object.keys(settings).some(
-    (key) => !['output', 'alignment', 'rescale', 'boundary'].includes(key),
+    (key) => !['output', 'alignment', 'rescale', 'boundary', 'regions'].includes(key),
   ) ||
   !Number.isInteger(settings.boundary.featherPixels) ||
   settings.boundary.featherPixels > 32 ||
@@ -50,7 +51,12 @@ if (
   settings.alignment.minCorrelation > 1 ||
   settings.alignment.minMatchedFraction > 1 ||
   !Number.isInteger(settings.output.dimensionMultiple) ||
-  settings.output.minPixels > settings.output.maxPixels
+  settings.output.minPixels > settings.output.maxPixels ||
+  !Number.isInteger(settings.regions.minPixels) ||
+  !Number.isInteger(settings.regions.maxRetries) ||
+  settings.regions.maxRetries > 3 ||
+  settings.regions.changedDelta > 255 ||
+  settings.regions.minChangedFraction > 1
 )
   throw new Error('Invalid masked edit configuration')
 export const maskedEditSettings = settings
