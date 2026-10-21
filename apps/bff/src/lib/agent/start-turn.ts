@@ -34,6 +34,7 @@ import {
   skipAgentWake,
 } from './inbox'
 import { type RunningTurn, runningTurn } from './runningTurns'
+import { markStageRunWakeSkipped } from './stage-runs'
 import type { PreparedAgentTurn } from './turn'
 import type { TurnPreparation } from './turn-preparation'
 import { deliverDueAgentWakes } from './wake'
@@ -334,6 +335,8 @@ async function skipWake(
   await execution.write(async (tx) => {
     if (!(await skipAgentWake(tx, conversationId, wake.id))) return
     await markAgentJobsWakeSkipped(tx, conversationId, wake.taskIds, reason)
+    if (wake.stageRun)
+      await markStageRunWakeSkipped(tx, conversationId, wake.stageRun.authorizationId, reason)
   })
   log.info(
     { event: 'agent.wake_skipped', conversationId, wakeId: wake.id, reason },

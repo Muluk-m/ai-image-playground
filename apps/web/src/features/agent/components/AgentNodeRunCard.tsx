@@ -1,4 +1,8 @@
-import type { AgentCanvasRunProposal, StageAuthorization } from '@image-playground/shared'
+import type {
+  AgentCanvasRunProposal,
+  AgentWakeSkipReason,
+  StageAuthorization,
+} from '@image-playground/shared'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ApprovalCard } from '../../../components/assistant-ui/elements/approval-card'
 import Credits from '../../../components/Credits'
@@ -13,6 +17,7 @@ import {
   type AgentNodeRun,
   agentNodeRun,
   agentNodeRunControl,
+  agentNodeRunWakeSkipped,
   forgetAgentNodeRun,
   isAgentNodeRunOrigin,
   startAgentNodeRun,
@@ -24,9 +29,12 @@ import { stageAuthorizationClient } from '../lib/stageAuthorizationClient'
 export default function AgentNodeRunCard({
   runKey,
   proposal,
+  wakeSkipped,
 }: {
   runKey: string
   proposal: AgentCanvasRunProposal
+  /** 服务端记在运行卡上的「唤醒没有起轮」原因；刷新之后也在。 */
+  wakeSkipped?: AgentWakeSkipReason
 }) {
   const { t } = useTranslation(['agent', 'canvas'])
   const bridge = useSyncExternalStore(subscribeAgentNodeRun, agentNodeRunBridge)
@@ -34,6 +42,9 @@ export default function AgentNodeRunCard({
   const settled = useRef<AgentNodeRun>(undefined)
   const run = live ?? settled.current
   const origin = useSyncExternalStore(subscribeAgentNodeRuns, () => isAgentNodeRunOrigin(runKey))
+  const skippedLive = useSyncExternalStore(subscribeAgentNodeRuns, () =>
+    agentNodeRunWakeSkipped(proposal.authorizationId),
+  )
   const [stored, setStored] = useState<StageAuthorization>()
   const [readFailed, setReadFailed] = useState(false)
   const [readAttempt, setReadAttempt] = useState(0)
@@ -48,6 +59,8 @@ export default function AgentNodeRunCard({
   useEffect(() => {
     if (!live || (live.status !== 'done' && live.status !== 'undone' && live.status !== 'failed'))
       return
+    // 结局还在交给智能体：交完再收走，卡上才看得到交没交上。
+    if (live.report?.wake === 'reporting') return
     forgetAgentNodeRun(runKey, agentNodeRunControl(runKey))
   }, [live, runKey])
   useEffect(() => {
@@ -119,16 +132,24 @@ export default function AgentNodeRunCard({
               ? statusLabels[status]
               : t('nodeRun.unavailable')
   const terminal = run?.status === 'done' || run?.status === 'undone' || run?.status === 'failed'
+  const report = run?.report
+  const outcomes = report
+    ? Object.fromEntries(report.nodes.map((node) => [node.nodeId, node.outcome]))
+    : undefined
+  const unfinished = report?.nodes.filter((node) => node.outcome !== 'completed').length ?? 0
+  const skippedReason = wakeSkipped ?? skippedLive
   const statusLabel =
-    run?.status === 'done'
-      ? t('canvas:nodeBatch.done')
-      : run?.status === 'undone'
-        ? t('nodeRun.undone')
-        : run?.status === 'failed'
-          ? t(`canvas:nodeBatch.${run.error}`)
-          : subtitle
+    run?.status === 'done' && unfinished > 0
+      ? t('nodeRun.partial', { count: unfinished })
+      : run?.status === 'done'
+        ? t('canvas:nodeBatch.done')
+        : run?.status === 'undone'
+          ? t('nodeRun.undone')
+          : run?.status === 'failed'
+            ? t(`canvas:nodeBatch.${run.error}`)
+            : subtitle
   const canConfirm = !proposal.direct && !run && pending && origin
-  if (proposal.direct && !run && !plan?.error && !plan?.blocked) return null
+  if (proposal.direct && !run && !plan?.error && !plan?.blocked && !skippedReason) return null
   const canUndo = run?.status === 'countdown'
   return (
     <ApprovalCard
@@ -186,7 +207,23 @@ export default function AgentNodeRunCard({
                 : 0
           }
           {...(run?.status === 'running' ? { active: run.active } : {})}
+          {...(outcomes ? { outcomes } : {})}
         />
+      )}
+      {(skippedReason === 'insufficient_credits' || skippedReason === 'wake_limit') && (
+        <p role="status" className={CARD_NOTE}>
+          {t(`job.wakeSkipped.${skippedReason}`)}
+        </p>
+      )}
+      {!skippedReason && (report?.wake === 'queued' || report?.wake === 'duplicate') && (
+        <p role="status" className={CARD_NOTE}>
+          {t('nodeRun.reported')}
+        </p>
+      )}
+      {report?.wake === 'failed' && (
+        <p role="status" className={CARD_NOTE}>
+          {t('nodeRun.reportFailed')}
+        </p>
       )}
       <p className="flex flex-wrap items-center justify-between gap-2 text-xs">
         <span>{t('canvas:nodes.estimatedCost')}</span>
