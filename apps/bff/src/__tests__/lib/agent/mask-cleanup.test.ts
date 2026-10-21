@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'bun:test'
 import { labelComponents } from '../../../lib/agent/mask-regions'
-import { cleanMask, shapeMask } from '../../../lib/agent/segmentation'
+
+// segmentation 会读配置；这里只测纯函数，给够启动配置即可，不连数据库。
+process.env.DATABASE_URL ??= 'postgres://unused@127.0.0.1:1/unused'
+process.env.UPSTREAM_BASE_URL ??= 'http://gateway.test'
+process.env.UPSTREAM_API_KEY ??= 'fixture-upstream-key'
+const { cleanMask, shapeMask } = await import('../../../lib/agent/segmentation')
 
 const W = 400,
   H = 400
