@@ -27,6 +27,7 @@ import type {
   AgentTurnParams,
   AgentTurnReference,
   AgentTurnSummaryView,
+  StageRunWakeReceipt,
 } from '@image-playground/shared'
 import {
   AGENT_FRAME_SEPARATOR,
@@ -902,6 +903,18 @@ export async function fetchBatchWakeReceipt(
   )
   if (!response.ok) throw await requestError(response)
   return (await response.json()) as AgentBatchWakeReceipt
+}
+
+/** 画布节点运行回报的唤醒回执；还没回报时 404。 */
+export async function fetchStageRunWakeReceipt(
+  authorizationId: string,
+): Promise<StageRunWakeReceipt> {
+  const response = await authenticatedBffFetch(
+    url(`/stage-authorizations/${encodeURIComponent(authorizationId)}/wake`),
+    { signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS) },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as StageRunWakeReceipt
 }
 
 export async function fetchBatchPlan(batchId: string): Promise<AgentBatchPage> {
