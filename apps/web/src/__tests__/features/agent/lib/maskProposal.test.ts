@@ -8,6 +8,8 @@ import {
   confirmedMaskSource,
   dilateMask,
   editMaskRgba,
+  invertInset,
+  invertMask,
   maskAnswerReference,
   maskAnswerText,
   maskArea,
@@ -202,5 +204,25 @@ describe('addClick', () => {
     const far = { x: 0.2, y: 0.2, include: true }
     expect(addClick([a], far, 12)).toEqual([a, far])
     expect(addClick([a, far], b, 1)).toEqual([b])
+  })
+})
+
+describe('反选', () => {
+  it('selects everything but the subject and eats into its edge', () => {
+    const mask = boxMask(100, 100, { x: 0.4, y: 0.4, width: 0.2, height: 0.2 })
+    const inverted = invertMask(mask, 3)
+    const at = (x: number, y: number) => inverted.data[y * 100 + x]
+    expect(at(10, 10)).toBeTruthy()
+    expect(at(41, 50)).toBeTruthy()
+    expect(at(45, 50)).toBeFalsy()
+    expect(at(50, 50)).toBeFalsy()
+    expect(maskArea(inverted)).toBeGreaterThan(100 * 100 - 20 * 20)
+    expect(maskArea(inverted)).toBeLessThan(100 * 100 - 12 * 12)
+  })
+
+  it('grows the edge band with the image size within bounds', () => {
+    expect(invertInset(512, 512)).toBe(12)
+    expect(invertInset(1536, 1024)).toBe(18)
+    expect(invertInset(4096, 3000)).toBe(24)
   })
 })

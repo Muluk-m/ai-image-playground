@@ -1038,6 +1038,11 @@ export interface AgentMaskProposal {
   readonly maskMediaId?: string
   /** 相似对象逐个编号；缺席表示只有一个目标（`box` / `points` / `maskMediaId` 就是它）。 */
   readonly regions?: readonly AgentMaskRegion[]
+  /**
+   * 要改的是选中对象以外的部分（通常是换背景）。蒙版仍是要保留的主体；卡片显示与确认时
+   * 取反，并往主体边缘里收一圈，让发丝、肩线这一圈也由模型对着新背景重画。
+   */
+  readonly invert?: boolean
   /** 这次局部编辑会用的模型；只会是支持蒙版的 GPT Image 系列。 */
   readonly model: { readonly id: string; readonly label: string }
   /** 用户选的模型不支持蒙版时记下原来那个；确认即同意改用 `model`。 */
