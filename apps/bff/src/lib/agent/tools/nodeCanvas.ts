@@ -903,13 +903,14 @@ function unknownShotsMessage(board: StoryboardCanvasNode, unknown: readonly stri
 function missingAssetsMessage(
   missing: readonly { id: string; name: string }[],
   direct: boolean,
+  shotIds: readonly string[] | undefined,
 ): string {
   const names = missing.map((asset) => `${asset.name}（${asset.id}）`).join('、')
   const ids = JSON.stringify(missing.map((asset) => asset.id))
   const next = direct
     ? `这一轮是直接出图：现在就在同一轮里调用 runNodes（nodeIds: ${ids}，stage: "素材"）发起素材阶段，它会直接开跑，不需要用户确认，不要停下来只向用户转述。`
     : `现在就在同一轮里调用 runNodes（nodeIds: ${ids}，stage: "素材"）提出素材阶段授权，由用户在确认卡上确认。`
-  return `先出素材、再出首帧：分镜表引用的素材还没有图：${names}。首帧没有铺，也没有登记授权，没有扣费。${next}素材没写提示词时按素材描述出图；画布上已有合适的图就改用 importCanvasImage 收进素材。素材批跑完后系统会唤醒你，那时再调用 runStoryboardFrames。`
+  return `先出素材、再出首帧：分镜表引用的素材还没有图：${names}。首帧没有铺，也没有登记授权，没有扣费。${next}素材没写提示词时按素材描述出图；画布上已有合适的图就改用 importCanvasImage 收进素材。素材批跑完后系统会唤醒你，那时再调用 runStoryboardFrames${shotIds ? `，并沿用这次的 shotIds（${JSON.stringify(shotIds)}），不要扩大到整张分镜表` : ''}。`
 }
 /** 同一调用 ID 已登记的提案。不是这张分镜表的首帧阶段时按提案冲突处理，不能冒充重放。 */
 async function priorFrameProposal(
@@ -1002,7 +1003,7 @@ export const runStoryboardFrames = defineAgentTool({
         if (unknown.length) invalid(unknownShotsMessage(board, unknown))
         const missing = storyboardMissingAssetNodes(before, board.id, shotIds)
         if (missing.length)
-          invalid(missingAssetsMessage(missing, canvasStageRunsDirectly(context.params)))
+          invalid(missingAssetsMessage(missing, canvasStageRunsDirectly(context.params), shotIds))
         fingerprint = storyboardFingerprint(board.data.shots)
         prepareFrames(before, board.id, mode, scratchOrigin)
       }

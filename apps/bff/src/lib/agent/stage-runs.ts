@@ -2,6 +2,7 @@ import type { AgentInboxTaskResultPayload } from '@image-playground/db'
 import {
   type AgentTurnParams,
   type AgentWakeSkipReason,
+  readCanvasDocument,
   type StageAuthorization,
   type StageRunNodeRecord,
   type StageRunNodeReport,
@@ -10,9 +11,12 @@ import {
   type StageRunReportInput,
   type StageRunReportResult,
   type StageRunWakeReceipt,
+  storyboardFingerprint,
 } from '@image-playground/shared'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import * as Y from 'yjs'
 import { db, schema } from '../../db/client'
+import { accessCanvasDocument } from '../canvasSyncStore'
 import { log } from '../logger'
 import type { BffTransaction } from '../private-overlay'
 import type { AgentOwner } from './conversations'
@@ -388,11 +392,15 @@ export async function stageRunWakeContent(
     guidance.push(
       `没有运行的节点：说明它们为什么没轮到；要继续时请用户同意后再用 ${rerun} 发起新的阶段授权。`,
     )
-  // 直接出图开着、为分镜表出的素材全部出完：接着出首帧是同一条流程的下一步，不该停下来等一句「继续」。
-  // 首帧阶段本身跑完不在此列，出视频等别的付费阶段仍要先问。
-  if (completed === run.nodes.length && state.turn?.autoSubmit === true && !state.storyboard)
+  // 直接出图开着、为一张还没定稿的分镜表出的素材全部出完：接着出首帧是同一条流程的下一步，不该停下来
+  // 等一句「继续」。普通节点批次、首帧阶段本身、已经定稿过的分镜表都不在此列；出视频等别的付费阶段仍要先问。
+  const storyboardId =
+    completed === run.nodes.length && state.turn?.autoSubmit === true && !state.storyboard
+      ? await draftStoryboardUsing(owner.userId, state.projectId, state.nodeIds)
+      : undefined
+  if (storyboardId)
     guidance.push(
-      '这一批全部完成，这一轮沿用直接出图：如果这批是在为分镜表出素材，分镜表引用的素材都有图之后，本轮直接调用 runStoryboardFrames 出首帧（不传 shotIds），不要停下来等用户说继续，也不要手工建首帧节点。不要重跑已完成的节点；除了首帧，这一轮不要自行发起别的付费运行，出视频等其他阶段先向用户说明并等他同意。',
+      `这一批全部完成，它们是分镜表 ${storyboardId} 引用的素材，这一轮沿用直接出图：分镜表引用的素材都有图之后，本轮直接调用 runStoryboardFrames（storyboardId: "${storyboardId}"；用户当初只要重出某几镜时沿用当时的 shotIds，否则不传）出首帧，不要停下来等用户说继续，也不要手工建首帧节点。不要重跑已完成的节点；除了这张分镜表的首帧，这一轮不要自行发起别的付费运行，出视频等其他阶段先向用户说明并等他同意。`,
     )
   else guidance.push('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
   return {
@@ -407,6 +415,35 @@ export async function stageRunWakeContent(
         ? 'video'
         : 'image',
     params: stageRunWakeParams(state),
+  }
+}
+
+/**
+ * 这批节点被哪张还没定稿的分镜表当作人物或地点素材引用。读不到画布时当作没有，不接着出首帧。
+ */
+async function draftStoryboardUsing(
+  userId: string,
+  projectId: string,
+  nodeIds: readonly string[],
+): Promise<string | undefined> {
+  const ids = new Set(nodeIds)
+  const doc = new Y.Doc()
+  try {
+    Y.applyUpdate(doc, await accessCanvasDocument(userId, projectId))
+    return readCanvasDocument(doc).nodes.find(
+      (node) =>
+        node.type === 'storyboard' &&
+        node.data.confirmed?.fingerprint !== storyboardFingerprint(node.data.shots) &&
+        node.data.shots.some(
+          (shot) =>
+            shot.lookIds.some((id) => ids.has(id)) ||
+            (shot.locationId !== undefined && ids.has(shot.locationId)),
+        ),
+    )?.id
+  } catch {
+    return undefined
+  } finally {
+    doc.destroy()
   }
 }
 

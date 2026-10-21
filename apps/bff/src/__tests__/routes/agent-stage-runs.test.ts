@@ -1,8 +1,14 @@
 import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { AgentTurnParams, StageAuthorization } from '@image-playground/shared'
+import {
+  type AgentTurnParams,
+  canvasOrigin,
+  insertCanvasNode,
+  type StageAuthorization,
+} from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
+import * as Y from 'yjs'
 import {
   type AgentCall,
   completionStream,
@@ -80,6 +86,7 @@ const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-
 const { createNodes, runNodes } = await import('../../lib/agent/tools/nodeCanvas')
 const { createAgentImageSource } = await import('../../lib/agent/images')
 const { stageRunWakeContent } = await import('../../lib/agent/stage-runs')
+const { accessCanvasDocument } = await import('../../lib/canvasSyncStore')
 
 await silenceChatUpstream()
 
@@ -430,9 +437,35 @@ it('keeps the confirmation card in the wake round when the proposing turn had au
   expect(rerun.charges).toMatchObject([{ model: 'workbench-image', quantity: 4 }])
 })
 
+async function addStoryboard(projectId: string) {
+  await accessCanvasDocument(USER_ID, projectId, async (current) => {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+    const vector = Y.encodeStateVector(doc)
+    insertCanvasNode(
+      doc,
+      {
+        id: 'board',
+        type: 'storyboard',
+        x: 0,
+        y: 600,
+        width: 480,
+        height: 360,
+        data: { shots: [{ id: 'shot-1', description: '嫩芽破土', lookIds: ['a'] }] },
+      },
+      canvasOrigin('system', 'fixture'),
+    )
+    const update = Y.encodeStateAsUpdate(doc, vector)
+    doc.destroy()
+    return update
+  })
+}
+
 /** 直接出图或确认卡下跑完一整批素材：唤醒轮该接着出首帧，还是先问用户。 */
-async function completedAssetWake(params?: AgentTurnParams) {
+async function completedAssetWake(params?: AgentTurnParams, storyboard = true) {
   const run = await proposal(['a'], params)
+  // 分镜表把 a 当作人物素材引用，还没定稿。
+  if (storyboard) await addStoryboard(run.projectId)
   const token = await confirm(run.authorizationId)
   expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
   await submitted(run.authorizationId, 'a-1', 'task-a', 'completed', 6)
@@ -454,7 +487,8 @@ async function completedAssetWake(params?: AgentTurnParams) {
 it('lets a direct wake round continue from a completed asset batch to the storyboard first frames', async () => {
   const wake = await completedAssetWake()
   expect(wake.params.autoSubmit).toBe(true)
-  expect(wake.text).toContain('本轮直接调用 runStoryboardFrames 出首帧')
+  expect(wake.text).toContain('它们是分镜表 board 引用的素材')
+  expect(wake.text).toContain('本轮直接调用 runStoryboardFrames（storyboardId: "board"')
   expect(wake.text).toContain('出视频等其他阶段先向用户说明并等他同意')
   expect(wake.text).not.toContain('这一轮不要自行发起新的付费运行；')
 })
@@ -462,7 +496,13 @@ it('lets a direct wake round continue from a completed asset batch to the storyb
 it('keeps asking before the next paid stage when auto-submit was off', async () => {
   const wake = await completedAssetWake({ autoSubmit: false })
   expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
-  expect(wake.text).not.toContain('runStoryboardFrames 出首帧')
+  expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
+})
+
+it('does not push an ordinary direct batch on to first frames when no draft storyboard uses it', async () => {
+  const wake = await completedAssetWake(undefined, false)
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
 })
 
 it('falls back to confirmation for authorizations recorded before the turn settings were kept', async () => {

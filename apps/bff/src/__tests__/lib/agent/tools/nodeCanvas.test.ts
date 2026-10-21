@@ -902,6 +902,10 @@ it('blocks the first-frame stage while referenced assets have no image and lays 
   await expect(
     run(runStoryboardFrames, { storyboardId: 'board', shotIds: ['shot-2'] }),
   ).rejects.not.toThrow('林夏')
+  // 单镜重出时回执要求素材出完后沿用这一镜，不扩大到整张表。
+  await expect(
+    run(runStoryboardFrames, { storyboardId: 'board', shotIds: ['shot-2'] }),
+  ).rejects.toThrow('沿用这次的 shotIds（["shot-2"]）')
   expect(await graph()).toEqual(before)
   expect(await stageRows()).toBe(rows)
   expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual(tasks)
