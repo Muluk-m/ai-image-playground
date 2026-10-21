@@ -321,6 +321,11 @@ export interface AgentTurnParams {
    */
   readonly canvasImageModel?: string
   /**
+   * 原标签页工作台当前的出图张数。同 canvasImageModel，只给阶段授权报价；
+   * 画布轮不送 `n`（对话生图张数由工具决定），缺了它报价会按 1 张算，和画布实际提交对不上。
+   */
+  readonly canvasImageCount?: number
+  /**
    * 直接出图：用户在参数里打开时，生成工具拟好稿就当场提交，不再逐张等确认。
    *
    * 对话里的生图工具只认显式 `true`；缺席和 `false` 都是拟稿等确认。

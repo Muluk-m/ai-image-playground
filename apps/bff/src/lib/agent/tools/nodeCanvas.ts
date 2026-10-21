@@ -515,6 +515,7 @@ function stageExecution(
     | {
         model?: string
         canvasImageModel?: string
+        canvasImageCount?: number
         n?: number
         video?: {
           model: string
@@ -592,7 +593,7 @@ function stageExecution(
   // 原标签页按工作台配置出图。报价必须用这一条，不能改成对话模型或渠道里的另一条。
   const image = resolveStageImageExecution({
     model: params?.canvasImageModel?.trim() || resolveAgentModel('image', params?.model)?.model,
-    count: params?.n,
+    count: params?.canvasImageCount ?? params?.n,
     storyboardRole: meta.storyboardRole,
   })
   return { ...(image ? { charge: { nodeId: node.id, ...image } } : {}), binding }

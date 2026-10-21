@@ -220,6 +220,8 @@ const paramsSchema = t.Optional(
     model: t.Optional(t.String({ maxLength: 128 })),
     /** 原标签页工作台的出图模型。只用于阶段授权报价，不改变对话模型。 */
     canvasImageModel: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+    /** 原标签页工作台的出图张数。只用于阶段授权报价，不改变对话生图张数。 */
+    canvasImageCount: t.Optional(t.Integer({ minimum: 1, maximum: AGENT_IMAGE_MAX_N })),
     /**
      * 直接出图偏好。对话生图只认 true。画布 runNodes 缺席按默认开，只有 false 弹确认卡。
      */
