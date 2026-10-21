@@ -39,7 +39,7 @@ export default function ToolCatalog() {
   return (
     <main
       {...dropZoneProps}
-      className={`flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px))] flex-col ${dragging ? 'bg-primary/5' : ''}`}
+      className={`flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px)-var(--app-inset,0px)*2)] flex-col ${dragging ? 'bg-primary/5' : ''}`}
     >
       {inputs}
       <ToolboxHeader
