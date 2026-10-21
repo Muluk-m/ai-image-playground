@@ -603,13 +603,44 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       set((state) => ({ retryRefusals: { ...state.retryRefusals, [placeholderId]: refusal } })),
     adopt: async (conversationId, taken, options) => {
       if (options?.join) {
-        await joinQueuedTurn(conversationId, taken, options.join, options.origin === true)
+        await joinQueuedTurn(
+          conversationId,
+          taken,
+          options.join,
+          options.origin === true,
+          options.originTurn,
+        )
         return
       }
       adoptSnapshot(conversationId, taken)
+      if (options?.originTurn) claimStageRunOrigins(conversationId, options.originTurn)
     },
   }
   const jobs = createAgentBackgroundJobs({ delivery, session: jobSession })
+
+  /** 运行权附带的回调：这批运行的结局交上之后，接住智能体被唤醒的那一轮。 */
+  function stageRunOrigin(conversationId: string) {
+    return {
+      onReported: (authorizationId: string) =>
+        get().followStageRunWake(conversationId, authorizationId),
+    }
+  }
+
+  /**
+   * 本标签页的运行回报唤醒的那一轮在接上之前就跑完了：它登记、仍待确认的阶段授权照样归本标签页，
+   * 与实时接上时一样开跑或等确认。只看这一轮的卡，不碰历史里别的轮。
+   */
+  function claimStageRunOrigins(conversationId: string, turnId: string) {
+    if (get().conversationId !== conversationId) return
+    for (const message of get().messages)
+      if (
+        message.kind === 'tool' &&
+        message.turnId === turnId &&
+        message.canvasRun?.authorizationId &&
+        message.canvasRun.status === 'pending'
+      )
+        registerAgentNodeRunOrigin(message.id, stageRunOrigin(conversationId))
+  }
 
   /**
    * 交付换代（切会话、新建会话、停止撞上 404 后按历史重来）：移交给后台任务的把手全部作废，
@@ -691,11 +722,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       // Origin rights are memory-only. History, reconnects and other devices never auto-start.
       // 本标签页自己发出的轮，以及本标签页开跑的那批运行回报唤醒、由本标签页接上的那一轮，才带运行权。
       if (sent && card.kind === 'tool' && card.canvasRun)
-        registerAgentNodeRunOrigin(card.id, {
-          // 这批运行的结局交上之后，接住智能体被唤醒的那一轮。
-          onReported: (authorizationId) =>
-            get().followStageRunWake(conversationId, authorizationId),
-        })
+        registerAgentNodeRunOrigin(card.id, stageRunOrigin(conversationId))
       if (card.kind !== 'tool') turnDelivery.discard(event.messageId)
       // 后台任务：占的位不随这一轮收掉，交给任务，等它结束再落。
       else if (event.status === 'submitted')
@@ -967,8 +994,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     taken: AgentConversationState,
     turnId: string,
     origin = false,
+    originTurn?: string,
   ) => {
     adoptSnapshot(conversationId, taken, { join: turnId })
+    if (originTurn) claimStageRunOrigins(conversationId, originTurn)
     await follow(
       conversationId,
       turnSource(taken, turnId),

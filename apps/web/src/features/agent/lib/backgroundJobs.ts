@@ -83,12 +83,14 @@ export interface AgentJobSession {
   coverRefusal(placeholderId: string, refusal: AgentRetryRefusal): void
   /**
    * 换上这份快照；带 `join` 时连同挂上那一轮。`origin` 只给本标签页的画布运行回报唤醒起的那一轮：
-   * 那一轮里新登记的直接出图授权仍由本标签页开跑，别的接轮（刷新、别的设备、普通任务唤醒）都不带。
+   * 那一轮里新登记的阶段授权仍由本标签页开跑或确认，别的接轮（刷新、别的设备、普通任务唤醒）都不带。
+   * 唤醒轮在接上之前已经跑完时，`originTurn` 指明那一轮：快照里它登记、还待确认的阶段授权交给本标签页，
+   * `join` 挂上的后继轮不带运行权。
    */
   adopt(
     conversationId: string,
     snapshot: AgentConversationState,
-    options?: { readonly join?: string; readonly origin?: boolean },
+    options?: { readonly join?: string; readonly origin?: boolean; readonly originTurn?: string },
   ): Promise<void>
 }
 
@@ -480,11 +482,10 @@ export function createAgentBackgroundJobs({
             ...(pending.origin ? { origin: true } : {}),
           })
         else if (snapshot.messages.some((message) => message.turnId === receipt.turnId))
-          await session.adopt(
-            pending.conversationId,
-            snapshot,
-            snapshot.activeTurn ? { join: snapshot.activeTurn.turnId } : undefined,
-          )
+          await session.adopt(pending.conversationId, snapshot, {
+            ...(snapshot.activeTurn ? { join: snapshot.activeTurn.turnId } : {}),
+            ...(pending.origin ? { originTurn: receipt.turnId } : {}),
+          })
         else return
         if (current()) pending.adopted = true
       })

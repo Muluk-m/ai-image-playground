@@ -64,11 +64,18 @@ const frames: AgentTurnEvent[] = [
 ]
 
 let receipts: string[] = []
+let history: () => unknown = () => ({
+  messages: [],
+  activeTurn: { turnId: WAKE_TURN },
+  turns: [],
+  queue: [],
+})
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   receipts = []
+  history = () => ({ messages: [], activeTurn: { turnId: WAKE_TURN }, turns: [], queue: [] })
   releaseIdleAgentNodeRunOrigins()
   vi.stubGlobal('fetch', async (input: string | URL | Request) => {
     const url = String(input)
@@ -78,12 +85,7 @@ beforeEach(() => {
     }
     if (url.includes('/turns')) return turnStream(...frames)
     if (url.endsWith('/jobs')) return Response.json({ jobs: [] })
-    return Response.json({
-      messages: [],
-      activeTurn: { turnId: WAKE_TURN },
-      turns: [],
-      queue: [],
-    })
+    return Response.json(history())
   })
   localStorage.clear()
   setClientStorageScope(crypto.randomUUID())
@@ -142,4 +144,42 @@ it('普通批次唤醒接上的轮不带运行权：别处登记的直接出图�
     ),
   )
   expect(isAgentNodeRunOrigin('tool-frames')).toBe(false)
+})
+
+function runCard(id: string, turnId: string, authorizationId: string) {
+  const end = frames[2] as Extract<AgentTurnEvent, { type: 'toolEnd' }>
+  const { type: _type, messageId: _id, ...block } = end
+  return {
+    id,
+    turnId,
+    role: 'assistant' as const,
+    createdAt: 1,
+    content: [
+      {
+        ...block,
+        type: 'toolResult',
+        canvasRun: { ...end.canvasRun!, authorizationId },
+      },
+    ],
+  }
+}
+
+it('唤醒轮在接上之前就跑完了：快照里这一轮待确认的阶段授权仍交给本标签页，别的轮不给', async () => {
+  history = () => ({
+    messages: [
+      runCard('older-run', 'turn-older', 'auth-older'),
+      runCard('wake-run', WAKE_TURN, 'auth-wake'),
+    ],
+    activeTurn: null,
+    turns: [],
+    queue: [],
+  })
+  useAgentStore.getState().followStageRunWake(CONVERSATION, 'auth-assets')
+  await settles(() =>
+    expect(useAgentStore.getState().messages.some((message) => message.id === 'wake-run')).toBe(
+      true,
+    ),
+  )
+  expect(isAgentNodeRunOrigin('wake-run')).toBe(true)
+  expect(isAgentNodeRunOrigin('older-run')).toBe(false)
 })
