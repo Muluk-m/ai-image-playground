@@ -81,11 +81,14 @@ export interface AgentJobSession {
   reportProgress(messageId: string, progress: AgentBackgroundJobProgress): void
   /** 一次重试被拒后盖在云端失败占位上的那一层。 */
   coverRefusal(placeholderId: string, refusal: AgentRetryRefusal): void
-  /** 换上这份快照；带 `join` 时连同挂上那一轮。 */
+  /**
+   * 换上这份快照；带 `join` 时连同挂上那一轮。`origin` 只给本标签页的画布运行回报唤醒起的那一轮：
+   * 那一轮里新登记的直接出图授权仍由本标签页开跑，别的接轮（刷新、别的设备、普通任务唤醒）都不带。
+   */
   adopt(
     conversationId: string,
     snapshot: AgentConversationState,
-    options?: { readonly join?: string },
+    options?: { readonly join?: string; readonly origin?: boolean },
   ): Promise<void>
 }
 
@@ -178,6 +181,8 @@ export function createAgentBackgroundJobs({
     readonly receipt: () => Promise<AgentBatchWakeReceipt | StageRunWakeReceipt>
     /** 唤醒被跳过时的收尾：运行卡要说明智能体没有查看。 */
     readonly skipped?: (receipt: Extract<StageRunWakeReceipt, { status: 'skipped' }>) => void
+    /** 本标签页开跑的那批运行回报唤醒的轮：接上时把运行权交给它。 */
+    readonly origin?: boolean
     readonly currentScope: () => boolean
     running: boolean
     adopted: boolean
@@ -470,7 +475,10 @@ export function createAgentBackgroundJobs({
         const snapshot = await readBatchSnapshot(pending)
         if (!current() || !session.isIdle(pending.conversationId)) return
         if (snapshot.activeTurn?.turnId === receipt.turnId)
-          await session.adopt(pending.conversationId, snapshot, { join: receipt.turnId })
+          await session.adopt(pending.conversationId, snapshot, {
+            join: receipt.turnId,
+            ...(pending.origin ? { origin: true } : {}),
+          })
         else if (snapshot.messages.some((message) => message.turnId === receipt.turnId))
           await session.adopt(
             pending.conversationId,
@@ -509,6 +517,7 @@ export function createAgentBackgroundJobs({
     key: string,
     receipt: BatchWake['receipt'],
     skipped?: BatchWake['skipped'],
+    origin = false,
   ) => {
     if (!session.isCurrent(conversationId)) return
     refreshWakeRecovery()
@@ -520,6 +529,7 @@ export function createAgentBackgroundJobs({
         conversationId,
         receipt,
         ...(skipped ? { skipped } : {}),
+        ...(origin ? { origin } : {}),
         currentScope: () => sameAccount() && bffBaseUrl() === backend,
         running: false,
         adopted: false,
@@ -582,6 +592,9 @@ export function createAgentBackgroundJobs({
           if (receipt.reason === 'insufficient_credits' || receipt.reason === 'wake_limit')
             noteAgentNodeRunWakeSkipped(authorizationId, receipt.reason)
         },
+        // 只有开跑这批的标签页会跟这条唤醒（见 store 里的 onReported）：唤醒轮接着发起的直接出图
+        // 由它开跑，否则授权登记了却没人执行，智能体只看到「没有任务记录」。
+        true,
       )
     },
 

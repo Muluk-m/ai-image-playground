@@ -603,7 +603,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       set((state) => ({ retryRefusals: { ...state.retryRefusals, [placeholderId]: refusal } })),
     adopt: async (conversationId, taken, options) => {
       if (options?.join) {
-        await joinQueuedTurn(conversationId, taken, options.join)
+        await joinQueuedTurn(conversationId, taken, options.join, options.origin === true)
         return
       }
       adoptSnapshot(conversationId, taken)
@@ -689,6 +689,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         { ...event, type: 'toolResult' },
       ])
       // Origin rights are memory-only. History, reconnects and other devices never auto-start.
+      // 本标签页自己发出的轮，以及本标签页开跑的那批运行回报唤醒、由本标签页接上的那一轮，才带运行权。
       if (sent && card.kind === 'tool' && card.canvasRun)
         registerAgentNodeRunOrigin(card.id, {
           // 这批运行的结局交上之后，接住智能体被唤醒的那一轮。
@@ -965,9 +966,18 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     conversationId: string,
     taken: AgentConversationState,
     turnId: string,
+    origin = false,
   ) => {
     adoptSnapshot(conversationId, taken, { join: turnId })
-    await follow(conversationId, turnSource(taken, turnId), null, delivery.beginTurn())
+    await follow(
+      conversationId,
+      turnSource(taken, turnId),
+      null,
+      delivery.beginTurn(),
+      undefined,
+      undefined,
+      origin,
+    )
   }
 
   /**
