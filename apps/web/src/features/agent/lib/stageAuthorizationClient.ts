@@ -19,8 +19,20 @@ async function request<T>(id: string, action = '', body?: unknown): Promise<T> {
 }
 export const stageAuthorizationClient = {
   read: (id: string) => request<StageAuthorization>(id),
-  confirm: (id: string) =>
-    request<{ authorization: StageAuthorization; executionToken: string }>(id, '/confirm', {}),
+  confirm: (
+    id: string,
+    charges?: readonly {
+      nodeId: string
+      model: string
+      quantity: number
+      unitMultiplier: number
+    }[],
+  ) =>
+    request<{ authorization: StageAuthorization; executionToken: string }>(
+      id,
+      '/confirm',
+      charges?.length ? { charges } : {},
+    ),
   preflight: (id: string, input: StageAuthorizationPreflight) =>
     request<StageAuthorization>(id, '/preflight', input),
   end: (id: string) => request<StageAuthorization>(id, '/end', {}),

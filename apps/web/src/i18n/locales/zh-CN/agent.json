@@ -734,7 +734,8 @@
       "pending": "待确认，尚未提交任务。",
       "active": "授权生效，尚未提交任务。",
       "exhausted": "授权预算已用尽。",
-      "ended": "授权已结束。"
+      "ended": "授权已结束。",
+      "expired": "授权已过期，没有继续提交。"
     },
     "undo": "撤销（{{seconds}} 秒）",
     "startingIn": "{{seconds}} 秒后开始运行，撤销不扣费。",

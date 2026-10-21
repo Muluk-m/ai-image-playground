@@ -1,5 +1,12 @@
-export type StageAuthorizationStatus = 'pending' | 'active' | 'exhausted' | 'ended'
+export type StageAuthorizationStatus = 'pending' | 'active' | 'exhausted' | 'ended' | 'expired'
 
+export interface StageAuthorizationCharge {
+  readonly nodeId: string
+  readonly model: string
+  readonly quantity: number
+  readonly unitMultiplier: number
+  readonly credits: number
+}
 export interface StageAuthorizationAttempt {
   readonly id: string
   readonly nodeId: string
@@ -13,7 +20,14 @@ export interface StageAuthorizationAttempt {
 }
 export interface StageAuthorizationAudit {
   readonly at: number
-  readonly kind: 'proposed' | 'confirmed' | 'preflight' | 'submitted' | 'exhausted' | 'ended'
+  readonly kind:
+    | 'proposed'
+    | 'confirmed'
+    | 'preflight'
+    | 'submitted'
+    | 'exhausted'
+    | 'ended'
+    | 'expired'
   readonly nodeId?: string
   readonly taskId?: string
   readonly credits?: number
@@ -27,6 +41,8 @@ export interface StageAuthorization {
   readonly nodeNames: readonly string[]
   readonly estimatedCredits: number
   readonly budgetCap: number
+  /** 提案或确认时服务端按节点模型、数量和倍率算出的报价。模型自填的预估不在这里。 */
+  readonly charges?: readonly StageAuthorizationCharge[]
   readonly spentCredits: number
   readonly status: StageAuthorizationStatus
   readonly attempts: readonly StageAuthorizationAttempt[]

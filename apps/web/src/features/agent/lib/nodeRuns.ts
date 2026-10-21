@@ -46,6 +46,14 @@ function publish(key: string, run: AgentNodeRun) {
   runs.set(key, run)
   for (const listener of listeners) listener()
 }
+export function forgetAgentNodeRun(key: string) {
+  if (!runs.has(key) && !origins.has(key) && !controls.has(key)) return
+  runs.delete(key)
+  origins.delete(key)
+  controls.delete(key)
+  revision += 1
+  for (const listener of listeners) listener()
+}
 /** Explicit confirmation is the only entry. The BFF grants a token once, before the undo window. */
 export function startAgentNodeRun(
   key: string,
@@ -64,7 +72,15 @@ export function startAgentNodeRun(
   void (async () => {
     let authorization: StageAuthorization | undefined
     try {
-      const confirmed = await stageAuthorizationClient.confirm(authorizationId)
+      const confirmed = await stageAuthorizationClient.confirm(
+        authorizationId,
+        plan.jobs.map((job) => ({
+          nodeId: job.id,
+          model: job.model,
+          quantity: job.quantity,
+          unitMultiplier: job.unitMultiplier ?? 1,
+        })),
+      )
       authorization = confirmed.authorization
       if (control.signal.aborted || !sameAccount()) return
       if (undoSeconds > 0)

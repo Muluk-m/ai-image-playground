@@ -33,6 +33,9 @@ const {
 } = await import('../../../../lib/agent/tools/nodeCanvas')
 const { createAgentImageSource } = await import('../../../../lib/agent/images')
 const { accessCanvasDocument } = await import('../../../../lib/canvasSyncStore')
+const { confirmStageAuthorization, preflightStageAuthorization } = await import(
+  '../../../../lib/agent/stage-authorizations'
+)
 const { agentTurnTools } = await import('../../../../lib/agent/tools')
 const { planImageBatch } = await import('../../../../lib/agent/tools/planImageBatch')
 const { draftQueueTask } = await import('../../../../lib/agent/tools/queueTask')
@@ -327,8 +330,24 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
   await run(createNodes, { nodes: [{ id: 'image', type: 'image', prompt: '嫩芽' }] })
   const before = await graph()
   const tasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
-  const proposal = await run(runNodes, { nodeIds: ['image'] })
+  const proposal = await run(runNodes, { nodeIds: ['image'], estimatedCredits: 0 })
   expect(proposal.details?.canvasRun?.nodeIds).toEqual(['image'])
+  expect(proposal.details?.canvasRun).toMatchObject({ budgetCap: 0, estimatedCredits: 0 })
+  const authorizationId = proposal.details?.canvasRun?.authorizationId
+  if (!authorizationId) throw new Error('missing authorization')
+  const confirmed = await confirmStageAuthorization(userId, authorizationId, [
+    { nodeId: 'image', model: 'fixture-image', quantity: 1, unitMultiplier: 1 },
+  ])
+  const preflight = await preflightStageAuthorization(userId, authorizationId, {
+    nodeId: 'image',
+    model: 'fixture-image',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken: confirmed.executionToken,
+    attemptId: 'unbilled',
+  })
+  expect(preflight.attempts).toHaveLength(1)
+  expect(preflight.budgetCap).toBe(0)
   expect(proposal.details).not.toHaveProperty('job')
   expect(proposal.details?.canvasRun).toMatchObject({ direct: true, status: 'pending' })
   expect(proposal.details?.canvasRun).not.toHaveProperty('autoRun')
@@ -357,6 +376,38 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
       .create({ ...context, experience: 'chat' })
       .execute('chat', { nodeIds: ['image'] }, undefined, undefined),
   ).rejects.toThrow('云端节点画布')
+})
+
+it('rejects a stage that only contains asset nodes', async () => {
+  const { context, projectId } = await fixture()
+  await accessCanvasDocument(userId, projectId, async (current) => {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+    const vector = Y.encodeStateVector(doc)
+    const origin = canvasOrigin('system', 'fixture')
+    insertCanvasNode(
+      doc,
+      {
+        id: 'person',
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 240,
+        data: {
+          name: '林夏',
+          meta: { nodeKind: 'asset', assetKind: 'person', nodePrompt: '三视图' },
+        },
+      },
+      origin,
+    )
+    const update = Y.encodeStateAsUpdate(doc, vector)
+    doc.destroy()
+    return update
+  })
+  await expect(
+    runNodes.create(context).execute('assets', { nodeIds: ['person'] }, undefined, undefined),
+  ).rejects.toThrow('素材')
 })
 
 it('turns a chat attachment into an image node the user does not have to drag in', async () => {
@@ -498,8 +549,7 @@ it('imports an existing image into the specified asset as its primary candidate 
   })
   const beforeTasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
   await run(updateNodes, { nodes: [{ id: 'asset', prompt: '人物正面侧面背面三视图' }] })
-  const proposal = await run(runNodes, { nodeIds: ['asset'] })
-  expect(proposal.details?.canvasRun?.nodeIds).toEqual(['asset'])
+  await expect(run(runNodes, { nodeIds: ['asset'] })).rejects.toThrow('素材')
   expect((await graph()).nodes.find((node) => node.id === 'asset')?.data).toMatchObject({
     meta: { nodeKind: 'asset', nodePrompt: '人物正面侧面背面三视图' },
   })

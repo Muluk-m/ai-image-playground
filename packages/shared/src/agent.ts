@@ -709,7 +709,7 @@ export interface AgentCanvasRunProposal {
   readonly stage?: string
   readonly estimatedCredits?: number
   readonly budgetCap?: number
-  readonly status?: 'pending' | 'active' | 'exhausted' | 'ended'
+  readonly status?: 'pending' | 'active' | 'exhausted' | 'ended' | 'expired'
   /**
    * 服务端按本轮用户偏好写下的直接出图标记。为真时原标签页立即开跑，不弹确认卡。
    * 历史卡片没有这个字段，不能据此开跑。

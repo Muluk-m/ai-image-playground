@@ -1,5 +1,5 @@
 import type { AgentCanvasRunProposal, StageAuthorization } from '@image-playground/shared'
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ApprovalCard } from '../../../components/assistant-ui/elements/approval-card'
 import Credits from '../../../components/Credits'
 import { Icon } from '../../../components/ui/icon'
@@ -9,7 +9,9 @@ import NodeBatchJobs from '../../canvas/components/NodeBatchJobs'
 import { CARD_NOTE } from '../agentStyles'
 import { agentNodeRunBridge, subscribeAgentNodeRun } from '../lib/nodeRunBridge'
 import {
+  type AgentNodeRun,
   agentNodeRun,
+  forgetAgentNodeRun,
   isAgentNodeRunOrigin,
   startAgentNodeRun,
   stopAgentNodeRun,
@@ -26,7 +28,11 @@ export default function AgentNodeRunCard({
 }) {
   const { t } = useTranslation(['agent', 'canvas'])
   const bridge = useSyncExternalStore(subscribeAgentNodeRun, agentNodeRunBridge)
-  const run = useSyncExternalStore(subscribeAgentNodeRuns, () => agentNodeRun(runKey))
+  const live = useSyncExternalStore(subscribeAgentNodeRuns, () => agentNodeRun(runKey))
+  const settled = useRef<AgentNodeRun>(undefined)
+  if (live && (live.status === 'done' || live.status === 'undone' || live.status === 'failed'))
+    settled.current = live
+  const run = live ?? settled.current
   const origin = useSyncExternalStore(subscribeAgentNodeRuns, () => isAgentNodeRunOrigin(runKey))
   const [stored, setStored] = useState<StageAuthorization>()
   useEffect(() => {
@@ -34,24 +40,34 @@ export default function AgentNodeRunCard({
     startAgentNodeRun(runKey, proposal, 0)
   }, [bridge, origin, proposal, runKey])
   useEffect(() => {
+    if (!live || (live.status !== 'done' && live.status !== 'undone' && live.status !== 'failed'))
+      return
+    forgetAgentNodeRun(runKey)
+  }, [live, runKey])
+  useEffect(() => {
     const authorizationId = proposal.authorizationId
     if (!authorizationId || proposal.direct) return
     let active = true
     let timer: number | undefined
+    let failures = 0
     const refresh = async () => {
       try {
         const state = await stageAuthorizationClient.read(authorizationId)
         if (!active) return
+        failures = 0
         setStored(state)
         if (state.status === 'pending' || state.status === 'active')
           timer = window.setTimeout(() => {
             void refresh()
           }, 3000)
       } catch {
-        if (active)
-          timer = window.setTimeout(() => {
-            void refresh()
-          }, 3000)
+        if (!active) return
+        failures += 1
+        if (failures >= 5) return
+        const delay = Math.min(30_000, 3000 * 2 ** (failures - 1))
+        timer = window.setTimeout(() => {
+          void refresh()
+        }, delay)
       }
     }
     void refresh()
@@ -77,6 +93,7 @@ export default function AgentNodeRunCard({
     active: t('nodeRun.status.active'),
     exhausted: t('nodeRun.status.exhausted'),
     ended: t('nodeRun.status.ended'),
+    expired: t('nodeRun.status.expired'),
   }
   const subtitle =
     run?.status === 'countdown'

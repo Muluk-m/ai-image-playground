@@ -30,8 +30,24 @@ export const stageAuthorizationRoutes = new Elysia({ name: 'agent-stage-authoriz
   )
   .post(
     '/api/agent/stage-authorizations/:id/confirm',
-    ({ authUser, params }) => confirmStageAuthorization(authUser!.id, params.id),
-    { params, body: t.Object({}) },
+    ({ authUser, params, body }) =>
+      confirmStageAuthorization(authUser!.id, params.id, body.charges),
+    {
+      params,
+      body: t.Object({
+        charges: t.Optional(
+          t.Array(
+            t.Object({
+              nodeId: t.String({ minLength: 1, maxLength: 128 }),
+              model: t.String({ minLength: 1, maxLength: 128 }),
+              quantity: t.Integer({ minimum: 1, maximum: 10000 }),
+              unitMultiplier: t.Number({ exclusiveMinimum: 0, maximum: 10000 }),
+            }),
+            { maxItems: 200 },
+          ),
+        ),
+      }),
+    },
   )
   .post(
     '/api/agent/stage-authorizations/:id/end',

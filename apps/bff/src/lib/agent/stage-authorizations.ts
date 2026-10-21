@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto'
 import type {
   StageAuthorization,
+  StageAuthorizationCharge,
   StageAuthorizationPreflight,
   StageAuthorizationSubmission,
 } from '@image-playground/shared'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
@@ -19,7 +20,16 @@ export class StageAuthorizationError extends Error {
   }
 }
 const table = schema.agent_stage_authorizations
+/** 确认后一直没人收尾、也没有在途任务时，过了这段时间就回收。 */
+export const STAGE_AUTHORIZATION_ACTIVE_TTL_MS = 30 * 60 * 1000
+const IN_FLIGHT_TASK = new Set(['queued', 'in_progress', 'reconciling'])
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
+export interface StageChargeInput {
+  readonly nodeId: string
+  readonly model: string
+  readonly quantity: number
+  readonly unitMultiplier: number
+}
 async function owned(tx: BffTransaction, userId: string, id: string) {
   const [row] = await tx
     .select()
@@ -60,6 +70,63 @@ function assertExecution(row: typeof table.$inferSelect, token: string) {
   if (row.state.status !== 'active' || row.execution_token_hash !== hashToken(token))
     throw new StageAuthorizationError('stage_authorization_inactive')
 }
+async function hasInFlight(tx: BffTransaction, state: StageAuthorization): Promise<boolean> {
+  const ids = state.attempts.flatMap((attempt) => attempt.taskIds)
+  if (!ids.length) return false
+  const rows = await tx
+    .select({ status: schema.tasks.status })
+    .from(schema.tasks)
+    .where(inArray(schema.tasks.id, [...ids]))
+  return rows.some((row) => IN_FLIGHT_TASK.has(row.status))
+}
+async function maybeExpire(tx: BffTransaction, row: typeof table.$inferSelect, now = Date.now()) {
+  const state = row.state
+  if (state.status !== 'active') return row
+  const confirmed = state.audit.find((event) => event.kind === 'confirmed')?.at
+  if (
+    confirmed === undefined ||
+    now - confirmed < STAGE_AUTHORIZATION_ACTIVE_TTL_MS ||
+    now - row.updated_at < STAGE_AUTHORIZATION_ACTIVE_TTL_MS
+  )
+    return row
+  if (await hasInFlight(tx, state)) return row
+  const expired = await save(tx, {
+    ...state,
+    status: 'expired',
+    audit: [...state.audit, { kind: 'expired', at: now }],
+  })
+  return { ...row, state: expired }
+}
+async function pricedCharges(
+  tx: BffTransaction,
+  userId: string,
+  nodes: readonly StageChargeInput[],
+): Promise<{ charges: StageAuthorizationCharge[]; total: number }> {
+  const billing = isCapabilityEnabled('billing:credits')
+  const charges: StageAuthorizationCharge[] = []
+  let total = 0
+  for (const node of nodes) {
+    if (
+      billing &&
+      (!node.model ||
+        !Number.isSafeInteger(node.quantity) ||
+        node.quantity < 1 ||
+        !Number.isFinite(node.unitMultiplier) ||
+        node.unitMultiplier <= 0)
+    )
+      throw new StageAuthorizationError('stage_authorization_price_unavailable', 422)
+    const credits = await quote(tx, userId, {
+      model: node.model || 'unpriced',
+      quantity: node.quantity > 0 ? node.quantity : 1,
+      unitMultiplier: node.unitMultiplier > 0 ? node.unitMultiplier : 1,
+    })
+    total += credits
+    charges.push({ ...node, credits })
+  }
+  if (!Number.isSafeInteger(total) || total < 0)
+    throw new StageAuthorizationError('stage_authorization_price_unavailable', 422)
+  return { charges, total }
+}
 async function quote(
   tx: BffTransaction,
   userId: string,
@@ -86,25 +153,27 @@ export async function proposeStageAuthorization(input: {
   stage: string
   nodeIds: string[]
   nodeNames: string[]
-  estimatedCredits: number
+  nodes: readonly StageChargeInput[]
 }) {
   const now = Date.now(),
     id = crypto.randomUUID()
-  const state: StageAuthorization = {
-    id,
-    conversationId: input.conversationId,
-    projectId: input.projectId,
-    stage: input.stage,
-    nodeIds: input.nodeIds,
-    nodeNames: input.nodeNames,
-    estimatedCredits: input.estimatedCredits,
-    budgetCap: input.estimatedCredits,
-    spentCredits: 0,
-    status: 'pending',
-    attempts: [],
-    audit: [{ kind: 'proposed', at: now }],
-  }
   return db.transaction(async (tx) => {
+    const priced = await pricedCharges(tx, input.userId, input.nodes)
+    const state: StageAuthorization = {
+      id,
+      conversationId: input.conversationId,
+      projectId: input.projectId,
+      stage: input.stage,
+      nodeIds: input.nodeIds,
+      nodeNames: input.nodeNames,
+      estimatedCredits: priced.total,
+      budgetCap: priced.total,
+      charges: priced.charges,
+      spentCredits: 0,
+      status: 'pending',
+      attempts: [],
+      audit: [{ kind: 'proposed', at: now }],
+    }
     await tx
       .insert(table)
       .values({
@@ -132,30 +201,48 @@ export async function proposeStageAuthorization(input: {
   })
 }
 export async function readStageAuthorization(userId: string, id: string) {
-  return db.transaction(async (tx) => (await owned(tx, userId, id)).state)
+  return db.transaction(async (tx) => (await maybeExpire(tx, await owned(tx, userId, id))).state)
 }
-export async function confirmStageAuthorization(userId: string, id: string) {
+export async function confirmStageAuthorization(
+  userId: string,
+  id: string,
+  charges?: readonly StageChargeInput[],
+) {
   return db.transaction(async (tx) => {
-    const row = await owned(tx, userId, id)
+    const row = await maybeExpire(tx, await owned(tx, userId, id))
     if (row.state.status !== 'pending')
       throw new StageAuthorizationError('stage_authorization_already_confirmed')
+    let state = row.state
+    if (charges?.length) {
+      const wanted = new Set(state.nodeIds)
+      const given = new Set(charges.map((charge) => charge.nodeId))
+      if (wanted.size !== given.size || [...wanted].some((nodeId) => !given.has(nodeId)))
+        throw new StageAuthorizationError('stage_authorization_scope')
+      const priced = await pricedCharges(tx, userId, charges)
+      state = {
+        ...state,
+        estimatedCredits: priced.total,
+        budgetCap: priced.total,
+        charges: priced.charges,
+      }
+    }
     const executionToken = crypto.randomUUID()
     await tx
       .update(table)
       .set({ execution_token_hash: hashToken(executionToken) })
       .where(eq(table.id, id))
     const authorization = await save(tx, {
-      ...row.state,
+      ...state,
       status: 'active',
-      audit: [...row.state.audit, { kind: 'confirmed', at: Date.now() }],
+      audit: [...state.audit, { kind: 'confirmed', at: Date.now() }],
     })
     return { authorization, executionToken }
   })
 }
 export async function endStageAuthorization(userId: string, id: string) {
   return db.transaction(async (tx) => {
-    const row = await owned(tx, userId, id)
-    if (row.state.status === 'ended') return row.state
+    const row = await maybeExpire(tx, await owned(tx, userId, id))
+    if (row.state.status === 'ended' || row.state.status === 'expired') return row.state
     return save(tx, {
       ...row.state,
       status: 'ended',
@@ -163,13 +250,31 @@ export async function endStageAuthorization(userId: string, id: string) {
     })
   })
 }
+export async function expireStaleStageAuthorizations(now = Date.now()): Promise<number> {
+  const cutoff = now - STAGE_AUTHORIZATION_ACTIVE_TTL_MS
+  const rows = await db
+    .select({ id: table.id })
+    .from(table)
+    .where(and(sql`${table.state}->>'status' = 'active'`, lt(table.updated_at, cutoff)))
+  let expired = 0
+  for (const candidate of rows) {
+    const did = await db.transaction(async (tx) => {
+      const [locked] = await tx.select().from(table).where(eq(table.id, candidate.id)).for('update')
+      if (!locked) return false
+      const next = await maybeExpire(tx, locked, now)
+      return next.state.status === 'expired'
+    })
+    if (did) expired += 1
+  }
+  return expired
+}
 export async function preflightStageAuthorization(
   userId: string,
   id: string,
   input: StageAuthorizationPreflight,
 ) {
   return db.transaction(async (tx) => {
-    const row = await owned(tx, userId, id)
+    const row = await maybeExpire(tx, await owned(tx, userId, id))
     assertExecution(row, input.executionToken)
     const state = row.state
     if (!state.nodeIds.includes(input.nodeId))
@@ -185,17 +290,23 @@ export async function preflightStageAuthorization(
         throw new StageAuthorizationError('stage_authorization_attempt_conflict')
       return state
     }
-    // Another tab or repeated event cannot start the same authorized node a second time.
-    if (state.attempts.some((attempt) => attempt.nodeId === input.nodeId))
+    // A submitted node stays taken. An attempt that never created a task can be replaced,
+    // so cancel or a lost submit does not block this authorization or a later one.
+    if (
+      state.attempts.some(
+        (attempt) => attempt.nodeId === input.nodeId && attempt.taskIds.length > 0,
+      )
+    )
       throw new StageAuthorizationError('stage_authorization_node_already_started')
+    const openAttempts = state.attempts.filter((attempt) => attempt.nodeId !== input.nodeId)
     const credits = await quote(tx, userId, input)
-    const committed = state.attempts.reduce((sum, attempt) => sum + attempt.reservedCredits, 0)
+    const committed = openAttempts.reduce((sum, attempt) => sum + attempt.reservedCredits, 0)
     if (committed + credits > state.budgetCap)
       throw new StageAuthorizationError('stage_authorization_budget')
     return save(tx, {
       ...state,
       attempts: [
-        ...state.attempts,
+        ...openAttempts,
         {
           id: input.attemptId,
           nodeId: input.nodeId,
@@ -222,7 +333,7 @@ export async function consumeStageAuthorization(
   credits: number,
 ) {
   if (!userId) throw new StageAuthorizationError('stage_authorization_inactive')
-  const row = await owned(tx, userId, ref.authorizationId)
+  const row = await maybeExpire(tx, await owned(tx, userId, ref.authorizationId))
   assertExecution(row, ref.executionToken)
   const state = row.state,
     attempt = state.attempts.find((item) => item.id === ref.attemptId)

@@ -183,6 +183,23 @@ it('starts a direct run with no confirmation card and no undo wait', async () =>
   expect(mocks.run).toHaveBeenCalledOnce()
 })
 
+it('stops rereading an authorization after repeated failures', async () => {
+  let reads = 0
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      reads += 1
+      return new Response('unavailable', { status: 503 })
+    }),
+  )
+  await mount('read-backoff', false)
+  expect(reads).toBe(1)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(120_000)
+  })
+  expect(reads).toBe(5)
+})
+
 it('does not start a direct run from another device', async () => {
   await mount('direct-elsewhere', false, { ...proposal, direct: true })
   await act(async () => vi.advanceTimersByTimeAsync(5000))

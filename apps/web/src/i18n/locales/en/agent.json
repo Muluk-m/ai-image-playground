@@ -768,7 +768,8 @@
       "pending": "Pending confirmation. No tasks submitted.",
       "active": "Authorization active. No tasks submitted.",
       "exhausted": "Authorization budget exhausted.",
-      "ended": "Authorization ended."
+      "ended": "Authorization ended.",
+      "expired": "Authorization expired. No further tasks will be submitted."
     },
     "undo": "Undo ({{seconds}}s)",
     "startingIn": "Starting in {{seconds}}s. Undo now to skip charges.",
