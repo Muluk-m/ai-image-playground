@@ -1,4 +1,4 @@
-import type { AgentCanvasRunProposal } from '@image-playground/shared'
+import type { AgentCanvasRunProposal, StageRunNodeReport } from '@image-playground/shared'
 import type { NodeBatchPlan } from '../../canvas/lib/nodeBatch'
 
 /** Mounted node canvas only. Receiving/replaying a proposal never runs it by itself. */
@@ -12,6 +12,8 @@ export interface AgentNodeRunBridge {
     signal: AbortSignal,
     progress: (completed: number, id: string) => void,
     executionToken: string,
+    /** 每个节点有了结局就记一笔：完成、失败（授权内至多自动重试一次）、或因上游失败没跑。 */
+    record?: (report: StageRunNodeReport) => void,
   ): Promise<void>
 }
 let current: AgentNodeRunBridge | null = null

@@ -1,4 +1,5 @@
 import type { StageExecutionBinding } from './stage-execution'
+import type { StageRunRecord } from './stage-run'
 
 export type StageAuthorizationStatus = 'pending' | 'active' | 'exhausted' | 'ended' | 'expired'
 
@@ -26,7 +27,9 @@ export interface StageAuthorizationAudit {
     | 'proposed'
     | 'confirmed'
     | 'preflight'
+    | 'retry'
     | 'submitted'
+    | 'reported'
     | 'exhausted'
     | 'ended'
     | 'expired'
@@ -64,6 +67,8 @@ export interface StageAuthorization {
   readonly status: StageAuthorizationStatus
   readonly attempts: readonly StageAuthorizationAttempt[]
   readonly audit: readonly StageAuthorizationAudit[]
+  /** 这一批运行的回报；收到后授权结束，智能体被唤醒一次。 */
+  readonly run?: StageRunRecord
 }
 /** Ephemeral execution credential; never store it in a canvas, message, or browser storage. */
 export interface StageAuthorizationSubmission {
