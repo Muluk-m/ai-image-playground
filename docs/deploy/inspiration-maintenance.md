@@ -25,17 +25,24 @@
 
 都在 `apps/bff/scripts/`，默认 dry run，加 `--apply` 才写库，`--operator` 写审计。
 
+- 参数解析是严格的：未知选项（含 `--key=x` 写法和拼错的选项）、带值选项缺值或值以 `-` 开头都会直接报错退出，不会写库。
 - `inspiration-status.ts <ids.json> [--key remove] [--restore] [--apply]`：在一个事务里批量下架；`--restore` 把 `archived` 恢复为 `published`。
-  `ids.json` 可以是 id 数组，或含多个列表的对象（用 `--key` 选）。
+  `ids.json` 可以是 id 数组，或含多个列表的对象（用 `--key` 选）。`--apply` 时在事务内重新读取并锁定这些行，重复执行只会变更 0 条。
+  `--restore` 只恢复**曾经发布过**（`published_at` 非空）且仍通过 Admin 发布校验（字段、渠道里有该模型、技能存在）的条目；
+  从没发布过的草稿、下架期间被改坏的条目会列为 `blocked` 并保持下架，dry run 里就能看到原因。
 - `inspiration-add.ts <dir> [--apply] [--publish]`：按 `<dir>/items.json` 建草稿，可选发布。它的上传走 BFF（见上，目前不可用），
   `--apply` 一定会先走 BFF 上传，所以要在下面的「一次性容器」里跑。现在新增的流程是：用 cms CLI 把图传到 cms-r2 →
   在一次性容器里跑本脚本建草稿（**不要** `--publish`；它上传到的那个桶前台读不到，无所谓）→ 用 `inspiration-repoint.ts`
   改成 cms 的 URL → 核对 URL 都是 200 → `inspiration-status.ts --key <新增列表> --restore --apply` 发布（草稿状态的条目先用 Admin 发布，
   或沿用 2026-10-20 的做法：先发布后立即整体下架，再 repoint、restore）。
-  `items.json` 每项：`{ id, title, prompt, category, size, file, featured?, sort?, tags? }`，`category` 必须是已有分类名，
-  `sort` 越小越靠前。模型固定 `openai-compat` / `gpt-image-2.5-flare`。
+  `items.json` 每项：`{ id, title, prompt, category, size, file, featured?, sort?, tags?, description? }`，`category` 必须是已有分类名，
+  `sort` 越小越靠前（整数）。模型固定 `openai-compat` / `gpt-image-2.5-flare`。上传前先整体校验（字段类型、重复 id、文件、分类，
+  `--publish` 时还会预跑发布校验含模型），有任何问题都不会上传。已存在的 id：本脚本建的同内容草稿会续跑，同内容已发布的跳过；
+  归档条目、内容不同或别人建的草稿一律报冲突并中止——归档条目只能用 `inspiration-status.ts --restore` 显式恢复。
 - `inspiration-repoint.ts <map.json> [--apply]`：走 `updateInspirationItem`（与 Admin 编辑同一路径）改 `cover_key` / `image_key`，
-  `map.json` 形如 `{ "<id>": { "cover": "<url>?w=320&q=85", "image": "<url>" } }`。
+  `map.json` 形如 `{ "<id>": { "cover": "<url>?w=320&q=85", "image": "<url>" } }`，两个 URL 都必须是 https。
+  已发布条目更新时会重跑发布校验（需要容器里的渠道配置），dry run 会提前报出；已指向目标 URL 的条目跳过，可重复执行。
+  每条更新各自刷新一次 publication，条目多时版本号会连续递增，属正常现象。
 
 ## 在生产 / 测试上运行
 
