@@ -113,7 +113,8 @@ try {
   const problems: string[] = []
   const entryCount = Object.keys(raw).length
   if (entryCount > MAX_BATCH) {
-    problems.push(`map has ${entryCount} entries; split it into batches of at most ${MAX_BATCH}`)
+    // Stop before any query or validation is built for an oversized batch.
+    throw new Error(`map has ${entryCount} entries; split it into batches of at most ${MAX_BATCH}`)
   }
   const targets = new Map<string, Target>()
   for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
