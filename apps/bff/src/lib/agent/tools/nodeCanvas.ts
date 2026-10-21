@@ -668,6 +668,8 @@ const STAGE_NOTE = {
     '阶段授权待确认；用户确认前不会提交或扣费。确认后只由原标签页运行，实际提交与花费应查询授权状态。不得声称已生成。',
   storyboardDirect: '原标签页开跑前确认这条授权，分镜表随之定稿。',
   storyboardPending: '用户确认这条授权时分镜表随之定稿。',
+  storyboardStale:
+    '这条首帧阶段授权登记之后分镜表的镜头又改过，它已过时，确认会被拒绝，不会提交或扣费。不要请用户确认它；向用户说明镜头表改过，需要按新镜头表重新发起首帧阶段。',
 }
 function canvasStageNote(direct: boolean, storyboard: boolean): string {
   const base = direct ? STAGE_NOTE.direct : STAGE_NOTE.pending
@@ -700,6 +702,10 @@ function canvasStageResult(
     direct,
     ...(storyboard ? { storyboard: storyboard.summary } : {}),
   }
+  // 首帧阶段重放时镜头表已改过：仍交回原授权，但它待确认时确认必被拒绝，要明说需要重新提案。
+  const stale = Boolean(
+    authorization.storyboard && !storyboard && authorization.status === 'pending',
+  )
   return {
     content: [
       {
@@ -707,7 +713,8 @@ function canvasStageResult(
         text: JSON.stringify({
           ...canvasRun,
           submitted: false,
-          note: canvasStageNote(direct, Boolean(storyboard)),
+          ...(stale ? { storyboardStale: true } : {}),
+          note: stale ? STAGE_NOTE.storyboardStale : canvasStageNote(direct, Boolean(storyboard)),
         }),
       },
     ],

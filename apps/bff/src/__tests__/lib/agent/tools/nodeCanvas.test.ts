@@ -996,6 +996,10 @@ it('replays the same first-frame call with its original authorization after the 
   const replayed = await call()
   expect(replayed.details?.canvasRun?.authorizationId).toBe(authorizationId)
   expect(replayed.details?.canvasRun?.storyboard).toBeUndefined()
+  // 待确认的旧授权确认必被拒绝：回执要明说过时，不能当普通阶段授权交给用户确认。
+  const receipt = JSON.parse((replayed.content[0] as { text: string }).text)
+  expect(receipt).toMatchObject({ storyboardStale: true })
+  expect(receipt.note).toContain('确认会被拒绝')
   expect(await stageRows()).toBe(rows)
   expect((await graph()).nodes.length).toBe(nodes)
   // 同一调用 ID 换了参数不是重放：画布命令按调用指纹拒绝，不能拿原授权冒充新请求的结果。
