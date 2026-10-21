@@ -1,21 +1,31 @@
 import { describe, expect, it } from 'vitest'
+import { guideEntries } from '../../../web/src/features/guide/model'
 import { seoFiles } from '../../seo'
-import { alternatePage, editions, findPage, pageList, pageMeta } from '../catalog'
+import { alternatePage, counterpartPage, editions, findPage, pageList, pageMeta } from '../catalog'
 import { searchGuide, structuredData } from '../guideData'
 
 describe('public page contract', () => {
-  it('preserves every old guide URL and pairs both languages', () => {
+  it('serves every guide page, redirects old chapter URLs and pairs both languages', () => {
     for (const edition of Object.values(editions)) {
-      for (const path of [
-        edition.root,
-        ...edition.chapters.map((chapter) => `${edition.root}${chapter.id}/`),
-      ]) {
+      for (const path of [edition.root, ...guideEntries(edition).map((entry) => entry.path)]) {
         expect(findPage(path)?.kind).toBe('guide')
         expect(findPage(path.replace(/\/$/, ''))).toEqual(findPage(path))
       }
+      for (const chapter of ['getting-started', 'create', 'canvas', 'agent', 'assets']) {
+        const moved = findPage(`${edition.root}${chapter}/`)
+        expect(moved?.kind).toBe('moved')
+        expect(findPage(moved!.movedTo!)?.kind).toBe('guide')
+      }
     }
     expect(new Set(pageList.map((page) => page.path)).size).toBe(pageList.length)
-    for (const page of pageList) expect(alternatePage(alternatePage(page))).toEqual(page)
+    for (const page of pageList) {
+      const other = counterpartPage(page)
+      if (other) expect(counterpartPage(other)).toEqual(page)
+      expect(alternatePage(page).locale).not.toBe(page.locale)
+    }
+    expect(counterpartPage(findPage('/guide/create/composer/')!)?.path).toBe(
+      '/guide/en/create/composer/',
+    )
     expect(findPage('/guide/missing/')).toBeUndefined()
     expect(findPage('/p/private-project')).toBeUndefined()
   })
@@ -33,7 +43,9 @@ describe('public page contract', () => {
   it('does not publish login, workbench or private project URLs in the sitemap', () => {
     const files = seoFiles('https://example.com', true)
     expect(files['sitemap.xml']).toContain('https://example.com/en/create/video/')
-    expect(files['sitemap.xml']).toContain('https://example.com/guide/create/')
+    expect(files['sitemap.xml']).toContain('https://example.com/guide/create/settings/')
+    expect(files['sitemap.xml']).not.toContain('https://example.com/guide/create/<')
+    expect(files['llms.txt']).not.toContain('/guide/getting-started/')
     expect(files['sitemap.xml']).not.toMatch(
       /login|workbench|\/p\/|<loc>https:\/\/example.com\/image/,
     )
@@ -48,31 +60,35 @@ describe('public page contract', () => {
   })
   it('searches guide body text and FAQs with real anchor destinations', () => {
     expect(
-      searchGuide(editions['zh-CN'], '遮罩').some(
-        (item) => item.path === '/guide/create/#mask-edit',
+      searchGuide(editions['zh-CN'], '防改写').some(
+        (item) => item.path === '/guide/create/settings/#adjust-settings',
       ),
     ).toBe(true)
-    const faq = editions.en.faq.items[0]!
+    const faqPage = guideEntries(editions.en).find((entry) => entry.key === 'help/faq')!
+    const faqBlock = faqPage.page.sections[0]!.blocks[0]!
+    if (faqBlock.type !== 'faq') throw new Error('expected faq block')
     expect(
-      searchGuide(editions.en, faq.q).some(
-        (item) => item.path === `/guide/en/#${editions.en.faq.id}`,
+      searchGuide(editions.en, faqBlock.items[0]!.q).some(
+        (item) => item.path === '/guide/en/help/faq/#faq',
       ),
     ).toBe(true)
     expect(searchGuide(editions.en, '   ')).toEqual([])
   })
-  it('describes only visible FAQs and actual procedures, excluding screenshot legends', () => {
-    const page = findPage('/guide/getting-started/')!
-    const data = structuredData(page, 'https://example.com')
-    const faq = data.find((item) => item['@type'] === 'FAQPage') as {
+  it('describes visible FAQs, procedures and breadcrumbs; moved pages carry none', () => {
+    const faqData = structuredData(findPage('/guide/help/faq/')!, 'https://example.com')
+    const faq = faqData.find((item) => item['@type'] === 'FAQPage') as {
       mainEntity: { name: string }[]
     }
-    expect(faq.mainEntity.map((item) => item.name)).toEqual(
-      editions['zh-CN'].chapters[0]!.faq!.map((item) => item.q),
+    expect(faq.mainEntity[0]!.name).toBe('点击发送后弹出登录窗口，没有开始生成？')
+    const page = findPage('/guide/create/settings/')!
+    const data = structuredData(page, 'https://example.com')
+    expect(data.filter((item) => item['@type'] === 'HowTo').map((item) => item.name)).toContain(
+      '打开生成设置',
     )
-    expect(data.filter((item) => item['@type'] === 'HowTo').map((item) => item.name)).toEqual([
-      '生成第一张图',
-    ])
+    expect(data.some((item) => item['@type'] === 'BreadcrumbList')).toBe(true)
+    expect(data.some((item) => item['@type'] === 'FAQPage')).toBe(false)
     expect(structuredData(page, '')).toEqual([])
+    expect(structuredData(findPage('/guide/create/')!, 'https://example.com')).toEqual([])
     expect(structuredData(findPage('/login/')!, 'https://example.com')).toEqual([])
   })
 })
