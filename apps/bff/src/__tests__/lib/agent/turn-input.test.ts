@@ -220,10 +220,10 @@ describe('estimateTurnInputTokens', () => {
     expect(added(RICH_HISTORY, '再来一张', [])).toBe(46)
   })
 
-  // 1 个图片块（4800 字符 = 1200）+ 提示词里的 `[image 1]` 引用行与整个视觉证据清单（68）。
-  // 清单头现在只有带引用时才拼，所以它整块算进这条增量里。
+  // 1 个图片块（4800 字符 = 1200）+ 提示词里的 `[image 1]` 引用行与整个视觉证据清单（69）。
+  // 清单头现在只有带引用时才拼，所以它整块算进这条增量里；内联图也按缩略图列出。
   it('charges one image block for a plain reference', () => {
-    expect(added([], '换成夜景', [PLAIN])).toBe(1268)
+    expect(added([], '换成夜景', [PLAIN])).toBe(1269)
   })
 
   // 3 个图片块（14400 字符 = 3600）+ 带选区说明的引用行与带选区 ID、bounds 的清单行；
@@ -426,7 +426,11 @@ describe('estimated and sent turn input', () => {
    * 所以行数与结构必须一致，普通引用那一行还应逐字相等。
    */
   it('writes the same visual evidence manifest on both paths', async () => {
-    const evidence = await turnVisualEvidence([REAL_PLAIN, REAL_MASKED])
+    // 没有选区的那张按 `shownImageRequests` 取的是缩略图（内联上传的也一样），清单写「缩略图」。
+    const evidence = await turnVisualEvidence([
+      { ...REAL_PLAIN, visualVariant: 'preview' as const },
+      REAL_MASKED,
+    ])
     const promptText = turnPromptBody(input([], '换成夜景', [PLAIN, MASKED]))
     const sent = turnModelPrompt(promptText, evidence)
     const estimatedText = textOf(estimatedTurnInput(input([], '换成夜景', [PLAIN, MASKED])).at(-1)!)
