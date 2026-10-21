@@ -1,5 +1,9 @@
 import type { StageAuthorizationSubmission } from '@image-playground/shared'
-import { type AgentCanvasRunProposal, readCanvasDocument } from '@image-playground/shared'
+import {
+  type AgentCanvasRunProposal,
+  readCanvasDocument,
+  stageExecutionSpecsMatch,
+} from '@image-playground/shared'
 import { useEffect } from 'react'
 import { useStore } from '../../../store'
 import { registerAgentNodeRun } from '../../agent/lib/nodeRunBridge'
@@ -37,7 +41,17 @@ export function useAgentNodeRun({
         ...(graph.groups ?? []).map((group) => group.id),
       ])
       if (!proposal.nodeIds.length || proposal.nodeIds.some((id) => !existing.has(id))) return null
-      return currentNodeBatch(canvas.doc, editor, proposal.nodeIds)
+      const plan = currentNodeBatch(canvas.doc, editor, proposal.nodeIds)
+      if (!proposal.specs?.length || plan.error) return plan
+      const live = plan.jobs.map((job) => ({
+        nodeId: job.id,
+        model: job.model,
+        quantity: billedNodeQuantity(job),
+        unitMultiplier: job.unitMultiplier ?? 1,
+      }))
+      return stageExecutionSpecsMatch(live, proposal.specs)
+        ? plan
+        : { ...plan, error: 'stale' as const }
     }
     return registerAgentNodeRun({
       projectId,

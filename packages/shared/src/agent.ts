@@ -721,6 +721,15 @@ export interface AgentCanvasRunProposal {
    */
   readonly direct?: boolean
   readonly autoRun?: boolean
+  /**
+   * 提案时冻结的执行规格。确认和预检必须与它一致；工作台之后改了模型或数量，要重新提案。
+   */
+  readonly specs?: readonly {
+    readonly nodeId: string
+    readonly model: string
+    readonly quantity: number
+    readonly unitMultiplier: number
+  }[]
 }
 
 export interface AgentToolResultBlock {

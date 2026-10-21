@@ -9,7 +9,7 @@ import {
   canvasNodeKind,
   canvasResults,
   readCanvasDocument,
-  videoRateMultiplier,
+  resolveStageImageExecution,
   videoRequestRejection,
 } from '@image-playground/shared'
 import type * as Y from 'yjs'
@@ -49,6 +49,7 @@ export type NodeBatchError =
   | 'limit'
   | 'balance'
   | 'authorization'
+  | 'stale'
 export class NodeBatchFailure extends Error {
   constructor(public readonly code: NodeBatchError) {
     super(code)
@@ -154,13 +155,22 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
       model = imageProfile.model,
       quantity = ['frame', 'grid'].includes(meta.storyboardRole ?? '') ? 1 : params.n,
       unitMultiplier: number | undefined
+    const image = resolveStageImageExecution({
+      model: imageProfile.model,
+      count: params.n,
+      storyboardRole: meta.storyboardRole,
+    })
+    if (kind === 'image' && image) {
+      model = image.model
+      quantity = image.quantity
+    }
     if (kind === 'video') {
       const config = nodeVideoConfiguration(meta, refs, input.videoDraft, input.options)
       if (!config.option) error ??= 'model'
       draft = config.draft
-      model = draft.model
-      quantity = draft.duration
-      unitMultiplier = videoRateMultiplier(model, draft.resolution)
+      model = config.spec.model
+      quantity = config.spec.quantity
+      unitMultiplier = config.spec.unitMultiplier
       const inputs = nodeVideoInputs(
         config.mode,
         refs.map((ref) => (ids.has(ref.id) ? { ...ref, fileId: `batch-source:${ref.id}` } : ref)),

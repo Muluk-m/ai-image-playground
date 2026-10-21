@@ -1,5 +1,4 @@
 import {
-  AGENT_IMAGE_MAX_N,
   appendScriptEpisode,
   type CanvasNode,
   type CanvasOrigin,
@@ -16,13 +15,16 @@ import {
   isCanvasStoryboardData,
   layoutCanvasArrange,
   moveCanvasNodes,
+  parseCompleteStageVideoDraft,
   readCanvasDocument,
   recordCanvasResult,
   replaceStoryboardShots,
-  stageVideoQuote,
+  resolveStageImageExecution,
+  resolveStageVideoExecution,
   type TextNodeData,
   ungroupCanvasNodes,
   updateCanvasNode,
+  videoModelSupportOf,
 } from '@image-playground/shared'
 import { type Static, Type } from 'typebox'
 import * as Y from 'yjs'
@@ -492,40 +494,6 @@ function runnableStageNode(
     (meta.nodeKind !== 'asset' && graph.edges.some((edge) => edge.target === node.id))
   )
 }
-/** 与 nodeVideoConfiguration 相同：四项都在才认节点草稿，否则整份退回工作台草稿。 */
-function completeNodeVideoDraft(raw: string | undefined):
-  | {
-      model: string
-      duration: number
-      resolution: string
-      aspectRatio: string
-      voices?: string[]
-    }
-  | undefined {
-  try {
-    const parsed = JSON.parse(raw ?? '')
-    if (
-      !parsed ||
-      typeof parsed !== 'object' ||
-      typeof parsed.model !== 'string' ||
-      typeof parsed.duration !== 'number' ||
-      typeof parsed.resolution !== 'string' ||
-      typeof parsed.aspectRatio !== 'string'
-    )
-      return undefined
-    return {
-      model: parsed.model,
-      duration: parsed.duration,
-      resolution: parsed.resolution,
-      aspectRatio: parsed.aspectRatio,
-      ...(Array.isArray(parsed.voices)
-        ? { voices: parsed.voices.filter((one: unknown) => typeof one === 'string') }
-        : {}),
-    }
-  } catch {
-    return undefined
-  }
-}
 function stageCharge(
   node: CanvasNode,
   params:
@@ -547,56 +515,50 @@ function stageCharge(
   if (node.type !== 'image' && node.type !== 'video') return undefined
   const meta = node.data.meta ?? {}
   if (canvasNodeKind(node) === 'video') {
-    const saved = completeNodeVideoDraft(meta.nodeVideoDraft)
-    const fallback = params?.video
+    const workbench = params?.video
       ? {
           model: params.video.model,
           duration: params.video.durationSeconds,
           resolution: params.video.resolution,
-          aspectRatio: params.video.aspectRatio,
+          aspectRatio: params.video.aspectRatio ?? '16:9',
           ...(params.video.voiceIds?.length ? { voices: [...params.video.voiceIds] } : {}),
         }
       : undefined
-    const draft = saved ?? fallback
-    if (!draft) return undefined
-    let legacyFirst = false
-    let legacyLast = false
-    for (const edge of graph.edges) {
-      if (edge.target !== node.id) continue
-      if (meta[`role:${edge.source}`] === 'first') legacyFirst = true
-      if (meta[`role:${edge.source}`] === 'last') legacyLast = true
-    }
-    const requested =
-      meta.nodeVideoMode || (legacyLast ? 'frames' : legacyFirst ? 'first' : undefined)
-    const channels = agentVideoModels()
-    const option = channels.find((one) => one.target.model === draft.model) ?? channels[0]
-    const model = option?.target.model ?? draft.model
-    const quoted = stageVideoQuote({
-      model,
-      duration: draft.duration,
-      resolution: draft.resolution,
-      aspectRatio: draft.aspectRatio,
-      mode: requested,
-      hasVoices: Boolean(draft.voices?.length),
-      ...(option ? { support: option.support } : {}),
+    const globalDraft = workbench ?? parseCompleteStageVideoDraft(meta.nodeVideoDraft)
+    if (!globalDraft) return undefined
+    const channels = agentVideoModels().map((option) => ({
+      modelId: option.target.model,
+      support: option.support,
+    }))
+    const hinted = workbench?.model ?? parseCompleteStageVideoDraft(meta.nodeVideoDraft)?.model
+    const builtin = hinted ? videoModelSupportOf(hinted) : undefined
+    const resolved = resolveStageVideoExecution({
+      meta,
+      references: graph.edges
+        .filter((edge) => edge.target === node.id)
+        .map((edge) => ({ id: edge.source })),
+      globalDraft,
+      options: channels.length
+        ? channels
+        : hinted && builtin
+          ? [{ modelId: hinted, support: builtin }]
+          : [],
     })
-    if (!quoted) return undefined
-    return { nodeId: node.id, model, ...quoted }
+    if (
+      !resolved.spec.model ||
+      !Number.isSafeInteger(resolved.spec.quantity) ||
+      resolved.spec.quantity < 1
+    )
+      return undefined
+    return { nodeId: node.id, ...resolved.spec }
   }
   // 原标签页按工作台配置出图。报价必须用这一条，不能改成对话模型或渠道里的另一条。
-  const workbench = params?.canvasImageModel?.trim()
-  const model = workbench || resolveAgentModel('image', params?.model)?.model
-  if (!model) return undefined
-  const quantity =
-    meta.storyboardRole === 'frame' || meta.storyboardRole === 'grid'
-      ? 1
-      : typeof params?.n === 'number' &&
-          Number.isSafeInteger(params.n) &&
-          params.n >= 1 &&
-          params.n <= AGENT_IMAGE_MAX_N
-        ? params.n
-        : 1
-  return { nodeId: node.id, model, quantity, unitMultiplier: 1 }
+  const image = resolveStageImageExecution({
+    model: params?.canvasImageModel?.trim() || resolveAgentModel('image', params?.model)?.model,
+    count: params?.n,
+    storyboardRole: meta.storyboardRole,
+  })
+  return image ? { nodeId: node.id, ...image } : undefined
 }
 export const runNodes = defineAgentTool({
   name: 'runNodes',
@@ -717,6 +679,12 @@ export const runNodes = defineAgentTool({
         estimatedCredits: authorization.estimatedCredits,
         budgetCap: authorization.budgetCap,
         status: authorization.status,
+        specs: authorization.charges?.map(({ nodeId, model, quantity, unitMultiplier }) => ({
+          nodeId,
+          model,
+          quantity,
+          unitMultiplier,
+        })),
         direct,
       }
       return {

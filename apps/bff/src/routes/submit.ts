@@ -1,5 +1,6 @@
 import type { PersistedVideoRequest, StoredImageRef, VideoRequest } from '@image-playground/shared'
 import {
+  billedStageQuantity,
   QUEUE_MAX_INPUT_IMAGES,
   QUEUE_PROMPT_MAX_CHARS,
   videoPromptRejection,
@@ -137,7 +138,11 @@ export const submitRoutes = new Elysia()
         return status(400, { error: `unsupported provider: ${provider}` })
       }
 
-      const video = body.video as VideoRequest | undefined
+      const rawVideo = body.video as VideoRequest | undefined
+      // 任务保存、校验和扣费用同一次向上取整，避免 1.9 秒按小数计价、授权却按 2 秒记账。
+      const video = rawVideo
+        ? { ...rawVideo, duration_seconds: billedStageQuantity(rawVideo.duration_seconds) }
+        : undefined
       const media = resolveModelMedia(model)
       if (video && media !== 'video') {
         return status(400, { error: 'video_not_supported', message: '该模型不支持视频生成' })

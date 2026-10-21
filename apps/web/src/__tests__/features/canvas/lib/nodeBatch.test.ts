@@ -139,6 +139,62 @@ it('quotes videos from the same mode and clamped draft as the node composer', ()
     dependencies: ['a'],
   })
 })
+it('ignores an incomplete video draft and narrows quality to the node mode', () => {
+  const { doc, input } = setup()
+  const support = VIDEO_MODEL_SUPPORT['grok-imagine-video']!
+  const options = [{ modelId: 'grok-imagine-video', channelId: 'test', label: 'Grok', support }]
+  const workbench = {
+    model: 'grok-imagine-video',
+    duration: 8 as const,
+    resolution: '1080p' as const,
+    aspectRatio: '16:9' as const,
+  }
+  updateCanvasNode(
+    doc,
+    'b',
+    {
+      data: {
+        meta: {
+          nodeKind: 'video',
+          nodePrompt: 'walk',
+          nodeVideoDraft: JSON.stringify({ model: 'grok-imagine-video', duration: 15 }),
+        },
+      },
+    },
+    origin,
+  )
+  const fallback = buildNodeBatch({ ...input(), videoDraft: workbench, options })
+  expect(fallback.jobs.find((job) => job.id === 'b')).toMatchObject({
+    model: 'grok-imagine-video',
+    quantity: 8,
+    unitMultiplier: 1,
+    draft: { duration: 8, resolution: '720p', aspectRatio: '16:9' },
+  })
+  updateCanvasNode(
+    doc,
+    'b',
+    {
+      data: {
+        meta: {
+          nodeKind: 'video',
+          nodePrompt: 'walk',
+          nodeVideoMode: 'text',
+          nodeVideoDraft: JSON.stringify({ ...workbench }),
+        },
+      },
+    },
+    origin,
+  )
+  expect(
+    buildNodeBatch({ ...input(), videoDraft: workbench, options }).jobs.find(
+      (job) => job.id === 'b',
+    ),
+  ).toMatchObject({
+    quantity: 8,
+    unitMultiplier: 1.6,
+    draft: { resolution: '1080p' },
+  })
+})
 it('waits for the dependency result and does not recheck full-batch balance after spending part of it', async () => {
   const { input } = setup(),
     plan = buildNodeBatch(input()),

@@ -239,6 +239,18 @@ it('fails closed when the canvas changes during the undo window', async () => {
   expect(mocks.run).not.toHaveBeenCalled()
   expect(document.body.textContent).toContain('节点输入、设置或计价已改变')
 })
+it('asks for a new proposal when the workbench spec no longer matches the snapshot', async () => {
+  const snapped = {
+    ...proposal,
+    specs: [{ nodeId: 'a', model: 'other-model', quantity: 2, unitMultiplier: 1 }],
+  }
+  await mount('stale-spec', true, snapped)
+  await act(async () => {})
+  expect(document.body.textContent).toContain('工作台模型或规格已变化，请让智能体重新提出阶段授权')
+  expect(startAgentNodeRun('stale-spec', snapped)).toBe(false)
+  expect(confirms).toBe(0)
+  expect(preflights).toBe(0)
+})
 it('does not submit when the BFF refuses scope or budget', async () => {
   rejectPreflight = true
   await mount('budget')

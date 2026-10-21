@@ -153,6 +153,7 @@ export function startAgentNodeRun(
           case 'limit':
           case 'balance':
           case 'authorization':
+          case 'stale':
             code = error.code
         }
       }

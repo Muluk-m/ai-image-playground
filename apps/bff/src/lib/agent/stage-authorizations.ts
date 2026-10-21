@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto'
-import type {
-  StageAuthorization,
-  StageAuthorizationCharge,
-  StageAuthorizationPreflight,
-  StageAuthorizationSubmission,
+import {
+  billedStageQuantity,
+  type StageAuthorization,
+  type StageAuthorizationCharge,
+  type StageAuthorizationPreflight,
+  type StageAuthorizationSubmission,
+  stageExecutionSpecsMatch,
 } from '@image-playground/shared'
 import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
@@ -218,7 +220,7 @@ export async function confirmStageAuthorization(
     if (charges?.length) {
       const normalized = charges.map((charge) => ({
         ...charge,
-        quantity: Math.ceil(charge.quantity),
+        quantity: billedStageQuantity(charge.quantity),
       }))
       const wanted = new Set(state.nodeIds)
       const given = new Set(normalized.map((charge) => charge.nodeId))
@@ -229,12 +231,19 @@ export async function confirmStageAuthorization(
         [...wanted].some((nodeId) => !given.has(nodeId))
       )
         throw new StageAuthorizationError('stage_authorization_scope')
-      const priced = await pricedCharges(tx, userId, normalized)
+      const stored = state.charges ?? []
+      // 提案快照是唯一可执行规格。现场模型或数量变了就拒绝，不能在确认时改价。
+      if (!stageExecutionSpecsMatch(normalized, stored))
+        throw new StageAuthorizationError('stage_authorization_stale')
+      const billing = isCapabilityEnabled('billing:credits')
       state = {
         ...state,
-        estimatedCredits: priced.total,
-        budgetCap: priced.total,
-        charges: priced.charges,
+        charges: stored.map((charge) => {
+          const givenCharge = normalized.find((item) => item.nodeId === charge.nodeId)
+          if (!charge.model && !billing && givenCharge?.model)
+            return { ...charge, model: givenCharge.model }
+          return charge
+        }),
       }
     }
     const executionToken = crypto.randomUUID()
@@ -261,10 +270,15 @@ export async function endStageAuthorization(userId: string, id: string) {
     })
   })
 }
-/** 在途任务的 id 藏在 state.attempts 里。查询时就排除，避免最老的一批全是在途、后面的空闲授权永远轮不到。 */
-function withoutInFlightTasks() {
-  return sql`not exists (
-    select 1
+/**
+ * 一条授权里仍在排队、执行或对账的任务。
+ * jsonb_array_elements_text 必须写成列别名 task_value(task_id)，再比 task_value.task_id。
+ * 只写 `as task_id` 时那是表别名，`tasks.id = task_id` 会拿整行来比。
+ * 过期扫描的 NOT EXISTS 与测试都调用这一段，不能各写一份。
+ */
+export function stageAuthorizationInFlightTaskIds() {
+  return sql`
+    select task_value.task_id as task_id
     from jsonb_array_elements(coalesce(${table.state}->'attempts', '[]'::jsonb)) as attempt
     cross join lateral jsonb_array_elements_text(
       case
@@ -274,7 +288,11 @@ function withoutInFlightTasks() {
     ) as task_value(task_id)
     inner join ${schema.tasks} on ${schema.tasks.id} = task_value.task_id
     where ${schema.tasks.status} in ('queued', 'in_progress', 'reconciling')
-  )`
+  `
+}
+/** 查询时就排除在途任务，避免最老的一批全是在途、后面的空闲授权永远轮不到。 */
+function withoutInFlightTasks() {
+  return sql`not exists (${stageAuthorizationInFlightTaskIds()})`
 }
 export async function expireStaleStageAuthorizations(now = Date.now()): Promise<number> {
   const cutoff = now - STAGE_AUTHORIZATION_ACTIVE_TTL_MS
@@ -313,7 +331,7 @@ export async function preflightStageAuthorization(
     let state = row.state
     if (!state.nodeIds.includes(input.nodeId))
       throw new StageAuthorizationError('stage_authorization_scope')
-    const quantity = Math.ceil(input.quantity)
+    const quantity = billedStageQuantity(input.quantity)
     // 确认后的报价是唯一可执行规格。换模型、数量或倍率必须重新提案。
     let charge = state.charges?.find((item) => item.nodeId === input.nodeId)
     // 不计费且提案时没有可用模型，占位模型是空字符串。预检带来的是原标签页实际要跑的模型，写回去再锁住。
@@ -392,7 +410,7 @@ export async function consumeStageAuthorization(
   credits: number,
 ) {
   if (!userId) throw new StageAuthorizationError('stage_authorization_inactive')
-  const quantity = Math.ceil(usage.quantity)
+  const quantity = billedStageQuantity(usage.quantity)
   if (
     !Number.isFinite(credits) ||
     credits < 0 ||

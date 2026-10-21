@@ -461,47 +461,8 @@ function asVideoAspectRatio(value: string | undefined): VideoAspectRatio | undef
     : undefined
 }
 
-/**
- * 阶段授权给一条视频草稿的可执行规格。
- * 模型有支持矩阵时，时长、清晰度和画幅退到该模型的合法档；没有矩阵时时长向上取整，
- * 分辨率不在价目里则倍率按结算的缺省 1。两边必须用这个结果，不能一边留小数一边取整。
- */
-export function stageVideoQuote(input: {
-  readonly model: string
-  readonly duration: number
-  readonly resolution?: string | undefined
-  readonly aspectRatio?: string | undefined
-  /** 节点视频模式。缺省时按模型支持矩阵选择默认模式，再按该模式封顶清晰度。 */
-  readonly mode?: string | undefined
-  readonly hasVoices?: boolean | undefined
-  /** 渠道能力裁剪后的支持矩阵。缺省时用模型自己的完整矩阵。 */
-  readonly support?: VideoModelSupport | undefined
-}): { readonly quantity: number; readonly unitMultiplier: number } | undefined {
-  if (!input.model || !Number.isFinite(input.duration) || input.duration <= 0) return undefined
-  const support = input.support ?? ownVideoModelSupport(input.model)
-  if (support) {
-    const narrowed = narrowVideoModelSupport(
-      support,
-      effectiveVideoNodeMode(support, input.mode),
-      Boolean(input.hasVoices),
-    )
-    const preset = clampVideoPreset(narrowed, {
-      duration: input.duration,
-      resolution: asVideoResolution(input.resolution),
-      aspectRatio: asVideoAspectRatio(input.aspectRatio),
-    })
-    return {
-      quantity: preset.duration,
-      unitMultiplier: videoRateMultiplier(input.model, preset.resolution),
-    }
-  }
-  const quantity = Math.ceil(input.duration)
-  if (!Number.isSafeInteger(quantity) || quantity < 1) return undefined
-  const resolution = asVideoResolution(input.resolution)
-  return {
-    quantity,
-    unitMultiplier: resolution ? videoRateMultiplier(input.model, resolution) : 1,
-  }
+export function videoModelSupportOf(modelId: string): VideoModelSupport | undefined {
+  return ownVideoModelSupport(modelId)
 }
 
 export function videoDurationsForResolution(

@@ -13,8 +13,12 @@ async function request<T>(id: string, action = '', body?: unknown): Promise<T> {
         : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
     },
   )
-  if (!response.ok)
-    throw Object.assign(new Error('stage_authorization_rejected'), { code: 'authorization' })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null
+    throw Object.assign(new Error(body?.error ?? 'stage_authorization_rejected'), {
+      code: body?.error === 'stage_authorization_stale' ? 'stale' : 'authorization',
+    })
+  }
   return response.json() as Promise<T>
 }
 export const stageAuthorizationClient = {

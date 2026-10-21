@@ -11,6 +11,7 @@ import type {
   TaskStatus,
 } from '@image-playground/shared'
 import {
+  billedStageQuantity,
   DEFAULT_IMAGE_MODERATION,
   QUEUE_TIMEOUTS,
   videoRateMultiplier,
@@ -108,7 +109,7 @@ function pricingOf(input: CreateQueueTaskInput) {
   const n = input.request.n ?? 1
   if (!input.video) return { quantity: n, unitMultiplier: 1, quotaUnits: n }
   return {
-    quantity: input.video.duration_seconds,
+    quantity: billedStageQuantity(input.video.duration_seconds),
     unitMultiplier: videoRateMultiplier(input.model, input.video.resolution),
     quotaUnits: 1,
   }

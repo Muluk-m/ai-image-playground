@@ -9,7 +9,7 @@ import {
   readCanvasDocument,
   updateCanvasNode,
 } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import * as Y from 'yjs'
 import {
   _setPrivateBffOverlayForTesting,
@@ -69,6 +69,7 @@ const {
   STAGE_AUTHORIZATION_EXPIRE_BATCH,
   consumeStageAuthorization,
   expireStaleStageAuthorizations,
+  stageAuthorizationInFlightTaskIds,
 } = await import('../../lib/agent/stage-authorizations')
 const { createAgentImageSource } = await import('../../lib/agent/images')
 let cookie: string
@@ -90,6 +91,7 @@ async function fixture(
   beforePropose?: (input: { projectId: string }) => Promise<void>,
   turnParams?: {
     canvasImageModel?: string
+    n?: number
     video?: {
       model: string
       durationSeconds: number
@@ -686,23 +688,35 @@ it('serializes simultaneous budget reservations across two authorized nodes', as
   }
 })
 
-it('reprices the confirmed jobs and expires an idle active authorization with no in-flight task', async () => {
+it('keeps the proposed spec, rejects a drifted confirmation, and expires an idle active authorization with no in-flight task', async () => {
   const proposal = await fixture(['a'], 1)
-  const confirmed = await request(proposal.authorizationId, '/confirm', {
+  expect(proposal.specs).toEqual([
+    { nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 1 },
+  ])
+  const drifted = await request(proposal.authorizationId, '/confirm', {
     charges: [{ nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 2, unitMultiplier: 1 }],
+  })
+  expect(drifted.status).toBe(409)
+  expect(await drifted.json()).toMatchObject({ error: 'stage_authorization_stale' })
+  expect(await (await request(proposal.authorizationId)).json()).toMatchObject({
+    status: 'pending',
+    budgetCap: 6,
+  })
+  const confirmed = await request(proposal.authorizationId, '/confirm', {
+    charges: [{ nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 1 }],
   })
   expect(confirmed.status).toBe(200)
   const receipt = await confirmed.json()
-  expect(receipt.authorization.budgetCap).toBe(12)
+  expect(receipt.authorization.budgetCap).toBe(6)
   expect(
     (
       await request(proposal.authorizationId, '/preflight', {
         nodeId: 'a',
         model: 'gpt-image-2.5-flare',
-        quantity: 1,
+        quantity: 2,
         unitMultiplier: 1,
         executionToken: receipt.executionToken,
-        attemptId: 'cheaper',
+        attemptId: 'more',
       })
     ).status,
   ).toBe(409)
@@ -711,7 +725,7 @@ it('reprices the confirmed jobs and expires an idle active authorization with no
       await request(proposal.authorizationId, '/preflight', {
         nodeId: 'a',
         model: 'gpt-image-1',
-        quantity: 2,
+        quantity: 1,
         unitMultiplier: 1,
         executionToken: receipt.executionToken,
         attemptId: 'other-model',
@@ -721,7 +735,7 @@ it('reprices the confirmed jobs and expires an idle active authorization with no
   const priced = await request(proposal.authorizationId, '/preflight', {
     nodeId: 'a',
     model: 'gpt-image-2.5-flare',
-    quantity: 2,
+    quantity: 1,
     unitMultiplier: 1,
     executionToken: receipt.executionToken,
     attemptId: 'aligned',
@@ -864,7 +878,7 @@ it('rejects negative or non-positive settlement usage', async () => {
 })
 
 it('counts a fractional submitted duration as the preflight ceiling', async () => {
-  const proposal = await fixture(['a'])
+  const proposal = await fixture(['a'], undefined, undefined, { n: 2 })
   const { executionToken } = await (
     await request(proposal.authorizationId, '/confirm', {
       charges: [{ nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 2, unitMultiplier: 1 }],
@@ -1037,4 +1051,15 @@ it('expires an idle authorization behind a full batch of in-flight rows', async 
     .where(eq(schema.agent_stage_authorizations.id, `inflight-${seed.id}-0`))
   expect(idle?.state.status).toBe('expired')
   expect(blocked?.state.status).toBe('active')
+  // 与过期扫描共用 stageAuthorizationInFlightTaskIds。选出 task_id 列：
+  // 生产 SQL 若退回 `as task_id`，这里会因列不存在而失败。空闲授权没有在途任务，不能出现。
+  const inFlight = await db.execute<{ authorization_id: string; task_id: string }>(sql`
+    select ${schema.agent_stage_authorizations.id} as authorization_id, inflight.task_id as task_id
+    from ${schema.agent_stage_authorizations}
+    cross join lateral (${stageAuthorizationInFlightTaskIds()}) as inflight
+    where ${schema.agent_stage_authorizations.id} like ${`inflight-${seed.id}-%`}
+       or ${schema.agent_stage_authorizations.id} = ${idleId}
+  `)
+  expect(inFlight).toHaveLength(STAGE_AUTHORIZATION_EXPIRE_BATCH)
+  expect(inFlight.map((row) => row.authorization_id)).not.toContain(idleId)
 })
