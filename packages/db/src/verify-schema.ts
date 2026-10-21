@@ -66,6 +66,8 @@ export const EXPECTED_INDEXES = [
   'agent_stage_authorizations_pkey',
   'idx_agent_stage_proposal',
   'idx_agent_stage_owner',
+  'agent_conversations_owner_id_key',
+  'canvas_projects_owner_id_key',
   'client_error_recoveries_pkey',
   'idx_client_error_recoveries_incident',
   'idx_client_error_recoveries_received',

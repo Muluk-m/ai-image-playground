@@ -136,6 +136,15 @@ function commandHash(input: CreateQueueTaskInput) {
           conversationId: input.agent.conversationId,
           turnId: input.agent.turnId,
         },
+        ...(input.stageAuthorization
+          ? {
+              stageAuthorization: {
+                authorizationId: input.stageAuthorization.authorizationId,
+                attemptId: input.stageAuthorization.attemptId,
+                nodeId: input.stageAuthorization.nodeId,
+              },
+            }
+          : {}),
       }),
     )
     .digest('hex')
@@ -388,6 +397,19 @@ export async function createQueueTask(
           unitMultiplier: pricing.unitMultiplier,
         },
         reservedCredits,
+        {
+          prompt: input.request.prompt,
+          inputCount: requestPayload.input_images?.length ?? 0,
+          ...(input.video
+            ? {
+                video: {
+                  durationSeconds: input.video.duration_seconds,
+                  resolution: input.video.resolution,
+                  aspectRatio: input.video.aspect_ratio,
+                },
+              }
+            : {}),
+        },
       )
     if (input.userId && commandId)
       await tx.insert(schema.generation_commands).values({
@@ -423,7 +445,13 @@ export async function createQueueTask(
       submittedAt: inserted[0]!.submitted_at,
     }
   }
-  const outcome = input.tx ? await submit(input.tx) : await db.transaction(submit)
+  let outcome: CreateQueueTaskOutcome
+  try {
+    outcome = input.tx ? await submit(input.tx) : await db.transaction(submit)
+  } catch (error) {
+    if (!input.prepared) await discardArchivedInputs(id)
+    throw error
+  }
 
   if (!input.prepared && (outcome.kind !== 'created' || outcome.taskId !== id))
     await discardArchivedInputs(id)

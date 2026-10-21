@@ -10,6 +10,7 @@ import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { accountProfileView } from '../lib/account-profile-view'
+import { endStageAuthorizationsForUser } from '../lib/agent/stage-authorizations'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { clientAddress } from '../lib/http'
 import { createRateLimiter, createWindowLimiter } from '../lib/rate-limit'
@@ -27,6 +28,7 @@ import { resolveAuthUser } from '../lib/user-auth'
 import {
   clearUserSessionCookie,
   createUserSession,
+  resolveUserSession,
   revokeUserSession,
   sessionClientFromRequest,
   setUserSessionCookie,
@@ -260,7 +262,10 @@ export const userAuthRoutes = new Elysia()
   .post('/api/auth/logout', async ({ cookie }) => {
     if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
     const raw = cookie[USER_SESSION_COOKIE]?.value
-    await revokeUserSession(typeof raw === 'string' ? raw : '')
+    const token = typeof raw === 'string' ? raw : ''
+    const user = token ? await resolveUserSession(token) : null
+    if (user) await endStageAuthorizationsForUser(user.id)
+    await revokeUserSession(token)
     clearUserSessionCookie(cookie)
     return { ok: true }
   })

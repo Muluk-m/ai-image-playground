@@ -4,6 +4,8 @@ import {
   parseCompleteStageVideoDraft,
   resolveStageImageExecution,
   resolveStageVideoExecution,
+  stageExecutionBinding,
+  stageExecutionBindingMatches,
   stageExecutionSpecsMatch,
 } from '../stage-execution'
 import { VIDEO_MODEL_SUPPORT } from '../video-presets'
@@ -105,6 +107,18 @@ describe('stage execution quantity', () => {
         [{ nodeId: 'a', model: '', quantity: 2, unitMultiplier: 1 }],
       ),
     ).toBe(true)
+    expect(
+      stageExecutionSpecsMatch(
+        [
+          { nodeId: 'a', model: 'same', quantity: 1, unitMultiplier: 1 },
+          { nodeId: 'a', model: 'same', quantity: 1, unitMultiplier: 1 },
+        ],
+        [
+          { nodeId: 'a', model: 'same', quantity: 1, unitMultiplier: 1 },
+          { nodeId: 'b', model: 'same', quantity: 1, unitMultiplier: 1 },
+        ],
+      ),
+    ).toBe(false)
   })
 
   it('prices an image with the workbench model and a single storyboard frame', () => {
@@ -112,5 +126,51 @@ describe('stage execution quantity', () => {
       resolveStageImageExecution({ model: ' workbench-image ', count: 4, storyboardRole: 'frame' }),
     ).toEqual({ model: 'workbench-image', quantity: 1, unitMultiplier: 1 })
     expect(resolveStageImageExecution({ model: '' })).toBeUndefined()
+  })
+})
+
+describe('stage execution binding', () => {
+  it('freezes the node prompt together with upstream text and rejects a different submission', () => {
+    const text = {
+      id: 't',
+      type: 'text' as const,
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      z: 0,
+      data: { text: '上文', fontSize: 16, fill: '#000' },
+    }
+    const image = {
+      id: 'a',
+      type: 'image' as const,
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      z: 1,
+      data: { meta: { nodePrompt: '嫩芽' } },
+    }
+    const binding = stageExecutionBinding({
+      node: image,
+      nodes: [text, image],
+      edges: [{ source: 't', target: 'a' }],
+      authorizedIds: new Set(['a']),
+    })
+    expect(binding).toEqual({ nodeId: 'a', kind: 'image', prompt: '上文\n嫩芽', inputCount: 0 })
+    expect(stageExecutionBindingMatches(binding, { prompt: '嫩芽', inputCount: 0 })).toBe(false)
+    expect(stageExecutionBindingMatches(binding, { prompt: '上文\n嫩芽', inputCount: 1 })).toBe(
+      false,
+    )
+    expect(
+      stageExecutionBindingMatches(binding, {
+        prompt: '上文\n嫩芽',
+        inputCount: 0,
+        video: { durationSeconds: 5, resolution: '720p', aspectRatio: '16:9' },
+      }),
+    ).toBe(false)
+    expect(stageExecutionBindingMatches(binding, { prompt: '上文\n嫩芽', inputCount: 0 })).toBe(
+      true,
+    )
   })
 })

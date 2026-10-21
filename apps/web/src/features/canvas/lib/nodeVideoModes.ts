@@ -1,6 +1,7 @@
 import {
   effectiveVideoNodeMode,
   narrowVideoModelSupport,
+  selectStageVideoReferences,
   type VideoModelSupport,
   type VideoNodeMode,
   videoNodeModes,
@@ -23,47 +24,7 @@ export function nodeVideoInputs(
   refs: readonly NodeReference[],
   slots: { first?: string; last?: string } = {},
 ) {
-  const images = refs.filter((ref) => ref.kind === 'image' && !ref.asset)
-  const first = slots.first !== undefined ? images.find((ref) => ref.id === slots.first) : images[0]
-  const last =
-    slots.last !== undefined
-      ? images.find((ref) => ref.id === slots.last)
-      : images.find((ref) => ref.id !== first?.id)
-  const seenFiles = new Set<string>()
-  const uniqueReferences = refs.filter((ref) => {
-    if (ref.kind !== 'image' || (ref.asset && !ref.fileId)) return false
-    const key = ref.fileId ?? ref.id
-    if (seenFiles.has(key)) return false
-    seenFiles.add(key)
-    return true
-  })
-  const selected =
-    mode === 'reference'
-      ? uniqueReferences
-      : mode === 'text'
-        ? []
-        : [first, ...(mode === 'frames' ? [last] : [])].filter((ref): ref is NodeReference =>
-            Boolean(ref),
-          )
-  return {
-    refs: [
-      ...refs
-        .filter((ref) => ref.kind === 'text' || (ref.asset && !selected.includes(ref)))
-        .map((ref) => (ref.asset ? { ...ref, kind: 'text' as const, fileId: undefined } : ref)),
-      ...selected,
-    ],
-    roles: Object.fromEntries(
-      selected.map((ref) => [
-        ref.id,
-        mode === 'reference' ? 'reference' : ref.id === first?.id ? 'first' : 'last',
-      ]),
-    ),
-    first: mode === 'first' || mode === 'frames' ? first : undefined,
-    last: mode === 'frames' ? last : undefined,
-    missing:
-      ((mode === 'first' || mode === 'frames') && !first) ||
-      (mode === 'frames' && (!last || last.id === first?.id)),
-  }
+  return selectStageVideoReferences(mode, refs, slots)
 }
 
 /** Narrow the settings before rendering, so the shown quality matches this input mode. */

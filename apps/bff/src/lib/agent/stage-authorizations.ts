@@ -5,6 +5,9 @@ import {
   type StageAuthorizationCharge,
   type StageAuthorizationPreflight,
   type StageAuthorizationSubmission,
+  type StageExecutionBinding,
+  type StageExecutionFingerprint,
+  stageExecutionBindingMatches,
   stageExecutionSpecsMatch,
 } from '@image-playground/shared'
 import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
@@ -149,6 +152,92 @@ async function quote(
     throw new StageAuthorizationError('stage_authorization_price_unavailable', 422)
   return result.estimatedCredits
 }
+function sameIdSet(left: readonly string[], right: readonly string[]) {
+  if (left.length !== right.length) return false
+  const seen = new Set(left)
+  return seen.size === left.length && right.every((id) => seen.has(id))
+}
+function sameBinding(
+  left: StageExecutionBinding | undefined,
+  right: StageExecutionBinding,
+): boolean {
+  if (
+    !left ||
+    left.kind !== right.kind ||
+    left.prompt !== right.prompt ||
+    left.inputCount !== right.inputCount
+  )
+    return false
+  const video = left.video
+  const given = right.video
+  if (!video && !given) return true
+  return Boolean(
+    video &&
+      given &&
+      video.durationSeconds === given.durationSeconds &&
+      video.resolution === given.resolution &&
+      video.aspectRatio === given.aspectRatio,
+  )
+}
+function proposalAgrees(
+  row: typeof table.$inferSelect,
+  input: {
+    userId: string
+    projectId: string
+    nodeIds: readonly string[]
+    bindings: readonly StageExecutionBinding[]
+  },
+) {
+  const state = row.state
+  return (
+    row.user_id === input.userId &&
+    row.project_id === input.projectId &&
+    state.projectId === input.projectId &&
+    sameIdSet(state.nodeIds, input.nodeIds) &&
+    sameIdSet(
+      input.bindings.map((binding) => binding.nodeId),
+      input.nodeIds,
+    ) &&
+    input.bindings.every((binding) =>
+      sameBinding(
+        state.bindings?.find((item) => item.nodeId === binding.nodeId),
+        binding,
+      ),
+    )
+  )
+}
+async function assertStageOwnership(
+  tx: BffTransaction,
+  userId: string,
+  conversationId: string,
+  projectId: string,
+) {
+  const [conversation] = await tx
+    .select({
+      user_id: schema.agent_conversations.user_id,
+      deleted_at: schema.agent_conversations.deleted_at,
+    })
+    .from(schema.agent_conversations)
+    .where(eq(schema.agent_conversations.id, conversationId))
+  const [project] = await tx
+    .select({
+      user_id: schema.canvas_projects.user_id,
+      conversation_id: schema.canvas_projects.conversation_id,
+      deleted_at: schema.canvas_projects.deleted_at,
+    })
+    .from(schema.canvas_projects)
+    .where(eq(schema.canvas_projects.id, projectId))
+  if (
+    !conversation ||
+    conversation.deleted_at ||
+    conversation.user_id !== userId ||
+    !project ||
+    project.deleted_at ||
+    project.user_id !== userId ||
+    project.conversation_id !== conversationId
+  )
+    throw new StageAuthorizationError('stage_authorization_scope')
+}
 export async function proposeStageAuthorization(input: {
   userId: string
   conversationId: string
@@ -158,10 +247,19 @@ export async function proposeStageAuthorization(input: {
   nodeIds: string[]
   nodeNames: string[]
   nodes: readonly StageChargeInput[]
+  bindings: readonly StageExecutionBinding[]
 }) {
   const now = Date.now(),
     id = crypto.randomUUID()
   return db.transaction(async (tx) => {
+    await assertStageOwnership(tx, input.userId, input.conversationId, input.projectId)
+    if (
+      !sameIdSet(
+        input.bindings.map((binding) => binding.nodeId),
+        input.nodeIds,
+      )
+    )
+      throw new StageAuthorizationError('stage_authorization_scope')
     const priced = await pricedCharges(tx, input.userId, input.nodes)
     const state: StageAuthorization = {
       id,
@@ -173,12 +271,13 @@ export async function proposeStageAuthorization(input: {
       estimatedCredits: priced.total,
       budgetCap: priced.total,
       charges: priced.charges,
+      bindings: input.bindings,
       spentCredits: 0,
       status: 'pending',
       attempts: [],
       audit: [{ kind: 'proposed', at: now }],
     }
-    await tx
+    const inserted = await tx
       .insert(table)
       .values({
         id,
@@ -191,6 +290,8 @@ export async function proposeStageAuthorization(input: {
         updated_at: now,
       })
       .onConflictDoNothing()
+      .returning({ id: table.id })
+    if (inserted.length > 0) return state
     const [row] = await tx
       .select()
       .from(table)
@@ -198,10 +299,13 @@ export async function proposeStageAuthorization(input: {
         and(
           eq(table.conversation_id, input.conversationId),
           eq(table.proposal_key, input.proposalKey),
-          eq(table.user_id, input.userId),
         ),
       )
-    return row!.state
+      .for('update')
+    if (!row) throw new StageAuthorizationError('stage_authorization_conflict')
+    if (!proposalAgrees(row, input))
+      throw new StageAuthorizationError('stage_authorization_conflict')
+    return row.state
   })
 }
 export async function readStageAuthorization(userId: string, id: string) {
@@ -258,6 +362,23 @@ export async function confirmStageAuthorization(
     })
     return { authorization, executionToken }
   })
+}
+/** 登出时收回这个用户还开着的阶段授权。已结束或已过期的行保持原样。 */
+export async function endStageAuthorizationsForUser(userId: string): Promise<number> {
+  const rows = await db
+    .select({ id: table.id })
+    .from(table)
+    .where(and(eq(table.user_id, userId), sql`${table.state}->>'status' in ('pending', 'active')`))
+  let ended = 0
+  for (const row of rows) {
+    try {
+      const state = await endStageAuthorization(userId, row.id)
+      if (state.status === 'ended') ended += 1
+    } catch (error) {
+      if (!(error instanceof StageAuthorizationError)) throw error
+    }
+  }
+  return ended
 }
 export async function endStageAuthorization(userId: string, id: string) {
   return db.transaction(async (tx) => {
@@ -408,6 +529,7 @@ export async function consumeStageAuthorization(
   taskId: string,
   usage: { model: string; quantity: number; unitMultiplier: number },
   credits: number,
+  execution: StageExecutionFingerprint,
 ) {
   if (!userId) throw new StageAuthorizationError('stage_authorization_inactive')
   const quantity = billedStageQuantity(usage.quantity)
@@ -434,6 +556,9 @@ export async function consumeStageAuthorization(
     attempt.submittedQuantity + quantity > attempt.quantity
   )
     throw new StageAuthorizationError('stage_authorization_attempt_conflict')
+  const binding = state.bindings?.find((item) => item.nodeId === ref.nodeId)
+  if (!binding || !stageExecutionBindingMatches(binding, execution))
+    throw new StageAuthorizationError('stage_authorization_scope')
   if (
     attempt.spentCredits + credits > attempt.reservedCredits ||
     state.spentCredits + credits > state.budgetCap

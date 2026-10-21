@@ -1,3 +1,5 @@
+import type { StageExecutionBinding } from './stage-execution'
+
 export type StageAuthorizationStatus = 'pending' | 'active' | 'exhausted' | 'ended' | 'expired'
 
 export interface StageAuthorizationCharge {
@@ -43,6 +45,11 @@ export interface StageAuthorization {
   readonly budgetCap: number
   /** 提案或确认时服务端按节点模型、数量和倍率算出的报价。模型自填的预估不在这里。 */
   readonly charges?: readonly StageAuthorizationCharge[]
+  /**
+   * 提案时从画布冻结的提示词、输入张数和媒体类型。
+   * 消费执行凭证时必须与真实提交一致；缺了就拒绝，不能只凭令牌跑任意内容。
+   */
+  readonly bindings?: readonly StageExecutionBinding[]
   readonly spentCredits: number
   readonly status: StageAuthorizationStatus
   readonly attempts: readonly StageAuthorizationAttempt[]

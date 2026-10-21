@@ -58,6 +58,7 @@ import {
   pgView,
   primaryKey,
   text,
+  unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
@@ -435,6 +436,7 @@ export const canvas_projects = pgTable(
   (t) => [
     index('idx_canvas_projects_owner_id').on(t.user_id, t.id),
     uniqueIndex('idx_canvas_projects_conversation').on(t.conversation_id),
+    unique('canvas_projects_owner_id_key').on(t.user_id, t.id),
   ],
 )
 
@@ -518,6 +520,7 @@ export const agent_conversations = pgTable(
     index('idx_agent_conversations_device_time')
       .on(t.device_id, t.updated_at.desc())
       .where(sql`${t.device_id} IS NOT NULL`),
+    unique('agent_conversations_owner_id_key').on(t.user_id, t.id),
   ],
 )
 
@@ -1651,5 +1654,15 @@ export const agent_stage_authorizations = pgTable(
   (t) => [
     uniqueIndex('idx_agent_stage_proposal').on(t.conversation_id, t.proposal_key),
     index('idx_agent_stage_owner').on(t.user_id, t.conversation_id),
+    foreignKey({
+      columns: [t.user_id, t.conversation_id],
+      foreignColumns: [agent_conversations.user_id, agent_conversations.id],
+      name: 'agent_stage_authorizations_owner_conversation_fk',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.user_id, t.project_id],
+      foreignColumns: [canvas_projects.user_id, canvas_projects.id],
+      name: 'agent_stage_authorizations_owner_project_fk',
+    }).onDelete('cascade'),
   ],
 )

@@ -69,6 +69,7 @@ const {
   STAGE_AUTHORIZATION_EXPIRE_BATCH,
   consumeStageAuthorization,
   expireStaleStageAuthorizations,
+  proposeStageAuthorization,
   stageAuthorizationInFlightTaskIds,
 } = await import('../../lib/agent/stage-authorizations')
 const { createAgentImageSource } = await import('../../lib/agent/images')
@@ -856,7 +857,10 @@ it('rejects negative or non-positive settlement usage', async () => {
   }
   await expect(
     db.transaction((tx) =>
-      consumeStageAuthorization(tx, 'stage-owner', ref, 'task-negative', usage, -1),
+      consumeStageAuthorization(tx, 'stage-owner', ref, 'task-negative', usage, -1, {
+        prompt: '嫩芽',
+        inputCount: 0,
+      }),
     ),
   ).rejects.toThrow('stage_authorization_attempt_conflict')
   await expect(
@@ -868,6 +872,7 @@ it('rejects negative or non-positive settlement usage', async () => {
         'task-backward',
         { ...usage, quantity: -1 },
         0,
+        { prompt: '嫩芽', inputCount: 0 },
       ),
     ),
   ).rejects.toThrow('stage_authorization_attempt_conflict')
@@ -904,14 +909,20 @@ it('counts a fractional submitted duration as the preflight ceiling', async () =
   }
   const usage = { model: 'gpt-image-2.5-flare', quantity: 1.2, unitMultiplier: 1 }
   await db.transaction((tx) =>
-    consumeStageAuthorization(tx, 'stage-owner', ref, 'task-fraction', usage, 0),
+    consumeStageAuthorization(tx, 'stage-owner', ref, 'task-fraction', usage, 0, {
+      prompt: '嫩芽',
+      inputCount: 0,
+    }),
   )
   expect(await (await request(proposal.authorizationId)).json()).toMatchObject({
     attempts: [{ submittedQuantity: 2, taskIds: ['task-fraction'] }],
   })
   await expect(
     db.transaction((tx) =>
-      consumeStageAuthorization(tx, 'stage-owner', ref, 'task-fraction-again', usage, 0),
+      consumeStageAuthorization(tx, 'stage-owner', ref, 'task-fraction-again', usage, 0, {
+        prompt: '嫩芽',
+        inputCount: 0,
+      }),
     ),
   ).rejects.toThrow('stage_authorization_attempt_conflict')
 })
@@ -1062,4 +1073,292 @@ it('expires an idle authorization behind a full batch of in-flight rows', async 
   `)
   expect(inFlight).toHaveLength(STAGE_AUTHORIZATION_EXPIRE_BATCH)
   expect(inFlight.map((row) => row.authorization_id)).not.toContain(idleId)
+})
+
+const PIXEL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+
+function queueSubmit(body: Record<string, unknown>, session = cookie) {
+  return app.handle(
+    new Request('http://localhost/v1/queue/openai-compat/gpt-image-2.5-flare/submit', {
+      method: 'POST',
+      headers: { cookie: session, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  )
+}
+
+it('keeps the submitted duration and rejects an authorization whose content is not the frozen node', async () => {
+  const proposal = await fixture()
+  const { executionToken } = await (await request(proposal.authorizationId, '/confirm', {})).json()
+  await request(proposal.authorizationId, '/preflight', {
+    nodeId: 'a',
+    model: 'gpt-image-2.5-flare',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken,
+    attemptId: 'bound',
+  })
+  const auth = {
+    authorizationId: proposal.authorizationId,
+    executionToken,
+    attemptId: 'bound',
+    nodeId: 'a',
+  }
+  const wrongPrompt = await queueSubmit({
+    prompt: '别的内容',
+    device_id: 'stage-test-device',
+    client_request_id: crypto.randomUUID(),
+    stage_authorization: auth,
+  })
+  expect(wrongPrompt.status).toBe(409)
+  expect(await wrongPrompt.json()).toMatchObject({ error: 'stage_authorization_scope' })
+  const ref = { ...auth }
+  const usage = { model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 1 }
+  await expect(
+    db.transaction((tx) =>
+      consumeStageAuthorization(tx, 'stage-owner', ref, 'task-video', usage, 0, {
+        prompt: '嫩芽',
+        inputCount: 0,
+        video: { durationSeconds: 5, resolution: '720p', aspectRatio: '16:9' },
+      }),
+    ),
+  ).rejects.toThrow('stage_authorization_scope')
+  const open = await (await request(proposal.authorizationId)).json()
+  await db
+    .update(schema.agent_stage_authorizations)
+    .set({ state: { ...open, bindings: undefined } })
+    .where(eq(schema.agent_stage_authorizations.id, proposal.authorizationId))
+  const unbound = await queueSubmit({
+    prompt: '嫩芽',
+    device_id: 'stage-test-device',
+    client_request_id: crypto.randomUUID(),
+    stage_authorization: auth,
+  })
+  expect(unbound.status).toBe(409)
+  expect(await unbound.json()).toMatchObject({ error: 'stage_authorization_scope' })
+  expect(await (await request(proposal.authorizationId)).json()).toMatchObject({
+    spentCredits: 0,
+    attempts: [{ taskIds: [] }],
+  })
+})
+
+it('discards archived inputs when stage consumption fails after preparation', async () => {
+  const { InMemoryObjectStore } = await import('../helpers/inMemoryObjectStore')
+  const { setObjectStoreForTesting } = await import('../../lib/objectStore')
+  const store = new InMemoryObjectStore()
+  setObjectStoreForTesting(store)
+  try {
+    const proposal = await fixture()
+    const { executionToken } = await (
+      await request(proposal.authorizationId, '/confirm', {})
+    ).json()
+    await request(proposal.authorizationId, '/preflight', {
+      nodeId: 'a',
+      model: 'gpt-image-2.5-flare',
+      quantity: 1,
+      unitMultiplier: 1,
+      executionToken,
+      attemptId: 'archive',
+    })
+    const before = new Set(
+      (await db.select({ id: schema.tasks.id }).from(schema.tasks)).map((row) => row.id),
+    )
+    const failed = await queueSubmit({
+      prompt: '嫩芽',
+      device_id: 'stage-test-device',
+      client_request_id: crypto.randomUUID(),
+      input_images: [PIXEL],
+      stage_authorization: {
+        authorizationId: proposal.authorizationId,
+        executionToken,
+        attemptId: 'archive',
+        nodeId: 'a',
+      },
+    })
+    expect(failed.status).toBe(409)
+    expect(await failed.json()).toMatchObject({ error: 'stage_authorization_scope' })
+    expect(store.events.some((event) => event.startsWith('write:'))).toBe(true)
+    expect(
+      store.events.some((event) => event.startsWith('delete:') && event.endsWith('/in/')),
+    ).toBe(true)
+    expect(store.objects.size).toBe(0)
+    const created = (await db.select({ id: schema.tasks.id }).from(schema.tasks)).filter(
+      (row) => !before.has(row.id),
+    )
+    expect(created).toHaveLength(0)
+  } finally {
+    setObjectStoreForTesting()
+  }
+})
+
+it('includes the stage authorization in the idempotency identity and does not consume a mismatched replay', async () => {
+  const proposal = await fixture()
+  const { executionToken } = await (await request(proposal.authorizationId, '/confirm', {})).json()
+  await request(proposal.authorizationId, '/preflight', {
+    nodeId: 'a',
+    model: 'gpt-image-2.5-flare',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken,
+    attemptId: 'idem',
+  })
+  const stageAuthorization = {
+    authorizationId: proposal.authorizationId,
+    executionToken,
+    attemptId: 'idem',
+    nodeId: 'a',
+  }
+  const sharedId = crypto.randomUUID()
+  const plain = await queueSubmit({
+    prompt: '嫩芽',
+    device_id: 'stage-test-device',
+    client_request_id: sharedId,
+  })
+  expect(plain.status).toBe(200)
+  const rebound = await queueSubmit({
+    prompt: '嫩芽',
+    device_id: 'stage-test-device',
+    client_request_id: sharedId,
+    stage_authorization: stageAuthorization,
+  })
+  expect(rebound.status).toBe(409)
+  expect(await rebound.json()).toMatchObject({ error: 'idempotency_key_conflict' })
+  expect(await (await request(proposal.authorizationId)).json()).toMatchObject({ spentCredits: 0 })
+  const authedId = crypto.randomUUID()
+  const authed = {
+    prompt: '嫩芽',
+    device_id: 'stage-test-device',
+    client_request_id: authedId,
+    stage_authorization: stageAuthorization,
+  }
+  const first = await queueSubmit(authed)
+  expect(first.status).toBe(200)
+  const replay = await queueSubmit(authed)
+  expect(replay.status).toBe(200)
+  expect((await replay.json()).request_id).toBe((await first.json()).request_id)
+  const charged = await (await request(proposal.authorizationId)).json()
+  expect(charged).toMatchObject({ spentCredits: 6 })
+  expect(charged.attempts[0].taskIds).toHaveLength(1)
+  const stripped = await queueSubmit({
+    prompt: '嫩芽',
+    device_id: 'stage-test-device',
+    client_request_id: authedId,
+  })
+  expect(stripped.status).toBe(409)
+  const still = await (await request(proposal.authorizationId)).json()
+  expect(still.spentCredits).toBe(6)
+  expect(still.attempts[0].taskIds).toHaveLength(1)
+})
+
+it('returns the existing proposal when the key matches and rejects a different owner or node set', async () => {
+  const proposal = await fixture()
+  const [row] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, proposal.authorizationId))
+  if (!row?.state.bindings) throw new Error('missing binding')
+  const again = await proposeStageAuthorization({
+    userId: 'stage-owner',
+    conversationId: row.conversation_id,
+    projectId: row.project_id,
+    proposalKey: row.proposal_key,
+    stage: row.state.stage,
+    nodeIds: [...row.state.nodeIds],
+    nodeNames: [...row.state.nodeNames],
+    nodes: (row.state.charges ?? []).map(({ nodeId, model, quantity, unitMultiplier }) => ({
+      nodeId,
+      model,
+      quantity,
+      unitMultiplier,
+    })),
+    bindings: row.state.bindings,
+  })
+  expect(again.id).toBe(proposal.authorizationId)
+  await expect(
+    proposeStageAuthorization({
+      userId: 'stage-owner',
+      conversationId: row.conversation_id,
+      projectId: row.project_id,
+      proposalKey: row.proposal_key,
+      stage: row.state.stage,
+      nodeIds: ['b'],
+      nodeNames: ['树'],
+      nodes: [{ nodeId: 'b', model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 1 }],
+      bindings: row.state.bindings.map((binding) => ({ ...binding, nodeId: 'b' })),
+    }),
+  ).rejects.toThrow('stage_authorization_conflict')
+  const otherConversation = crypto.randomUUID()
+  const now = Date.now()
+  await db.insert(schema.agent_conversations).values({
+    id: otherConversation,
+    user_id: 'stage-owner',
+    title: '另一会话',
+    created_at: now,
+    updated_at: now,
+  })
+  await expect(
+    proposeStageAuthorization({
+      userId: 'stage-owner',
+      conversationId: otherConversation,
+      projectId: row.project_id,
+      proposalKey: 'other-project',
+      stage: '素材',
+      nodeIds: ['a'],
+      nodeNames: ['嫩芽'],
+      nodes: [{ nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 1 }],
+      bindings: row.state.bindings,
+    }),
+  ).rejects.toThrow('stage_authorization_scope')
+  await db.insert(schema.users).values({
+    id: 'stage-other',
+    username: 'stage-other',
+    password_hash: 'unused',
+    status: 'active',
+    created_at: now,
+    updated_at: now,
+  })
+  let foreignKeyRejected = false
+  try {
+    await db.insert(schema.agent_stage_authorizations).values({
+      id: 'cross-user-stage',
+      user_id: 'stage-other',
+      conversation_id: row.conversation_id,
+      project_id: row.project_id,
+      proposal_key: 'cross-user',
+      state: row.state,
+      created_at: now,
+      updated_at: now,
+    })
+  } catch (error) {
+    foreignKeyRejected = true
+    const cause = error instanceof Error ? error.cause : undefined
+    const text = `${error instanceof Error ? error.message : String(error)}\n${cause instanceof Error ? cause.message : String(cause ?? '')}`
+    expect(text).toMatch(/foreign key|23503/i)
+  }
+  expect(foreignKeyRejected).toBe(true)
+  expect(await (await request(proposal.authorizationId)).json()).toMatchObject({
+    status: 'pending',
+    nodeIds: ['a'],
+  })
+})
+
+it('ends active stage authorizations when the user logs out', async () => {
+  const proposal = await fixture()
+  const { executionToken } = await (await request(proposal.authorizationId, '/confirm', {})).json()
+  expect(executionToken).toEqual(expect.any(String))
+  const logoutCookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('stage-owner', tx))}`
+  const logout = await app.handle(
+    new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: logoutCookie },
+    }),
+  )
+  expect(logout.status).toBe(200)
+  const [row] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, proposal.authorizationId))
+  expect(row?.state.status).toBe('ended')
+  expect((await request(proposal.authorizationId)).status).toBe(200)
 })

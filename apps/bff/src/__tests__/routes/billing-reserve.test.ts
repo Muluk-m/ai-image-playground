@@ -158,7 +158,7 @@ describe('billing reservation units', () => {
     ])
   })
 
-  it('reserves a fractional video duration as the ceiled second count', async () => {
+  it('rejects a video duration that is not one of the model tiers', async () => {
     _setChannelsForTesting([
       {
         ...channels[1]!,
@@ -168,6 +168,13 @@ describe('billing reservation units', () => {
     expect(
       await submit('grok-imagine-video-1.5-lite', {
         video: { duration_seconds: 1.9, aspect_ratio: '16:9', resolution: '720p' },
+      }),
+    ).toBe(400)
+    expect(reservations).toEqual([])
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(
+      await submit('grok-imagine-video-1.5-lite', {
+        video: { duration_seconds: 2, aspect_ratio: '16:9', resolution: '720p' },
       }),
     ).toBe(200)
     expect(reservations).toEqual([

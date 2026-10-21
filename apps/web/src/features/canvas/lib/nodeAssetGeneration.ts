@@ -4,6 +4,7 @@ import {
   canvasOrigin,
   type ImageNodeData,
   readCanvasDocument,
+  stageAssetContext,
   updateCanvasNode,
 } from '@image-playground/shared'
 import type * as Y from 'yjs'
@@ -15,9 +16,7 @@ import { useLibraryStore } from '../../library/store'
 import type { CanvasEditor } from './editor'
 
 export function assetNodeContext(node: CanvasNode): string {
-  return node.type === 'image' && node.data.meta?.nodeKind === 'asset'
-    ? [node.data.name, node.data.meta.assetDescription].filter(Boolean).join('：')
-    : ''
+  return stageAssetContext(node)
 }
 
 export function assetDerivationPrompt(node: CanvasNode): string | null {

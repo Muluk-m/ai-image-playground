@@ -437,16 +437,15 @@ export function narrowVideoModelSupport(
   hasVoices = false,
 ): VideoModelSupport {
   const caps = [
-    mode === 'reference' ? support.referenceImages?.maxResolution : undefined,
-    mode === 'frames' || hasVoices ? support.guideMaxResolution : undefined,
-  ].filter((value): value is VideoResolution => Boolean(value))
+    mode === 'reference' ? asVideoResolution(support.referenceImages?.maxResolution) : undefined,
+    mode === 'frames' || hasVoices ? asVideoResolution(support.guideMaxResolution) : undefined,
+  ].filter((value): value is VideoResolution => value !== undefined)
+  if (!caps.length) return support
   const max = Math.min(...caps.map((value) => VIDEO_RESOLUTIONS.indexOf(value)))
-  return caps.length
-    ? {
-        ...support,
-        resolutions: support.resolutions.filter((value) => VIDEO_RESOLUTIONS.indexOf(value) <= max),
-      }
-    : support
+  return {
+    ...support,
+    resolutions: support.resolutions.filter((value) => VIDEO_RESOLUTIONS.indexOf(value) <= max),
+  }
 }
 
 function asVideoResolution(value: string | undefined): VideoResolution | undefined {

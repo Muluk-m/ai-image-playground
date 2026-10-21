@@ -1,4 +1,6 @@
 import { agentImageCount } from './agent'
+import type { CanvasNode } from './canvas-document'
+import { canvasNodeKind } from './canvas-registry'
 import {
   canonicalVideoVoice,
   clampVideoPreset,
@@ -43,11 +45,14 @@ export function stageExecutionSpecsMatch(
   snapshot: readonly StageNodeExecutionSpec[],
 ): boolean {
   if (live.length !== snapshot.length) return false
+  const liveIds = new Set(live.map((item) => item.nodeId))
+  if (liveIds.size !== live.length) return false
   const seen = new Set<string>()
   for (const item of snapshot) {
     if (seen.has(item.nodeId)) return false
     seen.add(item.nodeId)
   }
+  if (seen.size !== liveIds.size) return false
   return live.every((item) => {
     const stored = snapshot.find((one) => one.nodeId === item.nodeId)
     if (!stored) return false
@@ -211,4 +216,310 @@ export function resolveStageImageExecution(input: {
     quantity: single ? 1 : agentImageCount({ n: input.count }),
     unitMultiplier: 1,
   }
+}
+
+/** 画布上直接连进目标节点的上游。提示词和输入张数都按这一跳，不沿祖先展开。 */
+export interface StageBindingReference {
+  readonly id: string
+  readonly kind: 'image' | 'text' | 'video'
+  readonly label: string
+  readonly text?: string
+  readonly fileId?: string
+  readonly asset?: boolean
+}
+
+/**
+ * 提案时冻结、提交时核对的执行内容。
+ * 提示词、输入张数和视频档位来自服务端读到的画布，不接受客户端自报的指纹。
+ */
+export interface StageExecutionBinding {
+  readonly nodeId: string
+  readonly kind: 'image' | 'video'
+  readonly prompt: string
+  readonly inputCount: number
+  readonly video?: {
+    readonly durationSeconds: number
+    readonly resolution: string
+    readonly aspectRatio: string
+  }
+}
+
+/** 队列里实际提交的内容。与绑定不一致就不能消耗阶段预算。 */
+export interface StageExecutionFingerprint {
+  readonly prompt: string
+  readonly inputCount: number
+  readonly video?: {
+    readonly durationSeconds: number
+    readonly resolution: string
+    readonly aspectRatio: string
+  }
+}
+
+export function stageIncomingReferences(
+  nodes: readonly CanvasNode[],
+  edges: readonly { readonly source: string; readonly target: string }[],
+  targetId: string,
+): StageBindingReference[] {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const refs: StageBindingReference[] = []
+  for (const edge of edges) {
+    if (edge.target !== targetId) continue
+    const node = byId.get(edge.source)
+    if (!node || node.type === 'timeline' || node.type === 'storyboard') continue
+    if (node.type === 'text') {
+      const text = node.data.text.trim()
+      refs.push({ id: node.id, kind: 'text', label: text.slice(0, 42), text })
+      continue
+    }
+    refs.push({
+      id: node.id,
+      kind: node.type === 'video' || node.data.meta?.nodeKind === 'video' ? 'video' : 'image',
+      label: node.data.name?.trim() ?? '',
+      ...(node.data.meta?.nodeKind === 'asset'
+        ? {
+            asset: true,
+            text: [node.data.name, node.data.meta.assetDescription].filter(Boolean).join('：'),
+          }
+        : {}),
+      ...(node.data.fileId ? { fileId: node.data.fileId } : {}),
+    })
+  }
+  return refs
+}
+
+/** 连线顺序与画布 `referenceOrder` 一致；没点名的上游排在后面。 */
+export function orderStageReferences<T extends { readonly id: string }>(
+  refs: readonly T[],
+  referenceOrder: string | undefined,
+): T[] {
+  let order: string[] = []
+  try {
+    const list = JSON.parse(referenceOrder ?? '[]')
+    if (Array.isArray(list)) order = list.filter((id): id is string => typeof id === 'string')
+  } catch {
+    order = []
+  }
+  return [...refs].sort(
+    (a, b) =>
+      (order.includes(a.id) ? order.indexOf(a.id) : 999) -
+      (order.includes(b.id) ? order.indexOf(b.id) : 999),
+  )
+}
+
+export function stageAssetContext(node: CanvasNode): string {
+  return node.type === 'image' && node.data.meta?.nodeKind === 'asset'
+    ? [node.data.name, node.data.meta.assetDescription].filter(Boolean).join('：')
+    : ''
+}
+
+/** 上游文字按连线顺序放在节点提示词前面。图片不进这句话。 */
+export function stageComposedPrompt(
+  nodePrompt: string,
+  references: readonly {
+    readonly kind: string
+    readonly text?: string
+    readonly asset?: boolean
+  }[],
+): string {
+  const notes = references.flatMap((ref) =>
+    (ref.kind === 'text' || ref.asset) && ref.text ? [ref.text] : [],
+  )
+  return [...notes, nodePrompt.trim()].filter(Boolean).join('\n')
+}
+
+export function stageNodePrompt(input: {
+  readonly kind: 'image' | 'video'
+  readonly nodePrompt: string
+  readonly assetContext: string
+  readonly references: readonly {
+    readonly kind: string
+    readonly text?: string
+    readonly asset?: boolean
+  }[]
+}): string {
+  return [
+    input.kind === 'image' ? input.assetContext : '',
+    stageComposedPrompt(input.nodePrompt, input.references),
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+/** 视频模式挑出真正会送进队列的参考图，规则与画布 `nodeVideoInputs` 相同。 */
+export function selectStageVideoReferences(
+  mode: VideoNodeMode,
+  refs: readonly StageBindingReference[],
+  slots: { first?: string; last?: string } = {},
+) {
+  const images = refs.filter((ref) => ref.kind === 'image' && !ref.asset)
+  const first = slots.first !== undefined ? images.find((ref) => ref.id === slots.first) : images[0]
+  const last =
+    slots.last !== undefined
+      ? images.find((ref) => ref.id === slots.last)
+      : images.find((ref) => ref.id !== first?.id)
+  const seenFiles = new Set<string>()
+  const uniqueReferences = refs.filter((ref) => {
+    if (ref.kind !== 'image' || (ref.asset && !ref.fileId)) return false
+    const key = ref.fileId ?? ref.id
+    if (seenFiles.has(key)) return false
+    seenFiles.add(key)
+    return true
+  })
+  const selected =
+    mode === 'reference'
+      ? uniqueReferences
+      : mode === 'text'
+        ? []
+        : [first, ...(mode === 'frames' ? [last] : [])].filter(
+            (ref): ref is StageBindingReference => Boolean(ref),
+          )
+  return {
+    refs: [
+      ...refs
+        .filter((ref) => ref.kind === 'text' || (ref.asset && !selected.includes(ref)))
+        .map((ref) => (ref.asset ? { ...ref, kind: 'text' as const, fileId: undefined } : ref)),
+      ...selected,
+    ],
+    roles: Object.fromEntries(
+      selected.map((ref) => [
+        ref.id,
+        mode === 'reference' ? 'reference' : ref.id === first?.id ? 'first' : 'last',
+      ]),
+    ),
+    first: mode === 'first' || mode === 'frames' ? first : undefined,
+    last: mode === 'frames' ? last : undefined,
+    missing:
+      ((mode === 'first' || mode === 'frames') && !first) ||
+      (mode === 'frames' && (!last || last.id === first?.id)),
+  }
+}
+
+/**
+ * 阶段里真正参与这一节点的上游。
+ * 同一阶段里还没出图的上游在挑选时记成批次来源，挑完仍用画布上的原引用，和批次执行一致。
+ */
+export function stageActiveReferences(input: {
+  readonly kind: 'image' | 'video'
+  readonly incoming: readonly StageBindingReference[]
+  readonly authorizedIds: ReadonlySet<string>
+  readonly video?: {
+    readonly mode: VideoNodeMode
+    readonly legacyFirst?: string
+    readonly legacyLast?: string
+    readonly explicitFirst?: string
+    readonly explicitLast?: string
+  }
+}): { refs: StageBindingReference[]; roles: Record<string, string>; missing: boolean } {
+  if (input.kind !== 'video' || !input.video)
+    return { refs: [...input.incoming], roles: {}, missing: false }
+  const stamped = input.incoming.map((ref) =>
+    input.authorizedIds.has(ref.id) ? { ...ref, fileId: `batch-source:${ref.id}` } : ref,
+  )
+  const selected = selectStageVideoReferences(input.video.mode, stamped, {
+    first: input.video.explicitFirst ?? input.video.legacyFirst,
+    last: input.video.explicitLast ?? input.video.legacyLast,
+  })
+  return {
+    refs: selected.refs.map((ref) =>
+      ref.kind === 'image' && input.authorizedIds.has(ref.id)
+        ? (input.incoming.find((original) => original.id === ref.id) ?? ref)
+        : ref,
+    ),
+    roles: selected.roles,
+    missing: selected.missing,
+  }
+}
+
+/** 文件已在画布上的外部图，加上本阶段会产出的上游，各算一张。浏览器临时上传不在这里。 */
+export function stageSubmittedInputCount(
+  refs: readonly StageBindingReference[],
+  authorizedIds: ReadonlySet<string>,
+): number {
+  const images = refs.filter(
+    (ref) =>
+      ref.kind === 'image' && (!ref.asset || Boolean(ref.fileId) || authorizedIds.has(ref.id)),
+  )
+  const keys = new Set<string>()
+  for (const ref of images) {
+    if (authorizedIds.has(ref.id)) keys.add(`node:${ref.id}`)
+    else if (ref.fileId) keys.add(`file:${ref.fileId}`)
+  }
+  return keys.size
+}
+
+export function stageExecutionBinding(input: {
+  readonly node: CanvasNode
+  readonly nodes: readonly CanvasNode[]
+  readonly edges: readonly { readonly source: string; readonly target: string }[]
+  readonly authorizedIds: ReadonlySet<string>
+  readonly video?: {
+    readonly mode: VideoNodeMode
+    readonly draft: StageVideoDraftFields
+    readonly legacyFirst?: string
+    readonly legacyLast?: string
+  }
+}): StageExecutionBinding {
+  const kind = canvasNodeKind(input.node) === 'video' ? 'video' : 'image'
+  const meta =
+    input.node.type === 'image' || input.node.type === 'video' ? (input.node.data.meta ?? {}) : {}
+  const incoming = orderStageReferences(
+    stageIncomingReferences(input.nodes, input.edges, input.node.id),
+    meta.referenceOrder,
+  )
+  const active = stageActiveReferences({
+    kind,
+    incoming,
+    authorizedIds: input.authorizedIds,
+    ...(input.video
+      ? {
+          video: {
+            mode: input.video.mode,
+            legacyFirst: input.video.legacyFirst,
+            legacyLast: input.video.legacyLast,
+            explicitFirst: meta.videoFirstFrame,
+            explicitLast: meta.videoLastFrame,
+          },
+        }
+      : {}),
+  })
+  return {
+    nodeId: input.node.id,
+    kind,
+    prompt: stageNodePrompt({
+      kind,
+      nodePrompt: meta.nodePrompt ?? '',
+      assetContext: kind === 'image' ? stageAssetContext(input.node) : '',
+      references: active.refs,
+    }),
+    inputCount: stageSubmittedInputCount(active.refs, input.authorizedIds),
+    ...(kind === 'video' && input.video
+      ? {
+          video: {
+            durationSeconds: input.video.draft.duration,
+            resolution: input.video.draft.resolution,
+            aspectRatio: input.video.draft.aspectRatio,
+          },
+        }
+      : {}),
+  }
+}
+
+export function stageExecutionBindingMatches(
+  binding: StageExecutionBinding,
+  execution: StageExecutionFingerprint,
+): boolean {
+  if (binding.prompt !== execution.prompt || binding.inputCount !== execution.inputCount)
+    return false
+  if (binding.kind === 'video') {
+    const video = binding.video
+    const given = execution.video
+    return Boolean(
+      video &&
+        given &&
+        video.durationSeconds === given.durationSeconds &&
+        video.resolution === given.resolution &&
+        video.aspectRatio === given.aspectRatio,
+    )
+  }
+  return execution.video === undefined
 }

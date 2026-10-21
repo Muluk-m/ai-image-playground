@@ -8,8 +8,12 @@ import {
   canvasNodeJobs,
   canvasNodeKind,
   canvasResults,
+  orderStageReferences,
   readCanvasDocument,
   resolveStageImageExecution,
+  stageActiveReferences,
+  stageIncomingReferences,
+  stageNodePrompt,
   videoRequestRejection,
 } from '@image-playground/shared'
 import type * as Y from 'yjs'
@@ -24,16 +28,10 @@ import { useVideoStore } from '../../video/store'
 import type { VideoDraft } from '../../video/types'
 import type { CanvasEditor } from './editor'
 import { assetNodeContext } from './nodeAssetGeneration'
-import {
-  composeNodePrompt,
-  incomingReferences,
-  type NodeReference,
-  referenceFileIds,
-} from './nodeCanvasFlow'
+import { type NodeReference, referenceFileIds } from './nodeCanvasFlow'
 import { submitNodeImage } from './nodeCanvasGenerate'
 import { submitNodeVideo } from './nodeCanvasVideo'
 import { nodeVideoConfiguration } from './nodeVideoConfiguration'
-import { nodeVideoInputs } from './nodeVideoModes'
 import { nodeReferenceDraft } from './useNodeReferenceDraft'
 
 export type NodeBatchError =
@@ -97,17 +95,10 @@ export interface NodeBatchInput {
   guard?: typeof getPrivateSubmissionGuard
 }
 function referencesFor(snapshot: CanvasSnapshot, node: CanvasNode) {
-  const refs = incomingReferences(snapshot.nodes, snapshot.edges, node.id)
   const meta = 'meta' in node.data ? (node.data.meta ?? {}) : {}
-  let order: string[] = []
-  try {
-    const list = JSON.parse(meta.referenceOrder ?? '[]')
-    if (Array.isArray(list)) order = list.filter((id) => typeof id === 'string')
-  } catch {}
-  return refs.sort(
-    (a, b) =>
-      (order.includes(a.id) ? order.indexOf(a.id) : 999) -
-      (order.includes(b.id) ? order.indexOf(b.id) : 999),
+  return orderStageReferences(
+    stageIncomingReferences(snapshot.nodes, snapshot.edges, node.id),
+    meta.referenceOrder,
   )
 }
 /** Select generators only; text, imported media, assets and timelines remain their inputs. */
@@ -171,19 +162,19 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
       model = config.spec.model
       quantity = config.spec.quantity
       unitMultiplier = config.spec.unitMultiplier
-      const inputs = nodeVideoInputs(
-        config.mode,
-        refs.map((ref) => (ids.has(ref.id) ? { ...ref, fileId: `batch-source:${ref.id}` } : ref)),
-        {
-          first: meta.videoFirstFrame ?? config.legacyFirst,
-          last: meta.videoLastFrame ?? config.legacyLast,
+      const inputs = stageActiveReferences({
+        kind,
+        incoming: refs,
+        authorizedIds: ids,
+        video: {
+          mode: config.mode,
+          legacyFirst: config.legacyFirst,
+          legacyLast: config.legacyLast,
+          explicitFirst: meta.videoFirstFrame,
+          explicitLast: meta.videoLastFrame,
         },
-      )
-      activeRefs = inputs.refs.map((ref) =>
-        ref.kind === 'image' && ids.has(ref.id)
-          ? refs.find((original) => original.id === ref.id)!
-          : ref,
-      )
+      })
+      activeRefs = inputs.refs
       roles = inputs.roles
       if (inputs.missing) error ??= 'media'
       const max =
@@ -191,12 +182,12 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
       if (max !== undefined && activeRefs.filter((ref) => ref.kind === 'image').length > max)
         error ??= 'limit'
     }
-    const prompt = [
-      kind === 'image' ? assetNodeContext(node) : '',
-      composeNodePrompt(meta.nodePrompt ?? '', activeRefs),
-    ]
-      .filter(Boolean)
-      .join('\n\n')
+    const prompt = stageNodePrompt({
+      kind,
+      nodePrompt: meta.nodePrompt ?? '',
+      assetContext: assetNodeContext(node),
+      references: activeRefs,
+    })
     const imageRefs = activeRefs.filter(
       (ref) => ref.kind === 'image' && (!ref.asset || ref.fileId || ids.has(ref.id)),
     )
