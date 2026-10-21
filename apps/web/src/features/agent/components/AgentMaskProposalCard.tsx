@@ -12,6 +12,7 @@ import { useStore } from '../../../store'
 import { refineEditRegion } from '../lib/agentClient'
 import { attachmentUploadsEnabled } from '../lib/attachmentUploads'
 import {
+  addClick,
   annotationRegions,
   editMaskRgba,
   type MaskAnnotation,
@@ -423,13 +424,17 @@ export default function AgentMaskProposalCard({
     context.restore()
   }, [annotations, look, numbered, regions, sketch])
 
+  // 帧里总是跑最新的那版重绘：排帧之后样式（建议 → 已调整）变了，也按新的画。
+  const redrawNowRef = useRef(redrawNow)
+  redrawNowRef.current = redrawNow
   const redraw = useCallback(() => {
-    if (frameRef.current === null) frameRef.current = requestAnimationFrame(redrawNow)
-  }, [redrawNow])
+    if (frameRef.current === null)
+      frameRef.current = requestAnimationFrame(() => redrawNowRef.current())
+  }, [])
 
   useEffect(() => {
     redraw()
-  }, [redraw])
+  }, [redraw, redrawNow])
   useEffect(
     () => () => {
       // 卸载（含开发模式的重复挂载）时取消并清空，否则后面的重绘永远排不上。
@@ -616,7 +621,7 @@ export default function AgentMaskProposalCard({
     const number = regionForClick(regions, hits, point, include, active)
     const region = regions.find((one) => one.number === number)
     if (!region) return
-    const clicks = [...region.clicks, { x: point.x, y: point.y, include }].slice(-MAX_CLICKS)
+    const clicks = addClick(region.clicks, { x: point.x, y: point.y, include }, MAX_CLICKS)
     const selected = region.selected || include
     const regionCanvas = regionMasksRef.current.get(number)!
     remember({
