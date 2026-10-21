@@ -333,6 +333,25 @@ it('wakes for a direct run blocked before confirmation and ends the authorizatio
   expect((await request(run.authorizationId, '/confirm', {})).status).toBe(409)
 })
 
+it('points a first-frame batch back to runStoryboardFrames, not runNodes', async () => {
+  const run = await proposal(['a'])
+  const state = await stored(run.authorizationId)
+  await db
+    .update(schema.agent_stage_authorizations)
+    .set({ state: { ...state, storyboard: { storyboardId: 'board', fingerprint: 'fp' } } })
+    .where(eq(schema.agent_stage_authorizations.id, run.authorizationId))
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'skipped', reason: 'stopped' }],
+  })
+  expect(report.status).toBe(200)
+  expect(await pickUpStrandedInboxes()).toBe(1)
+  await settledTurn(run.conversationId)
+  const asked = JSON.stringify(calls[0]!.messages)
+  expect(asked).toContain('再用 runStoryboardFrames（单镜重出传 shotIds） 发起新的阶段授权')
+  expect(asked).not.toContain('再用 runNodes 发起')
+})
+
 it('rejects reports that disagree with what the server recorded', async () => {
   const run = await proposal()
   const token = await confirm(run.authorizationId)

@@ -45,6 +45,11 @@ export class StoryboardFlowError extends Error {
 
 export interface StoryboardFlowContext {
   origin: CanvasOrigin
+  /**
+   * 智能体的首帧阶段：确认授权时才写入定稿，所以铺首帧时分镜表可以还是草稿。
+   * 节点上的指纹仍按当前镜头表写，确认时镜头表变了就拒绝。手动流程不传，仍要求先定稿。
+   */
+  allowDraft?: boolean
   names?: {
     frame(index: number): string
     grid(index: number): string
@@ -112,7 +117,8 @@ function boardOf(canvas: StoryboardDocument, id: string) {
     board?.type !== 'storyboard' ||
     !board.data.shots.length ||
     board.data.shots.length > PRODUCTION_SHOTS_MAX ||
-    board.data.confirmed?.fingerprint !== storyboardFingerprint(board.data.shots)
+    (!canvas.allowDraft &&
+      board.data.confirmed?.fingerprint !== storyboardFingerprint(board.data.shots))
   )
     throw new StoryboardFlowError('finalizeFirst')
   return board
@@ -131,23 +137,31 @@ function findGenerated(
       (shotId === undefined || node.data.meta.storyboardShotId === shotId),
   )
 }
-export function storyboardMissingAssets(doc: Y.Doc, id: string): string[] {
-  const board = readCanvasDocument(doc).nodes.find((node) => node.id === id)
-  if (board?.type !== 'storyboard') return []
+/** 分镜表引用、但还没有图的素材。传 shotIds 时只看这些镜头。 */
+export function storyboardMissingAssetNodes(
+  doc: Y.Doc,
+  id: string,
+  shotIds?: readonly string[],
+): { id: string; name: string }[] {
   const nodes = readCanvasDocument(doc).nodes
+  const board = nodes.find((node) => node.id === id)
+  if (board?.type !== 'storyboard') return []
+  const wanted = shotIds ? new Set(shotIds) : undefined
   return [
     ...new Set(
-      board.data.shots.flatMap((shot) => [
-        ...shot.lookIds,
-        ...(shot.locationId ? [shot.locationId] : []),
-      ]),
+      board.data.shots
+        .filter((shot) => !wanted || wanted.has(shot.id))
+        .flatMap((shot) => [...shot.lookIds, ...(shot.locationId ? [shot.locationId] : [])]),
     ),
   ].flatMap((id) => {
     const node = nodes.find((node) => node.id === id)
     return node?.type === 'image' && (node.data.fileId || node.data.mediaId)
       ? []
-      : [node?.type === 'image' ? node.data.name || id : id]
+      : [{ id, name: node?.type === 'image' ? node.data.name || id : id }]
   })
+}
+export function storyboardMissingAssets(doc: Y.Doc, id: string): string[] {
+  return storyboardMissingAssetNodes(doc, id).map((asset) => asset.name)
 }
 /** Preparation may create placeholders; execution must stop until these assets have pixels. */
 export function assertStoryboardAssetsReady(doc: Y.Doc, id: string): void {

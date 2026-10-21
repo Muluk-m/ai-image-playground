@@ -1,6 +1,7 @@
 /** 智能体对话协议（`/api/agent/*`）。一轮的事件流走 `text/event-stream`。 */
 
 import type { AgentBatchAnalysisLimit } from './agent-batch'
+import type { StoryboardStageSummary } from './canvas-storyboard'
 import type { ChannelMedia } from './channel-discovery'
 import type { StoredImageRef, TaskErrorType, TaskProgressPhase } from './queue-protocol'
 import type {
@@ -73,6 +74,7 @@ export type AgentToolName =
   | 'runNodes'
   | 'applyScriptPlan'
   | 'importCanvasImage'
+  | 'runStoryboardFrames'
   | 'generateVideo'
   | 'loadSkill'
   | 'arrangeTimeline'
@@ -327,6 +329,11 @@ export interface AgentTurnParams {
    * 不改变这一轮对话要调用的生成模型。
    */
   readonly canvasImageModel?: string
+  /**
+   * 原标签页工作台当前的出图张数。同 canvasImageModel，只给阶段授权报价；
+   * 画布轮不送 `n`（对话生图张数由工具决定），缺了它报价会按 1 张算，和画布实际提交对不上。
+   */
+  readonly canvasImageCount?: number
   /**
    * 直接出图：用户在参数里打开时，生成工具拟好稿就当场提交，不再逐张等确认。
    *
@@ -730,6 +737,8 @@ export interface AgentCanvasRunProposal {
    */
   readonly direct?: boolean
   readonly autoRun?: boolean
+  /** 首帧阶段的镜头表摘要。确认这条授权即把该分镜表定稿。 */
+  readonly storyboard?: StoryboardStageSummary
   /**
    * 提案时冻结的执行规格。确认和预检必须与它一致；工作台之后改了模型或数量，要重新提案。
    */
@@ -1510,10 +1519,13 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
       authorizationId: proposal.authorizationId,
       nodeIds: proposal.nodeIds,
     })
+    const finalize = proposal.storyboard
+      ? `首帧阶段：确认这条授权即把分镜表（${proposal.storyboard.shotCount} 镜，共 ${proposal.storyboard.totalSeconds} 秒）定稿；确认前镜头表被改过则授权失效，需要重新提案。`
+      : ''
     const stance = proposal.direct
       ? '这一轮用户开了直接出图：授权已登记，原标签页会立即开跑，没有确认卡，也不等待撤销。不要说待确认。'
       : '此记录是当时待确认的提案。'
-    return `${title}：阶段「${proposal.stage}」，范围 ${proposal.nodeNames.join('、')}，预算上限 ${proposal.budgetCap} 积分。${stance}当前状态必须查询 runNodes(${lookup})；只有真实 taskIds 才能说「已提交」，读取真实结果后才能说「已完成」。查询参数中的 ID 仅供工具使用，对用户以节点名称说明。`
+    return `${title}：阶段「${proposal.stage}」，范围 ${proposal.nodeNames.join('、')}，预算上限 ${proposal.budgetCap} 积分。${finalize}${stance}当前状态必须查询 runNodes(${lookup})；只有真实 taskIds 才能说「已提交」，读取真实结果后才能说「已完成」。查询参数中的 ID 仅供工具使用，对用户以节点名称说明。`
   }
   if (block.status === 'awaiting_confirmation')
     return `${title}：提示词待用户确认，尚未提交生成任务`

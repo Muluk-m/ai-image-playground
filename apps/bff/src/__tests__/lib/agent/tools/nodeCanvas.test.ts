@@ -11,7 +11,9 @@ import {
   readCanvasDocument,
   recordCanvasResult,
   setCanvasNodeJob,
+  storyboardFingerprint,
 } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 import * as Y from 'yjs'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_node_canvas_commands')
@@ -29,13 +31,13 @@ const {
   arrangeNodes,
   importCanvasImage,
   runNodes,
+  runStoryboardFrames,
   patchAgentCanvasNode,
 } = await import('../../../../lib/agent/tools/nodeCanvas')
 const { createAgentImageSource } = await import('../../../../lib/agent/images')
 const { accessCanvasDocument } = await import('../../../../lib/canvasSyncStore')
-const { confirmStageAuthorization, preflightStageAuthorization } = await import(
-  '../../../../lib/agent/stage-authorizations'
-)
+const { confirmStageAuthorization, preflightStageAuthorization, readStageAuthorization } =
+  await import('../../../../lib/agent/stage-authorizations')
 const { agentTurnTools } = await import('../../../../lib/agent/tools')
 const { planImageBatch } = await import('../../../../lib/agent/tools/planImageBatch')
 const { draftQueueTask } = await import('../../../../lib/agent/tools/queueTask')
@@ -113,6 +115,7 @@ it('exposes new tools only for authenticated node canvas and keeps legacy writes
     'runNodes',
     'applyScriptPlan',
     'importCanvasImage',
+    'runStoryboardFrames',
   ])
     expect(names).toContain(name)
   for (const name of [
@@ -376,6 +379,24 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
       .create({ ...context, experience: 'chat' })
       .execute('chat', { nodeIds: ['image'] }, undefined, undefined),
   ).rejects.toThrow('云端节点画布')
+})
+
+it('quotes image nodes with the workbench image count, not the omitted turn n', async () => {
+  const { context } = await fixture()
+  await createNodes
+    .create(context)
+    .execute(
+      'create',
+      { nodes: [{ id: 'image', type: 'image', prompt: '嫩芽' }] },
+      undefined,
+      undefined,
+    )
+  const quoted = await runNodes
+    .create({ ...context, params: { canvasImageModel: 'workbench-image', canvasImageCount: 4 } })
+    .execute('count', { nodeIds: ['image'] }, undefined, undefined)
+  expect(quoted.details?.canvasRun?.specs).toEqual([
+    { nodeId: 'image', model: 'workbench-image', quantity: 4, unitMultiplier: 1 },
+  ])
 })
 
 it('uses the workbench image model and adopts a real model when the unbilled placeholder is empty', async () => {
@@ -769,4 +790,296 @@ it('names the closest nodes when an id is mistyped and stops a repeated failure 
   await expect(
     other.execute(crypto.randomUUID(), { nodeIds: ['scene'] }, undefined, undefined),
   ).resolves.toBeDefined()
+})
+
+async function storyboardFixture() {
+  const fixed = await fixture()
+  const { run, projectId } = fixed
+  const mediaId = crypto.randomUUID()
+  const now = Date.now()
+  await db.insert(schema.media_objects).values({
+    id: mediaId,
+    user_id: userId,
+    sha256: mediaId,
+    bytes: 12,
+    content_type: 'image/png',
+    status: 'ready',
+    reserved_bytes: 0,
+    staging_key: `staging/${mediaId}`,
+    object_key: `media/${mediaId}`,
+    expires_at: now + 86_400_000,
+    created_at: now,
+    updated_at: now,
+  })
+  await accessCanvasDocument(userId, projectId, async (current) => {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+    const vector = Y.encodeStateVector(doc)
+    insertCanvasNode(
+      doc,
+      {
+        id: 'sheet',
+        type: 'image',
+        x: 0,
+        y: 600,
+        width: 320,
+        height: 240,
+        data: { mediaId, name: '现有三视图' },
+      },
+      canvasOrigin('system', 'fixture'),
+    )
+    const update = Y.encodeStateAsUpdate(doc, vector)
+    doc.destroy()
+    return update
+  })
+  await run(createNodes, { nodes: [{ id: 'script', type: 'text', text: '## 第 1 集\n窗台。\n' }] })
+  await run(applyScriptPlan, {
+    scriptNodeId: 'script',
+    storyboardId: 'board',
+    assets: [
+      { id: 'lin', kind: 'person', name: '林夏', description: '插画师' },
+      { id: 'sill', kind: 'location', name: '窗台', description: '朝东窄窗' },
+    ],
+    shots: [
+      {
+        id: 'shot-1',
+        description: '林夏蹲在窗台前。她伸手摸嫩芽',
+        lookIds: ['lin'],
+        locationId: 'sill',
+        durationSeconds: 4,
+      },
+      { id: 'shot-2', description: '窗台特写，嫩芽在晨光里', lookIds: [], locationId: 'sill' },
+    ],
+  })
+  const stageRows = async () =>
+    (
+      await db
+        .select({ id: schema.agent_stage_authorizations.id })
+        .from(schema.agent_stage_authorizations)
+    ).length
+  return { ...fixed, stageRows }
+}
+
+it('blocks the first-frame stage while referenced assets have no image and lays nothing out', async () => {
+  const { run, graph, stageRows } = await storyboardFixture()
+  const before = await graph()
+  const rows = await stageRows()
+  const tasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
+  const blocked = run(runStoryboardFrames, { storyboardId: 'board' })
+  await expect(blocked).rejects.toThrow('林夏（lin）')
+  await expect(run(runStoryboardFrames, { storyboardId: 'board' })).rejects.toThrow('素材阶段授权')
+  // 只重出第 2 镜时只看这一镜的素材：窗台仍缺图。
+  await expect(
+    run(runStoryboardFrames, { storyboardId: 'board', shotIds: ['shot-2'] }),
+  ).rejects.toThrow('窗台（sill）')
+  await expect(
+    run(runStoryboardFrames, { storyboardId: 'board', shotIds: ['shot-2'] }),
+  ).rejects.not.toThrow('林夏')
+  expect(await graph()).toEqual(before)
+  expect(await stageRows()).toBe(rows)
+  expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual(tasks)
+})
+
+it('lays out grid first frames with asset references and finalizes the storyboard only on confirmation', async () => {
+  const { context, run, graph } = await storyboardFixture()
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'lin', viewLabel: 'sheet' })
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'sill' })
+  const tasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
+  const proposal = await run(runStoryboardFrames, { storyboardId: 'board' })
+  const canvasRun = proposal.details?.canvasRun
+  expect(canvasRun).toMatchObject({
+    stage: '首帧',
+    status: 'pending',
+    direct: true,
+    storyboard: {
+      storyboardId: 'board',
+      shotCount: 2,
+      totalSeconds: 9,
+      shots: [
+        { id: 'shot-1', durationSeconds: 4, line: '林夏蹲在窗台前。' },
+        { id: 'shot-2', durationSeconds: 5, line: '窗台特写，嫩芽在晨光里' },
+      ],
+    },
+  })
+  const document = await graph()
+  const frames = document.nodes.filter(
+    (node) => node.type === 'image' && node.data.meta?.storyboardRole === 'frame',
+  )
+  const grids = document.nodes.filter(
+    (node) => node.type === 'image' && node.data.meta?.storyboardRole === 'grid',
+  )
+  expect(frames).toHaveLength(2)
+  expect(grids).toHaveLength(1)
+  // 默认宫格：授权范围是宫格节点，切分后的首帧随宫格结果落位。
+  expect(canvasRun?.nodeIds).toEqual([grids[0]!.id])
+  const frameOf = (shot: string) =>
+    frames.find((node) => node.type === 'image' && node.data.meta?.storyboardShotId === shot)!
+  const sources = (target: string) =>
+    document.edges
+      .filter((edge) => edge.target === target)
+      .map((edge) => edge.source)
+      .sort()
+  expect(sources(frameOf('shot-1').id)).toEqual(['lin', 'sill'])
+  expect(sources(frameOf('shot-2').id)).toEqual(['sill'])
+  expect(sources(grids[0]!.id)).toEqual(['lin', 'sill'])
+  expect(frameOf('shot-1').data).toMatchObject({ name: '第 1 镜 · 首帧' })
+  const board = () => graph().then((g) => g.nodes.find((node) => node.id === 'board'))
+  const draft = await board()
+  expect(draft?.type === 'storyboard' && draft.data.confirmed).toBeFalsy()
+  const authorizationId = canvasRun?.authorizationId
+  if (!authorizationId || draft?.type !== 'storyboard') throw new Error('missing authorization')
+  await confirmStageAuthorization(userId, authorizationId)
+  const finalized = await board()
+  expect(finalized?.type === 'storyboard' && finalized.data.confirmed).toMatchObject({
+    fingerprint: storyboardFingerprint(draft.data.shots),
+    quantity: 2,
+  })
+  expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual(tasks)
+  // 再次铺首帧复用同一批节点，不另建表或节点。
+  await run(runStoryboardFrames, { storyboardId: 'board' })
+  expect((await graph()).nodes).toHaveLength(document.nodes.length)
+  const manual = await runStoryboardFrames
+    .create({ ...context, params: { autoSubmit: false } })
+    .execute('manual-frames', { storyboardId: 'board' }, undefined, undefined)
+  expect(manual.details?.canvasRun).toMatchObject({ direct: false, stage: '首帧' })
+  // 首帧节点不能绕开首帧阶段走通用运行。
+  await expect(run(runNodes, { nodeIds: [frameOf('shot-1').id] })).rejects.toThrow(
+    'runStoryboardFrames',
+  )
+})
+
+it('re-runs one shot individually and refuses confirmation after the shot table changed', async () => {
+  const { run, graph } = await storyboardFixture()
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'lin' })
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'sill' })
+  const single = await run(runStoryboardFrames, { storyboardId: 'board', shotIds: ['shot-2'] })
+  const document = await graph()
+  const frame = document.nodes.find(
+    (node) => node.type === 'image' && node.data.meta?.storyboardShotId === 'shot-2',
+  )
+  expect(single.details?.canvasRun?.nodeIds).toEqual([frame?.id])
+  expect(single.details?.canvasRun?.storyboard).toMatchObject({ shotCount: 2 })
+  await expect(
+    run(runStoryboardFrames, { storyboardId: 'board', shotIds: ['shot-2'], mode: 'grid' }),
+  ).rejects.toThrow('individual')
+  await expect(
+    run(runStoryboardFrames, { storyboardId: 'board', shotIds: ['shot-9'] }),
+  ).rejects.toThrow('shot-9')
+  const authorizationId = single.details?.canvasRun?.authorizationId
+  if (!authorizationId) throw new Error('missing authorization')
+  await run(applyScriptPlan, {
+    scriptNodeId: 'script',
+    storyboardId: 'board',
+    assets: [],
+    shots: [
+      { id: 'shot-1', description: '林夏蹲在窗台前', lookIds: ['lin'], locationId: 'sill' },
+      { id: 'shot-2', description: '窗台特写，换成黄昏', lookIds: [], locationId: 'sill' },
+    ],
+  })
+  await expect(confirmStageAuthorization(userId, authorizationId)).rejects.toThrow(
+    'stage_authorization_stale',
+  )
+  expect((await readStageAuthorization(userId, authorizationId)).status).toBe('pending')
+  const board = (await graph()).nodes.find((node) => node.id === 'board')
+  expect(board?.type === 'storyboard' && board.data.confirmed).toBeFalsy()
+})
+
+it('replays the same first-frame call with its original authorization after the shot table changed', async () => {
+  const { context, run, graph, stageRows } = await storyboardFixture()
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'lin' })
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'sill' })
+  const call = () =>
+    runStoryboardFrames
+      .create(context)
+      .execute('frames-replay', { storyboardId: 'board' }, undefined, undefined)
+  const first = await call()
+  const authorizationId = first.details?.canvasRun?.authorizationId
+  expect(authorizationId).toBeTruthy()
+  const rows = await stageRows()
+  const nodes = (await graph()).nodes.length
+  expect((await call()).details?.canvasRun).toMatchObject({
+    authorizationId,
+    storyboard: { shotCount: 2 },
+  })
+  await run(applyScriptPlan, {
+    scriptNodeId: 'script',
+    storyboardId: 'board',
+    assets: [],
+    shots: [
+      { id: 'shot-1', description: '林夏蹲在窗台前', lookIds: ['lin'], locationId: 'sill' },
+      { id: 'shot-2', description: '窗台特写，换成黄昏', lookIds: [], locationId: 'sill' },
+    ],
+  })
+  // 镜头表改过之后重放：仍返回首次的授权，不另建授权也不按新表重铺，只是不再附过时的摘要。
+  const replayed = await call()
+  expect(replayed.details?.canvasRun?.authorizationId).toBe(authorizationId)
+  expect(replayed.details?.canvasRun?.storyboard).toBeUndefined()
+  // 待确认的旧授权确认必被拒绝：回执要明说过时，不能当普通阶段授权交给用户确认。
+  const receipt = JSON.parse((replayed.content[0] as { text: string }).text)
+  expect(receipt).toMatchObject({ storyboardStale: true })
+  expect(receipt.note).toContain('确认会被拒绝')
+  expect(await stageRows()).toBe(rows)
+  expect((await graph()).nodes.length).toBe(nodes)
+  // 同一调用 ID 换了参数不是重放：画布命令按调用指纹拒绝，不能拿原授权冒充新请求的结果。
+  await expect(
+    runStoryboardFrames
+      .create(context)
+      .execute(
+        'frames-replay',
+        { storyboardId: 'board', shotIds: ['shot-2'] },
+        undefined,
+        undefined,
+      ),
+  ).rejects.toThrow('canvas_command_conflict')
+  expect(await stageRows()).toBe(rows)
+})
+
+it('reports an expired authorization when replaying a first-frame call after its active TTL', async () => {
+  const { context, run } = await storyboardFixture()
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'lin' })
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'sill' })
+  const call = () =>
+    runStoryboardFrames
+      .create(context)
+      .execute('frames-expire', { storyboardId: 'board' }, undefined, undefined)
+  const authorizationId = (await call()).details?.canvasRun?.authorizationId
+  if (!authorizationId) throw new Error('missing authorization')
+  const { authorization } = await confirmStageAuthorization(userId, authorizationId)
+  const table = schema.agent_stage_authorizations
+  // 把确认时间和最后更新都推回很久以前，没有在途任务，按 TTL 应当过期。
+  await db
+    .update(table)
+    .set({
+      updated_at: 1,
+      state: {
+        ...authorization,
+        audit: authorization.audit.map((event) => ({ ...event, at: 1 })),
+      },
+    })
+    .where(eq(table.id, authorizationId))
+  expect((await call()).details?.canvasRun?.status).toBe('expired')
+})
+
+it('rolls back laid-out first frames when the stage proposal cannot be registered', async () => {
+  const { context, run, graph, stageRows } = await storyboardFixture()
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'lin' })
+  await run(importCanvasImage, { imageNodeId: 'sheet', assetNodeId: 'sill' })
+  await run(updateNodes, { nodes: [{ id: 'lin', prompt: '林夏三视图' }] })
+  // 同一个工具调用 ID 已经登记过别的提案：首帧阶段的提案冲突，铺出的节点必须一起回滚。
+  await runNodes.create(context).execute('shared-call', { nodeIds: ['lin'] }, undefined, undefined)
+  const before = await graph()
+  const rows = await stageRows()
+  await expect(
+    runStoryboardFrames
+      .create(context)
+      .execute('shared-call', { storyboardId: 'board' }, undefined, undefined),
+  ).rejects.toThrow('stage_authorization_conflict')
+  expect(await graph()).toEqual(before)
+  expect(await stageRows()).toBe(rows)
+  expect(
+    await db
+      .select({ id: schema.canvas_commands.id })
+      .from(schema.canvas_commands)
+      .where(eq(schema.canvas_commands.tool_call_id, 'shared-call')),
+  ).toEqual([])
 })
