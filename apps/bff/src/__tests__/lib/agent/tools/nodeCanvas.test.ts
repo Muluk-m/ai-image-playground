@@ -529,6 +529,33 @@ it('authorizes an asset node that has a prompt and rejects a promptless asset', 
   ).rejects.toThrow('没有提示词')
 })
 
+it('runs a script-plan asset with its description as the prompt and still rejects a bare one', async () => {
+  const { context, run } = await fixture()
+  await run(createNodes, { nodes: [{ id: 'script', type: 'text', text: '## 第 1 集\n窗台。\n' }] })
+  await run(applyScriptPlan, {
+    scriptNodeId: 'script',
+    storyboardId: 'board',
+    assets: [
+      { id: 'lin', kind: 'person', name: '林夏', description: '插画师，短发' },
+      { id: 'sill', kind: 'location', name: '窗台', description: '  ' },
+    ],
+    shots: [{ id: 'shot-1', description: '林夏在窗台前', lookIds: ['lin'], locationId: 'sill' }],
+  })
+  const proposal = await runNodes
+    .create(context)
+    .execute('assets', { stage: '素材', nodeIds: ['lin'] }, undefined, undefined)
+  expect(proposal.details?.canvasRun?.nodeIds).toEqual(['lin'])
+  const authorization = await readStageAuthorization(
+    userId,
+    proposal.details!.canvasRun!.authorizationId,
+  )
+  // 与原标签页 buildNodeBatch 的提示词同一来源：素材名与描述。
+  expect(authorization.bindings).toMatchObject([{ nodeId: 'lin', prompt: '林夏：插画师，短发' }])
+  await expect(
+    runNodes.create(context).execute('bare', { nodeIds: ['sill'] }, undefined, undefined),
+  ).rejects.toThrow('没有提示词')
+})
+
 it('turns a chat attachment into an image node the user does not have to drag in', async () => {
   const { context, run, graph } = await fixture()
   const now = Date.now()

@@ -328,7 +328,8 @@ export interface StageRunWakeContent {
 
 /**
  * 唤醒轮看到的那一段：哪个阶段、每个节点（用节点名）的结局与原因，以及该怎么说、不该做什么。
- * 这一轮里再发起的 runNodes 或 runStoryboardFrames 一律等用户在卡上确认：自动重试已经用过，新的花费要用户点头。
+ * 说明里仍要求新的付费运行先问用户；这一轮里真发起 runNodes 或 runStoryboardFrames 时，
+ * 是否直接开跑沿用提案那一轮的直接出图偏好（见 {@link stageRunWakeParams}）。
  */
 export async function stageRunWakeContent(
   conversationId: string,
@@ -398,6 +399,23 @@ export async function stageRunWakeContent(
       state.bindings?.length && state.bindings.every((binding) => binding.kind === 'video')
         ? 'video'
         : 'image',
-    params: { autoSubmit: false },
+    params: stageRunWakeParams(state),
+  }
+}
+
+/**
+ * 唤醒轮沿用提案那一轮的直接出图偏好与出图参数（模型、工作台张数、视频参数）：
+ * 开着时这一轮里的 runNodes 照样直接开跑，关着时照样等确认卡，报价也和原标签页提交的规格一致。
+ * 这个字段出现之前登记的授权没有记下，按关着算，宁可多一张确认卡。
+ */
+function stageRunWakeParams(state: StageAuthorization): AgentTurnParams {
+  const turn = state.turn
+  if (!turn) return { autoSubmit: false }
+  return {
+    autoSubmit: turn.autoSubmit,
+    ...(turn.model ? { model: turn.model } : {}),
+    ...(turn.canvasImageModel ? { canvasImageModel: turn.canvasImageModel } : {}),
+    ...(turn.canvasImageCount !== undefined ? { canvasImageCount: turn.canvasImageCount } : {}),
+    ...(turn.video ? { video: turn.video } : {}),
   }
 }

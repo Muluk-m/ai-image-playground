@@ -1,3 +1,4 @@
+import type { AgentTurnParams } from './agent'
 import type { StageExecutionBinding } from './stage-execution'
 import type { StageRunRecord } from './stage-run'
 
@@ -45,6 +46,19 @@ export interface StageStoryboardFinalization {
   readonly storyboardId: string
   readonly fingerprint: string
 }
+/**
+ * 提出这批运行的那一轮里，跟画布出图有关的参数。运行回报唤醒智能体时，唤醒轮没有用户请求，
+ * 就沿用这一份：直接出图开着时唤醒轮里的 runNodes 照样直接开跑，关着时照样等确认卡；
+ * 报价也按同一个工作台模型、张数和视频参数算，不会和原标签页实际提交的规格对不上。
+ */
+export interface StageAuthorizationTurn {
+  /** 那一轮画布 runNodes 是否直接开跑（缺席按开算之后的结果）。 */
+  readonly autoSubmit: boolean
+  readonly model?: string
+  readonly canvasImageModel?: string
+  readonly canvasImageCount?: number
+  readonly video?: AgentTurnParams['video']
+}
 export interface StageAuthorization {
   readonly id: string
   readonly conversationId: string
@@ -63,6 +77,8 @@ export interface StageAuthorization {
   readonly bindings?: readonly StageExecutionBinding[]
   /** 首帧阶段才有：确认即定稿的分镜表。 */
   readonly storyboard?: StageStoryboardFinalization
+  /** 提案那一轮的直接出图偏好与出图参数，唤醒轮沿用。这个字段出现之前登记的授权没有它。 */
+  readonly turn?: StageAuthorizationTurn
   readonly spentCredits: number
   readonly status: StageAuthorizationStatus
   readonly attempts: readonly StageAuthorizationAttempt[]

@@ -23,12 +23,14 @@ import {
   resolveStageImageExecution,
   resolveStageVideoExecution,
   type StageAuthorization,
+  type StageAuthorizationTurn,
   type StageExecutionBinding,
   type StageStoryboardFinalization,
   StoryboardFlowError,
   type StoryboardFrameMode,
   type StoryboardStageSummary,
   stageExecutionBinding,
+  stageNodeRunnable,
   storyboardFingerprint,
   storyboardMissingAssetNodes,
   storyboardStageSummary,
@@ -71,7 +73,12 @@ const fields = {
   y: Type.Optional(Type.Number({ minimum: -1000000, maximum: 1000000 })),
   width: Type.Optional(Type.Number({ minimum: 40, maximum: 5000 })),
   height: Type.Optional(Type.Number({ minimum: 40, maximum: 5000 })),
-  name: Type.Optional(Type.String({ maxLength: 120 })),
+  name: Type.Optional(
+    Type.String({
+      maxLength: 120,
+      description: '仅 text、image、video 节点可设名称；timeline 与 storyboard 节点不要传 name。',
+    }),
+  ),
   text: Type.Optional(Type.String({ maxLength: 100000 })),
   prompt: Type.Optional(Type.String({ maxLength: 100000 })),
   videoMode: Type.Optional(videoMode),
@@ -495,20 +502,6 @@ export const arrangeNodes = defineAgentTool({
 function stageNodeName(node: CanvasNode): string {
   return 'name' in node.data && node.data.name ? node.data.name : '未命名节点'
 }
-function runnableStageNode(
-  graph: { edges: readonly { target: string }[] },
-  node: CanvasNode,
-): boolean {
-  if (node.type !== 'image' && node.type !== 'video') return false
-  const kind = canvasNodeKind(node)
-  if (kind !== 'image' && kind !== 'video') return false
-  const meta = node.data.meta ?? {}
-  // 与 buildNodeBatch 相同：有提示词的素材按普通出图授权；没提示词、只靠连线的素材排除。
-  return (
-    Boolean(meta.nodePrompt?.trim()) ||
-    (meta.nodeKind !== 'asset' && graph.edges.some((edge) => edge.target === node.id))
-  )
-}
 function stageExecution(
   node: CanvasNode,
   params:
@@ -647,6 +640,20 @@ function stageProposalInput(
     nodes: charges,
     bindings,
     ...(storyboard ? { storyboard: storyboard.ref } : {}),
+    turn: stageTurn(context.params),
+  }
+}
+/** 记在授权上的本轮出图参数：运行回报唤醒的那一轮照它报价、照它决定是否直接开跑。 */
+function stageTurn(params: AgentToolContext['params']): StageAuthorizationTurn {
+  const model = params?.model?.trim()
+  const canvasImageModel = params?.canvasImageModel?.trim()
+  const canvasImageCount = params?.canvasImageCount ?? params?.n
+  return {
+    autoSubmit: canvasStageRunsDirectly(params),
+    ...(model ? { model } : {}),
+    ...(canvasImageModel ? { canvasImageModel } : {}),
+    ...(canvasImageCount !== undefined ? { canvasImageCount } : {}),
+    ...(params?.video ? { video: params.video } : {}),
   }
 }
 /** 计价不可用时给模型一句能照做的话，其他错误照常抛出。 */
@@ -731,7 +738,7 @@ export const runNodes = defineAgentTool({
   guidance:
     '为画布节点生成图片或视频都用 runNodes。先 readCanvas 确认节点名称与范围。是否立即开跑由这一轮请求里的用户直接出图偏好决定，工具参数改不了。回执会写明是待确认还是已交给原标签页开跑。只有查到 taskIds 才能说已提交，有真实结果才能说已完成。画布不使用出图模式每轮自动提交额度。',
   description:
-    '为当前云端画布的一组可生成图片或视频节点登记持久化阶段授权。预算由服务端按节点模型、数量和倍率计算，estimatedCredits 不决定上限。有提示词的素材按普通出图授权；没有提示词、只靠连线的素材不会单独授权。直接出图时原标签页立即开跑；用户关掉直接出图时才等确认卡。提供 authorizationId 时只查询真实授权状态、已用额度与任务记录，不重新提交。范围外或预算不足必须重新提案。',
+    '为当前云端画布的一组可生成图片或视频节点登记持久化阶段授权。预算由服务端按节点模型、数量和倍率计算，estimatedCredits 不决定上限。有提示词的素材按普通出图授权；没写提示词但有素材描述的图片素材按「素材名：描述」出图；两者都没有的素材不会单独授权。直接出图时原标签页立即开跑；用户关掉直接出图时才等确认卡。提供 authorizationId 时只查询真实授权状态、已用额度与任务记录，不重新提交。范围外或预算不足必须重新提案。',
   parameters: Type.Object({
     nodeIds: Type.Optional(Type.Array(id, { minItems: 1, maxItems: 200, uniqueItems: true })),
     stage: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
@@ -788,9 +795,9 @@ export const runNodes = defineAgentTool({
         (node) =>
           (node.type === 'image' || node.type === 'video') &&
           node.data.meta?.nodeKind === 'asset' &&
-          !node.data.meta.nodePrompt?.trim(),
+          !stageNodeRunnable(node, graph.edges),
       )
-      const nodes = scoped.filter((node) => runnableStageNode(graph, node))
+      const nodes = scoped.filter((node) => stageNodeRunnable(node, graph.edges))
       const frames = nodes.filter(storyboardFrameNode)
       if (frames.length)
         return invalid(
@@ -799,7 +806,7 @@ export const runNodes = defineAgentTool({
       if (!nodes.length)
         return invalid(
           promptlessAssets.length
-            ? '范围内的素材节点没有提示词，不能单独生成。请写上提示词，或改为指定图片、视频节点。'
+            ? '范围内的素材节点没有提示词，也没有素材描述，不能单独生成。请用 updateNodes 写上提示词，或改为指定图片、视频节点。'
             : '范围内没有可生成的图片或视频节点。',
         )
       const input = stageProposalInput(
@@ -1043,7 +1050,12 @@ export const applyScriptPlan = defineAgentTool({
   description:
     '创建或就地更新一集的唯一分镜表，保留原镜头身份，可增删镜头；定稿后修改会回到草稿，旧首帧和视频保留但过期。可同时新建无图素材或追加下一集剧本文字。',
   parameters: Type.Object({
-    scriptNodeId: id,
+    scriptNodeId: Type.String({
+      minLength: 1,
+      maxLength: 128,
+      description:
+        '画布上已有的文本剧本节点 ID（照抄 readCanvas）；剧本还不在画布上时先用 createNodes 建一个 text 节点放剧本。',
+    }),
     storyboardId: id,
     episodeNumber: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
     assets: Type.Array(
