@@ -19,7 +19,7 @@
  * Undo: archive the ids with scripts/inspiration-status.ts (published items must be archived
  * before the admin UI can delete them).
  */
-import { realpathSync } from 'node:fs'
+import { closeSync, constants, openSync, readFileSync, realpathSync } from 'node:fs'
 import { extname, resolve, sep } from 'node:path'
 import type { InspirationAdminItem, InspirationWriteInput } from '@image-playground/shared'
 import { config } from '../src/config'
@@ -57,6 +57,8 @@ const CONTENT_TYPES: Record<string, string> = {
   '.webp': 'image/webp',
 }
 const MODEL = { provider: 'openai-compat', model: 'gpt-image-2.5-flare' }
+const AUTHOR = 'Muvloom'
+const PARAMS = (item: { size: string }) => ({ size: item.size, quality: 'high' as const, n: 1 })
 
 const USAGE = 'inspiration-add.ts <dir> [--apply] [--publish] [--operator <id>]'
 const {
@@ -124,7 +126,7 @@ function parseItems(raw: unknown): NewItem[] {
       file: (value.file as string).trim(),
       featured: value.featured === true,
       sort: (value.sort as number | undefined) ?? 0,
-      tags: (value.tags as string[] | undefined) ?? [],
+      tags: ((value.tags as string[] | undefined) ?? []).map((tag) => tag.trim()).filter(Boolean),
       description: (value.description as string | undefined)?.trim() || null,
     })
   })
@@ -141,16 +143,20 @@ const writeInput = (item: NewItem, categoryId: string, key: string): Inspiration
   prompt: item.prompt,
   recommendedProvider: MODEL.provider,
   recommendedModel: MODEL.model,
-  params: { size: item.size, quality: 'high', n: 1 },
+  params: PARAMS(item),
   tags: item.tags,
   coverKey: key,
   imageKey: key,
   referenceImages: [],
   skillName: null,
   sourceUrl: null,
-  author: 'Muvloom',
+  author: AUTHOR,
   sort: item.sort,
 })
+
+/** Key-order-independent JSON (jsonb does not keep key order). */
+const canonical = (value: object) =>
+  JSON.stringify(Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))))
 
 /**
  * Every metadata field this script writes must match for an existing row to count as the same
@@ -165,11 +171,30 @@ const sameContent = (existing: InspirationAdminItem, item: NewItem, categoryId: 
   existing.featured === item.featured &&
   existing.sort === item.sort &&
   (existing.description ?? null) === item.description &&
-  JSON.stringify(existing.tags) ===
-    JSON.stringify(item.tags.map((tag) => tag.trim()).filter(Boolean)) &&
-  existing.params.size === item.size &&
+  JSON.stringify(existing.tags) === JSON.stringify(item.tags) &&
+  canonical(existing.params) === canonical(PARAMS(item)) &&
+  existing.coverKey === existing.imageKey &&
+  existing.referenceImages.length === 0 &&
+  existing.skillName === null &&
+  existing.sourceUrl === null &&
+  existing.author === AUTHOR &&
   existing.recommendedProvider === MODEL.provider &&
   existing.recommendedModel === MODEL.model
+
+/**
+ * Read a validated file without a check-then-use race: open it without following a final symlink,
+ * then confirm through the open descriptor itself that it is still inside root before reading.
+ */
+function readInside(rootReal: string, path: string): Blob {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    const opened = realpathSync(`/proc/self/fd/${fd}`)
+    if (!opened.startsWith(rootReal + sep)) throw new Error(`${path}: moved outside ${rootReal}`)
+    return new Blob([readFileSync(fd)])
+  } finally {
+    closeSync(fd)
+  }
+}
 
 /** Real path of a manifest file if it stays inside root after resolving symlinks, else null. */
 function fileInside(rootReal: string, relative: string): string | null | 'missing' {
@@ -257,7 +282,7 @@ try {
       if (action === 'create') {
         const path = files.get(item.id) as string
         const contentType = CONTENT_TYPES[extname(path).toLowerCase()] as string
-        const body = Bun.file(path)
+        const body = readInside(rootReal, path)
         const target = createInspirationUploadTarget({ filename: item.file, contentType })
         const uploaded = await fetch(target.uploadUrl, {
           method: 'PUT',
