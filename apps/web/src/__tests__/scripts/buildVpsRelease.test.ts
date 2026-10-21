@@ -245,7 +245,7 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     expect(segmenter).toContain(`--build-arg APP_VERSION=${pub}`)
     expect(segmenter).toMatch(/deploy\/segmenter$/)
     expect(segmenter).not.toContain(`ref=${repoName}:buildcache,mode=max`)
-    expect(readFileSync(join(out, 'images.tsv'), 'utf8').trim().split('\n').at(-1)).toBe(
+    expect(readFileSync(join(out, 'images.tsv'), 'utf8').trim().split('\n').slice(-1)[0]).toBe(
       `segmenter\tai-image-playground:segmenter-${p}\t${imageId}\t${pub}\t-\t${pushed('3')}`,
     )
   })
