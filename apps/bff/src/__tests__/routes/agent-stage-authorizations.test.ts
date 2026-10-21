@@ -1496,6 +1496,41 @@ it('keeps at most one open first-frame authorization per storyboard when the spe
   expect(await (await request(second.id)).json()).toMatchObject({ status: 'active' })
 })
 
+it('folds leftover open first-frame authorizations into one when reusing a matching proposal', async () => {
+  const seed = await fixture()
+  const base = await frameProposalInput(seed.authorizationId, 'legacy-1:frames')
+  const matching = await proposeStageAuthorization(base)
+  // 修复前可能留下的第二份：同一张表、同一份镜头表，规格不同，仍待确认。
+  const [row] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, matching.id))
+  const leftover = crypto.randomUUID()
+  await db.insert(schema.agent_stage_authorizations).values({
+    ...row!,
+    id: leftover,
+    proposal_key: 'legacy-2:frames',
+    created_at: row!.created_at + 1,
+    state: {
+      ...row!.state,
+      id: leftover,
+      charges: row!.state.charges?.map((charge) => ({ ...charge, quantity: 2 })),
+    },
+  })
+  const again = await proposeStageAuthorization({ ...base, proposalKey: 'legacy-3:frames' })
+  expect(again.id).toBe(matching.id)
+  expect(await (await request(leftover)).json()).toMatchObject({ status: 'ended' })
+  // 留下的那份已经确认在跑：同样不复用、不并行，拒绝这次提案。
+  await db
+    .update(schema.agent_stage_authorizations)
+    .set({ state: { ...row!.state, id: leftover, status: 'pending' } })
+    .where(eq(schema.agent_stage_authorizations.id, leftover))
+  await markActive(leftover)
+  await expect(
+    proposeStageAuthorization({ ...base, proposalKey: 'legacy-4:frames' }),
+  ).rejects.toThrow('stage_authorization_storyboard_busy')
+})
+
 it('does not reuse an expired active first-frame authorization', async () => {
   const seed = await fixture()
   const first = await proposeStageAuthorization(

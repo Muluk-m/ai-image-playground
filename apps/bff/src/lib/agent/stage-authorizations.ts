@@ -431,16 +431,18 @@ export async function proposeStageAuthorizationInTransaction(
       input.storyboard,
       input.proposalKey,
     )
+    // 先清理其余没结束的行再决定复用：以前留下的多份（比如修复前登记的）也收敛成一份。
     const reusable = open.find((row) => proposalAgrees(row, input))
-    if (reusable) return reusable.state
-    if (open.some((row) => row.state.status === 'active'))
+    const others = open.filter((row) => row !== reusable)
+    if (others.some((row) => row.state.status === 'active'))
       throw new StageAuthorizationError('stage_authorization_storyboard_busy')
-    for (const row of open)
+    for (const row of others)
       await save(tx, {
         ...row.state,
         status: 'ended',
         audit: [...row.state.audit, { kind: 'ended', at: now }],
       })
+    if (reusable) return reusable.state
   }
   const priced = await pricedCharges(tx, input.userId, input.nodes)
   const state: StageAuthorization = {
