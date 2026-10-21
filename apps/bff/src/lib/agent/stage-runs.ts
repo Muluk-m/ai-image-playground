@@ -3,6 +3,7 @@ import {
   type AgentTurnParams,
   type AgentWakeSkipReason,
   type StageAuthorization,
+  type StageRunNodeRecord,
   type StageRunNodeReport,
   type StageRunReason,
   type StageRunRecord,
@@ -33,6 +34,7 @@ import { AGENT_WAKE_CHANNEL } from './wake'
  */
 
 const table = schema.agent_stage_authorizations
+const FAILED_TASK = new Set(['failed', 'cancelled'])
 
 type StageRow = typeof table.$inferSelect
 
@@ -71,6 +73,8 @@ async function submittedTaskStatuses(
  * - 报「已完成」的节点必须有一个任务在服务端确实已完成；没提交过任务的不能报已完成；
  * - 提交过任务的不能报「被拦下」或「没轮到」；
  * - 报「失败」却一个任务都没建出来（预检被拒、提交没被接受）的，按被拦下记，不说成「已提交」；
+ * - 报「失败」而最近一次提交的任务在服务端其实还在跑或已完成的（浏览器因画布改动等没等到结果），
+ *   照记失败但标上任务的真实状态，智能体不把它说成生成失败；不拒收，免得整批回报和唤醒一起丢掉；
  * - 「自动重试过」按授权上这个节点建出任务的尝试次数算，不信浏览器给的值。
  */
 async function verifiedReport(
@@ -78,7 +82,7 @@ async function verifiedReport(
   state: StageAuthorization,
   confirmed: boolean,
   input: StageRunReportInput,
-): Promise<StageRunNodeReport[]> {
+): Promise<StageRunNodeRecord[]> {
   if (!sameNodeSet(input.nodes, state.nodeIds))
     throw new StageAuthorizationError('stage_run_report_scope', 422)
   const statuses = await submittedTaskStatuses(tx, state)
@@ -96,11 +100,24 @@ async function verifiedReport(
     )
       throw new StageAuthorizationError('stage_run_report_mismatch', 422)
     const outcome = node.outcome === 'failed' && submitted.length === 0 ? 'blocked' : node.outcome
+    const latest = (submitted.at(-1)?.taskIds ?? []).flatMap((taskId) => {
+      const status = statuses.get(taskId)
+      return status ? [status] : []
+    })
+    const task =
+      outcome !== 'failed'
+        ? undefined
+        : latest.includes('completed')
+          ? ('completed' as const)
+          : latest.some((status) => !FAILED_TASK.has(status))
+            ? ('running' as const)
+            : undefined
     return {
       nodeId: node.nodeId,
       outcome,
       ...(outcome !== 'completed' && node.reason ? { reason: node.reason } : {}),
       ...(submitted.length > 1 ? { retried: true } : {}),
+      ...(task ? { task } : {}),
     }
   })
 }
@@ -285,8 +302,12 @@ const REASON_TEXT: Record<StageRunReason, string> = {
   stopped: '这一批停下了，没轮到它',
 }
 
-function nodeLine(name: string, node: StageRunNodeReport): string {
+function nodeLine(name: string, node: StageRunNodeRecord): string {
   const reason = node.reason ? REASON_TEXT[node.reason] : undefined
+  if (node.outcome === 'failed' && node.task === 'running')
+    return `- 「${name}」：已提交，任务还在生成，这一批没等到它的结果${reason ? `（${reason}）` : ''}；不要说它失败或已完成，结果出来会出现在节点上。`
+  if (node.outcome === 'failed' && node.task === 'completed')
+    return `- 「${name}」：已提交，任务出了结果，但没能成为节点主结果${reason ? `（${reason}）` : ''}；请用户在节点上查看并选用。`
   switch (node.outcome) {
     case 'completed':
       return `- 「${name}」：已完成，结果已成为节点主结果${node.retried ? '（自动重试一次后成功）' : ''}。`

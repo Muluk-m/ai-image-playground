@@ -53,6 +53,15 @@ export interface StageRunNodeReport {
   readonly retried?: boolean
 }
 
+/** 记在授权上的一个节点：浏览器报的结局，加上服务端按自己记录补的事实。 */
+export interface StageRunNodeRecord extends StageRunNodeReport {
+  /**
+   * 浏览器报「失败」，但服务端看这个节点最近一次提交的任务并没有失败：`running` 还在生成，
+   * `completed` 已经出了结果（只是没成为节点主结果）。智能体据此不把它说成生成失败。
+   */
+  readonly task?: 'running' | 'completed'
+}
+
 /** 浏览器交给 BFF 的那一份。确认前就被拦下时没有执行凭证。 */
 export interface StageRunReportInput {
   readonly executionToken?: string
@@ -62,7 +71,7 @@ export interface StageRunReportInput {
 /** 记在授权上的回报。同一条授权只收一次，重复上报原样交回、不再唤醒。 */
 export interface StageRunRecord {
   readonly reportedAt: number
-  readonly nodes: readonly StageRunNodeReport[]
+  readonly nodes: readonly StageRunNodeRecord[]
   /** 唤醒没有起轮的原因：积分不足、连续唤醒到了上限，或会话已删除。 */
   readonly wakeSkipped?: AgentWakeSkipReason | 'conversation_deleted'
 }

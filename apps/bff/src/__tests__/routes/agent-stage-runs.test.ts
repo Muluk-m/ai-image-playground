@@ -204,7 +204,7 @@ async function submitted(
   id: string,
   attemptId: string,
   taskId: string,
-  status: 'failed' | 'completed',
+  status: 'failed' | 'completed' | 'in_progress',
   charged: number,
 ) {
   const state = await stored(id)
@@ -398,6 +398,34 @@ it('checks outcomes against the tasks the server holds, not what the browser cla
     { nodeId: 'a', outcome: 'completed', retried: true },
     { nodeId: 'b', outcome: 'failed', reason: 'generation_failed' },
   ])
+})
+
+it('marks a reported failure whose task is still running or already succeeded', async () => {
+  const run = await proposal()
+  const token = await confirm(run.authorizationId)
+  expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
+  await submitted(run.authorizationId, 'a-1', 'task-a-1', 'in_progress', 6)
+  expect((await preflight(run.authorizationId, token, 'b', 'b-1')).status).toBe(200)
+  await submitted(run.authorizationId, 'b-1', 'task-b-1', 'completed', 6)
+  const report = await request(run.authorizationId, '/report', {
+    executionToken: token,
+    deviceId: DEVICE,
+    nodes: [
+      { nodeId: 'a', outcome: 'failed', reason: 'canvas_changed' },
+      { nodeId: 'b', outcome: 'failed', reason: 'canvas_changed' },
+    ],
+  })
+  expect(report.status).toBe(200)
+  expect((await stored(run.authorizationId)).run?.nodes).toEqual([
+    { nodeId: 'a', outcome: 'failed', reason: 'canvas_changed', task: 'running' },
+    { nodeId: 'b', outcome: 'failed', reason: 'canvas_changed', task: 'completed' },
+  ])
+  expect(await pickUpStrandedInboxes()).toBe(1)
+  await settledTurn(run.conversationId)
+  const asked = JSON.stringify(calls[0]!.messages)
+  const [first, second] = run.nodeNames!
+  expect(asked).toContain(`「${first}」：已提交，任务还在生成`)
+  expect(asked).toContain(`「${second}」：已提交，任务出了结果，但没能成为节点主结果`)
 })
 
 it('records a failed node that never created a task as blocked', async () => {
