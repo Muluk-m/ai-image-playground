@@ -21,16 +21,26 @@ Runtime limits:
 - Measured locally on 2 cores: about 360 MB RSS with the model loaded, about 0.4–0.6 s encode, and 0.05–0.09 s per click for decode.
 - Compose limits: `mem_limit` and `memswap_limit` 900m, `cpus` 2.
 
-Deployment: `deploy/compose.app.yaml` service `segmenter`, profile `segmenter`. `scripts/vps-deploy.sh` starts it for the
-test project only and passes `AGENT_SEGMENTER_URL=http://segmenter:8080` to that project's BFF and worker.
-
-Sharing one instance with production later (needs Nain's approval):
-- Run the container once, outside any one project, on the shared `image-playground-infra` network,
-  for example as compose project `image-playground-segmenter` with only this service.
-- Give it a network alias such as `aip-segmenter`.
-- Point each deployment's `AGENT_SEGMENTER_URL` at `http://aip-segmenter:8080`.
-- BFF and worker are already on that network.
-- The service holds no state or secrets, so sharing it does not mix data between deployments. Only the cache keys (`media:<id>`) pass through it.
+Deployment: one shared instance for the whole VPS (internal, paid and test), approved by Nain.
+- `deploy/compose.segmenter.yaml` is its own compose project, `image-playground-segmenter`, like
+  infra. Container `image-playground-segmenter`, limits `mem_limit`/`memswap_limit` 900m, `cpus` 2,
+  read-only root, no env file, no published port. Its own network is `internal: true`.
+- `scripts/segmenter-deploy.sh up <image>` starts or updates it. A recreated container loses its
+  extra networks, so the script notes them first and attaches them again: updating it from one
+  edition's deploy keeps the others served.
+- `scripts/segmenter-deploy.sh attach <project>` connects it to `<project>_application` with the
+  alias `segmenter`. Each edition reaches `http://segmenter:8080` on its own app network, and the
+  editions still cannot reach each other (no executor joins a shared network).
+- `scripts/vps-deploy.sh`: test releases carry the image (built in CI with its own layer cache)
+  and start or update it before rolling the executors. Every edition listed in
+  `SEGMENTER_EDITIONS` (deploy.env, default `test`) is attached after its rollout, and its BFF and
+  worker get `AGENT_SEGMENTER_URL=http://segmenter:8080` plus `AGENT_SEGMENTER_NAMESPACE=<project>`.
+  A release without the image (production) reuses the running instance when it is healthy.
+- Cache keys are `<project>:media:<mediaId>`, so one environment never reuses another's
+  embeddings. The service holds no other state and no secrets.
+- Turning it on for production (not done yet; production deploys are separate): set
+  `SEGMENTER_EDITIONS="internal paid test"` in deploy.env; the next production deploy attaches
+  the running instance. Nothing else changes.
 
 Without `AGENT_SEGMENTER_URL`, or when the call fails or takes longer than 3 s, the edit-region
 card falls back to the agent's box.

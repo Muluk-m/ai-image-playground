@@ -82,6 +82,15 @@ async function requestDataUrl(request: SegmentationRequest): Promise<string> {
 }
 
 /** 自建服务的单次预算：卡片打开、点一下都要等它，超时就退回智能体给的框。 */
+/**
+ * 分割服务按这个键缓存图像编码。一个实例由所有环境共用，所以带上本部署的命名空间：
+ * 测试环境的请求永远拿不到生产环境的缓存。
+ */
+export function segmenterKey(mediaId: string): string {
+  const namespace = config.agent.segmentation.segmenterNamespace
+  return namespace ? `${namespace}:media:${mediaId}` : `media:${mediaId}`
+}
+
 export const SEGMENTER_TIMEOUT_MS = 3_000
 /** 发给自建服务的图与它交回的蒙版的最长边；放大回原图在 BFF 做。 */
 export const SEGMENTER_MAX_SIDE = 1024
