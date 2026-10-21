@@ -1,10 +1,10 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Button } from '../../../web/src/components/ui/button'
 import { Icon } from '../../../web/src/components/ui/icon'
-import { alternatePage, copy, editions, type Locale, type SitePage } from '../catalog'
+import { alternatePage, copy, editions, guidePath, type Locale, type SitePage } from '../catalog'
 import { structuredData } from '../guideData'
 import { AuthBoundary } from './AuthBoundary'
-import { Guide } from './Guide'
+import { Guide, GuideMovedPage } from './Guide'
 import { MarketingHome } from './MarketingHome'
 
 const Auth = lazy(() => import('./SiteAuth'))
@@ -66,6 +66,8 @@ export function Site({ page }: { page: SitePage }) {
           {page.kind !== 'login' ? navigation : null}
           {page.kind === 'guide' ? (
             <Guide page={page} />
+          ) : page.kind === 'moved' ? (
+            <GuideMovedPage page={page} />
           ) : page.kind === 'scenario' ? (
             <main className="site-scenario">
               <span className="site-eyebrow">MUVLOOM STUDIO</span>
@@ -82,7 +84,15 @@ export function Site({ page }: { page: SitePage }) {
                 alt={text[page.scenario!]}
               />
               <a
-                href={`${editions[page.locale].root}${page.scenario === 'canvas' ? 'canvas' : 'create'}/`}
+                href={guidePath(
+                  editions[page.locale],
+                  page.scenario === 'canvas'
+                    ? 'canvas/basics'
+                    : page.scenario === 'video'
+                      ? 'create/video'
+                      : 'create/settings',
+                  'create/composer',
+                )}
               >
                 {text.learn} →
               </a>
