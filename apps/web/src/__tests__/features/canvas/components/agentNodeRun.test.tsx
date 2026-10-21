@@ -14,7 +14,11 @@ import {
 } from '../../../../features/agent/lib/nodeRuns'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
-import type { NodeBatchPlan } from '../../../../features/canvas/lib/nodeBatch'
+import {
+  NodeBatchFailure,
+  type NodeBatchHooks,
+  type NodeBatchPlan,
+} from '../../../../features/canvas/lib/nodeBatch'
 import { useAgentNodeRun } from '../../../../features/canvas/lib/useAgentNodeRun'
 import { useStore } from '../../../../store'
 
@@ -43,6 +47,7 @@ let authorization: StageAuthorization
 let rejectPreflight: boolean
 let confirms: number
 let preflights: number
+let reports: { nodes: { nodeId: string; outcome: string; reason?: string; retried?: boolean }[] }[]
 let cleanup: () => Promise<void>
 function fixturePlan(signature: string): NodeBatchPlan {
   return {
@@ -66,8 +71,13 @@ function fixturePlan(signature: string): NodeBatchPlan {
     params: useStore.getState().params,
   }
 }
-async function mount(runKey: string, origin = true, next: AgentCanvasRunProposal = proposal) {
-  if (origin) registerAgentNodeRunOrigin(runKey)
+async function mount(
+  runKey: string,
+  origin = true,
+  next: AgentCanvasRunProposal = proposal,
+  onReported?: (authorizationId: string) => void,
+) {
+  if (origin) registerAgentNodeRunOrigin(runKey, onReported ? { onReported } : {})
   const doc = new Y.Doc(),
     source = canvasOrigin('user', 'test'),
     undo = createCanvasUndoManager(doc, source)
@@ -107,6 +117,7 @@ beforeEach(() => {
   rejectPreflight = false
   confirms = 0
   preflights = 0
+  reports = []
   authorization = {
     id: 'authorization',
     conversationId: 'conversation',
@@ -123,8 +134,13 @@ beforeEach(() => {
   }
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.endsWith('/report')) {
+        reports.push(JSON.parse(String(init?.body)))
+        authorization = { ...authorization, status: 'ended' }
+        return Response.json({ authorization, wake: 'queued' })
+      }
       if (url.endsWith('/confirm')) {
         confirms += 1
         authorization = { ...authorization, status: 'active' }
@@ -142,8 +158,9 @@ beforeEach(() => {
   plan = fixturePlan('first')
   mocks.current.mockImplementation(() => plan)
   mocks.run.mockReset()
-  mocks.run.mockImplementation(async () => {
+  mocks.run.mockImplementation(async (...args: unknown[]) => {
     authorization = { ...authorization, spentCredits: 20 }
+    for (const job of plan.jobs) (args[7] as NodeBatchHooks | undefined)?.completed?.(job)
   })
 })
 afterEach(async () => {
@@ -171,6 +188,60 @@ it('shows scope and budget, confirms once, then preflights and runs only after t
   })
   expect(document.body.textContent).toContain('本组生成已完成。')
   expect(document.body.textContent).toContain('已用额度20')
+  expect(reports).toEqual([
+    expect.objectContaining({
+      executionToken: 'ephemeral-token',
+      nodes: [{ nodeId: 'a', outcome: 'completed' }],
+    }),
+  ])
+  expect(document.body.textContent).toContain('已把这批结果交给智能体')
+})
+it('reports the batch once and hands the wake to the origin', async () => {
+  const onReported = vi.fn()
+  await mount('reported', true, { ...proposal, direct: true }, onReported)
+  await act(async () => {})
+  expect(reports).toHaveLength(1)
+  expect(onReported).toHaveBeenCalledWith('authorization')
+  expect(authorization.status).toBe('ended')
+})
+it('retries a failed node once inside the authorization, then reports it failed', async () => {
+  mocks.run.mockImplementation(async (...args: unknown[]) => {
+    const hooks = args[7] as NodeBatchHooks
+    const job = plan.jobs[0]!
+    expect(await hooks.recover?.(job, new NodeBatchFailure('failed'))).toBe('retry')
+    expect(await hooks.recover?.(job, new NodeBatchFailure('failed'))).toBe('skip')
+  })
+  await mount('retry', true, { ...proposal, direct: true })
+  await act(async () => {})
+  expect(preflights).toBe(2)
+  expect(reports[0]?.nodes).toEqual([
+    { nodeId: 'a', outcome: 'failed', reason: 'generation_failed', retried: true },
+  ])
+})
+it('stops retrying when the retry would exceed the budget', async () => {
+  mocks.run.mockImplementation(async (...args: unknown[]) => {
+    rejectPreflight = true
+    const hooks = args[7] as NodeBatchHooks
+    expect(await hooks.recover?.(plan.jobs[0]!, new NodeBatchFailure('failed'))).toBe('skip')
+  })
+  await mount('retry-budget', true, { ...proposal, direct: true })
+  await act(async () => {})
+  expect(preflights).toBe(2)
+  expect(reports[0]?.nodes).toEqual([{ nodeId: 'a', outcome: 'failed', reason: 'budget_exceeded' }])
+})
+it('reports a direct run blocked before start with the missing input', async () => {
+  const job = fixturePlan('media').jobs[0]!
+  plan = { ...fixturePlan('media'), error: 'media', jobs: [{ ...job, blocked: 'missing_media' }] }
+  await mount('blocked-direct', true, { ...proposal, direct: true })
+  await act(async () => {})
+  expect(confirms).toBe(0)
+  expect(mocks.run).not.toHaveBeenCalled()
+  expect(reports).toEqual([
+    {
+      nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'missing_media' }],
+      deviceId: expect.any(String),
+    },
+  ])
 })
 it('starts a direct run with no confirmation card and no undo wait', async () => {
   await mount('direct', true, { ...proposal, direct: true })
@@ -249,6 +320,7 @@ it('stops a browser-only upload before confirm and does not submit', async () =>
   expect(mocks.run).not.toHaveBeenCalled()
   expect(document.body.textContent).toContain('没有写入画布')
   expect(authorization.status).toBe('ended')
+  expect(reports[0]?.nodes).toEqual([{ nodeId: 'a', outcome: 'blocked', reason: 'local_upload' }])
 })
 it('asks for a new proposal when the workbench spec no longer matches the snapshot', async () => {
   const snapped = {
@@ -301,4 +373,7 @@ it('stops later nodes when the running card is stopped', async () => {
   await act(async () => button('停止后续任务')!.click())
   expect(signal?.aborted).toBe(true)
   expect(document.body.textContent).toContain('已停止后续任务')
+  // 用户自己停下不唤醒智能体。
+  await act(async () => {})
+  expect(reports).toHaveLength(0)
 })

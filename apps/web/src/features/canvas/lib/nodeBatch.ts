@@ -1,4 +1,4 @@
-import type { StageAuthorizationSubmission } from '@image-playground/shared'
+import type { StageAuthorizationSubmission, StageRunReason } from '@image-playground/shared'
 import {
   type CanvasNode,
   type CanvasNodeJob,
@@ -74,6 +74,8 @@ export interface NodeBatchJob {
   temporary: Record<string, string>
   draft?: VideoDraft
   dependencies: string[]
+  /** 这个节点自己开跑前就被拦下的原因；智能体运行回报按它说明缺什么。 */
+  blocked?: StageRunReason
 }
 export interface NodeBatchPlan {
   jobs: NodeBatchJob[]
@@ -125,11 +127,16 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
     if (node.type !== 'image' && node.type !== 'video') continue
     const meta = node.data.meta ?? {},
       uploads = nodeReferenceDraft(input.document, node.id)
+    let blocked: StageRunReason | undefined
+    const block = (code: NodeBatchError, reason: StageRunReason) => {
+      error ??= code
+      blocked ??= reason
+    }
     if (
       uploads.uploading ||
       canvasNodeJobs(input.document, node.id).some((job) => job.status === 'loading')
     )
-      error ??= 'busy'
+      block('busy', 'busy')
     const temporary = Object.fromEntries(uploads.items.map((item) => [item.id, item.url]))
     const refs: NodeReference[] = [
       ...referencesFor(snapshot, node),
@@ -159,7 +166,7 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
     }
     if (kind === 'video') {
       const config = nodeVideoConfiguration(meta, refs, input.videoDraft, input.options)
-      if (!config.option) error ??= 'model'
+      if (!config.option) block('model', 'model_unavailable')
       draft = config.draft
       model = config.spec.model
       quantity = config.spec.quantity
@@ -178,11 +185,11 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
       })
       activeRefs = inputs.refs
       roles = inputs.roles
-      if (inputs.missing) error ??= 'media'
+      if (inputs.missing) block('media', 'missing_frame')
       const max =
         config.mode === 'reference' ? config.option?.support.referenceImages?.max : undefined
       if (max !== undefined && activeRefs.filter((ref) => ref.kind === 'image').length > max)
-        error ??= 'limit'
+        block('limit', 'input_limit')
     }
     const prompt = stageNodePrompt({
       kind,
@@ -215,23 +222,24 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
           images.length,
         )
       )
-        error ??= 'model'
+        block('model', 'model_unavailable')
     }
-    if (!prompt.trim() && (kind === 'video' || imageRefs.length === 0)) error ??= 'prompt'
+    if (!prompt.trim() && (kind === 'video' || imageRefs.length === 0))
+      block('prompt', 'missing_prompt')
     const referenceCount =
       new Set(imageRefs.filter((ref) => ids.has(ref.id)).map((ref) => ref.id)).size +
       referenceFileIds(
         imageRefs.filter((ref) => !ids.has(ref.id)),
         { ...input.files, ...temporary },
       ).length
-    if (referenceCount > API_MAX_IMAGES) error ??= 'limit'
+    if (referenceCount > API_MAX_IMAGES) block('limit', 'input_limit')
     if (
       imageRefs.some(
         (ref) =>
           !ids.has(ref.id) && (!ref.fileId || !(input.files[ref.fileId] || temporary[ref.fileId])),
       )
     )
-      error ??= 'media'
+      block('media', 'missing_media')
     jobs.push({
       id: node.id,
       kind,
@@ -245,6 +253,7 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
       temporary,
       ...(draft ? { draft } : {}),
       dependencies: activeRefs.filter((ref) => ids.has(ref.id)).map((ref) => ref.id),
+      ...(blocked ? { blocked } : {}),
     })
   }
   const sorted: NodeBatchJob[] = [],
@@ -319,6 +328,19 @@ export function currentNodeBatch(doc: Y.Doc, editor: CanvasEditor, ids: readonly
   })
 }
 
+/**
+ * 单个节点失败之后怎么办。缺席时整批停下（手动执行一组的老规矩）；智能体的阶段运行用它在授权内
+ * 重试一次，或者记下失败、跳过依赖它的下游，接着跑其余节点。
+ */
+export interface NodeBatchHooks {
+  /** 返回 `retry` 再提交一次；返回 `skip` 记为失败并跳过下游；抛出则整批停下。 */
+  recover?: (job: NodeBatchJob, error: unknown) => Promise<'retry' | 'skip'>
+  /** 节点有了真实结果。 */
+  completed?: (job: NodeBatchJob) => void
+  /** 节点依赖的上游没有结果，没有提交。 */
+  skipped?: (job: NodeBatchJob) => void
+}
+
 /** Captured jobs are immutable; changed inputs/prices require a fresh confirmation. */
 export async function executeNodeBatch(
   plan: NodeBatchPlan,
@@ -327,12 +349,18 @@ export async function executeNodeBatch(
     current: () => NodeBatchPlan
     submit: (job: NodeBatchJob) => Promise<void>
     progress: (completed: number, id: string) => void
-  },
+  } & NodeBatchHooks,
 ) {
   if (plan.error) throw new NodeBatchFailure(plan.error)
   if (plan.blocked) throw new NodeBatchFailure('failed')
+  const dropped = new Set<string>()
   for (const [index, job] of plan.jobs.entries()) {
     if (control.signal.aborted) throw new NodeBatchFailure('cancelled')
+    if (job.dependencies.some((id) => dropped.has(id))) {
+      dropped.add(job.id)
+      control.skipped?.(job)
+      continue
+    }
     const current = control.current()
     if (current.signature !== plan.signature) throw new NodeBatchFailure('changed')
     if (
@@ -341,7 +369,21 @@ export async function executeNodeBatch(
     )
       throw new NodeBatchFailure(current.error ?? 'failed')
     control.progress(index, job.id)
-    await control.submit(job)
+    for (;;) {
+      try {
+        await control.submit(job)
+        control.completed?.(job)
+        break
+      } catch (error) {
+        if (!control.recover) throw error
+        if ((await control.recover(job, error)) === 'retry') {
+          if (control.signal.aborted) throw new NodeBatchFailure('cancelled')
+          continue
+        }
+        dropped.add(job.id)
+        break
+      }
+    }
   }
   control.progress(plan.jobs.length, '')
 }
@@ -375,6 +417,7 @@ export async function runNodeBatch(
   signal: AbortSignal,
   progress: (completed: number, id: string) => void,
   stageAuthorizations?: Readonly<Record<string, StageAuthorizationSubmission>>,
+  hooks: NodeBatchHooks = {},
 ) {
   const sameAccount = accountScope()
   const completedResults = new Map<string, string>()
@@ -384,6 +427,7 @@ export async function runNodeBatch(
     }
   }
   await executeNodeBatch(plan, {
+    ...hooks,
     signal,
     progress,
     current: () => {

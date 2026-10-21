@@ -1,5 +1,11 @@
-import type { StageAuthorization, StageAuthorizationPreflight } from '@image-playground/shared'
+import type {
+  StageAuthorization,
+  StageAuthorizationPreflight,
+  StageRunReportInput,
+  StageRunReportResult,
+} from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
+import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
 async function request<T>(id: string, action = '', body?: unknown): Promise<T> {
@@ -40,4 +46,10 @@ export const stageAuthorizationClient = {
   preflight: (id: string, input: StageAuthorizationPreflight) =>
     request<StageAuthorization>(id, '/preflight', input),
   end: (id: string) => request<StageAuthorization>(id, '/end', {}),
+  /** 一批运行的结局交给 BFF，它结束授权并唤醒智能体一次；重复上报不会再唤醒。 */
+  report: (id: string, input: StageRunReportInput) =>
+    request<{ authorization: StageAuthorization } & StageRunReportResult>(id, '/report', {
+      ...input,
+      deviceId: getDeviceId(),
+    }),
 }

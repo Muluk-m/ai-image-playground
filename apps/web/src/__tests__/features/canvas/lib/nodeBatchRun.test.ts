@@ -140,3 +140,106 @@ it('does not adopt a collaborator result created after this batch began', async 
   await rejected
   expect(t.started).toEqual(['a'])
 })
+
+function fail(t: ReturnType<typeof setup>, id: string) {
+  setCanvasNodeJob(
+    t.doc,
+    {
+      id: `job-${id}`,
+      nodeId: id,
+      status: 'error',
+      createdAt: Date.now(),
+      message: 'upstream failed',
+      meta: { prompt: id, clientRequestId: `job-${id}` },
+    },
+    origin,
+  )
+}
+it('retries a failed node when the authorization allows it', async () => {
+  const t = setup(),
+    completed: string[] = []
+  // 和画布侧一致：只有生成失败才重试，其余错误整批停下。
+  const recover = vi.fn(async (_job: unknown, error: unknown) => {
+    if ((error as { code?: string }).code !== 'failed') throw error
+    return 'retry' as const
+  })
+  const running = runNodeBatch(
+    t.doc,
+    t.editor,
+    t.ids,
+    t.plan,
+    new AbortController().signal,
+    () => {},
+    undefined,
+    { recover, completed: (job) => completed.push(job.id) },
+  )
+  const submit = mocks.submit.getMockImplementation()!
+  // 重试是一次新提交：画布上换一条新的任务记录。
+  mocks.submit.mockImplementation((editor, doc, id, ...rest) => {
+    if (id !== 'a') return submit(editor, doc, id, ...rest)
+    t.started.push(id)
+    finishCanvasNodeJob(t.doc, 'job-a', origin)
+    setCanvasNodeJob(
+      t.doc,
+      {
+        id: 'job-a-retry',
+        nodeId: 'a',
+        status: 'loading',
+        createdAt: Date.now(),
+        message: '',
+        meta: { prompt: 'a', clientRequestId: 'job-a-retry' },
+      },
+      origin,
+    )
+    return true
+  })
+  fail(t, 'a')
+  await vi.waitFor(() => expect(t.started).toEqual(['a', 'a']))
+  t.editor.doc.files = { ...t.editor.doc.files, retried: 'data:image/png;base64,retried' }
+  recordCanvasResult(
+    t.doc,
+    {
+      id: 'retried',
+      nodeId: 'a',
+      kind: 'image',
+      source: { type: 'local', taskId: 'canvas:job-a-retry', outputIndex: 0 },
+      createdAt: Date.now(),
+    },
+    origin,
+  )
+  chooseCanvasResult(t.doc, 'a', 'retried', { data: { fileId: 'retried' } }, origin)
+  finishCanvasNodeJob(t.doc, 'job-a-retry', origin)
+  await vi.waitFor(() => expect(t.started).toEqual(['a', 'a', 'x']))
+  t.complete('x')
+  await vi.waitFor(() => expect(t.started).toEqual(['a', 'a', 'x', 'b']))
+  t.complete('b')
+  await running
+  expect(recover).toHaveBeenCalledOnce()
+  expect(completed).toEqual(['a', 'x', 'b'])
+})
+it('drops a node that gives up, keeps its siblings and skips its dependents', async () => {
+  const t = setup(),
+    completed: string[] = [],
+    skipped: string[] = []
+  const running = runNodeBatch(
+    t.doc,
+    t.editor,
+    t.ids,
+    t.plan,
+    new AbortController().signal,
+    () => {},
+    undefined,
+    {
+      recover: async () => 'skip',
+      completed: (job) => completed.push(job.id),
+      skipped: (job) => skipped.push(job.id),
+    },
+  )
+  fail(t, 'a')
+  await vi.waitFor(() => expect(t.started).toEqual(['a', 'x']))
+  t.complete('x')
+  await running
+  expect(t.started).toEqual(['a', 'x'])
+  expect(completed).toEqual(['x'])
+  expect(skipped).toEqual(['b'])
+})
