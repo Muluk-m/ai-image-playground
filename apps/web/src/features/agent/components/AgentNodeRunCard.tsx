@@ -175,6 +175,7 @@ export default function AgentNodeRunCard({
         { label: t('nodeRun.spent'), value: String(authorization?.spentCredits ?? 0) },
       ]}
     >
+      {proposal.storyboard && <StoryboardSummary summary={proposal.storyboard} />}
       {jobs && (
         <NodeBatchJobs
           jobs={jobs}
@@ -222,5 +223,44 @@ export default function AgentNodeRunCard({
         </p>
       )}
     </ApprovalCard>
+  )
+}
+
+const SUMMARY_SHOTS_SHOWN = 12
+
+/** 首帧阶段的镜头表摘要：用户确认的就是「按这张表开拍」，确认即定稿。 */
+function StoryboardSummary({
+  summary,
+}: {
+  summary: NonNullable<AgentCanvasRunProposal['storyboard']>
+}) {
+  const { t } = useTranslation('agent')
+  const shown = summary.shots.slice(0, SUMMARY_SHOTS_SHOWN)
+  return (
+    <div className="grid gap-1 text-xs">
+      <p className="font-medium">
+        {t('nodeRun.storyboard.summary', {
+          count: summary.shotCount,
+          seconds: summary.totalSeconds,
+        })}
+      </p>
+      <ol className="grid gap-0.5 text-muted-foreground">
+        {shown.map((shot, index) => (
+          <li key={shot.id}>
+            {t('nodeRun.storyboard.shot', {
+              index: index + 1,
+              seconds: shot.durationSeconds,
+              line: shot.line,
+            })}
+          </li>
+        ))}
+      </ol>
+      {summary.shots.length > shown.length && (
+        <p className="text-muted-foreground">
+          {t('nodeRun.storyboard.more', { count: summary.shots.length - shown.length })}
+        </p>
+      )}
+      <p className={CARD_NOTE}>{t('nodeRun.storyboard.finalizes')}</p>
+    </div>
   )
 }

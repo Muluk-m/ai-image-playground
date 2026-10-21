@@ -16,13 +16,21 @@ import {
   layoutCanvasArrange,
   moveCanvasNodes,
   parseCompleteStageVideoDraft,
+  prepareStoryboardFrames,
   readCanvasDocument,
   recordCanvasResult,
   replaceStoryboardShots,
   resolveStageImageExecution,
   resolveStageVideoExecution,
   type StageExecutionBinding,
+  type StageStoryboardFinalization,
+  StoryboardFlowError,
+  type StoryboardFrameMode,
+  type StoryboardStageSummary,
   stageExecutionBinding,
+  storyboardFingerprint,
+  storyboardMissingAssetNodes,
+  storyboardStageSummary,
   type TextNodeData,
   ungroupCanvasNodes,
   updateCanvasNode,
@@ -97,7 +105,7 @@ const available = (_mode: unknown, audience?: AgentToolAudience) =>
     audience?.userId && audience.experience === 'canvas' && isCapabilityEnabled('accounts:sync'),
   )
 const guidance =
-  '修改前用 readCanvas 读取需要的节点。一次调用会原子保存并可整体撤销，不运行生成、不计费。视频节点必须明确给出 videoMode，不能依引用数量推断。用户在对话里附的图要接进节点时，用 createNodes 的 imageId 建素材节点再 connectNodes，不要让用户自己把图拖进画布或选中节点。'
+  '分镜表的首帧不要用这些工具手工搭，用 runStoryboardFrames。修改前用 readCanvas 读取需要的节点。一次调用会原子保存并可整体撤销，不运行生成、不计费。视频节点必须明确给出 videoMode，不能依引用数量推断。用户在对话里附的图要接进节点时，用 createNodes 的 imageId 建素材节点再 connectNodes，不要让用户自己把图拖进画布或选中节点。'
 const invalid = (message: string): never => {
   throw new AgentToolError('invalid_params', message)
 }
@@ -584,6 +592,106 @@ function stageExecution(
   })
   return { ...(image ? { charge: { nodeId: node.id, ...image } } : {}), binding }
 }
+type CanvasGraph = ReturnType<typeof readCanvasDocument>
+/**
+ * 为一组画布节点登记阶段授权：服务端按节点规格报价并冻结执行快照。
+ * runNodes 与首帧阶段共用，直接出图偏好只看本轮请求。
+ */
+async function proposeCanvasStage(
+  context: AgentToolContext,
+  callId: string,
+  projectId: string,
+  graph: CanvasGraph,
+  nodes: readonly CanvasNode[],
+  options: {
+    stage: string
+    storyboard?: { ref: StageStoryboardFinalization; summary: StoryboardStageSummary }
+  },
+) {
+  const userId = context.userId ?? invalid('当前会话没有已同步的云端项目。')
+  const billing = isCapabilityEnabled('billing:credits')
+  const charges: StageChargeInput[] = []
+  const bindings: StageExecutionBinding[] = []
+  const authorizedIds = new Set(nodes.map((node) => node.id))
+  for (const node of nodes) {
+    const quoted = stageExecution(node, context.params, graph, authorizedIds)
+    if (!quoted) return invalid(`无法为节点「${stageNodeName(node)}」建立执行快照。`)
+    bindings.push(quoted.binding)
+    if (!quoted.charge) {
+      if (billing)
+        return invalid(
+          `无法为节点「${stageNodeName(node)}」计价，授权没有创建。图片需要可用的出图模型；视频需要节点上的模型与时长，或本轮视频参数。`,
+        )
+      charges.push({ nodeId: node.id, model: '', quantity: 1, unitMultiplier: 1 })
+      continue
+    }
+    charges.push(quoted.charge)
+  }
+  const direct = canvasStageRunsDirectly(context.params)
+  let authorization: Awaited<ReturnType<typeof proposeStageAuthorization>>
+  try {
+    authorization = await proposeStageAuthorization({
+      userId,
+      conversationId: context.conversationId,
+      projectId,
+      proposalKey: `${context.turnId}:${callId}`,
+      stage: options.stage,
+      nodeIds: nodes.map((node) => node.id),
+      nodeNames: nodes.map((node) => stageNodeName(node)),
+      nodes: charges,
+      bindings,
+      ...(options.storyboard ? { storyboard: options.storyboard.ref } : {}),
+    })
+  } catch (error) {
+    if (
+      error instanceof StageAuthorizationError &&
+      error.code === 'stage_authorization_price_unavailable'
+    )
+      return invalid('无法为这些节点计价，授权没有创建。请确认模型可用后再提案。')
+    throw error
+  }
+  const canvasRun = {
+    projectId,
+    nodeIds: authorization.nodeIds,
+    nodeNames: authorization.nodeNames,
+    authorizationId: authorization.id,
+    stage: authorization.stage,
+    estimatedCredits: authorization.estimatedCredits,
+    budgetCap: authorization.budgetCap,
+    status: authorization.status,
+    specs: authorization.charges?.map(({ nodeId, model, quantity, unitMultiplier }) => ({
+      nodeId,
+      model,
+      quantity,
+      unitMultiplier,
+    })),
+    direct,
+    ...(options.storyboard ? { storyboard: options.storyboard.summary } : {}),
+  }
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify({
+          ...canvasRun,
+          submitted: false,
+          note: `${
+            direct
+              ? '直接出图：阶段授权已登记，原标签页会立即开跑，没有确认卡，也不等待撤销。不要说待确认。只有 taskIds 中的任务已提交。不得声称已生成。'
+              : '阶段授权待确认；用户确认前不会提交或扣费。确认后只由原标签页运行，实际提交与花费应查询授权状态。不得声称已生成。'
+          }${
+            options.storyboard
+              ? direct
+                ? '原标签页开跑前确认这条授权，分镜表随之定稿。'
+                : '用户确认这条授权时分镜表随之定稿。'
+              : ''
+          }`,
+        }),
+      },
+    ],
+    details: { canvasRun },
+  }
+}
 export const runNodes = defineAgentTool({
   name: 'runNodes',
   label: '阶段授权',
@@ -653,86 +761,165 @@ export const runNodes = defineAgentTool({
           !node.data.meta.nodePrompt?.trim(),
       )
       const nodes = scoped.filter((node) => runnableStageNode(graph, node))
+      const frames = nodes.filter(storyboardFrameNode)
+      if (frames.length)
+        return invalid(
+          `「${frames.map(stageNodeName).join('、')}」是分镜表的首帧，请用 runStoryboardFrames 出首帧：默认宫格，单镜重出传 shotIds。`,
+        )
       if (!nodes.length)
         return invalid(
           promptlessAssets.length
             ? '范围内的素材节点没有提示词，不能单独生成。请写上提示词，或改为指定图片、视频节点。'
             : '范围内没有可生成的图片或视频节点。',
         )
-      const billing = isCapabilityEnabled('billing:credits')
-      const charges: StageChargeInput[] = []
-      const bindings: StageExecutionBinding[] = []
-      const authorizedIds = new Set(nodes.map((node) => node.id))
-      for (const node of nodes) {
-        const quoted = stageExecution(node, context.params, graph, authorizedIds)
-        if (!quoted) return invalid(`无法为节点「${stageNodeName(node)}」建立执行快照。`)
-        bindings.push(quoted.binding)
-        if (!quoted.charge) {
-          if (billing)
-            return invalid(
-              `无法为节点「${stageNodeName(node)}」计价，授权没有创建。图片需要可用的出图模型；视频需要节点上的模型与时长，或本轮视频参数。`,
-            )
-          charges.push({ nodeId: node.id, model: '', quantity: 1, unitMultiplier: 1 })
-          continue
-        }
-        charges.push(quoted.charge)
-      }
-      const direct = canvasStageRunsDirectly(context.params)
-      let authorization: Awaited<ReturnType<typeof proposeStageAuthorization>>
-      try {
-        authorization = await proposeStageAuthorization({
-          userId: context.userId,
-          conversationId: context.conversationId,
-          projectId: project.id,
-          proposalKey: `${context.turnId}:${callId}`,
-          stage: params.stage ?? '节点生成',
-          nodeIds: nodes.map((node) => node.id),
-          nodeNames: nodes.map((node) => stageNodeName(node)),
-          nodes: charges,
-          bindings,
-        })
-      } catch (error) {
-        if (
-          error instanceof StageAuthorizationError &&
-          error.code === 'stage_authorization_price_unavailable'
-        )
-          return invalid('无法为这些节点计价，授权没有创建。请确认模型可用后再提案。')
-        throw error
-      }
-      const canvasRun = {
-        projectId: project.id,
-        nodeIds: authorization.nodeIds,
-        nodeNames: authorization.nodeNames,
-        authorizationId: authorization.id,
-        stage: authorization.stage,
-        estimatedCredits: authorization.estimatedCredits,
-        budgetCap: authorization.budgetCap,
-        status: authorization.status,
-        specs: authorization.charges?.map(({ nodeId, model, quantity, unitMultiplier }) => ({
-          nodeId,
-          model,
-          quantity,
-          unitMultiplier,
-        })),
-        direct,
-      }
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              ...canvasRun,
-              submitted: false,
-              note: direct
-                ? '直接出图：阶段授权已登记，原标签页会立即开跑，没有确认卡，也不等待撤销。不要说待确认。只有 taskIds 中的任务已提交。不得声称已生成。'
-                : '阶段授权待确认；用户确认前不会提交或扣费。确认后只由原标签页运行，实际提交与花费应查询授权状态。不得声称已生成。',
-            }),
-          },
-        ],
-        details: { canvasRun },
-      }
+      return await proposeCanvasStage(context, callId, project.id, graph, nodes, {
+        stage: params.stage ?? '节点生成',
+      })
     } finally {
       doc.destroy()
+    }
+  },
+})
+
+/** 分镜表流程铺出的首帧与宫格节点。它们只能经首帧阶段出图，确认时才会把分镜表定稿。 */
+function storyboardFrameNode(node: CanvasNode): boolean {
+  if (node.type !== 'image' && node.type !== 'video') return false
+  const meta = node.data.meta
+  return Boolean(
+    meta?.storyboardId && (meta.storyboardRole === 'frame' || meta.storyboardRole === 'grid'),
+  )
+}
+const FRAME_NAMES = {
+  frame: (index: number) => `第 ${index} 镜 · 首帧`,
+  grid: (index: number) => `首帧宫格 ${index}`,
+  video: (index: number) => `第 ${index} 镜 · 视频`,
+}
+function storyboardFlowMessage(error: unknown): string | undefined {
+  if (!(error instanceof StoryboardFlowError)) return undefined
+  switch (error.code) {
+    case 'finalizeFirst':
+      return `分镜表没有镜头，或镜头数超过上限，不能铺首帧。`
+    case 'promptTooLong':
+      return '有镜头的描述太长，写不进首帧提示词。请先用 applyScriptPlan 精简或拆分这一镜。'
+    default:
+      return `首帧没有铺出：${error.code}`
+  }
+}
+function prepareFrames(
+  doc: Y.Doc,
+  storyboardId: string,
+  mode: StoryboardFrameMode,
+  origin: CanvasOrigin,
+) {
+  try {
+    return prepareStoryboardFrames(doc, storyboardId, mode, {
+      origin,
+      names: FRAME_NAMES,
+      allowDraft: true,
+    })
+  } catch (error) {
+    const message = storyboardFlowMessage(error)
+    if (message) return invalid(message)
+    throw error
+  }
+}
+const scratchOrigin: CanvasOrigin = 'agent:storyboard-frames'
+
+export const runStoryboardFrames = defineAgentTool({
+  name: 'runStoryboardFrames',
+  label: '首帧阶段',
+  modes,
+  available,
+  onError: 'continue',
+  guidance:
+    '分镜表出首帧只用本工具：不要用 createNodes、connectNodes 手工搭首帧节点，也不要对首帧节点用 runNodes。默认 mode 为 grid，宫格一次出图再切分；用户要求某一镜单独重出时传 shotIds（逐镜）。分镜表引用的人物或地点素材还没有图时，本工具不铺节点也不登记授权：照回执告诉用户缺哪些素材，并提议素材阶段授权（给这些素材节点写好提示词后用 runNodes，阶段写「素材」；画布上已有合适的图就用 importCanvasImage 收进素材）。这条授权一经确认，分镜表就定稿。只有查到 taskIds 才能说已提交，读到真实结果才能说已完成。',
+  description:
+    '按分镜表铺首帧：每镜一个首帧节点，宫格模式另建宫格节点；首帧与宫格连上该镜人物、地点素材作为参考，再为本次要出图的节点登记首帧阶段授权，附镜头表摘要（镜数、总时长、每镜一句）。确认授权即把分镜表定稿；提案后镜头表被改过，确认会失败，需要重新提案。直接出图开着时原标签页立即确认并开跑。素材缺图时整次拒绝。',
+  parameters: Type.Object({
+    storyboardId: id,
+    mode: Type.Optional(Type.Union([Type.Literal('grid'), Type.Literal('individual')])),
+    shotIds: Type.Optional(Type.Array(id, { minItems: 1, maxItems: 200, uniqueItems: true })),
+  }),
+  call: () => ({ title: '首帧阶段' }),
+  execute: (context) => async (callId, params) => {
+    if (!available(context.mode, context)) invalid('当前会话没有可用的云端节点画布。')
+    const project = await agentCanvasProject(context)
+    if (!project || !context.userId) return invalid('当前会话没有已同步的云端项目。')
+    const userId = context.userId
+    if (params.shotIds && params.mode === 'grid')
+      invalid('单镜重出首帧只能逐镜：传 shotIds 时 mode 用 individual 或不填。')
+    const mode: StoryboardFrameMode = params.shotIds ? 'individual' : (params.mode ?? 'grid')
+    await context.assertExecution?.()
+    const load = async () => {
+      const doc = new Y.Doc()
+      Y.applyUpdate(doc, await accessCanvasDocument(userId, project.id))
+      return doc
+    }
+    // 先在副本上校验：缺素材、镜头不存在或提示词超长时，画布上什么也不留。
+    const before = await load()
+    let fingerprint: string
+    try {
+      const board = getNode(before, params.storyboardId)
+      if (board.type !== 'storyboard') return invalid(`节点不是分镜表：${params.storyboardId}`)
+      if (!board.data.shots.length)
+        return invalid('分镜表还没有镜头，先用 applyScriptPlan 写镜头。')
+      const known = new Set(board.data.shots.map((shot) => shot.id))
+      const unknown = (params.shotIds ?? []).filter((shot) => !known.has(shot))
+      if (unknown.length) invalid(`分镜表里没有这些镜头：${unknown.join('、')}`)
+      const missing = storyboardMissingAssetNodes(before, board.id, params.shotIds)
+      if (missing.length)
+        invalid(
+          `分镜表引用的素材还没有图：${missing
+            .map((asset) => `${asset.name}（${asset.id}）`)
+            .join(
+              '、',
+            )}。首帧没有铺，也没有登记授权。请向用户说明缺哪些素材，并提议素材阶段授权：给这些素材节点写好提示词后用 runNodes（stage 写「素材」），或用 importCanvasImage 把画布上已有的图收进素材。`,
+        )
+      fingerprint = storyboardFingerprint(board.data.shots)
+      prepareFrames(before, board.id, mode, scratchOrigin)
+    } finally {
+      before.destroy()
+    }
+    await executeCanvasCommand(
+      userId,
+      project.id,
+      { turnId: context.turnId, toolCallId: callId, label: '铺首帧', args: params },
+      (doc, origin) => {
+        const board = getNode(doc, params.storyboardId)
+        if (board.type !== 'storyboard' || storyboardFingerprint(board.data.shots) !== fingerprint)
+          invalid('分镜表刚被改过，请重新读取后再发起首帧阶段。')
+        prepareFrames(doc, params.storyboardId, mode, origin)
+      },
+    )
+    // 铺节点是幂等的：在保存后的画布副本上再跑一次，只为拿到节点 ID，不写回。
+    const saved = await load()
+    try {
+      const graph = readCanvasDocument(saved)
+      const board = graph.nodes.find((node) => node.id === params.storyboardId)
+      if (board?.type !== 'storyboard' || storyboardFingerprint(board.data.shots) !== fingerprint)
+        return invalid('分镜表刚被改过，请重新读取后再发起首帧阶段。')
+      const persisted = new Set(graph.nodes.map((node) => node.id))
+      const prepared = prepareFrames(saved, board.id, mode, scratchOrigin)
+      const wanted = params.shotIds ? new Set(params.shotIds) : undefined
+      const targets = wanted
+        ? board.data.shots.flatMap((shot, index) =>
+            wanted.has(shot.id) ? [prepared.frameIds[index]!] : [],
+          )
+        : prepared.generateIds
+      if (!targets.length || targets.some((target) => !persisted.has(target)))
+        return invalid('首帧节点没有保存下来，请重新读取画布后再试。')
+      const nodes = targets.map(
+        (target) => graph.nodes.find((node) => node.id === target) ?? invalid('首帧节点不存在。'),
+      )
+      return await proposeCanvasStage(context, callId, project.id, graph, nodes, {
+        stage: '首帧',
+        storyboard: {
+          ref: { storyboardId: board.id, fingerprint },
+          summary: storyboardStageSummary(board.id, board.data.shots),
+        },
+      })
+    } finally {
+      saved.destroy()
     }
   },
 })
