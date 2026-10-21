@@ -121,7 +121,9 @@ beforeEach(() => {
     'scripts/build-vps-release.sh',
     'scripts/check-test-isolation.sh',
     'scripts/vps-deploy.sh',
+    'scripts/segmenter-deploy.sh',
     'scripts/lib/deploy-common.sh',
+    'deploy/compose.segmenter.yaml',
   ]) {
     mkdirSync(resolve(join(checkout, f), '..'), { recursive: true })
     cpSync(join(source, f), join(checkout, f))
@@ -217,11 +219,13 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     expect(outputFiles()).toEqual([
       'SHA256SUMS',
       'deploy/compose.app.yaml',
+      'deploy/compose.segmenter.yaml',
       'images.tsv',
       'scripts/app-compose.sh',
       'scripts/check-test-isolation.sh',
       'scripts/lib/deploy-common.sh',
       'scripts/rollout-runtime.sh',
+      'scripts/segmenter-deploy.sh',
       'scripts/vps-deploy.sh',
     ])
   })

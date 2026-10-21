@@ -128,6 +128,7 @@ while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_
 done < "$release/images.tsv"
 backup_image=$(awk -F '\t' '$1=="backup" { print $2 }' "$release/images.tsv")
 segmenter_image=$(awk -F '\t' '$1=="segmenter" { print $2 }' "$release/images.tsv")
+segmenter_up=
 rolled_out=
 for edition in $editions; do
   record=$(awk -F '\t' -v e="$edition" '$1==e' "$release/images.tsv")
@@ -136,23 +137,41 @@ $record
 EOF
   prefix=$(printf '%s' "$edition" | tr '[:lower:]' '[:upper:]')
   project=$(edition_var "$prefix" PROJECT)
-  # The segmenter (deploy/segmenter) starts before the executors that call it. It is optional:
-  # if it does not come up, the BFF is not told about it and edit-region cards fall back to
-  # the agent's box, so a failure here warns instead of failing the release.
+  # The shared segmenter (deploy/compose.segmenter.yaml): one container for every edition. A
+  # release that carries it starts or updates it once, before the executors that call it; each
+  # edition in SEGMENTER_EDITIONS (default: test only; adding internal/paid needs Nain's go-ahead)
+  # is then attached to it and its executors get its address. It
+  # is optional: if it does not come up, the executors are not told about it and edit-region
+  # cards fall back to the agent's box, so a failure here warns instead of failing the release.
   AGENT_SEGMENTER_URL=
-  if [ "$edition" = test ] && [ -n "$segmenter_image" ]; then
-    if SEGMENTER_IMAGE=$segmenter_image APP_IMAGE=$image BACKUP_IMAGE=$backup_image \
-      "$release/scripts/app-compose.sh" compose "$project" --profile segmenter \
-      up --detach --no-deps --wait segmenter; then
-      AGENT_SEGMENTER_URL=http://segmenter:8080
+  case " ${SEGMENTER_EDITIONS:-test} " in
+    *" $edition "*) segmenter_wanted=1 ;;
+    *) segmenter_wanted= ;;
+  esac
+  if [ -n "$segmenter_wanted" ] && [ -z "$segmenter_image" ] && [ -z "$segmenter_up" ]; then
+    # A release without the image (production today) reuses the running shared instance.
+    if "$release/scripts/segmenter-deploy.sh" healthy -; then segmenter_up=ok; else segmenter_up=failed; fi
+  fi
+  if [ -n "$segmenter_wanted" ] && [ -n "$segmenter_image" ] && [ -z "$segmenter_up" ]; then
+    segmenter_up=failed
+    if "$release/scripts/segmenter-deploy.sh" up "$segmenter_image"; then
+      segmenter_up=ok
       docker tag "$segmenter_image" ai-image-playground:segmenter
       rolled_out="$rolled_out $segmenter_image"
     else
       echo "Warning: the segmenter did not start; edit-region cards fall back to the agent's box." >&2
     fi
   fi
+  if [ -n "$segmenter_wanted" ] && [ "$segmenter_up" = ok ]; then
+    AGENT_SEGMENTER_URL=http://segmenter:8080
+  fi
   export AGENT_SEGMENTER_URL
   APP_IMAGE=$image BACKUP_IMAGE=$backup_image "$release/scripts/app-compose.sh" up "$project"
+  # The app network exists only once the project is up; the executors resolve `segmenter` per
+  # request, so attaching right after is soon enough, and before the first card is asked for.
+  if [ -n "$AGENT_SEGMENTER_URL" ] && ! "$release/scripts/segmenter-deploy.sh" attach "$project"; then
+    echo "Warning: could not attach the segmenter to $project; edit-region cards fall back to the agent's box." >&2
+  fi
   docker tag "$image" "$(edition_var "$prefix" IMAGE)"
   append_deploy_log "$edition" "$image" ok
   current_edition=
