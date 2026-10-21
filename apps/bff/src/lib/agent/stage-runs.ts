@@ -12,6 +12,7 @@ import {
   type StageRunReportResult,
   type StageRunWakeReceipt,
   storyboardFingerprint,
+  storyboardMissingAssetNodes,
 } from '@image-playground/shared'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import * as Y from 'yjs'
@@ -392,12 +393,12 @@ export async function stageRunWakeContent(
     guidance.push(
       `没有运行的节点：说明它们为什么没轮到；要继续时请用户同意后再用 ${rerun} 发起新的阶段授权。`,
     )
-  // 直接出图开着、为一张还没定稿的分镜表出的素材全部出完（阶段名带「素材」，整批都是这张表引用的素材）：
+  // 直接出图开着、为一张还没定稿的分镜表出的素材全部出完（阶段名是「素材」，整批都是这张表引用的素材，表里其余素材已经有图）：
   // 接着出首帧是同一条流程的下一步，不该停下来等一句「继续」。普通节点批次、首帧阶段本身、已经定稿过的分镜表都不在此列；出视频等别的付费阶段仍要先问。
   const storyboardId =
     completed > 0 &&
     completed === run.nodes.length &&
-    state.stage.includes('素材') &&
+    state.stage === '素材' &&
     state.turn?.autoSubmit === true &&
     !state.storyboard
       ? await draftStoryboardUsing(owner.userId, state.projectId, state.nodeIds)
@@ -424,7 +425,7 @@ export async function stageRunWakeContent(
 
 /**
  * 这批节点是不是某一张还没定稿的分镜表的素材批：批里每个节点都得是这张表引用的人物或地点素材，
- * 混进了普通节点或别的素材就不算。只有恰好一张表命中时才返回它；
+ * 混进了普通节点或别的素材就不算；表里这批之外的素材也得已经有图，否则首帧还开不了，不自动推进。只有恰好一张表命中时才返回它；
  * 没有命中、或多张草稿表共用这批素材而无法确定是哪一张时，都不接着出首帧，交给用户决定。
  * 读画布出错时记一条告警再按没有处理：不自动推进付费阶段是更安全的退路。
  */
@@ -450,7 +451,10 @@ async function draftStoryboardUsing(
             ...(shot.locationId !== undefined ? [shot.locationId] : []),
           ]),
         )
-        return nodeIds.every((id) => assets.has(id))
+        if (!nodeIds.every((id) => assets.has(id))) return false
+        // 这批之外的素材得早就有图：这批自己的结果可能还没同步回画布，按回报算已完成，不在这里查。
+        const batch = new Set(nodeIds)
+        return storyboardMissingAssetNodes(doc, node.id).every((asset) => batch.has(asset.id))
       })
       .map((node) => node.id)
     if (matches.length > 1)

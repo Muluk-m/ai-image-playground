@@ -437,7 +437,7 @@ it('keeps the confirmation card in the wake round when the proposing turn had au
   expect(rerun.charges).toMatchObject([{ model: 'workbench-image', quantity: 4 }])
 })
 
-async function addStoryboard(projectId: string, id = 'board') {
+async function addStoryboard(projectId: string, id = 'board', lookIds: string[] = ['a']) {
   await accessCanvasDocument(USER_ID, projectId, async (current) => {
     const doc = new Y.Doc()
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
@@ -451,7 +451,7 @@ async function addStoryboard(projectId: string, id = 'board') {
         y: 600,
         width: 480,
         height: 360,
-        data: { shots: [{ id: 'shot-1', description: '嫩芽破土', lookIds: ['a'] }] },
+        data: { shots: [{ id: 'shot-1', description: '嫩芽破土', lookIds }] },
       },
       canvasOrigin('system', 'fixture'),
     )
@@ -467,10 +467,11 @@ async function completedAssetWake(
   storyboards: readonly string[] = ['board'],
   nodeIds: readonly string[] = ['a'],
   stage = '素材',
+  lookIds: string[] = ['a'],
 ) {
   const run = await proposal([...nodeIds], params, stage)
-  // 分镜表把 a 当作人物素材引用，还没定稿。
-  for (const id of storyboards) await addStoryboard(run.projectId, id)
+  // 分镜表把 lookIds 当作人物素材引用，还没定稿。
+  for (const id of storyboards) await addStoryboard(run.projectId, id, lookIds)
   const token = await confirm(run.authorizationId)
   for (const id of nodeIds)
     expect((await preflight(run.authorizationId, token, id, `${id}-1`)).status).toBe(200)
@@ -521,6 +522,13 @@ it('does not continue to first frames when the batch mixes in nodes the storyboa
 
 it('does not continue to first frames after a batch that was not proposed as the asset stage', async () => {
   const wake = await completedAssetWake(undefined, ['board'], ['a'], '节点生成')
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
+})
+
+it('does not continue to first frames while other storyboard assets still have no image', async () => {
+  // 分镜表引用 a 和 b，这一批只出了 a，b 还没有图。
+  const wake = await completedAssetWake(undefined, ['board'], ['a'], '素材', ['a', 'b'])
   expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
   expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
 })
