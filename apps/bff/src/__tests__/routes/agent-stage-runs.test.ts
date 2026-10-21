@@ -438,7 +438,12 @@ it('keeps the confirmation card in the wake round when the proposing turn had au
   expect(rerun.charges).toMatchObject([{ model: 'workbench-image', quantity: 4 }])
 })
 
-async function addStoryboard(projectId: string, id = 'board', lookIds: string[] = ['a']) {
+async function addStoryboard(
+  projectId: string,
+  id = 'board',
+  lookIds: string[] = ['a'],
+  shots = [{ id: 'shot-1', description: '嫩芽破土', lookIds }],
+) {
   await accessCanvasDocument(USER_ID, projectId, async (current) => {
     const doc = new Y.Doc()
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
@@ -452,7 +457,7 @@ async function addStoryboard(projectId: string, id = 'board', lookIds: string[] 
         y: 600,
         width: 480,
         height: 360,
-        data: { shots: [{ id: 'shot-1', description: '嫩芽破土', lookIds }] },
+        data: { shots },
       },
       canvasOrigin('system', 'fixture'),
     )
@@ -566,6 +571,80 @@ it('does not continue to first frames twice while a first-frame authorization fo
   })
   expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
   expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
+})
+
+/** 往测试库里塞一条这张表的首帧授权（复制素材授权的归属），用来模拟上一轮已经接过首帧。 */
+async function insertFrameAuthorization(
+  authorizationId: string,
+  status: 'pending' | 'active',
+  aged = false,
+) {
+  const [row] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, authorizationId))
+  const id = crypto.randomUUID()
+  const old = Date.now() - 31 * 60 * 1000
+  await db.insert(schema.agent_stage_authorizations).values({
+    ...row!,
+    id,
+    proposal_key: `${row!.proposal_key}:frames`,
+    execution_token_hash: null,
+    updated_at: aged ? old : Date.now(),
+    state: {
+      ...row!.state,
+      id,
+      stage: '首帧',
+      status,
+      run: undefined,
+      attempts: [],
+      audit: [
+        { kind: 'proposed', at: aged ? old : Date.now() },
+        ...(status === 'active'
+          ? [{ kind: 'confirmed' as const, at: aged ? old : Date.now() }]
+          : []),
+      ],
+      storyboard: {
+        storyboardId: 'board',
+        fingerprint: storyboardFingerprint([
+          { id: 'shot-1', description: '嫩芽破土', lookIds: ['a'] },
+        ]),
+      },
+    },
+  })
+  return id
+}
+
+it('does not let an expired active first-frame authorization block the follow-up forever', async () => {
+  let frameId = ''
+  const wake = await completedAssetWake(undefined, ['board'], ['a'], '素材', ['a'], async (run) => {
+    // 上一轮的首帧授权确认后就没人再动，早过了有效期，名义上还是 active。
+    frameId = await insertFrameAuthorization(run.authorizationId, 'active', true)
+  })
+  expect(wake.text).toContain('本轮直接调用 runStoryboardFrames（storyboardId: "board"')
+  expect((await stored(frameId)).status).toBe('expired')
+})
+
+it('does not continue to first frames for a draft storyboard that has no shots yet', async () => {
+  const run = await proposal(['a'])
+  // 空镜头表：every() 对空集合恒为真，不能因此被当成这批素材的分镜表。
+  await addStoryboard(run.projectId, 'empty-board', [], [])
+  const token = await confirm(run.authorizationId)
+  expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
+  await submitted(run.authorizationId, 'a-1', 'task-empty-a', 'completed', 6)
+  const report = await request(run.authorizationId, '/report', {
+    executionToken: token,
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'completed' }],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  expect(wake?.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake?.text).not.toContain('本轮直接调用 runStoryboardFrames')
 })
 
 it('does not guess a storyboard when several draft storyboards share the finished assets', async () => {

@@ -12,7 +12,6 @@ import {
   type StageRunReportResult,
   type StageRunWakeReceipt,
   storyboardFingerprint,
-  storyboardMissingAssetNodes,
 } from '@image-playground/shared'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import * as Y from 'yjs'
@@ -23,6 +22,7 @@ import type { BffTransaction } from '../private-overlay'
 import type { AgentOwner } from './conversations'
 import { enqueueAgentWake, stageRunWakeId } from './inbox'
 import {
+  hasOpenStoryboardAuthorization,
   lockOwnedStageAuthorization,
   StageAuthorizationError,
   stageExecutionTokenMatches,
@@ -427,6 +427,7 @@ export async function stageRunWakeContent(
  * 这批节点是不是某一张还没定稿的分镜表的素材批：批里每个节点都得是这张表引用的人物或地点素材，
  * 混进了普通节点或别的素材就不算；表里这批之外的素材也得已经有图，否则首帧还开不了，不自动推进。只有恰好一张表命中时才返回它；
  * 没有命中、或多张草稿表共用这批素材而无法确定是哪一张时，都不接着出首帧，交给用户决定。
+ * 画布只解码一次，按 id 和分镜表建好索引再逐张核对，候选多、节点多时也不重复扫描。
  * 读画布出错时记一条告警再按没有处理：不自动推进付费阶段是更安全的退路。
  */
 async function draftStoryboardUsing(
@@ -439,55 +440,53 @@ async function draftStoryboardUsing(
   try {
     Y.applyUpdate(doc, await accessCanvasDocument(userId, projectId))
     const graph = readCanvasDocument(doc)
-    const matches = graph.nodes.filter((node) => {
+    const byId = new Map(graph.nodes.map((node) => [node.id, node]))
+    // 已经出过图的首帧或宫格所属的分镜表：这类表是重出某几镜，范围要用户定，不自动整表重出。
+    const framed = new Set<string>()
+    for (const node of graph.nodes)
       if (
-        node.type !== 'storyboard' ||
-        node.data.confirmed?.fingerprint === storyboardFingerprint(node.data.shots)
+        (node.type === 'image' || node.type === 'video') &&
+        node.data.meta?.storyboardId &&
+        (node.data.meta.storyboardRole === 'frame' || node.data.meta.storyboardRole === 'grid') &&
+        (node.data.fileId || node.data.mediaId)
       )
-        return false
+        framed.add(node.data.meta.storyboardId)
+    const batch = new Set(nodeIds)
+    const hasImage = (id: string) => {
+      const node = byId.get(id)
+      return node?.type === 'image' && Boolean(node.data.fileId || node.data.mediaId)
+    }
+    const matches = graph.nodes.flatMap((node) => {
+      // 没有镜头的表不是任何素材批的去处（集合为空时 every 恒为真，这里先排除）。
+      if (node.type !== 'storyboard' || !node.data.shots.length || framed.has(node.id)) return []
+      const fingerprint = storyboardFingerprint(node.data.shots)
+      if (node.data.confirmed?.fingerprint === fingerprint) return []
       const assets = new Set(
         node.data.shots.flatMap((shot) => [
           ...shot.lookIds,
-          ...(shot.locationId !== undefined ? [shot.locationId] : []),
+          ...(shot.locationId ? [shot.locationId] : []),
         ]),
       )
-      if (!nodeIds.every((id) => assets.has(id))) return false
+      if (!nodeIds.every((id) => assets.has(id))) return []
       // 这批之外的素材得早就有图：这批自己的结果可能还没同步回画布，按回报算已完成，不在这里查。
-      const batch = new Set(nodeIds)
-      if (!storyboardMissingAssetNodes(doc, node.id).every((asset) => batch.has(asset.id)))
-        return false
-      // 只接「第一次出首帧」：这张表已经有出过图的首帧或宫格，就是重出某几镜，范围要用户定，不自动整表重出。
-      return !graph.nodes.some(
-        (one) =>
-          (one.type === 'image' || one.type === 'video') &&
-          one.data.meta?.storyboardId === node.id &&
-          (one.data.meta.storyboardRole === 'frame' || one.data.meta.storyboardRole === 'grid') &&
-          Boolean(one.data.fileId || one.data.mediaId),
-      )
+      for (const asset of assets) if (!batch.has(asset) && !hasImage(asset)) return []
+      return [{ id: node.id, fingerprint }]
     })
     if (matches.length > 1)
       log.info(
-        { projectId, nodeIds, storyboardIds: matches.map((node) => node.id) },
+        { projectId, nodeIds, storyboardIds: matches.map((board) => board.id) },
         'stage run wake: asset batch used by several draft storyboards, not continuing to first frames',
       )
     const board = matches.length === 1 ? matches[0] : undefined
-    if (board?.type !== 'storyboard') return undefined
-    // 同一张表、同一份镜头表已经有待确认或进行中的首帧授权（比如上一轮唤醒已经接过）：不再接一次，免得重复扣费。
-    // 同一会话的轮次是串行的，唤醒内容在轮开始时才算，所以上一轮登记的授权这里看得到。
-    const [pending] = await db
-      .select({ id: table.id })
-      .from(table)
-      .where(
-        and(
-          eq(table.user_id, userId),
-          eq(table.project_id, projectId),
-          sql`${table.state}->'storyboard'->>'storyboardId' = ${board.id}`,
-          sql`${table.state}->'storyboard'->>'fingerprint' = ${storyboardFingerprint(board.data.shots)}`,
-          sql`${table.state}->>'status' in ('pending', 'active')`,
-        ),
-      )
-      .limit(1)
-    return pending ? undefined : board.id
+    if (!board) return undefined
+    // 同一张表、同一份镜头表已经有待确认或进行中的首帧授权（比如上一轮唤醒已经接过）：不再提示接一次。
+    // 这只是省一次多余调用的提示，读取时按有效期收回过期授权；真正防重复扣费的是登记提案时在项目锁内的去重。
+    return (await hasOpenStoryboardAuthorization(userId, projectId, {
+      storyboardId: board.id,
+      fingerprint: board.fingerprint,
+    }))
+      ? undefined
+      : board.id
   } catch (err) {
     log.warn(
       { err, projectId, nodeIds },

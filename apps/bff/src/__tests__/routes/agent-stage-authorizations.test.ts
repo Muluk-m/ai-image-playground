@@ -1401,6 +1401,95 @@ it('returns the existing proposal when the key matches and rejects a different o
   })
 })
 
+/** 按已登记的素材授权拼一份首帧阶段提案输入（同一项目、同一批节点），只换 proposalKey。 */
+async function frameProposalInput(authorizationId: string, proposalKey: string) {
+  const [row] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, authorizationId))
+  if (!row?.state.bindings) throw new Error('missing binding')
+  return {
+    userId: 'stage-owner',
+    conversationId: row.conversation_id,
+    projectId: row.project_id,
+    proposalKey,
+    stage: '首帧',
+    nodeIds: [...row.state.nodeIds],
+    nodeNames: [...row.state.nodeNames],
+    nodes: (row.state.charges ?? []).map(({ nodeId, model, quantity, unitMultiplier }) => ({
+      nodeId,
+      model,
+      quantity,
+      unitMultiplier,
+    })),
+    bindings: row.state.bindings,
+    storyboard: { storyboardId: 'board', fingerprint: 'fp-1' },
+  }
+}
+
+/** 直接把授权记成已确认（首帧授权确认时要核对画布上的分镜表，这里的夹具没有画布表）。 */
+async function markActive(id: string, at = Date.now()) {
+  const [row] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, id))
+  await db
+    .update(schema.agent_stage_authorizations)
+    .set({
+      updated_at: at,
+      state: {
+        ...row!.state,
+        status: 'active',
+        audit: [...row!.state.audit.map((event) => ({ ...event, at })), { kind: 'confirmed', at }],
+      },
+    })
+    .where(eq(schema.agent_stage_authorizations.id, id))
+}
+
+it('reuses the open first-frame authorization when two wakes propose the same storyboard at once', async () => {
+  const seed = await fixture()
+  const [left, right] = await Promise.all([
+    proposeStageAuthorization(await frameProposalInput(seed.authorizationId, 'wake-1:frames')),
+    proposeStageAuthorization(await frameProposalInput(seed.authorizationId, 'wake-2:frames')),
+  ])
+  expect(left.id).toBe(right.id)
+  const rows = await db
+    .select({ id: schema.agent_stage_authorizations.id })
+    .from(schema.agent_stage_authorizations)
+    .where(
+      sql`${schema.agent_stage_authorizations.state}->'storyboard'->>'storyboardId' = 'board' and ${schema.agent_stage_authorizations.project_id} = ${seed.projectId}`,
+    )
+  expect(rows).toHaveLength(1)
+  // 一份已确认、仍在有效期内的也一样复用，不再登记第二份。
+  await markActive(left.id)
+  const later = await proposeStageAuthorization(
+    await frameProposalInput(seed.authorizationId, 'wake-3:frames'),
+  )
+  expect(later.id).toBe(left.id)
+  expect(later.status).toBe('active')
+  // 镜头表改过（指纹不同）就是另一份提案，照常登记。
+  const changed = await proposeStageAuthorization({
+    ...(await frameProposalInput(seed.authorizationId, 'wake-4:frames')),
+    storyboard: { storyboardId: 'board', fingerprint: 'fp-2' },
+  })
+  expect(changed.id).not.toBe(left.id)
+})
+
+it('does not reuse an expired active first-frame authorization', async () => {
+  const seed = await fixture()
+  const first = await proposeStageAuthorization(
+    await frameProposalInput(seed.authorizationId, 'old-wake:frames'),
+  )
+  // 确认后就没人再动，早过了有效期，名义上还是 active。
+  await markActive(first.id, Date.now() - STAGE_AUTHORIZATION_ACTIVE_TTL_MS - 1000)
+  const next = await proposeStageAuthorization(
+    await frameProposalInput(seed.authorizationId, 'new-wake:frames'),
+  )
+  expect(next.id).not.toBe(first.id)
+  expect(next.status).toBe('pending')
+  expect(await (await request(first.id)).json()).toMatchObject({ status: 'expired' })
+})
+
 it('submits an authorized image and a fractional reference video through confirm, preflight and consume', async () => {
   const { InMemoryObjectStore } = await import('../helpers/inMemoryObjectStore')
   const { setObjectStoreForTesting } = await import('../../lib/objectStore')
