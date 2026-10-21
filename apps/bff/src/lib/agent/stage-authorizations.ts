@@ -8,6 +8,7 @@ import {
   type StageAuthorizationCharge,
   type StageAuthorizationPreflight,
   type StageAuthorizationSubmission,
+  type StageAuthorizationTurn,
   type StageExecutionBinding,
   type StageExecutionFingerprint,
   type StageStoryboardFinalization,
@@ -349,6 +350,7 @@ export interface StageProposalInput {
   nodes: readonly StageChargeInput[]
   bindings: readonly StageExecutionBinding[]
   storyboard?: StageStoryboardFinalization
+  turn?: StageAuthorizationTurn
 }
 export async function proposeStageAuthorization(input: StageProposalInput) {
   return db.transaction((tx) => proposeStageAuthorizationInTransaction(tx, input))
@@ -388,6 +390,7 @@ export async function proposeStageAuthorizationInTransaction(
           },
         }
       : {}),
+    ...(input.turn ? { turn: input.turn } : {}),
     spentCredits: 0,
     status: 'pending',
     attempts: [],

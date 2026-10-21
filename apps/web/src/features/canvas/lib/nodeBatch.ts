@@ -16,6 +16,7 @@ import {
   stageActiveReferences,
   stageIncomingReferences,
   stageNodePrompt,
+  stageNodeRunnable,
   stageSubmittedFileIds,
   videoRequestRejection,
 } from '@image-playground/shared'
@@ -113,15 +114,10 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
   const selected = new Set(input.ids)
   for (const group of snapshot.groups ?? [])
     if (selected.has(group.id)) for (const id of group.members) selected.add(id)
-  const nodes = snapshot.nodes.filter((node) => {
-    if (!selected.has(node.id) || !['image', 'video'].includes(canvasNodeKind(node))) return false
-    if (node.type !== 'image' && node.type !== 'video') return false
-    const meta = node.data.meta ?? {}
-    return (
-      Boolean(meta.nodePrompt?.trim()) ||
-      (meta.nodeKind !== 'asset' && snapshot.edges.some((edge) => edge.target === node.id))
-    )
-  })
+  // 与服务端阶段授权同一条规则：没写提示词的素材有描述就按描述出图。
+  const nodes = snapshot.nodes.filter(
+    (node) => selected.has(node.id) && stageNodeRunnable(node, snapshot.edges),
+  )
   const ids = new Set(nodes.map((node) => node.id))
   const jobs: NodeBatchJob[] = []
   let error: NodeBatchError | undefined
