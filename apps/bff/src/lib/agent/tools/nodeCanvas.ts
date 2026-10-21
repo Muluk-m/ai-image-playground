@@ -516,15 +516,19 @@ function stageCharge(
       typeof saved.duration === 'number' ? saved.duration : params?.video?.durationSeconds
     const resolution =
       typeof saved.resolution === 'string' ? saved.resolution : params?.video?.resolution
-    if (!model || typeof duration !== 'number' || !Number.isFinite(duration) || duration < 1)
+    if (
+      !model ||
+      typeof duration !== 'number' ||
+      !Number.isInteger(duration) ||
+      duration < 1 ||
+      !VIDEO_RESOLUTIONS.has(resolution as VideoResolution)
+    )
       return undefined
     return {
       nodeId: node.id,
       model,
-      quantity: Math.trunc(duration),
-      unitMultiplier: VIDEO_RESOLUTIONS.has(resolution as VideoResolution)
-        ? videoRateMultiplier(model, resolution as VideoResolution)
-        : 1,
+      quantity: duration,
+      unitMultiplier: videoRateMultiplier(model, resolution as VideoResolution),
     }
   }
   const model = resolveAgentModel('image', params?.model)?.model

@@ -198,6 +198,9 @@ it('stops rereading an authorization after repeated failures', async () => {
     await vi.advanceTimersByTimeAsync(120_000)
   })
   expect(reads).toBe(5)
+  expect(document.body.textContent).toContain('读不到授权状态')
+  await act(async () => button('再试一次')!.click())
+  expect(reads).toBe(6)
 })
 
 it('does not start a direct run from another device', async () => {

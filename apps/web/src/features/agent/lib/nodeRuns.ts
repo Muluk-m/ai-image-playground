@@ -157,7 +157,7 @@ export function startAgentNodeRun(
           completed: run?.status === 'running' ? run.completed : 0,
         })
     } finally {
-      controls.delete(key)
+      if (controls.get(key)?.control === control) controls.delete(key)
       if (authorization && sameAccount()) {
         try {
           const ended = await stageAuthorizationClient.end(authorizationId)

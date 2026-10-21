@@ -776,6 +776,8 @@
     "running": "Running. Results go back to each node.",
     "undone": "Undone. Nothing was submitted.",
     "unpriced": "Charged by actual model usage",
-    "unavailable": "Open the matching canvas and make sure the suggested nodes still exist."
+    "unavailable": "Open the matching canvas and make sure the suggested nodes still exist.",
+    "readFailed": "Couldn't load the authorization.",
+    "retryRead": "Try again"
   }
 }

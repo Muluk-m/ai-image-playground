@@ -2,6 +2,7 @@ import type { AgentCanvasRunProposal, StageAuthorization } from '@image-playgrou
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ApprovalCard } from '../../../components/assistant-ui/elements/approval-card'
 import Credits from '../../../components/Credits'
+import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -30,11 +31,15 @@ export default function AgentNodeRunCard({
   const bridge = useSyncExternalStore(subscribeAgentNodeRun, agentNodeRunBridge)
   const live = useSyncExternalStore(subscribeAgentNodeRuns, () => agentNodeRun(runKey))
   const settled = useRef<AgentNodeRun>(undefined)
-  if (live && (live.status === 'done' || live.status === 'undone' || live.status === 'failed'))
-    settled.current = live
   const run = live ?? settled.current
   const origin = useSyncExternalStore(subscribeAgentNodeRuns, () => isAgentNodeRunOrigin(runKey))
   const [stored, setStored] = useState<StageAuthorization>()
+  const [readFailed, setReadFailed] = useState(false)
+  const [readAttempt, setReadAttempt] = useState(0)
+  useEffect(() => {
+    if (live && (live.status === 'done' || live.status === 'undone' || live.status === 'failed'))
+      settled.current = live
+  }, [live])
   useEffect(() => {
     if (!proposal.direct || !origin || !bridge) return
     startAgentNodeRun(runKey, proposal, 0)
@@ -55,6 +60,7 @@ export default function AgentNodeRunCard({
         const state = await stageAuthorizationClient.read(authorizationId)
         if (!active) return
         failures = 0
+        setReadFailed(false)
         setStored(state)
         if (state.status === 'pending' || state.status === 'active')
           timer = window.setTimeout(() => {
@@ -63,7 +69,10 @@ export default function AgentNodeRunCard({
       } catch {
         if (!active) return
         failures += 1
-        if (failures >= 5) return
+        if (failures >= 5) {
+          setReadFailed(true)
+          return
+        }
         const delay = Math.min(30_000, 3000 * 2 ** (failures - 1))
         timer = window.setTimeout(() => {
           void refresh()
@@ -75,7 +84,7 @@ export default function AgentNodeRunCard({
       active = false
       clearTimeout(timer)
     }
-  }, [proposal.authorizationId, proposal.direct])
+  }, [proposal.authorizationId, proposal.direct, readAttempt])
   const authorization =
     run?.authorization &&
     (run.status !== 'running' || run.authorization.audit.length > (stored?.audit.length ?? 0))
@@ -183,6 +192,20 @@ export default function AgentNodeRunCard({
           <Credits credits={credits} />
         )}
       </p>
+      {readFailed && (
+        <p role="status" className={CARD_NOTE}>
+          {t('nodeRun.readFailed')}{' '}
+          <Button
+            type="button"
+            variant="link"
+            size="xs"
+            className="h-auto px-0 text-label-sm"
+            onClick={() => setReadAttempt((attempt) => attempt + 1)}
+          >
+            {t('nodeRun.retryRead')}
+          </Button>
+        </p>
+      )}
       {!run && (!origin || !plan || plan.error || plan.blockedReason) && (
         <p role="status" className={CARD_NOTE}>
           {!origin

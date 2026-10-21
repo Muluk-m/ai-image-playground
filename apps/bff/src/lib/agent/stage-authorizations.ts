@@ -22,6 +22,8 @@ export class StageAuthorizationError extends Error {
 const table = schema.agent_stage_authorizations
 /** 确认后一直没人收尾、也没有在途任务时，过了这段时间就回收。 */
 export const STAGE_AUTHORIZATION_ACTIVE_TTL_MS = 30 * 60 * 1000
+/** 一轮定期回收最多处理这么多条，剩下的等下一轮。 */
+export const STAGE_AUTHORIZATION_EXPIRE_BATCH = 50
 const IN_FLIGHT_TASK = new Set(['queued', 'in_progress', 'reconciling'])
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
 export interface StageChargeInput {
@@ -256,6 +258,7 @@ export async function expireStaleStageAuthorizations(now = Date.now()): Promise<
     .select({ id: table.id })
     .from(table)
     .where(and(sql`${table.state}->>'status' = 'active'`, lt(table.updated_at, cutoff)))
+    .limit(STAGE_AUTHORIZATION_EXPIRE_BATCH)
   let expired = 0
   for (const candidate of rows) {
     const did = await db.transaction(async (tx) => {
@@ -278,6 +281,15 @@ export async function preflightStageAuthorization(
     assertExecution(row, input.executionToken)
     const state = row.state
     if (!state.nodeIds.includes(input.nodeId))
+      throw new StageAuthorizationError('stage_authorization_scope')
+    // 确认后的报价是唯一可执行规格。换模型、数量或倍率必须重新提案。
+    const charge = state.charges?.find((item) => item.nodeId === input.nodeId)
+    if (
+      !charge ||
+      charge.model !== input.model ||
+      charge.quantity !== input.quantity ||
+      charge.unitMultiplier !== input.unitMultiplier
+    )
       throw new StageAuthorizationError('stage_authorization_scope')
     const previous = state.attempts.find((attempt) => attempt.id === input.attemptId)
     if (previous) {

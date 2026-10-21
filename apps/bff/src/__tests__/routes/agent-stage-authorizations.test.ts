@@ -1,7 +1,14 @@
 import { afterAll, beforeAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import {
+  canvasNodeKind,
+  canvasOrigin,
+  readCanvasDocument,
+  updateCanvasNode,
+} from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
+import * as Y from 'yjs'
 import {
   _setPrivateBffOverlayForTesting,
   EMPTY_PRIVATE_BFF_OVERLAY,
@@ -54,6 +61,7 @@ const { app } = await import('../../app')
 const { db, schema, close } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { createNodes, runNodes } = await import('../../lib/agent/tools/nodeCanvas')
+const { accessCanvasDocument } = await import('../../lib/canvasSyncStore')
 const { STAGE_AUTHORIZATION_ACTIVE_TTL_MS, expireStaleStageAuthorizations } = await import(
   '../../lib/agent/stage-authorizations'
 )
@@ -71,7 +79,11 @@ beforeAll(async () => {
   cookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('stage-owner', tx))}`
 })
 afterAll(close)
-async function fixture(nodeIds = ['a'], estimatedCredits?: number) {
+async function fixture(
+  nodeIds = ['a'],
+  estimatedCredits?: number,
+  beforePropose?: (input: { projectId: string }) => Promise<void>,
+) {
   const conversationId = crypto.randomUUID(),
     projectId = crypto.randomUUID(),
     now = Date.now()
@@ -125,6 +137,7 @@ async function fixture(nodeIds = ['a'], estimatedCredits?: number) {
     undefined,
     undefined,
   )
+  if (beforePropose) await beforePropose({ projectId })
   const result = await runNodes
     .create(context)
     .execute(
@@ -176,7 +189,7 @@ it('persists a pending scoped proposal and activates once without granting execu
 })
 it('preflights only active authorized nodes, replaces an unsubmitted attempt and ends before submission', async () => {
   const proposal = await fixture()
-  const job = { nodeId: 'a', model: 'gpt-image-1', quantity: 1, unitMultiplier: 1 }
+  const job = { nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 1 }
   expect(
     (
       await request(proposal.authorizationId, '/preflight', {
@@ -242,13 +255,86 @@ it('prices the stage on the server when the model omits or understates the estim
   ).json()
   const result = await request(understated.authorizationId, '/preflight', {
     nodeId: 'a',
-    model: 'gpt-image-1',
+    model: 'gpt-image-2.5-flare',
     quantity: 1,
     unitMultiplier: 1,
     executionToken,
     attemptId: 'priced',
   })
   expect(result.status).toBe(200)
+})
+
+it('rejects a video node whose duration or resolution cannot be priced', async () => {
+  const writeDraft = (projectId: string, draft: unknown) =>
+    accessCanvasDocument('stage-owner', projectId, async (current) => {
+      const doc = new Y.Doc()
+      Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+      const vector = Y.encodeStateVector(doc)
+      const node = readCanvasDocument(doc).nodes.find((item) => item.id === 'clip')
+      if (!node || node.type !== 'image' || canvasNodeKind(node) !== 'video')
+        throw new Error('missing clip')
+      updateCanvasNode(
+        doc,
+        'clip',
+        {
+          data: {
+            ...node.data,
+            meta: { ...node.data.meta, nodeVideoDraft: JSON.stringify(draft) },
+          },
+        },
+        canvasOrigin('system', 'fixture'),
+      )
+      const update = Y.encodeStateAsUpdate(doc, vector)
+      doc.destroy()
+      return update
+    })
+  const contextFor = async (projectId: string) => {
+    const [project] = await db
+      .select({ id: schema.canvas_projects.conversation_id })
+      .from(schema.canvas_projects)
+      .where(eq(schema.canvas_projects.id, projectId))
+    const conversationId = project?.id
+    if (!conversationId) throw new Error('missing conversation')
+    await createNodes
+      .create({
+        mode: 'image' as const,
+        experience: 'canvas' as const,
+        conversationId,
+        turnId: 'turn',
+        deviceId: 'stage-device',
+        userId: 'stage-owner',
+        canvas: { selectedNodeIds: [], elements: [] },
+        images: createAgentImageSource({
+          references: [],
+          history: [],
+          conversationId,
+          userId: 'stage-owner',
+        }),
+      })
+      .execute(
+        'video',
+        { nodes: [{ id: 'clip', type: 'video', prompt: '海浪', videoMode: 'text' }] },
+        undefined,
+        undefined,
+      )
+  }
+  await expect(
+    fixture(['clip'], undefined, async ({ projectId }) => {
+      await contextFor(projectId)
+      await writeDraft(projectId, { model: 'video-fixture', duration: 1.9, resolution: '720p' })
+    }),
+  ).rejects.toThrow('计价')
+  const priced = await fixture(['clip'], undefined, async ({ projectId }) => {
+    await contextFor(projectId)
+    await writeDraft(projectId, { model: 'video-fixture', duration: 5, resolution: '720p' })
+  })
+  expect(priced).toMatchObject({ budgetCap: 30, nodeIds: ['clip'] })
+  await expect(
+    fixture(['clip'], undefined, async ({ projectId }) => {
+      await contextFor(projectId)
+      await writeDraft(projectId, { model: 'video-fixture', duration: 5, resolution: '4k' })
+    }),
+  ).rejects.toThrow('计价')
 })
 
 it('rejects a proposal when the server cannot price the nodes', async () => {
@@ -267,7 +353,7 @@ it('rejects server-priced requests over budget before any task can start', async
   try {
     const result = await request(proposal.authorizationId, '/preflight', {
       nodeId: 'a',
-      model: 'gpt-image-1',
+      model: 'gpt-image-2.5-flare',
       quantity: 1,
       unitMultiplier: 1,
       executionToken,
@@ -291,7 +377,7 @@ it('replaces an unsubmitted attempt and allows the same node under a new authori
     (
       await request(proposal.authorizationId, '/preflight', {
         nodeId: 'a',
-        model: 'gpt-image-1',
+        model: 'gpt-image-2.5-flare',
         quantity: 1,
         unitMultiplier: 1,
         executionToken,
@@ -303,7 +389,7 @@ it('replaces an unsubmitted attempt and allows the same node under a new authori
     (
       await request(proposal.authorizationId, '/preflight', {
         nodeId: 'a',
-        model: 'gpt-image-1',
+        model: 'gpt-image-2.5-flare',
         quantity: 1,
         unitMultiplier: 1,
         executionToken,
@@ -328,7 +414,7 @@ it('replaces an unsubmitted attempt and allows the same node under a new authori
     (
       await request(proposal.authorizationId, '/preflight', {
         nodeId: 'a',
-        model: 'gpt-image-1',
+        model: 'gpt-image-2.5-flare',
         quantity: 1,
         unitMultiplier: 1,
         executionToken,
@@ -342,7 +428,7 @@ it('replaces an unsubmitted attempt and allows the same node under a new authori
     (
       await request(again.authorizationId, '/preflight', {
         nodeId: 'a',
-        model: 'gpt-image-1',
+        model: 'gpt-image-2.5-flare',
         quantity: 1,
         unitMultiplier: 1,
         executionToken: next.executionToken,
@@ -357,7 +443,7 @@ it('atomically accounts real queue costs, rejects overspend and deduplicates acc
   const { executionToken } = await (await request(proposal.authorizationId, '/confirm', {})).json()
   await request(proposal.authorizationId, '/preflight', {
     nodeId: 'a',
-    model: 'gpt-image-1',
+    model: 'gpt-image-2.5-flare',
     quantity: 1,
     unitMultiplier: 1,
     executionToken,
@@ -376,7 +462,7 @@ it('atomically accounts real queue costs, rejects overspend and deduplicates acc
   }
   const submit = () =>
     app.handle(
-      new Request('http://localhost/v1/queue/openai-compat/gpt-image-1/submit', {
+      new Request('http://localhost/v1/queue/openai-compat/gpt-image-2.5-flare/submit', {
         method: 'POST',
         headers: { cookie, 'content-type': 'application/json' },
         body: JSON.stringify(body),
@@ -412,7 +498,7 @@ it('serializes simultaneous budget reservations across two authorized nodes', as
       ['a', 'b'].map((nodeId) =>
         request(proposal.authorizationId, '/preflight', {
           nodeId,
-          model: 'gpt-image-1',
+          model: 'gpt-image-2.5-flare',
           quantity: 1,
           unitMultiplier: 1,
           executionToken,
@@ -437,6 +523,30 @@ it('reprices the confirmed jobs and expires an idle active authorization with no
   expect(confirmed.status).toBe(200)
   const receipt = await confirmed.json()
   expect(receipt.authorization.budgetCap).toBe(12)
+  expect(
+    (
+      await request(proposal.authorizationId, '/preflight', {
+        nodeId: 'a',
+        model: 'gpt-image-2.5-flare',
+        quantity: 1,
+        unitMultiplier: 1,
+        executionToken: receipt.executionToken,
+        attemptId: 'cheaper',
+      })
+    ).status,
+  ).toBe(409)
+  expect(
+    (
+      await request(proposal.authorizationId, '/preflight', {
+        nodeId: 'a',
+        model: 'gpt-image-1',
+        quantity: 2,
+        unitMultiplier: 1,
+        executionToken: receipt.executionToken,
+        attemptId: 'other-model',
+      })
+    ).status,
+  ).toBe(409)
   const priced = await request(proposal.authorizationId, '/preflight', {
     nodeId: 'a',
     model: 'gpt-image-2.5-flare',
