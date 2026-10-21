@@ -355,10 +355,14 @@ export async function stageRunWakeContent(
   const count = (outcome: StageRunNodeReport['outcome']) =>
     run.nodes.filter((node) => node.outcome === outcome).length
   const completed = count('completed')
-  const failed = count('failed')
+  // 报失败但任务其实还在跑或已出结果的，不算进失败，单独说。
+  const unsettled = run.nodes.filter((node) => node.outcome === 'failed' && node.task).length
+  const failed = count('failed') - unsettled
   const blocked = count('blocked')
   const skipped = count('skipped')
-  const overBudget = run.nodes.some((node) => node.reason === 'budget_exceeded')
+  const overBudget = run.nodes.some(
+    (node) => node.outcome === 'failed' && !node.task && node.reason === 'budget_exceeded',
+  )
   const guidance = [
     '汇报规则：用节点名称指代节点，不要说内部 id；只有标为「已完成」的节点才能说已完成或已生成，提交了但没有结果的只能说「已提交」或「失败」。',
   ]
@@ -372,6 +376,10 @@ export async function stageRunWakeContent(
         ? '失败节点的自动重试超出了这次授权的预算：说明还差什么，请用户同意后再用 runNodes 为这些节点发起新的阶段授权。'
         : '失败节点已在授权内自动重试过至多一次，不要再自行重试或重新提交：说明失败的是哪几个，提议下一步，等用户决定。',
     )
+  if (unsettled > 0)
+    guidance.push(
+      '没等到结果的节点：任务已提交，不是生成失败；还在生成的等结果出现在节点上，已出结果的请用户在节点上查看并选用，不要重新提交。',
+    )
   if (skipped > 0)
     guidance.push(
       '没有运行的节点：说明它们为什么没轮到；要继续时请用户同意后再用 runNodes 发起新的阶段授权。',
@@ -380,7 +388,7 @@ export async function stageRunWakeContent(
   return {
     text: [
       '（系统通知，不是用户说的话）你发起的画布节点运行这一批已经结束，授权随之结束。',
-      `阶段「${state.stage}」，授权 ${state.id}，预算上限 ${state.budgetCap} 积分，已用 ${state.spentCredits} 积分。共 ${run.nodes.length} 个节点：已完成 ${completed}，失败 ${failed}，被拦下 ${blocked}，未运行 ${skipped}。`,
+      `阶段「${state.stage}」，授权 ${state.id}，预算上限 ${state.budgetCap} 积分，已用 ${state.spentCredits} 积分。共 ${run.nodes.length} 个节点：已完成 ${completed}，失败 ${failed}，${unsettled > 0 ? `没等到结果 ${unsettled}，` : ''}被拦下 ${blocked}，未运行 ${skipped}。`,
       ...run.nodes.map((node) => nodeLine(nameOf.get(node.nodeId) ?? node.nodeId, node)),
       ...guidance,
     ].join('\n'),

@@ -426,6 +426,9 @@ it('marks a reported failure whose task is still running or already succeeded', 
   const [first, second] = run.nodeNames!
   expect(asked).toContain(`「${first}」：已提交，任务还在生成`)
   expect(asked).toContain(`「${second}」：已提交，任务出了结果，但没能成为节点主结果`)
+  // 不算进失败，也不给失败节点的话术。
+  expect(asked).toContain('失败 0，没等到结果 2，')
+  expect(asked).not.toContain('失败节点')
 })
 
 it('records a failed node that never created a task as blocked', async () => {
