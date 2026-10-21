@@ -144,6 +144,23 @@ build_image "$backup_image" "backup-$(printf %.12s "$public_sha")" "$snapshot/pu
   --build-arg "APP_VERSION=$public_sha"
 printf 'backup\t%s\t%s\t%s\t-\t%s\n' "$backup_image" "$image_id" "$public_sha" "$repo_digest" >> "$output/images.tsv"
 images="$images $backup_image"
+# The EdgeTAM segmenter for edit-region proposals (deploy/segmenter). Test receives start it;
+# production does not run it yet, so only test releases carry it.
+if [ "$target" = test ]; then
+  segmenter_image=ai-image-playground:segmenter-$(printf %.12s "$public_sha")
+  # A cache of its own keeps the dependency and weight layers byte-identical between releases,
+  # so the VPS pulls only the small top layer when the segmenter itself did not change.
+  if [ "$transport" = registry ]; then
+    set -- --cache-from "type=registry,ref=${ghcr_repository}:buildcache-segmenter" \
+      --cache-to "type=registry,ref=${ghcr_repository}:buildcache-segmenter,mode=max"
+  else
+    set --
+  fi
+  build_image "$segmenter_image" "segmenter-$(printf %.12s "$public_sha")" "$snapshot/public/deploy/segmenter" \
+    "$@" --build-arg "APP_VERSION=$public_sha"
+  printf 'segmenter\t%s\t%s\t%s\t-\t%s\n' "$segmenter_image" "$image_id" "$public_sha" "$repo_digest" >> "$output/images.tsv"
+  images="$images $segmenter_image"
+fi
 if [ "$transport" = archive ]; then
   # Separate commands preserve save failures (a shell pipeline would only report gzip's status).
   # shellcheck disable=SC2086
