@@ -201,7 +201,8 @@ reclaim_deploy_disk() {
     ai-image-playground:vps-main \
     ai-image-playground:paid \
     ai-image-playground:test \
-    ai-image-playground:backup
+    ai-image-playground:backup \
+    ai-image-playground:segmenter
   do
     prune_edition_images "$alias" "$keep" "$protected"
   done

@@ -82,6 +82,7 @@ import {
   reserveAgentSubmissionCancellation,
 } from '../lib/agent/inbox'
 import { withAgentLifecycle } from '../lib/agent/lifecycle'
+import { MASK_PROMPT_POINTS_MAX, refineEditRegion } from '../lib/agent/mask-proposal'
 import {
   advanceAgentRetryQueueSafely,
   cancelAgentRetry,
@@ -89,6 +90,7 @@ import {
 } from '../lib/agent/retry'
 import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { markAgentSaveCardSaved } from '../lib/agent/saves'
+import { segmenterStatus } from '../lib/agent/segmentation'
 import {
   InvalidSelectionError,
   selectionPreview,
@@ -445,6 +447,57 @@ export const agentRoutes = new Elysia()
       return snapshot
     },
     { params: t.Object({ id: t.String() }), headers: deviceIdHeaderSchema() },
+  )
+  // 自建分割服务的状态（部署后核对用）；`?probe=1` 再量一次真实往返，至多每 30 秒一次。
+  .get(
+    '/api/agent/edit-region/segmenter',
+    async ({ query, set }) => {
+      set.headers['cache-control'] = 'no-store'
+      return segmenterStatus(query.probe === '1')
+    },
+    { query: t.Object({ probe: t.Optional(t.String({ maxLength: 1 })) }) },
+  )
+  // 范围确认卡上点一下（包含 / 排除）：在提议的区域上重新分割，回一张编辑格式的 PNG 蒙版。
+  // 只给登录用户：原图按会话认领读，提议必须是这个会话里的那一张。
+  .post(
+    '/api/agent/conversations/:id/edit-region/:proposalId/segment',
+    async ({ params, body, authUser, status, request, set }) => {
+      if (!authUser) return status(404, NOT_FOUND)
+      const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
+      if (!conversation) return status(404, NOT_FOUND)
+      const result = await refineEditRegion({
+        conversationId: conversation.id,
+        userId: authUser.id,
+        proposalId: params.proposalId,
+        ...(body.region === undefined ? {} : { region: body.region }),
+        points: body.points,
+        signal: request.signal,
+      })
+      if (result.kind === 'not_found') return status(404, NOT_FOUND)
+      if (result.kind === 'unavailable') return status(503, { error: 'segmentation_unavailable' })
+      if (result.kind === 'failed') return status(502, { error: 'segmentation_failed' })
+      set.headers['cache-control'] = 'no-store'
+      return {
+        mask: `data:image/png;base64,${result.mask.toString('base64')}`,
+        provider: result.provider,
+        elapsedMs: result.elapsedMs,
+      }
+    },
+    {
+      params: t.Object({ id: t.String(), proposalId: t.String({ maxLength: 64 }) }),
+      body: t.Object({
+        deviceId: deviceIdSchema(),
+        region: t.Optional(t.Integer({ minimum: 1, maximum: 99 })),
+        points: t.Array(
+          t.Object({
+            x: t.Number({ minimum: 0, maximum: 1 }),
+            y: t.Number({ minimum: 0, maximum: 1 }),
+            include: t.Boolean(),
+          }),
+          { minItems: 1, maxItems: MASK_PROMPT_POINTS_MAX },
+        ),
+      }),
+    },
   )
   .get(
     '/api/agent/conversations/:id/follow-ups/:turnId',

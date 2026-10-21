@@ -78,13 +78,17 @@ function scaledPixels(image: HTMLImageElement): {
   return { pixels: context.getImageData(0, 0, width, height).data, width, height }
 }
 
-export const browserSegmenter: BrowserSegmenter = {
+const env = import.meta.env as Record<string, string | undefined>
+
+/** `VITE_SEGMENT_MODEL=off` 关掉浏览器分割：卡片直接用 Agent 给的框（标注为粗略范围）。 */
+export const boxOnlySegmenter: BrowserSegmenter = { segment: async () => null }
+
+export const slimSamSegmenter: BrowserSegmenter = {
   async segment({ image, box, points, signal }) {
     if (typeof Worker === 'undefined' || !image.naturalWidth) return null
     const { pixels, width, height } = scaledPixels(image)
     const prompt = promptPoints(box, points, width, height)
     const id = nextId++
-    const env = import.meta.env as Record<string, string | undefined>
     const request: SegmentRequest = {
       id,
       model: env.VITE_SEGMENT_MODEL ?? SEGMENT_MODEL,
@@ -123,3 +127,7 @@ export const browserSegmenter: BrowserSegmenter = {
     return picked ? resizeMask(picked, image.naturalWidth, image.naturalHeight) : null
   },
 }
+
+/** 当前使用的浏览器分割方案；换模型时只改这里与 worker。 */
+export const browserSegmenter: BrowserSegmenter =
+  env.VITE_SEGMENT_MODEL === 'off' ? boxOnlySegmenter : slimSamSegmenter

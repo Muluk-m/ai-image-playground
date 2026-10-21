@@ -1,0 +1,15 @@
+{
+  "name": "muvloom-segmenter",
+  "private": true,
+  "type": "module",
+  "description": "Stateless EdgeTAM segmentation for edit-region proposals. No secrets, no database.",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server.mjs",
+    "self-test": "node server.mjs --self-test"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "4.3.1"
+  }
+}

@@ -4,14 +4,18 @@ import {
   boxIoU,
   boxMask,
   clipToBox,
+  confirmedMaskSource,
   dilateMask,
   editMaskRgba,
   maskAnswerReference,
   maskAnswerText,
   maskArea,
   maskBounds,
+  maskOutputCount,
   pickSegmentMask,
   promptPoints,
+  proposalRegions,
+  regionForClick,
   resizeMask,
   targetFromEditMask,
 } from '../../../../features/agent/lib/maskProposal'
@@ -135,5 +139,56 @@ describe('确认那条消息', () => {
       regions,
       editAction: 'inpaint',
     })
+  })
+})
+
+describe('card regions and confirmation', () => {
+  const box = { x: 0.1, y: 0.1, width: 0.3, height: 0.3 }
+
+  it('treats a single-target proposal as region 1 and keeps numbered regions as given', () => {
+    expect(proposalRegions({ box, maskMediaId: 'm' })).toEqual([
+      { number: 1, box, selected: true, maskMediaId: 'm' },
+    ])
+    expect(
+      proposalRegions({
+        box,
+        regions: [
+          { number: 1, label: '左边的杯子', box, selected: false },
+          { number: 2, box: { ...box, x: 0.6 }, selected: true, maskMediaId: 'r2' },
+        ],
+      }).map((one) => [one.number, one.label, one.selected, one.maskMediaId]),
+    ).toEqual([
+      [1, '左边的杯子', false, undefined],
+      [2, undefined, true, 'r2'],
+    ])
+  })
+
+  it('sends a click to the region under it, else the smallest box around it, else the active one', () => {
+    const regions = [
+      { number: 1, box: { x: 0, y: 0, width: 1, height: 1 }, selected: true },
+      { number: 2, box: { x: 0.6, y: 0.6, width: 0.2, height: 0.2 }, selected: false },
+    ]
+    expect(regionForClick(regions, [2], { x: 0.1, y: 0.1 }, true, 1)).toBe(2)
+    expect(regionForClick(regions, [1, 2], { x: 0.7, y: 0.7 }, true, 1)).toBe(1)
+    expect(regionForClick(regions, [], { x: 0.7, y: 0.7 }, true, 1)).toBe(2)
+    expect(regionForClick(regions, [], { x: 0.7, y: 0.7 }, false, 1)).toBe(1)
+  })
+
+  it('makes two images by default and keeps a larger composer count', () => {
+    expect(maskOutputCount(undefined)).toBe(2)
+    expect(maskOutputCount(1)).toBe(2)
+    expect(maskOutputCount(4)).toBe(4)
+  })
+
+  it('reads the confirmed mask back from the answer for the same image only', () => {
+    const proposal = { imageId: 'img' }
+    expect(confirmedMaskSource([{ imageId: 'img', maskMediaId: 'm1' }], proposal)).toBe(
+      'aip-media:m1',
+    )
+    expect(
+      confirmedMaskSource([{ imageId: 'img', maskDataUrl: 'data:image/png;base64,AA' }], proposal),
+    ).toBe('data:image/png;base64,AA')
+    expect(confirmedMaskSource([{ imageId: 'other', maskMediaId: 'm1' }], proposal)).toBeNull()
+    expect(confirmedMaskSource(undefined, proposal)).toBeNull()
   })
 })

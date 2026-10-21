@@ -171,12 +171,15 @@ export const config = {
     /** 生视频工具用的模型。留空跟随内置 channel 的默认视频模型。 */
     videoModel: env('AGENT_VIDEO_MODEL', ''),
     /**
-     * 修改范围提议（`proposeEditRegion`）的服务端分割。只有配了 `FAL_KEY` 才启用 fal 的 SAM 3；
-     * 缺席时由浏览器里的分割模型给建议蒙版，再不行按框给粗略范围。`off` 强制关闭服务端分割。
+     * 修改范围提议（`proposeEditRegion`）与卡片上点选细化的服务端分割。
+     * `AGENT_SEGMENTER_URL` 指向自建的 EdgeTAM 服务（deploy/segmenter），部署脚本在它跑起来时注入，
+     * 有它就优先用；否则配了 `FAL_KEY` 时用 fal 的 SAM 3。都没有时卡片按智能体给的框兜底。
+     * `AGENT_SEGMENTATION_PROVIDER=off` 强制关闭服务端分割。
      */
     segmentation: {
       provider: env('AGENT_SEGMENTATION_PROVIDER', 'fal-sam3'),
       falKey: env('FAL_KEY', ''),
+      segmenterUrl: env('AGENT_SEGMENTER_URL', ''),
     },
   },
   databaseUrl: env('DATABASE_URL'),
