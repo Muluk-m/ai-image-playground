@@ -36,7 +36,9 @@ const {
   pickMask,
   promptBox,
   segmentationProvider,
+  resetSegmenterProbeForTesting,
   segmenterSize,
+  segmenterStatus,
   segmentProposal,
   setSegmentationProviderForTesting,
   setSegmenterFetchForTesting,
@@ -587,5 +589,24 @@ describe('EdgeTAM segmenter', () => {
         { x: 0.1, y: 0.1, include: false },
       ]),
     ).toEqual({ x: 0.4, y: 0.4, width: expect.closeTo(0.52, 5), height: expect.closeTo(0.2, 5) })
+  })
+
+  it('reports the segmenter state and probes at most once per window', async () => {
+    resetSegmenterProbeForTesting()
+    const paths: string[] = []
+    setSegmenterFetchForTesting((async (url: string, init?: RequestInit) => {
+      paths.push(new URL(url).pathname)
+      if (url.endsWith('/health'))
+        return Response.json({ ok: true, loaded: true, dtype: 'fp16', rssMB: 360, version: 'v' })
+      const body = JSON.parse(String(init?.body)) as { image?: string }
+      return Response.json({ masks: [], timings: { cached: !body.image } })
+    }) as unknown as typeof fetch)
+    expect(await segmenterStatus(false)).toMatchObject({ configured: true, ok: true, rssMB: 360 })
+    const probed = (await segmenterStatus(true)) as { probe?: { firstMs: number } }
+    expect(probed.probe?.firstMs).toBeGreaterThanOrEqual(0)
+    await segmenterStatus(true)
+    expect(paths.filter((one) => one === '/v1/segment')).toHaveLength(2)
+    segmentation.segmenterUrl = ''
+    expect(await segmenterStatus(true)).toEqual({ configured: false })
   })
 })

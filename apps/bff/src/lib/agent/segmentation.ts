@@ -506,3 +506,97 @@ export async function segmentProposal(request: SegmentationRequest) {
     return null
   }
 }
+
+/** 探针至多这么久跑一次：公开接口，不能让人借它把分割服务一直占着。 */
+const PROBE_INTERVAL_MS = 30_000
+let lastProbe: { at: number; result: SegmenterProbe } | null = null
+let probeSequence = 0
+
+export interface SegmenterProbe {
+  /** 新图：编码加一次解码的往返。 */
+  readonly firstMs: number
+  /** 同一张图再点一下：只解码的往返。 */
+  readonly clickMs: number
+  readonly server?: unknown
+  readonly at: number
+}
+
+export function resetSegmenterProbeForTesting(): void {
+  lastProbe = null
+}
+
+/** 探针图：512×384 的浅底上一个深色圆，框住它。 */
+async function probeImage() {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="384"><rect width="512" height="384" fill="#d9d4c7"/><circle cx="256" cy="192" r="90" fill="#3a4a6b"/></svg>`
+  return (await sharp(Buffer.from(svg)).jpeg({ quality: 90 }).toBuffer()).toString('base64')
+}
+
+/**
+ * 自建分割服务此刻的状态，部署后核对用：可达、模型是否已加载、内存。`probe` 时再真跑一张
+ * 探针图量往返延迟（每 {@link PROBE_INTERVAL_MS} 至多一次，其余时候回上一次的结果）。
+ * 不带任何用户数据，也不回分割服务的地址。
+ */
+export async function segmenterStatus(probe: boolean) {
+  const { segmenterUrl, provider } = config.agent.segmentation
+  if (!segmenterUrl || provider === 'off') return { configured: false as const }
+  const origin = segmenterUrl.replace(/\/+$/, '')
+  const fetchImpl = segmenterFetchOverride ?? fetch
+  const startedAt = Date.now()
+  const health = await fetchImpl(`${origin}/health`, { signal: AbortSignal.timeout(2_000) })
+    .then(async (response) =>
+      response.ok ? ((await response.json()) as Record<string, unknown>) : null,
+    )
+    .catch(() => null)
+  const status = {
+    configured: true as const,
+    ok: Boolean(health?.ok),
+    healthMs: Date.now() - startedAt,
+    ...(health
+      ? {
+          loaded: health.loaded,
+          dtype: health.dtype,
+          threads: health.threads,
+          cached: health.cached,
+          rssMB: health.rssMB,
+          version: health.version,
+        }
+      : {}),
+  }
+  if (!probe || !health?.ok) return status
+  if (lastProbe && Date.now() - lastProbe.at < PROBE_INTERVAL_MS)
+    return { ...status, probe: lastProbe.result }
+  lastProbe = { at: Date.now(), result: { firstMs: -1, clickMs: -1, at: Date.now() } }
+  const key = `probe:${++probeSequence}`
+  const body = { key, box: [0.3, 0.2, 0.7, 0.8], output: { width: 512, height: 384 } }
+  const call = async (extra: Record<string, unknown>) => {
+    const begun = Date.now()
+    const response = await fetchImpl(`${origin}/v1/segment`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...body, ...extra }),
+      signal: AbortSignal.timeout(SEGMENTER_TIMEOUT_MS * 4),
+    })
+    const parsed = (await response.json().catch(() => null)) as { timings?: unknown } | null
+    if (!response.ok) throw new SegmentationError(`segmenter HTTP ${response.status}`)
+    return { ms: Date.now() - begun, timings: parsed?.timings }
+  }
+  try {
+    const first = await call({ image: await probeImage(), points: [[0.5, 0.5, 1]] })
+    const click = await call({
+      points: [
+        [0.5, 0.5, 1],
+        [0.1, 0.1, 0],
+      ],
+    })
+    const result = {
+      firstMs: first.ms,
+      clickMs: click.ms,
+      server: { first: first.timings, click: click.timings },
+      at: Date.now(),
+    }
+    lastProbe = { at: lastProbe.at, result }
+    return { ...status, probe: result }
+  } catch (error) {
+    return { ...status, probe: { error: error instanceof Error ? error.message : 'failed' } }
+  }
+}
