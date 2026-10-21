@@ -1351,6 +1351,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       ...toAgentTurnParams(params, model, imageDirect || get().autoSubmit, {
         includeCount: imageDirect,
       }),
+      // 工作台出图模型单独送：默认智能选模型时不把它写进对话模型，阶段授权仍要按它报价。
+      ...(selected ? { canvasImageModel: selected } : {}),
       ...(imageDirect ? { directImage: true as const } : {}),
       thinkingDepth: get().thinkingDepth,
       ...(mode === 'video' && useVideoStore.getState().draft.model

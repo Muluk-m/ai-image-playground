@@ -40,7 +40,7 @@ export const stageAuthorizationRoutes = new Elysia({ name: 'agent-stage-authoriz
             t.Object({
               nodeId: t.String({ minLength: 1, maxLength: 128 }),
               model: t.String({ minLength: 1, maxLength: 128 }),
-              quantity: t.Integer({ minimum: 1, maximum: 10000 }),
+              quantity: t.Number({ exclusiveMinimum: 0, maximum: 10000 }),
               unitMultiplier: t.Number({ exclusiveMinimum: 0, maximum: 10000 }),
             }),
             { maxItems: 200 },
@@ -64,7 +64,7 @@ export const stageAuthorizationRoutes = new Elysia({ name: 'agent-stage-authoriz
         attemptId: t.String({ minLength: 1, maxLength: 128 }),
         executionToken: t.String({ minLength: 1, maxLength: 128 }),
         model: t.String({ minLength: 1, maxLength: 128 }),
-        quantity: t.Integer({ minimum: 1, maximum: 10000 }),
+        quantity: t.Number({ exclusiveMinimum: 0, maximum: 10000 }),
         unitMultiplier: t.Number({ exclusiveMinimum: 0, maximum: 10000 }),
       }),
     },

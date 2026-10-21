@@ -1,6 +1,10 @@
 import type { AgentCanvasRunProposal, StageAuthorization } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
-import type { NodeBatchError, NodeBatchJob } from '../../canvas/lib/nodeBatch'
+import {
+  billedNodeQuantity,
+  type NodeBatchError,
+  type NodeBatchJob,
+} from '../../canvas/lib/nodeBatch'
 import { agentNodeRunBridge } from './nodeRunBridge'
 import { stageAuthorizationClient } from './stageAuthorizationClient'
 
@@ -81,7 +85,7 @@ export function startAgentNodeRun(
         plan.jobs.map((job) => ({
           nodeId: job.id,
           model: job.model,
-          quantity: job.quantity,
+          quantity: billedNodeQuantity(job),
           unitMultiplier: job.unitMultiplier ?? 1,
         })),
       )

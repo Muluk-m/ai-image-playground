@@ -19,11 +19,10 @@ import {
   readCanvasDocument,
   recordCanvasResult,
   replaceStoryboardShots,
+  stageVideoQuote,
   type TextNodeData,
   ungroupCanvasNodes,
   updateCanvasNode,
-  type VideoResolution,
-  videoRateMultiplier,
 } from '@image-playground/shared'
 import { type Static, Type } from 'typebox'
 import * as Y from 'yjs'
@@ -476,7 +475,6 @@ export const arrangeNodes = defineAgentTool({
     }),
 })
 
-const VIDEO_RESOLUTIONS = new Set<VideoResolution>(['480p', '720p', '1080p', '2k'])
 function stageNodeName(node: CanvasNode): string {
   return 'name' in node.data && node.data.name ? node.data.name : '未命名节点'
 }
@@ -499,15 +497,26 @@ function stageCharge(
   params:
     | {
         model?: string
+        canvasImageModel?: string
         n?: number
-        video?: { model: string; durationSeconds: number; resolution: string }
+        video?: {
+          model: string
+          durationSeconds: number
+          resolution: string
+          aspectRatio?: string
+        }
       }
     | undefined,
 ): StageChargeInput | undefined {
   if (node.type !== 'image' && node.type !== 'video') return undefined
   const meta = node.data.meta ?? {}
   if (canvasNodeKind(node) === 'video') {
-    let saved: { model?: unknown; duration?: unknown; resolution?: unknown } = {}
+    let saved: {
+      model?: unknown
+      duration?: unknown
+      resolution?: unknown
+      aspectRatio?: unknown
+    } = {}
     try {
       const parsed = JSON.parse(meta.nodeVideoDraft ?? '')
       if (parsed && typeof parsed === 'object') saved = parsed
@@ -519,20 +528,16 @@ function stageCharge(
       typeof saved.duration === 'number' ? saved.duration : params?.video?.durationSeconds
     const resolution =
       typeof saved.resolution === 'string' ? saved.resolution : params?.video?.resolution
-    if (!model || typeof duration !== 'number' || !Number.isFinite(duration) || duration <= 0)
-      return undefined
-    const quantity = Math.ceil(duration)
-    if (!Number.isSafeInteger(quantity) || quantity < 1) return undefined
-    return {
-      nodeId: node.id,
-      model,
-      quantity,
-      unitMultiplier: VIDEO_RESOLUTIONS.has(resolution as VideoResolution)
-        ? videoRateMultiplier(model, resolution as VideoResolution)
-        : 1,
-    }
+    const aspectRatio =
+      typeof saved.aspectRatio === 'string' ? saved.aspectRatio : params?.video?.aspectRatio
+    if (!model || typeof duration !== 'number') return undefined
+    const quoted = stageVideoQuote({ model, duration, resolution, aspectRatio })
+    if (!quoted) return undefined
+    return { nodeId: node.id, model, ...quoted }
   }
-  const model = resolveAgentModel('image', params?.model)?.model
+  // 原标签页按工作台配置出图。报价必须用这一条，不能改成对话模型或渠道里的另一条。
+  const workbench = params?.canvasImageModel?.trim()
+  const model = workbench || resolveAgentModel('image', params?.model)?.model
   if (!model) return undefined
   const quantity =
     meta.storyboardRole === 'frame' || meta.storyboardRole === 'grid'
@@ -556,7 +561,7 @@ export const runNodes = defineAgentTool({
   description:
     '为当前云端画布的一组可生成图片或视频节点登记持久化阶段授权。预算由服务端按节点模型、数量和倍率计算，estimatedCredits 不决定上限。有提示词的素材按普通出图授权；没有提示词、只靠连线的素材不会单独授权。直接出图时原标签页立即开跑；用户关掉直接出图时才等确认卡。提供 authorizationId 时只查询真实授权状态、已用额度与任务记录，不重新提交。范围外或预算不足必须重新提案。',
   parameters: Type.Object({
-    nodeIds: Type.Array(id, { minItems: 1, maxItems: 200, uniqueItems: true }),
+    nodeIds: Type.Optional(Type.Array(id, { minItems: 1, maxItems: 200, uniqueItems: true })),
     stage: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
     estimatedCredits: Type.Optional(Type.Integer({ minimum: 0, maximum: 100000000 })),
     authorizationId: Type.Optional(id),
@@ -591,6 +596,8 @@ export const runNodes = defineAgentTool({
       }
     }
     await context.assertExecution?.()
+    const requested = params.nodeIds
+    if (!requested?.length) return invalid('需要指定要生成的节点。')
     const doc = new Y.Doc()
     try {
       Y.applyUpdate(doc, await accessCanvasDocument(context.userId, project.id))
@@ -599,9 +606,9 @@ export const runNodes = defineAgentTool({
         ...graph.nodes.map((node) => node.id),
         ...(graph.groups ?? []).map((group) => group.id),
       ])
-      for (const id of params.nodeIds)
+      for (const id of requested)
         if (!existing.has(id)) invalid(missingNodeMessage(id, graph.nodes))
-      const ids = new Set(params.nodeIds)
+      const ids = new Set(requested)
       for (const group of graph.groups ?? [])
         if (ids.has(group.id)) for (const nodeId of group.members) ids.add(nodeId)
       const scoped = graph.nodes.filter((node) => ids.has(node.id))

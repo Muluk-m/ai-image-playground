@@ -6,7 +6,7 @@ import { registerAgentNodeRun } from '../../agent/lib/nodeRunBridge'
 import { stageAuthorizationClient } from '../../agent/lib/stageAuthorizationClient'
 import { useVideoStore } from '../../video/store'
 import type { CanvasEditor } from './editor'
-import { currentNodeBatch, NodeBatchFailure, runNodeBatch } from './nodeBatch'
+import { billedNodeQuantity, currentNodeBatch, NodeBatchFailure, runNodeBatch } from './nodeBatch'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
 
 export function useAgentNodeRun({
@@ -57,7 +57,7 @@ export function useAgentNodeRun({
             attemptId,
             nodeId: job.id,
             model: job.model,
-            quantity: job.quantity,
+            quantity: billedNodeQuantity(job),
             unitMultiplier: job.unitMultiplier ?? 1,
           })
           authorizations[job.id] = {

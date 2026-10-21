@@ -378,6 +378,63 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
   ).rejects.toThrow('云端节点画布')
 })
 
+it('uses the workbench image model and adopts a real model when the unbilled placeholder is empty', async () => {
+  const { context } = await fixture()
+  await createNodes
+    .create(context)
+    .execute(
+      'create',
+      { nodes: [{ id: 'image', type: 'image', prompt: '嫩芽' }] },
+      undefined,
+      undefined,
+    )
+  const aligned = await runNodes
+    .create({ ...context, params: { canvasImageModel: 'workbench-image' } })
+    .execute('aligned', { nodeIds: ['image'] }, undefined, undefined)
+  const alignedId = aligned.details?.canvasRun?.authorizationId
+  if (!alignedId) throw new Error('missing authorization')
+  const confirmed = await confirmStageAuthorization(userId, alignedId)
+  expect(confirmed.authorization.charges).toMatchObject([
+    { nodeId: 'image', model: 'workbench-image', quantity: 1, unitMultiplier: 1, credits: 0 },
+  ])
+  const preflight = await preflightStageAuthorization(userId, alignedId, {
+    nodeId: 'image',
+    model: 'workbench-image',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken: confirmed.executionToken,
+    attemptId: 'workbench',
+  })
+  expect(preflight.attempts).toHaveLength(1)
+  await expect(
+    preflightStageAuthorization(userId, alignedId, {
+      nodeId: 'image',
+      model: 'other-image',
+      quantity: 1,
+      unitMultiplier: 1,
+      executionToken: confirmed.executionToken,
+      attemptId: 'other',
+    }),
+  ).rejects.toThrow('stage_authorization_scope')
+  const placeholder = await runNodes
+    .create(context)
+    .execute('placeholder', { nodeIds: ['image'] }, undefined, undefined)
+  const placeholderId = placeholder.details?.canvasRun?.authorizationId
+  if (!placeholderId) throw new Error('missing placeholder')
+  const open = await confirmStageAuthorization(userId, placeholderId)
+  expect(open.authorization.charges?.[0]?.model).toBe('')
+  const adopted = await preflightStageAuthorization(userId, placeholderId, {
+    nodeId: 'image',
+    model: 'fixture-image',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken: open.executionToken,
+    attemptId: 'adopted',
+  })
+  expect(adopted.charges).toMatchObject([{ nodeId: 'image', model: 'fixture-image' }])
+  expect(adopted.attempts).toHaveLength(1)
+})
+
 it('authorizes an asset node that has a prompt and rejects a promptless asset', async () => {
   const { context, projectId } = await fixture()
   await accessCanvasDocument(userId, projectId, async (current) => {

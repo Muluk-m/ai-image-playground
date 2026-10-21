@@ -64,9 +64,12 @@ const { db, schema, close } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { createNodes, runNodes } = await import('../../lib/agent/tools/nodeCanvas')
 const { accessCanvasDocument } = await import('../../lib/canvasSyncStore')
-const { STAGE_AUTHORIZATION_ACTIVE_TTL_MS, expireStaleStageAuthorizations } = await import(
-  '../../lib/agent/stage-authorizations'
-)
+const {
+  STAGE_AUTHORIZATION_ACTIVE_TTL_MS,
+  STAGE_AUTHORIZATION_EXPIRE_BATCH,
+  consumeStageAuthorization,
+  expireStaleStageAuthorizations,
+} = await import('../../lib/agent/stage-authorizations')
 const { createAgentImageSource } = await import('../../lib/agent/images')
 let cookie: string
 beforeAll(async () => {
@@ -85,6 +88,7 @@ async function fixture(
   nodeIds = ['a'],
   estimatedCredits?: number,
   beforePropose?: (input: { projectId: string }) => Promise<void>,
+  turnParams?: { canvasImageModel?: string },
 ) {
   const conversationId = crypto.randomUUID(),
     projectId = crypto.randomUUID(),
@@ -127,6 +131,7 @@ async function fixture(
         throw new Error('Canvas must not consume per-turn quota')
       },
     },
+    ...(turnParams ? { params: turnParams } : {}),
   }
   await createNodes.create(context).execute(
     'create',
@@ -400,6 +405,45 @@ it('rounds video duration up and prices an unknown resolution like settlement', 
   expect(await (await request(unknown.authorizationId)).json()).toMatchObject({
     charges: [{ nodeId: 'clip', quantity: 5, unitMultiplier: 1, credits: 30 }],
   })
+  const clamped = await fixture(['clip'], undefined, async ({ projectId }) => {
+    await contextFor(projectId)
+    await writeDraft(projectId, {
+      model: 'grok-imagine-video',
+      duration: 6,
+      resolution: '480p',
+      aspectRatio: '16:9',
+    })
+  })
+  expect(clamped).toMatchObject({ budgetCap: 30, nodeIds: ['clip'] })
+  expect(await (await request(clamped.authorizationId)).json()).toMatchObject({
+    charges: [
+      {
+        nodeId: 'clip',
+        model: 'grok-imagine-video',
+        quantity: 5,
+        unitMultiplier: 1,
+        credits: 30,
+      },
+    ],
+  })
+  const confirmed = await request(fractional.authorizationId, '/confirm', {
+    charges: [{ nodeId: 'clip', model: 'video-fixture', quantity: 1.9, unitMultiplier: 1 }],
+  })
+  expect(confirmed.status).toBe(200)
+  const receipt = await confirmed.json()
+  expect(receipt.authorization.charges).toMatchObject([{ quantity: 2, unitMultiplier: 1 }])
+  expect(
+    (
+      await request(fractional.authorizationId, '/preflight', {
+        nodeId: 'clip',
+        model: 'video-fixture',
+        quantity: 1.9,
+        unitMultiplier: 1,
+        executionToken: receipt.executionToken,
+        attemptId: 'fractional-duration',
+      })
+    ).status,
+  ).toBe(200)
 })
 
 it('rejects a proposal when the server cannot price the nodes', async () => {
@@ -659,4 +703,237 @@ it('reprices the confirmed jobs and expires an idle active authorization with no
     status: 'expired',
   })
   expect(await expireStaleStageAuthorizations()).toBe(0)
+})
+
+it('prices image nodes with the origin tab workbench model', async () => {
+  const proposal = await fixture(['a'], undefined, undefined, {
+    canvasImageModel: 'workbench-image',
+  })
+  expect(await (await request(proposal.authorizationId)).json()).toMatchObject({
+    charges: [
+      { nodeId: 'a', model: 'workbench-image', quantity: 1, unitMultiplier: 1, credits: 6 },
+    ],
+  })
+  const { executionToken } = await (await request(proposal.authorizationId, '/confirm', {})).json()
+  expect(
+    (
+      await request(proposal.authorizationId, '/preflight', {
+        nodeId: 'a',
+        model: 'workbench-image',
+        quantity: 1,
+        unitMultiplier: 1,
+        executionToken,
+        attemptId: 'workbench',
+      })
+    ).status,
+  ).toBe(200)
+  expect(
+    (
+      await request(proposal.authorizationId, '/preflight', {
+        nodeId: 'a',
+        model: 'gpt-image-2.5-flare',
+        quantity: 1,
+        unitMultiplier: 1,
+        executionToken,
+        attemptId: 'channel-default',
+      })
+    ).status,
+  ).toBe(409)
+})
+
+it('rejects duplicate node ids in a confirmation', async () => {
+  const proposal = await fixture(['a'])
+  const duplicated = await request(proposal.authorizationId, '/confirm', {
+    charges: [
+      { nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 1 },
+      { nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 1 },
+    ],
+  })
+  expect(duplicated.status).toBe(409)
+  expect(await duplicated.json()).toMatchObject({ error: 'stage_authorization_scope' })
+  expect(await (await request(proposal.authorizationId)).json()).toMatchObject({
+    status: 'pending',
+  })
+})
+
+it('rejects negative or non-positive settlement usage', async () => {
+  const proposal = await fixture(['a'])
+  const { executionToken } = await (await request(proposal.authorizationId, '/confirm', {})).json()
+  expect(
+    (
+      await request(proposal.authorizationId, '/preflight', {
+        nodeId: 'a',
+        model: 'gpt-image-2.5-flare',
+        quantity: 1,
+        unitMultiplier: 1,
+        executionToken,
+        attemptId: 'spend',
+      })
+    ).status,
+  ).toBe(200)
+  const usage = { model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 1 }
+  const ref = {
+    authorizationId: proposal.authorizationId,
+    nodeId: 'a',
+    attemptId: 'spend',
+    executionToken,
+  }
+  await expect(
+    db.transaction((tx) =>
+      consumeStageAuthorization(tx, 'stage-owner', ref, 'task-negative', usage, -1),
+    ),
+  ).rejects.toThrow('stage_authorization_attempt_conflict')
+  await expect(
+    db.transaction((tx) =>
+      consumeStageAuthorization(
+        tx,
+        'stage-owner',
+        ref,
+        'task-backward',
+        { ...usage, quantity: -1 },
+        0,
+      ),
+    ),
+  ).rejects.toThrow('stage_authorization_attempt_conflict')
+  expect(await (await request(proposal.authorizationId)).json()).toMatchObject({
+    spentCredits: 0,
+    attempts: [{ taskIds: [] }],
+  })
+})
+
+it('looks up an authorization without node ids', async () => {
+  const proposal = await fixture(['a'])
+  const [row] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, proposal.authorizationId))
+  if (!row) throw new Error('missing authorization')
+  const result = await runNodes
+    .create({
+      mode: 'image' as const,
+      experience: 'canvas' as const,
+      conversationId: row.conversation_id,
+      turnId: 'turn',
+      deviceId: 'stage-device',
+      userId: 'stage-owner',
+      canvas: { selectedNodeIds: [], elements: [] },
+      images: createAgentImageSource({
+        references: [],
+        history: [],
+        conversationId: row.conversation_id,
+        userId: 'stage-owner',
+      }),
+    })
+    .execute('lookup', { authorizationId: proposal.authorizationId }, undefined, undefined)
+  expect(
+    JSON.parse(result.content[0]?.type === 'text' ? result.content[0].text : ''),
+  ).toMatchObject({
+    id: proposal.authorizationId,
+    status: 'pending',
+    nodeIds: ['a'],
+  })
+  await expect(
+    runNodes
+      .create({
+        mode: 'image' as const,
+        experience: 'canvas' as const,
+        conversationId: row.conversation_id,
+        turnId: 'turn',
+        deviceId: 'stage-device',
+        userId: 'stage-owner',
+        canvas: { selectedNodeIds: [], elements: [] },
+        images: createAgentImageSource({
+          references: [],
+          history: [],
+          conversationId: row.conversation_id,
+          userId: 'stage-owner',
+        }),
+      })
+      .execute('empty', {}, undefined, undefined),
+  ).rejects.toThrow('需要指定要生成的节点')
+})
+
+it('expires an idle authorization behind a full batch of in-flight rows', async () => {
+  const proposal = await fixture(['a'])
+  const [seed] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, proposal.authorizationId))
+  if (!seed) throw new Error('missing authorization')
+  const older = Date.now() - STAGE_AUTHORIZATION_ACTIVE_TTL_MS - 10_000
+  const idleAt = Date.now() - STAGE_AUTHORIZATION_ACTIVE_TTL_MS - 1_000
+  const active = (id: string, at: number, taskId?: string) => ({
+    id,
+    conversationId: seed.conversation_id,
+    projectId: seed.project_id,
+    stage: '回收',
+    nodeIds: ['a'],
+    nodeNames: ['嫩芽'],
+    estimatedCredits: 0,
+    budgetCap: 0,
+    charges: [],
+    spentCredits: 0,
+    status: 'active' as const,
+    attempts: taskId
+      ? [
+          {
+            id: `${id}-attempt`,
+            nodeId: 'a',
+            model: 'gpt-image-2.5-flare',
+            quantity: 1,
+            unitMultiplier: 1,
+            reservedCredits: 0,
+            spentCredits: 0,
+            submittedQuantity: 0,
+            taskIds: [taskId],
+          },
+        ]
+      : [],
+    audit: [{ kind: 'confirmed' as const, at }],
+  })
+  for (let index = 0; index < STAGE_AUTHORIZATION_EXPIRE_BATCH; index += 1) {
+    const id = `inflight-${seed.id}-${index}`
+    const taskId = `task-${id}`
+    await db.insert(schema.tasks).values({
+      id: taskId,
+      user_id: 'stage-owner',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.5-flare',
+      status: 'in_progress',
+      request_payload: { device_id: 'stage-test-device', prompt: '嫩芽', n: 1 },
+      submitted_at: older,
+    })
+    await db.insert(schema.agent_stage_authorizations).values({
+      id,
+      user_id: seed.user_id,
+      conversation_id: seed.conversation_id,
+      project_id: seed.project_id,
+      proposal_key: id,
+      state: active(id, older, taskId),
+      created_at: older,
+      updated_at: older,
+    })
+  }
+  const idleId = `idle-${seed.id}`
+  await db.insert(schema.agent_stage_authorizations).values({
+    id: idleId,
+    user_id: seed.user_id,
+    conversation_id: seed.conversation_id,
+    project_id: seed.project_id,
+    proposal_key: idleId,
+    state: active(idleId, idleAt),
+    created_at: idleAt,
+    updated_at: idleAt,
+  })
+  expect(await expireStaleStageAuthorizations()).toBe(1)
+  const [idle] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, idleId))
+  const [blocked] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, `inflight-${seed.id}-0`))
+  expect(idle?.state.status).toBe('expired')
+  expect(blocked?.state.status).toBe('active')
 })

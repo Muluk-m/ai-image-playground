@@ -314,6 +314,11 @@ export interface AgentTurnParams {
   /** 生成模型。解析不出来（模型下线、介质不符）就退回部署配置的那一个。 */
   readonly model?: string
   /**
+   * 原标签页工作台当前的出图模型。只给阶段授权报价，让提案和预检用同一条模型；
+   * 不改变这一轮对话要调用的生成模型。
+   */
+  readonly canvasImageModel?: string
+  /**
    * 直接出图：用户在参数里打开时，生成工具拟好稿就当场提交，不再逐张等确认。
    *
    * 对话里的生图工具只认显式 `true`；缺席和 `false` 都是拟稿等确认。

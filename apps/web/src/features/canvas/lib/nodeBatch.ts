@@ -54,6 +54,12 @@ export class NodeBatchFailure extends Error {
     super(code)
   }
 }
+/** 视频时长与阶段报价对齐：支持矩阵里的档位已经是整数，没有矩阵时向上取整。 */
+export function billedNodeQuantity(job: Pick<NodeBatchJob, 'kind' | 'quantity'>): number {
+  if (job.kind !== 'video') return job.quantity
+  const quantity = Math.ceil(job.quantity)
+  return Number.isSafeInteger(quantity) && quantity >= 1 ? quantity : job.quantity
+}
 export interface NodeBatchJob {
   id: string
   kind: 'image' | 'video'

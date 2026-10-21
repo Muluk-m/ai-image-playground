@@ -5,7 +5,7 @@ import type {
   StageAuthorizationPreflight,
   StageAuthorizationSubmission,
 } from '@image-playground/shared'
-import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
@@ -216,11 +216,20 @@ export async function confirmStageAuthorization(
       throw new StageAuthorizationError('stage_authorization_already_confirmed')
     let state = row.state
     if (charges?.length) {
+      const normalized = charges.map((charge) => ({
+        ...charge,
+        quantity: Math.ceil(charge.quantity),
+      }))
       const wanted = new Set(state.nodeIds)
-      const given = new Set(charges.map((charge) => charge.nodeId))
-      if (wanted.size !== given.size || [...wanted].some((nodeId) => !given.has(nodeId)))
+      const given = new Set(normalized.map((charge) => charge.nodeId))
+      // 重复的 nodeId 用 Set 会看起来刚好覆盖范围，但报价会被加两次。
+      if (
+        normalized.length !== wanted.size ||
+        given.size !== wanted.size ||
+        [...wanted].some((nodeId) => !given.has(nodeId))
+      )
         throw new StageAuthorizationError('stage_authorization_scope')
-      const priced = await pricedCharges(tx, userId, charges)
+      const priced = await pricedCharges(tx, userId, normalized)
       state = {
         ...state,
         estimatedCredits: priced.total,
@@ -252,12 +261,34 @@ export async function endStageAuthorization(userId: string, id: string) {
     })
   })
 }
+/** 在途任务的 id 藏在 state.attempts 里。查询时就排除，避免最老的一批全是在途、后面的空闲授权永远轮不到。 */
+function withoutInFlightTasks() {
+  return sql`not exists (
+    select 1
+    from jsonb_array_elements(coalesce(${table.state}->'attempts', '[]'::jsonb)) as attempt
+    cross join lateral jsonb_array_elements_text(
+      case
+        when jsonb_typeof(attempt->'taskIds') = 'array' then attempt->'taskIds'
+        else '[]'::jsonb
+      end
+    ) as task_id
+    inner join ${schema.tasks} on ${schema.tasks.id} = task_id
+    where ${schema.tasks.status} in ('queued', 'in_progress', 'reconciling')
+  )`
+}
 export async function expireStaleStageAuthorizations(now = Date.now()): Promise<number> {
   const cutoff = now - STAGE_AUTHORIZATION_ACTIVE_TTL_MS
   const rows = await db
     .select({ id: table.id })
     .from(table)
-    .where(and(sql`${table.state}->>'status' = 'active'`, lt(table.updated_at, cutoff)))
+    .where(
+      and(
+        sql`${table.state}->>'status' = 'active'`,
+        lt(table.updated_at, cutoff),
+        withoutInFlightTasks(),
+      ),
+    )
+    .orderBy(asc(table.updated_at), asc(table.id))
     .limit(STAGE_AUTHORIZATION_EXPIRE_BATCH)
   let expired = 0
   for (const candidate of rows) {
@@ -279,15 +310,31 @@ export async function preflightStageAuthorization(
   return db.transaction(async (tx) => {
     const row = await maybeExpire(tx, await owned(tx, userId, id))
     assertExecution(row, input.executionToken)
-    const state = row.state
+    let state = row.state
     if (!state.nodeIds.includes(input.nodeId))
       throw new StageAuthorizationError('stage_authorization_scope')
+    const quantity = Math.ceil(input.quantity)
     // 确认后的报价是唯一可执行规格。换模型、数量或倍率必须重新提案。
-    const charge = state.charges?.find((item) => item.nodeId === input.nodeId)
+    let charge = state.charges?.find((item) => item.nodeId === input.nodeId)
+    // 不计费且提案时没有可用模型，占位模型是空字符串。预检带来的是原标签页实际要跑的模型，写回去再锁住。
+    if (
+      charge &&
+      !charge.model &&
+      !isCapabilityEnabled('billing:credits') &&
+      input.model &&
+      charge.quantity === quantity &&
+      charge.unitMultiplier === input.unitMultiplier
+    ) {
+      const charges = (state.charges ?? []).map((item) =>
+        item.nodeId === input.nodeId ? { ...item, model: input.model } : item,
+      )
+      state = { ...state, charges }
+      charge = charges.find((item) => item.nodeId === input.nodeId)
+    }
     if (
       !charge ||
       charge.model !== input.model ||
-      charge.quantity !== input.quantity ||
+      charge.quantity !== quantity ||
       charge.unitMultiplier !== input.unitMultiplier
     )
       throw new StageAuthorizationError('stage_authorization_scope')
@@ -296,7 +343,7 @@ export async function preflightStageAuthorization(
       if (
         previous.nodeId !== input.nodeId ||
         previous.model !== input.model ||
-        previous.quantity !== input.quantity ||
+        previous.quantity !== quantity ||
         previous.unitMultiplier !== input.unitMultiplier
       )
         throw new StageAuthorizationError('stage_authorization_attempt_conflict')
@@ -311,7 +358,7 @@ export async function preflightStageAuthorization(
     )
       throw new StageAuthorizationError('stage_authorization_node_already_started')
     const openAttempts = state.attempts.filter((attempt) => attempt.nodeId !== input.nodeId)
-    const credits = await quote(tx, userId, input)
+    const credits = await quote(tx, userId, { ...input, quantity })
     const committed = openAttempts.reduce((sum, attempt) => sum + attempt.reservedCredits, 0)
     if (committed + credits > state.budgetCap)
       throw new StageAuthorizationError('stage_authorization_budget')
@@ -323,7 +370,7 @@ export async function preflightStageAuthorization(
           id: input.attemptId,
           nodeId: input.nodeId,
           model: input.model,
-          quantity: input.quantity,
+          quantity,
           unitMultiplier: input.unitMultiplier,
           reservedCredits: credits,
           spentCredits: 0,
@@ -345,6 +392,15 @@ export async function consumeStageAuthorization(
   credits: number,
 ) {
   if (!userId) throw new StageAuthorizationError('stage_authorization_inactive')
+  if (
+    !Number.isFinite(credits) ||
+    credits < 0 ||
+    !Number.isFinite(usage.quantity) ||
+    usage.quantity < 1 ||
+    !Number.isFinite(usage.unitMultiplier) ||
+    usage.unitMultiplier <= 0
+  )
+    throw new StageAuthorizationError('stage_authorization_attempt_conflict')
   const row = await maybeExpire(tx, await owned(tx, userId, ref.authorizationId))
   assertExecution(row, ref.executionToken)
   const state = row.state,
