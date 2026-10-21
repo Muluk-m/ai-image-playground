@@ -170,6 +170,14 @@ export const config = {
     imageModel: env('AGENT_IMAGE_MODEL', ''),
     /** 生视频工具用的模型。留空跟随内置 channel 的默认视频模型。 */
     videoModel: env('AGENT_VIDEO_MODEL', ''),
+    /**
+     * 修改范围提议（`proposeEditRegion`）的服务端分割。只有配了 `FAL_KEY` 才启用 fal 的 SAM 3；
+     * 缺席时由浏览器里的分割模型给建议蒙版，再不行按框给粗略范围。`off` 强制关闭服务端分割。
+     */
+    segmentation: {
+      provider: env('AGENT_SEGMENTATION_PROVIDER', 'fal-sam3'),
+      falKey: env('FAL_KEY', ''),
+    },
   },
   databaseUrl: env('DATABASE_URL'),
   /** 连接池上限与空闲回收，部署按角色设（deploy/compose.app.yaml）；worker 与 BFF 用各自的 application_name。 */
