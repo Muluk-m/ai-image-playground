@@ -402,11 +402,12 @@ export async function endStageAuthorizationsForUser(userId: string): Promise<num
     const now = Date.now()
     let ended = 0
     for (const row of rows) {
-      if (row.state.status !== 'pending' && row.state.status !== 'active') continue
+      const current = await maybeExpire(tx, row, now)
+      if (current.state.status !== 'pending' && current.state.status !== 'active') continue
       await save(tx, {
-        ...row.state,
+        ...current.state,
         status: 'ended',
-        audit: [...row.state.audit, { kind: 'ended', at: now }],
+        audit: [...current.state.audit, { kind: 'ended', at: now }],
       })
       ended += 1
     }

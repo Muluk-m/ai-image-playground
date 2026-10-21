@@ -104,7 +104,7 @@ import {
   removeQueuedMessage,
   returnQueuedToDraft,
 } from './lib/messageQueue'
-import { registerAgentNodeRunOrigin } from './lib/nodeRuns'
+import { registerAgentNodeRunOrigin, releaseIdleAgentNodeRunOrigins } from './lib/nodeRuns'
 import {
   bindOutgoingConversation,
   forgetOutgoing,
@@ -474,27 +474,30 @@ const turnSource = (taken: AgentConversationState, turnId: string): AgentTurnSou
  * 工具起跑时刻、重试被拒盖在占位上的那一层，连同断线提示与上一次的报错。
  * 返回的是一份补丁，调用方一次 `set` 下去：任何一次渲染都不能看见「消息已清、会话还是旧的」。
  */
-const sessionReset = (conversationId: string | null): Partial<AgentState> => ({
-  conversationId,
-  messages: [],
-  turns: {},
-  queue: [],
-  promptDrafts: {},
-  jobProgress: {},
-  toolStartedAt: {},
-  retryRefusals: {},
-  turn: 'idle',
-  stopping: false,
-  reconnecting: false,
-  activeTurn: null,
-  error: null,
-  errorDiagnostic: null,
-  historyCached: false,
-  historyLoading: false,
-  historyFailed: false,
-  returnedMessagesPending: false,
-  returnedMessagesError: null,
-})
+const sessionReset = (conversationId: string | null): Partial<AgentState> => {
+  releaseIdleAgentNodeRunOrigins()
+  return {
+    conversationId,
+    messages: [],
+    turns: {},
+    queue: [],
+    promptDrafts: {},
+    jobProgress: {},
+    toolStartedAt: {},
+    retryRefusals: {},
+    turn: 'idle',
+    stopping: false,
+    reconnecting: false,
+    activeTurn: null,
+    error: null,
+    errorDiagnostic: null,
+    historyCached: false,
+    historyLoading: false,
+    historyFailed: false,
+    returnedMessagesPending: false,
+    returnedMessagesError: null,
+  }
+}
 
 function readPanelWidth(): number {
   const raw = Number(safeLocalStorage.getItem(PANEL_WIDTH_KEY))

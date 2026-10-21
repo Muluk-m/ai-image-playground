@@ -13,7 +13,6 @@ import * as Y from 'yjs'
 import {
   buildNodeBatch,
   executeNodeBatch,
-  NodeBatchFailure,
   type NodeBatchInput,
   stageAuthorizedImageInputs,
 } from '../../../../features/canvas/lib/nodeBatch'
@@ -410,26 +409,23 @@ it('quotes one image for each storyboard frame or contact sheet regardless of th
   expect(plan.credits).toBe(6)
 })
 
-it('rejects a stage submission that still has a browser-only upload and does not collapse in-batch files', () => {
+it('submits one url per file and leaves browser-only uploads out of the stage payload', () => {
   const refs = [
     { id: 'a', kind: 'image' as const, label: 'a', fileId: 'same' },
     { id: 'b', kind: 'image' as const, label: 'b', fileId: 'same' },
-    { id: 'c', kind: 'image' as const, label: 'c', fileId: 'other' },
+    { id: 'upload', kind: 'image' as const, label: 'upload', fileId: 'temp-upload' },
   ]
-  const files = { same: 'data:a', other: 'data:c' }
+  const files = { same: 'data:a', 'temp-upload': 'data:upload', draft: 'data:draft' }
   expect(stageAuthorizedImageInputs(refs, files, new Set(['a', 'b']), {})).toEqual([
     'data:a',
-    'data:a',
-    'data:c',
+    'data:upload',
   ])
-  expect(stageAuthorizedImageInputs(refs, files, new Set(), {})).toEqual(['data:a', 'data:c'])
-  expect(() =>
-    stageAuthorizedImageInputs(refs, files, new Set(['a']), { temp: 'data:temp' }),
-  ).toThrow(NodeBatchFailure)
-  try {
-    stageAuthorizedImageInputs(refs, files, new Set(['a']), { temp: 'data:temp' })
-  } catch (error) {
-    expect(error).toBeInstanceOf(NodeBatchFailure)
-    expect((error as NodeBatchFailure).code).toBe('local')
-  }
+  expect(
+    stageAuthorizedImageInputs(
+      [...refs, { id: 'draft', kind: 'image', label: 'draft', fileId: 'draft' }],
+      files,
+      new Set(['a', 'b']),
+      { draft: 'data:draft' },
+    ),
+  ).toEqual(['data:a', 'data:upload'])
 })

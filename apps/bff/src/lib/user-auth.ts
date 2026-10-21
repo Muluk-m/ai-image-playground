@@ -12,7 +12,9 @@ export const resolveAuthUser = new Elysia({ name: 'resolve-auth-user' }).derive(
     const raw = cookie[USER_SESSION_COOKIE]?.value
     const token = typeof raw === 'string' ? raw : ''
     const client = sessionClientFromRequest(request, server?.requestIP(request)?.address ?? null)
-    return { authUser: await resolveUserSession(token, client) }
+    // 登出要先按会话主人收回阶段授权。derive 不能先删掉禁用账号的会话。
+    const keepDisabledSession = new URL(request.url).pathname === '/api/auth/logout'
+    return { authUser: await resolveUserSession(token, client, { keepDisabledSession }) }
   },
 )
 

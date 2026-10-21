@@ -346,15 +346,20 @@ export async function executeNodeBatch(
   control.progress(plan.jobs.length, '')
 }
 
-/** 阶段提交的图片清单与服务端冻结的张数使用同一套身份。临时上传不在画布上，直接拒绝。 */
+/**
+ * 阶段提交的图片清单与服务端冻结张数使用同一套 fileId 身份。
+ * 只在浏览器里的临时上传不在这份清单里：服务端快照看不到它们，确认前就会拒绝。
+ */
 export function stageAuthorizedImageInputs(
   refs: readonly NodeReference[],
   files: Readonly<Record<string, string>>,
   authorizedIds: ReadonlySet<string>,
   temporary: Readonly<Record<string, string>>,
 ): string[] {
-  if (Object.keys(temporary).length > 0) throw new NodeBatchFailure('local')
-  return stageSubmittedFileIds(refs, authorizedIds, 'image').map((id) => {
+  const onCanvas = refs.filter(
+    (ref) => !temporary[ref.id] && !(ref.fileId && temporary[ref.fileId]),
+  )
+  return stageSubmittedFileIds(onCanvas, authorizedIds, 'image').map((id) => {
     const url = files[id]
     if (!url) throw new NodeBatchFailure('media')
     return url
@@ -389,7 +394,6 @@ export async function runNodeBatch(
       const current = currentNodeBatch(doc, editor, ids).jobs.find((one) => one.id === job.id)
       if (!current) throw new NodeBatchFailure('changed')
       const stage = stageAuthorizations?.[job.id]
-      if (stage && Object.keys(current.temporary).length > 0) throw new NodeBatchFailure('local')
       const files = { ...editor.doc.files, ...current.temporary }
       const authorizedIds = new Set(plan.jobs.map((item) => item.id))
       if (

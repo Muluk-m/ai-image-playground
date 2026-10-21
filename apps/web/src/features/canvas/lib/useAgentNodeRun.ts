@@ -42,6 +42,9 @@ export function useAgentNodeRun({
       ])
       if (!proposal.nodeIds.length || proposal.nodeIds.some((id) => !existing.has(id))) return null
       const plan = currentNodeBatch(canvas.doc, editor, proposal.nodeIds)
+      // 临时上传不在服务端快照里。确认前就停住并提示，不能拖到提交才因张数对不上失败。
+      if (plan.jobs.some((job) => Object.keys(job.temporary).length > 0))
+        return { ...plan, error: 'local' as const }
       if (!proposal.specs?.length || plan.error) return plan
       const live = plan.jobs.map((job) => ({
         nodeId: job.id,

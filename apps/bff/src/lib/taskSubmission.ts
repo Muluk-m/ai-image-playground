@@ -14,6 +14,8 @@ import {
   billedStageQuantity,
   DEFAULT_IMAGE_MODERATION,
   QUEUE_TIMEOUTS,
+  stageAuthorizedVideoDuration,
+  videoModelSupportOf,
   videoRateMultiplier,
 } from '@image-playground/shared'
 import { and, eq, isNull, sql } from 'drizzle-orm'
@@ -293,9 +295,20 @@ export async function discardQueueTaskPreparation(prepared: PreparedQueueTask): 
   await discardArchivedInputs(prepared.taskId)
 }
 
-export async function createQueueTask(
-  input: CreateQueueTaskInput,
-): Promise<CreateQueueTaskOutcome> {
+/** 带授权的视频时长改成提案快照的同一档，再计价、落库。已经准备好的请求保持原哈希。 */
+function alignStageSubmission(input: CreateQueueTaskInput): CreateQueueTaskInput {
+  if (!input.stageAuthorization || !input.video || input.prepared) return input
+  const duration_seconds = stageAuthorizedVideoDuration(
+    input.video.duration_seconds,
+    videoModelSupportOf(input.model),
+    input.video.resolution,
+  )
+  if (duration_seconds === input.video.duration_seconds) return input
+  return { ...input, video: { ...input.video, duration_seconds } }
+}
+
+export async function createQueueTask(raw: CreateQueueTaskInput): Promise<CreateQueueTaskOutcome> {
+  const input = alignStageSubmission(raw)
   if (input.reconciliationRequired && input.video)
     throw new TypeError('reconciliation_requires_image_task')
   const commandId = input.request.client_request_id
@@ -400,13 +413,11 @@ export async function createQueueTask(
         {
           prompt: input.request.prompt,
           inputCount: requestPayload.input_images?.length ?? 0,
-          // 指纹用提交的原始时长，必须和提案冻结的草稿一致。
-          // 计价 quantity 是向上取整后的额度，不能拿来放宽比对，否则 1.9 秒会消耗 2 秒的授权。
-          // 不在模型档位里的时长在进入这里之前就被 videoRequestRejection 拒绝。
+          // 指纹用归一化后的计价数量，和提案快照是同一个数。1.9 秒在带授权时已经收成合法档。
           ...(input.video
             ? {
                 video: {
-                  durationSeconds: input.video.duration_seconds,
+                  durationSeconds: pricing.quantity,
                   resolution: input.video.resolution,
                   aspectRatio: input.video.aspect_ratio,
                 },

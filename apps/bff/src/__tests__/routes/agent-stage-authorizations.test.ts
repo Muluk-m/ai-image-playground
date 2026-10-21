@@ -1309,6 +1309,24 @@ it('returns the existing proposal when the key matches and rejects a different o
       bindings: row.state.bindings,
     }),
   ).rejects.toThrow('stage_authorization_conflict')
+  await expect(
+    proposeStageAuthorization({
+      userId: 'stage-owner',
+      conversationId: row.conversation_id,
+      projectId: row.project_id,
+      proposalKey: row.proposal_key,
+      stage: '另一阶段',
+      nodeIds: [...row.state.nodeIds],
+      nodeNames: ['别的名字'],
+      nodes: (row.state.charges ?? []).map(({ nodeId, model, quantity, unitMultiplier }) => ({
+        nodeId,
+        model,
+        quantity,
+        unitMultiplier,
+      })),
+      bindings: row.state.bindings,
+    }),
+  ).rejects.toThrow('stage_authorization_conflict')
   const binding = row.state.bindings[0]
   if (!binding) throw new Error('missing binding')
   await expect(
@@ -1382,12 +1400,308 @@ it('returns the existing proposal when the key matches and rejects a different o
   })
 })
 
+it('submits an authorized image and a fractional reference video through confirm, preflight and consume', async () => {
+  const { InMemoryObjectStore } = await import('../helpers/inMemoryObjectStore')
+  const { setObjectStoreForTesting } = await import('../../lib/objectStore')
+  const { getChannels, _setChannelsForTesting } = await import('../../lib/channels')
+  const store = new InMemoryObjectStore()
+  setObjectStoreForTesting(store)
+  const savedChannels = getChannels()
+  const now = Date.now()
+  const sharedMedia = crypto.randomUUID()
+  const uploadedMedia = crypto.randomUUID()
+  const referenceMedia = crypto.randomUUID()
+  const readyMedia = (id: string, sha256: string) =>
+    db.insert(schema.media_objects).values({
+      id,
+      user_id: 'stage-owner',
+      sha256,
+      bytes: 8,
+      content_type: 'image/png',
+      status: 'ready',
+      reserved_bytes: 8,
+      staging_key: `staging/${id}`,
+      object_key: `media/${id}`,
+      width: 1,
+      height: 1,
+      expires_at: now + 86_400_000,
+      created_at: now,
+      updated_at: now,
+    })
+  await readyMedia(sharedMedia, 'a'.repeat(64))
+  await readyMedia(uploadedMedia, 'b'.repeat(64))
+  await readyMedia(referenceMedia, 'c'.repeat(64))
+  const cloudFile = (id: string) => `cloud-${id}`
+  try {
+    const image = await fixture(['a', 'b', 'out'], undefined, async ({ projectId }) => {
+      await accessCanvasDocument('stage-owner', projectId, async (current) => {
+        const doc = new Y.Doc()
+        Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+        const vector = Y.encodeStateVector(doc)
+        const origin = canvasOrigin('system', 'fixture')
+        for (const id of ['a', 'b']) {
+          const node = readCanvasDocument(doc).nodes.find((item) => item.id === id)
+          if (!node || node.type !== 'image') throw new Error(`missing ${id}`)
+          updateCanvasNode(
+            doc,
+            id,
+            { data: { ...node.data, mediaId: sharedMedia, fileId: cloudFile(sharedMedia) } },
+            origin,
+          )
+        }
+        insertCanvasNode(
+          doc,
+          {
+            id: 'upload',
+            type: 'image',
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 240,
+            data: { name: '上传', mediaId: uploadedMedia, fileId: cloudFile(uploadedMedia) },
+          },
+          origin,
+        )
+        insertCanvasNode(
+          doc,
+          {
+            id: 'out',
+            type: 'image',
+            x: 40,
+            y: 0,
+            width: 320,
+            height: 240,
+            data: { name: '成片', meta: { nodePrompt: '成片' } },
+          },
+          origin,
+        )
+        connectCanvasNodes(doc, { source: 'a', target: 'out' }, origin)
+        connectCanvasNodes(doc, { source: 'b', target: 'out' }, origin)
+        connectCanvasNodes(doc, { source: 'upload', target: 'out' }, origin)
+        const update = Y.encodeStateAsUpdate(doc, vector)
+        doc.destroy()
+        return update
+      })
+    })
+    const imageState = await (await request(image.authorizationId)).json()
+    const imageBinding = imageState.bindings.find(
+      (binding: { nodeId: string }) => binding.nodeId === 'out',
+    )
+    expect(imageBinding).toMatchObject({ kind: 'image', prompt: '成片', inputCount: 2 })
+    const { executionToken: imageToken } = await (
+      await request(image.authorizationId, '/confirm', {})
+    ).json()
+    expect(
+      (
+        await request(image.authorizationId, '/preflight', {
+          nodeId: 'out',
+          model: 'gpt-image-2.5-flare',
+          quantity: 1,
+          unitMultiplier: 1,
+          executionToken: imageToken,
+          attemptId: 'image-happy',
+        })
+      ).status,
+    ).toBe(200)
+    const imageSubmit = await queueSubmit({
+      prompt: '成片',
+      device_id: 'stage-test-device',
+      client_request_id: crypto.randomUUID(),
+      input_images: [PIXEL, PIXEL],
+      stage_authorization: {
+        authorizationId: image.authorizationId,
+        executionToken: imageToken,
+        attemptId: 'image-happy',
+        nodeId: 'out',
+      },
+    })
+    expect(imageSubmit.status).toBe(200)
+    expect(await (await request(image.authorizationId)).json()).toMatchObject({
+      spentCredits: 6,
+      attempts: [{ nodeId: 'out', taskIds: [expect.any(String)], submittedQuantity: 1 }],
+    })
+
+    const video = await fixture(['clip'], undefined, async ({ projectId }) => {
+      const [project] = await db
+        .select({ conversationId: schema.canvas_projects.conversation_id })
+        .from(schema.canvas_projects)
+        .where(eq(schema.canvas_projects.id, projectId))
+      if (!project?.conversationId) throw new Error('missing conversation')
+      await createNodes
+        .create({
+          mode: 'image' as const,
+          experience: 'canvas' as const,
+          conversationId: project.conversationId,
+          turnId: 'turn',
+          deviceId: 'stage-device',
+          userId: 'stage-owner',
+          canvas: { selectedNodeIds: [], elements: [] },
+          images: createAgentImageSource({
+            references: [],
+            history: [],
+            conversationId: project.conversationId,
+            userId: 'stage-owner',
+          }),
+        })
+        .execute(
+          'video',
+          { nodes: [{ id: 'clip', type: 'video', prompt: '海浪', videoMode: 'reference' }] },
+          undefined,
+          undefined,
+        )
+      await accessCanvasDocument('stage-owner', projectId, async (current) => {
+        const doc = new Y.Doc()
+        Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+        const vector = Y.encodeStateVector(doc)
+        const origin = canvasOrigin('system', 'fixture')
+        const clip = readCanvasDocument(doc).nodes.find((item) => item.id === 'clip')
+        if (!clip || clip.type !== 'image') throw new Error('missing clip')
+        updateCanvasNode(
+          doc,
+          'clip',
+          {
+            data: {
+              ...clip.data,
+              meta: {
+                ...clip.data.meta,
+                nodeVideoMode: 'reference',
+                nodeVideoDraft: JSON.stringify({
+                  model: 'grok-imagine-video',
+                  duration: 1.9,
+                  resolution: '720p',
+                  aspectRatio: '16:9',
+                }),
+              },
+            },
+          },
+          origin,
+        )
+        for (const id of ['ref-a', 'ref-b']) {
+          insertCanvasNode(
+            doc,
+            {
+              id,
+              type: 'image',
+              x: 0,
+              y: 0,
+              width: 200,
+              height: 200,
+              data: { name: id, mediaId: referenceMedia, fileId: cloudFile(referenceMedia) },
+            },
+            origin,
+          )
+          connectCanvasNodes(doc, { source: id, target: 'clip' }, origin)
+        }
+        const update = Y.encodeStateAsUpdate(doc, vector)
+        doc.destroy()
+        return update
+      })
+    })
+    const videoState = await (await request(video.authorizationId)).json()
+    const videoBinding = videoState.bindings.find(
+      (binding: { nodeId: string }) => binding.nodeId === 'clip',
+    )
+    expect(videoBinding).toMatchObject({
+      kind: 'video',
+      prompt: '海浪',
+      inputCount: 1,
+      video: { durationSeconds: 5, resolution: '720p', aspectRatio: '16:9' },
+    })
+    const { executionToken: videoToken } = await (
+      await request(video.authorizationId, '/confirm', {})
+    ).json()
+    expect(
+      (
+        await request(video.authorizationId, '/preflight', {
+          nodeId: 'clip',
+          model: 'grok-imagine-video',
+          quantity: 5,
+          unitMultiplier: 1,
+          executionToken: videoToken,
+          attemptId: 'video-happy',
+        })
+      ).status,
+    ).toBe(200)
+    const sample = savedChannels[0]
+    const sampleModel = sample?.models[0]
+    if (!sample || !sampleModel) throw new Error('missing channel')
+    _setChannelsForTesting([
+      ...savedChannels,
+      {
+        ...sample,
+        id: `${sample.id}-stage-reference`,
+        models: [{ ...sampleModel, id: 'grok-imagine-video', label: 'Grok', media: 'video' }],
+      },
+    ])
+    const videoSubmit = await app.handle(
+      new Request('http://localhost/v1/queue/openai-compat/grok-imagine-video/submit', {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          prompt: '海浪',
+          device_id: 'stage-test-device',
+          client_request_id: crypto.randomUUID(),
+          input_images: [PIXEL],
+          video: {
+            duration_seconds: 1.9,
+            aspect_ratio: '16:9',
+            resolution: '720p',
+            reference_image_indices: [0],
+          },
+          stage_authorization: {
+            authorizationId: video.authorizationId,
+            executionToken: videoToken,
+            attemptId: 'video-happy',
+            nodeId: 'clip',
+          },
+        }),
+      }),
+    )
+    expect(videoSubmit.status).toBe(200)
+    const accepted = await videoSubmit.json()
+    const [task] = await db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, accepted.request_id))
+    expect(task?.request_payload).toMatchObject({
+      prompt: '海浪',
+      video: { duration_seconds: 5, resolution: '720p', aspect_ratio: '16:9' },
+    })
+    expect(task?.request_payload.input_images).toHaveLength(1)
+    expect(await (await request(video.authorizationId)).json()).toMatchObject({
+      spentCredits: 6,
+      attempts: [{ nodeId: 'clip', submittedQuantity: 5, taskIds: [accepted.request_id] }],
+    })
+  } finally {
+    _setChannelsForTesting(savedChannels)
+    setObjectStoreForTesting()
+  }
+})
+
 it('ends active stage authorizations when the user logs out', async () => {
   const proposal = await fixture()
   const second = await fixture()
   const { executionToken } = await (await request(proposal.authorizationId, '/confirm', {})).json()
   expect(executionToken).toEqual(expect.any(String))
   await (await request(second.authorizationId, '/confirm', {})).json()
+  const staleAt = Date.now() - STAGE_AUTHORIZATION_ACTIVE_TTL_MS - 5_000
+  const [fresh] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, proposal.authorizationId))
+  if (!fresh) throw new Error('missing authorization')
+  await db
+    .update(schema.agent_stage_authorizations)
+    .set({
+      updated_at: staleAt,
+      state: {
+        ...fresh.state,
+        audit: fresh.state.audit.map((event) =>
+          event.kind === 'confirmed' ? { ...event, at: staleAt } : event,
+        ),
+      },
+    })
+    .where(eq(schema.agent_stage_authorizations.id, proposal.authorizationId))
   const token = await db.transaction((tx) => createUserSession('stage-owner', tx))
   const logout = await app.handle(
     new Request('http://localhost/api/auth/logout', {
@@ -1396,13 +1710,16 @@ it('ends active stage authorizations when the user logs out', async () => {
     }),
   )
   expect(logout.status).toBe(200)
-  for (const id of [proposal.authorizationId, second.authorizationId]) {
-    const [row] = await db
-      .select()
-      .from(schema.agent_stage_authorizations)
-      .where(eq(schema.agent_stage_authorizations.id, id))
-    expect(row?.state.status).toBe('ended')
-  }
+  const [expired] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, proposal.authorizationId))
+  const [ended] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, second.authorizationId))
+  expect(expired?.state.status).toBe('expired')
+  expect(ended?.state.status).toBe('ended')
   expect(
     await db
       .select({ token_hash: schema.user_sessions.token_hash })
@@ -1440,9 +1757,15 @@ it('ends active stage authorizations when the user logs out', async () => {
 
 it('revokes the session when stage reclaim fails during logout', async () => {
   const token = await db.transaction((tx) => createUserSession('stage-owner', tx))
+  const { log } = await import('../../lib/logger')
+  const warnings: unknown[] = []
+  const original = log.warn.bind(log)
+  log.warn = ((...args: unknown[]) => {
+    warnings.push(args)
+  }) as typeof log.warn
   let cleared = false
-  await expect(
-    finishLogout(
+  try {
+    await finishLogout(
       token,
       () => {
         cleared = true
@@ -1450,9 +1773,12 @@ it('revokes the session when stage reclaim fails during logout', async () => {
       async () => {
         throw new Error('reclaim failed')
       },
-    ),
-  ).rejects.toThrow('reclaim failed')
+    )
+  } finally {
+    log.warn = original as typeof log.warn
+  }
   expect(cleared).toBe(true)
+  expect(warnings.length).toBeGreaterThan(0)
   const sessions = await db
     .select({ token_hash: schema.user_sessions.token_hash })
     .from(schema.user_sessions)

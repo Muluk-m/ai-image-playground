@@ -4,6 +4,7 @@ import {
   parseCompleteStageVideoDraft,
   resolveStageImageExecution,
   resolveStageVideoExecution,
+  stageAuthorizedVideoDuration,
   stageExecutionBinding,
   stageExecutionBindingMatches,
   stageExecutionSpecsMatch,
@@ -13,6 +14,7 @@ import {
 import { VIDEO_MODEL_SUPPORT } from '../video-presets'
 
 const grok = VIDEO_MODEL_SUPPORT['grok-imagine-video']!
+const grokLite = VIDEO_MODEL_SUPPORT['grok-imagine-video-1.5-lite']!
 
 describe('resolveStageVideoExecution', () => {
   it('drops an incomplete saved draft and uses the whole workbench draft', () => {
@@ -90,6 +92,34 @@ describe('resolveStageVideoExecution', () => {
       options: [],
     })
     expect(unknown.spec).toEqual({ model: 'video-fixture', quantity: 2, unitMultiplier: 1 })
+  })
+
+  it('ceils a fractional duration before clamping it onto a legal tier', () => {
+    const reference = resolveStageVideoExecution({
+      meta: {
+        nodeVideoMode: 'reference',
+        nodeVideoDraft: JSON.stringify({
+          model: 'grok-imagine-video',
+          duration: 1.9,
+          resolution: '720p',
+          aspectRatio: '16:9',
+        }),
+      },
+      references: [{ id: 'frame' }],
+      globalDraft: {
+        model: 'grok-imagine-video',
+        duration: 5,
+        resolution: '720p',
+        aspectRatio: '16:9',
+      },
+      options: [{ modelId: 'grok-imagine-video', support: grok }],
+    })
+    expect(reference.mode).toBe('reference')
+    expect(reference.draft.duration).toBe(5)
+    expect(reference.spec.quantity).toBe(5)
+    expect(stageAuthorizedVideoDuration(1.9, grok, '720p')).toBe(5)
+    expect(stageAuthorizedVideoDuration(1.9, grokLite, '720p')).toBe(2)
+    expect(stageAuthorizedVideoDuration(1.9, undefined)).toBe(2)
   })
 })
 
@@ -176,18 +206,28 @@ describe('stage execution binding', () => {
     )
   })
 
-  it('counts image inputs the way the queue submits them and keeps video slots', () => {
+  it('counts image and video inputs by file id, including an uploaded file', () => {
     const shared = [
       { id: 'a', kind: 'image' as const, fileId: 'same' },
       { id: 'b', kind: 'image' as const, fileId: 'same' },
-      { id: 'c', kind: 'image' as const, fileId: 'other' },
+      { id: 'upload', kind: 'image' as const, fileId: 'temp-upload' },
     ]
     const authorized = new Set(['a', 'b'])
-    expect(stageSubmittedInputCount(shared, authorized, 'image')).toBe(3)
-    expect(stageSubmittedFileIds(shared, authorized, 'image')).toEqual(['same', 'same', 'other'])
+    expect(stageSubmittedInputCount(shared, authorized, 'image')).toBe(2)
+    expect(stageSubmittedFileIds(shared, authorized, 'image')).toEqual(['same', 'temp-upload'])
     expect(stageSubmittedInputCount(shared, new Set(), 'image')).toBe(2)
-    expect(stageSubmittedFileIds(shared, new Set(), 'image')).toEqual(['same', 'other'])
-    expect(stageSubmittedInputCount(shared, authorized, 'video')).toBe(3)
+    expect(stageSubmittedFileIds(shared, new Set(), 'image')).toEqual(['same', 'temp-upload'])
+    expect(stageSubmittedInputCount(shared, authorized, 'video')).toBe(2)
+    expect(
+      stageSubmittedInputCount(
+        [
+          { id: 'pending', kind: 'image', fileId: undefined },
+          { id: 'other', kind: 'image', fileId: undefined },
+        ],
+        new Set(['pending', 'other']),
+        'image',
+      ),
+    ).toBe(2)
     expect(
       stageExecutionBindingMatches(
         {
@@ -195,7 +235,23 @@ describe('stage execution binding', () => {
           kind: 'video',
           prompt: '嫩芽',
           inputCount: 0,
-          video: { durationSeconds: 2, resolution: '720p', aspectRatio: '16:9' },
+          video: { durationSeconds: 5, resolution: '720p', aspectRatio: '16:9' },
+        },
+        {
+          prompt: '嫩芽',
+          inputCount: 0,
+          video: { durationSeconds: 5, resolution: '720p', aspectRatio: '16:9' },
+        },
+      ),
+    ).toBe(true)
+    expect(
+      stageExecutionBindingMatches(
+        {
+          nodeId: 'v',
+          kind: 'video',
+          prompt: '嫩芽',
+          inputCount: 0,
+          video: { durationSeconds: 5, resolution: '720p', aspectRatio: '16:9' },
         },
         {
           prompt: '嫩芽',

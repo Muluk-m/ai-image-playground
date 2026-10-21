@@ -118,6 +118,7 @@ export async function resolveSessionUserId(token: string): Promise<string | null
 export async function resolveUserSession(
   token: string,
   client?: SessionClient | null,
+  options?: { readonly keepDisabledSession?: boolean },
 ): Promise<AuthUserView | null> {
   if (!token) return null
   const tokenHash = hashSessionToken(token)
@@ -157,12 +158,11 @@ export async function resolveUserSession(
     return accountProfileView(row)
   }
 
-  // 禁用账号的会话在这里就会被删掉，登出处理函数来不及再查主人。先收回阶段授权。
+  // 禁用但未过期：普通请求删掉会话，避免账号恢复后旧 cookie 又能登录。
+  // 登出是例外。derive 先于处理函数执行，这里若先删掉，处理函数就查不到主人，收不回阶段授权。
+  // 登出路径保留这一行，交给 resolveSessionUserId 收回后再撤销。
   if (row.status !== 'active' && row.expires_at > now) {
-    try {
-      const { endStageAuthorizationsForUser } = await import('./agent/stage-authorizations')
-      await endStageAuthorizationsForUser(row.id)
-    } finally {
+    if (!options?.keepDisabledSession) {
       await db.delete(schema.user_sessions).where(eq(schema.user_sessions.token_hash, tokenHash))
     }
     return null

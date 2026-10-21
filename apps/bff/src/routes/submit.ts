@@ -2,6 +2,8 @@ import type { PersistedVideoRequest, StoredImageRef, VideoRequest } from '@image
 import {
   QUEUE_MAX_INPUT_IMAGES,
   QUEUE_PROMPT_MAX_CHARS,
+  stageAuthorizedVideoDuration,
+  videoModelSupportOf,
   videoPromptRejection,
   videoRequestRejection,
 } from '@image-playground/shared'
@@ -137,7 +139,19 @@ export const submitRoutes = new Elysia()
         return status(400, { error: `unsupported provider: ${provider}` })
       }
 
-      const video = body.video as VideoRequest | undefined
+      let video = body.video as VideoRequest | undefined
+      // 带阶段授权时，时长先收成提案快照用的那一档，再做模型校验。
+      // 不带授权的 1.9 秒仍然是非法档位，原样拒绝。
+      if (video && body.stage_authorization) {
+        video = {
+          ...video,
+          duration_seconds: stageAuthorizedVideoDuration(
+            video.duration_seconds,
+            videoModelSupportOf(model),
+            video.resolution,
+          ),
+        }
+      }
       const media = resolveModelMedia(model)
       if (video && media !== 'video') {
         return status(400, { error: 'video_not_supported', message: '该模型不支持视频生成' })

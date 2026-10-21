@@ -13,6 +13,7 @@ import { accountProfileView } from '../lib/account-profile-view'
 import { endStageAuthorizationsForUser } from '../lib/agent/stage-authorizations'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { clientAddress } from '../lib/http'
+import { log } from '../lib/logger'
 import { createRateLimiter, createWindowLimiter } from '../lib/rate-limit'
 import {
   issueRegistrationVerification,
@@ -63,7 +64,10 @@ const registrationLimiter = createRateLimiter({
 const verificationSourceLimiter = createWindowLimiter(60 * 60_000, 2048)
 const verificationEmailLimiter = createWindowLimiter(60 * 60_000, 2048)
 
-/** 授权回收失败也要清掉会话和 cookie，避免登出请求失败后登录态还在。 */
+/**
+ * 授权回收是尽力而为。失败只记日志，会话和 cookie 仍在 finally 里清掉，
+ * 避免回收事务出错时登出请求失败、登录态还留着。
+ */
 export async function finishLogout(
   token: string,
   clearCookie: () => void,
@@ -71,6 +75,11 @@ export async function finishLogout(
 ): Promise<void> {
   try {
     await reclaim()
+  } catch (error) {
+    log.warn(
+      { err: error, event: 'auth.logout.reclaim_failed' },
+      'stage authorization reclaim failed during logout',
+    )
   } finally {
     clearCookie()
     await revokeUserSession(token)

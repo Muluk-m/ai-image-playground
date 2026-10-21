@@ -147,8 +147,11 @@ export function resolveStageVideoExecution(input: {
   const option = input.options.find((one) => one.modelId === requestedModel) ?? input.options[0]
   const legacyFirst = input.references.find((ref) => input.meta[`role:${ref.id}`] === 'first')?.id
   const legacyLast = input.references.find((ref) => input.meta[`role:${ref.id}`] === 'last')?.id
-  const requestedMode =
-    input.meta.nodeVideoMode ?? (legacyLast ? 'frames' : legacyFirst ? 'first' : undefined)
+  let requestedMode = input.meta.nodeVideoMode
+  if (requestedMode === undefined) {
+    if (legacyLast) requestedMode = 'frames'
+    else if (legacyFirst) requestedMode = 'first'
+  }
   const mode: VideoNodeMode = option
     ? effectiveVideoNodeMode(option.support, requestedMode)
     : 'text'
@@ -160,8 +163,10 @@ export function resolveStageVideoExecution(input: {
   const support = option
     ? narrowVideoModelSupport(option.support, mode, Boolean(requested.voices?.length))
     : undefined
-  const draft = support ? clampStageVideoDraft(requested, support) : requested
-  const quantity = support ? draft.duration : billedStageQuantity(draft.duration)
+  const billedDuration = billedStageQuantity(requested.duration)
+  const aligned = { ...requested, duration: billedDuration }
+  const draft = support ? clampStageVideoDraft(aligned, support) : aligned
+  const quantity = draft.duration
   const resolution = asVideoResolution(draft.resolution)
   return {
     ...(legacyFirst ? { legacyFirst } : {}),
@@ -175,6 +180,23 @@ export function resolveStageVideoExecution(input: {
       unitMultiplier: resolution ? videoRateMultiplier(draft.model, resolution) : 1,
     },
   }
+}
+
+/**
+ * 阶段授权里视频时长的唯一口径：先向上取整，再退到该模型在这一清晰度下的合法档。
+ * 提案快照和带授权的提交都走这里，1.9 秒才会和冻结档位是同一个数。
+ */
+export function stageAuthorizedVideoDuration(
+  duration: number,
+  support: VideoModelSupport | undefined,
+  resolution?: string,
+): number {
+  const billed = billedStageQuantity(duration)
+  if (!support) return billed
+  return clampVideoPreset(support, {
+    duration: billed,
+    resolution: asVideoResolution(resolution),
+  }).duration
 }
 
 function clampStageVideoDraft(
@@ -365,14 +387,14 @@ export function selectStageVideoReferences(
     seenFiles.add(key)
     return true
   })
-  const selected =
-    mode === 'reference'
-      ? uniqueReferences
-      : mode === 'text'
-        ? []
-        : [first, ...(mode === 'frames' ? [last] : [])].filter(
-            (ref): ref is StageBindingReference => Boolean(ref),
-          )
+  let selected: StageBindingReference[]
+  if (mode === 'reference') selected = [...uniqueReferences]
+  else if (mode === 'text') selected = []
+  else {
+    const frames = [first]
+    if (mode === 'frames') frames.push(last)
+    selected = frames.filter((ref): ref is StageBindingReference => Boolean(ref))
+  }
   return {
     refs: [
       ...refs
@@ -381,10 +403,7 @@ export function selectStageVideoReferences(
       ...selected,
     ],
     roles: Object.fromEntries(
-      selected.map((ref) => [
-        ref.id,
-        mode === 'reference' ? 'reference' : ref.id === first?.id ? 'first' : 'last',
-      ]),
+      selected.map((ref) => [ref.id, stageVideoReferenceRole(mode, ref.id, first?.id)]),
     ),
     first: mode === 'first' || mode === 'frames' ? first : undefined,
     last: mode === 'frames' ? last : undefined,
@@ -438,20 +457,23 @@ type StageInputRef = {
 }
 
 /**
- * 和队列实际提交的图片一一对应。
- * 图片：本阶段会重跑的上游按节点各算一张（即使现在共用一个 fileId，跑完也是各自的新图）；
- * 画布上已有的外部图按 fileId 去重，和 referenceFileIds 一致。
- * 视频：首帧、尾帧、参考图各占一个槽，同一张图被两个节点引用也要各交一次。
- * 只存在于浏览器、还没写入画布的临时上传不在这份清单里，阶段提交必须先拒绝。
+ * 一张会送进队列的图的身份。有 fileId 就按文件去重（两个上游引用同一张画布文件、
+ * 或一次临时上传，都只算一张）；还没落成文件的上游按节点算一次。
+ * 图片和视频、提案快照和提交清单都用这一条。
  */
-function stageInputKey(
-  ref: StageInputRef,
-  authorizedIds: ReadonlySet<string>,
-  kind: 'image' | 'video',
-): string {
-  if (kind === 'video') return `slot:${ref.id}`
-  if (authorizedIds.has(ref.id)) return `node:${ref.id}`
-  return ref.fileId ? `file:${ref.fileId}` : ''
+function stageInputIdentity(ref: { readonly id: string; readonly fileId?: string }): string {
+  if (ref.fileId) return `file:${ref.fileId}`
+  return `node:${ref.id}`
+}
+
+function stageVideoReferenceRole(
+  mode: VideoNodeMode,
+  refId: string,
+  firstId: string | undefined,
+): 'reference' | 'first' | 'last' {
+  if (mode === 'reference') return 'reference'
+  if (refId === firstId) return 'first'
+  return 'last'
 }
 
 function stageInputImages(refs: readonly StageInputRef[], authorizedIds: ReadonlySet<string>) {
@@ -464,13 +486,13 @@ function stageInputImages(refs: readonly StageInputRef[], authorizedIds: Readonl
 export function stageSubmittedFileIds(
   refs: readonly StageInputRef[],
   authorizedIds: ReadonlySet<string>,
-  kind: 'image' | 'video',
+  _kind: 'image' | 'video',
 ): string[] {
   const fileIds: string[] = []
   const seen = new Set<string>()
   for (const ref of stageInputImages(refs, authorizedIds)) {
-    const key = stageInputKey(ref, authorizedIds, kind)
-    if (!key || seen.has(key)) continue
+    const key = stageInputIdentity(ref)
+    if (seen.has(key)) continue
     seen.add(key)
     if (ref.fileId) fileIds.push(ref.fileId)
   }
@@ -480,13 +502,10 @@ export function stageSubmittedFileIds(
 export function stageSubmittedInputCount(
   refs: readonly StageInputRef[],
   authorizedIds: ReadonlySet<string>,
-  kind: 'image' | 'video',
+  _kind: 'image' | 'video',
 ): number {
   const seen = new Set<string>()
-  for (const ref of stageInputImages(refs, authorizedIds)) {
-    const key = stageInputKey(ref, authorizedIds, kind)
-    if (key) seen.add(key)
-  }
+  for (const ref of stageInputImages(refs, authorizedIds)) seen.add(stageInputIdentity(ref))
   return seen.size
 }
 

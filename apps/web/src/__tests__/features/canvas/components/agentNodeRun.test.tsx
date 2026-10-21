@@ -239,6 +239,17 @@ it('fails closed when the canvas changes during the undo window', async () => {
   expect(mocks.run).not.toHaveBeenCalled()
   expect(document.body.textContent).toContain('节点输入、设置或计价已改变')
 })
+it('stops a browser-only upload before confirm and does not submit', async () => {
+  const job = fixturePlan('local').jobs[0]!
+  plan = { ...fixturePlan('local'), jobs: [{ ...job, temporary: { draft: 'data:draft' } }] }
+  await mount('local-upload', true, { ...proposal, direct: true })
+  await act(async () => {})
+  expect(confirms).toBe(0)
+  expect(preflights).toBe(0)
+  expect(mocks.run).not.toHaveBeenCalled()
+  expect(document.body.textContent).toContain('没有写入画布')
+  expect(authorization.status).toBe('ended')
+})
 it('asks for a new proposal when the workbench spec no longer matches the snapshot', async () => {
   const snapped = {
     ...proposal,
