@@ -499,7 +499,9 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
     const rows: { at: number; nodes: GridItem[] }[] = historyItems.map((item) => {
       if (item.kind === 'task') return { at: item.task.createdAt, nodes: [renderTask(item.task)] }
       const expanded = expandedSetIds.includes(item.setId)
-      const title = storyboardTitles.get(item.setId)
+      // 逐张生成的一组以那句提示词为名，标一个「逐张生成」。
+      const batch = item.tasks[0]?.origin?.kind === 'batch'
+      const title = batch ? item.tasks[0]?.prompt : storyboardTitles.get(item.setId)
       const job = title ? undefined : productShotJobs.find((e) => e.id === item.setId)
       return {
         at: item.tasks.reduce(
@@ -513,8 +515,9 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
               <SetHistoryCard
                 key={`set-${item.setId}`}
                 name={title ?? job?.name ?? setFallbackName(item.tasks[0])}
-                actions={legacyActionLabels(job)}
+                actions={batch ? [t('set.batchTag')] : legacyActionLabels(job)}
                 tasks={item.tasks}
+                batch={batch}
                 expanded={expanded}
                 onToggle={() =>
                   setExpandedSetIds((ids) =>
