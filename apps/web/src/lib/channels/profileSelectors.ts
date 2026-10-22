@@ -78,6 +78,13 @@ export function usableEtaSeconds(value: unknown): number | undefined {
   return isModelEtaSeconds(value) ? value : undefined
 }
 
+/** 范围上界：只有下界可用且上界合法、比下界大时才算数；不然只显示下界那个单值。 */
+export function usableEtaMaxSeconds(value: unknown, etaSeconds: number | undefined) {
+  return etaSeconds !== undefined && isModelEtaSeconds(value) && value > etaSeconds
+    ? value
+    : undefined
+}
+
 /**
  * 选择器标签：只留前端认识的 token（去重、保持顺序）。浏览器不校验发现清单，长开的标签页或
  * 版本不一致的 BFF 可能发来新 token，认不出的直接不显示，免得出现缺文案、缺配色的空标签。
@@ -101,12 +108,14 @@ export function getProfileModelOptions(
   label: string
   badges?: ModelBadge[]
   etaSeconds?: number
+  etaMaxSeconds?: number
   logo?: ModelLogoId
 }> {
   const channel = publicChannels.find((item) => item.id === profile.channelId)
   return channel
     ? channel.models.map((model) => {
         const etaSeconds = usableEtaSeconds(model.etaSeconds)
+        const etaMaxSeconds = usableEtaMaxSeconds(model.etaMaxSeconds, etaSeconds)
         const badges = knownModelBadges(model.badges)
         const logo = knownModelLogo(model.logo)
         return {
@@ -114,6 +123,7 @@ export function getProfileModelOptions(
           label: model.label ?? model.id,
           ...(badges.length ? { badges } : {}),
           ...(etaSeconds !== undefined ? { etaSeconds } : {}),
+          ...(etaMaxSeconds !== undefined ? { etaMaxSeconds } : {}),
           ...(logo ? { logo } : {}),
         }
       })

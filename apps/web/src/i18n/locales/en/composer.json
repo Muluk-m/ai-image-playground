@@ -84,6 +84,8 @@
     "noModelMatch": "No matching models",
     "modelEta": "~{{seconds}}s",
     "modelEtaMinutes": "~{{minutes}} min",
+    "modelEtaRange": "~{{min}}–{{max}}s",
+    "modelEtaRangeMinutes": "~{{min}}–{{max}} min",
     "modelBadge": {
       "recommended": "Recommended",
       "latest": "Latest",

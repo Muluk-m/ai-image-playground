@@ -160,6 +160,20 @@ function parseEtaSeconds(v: unknown, ctx: string): number | undefined {
   return v
 }
 
+/** 范围上界：同样 1–3600 整数，必须配着 etaSeconds 写且严格大于它，否则范围没有意义。 */
+function parseEtaMaxSeconds(
+  v: unknown,
+  etaSeconds: number | undefined,
+  ctx: string,
+): number | undefined {
+  if (v === undefined) return undefined
+  if (!isModelEtaSeconds(v))
+    throw new ChannelsLoadError(`${ctx}.etaMaxSeconds must be an integer between 1 and 3600`)
+  if (etaSeconds === undefined || v <= etaSeconds)
+    throw new ChannelsLoadError(`${ctx}.etaMaxSeconds must come with a smaller etaSeconds`)
+  return v
+}
+
 function parseLogo(v: unknown, ctx: string): ModelLogoId | undefined {
   if (v === undefined) return undefined
   if (typeof v !== 'string' || !MODEL_LOGOS.includes(v as ModelLogoId))
@@ -178,6 +192,7 @@ function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
     const media = parseMedia(raw.media, ctx)
     const badges = parseBadges(raw.badges, ctx)
     const etaSeconds = parseEtaSeconds(raw.etaSeconds, ctx)
+    const etaMaxSeconds = parseEtaMaxSeconds(raw.etaMaxSeconds, etaSeconds, ctx)
     const logo = parseLogo(raw.logo, ctx)
     return {
       id: requireNonEmptyString(raw.id, `${ctx}.id`),
@@ -186,6 +201,7 @@ function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
       ...(media ? { media } : {}),
       ...(badges ? { badges } : {}),
       ...(etaSeconds !== undefined ? { etaSeconds } : {}),
+      ...(etaMaxSeconds !== undefined ? { etaMaxSeconds } : {}),
       ...(logo ? { logo } : {}),
     }
   })
