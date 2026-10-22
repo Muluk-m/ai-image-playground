@@ -1710,8 +1710,15 @@ export async function submitTask(options: { holdClear?: Promise<unknown> } = {})
   // 新卡在输入框下方。滚不滚、高亮和焦点由作品网格在卡片挂上之后做；这里只标记「这次是用户主动发送」。
   noteUserSubmittedTasks(createdTaskIds)
 
-  // 发送按钮的转圈要先让人看见，输入框再清空。
-  if (options.holdClear) await options.holdClear
+  // 发送按钮的转圈要先让人看见，输入框再清空。转圈期间用户又改了提示词或参考图，就不清，免得吞掉新输入。
+  if (options.holdClear) {
+    await options.holdClear
+    const now = useStore.getState()
+    const sameImages =
+      now.inputImages.length === inputImages.length &&
+      now.inputImages.every((img, i) => img.id === inputImages[i]?.id)
+    if (now.prompt !== prompt || !sameImages) return
+  }
   if (settings.clearInputAfterSubmit) {
     useStore.getState().setPrompt('')
     useStore.getState().clearInputImages()
