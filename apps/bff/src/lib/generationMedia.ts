@@ -7,6 +7,7 @@ import { durableMediaStore } from './durableMediaStore'
 import { extractMeta, resolveImageBytesRef } from './extractImages'
 import {
   archiveOutputImages,
+  decodeDataUrl,
   detectMediaMime,
   MaskedOutputArchiveError,
   ObjectStorageError,
@@ -71,15 +72,17 @@ async function readMediaBytes(store: ObjectStore, key: string) {
  * 只记写入/读取成功的那份；找不到（重启后接着跑的恢复路径）照旧从存储读。
  */
 export class KnownMediaBytes {
-  private readonly bytes = new Map<string, Uint8Array>()
+  // 输入记的是送上游那份 data URL（与请求共用同一个字符串），入库时才解码，等上游时不多攥一份原始字节。
+  private readonly bytes = new Map<string, Uint8Array | string>()
   private static key(store: 'durable' | 'object', key: string) {
     return `${store}:${key}`
   }
-  remember(store: 'durable' | 'object', key: string, bytes: Uint8Array) {
+  remember(store: 'durable' | 'object', key: string, bytes: Uint8Array | string) {
     this.bytes.set(KnownMediaBytes.key(store, key), bytes)
   }
   get(store: 'durable' | 'object', key: string) {
-    return this.bytes.get(KnownMediaBytes.key(store, key))
+    const value = this.bytes.get(KnownMediaBytes.key(store, key))
+    return typeof value === 'string' ? decodeDataUrl(value).bytes : value
   }
   /** 写成功才记下：写的是哪份字节，入库就用哪份。 */
   recording(store: ObjectStore): ObjectStore {
@@ -101,8 +104,8 @@ export class KnownMediaBytes {
     })
   }
   /** 交给 `hydrateInputImages` 的 onObjectRead：只记它按引用从存储读出来的那份原件，与引用一一绑定。 */
-  readonly rememberRead = (ref: { object: string; store?: string }, bytes: Uint8Array) => {
-    this.remember(ref.store === 'durable' ? 'durable' : 'object', ref.object, bytes)
+  readonly rememberRead = (ref: { object: string; store?: string }, dataUrl: string) => {
+    this.remember(ref.store === 'durable' ? 'durable' : 'object', ref.object, dataUrl)
   }
   /** 入库成功就放掉，不让整个任务期间一直攥着所有原件。 */
   forget(store: 'durable' | 'object', key: string) {
@@ -110,12 +113,12 @@ export class KnownMediaBytes {
   }
 }
 
-/** 同一任务的几张图（结果、输入、遮罩）两张两张并行入库，每张的结果按原顺序交回。 */
-async function mapWithConcurrency<T, R>(
+/** 同一任务的几张图（结果、输入、遮罩）两张两张并行入库，每张的结局按原顺序交回。 */
+async function settleWithConcurrency<T, R>(
   items: readonly T[],
   limit: number,
   work: (item: T) => Promise<R>,
-): Promise<R[]> {
+): Promise<PromiseSettledResult<R>[]> {
   const results = new Array<PromiseSettledResult<R>>(items.length)
   let next = 0
   const worker = async () => {
@@ -128,10 +131,9 @@ async function mapWithConcurrency<T, R>(
       }
     }
   }
+  // 全部收完才交回：不留还在跑的入库在背后继续写。
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
-  // 全部收完再报错：不留还在跑的入库在背后继续写。
-  for (const result of results) if (result.status === 'rejected') throw result.reason
-  return results.map((result) => (result as PromiseFulfilledResult<R>).value)
+  return results
 }
 
 type StoredRef = { object: string; mime: string; store?: string }
@@ -345,7 +347,7 @@ export async function archiveGenerationOutputs(
     if (request.mask) jobs.push({ role: 'mask', position: 0, ref: request.mask })
     // 从前一张一张串行：带一张输入图的编辑要多等一整轮确认（生产约 4–5 s）。
     // 两张并行：本实例的确认处理位也是两张起步，不至于把排队挤满。
-    return mapWithConcurrency(jobs, 2, async ({ role, position, ref }) => {
+    const archive = async ({ role, position, ref }: (typeof jobs)[number]) => {
       const store = ref.store === 'durable' ? 'durable' : 'object'
       const remembered = known?.get(store, ref.object)
       if (remembered) checkMediaSize(remembered.length)
@@ -358,7 +360,20 @@ export async function archiveGenerationOutputs(
       const media = await storeMedia(userId, bytes, detectMediaMime(bytes) ?? ref.mime)
       known?.forget(store, ref.object)
       return { role, position, mediaId: media.id } satisfies GenerationMediaLink
-    })
+    }
+    const settled = await settleWithConcurrency(jobs, 2, archive)
+    const quotaRejected = (result: PromiseSettledResult<unknown>) =>
+      result.status === 'rejected' &&
+      result.reason instanceof MediaError &&
+      result.reason.message === 'media_quota_exceeded'
+    for (const result of settled)
+      if (result.status === 'rejected' && !quotaRejected(result)) throw result.reason
+    // 两张同时预留时各按满额预览预算占配额，贴着配额上限时后一张可能被误拒；
+    // 同伴发布后预算已收回到实际大小，再串行补一次，真超了这次照样报错。
+    const links: GenerationMediaLink[] = []
+    for (const [index, result] of settled.entries())
+      links.push(result.status === 'fulfilled' ? result.value : await archive(jobs[index]!))
+    return links
   })
 }
 

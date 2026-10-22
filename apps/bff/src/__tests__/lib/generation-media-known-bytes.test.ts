@@ -92,7 +92,10 @@ it('生成结果与输入用手里的字节入库，不回存储读；结果、�
   } as unknown as PersistedSubmitRequest
   const known = new KnownMediaBytes()
   // 只有第一张输入是这次执行从存储读来送上游的。
-  known.rememberRead({ object: `${id}/in/0`, store: 'durable' }, input)
+  known.rememberRead(
+    { object: `${id}/in/0`, store: 'durable' },
+    `data:image/png;base64,${Buffer.from(input).toString('base64')}`,
+  )
   const payload = await spoolGenerationOutputs(
     id,
     'openai-compat',
@@ -186,4 +189,42 @@ it('一张入库失败时等另一张跑完再报错', async () => {
     .from(schema.media_objects)
     .where(eq(schema.media_objects.user_id, USER))
   expect(rows.filter((row) => row.status === 'ready').length).toBe(1)
+})
+
+it('贴着配额上限时两张并行预留被误拒的那张，等同伴发布后串行补一次', async () => {
+  const id = 'task-known-quota'
+  const output = await png('#a0a0a0')
+  const input = await png('#0a0a0a')
+  await storage.write(`${id}/in/0`, input, 'image/png')
+  const request = {
+    prompt: 'edit',
+    input_images: [{ object: `${id}/in/0`, mime: 'image/png', store: 'durable' }],
+  } as unknown as PersistedSubmitRequest
+  const payload = await spoolGenerationOutputs(
+    id,
+    'openai-compat',
+    { data: [{ b64_json: Buffer.from(output).toString('base64') }] },
+    undefined,
+    new AbortController().signal,
+  )
+  const previous = config.operator
+  // 两条预留同时各占 512 KiB 预览预算放不下；一张发布后预算收回到实际预览大小，第二张就放得下。
+  config.operator = {
+    ...previous,
+    quotas: {
+      ...previous.quotas,
+      'sync:user-media-bytes': output.length + input.length + 512 * 1024 + 64 * 1024,
+    },
+  }
+  try {
+    const links = await archiveGenerationOutputs(USER, 'openai-compat', payload, request)
+    expect(links.map(({ role }) => role)).toEqual(['output', 'input'])
+  } finally {
+    config.operator = previous
+  }
+  const rows = await db
+    .select()
+    .from(schema.media_objects)
+    .where(eq(schema.media_objects.user_id, USER))
+  expect(rows.map((row) => row.status)).toEqual(['ready', 'ready'])
 })
