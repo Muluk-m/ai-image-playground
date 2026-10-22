@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import TaskCard from '../../components/TaskCard'
+import { ActualValueBadge } from '../../lib/paramDisplay'
 import { DEFAULT_PARAMS, type TaskRecord } from '../../types'
 
 vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
@@ -59,4 +60,12 @@ it('keeps every tag inside the card: tags may shrink to the row width and trunca
   }
   // 名字被省略时悬停仍能看到全名。
   expect(tags[0].getAttribute('title')).toBeTruthy()
+})
+
+it('详情弹窗用的 ActualValueBadge 不截断，多行 revised prompt 能完整显示', () => {
+  act(() =>
+    root.render(<ActualValueBadge value={'第一行\n第二行'} className="whitespace-pre-wrap" />),
+  )
+  expect(host.querySelector('.truncate')).toBeNull()
+  expect(host.textContent).toContain('第二行')
 })

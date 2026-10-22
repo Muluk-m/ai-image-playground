@@ -367,6 +367,7 @@ export default function TaskCard({
                       <ActualValueBadge
                         value={qualityDisplay.displayValue}
                         className="min-w-0 max-w-full px-1 rounded-sm"
+                        truncate
                       />
                     ) : (
                       <span
@@ -385,6 +386,7 @@ export default function TaskCard({
                       <ActualValueBadge
                         value={sizeDisplay.displayValue}
                         className="min-w-0 max-w-full px-1 rounded-sm"
+                        truncate
                       />
                     ) : (
                       <span
@@ -403,6 +405,7 @@ export default function TaskCard({
                       <ActualValueBadge
                         value={formatDisplay.displayValue}
                         className="min-w-0 max-w-full px-1 rounded-sm"
+                        truncate
                       />
                     ) : (
                       <span
@@ -421,6 +424,7 @@ export default function TaskCard({
                       <ActualValueBadge
                         value={nDisplay.displayValue}
                         className="min-w-0 max-w-full px-1 rounded-sm"
+                        truncate
                       />
                     ) : (
                       <span
