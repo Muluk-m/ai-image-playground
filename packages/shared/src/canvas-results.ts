@@ -1,4 +1,5 @@
 import type * as Y from 'yjs'
+import { withoutCanvasUploadClaim } from './canvas-cloud'
 import { type CanvasOrigin, type ImageNodeData, readCanvasDocument } from './canvas-document'
 import { canvasFingerprint } from './canvas-fingerprint'
 import { storyboardFingerprint } from './canvas-storyboard'
@@ -193,7 +194,7 @@ export function promoteCanvasResultMedia(
         mediaId,
         fileId: `cloud-${mediaId}`,
         meta: {
-          ...data.meta,
+          ...withoutCanvasUploadClaim(data.meta),
           contentIdentity: data.meta?.contentIdentity ?? data.mediaId ?? fileId,
         },
       })
