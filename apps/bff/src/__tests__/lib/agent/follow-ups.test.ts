@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import type { AgentMessageView } from '@image-playground/shared'
+import { settleAgentBackgroundWorkForTesting } from '../../../lib/agent/background-work'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_follow_ups')
 process.env.PORT = '0'
@@ -361,10 +362,9 @@ function countedAsk(run: (call: number) => unknown): {
   return state
 }
 
+/** 等「下一句」这件后台工作跑完再读：它落没落库只看结果，不靠轮询的时间预算。 */
 async function settled(conversationId: string, turnId: string): Promise<void> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    if ((await readAgentFollowUps(conversationId, turnId)) !== null) return
-    await new Promise((resolve) => setTimeout(resolve, 10))
-  }
-  throw new Error(`${turnId} follow-ups stayed pending`)
+  await settleAgentBackgroundWorkForTesting()
+  if ((await readAgentFollowUps(conversationId, turnId)) === null)
+    throw new Error(`${turnId} follow-ups stayed pending`)
 }
