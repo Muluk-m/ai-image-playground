@@ -26,7 +26,9 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 const billing = installRecordingTaskHooks()
 
 const { prepareAgentTurn } = await import('../../../lib/agent/turn-preparation')
-const { loadAgentExperience, recordAgentExperience } = await import('../../../lib/agent/experience')
+const { loadAgentExperience, loadAgentSurface, recordAgentExperience } = await import(
+  '../../../lib/agent/experience'
+)
 const experienceOf = async (...args: Parameters<typeof loadAgentExperience>) =>
   (await loadAgentExperience(...args)).experience
 const { startAgentTurn } = await import('../../../lib/agent/turn')
@@ -749,6 +751,7 @@ describe('legacy projects without a recorded experience', () => {
       deviceId: DEVICE,
       references: [],
       experience: 'canvas',
+      surface: 'canvas',
     })
     if (enqueued.kind !== 'queued') throw Error('expected queued')
     const next = await nextAgentInboxEntry(conversationId)
@@ -800,7 +803,10 @@ describe('legacy projects without a recorded experience', () => {
     const conversationId = await conversationWithResult()
     await legacyProject(conversationId)
     const source = await queuedMessage(conversationId, '整理一下我的画布')
-    const canvasSource = { ...source, message: { ...source.message, canvas: { elements: [] } } }
+    const canvasSource = {
+      ...source,
+      message: { ...source.message, canvas: { elements: [] }, surface: 'canvas' as const },
+    }
     const turn = preparedTurn((await prepare(conversationId, canvasSource)).prepared)
     expect(turn.input.audience.experience).toBe('canvas')
     const call = await runPrepared(turn)
@@ -944,5 +950,200 @@ describe('原生模型历史缓存', () => {
     expect([...storage.objects.keys()].some((key) => key.endsWith('model-context-v1.json'))).toBe(
       true,
     )
+  })
+})
+
+describe('per-turn mode decides tools, prompt and context', () => {
+  const CANVAS_WORDS =
+    /画布|节点|createNodes|updateNodes|connectNodes|runNodes|readCanvas|runStoryboardFrames|applyScriptPlan|阶段授权/
+  const CANVAS_TOOL_NAMES = [
+    'readCanvas',
+    'createNodes',
+    'updateNodes',
+    'connectNodes',
+    'deleteNodes',
+    'arrangeNodes',
+    'runNodes',
+    'runStoryboardFrames',
+    'applyScriptPlan',
+    'importCanvasImage',
+    'editCanvasObject',
+    'arrangeCanvas',
+    'arrangeTimeline',
+  ]
+  async function canvasProject(conversationId: string) {
+    const now = Date.now()
+    await db.insert(schema.canvas_projects).values({
+      id: crypto.randomUUID(),
+      user_id: USER_ID,
+      name: 'Canvas',
+      revision: 1,
+      document: { version: 1, experience: 'canvas', elements: [] },
+      element_count: 0,
+      conversation_id: conversationId,
+      receipts: [],
+      created_at: now,
+      updated_at: now,
+    })
+  }
+  function systemText(call: AgentCall): string {
+    return call.messages
+      .filter((message) => message.role === 'system')
+      .map((message) => JSON.stringify(message.content))
+      .join('\n')
+  }
+  async function turnWith(conversationId: string, surface?: 'agent' | 'canvas') {
+    const source = await queuedMessage(conversationId, '参考图1的颗粒感改图2')
+    const { prepared, turnId } = await prepare(conversationId, {
+      ...source,
+      message: {
+        ...source.message,
+        canvas: { elements: [], selectedNodeIds: ['img_target_grain'] },
+        ...(surface ? { surface } : {}),
+      },
+    })
+    return { turn: preparedTurn(prepared), turnId }
+  }
+
+  for (const surface of ['agent', undefined] as const) {
+    it(`assembles only image tools for ${surface ?? 'an undeclared'} mode in a canvas project`, async () => {
+      const conversationId = await conversationWithResult()
+      await canvasProject(conversationId)
+      const { turn } = await turnWith(conversationId, surface)
+      expect(turn.input.audience.experience).toBe('chat')
+      const call = await runPrepared(turn)
+      const names = call.tools?.map((tool) => tool.function.name) ?? []
+      expect(names).toContain('generateImage')
+      expect(names).toContain('editImage')
+      for (const name of CANVAS_TOOL_NAMES) expect(names).not.toContain(name)
+      expect(systemText(call)).not.toMatch(CANVAS_WORDS)
+      expect(sentPromptText(call)).not.toContain('img_target_grain')
+    })
+  }
+
+  it('reassembles canvas tools when the same project switches back to canvas mode', async () => {
+    const conversationId = await conversationWithResult()
+    await canvasProject(conversationId)
+    const agent = await turnWith(conversationId, 'agent')
+    const agentCall = await runPrepared(agent.turn)
+    expect(agentCall.tools?.map((tool) => tool.function.name)).not.toContain('readCanvas')
+    await releaseConversation(conversationId, agent.turnId)
+    calls.length = 0
+    const { turn: canvas } = await turnWith(conversationId, 'canvas')
+    expect(canvas.input.audience.experience).toBe('canvas')
+    expect(canvas.canvas).toBeDefined()
+    const call = await runPrepared(canvas)
+    const names = call.tools?.map((tool) => tool.function.name) ?? []
+    expect(names).toContain('readCanvas')
+    expect(names).not.toContain('generateImage')
+    expect(names).not.toContain('editImage')
+    expect(systemText(call)).toContain('当前是节点画布')
+  })
+
+  it('keeps the snapshot for a canvas-mode turn even if the project entry says chat', async () => {
+    const conversationId = await conversationWithResult()
+    const now = Date.now()
+    await db.insert(schema.canvas_projects).values({
+      id: crypto.randomUUID(),
+      user_id: USER_ID,
+      name: 'Chat entry',
+      revision: 1,
+      document: { version: 1, experience: 'chat', elements: [] },
+      element_count: 0,
+      conversation_id: conversationId,
+      receipts: [],
+      created_at: now,
+      updated_at: now,
+    })
+    const { turn: canvas } = await turnWith(conversationId, 'canvas')
+    expect(canvas.input.audience.experience).toBe('canvas')
+    expect(canvas.canvas).toBeDefined()
+  })
+
+  async function consumedOrigin(
+    conversationId: string,
+    turnId: string,
+    surface?: 'agent' | 'canvas',
+  ) {
+    const origin = await enqueueAgentUserMessage(conversationId, {
+      clientMessageId: crypto.randomUUID(),
+      text: 'origin',
+      deviceId: DEVICE,
+      references: [],
+      ...(surface ? { surface } : {}),
+    })
+    if (origin.kind !== 'queued') throw Error('expected queued')
+    await db
+      .update(schema.agent_inbox)
+      .set({ status: 'consumed', consumed_turn_id: turnId })
+      .where(eq(schema.agent_inbox.id, origin.entry.view.id))
+  }
+
+  it('lets wakes inherit the mode of the message that started them', async () => {
+    const conversationId = await conversationWithResult()
+    await consumedOrigin(conversationId, 'canvas-origin', 'canvas')
+    await consumedOrigin(conversationId, 'agent-origin', 'agent')
+    await consumedOrigin(conversationId, 'legacy-origin')
+    const wake = (turnId: string) =>
+      ({
+        kind: 'wake',
+        wake: { id: `wake-${turnId}`, turnId, taskIds: [TASK_ID], deviceId: DEVICE },
+      }) as const
+    expect(await loadAgentSurface(conversationId, wake('canvas-origin'))).toBe('canvas')
+    expect(await loadAgentSurface(conversationId, wake('agent-origin'))).toBe('agent')
+    expect(await loadAgentSurface(conversationId, wake('legacy-origin'))).toBe('agent')
+    // 画布阶段运行的唤醒：授权只在画布模式里登记得出来，发起消息没声明模式也按画布。
+    expect(
+      await loadAgentSurface(conversationId, {
+        kind: 'wake',
+        wake: {
+          ...wake('legacy-origin').wake,
+          taskIds: [],
+          stageRun: { authorizationId: 'auth', eventVersion: 1 },
+        },
+      }),
+    ).toBe('canvas')
+    expect(
+      await loadAgentSurface(conversationId, {
+        kind: 'resume',
+        resume: {
+          id: 'resume',
+          interruptedTurnId: 'canvas-origin',
+          deviceId: DEVICE,
+          mode: 'image',
+        },
+      }),
+    ).toBe('canvas')
+    // 服务重启后续跑一轮画布阶段运行的唤醒，同样是画布。
+    expect(
+      await loadAgentSurface(conversationId, {
+        kind: 'resume',
+        resume: {
+          id: 'resume-stage',
+          interruptedTurnId: 'stage-wake-turn',
+          deviceId: DEVICE,
+          wake: {
+            turnId: 'legacy-origin',
+            taskIds: [],
+            stageRun: { authorizationId: 'auth', eventVersion: 1 },
+          },
+        },
+      }),
+    ).toBe('canvas')
+  })
+
+  it('reads the user message when one turn consumed several inbox rows', async () => {
+    const conversationId = await conversationWithResult()
+    await consumedOrigin(conversationId, 'merged-origin', 'canvas')
+    await consumedOrigin(conversationId, 'merged-origin', 'agent')
+    await consumedOrigin(conversationId, 'merged-canvas', 'canvas')
+    const wake = (turnId: string) =>
+      ({
+        kind: 'wake',
+        wake: { id: `wake-${turnId}`, turnId, taskIds: [TASK_ID], deviceId: DEVICE },
+      }) as const
+    // 同一轮取走多条时取最新的用户消息。
+    expect(await loadAgentSurface(conversationId, wake('merged-origin'))).toBe('agent')
+    expect(await loadAgentSurface(conversationId, wake('merged-canvas'))).toBe('canvas')
   })
 })

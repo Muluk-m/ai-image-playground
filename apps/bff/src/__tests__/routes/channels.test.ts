@@ -15,6 +15,7 @@ const { _setChannelsForTesting, parseChannelsConfig } = await import('../../lib/
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
+const { _resetInactiveModelsForTesting } = await import('../../lib/model-availability')
 
 /** 装一个只回答「哪些模型停用了」的 overlay；其余钩子沿用空实现。 */
 function stopModels(answer: () => Promise<ReadonlySet<string>>): void {
@@ -80,6 +81,7 @@ async function discovered(): Promise<ChannelDiscoveryResponse['channels']> {
 describe('GET /api/channels', () => {
   beforeEach(() => {
     _setChannelsForTesting([])
+    _resetInactiveModelsForTesting()
   })
   afterEach(() => {
     _setChannelsForTesting([])

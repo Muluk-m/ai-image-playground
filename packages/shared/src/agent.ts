@@ -375,6 +375,27 @@ export interface AgentTurnParams {
 export const AGENT_AUTO_SUBMIT_MAX_PER_TURN = 50
 
 /**
+ * 这一轮用户在哪种模式里说话，决定模型拿到哪套工具与提示。
+ *
+ * - `agent`：Agent 模式（对话视图里的输入框）。不论项目入口是对话还是画布，只用直接生图、改图等工具，
+ *   结果落在对话的产物卡里；拿不到任何画布节点工具，系统提示里也没有画布指引。
+ * - `canvas`：画布模式（项目停在画布视图时说的话）。生成都落进节点（#1364、#1377）。
+ *
+ * 由客户端每一轮显式声明；项目文档里记的入口（`experience`）只管项目归在哪个分组，不再决定工具。
+ */
+export type AgentSurface = 'agent' | 'canvas'
+
+/**
+ * 客户端没声明模式时按 Agent 模式算：判成画布会让普通改图被拆成节点阶段授权（2026-10-22 线上用户
+ * 改浴缸颗粒感一例），判成 Agent 最多是画布里说的话产物落在对话卡上，不会多建节点或多扣费。
+ */
+export const DEFAULT_AGENT_SURFACE: AgentSurface = 'agent'
+
+export function isAgentSurface(value: unknown): value is AgentSurface {
+  return value === 'agent' || value === 'canvas'
+}
+
+/**
  * 节点画布这一轮要不要直接跑 `runNodes`。
  * 只看本轮请求上的用户偏好：没带偏好时默认开，只有显式 `false` 才走确认卡。
  */

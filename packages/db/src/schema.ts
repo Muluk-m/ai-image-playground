@@ -587,6 +587,8 @@ export interface AgentInboxUserMessagePayload {
   readonly canvas?: AgentCanvasSnapshot
   /** 发话时客户端看到的入口。项目文档记下入口之前，起轮按它判定，缺席才看有没有带画布。 */
   readonly experience?: 'chat' | 'canvas'
+  /** 发话时的模式（Agent 或画布），决定这一轮的工具；缺席按 Agent 模式。 */
+  readonly surface?: 'agent' | 'canvas'
 }
 
 /**
@@ -670,6 +672,10 @@ export const agent_inbox = pgTable(
     index('idx_agent_inbox_pending')
       .on(t.conversation_id, t.seq)
       .where(sql`${t.status} = 'pending'`),
+    // 唤醒与续跑按消费轮次往回追发起消息（见 `lib/agent/experience.ts`）。
+    index('idx_agent_inbox_consumed_turn')
+      .on(t.conversation_id, t.consumed_turn_id)
+      .where(sql`${t.status} = 'consumed'`),
     check(
       'agent_inbox_kind_check',
       sql`${t.kind} IN ('user_message', 'clarification_answer', 'task_result', 'system_event')`,
