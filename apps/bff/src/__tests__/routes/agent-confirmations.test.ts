@@ -23,6 +23,7 @@ import {
 import { silenceChatUpstream } from '../helpers/chatStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
+import { waitFor } from '../helpers/upstreamStubs'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_confirmations_a300')
 process.env.PORT = '0'
@@ -587,6 +588,47 @@ describe('生成前确认', () => {
     const ok = await confirm(conversationId, pending.messageId, WHITE_PROMPT)
     expect(ok.status).toBe(200)
     expect(await generationTasks(conversationId)).toHaveLength(1)
+  })
+
+  it('确认门：确认时积分够提交，续跑时已不够再起一轮——撤回续跑、卡上记下原因，不当成失败悄悄记掉', async () => {
+    const calls: AgentCall[] = []
+    draftingTurn(calls, 'generateImage', { prompt: WHITE_PROMPT })
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一版', { params: { autoSubmit: false } })
+    const pending = await pendingCard(conversationId)
+    expect(pending.block.gated).toBe(true)
+    // 生成照常预扣；续跑那一轮的对话预扣被拒。
+    billing.decide = (reservation) =>
+      reservation.model === CHAT_MODEL
+        ? { kind: 'insufficient_credits', required: 10, available: 0 }
+        : undefined
+
+    const confirmed = await confirm(conversationId, pending.messageId, WHITE_PROMPT)
+    expect(confirmed.status).toBe(200)
+    expect((confirmed.json as { continued?: boolean }).continued).toBe(true)
+    expect(await generationTasks(conversationId)).toHaveLength(1)
+
+    const resumeRow = () =>
+      db
+        .select({ status: schema.agent_inbox.status, failure: schema.agent_inbox.failure })
+        .from(schema.agent_inbox)
+        .where(
+          and(
+            eq(schema.agent_inbox.conversation_id, conversationId),
+            eq(schema.agent_inbox.kind, 'system_event'),
+          ),
+        )
+        .then((rows) => rows[0])
+    await waitFor(async () => (await resumeRow())?.status !== 'pending', 5_000)
+    expect(await resumeRow()).toEqual({ status: 'cancelled', failure: null })
+    const [card] = toolCards(await readMessages(conversationId))
+    expect(card!.block).toMatchObject({
+      status: 'submitted',
+      gated: true,
+      wakeSkipped: 'insufficient_credits',
+    })
+    // 智能体没有被再问一次。
+    expect(calls).toHaveLength(1)
   })
 
   it('不是待确认的卡确认不了', async () => {
