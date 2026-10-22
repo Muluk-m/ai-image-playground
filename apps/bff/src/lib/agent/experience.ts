@@ -135,6 +135,8 @@ export async function loadAgentSurface(
       .limit(1)
     if (!origin) break
     const payload = origin.payload
+    // JSONB 的类型只是声明；坏掉的记录（null、标量）追不下去，按默认处理，不让整轮准备抛错。
+    if (!payload || typeof payload !== 'object') break
     if ('text' in payload) return payload.surface ?? DEFAULT_AGENT_SURFACE
     if ('stageRun' in payload && payload.stageRun) return 'canvas'
     if ('interruptedTurnId' in payload) {

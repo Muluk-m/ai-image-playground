@@ -119,5 +119,10 @@ describe('canvas-only skills', () => {
       turnInitialState(history, 'image', true, 1, CANVAS, canvasTexts).messages,
     )
     expect(canvas).toContain('createNodes')
+    // 回放层自己也守住：即使调用方把画布技能正文递进来，Agent 轮也不接回去。
+    const leaked = JSON.stringify(
+      turnInitialState(history, 'image', true, 1, AGENT, canvasTexts).messages,
+    )
+    expect(leaked).not.toContain('createNodes')
   })
 })
