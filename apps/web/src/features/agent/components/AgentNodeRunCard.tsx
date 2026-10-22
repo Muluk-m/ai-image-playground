@@ -196,7 +196,12 @@ export default function AgentNodeRunCard({
         { label: t('nodeRun.spent'), value: String(authorization?.spentCredits ?? 0) },
       ]}
     >
-      {proposal.storyboard && <StoryboardSummary summary={proposal.storyboard} />}
+      {proposal.storyboard && (
+        <StoryboardSummary
+          summary={proposal.storyboard}
+          finalized={Boolean(authorization?.audit.some((entry) => entry.kind === 'confirmed'))}
+        />
+      )}
       {jobs && (
         <NodeBatchJobs
           jobs={jobs}
@@ -265,11 +270,16 @@ export default function AgentNodeRunCard({
 
 const SUMMARY_SHOTS_SHOWN = 12
 
-/** 首帧阶段的镜头表摘要：用户确认的就是「按这张表开拍」，确认即定稿。 */
+/**
+ * 首帧阶段的镜头表摘要：用户确认的就是「按这张表开拍」，确认即定稿。
+ * 摘要来自提案那一刻；授权已经确认过（直接出图由原标签页确认）就说已定稿，不再说「确认即定稿」。
+ */
 function StoryboardSummary({
   summary,
+  finalized,
 }: {
   summary: NonNullable<AgentCanvasRunProposal['storyboard']>
+  finalized: boolean
 }) {
   const { t } = useTranslation('agent')
   const shown = summary.shots.slice(0, SUMMARY_SHOTS_SHOWN)
@@ -297,7 +307,9 @@ function StoryboardSummary({
           {t('nodeRun.storyboard.more', { count: summary.shots.length - shown.length })}
         </p>
       )}
-      <p className={CARD_NOTE}>{t('nodeRun.storyboard.finalizes')}</p>
+      <p className={CARD_NOTE}>
+        {t(finalized ? 'nodeRun.storyboard.finalized' : 'nodeRun.storyboard.finalizes')}
+      </p>
     </div>
   )
 }
