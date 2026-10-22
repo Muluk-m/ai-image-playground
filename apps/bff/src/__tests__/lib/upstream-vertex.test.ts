@@ -133,6 +133,30 @@ describe('callUpstream Vertex AI direct channel', () => {
     expect(calls).toEqual([])
   })
 
+  it('applies the same size rules to an extra.generationConfig imageSize override', async () => {
+    const failure = await callUpstream({
+      provider: 'gemini',
+      model: 'gemini-3.1-flash-lite-image',
+      request: {
+        prompt: 'a cup',
+        extra: { generationConfig: { imageConfig: { imageSize: '2K' } } },
+      },
+    }).catch((error: unknown) => error)
+    expect((failure as Error).message).toContain('1K')
+    expect(calls).toEqual([])
+
+    await callUpstream({
+      provider: 'gemini',
+      model: 'gemini-3-pro-image',
+      request: {
+        prompt: 'a cup',
+        extra: { generationConfig: { imageConfig: { imageSize: '512', aspectRatio: '1:1' } } },
+      },
+    })
+    const body = JSON.parse(calls[0]!.init?.body as string)
+    expect(body.generationConfig.imageConfig).toEqual({ imageSize: '1K', aspectRatio: '1:1' })
+  })
+
   it(`refuses more than ${VERTEX_MAX_INPUT_IMAGES} reference images before calling upstream`, async () => {
     const input_images = Array.from(
       { length: VERTEX_MAX_INPUT_IMAGES + 1 },
