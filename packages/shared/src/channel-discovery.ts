@@ -61,11 +61,43 @@ export type ChannelCapability = (typeof CHANNEL_CAPABILITIES)[number]
 /** 模型产出的媒介类型。缺省 image — 存量 channel 配置不写这个字段。 */
 export type ChannelMedia = 'image' | 'video'
 
+/**
+ * 模型选择器里名字后面那几个说明标签。只放运营能讲清楚依据的特征（实测耗时、官方定位）；
+ * 文案在前端 i18n（`composer.param.modelBadge.*`），这里只是稳定的 token。
+ * 'recommended' = 平台默认推荐的模型；'latest' = 同系列最新发布；'quality' = 同系列画质最好；
+ * 'fast' = 同系列最快；'value' = 同系列最便宜。
+ */
+export const MODEL_BADGES = ['recommended', 'latest', 'quality', 'fast', 'value'] as const
+export type ModelBadge = (typeof MODEL_BADGES)[number]
+
+/**
+ * 模型自带的品牌图标。不写时前端按模型 id 前缀给厂商图标（OpenAI / Gemini / Grok…）；写了就用
+ * `apps/web/public/model-logos/<token>.svg`。只登记有官方来源的图标，来源写在资源文件旁的说明里。
+ */
+export const MODEL_LOGOS = ['nano-banana'] as const
+export type ModelLogoId = (typeof MODEL_LOGOS)[number]
+
+/** `etaSeconds` 的合法取值：1–3600 的整数。BFF 加载渠道配置和前端展示都按这一条判断。 */
+export function isModelEtaSeconds(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 3600
+}
+
 export interface ChannelModel {
   id: string
   label: string
   capabilities: ChannelCapability[]
   media?: ChannelMedia
+  /** 选择器里的说明标签，按数组顺序展示；缺省不显示。 */
+  badges?: ModelBadge[]
+  /** 典型单张耗时（秒，实测中位数的量级），选择器显示成「约 N 秒 / 分钟」；只是提示，不参与超时。 */
+  etaSeconds?: number
+  /**
+   * 耗时随档位变化时的上界（秒，同样 1–3600 整数，且大于 etaSeconds）。写了就显示成「约 N–M 秒」，
+   * 比如 Grok 低档约 40 秒、高档（2K）约 100 秒；只是提示，不参与超时。
+   */
+  etaMaxSeconds?: number
+  /** 选择器、任务卡等处显示的模型图标；缺省按 id 前缀取厂商图标。 */
+  logo?: ModelLogoId
 }
 
 /**
