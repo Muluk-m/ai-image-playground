@@ -29,11 +29,12 @@ export function compactModelName(model: string, fallback: string): string {
     : fallback
 }
 
-export function ModelLogo({ model }: { model: string }) {
+/** `channelId` 已知时传上：同一模型 id 在不同渠道可能声明不同图标。 */
+export function ModelLogo({ model, channelId }: { model: string; channelId?: string }) {
   // 渠道配置给模型声明了自己的图标时优先用它（彩色官方图标，明暗主题都不反色）。
   // 订阅渠道清单：首屏清单还没到时先给厂商图标，到了再换成声明的图标。
   const channels = useSyncExternalStore(subscribeChannels, getStoredChannels)
-  const declared = modelLogo(model, channels)
+  const declared = modelLogo(model, channels, channelId)
   if (declared) {
     return (
       <img

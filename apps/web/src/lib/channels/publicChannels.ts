@@ -58,31 +58,50 @@ export function modelLabel(modelId: string, channelId?: string): string {
   return modelId
 }
 
-// modelId → 声明的图标，按清单数组身份缓存：清单不变时每个 `ModelLogo` 只做一次 Map 查找。
-const logoIndex = new WeakMap<readonly DiscoveredChannel[], Map<string, ModelLogoId>>()
+interface LogoIndex {
+  /** `${channelId}\u0000${modelId}` → 该渠道给这个模型声明的图标。 */
+  byChannel: Map<string, ModelLogoId>
+  /** 不知道渠道时用：modelId → 第一条声明了图标的渠道里的图标。 */
+  byModel: Map<string, ModelLogoId>
+  channelIds: Set<string>
+}
+
+// 按清单数组身份缓存：清单不变时每个 `ModelLogo` 只做一次 Map 查找。
+const logoIndex = new WeakMap<readonly DiscoveredChannel[], LogoIndex>()
+
+function indexLogos(channels: readonly DiscoveredChannel[]): LogoIndex {
+  const cached = logoIndex.get(channels)
+  if (cached) return cached
+  const index: LogoIndex = { byChannel: new Map(), byModel: new Map(), channelIds: new Set() }
+  for (const channel of channels) {
+    index.channelIds.add(channel.id)
+    for (const model of channel.models) {
+      // 只认前端打包了图标文件的 token；不认识的（新版 BFF、旧标签页）退回厂商图标。
+      if (!MODEL_LOGOS.includes(model.logo as ModelLogoId)) continue
+      const logo = model.logo as ModelLogoId
+      index.byChannel.set(`${channel.id}\u0000${model.id}`, logo)
+      if (!index.byModel.has(model.id)) index.byModel.set(model.id, logo)
+    }
+  }
+  logoIndex.set(channels, index)
+  return index
+}
 
 /**
  * 模型在渠道配置里声明的品牌图标（`ChannelModel.logo`）。图片、视频模型都认，所以直接读
- * channelStore 而不是图片视图；同一 id 出现在多条渠道上时取第一条声明了图标的。
+ * channelStore 而不是图片视图。知道模型来自哪条渠道时传 `channelId`，只认那条渠道的声明——
+ * 同一 id 在不同渠道可能是不同品牌；不知道渠道（历史任务等）时取第一条声明了图标的渠道。
  * 没声明（或清单还没到）返回 undefined，调用方按 id 前缀给厂商图标。组件里要传订阅到的快照，
  * 清单晚到时才会跟着重渲染（见 `ModelLogo`）。
  */
 export function modelLogo(
   modelId: string,
   channels: readonly DiscoveredChannel[] = getStoredChannels(),
+  channelId?: string,
 ): ModelLogoId | undefined {
   if (!modelId) return undefined
-  let index = logoIndex.get(channels)
-  if (!index) {
-    index = new Map()
-    for (const channel of channels) {
-      for (const model of channel.models) {
-        // 只认前端打包了图标文件的 token；不认识的（新版 BFF、旧标签页）退回厂商图标。
-        if (MODEL_LOGOS.includes(model.logo as ModelLogoId) && !index.has(model.id))
-          index.set(model.id, model.logo as ModelLogoId)
-      }
-    }
-    logoIndex.set(channels, index)
-  }
-  return index.get(modelId)
+  const index = indexLogos(channels)
+  if (channelId && index.channelIds.has(channelId))
+    return index.byChannel.get(`${channelId}\u0000${modelId}`)
+  return index.byModel.get(modelId)
 }

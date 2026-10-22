@@ -28,6 +28,8 @@ export interface ModelChoice {
   value: string
   model: string
   profileId: string
+  /** 选项来自的渠道；图标按「渠道 + 模型」查声明。 */
+  channelId?: string
   label: string
   description?: string
   /** 渠道下发的说明标签（最新 / 质量好 / 速度快 / 便宜），按顺序显示在名字后面。 */
@@ -56,6 +58,7 @@ export function useModelChoices() {
           value: `${profile.id}::${option.id}`,
           model: option.id,
           profileId: profile.id,
+          channelId: profile.channelId,
           label: compactModelName(option.id, option.label),
           description: view.name,
           ...(option.badges ? { badges: option.badges } : {}),
@@ -212,7 +215,7 @@ export function ModelList({
               )}
             >
               <span className="flex shrink-0">
-                <ModelLogo model={option.model} />
+                <ModelLogo model={option.model} channelId={option.channelId} />
               </span>
               {modelOptionName(option, badgeLabel, etaText)}
               {option.description && (
@@ -270,7 +273,11 @@ export function ModelSelector({
           }}
         >
           <span className="flex shrink-0 items-center text-muted-foreground">
-            {!label && current ? <ModelLogo model={current.model} /> : <Icon name="model" />}
+            {!label && current ? (
+              <ModelLogo model={current.model} channelId={current.channelId} />
+            ) : (
+              <Icon name="model" />
+            )}
           </span>
           <span ref={name.ref} className="creation-model-name min-w-0 truncate">
             {shown}

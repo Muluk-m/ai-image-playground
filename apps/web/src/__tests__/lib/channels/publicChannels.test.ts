@@ -127,6 +127,23 @@ describe('selector metadata from an unvalidated catalog', () => {
     expect(first?.badges).toEqual(['fast', 'value'])
   })
 
+  it('reads the logo the given channel declares, not another channel with the same model id', () => {
+    const other: DiscoveredChannel = {
+      id: 'other',
+      kind: 'gemini-queue',
+      label: 'Other',
+      models: [{ id: 'img-b', label: 'Image B', capabilities: ['generate'] }],
+      defaults: {},
+    }
+    const channels = [STALE, other]
+    setChannels(channels)
+    expect(modelLogo('img-b', channels, 'stale')).toBe('nano-banana')
+    expect(modelLogo('img-b', channels, 'other')).toBeUndefined()
+    // 渠道不在清单里（历史任务）时退回按模型 id 查。
+    expect(modelLogo('img-b', channels, 'gone')).toBe('nano-banana')
+    expect(modelLogo('img-b', channels)).toBe('nano-banana')
+  })
+
   it('ignores a logo token the client has no icon for', () => {
     setChannels([STALE])
     expect(modelLogo('img-a')).toBeUndefined()
