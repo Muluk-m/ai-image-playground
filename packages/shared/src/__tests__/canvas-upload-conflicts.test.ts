@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, spyOn } from 'bun:test'
 import * as Y from 'yjs'
 import { CANVAS_UPLOAD_DEVICE_META, CANVAS_UPLOAD_STARTED_META } from '../canvas-cloud'
 import {
@@ -324,7 +324,8 @@ describe('上传簿记与并发编辑', () => {
     expect(mergeCanvasUploadConflict({ ...base, name: 'x' }, winner)).toBeUndefined()
   })
 
-  it('Yjs 内部结构不认识时当作没有冲突，不抛错', () => {
+  it('Yjs 内部结构不认识时当作没有冲突，不抛错，但报错一次', () => {
+    const errors = spyOn(console, 'error').mockImplementation(() => {})
     const fake = {
       target: {},
       adds: () => true,
@@ -337,6 +338,10 @@ describe('上传簿记与并发编辑', () => {
       deletes: () => true,
     } as unknown as Y.YEvent<Y.AbstractType<unknown>>
     expect(readOverwrittenLocalData(broken, 1)).toBeUndefined()
+    // 只报一次，不刷屏；报错内容点明是 Yjs 内部结构变了。
+    expect(errors).toHaveBeenCalledTimes(1)
+    expect(String(errors.mock.calls[0]?.[0])).toContain('Yjs 内部结构与预期不符')
+    errors.mockRestore()
   })
 })
 
