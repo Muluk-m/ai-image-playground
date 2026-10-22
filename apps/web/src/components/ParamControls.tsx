@@ -1,4 +1,4 @@
-import { parseImageSize } from '@image-playground/shared'
+import { nearestImageSize, parseImageSize } from '@image-playground/shared'
 import { memo, type ReactNode, useMemo, useState } from 'react'
 import { useTranslation } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
@@ -17,7 +17,6 @@ import { useStore } from '../store'
 import {
   DEFAULT_PARAMS,
   GEMINI_ASPECT_RATIOS,
-  GEMINI_IMAGE_SIZES,
   GEMINI_THINKING_LEVELS,
   type TaskParams,
 } from '../types'
@@ -145,8 +144,12 @@ export function ImageSettings({
       ? 'auto'
       : selection.ratio
   const ratioLabel = ratio === 'auto' ? autoLabel : ratio
+  // 存着的档位这个模型不认（旧的 512、换模型前的 2K）时按最近一档显示，与提交时 BFF 的换法一致。
+  const geminiImageSize = params.gemini_image_size
+    ? nearestImageSize(params.gemini_image_size, capabilities.geminiImageSizes)
+    : undefined
   const sizeSummary = isGemini
-    ? [ratioLabel, tuning ? params.gemini_image_size : undefined]
+    ? [ratioLabel, tuning ? geminiImageSize : undefined]
     : selection.kind === 'custom'
       ? [capabilities.size ? params.size.replace('x', '×') : sizeRatioLabel(params.size)] // design-allow glyph-icon: 乘号
       : [ratioLabel, selection.kind === 'preset' && capabilities.size ? selection.tier : undefined]
@@ -280,8 +283,8 @@ export function ImageSettings({
               <SettingsSection title={t('param.resolution')}>
                 <SettingsSegmented
                   label={t('param.resolution')}
-                  options={withAuto(GEMINI_IMAGE_SIZES, t('settings.autoOption'))}
-                  value={params.gemini_image_size ?? 'auto'}
+                  options={withAuto(capabilities.geminiImageSizes, t('settings.autoOption'))}
+                  value={geminiImageSize ?? 'auto'}
                   onChange={(value) => setParams({ gemini_image_size: fromAuto(value) })}
                 />
               </SettingsSection>
