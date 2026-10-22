@@ -39,7 +39,7 @@ complete 是同步的，返回 `ready` 后前端才拿到可以写进文档的 `
 
 ### 方案 C：确认异步化（真正把确认移出关键路径，推荐作为 P0-3 主体）
 - `POST /api/media/:id/complete` 只做廉价检查：所有权、大小（`HEAD` 或 B 的 checksum 结果）。检查过后把状态置为新的 `verifying`，立即返回 `202 { id, status: 'verifying' }`。
-- 解码、预览、发布由 bff 后台队列做。复用现在的 `withMediaProcessing` 和字节限额，进程重启后由扫描任务接着处理 `verifying` 状态。完成后置为 `ready`；只有确定性的内容校验失败（类型不支持、超像素、超出处理预算、动图、字节损坏或 hash 不符）才置为 `rejected` 并带原因。超出处理预算指 `assertMediaImageProcessingBudget` 抛的 `processing_budget`：边长超过 `MAX_EDGE`，或者渐进式/WebP 解码的工作集超过 `DECODE_WORKING_SET_BYTES`。这两项只取决于图片本身的元数据，重试结果不会变，现在的同步路径对外也是 422 `media_image_processing_limit`。现在的代码把解码超时（`/timeout/`）也归到 `processing_budget`，异步化时要拆开：超时可能只是机器忙，按瞬时错误退避重试；同一行连续超时 3 次才按 `processing_limit` 置 `rejected`（次数记在第 3 节迁移新增的 `verify_timeouts` 列），避免一张图永远卡在「处理中」、一直占着配额。R2 读写故障、处理容量不足这类瞬时错误（现在的发布路径对外是可重试的 503）不改状态，行留在 `verifying`，由扫描任务退避重试；暂存对象也不删。
+- 解码、预览、发布由 bff 后台队列做。复用现在的 `withMediaProcessing` 和字节限额，进程重启后由扫描任务接着处理 `verifying` 状态。完成后置为 `ready`；只有确定性的内容校验失败（类型不支持、超像素、超出处理预算、动图、字节损坏或 hash 不符）才置为 `rejected` 并带原因。超出处理预算指 `assertMediaImageProcessingBudget` 抛的 `processing_budget`：边长超过 `MAX_EDGE`，或者渐进式/WebP 解码的工作集超过 `DECODE_WORKING_SET_BYTES`。这两项只取决于图片本身的元数据，重试结果不会变，现在的同步路径对外也是 422 `media_image_processing_limit`。现在的代码把解码超时（`/timeout/`）也归到 `processing_budget`，异步化时要拆开：超时可能只是机器忙，按瞬时错误退避重试；同一行累计超时 3 次才按 `processing_limit` 置 `rejected`（次数记在第 3 节迁移新增的 `verify_timeouts` 列），避免一张图永远卡在「处理中」、一直占着配额。R2 读写故障、处理容量不足这类瞬时错误（现在的发布路径对外是可重试的 503）不改状态，行留在 `verifying`，由扫描任务退避重试；暂存对象也不删。
 - 画布文档允许引用 `verifying` 状态的 `mediaId`：`canvasSyncStore` 的所有权检查改为 `status IN ('verifying','ready','rejected')`。`rejected` 也必须放行：`accessCanvasDocument` 每次更新都校验整份文档，上传设备离线时，被拒的节点会一直留在文档里，只放行 `verifying`/`ready` 会让之后所有不相关的编辑都因 `canvas_media_not_owned` 失败。被拒的引用在文档里是墓碑，只用于显示「图片无效」，`accessMedia` 对它返回 422，不签发 URL。
 - 本机：节点继续用本机原图显示，不必等预览。
 - 别的设备：看到 `verifying` 的节点时显示「图片处理中」，拿到 `ready` 事件后再拉预览。已有的 WS 通道可以推一条 `media.ready` 或 `media.rejected`。
@@ -51,7 +51,7 @@ complete 是同步的，返回 `ready` 后前端才拿到可以写进文档的 `
 ## 3. 推荐路线
 1. **A（单独 PR）**：只改服务端，不改协议，确认从约 1.7s 降到约 1.0s。
 2. **B + C（需要评审的协议变更）**：
-   - DB 迁移：`media_objects_status_check` 加 `verifying` 和 `rejected`；新增列 `verify_timeouts integer not null default 0`（解码超时次数，成功或其他错误不清零也不影响，只给超时计数用）和可空列 `rejected_reason`，存稳定的原因码（`unsupported_type`、`pixel_limit`、`processing_limit`、`animated`、`corrupt`）。`processing_limit` 对应现在的 `media_image_processing_limit`，`accessMedia` 的 422 响应体沿用这个错误码，置 `rejected` 时和状态同一条 UPDATE 写入，在删除暂存对象之前落库。
+   - DB 迁移：`media_objects_status_check` 加 `verifying` 和 `rejected`；新增列 `verify_timeouts integer not null default 0`（这一行累计的解码超时次数，只给超时计数用）和可空列 `rejected_reason`，存稳定的原因码（`unsupported_type`、`pixel_limit`、`processing_limit`、`animated`、`corrupt`）。`processing_limit` 对应现在的 `media_image_processing_limit`，`accessMedia` 的 422 响应体沿用这个错误码，置 `rejected` 时和状态同一条 UPDATE 写入，在删除暂存对象之前落库。
    - API：`complete` 返回 202；新增 WS 事件；`accessMedia` 增加 `media_verifying`。
    - shared：画布校验接受 `verifying`；新老客户端兼容。旧客户端只认 `ready`，所以 `complete` 要看 capabilities 位 `asyncMediaConfirm` 决定：只有新客户端带 `prefer: async` 时才返回 202，旧客户端仍然同步等待。
    - 新老服务端也要兼容：现在的 `canvasSyncStore` 只放行 `status = 'ready'`，回滚或灰度混跑时，旧 BFF 会拒绝所有仍含 `verifying`/`rejected` 节点的文档更新，而 `rejected` 节点永远不会变回 `ready`。所以分两次发布：
