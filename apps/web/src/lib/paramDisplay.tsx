@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { Hint } from '../components/assistant-ui/elements/tooltip-icon-button'
 import { useTranslation } from '../i18n'
 import type { TaskParams, TaskRecord } from '../types'
-import { sameAspectRatio } from './size'
+import { measuredSizeOf, sameAspectRatio } from './size'
+
+export { measuredSizeOf }
 
 type ParamKey = keyof TaskParams
 
@@ -53,15 +55,9 @@ export function ActualValueBadge({
  * `size`（默认 1024x1024）会随请求带过去，但它从来不决定像素，拿它当「请求的尺寸」只会误导。
  */
 export function honorsRequestedSize(task: Pick<TaskRecord, 'apiProvider' | 'cloudProvider'>) {
-  const provider = task.cloudProvider ?? task.apiProvider
+  // 与详情「来源」同一优先级：本机 profile 的 provider 在前，镜像卡才退到平台记录的 provider。
+  const provider = task.apiProvider || task.cloudProvider
   return provider !== 'gemini' && provider !== 'gemini-queue'
-}
-
-/** 真实像素 → 与参数同一种 `宽x高` 写法。 */
-export function measuredSizeOf(
-  image: { width?: number | null; height?: number | null } | null | undefined,
-): string | undefined {
-  return image?.width && image.height ? `${image.width}x${image.height}` : undefined
 }
 
 /**
@@ -78,7 +74,11 @@ export function getParamDisplay(
 ) {
   const isSize = paramKey === 'size'
   const requestedValue = isSize && !honorsRequestedSize(task) ? 'auto' : task.params[paramKey]
-  const actualValue = isSize && measuredSize ? measuredSize : actualParams?.[paramKey]
+  const measured = measuredSize ?? task.measuredSize
+  // 不按 size 出图的上游，回报或落库的 size 都只是随请求带过去的占位，只认真实像素。
+  const actualValue = isSize
+    ? (measured ?? (honorsRequestedSize(task) ? actualParams?.size : undefined))
+    : actualParams?.[paramKey]
   const hasActualValue = actualValue !== undefined && actualValue !== null
   const displayValue = hasActualValue ? actualValue : requestedValue
   const isMismatch =

@@ -107,6 +107,28 @@ it('平台记录投影成一张普通卡：封面用云媒体引用，参考图�
   expect(task.params).toMatchObject({ size: '1536x1024', quality: 'high', n: 2 })
 })
 
+it('镜像卡记下封面原件的真实像素：缩略图只有临时 URL，尺寸以平台媒体元数据为准', () => {
+  const gemini = {
+    ...summary,
+    provider: 'gemini',
+    model: 'gemini-3-pro-image',
+    parameters: { size: '1024x1024', aspect_ratio: '16:9', image_size: '2K' },
+    actualParameters: {},
+    cover: { ...summary.cover, width: 2752, height: 1536 },
+  }
+  expect(taskFromGeneration(gemini).measuredSize).toBe('2752x1536')
+  expect(
+    taskFromGeneration({
+      ...gemini,
+      outputs: [{ ...gemini.cover, width: 1376, height: 768 }],
+    }).measuredSize,
+  ).toBe('1376x768')
+  expect(taskFromGeneration({ ...gemini, cover: null })).not.toHaveProperty('measuredSize')
+  expect(
+    taskFromGeneration({ ...gemini, cover: { ...gemini.cover, width: null } }),
+  ).not.toHaveProperty('measuredSize')
+})
+
 it.each([
   ['queued', 'running'],
   ['in_progress', 'running'],

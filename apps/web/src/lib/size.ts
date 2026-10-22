@@ -279,3 +279,16 @@ export function sizeFor(tier: SizeTier, ratio: string, rules: SizeRules): string
   const size = calculateImageSize(byRatio(rules) ? '1K' : tier, ratio)
   return size ? normalizeSizeFor(size, rules) : null
 }
+
+/** 真实像素 → 与参数同一种 `宽x高` 写法。 */
+export function measuredSizeOf(
+  image: { width?: number | null; height?: number | null } | null | undefined,
+): string | undefined {
+  const width = image?.width
+  const height = image?.height
+  return isPixelCount(width) && isPixelCount(height) ? `${width}x${height}` : undefined
+}
+
+function isPixelCount(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+}

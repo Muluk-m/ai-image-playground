@@ -1,5 +1,6 @@
 import type {
   GenerationDetail,
+  GenerationImage,
   GenerationSummary,
   TaskStatus as QueueStatus,
   TaskErrorType,
@@ -19,6 +20,7 @@ import {
 import { deleteCachedGeneration, getCachedGenerations, putCachedGeneration } from './db'
 import { mediaRef, readRemoteGeneration } from './remoteGenerations'
 import type { CloudReuseSource } from './reuseCloudGeneration'
+import { measuredSizeOf } from './size'
 
 /**
  * 平台记录的本机缓存。
@@ -59,6 +61,7 @@ export function taskFromGeneration(
     apiModel: item.model,
     // 复用要认回内置 channel，认的是 provider + model 这一对，所以 provider 也得留在卡上。
     cloudProvider: item.provider,
+    ...measuredSizePatch('outputs' in item ? (item.outputs[0] ?? item.cover) : item.cover),
     inputImageIds: inputs,
     maskImageId: mask,
     maskTargetImageId: mask ? (inputs[0] ?? null) : null,
@@ -336,6 +339,11 @@ function paramsFromGeneration(item: GenerationSummary): TaskParams {
     gemini_image_size: GEMINI_IMAGE_SIZES.find((value) => value === image_size),
     gemini_thinking_level: GEMINI_THINKING_LEVELS.find((value) => value === thinking_level),
   }
+}
+
+function measuredSizePatch(image: GenerationImage | null): Pick<TaskRecord, 'measuredSize'> {
+  const measuredSize = measuredSizeOf(image)
+  return measuredSize ? { measuredSize } : {}
 }
 
 function pickActual(item: GenerationSummary): Partial<TaskParams> | undefined {
