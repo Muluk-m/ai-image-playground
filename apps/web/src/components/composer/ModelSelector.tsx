@@ -128,17 +128,29 @@ function modelOptionName(
   badgeLabel: (badge: ModelBadge) => string,
   eta: string | undefined,
 ) {
+  const badges = option.badges ?? []
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span className="flex min-w-0 flex-wrap items-center gap-1">
-        <span className="min-w-0 break-words font-medium text-foreground">{option.label}</span>
-        {option.badges?.map((badge) => (
-          <Badge key={badge} tone={BADGE_TONE[badge]}>
-            {badgeLabel(badge)}
-          </Badge>
-        ))}
+      <span title={option.label} className="min-w-0 truncate font-medium text-foreground">
+        {option.label}
       </span>
-      {eta ? <span className="text-label-sm text-muted-foreground">{eta}</span> : null}
+      {/* 标签和耗时放在第二行：名字那一行要和右侧 provider 名抢位置，两枚标签放上去在 w-80 的弹层里会折行。
+          第二行永远单行，每行高度一致。挤不下时耗时和标签各自缩短成省略号，不整枚裁掉；整行带 title 可看全。 */}
+      {eta || badges.length > 0 ? (
+        <span
+          title={[eta, ...badges.map(badgeLabel)].filter(Boolean).join(' · ')}
+          className="flex min-w-0 items-center gap-1 whitespace-nowrap"
+        >
+          {eta ? (
+            <span className="min-w-0 truncate text-label-sm text-muted-foreground">{eta}</span>
+          ) : null}
+          {badges.map((badge) => (
+            <Badge key={badge} tone={BADGE_TONE[badge]} className="min-w-0">
+              <span className="min-w-0 truncate">{badgeLabel(badge)}</span>
+            </Badge>
+          ))}
+        </span>
+      ) : null}
     </span>
   )
 }
