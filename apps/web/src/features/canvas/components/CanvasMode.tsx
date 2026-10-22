@@ -34,6 +34,7 @@ import {
   showCanvasWorkspace,
   subscribeCanvasWorkspace,
 } from '../lib/activeProject'
+import { clearProjectView, setProjectView as setShownProjectView } from '../lib/canvasView'
 import type { CanvasEditor } from '../lib/editor'
 import { importImageFiles } from '../lib/importImages'
 import { shouldUseNodeCanvas } from '../lib/nodeCanvasGate'
@@ -397,6 +398,15 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   useEffect(() => {
     if (project) setProjectView(projectExperience(project))
   }, [project?.id, project?.experience])
+  // 发话时据此声明本轮模式：只有画布视图是画布模式，对话视图是 Agent 模式。
+  const shownView = nodeCanvas && projectView === 'canvas' ? 'canvas' : 'chat'
+  useEffect(() => {
+    if (!project?.id) return
+    const projectId = project.id
+    setShownProjectView(projectId, shownView)
+    // 只撤下自己写的那份，换项目时不抹掉新工作区已经写入的视图。
+    return () => clearProjectView(projectId, shownView)
+  }, [project?.id, shownView])
   // 敲下回车就切到工作区：消息先上屏、状态行亮「发送中」，不等服务端回 turnStart。
   const started = useAgentStore((state) => conversationStarted(state.messages))
   const showWelcome =

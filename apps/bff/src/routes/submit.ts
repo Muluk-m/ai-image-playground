@@ -10,7 +10,7 @@ import {
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { StageAuthorizationError } from '../lib/agent/stage-authorizations'
-import { resolveModelMedia } from '../lib/channels'
+import { isModelDisabled, resolveModelMedia } from '../lib/channels'
 import { resolveImageBytesRef } from '../lib/extractImages'
 import { deviceIdSchema, validationMessage } from '../lib/http'
 import { MEDIA_INPUT_PATTERN, MediaInputError, resolveMediaInputs } from '../lib/mediaInputs'
@@ -137,6 +137,11 @@ export const submitRoutes = new Elysia()
       const queueProvider = asQueueProvider(provider)
       if (!queueProvider) {
         return status(400, { error: `unsupported provider: ${provider}` })
+      }
+      // 运营下线的模型（channels.json `disabled`）不收新任务：它不在 channel 里，放过去会
+      // 落进通用网关兜底，拼出一条打不到原上游的请求。
+      if (isModelDisabled(model)) {
+        return status(400, { error: 'model_unavailable', message: '该模型已下线，请换一个模型' })
       }
 
       let video = body.video as VideoRequest | undefined

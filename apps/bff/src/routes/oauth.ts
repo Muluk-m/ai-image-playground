@@ -26,7 +26,12 @@ import {
   unlinkOAuthIdentity,
 } from '../lib/user-admin'
 import { resolveAuthUser } from '../lib/user-auth'
-import { sessionClientFromRequest, setUserSessionCookie } from '../lib/user-session'
+import {
+  reclaimSwitchedAccount,
+  sessionClientFromRequest,
+  setUserSessionCookie,
+  USER_SESSION_COOKIE,
+} from '../lib/user-session'
 
 const STATE_COOKIE = 'image_playground_oauth_state'
 const RETURN_TO_COOKIE = 'image_playground_oauth_return_to'
@@ -390,6 +395,7 @@ export const oauthRoutes = new Elysia()
         return failureRedirect(request, returnTarget, 'registration_closed', referralCode)
       }
 
+      await reclaimSwitchedAccount(cookie[USER_SESSION_COOKIE]?.value, result.user.id)
       setUserSessionCookie(cookie, result.sessionToken)
       return successRedirect(request, returnTarget)
     },

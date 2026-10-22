@@ -841,6 +841,16 @@
     "unpriced": "Charged by actual model usage",
     "unavailable": "Open the matching canvas and make sure the suggested nodes still exist.",
     "readFailed": "Couldn't load the authorization.",
-    "retryRead": "Retry"
+    "retryRead": "Retry",
+    "partial": "{{count}} nodes produced no result. Completed results are kept.",
+    "reported": "Results handed to the assistant. It will follow up.",
+    "reportFailed": "Couldn't hand the results to the assistant. Ask it in the chat.",
+    "storyboard": {
+      "summary": "Shot list: {{count}} shots, {{seconds}}s total",
+      "shot": "Shot {{index}} · {{seconds}}s · {{line}}",
+      "more": "…and {{count}} more",
+      "finalizes": "Confirming finalizes this storyboard. Editing shots afterwards marks generated frames stale.",
+      "finalized": "This storyboard is finalized. Editing shots afterwards marks generated frames stale."
+    }
   }
 }

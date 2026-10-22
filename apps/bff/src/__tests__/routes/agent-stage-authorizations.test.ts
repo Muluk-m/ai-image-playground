@@ -350,170 +350,199 @@ it('prices prompted asset nodes like images and rejects promptless assets', asyn
   ).rejects.toThrow('没有提示词')
 })
 
-it('rounds video duration up and prices an unknown resolution like settlement', async () => {
-  const writeDraft = (projectId: string, draft: unknown, mode?: string | null) =>
-    accessCanvasDocument('stage-owner', projectId, async (current) => {
-      const doc = new Y.Doc()
-      Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
-      const vector = Y.encodeStateVector(doc)
-      const node = readCanvasDocument(doc).nodes.find((item) => item.id === 'clip')
-      if (!node || node.type !== 'image' || canvasNodeKind(node) !== 'video')
-        throw new Error('missing clip')
-      const meta: Record<string, string> = {
-        ...node.data.meta,
-        nodeVideoDraft: JSON.stringify(draft),
-      }
-      // 创建时写了文生。不传模式就删掉，才能测「没写模式时按参考图封顶」。
-      if (mode === null) delete meta.nodeVideoMode
-      else if (mode !== undefined) meta.nodeVideoMode = mode
-      updateCanvasNode(
-        doc,
-        'clip',
-        {
-          data: {
-            ...node.data,
-            meta,
-          },
-        },
-        canvasOrigin('system', 'fixture'),
-      )
-      const update = Y.encodeStateAsUpdate(doc, vector)
-      doc.destroy()
-      return update
-    })
-  const contextFor = async (projectId: string) => {
-    const [project] = await db
-      .select({ id: schema.canvas_projects.conversation_id })
-      .from(schema.canvas_projects)
-      .where(eq(schema.canvas_projects.id, projectId))
-    const conversationId = project?.id
-    if (!conversationId) throw new Error('missing conversation')
-    await createNodes
-      .create({
-        mode: 'image' as const,
-        experience: 'canvas' as const,
-        conversationId,
-        turnId: 'turn',
-        deviceId: 'stage-device',
-        userId: 'stage-owner',
-        canvas: { selectedNodeIds: [], elements: [] },
-        images: createAgentImageSource({
-          references: [],
-          history: [],
-          conversationId,
-          userId: 'stage-owner',
-        }),
-      })
-      .execute(
-        'video',
-        { nodes: [{ id: 'clip', type: 'video', prompt: '海浪', videoMode: 'text' }] },
-        undefined,
-        undefined,
-      )
+/** 阶段报价只认这个部署真在用的视频模型：Lite（文生、首帧）与带参考图的 Grok。 */
+async function withStageVideoChannels<T>(run: () => Promise<T>): Promise<T> {
+  const { getChannels, _setChannelsForTesting } = await import('../../lib/channels')
+  const saved = getChannels()
+  const channel = (id: string, capabilities: string[]) => ({
+    id: `stage-${id}`,
+    kind: 'openai-queue' as const,
+    label: id,
+    baseUrl: 'https://gateway.example/v1',
+    auth: { type: 'bearer' as const, secretRef: 'VIDEO_API_KEY', secret: 'k' },
+    allowedPaths: ['videos/generations'],
+    models: [{ id, label: id, media: 'video' as const, capabilities: capabilities as never }],
+    defaults: { asyncTasks: true },
+  })
+  _setChannelsForTesting([
+    ...saved,
+    channel('grok-imagine-video-1.5-lite', ['generate']),
+    channel('grok-imagine-video', ['generate', 'reference_images']),
+  ])
+  try {
+    return await run()
+  } finally {
+    _setChannelsForTesting(saved)
   }
-  const fractional = await fixture(['clip'], undefined, async ({ projectId }) => {
-    await contextFor(projectId)
-    await writeDraft(projectId, {
-      model: 'video-fixture',
-      duration: 1.9,
-      resolution: '720p',
-      aspectRatio: '16:9',
-    })
-  })
-  expect(fractional).toMatchObject({ budgetCap: 12, nodeIds: ['clip'] })
-  expect(await (await request(fractional.authorizationId)).json()).toMatchObject({
-    charges: [{ nodeId: 'clip', quantity: 2, unitMultiplier: 1, credits: 12 }],
-  })
-  const unknown = await fixture(['clip'], undefined, async ({ projectId }) => {
-    await contextFor(projectId)
-    await writeDraft(projectId, {
-      model: 'video-fixture',
-      duration: 5,
-      resolution: '4k',
-      aspectRatio: '16:9',
-    })
-  })
-  expect(unknown).toMatchObject({ budgetCap: 30, nodeIds: ['clip'] })
-  expect(await (await request(unknown.authorizationId)).json()).toMatchObject({
-    charges: [{ nodeId: 'clip', quantity: 5, unitMultiplier: 1, credits: 30 }],
-  })
-  const clamped = await fixture(['clip'], undefined, async ({ projectId }) => {
-    await contextFor(projectId)
-    await writeDraft(projectId, {
-      model: 'grok-imagine-video',
-      duration: 6,
-      resolution: '480p',
-      aspectRatio: '16:9',
-    })
-  })
-  expect(clamped).toMatchObject({ budgetCap: 30, nodeIds: ['clip'] })
-  expect(await (await request(clamped.authorizationId)).json()).toMatchObject({
-    charges: [
-      {
-        nodeId: 'clip',
-        model: 'grok-imagine-video',
-        quantity: 5,
-        unitMultiplier: 1,
-        credits: 30,
-      },
-    ],
-  })
-  const confirmed = await request(fractional.authorizationId, '/confirm', {
-    charges: [{ nodeId: 'clip', model: 'video-fixture', quantity: 1.9, unitMultiplier: 1 }],
-  })
-  expect(confirmed.status).toBe(200)
-  const receipt = await confirmed.json()
-  expect(receipt.authorization.charges).toMatchObject([{ quantity: 2, unitMultiplier: 1 }])
-  expect(
-    (
-      await request(fractional.authorizationId, '/preflight', {
-        nodeId: 'clip',
-        model: 'video-fixture',
-        quantity: 1.9,
-        unitMultiplier: 1,
-        executionToken: receipt.executionToken,
-        attemptId: 'fractional-duration',
+}
+
+it('rounds video duration up and prices an unknown resolution like settlement', () =>
+  withStageVideoChannels(async () => {
+    const writeDraft = (projectId: string, draft: unknown, mode?: string | null) =>
+      accessCanvasDocument('stage-owner', projectId, async (current) => {
+        const doc = new Y.Doc()
+        Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+        const vector = Y.encodeStateVector(doc)
+        const node = readCanvasDocument(doc).nodes.find((item) => item.id === 'clip')
+        if (!node || node.type !== 'image' || canvasNodeKind(node) !== 'video')
+          throw new Error('missing clip')
+        const meta: Record<string, string> = {
+          ...node.data.meta,
+          nodeVideoDraft: JSON.stringify(draft),
+        }
+        // 创建时写了文生。不传模式就删掉，才能测「没写模式时按参考图封顶」。
+        if (mode === null) delete meta.nodeVideoMode
+        else if (mode !== undefined) meta.nodeVideoMode = mode
+        updateCanvasNode(
+          doc,
+          'clip',
+          {
+            data: {
+              ...node.data,
+              meta,
+            },
+          },
+          canvasOrigin('system', 'fixture'),
+        )
+        const update = Y.encodeStateAsUpdate(doc, vector)
+        doc.destroy()
+        return update
       })
-    ).status,
-  ).toBe(200)
-  const narrowed = await fixture(['clip'], undefined, async ({ projectId }) => {
-    await contextFor(projectId)
-    await writeDraft(
-      projectId,
-      {
-        model: 'grok-imagine-video',
-        duration: 8,
-        resolution: '1080p',
-        aspectRatio: '16:9',
-      },
-      null,
-    )
-  })
-  expect(await (await request(narrowed.authorizationId)).json()).toMatchObject({
-    budgetCap: 48,
-    charges: [{ model: 'grok-imagine-video', quantity: 8, unitMultiplier: 1, credits: 48 }],
-  })
-  const partial = await fixture(
-    ['clip'],
-    undefined,
-    async ({ projectId }) => {
+    const contextFor = async (projectId: string) => {
+      const [project] = await db
+        .select({ id: schema.canvas_projects.conversation_id })
+        .from(schema.canvas_projects)
+        .where(eq(schema.canvas_projects.id, projectId))
+      const conversationId = project?.id
+      if (!conversationId) throw new Error('missing conversation')
+      await createNodes
+        .create({
+          mode: 'image' as const,
+          experience: 'canvas' as const,
+          conversationId,
+          turnId: 'turn',
+          deviceId: 'stage-device',
+          userId: 'stage-owner',
+          canvas: { selectedNodeIds: [], elements: [] },
+          images: createAgentImageSource({
+            references: [],
+            history: [],
+            conversationId,
+            userId: 'stage-owner',
+          }),
+        })
+        .execute(
+          'video',
+          { nodes: [{ id: 'clip', type: 'video', prompt: '海浪', videoMode: 'text' }] },
+          undefined,
+          undefined,
+        )
+    }
+    const fractional = await fixture(['clip'], undefined, async ({ projectId }) => {
       await contextFor(projectId)
-      await writeDraft(projectId, { model: 'grok-imagine-video', duration: 15 }, null)
-    },
-    {
-      video: {
-        model: 'grok-imagine-video',
-        durationSeconds: 8,
-        resolution: '1080p',
+      await writeDraft(projectId, {
+        model: 'grok-imagine-video-1.5-lite',
+        duration: 1.9,
+        resolution: '720p',
         aspectRatio: '16:9',
+      })
+    })
+    expect(fractional).toMatchObject({ budgetCap: 12, nodeIds: ['clip'] })
+    expect(await (await request(fractional.authorizationId)).json()).toMatchObject({
+      charges: [{ nodeId: 'clip', quantity: 2, unitMultiplier: 1, credits: 12 }],
+    })
+    const unknown = await fixture(['clip'], undefined, async ({ projectId }) => {
+      await contextFor(projectId)
+      await writeDraft(projectId, {
+        model: 'grok-imagine-video-1.5-lite',
+        duration: 5,
+        resolution: '4k',
+        aspectRatio: '16:9',
+      })
+    })
+    expect(unknown).toMatchObject({ budgetCap: 30, nodeIds: ['clip'] })
+    expect(await (await request(unknown.authorizationId)).json()).toMatchObject({
+      charges: [{ nodeId: 'clip', quantity: 5, unitMultiplier: 1, credits: 30 }],
+    })
+    const clamped = await fixture(['clip'], undefined, async ({ projectId }) => {
+      await contextFor(projectId)
+      await writeDraft(projectId, {
+        model: 'grok-imagine-video',
+        duration: 6,
+        resolution: '480p',
+        aspectRatio: '16:9',
+      })
+    })
+    expect(clamped).toMatchObject({ budgetCap: 30, nodeIds: ['clip'] })
+    expect(await (await request(clamped.authorizationId)).json()).toMatchObject({
+      charges: [
+        {
+          nodeId: 'clip',
+          model: 'grok-imagine-video',
+          quantity: 5,
+          unitMultiplier: 1,
+          credits: 30,
+        },
+      ],
+    })
+    const confirmed = await request(fractional.authorizationId, '/confirm', {
+      charges: [
+        { nodeId: 'clip', model: 'grok-imagine-video-1.5-lite', quantity: 1.9, unitMultiplier: 1 },
+      ],
+    })
+    expect(confirmed.status).toBe(200)
+    const receipt = await confirmed.json()
+    expect(receipt.authorization.charges).toMatchObject([{ quantity: 2, unitMultiplier: 1 }])
+    expect(
+      (
+        await request(fractional.authorizationId, '/preflight', {
+          nodeId: 'clip',
+          model: 'grok-imagine-video-1.5-lite',
+          quantity: 1.9,
+          unitMultiplier: 1,
+          executionToken: receipt.executionToken,
+          attemptId: 'fractional-duration',
+        })
+      ).status,
+    ).toBe(200)
+    const narrowed = await fixture(['clip'], undefined, async ({ projectId }) => {
+      await contextFor(projectId)
+      await writeDraft(
+        projectId,
+        {
+          model: 'grok-imagine-video',
+          duration: 8,
+          resolution: '1080p',
+          aspectRatio: '16:9',
+        },
+        null,
+      )
+    })
+    expect(await (await request(narrowed.authorizationId)).json()).toMatchObject({
+      budgetCap: 48,
+      charges: [{ model: 'grok-imagine-video', quantity: 8, unitMultiplier: 1, credits: 48 }],
+    })
+    const partial = await fixture(
+      ['clip'],
+      undefined,
+      async ({ projectId }) => {
+        await contextFor(projectId)
+        await writeDraft(projectId, { model: 'grok-imagine-video', duration: 15 }, null)
       },
-    },
-  )
-  expect(await (await request(partial.authorizationId)).json()).toMatchObject({
-    budgetCap: 48,
-    charges: [{ model: 'grok-imagine-video', quantity: 8, unitMultiplier: 1, credits: 48 }],
-  })
-})
+      {
+        video: {
+          model: 'grok-imagine-video',
+          durationSeconds: 8,
+          resolution: '1080p',
+          aspectRatio: '16:9',
+        },
+      },
+    )
+    expect(await (await request(partial.authorizationId)).json()).toMatchObject({
+      budgetCap: 48,
+      charges: [{ model: 'grok-imagine-video', quantity: 8, unitMultiplier: 1, credits: 48 }],
+    })
+  }))
 
 it('rejects a proposal when the server cannot price the nodes', async () => {
   quoteAvailable = false
@@ -1401,6 +1430,151 @@ it('returns the existing proposal when the key matches and rejects a different o
   })
 })
 
+/** 按已登记的素材授权拼一份首帧阶段提案输入（同一项目、同一批节点），只换 proposalKey。 */
+async function frameProposalInput(authorizationId: string, proposalKey: string) {
+  const [row] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, authorizationId))
+  if (!row?.state.bindings) throw new Error('missing binding')
+  return {
+    userId: 'stage-owner',
+    conversationId: row.conversation_id,
+    projectId: row.project_id,
+    proposalKey,
+    stage: '首帧',
+    nodeIds: [...row.state.nodeIds],
+    nodeNames: [...row.state.nodeNames],
+    nodes: (row.state.charges ?? []).map(({ nodeId, model, quantity, unitMultiplier }) => ({
+      nodeId,
+      model,
+      quantity,
+      unitMultiplier,
+    })),
+    bindings: row.state.bindings,
+    storyboard: { storyboardId: 'board', fingerprint: 'fp-1' },
+  }
+}
+
+/** 直接把授权记成已确认（首帧授权确认时要核对画布上的分镜表，这里的夹具没有画布表）。 */
+async function markActive(id: string, at = Date.now()) {
+  const [row] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, id))
+  await db
+    .update(schema.agent_stage_authorizations)
+    .set({
+      updated_at: at,
+      state: {
+        ...row!.state,
+        status: 'active',
+        audit: [...row!.state.audit.map((event) => ({ ...event, at })), { kind: 'confirmed', at }],
+      },
+    })
+    .where(eq(schema.agent_stage_authorizations.id, id))
+}
+
+it('reuses the open first-frame authorization when two wakes propose the same storyboard at once', async () => {
+  const seed = await fixture()
+  const [left, right] = await Promise.all([
+    proposeStageAuthorization(await frameProposalInput(seed.authorizationId, 'wake-1:frames')),
+    proposeStageAuthorization(await frameProposalInput(seed.authorizationId, 'wake-2:frames')),
+  ])
+  expect(left.id).toBe(right.id)
+  const rows = await db
+    .select({ id: schema.agent_stage_authorizations.id })
+    .from(schema.agent_stage_authorizations)
+    .where(
+      sql`${schema.agent_stage_authorizations.state}->'storyboard'->>'storyboardId' = 'board' and ${schema.agent_stage_authorizations.project_id} = ${seed.projectId}`,
+    )
+  expect(rows).toHaveLength(1)
+  // 一份已确认、仍在有效期内的也一样复用，不再登记第二份。
+  await markActive(left.id)
+  const later = await proposeStageAuthorization(
+    await frameProposalInput(seed.authorizationId, 'wake-3:frames'),
+  )
+  expect(later.id).toBe(left.id)
+  expect(later.status).toBe('active')
+  // 镜头表改过（指纹不同）就是另一份提案，照常登记。
+  const changed = await proposeStageAuthorization({
+    ...(await frameProposalInput(seed.authorizationId, 'wake-4:frames')),
+    storyboard: { storyboardId: 'board', fingerprint: 'fp-2' },
+  })
+  expect(changed.id).not.toBe(left.id)
+})
+
+it('keeps at most one open first-frame authorization per storyboard when the spec differs', async () => {
+  const seed = await fixture()
+  const base = await frameProposalInput(seed.authorizationId, 'spec-1:frames')
+  const first = await proposeStageAuthorization(base)
+  const doubled = (proposalKey: string) => ({
+    ...base,
+    proposalKey,
+    nodes: base.nodes.map((node) => ({ ...node, quantity: 2 })),
+  })
+  // 还待确认的旧提案规格不同：作废，换成新提案，不会留下两份都能确认的授权。
+  const second = await proposeStageAuthorization(doubled('spec-2:frames'))
+  expect(second.id).not.toBe(first.id)
+  expect(await (await request(first.id)).json()).toMatchObject({ status: 'ended' })
+  // 已经确认在跑的：规格不同的新提案被拒绝，不并行登记第二份。
+  await markActive(second.id)
+  await expect(
+    proposeStageAuthorization({ ...base, proposalKey: 'spec-3:frames' }),
+  ).rejects.toThrow('stage_authorization_storyboard_busy')
+  expect(await (await request(second.id)).json()).toMatchObject({ status: 'active' })
+})
+
+it('folds leftover open first-frame authorizations into one when reusing a matching proposal', async () => {
+  const seed = await fixture()
+  const base = await frameProposalInput(seed.authorizationId, 'legacy-1:frames')
+  const matching = await proposeStageAuthorization(base)
+  // 修复前可能留下的第二份：同一张表、同一份镜头表，规格不同，仍待确认。
+  const [row] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, matching.id))
+  const leftover = crypto.randomUUID()
+  await db.insert(schema.agent_stage_authorizations).values({
+    ...row!,
+    id: leftover,
+    proposal_key: 'legacy-2:frames',
+    created_at: row!.created_at + 1,
+    state: {
+      ...row!.state,
+      id: leftover,
+      charges: row!.state.charges?.map((charge) => ({ ...charge, quantity: 2 })),
+    },
+  })
+  const again = await proposeStageAuthorization({ ...base, proposalKey: 'legacy-3:frames' })
+  expect(again.id).toBe(matching.id)
+  expect(await (await request(leftover)).json()).toMatchObject({ status: 'ended' })
+  // 留下的那份已经确认在跑：同样不复用、不并行，拒绝这次提案。
+  await db
+    .update(schema.agent_stage_authorizations)
+    .set({ state: { ...row!.state, id: leftover, status: 'pending' } })
+    .where(eq(schema.agent_stage_authorizations.id, leftover))
+  await markActive(leftover)
+  await expect(
+    proposeStageAuthorization({ ...base, proposalKey: 'legacy-4:frames' }),
+  ).rejects.toThrow('stage_authorization_storyboard_busy')
+})
+
+it('does not reuse an expired active first-frame authorization', async () => {
+  const seed = await fixture()
+  const first = await proposeStageAuthorization(
+    await frameProposalInput(seed.authorizationId, 'old-wake:frames'),
+  )
+  // 确认后就没人再动，早过了有效期，名义上还是 active。
+  await markActive(first.id, Date.now() - STAGE_AUTHORIZATION_ACTIVE_TTL_MS - 1000)
+  const next = await proposeStageAuthorization(
+    await frameProposalInput(seed.authorizationId, 'new-wake:frames'),
+  )
+  expect(next.id).not.toBe(first.id)
+  expect(next.status).toBe('pending')
+  expect(await (await request(first.id)).json()).toMatchObject({ status: 'expired' })
+})
+
 it('submits an authorized image and a fractional reference video through confirm, preflight and consume', async () => {
   const { InMemoryObjectStore } = await import('../helpers/inMemoryObjectStore')
   const { setObjectStoreForTesting } = await import('../../lib/objectStore')
@@ -1522,82 +1696,94 @@ it('submits an authorized image and a fractional reference video through confirm
       attempts: [{ nodeId: 'out', taskIds: [expect.any(String)], submittedQuantity: 1 }],
     })
 
-    const video = await fixture(['clip'], undefined, async ({ projectId }) => {
-      const [project] = await db
-        .select({ conversationId: schema.canvas_projects.conversation_id })
-        .from(schema.canvas_projects)
-        .where(eq(schema.canvas_projects.id, projectId))
-      if (!project?.conversationId) throw new Error('missing conversation')
-      await createNodes
-        .create({
-          mode: 'image' as const,
-          experience: 'canvas' as const,
-          conversationId: project.conversationId,
-          turnId: 'turn',
-          deviceId: 'stage-device',
-          userId: 'stage-owner',
-          canvas: { selectedNodeIds: [], elements: [] },
-          images: createAgentImageSource({
-            references: [],
-            history: [],
+    // 报价按部署里真在用的视频模型算：带参考图的 Grok 要先在渠道里。
+    const video = await withStageVideoChannels(() =>
+      fixture(['clip'], undefined, async ({ projectId }) => {
+        const [project] = await db
+          .select({ conversationId: schema.canvas_projects.conversation_id })
+          .from(schema.canvas_projects)
+          .where(eq(schema.canvas_projects.id, projectId))
+        if (!project?.conversationId) throw new Error('missing conversation')
+        await createNodes
+          .create({
+            mode: 'image' as const,
+            experience: 'canvas' as const,
             conversationId: project.conversationId,
+            turnId: 'turn',
+            deviceId: 'stage-device',
             userId: 'stage-owner',
-          }),
-        })
-        .execute(
-          'video',
-          { nodes: [{ id: 'clip', type: 'video', prompt: '海浪', videoMode: 'reference' }] },
-          undefined,
-          undefined,
-        )
-      await accessCanvasDocument('stage-owner', projectId, async (current) => {
-        const doc = new Y.Doc()
-        Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
-        const vector = Y.encodeStateVector(doc)
-        const origin = canvasOrigin('system', 'fixture')
-        const clip = readCanvasDocument(doc).nodes.find((item) => item.id === 'clip')
-        if (!clip || clip.type !== 'image') throw new Error('missing clip')
-        updateCanvasNode(
-          doc,
-          'clip',
-          {
-            data: {
-              ...clip.data,
-              meta: {
-                ...clip.data.meta,
-                nodeVideoMode: 'reference',
-                nodeVideoDraft: JSON.stringify({
-                  model: 'grok-imagine-video',
-                  duration: 1.9,
-                  resolution: '720p',
-                  aspectRatio: '16:9',
-                }),
+            // 工作台选的是带参考图的 Grok：参考生模式按它校验，不按排在第一个的 Lite。
+            params: {
+              video: {
+                model: 'grok-imagine-video',
+                durationSeconds: 5,
+                resolution: '720p',
+                aspectRatio: '16:9',
               },
             },
-          },
-          origin,
-        )
-        for (const id of ['ref-a', 'ref-b']) {
-          insertCanvasNode(
+            canvas: { selectedNodeIds: [], elements: [] },
+            images: createAgentImageSource({
+              references: [],
+              history: [],
+              conversationId: project.conversationId,
+              userId: 'stage-owner',
+            }),
+          })
+          .execute(
+            'video',
+            { nodes: [{ id: 'clip', type: 'video', prompt: '海浪', videoMode: 'reference' }] },
+            undefined,
+            undefined,
+          )
+        await accessCanvasDocument('stage-owner', projectId, async (current) => {
+          const doc = new Y.Doc()
+          Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+          const vector = Y.encodeStateVector(doc)
+          const origin = canvasOrigin('system', 'fixture')
+          const clip = readCanvasDocument(doc).nodes.find((item) => item.id === 'clip')
+          if (!clip || clip.type !== 'image') throw new Error('missing clip')
+          updateCanvasNode(
             doc,
+            'clip',
             {
-              id,
-              type: 'image',
-              x: 0,
-              y: 0,
-              width: 200,
-              height: 200,
-              data: { name: id, mediaId: referenceMedia, fileId: cloudFile(referenceMedia) },
+              data: {
+                ...clip.data,
+                meta: {
+                  ...clip.data.meta,
+                  nodeVideoMode: 'reference',
+                  nodeVideoDraft: JSON.stringify({
+                    model: 'grok-imagine-video',
+                    duration: 1.9,
+                    resolution: '720p',
+                    aspectRatio: '16:9',
+                  }),
+                },
+              },
             },
             origin,
           )
-          connectCanvasNodes(doc, { source: id, target: 'clip' }, origin)
-        }
-        const update = Y.encodeStateAsUpdate(doc, vector)
-        doc.destroy()
-        return update
-      })
-    })
+          for (const id of ['ref-a', 'ref-b']) {
+            insertCanvasNode(
+              doc,
+              {
+                id,
+                type: 'image',
+                x: 0,
+                y: 0,
+                width: 200,
+                height: 200,
+                data: { name: id, mediaId: referenceMedia, fileId: cloudFile(referenceMedia) },
+              },
+              origin,
+            )
+            connectCanvasNodes(doc, { source: id, target: 'clip' }, origin)
+          }
+          const update = Y.encodeStateAsUpdate(doc, vector)
+          doc.destroy()
+          return update
+        })
+      }),
+    )
     const videoState = await (await request(video.authorizationId)).json()
     const videoBinding = videoState.bindings.find(
       (binding: { nodeId: string }) => binding.nodeId === 'clip',

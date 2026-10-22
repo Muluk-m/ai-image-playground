@@ -1,0 +1,642 @@
+import type { AgentInboxTaskResultPayload } from '@image-playground/db'
+import {
+  type AgentTurnParams,
+  type AgentWakeSkipReason,
+  readCanvasDocument,
+  type StageAuthorization,
+  type StageRunNodeRecord,
+  type StageRunNodeReport,
+  type StageRunReason,
+  type StageRunRecord,
+  type StageRunReportInput,
+  type StageRunReportResult,
+  type StageRunWakeReceipt,
+  storyboardFingerprint,
+} from '@image-playground/shared'
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import * as Y from 'yjs'
+import { db, schema } from '../../db/client'
+import { accessCanvasDocument } from '../canvasSyncStore'
+import { getChannels, resolveQueueModel } from '../channels'
+import { log } from '../logger'
+import { knownInactiveModels, refreshInactiveModels } from '../model-availability'
+import type { BffTransaction } from '../private-overlay'
+import type { AgentOwner } from './conversations'
+import { enqueueAgentWake, stageRunWakeId } from './inbox'
+import {
+  hasOpenStoryboardAuthorization,
+  lockOwnedStageAuthorization,
+  StageAuthorizationError,
+  stageExecutionTokenMatches,
+} from './stage-authorizations'
+import { agentVideoAvailable, agentVideoModels, describeVideoNodeModes } from './video-models'
+import { AGENT_WAKE_CHANNEL } from './wake'
+
+/**
+ * 运行回报与唤醒（#1367）。浏览器跑完一批阶段授权内的画布节点，或开跑前就被拦下，把每个节点的
+ * 结局报上来；这里核对、记进授权、结束授权，并按唤醒规则写一条唤醒进收件箱：
+ *
+ * - 一条授权只收一次回报，收件箱里那条唤醒的 id 由授权 id 定死，重复上报不会再唤醒；
+ * - 被拦下同样唤醒；积分不足、连续唤醒到了上限时由起轮那一步跳过（见 `start-turn.ts`），
+ *   跳过的原因记回授权与运行卡，面板据此说明智能体没有查看。
+ */
+
+const table = schema.agent_stage_authorizations
+const FAILED_TASK = new Set(['failed', 'cancelled'])
+
+type StageRow = typeof table.$inferSelect
+
+/** 提案键是 `${turnId}:${callId}`：唤醒点名提出这批运行的那一轮。 */
+function proposalTurnId(row: StageRow): string {
+  const cut = row.proposal_key.lastIndexOf(':')
+  return cut > 0 ? row.proposal_key.slice(0, cut) : row.proposal_key
+}
+
+function sameNodeSet(reported: readonly StageRunNodeReport[], scope: readonly string[]): boolean {
+  const ids = new Set(reported.map((node) => node.nodeId))
+  return (
+    ids.size === reported.length &&
+    reported.length === scope.length &&
+    scope.every((id) => ids.has(id))
+  )
+}
+
+/** 授权上记下的、这批节点真正建出的任务现在是什么状态。 */
+async function submittedTaskStatuses(
+  tx: BffTransaction,
+  state: StageAuthorization,
+): Promise<ReadonlyMap<string, string>> {
+  const ids = [...new Set(state.attempts.flatMap((attempt) => attempt.taskIds))]
+  if (!ids.length) return new Map()
+  const rows = await tx
+    .select({ id: schema.tasks.id, status: schema.tasks.status })
+    .from(schema.tasks)
+    .where(inArray(schema.tasks.id, ids))
+  return new Map(rows.map((row) => [row.id, row.status]))
+}
+
+/**
+ * 回报来自浏览器，只当作「浏览器看到了什么」，凡是服务端自己记着的都以服务端为准：
+ * - 节点集合必须与授权范围完全一致；
+ * - 报「已完成」的节点必须有一个任务在服务端确实已完成；没提交过任务的不能报已完成；
+ * - 提交过任务的不能报「被拦下」或「没轮到」；
+ * - 报「失败」却一个任务都没建出来（预检被拒、提交没被接受）的，按被拦下记，不说成「已提交」；
+ * - 报「失败」而最近一次提交的任务在服务端其实还在跑或已完成的（浏览器因画布改动等没等到结果），
+ *   照记失败但标上任务的真实状态，智能体不把它说成生成失败；不拒收，免得整批回报和唤醒一起丢掉；
+ * - 「自动重试过」按授权上这个节点建出任务的尝试次数算，不信浏览器给的值。
+ */
+async function verifiedReport(
+  tx: BffTransaction,
+  state: StageAuthorization,
+  confirmed: boolean,
+  input: StageRunReportInput,
+): Promise<StageRunNodeRecord[]> {
+  if (!sameNodeSet(input.nodes, state.nodeIds))
+    throw new StageAuthorizationError('stage_run_report_scope', 422)
+  const statuses = await submittedTaskStatuses(tx, state)
+  return input.nodes.map((node) => {
+    const submitted = state.attempts.filter(
+      (attempt) => attempt.nodeId === node.nodeId && attempt.taskIds.length > 0,
+    )
+    const succeeded = submitted.some((attempt) =>
+      attempt.taskIds.some((taskId) => statuses.get(taskId) === 'completed'),
+    )
+    if (
+      (!confirmed && (node.outcome === 'completed' || node.outcome === 'failed')) ||
+      (node.outcome === 'completed' && !succeeded) ||
+      ((node.outcome === 'blocked' || node.outcome === 'skipped') && submitted.length > 0)
+    )
+      throw new StageAuthorizationError('stage_run_report_mismatch', 422)
+    const outcome = node.outcome === 'failed' && submitted.length === 0 ? 'blocked' : node.outcome
+    const latest = (submitted.at(-1)?.taskIds ?? []).flatMap((taskId) => {
+      const status = statuses.get(taskId)
+      return status ? [status] : []
+    })
+    const task =
+      outcome !== 'failed'
+        ? undefined
+        : latest.includes('completed')
+          ? ('completed' as const)
+          : latest.some((status) => !FAILED_TASK.has(status))
+            ? ('running' as const)
+            : undefined
+    return {
+      nodeId: node.nodeId,
+      outcome,
+      ...(outcome !== 'completed' && node.reason ? { reason: node.reason } : {}),
+      ...(submitted.length > 1 ? { retried: true } : {}),
+      ...(task ? { task } : {}),
+    }
+  })
+}
+
+/**
+ * 收下一批运行的回报。会话行先锁：唤醒的序号与并发的入队排成一列，锁的先后也与 `wake.ts` 一致。
+ * 同一条授权的第二次回报原样交回、不再唤醒。
+ */
+export async function reportStageRun(
+  userId: string,
+  id: string,
+  input: StageRunReportInput & { readonly deviceId?: string },
+): Promise<{ readonly authorization: StageAuthorization } & StageRunReportResult> {
+  return db.transaction(async (tx) => {
+    const [head] = await tx
+      .select({ conversationId: table.conversation_id })
+      .from(table)
+      .where(and(eq(table.id, id), eq(table.user_id, userId)))
+    if (!head) throw new StageAuthorizationError('stage_authorization_not_found', 404)
+    await tx
+      .select({ id: schema.agent_conversations.id })
+      .from(schema.agent_conversations)
+      .where(eq(schema.agent_conversations.id, head.conversationId))
+      .for('update')
+    const row = await lockOwnedStageAuthorization(tx, userId, id)
+    if (row.state.run) return { authorization: row.state, wake: 'duplicate' as const }
+    // 授权已被用户结束或已过期：不再收回报、不再唤醒（结束就是用户不要智能体接着看这批了）。
+    if (row.state.status === 'ended' || row.state.status === 'expired')
+      throw new StageAuthorizationError('stage_authorization_inactive')
+    const confirmed = row.execution_token_hash !== null
+    if (
+      confirmed
+        ? !input.executionToken || !stageExecutionTokenMatches(row, input.executionToken)
+        : input.executionToken !== undefined
+    )
+      throw new StageAuthorizationError('stage_authorization_inactive')
+    const now = Date.now()
+    const run: StageRunRecord = {
+      reportedAt: now,
+      nodes: await verifiedReport(tx, row.state, confirmed, input),
+    }
+    const authorization: StageAuthorization = {
+      ...row.state,
+      status: row.state.status === 'exhausted' ? 'exhausted' : 'ended',
+      run,
+      audit: [
+        ...row.state.audit,
+        { kind: 'reported', at: now },
+        ...(row.state.status === 'exhausted' ? [] : [{ kind: 'ended' as const, at: now }]),
+      ],
+    }
+    await tx.update(table).set({ state: authorization, updated_at: now }).where(eq(table.id, id))
+    const payload: AgentInboxTaskResultPayload = {
+      turnId: proposalTurnId(row),
+      taskIds: [],
+      deviceId: input.deviceId ?? '',
+      stageRun: { authorizationId: id, eventVersion: 1 },
+    }
+    await enqueueAgentWake(tx, row.conversation_id, payload, now)
+    await tx.execute(sql`SELECT pg_notify(${AGENT_WAKE_CHANNEL}, ${row.conversation_id})`)
+    log.info(
+      {
+        event: 'agent.stage.reported',
+        authorizationId: id,
+        conversationId: row.conversation_id,
+        userId,
+        outcomes: run.nodes.map((node) => node.outcome),
+        nodes: stageRunLogNodes(run.nodes),
+      },
+      'Stage run reported; agent wake queued',
+    )
+    return { authorization, wake: 'queued' as const }
+  })
+}
+
+/** 日志里逐节点记结局与原因：admin 日志页按 authorizationId 或原因（例如 model_unavailable）就查得到。 */
+function stageRunLogNodes(nodes: readonly StageRunNodeReport[]) {
+  return nodes.map((node) => ({
+    nodeId: node.nodeId,
+    outcome: node.outcome,
+    ...(node.reason ? { reason: node.reason } : {}),
+  }))
+}
+
+/** 同一条授权的同一组拦截只记一次（进程内，满了整个清掉；浏览器那边也按同样的键去重）。 */
+const notedBlocks = new Set<string>()
+const NOTED_BLOCKS_MAX = 5_000
+
+/**
+ * 需要确认的运行卡在开跑前就被拦下（按钮置灰、用户看得到原因）时，浏览器报上来记一条日志。
+ * 不结束授权、不唤醒智能体，也不写授权：用户改好画布后同一张卡还能确认。以前这种拦截服务端完全没有痕迹。
+ */
+export async function noteBlockedStageRun(
+  userId: string,
+  id: string,
+  nodes: readonly StageRunNodeReport[],
+): Promise<{ readonly logged: boolean }> {
+  const [row] = await db
+    .select({ conversationId: table.conversation_id, state: table.state })
+    .from(table)
+    .where(and(eq(table.id, id), eq(table.user_id, userId)))
+  if (!row) throw new StageAuthorizationError('stage_authorization_not_found', 404)
+  // 只有还在等确认的卡才会因为开跑前的拦截置灰；确认过、结束或过期的不再记。
+  if (row.state.status !== 'pending')
+    throw new StageAuthorizationError('stage_authorization_inactive')
+  const authorized = new Set(row.state.nodeIds)
+  if (nodes.some((node) => !authorized.has(node.nodeId)))
+    throw new StageAuthorizationError('stage_run_report_mismatch', 422)
+  const key = `${id}:${nodes.map((node) => `${node.nodeId}=${node.reason ?? ''}`).join(',')}`
+  if (notedBlocks.has(key)) return { logged: false }
+  if (notedBlocks.size >= NOTED_BLOCKS_MAX) notedBlocks.clear()
+  notedBlocks.add(key)
+  log.info(
+    {
+      event: 'agent.stage.blocked',
+      authorizationId: id,
+      conversationId: row.conversationId,
+      userId,
+      status: row.state.status,
+      nodes: stageRunLogNodes(nodes),
+    },
+    'Stage run blocked before confirmation',
+  )
+  return { logged: true }
+}
+
+/** 回报唤醒到了哪一步。还没回报时返回 null。 */
+export async function readStageRunWakeReceipt(
+  userId: string,
+  id: string,
+): Promise<StageRunWakeReceipt | null> {
+  const inbox = schema.agent_inbox
+  const [row] = await db
+    .select({
+      state: table.state,
+      status: inbox.status,
+      turnId: inbox.consumed_turn_id,
+    })
+    .from(table)
+    .innerJoin(schema.agent_conversations, eq(schema.agent_conversations.id, table.conversation_id))
+    .leftJoin(
+      inbox,
+      and(
+        eq(inbox.conversation_id, table.conversation_id),
+        eq(inbox.id, stageRunWakeId(id)),
+        eq(inbox.kind, 'task_result'),
+      ),
+    )
+    .where(
+      and(
+        eq(table.id, id),
+        eq(table.user_id, userId),
+        eq(schema.agent_conversations.user_id, userId),
+        isNull(schema.agent_conversations.deleted_at),
+      ),
+    )
+  if (!row?.state.run) return null
+  const skipped = row.state.run.wakeSkipped
+  if (skipped || !row.status || row.status === 'cancelled' || row.status === 'failed')
+    return { status: 'skipped', ...(skipped ? { reason: skipped } : {}) }
+  if (row.status === 'consumed' && row.turnId) return { status: 'consumed', turnId: row.turnId }
+  return { status: 'pending' }
+}
+
+/** 运行卡（runNodes 的结果块）里记着这条授权的那几条消息。 */
+async function runCards(tx: BffTransaction, conversationId: string, authorizationId: string) {
+  return tx
+    .select({ id: schema.agent_messages.id, content: schema.agent_messages.content })
+    .from(schema.agent_messages)
+    .where(
+      and(
+        eq(schema.agent_messages.conversation_id, conversationId),
+        sql`${schema.agent_messages.content} @> ${JSON.stringify([
+          { type: 'toolResult', canvasRun: { authorizationId } },
+        ])}::jsonb`,
+      ),
+    )
+}
+
+/**
+ * 唤醒没有起轮（积分不足、连续唤醒到了上限）：原因记回授权的回报与运行卡，面板说明智能体没有查看。
+ * 在跳过唤醒的同一个事务里调用。
+ */
+export async function markStageRunWakeSkipped(
+  tx: BffTransaction,
+  conversationId: string,
+  authorizationId: string,
+  reason: AgentWakeSkipReason,
+): Promise<void> {
+  const [row] = await tx
+    .select({ state: table.state })
+    .from(table)
+    .where(and(eq(table.id, authorizationId), eq(table.conversation_id, conversationId)))
+    .for('update')
+  if (row?.state.run && !row.state.run.wakeSkipped)
+    await tx
+      .update(table)
+      .set({ state: { ...row.state, run: { ...row.state.run, wakeSkipped: reason } } })
+      .where(eq(table.id, authorizationId))
+  for (const card of await runCards(tx, conversationId, authorizationId)) {
+    const content = card.content.map((block) =>
+      block.type === 'toolResult' && block.canvasRun?.authorizationId === authorizationId
+        ? { ...block, wakeSkipped: reason }
+        : block,
+    )
+    await tx
+      .update(schema.agent_messages)
+      .set({ content })
+      .where(
+        and(
+          eq(schema.agent_messages.conversation_id, conversationId),
+          eq(schema.agent_messages.id, card.id),
+        ),
+      )
+  }
+}
+
+const REASON_TEXT: Record<StageRunReason, string> = {
+  missing_frame: '首帧或尾帧帧位为空，没有可用的帧图',
+  missing_media: '引用的素材没有可用的图',
+  missing_prompt: '没有提示词',
+  model_unavailable: '模型或参数不可用',
+  input_limit: '参考图超过模型上限',
+  local_upload: '用了只在浏览器里的临时上传图，服务端看不到',
+  busy: '节点正在生成或上传，不能同时再跑',
+  insufficient_balance: '积分不足',
+  dependency_cycle: '节点之间的连线成环',
+  spec_changed: '画布上的模型、数量或参数在授权之后改了，和授权时不一致',
+  authorization: '授权已失效或不在范围内',
+  upstream_failed: '它依赖的上游节点没有出结果',
+  generation_failed: '生成失败',
+  budget_exceeded: '自动重试会超出这次授权的预算上限',
+  retry_limit: '已经自动重试过一次',
+  canvas_changed: '运行途中画布被改动，结果没能对上',
+  stopped: '这一批停下了，没轮到它',
+}
+
+function nodeLine(name: string, node: StageRunNodeRecord): string {
+  const reason = node.reason ? REASON_TEXT[node.reason] : undefined
+  if (node.outcome === 'failed' && node.task === 'running')
+    return `- 「${name}」：已提交，任务还在生成，这一批没等到它的结果${reason ? `（${reason}）` : ''}；不要说它失败或已完成，结果出来会出现在节点上。`
+  if (node.outcome === 'failed' && node.task === 'completed')
+    return `- 「${name}」：已提交，任务出了结果，但没能成为节点主结果${reason ? `（${reason}）` : ''}；请用户在节点上查看并选用。`
+  switch (node.outcome) {
+    case 'completed':
+      return `- 「${name}」：已完成，结果已成为节点主结果${node.retried ? '（自动重试一次后成功）' : ''}。`
+    case 'failed':
+      return `- 「${name}」：已提交但没有结果${node.retried ? '，授权内已自动重试一次，仍然失败' : ''}${reason ? `（${reason}）` : ''}。`
+    case 'blocked':
+      return `- 「${name}」：开跑前被拦下，没有提交${reason ? `：${reason}` : ''}。`
+    case 'skipped':
+      return `- 「${name}」：没有运行${reason ? `：${reason}` : ''}。`
+  }
+}
+
+/**
+ * 被拦在「模型或参数不可用」时，智能体要知道这个部署此刻真能用哪些模型，否则只会让用户「换个可用模型」。
+ * 与页面的 `/api/channels` 同一份口径：运营停用的模型不算可用。
+ */
+function availableModelsLine(): string {
+  const inactive = knownInactiveModels()
+  const images = [
+    ...new Set(
+      getChannels().flatMap((channel) =>
+        channel.models.flatMap((model) =>
+          (model.media ?? 'image') === 'image' &&
+          !inactive.has(model.id) &&
+          resolveQueueModel('image', model.id)
+            ? [model.id]
+            : [],
+        ),
+      ),
+    ),
+  ]
+  const videos = agentVideoAvailable()
+    ? agentVideoModels().map(
+        ({ target, support }) => `${target.model}（${describeVideoNodeModes(support)}）`,
+      )
+    : []
+  return `当前部署实际可用的出图模型：${images.length ? images.join('、') : '无'}；视频模型及支持的模式：${videos.length ? videos.join('、') : '无'}。`
+}
+
+/**
+ * 原标签页只会在「页面上一个可用视频模型都没有」时把视频节点拦在这里；不支持的视频模式在提案时就被拒了，
+ * 不会走到这一步，所以改 videoMode 没有用。
+ */
+const MODEL_BLOCK_GUIDANCE =
+  '被拦在「模型或参数不可用」的节点：图片节点按用户工作台选中的出图模型提交，你改不了，只能请用户在工作台换成上面列出的可用出图模型；视频节点被拦是因为用户页面上当时没有任何可用的视频模型，与它的视频模式（videoMode）无关，不要改 videoMode。用户要的是出图或改图（例如参考一张图修改另一张图）时，目标应是图片节点：用 createNodes 建 image 节点、连好参考与原图后再 runNodes，不要用视频节点。'
+const NO_VIDEO_BLOCK_GUIDANCE =
+  '当前部署确实没有可用的视频模型（运营停用或没有配置），这些视频节点现在跑不了，也不能再建视频节点：用户要的是出图或改图时，把它转成 image 节点（用 createNodes 建 image 节点、连好参考与原图）；用户就是要视频时，告诉他暂时没有可用的视频模型。'
+const STALE_VIDEO_BLOCK_GUIDANCE =
+  '服务端此刻有可用的视频模型，是用户页面当时的模型清单过期或刚恢复：运行卡报价前页面会重新读取清单，视频节点原样重新发起即可，不要改 videoMode。'
+
+export interface StageRunWakeContent {
+  readonly text: string
+  readonly mode: 'image' | 'video'
+  readonly params: AgentTurnParams
+}
+
+/**
+ * 唤醒轮看到的那一段：哪个阶段、每个节点（用节点名）的结局与原因，以及该怎么说、不该做什么。
+ * 说明里仍要求新的付费运行先问用户，唯一的例外是直接出图开着、素材批全部完成时接着出分镜表首帧；
+ * 这一轮里真发起 runNodes 或 runStoryboardFrames 时，
+ * 是否直接开跑沿用提案那一轮的直接出图偏好（见 {@link stageRunWakeParams}）。
+ */
+export async function stageRunWakeContent(
+  conversationId: string,
+  owner: AgentOwner,
+  notice: NonNullable<AgentInboxTaskResultPayload['stageRun']>,
+): Promise<StageRunWakeContent | null> {
+  if (owner.kind !== 'user' || notice.eventVersion !== 1) return null
+  const [row] = await db
+    .select({ state: table.state })
+    .from(table)
+    .innerJoin(schema.agent_conversations, eq(schema.agent_conversations.id, table.conversation_id))
+    .where(
+      and(
+        eq(table.id, notice.authorizationId),
+        eq(table.user_id, owner.userId),
+        eq(table.conversation_id, conversationId),
+        isNull(schema.agent_conversations.deleted_at),
+      ),
+    )
+  const state = row?.state
+  const run = state?.run
+  if (!state || !run) return null
+  const nameOf = new Map(state.nodeIds.map((id, index) => [id, state.nodeNames[index] || id]))
+  const count = (outcome: StageRunNodeReport['outcome']) =>
+    run.nodes.filter((node) => node.outcome === outcome).length
+  const completed = count('completed')
+  // 报失败但任务其实还在跑或已出结果的，不算进失败，单独说。
+  const unsettled = run.nodes.filter((node) => node.outcome === 'failed' && node.task).length
+  const failed = count('failed') - unsettled
+  const blocked = count('blocked')
+  const skipped = count('skipped')
+  const overBudget = run.nodes.some(
+    (node) => node.outcome === 'failed' && !node.task && node.reason === 'budget_exceeded',
+  )
+  // 首帧阶段的节点 runNodes 不收，要重出得走 runStoryboardFrames。
+  const rerun = state.storyboard ? 'runStoryboardFrames（单镜重出传 shotIds）' : 'runNodes'
+  const guidance = [
+    '汇报规则：用节点名称指代节点，不要说内部 id；只有标为「已完成」的节点才能说已完成或已生成，提交了但没有结果的只能说「已提交」或「失败」。',
+  ]
+  if (blocked > 0)
+    guidance.push(
+      '被拦下的节点：逐个说清原因，以及用户要补什么或改什么（例如先给首帧节点出图、补素材、换可用的模型）。',
+    )
+  const modelBlockedIds = new Set(
+    run.nodes.flatMap((node) =>
+      node.outcome === 'blocked' && node.reason === 'model_unavailable' ? [node.nodeId] : [],
+    ),
+  )
+  const modelBlocked = modelBlockedIds.size > 0
+  // 拦在模型上的视频节点：先照页面的口径重读停用清单，再看服务端此刻到底有没有可用视频模型。
+  const videoBlocked = Boolean(
+    state.bindings?.some(
+      (binding) => binding.kind === 'video' && modelBlockedIds.has(binding.nodeId),
+    ),
+  )
+  if (modelBlocked) await refreshInactiveModels()
+  const noVideoModel = videoBlocked && !agentVideoAvailable()
+  if (modelBlocked) guidance.push(availableModelsLine(), MODEL_BLOCK_GUIDANCE)
+  if (videoBlocked)
+    guidance.push(noVideoModel ? NO_VIDEO_BLOCK_GUIDANCE : STALE_VIDEO_BLOCK_GUIDANCE)
+  // 直接出图开着、这一批一个都没提交也没花积分、只是卡在模型或模式上：智能体自己改得了的就在这一轮改好重跑，
+  // 不用停下来问一句「确认后我再处理」。花过钱、有失败或已完成的批次仍按老规矩先问。
+  // 只有整批每个节点都是卡在模型上才自修：混着缺素材、缺提示词、超参考图上限的，改了模型也跑不起来。
+  // 没有可用视频模型时自修只会再拦一次：关掉，按上面的说明转成图片节点或告诉用户，新的运行先问。
+  const selfFix =
+    modelBlocked &&
+    !noVideoModel &&
+    state.turn?.autoSubmit === true &&
+    state.spentCredits === 0 &&
+    !state.storyboard &&
+    run.nodes.every((node) => node.outcome === 'blocked' && node.reason === 'model_unavailable')
+  if (failed > 0)
+    guidance.push(
+      overBudget
+        ? `失败节点的自动重试超出了这次授权的预算：说明还差什么，请用户同意后再用 ${rerun} 为这些节点发起新的阶段授权。`
+        : '失败节点已在授权内自动重试过至多一次，不要再自行重试或重新提交：说明失败的是哪几个，提议下一步，等用户决定。',
+    )
+  if (unsettled > 0)
+    guidance.push(
+      '没等到结果的节点：任务已提交，不是生成失败；还在生成的等结果出现在节点上，已出结果的请用户在节点上查看并选用，不要重新提交。',
+    )
+  if (skipped > 0)
+    guidance.push(
+      `没有运行的节点：说明它们为什么没轮到；要继续时请用户同意后再用 ${rerun} 发起新的阶段授权。`,
+    )
+  // 直接出图开着、为一张还没定稿的分镜表出的素材全部出完（阶段名是「素材」，整批都是这张表引用的素材，表里其余素材已经有图）：
+  // 接着出首帧是同一条流程的下一步，不该停下来等一句「继续」。普通节点批次、首帧阶段本身、已经定稿过的分镜表都不在此列；出视频等别的付费阶段仍要先问。
+  const storyboardId =
+    completed > 0 &&
+    completed === run.nodes.length &&
+    state.stage === '素材' &&
+    state.turn?.autoSubmit === true &&
+    !state.storyboard
+      ? await draftStoryboardUsing(owner.userId, state.projectId, state.nodeIds)
+      : undefined
+  if (storyboardId)
+    guidance.push(
+      `这一批全部完成，它们是分镜表 ${storyboardId} 引用的素材，这一轮沿用直接出图：分镜表引用的素材都有图之后，本轮直接调用 runStoryboardFrames（storyboardId: "${storyboardId}"，出整张表的首帧，不传 shotIds），不要停下来等用户说继续，也不要手工建首帧节点。不要重跑已完成的节点；除了这张分镜表的首帧，这一轮不要自行发起别的付费运行，出视频等其他阶段先向用户说明并等他同意。`,
+    )
+  else if (selfFix)
+    guidance.push(
+      '这一批一个节点都没提交、没花积分，这一轮沿用直接出图：能按上面改好的（该是图片节点的改成图片节点；视频节点照原样）就在这一轮改好后直接用 runNodes 重新发起，不要停下来等用户确认；只有工作台选的出图模型本身不可用这类你改不了的，才说明需要用户换成哪个可用模型。除此之外不要发起别的付费运行。',
+    )
+  else guidance.push('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  return {
+    text: [
+      '（系统通知，不是用户说的话）你发起的画布节点运行这一批已经结束，授权随之结束。',
+      `阶段「${state.stage}」，授权 ${state.id}，预算上限 ${state.budgetCap} 积分，已用 ${state.spentCredits} 积分。共 ${run.nodes.length} 个节点：已完成 ${completed}，失败 ${failed}，${unsettled > 0 ? `没等到结果 ${unsettled}，` : ''}被拦下 ${blocked}，未运行 ${skipped}。`,
+      ...run.nodes.map((node) => nodeLine(nameOf.get(node.nodeId) ?? node.nodeId, node)),
+      ...guidance,
+    ].join('\n'),
+    mode:
+      state.bindings?.length && state.bindings.every((binding) => binding.kind === 'video')
+        ? 'video'
+        : 'image',
+    params: stageRunWakeParams(state),
+  }
+}
+
+/**
+ * 这批节点是不是某一张还没定稿的分镜表的素材批：批里每个节点都得是这张表引用的人物或地点素材，
+ * 混进了普通节点或别的素材就不算；表里这批之外的素材也得已经有图，否则首帧还开不了，不自动推进。只有恰好一张表命中时才返回它；
+ * 没有命中、或多张草稿表共用这批素材而无法确定是哪一张时，都不接着出首帧，交给用户决定。
+ * 画布只解码一次，按 id 和分镜表建好索引再逐张核对，候选多、节点多时也不重复扫描。
+ * 读画布出错时记一条告警再按没有处理：不自动推进付费阶段是更安全的退路。
+ */
+async function draftStoryboardUsing(
+  userId: string,
+  projectId: string,
+  nodeIds: readonly string[],
+): Promise<string | undefined> {
+  if (!nodeIds.length) return undefined
+  const doc = new Y.Doc()
+  try {
+    Y.applyUpdate(doc, await accessCanvasDocument(userId, projectId))
+    const graph = readCanvasDocument(doc)
+    const byId = new Map(graph.nodes.map((node) => [node.id, node]))
+    // 已经出过图的首帧或宫格所属的分镜表：这类表是重出某几镜，范围要用户定，不自动整表重出。
+    const framed = new Set<string>()
+    for (const node of graph.nodes)
+      if (
+        (node.type === 'image' || node.type === 'video') &&
+        node.data.meta?.storyboardId &&
+        (node.data.meta.storyboardRole === 'frame' || node.data.meta.storyboardRole === 'grid') &&
+        (node.data.fileId || node.data.mediaId)
+      )
+        framed.add(node.data.meta.storyboardId)
+    const batch = new Set(nodeIds)
+    const hasImage = (id: string) => {
+      const node = byId.get(id)
+      return node?.type === 'image' && Boolean(node.data.fileId || node.data.mediaId)
+    }
+    const matches = graph.nodes.flatMap((node) => {
+      // 没有镜头的表不是任何素材批的去处（集合为空时 every 恒为真，这里先排除）。
+      if (node.type !== 'storyboard' || !node.data.shots.length || framed.has(node.id)) return []
+      const fingerprint = storyboardFingerprint(node.data.shots)
+      if (node.data.confirmed?.fingerprint === fingerprint) return []
+      const assets = new Set(
+        node.data.shots.flatMap((shot) => [
+          ...shot.lookIds,
+          ...(shot.locationId ? [shot.locationId] : []),
+        ]),
+      )
+      if (!nodeIds.every((id) => assets.has(id))) return []
+      // 这批之外的素材得早就有图：这批自己的结果可能还没同步回画布，按回报算已完成，不在这里查。
+      for (const asset of assets) if (!batch.has(asset) && !hasImage(asset)) return []
+      return [{ id: node.id, fingerprint }]
+    })
+    if (matches.length > 1)
+      log.info(
+        { projectId, nodeIds, storyboardIds: matches.map((board) => board.id) },
+        'stage run wake: asset batch used by several draft storyboards, not continuing to first frames',
+      )
+    const board = matches.length === 1 ? matches[0] : undefined
+    if (!board) return undefined
+    // 同一张表、同一份镜头表已经有待确认或进行中的首帧授权（比如上一轮唤醒已经接过）：不再提示接一次。
+    // 这只是省一次多余调用的提示，读取时按有效期收回过期授权；真正防重复扣费的是登记提案时在项目锁内的去重。
+    return (await hasOpenStoryboardAuthorization(userId, projectId, {
+      storyboardId: board.id,
+      fingerprint: board.fingerprint,
+    }))
+      ? undefined
+      : board.id
+  } catch (err) {
+    log.warn(
+      { err, projectId, nodeIds },
+      'stage run wake: failed to read canvas for storyboard follow-up, not continuing to first frames',
+    )
+    return undefined
+  } finally {
+    doc.destroy()
+  }
+}
+
+/**
+ * 唤醒轮沿用提案那一轮的直接出图偏好与出图参数（模型、工作台张数、视频参数）：
+ * 开着时这一轮里的 runNodes 照样直接开跑，关着时照样等确认卡，报价也和原标签页提交的规格一致。
+ * 这个字段出现之前登记的授权没有记下，按关着算，宁可多一张确认卡。
+ */
+function stageRunWakeParams(state: StageAuthorization): AgentTurnParams {
+  const turn = state.turn
+  if (!turn) return { autoSubmit: false }
+  return {
+    autoSubmit: turn.autoSubmit,
+    ...(turn.model ? { model: turn.model } : {}),
+    ...(turn.canvasImageModel ? { canvasImageModel: turn.canvasImageModel } : {}),
+    ...(turn.canvasImageCount !== undefined ? { canvasImageCount: turn.canvasImageCount } : {}),
+    ...(turn.video ? { video: turn.video } : {}),
+  }
+}

@@ -339,12 +339,16 @@ describe('runMigrations', () => {
   })
 
   it('migrates an empty database through 0073 and then 0074', async () => {
-    expect(journal.entries.at(-2)).toMatchObject({
+    // 按位置找这两条，后面再加迁移不必改这里。
+    const reconcileAt = journal.entries.findIndex(
+      (entry) => entry.tag === '0073_reconcile_schedule',
+    )
+    expect(journal.entries[reconcileAt]).toMatchObject({
       idx: 73,
       when: 1792400000000,
       tag: '0073_reconcile_schedule',
     })
-    expect(journal.entries.at(-1)).toMatchObject({
+    expect(journal.entries[reconcileAt + 1]).toMatchObject({
       idx: 74,
       when: 1792500000000,
       tag: '0074_agent_stage_authorizations',
@@ -353,11 +357,11 @@ describe('runMigrations', () => {
       SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id
     `
     expect(rows).toHaveLength(journal.entries.length)
-    expect(migrationStamp(rows.at(-2)!)).toEqual({
+    expect(migrationStamp(rows[reconcileAt]!)).toEqual({
       hash: await migrationFileHash('0073_reconcile_schedule'),
       created_at: '1792400000000',
     })
-    expect(migrationStamp(rows.at(-1)!)).toEqual({
+    expect(migrationStamp(rows[reconcileAt + 1]!)).toEqual({
       hash: await migrationFileHash('0074_agent_stage_authorizations'),
       created_at: '1792500000000',
     })
@@ -376,13 +380,16 @@ describe('runMigrations', () => {
   // and crossed bun's five-second default under load (2014ms green, 5000ms timeout).
   it('upgrades a database already at 0073 to 0074 without replaying reconcile', async () => {
     await withEmptyDatabase('upgrade_0074', async (url) => {
+      const reconcileAt = journal.entries.findIndex(
+        (entry) => entry.tag === '0073_reconcile_schedule',
+      )
       await migrateUntil(url, '0073_reconcile_schedule')
       const client = new SQL(url, { max: 1 })
       try {
         const before = await client<{ hash: string; created_at: string | number }[]>`
           SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id
         `
-        expect(before).toHaveLength(journal.entries.length - 1)
+        expect(before).toHaveLength(reconcileAt + 1)
         expect(migrationStamp(before.at(-1)!)).toEqual({
           hash: await migrationFileHash('0073_reconcile_schedule'),
           created_at: '1792400000000',
@@ -400,8 +407,8 @@ describe('runMigrations', () => {
           SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id
         `
         expect(after).toHaveLength(journal.entries.length)
-        expect(migrationStamp(after.at(-2)!)).toEqual(migrationStamp(before.at(-1)!))
-        expect(migrationStamp(after.at(-1)!)).toEqual({
+        expect(migrationStamp(after[reconcileAt]!)).toEqual(migrationStamp(before.at(-1)!))
+        expect(migrationStamp(after[reconcileAt + 1]!)).toEqual({
           hash: await migrationFileHash('0074_agent_stage_authorizations'),
           created_at: '1792500000000',
         })
@@ -419,6 +426,18 @@ describe('runMigrations', () => {
     })
   }, 30_000)
 
+  it('indexes consumed inbox rows by turn (0075)', async () => {
+    const [index] = await connection.client<{ indexdef: string }[]>`
+      SELECT indexdef FROM pg_indexes
+      WHERE schemaname = 'public' AND indexname = 'idx_agent_inbox_consumed_turn'
+    `
+    expect(index?.indexdef).toContain('(conversation_id, consumed_turn_id)')
+    expect(index?.indexdef).toContain("WHERE (status = 'consumed'::text)")
+  })
+
+  // Same budget as the upgrade above: every rollback plus a replay of all migrations on the suite
+  // database. It finished well under a second locally but crossed bun's five-second default on a
+  // loaded runner (run 39234295912), with nothing else touching this database.
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     // Newest first, one down file per journal entry: a migration without a rollback fails here.
@@ -470,5 +489,5 @@ describe('runMigrations', () => {
       WHERE table_schema='public' AND table_name='agent_conversations' AND column_name='production'
     `
     expect(production).toEqual([{ data_type: 'jsonb' }])
-  })
+  }, 30_000)
 })

@@ -2,7 +2,7 @@ import type { Plugin } from 'vite'
 import { pageList, pageMeta } from './src/catalog'
 
 export function seoFiles(origin: string, indexing: boolean): Record<string, string> {
-  const pages = pageList.filter((page) => page.kind !== 'login')
+  const pages = pageList.filter((page) => page.kind !== 'login' && page.kind !== 'moved')
   const escape = (value: string) =>
     value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;')
   const files: Record<string, string> = {

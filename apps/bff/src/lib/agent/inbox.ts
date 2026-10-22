@@ -49,6 +49,7 @@ export interface QueuedUserMessage {
   readonly params?: AgentTurnParams
   readonly canvas?: AgentCanvasSnapshot
   readonly experience?: 'chat' | 'canvas'
+  readonly surface?: 'agent' | 'canvas'
 }
 
 export interface EnqueueUserMessage {
@@ -62,6 +63,7 @@ export interface EnqueueUserMessage {
   readonly params?: AgentTurnParams
   readonly canvas?: AgentCanvasSnapshot
   readonly experience?: 'chat' | 'canvas'
+  readonly surface?: 'agent' | 'canvas'
 }
 
 export interface InboxEntry {
@@ -196,6 +198,7 @@ export async function enqueueAgentUserMessage(
       ...(message.params ? { params: message.params } : {}),
       ...(message.canvas ? { canvas: message.canvas } : {}),
       ...(message.experience ? { experience: message.experience } : {}),
+      ...(message.surface ? { surface: message.surface } : {}),
       ...(answering ? { clarificationAnswer: true as const } : {}),
     }
     const [row] = await tx
@@ -419,6 +422,7 @@ function queuedMessageOf(row: InboxRow): QueuedUserMessage {
     ...(payload.params ? { params: payload.params } : {}),
     ...(payload.canvas ? { canvas: payload.canvas } : {}),
     ...(payload.experience ? { experience: payload.experience } : {}),
+    ...(payload.surface ? { surface: payload.surface } : {}),
   }
 }
 
@@ -542,6 +546,9 @@ export async function consecutiveAgentWakes(
   return row?.count ?? 0
 }
 
+/** 一条授权的运行回报只唤醒一次：收件箱里那条唤醒的 id 由授权 id 定死。 */
+export const stageRunWakeId = (authorizationId: string) => `stage-run:${authorizationId}`
+
 /**
  * 写一条唤醒进收件箱，排在已有的之后。调用方已经锁着会话行（见 `wake.ts`），序号不会与并发的
  * 入队撞上。返回它的 id。
@@ -554,7 +561,9 @@ export async function enqueueAgentWake(
 ): Promise<string> {
   const batchEventId = payload.batch
     ? `batch-result:${payload.batch.batchId}:${payload.batch.version}`
-    : null
+    : payload.stageRun
+      ? stageRunWakeId(payload.stageRun.authorizationId)
+      : null
   if (batchEventId) {
     const [existing] = await tx
       .select({ id: inbox.id })

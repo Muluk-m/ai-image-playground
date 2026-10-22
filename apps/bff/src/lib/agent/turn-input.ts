@@ -5,6 +5,7 @@ import {
   agentClarificationSummary,
   agentToolResultSummary,
   canvasStageRunsDirectly,
+  stripInlineReasoning,
 } from '@image-playground/shared'
 import { reservationCeiling, storedSummaryTokens } from './compaction'
 import { compactionSettings } from './compaction-settings'
@@ -26,10 +27,11 @@ import {
   ANONYMOUS_AUDIENCE,
   agentSkillInvocation,
   agentSkillLocation,
+  isCanvasOnlySkill,
   visibleAgentSkills,
 } from './skills'
 import { estimateMessageTokens } from './token-estimate'
-import { agentToolDeclarations, agentToolGuidance } from './tools'
+import { agentToolDeclarations, agentToolGuidance, isCanvasToolName } from './tools'
 import { prepareVisualEvidence, type VisualEvidenceSource } from './visual-input'
 
 /**
@@ -130,7 +132,7 @@ const SUBMIT_LINE: Readonly<Record<'draft' | 'auto', string>> = {
 }
 
 export const NODE_CANVAS_GENERATION_LINE =
-  '当前是节点画布：为画布节点生成图片或视频，包括批量生成，先用 createNodes 或 updateNodes 准备目标节点与提示词，再用 runNodes 指定节点或分组。已有素材节点就在原节点上生成，不另建图片节点；全部候选和首个主结果留在目标节点。不要用 planImageBatch 或生图工具代替，它们的结果不会写回节点。用户在对话里附的图用 createNodes 的 imageId 建成素材节点再连线，不得以“请把图放进画布并选中”作为前置条件。用户指定已有画布图片时用 importCanvasImage 收进素材，不重新生成。修改提示词、保存节点或发起运行都不等于图片已生成或已挂到节点；只有 readCanvas 读到真实结果或收图工具成功时才能说已完成，否则照回执说待确认、已开跑、已提交或失败。回复用节点名称，不用内部 ID。'
+  '当前是节点画布：为画布节点生成图片或视频，包括批量生成，先用 createNodes 或 updateNodes 准备目标节点与提示词，再用 runNodes 指定节点或分组。已有素材节点就在原节点上生成，不另建图片节点；全部候选和首个主结果留在目标节点。不要用 planImageBatch 或生图工具代替，它们的结果不会写回节点。用户在对话里附的图用 createNodes 的 imageId 建成素材节点再连线，不得以“请把图放进画布并选中”作为前置条件。用户指定已有画布图片时用 importCanvasImage 收进素材，不重新生成。分镜表流程先素材、后首帧：分镜表引用的人物、地点素材还没有图时，先用 runNodes（stage 写「素材」）给这些素材节点出图，素材批跑完被唤醒后再用 runStoryboardFrames 出首帧。分镜表出首帧只用 runStoryboardFrames，首帧节点由它自己铺，不要用 createNodes 手工搭首帧节点；默认宫格，单镜重出时 shotIds 传分镜表镜头 id，不是首帧节点 id；它拦下时照回执在同一轮接着做，不要停下来只向用户转述；确认首帧阶段授权即为分镜表定稿。修改提示词、保存节点或发起运行都不等于图片已生成或已挂到节点；只有 readCanvas 读到真实结果或收图工具成功时才能说已完成，否则照回执说待确认、已开跑、已提交或失败。回复用节点名称，不用内部 ID。'
 
 const NODE_CANVAS_DIRECT_LINE =
   '节点画布这一轮是直接出图：runNodes 登记阶段授权后由原标签页立即开跑，不弹确认卡，也不等待撤销。不使用出图模式每轮自动提交额度。不要说待确认。只有查到实际任务记录才能称已提交，真实结果才能称已完成；范围外或预算不足须重新提案。用户偏好由本轮请求决定，不要自己声称已经关掉或打开直接出图。'
@@ -149,7 +151,7 @@ export function systemPrompt(
 ): string {
   return [
     audience.experience === 'chat'
-      ? '你是对话中的创作助手。根据用户消息、本轮附件和对话历史里的图片帮助用户创作；查看图片使用对话中的真实图片 ID，不猜测图片 ID。当前是 chat，没有画布，不读取、整理或编辑画布，也不引导用户去画布。'
+      ? '你是对话中的创作助手。根据用户消息、本轮附件和对话历史里的图片帮助用户创作；查看图片使用对话中的真实图片 ID，不猜测图片 ID。'
       : '你是创作模式画布旁的助手，帮用户把想法变成画布上的文字、图片与视频。',
     '用中文回答，简短、具体，不要复述用户的话。',
     agentToolDeclarations(mode, audience).some((tool) => tool.name === 'generateVideo')
@@ -163,7 +165,7 @@ export function systemPrompt(
     // 用户自建的模板对他自己就是技能，与内置的排在同一份清单里（见 CONTEXT.md「模板」）。
     ...skillsBlock(visibleAgentSkills(mode, audience)),
     audience.experience === 'chat'
-      ? '工具结果显示在对话的产物卡片中，用户可以直接预览、下载和继续编辑；不要承诺结果已写入画布。'
+      ? '工具结果显示在对话的产物卡片中，用户可以直接预览、下载和继续编辑。'
       : '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
     audience.experience === 'canvas'
       ? autoSubmit
@@ -217,12 +219,24 @@ export function requestAgentReferences(
 export function replayTurnText(
   message: AgentMessageView,
   maskScope: 'historical' | 'retained' = 'historical',
+  /** Agent 模式这一轮没有画布工具：历史里画布工具的结果不回放，免得模型照着去调已经不存在的工具。 */
+  canvasTools = true,
 ): string {
   return message.content
+    .filter(
+      (block) =>
+        canvasTools ||
+        block.type !== 'toolResult' ||
+        !(
+          isCanvasToolName(block.toolName) ||
+          (block.toolName === 'loadSkill' && isCanvasOnlySkill(block.skill?.name))
+        ),
+    )
     .map((block) => {
       if (block.type === 'text')
         return (
-          block.text +
+          // 修复前落库的助手正文可能以推理标签开头；回放只要回复本身。
+          (message.role === 'assistant' ? stripInlineReasoning(block.text) : block.text) +
           // 回放是纯文字：那一轮附过的图，内容不在这一份输入里。
           (message.role === 'user'
             ? referenceManifest(block.references ?? [], false, maskScope)
@@ -242,9 +256,14 @@ function withSkillTexts(
   text: string,
   message: AgentMessageView,
   skillTexts: ReadonlyMap<string, string>,
+  /** 与 {@link replayTurnText} 同一条件：Agent 模式不接回画布技能的正文，哪怕调用方给了它。 */
+  canvasTools = true,
 ): string {
   const bodies = message.content.flatMap((block) => {
-    const body = block.type === 'toolResult' ? skillTexts.get(block.toolCallId) : undefined
+    if (block.type !== 'toolResult') return []
+    if (!canvasTools && block.toolName === 'loadSkill' && isCanvasOnlySkill(block.skill?.name))
+      return []
+    const body = skillTexts.get(block.toolCallId)
     return body ? [body] : []
   })
   return bodies.length ? [text, ...bodies].join('\n\n') : text
@@ -255,14 +274,20 @@ function replayed(
   history: readonly AgentMessageView[],
   selectionHistoryStart = history.length,
   skillTexts: ReadonlyMap<string, string> = NO_SKILL_TEXTS,
+  canvasTools = true,
 ): AgentMessage[] {
   const model = agentModel()
   const messages: AgentMessage[] = []
   for (const [index, message] of history.entries()) {
     const text = withSkillTexts(
-      replayTurnText(message, index >= selectionHistoryStart ? 'retained' : 'historical'),
+      replayTurnText(
+        message,
+        index >= selectionHistoryStart ? 'retained' : 'historical',
+        canvasTools,
+      ),
       message,
       skillTexts,
+      canvasTools,
     )
     if (!text) continue
     messages.push(
@@ -302,7 +327,7 @@ export function turnInitialState(
 } {
   return {
     systemPrompt: systemPrompt(mode, autoSubmit, audience, directImage),
-    messages: replayed(history, selectionHistoryStart, skillTexts),
+    messages: replayed(history, selectionHistoryStart, skillTexts, audience.experience !== 'chat'),
   }
 }
 

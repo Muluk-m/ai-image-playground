@@ -261,7 +261,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       assertExecution: execution.assert,
       recordWebSearch: (attempt) => ledger.recordSideCall('web_search', attempt),
       ...(prepared.params ? { params: prepared.params } : {}),
-      ...(prepared.canvas ? { canvas: prepared.canvas } : {}),
+      // 画布快照只交给画布模式的工具；Agent 模式这一轮不感知画布。
+      ...(prepared.canvas && audience.experience === 'canvas' ? { canvas: prepared.canvas } : {}),
       // Canvas has one authorization mechanism; per-turn image quota is chat-only.
       ...(input.autoSubmit && audience.experience !== 'canvas'
         ? { autoSubmit: createAutoSubmitBudget() }
@@ -384,9 +385,9 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
             )
             dispatchAccounting = dispatchAccounting.then(() => settled)
           },
-          onRetry: async (message) => {
+          onRetry: async (message, nextModelId) => {
             await ledger.finish(callId, message)
-            callId = await ledger.begin('conversation', model.id, context)
+            callId = await ledger.begin('conversation', nextModelId, context)
             modelCallId = callId
           },
           onCancelledBeforeDispatch: () => ledger.cancelledBeforeDispatch(callId),
@@ -926,6 +927,9 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       // 引用清单与并进来的唤醒说明的位置，两条路因此只有一种拼法。
       const sent = turnModelPrompt(turnPromptBody(input, images.references), evidence)
       await execution.assert()
+      // 中止可能落在上面这次确认租约的等待里：那时 pi 还没开跑，`agent.abort()` 无处可去。
+      // 不在开跑前同步再看一眼，这一轮会照常请求上游并跑完。
+      if (aborted) return
       return agent.prompt(sent.text, sent.content)
     })
     .catch((thrown) => {
@@ -1027,6 +1031,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         owner: prepared.owner,
         mode,
         userId: prepared.userId,
+        experience: audience.experience,
         expectedHistory: [...history.messages, ...storedMessages.values()],
         previousSkills: input.skillTexts,
         messages: agent.state.messages,

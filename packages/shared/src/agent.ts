@@ -1,6 +1,7 @@
 /** 智能体对话协议（`/api/agent/*`）。一轮的事件流走 `text/event-stream`。 */
 
 import type { AgentBatchAnalysisLimit } from './agent-batch'
+import type { StoryboardStageSummary } from './canvas-storyboard'
 import type { ChannelMedia } from './channel-discovery'
 import type { StoredImageRef, TaskErrorType, TaskProgressPhase } from './queue-protocol'
 import type {
@@ -73,6 +74,7 @@ export type AgentToolName =
   | 'runNodes'
   | 'applyScriptPlan'
   | 'importCanvasImage'
+  | 'runStoryboardFrames'
   | 'generateVideo'
   | 'loadSkill'
   | 'arrangeTimeline'
@@ -328,6 +330,11 @@ export interface AgentTurnParams {
    */
   readonly canvasImageModel?: string
   /**
+   * 原标签页工作台当前的出图张数。同 canvasImageModel，只给阶段授权报价；
+   * 画布轮不送 `n`（对话生图张数由工具决定），缺了它报价会按 1 张算，和画布实际提交对不上。
+   */
+  readonly canvasImageCount?: number
+  /**
    * 直接出图：用户在参数里打开时，生成工具拟好稿就当场提交，不再逐张等确认。
    *
    * 对话里的生图工具只认显式 `true`；缺席和 `false` 都是拟稿等确认。
@@ -366,6 +373,27 @@ export interface AgentTurnParams {
  * 圈几张就能出几张；真正的硬上限是余额。
  */
 export const AGENT_AUTO_SUBMIT_MAX_PER_TURN = 50
+
+/**
+ * 这一轮用户在哪种模式里说话，决定模型拿到哪套工具与提示。
+ *
+ * - `agent`：Agent 模式（对话视图里的输入框）。不论项目入口是对话还是画布，只用直接生图、改图等工具，
+ *   结果落在对话的产物卡里；拿不到任何画布节点工具，系统提示里也没有画布指引。
+ * - `canvas`：画布模式（项目停在画布视图时说的话）。生成都落进节点（#1364、#1377）。
+ *
+ * 由客户端每一轮显式声明；项目文档里记的入口（`experience`）只管项目归在哪个分组，不再决定工具。
+ */
+export type AgentSurface = 'agent' | 'canvas'
+
+/**
+ * 客户端没声明模式时按 Agent 模式算：判成画布会让普通改图被拆成节点阶段授权（2026-10-22 线上用户
+ * 改浴缸颗粒感一例），判成 Agent 最多是画布里说的话产物落在对话卡上，不会多建节点或多扣费。
+ */
+export const DEFAULT_AGENT_SURFACE: AgentSurface = 'agent'
+
+export function isAgentSurface(value: unknown): value is AgentSurface {
+  return value === 'agent' || value === 'canvas'
+}
 
 /**
  * 节点画布这一轮要不要直接跑 `runNodes`。
@@ -730,6 +758,8 @@ export interface AgentCanvasRunProposal {
    */
   readonly direct?: boolean
   readonly autoRun?: boolean
+  /** 首帧阶段的镜头表摘要。确认这条授权即把该分镜表定稿。 */
+  readonly storyboard?: StoryboardStageSummary
   /**
    * 提案时冻结的执行规格。确认和预检必须与它一致；工作台之后改了模型或数量，要重新提案。
    */
@@ -1510,10 +1540,13 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
       authorizationId: proposal.authorizationId,
       nodeIds: proposal.nodeIds,
     })
+    const finalize = proposal.storyboard
+      ? `首帧阶段：确认这条授权即把分镜表（${proposal.storyboard.shotCount} 镜，共 ${proposal.storyboard.totalSeconds} 秒）定稿；确认前镜头表被改过则授权失效，需要重新提案。`
+      : ''
     const stance = proposal.direct
       ? '这一轮用户开了直接出图：授权已登记，原标签页会立即开跑，没有确认卡，也不等待撤销。不要说待确认。'
       : '此记录是当时待确认的提案。'
-    return `${title}：阶段「${proposal.stage}」，范围 ${proposal.nodeNames.join('、')}，预算上限 ${proposal.budgetCap} 积分。${stance}当前状态必须查询 runNodes(${lookup})；只有真实 taskIds 才能说「已提交」，读取真实结果后才能说「已完成」。查询参数中的 ID 仅供工具使用，对用户以节点名称说明。`
+    return `${title}：阶段「${proposal.stage}」，范围 ${proposal.nodeNames.join('、')}，预算上限 ${proposal.budgetCap} 积分。${finalize}${stance}当前状态必须查询 runNodes(${lookup})；只有真实 taskIds 才能说「已提交」，读取真实结果后才能说「已完成」。查询参数中的 ID 仅供工具使用，对用户以节点名称说明。`
   }
   if (block.status === 'awaiting_confirmation')
     return `${title}：提示词待用户确认，尚未提交生成任务`

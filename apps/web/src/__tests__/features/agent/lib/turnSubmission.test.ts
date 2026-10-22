@@ -9,6 +9,7 @@ import { expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import { captureTurnSubmission } from '../../../../features/agent/lib/turnSubmission'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
+import { setProjectView } from '../../../../features/canvas/lib/canvasView'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCanvasDocument'
 import {
@@ -154,5 +155,34 @@ it('freezes the node selection for a turn and waits for its cloud sync', async (
     clearNodeCanvasSelection(editor, canvas)
     doc.destroy()
     workspace.cloud = undefined
+  }
+})
+
+it('declares the mode of the view each message was sent from', () => {
+  const capture = (experience: 'chat' | 'canvas', replay?: { surface: 'agent' | 'canvas' }) =>
+    captureTurnSubmission({
+      project: { ...project, experience },
+      conversationId: 'conversation',
+      references: [],
+      params: {},
+      ...(replay ? { replay } : {}),
+    }).snapshot.surface
+  try {
+    // 对话入口的项目只有 Agent 模式。
+    expect(capture('chat')).toBe('agent')
+    // 画布入口：视图还没挂上时按默认的画布视图算；切到对话视图就是 Agent 模式，切回来又是画布模式。
+    expect(capture('canvas')).toBe('canvas')
+    setProjectView('project', 'chat')
+    expect(capture('canvas')).toBe('agent')
+    setProjectView('project', 'canvas')
+    expect(capture('canvas')).toBe('canvas')
+    // 别的项目的视图不影响这个项目。
+    setProjectView('other', 'chat')
+    expect(capture('canvas')).toBe('canvas')
+    // 重发沿用原消息发出时的模式。
+    setProjectView('project', 'canvas')
+    expect(capture('canvas', { surface: 'agent' })).toBe('agent')
+  } finally {
+    setProjectView(null)
   }
 })
