@@ -344,6 +344,64 @@ it('wakes for a direct run blocked before confirmation and ends the authorizatio
   expect((await request(run.authorizationId, '/confirm', {})).status).toBe(409)
 })
 
+it('lists the deployment models and lets a direct round fix a model-blocked batch itself', async () => {
+  const run = await proposal(['a'])
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' }],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  if (!wake) throw new Error('missing wake content')
+  expect(wake.text).toContain('当前部署实际可用的出图模型：gpt-image-2.5-flare')
+  expect(wake.text).toContain('目标应是图片节点')
+  expect(wake.text).toContain('这一轮沿用直接出图：能按上面改好的')
+  expect(wake.text).not.toContain('这一轮不要自行发起新的付费运行；')
+})
+
+it('does not self-fix a model-blocked batch that also has nodes blocked for other reasons', async () => {
+  const run = await proposal(['a', 'b'])
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [
+      { nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' },
+      { nodeId: 'b', outcome: 'blocked', reason: 'missing_media' },
+    ],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  if (!wake) throw new Error('missing wake content')
+  expect(wake.text).toContain('当前部署实际可用的出图模型')
+  expect(wake.text).not.toContain('这一轮沿用直接出图')
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+})
+
+it('still asks first after a model-blocked batch when auto-submit was off', async () => {
+  const run = await proposal(['a'], { autoSubmit: false })
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' }],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  if (!wake) throw new Error('missing wake content')
+  expect(wake.text).toContain('当前部署实际可用的出图模型')
+  expect(wake.text).not.toContain('这一轮沿用直接出图')
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+})
+
 it('points a first-frame batch back to runStoryboardFrames, not runNodes', async () => {
   const run = await proposal(['a'])
   const state = await stored(run.authorizationId)
