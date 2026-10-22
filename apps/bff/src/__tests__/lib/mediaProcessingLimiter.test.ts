@@ -71,6 +71,37 @@ describe('media processing limiter', () => {
     expect(started).toEqual(['small-1', 'big', 'small-2'])
   })
 
+  it('注入的时钟偶尔读坏时沿用上一次读数，不混进另一种时钟', async () => {
+    const epoch = 1_700_000_000_000
+    let clock = epoch
+    let broken = false
+    const subject = limiter({ now: () => (broken ? Number.NaN : clock) })
+    const running = gate()
+    const started: string[] = []
+    const job = (name: string, bytes: number) =>
+      subject.run(bytes, async () => {
+        started.push(name)
+        await running.opened
+      })
+    const jobs = [job('small-1', 30), job('big-1', 90)]
+    await tick()
+    // big-2 排队那一刻时钟读坏：排队时刻要记成上一次的 epoch 读数，而不是 performance.now()。
+    broken = true
+    jobs.push(job('big-2', 80))
+    await tick()
+    broken = false
+    clock = epoch + 1_000
+    jobs.push(job('small-2', 30))
+    await tick()
+    jobs.push(job('small-3', 30))
+    await tick()
+    // 两张大图都只等了 1s，没到插队上限，小图照常先进。
+    expect(started).toEqual(['small-1', 'small-2', 'small-3'])
+    running.open()
+    await Promise.all(jobs)
+    expect(subject.active).toBe(0)
+  })
+
   it('最多 4 张同时在途，第一张总能进（单张超限也不会永远排不上）', async () => {
     const subject = limiter()
     const running = gate()
