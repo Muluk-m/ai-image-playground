@@ -544,6 +544,9 @@ describe('这一轮的观众', () => {
     const direct = turnInitialState([], 'image', true, 0, canvas).systemPrompt
     expect(direct).toContain('直接出图')
     expect(direct).toContain('不弹确认卡')
+    expect(direct).toContain('自动开始运行，无需用户确认')
+    expect(direct).toContain('不要说待确认、等待确认或等原标签页确认')
+    expect(direct).not.toContain('确认首帧阶段授权')
     expect(direct).toContain('只有查到实际任务记录才能称已提交')
     expect(direct).not.toContain('这一轮是出图模式')
     expect(direct).not.toContain('拟好提示词就当场提交并计费')

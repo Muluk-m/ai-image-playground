@@ -405,7 +405,7 @@ export async function stageRunWakeContent(
       : undefined
   if (storyboardId)
     guidance.push(
-      `这一批全部完成，它们是分镜表 ${storyboardId} 引用的素材，这一轮沿用直接出图：分镜表引用的素材都有图之后，本轮直接调用 runStoryboardFrames（storyboardId: "${storyboardId}"，出整张表的首帧，不传 shotIds），不要停下来等用户说继续，也不要手工建首帧节点。不要重跑已完成的节点；除了这张分镜表的首帧，这一轮不要自行发起别的付费运行，出视频等其他阶段先向用户说明并等他同意。`,
+      `这一批全部完成，它们是分镜表 ${storyboardId} 引用的素材，这一轮沿用直接出图：分镜表引用的素材都有图之后，本轮直接调用 runStoryboardFrames（storyboardId: "${storyboardId}"，出整张表的首帧，不传 shotIds），它会自动开始运行，无需用户确认；对用户说已登记并自动开始运行，不要说等待确认。不要停下来等用户说继续，也不要手工建首帧节点。不要重跑已完成的节点；除了这张分镜表的首帧，这一轮不要自行发起别的付费运行，出视频等其他阶段先向用户说明并等他同意。`,
     )
   else guidance.push('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
   return {

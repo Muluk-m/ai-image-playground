@@ -1437,10 +1437,10 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
       nodeIds: proposal.nodeIds,
     })
     const finalize = proposal.storyboard
-      ? `首帧阶段：确认这条授权即把分镜表（${proposal.storyboard.shotCount} 镜，共 ${proposal.storyboard.totalSeconds} 秒）定稿；确认前镜头表被改过则授权失效，需要重新提案。`
+      ? `首帧阶段：这条授权开始运行即把分镜表（${proposal.storyboard.shotCount} 镜，共 ${proposal.storyboard.totalSeconds} 秒）定稿；开跑前镜头表被改过则授权失效，需要重新提案。`
       : ''
     const stance = proposal.direct
-      ? '这一轮用户开了直接出图：授权已登记，原标签页会立即开跑，没有确认卡，也不等待撤销。不要说待确认。'
+      ? '这一轮用户开了直接出图：授权已登记，原标签页自动开始运行，无需用户确认，没有确认卡，也不等待撤销。不要对用户说待确认、等待确认或等原标签页确认。'
       : '此记录是当时待确认的提案。'
     return `${title}：阶段「${proposal.stage}」，范围 ${proposal.nodeNames.join('、')}，预算上限 ${proposal.budgetCap} 积分。${finalize}${stance}当前状态必须查询 runNodes(${lookup})；只有真实 taskIds 才能说「已提交」，读取真实结果后才能说「已完成」。查询参数中的 ID 仅供工具使用，对用户以节点名称说明。`
   }

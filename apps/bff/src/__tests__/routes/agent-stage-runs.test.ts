@@ -507,6 +507,9 @@ it('lets a direct wake round continue from a completed asset batch to the storyb
   expect(wake.text).toContain('本轮直接调用 runStoryboardFrames（storyboardId: "board"')
   expect(wake.text).toContain('出视频等其他阶段先向用户说明并等他同意')
   expect(wake.text).not.toContain('这一轮不要自行发起新的付费运行；')
+  // 首帧会自动开跑：不能让模型对用户说「等待确认后开跑」。
+  expect(wake.text).toContain('它会自动开始运行，无需用户确认')
+  expect(wake.text).toContain('不要说等待确认')
 })
 
 it('keeps asking before the next paid stage when auto-submit was off', async () => {
