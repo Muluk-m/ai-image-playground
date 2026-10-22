@@ -328,6 +328,9 @@ export function validateCloudCanvas(
         ])
       )
         throw new Error('invalid_canvas_node')
+      // mediaId 要么没有，要么是字符串：null 之类的空值不能混进「还没 mediaId」那一支冒充上传中节点。
+      if ('mediaId' in data && data.mediaId !== undefined && typeof data.mediaId !== 'string')
+        throw new Error('invalid_canvas_node')
       // 本机原图还在上传的节点先同步位置等改动：没有 mediaId 时 fileId 只是上传那台设备的本机 id，
       // 别处只当「上传中」显示；拿到 mediaId 后 fileId 必须换成 cloud-<mediaId>。
       if (
