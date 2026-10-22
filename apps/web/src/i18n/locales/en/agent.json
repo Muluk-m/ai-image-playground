@@ -836,7 +836,8 @@
       "summary": "Shot list: {{count}} shots, {{seconds}}s total",
       "shot": "Shot {{index}} · {{seconds}}s · {{line}}",
       "more": "…and {{count}} more",
-      "finalizes": "Confirming finalizes this storyboard. Editing shots afterwards marks generated frames stale."
+      "finalizes": "Confirming finalizes this storyboard. Editing shots afterwards marks generated frames stale.",
+      "finalized": "This storyboard is finalized. Editing shots afterwards marks generated frames stale."
     }
   }
 }
