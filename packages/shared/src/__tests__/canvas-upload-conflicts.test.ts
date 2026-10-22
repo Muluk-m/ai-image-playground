@@ -105,6 +105,60 @@ describe('上传簿记与并发编辑', () => {
       uploader.stop()
     })
 
+  // 离线改完关掉页面，重新打开时 clientID 换了，初次合并服务端状态才撞上并发。
+  function reopen(before: Y.Doc, clientID: number, known: boolean) {
+    const doc = new Y.Doc()
+    doc.clientID = clientID
+    const clients = new Set([before.clientID, clientID])
+    const stop = watchCanvasUploadConflicts(
+      doc,
+      (origin) => origin === remote,
+      local,
+      known ? (client) => clients.has(client) : undefined,
+    )
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(before), 'indexeddb')
+    before.destroy()
+    return { doc, stop }
+  }
+  for (const reopened of ['editor', 'uploader'] as const)
+    for (const [editorId, uploaderId] of [
+      [1, 2],
+      [2, 1],
+    ] as const)
+      it(`重新打开后初次合并撞上并发也两边都保留（重开=${reopened}，editor=${editorId}）`, async () => {
+        const devices = pair(editorId, uploaderId)
+        edit(devices.editor.doc, { name: 'renamed' })
+        promoteCanvasResultMedia(devices.uploader.doc, 'image', 'local-file', media, local)
+        devices[reopened].stop()
+        const next = reopen(devices[reopened].doc, 10 + editorId + uploaderId, true)
+        const other = reopened === 'editor' ? devices.uploader : devices.editor
+
+        await exchange(next.doc, other.doc)
+
+        for (const doc of [next.doc, other.doc]) {
+          expect(data(doc).name).toBe('renamed')
+          expect(data(doc).mediaId).toBe(media)
+        }
+        next.stop()
+        other.stop()
+      })
+
+  it('不认以前的 clientID 时，重新打开的设备输掉的写入补不回来', async () => {
+    // editor=1 输给 uploader=2 的收成云媒体，改名只能靠重新打开的 editor 自己补。
+    const devices = pair(1, 2)
+    edit(devices.editor.doc, { name: 'renamed' })
+    promoteCanvasResultMedia(devices.uploader.doc, 'image', 'local-file', media, local)
+    devices.editor.stop()
+    const next = reopen(devices.editor.doc, 13, false)
+
+    await exchange(next.doc, devices.uploader.doc)
+
+    expect(data(next.doc).mediaId).toBe(media)
+    expect(data(next.doc).name).toBe('photo')
+    next.stop()
+    devices.uploader.stop()
+  })
+
   it('先后修改（远端看过本机这一版）不补写', async () => {
     const { editor, uploader } = pair(1, 2)
     edit(editor.doc, { name: 'renamed' })
@@ -157,6 +211,58 @@ describe('上传簿记与并发编辑', () => {
       mergeCanvasUploadConflict({ ...base, name: 'x' }, { ...base, name: 'y' }),
     ).toBeUndefined()
     expect(mergeCanvasUploadConflict(base, promoted)).toBeUndefined()
+  })
+
+  it('本机这一版经远端多个中间版本后才被覆盖时，是先后改，不补写', async () => {
+    const { editor, uploader } = pair(1, 2)
+    promoteCanvasResultMedia(editor.doc, 'image', 'local-file', media, local)
+    // 远端看过本机这一版后连改两次，两次更新一起到达。
+    Y.applyUpdate(uploader.doc, Y.encodeStateAsUpdate(editor.doc), remote)
+    await Promise.resolve()
+    edit(uploader.doc, { name: 'first' })
+    edit(uploader.doc, { name: 'second', mediaId: undefined, fileId: 'local-file' })
+    const writes: unknown[] = []
+    editor.doc.on('update', (_update: Uint8Array, origin: unknown) => {
+      if (origin === local) writes.push(origin)
+    })
+
+    Y.applyUpdate(
+      editor.doc,
+      Y.encodeStateAsUpdate(uploader.doc, Y.encodeStateVector(editor.doc)),
+      remote,
+    )
+    await Promise.resolve()
+
+    expect(writes).toHaveLength(0)
+    expect(data(editor.doc).name).toBe('second')
+    expect(data(editor.doc).mediaId).toBeUndefined()
+    editor.stop()
+    uploader.stop()
+  })
+
+  it('停止监听后已排队的补写作废', async () => {
+    const { editor, uploader } = pair(1, 2)
+    edit(editor.doc, { name: 'renamed' })
+    promoteCanvasResultMedia(uploader.doc, 'image', 'local-file', media, local)
+    const writes: unknown[] = []
+    editor.doc.on('update', (_update: Uint8Array, origin: unknown) => {
+      if (origin === local) writes.push(origin)
+    })
+    const loser = editor.doc.clientID < uploader.doc.clientID ? editor : uploader
+    const other = loser === editor ? uploader : editor
+    loser.doc.on('update', (_update: Uint8Array, origin: unknown) => {
+      if (origin === local) writes.push(origin)
+    })
+    Y.applyUpdate(
+      loser.doc,
+      Y.encodeStateAsUpdate(other.doc, Y.encodeStateVector(loser.doc)),
+      remote,
+    )
+    loser.stop()
+    await Promise.resolve()
+
+    expect(writes).toHaveLength(0)
+    other.stop()
   })
 
   it('合并结果与赢的一版只差键顺序时不重复写回', () => {

@@ -143,7 +143,7 @@ function lastContent(item: ItemShape): unknown {
  */
 export function readOverwrittenLocalData(
   event: Y.YEvent<Y.AbstractType<unknown>>,
-  clientID: number,
+  local: number | ((client: number) => boolean),
 ): { lost: unknown; winner: unknown } | undefined {
   try {
     const map = (event.target as unknown as { _map?: unknown })._map
@@ -155,7 +155,8 @@ export function readOverwrittenLocalData(
     while (previous && isItemShape(previous) && event.adds(previous as never))
       previous = previous.left
     if (!previous || !isItemShape(previous)) return undefined
-    if (previous.id.client !== clientID || !event.deletes(previous as never)) return undefined
+    const isLocal = typeof local === 'number' ? (client: number) => client === local : local
+    if (!isLocal(previous.id.client) || !event.deletes(previous as never)) return undefined
     // 这次新加的条目里有以它为起点写的，说明远端看过本机这一版，是先后改，不是并发。
     for (let item: ItemShape | null = current; item && item !== previous; item = item.left) {
       if (!isItemShape(item)) return undefined
@@ -171,19 +172,24 @@ export function readOverwrittenLocalData(
 /**
  * 盯住远端更新：本机写的节点 data 被一次「没见过它」的远端写入顶掉时（并发，而不是先后），
  * 按 mergeCanvasUploadConflict 把两边合回去再写一次。只由输掉写入的那台设备补，别的设备不重复写。
+ * 返回的函数取消监听，并让已排队、还没执行的补写失效；持有文档的一方销毁前必须调用。
+ * 本机写入来自重新打开前的会话时，clientID 已经换过；isLocalClient 用来认出本机以前用过的 clientID，
+ * 默认只认当前的 doc.clientID。要在套用服务端初始状态之前注册，初次合并里的并发覆盖才能被补回。
  */
 export function watchCanvasUploadConflicts(
   doc: Y.Doc,
   isRemote: (origin: unknown) => boolean,
   origin: CanvasOrigin,
+  isLocalClient: (client: number) => boolean = (client) => client === doc.clientID,
 ): () => void {
   const nodes = doc.getMap<Y.Map<unknown>>('nodes')
+  let stopped = false
   const observer = (events: Y.YEvent<Y.AbstractType<unknown>>[], transaction: Y.Transaction) => {
     if (!isRemote(transaction.origin)) return
     const repairs: { id: string; winner: unknown; data: UploadData }[] = []
     for (const event of events) {
       if (event.path.length !== 1 || !event.keys.has('data')) continue
-      const overwritten = readOverwrittenLocalData(event, doc.clientID)
+      const overwritten = readOverwrittenLocalData(event, isLocalClient)
       if (!overwritten) continue
       const { lost, winner } = overwritten
       const data = mergeCanvasUploadConflict(lost, winner)
@@ -192,6 +198,7 @@ export function watchCanvasUploadConflicts(
     if (!repairs.length) return
     // 观察者里不改文档：等这次事务收尾后再写，写之前确认节点还停在赢的那一版。
     queueMicrotask(() => {
+      if (stopped) return
       doc.transact(() => {
         for (const { id, winner, data } of repairs)
           if (nodes.get(id)?.get('data') === winner)
@@ -200,5 +207,9 @@ export function watchCanvasUploadConflicts(
     })
   }
   nodes.observeDeep(observer)
-  return () => nodes.unobserveDeep(observer)
+  return () => {
+    // 停掉之后连已经排队的补写也作废：会话销毁时文档可能正在 destroy。
+    stopped = true
+    nodes.unobserveDeep(observer)
+  }
 }
