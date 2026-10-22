@@ -105,6 +105,60 @@ describe('上传簿记与并发编辑', () => {
       uploader.stop()
     })
 
+  // 离线改完关掉页面，重新打开时 clientID 换了，初次合并服务端状态才撞上并发。
+  function reopen(before: Y.Doc, clientID: number, known: boolean) {
+    const doc = new Y.Doc()
+    doc.clientID = clientID
+    const clients = new Set([before.clientID, clientID])
+    const stop = watchCanvasUploadConflicts(
+      doc,
+      (origin) => origin === remote,
+      local,
+      known ? (client) => clients.has(client) : undefined,
+    )
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(before), 'indexeddb')
+    before.destroy()
+    return { doc, stop }
+  }
+  for (const reopened of ['editor', 'uploader'] as const)
+    for (const [editorId, uploaderId] of [
+      [1, 2],
+      [2, 1],
+    ] as const)
+      it(`重新打开后初次合并撞上并发也两边都保留（重开=${reopened}，editor=${editorId}）`, async () => {
+        const devices = pair(editorId, uploaderId)
+        edit(devices.editor.doc, { name: 'renamed' })
+        promoteCanvasResultMedia(devices.uploader.doc, 'image', 'local-file', media, local)
+        devices[reopened].stop()
+        const next = reopen(devices[reopened].doc, 10 + editorId + uploaderId, true)
+        const other = reopened === 'editor' ? devices.uploader : devices.editor
+
+        await exchange(next.doc, other.doc)
+
+        for (const doc of [next.doc, other.doc]) {
+          expect(data(doc).name).toBe('renamed')
+          expect(data(doc).mediaId).toBe(media)
+        }
+        next.stop()
+        other.stop()
+      })
+
+  it('不认以前的 clientID 时，重新打开的设备输掉的写入补不回来', async () => {
+    // editor=1 输给 uploader=2 的收成云媒体，改名只能靠重新打开的 editor 自己补。
+    const devices = pair(1, 2)
+    edit(devices.editor.doc, { name: 'renamed' })
+    promoteCanvasResultMedia(devices.uploader.doc, 'image', 'local-file', media, local)
+    devices.editor.stop()
+    const next = reopen(devices.editor.doc, 13, false)
+
+    await exchange(next.doc, devices.uploader.doc)
+
+    expect(data(next.doc).mediaId).toBe(media)
+    expect(data(next.doc).name).toBe('photo')
+    next.stop()
+    devices.uploader.stop()
+  })
+
   it('先后修改（远端看过本机这一版）不补写', async () => {
     const { editor, uploader } = pair(1, 2)
     edit(editor.doc, { name: 'renamed' })

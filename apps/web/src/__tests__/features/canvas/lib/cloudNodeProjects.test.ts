@@ -65,13 +65,20 @@ vi.mock('../../../../features/agent/lib/artifactSource', () => ({
 }))
 vi.mock('../../../../lib/authClient', () => ({ authenticatedBffFetch: vi.fn() }))
 const pendingMedia = vi.hoisted(() => ({ supported: false }))
-const uploadConflictWatch = vi.hoisted(() => ({ stopped: 0 }))
+const uploadConflictWatch = vi.hoisted(() => ({
+  stopped: 0,
+  watches: [] as { canvasLoadsBefore: number; isLocalClient?: (client: number) => boolean }[],
+}))
 vi.mock('@image-playground/shared', async (importOriginal) => {
   const shared = await importOriginal<typeof import('@image-playground/shared')>()
   return {
     ...shared,
     watchCanvasUploadConflicts: (...args: Parameters<typeof shared.watchCanvasUploadConflicts>) => {
       const stop = shared.watchCanvasUploadConflicts(...args)
+      uploadConflictWatch.watches.push({
+        canvasLoadsBefore: canvasLoads(),
+        isLocalClient: args[3],
+      })
       return () => {
         uploadConflictWatch.stopped++
         stop()
@@ -171,6 +178,11 @@ function deferred<T>() {
   })
   return { promise, resolve }
 }
+function canvasLoads() {
+  return vi
+    .mocked(authenticatedBffFetch)
+    .mock.calls.filter(([url, init]) => url.endsWith('/canvas') && !init?.method).length
+}
 function commandReads() {
   return vi
     .mocked(authenticatedBffFetch)
@@ -192,6 +204,27 @@ it('dispose stops the upload conflict watcher on the canvas doc', async () => {
   session.dispose()
   expect(uploadConflictWatch.stopped).toBe(before + 1)
   record.dispose()
+})
+it('registers the upload conflict watcher before the initial server state and knows earlier client ids', async () => {
+  const first = await fixture()
+  const firstWatch = uploadConflictWatch.watches[uploadConflictWatch.watches.length - 1]!
+  const firstClient = first.session.canvas!.doc.clientID
+  expect(firstWatch.isLocalClient?.(firstClient)).toBe(true)
+  first.session.dispose()
+  const reopened = new CloudNodeProjectSession(first.project, first.record, () => {})
+  sessions.push(reopened)
+  const loadsBefore = canvasLoads()
+  await reopened.load()
+  expect(canvasLoads()).toBe(loadsBefore + 1)
+  const watch = uploadConflictWatch.watches[uploadConflictWatch.watches.length - 1]!
+  expect(watch).not.toBe(firstWatch)
+  // 离线期间的本机写入在套用服务端初始状态时才合并，监听必须已经在场。
+  expect(watch.canvasLoadsBefore).toBe(loadsBefore)
+  expect(reopened.canvas!.doc.clientID).not.toBe(firstClient)
+  expect(watch.isLocalClient?.(reopened.canvas!.doc.clientID)).toBe(true)
+  expect(watch.isLocalClient?.(firstClient)).toBe(true)
+  expect(watch.isLocalClient?.(firstClient + 1)).toBe(false)
+  first.record.dispose()
 })
 it('uses the server migration and does not start a second JSON cloud writer', async () => {
   const { session, record, socket, server } = await fixture()
