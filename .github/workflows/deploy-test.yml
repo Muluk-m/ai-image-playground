@@ -20,23 +20,15 @@ env:
   # `actions/checkout` 的 `repository` 要 `owner/repo` 形式，不是 SSH URL。
   PRIVATE_OVERLAY_REPO: Muluk-m/ai-image-playground-private
 jobs:
+  # The gate before the rollout is four jobs running side by side, the same split web.yml uses:
+  # public lint/build/startup (checks), the database-backed suites (tests), the web vitest
+  # (web-tests) and the paid build with the pinned overlay (paid-checks). The rollout job used to
+  # rerun the paid half itself after Checks had finished; it now waits for all four instead.
+  # Local `pnpm test` keeps running one package at a time; only these CI commands are parallel.
   checks:
     name: Checks
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_HOST_AUTH_METHOD: trust
-          POSTGRES_DB: aip_test
-        ports: ["127.0.0.1:5432:5432"]
-        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
-      VITEST_MAX_WORKERS: 1
-      NODE_OPTIONS: --no-experimental-webstorage
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -54,7 +46,6 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       # The same build the release job runs, failing here instead of half way through an upload.
-      - run: pnpm test --concurrency=1 --env-mode=loose
       - run: pnpm --dir apps/web build:static-host
         env:
           BFF_ENABLED: 'true'
@@ -64,9 +55,90 @@ jobs:
           label: test-startup-public
       - run: pnpm --dir apps/admin build
 
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: aip_test
+        ports: ["127.0.0.1:5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
+      VITEST_MAX_WORKERS: 1
+      # Every suite gets its own database, so files can run side by side (scripts/run-bun-tests-isolated.ts).
+      BUN_TEST_JOBS: 6
+      NODE_OPTIONS: --no-experimental-webstorage
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: pnpm test --concurrency=3 --env-mode=loose --filter='!@image-playground/web'
+
+  web-tests:
+    name: Web tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VITEST_MAX_WORKERS: 2
+      NODE_OPTIONS: --no-experimental-webstorage
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: pnpm test --env-mode=loose --filter=@image-playground/web
+
+  paid-checks:
+    name: Paid build checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      private_sha: ${{ steps.overlay.outputs.commit }}
+    steps:
+      - name: Require the overlay key
+        env:
+          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+        run: |
+          [ -n "$PRIVATE_OVERLAY_SSH_KEY" ] || { echo "::error::Secrets empty or missing: PRIVATE_OVERLAY_SSH_KEY"; exit 1; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read the pinned overlay commit
+        id: lock
+        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
+      - name: Check out the private overlay at the pinned commit
+        id: overlay
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
+          ref: ${{ steps.lock.outputs.sha }}
+          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          path: private
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm --dir apps/web build:static-host
+        env:
+          BFF_ENABLED: 'true'
+          BFF_BASE_URL: https://startup-api.invalid
+      - uses: ./.github/actions/pages-browser
+        with:
+          label: test-startup-paid
+
   backend:
     name: Backend images and VPS rollout
-    needs: checks
+    needs: [checks, tests, web-tests, paid-checks]
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -105,16 +177,16 @@ jobs:
           ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
           path: private
           persist-credentials: false
-      - uses: ./.github/actions/setup
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm --dir apps/web build:static-host
+      # Paid lint, typecheck, build and browser startup ran in paid-checks against this same
+      # overlay commit (checked below); the image build itself only needs git and Docker, as in
+      # deploy.yml.
+      - name: Require the overlay the paid checks used
         env:
-          BFF_ENABLED: 'true'
-          BFF_BASE_URL: https://startup-api.invalid
-      - uses: ./.github/actions/pages-browser
-        with:
-          label: test-startup-paid
+          CHECKED: ${{ needs.paid-checks.outputs.private_sha }}
+          ACTUAL: ${{ steps.overlay.outputs.commit }}
+        run: |
+          [ -n "$CHECKED" ] && [ "$CHECKED" = "$ACTUAL" ] ||
+            { echo "::error::Overlay $ACTUAL is not the commit paid-checks verified ($CHECKED)."; exit 1; }
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io

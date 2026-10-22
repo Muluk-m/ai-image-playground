@@ -16,6 +16,32 @@ inputs:
 runs:
   using: composite
   steps:
+    # `playwright install --with-deps` apt-installs a handful of font packages the hosted image
+    # lacks (~21 MB). The Azure apt mirror sometimes serves them at ~70 kB/s: 4 minutes in the
+    # Checks job and 14 in the rollout job of run 39799977649. Keep the downloaded .deb files in
+    # the Actions cache and seed apt with them, so apt installs the same packages without fetching
+    # them. apt checks each file against its index and downloads anything stale, so a cache that
+    # falls behind the mirror only costs the old download time. The smoke script is unchanged.
+    - name: Restore cached Chromium system packages
+      if: runner.os == 'Linux'
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ runner.temp }}/pages-browser-debs
+        key: pages-browser-debs-${{ runner.os }}-${{ runner.arch }}-${{ env.ImageOS }}-${{ env.ImageVersion }}-pw1.58.2
+        restore-keys: |
+          pages-browser-debs-${{ runner.os }}-${{ runner.arch }}-${{ env.ImageOS }}-
+    - name: Seed apt with the cached packages
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        DEBS: ${{ runner.temp }}/pages-browser-debs
+      run: |
+        mkdir -p "$DEBS"
+        echo 'APT::Keep-Downloaded-Packages "true";' | sudo tee /etc/apt/apt.conf.d/99-keep-debs >/dev/null
+        if compgen -G "$DEBS/*.deb" >/dev/null; then
+          sudo cp "$DEBS"/*.deb /var/cache/apt/archives/
+          echo "Seeded $(find "$DEBS" -name '*.deb' | wc -l) cached packages."
+        fi
     - name: Check browser regression cases
       if: inputs.test-runner == 'true'
       shell: bash
@@ -32,6 +58,13 @@ runs:
         else
           sh scripts/pages-browser-smoke.sh --dist "$TARGET"
         fi
+    - name: Keep the downloaded packages for the cache
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        DEBS: ${{ runner.temp }}/pages-browser-debs
+      run: |
+        find /var/cache/apt/archives -maxdepth 1 -name '*.deb' -exec cp -n {} "$DEBS"/ \; 2>/dev/null || true
     - name: Save browser evidence
       if: always()
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
