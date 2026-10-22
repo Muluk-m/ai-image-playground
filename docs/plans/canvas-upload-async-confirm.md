@@ -38,9 +38,10 @@ complete 是同步的，返回 `ready` 后前端才拿到可以写进文档的 `
 ### 方案 C：确认异步化（真正把确认移出关键路径，推荐作为 P0-3 主体）
 - `POST /api/media/:id/complete` 只做廉价检查：所有权、大小（`HEAD` 或 B 的 checksum 结果）。检查过后把状态置为新的 `verifying`，立即返回 `202 { id, status: 'verifying' }`。
 - 解码、预览、发布由 bff 后台队列做。复用现在的 `withMediaProcessing` 和字节限额，进程重启后由扫描任务接着处理 `verifying` 状态。完成后置为 `ready`，失败置为 `rejected` 并带原因。
-- 画布文档允许引用 `verifying` 状态的 `mediaId`：`canvasSyncStore` 的所有权检查改为 `status IN ('verifying','ready')`。
+- 画布文档允许引用 `verifying` 状态的 `mediaId`：`canvasSyncStore` 的所有权检查改为 `status IN ('verifying','ready','rejected')`。`rejected` 也必须放行：`accessCanvasDocument` 每次更新都校验整份文档，上传设备离线时，被拒的节点会一直留在文档里，只放行 `verifying`/`ready` 会让之后所有不相关的编辑都因 `canvas_media_not_owned` 失败。被拒的引用在文档里是墓碑，只用于显示「图片无效」，`accessMedia` 对它返回 422，不签发 URL。
 - 本机：节点继续用本机原图显示，不必等预览。
 - 别的设备：看到 `verifying` 的节点时显示「图片处理中」，拿到 `ready` 事件后再拉预览。已有的 WS 通道可以推一条 `media.ready` 或 `media.rejected`。
+- 状态事件只是加速，不能是唯一来源：校验可能在引用进文档之前就完成，设备也可能正好断线，而项目 WS 重连时只重放 Yjs 文档，文档里只有 `mediaId`，没有校验状态。所以（1）WS 订阅/重连时，服务端对文档里仍在 `verifying` 或已 `rejected` 的 `mediaId` 补发一次当前状态快照；（2）客户端对每个停在「处理中」的节点用 `accessMedia` 退避轮询（如 2s、4s、8s，上限 30s），直到 `ready` 或 `rejected`。事件、快照、轮询任一先到即可。
 - 失败：变成 `rejected` 后，服务端从文档里拿不掉这个引用，所以由客户端负责。上传设备收到 `media.rejected` 后，把节点打回 `media-local` 并给出原因：不支持的类型、超像素、动图。其他设备显示「图片无效」。
 - 依赖确认结果的地方要改成等 `ready`：生成任务拿这张图做参考图、导出、分享、智能体读图。统一在取签名 URL 的 `accessMedia` 处等待，或返回 409 `media_verifying` 让调用方重试。
 - 收益：从用户视角看，图片节点在 PUT 完成时就「已保存」，4 张图的总时间约为 reserve 加 PUT 的最大值。按 test 环境实测，约 1.5–2s，原来是 4s 以上。
@@ -51,7 +52,8 @@ complete 是同步的，返回 `ready` 后前端才拿到可以写进文档的 `
    - DB 迁移：`media_objects_status_check` 加 `verifying` 和 `rejected`。
    - API：`complete` 返回 202；新增 WS 事件；`accessMedia` 增加 `media_verifying`。
    - shared：画布校验接受 `verifying`；新老客户端兼容。旧客户端只认 `ready`，所以 `complete` 要看 capabilities 位 `asyncMediaConfirm` 决定：只有新客户端带 `prefer: async` 时才返回 202，旧客户端仍然同步等待。
-   - 计费和配额：`reserved_bytes` 在 reserve 时就已占用，不受影响。`rejected` 的对象由现有的 managed media sweep 回收。
+   - 计费和配额：`reserved_bytes` 在 reserve 时就已占用，不受影响。
+   - `rejected` 的回收要单独设计，不能交给现有的 sweep：普通画布上传 `attachment_managed = false`，而 `purgeExpiredAttachmentMedia` 只扫 managed 附件；文档里的引用还会保护这行不被删。方案：置 `rejected` 时立即删除暂存对象（服务端专用 key 尚未写入）；行本身保留为墓碑，`reserved_bytes` 按 0 计；新增 `purgeRejectedMedia` 定时任务，删除已不被任何文档引用、且 `rejected` 超过 7 天的行。
 
 ## 4. 风险与待定
 - **C 的跨设备体验**：别的设备会短暂看到没有预览的节点，需要设计「处理中」占位。
