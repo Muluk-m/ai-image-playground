@@ -102,6 +102,30 @@ describe('media processing limiter', () => {
     expect(subject.active).toBe(0)
   })
 
+  it('注入的时钟起初就读不出来时，不拿假基准判插队超时', async () => {
+    let clock = Number.NaN
+    const subject = limiter({ now: () => clock })
+    const running = gate()
+    const started: string[] = []
+    const job = (name: string, bytes: number) =>
+      subject.run(bytes, async () => {
+        started.push(name)
+        await running.opened
+      })
+    const jobs = [job('small-1', 30), job('big', 90)]
+    await tick()
+    clock = 1_700_000_000_000
+    jobs.push(job('small-2', 30))
+    await tick()
+    jobs.push(job('small-3', 30))
+    await tick()
+    // big 排队时还没有合法读数：时钟恢复后从那时起算，没到 5s，小图照常先进。
+    expect(started).toEqual(['small-1', 'small-2', 'small-3'])
+    running.open()
+    await Promise.all(jobs)
+    expect(subject.active).toBe(0)
+  })
+
   it('最多 4 张同时在途，第一张总能进（单张超限也不会永远排不上）', async () => {
     const subject = limiter()
     const running = gate()
