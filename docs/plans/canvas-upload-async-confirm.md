@@ -34,11 +34,12 @@ complete 是同步的，返回 `ready` 后前端才拿到可以写进文档的 `
 - reserve 返回的预签名 PUT 把 `x-amz-checksum-sha256` 签进去（值为客户端申报的 sha256 的 base64）。R2 收到的字节和它不匹配时，直接拒绝 PUT。
 - 这只保证完整性，图片是否合法（类型、像素上限、动图）仍然要解码才能确认，所以服务端照样得读回字节。单独做 B 收益不大，要和方案 C 配合：C 把解码挪到后台，B 保证后台读到的就是客户端算过 hash 的那份。
 - checksum 只签给声明支持的客户端：现在的 `mediaTransfer.ts` PUT 只带 `content-type`，签进 checksum 的 URL 会让旧客户端的 PUT 直接失败，而 `prefer: async` 要到 `complete` 才看得到，那时 PUT 已经失败了。所以由 reserve 请求带上 `asyncMediaConfirm` 能力位，服务端只对带了它的请求签 checksum 并返回要带的头；不带的旧客户端拿到和现在一样的 URL，`complete` 也走同步。
+- 浏览器跨域 PUT 带 `x-amz-checksum-sha256` 会先发预检，而 `deploy/r2-media-cors.json` 现在只放行 `Content-Type` 和 `Range`。启用前要把这个头加进 `headers`，并先应用到 test 桶、再随发布应用到生产桶（属于扩展版那一次发布）；只验证 R2 的签名和校验支持，浏览器请求仍然用不了。
 - 需要先在 test 桶上实测 R2 对预签名 URL 里 checksum 头的支持（R2 文档声明支持 `x-amz-checksum-*`；预签名场景要实测）。
 
 ### 方案 C：确认异步化（真正把确认移出关键路径，推荐作为 P0-3 主体）
 - `POST /api/media/:id/complete` 只做廉价检查：所有权、大小（`HEAD` 或 B 的 checksum 结果）。检查过后把状态置为新的 `verifying`，立即返回 `202 { id, status: 'verifying' }`。
-- 解码、预览、发布由 bff 后台队列做。复用现在的 `withMediaProcessing` 和字节限额，进程重启后由扫描任务接着处理 `verifying` 状态。完成后置为 `ready`，失败置为 `rejected` 并带原因。
+- 解码、预览、发布由 bff 后台队列做。复用现在的 `withMediaProcessing` 和字节限额，进程重启后由扫描任务接着处理 `verifying` 状态。完成后置为 `ready`；只有确定性的内容校验失败（类型不支持、超像素、动图、字节损坏或 hash 不符）才置为 `rejected` 并带原因。R2 读写故障、处理容量不足这类瞬时错误（现在的发布路径对外是可重试的 503）不改状态，行留在 `verifying`，由扫描任务退避重试；暂存对象也不删。
 - 画布文档允许引用 `verifying` 状态的 `mediaId`：`canvasSyncStore` 的所有权检查改为 `status IN ('verifying','ready','rejected')`。`rejected` 也必须放行：`accessCanvasDocument` 每次更新都校验整份文档，上传设备离线时，被拒的节点会一直留在文档里，只放行 `verifying`/`ready` 会让之后所有不相关的编辑都因 `canvas_media_not_owned` 失败。被拒的引用在文档里是墓碑，只用于显示「图片无效」，`accessMedia` 对它返回 422，不签发 URL。
 - 本机：节点继续用本机原图显示，不必等预览。
 - 别的设备：看到 `verifying` 的节点时显示「图片处理中」，拿到 `ready` 事件后再拉预览。已有的 WS 通道可以推一条 `media.ready` 或 `media.rejected`。
