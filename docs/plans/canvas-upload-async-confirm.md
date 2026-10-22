@@ -33,6 +33,7 @@ complete 是同步的，返回 `ready` 后前端才拿到可以写进文档的 `
 ### 方案 B：签名时要求 SHA-256 校验和，R2 在 PUT 时验 hash
 - reserve 返回的预签名 PUT 把 `x-amz-checksum-sha256` 签进去（值为客户端申报的 sha256 的 base64）。R2 收到的字节和它不匹配时，直接拒绝 PUT。
 - 这只保证完整性，图片是否合法（类型、像素上限、动图）仍然要解码才能确认，所以服务端照样得读回字节。单独做 B 收益不大，要和方案 C 配合：C 把解码挪到后台，B 保证后台读到的就是客户端算过 hash 的那份。
+- checksum 只签给声明支持的客户端：现在的 `mediaTransfer.ts` PUT 只带 `content-type`，签进 checksum 的 URL 会让旧客户端的 PUT 直接失败，而 `prefer: async` 要到 `complete` 才看得到，那时 PUT 已经失败了。所以由 reserve 请求带上 `asyncMediaConfirm` 能力位，服务端只对带了它的请求签 checksum 并返回要带的头；不带的旧客户端拿到和现在一样的 URL，`complete` 也走同步。
 - 需要先在 test 桶上实测 R2 对预签名 URL 里 checksum 头的支持（R2 文档声明支持 `x-amz-checksum-*`；预签名场景要实测）。
 
 ### 方案 C：确认异步化（真正把确认移出关键路径，推荐作为 P0-3 主体）
@@ -55,9 +56,10 @@ complete 是同步的，返回 `ready` 后前端才拿到可以写进文档的 `
    - 新老服务端也要兼容：现在的 `canvasSyncStore` 只放行 `status = 'ready'`，回滚或灰度混跑时，旧 BFF 会拒绝所有仍含 `verifying`/`rejected` 节点的文档更新，而 `rejected` 节点永远不会变回 `ready`。所以分两次发布：
      1. 扩展版：DB 迁移、`canvasSyncStore` 放行三种状态、`accessMedia` 认识 `verifying`/`rejected`、快照和轮询路径都上线，但服务端从不写这两个状态，`complete` 仍然同步。
      2. 启用版：扩展版在所有实例上跑稳后，用服务端开关 `ASYNC_MEDIA_CONFIRM`（默认关）打开 202 和后台校验。之后回滚只允许退到扩展版，不退到扩展版之前；要彻底退回，先关开关，再等存量 `verifying` 处理完。
-   - 计费和配额：`reserved_bytes` 在 reserve 时就已占用，不受影响。
+   - 计费和配额：`reserved_bytes` 在 reserve 时占用，但 `mediaUsage` 对非 ready、非附件的行只在 `expires_at > now` 时计入，后台校验拖过 20 分钟预留期（比如长时间重启）时 `verifying` 行会提前不计，用户就能超额预留。所以 `mediaUsage` 把 `status = 'verifying'` 也列为一直计入，直到变成 `ready`（照常计）或 `rejected`（`reserved_bytes` 置 0）。
    - `rejected` 的回收要单独设计，不能交给现有的 sweep：普通画布上传 `attachment_managed = false`，而 `purgeExpiredAttachmentMedia` 只扫 managed 附件；文档里的引用还会保护这行不被删。方案：
      - 置 `rejected` 时立即删除暂存对象（服务端专用 key 尚未写入）；行本身保留为墓碑，保留暂存 key，`reserved_bytes` 按 0 计。
+     - 墓碑不能挡住重试：`media_objects` 在 `(user_id, sha256)` 上唯一，reserve 会复用同 hash 的旧行，而现在的更新路径不重置 status，重试同一张图会一直拿回那个被拒的 id。所以置 `rejected` 的同一条 UPDATE 把墓碑行的 `sha256` 改成 `rejected:<id>`，让出唯一键。之后重试走正常的新建路径：新 id、新暂存 key、新预留；文档里旧 id 的墓碑引用不受影响，由客户端换成新 id。原因码是 `unsupported_type`、`pixel_limit`、`animated` 这类确定性失败时，客户端不自动重试，只在用户重新导入时才会再传。
      - 只删一次不够：预签名 PUT 有效期 600 秒（`durableMediaStore.sign`），客户端在这期间重试 PUT 会把暂存对象重新建出来。所以 `purgeRejectedMedia` 在删行之前按行里保存的暂存 key 再删一次对象（对象不存在也算成功）；删行发生在 `rejected` 7 天后，远超签名有效期，此后不会再有对象被建出来。
      - 项目引用要先清：`canvasSyncStore` 写 `media_references` 只增不删，节点从文档里消失后那条 `owner_kind = 'project'` 的边还在，而外键是 `onDelete: 'restrict'`，墓碑行永远删不掉。所以 `purgeRejectedMedia` 对每个候选行，在项目行锁内读当前文档，文档已不再引用这个 `mediaId` 的项目，删掉对应的 project 引用；被拒的媒体没有有效字节，迁移归档用不到这些边。之后只有在其他 `owner_kind` 的引用也不存在时才删行，否则留到下一轮。
      - 定时任务删除的条件：`rejected` 超过 7 天，且上面两步做完后已没有任何引用。
