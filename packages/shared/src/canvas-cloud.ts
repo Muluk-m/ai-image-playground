@@ -69,6 +69,53 @@ export function isLocalCanvasFileId(value: unknown): value is string {
     /^[\w.:-]+$/.test(value)
   )
 }
+/**
+ * 上传中节点由哪台设备在传、从什么时候开始：放在 meta 里（旧编辑器来回同步也保留 meta）。
+ * 别的设备据此只把「有人在传、还没过期」的节点显示成上传中；本机缺原图又不是别人在传的，仍按缺图处理。
+ */
+export const CANVAS_UPLOAD_DEVICE_META = 'uploadDevice'
+export const CANVAS_UPLOAD_STARTED_META = 'uploadStartedAt'
+/** 超过这么久还没收成云媒体，就不再显示「上传中」而显示缺图（上传那台设备可能已离线或失败）。 */
+export const CANVAS_UPLOAD_STALE_MS = 30 * 60_000
+
+interface CanvasUploadData {
+  fileId?: string
+  mediaId?: string
+  meta?: Record<string, string>
+}
+
+/** 这个节点是不是别的设备声明在传、而且还没过期的上传中图片。 */
+export function canvasUploadingElsewhere(
+  data: CanvasUploadData,
+  device: string,
+  now: number,
+): boolean {
+  if (data.mediaId || !isLocalCanvasFileId(data.fileId)) return false
+  const by = data.meta?.[CANVAS_UPLOAD_DEVICE_META]
+  const since = Number(data.meta?.[CANVAS_UPLOAD_STARTED_META])
+  return !!by && by !== device && Number.isFinite(since) && now - since < CANVAS_UPLOAD_STALE_MS
+}
+
+/** 别的设备声明在传（不论是否过期）：本机没有原图也不该由本机报缺图、拦同步。 */
+export function canvasUploadClaimedElsewhere(data: CanvasUploadData, device: string): boolean {
+  if (data.mediaId || !isLocalCanvasFileId(data.fileId)) return false
+  const by = data.meta?.[CANVAS_UPLOAD_DEVICE_META]
+  return !!by && by !== device
+}
+
+/** 去掉上传声明（收成云媒体后）；没有声明时原样返回。 */
+export function withoutCanvasUploadClaim(
+  meta: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!meta || !(CANVAS_UPLOAD_DEVICE_META in meta || CANVAS_UPLOAD_STARTED_META in meta))
+    return meta
+  const {
+    [CANVAS_UPLOAD_DEVICE_META]: _device,
+    [CANVAS_UPLOAD_STARTED_META]: _since,
+    ...rest
+  } = meta
+  return rest
+}
 const finite = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 10_000_000
 const allowed = (value: object, fields: string[]) =>
