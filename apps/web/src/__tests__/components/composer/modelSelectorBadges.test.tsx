@@ -61,6 +61,9 @@ it('shows the name on its own line and the duration with the badges on one unwra
   )
   expect(meta?.className).toContain('whitespace-nowrap')
   expect(meta?.className).not.toContain('flex-wrap')
+  // 挤不下时每枚标签各自省略，而不是被整行 overflow-hidden 整枚裁掉。
+  expect(meta?.className).not.toContain('overflow-hidden')
+  expect(meta?.querySelectorAll('.truncate').length).toBe(3)
   expect(option.textContent).toContain('速度快')
   expect(option.textContent).toContain('便宜')
   expect(option.textContent).toContain('约 3 秒')

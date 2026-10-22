@@ -135,18 +135,18 @@ function modelOptionName(
         {option.label}
       </span>
       {/* 标签和耗时放在第二行：名字那一行要和右侧 provider 名抢位置，两枚标签放上去在 w-80 的弹层里会折行。
-          第二行永远单行，每行高度一致。挤不下时先省略耗时文字，标签保持完整；整行带 title 可看全。 */}
+          第二行永远单行，每行高度一致。挤不下时耗时和标签各自缩短成省略号，不整枚裁掉；整行带 title 可看全。 */}
       {eta || badges.length > 0 ? (
         <span
           title={[eta, ...badges.map(badgeLabel)].filter(Boolean).join(' · ')}
-          className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap"
+          className="flex min-w-0 items-center gap-1 whitespace-nowrap"
         >
           {eta ? (
             <span className="min-w-0 truncate text-label-sm text-muted-foreground">{eta}</span>
           ) : null}
           {badges.map((badge) => (
-            <Badge key={badge} tone={BADGE_TONE[badge]} className="shrink-0">
-              {badgeLabel(badge)}
+            <Badge key={badge} tone={BADGE_TONE[badge]} className="min-w-0">
+              <span className="min-w-0 truncate">{badgeLabel(badge)}</span>
             </Badge>
           ))}
         </span>
