@@ -1,6 +1,7 @@
 export * from './agent'
 export * from './agent-batch'
 export * from './agent-canvas-snapshot'
+export * from './agent-inline-thinking'
 export * from './agent-model-settings'
 export * from './analysis'
 export * from './auth'
