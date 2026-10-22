@@ -384,9 +384,9 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
             )
             dispatchAccounting = dispatchAccounting.then(() => settled)
           },
-          onRetry: async (message) => {
+          onRetry: async (message, nextModelId) => {
             await ledger.finish(callId, message)
-            callId = await ledger.begin('conversation', model.id, context)
+            callId = await ledger.begin('conversation', nextModelId, context)
             modelCallId = callId
           },
           onCancelledBeforeDispatch: () => ledger.cancelledBeforeDispatch(callId),
