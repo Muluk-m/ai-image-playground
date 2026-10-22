@@ -85,6 +85,7 @@
     "modelEta": "~{{seconds}}s",
     "modelEtaMinutes": "~{{minutes}} min",
     "modelBadge": {
+      "recommended": "Recommended",
       "latest": "Latest",
       "quality": "Best quality",
       "fast": "Fastest",

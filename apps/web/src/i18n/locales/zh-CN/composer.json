@@ -80,6 +80,7 @@
     "modelEta": "约 {{seconds}} 秒",
     "modelEtaMinutes": "约 {{minutes}} 分钟",
     "modelBadge": {
+      "recommended": "推荐",
       "latest": "最新",
       "quality": "质量好",
       "fast": "速度快",
