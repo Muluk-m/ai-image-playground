@@ -5,6 +5,7 @@ import {
   agentClarificationSummary,
   agentToolResultSummary,
   canvasStageRunsDirectly,
+  stripInlineReasoning,
 } from '@image-playground/shared'
 import { reservationCeiling, storedSummaryTokens } from './compaction'
 import { compactionSettings } from './compaction-settings'
@@ -222,7 +223,8 @@ export function replayTurnText(
     .map((block) => {
       if (block.type === 'text')
         return (
-          block.text +
+          // 修复前落库的助手正文可能以推理标签开头；回放只要回复本身。
+          (message.role === 'assistant' ? stripInlineReasoning(block.text) : block.text) +
           // 回放是纯文字：那一轮附过的图，内容不在这一份输入里。
           (message.role === 'user'
             ? referenceManifest(block.references ?? [], false, maskScope)
