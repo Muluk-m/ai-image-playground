@@ -27,7 +27,7 @@ import type { BffTransaction } from '../private-overlay'
 import { lockMediaOwner } from '../projectMedia'
 import { createQueueTask } from '../taskSubmission'
 import type { AgentOwner } from './conversations'
-import { enqueueAgentResume, gateResumeLive, userMessageSince } from './inbox'
+import { enqueueAgentResume, gateResumeLive, userMessageAfterTurn } from './inbox'
 import {
   validateImageParameters,
   validateProductionConfirmation,
@@ -201,11 +201,11 @@ export async function confirmAgentGeneration(
           ...(await continueGatedTurn(tx, card, input)),
         }
       }
-      // 确认门的卡一旦有更晚的用户消息进了收件箱就算作废：作废发生在那条消息起轮时，这里与它
+      // 确认门的卡一旦在那一轮之后有用户消息进了收件箱就算作废：作废发生在那条消息起轮时，这里与它
       // 同一把会话锁，不论确认与起轮谁先拿到锁，「先发了新消息」的卡都交不出去。
       if (
         card.block.gated === true &&
-        (await userMessageSince(tx, input.conversationId, card.createdAt))
+        (await userMessageAfterTurn(tx, input.conversationId, card.turnId, card.createdAt))
       )
         return { kind: 'not_confirmable' }
       const draft = await readDraft(tx, input.conversationId, card)

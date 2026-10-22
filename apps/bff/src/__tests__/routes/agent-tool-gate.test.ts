@@ -336,13 +336,22 @@ describe('确认门', () => {
     expect(await tasksOf(conversationId)).toHaveLength(1)
   })
 
-  it('新消息已进收件箱、还没起轮就点了确认：确认门的卡交不出去，不提交也不扣费', async () => {
+  // 先后按收件箱序号认，不看时间戳：那一轮还在跑时就发出、比卡早落库的新消息，与卡同一毫秒的，都算。
+  it.each([
+    ['卡落库之后', 1],
+    ['与卡同一毫秒', 0],
+    ['那一轮还在跑、卡还没落库时', -1_000],
+  ])('新消息（%s）已进收件箱、还没起轮就点了确认：确认门的卡交不出去，不提交也不扣费', async (_when, offset) => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [() => toolCallCompletion(generate('call-1'))]),
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫', GATED)
     const [pending] = await cardsOf(conversationId)
+    const [landed] = await db
+      .select({ at: schema.agent_messages.created_at })
+      .from(schema.agent_messages)
+      .where(eq(schema.agent_messages.id, pending!.messageId))
     // 用户发的新消息先落进收件箱（起轮、作废还没来得及做）。
     await db.insert(schema.agent_inbox).values({
       conversation_id: conversationId,
@@ -352,7 +361,7 @@ describe('确认门', () => {
       status: 'pending',
       client_message_id: 'later-message',
       payload: { text: '算了，换成柴犬', deviceId: DEVICE },
-      created_at: Date.now() + 1,
+      created_at: landed!.at + offset,
     } as typeof schema.agent_inbox.$inferInsert)
     const refused = await confirm(conversationId, pending!)
     expect(refused.status).toBe(422)

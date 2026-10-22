@@ -17,7 +17,7 @@ import {
   type AgentTurnParams,
   type AgentTurnReference,
 } from '@image-playground/shared'
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, not, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne, not, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 import { lockMediaOwner, MediaError } from '../projectMedia'
@@ -674,12 +674,23 @@ export async function gateResumeLive(
   return row !== undefined
 }
 
-/** 这个时刻（含）之后有没有用户消息进过收件箱（还在等或已被取走；撤回的不算）。 */
-export async function userMessageSince(
+/**
+ * 确认门拦下的那一轮之后，用户有没有再发过话（还在等或已被取走；撤回的不算）。按收件箱序号认先后，
+ * 不比毫秒时间戳：触发那一轮的消息本身、并进那一轮的插话都不算；那一轮还在跑时就发出、卡落库之前
+ * 就进了收件箱的新消息照样算。那一轮不是从收件箱起的（认不出它的位置）才退回按卡落库的时刻比。
+ */
+export async function userMessageAfterTurn(
   executor: typeof db | BffTransaction,
   conversationId: string,
-  since: number,
+  turnId: string,
+  cardCreatedAt: number,
 ): Promise<boolean> {
+  const [started] = await executor
+    .select({ seq: sql<number | null>`max(${inbox.seq})` })
+    .from(inbox)
+    .where(and(eq(inbox.conversation_id, conversationId), eq(inbox.consumed_turn_id, turnId)))
+  const after =
+    started?.seq == null ? gt(inbox.created_at, cardCreatedAt) : gt(inbox.seq, Number(started.seq))
   const [row] = await executor
     .select({ id: inbox.id })
     .from(inbox)
@@ -688,8 +699,8 @@ export async function userMessageSince(
         eq(inbox.conversation_id, conversationId),
         inArray(inbox.kind, [...USER_KINDS]),
         inArray(inbox.status, ['pending', 'consumed']),
-        // 含同一毫秒：卡落在触发它的那条消息之后，同一毫秒进来的只可能是之后发的新消息。
-        gte(inbox.created_at, since),
+        or(isNull(inbox.consumed_turn_id), ne(inbox.consumed_turn_id, turnId)),
+        after,
       ),
     )
     .limit(1)
