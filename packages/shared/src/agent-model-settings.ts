@@ -41,10 +41,15 @@ export interface AgentProviderSettings {
   models: AgentConfiguredModel[]
 }
 
-export interface AgentThinkingProfile {
+export interface AgentModelBinding {
   providerId: string
   modelId: string
   reasoning: ModelReasoningLevel
+}
+
+/** Primary model for a product depth. `fallback` runs once if that model overloads before output. */
+export interface AgentThinkingProfile extends AgentModelBinding {
+  fallback?: AgentModelBinding
 }
 
 export interface AgentModelSettings {
@@ -70,6 +75,7 @@ export const AGENT_PROVIDER_SECRET_REFS = [
   'DEEPSEEK_API_KEY',
   'GROQ_API_KEY',
   'XAI_API_KEY',
+  'GROK_API_KEY',
   'MISTRAL_API_KEY',
 ] as const
 
