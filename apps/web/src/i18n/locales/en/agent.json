@@ -448,7 +448,15 @@
     "toolFailed": "A tool failed. Check the failed tool card.",
     "copyLog": "Copy original log",
     "copied": "Copied",
-    "copyFailed": "Copy failed. Try again."
+    "copyFailed": "Copy failed. Try again.",
+    "imageTooLarge": "This image is too large, so the message was not sent. Each image can be up to {{maxSize}}; choose a smaller one and send again.",
+    "uploadFailed": "A reference image could not be uploaded, so the message was not sent: {{reason}}",
+    "signedOut": "You have been signed out, so the message was not sent. Sign in again and resend.",
+    "serverUnavailable": "The service is temporarily unavailable, so the message was not sent. You can retry.",
+    "requestRejected": "The server did not accept this message. Edit it and send again, or send us the error details if this keeps happening.",
+    "network": "The connection dropped, so the message was not sent. You can retry.",
+    "retry": "Retry",
+    "details": "Error details"
   },
   "project": {
     "createFailed": "Could not create the project. Your current work is kept, please retry.",

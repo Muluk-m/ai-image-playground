@@ -33,7 +33,7 @@ import { answerableClarificationId } from '../lib/panelMessages'
 import { isProductionDraft } from '../lib/promptDraft'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { agentPanelPresent } from '../panelLayout'
-import { useAgentStore } from '../store'
+import { retryUnsent, unsentRetryAvailable, useAgentStore } from '../store'
 import type { AgentPanelMessage, AgentToolMessage } from '../types'
 import AgentActivity from './AgentActivity'
 import AgentActivityTrail from './AgentActivityTrail'
@@ -702,14 +702,19 @@ export default function AgentPanel({
                 {presentation === 'page' && <AgentFollowUpChips />}
                 {(error || returnedMessagesPending) && !historyFailed && (
                   <ErrorState
-                    title={t('panel.errorTitle')}
-                    detail={
+                    title={
                       returnedMessagesPending
                         ? t(`errors:agentQueue.${returnedMessagesError ?? 'fallback'}`)
-                        : (error ?? undefined)
+                        : (error ?? t('panel.errorTitle'))
                     }
                     actions={
                       <>
+                        {!returnedMessagesPending && unsentRetryAvailable(error) && (
+                          <Button variant="outline" size="xs" onClick={retryUnsent}>
+                            <Icon name="refresh" />
+                            {t('error.retry')}
+                          </Button>
+                        )}
                         {returnedMessagesPending && (
                           <Button
                             variant="outline"
@@ -720,6 +725,7 @@ export default function AgentPanel({
                           </Button>
                         )}
                         <AgentCopyDiagnostic
+                          variant="link"
                           diagnostic={
                             errorDiagnostic ?? {
                               conversationId: diagnosticConversationId,
