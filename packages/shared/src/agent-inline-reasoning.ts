@@ -22,33 +22,22 @@ export type InlineReasoningSplit =
       readonly closed: boolean
     }
 
-const OPEN = /^<([a-z]+)\s*>/i
-
-function isTag(name: string, tags: readonly string[]): boolean {
-  return tags.includes(name.toLowerCase())
-}
-
-/** 开头这一截还可能长成某个开标签：`<`、`<thi`、`<think`、`<think ` 都算。 */
-function couldOpen(rest: string, tags: readonly string[]): boolean {
-  if (rest === '') return true
-  const lower = rest.toLowerCase()
-  return tags.some((tag) => {
-    const open = `<${tag}`
-    if (open.startsWith(lower)) return true
-    return lower.startsWith(open) && /^\s*$/.test(lower.slice(open.length))
-  })
-}
-
 const WHITESPACE = /\s/
+const LETTER = /[a-z]/i
 
 /**
  * 流式拆分器：同一段正文只会在末尾追加，每个字符只看一次，整段流的处理量与长度成正比。
- * 开头一旦定下来（是推理标签还是普通正文）就不再回头看；推理没闭合时，闭标签按字符逐个往后认，
- * 认到一半的候选（`</thi`、`</thinking   `）记住认到了哪，下一段从那里接着认。
+ * 开头的标签与推理里的闭标签都按字符逐个往后认：认到一半的（前导空白、`<thi`、`<think  `、
+ * `</thi`、`</thinking   `）记住认到了哪，下一段从那里接着认。开头一旦定下来就不再回头看。
  * 每次调用传入到目前为止的整段正文，结果与 `splitInlineReasoning` 对同一前缀的结果相同。
  */
 export class InlineReasoningSplitter {
   private phase: 'pending' | 'plain' | 'open' | 'closed' = 'pending'
+  private readonly tags: readonly string[]
+  /** 开头认到的标签名（小写）；还没见到 `<` 时为 null。 */
+  private name: string | null = null
+  /** 标签名之后已经见过空白：只剩空白与 `>` 能接上。 */
+  private named = false
   /** 闭标签去掉末尾 `>` 的那一截，小写，如 `</thinking`。 */
   private close = ''
   /** 推理正文在整段里的起点。 */
@@ -60,7 +49,9 @@ export class InlineReasoningSplitter {
   private closeStart = 0
   private closeEnd = 0
 
-  constructor(private readonly tags: readonly string[] = INLINE_REASONING_TAGS) {}
+  constructor(tags: readonly string[] = INLINE_REASONING_TAGS) {
+    this.tags = tags.map((tag) => tag.toLowerCase())
+  }
 
   split(text: string, finished: boolean): InlineReasoningSplit {
     if (this.phase === 'pending') this.decideStart(text, finished)
@@ -84,18 +75,38 @@ export class InlineReasoningSplitter {
     }
   }
 
+  /**
+   * 从上次停下的字符接着认开头：前导空白，然后 `<`、某个标签名、任意空白、`>`。
+   * 任何一个字符对不上就定成普通正文；正文写完了还没认完也是普通正文。
+   */
   private decideStart(text: string, finished: boolean) {
-    const lead = text.length - text.trimStart().length
-    const rest = text.slice(lead)
-    const open = OPEN.exec(rest)
-    if (open && isTag(open[1]!, this.tags)) {
-      this.phase = 'open'
-      this.close = `</${open[1]!.toLowerCase()}`
-      this.bodyStart = lead + open[0].length
-      this.cursor = this.bodyStart
-      return
+    while (this.cursor < text.length) {
+      const char = text[this.cursor]!
+      if (this.name === null) {
+        if (char === '<') this.name = ''
+        else if (!WHITESPACE.test(char)) return this.toPlain()
+      } else if (char === '>') {
+        if (!this.tags.includes(this.name)) return this.toPlain()
+        this.phase = 'open'
+        this.close = `</${this.name}`
+        this.bodyStart = this.cursor + 1
+        this.cursor = this.bodyStart
+        return
+      } else if (WHITESPACE.test(char)) {
+        if (!this.tags.includes(this.name)) return this.toPlain()
+        this.named = true
+      } else {
+        const name = this.name + char.toLowerCase()
+        if (this.named || !LETTER.test(char) || !this.tags.some((tag) => tag.startsWith(name)))
+          return this.toPlain()
+        this.name = name
+      }
+      this.cursor += 1
     }
-    if (!finished && couldOpen(rest, this.tags)) return
+    if (finished) this.toPlain()
+  }
+
+  private toPlain() {
     this.phase = 'plain'
   }
 

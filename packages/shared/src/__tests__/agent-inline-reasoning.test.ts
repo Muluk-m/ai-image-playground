@@ -91,6 +91,8 @@ describe('InlineReasoningSplitter', () => {
     '<thinking>没有闭合 <',
     '<thinking>末尾半截闭标签</thinking   ',
     `<thinking>长空白</THINKING${' \n\t'.repeat(40)}>之后`,
+    `${' \n'.repeat(40)}<THINK${' '.repeat(20)}>前导空白很长</think>正文`,
+    `${' '.repeat(30)}<think  x>不是标签`,
     `<thinking>空白后断开</thinking${' '.repeat(30)}x</thinking>尾`,
     '<b>粗体</b><thinking>x</thinking>',
     '好的。<thinking>正文里的字</thinking>',
