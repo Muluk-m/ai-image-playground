@@ -125,14 +125,16 @@ jobs:
       TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
       VITEST_MAX_WORKERS: 1
       # 数据库测试一个文件一个进程、一个 suite 一个库，可以并发跑（scripts/run-bun-tests-isolated.ts）。
-      BUN_TEST_JOBS: 4
+      BUN_TEST_JOBS: 6
       # Node 24.18 exposes an unconfigured global localStorage; jsdom owns browser storage here.
       NODE_OPTIONS: --no-experimental-webstorage
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
       # typecheck 在 web job 里跑过，这里不重复；web 的 vitest 在 web-test job 并行跑。
-      - run: pnpm test --concurrency=1 --env-mode=loose --filter='!@image-playground/web'
+      # 本机的 `pnpm test` 仍是一次一个包（package.json 不变）；CI 跑在 GitHub 的 4 核机器上，
+      # admin 的 vitest（约 1 分钟）与 bff 的 Bun 套件（约 3 分钟）可以同时跑，不必排队。
+      - run: pnpm test --concurrency=3 --env-mode=loose --filter='!@image-playground/web'
   # apps/web 的 vitest 不需要数据库，也是最长的一段；独立出来与 bff job 并行，不再串在它后面。
   web-test:
     needs: prior
