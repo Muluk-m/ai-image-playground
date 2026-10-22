@@ -1,11 +1,16 @@
 import {
+  CANVAS_UPLOAD_DEVICE_META,
+  CANVAS_UPLOAD_STARTED_META,
   canvasOrigin,
   canvasProjectDocument,
   canvasResults,
   canvasSyncStep1,
   canvasSyncStep2,
+  canvasUploadClaimedElsewhere,
   createCanvasUndoManager,
+  type ImageNodeData,
   importLegacyElements,
+  isLocalCanvasFileId,
   type LegacyCanvasElement,
   type ProjectDocument,
   type ProjectVideoRef,
@@ -25,6 +30,7 @@ import { authenticatedBffFetch } from '../../../lib/authClient'
 import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import { supportsCanvasPendingMedia } from '../../../lib/clientCapabilities'
 import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
+import { getDeviceId } from '../../../lib/deviceId'
 import { uploadMediaSource } from '../../../lib/mediaUpload'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
@@ -518,7 +524,8 @@ export class CloudNodeProjectSession {
     if (!this.canvas) return
     const doc = this.canvas.doc
     // 先列出这一轮要收成云媒体的全部本机原图，按原图去重：同一张图挂在几个节点或候选上只传一次。
-    const nodes: { nodeId: string; fileId: string }[] = []
+    const nodes: { nodeId: string; fileId: string; elsewhere: boolean }[] = []
+    const device = getDeviceId()
     for (const node of readCanvasDocument(doc).nodes) {
       if (
         (node.type !== 'image' && node.type !== 'video') ||
@@ -526,7 +533,11 @@ export class CloudNodeProjectSession {
         node.data.mediaId
       )
         continue
-      nodes.push({ nodeId: node.id, fileId: node.data.fileId })
+      nodes.push({
+        nodeId: node.id,
+        fileId: node.data.fileId,
+        elsewhere: canvasUploadClaimedElsewhere(node.data, device),
+      })
     }
     // Previously chosen candidates remain durable even after another candidate becomes main.
     const results: { resultId: string; fileId: string }[] = []
@@ -541,12 +552,18 @@ export class CloudNodeProjectSession {
     }
     let failure: unknown
     const sources = new Set<string>()
-    // 服务端收「上传中」节点时，别的设备传上来的本机 fileId 在这里没有原图，由那台设备去传。
-    const foreign = supportsCanvasPendingMedia()
-    for (const [index, { fileId }] of [...nodes, ...results].entries()) {
+    // 别的设备声明在传的上传中节点，本机没有原图是正常的，由那台设备去传；
+    // 本机缺原图又没有别人声明在传（原图被清理、损坏），仍按缺图报错。
+    const pendingAllowed = supportsCanvasPendingMedia()
+    for (const node of nodes) {
+      const source = this.record.editor.doc.files[node.fileId]
+      if (source) sources.add(source)
+      else if (!pendingAllowed || !node.elsewhere) failure ??= new Error('canvas_media_missing')
+    }
+    for (const { fileId } of results) {
       const source = this.record.editor.doc.files[fileId]
       if (source) sources.add(source)
-      else if (!foreign || index >= nodes.length) failure ??= new Error('canvas_media_missing')
+      else failure ??= new Error('canvas_media_missing')
     }
     const promote = (source: string, mediaId: string) => {
       for (const { nodeId, fileId } of nodes) {
@@ -605,10 +622,66 @@ export class CloudNodeProjectSession {
    */
   private canSendBeforeMedia() {
     if (!this.canvas || !supportsCanvasPendingMedia()) return false
-    return !canvasResults(this.canvas.doc).some(
-      (result) =>
-        result.source.type === 'file' || (!result.display?.mediaId && result.display?.fileId),
+    if (
+      canvasResults(this.canvas.doc).some(
+        (result) =>
+          result.source.type === 'file' || (!result.display?.mediaId && result.display?.fileId),
+      )
     )
+      return false
+    // 本机缺原图、也没有别的设备声明在传的节点不能当「上传中」发出去：走原流程报缺图。
+    const files = this.record.editor.doc.files
+    const device = getDeviceId()
+    return readCanvasDocument(this.canvas.doc).nodes.every(
+      (node) =>
+        (node.type !== 'image' && node.type !== 'video') ||
+        !node.data.fileId ||
+        !!node.data.mediaId ||
+        !!files[node.data.fileId] ||
+        canvasUploadClaimedElsewhere(node.data, device),
+    )
+  }
+  /**
+   * 先发文档前，给本机要传的节点写上「本设备在传、何时开始」：别的设备据此显示上传中，
+   * 而不是把任何本机格式的 fileId 都当成有人在传。收成云媒体时由 promote 去掉。
+   */
+  private claimLocalUploads() {
+    if (!this.canvas) return
+    const doc = this.canvas.doc
+    const files = this.record.editor.doc.files
+    const device = getDeviceId()
+    const now = String(Date.now())
+    const claims: { id: string; data: ImageNodeData }[] = []
+    for (const node of readCanvasDocument(doc).nodes) {
+      if (node.type !== 'image' && node.type !== 'video') continue
+      const { fileId, mediaId, meta } = node.data
+      if (
+        isLocalCanvasFileId(fileId) &&
+        !mediaId &&
+        files[fileId] &&
+        meta?.[CANVAS_UPLOAD_DEVICE_META] !== device
+      )
+        claims.push({ id: node.id, data: node.data })
+    }
+    if (!claims.length) return
+    doc.transact(() => {
+      for (const { id, data } of claims)
+        updateCanvasNode(
+          doc,
+          id,
+          {
+            data: {
+              ...data,
+              meta: {
+                ...data.meta,
+                [CANVAS_UPLOAD_DEVICE_META]: device,
+                [CANVAS_UPLOAD_STARTED_META]: now,
+              },
+            },
+          },
+          legacyOrigin,
+        )
+    }, legacyOrigin)
   }
   /** 本机有原图、还没收成云媒体的图片节点；别的设备的上传中节点由那台设备传。 */
   private hasLocalImages() {
@@ -666,7 +739,10 @@ export class CloudNodeProjectSession {
           await this.prepareVideoMedia()
           if (this.project.cloud?.nameDirty) await this.flushName()
           this.current()
-          if (this.hasLocalImages()) this.uploadInBackground()
+          if (this.hasLocalImages()) {
+            this.claimLocalUploads()
+            this.uploadInBackground()
+          }
         } else {
           // Promotion awaits I/O; include edits made during those awaits before acknowledging this version.
           let preparedVersion: number

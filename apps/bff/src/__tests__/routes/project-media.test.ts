@@ -621,6 +621,72 @@ describe('confirmation coordination', () => {
     return upload as { id: string; uploadUrl: string }
   }
 
+  it('排队期间被重新预留改大的图，按锁内读到的新大小重新申请处理位', async () => {
+    const { mediaProcessingUsageForTesting } = await import('../../lib/projectMedia')
+    const blockers = await Promise.all(
+      ['#100000', '#200000', '#300000', '#400000'].map((color) => pendingConfirmation(color)),
+    )
+    const bytes = await sharp({
+      create: { width: 8, height: 8, channels: 4, background: '#0f0f0f' },
+    })
+      .png()
+      .toBuffer()
+    const descriptor = {
+      bytes: 10,
+      contentType: 'image/png',
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    }
+    const target = await (await request('media/uploads', deviceA, descriptor)).json()
+    await storage.write(key(target.uploadUrl), bytes, 'image/png')
+    const originalRead = storage.readUpTo.bind(storage)
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let releaseTarget!: () => void
+    const targetHeld = new Promise<void>((resolve) => {
+      releaseTarget = resolve
+    })
+    let targetReading!: () => void
+    const reading = new Promise<void>((resolve) => {
+      targetReading = resolve
+    })
+    const blockerKeys = new Set(blockers.map((upload) => key(upload.uploadUrl)))
+    storage.readUpTo = async (path, maxBytes) => {
+      if (blockerKeys.has(path)) await blocked
+      if (path === key(target.uploadUrl)) {
+        targetReading()
+        await targetHeld
+      }
+      return originalRead(path, maxBytes)
+    }
+    const busy = blockers.map((upload) => request(`media/${upload.id}/complete`, deviceA, {}))
+    try {
+      for (let attempt = 0; mediaProcessingUsageForTesting().active < 4 && attempt < 200; attempt++)
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      const confirmation = request(`media/${target.id}/complete`, deviceA, {})
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      // 申报错了大小，排队期间改正：同一摘要复用原记录，只改字节数。
+      const corrected = await request('media/uploads', deviceA, {
+        ...descriptor,
+        bytes: bytes.length,
+      })
+      expect((await corrected.json()).id).toBe(target.id)
+      release()
+      for (const response of await Promise.all(busy)) expect(response.status).toBe(200)
+      await reading
+      // 只剩这一张在读：计入的是改正后的大小，而不是排队时的 10 字节。
+      expect(mediaProcessingUsageForTesting()).toEqual({ active: 1, bytes: bytes.length })
+      releaseTarget()
+      expect((await confirmation).status).toBe(200)
+    } finally {
+      release()
+      releaseTarget()
+      storage.readUpTo = originalRead
+      await Promise.allSettled(busy)
+    }
+  })
+
   it('same-image confirmations share processing, preserve ownership and leave capacity for other images', async () => {
     const upload = await pendingConfirmation()
     const other = await pendingConfirmation('#abcdef')
