@@ -11,6 +11,7 @@ import type {
   AgentTurnReference,
   AgentTurnUsage,
 } from '@image-playground/shared'
+import { InlineThinkingFilter } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { bffDrain } from '../drain'
@@ -136,6 +137,8 @@ interface OpenAssistantMessage {
   readonly id: string
   text: string
   persisted?: boolean
+  /** 模型写进正文的 `<thinking>` 旁白不进回复，也不落库。 */
+  readonly thinking: InlineThinkingFilter
 }
 
 interface OpenToolCall {
@@ -499,6 +502,19 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       storedAny = true
     })
 
+  const emitText = (current: OpenAssistantMessage, delta: string) => {
+    if (!delta) return
+    // 上游报错的那条助手消息一个字都没有，不为它开一个空气泡。
+    if (!current.text) {
+      // 思考标签吞掉的开头常带着换行，回复不该以空行起头。
+      delta = delta.replace(/^\s+/, '')
+      if (!delta) return
+      events.emit({ type: 'assistantStart', messageId: current.id })
+    }
+    current.text += delta
+    events.emit({ type: 'textDelta', messageId: current.id, delta })
+  }
+
   agent.subscribe(async (event) => {
     if (event.type === 'message_start' && event.message.role === 'user') {
       const content = event.message.content
@@ -523,21 +539,16 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     }
     if (event.type === 'message_start' && event.message.role === 'assistant') {
       ignoringTruncatedTools = false
-      open = { id: crypto.randomUUID(), text: '' }
+      open = { id: crypto.randomUUID(), text: '', thinking: new InlineThinkingFilter() }
     }
     if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
       const current = open
       if (!current) return
-      // 上游报错的那条助手消息一个字都没有，不为它开一个空气泡。
-      if (!current.text) events.emit({ type: 'assistantStart', messageId: current.id })
-      current.text += event.assistantMessageEvent.delta
-      events.emit({
-        type: 'textDelta',
-        messageId: current.id,
-        delta: event.assistantMessageEvent.delta,
-      })
+      emitText(current, current.thinking.push(event.assistantMessageEvent.delta))
     }
     if (event.type === 'message_end' && event.message.role === 'assistant') {
+      // 留在过滤器里的那一截（像标签开头、最后发现不是）在收尾前补发。
+      if (open) emitText(open, open.thinking.end())
       // 在读取任何生成结果之前冻结整批方案；未提交过任务时允许修正参数错误。
       maskedEditPlan.capture(
         event.message.content.flatMap((block) => (block.type === 'toolCall' ? [block] : [])),
