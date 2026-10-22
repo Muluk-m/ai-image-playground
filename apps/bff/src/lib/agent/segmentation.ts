@@ -301,12 +301,7 @@ export function dilateMask(
 }
 
 /** 二值图的方形内收：对补集外扩再取补。图片边缘之外不算空白，贴边的蒙版不会被啃掉。 */
-function erodeMask(
-  source: Uint8Array,
-  width: number,
-  height: number,
-  radius: number,
-): Uint8Array {
+function erodeMask(source: Uint8Array, width: number, height: number, radius: number): Uint8Array {
   if (radius <= 0) return source.slice()
   const inverse = new Uint8Array(source.length)
   for (let i = 0; i < source.length; i++) inverse[i] = source[i] ? 0 : 255
