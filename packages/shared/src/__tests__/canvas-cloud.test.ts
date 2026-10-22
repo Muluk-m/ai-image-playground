@@ -91,16 +91,39 @@ describe('cloud canvas migration and protocol', () => {
     expect(canvasProjectDocument(doc, document)).toEqual(document)
     validateCloudCanvas(doc, document)
   })
-  it('rejects local bitmap references, malformed roots and non-finite geometry', () => {
+  it('accepts an uploading local image but rejects forged or inline bitmap references', () => {
     const doc = new Y.Doc()
     importLegacyElements(doc, [], origin)
-    insertCanvasNode(
-      doc,
-      { id: 'bad', type: 'image', x: 0, y: 0, width: 10, height: 10, data: { fileId: 'local' } },
-      origin,
-    )
-    expect(() => validateCloudCanvas(doc, legacy)).toThrow()
-    deleteCanvasNode(doc, 'bad', origin)
+    let next = 0
+    const image = (fileId: string, mediaId?: string) => ({
+      id: `upload-${next++}`,
+      type: 'image' as const,
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      data: { fileId, ...(mediaId ? { mediaId } : {}) },
+    })
+    // 上传还没完成：只有本机认得的 fileId，先同步位置；旧读模型里不出现这张图。
+    insertCanvasNode(doc, image('Vk3n_x-9:story-grid:0'), origin)
+    validateCloudCanvas(doc, legacy)
+    expect(canvasProjectDocument(doc, legacy).elements).toEqual([])
+    for (const forged of [
+      image('cloud-11111111-1111-4111-8111-111111111111'),
+      image('data:image/png;base64,AAAA'),
+      image('x'.repeat(257)),
+      image('local', '11111111-1111-4111-8111-111111111111'),
+    ]) {
+      insertCanvasNode(doc, forged, origin)
+      expect(() => validateCloudCanvas(doc, legacy)).toThrow(
+        forged.data.fileId.startsWith('data:') ? 'invalid_canvas_node' : 'canvas_media_not_ready',
+      )
+      deleteCanvasNode(doc, forged.id, origin)
+    }
+  })
+  it('rejects malformed roots and non-finite geometry', () => {
+    const doc = new Y.Doc()
+    importLegacyElements(doc, [], origin)
     doc.getMap('secrets').set('payload', true)
     expect(() => validateCloudCanvas(doc, legacy)).toThrow()
   })
