@@ -623,3 +623,31 @@ describe('clarification visual continuity', () => {
     expect(turnPromptBody(pending)).not.toContain('不代表本轮意图')
   })
 })
+
+describe('product history replay', () => {
+  it('drops a leading reasoning tag stored before the model adapter split it, keeps the rest', () => {
+    const history: AgentMessageView[] = [
+      {
+        id: 'u',
+        turnId: 't',
+        role: 'user',
+        content: [{ type: 'text', text: '<think>用户原话</think>' }],
+        createdAt: 1,
+      },
+      {
+        id: 'a',
+        turnId: 't',
+        role: 'assistant',
+        content: [
+          { type: 'text', text: '<thinking>Reading canvas</thinking>\n好的，<think>正文</think>' },
+        ],
+        createdAt: 2,
+      },
+    ]
+    const replayed = turnInitialState(history, 'image').messages
+    expect(JSON.stringify(replayed[0])).toContain('<think>用户原话</think>')
+    expect(replayed[1]).toMatchObject({
+      content: [{ type: 'text', text: '好的，<think>正文</think>' }],
+    })
+  })
+})
