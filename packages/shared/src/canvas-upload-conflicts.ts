@@ -171,6 +171,7 @@ export function readOverwrittenLocalData(
 /**
  * 盯住远端更新：本机写的节点 data 被一次「没见过它」的远端写入顶掉时（并发，而不是先后），
  * 按 mergeCanvasUploadConflict 把两边合回去再写一次。只由输掉写入的那台设备补，别的设备不重复写。
+ * 返回的函数取消监听，并让已排队、还没执行的补写失效；持有文档的一方销毁前必须调用。
  */
 export function watchCanvasUploadConflicts(
   doc: Y.Doc,
@@ -178,6 +179,7 @@ export function watchCanvasUploadConflicts(
   origin: CanvasOrigin,
 ): () => void {
   const nodes = doc.getMap<Y.Map<unknown>>('nodes')
+  let stopped = false
   const observer = (events: Y.YEvent<Y.AbstractType<unknown>>[], transaction: Y.Transaction) => {
     if (!isRemote(transaction.origin)) return
     const repairs: { id: string; winner: unknown; data: UploadData }[] = []
@@ -192,6 +194,7 @@ export function watchCanvasUploadConflicts(
     if (!repairs.length) return
     // 观察者里不改文档：等这次事务收尾后再写，写之前确认节点还停在赢的那一版。
     queueMicrotask(() => {
+      if (stopped) return
       doc.transact(() => {
         for (const { id, winner, data } of repairs)
           if (nodes.get(id)?.get('data') === winner)
@@ -200,5 +203,9 @@ export function watchCanvasUploadConflicts(
     })
   }
   nodes.observeDeep(observer)
-  return () => nodes.unobserveDeep(observer)
+  return () => {
+    // 停掉之后连已经排队的补写也作废：会话销毁时文档可能正在 destroy。
+    stopped = true
+    nodes.unobserveDeep(observer)
+  }
 }

@@ -65,6 +65,20 @@ vi.mock('../../../../features/agent/lib/artifactSource', () => ({
 }))
 vi.mock('../../../../lib/authClient', () => ({ authenticatedBffFetch: vi.fn() }))
 const pendingMedia = vi.hoisted(() => ({ supported: false }))
+const uploadConflictWatch = vi.hoisted(() => ({ stopped: 0 }))
+vi.mock('@image-playground/shared', async (importOriginal) => {
+  const shared = await importOriginal<typeof import('@image-playground/shared')>()
+  return {
+    ...shared,
+    watchCanvasUploadConflicts: (...args: Parameters<typeof shared.watchCanvasUploadConflicts>) => {
+      const stop = shared.watchCanvasUploadConflicts(...args)
+      return () => {
+        uploadConflictWatch.stopped++
+        stop()
+      }
+    },
+  }
+})
 vi.mock('../../../../lib/clientCapabilities', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../lib/clientCapabilities')>()),
   supportsCanvasPendingMedia: () => pendingMedia.supported,
@@ -172,6 +186,13 @@ function acknowledgeWrites(socket: Socket, server: Y.Doc) {
     queueMicrotask(() => socket.receive(canvasSyncAck(server)))
   })
 }
+it('dispose stops the upload conflict watcher on the canvas doc', async () => {
+  const { session, record } = await fixture()
+  const before = uploadConflictWatch.stopped
+  session.dispose()
+  expect(uploadConflictWatch.stopped).toBe(before + 1)
+  record.dispose()
+})
 it('uses the server migration and does not start a second JSON cloud writer', async () => {
   const { session, record, socket, server } = await fixture()
   expect(readCanvasDocument(session.canvas!.doc).nodes[0]).toMatchObject({ id: 'text', x: 1, y: 2 })
