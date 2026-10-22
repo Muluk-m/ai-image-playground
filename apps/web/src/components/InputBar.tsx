@@ -224,14 +224,18 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const batchMergeLimit = modelAdmission.limit
   const batchActive =
     batchOffered && batchPerImage(inputImages.length, batchChosen, batchMergeLimit)
+  // 逐张生成每张参考图按 n=1 出图，提示词槽展开几条就再乘几条，与实际发出的任务数一致。
+  const batchImageCount = batchActive
+    ? inputImages.length * getSubmissionImageCount(prompt, slotValues, 1)
+    : 0
   const submissionGuard = usePrivateSubmissionGuard({
     model: activeView.model,
-    quantity: batchActive ? inputImages.length : submitImageCount,
+    quantity: batchActive ? batchImageCount : submitImageCount,
   })
   // 按钮上的积分按单张报价 × 张数算，与逐张扣费同一口径。
   const perImageGuard = usePrivateSubmissionGuard({ model: activeView.model, quantity: 1 })
   const batchTotalCredits = batchActive
-    ? batchCredits(inputImages.length, perImageGuard.estimatedCredits)
+    ? batchCredits(batchImageCount, perImageGuard.estimatedCredits)
     : undefined
   // 参考图随请求一起发，单张超限会在发出后失败：选图时就标出来、拦住发送。
   const oversizedIndexes = useMemo(
@@ -310,9 +314,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         ? t('submit.maskEdit')
         : batchActive
           ? batchTotalCredits === undefined
-            ? t('batch.sendLabel', { count: inputImages.length })
+            ? t('batch.sendLabel', { count: batchImageCount })
             : t('batch.sendLabelCredits', {
-                count: inputImages.length,
+                count: batchImageCount,
                 credits: batchTotalCredits.toLocaleString(),
               })
           : generateLabel
@@ -1506,7 +1510,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             ) : creationMode === 'agent' ? (
               <AgentParamsChip />
             ) : (
-              <ParamControls showCount fixedCount={batchActive ? inputImages.length : undefined} />
+              <ParamControls showCount fixedCount={batchActive ? batchImageCount : undefined} />
             )}
           </CreationToolbar>
           <input
