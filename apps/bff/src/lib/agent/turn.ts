@@ -56,6 +56,7 @@ import { type RunningTurn, registerRunningTurn } from './runningTurns'
 import { InvalidSelectionError } from './selection-preview'
 import type { AgentTurnAudience } from './skills'
 import { agentThinking } from './thinking'
+import { createAgentToolGate } from './tool-gate'
 import {
   type AgentSubmissionReplay,
   type AgentToolStart,
@@ -216,6 +217,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     text: input.text,
     hasNewReferences: input.references.length > 0,
   })
+  // 智能体模式关掉了直接出图：生成调用由确认门拦下，智能体不知道（见 `tool-gate.ts`）。
+  const gate = createAgentToolGate(input.toolGate === true)
   const turnTools = agentTurnTools(
     {
       mode,
@@ -239,6 +242,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         ? { autoSubmit: createAutoSubmitBudget() }
         : {}),
       ...(prepared.wake?.replay ? { replay: prepared.wake.replay } : {}),
+      ...(input.toolGate ? { gate: gate.view } : {}),
     },
     toolFailures,
   )
@@ -384,7 +388,9 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     steeringMode: 'all',
     // 逐个跑：每次调用都是一条计费任务，并发起来事件次序也对不上产出落画布的顺序。
     toolExecution: 'sequential',
-    // 澄清、拟稿或用户中止后，不再回上游追加一次模型调用。
+    // 确认门在这里认出要拦的生成调用；拦下的那次在花钱那一步停住，卡片停在待确认（`drafted`）。
+    beforeToolCall: (context) => gate.beforeToolCall(context),
+    // 澄清、拟稿（包括确认门拦下）或用户中止后，不再回上游追加一次模型调用。
     shouldStopAfterTurn: () => clarified || drafted || aborted || !!error,
     transformContext: (messages) =>
       visualWorkset.transform(messages, retained?.transform ?? compact),
@@ -852,6 +858,9 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       // 中止可能落在上面这次确认租约的等待里：那时 pi 还没开跑，`agent.abort()` 无处可去。
       // 不在开跑前同步再看一眼，这一轮会照常请求上游并跑完。
       if (aborted) return
+      // 确认门续跑：历史末尾已经接上那几次调用与回执（见 `turn-input.ts`），不加任何新话，
+      // 从工具结果接着往下走——对智能体来说这就是同一轮。
+      if (input.continuation) return agent.continue()
       return agent.prompt(sent.text, sent.content)
     })
     .catch((thrown) => {

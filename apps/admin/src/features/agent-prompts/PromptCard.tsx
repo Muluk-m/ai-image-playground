@@ -123,7 +123,16 @@ export function PromptCard({
           >
             {copyState}
           </Button>
-          {item.taskId ? (
+          {item.taskIds && item.taskIds.length > 1 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-muted-foreground">{item.taskIds.length} 张任务</span>
+              {item.taskIds.map((taskId, index) => (
+                <Button key={taskId} variant="outline" onClick={() => onTask(taskId)}>
+                  查看 {index + 1}
+                </Button>
+              ))}
+            </div>
+          ) : item.taskId ? (
             <Button variant="outline" onClick={() => onTask(item.taskId!)}>
               查看任务
             </Button>

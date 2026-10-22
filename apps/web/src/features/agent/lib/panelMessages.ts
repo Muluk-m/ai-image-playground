@@ -56,6 +56,7 @@ function toolCard(block: AgentToolResultBlock, id: string, turnId: string): Agen
     ...(block.video ? { video: block.video } : {}),
     ...(block.prompt ? { prompt: block.prompt } : {}),
     status: block.status,
+    ...(block.gated ? { gated: true as const } : {}),
     ...(block.productionDraftRevision !== undefined
       ? { productionDraftRevision: block.productionDraftRevision }
       : {}),
@@ -240,6 +241,54 @@ function settleOpenReplies(
 }
 
 /**
+ * 确认门拦下、还没确认的稿换成作废的样子（`failed` + `cancelled`），与服务端作废后的卡一致。
+ * 起跑的这一轮自己拦下的卡不动：续播重放那一轮时，它的 `turnStart` 不是一条新消息。
+ */
+function voidGatedDrafts(
+  messages: readonly AgentPanelMessage[],
+  turnId: string,
+): AgentPanelMessage[] {
+  return messages.map((one) =>
+    one.kind === 'tool' &&
+    one.gated &&
+    one.status === 'awaiting_confirmation' &&
+    one.turnId !== turnId
+      ? { ...one, status: 'failed', errorCode: 'cancelled' }
+      : one,
+  )
+}
+
+/**
+ * 一轮起跑时面板上的消息。用户消息起的轮，确认门还没确认的稿在这一刻一律换成作废：卡还等着确认时，服务端只会为
+ * 用户的新消息起轮（唤醒与中断续跑被它拦着，确认门续跑要等卡全部确认），而起那一轮时已把它们作废
+ * （不提交、不扣费）——不论这条消息是这个标签页发的、别处发的，还是已经在面板上。起轮没成就不会
+ * 走到这里，卡仍可确认；续播重放拦下这张卡的那一轮时也不动它。
+ *
+ * 这个标签页发的那条（`pendingUserText` 不为空）还没以服务端 id 上屏时，把先上屏的那条换成它；
+ * 续播没有正文可补，找不到那条用户消息就不显示它：空气泡比少一条更糟。
+ */
+function turnStartMessages(
+  messages: readonly AgentPanelMessage[],
+  userMessageId: string,
+  turnId: string,
+  pendingUserText: string | null,
+  wake: boolean,
+): AgentPanelMessage[] {
+  // 服务端只在用户消息起轮时作废（`turn-preparation` 的 `source.kind === 'message'`）；唤醒与续跑
+  // 起轮不碰这些卡，面板也不碰，两边口径一致。
+  const settled = wake ? [...messages] : voidGatedDrafts(messages, turnId)
+  if (pendingUserText === null || messages.some((one) => one.id === userMessageId)) return settled
+  const pending = messages.find(
+    (one): one is AgentTextMessage => one.kind === 'text' && one.pending === true,
+  )
+  return [
+    // 同一轮不会有第二条待确认的。
+    ...settled.filter((one) => one.kind !== 'text' || !one.pending),
+    textCard(userMessageId, turnId, 'user', pendingUserText, pending?.references),
+  ]
+}
+
+/**
  * 一个事件归约进面板。事件按 id 幂等：重连重发的帧、以及续播重放的整轮，都落到同一个结果上。
  *
  * 凡是「这个块已经定稿」的时点（`toolEnd`、澄清、插话）都走 {@link panelMessage}，与历史同源；
@@ -262,22 +311,13 @@ export function reduceAgentPanelEvent(
         ),
         // 续播没有正文可补（`pendingUserText` 为空），找不到那条用户消息就不显示它：
         // 空气泡比少一条更糟。
-        messages:
-          pendingUserText === null || state.messages.some((one) => one.id === event.userMessageId)
-            ? state.messages
-            : [
-                // 先上屏的那条换成服务端的 id；同一轮不会有第二条待确认的。
-                ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
-                textCard(
-                  event.userMessageId,
-                  turnId,
-                  'user',
-                  pendingUserText,
-                  state.messages.find(
-                    (one): one is AgentTextMessage => one.kind === 'text' && one.pending === true,
-                  )?.references,
-                ),
-              ],
+        messages: turnStartMessages(
+          state.messages,
+          event.userMessageId,
+          turnId,
+          pendingUserText,
+          event.wake === true,
+        ),
       }
     case 'assistantStart':
       // 先定稿再替换：重放同一条 `assistantStart` 时，替换会原样还它 `streaming: true`。
