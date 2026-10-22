@@ -209,6 +209,42 @@ describe('S3ObjectStore key prefix', () => {
     )
   })
 
+  it('readUpTo 不先查大小，一次范围读至多取 maxBytes 字节', async () => {
+    const client = new FakeS3Client()
+    const subject = store(client, 'image-playground/')
+    await subject.write('staging/a', new Uint8Array([1, 2, 3, 4, 5]), 'image/png')
+
+    // 核对「恰好 4 字节」时传 5：对象多出来的字节能被看出来，但不会多读。
+    expect(await subject.readUpTo('staging/a', 5)).toEqual(new Uint8Array([1, 2, 3, 4, 5]))
+    expect(await subject.readUpTo('staging/a', 3)).toEqual(new Uint8Array([1, 2, 3]))
+    expect(await subject.readUpTo('staging/a', 9)).toEqual(new Uint8Array([1, 2, 3, 4, 5]))
+    expect(client.statted).toHaveLength(0)
+  })
+
+  it('collectUpTo 收满上限就停止读取上游，多给的分块不进缓冲', async () => {
+    const { collectUpTo } = await import('../../lib/objectStore')
+    let pulled = 0
+    const chunks = [new Uint8Array([1, 2]), new Uint8Array([3, 4]), new Uint8Array([5, 6])]
+    let cancelled = false
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          const next = chunks[pulled++]
+          if (next) controller.enqueue(next)
+          else controller.close()
+        },
+        cancel() {
+          cancelled = true
+        },
+      },
+      { highWaterMark: 0 },
+    )
+
+    expect(await collectUpTo(stream, 3)).toEqual(new Uint8Array([1, 2, 3]))
+    expect(pulled).toBe(2)
+    expect(cancelled).toBe(true)
+  })
+
   it('空前缀保持原样', async () => {
     const client = new FakeS3Client()
     const subject = store(client, '')
