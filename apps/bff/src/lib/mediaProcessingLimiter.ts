@@ -20,7 +20,8 @@ export interface MediaProcessingLimiterOptions {
 
 interface Waiter {
   bytes: number
-  queuedAt: number
+  // 注入的时钟一直没读到合法值时为空，等第一次合法读数再补上。
+  queuedAt: number | undefined
   resume: () => void
   reject: () => void
 }
@@ -54,7 +55,7 @@ export function createMediaProcessingLimiter(options: MediaProcessingLimiterOpti
       const value = options.now()
       if (typeof value === 'number' && Number.isFinite(value)) lastNow = value
     } catch {}
-    return lastNow ?? 0
+    return lastNow
   }
   const busy = (reason: 'processing_queue_full' | 'processing_queue_timeout') => {
     try {
@@ -115,7 +116,12 @@ export function createMediaProcessingLimiter(options: MediaProcessingLimiterOpti
         waiter.resume()
         continue
       }
-      if (now() - waiter.queuedAt >= options.bypassLimitMs) break
+      // 还没有一次合法读数时不比较等待时长：拿 0 之类的假基准去比，会把刚排上的队首当成等了几十年。
+      const current = now()
+      if (current !== undefined) {
+        waiter.queuedAt ??= current
+        if (current - waiter.queuedAt >= options.bypassLimitMs) break
+      }
       index++
     }
   }
