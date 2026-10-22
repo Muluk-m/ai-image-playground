@@ -219,6 +219,30 @@ describe('media processing limiter input checks', () => {
     await Promise.all(queued)
   })
 
+  it('预算变大后，新请求先把排着的放进去，不报 processing_queue_full', async () => {
+    let budget = 10
+    const subject = createMediaProcessingLimiter({
+      slots: 4,
+      byteBudget: () => budget,
+      queueLimit: 2,
+      queueTimeoutMs: 10_000,
+      bypassLimitMs: 5_000,
+      busy: (reason) => new Error(reason),
+    })
+    const running = gate()
+    const jobs = [1, 2, 3].map(() => subject.run(10, () => running.opened))
+    await tick()
+    expect(subject.active).toBe(1)
+    expect(subject.queued).toBe(2)
+    budget = 100
+    jobs.push(subject.run(10, () => running.opened))
+    await tick()
+    expect(subject.active).toBe(4)
+    expect(subject.queued).toBe(0)
+    running.open()
+    await Promise.all(jobs)
+  })
+
   it('busy 回调抛出非 Error 时仍以稳定的 Error 结束', async () => {
     const subject = createMediaProcessingLimiter({
       slots: 1,
