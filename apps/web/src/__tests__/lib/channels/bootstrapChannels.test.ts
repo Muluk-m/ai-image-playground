@@ -235,3 +235,25 @@ it('refreshes when the tab comes back to the foreground and stops after unsubscr
   await Promise.resolve()
   expect(fetchSpy).toHaveBeenCalledTimes(2)
 })
+
+it('keeps refreshing on an interval while the tab stays in the foreground', async () => {
+  vi.useFakeTimers()
+  const fetchSpy = await startedWith('old', async () =>
+    Response.json({ channels: [{ id: 'new' }] }),
+  )
+  const page = Object.assign(new EventTarget(), {
+    document: Object.assign(new EventTarget(), { visibilityState: 'visible' }),
+  })
+  const stop = refreshChannelsWhenVisible(page as unknown as Window)
+  try {
+    await vi.advanceTimersByTimeAsync(CHANNEL_REFRESH_INTERVAL_MS - 1_000)
+    expect(fetchSpy).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(getStoredChannels().map((channel) => channel.id)).toEqual(['new'])
+  } finally {
+    stop()
+  }
+  await vi.advanceTimersByTimeAsync(CHANNEL_REFRESH_INTERVAL_MS * 2)
+  expect(fetchSpy).toHaveBeenCalledTimes(2)
+})

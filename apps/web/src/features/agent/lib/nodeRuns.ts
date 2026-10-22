@@ -263,7 +263,10 @@ export function noteAgentNodeRunBlocked(
   const key = `${authorizationId}:${nodes.map((node) => `${node.nodeId}=${node.reason}`).join(',')}`
   if (notedBlocks.has(key)) return
   notedBlocks.add(key)
-  void stageAuthorizationClient.blocked(authorizationId, nodes).catch(() => {})
+  // 没报上去（网络抖动、BFF 暂时不可用）就把键放回去，下次渲染再报。
+  void stageAuthorizationClient.blocked(authorizationId, nodes).catch(() => {
+    notedBlocks.delete(key)
+  })
 }
 
 export function startAgentNodeRun(

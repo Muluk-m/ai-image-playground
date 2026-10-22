@@ -688,9 +688,13 @@ it('greys out a new video node while the deployment has no video model', async (
   act(() => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   })
-  mocks.videoAvailable = true
+  // 菜单开着时清单刷新回来、有了视频模型：不用等别的重渲染，入口就可用。
   openMenu()
+  expect(videoItem()?.disabled).toBe(true)
+  mocks.videoAvailable = true
+  act(() => setChannels([]))
   expect(videoItem()?.disabled).toBe(false)
+  resetChannelCatalog()
 })
 it('keeps a selected connection until the explicit cut action is clicked', async () => {
   await render()

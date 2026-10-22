@@ -9,6 +9,7 @@ import * as Y from 'yjs'
 import AgentNodeRunCard from '../../../../features/agent/components/AgentNodeRunCard'
 import { agentNodeRunBridge } from '../../../../features/agent/lib/nodeRunBridge'
 import {
+  noteAgentNodeRunBlocked,
   registerAgentNodeRunOrigin,
   startAgentNodeRun,
 } from '../../../../features/agent/lib/nodeRuns'
@@ -52,6 +53,7 @@ let confirms: number
 let preflights: number
 let reports: { nodes: { nodeId: string; outcome: string; reason?: string; retried?: boolean }[] }[]
 let blocked: { url: string; nodes: unknown }[]
+let loseBlocked: boolean
 let cleanup: () => Promise<void>
 function fixturePlan(signature: string): NodeBatchPlan {
   return {
@@ -126,6 +128,7 @@ beforeEach(() => {
   preflights = 0
   reports = []
   blocked = []
+  loseBlocked = false
   authorization = {
     id: 'authorization',
     conversationId: 'conversation',
@@ -152,6 +155,7 @@ beforeEach(() => {
         return Response.json({ authorization, wake: reportWake })
       }
       if (url.endsWith('/blocked')) {
+        if (loseBlocked) throw new TypeError('Failed to fetch')
         blocked.push({ url, nodes: JSON.parse(String(init?.body)).nodes })
         return Response.json({ logged: true })
       }
@@ -395,6 +399,25 @@ it('logs a confirmation card blocked before it ran once, without reporting or en
   expect(reports).toEqual([])
   expect(ends).toBe(0)
   expect(confirms).toBe(0)
+})
+it('logs a blocked card again after the first attempt failed to reach the server', async () => {
+  const job = fixturePlan('model').jobs[0]!
+  const blockedPlan = {
+    ...fixturePlan('model'),
+    error: 'model' as const,
+    jobs: [{ ...job, blocked: 'model_unavailable' as const }],
+  }
+  const card = { ...proposal, authorizationId: 'retry-card' }
+  loseBlocked = true
+  noteAgentNodeRunBlocked(card, blockedPlan)
+  await vi.advanceTimersByTimeAsync(0)
+  loseBlocked = false
+  noteAgentNodeRunBlocked(card, blockedPlan)
+  await vi.advanceTimersByTimeAsync(0)
+  noteAgentNodeRunBlocked(card, blockedPlan)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(blocked).toHaveLength(1)
+  cleanup = async () => {}
 })
 it('does not log a card that can still run', async () => {
   await mount('runnable-card', true, { ...proposal, authorizationId: 'runnable-card' })

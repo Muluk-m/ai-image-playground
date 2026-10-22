@@ -68,6 +68,7 @@ import { Icon, type IconName } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
 import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
+import { getStoredChannels, subscribeChannels } from '../../../lib/channels/channelStore'
 import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
@@ -1324,6 +1325,8 @@ function Flow({
     selectNode(null)
     closeMenu()
   }
+  // 清单加载或刷新（运营停用、恢复视频模型）后重新渲染，菜单里的视频入口跟着变。
+  useSyncExternalStore(subscribeChannels, getStoredChannels)
   const canAddKind = (kind: CreateNodeKind) =>
     // 没有可用视频模型时新建的视频节点一定跑不起来（运行时拦在「模型不可用」），菜单里就置灰。
     !(kind === 'video' && !isVideoModeAvailable()) &&
