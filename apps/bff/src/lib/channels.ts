@@ -75,8 +75,8 @@ export interface ChannelsLoadResult {
    * 只留给 `getRoutableChannels()`：下线前已经提交的任务还要在原上游续轮询。
    */
   disabled: InternalChannel[]
-  /** 所有 `disabled: true` channel 声明的模型 id，不管 env 齐不齐；新任务据此拒收。 */
-  disabledModelIds: string[]
+  /** 所有 `disabled: true` channel 声明的模型（id → channel id），不管 env 齐不齐；新任务据此拒收。 */
+  disabledModels: Record<string, string>
   /** 非致命问题清单（缺 secret 等），由 startup 落日志。 */
   warnings: string[]
 }
@@ -315,7 +315,7 @@ export function parseChannelsConfig(
   const seenIds = new Set<string>()
   const channels: InternalChannel[] = []
   const disabled: InternalChannel[] = []
-  const disabledModelIds: string[] = []
+  const disabledModels: Record<string, string> = {}
   channelsRaw.forEach((raw, idx) => {
     const ch = parseChannel(raw, idx)
     if (seenIds.has(ch.id)) throw new ChannelsLoadError(`channels[${idx}].id duplicate: '${ch.id}'`)
@@ -323,13 +323,21 @@ export function parseChannelsConfig(
 
     const resolved = resolveBaseUrl(ch, envLookup)
     if (ch.disabled) {
-      // 下线的 channel 只报这一条；它的 env 缺不缺都不再要紧，别再多报误导性的 warning。
-      warnings.push(
-        `channel '${ch.id}': disabled in channels.json; the channel will not be advertised or offered for new tasks`,
-      )
-      disabledModelIds.push(...ch.models.map((model) => model.id))
+      // 下线的 channel 合成一条 warning：新任务反正不收，env 缺失只影响下线前已提交的任务，
+      // 这一点要说清楚——那些任务会在路由时明确失败，而不是落进通用网关。
+      for (const model of ch.models) disabledModels[model.id] ??= ch.id
       const secret = envLookup(ch.auth.secretRef)?.trim() ?? ''
-      if ('baseUrl' in resolved && secret) disabled.push(toInternal(ch, resolved.baseUrl, secret))
+      const base = `channel '${ch.id}': disabled in channels.json; the channel will not be advertised or offered for new tasks`
+      if ('baseUrl' in resolved && secret) {
+        disabled.push(toInternal(ch, resolved.baseUrl, secret))
+        warnings.push(base)
+      } else {
+        const missing =
+          'warning' in resolved ? resolved.warning : `env '${ch.auth.secretRef}' is empty or unset`
+        warnings.push(
+          `${base}; tasks submitted before it was disabled cannot be routed and will fail (${missing})`,
+        )
+      }
       return
     }
     if ('warning' in resolved) {
@@ -352,7 +360,7 @@ export function parseChannelsConfig(
     }
     channels.push(toInternal(ch, resolved.baseUrl, secret))
   })
-  return { channels, disabled, disabledModelIds, warnings }
+  return { channels, disabled, disabledModels, warnings }
 }
 
 function toInternal(ch: ParsedChannel, baseUrl: string, secret: string): InternalChannel {
@@ -380,7 +388,7 @@ export function loadChannelsFromFile(filePath: string): ChannelsLoadResult {
       return {
         channels: [],
         disabled: [],
-        disabledModelIds: [],
+        disabledModels: {},
         warnings: [`channels file not found: ${filePath} (BFF will serve no built-in channels)`],
       }
     }
@@ -403,12 +411,12 @@ function isFileNotFoundError(err: unknown): boolean {
 
 let loaded: InternalChannel[] = []
 let retired: InternalChannel[] = []
-let disabledModels: ReadonlySet<string> = new Set()
+let disabledModels: ReadonlyMap<string, string> = new Map()
 let discoveredCache: DiscoveredChannel[] = []
 
 export function initChannels(filePath = defaultChannelsPath()): ChannelsLoadResult {
   const result = loadChannelsFromFile(filePath)
-  setLoaded(result.channels, result.disabled, result.disabledModelIds)
+  setLoaded(result.channels, result.disabled, result.disabledModels)
   return result
 }
 
@@ -427,6 +435,11 @@ export function getRoutableChannels(): InternalChannel[] {
 /** 只在下线 channel 里声明的模型：新任务一律不收，别让它经通用网关兜底跑出去。 */
 export function isModelDisabled(model: string): boolean {
   return disabledModels.has(model)
+}
+
+/** 下线模型所属 channel 的 id；没下线（或还挂在在用 channel 上）时 undefined。 */
+export function disabledModelChannel(model: string): string | undefined {
+  return disabledModels.get(model)
 }
 
 export function getDiscoveredChannels(): DiscoveredChannel[] {
@@ -478,13 +491,15 @@ function queueProviderOf(kind: ChannelKind): QueueProvider {
 function setLoaded(
   channels: InternalChannel[],
   disabled: InternalChannel[] = [],
-  disabledModelIds: readonly string[] = disabled.flatMap((c) => c.models.map((m) => m.id)),
+  disabledIds: Readonly<Record<string, string>> = Object.fromEntries(
+    disabled.flatMap((c) => c.models.map((m) => [m.id, c.id])),
+  ),
 ): void {
   loaded = channels
   retired = disabled
   // 同一个模型还挂在某条在用的 channel 上，就照常收。
   const active = new Set(channels.flatMap((channel) => channel.models.map((model) => model.id)))
-  disabledModels = new Set(disabledModelIds.filter((id) => !active.has(id)))
+  disabledModels = new Map(Object.entries(disabledIds).filter(([id]) => !active.has(id)))
   discoveredCache = channels.map(sanitizeChannel)
 }
 
@@ -502,6 +517,7 @@ function sanitizeChannel(c: InternalChannel): DiscoveredChannel {
 export function _setChannelsForTesting(
   channels: InternalChannel[],
   disabled: InternalChannel[] = [],
+  disabledModels?: Readonly<Record<string, string>>,
 ): void {
-  setLoaded(channels, disabled)
+  setLoaded(channels, disabled, disabledModels)
 }
