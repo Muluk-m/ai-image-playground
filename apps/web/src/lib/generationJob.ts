@@ -167,6 +167,14 @@ export function admitGeneration(
   return false
 }
 
+/** 浏览器层的请求没发出去（断网、连接被拒）：fetch 抛的 TypeError，各浏览器文案不同。 */
+function isNetworkFailure(err: unknown): boolean {
+  return (
+    err instanceof TypeError &&
+    /failed to fetch|networkerror|load failed|network request failed/i.test(err.message)
+  )
+}
+
 /**
  * 失败 → 可行动的人话。内容安全拒绝有自己的出路（改写提示词），其余照抄错误本身那句。
  * 宿主要按码分支（工作台详情弹窗）就读 `code`，不必再认一遍文案。
@@ -179,7 +187,9 @@ export function generationFailure(err: unknown): GenerationFailure {
     text:
       code === 'content_policy'
         ? i18next.t('detail.contentPolicy', { ns: 'task' })
-        : describeError(err),
+        : isNetworkFailure(err)
+          ? i18next.t('detail.networkFailed', { ns: 'task' })
+          : describeError(err),
   }
 }
 
