@@ -61,7 +61,7 @@ complete 是同步的，返回 `ready` 后前端才拿到可以写进文档的 `
      - 置 `rejected` 时立即删除暂存对象（服务端专用 key 尚未写入）；行本身保留为墓碑，保留暂存 key，`reserved_bytes` 按 0 计。
      - 墓碑不能挡住重试：`media_objects` 在 `(user_id, sha256)` 上唯一，reserve 会复用同 hash 的旧行，而现在的更新路径不重置 status，重试同一张图会一直拿回那个被拒的 id。所以置 `rejected` 的同一条 UPDATE 把墓碑行的 `sha256` 改成 `rejected:<id>`，让出唯一键。之后重试走正常的新建路径：新 id、新暂存 key、新预留；文档里旧 id 的墓碑引用不受影响，由客户端换成新 id。原因码是 `unsupported_type`、`pixel_limit`、`animated` 这类确定性失败时，客户端不自动重试，只在用户重新导入时才会再传。
      - 只删一次不够：预签名 PUT 有效期 600 秒（`durableMediaStore.sign`），客户端在这期间重试 PUT 会把暂存对象重新建出来。所以 `purgeRejectedMedia` 在删行之前按行里保存的暂存 key 再删一次对象（对象不存在也算成功）；删行发生在 `rejected` 7 天后，远超签名有效期，此后不会再有对象被建出来。
-     - 项目引用要先清：`canvasSyncStore` 写 `media_references` 只增不删，节点从文档里消失后那条 `owner_kind = 'project'` 的边还在，而外键是 `onDelete: 'restrict'`，墓碑行永远删不掉。所以 `purgeRejectedMedia` 对每个候选行，在项目行锁内读当前文档，文档已不再引用这个 `mediaId` 的项目，删掉对应的 project 引用；被拒的媒体没有有效字节，迁移归档用不到这些边。之后只有在其他 `owner_kind` 的引用也不存在时才删行，否则留到下一轮。
+     - 项目引用要先清：`canvasSyncStore` 写 `media_references` 只增不删，节点从文档里消失后那条 `owner_kind = 'project'` 的边还在，而外键是 `onDelete: 'restrict'`，墓碑行永远删不掉。所以 `purgeRejectedMedia` 对每个候选行，按 `accessCanvasDocument` 的加锁顺序先锁媒体所有者的用户行（`users ... FOR UPDATE`），再锁项目行并读当前文档；只锁项目行不够，画布更新先锁用户行、到最后写入时才锁项目行，两边会交错，导致刚被删掉的媒体 id 又被写回文档。持锁后，文档已不再引用这个 `mediaId` 的项目，删掉对应的 project 引用；被拒的媒体没有有效字节，迁移归档用不到这些边。删引用和删行在同一个持着用户行锁的事务里完成：其他 `owner_kind` 的引用也不存在时才删行，否则留到下一轮。
      - 定时任务删除的条件：`rejected` 超过 7 天，且上面两步做完后已没有任何引用。
 
 ## 4. 风险与待定
