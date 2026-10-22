@@ -5,6 +5,8 @@ import { db, schema } from '../../db/client'
 /** 状态摘要只回看这么久：更早的卡片与批次已经不是“刚才那件事”。 */
 export const CONVERSATION_STATE_WINDOW_MS = 24 * 60 * 60 * 1000
 const MAX_DRAFTS = 10
+/** 按卡分类前先多扫一些草稿行：较新的作废、已了结的稿会被滤掉，不能让它们占满 `MAX_DRAFTS` 挤掉更早还在等的卡。 */
+const DRAFT_SCAN_LIMIT = 100
 const MAX_BATCHES = 5
 const MAX_NODE_RUNS = 8
 const MAX_LISTED_ARTIFACTS = 12
@@ -131,7 +133,7 @@ export async function readConversationStateFacts(
       ),
     )
     .orderBy(desc(schema.agent_generation_drafts.created_at))
-    .limit(MAX_DRAFTS)
+    .limit(DRAFT_SCAN_LIMIT)
 
   // 草稿对应的卡：作废只改写卡片，草稿行的 `task_id` 照样是空的，单看草稿会把作废的稿当成还在等确认。
   const draftTurns = [...new Set(drafts.map((draft) => draft.turnId))]
@@ -217,9 +219,11 @@ export async function readConversationStateFacts(
   return {
     pendingDrafts: draftStates
       .filter((draft) => draft.state === 'pending')
+      .slice(0, MAX_DRAFTS)
       .map(({ title }) => ({ title })),
     voidedDrafts: draftStates
       .filter((draft) => draft.state === 'voided')
+      .slice(0, MAX_DRAFTS)
       .map(({ title }) => ({ title })),
     pendingNodeRuns: recentMessages
       .flatMap((message) => manualNodeRuns(message.content))
