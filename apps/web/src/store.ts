@@ -1705,7 +1705,8 @@ export async function submitTask(options: { holdClear?: Promise<unknown> } = {})
 
   // 发送按钮的转圈要先让人看见，输入框再清空。
   if (options.holdClear) await options.holdClear
-  if (settings.clearInputAfterSubmit) {
+  // 逐张生成一次发出一整批：不管设置，发出后都清空，免得用户以为没发出去、又点一次重发一批。
+  if (settings.clearInputAfterSubmit || eachImage) {
     useStore.getState().setPrompt('')
     useStore.getState().clearInputImages()
   }
