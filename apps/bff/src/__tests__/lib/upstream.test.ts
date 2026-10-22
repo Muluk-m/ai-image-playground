@@ -477,6 +477,105 @@ describe('callUpstream 独立直连 channel 路由（CHANNEL_ROUTE_STYLES）', (
   })
 })
 
+describe('callUpstream 下线（disabled）channel', () => {
+  let calls: FetchCall[] = []
+
+  const agnesChannel: InternalChannel = {
+    id: 'agnes-images',
+    kind: 'openai-queue',
+    label: 'Agnes AI',
+    baseUrl: 'https://apihub.agnes-ai.com/v1',
+    auth: { type: 'bearer', secretRef: 'AGNES_API_KEY', secret: 'agnes-test-key' },
+    allowedPaths: ['images/generations'],
+    models: [
+      { id: 'agnes-image-2.5-flash', label: 'Agnes Image 2.5 Flash', capabilities: ['generate'] },
+    ],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+
+  beforeEach(() => {
+    calls = []
+    setUpstreamFetchForTesting((async (
+      input: Parameters<TestFetch>[0],
+      init: Parameters<TestFetch>[1],
+    ) => {
+      calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
+      return new Response(JSON.stringify({ data: [{ b64_json: 'ok' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as TestFetch)
+  })
+
+  afterEach(() => {
+    setUpstreamFetchForTesting()
+    _setChannelsForTesting([])
+  })
+
+  it('下线前已提交的任务仍回原上游', async () => {
+    _setChannelsForTesting([], [agnesChannel])
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'agnes-image-2.5-flash',
+      request: { prompt: 'a cat', size: '1024x1024' },
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe('https://apihub.agnes-ai.com/v1/images/generations')
+  })
+
+  it('原 channel 路由不了时明确失败，不落进通用网关', async () => {
+    _setChannelsForTesting([], [])
+    // 模拟 env 缺失：模型记为下线，但没有可路由的 channel。
+    const { parseChannelsConfig } = await import('../../lib/channels')
+    const parsed = parseChannelsConfig(
+      {
+        channels: [
+          {
+            id: 'agnes-images',
+            kind: 'openai-queue',
+            label: 'Agnes AI',
+            baseUrl: 'https://apihub.agnes-ai.com/v1',
+            requiresSecret: true,
+            disabled: true,
+            auth: { type: 'bearer', secretRef: 'AGNES_API_KEY' },
+            models: [
+              {
+                id: 'agnes-image-2.5-flash',
+                label: 'Agnes Image 2.5 Flash',
+                capabilities: ['generate'],
+              },
+            ],
+            allowedPaths: ['images/generations'],
+          },
+        ],
+      },
+      () => undefined,
+    )
+    expect(parsed.disabled).toEqual([])
+    _setChannelsForTesting([], [], parsed.disabledModels)
+    await expect(
+      callUpstream({
+        provider: 'openai-compat',
+        model: 'agnes-image-2.5-flash',
+        request: { prompt: 'a cat' },
+      }),
+    ).rejects.toThrow(/disabled channel 'agnes-images'/)
+    expect(calls).toEqual([])
+  })
+
+  it('本来走通用网关的下线模型照旧走网关', async () => {
+    _setChannelsForTesting([], [], { 'gemini-3.1-flash-image': 'gemini-flash-image' })
+    await callUpstream({
+      provider: 'gemini',
+      model: 'gemini-3.1-flash-image',
+      request: { prompt: 'a cat' },
+    })
+    expect(calls[0]!.url).toBe(
+      'http://localhost:9999/v1beta/models/gemini-3.1-flash-image:generateContent',
+    )
+  })
+})
+
 describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON）', () => {
   let calls: FetchCall[] = []
 
