@@ -610,6 +610,48 @@ it('keeps edits saved when a background upload fails, and retries the image on s
   record.dispose()
 })
 
+it('uploads an image added during a failed round without waiting for another edit', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  let failFirst!: (error: Error) => void
+  const first = new Promise<never>((_, reject) => {
+    failFirst = reject
+  })
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockImplementationOnce(() => first)
+    .mockResolvedValue({ id: uploaded, sha256: 'retry' })
+  const doc = session.canvas!.doc
+  record.editor.doc.files = {
+    photo: 'data:image/png;base64,cGhvdG8=',
+    later: 'data:image/png;base64,bGF0ZXI=',
+  }
+  insertCanvasNode(
+    doc,
+    { id: 'photo', type: 'image', x: 0, y: 0, width: 50, height: 50, data: { fileId: 'photo' } },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(uploadMediaSource).toHaveBeenCalledTimes(1))
+  insertCanvasNode(
+    doc,
+    { id: 'later', type: 'image', x: 60, y: 0, width: 50, height: 50, data: { fileId: 'later' } },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(serverNode(server, 'later')).toBeDefined())
+  failFirst(new Error('upload unavailable'))
+  // 第一轮失败了，但失败前加进来的新图不用等下一次编辑：失败后立即补一轮，连同失败的那张一起再传。
+  await vi.waitFor(() =>
+    expect(serverNode(server, 'later')?.data).toMatchObject({ mediaId: uploaded }),
+  )
+  await vi.waitFor(() =>
+    expect(serverNode(server, 'photo')?.data).toMatchObject({ mediaId: uploaded }),
+  )
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('saved'))
+  record.dispose()
+})
+
 it('clears an upload failure once the failed image is deleted', async () => {
   pendingMedia.supported = true
   const { session, record, socket, server } = await fixture()

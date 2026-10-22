@@ -766,6 +766,12 @@ export class CloudNodeProjectSession {
         }
         this.status('media-local')
         this.rejectWaits(this.mediaFailure)
+        // 这一轮失败前又来了改动（例如刚加了新图）：不能就此停下，否则那些新改动要等到下一次编辑才会再传。
+        // 只在确有新改动时补一轮，失败本身不会自己循环重试。
+        if (this.uploadAgain) {
+          this.uploadAgain = false
+          this.requestSync()
+        }
       })
   }
   private send(): Promise<void> {

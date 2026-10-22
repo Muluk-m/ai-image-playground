@@ -107,8 +107,8 @@ function sameValue(a: unknown, b: unknown): boolean {
 /*
  * 判断「并发覆盖」要看 Y.Map 某个键背后的条目链（_map / Item.left / Item.origin / content），
  * Yjs 没有公开 API 能拿到被并发顶掉的那一版和它的因果关系。这些私有结构只在下面这一个函数里读，
- * 读之前逐个校验形状，形状不对（Yjs 升级改了内部结构）就当没有冲突，退回 Yjs 原生的取舍，
- * 不会抛错也不会误写；__tests__/canvas-upload-conflicts.test.ts 里的「Yjs 内部结构契约」用例
+ * 读之前逐个校验形状，形状不对（Yjs 升级改了内部结构）就用 console.error 报一次，再退回 Yjs 原生的取舍，
+ * 不会抛错也不会误写；依赖里 yjs 锁在 ~13.6，升级小版本要先过契约测试；__tests__/canvas-upload-conflicts.test.ts 里的「Yjs 内部结构契约」用例
  * 会在升级后第一时间失败，提醒同步修改这里。
  */
 interface ItemShape {
@@ -132,6 +132,20 @@ function isItemShape(value: unknown): value is ItemShape {
   )
 }
 
+let reportedUnsupported = false
+/**
+ * 内部结构不认识时不能悄悄当成「没冲突」：那样被顶掉的 mediaId / 上传声明就再也补不回来，没人知道。
+ * 这里大声报一次（前端的错误上报会收到），提醒按新版 Yjs 改这里；行为上仍退回 Yjs 原生取舍，不误写。
+ */
+function reportUnsupported(reason: string, error?: unknown) {
+  if (reportedUnsupported) return
+  reportedUnsupported = true
+  console.error(
+    `[canvas-upload-conflicts] Yjs 内部结构与预期不符（${reason}），并发覆盖的上传结果将无法自动补回`,
+    error,
+  )
+}
+
 function lastContent(item: ItemShape): unknown {
   const content = item.content.getContent()
   return content[content.length - 1]
@@ -150,9 +164,17 @@ export function readOverwrittenLocalData(
   try {
     const isLocal = typeof local === 'number' ? (client: number) => client === local : local
     const map = (event.target as unknown as { _map?: unknown })._map
-    if (!(map instanceof Map)) return undefined
+    if (!(map instanceof Map)) {
+      reportUnsupported('Y.Map._map')
+      return undefined
+    }
     const current: unknown = map.get('data')
-    if (!isItemShape(current) || current.deleted) return undefined
+    if (current === undefined) return undefined
+    if (!isItemShape(current)) {
+      reportUnsupported('Item')
+      return undefined
+    }
+    if (current.deleted) return undefined
     if (!event.adds(current as never)) {
       // 本机这一版还生效：看这次新加、却一进来就被删掉的远端条目，离它最近的那个是远端最后写的一版。
       if (!isLocal(current.id.client)) return undefined
@@ -177,7 +199,8 @@ export function readOverwrittenLocalData(
         return undefined
     }
     return { lost: lastContent(previous), winner: lastContent(current) }
-  } catch {
+  } catch (error) {
+    reportUnsupported('读取时出错', error)
     return undefined
   }
 }

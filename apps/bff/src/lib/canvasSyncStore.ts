@@ -5,6 +5,7 @@ import {
   canvasProjectDocument,
   canvasResultMediaIds,
   canvasResults,
+  canvasUploadingElsewhere,
   copiedCanvasProjectName,
   importLegacyElements,
   initializeCanvasConnectionRules,
@@ -378,12 +379,22 @@ export async function copyCanvasProject(
     const copy = new Y.Doc()
     try {
       Y.applyUpdate(copy, Y.encodeStateAsUpdate(loaded.doc))
-      const now = Date.now()
       const id = crypto.randomUUID()
       // 副本是一张新画布，不保留「返回来源对话」。原件自己的回链留在原件上。
       const { sourceProjectId: _sourceProjectId, ...identity } = project.document
       const document = canvasProjectDocument(copy, identity)
       const snapshot = readCanvasDocument(copy)
+      // 还在上传的图片（某台设备声明在传、还没过期）不能带进副本：副本拿不到那台设备的原图，
+      // 原件传完收成云媒体也不会改到副本上，副本会一直缺图。让用户等上传完再复制。
+      const now = Date.now()
+      if (
+        snapshot.nodes.some(
+          (node) =>
+            (node.type === 'image' || node.type === 'video') &&
+            canvasUploadingElsewhere(node.data, '', now),
+        )
+      )
+        throw new CanvasSyncError(409, 'canvas_media_pending')
       const summary: CloudProjectSummary = {
         id,
         name: copiedCanvasProjectName(project.name, suffix),
