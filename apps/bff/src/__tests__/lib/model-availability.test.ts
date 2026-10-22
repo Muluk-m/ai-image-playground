@@ -10,8 +10,9 @@ const { _setChannelsForTesting } = await import('../../lib/channels')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
-const { _resetInactiveModelsForTesting, INACTIVE_MODELS_TTL_MS, refreshInactiveModels } =
-  await import('../../lib/model-availability')
+const { _resetInactiveModelsForTesting, refreshInactiveModels } = await import(
+  '../../lib/model-availability'
+)
 const { agentVideoAvailable, agentVideoModels, videoNodeModeRejection } = await import(
   '../../lib/agent/video-models'
 )
@@ -61,7 +62,7 @@ it('leaves video models the operator stopped out of what the agent may use', asy
   expect(videoNodeModeRejection('first', 'grok-imagine-video')).toBeNull()
 
   stopModels(async () => new Set(['grok-imagine-video', 'grok-imagine-video-1.5-lite']))
-  await refreshInactiveModels(Date.now() + INACTIVE_MODELS_TTL_MS)
+  await refreshInactiveModels()
   expect(agentVideoModels()).toEqual([])
   expect(agentVideoAvailable()).toBe(false)
   expect(videoNodeModeRejection('text')).toContain('当前部署没有可用的视频模型')
@@ -82,13 +83,11 @@ it('treats every model as active only until the first successful lookup', async 
   stopModels(async () => {
     throw new Error('database unavailable')
   })
-  expect(await refreshInactiveModels(Date.now() + INACTIVE_MODELS_TTL_MS)).toEqual(
-    new Set(['grok-imagine-video-1.5-lite']),
-  )
+  expect(await refreshInactiveModels()).toEqual(new Set(['grok-imagine-video-1.5-lite']))
   expect(agentVideoAvailable()).toBe(false)
 })
 
-it('shares one lookup between concurrent refreshes and reuses it for a while', async () => {
+it('shares one lookup between concurrent refreshes and asks again afterwards', async () => {
   let lookups = 0
   let answer!: (inactive: ReadonlySet<string>) => void
   stopModels(() => {
@@ -102,12 +101,10 @@ it('shares one lookup between concurrent refreshes and reuses it for a while', a
   expect(await first).toEqual(new Set(['a']))
   expect(await second).toEqual(new Set(['a']))
   expect(lookups).toBe(1)
-  await refreshInactiveModels(Date.now() + INACTIVE_MODELS_TTL_MS - 1_000)
-  expect(lookups).toBe(1)
   stopModels(async () => {
     lookups += 1
     return new Set(['b'])
   })
-  expect(await refreshInactiveModels(Date.now() + INACTIVE_MODELS_TTL_MS)).toEqual(new Set(['b']))
+  expect(await refreshInactiveModels()).toEqual(new Set(['b']))
   expect(lookups).toBe(2)
 })
