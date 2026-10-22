@@ -315,7 +315,8 @@ export function parseChannelsConfig(
   const seenIds = new Set<string>()
   const channels: InternalChannel[] = []
   const disabled: InternalChannel[] = []
-  const disabledModels: Record<string, string> = {}
+  // 无原型：模型 id 只校验非空，`constructor` 之类的键不能撞上继承属性。
+  const disabledModels: Record<string, string> = Object.create(null)
   channelsRaw.forEach((raw, idx) => {
     const ch = parseChannel(raw, idx)
     if (seenIds.has(ch.id)) throw new ChannelsLoadError(`channels[${idx}].id duplicate: '${ch.id}'`)
@@ -325,7 +326,8 @@ export function parseChannelsConfig(
     if (ch.disabled) {
       // 下线的 channel 合成一条 warning：新任务反正不收，env 缺失只影响下线前已提交的任务，
       // 这一点要说清楚——那些任务会在路由时明确失败，而不是落进通用网关。
-      for (const model of ch.models) disabledModels[model.id] ??= ch.id
+      for (const model of ch.models)
+        if (!Object.hasOwn(disabledModels, model.id)) disabledModels[model.id] = ch.id
       const secret = envLookup(ch.auth.secretRef)?.trim() ?? ''
       const base = `channel '${ch.id}': disabled in channels.json; the channel will not be advertised or offered for new tasks`
       if ('baseUrl' in resolved && secret) {
