@@ -7,7 +7,7 @@ import {
   type AgentWakeSkipReason,
   taskFailureCode,
 } from '@image-playground/shared'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelTasks } from '../../db/task-transitions'
 import { cancelAnalysisTasks } from '../analysis-tasks'
@@ -222,13 +222,21 @@ async function setAgentJobsWakeSkipped(
 ): Promise<void> {
   if (taskIds.length === 0) return
   const wanted = new Set(taskIds)
+  // 只锁这几个任务自己的结果卡：起轮时每次都会走到这里，不能把整段会话历史都锁一遍。
   const rows = await tx
     .select({ id: schema.agent_messages.id, content: schema.agent_messages.content })
     .from(schema.agent_messages)
     .where(
       and(
         eq(schema.agent_messages.conversation_id, conversationId),
-        sql`${schema.agent_messages.content} @> '[{"type":"toolResult"}]'::jsonb`,
+        or(
+          ...[...wanted].map(
+            (taskId) =>
+              sql`${schema.agent_messages.content} @> ${JSON.stringify([
+                { type: 'toolResult', job: { taskId } },
+              ])}::text::jsonb`,
+          ),
+        ),
       ),
     )
     .for('update')

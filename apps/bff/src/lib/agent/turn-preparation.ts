@@ -408,9 +408,10 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       // 之后走自己的路。
       const consumedWakes = source.kind === 'wake' ? [source.wake.id] : []
       if (content.wakes && chosen === withNote) {
-        for (const id of content.wakes.ids)
-          await consumeAgentMessage(tx, conversationId, id, turnId)
-        consumedWakes.push(...content.wakes.ids)
+        for (const id of content.wakes.ids) {
+          // 别处先取走或撤回了的那条不算本轮接着看过，它卡上的标记不能抹。
+          if (await consumeAgentMessage(tx, conversationId, id, turnId)) consumedWakes.push(id)
+        }
       }
       // 智能体这一轮确实接着看了这几条唤醒的结果：卡上过时的「没接着做」随起轮一起抹掉。
       await clearAgentWakeSkippedForWakes(tx, conversationId, consumedWakes)
