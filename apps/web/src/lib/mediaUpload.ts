@@ -55,6 +55,36 @@ function withLocalReadTimeout<T>(work: Promise<T>): Promise<T> {
   ]).finally(() => clearTimeout(timer))
 }
 
+type UploadPhase = 'queue' | 'read' | 'hash' | 'reserve' | 'put' | 'confirm_wait' | 'confirm'
+
+/**
+ * 一张图从排队到确认的分段耗时（毫秒）。在有 product_events 之前先打到控制台，
+ * 用 mediaId 能和服务端 media.confirmation_finished 的 phaseMs 对上。
+ */
+function uploadTimer() {
+  const started = performance.now()
+  const phaseMs: Partial<Record<UploadPhase, number>> = {}
+  let phase: UploadPhase = 'queue'
+  let at = started
+  const mark = (next: UploadPhase) => {
+    const now = performance.now()
+    phaseMs[phase] = (phaseMs[phase] ?? 0) + Math.round(now - at)
+    phase = next
+    at = now
+  }
+  return {
+    mark,
+    report(fields: Record<string, unknown>) {
+      mark(phase)
+      console.info('[media.upload]', {
+        ...fields,
+        totalMs: Math.round(performance.now() - started),
+        phaseMs,
+      })
+    },
+  }
+}
+
 async function digest(bytes: ArrayBuffer): Promise<string> {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (byte) =>
     byte.toString(16).padStart(2, '0'),
@@ -78,22 +108,33 @@ export async function uploadMediaSource(
     if (!sameAccount() || backend !== bffBaseUrl()) throw new Error('media_scope_changed')
   }
   options.onState?.('queued')
+  const timer = uploadTimer()
+  let bytesSent: number | undefined
+  let contentTypeSent: string | undefined
+  let mediaId: string | undefined
+  let outcome: 'uploaded' | 'known' | 'skipped' = 'uploaded'
   try {
-    return await uploading(
+    const result = await uploading(
       async () => {
         current()
+        timer.mark('read')
         const local = localAttachmentIdentity(source)
         if (!local && !source.startsWith('data:image/')) throw new Error('unsupported_local_media')
         const bytes = local
           ? (await withLocalReadTimeout(readLocalAttachment(source))).data
           : await (await fetch(source, { signal: options.signal })).arrayBuffer()
+        timer.mark('hash')
         const sha256 = await digest(bytes)
         current()
         if (!options.purpose && options.known?.sha256 === sha256) {
+          outcome = 'known'
           options.onState?.('ready')
           return options.known
         }
-        if (options.uploadMissing === false) return undefined
+        if (options.uploadMissing === false) {
+          outcome = 'skipped'
+          return undefined
+        }
         let contentType = imageMimeFromBytes(bytes)
         let body = bytes
         if (!contentType) {
@@ -104,6 +145,8 @@ export async function uploadMediaSource(
           current()
         }
         options.onState?.('uploading')
+        bytesSent = body.byteLength
+        contentTypeSent = contentType
         const upload = await transferMedia(
           body,
           contentType,
@@ -112,11 +155,20 @@ export async function uploadMediaSource(
             signal: options.signal,
             current,
             purpose: options.purpose,
-            onVerifying: () => options.onState?.('verifying'),
-            confirm: (work) => confirming(work),
+            onPhase: timer.mark,
+            onVerifying: () => {
+              timer.mark('confirm_wait')
+              options.onState?.('verifying')
+            },
+            confirm: (work) =>
+              confirming(() => {
+                timer.mark('confirm')
+                return work()
+              }),
           },
         )
         const leaseExpiresAt = upload.leaseExpiresAt
+        mediaId = upload.id
         current()
         options.onState?.('ready')
         return { id: upload.id, sha256, ...(leaseExpiresAt ? { leaseExpiresAt } : {}) }
@@ -125,7 +177,17 @@ export async function uploadMediaSource(
         ? (getAttachmentLimits()?.uploadConcurrency ?? 4)
         : 4,
     )
+    if (outcome === 'uploaded')
+      timer.report({ outcome, mediaId, bytes: bytesSent, contentType: contentTypeSent })
+    return result
   } catch (error) {
+    if (!options.signal.aborted)
+      timer.report({
+        outcome: 'failed',
+        bytes: bytesSent,
+        contentType: contentTypeSent,
+        error: error instanceof Error ? error.message : String(error),
+      })
     options.onState?.('failed')
     if (error instanceof TypeError) throw new MediaRequestError(503, 'media_network_error')
     if (error instanceof DOMException && error.name === 'TimeoutError')

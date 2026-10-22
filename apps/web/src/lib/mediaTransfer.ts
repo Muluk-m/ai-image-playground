@@ -144,14 +144,17 @@ export async function transferMedia(
     current: () => void
     purpose?: 'conversation-attachment'
     onVerifying?: () => void
+    /** 每进入一段（含重试）回调一次，供上传分段计时。 */
+    onPhase?: (phase: 'reserve' | 'put') => void
     confirm?: (work: () => Promise<Upload>) => Promise<Upload>
   },
 ): Promise<Upload> {
   const { signal, current } = options
   const sameAccount = accountScope()
   const backend = bffBaseUrl()
-  const reserve = () =>
-    mediaJson<Upload>('/uploads', {
+  const reserve = () => {
+    options.onPhase?.('reserve')
+    return mediaJson<Upload>('/uploads', {
       method: 'POST',
       signal,
       headers: { 'content-type': 'application/json' },
@@ -162,6 +165,7 @@ export async function transferMedia(
         ...(options.purpose ? { purpose: options.purpose } : {}),
       }),
     })
+  }
   let stage: 'reserve' | 'put' = 'reserve'
   let upload: Upload
   try {
@@ -180,6 +184,7 @@ export async function transferMedia(
         if (upload.status === 'ready') return upload
         stage = 'put'
         if (!upload.uploadUrl) throw new Error('invalid_media_upload')
+        options.onPhase?.('put')
         let sent: Response
         try {
           sent = await fetch(upload.uploadUrl, {

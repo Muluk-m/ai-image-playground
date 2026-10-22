@@ -217,3 +217,81 @@ it.each([
   ).rejects.toThrow(code)
   expect(states[states.length - 1]).toBe('failed')
 })
+
+it('logs per-stage timing and bytes for each uploaded image', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input === source) return new Response(bytes)
+      if (input.endsWith('/api/media/uploads'))
+        return Response.json({
+          id: 'media-t',
+          status: 'pending',
+          uploadUrl: 'https://storage.test/t',
+        })
+      if (input === 'https://storage.test/t') return new Response(null, { status: 200 })
+      if (input.endsWith('/api/media/media-t/complete'))
+        return Response.json({ id: 'media-t', status: 'ready' })
+      throw new Error(`Unexpected fetch ${input}`)
+    }),
+  )
+  try {
+    await uploadMediaSource(source, { signal: new AbortController().signal })
+    const entry = info.mock.calls.find(([label]) => label === '[media.upload]')?.[1] as {
+      outcome: string
+      mediaId: string
+      bytes: number
+      contentType: string
+      totalMs: number
+      phaseMs: Record<string, number>
+    }
+    expect(entry).toMatchObject({
+      outcome: 'uploaded',
+      mediaId: 'media-t',
+      bytes: 8,
+      contentType: 'image/png',
+    })
+    expect(Object.keys(entry.phaseMs)).toEqual([
+      'queue',
+      'read',
+      'hash',
+      'reserve',
+      'put',
+      'confirm_wait',
+      'confirm',
+    ])
+    const summed = Object.values(entry.phaseMs).reduce((total, ms) => total + ms, 0)
+    expect(Math.abs(summed - entry.totalMs)).toBeLessThanOrEqual(7)
+  } finally {
+    info.mockRestore()
+  }
+})
+
+it('logs a failed upload with the stage it reached', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input === source) return new Response(bytes)
+      if (input.endsWith('/api/media/uploads'))
+        return Response.json({ error: 'media_quota_exceeded' }, { status: 413 })
+      throw new Error(`Unexpected fetch ${input}`)
+    }),
+  )
+  try {
+    await expect(
+      uploadMediaSource(source, { signal: new AbortController().signal }),
+    ).rejects.toThrow()
+    const entry = info.mock.calls.find(([label]) => label === '[media.upload]')?.[1] as {
+      outcome: string
+      phaseMs: Record<string, number>
+    }
+    expect(entry.outcome).toBe('failed')
+    expect(Object.keys(entry.phaseMs)).toEqual(['queue', 'read', 'hash', 'reserve'])
+  } finally {
+    info.mockRestore()
+  }
+})
