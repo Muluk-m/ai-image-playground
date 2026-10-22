@@ -943,6 +943,25 @@ export default function AgentMaskProposalCard({
           <Icon name="select" />
           {t('maskProposal.toolPoint')}
         </Button>
+        {tool === 'point' && (
+          <SegmentedTabs
+            label={t('maskProposal.toolPoint')}
+            value={pointMode}
+            onChange={setPointMode}
+            tabs={(['include', 'exclude'] as const).map((mode) => ({
+              value: mode,
+              label: (
+                <span className="studio-mask-proposal-segment">
+                  <Icon name={mode === 'include' ? 'add' : 'erase'} size="sm" />
+                  {t(
+                    mode === 'include' ? 'maskProposal.pointInclude' : 'maskProposal.pointExclude',
+                  )}
+                </span>
+              ),
+            }))}
+          />
+        )}
+        <span className="studio-artifact-edit-tool-divider" />
         {PAINT_TOOLS.map((one) => (
           <Button
             key={one.tool}
@@ -971,24 +990,6 @@ export default function AgentMaskProposalCard({
               className="w-20"
             />
           </span>
-        )}
-        {tool === 'point' && (
-          <SegmentedTabs
-            label={t('maskProposal.toolPoint')}
-            value={pointMode}
-            onChange={setPointMode}
-            tabs={(['include', 'exclude'] as const).map((mode) => ({
-              value: mode,
-              label: (
-                <span className="studio-mask-proposal-segment">
-                  <Icon name={mode === 'include' ? 'add' : 'erase'} size="sm" />
-                  {t(
-                    mode === 'include' ? 'maskProposal.pointInclude' : 'maskProposal.pointExclude',
-                  )}
-                </span>
-              ),
-            }))}
-          />
         )}
         {editing && (
           <>
