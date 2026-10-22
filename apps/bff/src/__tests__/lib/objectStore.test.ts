@@ -40,10 +40,21 @@ class FakeS3Client {
     this.created.set(key, this.now)
   }
 
+  /** 设置后，所有范围读都抛这个错误，模拟网络或上游故障。 */
+  rangeFailure: Error | undefined
+
   file(key: string, span?: { begin: number; end: number }) {
     const bytes = () => {
       const stored = this.objects.get(key)
       if (!stored) throw new Error(`missing object: ${key}`)
+      if (span && this.rangeFailure) throw this.rangeFailure
+      // 和 S3/R2 一样：起点不落在对象内的 Range 请求（含零字节对象上的 bytes=0-n）返回 416，
+      // Bun 把它抛成 code 为 InvalidRange 的 S3Error。
+      if (span && span.begin >= stored.length)
+        throw Object.assign(new Error('The requested range is not satisfiable'), {
+          name: 'S3Error',
+          code: 'InvalidRange',
+        })
       return span ? stored.slice(span.begin, span.end) : stored.slice()
     }
     return {
@@ -218,6 +229,28 @@ describe('S3ObjectStore key prefix', () => {
     expect(await subject.readUpTo('staging/a', 5)).toEqual(new Uint8Array([1, 2, 3, 4, 5]))
     expect(await subject.readUpTo('staging/a', 3)).toEqual(new Uint8Array([1, 2, 3]))
     expect(await subject.readUpTo('staging/a', 9)).toEqual(new Uint8Array([1, 2, 3, 4, 5]))
+    expect(client.statted).toHaveLength(0)
+  })
+
+  it('readUpTo 读零字节对象返回空，交给调用方判大小不符；对象缺失仍报错', async () => {
+    const client = new FakeS3Client()
+    const subject = store(client, 'image-playground/')
+    await subject.write('staging/empty', new Uint8Array(), 'image/png')
+
+    expect(await subject.readUpTo('staging/empty', 5)).toEqual(new Uint8Array())
+    await expect(subject.readUpTo('staging/missing', 5)).rejects.toThrow('missing object')
+  })
+
+  it('readUpTo 只把 416 当成零字节对象，其他读取故障即使对象为空也原样抛出', async () => {
+    const client = new FakeS3Client()
+    const subject = store(client, 'image-playground/')
+    await subject.write('staging/empty', new Uint8Array(), 'image/png')
+    client.rangeFailure = Object.assign(new Error('boom'), {
+      name: 'S3Error',
+      code: 'InternalError',
+    })
+
+    await expect(subject.readUpTo('staging/empty', 5)).rejects.toThrow('boom')
     expect(client.statted).toHaveLength(0)
   })
 

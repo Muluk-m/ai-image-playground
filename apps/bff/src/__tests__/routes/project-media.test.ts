@@ -687,6 +687,66 @@ describe('confirmation coordination', () => {
     }
   })
 
+  it('读取期间预留的申报被改了：不发布旧产物，按新申报重做', async () => {
+    const { eq } = await import('drizzle-orm')
+    const bytes = await sharp({
+      create: { width: 8, height: 8, channels: 4, background: '#1e1e1e' },
+    })
+      .png()
+      .toBuffer()
+    const descriptor = {
+      bytes: bytes.length,
+      contentType: 'image/png',
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    }
+    const target = await (await request('media/uploads', deviceA, descriptor)).json()
+    await storage.write(key(target.uploadUrl), bytes, 'image/png')
+    const originalReadUpTo = storage.readUpTo.bind(storage)
+    let releaseTarget!: () => void
+    const targetHeld = new Promise<void>((resolve) => {
+      releaseTarget = resolve
+    })
+    let targetReading!: () => void
+    const reading = new Promise<void>((resolve) => {
+      targetReading = resolve
+    })
+    let reads = 0
+    const hold = async (path: string) => {
+      if (path === key(target.uploadUrl) && reads++ === 0) {
+        targetReading()
+        await targetHeld
+      }
+    }
+    storage.readUpTo = async (path, maxBytes) => {
+      await hold(path)
+      return originalReadUpTo(path, maxBytes)
+    }
+    try {
+      const confirmation = request(`media/${target.id}/complete`, deviceA, {})
+      await reading
+      // 第一次读按 png 申报进行中，同一摘要被重新预留成 jpeg（只锁用户行，不拿对象锁）。
+      const changed = await request('media/uploads', deviceA, {
+        ...descriptor,
+        contentType: 'image/jpeg',
+      })
+      expect((await changed.json()).id).toBe(target.id)
+      releaseTarget()
+      // 按 png 解出来的产物不能发布成 jpeg；重做时按新申报校验，类型对不上报无效图片。
+      const response = await confirmation
+      expect(response.status).toBe(422)
+      expect(await response.json()).toMatchObject({ error: 'media_invalid_image' })
+      expect(reads).toBe(2)
+      const [row] = await db
+        .select()
+        .from(schema.media_objects)
+        .where(eq(schema.media_objects.id, target.id))
+      expect(row).toMatchObject({ status: 'pending', content_type: 'image/jpeg' })
+    } finally {
+      releaseTarget()
+      storage.readUpTo = originalReadUpTo
+    }
+  })
+
   it('same-image confirmations share processing, preserve ownership and leave capacity for other images', async () => {
     const upload = await pendingConfirmation()
     const other = await pendingConfirmation('#abcdef')
