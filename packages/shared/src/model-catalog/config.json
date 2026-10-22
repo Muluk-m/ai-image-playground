@@ -1,0 +1,777 @@
+{
+  "$schema": "./schema.json",
+  "version": 1,
+  "models": [
+    {
+      "id": "gpt-image-2.5-flare",
+      "vendor": "openai",
+      "family": "gpt",
+      "media": "image",
+      "image": {
+        "operations": [
+          "generate",
+          "edit",
+          "mask_edit"
+        ],
+        "tiers": [
+          {
+            "id": "1K",
+            "pixels": {
+              "1:1": "1024x1024",
+              "3:4": "768x1024",
+              "9:16": "720x1280",
+              "4:3": "1024x768",
+              "16:9": "1280x720"
+            }
+          }
+        ],
+        "ratios": [
+          "1:1",
+          "3:4",
+          "9:16",
+          "4:3",
+          "16:9"
+        ],
+        "ratioVia": [
+          "prompt"
+        ],
+        "autoRatio": true,
+        "defaultTier": "1K",
+        "wire": {
+          "kind": "pixels",
+          "multiple": 16,
+          "maxEdge": 3840,
+          "minPixels": 655360,
+          "maxPixels": 8294400,
+          "maxAspect": 3
+        },
+        "count": {
+          "max": 10,
+          "singleTask": true
+        },
+        "references": {
+          "max": 16
+        },
+        "quality": {
+          "values": [
+            "auto",
+            "low",
+            "medium",
+            "high"
+          ]
+        }
+      },
+      "pricing": {
+        "unit": "image"
+      },
+      "evidence": {
+        "tiers": {
+          "source": "code",
+          "note": "channels.json 未声明 size：直出界面只给比例，按 1K 预设像素发 size（ParamControls ratioOnly）"
+        },
+        "ratios": {
+          "source": "code",
+          "note": "比例写进提示词：apps/web/src/lib/api.ts、apps/bff/src/lib/agent/prompt-shaping.ts（buildAspectInstruction）；sub2api Codex 路径丢弃 size"
+        },
+        "count": {
+          "source": "code",
+          "note": "apps/web/src/lib/paramCompatibility.ts MAX_OPENAI_OUTPUT_IMAGES"
+        },
+        "references": {
+          "source": "code",
+          "note": "queue-protocol.ts QUEUE_MAX_INPUT_IMAGES"
+        }
+      },
+      "todo": [
+        "待实测：不同 size 实际返回像素是否相同；档位以实际返回像素为准，只保留能区分的档位（probe.py gpt）",
+        "待实测：参考图上限"
+      ]
+    },
+    {
+      "id": "gpt-image-2.5-sunburst",
+      "vendor": "openai",
+      "family": "gpt",
+      "media": "image",
+      "image": {
+        "operations": [
+          "generate",
+          "edit",
+          "mask_edit"
+        ],
+        "tiers": [
+          {
+            "id": "1K",
+            "pixels": {
+              "1:1": "1024x1024",
+              "3:4": "768x1024",
+              "9:16": "720x1280",
+              "4:3": "1024x768",
+              "16:9": "1280x720"
+            }
+          }
+        ],
+        "ratios": [
+          "1:1",
+          "3:4",
+          "9:16",
+          "4:3",
+          "16:9"
+        ],
+        "ratioVia": [
+          "prompt"
+        ],
+        "autoRatio": true,
+        "defaultTier": "1K",
+        "wire": {
+          "kind": "pixels",
+          "multiple": 16,
+          "maxEdge": 3840,
+          "minPixels": 655360,
+          "maxPixels": 8294400,
+          "maxAspect": 3
+        },
+        "count": {
+          "max": 10,
+          "singleTask": true
+        },
+        "references": {
+          "max": 16
+        },
+        "quality": {
+          "values": [
+            "auto",
+            "low",
+            "medium",
+            "high"
+          ]
+        }
+      },
+      "pricing": {
+        "unit": "image"
+      },
+      "evidence": {
+        "tiers": {
+          "source": "code",
+          "note": "channels.json 未声明 size：直出界面只给比例，按 1K 预设像素发 size（ParamControls ratioOnly）"
+        },
+        "ratios": {
+          "source": "code",
+          "note": "比例写进提示词：apps/web/src/lib/api.ts、apps/bff/src/lib/agent/prompt-shaping.ts（buildAspectInstruction）；sub2api Codex 路径丢弃 size"
+        },
+        "count": {
+          "source": "code",
+          "note": "apps/web/src/lib/paramCompatibility.ts MAX_OPENAI_OUTPUT_IMAGES"
+        },
+        "references": {
+          "source": "code",
+          "note": "queue-protocol.ts QUEUE_MAX_INPUT_IMAGES"
+        }
+      },
+      "todo": [
+        "待实测：不同 size 实际返回像素是否相同；档位以实际返回像素为准，只保留能区分的档位（probe.py gpt）",
+        "待实测：参考图上限"
+      ]
+    },
+    {
+      "id": "grok-imagine-image-2.0",
+      "vendor": "xai",
+      "family": "grok",
+      "media": "image",
+      "image": {
+        "operations": [
+          "generate",
+          "edit"
+        ],
+        "tiers": [
+          {
+            "id": "1K",
+            "pixels": {}
+          },
+          {
+            "id": "2K",
+            "pixels": {}
+          }
+        ],
+        "ratios": [
+          "1:1",
+          "3:4",
+          "9:16",
+          "4:3",
+          "16:9"
+        ],
+        "ratioVia": [
+          "param",
+          "prompt"
+        ],
+        "autoRatio": true,
+        "defaultTier": "1K",
+        "wire": {
+          "kind": "tier-token",
+          "param": "resolution",
+          "tokens": {
+            "1K": "1k",
+            "2K": "2k"
+          }
+        },
+        "count": {
+          "max": 10,
+          "singleTask": true
+        },
+        "references": {
+          "max": 5
+        },
+        "quality": {
+          "values": [
+            "auto",
+            "low",
+            "medium",
+            "high"
+          ]
+        }
+      },
+      "pricing": {
+        "unit": "image",
+        "tierMultiplier": {
+          "1K": 1,
+          "2K": 1.5
+        }
+      },
+      "evidence": {
+        "tiers": {
+          "source": "code",
+          "note": "apps/bff/src/lib/upstream/grok.ts grok2QualityFromOpenAI：现在 2k 只在 quality=high 时发出"
+        },
+        "ratios": {
+          "source": "code",
+          "note": "grok.ts 把 size 归到最近的 aspect_ratio；channels.json 未声明 size，前端同时把比例写进提示词"
+        },
+        "count": {
+          "source": "docs",
+          "note": "n 1–10；channels.json 声明 n"
+        },
+        "references": {
+          "source": "code",
+          "note": "grok.ts GROK_IMAGINE_2_MAX_INPUTS"
+        },
+        "pricing": {
+          "source": "docs",
+          "note": "https://docs.x.ai 官方 1K $0.04、2K $0.06"
+        }
+      },
+      "todo": [
+        "待实测：1K / 2K 实际返回像素（probe.py grok）",
+        "分辨率从 quality 拆出来（PR-4）：界面档位直接映射 resolution"
+      ]
+    },
+    {
+      "id": "gemini-3.1-flash-image",
+      "vendor": "google",
+      "family": "gemini",
+      "media": "image",
+      "image": {
+        "operations": [
+          "generate",
+          "edit"
+        ],
+        "tiers": [
+          {
+            "id": "512",
+            "pixels": {}
+          },
+          {
+            "id": "1K",
+            "pixels": {
+              "1:1": "1024x1024",
+              "3:4": "896x1200",
+              "9:16": "768x1376",
+              "4:3": "1200x896",
+              "16:9": "1376x768"
+            }
+          },
+          {
+            "id": "2K",
+            "pixels": {
+              "1:1": "2048x2048",
+              "3:4": "1792x2400",
+              "9:16": "1536x2752",
+              "4:3": "2400x1792",
+              "16:9": "2752x1536"
+            }
+          }
+        ],
+        "ratios": [
+          "1:1",
+          "3:4",
+          "9:16",
+          "4:3",
+          "16:9"
+        ],
+        "ratioVia": [
+          "param"
+        ],
+        "autoRatio": true,
+        "defaultTier": "1K",
+        "wire": {
+          "kind": "tier-token",
+          "param": "imageConfig.imageSize",
+          "tokens": {
+            "512": "512",
+            "1K": "1K",
+            "2K": "2K"
+          }
+        },
+        "count": {
+          "max": 10,
+          "singleTask": false
+        },
+        "references": {
+          "max": 14
+        },
+        "thinking": {
+          "levels": [
+            "minimal",
+            "high"
+          ]
+        }
+      },
+      "pricing": {
+        "unit": "image"
+      },
+      "evidence": {
+        "tiers": {
+          "source": "code",
+          "note": "image-parameters.ts GEMINI_IMAGE_SIZES；像素沿用同家族 Vertex 实测值"
+        },
+        "ratios": {
+          "source": "code",
+          "note": "gemini.ts imageConfig.aspectRatio"
+        },
+        "count": {
+          "source": "code",
+          "note": "channels.json 未声明 n，前端拆单"
+        },
+        "references": {
+          "source": "docs",
+          "note": "https://ai.google.dev/gemini-api/docs/image-generation 最多 14 张"
+        }
+      }
+    },
+    {
+      "id": "gemini-nano-banana-2.1",
+      "vendor": "google",
+      "family": "gemini",
+      "media": "image",
+      "image": {
+        "operations": [
+          "generate",
+          "edit"
+        ],
+        "tiers": [
+          {
+            "id": "1K",
+            "pixels": {
+              "1:1": "1024x1024",
+              "3:4": "896x1200",
+              "9:16": "768x1376",
+              "4:3": "1200x896",
+              "16:9": "1376x768"
+            }
+          },
+          {
+            "id": "2K",
+            "pixels": {
+              "1:1": "2048x2048",
+              "3:4": "1792x2400",
+              "9:16": "1536x2752",
+              "4:3": "2400x1792",
+              "16:9": "2752x1536"
+            }
+          },
+          {
+            "id": "4K",
+            "pixels": {
+              "1:1": "4096x4096",
+              "3:4": "3584x4800",
+              "9:16": "3072x5504",
+              "4:3": "4800x3584",
+              "16:9": "5504x3072"
+            }
+          }
+        ],
+        "ratios": [
+          "1:1",
+          "3:4",
+          "9:16",
+          "4:3",
+          "16:9"
+        ],
+        "ratioVia": [
+          "param"
+        ],
+        "autoRatio": true,
+        "defaultTier": "1K",
+        "wire": {
+          "kind": "tier-token",
+          "param": "imageConfig.imageSize",
+          "tokens": {
+            "1K": "1K",
+            "2K": "2K",
+            "4K": "4K"
+          }
+        },
+        "count": {
+          "max": 10,
+          "singleTask": false
+        },
+        "references": {
+          "max": 14
+        },
+        "etaSeconds": {
+          "1K": 25,
+          "2K": 22,
+          "4K": 114
+        }
+      },
+      "pricing": {
+        "unit": "image",
+        "tierMultiplier": {
+          "1K": 1,
+          "2K": 1.5,
+          "4K": 3.4
+        }
+      },
+      "evidence": {
+        "tiers": {
+          "source": "probe",
+          "at": "2026-10-22",
+          "note": "Vertex global；未列档位实测 400"
+        },
+        "ratios": {
+          "source": "probe",
+          "at": "2026-10-22",
+          "note": "5 档全部照做"
+        },
+        "count": {
+          "source": "probe",
+          "at": "2026-10-22",
+          "note": "candidateCount=2 实测 400，多张拆成多条任务"
+        },
+        "references": {
+          "source": "probe",
+          "at": "2026-10-22",
+          "note": "15 张实测可过，按官方 14 收"
+        },
+        "etaSeconds": {
+          "source": "probe",
+          "at": "2026-10-22",
+          "note": "单次实测，波动大"
+        },
+        "pricing": {
+          "source": "docs",
+          "at": "2026-10-22",
+          "note": "Vertex global Standard 图片输出单价 × 各档 token 数"
+        }
+      }
+    },
+    {
+      "id": "gemini-3-pro-image",
+      "vendor": "google",
+      "family": "gemini",
+      "media": "image",
+      "image": {
+        "operations": [
+          "generate",
+          "edit"
+        ],
+        "tiers": [
+          {
+            "id": "1K",
+            "pixels": {
+              "1:1": "1024x1024",
+              "3:4": "896x1200",
+              "9:16": "768x1376",
+              "4:3": "1200x896",
+              "16:9": "1376x768"
+            }
+          },
+          {
+            "id": "2K",
+            "pixels": {
+              "1:1": "2048x2048",
+              "3:4": "1792x2400",
+              "9:16": "1536x2752",
+              "4:3": "2400x1792",
+              "16:9": "2752x1536"
+            }
+          },
+          {
+            "id": "4K",
+            "pixels": {
+              "1:1": "4096x4096",
+              "3:4": "3584x4800",
+              "9:16": "3072x5504",
+              "4:3": "4800x3584",
+              "16:9": "5504x3072"
+            }
+          }
+        ],
+        "ratios": [
+          "1:1",
+          "3:4",
+          "9:16",
+          "4:3",
+          "16:9"
+        ],
+        "ratioVia": [
+          "param"
+        ],
+        "autoRatio": true,
+        "defaultTier": "1K",
+        "wire": {
+          "kind": "tier-token",
+          "param": "imageConfig.imageSize",
+          "tokens": {
+            "1K": "1K",
+            "2K": "2K",
+            "4K": "4K"
+          }
+        },
+        "count": {
+          "max": 10,
+          "singleTask": false
+        },
+        "references": {
+          "max": 14
+        },
+        "etaSeconds": {
+          "1K": 25,
+          "2K": 45,
+          "4K": 45
+        }
+      },
+      "pricing": {
+        "unit": "image",
+        "tierMultiplier": {
+          "1K": 1,
+          "2K": 1,
+          "4K": 1.8
+        }
+      },
+      "evidence": {
+        "tiers": {
+          "source": "probe",
+          "at": "2026-10-22",
+          "note": "Vertex global；未列档位实测 400"
+        },
+        "ratios": {
+          "source": "probe",
+          "at": "2026-10-22",
+          "note": "5 档全部照做；1:4 等长条比例会被改成 16:9（不开放）"
+        },
+        "count": {
+          "source": "probe",
+          "at": "2026-10-22",
+          "note": "candidateCount=2 实测 400，多张拆成多条任务"
+        },
+        "references": {
+          "source": "probe",
+          "at": "2026-10-22",
+          "note": "15 张实测可过，按官方 14 收"
+        },
+        "etaSeconds": {
+          "source": "probe",
+          "at": "2026-10-22",
+          "note": "单次实测，波动大"
+        },
+        "pricing": {
+          "source": "docs",
+          "at": "2026-10-22",
+          "note": "Vertex global Standard 图片输出单价 × 各档 token 数"
+        }
+      }
+    },
+    {
+      "id": "gemini-3.1-flash-lite-image",
+      "vendor": "google",
+      "family": "gemini",
+      "media": "image",
+      "image": {
+        "operations": [
+          "generate",
+          "edit"
+        ],
+        "tiers": [
+          {
+            "id": "1K",
+            "pixels": {
+              "1:1": "1024x1024",
+              "3:4": "896x1200",
+              "9:16": "768x1376",
+              "4:3": "1200x896",
+              "16:9": "1376x768"
+            }
+          }
+        ],
+        "ratios": [
+          "1:1",
+          "3:4",
+          "9:16",
+          "4:3",
+          "16:9"
+        ],
+        "ratioVia": [
+          "param"
+        ],
+        "autoRatio": true,
+        "defaultTier": "1K",
+        "wire": {
+          "kind": "tier-token",
+          "param": "imageConfig.imageSize",
+          "tokens": {
+            "1K": "1K"
+          }
+        },
+        "count": {
+          "max": 10,
+          "singleTask": false
+        },
+        "references": {
+          "max": 14
+        },
+        "etaSeconds": {
+          "1K": 3
+        }
+      },
+      "pricing": {
+        "unit": "image"
+      },
+      "evidence": {
+        "tiers": {
+          "source": "probe",
+          "at": "2026-10-22",
+          "note": "Vertex global；未列档位实测 400"
+        },
+        "ratios": {
+          "source": "probe",
+          "at": "2026-10-22",
+          "note": "5 档全部照做"
+        },
+        "count": {
+          "source": "probe",
+          "at": "2026-10-22",
+          "note": "candidateCount=2 实测 400，多张拆成多条任务"
+        },
+        "references": {
+          "source": "probe",
+          "at": "2026-10-22",
+          "note": "15 张实测可过，按官方 14 收"
+        },
+        "etaSeconds": {
+          "source": "probe",
+          "at": "2026-10-22",
+          "note": "单次实测，波动大"
+        },
+        "pricing": {
+          "source": "docs",
+          "at": "2026-10-22",
+          "note": "Vertex global Standard 图片输出单价 × 各档 token 数"
+        }
+      }
+    },
+    {
+      "id": "agnes-image-2.5-flash",
+      "vendor": "agnes",
+      "family": "agnes",
+      "media": "image",
+      "image": {
+        "operations": [
+          "generate",
+          "edit"
+        ],
+        "tiers": [
+          {
+            "id": "1K",
+            "pixels": {
+              "1:1": "1024x1024",
+              "3:4": "768x1024",
+              "9:16": "720x1280",
+              "4:3": "1024x768",
+              "16:9": "1280x720"
+            }
+          },
+          {
+            "id": "2K",
+            "pixels": {
+              "1:1": "2048x2048",
+              "3:4": "1536x2048",
+              "9:16": "1440x2560",
+              "4:3": "2048x1536",
+              "16:9": "2560x1440"
+            }
+          },
+          {
+            "id": "4K",
+            "pixels": {
+              "1:1": "2880x2880",
+              "3:4": "2400x3200",
+              "9:16": "2160x3840",
+              "4:3": "3200x2400",
+              "16:9": "3840x2160"
+            }
+          }
+        ],
+        "ratios": [
+          "1:1",
+          "3:4",
+          "9:16",
+          "4:3",
+          "16:9"
+        ],
+        "ratioVia": [
+          "param"
+        ],
+        "autoRatio": true,
+        "defaultTier": "1K",
+        "wire": {
+          "kind": "pixels",
+          "multiple": 16,
+          "maxEdge": 3840,
+          "minPixels": 655360,
+          "maxPixels": 8294400,
+          "maxAspect": 3
+        },
+        "count": {
+          "max": 10,
+          "singleTask": false
+        },
+        "references": {
+          "max": 16
+        }
+      },
+      "pricing": {
+        "unit": "image"
+      },
+      "evidence": {
+        "tiers": {
+          "source": "code",
+          "note": "channels.json 声明 size，沿用 IMAGE_SIZE_PRESETS 1K/2K/4K"
+        },
+        "ratios": {
+          "source": "code",
+          "note": "size 像素"
+        },
+        "count": {
+          "source": "code",
+          "note": "channels.json 未声明 n，前端拆单"
+        },
+        "references": {
+          "source": "unverified",
+          "note": "沿用 QUEUE_MAX_INPUT_IMAGES"
+        }
+      },
+      "todo": [
+        "渠道已停用，未实测；重新启用前补测"
+      ]
+    }
+  ]
+}
