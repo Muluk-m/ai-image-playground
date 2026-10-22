@@ -234,3 +234,51 @@ it('非安静模式照常立即显示等待保存', () => {
   act(() => root.unmount())
   vi.unstubAllGlobals()
 })
+
+it('图片在后台上传时只显示上传进度，不亮等待保存与重试', () => {
+  vi.useFakeTimers()
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  type Snapshot = ReturnType<CloudProjectSession['getSnapshot']>
+  let snapshot: Snapshot = { status: 'pending', message: null, upload: { done: 1, total: 4 } }
+  const listeners = new Set<() => void>()
+  const session = {
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    getSnapshot: () => snapshot,
+    reload: vi.fn(async () => {}),
+    sync: vi.fn(async () => {}),
+  } as unknown as CloudProjectSession
+  const set = (next: Snapshot) =>
+    act(() => {
+      snapshot = next
+      for (const listener of listeners) listener()
+    })
+  for (const quiet of [true, false]) {
+    const host = document.createElement('div')
+    const root = createRoot(host)
+    try {
+      set({ status: 'pending', message: null, upload: { done: 1, total: 4 } })
+      act(() => root.render(<ProjectSyncStatus session={session} quiet={quiet} />))
+      act(() => vi.advanceTimersByTime(PENDING_VISIBLE_AFTER_MS * 2))
+      expect(host.textContent).toBe('图片上传中 1/4')
+      expect(host.querySelectorAll('button')).toHaveLength(0)
+      // 文档已经确认、图片还在传：照样只有进度。
+      set({ status: 'syncing', message: null, upload: { done: 3, total: 4 } })
+      expect(host.textContent).toContain('图片上传中 3/4')
+      expect(host.textContent).not.toContain('等待保存')
+      set({ status: 'saved', message: null })
+      expect(host.textContent).not.toContain('图片上传中')
+      if (quiet) expect(host.childElementCount).toBe(0)
+      // 上传失败后进 media-local：恢复原来的提示和重试。
+      set({ status: 'media-local', message: null })
+      expect(host.textContent).toContain('画布里有内容还没保存完')
+      expect(host.querySelector('button')?.textContent).toBe('重试')
+    } finally {
+      act(() => root.unmount())
+    }
+  }
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+})
