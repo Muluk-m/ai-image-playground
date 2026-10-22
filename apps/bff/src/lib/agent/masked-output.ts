@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import sharp from 'sharp'
 import { labelComponents } from './mask-regions'
 import { estimateTranslation, inspectMaskedAlignment } from './masked-alignment'
@@ -87,86 +86,47 @@ function regionChanged(stats: ChangeStats, floor: ChangeStats): boolean {
 }
 
 /**
- * 只重画某几块时交给上游的蒙版：同尺寸 PNG，这几块透明（重画），其余全部不透明（保留）。
- */
-async function regionsMaskDataUrl(regions: readonly EditRegion[], width: number, height: number) {
-  const rgba = Buffer.alloc(width * height * 4, 255)
-  for (const region of regions) for (const index of region.pixels) rgba[index * 4 + 3] = 0
-  const png = await sharp(rgba, { raw: { width, height, channels: 4 } })
-    .png()
-    .toBuffer()
-  return { dataUrl: `data:image/png;base64,${png.toString('base64')}`, alpha: rgba }
-}
-
-interface MaskedOutputOptions {
-  /**
-   * 某些区域生成后没变（模型在选区里照原样画回来）时，只针对这些区域再生成一次。
-   * 参数是只把这些区域标成透明的蒙版（工作尺寸，与输入同格式）；返回上游的一张候选原图，
-   * 拿不到就返回 null。不提供时只核对、不重试。
-   */
-  readonly repair?: (maskDataUrl: string, attempt: number) => Promise<Uint8Array | null>
-  /**
-   * 这一次确认（所有候选合计）最多重试几次，默认取 `regions.maxRetries`（目前 0：只核对、记日志，
-   * 不额外向上游要图）。重试的费用由平台承担、不向用户计费，所以上限按整次确认算。
-   */
-  readonly maxRetries?: number
-}
-
-/**
  * 上游常不按请求的尺寸出图，而是按自己的像素档位（约 1.57MP）等比放缩：方图一律 1254×1254、
- * 768×1024 回 1086×1448。宽高比对得上（只差取整）就缩回请求尺寸再核对、合成：
- * - 上游图比请求大（缩小回去，已知 1.22–1.45×）：不损清晰度，至多 `maxDownscaleFactor`；
- * - 上游图比请求小（要放大回去）：选区内会比选区外的原图像素糊，只容取整级别的 `maxUpscaleFactor`。
- *   大原图（如 3840×2160 只回 1672×941，要放大 2.3×）因此拒绝，提示分辨率受限、可重试。
- * 宽高比不对说明画面被裁或拉伸过，一律拒绝。
+ * 3840×2160 只回 1672×941。一律拉回工作尺寸、照常交付，不因放大倍数或宽高比拒绝：
+ * - 宽高比一致（等比铺满后只差取整的 2 像素以内）：直接缩放到工作尺寸；
+ * - 宽高比不同：先等比铺满工作尺寸，再按选区中心在原图里的相对位置裁出工作尺寸（选区居中时就是
+ *   居中裁切），让选区附近的内容尽量对上。
+ * 选区外随后一律用原图像素（见 transform），所以无论怎么缩放裁切，选区外 0 像素变化。
+ * 返回 `fit`：0 未缩放，1 等比缩放，2 铺满后裁切。
  */
-export function upstreamSizeProblem(
+export function upstreamFit(
   width: number,
   height: number,
   generatedWidth: number,
   generatedHeight: number,
-): 'mismatch' | 'upscale' | 'downscale' | null {
-  const limits = maskedEditSettings.rescale
-  const sx = generatedWidth / width,
-    sy = generatedHeight / height
-  // 宽高比不对，或差了 4 倍以上（不是任何已知档位，是另一套坐标）：不当作分辨率问题。
-  if (Math.abs(sx / sy - 1) > limits.maxAspectDifference || Math.max(sx, sy, 1 / sx, 1 / sy) > 4)
-    return 'mismatch'
-  if (Math.max(1 / sx, 1 / sy) > limits.maxUpscaleFactor) return 'upscale'
-  if (Math.max(sx, sy) > limits.maxDownscaleFactor) return 'downscale'
-  return null
+  focus: { readonly x: number; readonly y: number },
+) {
+  if (generatedWidth === width && generatedHeight === height)
+    return { fit: 0, coverWidth: width, coverHeight: height, left: 0, top: 0 } as const
+  const scale = Math.max(width / generatedWidth, height / generatedHeight)
+  const coverWidth = Math.max(width, Math.round(generatedWidth * scale))
+  const coverHeight = Math.max(height, Math.round(generatedHeight * scale))
+  if (coverWidth - width <= 2 && coverHeight - height <= 2)
+    return { fit: 1, coverWidth: width, coverHeight: height, left: 0, top: 0 } as const
+  const offset = (at: number, size: number, cover: number) =>
+    Math.min(cover - size, Math.max(0, Math.round(at * (cover / size - 1))))
+  return {
+    fit: 2,
+    coverWidth,
+    coverHeight,
+    left: offset(focus.x, width, coverWidth),
+    top: offset(focus.y, height, coverHeight),
+  } as const
 }
 
 /**
- * 缩放过的候选要有足够的原位纹理证据才可贴回。纹理多时要求分散（够多的格、够多的象限）；换背景时
- * 保护区常只剩一个小而平滑的主体，凑不够那么多格——这时退而要求每一个有纹理的保护格都对得上，
- * 且至少有 `minAllMatchedRegions` 格（`local`），再由 `estimateTranslation` 核对主体轮廓没有整体平移。
+ * 只在原图坐标内合成：候选拉回原尺寸（见 upstreamFit），选区内按羽化带混合，选区外逐像素用原图。
+ * 对齐与「区域没改到」只核对、记进 inspection，不拒收、不重试（重试要平台额外付上游的钱）。
  */
-export function rescaleEvidence(alignment: {
-  readonly texturedRegions: number
-  readonly matchedRegions: number
-  readonly matchedQuadrants: number
-}): 'dispersed' | 'local' | null {
-  const limits = maskedEditSettings.rescale
-  if (
-    alignment.texturedRegions >= limits.minTexturedRegions &&
-    alignment.matchedQuadrants >= limits.minMatchedQuadrants
-  )
-    return 'dispersed'
-  if (
-    alignment.texturedRegions >= limits.minAllMatchedRegions &&
-    alignment.matchedRegions === alignment.texturedRegions
-  )
-    return 'local'
-  return null
-}
-
-/** 只在原图坐标内合成；上游等比放缩过的候选（宽高比一致）缩回原尺寸后，须有分散的保护区纹理证据才可校正。 */
 export async function protectMaskedOutput(
   sourceDataUrl: string,
   maskDataUrl: string,
   originalSize?: { width: number; height: number },
-  options: MaskedOutputOptions = {},
 ) {
   const decode = (value: string) => Buffer.from(value.slice(value.indexOf(',') + 1), 'base64')
   const source = await pixels(decode(sourceDataUrl))
@@ -191,6 +151,20 @@ export async function protectMaskedOutput(
   const editAlpha = new Uint8Array(width * height)
   for (let index = 0; index < editAlpha.length; index++)
     editAlpha[index] = mask.data[index * 4 + 3]! < 255 ? 1 : 0
+  let minX = width,
+    minY = height,
+    maxX = 0,
+    maxY = 0
+  for (let index = 0; index < editAlpha.length; index++) {
+    if (!editAlpha[index]) continue
+    const x = index % width,
+      y = (index - x) / width
+    if (x < minX) minX = x
+    if (x > maxX) maxX = x
+    if (y < minY) minY = y
+    if (y > maxY) maxY = y
+  }
+  const focus = { x: (minX + maxX + 1) / 2, y: (minY + maxY + 1) / 2 }
   const components = labelComponents(editAlpha, true, width, height, true)
   const regions: EditRegion[] = []
   {
@@ -211,58 +185,30 @@ export async function protectMaskedOutput(
     }
   }
 
-  /** 读一张候选，统一成工作尺寸、完全不透明，并核对保护区仍在原位。 */
-  const fitCandidate = async (bytes: Uint8Array, protectedAlpha: Uint8Array) => {
+  /** 读一张候选，统一成工作尺寸、完全不透明，并记下保护区是否仍在原位（只记录，不拒收）。 */
+  const fitCandidate = async (bytes: Uint8Array) => {
     let generated = await pixels(bytes)
     const candidateWidth = generated.info.width,
       candidateHeight = generated.info.height
     const translucentPixels = ignoreCandidateAlpha(generated)
-    const rescaled = generated.info.width !== width || generated.info.height !== height
-    if (rescaled) {
-      const problem = upstreamSizeProblem(
-        width,
-        height,
-        generated.info.width,
-        generated.info.height,
+    const fit = upstreamFit(width, height, candidateWidth, candidateHeight, focus)
+    if (fit.fit) {
+      let resized = sharp(generated.data, { raw: generated.info }).resize(
+        fit.coverWidth,
+        fit.coverHeight,
+        { fit: 'fill' },
       )
-      if (problem === 'upscale')
-        throw new MaskedOutputError(
-          `分辨率受限：生成图只有 ${generated.info.width}×${generated.info.height}，放大回原图会让选区内明显变糊；候选已保留，未应用修改。可先把原图缩小后再改`,
-        )
-      if (problem)
-        throw new MaskedOutputError(
-          '生成图尺寸与原图不一致，无法保护选区外内容；候选已保留，未应用修改，可重试',
-        )
-      // 此时只是待验证的尺度假设；没有足够原位纹理证据就拒绝，不盲目贴回。
-      generated = await pixels(
-        await sharp(generated.data, { raw: generated.info })
-          .resize(width, height, { fit: 'fill' })
-          .png()
-          .toBuffer(),
-      )
+      if (fit.fit === 2) resized = resized.extract({ left: fit.left, top: fit.top, width, height })
+      generated = await pixels(await resized.png().toBuffer())
       ignoreCandidateAlpha(generated)
     }
-    const alignment = inspectMaskedAlignment(
-      source.data,
-      generated.data,
-      protectedAlpha,
-      width,
-      height,
-    )
-    // 纹理不够分散（只凭局部几格，或保护区几乎没有纹理）时，块相关看不出几像素的整体平移：
-    // 再核一次主体轮廓有没有挪位。缩放过的候选还必须至少有局部证据。
-    const evidence = rescaleEvidence(alignment)
-    if (
-      !alignment.accepted ||
-      (rescaled && !evidence) ||
-      (evidence !== 'dispersed' &&
-        !estimateTranslation(source.data, generated.data, protectedAlpha, width, height).aligned)
-    )
-      throw new MaskedOutputError('生成图与原图的位置对应无法确认；候选已保留，未应用修改，可重试')
+    const alignment = inspectMaskedAlignment(source.data, generated.data, mask.data, width, height)
+    const translation = estimateTranslation(source.data, generated.data, mask.data, width, height)
     return {
       generated,
       alignment,
-      rescaled,
+      translation,
+      fit,
       candidateWidth,
       candidateHeight,
       translucentPixels,
@@ -278,45 +224,13 @@ export async function protectMaskedOutput(
   const noiseFloor = (generated: Pixels) =>
     changeStats(source.data, generated.data, protectedIndices, floorStride)
 
-  let retryBudget = Math.max(0, options.maxRetries ?? maskedEditSettings.regions.maxRetries)
-
-  /**
-   * 逐区域核对；没变的区域只对它们再要一张，换进这些区域的像素。整次确认合计至多重试
-   * `retryBudget` 次。重试的图同样要过对齐校验，过不了就当这一次没拿到。
-   */
-  const repairRegions = async (generated: Pixels) => {
+  /** 逐区域核对有没有真的改（只记录）：与这张候选在保护区里的重画底噪比。 */
+  const inspectRegions = (generated: Pixels) => {
     const floor = noiseFloor(generated)
-    const isChanged = (data: Uint8Array, region: EditRegion) =>
-      regionChanged(changeStats(source.data, data, region.core), floor)
-    let unchanged = regions.filter((region) => !isChanged(generated.data, region))
-    const initiallyUnchanged = unchanged.length
-    let retries = 0
-    while (unchanged.length && options.repair && retryBudget > 0) {
-      retryBudget--
-      retries++
-      const retryMask = await regionsMaskDataUrl(unchanged, width, height)
-      const bytes = await options.repair(retryMask.dataUrl, retries).catch((error) => {
-        if (error instanceof Error && error.name === 'AbortError') throw error
-        return null
-      })
-      if (!bytes) continue
-      const retry = await fitCandidate(bytes, retryMask.alpha).catch(() => null)
-      if (!retry) continue
-      for (const region of unchanged) {
-        if (!isChanged(retry.generated.data, region)) continue
-        for (const index of region.pixels) {
-          const offset = index * 4
-          generated.data[offset] = retry.generated.data[offset]!
-          generated.data[offset + 1] = retry.generated.data[offset + 1]!
-          generated.data[offset + 2] = retry.generated.data[offset + 2]!
-        }
-      }
-      unchanged = unchanged.filter((region) => !isChanged(generated.data, region))
-    }
     return {
-      initiallyUnchanged,
-      retries,
-      stillUnchanged: unchanged.length,
+      unchanged: regions.filter(
+        (region) => !regionChanged(changeStats(source.data, generated.data, region.core), floor),
+      ).length,
       noiseFraction: floor.fraction,
       noiseMeanDelta: floor.meanDelta,
     }
@@ -324,9 +238,9 @@ export async function protectMaskedOutput(
 
   const transform = async (candidate: Uint8Array) => {
     try {
-      const fitted = await fitCandidate(candidate, mask.data)
-      const { generated, alignment, rescaled, candidateWidth, candidateHeight } = fitted
-      const repaired = await repairRegions(generated)
+      const fitted = await fitCandidate(candidate)
+      const { generated, alignment, translation, fit, candidateWidth, candidateHeight } = fitted
+      const regionCheck = inspectRegions(generated)
       const output = Buffer.from(source.data)
       let outsideChangedPixels = 0
       let insideChangedPixels = 0
@@ -373,7 +287,14 @@ export async function protectMaskedOutput(
           texturedRegions: alignment.texturedRegions,
           matchedRegions: alignment.matchedRegions,
           matchedQuadrants: alignment.matchedQuadrants,
-          rescaled: Number(rescaled),
+          rescaled: Number(fit.fit !== 0),
+          fit: fit.fit,
+          cropLeft: fit.left,
+          cropTop: fit.top,
+          alignmentAccepted: Number(alignment.accepted),
+          translationAligned: Number(translation.aligned),
+          translationDx: translation.dx,
+          translationDy: translation.dy,
           boundaryFeatherPixels: featherPixels,
           candidateWidth,
           candidateHeight,
@@ -383,11 +304,9 @@ export async function protectMaskedOutput(
           scaleY: height / candidateHeight,
           translucentPixels: fitted.translucentPixels,
           regions: regions.length,
-          regionsUnchanged: repaired.initiallyUnchanged,
-          regionRetries: repaired.retries,
-          regionsStillUnchanged: repaired.stillUnchanged,
-          protectedNoiseFraction: Number(repaired.noiseFraction.toFixed(4)),
-          protectedNoiseMeanDelta: Number(repaired.noiseMeanDelta.toFixed(2)),
+          regionsUnchanged: regionCheck.unchanged,
+          protectedNoiseFraction: Number(regionCheck.noiseFraction.toFixed(4)),
+          protectedNoiseMeanDelta: Number(regionCheck.noiseMeanDelta.toFixed(2)),
         },
       }
     } catch (error) {
@@ -399,17 +318,5 @@ export async function protectMaskedOutput(
     }
   }
 
-  // 归档在存储出错时会把同一张候选再合成一遍；有重试时按内容记住结果，不重复花上游的钱。
-  if (!options.repair) return transform
-  const results = new Map<string, ReturnType<typeof transform>>()
-  return (candidate: Uint8Array) => {
-    const key = createHash('sha256').update(candidate).digest('hex')
-    let result = results.get(key)
-    if (!result) {
-      result = transform(candidate)
-      results.set(key, result)
-      result.catch(() => results.delete(key))
-    }
-    return result
-  }
+  return transform
 }
