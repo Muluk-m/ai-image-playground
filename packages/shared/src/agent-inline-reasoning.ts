@@ -39,34 +39,26 @@ function couldOpen(rest: string, tags: readonly string[]): boolean {
   })
 }
 
-/**
- * 推理正文从 `at`（一个 `<`）到末尾这一截可能是半截闭标签：流式时先扣下，等下一段再判断。
- * 不匹配时在第一个不对的字符处就返回，不会把整段尾巴再扫一遍。
- */
-function isHeldClose(text: string, at: number, name: string): boolean {
-  const close = `</${name}`
-  const head = Math.min(close.length, text.length - at)
-  if (text.slice(at, at + head).toLowerCase() !== close.slice(0, head)) return false
-  for (let index = at + head; index < text.length; index++)
-    if (!/\s/.test(text[index]!)) return false
-  return true
-}
+const WHITESPACE = /\s/
 
 /**
- * 流式拆分器：同一段正文只会在末尾追加，每次只看新增的部分，整段流的处理量与长度成正比。
- * 开头一旦定下来（是推理标签还是普通正文）就不再回头看；推理没闭合时只从上次扫到的位置往后找闭标签。
+ * 流式拆分器：同一段正文只会在末尾追加，每个字符只看一次，整段流的处理量与长度成正比。
+ * 开头一旦定下来（是推理标签还是普通正文）就不再回头看；推理没闭合时，闭标签按字符逐个往后认，
+ * 认到一半的候选（`</thi`、`</thinking   `）记住认到了哪，下一段从那里接着认。
  * 每次调用传入到目前为止的整段正文，结果与 `splitInlineReasoning` 对同一前缀的结果相同。
  */
 export class InlineReasoningSplitter {
   private phase: 'pending' | 'plain' | 'open' | 'closed' = 'pending'
-  private name = ''
+  /** 闭标签去掉末尾 `>` 的那一截，小写，如 `</thinking`。 */
+  private close = ''
   /** 推理正文在整段里的起点。 */
   private bodyStart = 0
-  /** 还没找到闭标签时，下次从这里往后找；它要么是正文末尾，要么是末尾那个还可能长成闭标签的 `<`。 */
-  private scanFrom = 0
+  /** 还可能长成闭标签的那个 `<` 的位置；-1 即眼下没有候选。 */
+  private candidate = -1
+  /** 下一个要看的字符：之前的都已经认过了。 */
+  private cursor = 0
   private closeStart = 0
   private closeEnd = 0
-  private closeRe: RegExp | undefined
 
   constructor(private readonly tags: readonly string[] = INLINE_REASONING_TAGS) {}
 
@@ -82,10 +74,11 @@ export class InlineReasoningSplitter {
         text: text.slice(this.closeEnd).trimStart(),
         closed: true,
       }
-    const held = !finished && this.scanFrom < text.length
+    // 末尾认到一半的闭标签先扣下；正文写完了就还给推理。
+    const held = !finished && this.candidate >= 0
     return {
       state: 'reasoning',
-      thinking: text.slice(this.bodyStart, held ? this.scanFrom : text.length),
+      thinking: text.slice(this.bodyStart, held ? this.candidate : text.length),
       text: '',
       closed: false,
     }
@@ -97,32 +90,46 @@ export class InlineReasoningSplitter {
     const open = OPEN.exec(rest)
     if (open && isTag(open[1]!, this.tags)) {
       this.phase = 'open'
-      this.name = open[1]!.toLowerCase()
+      this.close = `</${open[1]!.toLowerCase()}`
       this.bodyStart = lead + open[0].length
-      this.scanFrom = this.bodyStart
-      this.closeRe = new RegExp(`</${this.name}\\s*>`, 'gi')
+      this.cursor = this.bodyStart
       return
     }
     if (!finished && couldOpen(rest, this.tags)) return
     this.phase = 'plain'
   }
 
+  /** 从上次停下的字符接着认闭标签：`</name` 逐字对上，随后任意空白，最后一个 `>`。 */
   private scanClose(text: string) {
-    const re = this.closeRe!
-    re.lastIndex = this.scanFrom
-    const close = re.exec(text)
-    if (close) {
-      this.phase = 'closed'
-      this.closeStart = close.index
-      this.closeEnd = close.index + close[0].length
-      return
+    while (this.cursor < text.length) {
+      if (this.candidate < 0) {
+        const at = text.indexOf('<', this.cursor)
+        if (at < 0) {
+          this.cursor = text.length
+          return
+        }
+        this.candidate = at
+        this.cursor = at
+      }
+      const char = text[this.cursor]!
+      const offset = this.cursor - this.candidate
+      const fits =
+        offset < this.close.length
+          ? char.toLowerCase() === this.close[offset]
+          : char === '>' || WHITESPACE.test(char)
+      if (!fits) {
+        // 候选断了：闭标签里只有开头一个 `<`，所以断在这里的字符本身可能是下一个候选的开头。
+        this.candidate = -1
+        continue
+      }
+      if (offset >= this.close.length && char === '>') {
+        this.phase = 'closed'
+        this.closeStart = this.candidate
+        this.closeEnd = this.cursor + 1
+        return
+      }
+      this.cursor += 1
     }
-    // 没闭合：闭标签里只有一个 `<`，能长成闭标签的只可能是最后一个 `<`；它已经不可能是闭标签，
-    // 以后也不会是（前缀不对或后面跟了别的字），下次就从末尾接着找。
-    let last = -1
-    for (let at = text.indexOf('<', this.scanFrom); at >= 0; at = text.indexOf('<', at + 1))
-      last = at
-    this.scanFrom = last >= 0 && isHeldClose(text, last, this.name) ? last : text.length
   }
 }
 
