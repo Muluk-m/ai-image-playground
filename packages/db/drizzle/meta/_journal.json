@@ -519,6 +519,13 @@
       "when": 1792500000000,
       "tag": "0074_agent_stage_authorizations",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1792600000000,
+      "tag": "0075_agent_inbox_consumed_turn",
+      "breakpoints": true
     }
   ]
 }

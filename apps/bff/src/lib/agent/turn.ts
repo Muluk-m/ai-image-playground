@@ -235,7 +235,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       assertExecution: execution.assert,
       recordWebSearch: (attempt) => ledger.recordSideCall('web_search', attempt),
       ...(prepared.params ? { params: prepared.params } : {}),
-      ...(prepared.canvas ? { canvas: prepared.canvas } : {}),
+      // 画布快照只交给画布模式的工具；Agent 模式这一轮不感知画布。
+      ...(prepared.canvas && audience.experience === 'canvas' ? { canvas: prepared.canvas } : {}),
       // Canvas has one authorization mechanism; per-turn image quota is chat-only.
       ...(input.autoSubmit && audience.experience !== 'canvas'
         ? { autoSubmit: createAutoSubmitBudget() }
@@ -961,6 +962,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         owner: prepared.owner,
         mode,
         userId: prepared.userId,
+        experience: audience.experience,
         expectedHistory: [...history.messages, ...storedMessages.values()],
         previousSkills: input.skillTexts,
         messages: agent.state.messages,
