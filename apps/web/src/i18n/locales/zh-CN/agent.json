@@ -424,7 +424,15 @@
     "toolFailed": "工具执行失败，请查看失败卡片。",
     "copyLog": "复制原始日志",
     "copied": "已复制",
-    "copyFailed": "复制失败，请重试"
+    "copyFailed": "复制失败，请重试",
+    "imageTooLarge": "图片太大，这条没有发出去。单张最多 {{maxSize}}，请换一张更小的图再发。",
+    "uploadFailed": "参考图没能上传，这条没有发出去：{{reason}}",
+    "signedOut": "登录已失效，这条没有发出去。请重新登录后再发。",
+    "serverUnavailable": "服务暂时不可用，这条没有发出去，可以点重试。",
+    "requestRejected": "服务器没有收下这条消息。请修改后再发；一直出现请把错误详情发给我们。",
+    "network": "网络中断，这条没有发出去，可以点重试。",
+    "retry": "重试",
+    "details": "错误详情"
   },
   "project": {
     "createFailed": "项目创建失败，当前内容已保留，请重试。",

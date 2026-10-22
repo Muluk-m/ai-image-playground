@@ -9,6 +9,8 @@ import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { calculateMaskWorkingSize, prepareMaskTargetDataUrl } from '../../../lib/maskPreprocess'
 import { useStore } from '../../../store'
+import { formatImageLimit } from '../../agent/lib/attachmentUploadErrors'
+import { referenceImageLimit, referenceSourceTooLarge } from '../../agent/lib/attachmentUploads'
 import { agentPanelPresent } from '../../agent/panelLayout'
 import { useAgentStore } from '../../agent/store'
 import type { EditRect } from '../rectEditStore'
@@ -115,6 +117,23 @@ export async function sendImageEditToAgent(
         ? [{ imageId: crypto.randomUUID(), dataUrl: options.referenceDataUrl }]
         : []),
     ]
+    // 发之前按这一档部署的单张上限核一遍：超了就在这里说清楚，不让它发出去再被服务端打回。
+    if (
+      references.some((reference) =>
+        [reference.dataUrl, 'maskDataUrl' in reference ? reference.maskDataUrl : undefined].some(
+          (one) => one !== undefined && referenceSourceTooLarge(one),
+        ),
+      )
+    ) {
+      useStore.getState().showToast(
+        i18next.t('attachment.reference_too_large', {
+          ns: 'errors',
+          maxSize: formatImageLimit(referenceImageLimit().imageBytes),
+        }),
+        'error',
+      )
+      return false
+    }
     agent.setOpen(true)
     agent.setTab('chat')
     // AgentStore.send 会跟随整轮生成；快捷菜单只等服务端受理就收起，后续进度留在对话里。

@@ -39,7 +39,8 @@
     "addFailed": "Could not add the image: {{reason}}",
     "attach": "Add reference images (up to {{count}}, ≤{{mb}}MB each)",
     "attachImages": "Add images",
-    "attachFolder": "Add a folder"
+    "attachFolder": "Add a folder",
+    "referenceTooLarge": "Image {{index}} is larger than {{maxSize}}. Please choose a smaller one"
   },
   "slot": {
     "heading": "Slot {{slot}}",
