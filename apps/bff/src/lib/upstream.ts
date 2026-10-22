@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { QUEUE_TIMEOUTS, type QueueProvider } from '@image-playground/shared'
 import { config } from '../config'
-import { disabledModelChannel, getRoutableChannels } from './channels'
+import { disabledModelChannel, getRoutableChannels, type InternalChannel } from './channels'
 import type { HydratedSubmitRequest } from './imageArchive'
 import { log } from './logger'
 import {
@@ -51,7 +51,11 @@ import {
   withoutModeration,
 } from './upstream/openai'
 import { type ChannelRouteStyle, clientError, type UpstreamCallResult } from './upstream/shared'
-import { buildVertexBody } from './upstream/vertex'
+import {
+  buildVertexBody,
+  vertexPartialRateLimitFailure,
+  withVertexRateLimitRetry,
+} from './upstream/vertex'
 import { VIDEO_MIME, VIDEO_STYLE_SPECS } from './upstream/video'
 
 /*
@@ -89,8 +93,26 @@ interface UpstreamRoute {
   asyncTasks: boolean
   /** 上游原生支持 n；一条请求即可返回多张图，不应在 BFF 内 fan-out。 */
   supportsNativeN: boolean
-  /** 渠道声明了同时在途上限（`maxConcurrency`）时，按渠道排队的键与上限。 */
+  /**
+   * 声明了同时在途上限时排队的键与上限：模型级（`models[].maxConcurrency`）按「渠道/模型」
+   * 排，否则渠道级（`maxConcurrency`）按渠道排。
+   */
   concurrency?: { channelId: string; limit: number }
+  /** 模型声明支持的分辨率档位（`ChannelModel.imageSizes`）；Vertex 分支把其它档位换成最近一档。 */
+  imageSizes?: readonly string[]
+}
+
+/** 模型级上限优先，按「渠道/模型」各排各的队；没有再看渠道级上限。 */
+function concurrencyFor(
+  channel: InternalChannel,
+  modelId: string,
+): Pick<UpstreamRoute, 'concurrency'> {
+  const perModel = channel.modelMaxConcurrency
+  if (perModel && Object.hasOwn(perModel, modelId))
+    return { concurrency: { channelId: `${channel.id}/${modelId}`, limit: perModel[modelId]! } }
+  return channel.maxConcurrency
+    ? { concurrency: { channelId: channel.id, limit: channel.maxConcurrency } }
+    : {}
 }
 
 /**
@@ -120,9 +142,8 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
       supportsModeration: declared.capabilities.includes('moderation'),
       asyncTasks: provider === 'openai-compat' && channel.defaults.asyncTasks === true,
       supportsNativeN: provider === 'openai-compat' && declared.capabilities.includes('n'),
-      ...(channel.maxConcurrency
-        ? { concurrency: { channelId: channel.id, limit: channel.maxConcurrency } }
-        : {}),
+      ...concurrencyFor(channel, declared.id),
+      ...(declared.imageSizes ? { imageSizes: declared.imageSizes } : {}),
     }
   }
   // 下线的直连模型找不到原 channel（env 缺失）时明确失败：通用网关不是它的上游，兜底过去
@@ -224,6 +245,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     asyncTasks,
     supportsNativeN,
     concurrency,
+    imageSizes,
   } = resolveUpstream(provider, model)
   let request = params.request
   // 原生 n 只适用于无参考图的 Images generations；Responses 图片工具不接受 tools[].n。
@@ -591,13 +613,13 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         ...(key ? { [vertex ? 'x-goog-api-key' : 'x-api-key']: key } : {}),
       }
       const body = JSON.stringify(
-        vertex ? buildVertexBody(model, request) : buildGeminiBody(request),
+        vertex ? buildVertexBody(request, imageSizes) : buildGeminiBody(request),
       )
 
       // Gemini image generation 不支持 candidateCount>1（"Only one candidate is
       // supported for audio or image response"），n>1 时本层 fan-out 成 N 条单张请求
-      // 并把 candidates 合并到一个 payload，对 task-runner / 前端透明。渠道声明了
-      // maxConcurrency（Vertex 同时超过 2 条就 429）时，每条请求先排渠道级的队再发。
+      // 并把 candidates 合并到一个 payload，对 task-runner / 前端透明。声明了 maxConcurrency
+      // （Vertex 按模型各配 2）时，每条请求先排「渠道/模型」或渠道级的队再发。
       return await fanOutRequests(
         request.n,
         async () => {
@@ -612,15 +634,21 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
                 throw error
               })
             : undefined
+          const send = async () =>
+            await parseResponse(await performFetch(url, { method: 'POST', headers, body }))
           try {
-            const res = await performFetch(url, { method: 'POST', headers, body })
-            return await parseResponse(res)
+            // Vertex 的 429 是按模型的到达速率限流：先在这条请求里退避重发，一单多张里已出的图不必重来。
+            return vertex
+              ? await withVertexRateLimitRetry(send, deadline.signal, () => deadline.timedOut)
+              : await send()
           } finally {
             release?.()
           }
         },
         mergeGeminiCandidateResults,
         params.reconciliationRequired,
+        // 有图已出、另一条退避用完仍 429：不让任务级重试把整组重新生成（见 vertexPartialRateLimitFailure）。
+        vertex ? vertexPartialRateLimitFailure : undefined,
       )
     }
     throw new Error(`Unsupported provider: ${provider satisfies never}`)
@@ -662,16 +690,27 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
+/**
+ * 部分请求成功、部分失败时换一个错误抛（返回 undefined 则照原样抛第一条失败）。给了它就要等同批
+ * 请求全部落定才知道成没成，所以只有需要区分「有图已出」的上游（Vertex 的 429）才传。
+ */
+type FanOutPartialFailure = (reason: unknown, delivered: number, requested: number) => unknown
+
 async function fanOutRequests(
   requestedCount: number | undefined,
   run: () => Promise<UpstreamCallResult>,
   merge: (results: UpstreamCallResult[]) => UpstreamCallResult,
   reconciliationRequired = false,
+  onPartialFailure?: FanOutPartialFailure,
 ): Promise<UpstreamCallResult> {
   const count = Math.max(1, requestedCount ?? 1)
   if (count === 1) return run()
   return merge(
-    await collectFanOutResults(Array.from({ length: count }, run), reconciliationRequired),
+    await collectFanOutResults(
+      Array.from({ length: count }, run),
+      reconciliationRequired,
+      onPartialFailure,
+    ),
   )
 }
 
@@ -687,10 +726,19 @@ function fanOutFailure<T>(settled: PromiseSettledResult<T>[], preserveUnknown = 
 async function collectFanOutResults<T>(
   requests: Promise<T>[],
   preserveUnknown = false,
+  onPartialFailure?: FanOutPartialFailure,
 ): Promise<T[]> {
-  if (!preserveUnknown) return Promise.all(requests)
+  if (!preserveUnknown && !onPartialFailure) return Promise.all(requests)
   const settled = await Promise.allSettled(requests)
-  const failure = fanOutFailure(settled, true)
+  const failure = fanOutFailure(settled, preserveUnknown)
+  if (!preserveUnknown) {
+    if (!failure) return settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : []))
+    const delivered = settled.filter((one) => one.status === 'fulfilled').length
+    throw (
+      (delivered > 0 ? onPartialFailure?.(failure.reason, delivered, settled.length) : undefined) ??
+      failure.reason
+    )
+  }
   if (failure && settled.some((one) => one.status === 'fulfilled')) {
     throw new UpstreamResultUnknownError('部分请求已完成，整组结果和结算待核查。', {
       cause: failure.reason,

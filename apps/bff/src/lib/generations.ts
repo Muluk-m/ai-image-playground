@@ -24,6 +24,21 @@ const columns = {
   actualParameters: table.actual_parameters,
 }
 export type GenerationCursor = { createdAt: number; id: string }
+
+/**
+ * 实际尺寸以落库原件的真实像素为准。
+ *
+ * `actual_parameters` 只抄得到上游自己报的 size：OpenAI 带，Gemini / Grok 不带，于是卡片回落到请求里
+ * 那个 1024x1024（Gemini 压根不按它出图）。像素在媒体表里本来就有，读的时候覆盖上去，
+ * 历史记录也一并对了，不用回填。没有像素（未归档、旧媒体）时保留上游报的值。
+ */
+export function withMeasuredSize<T extends { size?: string }>(
+  actual: T,
+  image: { width: number | null; height: number | null } | null | undefined,
+): T {
+  if (!image?.width || !image.height) return actual
+  return { ...actual, size: `${image.width}x${image.height}` }
+}
 export async function listGenerations(
   userId: string,
   limit: number,
@@ -92,6 +107,7 @@ export async function listGenerations(
     const [cover] = pick('output')
     return {
       ...row,
+      actualParameters: withMeasuredSize(row.actualParameters, cover),
       cover: cover ? { ...cover, artifactId: projectArtifactId(row.id, cover.index) } : null,
       inputs: pick('input'),
       mask: pick('mask')[0] ?? null,
@@ -139,10 +155,12 @@ export async function readGeneration(
         ...image,
         ...(role === 'output' ? { artifactId: projectArtifactId(id, image.index) } : {}),
       }))
+  const outputs = byRole('output')
   return {
     ...record,
-    outputs: byRole('output'),
-    cover: byRole('output')[0] ?? null,
+    actualParameters: withMeasuredSize(record.actualParameters, outputs[0]),
+    outputs,
+    cover: outputs[0] ?? null,
     inputs: byRole('input'),
     mask: byRole('mask')[0] ?? null,
   }

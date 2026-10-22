@@ -32,6 +32,7 @@ import {
   nextAgentInboxEntry,
   type QueuedResume,
   type QueuedWake,
+  skipAgentGateResume,
   skipAgentWake,
 } from './inbox'
 import { type RunningTurn, runningTurn } from './runningTurns'
@@ -405,19 +406,71 @@ async function executeResumeTurn(
   assertOwnership: () => Promise<void>,
 ): Promise<StartConversationTurnResult> {
   const [{ prepareAgentTurn }, { startAgentTurn }] = await turnModules()
+  const execution = turnExecution(conversationId, turnId, assertOwnership)
   const prepared = await prepareAgentTurn({
     conversationId,
     owner,
     turnId,
-    execution: turnExecution(conversationId, turnId, assertOwnership),
+    execution,
     source: { kind: 'resume', resume },
   })
+  // 确认门续跑要接的卡一张都不在了（消息被删）：取走它不起轮，没有可接的。
+  if (prepared.kind === 'no_results' && resume.gate) {
+    await execution.write((tx) => consumeAgentMessage(tx, conversationId, resume.id, turnId))
+    return { kind: 'withdrawn' }
+  }
+  // 用户确认时积分还够提交，到续跑时已经不够再起一轮：不当成一条发送失败悄悄记掉，而是像唤醒被
+  // 跳过那样了结——撤回这条续跑，那一轮已提交的卡记下原因，面板据此说明智能体没有接着做。
+  if (prepared.kind === 'insufficient_credits' && resume.gate)
+    return skipGateResume(execution, conversationId, resume, turnId)
   return startPreparedTurn(prepared, startAgentTurn)
 }
 
 /**
- * 起轮准备的结果换成取件方认得的那一种。`no_results` 与 `wake_limit` 只有唤醒来源会出现，
- * 所以这里不该看见它们。
+ * 不起轮就了结一条确认门续跑：收件箱里记成已撤回，被拦下的那一轮里已提交的生成卡记下没接着做的
+ * 原因。两步同在租约下的一个事务里；它若已被别处取走，就什么都不记。
+ */
+async function skipGateResume(
+  execution: TurnExecution,
+  conversationId: string,
+  resume: QueuedResume,
+  turnId: string,
+): Promise<StartConversationTurnResult> {
+  await execution.write(async (tx) => {
+    if (!(await skipAgentGateResume(tx, conversationId, resume.id))) return
+    const jobs = await tx
+      .select({ taskId: schema.agent_jobs.task_id })
+      .from(schema.agent_jobs)
+      .where(
+        and(
+          eq(schema.agent_jobs.conversation_id, conversationId),
+          eq(schema.agent_jobs.turn_id, resume.interruptedTurnId),
+        ),
+      )
+    await markAgentJobsWakeSkipped(
+      tx,
+      conversationId,
+      jobs.map((job) => job.taskId),
+      'insufficient_credits',
+    )
+  })
+  log.info(
+    {
+      event: 'agent.gate_resume_skipped',
+      conversationId,
+      resumeId: resume.id,
+      gatedTurnId: resume.interruptedTurnId,
+      turnId,
+      reason: 'insufficient_credits',
+    },
+    'tool gate resume skipped',
+  )
+  return { kind: 'withdrawn' }
+}
+
+/**
+ * 起轮准备的结果换成取件方认得的那一种。`no_results` 与 `wake_limit` 只有唤醒来源（以及确认门
+ * 续跑的 `no_results`，由 `executeResumeTurn` 先了结）会出现，所以这里不该看见它们。
  */
 async function startPreparedTurn(
   prepared: TurnPreparation,
