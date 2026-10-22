@@ -362,8 +362,16 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
             }, { x: previewBox.x + previewBox.width / 2, y: previewBox.y + previewBox.height / 2 })
             if (previewHit !== '全屏查看') throw new Error(`Composer hit target missed: ${previewHit}`)
             await previewButton.click()
-            await page.locator('[data-lightbox-root]').waitFor({ state: 'visible', timeout: timeoutMs })
-            await page.keyboard.press('Escape')
+            const lightbox = page.locator('[data-lightbox-root]')
+            await lightbox.waitFor({ state: 'visible', timeout: timeoutMs })
+            // 用预览自己的关闭按钮，不按 ESC：ESC 走全局栈，预览在 DOM 里出现之后、它的 effect
+            // 入栈之前按下去会落空，预览一直盖着画布，后面的点击全被挡住（偶发超时）。点击处理器随
+            // DOM 一起挂上，没有这个空窗。
+            await page
+              .getByRole('dialog', { name: '图片预览', exact: true })
+              .getByRole('button', { name: '关闭', exact: true })
+              .click()
+            await lightbox.waitFor({ state: 'hidden', timeout: timeoutMs })
             await page.setViewportSize({ width: 390, height: 844 })
             await navigation.getByRole('button', { name: '适应画布', exact: true }).click()
             await page.waitForFunction(
