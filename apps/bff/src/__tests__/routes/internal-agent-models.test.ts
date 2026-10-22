@@ -677,8 +677,11 @@ it('stores an overload fallback for every depth and switches the request once', 
     expect(runtime.effort).toBe(primary.reasoning)
     expect(runtime.fallback?.model.id).toBe('grok-4.7')
     expect(runtime.fallback?.effort).toBe('low')
-    expect(runtime.fallback?.model.compat?.maxTokensField).toBe('max_tokens')
-    expect(runtime.fallback?.model.compat?.supportsReasoningEffort).toBe(true)
+    const compat = runtime.fallback?.model.compat
+    if (!compat || !('maxTokensField' in compat) || !('supportsReasoningEffort' in compat))
+      throw new Error('grok fallback compat was not applied')
+    expect(compat.maxTokensField).toBe('max_tokens')
+    expect(compat.supportsReasoningEffort).toBe(true)
     const calls: { url: string; body: Record<string, unknown>; authorization: string | null }[] = []
     const next: string[] = []
     setAgentFetchForTesting(async (input, init) => {
