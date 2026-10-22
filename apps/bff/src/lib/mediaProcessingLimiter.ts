@@ -11,6 +11,8 @@ export interface MediaProcessingLimiterOptions {
   bypassLimitMs: number
   /** 排满或排队超时时抛的错误（由调用方给出，保持对外错误码不变）。 */
   busy: (reason: 'processing_queue_full' | 'processing_queue_timeout') => Error
+  /** 预算读取抛错或返回坏值时调用（每次由好变坏报一次），供调用方告警。 */
+  onInvalidBudget?: (error: unknown) => void
   now?: () => number
 }
 
@@ -59,17 +61,33 @@ export function createMediaProcessingLimiter(options: MediaProcessingLimiterOpti
   let active = 0
   let activeBytes = 0
   const queue: Waiter[] = []
+  // 最近一次读到的合法预算。配置读取临时出错时沿用它，不把吞吐静默降成串行、让排队的一起超时；
+  // 从没读到过合法值时才退到 0（一次只放一张），保证不突破内存上界。
+  let lastGoodBudget: number | undefined
+  let budgetBroken = false
   const budget = () => {
     let value: unknown
+    let error: unknown
     try {
       value = options.byteBudget()
-    } catch {
-      value = 0
+    } catch (caught) {
+      error = caught
     }
-    // 预算配置坏了（不是数字、NaN、负数、读取抛错）时只放一张，不让队列一直超时也不突破内存上界。
     // 上限按最大安全整数算（Infinity 也一样），在途合计因此始终是精确的整数。
-    if (typeof value !== 'number' || Number.isNaN(value) || value < 0) return 0
-    return Math.min(Math.floor(value), Number.MAX_SAFE_INTEGER)
+    if (error === undefined && typeof value === 'number' && !Number.isNaN(value) && value >= 0) {
+      budgetBroken = false
+      lastGoodBudget = Math.min(Math.floor(value), Number.MAX_SAFE_INTEGER)
+      return lastGoodBudget
+    }
+    if (!budgetBroken) {
+      budgetBroken = true
+      try {
+        options.onInvalidBudget?.(
+          error ?? new RangeError(`invalid media processing budget: ${String(value)}`),
+        )
+      } catch {}
+    }
+    return lastGoodBudget ?? 0
   }
   // 用减法比较：activeBytes 不超过预算（或只有一张在途），两数都是安全整数，差值精确，不会因相加舍入误放。
   const admits = (bytes: number) =>

@@ -161,6 +161,38 @@ describe('media processing limiter input checks', () => {
     expect(broken.active).toBe(0)
   })
 
+  it('预算读取临时出错时沿用上次的合法值并告警一次，不降成串行', async () => {
+    let broken = false
+    const warnings: unknown[] = []
+    const subject = createMediaProcessingLimiter({
+      slots: 4,
+      byteBudget: () => {
+        if (broken) throw new Error('config unavailable')
+        return 100
+      },
+      queueLimit: 8,
+      queueTimeoutMs: 10_000,
+      bypassLimitMs: 5_000,
+      busy: (reason) => new Error(reason),
+      onInvalidBudget: (error) => warnings.push(error),
+    })
+    const running = gate()
+    // 第一张不读预算就进；第二张读到 100，记为最近的合法值。
+    const jobs = [1, 2].map(() => subject.run(10, () => running.opened))
+    await tick()
+    expect(subject.active).toBe(2)
+    broken = true
+    jobs.push(
+      subject.run(10, () => running.opened),
+      subject.run(10, () => running.opened),
+    )
+    await tick()
+    expect(subject.active).toBe(4)
+    expect(warnings).toHaveLength(1)
+    running.open()
+    await Promise.all(jobs)
+  })
+
   it('拒收 setTimeout 表示不了的时限；超大预算截到安全整数，在途合计保持精确', async () => {
     const options = {
       slots: 4,
