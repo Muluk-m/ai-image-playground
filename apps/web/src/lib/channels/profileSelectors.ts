@@ -1,3 +1,4 @@
+import type { ModelBadge } from '@image-playground/shared'
 import { i18next } from '../../i18n'
 import type { ChannelCapability, ClientProfile, PublicChannel } from './types'
 
@@ -66,10 +67,15 @@ export function getProfileModels(
 export function getProfileModelOptions(
   profile: ClientProfile,
   publicChannels: PublicChannel[],
-): Array<{ id: string; label: string }> {
+): Array<{ id: string; label: string; badges?: ModelBadge[]; etaSeconds?: number }> {
   const channel = publicChannels.find((item) => item.id === profile.channelId)
   return channel
-    ? channel.models.map((model) => ({ id: model.id, label: model.label ?? model.id }))
+    ? channel.models.map((model) => ({
+        id: model.id,
+        label: model.label ?? model.id,
+        ...(model.badges?.length ? { badges: model.badges } : {}),
+        ...(model.etaSeconds ? { etaSeconds: model.etaSeconds } : {}),
+      }))
     : []
 }
 
