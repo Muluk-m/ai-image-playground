@@ -22,7 +22,11 @@ RUN node fetch-model.mjs /models
 
 FROM node:24-bookworm-slim
 ARG APP_VERSION=unknown
+# deploy/segmenter/VERSION; the VPS replaces the running segmenter only when this differs.
+ARG SEGMENTER_VERSION=0
+LABEL online.muvloom.segmenter.version=$SEGMENTER_VERSION
 ENV APP_VERSION=$APP_VERSION \
+  SEGMENTER_VERSION=$SEGMENTER_VERSION \
   NODE_ENV=production \
   PORT=8080 \
   SEGMENTER_MODEL_DIR=/models \
