@@ -1973,6 +1973,143 @@ describe('submitTask 槽位批量展开', () => {
   })
 })
 
+describe('快速生成的逐张生成', () => {
+  const channel: PublicChannel = {
+    id: 'batch-openai',
+    kind: 'openai-queue',
+    label: 'OpenAI',
+    models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit', 'n'] }],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+  const images = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      id: `ref-${index + 1}`,
+      dataUrl: `data:image/png;base64,ref${index + 1}`,
+    }))
+
+  async function setupBatchState(count: number, batchGenerate: boolean) {
+    const db = await import('../lib/db')
+    for (const image of images(count))
+      await db.putImage({ ...image, source: 'upload', createdAt: Date.now() })
+    setChannels([channel])
+    const profile: BuiltinEdgeProfile = {
+      id: channel.id,
+      source: 'builtin-edge',
+      channelId: channel.id,
+      selectedModelId: channel.models[0].id,
+    }
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [profile],
+        activeProfileId: profile.id,
+        clearInputAfterSubmit: false,
+      }),
+      prompt: '换成纯白背景',
+      slotValues: {},
+      inputImages: images(count),
+      maskDraft: null,
+      params: { ...DEFAULT_PARAMS, n: 4 },
+      batchGenerate,
+      tasks: [],
+      detailTaskId: null,
+      showSettings: false,
+      toast: null,
+      confirmDialog: null,
+      showToast: vi.fn(),
+      setConfirmDialog: vi.fn(),
+    })
+  }
+
+  beforeEach(async () => {
+    await bootstrapClientCapabilities(false, '')
+    setSignedIn(false)
+    vi.mocked(callImageApi).mockClear()
+    vi.mocked(callImageApi).mockResolvedValue({
+      images: ['data:image/png;base64,generated'],
+      actualParamsList: [{ size: '1x1' }],
+    })
+  })
+
+  afterEach(() => {
+    setChannels([])
+    useStore.setState({ batchGenerate: false })
+  })
+
+  it('每张参考图各发一条 n=1 的任务，只带自己那张图，同属一组', async () => {
+    await setupBatchState(3, true)
+
+    await submitTask()
+    await waitUntil(
+      () => vi.mocked(callImageApi).mock.calls.length === 3,
+      'per-image requests were not sent',
+    )
+
+    const tasks = useStore.getState().tasks
+    expect(tasks).toHaveLength(3)
+    expect(tasks.map((t) => t.inputImageIds)).toEqual([['ref-1'], ['ref-2'], ['ref-3']])
+    expect(tasks.every((t) => t.params.n === 1)).toBe(true)
+    expect(new Set(tasks.map((t) => t.origin?.setId)).size).toBe(1)
+    expect(tasks.map((t) => t.origin)).toEqual([
+      expect.objectContaining({ kind: 'batch', shotId: '1' }),
+      expect.objectContaining({ kind: 'batch', shotId: '2' }),
+      expect.objectContaining({ kind: 'batch', shotId: '3' }),
+    ])
+    const calls = vi.mocked(callImageApi).mock.calls
+    expect(calls.map((c) => c[0].inputImageDataUrls)).toEqual([
+      ['data:image/png;base64,ref1'],
+      ['data:image/png;base64,ref2'],
+      ['data:image/png;base64,ref3'],
+    ])
+    expect(calls.every((c) => c[0].params.n === 1)).toBe(true)
+  })
+
+  it('没选逐张时多张图仍合并成一次参考', async () => {
+    await setupBatchState(3, false)
+
+    await submitTask()
+
+    const tasks = useStore.getState().tasks
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0].inputImageIds).toEqual(['ref-1', 'ref-2', 'ref-3'])
+    expect(tasks[0].origin).toBeUndefined()
+  })
+
+  it('超过模型一次能带的张数时只能逐张', async () => {
+    await setupBatchState(20, false)
+
+    await submitTask()
+
+    expect(useStore.getState().tasks).toHaveLength(20)
+  })
+
+  it('失败的那张重试后留在原来那一组里，不弹详情', async () => {
+    await setupBatchState(2, true)
+    vi.mocked(callImageApi)
+      .mockRejectedValueOnce(new Error('上游拒绝了这张图'))
+      .mockResolvedValue({
+        images: ['data:image/png;base64,generated'],
+        actualParamsList: [{ size: '1x1' }],
+      })
+
+    await submitTask()
+    await waitUntil(
+      () => useStore.getState().tasks.every((t) => t.status !== 'running'),
+      'batch did not settle',
+    )
+    const failed = useStore.getState().tasks.find((t) => t.status === 'error')
+    if (!failed) throw new Error('expected one failed item')
+    expect(useStore.getState().detailTaskId).toBeNull()
+
+    const before = new Set(useStore.getState().tasks.map((t) => t.id))
+    await retryTask(failed)
+
+    const retried = useStore.getState().tasks.find((t) => !before.has(t.id))
+    expect(retried?.origin).toEqual(failed.origin)
+    expect(retried?.inputImageIds).toEqual(failed.inputImageIds)
+  })
+})
+
 describe('素材引用与模板套用后提交', () => {
   const PANDA = 'data:image/png;base64,panda'
   const HALL = 'data:image/png;base64,hall'
