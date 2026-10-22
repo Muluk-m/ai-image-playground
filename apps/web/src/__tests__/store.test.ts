@@ -2393,6 +2393,30 @@ describe('submitPrepared 显式参数提交接缝', () => {
     setupPreparedState()
   })
 
+  it('转圈期间改了输入框，到点后不清空新输入', async () => {
+    useStore.setState({
+      settings: { ...useStore.getState().settings, clearInputAfterSubmit: true },
+      prompt: '一只猫',
+      inputImages: [{ id: imageA.id, dataUrl: PREPARED_IMAGE }],
+    })
+    let release: () => void = () => {}
+    const hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const pending = submitTask({ holdClear: hold })
+    await vi.waitFor(() => expect(useStore.getState().tasks).toHaveLength(1))
+    useStore.setState({ prompt: '一只狗' })
+    release()
+    await pending
+    expect(useStore.getState().prompt).toBe('一只狗')
+    expect(useStore.getState().inputImages).toHaveLength(1)
+
+    useStore.setState({ tasks: [], prompt: '一只猫' })
+    await submitTask({ holdClear: Promise.resolve() })
+    expect(useStore.getState().prompt).toBe('')
+    expect(useStore.getState().inputImages).toHaveLength(0)
+  })
+
   it('只有用户主动发送才记下作品卡注意力', async () => {
     dismissSubmittedTasks([...submittedTaskSnapshot()])
     useStore.setState({ prompt: '  ' })
