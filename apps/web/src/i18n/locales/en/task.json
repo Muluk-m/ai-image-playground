@@ -30,6 +30,7 @@
   },
   "card": {
     "generating": "Generating...",
+    "batchQueued": "Queued",
     "phase": {
       "queued": "Queued...",
       "generating": "Generating...",
@@ -67,7 +68,8 @@
     "createdAt": "Created {{time}}",
     "elapsed": "Took {{duration}}",
     "copyAll": "Copy all",
-    "dialog": "Work details"
+    "dialog": "Work details",
+    "networkFailed": "The connection dropped and this one didn't finish. Please retry."
   },
   "rawUrls": {
     "title": "Raw image links ({{n}})",
@@ -103,7 +105,12 @@
     "doneCount": "Done {{done}}/{{total}}",
     "failedCount": "{{failed}} failed",
     "expandToView": "Expand",
-    "resultAlt": "{{name}} result"
+    "resultAlt": "{{name}} result",
+    "batchTag": "Per image",
+    "runningCount": "{{running}} running",
+    "queuedCount": "{{queued}} queued",
+    "failedList": "Failed images",
+    "failedItem": "Image {{index}}"
   },
   "cloudHistory": {
     "refresh": "Refresh",
