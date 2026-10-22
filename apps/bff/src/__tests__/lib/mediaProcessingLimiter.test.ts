@@ -190,7 +190,7 @@ describe('media processing limiter input checks', () => {
     running.open()
     await Promise.all([first, second])
     expect(huge.activeBytes).toBe(0)
-    // 不设上限（Infinity）不是坏配置：照常并行。
+    // Infinity 不是坏配置：按最大安全整数封顶，照常并行。
     const unlimited = createMediaProcessingLimiter({ ...options, byteBudget: () => Infinity })
     const held = gate()
     const jobs = [1, 2, 3].map(() => unlimited.run(1_000, () => held.opened))
@@ -198,5 +198,41 @@ describe('media processing limiter input checks', () => {
     expect(unlimited.active).toBe(3)
     held.open()
     await Promise.all(jobs)
+  })
+
+  it('回调抛错或返回坏值时，排队的请求照样有结果，队列继续往下走', async () => {
+    let clock = 0
+    let budgetCalls = 0
+    const subject = createMediaProcessingLimiter({
+      slots: 4,
+      byteBudget: () => {
+        budgetCalls++
+        if (budgetCalls % 2) throw new Error('config unavailable')
+        return undefined as unknown as number
+      },
+      queueLimit: 8,
+      queueTimeoutMs: 20,
+      bypassLimitMs: 5_000,
+      busy: () => {
+        throw new Error('busy factory failed')
+      },
+      now: () => {
+        clock++
+        if (clock % 3 === 0) throw new Error('clock unavailable')
+        return Number.NaN
+      },
+    })
+    const running = gate()
+    // 预算读不出来按 0：一次只放一张；第二张排队、超时时 busy 抛错也要以那个错误结束。
+    const first = subject.run(10, () => running.opened)
+    const second = subject.run(10, async () => 'second')
+    await expect(second).rejects.toThrow('busy factory failed')
+    expect(subject.queued).toBe(0)
+    const third = subject.run(10, async () => 'third')
+    running.open()
+    await first
+    expect(await third).toBe('third')
+    expect(subject.active).toBe(0)
+    expect(subject.activeBytes).toBe(0)
   })
 })
