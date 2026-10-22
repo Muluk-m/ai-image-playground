@@ -160,4 +160,48 @@ describe('getParamCapabilities', () => {
     }
     expect(getParamCapabilities(profile, 'png').size).toBe(true)
   })
+
+  describe('declared Gemini image sizes', () => {
+    function vertexModel(imageSizes?: unknown): ClientProfile {
+      const profile = useChannel('gemini-queue', 'gemini-3.1-flash-lite-image')
+      if (imageSizes !== undefined)
+        (mockChannels.list[0]!.models[0] as { imageSizes?: unknown }).imageSizes = imageSizes
+      return profile
+    }
+
+    it('offers only the tiers the channel declares for the model, in shared order', () => {
+      expect(getParamCapabilities(vertexModel(['2K', '1K']), 'png').geminiImageSizes).toEqual([
+        '1K',
+        '2K',
+      ])
+      expect(getParamCapabilities(vertexModel(['1K']), 'png').geminiImageSizes).toEqual(['1K'])
+    })
+
+    it.each([
+      [undefined],
+      ['1K'],
+      [['4K']],
+    ])('falls back to every shared tier for a declaration of %p', (declared) => {
+      expect(getParamCapabilities(vertexModel(declared), 'png').geminiImageSizes).toEqual([
+        '512',
+        '1K',
+        '2K',
+      ])
+    })
+
+    it.each([
+      ['2K', '1K'],
+      ['512', '1K'],
+      ['1K', '1K'],
+    ] as const)('moves a stored %s onto the nearest tier the model renders (%s)', (stored, next) => {
+      const settings = settingsFor(vertexModel(['1K']))
+      const params = { ...DEFAULT_PARAMS, gemini_image_size: stored }
+      expect(normalizeParamsForSettings(params, settings).gemini_image_size).toBe(next)
+    })
+
+    it('leaves auto alone', () => {
+      const settings = settingsFor(vertexModel(['1K']))
+      expect(normalizeParamsForSettings(DEFAULT_PARAMS, settings).gemini_image_size).toBeUndefined()
+    })
+  })
 })
