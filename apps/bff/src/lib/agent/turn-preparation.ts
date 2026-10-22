@@ -17,6 +17,7 @@ import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { askChatModel } from '../chatCompletion'
 import { log } from '../logger'
+import { refreshInactiveModels } from '../model-availability'
 import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { isObject } from '../type-guards'
@@ -213,6 +214,8 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
   // 读历史会把窗口里结束了的后台任务结算成终局：唤醒与并进来的唤醒看到的就是它们的结果。
   // 窗口之外更老的那些不在这一趟里，由会话快照（`routes/agent.ts`）与维护任务结算。
   const history = listAgentHistoryWindow(conversationId, owner)
+  // 运营停用的模型按页面同一份口径排除：建节点、报价、可用模型清单都读这份快照。
+  await refreshInactiveModels()
   // 可能抛的那两件事先落定，再让来源去备内容：用户消息那一路会把参考图写进对象存储，跟它们
   // 并排跑的话，它们抛出时那些字节还没有任何东西指着，也没有谁去清。
   const [overlay, loadedAudience, resolved, surface] = await Promise.all([

@@ -29,6 +29,7 @@ import {
   safeLocalStorage,
   scopedStorageName,
 } from '../../lib/authScope'
+import { refreshChannels } from '../../lib/channels/bootstrapChannels'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
 import { reportClientError } from '../../lib/errorReporting'
 import { notifyPrivateSubmissionSettled } from '../../lib/privateOverlay'
@@ -1973,6 +1974,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       onUnsent,
       localPersistence,
     ) {
+      // 这一轮可能在画布上发起运行：原标签页报价前把模型清单刷新一下（有节流，失败保留原清单）。
+      void refreshChannels()
       const sameAccount = accountScope()
       const turnParams = replay?.params ?? {
         ...currentTurnParams(mode),

@@ -62,9 +62,12 @@ async function start(): Promise<void> {
   configureErrorReporting(runtime.bff.enabled ? runtime.bff.baseUrl : null)
   // 首帧的明暗已由 index.html 里的内联脚本定好；这里接手后续变化。
   initTheme()
-  const [auth, { preloadChannels }, { bootstrapClientCapabilities }] = await gateModules
+  const [auth, { preloadChannels, refreshChannelsWhenVisible }, { bootstrapClientCapabilities }] =
+    await gateModules
   // 频道清单只决定模型下拉里有什么，首帧不等它；能力决定登录页还是工作台，必须等。
   preloadChannels(runtime.bff.enabled, runtime.bff.baseUrl)
+  // 页面开着时运营可能停用或恢复模型：回到前台时再问一次，别一直按打开那一刻的清单走。
+  refreshChannelsWhenVisible()
   const root = createRoot(document.getElementById('root')!, {
     // 没有错误边界接住的渲染异常会卸掉整棵树；带上组件栈报上去，再保留 React 默认的控制台输出。
     onUncaughtError: (error, info) => {
