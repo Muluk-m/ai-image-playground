@@ -250,20 +250,36 @@ const CONFIRM_LOCK_WAIT_MS = 60_000
 const MAX_CONFIRMATIONS = 10
 
 export async function completeMedia(userId: string, id: string) {
+  return confirmMedia(userId, id)
+}
+
+/**
+ * `serverBytes` 只给服务端自己手里的原件（生成结果、已落 durable 的输入）用：这份字节就是预留时
+ * 算 sha256 的那份，不必先写进客户端可写的暂存区再读回来——那是两次对象存储往返。
+ * 照旧校验大小与哈希、解码出预览、写到新的服务端 key、发布前核对预留没变。
+ */
+async function confirmMedia(
+  userId: string,
+  id: string,
+  serverBytes?: Uint8Array,
+): Promise<ReturnType<typeof mediaSummary>> {
   // Authorize before joining another request's result, including ready replays.
   const existing = await ownedMedia(userId, id)
   if (existing.status === 'ready') return mediaSummary(existing)
   const key = JSON.stringify([userId, id])
   const pending = confirmations.get(key)
-  if (pending) return pending
+  // 服务端手里有原件时，别人那次确认（客户端恰好传了同一张、却没传完）失败了也不跟着失败：
+  // 那次的记录已从表里摘掉，用自己的字节再确认一次。
+  if (pending)
+    return serverBytes ? pending.catch(() => confirmMedia(userId, id, serverBytes)) : pending
   if (confirmations.size >= MAX_CONFIRMATIONS)
     throw new MediaError(503, 'media_processing_busy', 'confirmation_capacity_full')
-  const operation = processMedia(userId, id).finally(() => confirmations.delete(key))
+  const operation = processMedia(userId, id, serverBytes).finally(() => confirmations.delete(key))
   confirmations.set(key, operation)
   return operation
 }
 
-async function processMedia(userId: string, id: string) {
+async function processMedia(userId: string, id: string, serverBytes?: Uint8Array) {
   const started = performance.now()
   let phase = 'lock_wait'
   let phaseStarted = started
@@ -287,7 +303,7 @@ async function processMedia(userId: string, id: string) {
             mark('lock_wait')
             return withMediaObjectLock(id, async (database) => {
               mark('read_metadata')
-              return publishMedia(userId, id, database, mark)
+              return publishMedia(userId, id, database, mark, serverBytes)
             })
           }).catch(async (error: unknown) => {
             // A different instance may publish while this request waits for local capacity.
@@ -336,11 +352,42 @@ async function processMedia(userId: string, id: string) {
   }
 }
 
+/** 客户端直传的暂存原件：先看大小，再按登记的字节数整张读进来，多一个字节都算不符。 */
+async function readStagedOriginal(
+  store: ReturnType<typeof durableMediaStore>,
+  row: Media,
+  mark: (phase: string) => void,
+) {
+  mark('storage_open')
+  const source = await store.open(row.staging_key)
+  if (source.size !== row.bytes) throw new MediaError(422, 'media_size_mismatch')
+  mark('storage_read')
+  const reader = source.stream(0, row.bytes - 1).getReader()
+  const bytes = new Uint8Array(row.bytes)
+  let offset = 0
+  try {
+    while (true) {
+      const part = await reader.read()
+      if (part.done) break
+      if (offset + part.value.length > bytes.length)
+        throw new MediaError(422, 'media_size_mismatch')
+      bytes.set(part.value, offset)
+      offset += part.value.length
+    }
+  } finally {
+    await reader.cancel()
+    reader.releaseLock()
+  }
+  // 读短了的那段是零，交给调用方的哈希核对拒掉（与从前同一个错误码）。
+  return bytes
+}
+
 async function publishMedia(
   userId: string,
   id: string,
   database: BunSQLDatabase<typeof schema>,
   mark: (phase: string) => void,
+  serverBytes?: Uint8Array,
 ) {
   const row = await ownedMedia(userId, id, database)
   if (row.status === 'ready') return mediaSummary(row)
@@ -352,28 +399,12 @@ async function publishMedia(
   let published = false
   try {
     const store = durableMediaStore()
-    mark('storage_open')
-    const source = await store.open(row.staging_key)
-    if (source.size !== row.bytes) throw new MediaError(422, 'media_size_mismatch')
-    mark('storage_read')
-    const reader = source.stream(0, row.bytes - 1).getReader()
-    const bytes = new Uint8Array(row.bytes)
-    let offset = 0
-    try {
-      while (true) {
-        const part = await reader.read()
-        if (part.done) break
-        if (offset + part.value.length > bytes.length)
-          throw new MediaError(422, 'media_size_mismatch')
-        bytes.set(part.value, offset)
-        offset += part.value.length
-      }
-    } finally {
-      await reader.cancel()
-      reader.releaseLock()
-    }
+    const bytes = serverBytes ?? (await readStagedOriginal(store, row, mark))
     mark('hash')
-    if (offset !== row.bytes || createHash('sha256').update(bytes).digest('hex') !== row.sha256)
+    if (
+      bytes.length !== row.bytes ||
+      createHash('sha256').update(bytes).digest('hex') !== row.sha256
+    )
       throw new MediaError(422, 'media_hash_mismatch')
     let metadata: Metadata
     let preview: Buffer
@@ -512,9 +543,7 @@ export async function storeMedia(userId: string, bytes: Uint8Array, contentType:
     contentType,
   })
   if (reserved.status === 'ready') return reserved
-  const row = await ownedMedia(userId, reserved.id)
-  await durableMediaStore().write(row.staging_key, bytes, contentType)
-  return completeMedia(userId, row.id)
+  return confirmMedia(userId, reserved.id, bytes)
 }
 
 /** Only explicitly managed attachments are eligible; legacy media have incomplete references. */

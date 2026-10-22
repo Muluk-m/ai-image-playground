@@ -794,8 +794,9 @@ describe('shipped channels.json', () => {
         label: 'Nano Banana 2.1',
         capabilities: ['generate', 'edit', 'size'],
         badges: ['latest'],
-        // 线上实测（10 月 22 日）：2.1 单张约 30 秒、Pro 约 25 秒、Lite 约 13 秒。
-        etaSeconds: 30,
+        // 用户实际等的是「提交 → 卡片出图」：上游实测（10 月 22 日）2.1 约 30 秒、Pro 约 25 秒，
+        // 再加结果确认、轮询与取图约 5 秒（10 月 23 日线上拆解）。
+        etaSeconds: 35,
         logo: 'nano-banana',
         imageSizes: ['1K', '2K'],
       },
@@ -804,7 +805,7 @@ describe('shipped channels.json', () => {
         label: 'Nano Banana Pro',
         capabilities: ['generate', 'edit', 'size'],
         badges: ['quality'],
-        etaSeconds: 25,
+        etaSeconds: 30,
         logo: 'nano-banana',
         imageSizes: ['1K', '2K'],
       },
@@ -813,7 +814,9 @@ describe('shipped channels.json', () => {
         label: 'Nano Banana 2 Lite',
         capabilities: ['generate', 'edit', 'size'],
         badges: ['fast', 'value'],
-        etaSeconds: 13,
+        // Lite 文生图端到端约 10–15 秒；带参考图的编辑多一次上传和一张输入入库，约 20–25 秒。
+        etaSeconds: 15,
+        etaMaxSeconds: 25,
         logo: 'nano-banana',
         imageSizes: ['1K'],
       },
