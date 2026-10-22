@@ -22,6 +22,7 @@ import {
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
   DEVICE_ID_HEADER,
+  isAgentSurface,
   parseAgentCanvasSnapshot,
   SYNC_NAME_MAX_LENGTH,
 } from '@image-playground/shared'
@@ -778,6 +779,7 @@ export const agentRoutes = new Elysia()
             ...(body.experience === 'chat' || body.experience === 'canvas'
               ? { experience: body.experience }
               : {}),
+            ...(isAgentSurface(body.surface) ? { surface: body.surface } : {}),
           })
         } catch (error) {
           if (error instanceof MediaError) return status(error.status, { error: error.message })
@@ -813,6 +815,8 @@ export const agentRoutes = new Elysia()
         canvas: t.Optional(t.Any()),
         /** 发话时客户端看到的入口；只在项目还没记下入口时参考，不认识的值当没带。 */
         experience: t.Optional(t.Any()),
+        /** 这一轮的模式：agent（只生图改图）或 canvas（画布节点）。不认识的值当没带，按 agent 算。 */
+        surface: t.Optional(t.Any()),
       }),
     },
   )

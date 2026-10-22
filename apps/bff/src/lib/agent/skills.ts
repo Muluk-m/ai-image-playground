@@ -420,11 +420,20 @@ export function agentSkillFileUrl(name: string, file: string): string {
  *
  * 项目不限制媒体类型；一轮可先出图再生视频，模板也共享同一份按需加载清单。
  */
+/** 只在节点画布里用得上的技能：正文就是画布工具的用法，Agent 模式这一轮不列出。 */
+const CANVAS_ONLY_SKILLS = new Set(['script-briefs'])
+
 export function visibleAgentSkills(
   mode: AgentMode,
   audience: AgentTurnAudience,
 ): readonly AgentSkill[] {
-  return [...agentSkills(mode), ...audience.looks]
+  const skills = agentSkills(mode)
+  return [
+    ...(audience.experience === 'chat'
+      ? skills.filter((skill) => !CANVAS_ONLY_SKILLS.has(skill.name))
+      : skills),
+    ...audience.looks,
+  ]
 }
 
 /**

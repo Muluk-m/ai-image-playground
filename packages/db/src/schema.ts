@@ -587,6 +587,8 @@ export interface AgentInboxUserMessagePayload {
   readonly canvas?: AgentCanvasSnapshot
   /** 发话时客户端看到的入口。项目文档记下入口之前，起轮按它判定，缺席才看有没有带画布。 */
   readonly experience?: 'chat' | 'canvas'
+  /** 发话时的模式（Agent 或画布），决定这一轮的工具；缺席按 Agent 模式。 */
+  readonly surface?: 'agent' | 'canvas'
 }
 
 /**

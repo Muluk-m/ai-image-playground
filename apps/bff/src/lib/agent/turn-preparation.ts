@@ -39,7 +39,7 @@ import {
   setAgentConversationTitle,
 } from './conversations'
 import type { TurnExecution } from './execution'
-import { loadAgentExperience, recordAgentExperience } from './experience'
+import { loadAgentExperience, loadAgentSurface, recordAgentExperience } from './experience'
 import { archiveAgentReferences, removeAgentTurnReferences } from './images'
 import {
   consecutiveAgentWakes,
@@ -215,13 +215,17 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
   const history = listAgentHistoryWindow(conversationId, owner)
   // 可能抛的那两件事先落定，再让来源去备内容：用户消息那一路会把参考图写进对象存储，跟它们
   // 并排跑的话，它们抛出时那些字节还没有任何东西指着，也没有谁去清。
-  const [overlay, loadedAudience, resolved] = await Promise.all([
+  const [overlay, loadedAudience, resolved, surface] = await Promise.all([
     loadPrivateBffOverlay(),
     // 技能与这个用户自建的模板一起取：两者都要进系统提示词，预扣也按它们算。
     ensureAgentSkills().then(() => loadAgentTurnAudience(userId)),
     loadAgentExperience(conversationId, userId, source),
+    loadAgentSurface(conversationId, source),
   ])
+  // 项目入口只用来记项目归在哪个分组；这一轮的工具与提示按本轮模式：Agent 模式一律按对话那套，
+  // 只有画布模式才是节点画布。
   const { experience } = resolved
+  const turnExperience = surface === 'canvas' ? ('canvas' as const) : ('chat' as const)
   let content =
     source.kind === 'wake'
       ? await wakeContent(conversationId, owner, turnId, history, source.wake)
@@ -236,10 +240,12 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     }
   }
   // chat 不把旧客户端残留的画布上下文带给模型或图片解析器。
+  // 对话入口的项目不把旧客户端残留的画布快照带给图片解析器。画布入口的项目在 Agent 模式里仍留着它，
+  // 只给图片解析器认「从画布选择」的参考图；工具与提示一律看不到它（见 `turn.ts` 的工具上下文）。
   const turnContent = experience === 'chat' ? { ...content, canvas: undefined } : content
   const audience: AgentTurnAudience = {
     ...loadedAudience,
-    experience,
+    experience: turnExperience,
   }
 
   // 内容备齐时参考图已经落进对象存储，而估算、定价与取件事务每一步都可能抛：这一段统一收尾，
