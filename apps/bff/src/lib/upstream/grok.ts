@@ -6,7 +6,7 @@ import { clientError, decodeDataUrl } from './shared'
 
 const GROK_IMAGINE_2_MODEL_ID = 'grok-imagine-image-2.0'
 
-const GROK_IMAGINE_2_MAX_INPUTS = 5
+export const GROK_IMAGINE_2_MAX_INPUTS = 5
 
 export function isGrokImagine2(model: string): boolean {
   return model === GROK_IMAGINE_2_MODEL_ID

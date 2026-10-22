@@ -1,3 +1,8 @@
+import type {
+  PublishedImageCapabilities,
+  PublishedModelCapabilities,
+} from './model-catalog/publish'
+
 /**
  * BFF channel 发现协议（BFF → web）。
  *
@@ -66,6 +71,16 @@ export interface ChannelModel {
   label: string
   capabilities: ChannelCapability[]
   media?: ChannelMedia
+  /**
+   * 模型家族，来自能力目录（ADR 0027）。只有目录里登记过的图片模型才有；用来取代按 id 前缀猜厂商。
+   * 只增不删：旧前端忽略它。
+   */
+  family?: PublishedModelCapabilities['family']
+  /**
+   * 图片能力：档位与实测像素、各界面的比例、张数、参考图、质量、预估耗时。来自能力目录，
+   * 目录里没有的模型不带这个字段，前端按「能力未知」处理。`capabilities` 仍是现行判定依据。
+   */
+  image?: PublishedImageCapabilities
 }
 
 /**
