@@ -11,7 +11,7 @@ import { fillMaskLasso, isUsableMaskLasso } from '../../../lib/mask'
 import { useStore } from '../../../store'
 import { exportMaskCanvasDataUrl, paintMaskStroke } from '../../canvas/lib/inpaintMask'
 import { refineEditRegion } from '../lib/agentClient'
-import { attachmentUploadsEnabled } from '../lib/attachmentUploads'
+import { attachmentUploadsEnabled, mediaFallbackEnabled } from '../lib/attachmentUploads'
 import {
   addClick,
   annotationRegions,
@@ -861,7 +861,12 @@ export default function AgentMaskProposalCard({
         showToast(t('maskProposal.empty'), 'error')
         return
       }
-      const original = attachmentUploadsEnabled() ? undefined : await inlineOriginal(source)
+      // 原件已在云端（提议里的 mediaId）：能上传就只传新画的遮罩、按 id 发，原件不再下回来内联——
+      // 4K 原图内联一次就超过请求体 4,000,000 字符的上限。只有既没有附件通道也没有云同步时才内联。
+      const original =
+        attachmentUploadsEnabled() || mediaFallbackEnabled()
+          ? undefined
+          : await inlineOriginal(source)
       const reference = maskAnswerReference(
         proposal,
         await maskDataUrl(target),

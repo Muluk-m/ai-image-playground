@@ -5,7 +5,7 @@ import {
 import { i18next } from '../../../i18n'
 import { getAttachmentLimits } from '../../../lib/clientCapabilities'
 import { blobDataUrl } from '../../../lib/cloudMedia'
-import { preprocessImageFile } from '../../../lib/imagePreprocessing'
+import { IMAGE_PREPROCESSING, preprocessImageFile } from '../../../lib/imagePreprocessing'
 import { registerLocalAttachmentSource } from '../../../lib/localAttachmentSources'
 import {
   attachReferences as admitReferences,
@@ -13,7 +13,7 @@ import {
 } from '../../../lib/referenceDraft'
 import { useStore } from '../../../store'
 import { assetViewImages, useLibraryStore } from '../../library/store'
-import { attachmentUploadsEnabled } from './attachmentUploads'
+import { attachmentUploadsEnabled, mediaFallbackEnabled } from './attachmentUploads'
 import {
   type AgentDraft,
   type AgentReference,
@@ -46,6 +46,8 @@ export function referenceLimitMessage(
       })
 }
 
+const ORIGINAL_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
+
 function fileStem(name: string): string {
   const stem = name.replace(/\.[^.]+$/, '').trim()
   return (stem || name).slice(0, 60)
@@ -66,9 +68,18 @@ export function filesToReferences(
       name: fileStem(file.name),
     }))
   }
+  // 附件通道关着、但能按普通云媒体上传：原件原样留着（局部改图要按原图像素出图），
+  // 超过单张上限的在输入框里就标出来、拦住发送，不缩小了再悄悄发。
+  const keepOriginal = mediaFallbackEnabled()
   return (async () => {
     const sources: string[] = []
     for (const file of files) {
+      if (keepOriginal && ORIGINAL_TYPES.has(file.type)) {
+        if (file.size > IMAGE_PREPROCESSING.maxInputBytes)
+          throw new Error('attachment_input_too_large')
+        sources.push(await blobDataUrl(file))
+        continue
+      }
       const image = await preprocessImageFile(file)
       sources.push(await blobDataUrl(new Blob([image.data], { type: image.contentType })))
     }

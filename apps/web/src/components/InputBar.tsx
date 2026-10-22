@@ -6,6 +6,11 @@ import AgentParamsChip, {
 import AgentSkillBadge from '../features/agent/components/AgentSkillBadge'
 import { useAssetSlots } from '../features/agent/components/useAssetSlots'
 import { getLeadingAgentSkill } from '../features/agent/lib/agentSkillMentions'
+import { formatImageLimit } from '../features/agent/lib/attachmentUploadErrors'
+import {
+  referenceImageLimit,
+  referenceSourceTooLarge,
+} from '../features/agent/lib/attachmentUploads'
 import { agentComposerFillPrompt, useComposerFillTarget } from '../features/agent/lib/composerFill'
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
 import { useAgentSkills } from '../features/agent/lib/useAgentSkills'
@@ -218,17 +223,40 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const leadingSkill = useMemo(() => getLeadingAgentSkill(prompt, skills), [prompt, skills])
   const skillNeedsCanvas = Boolean(leadingSkill) && !toCanvas
   // 模板准备中按钮变成停止：只有点按钮才取消，回车不取消、也不发新的一条。
+  // 交给智能体的参考图按这一档部署的单张上限在选图时就拦：标在那张图上、发送按钮置灰，
+  // 不让超限的图发出去再失败。上限来自服务端下发的配置。
+  const oversizedImages = useMemo(
+    () =>
+      toCanvas
+        ? inputImages.flatMap((image, index) =>
+            referenceSourceTooLarge(image.dataUrl) ? [{ id: image.id, index }] : [],
+          )
+        : [],
+    [toCanvas, inputImages],
+  )
+  const oversizedIds = new Set(oversizedImages.map((one) => one.id))
+  const oversizedNotice = oversizedImages.length
+    ? t('image.referenceTooLarge', {
+        index: oversizedImages.map((one) => one.index + 1).join('、'),
+        maxSize: formatImageLimit(referenceImageLimit().imageBytes),
+      })
+    : null
   const submitReady =
-    !lookSubmitting && (toCanvas ? Boolean(prompt.trim()) : canSubmit && !skillNeedsCanvas)
+    !lookSubmitting &&
+    (toCanvas
+      ? Boolean(prompt.trim()) && oversizedImages.length === 0
+      : canSubmit && !skillNeedsCanvas)
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
   const promptMissing = !prompt.trim() && (toCanvas || !activeLook)
-  const submitBlockedTip = skillNeedsCanvas
-    ? t('submit.skillNeedsCanvas')
-    : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
-      ? (submissionGuard.disabledReason ?? t('submit.apiNotConfigured'))
-      : promptMissing
-        ? t('submit.promptRequired')
-        : null
+  const submitBlockedTip = oversizedNotice
+    ? oversizedNotice
+    : skillNeedsCanvas
+      ? t('submit.skillNeedsCanvas')
+      : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
+        ? (submissionGuard.disabledReason ?? t('submit.apiNotConfigured'))
+        : promptMissing
+          ? t('submit.promptRequired')
+          : null
   const submit = () => {
     if (lookSubmitting) return
     if (toCanvas)
@@ -1038,8 +1066,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         >
           <div
             className={`creation-reference-frame relative w-[72px] h-[72px] rounded-xl overflow-hidden shadow-sm cursor-grab active:cursor-grabbing select-none ${
-              isMaskTarget ? 'border-2 border-primary' : 'border border-border'
+              oversizedIds.has(img.id)
+                ? 'border-2 border-destructive'
+                : isMaskTarget
+                  ? 'border-2 border-primary'
+                  : 'border border-border'
             }`}
+            data-oversized={oversizedIds.has(img.id) || undefined}
             role="button"
             tabIndex={0}
             aria-label={mentionLabels(idx) ?? undefined}
@@ -1072,6 +1105,14 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   alt=""
                 />
               </div>
+            )}
+            {oversizedIds.has(img.id) && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-background/55 text-destructive"
+              >
+                <Icon name="error" size="lg" />
+              </span>
             )}
             {isMaskTarget && (
               // design-allow arbitrary-font: 72px 缩略图角标，DESIGN.md 允许 7–9px
@@ -1371,10 +1412,16 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               ) : undefined
             }
             status={
-              <SubmissionBillingAction
-                blockedAction={submissionGuard.blockedAction}
-                className="text-xs"
-              />
+              oversizedNotice ? (
+                <span role="alert" className="text-xs leading-snug text-destructive">
+                  {oversizedNotice}
+                </span>
+              ) : (
+                <SubmissionBillingAction
+                  blockedAction={submissionGuard.blockedAction}
+                  className="text-xs"
+                />
+              )
             }
             action={
               <Hint

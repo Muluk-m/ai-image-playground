@@ -137,6 +137,7 @@ import {
 } from './lib/projectLifecycle'
 import { isProductionDraft } from './lib/promptDraft'
 import { type AgentRetryRefusal, agentRetryRemaining, agentRetrySlotTasks } from './lib/retry'
+import { describeSendFailure } from './lib/sendFailure'
 import { agentToolFailureText, promptAgentRecharge } from './lib/toolFailure'
 import { toAgentTurnParams } from './lib/turnParams'
 import {
@@ -418,6 +419,22 @@ const failPatch = (
 })
 
 const REFERENCES_NOT_UPLOADED = () => i18next.t('error.referencesNotUploaded', { ns: 'agent' })
+
+/**
+ * 最近一次没能发出去（服务端还没收下）的那条话，卡片上的「重试」按原样再发一次。
+ * 只在错误卡还显示着同一句话时有效；别处改了 `error` 就自然失效。
+ */
+let unsentRetry: { error: string; run: () => Promise<unknown> } | null = null
+
+export function unsentRetryAvailable(error: string | null): boolean {
+  return Boolean(error && unsentRetry?.error === error)
+}
+
+export function retryUnsent(): void {
+  const pending = unsentRetry
+  unsentRetry = null
+  if (pending && useAgentStore.getState().error === pending.error) void pending.run()
+}
 
 let pendingSeq = 0
 const PENDING_PREFIX = 'pending_'
@@ -1583,11 +1600,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         error:
           code === 'queue_full'
             ? i18next.t('error.queueFull', { ns: 'agent', count: AGENT_QUEUE_MAX_PENDING })
-            : code === 'invalid_selection'
-              ? i18next.t('error.invalidSelection', { ns: 'agent' })
-              : code === 'invalid_reference'
-                ? i18next.t('error.invalidReference', { ns: 'agent' })
-                : i18next.t('error.queueFailed', { ns: 'agent' }),
+            : (describeSendFailure(thrown)?.message ??
+              i18next.t('error.queueFailed', { ns: 'agent' })),
       })
       return false
     }
@@ -1976,6 +1990,16 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     ) {
       // 这一轮可能在画布上发起运行：原标签页报价前把模型清单刷新一下（有节流，失败保留原清单）。
       void refreshChannels()
+      const resend = () =>
+        get().send(text, references, onAccepted, mode, clientMessageId, replay, modelOverride)
+      /** 服务端收下之前就失败：说清原因与下一步，能重试的给卡片挂上「重试」。 */
+      const failUnsent = (fallback: string | undefined, thrown?: unknown) => {
+        const described = describeSendFailure(thrown)
+        fail(described?.message ?? fallback, thrown)
+        const shown = get().error
+        unsentRetry =
+          shown && (described ? described.retryable : true) ? { error: shown, run: resend } : null
+      }
       const sameAccount = accountScope()
       const turnParams = replay?.params ?? {
         ...currentTurnParams(mode),
@@ -2234,7 +2258,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             }
           }
         } catch (thrown) {
-          if (turnDelivery.isCurrent()) fail(undefined, thrown)
+          if (turnDelivery.isCurrent()) failUnsent(undefined, thrown)
           await turnDelivery.settled()
           return
         }
@@ -2244,7 +2268,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           prepared = await prepare()
         } catch (thrown) {
           if (submission.cancelled) return await cancelUnsent()
-          if (turnDelivery.isCurrent()) fail(REFERENCES_NOT_UPLOADED(), thrown)
+          if (turnDelivery.isCurrent()) failUnsent(REFERENCES_NOT_UPLOADED(), thrown)
           await turnDelivery.settled()
           return
         }
@@ -2309,14 +2333,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           if (submission.cancelled && !(thrown instanceof AgentRequestError))
             return await cancelUnsent()
           if (turnDelivery.isCurrent())
-            fail(
+            failUnsent(
               thrown instanceof AgentRequestError && thrown.status === 429
                 ? TURN_RATE_LIMITED()
-                : thrown instanceof AgentRequestError && thrown.code === 'invalid_selection'
-                  ? i18next.t('error.invalidSelection', { ns: 'agent' })
-                  : thrown instanceof AgentRequestError && thrown.code === 'invalid_reference'
-                    ? i18next.t('error.invalidReference', { ns: 'agent' })
-                    : undefined,
+                : undefined,
               thrown,
             )
           await turnDelivery.settled()
