@@ -328,6 +328,31 @@ describe('直播专属', () => {
     ])
   })
 
+  it('用户的新消息起了轮：确认门还没确认的稿换成作废；续播与不是门拦下的稿不动', () => {
+    const gated: AgentPanelMessage = {
+      kind: 'tool',
+      id: 'tool-gated',
+      turnId: 'turn-0',
+      toolCallId: 'call-0',
+      toolName: 'generateImage',
+      title: '一只橘猫',
+      status: 'awaiting_confirmation',
+      gated: true,
+    }
+    const draft: AgentPanelMessage = { ...gated, id: 'tool-draft', gated: undefined }
+    const sent = replay([START], USER_TEXT, { messages: [gated, draft, pending], turns: {} })
+    expect(sent.messages.find((one) => one.id === 'tool-gated')).toMatchObject({
+      status: 'failed',
+      errorCode: 'cancelled',
+    })
+    expect(sent.messages.find((one) => one.id === 'tool-draft')).toMatchObject({
+      status: 'awaiting_confirmation',
+    })
+    // 续播（跟进服务端起的续跑轮）不是新消息：卡不动。
+    const followed = replay([START], null, { messages: [gated], turns: {} })
+    expect(followed.messages[0]).toMatchObject({ status: 'awaiting_confirmation' })
+  })
+
   it('用户消息已经在面板上时，重放的 turnStart 不再添一条', () => {
     const once = replay([START], USER_TEXT)
     const twice = replay([START, START], USER_TEXT)

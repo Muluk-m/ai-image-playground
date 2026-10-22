@@ -511,18 +511,6 @@ function readPanelWidth(): number {
   )
 }
 
-/**
- * 确认门拦下、还没确认的稿：用户发了新消息，服务端起轮时就把它们作废（不提交、不扣费）。
- * 面板同一刻换上作废的样子，免得用户还对着一张已经点不动的确认卡。
- */
-function voidGatedDrafts(messages: readonly AgentPanelMessage[]): AgentPanelMessage[] {
-  return messages.map((one) =>
-    one.kind === 'tool' && one.gated && one.status === 'awaiting_confirmation'
-      ? { ...one, status: 'failed', errorCode: 'cancelled' }
-      : one,
-  )
-}
-
 export const useAgentStore = create<AgentState>((set, get, store) => {
   let prefetch: ReturnType<typeof browserConversationPrefetch> | undefined
   store.subscribe((state, previous) => {
@@ -2144,7 +2132,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         errorDiagnostic: null,
         activeTurn: null,
         messages: [
-          ...voidGatedDrafts(state.messages.filter((one) => one.kind !== 'text' || !one.pending)),
+          ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
           {
             kind: 'text',
             id: `${PENDING_PREFIX}${pendingSeq}`,

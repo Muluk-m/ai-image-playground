@@ -247,6 +247,15 @@ function settleOpenReplies(
  * 直播独有的只剩 `streaming`、增量累加、待确认 id 的替换与 `toolProgress` 的 stage——
  * 它们是对同一形状的增量修改。轮的状态（running / failed）不归这里，归 store。
  */
+/** 确认门拦下、还没确认的稿换成作废的样子（`failed` + `cancelled`），与服务端作废后的卡一致。 */
+function voidGatedDrafts(messages: readonly AgentPanelMessage[]): AgentPanelMessage[] {
+  return messages.map((one) =>
+    one.kind === 'tool' && one.gated && one.status === 'awaiting_confirmation'
+      ? { ...one, status: 'failed', errorCode: 'cancelled' }
+      : one,
+  )
+}
+
 export function reduceAgentPanelEvent(
   state: AgentPanelState,
   event: AgentTurnEvent,
@@ -267,8 +276,12 @@ export function reduceAgentPanelEvent(
           pendingUserText === null || state.messages.some((one) => one.id === event.userMessageId)
             ? state.messages
             : [
+                // 用户的新消息起了轮：服务端准备这一轮时已把确认门还没确认的稿作废（不提交、不扣费），
+                // 卡在这一刻跟着换掉。起轮没成就不会走到这里，卡仍可确认。
                 // 先上屏的那条换成服务端的 id；同一轮不会有第二条待确认的。
-                ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
+                ...voidGatedDrafts(
+                  state.messages.filter((one) => one.kind !== 'text' || !one.pending),
+                ),
                 textCard(
                   event.userMessageId,
                   turnId,
