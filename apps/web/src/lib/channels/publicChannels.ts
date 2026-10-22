@@ -61,11 +61,15 @@ export function modelLabel(modelId: string, channelId?: string): string {
 /**
  * 模型在渠道配置里声明的品牌图标（`ChannelModel.logo`）。图片、视频模型都认，所以直接读
  * channelStore 而不是图片视图；同一 id 出现在多条渠道上时取第一条声明了图标的。
- * 没声明（或清单还没到）返回 undefined，调用方按 id 前缀给厂商图标。
+ * 没声明（或清单还没到）返回 undefined，调用方按 id 前缀给厂商图标。组件里要传订阅到的快照，
+ * 清单晚到时才会跟着重渲染（见 `ModelLogo`）。
  */
-export function modelLogo(modelId: string): ModelLogoId | undefined {
+export function modelLogo(
+  modelId: string,
+  channels: readonly DiscoveredChannel[] = getStoredChannels(),
+): ModelLogoId | undefined {
   if (!modelId) return undefined
-  for (const channel of getStoredChannels()) {
+  for (const channel of channels) {
     const logo = channel.models.find((model) => model.id === modelId)?.logo
     if (logo) return logo
   }

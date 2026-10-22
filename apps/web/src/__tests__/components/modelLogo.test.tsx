@@ -54,7 +54,9 @@ it('falls back to the vendor icon by id prefix when no logo is declared', () => 
   expect(host.querySelector('img')).toBeNull()
 })
 
-it('falls back to the vendor icon before the channel list arrives', () => {
+it('switches to the declared logo once a late channel list arrives', () => {
   const logo = render('gemini-3-pro-image')
   expect(logo?.tagName.toLowerCase()).toBe('svg')
+  act(() => setChannels([VERTEX]))
+  expect(host.firstElementChild?.getAttribute('src')).toBe('/model-logos/nano-banana.svg')
 })

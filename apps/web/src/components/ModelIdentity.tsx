@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from 'react'
+import { getStoredChannels, subscribeChannels } from '../lib/channels/channelStore'
 import { modelLogo } from '../lib/channels/publicChannels'
 import { ClaudeLogo, GeminiLogo, OpenAILogo } from './assistant-ui/elements/logos'
 import { Icon } from './ui/icon'
@@ -29,7 +31,9 @@ export function compactModelName(model: string, fallback: string): string {
 
 export function ModelLogo({ model }: { model: string }) {
   // 渠道配置给模型声明了自己的图标时优先用它（彩色官方图标，明暗主题都不反色）。
-  const declared = modelLogo(model)
+  // 订阅渠道清单：首屏清单还没到时先给厂商图标，到了再换成声明的图标。
+  const channels = useSyncExternalStore(subscribeChannels, getStoredChannels)
+  const declared = modelLogo(model, channels)
   if (declared) {
     return (
       <img

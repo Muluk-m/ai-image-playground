@@ -3,9 +3,10 @@
  * 只取外观与结构：沿用项目的 Radix Popover，不引入 cmdk / base-ui。
  */
 import type { ModelBadge } from '@image-playground/shared'
-import { type KeyboardEvent, useId, useMemo, useState } from 'react'
+import { type KeyboardEvent, useId, useMemo, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
+import { subscribeChannels } from '../../lib/channels/channelStore'
 import { getProfileModelOptions, updateSelectedModel } from '../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../lib/channels/publicChannels'
 import { cn } from '../../lib/utils'
@@ -41,8 +42,9 @@ export function useModelChoices() {
   const activeProfile = useMemo(() => getActiveApiProfile(settings), [settings])
   const activeView = clientProfileToApiProfile(activeProfile)
 
+  // 订阅渠道清单：清单晚到或只改了标签 / 耗时时 profiles 不一定变，不订阅就会停在旧选项上。
+  const publicChannels = useSyncExternalStore(subscribeChannels, getPublicChannels)
   const options = useMemo(() => {
-    const publicChannels = getPublicChannels()
     return settings.profiles.flatMap((profile) => {
       const view = clientProfileToApiProfile(profile)
       return getProfileModelOptions(profile, publicChannels).map(
@@ -57,7 +59,7 @@ export function useModelChoices() {
         }),
       )
     })
-  }, [settings.profiles])
+  }, [settings.profiles, publicChannels])
 
   const currentValue = `${activeProfile.id}::${activeView.model}`
   const current = options.find((option) => option.value === currentValue)
