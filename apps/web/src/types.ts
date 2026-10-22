@@ -117,8 +117,8 @@ export type TaskStatus = 'running' | 'done' | 'error'
 export interface TaskOrigin {
   setId: string
   shotId: string
-  /** 缺省是商品图套图；分镜的镜头图带 'storyboard'。 */
-  kind?: 'storyboard'
+  /** 缺省是商品图套图；分镜的镜头图带 'storyboard'；快速生成的逐张生成带 'batch'（shotId 是那张参考图）。 */
+  kind?: 'storyboard' | 'batch'
 }
 
 export interface TaskRecord {
@@ -148,6 +148,10 @@ export interface TaskRecord {
   bffRequestId?: string
   /** Server-reported durable queue phase; absent for older BFFs. */
   queuePhase?: TaskProgressPhase
+  /** 逐张生成里还在本机排队、没发出去的一张（同时只发 BATCH_GENERATE_CONCURRENCY 张）。 */
+  batchQueued?: true
+  /** 逐张生成的那张真正发出去的时刻；计时从这里起，而不是从排队起。 */
+  batchStartedAt?: number
   /**
    * 客户端幂等键。submitTask 时为每个任务生成一次 UUID 并持久化；提交期间
    * 页面刷新时重提带相同 ID，BFF 用它去重。仅 BFF queue 路径会带。

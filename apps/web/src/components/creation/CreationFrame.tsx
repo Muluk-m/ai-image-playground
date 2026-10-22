@@ -56,12 +56,16 @@ export function CreationToolbar({
 export function CreationSend({
   streaming = false,
   busy = false,
+  cost,
   ...props
 }: Omit<ComponentProps<typeof Button>, 'children' | 'className' | 'size' | 'variant'> & {
   'aria-label': string
   streaming?: boolean
   busy?: boolean
+  /** 发出去要扣的积分，写在按钮上；缺席即普通的图标按钮。 */
+  cost?: string
 }) {
+  const showCost = Boolean(cost) && !streaming
   return (
     <Button
       type="button"
@@ -69,10 +73,17 @@ export function CreationSend({
       variant={props.disabled ? 'secondary' : 'default'}
       className="creation-send"
       data-slot="composer-send"
+      data-cost={showCost || undefined}
       aria-busy={busy || undefined}
       {...props}
       aria-label={props['aria-label']}
     >
+      {showCost && (
+        <span className="creation-send-cost">
+          <Icon name="credits" />
+          {cost}
+        </span>
+      )}
       {busy && !streaming ? (
         <Icon name="loading" className="animate-spin motion-reduce:animate-none" />
       ) : (

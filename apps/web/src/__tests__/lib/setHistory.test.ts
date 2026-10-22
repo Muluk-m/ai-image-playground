@@ -61,4 +61,27 @@ describe('folding the history into sets', () => {
     expect(items[0]).toMatchObject({ kind: 'set', setId: 'set-a' })
     expect(items[1]).toMatchObject({ kind: 'task' })
   })
+
+  it('keeps only the latest attempt per image of a per-image batch, in reference order', () => {
+    const batch = (shotId: string) => ({ setId: 'b', shotId, kind: 'batch' as const })
+    const retried = task('r2', 9, batch('2'))
+    const first = task('f1', 5, batch('1'))
+    const failed = task('f2', 5, batch('2'))
+
+    expect(groupTasksBySet([retried, first, failed])).toEqual([
+      { kind: 'set', setId: 'b', tasks: [first, retried] },
+    ])
+  })
+
+  it('keeps every prompt variant of one reference image, ordered numerically', () => {
+    const batch = (shotId: string) => ({ setId: 'b', shotId, kind: 'batch' as const })
+    const tenth = task('t10', 1, batch('10-1'))
+    const a = task('a', 1, batch('2-1'))
+    const b = task('b', 1, batch('2-2'))
+    const one = task('one', 1, batch('1-1'))
+
+    expect(groupTasksBySet([tenth, b, a, one])).toEqual([
+      { kind: 'set', setId: 'b', tasks: [one, a, b, tenth] },
+    ])
+  })
 })
