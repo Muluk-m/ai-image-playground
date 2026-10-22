@@ -11,6 +11,7 @@ const { callUpstream, setUpstreamFetchForTesting } = await import('../../lib/ups
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { extractMeta, resolveImageBytesRef } = await import('../../lib/extractImages')
 const { VERTEX_IMAGE_SIZES, VERTEX_MAX_INPUT_IMAGES } = await import('../../lib/upstream/vertex')
+const { channelSlotStateForTesting } = await import('../../lib/upstream/concurrency')
 const { defaultChannelsPath } = await import('../../lib/channels')
 type InternalChannel = import('../../lib/channels').InternalChannel
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
@@ -31,6 +32,7 @@ const vertexChannel: InternalChannel = {
     (id) => ({ id, label: id, capabilities: ['generate', 'edit', 'size'] }),
   ),
   defaults: { apiMode: 'images', timeout: 600 },
+  maxConcurrency: 2,
 }
 
 /** 与 2026-10-22 global 端点实测响应同形：图片 part 旁带一大段 thoughtSignature。 */
@@ -199,6 +201,122 @@ describe('callUpstream Vertex AI direct channel', () => {
     expect(extractMeta('gemini', result.payload).images.map((image) => image.index)).toEqual([
       0, 1, 2,
     ])
+  })
+
+  describe('multi-image requests', () => {
+    let inFlight = 0
+    let peak = 0
+    let bodies: Array<Record<string, unknown>> = []
+
+    /** 每条请求在途一小段时间再回，峰值只取决于渠道上限，与计时快慢无关。 */
+    function useSlowUpstream(hold: (signal?: AbortSignal | null) => Promise<void>) {
+      inFlight = 0
+      peak = 0
+      bodies = []
+      setUpstreamFetchForTesting((async (
+        _input: Parameters<TestFetch>[0],
+        init: Parameters<TestFetch>[1],
+      ) => {
+        bodies.push(JSON.parse(init?.body as string))
+        inFlight += 1
+        peak = Math.max(peak, inFlight)
+        try {
+          await hold(init?.signal)
+        } finally {
+          inFlight -= 1
+        }
+        return new Response(JSON.stringify(vertexResponse()), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }) as unknown as TestFetch)
+    }
+
+    const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 5))
+    async function waitUntil(ready: () => boolean) {
+      for (let attempt = 0; attempt < 400 && !ready(); attempt++) await tick()
+    }
+
+    it('splits n into single-image requests with at most two in flight', async () => {
+      useSlowUpstream(tick)
+      const result = await callUpstream({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        request: { prompt: 'a cup', n: 5 },
+      })
+      expect(bodies).toHaveLength(5)
+      for (const body of bodies) {
+        expect(body.generationConfig).not.toHaveProperty('candidateCount')
+      }
+      expect(peak).toBe(2)
+      expect(extractMeta('gemini', result.payload).images).toHaveLength(5)
+      expect(channelSlotStateForTesting('vertex-images')).toEqual({ active: 0, waiting: 0 })
+    })
+
+    it('shares the two slots across concurrent tasks on the channel', async () => {
+      useSlowUpstream(tick)
+      await Promise.all([
+        callUpstream({
+          provider: 'gemini',
+          model: 'gemini-3-pro-image',
+          request: { prompt: 'a', n: 2 },
+        }),
+        callUpstream({
+          provider: 'gemini',
+          model: 'gemini-nano-banana-2.1',
+          request: { prompt: 'b', n: 2 },
+        }),
+        callUpstream({
+          provider: 'gemini',
+          model: 'gemini-3.1-flash-lite-image',
+          request: { prompt: 'c' },
+        }),
+      ])
+      expect(bodies).toHaveLength(5)
+      expect(peak).toBe(2)
+      expect(channelSlotStateForTesting('vertex-images')).toEqual({ active: 0, waiting: 0 })
+    })
+
+    it('gives a queued request up on cancel without taking a slot', async () => {
+      let releaseFirst = () => {}
+      const held = new Promise<void>((resolve) => {
+        releaseFirst = resolve
+      })
+      useSlowUpstream(() => held)
+      const running = callUpstream({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        request: { prompt: 'a', n: 2 },
+      })
+      const controller = new AbortController()
+      const queued = callUpstream({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        request: { prompt: 'b' },
+        signal: controller.signal,
+      }).catch((error: unknown) => error)
+      await waitUntil(
+        () => inFlight === 2 && channelSlotStateForTesting('vertex-images').waiting === 1,
+      )
+      expect(channelSlotStateForTesting('vertex-images')).toEqual({ active: 2, waiting: 1 })
+      controller.abort()
+      expect(await queued).toBeInstanceOf(Error)
+      expect(channelSlotStateForTesting('vertex-images')).toEqual({ active: 2, waiting: 0 })
+      releaseFirst()
+      await running
+      expect(bodies).toHaveLength(2)
+      expect(channelSlotStateForTesting('vertex-images')).toEqual({ active: 0, waiting: 0 })
+    })
+
+    it('refuses a candidateCount override, which Vertex answers with 400', async () => {
+      const failure = await callUpstream({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        request: { prompt: 'a cup', extra: { generationConfig: { candidateCount: 2 } } },
+      }).catch((error: unknown) => error)
+      expect((failure as { upstreamStatus?: number }).upstreamStatus).toBe(400)
+      expect(calls).toEqual([])
+    })
   })
 
   it('leaves non-Vertex Gemini models on the gateway with its own header', async () => {

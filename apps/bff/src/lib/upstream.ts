@@ -24,6 +24,7 @@ import {
   isRecoverablePollFailure,
   warnIfAsyncTasksDisabled,
 } from './upstream/async-tasks'
+import { acquireChannelSlot } from './upstream/concurrency'
 import {
   extractErrorMessage,
   stringifyUpstreamPayload,
@@ -88,6 +89,8 @@ interface UpstreamRoute {
   asyncTasks: boolean
   /** 上游原生支持 n；一条请求即可返回多张图，不应在 BFF 内 fan-out。 */
   supportsNativeN: boolean
+  /** 渠道声明了同时在途上限（`maxConcurrency`）时，按渠道排队的键与上限。 */
+  concurrency?: { channelId: string; limit: number }
 }
 
 /**
@@ -117,6 +120,9 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
       supportsModeration: declared.capabilities.includes('moderation'),
       asyncTasks: provider === 'openai-compat' && channel.defaults.asyncTasks === true,
       supportsNativeN: provider === 'openai-compat' && declared.capabilities.includes('n'),
+      ...(channel.maxConcurrency
+        ? { concurrency: { channelId: channel.id, limit: channel.maxConcurrency } }
+        : {}),
     }
   }
   // 下线的直连模型找不到原 channel（env 缺失）时明确失败：通用网关不是它的上游，兜底过去
@@ -217,6 +223,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     supportsModeration,
     asyncTasks,
     supportsNativeN,
+    concurrency,
   } = resolveUpstream(provider, model)
   let request = params.request
   // 原生 n 只适用于无参考图的 Images generations；Responses 图片工具不接受 tools[].n。
@@ -588,13 +595,29 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       )
 
       // Gemini image generation 不支持 candidateCount>1（"Only one candidate is
-      // supported for audio or image response"），n>1 时本层 fan-out 成 N 次并发
-      // 请求并把 candidates 合并到一个 payload，对 task-runner / 前端透明。
+      // supported for audio or image response"），n>1 时本层 fan-out 成 N 条单张请求
+      // 并把 candidates 合并到一个 payload，对 task-runner / 前端透明。渠道声明了
+      // maxConcurrency（Vertex 同时超过 2 条就 429）时，每条请求先排渠道级的队再发。
       return await fanOutRequests(
         request.n,
         async () => {
-          const res = await performFetch(url, { method: 'POST', headers, body })
-          return parseResponse(res)
+          const release = concurrency
+            ? await acquireChannelSlot(
+                concurrency.channelId,
+                concurrency.limit,
+                deadline.signal,
+              ).catch((error: unknown) => {
+                // 排队时就超时：请求根本没发出去，按普通超时报，不是「结果未知」。
+                if (deadline.timedOut) throw new UpstreamTimeoutError()
+                throw error
+              })
+            : undefined
+          try {
+            const res = await performFetch(url, { method: 'POST', headers, body })
+            return await parseResponse(res)
+          } finally {
+            release?.()
+          }
         },
         mergeGeminiCandidateResults,
         params.reconciliationRequired,

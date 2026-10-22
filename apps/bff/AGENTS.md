@@ -26,7 +26,8 @@ BFF 的公开核心只做四件事：
 - BFF 启动时 `initChannels()` 解析 channels.json + 解析 `process.env[secretRef]`；缺 secret 只 warn 不 fatal。
   声明了 `requiresSecret: true` 的 channel 例外：缺 key 时整条丢弃、不进发现清单（直连上游没 key
   就只是个必然失败的模型，如 `veo-video`）
-- `GET /api/channels` 暴露 sanitized channel 列表（不含 `baseUrl` / `auth` / `allowedPaths`）给前端 boot 时拉
+- `maxConcurrency`（可选，1–64 的整数，只允许 gemini-queue）：本进程内同时发往该 channel 的上游请求上限，一单多张拆出来的每条都算；超出的排队，任务超时照常计。Vertex 直连实测同时超过 2 条就 429，所以 `vertex-images` 配 2。多实例部署各自计数。
+- `GET /api/channels` 暴露 sanitized channel 列表（不含 `baseUrl` / `auth` / `allowedPaths` / `maxConcurrency`）给前端 boot 时拉
 - UI 必须保持完全隐藏 baseUrl / apiKey；模型可下拉切换
 - **channels.json 数组顺序是产品契约**：`channels[0]` 是新访客的默认模型（前端按序注入 profile 并兜底选第一个）。新增 channel 往后排
 - worker 调上游默认走 `UPSTREAM_BASE_URL` 通用网关（env 约定 baseUrl **不含**版本段）；独立直连上游的 channel 要加进 `upstream.ts` 的 `DIRECT_CHANNEL_IDS`，baseUrl/key 单源 channels.json（约定 baseUrl **含**版本段，如 `.../v1`）

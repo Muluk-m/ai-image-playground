@@ -226,6 +226,7 @@
       "kind": "gemini-queue",
       "label": "Vertex AI",
       "baseUrlRef": "VERTEX_BASE_URL",
+      "maxConcurrency": 2,
       "requiresSecret": true,
       "auth": {
         "type": "bearer",

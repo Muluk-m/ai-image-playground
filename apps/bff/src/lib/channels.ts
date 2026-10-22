@@ -60,6 +60,11 @@ export interface InternalChannel {
   allowedPaths: string[]
   models: ChannelModel[]
   defaults: ChannelDefaults
+  /**
+   * 本进程内同时发往该渠道的上游请求上限（含一单多张拆出来的每一条）。BFF 私有，不进发现清单。
+   * 目前只有 gemini-queue 的 generateContent 同步请求认它，其余 kind 写了会在加载时报错。
+   */
+  maxConcurrency?: number
 }
 
 /** parseChannel 的产物：baseUrl 尚未解析，只有 `baseUrl` / `baseUrlRef` 二选一。 */
@@ -273,6 +278,15 @@ function parseOptionalFlag(v: unknown, ctx: string): boolean {
   return v === true
 }
 
+function parseMaxConcurrency(v: unknown, kind: ChannelKind, ctx: string): number | undefined {
+  if (v === undefined) return undefined
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 64)
+    throw new ChannelsLoadError(`${ctx}.maxConcurrency must be an integer between 1 and 64`)
+  if (kind !== 'gemini-queue')
+    throw new ChannelsLoadError(`${ctx}.maxConcurrency is only supported on gemini-queue channels`)
+  return v
+}
+
 function parseChannel(raw: unknown, idx: number): ParsedChannel {
   const ctx = `channels[${idx}]`
   if (!isObject(raw)) throw new ChannelsLoadError(`${ctx} must be an object`)
@@ -286,6 +300,7 @@ function parseChannel(raw: unknown, idx: number): ParsedChannel {
   if (!isStringArray(raw.allowedPaths) || raw.allowedPaths.length === 0)
     throw new ChannelsLoadError(`${ctx}.allowedPaths must be a non-empty string[]`)
 
+  const maxConcurrency = parseMaxConcurrency(raw.maxConcurrency, raw.kind as ChannelKind, ctx)
   return {
     id: raw.id,
     kind: raw.kind as ChannelKind,
@@ -297,6 +312,7 @@ function parseChannel(raw: unknown, idx: number): ParsedChannel {
     allowedPaths: raw.allowedPaths,
     models: parseModels(raw.models, ctx),
     defaults: parseDefaults(raw.defaults, ctx),
+    ...(maxConcurrency !== undefined ? { maxConcurrency } : {}),
   }
 }
 
