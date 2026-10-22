@@ -35,8 +35,6 @@ const { protectMaskedOutput } = await import('../../../lib/agent/masked-output')
 const {
   boxAgreement,
   dilationRadius,
-  falSam3Body,
-  falSam3Masks,
   pickMask,
   promptBox,
   segmentationProvider,
@@ -114,7 +112,6 @@ function context(overrides: Partial<AgentToolContext> = {}, dataUrl = ''): Agent
 const args = {
   imageId: 'mug',
   target: '杯身和把手',
-  segmentPrompt: 'mug',
   change: '换成米白色釉面',
   keep: ['桌面', '书'],
   box: { x: 0.2, y: 0.3, width: 0.5, height: 0.5 },
@@ -381,39 +378,6 @@ describe('server segmentation', () => {
     return { data, width, height, ...(score === undefined ? {} : { score }) }
   }
 
-  it('builds the fal SAM 3 request in source pixels with include/exclude points', () => {
-    const body = falSam3Body({
-      dataUrl: 'data:image/png;base64,AA==',
-      width: 1000,
-      height: 500,
-      prompt: 'mug',
-      box: { x: 0.1, y: 0.2, width: 0.5, height: 0.4 },
-      points: [
-        { x: 0.3, y: 0.4, include: true },
-        { x: 0.55, y: 0.4, include: false },
-      ],
-    })
-    expect(body.box_prompts).toEqual([{ x_min: 100, y_min: 100, x_max: 600, y_max: 300 }])
-    expect(body.point_prompts).toEqual([
-      { x: 300, y: 200, label: 1 },
-      { x: 550, y: 200, label: 0 },
-    ])
-    expect(body).toMatchObject({ apply_mask: false, sync_mode: true, return_multiple_masks: true })
-  })
-
-  it('reads only inline data-URI masks and ignores remote URLs', async () => {
-    const png = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#fff' } })
-      .png()
-      .toBuffer()
-    const decoded = await falSam3Masks(
-      { masks: [{ url: 'https://evil.example/mask.png' }, { url: url(png) }], scores: [0.9, 0.8] },
-      8,
-      8,
-    )
-    expect(decoded).toHaveLength(1)
-    expect(decoded[0]!.data.every((value) => value === 255)).toBe(true)
-  })
-
   it('picks the confident mask that agrees with the agent box and rejects ones that do not', () => {
     const box = { x: 0.2, y: 0.2, width: 0.4, height: 0.4 }
     const right = mask(100, 100, [20, 20, 60, 60], 0.8)
@@ -429,7 +393,6 @@ describe('server segmentation', () => {
         dataUrl: '',
         width: 1,
         height: 1,
-        prompt: 'x',
         box: { x: 0, y: 0, width: 1, height: 1 },
       }),
     ).toBeNull()
@@ -447,7 +410,6 @@ describe('server segmentation', () => {
         dataUrl: '',
         width: 1,
         height: 1,
-        prompt: 'x',
         box: { x: 0, y: 0, width: 1, height: 1 },
       }),
     ).toBeNull()
@@ -521,16 +483,19 @@ describe('EdgeTAM segmenter', () => {
   beforeEach(() => {
     setSegmentationProviderForTesting()
     segmentation.segmenterUrl = 'http://segmenter:8080'
-    segmentation.provider = 'fal-sam3'
+    segmentation.provider = 'edgetam'
   })
   afterAll(() => {
     Object.assign(segmentation, original)
     setSegmenterFetchForTesting()
   })
 
-  it('prefers the in-house segmenter and honours off', () => {
+  it('uses only the in-house segmenter, and nothing without its address or with off', () => {
     expect(segmentationProvider()?.id).toBe('edgetam')
     segmentation.provider = 'off'
+    expect(segmentationProvider()).toBeNull()
+    segmentation.provider = 'edgetam'
+    segmentation.segmenterUrl = ''
     expect(segmentationProvider()).toBeNull()
   })
 
@@ -569,7 +534,6 @@ describe('EdgeTAM segmenter', () => {
       },
       width: 2048,
       height: 1024,
-      prompt: 'mug',
       box: { x: 0.25, y: 0.25, width: 0.25, height: 0.5 },
       points: [{ x: 0.3, y: 0.5, include: true }],
     })
@@ -609,7 +573,6 @@ describe('EdgeTAM segmenter', () => {
       },
       width: 64,
       height: 64,
-      prompt: 'x',
       box: { x: 0.25, y: 0.25, width: 0.5, height: 0.5 },
     })
     expect(result?.mask.data[32 * 64 + 32]).toBe(255)
@@ -628,7 +591,6 @@ describe('EdgeTAM segmenter', () => {
       dataUrl: url(await picture(32, 32)),
       width: 32,
       height: 32,
-      prompt: 'x',
       box: { x: 0, y: 0, width: 1, height: 1 },
     })
     expect(result).toBeNull()
@@ -658,11 +620,13 @@ describe('EdgeTAM segmenter', () => {
   it('reports the segmenter state and probes at most once per window', async () => {
     resetSegmenterProbeForTesting()
     const paths: string[] = []
+    const keys: string[] = []
     setSegmenterFetchForTesting((async (url: string, init?: RequestInit) => {
       paths.push(new URL(url).pathname)
       if (url.endsWith('/health'))
         return Response.json({ ok: true, loaded: true, dtype: 'fp16', rssMB: 360, version: 'v' })
-      const body = JSON.parse(String(init?.body)) as { image?: string }
+      const body = JSON.parse(String(init?.body)) as { image?: string; key: string }
+      keys.push(body.key)
       return Response.json({ masks: [], timings: { cached: !body.image } })
     }) as unknown as typeof fetch)
     expect(await segmenterStatus(false)).toMatchObject({ configured: true, ok: true, rssMB: 360 })
@@ -670,6 +634,10 @@ describe('EdgeTAM segmenter', () => {
     expect(probed.probe?.firstMs).toBeGreaterThanOrEqual(0)
     await segmenterStatus(true)
     expect(paths.filter((one) => one === '/v1/segment')).toHaveLength(2)
+    resetSegmenterProbeForTesting()
+    await segmenterStatus(true)
+    // 一个固定的探针键：不论探多少次，只占分割服务编码缓存里的一格。
+    expect(new Set(keys)).toEqual(new Set(['probe']))
     segmentation.segmenterUrl = ''
     expect(await segmenterStatus(true)).toEqual({ configured: false })
   })

@@ -90,6 +90,7 @@ import {
 } from '../lib/agent/retry'
 import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { markAgentSaveCardSaved } from '../lib/agent/saves'
+import { segmentRateLimiter } from '../lib/agent/segment-rate-limit'
 import { segmenterStatus } from '../lib/agent/segmentation'
 import {
   InvalidSelectionError,
@@ -465,14 +466,22 @@ export const agentRoutes = new Elysia()
       if (!authUser) return status(404, NOT_FOUND)
       const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
       if (!conversation) return status(404, NOT_FOUND)
-      const result = await refineEditRegion({
-        conversationId: conversation.id,
-        userId: authUser.id,
-        proposalId: params.proposalId,
-        ...(body.region === undefined ? {} : { region: body.region }),
-        points: body.points,
-        signal: request.signal,
-      })
+      // 分割服务由各部署共用、单并发：每个用户限次数，且同时只跑一个。
+      const release = segmentRateLimiter.begin(authUser.id)
+      if (!release) return status(429, { error: 'segmentation_rate_limited' })
+      let result: Awaited<ReturnType<typeof refineEditRegion>>
+      try {
+        result = await refineEditRegion({
+          conversationId: conversation.id,
+          userId: authUser.id,
+          proposalId: params.proposalId,
+          ...(body.region === undefined ? {} : { region: body.region }),
+          points: body.points,
+          signal: request.signal,
+        })
+      } finally {
+        release()
+      }
       if (result.kind === 'not_found') return status(404, NOT_FOUND)
       if (result.kind === 'unavailable') return status(503, { error: 'segmentation_unavailable' })
       if (result.kind === 'failed') return status(502, { error: 'segmentation_failed' })
