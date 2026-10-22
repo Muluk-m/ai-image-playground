@@ -1535,6 +1535,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             clarificationAnswer,
             prepared.canvas,
             prepared.experience,
+            prepared.surface,
           ),
         current,
       )
@@ -2295,6 +2296,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
                 clarificationAnswer,
                 prepared.canvas,
                 prepared.experience,
+                prepared.surface,
                 cancellation.signal,
               ),
             () => turnDelivery.isCurrent(),
