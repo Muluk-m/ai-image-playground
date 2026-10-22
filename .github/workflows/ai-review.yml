@@ -31,10 +31,22 @@ on:
         description: 合并进每个 LLM 请求体的 JSON，例如 {"reasoning_effort":"low"}；留空用工作流默认
         required: false
         default: ''
+      model:
+        description: 评审用模型（留空用 LLM_MODEL）
+        required: false
+        default: ''
       probe:
         description: 先单独调几次模型接口测延迟
         type: boolean
         default: false
+      probe_models:
+        description: 延迟实测要对比的模型，逗号分隔（留空只测评审用模型）
+        required: false
+        default: ''
+      review:
+        description: 实测后是否接着跑完整评审
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -135,6 +147,7 @@ jobs:
         env:
           OCR_LLM_AUTH_TOKEN: ${{ secrets.CI_LLM_API_KEY }}
           EXTRA_BODY: ${{ inputs.extra_body || env.LLM_EXTRA_BODY }}
+          INPUT_MODEL: ${{ inputs.model }}
         run: |
           if [ -z "$OCR_LLM_AUTH_TOKEN" ]; then
             echo "::error::仓库 secret CI_LLM_API_KEY 未配置"
@@ -142,7 +155,7 @@ jobs:
           fi
           ocr config set llm.url "$LLM_URL"
           ocr config set llm.auth_token "$OCR_LLM_AUTH_TOKEN"
-          ocr config set llm.model "$LLM_MODEL"
+          ocr config set llm.model "${INPUT_MODEL:-$LLM_MODEL}"
           ocr config set llm.use_anthropic false
           ocr config set language Chinese
           if [ -n "$EXTRA_BODY" ]; then
@@ -154,11 +167,13 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.probe
         env:
           OCR_LLM_AUTH_TOKEN: ${{ secrets.CI_LLM_API_KEY }}
+          PROBE_MODELS: ${{ inputs.probe_models }}
         run: |
           python3 .ci-tools/scripts/ci/llm-probe.py apps/bff/src/lib/agent/tool-gate.ts | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Resolve review range
         id: range
+        if: github.event_name != 'workflow_dispatch' || inputs.review
         env:
           BASE_REF: ${{ steps.ctx.outputs.base_ref }}
           BASE_SHA: ${{ steps.ctx.outputs.base_sha }}
@@ -205,6 +220,7 @@ jobs:
 
       - name: Run OpenCodeReview
         id: review
+        if: github.event_name != 'workflow_dispatch' || inputs.review
         env:
           FROM_SHA: ${{ steps.range.outputs.from_sha }}
           REVIEW_SCOPE: ${{ steps.range.outputs.scope }}
