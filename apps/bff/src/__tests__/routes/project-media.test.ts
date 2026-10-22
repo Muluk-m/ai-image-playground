@@ -701,7 +701,7 @@ describe('confirmation coordination', () => {
     }
     const target = await (await request('media/uploads', deviceA, descriptor)).json()
     await storage.write(key(target.uploadUrl), bytes, 'image/png')
-    const originalOpen = storage.open.bind(storage)
+    const originalReadUpTo = storage.readUpTo.bind(storage)
     let releaseTarget!: () => void
     const targetHeld = new Promise<void>((resolve) => {
       releaseTarget = resolve
@@ -717,9 +717,9 @@ describe('confirmation coordination', () => {
         await targetHeld
       }
     }
-    storage.open = async (path) => {
+    storage.readUpTo = async (path, maxBytes) => {
       await hold(path)
-      return originalOpen(path)
+      return originalReadUpTo(path, maxBytes)
     }
     try {
       const confirmation = request(`media/${target.id}/complete`, deviceA, {})
@@ -743,7 +743,7 @@ describe('confirmation coordination', () => {
       expect(row).toMatchObject({ status: 'pending', content_type: 'image/jpeg' })
     } finally {
       releaseTarget()
-      storage.open = originalOpen
+      storage.readUpTo = originalReadUpTo
     }
   })
 
