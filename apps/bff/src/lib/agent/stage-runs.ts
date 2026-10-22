@@ -17,6 +17,7 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import * as Y from 'yjs'
 import { db, schema } from '../../db/client'
 import { accessCanvasDocument } from '../canvasSyncStore'
+import { isCapabilityEnabled } from '../capabilities'
 import { getChannels, resolveQueueModel } from '../channels'
 import { log } from '../logger'
 import type { BffTransaction } from '../private-overlay'
@@ -343,15 +344,17 @@ function availableModelsLine(): string {
       ),
     ),
   ]
-  const videos = agentVideoModels().map(({ target, support }) => {
-    const modes = [
-      '文生',
-      ...(support.firstFrame ? ['首帧'] : []),
-      ...(support.firstFrame && support.lastFrame ? ['首尾帧'] : []),
-      ...(support.referenceImages ? [`参考生（最多 ${support.referenceImages.max} 张）`] : []),
-    ]
-    return `${target.model}（${modes.join('、')}）`
-  })
+  const videos = (isCapabilityEnabled('generation:video') ? agentVideoModels() : []).map(
+    ({ target, support }) => {
+      const modes = [
+        '文生',
+        ...(support.firstFrame ? ['首帧'] : []),
+        ...(support.firstFrame && support.lastFrame ? ['首尾帧'] : []),
+        ...(support.referenceImages ? [`参考生（最多 ${support.referenceImages.max} 张）`] : []),
+      ]
+      return `${target.model}（${modes.join('、')}）`
+    },
+  )
   return `当前部署实际可用的出图模型：${images.length ? images.join('、') : '无'}；视频模型及支持的模式：${videos.length ? videos.join('、') : '无'}。`
 }
 
@@ -418,14 +421,13 @@ export async function stageRunWakeContent(
   if (modelBlocked) guidance.push(availableModelsLine(), MODEL_BLOCK_GUIDANCE)
   // 直接出图开着、这一批一个都没提交也没花积分、只是卡在模型或模式上：智能体自己改得了的就在这一轮改好重跑，
   // 不用停下来问一句「确认后我再处理」。花过钱、有失败或已完成的批次仍按老规矩先问。
+  // 只有整批每个节点都是卡在模型上才自修：混着缺素材、缺提示词、超参考图上限的，改了模型也跑不起来。
   const selfFix =
     modelBlocked &&
     state.turn?.autoSubmit === true &&
     state.spentCredits === 0 &&
     !state.storyboard &&
-    completed === 0 &&
-    failed === 0 &&
-    unsettled === 0
+    run.nodes.every((node) => node.outcome === 'blocked' && node.reason === 'model_unavailable')
   if (failed > 0)
     guidance.push(
       overBudget
