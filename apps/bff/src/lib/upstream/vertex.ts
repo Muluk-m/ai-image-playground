@@ -11,8 +11,11 @@ import { clientError } from './shared'
  * - 三者都认 thinkingLevel minimal / high。
  */
 
-/** 每个模型认的分辨率档位；不在表里的模型不收口，原样透传。 */
-const VERTEX_IMAGE_SIZES: Readonly<Record<string, readonly string[]>> = {
+/**
+ * 每个模型认的分辨率档位；不在表里的模型不收口，原样透传。`channels.json` 的 vertex-images
+ * 每加一个模型都要在这里登记，`upstream-vertex.test.ts` 核对两边的模型清单一致。
+ */
+export const VERTEX_IMAGE_SIZES: Readonly<Record<string, readonly string[]>> = {
   'gemini-3.1-flash-lite-image': ['1K'],
   'gemini-nano-banana-2.1': ['1K', '2K', '4K'],
   'gemini-3-pro-image': ['1K', '2K', '4K'],
