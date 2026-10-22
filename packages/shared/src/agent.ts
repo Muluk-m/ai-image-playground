@@ -798,6 +798,17 @@ export interface AgentToolResultBlock {
   readonly errorCode?: AgentToolErrorCode
   /** 起跑时的参数快照；只有提交生成任务的工具有。旧记录缺席。 */
   readonly snapshot?: AgentToolCallSnapshot
+  /**
+   * 这张卡是智能体模式「直接出图」关掉时被确认门拦下的调用（见 BFF `tool-gate.ts`）。智能体不知道
+   * 停过：用户确认后同一轮接着跑；没确认就发了新消息，这张卡作废（`failed` + `cancelled`）。
+   * 普通拟稿与旧记录缺席。
+   */
+  readonly gated?: true
+  /**
+   * 确认门拦下那一刻交给模型的回执原文（版本数、尺寸都在里面）。续跑把它原样接回历史，
+   * 模型在确认前后看到的是同一句话。只有确认门的卡有；旧记录缺席。
+   */
+  readonly gateReceipt?: string
   /** 这次调用提交的后台任务；任务结束后仍保留，标明这张卡的结局来自后台任务。 */
   readonly job?: AgentBackgroundJob
   /** 这张卡是一条重试记录：用户在哪张失败卡的哪个失败占位上点了重试。普通调用缺席。 */
@@ -941,6 +952,11 @@ export const AGENT_CONFIRMATION_PROMPT_MAX_CHARS = 8_000
  */
 export interface AgentConfirmationResponse {
   readonly message: AgentMessageView
+  /**
+   * 确认门拦下的那一轮会接着跑（这一轮被拦下的卡都确认完了）：界面去跟进那一轮的流，
+   * 它接在原来那段回复后面。缺席即这张卡不是确认门的卡，或同一轮还有没确认的卡。
+   */
+  readonly continued?: true
 }
 
 /** 确认没能提交（积分不够、模型下线、提示词为空或过长……）；界面只按 `code` 给出路。 */

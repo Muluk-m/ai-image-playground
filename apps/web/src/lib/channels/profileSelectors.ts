@@ -1,4 +1,6 @@
 import {
+  GEMINI_IMAGE_SIZES,
+  type GeminiImageSize,
   isModelEtaSeconds,
   MODEL_BADGES,
   type ModelBadge,
@@ -20,6 +22,24 @@ export function getModelCapabilities(
   const model =
     channel?.models.find((item) => item.id === profile.selectedModelId) ?? channel?.models[0]
   return model ? new Set(model.capabilities) : null
+}
+
+/**
+ * 当前选中模型可选的 Gemini 分辨率档位：渠道声明了 `imageSizes` 就只给这几档（按共享顺序、
+ * 只认共享档位里有的），没声明、或清单还没到就给共享档位全集。浏览器不校验发现清单，
+ * 过滤完一档不剩也退回全集，免得面板没得选。
+ */
+export function getModelImageSizes(
+  profile: ClientProfile,
+  publicChannels: PublicChannel[],
+): readonly GeminiImageSize[] {
+  const channel = publicChannels.find((item) => item.id === profile.channelId)
+  const model =
+    channel?.models.find((item) => item.id === profile.selectedModelId) ?? channel?.models[0]
+  const declared: unknown = model?.imageSizes
+  if (!Array.isArray(declared)) return GEMINI_IMAGE_SIZES
+  const sizes = GEMINI_IMAGE_SIZES.filter((size) => declared.includes(size))
+  return sizes.length ? sizes : GEMINI_IMAGE_SIZES
 }
 
 /**
