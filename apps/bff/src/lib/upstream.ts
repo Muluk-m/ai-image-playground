@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { QUEUE_TIMEOUTS, type QueueProvider } from '@image-playground/shared'
 import { config } from '../config'
-import { getChannels } from './channels'
+import { getRoutableChannels } from './channels'
 import type { HydratedSubmitRequest } from './imageArchive'
 import { log } from './logger'
 import {
@@ -89,7 +89,8 @@ interface UpstreamRoute {
  */
 function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute {
   const kind = provider === 'gemini' ? 'gemini-queue' : 'openai-queue'
-  for (const channel of getChannels()) {
+  // 含下线的 channel：下线前已提交的任务还要回原上游续轮询；新任务在提交入口就被拒了。
+  for (const channel of getRoutableChannels()) {
     const style = CHANNEL_ROUTE_STYLES[channel.id]
     if (!style || channel.kind !== kind) continue
     // 从发现清单退役后，旧队列任务仍要在原 Grok 线路提交或续轮询。
