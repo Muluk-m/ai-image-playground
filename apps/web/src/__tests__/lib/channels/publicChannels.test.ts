@@ -6,6 +6,7 @@ import {
   getPublicChannel,
   getPublicChannels,
   modelLabel,
+  modelLogo,
 } from '../../../lib/channels/publicChannels'
 import type { ClientProfile } from '../../../lib/channels/types'
 import { GROK_CHANNEL, IMAGE_CHANNEL } from '../../features/video/fixtures'
@@ -99,5 +100,36 @@ describe('getPublicChannels', () => {
       { id: 'img-a', label: 'Image A' },
       { id: 'img-b', label: 'Image B' },
     ])
+  })
+})
+
+describe('selector metadata from an unvalidated catalog', () => {
+  const STALE: DiscoveredChannel = {
+    id: 'stale',
+    kind: 'gemini-queue',
+    label: 'Stale',
+    models: [
+      {
+        id: 'img-a',
+        label: 'Image A',
+        capabilities: ['generate'],
+        badges: ['fast', 'brand-new', 'fast', 'value'] as never,
+        logo: 'future-logo' as never,
+      },
+      { id: 'img-b', label: 'Image B', capabilities: ['generate'], logo: 'nano-banana' },
+    ],
+    defaults: {},
+  }
+
+  it('keeps only badges the client knows, once each and in order', () => {
+    setChannels([STALE])
+    const [first] = getProfileModelOptions(builtinProfile('stale', 'img-a'), getPublicChannels())
+    expect(first?.badges).toEqual(['fast', 'value'])
+  })
+
+  it('ignores a logo token the client has no icon for', () => {
+    setChannels([STALE])
+    expect(modelLogo('img-a')).toBeUndefined()
+    expect(modelLogo('img-b')).toBe('nano-banana')
   })
 })

@@ -52,8 +52,10 @@ export async function acquireChannelSlot(
     if (released) return
     released = true
     const next = current.waiting.shift()
-    if (next) next()
-    else current.active -= 1
+    if (next) return next()
+    current.active -= 1
+    // 闲下来就把 gate 丢掉，Map 只留有请求在途的渠道。
+    if (current.active === 0 && gates.get(channelId) === current) gates.delete(channelId)
   }
 }
 
@@ -65,4 +67,9 @@ function abortReason(signal: AbortSignal): unknown {
 export function channelSlotStateForTesting(channelId: string): { active: number; waiting: number } {
   const gate = gates.get(channelId)
   return { active: gate?.active ?? 0, waiting: gate?.waiting.length ?? 0 }
+}
+
+/** 测试用：当前还留着 gate 的渠道数（闲下来的渠道不该留）。 */
+export function channelGateCountForTesting(): number {
+  return gates.size
 }
