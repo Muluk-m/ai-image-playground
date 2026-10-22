@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { webcrypto } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
-import { uploadMediaSource } from '../../lib/mediaUpload'
+import { MEDIA_UPLOAD_TIMING_FLAG, uploadMediaSource } from '../../lib/mediaUpload'
 
 const source = 'data:image/png;base64,iVBORw0KGgo='
 const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
@@ -220,6 +220,7 @@ it.each([
 
 it('logs per-stage timing and bytes for each uploaded image', async () => {
   vi.stubGlobal('crypto', webcrypto)
+  localStorage.setItem(MEDIA_UPLOAD_TIMING_FLAG, '1')
   const info = vi.spyOn(console, 'debug').mockImplementation(() => {})
   vi.stubGlobal(
     'fetch',
@@ -267,11 +268,13 @@ it('logs per-stage timing and bytes for each uploaded image', async () => {
     expect(Math.abs(summed - entry.totalMs)).toBeLessThanOrEqual(7)
   } finally {
     info.mockRestore()
+    localStorage.removeItem(MEDIA_UPLOAD_TIMING_FLAG)
   }
 })
 
 it('logs a failed upload with the stage it reached', async () => {
   vi.stubGlobal('crypto', webcrypto)
+  localStorage.setItem(MEDIA_UPLOAD_TIMING_FLAG, '1')
   const info = vi.spyOn(console, 'debug').mockImplementation(() => {})
   vi.stubGlobal(
     'fetch',
@@ -296,11 +299,13 @@ it('logs a failed upload with the stage it reached', async () => {
     expect(Object.keys(entry.phaseMs)).toEqual(['queue', 'read', 'hash', 'convert', 'reserve'])
   } finally {
     info.mockRestore()
+    localStorage.removeItem(MEDIA_UPLOAD_TIMING_FLAG)
   }
 })
 
 it('logs hash hits too, and keeps the media id when confirmation fails after the PUT', async () => {
   vi.stubGlobal('crypto', webcrypto)
+  localStorage.setItem(MEDIA_UPLOAD_TIMING_FLAG, '1')
   const info = vi.spyOn(console, 'debug').mockImplementation(() => {})
   vi.stubGlobal(
     'fetch',
@@ -339,11 +344,13 @@ it('logs hash hits too, and keeps the media id when confirmation fails after the
     ])
   } finally {
     info.mockRestore()
+    localStorage.removeItem(MEDIA_UPLOAD_TIMING_FLAG)
   }
 })
 
 it('marks a confirmation joined from another upload of the same image as confirm_shared', async () => {
   vi.stubGlobal('crypto', webcrypto)
+  localStorage.setItem(MEDIA_UPLOAD_TIMING_FLAG, '1')
   const info = vi.spyOn(console, 'debug').mockImplementation(() => {})
   let finishConfirm!: () => void
   const confirmGate = new Promise<void>((resolve) => {
@@ -387,5 +394,26 @@ it('marks a confirmation joined from another upload of the same image as confirm
     expect(phases).toContainEqual(expect.arrayContaining(['confirm_shared']))
   } finally {
     info.mockRestore()
+    localStorage.removeItem(MEDIA_UPLOAD_TIMING_FLAG)
+  }
+})
+
+it('logs nothing unless upload timing is switched on for this browser', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input === source) return new Response(bytes)
+      if (input.endsWith('/api/media/uploads'))
+        return Response.json({ id: 'media-q', status: 'ready' })
+      throw new Error(`Unexpected fetch ${input}`)
+    }),
+  )
+  try {
+    await uploadMediaSource(source, { signal: new AbortController().signal })
+    expect(debug.mock.calls.filter(([label]) => label === '[media.upload]')).toHaveLength(0)
+  } finally {
+    debug.mockRestore()
   }
 })
