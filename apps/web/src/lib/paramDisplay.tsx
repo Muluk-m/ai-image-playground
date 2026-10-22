@@ -40,7 +40,8 @@ export function ActualValueBadge({
         tabIndex={0}
         onClick={() => setOpen(true)}
       >
-        {value}
+        {/* 容器是 inline-flex，省略号得落在内层块上才生效；卡片标签窄时靠它截断。 */}
+        <span className="min-w-0 truncate">{value}</span>
       </span>
     </Hint>
   )
