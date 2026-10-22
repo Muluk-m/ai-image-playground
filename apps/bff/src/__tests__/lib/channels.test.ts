@@ -689,14 +689,14 @@ describe('shipped channels.json', () => {
         label: 'Nano Banana 2.1',
         capabilities: ['generate', 'edit', 'size'],
         badges: ['latest'],
-        etaSeconds: 14,
+        etaSeconds: 25,
       },
       {
         id: 'gemini-3-pro-image',
         label: 'Nano Banana Pro',
         capabilities: ['generate', 'edit', 'size'],
         badges: ['quality'],
-        etaSeconds: 24,
+        etaSeconds: 80,
       },
       {
         id: 'gemini-3.1-flash-lite-image',

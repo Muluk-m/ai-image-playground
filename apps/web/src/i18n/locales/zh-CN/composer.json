@@ -78,6 +78,7 @@
     "searchModel": "搜索模型",
     "noModelMatch": "没有匹配的模型",
     "modelEta": "约 {{seconds}} 秒",
+    "modelEtaMinutes": "约 {{minutes}} 分钟",
     "modelBadge": {
       "latest": "最新",
       "quality": "质量好",

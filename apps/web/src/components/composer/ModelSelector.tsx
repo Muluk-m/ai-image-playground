@@ -27,7 +27,7 @@ export interface ModelChoice {
   description?: string
   /** 渠道下发的说明标签（最新 / 质量好 / 速度快 / 便宜），按顺序显示在名字后面。 */
   badges?: readonly ModelBadge[]
-  /** 典型单张耗时，显示成「约 N 秒」。 */
+  /** 典型单张耗时，显示成「约 N 秒」，一分钟以上显示成「约 N 分钟」。 */
   etaSeconds?: number
 }
 
@@ -139,6 +139,11 @@ export function ModelList({
 }) {
   const { t } = useTranslation('composer')
   const badgeLabel = (badge: ModelBadge) => t(`param.modelBadge.${badge}`)
+  // 一分钟以上按分钟说：「约 80 秒」不如「约 1 分钟」好读，预估本来就只是量级。
+  const etaLabel = (seconds: number) =>
+    seconds < 60
+      ? t('param.modelEta', { seconds })
+      : t('param.modelEtaMinutes', { minutes: Math.round(seconds / 60) })
   const [query, setQuery] = useState('')
   const listId = useId()
   const needle = query.trim().toLocaleLowerCase()
@@ -188,7 +193,7 @@ export function ModelList({
               aria-label={[
                 option.label,
                 ...(option.badges ?? []).map(badgeLabel),
-                ...(option.etaSeconds ? [t('param.modelEta', { seconds: option.etaSeconds })] : []),
+                ...(option.etaSeconds ? [etaLabel(option.etaSeconds)] : []),
                 ...(option.description ? [option.description] : []),
               ].join(' · ')}
               onClick={() => onPick(option.value)}
@@ -203,7 +208,7 @@ export function ModelList({
               {modelOptionName(
                 option,
                 badgeLabel,
-                option.etaSeconds ? t('param.modelEta', { seconds: option.etaSeconds }) : undefined,
+                option.etaSeconds ? etaLabel(option.etaSeconds) : undefined,
               )}
               {option.description && (
                 <OverflowText
