@@ -17,12 +17,15 @@ interface ActualValueBadgeProps {
   value: string
   className?: string
   variant?: 'highlight' | 'normal'
+  /** 单行截断，窄卡片标签用；详情弹窗里 revised prompt 要多行完整显示，不能开。 */
+  truncate?: boolean
 }
 
 export function ActualValueBadge({
   value,
   className = '',
   variant = 'highlight',
+  truncate = false,
 }: ActualValueBadgeProps) {
   const { t } = useTranslation('lib')
   // 触屏没有悬停，点一下也要能看到说明，所以由这里控制显隐。
@@ -40,8 +43,14 @@ export function ActualValueBadge({
         tabIndex={0}
         onClick={() => setOpen(true)}
       >
-        {/* 容器是 inline-flex，省略号得落在内层块上才生效；卡片标签窄时靠它截断。 */}
-        <span className="min-w-0 truncate">{value}</span>
+        {/* 容器是 inline-flex，省略号得落在内层块上才生效。 */}
+        {truncate ? (
+          <span className="min-w-0 truncate" title={value}>
+            {value}
+          </span>
+        ) : (
+          value
+        )}
       </span>
     </Hint>
   )
