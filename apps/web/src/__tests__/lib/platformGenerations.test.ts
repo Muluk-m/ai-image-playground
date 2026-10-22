@@ -265,6 +265,42 @@ it('本机完成卡缺图时，使用平台已经归档的封面', async () => {
   })
 })
 
+it('接过平台出图时一并接过实测像素，本机自己的图不被平台尺寸覆盖', async () => {
+  await receivePlatformPage([
+    { ...summary, cover: { ...summary.cover, width: 2752, height: 1536 } },
+  ])
+  const rows = useStore.getState().platformGenerations
+  const [adopted] = mergeHistory(
+    [
+      localTask({
+        bffRequestId: summary.id,
+        status: 'running',
+        outputImages: [],
+        finishedAt: null,
+      }),
+    ],
+    rows,
+  )
+  expect(adopted).toMatchObject({
+    outputImages: [`aip-media:${summary.cover.mediaId}`],
+    measuredSize: '2752x1536',
+  })
+
+  const [kept] = mergeHistory(
+    [
+      localTask({
+        bffRequestId: summary.id,
+        status: 'running',
+        outputImages: ['local-image'],
+        finishedAt: null,
+      }),
+    ],
+    rows,
+  )
+  expect(kept.outputImages).toEqual(['local-image'])
+  expect(kept).not.toHaveProperty('measuredSize')
+})
+
 it('平台已失败时，本机残留的生成中卡也要收口', async () => {
   await receivePlatformPage([
     { ...summary, status: 'failed', cover: null, errorType: 'upstream_error' },
