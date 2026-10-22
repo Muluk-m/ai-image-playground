@@ -40,6 +40,7 @@ import {
   batchPerImage,
   oversizedReferenceIndexes,
   oversizedReferenceMessage,
+  quickGenerateAdmission,
 } from '../lib/batchGenerate'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { isVideoModeAvailable } from '../lib/channels/videoChannels'
@@ -108,6 +109,9 @@ function useIsMobile() {
   return isMobile
 }
 
+/** 逐张生成点发送后按钮转圈的最短时长，之后才清空输入框。 */
+const BATCH_SEND_FEEDBACK_MS = 500
+
 /** `inline`：首屏那一版——不吸底，跟着 hero 排在流里，卡面换成带发光描边的大卡。 */
 export default function InputBar({ inline = false }: { inline?: boolean } = {}) {
   const { t, i18n } = useTranslation(['composer', 'common'])
@@ -157,6 +161,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   } | null>(null)
   // 附件按钮弹的「图片 / 文件夹」二选一，与画布工具条那颗回形针同一套菜单。
   const [attachMenu, setAttachMenu] = useState<{ x: number; y: number } | null>(null)
+  const [batchSending, setBatchSending] = useState(false)
   const [imageDragIndex, setImageDragIndex] = useState<number | null>(null)
   const [imageDragOverIndex, setImageDragOverIndex] = useState<number | null>(null)
   const [touchDragPreview, setTouchDragPreview] = useState<{
@@ -297,14 +302,19 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         creationMode === 'video' ? 'video' : 'image',
       )
     else if (activeLook) void submitWithLook(activeLook, lookBody)
-    else submitTask()
+    else if (batchActive) {
+      // 逐张生成一次发很多张，按钮先转一下再清空输入框，让这次点击有回应。
+      setBatchSending(true)
+      const hold = new Promise((resolve) => setTimeout(resolve, BATCH_SEND_FEEDBACK_MS))
+      void submitTask({ holdClear: hold }).finally(() => setBatchSending(false))
+    } else void submitTask()
   }
   const onSubmitClick = () => {
     if (lookSubmitting) cancelLookSubmission()
     else if (apiReady) submit()
     else setShowSettings(true)
   }
-  const submitDisabled = !lookSubmitting && apiReady && !submitReady
+  const submitDisabled = !lookSubmitting && apiReady && (!submitReady || batchSending)
   const submitLabel = lookSubmitting
     ? t('common:action.cancel')
     : toCanvas
@@ -334,15 +344,18 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   // 快速生成能放到逐张生成的上限；超过模型合并上限的部分只能逐张跑。遮罩与模板只按模型的上限。
   const admission = toCanvas
     ? CANVAS_HANDOFF_ADMISSION
-    : modelAdmission.acceptsReferences && !maskDraft && !activeLook
-      ? { ...modelAdmission, limit: Math.max(modelAdmission.limit, BATCH_GENERATE_MAX) }
-      : modelAdmission
+    : maskDraft || activeLook
+      ? modelAdmission
+      : quickGenerateAdmission(modelAdmission)
   const acceptsReferences = admission.acceptsReferences
   // 遮罩是出图那一刻的事，始终归生图模型：画布档把图交出去时不带遮罩。
   const supportsMask = modelAdmission.acceptsReferences
   const atImageLimit = inputImages.length >= admission.limit
   const attachDisabled = atImageLimit || !acceptsReferences
-  const attachDisabledReason = referenceRefusalMessage(acceptsReferences ? 'overflow' : 'noEdit')
+  const attachDisabledReason = referenceRefusalMessage(
+    acceptsReferences ? 'overflow' : 'noEdit',
+    admission.limit,
+  )
   const maskTargetImage = maskDraft
     ? (inputImages.find((img) => img.id === maskDraft.targetImageId) ?? null)
     : null
@@ -705,7 +718,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       admission,
     )
     if (refusal) {
-      useStore.getState().showToast(referenceRefusalMessage(refusal), 'error')
+      useStore.getState().showToast(referenceRefusalMessage(refusal, admission.limit), 'error')
       return
     }
     const importAll = async () => {
@@ -1489,6 +1502,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     autoTooltip={false}
                     cost={batchTotalCredits?.toLocaleString()}
                     streaming={lookSubmitting}
+                    busy={batchSending}
                     onClick={onSubmitClick}
                     disabled={submitDisabled}
                     title={submitTitle}

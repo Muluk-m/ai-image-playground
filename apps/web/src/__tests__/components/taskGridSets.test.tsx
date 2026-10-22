@@ -133,4 +133,24 @@ describe('the history folded by set', () => {
     expect(failure?.textContent).not.toContain('详情')
     expect(failure?.querySelector('button')?.textContent).toBe('重试')
   })
+
+  it('counts running and queued images of a per-image batch separately', async () => {
+    const batch = (shotId: string) => ({ setId: 'batch-2', shotId, kind: 'batch' as const })
+    const running = (id: string, shotId: string, queued = false) => ({
+      ...task(id, 5, batch(shotId)),
+      status: 'running' as const,
+      outputImages: [],
+      ...(queued ? { batchQueued: true as const } : {}),
+    })
+    useStore.setState({
+      tasks: [running('q1', '1'), running('q2', '2'), running('q3', '3', true)],
+    })
+    await render()
+
+    const card = document.querySelector('[data-set-history-card]')
+    expect(card?.textContent).toContain('完成 0/3 · 生成中 2 · 排队中 1')
+    expect(document.querySelectorAll('[data-batch-tile="running"]')).toHaveLength(2)
+    const queuedTile = document.querySelector('[data-batch-tile="queued"]')
+    expect(queuedTile?.textContent).toBe('排队中')
+  })
 })
