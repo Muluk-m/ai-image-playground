@@ -352,6 +352,13 @@ describe('直播专属', () => {
     const own = { ...gated, turnId: TURN }
     const followed = replay([START], null, { messages: [own], turns: {} })
     expect(followed.messages[0]).toMatchObject({ status: 'awaiting_confirmation' })
+    // 唤醒或续跑起的轮不是用户说话：服务端不作废，面板也不动别的轮拦下的卡。
+    const woke = replay(
+      [{ type: 'turnStart', turnId: TURN, userMessageId: 'user-1', wake: true }],
+      null,
+      { messages: [gated], turns: {} },
+    )
+    expect(woke.messages[0]).toMatchObject({ status: 'awaiting_confirmation' })
     // 别处（另一个标签页）发的新消息起了轮：本页没有正文可补，卡照样作废，也不补用户气泡。
     const elsewhere = replay([START], null, { messages: [gated], turns: {} })
     expect(elsewhere.messages).toEqual([

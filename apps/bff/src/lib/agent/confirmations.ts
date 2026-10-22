@@ -451,8 +451,8 @@ async function continueGatedTurn(
 
 /**
  * 用户没确认就发了新消息：这个会话里所有还在等的确认门卡就地改成作废（`failed` + `cancelled`），
- * 草稿的输入图一并丢掉。与确认握同一把会话锁，所以一张卡只会有一个结局：先确认的那一下赢，
- * 作废看到的就是已提交；先作废的话，晚到的确认看到的是一张不能再确认的卡。返回作废了几张。
+ * 还没被认领的草稿的输入图一并丢掉。与确认握同一把会话锁，所以一张卡只会有一个结局：先确认的那一下赢，
+ * 作废看到的就是已提交；先作废的话，晚到的确认看到的是一张不能再确认的卡。返回作废了几张卡。
  */
 export async function voidPendingToolGates(
   conversationId: string,
@@ -485,7 +485,7 @@ export async function voidPendingToolGates(
           ),
         )
     }
-    if (!drafts.length) return []
+    if (!drafts.length) return { cards: 0, draftIds: [] }
     const rowsOfDrafts = await tx
       .select({ id: schema.agent_generation_drafts.id })
       .from(schema.agent_generation_drafts)
@@ -503,12 +503,14 @@ export async function voidPendingToolGates(
           isNull(schema.agent_generation_drafts.task_id),
         ),
       )
-    return rowsOfDrafts.map((draft) => draft.id)
+    // 作废的张数按改写的卡算，不按找到的草稿算：草稿缺了或已被认领（`task_id` 不空，输入图归那个
+    // 任务管），卡照样作废了，只是没有要丢的输入图。
+    return { cards: drafts.length, draftIds: rowsOfDrafts.map((draft) => draft.id) }
   })
   // 作废的稿再也确认不了，归档的输入图没有读路径了；删不掉只是个孤儿，由 bucket lifecycle 收。
   // 各删各的，单个失败已在里面吞掉：并发删，作废多张卡时新消息不按张数排队等对象存储。
-  await Promise.all(voided.map((id) => discardDraftInputs(id)))
-  return voided.length
+  await Promise.all(voided.draftIds.map((id) => discardDraftInputs(id)))
+  return voided.cards
 }
 
 async function discardDraftInputs(draftId: string): Promise<void> {

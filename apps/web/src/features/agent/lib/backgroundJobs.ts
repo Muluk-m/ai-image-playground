@@ -49,6 +49,8 @@ const REAL_TIMING: AgentJobTiming = { pollIntervalMs: 3_000, wakePickupDelayMs: 
 
 /** 找唤醒轮最多看这么多次。 */
 const WAKE_PICKUP_ATTEMPTS = 8
+/** 确认门续跑最多跟几趟 {@link WAKE_PICKUP_ATTEMPTS}：每趟约 30 秒，合起来覆盖到两分钟左右。 */
+const CONTINUATION_FOLLOW_ROUNDS = 4
 
 /**
  * 交出一张卡时，它的产出落在画布哪里。三种交接点各说一种，交出之后占位就归这个模块，
@@ -595,7 +597,19 @@ export function createAgentBackgroundJobs({
     followContinuation(conversationId) {
       if (continuationFollows.has(conversationId)) return
       continuationFollows.add(conversationId)
-      followWakeTurn(conversationId)
+      const sameAccount = accountScope()
+      const backend = bffBaseUrl()
+      // 续跑在确认那一刻就排上并当场开轮，一般第一趟就接上。这一轮之后没有别的事件会再来叫它
+      // （不像后台任务，下一个结束的任务还会再找一次），所以一趟没看到就再跟几趟；只在面板还停在
+      // 这个会话、空着时接着跟，开了别的轮或切走了就作罢。几趟都没看到（服务在下线、巡查才接手），
+      // 回到这个会话读回快照时照样补齐。
+      const follow = async (): Promise<void> => {
+        for (let round = 0; round < CONTINUATION_FOLLOW_ROUNDS; round += 1) {
+          if (await followWakeTurn(conversationId)) return
+          if (!sameAccount() || bffBaseUrl() !== backend || !session.isIdle(conversationId)) return
+        }
+      }
+      follow()
         .catch((error) => {
           // 卡已提交、续跑在服务端照常跑：这里接不上只是面板没跟上，下次读回快照会补齐。
           reportClientError('error', error, { operation: 'agent.followContinuation' })

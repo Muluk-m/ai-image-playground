@@ -426,6 +426,25 @@ it('确认门拦下的卡确认完：跟进服务端接着那一轮起的续跑'
   expect(state.adopted[0]).toMatchObject({ join: 'turn-continued' })
 })
 
+it('确认门续跑一趟没看到：接着再跟，晚起的那一轮照样挂上', async () => {
+  const { state, port } = fakeSession()
+  const { jobs: background } = jobModule(port)
+  state.messages = [card()]
+  let reads = 0
+  // 头一趟（8 次读）都还没起轮，第二趟才看到。
+  messages = () => {
+    reads += 1
+    return reads > 8
+      ? snapshot([historyMessage({})], { turnId: 'turn-late' })
+      : snapshot([historyMessage({})])
+  }
+
+  background.followContinuation(CONVERSATION)
+
+  await vi.waitFor(() => expect(state.adopted).toHaveLength(1), { timeout: 3000 })
+  expect(state.adopted[0]).toMatchObject({ join: 'turn-late' })
+})
+
 it('服务端跳过了唤醒：结果卡记下原因的那份快照换上来', async () => {
   const { state, port } = fakeSession()
   const { jobs: background } = jobModule(port)

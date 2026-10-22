@@ -259,7 +259,7 @@ function voidGatedDrafts(
 }
 
 /**
- * 一轮起跑时面板上的消息。确认门还没确认的稿在这一刻一律换成作废：卡还等着确认时，服务端只会为
+ * 一轮起跑时面板上的消息。用户消息起的轮，确认门还没确认的稿在这一刻一律换成作废：卡还等着确认时，服务端只会为
  * 用户的新消息起轮（唤醒与中断续跑被它拦着，确认门续跑要等卡全部确认），而起那一轮时已把它们作废
  * （不提交、不扣费）——不论这条消息是这个标签页发的、别处发的，还是已经在面板上。起轮没成就不会
  * 走到这里，卡仍可确认；续播重放拦下这张卡的那一轮时也不动它。
@@ -272,8 +272,11 @@ function turnStartMessages(
   userMessageId: string,
   turnId: string,
   pendingUserText: string | null,
+  wake: boolean,
 ): AgentPanelMessage[] {
-  const settled = voidGatedDrafts(messages, turnId)
+  // 服务端只在用户消息起轮时作废（`turn-preparation` 的 `source.kind === 'message'`）；唤醒与续跑
+  // 起轮不碰这些卡，面板也不碰，两边口径一致。
+  const settled = wake ? [...messages] : voidGatedDrafts(messages, turnId)
   if (pendingUserText === null || messages.some((one) => one.id === userMessageId)) return settled
   const pending = messages.find(
     (one): one is AgentTextMessage => one.kind === 'text' && one.pending === true,
@@ -308,7 +311,13 @@ export function reduceAgentPanelEvent(
         ),
         // 续播没有正文可补（`pendingUserText` 为空），找不到那条用户消息就不显示它：
         // 空气泡比少一条更糟。
-        messages: turnStartMessages(state.messages, event.userMessageId, turnId, pendingUserText),
+        messages: turnStartMessages(
+          state.messages,
+          event.userMessageId,
+          turnId,
+          pendingUserText,
+          event.wake === true,
+        ),
       }
     case 'assistantStart':
       // 先定稿再替换：重放同一条 `assistantStart` 时，替换会原样还它 `streaming: true`。
