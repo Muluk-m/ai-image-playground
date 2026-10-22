@@ -20,6 +20,14 @@ import {
 } from './lib/apiProfiles'
 import { pathAppMode } from './lib/appPaths'
 import { accountScope, STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
+import {
+  BATCH_GENERATE_CONCURRENCY,
+  BATCH_GENERATE_MAX,
+  batchPerImage,
+  oversizedReferenceIndexes,
+  oversizedReferenceMessage,
+  quickGenerateAdmission,
+} from './lib/batchGenerate'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { ensureChannelsLoaded } from './lib/channels/bootstrapChannels'
 import { channelsSettled, subscribeChannels } from './lib/channels/channelStore'
@@ -30,6 +38,7 @@ import { isVideoModeAvailable } from './lib/channels/videoChannels'
 import { mediaIdentity, resolveMediaSource } from './lib/cloudMedia'
 import { composerMaskSession } from './lib/composerMaskSession'
 import { compressInputImageDataUrls } from './lib/compressInputImage'
+import { createConcurrencyLimit } from './lib/concurrencyLimit'
 import {
   CURRENT_THUMBNAIL_VERSION,
   clearImages,
@@ -642,6 +651,9 @@ interface AppState {
   >
   createTarget: 'generate' | 'chat' | 'canvas' | 'video'
   setCreateTarget: (target: 'generate' | 'chat' | 'canvas' | 'video') => void
+  /** 图片生成档：多张参考图各自用同一句提示词生成，而不是合成一次。 */
+  batchGenerate: boolean
+  setBatchGenerate: (on: boolean) => void
   /**
    * 侧栏此刻摊开还是收起。`null` 表示按入口默认：首页与对话摊开，画布收起。
    * 用户按折叠键就写成明确的开或关，换入口时回到默认。
@@ -714,14 +726,13 @@ export const useStore = create<AppState>()(
         set((s) => ({ slotValues: { ...s.slotValues, [name]: values } })),
       inputImages: [],
       attachInputImages: (images, admission) => {
-        const { prompt, inputImages, settings, showToast } = get()
-        const result = attachReferences(
-          { prompt, references: inputImages },
-          images,
-          admission ?? referenceAdmission(getActiveApiProfile(settings)),
-        )
+        const { prompt, inputImages, settings, maskDraft, showToast } = get()
+        // 没指定准入的入口（素材库、作品「用作参考」等）按快速生成输入框那一份：逐张生成放得下 50 张。
+        const base = referenceAdmission(getActiveApiProfile(settings))
+        const effective = admission ?? (maskDraft ? base : quickGenerateAdmission(base))
+        const result = attachReferences({ prompt, references: inputImages }, images, effective)
         if (!result.ok) {
-          showToast(referenceRefusalMessage(result.reason), 'error')
+          showToast(referenceRefusalMessage(result.reason, effective.limit), 'error')
           return null
         }
         set({ inputImages: [...result.draft.references] })
@@ -881,6 +892,8 @@ export const useStore = create<AppState>()(
         (readProjectRoute(globalThis.location?.pathname ?? '/') !== null ? 'canvas' : 'image'),
       setAppMode: (appMode) => set({ appMode, sidebarExpanded: null }),
       createTarget: 'generate',
+      batchGenerate: false,
+      setBatchGenerate: (batchGenerate) => set({ batchGenerate }),
       creationSelections: {},
       projectCreationTargets: {},
       setCreateTarget: (createTarget) => {
@@ -1027,6 +1040,8 @@ function genId(): string {
  */
 function isResumablePlatformTask(task: TaskRecord): boolean {
   if (task.status !== 'running') return false
+  // 还在本机排队的那张从没发出去，刷新后无从续跑，按中断处理、留给重试。
+  if (task.batchQueued) return false
   if (task.bffRequestId || task.queuePhase) return true
   return task.platformTask === true && Boolean(task.clientRequestId) && !task.customTaskId
 }
@@ -1364,6 +1379,11 @@ export interface PreparedSubmission {
   clientRequestId?: string
   /** 归属信息（套 / 镜头）；零散提交不带。 */
   origin?: TaskOrigin
+  /**
+   * 逐张生成：每张参考图各发一条任务、各出 1 张，同一句提示词；这批任务折成「我的作品」里的一组。
+   * 与遮罩、`origin` 互斥。
+   */
+  eachImage?: true
 }
 
 /**
@@ -1476,14 +1496,25 @@ export async function submitPrepared(
     return []
   }
   const admission = referenceAdmission(profile)
+  const eachImage = Boolean(input.eachImage) && !input.maskDraft && !input.mask
+  // 逐张生成时每条任务只带一张图，模型上限管不着整批；整批另按 BATCH_GENERATE_MAX 收口。
+  const referenceLimit = eachImage ? BATCH_GENERATE_MAX : admission.limit
   if (
-    input.inputImages.length > admission.limit ||
+    input.inputImages.length > referenceLimit ||
     (input.inputImages.length > 0 && !admission.acceptsReferences)
   ) {
     showToast(
-      referenceRefusalMessage(input.inputImages.length > admission.limit ? 'overflow' : 'noEdit'),
+      referenceRefusalMessage(
+        input.inputImages.length > referenceLimit ? 'overflow' : 'noEdit',
+        referenceLimit,
+      ),
       'error',
     )
+    return []
+  }
+  const oversized = oversizedReferenceIndexes(input.inputImages)
+  if (oversized.length) {
+    showToast(oversizedReferenceMessage(oversized), 'error')
     return []
   }
   if (input.maskDraft) {
@@ -1514,11 +1545,17 @@ export async function submitPrepared(
       return []
     }
   }
-  const taskParams = deriveTaskParams(input.params, requestSettings, input.inputImages.length > 0)
-  if (
-    getSubmissionImageCount(trimmedPrompt, input.slotValues ?? {}, taskParams.n) > MAX_BATCH_IMAGES
-  ) {
-    showToast(i18next.t('submit.batchLimit', { ns: 'store', max: MAX_BATCH_IMAGES }), 'error')
+  const derivedParams = deriveTaskParams(
+    input.params,
+    requestSettings,
+    input.inputImages.length > 0,
+  )
+  // 逐张生成一张图只出一张：张数就是图数，数量步进不参与。
+  const taskParams = eachImage ? { ...derivedParams, n: 1 } : derivedParams
+  const imageCount = getSubmissionImageCount(trimmedPrompt, input.slotValues ?? {}, taskParams.n)
+  const batchMax = eachImage ? BATCH_GENERATE_MAX : MAX_BATCH_IMAGES
+  if ((eachImage ? imageCount * input.inputImages.length : imageCount) > batchMax) {
+    showToast(i18next.t('submit.batchLimit', { ns: 'store', max: batchMax }), 'error')
     return []
   }
   const submitView = clientProfileToApiProfile(profile)
@@ -1559,26 +1596,43 @@ export async function submitPrepared(
   }
 
   if (!current()) return []
-  const inputImageDataUrls = input.inputImages.map((img) => img.dataUrl)
+  // 一组参考图对应一条变体：合并参考是整条一组，逐张生成是每张图自成一组。
+  const referenceGroups = eachImage ? input.inputImages.map((img) => [img]) : [input.inputImages]
   const jobs = startGeneration<WorkbenchJob, WorkbenchVariant>(
     {
       settings: requestSettings,
       profile,
       params: taskParams,
       ...(input.clientRequestId ? { clientRequestId: input.clientRequestId } : {}),
-      variants: prompts.map((taskPrompt) => {
-        const transparent = taskParams.transparent_output
-          ? createTransparentOutputMeta(taskPrompt)
-          : null
-        return {
-          prompt: replaceImageMentionsForApi(
-            transparent?.effectivePrompt ?? taskPrompt,
-            inputImageDataUrls.length,
-          ),
-          inputImageDataUrls,
-          ...(maskDataUrl ? { maskDataUrl } : {}),
-          context: { prompt: taskPrompt, transparent },
-        }
+      variants: referenceGroups.flatMap((group, groupIndex) => {
+        const inputImageDataUrls = group.map((img) => img.dataUrl)
+        return prompts.map((taskPrompt, promptIndex) => {
+          const transparent = taskParams.transparent_output
+            ? createTransparentOutputMeta(taskPrompt)
+            : null
+          return {
+            prompt: replaceImageMentionsForApi(
+              transparent?.effectivePrompt ?? taskPrompt,
+              inputImageDataUrls.length,
+            ),
+            inputImageDataUrls,
+            ...(maskDataUrl ? { maskDataUrl } : {}),
+            context: {
+              prompt: taskPrompt,
+              transparent,
+              ...(eachImage
+                ? {
+                    inputImageIds: group.map((img) => img.id),
+                    // 提示词槽展开成几条时，同一张参考图的每条各占一格，不能被当成同一格的重试。
+                    shotId:
+                      prompts.length > 1
+                        ? `${groupIndex + 1}-${promptIndex + 1}`
+                        : String(groupIndex + 1),
+                  }
+                : {}),
+            },
+          }
+        })
       }),
     },
     workbenchSink({
@@ -1590,7 +1644,11 @@ export async function submitPrepared(
       maskImageId: input.mask?.imageId ?? null,
       maskTargetImageId: input.mask?.targetImageId ?? null,
       ...(maskDataUrl ? { maskDataUrl } : {}),
-      ...(input.origin ? { origin: input.origin } : {}),
+      ...(eachImage
+        ? { origin: { setId: genId(), shotId: '', kind: 'batch' as const } }
+        : input.origin
+          ? { origin: input.origin }
+          : {}),
     }),
   )
 
@@ -1601,8 +1659,8 @@ export async function submitPrepared(
  * 提交新任务：把 composer 状态组装成一次提交，校验与整幅遮罩确认都在 submitPrepared 里。
  * 这里只管 composer 自己的事：孤儿遮罩草稿兜底、归一化参数写回、成功后的收尾。
  */
-export async function submitTask() {
-  const { settings, prompt, slotValues, inputImages, maskDraft, params, showToast } =
+export async function submitTask(options: { holdClear?: Promise<unknown> } = {}) {
+  const { settings, prompt, slotValues, inputImages, maskDraft, params, batchGenerate, showToast } =
     useStore.getState()
 
   // 遮罩草稿的目标图已不在参考图条里：草稿留着也提交不了，清掉并提示重新选区。
@@ -1614,6 +1672,10 @@ export async function submitTask() {
 
   const activeProfile = getActiveApiProfile(settings)
   const requestSettings = createSettingsForApiProfile(normalizeSettings(settings), activeProfile)
+  // 与输入框同一条判断：用户选了逐张，或图多到超过模型一次能带的张数。遮罩编辑不走逐张。
+  const eachImage =
+    !maskDraft &&
+    batchPerImage(inputImages.length, batchGenerate, referenceAdmission(activeProfile).limit)
   const orderedInputImages = maskDraft
     ? orderInputImagesForMask(inputImages, maskDraft.targetImageId)
     : inputImages
@@ -1636,6 +1698,7 @@ export async function submitTask() {
         params: taskParams,
         maskDraft,
         profileId: activeProfile.id,
+        ...(eachImage ? { eachImage: true as const } : {}),
       },
       { signal: controller.signal, isCurrent: context.isCurrent },
     )
@@ -1647,6 +1710,15 @@ export async function submitTask() {
   // 新卡在输入框下方。滚不滚、高亮和焦点由作品网格在卡片挂上之后做；这里只标记「这次是用户主动发送」。
   noteUserSubmittedTasks(createdTaskIds)
 
+  // 发送按钮的转圈要先让人看见，输入框再清空。转圈期间用户又改了提示词或参考图，就不清，免得吞掉新输入。
+  if (options.holdClear) {
+    await options.holdClear
+    const now = useStore.getState()
+    const sameImages =
+      now.inputImages.length === inputImages.length &&
+      now.inputImages.every((img, i) => img.id === inputImages[i]?.id)
+    if (now.prompt !== prompt || !sameImages) return
+  }
   if (settings.clearInputAfterSubmit) {
     useStore.getState().setPrompt('')
     useStore.getState().clearInputImages()
@@ -1675,6 +1747,10 @@ interface WorkbenchSubmission {
 interface WorkbenchVariant {
   prompt: string
   transparent: TransparentOutputMeta | null
+  /** 逐张生成时这一条只带自己那张参考图；缺席即整次提交的那一组。 */
+  inputImageIds?: string[]
+  /** 逐张生成时这一条在组里的身份：那张参考图在条上的序号（从 1 起）。 */
+  shotId?: string
 }
 
 /** 一条任务行在工作台的身份。终局只认它，不必再把 task 对象带一路。 */
@@ -1810,7 +1886,8 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
           finishedAt: Date.now(),
           elapsed: Date.now() - job.createdAt,
         })
-        useStore.getState().setDetailTaskId(job.taskId)
+        // 逐张生成的失败汇总在那一组的卡片上，不一条条弹详情。
+        if (latestTask.origin?.kind !== 'batch') useStore.getState().setDetailTaskId(job.taskId)
       } finally {
         releaseGenerationTask(job.taskId)
       }
@@ -1818,15 +1895,24 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
   }
 }
 
+/** 逐张生成（含其重试）共用一个限流：所有批次加起来同时最多发这么多张。 */
+const batchLimit = createConcurrencyLimit(BATCH_GENERATE_CONCURRENCY)
+
 function workbenchSink(
   submission: WorkbenchSubmission,
 ): GenerationSink<WorkbenchJob, WorkbenchVariant> {
+  const queued = submission.origin?.kind === 'batch'
   // 一批任务按发起顺序排在列表最前：后开的插在前一条之后，而不是再压到最上面。
   let inserted = 0
   return {
     ...workbenchReport(),
     open(unit) {
       const { prompt, transparent } = unit.context
+      const inputImageIds = unit.context.inputImageIds ?? submission.inputImageIds
+      const origin =
+        submission.origin && unit.context.shotId
+          ? { ...submission.origin, shotId: unit.context.shotId }
+          : submission.origin
       const task: TaskRecord = {
         id: genId(),
         prompt,
@@ -1835,12 +1921,13 @@ function workbenchSink(
         apiProfileId: submission.profile.id,
         apiProfileName: submission.view.name,
         apiModel: submission.view.model,
-        inputImageIds: submission.inputImageIds,
+        inputImageIds,
         maskTargetImageId: submission.maskTargetImageId,
         maskImageId: submission.maskImageId,
         transparentOutput: transparent?.transparentOutput,
         transparentPrompt: transparent?.effectivePrompt,
-        origin: submission.origin,
+        origin,
+        ...(queued ? { batchQueued: true as const } : {}),
         outputImages: [],
         status: 'running',
         error: null,
@@ -1860,13 +1947,29 @@ function workbenchSink(
       return {
         taskId: task.id,
         createdAt: task.createdAt,
-        inputImageIds: submission.inputImageIds,
+        inputImageIds,
         provider: submission.view.provider,
         timeoutSeconds: submission.view.timeout,
         ...(submission.maskDataUrl ? { maskDataUrl: submission.maskDataUrl } : {}),
         stored: putTask(task),
       }
     },
+    ...(queued
+      ? {
+          schedule(job: WorkbenchJob, send: () => Promise<void>) {
+            void batchLimit.run(async () => {
+              // 排队期间被删掉或中止的那张不再发。
+              const latest = useStore.getState().tasks.find((t) => t.id === job.taskId)
+              if (!latest || latest.status !== 'running') {
+                releaseGenerationTask(job.taskId)
+                return
+              }
+              updateTaskInStore(job.taskId, { batchQueued: undefined, batchStartedAt: Date.now() })
+              await send()
+            })
+          },
+        }
+      : {}),
   }
 }
 
@@ -2187,6 +2290,8 @@ async function retryLocalTask(task: TaskRecord) {
       maskImageId: task.maskImageId ?? null,
       maskTargetImageId: task.maskTargetImageId ?? null,
       ...(inputs.maskDataUrl ? { maskDataUrl: inputs.maskDataUrl } : {}),
+      // 逐张生成的重试留在原来那一组里，顶替失败的那次（见 lib/setHistory）。
+      ...(task.origin?.kind === 'batch' ? { origin: task.origin } : {}),
     }),
   )
 }
