@@ -420,11 +420,25 @@ export function agentSkillFileUrl(name: string, file: string): string {
  *
  * 项目不限制媒体类型；一轮可先出图再生视频，模板也共享同一份按需加载清单。
  */
+/** 只在节点画布里用得上的技能：正文就是画布工具的用法，Agent 模式这一轮不列出、读不到，也不回放。 */
+const CANVAS_ONLY_SKILLS = new Set(['script-briefs'])
+
+export function isCanvasOnlySkill(name: string | undefined): boolean {
+  return name !== undefined && CANVAS_ONLY_SKILLS.has(name)
+}
+
 export function visibleAgentSkills(
   mode: AgentMode,
   audience: AgentTurnAudience,
 ): readonly AgentSkill[] {
-  return [...agentSkills(mode), ...audience.looks]
+  const skills = agentSkills(mode)
+  return [
+    // 没说是画布的一律按 Agent 模式：旧客户端与不带模式的清单请求都看不到画布技能。
+    ...(audience.experience === 'canvas'
+      ? skills
+      : skills.filter((skill) => !CANVAS_ONLY_SKILLS.has(skill.name))),
+    ...audience.looks,
+  ]
 }
 
 /**
@@ -435,9 +449,10 @@ export async function listAgentSkillSummaries(
   mode: AgentMode,
   userId: string | null,
   imageModel: string | undefined,
+  experience: 'chat' | 'canvas' = 'chat',
 ): Promise<AgentSkillSummary[]> {
   const looks = await userLookSkills(userId)
-  return visibleAgentSkills(mode, { userId, looks }).map((skill) =>
+  return visibleAgentSkills(mode, { userId, looks, experience }).map((skill) =>
     agentSkillSummary(skill, imageModel),
   )
 }

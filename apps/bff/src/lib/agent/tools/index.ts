@@ -140,10 +140,16 @@ const CANVAS_TOOLS = new Set<AgentToolName>([
   'arrangeTimeline',
 ])
 
+/** 只在画布模式里出现的工具。Agent 模式回放历史时它们的结果也不带给模型。 */
+export function isCanvasToolName(name: string): boolean {
+  return CANVAS_TOOLS.has(name as AgentToolName)
+}
+
 function present(mode: AgentMode, audience?: AgentToolAudience): AgentToolSpec[] {
   return TOOLS.filter(
     (tool) =>
-      (audience?.experience !== 'chat' || !CANVAS_TOOLS.has(tool.name)) &&
+      // 节点画布工具只在明确的画布模式里出现；没声明模式（旧客户端、起轮前估算）按 Agent 模式算。
+      (audience?.experience === 'canvas' || !CANVAS_TOOLS.has(tool.name)) &&
       // 节点画布的生成只走阶段授权，结果必须落在节点上，无主生图不进清单。
       // 批次计划的生成项必然被拒，分析另有 proposeBatchAnalysis，因此 planImageBatch 也不进清单。
       (audience?.experience !== 'canvas' ||

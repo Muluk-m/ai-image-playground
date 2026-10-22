@@ -10,6 +10,8 @@ import type { AgentThinkingDepth } from '@image-playground/shared'
 import { config } from '../../config'
 import { log } from '../logger'
 import { resolveChatApiKey } from '../resolveApiKey'
+import { withInlineReasoning } from './inline-reasoning'
+import { agentInlineReasoningTags } from './model-limits'
 import { type AgentDispatchObserver, guardedAgentFetch } from './outbound-budget'
 import { observeOverloadResponse } from './overload-response'
 import { providerFetch } from './provider-fetch'
@@ -150,11 +152,14 @@ export function agentStreamFn(
           )
         return overloaded
       }
-      return models.streamSimple(streamModel, context, {
+      const stream = models.streamSimple(streamModel, context, {
         ...options,
         maxRetries: 0,
         fetch: withIdleTimeout(outbound, idleMs) as typeof globalThis.fetch,
       })
+      // 把推理写在正文开头标签里的模型，在这一层就拆成 thinking：正文、落库与原生历史都不带标签。
+      const tags = agentInlineReasoningTags(streamModel.id)
+      return tags ? withInlineReasoning(stream, tags, streamModel) : stream
     }
   }
   const fallback = selectedRuntime?.fallback
