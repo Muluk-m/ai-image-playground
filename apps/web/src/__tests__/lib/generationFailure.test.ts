@@ -4,7 +4,7 @@ import { generationFailure } from '../../lib/generationJob'
 describe('generation failure text', () => {
   it('says the request never left when the browser could not reach the server', () => {
     expect(generationFailure(new TypeError('Failed to fetch')).text).toBe(
-      '网络中断，这一张没有发出去，请重试。',
+      '网络中断，这一张没能完成，请重试。',
     )
   })
 

@@ -69,7 +69,7 @@
     "elapsed": "耗时 {{duration}}",
     "copyAll": "全部复制",
     "dialog": "作品详情",
-    "networkFailed": "网络中断，这一张没有发出去，请重试。"
+    "networkFailed": "网络中断，这一张没能完成，请重试。"
   },
   "rawUrls": {
     "title": "原始图片链接 ({{n}})",
