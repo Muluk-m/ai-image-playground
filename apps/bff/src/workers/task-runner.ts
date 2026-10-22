@@ -154,10 +154,9 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       if (!preserved) return
       request = preserved
     }
-    const hydratedRequest = await hydrateInputImages(request)
     // 入库时直接用手里这份字节，不再回对象存储读：输入刚读来送上游，结果下面刚写进去。
     const known = new KnownMediaBytes()
-    known.rememberInputs(request, hydratedRequest)
+    const hydratedRequest = await hydrateInputImages(request, { onObjectRead: known.rememberRead })
     // 老任务只有 preserve_outside_mask、没有 masked_original_size：那时不补边，交付时也不裁边。
     protectOutput = request.preserve_outside_mask
       ? await protectMaskedOutput(

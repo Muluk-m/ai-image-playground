@@ -84,7 +84,11 @@ export async function archiveInputImages(
 
 export async function hydrateInputImages(
   request: SubmitRequest | PersistedSubmitRequest,
-  options: { maxBytes?: number } = {},
+  options: {
+    maxBytes?: number
+    /** 每读出一张输入/遮罩原件就交回这份字节与它的引用；视频源不报。 */
+    onObjectRead?: (ref: StoredImageRef, bytes: Uint8Array) => void
+  } = {},
 ): Promise<HydratedSubmitRequest> {
   const {
     preserve_outside_mask: _boundary,
@@ -95,13 +99,17 @@ export async function hydrateInputImages(
   if (request.input_images) {
     const inputs: string[] = []
     for (const input of request.input_images) {
-      inputs.push(isStoredImageRef(input) ? await hydrateObjectRef(input, options.maxBytes) : input)
+      inputs.push(
+        isStoredImageRef(input)
+          ? await hydrateObjectRef(input, options.maxBytes, options.onObjectRead)
+          : input,
+      )
     }
     hydrated.input_images = inputs
   }
   if (request.mask) {
     hydrated.mask = isStoredImageRef(request.mask)
-      ? await hydrateObjectRef(request.mask, options.maxBytes)
+      ? await hydrateObjectRef(request.mask, options.maxBytes, options.onObjectRead)
       : request.mask
   }
   const video = request.video as PersistedVideoRequest | undefined
@@ -326,13 +334,18 @@ async function archiveGeminiOutput(
   await archiveOutputs(taskId, entries, 'image/png', transform, context)
 }
 
-async function hydrateObjectRef(ref: StoredImageRef, maxBytes?: number): Promise<string> {
+async function hydrateObjectRef(
+  ref: StoredImageRef,
+  maxBytes?: number,
+  onRead?: (ref: StoredImageRef, bytes: Uint8Array) => void,
+): Promise<string> {
   try {
     const store = ref.store === 'durable' ? durableMediaStore() : objectStore()
     const bytes =
       maxBytes === undefined
         ? await store.read(ref.object)
         : await readObjectWithinLimit(store, ref.object, maxBytes)
+    onRead?.(ref, bytes)
     const mime = detectMediaMime(bytes) ?? ref.mime
     return `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`
   } catch (error) {
