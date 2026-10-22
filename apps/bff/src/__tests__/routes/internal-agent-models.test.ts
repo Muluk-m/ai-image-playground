@@ -18,7 +18,9 @@ const { app } = await import('../../app')
 const { _setSafeFetchForTesting } = await import('../../lib/safeFetch')
 const { db, schema, close } = await import('../../db/client')
 const { resolveConfiguredAgentRuntime } = await import('../../lib/agent/model-settings-store')
-const { agentStreamFn, setAgentFetchForTesting } = await import('../../lib/agent/model')
+const { agentStreamFn, setAgentFetchForTesting, setAgentRetryBackoffForTesting } = await import(
+  '../../lib/agent/model'
+)
 const { completionStream } = await import('../helpers/agentStubs')
 
 /** 保存预检要能被各协议当成成功。聊天补全、Responses、Anthropic 的成功帧不一样。 */
@@ -634,6 +636,99 @@ it('rejects non-provider environment secrets, private endpoints and text-only pr
   const { settings } = await initial()
   settings.providers[0]!.models[0]!.imageInput = false
   expect((await request('PUT', { revision: 0, settings })).status).toBe(400)
+})
+
+it('stores an overload fallback for every depth and switches the request once', async () => {
+  process.env.GROK_API_KEY = 'grok-fixture-secret'
+  setAgentRetryBackoffForTesting(0)
+  try {
+    const { settings } = await initial()
+    const fallback = { providerId: 'grok', modelId: 'grok-4.7', reasoning: 'low' as const }
+    settings.providers.push({
+      id: 'grok',
+      name: 'Grok',
+      template: 'custom',
+      baseUrl: 'https://provider.example/v1',
+      secretRef: 'GROK_API_KEY',
+      models: [
+        {
+          id: 'grok-4.7',
+          name: 'Grok 4.7',
+          api: 'openai-completions',
+          contextWindow: 500_000,
+          maxTokens: 128_000,
+          imageInput: true,
+          reasoningLevels: ['off', 'low', 'medium', 'high'],
+        },
+      ],
+    })
+    for (const key of ['default', 'fast', 'medium', 'deep'] as const) {
+      settings.profiles[key] = { ...settings.profiles[key], fallback }
+    }
+    const primary = { ...settings.profiles.deep }
+    expect((await request('PUT', { revision: 0, settings })).status).toBe(200)
+    const saved = await initial()
+    expect(saved.settings.profiles.fast.fallback).toEqual(fallback)
+    expect(saved.settings.profiles.medium.fallback).toEqual(fallback)
+    expect(saved.settings.profiles.deep.fallback).toEqual(fallback)
+    expect(saved.settings.profiles.default.fallback).toEqual(fallback)
+    const runtime = await resolveConfiguredAgentRuntime('deep')
+    expect(runtime.model.id).toBe(primary.modelId)
+    expect(runtime.effort).toBe(primary.reasoning)
+    expect(runtime.fallback?.model.id).toBe('grok-4.7')
+    expect(runtime.fallback?.effort).toBe('low')
+    expect(runtime.fallback?.model.compat?.maxTokensField).toBe('max_tokens')
+    expect(runtime.fallback?.model.compat?.supportsReasoningEffort).toBe(true)
+    const calls: { url: string; body: Record<string, unknown>; authorization: string | null }[] = []
+    const next: string[] = []
+    setAgentFetchForTesting(async (input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      calls.push({
+        url: String(input),
+        body,
+        authorization: new Headers(init?.headers).get('authorization'),
+      })
+      if (calls.length === 1) {
+        return Response.json(
+          { error: { message: 'Our servers are currently overloaded. Please try again later.' } },
+          { status: 503 },
+        )
+      }
+      return completionStream('ok')
+    })
+    const stream = await agentStreamFn(
+      'deep',
+      {
+        onRetry: async (_message, nextModelId) => {
+          next.push(nextModelId)
+        },
+      },
+      runtime,
+    )(
+      runtime.model,
+      { messages: [{ role: 'user', content: 'hi', timestamp: 1 }] },
+      {
+        reasoning: runtime.effort === 'off' ? undefined : runtime.effort,
+      },
+    )
+    expect((await stream.result()).stopReason).toBe('stop')
+    expect(calls.map((call) => call.body.model)).toEqual([primary.modelId, 'grok-4.7'])
+    expect(calls.map((call) => call.body.reasoning_effort)).toEqual([primary.reasoning, 'low'])
+    expect(calls[1]?.body.max_completion_tokens).toBeUndefined()
+    expect(typeof calls[1]?.body.max_tokens).toBe('number')
+    expect(calls[1]?.authorization).toBe('Bearer grok-fixture-secret')
+    expect(calls[1]?.url).toBe('https://8.8.8.8/v1/chat/completions')
+    expect(next).toEqual(['grok-4.7'])
+    const broken = structuredClone(saved.settings)
+    broken.profiles.fast.fallback = { providerId: 'grok', modelId: 'missing', reasoning: 'low' }
+    expect((await request('PUT', { revision: saved.revision, settings: broken })).status).toBe(400)
+    const nulled = structuredClone(saved.settings)
+    Object.assign(nulled.profiles.medium, { fallback: null })
+    expect((await request('PUT', { revision: saved.revision, settings: nulled })).status).toBe(400)
+  } finally {
+    delete process.env.GROK_API_KEY
+    setAgentRetryBackoffForTesting()
+  }
 })
 
 it('lets admin repair a damaged stored configuration without silently using fallback models for turns', async () => {
