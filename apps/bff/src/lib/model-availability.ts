@@ -8,23 +8,19 @@ import { loadPrivateBffOverlay } from './private-overlay'
  * 「模型不可用」上。
  *
  * 同步调用方读最近一次查到的那份（{@link knownInactiveModels}）；每一轮开始与 `/api/channels` 会先
- * {@link refreshInactiveModels}。同一时刻的刷新共用一次查询，查到后 {@link INACTIVE_MODELS_TTL_MS} 内不再查。
+ * {@link refreshInactiveModels}。同一时刻的刷新共用一次查询；不另设缓存：overlay 那边自带缓存，后台切换「上架」时
+ * 会立刻作废它，这里再缓存一层就会让切换要等这层过期才生效。
  * 查询失败时沿用上一次查到的清单，不把它当成「全部上架」；进程启动后一次都没查到时才按全部上架处理，与页面一致：
  * 拿不到模型列表比短暂多露一个停用模型糟得多，那个模型的提交在预扣那一步本来就会被拒。
  */
-export const INACTIVE_MODELS_TTL_MS = 10_000
 let known: ReadonlySet<string> = new Set()
-let fetchedAt: number | undefined
 let inflight: Promise<ReadonlySet<string>> | undefined
 
-export function refreshInactiveModels(now = Date.now()): Promise<ReadonlySet<string>> {
-  if (fetchedAt !== undefined && now - fetchedAt < INACTIVE_MODELS_TTL_MS)
-    return Promise.resolve(known)
+export function refreshInactiveModels(): Promise<ReadonlySet<string>> {
   inflight ??= (async () => {
     try {
       const { taskHooks } = await loadPrivateBffOverlay()
       known = (await taskHooks.inactiveModels?.()) ?? new Set()
-      fetchedAt = Date.now()
     } catch (err) {
       log.warn({ event: 'channels.inactive_models_failed', err }, 'inactive model lookup failed')
     } finally {
@@ -57,6 +53,5 @@ export function withoutInactiveModels<T extends Pick<DiscoveredChannel, 'models'
 
 export function _resetInactiveModelsForTesting(): void {
   known = new Set()
-  fetchedAt = undefined
   inflight = undefined
 }
