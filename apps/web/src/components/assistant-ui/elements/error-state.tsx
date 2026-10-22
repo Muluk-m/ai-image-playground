@@ -23,7 +23,7 @@ export function ErrorState({
       className={`flex w-full items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-foreground ${className}`}
       {...props}
     >
-      <Icon name="error" size="xs" className="mt-[3px] shrink-0 text-destructive" />
+      <Icon name="error" size="xs" className="mt-0.5 shrink-0 text-destructive" />
       <div className="min-w-0 flex-1">
         <p className="break-words leading-snug">{title}</p>
         {detail && (
