@@ -2,7 +2,8 @@
   "capabilities": {
     "accounts:login": true,
     "accounts:sync": true,
-    "billing:credits": true
+    "billing:credits": true,
+    "generation:video": true
   },
   "quotas": { "sync:user-projects": 30 }
 }
