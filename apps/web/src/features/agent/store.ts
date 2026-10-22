@@ -2648,6 +2648,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const text = prompt.trim()
       // 空提示词提交不了；界面按住了按钮，这里守住第二道。
       if (!conversationId || draft?.kind !== 'tool' || !text) return { ok: false, reason: 'failed' }
+      // 确认门拦下的稿：用户已经发出新消息、新的一轮正在起（`turn` 在消息上屏那一刻就是 running），
+      // 服务端起轮时会把它作废。这时的确认与新轮抢跑，不交出去；起轮失败回到空闲后仍可确认。
+      if (draft.gated && get().turn === 'running') return { ok: false, reason: 'notConfirmable' }
       let view: AgentMessageView
       let continued = false
       try {
