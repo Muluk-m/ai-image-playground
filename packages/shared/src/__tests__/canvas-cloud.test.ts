@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import * as Y from 'yjs'
 import {
+  CANVAS_UPLOAD_CLOCK_SKEW_MS,
   CANVAS_UPLOAD_STALE_MS,
   canvasProjectDocument,
-  canvasUploadClaimedElsewhere,
+  canvasUploadClaimNextChange,
   canvasUploadingElsewhere,
   initializeCanvasConnectionRules,
   validateCloudCanvas,
@@ -117,6 +118,10 @@ describe('cloud canvas migration and protocol', () => {
       image('data:image/png;base64,AAAA'),
       image('x'.repeat(257)),
       image('local', '11111111-1111-4111-8111-111111111111'),
+      // 客户端用普通对象 files[fileId] 查本机图，原型链上的名字会查到继承来的函数或对象。
+      image('__proto__'),
+      image('constructor'),
+      image('toString'),
     ]) {
       insertCanvasNode(doc, forged, origin)
       expect(() => validateCloudCanvas(doc, legacy)).toThrow(
@@ -325,6 +330,23 @@ describe('canvas upload claims', () => {
     meta: { uploadDevice: by, uploadStartedAt: String(since), prompt: 'p' },
   })
 
+  it('给出上传中状态下一次翻转的时刻，到点前后结果确实不同', () => {
+    const fresh = claimed('other', now - 1000)
+    const expiry = canvasUploadClaimNextChange(fresh, 'me', now)
+    expect(expiry).toBe(now - 1000 + CANVAS_UPLOAD_STALE_MS)
+    expect(canvasUploadingElsewhere(fresh, 'me', (expiry as number) - 1)).toBe(true)
+    expect(canvasUploadingElsewhere(fresh, 'me', expiry as number)).toBe(false)
+    const ahead = claimed('other', now + CANVAS_UPLOAD_CLOCK_SKEW_MS + 60_000)
+    const start = canvasUploadClaimNextChange(ahead, 'me', now) as number
+    expect(canvasUploadingElsewhere(ahead, 'me', start - 1)).toBe(false)
+    expect(canvasUploadingElsewhere(ahead, 'me', start)).toBe(true)
+    expect(canvasUploadClaimNextChange(claimed('me', now), 'me', now)).toBeUndefined()
+    expect(
+      canvasUploadClaimNextChange(claimed('other', now - CANVAS_UPLOAD_STALE_MS), 'me', now),
+    ).toBeUndefined()
+    expect(canvasUploadClaimNextChange({ ...fresh, mediaId: 'm' }, 'me', now)).toBeUndefined()
+  })
+
   it('只把别的设备声明在传、还没过期的本机图片当作上传中', () => {
     expect(canvasUploadingElsewhere(claimed('other', now - 1000), 'me', now)).toBe(true)
     expect(canvasUploadingElsewhere(claimed('me', now - 1000), 'me', now)).toBe(false)
@@ -332,6 +354,11 @@ describe('canvas upload claims', () => {
       canvasUploadingElsewhere(claimed('other', now - CANVAS_UPLOAD_STALE_MS), 'me', now),
     ).toBe(false)
     expect(canvasUploadingElsewhere({ fileId: 'local-1' }, 'me', now)).toBe(false)
+    // 别的设备时钟快几分钟照样算在传；开始时间远在未来（时钟错乱或伪造）不算，避免一直绕过缺图处理。
+    expect(canvasUploadingElsewhere(claimed('other', now + 60_000), 'me', now)).toBe(true)
+    expect(
+      canvasUploadingElsewhere(claimed('other', now + CANVAS_UPLOAD_CLOCK_SKEW_MS + 1), 'me', now),
+    ).toBe(false)
     expect(canvasUploadingElsewhere({ ...claimed('other', now), mediaId: 'm' }, 'me', now)).toBe(
       false,
     )
@@ -340,10 +367,7 @@ describe('canvas upload claims', () => {
     ).toBe(false)
   })
 
-  it('过期的声明仍算别人在传（本机不报缺图），收成云媒体时去掉声明、保留其余 meta', () => {
-    expect(canvasUploadClaimedElsewhere(claimed('other', 0), 'me')).toBe(true)
-    expect(canvasUploadClaimedElsewhere(claimed('me', 0), 'me')).toBe(false)
-    expect(canvasUploadClaimedElsewhere({ fileId: 'local-1' }, 'me')).toBe(false)
+  it('收成云媒体时去掉声明、保留其余 meta', () => {
     expect(withoutCanvasUploadClaim(claimed('other', now).meta)).toEqual({ prompt: 'p' })
     const plain = { prompt: 'p' }
     expect(withoutCanvasUploadClaim(plain)).toBe(plain)

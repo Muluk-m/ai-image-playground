@@ -609,6 +609,215 @@ it("saves around another device's image that is still uploading", async () => {
   record.dispose()
 })
 
+it("treats another device's expired upload claim as a missing image", async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const vector = Y.encodeStateVector(server)
+  // 那台设备 31 分钟前声明在传，至今没收成云媒体：可能已离线或失败，不能再当「上传中」放行。
+  insertCanvasNode(
+    server,
+    {
+      id: 'stale',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: {
+        fileId: 'x2',
+        meta: { uploadDevice: 'other-device', uploadStartedAt: String(Date.now() - 31 * 60_000) },
+      },
+    },
+    origin,
+  )
+  socket.receive(canvasSyncUpdate(Y.encodeStateAsUpdate(server, vector)))
+  vi.mocked(uploadMediaSource).mockClear()
+  moveCanvasNodes(session.canvas!.doc, [{ id: 'text', x: 5, y: 6 }], session.canvas!.origin)
+  await expect(session.sync()).rejects.toThrow('canvas_media_missing')
+  expect(session.getSnapshot().status).toBe('media-local')
+  expect(uploadMediaSource).not.toHaveBeenCalled()
+  record.dispose()
+})
+
+it('waits for the background upload before falling back, and uploads each original once', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const upload = deferred<NonNullable<Awaited<ReturnType<typeof uploadMediaSource>>>>()
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockImplementationOnce(() => upload.promise)
+  const doc = session.canvas!.doc
+  record.editor.doc.files = {
+    photo: 'data:image/png;base64,cGhvdG8=',
+    edit: 'data:image/png;base64,ZWRpdA==',
+  }
+  insertCanvasNode(
+    doc,
+    { id: 'photo', type: 'image', x: 0, y: 0, width: 50, height: 50, data: { fileId: 'photo' } },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() =>
+    expect(serverNode(server, 'photo')?.data).toHaveProperty('fileId', 'photo'),
+  )
+  expect(uploadMediaSource).toHaveBeenCalledTimes(1)
+  // 图片还在后台传，又来了一个服务端不收的本机 file 候选：回到原流程，但先等在途的那张传完。
+  recordCanvasResult(
+    doc,
+    {
+      id: 'edit',
+      nodeId: 'photo',
+      kind: 'image',
+      source: { type: 'file', fileId: 'edit' },
+      createdAt: 1,
+    },
+    session.canvas!.origin,
+  )
+  const sync = session.sync()
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  expect(uploadMediaSource).toHaveBeenCalledTimes(1)
+  upload.resolve({ id: uploaded, sha256: 'photo' })
+  await sync
+  // 原图 photo 只传了一次，候选 edit 一次。
+  expect(vi.mocked(uploadMediaSource).mock.calls.map(([source]) => source)).toEqual([
+    'data:image/png;base64,cGhvdG8=',
+    'data:image/png;base64,ZWRpdA==',
+  ])
+  expect(serverNode(server, 'photo')?.data).toMatchObject({ mediaId: uploaded })
+  expect(canvasResults(server).find((result) => result.id === 'edit')?.source).toMatchObject({
+    type: 'media',
+  })
+  expect(session.getSnapshot()).toEqual({ status: 'saved', message: null })
+  record.dispose()
+})
+
+it('rechecks after the rename wait and holds back a local candidate added meanwhile', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  let finish!: () => void
+  vi.mocked(authenticatedBffFetch).mockImplementation(async () => {
+    await new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    return new Response('{}')
+  })
+  vi.mocked(uploadMediaSource).mockClear()
+  const doc = session.canvas!.doc
+  record.editor.doc.files = { edit: 'data:image/png;base64,ZWRpdA==' }
+  const renamed = session.rename('Renamed')
+  await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+  // 发送走快速路径、卡在改名请求上；这时加了服务端不收的本机 file 候选。
+  moveCanvasNodes(doc, [{ id: 'text', x: 9, y: 9 }], session.canvas!.origin)
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  doc.transact(() => {
+    insertCanvasNode(
+      doc,
+      { id: 'image', type: 'image', x: 0, y: 0, width: 50, height: 50, data: {} },
+      session.canvas!.origin,
+    )
+    recordCanvasResult(
+      doc,
+      {
+        id: 'edit',
+        nodeId: 'image',
+        kind: 'image',
+        source: { type: 'file', fileId: 'edit' },
+        createdAt: 1,
+      },
+      session.canvas!.origin,
+    )
+  }, session.canvas!.origin)
+  finish()
+  await renamed
+  await session.sync()
+  // 改名之后按最新文档重新判断：候选先收成云媒体，服务端从没收到本机 file 来源。
+  expect(uploadMediaSource).toHaveBeenCalledTimes(1)
+  expect(canvasResults(server).find((result) => result.id === 'edit')?.source).toMatchObject({
+    type: 'media',
+  })
+  expect(serverNode(server, 'text')).toMatchObject({ x: 9, y: 9 })
+  expect(session.getSnapshot().status).toBe('saved')
+  record.dispose()
+})
+
+it("renews this device's old upload claim when a new upload round starts", async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const upload = deferred<NonNullable<Awaited<ReturnType<typeof uploadMediaSource>>>>()
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockImplementationOnce(() => upload.promise)
+  record.editor.doc.files = { photo: 'data:image/png;base64,cGhvdG8=' }
+  // 上一轮失败留下的本设备声明，已经 29 分钟了。
+  const old = Date.now() - 29 * 60_000
+  insertCanvasNode(
+    session.canvas!.doc,
+    {
+      id: 'photo',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: {
+        fileId: 'photo',
+        meta: { uploadDevice: getDeviceId(), uploadStartedAt: String(old) },
+      },
+    },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(uploadMediaSource).toHaveBeenCalledTimes(1))
+  await vi.waitFor(() => {
+    const data = serverNode(server, 'photo')?.data as { meta?: Record<string, string> } | undefined
+    expect(Number(data?.meta?.uploadStartedAt)).toBeGreaterThan(Date.now() - 60_000)
+  })
+  upload.resolve({ id: uploaded, sha256: 'photo' })
+  await session.sync()
+  expect(serverNode(server, 'photo')?.data).toMatchObject({ mediaId: uploaded })
+  record.dispose()
+})
+
+it('uploads a legacy image whose fileId the server would not accept before sending it', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const upload = deferred<NonNullable<Awaited<ReturnType<typeof uploadMediaSource>>>>()
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockImplementationOnce(() => upload.promise)
+  // 历史数据里带空格、斜杠的 fileId 不是服务端收的上传中格式：不能先发，照旧先收成云媒体。
+  record.editor.doc.files = { 'old dir/photo.png': 'data:image/png;base64,cGhvdG8=' }
+  insertCanvasNode(
+    session.canvas!.doc,
+    {
+      id: 'legacy',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: { fileId: 'old dir/photo.png' },
+    },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(uploadMediaSource).toHaveBeenCalledTimes(1))
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  expect(serverNode(server, 'legacy')).toBeUndefined()
+  upload.resolve({ id: uploaded, sha256: 'photo' })
+  await session.sync()
+  expect(serverNode(server, 'legacy')?.data).toMatchObject({ mediaId: uploaded })
+  expect(session.getSnapshot().status).toBe('saved')
+  record.dispose()
+})
+
 it('reports a local image whose original is gone instead of passing it off as uploading', async () => {
   pendingMedia.supported = true
   const { session, record, socket, server } = await fixture()

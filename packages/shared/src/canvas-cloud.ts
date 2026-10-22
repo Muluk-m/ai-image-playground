@@ -59,13 +59,18 @@ const id = (value: unknown): value is string =>
 const isMediaId = (value: unknown): value is string =>
   typeof value === 'string' &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
-/** 上传中节点的本机文件 id：不能冒充云媒体（cloud- 前缀只配 mediaId），不能内嵌图片数据。 */
+/**
+ * 上传中节点的本机文件 id：不能冒充云媒体（cloud- 前缀只配 mediaId），不能内嵌图片数据，
+ * 也不能是原型链上的名字（__proto__、constructor、toString…）：客户端用普通对象 files[fileId]
+ * 查本机图，这些名字会查到继承来的函数或对象而不是 undefined。
+ */
 export function isLocalCanvasFileId(value: unknown): value is string {
   return (
     typeof value === 'string' &&
     value.length > 0 &&
     value.length <= 256 &&
     !value.startsWith('cloud-') &&
+    !(value in Object.prototype) &&
     /^[\w.:-]+$/.test(value)
   )
 }
@@ -77,6 +82,8 @@ export const CANVAS_UPLOAD_DEVICE_META = 'uploadDevice'
 export const CANVAS_UPLOAD_STARTED_META = 'uploadStartedAt'
 /** 超过这么久还没收成云媒体，就不再显示「上传中」而显示缺图（上传那台设备可能已离线或失败）。 */
 export const CANVAS_UPLOAD_STALE_MS = 30 * 60_000
+/** 别的设备写的开始时间最多可以比本机时钟晚这么多（设备间的时钟偏差）。 */
+export const CANVAS_UPLOAD_CLOCK_SKEW_MS = 5 * 60_000
 
 interface CanvasUploadData {
   fileId?: string
@@ -93,14 +100,33 @@ export function canvasUploadingElsewhere(
   if (data.mediaId || !isLocalCanvasFileId(data.fileId)) return false
   const by = data.meta?.[CANVAS_UPLOAD_DEVICE_META]
   const since = Number(data.meta?.[CANVAS_UPLOAD_STARTED_META])
-  return !!by && by !== device && Number.isFinite(since) && now - since < CANVAS_UPLOAD_STALE_MS
+  // 开始时间不能比本机时钟晚太多：容忍设备间几分钟的时钟偏差，再往后的（时钟错乱或伪造）不算在传，
+  // 否则这个节点会一直被当成上传中、绕过缺图处理。
+  return (
+    !!by &&
+    by !== device &&
+    Number.isFinite(since) &&
+    since - now <= CANVAS_UPLOAD_CLOCK_SKEW_MS &&
+    now - since < CANVAS_UPLOAD_STALE_MS
+  )
 }
 
-/** 别的设备声明在传（不论是否过期）：本机没有原图也不该由本机报缺图、拦同步。 */
-export function canvasUploadClaimedElsewhere(data: CanvasUploadData, device: string): boolean {
-  if (data.mediaId || !isLocalCanvasFileId(data.fileId)) return false
+/**
+ * canvasUploadingElsewhere 的结果下一次会在什么时刻翻转（绝对毫秒时间），不会再变时返回 undefined。
+ * 界面据此定一个时钟：别的设备不再续期时，到点从「上传中」换成缺图，而不必等别的改动触发重渲染。
+ */
+export function canvasUploadClaimNextChange(
+  data: CanvasUploadData,
+  device: string,
+  now: number,
+): number | undefined {
+  if (data.mediaId || !isLocalCanvasFileId(data.fileId)) return undefined
   const by = data.meta?.[CANVAS_UPLOAD_DEVICE_META]
-  return !!by && by !== device
+  const since = Number(data.meta?.[CANVAS_UPLOAD_STARTED_META])
+  if (!by || by === device || !Number.isFinite(since)) return undefined
+  if (since - now > CANVAS_UPLOAD_CLOCK_SKEW_MS) return since - CANVAS_UPLOAD_CLOCK_SKEW_MS
+  if (now - since < CANVAS_UPLOAD_STALE_MS) return since + CANVAS_UPLOAD_STALE_MS
+  return undefined
 }
 
 /** 去掉上传声明（收成云媒体后）；没有声明时原样返回。 */
