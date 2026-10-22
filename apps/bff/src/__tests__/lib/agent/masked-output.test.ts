@@ -1,11 +1,11 @@
 import { expect, it } from 'bun:test'
 import sharp from 'sharp'
 import { inspectMaskedAlignment } from '../../../lib/agent/masked-alignment'
-import {
-  protectMaskedOutput,
-  rescaleEvidence,
-  upstreamSizeProblem,
-} from '../../../lib/agent/masked-output'
+import { protectMaskedOutput, upstreamFit } from '../../../lib/agent/masked-output'
+
+/** 对齐只记录、不拒收：块相关没对上，或主体轮廓整体挪了位。 */
+const misaligned = (inspection: Record<string, number>) =>
+  !inspection.alignmentAccepted || !inspection.translationAligned
 
 async function png(values: number[], mask = false) {
   const raw = Buffer.alloc(96 * 96 * 4)
@@ -20,7 +20,7 @@ const url = (bytes: Buffer) => `data:image/png;base64,${bytes.toString('base64')
 const source = await png([255, 0, 0, 255, 0, 255, 0, 255, 255, 0, 0, 255])
 const mask = await png([0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 128], true)
 
-it('accepts fine texture changes on a flat background but rejects a different background tone', async () => {
+it('accepts fine texture changes on a flat background and only flags a different background tone', async () => {
   const width = 768,
     height = 768
   const source = Buffer.alloc(width * height * 4),
@@ -47,10 +47,15 @@ it('accepts fine texture changes on a flat background but rejects a different ba
       throw new Error('changed protected pixel')
   for (let i = 0; i < candidate.length; i += 4)
     for (let channel = 0; channel < 3; channel++) candidate[i + channel]! += 20
-  await expect(protect(await encode(candidate))).rejects.toThrow('位置对应无法确认')
+  const toned = await protect(await encode(candidate))
+  expect(toned.inspection.alignmentAccepted).toBe(0)
+  const tonedOutput = await sharp(toned.bytes).raw().toBuffer()
+  for (let i = 0; i < source.length; i += 4)
+    if (mask[i + 3] === 255 && !source.subarray(i, i + 4).equals(tonedOutput.subarray(i, i + 4)))
+      throw new Error('changed protected pixel')
 })
 
-it('accepts a product edit with regenerated fine texture but rejects shifted protected objects', async () => {
+it('accepts a product edit with regenerated fine texture and flags shifted protected objects', async () => {
   const width = 768,
     height = 768
   const source = Buffer.alloc(width * height * 4),
@@ -92,7 +97,7 @@ it('accepts a product edit with regenerated fine texture but rejects shifted pro
     .extend({ left: 0, right: 24, top: 0, bottom: 0, background: '#fff' })
     .png()
     .toBuffer()
-  await expect(protect(shifted)).rejects.toThrow('位置对应无法确认')
+  expect(misaligned((await protect(shifted)).inspection)).toBe(true)
 })
 
 it('restores protected pixels exactly and confines feathering to the approved selection', async () => {
@@ -104,25 +109,31 @@ it('restores protected pixels exactly and confines feathering to the approved se
   expect(result.mime).toBe('image/png')
 })
 
-it('does not resize a generated candidate to fit a different coordinate system', async () => {
+it('resizes a candidate of any other size instead of refusing it', async () => {
   const protect = await protectMaskedOutput(url(source), url(mask))
-  await expect(
-    protect(
-      await sharp({ create: { width: 1, height: 1, channels: 4, background: 'blue' } })
-        .png()
-        .toBuffer(),
-    ),
-  ).rejects.toThrow('尺寸与原图不一致')
+  const result = await protect(
+    await sharp({ create: { width: 1, height: 1, channels: 4, background: 'blue' } })
+      .png()
+      .toBuffer(),
+  )
+  expect(result.inspection).toMatchObject({ fit: 1, rescaled: 1 })
+  const output = await sharp(result.bytes).raw().toBuffer()
+  const original = await sharp(source).raw().toBuffer()
+  expect([...output.subarray(0, 4)]).toEqual([0, 0, 255, 255])
+  for (let i = 12; i < original.length; i++) if (output[i] !== original[i]) throw new Error('moved')
 })
 
-it('rejects same-size candidates whose protected landmarks have shifted', async () => {
+it('flags same-size candidates whose protected landmarks have shifted, still delivering them', async () => {
   const protect = await protectMaskedOutput(url(source), url(mask))
   const shifted = await sharp(source)
     .extract({ left: 8, top: 0, width: 88, height: 96 })
     .extend({ left: 0, right: 8, top: 0, bottom: 0, background: '#fff' })
     .png()
     .toBuffer()
-  await expect(protect(shifted)).rejects.toThrow('位置对应无法确认')
+  const result = await protect(shifted)
+  expect(misaligned(result.inspection)).toBe(true)
+  expect(result.inspection.outsideChangedPixels).toBeGreaterThan(0)
+  expect([...(await sharp(result.bytes).raw().toBuffer()).subarray(4, 8)]).toEqual([0, 255, 0, 255])
 })
 
 it('preserves source alpha outside the selection and treats candidate alpha as opaque colour', async () => {
@@ -137,7 +148,7 @@ it('preserves source alpha outside the selection and treats candidate alpha as o
   expect(result.inspection.translucentPixels).toBe(1)
 })
 
-it('corrects a small uniform scale only when protected texture still matches across the image', async () => {
+it('corrects a small uniform scale and flags a candidate whose texture moved', async () => {
   const width = 256,
     height = 256
   const raw = Buffer.alloc(width * height * 4),
@@ -176,17 +187,20 @@ it('corrects a small uniform scale only when protected texture still matches acr
     .png()
     .toBuffer()
   const shifted = await sharp(moved).resize(248, 248).png().toBuffer()
-  await expect(protect(shifted)).rejects.toThrow('位置对应无法确认')
+  expect(misaligned((await protect(shifted)).inspection)).toBe(true)
 })
 
-it('does not infer a scale correction from an untextured background', async () => {
+it('rescales over an untextured background too, protected pixels staying the original', async () => {
   const blank = await sharp({ create: { width: 96, height: 96, channels: 4, background: '#fff' } })
     .png()
     .toBuffer()
   const protect = await protectMaskedOutput(url(blank), url(mask))
-  await expect(protect(await sharp(blank).resize(95, 95).png().toBuffer())).rejects.toThrow(
-    '位置对应无法确认',
-  )
+  const result = await protect(await sharp(blank).resize(95, 95).png().toBuffer())
+  expect(result.inspection).toMatchObject({
+    rescaled: 1,
+    texturedRegions: 0,
+    outsideChangedPixels: 0,
+  })
 })
 
 it('smooths only inward while retaining full edits in the interior and original outside pixels', async () => {
@@ -271,138 +285,6 @@ it('accepts a candidate whose every pixel is translucent and composites it opaqu
   }
 })
 
-it('regenerates only the region the model left unchanged and composites it in', async () => {
-  const { width, raw, selection, inA, inB, encode, paint } = await twoRegionFixture()
-  const masks: Buffer[] = []
-  const protect = await protectMaskedOutput(
-    url(await encode(raw)),
-    url(await encode(selection)),
-    undefined,
-    {
-      repair: async (mask) => {
-        masks.push(
-          await sharp(Buffer.from(mask.split(',')[1]!, 'base64'))
-            .raw()
-            .toBuffer(),
-        )
-        // 重试的这张把 A 也画回原样、只改了 B：A 不能被它覆盖。
-        return paint([inB])
-      },
-      maxRetries: 1,
-    },
-  )
-  const result = await protect(await paint([inA]))
-  expect(masks).toHaveLength(1)
-  for (let y = 0; y < width; y++)
-    for (let x = 0; x < width; x++)
-      expect(masks[0]![(y * width + x) * 4 + 3]).toBe(inB(x, y) ? 0 : 255)
-  expect(result.inspection).toMatchObject({
-    regions: 2,
-    regionsUnchanged: 1,
-    regionRetries: 1,
-    regionsStillUnchanged: 0,
-    outsideChangedPixels: 0,
-  })
-  const delivered = await sharp(result.bytes).raw().toBuffer()
-  const at = (x: number, y: number) => [
-    ...delivered.subarray((y * width + x) * 4, (y * width + x) * 4 + 3),
-  ]
-  expect(at(60, 60)).toEqual([10, 10, 10])
-  expect(at(190, 190)).toEqual([10, 10, 10])
-  for (let i = 0; i < raw.length; i += 4)
-    if (selection[i + 3] === 255 && !raw.subarray(i, i + 4).equals(delivered.subarray(i, i + 4)))
-      throw new Error('changed protected pixel')
-})
-
-it('caps region retries and still delivers the composited candidate', async () => {
-  const { raw, selection, inA, encode, paint } = await twoRegionFixture()
-  let calls = 0
-  const protect = await protectMaskedOutput(
-    url(await encode(raw)),
-    url(await encode(selection)),
-    undefined,
-    {
-      repair: async () => {
-        calls++
-        return encode(raw)
-      },
-      maxRetries: 2,
-    },
-  )
-  const candidate = await paint([inA])
-  const result = await protect(candidate)
-  expect(calls).toBe(2)
-  expect(result.inspection).toMatchObject({
-    regionsUnchanged: 1,
-    regionRetries: 2,
-    regionsStillUnchanged: 1,
-  })
-  // 归档重试时同一张候选再合成一次，不再向上游要图。
-  await protect(candidate)
-  expect(calls).toBe(2)
-})
-
-it('ignores a retry whose protected area moved', async () => {
-  const { width, raw, selection, inA, inB, encode, paint } = await twoRegionFixture()
-  const protect = await protectMaskedOutput(
-    url(await encode(raw)),
-    url(await encode(selection)),
-    undefined,
-    {
-      repair: async () =>
-        sharp(await paint([inB]))
-          .extract({ left: 12, top: 0, width: width - 12, height: width })
-          .extend({ right: 12, extendWith: 'copy' })
-          .png()
-          .toBuffer(),
-      maxRetries: 2,
-    },
-  )
-  const result = await protect(await paint([inA]))
-  expect(result.inspection).toMatchObject({ regionRetries: 2, regionsStillUnchanged: 1 })
-})
-
-it('shares one retry budget across all candidates of a confirm', async () => {
-  const { raw, selection, inA, encode, paint } = await twoRegionFixture()
-  let calls = 0
-  const protect = await protectMaskedOutput(
-    url(await encode(raw)),
-    url(await encode(selection)),
-    undefined,
-    {
-      repair: async () => {
-        calls++
-        return encode(raw)
-      },
-      maxRetries: 1,
-    },
-  )
-  // 两张不同的候选都留着 B 没改：整次确认只多要一次图。
-  await protect(await paint([inA]))
-  const second = await protect(await paint([inA], 254))
-  expect(calls).toBe(1)
-  expect(second.inspection).toMatchObject({ regionsUnchanged: 1, regionRetries: 0 })
-})
-
-it('does not retry by default: unchanged regions are only reported', async () => {
-  const { raw, selection, inA, encode, paint } = await twoRegionFixture()
-  let calls = 0
-  const protect = await protectMaskedOutput(
-    url(await encode(raw)),
-    url(await encode(selection)),
-    undefined,
-    {
-      repair: async () => {
-        calls++
-        return encode(raw)
-      },
-    },
-  )
-  const result = await protect(await paint([inA]))
-  expect(calls).toBe(0)
-  expect(result.inspection).toMatchObject({ regionsUnchanged: 1, regionRetries: 0 })
-})
-
 it('counts a subtle edit (a slight warm tint) as changed, measured against the redraw noise', async () => {
   const { width, raw, selection, inA, inB, encode } = await twoRegionFixture()
   const protect = await protectMaskedOutput(url(await encode(raw)), url(await encode(selection)))
@@ -418,11 +300,12 @@ it('counts a subtle edit (a slight warm tint) as changed, measured against the r
   expect(result.inspection).toMatchObject({ regions: 2, regionsUnchanged: 0 })
 })
 
-it('only reports unchanged regions when no retry is available', async () => {
+it('only reports unchanged regions: no second request to the upstream', async () => {
   const { raw, selection, inA, encode, paint } = await twoRegionFixture()
   const protect = await protectMaskedOutput(url(await encode(raw)), url(await encode(selection)))
   const result = await protect(await paint([inA]))
-  expect(result.inspection).toMatchObject({ regions: 2, regionsUnchanged: 1, regionRetries: 0 })
+  expect(result.inspection).toMatchObject({ regions: 2, regionsUnchanged: 1 })
+  expect(result.inspection).not.toHaveProperty('regionRetries')
 })
 
 /** 一张处处有纹理的图，中间一块是选区；与上面的等比校正用例同一做法。 */
@@ -471,12 +354,12 @@ it('accepts an upstream output at its own pixel tier when the aspect ratio match
   expectProtectedUnchanged(raw, selection, await sharp(result.bytes).raw().toBuffer())
 })
 
-it('refuses an output that would have to be upscaled 2× (a large upload), as resolution-limited', async () => {
-  const { original, mask: m } = await texturedCase(480, 320)
+it('upscales an output 2× smaller than the original (a large upload) instead of refusing it', async () => {
+  const { raw, selection, original, mask: m } = await texturedCase(480, 320)
   const protect = await protectMaskedOutput(url(original), url(m))
-  await expect(protect(await sharp(original).resize(240, 160).png().toBuffer())).rejects.toThrow(
-    '分辨率受限',
-  )
+  const result = await protect(await sharp(original).resize(240, 160).png().toBuffer())
+  expect(result.inspection).toMatchObject({ fit: 1, width: 480, height: 320, scaleX: 2 })
+  expectProtectedUnchanged(raw, selection, await sharp(result.bytes).raw().toBuffer())
 })
 
 it('accepts an output larger than requested at the known tiers and scales it down', async () => {
@@ -488,19 +371,26 @@ it('accepts an output larger than requested at the known tiers and scales it dow
   expectProtectedUnchanged(raw, selection, await sharp(result.bytes).raw().toBuffer())
 })
 
-it('tolerates rounding in the upstream size but rejects a different aspect ratio', async () => {
-  const { original, mask: m } = await texturedCase(304, 304)
+it('tolerates rounding in the upstream size and crops around the selection for another aspect ratio', async () => {
+  const { raw, selection, original, mask: m } = await texturedCase(304, 304)
   const protect = await protectMaskedOutput(url(original), url(m))
   // 418×419 只是取整差（0.24%），照常缩回。
   const rounded = await protect(await sharp(original).resize(418, 419).png().toBuffer())
   expect(rounded.inspection.rescaled).toBe(1)
-  // 宽高比差 3%：画面被裁或拉伸过，拒绝，不贴回。
-  await expect(
-    protect(await sharp(original).resize(418, 406, { fit: 'fill' }).png().toBuffer()),
-  ).rejects.toThrow('尺寸与原图不一致')
+  expect(rounded.inspection.fit).toBe(1)
+  // 宽高比差 3%：等比铺满后以选区为中心裁出原尺寸，照常交付，选区外仍是原图。
+  const cropped = await protect(
+    await sharp(original).resize(418, 406, { fit: 'fill' }).png().toBuffer(),
+  )
+  expect(cropped.inspection).toMatchObject({
+    fit: 2,
+    width: 304,
+    height: 304,
+  })
+  expectProtectedUnchanged(raw, selection, await sharp(cropped.bytes).raw().toBuffer())
 })
 
-it('still refuses a same-aspect output whose content moved after the rescale', async () => {
+it('flags (but delivers) a same-aspect output whose content moved after the rescale', async () => {
   const { original, mask: m } = await texturedCase(304, 304)
   const protect = await protectMaskedOutput(url(original), url(m))
   const moved = await sharp(original)
@@ -508,33 +398,44 @@ it('still refuses a same-aspect output whose content moved after the rescale', a
     .extend({ left: 0, top: 0, right: 24, bottom: 0, background: '#fff' })
     .png()
     .toBuffer()
-  await expect(protect(await sharp(moved).resize(418, 418).png().toBuffer())).rejects.toThrow(
-    '位置对应无法确认',
-  )
+  expect(
+    misaligned((await protect(await sharp(moved).resize(418, 418).png().toBuffer())).inspection),
+  ).toBe(true)
 })
 
-it('accepts the sizes prod upstreams actually return for a request, and only those', () => {
-  // 请求尺寸 → 付费版近 60 天上游实际回的尺寸（只读统计）。
-  for (const [w, h, gw, gh] of [
-    [1024, 1024, 1254, 1254],
-    [912, 912, 1254, 1254],
-    [720, 1280, 941, 1672],
-    [720, 1280, 940, 1672],
-    [1280, 720, 1671, 941],
-    [768, 1024, 1086, 1448],
-    [1024, 1360, 1086, 1448],
-    [1248, 1280, 1240, 1268],
+it('scales the sizes prod upstreams actually return, cropping only when the aspect ratio differs', () => {
+  const focus = (w: number, h: number) => ({ x: w / 2, y: h / 2 })
+  // 请求尺寸 → 付费版近 60 天上游实际回的尺寸（只读统计），以及 4K 原图只回的 1672×941。
+  for (const [w, h, gw, gh, fit] of [
+    [1024, 1024, 1024, 1024, 0],
+    [1024, 1024, 1254, 1254, 1],
+    [912, 912, 1254, 1254, 1],
+    [720, 1280, 941, 1672, 1],
+    [720, 1280, 940, 1672, 1],
+    [1280, 720, 1671, 941, 1],
+    [768, 1024, 1086, 1448, 1],
+    [3840, 2160, 1672, 941, 1],
+    [1024, 1024, 2048, 2048, 1],
+    [96, 96, 1, 1, 1],
+    [1248, 1280, 1240, 1268, 2],
+    [1280, 720, 1774, 887, 2],
+    [1920, 816, 1916, 821, 2],
   ] as const)
-    expect(upstreamSizeProblem(w, h, gw, gh)).toBeNull()
-  for (const [w, h, gw, gh] of [
-    [1280, 720, 1774, 887], // 16:9 回成 2:1
-    [1920, 816, 1916, 821], // 差 0.8%，超出取整
-    [96, 96, 1, 1], // 缩放过头
-    // 4K 原图只回 1672×941：放大 2.3× 回去选区内会明显变糊，按分辨率受限拒绝。
-    [3840, 2160, 1672, 941],
-    [1024, 1024, 2048, 2048], // 比已知档位大得多的缩小（2×）也不认
-  ] as const)
-    expect(upstreamSizeProblem(w, h, gw, gh)).not.toBeNull()
+    expect(upstreamFit(w, h, gw, gh, focus(w, h)).fit).toBe(fit)
+})
+
+it('crops around the selection: centred when the selection is centred, never past the edge', () => {
+  // 1000×500 原图，上游回了方图：等比铺满成 1000×1000，再纵向裁出 500。
+  expect(upstreamFit(1000, 500, 1000, 1000, { x: 500, y: 250 })).toMatchObject({
+    fit: 2,
+    coverWidth: 1000,
+    coverHeight: 1000,
+    left: 0,
+    top: 250,
+  })
+  expect(upstreamFit(1000, 500, 1000, 1000, { x: 500, y: 100 }).top).toBe(100)
+  expect(upstreamFit(1000, 500, 1000, 1000, { x: 500, y: 500 }).top).toBe(500)
+  expect(upstreamFit(1000, 500, 500, 1000, { x: 0, y: 0 })).toMatchObject({ left: 0, top: 0 })
 })
 
 /**
@@ -621,7 +522,7 @@ it('accepts a rescaled background swap whose small smooth subject gives only loc
   expectProtectedUnchanged(raw, selection, await sharp(result.bytes).raw().toBuffer())
 })
 
-it('rejects a background swap whose content moved, rescaled or not', async () => {
+it('flags (but delivers) a background swap whose content moved, rescaled or not', async () => {
   const { original, mask: m, candidate, size } = await smoothSubjectCase()
   const protect = await protectMaskedOutput(url(original), url(m))
   for (const [dx, dy] of [
@@ -635,23 +536,10 @@ it('rejects a background swap whose content moved, rescaled or not', async () =>
       .png()
       .toBuffer()
     for (const edge of [size, 483])
-      await expect(protect(await sharp(moved).resize(edge, edge).png().toBuffer())).rejects.toThrow(
-        '位置对应无法确认',
-      )
+      expect(
+        misaligned(
+          (await protect(await sharp(moved).resize(edge, edge).png().toBuffer())).inspection,
+        ),
+      ).toBe(true)
   }
-})
-
-it('keeps the dispersed-texture rule for rescaled candidates with plenty of protected texture', () => {
-  expect(rescaleEvidence({ texturedRegions: 40, matchedRegions: 35, matchedQuadrants: 4 })).toBe(
-    'dispersed',
-  )
-  // 纹理多但缺了象限、又不是每格都对上：仍然拒绝（与原规则一致）。
-  expect(rescaleEvidence({ texturedRegions: 20, matchedRegions: 19, matchedQuadrants: 2 })).toBe(
-    null,
-  )
-  expect(rescaleEvidence({ texturedRegions: 8, matchedRegions: 8, matchedQuadrants: 2 })).toBe(
-    'local',
-  )
-  expect(rescaleEvidence({ texturedRegions: 8, matchedRegions: 7, matchedQuadrants: 2 })).toBe(null)
-  expect(rescaleEvidence({ texturedRegions: 3, matchedRegions: 3, matchedQuadrants: 1 })).toBe(null)
 })
