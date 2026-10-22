@@ -183,6 +183,28 @@ export async function markAgentJobsWakeSkipped(
   taskIds: readonly string[],
   reason: AgentWakeSkipReason,
 ): Promise<void> {
+  await setAgentJobsWakeSkipped(tx, conversationId, taskIds, reason)
+}
+
+/**
+ * 这些后台任务又投递了一次唤醒：先前记下的「没接着做」已经过时，抹掉。比如确认门续跑因积分不够
+ * 被撤回、卡上记了原因，之后任务结束时用户已充值，唤醒照常起轮——卡不该还说智能体没看结果。
+ * 这次唤醒若又被跳过，跳过的那条路径会重新记上。
+ */
+export async function clearAgentJobsWakeSkipped(
+  tx: BffTransaction,
+  conversationId: string,
+  taskIds: readonly string[],
+): Promise<void> {
+  await setAgentJobsWakeSkipped(tx, conversationId, taskIds, null)
+}
+
+async function setAgentJobsWakeSkipped(
+  tx: BffTransaction,
+  conversationId: string,
+  taskIds: readonly string[],
+  reason: AgentWakeSkipReason | null,
+): Promise<void> {
   if (taskIds.length === 0) return
   const wanted = new Set(taskIds)
   const rows = await tx
@@ -199,6 +221,12 @@ export async function markAgentJobsWakeSkipped(
     let changed = false
     const content = row.content.map((block) => {
       if (block.type !== 'toolResult' || !block.job || !wanted.has(block.job.taskId)) return block
+      if (reason === null) {
+        if (block.wakeSkipped === undefined) return block
+        changed = true
+        const { wakeSkipped: _cleared, ...rest } = block
+        return rest
+      }
       changed = true
       return { ...block, wakeSkipped: reason }
     })
