@@ -1,3 +1,7 @@
+import type { ModelLogoId } from '@image-playground/shared'
+import { useSyncExternalStore } from 'react'
+import { getStoredChannels, subscribeChannels } from '../lib/channels/channelStore'
+import { modelLogo } from '../lib/channels/publicChannels'
 import { ClaudeLogo, GeminiLogo, OpenAILogo } from './assistant-ui/elements/logos'
 import { Icon } from './ui/icon'
 
@@ -26,7 +30,38 @@ export function compactModelName(model: string, fallback: string): string {
     : fallback
 }
 
-export function ModelLogo({ model }: { model: string }) {
+/**
+ * 模型图标。渠道配置给模型声明了自己的图标（`ChannelModel.logo`）时用它，否则按 id 前缀给厂商图标。
+ *
+ * - 传了 `logo`（`null` 表示确定没有声明）：调用方已从带渠道上下文的快照里取好，直接画，不订阅。
+ *   模型选择器走这条：同一模型 id 在不同渠道可能声明不同图标，只有列表知道选项来自哪条渠道。
+ * - 没传：按模型 id 在渠道清单里找，并订阅清单，首屏清单晚到时再换成声明的图标。
+ */
+export function ModelLogo({ model, logo }: { model: string; logo?: ModelLogoId | null }) {
+  if (logo !== undefined) return <ResolvedModelLogo model={model} logo={logo} />
+  return <CatalogModelLogo model={model} />
+}
+
+function CatalogModelLogo({ model }: { model: string }) {
+  // 服务端预渲染读同一份内存清单（未加载时是空数组），与客户端首帧一致。
+  const channels = useSyncExternalStore(subscribeChannels, getStoredChannels, getStoredChannels)
+  return <ResolvedModelLogo model={model} logo={modelLogo(model, channels) ?? null} />
+}
+
+function ResolvedModelLogo({ model, logo }: { model: string; logo: ModelLogoId | null }) {
+  // 声明的是彩色官方图标，明暗主题都不反色。
+  if (logo) {
+    return (
+      <img
+        src={`/model-logos/${logo}.svg`}
+        alt=""
+        aria-hidden="true"
+        width={16}
+        height={16}
+        className="h-4 w-4 shrink-0 object-contain"
+      />
+    )
+  }
   const brand =
     model.startsWith('gpt-') || /^o[134](?:-|$)/.test(model)
       ? 'openai'
