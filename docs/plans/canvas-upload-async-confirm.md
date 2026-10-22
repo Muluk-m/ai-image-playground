@@ -56,7 +56,9 @@ complete 是同步的，返回 `ready` 后前端才拿到可以写进文档的 `
    - shared：画布校验接受 `verifying`；新老客户端兼容。旧客户端只认 `ready`，所以 `complete` 要看 capabilities 位 `asyncMediaConfirm` 决定：只有新客户端带 `prefer: async` 时才返回 202，旧客户端仍然同步等待。
    - 新老服务端也要兼容：现在的 `canvasSyncStore` 只放行 `status = 'ready'`，回滚或灰度混跑时，旧 BFF 会拒绝所有仍含 `verifying`/`rejected` 节点的文档更新，而 `rejected` 节点永远不会变回 `ready`。所以分两次发布：
      1. 扩展版：DB 迁移、`canvasSyncStore` 放行三种状态、`accessMedia` 认识 `verifying`/`rejected`、快照和轮询路径都上线，但服务端从不写这两个状态，`complete` 仍然同步。
-     2. 启用版：扩展版在所有实例上跑稳后，用服务端开关 `ASYNC_MEDIA_CONFIRM`（默认关）打开 202 和后台校验。之后回滚只允许退到扩展版，不退到扩展版之前；要彻底退回，先关开关，再等存量 `verifying` 处理完。
+     2. 启用版：扩展版在所有实例上跑稳后，用服务端开关 `ASYNC_MEDIA_CONFIRM`（默认关）打开 202 和后台校验。
+   - 回滚边界：开关一旦打开过，扩展版就是回滚下限，任何回滚都只退到扩展版、再关开关，不退到扩展版之前。原因是关开关只能让存量 `verifying` 处理完，处理结果里的 `rejected` 墓碑会按设计一直留在文档里；扩展版之前的 BFF 只放行 `ready`，会让这些画布之后的每次更新都因 `canvas_media_not_owned` 失败。
+   - 如果确实要退到扩展版之前，必须先做一次单独评审的数据迁移，不能只等 `verifying` 清空：（1）关开关，等 `verifying` 为 0；（2）按 `accessCanvasDocument` 的加锁顺序（先用户行再项目行），把每份文档里引用 `rejected` 媒体的节点改成旧 BFF 能接受的形态（去掉 `mediaId`、回到占位节点），同时删掉对应的 project 引用；（3）确认全库文档里 `rejected` 引用数为 0，墓碑行交给 `purgeRejectedMedia` 回收；（4）这时才允许部署扩展版之前的版本。迁移脚本只在 test 演练，生产执行需要单独批准。
    - 计费和配额：`reserved_bytes` 在 reserve 时占用，但 `mediaUsage` 对非 ready、非附件的行只在 `expires_at > now` 时计入，后台校验拖过 20 分钟预留期（比如长时间重启）时 `verifying` 行会提前不计，用户就能超额预留。所以 `mediaUsage` 把 `status = 'verifying'` 也列为一直计入，直到变成 `ready`（照常计）或 `rejected`（`reserved_bytes` 置 0）。
    - `rejected` 的回收要单独设计，不能交给现有的 sweep：普通画布上传 `attachment_managed = false`，而 `purgeExpiredAttachmentMedia` 只扫 managed 附件；文档里的引用还会保护这行不被删。方案：
      - 置 `rejected` 时立即删除暂存对象（服务端专用 key 尚未写入）；行本身保留为墓碑，保留暂存 key，`reserved_bytes` 按 0 计。
