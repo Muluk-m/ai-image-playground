@@ -419,6 +419,9 @@ describe('runMigrations', () => {
     })
   }, 30_000)
 
+  // Same budget as the upgrade above: every rollback plus a replay of all migrations on the suite
+  // database. It finished well under a second locally but crossed bun's five-second default on a
+  // loaded runner (run 39234295912), with nothing else touching this database.
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     // Newest first, one down file per journal entry: a migration without a rollback fails here.
@@ -470,5 +473,5 @@ describe('runMigrations', () => {
       WHERE table_schema='public' AND table_name='agent_conversations' AND column_name='production'
     `
     expect(production).toEqual([{ data_type: 'jsonb' }])
-  })
+  }, 30_000)
 })
