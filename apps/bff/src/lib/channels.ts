@@ -9,6 +9,10 @@
  *     声明了 `requiresSecret` 的 channel 例外，缺 secret 时整条丢弃
  *   - baseUrlRef 指向的 env 不存在 / 不是合法 https URL → 该 channel 进 warnings 并被整条丢弃。
  *     跟缺 secret 不同：没有上游地址就没有「调用上游时再失败」这一步，留着只会拼出非法 URL。
+ *   - `disabled: true` → 运营暂时下线整条 channel：照常校验 schema，但不广播、不进 `getChannels()`，
+ *     智能体与服务端选模型都看不到它，新任务提交被拒（`isModelDisabled`）；只有下线前已提交的
+ *     任务还能经 `getRoutableChannels()` 在原上游续轮询。密钥与 env 原样留着，删掉这一行
+ *     （或改成 false）发版即恢复。
  *
  * `getChannels()` 返回内部全字段（含 baseUrl / auth / 已解析 secret），仅 BFF 内部使用。
  * `getDiscoveredChannels()` 返回 sanitized 字段，可安全经 /api/channels 发给前端。
@@ -61,10 +65,18 @@ interface ParsedChannel extends Omit<InternalChannel, 'baseUrl'> {
   baseUrl?: string
   baseUrlRef?: string
   requiresSecret: boolean
+  disabled: boolean
 }
 
 export interface ChannelsLoadResult {
   channels: InternalChannel[]
+  /**
+   * `disabled: true` 且上游地址与 secret 都齐的 channel。不广播、不进 `getChannels()`，
+   * 只留给 `getRoutableChannels()`：下线前已经提交的任务还要在原上游续轮询。
+   */
+  disabled: InternalChannel[]
+  /** 所有 `disabled: true` channel 声明的模型 id，不管 env 齐不齐；新任务据此拒收。 */
+  disabledModelIds: string[]
   /** 非致命问题清单（缺 secret 等），由 startup 落日志。 */
   warnings: string[]
 }
@@ -215,9 +227,9 @@ function parseBaseUrlSource(raw: Record<string, unknown>, ctx: string): Partial<
   return { baseUrl: normalizeBaseUrl(raw.baseUrl) }
 }
 
-function parseRequiresSecret(v: unknown, ctx: string): boolean {
+function parseOptionalFlag(v: unknown, ctx: string): boolean {
   if (v !== undefined && typeof v !== 'boolean')
-    throw new ChannelsLoadError(`${ctx}.requiresSecret must be boolean`)
+    throw new ChannelsLoadError(`${ctx} must be boolean`)
   return v === true
 }
 
@@ -239,7 +251,8 @@ function parseChannel(raw: unknown, idx: number): ParsedChannel {
     kind: raw.kind as ChannelKind,
     label: requireNonEmptyString(raw.label, `${ctx}.label`),
     ...parseBaseUrlSource(raw, ctx),
-    requiresSecret: parseRequiresSecret(raw.requiresSecret, ctx),
+    requiresSecret: parseOptionalFlag(raw.requiresSecret, `${ctx}.requiresSecret`),
+    disabled: parseOptionalFlag(raw.disabled, `${ctx}.disabled`),
     auth: parseAuth(raw.auth, ctx),
     allowedPaths: raw.allowedPaths,
     models: parseModels(raw.models, ctx),
@@ -301,12 +314,24 @@ export function parseChannelsConfig(
   const warnings: string[] = []
   const seenIds = new Set<string>()
   const channels: InternalChannel[] = []
+  const disabled: InternalChannel[] = []
+  const disabledModelIds: string[] = []
   channelsRaw.forEach((raw, idx) => {
     const ch = parseChannel(raw, idx)
     if (seenIds.has(ch.id)) throw new ChannelsLoadError(`channels[${idx}].id duplicate: '${ch.id}'`)
     seenIds.add(ch.id)
 
     const resolved = resolveBaseUrl(ch, envLookup)
+    if (ch.disabled) {
+      // 下线的 channel 只报这一条；它的 env 缺不缺都不再要紧，别再多报误导性的 warning。
+      warnings.push(
+        `channel '${ch.id}': disabled in channels.json; the channel will not be advertised or offered for new tasks`,
+      )
+      disabledModelIds.push(...ch.models.map((model) => model.id))
+      const secret = envLookup(ch.auth.secretRef)?.trim() ?? ''
+      if ('baseUrl' in resolved && secret) disabled.push(toInternal(ch, resolved.baseUrl, secret))
+      return
+    }
     if ('warning' in resolved) {
       warnings.push(resolved.warning)
       return
@@ -325,10 +350,14 @@ export function parseChannelsConfig(
         `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; upstream calls will fail until it's provided`,
       )
     }
-    const { baseUrlRef: _ref, requiresSecret: _requiresSecret, ...rest } = ch
-    channels.push({ ...rest, baseUrl: resolved.baseUrl, auth: { ...ch.auth, secret } })
+    channels.push(toInternal(ch, resolved.baseUrl, secret))
   })
-  return { channels, warnings }
+  return { channels, disabled, disabledModelIds, warnings }
+}
+
+function toInternal(ch: ParsedChannel, baseUrl: string, secret: string): InternalChannel {
+  const { baseUrlRef: _ref, requiresSecret: _requiresSecret, disabled: _disabled, ...rest } = ch
+  return { ...rest, baseUrl, auth: { ...ch.auth, secret } }
 }
 
 /** 默认 channels.json 解析位置：apps/bff/channels.json（相对于本文件）。 */
@@ -350,6 +379,8 @@ export function loadChannelsFromFile(filePath: string): ChannelsLoadResult {
     if (isFileNotFoundError(err)) {
       return {
         channels: [],
+        disabled: [],
+        disabledModelIds: [],
         warnings: [`channels file not found: ${filePath} (BFF will serve no built-in channels)`],
       }
     }
@@ -371,16 +402,31 @@ function isFileNotFoundError(err: unknown): boolean {
 /* ────────────────────────── 模块级状态 ────────────────────────── */
 
 let loaded: InternalChannel[] = []
+let retired: InternalChannel[] = []
+let disabledModels: ReadonlySet<string> = new Set()
 let discoveredCache: DiscoveredChannel[] = []
 
 export function initChannels(filePath = defaultChannelsPath()): ChannelsLoadResult {
   const result = loadChannelsFromFile(filePath)
-  setLoaded(result.channels)
+  setLoaded(result.channels, result.disabled, result.disabledModelIds)
   return result
 }
 
 export function getChannels(): InternalChannel[] {
   return loaded
+}
+
+/**
+ * 上游路由专用：在用的 channel 在前，下线（`disabled`）的在后。下线前已提交的任务靠它
+ * 回到原上游续轮询，而不是落进通用网关拼出一条错的请求。选模型、广播一律用 `getChannels()`。
+ */
+export function getRoutableChannels(): InternalChannel[] {
+  return retired.length ? [...loaded, ...retired] : loaded
+}
+
+/** 只在下线 channel 里声明的模型：新任务一律不收，别让它经通用网关兜底跑出去。 */
+export function isModelDisabled(model: string): boolean {
+  return disabledModels.has(model)
 }
 
 export function getDiscoveredChannels(): DiscoveredChannel[] {
@@ -429,8 +475,16 @@ function queueProviderOf(kind: ChannelKind): QueueProvider {
   return kind === 'gemini-queue' ? 'gemini' : 'openai-compat'
 }
 
-function setLoaded(channels: InternalChannel[]): void {
+function setLoaded(
+  channels: InternalChannel[],
+  disabled: InternalChannel[] = [],
+  disabledModelIds: readonly string[] = disabled.flatMap((c) => c.models.map((m) => m.id)),
+): void {
   loaded = channels
+  retired = disabled
+  // 同一个模型还挂在某条在用的 channel 上，就照常收。
+  const active = new Set(channels.flatMap((channel) => channel.models.map((model) => model.id)))
+  disabledModels = new Set(disabledModelIds.filter((id) => !active.has(id)))
   discoveredCache = channels.map(sanitizeChannel)
 }
 
@@ -445,6 +499,9 @@ function sanitizeChannel(c: InternalChannel): DiscoveredChannel {
 }
 
 /** 仅供测试：直接塞入解析好的 channels，绕过文件系统。 */
-export function _setChannelsForTesting(channels: InternalChannel[]): void {
-  setLoaded(channels)
+export function _setChannelsForTesting(
+  channels: InternalChannel[],
+  disabled: InternalChannel[] = [],
+): void {
+  setLoaded(channels, disabled)
 }
