@@ -93,6 +93,30 @@ describe('getParamDisplay', () => {
     )
   })
 
+  it('ignores a malformed measured size and falls back to the validated values', () => {
+    const openai = taskWithActual({ size: '1536x1024' })
+    for (const bad of ['unknown', '', '0x768', '12.5x768', '-1x768']) {
+      const display = getParamDisplay({ ...openai, measuredSize: bad }, 'size', undefined, bad)
+      expect(display.displayValue).toBe('1536x1024')
+    }
+    const gemini = {
+      ...taskWithActual({ size: '1024x1024' }),
+      cloudProvider: 'gemini',
+      params: { ...DEFAULT_PARAMS, size: '1024x1024' },
+    } as TaskRecord
+    const display = getParamDisplay({ ...gemini, measuredSize: 'unknown' }, 'size')
+    expect(display.displayValue).toBe('auto')
+    expect(display.hasActualValue).toBe(false)
+    // 显式传入的非法值不该挡住任务上已存的合法实测像素。
+    expect(
+      getParamDisplay({ ...gemini, measuredSize: '2752x1536' }, 'size', undefined, 'bogus')
+        .displayValue,
+    ).toBe('2752x1536')
+    expect(getParamDisplay(openai, 'size', undefined, ' 2048 X 2048 ').displayValue).toBe(
+      '2048x2048',
+    )
+  })
+
   it('resolves the provider with the same priority as the detail source line', () => {
     expect(honorsRequestedSize({ apiProvider: 'openai', cloudProvider: 'gemini' })).toBe(true)
     expect(honorsRequestedSize({ apiProvider: 'gemini', cloudProvider: 'openai-compat' })).toBe(
