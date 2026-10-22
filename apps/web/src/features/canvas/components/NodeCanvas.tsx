@@ -9,6 +9,7 @@ import {
   canvasOrigin,
   canvasResults,
   canvasText,
+  canvasUploadClaimNextChange,
   canvasUploadingElsewhere,
   connectCanvasNodes,
   createCanvasGroup,
@@ -387,17 +388,41 @@ function Pending({ pending }: { pending: PendingGeneration }) {
   )
 }
 
+type UploadClaimData = Parameters<typeof canvasUploadingElsewhere>[0]
+
+/**
+ * 别的设备声明在传、还没过期（canvasUploadingElsewhere）。声明到点过期时没有别的改动会触发重渲染，
+ * 所以按 canvasUploadClaimNextChange 定一个时钟，到点自己再算一次。
+ */
+export function useUploadingElsewhere(data: UploadClaimData): boolean {
+  const [tick, setTick] = useState(0)
+  const device = getDeviceId()
+  const now = Date.now()
+  const next = canvasUploadClaimNextChange(data, device, now)
+  useEffect(() => {
+    if (next === undefined) return
+    // setTimeout 的延迟超过 2^31-1 毫秒会立刻触发，分段等：没到点的那次重渲染带着新的 tick 再定一次。
+    const timer = setTimeout(
+      () => setTick((tick) => tick + 1),
+      Math.min(Math.max(next - Date.now(), 0) + 1, 2 ** 31 - 1),
+    )
+    return () => clearTimeout(timer)
+  }, [next, tick])
+  return canvasUploadingElsewhere(data, device, now)
+}
+
 function Picture({
   fileId,
   rotation,
-  uploadingElsewhere,
+  upload,
 }: {
   fileId?: string
   rotation?: number
-  /** 别的设备声明在传、还没过期（canvasUploadingElsewhere）。 */
-  uploadingElsewhere?: boolean
+  /** 节点 data，用来判断是不是别的设备在传（useUploadingElsewhere）。 */
+  upload: UploadClaimData
 }) {
   const { t } = useTranslation('canvas')
+  const uploadingElsewhere = useUploadingElsewhere(upload)
   const files = useContext(FilesContext)
   const source = useNodeMedia(fileId ? files[fileId] : undefined)
   if (!source)
@@ -477,11 +502,7 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
           </span>
         )}
         {fileId ? (
-          <Picture
-            fileId={fileId}
-            rotation={rotation}
-            uploadingElsewhere={canvasUploadingElsewhere(node.data, getDeviceId(), Date.now())}
-          />
+          <Picture fileId={fileId} rotation={rotation} upload={node.data} />
         ) : pending ? (
           <Pending pending={pending} />
         ) : (
@@ -565,11 +586,7 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
       <NodeCaption node={node} />
       <div className="studio-node studio-node--video" data-rotated={rotation ? true : undefined}>
         {fileId ? (
-          <Picture
-            fileId={fileId}
-            rotation={rotation}
-            uploadingElsewhere={canvasUploadingElsewhere(node.data, getDeviceId(), Date.now())}
-          />
+          <Picture fileId={fileId} rotation={rotation} upload={node.data} />
         ) : (
           <div className="studio-node-empty">
             <Icon name="video" size="lg" />
