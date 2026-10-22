@@ -1277,6 +1277,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             references={
               <CreationReferenceStack
                 count={inputImages.length}
+                failed={oversizedImages.length > 0}
+                status={oversizedNotice || undefined}
                 onClear={() => useStore.getState().clearInputImages()}
                 previews={inputImages
                   .slice(-3)
