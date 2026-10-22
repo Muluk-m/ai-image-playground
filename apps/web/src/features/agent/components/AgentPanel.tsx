@@ -15,7 +15,6 @@ import { Icon } from '../../../components/ui/icon'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
-import { useShownAgentSurface } from '../../canvas/lib/canvasView'
 import type { CanvasEditor } from '../../canvas/lib/editor'
 import ProductionResultCard from '../../production/components/ProductionResultCard'
 import type { ProductionPane } from '../../production/lib/productionContext'
@@ -28,6 +27,7 @@ import {
   PANEL_MAX_WIDTH_RATIO,
   TAB,
 } from '../agentStyles'
+import { useActiveAgentSurface } from '../lib/activeAgentSurface'
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
@@ -264,7 +264,7 @@ export default function AgentPanel({
   const tab = useAgentStore((state) => state.tab)
   const messages = useAgentStore((state) => state.messages)
   const turns = useAgentStore((state) => state.turns)
-  const surface = useShownAgentSurface()
+  const surface = useActiveAgentSurface()
   const imageSkills = useAgentSkills('image', surface)
   const videoSkills = useAgentSkills('video', surface)
   const skills = useMemo(() => [...imageSkills, ...videoSkills], [imageSkills, videoSkills])

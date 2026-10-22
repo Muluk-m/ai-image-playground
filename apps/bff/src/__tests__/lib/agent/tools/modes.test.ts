@@ -107,15 +107,12 @@ afterAll(async () => {
 
 describe('tools share capabilities across creation modes', () => {
   it('gives old image turns both image and video tools', () => {
+    // 没声明模式按 Agent 模式算：画布工具（readCanvas、编辑画布对象等）只在明确的画布模式里出现。
     expect(toolNames('image')).toEqual([
-      'arrangeCanvas',
-      'arrangeTimeline',
-      'editCanvasObject',
       'editImage',
       'generateImage',
       'generateVideo',
       'loadSkill',
-      'readCanvas',
       'readLibrary',
       'viewImage',
       'viewVideo',
@@ -127,14 +124,10 @@ describe('tools share capabilities across creation modes', () => {
 
   it('gives a video turn the image tools too, so it can produce and fix a first frame', () => {
     expect(toolNames('video')).toEqual([
-      'arrangeCanvas',
-      'arrangeTimeline',
-      'editCanvasObject',
       'editImage',
       'generateImage',
       'generateVideo',
       'loadSkill',
-      'readCanvas',
       'readLibrary',
       'viewImage',
       'viewVideo',
@@ -176,7 +169,6 @@ describe('tools share capabilities across creation modes', () => {
   ] as const)('assembles no canvas tools or canvas prompt in Agent mode (%s)', (mode) => {
     const names = agentToolDeclarations(mode, AGENT).map((tool) => tool.name)
     for (const name of [
-      'readCanvas',
       'createNodes',
       'updateNodes',
       'connectNodes',
@@ -186,9 +178,6 @@ describe('tools share capabilities across creation modes', () => {
       'runStoryboardFrames',
       'applyScriptPlan',
       'importCanvasImage',
-      'editCanvasObject',
-      'arrangeCanvas',
-      'arrangeTimeline',
     ])
       expect(names).not.toContain(name)
     expect(names).toContain('generateImage')

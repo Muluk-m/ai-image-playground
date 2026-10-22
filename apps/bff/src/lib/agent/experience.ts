@@ -117,7 +117,7 @@ export async function loadAgentSurface(
   while (!visited.has(originTurnId) && visited.size < SURFACE_ORIGIN_MAX_HOPS) {
     visited.add(originTurnId)
     // 同一轮可能合并取走了好几条；每跳只取一条：有用户消息就取用户消息（它直接给出答案），
-    // 否则取最新那条接着往回追。只选 payload 一列，走 `idx_agent_inbox_conversation_seq` 的会话前缀。
+    // 否则取最新那条接着往回追。只选 payload 一列，走 `idx_agent_inbox_consumed_turn`（会话 + 消费轮次，只含已取走的），排序只在这一轮取走的那几条里做。
     const [origin] = await db
       .select({ payload: schema.agent_inbox.payload })
       .from(schema.agent_inbox)
