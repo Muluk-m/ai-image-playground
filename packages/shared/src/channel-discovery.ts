@@ -76,7 +76,7 @@ export interface ChannelModel {
   media?: ChannelMedia
   /** 选择器里的说明标签，按数组顺序展示；缺省不显示。 */
   badges?: ModelBadge[]
-  /** 典型单张耗时（秒，实测中位量级），选择器显示成「约 N 秒」；只是提示，不参与超时。 */
+  /** 典型单张耗时（秒，实测中位数的量级），选择器显示成「约 N 秒 / 分钟」；只是提示，不参与超时。 */
   etaSeconds?: number
 }
 

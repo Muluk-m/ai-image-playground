@@ -62,6 +62,18 @@ it('shows the badges after the name and the typical duration under it', async ()
   expect(document.querySelector('[role="tooltip"]')).toBeNull()
 })
 
+it('states a duration of a minute or more in minutes', () => {
+  const pro = {
+    ...lite,
+    value: 'vertex::pro',
+    label: 'Nano Banana Pro',
+    badges: undefined,
+    etaSeconds: 80,
+  }
+  act(() => root.render(<ModelList options={[pro]} value="" onPick={() => {}} />))
+  expect(optionNamed('Nano Banana Pro').textContent).toContain('约 1 分钟')
+})
+
 it('keeps a model without selector metadata on its single line', () => {
   act(() => root.render(<ModelList options={[lite, plain]} value="" onPick={() => {}} />))
   const option = optionNamed('Image 2.5 Flare')

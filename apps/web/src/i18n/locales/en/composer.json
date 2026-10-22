@@ -83,6 +83,7 @@
     "searchModel": "Search models",
     "noModelMatch": "No matching models",
     "modelEta": "~{{seconds}}s",
+    "modelEtaMinutes": "~{{minutes}} min",
     "modelBadge": {
       "latest": "Latest",
       "quality": "Best quality",
