@@ -15,6 +15,7 @@ import {
   type ImageNodeData,
   imagePreset,
   imagePresetPrompt,
+  isLocalCanvasFileId,
   moveCanvasGroups,
   moveCanvasNodes,
   type PendingGeneration,
@@ -389,7 +390,15 @@ function Picture({ fileId, rotation }: { fileId?: string; rotation?: number }) {
   const { t } = useTranslation('canvas')
   const files = useContext(FilesContext)
   const source = useNodeMedia(fileId ? files[fileId] : undefined)
-  if (!source) return <div className="studio-node-missing text-sm">{t('nodes.mediaMissing')}</div>
+  if (!source)
+    return (
+      <div className="studio-node-missing text-sm">
+        {/* 别的设备还在上传的图片：文档里先到的只有它的本机 fileId，原图要等那边传完。 */}
+        {fileId && isLocalCanvasFileId(fileId) && !files[fileId]
+          ? t('nodes.mediaUploading')
+          : t('nodes.mediaMissing')}
+      </div>
+    )
   return (
     <img
       src={source}

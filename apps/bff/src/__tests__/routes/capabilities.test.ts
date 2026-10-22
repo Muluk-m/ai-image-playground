@@ -30,6 +30,7 @@ describe('GET /api/capabilities', () => {
         'canvas:node-run',
         'canvas:script',
         'projectDocumentIdentity',
+        'canvasPendingMedia',
       ].sort(),
     )
     expect(body['canvas:nodes']).toBe(true)
@@ -37,6 +38,7 @@ describe('GET /api/capabilities', () => {
     expect(body['canvas:node-run']).toBe(true)
     expect(body['canvas:script']).toBe(true)
     expect(body.projectDocumentIdentity).toBe(true)
+    expect(body.canvasPendingMedia).toBe(true)
     expect(body['accounts:login']).toBe(true)
     expect(body['accounts:self-register']).toBe(false)
     expect(body['accounts:sync']).toBe(false)

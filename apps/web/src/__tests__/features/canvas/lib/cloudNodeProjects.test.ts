@@ -15,6 +15,7 @@ import {
   readCanvasDocument,
   readCanvasSyncMessage,
   recordCanvasResult,
+  validateCloudCanvas,
 } from '@image-playground/shared'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
@@ -62,7 +63,13 @@ vi.mock('../../../../features/agent/lib/artifactSource', () => ({
   artifactBitmap: vi.fn(async () => 'data:image/png;base64,AQID'),
 }))
 vi.mock('../../../../lib/authClient', () => ({ authenticatedBffFetch: vi.fn() }))
+const pendingMedia = vi.hoisted(() => ({ supported: false }))
+vi.mock('../../../../lib/clientCapabilities', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../lib/clientCapabilities')>()),
+  supportsCanvasPendingMedia: () => pendingMedia.supported,
+}))
 vi.mock('../../../../lib/runtimeConfig', () => ({ bffBaseUrl: () => 'http://localhost' }))
+const defaultUpload = async () => ({ id: '11111111-1111-4111-8111-111111111111', sha256: '' })
 vi.mock('../../../../lib/mediaUpload', () => ({
   uploadMediaSource: vi.fn(async () => ({ id: '11111111-1111-4111-8111-111111111111' })),
 }))
@@ -94,6 +101,9 @@ class Socket {
 const sessions: CloudNodeProjectSession[] = []
 afterEach(() => {
   for (const s of sessions.splice(0)) s.dispose()
+  // A test that replaces the upload implementation must not leak it into later tests.
+  vi.mocked(uploadMediaSource).mockImplementation(defaultUpload)
+  pendingMedia.supported = false
   vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -353,6 +363,270 @@ it('retries a failed media upload through sync without another edit or reconnect
   expect(session.getSnapshot().status).toBe('saved')
   expect(Socket.instances).toHaveLength(1)
   expect(vi.mocked(uploadMediaSource).mock.calls.map(([value]) => value)).toEqual([source, source])
+  record.dispose()
+})
+
+it('uploads several new images at once and shares one upload per original', async () => {
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const uploads = Array.from({ length: 4 }, () =>
+    deferred<NonNullable<Awaited<ReturnType<typeof uploadMediaSource>>>>(),
+  )
+  const sources = uploads.map((_, index) => `data:image/png;base64,${btoa(`image-${index}`)}`)
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockImplementation(async (source) => uploads[sources.indexOf(source)]!.promise)
+  record.editor.doc.files = {
+    ...Object.fromEntries(sources.map((source, index) => [`f${index}`, source])),
+    copy: sources[0]!,
+  }
+  session.canvas!.doc.transact(() => {
+    for (const [index, fileId] of ['f0', 'f1', 'f2', 'f3', 'copy'].entries())
+      insertCanvasNode(
+        session.canvas!.doc,
+        {
+          id: `n${index}`,
+          type: 'image',
+          x: index * 60,
+          y: 0,
+          width: 50,
+          height: 50,
+          data: { fileId },
+        },
+        session.canvas!.origin,
+      )
+  }, session.canvas!.origin)
+  // All four originals are in flight together; the second node for the same original waits for it.
+  await vi.waitFor(() => expect(uploadMediaSource).toHaveBeenCalledTimes(4))
+  expect(vi.mocked(uploadMediaSource).mock.calls.map(([source]) => source)).toEqual(sources)
+  for (const [index, upload] of [...uploads.entries()].reverse())
+    upload.resolve({ id: `4444444${index}-4444-4444-8444-444444444444`, sha256: `s${index}` })
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('saved'))
+  const saved = readCanvasDocument(server).nodes.filter((node) => node.type === 'image')
+  expect(Object.fromEntries(saved.map((node) => [node.id, node.data.mediaId]))).toEqual({
+    n0: '44444440-4444-4444-8444-444444444444',
+    n1: '44444441-4444-4444-8444-444444444444',
+    n2: '44444442-4444-4444-8444-444444444444',
+    n3: '44444443-4444-4444-8444-444444444444',
+    n4: '44444440-4444-4444-8444-444444444444',
+  })
+  expect(uploadMediaSource).toHaveBeenCalledTimes(4)
+  record.dispose()
+})
+
+it('keeps uploading the other images when one fails and retries only the failed one', async () => {
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const sources = ['a', 'b', 'c'].map((name) => `data:image/png;base64,${btoa(name)}`)
+  let failOnce = true
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockImplementation(async (source) => {
+      const index = sources.indexOf(source)
+      if (index === 1 && failOnce) {
+        failOnce = false
+        throw new Error('upload unavailable')
+      }
+      return { id: `5555555${index}-5555-4555-8555-555555555555`, sha256: `s${index}` }
+    })
+  record.editor.doc.files = { a: sources[0]!, b: sources[1]!, c: sources[2]! }
+  session.canvas!.doc.transact(() => {
+    for (const [index, fileId] of ['a', 'b', 'c'].entries())
+      insertCanvasNode(
+        session.canvas!.doc,
+        { id: fileId, type: 'image', x: index * 60, y: 0, width: 50, height: 50, data: { fileId } },
+        session.canvas!.origin,
+      )
+  }, session.canvas!.origin)
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('media-local'))
+  const local = readCanvasDocument(session.canvas!.doc).nodes
+  expect(local.find((node) => node.id === 'a')?.data).toMatchObject({
+    mediaId: '55555550-5555-4555-8555-555555555555',
+  })
+  expect(local.find((node) => node.id === 'c')?.data).toMatchObject({
+    mediaId: '55555552-5555-4555-8555-555555555555',
+  })
+  expect(local.find((node) => node.id === 'b')?.data).toMatchObject({ fileId: 'b' })
+  await session.sync()
+  expect(
+    vi
+      .mocked(uploadMediaSource)
+      .mock.calls.map(([source]) => source)
+      .sort(),
+  ).toEqual([...sources, sources[1]!].sort())
+  expect(
+    readCanvasDocument(server)
+      .nodes.filter((node) => node.type === 'image')
+      .map((node) => node.data.mediaId)
+      .sort(),
+  ).toEqual([
+    '55555550-5555-4555-8555-555555555555',
+    '55555551-5555-4555-8555-555555555555',
+    '55555552-5555-4555-8555-555555555555',
+  ])
+  record.dispose()
+})
+
+const uploaded = '66666666-6666-4666-8666-666666666666'
+function serverNode(server: Y.Doc, id: string) {
+  return readCanvasDocument(server).nodes.find((node) => node.id === id)
+}
+
+it('saves edits while an image uploads, then the image once it lands', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const upload = deferred<NonNullable<Awaited<ReturnType<typeof uploadMediaSource>>>>()
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockImplementationOnce(() => upload.promise)
+  const doc = session.canvas!.doc
+  record.editor.doc.files = { photo: 'data:image/png;base64,cGhvdG8=' }
+  insertCanvasNode(
+    doc,
+    { id: 'photo', type: 'image', x: 0, y: 0, width: 50, height: 50, data: { fileId: 'photo' } },
+    session.canvas!.origin,
+  )
+  // 节点和它的位置先到服务端：没有 mediaId，只带本机 fileId；服务端校验照收。
+  await vi.waitFor(() => expect(serverNode(server, 'photo')?.data).toEqual({ fileId: 'photo' }))
+  validateCloudCanvas(server, { version: 1, elements: [] })
+  await vi.waitFor(() =>
+    expect(session.getSnapshot()).toEqual({
+      status: 'syncing',
+      message: null,
+      upload: { done: 0, total: 1 },
+    }),
+  )
+  let synced = false
+  const sync = session.sync().then(() => {
+    synced = true
+  })
+  moveCanvasNodes(doc, [{ id: 'photo', x: 70, y: 80 }], session.canvas!.origin)
+  await vi.waitFor(() => expect(serverNode(server, 'photo')).toMatchObject({ x: 70, y: 80 }))
+  // 挪动已经保存，但图片还没上云：sync() 的等待者照旧要等图片。
+  await Promise.resolve()
+  expect(synced).toBe(false)
+  expect(session.getSnapshot().status).toBe('syncing')
+  upload.resolve({ id: uploaded, sha256: 'photo' })
+  await sync
+  expect(serverNode(server, 'photo')).toMatchObject({
+    x: 70,
+    y: 80,
+    data: { mediaId: uploaded, fileId: `cloud-${uploaded}` },
+  })
+  expect(session.getSnapshot()).toEqual({ status: 'saved', message: null })
+  expect(uploadMediaSource).toHaveBeenCalledTimes(1)
+  record.dispose()
+})
+
+it('keeps edits saved when a background upload fails, and retries the image on sync', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockRejectedValueOnce(new Error('upload unavailable'))
+    .mockResolvedValueOnce({ id: uploaded, sha256: 'retry' })
+  record.editor.doc.files = { photo: 'data:image/png;base64,cGhvdG8=' }
+  insertCanvasNode(
+    session.canvas!.doc,
+    { id: 'photo', type: 'image', x: 5, y: 6, width: 50, height: 50, data: { fileId: 'photo' } },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('media-local'))
+  expect(session.getSnapshot().upload).toBeUndefined()
+  expect(serverNode(server, 'photo')).toMatchObject({ x: 5, y: 6, data: { fileId: 'photo' } })
+  await session.sync()
+  expect(serverNode(server, 'photo')?.data).toMatchObject({ mediaId: uploaded })
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(uploadMediaSource).toHaveBeenCalledTimes(2)
+  record.dispose()
+})
+
+it('clears an upload failure once the failed image is deleted', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  vi.mocked(uploadMediaSource).mockClear().mockRejectedValueOnce(new Error('upload unavailable'))
+  record.editor.doc.files = { photo: 'data:image/png;base64,cGhvdG8=' }
+  insertCanvasNode(
+    session.canvas!.doc,
+    { id: 'photo', type: 'image', x: 5, y: 6, width: 50, height: 50, data: { fileId: 'photo' } },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('media-local'))
+  deleteCanvasNode(session.canvas!.doc, 'photo', session.canvas!.origin)
+  await session.sync()
+  expect(serverNode(server, 'photo')).toBeUndefined()
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(uploadMediaSource).toHaveBeenCalledTimes(1)
+  record.dispose()
+})
+
+it("saves around another device's image that is still uploading", async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const vector = Y.encodeStateVector(server)
+  insertCanvasNode(
+    server,
+    { id: 'elsewhere', type: 'image', x: 0, y: 0, width: 50, height: 50, data: { fileId: 'x1' } },
+    origin,
+  )
+  socket.receive(canvasSyncUpdate(Y.encodeStateAsUpdate(server, vector)))
+  vi.mocked(uploadMediaSource).mockClear()
+  moveCanvasNodes(session.canvas!.doc, [{ id: 'text', x: 33, y: 44 }], session.canvas!.origin)
+  await session.sync()
+  expect(serverNode(server, 'text')).toMatchObject({ x: 33, y: 44 })
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(uploadMediaSource).not.toHaveBeenCalled()
+  record.dispose()
+})
+
+it('still waits for media before sending a local candidate the server cannot accept', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const upload = deferred<NonNullable<Awaited<ReturnType<typeof uploadMediaSource>>>>()
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockImplementationOnce(() => upload.promise)
+  const doc = session.canvas!.doc
+  record.editor.doc.files = { edit: 'data:image/png;base64,ZWRpdA==' }
+  const sent = socket.sent.length
+  doc.transact(() => {
+    insertCanvasNode(
+      doc,
+      { id: 'image', type: 'image', x: 0, y: 0, width: 50, height: 50, data: {} },
+      session.canvas!.origin,
+    )
+    recordCanvasResult(
+      doc,
+      {
+        id: 'edit',
+        nodeId: 'image',
+        kind: 'image',
+        source: { type: 'file', fileId: 'edit' },
+        createdAt: 1,
+      },
+      session.canvas!.origin,
+    )
+  }, session.canvas!.origin)
+  await vi.waitFor(() => expect(uploadMediaSource).toHaveBeenCalledTimes(1))
+  expect(socket.sent).toHaveLength(sent)
+  upload.resolve({ id: uploaded, sha256: 'edit' })
+  await session.sync()
+  expect(canvasResults(server).find((result) => result.id === 'edit')?.source).toEqual({
+    type: 'media',
+    mediaId: uploaded,
+  })
   record.dispose()
 })
 
