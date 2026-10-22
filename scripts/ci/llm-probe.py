@@ -43,7 +43,15 @@ def stream_ttft(m, prompt):
     try:
         with urllib.request.urlopen(req, timeout=300) as resp:
             for line in resp:
-                if first is None and line.startswith(b"data:") and b'"delta"' in line:
+                if first is not None or not line.startswith(b"data:"):
+                    continue
+                try:
+                    chunk = json.loads(line[5:])
+                except ValueError:
+                    continue
+                delta = (chunk.get("choices") or [{}])[0].get("delta") or {}
+                # 只算真正的内容或推理文本，跳过只带 role 的首帧。
+                if delta.get("content") or delta.get("reasoning_content") or delta.get("reasoning"):
                     first = time.time() - t
     except Exception as e:  # noqa: BLE001
         return f"{type(e).__name__}", ""
@@ -73,9 +81,9 @@ for m, (pname, prompt), (vname, extra), _ in (
                 status = resp.status
                 u = json.loads(resp.read()).get("usage") or {}
         except urllib.error.HTTPError as e:
-            status = f"{e.code} {e.read()[:120].decode('utf-8', 'replace')!r}".replace("|", "/")
+            status = e.code  # 不打印错误正文，可能回显请求内容
         except Exception as e:  # noqa: BLE001
-            status = f"{type(e).__name__}: {str(e)[:120]}".replace("|", "/")
+            status = type(e).__name__
         dt = time.time() - t
         r = (u.get("completion_tokens_details") or {}).get("reasoning_tokens", "-")
         print(f"| {m} | {pname} | {vname} | {dt:.1f} | {u.get('prompt_tokens', '-')} | {u.get('completion_tokens', '-')} | {r} | {status} |")

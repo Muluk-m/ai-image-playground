@@ -67,7 +67,7 @@ env:
   # 网关单次往返 10–60s（各模型都一样，见 PR 说明），medium 的第二轮评审+二次过滤会让最慢的组
   # 串行请求翻倍、整次评审 18–30 分钟；low 只跑一轮。
   OCR_EFFORT: low
-  # 单组上限（分钟，low 一轮即此值），必须小于 job 的 timeout-minutes，
+  # 单组总上限（分钟，按评审轮数折算成 --timeout），必须小于 job 的 timeout-minutes，
   # 这样慢组由 ocr 自己判超时，其余组的结果照常发出来，而不是整个 job 被取消、什么都不剩。
   OCR_GROUP_TIMEOUT: '18'
   OCR_VERSION: 1.13.3
@@ -130,11 +130,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ steps.ctx.outputs.head_sha }}
 
-      # 统计脚本取自工作流所在提交，不依赖被评审分支里有没有这些文件。
+      # 统计脚本取自可信提交：PR 事件用目标分支的 base，不执行 PR 自己改过的脚本；
+      # 评论触发是 main，手动测评是有写权限的人选的分支。
       - name: Checkout CI tools
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
           path: .ci-tools
           sparse-checkout: scripts/ci
           persist-credentials: false
@@ -166,12 +167,15 @@ jobs:
           ocr config set language Chinese
           if [ -n "$EXTRA_BODY" ]; then
             ocr config set llm.extra_body "$EXTRA_BODY"
-            echo "::notice::llm.extra_body=${EXTRA_BODY}"
+            echo "已设置 llm.extra_body"
           fi
 
       - name: Probe LLM latency
         if: github.event_name == 'workflow_dispatch' && inputs.probe
+        timeout-minutes: 12
+        continue-on-error: true
         env:
+          LLM_MODEL: ${{ inputs.model || env.LLM_MODEL }}
           OCR_LLM_AUTH_TOKEN: ${{ secrets.CI_LLM_API_KEY }}
           PROBE_MODELS: ${{ inputs.probe_models }}
         run: |
@@ -246,6 +250,10 @@ jobs:
           BG="$REVIEW_GUIDANCE"
           if [ -n "$BACKGROUND" ]; then BG="${BG}"$'\n\n'"业务背景：${BACKGROUND}"; fi
 
+          # ocr 的单组上限 = --timeout × 评审轮数（low 1 / medium 2 / high 3），按轮数折算保证总上限不变。
+          case "$EFFORT" in medium|"") ROUNDS=2 ;; high) ROUNDS=3 ;; *) ROUNDS=1 ;; esac
+          GROUP_TIMEOUT=$(( OCR_GROUP_TIMEOUT / ROUNDS ))
+
           echo "::notice::Reviewing ${FROM_SHA}..${HEAD_SHA} (${REVIEW_SCOPE})"
           # 非阻断：评审本身失败不让 CI 红，结果由下一步呈现。
           ocr review \
@@ -255,7 +263,7 @@ jobs:
             --audience agent \
             --concurrency 8 \
             ${EFFORT:+--effort "$EFFORT"} \
-            --timeout "$OCR_GROUP_TIMEOUT" \
+            --timeout "$GROUP_TIMEOUT" \
             --background "$BG" \
             --exclude "$EXCLUDE" \
             > "${RESULT_PATH}" 2> >(tee "${STDERR_PATH}" >&2) || true
@@ -265,7 +273,12 @@ jobs:
 
       - name: Review timing breakdown
         if: always() && steps.review.outcome != 'skipped'
+        continue-on-error: true
         run: |
+          if [ ! -f .ci-tools/scripts/ci/ocr-timing.py ]; then
+            echo "可信提交里还没有 ocr-timing.py，跳过耗时统计"
+            exit 0
+          fi
           python3 .ci-tools/scripts/ci/ocr-timing.py | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Post review results

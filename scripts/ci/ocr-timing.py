@@ -45,6 +45,7 @@ def fmt_s(ms):
 def main():
     root = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/.opencodereview/raw")
     recs = []
+    skipped = 0
     for path in glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True):
         with open(path, encoding="utf-8") as f:
             for line in f:
@@ -52,15 +53,18 @@ def main():
                 if not line:
                     continue
                 try:
-                    recs.append(json.loads(line))
-                except json.JSONDecodeError:
+                    r = json.loads(line)
+                    r["duration_ms"] = int(r.get("duration_ms") or 0)
+                    r["_start"] = parse_ts(r["timestamp"])
+                except (ValueError, TypeError, KeyError, AttributeError):
+                    skipped += 1
                     continue
+                recs.append(r)
     if not recs:
         print("## ocr 耗时分析\n\n没有原始请求记录（OCR_RAW_LOGGING 未生效或未发出请求）。")
         return
 
     for r in recs:
-        r["_start"] = parse_ts(r["timestamp"])
         r["_end"] = r["_start"] + timedelta(milliseconds=r.get("duration_ms", 0))
         r["_in"], r["_out"], r["_reason"] = usage_of(r)
 
@@ -77,6 +81,8 @@ def main():
     out.append("## ocr 耗时分析\n")
     out.append(f"- 首个请求到最后一个响应：**{wall / 60:.1f} 分钟**；LLM 请求累计 {busy / 60:.1f} 分钟，平均并行度 {busy / wall if wall else 0:.2f}")
     out.append(f"- HTTP 尝试 {len(recs)} 次，状态码分布：" + "，".join(f"`{k}`×{v}" for k, v in sorted(status.items(), key=lambda x: str(x[0]))))
+    if skipped:
+        out.append(f"- 跳过 {skipped} 条无法解析的记录")
     tot_in = sum(r["_in"] for r in recs)
     tot_out = sum(r["_out"] for r in recs)
     tot_reason = sum(r["_reason"] for r in recs)
