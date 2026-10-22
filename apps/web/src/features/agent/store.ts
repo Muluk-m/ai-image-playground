@@ -15,6 +15,7 @@ import type {
 import {
   AGENT_IMAGE_MAX_N,
   AGENT_QUEUE_MAX_PENDING,
+  agentImageCount,
   PROJECT_NAME_MAX_LENGTH,
   stripTitleMarkdown,
 } from '@image-playground/shared'
@@ -28,6 +29,7 @@ import {
   safeLocalStorage,
   scopedStorageName,
 } from '../../lib/authScope'
+import { refreshChannels } from '../../lib/channels/bootstrapChannels'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
 import { reportClientError } from '../../lib/errorReporting'
 import { notifyPrivateSubmissionSettled } from '../../lib/privateOverlay'
@@ -270,6 +272,8 @@ export interface AgentState {
   load(): Promise<void>
   refreshConversations(): Promise<void>
   followBatchWake(conversationId: string, batchId: string, version: number): void
+  /** 画布节点运行的结局交上之后，接住智能体被唤醒的那一轮；跳过时卡上说明原因。 */
+  followStageRunWake(conversationId: string, authorizationId: string): void
   selectConversation(conversationId: string): Promise<void>
   deleteConversation(conversationId: string): Promise<void>
   startNewConversation(): void
@@ -617,13 +621,44 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       set((state) => ({ retryRefusals: { ...state.retryRefusals, [placeholderId]: refusal } })),
     adopt: async (conversationId, taken, options) => {
       if (options?.join) {
-        await joinQueuedTurn(conversationId, taken, options.join)
+        await joinQueuedTurn(
+          conversationId,
+          taken,
+          options.join,
+          options.origin === true,
+          options.originTurn,
+        )
         return
       }
       adoptSnapshot(conversationId, taken)
+      if (options?.originTurn) claimStageRunOrigins(conversationId, options.originTurn)
     },
   }
   const jobs = createAgentBackgroundJobs({ delivery, session: jobSession })
+
+  /** 运行权附带的回调：这批运行的结局交上之后，接住智能体被唤醒的那一轮。 */
+  function stageRunOrigin(conversationId: string) {
+    return {
+      onReported: (authorizationId: string) =>
+        get().followStageRunWake(conversationId, authorizationId),
+    }
+  }
+
+  /**
+   * 本标签页的运行回报唤醒的那一轮在接上之前就跑完了：它登记、仍待确认的阶段授权照样归本标签页，
+   * 与实时接上时一样开跑或等确认。只看这一轮的卡，不碰历史里别的轮。
+   */
+  function claimStageRunOrigins(conversationId: string, turnId: string) {
+    if (get().conversationId !== conversationId) return
+    for (const message of get().messages)
+      if (
+        message.kind === 'tool' &&
+        message.turnId === turnId &&
+        message.canvasRun?.authorizationId &&
+        message.canvasRun.status === 'pending'
+      )
+        registerAgentNodeRunOrigin(message.id, stageRunOrigin(conversationId))
+  }
 
   /**
    * 交付换代（切会话、新建会话、停止撞上 404 后按历史重来）：移交给后台任务的把手全部作废，
@@ -703,7 +738,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         { ...event, type: 'toolResult' },
       ])
       // Origin rights are memory-only. History, reconnects and other devices never auto-start.
-      if (sent && card.kind === 'tool' && card.canvasRun) registerAgentNodeRunOrigin(card.id)
+      // 本标签页自己发出的轮，以及本标签页开跑的那批运行回报唤醒、由本标签页接上的那一轮，才带运行权。
+      if (sent && card.kind === 'tool' && card.canvasRun)
+        registerAgentNodeRunOrigin(card.id, stageRunOrigin(conversationId))
       if (card.kind !== 'tool') turnDelivery.discard(event.messageId)
       // 后台任务：占的位不随这一轮收掉，交给任务，等它结束再落。
       else if (event.status === 'submitted')
@@ -974,9 +1011,20 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     conversationId: string,
     taken: AgentConversationState,
     turnId: string,
+    origin = false,
+    originTurn?: string,
   ) => {
     adoptSnapshot(conversationId, taken, { join: turnId })
-    await follow(conversationId, turnSource(taken, turnId), null, delivery.beginTurn())
+    if (originTurn) claimStageRunOrigins(conversationId, originTurn)
+    await follow(
+      conversationId,
+      turnSource(taken, turnId),
+      null,
+      delivery.beginTurn(),
+      undefined,
+      undefined,
+      origin,
+    )
   }
 
   /**
@@ -1375,6 +1423,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       }),
       // 工作台出图模型单独送：默认智能选模型时不把它写进对话模型，阶段授权仍要按它报价。
       ...(selected ? { canvasImageModel: selected } : {}),
+      // 张数同理：画布轮不送 n，报价却要和原标签页 buildNodeBatch 提交的张数（同一个 agentImageCount）一致。
+      canvasImageCount: agentImageCount({ n: params.n }),
       ...(imageDirect ? { directImage: true as const } : {}),
       thinkingDepth: get().thinkingDepth,
       ...(mode === 'video' && useVideoStore.getState().draft.model
@@ -1503,6 +1553,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             clarificationAnswer,
             prepared.canvas,
             prepared.experience,
+            prepared.surface,
           ),
         current,
       )
@@ -1725,6 +1776,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (get().historyCached || get().historyLoading || get().historyFailed) return
       jobs.followBatch(conversationId, batchId, version)
     },
+    followStageRunWake(conversationId, authorizationId) {
+      if (get().historyCached || get().historyLoading || get().historyFailed) return
+      jobs.followStageRun(conversationId, authorizationId)
+    },
     setOpen: (open) => set({ open }),
     setTab: (tab) => set({ tab }),
     setPanelWidth: (width) => {
@@ -1933,6 +1988,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       onUnsent,
       localPersistence,
     ) {
+      // 这一轮可能在画布上发起运行：原标签页报价前把模型清单刷新一下（有节流，失败保留原清单）。
+      void refreshChannels()
       const resend = () =>
         get().send(text, references, onAccepted, mode, clientMessageId, replay, modelOverride)
       /** 服务端收下之前就失败：说清原因与下一步，能重试的给卡片挂上「重试」。 */
@@ -2266,6 +2323,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
                 clarificationAnswer,
                 prepared.canvas,
                 prepared.experience,
+                prepared.surface,
                 cancellation.signal,
               ),
             () => turnDelivery.isCurrent(),

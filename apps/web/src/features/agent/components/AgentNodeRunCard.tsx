@@ -1,10 +1,15 @@
-import type { AgentCanvasRunProposal, StageAuthorization } from '@image-playground/shared'
+import type {
+  AgentCanvasRunProposal,
+  AgentWakeSkipReason,
+  StageAuthorization,
+} from '@image-playground/shared'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ApprovalCard } from '../../../components/assistant-ui/elements/approval-card'
 import Credits from '../../../components/Credits'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
+import { refreshChannels } from '../../../lib/channels/bootstrapChannels'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import NodeBatchJobs from '../../canvas/components/NodeBatchJobs'
 import { CARD_NOTE } from '../agentStyles'
@@ -13,8 +18,10 @@ import {
   type AgentNodeRun,
   agentNodeRun,
   agentNodeRunControl,
+  agentNodeRunWakeSkipped,
   forgetAgentNodeRun,
   isAgentNodeRunOrigin,
+  noteAgentNodeRunBlocked,
   startAgentNodeRun,
   stopAgentNodeRun,
   subscribeAgentNodeRuns,
@@ -24,9 +31,12 @@ import { stageAuthorizationClient } from '../lib/stageAuthorizationClient'
 export default function AgentNodeRunCard({
   runKey,
   proposal,
+  wakeSkipped,
 }: {
   runKey: string
   proposal: AgentCanvasRunProposal
+  /** 服务端记在运行卡上的「唤醒没有起轮」原因；刷新之后也在。 */
+  wakeSkipped?: AgentWakeSkipReason
 }) {
   const { t } = useTranslation(['agent', 'canvas'])
   const bridge = useSyncExternalStore(subscribeAgentNodeRun, agentNodeRunBridge)
@@ -34,6 +44,9 @@ export default function AgentNodeRunCard({
   const settled = useRef<AgentNodeRun>(undefined)
   const run = live ?? settled.current
   const origin = useSyncExternalStore(subscribeAgentNodeRuns, () => isAgentNodeRunOrigin(runKey))
+  const skippedLive = useSyncExternalStore(subscribeAgentNodeRuns, () =>
+    agentNodeRunWakeSkipped(proposal.authorizationId),
+  )
   const [stored, setStored] = useState<StageAuthorization>()
   const [readFailed, setReadFailed] = useState(false)
   const [readAttempt, setReadAttempt] = useState(0)
@@ -41,13 +54,26 @@ export default function AgentNodeRunCard({
     if (live && (live.status === 'done' || live.status === 'undone' || live.status === 'failed'))
       settled.current = live
   }, [live])
+  // 报价前把模型清单刷新一下（30 秒节流，失败保留原清单）：运营停用或恢复视频模型后，卡片按新清单报价。
+  useEffect(() => {
+    void refreshChannels()
+  }, [])
   useEffect(() => {
     if (!proposal.direct || !origin || !bridge) return
-    startAgentNodeRun(runKey, proposal, 0)
+    // 直接出图等清单刷新完再报价开跑：模型刚被停用时不按旧清单提交。
+    let cancelled = false
+    void refreshChannels().then(() => {
+      if (!cancelled) startAgentNodeRun(runKey, proposal, 0)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [bridge, origin, proposal, runKey])
   useEffect(() => {
     if (!live || (live.status !== 'done' && live.status !== 'undone' && live.status !== 'failed'))
       return
+    // 结局还在交给智能体：交完再收走，卡上才看得到交没交上。
+    if (live.report?.wake === 'reporting') return
     forgetAgentNodeRun(runKey, agentNodeRunControl(runKey))
   }, [live, runKey])
   useEffect(() => {
@@ -119,16 +145,29 @@ export default function AgentNodeRunCard({
               ? statusLabels[status]
               : t('nodeRun.unavailable')
   const terminal = run?.status === 'done' || run?.status === 'undone' || run?.status === 'failed'
+  const report = run?.report
+  const outcomes = report
+    ? Object.fromEntries(report.nodes.map((node) => [node.nodeId, node.outcome]))
+    : undefined
+  const unfinished = report?.nodes.filter((node) => node.outcome !== 'completed').length ?? 0
+  const skippedReason = wakeSkipped ?? skippedLive
   const statusLabel =
-    run?.status === 'done'
-      ? t('canvas:nodeBatch.done')
-      : run?.status === 'undone'
-        ? t('nodeRun.undone')
-        : run?.status === 'failed'
-          ? t(`canvas:nodeBatch.${run.error}`)
-          : subtitle
+    run?.status === 'done' && unfinished > 0
+      ? t('nodeRun.partial', { count: unfinished })
+      : run?.status === 'done'
+        ? t('canvas:nodeBatch.done')
+        : run?.status === 'undone'
+          ? t('nodeRun.undone')
+          : run?.status === 'failed'
+            ? t(`canvas:nodeBatch.${run.error}`)
+            : subtitle
   const canConfirm = !proposal.direct && !run && pending && origin
-  if (proposal.direct && !run && !plan?.error && !plan?.blocked) return null
+  // 按钮因开跑前的拦截置灰：服务端记一条 agent.stage.blocked（同一组原因只记一次）。
+  const blockedByPlan = Boolean(canConfirm && !readFailed && plan?.error)
+  useEffect(() => {
+    if (blockedByPlan) noteAgentNodeRunBlocked(proposal, plan)
+  }, [blockedByPlan, plan, proposal])
+  if (proposal.direct && !run && !plan?.error && !plan?.blocked && !skippedReason) return null
   const canUndo = run?.status === 'countdown'
   return (
     <ApprovalCard
@@ -175,6 +214,12 @@ export default function AgentNodeRunCard({
         { label: t('nodeRun.spent'), value: String(authorization?.spentCredits ?? 0) },
       ]}
     >
+      {proposal.storyboard && (
+        <StoryboardSummary
+          summary={proposal.storyboard}
+          finalized={Boolean(authorization?.audit.some((entry) => entry.kind === 'confirmed'))}
+        />
+      )}
       {jobs && (
         <NodeBatchJobs
           jobs={jobs}
@@ -186,7 +231,23 @@ export default function AgentNodeRunCard({
                 : 0
           }
           {...(run?.status === 'running' ? { active: run.active } : {})}
+          {...(outcomes ? { outcomes } : {})}
         />
+      )}
+      {(skippedReason === 'insufficient_credits' || skippedReason === 'wake_limit') && (
+        <p role="status" className={CARD_NOTE}>
+          {t(`job.wakeSkipped.${skippedReason}`)}
+        </p>
+      )}
+      {!skippedReason && (report?.wake === 'queued' || report?.wake === 'duplicate') && (
+        <p role="status" className={CARD_NOTE}>
+          {t('nodeRun.reported')}
+        </p>
+      )}
+      {report?.wake === 'failed' && (
+        <p role="status" className={CARD_NOTE}>
+          {t('nodeRun.reportFailed')}
+        </p>
       )}
       <p className="flex flex-wrap items-center justify-between gap-2 text-xs">
         <span>{t('canvas:nodes.estimatedCost')}</span>
@@ -222,5 +283,51 @@ export default function AgentNodeRunCard({
         </p>
       )}
     </ApprovalCard>
+  )
+}
+
+const SUMMARY_SHOTS_SHOWN = 12
+
+/**
+ * 首帧阶段的镜头表摘要：用户确认的就是「按这张表开拍」，确认即定稿。
+ * 摘要来自提案那一刻；授权已经确认过（直接出图由原标签页确认）就说已定稿，不再说「确认即定稿」。
+ */
+function StoryboardSummary({
+  summary,
+  finalized,
+}: {
+  summary: NonNullable<AgentCanvasRunProposal['storyboard']>
+  finalized: boolean
+}) {
+  const { t } = useTranslation('agent')
+  const shown = summary.shots.slice(0, SUMMARY_SHOTS_SHOWN)
+  return (
+    <div className="grid gap-1 text-xs">
+      <p className="font-medium">
+        {t('nodeRun.storyboard.summary', {
+          count: summary.shotCount,
+          seconds: summary.totalSeconds,
+        })}
+      </p>
+      <ol className="grid gap-0.5 text-muted-foreground">
+        {shown.map((shot, index) => (
+          <li key={shot.id}>
+            {t('nodeRun.storyboard.shot', {
+              index: index + 1,
+              seconds: shot.durationSeconds,
+              line: shot.line,
+            })}
+          </li>
+        ))}
+      </ol>
+      {summary.shots.length > shown.length && (
+        <p className="text-muted-foreground">
+          {t('nodeRun.storyboard.more', { count: summary.shots.length - shown.length })}
+        </p>
+      )}
+      <p className={CARD_NOTE}>
+        {t(finalized ? 'nodeRun.storyboard.finalized' : 'nodeRun.storyboard.finalizes')}
+      </p>
+    </div>
   )
 }

@@ -23,6 +23,7 @@ import {
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
   DEVICE_ID_HEADER,
+  isAgentSurface,
   parseAgentCanvasSnapshot,
   SYNC_NAME_MAX_LENGTH,
 } from '@image-playground/shared'
@@ -224,6 +225,8 @@ const paramsSchema = t.Optional(
     model: t.Optional(t.String({ maxLength: 128 })),
     /** 原标签页工作台的出图模型。只用于阶段授权报价，不改变对话模型。 */
     canvasImageModel: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+    /** 原标签页工作台的出图张数。只用于阶段授权报价，不改变对话生图张数。 */
+    canvasImageCount: t.Optional(t.Integer({ minimum: 1, maximum: AGENT_IMAGE_MAX_N })),
     /**
      * 直接出图偏好。对话生图只认 true。画布 runNodes 缺席按默认开，只有 false 弹确认卡。
      */
@@ -846,6 +849,7 @@ export const agentRoutes = new Elysia()
             ...(body.experience === 'chat' || body.experience === 'canvas'
               ? { experience: body.experience }
               : {}),
+            ...(isAgentSurface(body.surface) ? { surface: body.surface } : {}),
           })
         } catch (error) {
           if (error instanceof MediaError) return status(error.status, { error: error.message })
@@ -881,6 +885,8 @@ export const agentRoutes = new Elysia()
         canvas: t.Optional(t.Any()),
         /** 发话时客户端看到的入口；只在项目还没记下入口时参考，不认识的值当没带。 */
         experience: t.Optional(t.Any()),
+        /** 这一轮的模式：agent（只生图改图）或 canvas（画布节点）。不认识的值当没带，按 agent 算。 */
+        surface: t.Optional(t.Any()),
       }),
     },
   )
@@ -1022,10 +1028,12 @@ export const agentRoutes = new Elysia()
           resolveAgentMode(query.mode ?? 'image'),
           authUser?.id ?? null,
           resolveAgentModel('image')?.model,
+          // 画布技能只进画布视图的 `/` 菜单；不带 surface 的旧客户端按 Agent 模式。
+          query.surface === 'canvas' ? 'canvas' : 'chat',
         ),
       }
     },
-    { query: t.Object({ mode: modeSchema }) },
+    { query: t.Object({ mode: modeSchema, surface: t.Optional(t.String()) }) },
   )
   .get(
     // 预置模板的封面与参考图。图片随技能目录发布，所以取法也跟着技能走：认技能名与文件名，

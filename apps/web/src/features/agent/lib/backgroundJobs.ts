@@ -1,7 +1,9 @@
 import type {
   AgentBackgroundJobProgress,
   AgentBackgroundJobView,
+  AgentBatchWakeReceipt,
   AgentMessageView,
+  StageRunWakeReceipt,
 } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
 import { notifyPrivateSubmissionSettled } from '../../../lib/privateOverlay'
@@ -12,6 +14,7 @@ import {
   AgentRequestError,
   cancelRetry as cancelRetryRequest,
   fetchBatchWakeReceipt,
+  fetchStageRunWakeReceipt,
   cancelJob as requestJobCancel,
   fetchJobs as requestJobs,
   fetchMessages as requestSnapshot,
@@ -23,6 +26,7 @@ import {
 } from './artifactDelivery'
 import { agentCanvasSink } from './canvasSink'
 import { agentJobUnsettled } from './jobProgress'
+import { noteAgentNodeRunWakeSkipped } from './nodeRuns'
 import { panelMessage } from './panelMessages'
 import { agentDraftReservation } from './promptDraft'
 import type { AgentRetryRefusal } from './retry'
@@ -77,11 +81,16 @@ export interface AgentJobSession {
   reportProgress(messageId: string, progress: AgentBackgroundJobProgress): void
   /** 一次重试被拒后盖在云端失败占位上的那一层。 */
   coverRefusal(placeholderId: string, refusal: AgentRetryRefusal): void
-  /** 换上这份快照；带 `join` 时连同挂上那一轮。 */
+  /**
+   * 换上这份快照；带 `join` 时连同挂上那一轮。`origin` 只给本标签页的画布运行回报唤醒起的那一轮：
+   * 那一轮里新登记的阶段授权仍由本标签页开跑或确认，别的接轮（刷新、别的设备、普通任务唤醒）都不带。
+   * 唤醒轮在接上之前已经跑完时，`originTurn` 指明那一轮：快照里它登记、还待确认的阶段授权交给本标签页，
+   * `join` 挂上的后继轮不带运行权。
+   */
   adopt(
     conversationId: string,
     snapshot: AgentConversationState,
-    options?: { readonly join?: string },
+    options?: { readonly join?: string; readonly origin?: boolean; readonly originTurn?: string },
   ): Promise<void>
 }
 
@@ -109,6 +118,8 @@ export interface AgentBackgroundJobs {
   resume(conversationId: string, messages: readonly AgentPanelMessage[]): void
   /** A completed batch uses the same durable wake pickup, once per version in this conversation. */
   followBatch(conversationId: string, batchId: string, version: number): void
+  /** 画布节点运行的回报同样走持久的唤醒：每条授权只接一次。 */
+  followStageRun(conversationId: string, authorizationId: string): void
   /**
    * 单独取消这张结果卡提交的任务；服务端按原桶退回，卡随即换成取消后的结局。还在重试队列里
    * 排着的重试记录也走这里：撤回它，失败占位保持原来那次失败。
@@ -168,8 +179,12 @@ export function createAgentBackgroundJobs({
   let wakeWatch: { readonly conversationId: string; result: Promise<boolean> } | null = null
   interface BatchWake {
     readonly conversationId: string
-    readonly batchId: string
-    readonly version: number
+    /** 这条唤醒走到了哪一步：批次版本或运行回报各有自己的回执。 */
+    readonly receipt: () => Promise<AgentBatchWakeReceipt | StageRunWakeReceipt>
+    /** 唤醒被跳过时的收尾：运行卡要说明智能体没有查看。 */
+    readonly skipped?: (receipt: Extract<StageRunWakeReceipt, { status: 'skipped' }>) => void
+    /** 本标签页开跑的那批运行回报唤醒的轮：接上时把运行权交给它。 */
+    readonly origin?: boolean
     readonly currentScope: () => boolean
     running: boolean
     adopted: boolean
@@ -448,11 +463,13 @@ export function createAgentBackgroundJobs({
       batchWakes.get(key) === pending &&
       pending.currentScope() &&
       session.isCurrent(pending.conversationId)
-    void fetchBatchWakeReceipt(pending.batchId, pending.version)
+    void pending
+      .receipt()
       .then(async (receipt) => {
         if (!current()) return
         if (receipt.status === 'skipped') {
           pending.adopted = true
+          pending.skipped?.(receipt)
           return
         }
         if (receipt.status !== 'consumed' || !session.isIdle(pending.conversationId)) return
@@ -460,13 +477,15 @@ export function createAgentBackgroundJobs({
         const snapshot = await readBatchSnapshot(pending)
         if (!current() || !session.isIdle(pending.conversationId)) return
         if (snapshot.activeTurn?.turnId === receipt.turnId)
-          await session.adopt(pending.conversationId, snapshot, { join: receipt.turnId })
+          await session.adopt(pending.conversationId, snapshot, {
+            join: receipt.turnId,
+            ...(pending.origin ? { origin: true } : {}),
+          })
         else if (snapshot.messages.some((message) => message.turnId === receipt.turnId))
-          await session.adopt(
-            pending.conversationId,
-            snapshot,
-            snapshot.activeTurn ? { join: snapshot.activeTurn.turnId } : undefined,
-          )
+          await session.adopt(pending.conversationId, snapshot, {
+            ...(snapshot.activeTurn ? { join: snapshot.activeTurn.turnId } : {}),
+            ...(pending.origin ? { originTurn: receipt.turnId } : {}),
+          })
         else return
         if (current()) pending.adopted = true
       })
@@ -491,6 +510,37 @@ export function createAgentBackgroundJobs({
     if (event?.type === 'visibilitychange' && document.visibilityState === 'hidden') return
     refreshWakeRecovery()
     for (const [key, pending] of batchWakes) pickUpBatchWake(key, pending)
+  }
+
+  /** 跟住一条持久的唤醒：回执说已起轮就接上那一轮，说跳过就收尾。同一条只跟一次。 */
+  const followWake = (
+    conversationId: string,
+    key: string,
+    receipt: BatchWake['receipt'],
+    skipped?: BatchWake['skipped'],
+    origin = false,
+  ) => {
+    if (!session.isCurrent(conversationId)) return
+    refreshWakeRecovery()
+    let pending = batchWakes.get(key)
+    if (!pending) {
+      const sameAccount = accountScope()
+      const backend = bffBaseUrl()
+      pending = {
+        conversationId,
+        receipt,
+        ...(skipped ? { skipped } : {}),
+        ...(origin ? { origin } : {}),
+        currentScope: () => sameAccount() && bffBaseUrl() === backend,
+        running: false,
+        adopted: false,
+        retryAfter: 0,
+        retryCount: 0,
+      }
+      batchWakes.set(key, pending)
+    }
+    pickUpBatchWake(key, pending)
+    refreshWakeRecovery()
   }
 
   const reserveSlot = (
@@ -529,27 +579,24 @@ export function createAgentBackgroundJobs({
     },
 
     followBatch(conversationId, batchId, version) {
-      if (!session.isCurrent(conversationId)) return
-      const key = JSON.stringify([conversationId, batchId, version])
-      refreshWakeRecovery()
-      let pending = batchWakes.get(key)
-      if (!pending) {
-        const sameAccount = accountScope()
-        const backend = bffBaseUrl()
-        pending = {
-          conversationId,
-          batchId,
-          version,
-          currentScope: () => sameAccount() && bffBaseUrl() === backend,
-          running: false,
-          adopted: false,
-          retryAfter: 0,
-          retryCount: 0,
-        }
-        batchWakes.set(key, pending)
-      }
-      pickUpBatchWake(key, pending)
-      refreshWakeRecovery()
+      followWake(conversationId, JSON.stringify([conversationId, batchId, version]), () =>
+        fetchBatchWakeReceipt(batchId, version),
+      )
+    },
+
+    followStageRun(conversationId, authorizationId) {
+      followWake(
+        conversationId,
+        JSON.stringify([conversationId, 'stage-run', authorizationId]),
+        () => fetchStageRunWakeReceipt(authorizationId),
+        (receipt) => {
+          if (receipt.reason === 'insufficient_credits' || receipt.reason === 'wake_limit')
+            noteAgentNodeRunWakeSkipped(authorizationId, receipt.reason)
+        },
+        // 只有开跑这批的标签页会跟这条唤醒（见 store 里的 onReported）：唤醒轮接着发起的直接出图
+        // 由它开跑，否则授权登记了却没人执行，智能体只看到「没有任务记录」。
+        true,
+      )
     },
 
     async cancel(conversationId, messageId) {

@@ -17,6 +17,7 @@ import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { askChatModel } from '../chatCompletion'
 import { log } from '../logger'
+import { refreshInactiveModels } from '../model-availability'
 import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { isObject } from '../type-guards'
@@ -39,7 +40,7 @@ import {
   setAgentConversationTitle,
 } from './conversations'
 import type { TurnExecution } from './execution'
-import { loadAgentExperience, recordAgentExperience } from './experience'
+import { loadAgentExperience, loadAgentSurface, recordAgentExperience } from './experience'
 import { archiveAgentReferences, removeAgentTurnReferences } from './images'
 import {
   consecutiveAgentWakes,
@@ -65,6 +66,7 @@ import {
   loadAgentTurnAudience,
   titleSourceText,
 } from './skills'
+import { stageRunWakeContent } from './stage-runs'
 import { createSubmissionReplay, resolveAgentMode } from './tools'
 import { replayedSkillTexts } from './tools/loadSkill'
 import type { PreparedAgentTurn } from './turn'
@@ -213,15 +215,21 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
   // 读历史会把窗口里结束了的后台任务结算成终局：唤醒与并进来的唤醒看到的就是它们的结果。
   // 窗口之外更老的那些不在这一趟里，由会话快照（`routes/agent.ts`）与维护任务结算。
   const history = listAgentHistoryWindow(conversationId, owner)
+  // 运营停用的模型按页面同一份口径排除：建节点、报价、可用模型清单都读这份快照。
+  await refreshInactiveModels()
   // 可能抛的那两件事先落定，再让来源去备内容：用户消息那一路会把参考图写进对象存储，跟它们
   // 并排跑的话，它们抛出时那些字节还没有任何东西指着，也没有谁去清。
-  const [overlay, loadedAudience, resolved] = await Promise.all([
+  const [overlay, loadedAudience, resolved, surface] = await Promise.all([
     loadPrivateBffOverlay(),
     // 技能与这个用户自建的模板一起取：两者都要进系统提示词，预扣也按它们算。
     ensureAgentSkills().then(() => loadAgentTurnAudience(userId)),
     loadAgentExperience(conversationId, userId, source),
+    loadAgentSurface(conversationId, source),
   ])
+  // 项目入口只用来记项目归在哪个分组；这一轮的工具与提示按本轮模式：Agent 模式一律按对话那套，
+  // 只有画布模式才是节点画布。
   const { experience } = resolved
+  const turnExperience = surface === 'canvas' ? ('canvas' as const) : ('chat' as const)
   let content =
     source.kind === 'wake'
       ? await wakeContent(conversationId, owner, turnId, history, source.wake)
@@ -235,11 +243,14 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       params: { ...content.params, productionMode: true, autoSubmit: undefined },
     }
   }
-  // chat 不把旧客户端残留的画布上下文带给模型或图片解析器。
-  const turnContent = experience === 'chat' ? { ...content, canvas: undefined } : content
+  // 画布快照只在两种情况下留着：这一轮是画布模式（工具要读它），或画布入口的项目在 Agent 模式里
+  // 说话——那时只给图片解析器认「从画布选择」的参考图，工具与提示一律看不到它（见 `turn.ts`）。
+  // 对话入口项目的 Agent 轮不把旧客户端残留的快照带给任何人。
+  const turnContent =
+    experience === 'chat' && turnExperience === 'chat' ? { ...content, canvas: undefined } : content
   const audience: AgentTurnAudience = {
     ...loadedAudience,
-    experience,
+    experience: turnExperience,
   }
 
   // 内容备齐时参考图已经落进对象存储，而估算、定价与取件事务每一步都可能抛：这一段统一收尾，
@@ -270,7 +281,12 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     // 一份轮输入，两个读者：按它估算的这一笔预扣，与 `startAgentTurn` 发出去的那一份。估算在
     // 事务之外算完，取件与预扣那一笔才只有数据库往返。
     // 历史里读过的技能正文随回放带回去；估算照同一份算，预扣才对得上实发。
-    const skillTexts = await replayedSkillTexts(window.messages, content.mode, userId)
+    const skillTexts = await replayedSkillTexts(
+      window.messages,
+      content.mode,
+      userId,
+      turnExperience,
+    )
     const currentTime = new Date().toISOString()
     const conversationState = await conversationStateNote(conversationId)
     let modelHistory: AgentTurnInput['modelHistory']
@@ -480,6 +496,13 @@ function turnInputOf(
  * 唤醒轮：后台任务结束，智能体回来看结果。没有用户消息可落，模型收到的是一段系统说明，
  * 点名这一批里的结果；要复核的产物作为视觉证据随这一轮发出去。
  */
+/**
+ * 运行回报唤醒轮的授权原文：只汇总结果，不把发起那批运行的用户原话当成再花钱的授权。
+ * 被打断后续跑也照这一条，不退回通用的唤醒授权。
+ */
+const STAGE_RUN_WAKE_AUTHORIZATION =
+  '仅汇总这批画布节点运行的结果；新的运行要先向用户说明并等他同意，再用 runNodes 发起新的阶段授权。'
+
 async function wakeContent(
   conversationId: string,
   owner: AgentOwner,
@@ -487,6 +510,28 @@ async function wakeContent(
   history: Promise<AgentHistoryWindow>,
   wake: QueuedWake,
 ): Promise<TurnContent | TurnUnprepared> {
+  if (wake.stageRun) {
+    const [summary, window] = await Promise.all([
+      stageRunWakeContent(conversationId, owner, wake.stageRun),
+      history,
+    ])
+    if (!summary) return { kind: 'no_results' }
+    if ((await consecutiveAgentWakes(conversationId)) >= AGENT_MAX_CONSECUTIVE_WAKES)
+      return { kind: 'wake_limit' }
+    return {
+      text: summary.text,
+      references: [],
+      reviewImageIds: [],
+      mode: summary.mode,
+      params: summary.params,
+      selectionHistoryStart: clarificationChainStart(window.messages),
+      deviceId: wake.deviceId,
+      userMessageId: `${turnId}:wake`,
+      wake: {
+        authorizationPrompt: STAGE_RUN_WAKE_AUTHORIZATION,
+      },
+    }
+  }
   if (wake.batch) {
     const [summary, window] = await Promise.all([
       batchWakeContent(conversationId, owner, wake.batch),
@@ -571,10 +616,16 @@ async function resumeContent(
   ])
   // 被打断的是唤醒轮：续跑接着处理那一批结果，创作类型、参数与要复核的产物都照唤醒轮的算法取。
   const jobs = wake ? wakeJobs(authorizedTurn, wake.taskIds) : []
+  const stageSummary = wake?.stageRun
+    ? await stageRunWakeContent(conversationId, owner, wake.stageRun)
+    : null
   const batchSummary = wake?.batch
     ? await batchWakeContent(conversationId, owner, wake.batch)
-    : null
-  const setup = wake ? wakeTurnSetup(jobs) : resume
+    : stageSummary
+      ? { text: stageSummary.text, optionalReviewImageIds: [] }
+      : null
+  // 续跑的是运行回报的唤醒：参数照唤醒轮取，直接出图偏好沿用提案那一轮。
+  const setup = stageSummary ?? (wake ? wakeTurnSetup(jobs) : resume)
   const interruptedStart = window.messages.findIndex(
     (message) => message.turnId === resume.interruptedTurnId,
   )
@@ -595,7 +646,9 @@ async function resumeContent(
     userMessageId: `${turnId}:resume`,
     wake: {
       // 授权原文仍是用户的原话：被打断那一轮的，唤醒轮则是提交那一批的那一轮的。
-      authorizationPrompt: wakeAuthorizationPrompt(authorizedTurn, authorizedTurnId),
+      authorizationPrompt: stageSummary
+        ? STAGE_RUN_WAKE_AUTHORIZATION
+        : wakeAuthorizationPrompt(authorizedTurn, authorizedTurnId),
       ...(plan ? { plan } : {}),
       // 被打断那一轮已经提交的任务：同样的调用再来一次时交回它，不再提交。
       ...(submissions.length > 0 ? { replay: createSubmissionReplay(submissions) } : {}),
@@ -618,11 +671,19 @@ async function messageContent(
   const { message } = source
   // 恰好排着的唤醒并进这一轮，不再单独起轮。
   const [wakes, window] = await Promise.all([pendingAgentWakes(conversationId), history])
-  const ordinaryWakes = wakes.filter((wake) => !wake.batch)
+  const ordinaryWakes = wakes.filter((wake) => !wake.batch && !wake.stageRun)
   const batchSummaries = (
     await Promise.all(
       wakes.flatMap((wake) =>
-        wake.batch ? [batchWakeContent(conversationId, owner, wake.batch)] : [],
+        wake.batch
+          ? [batchWakeContent(conversationId, owner, wake.batch)]
+          : wake.stageRun
+            ? [
+                stageRunWakeContent(conversationId, owner, wake.stageRun).then((summary) =>
+                  summary ? { text: summary.text, optionalReviewImageIds: [] } : null,
+                ),
+              ]
+            : [],
       ),
     )
   ).filter((summary) => summary !== null)

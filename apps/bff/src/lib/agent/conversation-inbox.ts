@@ -22,7 +22,11 @@ import {
 import type { RunningTurn } from './runningTurns'
 import { runningTurn } from './runningTurns'
 import type { TurnNotStarted } from './start-turn'
-import { drainConversationInbox, kickConversationInbox } from './start-turn'
+import {
+  awaitConversationHandoff,
+  drainConversationInbox,
+  kickConversationInbox,
+} from './start-turn'
 
 /**
  * 排队消息的规则。`inbox.ts` 是收件箱里的一行行记录，这里是围着它的那几件事：发送、撤回、
@@ -146,6 +150,9 @@ export async function sendToConversationInbox(
   conversationId: string,
   message: EnqueueUserMessage,
 ): Promise<InboxSendResult> {
+  // 上一轮的终帧已经发出、租约还没放：等它交接完再进收件箱，这一条才能自己开轮、拿到自己的流。
+  // 等待有上限，收尾卡住时照常入队、退回排队回执（见 `awaitConversationHandoff`）。
+  await awaitConversationHandoff(conversationId)
   const enqueued = await enqueueAgentUserMessage(conversationId, message)
   if (enqueued.kind === 'full') return { kind: 'full' }
   const { entry } = enqueued

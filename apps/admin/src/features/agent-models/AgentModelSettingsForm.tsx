@@ -3,6 +3,7 @@ import {
   AGENT_PROVIDER_APIS,
   AGENT_PROVIDER_SECRET_REFS,
   type AgentConfiguredModel,
+  type AgentModelBinding,
   type AgentModelSettings,
   type AgentModelSettingsView,
   type AgentProfileKey,
@@ -36,6 +37,21 @@ const EFFORT_LABELS: Record<ModelReasoningLevel, string> = {
   high: '高（high）',
   xhigh: '更高（xhigh）',
   max: '最高（max）',
+}
+
+/** 没选备用时不提交这个键，避免把空值写进配置。 */
+function settingsForSave(value: AgentModelSettings): AgentModelSettings {
+  return {
+    ...value,
+    profiles: Object.fromEntries(
+      AGENT_PROFILE_KEYS.map((key) => {
+        const profile = value.profiles[key]
+        if (profile.fallback) return [key, profile]
+        const { fallback: _unused, ...rest } = profile
+        return [key, rest]
+      }),
+    ) as AgentModelSettings['profiles'],
+  }
 }
 
 function Choice({
@@ -127,19 +143,23 @@ export function AgentModelSettingsForm({
     for (const model of provider.models) models.set(model.id, model)
     return [...models.values()].filter((model) => model.imageInput)
   }
-  const invalidProfiles = AGENT_PROFILE_KEYS.filter((key) => {
-    const profile = settings.profiles[key]
-    const provider = settings.providers.find((item) => item.id === profile.providerId)
-    const model = modelsFor(provider).find((item) => item.id === profile.modelId)
-    return !model || !model.reasoningLevels.includes(profile.reasoning)
-  })
+  function bindingInvalid(binding?: AgentModelBinding) {
+    if (!binding) return false
+    const provider = settings.providers.find((item) => item.id === binding.providerId)
+    const model = modelsFor(provider).find((item) => item.id === binding.modelId)
+    return !model || !model.reasoningLevels.includes(binding.reasoning)
+  }
+  const invalidProfiles = AGENT_PROFILE_KEYS.filter(
+    (key) =>
+      bindingInvalid(settings.profiles[key]) || bindingInvalid(settings.profiles[key].fallback),
+  )
   function discard() {
     setBaseline(initial)
     setSettings(structuredClone(initial.settings))
   }
   async function submit() {
     if (invalidProfiles.length) return
-    const saved = await save(settings, baseline.revision)
+    const saved = await save(settingsForSave(settings), baseline.revision)
     if (saved) {
       setBaseline(saved)
       setSettings(structuredClone(saved.settings))
@@ -174,7 +194,7 @@ export function AgentModelSettingsForm({
           <div>
             <h2 className="font-semibold">产品档位</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              用户选择快速、普通或深度；每档分别决定接入哪个模型，以及该模型使用多大推理强度。同一个模型可以用于多个档位。
+              用户选择快速、普通或深度；每档分别决定接入哪个模型，以及该模型使用多大推理强度。同一个模型可以用于多个档位。过载且还没有输出时，改用该档的备用模型，只切换一次。
             </p>
           </div>
           {AGENT_PROFILE_KEYS.map((key) => {
@@ -188,52 +208,125 @@ export function AgentModelSettingsForm({
                 profiles: { ...current.profiles, [key]: { ...profile, ...next } },
               }))
             }
+            const fallback = profile.fallback
+            const fallbackProvider = settings.providers.find(
+              (item) => item.id === fallback?.providerId,
+            )
+            const fallbackModels = modelsFor(fallbackProvider)
+            const fallbackSelected = fallbackModels.find((item) => item.id === fallback?.modelId)
+            function changeFallback(next: AgentModelBinding | undefined) {
+              setSettings((current) => ({
+                ...current,
+                profiles: {
+                  ...current.profiles,
+                  [key]: { ...current.profiles[key], fallback: next },
+                },
+              }))
+            }
             return (
-              <div
-                key={key}
-                className="grid items-end gap-3 rounded-md bg-muted/30 p-3 md:grid-cols-[6rem_1fr_1.5fr_1fr]"
-              >
-                <div className="pb-2 text-sm font-medium">
-                  {DEPTH_LABELS[key]}
-                  {key === 'default' ? (
-                    <p className="mt-1 text-xs font-normal text-muted-foreground">未指定档位时</p>
-                  ) : null}
+              <div key={key} className="space-y-3 rounded-md bg-muted/30 p-3">
+                <div className="grid items-end gap-3 md:grid-cols-[6rem_1fr_1.5fr_1fr]">
+                  <div className="pb-2 text-sm font-medium">
+                    {DEPTH_LABELS[key]}
+                    {key === 'default' ? (
+                      <p className="mt-1 text-xs font-normal text-muted-foreground">未指定档位时</p>
+                    ) : null}
+                  </div>
+                  <Choice
+                    label={`${DEPTH_LABELS[key]} · Provider`}
+                    value={profile.providerId}
+                    options={settings.providers.map((item) => ({
+                      value: item.id,
+                      label: item.name || item.id,
+                    }))}
+                    onChange={(providerId) => change({ providerId, modelId: '', reasoning: 'off' })}
+                  />
+                  <Choice
+                    label={`${DEPTH_LABELS[key]} · 模型`}
+                    value={profile.modelId}
+                    options={models.map((item) => ({
+                      value: item.id,
+                      label: `${item.name} (${item.id})`,
+                    }))}
+                    onChange={(modelId) => {
+                      const levels = models.find((item) => item.id === modelId)
+                        ?.reasoningLevels ?? ['off']
+                      change({
+                        modelId,
+                        reasoning: levels.includes(profile.reasoning)
+                          ? profile.reasoning
+                          : levels[0],
+                      })
+                    }}
+                  />
+                  <Choice
+                    label={`${DEPTH_LABELS[key]} · 模型推理强度`}
+                    value={profile.reasoning}
+                    options={(selected?.reasoningLevels ?? []).map((level) => ({
+                      value: level,
+                      label: EFFORT_LABELS[level],
+                    }))}
+                    onChange={(reasoning) =>
+                      change({ reasoning: reasoning as ModelReasoningLevel })
+                    }
+                  />
                 </div>
-                <Choice
-                  label={`${DEPTH_LABELS[key]} · Provider`}
-                  value={profile.providerId}
-                  options={settings.providers.map((item) => ({
-                    value: item.id,
-                    label: item.name || item.id,
-                  }))}
-                  onChange={(providerId) => change({ providerId, modelId: '', reasoning: 'off' })}
-                />
-                <Choice
-                  label={`${DEPTH_LABELS[key]} · 模型`}
-                  value={profile.modelId}
-                  options={models.map((item) => ({
-                    value: item.id,
-                    label: `${item.name} (${item.id})`,
-                  }))}
-                  onChange={(modelId) => {
-                    const levels = models.find((item) => item.id === modelId)?.reasoningLevels ?? [
-                      'off',
-                    ]
-                    change({
-                      modelId,
-                      reasoning: levels.includes(profile.reasoning) ? profile.reasoning : levels[0],
-                    })
-                  }}
-                />
-                <Choice
-                  label={`${DEPTH_LABELS[key]} · 模型推理强度`}
-                  value={profile.reasoning}
-                  options={(selected?.reasoningLevels ?? []).map((level) => ({
-                    value: level,
-                    label: EFFORT_LABELS[level],
-                  }))}
-                  onChange={(reasoning) => change({ reasoning: reasoning as ModelReasoningLevel })}
-                />
+                <div className="grid items-end gap-3 md:grid-cols-[6rem_1fr_1.5fr_1fr]">
+                  <div className="pb-2 text-sm text-muted-foreground">过载备用</div>
+                  <Choice
+                    label={`${DEPTH_LABELS[key]} · 过载备用 Provider`}
+                    value={fallback?.providerId ?? '__none__'}
+                    options={[
+                      { value: '__none__', label: '不切换' },
+                      ...settings.providers.map((item) => ({
+                        value: item.id,
+                        label: item.name || item.id,
+                      })),
+                    ]}
+                    onChange={(providerId) => {
+                      if (providerId === '__none__') {
+                        changeFallback(undefined)
+                        return
+                      }
+                      changeFallback({ providerId, modelId: '', reasoning: 'off' })
+                    }}
+                  />
+                  <Choice
+                    label={`${DEPTH_LABELS[key]} · 过载备用模型`}
+                    value={fallback?.modelId || '__unset__'}
+                    options={fallbackModels.map((item) => ({
+                      value: item.id,
+                      label: `${item.name} (${item.id})`,
+                    }))}
+                    onChange={(modelId) => {
+                      if (!fallback) return
+                      const levels = fallbackModels.find((item) => item.id === modelId)
+                        ?.reasoningLevels ?? ['off']
+                      changeFallback({
+                        ...fallback,
+                        modelId,
+                        reasoning: levels.includes(fallback.reasoning)
+                          ? fallback.reasoning
+                          : levels[0],
+                      })
+                    }}
+                  />
+                  <Choice
+                    label={`${DEPTH_LABELS[key]} · 过载备用推理强度`}
+                    value={fallback?.reasoning || '__unset__'}
+                    options={(fallbackSelected?.reasoningLevels ?? []).map((level) => ({
+                      value: level,
+                      label: EFFORT_LABELS[level],
+                    }))}
+                    onChange={(reasoning) => {
+                      if (!fallback) return
+                      changeFallback({
+                        ...fallback,
+                        reasoning: reasoning as ModelReasoningLevel,
+                      })
+                    }}
+                  />
+                </div>
               </div>
             )
           })}
@@ -262,7 +355,9 @@ export function AgentModelSettingsForm({
                 }))
               }
               inUse={Object.values(settings.profiles).some(
-                (profile) => profile.providerId === provider.id,
+                (profile) =>
+                  profile.providerId === provider.id ||
+                  profile.fallback?.providerId === provider.id,
               )}
             />
           ))}

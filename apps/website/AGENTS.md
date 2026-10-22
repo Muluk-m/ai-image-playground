@@ -8,8 +8,10 @@ authentication form and semantic tokens; do not duplicate authentication protoco
 - `/` and `/en/` are marketing homepages. `/login/` and `/en/login/` share the real workbench login
   form and are noindex. Successful login and an existing authenticated root session go to `/image`.
   Example art/CTA does not enqueue a prompt. Workbench pending submissions keep their existing flow.
-- Guide content is in `../web/src/features/guide/content`. Keep both language structures, old URLs,
-  anchors and all source content. The React renderer and body/FAQ search use this same data.
+- Guide content is in `../web/src/features/guide/content` (groups → pages, `/guide/<group>/<page>/`).
+  Never drop a published URL or anchor: map it in `moved`, which pre-renders a noindex redirect page.
+  Matching `group/page` keys pair the languages for hreflang. The React renderer and body/FAQ search
+  use this same data.
 - `PUBLIC_ORIGIN` is a bare deployment origin. Canonical/hreflang/JSON-LD/sitemap require it.
   `SEARCH_INDEXING=false` means noindex, robots Disallow and no sitemap or llms.txt.
 - `pnpm --filter @image-playground/web build:static-host` builds the final Pages directory, including

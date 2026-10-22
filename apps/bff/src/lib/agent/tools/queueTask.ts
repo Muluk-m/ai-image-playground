@@ -89,7 +89,8 @@ function submittedText(words: MediaWords, count: number, size?: string): string 
 
 /**
  * 该介质的模型。优先用这一轮里用户选的，解析不出来（模型下线、介质不符）就退回运营配置的，
- * 再没有就取内置 channel 里这一介质的第一个。用户选错模型不该让整轮失败。
+ * 再没有就取内置 channel 里这一介质的第一个。用户选错模型不该让整轮失败；运营配置的
+ * 那个被下线（channels.json `disabled`）也一样，照样落到第一个可用的。
  */
 export function resolveAgentModel(
   media: ChannelMedia,
@@ -100,7 +101,7 @@ export function resolveAgentModel(
     if (chosen) return chosen
   }
   const configured = media === 'video' ? config.agent.videoModel : config.agent.imageModel
-  return resolveQueueModel(media, configured || undefined)
+  return (configured ? resolveQueueModel(media, configured) : undefined) ?? resolveQueueModel(media)
 }
 
 /** 一条跑完的队列任务落成的产物。同步等结果与后台任务结算走同一个算式。 */

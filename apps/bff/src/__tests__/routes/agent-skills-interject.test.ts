@@ -27,6 +27,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-skills-ope
 
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
+const { settleAgentBackgroundWorkForTesting } = await import('../../lib/agent/background-work')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { ensureAgentSkills, setAgentSkillsRootForTesting } = await import('../../lib/agent/skills')
 const { _setChannelsForTesting } = await import('../../lib/channels')
@@ -134,6 +135,9 @@ afterEach(async () => {
       deviceId: DEVICE,
     })
   }
+  // 用例看到消息落库就结束了，轮可能还在收尾（存模型历史、放手租约）。等它落定再让下一个用例
+  // 清库：两边同时动 agent_executions 那一行会死锁。
+  await settleAgentBackgroundWorkForTesting()
 })
 
 afterAll(async () => {

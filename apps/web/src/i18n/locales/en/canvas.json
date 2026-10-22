@@ -667,7 +667,12 @@
     "running": "Generating",
     "progress": "Completed {{done}} / {{total}}. Closing stops remaining jobs; submitted jobs will finish.",
     "done": "All selected jobs finished.",
-    "balance": "The available balance cannot cover this entire batch. Refresh your balance before confirming."
+    "balance": "The available balance cannot cover this entire batch. Refresh your balance before confirming.",
+    "outcome": {
+      "failed": "No result",
+      "blocked": "Blocked",
+      "skipped": "Not run"
+    }
   },
   "storyFlow": {
     "frames": "Create first frames",

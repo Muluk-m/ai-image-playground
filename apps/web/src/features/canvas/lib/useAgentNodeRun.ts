@@ -1,10 +1,11 @@
-import type { StageAuthorizationSubmission } from '@image-playground/shared'
+import type { StageAuthorizationSubmission, StageRunReason } from '@image-playground/shared'
 import {
   type AgentCanvasRunProposal,
   readCanvasDocument,
   stageExecutionSpecsMatch,
 } from '@image-playground/shared'
-import { useEffect } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
+import { getStoredChannels, subscribeChannels } from '../../../lib/channels/channelStore'
 import { useStore } from '../../../store'
 import { registerAgentNodeRun } from '../../agent/lib/nodeRunBridge'
 import { stageAuthorizationClient } from '../../agent/lib/stageAuthorizationClient'
@@ -31,6 +32,8 @@ export function useAgentNodeRun({
   const settings = useStore((state) => state.settings)
   const params = useStore((state) => state.params)
   const draft = useVideoStore((state) => state.draft)
+  // 模型清单刷新后重新登记：卡片与直接出图按新清单报价（视频模型被停用或恢复）。
+  const channels = useSyncExternalStore(subscribeChannels, getStoredChannels)
   useEffect(() => {
     if (!active || !projectId) return
     const quote = (proposal: AgentCanvasRunProposal) => {
@@ -59,7 +62,7 @@ export function useAgentNodeRun({
     return registerAgentNodeRun({
       projectId,
       quote,
-      run: async (proposal, signature, signal, progress, executionToken) => {
+      run: async (proposal, signature, signal, progress, executionToken, record) => {
         const plan = quote(proposal)
         if (!plan || plan.signature !== signature || plan.error || plan.blocked)
           throw new NodeBatchFailure(plan?.error ?? 'changed')
@@ -85,6 +88,7 @@ export function useAgentNodeRun({
           }
         }
         if (signal.aborted) throw new NodeBatchFailure('cancelled')
+        const retried = new Set<string>()
         await runNodeBatch(
           canvas.doc,
           editor,
@@ -93,8 +97,61 @@ export function useAgentNodeRun({
           signal,
           progress,
           authorizations,
+          {
+            // 授权内同一节点至多自动重试一次；重试另开一次预检，花费计入授权已用额度。
+            recover: async (job, error) => {
+              if (!(error instanceof NodeBatchFailure) || error.code !== 'failed') throw error
+              const failed = (reason: StageRunReason) => {
+                record?.({
+                  nodeId: job.id,
+                  outcome: 'failed',
+                  reason,
+                  ...(retried.has(job.id) ? { retried: true } : {}),
+                })
+                return 'skip' as const
+              }
+              if (retried.has(job.id)) return failed('generation_failed')
+              if (signal.aborted) throw new NodeBatchFailure('cancelled')
+              const attemptId = crypto.randomUUID()
+              try {
+                await stageAuthorizationClient.preflight(authorizationId, {
+                  executionToken,
+                  attemptId,
+                  nodeId: job.id,
+                  model: job.model,
+                  quantity: billedNodeQuantity(job),
+                  unitMultiplier: job.unitMultiplier ?? 1,
+                })
+              } catch (rejected) {
+                const code = rejected instanceof Error ? rejected.message : ''
+                return failed(
+                  code === 'stage_authorization_budget'
+                    ? 'budget_exceeded'
+                    : code === 'stage_authorization_retry_limit'
+                      ? 'retry_limit'
+                      : 'generation_failed',
+                )
+              }
+              authorizations[job.id] = {
+                authorizationId,
+                nodeId: job.id,
+                attemptId,
+                executionToken,
+              }
+              retried.add(job.id)
+              return 'retry'
+            },
+            completed: (job) =>
+              record?.({
+                nodeId: job.id,
+                outcome: 'completed',
+                ...(retried.has(job.id) ? { retried: true } : {}),
+              }),
+            skipped: (job) =>
+              record?.({ nodeId: job.id, outcome: 'skipped', reason: 'upstream_failed' }),
+          },
         )
       },
     })
-  }, [active, projectId, canvas, editor, revision, files, settings, params, draft])
+  }, [active, projectId, canvas, editor, revision, files, settings, params, draft, channels])
 }
