@@ -12,7 +12,8 @@
 
 - 能力写进代码里的 `packages/shared/src/model-catalog/config.json`，每个图片模型一条：档位与各比例的真实像素、比例、比例的传法（`ratioVia`：请求参数 / 写进提示词）、档位怎么写进上游请求（`wire`）、张数、参考图、预估耗时、按档位的计价倍率，以及每条能力的出处（`evidence`：实测 / 文档 / 代码 / 待核实）和 `todo`。
 - 结构只在 `schema.ts`（TypeBox）定义一次：TS 类型由它推出，`schema.json` 由它生成（`bun run catalog:schema`），测试比对两者。导入目录时按 schema 和语义约束校验，BFF 启动时导入，不合法就起不来。
-- 对用户只开放 5 档比例：1:1、3:4、9:16、4:3、16:9。
+- 比例按界面区分（`image.surfaces`），两处界面各自保留现有选项：直出参数面板给 8 档加「自定义」（Gemini 协议给 10 档、没有自定义），Agent 模式参数菜单给 5 档（1:1、3:4、9:16、4:3、16:9）。`image.ratios` 是模型确实照做的比例，各界面只能取它的子集；不开放 1:4、4:1、1:8 这类长条比例。
+- 档位以实测输出像素为准，只列像素确实不同的档位。上游不按请求出分辨率时用 `wire.kind: 'fixed'`，只有一档：GPT 走 sub2api Codex 路径，size 与 quality 都被忽略，线上实测各质量档都是约 1.57MP（1254x1254、1672x941）。Grok 实测 1K（1024x1024、1280x720）与 2K（2048x2048、2816x1584）。
 - 不支持的值界面上不给选；后端用同一个 `resolveImageRequest` 回落到最近的可用值照常出图，不回 422。只有参考图超上限会拒绝。
 - 按档位计价：同一模型内积分按官方各档成本比例放大，倍率写在 `pricing.tierMultiplier`；基础单价与启停仍在私有价目表。
 - 部署层不变：启用哪些模型仍由 channels.json + env 决定。BFF 侧的一致性测试保证目录与 channels.json、`grok.ts`、`image-parameters.ts` 的现有行为一致。视频暂留在 `VIDEO_MODEL_SUPPORT`。

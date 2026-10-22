@@ -80,6 +80,7 @@
               "operations",
               "tiers",
               "ratios",
+              "surfaces",
               "ratioVia",
               "autoRatio",
               "defaultTier",
@@ -165,6 +166,31 @@
                           "type": "string",
                           "pattern": "^[1-9][0-9]*x[1-9][0-9]*$",
                           "description": "宽x高"
+                        },
+                        "2:3": {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]*x[1-9][0-9]*$",
+                          "description": "宽x高"
+                        },
+                        "3:2": {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]*x[1-9][0-9]*$",
+                          "description": "宽x高"
+                        },
+                        "21:9": {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]*x[1-9][0-9]*$",
+                          "description": "宽x高"
+                        },
+                        "4:5": {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]*x[1-9][0-9]*$",
+                          "description": "宽x高"
+                        },
+                        "5:4": {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]*x[1-9][0-9]*$",
+                          "description": "宽x高"
                         }
                       },
                       "additionalProperties": false
@@ -197,11 +223,165 @@
                     {
                       "type": "string",
                       "const": "16:9"
+                    },
+                    {
+                      "type": "string",
+                      "const": "2:3"
+                    },
+                    {
+                      "type": "string",
+                      "const": "3:2"
+                    },
+                    {
+                      "type": "string",
+                      "const": "21:9"
+                    },
+                    {
+                      "type": "string",
+                      "const": "4:5"
+                    },
+                    {
+                      "type": "string",
+                      "const": "5:4"
                     }
                   ]
                 },
                 "minItems": 1,
                 "uniqueItems": true
+              },
+              "surfaces": {
+                "type": "object",
+                "required": [
+                  "direct",
+                  "agent"
+                ],
+                "properties": {
+                  "direct": {
+                    "type": "object",
+                    "required": [
+                      "ratios",
+                      "customSize"
+                    ],
+                    "properties": {
+                      "ratios": {
+                        "type": "array",
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "1:1"
+                            },
+                            {
+                              "type": "string",
+                              "const": "3:4"
+                            },
+                            {
+                              "type": "string",
+                              "const": "9:16"
+                            },
+                            {
+                              "type": "string",
+                              "const": "4:3"
+                            },
+                            {
+                              "type": "string",
+                              "const": "16:9"
+                            },
+                            {
+                              "type": "string",
+                              "const": "2:3"
+                            },
+                            {
+                              "type": "string",
+                              "const": "3:2"
+                            },
+                            {
+                              "type": "string",
+                              "const": "21:9"
+                            },
+                            {
+                              "type": "string",
+                              "const": "4:5"
+                            },
+                            {
+                              "type": "string",
+                              "const": "5:4"
+                            }
+                          ]
+                        },
+                        "minItems": 1,
+                        "uniqueItems": true
+                      },
+                      "customSize": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "agent": {
+                    "type": "object",
+                    "required": [
+                      "ratios",
+                      "customSize"
+                    ],
+                    "properties": {
+                      "ratios": {
+                        "type": "array",
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "1:1"
+                            },
+                            {
+                              "type": "string",
+                              "const": "3:4"
+                            },
+                            {
+                              "type": "string",
+                              "const": "9:16"
+                            },
+                            {
+                              "type": "string",
+                              "const": "4:3"
+                            },
+                            {
+                              "type": "string",
+                              "const": "16:9"
+                            },
+                            {
+                              "type": "string",
+                              "const": "2:3"
+                            },
+                            {
+                              "type": "string",
+                              "const": "3:2"
+                            },
+                            {
+                              "type": "string",
+                              "const": "21:9"
+                            },
+                            {
+                              "type": "string",
+                              "const": "4:5"
+                            },
+                            {
+                              "type": "string",
+                              "const": "5:4"
+                            }
+                          ]
+                        },
+                        "minItems": 1,
+                        "uniqueItems": true
+                      },
+                      "customSize": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
               },
               "ratioVia": {
                 "type": "array",
@@ -325,6 +505,25 @@
                     },
                     "additionalProperties": false,
                     "description": "发档位 token（Gemini `4K`、Grok `2k`）"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "kind",
+                      "note"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "fixed"
+                      },
+                      "note": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false,
+                    "description": "上游不按请求出分辨率，只有一档（GPT 走 sub2api Codex 路径时 size、quality 都被忽略）；比例只能靠提示词"
                   }
                 ]
               },
@@ -579,6 +778,45 @@
                 "additionalProperties": false
               },
               "references": {
+                "type": "object",
+                "required": [
+                  "source"
+                ],
+                "properties": {
+                  "source": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "probe"
+                      },
+                      {
+                        "type": "string",
+                        "const": "docs"
+                      },
+                      {
+                        "type": "string",
+                        "const": "code"
+                      },
+                      {
+                        "type": "string",
+                        "const": "unverified"
+                      }
+                    ],
+                    "description": "probe = 实测；docs = 官方文档；code = 现有代码行为；unverified = 拿不准"
+                  },
+                  "at": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "description": "实测或查阅日期"
+                  },
+                  "note": {
+                    "type": "string",
+                    "description": "文档地址、代码位置或一句说明"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "quality": {
                 "type": "object",
                 "required": [
                   "source"

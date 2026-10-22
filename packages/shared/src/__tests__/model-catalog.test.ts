@@ -14,6 +14,9 @@ import {
   resolveImageRequest,
 } from '../model-catalog'
 
+/** Agent 模式参数菜单的 5 档（AgentParamsChip IMAGE_RATIOS，用户截图里的那 5 档）。 */
+const AGENT_RATIOS = ['1:1', '3:4', '9:16', '4:3', '16:9'] as const
+
 const DIR = join(import.meta.dir, '../model-catalog')
 const rawConfig = () => JSON.parse(readFileSync(join(DIR, 'config.json'), 'utf8'))
 
@@ -63,9 +66,23 @@ describe('model catalog config', () => {
     expect(problems).toContain('duplicate id')
   })
 
-  it('every model offers only the five product ratios', () => {
+  it('rejects surfaces that offer ratios the model does not support', () => {
+    const config = rawConfig()
+    const lite = config.models.find(
+      (one: { id: string }) => one.id === 'gemini-3.1-flash-lite-image',
+    )
+    lite.image.ratios = lite.image.ratios.filter((ratio: string) => ratio !== '21:9')
+    const gpt = config.models.find((one: { id: string }) => one.id === 'gpt-image-2.5-flare')
+    gpt.image.tiers.push({ id: '2K', pixels: {} })
+    const problems = modelCatalogProblems(config).join('\n')
+    expect(problems).toContain('surfaces.direct offers ratio 21:9')
+    expect(problems).toContain('fixed wire means exactly one tier')
+  })
+
+  it('every model stays within the catalog ratios and the Agent menu keeps its five', () => {
     for (const spec of MODEL_CATALOG) {
       for (const ratio of spec.image.ratios) expect(CATALOG_RATIOS).toContain(ratio)
+      expect(spec.image.surfaces.agent).toEqual({ ratios: [...AGENT_RATIOS], customSize: false })
     }
   })
 
@@ -74,7 +91,9 @@ describe('model catalog config', () => {
       if (spec.image.wire.kind !== 'pixels') continue
       for (const tier of spec.image.tiers) {
         const presets = IMAGE_SIZE_PRESETS[tier.id as keyof typeof IMAGE_SIZE_PRESETS]
-        for (const ratio of spec.image.ratios) expect(tier.pixels[ratio]).toBe(presets[ratio])
+        for (const ratio of spec.image.ratios) {
+          expect(tier.pixels[ratio]).toBe(presets[ratio as keyof typeof presets])
+        }
       }
     }
   })
@@ -93,11 +112,26 @@ describe('model catalog config', () => {
     expect(findCatalogModel('gemini-3.1-flash-lite-image')?.pricing.tierMultiplier).toBeUndefined()
   })
 
-  it('GPT keeps its prompt-injected ratio and has no 4K', () => {
+  it('GPT has a single measured tier, prompt-injected ratio and no tier pricing', () => {
     for (const id of ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst']) {
       expect(caps(id).ratioVia).toEqual(['prompt'])
-      expect(caps(id).tiers.map((one) => one.id)).not.toContain('4K')
+      expect(caps(id).wire.kind).toBe('fixed')
+      expect(caps(id).tiers).toEqual([
+        { id: '1K', pixels: { '1:1': '1254x1254', '16:9': '1672x941' } },
+      ])
+      expect(findCatalogModel(id)?.pricing.tierMultiplier).toBeUndefined()
     }
+  })
+
+  it('Grok has the measured 1K / 2K tiers priced 1 : 1.5', () => {
+    expect(caps('grok-imagine-image-2.0').tiers).toEqual([
+      { id: '1K', pixels: { '1:1': '1024x1024', '16:9': '1280x720' } },
+      { id: '2K', pixels: { '1:1': '2048x2048', '16:9': '2816x1584' } },
+    ])
+    expect(findCatalogModel('grok-imagine-image-2.0')?.pricing.tierMultiplier).toEqual({
+      '1K': 1,
+      '2K': 1.5,
+    })
   })
 })
 
@@ -118,7 +152,7 @@ describe('resolveImageRequest', () => {
     expect(result).toMatchObject({
       ok: true,
       tier: '1K',
-      pixels: '1024x1024',
+      pixels: '1254x1254',
       adjustments: [{ field: 'tier', from: '4K', to: '1K' }],
     })
   })
@@ -129,16 +163,35 @@ describe('resolveImageRequest', () => {
     expect(result).toMatchObject({ ok: true, tier: '1K' })
   })
 
-  it('maps unsupported ratios to the nearest product ratio', () => {
-    expect(nearestCatalogRatio('21:9', CATALOG_RATIOS)).toBe('16:9')
-    expect(nearestCatalogRatio('2:3', CATALOG_RATIOS)).toBe('3:4')
-    expect(nearestCatalogRatio('1:4', CATALOG_RATIOS)).toBe('9:16')
-    expect(nearestCatalogRatio('nope', CATALOG_RATIOS)).toBeUndefined()
+  it('maps unsupported ratios to the nearest supported ratio', () => {
+    expect(nearestCatalogRatio('21:9', AGENT_RATIOS)).toBe('16:9')
+    expect(nearestCatalogRatio('2:3', AGENT_RATIOS)).toBe('3:4')
+    expect(nearestCatalogRatio('1:4', AGENT_RATIOS)).toBe('9:16')
+    expect(nearestCatalogRatio('nope', AGENT_RATIOS)).toBeUndefined()
     const result = resolveImageRequest(caps('gemini-nano-banana-2.1'), { ratio: '1:4' })
     expect(result).toMatchObject({
       ok: true,
       ratio: '9:16',
       adjustments: [{ field: 'ratio', from: '1:4', to: '9:16' }],
+    })
+  })
+
+  it('falls back within the ratios of the submitting surface', () => {
+    const model = caps('gpt-image-2.5-flare')
+    expect(resolveImageRequest(model, { ratio: '21:9', surface: 'direct' })).toMatchObject({
+      ok: true,
+      ratio: '21:9',
+      adjustments: [],
+    })
+    expect(resolveImageRequest(model, { ratio: '21:9', surface: 'agent' })).toMatchObject({
+      ok: true,
+      ratio: '16:9',
+      adjustments: [{ field: 'ratio', from: '21:9', to: '16:9' }],
+    })
+    const pro = caps('gemini-3-pro-image')
+    expect(resolveImageRequest(pro, { ratio: '4:5', surface: 'direct' })).toMatchObject({
+      ratio: '4:5',
+      pixels: '928x1152',
     })
   })
 

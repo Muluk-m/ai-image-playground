@@ -3,6 +3,7 @@ import {
   type CatalogRatio,
   IMAGE_TIERS,
   type ImageCapabilities,
+  type ImageSurface,
   type ImageTier,
 } from './schema'
 
@@ -64,6 +65,8 @@ export interface ImageRequestInput {
   readonly n?: number
   /** 参考图张数。 */
   readonly references?: number
+  /** 从哪个界面提交：给了就只在该界面提供的比例里回落；不给按模型支持的全部比例。 */
+  readonly surface?: ImageSurface
 }
 
 export interface ImageRequestAdjustment {
@@ -115,7 +118,8 @@ export function resolveImageRequest(
     adjustments.push({ field: 'tier', from: requestedTier, to: tier })
   }
 
-  const fallbackRatio: CatalogRatio = caps.ratios.includes('1:1') ? '1:1' : caps.ratios[0]!
+  const ratios = input.surface ? caps.surfaces[input.surface].ratios : caps.ratios
+  const fallbackRatio: CatalogRatio = ratios.includes('1:1') ? '1:1' : ratios[0]!
   // 运行时可能收到非字符串（旧客户端、手写请求），按缺省处理而不是抛错。
   const requestedRatio = typeof input.ratio === 'string' ? input.ratio.trim() : undefined
   let ratio: CatalogRatio | 'auto'
@@ -124,10 +128,10 @@ export function resolveImageRequest(
     if (requestedRatio === 'auto' && !caps.autoRatio) {
       adjustments.push({ field: 'ratio', from: 'auto', to: ratio })
     }
-  } else if (isCatalogRatio(requestedRatio) && caps.ratios.includes(requestedRatio)) {
+  } else if (isCatalogRatio(requestedRatio) && ratios.includes(requestedRatio)) {
     ratio = requestedRatio
   } else {
-    ratio = nearestCatalogRatio(requestedRatio, caps.ratios) ?? fallbackRatio
+    ratio = nearestCatalogRatio(requestedRatio, ratios) ?? fallbackRatio
     adjustments.push({ field: 'ratio', from: requestedRatio, to: ratio })
   }
 

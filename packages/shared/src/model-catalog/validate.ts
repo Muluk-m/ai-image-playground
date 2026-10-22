@@ -1,6 +1,6 @@
 import { Value } from 'typebox/value'
 import { catalogRatioValue } from './resolve'
-import { IMAGE_TIERS, type ModelCatalogConfig, ModelCatalogSchema } from './schema'
+import { IMAGE_SURFACES, IMAGE_TIERS, type ModelCatalogConfig, ModelCatalogSchema } from './schema'
 
 /**
  * 校验目录：先按 schema 查结构，再查 schema 表达不了的约束。返回全部问题，空数组 = 通过。
@@ -40,10 +40,23 @@ export function modelCatalogProblems(raw: unknown): string[] {
         }
       }
     }
+    for (const surface of IMAGE_SURFACES) {
+      for (const ratio of image.surfaces[surface].ratios) {
+        if (!image.ratios.includes(ratio)) {
+          problems.push(
+            `${at}: surfaces.${surface} offers ratio ${ratio} the model does not support`,
+          )
+        }
+      }
+    }
     if (image.wire.kind === 'tier-token') {
       const tokenTiers = Object.keys(image.wire.tokens).sort()
       if (tokenTiers.join() !== [...tierIds].sort().join()) {
         problems.push(`${at}: wire.tokens must cover exactly its tiers`)
+      }
+    } else if (image.wire.kind === 'fixed') {
+      if (image.tiers.length !== 1) {
+        problems.push(`${at}: fixed wire means exactly one tier`)
       }
     } else {
       for (const tier of image.tiers) {

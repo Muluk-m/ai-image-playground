@@ -4,6 +4,7 @@ import {
   GEMINI_ASPECT_RATIOS,
   GEMINI_IMAGE_SIZES,
   GEMINI_THINKING_LEVELS,
+  IMAGE_PRESET_RATIOS,
   IMAGE_SIZE_PRESETS,
   QUEUE_MAX_INPUT_IMAGES,
 } from '@image-playground/shared'
@@ -48,7 +49,7 @@ describe('model catalog vs channels.json', () => {
     for (const { model } of imageModels) expect(findCatalogModel(model.id)?.id).toBe(model.id)
   })
 
-  for (const { model } of imageModels) {
+  for (const { channel, model } of imageModels) {
     describe(model.id, () => {
       const image = () => findCatalogModel(model.id)!.image
 
@@ -68,6 +69,15 @@ describe('model catalog vs channels.json', () => {
         expect(image().ratioVia.includes('prompt')).toBe(!model.capabilities.includes('size'))
       })
 
+      it('direct surface offers what ParamControls offers today', () => {
+        // ParamControls：Gemini 协议给 GEMINI_ASPECT_RATIOS、没有自定义；其余给 PRESET_RATIOS + 自定义。
+        const gemini = channel.kind === 'gemini-queue'
+        const direct = image().surfaces.direct
+        const expected = gemini ? GEMINI_ASPECT_RATIOS : IMAGE_PRESET_RATIOS
+        expect([...direct.ratios].sort()).toEqual([...expected].sort())
+        expect(direct.customSize).toBe(!gemini)
+      })
+
       it('stays within the queue reference-image cap', () => {
         expect(image().references.max).toBeLessThanOrEqual(QUEUE_MAX_INPUT_IMAGES)
       })
@@ -76,10 +86,10 @@ describe('model catalog vs channels.json', () => {
 })
 
 describe('model catalog vs current code paths', () => {
-  it('ratio-only pixel models only ever send the 1K preset (ParamControls ratioOnly)', () => {
+  it("models without the 'size' capability expose a single tier (no resolution picker today)", () => {
     for (const { model } of imageModels) {
       const image = findCatalogModel(model.id)!.image
-      if (image.wire.kind !== 'pixels' || model.capabilities.includes('size')) continue
+      if (model.capabilities.includes('size') || image.wire.kind === 'tier-token') continue
       expect(image.tiers.map((one) => one.id)).toEqual(['1K'])
     }
   })
@@ -101,8 +111,10 @@ describe('model catalog vs current code paths', () => {
 
   it('Grok ratios survive grok.ts aspect-ratio mapping unchanged', () => {
     const image = findCatalogModel('grok-imagine-image-2.0')!.image
+    const presets: Readonly<Record<string, string>> = IMAGE_SIZE_PRESETS['1K']
     for (const ratio of image.ratios) {
-      expect(grokBody({ size: IMAGE_SIZE_PRESETS['1K'][ratio] }).aspect_ratio).toBe(ratio)
+      expect(presets[ratio]).toBeDefined()
+      expect(grokBody({ size: presets[ratio] }).aspect_ratio).toBe(ratio)
     }
   })
 

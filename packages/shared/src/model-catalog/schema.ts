@@ -12,9 +12,27 @@ import { type Static, type TSchema, Type } from 'typebox'
 export const IMAGE_TIERS = ['512', '1K', '2K', '4K'] as const
 export type ImageTier = (typeof IMAGE_TIERS)[number]
 
-/** 对用户开放的比例：产品定为现有 5 档，不开放 1:4、4:1、1:8 这类长条比例。 */
-export const CATALOG_RATIOS = ['1:1', '3:4', '9:16', '4:3', '16:9'] as const
+/**
+ * 目录认得的全部比例：现有界面里出现过的比例，不开放 1:4、4:1、1:8 这类长条比例。
+ * 每个模型实际支持哪些写在 image.ratios，每个界面给哪些写在 image.surfaces。
+ */
+export const CATALOG_RATIOS = [
+  '1:1',
+  '3:4',
+  '9:16',
+  '4:3',
+  '16:9',
+  '2:3',
+  '3:2',
+  '21:9',
+  '4:5',
+  '5:4',
+] as const
 export type CatalogRatio = (typeof CATALOG_RATIOS)[number]
+
+/** 两处出图界面：直出（快速生成的参数面板）与 Agent 模式的参数菜单，各自保留现有比例。 */
+export const IMAGE_SURFACES = ['direct', 'agent'] as const
+export type ImageSurface = (typeof IMAGE_SURFACES)[number]
 
 const strict = { additionalProperties: false } as const
 
@@ -31,6 +49,11 @@ const Ratio = Type.Union([
   Type.Literal('9:16'),
   Type.Literal('4:3'),
   Type.Literal('16:9'),
+  Type.Literal('2:3'),
+  Type.Literal('3:2'),
+  Type.Literal('21:9'),
+  Type.Literal('4:5'),
+  Type.Literal('5:4'),
 ])
 
 /** 按档位取值的表；只写有的档位。 */
@@ -78,6 +101,11 @@ const TierSpec = Type.Object(
         '9:16': Type.Optional(Pixels),
         '4:3': Type.Optional(Pixels),
         '16:9': Type.Optional(Pixels),
+        '2:3': Type.Optional(Pixels),
+        '3:2': Type.Optional(Pixels),
+        '21:9': Type.Optional(Pixels),
+        '4:5': Type.Optional(Pixels),
+        '5:4': Type.Optional(Pixels),
       },
       strict,
     ),
@@ -107,6 +135,29 @@ const TierTokenWire = Type.Object(
   { ...strict, description: '发档位 token（Gemini `4K`、Grok `2k`）' },
 )
 
+const FixedWire = Type.Object(
+  {
+    kind: Type.Literal('fixed'),
+    /** 为什么只有一档：上游忽略了哪些参数、依据是什么。 */
+    note: Type.String({ minLength: 1 }),
+  },
+  {
+    ...strict,
+    description:
+      '上游不按请求出分辨率，只有一档（GPT 走 sub2api Codex 路径时 size、quality 都被忽略）；比例只能靠提示词',
+  },
+)
+
+const Surface = Type.Object(
+  {
+    /** 这个界面给出的比例，必须是 image.ratios 的子集。 */
+    ratios: Type.Array(Ratio, { minItems: 1, uniqueItems: true }),
+    /** 是否提供「自定义」宽高比 / 尺寸输入。 */
+    customSize: Type.Boolean(),
+  },
+  strict,
+)
+
 const ImageCapabilities = Type.Object(
   {
     operations: Type.Array(
@@ -115,7 +166,10 @@ const ImageCapabilities = Type.Object(
     ),
     /** 支持的档位，从小到大。没列的档位就是不支持，界面不展示。 */
     tiers: Type.Array(TierSpec, { minItems: 1 }),
+    /** 模型确实会照做的比例（实测或文档），是各界面比例的并集上限。 */
     ratios: Type.Array(Ratio, { minItems: 1, uniqueItems: true }),
+    /** 各界面实际给用户的比例。产品口径：两处界面各自保留现有选项，不互相对齐。 */
+    surfaces: Type.Object({ direct: Surface, agent: Surface }, strict),
     /**
      * 比例怎么传给上游：`param` = 请求参数（size 像素或 aspect_ratio）；`prompt` = 把构图比例写进
      * 提示词（buildAspectInstruction）。两者都写表示参数和提示词同时带。
@@ -127,7 +181,7 @@ const ImageCapabilities = Type.Object(
     /** 能否不指定比例，交给模型决定。 */
     autoRatio: Type.Boolean(),
     defaultTier: Tier,
-    wire: Type.Union([PixelsWire, TierTokenWire]),
+    wire: Type.Union([PixelsWire, TierTokenWire, FixedWire]),
     count: Type.Object(
       {
         /** 一次最多几张。 */
@@ -190,6 +244,7 @@ const ModelSpec = Type.Object(
         ratios: Evidence,
         count: Evidence,
         references: Evidence,
+        quality: Type.Optional(Evidence),
         etaSeconds: Type.Optional(Evidence),
         pricing: Type.Optional(Evidence),
       },
