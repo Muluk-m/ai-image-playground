@@ -164,6 +164,40 @@ describe('resolveImageRequest', () => {
     })
   })
 
+  it('rejects reference counts that are not non-negative integers', () => {
+    const model = caps('gemini-3-pro-image')
+    for (const references of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(resolveImageRequest(model, { references })).toEqual({
+        ok: false,
+        field: 'references',
+        max: 14,
+      })
+    }
+    expect(resolveImageRequest(model, { references: 14 })).toMatchObject({ ok: true })
+  })
+
+  it('records non-finite n as a string so adjustments stay JSON-safe', () => {
+    const model = caps('gpt-image-2.5-flare')
+    expect(resolveImageRequest(model, { n: Number.POSITIVE_INFINITY })).toMatchObject({
+      n: 1,
+      adjustments: [{ field: 'n', from: 'Infinity', to: 1 }],
+    })
+    expect(resolveImageRequest(model, { n: Number.NaN })).toMatchObject({
+      n: 1,
+      adjustments: [{ field: 'n', from: 'NaN', to: 1 }],
+    })
+    expect(resolveImageRequest(model, { n: 2.7 })).toMatchObject({
+      n: 2,
+      adjustments: [{ field: 'n', from: 2.7, to: 2 }],
+    })
+  })
+
+  it('treats a non-string ratio as missing instead of throwing', () => {
+    const model = caps('gemini-3-pro-image')
+    const input = { ratio: 42 } as unknown as { ratio: string }
+    expect(resolveImageRequest(model, input)).toMatchObject({ ok: true, ratio: 'auto' })
+  })
+
   it('ignores an unknown tier and uses the default', () => {
     const result = resolveImageRequest(caps('gemini-3-pro-image'), { tier: '8K' })
     expect(result).toMatchObject({ ok: true, tier: '1K', adjustments: [] })

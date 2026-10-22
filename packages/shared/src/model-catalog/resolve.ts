@@ -100,7 +100,8 @@ export function resolveImageRequest(
   input: ImageRequestInput,
 ): ResolvedImageRequest {
   const references = input.references ?? 0
-  if (references > caps.references.max) {
+  // 不是非负整数的张数同样拒绝：调用方会按它算剩余可传张数，不能带着坏值往下走。
+  if (!Number.isInteger(references) || references < 0 || references > caps.references.max) {
     return { ok: false, field: 'references', max: caps.references.max }
   }
 
@@ -115,7 +116,8 @@ export function resolveImageRequest(
   }
 
   const fallbackRatio: CatalogRatio = caps.ratios.includes('1:1') ? '1:1' : caps.ratios[0]!
-  const requestedRatio = input.ratio?.trim()
+  // 运行时可能收到非字符串（旧客户端、手写请求），按缺省处理而不是抛错。
+  const requestedRatio = typeof input.ratio === 'string' ? input.ratio.trim() : undefined
   let ratio: CatalogRatio | 'auto'
   if (!requestedRatio || requestedRatio === 'auto') {
     ratio = caps.autoRatio ? 'auto' : fallbackRatio
@@ -131,8 +133,12 @@ export function resolveImageRequest(
 
   const requestedN = input.n ?? 1
   let n = requestedN
-  if (!Number.isInteger(requestedN) || requestedN < 1 || requestedN > caps.count.max) {
-    n = Math.min(caps.count.max, Math.max(1, Math.floor(requestedN) || 1))
+  if (!Number.isFinite(requestedN)) {
+    // NaN / Infinity 进 JSON 会变成 null，调整记录里写成字符串。
+    n = 1
+    adjustments.push({ field: 'n', from: String(requestedN), to: n })
+  } else if (!Number.isInteger(requestedN) || requestedN < 1 || requestedN > caps.count.max) {
+    n = Math.min(caps.count.max, Math.max(1, Math.floor(requestedN)))
     adjustments.push({ field: 'n', from: requestedN, to: n })
   }
 
