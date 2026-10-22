@@ -279,6 +279,7 @@ export interface ModelHistorySave {
   readonly owner: AgentOwner
   readonly mode: AgentMode
   readonly userId: string | null
+  readonly experience?: 'chat' | 'canvas'
   /** 起轮时的产品历史，接上本轮逐条写下的原貌。 */
   readonly expectedHistory: readonly AgentMessageView[]
   readonly previousSkills?: ReadonlyMap<string, string>
@@ -305,7 +306,7 @@ export async function saveModelHistoryAfterTurn(save: ModelHistorySave): Promise
     if (historyFingerprint !== modelHistoryFingerprint(save.expectedHistory)) return
     const skillTexts = await untilAborted(
       signal,
-      replayedSkillTexts(current.messages, save.mode, save.userId),
+      replayedSkillTexts(current.messages, save.mode, save.userId, save.experience),
     )
     if (!modelHistorySkillsMatch(save.messages, save.previousSkills ?? new Map(), skillTexts)) {
       log.info(

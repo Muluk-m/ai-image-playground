@@ -26,10 +26,11 @@ import {
   ANONYMOUS_AUDIENCE,
   agentSkillInvocation,
   agentSkillLocation,
+  isCanvasOnlySkill,
   visibleAgentSkills,
 } from './skills'
 import { estimateMessageTokens } from './token-estimate'
-import { agentToolDeclarations, agentToolGuidance } from './tools'
+import { agentToolDeclarations, agentToolGuidance, isCanvasToolName } from './tools'
 import { prepareVisualEvidence, type VisualEvidenceSource } from './visual-input'
 
 /**
@@ -149,7 +150,7 @@ export function systemPrompt(
 ): string {
   return [
     audience.experience === 'chat'
-      ? '你是对话中的创作助手。根据用户消息、本轮附件和对话历史里的图片帮助用户创作；查看图片使用对话中的真实图片 ID，不猜测图片 ID。当前是 chat，没有画布，不读取、整理或编辑画布，也不引导用户去画布。'
+      ? '你是对话中的创作助手。根据用户消息、本轮附件和对话历史里的图片帮助用户创作；查看图片使用对话中的真实图片 ID，不猜测图片 ID。'
       : '你是创作模式画布旁的助手，帮用户把想法变成画布上的文字、图片与视频。',
     '用中文回答，简短、具体，不要复述用户的话。',
     agentToolDeclarations(mode, audience).some((tool) => tool.name === 'generateVideo')
@@ -163,7 +164,7 @@ export function systemPrompt(
     // 用户自建的模板对他自己就是技能，与内置的排在同一份清单里（见 CONTEXT.md「模板」）。
     ...skillsBlock(visibleAgentSkills(mode, audience)),
     audience.experience === 'chat'
-      ? '工具结果显示在对话的产物卡片中，用户可以直接预览、下载和继续编辑；不要承诺结果已写入画布。'
+      ? '工具结果显示在对话的产物卡片中，用户可以直接预览、下载和继续编辑。'
       : '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
     audience.experience === 'canvas'
       ? autoSubmit
@@ -217,8 +218,19 @@ export function requestAgentReferences(
 export function replayTurnText(
   message: AgentMessageView,
   maskScope: 'historical' | 'retained' = 'historical',
+  /** Agent 模式这一轮没有画布工具：历史里画布工具的结果不回放，免得模型照着去调已经不存在的工具。 */
+  canvasTools = true,
 ): string {
   return message.content
+    .filter(
+      (block) =>
+        canvasTools ||
+        block.type !== 'toolResult' ||
+        !(
+          isCanvasToolName(block.toolName) ||
+          (block.toolName === 'loadSkill' && isCanvasOnlySkill(block.skill?.name))
+        ),
+    )
     .map((block) => {
       if (block.type === 'text')
         return (
@@ -242,9 +254,14 @@ function withSkillTexts(
   text: string,
   message: AgentMessageView,
   skillTexts: ReadonlyMap<string, string>,
+  /** 与 {@link replayTurnText} 同一条件：Agent 模式不接回画布技能的正文，哪怕调用方给了它。 */
+  canvasTools = true,
 ): string {
   const bodies = message.content.flatMap((block) => {
-    const body = block.type === 'toolResult' ? skillTexts.get(block.toolCallId) : undefined
+    if (block.type !== 'toolResult') return []
+    if (!canvasTools && block.toolName === 'loadSkill' && isCanvasOnlySkill(block.skill?.name))
+      return []
+    const body = skillTexts.get(block.toolCallId)
     return body ? [body] : []
   })
   return bodies.length ? [text, ...bodies].join('\n\n') : text
@@ -255,14 +272,20 @@ function replayed(
   history: readonly AgentMessageView[],
   selectionHistoryStart = history.length,
   skillTexts: ReadonlyMap<string, string> = NO_SKILL_TEXTS,
+  canvasTools = true,
 ): AgentMessage[] {
   const model = agentModel()
   const messages: AgentMessage[] = []
   for (const [index, message] of history.entries()) {
     const text = withSkillTexts(
-      replayTurnText(message, index >= selectionHistoryStart ? 'retained' : 'historical'),
+      replayTurnText(
+        message,
+        index >= selectionHistoryStart ? 'retained' : 'historical',
+        canvasTools,
+      ),
       message,
       skillTexts,
+      canvasTools,
     )
     if (!text) continue
     messages.push(
@@ -302,7 +325,7 @@ export function turnInitialState(
 } {
   return {
     systemPrompt: systemPrompt(mode, autoSubmit, audience, directImage),
-    messages: replayed(history, selectionHistoryStart, skillTexts),
+    messages: replayed(history, selectionHistoryStart, skillTexts, audience.experience !== 'chat'),
   }
 }
 

@@ -287,10 +287,7 @@ describe('tool declarations in the estimate', () => {
       'viewImage',
       'viewVideo',
       'readLibrary',
-      'readCanvas',
-      'arrangeTimeline',
-      'editCanvasObject',
-      'arrangeCanvas',
+      // 没声明模式按 Agent 模式算，画布工具不在清单里。
       // 联网工具没有开关，所以它们在任何部署里都随清单发出去；取图那两个要登录，这里没有。
       'webSearch',
       'webFetch',

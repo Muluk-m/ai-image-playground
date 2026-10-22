@@ -20,6 +20,7 @@ import type {
   AgentSaveCardKind,
   AgentSaveResponse,
   AgentSkillSummary,
+  AgentSurface,
   AgentToolErrorCode,
   AgentTurnAbortedBody,
   AgentTurnAlreadyRunningBody,
@@ -412,9 +413,12 @@ async function alreadyRunningTurnId(response: Response): Promise<string | null> 
 export async function fetchAgentSkills(
   mode: AgentMode,
   fetcher: Fetcher = authenticatedBffFetch,
+  surface: AgentSurface = 'agent',
 ): Promise<AgentSkillSummary[]> {
   // 目录按登录 cookie 区分自建模板，不使用设备 ID；多余的设备头会触发跨域预检。
-  const response = await fetcher(url(`/skills?mode=${mode}`), {
+  // 画布专属技能只在画布视图的清单里。
+  const query = surface === 'canvas' ? `mode=${mode}&surface=canvas` : `mode=${mode}`
+  const response = await fetcher(url(`/skills?${query}`), {
     signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
   })
   if (!response.ok) throw await requestError(response)
@@ -437,6 +441,8 @@ export async function startTurn(
   canvas?: import('@image-playground/shared').AgentCanvasSnapshot,
   /** 发话时看到的入口；项目还没在服务端记下入口时按它判定。 */
   experience?: 'chat' | 'canvas',
+  /** 这一轮的模式：画布视图里是画布模式，其余是 Agent 模式。服务端按它给工具。 */
+  surface?: AgentSurface,
   signal?: AbortSignal,
 ): Promise<StartTurnOutcome> {
   references = await resolveReferences(references)
@@ -451,6 +457,7 @@ export async function startTurn(
     ...(params ? { params } : {}),
     ...(canvas ? { canvas } : {}),
     ...(experience ? { experience } : {}),
+    ...(surface ? { surface } : {}),
   })
   init.signal = signal
   signal?.throwIfAborted()

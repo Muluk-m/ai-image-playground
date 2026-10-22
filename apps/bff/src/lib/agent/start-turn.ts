@@ -56,6 +56,8 @@ export interface StartConversationTurnInput {
   readonly canvas?: import('@image-playground/shared').AgentCanvasSnapshot
   /** 发话时客户端看到的入口。 */
   readonly experience?: 'chat' | 'canvas'
+  /** 发话时的模式（Agent 或画布）。 */
+  readonly surface?: 'agent' | 'canvas'
 }
 
 /**
@@ -285,6 +287,7 @@ async function drainOnce(
                 ...(next.params ? { params: next.params } : {}),
                 ...(next.canvas ? { canvas: next.canvas } : {}),
                 ...(next.experience ? { experience: next.experience } : {}),
+                ...(next.surface ? { surface: next.surface } : {}),
               },
               turnId,
               assertOwnership,
@@ -509,6 +512,7 @@ async function executeConversationTurn(
         ...(input.params ? { params: input.params } : {}),
         ...(input.canvas ? { canvas: input.canvas } : {}),
         ...(input.experience ? { experience: input.experience } : {}),
+        ...(input.surface ? { surface: input.surface } : {}),
       },
       announce: queued.announce,
     },
