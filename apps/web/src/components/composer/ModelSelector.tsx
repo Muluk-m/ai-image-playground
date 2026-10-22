@@ -7,7 +7,11 @@ import { type KeyboardEvent, useId, useMemo, useState, useSyncExternalStore } fr
 import { useTranslation } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { subscribeChannels } from '../../lib/channels/channelStore'
-import { getProfileModelOptions, updateSelectedModel } from '../../lib/channels/profileSelectors'
+import {
+  getProfileModelOptions,
+  updateSelectedModel,
+  usableEtaSeconds,
+} from '../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../lib/channels/publicChannels'
 import { cn } from '../../lib/utils'
 import { useStore } from '../../store'
@@ -55,7 +59,7 @@ export function useModelChoices() {
           label: compactModelName(option.id, option.label),
           description: view.name,
           ...(option.badges ? { badges: option.badges } : {}),
-          ...(option.etaSeconds ? { etaSeconds: option.etaSeconds } : {}),
+          ...(option.etaSeconds !== undefined ? { etaSeconds: option.etaSeconds } : {}),
         }),
       )
     })
@@ -185,6 +189,8 @@ export function ModelList({
         {visible.map((option, index) => {
           const selected = option.value === value
           const tabStop = selected || (index === 0 && !visible.some((o) => o.value === value))
+          const eta = usableEtaSeconds(option.etaSeconds)
+          const etaText = eta !== undefined ? etaLabel(eta) : undefined
           return (
             <Button
               variant="ghost"
@@ -196,7 +202,7 @@ export function ModelList({
               aria-label={[
                 option.label,
                 ...(option.badges ?? []).map(badgeLabel),
-                ...(option.etaSeconds ? [etaLabel(option.etaSeconds)] : []),
+                ...(etaText ? [etaText] : []),
                 ...(option.description ? [option.description] : []),
               ].join(' · ')}
               onClick={() => onPick(option.value)}
@@ -208,11 +214,7 @@ export function ModelList({
               <span className="flex shrink-0">
                 <ModelLogo model={option.model} />
               </span>
-              {modelOptionName(
-                option,
-                badgeLabel,
-                option.etaSeconds ? etaLabel(option.etaSeconds) : undefined,
-              )}
+              {modelOptionName(option, badgeLabel, etaText)}
               {option.description && (
                 <OverflowText
                   text={option.description}

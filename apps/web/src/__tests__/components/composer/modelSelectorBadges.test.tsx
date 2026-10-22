@@ -100,3 +100,17 @@ it('finds a model by its badge text in the search field', async () => {
     expect.stringContaining('Nano Banana 2 Lite'),
   ])
 })
+
+it.each([
+  0,
+  -1,
+  Number.POSITIVE_INFINITY,
+  Number.NaN,
+])('shows no duration for an unusable eta %p from a stale catalog', (etaSeconds) => {
+  act(() =>
+    root.render(<ModelList options={[{ ...lite, etaSeconds }]} value="" onPick={() => {}} />),
+  )
+  const option = optionNamed('Nano Banana 2 Lite')
+  expect(option.textContent).not.toMatch(/约|秒|分钟/)
+  expect(option.getAttribute('aria-label')).toBe('Nano Banana 2 Lite · 速度快 · 便宜 · Vertex AI')
+})
