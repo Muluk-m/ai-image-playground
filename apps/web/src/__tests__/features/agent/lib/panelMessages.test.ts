@@ -348,9 +348,15 @@ describe('直播专属', () => {
     expect(sent.messages.find((one) => one.id === 'tool-draft')).toMatchObject({
       status: 'awaiting_confirmation',
     })
-    // 续播（跟进服务端起的续跑轮）不是新消息：卡不动。
-    const followed = replay([START], null, { messages: [gated], turns: {} })
+    // 续播重放拦下这张卡的那一轮：它的 turnStart 不是新消息，卡不动。
+    const own = { ...gated, turnId: TURN }
+    const followed = replay([START], null, { messages: [own], turns: {} })
     expect(followed.messages[0]).toMatchObject({ status: 'awaiting_confirmation' })
+    // 别处（另一个标签页）发的新消息起了轮：本页没有正文可补，卡照样作废，也不补用户气泡。
+    const elsewhere = replay([START], null, { messages: [gated], turns: {} })
+    expect(elsewhere.messages).toEqual([
+      expect.objectContaining({ id: 'tool-gated', status: 'failed', errorCode: 'cancelled' }),
+    ])
     // 那条用户消息已经以服务端 id 在面板上（例如先读回了快照）：卡照样作废，用户消息不重复。
     const shownUser: AgentPanelMessage = {
       kind: 'text',

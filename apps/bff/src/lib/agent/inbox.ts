@@ -647,7 +647,7 @@ export async function enqueueAgentResume(
 }
 
 /**
- * 确认门拦下的这一轮排过的续跑此刻还「活着」：还在等起轮，或者已被取走、取走它的那一轮正在跑。
+ * 确认门拦下的这一轮排过的续跑此刻还「活着」：还在等起轮，或者已被取走、取走它的那一轮还没跑完。
  * 确认重放据此告诉客户端去跟进；续跑跑完、撤回或失败之后都不算。
  */
 export async function gateResumeLive(
@@ -662,11 +662,12 @@ export async function gateResumeLive(
       and(
         eq(inbox.conversation_id, conversationId),
         eq(inbox.client_message_id, agentGateResumeKey(turnId)),
-        sql`(${inbox.status} = 'pending' OR (${inbox.status} = 'consumed' AND EXISTS (
-          SELECT 1 FROM ${schema.agent_executions} running
-          WHERE running.conversation_id = ${inbox.conversation_id}
-            AND running.turn_id = ${inbox.consumed_turn_id}
-            AND running.state = 'running')))`,
+        // 取走它的那一轮还没落页脚就算活着：从取件提交、到开轮登记执行、到跑完落页脚，都在其中，
+        // 没有「已取走却还没开跑」的空窗。
+        sql`(${inbox.status} = 'pending' OR (${inbox.status} = 'consumed' AND NOT EXISTS (
+          SELECT 1 FROM ${schema.agent_turns} settled
+          WHERE settled.conversation_id = ${inbox.conversation_id}
+            AND settled.turn_id = ${inbox.consumed_turn_id})))`,
       ),
     )
     .limit(1)
