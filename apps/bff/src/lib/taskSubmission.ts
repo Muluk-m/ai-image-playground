@@ -257,6 +257,7 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
     facts: {
       preserve_outside_mask: true as const,
       masked_original_size: strict.originalSize,
+      ...(strict.crop ? { masked_crop: strict.crop } : {}),
     },
   }
 }
