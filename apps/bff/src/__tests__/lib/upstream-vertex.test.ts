@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
 
 // Inject before importing config, which captures process environment at module initialization.
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
@@ -9,7 +10,8 @@ process.env.PORT = '0'
 const { callUpstream, setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { extractMeta, resolveImageBytesRef } = await import('../../lib/extractImages')
-const { VERTEX_MAX_INPUT_IMAGES } = await import('../../lib/upstream/vertex')
+const { VERTEX_IMAGE_SIZES, VERTEX_MAX_INPUT_IMAGES } = await import('../../lib/upstream/vertex')
+const { defaultChannelsPath } = await import('../../lib/channels')
 type InternalChannel = import('../../lib/channels').InternalChannel
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
 type FetchCall = { url: string; init: Parameters<TestFetch>[1] }
@@ -188,5 +190,17 @@ describe('Vertex AI response parsing', () => {
       mime: 'image/jpeg',
     })
     expect(resolveImageBytesRef('gemini', payload, 1)).toBeNull()
+  })
+})
+
+describe('Vertex AI size table', () => {
+  it('declares the sizes of exactly the models the shipped vertex-images channel offers', () => {
+    const shipped = JSON.parse(readFileSync(defaultChannelsPath(), 'utf8')) as {
+      channels: { id: string; models: { id: string }[] }[]
+    }
+    const vertex = shipped.channels.find((channel) => channel.id === 'vertex-images')
+    expect(vertex?.models.map((model) => model.id).sort()).toEqual(
+      Object.keys(VERTEX_IMAGE_SIZES).sort(),
+    )
   })
 })
