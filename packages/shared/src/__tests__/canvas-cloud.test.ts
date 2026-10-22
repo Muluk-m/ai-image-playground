@@ -118,6 +118,10 @@ describe('cloud canvas migration and protocol', () => {
       image('data:image/png;base64,AAAA'),
       image('x'.repeat(257)),
       image('local', '11111111-1111-4111-8111-111111111111'),
+      // 客户端用普通对象 files[fileId] 查本机图，原型链上的名字会查到继承来的函数或对象。
+      image('__proto__'),
+      image('constructor'),
+      image('toString'),
     ]) {
       insertCanvasNode(doc, forged, origin)
       expect(() => validateCloudCanvas(doc, legacy)).toThrow(
