@@ -210,6 +210,10 @@ function stageRunLogNodes(nodes: readonly StageRunNodeReport[]) {
   }))
 }
 
+/** 同一条授权的同一组拦截只记一次（进程内，满了整个清掉；浏览器那边也按同样的键去重）。 */
+const notedBlocks = new Set<string>()
+const NOTED_BLOCKS_MAX = 5_000
+
 /**
  * 需要确认的运行卡在开跑前就被拦下（按钮置灰、用户看得到原因）时，浏览器报上来记一条日志。
  * 不结束授权、不唤醒智能体，也不写授权：用户改好画布后同一张卡还能确认。以前这种拦截服务端完全没有痕迹。
@@ -218,15 +222,22 @@ export async function noteBlockedStageRun(
   userId: string,
   id: string,
   nodes: readonly StageRunNodeReport[],
-): Promise<{ readonly logged: true }> {
+): Promise<{ readonly logged: boolean }> {
   const [row] = await db
     .select({ conversationId: table.conversation_id, state: table.state })
     .from(table)
     .where(and(eq(table.id, id), eq(table.user_id, userId)))
   if (!row) throw new StageAuthorizationError('stage_authorization_not_found', 404)
+  // 只有还在等确认的卡才会因为开跑前的拦截置灰；确认过、结束或过期的不再记。
+  if (row.state.status !== 'pending')
+    throw new StageAuthorizationError('stage_authorization_inactive')
   const authorized = new Set(row.state.nodeIds)
   if (nodes.some((node) => !authorized.has(node.nodeId)))
     throw new StageAuthorizationError('stage_run_report_mismatch', 422)
+  const key = `${id}:${nodes.map((node) => `${node.nodeId}=${node.reason ?? ''}`).join(',')}`
+  if (notedBlocks.has(key)) return { logged: false }
+  if (notedBlocks.size >= NOTED_BLOCKS_MAX) notedBlocks.clear()
+  notedBlocks.add(key)
   log.info(
     {
       event: 'agent.stage.blocked',

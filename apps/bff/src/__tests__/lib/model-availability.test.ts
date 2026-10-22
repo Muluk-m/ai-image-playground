@@ -10,9 +10,8 @@ const { _setChannelsForTesting } = await import('../../lib/channels')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
-const { _resetInactiveModelsForTesting, knownInactiveModels, refreshInactiveModels } = await import(
-  '../../lib/model-availability'
-)
+const { _resetInactiveModelsForTesting, INACTIVE_MODELS_TTL_MS, refreshInactiveModels } =
+  await import('../../lib/model-availability')
 const { agentVideoAvailable, agentVideoModels, videoNodeModeRejection } = await import(
   '../../lib/agent/video-models'
 )
@@ -62,21 +61,53 @@ it('leaves video models the operator stopped out of what the agent may use', asy
   expect(videoNodeModeRejection('first', 'grok-imagine-video')).toBeNull()
 
   stopModels(async () => new Set(['grok-imagine-video', 'grok-imagine-video-1.5-lite']))
-  await refreshInactiveModels()
+  await refreshInactiveModels(Date.now() + INACTIVE_MODELS_TTL_MS)
   expect(agentVideoModels()).toEqual([])
   expect(agentVideoAvailable()).toBe(false)
   expect(videoNodeModeRejection('text')).toContain('当前部署没有可用的视频模型')
 })
 
-it('treats every model as active when the stopped-model lookup fails', async () => {
+it('treats every model as active only until the first successful lookup', async () => {
   _setChannelsForTesting([videoChannel('grok-imagine-video-1.5-lite')])
-  stopModels(async () => new Set(['grok-imagine-video-1.5-lite']))
-  await refreshInactiveModels()
-  expect(agentVideoAvailable()).toBe(false)
   stopModels(async () => {
     throw new Error('database unavailable')
   })
   expect(await refreshInactiveModels()).toEqual(new Set())
-  expect(knownInactiveModels().size).toBe(0)
   expect(agentVideoAvailable()).toBe(true)
+
+  stopModels(async () => new Set(['grok-imagine-video-1.5-lite']))
+  await refreshInactiveModels()
+  expect(agentVideoAvailable()).toBe(false)
+  // 之后再查失败：沿用上一次查到的清单，停用的模型不会重新露出来。
+  stopModels(async () => {
+    throw new Error('database unavailable')
+  })
+  expect(await refreshInactiveModels(Date.now() + INACTIVE_MODELS_TTL_MS)).toEqual(
+    new Set(['grok-imagine-video-1.5-lite']),
+  )
+  expect(agentVideoAvailable()).toBe(false)
+})
+
+it('shares one lookup between concurrent refreshes and reuses it for a while', async () => {
+  let lookups = 0
+  let answer!: (inactive: ReadonlySet<string>) => void
+  stopModels(() => {
+    lookups += 1
+    return new Promise((resolve) => (answer = resolve))
+  })
+  const first = refreshInactiveModels()
+  const second = refreshInactiveModels()
+  await Bun.sleep(0)
+  answer(new Set(['a']))
+  expect(await first).toEqual(new Set(['a']))
+  expect(await second).toEqual(new Set(['a']))
+  expect(lookups).toBe(1)
+  await refreshInactiveModels(Date.now() + INACTIVE_MODELS_TTL_MS - 1_000)
+  expect(lookups).toBe(1)
+  stopModels(async () => {
+    lookups += 1
+    return new Set(['b'])
+  })
+  expect(await refreshInactiveModels(Date.now() + INACTIVE_MODELS_TTL_MS)).toEqual(new Set(['b']))
+  expect(lookups).toBe(2)
 })

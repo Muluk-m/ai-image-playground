@@ -538,6 +538,15 @@ it('logs a confirmation card blocked before it ran without ending it or waking',
       status: 'pending',
       nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' }],
     })
+    // 同一组拦截再报一次：不再记。
+    const again = await request(run.authorizationId, '/blocked', blocked)
+    expect(await again.json()).toEqual({ logged: false })
+    expect(
+      logged.mock.calls.filter(
+        ([fields]) =>
+          (fields as unknown as Record<string, unknown>)?.event === 'agent.stage.blocked',
+      ),
+    ).toHaveLength(1)
   } finally {
     logged.mockRestore()
   }
@@ -552,6 +561,13 @@ it('logs a confirmation card blocked before it ran without ending it or waking',
     createUserSession('stage-run-other', tx),
   )}`
   expect((await request(run.authorizationId, '/blocked', blocked, otherCookie)).status).toBe(404)
+  // 卡已经结束：不再记。
+  expect((await request(run.authorizationId, '/end', {})).status).toBe(200)
+  const ended = await request(run.authorizationId, '/blocked', {
+    nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'missing_media' }],
+  })
+  expect(ended.status).toBe(409)
+  expect(await ended.json()).toEqual({ error: 'stage_authorization_inactive' })
 })
 
 it('points a first-frame batch back to runStoryboardFrames, not runNodes', async () => {

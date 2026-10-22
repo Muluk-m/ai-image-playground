@@ -230,14 +230,19 @@ export function refreshChannels(now = Date.now()): Promise<void> {
   return tracked
 }
 
-/** 标签页回到前台时刷新一次清单。返回卸载函数。 */
+/**
+ * 标签页回到前台时刷新一次清单；一直开在前台时每 {@link CHANNEL_REFRESH_INTERVAL_MS} 再问一次。
+ * 返回卸载函数。
+ */
 export function refreshChannelsWhenVisible(target: Window = window): () => void {
   const refresh = () => {
     if (target.document.visibilityState !== 'hidden') void refreshChannels()
   }
+  const timer = globalThis.setInterval(refresh, CHANNEL_REFRESH_INTERVAL_MS)
   target.addEventListener('focus', refresh)
   target.document.addEventListener('visibilitychange', refresh)
   return () => {
+    globalThis.clearInterval(timer)
     target.removeEventListener('focus', refresh)
     target.document.removeEventListener('visibilitychange', refresh)
   }
