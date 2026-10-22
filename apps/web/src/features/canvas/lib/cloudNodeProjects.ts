@@ -639,15 +639,18 @@ export class CloudNodeProjectSession {
         (node.type !== 'image' && node.type !== 'video') ||
         !node.data.fileId ||
         !!node.data.mediaId ||
-        !!files[node.data.fileId] ||
+        // 服务端只收本机格式的上传中 fileId；历史数据里格式不合的照旧先上传再发。
+        (isLocalCanvasFileId(node.data.fileId) && !!files[node.data.fileId]) ||
         canvasUploadingElsewhere(node.data, device, now),
     )
   }
   /**
    * 先发文档前，给本机要传的节点写上「本设备在传、何时开始」：别的设备据此显示上传中，
    * 而不是把任何本机格式的 fileId 都当成有人在传。收成云媒体时由 promote 去掉。
+   * renew 为真（这一轮后台上传刚要开始）时，本设备的旧声明也换成现在的时间：上一轮失败后隔了很久
+   * 再传，不能让别的设备按旧的开始时间判成过期。
    */
-  private claimLocalUploads() {
+  private claimLocalUploads(renew: boolean) {
     if (!this.canvas) return
     const doc = this.canvas.doc
     const files = this.record.editor.doc.files
@@ -661,7 +664,7 @@ export class CloudNodeProjectSession {
         isLocalCanvasFileId(fileId) &&
         !mediaId &&
         files[fileId] &&
-        meta?.[CANVAS_UPLOAD_DEVICE_META] !== device
+        (renew || meta?.[CANVAS_UPLOAD_DEVICE_META] !== device)
       )
         claims.push({ id: node.id, data: node.data })
     }
@@ -747,7 +750,8 @@ export class CloudNodeProjectSession {
         }
         if (early) {
           if (this.hasLocalImages()) {
-            this.claimLocalUploads()
+            // 已有一轮在传时只给新加的节点写声明，不在每次改动时都改写已有声明的时间。
+            this.claimLocalUploads(!this.uploading)
             this.uploadInBackground()
           }
         } else {
