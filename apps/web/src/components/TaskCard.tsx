@@ -347,12 +347,16 @@ export default function TaskCard({
                 {task.maskImageId && (
                   <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-xs min-w-0 max-w-full">
                     <Icon name="brush" size="xs" />
-                    {t('card.inpaint')}
+                    <span className="min-w-0 truncate" title={t('card.inpaint')}>
+                      {t('card.inpaint')}
+                    </span>
                   </span>
                 )}
                 {showTransparentOutput && (
                   <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-success/10 dark:bg-success/10 text-success dark:text-success text-xs min-w-0 max-w-full">
-                    {t('card.transparentBackground')}
+                    <span className="min-w-0 truncate" title={t('card.transparentBackground')}>
+                      {t('card.transparentBackground')}
+                    </span>
                   </span>
                 )}
                 {/* Params: only show if not default or mismatch */}
@@ -362,10 +366,13 @@ export default function TaskCard({
                     {qualityDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={qualityDisplay.displayValue}
-                        className="min-w-0 truncate px-1 rounded-sm"
+                        className="min-w-0 max-w-full px-1 rounded-sm"
                       />
                     ) : (
-                      <span className="min-w-0 truncate text-muted-foreground">
+                      <span
+                        className="min-w-0 truncate text-muted-foreground"
+                        title={qualityDisplay.displayValue}
+                      >
                         {qualityDisplay.displayValue}
                       </span>
                     )}
@@ -377,10 +384,13 @@ export default function TaskCard({
                     {sizeDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={sizeDisplay.displayValue}
-                        className="min-w-0 truncate px-1 rounded-sm"
+                        className="min-w-0 max-w-full px-1 rounded-sm"
                       />
                     ) : (
-                      <span className="min-w-0 truncate text-muted-foreground">
+                      <span
+                        className="min-w-0 truncate text-muted-foreground"
+                        title={sizeDisplay.displayValue}
+                      >
                         {sizeDisplay.displayValue}
                       </span>
                     )}
@@ -392,10 +402,13 @@ export default function TaskCard({
                     {formatDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={formatDisplay.displayValue}
-                        className="min-w-0 truncate px-1 rounded-sm"
+                        className="min-w-0 max-w-full px-1 rounded-sm"
                       />
                     ) : (
-                      <span className="min-w-0 truncate text-muted-foreground">
+                      <span
+                        className="min-w-0 truncate text-muted-foreground"
+                        title={formatDisplay.displayValue}
+                      >
                         {formatDisplay.displayValue}
                       </span>
                     )}
@@ -407,10 +420,13 @@ export default function TaskCard({
                     {nDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={nDisplay.displayValue}
-                        className="min-w-0 truncate px-1 rounded-sm"
+                        className="min-w-0 max-w-full px-1 rounded-sm"
                       />
                     ) : (
-                      <span className="min-w-0 truncate text-muted-foreground">
+                      <span
+                        className="min-w-0 truncate text-muted-foreground"
+                        title={nDisplay.displayValue}
+                      >
                         {nDisplay.displayValue}
                       </span>
                     )}

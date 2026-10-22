@@ -20,6 +20,10 @@ const task = {
   prompt: '一只橘猫',
   params: { ...DEFAULT_PARAMS, size: '1024x1024', n: 2 },
   apiModel: 'gemini-3.1-flash-lite-image',
+  maskImageId: 'mask-1',
+  transparentOutput: true,
+  // 实际尺寸比例不同，走 ActualValueBadge 那条分支。
+  actualParams: { size: '1536x1024' },
   inputImageIds: [],
   outputImages: [],
   status: 'done',
@@ -45,7 +49,7 @@ it('keeps every tag inside the card: tags may shrink to the row width and trunca
   )
   const row = host.querySelector('[data-tag-scroll-area]')
   const tags = [...(row?.children ?? [])]
-  expect(tags.length).toBeGreaterThanOrEqual(3)
+  expect(tags.length).toBeGreaterThanOrEqual(5)
   for (const tag of tags) {
     // flex-shrink-0 曾让「Nano Banana 2 Lite」比卡片右栏还宽时直接顶出卡片。
     expect(tag.className).not.toContain('flex-shrink-0')
