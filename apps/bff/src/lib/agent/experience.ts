@@ -105,7 +105,9 @@ export async function loadAgentSurface(
   source: AgentTurnSource,
 ): Promise<AgentSurface> {
   if (source.kind === 'message') return source.message.surface ?? DEFAULT_AGENT_SURFACE
+  // 续跑一轮画布阶段运行的唤醒（服务重启后接着处理）与那轮唤醒本身一样，是画布。
   if (source.kind === 'wake' && source.wake.stageRun) return 'canvas'
+  if (source.kind === 'resume' && source.resume.wake?.stageRun) return 'canvas'
   let originTurnId =
     source.kind === 'wake'
       ? source.wake.turnId
@@ -114,7 +116,9 @@ export async function loadAgentSurface(
   // 追溯有上限：一串连续唤醒或续跑不该把一次起轮放大成几十次查询；追不到头就按默认（Agent 模式）。
   while (!visited.has(originTurnId) && visited.size < SURFACE_ORIGIN_MAX_HOPS) {
     visited.add(originTurnId)
-    const rows = await db
+    // 同一轮可能合并取走了好几条；每跳只取一条：有用户消息就取用户消息（它直接给出答案），
+    // 否则取最新那条接着往回追。只选 payload 一列，走 `idx_agent_inbox_conversation_seq` 的会话前缀。
+    const [origin] = await db
       .select({ payload: schema.agent_inbox.payload })
       .from(schema.agent_inbox)
       .where(
@@ -124,15 +128,19 @@ export async function loadAgentSurface(
           eq(schema.agent_inbox.consumed_turn_id, originTurnId),
         ),
       )
-      .orderBy(desc(schema.agent_inbox.seq))
-    const origin = rows.find((row) => 'text' in row.payload) ?? rows[0]
+      .orderBy(
+        sql`(${schema.agent_inbox.payload} ->> 'text') is not null desc`,
+        desc(schema.agent_inbox.seq),
+      )
+      .limit(1)
     if (!origin) break
     const payload = origin.payload
     if ('text' in payload) return payload.surface ?? DEFAULT_AGENT_SURFACE
     if ('stageRun' in payload && payload.stageRun) return 'canvas'
-    if ('interruptedTurnId' in payload)
+    if ('interruptedTurnId' in payload) {
+      if (payload.wake?.stageRun) return 'canvas'
       originTurnId = payload.wake?.turnId ?? payload.interruptedTurnId
-    else originTurnId = payload.turnId
+    } else originTurnId = payload.turnId
   }
   return DEFAULT_AGENT_SURFACE
 }

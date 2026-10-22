@@ -1114,5 +1114,36 @@ describe('per-turn mode decides tools, prompt and context', () => {
         },
       }),
     ).toBe('canvas')
+    // 服务重启后续跑一轮画布阶段运行的唤醒，同样是画布。
+    expect(
+      await loadAgentSurface(conversationId, {
+        kind: 'resume',
+        resume: {
+          id: 'resume-stage',
+          interruptedTurnId: 'stage-wake-turn',
+          deviceId: DEVICE,
+          wake: {
+            turnId: 'legacy-origin',
+            taskIds: [],
+            stageRun: { authorizationId: 'auth', eventVersion: 1 },
+          },
+        },
+      }),
+    ).toBe('canvas')
+  })
+
+  it('reads the user message when one turn consumed several inbox rows', async () => {
+    const conversationId = await conversationWithResult()
+    await consumedOrigin(conversationId, 'merged-origin', 'canvas')
+    await consumedOrigin(conversationId, 'merged-origin', 'agent')
+    await consumedOrigin(conversationId, 'merged-canvas', 'canvas')
+    const wake = (turnId: string) =>
+      ({
+        kind: 'wake',
+        wake: { id: `wake-${turnId}`, turnId, taskIds: [TASK_ID], deviceId: DEVICE },
+      }) as const
+    // 同一轮取走多条时取最新的用户消息。
+    expect(await loadAgentSurface(conversationId, wake('merged-origin'))).toBe('agent')
+    expect(await loadAgentSurface(conversationId, wake('merged-canvas'))).toBe('canvas')
   })
 })
