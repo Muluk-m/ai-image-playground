@@ -50,7 +50,7 @@ import {
   withoutModeration,
 } from './upstream/openai'
 import { type ChannelRouteStyle, clientError, type UpstreamCallResult } from './upstream/shared'
-import { normalizeVertexRequest } from './upstream/vertex'
+import { buildVertexBody } from './upstream/vertex'
 import { VIDEO_MIME, VIDEO_STYLE_SPECS } from './upstream/video'
 
 /*
@@ -584,7 +584,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         ...(key ? { [vertex ? 'x-goog-api-key' : 'x-api-key']: key } : {}),
       }
       const body = JSON.stringify(
-        buildGeminiBody(vertex ? normalizeVertexRequest(model, request) : request),
+        vertex ? buildVertexBody(model, request) : buildGeminiBody(request),
       )
 
       // Gemini image generation 不支持 candidateCount>1（"Only one candidate is

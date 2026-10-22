@@ -111,14 +111,15 @@ describe('callUpstream Vertex AI direct channel', () => {
     ])
   })
 
-  it('raises 512 to 1K on models whose smallest size is 1K', async () => {
-    await callUpstream({
-      provider: 'gemini',
-      model: 'gemini-3-pro-image',
-      request: { prompt: 'a cup', image_size: '512' },
-    })
-    const body = JSON.parse(calls[0]!.init?.body as string)
-    expect(body.generationConfig.imageConfig).toEqual({ imageSize: '1K' })
+  it('refuses 512 instead of silently sending a different size than the task records', async () => {
+    await expect(
+      callUpstream({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        request: { prompt: 'a cup', image_size: '512' },
+      }),
+    ).rejects.toThrow('1K / 2K / 4K')
+    expect(calls).toEqual([])
   })
 
   it('refuses a size the lite model cannot render before calling upstream', async () => {
@@ -133,24 +134,28 @@ describe('callUpstream Vertex AI direct channel', () => {
     expect(calls).toEqual([])
   })
 
-  it('applies the same size rules to an extra.generationConfig imageSize override', async () => {
-    const failure = await callUpstream({
+  it.each([
+    ['an unsupported extra override', { generationConfig: { imageConfig: { imageSize: '2K' } } }],
+    ['a non-string extra override', { generationConfig: { imageConfig: { imageSize: 2 } } }],
+  ])('checks the imageSize upstream finally receives: refuses %s', async (_case, extra) => {
+    await expect(
+      callUpstream({
+        provider: 'gemini',
+        model: 'gemini-3.1-flash-lite-image',
+        request: { prompt: 'a cup', image_size: '1K', extra },
+      }),
+    ).rejects.toThrow('1K')
+    expect(calls).toEqual([])
+  })
+
+  it('accepts a flat size the extra override replaces with a supported one', async () => {
+    await callUpstream({
       provider: 'gemini',
       model: 'gemini-3.1-flash-lite-image',
       request: {
         prompt: 'a cup',
-        extra: { generationConfig: { imageConfig: { imageSize: '2K' } } },
-      },
-    }).catch((error: unknown) => error)
-    expect((failure as Error).message).toContain('1K')
-    expect(calls).toEqual([])
-
-    await callUpstream({
-      provider: 'gemini',
-      model: 'gemini-3-pro-image',
-      request: {
-        prompt: 'a cup',
-        extra: { generationConfig: { imageConfig: { imageSize: '512', aspectRatio: '1:1' } } },
+        image_size: '2K',
+        extra: { generationConfig: { imageConfig: { imageSize: '1K', aspectRatio: '1:1' } } },
       },
     })
     const body = JSON.parse(calls[0]!.init?.body as string)
