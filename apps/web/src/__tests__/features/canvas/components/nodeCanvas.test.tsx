@@ -53,6 +53,11 @@ const mocks = vi.hoisted(() => ({
   hiddenNodeIds: new Set<string>(),
   setViewport: vi.fn(),
   fit: vi.fn(() => ({ x: 0, y: 0, zoom: 1 })),
+  videoAvailable: true,
+}))
+vi.mock('../../../../lib/channels/videoChannels', async (original) => ({
+  ...(await original<typeof import('../../../../lib/channels/videoChannels')>()),
+  isVideoModeAvailable: () => mocks.videoAvailable,
 }))
 vi.mock('../../../../features/canvas/lib/nodeCanvasDocument', () => ({
   openNodeCanvasDocument: mocks.open,
@@ -285,6 +290,7 @@ beforeEach(() => {
   mocks.hiddenNodeIds.clear()
   mocks.setViewport.mockClear()
   mocks.fit.mockClear()
+  mocks.videoAvailable = true
   vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
   old = new CanvasDoc()
@@ -660,6 +666,31 @@ it('offers node types only from the right handle and connects the chosen downstr
     expect.objectContaining({ source: 'image', target: added.id }),
   )
   expect(handle('接入上文')).toBeNull()
+})
+it('greys out a new video node while the deployment has no video model', async () => {
+  const videoItem = () =>
+    [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (el) => el.textContent?.trim() === '视频',
+    )
+  const surface = () => host.querySelector('.studio-node-canvas')!
+  const openMenu = () =>
+    act(() => {
+      surface().dispatchEvent(
+        new MouseEvent('dblclick', { bubbles: true, clientX: 48, clientY: 64 }),
+      )
+    })
+  mocks.videoAvailable = false
+  await render()
+  openMenu()
+  expect(videoItem()?.disabled).toBe(true)
+  act(() => videoItem()!.click())
+  expect(readCanvasDocument(canvas.doc).nodes.map((node) => node.id)).toEqual(['image'])
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  })
+  mocks.videoAvailable = true
+  openMenu()
+  expect(videoItem()?.disabled).toBe(false)
 })
 it('keeps a selected connection until the explicit cut action is clicked', async () => {
   await render()

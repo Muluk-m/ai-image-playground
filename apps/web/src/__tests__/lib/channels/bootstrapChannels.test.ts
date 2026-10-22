@@ -1,13 +1,17 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import {
   bootstrapChannels,
+  CHANNEL_REFRESH_INTERVAL_MS,
   preloadChannels,
+  refreshChannels,
+  refreshChannelsWhenVisible,
   resetChannelDiscoveryForTests,
 } from '../../../lib/channels/bootstrapChannels'
 import {
   channelsSettled,
   getStoredChannels,
   resetChannelCatalog,
+  subscribeChannels,
 } from '../../../lib/channels/channelStore'
 
 afterEach(() => {
@@ -123,4 +127,111 @@ it('retries a failed catalog without treating an empty list as loaded', async ()
 
   expect(channelsSettled()).toBe(true)
   expect(getStoredChannels().map((item) => item.id)).toEqual(['back'])
+})
+
+/** 启动时拿到 `first`，之后每次刷新按 `next` 回答；返回 fetch 桩。 */
+async function startedWith(first: string, next: () => Promise<Response>) {
+  let calls = 0
+  const fetchSpy = vi.fn(() => {
+    calls += 1
+    return calls === 1 ? Promise.resolve(Response.json({ channels: [{ id: first }] })) : next()
+  })
+  vi.stubGlobal('fetch', fetchSpy)
+  await bootstrapChannels(true, 'https://bff.example.com', true)
+  return fetchSpy
+}
+
+it('refreshes the channel list once the last one is old enough, and not before', async () => {
+  const fetchSpy = await startedWith('old', async () =>
+    Response.json({ channels: [{ id: 'new' }] }),
+  )
+  await refreshChannels(Date.now() + CHANNEL_REFRESH_INTERVAL_MS - 1_000)
+  expect(fetchSpy).toHaveBeenCalledOnce()
+  expect(getStoredChannels().map((channel) => channel.id)).toEqual(['old'])
+  await refreshChannels(Date.now() + CHANNEL_REFRESH_INTERVAL_MS)
+  expect(fetchSpy).toHaveBeenCalledTimes(2)
+  expect(getStoredChannels().map((channel) => channel.id)).toEqual(['new'])
+  // 刚刷新过：同一时刻再问不会再发请求。
+  await refreshChannels(Date.now())
+  expect(fetchSpy).toHaveBeenCalledTimes(2)
+})
+
+it('shares one refresh between concurrent callers', async () => {
+  let answer!: (response: Response) => void
+  const fetchSpy = await startedWith(
+    'old',
+    () => new Promise<Response>((resolve) => (answer = resolve)),
+  )
+  const later = Date.now() + CHANNEL_REFRESH_INTERVAL_MS
+  const first = refreshChannels(later)
+  const second = refreshChannels(later)
+  await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2))
+  answer(Response.json({ channels: [{ id: 'new' }] }))
+  await Promise.all([first, second])
+  expect(fetchSpy).toHaveBeenCalledTimes(2)
+  expect(getStoredChannels().map((channel) => channel.id)).toEqual(['new'])
+})
+
+it('keeps the current list when a refresh fails', async () => {
+  const fetchSpy = await startedWith('old', async () => {
+    throw new TypeError('offline')
+  })
+  await refreshChannels(Date.now() + CHANNEL_REFRESH_INTERVAL_MS)
+  expect(fetchSpy).toHaveBeenCalledTimes(2)
+  expect(channelsSettled()).toBe(true)
+  expect(getStoredChannels().map((channel) => channel.id)).toEqual(['old'])
+})
+
+it('does not notify subscribers when the refreshed list is unchanged', async () => {
+  const fetchSpy = await startedWith('same', async () =>
+    Response.json({ channels: [{ id: 'same' }] }),
+  )
+  const listener = vi.fn()
+  const unsubscribe = subscribeChannels(listener)
+  try {
+    await refreshChannels(Date.now() + CHANNEL_REFRESH_INTERVAL_MS)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(listener).not.toHaveBeenCalled()
+    // 没变也算刚问过：不会紧接着再问。
+    await refreshChannels(Date.now())
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  } finally {
+    unsubscribe()
+  }
+})
+
+it('does not refresh before the first list arrived or when the BFF is off', async () => {
+  const fetchSpy = vi.fn(async () => Response.json({ channels: [] }))
+  vi.stubGlobal('fetch', fetchSpy)
+  await refreshChannels(Date.now() + CHANNEL_REFRESH_INTERVAL_MS)
+  await bootstrapChannels(false, '')
+  await refreshChannels(Date.now() + CHANNEL_REFRESH_INTERVAL_MS)
+  expect(fetchSpy).not.toHaveBeenCalled()
+})
+
+it('refreshes when the tab comes back to the foreground and stops after unsubscribing', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  const fetchSpy = await startedWith('old', async () =>
+    Response.json({ channels: [{ id: 'new' }] }),
+  )
+  // 测试跑在 node 里：用一对 EventTarget 充当窗口与文档。
+  const page = Object.assign(new EventTarget(), {
+    document: Object.assign(new EventTarget(), { visibilityState: 'visible' }),
+  })
+  const stop = refreshChannelsWhenVisible(page as unknown as Window)
+  try {
+    vi.setSystemTime(Date.now() + CHANNEL_REFRESH_INTERVAL_MS)
+    page.dispatchEvent(new Event('focus'))
+    await vi.waitFor(() =>
+      expect(getStoredChannels().map((channel) => channel.id)).toEqual(['new']),
+    )
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  } finally {
+    stop()
+  }
+  vi.setSystemTime(Date.now() + CHANNEL_REFRESH_INTERVAL_MS)
+  page.dispatchEvent(new Event('focus'))
+  page.document.dispatchEvent(new Event('visibilitychange'))
+  await Promise.resolve()
+  expect(fetchSpy).toHaveBeenCalledTimes(2)
 })

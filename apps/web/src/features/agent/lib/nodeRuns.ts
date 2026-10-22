@@ -246,6 +246,26 @@ export function noteAgentNodeRunWakeSkipped(
 export const agentNodeRunWakeSkipped = (authorizationId: string | undefined) =>
   authorizationId ? skippedWakes.get(authorizationId) : undefined
 /** Explicit confirmation is the only entry. The BFF grants a token once, before the undo window. */
+const notedBlocks = new Set<string>()
+/**
+ * 需要确认的卡开跑前就被拦下（按钮置灰）：把逐节点原因报给服务端记日志，好在 admin 日志里查得到。
+ * 同一条授权的同一组原因只报一次；不结束授权，用户改好画布后还能确认。
+ */
+export function noteAgentNodeRunBlocked(
+  proposal: AgentCanvasRunProposal,
+  plan: Pick<NodeBatchPlan, 'jobs' | 'error'> | null | undefined,
+): void {
+  const authorizationId = proposal.authorizationId
+  const error = plan?.error
+  if (proposal.direct || !authorizationId || !error || !PERSISTENT_BLOCKS.has(error)) return
+  const nodes = blockedReport(proposal, plan, error).filter((node) => node.outcome === 'blocked')
+  if (!nodes.length) return
+  const key = `${authorizationId}:${nodes.map((node) => `${node.nodeId}=${node.reason}`).join(',')}`
+  if (notedBlocks.has(key)) return
+  notedBlocks.add(key)
+  void stageAuthorizationClient.blocked(authorizationId, nodes).catch(() => {})
+}
+
 export function startAgentNodeRun(
   key: string,
   proposal: AgentCanvasRunProposal,

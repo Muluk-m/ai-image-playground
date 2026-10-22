@@ -1,6 +1,7 @@
 import type {
   StageAuthorization,
   StageAuthorizationPreflight,
+  StageRunNodeReport,
   StageRunReportInput,
   StageRunReportResult,
   StageRunWakeReceipt,
@@ -53,6 +54,9 @@ export const stageAuthorizationClient = {
       ...input,
       deviceId: getDeviceId(),
     }),
+  /** 需要确认的卡开跑前被拦下：只让服务端记一条日志，不结束授权、不唤醒。 */
+  blocked: (id: string, nodes: readonly StageRunNodeReport[]) =>
+    request<{ logged: true }>(id, '/blocked', { nodes }),
   /** 这条授权的回报唤醒走到了哪一步；服务端还没收到回报时抛错（404）。 */
   wake: (id: string) => request<StageRunWakeReceipt>(id, '/wake'),
 }
