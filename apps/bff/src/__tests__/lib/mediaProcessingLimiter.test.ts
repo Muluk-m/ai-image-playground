@@ -243,6 +243,24 @@ describe('media processing limiter input checks', () => {
     await Promise.all(jobs)
   })
 
+  it('busy 回调返回的不是 Error 时也包成稳定的 Error', async () => {
+    const subject = createMediaProcessingLimiter({
+      slots: 1,
+      byteBudget: () => 100,
+      queueLimit: 0,
+      queueTimeoutMs: 10_000,
+      bypassLimitMs: 5_000,
+      busy: () => 'busy' as unknown as Error,
+    })
+    const running = gate()
+    const first = subject.run(10, () => running.opened)
+    const rejected = await subject.run(10, async () => {}).catch((error: unknown) => error)
+    expect(rejected).toBeInstanceOf(Error)
+    expect((rejected as Error).cause).toBe('busy')
+    running.open()
+    await first
+  })
+
   it('busy 回调抛出非 Error 时仍以稳定的 Error 结束', async () => {
     const subject = createMediaProcessingLimiter({
       slots: 1,

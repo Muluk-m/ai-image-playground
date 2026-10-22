@@ -1,5 +1,7 @@
 /** setTimeout 能精确表示的最长延迟。 */
 const MAX_TIMER_MS = 2 ** 31 - 1
+/** 排队时长用单调时钟算：系统时间校准时，插队保护的时限不会忽长忽短。 */
+const monotonicNow = () => performance.now()
 
 export interface MediaProcessingLimiterOptions {
   slots: number
@@ -45,15 +47,17 @@ export function createMediaProcessingLimiter(options: MediaProcessingLimiterOpti
   // 不让定时器或 finally 里的 drain() 半路抛出，导致排队的请求永远等不到结果。
   const now = () => {
     try {
-      const value = (options.now ?? Date.now)()
-      return typeof value === 'number' && Number.isFinite(value) ? value : Date.now()
+      const value = (options.now ?? monotonicNow)()
+      return typeof value === 'number' && Number.isFinite(value) ? value : monotonicNow()
     } catch {
-      return Date.now()
+      return monotonicNow()
     }
   }
   const busy = (reason: 'processing_queue_full' | 'processing_queue_timeout') => {
     try {
-      return options.busy(reason)
+      const result = options.busy(reason)
+      if (result instanceof Error) return result
+      return new Error(`media processing ${reason}`, { cause: result })
     } catch (error) {
       // 回调自己抛了非 Error（字符串、undefined）时也给调用方一个稳定的 Error，原异常放进 cause。
       return error instanceof Error
