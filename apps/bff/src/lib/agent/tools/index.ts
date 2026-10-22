@@ -139,6 +139,11 @@ const CANVAS_TOOLS = new Set<AgentToolName>([
   'arrangeTimeline',
 ])
 
+/** 只在画布模式里出现的工具。Agent 模式回放历史时它们的结果也不带给模型。 */
+export function isCanvasToolName(name: string): boolean {
+  return CANVAS_TOOLS.has(name as AgentToolName)
+}
+
 function present(mode: AgentMode, audience?: AgentToolAudience): AgentToolSpec[] {
   return TOOLS.filter(
     (tool) =>

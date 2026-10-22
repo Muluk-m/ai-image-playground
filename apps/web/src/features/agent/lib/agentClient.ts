@@ -437,6 +437,8 @@ export async function startTurn(
   canvas?: import('@image-playground/shared').AgentCanvasSnapshot,
   /** 发话时看到的入口；项目还没在服务端记下入口时按它判定。 */
   experience?: 'chat' | 'canvas',
+  /** 这一轮的模式：画布视图里是画布模式，其余是 Agent 模式。服务端按它给工具。 */
+  surface?: import('@image-playground/shared').AgentSurface,
   signal?: AbortSignal,
 ): Promise<StartTurnOutcome> {
   references = await resolveReferences(references)
@@ -451,6 +453,7 @@ export async function startTurn(
     ...(params ? { params } : {}),
     ...(canvas ? { canvas } : {}),
     ...(experience ? { experience } : {}),
+    ...(surface ? { surface } : {}),
   })
   init.signal = signal
   signal?.throwIfAborted()

@@ -1,3 +1,4 @@
+import { type AgentSurface, DEFAULT_AGENT_SURFACE } from '@image-playground/shared'
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
@@ -87,6 +88,49 @@ async function originExperience(
     else originTurnId = payload.turnId
   }
   return 'chat'
+}
+
+/**
+ * 这一轮的模式（Agent 或画布），决定模型拿到哪套工具与提示；与项目入口无关。
+ *
+ * 用户消息按它自己声明的；没声明（旧客户端）按 {@link DEFAULT_AGENT_SURFACE}。
+ * 唤醒与续跑沿已消费的来源追到发起它的用户消息，继承那一条的模式。画布阶段运行的唤醒一定是画布：
+ * 阶段授权只在画布模式里登记得出来，旧授权的发起消息没有声明模式也不能因此丢掉节点工具。
+ */
+export async function loadAgentSurface(
+  conversationId: string,
+  source: AgentTurnSource,
+): Promise<AgentSurface> {
+  if (source.kind === 'message') return source.message.surface ?? DEFAULT_AGENT_SURFACE
+  if (source.kind === 'wake' && source.wake.stageRun) return 'canvas'
+  let originTurnId =
+    source.kind === 'wake'
+      ? source.wake.turnId
+      : (source.resume.wake?.turnId ?? source.resume.interruptedTurnId)
+  const visited = new Set<string>()
+  while (!visited.has(originTurnId)) {
+    visited.add(originTurnId)
+    const rows = await db
+      .select({ payload: schema.agent_inbox.payload })
+      .from(schema.agent_inbox)
+      .where(
+        and(
+          eq(schema.agent_inbox.conversation_id, conversationId),
+          eq(schema.agent_inbox.status, 'consumed'),
+          eq(schema.agent_inbox.consumed_turn_id, originTurnId),
+        ),
+      )
+      .orderBy(desc(schema.agent_inbox.seq))
+    const origin = rows.find((row) => 'text' in row.payload) ?? rows[0]
+    if (!origin) break
+    const payload = origin.payload
+    if ('text' in payload) return payload.surface ?? DEFAULT_AGENT_SURFACE
+    if ('stageRun' in payload && payload.stageRun) return 'canvas'
+    if ('interruptedTurnId' in payload)
+      originTurnId = payload.wake?.turnId ?? payload.interruptedTurnId
+    else originTurnId = payload.turnId
+  }
+  return DEFAULT_AGENT_SURFACE
 }
 
 /**
