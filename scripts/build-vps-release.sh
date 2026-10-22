@@ -109,7 +109,7 @@ cp "$snapshot/public/scripts/vps-deploy.sh" "$snapshot/public/scripts/app-compos
   "$snapshot/public/scripts/rollout-runtime.sh" "$snapshot/public/scripts/check-test-isolation.sh" \
   "$snapshot/public/scripts/segmenter-deploy.sh" "$output/scripts/"
 cp "$snapshot/public/scripts/lib/deploy-common.sh" "$output/scripts/lib/"
-cp "$snapshot/public/deploy/compose.app.yaml" "$snapshot/public/deploy/compose.segmenter.yaml" "$output/deploy/"
+cp "$snapshot/public/deploy/compose.app.yaml" "$output/deploy/"
 : > "$output/images.tsv"
 images=
 last_edition=
@@ -145,22 +145,24 @@ build_image "$backup_image" "backup-$(printf %.12s "$public_sha")" "$snapshot/pu
   --build-arg "APP_VERSION=$public_sha"
 printf 'backup\t%s\t%s\t%s\t-\t%s\n' "$backup_image" "$image_id" "$public_sha" "$repo_digest" >> "$output/images.tsv"
 images="$images $backup_image"
-# The EdgeTAM segmenter for edit-region proposals (deploy/segmenter). Test releases carry it for
-# the test instance. Production releases (built from main) would carry it for the production
-# instance; they do not yet, because production does not use it (SEGMENTER_EDITIONS=test). A test
-# release can never update the production instance either way (scripts/segmenter-deploy.sh).
-if [ "$target" = test ]; then
-  segmenter_image=ai-image-playground:segmenter-$(printf %.12s "$public_sha")
+# The shared EdgeTAM segmenter (deploy/segmenter), a separately versioned base component. Only
+# production releases carry it, and they are built from main only (deploy.yml); a test release
+# never builds or ships it, so pushing a branch to test cannot change what every edition calls.
+# The VPS starts it only when deploy/segmenter/VERSION is not the version already running.
+if [ "$target" != test ]; then
+  segmenter_version=$(tr -d '[:space:]' < "$snapshot/public/deploy/segmenter/VERSION")
+  printf '%s\n' "$segmenter_version" | grep -Eqx '[0-9]+' || { echo "deploy/segmenter/VERSION must be a whole number" >&2; exit 1; }
+  segmenter_image=ai-image-playground:segmenter-$segmenter_version-$(printf %.12s "$public_sha")
   # A cache of its own keeps the dependency and weight layers byte-identical between releases,
-  # so the VPS pulls only the small top layer when the segmenter itself did not change.
+  # so the VPS pulls only the small top layer.
   if [ "$transport" = registry ]; then
     set -- --cache-from "type=registry,ref=${ghcr_repository}:buildcache-segmenter" \
       --cache-to "type=registry,ref=${ghcr_repository}:buildcache-segmenter,mode=max"
   else
     set --
   fi
-  build_image "$segmenter_image" "segmenter-$(printf %.12s "$public_sha")" "$snapshot/public/deploy/segmenter" \
-    "$@" --build-arg "APP_VERSION=$public_sha"
+  build_image "$segmenter_image" "segmenter-$segmenter_version-$(printf %.12s "$public_sha")" "$snapshot/public/deploy/segmenter" \
+    "$@" --build-arg "APP_VERSION=$public_sha" --build-arg "SEGMENTER_VERSION=$segmenter_version"
   printf 'segmenter\t%s\t%s\t%s\t-\t%s\n' "$segmenter_image" "$image_id" "$public_sha" "$repo_digest" >> "$output/images.tsv"
   images="$images $segmenter_image"
 fi
