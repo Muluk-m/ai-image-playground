@@ -275,6 +275,14 @@ it('图片在后台上传时只显示上传进度，不亮等待保存与重试'
       set({ status: 'media-local', message: null })
       expect(host.textContent).toContain('画布里有内容还没保存完')
       expect(host.querySelector('button')?.textContent).toBe('重试')
+      // 上传还在跑时出了别的错（无权限、冲突、项目被删）：错误和操作照常露出，上传进度并列显示。
+      set({ status: 'permission-error', message: null, upload: { done: 2, total: 4 } })
+      expect(host.textContent).toContain('图片上传中 2/4')
+      expect(host.querySelector('[role="alert"]')).not.toBeNull()
+      expect(host.querySelector('button')?.textContent).toBe('重试')
+      set({ status: 'conflict', message: null, upload: { done: 2, total: 4 } })
+      expect(host.textContent).toContain('图片上传中 2/4')
+      expect(host.querySelectorAll('button').length).toBeGreaterThan(0)
     } finally {
       act(() => root.unmount())
     }

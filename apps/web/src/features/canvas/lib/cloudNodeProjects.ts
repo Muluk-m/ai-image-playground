@@ -6,7 +6,7 @@ import {
   canvasResults,
   canvasSyncStep1,
   canvasSyncStep2,
-  canvasUploadClaimedElsewhere,
+  canvasUploadingElsewhere,
   createCanvasUndoManager,
   type ImageNodeData,
   importLegacyElements,
@@ -526,6 +526,7 @@ export class CloudNodeProjectSession {
     // 先列出这一轮要收成云媒体的全部本机原图，按原图去重：同一张图挂在几个节点或候选上只传一次。
     const nodes: { nodeId: string; fileId: string; elsewhere: boolean }[] = []
     const device = getDeviceId()
+    const now = Date.now()
     for (const node of readCanvasDocument(doc).nodes) {
       if (
         (node.type !== 'image' && node.type !== 'video') ||
@@ -536,7 +537,7 @@ export class CloudNodeProjectSession {
       nodes.push({
         nodeId: node.id,
         fileId: node.data.fileId,
-        elsewhere: canvasUploadClaimedElsewhere(node.data, device),
+        elsewhere: canvasUploadingElsewhere(node.data, device, now),
       })
     }
     // Previously chosen candidates remain durable even after another candidate becomes main.
@@ -552,8 +553,8 @@ export class CloudNodeProjectSession {
     }
     let failure: unknown
     const sources = new Set<string>()
-    // 别的设备声明在传的上传中节点，本机没有原图是正常的，由那台设备去传；
-    // 本机缺原图又没有别人声明在传（原图被清理、损坏），仍按缺图报错。
+    // 别的设备声明在传、还没过期的上传中节点，本机没有原图是正常的，由那台设备去传；
+    // 本机缺原图又没有有效声明（原图被清理、损坏，或那台设备传了 30 分钟还没收成云媒体），仍按缺图报错。
     const pendingAllowed = supportsCanvasPendingMedia()
     for (const node of nodes) {
       const source = this.record.editor.doc.files[node.fileId]
@@ -629,16 +630,17 @@ export class CloudNodeProjectSession {
       )
     )
       return false
-    // 本机缺原图、也没有别的设备声明在传的节点不能当「上传中」发出去：走原流程报缺图。
+    // 本机缺原图、也没有别的设备有效声明在传的节点不能当「上传中」发出去：走原流程报缺图。
     const files = this.record.editor.doc.files
     const device = getDeviceId()
+    const now = Date.now()
     return readCanvasDocument(this.canvas.doc).nodes.every(
       (node) =>
         (node.type !== 'image' && node.type !== 'video') ||
         !node.data.fileId ||
         !!node.data.mediaId ||
         !!files[node.data.fileId] ||
-        canvasUploadClaimedElsewhere(node.data, device),
+        canvasUploadingElsewhere(node.data, device, now),
     )
   }
   /**
@@ -734,16 +736,24 @@ export class CloudNodeProjectSession {
     this.preparing = this.preparing
       .then(async () => {
         this.current()
-        if (this.canSendBeforeMedia()) {
+        let early = this.canSendBeforeMedia()
+        if (early) {
           // 视频收成云媒体照旧在发送前做（生成出的视频才有，与上传无关）；本机图片放到后台传。
           await this.prepareVideoMedia()
           if (this.project.cloud?.nameDirty) await this.flushName()
           this.current()
+          // 等待期间文档可能又变了（例如加了本机 file 来源的候选）：发之前按最新文档再判断一次。
+          early = this.canSendBeforeMedia()
+        }
+        if (early) {
           if (this.hasLocalImages()) {
             this.claimLocalUploads()
             this.uploadInBackground()
           }
         } else {
+          // 回到原流程前先等在途的后台上传：已经传上去的原图会记在 bindings 里，不再传第二遍，
+          // 也不会有两轮同时改上传进度。
+          if (this.uploading) await this.uploading
           // Promotion awaits I/O; include edits made during those awaits before acknowledging this version.
           let preparedVersion: number
           do {

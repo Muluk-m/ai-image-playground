@@ -96,13 +96,6 @@ export function canvasUploadingElsewhere(
   return !!by && by !== device && Number.isFinite(since) && now - since < CANVAS_UPLOAD_STALE_MS
 }
 
-/** 别的设备声明在传（不论是否过期）：本机没有原图也不该由本机报缺图、拦同步。 */
-export function canvasUploadClaimedElsewhere(data: CanvasUploadData, device: string): boolean {
-  if (data.mediaId || !isLocalCanvasFileId(data.fileId)) return false
-  const by = data.meta?.[CANVAS_UPLOAD_DEVICE_META]
-  return !!by && by !== device
-}
-
 /** 去掉上传声明（收成云媒体后）；没有声明时原样返回。 */
 export function withoutCanvasUploadClaim(
   meta: Record<string, string> | undefined,
