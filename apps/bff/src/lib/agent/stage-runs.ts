@@ -17,6 +17,7 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import * as Y from 'yjs'
 import { db, schema } from '../../db/client'
 import { accessCanvasDocument } from '../canvasSyncStore'
+import { getChannels, resolveQueueModel } from '../channels'
 import { log } from '../logger'
 import type { BffTransaction } from '../private-overlay'
 import type { AgentOwner } from './conversations'
@@ -27,6 +28,7 @@ import {
   StageAuthorizationError,
   stageExecutionTokenMatches,
 } from './stage-authorizations'
+import { agentVideoModels } from './video-models'
 import { AGENT_WAKE_CHANNEL } from './wake'
 
 /**
@@ -325,6 +327,37 @@ function nodeLine(name: string, node: StageRunNodeRecord): string {
   }
 }
 
+/**
+ * 被拦在「模型或参数不可用」时，智能体要知道这个部署此刻真能用哪些模型，否则只会让用户「换个可用模型」。
+ * 图片节点按工作台选中的出图模型提交，智能体改不了；视频节点按节点的视频模式挑模型，模式改得了。
+ */
+function availableModelsLine(): string {
+  const images = [
+    ...new Set(
+      getChannels().flatMap((channel) =>
+        channel.models.flatMap((model) =>
+          (model.media ?? 'image') === 'image' && resolveQueueModel('image', model.id)
+            ? [model.id]
+            : [],
+        ),
+      ),
+    ),
+  ]
+  const videos = agentVideoModels().map(({ target, support }) => {
+    const modes = [
+      '文生',
+      ...(support.firstFrame ? ['首帧'] : []),
+      ...(support.firstFrame && support.lastFrame ? ['首尾帧'] : []),
+      ...(support.referenceImages ? [`参考生（最多 ${support.referenceImages.max} 张）`] : []),
+    ]
+    return `${target.model}（${modes.join('、')}）`
+  })
+  return `当前部署实际可用的出图模型：${images.length ? images.join('、') : '无'}；视频模型及支持的模式：${videos.length ? videos.join('、') : '无'}。`
+}
+
+const MODEL_BLOCK_GUIDANCE =
+  '被拦在「模型或参数不可用」的节点：图片节点按用户工作台选中的出图模型提交，你改不了，只能请用户在工作台换成上面列出的可用出图模型；视频节点是它的视频模式（videoMode）没有可用模型支持，用 updateNodes 换成可用视频模型支持的模式。用户要的是出图或改图（例如参考一张图修改另一张图）时，目标应是图片节点：用 createNodes 建 image 节点、连好参考与原图后再 runNodes，不要用视频节点。'
+
 export interface StageRunWakeContent {
   readonly text: string
   readonly mode: 'image' | 'video'
@@ -379,6 +412,20 @@ export async function stageRunWakeContent(
     guidance.push(
       '被拦下的节点：逐个说清原因，以及用户要补什么或改什么（例如先给首帧节点出图、补素材、换可用的模型）。',
     )
+  const modelBlocked = run.nodes.some(
+    (node) => node.outcome === 'blocked' && node.reason === 'model_unavailable',
+  )
+  if (modelBlocked) guidance.push(availableModelsLine(), MODEL_BLOCK_GUIDANCE)
+  // 直接出图开着、这一批一个都没提交也没花积分、只是卡在模型或模式上：智能体自己改得了的就在这一轮改好重跑，
+  // 不用停下来问一句「确认后我再处理」。花过钱、有失败或已完成的批次仍按老规矩先问。
+  const selfFix =
+    modelBlocked &&
+    state.turn?.autoSubmit === true &&
+    state.spentCredits === 0 &&
+    !state.storyboard &&
+    completed === 0 &&
+    failed === 0 &&
+    unsettled === 0
   if (failed > 0)
     guidance.push(
       overBudget
@@ -406,6 +453,10 @@ export async function stageRunWakeContent(
   if (storyboardId)
     guidance.push(
       `这一批全部完成，它们是分镜表 ${storyboardId} 引用的素材，这一轮沿用直接出图：分镜表引用的素材都有图之后，本轮直接调用 runStoryboardFrames（storyboardId: "${storyboardId}"，出整张表的首帧，不传 shotIds），不要停下来等用户说继续，也不要手工建首帧节点。不要重跑已完成的节点；除了这张分镜表的首帧，这一轮不要自行发起别的付费运行，出视频等其他阶段先向用户说明并等他同意。`,
+    )
+  else if (selfFix)
+    guidance.push(
+      '这一批一个节点都没提交、没花积分，这一轮沿用直接出图：能按上面改好的（视频模式换成可用模型支持的、该是图片节点的改成图片节点）就在这一轮改好后直接用 runNodes 重新发起，不要停下来等用户确认；只有工作台选的出图模型本身不可用这类你改不了的，才说明需要用户换成哪个可用模型。除此之外不要发起别的付费运行。',
     )
   else guidance.push('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
   return {
