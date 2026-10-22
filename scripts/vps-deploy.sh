@@ -129,7 +129,7 @@ backup_image=$(awk -F '\t' '$1=="backup" { print $2 }' "$release/images.tsv")
 segmenter_image=$(awk -F '\t' '$1=="segmenter" { print $2 }' "$release/images.tsv")
 # The segmenter instance this release may touch: test releases only the test one, production
 # releases only the production one (scripts/segmenter-deploy.sh). Neither can reach the other's.
-if [ "$target" = test ]; then segmenter_instance=test; else segmenter_instance=prod; fi
+if [ "$target" = test ]; then segmenter_instance='test'; else segmenter_instance='prod'; fi
 segmenter_up=
 rolled_out=
 for edition in $editions; do
