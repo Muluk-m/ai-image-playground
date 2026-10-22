@@ -341,7 +341,8 @@ export interface AgentState {
    * 确认一张草稿卡：把这份提示词原样交给服务端提交生成任务，面板换上提交之后的那张卡，
    * 并接着等任务结果。重复点击、多标签页同时确认都只会有一个任务。
    */
-  acceptGenerationReceipt(conversationId: string, view: AgentMessageView): void
+  /** `continued`：服务端接着确认门拦下的那一轮起了续跑，面板跟进那一轮的流。 */
+  acceptGenerationReceipt(conversationId: string, view: AgentMessageView, continued?: boolean): void
   confirmPrompt(messageId: string, prompt: string): Promise<AgentPromptConfirmResult>
   /**
    * 按面板上的先后逐张确认所有待确认草稿。一张被拒（余额不够、没登录）就停下，
@@ -2618,8 +2619,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       set((state) => ({ promptDrafts: { ...state.promptDrafts, [messageId]: prompt } }))
     },
 
-    acceptGenerationReceipt(conversationId, view) {
+    acceptGenerationReceipt(conversationId, view, continued = false) {
       if (get().conversationId !== conversationId) return
+      // 续跑跟进放在最前：卡片本身是否需要改写，都不影响那一轮已经在服务端起跑。
+      if (continued) jobs.followContinuation(conversationId)
       const incoming = panelMessage(view.id, view.turnId, view.role, view.content)
       if (incoming.kind !== 'tool') return
       const shown = get().messages.find((one) => one.id === incoming.id)

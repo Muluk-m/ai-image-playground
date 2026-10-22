@@ -12,7 +12,7 @@ import { queueOutputUrl } from '../../../lib/channels/queueClient'
 import {
   AgentRequestError,
   cancelJob,
-  confirmToolPrompt,
+  confirmToolCard,
   fetchMessages,
   retryToolCall,
 } from '../../agent/lib/agentClient'
@@ -276,14 +276,16 @@ function GenerationSession({
         fields,
       )
       submitted = true
-      const message = await confirmToolPrompt(
+      const confirmed = await confirmToolCard(
         conversationId,
         generation.messageId,
         saved.generation.prompt,
         undefined,
         saved.generation.draftRevision,
       )
-      useAgentStore.getState().acceptGenerationReceipt(conversationId, message)
+      useAgentStore
+        .getState()
+        .acceptGenerationReceipt(conversationId, confirmed.message, confirmed.continued === true)
     } catch (cause) {
       setError(true)
       if (cause instanceof AgentRequestError) {

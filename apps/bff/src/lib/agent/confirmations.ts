@@ -488,7 +488,8 @@ export async function voidPendingToolGates(
     return rowsOfDrafts.map((draft) => draft.id)
   })
   // 作废的稿再也确认不了，归档的输入图没有读路径了；删不掉只是个孤儿，由 bucket lifecycle 收。
-  for (const id of voided) await discardDraftInputs(id)
+  // 各删各的，单个失败已在里面吞掉：并发删，作废多张卡时新消息不按张数排队等对象存储。
+  await Promise.all(voided.map((id) => discardDraftInputs(id)))
   return voided.length
 }
 

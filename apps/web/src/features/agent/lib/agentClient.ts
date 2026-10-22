@@ -721,20 +721,7 @@ export async function retryToolCall(
  * 确认一张草稿卡：把用户核对过（可能改过）的提示词原样交给服务端，它照这份字提交生成任务，
  * 不再经模型改写。服务端就地改写同一条消息，返回提交之后它的样子。
  * 重复确认是幂等的：已经提交过的那条原样返回，不会出第二个任务。
- */
-export async function confirmToolPrompt(
-  conversationId: string,
-  messageId: string,
-  prompt: string,
-  fetcher: Fetcher = authenticatedBffFetch,
-  draftRevision?: number,
-): Promise<AgentMessageView> {
-  return (await confirmToolCard(conversationId, messageId, prompt, fetcher, draftRevision)).message
-}
-
-/**
- * 同 {@link confirmToolPrompt}，连同整份响应一起交回：确认门拦下的卡确认完之后服务端会接着那一轮
- * 起续跑（`continued`），对话面板要跟进那一轮的流。
+ * 确认门拦下的卡确认完之后服务端会接着那一轮起续跑（`continued`），调用方要跟进那一轮的流。
  */
 export async function confirmToolCard(
   conversationId: string,

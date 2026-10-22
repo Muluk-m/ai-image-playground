@@ -76,6 +76,7 @@ import {
   type AgentTurnInput,
   clarificationChainStart,
   estimateTurnInputTokens,
+  promptAutoSubmit,
 } from './turn-input'
 import { wakePlan } from './wake'
 import {
@@ -316,10 +317,15 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         providerInstance: selectedRuntime.providerId,
         reasoningEffort: selectedRuntime.effort,
         mode: content.mode,
+        // 签名只认系统提示词：确认门开时提示词与出图模式逐字相同（`promptAutoSubmit`），按它算。
+        // 真正的自动提交额度由 `turnInputOf` 决定，那里不把确认门算进去，被拦的调用照样停下。
         autoSubmit:
           audience.experience === 'canvas'
             ? canvasStageRunsDirectly(content.params)
-            : content.params?.autoSubmit === true || toolGate,
+            : promptAutoSubmit({
+                autoSubmit: content.params?.autoSubmit === true,
+                toolGate: toolGate || undefined,
+              }),
         directImage: content.params?.directImage === true,
         audience,
       })
