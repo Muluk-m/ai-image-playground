@@ -44,7 +44,8 @@ export async function getAgentPrompts(
   const source = sql`
     WITH raw_prompts AS (
       SELECT d.id, 'draft'::text AS kind, d.created_at, d.conversation_id, d.turn_id,
-        d.tool_call_id, d.prompt, d.drafted_prompt, d.drafted_prompt IS DISTINCT FROM d.prompt AS changed,
+        d.tool_call_id, COALESCE(d.tool_call_id, d.id) AS group_key,
+        d.prompt, d.drafted_prompt, d.drafted_prompt IS DISTINCT FROM d.prompt AS changed,
         d.drafted_prompt IS NOT NULL AS known_original,
         d.tool_name AS tool, d.media, d.model, d.provider, NULL::text AS size,
         d.task_id, CASE WHEN d.task_id IS NULL THEN 'awaiting'
@@ -54,7 +55,8 @@ export async function getAgentPrompts(
       WHERE d.created_at >= ${from} AND d.created_at <= ${to}
       UNION ALL
       SELECT t.id, 'task', t.submitted_at, t.agent_conversation_id, t.agent_turn_id,
-        j.tool_call_id, COALESCE(t.request_payload->>'prompt', ''), NULL, false, true,
+        j.tool_call_id, COALESCE(j.tool_call_id, t.id) AS group_key,
+        COALESCE(t.request_payload->>'prompt', ''), NULL, false, true,
         NULL::text,
         CASE WHEN t.request_payload->'video' IS NOT NULL THEN 'video' ELSE 'image' END,
         t.model, t.provider, t.request_payload->>'size', t.id,
@@ -69,7 +71,8 @@ export async function getAgentPrompts(
       SELECT (array_agg(r.id ORDER BY r.created_at, r.id))[1] AS id,
         CASE WHEN COUNT(*) FILTER (WHERE r.kind = 'draft') > 0 THEN 'draft' ELSE 'task' END::text AS kind,
         MIN(r.created_at) AS created_at, r.conversation_id, r.turn_id,
-        COALESCE(r.tool_call_id, (array_agg(r.id ORDER BY r.created_at, r.id))[1]) AS tool_call_id,
+        (array_agg(r.tool_call_id ORDER BY r.created_at, r.id))[1] AS tool_call_id,
+        r.group_key,
         (array_agg(r.prompt ORDER BY r.created_at, r.id))[1] AS prompt,
         (array_agg(r.drafted_prompt ORDER BY r.created_at, r.id))[1] AS drafted_prompt,
         BOOL_OR(r.changed) AS changed, BOOL_OR(r.known_original) AS known_original,
@@ -85,7 +88,7 @@ export async function getAgentPrompts(
           WHEN BOOL_OR(r.status = 'failed') THEN 'failed'
           ELSE 'completed' END AS status
       FROM raw_prompts r
-      GROUP BY r.conversation_id, r.turn_id, COALESCE(r.tool_call_id, r.id)
+      GROUP BY r.conversation_id, r.turn_id, r.group_key
     ), filtered AS (
       SELECT p.*, c.user_id, c.device_id, u.username
       FROM prompts p JOIN agent_conversations c ON c.id = p.conversation_id
@@ -192,7 +195,7 @@ export async function getAgentPrompts(
       media: String(row.media),
       model: String(row.model),
       taskId: text(row.task_id),
-      groupId: text(row.tool_call_id),
+      groupId: text(row.group_key),
       taskIds: Array.isArray(row.task_ids)
         ? row.task_ids.filter((id): id is string => id != null).map(String)
         : [],
