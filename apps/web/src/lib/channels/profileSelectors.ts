@@ -1,4 +1,11 @@
+import {
+  isModelEtaSeconds,
+  MODEL_BADGES,
+  type ModelBadge,
+  type ModelLogoId,
+} from '@image-playground/shared'
 import { i18next } from '../../i18n'
+import { knownModelLogo } from './publicChannels'
 import type { ChannelCapability, ClientProfile, PublicChannel } from './types'
 
 /**
@@ -62,14 +69,64 @@ export function getProfileModels(
   return channel ? channel.models.map((model) => model.id) : []
 }
 
+/**
+ * 选择器提示用的典型耗时。BFF 加载时已限定为 1–3600 的整数；这里按同一条（shared 的
+ * `isModelEtaSeconds`）再挡一次，长开的标签页或别的部署发来的清单里有不合法的值时当作没有，
+ * 不显示「约 0 秒」「约 -1 秒」这类文案。
+ */
+export function usableEtaSeconds(value: unknown): number | undefined {
+  return isModelEtaSeconds(value) ? value : undefined
+}
+
+/** 范围上界：只有下界可用且上界合法、比下界大时才算数；不然只显示下界那个单值。 */
+export function usableEtaMaxSeconds(value: unknown, etaSeconds: number | undefined) {
+  return etaSeconds !== undefined && isModelEtaSeconds(value) && value > etaSeconds
+    ? value
+    : undefined
+}
+
+/**
+ * 选择器标签：只留前端认识的 token（去重、保持顺序）。浏览器不校验发现清单，长开的标签页或
+ * 版本不一致的 BFF 可能发来新 token，认不出的直接不显示，免得出现缺文案、缺配色的空标签。
+ */
+export function knownModelBadges(value: unknown): ModelBadge[] {
+  if (!Array.isArray(value)) return []
+  const known: ModelBadge[] = []
+  for (const badge of value) {
+    if (MODEL_BADGES.includes(badge as ModelBadge) && !known.includes(badge as ModelBadge))
+      known.push(badge as ModelBadge)
+  }
+  return known
+}
+
 /** 返回该 profile 的模型展示项（id + 人类可读 label）。 */
 export function getProfileModelOptions(
   profile: ClientProfile,
   publicChannels: PublicChannel[],
-): Array<{ id: string; label: string }> {
+): Array<{
+  id: string
+  label: string
+  badges?: ModelBadge[]
+  etaSeconds?: number
+  etaMaxSeconds?: number
+  logo?: ModelLogoId
+}> {
   const channel = publicChannels.find((item) => item.id === profile.channelId)
   return channel
-    ? channel.models.map((model) => ({ id: model.id, label: model.label ?? model.id }))
+    ? channel.models.map((model) => {
+        const etaSeconds = usableEtaSeconds(model.etaSeconds)
+        const etaMaxSeconds = usableEtaMaxSeconds(model.etaMaxSeconds, etaSeconds)
+        const badges = knownModelBadges(model.badges)
+        const logo = knownModelLogo(model.logo)
+        return {
+          id: model.id,
+          label: model.label ?? model.id,
+          ...(badges.length ? { badges } : {}),
+          ...(etaSeconds !== undefined ? { etaSeconds } : {}),
+          ...(etaMaxSeconds !== undefined ? { etaMaxSeconds } : {}),
+          ...(logo ? { logo } : {}),
+        }
+      })
     : []
 }
 
