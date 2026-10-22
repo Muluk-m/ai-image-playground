@@ -92,6 +92,7 @@ printf 'segmenter %s\\n' "$*" >> "$CALL_LOG"
 case "$1" in
   up) exit "\${TEST_SEGMENTER_UP_EXIT:-0}" ;;
   healthy) exit "\${TEST_SEGMENTER_HEALTHY_EXIT:-1}" ;;
+  current) exit "\${TEST_SEGMENTER_CURRENT_EXIT:-1}" ;;
 esac
 `,
   )
@@ -341,7 +342,7 @@ describe('registry release receiver', () => {
   })
 })
 
-describe('receivers with the segmenter', () => {
+describe('receivers with the shared segmenter', () => {
   const testRelease = (rows: string[]) => {
     writeFileSync(
       join(release, 'scripts/check-test-isolation.sh'),
@@ -350,104 +351,111 @@ describe('receivers with the segmenter', () => {
     writeFileSync(join(release, 'images.tsv'), `${rows.join('\n')}\n`)
     checksums()
   }
+  const productionRelease = (rows: string[]) => {
+    writeFileSync(
+      join(release, 'images.tsv'),
+      `${[
+        `internal\tai-image-playground:vps-main-${short}\t${imageId}\t${sha}\t${sha}`,
+        `paid\tai-image-playground:paid-${short}-${short}\t${imageId}\t${sha}\t${sha}`,
+        ...rows,
+      ].join('\n')}\n`,
+    )
+    checksums()
+  }
   const testRow = `test\tai-image-playground:test-${short}-${short}\t${imageId}\t${sha}\t${sha}`
   const backupRow = `backup\tai-image-playground:backup-${short}\t${imageId}\t${sha}\t-`
-  const segmenterRow = `segmenter\tai-image-playground:segmenter-${short}\t${imageId}\t${sha}\t-`
+  const segmenterImage = `ai-image-playground:segmenter-3-${short}`
+  const segmenterRow = `segmenter\t${segmenterImage}\t${imageId}\t${sha}\t-`
+  const selfTest = `run --rm --network none --memory 900m --memory-swap 900m --cpus 2 ${segmenterImage} node server.mjs --self-test`
 
-  it('self-tests the segmenter, starts the test instance before the executors, points them at it and attaches it', () => {
+  it('refuses a test release that carries the segmenter, so a branch on test cannot replace it', () => {
     testRelease([testRow, backupRow, segmenterRow])
+    const result = run('test')
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('Invalid image manifest')
+    expect(readFileSync(log, 'utf8')).not.toMatch(/rollout|segmenter /)
+  })
+
+  it('only attaches a test release to the shared segmenter while it is healthy, and never starts it', () => {
+    testRelease([testRow, backupRow])
+    env.TEST_SEGMENTER_HEALTHY_EXIT = '0'
     const result = run('test')
     expect(result.stderr).toBe('')
     expect(result.status).toBe(0)
     const calls = readFileSync(log, 'utf8').split('\n')
-    const selfTest = calls.findIndex(
-      (c) =>
-        c ===
-        `run --rm --network none --memory 900m --memory-swap 900m --cpus 2 ai-image-playground:segmenter-${short} node server.mjs --self-test`,
-    )
-    const up = calls.indexOf(`segmenter up test ai-image-playground:segmenter-${short}`)
     const rollout = calls.indexOf(
       `rollout image-playground-test ai-image-playground:test-${short}-${short} segmenter=http://segmenter:8080`,
     )
-    expect(selfTest).toBeGreaterThan(-1)
-    expect(selfTest).toBeLessThan(up)
-    expect(up).toBeLessThan(rollout)
-    expect(calls.indexOf('segmenter attach test image-playground-test')).toBeGreaterThan(rollout)
-    // 测试发布碰不到生产那一份。
-    expect(calls.join('\n')).not.toMatch(/segmenter \w+ prod/)
-    expect(calls.join('\n')).not.toContain('--profile segmenter')
-    expect(calls).toContain(
-      `tag ai-image-playground:segmenter-${short} ai-image-playground:segmenter`,
-    )
+    expect(calls.indexOf('segmenter healthy')).toBeGreaterThan(-1)
+    expect(calls.indexOf('segmenter healthy')).toBeLessThan(rollout)
+    expect(calls.indexOf('segmenter attach image-playground-test')).toBeGreaterThan(rollout)
+    expect(calls.join('\n')).not.toMatch(/segmenter (up|current)|--self-test/)
   })
 
-  it('still rolls the test executors, without the segmenter, when it does not start', () => {
-    testRelease([testRow, backupRow, segmenterRow])
-    env.TEST_SEGMENTER_UP_EXIT = '1'
+  it('rolls a test release without the segmenter when the shared one is not healthy', () => {
+    testRelease([testRow, backupRow])
     const result = run('test')
     expect(result.status).toBe(0)
-    expect(result.stderr).toContain('the segmenter did not start')
     const calls = readFileSync(log, 'utf8').split('\n')
     expect(calls).toContain(
       `rollout image-playground-test ai-image-playground:test-${short}-${short}`,
     )
-    expect(calls).not.toContain(
-      `tag ai-image-playground:segmenter-${short} ai-image-playground:segmenter`,
-    )
-    expect(calls).not.toContain('segmenter attach test image-playground-test')
+    expect(calls.join('\n')).not.toMatch(/segmenter (up|attach)/)
+  })
+
+  it('replaces the shared segmenter from a production release only when its version is not running, before the executors', () => {
+    productionRelease([backupRow, segmenterRow])
+    const result = run()
+    expect(result.status).toBe(0)
+    const calls = readFileSync(log, 'utf8').split('\n')
+    const test = calls.indexOf(selfTest)
+    const up = calls.indexOf(`segmenter up ${segmenterImage} 3`)
+    expect(calls).toContain('segmenter current 3')
+    expect(test).toBeGreaterThan(-1)
+    expect(test).toBeLessThan(up)
+    expect(up).toBeLessThan(calls.findIndex((c) => c.startsWith('rollout ')))
+    expect(calls).toContain(`tag ${segmenterImage} ai-image-playground:segmenter`)
+    // Production editions stay off it unless SEGMENTER_EDITIONS lists them.
+    expect(calls.join('\n')).not.toMatch(/segmenter (attach|healthy)|segmenter=/)
+  })
+
+  it('skips the self-test when that version already runs', () => {
+    productionRelease([backupRow, segmenterRow])
+    env.TEST_SEGMENTER_CURRENT_EXIT = '0'
+    expect(run().status).toBe(0)
+    const calls = readFileSync(log, 'utf8').split('\n')
+    expect(calls).not.toContain(selfTest)
+    expect(calls).toContain(`segmenter up ${segmenterImage} 3`)
+  })
+
+  it('keeps the release going on the running segmenter when the new version does not start', () => {
+    productionRelease([backupRow, segmenterRow])
+    env.TEST_SEGMENTER_UP_EXIT = '1'
+    const result = run()
+    expect(result.status).toBe(0)
+    expect(result.stderr).toContain('the running one was kept')
+    const calls = readFileSync(log, 'utf8').split('\n')
+    expect(calls).not.toContain(`tag ${segmenterImage} ai-image-playground:segmenter`)
+    expect(calls.filter((c) => c.startsWith('rollout '))).toHaveLength(2)
   })
 
   it('does not roll anything when the segmenter self-test fails', () => {
-    testRelease([testRow, backupRow, segmenterRow])
+    productionRelease([backupRow, segmenterRow])
     env.TEST_NATIVE_EXIT = '1'
-    expect(run('test').status).not.toBe(0)
+    expect(run().status).not.toBe(0)
     expect(readFileSync(log, 'utf8')).not.toMatch(/rollout|segmenter up/)
   })
 
-  it('accepts a test release without the segmenter', () => {
-    testRelease([testRow, backupRow])
-    const result = run('test')
-    expect(result.status).toBe(0)
-    expect(readFileSync(log, 'utf8')).not.toMatch(/segmenter (up|attach)/)
-  })
-
-  it('starts only the production instance from a production release that carries the image, and only when listed', () => {
-    writeFileSync(
-      join(release, 'images.tsv'),
-      `internal\tai-image-playground:vps-main-${short}\t${imageId}\t${sha}\t${sha}\npaid\tai-image-playground:paid-${short}-${short}\t${imageId}\t${sha}\t${sha}\n${backupRow}\n${segmenterRow}\n`,
-    )
-    checksums()
-    expect(run().status).toBe(0)
-    expect(readFileSync(log, 'utf8')).not.toMatch(/^segmenter /m)
-    rmSync(log)
-    env.SEGMENTER_EDITIONS = 'internal paid test'
-    expect(run().status).toBe(0)
-    const calls = readFileSync(log, 'utf8').split('\n')
-    expect(calls.filter((c) => c.startsWith('segmenter up '))).toEqual([
-      `segmenter up prod ai-image-playground:segmenter-${short}`,
-    ])
-    expect(calls).toContain('segmenter attach prod image-playground-internal')
-    expect(calls).toContain('segmenter attach prod image-playground-paid')
-    expect(calls.join('\n')).not.toMatch(/segmenter \w+ test/)
-  })
-
-  it('leaves production off the segmenter unless it is listed, then reuses its own running instance', () => {
-    writeFileSync(
-      join(release, 'images.tsv'),
-      `internal\tai-image-playground:vps-main-${short}\t${imageId}\t${sha}\t${sha}\npaid\tai-image-playground:paid-${short}-${short}\t${imageId}\t${sha}\t${sha}\n${backupRow}\n`,
-    )
-    checksums()
-    expect(run().status).toBe(0)
-    expect(readFileSync(log, 'utf8')).not.toMatch(/^segmenter /m)
-    rmSync(log)
+  it('attaches the production editions listed in SEGMENTER_EDITIONS to the same shared container', () => {
+    productionRelease([backupRow])
     env.SEGMENTER_EDITIONS = 'internal paid test'
     env.TEST_SEGMENTER_HEALTHY_EXIT = '0'
     expect(run().status).toBe(0)
     const calls = readFileSync(log, 'utf8').split('\n')
-    expect(calls.filter((c) => c === 'segmenter healthy prod')).toHaveLength(1)
+    expect(calls.filter((c) => c === 'segmenter healthy')).toHaveLength(1)
     expect(calls.join('\n')).not.toContain('segmenter up')
-    expect(calls).toContain('segmenter attach prod image-playground-internal')
-    expect(calls).toContain('segmenter attach prod image-playground-paid')
+    expect(calls).toContain('segmenter attach image-playground-internal')
+    expect(calls).toContain('segmenter attach image-playground-paid')
     expect(calls).toContain(
       `rollout image-playground-internal ai-image-playground:vps-main-${short} segmenter=http://segmenter:8080`,
     )
