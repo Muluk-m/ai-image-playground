@@ -43,7 +43,8 @@ export function ModelLogo({ model, logo }: { model: string; logo?: ModelLogoId |
 }
 
 function CatalogModelLogo({ model }: { model: string }) {
-  const channels = useSyncExternalStore(subscribeChannels, getStoredChannels)
+  // 服务端预渲染读同一份内存清单（未加载时是空数组），与客户端首帧一致。
+  const channels = useSyncExternalStore(subscribeChannels, getStoredChannels, getStoredChannels)
   return <ResolvedModelLogo model={model} logo={modelLogo(model, channels) ?? null} />
 }
 

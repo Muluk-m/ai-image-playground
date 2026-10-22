@@ -69,3 +69,11 @@ it('draws the logo the caller resolved without consulting the catalog', () => {
     '/model-logos/nano-banana.svg',
   )
 })
+
+it('renders on the server from the in-memory catalog', async () => {
+  const { renderToStaticMarkup } = await import('react-dom/server')
+  setChannels([VERTEX])
+  expect(renderToStaticMarkup(<ModelLogo model="gemini-3-pro-image" />)).toContain(
+    '/model-logos/nano-banana.svg',
+  )
+})

@@ -49,7 +49,11 @@ export function useModelChoices() {
   const activeView = clientProfileToApiProfile(activeProfile)
 
   // 订阅渠道清单：清单晚到或只改了标签 / 耗时时 profiles 不一定变，不订阅就会停在旧选项上。
-  const publicChannels = useSyncExternalStore(subscribeChannels, getPublicChannels)
+  const publicChannels = useSyncExternalStore(
+    subscribeChannels,
+    getPublicChannels,
+    getPublicChannels,
+  )
   const options = useMemo(() => {
     return settings.profiles.flatMap((profile) => {
       const view = clientProfileToApiProfile(profile)
