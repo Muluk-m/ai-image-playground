@@ -1,104 +1,175 @@
 #!/bin/sh
-# The EdgeTAM segmenter (deploy/compose.segmenter.yaml). There are two instances, never shared
-# across the test/production line:
-#   test  image-playground-segmenter-test   started and updated only by test releases;
-#   prod  image-playground-segmenter-prod   started and updated only by production releases
-#         (built from main); internal and paid share it.
-# A test release can therefore never rebuild or restart what production calls.
+# The shared EdgeTAM segmenter: ONE container, `image-playground-segmenter`, for every edition. It
+# is a separately versioned base component (deploy/segmenter/VERSION), not part of an app release:
 #
-#   scripts/segmenter-deploy.sh up <instance> <image>
-#     Starts the instance, or recreates it on a new image, and waits until it is healthy. A
-#     recreated container loses the app networks it was attached to, so they are noted first and
-#     attached again afterwards, also when the start fails (the old container is gone by then, so
-#     a failed start leaves the editions on the agent's box until the next deploy).
-#   scripts/segmenter-deploy.sh attach <instance> <project>
-#     Attaches it to <project>_application with the alias `segmenter`. Idempotent.
-#   scripts/segmenter-deploy.sh healthy <instance>
-#     Succeeds when it is already running and healthy (a release without the image reuses it).
+#   scripts/segmenter-deploy.sh up <image> <version>
+#     Only production releases (built from main) carry the image, and only they call this. When the
+#     running container already has <version> and is healthy, nothing happens. Otherwise the new
+#     version starts next to the old one as `image-playground-segmenter-next`; the old one keeps
+#     serving until the new one answers its health check. Only then is every app network moved
+#     over (alias `segmenter`), the old container stopped and kept as `image-playground-segmenter-
+#     prev` for rollback, and the new one renamed. If the new one never gets healthy it is removed
+#     and the old one is left exactly as it was; if the move fails halfway, every network is given
+#     back to the old container before exiting.
+#   scripts/segmenter-deploy.sh attach <project>
+#     Attaches the shared container to <project>_application with the alias `segmenter`.
+#     Idempotent. Test releases only ever call this (and `healthy`): they never build, start,
+#     restart or replace the segmenter.
+#   scripts/segmenter-deploy.sh healthy
+#     Succeeds when the shared container is running and healthy.
+#   scripts/segmenter-deploy.sh current <version>
+#     Succeeds when the shared container already runs <version> and is healthy.
 set -eu
 
-repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-compose_file=$repo_root/deploy/compose.segmenter.yaml
-# The single instance every edition shared before the split. Only test ever used it.
-legacy_container='image-playground-segmenter'
+container='image-playground-segmenter'
+next="$container-next"
+prev="$container-prev"
+own_network='image-playground-segmenter'
+version_label='online.muvloom.segmenter.version'
+# Instances from a short-lived per-environment layout; they would answer to the same alias.
+split_instances="$container-test $container-prod"
 
 usage() {
-  echo "Usage: scripts/segmenter-deploy.sh up <test|prod> <image> | attach <test|prod> <project> | healthy <test|prod>" >&2
+  echo "Usage: scripts/segmenter-deploy.sh up <image> <version> | attach <project> | healthy | current <version>" >&2
   exit 2
 }
-
-command=${1:-}
-instance=${2:-}
-case $instance in test|prod) ;; *) usage ;; esac
-container=image-playground-segmenter-$instance
-own_network=$container
 
 attached() {
   docker inspect "$1" \
     --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' 2>/dev/null || true
 }
 
-attach() {
-  case " $(attached "$container") " in
+connect() {
+  case " $(attached "$2") " in
     *" $1 "*) return 0 ;;
   esac
-  docker network connect --alias segmenter "$1" "$container"
+  docker network connect --alias segmenter "$1" "$2"
 }
 
-# Production networks may only ever reach the production instance, and test networks only the
-# test one; refuse anything else instead of silently crossing the line.
-network_allowed() {
-  case "$instance:$1" in
-    test:image-playground-test_application) return 0 ;;
-    test:*) return 1 ;;
-    prod:image-playground-test_application) return 1 ;;
-    prod:*) return 0 ;;
+disconnect() {
+  case " $(attached "$2") " in
+    *" $1 "*) docker network disconnect "$1" "$2" ;;
   esac
 }
 
+exists() {
+  docker inspect "$1" >/dev/null 2>&1
+}
+
+healthy() {
+  [ "$(docker inspect "$1" --format '{{.State.Health.Status}}' 2>/dev/null || true)" = healthy ]
+}
+
+# Answers on /health from inside the container; polled so a new version does not wait for the
+# first 30 s health interval.
+answers() {
+  docker exec "$1" node -e \
+    "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))" \
+    >/dev/null 2>&1
+}
+
+start_next() {
+  docker network inspect "$own_network" >/dev/null 2>&1 ||
+    docker network create --internal "$own_network" >/dev/null
+  # Stateless: no env file, no database, no credential, no published port, read-only root, and
+  # only its own internal network until an app network is attached. One request at a time; the
+  # model is unloaded after 10 idle minutes (about 360 MB when loaded).
+  docker run --detach --name "$next" --label "$version_label=$2" \
+    --init --restart unless-stopped --read-only --tmpfs /tmp:size=16m \
+    --memory 900m --memory-swap 900m --cpus 2 \
+    --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
+    --health-cmd "node -e \"fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))\"" \
+    --health-interval 30s --health-timeout 5s --health-retries 3 --health-start-period 10s \
+    --network "$own_network" "$1" >/dev/null
+}
+
+current() {
+  exists "$container" && healthy "$container" &&
+    [ "$(docker inspect "$container" --format "{{index .Config.Labels \"$version_label\"}}")" = "$1" ]
+}
+
+up() {
+  image=$1
+  version=$2
+  if current "$version"; then
+    echo "segmenter $version already running"
+    return 0
+  fi
+  # A leftover candidate from an interrupted run is ours and never served traffic.
+  if exists "$next"; then docker rm -f "$next" >/dev/null; fi
+  start_next "$image" "$version"
+  waited=0
+  until answers "$next"; do
+    if [ "$waited" -ge "${SEGMENTER_START_TIMEOUT:-180}" ] ||
+      [ "$(docker inspect "$next" --format '{{.State.Running}}' 2>/dev/null || true)" != true ]; then
+      docker logs --tail 40 "$next" >&2 || true
+      docker rm -f "$next" >/dev/null
+      echo "segmenter $version did not get healthy; the running one was left untouched" >&2
+      return 1
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
+  networks=
+  if exists "$container"; then
+    for network in $(attached "$container"); do
+      [ "$network" = "$own_network" ] || networks="$networks $network"
+    done
+  fi
+  moved=
+  # Whatever goes wrong while moving, the old container gets every network back.
+  give_back() {
+    for network in $moved; do
+      connect "$network" "$container" || echo "Warning: could not give $network back to $container" >&2
+      disconnect "$network" "$next" || true
+    done
+  }
+  trap give_back EXIT
+  for network in $networks; do
+    connect "$network" "$next"
+    moved="$moved $network"
+    disconnect "$network" "$container"
+  done
+  trap - EXIT
+  if exists "$container"; then
+    docker stop "$container" >/dev/null
+    # One rollback copy: the stopped version before this one.
+    if exists "$prev"; then docker rm "$prev" >/dev/null; fi
+    docker rename "$container" "$prev"
+  fi
+  docker rename "$next" "$container"
+  echo "segmenter $version running; networks:$networks"
+}
+
+attach() {
+  network=$1_application
+  connect "$network" "$container"
+  for split in $split_instances; do
+    exists "$split" || continue
+    disconnect "$network" "$split"
+    [ "$(attached "$split")" = "$split " ] || [ "$(attached "$split")" = "" ] || continue
+    docker stop "$split" >/dev/null 2>&1 && echo "stopped $split (kept, not removed)"
+  done
+}
+
+command=${1:-}
 case $command in
   up)
     [ $# -eq 3 ] || usage
-    image=$3
-    before=$(attached "$container")
-    reattach() {
-      for network in $before; do
-        [ "$network" = "$own_network" ] || attach "$network" ||
-          echo "Warning: could not reattach $container to $network" >&2
-      done
-    }
-    # Whatever happens to the start, the networks it had are attached again before exiting.
-    trap reattach EXIT
-    if [ "$instance" = test ]; then
-      # The first test rollout ran it inside the test app project (service `segmenter`). That
-      # copy would answer to the same alias and hold another 900m, so it is retired here.
-      for legacy in $(docker ps -aq --filter label=com.docker.compose.service=segmenter); do
-        [ "$(docker inspect "$legacy" --format '{{index .Config.Labels "com.docker.compose.project"}}')" = image-playground-test ] &&
-          docker rm -f "$legacy" >/dev/null && echo "retired the test project's own segmenter"
-      done
-      # The formerly shared instance would answer to the same alias on the test network: take it
-      # off that network. It is not removed; see deploy/segmenter/README.md.
-      case " $(attached "$legacy_container") " in
-        *" image-playground-test_application "*)
-          docker network disconnect image-playground-test_application "$legacy_container" &&
-            echo "detached the formerly shared segmenter from the test network" ;;
-      esac
-    fi
-    SEGMENTER_INSTANCE=$instance SEGMENTER_IMAGE=$image docker compose --project-name "$container" \
-      --file "$compose_file" up --detach --wait
+    printf '%s\n' "$3" | grep -Eqx '[0-9]+' || usage
+    up "$2" "$3"
     ;;
   attach)
-    [ $# -eq 3 ] || usage
-    network=$3_application
-    network_allowed "$network" || {
-      echo "Refusing to attach the $instance segmenter to $network" >&2
-      exit 1
-    }
-    attach "$network"
+    [ $# -eq 2 ] || usage
+    attach "$2"
     ;;
   healthy)
+    [ $# -eq 1 ] || usage
+    healthy "$container"
+    ;;
+  current)
     [ $# -eq 2 ] || usage
-    [ "$(docker inspect "$container" --format '{{.State.Health.Status}}' 2>/dev/null || true)" = healthy ]
+    current "$2"
     ;;
   *) usage ;;
 esac
