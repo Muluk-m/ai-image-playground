@@ -210,8 +210,70 @@ describe('readConversationStateFacts', () => {
     await conversation('quiet')
     await batch('quiet', 'old', 'closed', ['completed'], 1, NOW - CONVERSATION_STATE_WINDOW_MS - 1)
     const facts = await readConversationStateFacts('quiet', NOW)
-    expect(facts).toEqual({ pendingDrafts: [], pendingNodeRuns: [], batches: [] })
+    expect(facts).toEqual({ pendingDrafts: [], voidedDrafts: [], pendingNodeRuns: [], batches: [] })
     expect(renderConversationState(facts)).toBeUndefined()
+  })
+
+  // 2026-10-23 会话 8038e50b：确认门的卡作废后草稿行的 task_id 还是空的，下一轮系统事实仍写
+  // 「待用户在卡片上确认的生成 1 张」，智能体就照着说「还在卡片上等你确认」。
+  it('按卡认草稿：作废的单列，确认门还拦着的不列，普通待确认卡照旧', async () => {
+    await conversation('gate')
+    await draft('gate', 'voided-call', '一根黄色香蕉')
+    await draft('gate', 'gated-call', '一只橘猫')
+    await draft('gate', 'manual-call', '一棵松树')
+    const card = (toolCallId: string, extra: Record<string, unknown>) => ({
+      type: 'toolResult' as const,
+      toolCallId,
+      toolName: 'generateImage',
+      title: toolCallId,
+      ...extra,
+    })
+    await db.insert(schema.agent_messages).values([
+      {
+        conversation_id: 'gate',
+        id: 'card-voided',
+        turn_id: 'turn',
+        seq: 1,
+        role: 'assistant',
+        content: [
+          card('voided-call', {
+            status: 'failed',
+            errorCode: 'cancelled',
+            gated: true,
+            message: '用户没有确认就发了新消息，这次生成已作废，没有提交任务，也没有扣费',
+          }),
+        ],
+        created_at: NOW,
+      },
+      {
+        conversation_id: 'gate',
+        id: 'card-gated',
+        turn_id: 'turn',
+        seq: 2,
+        role: 'assistant',
+        content: [card('gated-call', { status: 'awaiting_confirmation', gated: true })],
+        created_at: NOW,
+      },
+      {
+        conversation_id: 'gate',
+        id: 'card-manual',
+        turn_id: 'turn',
+        seq: 3,
+        role: 'assistant',
+        content: [card('manual-call', { status: 'awaiting_confirmation' })],
+        created_at: NOW,
+      },
+    ] as (typeof schema.agent_messages.$inferInsert)[])
+
+    const facts = await readConversationStateFacts('gate', NOW)
+    expect(facts.pendingDrafts).toEqual([{ title: '一棵松树' }])
+    expect(facts.voidedDrafts).toEqual([{ title: '一根黄色香蕉' }])
+    const text = renderConversationState(facts)!
+    expect(text).toContain('待用户在卡片上确认的生成 1 张（尚未提交，未扣费）：「一棵松树」')
+    expect(text).toContain('已作废的生成 1 张（没有提交任务，也没有扣费')
+    expect(text).toContain('「一根黄色香蕉」')
+    // 确认门本身对智能体不可见：还拦着的那张不进系统事实。
+    expect(text).not.toContain('一只橘猫')
   })
 })
 
@@ -219,6 +281,7 @@ describe('renderConversationState', () => {
   it('tells the model a confirmation phrase must not resubmit finished work', () => {
     const text = renderConversationState({
       pendingDrafts: [{ title: '正面近景' }, { title: '俯视近景' }],
+      voidedDrafts: [],
       pendingNodeRuns: [{ title: '建议运行节点', nodeIds: ['tub'] }],
       batches: [
         {
