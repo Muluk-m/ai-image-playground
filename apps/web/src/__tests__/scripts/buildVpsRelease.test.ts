@@ -121,7 +121,9 @@ beforeEach(() => {
     'scripts/build-vps-release.sh',
     'scripts/check-test-isolation.sh',
     'scripts/vps-deploy.sh',
+    'scripts/segmenter-deploy.sh',
     'scripts/lib/deploy-common.sh',
+    'deploy/compose.segmenter.yaml',
   ]) {
     mkdirSync(resolve(join(checkout, f), '..'), { recursive: true })
     cpSync(join(source, f), join(checkout, f))
@@ -136,6 +138,7 @@ beforeEach(() => {
   write(join(checkout, 'deploy/compose.app.yaml'), 'services: {}\n')
   write(join(checkout, 'deploy/buildkitd.toml'), '[worker.oci]\nmax-parallelism = 1\n')
   write(join(checkout, 'deploy/backup/Dockerfile'), 'FROM scratch\n')
+  write(join(checkout, 'deploy/segmenter/Dockerfile'), 'FROM scratch\n')
   git(checkout, 'init', '-q')
   git(checkout, 'add', '.')
   git(checkout, 'commit', '-qm', 'public')
@@ -216,13 +219,39 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     expect(outputFiles()).toEqual([
       'SHA256SUMS',
       'deploy/compose.app.yaml',
+      'deploy/compose.segmenter.yaml',
       'images.tsv',
       'scripts/app-compose.sh',
       'scripts/check-test-isolation.sh',
       'scripts/lib/deploy-common.sh',
       'scripts/rollout-runtime.sh',
+      'scripts/segmenter-deploy.sh',
       'scripts/vps-deploy.sh',
     ])
+  })
+
+  it('builds the segmenter only for test releases, with a layer cache of its own', () => {
+    writeFileSync(join(root, 'logged-in'), '')
+    expect(build('internal').status).toBe(0)
+    expect(calls().some((c) => c.includes(':segmenter-'))).toBe(false)
+    rmSync(out, { recursive: true })
+    rmSync(log)
+    const result = build('test')
+    expect(result.status, result.stderr).toBe(0)
+    const p = pub.slice(0, 12)
+    const segmenter = calls().find(
+      (c) =>
+        c.startsWith('buildx build') && c.includes(`name=${repoName}:segmenter-${p},push=true`),
+    )
+    expect(segmenter).toContain(
+      `--cache-to type=registry,ref=${repoName}:buildcache-segmenter,mode=max`,
+    )
+    expect(segmenter).toContain(`--build-arg APP_VERSION=${pub}`)
+    expect(segmenter).toMatch(/deploy\/segmenter$/)
+    expect(segmenter).not.toContain(`ref=${repoName}:buildcache,mode=max`)
+    expect(readFileSync(join(out, 'images.tsv'), 'utf8').trim().split('\n').slice(-1)[0]).toBe(
+      `segmenter\tai-image-playground:segmenter-${p}\t${imageId}\t${pub}\t-\t${pushed('3')}`,
+    )
   })
 
   it('checksums every file in the release, images.tsv included', () => {

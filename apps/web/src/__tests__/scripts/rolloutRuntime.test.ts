@@ -789,6 +789,26 @@ describe('rollout-runtime.sh: legacy executor', () => {
     expect(readFileSync(releases('legacy-origin'), 'utf8')).toBe('http://elsewhere:37377\n')
   })
 
+  it('passes the segmenter address to new executors when the deploy started one', () => {
+    currentGeneration()
+    const result = run({ AGENT_SEGMENTER_URL: 'http://segmenter:8080' })
+    expect(result.status).toBe(0)
+    const creates = result.log.filter((one) => one.startsWith('create '))
+    expect(creates).toHaveLength(2)
+    for (const line of creates)
+      expect(line).toMatch(
+        /-e AGENT_SEGMENTER_URL=http:\/\/segmenter:8080 -e AGENT_SEGMENTER_NAMESPACE=\S+ /,
+      )
+  })
+
+  it('leaves the segmenter address out entirely when there is none, so app.env stays in charge', () => {
+    currentGeneration()
+    const result = run({ AGENT_SEGMENTER_URL: '' })
+    expect(result.status).toBe(0)
+    for (const line of result.log.filter((one) => one.startsWith('create ')))
+      expect(line).not.toContain('AGENT_SEGMENTER_')
+  })
+
   it('tolerates a legacy flag when there is no legacy executor recorded', () => {
     currentGeneration()
     const result = run({ DEPLOY_RETIRE_LEGACY: '1' })
