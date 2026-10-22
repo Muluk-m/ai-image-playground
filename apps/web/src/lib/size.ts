@@ -289,6 +289,14 @@ export function measuredSizeOf(
   return isPixelCount(width) && isPixelCount(height) ? `${width}x${height}` : undefined
 }
 
+/**
+ * 存下来或外部传进来的 `宽x高` → 校验过的同一写法；格式不对或像素不是正整数就是 undefined。
+ * 历史缓存、接口回报都可能是任意字符串，展示前必须过这一道，不能原样当实测像素。
+ */
+export function validMeasuredSize(size: string | null | undefined): string | undefined {
+  return typeof size === 'string' ? measuredSizeOf(parseImageSize(size)) : undefined
+}
+
 function isPixelCount(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0
 }

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Hint } from '../components/assistant-ui/elements/tooltip-icon-button'
 import { useTranslation } from '../i18n'
 import type { TaskParams, TaskRecord } from '../types'
-import { measuredSizeOf, sameAspectRatio } from './size'
+import { measuredSizeOf, sameAspectRatio, validMeasuredSize } from './size'
 
 export { measuredSizeOf }
 
@@ -84,7 +84,8 @@ export function getParamDisplay(
 ) {
   const isSize = paramKey === 'size'
   const requestedValue = isSize && !honorsRequestedSize(task) ? 'auto' : task.params[paramKey]
-  const measured = measuredSize ?? task.measuredSize
+  // 实测像素来自缓存或平台响应，先校验格式；不合法就当没测到，退回已验证的回报值或请求值。
+  const measured = validMeasuredSize(measuredSize) ?? validMeasuredSize(task.measuredSize)
   // 不按 size 出图的上游，回报或落库的 size 都只是随请求带过去的占位，只认真实像素。
   const actualValue = isSize
     ? (measured ?? (honorsRequestedSize(task) ? actualParams?.size : undefined))
