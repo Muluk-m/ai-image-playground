@@ -64,7 +64,13 @@ env:
   MIN_SEVERITY: P1
   # 每个请求附带的 LLM 参数（JSON）与 ocr 评审力度；留空即 ocr / 网关默认。
   LLM_EXTRA_BODY: ''
-  OCR_EFFORT: ''
+  # 网关单次往返 10–60s（各模型都一样，见 PR 说明），medium 的第二轮评审+二次过滤会让最慢的组
+  # 串行请求翻倍、整次评审 18–30 分钟；low 只跑一轮。
+  OCR_EFFORT: low
+  # 单组上限（分钟，low 一轮即此值），必须小于 job 的 timeout-minutes，
+  # 这样慢组由 ocr 自己判超时，其余组的结果照常发出来，而不是整个 job 被取消、什么都不剩。
+  OCR_GROUP_TIMEOUT: '18'
+  OCR_VERSION: 1.13.3
 
 jobs:
   review:
@@ -140,7 +146,7 @@ jobs:
 
       - name: Install OpenCodeReview
         run: |
-          npm install -g @alibaba-group/open-code-review
+          npm install -g "@alibaba-group/open-code-review@${OCR_VERSION}"
           echo "::notice::OpenCodeReview installed: $(ocr version 2>/dev/null || echo unknown)"
 
       - name: Configure OCR
@@ -249,12 +255,13 @@ jobs:
             --audience agent \
             --concurrency 8 \
             ${EFFORT:+--effort "$EFFORT"} \
+            --timeout "$OCR_GROUP_TIMEOUT" \
             --background "$BG" \
             --exclude "$EXCLUDE" \
-            > "${RESULT_PATH}" 2> "${STDERR_PATH}" || true
+            > "${RESULT_PATH}" 2> >(tee "${STDERR_PATH}" >&2) || true
 
+          # stderr 已实时打到日志里（即使 job 被取消也看得到进度），这里只补 JSON 结果。
           echo "----- ocr stdout (json) -----"; cat "${RESULT_PATH}" || true
-          echo "----- ocr stderr -----"; cat "${STDERR_PATH}" || true
 
       - name: Review timing breakdown
         if: always() && steps.review.outcome != 'skipped'
