@@ -1,6 +1,7 @@
 import {
   CATALOG_RATIOS,
   type CatalogRatio,
+  IMAGE_SURFACES,
   IMAGE_TIERS,
   type ImageCapabilities,
   type ImageSurface,
@@ -11,6 +12,10 @@ const TIER_RANK: Readonly<Record<ImageTier, number>> = { '512': 0, '1K': 1, '2K'
 
 export function isImageTier(value: unknown): value is ImageTier {
   return typeof value === 'string' && (IMAGE_TIERS as readonly string[]).includes(value)
+}
+
+export function isImageSurface(value: unknown): value is ImageSurface {
+  return typeof value === 'string' && (IMAGE_SURFACES as readonly string[]).includes(value)
 }
 
 export function isCatalogRatio(value: unknown): value is CatalogRatio {
@@ -25,8 +30,12 @@ export function catalogRatioValue(ratio: string): number | null {
   if (!match) return null
   const width = Number(match[1])
   const height = Number(match[2])
-  if (!(width > 0) || !(height > 0)) return null
-  return width / height
+  // 超长数字会变成 Infinity，两个 Infinity 相除是 NaN：都按格式不对处理。
+  if (!Number.isFinite(width) || !Number.isFinite(height) || !(width > 0) || !(height > 0)) {
+    return null
+  }
+  const value = width / height
+  return Number.isFinite(value) && value > 0 ? value : null
 }
 
 /** 对数距离最近的支持比例：3:1 与 1:3 离 1:1 一样远。输入认不出时 undefined。 */
@@ -115,10 +124,15 @@ export function resolveImageRequest(
   let tier = requestedTier
   if (!tiers.includes(tier)) {
     tier = nearestImageTier(tier, tiers)
-    adjustments.push({ field: 'tier', from: requestedTier, to: tier })
+  }
+  if (input.tier !== undefined && input.tier !== tier) {
+    // 认不出的档位（拼错、8K、非字符串）同样记一笔，界面和卡片才能告诉用户实际用了哪档。
+    adjustments.push({ field: 'tier', from: String(input.tier), to: tier })
   }
 
-  const ratios = input.surface ? caps.surfaces[input.surface].ratios : caps.ratios
+  // surface 也可能是运行时坏值（旧客户端、手写请求）：认不出就按未指定处理。
+  const surface = isImageSurface(input.surface) ? input.surface : undefined
+  const ratios = (surface && caps.surfaces?.[surface]?.ratios) || caps.ratios
   const fallbackRatio: CatalogRatio = ratios.includes('1:1') ? '1:1' : ratios[0]!
   // 运行时可能收到非字符串（旧客户端、手写请求），按缺省处理而不是抛错。
   const requestedRatio = typeof input.ratio === 'string' ? input.ratio.trim() : undefined
