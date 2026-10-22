@@ -159,6 +159,58 @@ describe('上传簿记与并发编辑', () => {
     expect(mergeCanvasUploadConflict(base, promoted)).toBeUndefined()
   })
 
+  it('本机这一版经远端多个中间版本后才被覆盖时，是先后改，不补写', async () => {
+    const { editor, uploader } = pair(1, 2)
+    promoteCanvasResultMedia(editor.doc, 'image', 'local-file', media, local)
+    // 远端看过本机这一版后连改两次，两次更新一起到达。
+    Y.applyUpdate(uploader.doc, Y.encodeStateAsUpdate(editor.doc), remote)
+    await Promise.resolve()
+    edit(uploader.doc, { name: 'first' })
+    edit(uploader.doc, { name: 'second', mediaId: undefined, fileId: 'local-file' })
+    const writes: unknown[] = []
+    editor.doc.on('update', (_update: Uint8Array, origin: unknown) => {
+      if (origin === local) writes.push(origin)
+    })
+
+    Y.applyUpdate(
+      editor.doc,
+      Y.encodeStateAsUpdate(uploader.doc, Y.encodeStateVector(editor.doc)),
+      remote,
+    )
+    await Promise.resolve()
+
+    expect(writes).toHaveLength(0)
+    expect(data(editor.doc).name).toBe('second')
+    expect(data(editor.doc).mediaId).toBeUndefined()
+    editor.stop()
+    uploader.stop()
+  })
+
+  it('停止监听后已排队的补写作废', async () => {
+    const { editor, uploader } = pair(1, 2)
+    edit(editor.doc, { name: 'renamed' })
+    promoteCanvasResultMedia(uploader.doc, 'image', 'local-file', media, local)
+    const writes: unknown[] = []
+    editor.doc.on('update', (_update: Uint8Array, origin: unknown) => {
+      if (origin === local) writes.push(origin)
+    })
+    const loser = editor.doc.clientID < uploader.doc.clientID ? editor : uploader
+    const other = loser === editor ? uploader : editor
+    loser.doc.on('update', (_update: Uint8Array, origin: unknown) => {
+      if (origin === local) writes.push(origin)
+    })
+    Y.applyUpdate(
+      loser.doc,
+      Y.encodeStateAsUpdate(other.doc, Y.encodeStateVector(loser.doc)),
+      remote,
+    )
+    loser.stop()
+    await Promise.resolve()
+
+    expect(writes).toHaveLength(0)
+    other.stop()
+  })
+
   it('合并结果与赢的一版只差键顺序时不重复写回', () => {
     const base = { fileId: 'local-file', name: 'photo', meta: claim }
     const winner = {

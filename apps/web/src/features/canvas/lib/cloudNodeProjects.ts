@@ -62,6 +62,7 @@ export class CloudNodeProjectSession {
   private persistence: IndexeddbPersistence | undefined
   private socket: WebSocket | undefined
   private stopLegacy: (() => void) | undefined
+  private stopUploadConflicts: (() => void) | undefined
   private controller = new AbortController()
   private readonly sameAccount = accountScope()
   private listeners = new Set<() => void>()
@@ -305,7 +306,11 @@ export class CloudNodeProjectSession {
         if (!this.applying) synchronizeLegacyElements(doc, before, next, legacyOrigin)
       })
       // 先发文档后，图片还在后台上传时别的设备就能改这个节点：上传簿记与并发编辑互相顶掉时补回来。
-      watchCanvasUploadConflicts(doc, (origin) => origin === remoteOrigin, legacyOrigin)
+      this.stopUploadConflicts = watchCanvasUploadConflicts(
+        doc,
+        (origin) => origin === remoteOrigin,
+        legacyOrigin,
+      )
       doc.on('update', (_update: Uint8Array, origin: unknown) => {
         normalizeMedia()
         this.projectToEditor()
@@ -319,6 +324,8 @@ export class CloudNodeProjectSession {
       if (this.remoteDeleted) this.status('deleted')
       else this.start()
     } catch (error) {
+      this.stopUploadConflicts?.()
+      this.stopUploadConflicts = undefined
       await persistence.destroy()
       doc.destroy()
       throw error
@@ -958,6 +965,7 @@ export class CloudNodeProjectSession {
     clearInterval(this.heartbeat)
     window.removeEventListener('online', this.resume)
     this.stopLegacy?.()
+    this.stopUploadConflicts?.()
     this.socket?.close()
     this.rejectWaits(new Error('project_scope_changed'))
     this.canvas?.undo.destroy()
