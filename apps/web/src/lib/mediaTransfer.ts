@@ -54,6 +54,8 @@ function confirmMedia(
   id: string,
   signal: AbortSignal,
   schedule?: (work: () => Promise<Upload>) => Promise<Upload>,
+  /** 同一张图已有进行中的确认、这次只是跟着等时回调（不会走 schedule）。 */
+  onJoined?: () => void,
 ): Promise<Upload> {
   signal.throwIfAborted()
   const backend = bffBaseUrl()
@@ -104,7 +106,7 @@ function confirmMedia(
     }
     entry = created
     confirmations.set(key, entry)
-  }
+  } else onJoined?.()
   const shared = entry
   shared.waiters++
   return new Promise((resolve, reject) => {
@@ -144,8 +146,10 @@ export async function transferMedia(
     current: () => void
     purpose?: 'conversation-attachment'
     onVerifying?: () => void
-    /** 每进入一段（含重试）回调一次，供上传分段计时。 */
-    onPhase?: (phase: 'reserve' | 'put') => void
+    /** 每进入一段（含重试）回调一次，供上传分段计时；confirm_shared 表示跟着别处进行中的确认等。 */
+    onPhase?: (phase: 'reserve' | 'put' | 'confirm_shared') => void
+    /** 登记拿到媒体 id 时回调，失败日志也能和服务端记录对上。 */
+    onReserved?: (id: string) => void
     confirm?: (work: () => Promise<Upload>) => Promise<Upload>
   },
 ): Promise<Upload> {
@@ -181,6 +185,7 @@ export async function transferMedia(
           current()
           refresh = false
         }
+        options.onReserved?.(upload.id)
         if (upload.status === 'ready') return upload
         stage = 'put'
         if (!upload.uploadUrl) throw new Error('invalid_media_upload')
@@ -225,7 +230,9 @@ export async function transferMedia(
   }
   if (upload.status === 'ready') return upload
   options.onVerifying?.()
-  const ready = await confirmMedia(upload.id, signal, options.confirm)
+  const ready = await confirmMedia(upload.id, signal, options.confirm, () =>
+    options.onPhase?.('confirm_shared'),
+  )
   current()
   return { ...ready, leaseExpiresAt: ready.leaseExpiresAt ?? upload.leaseExpiresAt }
 }

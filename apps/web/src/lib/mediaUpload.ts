@@ -55,11 +55,20 @@ function withLocalReadTimeout<T>(work: Promise<T>): Promise<T> {
   ]).finally(() => clearTimeout(timer))
 }
 
-type UploadPhase = 'queue' | 'read' | 'hash' | 'reserve' | 'put' | 'confirm_wait' | 'confirm'
+type UploadPhase =
+  | 'queue'
+  | 'read'
+  | 'hash'
+  | 'convert'
+  | 'reserve'
+  | 'put'
+  | 'confirm_wait'
+  | 'confirm'
+  | 'confirm_shared'
 
 /**
- * 一张图从排队到确认的分段耗时（毫秒）。在有 product_events 之前先打到控制台，
- * 用 mediaId 能和服务端 media.confirmation_finished 的 phaseMs 对上。
+ * 一张图从排队到确认的分段耗时（毫秒）。在有 product_events 之前先打到控制台的 debug 级
+ * （浏览器默认不显示），用 mediaId 能和服务端 media.confirmation_finished 的 phaseMs 对上。
  */
 function uploadTimer() {
   const started = performance.now()
@@ -76,13 +85,21 @@ function uploadTimer() {
     mark,
     report(fields: Record<string, unknown>) {
       mark(phase)
-      console.info('[media.upload]', {
+      console.debug('[media.upload]', {
         ...fields,
         totalMs: Math.round(performance.now() - started),
         phaseMs,
       })
     },
   }
+}
+
+/** 日志里只留错误码，不带后端或浏览器给的原文。 */
+function uploadErrorCode(error: unknown): string {
+  if (error instanceof MediaRequestError) return error.code
+  if (error instanceof Error && /^[a-z][a-z0-9_]{0,63}$/.test(error.message)) return error.message
+  if (error instanceof Error) return error.name
+  return 'unknown'
 }
 
 async function digest(bytes: ArrayBuffer): Promise<string> {
@@ -135,6 +152,8 @@ export async function uploadMediaSource(
           outcome = 'skipped'
           return undefined
         }
+        // 类型识别、必要时转 PNG 和转码后的再次摘要单独计，不算进 hash。
+        timer.mark('convert')
         let contentType = imageMimeFromBytes(bytes)
         let body = bytes
         if (!contentType) {
@@ -156,6 +175,9 @@ export async function uploadMediaSource(
             current,
             purpose: options.purpose,
             onPhase: timer.mark,
+            onReserved: (id) => {
+              mediaId = id
+            },
             onVerifying: () => {
               timer.mark('confirm_wait')
               options.onState?.('verifying')
@@ -177,16 +199,16 @@ export async function uploadMediaSource(
         ? (getAttachmentLimits()?.uploadConcurrency ?? 4)
         : 4,
     )
-    if (outcome === 'uploaded')
-      timer.report({ outcome, mediaId, bytes: bytesSent, contentType: contentTypeSent })
+    timer.report({ outcome, mediaId, bytes: bytesSent, contentType: contentTypeSent })
     return result
   } catch (error) {
     if (!options.signal.aborted)
       timer.report({
         outcome: 'failed',
+        mediaId,
         bytes: bytesSent,
         contentType: contentTypeSent,
-        error: error instanceof Error ? error.message : String(error),
+        error: uploadErrorCode(error),
       })
     options.onState?.('failed')
     if (error instanceof TypeError) throw new MediaRequestError(503, 'media_network_error')
