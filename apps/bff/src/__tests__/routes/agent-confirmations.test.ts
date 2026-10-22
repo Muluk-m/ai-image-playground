@@ -46,6 +46,7 @@ const { close: closeDb, db, schema } = await import('../../db/client')
 const { imageSelection } = await import('../../lib/agent/selection-preview')
 const { hydrateInputImages } = await import('../../lib/imageArchive')
 const { workerSettles } = await import('../helpers/taskWorker')
+const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 
 await silenceChatUpstream()
 
@@ -629,6 +630,24 @@ describe('生成前确认', () => {
     })
     // 智能体没有被再问一次。
     expect(calls).toHaveLength(1)
+
+    // 之后用户充了值，任务结束时的唤醒照常起轮：卡上不能还挂着「没接着做」。
+    billing.decide = null
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [() => completionStream('这版没出来，我再试一次')]),
+    )
+    const [task] = await generationTasks(conversationId)
+    expect(
+      await workerSettles(task!.id, {
+        status: 'failed',
+        errorMessage: '上游超时',
+        errorType: 'upstream_timeout',
+      }),
+    ).toBe(true)
+    await pickUpStrandedInboxes()
+    await waitFor(async () => calls.length === 2, 5_000)
+    const [after] = toolCards(await readMessages(conversationId))
+    expect(after!.block.wakeSkipped).toBeUndefined()
   })
 
   it('不是待确认的卡确认不了', async () => {

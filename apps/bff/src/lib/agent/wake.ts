@@ -2,6 +2,7 @@ import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 import { type QueueTaskTerminalRow, queueTaskOutcome } from '../taskSubmission'
+import { clearAgentJobsWakeSkipped } from './background-jobs'
 import { AGENT_EXECUTION_LEASE_MS } from './execution'
 import { enqueueAgentWake } from './inbox'
 import { type MaskedPlanCarry, mergeMaskedPlanCarries } from './masked-plan'
@@ -140,6 +141,11 @@ export async function deliverAgentWakes(
           deviceId: waking.find((job) => job.deviceId)?.deviceId ?? '',
         },
         now,
+      )
+      await clearAgentJobsWakeSkipped(
+        tx,
+        conversationId,
+        waking.map((job) => job.taskId),
       )
       woken += 1
     }
