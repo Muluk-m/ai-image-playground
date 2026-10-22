@@ -281,3 +281,23 @@ it('only advertises bulk attachments after explicit resource limits and dependen
     expect(() => manifest({ capabilities, quotas: { ...quotas, ...invalid } })).toThrow()
   }
 })
+
+it('client manifest carries the ordinary media limit whenever cloud sync is on', () => {
+  const manifest = (value: unknown) =>
+    clientCapabilityManifest(loadOperatorConfig(temporaryFile(JSON.stringify(value))))
+  const synced = manifest({
+    capabilities: { 'accounts:login': true, 'accounts:sync': true, 'agent:attachments': false },
+    quotas: { 'sync:asset-image-bytes': 10_485_760 },
+  })
+  expect(synced['agent:attachments']).toBe(false)
+  expect(synced.mediaLimits).toEqual({ imageBytes: 10_485_760, imagePixels: 1_000_000_000 })
+  expect(
+    manifest({
+      capabilities: { 'accounts:login': true, 'accounts:sync': true },
+      quotas: { 'sync:asset-image-bytes': 200 * 1024 * 1024 },
+    }).mediaLimits?.imageBytes,
+  ).toBe(50 * 1024 * 1024)
+  expect(
+    manifest({ capabilities: { 'accounts:login': true, 'accounts:sync': false } }),
+  ).not.toHaveProperty('mediaLimits')
+})

@@ -66,6 +66,15 @@ export type ClientCapabilityKey = {
 export type CapabilityValues = { readonly [Key in CapabilityKey]: boolean }
 export type ClientCapabilityManifest = { readonly [Key in ClientCapabilityKey]: boolean } & {
   readonly attachmentLimits?: AttachmentLimits
+  readonly mediaLimits?: MediaLimits
+}
+/**
+ * 普通云媒体（画布原图、按 id 引用的参考图）单张上限，与服务端预约上传时用的是同一份配置。
+ * 对话附件那条通道关着时，大图按这一档上传后按 id 发，客户端在选图时就按它拦。
+ */
+export interface MediaLimits {
+  readonly imageBytes: number
+  readonly imagePixels: number
 }
 /** Limits apply to immutable uploaded originals, independently of model preview budgets. */
 export interface AttachmentLimits {
