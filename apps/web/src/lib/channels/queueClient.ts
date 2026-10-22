@@ -376,6 +376,8 @@ async function poll(
       case 'fatal':
         throw new Error(i18next.t('queue.statusFailed', { ns: 'lib', reason: outcome.message }))
       case 'transient': {
+        // 1 s 只给拿到「确认中」之后的那一下；连不上时照常退避，别把重启/断网的容忍时长压没了。
+        phase = undefined
         consecutiveFailures++
         lastTransientError = outcome.error
         if (consecutiveFailures >= POLL_MAX_CONSECUTIVE_FAILURES) {

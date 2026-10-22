@@ -288,6 +288,50 @@ describe('callQueueChannelApi submit body', () => {
     }
   })
 
+  it('确认中遇到连不上照常退避，1 s 只给成功拿到「确认中」之后的那一下', async () => {
+    vi.useFakeTimers()
+    try {
+      const call = await loadCallQueueChannelApi()
+      const pending = (phase: string) => ({
+        request_id: 'rid-1',
+        status: 'in_progress',
+        phase,
+        submitted_at: Date.now(),
+      })
+      const responses: (unknown | 503)[] = [
+        { request_id: 'rid-1', status: 'queued' },
+        ...Array.from({ length: 5 }, () => pending('generating')),
+        pending('confirming'),
+        503,
+        503,
+        pending('confirming'),
+        {
+          request_id: 'rid-1',
+          status: 'failed',
+          submitted_at: Date.now(),
+          error: { message: 'test-stop', type: 'unknown' },
+        },
+      ]
+      const calledAt: number[] = []
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        calledAt.push(Date.now())
+        const next = responses.shift()
+        return next === 503
+          ? new Response('', { status: 503 })
+          : new Response(JSON.stringify(next), { status: 200 })
+      })
+      const outcome = expect(call(mockOpts(), mockProfile(), mockChannel())).rejects.toThrow(
+        'test-stop',
+      )
+      await vi.runAllTimersAsync()
+      await outcome
+      const gaps = calledAt.slice(1).map((at, index) => at - calledAt[index]!)
+      expect(gaps).toEqual([500, 1000, 2000, 3000, 5000, 5000, 1000, 5000, 5000, 1000])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('把失败分类带出轮询，界面才能按码出文案', async () => {
     const call = await loadCallQueueChannelApi()
     // taskError 是纯函数模块，不参与 loadCallQueueChannelApi 的 resetModules 重载。
