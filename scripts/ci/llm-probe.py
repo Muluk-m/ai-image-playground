@@ -13,7 +13,12 @@ import urllib.request
 url = os.environ["LLM_URL"]
 model = os.environ["LLM_MODEL"]
 token = os.environ["OCR_LLM_AUTH_TOKEN"]
-code = open(sys.argv[1], encoding="utf-8").read()[:16000] if len(sys.argv) > 1 else ""
+# 样本文件缺失（如 to_sha 早于该文件）时退回探针脚本自身，保证探针总能发出请求。
+sample = sys.argv[1] if len(sys.argv) > 1 else ""
+if sample and not os.path.isfile(sample):
+    print(f"样本文件 {sample} 不存在，改用探针脚本自身作样本", file=sys.stderr)
+    sample = __file__
+code = open(sample, encoding="utf-8").read()[:16000] if sample else ""
 
 HEADERS = {
     "Content-Type": "application/json",
