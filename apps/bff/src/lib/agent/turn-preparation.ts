@@ -239,10 +239,11 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       params: { ...content.params, productionMode: true, autoSubmit: undefined },
     }
   }
-  // chat 不把旧客户端残留的画布上下文带给模型或图片解析器。
-  // 对话入口的项目不把旧客户端残留的画布快照带给图片解析器。画布入口的项目在 Agent 模式里仍留着它，
-  // 只给图片解析器认「从画布选择」的参考图；工具与提示一律看不到它（见 `turn.ts` 的工具上下文）。
-  const turnContent = experience === 'chat' ? { ...content, canvas: undefined } : content
+  // 画布快照只在两种情况下留着：这一轮是画布模式（工具要读它），或画布入口的项目在 Agent 模式里
+  // 说话——那时只给图片解析器认「从画布选择」的参考图，工具与提示一律看不到它（见 `turn.ts`）。
+  // 对话入口项目的 Agent 轮不把旧客户端残留的快照带给任何人。
+  const turnContent =
+    experience === 'chat' && turnExperience === 'chat' ? { ...content, canvas: undefined } : content
   const audience: AgentTurnAudience = {
     ...loadedAudience,
     experience: turnExperience,
@@ -276,7 +277,12 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     // 一份轮输入，两个读者：按它估算的这一笔预扣，与 `startAgentTurn` 发出去的那一份。估算在
     // 事务之外算完，取件与预扣那一笔才只有数据库往返。
     // 历史里读过的技能正文随回放带回去；估算照同一份算，预扣才对得上实发。
-    const skillTexts = await replayedSkillTexts(window.messages, content.mode, userId)
+    const skillTexts = await replayedSkillTexts(
+      window.messages,
+      content.mode,
+      userId,
+      turnExperience,
+    )
     const currentTime = new Date().toISOString()
     const conversationState = await conversationStateNote(conversationId)
     let modelHistory: AgentTurnInput['modelHistory']

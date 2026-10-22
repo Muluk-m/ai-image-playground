@@ -1040,6 +1040,26 @@ describe('per-turn mode decides tools, prompt and context', () => {
     expect(systemText(call)).toContain('当前是节点画布')
   })
 
+  it('keeps the snapshot for a canvas-mode turn even if the project entry says chat', async () => {
+    const conversationId = await conversationWithResult()
+    const now = Date.now()
+    await db.insert(schema.canvas_projects).values({
+      id: crypto.randomUUID(),
+      user_id: USER_ID,
+      name: 'Chat entry',
+      revision: 1,
+      document: { version: 1, experience: 'chat', elements: [] },
+      element_count: 0,
+      conversation_id: conversationId,
+      receipts: [],
+      created_at: now,
+      updated_at: now,
+    })
+    const { turn: canvas } = await turnWith(conversationId, 'canvas')
+    expect(canvas.input.audience.experience).toBe('canvas')
+    expect(canvas.canvas).toBeDefined()
+  })
+
   async function consumedOrigin(
     conversationId: string,
     turnId: string,
