@@ -4,6 +4,7 @@ import {
   bootstrapClientCapabilities,
   getClientCapabilityManifest,
   isClientCapabilityEnabled,
+  supportsCanvasPendingMedia,
   supportsProjectDocumentIdentity,
 } from '../../lib/clientCapabilities'
 import { allCapabilitiesOff } from '../fixtures/capabilities'
@@ -22,6 +23,7 @@ describe('client capability bootstrap', () => {
         'accounts:self-register': true,
         'accounts:sync': true,
         projectDocumentIdentity: true,
+        canvasPendingMedia: true,
       }),
     )
     vi.stubGlobal('fetch', fetchSpy)
@@ -33,6 +35,7 @@ describe('client capability bootstrap', () => {
     expect(getClientCapabilityManifest()).not.toHaveProperty('generation:byok')
     expect(getClientCapabilityManifest()).not.toHaveProperty('operator:console')
     expect(supportsProjectDocumentIdentity()).toBe(true)
+    expect(supportsCanvasPendingMedia()).toBe(true)
   })
 
   it('keeps known capabilities enabled when an older server omits newer keys', async () => {
@@ -53,6 +56,7 @@ describe('client capability bootstrap', () => {
     expect(isClientCapabilityEnabled('billing:credits')).toBe(true)
     expect(isClientCapabilityEnabled('agent:chat')).toBe(false)
     expect(supportsProjectDocumentIdentity()).toBe(false)
+    expect(supportsCanvasPendingMedia()).toBe(false)
   })
 
   it('fails closed for a disabled backend or a malformed capability value', async () => {
