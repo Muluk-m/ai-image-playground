@@ -794,6 +794,19 @@ it('归档读取先检查对象长度，拒绝超限原件时不整份缓冲且�
   const { request_id: id } = await (
     await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
   ).json()
+  // 同一次执行里归档直接用内存里的字节，不回读暂存；只有重启后接着归档才会读暂存对象，
+  // 所以先让 worker 在暂存写完后停掉，再在恢复的那次执行里给出超限的对象长度。
+  const { abortRunningTask } = await import('../../workers/task-execution')
+  durable.afterWrite = (key) => {
+    if (key === `${id}/out/0`) {
+      abortRunningTask(id)
+      throw new DOMException('Worker stopped after object write', 'AbortError')
+    }
+  }
+  await runTask(id)
+  durable.afterWrite = undefined
+  const { recoverTasksByIds } = await import('../../db/maintenance')
+  await recoverTasksByIds([id])
   durable.oversizedSpool = true
   await runTask(id)
   expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('queued')
