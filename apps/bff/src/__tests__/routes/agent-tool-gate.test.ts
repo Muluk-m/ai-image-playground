@@ -8,7 +8,7 @@ import {
   type AgentToolResultBlock,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import {
   type AgentCall,
@@ -398,6 +398,54 @@ describe('确认门', () => {
     const { status } = await confirm(conversationId, pending!)
     expect(status).toBe(422)
     expect(await tasksOf(conversationId)).toEqual([])
+  })
+
+  it('匿名设备的会话：新消息入箱与确认撞在一起时，确认等入箱提交后再判，卡交不出去', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [() => toolCallCompletion(generate('call-1'))]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一只橘猫', GATED)
+    const [pending] = await cardsOf(conversationId)
+
+    // 入箱走到一半：会话行已锁、那条消息已写但还没提交。匿名会话没有媒体主锁，确认这边只能靠
+    // 会话行锁跟它排先后。
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let inserted!: () => void
+    const midway = new Promise<void>((resolve) => {
+      inserted = resolve
+    })
+    const enqueue = db.transaction(async (tx) => {
+      await tx
+        .select({ id: schema.agent_conversations.id })
+        .from(schema.agent_conversations)
+        .where(eq(schema.agent_conversations.id, conversationId))
+        .for('update')
+      await tx.insert(schema.agent_inbox).values({
+        conversation_id: conversationId,
+        id: crypto.randomUUID(),
+        seq: sql`(SELECT COALESCE(MAX(seq), 0) + 1 FROM agent_inbox WHERE conversation_id = ${conversationId})`,
+        kind: 'user_message',
+        status: 'pending',
+        client_message_id: crypto.randomUUID(),
+        payload: { text: '算了，换成柴犬吧', deviceId: DEVICE, referenceCount: 0 },
+        created_at: Date.now(),
+      })
+      inserted()
+      await held
+    })
+    await midway
+    const confirming = confirm(conversationId, pending!)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    release()
+    await enqueue
+
+    expect((await confirming).status).toBe(422)
+    expect(await tasksOf(conversationId)).toEqual([])
+    expect((await cardsOf(conversationId))[0]!.block.status).toBe('awaiting_confirmation')
   })
 
   it('没带偏好的请求不开门：仍是原来的拟稿收尾，确认后不续跑', async () => {
