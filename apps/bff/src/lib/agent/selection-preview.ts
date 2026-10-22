@@ -43,7 +43,7 @@ function asImage(dataUrl: string): ImageContent {
  * 箭头标注只画在定位图上：从尾端指向区域中心，末端一个实心箭头。文字不画——服务器上
  * 未必有中文字体，标注原文已经随编号写进清单。
  */
-export function arrowMarkup(
+function arrowMarkup(
   region: { x: number; y: number; width: number; height: number; arrow?: { x: number; y: number } },
   width: number,
   height: number,

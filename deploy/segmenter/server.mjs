@@ -20,6 +20,11 @@ const IDLE_MS = Math.max(10_000, Number(process.env.SEGMENTER_IDLE_MS ?? 600_000
 const CACHE_SIZE = Math.max(1, Number(process.env.SEGMENTER_CACHE ?? 3))
 /** Requests waiting behind the one that runs. More than this is refused, not queued forever. */
 const QUEUE_MAX = Math.max(0, Number(process.env.SEGMENTER_QUEUE_MAX ?? 4))
+/**
+ * In flight (running or waiting) per deployment namespace. Editions share this one process, so a
+ * single edition (or one user clicking fast in it) must not fill the whole queue for the others.
+ */
+const NAMESPACE_MAX = Math.max(1, Number(process.env.SEGMENTER_NAMESPACE_MAX ?? 2))
 const MAX_BODY_BYTES = 16 * 1024 * 1024
 const MAX_OUTPUT_EDGE = 4096
 const MAX_POINTS = 16
@@ -30,7 +35,6 @@ env.allowLocalModels = true
 env.useFSCache = false
 env.useBrowserCache = false
 env.localModelPath = `${MODEL_DIR}/`
-env.useFSCache = false
 
 let loaded = null
 let loading = null
@@ -38,6 +42,7 @@ let idleTimer = null
 let running = 0
 let waiting = 0
 let chain = Promise.resolve()
+const inFlight = new Map()
 const cache = new Map()
 const stats = { requests: 0, encodes: 0, loads: 0, unloads: 0 }
 
@@ -104,6 +109,7 @@ function parseRequest(body) {
   if (!body || typeof body !== 'object') throw new RequestError(400, 'invalid_body')
   const key = typeof body.key === 'string' ? body.key.trim() : ''
   if (!key || key.length > 200) throw new RequestError(400, 'invalid_key')
+  const namespace = typeof body.namespace === 'string' ? body.namespace.trim().slice(0, 100) : ''
   const image = typeof body.image === 'string' && body.image ? Buffer.from(body.image, 'base64') : null
   const box = body.box
   if (box !== undefined && !(Array.isArray(box) && box.length === 4 && box.every(unit) && box[2] > box[0] && box[3] > box[1]))
@@ -122,7 +128,7 @@ function parseRequest(body) {
     !(Number.isInteger(outWidth) && Number.isInteger(outHeight) && outWidth > 0 && outHeight > 0 && Math.max(outWidth, outHeight) <= MAX_OUTPUT_EDGE)
   )
     throw new RequestError(400, 'invalid_output')
-  return { key, image, box, points, outWidth, outHeight }
+  return { key, namespace, image, box, points, outWidth, outHeight }
 }
 
 function remember(key, entry) {
@@ -198,9 +204,15 @@ async function segment(request) {
   }
 }
 
-/** One at a time: the model gets both threads, and a second request never doubles the memory. */
-function enqueue(task) {
+/**
+ * One at a time: the model gets both threads, and a second request never doubles the memory.
+ * A namespace already holding NAMESPACE_MAX slots is refused before the shared limit is reached.
+ */
+function enqueue(namespace, task) {
   if (running + waiting > QUEUE_MAX) return Promise.reject(new RequestError(503, 'busy'))
+  const held = inFlight.get(namespace) ?? 0
+  if (held >= NAMESPACE_MAX) return Promise.reject(new RequestError(503, 'busy'))
+  inFlight.set(namespace, held + 1)
   waiting++
   const result = chain.then(async () => {
     waiting--
@@ -209,6 +221,9 @@ function enqueue(task) {
       return await task()
     } finally {
       running--
+      const left = (inFlight.get(namespace) ?? 1) - 1
+      if (left > 0) inFlight.set(namespace, left)
+      else inFlight.delete(namespace)
       touch()
     }
   })
@@ -270,7 +285,7 @@ const server = http.createServer(async (request, response) => {
     }
     const parsed = parseRequest(body)
     stats.requests++
-    const result = await enqueue(() => segment(parsed))
+    const result = await enqueue(parsed.namespace, () => segment(parsed))
     log('segmenter.segment', { ...result.timings, points: parsed.points.length, box: Boolean(parsed.box) })
     send(response, 200, result)
   } catch (error) {

@@ -1,7 +1,7 @@
 import { agentTitleLine } from '@image-playground/shared'
 import sharp from 'sharp'
 import { Type } from 'typebox'
-import { SINGLE_OBJECT_EDIT_REFUSAL } from '../edit-intent'
+import { SINGLE_OBJECT_EDIT_NUDGE } from '../edit-intent'
 import { requireAgentImages } from '../images'
 import { chooseMaskModel } from '../mask-proposal'
 import { prepareMaskedEdit } from '../masked-edit'
@@ -147,8 +147,10 @@ export const editImage = defineAgentTool({
           'invalid_params',
           '这张图的修改范围正在等用户确认，确认后会带着蒙版回来；这一轮不要先改它。',
         )
+      // 单对象修改先提醒走范围确认，只提醒一次：模型坚持就按整图编辑提交（字面判断会误判）。
       if (
         context.singleObjectEdit &&
+        !context.singleObjectEdit.nudged &&
         context.experience === 'chat' &&
         context.userId &&
         !context.images.masked &&
@@ -156,8 +158,10 @@ export const editImage = defineAgentTool({
         !images.some((image) => image.maskDataUrl) &&
         !params.selectionBindings?.length &&
         (await maskable(images[0]!.dataUrl, context.params?.model))
-      )
-        throw new AgentToolError('invalid_params', SINGLE_OBJECT_EDIT_REFUSAL)
+      ) {
+        context.singleObjectEdit.nudged = true
+        throw new AgentToolError('invalid_params', SINGLE_OBJECT_EDIT_NUDGE)
+      }
       const prepared = await prepareMaskedEdit(
         images,
         params.selectionBindings,
