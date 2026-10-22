@@ -59,6 +59,16 @@ const id = (value: unknown): value is string =>
 const isMediaId = (value: unknown): value is string =>
   typeof value === 'string' &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+/** 上传中节点的本机文件 id：不能冒充云媒体（cloud- 前缀只配 mediaId），不能内嵌图片数据。 */
+export function isLocalCanvasFileId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 256 &&
+    !value.startsWith('cloud-') &&
+    /^[\w.:-]+$/.test(value)
+  )
+}
 const finite = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 10_000_000
 const allowed = (value: object, fields: string[]) =>
@@ -245,10 +255,14 @@ export function validateCloudCanvas(
         ])
       )
         throw new Error('invalid_canvas_node')
+      // 本机原图还在上传的节点先同步位置等改动：没有 mediaId 时 fileId 只是上传那台设备的本机 id，
+      // 别处只当「上传中」显示；拿到 mediaId 后 fileId 必须换成 cloud-<mediaId>。
       if (
         'fileId' in data &&
         data.fileId !== undefined &&
-        (!('mediaId' in data) || data.fileId !== `cloud-${data.mediaId}`)
+        ('mediaId' in data && data.mediaId !== undefined
+          ? data.fileId !== `cloud-${data.mediaId}`
+          : !isLocalCanvasFileId(data.fileId))
       )
         throw new Error('canvas_media_not_ready')
       // Validate empty nodes with the same persisted media schema as completed ones.

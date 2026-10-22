@@ -23,11 +23,12 @@ import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { accountScope, scopedStorageName } from '../../../lib/authScope'
+import { supportsCanvasPendingMedia } from '../../../lib/clientCapabilities'
 import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
 import { uploadMediaSource } from '../../../lib/mediaUpload'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
-import type { CloudProjectSession, ProjectSyncStatus } from './cloudProjects'
+import type { CloudProjectSession, ProjectSyncSnapshot, ProjectSyncStatus } from './cloudProjects'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
 import { nodeCanvasDatabaseName } from './nodeCanvasDocument'
 import { type CanvasCommandSummary, CloudCanvasHistory } from './nodeCanvasHistory'
@@ -36,6 +37,7 @@ import { getCloudProject, ProjectRequestError, putCloudProject } from './project
 import {
   archivedProjectKind,
   type LoadedBindings,
+  MEDIA_CONCURRENCY,
   projectDocument,
   projectScene,
 } from './projectMedia'
@@ -56,10 +58,16 @@ export class CloudNodeProjectSession {
   private controller = new AbortController()
   private readonly sameAccount = accountScope()
   private listeners = new Set<() => void>()
-  private state: ReturnType<CloudProjectSession['getSnapshot']> = {
+  private state: ProjectSyncSnapshot = {
     status: 'loading',
     message: null,
   }
+  /** 后台上传这一批本机图片的进度；文档改动不等它，先同步。 */
+  private upload: { done: number; total: number } | undefined
+  private uploading: Promise<void> | undefined
+  private uploadAgain = false
+  /** 最近一轮后台上传的失败；下一轮成功前，确认回执不算「已保存」。 */
+  private mediaFailure: unknown
   private retry: ReturnType<typeof setTimeout> | undefined
   private debounce: ReturnType<typeof setTimeout> | undefined
   private heartbeat: ReturnType<typeof setInterval> | undefined
@@ -73,6 +81,8 @@ export class CloudNodeProjectSession {
   private bindings = new Map<string, string>()
   private editVersion = 0
   private sentVersion: number | undefined
+  /** 服务端最近确认到的本机版本；后台上传收尾时据此判断还要不要再发一次。 */
+  private ackedVersion: number | undefined
   private loading: Promise<void> | undefined
   private commandHistory: CloudCanvasHistory | undefined
   private readingCommands: Promise<void> | undefined
@@ -107,8 +117,12 @@ export class CloudNodeProjectSession {
   }
   private status(status: ProjectSyncStatus) {
     if (this.controller.signal.aborted) return
-    this.state = { status, message: null }
+    this.state = { status, message: null, ...(this.upload ? { upload: { ...this.upload } } : {}) }
     for (const listener of this.listeners) listener()
+  }
+  private progress(upload: { done: number; total: number } | undefined) {
+    this.upload = upload
+    this.status(this.state.status)
   }
   load(_hasLocal = false): Promise<void> {
     return (this.loading ??= this.open().catch((error) => {
@@ -420,8 +434,10 @@ export class CloudNodeProjectSession {
           this.serverVector = message.value
           const version = this.sentVersion
           this.sentVersion = undefined
-          if (version === this.editVersion) this.saved()
-          else this.requestSync()
+          if (version === this.editVersion) {
+            this.ackedVersion = version
+            this.saved()
+          } else this.requestSync()
         }
       } catch {
         this.status('format-error')
@@ -445,6 +461,9 @@ export class CloudNodeProjectSession {
   }
   private saved() {
     this.retries = 0
+    // 文档已经落盘，图片还在后台上传：还没全部保存，sync() 的等待者要等图片收进文档、再确认一次。
+    if (this.uploading) return this.status('syncing')
+    if (this.mediaFailure !== undefined) return this.status('media-local')
     this.status(this.missingVideos.size ? 'media-local' : 'saved')
     for (const wait of this.waits) wait.resolve()
     this.waits.clear()
@@ -497,46 +516,81 @@ export class CloudNodeProjectSession {
   }
   private async prepareMedia() {
     if (!this.canvas) return
-    for (const node of readCanvasDocument(this.canvas.doc).nodes) {
+    const doc = this.canvas.doc
+    // 先列出这一轮要收成云媒体的全部本机原图，按原图去重：同一张图挂在几个节点或候选上只传一次。
+    const nodes: { nodeId: string; fileId: string }[] = []
+    for (const node of readCanvasDocument(doc).nodes) {
       if (
         (node.type !== 'image' && node.type !== 'video') ||
         !node.data.fileId ||
         node.data.mediaId
       )
         continue
-      const source = this.record.editor.doc.files[node.data.fileId]
-      if (!source) throw new Error('canvas_media_missing')
-      const mediaId =
-        mediaIdentity(source) ??
-        this.bindings.get(source) ??
-        (await uploadMediaSource(source, { signal: this.controller.signal }))?.id
-      this.current()
-      if (!mediaId) throw new Error('canvas_media_missing')
-      this.bindings.set(source, mediaId)
-      const current = readCanvasDocument(this.canvas.doc).nodes.find((n) => n.id === node.id)
-      if (current && 'fileId' in current.data && current.data.fileId === node.data.fileId)
-        promoteCanvasResultMedia(this.canvas.doc, node.id, node.data.fileId, mediaId, legacyOrigin)
+      nodes.push({ nodeId: node.id, fileId: node.data.fileId })
     }
     // Previously chosen candidates remain durable even after another candidate becomes main.
-    for (const result of canvasResults(this.canvas.doc)) {
+    const results: { resultId: string; fileId: string }[] = []
+    for (const result of canvasResults(doc)) {
       const fileId =
         result.source.type === 'file'
           ? result.source.fileId
           : !result.display?.mediaId
             ? result.display?.fileId
             : undefined
-      if (!fileId) continue
-      const source = this.record.editor.doc.files[fileId]
-      if (!source) throw new Error('canvas_media_missing')
-      const mediaId =
-        mediaIdentity(source) ??
-        this.bindings.get(source) ??
-        (await uploadMediaSource(source, { signal: this.controller.signal }))?.id
-      this.current()
-      if (!mediaId) throw new Error('canvas_media_missing')
-      this.bindings.set(source, mediaId)
-      promoteCanvasStoredResult(this.canvas.doc, result.id, fileId, mediaId, legacyOrigin)
+      if (fileId) results.push({ resultId: result.id, fileId })
     }
+    let failure: unknown
+    const sources = new Set<string>()
+    // 服务端收「上传中」节点时，别的设备传上来的本机 fileId 在这里没有原图，由那台设备去传。
+    const foreign = supportsCanvasPendingMedia()
+    for (const [index, { fileId }] of [...nodes, ...results].entries()) {
+      const source = this.record.editor.doc.files[fileId]
+      if (source) sources.add(source)
+      else if (!foreign || index >= nodes.length) failure ??= new Error('canvas_media_missing')
+    }
+    const promote = (source: string, mediaId: string) => {
+      for (const { nodeId, fileId } of nodes) {
+        if (this.record.editor.doc.files[fileId] !== source) continue
+        const current = readCanvasDocument(doc).nodes.find((n) => n.id === nodeId)
+        if (current && 'fileId' in current.data && current.data.fileId === fileId)
+          promoteCanvasResultMedia(doc, nodeId, fileId, mediaId, legacyOrigin)
+      }
+      for (const { resultId, fileId } of results)
+        if (this.record.editor.doc.files[fileId] === source)
+          promoteCanvasStoredResult(doc, resultId, fileId, mediaId, legacyOrigin)
+    }
+    // 与旧画布 prepareProjectMedia 同一个写法：同时传 MEDIA_CONCURRENCY 张，传完一张就把它收进文档；
+    // 一张失败不拦其余的，全部跑完再报第一条错，下次同步只剩失败的那几张。
+    const queue: string[] = []
+    for (const source of sources) {
+      const known = mediaIdentity(source) ?? this.bindings.get(source)
+      if (known) promote(source, known)
+      else queue.push(source)
+    }
+    const total = queue.length
+    let done = 0
+    if (total) this.progress({ done, total })
+    const worker = async () => {
+      for (let source = queue.shift(); source !== undefined; source = queue.shift()) {
+        try {
+          const mediaId = (await uploadMediaSource(source, { signal: this.controller.signal }))?.id
+          this.current()
+          if (!mediaId) throw new Error('canvas_media_missing')
+          this.bindings.set(source, mediaId)
+          promote(source, mediaId)
+          this.progress({ done: ++done, total })
+        } catch (error) {
+          failure ??= error
+          if (this.controller.signal.aborted || !this.sameAccount()) return
+        }
+      }
+    }
+    try {
+      await Promise.all(Array.from({ length: Math.min(MEDIA_CONCURRENCY, total) }, worker))
+    } finally {
+      if (total) this.progress(undefined)
+    }
+    if (failure !== undefined) throw failure
   }
   requestSync = () => {
     clearTimeout(this.debounce)
@@ -545,19 +599,87 @@ export class CloudNodeProjectSession {
       void this.send()
     }, 80)
   }
+  /**
+   * 文档里只剩服务端也收的本机图片（上传中的图片节点、没有云媒体的视频）时，改动不用等上传。
+   * 本机 file 来源的候选结果服务端不收，碰到它就照旧先收成云媒体再发。
+   */
+  private canSendBeforeMedia() {
+    if (!this.canvas || !supportsCanvasPendingMedia()) return false
+    return !canvasResults(this.canvas.doc).some(
+      (result) =>
+        result.source.type === 'file' || (!result.display?.mediaId && result.display?.fileId),
+    )
+  }
+  /** 本机有原图、还没收成云媒体的图片节点；别的设备的上传中节点由那台设备传。 */
+  private hasLocalImages() {
+    if (!this.canvas) return false
+    const files = this.record.editor.doc.files
+    return readCanvasDocument(this.canvas.doc).nodes.some(
+      (node) =>
+        (node.type === 'image' || node.type === 'video') &&
+        !!node.data.fileId &&
+        !node.data.mediaId &&
+        !!files[node.data.fileId],
+    )
+  }
+  /** 一次只跑一轮后台上传；跑的时候又来了改动，就在这一轮结束后再补一轮。 */
+  private uploadInBackground() {
+    if (this.uploading) {
+      this.uploadAgain = true
+      return
+    }
+    this.uploading = (async () => {
+      do {
+        this.uploadAgain = false
+        await this.prepareMedia()
+        this.current()
+      } while (this.uploadAgain)
+    })()
+      .then(
+        () => {
+          this.mediaFailure = undefined
+        },
+        (error: unknown) => {
+          this.mediaFailure = error
+        },
+      )
+      .finally(() => {
+        this.uploading = undefined
+        if (this.controller.signal.aborted) return
+        if (this.mediaFailure === undefined) {
+          // 收进文档的 mediaId 会自己触发同步。一张都没收（节点已删）且服务端已确认到最新版本时，
+          // 直接收尾放行等待者；还有帧在途就交给它的回执。
+          if (this.sentVersion === undefined && this.ackedVersion === this.editVersion) this.saved()
+          else this.requestSync()
+          return
+        }
+        this.status('media-local')
+        this.rejectWaits(this.mediaFailure)
+      })
+  }
   private send(): Promise<void> {
     this.preparing = this.preparing
       .then(async () => {
         this.current()
-        // Promotion awaits I/O; include edits made during those awaits before acknowledging this version.
-        let preparedVersion: number
-        do {
-          preparedVersion = this.editVersion
+        if (this.canSendBeforeMedia()) {
+          // 视频收成云媒体照旧在发送前做（生成出的视频才有，与上传无关）；本机图片放到后台传。
           await this.prepareVideoMedia()
-          await this.prepareMedia()
           if (this.project.cloud?.nameDirty) await this.flushName()
           this.current()
-        } while (preparedVersion !== this.editVersion)
+          if (this.hasLocalImages()) this.uploadInBackground()
+        } else {
+          // Promotion awaits I/O; include edits made during those awaits before acknowledging this version.
+          let preparedVersion: number
+          do {
+            preparedVersion = this.editVersion
+            await this.prepareVideoMedia()
+            await this.prepareMedia()
+            if (this.project.cloud?.nameDirty) await this.flushName()
+            this.current()
+          } while (preparedVersion !== this.editVersion)
+        }
+        // 失败的那几张已经传上去或被删掉：不再拿上一轮的失败拦「已保存」。
+        if (!this.uploading && !this.hasLocalImages()) this.mediaFailure = undefined
         if (!this.canvas || this.socket?.readyState !== WebSocket.OPEN || !this.serverVector) {
           this.connect()
           return
