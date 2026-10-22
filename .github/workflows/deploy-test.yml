@@ -68,8 +68,11 @@ jobs:
         part:
           - name: bff
             filter: "--filter=@image-playground/bff"
+            # Alone on its runner, so more Bun processes than the 4 the mixed job used.
+            jobs: 6
           - name: packages
             filter: "--filter=!@image-playground/web --filter=!@image-playground/bff"
+            jobs: 4
     services:
       postgres:
         image: postgres:17
@@ -83,7 +86,7 @@ jobs:
       TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
       VITEST_MAX_WORKERS: 1
       # Every suite gets its own database, so files can run side by side (scripts/run-bun-tests-isolated.ts).
-      BUN_TEST_JOBS: 4
+      BUN_TEST_JOBS: ${{ matrix.part.jobs }}
       NODE_OPTIONS: --no-experimental-webstorage
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
