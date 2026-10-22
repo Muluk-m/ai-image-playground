@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { QUEUE_TIMEOUTS, type QueueProvider } from '@image-playground/shared'
 import { config } from '../config'
-import { getRoutableChannels } from './channels'
+import { disabledModelChannel, getRoutableChannels } from './channels'
 import type { HydratedSubmitRequest } from './imageArchive'
 import { log } from './logger'
 import {
@@ -110,6 +110,14 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
       supportsNativeN: provider === 'openai-compat' && declared.capabilities.includes('n'),
     }
   }
+  // 下线的直连模型找不到原 channel（env 缺失）时明确失败：通用网关不是它的上游，兜底过去
+  // 只会用另一套 key 打一条错的请求。普通 Error 不可重试，任务直接进终态 failed。
+  // 本来就走通用网关的（如 gemini-flash-image）不受影响。
+  const retiredChannel = disabledModelChannel(model)
+  if (retiredChannel && CHANNEL_ROUTE_STYLES[retiredChannel])
+    throw new Error(
+      `model '${model}' belongs to disabled channel '${retiredChannel}', which cannot be routed`,
+    )
   const version = provider === 'gemini' ? 'v1beta' : 'v1'
   return {
     baseUrl: `${config.upstream.baseUrl}/${version}`,
