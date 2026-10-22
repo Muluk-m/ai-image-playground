@@ -127,3 +127,37 @@ describe('media processing limiter', () => {
     expect(started).toEqual(['holder'])
   })
 })
+
+describe('media processing limiter input checks', () => {
+  it('拒收无效的字节数与参数；预算配置坏了时一次只放一张', async () => {
+    const subject = limiter()
+    await expect(subject.run(Number.NaN, async () => {})).rejects.toThrow(RangeError)
+    await expect(subject.run(-1, async () => {})).rejects.toThrow(RangeError)
+    expect(subject.activeBytes).toBe(0)
+    expect(() =>
+      createMediaProcessingLimiter({
+        slots: 0,
+        byteBudget: () => 100,
+        queueLimit: 8,
+        queueTimeoutMs: 10,
+        bypassLimitMs: 5,
+        busy: (reason) => new Error(reason),
+      }),
+    ).toThrow(RangeError)
+    const broken = createMediaProcessingLimiter({
+      slots: 4,
+      byteBudget: () => Number.NaN,
+      queueLimit: 8,
+      queueTimeoutMs: 10_000,
+      bypassLimitMs: 5_000,
+      busy: (reason) => new Error(reason),
+    })
+    const running = gate()
+    const jobs = [1, 2].map(() => broken.run(1, () => running.opened))
+    await tick()
+    expect(broken.active).toBe(1)
+    running.open()
+    await Promise.all(jobs)
+    expect(broken.active).toBe(0)
+  })
+})
