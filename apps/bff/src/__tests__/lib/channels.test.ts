@@ -455,6 +455,13 @@ describe('parseChannelsConfig', () => {
                 etaSeconds: 3,
                 logo: 'nano-banana',
               },
+              {
+                id: 'ranged',
+                label: 'Ranged',
+                capabilities: ['generate'],
+                etaSeconds: 40,
+                etaMaxSeconds: 100,
+              },
               { id: 'plain', label: 'Plain', capabilities: ['generate'] },
             ],
           },
@@ -463,8 +470,10 @@ describe('parseChannelsConfig', () => {
       ENV_WITH_SECRETS,
     )
     _setChannelsForTesting(result.channels)
-    const [tagged, plain] = getDiscoveredChannels()[0]!.models
+    const [tagged, ranged, plain] = getDiscoveredChannels()[0]!.models
     expect(tagged).toMatchObject({ badges: ['fast', 'value'], etaSeconds: 3, logo: 'nano-banana' })
+    expect(tagged).not.toHaveProperty('etaMaxSeconds')
+    expect(ranged).toMatchObject({ etaSeconds: 40, etaMaxSeconds: 100 })
     expect(plain).not.toHaveProperty('badges')
     expect(plain).not.toHaveProperty('etaSeconds')
     expect(plain).not.toHaveProperty('logo')
@@ -477,6 +486,10 @@ describe('parseChannelsConfig', () => {
     [{ etaSeconds: 0 }, /etaSeconds/],
     [{ etaSeconds: 2.5 }, /etaSeconds/],
     [{ etaSeconds: '14' }, /etaSeconds/],
+    [{ etaSeconds: 40, etaMaxSeconds: 3601 }, /etaMaxSeconds must be an integer/],
+    [{ etaSeconds: 40, etaMaxSeconds: 60.5 }, /etaMaxSeconds must be an integer/],
+    [{ etaMaxSeconds: 100 }, /etaMaxSeconds must come with a smaller etaSeconds/],
+    [{ etaSeconds: 40, etaMaxSeconds: 40 }, /etaMaxSeconds must come with a smaller etaSeconds/],
     [{ logo: 'banana' }, /invalid logo 'banana'/],
     [{ logo: ['nano-banana'] }, /invalid logo/],
   ])('rejects malformed selector metadata %j', (extra, error) => {
@@ -574,8 +587,15 @@ describe('shipped channels.json', () => {
         label: 'GPT Image 2.5 Flare',
         capabilities,
         badges: ['recommended'],
+        // 线上实测单张约 39–45 秒，四个质量档像素一样、耗时也接近。
+        etaSeconds: 40,
       },
-      { id: 'gpt-image-2.5-sunburst', label: 'GPT Image 2.5 Sunburst', capabilities },
+      {
+        id: 'gpt-image-2.5-sunburst',
+        label: 'GPT Image 2.5 Sunburst',
+        capabilities,
+        etaSeconds: 40,
+      },
     ])
   })
 
@@ -590,6 +610,9 @@ describe('shipped channels.json', () => {
         id: 'grok-imagine-image-2.0',
         label: 'Grok Imagine Image 2.0',
         capabilities: ['generate', 'edit', 'n', 'quality'],
+        // 线上实测：低档约 40 秒、中档约 70 秒、高档（2K）约 100 秒，选择器显示成范围。
+        etaSeconds: 40,
+        etaMaxSeconds: 100,
       },
     ])
   })

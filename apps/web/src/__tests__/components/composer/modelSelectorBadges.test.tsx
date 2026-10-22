@@ -74,6 +74,56 @@ it('states a duration of a minute or more in minutes', () => {
   expect(optionNamed('Nano Banana Pro').textContent).toContain('约 1 分钟')
 })
 
+it('states a tier-dependent duration as a range in seconds up to two minutes', () => {
+  const grok: ModelChoice = {
+    value: 'grok::grok-imagine-image-2.0',
+    model: 'grok-imagine-image-2.0',
+    profileId: 'grok',
+    label: 'Grok Imagine Image 2.0',
+    description: 'Grok',
+    etaSeconds: 40,
+    etaMaxSeconds: 100,
+  }
+  act(() => root.render(<ModelList options={[grok]} value="" onPick={() => {}} />))
+  const option = optionNamed('Grok Imagine Image 2.0')
+  expect(option.textContent).toContain('约 40–100 秒')
+  expect(option.getAttribute('aria-label')).toBe('Grok Imagine Image 2.0 · 约 40–100 秒 · Grok')
+})
+
+it('states a longer range in minutes and collapses it when both ends round alike', () => {
+  const slow = { ...lite, badges: undefined, etaSeconds: 90, etaMaxSeconds: 300 }
+  act(() => root.render(<ModelList options={[slow]} value="" onPick={() => {}} />))
+  expect(optionNamed('Nano Banana 2 Lite').textContent).toContain('约 2–5 分钟')
+  act(() =>
+    root.render(
+      <ModelList
+        options={[{ ...slow, etaSeconds: 130, etaMaxSeconds: 140 }]}
+        value=""
+        onPick={() => {}}
+      />,
+    ),
+  )
+  expect(optionNamed('Nano Banana 2 Lite').textContent).toContain('约 2 分钟')
+  expect(optionNamed('Nano Banana 2 Lite').textContent).not.toContain('–')
+})
+
+it.each([
+  [40, 40],
+  [40, 20],
+  [40, 2.5],
+  [0, 100],
+])('drops an unusable range %p–%p down to the single value or nothing', (etaSeconds, etaMaxSeconds) => {
+  act(() =>
+    root.render(
+      <ModelList options={[{ ...lite, etaSeconds, etaMaxSeconds }]} value="" onPick={() => {}} />,
+    ),
+  )
+  const text = optionNamed('Nano Banana 2 Lite').textContent ?? ''
+  expect(text).not.toContain('–')
+  if (etaSeconds > 0) expect(text).toContain(`约 ${etaSeconds} 秒`)
+  else expect(text).not.toMatch(/约|秒|分钟/)
+})
+
 it('keeps a model without selector metadata on its single line', () => {
   act(() => root.render(<ModelList options={[lite, plain]} value="" onPick={() => {}} />))
   const option = optionNamed('Image 2.5 Flare')

@@ -91,6 +91,11 @@ export interface ChannelModel {
   badges?: ModelBadge[]
   /** 典型单张耗时（秒，实测中位数的量级），选择器显示成「约 N 秒 / 分钟」；只是提示，不参与超时。 */
   etaSeconds?: number
+  /**
+   * 耗时随档位变化时的上界（秒，同样 1–3600 整数，且大于 etaSeconds）。写了就显示成「约 N–M 秒」，
+   * 比如 Grok 低档约 40 秒、高档（2K）约 100 秒；只是提示，不参与超时。
+   */
+  etaMaxSeconds?: number
   /** 选择器、任务卡等处显示的模型图标；缺省按 id 前缀取厂商图标。 */
   logo?: ModelLogoId
 }

@@ -10,6 +10,7 @@ import { subscribeChannels } from '../../lib/channels/channelStore'
 import {
   getProfileModelOptions,
   updateSelectedModel,
+  usableEtaMaxSeconds,
   usableEtaSeconds,
 } from '../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../lib/channels/publicChannels'
@@ -36,6 +37,8 @@ export interface ModelChoice {
   badges?: readonly ModelBadge[]
   /** 典型单张耗时，显示成「约 N 秒」，一分钟以上显示成「约 N 分钟」。 */
   etaSeconds?: number
+  /** 耗时随档位变化时的上界，有就显示成「约 N–M 秒」。 */
+  etaMaxSeconds?: number
 }
 
 /** 模型多到这个数才给搜索框。 */
@@ -66,6 +69,7 @@ export function useModelChoices() {
           description: view.name,
           ...(option.badges ? { badges: option.badges } : {}),
           ...(option.etaSeconds !== undefined ? { etaSeconds: option.etaSeconds } : {}),
+          ...(option.etaMaxSeconds !== undefined ? { etaMaxSeconds: option.etaMaxSeconds } : {}),
           ...(option.logo ? { logo: option.logo } : {}),
         }),
       )
@@ -154,10 +158,19 @@ export function ModelList({
   const { t } = useTranslation('composer')
   const badgeLabel = (badge: ModelBadge) => t(`param.modelBadge.${badge}`)
   // 一分钟以上按分钟说：「约 80 秒」不如「约 1 分钟」好读，预估本来就只是量级。
-  const etaLabel = (seconds: number) =>
-    seconds < 60
+  const etaLabel = (seconds: number, maxSeconds: number | undefined) => {
+    if (maxSeconds !== undefined) {
+      // 两分钟以内按秒写范围（「约 40–100 秒」），再长才换成分钟，免得 100 秒被四舍五入成「约 2 分钟」。
+      if (maxSeconds < 120) return t('param.modelEtaRange', { min: seconds, max: maxSeconds })
+      const min = Math.max(1, Math.round(seconds / 60))
+      const max = Math.round(maxSeconds / 60)
+      if (max > min) return t('param.modelEtaRangeMinutes', { min, max })
+      return t('param.modelEtaMinutes', { minutes: max })
+    }
+    return seconds < 60
       ? t('param.modelEta', { seconds })
       : t('param.modelEtaMinutes', { minutes: Math.round(seconds / 60) })
+  }
   const [query, setQuery] = useState('')
   const listId = useId()
   const needle = query.trim().toLocaleLowerCase()
@@ -197,7 +210,10 @@ export function ModelList({
           const selected = option.value === value
           const tabStop = selected || (index === 0 && !visible.some((o) => o.value === value))
           const eta = usableEtaSeconds(option.etaSeconds)
-          const etaText = eta !== undefined ? etaLabel(eta) : undefined
+          const etaText =
+            eta !== undefined
+              ? etaLabel(eta, usableEtaMaxSeconds(option.etaMaxSeconds, eta))
+              : undefined
           return (
             <Button
               variant="ghost"

@@ -15,12 +15,14 @@
           "id": "gpt-image-2.5-flare",
           "label": "GPT Image 2.5 Flare",
           "capabilities": ["generate", "edit", "mask", "quality", "n", "moderation"],
-          "badges": ["recommended"]
+          "badges": ["recommended"],
+          "etaSeconds": 40
         },
         {
           "id": "gpt-image-2.5-sunburst",
           "label": "GPT Image 2.5 Sunburst",
-          "capabilities": ["generate", "edit", "mask", "quality", "n", "moderation"]
+          "capabilities": ["generate", "edit", "mask", "quality", "n", "moderation"],
+          "etaSeconds": 40
         }
       ],
       "defaults": {
@@ -92,7 +94,9 @@
         {
           "id": "grok-imagine-image-2.0",
           "label": "Grok Imagine Image 2.0",
-          "capabilities": ["generate", "edit", "n", "quality"]
+          "capabilities": ["generate", "edit", "n", "quality"],
+          "etaSeconds": 40,
+          "etaMaxSeconds": 100
         }
       ],
       "defaults": {
