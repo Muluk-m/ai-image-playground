@@ -8,34 +8,35 @@ import { abortRunningTurnsForTesting, runningTurnsForTesting } from './runningTu
  */
 const pending = new Set<Promise<unknown>>()
 
-/** 登记一件后台工作。它的失败由发起方自己记日志；这里只接住 rejection，Bun 遇到没人接的会直接退出进程。 */
+/**
+ * 登记一件后台工作。交接在开轮那一刻就登记（它要等轮跑完才动手），所以轮从运行表注销与交接真正
+ * 开始之间没有空档。它的失败由发起方自己记日志；这里只接住 rejection，Bun 遇到没人接的会直接退出进程。
+ */
 export function trackAgentBackgroundWork(work: Promise<unknown>): void {
   pending.add(work)
   work.finally(() => pending.delete(work)).catch(() => {})
 }
 
 /**
- * 等本进程里在跑的轮与它们收尾后的后台工作都跑完，包括跑的过程中又开的轮、又登记的工作。
- * 用例自己掌握着这些轮（上游由它驱动），要在断言或清场前等它们落定时用它。
+ * 等本进程里在跑的轮与登记过的后台工作都落定，包括落定过程中又开的轮、又登记的工作。
+ * 用例自己掌握着这些轮（上游由它驱动），要在断言或清场前等它们正常跑完时用它。
  */
 export async function settleAgentBackgroundWorkForTesting(): Promise<void> {
-  while (true) {
-    const turns = runningTurnsForTesting().flatMap((turn) =>
-      turn.completed ? [turn.completed] : [],
-    )
-    if (turns.length === 0 && pending.size === 0) return
-    await Promise.allSettled([...turns, ...pending])
-  }
+  while (runningTurnsForTesting().length > 0 || pending.size > 0) await settleOnce()
 }
 
 /**
- * 用例之间的清场：上一个用例留下还在跑的轮一律中止，再等已经跑完的轮收尾后的后台工作。
- * 中止了的轮不等：它可能卡在不认中止的 I/O 上，等它会把下一个用例拖到超时。
+ * 用例之间的清场：上一个用例留下还在跑的轮一律中止，再等它们以及它们收尾后的后台工作都落定；
+ * 收尾时又接着开的轮，下一圈同样中止。
  */
 export async function settleAgentTailsForTesting(): Promise<void> {
-  abortRunningTurnsForTesting()
-  while (pending.size > 0) {
-    await Promise.allSettled([...pending])
+  while (runningTurnsForTesting().length > 0 || pending.size > 0) {
     abortRunningTurnsForTesting()
+    await settleOnce()
   }
+}
+
+async function settleOnce(): Promise<void> {
+  const turns = runningTurnsForTesting().flatMap((turn) => (turn.completed ? [turn.completed] : []))
+  await Promise.allSettled([...turns, ...pending])
 }

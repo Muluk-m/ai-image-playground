@@ -155,34 +155,41 @@ const handoffs = new Map<string, Promise<void>>()
 
 function handOff(conversationId: string, turn: RunningTurn, work: () => Promise<void>): void {
   const completed = turn.completed ?? Promise.resolve()
-  const handoff: Promise<void> = completed
-    .then(() => {
-      // 轮跑完这一刻起才算后台工作：清场等的是收尾，不是还在跑的轮。
-      const running = work()
-      trackAgentBackgroundWork(running)
-      return running
-    })
-    .finally(() => {
-      if (handoffs.get(conversationId) === handoff) handoffs.delete(conversationId)
-    })
+  const handoff: Promise<void> = completed.then(work).finally(() => {
+    if (handoffs.get(conversationId) === handoff) handoffs.delete(conversationId)
+  })
   handoffs.set(conversationId, handoff)
+  // 开轮时就登记：轮从运行表注销到交接动手之间没有空档，清场不会在这当中提前放行。
+  trackAgentBackgroundWork(handoff)
 }
 
 /**
  * 会话在本进程刚收尾时，等放手租约、接着取下一条都做完再回来。轮的终帧与响应流先于放手结束，
  * 发送方这时就进收件箱，收尾的接力会把这一条当成排着的消息抢去开轮：它照样会跑，可发送方拿不到
  * 自己的流，只拿到一张排队回执。会话还有轮在跑时不等：那时这一条本来就该排队。
+ *
+ * 等待的上限与 `claimWaitingOutSeal` 等正在放手的上一轮相同（`SEAL_WAIT_MS`）。收尾卡在数据库上
+ * 超过这个时间就不再等，照常入队：消息不丢，只是退回排队回执，由收尾的接力开轮。
  */
 export async function awaitConversationHandoff(conversationId: string): Promise<void> {
+  const deadline = Date.now() + SEAL_WAIT_MS
   while (!runningTurn(conversationId)) {
     const handoff = handoffs.get(conversationId)
-    if (!handoff) return
+    const left = deadline - Date.now()
+    if (!handoff || left <= 0) return
     handoffWaiters.set(conversationId, (handoffWaiters.get(conversationId) ?? 0) + 1)
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      await handoff.catch(() => {})
+      await Promise.race([
+        handoff.catch(() => {}),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, left)
+        }),
+      ])
     } finally {
-      const left = (handoffWaiters.get(conversationId) ?? 1) - 1
-      if (left > 0) handoffWaiters.set(conversationId, left)
+      clearTimeout(timer)
+      const waiting = (handoffWaiters.get(conversationId) ?? 1) - 1
+      if (waiting > 0) handoffWaiters.set(conversationId, waiting)
       else handoffWaiters.delete(conversationId)
     }
   }
