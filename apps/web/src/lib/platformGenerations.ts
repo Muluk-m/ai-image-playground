@@ -215,15 +215,19 @@ export function mergeHistory(
       remote.record.errorType != null &&
       task.errorCode === remote.record.errorType &&
       task.error
+    const adoptRemoteOutputs = !task.outputImages.length
     return {
       ...task,
+      // 接过平台的出图时一并接过它的实测像素：平台出图是 aip-media 引用，预览拿不到宽高，
+      // 不带上这份尺寸，卡片就退回请求档位（Gemini 直接显示 auto）。
+      ...(adoptRemoteOutputs && settled.measuredSize ? { measuredSize: settled.measuredSize } : {}),
       status: settled.status,
       queuePhase: settled.queuePhase,
       error: sameFailure || settled.error,
       errorCode: settled.status === 'error' ? (remote.record.errorType ?? undefined) : undefined,
       finishedAt: settled.finishedAt,
       elapsed: settled.elapsed,
-      outputImages: task.outputImages.length ? task.outputImages : settled.outputImages,
+      outputImages: adoptRemoteOutputs ? settled.outputImages : task.outputImages,
     }
   })
   const projected = rows
