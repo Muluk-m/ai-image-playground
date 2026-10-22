@@ -9,13 +9,13 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-# No workflow-level group: cancelling at that level would also stop a rollout mid-upload.
-# Instead each gate job cancels the same job of an older run on this ref, so a burst of pushes
-# only checks (and so only deploys) the newest; an older run whose gate is cancelled skips its
-# rollout. backend and publish each keep their own non-cancelling group: a running rollout is
-# never interrupted, and a waiting one is replaced only by the same job of a newer run.
-# The two are separate groups on purpose: one shared group would let an older run's publish
-# replace a newer run's waiting backend, and the newest push would never ship.
+# One test deployment at a time: the whole run holds the group, so a rollout is never cancelled
+# and two runs' backend/publish never interleave. GitHub keeps only the newest waiting run, so a
+# burst of pushes is the running one plus the latest. The `superseded` job below cancels the
+# running one while it is still in its gates once a newer push lands, so the newest starts sooner.
+concurrency:
+  group: test-deploy
+  cancel-in-progress: false
 defaults:
   run:
     shell: bash
@@ -23,6 +23,47 @@ env:
   # `actions/checkout` 的 `repository` 要 `owner/repo` 形式，不是 SSH URL。
   PRIVATE_OVERLAY_REPO: Muluk-m/ai-image-playground-private
 jobs:
+  # A newer push to `test` waits in the group above. While this run is still in its gates, stop
+  # it so the newest push is checked next; once every gate has finished (the rollout may start),
+  # leave it alone. The image build comes before any VPS change, so the narrow race between the
+  # last status read and the cancel can at most stop the build, never a rollout.
+  superseded:
+    name: Stop when a newer push arrives
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          ATTEMPT: ${{ github.run_attempt }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -u
+          gates='(Checks|Tests \(|Web tests \(|Paid build checks|Paid overlay tests)'
+          while :; do
+            sleep 30
+            # Any read that fails just waits for the next round; this job never cancels on doubt.
+            jobs=$(gh api "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs?per_page=100" \
+              --jq '.jobs[] | "\(.status) \(.name)"') || continue
+            # The rollout job has started (or finished): never cancel from here on.
+            if grep -Eq '^(in_progress|completed) Backend images' <<<"$jobs"; then exit 0; fi
+            gate=$(grep -E "^[a-z_]+ $gates" <<<"$jobs" || true)
+            [ -n "$gate" ] || continue
+            if ! grep -qv '^completed ' <<<"$gate"; then exit 0; fi
+            tip=$(gh api "repos/$REPO/git/ref/heads/test" --jq .object.sha) || continue
+            if [ -n "$tip" ] && [ "$tip" != "$SHA" ]; then
+              echo "test moved to $tip; cancelling this run before its rollout."
+              gh run cancel "$RUN_ID" -R "$REPO" || true
+              exit 0
+            fi
+          done
+
   # The gate before the rollout is five jobs running side by side, the same split web.yml uses:
   # public lint/build/startup (checks), the database-backed suites (tests, two runners), the web
   # vitest (web-tests, two shards), the paid build with the pinned overlay (paid-checks) and the
@@ -33,9 +74,6 @@ jobs:
     name: Checks
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    concurrency:
-      group: test-gate-${{ github.ref }}-checks
-      cancel-in-progress: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -76,9 +114,6 @@ jobs:
     name: Tests (${{ matrix.part.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    concurrency:
-      group: test-gate-${{ github.ref }}-tests-${{ matrix.part.name }}
-      cancel-in-progress: true
     strategy:
       fail-fast: false
       matrix:
@@ -114,9 +149,6 @@ jobs:
     name: Web tests (${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    concurrency:
-      group: test-gate-${{ github.ref }}-web-tests-${{ matrix.shard }}
-      cancel-in-progress: true
     strategy:
       fail-fast: false
       matrix:
@@ -138,9 +170,6 @@ jobs:
     if: github.ref == 'refs/heads/test'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    concurrency:
-      group: test-gate-${{ github.ref }}-paid-checks
-      cancel-in-progress: true
     outputs:
       private_sha: ${{ steps.overlay.outputs.commit }}
     steps:
@@ -184,9 +213,6 @@ jobs:
     if: github.ref == 'refs/heads/test'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    concurrency:
-      group: test-gate-${{ github.ref }}-paid-tests
-      cancel-in-progress: true
     services:
       postgres:
         image: postgres:17
@@ -230,9 +256,6 @@ jobs:
   backend:
     name: Backend images and VPS rollout
     needs: [checks, tests, web-tests, paid-checks, paid-tests]
-    concurrency:
-      group: test-rollout-backend
-      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -321,9 +344,6 @@ jobs:
   publish:
     name: Release test.muvloom.online
     needs: [checks, backend]
-    concurrency:
-      group: test-rollout-publish
-      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
