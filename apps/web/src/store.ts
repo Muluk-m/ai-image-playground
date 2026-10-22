@@ -1606,7 +1606,7 @@ export async function submitPrepared(
       ...(input.clientRequestId ? { clientRequestId: input.clientRequestId } : {}),
       variants: referenceGroups.flatMap((group, groupIndex) => {
         const inputImageDataUrls = group.map((img) => img.dataUrl)
-        return prompts.map((taskPrompt) => {
+        return prompts.map((taskPrompt, promptIndex) => {
           const transparent = taskParams.transparent_output
             ? createTransparentOutputMeta(taskPrompt)
             : null
@@ -1621,7 +1621,14 @@ export async function submitPrepared(
               prompt: taskPrompt,
               transparent,
               ...(eachImage
-                ? { inputImageIds: group.map((img) => img.id), shotId: String(groupIndex + 1) }
+                ? {
+                    inputImageIds: group.map((img) => img.id),
+                    // 提示词槽展开成几条时，同一张参考图的每条各占一格，不能被当成同一格的重试。
+                    shotId:
+                      prompts.length > 1
+                        ? `${groupIndex + 1}-${promptIndex + 1}`
+                        : String(groupIndex + 1),
+                  }
                 : {}),
             },
           }

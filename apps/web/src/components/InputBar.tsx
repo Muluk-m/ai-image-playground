@@ -157,6 +157,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   // 附件按钮弹的「图片 / 文件夹」二选一，与画布工具条那颗回形针同一套菜单。
   const [attachMenu, setAttachMenu] = useState<{ x: number; y: number } | null>(null)
   const [batchSending, setBatchSending] = useState(false)
+  // 回车和按钮共用这把锁：转圈那 0.5 秒里再按回车不能把同一批再发一遍。
+  const batchSendingRef = useRef(false)
   const [imageDragIndex, setImageDragIndex] = useState<number | null>(null)
   const [imageDragOverIndex, setImageDragOverIndex] = useState<number | null>(null)
   const [touchDragPreview, setTouchDragPreview] = useState<{
@@ -275,7 +277,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           ? t('submit.promptRequired')
           : null
   const submit = () => {
-    if (lookSubmitting) return
+    if (lookSubmitting || batchSendingRef.current) return
     if (toCanvas)
       void startCanvasFromComposer(
         undefined,
@@ -285,9 +287,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     else if (activeLook) void submitWithLook(activeLook, lookBody)
     else if (batchActive) {
       // 逐张生成一次发很多张，按钮先转一下再清空输入框，让这次点击有回应。
+      batchSendingRef.current = true
       setBatchSending(true)
       const hold = new Promise((resolve) => setTimeout(resolve, BATCH_SEND_FEEDBACK_MS))
-      void submitTask({ holdClear: hold }).finally(() => setBatchSending(false))
+      void submitTask({ holdClear: hold }).finally(() => {
+        batchSendingRef.current = false
+        setBatchSending(false)
+      })
     } else void submitTask()
   }
   const onSubmitClick = () => {
