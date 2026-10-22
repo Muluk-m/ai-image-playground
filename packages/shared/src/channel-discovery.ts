@@ -77,6 +77,11 @@ export type ModelBadge = (typeof MODEL_BADGES)[number]
 export const MODEL_LOGOS = ['nano-banana'] as const
 export type ModelLogoId = (typeof MODEL_LOGOS)[number]
 
+/** `etaSeconds` 的合法取值：1–3600 的整数。BFF 加载渠道配置和前端展示都按这一条判断。 */
+export function isModelEtaSeconds(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 3600
+}
+
 export interface ChannelModel {
   id: string
   label: string
