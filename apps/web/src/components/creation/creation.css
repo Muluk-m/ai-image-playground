@@ -185,6 +185,7 @@
 .creation-reference-preview > span { display: block; padding: 6px 8px; background: hsl(var(--popover)); max-width: 288px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 .creation-reference-stack[data-failed=true] .creation-stack-count { background: hsl(var(--destructive)); color: hsl(var(--on-media)); }
+.creation-reference-stack[data-failed=true] .creation-stack-card:last-child { border-color: hsl(var(--destructive)); }
 
 .creation-stack-upload { position: absolute; inset: 16px; display: grid; place-items: center; border-radius: 50%; background: hsl(var(--scrim) / .72); color: hsl(var(--on-media)); }
 .creation-reference-status { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: hsl(var(--muted-foreground)); @apply text-xs; }
