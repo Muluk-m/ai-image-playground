@@ -275,6 +275,47 @@ describe('readConversationStateFacts', () => {
     // 确认门本身对智能体不可见：还拦着的那张不进系统事实。
     expect(text).not.toContain('一只橘猫')
   })
+
+  // Codex 审查：先截 10 条再分类，较新的作废稿会占满名额，把更早还在等的普通卡挤掉。
+  it('较新的作废稿占不掉更早还在等确认的卡', async () => {
+    await conversation('crowded')
+    await draft('crowded', 'old-manual', '一座灯塔', NOW - 60_000)
+    const voided = Array.from({ length: 12 }, (_, index) => `voided-${index}`)
+    for (const [index, id] of voided.entries())
+      await draft('crowded', id, `作废 ${index}`, NOW - index)
+    await db.insert(schema.agent_messages).values([
+      {
+        conversation_id: 'crowded',
+        id: 'crowded-cards',
+        turn_id: 'turn',
+        seq: 1,
+        role: 'assistant',
+        content: [
+          ...voided.map((toolCallId) => ({
+            type: 'toolResult' as const,
+            toolCallId,
+            toolName: 'generateImage',
+            title: toolCallId,
+            status: 'failed',
+            errorCode: 'cancelled',
+            gated: true,
+          })),
+          {
+            type: 'toolResult' as const,
+            toolCallId: 'old-manual',
+            toolName: 'generateImage',
+            title: 'old-manual',
+            status: 'awaiting_confirmation',
+          },
+        ],
+        created_at: NOW,
+      },
+    ] as (typeof schema.agent_messages.$inferInsert)[])
+
+    const facts = await readConversationStateFacts('crowded', NOW)
+    expect(facts.pendingDrafts).toEqual([{ title: '一座灯塔' }])
+    expect(facts.voidedDrafts).toHaveLength(10)
+  })
 })
 
 describe('renderConversationState', () => {
