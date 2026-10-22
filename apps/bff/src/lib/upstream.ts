@@ -51,7 +51,11 @@ import {
   withoutModeration,
 } from './upstream/openai'
 import { type ChannelRouteStyle, clientError, type UpstreamCallResult } from './upstream/shared'
-import { buildVertexBody, withVertexRateLimitRetry } from './upstream/vertex'
+import {
+  buildVertexBody,
+  vertexPartialRateLimitFailure,
+  withVertexRateLimitRetry,
+} from './upstream/vertex'
 import { VIDEO_MIME, VIDEO_STYLE_SPECS } from './upstream/video'
 
 /*
@@ -94,7 +98,7 @@ interface UpstreamRoute {
    * 排，否则渠道级（`maxConcurrency`）按渠道排。
    */
   concurrency?: { channelId: string; limit: number }
-  /** 模型声明认的分辨率档位（`ChannelModel.imageSizes`）；Vertex 分支把其它档位换成最近一档。 */
+  /** 模型声明支持的分辨率档位（`ChannelModel.imageSizes`）；Vertex 分支把其它档位换成最近一档。 */
   imageSizes?: readonly string[]
 }
 
@@ -643,6 +647,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         },
         mergeGeminiCandidateResults,
         params.reconciliationRequired,
+        // 有图已出、另一条退避用完仍 429：不让任务级重试把整组重新生成（见 vertexPartialRateLimitFailure）。
+        vertex ? vertexPartialRateLimitFailure : undefined,
       )
     }
     throw new Error(`Unsupported provider: ${provider satisfies never}`)
@@ -684,16 +690,27 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
+/**
+ * 部分请求成功、部分失败时换一个错误抛（返回 undefined 则照原样抛第一条失败）。给了它就要等同批
+ * 请求全部落定才知道成没成，所以只有需要区分「有图已出」的上游（Vertex 的 429）才传。
+ */
+type FanOutPartialFailure = (reason: unknown, delivered: number, requested: number) => unknown
+
 async function fanOutRequests(
   requestedCount: number | undefined,
   run: () => Promise<UpstreamCallResult>,
   merge: (results: UpstreamCallResult[]) => UpstreamCallResult,
   reconciliationRequired = false,
+  onPartialFailure?: FanOutPartialFailure,
 ): Promise<UpstreamCallResult> {
   const count = Math.max(1, requestedCount ?? 1)
   if (count === 1) return run()
   return merge(
-    await collectFanOutResults(Array.from({ length: count }, run), reconciliationRequired),
+    await collectFanOutResults(
+      Array.from({ length: count }, run),
+      reconciliationRequired,
+      onPartialFailure,
+    ),
   )
 }
 
@@ -709,10 +726,19 @@ function fanOutFailure<T>(settled: PromiseSettledResult<T>[], preserveUnknown = 
 async function collectFanOutResults<T>(
   requests: Promise<T>[],
   preserveUnknown = false,
+  onPartialFailure?: FanOutPartialFailure,
 ): Promise<T[]> {
-  if (!preserveUnknown) return Promise.all(requests)
+  if (!preserveUnknown && !onPartialFailure) return Promise.all(requests)
   const settled = await Promise.allSettled(requests)
-  const failure = fanOutFailure(settled, true)
+  const failure = fanOutFailure(settled, preserveUnknown)
+  if (!preserveUnknown) {
+    if (!failure) return settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : []))
+    const delivered = settled.filter((one) => one.status === 'fulfilled').length
+    throw (
+      (delivered > 0 ? onPartialFailure?.(failure.reason, delivered, settled.length) : undefined) ??
+      failure.reason
+    )
+  }
   if (failure && settled.some((one) => one.status === 'fulfilled')) {
     throw new UpstreamResultUnknownError('部分请求已完成，整组结果和结算待核查。', {
       cause: failure.reason,

@@ -17,6 +17,7 @@ const {
 } = await import('../../lib/upstream/vertex')
 const { channelSlotStateForTesting } = await import('../../lib/upstream/concurrency')
 const { extractUpstreamFailure } = await import('../../lib/upstream/errors')
+const { isRetryableError } = await import('../../lib/retry')
 const { defaultChannelsPath } = await import('../../lib/channels')
 type InternalChannel = import('../../lib/channels').InternalChannel
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
@@ -428,6 +429,39 @@ describe('callUpstream Vertex AI direct channel', () => {
         status: 429,
         body: expect.stringContaining('RESOURCE_EXHAUSTED'),
       })
+    })
+
+    it('does not let the task retry regenerate a group whose other images already came back', async () => {
+      // 一条出图，另一条首发 + 3 次退避全是 429。
+      useStatuses([200, 429, 429, 429, 429])
+      const failure = (await callUpstream({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        request: { prompt: 'a cup', n: 2 },
+      }).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
+      expect(attempts).toHaveLength(2 + VERTEX_RATE_LIMIT_BACKOFF_MS.length)
+      expect(failure.upstreamStatus).toBe(429)
+      expect(isRetryableError(failure)).toBe(false)
+      expect(failure.message).toContain('上游限流')
+      expect(failure.message).toContain('不再自动重跑')
+      expect(failure.message).not.toContain('Nano Banana')
+      expect(extractUpstreamFailure(failure)).toEqual({
+        status: 429,
+        body: expect.stringContaining('RESOURCE_EXHAUSTED'),
+      })
+      expect(channelSlotStateForTesting(PRO_GATE)).toEqual({ active: 0, waiting: 0 })
+    })
+
+    it('leaves the task retry in charge when no image of the group came back', async () => {
+      useStatuses(Array.from({ length: 2 * (1 + VERTEX_RATE_LIMIT_BACKOFF_MS.length) }, () => 429))
+      const failure = (await callUpstream({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        request: { prompt: 'a cup', n: 2 },
+      }).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
+      expect(failure.upstreamStatus).toBe(429)
+      expect(isRetryableError(failure)).toBe(true)
+      expect(failure.message).not.toContain('不再自动重跑')
     })
 
     it('does not resend other upstream errors', async () => {

@@ -109,14 +109,41 @@ export async function withVertexRateLimitRetry<T>(
   }
 }
 
-function rateLimitedError(cause: unknown): Error {
-  const err = new Error('Nano Banana 当前请求太多（上游限流），已自动重试仍未成功，请稍后再试', {
-    cause,
-  }) as Error & { upstreamStatus: number; upstreamPayload?: unknown }
+const RATE_LIMITED_MESSAGE = '该模型当前请求太多（上游限流），已自动重试仍未成功，请稍后再试'
+
+/**
+ * 退避用完仍 429。三个 Vertex 模型共用这条文案，所以不写具体模型名。原始响应体留给失败记录
+ * （errors.ts 的 extractUpstreamFailure），排障时看得到上游原话。
+ */
+function rateLimitedError(cause: unknown, message = RATE_LIMITED_MESSAGE): Error {
+  const err = new Error(message, { cause }) as Error & {
+    upstreamStatus: number
+    upstreamPayload?: unknown
+  }
   err.upstreamStatus = 429
-  // 原始响应体留给失败记录（errors.ts 的 extractUpstreamFailure），排障时看得到上游原话。
   const payload = (cause as { upstreamPayload?: unknown } | null)?.upstreamPayload
   if (payload !== undefined) err.upstreamPayload = payload
+  return err
+}
+
+/**
+ * 一单多张拆成的请求里，有的已经出图、有的退避用完仍 429 时的收口（`fanOutRequests` 的
+ * `onPartialFailure`）。任务级重试会把整组 n 张重新生成，已出的图要再付一遍上游费用，还会接着
+ * 撞同一个限流，所以这种情况标成不可重试：任务失败，冻结的积分按现有结算整笔退回（只有任务
+ * 完成才扣费）。已出的图不交付：交付部分结果要按实交张数结算，属于计费改动，不放在这个热修里。
+ * 不是 429 的失败（含用户取消）返回 undefined，照原样往外抛。
+ */
+export function vertexPartialRateLimitFailure(
+  reason: unknown,
+  delivered: number,
+  requested: number,
+): Error | undefined {
+  if (!isRateLimited(reason)) return undefined
+  const err = rateLimitedError(
+    reason,
+    `该模型当前请求太多（上游限流）：本单 ${requested} 张里有 ${requested - delivered} 张自动重试仍未成功。为免整单重复生成，本单不再自动重跑，请稍后再试`,
+  ) as Error & { retryable: boolean }
+  err.retryable = false
   return err
 }
 
