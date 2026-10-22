@@ -20,10 +20,11 @@ env:
   # `actions/checkout` 的 `repository` 要 `owner/repo` 形式，不是 SSH URL。
   PRIVATE_OVERLAY_REPO: Muluk-m/ai-image-playground-private
 jobs:
-  # The gate before the rollout is four jobs running side by side, the same split web.yml uses:
+  # The gate before the rollout is five jobs running side by side, the same split web.yml uses:
   # public lint/build/startup (checks), the database-backed suites (tests, two runners), the web
-  # vitest (web-tests, two shards) and the paid build with the pinned overlay (paid-checks). The rollout job used to
-  # rerun the paid half itself after Checks had finished; it now waits for all four instead.
+  # vitest (web-tests, two shards), the paid build with the pinned overlay (paid-checks) and the
+  # overlay's own tests (paid-tests). The rollout job used to rerun the paid half itself after
+  # Checks had finished; it now waits for all five instead.
   # Local `pnpm test` keeps running one package at a time; only these CI commands are parallel.
   checks:
     name: Checks
@@ -38,6 +39,13 @@ jobs:
           # ci-check-test-branch.sh compares against origin/main, so it needs the full history.
           fetch-depth: 0
           persist-credentials: false
+      # `workflow_dispatch` can be started from any branch; only `test` may reach the test site.
+      - name: Require the test branch
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          [ "$REF" = refs/heads/test ] ||
+            { echo "::error::Deploy test only runs on refs/heads/test, not $REF."; exit 1; }
       # First, because the rest of this run is wasted on a branch that is behind main. The run
       # fails here rather than merging: resolving a conflict unattended is how a test site ends
       # up running something that exists nowhere else. Merge main into test and push again.
@@ -114,6 +122,8 @@ jobs:
 
   paid-checks:
     name: Paid build checks
+    # Holds the overlay key; never spend it on a dispatch from another branch (checks fails those).
+    if: github.ref == 'refs/heads/test'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -151,9 +161,57 @@ jobs:
         with:
           label: test-startup-paid
 
+  # The overlay's own tests (billing hooks and the rest of private/apps), the same command as
+  # web.yml's with-overlay job. That job runs in another workflow, so the rollout could not wait
+  # for it; this gate makes Deploy test wait for the same suites at the same pinned overlay.
+  paid-tests:
+    name: Paid overlay tests
+    if: github.ref == 'refs/heads/test'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: aip_test
+        ports: ["127.0.0.1:5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
+      BUN_TEST_JOBS: 4
+    outputs:
+      private_sha: ${{ steps.overlay.outputs.commit }}
+    steps:
+      - name: Require the overlay key
+        env:
+          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+        run: |
+          [ -n "$PRIVATE_OVERLAY_SSH_KEY" ] || { echo "::error::Secrets empty or missing: PRIVATE_OVERLAY_SSH_KEY"; exit 1; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read the pinned overlay commit
+        id: lock
+        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
+      - name: Check out the private overlay at the pinned commit
+        id: overlay
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
+          ref: ${{ steps.lock.outputs.sha }}
+          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          path: private
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      # One package at a time; BUN_TEST_JOBS runs files in parallel inside each package.
+      - run: pnpm --filter './private/apps/*' --workspace-concurrency=1 test
+
   backend:
     name: Backend images and VPS rollout
-    needs: [checks, tests, web-tests, paid-checks]
+    needs: [checks, tests, web-tests, paid-checks, paid-tests]
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -192,16 +250,18 @@ jobs:
           ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
           path: private
           persist-credentials: false
-      # Paid lint, typecheck, build and browser startup ran in paid-checks against this same
+      # Paid lint, typecheck, build and browser startup ran in paid-checks, and the overlay tests in
+      # paid-tests, against this same
       # overlay commit (checked below); the image build itself only needs git and Docker, as in
       # deploy.yml.
       - name: Require the overlay the paid checks used
         env:
           CHECKED: ${{ needs.paid-checks.outputs.private_sha }}
+          TESTED: ${{ needs.paid-tests.outputs.private_sha }}
           ACTUAL: ${{ steps.overlay.outputs.commit }}
         run: |
-          [ -n "$CHECKED" ] && [ "$CHECKED" = "$ACTUAL" ] ||
-            { echo "::error::Overlay $ACTUAL is not the commit paid-checks verified ($CHECKED)."; exit 1; }
+          [ -n "$CHECKED" ] && [ "$CHECKED" = "$ACTUAL" ] && [ "$TESTED" = "$ACTUAL" ] ||
+            { echo "::error::Overlay $ACTUAL is not the commit paid-checks ($CHECKED) and paid-tests ($TESTED) verified."; exit 1; }
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
