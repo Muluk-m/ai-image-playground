@@ -137,6 +137,11 @@ export type PersistedSubmitRequest = Omit<SubmitRequest, 'input_images' | 'mask'
   /** 服务端按请求里有没有选区单方面设置；不接受模型或客户端决定是否保护选区外像素。 */
   preserve_outside_mask?: true
   masked_original_size?: { width: number; height: number }
+  /**
+   * 选区只占大图一小块时，送上游的是围着选区截下的这一块（原图坐标）；落库的仍是整张原图与
+   * 选区，交付时把生成结果贴回这个位置再合成。没有这一项就是整图送上游。
+   */
+  masked_crop?: { left: number; top: number; width: number; height: number }
   input_images?: StoredImageRef[]
   mask?: StoredImageRef
   video?: PersistedVideoRequest
