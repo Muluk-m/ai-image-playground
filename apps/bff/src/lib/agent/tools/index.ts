@@ -11,6 +11,7 @@ import type {
 import { log } from '../../logger'
 import { clarificationTool } from '../clarification'
 import type { AgentImageSource } from '../images'
+import { MASK_PROPOSAL_GUIDANCE, maskProposalDeclaration, maskProposalTool } from '../mask-proposal'
 import {
   type AgentToolOutcome,
   type AgentToolStart,
@@ -245,7 +246,20 @@ export function agentTurnTools(context: AgentToolContext, failures?: ToolFailure
       }
     }),
     clarificationTool,
+    ...(offersMaskProposal(context.mode, context) ? [maskProposalTool(context)] : []),
   ]
+}
+
+/**
+ * 范围确认卡只在 chat 里给登录用户：它要引用存好的原件，画布上用户本来就能直接圈选。
+ * 与改图工具同进同出——这一轮改不了图，就没有范围可确认。
+ */
+function offersMaskProposal(mode: AgentMode, audience?: AgentToolAudience): boolean {
+  return (
+    audience?.experience === 'chat' &&
+    Boolean(audience.userId) &&
+    present(mode, audience).some((tool) => tool.name === 'editImage')
+  )
 }
 
 /**
@@ -332,12 +346,16 @@ export function agentToolDeclarations(
   return [
     ...present(mode, audience).map((tool) => tool.declaration()),
     toolDeclaration(clarificationTool),
+    ...(offersMaskProposal(mode, audience) ? [maskProposalDeclaration] : []),
   ]
 }
 
 /** 系统提示词里逐工具的那几句。与模型收到的清单同一份过滤，两边不会各说各的。 */
 export function agentToolGuidance(mode: AgentMode, audience?: AgentToolAudience): string[] {
-  return present(mode, audience).map((tool) => tool.guidance())
+  return [
+    ...present(mode, audience).map((tool) => tool.guidance()),
+    ...(offersMaskProposal(mode, audience) ? [MASK_PROPOSAL_GUIDANCE] : []),
+  ]
 }
 
 export function isAgentToolName(name: string): name is AgentToolName {

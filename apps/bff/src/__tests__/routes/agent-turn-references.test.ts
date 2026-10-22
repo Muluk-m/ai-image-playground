@@ -233,7 +233,9 @@ it('sends the inline reference of a mixed turn and only lists the canvas ones', 
   expect(turn.status).toBe(200)
 
   const sent = sentBlocks(calls[0]!)
-  expect(sent.images).toEqual([PIXEL])
+  // 内联的那张照样随本轮发出，给模型的是缩略图。
+  expect(sent.images).toHaveLength(1)
+  expect(sent.images[0]).toStartWith('data:image/webp;base64,')
   expect(sent.text).toContain('[image 1] 图片 id dropped-file（内容已附在本轮输入里）')
   for (const [at, reference] of selected.entries()) {
     expect(sent.text).toContain(`[image ${at + 2}] 图片 id ${reference.imageId}`)
