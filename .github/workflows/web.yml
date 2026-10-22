@@ -117,11 +117,8 @@ jobs:
         part:
           - name: bff
             filter: "--filter=@image-playground/bff"
-            # Alone on its runner, so more Bun processes than the 4 the mixed job used.
-            jobs: 6
           - name: packages
             filter: "--filter=!@image-playground/web --filter=!@image-playground/bff"
-            jobs: 4
     name: bff (${{ matrix.part.name }})
     services:
       postgres:
@@ -141,7 +138,7 @@ jobs:
       TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
       VITEST_MAX_WORKERS: 1
       # 数据库测试一个文件一个进程、一个 suite 一个库，可以并发跑（scripts/run-bun-tests-isolated.ts）。
-      BUN_TEST_JOBS: ${{ matrix.part.jobs }}
+      BUN_TEST_JOBS: 4
       # Node 24.18 exposes an unconfigured global localStorage; jsdom owns browser storage here.
       NODE_OPTIONS: --no-experimental-webstorage
     steps:
