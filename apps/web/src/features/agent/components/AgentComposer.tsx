@@ -121,6 +121,7 @@ import {
   attachmentUploadRevision,
   attachmentUploadState,
   attachmentUploadsEnabled,
+  mediaFallbackEnabled,
   primeAttachmentUploads,
   retryAttachmentUploads,
   subscribeAttachmentUploads,
@@ -497,7 +498,7 @@ export default function AgentComposer({
     const images =
       attachmentUploadsEnabled() && getAttachmentLimits()
         ? files.filter((file) => file.type.startsWith('image/'))
-        : acceptImageFiles(files)
+        : acceptImageFiles(files, { keepOversized: mediaFallbackEnabled() })
     if (images.length === 0) return
     const limits = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
     if (
