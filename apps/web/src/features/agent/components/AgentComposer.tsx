@@ -77,7 +77,6 @@ import { useStore } from '../../../store'
 import CanvasVideoParams from '../../canvas/components/CanvasVideoParams'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
-import { useShownAgentSurface } from '../../canvas/lib/canvasView'
 import { revealNodeCanvas } from '../../canvas/lib/nodeCanvasFocus'
 import {
   activeNodeCanvas,
@@ -91,6 +90,7 @@ import { useLibraryStore } from '../../library/store'
 import ProductionQuoteChip from '../../production/components/ProductionQuoteChip'
 import { useProductionSelection } from '../../production/lib/productionContext'
 import { GHOST_LINK, ICON_BUTTON, INK, INK_3 } from '../agentStyles'
+import { useActiveAgentSurface } from '../lib/activeAgentSurface'
 import {
   type AgentMentionValue,
   buildAgentMentionGroups,
@@ -664,7 +664,7 @@ export default function AgentComposer({
     if (!loading) setSessionMode(mode)
   }, [mode, loading, setSessionMode])
 
-  const skills = useAgentSkills(mode, useShownAgentSurface())
+  const skills = useAgentSkills(mode, useActiveAgentSurface())
   // 开头的 `/技能` 提升成胶囊；名字还在打的时候不提升，否则菜单会被胶囊关在外面。
   const skillInvocation = useMemo(
     () => getLeadingAgentSkill(draft.prompt, skills),
