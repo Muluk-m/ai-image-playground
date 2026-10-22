@@ -81,7 +81,18 @@
     "noModel": "Not selected",
     "model": "Model",
     "searchModel": "Search models",
-    "noModelMatch": "No matching models"
+    "noModelMatch": "No matching models",
+    "modelEta": "~{{seconds}}s",
+    "modelEtaMinutes": "~{{minutes}} min",
+    "modelEtaRange": "~{{min}}–{{max}}s",
+    "modelEtaRangeMinutes": "~{{min}}–{{max}} min",
+    "modelBadge": {
+      "recommended": "Recommended",
+      "latest": "Latest",
+      "quality": "Best quality",
+      "fast": "Fastest",
+      "value": "Low cost"
+    }
   },
   "size": {
     "customRatioLabel": "Enter a custom ratio",
