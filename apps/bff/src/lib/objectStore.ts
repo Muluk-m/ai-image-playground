@@ -118,8 +118,10 @@ export class S3ObjectStore implements ObjectStore {
       // S3File.slice 的 end 是开区间，.stream() 翻译成上游的 Range 请求。
       return await collectUpTo(file.slice(0, maxBytes).stream(), maxBytes)
     } catch (error) {
-      // 零字节对象上的 bytes=0-n 是不可满足的范围（416），不是存储故障：查一次大小，
-      // 确认为空就按读到 0 字节返回，让调用方判成大小不符。只在出错时多这一次往返。
+      // 零字节对象上的 bytes=0-n 是不可满足的范围（416，Bun 抛 code 为 InvalidRange 的 S3Error），
+      // 不是存储故障：查一次大小，确认为空就按读到 0 字节返回，让调用方判成大小不符。
+      // 其他错误（网络、权限、上游 5xx）一律原样抛出，不能被当成空对象吞掉。
+      if ((error as { code?: unknown } | null)?.code !== 'InvalidRange') throw error
       const size = await file.stat().then(
         (stat) => stat.size,
         () => undefined,
