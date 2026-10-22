@@ -5,6 +5,7 @@ import {
   _setChannelsForTesting,
   ChannelsLoadError,
   defaultChannelsPath,
+  disabledModelChannel,
   getChannels,
   getDiscoveredChannels,
   getRoutableChannels,
@@ -107,7 +108,7 @@ describe('parseChannelsConfig', () => {
     expect(result.disabled.map((c) => c.id)).toEqual(['sample-openai'])
     expect(result.disabled[0]).not.toHaveProperty('disabled')
     expect(result.disabled[0].auth.secret).toBe('sk-test-1')
-    expect(result.disabledModelIds).toEqual(['gpt-image-2'])
+    expect(result.disabledModels).toEqual({ 'gpt-image-2': 'sample-openai' })
     expect(result.warnings).toEqual([
       "channel 'sample-openai': disabled in channels.json; the channel will not be advertised or offered for new tasks",
     ])
@@ -120,9 +121,11 @@ describe('parseChannelsConfig', () => {
     )
     expect(result.channels).toEqual([])
     expect(result.disabled).toEqual([])
-    expect(result.disabledModelIds).toEqual(['gpt-image-2'])
+    expect(result.disabledModels).toEqual({ 'gpt-image-2': 'sample-openai' })
     expect(result.warnings).toHaveLength(1)
     expect(result.warnings[0]).toContain('disabled in channels.json')
+    expect(result.warnings[0]).toContain('cannot be routed')
+    expect(result.warnings[0]).toContain('SAMPLE_OPENAI_KEY')
   })
 
   it('treats disabled: false like an absent flag', () => {
@@ -132,7 +135,7 @@ describe('parseChannelsConfig', () => {
     )
     expect(result.channels.map((c) => c.id)).toEqual(['sample-openai'])
     expect(result.disabled).toEqual([])
-    expect(result.disabledModelIds).toEqual([])
+    expect(result.disabledModels).toEqual({})
   })
 
   it('rejects a non-boolean disabled', () => {
@@ -516,11 +519,11 @@ describe('shipped channels.json', () => {
       'agnes-images',
       'agnes-video',
     ])
-    expect(result.disabledModelIds).toEqual([
-      'gemini-3.1-flash-image',
-      'agnes-image-2.5-flash',
-      'agnes-video-2.5-flash',
-    ])
+    expect(result.disabledModels).toEqual({
+      'gemini-3.1-flash-image': 'gemini-flash-image',
+      'agnes-image-2.5-flash': 'agnes-images',
+      'agnes-video-2.5-flash': 'agnes-video',
+    })
   })
 
   it('drops the Seedance channel when ARK_BASE_URL is unset', () => {
@@ -636,6 +639,7 @@ describe('module state for disabled channels', () => {
       'sample-gemini-old',
     ])
     expect(isModelDisabled('gpt-image-2')).toBe(true)
+    expect(disabledModelChannel('gpt-image-2')).toBe('sample-openai')
     // 还挂在在用 channel 上的同名模型照常收。
     expect(isModelDisabled('gemini-3.1-flash')).toBe(false)
     expect(resolveModelMedia('gpt-image-2')).toBeUndefined()
