@@ -1,9 +1,22 @@
 import { i18next } from '../i18n'
 import type { InputImage } from '../types'
 import { MAX_IMAGE_BYTES, MAX_IMAGE_MB } from './inputImageLimit'
+import type { ReferenceAdmission } from './referenceDraft'
 
 /** 逐张生成一次最多带几张图。 */
 export const BATCH_GENERATE_MAX = 50
+/** 逐张生成同时在途的张数，其余排队。 */
+export const BATCH_GENERATE_CONCURRENCY = 5
+
+/**
+ * 快速生成输入框的参考图准入：放得下逐张生成的上限，合并参考仍按模型的上限（见 batchMergeLocked）。
+ * 遮罩与模板只按模型的上限，调用方自己传那一份。
+ */
+export function quickGenerateAdmission(base: ReferenceAdmission): ReferenceAdmission {
+  return base.acceptsReferences
+    ? { ...base, limit: Math.max(base.limit, BATCH_GENERATE_MAX) }
+    : base
+}
 
 /** 至少两张图才有「逐张」可言；一张图就是普通的图生图。 */
 export function batchGenerateAvailable(imageCount: number): boolean {

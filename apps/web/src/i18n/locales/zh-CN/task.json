@@ -30,6 +30,7 @@
   },
   "card": {
     "generating": "生成中...",
+    "batchQueued": "排队中",
     "phase": {
       "queued": "排队中...",
       "generating": "生成中...",
@@ -107,6 +108,7 @@
     "resultAlt": "{{name}} 结果",
     "batchTag": "逐张生成",
     "runningCount": "生成中 {{running}}",
+    "queuedCount": "排队中 {{queued}}",
     "failedList": "失败的图",
     "failedItem": "第 {{index}} 张"
   },

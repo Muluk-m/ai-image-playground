@@ -2064,6 +2064,62 @@ describe('快速生成的逐张生成', () => {
     expect(calls.every((c) => c[0].params.n === 1)).toBe(true)
   })
 
+  it('同时最多发 5 张，其余排队，完成一张才发下一张', async () => {
+    await setupBatchState(7, true)
+    const gates: Array<() => void> = []
+    vi.mocked(callImageApi).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          gates.push(() =>
+            resolve({
+              images: ['data:image/png;base64,generated'],
+              actualParamsList: [{ size: '1x1' }],
+            }),
+          )
+        }),
+    )
+
+    await submitTask()
+    await waitUntil(() => gates.length === 5, 'first five were not sent')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(vi.mocked(callImageApi).mock.calls).toHaveLength(5)
+    const queued = () => useStore.getState().tasks.filter((t) => t.batchQueued)
+    expect(queued().map((t) => t.origin?.shotId)).toEqual(['6', '7'])
+
+    gates[0]()
+    await waitUntil(() => gates.length === 6, 'sixth was not sent after one finished')
+    expect(queued().map((t) => t.origin?.shotId)).toEqual(['7'])
+
+    for (let i = 1; i < 6; i++) gates[i]()
+    await waitUntil(() => gates.length === 7, 'last was not sent')
+    gates[6]()
+    await waitUntil(
+      () => useStore.getState().tasks.every((t) => t.status === 'done'),
+      'batch did not finish',
+    )
+    expect(queued()).toHaveLength(0)
+  })
+
+  it('快速生成能分批加到 50 张，第 51 张按 50 张的上限拒绝', async () => {
+    await setupBatchState(7, true)
+    const more = (from: number, count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: `more-${from + index}`,
+        dataUrl: `data:image/png;base64,more${from + index}`,
+      }))
+
+    expect(useStore.getState().attachInputImages(more(8, 10))).not.toBeNull()
+    expect(useStore.getState().attachInputImages(more(18, 33))).not.toBeNull()
+    expect(useStore.getState().inputImages).toHaveLength(50)
+
+    expect(useStore.getState().attachInputImages(more(51, 1))).toBeNull()
+    expect(useStore.getState().inputImages).toHaveLength(50)
+    expect(useStore.getState().showToast).toHaveBeenLastCalledWith(
+      expect.stringContaining('50'),
+      'error',
+    )
+  })
+
   it('没选逐张时多张图仍合并成一次参考', async () => {
     await setupBatchState(3, false)
 

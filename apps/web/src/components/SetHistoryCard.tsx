@@ -1,10 +1,66 @@
+import { useEffect, useState } from 'react'
 import AssetThumb from '../features/library/components/AssetThumb'
 import { useTranslation } from '../i18n'
 import { retryTask } from '../store'
 import type { TaskRecord } from '../types'
 import { Button } from './ui/button'
+import { Icon } from './ui/icon'
 
 const PREVIEW_LIMIT = 4
+/** 逐张生成的卡上最多摆两行格子，多出来的收进最后一格的「+N」。 */
+const BATCH_TILE_LIMIT = 8
+
+function formatClock(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000))
+  return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+/** 有在跑的格子时每秒走一次表。 */
+function useClock(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    setNow(Date.now())
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [active])
+  return now
+}
+
+/** 逐张生成的一格：出了图就是图，在跑的转圈计时，排队的写「排队中」。 */
+function BatchTile({ task, now, name }: { task: TaskRecord; now: number; name: string }) {
+  const { t } = useTranslation('task')
+  const imageId = task.outputImages[0]
+  if (task.status === 'done' && imageId)
+    return (
+      <div className="aspect-square overflow-hidden rounded-lg border border-border">
+        <AssetThumb imageId={imageId} alt={t('set.resultAlt', { name })} />
+      </div>
+    )
+  const queued = task.batchQueued === true
+  return (
+    <div
+      data-batch-tile={queued ? 'queued' : 'running'}
+      className={`flex aspect-square flex-col items-center justify-center gap-1 rounded-lg border bg-muted/60 text-xs text-muted-foreground ${
+        queued ? 'border-dashed border-border' : 'border-primary/50'
+      }`}
+    >
+      {queued ? (
+        t('card.batchQueued')
+      ) : (
+        <>
+          <Icon
+            name="loading"
+            className="size-4 animate-spin text-primary motion-reduce:animate-none"
+          />
+          <span className="tabular-nums">
+            {formatClock(now - (task.batchStartedAt ?? task.createdAt))}
+          </span>
+        </>
+      )}
+    </div>
+  )
+}
 
 /**
  * 历史里一组同源任务折起来的卡。逐张生成（`batch`）的一组还在卡上逐条列出失败的图：
@@ -17,6 +73,7 @@ export default function SetHistoryCard({
   expanded,
   onToggle,
   batch = false,
+  attended = false,
 }: {
   name: string
   actions: readonly string[]
@@ -24,18 +81,30 @@ export default function SetHistoryCard({
   expanded: boolean
   onToggle: () => void
   batch?: boolean
+  /** 这次主动发送的那一批：卡片滚进视野并闪一下（见 lib/submittedTaskAttention）。 */
+  attended?: boolean
 }) {
   const { t } = useTranslation(['task', 'common'])
   const done = tasks.filter((task) => task.status === 'done').length
-  const running = tasks.filter((task) => task.status === 'running').length
+  const queued = tasks.filter((task) => task.status === 'running' && task.batchQueued).length
+  const running = tasks.filter((task) => task.status === 'running').length - queued
   const failedTasks = tasks.filter((task) => task.status === 'error')
   const failed = failedTasks.length
   const previews = tasks.flatMap((task) => task.outputImages).slice(0, PREVIEW_LIMIT)
+  // 失败的那几张单独列在下面，格子里只摆出了图的、在跑的和排队的。
+  const tiles = batch ? tasks.filter((task) => task.status !== 'error') : []
+  const shownTiles = tiles.length > BATCH_TILE_LIMIT ? tiles.slice(0, BATCH_TILE_LIMIT - 1) : tiles
+  const hiddenTiles = tiles.length - shownTiles.length
+  const now = useClock(batch && running > 0)
 
   return (
     <div
       data-set-history-card
-      className="flex h-full flex-col gap-3 rounded-2xl border border-border/70 bg-card/70 p-4"
+      data-set-task-ids={tasks.map((task) => task.id).join(' ')}
+      tabIndex={attended ? -1 : undefined}
+      className={`flex h-full scroll-my-4 flex-col gap-3 rounded-2xl border border-border/70 bg-card/70 p-4 ${
+        attended ? 'task-submitted-attention' : ''
+      }`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -56,6 +125,7 @@ export default function SetHistoryCard({
           <p className="mt-1 text-xs text-muted-foreground">
             {t('set.doneCount', { done, total: tasks.length })}
             {batch && running > 0 ? ` · ${t('set.runningCount', { running })}` : ''}
+            {batch && queued > 0 ? ` · ${t('set.queuedCount', { queued })}` : ''}
             {failed > 0 ? ` · ${t('set.failedCount', { failed })}` : ''}
           </p>
         </div>
@@ -71,7 +141,20 @@ export default function SetHistoryCard({
         </Button>
       </div>
 
-      {previews.length > 0 && (
+      {batch && tiles.length > 0 && (
+        <div className="grid grid-cols-4 gap-1.5">
+          {shownTiles.map((task) => (
+            <BatchTile key={task.id} task={task} now={now} name={name} />
+          ))}
+          {hiddenTiles > 0 && (
+            <div className="flex aspect-square items-center justify-center rounded-lg border border-border bg-muted/60 text-xs text-muted-foreground">
+              +{hiddenTiles}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!batch && previews.length > 0 && (
         <div className="grid grid-cols-4 gap-1.5">
           {previews.map((imageId) => (
             <div
