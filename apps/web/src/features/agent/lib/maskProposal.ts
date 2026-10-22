@@ -6,6 +6,7 @@ import type {
   AgentTurnReference,
 } from '@image-playground/shared'
 import { AGENT_REGION_NOTE_MAX_CHARS } from '@image-playground/shared'
+import type { MaskPlacement, MaskStroke } from '../../canvas/lib/inpaintMask'
 
 /** 用户在卡片上加的标注。只进定位图与文字，不进原图像素。 */
 export type MaskAnnotation =
@@ -270,4 +271,31 @@ export function confirmedMaskSource(
     if (typeof one.maskDataUrl === 'string') return one.maskDataUrl
   }
   return null
+}
+
+/**
+ * 卡片上的涂抹沿用画布的笔画格式与光栅化（`paintMaskStroke`）：笔画按原图像素记，
+ * 摆放就是原图本身，所以缩放预览、导出原图尺寸蒙版都不需要再换算。
+ */
+export function cardMaskPlacement(width: number, height: number): MaskPlacement {
+  return { x: 0, y: 0, width, height, rotation: 0 }
+}
+
+/**
+ * 一段画笔 / 橡皮：`from`、`to` 是相对坐标（0–1），`brush` 是屏幕上的笔刷直径，
+ * `displayed` 是预览图在屏幕上的宽度。屏幕上看到多粗，原图上就涂多粗。
+ */
+export function cardMaskStroke(
+  tool: 'brush' | 'eraser',
+  points: readonly Point[],
+  brush: number,
+  displayed: number,
+  width: number,
+  height: number,
+): MaskStroke {
+  return {
+    tool,
+    points: points.map((point) => ({ x: point.x * width, y: point.y * height })),
+    width: Math.max(2, (brush * width) / Math.max(1, displayed)),
+  }
 }
