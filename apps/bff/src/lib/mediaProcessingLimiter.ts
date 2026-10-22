@@ -3,7 +3,7 @@ const MAX_TIMER_MS = 2 ** 31 - 1
 
 export interface MediaProcessingLimiterOptions {
   slots: number
-  /** 在途原件合计字节上限；第一张总能进，单张超限也不会永远排不上。 */
+  /** 在途原件合计字节上限，按最大安全整数封顶；第一张总能进，单张超限也不会永远排不上。 */
   byteBudget: () => number
   queueLimit: number
   queueTimeoutMs: number
@@ -39,15 +39,36 @@ export function createMediaProcessingLimiter(options: MediaProcessingLimiterOpti
       (name.endsWith('Ms') && value > MAX_TIMER_MS)
     )
       throw new RangeError(`invalid media processing ${name}`)
-  const now = options.now ?? Date.now
+  // 三个回调（预算、时钟、busy）都由调用方给出、可能读动态配置：在限流器边界兜住它们的异常和坏值，
+  // 不让定时器或 finally 里的 drain() 半路抛出，导致排队的请求永远等不到结果。
+  const now = () => {
+    try {
+      const value = (options.now ?? Date.now)()
+      return typeof value === 'number' && Number.isFinite(value) ? value : Date.now()
+    } catch {
+      return Date.now()
+    }
+  }
+  const busy = (reason: 'processing_queue_full' | 'processing_queue_timeout') => {
+    try {
+      return options.busy(reason)
+    } catch (error) {
+      return error
+    }
+  }
   let active = 0
   let activeBytes = 0
   const queue: Waiter[] = []
   const budget = () => {
-    const value = options.byteBudget()
-    // 预算配置坏了（NaN、负数）时只放一张，不让队列一直超时也不突破内存上界；
-    // 上限截到安全整数，在途合计因此也始终是精确的整数。
-    if (Number.isNaN(value) || value < 0) return 0
+    let value: unknown
+    try {
+      value = options.byteBudget()
+    } catch {
+      value = 0
+    }
+    // 预算配置坏了（不是数字、NaN、负数、读取抛错）时只放一张，不让队列一直超时也不突破内存上界。
+    // 上限按最大安全整数算（Infinity 也一样），在途合计因此始终是精确的整数。
+    if (typeof value !== 'number' || Number.isNaN(value) || value < 0) return 0
     return Math.min(Math.floor(value), Number.MAX_SAFE_INTEGER)
   }
   // 用减法比较：activeBytes 不超过预算（或只有一张在途），两数都是安全整数，差值精确，不会因相加舍入误放。
@@ -86,7 +107,7 @@ export function createMediaProcessingLimiter(options: MediaProcessingLimiterOpti
         throw new RangeError('invalid media processing bytes')
       if (!queue.length && admits(bytes)) admit(bytes)
       else {
-        if (queue.length >= options.queueLimit) throw options.busy('processing_queue_full')
+        if (queue.length >= options.queueLimit) throw busy('processing_queue_full')
         await new Promise<void>((resolve, reject) => {
           const waiter: Waiter = {
             bytes,
@@ -98,7 +119,7 @@ export function createMediaProcessingLimiter(options: MediaProcessingLimiterOpti
             reject: () => {
               const index = queue.indexOf(waiter)
               if (index >= 0) queue.splice(index, 1)
-              reject(options.busy('processing_queue_timeout'))
+              reject(busy('processing_queue_timeout'))
               // 挡在前面的那张离开后，后面的可能已经放得进。
               drain()
             },
