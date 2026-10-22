@@ -155,15 +155,12 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       request = preserved
     }
     const hydratedRequest = await hydrateInputImages(request)
-    // 只在这一次新鲜的生成里允许逐区域重试：续跑归档、核查恢复都只合成，不再向上游要图。
-    let repairRegions: ((mask: string) => Promise<Uint8Array | null>) | undefined
     // 老任务只有 preserve_outside_mask、没有 masked_original_size：那时不补边，交付时也不裁边。
     protectOutput = request.preserve_outside_mask
       ? await protectMaskedOutput(
           hydratedRequest.input_images?.[0] ?? '',
           hydratedRequest.mask ?? '',
           request.masked_original_size,
-          { repair: async (mask) => (repairRegions ? repairRegions(mask) : null) },
         )
       : undefined
     if (archivePayload) {
@@ -197,34 +194,6 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       })
       return
     }
-    if (request.preserve_outside_mask && !task.reconciliation_required && !resume)
-      repairRegions = async (mask) => {
-        // 平台承担、不向用户计费的额外上游调用：每次都记一笔，便于核对成本（上限见 regions.maxRetries）。
-        log.warn(
-          {
-            event: 'task.masked_region_retry',
-            taskId: id,
-            provider: task.provider,
-            model: task.model,
-          },
-          'masked edit region retry billed to the platform',
-        )
-        const { payload } = await callUpstream({
-          provider: task.provider,
-          model: task.model,
-          request: { ...hydratedRequest, mask, n: 1 },
-          signal,
-          beforeRequest: async () => {
-            if (await execution.recordUpstreamInvocation()) return
-            execution.abort()
-            throw new DOMException('Task is no longer running', 'AbortError')
-          },
-        })
-        const ref = resolveImageBytesRef(task.provider, payload, 0)
-        if (!ref || ref.kind === 'object') return null
-        if (ref.kind === 'b64') return Buffer.from(ref.data, 'base64')
-        return (await fetchSourceImage(ref.data, { signal })).bytes
-      }
     const upstreamCall: UpstreamCallParams = {
       reconciliationRequired: task.reconciliation_required,
       provider: task.provider,
