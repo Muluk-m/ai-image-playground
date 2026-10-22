@@ -13,8 +13,10 @@ permissions:
 # and two runs' backend/publish never interleave. GitHub keeps only the newest waiting run, so a
 # burst of pushes is the running one plus the latest. The `superseded` job below cancels the
 # running one while it is still in its gates once a newer push lands, so the newest starts sooner.
+# A dispatch from any other ref gets its own group (Checks then rejects it), so it can never take
+# the waiting slot from the newest test push.
 concurrency:
-  group: test-deploy
+  group: ${{ github.ref == 'refs/heads/test' && 'test-deploy' || format('test-deploy-rejected-{0}', github.ref) }}
   cancel-in-progress: false
 defaults:
   run:
@@ -23,16 +25,15 @@ env:
   # `actions/checkout` 的 `repository` 要 `owner/repo` 形式，不是 SSH URL。
   PRIVATE_OVERLAY_REPO: Muluk-m/ai-image-playground-private
 jobs:
-  # A newer push to `test` waits in the group above. While this run is still in its gates, stop
-  # it so the newest push is checked next; once every gate has finished (the rollout may start),
-  # leave it alone. The image build comes before any VPS change, so the narrow race between the
-  # last status read and the cancel can at most stop the build, never a rollout.
+  # A newer push to `test` waits in the group above. While this run is still in its gates, stop it
+  # so the newest push is checked next, but only when a run for the current tip is actually waiting
+  # or running (a rerun of an old run can have replaced it). backend needs this job, so the cancel
+  # decision is always made before the rollout can start; once every gate has finished it exits.
+  # It never fails: a failed read just waits for the next round.
   superseded:
     name: Stop when a newer push arrives
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    continue-on-error: true
+    timeout-minutes: 90
     permissions:
       actions: write
       contents: read
@@ -47,18 +48,18 @@ jobs:
           set -u
           gates='(Checks|Tests \(|Web tests \(|Paid build checks|Paid overlay tests)'
           while :; do
-            sleep 30
-            # Any read that fails just waits for the next round; this job never cancels on doubt.
+            sleep 20
             jobs=$(gh api "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs?per_page=100" \
               --jq '.jobs[] | "\(.status) \(.name)"') || continue
-            # The rollout job has started (or finished): never cancel from here on.
-            if grep -Eq '^(in_progress|completed) Backend images' <<<"$jobs"; then exit 0; fi
             gate=$(grep -E "^[a-z_]+ $gates" <<<"$jobs" || true)
             [ -n "$gate" ] || continue
             if ! grep -qv '^completed ' <<<"$gate"; then exit 0; fi
             tip=$(gh api "repos/$REPO/git/ref/heads/test" --jq .object.sha) || continue
-            if [ -n "$tip" ] && [ "$tip" != "$SHA" ]; then
-              echo "test moved to $tip; cancelling this run before its rollout."
+            [ -n "$tip" ] && [ "$tip" != "$SHA" ] || continue
+            waiting=$(gh api "repos/$REPO/actions/workflows/deploy-test.yml/runs?head_sha=$tip&per_page=20" \
+              --jq "[.workflow_runs[] | select(.status != \"completed\" and .id != $RUN_ID)] | length") || continue
+            if [ "$waiting" -gt 0 ]; then
+              echo "test moved to $tip and its run is queued; cancelling this run before its rollout."
               gh run cancel "$RUN_ID" -R "$REPO" || true
               exit 0
             fi
@@ -255,7 +256,7 @@ jobs:
 
   backend:
     name: Backend images and VPS rollout
-    needs: [checks, tests, web-tests, paid-checks, paid-tests]
+    needs: [superseded, checks, tests, web-tests, paid-checks, paid-tests]
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
