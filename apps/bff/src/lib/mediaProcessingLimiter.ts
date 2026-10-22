@@ -45,13 +45,16 @@ export function createMediaProcessingLimiter(options: MediaProcessingLimiterOpti
       throw new RangeError(`invalid media processing ${name}`)
   // 三个回调（预算、时钟、busy）都由调用方给出、可能读动态配置：在限流器边界兜住它们的异常和坏值，
   // 不让定时器或 finally 里的 drain() 半路抛出，导致排队的请求永远等不到结果。
+  // 时钟读坏时回退到上一次的合法读数，不换成另一种时钟：调用方注入的可能是 epoch 时钟，
+  // 混进 performance.now() 的值会让等待时长变成负数或几十年，插队保护跟着失灵。
+  let lastNow: number | undefined
   const now = () => {
+    if (!options.now) return monotonicNow()
     try {
-      const value = (options.now ?? monotonicNow)()
-      return typeof value === 'number' && Number.isFinite(value) ? value : monotonicNow()
-    } catch {
-      return monotonicNow()
-    }
+      const value = options.now()
+      if (typeof value === 'number' && Number.isFinite(value)) lastNow = value
+    } catch {}
+    return lastNow ?? 0
   }
   const busy = (reason: 'processing_queue_full' | 'processing_queue_timeout') => {
     try {
