@@ -43,9 +43,14 @@ export function buildVertexBody(
   if ((request.input_images?.length ?? 0) > VERTEX_MAX_INPUT_IMAGES)
     throw clientError(`该模型最多接受 ${VERTEX_MAX_INPUT_IMAGES} 张参考图，请减少参考图后重试`)
   const body = buildGeminiBody(request)
+  const generationConfig = body.generationConfig as Record<string, unknown>
+  // 实测 candidateCount=2 一律 400：多张由调用方拆成单张请求发（见 upstream.ts 的 fan-out），
+  // extra 里带进来的 candidateCount 只能是 1。
+  const candidateCount = generationConfig.candidateCount
+  if (candidateCount !== undefined && candidateCount !== 1)
+    throw clientError('该模型每次请求只出一张图，多张请用「张数」设置')
   const sizes = Object.hasOwn(VERTEX_IMAGE_SIZES, model) ? VERTEX_IMAGE_SIZES[model] : undefined
   if (!sizes) return body
-  const generationConfig = body.generationConfig as Record<string, unknown>
   const imageConfig = generationConfig.imageConfig
   if (imageConfig === undefined) return body
   if (imageConfig === null || typeof imageConfig !== 'object' || Array.isArray(imageConfig))

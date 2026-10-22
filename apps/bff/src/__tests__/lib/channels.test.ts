@@ -495,6 +495,25 @@ describe('parseChannelsConfig', () => {
     ).toThrow(error)
   })
 
+  it('keeps maxConcurrency on the internal gemini channel and out of discovery', () => {
+    const result = parseChannelsConfig(
+      { channels: [{ ...SAMPLE_GEMINI, maxConcurrency: 2 }] },
+      ENV_WITH_SECRETS,
+    )
+    expect(result.channels[0]!.maxConcurrency).toBe(2)
+    _setChannelsForTesting(result.channels)
+    expect(getDiscoveredChannels()[0]).not.toHaveProperty('maxConcurrency')
+  })
+
+  it.each([
+    [{ ...SAMPLE_GEMINI, maxConcurrency: 0 }, /maxConcurrency must be an integer between 1 and 64/],
+    [{ ...SAMPLE_GEMINI, maxConcurrency: 1.5 }, /maxConcurrency must be an integer/],
+    [{ ...SAMPLE_GEMINI, maxConcurrency: '2' }, /maxConcurrency must be an integer/],
+    [{ ...SAMPLE_CHANNEL, maxConcurrency: 2 }, /only supported on gemini-queue/],
+  ])('rejects an unusable maxConcurrency %#', (channel, error) => {
+    expect(() => parseChannelsConfig({ channels: [channel] }, ENV_WITH_SECRETS)).toThrow(error)
+  })
+
   it('rejects empty models array', () => {
     expect(() =>
       parseChannelsConfig({ channels: [{ ...SAMPLE_CHANNEL, models: [] }] }, ENV_WITH_SECRETS),
@@ -691,6 +710,8 @@ describe('shipped channels.json', () => {
       kind: 'gemini-queue',
       baseUrl: 'https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/google',
       auth: { secretRef: 'VERTEX_API_KEY', secret: 'vertex-key' },
+      // 实测同一 key 同时超过 2 条 generateContent 就 429。
+      maxConcurrency: 2,
     })
     expect(vertex.models).toEqual([
       {
