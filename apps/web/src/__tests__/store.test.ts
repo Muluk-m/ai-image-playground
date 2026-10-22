@@ -2031,7 +2031,10 @@ describe('快速生成的逐张生成', () => {
     })
   })
 
-  afterEach(() => setChannels([]))
+  afterEach(() => {
+    setChannels([])
+    useStore.setState({ batchGenerate: false })
+  })
 
   it('每张参考图各发一条 n=1 的任务，只带自己那张图，同属一组', async () => {
     await setupBatchState(3, true)
