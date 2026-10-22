@@ -37,6 +37,7 @@ import {
 import type { SceneRecord } from '../../../../features/canvas/lib/sceneRecord'
 import { authenticatedBffFetch } from '../../../../lib/authClient'
 import { setClientStorageScope } from '../../../../lib/authScope'
+import { getDeviceId } from '../../../../lib/deviceId'
 import { uploadMediaSource } from '../../../../lib/mediaUpload'
 import { openSceneRecord } from '../../../helpers/sceneRecord'
 
@@ -490,8 +491,13 @@ it('saves edits while an image uploads, then the image once it lands', async () 
     { id: 'photo', type: 'image', x: 0, y: 0, width: 50, height: 50, data: { fileId: 'photo' } },
     session.canvas!.origin,
   )
-  // 节点和它的位置先到服务端：没有 mediaId，只带本机 fileId；服务端校验照收。
-  await vi.waitFor(() => expect(serverNode(server, 'photo')?.data).toEqual({ fileId: 'photo' }))
+  // 节点和它的位置先到服务端：没有 mediaId，只带本机 fileId 和「本设备在传」的声明；服务端校验照收。
+  await vi.waitFor(() =>
+    expect(serverNode(server, 'photo')?.data).toEqual({
+      fileId: 'photo',
+      meta: { uploadDevice: getDeviceId(), uploadStartedAt: expect.any(String) },
+    }),
+  )
   validateCloudCanvas(server, { version: 1, elements: [] })
   await vi.waitFor(() =>
     expect(session.getSnapshot()).toEqual({
@@ -517,6 +523,9 @@ it('saves edits while an image uploads, then the image once it lands', async () 
     y: 80,
     data: { mediaId: uploaded, fileId: `cloud-${uploaded}` },
   })
+  // 收成云媒体后去掉上传声明。
+  expect(serverNode(server, 'photo')?.data).toMatchObject({ meta: { contentIdentity: 'photo' } })
+  expect(serverNode(server, 'photo')?.data).not.toHaveProperty('meta.uploadDevice')
   expect(session.getSnapshot()).toEqual({ status: 'saved', message: null })
   expect(uploadMediaSource).toHaveBeenCalledTimes(1)
   record.dispose()
@@ -576,7 +585,18 @@ it("saves around another device's image that is still uploading", async () => {
   const vector = Y.encodeStateVector(server)
   insertCanvasNode(
     server,
-    { id: 'elsewhere', type: 'image', x: 0, y: 0, width: 50, height: 50, data: { fileId: 'x1' } },
+    {
+      id: 'elsewhere',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: {
+        fileId: 'x1',
+        meta: { uploadDevice: 'other-device', uploadStartedAt: String(Date.now()) },
+      },
+    },
     origin,
   )
   socket.receive(canvasSyncUpdate(Y.encodeStateAsUpdate(server, vector)))
@@ -585,6 +605,26 @@ it("saves around another device's image that is still uploading", async () => {
   await session.sync()
   expect(serverNode(server, 'text')).toMatchObject({ x: 33, y: 44 })
   expect(session.getSnapshot().status).toBe('saved')
+  expect(uploadMediaSource).not.toHaveBeenCalled()
+  record.dispose()
+})
+
+it('reports a local image whose original is gone instead of passing it off as uploading', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  vi.mocked(uploadMediaSource).mockClear()
+  // 本机格式的 fileId，但本机没有原图、也没有别的设备声明在传：原图被清理或损坏。
+  record.editor.doc.files = {}
+  insertCanvasNode(
+    session.canvas!.doc,
+    { id: 'lost', type: 'image', x: 1, y: 2, width: 50, height: 50, data: { fileId: 'lost-1' } },
+    session.canvas!.origin,
+  )
+  await expect(session.sync()).rejects.toThrow('canvas_media_missing')
+  expect(session.getSnapshot().status).toBe('media-local')
+  expect(serverNode(server, 'lost')).toBeUndefined()
   expect(uploadMediaSource).not.toHaveBeenCalled()
   record.dispose()
 })

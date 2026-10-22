@@ -9,13 +9,13 @@ import {
   canvasOrigin,
   canvasResults,
   canvasText,
+  canvasUploadingElsewhere,
   connectCanvasNodes,
   createCanvasGroup,
   disconnectCanvasNodes,
   type ImageNodeData,
   imagePreset,
   imagePresetPrompt,
-  isLocalCanvasFileId,
   moveCanvasGroups,
   moveCanvasNodes,
   type PendingGeneration,
@@ -44,6 +44,7 @@ import {
   useStoreApi,
 } from '@xyflow/react'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
+import { getDeviceId } from '../../../lib/deviceId'
 import { useNodeMedia } from './NodeMediaImage'
 import '@xyflow/react/dist/style.css'
 import { nodeCardSize } from '@image-playground/shared'
@@ -386,7 +387,16 @@ function Pending({ pending }: { pending: PendingGeneration }) {
   )
 }
 
-function Picture({ fileId, rotation }: { fileId?: string; rotation?: number }) {
+function Picture({
+  fileId,
+  rotation,
+  uploadingElsewhere,
+}: {
+  fileId?: string
+  rotation?: number
+  /** 别的设备声明在传、还没过期（canvasUploadingElsewhere）。 */
+  uploadingElsewhere?: boolean
+}) {
   const { t } = useTranslation('canvas')
   const files = useContext(FilesContext)
   const source = useNodeMedia(fileId ? files[fileId] : undefined)
@@ -394,7 +404,7 @@ function Picture({ fileId, rotation }: { fileId?: string; rotation?: number }) {
     return (
       <div className="studio-node-missing text-sm">
         {/* 别的设备还在上传的图片：文档里先到的只有它的本机 fileId，原图要等那边传完。 */}
-        {fileId && isLocalCanvasFileId(fileId) && !files[fileId]
+        {fileId && uploadingElsewhere && !files[fileId]
           ? t('nodes.mediaUploading')
           : t('nodes.mediaMissing')}
       </div>
@@ -467,7 +477,11 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
           </span>
         )}
         {fileId ? (
-          <Picture fileId={fileId} rotation={rotation} />
+          <Picture
+            fileId={fileId}
+            rotation={rotation}
+            uploadingElsewhere={canvasUploadingElsewhere(node.data, getDeviceId(), Date.now())}
+          />
         ) : pending ? (
           <Pending pending={pending} />
         ) : (
@@ -551,7 +565,11 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
       <NodeCaption node={node} />
       <div className="studio-node studio-node--video" data-rotated={rotation ? true : undefined}>
         {fileId ? (
-          <Picture fileId={fileId} rotation={rotation} />
+          <Picture
+            fileId={fileId}
+            rotation={rotation}
+            uploadingElsewhere={canvasUploadingElsewhere(node.data, getDeviceId(), Date.now())}
+          />
         ) : (
           <div className="studio-node-empty">
             <Icon name="video" size="lg" />

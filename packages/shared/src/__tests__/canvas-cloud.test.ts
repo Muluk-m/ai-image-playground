@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'bun:test'
 import * as Y from 'yjs'
 import {
+  CANVAS_UPLOAD_STALE_MS,
   canvasProjectDocument,
+  canvasUploadClaimedElsewhere,
+  canvasUploadingElsewhere,
   initializeCanvasConnectionRules,
   validateCloudCanvas,
+  withoutCanvasUploadClaim,
 } from '../canvas-cloud'
 import {
   canvasOrigin,
@@ -312,4 +316,37 @@ it('rejects malformed timeline slot payloads even when their target is absent', 
     doc.getMap('timelineSlots').set(JSON.stringify(['timeline', 'source', 'a', field]), value)
     expect(() => validateCloudCanvas(doc, legacy)).toThrow('invalid_canvas_timeline')
   }
+})
+
+describe('canvas upload claims', () => {
+  const now = 1_000_000_000
+  const claimed = (by: string, since: number) => ({
+    fileId: 'local-1',
+    meta: { uploadDevice: by, uploadStartedAt: String(since), prompt: 'p' },
+  })
+
+  it('只把别的设备声明在传、还没过期的本机图片当作上传中', () => {
+    expect(canvasUploadingElsewhere(claimed('other', now - 1000), 'me', now)).toBe(true)
+    expect(canvasUploadingElsewhere(claimed('me', now - 1000), 'me', now)).toBe(false)
+    expect(
+      canvasUploadingElsewhere(claimed('other', now - CANVAS_UPLOAD_STALE_MS), 'me', now),
+    ).toBe(false)
+    expect(canvasUploadingElsewhere({ fileId: 'local-1' }, 'me', now)).toBe(false)
+    expect(canvasUploadingElsewhere({ ...claimed('other', now), mediaId: 'm' }, 'me', now)).toBe(
+      false,
+    )
+    expect(
+      canvasUploadingElsewhere({ ...claimed('other', now), fileId: 'cloud-x' }, 'me', now),
+    ).toBe(false)
+  })
+
+  it('过期的声明仍算别人在传（本机不报缺图），收成云媒体时去掉声明、保留其余 meta', () => {
+    expect(canvasUploadClaimedElsewhere(claimed('other', 0), 'me')).toBe(true)
+    expect(canvasUploadClaimedElsewhere(claimed('me', 0), 'me')).toBe(false)
+    expect(canvasUploadClaimedElsewhere({ fileId: 'local-1' }, 'me')).toBe(false)
+    expect(withoutCanvasUploadClaim(claimed('other', now).meta)).toEqual({ prompt: 'p' })
+    const plain = { prompt: 'p' }
+    expect(withoutCanvasUploadClaim(plain)).toBe(plain)
+    expect(withoutCanvasUploadClaim(undefined)).toBeUndefined()
+  })
 })
