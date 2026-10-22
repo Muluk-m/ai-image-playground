@@ -26,6 +26,7 @@ import {
   ANONYMOUS_AUDIENCE,
   agentSkillInvocation,
   agentSkillLocation,
+  isCanvasOnlySkill,
   visibleAgentSkills,
 } from './skills'
 import { estimateMessageTokens } from './token-estimate'
@@ -222,7 +223,13 @@ export function replayTurnText(
 ): string {
   return message.content
     .filter(
-      (block) => canvasTools || block.type !== 'toolResult' || !isCanvasToolName(block.toolName),
+      (block) =>
+        canvasTools ||
+        block.type !== 'toolResult' ||
+        !(
+          isCanvasToolName(block.toolName) ||
+          (block.toolName === 'loadSkill' && isCanvasOnlySkill(block.skill?.name))
+        ),
     )
     .map((block) => {
       if (block.type === 'text')

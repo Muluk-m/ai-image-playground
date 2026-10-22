@@ -950,6 +950,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         owner: prepared.owner,
         mode,
         userId: prepared.userId,
+        experience: audience.experience,
         expectedHistory: [...history.messages, ...storedMessages.values()],
         previousSkills: input.skillTexts,
         messages: agent.state.messages,

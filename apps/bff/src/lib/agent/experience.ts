@@ -90,6 +90,9 @@ async function originExperience(
   return 'chat'
 }
 
+/** 唤醒与续跑往回追发起消息的最多跳数；连续唤醒本身有上限（见 `consecutiveAgentWakes`），这里留足余量。 */
+const SURFACE_ORIGIN_MAX_HOPS = 16
+
 /**
  * 这一轮的模式（Agent 或画布），决定模型拿到哪套工具与提示；与项目入口无关。
  *
@@ -108,7 +111,8 @@ export async function loadAgentSurface(
       ? source.wake.turnId
       : (source.resume.wake?.turnId ?? source.resume.interruptedTurnId)
   const visited = new Set<string>()
-  while (!visited.has(originTurnId)) {
+  // 追溯有上限：一串连续唤醒或续跑不该把一次起轮放大成几十次查询；追不到头就按默认（Agent 模式）。
+  while (!visited.has(originTurnId) && visited.size < SURFACE_ORIGIN_MAX_HOPS) {
     visited.add(originTurnId)
     const rows = await db
       .select({ payload: schema.agent_inbox.payload })

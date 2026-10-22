@@ -958,10 +958,12 @@ export const agentRoutes = new Elysia()
           resolveAgentMode(query.mode ?? 'image'),
           authUser?.id ?? null,
           resolveAgentModel('image')?.model,
+          // 画布技能只进画布视图的 `/` 菜单；不带 surface 的旧客户端按 Agent 模式。
+          query.surface === 'canvas' ? 'canvas' : 'chat',
         ),
       }
     },
-    { query: t.Object({ mode: modeSchema }) },
+    { query: t.Object({ mode: modeSchema, surface: t.Optional(t.String()) }) },
   )
   .get(
     // 预置模板的封面与参考图。图片随技能目录发布，所以取法也跟着技能走：认技能名与文件名，
