@@ -17,9 +17,9 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import * as Y from 'yjs'
 import { db, schema } from '../../db/client'
 import { accessCanvasDocument } from '../canvasSyncStore'
-import { isCapabilityEnabled } from '../capabilities'
 import { getChannels, resolveQueueModel } from '../channels'
 import { log } from '../logger'
+import { knownInactiveModels, refreshInactiveModels } from '../model-availability'
 import type { BffTransaction } from '../private-overlay'
 import type { AgentOwner } from './conversations'
 import { enqueueAgentWake, stageRunWakeId } from './inbox'
@@ -29,7 +29,7 @@ import {
   StageAuthorizationError,
   stageExecutionTokenMatches,
 } from './stage-authorizations'
-import { agentVideoModels } from './video-models'
+import { agentVideoAvailable, agentVideoModels, describeVideoNodeModes } from './video-models'
 import { AGENT_WAKE_CHANNEL } from './wake'
 
 /**
@@ -191,12 +191,54 @@ export async function reportStageRun(
         event: 'agent.stage.reported',
         authorizationId: id,
         conversationId: row.conversation_id,
+        userId,
         outcomes: run.nodes.map((node) => node.outcome),
+        nodes: stageRunLogNodes(run.nodes),
       },
       'Stage run reported; agent wake queued',
     )
     return { authorization, wake: 'queued' as const }
   })
+}
+
+/** 日志里逐节点记结局与原因：admin 日志页按 authorizationId 或原因（例如 model_unavailable）就查得到。 */
+function stageRunLogNodes(nodes: readonly StageRunNodeReport[]) {
+  return nodes.map((node) => ({
+    nodeId: node.nodeId,
+    outcome: node.outcome,
+    ...(node.reason ? { reason: node.reason } : {}),
+  }))
+}
+
+/**
+ * 需要确认的运行卡在开跑前就被拦下（按钮置灰、用户看得到原因）时，浏览器报上来记一条日志。
+ * 不结束授权、不唤醒智能体，也不写授权：用户改好画布后同一张卡还能确认。以前这种拦截服务端完全没有痕迹。
+ */
+export async function noteBlockedStageRun(
+  userId: string,
+  id: string,
+  nodes: readonly StageRunNodeReport[],
+): Promise<{ readonly logged: true }> {
+  const [row] = await db
+    .select({ conversationId: table.conversation_id, state: table.state })
+    .from(table)
+    .where(and(eq(table.id, id), eq(table.user_id, userId)))
+  if (!row) throw new StageAuthorizationError('stage_authorization_not_found', 404)
+  const authorized = new Set(row.state.nodeIds)
+  if (nodes.some((node) => !authorized.has(node.nodeId)))
+    throw new StageAuthorizationError('stage_run_report_mismatch', 422)
+  log.info(
+    {
+      event: 'agent.stage.blocked',
+      authorizationId: id,
+      conversationId: row.conversationId,
+      userId,
+      status: row.state.status,
+      nodes: stageRunLogNodes(nodes),
+    },
+    'Stage run blocked before confirmation',
+  )
+  return { logged: true }
 }
 
 /** 回报唤醒到了哪一步。还没回报时返回 null。 */
@@ -330,36 +372,41 @@ function nodeLine(name: string, node: StageRunNodeRecord): string {
 
 /**
  * 被拦在「模型或参数不可用」时，智能体要知道这个部署此刻真能用哪些模型，否则只会让用户「换个可用模型」。
- * 图片节点按工作台选中的出图模型提交，智能体改不了；视频节点按节点的视频模式挑模型，模式改得了。
+ * 与页面的 `/api/channels` 同一份口径：运营停用的模型不算可用。
  */
 function availableModelsLine(): string {
+  const inactive = knownInactiveModels()
   const images = [
     ...new Set(
       getChannels().flatMap((channel) =>
         channel.models.flatMap((model) =>
-          (model.media ?? 'image') === 'image' && resolveQueueModel('image', model.id)
+          (model.media ?? 'image') === 'image' &&
+          !inactive.has(model.id) &&
+          resolveQueueModel('image', model.id)
             ? [model.id]
             : [],
         ),
       ),
     ),
   ]
-  const videos = (isCapabilityEnabled('generation:video') ? agentVideoModels() : []).map(
-    ({ target, support }) => {
-      const modes = [
-        '文生',
-        ...(support.firstFrame ? ['首帧'] : []),
-        ...(support.firstFrame && support.lastFrame ? ['首尾帧'] : []),
-        ...(support.referenceImages ? [`参考生（最多 ${support.referenceImages.max} 张）`] : []),
-      ]
-      return `${target.model}（${modes.join('、')}）`
-    },
-  )
+  const videos = agentVideoAvailable()
+    ? agentVideoModels().map(
+        ({ target, support }) => `${target.model}（${describeVideoNodeModes(support)}）`,
+      )
+    : []
   return `当前部署实际可用的出图模型：${images.length ? images.join('、') : '无'}；视频模型及支持的模式：${videos.length ? videos.join('、') : '无'}。`
 }
 
+/**
+ * 原标签页只会在「页面上一个可用视频模型都没有」时把视频节点拦在这里；不支持的视频模式在提案时就被拒了，
+ * 不会走到这一步，所以改 videoMode 没有用。
+ */
 const MODEL_BLOCK_GUIDANCE =
-  '被拦在「模型或参数不可用」的节点：图片节点按用户工作台选中的出图模型提交，你改不了，只能请用户在工作台换成上面列出的可用出图模型；视频节点是它的视频模式（videoMode）没有可用模型支持，用 updateNodes 换成可用视频模型支持的模式。用户要的是出图或改图（例如参考一张图修改另一张图）时，目标应是图片节点：用 createNodes 建 image 节点、连好参考与原图后再 runNodes，不要用视频节点。'
+  '被拦在「模型或参数不可用」的节点：图片节点按用户工作台选中的出图模型提交，你改不了，只能请用户在工作台换成上面列出的可用出图模型；视频节点被拦是因为用户页面上当时没有任何可用的视频模型，与它的视频模式（videoMode）无关，不要改 videoMode。用户要的是出图或改图（例如参考一张图修改另一张图）时，目标应是图片节点：用 createNodes 建 image 节点、连好参考与原图后再 runNodes，不要用视频节点。'
+const NO_VIDEO_BLOCK_GUIDANCE =
+  '当前部署确实没有可用的视频模型（运营停用或没有配置），这些视频节点现在跑不了，也不能再建视频节点：用户要的是出图或改图时，把它转成 image 节点（用 createNodes 建 image 节点、连好参考与原图）；用户就是要视频时，告诉他暂时没有可用的视频模型。'
+const STALE_VIDEO_BLOCK_GUIDANCE =
+  '服务端此刻有可用的视频模型，是用户页面当时的模型清单过期或刚恢复：运行卡报价前页面会重新读取清单，视频节点原样重新发起即可，不要改 videoMode。'
 
 export interface StageRunWakeContent {
   readonly text: string
@@ -415,15 +462,30 @@ export async function stageRunWakeContent(
     guidance.push(
       '被拦下的节点：逐个说清原因，以及用户要补什么或改什么（例如先给首帧节点出图、补素材、换可用的模型）。',
     )
-  const modelBlocked = run.nodes.some(
-    (node) => node.outcome === 'blocked' && node.reason === 'model_unavailable',
+  const modelBlockedIds = new Set(
+    run.nodes.flatMap((node) =>
+      node.outcome === 'blocked' && node.reason === 'model_unavailable' ? [node.nodeId] : [],
+    ),
   )
+  const modelBlocked = modelBlockedIds.size > 0
+  // 拦在模型上的视频节点：先照页面的口径重读停用清单，再看服务端此刻到底有没有可用视频模型。
+  const videoBlocked = Boolean(
+    state.bindings?.some(
+      (binding) => binding.kind === 'video' && modelBlockedIds.has(binding.nodeId),
+    ),
+  )
+  if (modelBlocked) await refreshInactiveModels()
+  const noVideoModel = videoBlocked && !agentVideoAvailable()
   if (modelBlocked) guidance.push(availableModelsLine(), MODEL_BLOCK_GUIDANCE)
+  if (videoBlocked)
+    guidance.push(noVideoModel ? NO_VIDEO_BLOCK_GUIDANCE : STALE_VIDEO_BLOCK_GUIDANCE)
   // 直接出图开着、这一批一个都没提交也没花积分、只是卡在模型或模式上：智能体自己改得了的就在这一轮改好重跑，
   // 不用停下来问一句「确认后我再处理」。花过钱、有失败或已完成的批次仍按老规矩先问。
   // 只有整批每个节点都是卡在模型上才自修：混着缺素材、缺提示词、超参考图上限的，改了模型也跑不起来。
+  // 没有可用视频模型时自修只会再拦一次：关掉，按上面的说明转成图片节点或告诉用户，新的运行先问。
   const selfFix =
     modelBlocked &&
+    !noVideoModel &&
     state.turn?.autoSubmit === true &&
     state.spentCredits === 0 &&
     !state.storyboard &&
@@ -458,7 +520,7 @@ export async function stageRunWakeContent(
     )
   else if (selfFix)
     guidance.push(
-      '这一批一个节点都没提交、没花积分，这一轮沿用直接出图：能按上面改好的（视频模式换成可用模型支持的、该是图片节点的改成图片节点）就在这一轮改好后直接用 runNodes 重新发起，不要停下来等用户确认；只有工作台选的出图模型本身不可用这类你改不了的，才说明需要用户换成哪个可用模型。除此之外不要发起别的付费运行。',
+      '这一批一个节点都没提交、没花积分，这一轮沿用直接出图：能按上面改好的（该是图片节点的改成图片节点；视频节点照原样）就在这一轮改好后直接用 runNodes 重新发起，不要停下来等用户确认；只有工作台选的出图模型本身不可用这类你改不了的，才说明需要用户换成哪个可用模型。除此之外不要发起别的付费运行。',
     )
   else guidance.push('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
   return {
