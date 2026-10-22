@@ -187,16 +187,31 @@ export async function markAgentJobsWakeSkipped(
 }
 
 /**
- * 这些后台任务又投递了一次唤醒：先前记下的「没接着做」已经过时，抹掉。比如确认门续跑因积分不够
- * 被撤回、卡上记了原因，之后任务结束时用户已充值，唤醒照常起轮——卡不该还说智能体没看结果。
- * 这次唤醒若又被跳过，跳过的那条路径会重新记上。
+ * 这几条唤醒在起轮事务里被取走、智能体确实接着看了结果：卡上先前记下的「没接着做」已经过时，
+ * 抹掉。比如确认门续跑因积分不够被撤回、卡上记了原因，之后用户充了值，任务结束的唤醒照常起轮。
+ * 必须在取走唤醒的那个事务里调用：起轮回滚时标记也原样留着。
  */
-export async function clearAgentJobsWakeSkipped(
+export async function clearAgentWakeSkippedForWakes(
   tx: BffTransaction,
   conversationId: string,
-  taskIds: readonly string[],
+  wakeIds: readonly string[],
 ): Promise<void> {
-  await setAgentJobsWakeSkipped(tx, conversationId, taskIds, null)
+  if (wakeIds.length === 0) return
+  const rows = await tx
+    .select({ taskId: schema.agent_jobs.task_id })
+    .from(schema.agent_jobs)
+    .where(
+      and(
+        eq(schema.agent_jobs.conversation_id, conversationId),
+        inArray(schema.agent_jobs.wake_id, [...wakeIds]),
+      ),
+    )
+  await setAgentJobsWakeSkipped(
+    tx,
+    conversationId,
+    rows.map((row) => row.taskId),
+    null,
+  )
 }
 
 async function setAgentJobsWakeSkipped(
