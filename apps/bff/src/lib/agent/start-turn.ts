@@ -12,6 +12,7 @@ import { bffDrain } from '../drain'
 import { log } from '../logger'
 import type { TaskReservationFailure } from '../private-overlay'
 import { markAgentJobsWakeSkipped } from './background-jobs'
+import { trackAgentBackgroundWork } from './background-work'
 import type { AgentOwner } from './conversations'
 import { isSealLease, sealAbandonedTurns } from './events'
 import {
@@ -132,31 +133,75 @@ export function kickConversationInbox(
   conversationId: string,
   options: KickConversationInboxOptions = {},
 ): void {
-  track(
-    pickUpNextTurn(conversationId, options).catch((err) =>
-      log.error(
-        { event: 'agent.inbox_drain_failed', conversationId, err },
-        'queued agent message could not start a turn',
-      ),
+  trackAgentBackgroundWork(pickUpLogged(conversationId, options))
+}
+
+/** 接着取下一条；失败只记日志，不往外抛。 */
+function pickUpLogged(
+  conversationId: string,
+  options: KickConversationInboxOptions,
+): Promise<void> {
+  return pickUpNextTurn(conversationId, options).catch((err) =>
+    log.error(
+      { event: 'agent.inbox_drain_failed', conversationId, err },
+      'queued agent message could not start a turn',
     ),
   )
 }
 
-/** 本进程里还没跑完的接力：一轮收尾放手、再去收件箱取下一条。 */
-const handoffs = new Set<Promise<unknown>>()
+/**
+ * 本进程里每个会话最近一轮的交接：轮跑完之后放手租约，再去收件箱取下一条。轮还在跑时它也在表里，
+ * 只是还没开始；轮已经不在 `runningTurn` 里而交接还在，就是这个会话正在收尾。
+ */
+const handoffs = new Map<string, Promise<void>>()
 
-function track(handoff: Promise<unknown>): void {
-  handoffs.add(handoff)
-  // 接住 rejection：Bun 遇到没人接的 rejection 会直接退出进程。
-  handoff.finally(() => handoffs.delete(handoff)).catch(() => {})
+function handOff(conversationId: string, turn: RunningTurn, work: () => Promise<void>): void {
+  const completed = turn.completed ?? Promise.resolve()
+  const handoff: Promise<void> = completed.then(work).finally(() => {
+    if (handoffs.get(conversationId) === handoff) handoffs.delete(conversationId)
+  })
+  handoffs.set(conversationId, handoff)
+  // 开轮时就登记：轮从运行表注销到交接动手之间没有空档，清场不会在这当中提前放行。
+  trackAgentBackgroundWork(handoff)
 }
 
 /**
- * 等本进程发出的接力都跑完。快照里 `activeTurn` 变成 null 时，收尾那一轮的接力可能还在路上，
- * 测试若此刻往收件箱里放东西，会被它当场取走开轮。
+ * 会话在本进程刚收尾时，等放手租约、接着取下一条都做完再回来。轮的终帧与响应流先于放手结束，
+ * 发送方这时就进收件箱，收尾的接力会把这一条当成排着的消息抢去开轮：它照样会跑，可发送方拿不到
+ * 自己的流，只拿到一张排队回执。会话还有轮在跑时不等：那时这一条本来就该排队。
+ *
+ * 等待的上限与 `claimWaitingOutSeal` 等正在放手的上一轮相同（`SEAL_WAIT_MS`）。收尾卡在数据库上
+ * 超过这个时间就不再等，照常入队：消息不丢，只是退回排队回执，由收尾的接力开轮。
  */
-export async function settleInboxHandoffsForTesting(): Promise<void> {
-  while (handoffs.size > 0) await Promise.allSettled([...handoffs])
+export async function awaitConversationHandoff(conversationId: string): Promise<void> {
+  const deadline = Date.now() + SEAL_WAIT_MS
+  while (!runningTurn(conversationId)) {
+    const handoff = handoffs.get(conversationId)
+    const left = deadline - Date.now()
+    if (!handoff || left <= 0) return
+    handoffWaiters.set(conversationId, (handoffWaiters.get(conversationId) ?? 0) + 1)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        handoff.catch(() => {}),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, left)
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+      const waiting = (handoffWaiters.get(conversationId) ?? 1) - 1
+      if (waiting > 0) handoffWaiters.set(conversationId, waiting)
+      else handoffWaiters.delete(conversationId)
+    }
+  }
+}
+
+const handoffWaiters = new Map<string, number>()
+
+/** 有几个发送方正等着这个会话收尾。测试据此确认发送方已经停在交接前，再放行收尾。 */
+export function conversationHandoffWaitersForTesting(conversationId: string): number {
+  return handoffWaiters.get(conversationId) ?? 0
 }
 
 async function pickUpNextTurn(
@@ -258,9 +303,9 @@ async function drainOnce(
       release()
     }
     if (result.kind === 'started' && result.turn.completed) {
-      track(
-        result.turn.completed.then(finish).then(
-          () => kickConversationInbox(conversationId, { deliverDueWakes: true }),
+      handOff(conversationId, result.turn, () =>
+        finish().then(
+          () => pickUpLogged(conversationId, { deliverDueWakes: true }),
           () => bffDrain.failed(),
         ),
       )
