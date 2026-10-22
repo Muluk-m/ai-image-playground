@@ -1,4 +1,4 @@
-import type { ModelBadge } from '@image-playground/shared'
+import { isModelEtaSeconds, type ModelBadge } from '@image-playground/shared'
 import { i18next } from '../../i18n'
 import type { ChannelCapability, ClientProfile, PublicChannel } from './types'
 
@@ -64,13 +64,12 @@ export function getProfileModels(
 }
 
 /**
- * 选择器提示用的典型耗时。BFF 加载时已限定为 1–3600 的整数；这里再挡一次，长开的标签页或别的
- * 部署发来的清单里出现 0、负数、非有限值或非数字时当作没有，不显示「约 -1 秒」这类文案。
+ * 选择器提示用的典型耗时。BFF 加载时已限定为 1–3600 的整数；这里按同一条（shared 的
+ * `isModelEtaSeconds`）再挡一次，长开的标签页或别的部署发来的清单里有不合法的值时当作没有，
+ * 不显示「约 0 秒」「约 -1 秒」这类文案。
  */
 export function usableEtaSeconds(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? Math.round(value)
-    : undefined
+  return isModelEtaSeconds(value) ? value : undefined
 }
 
 /** 返回该 profile 的模型展示项（id + 人类可读 label）。 */

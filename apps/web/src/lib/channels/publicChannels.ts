@@ -58,6 +58,9 @@ export function modelLabel(modelId: string, channelId?: string): string {
   return modelId
 }
 
+// modelId → 声明的图标，按清单数组身份缓存：清单不变时每个 `ModelLogo` 只做一次 Map 查找。
+const logoIndex = new WeakMap<readonly DiscoveredChannel[], Map<string, ModelLogoId>>()
+
 /**
  * 模型在渠道配置里声明的品牌图标（`ChannelModel.logo`）。图片、视频模型都认，所以直接读
  * channelStore 而不是图片视图；同一 id 出现在多条渠道上时取第一条声明了图标的。
@@ -69,9 +72,15 @@ export function modelLogo(
   channels: readonly DiscoveredChannel[] = getStoredChannels(),
 ): ModelLogoId | undefined {
   if (!modelId) return undefined
-  for (const channel of channels) {
-    const logo = channel.models.find((model) => model.id === modelId)?.logo
-    if (logo) return logo
+  let index = logoIndex.get(channels)
+  if (!index) {
+    index = new Map()
+    for (const channel of channels) {
+      for (const model of channel.models) {
+        if (model.logo && !index.has(model.id)) index.set(model.id, model.logo)
+      }
+    }
+    logoIndex.set(channels, index)
   }
-  return undefined
+  return index.get(modelId)
 }

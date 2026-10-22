@@ -114,3 +114,12 @@ it.each([
   expect(option.textContent).not.toMatch(/约|秒|分钟/)
   expect(option.getAttribute('aria-label')).toBe('Nano Banana 2 Lite · 速度快 · 便宜 · Vertex AI')
 })
+
+it.each([
+  0.1, 2.5, 3601,
+])('shows no duration for an eta %p outside 1–3600 whole seconds', (etaSeconds) => {
+  act(() =>
+    root.render(<ModelList options={[{ ...lite, etaSeconds }]} value="" onPick={() => {}} />),
+  )
+  expect(optionNamed('Nano Banana 2 Lite').textContent).not.toMatch(/约|秒|分钟/)
+})

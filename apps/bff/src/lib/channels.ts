@@ -36,7 +36,12 @@ import type {
   ModelLogoId,
   QueueProvider,
 } from '@image-playground/shared'
-import { CHANNEL_CAPABILITIES, MODEL_BADGES, MODEL_LOGOS } from '@image-playground/shared'
+import {
+  CHANNEL_CAPABILITIES,
+  isModelEtaSeconds,
+  MODEL_BADGES,
+  MODEL_LOGOS,
+} from '@image-playground/shared'
 import { isObject } from './type-guards'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -150,7 +155,7 @@ function parseBadges(v: unknown, ctx: string): ModelBadge[] | undefined {
 
 function parseEtaSeconds(v: unknown, ctx: string): number | undefined {
   if (v === undefined) return undefined
-  if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0 || v > 3600)
+  if (!isModelEtaSeconds(v))
     throw new ChannelsLoadError(`${ctx}.etaSeconds must be an integer between 1 and 3600`)
   return v
 }
