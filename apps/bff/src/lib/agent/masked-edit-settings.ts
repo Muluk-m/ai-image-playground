@@ -12,7 +12,13 @@ for (const [key, names] of Object.entries({
     'maxFlatDifference',
   ],
   regions: ['minPixels', 'changedDelta', 'minChangedFraction', 'maxRetries'],
-  rescale: ['maxScaleFactor', 'maxAspectDifference', 'minTexturedRegions', 'minMatchedQuadrants'],
+  rescale: [
+    'maxScaleFactor',
+    'maxAspectDifference',
+    'minTexturedRegions',
+    'minMatchedQuadrants',
+    'minAllMatchedRegions',
+  ],
 })) {
   const group = settings[key as keyof typeof settings]
   if (
@@ -38,6 +44,7 @@ if (
   !Number.isInteger(settings.rescale.minTexturedRegions) ||
   !Number.isInteger(settings.rescale.minMatchedQuadrants) ||
   settings.rescale.minMatchedQuadrants > 4 ||
+  !Number.isInteger(settings.rescale.minAllMatchedRegions) ||
   !Number.isInteger(settings.alignment.gridSize) ||
   settings.alignment.gridSize < 2 ||
   settings.alignment.gridSize > 64 ||

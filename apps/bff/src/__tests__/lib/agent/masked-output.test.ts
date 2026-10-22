@@ -1,7 +1,11 @@
 import { expect, it } from 'bun:test'
 import sharp from 'sharp'
 import { inspectMaskedAlignment } from '../../../lib/agent/masked-alignment'
-import { acceptsUpstreamSize, protectMaskedOutput } from '../../../lib/agent/masked-output'
+import {
+  acceptsUpstreamSize,
+  protectMaskedOutput,
+  rescaleEvidence,
+} from '../../../lib/agent/masked-output'
 
 async function png(values: number[], mask = false) {
   const raw = Buffer.alloc(96 * 96 * 4)
@@ -461,4 +465,123 @@ it('accepts the sizes prod upstreams actually return for a request, and only tho
     [96, 96, 1, 1], // 缩放过头
   ] as const)
     expect(acceptsUpstreamSize(w, h, gw, gh)).toBe(false)
+})
+
+/**
+ * 换背景的典型：保护区只剩画面中下部一个小而平滑的主体（浴缸），往里收过一圈；主体以外全部重绘。
+ * 与 results-v5 那一单同一种形状：保护区里有纹理的格只有个位数、落在两个象限。
+ */
+async function smoothSubjectCase(size = 480) {
+  const raw = Buffer.alloc(size * size * 4),
+    subject = new Uint8Array(size * size)
+  const cx = size * 0.5,
+    cy = size * 0.66,
+    rx = size * 0.3,
+    ry = size * 0.17
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4
+      const inside = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1
+      subject[y * size + x] = inside ? 1 : 0
+      // 背景是带纹理的墙；主体是平滑明暗加几道竖向反光。
+      raw.set(
+        inside
+          ? [
+              // 平滑的明暗加几道竖向反光：块内有起伏，但整块主体只占几格。
+              150 + 50 * Math.cos(((y - cy) / ry) * 1.4) + 30 * Math.sin(x / 9),
+              148 + 50 * Math.cos(((y - cy) / ry) * 1.4) + 30 * Math.sin(x / 9),
+              145 + 50 * Math.cos(((y - cy) / ry) * 1.4) + 30 * Math.sin(x / 9),
+              255,
+            ]
+          : [
+              150 + 30 * Math.sin(x / 7) * Math.cos(y / 9),
+              130 + 25 * Math.sin((x + y) / 11),
+              110,
+              255,
+            ],
+        i,
+      )
+    }
+  // 反选：主体以外都重绘，并往主体里吃进 8px（与网页 invertInset 同一用意）。
+  const inset = 8
+  const selection = Buffer.alloc(raw.length, 255)
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      let keep = subject[y * size + x] === 1
+      for (let dy = -inset; keep && dy <= inset; dy += 2)
+        for (let dx = -inset; dx <= inset; dx += 2) {
+          const yy = y + dy,
+            xx = x + dx
+          if (dx * dx + dy * dy > inset * inset) continue
+          if (yy < 0 || yy >= size || xx < 0 || xx >= size || !subject[yy * size + xx]) {
+            keep = false
+            break
+          }
+        }
+      if (!keep) selection[(y * size + x) * 4 + 3] = 0
+    }
+  const original = await sharp(raw, { raw: { width: size, height: size, channels: 4 } })
+    .png()
+    .toBuffer()
+  const mask = await sharp(selection, { raw: { width: size, height: size, channels: 4 } })
+    .png()
+    .toBuffer()
+  // 换了背景、主体原样的候选：主体以外涂成「海边」的蓝，主体连同轮廓保留。
+  const edited = Buffer.from(raw)
+  for (let i = 0; i < subject.length; i++)
+    if (!subject[i]) edited.set([70 + ((i % size) % 13), 140, 205 - ((i / size) % 17), 255], i * 4)
+  const candidate = await sharp(edited, { raw: { width: size, height: size, channels: 4 } })
+    .png()
+    .toBuffer()
+  return { raw, selection, original, mask, candidate, size }
+}
+
+it('accepts a rescaled background swap whose small smooth subject gives only local evidence', async () => {
+  const { raw, selection, original, mask: m, candidate, size } = await smoothSubjectCase()
+  const protect = await protectMaskedOutput(url(original), url(m))
+  // 上游按自己的档位出图：480 → 483（0.6% 放大，宽高比一致）。
+  const result = await protect(await sharp(candidate).resize(483, 483).png().toBuffer())
+  expect(result.inspection.rescaled).toBe(1)
+  // 证据只在局部：格数不到 12、象限不到 3，但每一格都对得上。
+  expect(result.inspection.texturedRegions).toBeGreaterThanOrEqual(4)
+  expect(result.inspection.texturedRegions).toBeLessThan(12)
+  expect(result.inspection.matchedRegions).toBe(result.inspection.texturedRegions)
+  expect(result.inspection.matchedQuadrants).toBeLessThan(3)
+  expect(result.inspection).toMatchObject({ width: size, height: size })
+  expectProtectedUnchanged(raw, selection, await sharp(result.bytes).raw().toBuffer())
+})
+
+it('rejects a background swap whose content moved, rescaled or not', async () => {
+  const { original, mask: m, candidate, size } = await smoothSubjectCase()
+  const protect = await protectMaskedOutput(url(original), url(m))
+  for (const [dx, dy] of [
+    [8, 0],
+    [0, 8],
+    [12, 6],
+  ] as const) {
+    const moved = await sharp(candidate)
+      .extract({ left: dx, top: dy, width: size - dx, height: size - dy })
+      .extend({ right: dx, bottom: dy, background: '#4682cd' })
+      .png()
+      .toBuffer()
+    for (const edge of [size, 483])
+      await expect(protect(await sharp(moved).resize(edge, edge).png().toBuffer())).rejects.toThrow(
+        '位置对应无法确认',
+      )
+  }
+})
+
+it('keeps the dispersed-texture rule for rescaled candidates with plenty of protected texture', () => {
+  expect(rescaleEvidence({ texturedRegions: 40, matchedRegions: 35, matchedQuadrants: 4 })).toBe(
+    'dispersed',
+  )
+  // 纹理多但缺了象限、又不是每格都对上：仍然拒绝（与原规则一致）。
+  expect(rescaleEvidence({ texturedRegions: 20, matchedRegions: 19, matchedQuadrants: 2 })).toBe(
+    null,
+  )
+  expect(rescaleEvidence({ texturedRegions: 8, matchedRegions: 8, matchedQuadrants: 2 })).toBe(
+    'local',
+  )
+  expect(rescaleEvidence({ texturedRegions: 8, matchedRegions: 7, matchedQuadrants: 2 })).toBe(null)
+  expect(rescaleEvidence({ texturedRegions: 3, matchedRegions: 3, matchedQuadrants: 1 })).toBe(null)
 })
