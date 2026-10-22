@@ -156,9 +156,9 @@ export async function transferMedia(
   const { signal, current } = options
   const sameAccount = accountScope()
   const backend = bffBaseUrl()
-  const reserve = () => {
+  const reserve = async () => {
     options.onPhase?.('reserve')
-    return mediaJson<Upload>('/uploads', {
+    const reserved = await mediaJson<Upload>('/uploads', {
       method: 'POST',
       signal,
       headers: { 'content-type': 'application/json' },
@@ -169,6 +169,8 @@ export async function transferMedia(
         ...(options.purpose ? { purpose: options.purpose } : {}),
       }),
     })
+    options.onReserved?.(reserved.id)
+    return reserved
   }
   let stage: 'reserve' | 'put' = 'reserve'
   let upload: Upload
@@ -185,7 +187,6 @@ export async function transferMedia(
           current()
           refresh = false
         }
-        options.onReserved?.(upload.id)
         if (upload.status === 'ready') return upload
         stage = 'put'
         if (!upload.uploadUrl) throw new Error('invalid_media_upload')

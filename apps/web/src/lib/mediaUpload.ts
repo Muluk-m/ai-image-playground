@@ -1,4 +1,4 @@
-import { accountScope } from './authScope'
+import { accountScope, safeLocalStorage } from './authScope'
 import { imageDataUrlToPngBlob } from './canvasImage'
 import { getAttachmentLimits } from './clientCapabilities'
 import { MediaRequestError } from './cloudMedia'
@@ -67,9 +67,12 @@ type UploadPhase =
   | 'confirm_shared'
 
 /**
- * 一张图从排队到确认的分段耗时（毫秒）。在有 product_events 之前先打到控制台的 debug 级
- * （浏览器默认不显示），用 mediaId 能和服务端 media.confirmation_finished 的 phaseMs 对上。
+ * 一张图从排队到确认的分段耗时（毫秒）。在有 product_events 之前，只在本机打开
+ * localStorage `MEDIA_UPLOAD_TIMING_FLAG` = '1' 时打到控制台 debug 级；默认什么都不输出。
+ * 用 mediaId 能和服务端 media.confirmation_finished 的 phaseMs 对上。
  */
+export const MEDIA_UPLOAD_TIMING_FLAG = 'debug.mediaUploadTiming'
+
 function uploadTimer() {
   const started = performance.now()
   const phaseMs: Partial<Record<UploadPhase, number>> = {}
@@ -85,6 +88,7 @@ function uploadTimer() {
     mark,
     report(fields: Record<string, unknown>) {
       mark(phase)
+      if (safeLocalStorage.getItem(MEDIA_UPLOAD_TIMING_FLAG) !== '1') return
       console.debug('[media.upload]', {
         ...fields,
         totalMs: Math.round(performance.now() - started),
@@ -94,11 +98,12 @@ function uploadTimer() {
   }
 }
 
-/** 日志里只留错误码，不带后端或浏览器给的原文。 */
+/** 日志里只留形如错误码的值，不带后端或浏览器给的原文。 */
 function uploadErrorCode(error: unknown): string {
-  if (error instanceof MediaRequestError) return error.code
-  if (error instanceof Error && /^[a-z][a-z0-9_]{0,63}$/.test(error.message)) return error.message
-  if (error instanceof Error) return error.name
+  const code = /^[a-z][a-z0-9_]{0,63}$/
+  if (error instanceof MediaRequestError)
+    return code.test(error.code) ? error.code : 'media_request_failed'
+  if (error instanceof Error && code.test(error.message)) return error.message
   return 'unknown'
 }
 
@@ -201,7 +206,11 @@ export async function uploadMediaSource(
     )
     timer.report({ outcome, mediaId, bytes: bytesSent, contentType: contentTypeSent })
     return result
-  } catch (error) {
+  } catch (caught) {
+    let error = caught
+    if (caught instanceof TypeError) error = new MediaRequestError(503, 'media_network_error')
+    else if (caught instanceof DOMException && caught.name === 'TimeoutError')
+      error = new MediaRequestError(408, 'media_timeout')
     if (!options.signal.aborted)
       timer.report({
         outcome: 'failed',
@@ -211,9 +220,6 @@ export async function uploadMediaSource(
         error: uploadErrorCode(error),
       })
     options.onState?.('failed')
-    if (error instanceof TypeError) throw new MediaRequestError(503, 'media_network_error')
-    if (error instanceof DOMException && error.name === 'TimeoutError')
-      throw new MediaRequestError(408, 'media_timeout')
     throw error
   }
 }
