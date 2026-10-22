@@ -133,7 +133,8 @@ it('keeps image and mask coordinates and selection identity when viewing a large
     const images = result.content.filter((block) => block.type === 'image')
     expect(images).toHaveLength('region' in params ? 4 : 3)
     expect((await sizeOf(images[0]!)).width).toBe(4000)
-    expect((await sizeOf(images[1]!)).width).toBe(4000)
+    // 定位图只用来看圈在哪，按预览规格等比缩小（选区坐标仍以原件为准）；裁片保持原尺寸。
+    expect(await sizeOf(images[1]!)).toMatchObject({ width: 1024, height: 256 })
     expect((await sizeOf(images[2]!)).width).toBe(200)
   }
 })
