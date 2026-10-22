@@ -63,6 +63,16 @@ export function getProfileModels(
   return channel ? channel.models.map((model) => model.id) : []
 }
 
+/**
+ * 选择器提示用的典型耗时。BFF 加载时已限定为 1–3600 的整数；这里再挡一次，长开的标签页或别的
+ * 部署发来的清单里出现 0、负数、非有限值或非数字时当作没有，不显示「约 -1 秒」这类文案。
+ */
+export function usableEtaSeconds(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.round(value)
+    : undefined
+}
+
 /** 返回该 profile 的模型展示项（id + 人类可读 label）。 */
 export function getProfileModelOptions(
   profile: ClientProfile,
@@ -70,12 +80,15 @@ export function getProfileModelOptions(
 ): Array<{ id: string; label: string; badges?: ModelBadge[]; etaSeconds?: number }> {
   const channel = publicChannels.find((item) => item.id === profile.channelId)
   return channel
-    ? channel.models.map((model) => ({
-        id: model.id,
-        label: model.label ?? model.id,
-        ...(model.badges?.length ? { badges: model.badges } : {}),
-        ...(model.etaSeconds ? { etaSeconds: model.etaSeconds } : {}),
-      }))
+    ? channel.models.map((model) => {
+        const etaSeconds = usableEtaSeconds(model.etaSeconds)
+        return {
+          id: model.id,
+          label: model.label ?? model.id,
+          ...(model.badges?.length ? { badges: model.badges } : {}),
+          ...(etaSeconds !== undefined ? { etaSeconds } : {}),
+        }
+      })
     : []
 }
 
