@@ -646,6 +646,26 @@ describe('shipped channels.json', () => {
     ])
   })
 
+  it('labels image channels with the provider brand users recognize', () => {
+    const result = parseChannelsConfig(
+      shipped,
+      (key) =>
+        ({
+          OPENAI_API_KEY: 'openai-key',
+          GROK_BASE_URL: 'https://api.x.ai/v1',
+          GROK_API_KEY: 'grok-key',
+          VERTEX_BASE_URL:
+            'https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/google',
+          VERTEX_API_KEY: 'vertex-key',
+        })[key],
+    )
+    // 模型选择器右侧直接显示渠道 label：用户认的是厂商品牌，不是接入方式或产品线名。
+    const labels = Object.fromEntries(result.channels.map((c) => [c.id, c.label]))
+    expect(labels['openai-images']).toBe('OpenAI')
+    expect(labels['grok-images']).toBe('Grok')
+    expect(labels['vertex-images']).toBe('Gemini')
+  })
+
   it('advertises only Grok Image 2.0 on the grok-images channel', () => {
     const result = parseChannelsConfig(
       shipped,
