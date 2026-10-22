@@ -14,7 +14,8 @@
         {
           "id": "gpt-image-2.5-flare",
           "label": "GPT Image 2.5 Flare",
-          "capabilities": ["generate", "edit", "mask", "quality", "n", "moderation"]
+          "capabilities": ["generate", "edit", "mask", "quality", "n", "moderation"],
+          "badges": ["recommended"]
         },
         {
           "id": "gpt-image-2.5-sunburst",
@@ -236,21 +237,24 @@
           "label": "Nano Banana 2.1",
           "capabilities": ["generate", "edit", "size"],
           "badges": ["latest"],
-          "etaSeconds": 25
+          "etaSeconds": 25,
+          "logo": "nano-banana"
         },
         {
           "id": "gemini-3-pro-image",
           "label": "Nano Banana Pro",
           "capabilities": ["generate", "edit", "size"],
           "badges": ["quality"],
-          "etaSeconds": 80
+          "etaSeconds": 80,
+          "logo": "nano-banana"
         },
         {
           "id": "gemini-3.1-flash-lite-image",
           "label": "Nano Banana 2 Lite",
           "capabilities": ["generate", "edit", "size"],
           "badges": ["fast", "value"],
-          "etaSeconds": 3
+          "etaSeconds": 3,
+          "logo": "nano-banana"
         }
       ],
       "defaults": {

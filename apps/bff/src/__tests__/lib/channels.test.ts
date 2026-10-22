@@ -453,6 +453,7 @@ describe('parseChannelsConfig', () => {
                 capabilities: ['generate'],
                 badges: ['fast', 'value'],
                 etaSeconds: 3,
+                logo: 'nano-banana',
               },
               { id: 'plain', label: 'Plain', capabilities: ['generate'] },
             ],
@@ -463,9 +464,10 @@ describe('parseChannelsConfig', () => {
     )
     _setChannelsForTesting(result.channels)
     const [tagged, plain] = getDiscoveredChannels()[0]!.models
-    expect(tagged).toMatchObject({ badges: ['fast', 'value'], etaSeconds: 3 })
+    expect(tagged).toMatchObject({ badges: ['fast', 'value'], etaSeconds: 3, logo: 'nano-banana' })
     expect(plain).not.toHaveProperty('badges')
     expect(plain).not.toHaveProperty('etaSeconds')
+    expect(plain).not.toHaveProperty('logo')
   })
 
   it.each([
@@ -475,6 +477,8 @@ describe('parseChannelsConfig', () => {
     [{ etaSeconds: 0 }, /etaSeconds/],
     [{ etaSeconds: 2.5 }, /etaSeconds/],
     [{ etaSeconds: '14' }, /etaSeconds/],
+    [{ logo: 'banana' }, /invalid logo 'banana'/],
+    [{ logo: ['nano-banana'] }, /invalid logo/],
   ])('rejects malformed selector metadata %j', (extra, error) => {
     expect(() =>
       parseChannelsConfig(
@@ -546,7 +550,12 @@ describe('shipped channels.json', () => {
       'moderation',
     ]
     expect(result.channels.find((c) => c.id === 'openai-images')?.models).toEqual([
-      { id: 'gpt-image-2.5-flare', label: 'GPT Image 2.5 Flare', capabilities },
+      {
+        id: 'gpt-image-2.5-flare',
+        label: 'GPT Image 2.5 Flare',
+        capabilities,
+        badges: ['recommended'],
+      },
       { id: 'gpt-image-2.5-sunburst', label: 'GPT Image 2.5 Sunburst', capabilities },
     ])
   })
@@ -690,6 +699,7 @@ describe('shipped channels.json', () => {
         capabilities: ['generate', 'edit', 'size'],
         badges: ['latest'],
         etaSeconds: 25,
+        logo: 'nano-banana',
       },
       {
         id: 'gemini-3-pro-image',
@@ -697,6 +707,7 @@ describe('shipped channels.json', () => {
         capabilities: ['generate', 'edit', 'size'],
         badges: ['quality'],
         etaSeconds: 80,
+        logo: 'nano-banana',
       },
       {
         id: 'gemini-3.1-flash-lite-image',
@@ -704,6 +715,7 @@ describe('shipped channels.json', () => {
         capabilities: ['generate', 'edit', 'size'],
         badges: ['fast', 'value'],
         etaSeconds: 3,
+        logo: 'nano-banana',
       },
     ])
     _setChannelsForTesting(result.channels)

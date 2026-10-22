@@ -64,10 +64,18 @@ export type ChannelMedia = 'image' | 'video'
 /**
  * 模型选择器里名字后面那几个说明标签。只放运营能讲清楚依据的特征（实测耗时、官方定位）；
  * 文案在前端 i18n（`composer.param.modelBadge.*`），这里只是稳定的 token。
- * 'latest' = 同系列最新发布；'quality' = 同系列画质最好；'fast' = 同系列最快；'value' = 同系列最便宜。
+ * 'recommended' = 平台默认推荐的模型；'latest' = 同系列最新发布；'quality' = 同系列画质最好；
+ * 'fast' = 同系列最快；'value' = 同系列最便宜。
  */
-export const MODEL_BADGES = ['latest', 'quality', 'fast', 'value'] as const
+export const MODEL_BADGES = ['recommended', 'latest', 'quality', 'fast', 'value'] as const
 export type ModelBadge = (typeof MODEL_BADGES)[number]
+
+/**
+ * 模型自带的品牌图标。不写时前端按模型 id 前缀给厂商图标（OpenAI / Gemini / Grok…）；写了就用
+ * `apps/web/public/model-logos/<token>.svg`。只登记有官方来源的图标，来源写在资源文件旁的说明里。
+ */
+export const MODEL_LOGOS = ['nano-banana'] as const
+export type ModelLogoId = (typeof MODEL_LOGOS)[number]
 
 export interface ChannelModel {
   id: string
@@ -78,6 +86,8 @@ export interface ChannelModel {
   badges?: ModelBadge[]
   /** 典型单张耗时（秒，实测中位数的量级），选择器显示成「约 N 秒 / 分钟」；只是提示，不参与超时。 */
   etaSeconds?: number
+  /** 选择器、任务卡等处显示的模型图标；缺省按 id 前缀取厂商图标。 */
+  logo?: ModelLogoId
 }
 
 /**

@@ -9,7 +9,7 @@
  * 没有 BFF（runtimeConfig.bff.enabled=false）时 store 是一份已确认的空清单。
  * BFF 暂时不可达时清单还没落地（空数组只是初始值），生成会等重试，而不是报渠道缺失。
  */
-import type { DiscoveredChannel } from '@image-playground/shared'
+import type { DiscoveredChannel, ModelLogoId } from '@image-playground/shared'
 import { getStoredChannels } from './channelStore'
 import type { PublicChannel } from './types'
 
@@ -56,4 +56,18 @@ export function modelLabel(modelId: string, channelId?: string): string {
     if (label) return label
   }
   return modelId
+}
+
+/**
+ * 模型在渠道配置里声明的品牌图标（`ChannelModel.logo`）。图片、视频模型都认，所以直接读
+ * channelStore 而不是图片视图；同一 id 出现在多条渠道上时取第一条声明了图标的。
+ * 没声明（或清单还没到）返回 undefined，调用方按 id 前缀给厂商图标。
+ */
+export function modelLogo(modelId: string): ModelLogoId | undefined {
+  if (!modelId) return undefined
+  for (const channel of getStoredChannels()) {
+    const logo = channel.models.find((model) => model.id === modelId)?.logo
+    if (logo) return logo
+  }
+  return undefined
 }

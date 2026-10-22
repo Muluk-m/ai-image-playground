@@ -1,3 +1,4 @@
+import { modelLogo } from '../lib/channels/publicChannels'
 import { ClaudeLogo, GeminiLogo, OpenAILogo } from './assistant-ui/elements/logos'
 import { Icon } from './ui/icon'
 
@@ -27,6 +28,20 @@ export function compactModelName(model: string, fallback: string): string {
 }
 
 export function ModelLogo({ model }: { model: string }) {
+  // 渠道配置给模型声明了自己的图标时优先用它（彩色官方图标，明暗主题都不反色）。
+  const declared = modelLogo(model)
+  if (declared) {
+    return (
+      <img
+        src={`/model-logos/${declared}.svg`}
+        alt=""
+        aria-hidden="true"
+        width={16}
+        height={16}
+        className="h-4 w-4 shrink-0 object-contain"
+      />
+    )
+  }
   const brand =
     model.startsWith('gpt-') || /^o[134](?:-|$)/.test(model)
       ? 'openai'
