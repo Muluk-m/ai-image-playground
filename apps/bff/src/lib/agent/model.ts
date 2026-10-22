@@ -159,7 +159,7 @@ export function agentStreamFn(
       })
       // 把推理写在正文开头标签里的模型，在这一层就拆成 thinking：正文、落库与原生历史都不带标签。
       const tags = agentInlineReasoningTags(streamModel.id)
-      return tags ? withInlineReasoning(stream, tags) : stream
+      return tags ? withInlineReasoning(stream, tags, streamModel) : stream
     }
   }
   const fallback = selectedRuntime?.fallback
