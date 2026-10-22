@@ -15,19 +15,24 @@ export function ErrorState({
   detail?: string
   actions?: ReactNode
 }) {
+  // 克制的深色卡：中性底、细描边，只有图标用危险色；原因一句话，下一步放在同一张卡的操作行里。
   return (
     <div
       data-slot="error-state"
       role="alert"
-      className={`flex w-full items-start gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-xs text-destructive ${className}`}
+      className={`flex w-full items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-foreground ${className}`}
       {...props}
     >
-      <Icon name="error" size="xs" className="mt-0.5" />
+      <Icon name="error" size="xs" className="mt-[3px] shrink-0 text-destructive" />
       <div className="min-w-0 flex-1">
-        <p className="font-medium">{title}</p>
-        {detail && <p className="mt-0.5 break-words leading-relaxed">{detail}</p>}
+        <p className="break-words leading-snug">{title}</p>
+        {detail && (
+          <p className="mt-0.5 break-words text-xs leading-snug text-muted-foreground">{detail}</p>
+        )}
         {actions && (
-          <div className="mt-2 flex flex-wrap items-center gap-2 empty:hidden">{actions}</div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 empty:hidden">
+            {actions}
+          </div>
         )}
       </div>
     </div>

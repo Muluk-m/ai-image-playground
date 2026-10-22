@@ -4,6 +4,7 @@ import {
   type CapabilityKey,
   type ClientCapabilityKey,
   type ClientCapabilityManifest,
+  type MediaLimits,
 } from '@image-playground/shared'
 
 function disabledManifest(): ClientCapabilityManifest {
@@ -31,6 +32,7 @@ function parseManifest(input: unknown): ClientCapabilityManifest | null {
 let currentManifest = disabledManifest()
 let projectDocumentIdentity = false
 let attachmentLimits: AttachmentLimits | undefined
+let mediaLimits: MediaLimits | undefined
 const CAPABILITY_TIMEOUTS_MS = [5000, 10_000, 15_000]
 
 export async function bootstrapClientCapabilities(
@@ -41,6 +43,7 @@ export async function bootstrapClientCapabilities(
   currentManifest = disabledManifest()
   projectDocumentIdentity = false
   attachmentLimits = undefined
+  mediaLimits = undefined
   if (!bffEnabled) return currentManifest
 
   let result: { body: unknown; parsed: ClientCapabilityManifest | null } | null = null
@@ -79,6 +82,21 @@ export async function bootstrapClientCapabilities(
         limits.uploadConcurrency <= 4
       )
         attachmentLimits = limits
+    }
+    if (
+      result?.parsed?.['accounts:sync'] &&
+      typeof body === 'object' &&
+      body !== null &&
+      'mediaLimits' in body
+    ) {
+      const limits = body.mediaLimits as MediaLimits | null
+      if (
+        limits &&
+        [limits.imageBytes, limits.imagePixels].every(
+          (value) => Number.isSafeInteger(value) && value > 0,
+        )
+      )
+        mediaLimits = { imageBytes: limits.imageBytes, imagePixels: limits.imagePixels }
     }
     projectDocumentIdentity =
       result?.parsed !== null &&
@@ -134,6 +152,11 @@ export function isClientCapabilityEnabled(key: CapabilityKey): boolean {
   const definition = CAPABILITIES[key]
   if (!definition.clientExposed) return false
   return currentManifest[key as ClientCapabilityKey]
+}
+
+/** 普通云媒体单张上限（服务端 `sync:asset-image-bytes`）；服务端没有给就是 undefined。 */
+export function getMediaLimits(): Readonly<MediaLimits> | undefined {
+  return mediaLimits
 }
 
 export function getAttachmentLimits(): Readonly<AttachmentLimits> | undefined {
