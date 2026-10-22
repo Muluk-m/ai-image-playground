@@ -10,7 +10,9 @@ process.env.OPERATOR_CONFIG_FILE = ''
 const { agentModel, agentStreamFn, setAgentFetchForTesting } = await import(
   '../../../lib/agent/model'
 )
-const { rewriteInlineReasoning } = await import('../../../lib/agent/inline-reasoning')
+const { rewriteInlineReasoning, withInlineReasoning } = await import(
+  '../../../lib/agent/inline-reasoning'
+)
 afterEach(() => setAgentFetchForTesting())
 
 async function run(response: () => Response, modelId?: string) {
@@ -117,4 +119,72 @@ it('rewrites stored messages so replayed native history carries no tags', () => 
     { type: 'text', text: '回复' },
     { type: 'toolCall', id: 'c', name: 'readCanvas', arguments: {} },
   ])
+})
+
+/** 一条按契约本不该抛、却在给出 `events` 后抛了的上游流。 */
+function throwingUpstream(events: AssistantMessageEvent[]) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const event of events) yield event
+      throw new Error('socket closed')
+    },
+    result: () => new Promise<AssistantMessage>(() => {}),
+  } as unknown as Parameters<typeof withInlineReasoning>[0]
+}
+
+const gateway = {
+  api: 'openai-completions',
+  provider: 'upstream-gateway',
+  id: 'gpt-6-luna',
+} as const
+
+it('ends the stream with an error frame when the upstream throws mid-stream', async () => {
+  const partial: AssistantMessage = {
+    role: 'assistant',
+    content: [{ type: 'text', text: '<thinking>读画布' }],
+    api: 'openai-completions',
+    provider: 'upstream-gateway',
+    model: 'gpt-6-luna',
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: 'stop',
+    timestamp: 1,
+  }
+  const stream = withInlineReasoning(
+    throwingUpstream([
+      { type: 'start', partial: { ...partial, content: [] } },
+      { type: 'text_start', contentIndex: 0, partial },
+      { type: 'text_delta', contentIndex: 0, delta: '<thinking>读画布', partial },
+    ]),
+    ['thinking'],
+    gateway,
+  )
+  const events: AssistantMessageEvent[] = []
+  for await (const event of stream) events.push(event)
+  const result = await stream.result()
+  expect(events.at(-1)?.type).toBe('error')
+  expect(result.stopReason).toBe('error')
+  expect(result.errorMessage).toBe('socket closed')
+  expect(result.content).toEqual([{ type: 'thinking', thinking: '读画布' }])
+})
+
+it('ends the stream with an empty error frame when the upstream throws before any event', async () => {
+  const stream = withInlineReasoning(throwingUpstream([]), ['thinking'], gateway)
+  const events: AssistantMessageEvent[] = []
+  for await (const event of stream) events.push(event)
+  const result = await stream.result()
+  expect(events.map((event) => event.type)).toEqual(['error'])
+  expect(result).toMatchObject({
+    role: 'assistant',
+    content: [],
+    model: 'gpt-6-luna',
+    stopReason: 'error',
+    errorMessage: 'socket closed',
+  })
 })

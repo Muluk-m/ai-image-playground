@@ -1,10 +1,12 @@
 import {
+  type Api,
   type AssistantMessage,
   type AssistantMessageEvent,
   type AssistantMessageEventStream,
   createAssistantMessageEventStream,
+  type Model,
 } from '@earendil-works/pi-ai'
-import { splitInlineReasoning } from '@image-playground/shared'
+import { type InlineReasoningSplit, InlineReasoningSplitter } from '@image-playground/shared'
 
 type Block = AssistantMessage['content'][number]
 type TextBlock = Extract<Block, { type: 'text' }>
@@ -15,37 +17,67 @@ type Slot = TextBlock | ThinkingBlock
  * 一个上游正文块拆成几块：开头没有推理标签就原样一块；有就是 thinking 在前、正文（有字才有）在后。
  * thinking 不带签名：pi 回放时只把带推理字段签名的 thinking 送回上游，这一段不会再进请求。
  */
-function splitText(block: TextBlock, tags: readonly string[], finished: boolean): Slot[] {
-  const split = splitInlineReasoning(block.text, tags, finished)
+function toSlots(block: TextBlock, split: InlineReasoningSplit): Slot[] {
   if (split.state === 'pending') return []
   if (split.state === 'plain') return [block]
   const thinking: ThinkingBlock = { type: 'thinking', thinking: split.thinking }
   return split.text ? [thinking, { ...block, text: split.text }] : [thinking]
 }
 
-/** 整条消息改写：每个正文块按开头拆分，其余块原样。`finished` 判断某个正文块是否已写完。 */
+/** 整条消息改写：每个正文块按开头拆分，其余块原样。 */
 function rewriteContent(
   content: readonly Block[],
-  tags: readonly string[],
-  finished: (index: number) => boolean,
+  slotsOf: (block: TextBlock, index: number) => Slot[],
 ): { content: Block[]; offsets: number[] } {
   const out: Block[] = []
   const offsets: number[] = []
   for (const [index, block] of content.entries()) {
     offsets.push(out.length)
-    if (block.type === 'text') out.push(...splitText(block, tags, finished(index)))
+    if (block.type === 'text') out.push(...slotsOf(block, index))
     else out.push(block)
   }
   return { content: out, offsets }
 }
 
-/** 已写完的消息直接改写；用于流的终帧，也用于读回修复前存下的原生历史。 */
+/** 已写完的消息直接改写；用于读回修复前存下的原生历史。 */
 export function rewriteInlineReasoning(
   message: AssistantMessage,
   tags: readonly string[],
 ): AssistantMessage {
   if (!message.content.some((block) => block.type === 'text')) return message
-  return { ...message, content: rewriteContent(message.content, tags, () => true).content }
+  const slotsOf = (block: TextBlock) =>
+    toSlots(block, new InlineReasoningSplitter(tags).split(block.text, true))
+  return { ...message, content: rewriteContent(message.content, slotsOf).content }
+}
+
+/**
+ * 流里每个上游正文块各有一个拆分器，并记住上次的结果：没变的块直接复用，变了的块只看新增部分。
+ * 每来一个事件只做与新增文字成正比的工作，长推理、长回复不会越流越慢。
+ */
+function streamSlots(tags: readonly string[]) {
+  const cache = new Map<
+    number,
+    { splitter: InlineReasoningSplitter; length: number; finished: boolean; slots: Slot[] }
+  >()
+  return (block: TextBlock, index: number, finished: boolean): Slot[] => {
+    let entry = cache.get(index)
+    // 正文只会在末尾追加，长度没变就是没变；不逐字比较。
+    if (entry && entry.length === block.text.length && entry.finished === finished)
+      return entry.slots
+    if (!entry) {
+      entry = {
+        splitter: new InlineReasoningSplitter(tags),
+        length: -1,
+        finished: false,
+        slots: [],
+      }
+      cache.set(index, entry)
+    }
+    entry.length = block.text.length
+    entry.finished = finished
+    entry.slots = toSlots(block, entry.splitter.split(block.text, finished))
+    return entry.slots
+  }
 }
 
 function slotText(slot: Slot): string {
@@ -59,8 +91,10 @@ function slotText(slot: Slot): string {
 export function withInlineReasoning(
   upstream: AssistantMessageEventStream,
   tags: readonly string[],
+  model: Pick<Model<Api>, 'api' | 'provider' | 'id'>,
 ): AssistantMessageEventStream {
   const output = createAssistantMessageEventStream()
+  const slotsOf = streamSlots(tags)
   /** 每个上游正文块已经下发到哪：各输出块的类型与已发出的文字。 */
   const sent = new Map<number, { type: Slot['type']; text: string; ended: boolean }[]>()
   const finished = new Set<number>()
@@ -71,7 +105,9 @@ export function withInlineReasoning(
   const view = (partial: AssistantMessage) => {
     last = partial
     content = partial.content
-    const rewritten = rewriteContent(content, tags, (index) => finished.has(index))
+    const rewritten = rewriteContent(content, (block, index) =>
+      slotsOf(block, index, finished.has(index)),
+    )
     return { partial: { ...partial, content: rewritten.content }, offsets: rewritten.offsets }
   }
 
@@ -80,7 +116,7 @@ export function withInlineReasoning(
     const block = content[index]
     if (block?.type !== 'text') return
     const { partial: rewritten, offsets } = view(partial)
-    const slots = splitText(block, tags, finished.has(index))
+    const slots = slotsOf(block, index, finished.has(index))
     const base = offsets[index] ?? 0
     const state = sent.get(index) ?? []
     sent.set(index, state)
@@ -134,9 +170,15 @@ export function withInlineReasoning(
     }
   }
 
-  const finalMessage = (message: AssistantMessage) => {
+  /** 终帧：所有正文块都已写完，按写完改写（复用流中各块的拆分器）。 */
+  const finalMessage = (message: AssistantMessage): AssistantMessage => {
     settleBefore(message.content.length, message)
-    return rewriteInlineReasoning(message, tags)
+    if (!message.content.some((block) => block.type === 'text')) return message
+    return {
+      ...message,
+      content: rewriteContent(message.content, (block, index) => slotsOf(block, index, true))
+        .content,
+    }
   }
 
   void (async () => {
@@ -172,23 +214,38 @@ export function withInlineReasoning(
           }
         }
       }
-      output.end(rewriteInlineReasoning(await upstream.result(), tags))
+      output.end(finalMessage(await upstream.result()))
     } catch (error) {
-      // 上游流按契约不抛；万一抛了，照 pi 的约定编成一个错误终帧，下游不会一直等下去。
-      if (!last) {
-        output.end()
-        return
+      // 上游流按契约不抛；万一抛了，照 pi 的约定编成一个错误终帧并结束输出流，下游不会一直等下去。
+      const message: AssistantMessage = {
+        ...(last ? finalMessage(last) : emptyMessage(model)),
+        stopReason: 'error',
+        errorMessage: error instanceof Error ? error.message : String(error),
       }
-      output.push({
-        type: 'error',
-        reason: 'error',
-        error: {
-          ...rewriteInlineReasoning(last, tags),
-          stopReason: 'error',
-          errorMessage: error instanceof Error ? error.message : String(error),
-        },
-      })
+      output.push({ type: 'error', reason: 'error', error: message })
+      output.end(message)
     }
   })()
   return output
+}
+
+/** 上游一个事件都没给就抛了：照 pi 的错误终帧格式给一条空消息。 */
+function emptyMessage(model: Pick<Model<Api>, 'api' | 'provider' | 'id'>): AssistantMessage {
+  return {
+    role: 'assistant',
+    content: [],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    timestamp: Date.now(),
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: 'error',
+  }
 }
