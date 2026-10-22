@@ -689,8 +689,9 @@ export async function userMessageAfterTurn(
     .select({ seq: sql<number | null>`max(${inbox.seq})` })
     .from(inbox)
     .where(and(eq(inbox.conversation_id, conversationId), eq(inbox.consumed_turn_id, turnId)))
+  const startedSeq = started?.seq ?? null
   const after =
-    started?.seq == null ? gt(inbox.created_at, cardCreatedAt) : gt(inbox.seq, Number(started.seq))
+    startedSeq === null ? gt(inbox.created_at, cardCreatedAt) : gt(inbox.seq, Number(startedSeq))
   const [row] = await executor
     .select({ id: inbox.id })
     .from(inbox)
