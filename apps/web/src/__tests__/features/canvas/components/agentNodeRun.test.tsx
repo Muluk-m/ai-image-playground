@@ -51,6 +51,7 @@ let ends: number
 let confirms: number
 let preflights: number
 let reports: { nodes: { nodeId: string; outcome: string; reason?: string; retried?: boolean }[] }[]
+let blocked: { url: string; nodes: unknown }[]
 let cleanup: () => Promise<void>
 function fixturePlan(signature: string): NodeBatchPlan {
   return {
@@ -124,6 +125,7 @@ beforeEach(() => {
   confirms = 0
   preflights = 0
   reports = []
+  blocked = []
   authorization = {
     id: 'authorization',
     conversationId: 'conversation',
@@ -148,6 +150,10 @@ beforeEach(() => {
         // 服务端已经收下，响应却在路上丢了。
         if (loseReport) throw new TypeError('Failed to fetch')
         return Response.json({ authorization, wake: reportWake })
+      }
+      if (url.endsWith('/blocked')) {
+        blocked.push({ url, nodes: JSON.parse(String(init?.body)).nodes })
+        return Response.json({ logged: true })
       }
       if (url.endsWith('/wake'))
         return reports.length
@@ -368,6 +374,33 @@ it('refuses to confirm a blocked quote', async () => {
   expect(button('确认运行')?.disabled).toBe(true)
   expect(startAgentNodeRun('blocked', proposal)).toBe(false)
   expect(confirms).toBe(0)
+})
+it('logs a confirmation card blocked before it ran once, without reporting or ending it', async () => {
+  const job = fixturePlan('model').jobs[0]!
+  plan = {
+    ...fixturePlan('model'),
+    error: 'model',
+    jobs: [{ ...job, blocked: 'model_unavailable' }],
+  }
+  await mount('blocked-card', true, { ...proposal, authorizationId: 'blocked-card' })
+  await act(async () => {})
+  await act(async () => vi.advanceTimersByTimeAsync(2000))
+  expect(button('确认运行')?.disabled).toBe(true)
+  expect(blocked).toEqual([
+    {
+      url: expect.stringContaining('/api/agent/stage-authorizations/blocked-card/blocked'),
+      nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' }],
+    },
+  ])
+  expect(reports).toEqual([])
+  expect(ends).toBe(0)
+  expect(confirms).toBe(0)
+})
+it('does not log a card that can still run', async () => {
+  await mount('runnable-card', true, { ...proposal, authorizationId: 'runnable-card' })
+  await act(async () => {})
+  expect(button('确认运行')?.disabled).toBe(false)
+  expect(blocked).toEqual([])
 })
 it('ends authorization before start when the countdown is undone', async () => {
   await mount('undo')

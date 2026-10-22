@@ -9,6 +9,7 @@ import Credits from '../../../components/Credits'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
+import { refreshChannels } from '../../../lib/channels/bootstrapChannels'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import NodeBatchJobs from '../../canvas/components/NodeBatchJobs'
 import { CARD_NOTE } from '../agentStyles'
@@ -20,6 +21,7 @@ import {
   agentNodeRunWakeSkipped,
   forgetAgentNodeRun,
   isAgentNodeRunOrigin,
+  noteAgentNodeRunBlocked,
   startAgentNodeRun,
   stopAgentNodeRun,
   subscribeAgentNodeRuns,
@@ -52,6 +54,10 @@ export default function AgentNodeRunCard({
     if (live && (live.status === 'done' || live.status === 'undone' || live.status === 'failed'))
       settled.current = live
   }, [live])
+  // 报价前把模型清单刷新一下（30 秒节流，失败保留原清单）：运营停用或恢复视频模型后，卡片按新清单报价。
+  useEffect(() => {
+    void refreshChannels()
+  }, [])
   useEffect(() => {
     if (!proposal.direct || !origin || !bridge) return
     startAgentNodeRun(runKey, proposal, 0)
@@ -149,6 +155,11 @@ export default function AgentNodeRunCard({
             ? t(`canvas:nodeBatch.${run.error}`)
             : subtitle
   const canConfirm = !proposal.direct && !run && pending && origin
+  // 按钮因开跑前的拦截置灰：服务端记一条 agent.stage.blocked（同一组原因只记一次）。
+  const blockedByPlan = Boolean(canConfirm && !readFailed && plan?.error)
+  useEffect(() => {
+    if (blockedByPlan) noteAgentNodeRunBlocked(proposal, plan)
+  }, [blockedByPlan, plan, proposal])
   if (proposal.direct && !run && !plan?.error && !plan?.blocked && !skippedReason) return null
   const canUndo = run?.status === 'countdown'
   return (
