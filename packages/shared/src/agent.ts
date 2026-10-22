@@ -249,7 +249,16 @@ export interface AgentMarkedRegion {
   readonly y: number
   readonly width: number
   readonly height: number
+  /**
+   * 用户在范围确认卡上写的标注文字。只进定位图旁的文字清单与改图说明，不画进原图像素。
+   */
+  readonly note?: string
+  /** 箭头标注的尾端（归一化坐标）；箭头指向这个区域的中心。只画在定位图上。 */
+  readonly arrow?: { readonly x: number; readonly y: number }
 }
+
+/** 标注文字的上限：一句话说清楚这里要怎样。 */
+export const AGENT_REGION_NOTE_MAX_CHARS = 120
 
 export interface AgentInlineReference {
   /** 画布对象 id 或素材的图片 id；模型改图时用它指认要改哪一张。 */
@@ -977,11 +986,85 @@ export interface AgentSkillOutcome {
   readonly file?: string
 }
 
+/** 归一化到原图宽高的矩形：0–1，原点在左上。 */
+export interface AgentNormalizedBox {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+/** 分割提示点：`include` 为真是落在目标上的点，为假是明确不改的点。 */
+export interface AgentMaskPromptPoint {
+  readonly x: number
+  readonly y: number
+  readonly include: boolean
+}
+
+/**
+ * 建议蒙版由谁给：服务端分割模型（`server`，带 `maskMediaId`）、浏览器里的分割模型（`browser`，
+ * 旧提议才有，卡片已不再在浏览器里分割），或者只按框栅格化的粗略范围（`box`）。
+ */
+type AgentMaskSegmentation = 'server' | 'browser' | 'box'
+
+/**
+ * 画面里有几个相似对象时（例如两只杯子）逐个列出的区域，卡片上按编号显示，用户点编号增减。
+ * `selected` 是智能体判断的要改的那几个；生效的仍是用户确认带回来的那份蒙版。
+ */
+export interface AgentMaskRegion {
+  /** 从 1 开始的显示编号，按从左到右、从上到下排。 */
+  readonly number: number
+  readonly label?: string
+  readonly box: AgentNormalizedBox
+  readonly points?: readonly AgentMaskPromptPoint[]
+  readonly selected: boolean
+  /** 服务端分割出的这个区域的蒙版（编辑格式，与原图同尺寸）；分割失败时缺席，卡片按框画。 */
+  readonly maskMediaId?: string
+}
+
+/**
+ * 智能体提议的修改范围（`proposeEditRegion` 签发）。模型只给对象名、外接框与提示点；
+ * 生效的蒙版永远是用户在卡片上确认、随下一条用户消息带回来的那一份。
+ */
+export interface AgentMaskProposal {
+  readonly id: string
+  /** 要改的那张图在会话里的 id；确认后的参考图沿用它。 */
+  readonly imageId: string
+  /** 原图像素所在的媒体对象；卡片按它取原件，回答也按它引用，不经任何缩放。 */
+  readonly mediaId: string
+  readonly width: number
+  readonly height: number
+  /** 要改的对象，名词短语，例如「杯身和把手」。 */
+  readonly target: string
+  /** 要改成什么，取自用户原话。 */
+  readonly change: string
+  /** 明确不动的东西。 */
+  readonly keep: readonly string[]
+  readonly box: AgentNormalizedBox
+  readonly points?: readonly AgentMaskPromptPoint[]
+  readonly segmentation: AgentMaskSegmentation
+  /** 服务端分割出的建议蒙版（不透明保留、透明重绘，与原图同尺寸）。有 `regions` 时由各区域合成。 */
+  readonly maskMediaId?: string
+  /** 相似对象逐个编号；缺席表示只有一个目标（`box` / `points` / `maskMediaId` 就是它）。 */
+  readonly regions?: readonly AgentMaskRegion[]
+  /**
+   * 要改的是选中对象以外的部分（通常是换背景）。蒙版仍是要保留的主体；卡片显示与确认时
+   * 取反，并往主体边缘里收一圈，让发丝、肩线这一圈也由模型对着新背景重画。
+   */
+  readonly invert?: boolean
+  /** 这次局部编辑会用的模型；只会是支持蒙版的 GPT Image 系列。 */
+  readonly model: { readonly id: string; readonly label: string }
+  /** 用户选的模型不支持蒙版时记下原来那个；确认即同意改用 `model`。 */
+  readonly switchedFrom?: { readonly id: string; readonly label: string }
+}
+
 /** 一次澄清提问。落在助手消息里，所以重新打开会话还能看见、还能作答。 */
 export interface AgentClarificationBlock {
   readonly type: 'clarification'
   readonly question: string
   readonly options: readonly string[]
+  /** 服务端签发的修改范围；有它时卡片换成蒙版确认，回答要带回确认后的蒙版。 */
+  readonly maskProposal?: AgentMaskProposal
   /** 服务端核对图片组合的选项；普通模型澄清不能签发这份映射。 */
   readonly imageCombination?: {
     readonly targetImageId: string
@@ -1477,6 +1560,11 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
 
 /** 澄清回放给模型的形状：用户的下一条消息就是他选的那一项。 */
 export function agentClarificationSummary(block: AgentClarificationBlock): string {
+  const proposal = block.maskProposal
+  if (proposal)
+    return `请用户确认修改范围：图片 ${proposal.imageId} 的「${proposal.target}」，${proposal.change}${
+      proposal.keep.length ? `；不动：${proposal.keep.join('、')}` : ''
+    }（按蒙版生成，模型 ${proposal.model.label}）`
   return `向用户提问：${block.question}（选项：${block.options.join(' / ')}）`
 }
 

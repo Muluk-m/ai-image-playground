@@ -58,6 +58,17 @@ export interface AgentToolContext {
   readonly images: AgentImageSource
   readonly visualWorkset?: VisualWorkset
   readonly imageCombinations?: ImageCombinationGuard
+  /**
+   * 这一轮已经发出范围确认的图片 id。用户确认之前同一轮里不能对它做无蒙版的改图——
+   * 并行调用时模型可能一边提议一边动手。
+   */
+  readonly maskProposals?: Set<string>
+  /**
+   * 这一轮用户要改的是图里的单个对象或局部（见 `edit-intent.ts`，只按字面判断）时存在。
+   * `editImage` 第一次无蒙版的整图编辑会被退回、提醒先发范围确认，并记下 `nudged`；
+   * 同一轮再调就放行。
+   */
+  readonly singleObjectEdit?: { nudged: boolean }
   /** 此刻的授权原文；缺席即这一轮没有授权原文可核对。 */
   readonly authorization?: () => TurnAuthorizationText
   /** 「这次付费操作能不能提交」的唯一回答者；缺席即这一轮没有遮罩计划要守。 */

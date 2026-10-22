@@ -5,9 +5,11 @@ import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
 import { CARD_CONTROL } from '../agentStyles'
-import { clarificationAnswer } from '../lib/panelMessages'
+import { confirmedMaskSource } from '../lib/maskProposal'
+import { clarificationAnswer, clarificationAnswerMessage } from '../lib/panelMessages'
 import { useAgentStore } from '../store'
 import type { AgentClarificationMessage } from '../types'
+import AgentMaskProposalCard, { AnsweredMaskProposal } from './AgentMaskProposalCard'
 
 function AnsweredClarification({
   message,
@@ -64,6 +66,11 @@ export default function AgentClarification({
   const answer = useAgentStore((state) =>
     answered ? clarificationAnswer(state.messages, message.id) : null,
   )
+  const answerReferences = useAgentStore((state) =>
+    answered && message.maskProposal
+      ? clarificationAnswerMessage(state.messages, message.id)?.references
+      : undefined,
+  )
   const [writing, setWriting] = useState(false)
   const [other, setOther] = useState('')
   const locked = answered || running
@@ -75,6 +82,23 @@ export default function AgentClarification({
     void useAgentStore.getState().send(written)
   }
 
+  if (message.maskProposal) {
+    if (answered)
+      return (
+        <AnsweredMaskProposal
+          proposal={message.maskProposal}
+          confirmed={answer?.startsWith(t('maskProposal.answerConfirmed')) ?? false}
+          mask={confirmedMaskSource(answerReferences, message.maskProposal)}
+        />
+      )
+    return (
+      <AgentMaskProposalCard
+        message={message}
+        proposal={message.maskProposal}
+        answered={answered}
+      />
+    )
+  }
   if (answer !== null) return <AnsweredClarification message={message} answer={answer} />
   if (answered)
     return (

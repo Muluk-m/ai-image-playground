@@ -88,7 +88,14 @@ function clarificationCard(
   id: string,
   turnId: string,
 ): AgentClarificationMessage {
-  return { kind: 'clarification', id, turnId, question: block.question, options: block.options }
+  return {
+    kind: 'clarification',
+    id,
+    turnId,
+    question: block.question,
+    options: block.options,
+    ...(block.maskProposal ? { maskProposal: block.maskProposal } : {}),
+  }
 }
 
 function textCard(
@@ -396,10 +403,18 @@ export function clarificationAnswer(
   messages: readonly AgentPanelMessage[],
   clarificationId: string,
 ): string | null {
+  return clarificationAnswerMessage(messages, clarificationId)?.text ?? null
+}
+
+/** 回答这条澄清的那条用户消息；范围确认卡从它的引用里读回确认的蒙版。 */
+export function clarificationAnswerMessage(
+  messages: readonly AgentPanelMessage[],
+  clarificationId: string,
+): Extract<AgentPanelMessage, { kind: 'text' }> | null {
   const at = messages.findIndex((one) => one.id === clarificationId)
   if (at < 0) return null
   for (const message of messages.slice(at + 1))
-    if (message.kind === 'text' && message.role === 'user') return message.text
+    if (message.kind === 'text' && message.role === 'user') return message
   return null
 }
 
