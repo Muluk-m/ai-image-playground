@@ -192,7 +192,7 @@ it('reopens a complete media selection and submits its unchanged original and ma
     return Response.json({ data: [{ b64_json: source.toString('base64') }] })
   })
   await runTask(cards[0]!.job!.taskId)
-  // 桩子把原图原样交回：选区没变。默认不为没变的选区补调（补调由平台承担，默认关），只调一次。
+  // 桩子把原图原样交回：选区没变。没变的选区只记进检查结果、不补调，只调一次上游。
   expect(sent).toHaveLength(1)
   expect(sent.every((one) => one.original.equals(source))).toBe(true)
   expect(sent[0]!.original).toEqual(source)
