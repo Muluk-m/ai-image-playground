@@ -23,12 +23,25 @@ interface Waiter {
  * 后面放得下的小图先进；但大图等过 bypassLimitMs 后不再让后来者插队，避免一直饿着它。
  */
 export function createMediaProcessingLimiter(options: MediaProcessingLimiterOptions) {
+  for (const [name, value] of [
+    ['slots', options.slots],
+    ['queueLimit', options.queueLimit],
+    ['queueTimeoutMs', options.queueTimeoutMs],
+    ['bypassLimitMs', options.bypassLimitMs],
+  ] as const)
+    if (!Number.isSafeInteger(value) || value < (name === 'slots' ? 1 : 0))
+      throw new RangeError(`invalid media processing ${name}`)
   const now = options.now ?? Date.now
   let active = 0
   let activeBytes = 0
   const queue: Waiter[] = []
+  const budget = () => {
+    const value = options.byteBudget()
+    // 预算配置坏了（NaN、负数）时只放一张，不让队列一直超时也不突破内存上界。
+    return Number.isFinite(value) && value >= 0 ? value : 0
+  }
   const admits = (bytes: number) =>
-    active < options.slots && (active === 0 || activeBytes + bytes <= options.byteBudget())
+    active < options.slots && (active === 0 || activeBytes + bytes <= budget())
   const admit = (bytes: number) => {
     active++
     activeBytes += bytes
@@ -57,6 +70,9 @@ export function createMediaProcessingLimiter(options: MediaProcessingLimiterOpti
       return queue.length
     },
     async run<T>(bytes: number, work: () => Promise<T>): Promise<T> {
+      // 计数只收非负整数：负数会低估在途字节，NaN 会让之后的准入判断永远不成立。
+      if (!Number.isSafeInteger(bytes) || bytes < 0)
+        throw new RangeError('invalid media processing bytes')
       if (!queue.length && admits(bytes)) admit(bytes)
       else {
         if (queue.length >= options.queueLimit) throw options.busy('processing_queue_full')

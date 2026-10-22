@@ -259,8 +259,11 @@ class ProcessingBytesChanged extends Error {
   }
 }
 
+const MAX_PROCESSING_READMISSIONS = 2
+
 async function processMedia(userId: string, id: string, admittedBytes: number) {
   let bytes = admittedBytes
+  let readmissions = 0
   const started = performance.now()
   let phase = 'lock_wait'
   let phaseStarted = started
@@ -299,6 +302,9 @@ async function processMedia(userId: string, id: string, admittedBytes: number) {
             })
         : undefined
       if (result instanceof ProcessingBytesChanged) {
+        // 正常只会因为一次改正申报而重排；反复被改说明有人在不停重新预留，别无限占着确认位。
+        if (++readmissions > MAX_PROCESSING_READMISSIONS)
+          throw new MediaError(503, 'media_processing_busy', 'reservation_changing')
         bytes = result.bytes
         continue
       }
