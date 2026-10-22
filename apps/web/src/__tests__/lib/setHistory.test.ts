@@ -72,4 +72,16 @@ describe('folding the history into sets', () => {
       { kind: 'set', setId: 'b', tasks: [first, retried] },
     ])
   })
+
+  it('keeps every prompt variant of one reference image, ordered numerically', () => {
+    const batch = (shotId: string) => ({ setId: 'b', shotId, kind: 'batch' as const })
+    const tenth = task('t10', 1, batch('10-1'))
+    const a = task('a', 1, batch('2-1'))
+    const b = task('b', 1, batch('2-2'))
+    const one = task('one', 1, batch('1-1'))
+
+    expect(groupTasksBySet([tenth, b, a, one])).toEqual([
+      { kind: 'set', setId: 'b', tasks: [one, a, b, tenth] },
+    ])
+  })
 })

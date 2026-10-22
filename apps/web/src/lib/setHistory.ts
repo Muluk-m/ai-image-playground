@@ -41,5 +41,7 @@ function batchAttempts(tasks: readonly TaskRecord[]): TaskRecord[] {
     const kept = latest.get(shot)
     if (!kept || task.createdAt > kept.createdAt) latest.set(shot, task)
   }
-  return [...latest.entries()].sort(([a], [b]) => Number(a) - Number(b)).map(([, task]) => task)
+  return [...latest.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+    .map(([, task]) => task)
 }
