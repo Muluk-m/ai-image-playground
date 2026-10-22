@@ -160,4 +160,43 @@ describe('media processing limiter input checks', () => {
     await Promise.all(jobs)
     expect(broken.active).toBe(0)
   })
+
+  it('拒收 setTimeout 表示不了的时限；超大预算截到安全整数，在途合计保持精确', async () => {
+    const options = {
+      slots: 4,
+      byteBudget: () => 100,
+      queueLimit: 8,
+      queueTimeoutMs: 10_000,
+      bypassLimitMs: 5_000,
+      busy: (reason: string) => new Error(reason),
+    }
+    expect(() => createMediaProcessingLimiter({ ...options, queueTimeoutMs: 2 ** 31 })).toThrow(
+      RangeError,
+    )
+    expect(() => createMediaProcessingLimiter({ ...options, bypassLimitMs: 2 ** 31 })).toThrow(
+      RangeError,
+    )
+    expect(() =>
+      createMediaProcessingLimiter({ ...options, queueTimeoutMs: 2 ** 31 - 1 }),
+    ).not.toThrow()
+    const huge = createMediaProcessingLimiter({ ...options, byteBudget: () => 2 ** 60 })
+    const running = gate()
+    const first = huge.run(Number.MAX_SAFE_INTEGER, () => running.opened)
+    // 预算按 MAX_SAFE_INTEGER 算：再多 1 字节也放不下，不会因为相加舍入被误放。
+    const second = huge.run(1, async () => {})
+    await tick()
+    expect(huge.active).toBe(1)
+    expect(huge.activeBytes).toBe(Number.MAX_SAFE_INTEGER)
+    running.open()
+    await Promise.all([first, second])
+    expect(huge.activeBytes).toBe(0)
+    // 不设上限（Infinity）不是坏配置：照常并行。
+    const unlimited = createMediaProcessingLimiter({ ...options, byteBudget: () => Infinity })
+    const held = gate()
+    const jobs = [1, 2, 3].map(() => unlimited.run(1_000, () => held.opened))
+    await tick()
+    expect(unlimited.active).toBe(3)
+    held.open()
+    await Promise.all(jobs)
+  })
 })

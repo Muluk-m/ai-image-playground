@@ -252,10 +252,14 @@ export async function completeMedia(userId: string, id: string) {
   return operation
 }
 
-/** 准入时按的字节数比锁内读到的行小（等待期间被重新预留改了大小）：放掉处理位，按新大小重新排。 */
-class ProcessingBytesChanged extends Error {
+/**
+ * 处理期间这条预留被改了：准入时按的字节数比锁内读到的行小（排队时被重新预留改大），
+ * 或发布前发现申报（大小、类型）已不是读取时那份（重新预留只锁用户行、不拿对象锁）。
+ * 放掉处理位和这次的产物，按最新的行重新排。
+ */
+class ReservationChanged extends Error {
   constructor(readonly bytes: number) {
-    super('processing_bytes_changed')
+    super('reservation_changed')
   }
 }
 
@@ -292,7 +296,7 @@ async function processMedia(userId: string, id: string, admittedBytes: number) {
               })
             })
             .catch(async (error: unknown) => {
-              if (error instanceof ProcessingBytesChanged) return error
+              if (error instanceof ReservationChanged) return error
               // A different instance may publish while this request waits for local capacity.
               if (error instanceof MediaError && error.message === 'media_processing_busy') {
                 const current = await ownedMedia(userId, id)
@@ -301,7 +305,7 @@ async function processMedia(userId: string, id: string, admittedBytes: number) {
               throw error
             })
         : undefined
-      if (result instanceof ProcessingBytesChanged) {
+      if (result instanceof ReservationChanged) {
         // 正常只会因为一次改正申报而重排；反复被改说明有人在不停重新预留，别无限占着确认位。
         if (++readmissions > MAX_PROCESSING_READMISSIONS)
           throw new MediaError(503, 'media_processing_busy', 'reservation_changing')
@@ -356,7 +360,7 @@ async function publishMedia(
   const row = await ownedMedia(userId, id, database)
   if (row.status === 'ready') return mediaSummary(row)
   // 原件要按这一行的大小整张缓冲；比准入时按的大，就不能占着这个处理位读。
-  if (row.bytes > admittedBytes) throw new ProcessingBytesChanged(row.bytes)
+  if (row.bytes > admittedBytes) throw new ReservationChanged(row.bytes)
   if (row.status === 'deleting') throw new MediaError(409, 'media_deleting')
   if (row.expires_at <= Date.now()) throw new MediaError(409, 'media_upload_expired')
   const limits = row.attachment_managed ? attachmentLimits(config.operator) : undefined
@@ -474,6 +478,13 @@ async function publishMedia(
       if (current.status === 'deleting') throw new MediaError(409, 'media_deleting')
       if (current.expires_at <= Date.now() || current.staging_key !== row.staging_key)
         throw new MediaError(409, 'media_upload_expired')
+      // 读取、校验都按 row 的申报做；这期间被重新预留改了大小或类型，就不能把这份产物发布成新申报。
+      if (
+        current.bytes !== row.bytes ||
+        current.content_type !== row.content_type ||
+        current.sha256 !== row.sha256
+      )
+        throw new ReservationChanged(current.bytes)
       const [ready] = await tx
         .update(media)
         .set({
@@ -492,7 +503,7 @@ async function publishMedia(
       return mediaSummary(ready!)
     })
   } catch (error) {
-    if (error instanceof MediaError) throw error
+    if (error instanceof MediaError || error instanceof ReservationChanged) throw error
     throw new MediaError(503, 'media_storage_unavailable')
   } finally {
     if (candidatePrefix && !published) {

@@ -1,3 +1,6 @@
+/** setTimeout 能精确表示的最长延迟。 */
+const MAX_TIMER_MS = 2 ** 31 - 1
+
 export interface MediaProcessingLimiterOptions {
   slots: number
   /** 在途原件合计字节上限；第一张总能进，单张超限也不会永远排不上。 */
@@ -29,7 +32,12 @@ export function createMediaProcessingLimiter(options: MediaProcessingLimiterOpti
     ['queueTimeoutMs', options.queueTimeoutMs],
     ['bypassLimitMs', options.bypassLimitMs],
   ] as const)
-    if (!Number.isSafeInteger(value) || value < (name === 'slots' ? 1 : 0))
+    if (
+      !Number.isSafeInteger(value) ||
+      value < (name === 'slots' ? 1 : 0) ||
+      // 两个时限都交给 setTimeout，超过 2^31-1 ms 会被 Node 截成约 1ms，排队的立刻超时。
+      (name.endsWith('Ms') && value > MAX_TIMER_MS)
+    )
       throw new RangeError(`invalid media processing ${name}`)
   const now = options.now ?? Date.now
   let active = 0
@@ -37,11 +45,14 @@ export function createMediaProcessingLimiter(options: MediaProcessingLimiterOpti
   const queue: Waiter[] = []
   const budget = () => {
     const value = options.byteBudget()
-    // 预算配置坏了（NaN、负数）时只放一张，不让队列一直超时也不突破内存上界。
-    return Number.isFinite(value) && value >= 0 ? value : 0
+    // 预算配置坏了（NaN、负数）时只放一张，不让队列一直超时也不突破内存上界；
+    // 上限截到安全整数，在途合计因此也始终是精确的整数。
+    if (Number.isNaN(value) || value < 0) return 0
+    return Math.min(Math.floor(value), Number.MAX_SAFE_INTEGER)
   }
+  // 用减法比较：activeBytes 不超过预算（或只有一张在途），两数都是安全整数，差值精确，不会因相加舍入误放。
   const admits = (bytes: number) =>
-    active < options.slots && (active === 0 || activeBytes + bytes <= budget())
+    active < options.slots && (active === 0 || bytes <= budget() - activeBytes)
   const admit = (bytes: number) => {
     active++
     activeBytes += bytes
