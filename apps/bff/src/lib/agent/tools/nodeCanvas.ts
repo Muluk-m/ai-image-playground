@@ -117,7 +117,7 @@ const available = (_mode: unknown, audience?: AgentToolAudience) =>
     audience?.userId && audience.experience === 'canvas' && isCapabilityEnabled('accounts:sync'),
   )
 const guidance =
-  '分镜表的首帧不要用这些工具手工搭，用 runStoryboardFrames。修改前用 readCanvas 读取需要的节点。一次调用会原子保存并可整体撤销，不运行生成、不计费。视频节点必须明确给出 videoMode，不能依引用数量推断。用户在对话里附的图要接进节点时，用 createNodes 的 imageId 建素材节点再 connectNodes，不要让用户自己把图拖进画布或选中节点。'
+  '分镜表的首帧不要用这些工具手工搭，用 runStoryboardFrames。修改前用 readCanvas 读取需要的节点。一次调用会原子保存并可整体撤销，不运行生成、不计费。视频节点必须明确给出 videoMode，不能依引用数量推断。出图和改图（包括参考一张图修改另一张）都用 image 节点，只有用户明确要视频才建 video 节点。用户在对话里附的图要接进节点时，用 createNodes 的 imageId 建素材节点再 connectNodes，不要让用户自己把图拖进画布或选中节点。'
 const invalid = (message: string): never => {
   throw new AgentToolError('invalid_params', message)
 }
