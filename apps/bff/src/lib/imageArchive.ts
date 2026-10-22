@@ -89,6 +89,7 @@ export async function hydrateInputImages(
   const {
     preserve_outside_mask: _boundary,
     masked_original_size: _originalSize,
+    masked_crop: _crop,
     ...upstreamRequest
   } = request as PersistedSubmitRequest
   const hydrated = { ...upstreamRequest } as HydratedSubmitRequest
