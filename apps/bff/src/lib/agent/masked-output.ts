@@ -3,6 +3,7 @@ import { labelComponents } from './mask-regions'
 import { estimateTranslation, inspectMaskedAlignment } from './masked-alignment'
 import { inwardMaskDistance } from './masked-boundary'
 import { maskedEditSettings } from './masked-edit-settings'
+import { type MaskedCrop, paddedEditSize } from './masked-input'
 import { selectionSettings } from './selection-settings'
 
 export class MaskedOutputError extends Error {}
@@ -123,10 +124,27 @@ export function upstreamFit(
  * 只在原图坐标内合成：候选拉回原尺寸（见 upstreamFit），选区内按羽化带混合，选区外逐像素用原图。
  * 对齐与「区域没改到」只核对、记进 inspection，不拒收、不重试（重试要平台额外付上游的钱）。
  */
+/**
+ * 截图模式：把（已统一到补边截图尺寸的）生成图里截图那一块贴回整张原图的截取位置，
+ * 截图外原样。之后照常只在选区内合成，所以截图外、选区外都与原图逐像素相同。
+ */
+export function placeCrop(source: Pixels, generated: Pixels, crop: MaskedCrop): Pixels {
+  const { width } = source.info
+  const stride = generated.info.width * 4
+  const data = Buffer.from(source.data)
+  for (let row = 0; row < crop.height; row++)
+    data.set(
+      generated.data.subarray(row * stride, row * stride + crop.width * 4),
+      ((crop.top + row) * width + crop.left) * 4,
+    )
+  return { data, info: source.info }
+}
+
 export async function protectMaskedOutput(
   sourceDataUrl: string,
   maskDataUrl: string,
   originalSize?: { width: number; height: number },
+  crop?: MaskedCrop,
 ) {
   const decode = (value: string) => Buffer.from(value.slice(value.indexOf(',') + 1), 'base64')
   const source = await pixels(decode(sourceDataUrl))
@@ -139,6 +157,18 @@ export async function protectMaskedOutput(
     throw new MaskedOutputError('选区尺寸与原图不一致，未提交编辑')
   if (!mask.data.some((value, index) => index % 4 === 3 && value < 255))
     throw new MaskedOutputError('没有选中编辑区域，未提交编辑')
+  if (
+    crop &&
+    (crop.left < 0 ||
+      crop.top < 0 ||
+      crop.width <= 0 ||
+      crop.height <= 0 ||
+      crop.left + crop.width > width ||
+      crop.top + crop.height > height)
+  )
+    throw new MaskedOutputError('截取区域超出原图，未提交编辑')
+  // 上游实际收到的画幅：截图模式是补边后的截图，整图模式就是（已补边的）原图。
+  const upstream = crop ? paddedEditSize(crop.width, crop.height) : { width, height }
   const featherPixels =
     Math.min(width, height) >= maskedEditSettings.boundary.minImageEdge
       ? maskedEditSettings.boundary.featherPixels
@@ -191,17 +221,24 @@ export async function protectMaskedOutput(
     const candidateWidth = generated.info.width,
       candidateHeight = generated.info.height
     const translucentPixels = ignoreCandidateAlpha(generated)
-    const fit = upstreamFit(width, height, candidateWidth, candidateHeight, focus)
+    const fit = upstreamFit(
+      upstream.width,
+      upstream.height,
+      candidateWidth,
+      candidateHeight,
+      crop ? { x: focus.x - crop.left, y: focus.y - crop.top } : focus,
+    )
     if (fit.fit) {
       let resized = sharp(generated.data, { raw: generated.info }).resize(
         fit.coverWidth,
         fit.coverHeight,
         { fit: 'fill' },
       )
-      if (fit.fit === 2) resized = resized.extract({ left: fit.left, top: fit.top, width, height })
+      if (fit.fit === 2) resized = resized.extract({ left: fit.left, top: fit.top, ...upstream })
       generated = await pixels(await resized.png().toBuffer())
       ignoreCandidateAlpha(generated)
     }
+    if (crop) generated = placeCrop(source, generated, crop)
     const alignment = inspectMaskedAlignment(source.data, generated.data, mask.data, width, height)
     const translation = estimateTranslation(source.data, generated.data, mask.data, width, height)
     return {
@@ -302,8 +339,14 @@ export async function protectMaskedOutput(
           candidateHeight,
           workingWidth: width,
           workingHeight: height,
-          scaleX: width / candidateWidth,
-          scaleY: height / candidateHeight,
+          // 选区里的放大倍数（>1 就是放大）：截图模式按截图算。
+          scaleX: upstream.width / candidateWidth,
+          scaleY: upstream.height / candidateHeight,
+          maskedCrop: Number(Boolean(crop)),
+          maskedCropLeft: crop?.left ?? 0,
+          maskedCropTop: crop?.top ?? 0,
+          maskedCropWidth: crop?.width ?? width,
+          maskedCropHeight: crop?.height ?? height,
           translucentPixels: fitted.translucentPixels,
           regions: regions.length,
           regionsUnchanged: regionCheck.unchanged,
