@@ -42,8 +42,9 @@ export async function getAgentPrompts(
   const from = new Date(filters.from)
   const to = new Date(filters.to)
   const source = sql`
-    WITH prompts AS (
+    WITH raw_prompts AS (
       SELECT d.id, 'draft'::text AS kind, d.created_at, d.conversation_id, d.turn_id,
+        d.tool_call_id, COALESCE(d.tool_call_id, d.id) AS group_key,
         d.prompt, d.drafted_prompt, d.drafted_prompt IS DISTINCT FROM d.prompt AS changed,
         d.drafted_prompt IS NOT NULL AS known_original,
         d.tool_name AS tool, d.media, d.model, d.provider, NULL::text AS size,
@@ -54,6 +55,7 @@ export async function getAgentPrompts(
       WHERE d.created_at >= ${from} AND d.created_at <= ${to}
       UNION ALL
       SELECT t.id, 'task', t.submitted_at, t.agent_conversation_id, t.agent_turn_id,
+        j.tool_call_id, COALESCE(j.tool_call_id, t.id) AS group_key,
         COALESCE(t.request_payload->>'prompt', ''), NULL, false, true,
         NULL::text,
         CASE WHEN t.request_payload->'video' IS NOT NULL THEN 'video' ELSE 'image' END,
@@ -61,14 +63,37 @@ export async function getAgentPrompts(
         CASE WHEN t.status = 'completed' THEN 'completed' WHEN t.status IN ('failed', 'cancelled') THEN 'failed'
           ELSE 'running' END
       FROM queue_tasks t
+      LEFT JOIN agent_jobs j ON j.task_id = t.id
       WHERE t.agent_conversation_id IS NOT NULL
         AND t.submitted_at >= ${from} AND t.submitted_at <= ${to}
         AND NOT EXISTS (SELECT 1 FROM agent_generation_drafts d WHERE d.task_id = t.id)
+    ), prompts AS (
+      SELECT (array_agg(r.id ORDER BY r.created_at, r.id))[1] AS id,
+        CASE WHEN COUNT(*) FILTER (WHERE r.kind = 'draft') > 0 THEN 'draft' ELSE 'task' END::text AS kind,
+        MIN(r.created_at) AS created_at, r.conversation_id, r.turn_id,
+        (array_agg(r.tool_call_id ORDER BY r.created_at, r.id))[1] AS tool_call_id,
+        r.group_key,
+        (array_agg(r.prompt ORDER BY r.created_at, r.id))[1] AS prompt,
+        (array_agg(r.drafted_prompt ORDER BY r.created_at, r.id))[1] AS drafted_prompt,
+        BOOL_OR(r.changed) AS changed, BOOL_OR(r.known_original) AS known_original,
+        (array_agg(r.tool ORDER BY r.created_at, r.id))[1] AS tool,
+        (array_agg(r.media ORDER BY r.created_at, r.id))[1] AS media,
+        (array_agg(r.model ORDER BY r.created_at, r.id))[1] AS model,
+        (array_agg(r.provider ORDER BY r.created_at, r.id))[1] AS provider,
+        (array_agg(r.size ORDER BY r.created_at, r.id))[1] AS size,
+        (array_agg(r.task_id ORDER BY r.created_at, r.id) FILTER (WHERE r.task_id IS NOT NULL))[1] AS task_id,
+        array_agg(r.task_id ORDER BY r.created_at, r.id) FILTER (WHERE r.task_id IS NOT NULL) AS task_ids,
+        CASE WHEN BOOL_OR(r.status = 'running') THEN 'running'
+          WHEN BOOL_OR(r.status = 'awaiting') THEN 'awaiting'
+          WHEN BOOL_OR(r.status = 'failed') THEN 'failed'
+          ELSE 'completed' END AS status
+      FROM raw_prompts r
+      GROUP BY r.conversation_id, r.turn_id, r.group_key
     ), filtered AS (
       SELECT p.*, c.user_id, c.device_id, u.username
       FROM prompts p JOIN agent_conversations c ON c.id = p.conversation_id
       LEFT JOIN users u ON u.id = c.user_id
-      WHERE ${filters.taskId ? sql`p.task_id = ${filters.taskId}` : sql`true`}
+      WHERE ${filters.taskId ? sql`${filters.taskId} = ANY(p.task_ids)` : sql`true`}
         AND ${filters.status ? sql`p.status = ${filters.status}` : sql`true`}
         AND ${filters.userId ? sql`c.user_id = ${filters.userId}` : sql`true`}
         AND ${filters.deviceId ? sql`c.device_id = ${filters.deviceId}` : sql`true`}
@@ -170,6 +195,10 @@ export async function getAgentPrompts(
       media: String(row.media),
       model: String(row.model),
       taskId: text(row.task_id),
+      groupId: text(row.group_key),
+      taskIds: Array.isArray(row.task_ids)
+        ? row.task_ids.filter((id): id is string => id != null).map(String)
+        : [],
       userText: text(messageMap.get(key(row))?.user_text),
       chatModel: text(call?.model),
       inputTokens: Number(call?.input_tokens ?? 0),
