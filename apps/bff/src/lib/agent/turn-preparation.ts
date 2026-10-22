@@ -699,7 +699,7 @@ async function gateContinuationContent(
     turnJobs(conversationId, gatedTurnId),
     history,
   ])
-  const continuation = gateContinuation(gatedTurn)
+  const continuation = gateContinuation(gatedTurnId, gatedTurn)
   if (!continuation.calls.length) return { kind: 'no_results' }
   const plan = await wakePlan(jobs)
   const gatedStart = window.messages.findIndex((message) => message.turnId === gatedTurnId)

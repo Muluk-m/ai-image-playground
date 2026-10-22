@@ -17,7 +17,7 @@ import {
   type AgentTurnParams,
   type AgentTurnReference,
 } from '@image-playground/shared'
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, not, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, not, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 import { lockMediaOwner, MediaError } from '../projectMedia'
@@ -674,7 +674,7 @@ export async function gateResumeLive(
   return row !== undefined
 }
 
-/** 这个时刻之后有没有用户消息进过收件箱（还在等或已被取走；撤回的不算）。 */
+/** 这个时刻（含）之后有没有用户消息进过收件箱（还在等或已被取走；撤回的不算）。 */
 export async function userMessageSince(
   executor: typeof db | BffTransaction,
   conversationId: string,
@@ -688,7 +688,8 @@ export async function userMessageSince(
         eq(inbox.conversation_id, conversationId),
         inArray(inbox.kind, [...USER_KINDS]),
         inArray(inbox.status, ['pending', 'consumed']),
-        gt(inbox.created_at, since),
+        // 含同一毫秒：卡落在触发它的那条消息之后，同一毫秒进来的只可能是之后发的新消息。
+        gte(inbox.created_at, since),
       ),
     )
     .limit(1)

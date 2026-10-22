@@ -99,7 +99,7 @@ describe('续跑接在历史末尾的那一对', () => {
       gatedCard({ toolCallId: 'call-2', status: 'awaiting_confirmation', job: undefined }),
       gatedCard({ toolCallId: 'call-3', gated: undefined }),
     )
-    const { calls } = gateContinuation(turn)
+    const { calls } = gateContinuation('turn-1', turn)
     expect(calls).toHaveLength(1)
     expect(calls[0]).toMatchObject({
       toolCallId: 'call-1',
@@ -113,16 +113,16 @@ describe('续跑接在历史末尾的那一对', () => {
 
   it('回执原样接回拦下那一刻的那一句，只补上确认的提示词；没留原文的旧卡退回通用说法', () => {
     const receipt = '已按用户要求提交生图任务（2 张图，尺寸 1024x1536），这次调用已经提交并计费。'
-    const [kept] = gateContinuation(turnOf(gatedCard({ gateReceipt: receipt }))).calls
+    const [kept] = gateContinuation('turn-1', turnOf(gatedCard({ gateReceipt: receipt }))).calls
     expect(kept!.result).toBe(`${receipt}执行提示词：一只戴围巾的橘猫。`)
-    const [legacy] = gateContinuation(turnOf(gatedCard())).calls
+    const [legacy] = gateContinuation('turn-1', turnOf(gatedCard())).calls
     expect(legacy!.result).toContain('已按用户要求提交生图任务')
     expect(legacy!.result).toContain('执行提示词：一只戴围巾的橘猫。')
   })
 
   it('回放里那张卡不再按文字回放，而是在末尾接成一次真实的调用与结果', () => {
     const turn = turnOf(gatedCard())
-    const continuation = gateContinuation(turn)
+    const continuation = gateContinuation('turn-1', turn)
     const { messages } = turnInitialState(
       turn,
       'image',
@@ -144,6 +144,28 @@ describe('续跑接在历史末尾的那一对', () => {
     const replayedText = JSON.stringify(messages.slice(0, -2))
     expect(replayedText).toContain('我来画。')
     expect(replayedText).not.toContain('task-1')
+    expect(replayedText).not.toContain('一只戴围巾的橘猫')
+  })
+
+  it('别的轮里同名的调用 id 照常回放：只有被拦下那一轮的卡改由末尾那一对呈现', () => {
+    const earlier = turnOf(gatedCard({ gated: undefined, prompt: '更早那一轮的小狗' })).map(
+      (message) => ({ ...message, id: `early-${message.id}`, turnId: 'turn-0' }),
+    )
+    const gatedTurn = turnOf(gatedCard())
+    const history = [...earlier, ...gatedTurn]
+    const continuation = gateContinuation('turn-1', gatedTurn)
+    const { messages } = turnInitialState(
+      history,
+      'image',
+      true,
+      history.length,
+      undefined,
+      undefined,
+      false,
+      continuation,
+    )
+    const replayedText = JSON.stringify(messages.slice(0, -2))
+    expect(replayedText).toContain('更早那一轮的小狗')
     expect(replayedText).not.toContain('一只戴围巾的橘猫')
   })
 })

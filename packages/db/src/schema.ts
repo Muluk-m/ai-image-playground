@@ -546,6 +546,12 @@ export const agent_messages = pgTable(
     primaryKey({ columns: [t.conversation_id, t.id] }),
     uniqueIndex('idx_agent_messages_conversation_seq').on(t.conversation_id, t.seq),
     index('idx_agent_messages_turn').on(t.conversation_id, t.turn_id),
+    // 确认门还等着确认的卡（见 BFF `tool-gate-records.ts`）：发新消息时在会话锁里找它们。
+    index('idx_agent_messages_pending_gate')
+      .on(t.conversation_id)
+      .where(
+        sql`${t.deleted_at} IS NULL AND ${t.content} @> '[{"type":"toolResult","status":"awaiting_confirmation","gated":true}]'::jsonb`,
+      ),
     check('agent_messages_role_check', sql`${t.role} IN ('user', 'assistant')`),
   ],
 )

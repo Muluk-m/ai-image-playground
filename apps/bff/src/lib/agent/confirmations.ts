@@ -322,7 +322,9 @@ async function prepareConfirmation(
   if (!card) return { kind: 'not_found' }
   if (card.block.status !== 'awaiting_confirmation') {
     if (!card.block.job) return { kind: 'not_confirmable' }
-    // 确认门的卡交给事务里的重放分支：那里在锁内补排续跑。
+    // 已提交的确认门卡交给事务里的重放分支：那里在锁内补排续跑，原样交回已提交的卡，不读这份
+    // request/video、不提交任何东西，所以这里不必再做提示词与视频参数的校验（还在等确认的卡
+    // 照常走下面完整的准备与校验）。
     if (card.block.gated === true) return { request: { prompt }, video: undefined }
     return { kind: 'replayed', message: messageOf(card) }
   }

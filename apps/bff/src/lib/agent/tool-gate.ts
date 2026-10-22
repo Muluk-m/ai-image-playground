@@ -75,7 +75,10 @@ export function createAgentToolGate(active: boolean): AgentToolGate {
  * 续跑要接的那几次调用：被拦下那一轮里确认过（带着提交出的任务）的确认门卡，按出现的顺序。
  * 参数取起跑时的快照，回执的提示词取用户确认的那一份。作废的卡不在其中。
  */
-export function gateContinuation(turn: readonly AgentMessageView[]): AgentTurnContinuation {
+export function gateContinuation(
+  turnId: string,
+  turn: readonly AgentMessageView[],
+): AgentTurnContinuation {
   const calls = turn.flatMap((message) =>
     message.content.flatMap((block) => {
       if (block.type !== 'toolResult' || block.gated !== true || !block.job) return []
@@ -93,5 +96,5 @@ export function gateContinuation(turn: readonly AgentMessageView[]): AgentTurnCo
       ]
     }),
   )
-  return { calls }
+  return { turnId, calls }
 }

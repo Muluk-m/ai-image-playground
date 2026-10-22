@@ -275,6 +275,8 @@ function withSkillTexts(
  * `Agent.continue()` 从这里接着往下走——智能体看到的就是调了工具、拿到了回执。
  */
 export interface AgentTurnContinuation {
+  /** 被拦下、要接着跑的那一轮：只有它里面的卡改由末尾那一对呈现，别的轮同名的调用 id 不受影响。 */
+  readonly turnId: string
   readonly calls: readonly {
     readonly toolCallId: string
     readonly toolName: string
@@ -328,15 +330,19 @@ function replayed(
   const messages: AgentMessage[] = []
   const continued = new Set(continuation?.calls.map((call) => call.toolCallId))
   for (const [index, original] of history.entries()) {
-    // 续跑的那几次调用改由末尾那一对工具调用与结果呈现，卡片摘要不再重复一遍。
-    const message = continued.size
-      ? {
-          ...original,
-          content: original.content.filter(
-            (block) => block.type !== 'toolResult' || !continued.has(block.toolCallId),
-          ),
-        }
-      : original
+    // 续跑的那几次调用改由末尾那一对工具调用与结果呈现，卡片摘要不再重复一遍。调用 id 只在一轮里
+    // 唯一，只认被拦下的那一轮。
+    const message =
+      continued.size && original.turnId === continuation?.turnId
+        ? {
+            ...original,
+            content: original.content.filter(
+              (block) => block.type !== 'toolResult' || !continued.has(block.toolCallId),
+            ),
+          }
+        : original
+    // 那条消息只装着续跑的卡：整条不回放，不留一条空的助手消息。
+    if (message.content.length === 0) continue
     const text = withSkillTexts(
       replayTurnText(
         message,
