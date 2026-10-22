@@ -67,7 +67,8 @@
     "createdAt": "Created {{time}}",
     "elapsed": "Took {{duration}}",
     "copyAll": "Copy all",
-    "dialog": "Work details"
+    "dialog": "Work details",
+    "networkFailed": "The connection dropped before this was sent. Please retry."
   },
   "rawUrls": {
     "title": "Raw image links ({{n}})",
