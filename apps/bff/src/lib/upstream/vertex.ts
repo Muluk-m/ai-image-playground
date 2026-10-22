@@ -31,9 +31,34 @@ export function normalizeVertexRequest(
   if ((request.input_images?.length ?? 0) > VERTEX_MAX_INPUT_IMAGES)
     throw clientError(`该模型最多接受 ${VERTEX_MAX_INPUT_IMAGES} 张参考图，请减少参考图后重试`)
   const sizes = Object.hasOwn(VERTEX_IMAGE_SIZES, model) ? VERTEX_IMAGE_SIZES[model] : undefined
-  const size = request.image_size
-  if (!sizes || !size || sizes.includes(size)) return request
+  if (!sizes) return request
+  // buildGeminiBody 让 extra.generationConfig 最后压过扁平参数，所以真正发出去的是 extra 里的
+  // imageSize（若有）；两处都要按同一张表收口，否则 extra 能绕过这里把 400 组合原样送上游。
+  const extra = request.extra as
+    | { generationConfig?: { imageConfig?: Record<string, unknown> } & Record<string, unknown> }
+    | undefined
+  const extraImageConfig = extra?.generationConfig?.imageConfig
+  const extraSize = extraImageConfig?.imageSize
+  const flatSize = normalizeVertexSize(sizes, request.image_size)
+  const effectiveExtraSize =
+    typeof extraSize === 'string' ? normalizeVertexSize(sizes, extraSize) : extraSize
+  if (flatSize === request.image_size && effectiveExtraSize === extraSize) return request
+  const next: HydratedSubmitRequest = { ...request, image_size: flatSize }
+  if (effectiveExtraSize !== extraSize && extra?.generationConfig && extraImageConfig) {
+    next.extra = {
+      ...extra,
+      generationConfig: {
+        ...extra.generationConfig,
+        imageConfig: { ...extraImageConfig, imageSize: effectiveExtraSize },
+      },
+    }
+  }
+  return next
+}
+
+function normalizeVertexSize<T extends string | undefined>(sizes: readonly string[], size: T): T {
+  if (!size || sizes.includes(size)) return size
   // 512 比最低档还小：升到 1K 只会更清楚，计费按张不变，不值得让整单失败。
-  if (size === '512' && sizes.includes('1K')) return { ...request, image_size: '1K' }
+  if (size === '512' && sizes.includes('1K')) return '1K' as T
   throw clientError(`该模型只支持 ${sizes.join(' / ')} 分辨率，请改为其中一档或选「自动」`)
 }
