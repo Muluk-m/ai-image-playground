@@ -117,8 +117,8 @@ export type TaskStatus = 'running' | 'done' | 'error'
 export interface TaskOrigin {
   setId: string
   shotId: string
-  /** 缺省是商品图套图；分镜的镜头图带 'storyboard'。 */
-  kind?: 'storyboard'
+  /** 缺省是商品图套图；分镜的镜头图带 'storyboard'；快速生成的逐张生成带 'batch'（shotId 是那张参考图）。 */
+  kind?: 'storyboard' | 'batch'
 }
 
 export interface TaskRecord {

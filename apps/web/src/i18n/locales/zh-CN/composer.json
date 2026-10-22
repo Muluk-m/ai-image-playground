@@ -146,7 +146,8 @@
       "low": "低",
       "medium": "中",
       "high": "高"
-    }
+    },
+    "fixedCount": "共 {{count}} 张 · 每张图出 1 张"
   },
   "studio": {
     "type": "创作类型",
@@ -187,5 +188,16 @@
       "image": "图片",
       "video": "视频"
     }
+  },
+  "batch": {
+    "usage": "参考图用法",
+    "merge": "合并参考",
+    "each": "逐张生成",
+    "selected": "已选 {{count}}/{{max}}",
+    "full": "已达上限",
+    "mergeLimit": "超过 {{max}} 张只能逐张生成",
+    "oversized": "第 {{index}} 张超过 {{mb}} MB，请移除或换一张更小的图",
+    "sendLabel": "逐张生成 {{count}} 张",
+    "sendLabelCredits": "逐张生成 {{count}} 张，共 {{credits}} 积分"
   }
 }

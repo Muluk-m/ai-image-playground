@@ -25,5 +25,21 @@ export function groupTasksBySet(tasks: readonly TaskRecord[]): HistoryItem[] {
     items.push(group)
   }
 
+  for (const item of items)
+    if (item.kind === 'set' && item.tasks[0]?.origin?.kind === 'batch')
+      item.tasks = batchAttempts(item.tasks)
   return items
+}
+
+/**
+ * 逐张生成的一组：每张参考图只留最新的一次尝试（重试顶替失败的那次），按参考图在条上的顺序排。
+ */
+function batchAttempts(tasks: readonly TaskRecord[]): TaskRecord[] {
+  const latest = new Map<string, TaskRecord>()
+  for (const task of tasks) {
+    const shot = task.origin?.shotId ?? task.id
+    const kept = latest.get(shot)
+    if (!kept || task.createdAt > kept.createdAt) latest.set(shot, task)
+  }
+  return [...latest.entries()].sort(([a], [b]) => Number(a) - Number(b)).map(([, task]) => task)
 }

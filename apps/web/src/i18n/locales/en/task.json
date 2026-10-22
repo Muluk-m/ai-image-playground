@@ -103,7 +103,11 @@
     "doneCount": "Done {{done}}/{{total}}",
     "failedCount": "{{failed}} failed",
     "expandToView": "Expand",
-    "resultAlt": "{{name}} result"
+    "resultAlt": "{{name}} result",
+    "batchTag": "Per image",
+    "runningCount": "{{running}} running",
+    "failedList": "Failed images",
+    "failedItem": "Image {{index}}"
   },
   "cloudHistory": {
     "refresh": "Refresh",

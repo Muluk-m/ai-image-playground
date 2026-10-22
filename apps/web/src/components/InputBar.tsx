@@ -28,6 +28,14 @@ import { useImageInputScope } from '../hooks/useImageInputScope'
 import { usePasteImageFiles } from '../hooks/usePasteImageFiles'
 import { describeError, useTranslation } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
+import {
+  BATCH_GENERATE_MAX,
+  batchCredits,
+  batchGenerateAvailable,
+  batchPerImage,
+  oversizedReferenceIndexes,
+  oversizedReferenceMessage,
+} from '../lib/batchGenerate'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
@@ -35,7 +43,7 @@ import { confirmImageBatch } from '../lib/confirmImageBatch'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
 import { filesFromFolderInput } from '../lib/imageFiles'
-import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../lib/inputImageLimit'
+import { MAX_IMAGE_MB } from '../lib/inputImageLimit'
 import { createLongPress } from '../lib/longPress'
 import { getChangedParams, normalizeParamsForSettings } from '../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../lib/privateOverlay'
@@ -65,6 +73,7 @@ import {
 } from '../store'
 import type { InputImage } from '../types'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
+import { BatchModeControls } from './creation/BatchModeControls'
 import {
   CreationBody,
   CreationFrame,
@@ -191,10 +200,41 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     submitImageCount > 1
       ? t('submit.generateCount', { count: submitImageCount })
       : t('common:action.generate')
-  const submissionInput = { model: activeView.model, quantity: submitImageCount }
-  const submissionGuard = usePrivateSubmissionGuard(submissionInput)
-  // 生成模式挂着模板胶囊时：素材条数要与素材位对上，提交走模板组装。画布档不管它（那是智能体的事）。
+  // 首屏「画布」档：这句话不直接出图，交给一个新建的画布项目当第一轮。走智能体，不看出图的 API 配置。
+  const createTarget = useStore((s) => s.createTarget)
+  const toCanvas = inline && createTarget !== 'generate'
+  // 快速生成带多张参考图时可以逐张生成：每张图用同一句提示词各出 1 张，张数等于图数。
+  const batchChosen = useStore((s) => s.batchGenerate)
+  // 挂着模板胶囊时提交走模板组装（素材条数要与素材位对上），不提供逐张生成。
   const activeLook = useActiveLook((s) => s.look)
+  const modelAdmission = useMemo(() => referenceAdmission(activeProfile), [activeProfile])
+  const batchOffered =
+    !toCanvas &&
+    !maskDraft &&
+    !activeLook &&
+    modelAdmission.acceptsReferences &&
+    batchGenerateAvailable(inputImages.length)
+  const batchMergeLimit = modelAdmission.limit
+  const batchActive =
+    batchOffered && batchPerImage(inputImages.length, batchChosen, batchMergeLimit)
+  const submissionGuard = usePrivateSubmissionGuard({
+    model: activeView.model,
+    quantity: batchActive ? inputImages.length : submitImageCount,
+  })
+  // 按钮上的积分按单张报价 × 张数算，与逐张扣费同一口径。
+  const perImageGuard = usePrivateSubmissionGuard({ model: activeView.model, quantity: 1 })
+  const batchTotalCredits = batchActive
+    ? batchCredits(inputImages.length, perImageGuard.estimatedCredits)
+    : undefined
+  // 参考图随请求一起发，单张超限会在发出后失败：选图时就标出来、拦住发送。
+  const oversizedIndexes = useMemo(
+    () => (toCanvas ? [] : oversizedReferenceIndexes(inputImages)),
+    [toCanvas, inputImages],
+  )
+  const oversizedNotice = oversizedIndexes.length
+    ? oversizedReferenceMessage(oversizedIndexes)
+    : null
+  // 生成模式挂着模板胶囊时：素材条数要与素材位对上。画布档不管它（那是智能体的事）。
   const lookSubmitting = useLookSubmission((s) => s.submitting)
   const libraryAssets = useLibraryStore((s) => s.assets)
   const lookCheck = useMemo(
@@ -206,11 +246,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     (prompt.trim() || activeLook) &&
       hasSubmitApiConfig &&
       !submissionGuard.blocked &&
-      (lookCheck?.ok ?? true),
+      (lookCheck?.ok ?? true) &&
+      oversizedIndexes.length === 0,
   )
-  // 首屏「画布」档：这句话不直接出图，交给一个新建的画布项目当第一轮。走智能体，不看出图的 API 配置。
-  const createTarget = useStore((s) => s.createTarget)
-  const toCanvas = inline && createTarget !== 'generate'
   const creationMode = toCanvas ? (createTarget === 'video' ? 'video' : 'agent') : 'image'
   const apiReady = toCanvas || hasSubmitApiConfig
   // 技能只有画布里的智能体认得。生成档开头挂着 `/技能` 时不提交：否则这行命令会被当成提示词直接拿去出图。
@@ -222,13 +260,15 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     !lookSubmitting && (toCanvas ? Boolean(prompt.trim()) : canSubmit && !skillNeedsCanvas)
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
   const promptMissing = !prompt.trim() && (toCanvas || !activeLook)
-  const submitBlockedTip = skillNeedsCanvas
-    ? t('submit.skillNeedsCanvas')
-    : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
-      ? (submissionGuard.disabledReason ?? t('submit.apiNotConfigured'))
-      : promptMissing
-        ? t('submit.promptRequired')
-        : null
+  const submitBlockedTip = oversizedNotice
+    ? oversizedNotice
+    : skillNeedsCanvas
+      ? t('submit.skillNeedsCanvas')
+      : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
+        ? (submissionGuard.disabledReason ?? t('submit.apiNotConfigured'))
+        : promptMissing
+          ? t('submit.promptRequired')
+          : null
   const submit = () => {
     if (lookSubmitting) return
     if (toCanvas)
@@ -252,7 +292,14 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       ? t('submit.startCanvas')
       : maskDraft
         ? t('submit.maskEdit')
-        : generateLabel
+        : batchActive
+          ? batchTotalCredits === undefined
+            ? t('batch.sendLabel', { count: inputImages.length })
+            : t('batch.sendLabelCredits', {
+                count: inputImages.length,
+                credits: batchTotalCredits.toLocaleString(),
+              })
+          : generateLabel
   const submitTitle =
     submissionGuard.disabledReason ??
     (toCanvas
@@ -265,8 +312,12 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   // 参考图入口按附图那条准入规则显隐：认不认参考图、条还放不放得下，由 `lib/referenceDraft`
   // 判一次，附图与禁用态不会各说各话。首屏「画布」档附的图是交给画布第一轮的，那一轮用哪个
   // 模型由服务端定，所以只剩条的上限管着。
-  const modelAdmission = useMemo(() => referenceAdmission(activeProfile), [activeProfile])
-  const admission = toCanvas ? CANVAS_HANDOFF_ADMISSION : modelAdmission
+  // 快速生成能放到逐张生成的上限；超过模型合并上限的部分只能逐张跑。遮罩与模板只按模型的上限。
+  const admission = toCanvas
+    ? CANVAS_HANDOFF_ADMISSION
+    : modelAdmission.acceptsReferences && !maskDraft && !activeLook
+      ? { ...modelAdmission, limit: Math.max(modelAdmission.limit, BATCH_GENERATE_MAX) }
+      : modelAdmission
   const acceptsReferences = admission.acceptsReferences
   // 遮罩是出图那一刻的事，始终归生图模型：画布档把图交出去时不带遮罩。
   const supportsMask = modelAdmission.acceptsReferences
@@ -1038,8 +1089,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         >
           <div
             className={`creation-reference-frame relative w-[72px] h-[72px] rounded-xl overflow-hidden shadow-sm cursor-grab active:cursor-grabbing select-none ${
-              isMaskTarget ? 'border-2 border-primary' : 'border border-border'
+              oversizedIndexes.includes(idx)
+                ? 'border-2 border-destructive'
+                : isMaskTarget
+                  ? 'border-2 border-primary'
+                  : 'border border-border'
             }`}
+            data-oversized={oversizedIndexes.includes(idx) || undefined}
             role="button"
             tabIndex={0}
             aria-label={mentionLabels(idx) ?? undefined}
@@ -1072,6 +1128,14 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   alt=""
                 />
               </div>
+            )}
+            {oversizedIndexes.includes(idx) && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-background/55 text-destructive"
+              >
+                <Icon name="error" size="lg" />
+              </span>
             )}
             {isMaskTarget && (
               // design-allow arbitrary-font: 72px 缩略图角标，DESIGN.md 允许 7–9px
@@ -1197,7 +1261,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               {atImageLimit ? (
                 <>
                   <p className="text-xl font-semibold text-destructive">
-                    {t('image.limitReached', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
+                    {t('image.limitReached', { count: admission.limit, mb: MAX_IMAGE_MB })}
                   </p>
                   <p className="text-sm text-muted-foreground mt-1">{t('image.limitHint')}</p>
                 </>
@@ -1205,7 +1269,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 <>
                   <p className="text-xl font-semibold text-foreground">{t('image.dropToAdd')}</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    {t('image.dropFormats', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
+                    {t('image.dropFormats', { count: admission.limit, mb: MAX_IMAGE_MB })}
                   </p>
                 </>
               )}
@@ -1236,6 +1300,19 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             references={
               <CreationReferenceStack
                 count={inputImages.length}
+                compact={batchOffered}
+                aside={
+                  batchOffered && (
+                    <BatchModeControls
+                      count={inputImages.length}
+                      mergeLimit={batchMergeLimit}
+                      perImage={batchActive}
+                      onChange={(perImage) => useStore.getState().setBatchGenerate(perImage)}
+                    />
+                  )
+                }
+                failed={oversizedIndexes.length > 0}
+                status={oversizedNotice ?? undefined}
                 onClear={() => useStore.getState().clearInputImages()}
                 previews={inputImages
                   .slice(-3)
@@ -1371,10 +1448,16 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               ) : undefined
             }
             status={
-              <SubmissionBillingAction
-                blockedAction={submissionGuard.blockedAction}
-                className="text-xs"
-              />
+              oversizedNotice ? (
+                <span role="alert" className="text-xs leading-snug text-destructive">
+                  {oversizedNotice}
+                </span>
+              ) : (
+                <SubmissionBillingAction
+                  blockedAction={submissionGuard.blockedAction}
+                  className="text-xs"
+                />
+              )
             }
             action={
               <Hint
@@ -1385,6 +1468,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 <span className="inline-flex">
                   <CreationSend
                     autoTooltip={false}
+                    cost={batchTotalCredits?.toLocaleString()}
                     streaming={lookSubmitting}
                     onClick={onSubmitClick}
                     disabled={submitDisabled}
@@ -1402,7 +1486,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             ) : creationMode === 'agent' ? (
               <AgentParamsChip />
             ) : (
-              <ParamControls showCount />
+              <ParamControls showCount fixedCount={batchActive ? inputImages.length : undefined} />
             )}
           </CreationToolbar>
           <input
