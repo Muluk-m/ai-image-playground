@@ -24,3 +24,8 @@ SOFTWARE.
 
 Agnes brand icon: https://agnes-ai.com/images/biglogo.png
 Resized to 64 pixels for the model picker. Agnes trademarks belong to their owner.
+
+Nano Banana icon: https://storage.googleapis.com/gdm-deepmind-com-prod-public/media/original_images/nav__dm__nano-banana__large.svg
+The product icon Google DeepMind uses for Nano Banana on https://deepmind.google/models/gemini-image/.
+Paths and colors are unchanged; only the viewBox was cropped from 0 0 48 48 to 10 6 32 32 so the mark
+fills a 16-pixel slot. Nano Banana and Gemini trademarks belong to Google LLC.

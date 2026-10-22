@@ -33,9 +33,10 @@ import type {
   ChannelModel,
   DiscoveredChannel,
   ModelBadge,
+  ModelLogoId,
   QueueProvider,
 } from '@image-playground/shared'
-import { CHANNEL_CAPABILITIES, MODEL_BADGES } from '@image-playground/shared'
+import { CHANNEL_CAPABILITIES, MODEL_BADGES, MODEL_LOGOS } from '@image-playground/shared'
 import { isObject } from './type-guards'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -149,6 +150,15 @@ function parseEtaSeconds(v: unknown, ctx: string): number | undefined {
   return v
 }
 
+function parseLogo(v: unknown, ctx: string): ModelLogoId | undefined {
+  if (v === undefined) return undefined
+  if (typeof v !== 'string' || !MODEL_LOGOS.includes(v as ModelLogoId))
+    throw new ChannelsLoadError(
+      `${ctx}: invalid logo '${String(v)}' (allowed: ${MODEL_LOGOS.join(', ')})`,
+    )
+  return v as ModelLogoId
+}
+
 function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
   if (!Array.isArray(v) || v.length === 0)
     throw new ChannelsLoadError(`${channelCtx}: models must be a non-empty array`)
@@ -158,6 +168,7 @@ function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
     const media = parseMedia(raw.media, ctx)
     const badges = parseBadges(raw.badges, ctx)
     const etaSeconds = parseEtaSeconds(raw.etaSeconds, ctx)
+    const logo = parseLogo(raw.logo, ctx)
     return {
       id: requireNonEmptyString(raw.id, `${ctx}.id`),
       label: requireNonEmptyString(raw.label, `${ctx}.label`),
@@ -165,6 +176,7 @@ function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
       ...(media ? { media } : {}),
       ...(badges ? { badges } : {}),
       ...(etaSeconds !== undefined ? { etaSeconds } : {}),
+      ...(logo ? { logo } : {}),
     }
   })
 }
