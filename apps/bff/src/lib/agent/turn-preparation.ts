@@ -685,6 +685,11 @@ async function resumeContent(
  * 模型任何说明——历史末尾接上那几次调用与回执，`startAgentTurn` 用 `Agent.continue()` 起跑。
  * 创作类型与参数沿用被拦下的那一轮，授权原文仍是那一轮用户的原话，改图计划接着那几次提交走。
  * 那几张卡一张确认过的都不在了（撤回、删消息）就没有可接的，交回 `no_results` 不起轮。
+ *
+ * 接在历史末尾不会错位到某条新用户消息之后：续跑只在确认事务里排上，那一刻已有晚于被拦那一轮的
+ * 用户消息（排着或已取走）就拒绝确认（`userMessageAfterTurn`）；之后来的用户消息 `seq` 一定更大，
+ * 取件按 `seq` 先取这条续跑。两边并发写收件箱时，`seq` 都取 `MAX + 1` 且有 (conversation_id, seq)
+ * 唯一索引，后提交的那一方撞索引回滚，不会出现「用户消息序号在前、却晚于确认才被看见」。
  */
 async function gateContinuationContent(
   conversationId: string,
