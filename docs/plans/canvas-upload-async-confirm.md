@@ -59,6 +59,7 @@ complete 是同步的，返回 `ready` 后前端才拿到可以写进文档的 `
      2. 启用版：扩展版在所有实例上跑稳后，用服务端开关 `ASYNC_MEDIA_CONFIRM`（默认关）打开 202 和后台校验。
    - 回滚边界：开关一旦打开过，扩展版就是回滚下限，任何回滚都只退到扩展版、再关开关，不退到扩展版之前。原因是关开关只能让存量 `verifying` 处理完，处理结果里的 `rejected` 墓碑会按设计一直留在文档里；扩展版之前的 BFF 只放行 `ready`，会让这些画布之后的每次更新都因 `canvas_media_not_owned` 失败。
    - 如果确实要退到扩展版之前，必须先做一次单独评审的数据迁移，不能只等 `verifying` 清空：（1）关开关，等 `verifying` 为 0；（2）按 `accessCanvasDocument` 的加锁顺序（先用户行再项目行），把每份文档里引用 `rejected` 媒体的节点改成旧 BFF 能接受的形态（去掉 `mediaId`、回到占位节点），同时删掉对应的 project 引用；（3）确认全库文档里 `rejected` 引用数为 0，墓碑行交给 `purgeRejectedMedia` 回收；（4）这时才允许部署扩展版之前的版本。迁移脚本只在 test 演练，生产执行需要单独批准。
+   - 预留期不能卡住校验：现在 `processMedia` 的锁内检查、`publishMedia` 的开头和发布前复核都会拒绝 `expires_at <= now`（`media_upload_expired`）；过期待上传行的清理任务也会按 `expires_at` 删掉暂存对象。行进入 `verifying` 时客户端已经传完，过期只该约束「还没传完的预留」。所以：（1）上面三处过期检查都改为只对 `pending` 生效，`verifying` 跳过；（2）过期清理的条件加上 `status = 'pending'`，不碰 `verifying` 行和它的暂存对象；（3）不靠延长租期：重启或 R2 故障拖多久都不确定，续期总会有拖过的时候。`verifying` 停留过久（比如超过 1 小时）只告警，不自动删除；扫描任务按退避一直重试，直到 `ready` 或确定性失败转 `rejected`。测试要覆盖「行在 `verifying` 期间过了 `expires_at`，重启后扫描任务仍能发布成 `ready`」。
    - 计费和配额：`reserved_bytes` 在 reserve 时占用，但 `mediaUsage` 对非 ready、非附件的行只在 `expires_at > now` 时计入，后台校验拖过 20 分钟预留期（比如长时间重启）时 `verifying` 行会提前不计，用户就能超额预留。所以 `mediaUsage` 把 `status = 'verifying'` 也列为一直计入，直到变成 `ready`（照常计）或 `rejected`（`reserved_bytes` 置 0）。
    - `rejected` 的回收要单独设计，不能交给现有的 sweep：普通画布上传 `attachment_managed = false`，而 `purgeExpiredAttachmentMedia` 只扫 managed 附件；文档里的引用还会保护这行不被删。方案：
      - 置 `rejected` 时立即删除暂存对象（服务端专用 key 尚未写入）；行本身保留为墓碑，保留暂存 key，`reserved_bytes` 按 0 计。
