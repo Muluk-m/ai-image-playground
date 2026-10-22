@@ -205,6 +205,11 @@ export interface TaskRecord {
    * 缺席的是更早版本镜下来的卡，那些仍走详情。
    */
   cloudProvider?: string
+  /**
+   * 封面产出原件的真实像素（`宽x高`），取自平台记录的媒体元数据，只有镜像卡有。
+   * 卡片缩略图只有临时 URL、没有宽高，尺寸要以它为准。
+   */
+  measuredSize?: string
 }
 
 // ===== IndexedDB 存储的图片 =====
