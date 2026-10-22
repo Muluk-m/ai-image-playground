@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { IMAGE_SIZE_PRESETS } from '../image'
 import {
   CATALOG_RATIOS,
+  catalogRatioValue,
   findCatalogModel,
   type ImageCapabilities,
   MODEL_CATALOG,
@@ -251,8 +252,35 @@ describe('resolveImageRequest', () => {
     expect(resolveImageRequest(model, input)).toMatchObject({ ok: true, ratio: 'auto' })
   })
 
-  it('ignores an unknown tier and uses the default', () => {
-    const result = resolveImageRequest(caps('gemini-3-pro-image'), { tier: '8K' })
-    expect(result).toMatchObject({ ok: true, tier: '1K', adjustments: [] })
+  it('uses the default for an unknown tier and records the adjustment', () => {
+    const model = caps('gemini-3-pro-image')
+    expect(resolveImageRequest(model, { tier: '8K' })).toMatchObject({
+      ok: true,
+      tier: '1K',
+      adjustments: [{ field: 'tier', from: '8K', to: '1K' }],
+    })
+    const numeric = { tier: 4 } as unknown as { tier: string }
+    expect(resolveImageRequest(model, numeric)).toMatchObject({
+      tier: '1K',
+      adjustments: [{ field: 'tier', from: '4', to: '1K' }],
+    })
+    expect(resolveImageRequest(model, {})).toMatchObject({ tier: '1K', adjustments: [] })
+  })
+
+  it('treats an unknown surface as unspecified instead of throwing', () => {
+    const model = caps('gpt-image-2.5-flare')
+    const input = { ratio: '21:9', surface: 'canvas' } as unknown as { ratio: string }
+    expect(resolveImageRequest(model, input)).toMatchObject({
+      ok: true,
+      ratio: '21:9',
+      adjustments: [],
+    })
+  })
+
+  it('rejects ratio strings whose numbers overflow', () => {
+    const huge = '9'.repeat(400)
+    expect(catalogRatioValue(`${huge}:1`)).toBeNull()
+    expect(catalogRatioValue(`${huge}:${huge}`)).toBeNull()
+    expect(catalogRatioValue('16:9')).toBeCloseTo(16 / 9)
   })
 })
