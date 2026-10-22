@@ -121,9 +121,7 @@ beforeEach(() => {
     'scripts/build-vps-release.sh',
     'scripts/check-test-isolation.sh',
     'scripts/vps-deploy.sh',
-    'scripts/segmenter-deploy.sh',
     'scripts/lib/deploy-common.sh',
-    'deploy/compose.segmenter.yaml',
   ]) {
     mkdirSync(resolve(join(checkout, f), '..'), { recursive: true })
     cpSync(join(source, f), join(checkout, f))
@@ -135,10 +133,17 @@ beforeEach(() => {
     0o755,
   )
   write(join(checkout, 'scripts/rollout-runtime.sh'), '#!/bin/sh\nexit 0\n', 0o755)
+  // The shared segmenter has its own tests (segmenterDeploy.test.ts); here it only records.
+  write(
+    join(checkout, 'scripts/segmenter-deploy.sh'),
+    '#!/bin/sh\nprintf "segmenter %s\\n" "$*" >> "$CALL_LOG"\n[ "$1" != current ] || exit 1\n',
+    0o755,
+  )
   write(join(checkout, 'deploy/compose.app.yaml'), 'services: {}\n')
   write(join(checkout, 'deploy/buildkitd.toml'), '[worker.oci]\nmax-parallelism = 1\n')
   write(join(checkout, 'deploy/backup/Dockerfile'), 'FROM scratch\n')
   write(join(checkout, 'deploy/segmenter/Dockerfile'), 'FROM scratch\n')
+  write(join(checkout, 'deploy/segmenter/VERSION'), '3\n')
   git(checkout, 'init', '-q')
   git(checkout, 'add', '.')
   git(checkout, 'commit', '-qm', 'public')
@@ -208,6 +213,7 @@ describe('build-vps-release.sh, registry transport (default)', () => {
         `internal\tai-image-playground:vps-main-${p}\t${imageId}\t${pub}\t${priv}\t${pushed('1')}`,
         `paid\tai-image-playground:paid-${p}-${q}\t${imageId}\t${pub}\t${priv}\t${pushed('2')}`,
         `backup\tai-image-playground:backup-${p}\t${imageId}\t${pub}\t-\t${pushed('3')}`,
+        `segmenter\tai-image-playground:segmenter-3-${p}\t${imageId}\t${pub}\t-\t${pushed('3')}`,
         '',
       ].join('\n'),
     )
@@ -219,7 +225,6 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     expect(outputFiles()).toEqual([
       'SHA256SUMS',
       'deploy/compose.app.yaml',
-      'deploy/compose.segmenter.yaml',
       'images.tsv',
       'scripts/app-compose.sh',
       'scripts/check-test-isolation.sh',
@@ -230,28 +235,39 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     ])
   })
 
-  it('builds the segmenter only for test releases, with a layer cache of its own', () => {
+  it('builds the versioned segmenter only for production releases, never for test, with a layer cache of its own', () => {
     writeFileSync(join(root, 'logged-in'), '')
-    expect(build('internal').status).toBe(0)
+    expect(build('test').status).toBe(0)
     expect(calls().some((c) => c.includes(':segmenter-'))).toBe(false)
+    expect(readFileSync(join(out, 'images.tsv'), 'utf8')).not.toContain('segmenter')
     rmSync(out, { recursive: true })
     rmSync(log)
-    const result = build('test')
+    const result = build('internal')
     expect(result.status, result.stderr).toBe(0)
     const p = pub.slice(0, 12)
     const segmenter = calls().find(
       (c) =>
-        c.startsWith('buildx build') && c.includes(`name=${repoName}:segmenter-${p},push=true`),
+        c.startsWith('buildx build') && c.includes(`name=${repoName}:segmenter-3-${p},push=true`),
     )
     expect(segmenter).toContain(
       `--cache-to type=registry,ref=${repoName}:buildcache-segmenter,mode=max`,
     )
     expect(segmenter).toContain(`--build-arg APP_VERSION=${pub}`)
+    expect(segmenter).toContain('--build-arg SEGMENTER_VERSION=3')
     expect(segmenter).toMatch(/deploy\/segmenter$/)
     expect(segmenter).not.toContain(`ref=${repoName}:buildcache,mode=max`)
-    expect(readFileSync(join(out, 'images.tsv'), 'utf8').trim().split('\n').slice(-1)[0]).toBe(
-      `segmenter\tai-image-playground:segmenter-${p}\t${imageId}\t${pub}\t-\t${pushed('3')}`,
+    expect(readFileSync(join(out, 'images.tsv'), 'utf8').trim().split('\n').slice(-1)[0]).toMatch(
+      new RegExp(`^segmenter\tai-image-playground:segmenter-3-${p}\t`),
     )
+  })
+
+  it('refuses a segmenter VERSION that is not a whole number', () => {
+    writeFileSync(join(root, 'logged-in'), '')
+    writeFileSync(join(checkout, 'deploy/segmenter/VERSION'), 'latest\n')
+    git(checkout, 'commit', '-qam', 'bad version')
+    const result = build('internal')
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('deploy/segmenter/VERSION must be a whole number')
   })
 
   it('checksums every file in the release, images.tsv included', () => {
@@ -284,6 +300,7 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     expect(all).toContain(`pull ${pushed('1')}`)
     expect(all).toContain(`pull ${pushed('2')}`)
     expect(all).toContain(`pull ${pushed('3')}`)
+    expect(all).toContain(`segmenter up ai-image-playground:segmenter-3-${pub.slice(0, 12)} 3`)
     expect(all).toContain(
       `rollout image-playground-paid ai-image-playground:paid-${pub.slice(0, 12)}-${priv.slice(0, 12)}`,
     )
@@ -336,13 +353,14 @@ describe('build-vps-release.sh, archive fallback', () => {
     const p = pub.slice(0, 12)
     const all = calls()
     expect(all).toContain(
-      `save -o ${out}/images.tar ai-image-playground:vps-main-${p} ai-image-playground:backup-${p}`,
+      `save -o ${out}/images.tar ai-image-playground:vps-main-${p} ai-image-playground:backup-${p} ai-image-playground:segmenter-3-${p}`,
     )
     expect(all.some((c) => /^(login|push)/.test(c) || c.includes(repoName))).toBe(false)
     expect(readFileSync(join(out, 'images.tsv'), 'utf8')).toBe(
       [
         `internal\tai-image-playground:vps-main-${p}\t${imageId}\t${pub}\t-\t-`,
         `backup\tai-image-playground:backup-${p}\t${imageId}\t${pub}\t-\t-`,
+        `segmenter\tai-image-playground:segmenter-3-${p}\t${imageId}\t${pub}\t-\t-`,
         '',
       ].join('\n'),
     )
