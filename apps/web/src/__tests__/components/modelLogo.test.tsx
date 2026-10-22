@@ -33,8 +33,8 @@ const VERTEX: PublicChannel = {
   defaults: { apiMode: 'images', timeout: 600 },
 }
 
-function render(model: string) {
-  act(() => root.render(<ModelLogo model={model} />))
+function render(model: string, logo?: 'nano-banana' | null) {
+  act(() => root.render(<ModelLogo model={model} logo={logo} />))
   return host.firstElementChild
 }
 
@@ -59,4 +59,13 @@ it('switches to the declared logo once a late channel list arrives', () => {
   expect(logo?.tagName.toLowerCase()).toBe('svg')
   act(() => setChannels([VERTEX]))
   expect(host.firstElementChild?.getAttribute('src')).toBe('/model-logos/nano-banana.svg')
+})
+
+it('draws the logo the caller resolved without consulting the catalog', () => {
+  setChannels([VERTEX])
+  // 选择器从该选项自己的渠道取到「没有声明」：别的渠道的声明不能串过来。
+  expect(render('gemini-3-pro-image', null)?.tagName.toLowerCase()).toBe('svg')
+  expect(render('gemini-3.1-flash-image', 'nano-banana')?.getAttribute('src')).toBe(
+    '/model-logos/nano-banana.svg',
+  )
 })

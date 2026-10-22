@@ -2,7 +2,7 @@
  * Adapted from assistant-ui Elements `model-selector` (MIT, AgentbaseAI).
  * 只取外观与结构：沿用项目的 Radix Popover，不引入 cmdk / base-ui。
  */
-import type { ModelBadge } from '@image-playground/shared'
+import type { ModelBadge, ModelLogoId } from '@image-playground/shared'
 import { type KeyboardEvent, useId, useMemo, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
@@ -28,8 +28,8 @@ export interface ModelChoice {
   value: string
   model: string
   profileId: string
-  /** 选项来自的渠道；图标按「渠道 + 模型」查声明。 */
-  channelId?: string
+  /** 该渠道给这个模型声明的图标；不写按 id 前缀给厂商图标。 */
+  logo?: ModelLogoId
   label: string
   description?: string
   /** 渠道下发的说明标签（最新 / 质量好 / 速度快 / 便宜），按顺序显示在名字后面。 */
@@ -58,11 +58,11 @@ export function useModelChoices() {
           value: `${profile.id}::${option.id}`,
           model: option.id,
           profileId: profile.id,
-          channelId: profile.channelId,
           label: compactModelName(option.id, option.label),
           description: view.name,
           ...(option.badges ? { badges: option.badges } : {}),
           ...(option.etaSeconds !== undefined ? { etaSeconds: option.etaSeconds } : {}),
+          ...(option.logo ? { logo: option.logo } : {}),
         }),
       )
     })
@@ -215,7 +215,7 @@ export function ModelList({
               )}
             >
               <span className="flex shrink-0">
-                <ModelLogo model={option.model} channelId={option.channelId} />
+                <ModelLogo model={option.model} logo={option.logo ?? null} />
               </span>
               {modelOptionName(option, badgeLabel, etaText)}
               {option.description && (
@@ -274,7 +274,7 @@ export function ModelSelector({
         >
           <span className="flex shrink-0 items-center text-muted-foreground">
             {!label && current ? (
-              <ModelLogo model={current.model} channelId={current.channelId} />
+              <ModelLogo model={current.model} logo={current.logo ?? null} />
             ) : (
               <Icon name="model" />
             )}

@@ -127,7 +127,7 @@ describe('selector metadata from an unvalidated catalog', () => {
     expect(first?.badges).toEqual(['fast', 'value'])
   })
 
-  it('reads the logo the given channel declares, not another channel with the same model id', () => {
+  it('gives each selector option the logo its own channel declares', () => {
     const other: DiscoveredChannel = {
       id: 'other',
       kind: 'gemini-queue',
@@ -135,13 +135,13 @@ describe('selector metadata from an unvalidated catalog', () => {
       models: [{ id: 'img-b', label: 'Image B', capabilities: ['generate'] }],
       defaults: {},
     }
-    const channels = [STALE, other]
-    setChannels(channels)
-    expect(modelLogo('img-b', channels, 'stale')).toBe('nano-banana')
-    expect(modelLogo('img-b', channels, 'other')).toBeUndefined()
-    // 渠道不在清单里（历史任务）时退回按模型 id 查。
-    expect(modelLogo('img-b', channels, 'gone')).toBe('nano-banana')
-    expect(modelLogo('img-b', channels)).toBe('nano-banana')
+    setChannels([STALE, other])
+    const fromStale = getProfileModelOptions(builtinProfile('stale', 'img-b'), getPublicChannels())
+    const fromOther = getProfileModelOptions(builtinProfile('other', 'img-b'), getPublicChannels())
+    expect(fromStale.find((one) => one.id === 'img-b')?.logo).toBe('nano-banana')
+    expect(fromOther[0]).not.toHaveProperty('logo')
+    // 不认识的 token 不下发给选择器。
+    expect(fromStale.find((one) => one.id === 'img-a')).not.toHaveProperty('logo')
   })
 
   it('ignores a logo token the client has no icon for', () => {
