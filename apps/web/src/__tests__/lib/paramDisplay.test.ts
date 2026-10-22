@@ -80,6 +80,26 @@ describe('getParamDisplay', () => {
     expect(display.displayValue).toBe('auto')
   })
 
+  it('ignores a size echoed back for Gemini and falls back to the mirrored card pixels', () => {
+    const gemini = {
+      ...taskWithActual({ size: '1024x1024' }),
+      cloudProvider: 'gemini',
+      params: { ...DEFAULT_PARAMS, size: '1024x1024' },
+    } as TaskRecord
+
+    expect(getParamDisplay(gemini, 'size').hasActualValue).toBe(false)
+    expect(getParamDisplay({ ...gemini, measuredSize: '2752x1536' }, 'size').displayValue).toBe(
+      '2752x1536',
+    )
+  })
+
+  it('resolves the provider with the same priority as the detail source line', () => {
+    expect(honorsRequestedSize({ apiProvider: 'openai', cloudProvider: 'gemini' })).toBe(true)
+    expect(honorsRequestedSize({ apiProvider: 'gemini', cloudProvider: 'openai-compat' })).toBe(
+      false,
+    )
+  })
+
   it('flags a measured aspect change for providers that honor size', () => {
     // Grok 等按 size 取比例的上游：比例真变了才标出来。
     const display = getParamDisplay(taskWithActual({}), 'size', undefined, '2048x2048')
@@ -92,6 +112,10 @@ describe('getParamDisplay', () => {
     expect(measuredSizeOf({ width: 2752, height: 1536 })).toBe('2752x1536')
     expect(measuredSizeOf({ width: 2752 })).toBeUndefined()
     expect(measuredSizeOf(null)).toBeUndefined()
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, -1, 0, 12.5]) {
+      expect(measuredSizeOf({ width: bad, height: 768 })).toBeUndefined()
+      expect(measuredSizeOf({ width: 1376, height: bad })).toBeUndefined()
+    }
     expect(honorsRequestedSize({ cloudProvider: 'gemini' })).toBe(false)
     expect(honorsRequestedSize({ apiProvider: 'gemini' })).toBe(false)
     expect(honorsRequestedSize({ cloudProvider: 'openai-compat' })).toBe(true)
