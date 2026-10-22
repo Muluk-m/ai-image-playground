@@ -110,6 +110,15 @@ describe('续跑接在历史末尾的那一对', () => {
     expect(calls[0]!.result).toContain('一只戴围巾的橘猫')
   })
 
+  it('回执原样接回拦下那一刻的那一句，只补上确认的提示词；没留原文的旧卡退回通用说法', () => {
+    const receipt = '已按用户要求提交生图任务（2 张图，尺寸 1024x1536），这次调用已经提交并计费。'
+    const [kept] = gateContinuation(turnOf(gatedCard({ gateReceipt: receipt }))).calls
+    expect(kept!.result).toBe(`${receipt}执行提示词：一只戴围巾的橘猫。`)
+    const [legacy] = gateContinuation(turnOf(gatedCard())).calls
+    expect(legacy!.result).toContain('已按用户要求提交生图任务')
+    expect(legacy!.result).toContain('执行提示词：一只戴围巾的橘猫。')
+  })
+
   it('回放里那张卡不再按文字回放，而是在末尾接成一次真实的调用与结果', () => {
     const turn = turnOf(gatedCard())
     const continuation = gateContinuation(turn)

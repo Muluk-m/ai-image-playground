@@ -695,17 +695,16 @@ async function gateContinuationContent(
   if (!continuation.calls.length) return { kind: 'no_results' }
   const plan = await wakePlan(jobs)
   const gatedStart = window.messages.findIndex((message) => message.turnId === gatedTurnId)
+  // 澄清链从被拦下那一轮之前算起；那一轮不在窗口里就按整个窗口算。保护中的唤醒计划从头算。
+  const beforeGated = gatedStart >= 0 ? window.messages.slice(0, gatedStart) : window.messages
+  const selectionHistoryStart = plan?.protected ? 0 : clarificationChainStart(beforeGated)
   return {
     text: '',
     references: [],
     reviewImageIds: [],
     mode: resolveAgentMode(resume.mode ?? 'image'),
     ...(resume.params ? { params: resume.params } : {}),
-    selectionHistoryStart: plan?.protected
-      ? 0
-      : gatedStart >= 0
-        ? clarificationChainStart(window.messages.slice(0, gatedStart))
-        : clarificationChainStart(window.messages),
+    selectionHistoryStart,
     deviceId: resume.deviceId || (owner.kind === 'device' ? owner.deviceId : ''),
     userMessageId: `${turnId}:resume`,
     continuation,

@@ -646,6 +646,26 @@ export async function enqueueAgentResume(
   return executor ? write(executor) : db.transaction(write)
 }
 
+/** 确认门拦下的这一轮排过的续跑此刻还在等起轮（没被取走、也没撤回）。 */
+export async function gateResumePending(
+  executor: typeof db | BffTransaction,
+  conversationId: string,
+  turnId: string,
+): Promise<boolean> {
+  const [row] = await executor
+    .select({ id: inbox.id })
+    .from(inbox)
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        eq(inbox.client_message_id, agentGateResumeKey(turnId)),
+        eq(inbox.status, 'pending'),
+      ),
+    )
+    .limit(1)
+  return row !== undefined
+}
+
 /** 这一轮被打断后是否排上过中断续跑（不论后来有没有跑完）。 */
 export async function agentResumeQueued(conversationId: string, turnId: string): Promise<boolean> {
   const [row] = await db

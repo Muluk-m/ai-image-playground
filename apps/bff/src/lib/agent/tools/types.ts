@@ -125,6 +125,8 @@ export interface AgentToolDetails {
   readonly awaitingConfirmation?: true
   /** 这份待确认的稿是确认门拦下来的：智能体不知道，确认后同一轮接着跑。 */
   readonly gated?: true
+  /** 拦下那一刻交给模型的回执原文；续跑原样接回（见 `tool-gate.ts`）。 */
+  readonly gateReceipt?: string
   /** 读取技能这一步读到了什么；只有那个工具会填。 */
   readonly skill?: AgentSkillOutcome
   /** 排时间线的结果；只有那个工具会填。 */

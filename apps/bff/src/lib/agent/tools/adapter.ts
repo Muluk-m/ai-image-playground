@@ -185,6 +185,7 @@ export function toolResultBlock(
       title: start.title,
       ...(details.anchorObjectId ? { anchorObjectId: details.anchorObjectId } : {}),
       ...(details.gated ? { gated: true as const } : {}),
+      ...(details.gateReceipt ? { gateReceipt: details.gateReceipt } : {}),
     }
   }
   if (details?.job) {

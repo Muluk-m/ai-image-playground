@@ -795,6 +795,11 @@ export interface AgentToolResultBlock {
    * 普通拟稿与旧记录缺席。
    */
   readonly gated?: true
+  /**
+   * 确认门拦下那一刻交给模型的回执原文（版本数、尺寸都在里面）。续跑把它原样接回历史，
+   * 模型在确认前后看到的是同一句话。只有确认门的卡有；旧记录缺席。
+   */
+  readonly gateReceipt?: string
   /** 这次调用提交的后台任务；任务结束后仍保留，标明这张卡的结局来自后台任务。 */
   readonly job?: AgentBackgroundJob
   /** 这张卡是一条重试记录：用户在哪张失败卡的哪个失败占位上点了重试。普通调用缺席。 */

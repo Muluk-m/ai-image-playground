@@ -88,12 +88,18 @@ function submittedText(words: MediaWords, count: number, size?: string): string 
 }
 
 /**
- * 确认门续跑时接在历史末尾的回执（见 `tool-gate.ts`）：与当场提交那一句同一种说法，
- * 提示词换成用户确认的那一份——他可能在卡上改过。
+ * 确认门续跑时接在历史末尾的回执（见 `tool-gate.ts`）：拦下那一刻交给模型的那一句原样接回
+ * （版本数、尺寸都在里面），只在末尾补上用户确认的提示词——他可能在卡上改过。
+ * 没留原文的旧卡退回不带数量与尺寸的同一种说法。
  */
-export function confirmedSubmissionText(media: ChannelMedia, prompt: string | undefined): string {
-  const words = WORDS[media]
+export function confirmedSubmissionText(
+  media: ChannelMedia,
+  prompt: string | undefined,
+  receipt?: string,
+): string {
   const executed = prompt ? `执行提示词：${prompt}。` : ''
+  if (receipt) return `${receipt}${executed}`
+  const words = WORDS[media]
   return `已按用户要求提交${words.verb}任务，这次调用已经提交并计费，结果会显示在对话的产物卡片中。${executed}不要描述成品的样子，也不要为同一件事再提交一次；结果由系统在任务结束时告诉你。`
 }
 
@@ -301,17 +307,13 @@ export async function draftQueueTask(
   // 草稿真的落下了才登记：同一轮里模型不能为同一件事拟第二次稿，确认与否由用户决定。
   context.maskedEditPlan?.submitted(submission)
   if (input.media === 'image') context.imageCombinations?.submitted(input.referenceIds ?? [])
+  const receipt = held ? submittedText(words, count, imageSize) : draftText(words, count, imageSize)
   return {
-    content: [
-      {
-        type: 'text',
-        text: held ? submittedText(words, count, imageSize) : draftText(words, count, imageSize),
-      },
-    ],
+    content: [{ type: 'text', text: receipt }],
     details: {
       executedPrompt: input.prompt,
       awaitingConfirmation: true as const,
-      ...(held ? { gated: true as const } : {}),
+      ...(held ? { gated: true as const, gateReceipt: receipt } : {}),
       ...(bound ? { productionDraftRevision: 1 } : {}),
       ...(input.videoRecord ? { video: input.videoRecord } : {}),
       ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),

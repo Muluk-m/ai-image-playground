@@ -84,7 +84,7 @@ export function gateContinuation(turn: readonly AgentMessageView[]): AgentTurnCo
           toolCallId: block.toolCallId,
           toolName: block.toolName,
           args: block.snapshot?.args ?? (block.prompt ? { prompt: block.prompt } : {}),
-          result: confirmedSubmissionText(block.job.media, block.prompt),
+          result: confirmedSubmissionText(block.job.media, block.prompt, block.gateReceipt),
         },
       ]
     }),

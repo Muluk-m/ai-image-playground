@@ -39,6 +39,7 @@ const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { workerSettles } = await import('../helpers/taskWorker')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
+const { confirmAgentGeneration } = await import('../../lib/agent/confirmations')
 const { GATE_VOIDED_MESSAGE } = await import('../../lib/agent/tool-gate-records')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
@@ -209,6 +210,9 @@ describe('确认门', () => {
     expect(textOf(last)).toContain('已按用户要求提交')
     expect(textOf(last)).toContain('一只戴围巾的橘猫')
     expect(textOf(last)).not.toContain('确认')
+    // 回执就是拦下那一刻交给模型的那一句（版本数、尺寸都在），只在末尾补上确认的提示词。
+    expect(pending!.block.gateReceipt).toContain('1 张图')
+    expect(textOf(last)).toContain(pending!.block.gateReceipt!)
     const assistant = sent.at(-2) as { role: string; tool_calls?: { id: string }[] }
     expect(assistant.role).toBe('assistant')
     expect(assistant.tool_calls?.map((call) => call.id)).toEqual(['call-1'])
@@ -250,6 +254,47 @@ describe('确认门', () => {
     const sent = calls[1]!.messages
     expect(sent.slice(-2).map((message) => message.role)).toEqual(['tool', 'tool'])
     expect(await tasksOf(conversationId)).toHaveLength(2)
+  })
+
+  it('已提交的确认门卡再点确认：续跑还没被取走就让调用方再开一次轮，跑过之后不再碰', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () => toolCallCompletion(generate('call-1')),
+        () => completionStream('已经开始画了。'),
+      ]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一只橘猫', GATED)
+    const [pending] = await cardsOf(conversationId)
+
+    // 直接走确认逻辑、不经路由：确认已提交、续跑已排上，但开轮之前进程就没了。
+    const first = await confirmAgentGeneration({
+      conversationId,
+      owner: { kind: 'device', deviceId: DEVICE },
+      messageId: pending!.messageId,
+      prompt: pending!.block.prompt ?? '',
+      deviceId: DEVICE,
+      userId: null,
+    })
+    expect(first).toMatchObject({ kind: 'created', continued: true })
+    expect(await turnIds(conversationId)).toHaveLength(1)
+
+    // 用户再点一次（或换台设备）：卡已提交，交回同一张；续跑还在等，路由据此去开轮。
+    const replayed = await confirm(conversationId, pending!)
+    expect(replayed.status).toBe(200)
+    expect(replayed.json.continued).toBe(true)
+    expect(replayed.json.message.content).toContainEqual(
+      expect.objectContaining({ status: 'submitted', gated: true }),
+    )
+    await waitForTurns(conversationId, 2)
+    expect(calls).toHaveLength(2)
+    expect(await tasksOf(conversationId)).toHaveLength(1)
+
+    // 续跑跑过之后再重放：不再排，也不再开轮。
+    expect((await confirm(conversationId, pending!)).json.continued).toBeUndefined()
+    expect(await pickUpStrandedInboxes()).toBe(0)
+    expect(await turnIds(conversationId)).toHaveLength(2)
+    expect(calls).toHaveLength(2)
   })
 
   it('没确认就发了新消息：卡作废、不提交，再点确认也交不出去', async () => {

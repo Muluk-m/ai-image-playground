@@ -27,7 +27,7 @@ import type { BffTransaction } from '../private-overlay'
 import { lockMediaOwner } from '../projectMedia'
 import { createQueueTask } from '../taskSubmission'
 import type { AgentOwner } from './conversations'
-import { enqueueAgentResume } from './inbox'
+import { enqueueAgentResume, gateResumePending } from './inbox'
 import {
   validateImageParameters,
   validateProductionConfirmation,
@@ -191,11 +191,16 @@ export async function confirmAgentGeneration(
       )
       const card = await readToolCard(tx, input.conversationId, input.messageId)
       if (!card) return { kind: 'not_found' }
-      // 已经提交过的卡（双击、另一台设备、网络重发）：原样交回，不再提交。
-      if (card.block.status !== 'awaiting_confirmation')
-        return card.block.job
-          ? { kind: 'replayed', message: messageOf(card) }
-          : { kind: 'not_confirmable' }
+      // 已经提交过的卡（双击、另一台设备、网络重发）：原样交回，不再提交。确认门的卡顺带补一次
+      // 续跑：按轮去重，排过就不再排；还没被起轮取走的，让调用方再去开一次轮。
+      if (card.block.status !== 'awaiting_confirmation') {
+        if (!card.block.job) return { kind: 'not_confirmable' }
+        return {
+          kind: 'replayed',
+          message: messageOf(card),
+          ...(await continueGatedTurn(tx, card, input)),
+        }
+      }
       const draft = await readDraft(tx, input.conversationId, card)
       if (!draft) return { kind: 'not_confirmable' }
       // 这份草稿已经用掉了（上一次确认写回卡片之前进程死了）：认领那条任务，不再提交。
@@ -308,10 +313,12 @@ async function prepareConfirmation(
 ): Promise<PreparedConfirmation | ConfirmGenerationOutcome> {
   const card = await readToolCard(db, input.conversationId, input.messageId)
   if (!card) return { kind: 'not_found' }
-  if (card.block.status !== 'awaiting_confirmation')
-    return card.block.job
-      ? { kind: 'replayed', message: messageOf(card) }
-      : { kind: 'not_confirmable' }
+  if (card.block.status !== 'awaiting_confirmation') {
+    if (!card.block.job) return { kind: 'not_confirmable' }
+    // 确认门的卡交给事务里的重放分支：那里在锁内补排续跑。
+    if (card.block.gated === true) return { request: { prompt }, video: undefined }
+    return { kind: 'replayed', message: messageOf(card) }
+  }
   const draft = await readDraft(db, input.conversationId, card)
   if (!draft) return { kind: 'not_confirmable' }
   // 已经用掉的草稿交给事务里的重放分支处理：那里要写回卡片。
@@ -427,7 +434,9 @@ async function continueGatedTurn(
     Date.now(),
     tx,
   )
-  return queued ? { continued: true } : {}
+  if (queued) return { continued: true }
+  // 早就排过（上一次确认、或重放）：还没被起轮取走就让调用方再开一次轮，取走过的不再碰。
+  return (await gateResumePending(tx, input.conversationId, card.turnId)) ? { continued: true } : {}
 }
 
 /**
@@ -440,10 +449,8 @@ export async function voidPendingToolGates(
   userId: string | null,
 ): Promise<number> {
   const voided = await db.transaction(async (tx) => {
-    const rows = await pendingGateMessages(tx, conversationId)
-    if (!rows.length) return []
+    // 先锁再读，与确认同一个顺序：不在锁外先看一眼「没有」就走，那一眼与确认、落卡之间没有先后。
     await lockConversation(tx, conversationId, userId)
-    // 拿到锁之后再读一遍：等锁的那会儿可能刚有一张被确认了。
     const locked = await pendingGateMessages(tx, conversationId)
     const drafts: string[] = []
     for (const row of locked) {
