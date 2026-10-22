@@ -203,11 +203,14 @@ export async function confirmAgentGeneration(
       }
       // 确认门的卡一旦在那一轮之后有用户消息进了收件箱就算作废：作废发生在那条消息起轮时，这里与它
       // 同一把会话锁，不论确认与起轮谁先拿到锁，「先发了新消息」的卡都交不出去。
-      if (
-        card.block.gated === true &&
-        (await userMessageAfterTurn(tx, input.conversationId, card.turnId, card.createdAt))
-      )
-        return { kind: 'not_confirmable' }
+      // 用户消息入箱只锁会话行、不拿会话级咨询锁（匿名设备的会话也没有媒体主锁能把两边串起来），
+      // 所以查之前先把会话行锁住：入箱若已在路上，就等它提交后再查，查得到那条消息；确认先拿到行锁，
+      // 入箱就排在确认之后，那条消息落在续跑之后，不会两边都成立。
+      if (card.block.gated === true) {
+        if (!(await conversationStillOwned(tx, input))) return { kind: 'not_found' }
+        if (await userMessageAfterTurn(tx, input.conversationId, card.turnId, card.createdAt))
+          return { kind: 'not_confirmable' }
+      }
       const draft = await readDraft(tx, input.conversationId, card)
       if (!draft) return { kind: 'not_confirmable' }
       // 这份草稿已经用掉了（上一次确认写回卡片之前进程死了）：认领那条任务，不再提交。

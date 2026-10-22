@@ -7,7 +7,7 @@ import {
   type AgentWakeSkipReason,
   taskFailureCode,
 } from '@image-playground/shared'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelTasks } from '../../db/task-transitions'
 import { cancelAnalysisTasks } from '../analysis-tasks'
@@ -183,15 +183,60 @@ export async function markAgentJobsWakeSkipped(
   taskIds: readonly string[],
   reason: AgentWakeSkipReason,
 ): Promise<void> {
+  await setAgentJobsWakeSkipped(tx, conversationId, taskIds, reason)
+}
+
+/**
+ * 这几条唤醒在起轮事务里被取走、智能体确实接着看了结果：卡上先前记下的「没接着做」已经过时，
+ * 抹掉。比如确认门续跑因积分不够被撤回、卡上记了原因，之后用户充了值，任务结束的唤醒照常起轮。
+ * 必须在取走唤醒的那个事务里调用：起轮回滚时标记也原样留着。
+ */
+export async function clearAgentWakeSkippedForWakes(
+  tx: BffTransaction,
+  conversationId: string,
+  wakeIds: readonly string[],
+): Promise<void> {
+  if (wakeIds.length === 0) return
+  const rows = await tx
+    .select({ taskId: schema.agent_jobs.task_id })
+    .from(schema.agent_jobs)
+    .where(
+      and(
+        eq(schema.agent_jobs.conversation_id, conversationId),
+        inArray(schema.agent_jobs.wake_id, [...wakeIds]),
+      ),
+    )
+  await setAgentJobsWakeSkipped(
+    tx,
+    conversationId,
+    rows.map((row) => row.taskId),
+    null,
+  )
+}
+
+async function setAgentJobsWakeSkipped(
+  tx: BffTransaction,
+  conversationId: string,
+  taskIds: readonly string[],
+  reason: AgentWakeSkipReason | null,
+): Promise<void> {
   if (taskIds.length === 0) return
   const wanted = new Set(taskIds)
+  // 只锁这几个任务自己的结果卡：起轮时每次都会走到这里，不能把整段会话历史都锁一遍。
   const rows = await tx
     .select({ id: schema.agent_messages.id, content: schema.agent_messages.content })
     .from(schema.agent_messages)
     .where(
       and(
         eq(schema.agent_messages.conversation_id, conversationId),
-        sql`${schema.agent_messages.content} @> '[{"type":"toolResult"}]'::jsonb`,
+        or(
+          ...[...wanted].map(
+            (taskId) =>
+              sql`${schema.agent_messages.content} @> ${JSON.stringify([
+                { type: 'toolResult', job: { taskId } },
+              ])}::text::jsonb`,
+          ),
+        ),
       ),
     )
     .for('update')
@@ -199,6 +244,12 @@ export async function markAgentJobsWakeSkipped(
     let changed = false
     const content = row.content.map((block) => {
       if (block.type !== 'toolResult' || !block.job || !wanted.has(block.job.taskId)) return block
+      if (reason === null) {
+        if (block.wakeSkipped === undefined) return block
+        changed = true
+        const { wakeSkipped: _cleared, ...rest } = block
+        return rest
+      }
       changed = true
       return { ...block, wakeSkipped: reason }
     })
