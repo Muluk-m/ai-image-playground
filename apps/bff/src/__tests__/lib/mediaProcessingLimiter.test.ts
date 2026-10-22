@@ -193,6 +193,53 @@ describe('media processing limiter input checks', () => {
     await Promise.all(jobs)
   })
 
+  it('从没读到合法预算时，在途那张放完后排队的也只放进一张', async () => {
+    const subject = createMediaProcessingLimiter({
+      slots: 4,
+      byteBudget: () => Number.NaN,
+      queueLimit: 8,
+      queueTimeoutMs: 10_000,
+      bypassLimitMs: 5_000,
+      busy: (reason) => new Error(reason),
+    })
+    const first = gate()
+    const rest = gate()
+    const head = subject.run(10, () => first.opened)
+    const queued = [1, 2, 3].map(() => subject.run(10, () => rest.opened))
+    await tick()
+    expect(subject.active).toBe(1)
+    expect(subject.queued).toBe(3)
+    first.open()
+    await head
+    await tick()
+    // drain 放进第一张后 active 变成 1，后面几张都要过预算判断。
+    expect(subject.active).toBe(1)
+    expect(subject.queued).toBe(2)
+    rest.open()
+    await Promise.all(queued)
+  })
+
+  it('busy 回调抛出非 Error 时仍以稳定的 Error 结束', async () => {
+    const subject = createMediaProcessingLimiter({
+      slots: 1,
+      byteBudget: () => 100,
+      queueLimit: 0,
+      queueTimeoutMs: 10_000,
+      bypassLimitMs: 5_000,
+      busy: () => {
+        throw 'busy factory failed'
+      },
+    })
+    const running = gate()
+    const first = subject.run(10, () => running.opened)
+    const rejected = await subject.run(10, async () => {}).catch((error: unknown) => error)
+    expect(rejected).toBeInstanceOf(Error)
+    expect((rejected as Error).message).toBe('media processing processing_queue_full')
+    expect((rejected as Error).cause).toBe('busy factory failed')
+    running.open()
+    await first
+  })
+
   it('拒收 setTimeout 表示不了的时限；超大预算截到安全整数，在途合计保持精确', async () => {
     const options = {
       slots: 4,
