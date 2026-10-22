@@ -520,6 +520,31 @@ export async function skipAgentWake(
 }
 
 /**
+ * 确认门续跑开不了轮（积分不够）：不起轮就了结它，记成已撤回，不当成一条发送失败。
+ * 只有它仍待处理时才成立。
+ */
+export async function skipAgentGateResume(
+  tx: BffTransaction,
+  conversationId: string,
+  id: string,
+): Promise<boolean> {
+  const rows = await tx
+    .update(inbox)
+    .set({ status: 'cancelled' })
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        eq(inbox.id, id),
+        eq(inbox.kind, 'system_event'),
+        eq(inbox.status, 'pending'),
+        sql`(${inbox.payload} -> 'gate') IS NOT NULL`,
+      ),
+    )
+    .returning({ id: inbox.id })
+  return rows.length > 0
+}
+
+/**
  * 用户上次说话之后，连续自动唤醒起过几轮。唤醒轮是取走了唤醒、自己没有用户消息、并且真的跑过
  * （留下了页脚）的那一轮；并进用户消息那一轮的唤醒不算，被跳过的唤醒也不算。用户一说话就从零算起。
  */
