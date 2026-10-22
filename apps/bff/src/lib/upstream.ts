@@ -50,6 +50,7 @@ import {
   withoutModeration,
 } from './upstream/openai'
 import { type ChannelRouteStyle, clientError, type UpstreamCallResult } from './upstream/shared'
+import { normalizeVertexRequest } from './upstream/vertex'
 import { VIDEO_MIME, VIDEO_STYLE_SPECS } from './upstream/video'
 
 /*
@@ -64,6 +65,7 @@ const CHANNEL_ROUTE_STYLES: Readonly<Record<string, ChannelRouteStyle | undefine
   'agnes-video': 'agnes-videos',
   'ark-video': 'ark-videos',
   'veo-video': 'veo-videos',
+  'vertex-images': 'vertex-generate-content',
 }
 
 /** 只认自有键：channel id 只校验 kebab-case，`constructor` 这类合法 id 不能命中原型属性。 */
@@ -575,11 +577,15 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 
     if (provider === 'gemini') {
       const url = `${base}/models/${encodeURIComponent(model)}:generateContent`
+      // Vertex 直连认 Google 自家的 x-goog-api-key；通用网关（sub2api）认 x-api-key。
+      const vertex = style === 'vertex-generate-content'
       const headers = {
         'content-type': 'application/json',
-        ...(key ? { 'x-api-key': key } : {}),
+        ...(key ? { [vertex ? 'x-goog-api-key' : 'x-api-key']: key } : {}),
       }
-      const body = JSON.stringify(buildGeminiBody(request))
+      const body = JSON.stringify(
+        buildGeminiBody(vertex ? normalizeVertexRequest(model, request) : request),
+      )
 
       // Gemini image generation 不支持 candidateCount>1（"Only one candidate is
       // supported for audio or image response"），n>1 时本层 fan-out 成 N 次并发

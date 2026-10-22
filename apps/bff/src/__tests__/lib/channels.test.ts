@@ -13,6 +13,7 @@ import {
   loadChannelsFromFile,
   parseChannelsConfig,
   resolveModelMedia,
+  resolveQueueModel,
 } from '../../lib/channels'
 
 const SAMPLE_CHANNEL = {
@@ -439,6 +440,57 @@ describe('parseChannelsConfig', () => {
     ).toThrow(/media/)
   })
 
+  it('keeps selector badges and eta on the discovered model, omitting them when absent', () => {
+    const result = parseChannelsConfig(
+      {
+        channels: [
+          {
+            ...SAMPLE_CHANNEL,
+            models: [
+              {
+                id: 'b',
+                label: 'B',
+                capabilities: ['generate'],
+                badges: ['fast', 'value'],
+                etaSeconds: 3,
+              },
+              { id: 'plain', label: 'Plain', capabilities: ['generate'] },
+            ],
+          },
+        ],
+      },
+      ENV_WITH_SECRETS,
+    )
+    _setChannelsForTesting(result.channels)
+    const [tagged, plain] = getDiscoveredChannels()[0]!.models
+    expect(tagged).toMatchObject({ badges: ['fast', 'value'], etaSeconds: 3 })
+    expect(plain).not.toHaveProperty('badges')
+    expect(plain).not.toHaveProperty('etaSeconds')
+  })
+
+  it.each([
+    [{ badges: 'fast' }, /badges must be an array/],
+    [{ badges: ['newest'] }, /invalid badge 'newest'/],
+    [{ badges: ['fast', 'fast'] }, /duplicate badge 'fast'/],
+    [{ etaSeconds: 0 }, /etaSeconds/],
+    [{ etaSeconds: 2.5 }, /etaSeconds/],
+    [{ etaSeconds: '14' }, /etaSeconds/],
+  ])('rejects malformed selector metadata %j', (extra, error) => {
+    expect(() =>
+      parseChannelsConfig(
+        {
+          channels: [
+            {
+              ...SAMPLE_CHANNEL,
+              models: [{ id: 'm', label: 'M', capabilities: ['generate'], ...extra }],
+            },
+          ],
+        },
+        ENV_WITH_SECRETS,
+      ),
+    ).toThrow(error)
+  })
+
   it('rejects empty models array', () => {
     expect(() =>
       parseChannelsConfig({ channels: [{ ...SAMPLE_CHANNEL, models: [] }] }, ENV_WITH_SECRETS),
@@ -599,6 +651,70 @@ describe('shipped channels.json', () => {
         capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
       },
     ])
+  })
+
+  const VERTEX_ENV: Record<string, string> = {
+    VERTEX_API_KEY: 'vertex-key',
+    VERTEX_BASE_URL:
+      'https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/google/',
+  }
+
+  it.each([
+    ['VERTEX_API_KEY', 'VERTEX_API_KEY'],
+    ['VERTEX_BASE_URL', 'VERTEX_BASE_URL'],
+  ])('keeps the Vertex channel hidden while %s is unset', (missing, named) => {
+    const env: Record<string, string | undefined> = { ...VERTEX_ENV, OPENAI_API_KEY: 'openai-key' }
+    delete env[missing]
+    const result = parseChannelsConfig(shipped, (key) => env[key])
+
+    expect(result.channels.map((c) => c.id)).not.toContain('vertex-images')
+    expect(result.warnings.find((w) => w.includes("channel 'vertex-images'"))).toContain(named)
+  })
+
+  it('advertises the three Vertex image models last, so they never become the default', () => {
+    const result = parseChannelsConfig(shipped, (key) =>
+      key === 'OPENAI_API_KEY' ? 'openai-key' : VERTEX_ENV[key],
+    )
+
+    expect(result.channels.map((c) => c.id)).toEqual(['openai-images', 'vertex-images'])
+    const vertex = result.channels.at(-1)!
+    expect(vertex).toMatchObject({
+      kind: 'gemini-queue',
+      baseUrl: 'https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/google',
+      auth: { secretRef: 'VERTEX_API_KEY', secret: 'vertex-key' },
+    })
+    expect(vertex.models).toEqual([
+      {
+        id: 'gemini-nano-banana-2.1',
+        label: 'Nano Banana 2.1',
+        capabilities: ['generate', 'edit', 'size'],
+        badges: ['latest'],
+        etaSeconds: 14,
+      },
+      {
+        id: 'gemini-3-pro-image',
+        label: 'Nano Banana Pro',
+        capabilities: ['generate', 'edit', 'size'],
+        badges: ['quality'],
+        etaSeconds: 24,
+      },
+      {
+        id: 'gemini-3.1-flash-lite-image',
+        label: 'Nano Banana 2 Lite',
+        capabilities: ['generate', 'edit', 'size'],
+        badges: ['fast', 'value'],
+        etaSeconds: 3,
+      },
+    ])
+    _setChannelsForTesting(result.channels)
+    expect(resolveQueueModel('image')).toEqual({
+      provider: 'openai-compat',
+      model: 'gpt-image-2.5-flare',
+    })
+    expect(resolveQueueModel('image', 'gemini-3-pro-image')).toEqual({
+      provider: 'gemini',
+      model: 'gemini-3-pro-image',
+    })
   })
 })
 

@@ -61,11 +61,23 @@ export type ChannelCapability = (typeof CHANNEL_CAPABILITIES)[number]
 /** 模型产出的媒介类型。缺省 image — 存量 channel 配置不写这个字段。 */
 export type ChannelMedia = 'image' | 'video'
 
+/**
+ * 模型选择器里名字后面那几个说明标签。只放运营能讲清楚依据的特征（实测耗时、官方定位）；
+ * 文案在前端 i18n（`composer.param.modelBadge.*`），这里只是稳定的 token。
+ * 'latest' = 同系列最新发布；'quality' = 同系列画质最好；'fast' = 同系列最快；'value' = 同系列最便宜。
+ */
+export const MODEL_BADGES = ['latest', 'quality', 'fast', 'value'] as const
+export type ModelBadge = (typeof MODEL_BADGES)[number]
+
 export interface ChannelModel {
   id: string
   label: string
   capabilities: ChannelCapability[]
   media?: ChannelMedia
+  /** 选择器里的说明标签，按数组顺序展示；缺省不显示。 */
+  badges?: ModelBadge[]
+  /** 典型单张耗时（秒，实测中位量级），选择器显示成「约 N 秒」；只是提示，不参与超时。 */
+  etaSeconds?: number
 }
 
 /**

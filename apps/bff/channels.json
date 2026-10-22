@@ -219,6 +219,49 @@
         "asyncTasks": true
       },
       "allowedPaths": ["models"]
+    },
+    {
+      "id": "vertex-images",
+      "kind": "gemini-queue",
+      "label": "Vertex AI",
+      "baseUrlRef": "VERTEX_BASE_URL",
+      "requiresSecret": true,
+      "auth": {
+        "type": "bearer",
+        "secretRef": "VERTEX_API_KEY"
+      },
+      "models": [
+        {
+          "id": "gemini-nano-banana-2.1",
+          "label": "Nano Banana 2.1",
+          "capabilities": ["generate", "edit", "size"],
+          "badges": ["latest"],
+          "etaSeconds": 14
+        },
+        {
+          "id": "gemini-3-pro-image",
+          "label": "Nano Banana Pro",
+          "capabilities": ["generate", "edit", "size"],
+          "badges": ["quality"],
+          "etaSeconds": 24
+        },
+        {
+          "id": "gemini-3.1-flash-lite-image",
+          "label": "Nano Banana 2 Lite",
+          "capabilities": ["generate", "edit", "size"],
+          "badges": ["fast", "value"],
+          "etaSeconds": 3
+        }
+      ],
+      "defaults": {
+        "apiMode": "images",
+        "timeout": 600
+      },
+      "allowedPaths": [
+        "models/gemini-nano-banana-2.1:generateContent",
+        "models/gemini-3-pro-image:generateContent",
+        "models/gemini-3.1-flash-lite-image:generateContent"
+      ]
     }
   ]
 }
