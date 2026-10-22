@@ -22,6 +22,7 @@ import {
   readCanvasSyncMessage,
   synchronizeLegacyElements,
   updateCanvasNode,
+  watchCanvasUploadConflicts,
 } from '@image-playground/shared'
 import i18next from 'i18next'
 import { IndexeddbPersistence } from 'y-indexeddb'
@@ -303,6 +304,8 @@ export class CloudNodeProjectSession {
         previous = next
         if (!this.applying) synchronizeLegacyElements(doc, before, next, legacyOrigin)
       })
+      // 先发文档后，图片还在后台上传时别的设备就能改这个节点：上传簿记与并发编辑互相顶掉时补回来。
+      watchCanvasUploadConflicts(doc, (origin) => origin === remoteOrigin, legacyOrigin)
       doc.on('update', (_update: Uint8Array, origin: unknown) => {
         normalizeMedia()
         this.projectToEditor()

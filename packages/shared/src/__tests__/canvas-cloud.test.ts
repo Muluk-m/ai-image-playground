@@ -4,6 +4,7 @@ import {
   CANVAS_UPLOAD_CLOCK_SKEW_MS,
   CANVAS_UPLOAD_STALE_MS,
   canvasProjectDocument,
+  canvasUploadClaimNextChange,
   canvasUploadingElsewhere,
   initializeCanvasConnectionRules,
   validateCloudCanvas,
@@ -323,6 +324,23 @@ describe('canvas upload claims', () => {
   const claimed = (by: string, since: number) => ({
     fileId: 'local-1',
     meta: { uploadDevice: by, uploadStartedAt: String(since), prompt: 'p' },
+  })
+
+  it('给出上传中状态下一次翻转的时刻，到点前后结果确实不同', () => {
+    const fresh = claimed('other', now - 1000)
+    const expiry = canvasUploadClaimNextChange(fresh, 'me', now)
+    expect(expiry).toBe(now - 1000 + CANVAS_UPLOAD_STALE_MS)
+    expect(canvasUploadingElsewhere(fresh, 'me', (expiry as number) - 1)).toBe(true)
+    expect(canvasUploadingElsewhere(fresh, 'me', expiry as number)).toBe(false)
+    const ahead = claimed('other', now + CANVAS_UPLOAD_CLOCK_SKEW_MS + 60_000)
+    const start = canvasUploadClaimNextChange(ahead, 'me', now) as number
+    expect(canvasUploadingElsewhere(ahead, 'me', start - 1)).toBe(false)
+    expect(canvasUploadingElsewhere(ahead, 'me', start)).toBe(true)
+    expect(canvasUploadClaimNextChange(claimed('me', now), 'me', now)).toBeUndefined()
+    expect(
+      canvasUploadClaimNextChange(claimed('other', now - CANVAS_UPLOAD_STALE_MS), 'me', now),
+    ).toBeUndefined()
+    expect(canvasUploadClaimNextChange({ ...fresh, mediaId: 'm' }, 'me', now)).toBeUndefined()
   })
 
   it('只把别的设备声明在传、还没过期的本机图片当作上传中', () => {

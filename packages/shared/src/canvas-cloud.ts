@@ -106,6 +106,24 @@ export function canvasUploadingElsewhere(
   )
 }
 
+/**
+ * canvasUploadingElsewhere 的结果下一次会在什么时刻翻转（绝对毫秒时间），不会再变时返回 undefined。
+ * 界面据此定一个时钟：别的设备不再续期时，到点从「上传中」换成缺图，而不必等别的改动触发重渲染。
+ */
+export function canvasUploadClaimNextChange(
+  data: CanvasUploadData,
+  device: string,
+  now: number,
+): number | undefined {
+  if (data.mediaId || !isLocalCanvasFileId(data.fileId)) return undefined
+  const by = data.meta?.[CANVAS_UPLOAD_DEVICE_META]
+  const since = Number(data.meta?.[CANVAS_UPLOAD_STARTED_META])
+  if (!by || by === device || !Number.isFinite(since)) return undefined
+  if (since - now > CANVAS_UPLOAD_CLOCK_SKEW_MS) return since - CANVAS_UPLOAD_CLOCK_SKEW_MS
+  if (now - since < CANVAS_UPLOAD_STALE_MS) return since + CANVAS_UPLOAD_STALE_MS
+  return undefined
+}
+
 /** 去掉上传声明（收成云媒体后）；没有声明时原样返回。 */
 export function withoutCanvasUploadClaim(
   meta: Record<string, string> | undefined,
