@@ -93,6 +93,11 @@ export class CloudNodeProjectSession {
   private upload: { done: number; total: number } | undefined
   private uploading: Promise<void> | undefined
   private uploadAgain = false
+  /**
+   * 上一轮后台上传失败时那一轮开始的文档版本。版本没变（只有这一轮自己写的声明之类）就不再自动开新一轮，
+   * 免得持续失败时「写声明→触发同步→再传→再失败」一直转；用户再改动或手动同步时才重试。
+   */
+  private failedUploadVersion: number | undefined
   /** 最近一轮后台上传的失败；下一轮成功前，确认回执不算「已保存」。 */
   private mediaFailure: unknown
   private retry: ReturnType<typeof setTimeout> | undefined
@@ -739,9 +744,11 @@ export class CloudNodeProjectSession {
       this.uploadAgain = true
       return
     }
+    let roundVersion = this.editVersion
     this.uploading = (async () => {
       do {
         this.uploadAgain = false
+        roundVersion = this.editVersion
         await this.prepareMedia()
         this.current()
       } while (this.uploadAgain)
@@ -749,9 +756,11 @@ export class CloudNodeProjectSession {
       .then(
         () => {
           this.mediaFailure = undefined
+          this.failedUploadVersion = undefined
         },
         (error: unknown) => {
           this.mediaFailure = error
+          this.failedUploadVersion = roundVersion
         },
       )
       .finally(() => {
@@ -766,12 +775,10 @@ export class CloudNodeProjectSession {
         }
         this.status('media-local')
         this.rejectWaits(this.mediaFailure)
-        // 这一轮失败前又来了改动（例如刚加了新图）：不能就此停下，否则那些新改动要等到下一次编辑才会再传。
-        // 只在确有新改动时补一轮，失败本身不会自己循环重试。
-        if (this.uploadAgain) {
-          this.uploadAgain = false
-          this.requestSync()
-        }
+        // 这一轮开始后又有改动（例如刚加了新图）：不能就此停下，否则要等到下一次编辑才会再传。
+        // 只按文档版本判断：这一轮开始前写的上传声明不算，持续失败不会自己循环重试。
+        this.uploadAgain = false
+        if (this.editVersion !== roundVersion) this.requestSync()
       })
   }
   private send(): Promise<void> {
@@ -788,7 +795,10 @@ export class CloudNodeProjectSession {
           early = this.canSendBeforeMedia()
         }
         if (early) {
-          if (this.hasLocalImages()) {
+          if (
+            this.hasLocalImages() &&
+            (this.uploading || this.failedUploadVersion !== this.editVersion)
+          ) {
             // 已有一轮在传时只给新加的节点写声明，不在每次改动时都改写已有声明的时间。
             this.claimLocalUploads(!this.uploading)
             this.uploadInBackground()
@@ -844,6 +854,8 @@ export class CloudNodeProjectSession {
         reject(new Error('canvas_sync_timeout'))
       }, 30_000)
       this.waits.add(wait)
+      // 手动同步：上一轮失败后文档没变也要再传一次。
+      this.failedUploadVersion = undefined
       this.requestSync()
     })
   }
