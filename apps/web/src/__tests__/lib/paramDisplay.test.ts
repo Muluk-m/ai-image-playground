@@ -117,6 +117,14 @@ describe('getParamDisplay', () => {
     )
   })
 
+  it('ignores a malformed reported size when no measured pixels exist', () => {
+    for (const bad of ['unknown', 'auto', '0x0', '1024']) {
+      const display = getParamDisplay(taskWithActual({ size: bad }), 'size')
+      expect(display.hasActualValue).toBe(false)
+      expect(display.displayValue).toBe('1024x1824')
+    }
+  })
+
   it('resolves the provider with the same priority as the detail source line', () => {
     expect(honorsRequestedSize({ apiProvider: 'openai', cloudProvider: 'gemini' })).toBe(true)
     expect(honorsRequestedSize({ apiProvider: 'gemini', cloudProvider: 'openai-compat' })).toBe(
