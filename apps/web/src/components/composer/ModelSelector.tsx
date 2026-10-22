@@ -2,6 +2,7 @@
  * Adapted from assistant-ui Elements `model-selector` (MIT, AgentbaseAI).
  * 只取外观与结构：沿用项目的 Radix Popover，不引入 cmdk / base-ui。
  */
+import type { ModelBadge } from '@image-playground/shared'
 import { type KeyboardEvent, useId, useMemo, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
@@ -10,6 +11,7 @@ import { getPublicChannels } from '../../lib/channels/publicChannels'
 import { cn } from '../../lib/utils'
 import { useStore } from '../../store'
 import { compactModelName, ModelLogo } from '../ModelIdentity'
+import Badge from '../patterns/Badge'
 import SearchField from '../patterns/SearchField'
 import { Button } from '../ui/button'
 import { Icon } from '../ui/icon'
@@ -23,6 +25,10 @@ export interface ModelChoice {
   profileId: string
   label: string
   description?: string
+  /** 渠道下发的说明标签（最新 / 质量好 / 速度快 / 便宜），按顺序显示在名字后面。 */
+  badges?: readonly ModelBadge[]
+  /** 典型单张耗时，显示成「约 N 秒」。 */
+  etaSeconds?: number
 }
 
 /** 模型多到这个数才给搜索框。 */
@@ -46,6 +52,8 @@ export function useModelChoices() {
           profileId: profile.id,
           label: compactModelName(option.id, option.label),
           description: view.name,
+          ...(option.badges ? { badges: option.badges } : {}),
+          ...(option.etaSeconds ? { etaSeconds: option.etaSeconds } : {}),
         }),
       )
     })
@@ -84,6 +92,39 @@ function moveOptionFocus(event: KeyboardEvent<HTMLElement>) {
   items[index === -1 && step === -1 ? items.length - 1 : next]?.focus()
 }
 
+/** 「最新」是唯一用芽绿的标签（推荐），其余保持中性，绿色只做点缀。 */
+const BADGE_TONE: Record<ModelBadge, 'primary' | 'neutral'> = {
+  latest: 'primary',
+  quality: 'neutral',
+  fast: 'neutral',
+  value: 'neutral',
+}
+
+/**
+ * 名字后接说明标签，有预估耗时时在下一行用次要文字写「约 N 秒」。
+ * 写成返回元素的函数而不是组件：Button 靠静态遍历 children 判断有没有可见文字，
+ * 包一层组件它就看不见名字，会把 aria-label 当成悬停提示再显示一遍。
+ */
+function modelOptionName(
+  option: ModelChoice,
+  badgeLabel: (badge: ModelBadge) => string,
+  eta: string | undefined,
+) {
+  return (
+    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span className="flex min-w-0 flex-wrap items-center gap-1">
+        <span className="min-w-0 break-words font-medium text-foreground">{option.label}</span>
+        {option.badges?.map((badge) => (
+          <Badge key={badge} tone={BADGE_TONE[badge]}>
+            {badgeLabel(badge)}
+          </Badge>
+        ))}
+      </span>
+      {eta ? <span className="text-label-sm text-muted-foreground">{eta}</span> : null}
+    </span>
+  )
+}
+
 /** 紧凑模型列表：名称与渠道排在同一行，选中项右侧打勾。 */
 export function ModelList({
   options,
@@ -97,12 +138,19 @@ export function ModelList({
   className?: string
 }) {
   const { t } = useTranslation('composer')
+  const badgeLabel = (badge: ModelBadge) => t(`param.modelBadge.${badge}`)
   const [query, setQuery] = useState('')
   const listId = useId()
   const needle = query.trim().toLocaleLowerCase()
   const visible = needle
     ? options.filter((option) =>
-        `${option.label} ${option.model} ${option.description ?? ''}`
+        [
+          option.label,
+          option.model,
+          option.description ?? '',
+          ...(option.badges ?? []).map(badgeLabel),
+        ]
+          .join(' ')
           .toLocaleLowerCase()
           .includes(needle),
       )
@@ -137,9 +185,12 @@ export function ModelList({
               role="option"
               aria-selected={selected}
               tabIndex={tabStop ? 0 : -1}
-              aria-label={
-                option.description ? `${option.label} · ${option.description}` : option.label
-              }
+              aria-label={[
+                option.label,
+                ...(option.badges ?? []).map(badgeLabel),
+                ...(option.etaSeconds ? [t('param.modelEta', { seconds: option.etaSeconds })] : []),
+                ...(option.description ? [option.description] : []),
+              ].join(' · ')}
               onClick={() => onPick(option.value)}
               className={cn(
                 'flex h-auto min-h-10 w-full justify-start whitespace-normal px-3 py-2 text-left text-body-sm focus-visible:bg-accent',
@@ -149,9 +200,11 @@ export function ModelList({
               <span className="flex shrink-0">
                 <ModelLogo model={option.model} />
               </span>
-              <span className="min-w-0 flex-1 break-words font-medium text-foreground">
-                {option.label}
-              </span>
+              {modelOptionName(
+                option,
+                badgeLabel,
+                option.etaSeconds ? t('param.modelEta', { seconds: option.etaSeconds }) : undefined,
+              )}
               {option.description && (
                 <OverflowText
                   text={option.description}
@@ -234,7 +287,7 @@ export function ModelSelector({
             .querySelector<HTMLElement>('input, [role="option"][tabindex="0"]')
             ?.focus({ preventScroll: false })
         }}
-        className="flex max-h-[min(26rem,var(--radix-popover-content-available-height))] w-72 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl p-1 shadow-popover"
+        className="flex max-h-[min(26rem,var(--radix-popover-content-available-height))] w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl p-1 shadow-popover"
       >
         <ModelList
           options={options}
