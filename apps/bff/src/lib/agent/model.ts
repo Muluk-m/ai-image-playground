@@ -122,7 +122,9 @@ export function agentStreamFn(
   const transport = fetchImpl ?? globalThis.fetch
   // 过载判断要读这一次 fetch 看到的响应。主模型和备用模型各开一条流，共用这一个槽。
   const slot: { rejected: () => boolean } = { rejected: () => false }
-  const bind = (selected: ConfiguredAgentRuntime | undefined): StreamFn => {
+  const bind = (
+    selected: Pick<ConfiguredAgentRuntime, 'model' | 'models' | 'trustedGateway'> | undefined,
+  ): StreamFn => {
     const { models } = selected ?? runtime(depth)
     return (streamModel, context, options) => {
       let rejection: ReturnType<typeof observeOverloadResponse> | undefined
