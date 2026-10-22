@@ -30,6 +30,7 @@ import {
   chatTurnsBilled,
   reserveChatTask,
 } from './chat-task'
+import { voidPendingToolGates } from './confirmations'
 import { conversationStateNote } from './conversation-state'
 import {
   type AgentHistoryWindow,
@@ -66,10 +67,17 @@ import {
   titleSourceText,
 } from './skills'
 import { stageRunWakeContent } from './stage-runs'
+import { agentToolGateActive, gateContinuation } from './tool-gate'
 import { createSubmissionReplay, resolveAgentMode } from './tools'
 import { replayedSkillTexts } from './tools/loadSkill'
 import type { PreparedAgentTurn } from './turn'
-import { type AgentTurnInput, clarificationChainStart, estimateTurnInputTokens } from './turn-input'
+import {
+  type AgentTurnContinuation,
+  type AgentTurnInput,
+  clarificationChainStart,
+  estimateTurnInputTokens,
+  promptAutoSubmit,
+} from './turn-input'
 import { wakePlan } from './wake'
 import {
   mergedWakePrompt,
@@ -174,6 +182,8 @@ interface TurnContent {
   readonly deviceId: string
   /** 发话时浏览器里的画布；唤醒与续跑没有。 */
   readonly canvas?: import('@image-playground/shared').AgentCanvasSnapshot
+  /** 确认门续跑：接在历史末尾的那几次调用与回执，见 `AgentTurnInput.continuation`。 */
+  readonly continuation?: AgentTurnContinuation
   /** 唤醒与续跑没有用户消息，这个 id 不指向任何一条，只让轮头的形状与普通的轮一致。 */
   readonly userMessageId: string
   readonly queueId?: string
@@ -211,6 +221,10 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
   if (isCapabilityEnabled('billing:credits') && owner.kind !== 'user')
     return { kind: 'authentication_required' }
 
+  // 用户没确认确认门拦下的卡就发了新消息：那几张卡作废。读历史之前做，这一轮看到的就是作废之后的样子。
+  // 已排上的确认门续跑不在作废之列：续跑只在那一轮的卡全部确认后才排（与作废握同一把会话锁），
+  // 排上了就说明那一轮已没有待确认的卡、用户都点了确认，它按收件箱顺序先于这条新消息跑完。
+  if (source.kind === 'message') await voidPendingToolGates(conversationId, userId)
   // 读历史会把窗口里结束了的后台任务结算成终局：唤醒与并进来的唤醒看到的就是它们的结果。
   // 窗口之外更老的那些不在这一趟里，由会话快照（`routes/agent.ts`）与维护任务结算。
   const history = listAgentHistoryWindow(conversationId, owner)
@@ -242,6 +256,8 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       params: { ...content.params, productionMode: true, autoSubmit: undefined },
     }
   }
+  // 确认门跟本轮模式走：项目入口是画布、但这一轮在对话视图里说话，同样是 Agent 模式，同样开门。
+  const toolGate = agentToolGateActive(turnExperience, content.params)
   // 画布快照只在两种情况下留着：这一轮是画布模式（工具要读它），或画布入口的项目在 Agent 模式里
   // 说话——那时只给图片解析器认「从画布选择」的参考图，工具与提示一律看不到它（见 `turn.ts`）。
   // 对话入口项目的 Agent 轮不把旧客户端残留的快照带给任何人。
@@ -303,10 +319,15 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         providerInstance: selectedRuntime.providerId,
         reasoningEffort: selectedRuntime.effort,
         mode: content.mode,
+        // 签名只认系统提示词：确认门开时提示词与出图模式逐字相同（`promptAutoSubmit`），按它算。
+        // 真正的自动提交额度由 `turnInputOf` 决定，那里不把确认门算进去，被拦的调用照样停下。
         autoSubmit:
           audience.experience === 'canvas'
             ? canvasStageRunsDirectly(content.params)
-            : content.params?.autoSubmit === true,
+            : promptAutoSubmit({
+                autoSubmit: content.params?.autoSubmit === true,
+                toolGate: toolGate || undefined,
+              }),
         directImage: content.params?.directImage === true,
         audience,
       })
@@ -324,7 +345,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     }
     const estimated = (one: TurnContent): EstimatedTurnInput => {
       const input = {
-        ...turnInputOf(window, one, audience, skillTexts, currentTime, conversationState),
+        ...turnInputOf(window, one, audience, skillTexts, currentTime, conversationState, toolGate),
         modelHistory,
       }
       return { input, estimatedInputTokens: estimateTurnInputTokens(input, model) }
@@ -463,6 +484,7 @@ function turnInputOf(
   skillTexts: ReadonlyMap<string, string>,
   currentTime: string,
   conversationState: string | undefined,
+  toolGate: boolean,
 ): AgentTurnInput {
   const note = content.wakes?.note
   return {
@@ -485,6 +507,8 @@ function turnInputOf(
         ? canvasStageRunsDirectly(content.params)
         : content.params?.autoSubmit === true || content.params?.directImage === true,
     directImage: content.params?.directImage === true,
+    ...(toolGate ? { toolGate: true as const } : {}),
+    ...(content.continuation ? { continuation: content.continuation } : {}),
     selectionHistoryStart: content.selectionHistoryStart,
     audience,
     ...(skillTexts.size > 0 ? { skillTexts } : {}),
@@ -598,7 +622,8 @@ async function resumeContent(
   turnId: string,
   history: Promise<AgentHistoryWindow>,
   resume: QueuedResume,
-): Promise<TurnContent> {
+): Promise<TurnContent | TurnUnprepared> {
+  if (resume.gate) return gateContinuationContent(conversationId, owner, turnId, history, resume)
   const { wake } = resume
   // 结果卡与授权原话都属于被点名的那一轮：被打断的是唤醒轮就是提交那一批的那一轮，否则是被打断的
   // 那一轮。它可能比历史窗口更老，所以定点取而不是在窗口里筛。
@@ -651,6 +676,54 @@ async function resumeContent(
       ...(plan ? { plan } : {}),
       // 被打断那一轮已经提交的任务：同样的调用再来一次时交回它，不再提交。
       ...(submissions.length > 0 ? { replay: createSubmissionReplay(submissions) } : {}),
+    },
+  }
+}
+
+/**
+ * 确认门续跑：用户把被拦下那一轮的卡都确认了，这一轮接着那几次调用往下走。没有用户消息，也不给
+ * 模型任何说明——历史末尾接上那几次调用与回执，`startAgentTurn` 用 `Agent.continue()` 起跑。
+ * 创作类型与参数沿用被拦下的那一轮，授权原文仍是那一轮用户的原话，改图计划接着那几次提交走。
+ * 那几张卡一张确认过的都不在了（撤回、删消息）就没有可接的，交回 `no_results` 不起轮。
+ *
+ * 接在历史末尾不会错位到某条新用户消息之后：续跑只在确认事务里排上，那一刻已有晚于被拦那一轮的
+ * 用户消息（排着或已取走）就拒绝确认（`userMessageAfterTurn`）；之后来的用户消息 `seq` 一定更大，
+ * 取件按 `seq` 先取这条续跑。两边并发写收件箱时，`seq` 都取 `MAX + 1` 且有 (conversation_id, seq)
+ * 唯一索引，后提交的那一方撞索引回滚，不会出现「用户消息序号在前、却晚于确认才被看见」。
+ */
+async function gateContinuationContent(
+  conversationId: string,
+  owner: AgentOwner,
+  turnId: string,
+  history: Promise<AgentHistoryWindow>,
+  resume: QueuedResume,
+): Promise<TurnContent | TurnUnprepared> {
+  const gatedTurnId = resume.interruptedTurnId
+  const [gatedTurn, jobs, window] = await Promise.all([
+    listAgentTurnMessages(conversationId, owner, [gatedTurnId]),
+    turnJobs(conversationId, gatedTurnId),
+    history,
+  ])
+  const continuation = gateContinuation(gatedTurnId, gatedTurn)
+  if (!continuation.calls.length) return { kind: 'no_results' }
+  const plan = await wakePlan(jobs)
+  const gatedStart = window.messages.findIndex((message) => message.turnId === gatedTurnId)
+  // 澄清链从被拦下那一轮之前算起；那一轮不在窗口里就按整个窗口算。保护中的唤醒计划从头算。
+  const beforeGated = gatedStart >= 0 ? window.messages.slice(0, gatedStart) : window.messages
+  const selectionHistoryStart = plan?.protected ? 0 : clarificationChainStart(beforeGated)
+  return {
+    text: '',
+    references: [],
+    reviewImageIds: [],
+    mode: resolveAgentMode(resume.mode ?? 'image'),
+    ...(resume.params ? { params: resume.params } : {}),
+    selectionHistoryStart,
+    deviceId: resume.deviceId || (owner.kind === 'device' ? owner.deviceId : ''),
+    userMessageId: `${turnId}:resume`,
+    continuation,
+    wake: {
+      authorizationPrompt: wakeAuthorizationPrompt(gatedTurn, gatedTurnId),
+      ...(plan ? { plan } : {}),
     },
   }
 }

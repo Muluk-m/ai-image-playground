@@ -206,6 +206,36 @@ it('确认之后才按快照占位、才开始等结果，产物落进占好的�
   expect(placedInto).toEqual([['placeholder-1', 'placeholder-2']])
 })
 
+it('确认门拦下的稿：新消息的那一轮正在起时不交确认，免得和作废抢跑；空闲时照常确认', async () => {
+  history = () => [{ ...draftMessage, content: [{ ...drafted, gated: true }] }]
+  await state().selectConversation(CONVERSATION)
+  expect(toolCard().gated).toBe(true)
+
+  useAgentStore.setState({ turn: 'running' })
+  expect(await state().confirmPrompt('tool-1', CORRECTED)).toEqual({
+    ok: false,
+    reason: 'notConfirmable',
+  })
+  expect(posted).toEqual([])
+
+  useAgentStore.setState({ turn: 'idle' })
+  expect(await state().confirmPrompt('tool-1', CORRECTED)).toEqual({ ok: true })
+  expect(posted).toHaveLength(1)
+})
+
+it('确认之后服务端接着那一轮续跑（continued）：去跟进那一轮', async () => {
+  history = () => [{ ...draftMessage, content: [{ ...drafted, gated: true }] }]
+  await state().selectConversation(CONVERSATION)
+  confirmResponse = () => Response.json({ message: confirmed, continued: true })
+  const snapshotReads = () =>
+    fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/messages')).length
+  const before = snapshotReads()
+
+  expect(await state().confirmPrompt('tool-1', CORRECTED)).toEqual({ ok: true })
+
+  await vi.waitFor(() => expect(snapshotReads()).toBeGreaterThan(before))
+})
+
 it('重复确认（双击、另一个标签页）只占一次位、只等一个任务', async () => {
   await state().selectConversation(CONVERSATION)
 

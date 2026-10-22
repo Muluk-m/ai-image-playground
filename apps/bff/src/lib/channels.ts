@@ -32,12 +32,14 @@ import type {
   ChannelMedia,
   ChannelModel,
   DiscoveredChannel,
+  GeminiImageSize,
   ModelBadge,
   ModelLogoId,
   QueueProvider,
 } from '@image-playground/shared'
 import {
   CHANNEL_CAPABILITIES,
+  GEMINI_IMAGE_SIZES,
   isModelEtaSeconds,
   MODEL_BADGES,
   MODEL_LOGOS,
@@ -70,6 +72,11 @@ export interface InternalChannel {
    * 目前只有 gemini-queue 的 generateContent 同步请求认它，其余 kind 写了会在加载时报错。
    */
   maxConcurrency?: number
+  /**
+   * 按模型的同时在途上限（`models[].maxConcurrency`），写了就压过渠道级的 `maxConcurrency`、按
+   * 「渠道 + 模型」单独排队。同样 BFF 私有、只允许 gemini-queue。Vertex 实测限流按模型各算各的。
+   */
+  modelMaxConcurrency?: Readonly<Record<string, number>>
 }
 
 /** parseChannel 的产物：baseUrl 尚未解析，只有 `baseUrl` / `baseUrlRef` 二选一。 */
@@ -183,6 +190,23 @@ function parseLogo(v: unknown, ctx: string): ModelLogoId | undefined {
   return v as ModelLogoId
 }
 
+/** 分辨率档位：`GEMINI_IMAGE_SIZES` 的非空子集，不重复。 */
+function parseImageSizes(v: unknown, ctx: string): GeminiImageSize[] | undefined {
+  if (v === undefined) return undefined
+  if (!Array.isArray(v) || v.length === 0)
+    throw new ChannelsLoadError(`${ctx}.imageSizes must be a non-empty array`)
+  const seen = new Set<string>()
+  return v.map((size) => {
+    if (typeof size !== 'string' || !GEMINI_IMAGE_SIZES.includes(size as GeminiImageSize))
+      throw new ChannelsLoadError(
+        `${ctx}: invalid imageSize '${String(size)}' (allowed: ${GEMINI_IMAGE_SIZES.join(', ')})`,
+      )
+    if (seen.has(size)) throw new ChannelsLoadError(`${ctx}: duplicate imageSize '${size}'`)
+    seen.add(size)
+    return size as GeminiImageSize
+  })
+}
+
 function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
   if (!Array.isArray(v) || v.length === 0)
     throw new ChannelsLoadError(`${channelCtx}: models must be a non-empty array`)
@@ -194,6 +218,7 @@ function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
     const etaSeconds = parseEtaSeconds(raw.etaSeconds, ctx)
     const etaMaxSeconds = parseEtaMaxSeconds(raw.etaMaxSeconds, etaSeconds, ctx)
     const logo = parseLogo(raw.logo, ctx)
+    const imageSizes = parseImageSizes(raw.imageSizes, ctx)
     return {
       id: requireNonEmptyString(raw.id, `${ctx}.id`),
       label: requireNonEmptyString(raw.label, `${ctx}.label`),
@@ -203,6 +228,7 @@ function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
       ...(etaSeconds !== undefined ? { etaSeconds } : {}),
       ...(etaMaxSeconds !== undefined ? { etaMaxSeconds } : {}),
       ...(logo ? { logo } : {}),
+      ...(imageSizes ? { imageSizes } : {}),
     }
   })
 }
@@ -322,6 +348,16 @@ function parseChannel(raw: unknown, idx: number): ParsedChannel {
     throw new ChannelsLoadError(`${ctx}.allowedPaths must be a non-empty string[]`)
 
   const maxConcurrency = parseMaxConcurrency(raw.maxConcurrency, raw.kind as ChannelKind, ctx)
+  const models = parseModels(raw.models, ctx)
+  const modelMaxConcurrency: Record<string, number> = {}
+  ;(raw.models as unknown[]).forEach((model, index) => {
+    const limit = parseMaxConcurrency(
+      (model as { maxConcurrency?: unknown }).maxConcurrency,
+      raw.kind as ChannelKind,
+      `${ctx}.models[${index}]`,
+    )
+    if (limit !== undefined) modelMaxConcurrency[models[index]!.id] = limit
+  })
   return {
     id: raw.id,
     kind: raw.kind as ChannelKind,
@@ -331,9 +367,10 @@ function parseChannel(raw: unknown, idx: number): ParsedChannel {
     disabled: parseOptionalFlag(raw.disabled, `${ctx}.disabled`),
     auth: parseAuth(raw.auth, ctx),
     allowedPaths: raw.allowedPaths,
-    models: parseModels(raw.models, ctx),
+    models,
     defaults: parseDefaults(raw.defaults, ctx),
     ...(maxConcurrency !== undefined ? { maxConcurrency } : {}),
+    ...(Object.keys(modelMaxConcurrency).length ? { modelMaxConcurrency } : {}),
   }
 }
 
