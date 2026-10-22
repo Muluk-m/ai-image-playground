@@ -22,6 +22,12 @@ it('leaves overall, style and framing requests to whole-image editing', () => {
     '把这张图变成夏天',
     '帮我高清放大一下',
     '换个角度',
+    '变成夜景',
+    '换成冬天',
+    '把她变成卡通人物',
+    '只把亮度调高一点',
+    '改成日落时分的暖色',
+    'make it a night scene',
     '再来一张',
     '',
   ])
