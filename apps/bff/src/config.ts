@@ -173,12 +173,11 @@ export const config = {
     /**
      * 修改范围提议（`proposeEditRegion`）与卡片上点选细化的服务端分割。
      * `AGENT_SEGMENTER_URL` 指向自建的 EdgeTAM 服务（deploy/segmenter），部署脚本在它跑起来时注入，
-     * 有它就优先用；否则配了 `FAL_KEY` 时用 fal 的 SAM 3。都没有时卡片按智能体给的框兜底。
+     * 没有它时卡片按智能体给的框兜底。不接任何第三方分割服务，用户原图不会因此发到外部。
      * `AGENT_SEGMENTATION_PROVIDER=off` 强制关闭服务端分割。
      */
     segmentation: {
-      provider: env('AGENT_SEGMENTATION_PROVIDER', 'fal-sam3'),
-      falKey: env('FAL_KEY', ''),
+      provider: env('AGENT_SEGMENTATION_PROVIDER', 'edgetam'),
       segmenterUrl: env('AGENT_SEGMENTER_URL', ''),
       /** 共享分割服务里本部署的缓存键前缀（部署时传项目名），各环境的图像编码互不复用。 */
       segmenterNamespace: env('AGENT_SEGMENTER_NAMESPACE', ''),
