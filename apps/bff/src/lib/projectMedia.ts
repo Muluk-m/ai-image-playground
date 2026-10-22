@@ -22,6 +22,7 @@ import { durableMediaStore } from './durableMediaStore'
 import { log } from './logger'
 import { assertMediaImageProcessingBudget, MEDIA_UPLOAD_MAX_PIXELS } from './media-image-limits'
 import { withMediaObjectLock } from './mediaObjectLock'
+import { createMediaProcessingLimiter } from './mediaProcessingLimiter'
 import { attachmentLimits } from './operator-config'
 import type { BffTransaction } from './private-overlay'
 
@@ -202,59 +203,19 @@ async function ownedMedia(userId: string, id: string, executor: Pick<typeof db, 
  * 确认一张图的时间几乎都花在和对象存储之间来回（读回原件、写原件和预览、核对），CPU 只在解码那一段。
  * 每实例同时处理 4 张，让存储 I/O 重叠；解码仍一次一张（withMediaDecode）。原件要整张缓冲，
  * 所以另按字节限额：在途原件合计不超过两张最大原件，小图 4 张并行，大图仍最多两张。
+ * 附件的单张上限不超过素材上限（attachmentLimits 取两者较小），按素材上限算即可。
  */
-const MEDIA_PROCESSING_SLOTS = 4
-const MEDIA_PROCESSING_QUEUE = 8
-// 附件的单张上限不超过素材上限（attachmentLimits 取两者较小），按素材上限算即可。
-const processingByteBudget = () => 2 * config.operator.quotas['sync:asset-image-bytes']
-let processing = 0
-let processingBytes = 0
-const processingQueue: { bytes: number; resume: () => void; reject: () => void }[] = []
-// 第一张总能进：单张超过限额也不会永远排不上。
-const admits = (bytes: number) =>
-  processing < MEDIA_PROCESSING_SLOTS &&
-  (processing === 0 || processingBytes + bytes <= processingByteBudget())
-function drainProcessing() {
-  while (processingQueue.length && admits(processingQueue[0]!.bytes)) {
-    const next = processingQueue.shift()!
-    processing++
-    processingBytes += next.bytes
-    next.resume()
-  }
-}
-async function withMediaProcessing<T>(bytes: number, work: () => Promise<T>): Promise<T> {
-  if (!processingQueue.length && admits(bytes)) {
-    processing++
-    processingBytes += bytes
-  } else {
-    if (processingQueue.length >= MEDIA_PROCESSING_QUEUE)
-      throw new MediaError(503, 'media_processing_busy', 'processing_queue_full')
-    await new Promise<void>((resolve, reject) => {
-      const entry = {
-        bytes,
-        resume: () => {
-          clearTimeout(timer)
-          resolve()
-        },
-        reject: () => {
-          const index = processingQueue.indexOf(entry)
-          if (index >= 0) processingQueue.splice(index, 1)
-          reject(new MediaError(503, 'media_processing_busy', 'processing_queue_timeout'))
-          // 队首超时离开后，后面较小的那张可能已经放得进。
-          drainProcessing()
-        },
-      }
-      const timer = setTimeout(entry.reject, 10_000)
-      processingQueue.push(entry)
-    })
-  }
-  try {
-    return await work()
-  } finally {
-    processing--
-    processingBytes -= bytes
-    drainProcessing()
-  }
+const mediaProcessing = createMediaProcessingLimiter({
+  slots: 4,
+  byteBudget: () => 2 * config.operator.quotas['sync:asset-image-bytes'],
+  queueLimit: 8,
+  queueTimeoutMs: 10_000,
+  bypassLimitMs: 5_000,
+  busy: (reason) => new MediaError(503, 'media_processing_busy', reason),
+})
+/** 测试用：当前在途的确认数与按字节计入的总量。 */
+export function mediaProcessingUsageForTesting() {
+  return { active: mediaProcessing.active, bytes: mediaProcessing.activeBytes }
 }
 let decoding: Promise<void> = Promise.resolve()
 async function withMediaDecode<T>(work: () => Promise<T>): Promise<T> {
@@ -291,7 +252,15 @@ export async function completeMedia(userId: string, id: string) {
   return operation
 }
 
-async function processMedia(userId: string, id: string, bytes: number) {
+/** 准入时按的字节数比锁内读到的行小（等待期间被重新预留改了大小）：放掉处理位，按新大小重新排。 */
+class ProcessingBytesChanged extends Error {
+  constructor(readonly bytes: number) {
+    super('processing_bytes_changed')
+  }
+}
+
+async function processMedia(userId: string, id: string, admittedBytes: number) {
+  let bytes = admittedBytes
   const started = performance.now()
   let phase = 'lock_wait'
   let phaseStarted = started
@@ -311,21 +280,28 @@ async function processMedia(userId: string, id: string, bytes: number) {
       const available = await withMediaObjectLock(id, async () => true)
       mark(available ? 'processing_wait' : 'lock_wait')
       const result = available
-        ? await withMediaProcessing(bytes, () => {
-            mark('lock_wait')
-            return withMediaObjectLock(id, async (database) => {
-              mark('read_metadata')
-              return publishMedia(userId, id, database, mark)
+        ? await mediaProcessing
+            .run(bytes, () => {
+              mark('lock_wait')
+              return withMediaObjectLock(id, async (database) => {
+                mark('read_metadata')
+                return publishMedia(userId, id, database, mark, bytes)
+              })
             })
-          }).catch(async (error: unknown) => {
-            // A different instance may publish while this request waits for local capacity.
-            if (error instanceof MediaError && error.message === 'media_processing_busy') {
-              const current = await ownedMedia(userId, id)
-              if (current.status === 'ready') return mediaSummary(current)
-            }
-            throw error
-          })
+            .catch(async (error: unknown) => {
+              if (error instanceof ProcessingBytesChanged) return error
+              // A different instance may publish while this request waits for local capacity.
+              if (error instanceof MediaError && error.message === 'media_processing_busy') {
+                const current = await ownedMedia(userId, id)
+                if (current.status === 'ready') return mediaSummary(current)
+              }
+              throw error
+            })
         : undefined
+      if (result instanceof ProcessingBytesChanged) {
+        bytes = result.bytes
+        continue
+      }
       if (result) return result
       lockContended = true
       mark('lock_wait')
@@ -369,9 +345,12 @@ async function publishMedia(
   id: string,
   database: BunSQLDatabase<typeof schema>,
   mark: (phase: string) => void,
+  admittedBytes: number,
 ) {
   const row = await ownedMedia(userId, id, database)
   if (row.status === 'ready') return mediaSummary(row)
+  // 原件要按这一行的大小整张缓冲；比准入时按的大，就不能占着这个处理位读。
+  if (row.bytes > admittedBytes) throw new ProcessingBytesChanged(row.bytes)
   if (row.status === 'deleting') throw new MediaError(409, 'media_deleting')
   if (row.expires_at <= Date.now()) throw new MediaError(409, 'media_upload_expired')
   const limits = row.attachment_managed ? attachmentLimits(config.operator) : undefined
