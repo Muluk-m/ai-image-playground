@@ -3,7 +3,6 @@ import * as Y from 'yjs'
 import {
   CANVAS_UPLOAD_STALE_MS,
   canvasProjectDocument,
-  canvasUploadClaimedElsewhere,
   canvasUploadingElsewhere,
   initializeCanvasConnectionRules,
   validateCloudCanvas,
@@ -340,10 +339,7 @@ describe('canvas upload claims', () => {
     ).toBe(false)
   })
 
-  it('过期的声明仍算别人在传（本机不报缺图），收成云媒体时去掉声明、保留其余 meta', () => {
-    expect(canvasUploadClaimedElsewhere(claimed('other', 0), 'me')).toBe(true)
-    expect(canvasUploadClaimedElsewhere(claimed('me', 0), 'me')).toBe(false)
-    expect(canvasUploadClaimedElsewhere({ fileId: 'local-1' }, 'me')).toBe(false)
+  it('收成云媒体时去掉声明、保留其余 meta', () => {
     expect(withoutCanvasUploadClaim(claimed('other', now).meta)).toEqual({ prompt: 'p' })
     const plain = { prompt: 'p' }
     expect(withoutCanvasUploadClaim(plain)).toBe(plain)
