@@ -66,22 +66,30 @@ export function knownModelLogo(value: unknown): ModelLogoId | undefined {
   return MODEL_LOGOS.includes(value as ModelLogoId) ? (value as ModelLogoId) : undefined
 }
 
+// modelId → 声明的图标，按清单数组身份缓存：任务列表里一屏几十个图标共用一次扫描。
+// channelStore 只经 `setChannels` 整份替换数组、从不原地改，所以数组身份就是清单版本。
+const logoIndex = new WeakMap<readonly DiscoveredChannel[], Map<string, ModelLogoId>>()
+
 /**
  * 不知道渠道时（任务卡、历史记录等）按模型 id 查声明的图标：图片、视频模型都认，所以读
- * channelStore 而不是图片视图；同一 id 出现在多条渠道上时取第一条声明了图标的。清单只有个位数
- * 渠道、每条几个模型，线性查找即可。知道渠道时用 `getProfileModelOptions` 给的 `logo`。
+ * channelStore 而不是图片视图；同一 id 出现在多条渠道上时取第一条声明了图标的。
+ * 知道渠道时用 `getProfileModelOptions` 给的 `logo`。
  */
 export function modelLogo(
   modelId: string,
   channels: readonly DiscoveredChannel[] = getStoredChannels(),
 ): ModelLogoId | undefined {
   if (!modelId) return undefined
-  for (const channel of channels) {
-    for (const model of channel.models) {
-      if (model.id !== modelId) continue
-      const logo = knownModelLogo(model.logo)
-      if (logo) return logo
+  let index = logoIndex.get(channels)
+  if (!index) {
+    index = new Map()
+    for (const channel of channels) {
+      for (const model of channel.models) {
+        const logo = knownModelLogo(model.logo)
+        if (logo && !index.has(model.id)) index.set(model.id, logo)
+      }
     }
+    logoIndex.set(channels, index)
   }
-  return undefined
+  return index.get(modelId)
 }
