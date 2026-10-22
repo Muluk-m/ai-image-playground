@@ -41,20 +41,49 @@ interface EditRegion {
   readonly core: Int32Array
 }
 
-/** 候选图在某一块里有没有真的改：足够比例的像素颜色差超过阈值。 */
-function regionChanged(source: Uint8Array, generated: Uint8Array, region: EditRegion): boolean {
-  const { changedDelta, minChangedFraction } = maskedEditSettings.regions
-  let changed = 0
-  for (const index of region.core) {
-    const offset = index * 4
-    if (
-      Math.abs(generated[offset]! - source[offset]!) > changedDelta ||
-      Math.abs(generated[offset + 1]! - source[offset + 1]!) > changedDelta ||
-      Math.abs(generated[offset + 2]! - source[offset + 2]!) > changedDelta
+/** 一组像素的变化量：颜色差超过阈值的比例，与每像素最大通道差的均值。 */
+interface ChangeStats {
+  readonly fraction: number
+  readonly meanDelta: number
+}
+
+function changeStats(
+  source: Uint8Array,
+  generated: Uint8Array,
+  indices: ArrayLike<number>,
+  stride = 1,
+): ChangeStats {
+  const { changedDelta } = maskedEditSettings.regions
+  let changed = 0,
+    total = 0,
+    sum = 0
+  for (let at = 0; at < indices.length; at += stride) {
+    const offset = indices[at]! * 4
+    const delta = Math.max(
+      Math.abs(generated[offset]! - source[offset]!),
+      Math.abs(generated[offset + 1]! - source[offset + 1]!),
+      Math.abs(generated[offset + 2]! - source[offset + 2]!),
     )
-      changed++
+    total++
+    sum += delta
+    if (delta > changedDelta) changed++
   }
-  return changed >= region.core.length * minChangedFraction
+  return total
+    ? { fraction: changed / total, meanDelta: sum / total }
+    : { fraction: 0, meanDelta: 0 }
+}
+
+/**
+ * 候选图在某一块里有没有真的改，按相对量判断：与这张候选在保护区里的「重画噪声」比（保护区本应
+ * 一模一样，那里的差就是模型整图重画的底噪）。明显超出底噪的大色差像素够多（换了东西、去掉污渍），
+ * 或者整体色差均值抬高（颜色稍微暖一点、亮一点），都算改了。只有和底噪差不多时才算「没改到」。
+ */
+function regionChanged(stats: ChangeStats, floor: ChangeStats): boolean {
+  const { minChangedFraction, minMeanLift } = maskedEditSettings.regions
+  return (
+    stats.fraction - floor.fraction >= minChangedFraction ||
+    stats.meanDelta - floor.meanDelta >= minMeanLift
+  )
 }
 
 /**
@@ -69,33 +98,43 @@ async function regionsMaskDataUrl(regions: readonly EditRegion[], width: number,
   return { dataUrl: `data:image/png;base64,${png.toString('base64')}`, alpha: rgba }
 }
 
-export interface MaskedOutputOptions {
+interface MaskedOutputOptions {
   /**
    * 某些区域生成后没变（模型在选区里照原样画回来）时，只针对这些区域再生成一次。
    * 参数是只把这些区域标成透明的蒙版（工作尺寸，与输入同格式）；返回上游的一张候选原图，
    * 拿不到就返回 null。不提供时只核对、不重试。
    */
   readonly repair?: (maskDataUrl: string, attempt: number) => Promise<Uint8Array | null>
+  /**
+   * 这一次确认（所有候选合计）最多重试几次，默认取 `regions.maxRetries`（目前 0：只核对、记日志，
+   * 不额外向上游要图）。重试的费用由平台承担、不向用户计费，所以上限按整次确认算。
+   */
+  readonly maxRetries?: number
 }
 
 /**
- * 上游常不按请求的尺寸出图，而是按自己的像素档位等比放缩（如方图一律 1254×1254、768×1024 回
- * 1086×1448）。宽高比对得上（只差取整）就可以缩回请求尺寸再核对、合成；宽高比不对说明画面被裁或
- * 拉伸过，一律拒绝。
+ * 上游常不按请求的尺寸出图，而是按自己的像素档位（约 1.57MP）等比放缩：方图一律 1254×1254、
+ * 768×1024 回 1086×1448。宽高比对得上（只差取整）就缩回请求尺寸再核对、合成：
+ * - 上游图比请求大（缩小回去，已知 1.22–1.45×）：不损清晰度，至多 `maxDownscaleFactor`；
+ * - 上游图比请求小（要放大回去）：选区内会比选区外的原图像素糊，只容取整级别的 `maxUpscaleFactor`。
+ *   大原图（如 3840×2160 只回 1672×941，要放大 2.3×）因此拒绝，提示分辨率受限、可重试。
+ * 宽高比不对说明画面被裁或拉伸过，一律拒绝。
  */
-export function acceptsUpstreamSize(
+export function upstreamSizeProblem(
   width: number,
   height: number,
   generatedWidth: number,
   generatedHeight: number,
-): boolean {
+): 'mismatch' | 'upscale' | 'downscale' | null {
   const limits = maskedEditSettings.rescale
   const sx = generatedWidth / width,
     sy = generatedHeight / height
-  return (
-    Math.abs(sx / sy - 1) <= limits.maxAspectDifference &&
-    Math.max(sx, sy, 1 / sx, 1 / sy) <= limits.maxScaleFactor
-  )
+  // 宽高比不对，或差了 4 倍以上（不是任何已知档位，是另一套坐标）：不当作分辨率问题。
+  if (Math.abs(sx / sy - 1) > limits.maxAspectDifference || Math.max(sx, sy, 1 / sx, 1 / sy) > 4)
+    return 'mismatch'
+  if (Math.max(1 / sx, 1 / sy) > limits.maxUpscaleFactor) return 'upscale'
+  if (Math.max(sx, sy) > limits.maxDownscaleFactor) return 'downscale'
+  return null
 }
 
 /**
@@ -180,7 +219,17 @@ export async function protectMaskedOutput(
     const translucentPixels = ignoreCandidateAlpha(generated)
     const rescaled = generated.info.width !== width || generated.info.height !== height
     if (rescaled) {
-      if (!acceptsUpstreamSize(width, height, generated.info.width, generated.info.height))
+      const problem = upstreamSizeProblem(
+        width,
+        height,
+        generated.info.width,
+        generated.info.height,
+      )
+      if (problem === 'upscale')
+        throw new MaskedOutputError(
+          `分辨率受限：生成图只有 ${generated.info.width}×${generated.info.height}，放大回原图会让选区内明显变糊；候选已保留，未应用修改。可先把原图缩小后再改`,
+        )
+      if (problem)
         throw new MaskedOutputError(
           '生成图尺寸与原图不一致，无法保护选区外内容；候选已保留，未应用修改，可重试',
         )
@@ -220,15 +269,30 @@ export async function protectMaskedOutput(
     }
   }
 
+  // 保护区像素（底噪取样用）：至多取约 20 万个，大图也只花几毫秒。
+  const protectedIndices: number[] = []
+  for (let index = 0; index < editAlpha.length; index++)
+    if (!editAlpha[index]) protectedIndices.push(index)
+  const floorStride = Math.max(1, Math.ceil(protectedIndices.length / 200_000))
+  /** 这张候选在保护区里的重画底噪（合成前，保护区本应与原图完全相同）。 */
+  const noiseFloor = (generated: Pixels) =>
+    changeStats(source.data, generated.data, protectedIndices, floorStride)
+
+  let retryBudget = Math.max(0, options.maxRetries ?? maskedEditSettings.regions.maxRetries)
+
   /**
-   * 逐区域核对；没变的区域只对它们再要一张，换进这些区域的像素，至多重试
-   * `regions.maxRetries` 轮。重试的图同样要过对齐校验，过不了就当这一轮没拿到。
+   * 逐区域核对；没变的区域只对它们再要一张，换进这些区域的像素。整次确认合计至多重试
+   * `retryBudget` 次。重试的图同样要过对齐校验，过不了就当这一次没拿到。
    */
   const repairRegions = async (generated: Pixels) => {
-    let unchanged = regions.filter((region) => !regionChanged(source.data, generated.data, region))
+    const floor = noiseFloor(generated)
+    const isChanged = (data: Uint8Array, region: EditRegion) =>
+      regionChanged(changeStats(source.data, data, region.core), floor)
+    let unchanged = regions.filter((region) => !isChanged(generated.data, region))
     const initiallyUnchanged = unchanged.length
     let retries = 0
-    while (unchanged.length && options.repair && retries < maskedEditSettings.regions.maxRetries) {
+    while (unchanged.length && options.repair && retryBudget > 0) {
+      retryBudget--
       retries++
       const retryMask = await regionsMaskDataUrl(unchanged, width, height)
       const bytes = await options.repair(retryMask.dataUrl, retries).catch((error) => {
@@ -239,7 +303,7 @@ export async function protectMaskedOutput(
       const retry = await fitCandidate(bytes, retryMask.alpha).catch(() => null)
       if (!retry) continue
       for (const region of unchanged) {
-        if (!regionChanged(source.data, retry.generated.data, region)) continue
+        if (!isChanged(retry.generated.data, region)) continue
         for (const index of region.pixels) {
           const offset = index * 4
           generated.data[offset] = retry.generated.data[offset]!
@@ -247,9 +311,15 @@ export async function protectMaskedOutput(
           generated.data[offset + 2] = retry.generated.data[offset + 2]!
         }
       }
-      unchanged = unchanged.filter((region) => !regionChanged(source.data, generated.data, region))
+      unchanged = unchanged.filter((region) => !isChanged(generated.data, region))
     }
-    return { initiallyUnchanged, retries, stillUnchanged: unchanged.length }
+    return {
+      initiallyUnchanged,
+      retries,
+      stillUnchanged: unchanged.length,
+      noiseFraction: floor.fraction,
+      noiseMeanDelta: floor.meanDelta,
+    }
   }
 
   const transform = async (candidate: Uint8Array) => {
@@ -316,6 +386,8 @@ export async function protectMaskedOutput(
           regionsUnchanged: repaired.initiallyUnchanged,
           regionRetries: repaired.retries,
           regionsStillUnchanged: repaired.stillUnchanged,
+          protectedNoiseFraction: Number(repaired.noiseFraction.toFixed(4)),
+          protectedNoiseMeanDelta: Number(repaired.noiseMeanDelta.toFixed(2)),
         },
       }
     } catch (error) {

@@ -199,6 +199,16 @@ async function executeTask(execution: TaskExecution): Promise<void> {
     }
     if (request.preserve_outside_mask && !task.reconciliation_required && !resume)
       repairRegions = async (mask) => {
+        // 平台承担、不向用户计费的额外上游调用：每次都记一笔，便于核对成本（上限见 regions.maxRetries）。
+        log.warn(
+          {
+            event: 'task.masked_region_retry',
+            taskId: id,
+            provider: task.provider,
+            model: task.model,
+          },
+          'masked edit region retry billed to the platform',
+        )
         const { payload } = await callUpstream({
           provider: task.provider,
           model: task.model,

@@ -2,9 +2,9 @@ import { expect, it } from 'bun:test'
 import sharp from 'sharp'
 import { inspectMaskedAlignment } from '../../../lib/agent/masked-alignment'
 import {
-  acceptsUpstreamSize,
   protectMaskedOutput,
   rescaleEvidence,
+  upstreamSizeProblem,
 } from '../../../lib/agent/masked-output'
 
 async function png(values: number[], mask = false) {
@@ -288,6 +288,7 @@ it('regenerates only the region the model left unchanged and composites it in', 
         // 重试的这张把 A 也画回原样、只改了 B：A 不能被它覆盖。
         return paint([inB])
       },
+      maxRetries: 1,
     },
   )
   const result = await protect(await paint([inA]))
@@ -325,6 +326,7 @@ it('caps region retries and still delivers the composited candidate', async () =
         calls++
         return encode(raw)
       },
+      maxRetries: 2,
     },
   )
   const candidate = await paint([inA])
@@ -353,10 +355,67 @@ it('ignores a retry whose protected area moved', async () => {
           .extend({ right: 12, extendWith: 'copy' })
           .png()
           .toBuffer(),
+      maxRetries: 2,
     },
   )
   const result = await protect(await paint([inA]))
   expect(result.inspection).toMatchObject({ regionRetries: 2, regionsStillUnchanged: 1 })
+})
+
+it('shares one retry budget across all candidates of a confirm', async () => {
+  const { raw, selection, inA, encode, paint } = await twoRegionFixture()
+  let calls = 0
+  const protect = await protectMaskedOutput(
+    url(await encode(raw)),
+    url(await encode(selection)),
+    undefined,
+    {
+      repair: async () => {
+        calls++
+        return encode(raw)
+      },
+      maxRetries: 1,
+    },
+  )
+  // 两张不同的候选都留着 B 没改：整次确认只多要一次图。
+  await protect(await paint([inA]))
+  const second = await protect(await paint([inA], 254))
+  expect(calls).toBe(1)
+  expect(second.inspection).toMatchObject({ regionsUnchanged: 1, regionRetries: 0 })
+})
+
+it('does not retry by default: unchanged regions are only reported', async () => {
+  const { raw, selection, inA, encode, paint } = await twoRegionFixture()
+  let calls = 0
+  const protect = await protectMaskedOutput(
+    url(await encode(raw)),
+    url(await encode(selection)),
+    undefined,
+    {
+      repair: async () => {
+        calls++
+        return encode(raw)
+      },
+    },
+  )
+  const result = await protect(await paint([inA]))
+  expect(calls).toBe(0)
+  expect(result.inspection).toMatchObject({ regionsUnchanged: 1, regionRetries: 0 })
+})
+
+it('counts a subtle edit (a slight warm tint) as changed, measured against the redraw noise', async () => {
+  const { width, raw, selection, inA, inB, encode } = await twoRegionFixture()
+  const protect = await protectMaskedOutput(url(await encode(raw)), url(await encode(selection)))
+  const copy = Buffer.from(raw)
+  for (let y = 0; y < width; y++)
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4
+      if (inA(x, y)) copy.set([10, 10, 10], i)
+      // B 只偏暖一点：每个像素红通道 +8，远低于 24 的大色差阈值。
+      if (inB(x, y)) copy[i] = Math.min(255, copy[i]! + 8)
+    }
+  const result = await protect(await encode(copy))
+  expect(result.inspection).toMatchObject({ regions: 2, regionsUnchanged: 0 })
 })
 
 it('only reports unchanged regions when no retry is available', async () => {
@@ -412,10 +471,19 @@ it('accepts an upstream output at its own pixel tier when the aspect ratio match
   expectProtectedUnchanged(raw, selection, await sharp(result.bytes).raw().toBuffer())
 })
 
-it('accepts a downscaled output with the same aspect ratio, as large prod uploads get', async () => {
+it('refuses an output that would have to be upscaled 2× (a large upload), as resolution-limited', async () => {
+  const { original, mask: m } = await texturedCase(480, 320)
+  const protect = await protectMaskedOutput(url(original), url(m))
+  await expect(protect(await sharp(original).resize(240, 160).png().toBuffer())).rejects.toThrow(
+    '分辨率受限',
+  )
+})
+
+it('accepts an output larger than requested at the known tiers and scales it down', async () => {
   const { raw, selection, original, mask: m } = await texturedCase(480, 320)
   const protect = await protectMaskedOutput(url(original), url(m))
-  const result = await protect(await sharp(original).resize(240, 160).png().toBuffer())
+  // 768×1024 → 1086×1448 那一档：1.41×。
+  const result = await protect(await sharp(original).resize(679, 453).png().toBuffer())
   expect(result.inspection.rescaled).toBe(1)
   expectProtectedUnchanged(raw, selection, await sharp(result.bytes).raw().toBuffer())
 })
@@ -456,15 +524,17 @@ it('accepts the sizes prod upstreams actually return for a request, and only tho
     [768, 1024, 1086, 1448],
     [1024, 1360, 1086, 1448],
     [1248, 1280, 1240, 1268],
-    [3840, 2160, 1672, 941],
   ] as const)
-    expect(acceptsUpstreamSize(w, h, gw, gh)).toBe(true)
+    expect(upstreamSizeProblem(w, h, gw, gh)).toBeNull()
   for (const [w, h, gw, gh] of [
     [1280, 720, 1774, 887], // 16:9 回成 2:1
     [1920, 816, 1916, 821], // 差 0.8%，超出取整
     [96, 96, 1, 1], // 缩放过头
+    // 4K 原图只回 1672×941：放大 2.3× 回去选区内会明显变糊，按分辨率受限拒绝。
+    [3840, 2160, 1672, 941],
+    [1024, 1024, 2048, 2048], // 比已知档位大得多的缩小（2×）也不认
   ] as const)
-    expect(acceptsUpstreamSize(w, h, gw, gh)).toBe(false)
+    expect(upstreamSizeProblem(w, h, gw, gh)).not.toBeNull()
 })
 
 /**
