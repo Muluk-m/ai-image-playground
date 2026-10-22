@@ -21,6 +21,10 @@ TEST_PROJECT='image-playground-test'
 # shellcheck disable=SC2034  # edition_var reads the target alias.
 TEST_IMAGE='ai-image-playground:test'
 DEPLOY_KEEP_IMAGES=${DEPLOY_KEEP_IMAGES:-2}
+# ai-image-playground:segmenter-<version>-<commit> -> <version> (deploy/segmenter/VERSION).
+segmenter_version() {
+  printf '%s\n' "$1" | sed -n 's/^ai-image-playground:segmenter-\([0-9][0-9]*\)-[0-9a-f]*$/\1/p'
+}
 DEPLOY_MIN_FREE_GB=${DEPLOY_MIN_FREE_GB:-8}
 if [ "$target" = test ]; then
   sh "$repo_root/scripts/check-test-isolation.sh" runtime "$config_root/apps/$TEST_PROJECT"
@@ -51,9 +55,9 @@ present=$(cd "$release" && find . -type f ! -path ./SHA256SUMS | sed 's|^\./||' 
 # Require exactly one record per requested edition and only inert, well-formed fields. The sixth
 # column, the registry digest, is `-` or absent in archive releases.
 awk -F '\t' -v repo="$ghcr_repository@sha256:" -v target="$target" '
-  target == "test" && $1 != "test" && $1 != "backup" && $1 != "segmenter" { exit 1 }
+  target == "test" && $1 != "test" && $1 != "backup" { exit 1 }
   $1 == "test" && $2 !~ /^ai-image-playground:test-/ { exit 1 }
-  $1 == "segmenter" && ($2 !~ /^ai-image-playground:segmenter-/ || $5 != "-") { exit 1 }
+  $1 == "segmenter" && ($2 !~ /^ai-image-playground:segmenter-[0-9]+-[0-9a-f]+$/ || $5 != "-") { exit 1 }
   (NF != 5 && NF != 6) || $1 !~ /^(internal|paid|test|backup|segmenter)$/ || seen[$1]++ { exit 1 }
   NF == 6 && $6 != "-" && (index($6, repo) != 1 || substr($6, length(repo) + 1) !~ /^[0-9a-f]+$/ || length($6) != length(repo) + 64) { exit 1 }
   $2 !~ /^ai-image-playground:(vps-main|paid|test|backup|segmenter)-[0-9a-f-]+$/ { exit 1 }
@@ -113,9 +117,12 @@ while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_
     continue
   fi
   if [ "$edition" = segmenter ]; then
-    # Loads the baked weights and runs one prompt under the production limits.
-    docker run --rm --network none --memory 900m --memory-swap 900m --cpus 2 "$image" \
-      node server.mjs --self-test
+    # Loads the baked weights and runs one prompt under the production limits. Only a version
+    # that is not running yet needs it; the same version is left alone below.
+    if ! "$release/scripts/segmenter-deploy.sh" current "$(segmenter_version "$image")"; then
+      docker run --rm --network none --memory 900m --memory-swap 900m --cpus 2 "$image" \
+        node server.mjs --self-test
+    fi
     continue
   fi
   # Execute the target native module before touching services or schema.
@@ -126,12 +133,22 @@ while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_
   '
 done < "$release/images.tsv"
 backup_image=$(awk -F '\t' '$1=="backup" { print $2 }' "$release/images.tsv")
-segmenter_image=$(awk -F '\t' '$1=="segmenter" { print $2 }' "$release/images.tsv")
-# The segmenter instance this release may touch: test releases only the test one, production
-# releases only the production one (scripts/segmenter-deploy.sh). Neither can reach the other's.
-if [ "$target" = test ]; then segmenter_instance='test'; else segmenter_instance='prod'; fi
-segmenter_up=
 rolled_out=
+segmenter_image=$(awk -F '\t' '$1=="segmenter" { print $2 }' "$release/images.tsv")
+# The shared segmenter (scripts/segmenter-deploy.sh) is its own versioned component. Only
+# production releases, which are built from main, carry its image; it is (re)started only when
+# that version is not the one running, and the old container keeps serving every edition until
+# the new one is healthy. A failure leaves the old one in place and does not fail the release.
+# Test releases never carry it (the manifest check above refuses that) and only attach to it.
+if [ -n "$segmenter_image" ]; then
+  if "$release/scripts/segmenter-deploy.sh" up "$segmenter_image" "$(segmenter_version "$segmenter_image")"; then
+    docker tag "$segmenter_image" ai-image-playground:segmenter
+    rolled_out="$rolled_out $segmenter_image"
+  else
+    echo "Warning: the new segmenter did not start; the running one was kept." >&2
+  fi
+fi
+segmenter_up=
 for edition in $editions; do
   record=$(awk -F '\t' -v e="$edition" '$1==e' "$release/images.tsv")
   IFS="$(printf '\t')" read -r current_edition image expected_id public_sha private_sha repo_digest <<EOF
@@ -139,39 +156,24 @@ $record
 EOF
   prefix=$(printf '%s' "$edition" | tr '[:lower:]' '[:upper:]')
   project=$(edition_var "$prefix" PROJECT)
-  # The segmenter (deploy/compose.segmenter.yaml), this release's own instance. A release that
-  # carries the image starts or updates it once, before the executors that call it; each edition
-  # in SEGMENTER_EDITIONS (default: test only; adding internal/paid needs Nain's go-ahead) is then
-  # attached to it and its executors get its address. It is optional: if it does not come up, the
-  # executors are not told about it and edit-region cards fall back to the agent's box, so a
-  # failure here warns instead of failing the release.
+  # Each edition in SEGMENTER_EDITIONS (default: test only; adding internal/paid needs Nain's
+  # go-ahead) is attached to the shared segmenter and its executors get its address, but only
+  # while it is healthy. It is optional: otherwise the executors are not told about it and
+  # edit-region cards fall back to the agent's box, so this warns instead of failing the release.
   AGENT_SEGMENTER_URL=
   case " ${SEGMENTER_EDITIONS:-test} " in
-    *" $edition "*) segmenter_wanted=1 ;;
-    *) segmenter_wanted= ;;
+    *" $edition "*)
+      if [ -z "$segmenter_up" ]; then
+        if "$release/scripts/segmenter-deploy.sh" healthy; then segmenter_up=ok; else segmenter_up=failed; fi
+      fi
+      [ "$segmenter_up" != ok ] || AGENT_SEGMENTER_URL=http://segmenter:8080
+      ;;
   esac
-  if [ -n "$segmenter_wanted" ] && [ -z "$segmenter_image" ] && [ -z "$segmenter_up" ]; then
-    # A release without the image (production today) reuses its own running instance, if any.
-    if "$release/scripts/segmenter-deploy.sh" healthy "$segmenter_instance"; then segmenter_up=ok; else segmenter_up=failed; fi
-  fi
-  if [ -n "$segmenter_wanted" ] && [ -n "$segmenter_image" ] && [ -z "$segmenter_up" ]; then
-    segmenter_up=failed
-    if "$release/scripts/segmenter-deploy.sh" up "$segmenter_instance" "$segmenter_image"; then
-      segmenter_up=ok
-      docker tag "$segmenter_image" ai-image-playground:segmenter
-      rolled_out="$rolled_out $segmenter_image"
-    else
-      echo "Warning: the segmenter did not start; edit-region cards fall back to the agent's box." >&2
-    fi
-  fi
-  if [ -n "$segmenter_wanted" ] && [ "$segmenter_up" = ok ]; then
-    AGENT_SEGMENTER_URL=http://segmenter:8080
-  fi
   export AGENT_SEGMENTER_URL
   APP_IMAGE=$image BACKUP_IMAGE=$backup_image "$release/scripts/app-compose.sh" up "$project"
   # The app network exists only once the project is up; the executors resolve `segmenter` per
   # request, so attaching right after is soon enough, and before the first card is asked for.
-  if [ -n "$AGENT_SEGMENTER_URL" ] && ! "$release/scripts/segmenter-deploy.sh" attach "$segmenter_instance" "$project"; then
+  if [ -n "$AGENT_SEGMENTER_URL" ] && ! "$release/scripts/segmenter-deploy.sh" attach "$project"; then
     echo "Warning: could not attach the segmenter to $project; edit-region cards fall back to the agent's box." >&2
   fi
   docker tag "$image" "$(edition_var "$prefix" IMAGE)"
