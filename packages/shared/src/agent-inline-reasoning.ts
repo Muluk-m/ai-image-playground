@@ -38,6 +38,8 @@ export class InlineReasoningSplitter {
   private name: string | null = null
   /** 标签名之后已经见过空白：只剩空白与 `>` 能接上。 */
   private named = false
+  /** 还能与已认到的标签名对上的那几个标签：每来一个字母只按这一位收窄，不再整段重比。 */
+  private candidates: readonly string[] = []
   /** 闭标签去掉末尾 `>` 的那一截，小写，如 `</thinking`。 */
   private close = ''
   /** 推理正文在整段里的起点。 */
@@ -83,27 +85,37 @@ export class InlineReasoningSplitter {
     while (this.cursor < text.length) {
       const char = text[this.cursor]!
       if (this.name === null) {
-        if (char === '<') this.name = ''
-        else if (!WHITESPACE.test(char)) return this.toPlain()
+        if (char === '<') {
+          this.name = ''
+          this.candidates = this.tags
+        } else if (!WHITESPACE.test(char)) return this.toPlain()
       } else if (char === '>') {
-        if (!this.tags.includes(this.name)) return this.toPlain()
+        if (!this.nameIsTag()) return this.toPlain()
         this.phase = 'open'
         this.close = `</${this.name}`
         this.bodyStart = this.cursor + 1
         this.cursor = this.bodyStart
         return
       } else if (WHITESPACE.test(char)) {
-        if (!this.tags.includes(this.name)) return this.toPlain()
+        if (!this.nameIsTag()) return this.toPlain()
         this.named = true
       } else {
-        const name = this.name + char.toLowerCase()
-        if (this.named || !LETTER.test(char) || !this.tags.some((tag) => tag.startsWith(name)))
-          return this.toPlain()
-        this.name = name
+        if (this.named || !LETTER.test(char)) return this.toPlain()
+        const at = this.name.length
+        const lower = char.toLowerCase()
+        this.candidates = this.candidates.filter((tag) => tag[at] === lower)
+        if (this.candidates.length === 0) return this.toPlain()
+        this.name += lower
       }
       this.cursor += 1
     }
     if (finished) this.toPlain()
+  }
+
+  /** 已认到的名字恰好是某个标签：候选都与它前缀相同，长度相等就是同一个。 */
+  private nameIsTag(): boolean {
+    const length = this.name?.length ?? -1
+    return this.candidates.some((tag) => tag.length === length)
   }
 
   private toPlain() {
