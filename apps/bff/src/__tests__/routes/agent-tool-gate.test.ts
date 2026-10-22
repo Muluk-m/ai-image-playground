@@ -336,6 +336,34 @@ describe('确认门', () => {
     expect(await tasksOf(conversationId)).toHaveLength(1)
   })
 
+  it('新消息已进收件箱、还没起轮就点了确认：确认门的卡交不出去，不提交也不扣费', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [() => toolCallCompletion(generate('call-1'))]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一只橘猫', GATED)
+    const [pending] = await cardsOf(conversationId)
+    // 用户发的新消息先落进收件箱（起轮、作废还没来得及做）。
+    await db.insert(schema.agent_inbox).values({
+      conversation_id: conversationId,
+      id: crypto.randomUUID(),
+      seq: 99,
+      kind: 'user_message',
+      status: 'pending',
+      client_message_id: 'later-message',
+      payload: { text: '算了，换成柴犬', deviceId: DEVICE },
+      created_at: Date.now() + 1,
+    } as typeof schema.agent_inbox.$inferInsert)
+    const refused = await confirm(conversationId, pending!)
+    expect(refused.status).toBe(422)
+    expect(await tasksOf(conversationId)).toEqual([])
+    // 这条手放进去的消息不留给后面的巡查：撤掉它。
+    await db
+      .update(schema.agent_inbox)
+      .set({ status: 'cancelled' })
+      .where(eq(schema.agent_inbox.client_message_id, 'later-message'))
+  })
+
   it('没确认就发了新消息：卡作废、不提交，再点确认也交不出去', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [

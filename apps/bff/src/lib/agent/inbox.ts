@@ -674,6 +674,27 @@ export async function gateResumeLive(
   return row !== undefined
 }
 
+/** 这个时刻之后有没有用户消息进过收件箱（还在等或已被取走；撤回的不算）。 */
+export async function userMessageSince(
+  executor: typeof db | BffTransaction,
+  conversationId: string,
+  since: number,
+): Promise<boolean> {
+  const [row] = await executor
+    .select({ id: inbox.id })
+    .from(inbox)
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        inArray(inbox.kind, [...USER_KINDS]),
+        inArray(inbox.status, ['pending', 'consumed']),
+        gt(inbox.created_at, since),
+      ),
+    )
+    .limit(1)
+  return row !== undefined
+}
+
 /** 这一轮被打断后是否排上过中断续跑（不论后来有没有跑完）。 */
 export async function agentResumeQueued(conversationId: string, turnId: string): Promise<boolean> {
   const [row] = await db

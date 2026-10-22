@@ -23,7 +23,11 @@ export function isPendingGate(block: AgentContentBlock): block is AgentToolResul
 
 export function pendingGateMessages(executor: typeof db | BffTransaction, conversationId: string) {
   return executor
-    .select({ id: schema.agent_messages.id, content: schema.agent_messages.content })
+    .select({
+      id: schema.agent_messages.id,
+      turnId: schema.agent_messages.turn_id,
+      content: schema.agent_messages.content,
+    })
     .from(schema.agent_messages)
     .where(
       and(

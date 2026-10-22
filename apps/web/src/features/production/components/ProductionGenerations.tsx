@@ -262,6 +262,11 @@ function GenerationSession({
   }
   const confirm = async (generation: ProductionGenerationView, fields: GenerationFields) => {
     if (inFlight.current || preparationBlocked || generation.sourceChanged) return
+    // 与对话面板同一条规矩：确认门的稿在用户发出新消息、新一轮起跑时不交出去（服务端也按
+    // 「有更晚的用户消息」拒掉）。制作模式不开确认门，这里只防万一。
+    const agent = useAgentStore.getState()
+    const shown = agent.messages.find((one) => one.id === generation.messageId)
+    if (shown?.kind === 'tool' && shown.gated && agent.turn === 'running') return
     inFlight.current = true
     readEpoch.current++
     setBusy(generation.draftId)

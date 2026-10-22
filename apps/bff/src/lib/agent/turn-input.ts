@@ -364,7 +364,8 @@ function replayed(
     )
   }
   if (continuation?.calls.length)
-    messages.push(...continuationMessages(continuation, history.at(-1)?.createdAt ?? 0))
+    // 接在回放的最后一条之后；窗口里一条都没有时按此刻算，不退回 0。
+    messages.push(...continuationMessages(continuation, history.at(-1)?.createdAt ?? Date.now()))
   return messages
 }
 

@@ -93,7 +93,7 @@ describe('beforeToolCall', () => {
 })
 
 describe('续跑接在历史末尾的那一对', () => {
-  it('调用用模型当时的参数，回执用用户确认的提示词；没确认的、不是门拦下的都不接', () => {
+  it('调用参数照模型当时的、提示词与回执用用户确认的那一份；没确认的、不是门拦下的都不接', () => {
     const turn = turnOf(
       gatedCard(),
       gatedCard({ toolCallId: 'call-2', status: 'awaiting_confirmation', job: undefined }),
@@ -104,7 +104,8 @@ describe('续跑接在历史末尾的那一对', () => {
     expect(calls[0]).toMatchObject({
       toolCallId: 'call-1',
       toolName: 'generateImage',
-      args: { prompt: '一只橘猫', n: 1 },
+      // 调用参数里的提示词换成用户确认的那一份，其余照模型当时的。
+      args: { prompt: '一只戴围巾的橘猫', n: 1 },
     })
     expect(calls[0]!.result).toContain('已按用户要求提交')
     expect(calls[0]!.result).toContain('一只戴围巾的橘猫')

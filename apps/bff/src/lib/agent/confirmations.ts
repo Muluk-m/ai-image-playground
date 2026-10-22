@@ -17,7 +17,7 @@ import {
   agentTitleLine,
   unshapeQueuePrompt,
 } from '@image-playground/shared'
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, eq, isNull, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { resolveQueueModel } from '../channels'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from '../imageArchive'
@@ -27,7 +27,7 @@ import type { BffTransaction } from '../private-overlay'
 import { lockMediaOwner } from '../projectMedia'
 import { createQueueTask } from '../taskSubmission'
 import type { AgentOwner } from './conversations'
-import { enqueueAgentResume, gateResumeLive } from './inbox'
+import { enqueueAgentResume, gateResumeLive, userMessageSince } from './inbox'
 import {
   validateImageParameters,
   validateProductionConfirmation,
@@ -201,6 +201,13 @@ export async function confirmAgentGeneration(
           ...(await continueGatedTurn(tx, card, input)),
         }
       }
+      // 确认门的卡一旦有更晚的用户消息进了收件箱就算作废：作废发生在那条消息起轮时，这里与它
+      // 同一把会话锁，不论确认与起轮谁先拿到锁，「先发了新消息」的卡都交不出去。
+      if (
+        card.block.gated === true &&
+        (await userMessageSince(tx, input.conversationId, card.createdAt))
+      )
+        return { kind: 'not_confirmable' }
       const draft = await readDraft(tx, input.conversationId, card)
       if (!draft) return { kind: 'not_confirmable' }
       // 这份草稿已经用掉了（上一次确认写回卡片之前进程死了）：认领那条任务，不再提交。
@@ -453,11 +460,12 @@ export async function voidPendingToolGates(
     // 先锁再读，与确认同一个顺序：不在锁外先看一眼「没有」就走，那一眼与确认、落卡之间没有先后。
     await lockConversation(tx, conversationId, userId)
     const locked = await pendingGateMessages(tx, conversationId)
-    const drafts: string[] = []
+    // 草稿按「哪一轮的哪一次调用」认：调用 id 只在一轮里唯一，别的轮可能也有一个 `call-1`。
+    const drafts: { readonly turnId: string; readonly toolCallId: string }[] = []
     for (const row of locked) {
       const content = row.content.map((block): AgentContentBlock => {
         if (!isPendingGate(block)) return block
-        drafts.push(block.toolCallId)
+        drafts.push({ turnId: row.turnId, toolCallId: block.toolCallId })
         return {
           ...block,
           status: 'failed',
@@ -482,7 +490,14 @@ export async function voidPendingToolGates(
       .where(
         and(
           eq(schema.agent_generation_drafts.conversation_id, conversationId),
-          inArray(schema.agent_generation_drafts.tool_call_id, drafts),
+          or(
+            ...drafts.map((one) =>
+              and(
+                eq(schema.agent_generation_drafts.turn_id, one.turnId),
+                eq(schema.agent_generation_drafts.tool_call_id, one.toolCallId),
+              ),
+            ),
+          ),
           isNull(schema.agent_generation_drafts.task_id),
         ),
       )

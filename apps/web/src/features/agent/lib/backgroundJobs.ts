@@ -183,8 +183,8 @@ export function createAgentBackgroundJobs({
   let watch: { readonly conversationId: string } | null = null
   /** 正在找唤醒轮的那一次。 */
   let wakeWatch: { readonly conversationId: string; result: Promise<boolean> } | null = null
-  /** 正在跟进的确认门续跑：从找轮到接上流整段只跑一份，确认响应与同步读回同时来也不会接两次。 */
-  let continuationFollow: { readonly conversationId: string } | null = null
+  /** 正在跟进确认门续跑的会话：每个会话从找轮到接上流整段只跑一份，确认响应与同步读回同时来也不会接两次。 */
+  const continuationFollows = new Set<string>()
   interface BatchWake {
     readonly conversationId: string
     /** 这条唤醒走到了哪一步：批次版本或运行回报各有自己的回执。 */
@@ -593,16 +593,15 @@ export function createAgentBackgroundJobs({
     },
 
     followContinuation(conversationId) {
-      if (continuationFollow?.conversationId === conversationId) return
-      const token = { conversationId }
-      continuationFollow = token
+      if (continuationFollows.has(conversationId)) return
+      continuationFollows.add(conversationId)
       followWakeTurn(conversationId)
         .catch((error) => {
           // 卡已提交、续跑在服务端照常跑：这里接不上只是面板没跟上，下次读回快照会补齐。
           reportClientError('error', error, { operation: 'agent.followContinuation' })
         })
         .finally(() => {
-          if (continuationFollow === token) continuationFollow = null
+          continuationFollows.delete(conversationId)
         })
     },
 

@@ -83,7 +83,11 @@ export function gateContinuation(turn: readonly AgentMessageView[]): AgentTurnCo
         {
           toolCallId: block.toolCallId,
           toolName: block.toolName,
-          args: block.snapshot?.args ?? (block.prompt ? { prompt: block.prompt } : {}),
+          // 调用参数与实际提交的一致：用户在卡上改过提示词，就换成他确认的那一份。
+          args: {
+            ...(block.snapshot?.args ?? {}),
+            ...(block.prompt ? { prompt: block.prompt } : {}),
+          },
           result: confirmedSubmissionText(block.job.media, block.prompt, block.gateReceipt),
         },
       ]
