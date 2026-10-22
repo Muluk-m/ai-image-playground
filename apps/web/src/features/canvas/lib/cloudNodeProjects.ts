@@ -57,11 +57,31 @@ type CommandReadPurpose = 'passive' | 'after-reverse'
 export type CanvasCloudSession = CloudProjectSession | CloudNodeProjectSession
 
 /** One persisted Y.Doc per cloud workspace. UI mounts do not own the connection or its lifetime. */
+const canvasClientIdLimit = 64
+/** 记下本机在这份画布文档上用过的 clientID（最近 64 个），返回包括当前这个在内的集合。 */
+function rememberCanvasClientId(doc: Y.Doc): Set<number> {
+  const key = `${doc.guid}:client-ids`
+  let ids: number[] = []
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(key) ?? '[]')
+    if (Array.isArray(stored)) ids = stored.filter((id): id is number => Number.isInteger(id))
+  } catch {
+    /* 读不出来就只认当前这个 */
+  }
+  ids = [...ids.filter((id) => id !== doc.clientID), doc.clientID].slice(-canvasClientIdLimit)
+  try {
+    localStorage.setItem(key, JSON.stringify(ids))
+  } catch {
+    /* 存不下时这次会话照样认当前的 clientID */
+  }
+  return new Set(ids)
+}
 export class CloudNodeProjectSession {
   canvas: NodeCanvasDocument | undefined
   private persistence: IndexeddbPersistence | undefined
   private socket: WebSocket | undefined
   private stopLegacy: (() => void) | undefined
+  private stopUploadConflicts: (() => void) | undefined
   private controller = new AbortController()
   private readonly sameAccount = accountScope()
   private listeners = new Set<() => void>()
@@ -145,6 +165,16 @@ export class CloudNodeProjectSession {
     try {
       await persistence.whenSynced
       this.current()
+      // 先发文档后，图片还在后台上传时别的设备就能改这个节点：上传簿记与并发编辑互相顶掉时补回来。
+      // 要赶在套用服务端初始状态之前注册：离线时的本机写入在打开这一刻才跟远端合并。
+      // 重新打开后 clientID 会换，所以认本机以前在这份文档上用过的 clientID。
+      const localClients = rememberCanvasClientId(doc)
+      this.stopUploadConflicts = watchCanvasUploadConflicts(
+        doc,
+        (origin) => origin === remoteOrigin,
+        legacyOrigin,
+        (client) => localClients.has(client),
+      )
       // Preserve the browser's pre-migration scene, including unsent images and local geometry.
       if (!doc.getMap('meta').get('legacyImported') && this.record.editor.doc.elements.length)
         await writePersistedScene(this.record.contents(), `${this.record.key}:pre-node-migration`)
@@ -304,8 +334,6 @@ export class CloudNodeProjectSession {
         previous = next
         if (!this.applying) synchronizeLegacyElements(doc, before, next, legacyOrigin)
       })
-      // 先发文档后，图片还在后台上传时别的设备就能改这个节点：上传簿记与并发编辑互相顶掉时补回来。
-      watchCanvasUploadConflicts(doc, (origin) => origin === remoteOrigin, legacyOrigin)
       doc.on('update', (_update: Uint8Array, origin: unknown) => {
         normalizeMedia()
         this.projectToEditor()
@@ -319,6 +347,8 @@ export class CloudNodeProjectSession {
       if (this.remoteDeleted) this.status('deleted')
       else this.start()
     } catch (error) {
+      this.stopUploadConflicts?.()
+      this.stopUploadConflicts = undefined
       await persistence.destroy()
       doc.destroy()
       throw error
@@ -958,6 +988,7 @@ export class CloudNodeProjectSession {
     clearInterval(this.heartbeat)
     window.removeEventListener('online', this.resume)
     this.stopLegacy?.()
+    this.stopUploadConflicts?.()
     this.socket?.close()
     this.rejectWaits(new Error('project_scope_changed'))
     this.canvas?.undo.destroy()
