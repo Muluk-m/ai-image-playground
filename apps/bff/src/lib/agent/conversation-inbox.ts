@@ -151,6 +151,7 @@ export async function sendToConversationInbox(
   message: EnqueueUserMessage,
 ): Promise<InboxSendResult> {
   // 上一轮的终帧已经发出、租约还没放：等它交接完再进收件箱，这一条才能自己开轮、拿到自己的流。
+  // 等待有上限，收尾卡住时照常入队、退回排队回执（见 `awaitConversationHandoff`）。
   await awaitConversationHandoff(conversationId)
   const enqueued = await enqueueAgentUserMessage(conversationId, message)
   if (enqueued.kind === 'full') return { kind: 'full' }
