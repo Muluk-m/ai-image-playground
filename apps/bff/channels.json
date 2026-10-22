@@ -83,7 +83,7 @@
     {
       "id": "grok-images",
       "kind": "openai-queue",
-      "label": "Grok Imagine Image",
+      "label": "Grok",
       "baseUrlRef": "GROK_BASE_URL",
       "requiresSecret": true,
       "auth": {
@@ -228,9 +228,8 @@
     {
       "id": "vertex-images",
       "kind": "gemini-queue",
-      "label": "Vertex AI",
+      "label": "Gemini",
       "baseUrlRef": "VERTEX_BASE_URL",
-      "maxConcurrency": 2,
       "requiresSecret": true,
       "auth": {
         "type": "bearer",
@@ -242,7 +241,9 @@
           "label": "Nano Banana 2.1",
           "capabilities": ["generate", "edit", "size"],
           "badges": ["latest"],
-          "etaSeconds": 25,
+          "etaSeconds": 35,
+          "imageSizes": ["1K", "2K"],
+          "maxConcurrency": 2,
           "logo": "nano-banana"
         },
         {
@@ -250,7 +251,9 @@
           "label": "Nano Banana Pro",
           "capabilities": ["generate", "edit", "size"],
           "badges": ["quality"],
-          "etaSeconds": 80,
+          "etaSeconds": 30,
+          "imageSizes": ["1K", "2K"],
+          "maxConcurrency": 2,
           "logo": "nano-banana"
         },
         {
@@ -258,7 +261,10 @@
           "label": "Nano Banana 2 Lite",
           "capabilities": ["generate", "edit", "size"],
           "badges": ["fast", "value"],
-          "etaSeconds": 3,
+          "etaSeconds": 15,
+          "etaMaxSeconds": 25,
+          "imageSizes": ["1K"],
+          "maxConcurrency": 2,
           "logo": "nano-banana"
         }
       ],

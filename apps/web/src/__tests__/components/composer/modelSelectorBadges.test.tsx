@@ -48,9 +48,22 @@ function optionNamed(label: string): HTMLButtonElement {
   return option
 }
 
-it('shows the badges after the name and the typical duration under it', async () => {
+it('shows the name on its own line and the duration with the badges on one unwrapped line under it', async () => {
   act(() => root.render(<ModelList options={[lite, plain]} value="" onPick={() => {}} />))
   const option = optionNamed('Nano Banana 2 Lite')
+  // 名字那一行只有名字，放不下就省略；标签跟耗时同一行且不折行，两枚标签也不会把这一项撑成三行。
+  const name = [...option.querySelectorAll('span')].find(
+    (el) => el.textContent === 'Nano Banana 2 Lite',
+  )
+  expect(name?.className).toContain('truncate')
+  const meta = [...option.querySelectorAll('span')].find(
+    (el) => el.textContent === '约 3 秒速度快便宜',
+  )
+  expect(meta?.className).toContain('whitespace-nowrap')
+  expect(meta?.className).not.toContain('flex-wrap')
+  // 挤不下时每枚标签各自省略，而不是被整行 overflow-hidden 整枚裁掉。
+  expect(meta?.className).not.toContain('overflow-hidden')
+  expect(meta?.querySelectorAll('.truncate').length).toBe(3)
   expect(option.textContent).toContain('速度快')
   expect(option.textContent).toContain('便宜')
   expect(option.textContent).toContain('约 3 秒')

@@ -31,7 +31,7 @@
     "fallback": "暂时无法创建账户，请检查网络后重试"
   },
   "link": {
-    "identity_taken": "该第三方账号已绑定到其他账户",
+    "identity_taken": "该第三方账号已绑定到其他账户。请退出当前账户，直接使用 Google 登录原账户。",
     "unauthenticated": "登录状态已失效，请重新登录后再绑定",
     "access_denied": "你取消了第三方授权",
     "fallback": "绑定失败，请稍后重试"
