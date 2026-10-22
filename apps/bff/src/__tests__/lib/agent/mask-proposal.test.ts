@@ -34,7 +34,9 @@ const { maskedEditSize } = await import('../../../lib/agent/masked-input')
 const { protectMaskedOutput } = await import('../../../lib/agent/masked-output')
 const {
   boxAgreement,
+  boxOverlap,
   dilationRadius,
+  dropStrayFragments,
   pickMask,
   promptBox,
   segmentationProvider,
@@ -385,6 +387,69 @@ describe('server segmentation', () => {
     expect(boxAgreement(right, box)).toBeCloseTo(1, 5)
     expect(pickMask([wrong, right], box)).toBe(right)
     expect(pickMask([wrong], box)).toBeNull()
+  })
+
+  const paint = <T extends { data: Uint8Array; width: number }>(
+    target: T,
+    box: [number, number, number, number],
+  ): T => {
+    for (let y = box[1]; y < box[3]; y++)
+      for (let x = box[0]; x < box[2]; x++) target.data[y * target.width + x] = 255
+    return target
+  }
+  const count = (target: { data: Uint8Array }) => target.data.filter(Boolean).length
+
+  it('prefers the whole object over a confident scatter whose bounding box happens to fit the box', () => {
+    // 测试环境 4K 扶手椅的真实情形：错的候选是挂画一角加窗帘一片，外接框与框几乎重合、置信度还更高。
+    const box = { x: 0.2, y: 0.2, width: 0.4, height: 0.4 }
+    const whole = mask(100, 100, [22, 22, 58, 58], 0.69)
+    const scatter = paint(mask(100, 100, [20, 20, 26, 26], 0.79), [54, 54, 60, 60])
+    expect(boxOverlap(scatter, box).inside).toBe(1)
+    expect(boxOverlap(scatter, box).coverage).toBeCloseTo(72 / 1600, 5)
+    expect(boxAgreement(whole, box)).toBeGreaterThan(boxAgreement(scatter, box))
+    const picked = pickMask([scatter, whole], box)
+    expect(picked?.score).toBe(0.69)
+    expect(count(picked!)).toBe(36 * 36)
+  })
+
+  it('does not drop a thin object for a smaller piece of it just because it fills little of a loose box', () => {
+    const box = { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }
+    const pole = mask(100, 100, [48, 10, 52, 90], 0.9)
+    const top = mask(100, 100, [48, 10, 52, 30], 0.95)
+    expect(pickMask([top, pole], box)?.score).toBe(0.9)
+  })
+
+  it('rejects a candidate that lies mostly outside the box', () => {
+    const box = { x: 0.2, y: 0.2, width: 0.4, height: 0.4 }
+    const spill = mask(100, 100, [40, 40, 100, 100], 0.99)
+    expect(boxOverlap(spill, box).inside).toBeLessThan(0.5)
+    expect(boxAgreement(spill, box)).toBe(0)
+    expect(pickMask([spill], box)).toBeNull()
+  })
+
+  it('drops stray islands but keeps occluded halves of the object and parts the user clicked', () => {
+    const box = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 }
+    const main = mask(100, 100, [20, 20, 50, 60], 0.8)
+    paint(main, [55, 20, 80, 60]) // 被遮挡断开的另一半：与主体一样大、在框内，保留
+    paint(main, [55, 70, 60, 75]) // 框外小块（窗帘一片）：去掉
+    paint(main, [70, 65, 74, 69]) // 框内小块，但用户在它上面点了：保留
+    paint(main, [30, 10, 34, 14]) // 框上方的小块（挂画一角）：去掉
+    const cleaned = dropStrayFragments(main, box, [
+      { x: 0.72, y: 0.67, include: true },
+      { x: 0.32, y: 0.12, include: false },
+    ])
+    expect(count(cleaned)).toBe(30 * 40 + 25 * 40 + 16)
+    expect(cleaned.data[72 * 100 + 57]).toBe(0)
+    expect(cleaned.data[12 * 100 + 32]).toBe(0)
+    expect(cleaned.data[67 * 100 + 72]).toBe(255)
+    expect(cleaned.score).toBe(0.8)
+    // pickMask 交回的就是去碎之后的那张。
+    expect(count(pickMask([main], box)!)).toBe(30 * 40 + 25 * 40)
+  })
+
+  it('leaves a single-piece mask untouched', () => {
+    const single = mask(50, 50, [10, 10, 30, 30], 0.5)
+    expect(dropStrayFragments(single, { x: 0, y: 0, width: 1, height: 1 })).toBe(single)
   })
 
   it('returns null without a provider so the card falls back to the agent box', async () => {
