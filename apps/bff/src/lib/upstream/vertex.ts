@@ -10,7 +10,6 @@ import { clientError } from './shared'
  * - gemini-3.1-flash-lite-image 只出 1K，带 imageSize 2K / 512 一律 400 invalid argument；
  * - gemini-nano-banana-2.1 与 gemini-3-pro-image 认 1K / 2K（及 4K），512 一律 400；
  * - 三者都认 thinkingLevel minimal / high。
- * 前端分辨率档位只有 1K / 2K / 4K，512 只可能来自直接调 API，按不支持处理即可。
  */
 
 /**
@@ -29,9 +28,13 @@ export const VERTEX_MAX_INPUT_IMAGES = 14
 /**
  * 构造发往 Vertex 的 generateContent 请求体，并在发出前拦下实测会 400 的组合。
  *
- * 校验的是 `buildGeminiBody` 产出的最终 `generationConfig.imageConfig.imageSize`，而不是扁平的
+ * 校验的是 `buildGeminiBody` 产出的最终 `generationConfig.imageConfig`，而不是扁平的
  * `image_size`：`extra.generationConfig` 会整段压过扁平参数推导的配置，只有最终值才是上游真正
- * 收到的。这里只拒绝、不改写——静默改档会让任务里存的参数与实际产物对不上。
+ * 收到的。显式给了却不是对象的 imageConfig、不是字符串的 imageSize 一律当无效拒绝。
+ *
+ * 唯一的改写是 512 → 1K：共享的 Gemini 分辨率档位（`GEMINI_IMAGE_SIZES`）里有 512，作图面板、
+ * Agent 批量计划、制作编辑器都会给 Vertex 模型提供这一档，已存的旧任务重试也会带着它。1K 是更高
+ * 一档、计费按张不变，升档比整单失败好；任务里记的仍是用户选的 512，这是有意的兼容取舍。
  */
 export function buildVertexBody(
   model: string,
@@ -42,12 +45,18 @@ export function buildVertexBody(
   const body = buildGeminiBody(request)
   const sizes = Object.hasOwn(VERTEX_IMAGE_SIZES, model) ? VERTEX_IMAGE_SIZES[model] : undefined
   if (!sizes) return body
-  const generationConfig = body.generationConfig as { imageConfig?: unknown } | undefined
-  const imageConfig = generationConfig?.imageConfig
-  const size =
-    imageConfig && typeof imageConfig === 'object'
-      ? (imageConfig as { imageSize?: unknown }).imageSize
-      : undefined
+  const generationConfig = body.generationConfig as Record<string, unknown>
+  const imageConfig = generationConfig.imageConfig
+  if (imageConfig === undefined) return body
+  if (imageConfig === null || typeof imageConfig !== 'object' || Array.isArray(imageConfig))
+    throw clientError('分辨率配置无效，请改用面板里的分辨率选项后重试')
+  const size = (imageConfig as { imageSize?: unknown }).imageSize
   if (size === undefined || (typeof size === 'string' && sizes.includes(size))) return body
+  if (size === '512' && sizes.includes('1K')) {
+    return {
+      ...body,
+      generationConfig: { ...generationConfig, imageConfig: { ...imageConfig, imageSize: '1K' } },
+    }
+  }
   throw clientError(`该模型只支持 ${sizes.join(' / ')} 分辨率，请改为其中一档或选「自动」`)
 }
