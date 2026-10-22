@@ -1,0 +1,8 @@
+{
+  "capabilities": {
+    "accounts:login": true,
+    "accounts:sync": true,
+    "generation:video": true
+  },
+  "quotas": { "sync:user-projects": 30 }
+}

@@ -37,7 +37,6 @@ import {
   type TextNodeData,
   ungroupCanvasNodes,
   updateCanvasNode,
-  videoModelSupportOf,
 } from '@image-playground/shared'
 import { type Static, Type } from 'typebox'
 import * as Y from 'yjs'
@@ -55,7 +54,13 @@ import {
   type StageChargeInput,
   type StageProposalInput,
 } from '../stage-authorizations'
-import { agentVideoModel, agentVideoModels } from '../video-models'
+import {
+  agentVideoAvailable,
+  agentVideoModel,
+  agentVideoModels,
+  NO_VIDEO_MODEL_MESSAGE,
+  videoNodeModeRejection,
+} from '../video-models'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
 import { resolveAgentModel } from './queueTask'
@@ -121,6 +126,24 @@ const guidance =
 const invalid = (message: string): never => {
   throw new AgentToolError('invalid_params', message)
 }
+const noVideoModel = (): never => {
+  throw new AgentToolError('model_unavailable', NO_VIDEO_MODEL_MESSAGE)
+}
+/**
+ * 视频节点要写的模式在它实际会用的模型上必须支持：没有可用视频模型就不建，不支持的模式直接报错并列出支持的，
+ * 不再像以前那样悄悄退成首帧（图生视频）、照扣视频积分。模型按节点草稿、再按本轮工作台挑，与报价一致。
+ */
+type VideoModeCheck = (mode: string, meta: Readonly<Record<string, string>>) => void
+function videoModeCheck(params: AgentToolContext['params']): VideoModeCheck {
+  return (mode, meta) => {
+    if (!agentVideoAvailable()) noVideoModel()
+    const rejected = videoNodeModeRejection(
+      mode,
+      parseCompleteStageVideoDraft(meta.nodeVideoDraft)?.model ?? params?.video?.model,
+    )
+    if (rejected) invalid(rejected)
+  }
+}
 function getNode(doc: Y.Doc, id: string) {
   const nodes = readCanvasDocument(doc).nodes
   return nodes.find((node) => node.id === id) ?? invalid(missingNodeMessage(id, nodes))
@@ -162,10 +185,17 @@ export function missingNodeMessage(id: string, nodes: readonly CanvasNode[]): st
 function textData(node: CanvasNode): TextNodeData {
   return node.type === 'text' ? node.data : invalid('只能拆分文本剧本节点。')
 }
-export function patchAgentCanvasNode(doc: Y.Doc, fields: NodeFields, origin: CanvasOrigin) {
+export function patchAgentCanvasNode(
+  doc: Y.Doc,
+  fields: NodeFields,
+  origin: CanvasOrigin,
+  checkVideoMode?: VideoModeCheck,
+) {
   const node = getNode(doc, fields.id)
   const kind = canvasNodeKind(node)
   if (fields.videoMode && kind !== 'video') invalid('只有视频节点可以设置 videoMode。')
+  if (fields.videoMode && checkVideoMode && (node.type === 'image' || node.type === 'video'))
+    checkVideoMode(fields.videoMode, node.data.meta ?? {})
   if (
     kind === 'video' &&
     (fields.prompt !== undefined || fields.videoMode !== undefined) &&
@@ -256,6 +286,7 @@ export const createNodes = defineAgentTool({
   parameters: createParameters,
   call: () => ({ title: '创建节点' }),
   execute: (context) => async (callId, params) => {
+    if (params.nodes.some((node) => node.type === 'video') && !agentVideoAvailable()) noVideoModel()
     const sources = await nodeImageSources(context, params.nodes)
     return write(context, callId, '创建节点', params, (doc, origin) => {
       const existing = readCanvasDocument(doc).nodes
@@ -288,7 +319,7 @@ export const createNodes = defineAgentTool({
           },
           origin,
         )
-        patchAgentCanvasNode(doc, node, origin)
+        patchAgentCanvasNode(doc, node, origin, videoModeCheck(context.params))
         nextY = (node.y ?? nextY) + (node.height ?? canvasNodeRegistry[node.type].size.height) + 168
       }
     })
@@ -337,7 +368,8 @@ export const updateNodes = defineAgentTool({
   call: () => ({ title: '修改节点' }),
   execute: (context) => async (callId, params) =>
     write(context, callId, '修改节点', params, (doc, origin) => {
-      for (const node of params.nodes) patchAgentCanvasNode(doc, node, origin)
+      for (const node of params.nodes)
+        patchAgentCanvasNode(doc, node, origin, videoModeCheck(context.params))
     }),
 })
 
@@ -537,12 +569,12 @@ function stageExecution(
   const globalDraft = videoKind
     ? (workbench ?? parseCompleteStageVideoDraft(meta.nodeVideoDraft))
     : undefined
+  // 页面上没有可用视频模型时，原标签页一定拦在「模型不可用」上：这里就不报价、不登记授权。
+  if (videoKind && !agentVideoAvailable()) noVideoModel()
   const channels = agentVideoModels().map((option) => ({
     modelId: option.target.model,
     support: option.support,
   }))
-  const hinted = workbench?.model ?? parseCompleteStageVideoDraft(meta.nodeVideoDraft)?.model
-  const builtin = hinted ? videoModelSupportOf(hinted) : undefined
   const resolved =
     globalDraft &&
     resolveStageVideoExecution({
@@ -551,12 +583,19 @@ function stageExecution(
         .filter((edge) => edge.target === node.id)
         .map((edge) => ({ id: edge.source })),
       globalDraft,
-      options: channels.length
-        ? channels
-        : hinted && builtin
-          ? [{ modelId: hinted, support: builtin }]
-          : [],
+      options: channels,
     })
+  // 节点写明的模式在实际会用的模型上不支持时，以前会悄悄退成首帧（图生视频）照样报价、扣视频积分。
+  const requestedMode = meta.nodeVideoMode
+  if (resolved && requestedMode !== undefined && resolved.mode !== requestedMode)
+    invalid(
+      `节点「${stageNodeName(node)}」：${
+        videoNodeModeRejection(
+          requestedMode,
+          parseCompleteStageVideoDraft(meta.nodeVideoDraft)?.model ?? globalDraft?.model,
+        ) ?? `视频模式 ${requestedMode} 当前不可用。`
+      }`,
+    )
   const binding = stageExecutionBinding({
     node,
     nodes: graph.nodes,

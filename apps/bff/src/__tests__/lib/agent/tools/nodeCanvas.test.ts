@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
@@ -19,7 +19,7 @@ import * as Y from 'yjs'
 process.env.DATABASE_URL = await resetTestDatabase('agent_node_canvas_commands')
 process.env.OPERATOR_CONFIG_FILE = resolve(
   import.meta.dir,
-  '../../../canvas-sync-operator-config.json',
+  '../../../agent-node-canvas-operator-config.json',
 )
 const { db, schema, close } = await import('../../../../db/client')
 const {
@@ -45,7 +45,24 @@ const { draftQueueTask } = await import('../../../../lib/agent/tools/queueTask')
 const { proposeBatchGeneration } = await import(
   '../../../../lib/agent/tools/proposeBatchGeneration'
 )
+const { _setChannelsForTesting } = await import('../../../../lib/channels')
+type InternalChannel = import('../../../../lib/channels').InternalChannel
+const videoChannel = (id: string, capabilities: string[] = ['generate']): InternalChannel => ({
+  id: `video-${id}`,
+  kind: 'openai-queue',
+  label: id,
+  baseUrl: 'https://gateway.example/v1',
+  auth: { type: 'bearer', secretRef: 'VIDEO_API_KEY', secret: 'k' },
+  allowedPaths: ['videos/generations'],
+  models: [{ id, label: id, media: 'video', capabilities: capabilities as never }],
+  defaults: { asyncTasks: true },
+})
+/** 只支持文生与首帧。 */
+const LITE = videoChannel('grok-imagine-video-1.5-lite')
+/** 文生、首帧、首尾帧都支持。 */
+const FULL = videoChannel('grok-imagine-video')
 const userId = 'node-command-owner'
+beforeEach(() => _setChannelsForTesting([LITE]))
 beforeAll(async () => {
   await db.insert(schema.users).values({
     id: userId,
@@ -269,6 +286,106 @@ it('rolls back the whole batch for an implicit video mode or unsupported edge', 
   await expect(
     run(updateNodes, { nodes: [{ id: 'video', prompt: '没有明确模式' }] }),
   ).rejects.toThrow('videoMode')
+})
+
+it('rejects a video mode the node model cannot run and lists the ones it can', async () => {
+  const { run, graph } = await fixture()
+  await expect(
+    run(createNodes, {
+      nodes: [
+        { id: 'image', type: 'image', prompt: '原图' },
+        { id: 'video', type: 'video', videoMode: 'reference', prompt: '参考它' },
+      ],
+    }),
+  ).rejects.toThrow('只支持 文生（text）、首帧（first）')
+  // 整批回滚，也没有悄悄退成首帧。
+  expect((await graph()).nodes).toHaveLength(0)
+  await run(createNodes, { nodes: [{ id: 'video', type: 'video', videoMode: 'text' }] })
+  await expect(run(updateNodes, { nodes: [{ id: 'video', videoMode: 'frames' }] })).rejects.toThrow(
+    '视频模式「首尾帧（frames）」当前不可用',
+  )
+  expect((await graph()).nodes[0]?.data).toMatchObject({ meta: { nodeVideoMode: 'text' } })
+})
+
+it('checks the video mode against the workbench video model', async () => {
+  _setChannelsForTesting([LITE, FULL])
+  const { context, graph } = await fixture()
+  const create = (model: string) =>
+    createNodes
+      .create({
+        ...context,
+        params: {
+          video: {
+            model,
+            durationSeconds: 5,
+            resolution: '720p' as const,
+            aspectRatio: '16:9' as const,
+          },
+        },
+      })
+      .execute(
+        crypto.randomUUID(),
+        { nodes: [{ id: model, type: 'video', videoMode: 'frames' }] },
+        undefined,
+        undefined,
+      )
+  await expect(create('grok-imagine-video-1.5-lite')).rejects.toThrow('只支持')
+  await create('grok-imagine-video')
+  expect((await graph()).nodes.map((node) => node.id)).toEqual(['grok-imagine-video'])
+})
+
+it('refuses a quote that would quietly run another video mode', async () => {
+  _setChannelsForTesting([LITE, FULL])
+  const { context } = await fixture()
+  const full = {
+    video: {
+      model: 'grok-imagine-video',
+      durationSeconds: 5,
+      resolution: '720p' as const,
+      aspectRatio: '16:9' as const,
+    },
+  }
+  await createNodes
+    .create({ ...context, params: full })
+    .execute(
+      'create',
+      { nodes: [{ id: 'video', type: 'video', videoMode: 'frames', prompt: '过渡' }] },
+      undefined,
+      undefined,
+    )
+  // 这一轮工作台换成了只支持文生、首帧的 Lite：以前报价会把首尾帧悄悄退成首帧。
+  const lite = {
+    video: {
+      model: 'grok-imagine-video-1.5-lite',
+      durationSeconds: 5,
+      resolution: '720p' as const,
+      aspectRatio: '16:9' as const,
+    },
+  }
+  await expect(
+    runNodes
+      .create({ ...context, params: lite })
+      .execute('quote', { stage: '视频', nodeIds: ['video'] }, undefined, undefined),
+  ).rejects.toThrow('视频模式「首尾帧（frames）」当前不可用')
+})
+
+it('refuses video nodes, video modes and video quotes when no video model is available', async () => {
+  const { run, graph } = await fixture()
+  await run(createNodes, {
+    nodes: [{ id: 'video', type: 'video', videoMode: 'text', prompt: '推镜' }],
+  })
+  _setChannelsForTesting([])
+  const unavailable = '当前部署没有可用的视频模型'
+  await expect(
+    run(createNodes, { nodes: [{ id: 'another', type: 'video', videoMode: 'text' }] }),
+  ).rejects.toThrow(unavailable)
+  await expect(run(updateNodes, { nodes: [{ id: 'video', videoMode: 'first' }] })).rejects.toThrow(
+    unavailable,
+  )
+  await expect(run(runNodes, { stage: '视频', nodeIds: ['video'] })).rejects.toThrow(unavailable)
+  // 图片节点照常能建：用户要的是出图时智能体改建 image 节点。
+  await run(createNodes, { nodes: [{ id: 'image', type: 'image', prompt: '原图' }] })
+  expect((await graph()).nodes.map((node) => node.id).sort()).toEqual(['image', 'video'])
 })
 
 it('does not persist pending jobs or selected candidates into authoring data while editing', () => {
