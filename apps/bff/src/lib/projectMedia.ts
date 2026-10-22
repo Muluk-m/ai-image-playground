@@ -380,28 +380,13 @@ async function publishMedia(
   let published = false
   try {
     const store = durableMediaStore()
-    mark('storage_open')
-    const source = await store.open(row.staging_key)
-    if (source.size !== row.bytes) throw new MediaError(422, 'media_size_mismatch')
+    // 暂存原件是客户端可写的：一次 Range GET 读至多 bytes + 1 字节，多一个字节就知道比登记的大，
+    // 内存上界不变，也省掉先 HEAD 查大小的那次往返。
     mark('storage_read')
-    const reader = source.stream(0, row.bytes - 1).getReader()
-    const bytes = new Uint8Array(row.bytes)
-    let offset = 0
-    try {
-      while (true) {
-        const part = await reader.read()
-        if (part.done) break
-        if (offset + part.value.length > bytes.length)
-          throw new MediaError(422, 'media_size_mismatch')
-        bytes.set(part.value, offset)
-        offset += part.value.length
-      }
-    } finally {
-      await reader.cancel()
-      reader.releaseLock()
-    }
+    const bytes = await store.readUpTo(row.staging_key, row.bytes + 1)
+    if (bytes.length !== row.bytes) throw new MediaError(422, 'media_size_mismatch')
     mark('hash')
-    if (offset !== row.bytes || createHash('sha256').update(bytes).digest('hex') !== row.sha256)
+    if (createHash('sha256').update(bytes).digest('hex') !== row.sha256)
       throw new MediaError(422, 'media_hash_mismatch')
     let metadata: Metadata
     let preview: Buffer
@@ -472,11 +457,8 @@ async function publishMedia(
       store.write(objectKey, bytes, row.content_type),
       store.write(previewKey, preview, 'image/webp'),
     ])
+    // 写入成功即可读（R2/S3 写后读强一致），不再逐个 HEAD 回读核对，省一次往返。
     for (const result of written) if (result.status === 'rejected') throw result.reason
-    mark('storage_verify')
-    const [original, thumbnail] = await Promise.all([store.open(objectKey), store.open(previewKey)])
-    if (original.size !== bytes.length || thumbnail.size !== preview.length)
-      throw new MediaError(503, 'media_not_readable')
     mark('publish')
     return await database.transaction(async (tx) => {
       await lockMediaOwner(tx, userId)
