@@ -66,6 +66,8 @@ function useGridColumns(): number {
 interface GridItem {
   readonly key: string
   readonly taskId?: string
+  /** 一套折起来的卡里装着的任务，新发送的一批要滚到这张卡上。 */
+  readonly taskIds?: readonly string[]
   readonly node: ReactNode
 }
 
@@ -511,6 +513,7 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
         nodes: [
           {
             key: `set-${item.setId}`,
+            taskIds: item.tasks.map((task) => task.id),
             node: (
               <SetHistoryCard
                 key={`set-${item.setId}`}
@@ -518,6 +521,7 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
                 actions={batch ? [t('set.batchTag')] : legacyActionLabels(job)}
                 tasks={item.tasks}
                 batch={batch}
+                attended={batch && item.tasks.some((task) => submittedIds.includes(task.id))}
                 expanded={expanded}
                 onToggle={() =>
                   setExpandedSetIds((ids) =>
@@ -615,6 +619,10 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
         node,
       ]),
     )
+    // 逐张生成的一批折在一张卡里，卡上记着它装的任务 id。
+    for (const node of root.querySelectorAll<HTMLElement>('[data-set-task-ids]'))
+      for (const id of node.dataset.setTaskIds?.split(' ') ?? [])
+        if (!byId.has(id)) byId.set(id, node)
     for (const id of pending) {
       const card = byId.get(id)
       if (!card) continue
@@ -625,7 +633,13 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
     if (!primary) {
       // 新作品排在最前；列表已往下滚、首行没挂载时先回到网格顶部，挂上后再高亮。
       // 只为确实在列表里的新作品回滚；被筛掉或收在套里的不去打断用户滚动。
-      if (items.some((item) => item.taskId && pending.includes(item.taskId)))
+      if (
+        items.some(
+          (item) =>
+            (item.taskId && pending.includes(item.taskId)) ||
+            item.taskIds?.some((id) => pending.includes(id)),
+        )
+      )
         window.scrollTo({ top: Math.max(0, scrollMargin - 96) })
       return
     }

@@ -30,6 +30,7 @@
   },
   "card": {
     "generating": "Generating...",
+    "batchQueued": "Queued",
     "phase": {
       "queued": "Queued...",
       "generating": "Generating...",
@@ -107,6 +108,7 @@
     "resultAlt": "{{name}} result",
     "batchTag": "Per image",
     "runningCount": "{{running}} running",
+    "queuedCount": "{{queued}} queued",
     "failedList": "Failed images",
     "failedItem": "Image {{index}}"
   },
