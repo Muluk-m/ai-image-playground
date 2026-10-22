@@ -106,9 +106,10 @@ build_image() {
 }
 mkdir -p "$output/scripts/lib" "$output/deploy"
 cp "$snapshot/public/scripts/vps-deploy.sh" "$snapshot/public/scripts/app-compose.sh" \
-  "$snapshot/public/scripts/rollout-runtime.sh" "$snapshot/public/scripts/check-test-isolation.sh" "$output/scripts/"
+  "$snapshot/public/scripts/rollout-runtime.sh" "$snapshot/public/scripts/check-test-isolation.sh" \
+  "$snapshot/public/scripts/segmenter-deploy.sh" "$output/scripts/"
 cp "$snapshot/public/scripts/lib/deploy-common.sh" "$output/scripts/lib/"
-cp "$snapshot/public/deploy/compose.app.yaml" "$output/deploy/"
+cp "$snapshot/public/deploy/compose.app.yaml" "$snapshot/public/deploy/compose.segmenter.yaml" "$output/deploy/"
 : > "$output/images.tsv"
 images=
 last_edition=
@@ -144,6 +145,25 @@ build_image "$backup_image" "backup-$(printf %.12s "$public_sha")" "$snapshot/pu
   --build-arg "APP_VERSION=$public_sha"
 printf 'backup\t%s\t%s\t%s\t-\t%s\n' "$backup_image" "$image_id" "$public_sha" "$repo_digest" >> "$output/images.tsv"
 images="$images $backup_image"
+# The EdgeTAM segmenter for edit-region proposals (deploy/segmenter). Test releases carry it for
+# the test instance. Production releases (built from main) would carry it for the production
+# instance; they do not yet, because production does not use it (SEGMENTER_EDITIONS=test). A test
+# release can never update the production instance either way (scripts/segmenter-deploy.sh).
+if [ "$target" = test ]; then
+  segmenter_image=ai-image-playground:segmenter-$(printf %.12s "$public_sha")
+  # A cache of its own keeps the dependency and weight layers byte-identical between releases,
+  # so the VPS pulls only the small top layer when the segmenter itself did not change.
+  if [ "$transport" = registry ]; then
+    set -- --cache-from "type=registry,ref=${ghcr_repository}:buildcache-segmenter" \
+      --cache-to "type=registry,ref=${ghcr_repository}:buildcache-segmenter,mode=max"
+  else
+    set --
+  fi
+  build_image "$segmenter_image" "segmenter-$(printf %.12s "$public_sha")" "$snapshot/public/deploy/segmenter" \
+    "$@" --build-arg "APP_VERSION=$public_sha"
+  printf 'segmenter\t%s\t%s\t%s\t-\t%s\n' "$segmenter_image" "$image_id" "$public_sha" "$repo_digest" >> "$output/images.tsv"
+  images="$images $segmenter_image"
+fi
 if [ "$transport" = archive ]; then
   # Separate commands preserve save failures (a shell pipeline would only report gzip's status).
   # shellcheck disable=SC2086

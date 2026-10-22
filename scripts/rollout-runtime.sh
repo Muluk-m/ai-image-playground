@@ -299,6 +299,8 @@ runtime() {
     -e WORKER_HEALTH_PORT=37379 -e WORKER_START_PAUSED=true \
     -e WORKER_ACTIVATION_FILE="/run/operator/releases/activated/$release-worker" \
     -e EXECUTOR_ORIGIN="http://$release-bff:37377" -e LEGACY_EXECUTOR_ORIGIN= \
+    ${AGENT_SEGMENTER_URL:+-e "AGENT_SEGMENTER_URL=$AGENT_SEGMENTER_URL"} \
+    ${AGENT_SEGMENTER_URL:+-e "AGENT_SEGMENTER_NAMESPACE=$project"} \
     --mount "type=bind,source=$config_dir,target=/run/operator,readonly" \
     "$image_id" bun run "/app/apps/bff/src/$2" >/dev/null
   docker network connect "$infra" "$name"
