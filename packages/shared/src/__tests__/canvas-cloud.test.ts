@@ -129,6 +129,16 @@ describe('cloud canvas migration and protocol', () => {
       )
       deleteCanvasNode(doc, forged.id, origin)
     }
+    // mediaId 是 null 之类的非字符串时直接判非法，不能当成「还没 mediaId」的上传中节点放过去。
+    for (const mediaId of [null, 0, false]) {
+      const forged = {
+        ...image('Vk3n_x-9:story-grid:0'),
+        data: { fileId: 'Vk3n_x-9:story-grid:0', mediaId },
+      }
+      insertCanvasNode(doc, forged as never, origin)
+      expect(() => validateCloudCanvas(doc, legacy)).toThrow('invalid_canvas_node')
+      deleteCanvasNode(doc, forged.id, origin)
+    }
   })
   it('rejects malformed roots and non-finite geometry', () => {
     const doc = new Y.Doc()
