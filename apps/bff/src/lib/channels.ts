@@ -32,9 +32,10 @@ import type {
   ChannelMedia,
   ChannelModel,
   DiscoveredChannel,
+  ModelBadge,
   QueueProvider,
 } from '@image-playground/shared'
-import { CHANNEL_CAPABILITIES } from '@image-playground/shared'
+import { CHANNEL_CAPABILITIES, MODEL_BADGES } from '@image-playground/shared'
 import { isObject } from './type-guards'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -125,6 +126,29 @@ function parseMedia(v: unknown, ctx: string): ChannelMedia | undefined {
   return v as ChannelMedia
 }
 
+/** 选择器标签：只认 shared 里登记过的 token，重复的视为配置错误。 */
+function parseBadges(v: unknown, ctx: string): ModelBadge[] | undefined {
+  if (v === undefined) return undefined
+  if (!Array.isArray(v)) throw new ChannelsLoadError(`${ctx}.badges must be an array`)
+  const seen = new Set<string>()
+  return v.map((badge) => {
+    if (typeof badge !== 'string' || !MODEL_BADGES.includes(badge as ModelBadge))
+      throw new ChannelsLoadError(
+        `${ctx}: invalid badge '${String(badge)}' (allowed: ${MODEL_BADGES.join(', ')})`,
+      )
+    if (seen.has(badge)) throw new ChannelsLoadError(`${ctx}: duplicate badge '${badge}'`)
+    seen.add(badge)
+    return badge as ModelBadge
+  })
+}
+
+function parseEtaSeconds(v: unknown, ctx: string): number | undefined {
+  if (v === undefined) return undefined
+  if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0 || v > 3600)
+    throw new ChannelsLoadError(`${ctx}.etaSeconds must be an integer between 1 and 3600`)
+  return v
+}
+
 function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
   if (!Array.isArray(v) || v.length === 0)
     throw new ChannelsLoadError(`${channelCtx}: models must be a non-empty array`)
@@ -132,11 +156,15 @@ function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
     const ctx = `${channelCtx}.models[${idx}]`
     if (!isObject(raw)) throw new ChannelsLoadError(`${ctx} must be an object`)
     const media = parseMedia(raw.media, ctx)
+    const badges = parseBadges(raw.badges, ctx)
+    const etaSeconds = parseEtaSeconds(raw.etaSeconds, ctx)
     return {
       id: requireNonEmptyString(raw.id, `${ctx}.id`),
       label: requireNonEmptyString(raw.label, `${ctx}.label`),
       capabilities: parseCapabilities(raw.capabilities, ctx),
       ...(media ? { media } : {}),
+      ...(badges ? { badges } : {}),
+      ...(etaSeconds !== undefined ? { etaSeconds } : {}),
     }
   })
 }
