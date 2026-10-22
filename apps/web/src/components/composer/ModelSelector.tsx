@@ -92,8 +92,9 @@ function moveOptionFocus(event: KeyboardEvent<HTMLElement>) {
   items[index === -1 && step === -1 ? items.length - 1 : next]?.focus()
 }
 
-/** 「最新」是唯一用芽绿的标签（推荐），其余保持中性，绿色只做点缀。 */
+/** 「推荐」「最新」用芽绿，其余保持中性，绿色只做点缀。 */
 const BADGE_TONE: Record<ModelBadge, 'primary' | 'neutral'> = {
+  recommended: 'primary',
   latest: 'primary',
   quality: 'neutral',
   fast: 'neutral',
