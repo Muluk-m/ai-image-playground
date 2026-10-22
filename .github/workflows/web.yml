@@ -102,11 +102,24 @@ jobs:
           label: startup-public
           test-runner: 'true'
       - run: pnpm --dir apps/admin build
+  # 带数据库的测试拆成两台机器：bff 的 Bun 套件（最长，约 3 分钟）单独一台，其余包（shared、db、
+  # node-kit、admin、website，合计约 1.5 分钟）另一台。不在同一台机器上叠并发：shared 里有按耗时
+  # 断言的用例，和别的包抢 CPU 会超时（PR #1458 第一轮 --concurrency=3 就这样挂过）。
+  # 本机的 `pnpm test` 仍是一次一个包（package.json 不变）。
   bff:
     needs: prior
     if: needs.prior.outputs.verified != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        part:
+          - name: bff
+            filter: "--filter=@image-playground/bff"
+          - name: packages
+            filter: "--filter=!@image-playground/web --filter=!@image-playground/bff"
+    name: bff (${{ matrix.part.name }})
     services:
       postgres:
         image: postgres:17-alpine
@@ -125,22 +138,26 @@ jobs:
       TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
       VITEST_MAX_WORKERS: 1
       # 数据库测试一个文件一个进程、一个 suite 一个库，可以并发跑（scripts/run-bun-tests-isolated.ts）。
-      BUN_TEST_JOBS: 6
+      BUN_TEST_JOBS: 4
       # Node 24.18 exposes an unconfigured global localStorage; jsdom owns browser storage here.
       NODE_OPTIONS: --no-experimental-webstorage
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
       # typecheck 在 web job 里跑过，这里不重复；web 的 vitest 在 web-test job 并行跑。
-      # 本机的 `pnpm test` 仍是一次一个包（package.json 不变）；CI 跑在 GitHub 的 4 核机器上，
-      # admin 的 vitest（约 1 分钟）与 bff 的 Bun 套件（约 3 分钟）可以同时跑，不必排队。
-      - run: pnpm test --concurrency=3 --env-mode=loose --filter='!@image-playground/web'
+      - run: pnpm test --concurrency=1 --env-mode=loose ${{ matrix.part.filter }}
   # apps/web 的 vitest 不需要数据库，也是最长的一段；独立出来与 bff job 并行，不再串在它后面。
+  # 409 个文件约 3-4 分钟，按 vitest --shard 分到两台机器。
   web-test:
     needs: prior
     if: needs.prior.outputs.verified != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    name: web-test (${{ matrix.shard }}/2)
     env:
       # Its own 4-vCPU runner, so two workers; the bff job keeps 1 beside its Bun suites.
       VITEST_MAX_WORKERS: 2
@@ -149,7 +166,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
-      - run: pnpm test --env-mode=loose --filter=@image-playground/web
+      - run: pnpm test --env-mode=loose --filter=@image-playground/web -- --shard=${{ matrix.shard }}/2
   # 收费版是公开 main 最重要的消费者，这一步给它投票权：候选公开树 + `private.lock` 钉住的
   # overlay 一起 lint / typecheck / build，并跑 overlay 自己的测试。它执行的是「先扩后缩」——公开树只能删掉钉住的
   # overlay 已经不再引用的宿主面成员；反向 boundary 检查则确保

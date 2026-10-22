@@ -22,14 +22,22 @@ runs:
     # the Actions cache and seed apt with them, so apt installs the same packages without fetching
     # them. apt checks each file against its index and downloads anything stale, so a cache that
     # falls behind the mirror only costs the old download time. The smoke script is unchanged.
+    # ImageOS / ImageVersion are runner environment variables, not part of the `env` context.
+    - name: Name the package cache after the runner image
+      id: debs-key
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        echo "prefix=pages-browser-debs-${RUNNER_ARCH}-${ImageOS:-unknown}-pw1.58.2-" >> "$GITHUB_OUTPUT"
+        echo "image=${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
     - name: Restore cached Chromium system packages
       if: runner.os == 'Linux'
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ${{ runner.temp }}/pages-browser-debs
-        key: pages-browser-debs-${{ runner.os }}-${{ runner.arch }}-${{ env.ImageOS }}-${{ env.ImageVersion }}-pw1.58.2
+        key: ${{ steps.debs-key.outputs.prefix }}${{ steps.debs-key.outputs.image }}
         restore-keys: |
-          pages-browser-debs-${{ runner.os }}-${{ runner.arch }}-${{ env.ImageOS }}-
+          ${{ steps.debs-key.outputs.prefix }}
     - name: Seed apt with the cached packages
       if: runner.os == 'Linux'
       shell: bash
