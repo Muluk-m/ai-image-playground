@@ -111,15 +111,17 @@ describe('callUpstream Vertex AI direct channel', () => {
     ])
   })
 
-  it('refuses 512 instead of silently sending a different size than the task records', async () => {
-    await expect(
-      callUpstream({
-        provider: 'gemini',
-        model: 'gemini-3-pro-image',
-        request: { prompt: 'a cup', image_size: '512' },
-      }),
-    ).rejects.toThrow('1K / 2K / 4K')
-    expect(calls).toEqual([])
+  it('raises the shared 512 tier to 1K on models whose smallest size is 1K', async () => {
+    await callUpstream({
+      provider: 'gemini',
+      model: 'gemini-3-pro-image',
+      request: {
+        prompt: 'a cup',
+        extra: { generationConfig: { imageConfig: { imageSize: '512', aspectRatio: '1:1' } } },
+      },
+    })
+    const body = JSON.parse(calls[0]!.init?.body as string)
+    expect(body.generationConfig.imageConfig).toEqual({ imageSize: '1K', aspectRatio: '1:1' })
   })
 
   it('refuses a size the lite model cannot render before calling upstream', async () => {
@@ -135,16 +137,26 @@ describe('callUpstream Vertex AI direct channel', () => {
   })
 
   it.each([
-    ['an unsupported extra override', { generationConfig: { imageConfig: { imageSize: '2K' } } }],
-    ['a non-string extra override', { generationConfig: { imageConfig: { imageSize: 2 } } }],
-  ])('checks the imageSize upstream finally receives: refuses %s', async (_case, extra) => {
-    await expect(
-      callUpstream({
-        provider: 'gemini',
-        model: 'gemini-3.1-flash-lite-image',
-        request: { prompt: 'a cup', image_size: '1K', extra },
-      }),
-    ).rejects.toThrow('1K')
+    [
+      'an unsupported extra override',
+      { generationConfig: { imageConfig: { imageSize: '2K' } } },
+      '1K',
+    ],
+    ['a non-string extra override', { generationConfig: { imageConfig: { imageSize: 2 } } }, '1K'],
+    ['a null imageConfig override', { generationConfig: { imageConfig: null } }, '分辨率配置无效'],
+    [
+      'a string imageConfig override',
+      { generationConfig: { imageConfig: '2K' } },
+      '分辨率配置无效',
+    ],
+  ])('checks the imageConfig upstream finally receives: refuses %s', async (_case, extra, message) => {
+    const failure = await callUpstream({
+      provider: 'gemini',
+      model: 'gemini-3.1-flash-lite-image',
+      request: { prompt: 'a cup', image_size: '1K', extra },
+    }).catch((error: unknown) => error)
+    expect((failure as Error).message).toContain(message)
+    expect((failure as { upstreamStatus?: number }).upstreamStatus).toBe(400)
     expect(calls).toEqual([])
   })
 
