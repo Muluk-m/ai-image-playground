@@ -212,6 +212,11 @@ const mediaProcessing = createMediaProcessingLimiter({
   queueTimeoutMs: 10_000,
   bypassLimitMs: 5_000,
   busy: (reason) => new MediaError(503, 'media_processing_busy', reason),
+  onInvalidBudget: (error) =>
+    log.warn(
+      { event: 'media.processing_budget_invalid', error: String(error) },
+      '确认处理的字节预算读取失败，沿用上次的合法值',
+    ),
 })
 /** 测试用：当前在途的确认数与按字节计入的总量。 */
 export function mediaProcessingUsageForTesting() {
