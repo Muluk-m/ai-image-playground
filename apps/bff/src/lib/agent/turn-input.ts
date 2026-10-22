@@ -254,9 +254,14 @@ function withSkillTexts(
   text: string,
   message: AgentMessageView,
   skillTexts: ReadonlyMap<string, string>,
+  /** 与 {@link replayTurnText} 同一条件：Agent 模式不接回画布技能的正文，哪怕调用方给了它。 */
+  canvasTools = true,
 ): string {
   const bodies = message.content.flatMap((block) => {
-    const body = block.type === 'toolResult' ? skillTexts.get(block.toolCallId) : undefined
+    if (block.type !== 'toolResult') return []
+    if (!canvasTools && block.toolName === 'loadSkill' && isCanvasOnlySkill(block.skill?.name))
+      return []
+    const body = skillTexts.get(block.toolCallId)
     return body ? [body] : []
   })
   return bodies.length ? [text, ...bodies].join('\n\n') : text
@@ -280,6 +285,7 @@ function replayed(
       ),
       message,
       skillTexts,
+      canvasTools,
     )
     if (!text) continue
     messages.push(
