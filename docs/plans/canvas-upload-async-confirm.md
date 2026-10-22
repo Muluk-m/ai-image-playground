@@ -83,7 +83,8 @@ complete 是同步的，返回 `ready` 后前端才拿到可以写进文档的 `
        测试要覆盖「同一张非法图重复 reserve 只建一行墓碑，后续直接回 422」、「`decode_timeout_limit`、`hash_mismatch`、`type_mismatch` 被拒后可以用正确的字节或描述重试并建新行，不被缓存挡住」、「先 reserve 100 个不同的非法文件再并发 complete，最多 50 行进入 `verifying`，其余走同步路径、都拿到同一个溢出墓碑 `mediaId`，之后的编辑照常发出」和「24 小时内墓碑满 50 后 reserve 回 429」。
      - 只删一次不够：预签名 PUT 有效期 600 秒（`durableMediaStore.sign`），客户端在这期间重试 PUT 会把暂存对象重新建出来。所以 `purgeRejectedMedia` 在删行之前按行里保存的暂存 key 再删一次对象（对象不存在也算成功）；删行发生在 `rejected` 7 天后，远超签名有效期，此后不会再有对象被建出来。
      - 项目引用要先清：`canvasSyncStore` 写 `media_references` 只增不删，节点从文档里消失后那条 `owner_kind = 'project'` 的边还在，而外键是 `onDelete: 'restrict'`，墓碑行永远删不掉。所以 `purgeRejectedMedia` 对每个候选行，按 `accessCanvasDocument` 的加锁顺序先锁媒体所有者的用户行（`users ... FOR UPDATE`），再锁项目行并读当前文档；只锁项目行不够，画布更新先锁用户行、到最后写入时才锁项目行，两边会交错，导致刚被删掉的媒体 id 又被写回文档。持锁后，文档已不再引用这个 `mediaId` 的项目，删掉对应的 project 引用；被拒的媒体没有有效字节，迁移归档用不到这些边。删引用和删行在同一个持着用户行锁的事务里完成：其他 `owner_kind` 的引用也不存在时才删行，否则留到下一轮。
-     - 定时任务删除的条件：`rejected` 超过 7 天，且上面两步做完后已没有任何引用。
+     - 「文档已不再引用」按 `canvasSyncStore` 校验所有权时同一套规则算，包括 `nodeResults` 里的候选结果（`canvasResultMediaIds`）。删节点的 `deleteCanvasNode` 只删节点，结果条目还留着，所以被拒结果要由客户端清掉，服务端不去猜哪些结果算孤儿：`deleteCanvasNode` 在同一个事务里，把这个节点下 `mediaId` 在 `mediaRejections` 里的结果条目一起删掉（正常结果照旧保留，不影响撤销）；客户端加载文档和每次发送前再扫一遍，删掉 `nodeId` 已不在节点表里、且 `mediaId` 被拒的结果条目（兼容旧客户端删节点留下的）；最后把 `mediaRejections` 里已没有节点或结果引用的键删掉。三步都走普通 Yjs 更新，旧客户端照常同步。这样服务端的引用判断和所有权校验口径一致：结果还在就算引用、不删行，下一次画布更新不会因为缺行而失败；结果被清掉后，这一行在下一轮正常回收。一直没人再打开的文档会让墓碑行一直留着，但它没有字节、`reserved_bytes` 为 0，只占一行。测试覆盖「删除被拒节点后，它的被拒结果和 `mediaRejections` 条目一并消失，`purgeRejectedMedia` 随后能回收墓碑；正常结果不受影响」。
+     - 定时任务删除的条件：`rejected` 超过 7 天；暂存 key 和 `publish_prefix` 下的对象都已删除成功（幂等，对象不存在也算成功），任一删除失败就保留这一行、下一轮重试，因为删行后就没有地方再记着这个前缀，候选对象会永久泄漏；且上面几步做完后已没有任何引用。删行之前先删对象，不反过来。测试覆盖「`publish_prefix` 删除持续失败时墓碑行不被删，恢复后下一轮先删对象再删行」。
 
 ## 4. 风险与待定
 - **C 的跨设备体验**：别的设备会短暂看到没有预览的节点，需要设计「处理中」占位。
