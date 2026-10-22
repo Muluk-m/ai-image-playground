@@ -378,7 +378,8 @@ async function readStagedOriginal(
     await reader.cancel()
     reader.releaseLock()
   }
-  // 读短了的那段是零，交给调用方的哈希核对拒掉（与从前同一个错误码）。
+  // 读短了不能靠补出来的零去碰哈希：尾部本来就是零的图会蒙混过关。错误码与从前哈希不符一致。
+  if (offset !== row.bytes) throw new MediaError(422, 'media_hash_mismatch')
   return bytes
 }
 

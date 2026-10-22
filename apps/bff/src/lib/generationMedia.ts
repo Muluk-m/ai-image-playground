@@ -7,9 +7,7 @@ import { durableMediaStore } from './durableMediaStore'
 import { extractMeta, resolveImageBytesRef } from './extractImages'
 import {
   archiveOutputImages,
-  decodeDataUrl,
   detectMediaMime,
-  isStoredImageRef,
   MaskedOutputArchiveError,
   ObjectStorageError,
   type OutputTransform,
@@ -102,22 +100,13 @@ export class KnownMediaBytes {
       },
     })
   }
-  /** `hydrateInputImages` 读出来送上游的输入（data URL），与持久化请求里的引用一一对应。 */
-  rememberInputs(
-    request: PersistedSubmitRequest,
-    hydrated: { input_images?: string[]; mask?: string },
-  ) {
-    const remember = (ref: unknown, value?: string) => {
-      if (!isStoredImageRef(ref) || typeof value !== 'string' || !value.startsWith('data:')) return
-      this.remember(
-        ref.store === 'durable' ? 'durable' : 'object',
-        ref.object,
-        decodeDataUrl(value).bytes,
-      )
-    }
-    for (const [index, ref] of (request.input_images ?? []).entries())
-      remember(ref, hydrated.input_images?.[index])
-    remember(request.mask, hydrated.mask)
+  /** 交给 `hydrateInputImages` 的 onObjectRead：只记它按引用从存储读出来的那份原件，与引用一一绑定。 */
+  readonly rememberRead = (ref: { object: string; store?: string }, bytes: Uint8Array) => {
+    this.remember(ref.store === 'durable' ? 'durable' : 'object', ref.object, bytes)
+  }
+  /** 入库成功就放掉，不让整个任务期间一直攥着所有原件。 */
+  forget(store: 'durable' | 'object', key: string) {
+    this.bytes.delete(KnownMediaBytes.key(store, key))
   }
 }
 
@@ -367,6 +356,7 @@ export async function archiveGenerationOutputs(
           ref.object,
         ))
       const media = await storeMedia(userId, bytes, detectMediaMime(bytes) ?? ref.mime)
+      known?.forget(store, ref.object)
       return { role, position, mediaId: media.id } satisfies GenerationMediaLink
     })
   })

@@ -16,6 +16,7 @@ config.operator = {
 }
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
 const { storeMedia } = await import('../../lib/projectMedia')
+const { hydrateInputImages } = await import('../../lib/imageArchive')
 const { archiveGenerationOutputs, KnownMediaBytes, spoolGenerationOutputs } = await import(
   '../../lib/generationMedia'
 )
@@ -91,9 +92,7 @@ it('生成结果与输入用手里的字节入库，不回存储读；结果、�
   } as unknown as PersistedSubmitRequest
   const known = new KnownMediaBytes()
   // 只有第一张输入是这次执行从存储读来送上游的。
-  known.rememberInputs(request, {
-    input_images: [`data:image/png;base64,${Buffer.from(input).toString('base64')}`],
-  })
+  known.rememberRead({ object: `${id}/in/0`, store: 'durable' }, input)
   const payload = await spoolGenerationOutputs(
     id,
     'openai-compat',
@@ -140,6 +139,26 @@ it('生成结果与输入用手里的字节入库，不回存储读；结果、�
     .from(schema.media_objects)
     .where(eq(schema.media_objects.user_id, USER))
   expect(rows.map((row) => row.status)).toEqual(['ready', 'ready', 'ready'])
+  // 入库成功就放掉手里的字节。
+  expect(known.get('durable', `${id}/out/0`)).toBeUndefined()
+  expect(known.get('durable', `${id}/in/0`)).toBeUndefined()
+})
+
+it('只记 hydrateInputImages 按引用从存储读出的原件，原样传入的 data URL 不记', async () => {
+  const id = 'task-known-hydrate'
+  const input = await png('#123456')
+  await storage.write(`${id}/in/0`, input, 'image/png')
+  const known = new KnownMediaBytes()
+  const passthrough = `data:image/png;base64,${Buffer.from(await png('#654321')).toString('base64')}`
+  await hydrateInputImages(
+    {
+      prompt: 'edit',
+      input_images: [{ object: `${id}/in/0`, mime: 'image/png', store: 'durable' }, passthrough],
+    } as unknown as PersistedSubmitRequest,
+    { onObjectRead: known.rememberRead },
+  )
+  expect(Buffer.from(known.get('durable', `${id}/in/0`)!).equals(Buffer.from(input))).toBe(true)
+  expect(known.get('object', passthrough)).toBeUndefined()
 })
 
 it('一张入库失败时等另一张跑完再报错', async () => {
