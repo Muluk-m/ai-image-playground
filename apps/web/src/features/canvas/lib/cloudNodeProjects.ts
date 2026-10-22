@@ -36,6 +36,7 @@ import { getCloudProject, ProjectRequestError, putCloudProject } from './project
 import {
   archivedProjectKind,
   type LoadedBindings,
+  MEDIA_CONCURRENCY,
   projectDocument,
   projectScene,
 } from './projectMedia'
@@ -497,46 +498,69 @@ export class CloudNodeProjectSession {
   }
   private async prepareMedia() {
     if (!this.canvas) return
-    for (const node of readCanvasDocument(this.canvas.doc).nodes) {
+    const doc = this.canvas.doc
+    // 先列出这一轮要收成云媒体的全部本机原图，按原图去重：同一张图挂在几个节点或候选上只传一次。
+    const nodes: { nodeId: string; fileId: string }[] = []
+    for (const node of readCanvasDocument(doc).nodes) {
       if (
         (node.type !== 'image' && node.type !== 'video') ||
         !node.data.fileId ||
         node.data.mediaId
       )
         continue
-      const source = this.record.editor.doc.files[node.data.fileId]
-      if (!source) throw new Error('canvas_media_missing')
-      const mediaId =
-        mediaIdentity(source) ??
-        this.bindings.get(source) ??
-        (await uploadMediaSource(source, { signal: this.controller.signal }))?.id
-      this.current()
-      if (!mediaId) throw new Error('canvas_media_missing')
-      this.bindings.set(source, mediaId)
-      const current = readCanvasDocument(this.canvas.doc).nodes.find((n) => n.id === node.id)
-      if (current && 'fileId' in current.data && current.data.fileId === node.data.fileId)
-        promoteCanvasResultMedia(this.canvas.doc, node.id, node.data.fileId, mediaId, legacyOrigin)
+      nodes.push({ nodeId: node.id, fileId: node.data.fileId })
     }
     // Previously chosen candidates remain durable even after another candidate becomes main.
-    for (const result of canvasResults(this.canvas.doc)) {
+    const results: { resultId: string; fileId: string }[] = []
+    for (const result of canvasResults(doc)) {
       const fileId =
         result.source.type === 'file'
           ? result.source.fileId
           : !result.display?.mediaId
             ? result.display?.fileId
             : undefined
-      if (!fileId) continue
-      const source = this.record.editor.doc.files[fileId]
-      if (!source) throw new Error('canvas_media_missing')
-      const mediaId =
-        mediaIdentity(source) ??
-        this.bindings.get(source) ??
-        (await uploadMediaSource(source, { signal: this.controller.signal }))?.id
-      this.current()
-      if (!mediaId) throw new Error('canvas_media_missing')
-      this.bindings.set(source, mediaId)
-      promoteCanvasStoredResult(this.canvas.doc, result.id, fileId, mediaId, legacyOrigin)
+      if (fileId) results.push({ resultId: result.id, fileId })
     }
+    let failure: unknown
+    const sources = new Set<string>()
+    for (const { fileId } of [...nodes, ...results]) {
+      const source = this.record.editor.doc.files[fileId]
+      if (source) sources.add(source)
+      else failure ??= new Error('canvas_media_missing')
+    }
+    const promote = (source: string, mediaId: string) => {
+      for (const { nodeId, fileId } of nodes) {
+        if (this.record.editor.doc.files[fileId] !== source) continue
+        const current = readCanvasDocument(doc).nodes.find((n) => n.id === nodeId)
+        if (current && 'fileId' in current.data && current.data.fileId === fileId)
+          promoteCanvasResultMedia(doc, nodeId, fileId, mediaId, legacyOrigin)
+      }
+      for (const { resultId, fileId } of results)
+        if (this.record.editor.doc.files[fileId] === source)
+          promoteCanvasStoredResult(doc, resultId, fileId, mediaId, legacyOrigin)
+    }
+    // 与旧画布 prepareProjectMedia 同一个写法：同时传 MEDIA_CONCURRENCY 张，传完一张就把它收进文档；
+    // 一张失败不拦其余的，全部跑完再报第一条错，下次同步只剩失败的那几张。
+    const queue = [...sources]
+    const worker = async () => {
+      for (let source = queue.shift(); source !== undefined; source = queue.shift()) {
+        try {
+          const mediaId =
+            mediaIdentity(source) ??
+            this.bindings.get(source) ??
+            (await uploadMediaSource(source, { signal: this.controller.signal }))?.id
+          this.current()
+          if (!mediaId) throw new Error('canvas_media_missing')
+          this.bindings.set(source, mediaId)
+          promote(source, mediaId)
+        } catch (error) {
+          failure ??= error
+          if (this.controller.signal.aborted || !this.sameAccount()) return
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(MEDIA_CONCURRENCY, queue.length) }, worker))
+    if (failure !== undefined) throw failure
   }
   requestSync = () => {
     clearTimeout(this.debounce)
