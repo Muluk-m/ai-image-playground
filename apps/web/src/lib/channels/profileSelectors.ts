@@ -1,4 +1,4 @@
-import { isModelEtaSeconds, type ModelBadge } from '@image-playground/shared'
+import { isModelEtaSeconds, MODEL_BADGES, type ModelBadge } from '@image-playground/shared'
 import { i18next } from '../../i18n'
 import type { ChannelCapability, ClientProfile, PublicChannel } from './types'
 
@@ -72,6 +72,20 @@ export function usableEtaSeconds(value: unknown): number | undefined {
   return isModelEtaSeconds(value) ? value : undefined
 }
 
+/**
+ * 选择器标签：只留前端认识的 token（去重、保持顺序）。浏览器不校验发现清单，长开的标签页或
+ * 版本不一致的 BFF 可能发来新 token，认不出的直接不显示，免得出现缺文案、缺配色的空标签。
+ */
+export function knownModelBadges(value: unknown): ModelBadge[] {
+  if (!Array.isArray(value)) return []
+  const known: ModelBadge[] = []
+  for (const badge of value) {
+    if (MODEL_BADGES.includes(badge as ModelBadge) && !known.includes(badge as ModelBadge))
+      known.push(badge as ModelBadge)
+  }
+  return known
+}
+
 /** 返回该 profile 的模型展示项（id + 人类可读 label）。 */
 export function getProfileModelOptions(
   profile: ClientProfile,
@@ -81,10 +95,11 @@ export function getProfileModelOptions(
   return channel
     ? channel.models.map((model) => {
         const etaSeconds = usableEtaSeconds(model.etaSeconds)
+        const badges = knownModelBadges(model.badges)
         return {
           id: model.id,
           label: model.label ?? model.id,
-          ...(model.badges?.length ? { badges: model.badges } : {}),
+          ...(badges.length ? { badges } : {}),
           ...(etaSeconds !== undefined ? { etaSeconds } : {}),
         }
       })

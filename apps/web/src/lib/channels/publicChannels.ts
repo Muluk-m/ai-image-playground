@@ -9,7 +9,7 @@
  * 没有 BFF（runtimeConfig.bff.enabled=false）时 store 是一份已确认的空清单。
  * BFF 暂时不可达时清单还没落地（空数组只是初始值），生成会等重试，而不是报渠道缺失。
  */
-import type { DiscoveredChannel, ModelLogoId } from '@image-playground/shared'
+import { type DiscoveredChannel, MODEL_LOGOS, type ModelLogoId } from '@image-playground/shared'
 import { getStoredChannels } from './channelStore'
 import type { PublicChannel } from './types'
 
@@ -77,7 +77,9 @@ export function modelLogo(
     index = new Map()
     for (const channel of channels) {
       for (const model of channel.models) {
-        if (model.logo && !index.has(model.id)) index.set(model.id, model.logo)
+        // 只认前端打包了图标文件的 token；不认识的（新版 BFF、旧标签页）退回厂商图标。
+        if (MODEL_LOGOS.includes(model.logo as ModelLogoId) && !index.has(model.id))
+          index.set(model.id, model.logo as ModelLogoId)
       }
     }
     logoIndex.set(channels, index)
