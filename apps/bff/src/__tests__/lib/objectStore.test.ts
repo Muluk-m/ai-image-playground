@@ -44,6 +44,8 @@ class FakeS3Client {
     const bytes = () => {
       const stored = this.objects.get(key)
       if (!stored) throw new Error(`missing object: ${key}`)
+      // 和 S3/R2 一样：起点不落在对象内的 Range 请求（含零字节对象上的 bytes=0-n）返回 416。
+      if (span && span.begin >= stored.length) throw new Error('InvalidRange (416)')
       return span ? stored.slice(span.begin, span.end) : stored.slice()
     }
     return {
@@ -219,6 +221,15 @@ describe('S3ObjectStore key prefix', () => {
     expect(await subject.readUpTo('staging/a', 3)).toEqual(new Uint8Array([1, 2, 3]))
     expect(await subject.readUpTo('staging/a', 9)).toEqual(new Uint8Array([1, 2, 3, 4, 5]))
     expect(client.statted).toHaveLength(0)
+  })
+
+  it('readUpTo 读零字节对象返回空，交给调用方判大小不符；对象缺失仍报错', async () => {
+    const client = new FakeS3Client()
+    const subject = store(client, 'image-playground/')
+    await subject.write('staging/empty', new Uint8Array(), 'image/png')
+
+    expect(await subject.readUpTo('staging/empty', 5)).toEqual(new Uint8Array())
+    await expect(subject.readUpTo('staging/missing', 5)).rejects.toThrow('missing object')
   })
 
   it('collectUpTo 收满上限就停止读取上游，多给的分块不进缓冲', async () => {
