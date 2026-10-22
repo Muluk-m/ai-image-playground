@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import sharp from 'sharp'
 import { labelComponents } from './mask-regions'
-import { inspectMaskedAlignment } from './masked-alignment'
+import { estimateTranslation, inspectMaskedAlignment } from './masked-alignment'
 import { inwardMaskDistance } from './masked-boundary'
 import { maskedEditSettings } from './masked-edit-settings'
 import { selectionSettings } from './selection-settings'
@@ -98,6 +98,30 @@ export function acceptsUpstreamSize(
   )
 }
 
+/**
+ * 缩放过的候选要有足够的原位纹理证据才可贴回。纹理多时要求分散（够多的格、够多的象限）；换背景时
+ * 保护区常只剩一个小而平滑的主体，凑不够那么多格——这时退而要求每一个有纹理的保护格都对得上，
+ * 且至少有 `minAllMatchedRegions` 格（`local`），再由 `estimateTranslation` 核对主体轮廓没有整体平移。
+ */
+export function rescaleEvidence(alignment: {
+  readonly texturedRegions: number
+  readonly matchedRegions: number
+  readonly matchedQuadrants: number
+}): 'dispersed' | 'local' | null {
+  const limits = maskedEditSettings.rescale
+  if (
+    alignment.texturedRegions >= limits.minTexturedRegions &&
+    alignment.matchedQuadrants >= limits.minMatchedQuadrants
+  )
+    return 'dispersed'
+  if (
+    alignment.texturedRegions >= limits.minAllMatchedRegions &&
+    alignment.matchedRegions === alignment.texturedRegions
+  )
+    return 'local'
+  return null
+}
+
 /** 只在原图坐标内合成；上游等比放缩过的候选（宽高比一致）缩回原尺寸后，须有分散的保护区纹理证据才可校正。 */
 export async function protectMaskedOutput(
   sourceDataUrl: string,
@@ -176,11 +200,14 @@ export async function protectMaskedOutput(
       width,
       height,
     )
+    // 纹理不够分散（只凭局部几格，或保护区几乎没有纹理）时，块相关看不出几像素的整体平移：
+    // 再核一次主体轮廓有没有挪位。缩放过的候选还必须至少有局部证据。
+    const evidence = rescaleEvidence(alignment)
     if (
       !alignment.accepted ||
-      (rescaled &&
-        (alignment.texturedRegions < maskedEditSettings.rescale.minTexturedRegions ||
-          alignment.matchedQuadrants < maskedEditSettings.rescale.minMatchedQuadrants))
+      (rescaled && !evidence) ||
+      (evidence !== 'dispersed' &&
+        !estimateTranslation(source.data, generated.data, protectedAlpha, width, height).aligned)
     )
       throw new MaskedOutputError('生成图与原图的位置对应无法确认；候选已保留，未应用修改，可重试')
     return {
