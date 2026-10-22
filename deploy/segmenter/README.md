@@ -22,38 +22,41 @@ Runtime limits:
 - The model loads on the first request and is released after 10 minutes idle.
 - Up to 3 image embeddings are cached. The status probe always uses one fixed key per namespace.
 - Measured locally on 2 cores: about 360 MB RSS with the model loaded, about 0.4–0.6 s encode, and 0.05–0.09 s per click for decode.
-- Compose limits: `mem_limit` and `memswap_limit` 900m, `cpus` 2.
+- Container limits: memory and swap 900m, 2 CPUs.
 
-Deployment: two instances, one per line, so test and production stay isolated.
-- `test`: compose project and container `image-playground-segmenter-test`. Only test releases
-  carry its image (built in CI with its own layer cache) and start or update it. Only the test
-  app network may be attached to it.
-- `prod`: `image-playground-segmenter-prod`, shared by internal and paid. Only production releases
-  (built from main) may start or update it, and test networks are never attached to it.
-  Production releases do not build the image yet (production is off); see "Turning it on".
-- `deploy/compose.segmenter.yaml` is one compose project per instance (`SEGMENTER_INSTANCE`),
-  limits `mem_limit`/`memswap_limit` 900m, `cpus` 2, read-only root, no env file, no published
-  port. Its own network is `internal: true`.
-- `scripts/segmenter-deploy.sh up <test|prod> <image>` starts or updates one instance. A recreated
-  container loses its extra networks, so the script notes them first and attaches them again on
-  exit, also when the start fails.
-- `scripts/segmenter-deploy.sh attach <test|prod> <project>` connects it to
-  `<project>_application` with the alias `segmenter`, refusing to cross the test/production line.
-  Each edition reaches `http://segmenter:8080` on its own app network, and the editions still
-  cannot reach each other (no executor joins a shared network).
-- `scripts/vps-deploy.sh` picks the instance from the release target. Every edition listed in
-  `SEGMENTER_EDITIONS` (deploy.env, default `test`) is attached after its rollout, and its BFF and
+Deployment: ONE shared container, `image-playground-segmenter`, for every edition. It is a base
+component with its own version, `deploy/segmenter/VERSION` (a whole number), and is never rebuilt by
+an app release:
+- Only production releases carry its image (`ai-image-playground:segmenter-<VERSION>-<commit>`,
+  built with its own layer cache), and production releases are built from main only
+  (`deploy.yml`: after Web checks on main, or a manual run on main). Test releases never build it,
+  and the receiver refuses a test release that carries it, so pushing a branch to test cannot
+  change it.
+- `scripts/segmenter-deploy.sh up <image> <VERSION>` does nothing when the running container
+  already has that version (label `online.muvloom.segmenter.version`) and is healthy. Otherwise it
+  starts the new version next to the old one as `image-playground-segmenter-next`; the old one keeps
+  serving until the new one answers `/health`. Then every app network is moved over (alias
+  `segmenter`), the old container is stopped and kept as `image-playground-segmenter-prev` for
+  rollback (the one before that is removed), and the new one takes the name. If the new version
+  never gets healthy, only that candidate is removed and the old one is untouched; if moving the
+  networks fails halfway, all of them are given back to the old one. The receiver self-tests a new
+  version before that and warns instead of failing the release when it does not start.
+- To roll out a new segmenter: change `deploy/segmenter`, bump `VERSION`, merge to main. To roll
+  back: `docker start image-playground-segmenter-prev` and move the networks back, or bump to a new
+  version with the old code.
+- `scripts/segmenter-deploy.sh attach <project>` connects it to `<project>_application` with the
+  alias `segmenter` (idempotent). Each edition reaches `http://segmenter:8080` on its own app
+  network, and the editions still cannot reach each other (no executor joins a shared network).
+  It also stops (does not remove) a leftover `image-playground-segmenter-test`/`-prod` from the
+  short-lived per-environment layout once it no longer serves any app network.
+- `scripts/vps-deploy.sh`: every edition listed in `SEGMENTER_EDITIONS` (deploy.env, default
+  `test`) is attached after its rollout while the shared container is healthy, and its BFF and
   worker get `AGENT_SEGMENTER_URL=http://segmenter:8080` plus `AGENT_SEGMENTER_NAMESPACE=<project>`.
-  A release without the image reuses its own instance when it is healthy.
+  Test releases only ever attach; they never start, restart or replace it.
 - Cache keys are `<project>:media:<mediaId>`, so one environment never reuses another's
   embeddings. The service holds no other state and no secrets.
-- The formerly shared container `image-playground-segmenter` is only taken off the test network by
-  the next test release; it is not removed automatically. Remove it by hand once the test
-  instance is up (`docker rm -f image-playground-segmenter`).
-- Turning it on for production (needs Nain's go-ahead): let production releases build the image
-  (drop the `target = test` condition in `scripts/build-vps-release.sh`) and set
-  `SEGMENTER_EDITIONS="internal paid test"` in deploy.env. The next production deploy starts the
-  production instance and attaches internal and paid to it.
+- Turning it on for production editions (needs Nain's go-ahead): set
+  `SEGMENTER_EDITIONS="internal paid test"` in deploy.env.
 
 Without `AGENT_SEGMENTER_URL`, or when the call fails or takes longer than 3 s, the edit-region
 card falls back to the agent's box.
