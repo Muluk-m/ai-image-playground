@@ -66,6 +66,13 @@ const CHANNEL_ROUTE_STYLES: Readonly<Record<string, ChannelRouteStyle | undefine
   'veo-video': 'veo-videos',
 }
 
+/** 只认自有键：channel id 只校验 kebab-case，`constructor` 这类合法 id 不能命中原型属性。 */
+function channelRouteStyle(channelId: string): ChannelRouteStyle | undefined {
+  return Object.hasOwn(CHANNEL_ROUTE_STYLES, channelId)
+    ? CHANNEL_ROUTE_STYLES[channelId]
+    : undefined
+}
+
 interface UpstreamRoute {
   baseUrl: string
   key: string
@@ -91,7 +98,7 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
   const kind = provider === 'gemini' ? 'gemini-queue' : 'openai-queue'
   // 含下线的 channel：下线前已提交的任务还要回原上游续轮询；新任务在提交入口就被拒了。
   for (const channel of getRoutableChannels()) {
-    const style = CHANNEL_ROUTE_STYLES[channel.id]
+    const style = channelRouteStyle(channel.id)
     if (!style || channel.kind !== kind) continue
     // 从发现清单退役后，旧队列任务仍要在原 Grok 线路提交或续轮询。
     const declared =
@@ -114,7 +121,7 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
   // 只会用另一套 key 打一条错的请求。普通 Error 不可重试，任务直接进终态 failed。
   // 本来就走通用网关的（如 gemini-flash-image）不受影响。
   const retiredChannel = disabledModelChannel(model)
-  if (retiredChannel && CHANNEL_ROUTE_STYLES[retiredChannel])
+  if (retiredChannel && channelRouteStyle(retiredChannel))
     throw new Error(
       `model '${model}' belongs to disabled channel '${retiredChannel}', which cannot be routed`,
     )
