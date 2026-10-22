@@ -1005,7 +1005,7 @@ export interface AgentMaskPromptPoint {
  * 建议蒙版由谁给：服务端分割模型（`server`，带 `maskMediaId`）、浏览器里的分割模型（`browser`，
  * 旧提议才有，卡片已不再在浏览器里分割），或者只按框栅格化的粗略范围（`box`）。
  */
-export type AgentMaskSegmentation = 'server' | 'browser' | 'box'
+type AgentMaskSegmentation = 'server' | 'browser' | 'box'
 
 /**
  * 画面里有几个相似对象时（例如两只杯子）逐个列出的区域，卡片上按编号显示，用户点编号增减。

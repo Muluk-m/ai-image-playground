@@ -36,12 +36,11 @@ export const AGENT_MASK_PROPOSAL_TOOL = 'proposeEditRegion'
 const MIN_BOX_SIDE = 0.01
 const EPSILON = 1e-6
 /** 相似对象至多列几个：再多卡片上的编号就挤在一起，用户也数不过来。 */
-export const MASK_REGION_MAX = 6
+const MASK_REGION_MAX = 6
 /** 卡片上一个区域至多累积的点（含智能体给的）；与分割服务的上限一致。 */
 export const MASK_PROMPT_POINTS_MAX = 16
 /** 卡片上显示得下的长度与条数；模型多写的部分截掉，不当参数错误。 */
 const MASK_TARGET_MAX = 40
-const MASK_SEGMENT_PROMPT_MAX = 60
 const MASK_CHANGE_MAX = 120
 const MASK_KEEP_MAX = 4
 const MASK_KEEP_ITEM_MAX = 24
@@ -83,11 +82,6 @@ const parameters = Type.Object({
     maxLength: 200,
     description: '要改的对象，名词短语，用用户的语言，例如「杯身和把手」。只写对象，不写动作。',
   }),
-  segmentPrompt: Type.String({
-    minLength: 1,
-    maxLength: 200,
-    description: '给分割模型的英文短名词，只写对象类别，例如 "mug" 或 "left shoe"。',
-  }),
   change: Type.String({
     minLength: 1,
     maxLength: 400,
@@ -112,7 +106,7 @@ const parameters = Type.Object({
   invert: Type.Optional(
     Type.Boolean({
       description:
-        '用户要改的是主体以外的部分（换背景、改背景颜色等）时为 true：此时 target 写「背景」，box、points 与 segmentPrompt 都指向要保留的主体（例如人物），系统会取反，并把主体边缘一圈（发丝）也交给模型重画。只改主体本身时不要写。',
+        '用户要改的是主体以外的部分（换背景、改背景颜色等）时为 true：此时 target 写「背景」，box 与 points 都指向要保留的主体（例如人物），系统会取反，并把主体边缘一圈（发丝）也交给模型重画。只改主体本身时不要写。',
     }),
   ),
   instances: Type.Optional(
@@ -159,7 +153,7 @@ function cleanBox(box: AgentNormalizedBox): AgentNormalizedBox {
   }
 }
 
-export function cleanPoints(
+function cleanPoints(
   points: readonly AgentMaskPromptPoint[] | undefined,
 ): AgentMaskPromptPoint[] | undefined {
   if (!points?.length) return undefined
@@ -295,7 +289,6 @@ async function propose(
   params: {
     imageId: string
     target: string
-    segmentPrompt: string
     change: string
     keep?: string[]
     box: AgentNormalizedBox
@@ -312,9 +305,7 @@ async function propose(
     )
   const target = clip(params.target.trim(), MASK_TARGET_MAX)
   const change = clip(params.change.trim(), MASK_CHANGE_MAX)
-  const prompt = clip(params.segmentPrompt.trim(), MASK_SEGMENT_PROMPT_MAX)
-  if (!target || !change || !prompt)
-    throw new AgentToolError('invalid_params', '要写清改哪个对象、改成什么，以及英文分割提示')
+  if (!target || !change) throw new AgentToolError('invalid_params', '要写清改哪个对象、改成什么')
   const box = cleanBox(params.box)
   const points = cleanPoints(params.points)?.slice(0, MASK_POINTS_MAX)
   const invert = params.invert === true
@@ -355,7 +346,6 @@ async function propose(
       key: segmenterKey(reference.mediaId),
       width,
       height,
-      prompt,
       box: target.box,
       ...(target.points ? { points: target.points } : {}),
       ...(signal ? { signal } : {}),
@@ -437,7 +427,7 @@ export function maskProposalTool(context: AgentToolContext): AgentTool {
 }
 
 const MASK_PROPOSAL_DESCRIPTION =
-  '用户要改图里某个对象或局部（含「换掉 X、背景不变」）、或只换背景，而本轮没有附带选区时，必须先用它请用户确认修改范围，不要整图改：你给出对象名、英文分割提示与外接框，系统据此圈出蒙版，用户在卡片上确认，或者点选增减、调整范围、加标注。画面里有几个相似对象时用 instances 逐个列出并标出要改的，卡片会按编号显示。要换背景时用 invert：框住要保留的主体，系统取反。发出后这一轮结束；确认后用户会带着蒙版作为下一条消息回来，再按选区调 editImage。生成只改蒙版内，蒙版外像素与原图一致。'
+  '用户要改图里某个对象或局部（含「换掉 X、背景不变」）、或只换背景，而本轮没有附带选区时，必须先用它请用户确认修改范围，不要整图改：你给出对象名与外接框，系统据此圈出蒙版，用户在卡片上确认，或者点选增减、调整范围、加标注。画面里有几个相似对象时用 instances 逐个列出并标出要改的，卡片会按编号显示。要换背景时用 invert：框住要保留的主体，系统取反。发出后这一轮结束；确认后用户会带着蒙版作为下一条消息回来，再按选区调 editImage。生成只改蒙版内，蒙版外像素与原图一致。'
 
 /** 只给预扣估算与清单用的声明；不需要运行期 context。 */
 export const maskProposalDeclaration = {
@@ -447,7 +437,7 @@ export const maskProposalDeclaration = {
 }
 
 export const MASK_PROPOSAL_GUIDANCE =
-  '用户要改图里的某一个对象或局部（换掉、改色、去掉某样东西，包括「把 X 换一下、背景不变」这类说法），或者只换背景、主体不动，而本轮没有附带选区时，一律先调 proposeEditRegion 请他确认修改范围，绝不直接整图改；整图改会被系统拒绝。不要先追问要换成什么样：用户没说的交给生成按原话处理，确认卡上他可以补充。只有要改的对象本身真有歧义（比如有几个都说得通、又不能用 instances 列出来让他选）时才先问一句。确认后他会带着蒙版回来，再按选区调 editImage；生成只改蒙版内，蒙版外像素保持原样。已有选区、或用户要的是整体风格、色调、光线、构图变化时不用它。'
+  '用户要改图里的某一个对象或局部（换掉、改色、去掉某样东西，包括「把 X 换一下、背景不变」这类说法），或者只换背景、主体不动，而本轮没有附带选区时，先调 proposeEditRegion 请他确认修改范围，不要直接整图改；第一次无蒙版的整图编辑会被系统退回提醒。如果要的其实是整张图的变化（季节、昼夜、明暗、画风、把人整体变成卡通），就照原样再调一次 editImage，会按整图提交。不要先追问要换成什么样：用户没说的交给生成按原话处理，确认卡上他可以补充。只有要改的对象本身真有歧义（比如有几个都说得通、又不能用 instances 列出来让他选）时才先问一句。确认后他会带着蒙版回来，再按选区调 editImage；生成只改蒙版内，蒙版外像素保持原样。已有选区、或用户要的是整体风格、色调、光线、构图变化时不用它。'
 
 export function maskProposalFromResult(result: unknown): AgentClarificationBlock | null {
   const block = piToolResult<MaskProposalDetails>(result).details?.clarification
@@ -459,7 +449,7 @@ export function maskProposalFromResult(result: unknown): AgentClarificationBlock
  * - `confirmed`：这条用户消息带着同一张图（同一份原件）的蒙版回来了，按它改图、用提议里的模型。
  * - `pending`：用户答了别的话，没带蒙版；这一轮不能对那张图做无蒙版的编辑。
  */
-export type MaskProposalAnswer =
+type MaskProposalAnswer =
   | { readonly kind: 'confirmed'; readonly proposal: AgentMaskProposal }
   | { readonly kind: 'pending'; readonly proposal: AgentMaskProposal }
 
@@ -488,7 +478,7 @@ export function confirmedMaskProposalParams(
 export const MASK_CONFIRMED_DEFAULT_COUNT = 2
 
 /** 会话里那条范围确认卡；只看这个会话自己的助手消息，找不到就是 null。 */
-export async function findMaskProposal(
+async function findMaskProposal(
   conversationId: string,
   proposalId: string,
 ): Promise<AgentMaskProposal | null> {
@@ -511,7 +501,7 @@ export async function findMaskProposal(
   return null
 }
 
-export type RefineEditRegionResult =
+type RefineEditRegionResult =
   | { readonly kind: 'not_found' }
   | { readonly kind: 'unavailable' }
   | { readonly kind: 'failed' }
@@ -524,7 +514,7 @@ export type RefineEditRegionResult =
     }
 
 /** 用户点在智能体给的点附近，就以用户的为准：那一点不再交给模型，免得一正一负互相抵消。 */
-export const SEED_OVERRIDE_DISTANCE = 0.06
+const SEED_OVERRIDE_DISTANCE = 0.06
 
 /** 智能体给的点在前、用户这几下在后；离用户某一下太近的智能体点去掉。 */
 export function seedPoints(
@@ -577,7 +567,6 @@ export async function refineEditRegion(input: {
     },
     width: proposal.width,
     height: proposal.height,
-    prompt: proposal.target,
     box: promptBox((region ?? proposal).box, user),
     ...(points.length ? { points } : {}),
     ...(input.signal ? { signal: input.signal } : {}),

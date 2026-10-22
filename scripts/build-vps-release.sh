@@ -145,8 +145,10 @@ build_image "$backup_image" "backup-$(printf %.12s "$public_sha")" "$snapshot/pu
   --build-arg "APP_VERSION=$public_sha"
 printf 'backup\t%s\t%s\t%s\t-\t%s\n' "$backup_image" "$image_id" "$public_sha" "$repo_digest" >> "$output/images.tsv"
 images="$images $backup_image"
-# The EdgeTAM segmenter for edit-region proposals (deploy/segmenter). Test receives start it;
-# production does not run it yet, so only test releases carry it.
+# The EdgeTAM segmenter for edit-region proposals (deploy/segmenter). Test releases carry it for
+# the test instance. Production releases (built from main) would carry it for the production
+# instance; they do not yet, because production does not use it (SEGMENTER_EDITIONS=test). A test
+# release can never update the production instance either way (scripts/segmenter-deploy.sh).
 if [ "$target" = test ]; then
   segmenter_image=ai-image-playground:segmenter-$(printf %.12s "$public_sha")
   # A cache of its own keeps the dependency and weight layers byte-identical between releases,

@@ -3,12 +3,11 @@ import sharp from 'sharp'
 import { config } from '../../config'
 import { log } from '../logger'
 import { labelComponents } from './mask-regions'
-import type { AgentFetch } from './model'
-import { providerFetch } from './provider-fetch'
 
 /**
- * 修改范围提议与卡片点选的服务端分割。接口只有这一层：换模型（自建 EdgeTAM、fal SAM 3、别家）
- * 只换实现，提议工具与卡片不跟着改。没有配置任何实现时返回 null，卡片按智能体给的框兜底。
+ * 修改范围提议与卡片点选的服务端分割。接口只有这一层：换模型只换实现，提议工具与卡片不跟着改。
+ * 目前唯一的实现是自建 EdgeTAM（deploy/segmenter），用户原图不出本机；没有配置时返回 null，
+ * 卡片按智能体给的框兜底。
  */
 export interface SegmentationRequest {
   /**
@@ -22,8 +21,6 @@ export interface SegmentationRequest {
   /** 原图像素宽高；坐标按它归一化，`segmentProposal` 交回的蒙版也是这个尺寸。 */
   readonly width: number
   readonly height: number
-  /** 给分割模型的短名词，英文效果最好（SAM 3 的文本提示）。 */
-  readonly prompt: string
   readonly box: AgentNormalizedBox
   readonly points?: readonly AgentMaskPromptPoint[]
   readonly signal?: AbortSignal
@@ -40,23 +37,18 @@ export interface SegmentationMask {
   readonly score?: number
 }
 
-export interface SegmentationProvider {
+interface SegmentationProvider {
   readonly id: string
   segment(request: SegmentationRequest): Promise<readonly SegmentationMask[]>
 }
 
-export class SegmentationError extends Error {}
+class SegmentationError extends Error {}
 
 let providerOverride: SegmentationProvider | null | undefined
-let falFetchOverride: AgentFetch | undefined
 let segmenterFetchOverride: typeof fetch | undefined
 
 export function setSegmentationProviderForTesting(provider?: SegmentationProvider | null): void {
   providerOverride = provider
-}
-
-export function setFalFetchForTesting(fetchImpl?: AgentFetch): void {
-  falFetchOverride = fetchImpl
 }
 
 export function setSegmenterFetchForTesting(fetchImpl?: typeof fetch): void {
@@ -64,16 +56,14 @@ export function setSegmenterFetchForTesting(fetchImpl?: typeof fetch): void {
 }
 
 /**
- * 此刻可用的服务端分割：部署注入了自建 EdgeTAM 服务地址就用它；否则有 fal key 用 SAM 3；
- * 显式 `off` 或什么都没配时为 null。
+ * 此刻可用的服务端分割：部署注入了自建 EdgeTAM 服务地址就用它；显式 `off` 或没有地址时为 null。
+ * 不接任何第三方分割服务。
  */
 export function segmentationProvider(): SegmentationProvider | null {
   if (providerOverride !== undefined) return providerOverride
-  const { provider, falKey, segmenterUrl } = config.agent.segmentation
-  if (provider === 'off') return null
-  if (segmenterUrl) return edgeTam(segmenterUrl)
-  if (provider === 'fal-sam3' && falKey) return falSam3(falKey)
-  return null
+  const { provider, segmenterUrl } = config.agent.segmentation
+  if (provider === 'off' || !segmenterUrl) return null
+  return edgeTam(segmenterUrl)
 }
 
 async function requestDataUrl(request: SegmentationRequest): Promise<string> {
@@ -82,9 +72,8 @@ async function requestDataUrl(request: SegmentationRequest): Promise<string> {
   return dataUrl
 }
 
-/** 自建服务的单次预算：卡片打开、点一下都要等它，超时就退回智能体给的框。 */
 /**
- * 分割服务按这个键缓存图像编码。一个实例由所有环境共用，所以带上本部署的命名空间：
+ * 分割服务按这个键缓存图像编码。生产那一份由 internal 与 paid 共用，所以带上本部署的命名空间：
  * 测试环境的请求永远拿不到生产环境的缓存。
  */
 export function segmenterKey(mediaId: string): string {
@@ -92,9 +81,10 @@ export function segmenterKey(mediaId: string): string {
   return namespace ? `${namespace}:media:${mediaId}` : `media:${mediaId}`
 }
 
-export const SEGMENTER_TIMEOUT_MS = 3_000
+/** 自建服务的单次预算：卡片打开、点一下都要等它，超时就退回智能体给的框。 */
+const SEGMENTER_TIMEOUT_MS = 3_000
 /** 发给自建服务的图与它交回的蒙版的最长边；放大回原图在 BFF 做。 */
-export const SEGMENTER_MAX_SIDE = 1024
+const SEGMENTER_MAX_SIDE = 1024
 const SEGMENTER_JPEG_QUALITY = 90
 
 /** 原图按最长边缩到 ≤1024 后的尺寸。 */
@@ -121,7 +111,7 @@ export function unpackMaskBits(bits: Uint8Array, width: number, height: number):
   return out
 }
 
-export function segmenterMasks(body: unknown, width: number, height: number): SegmentationMask[] {
+function segmenterMasks(body: unknown, width: number, height: number): SegmentationMask[] {
   const parsed = (body && typeof body === 'object' ? body : {}) as SegmenterResponse
   if (parsed.width !== width || parsed.height !== height)
     throw new SegmentationError('segmenter returned an unexpected mask size')
@@ -177,6 +167,8 @@ function edgeTam(origin: string): SegmentationProvider {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             key: request.key ?? `once:${crypto.randomUUID()}`,
+            // 分割服务按它给每个部署限额，一个环境占不满所有环境共用的队列。
+            namespace: config.agent.segmentation.segmenterNamespace,
             ...(image ? { image } : {}),
             ...prompt,
           }),
@@ -202,125 +194,6 @@ function edgeTam(origin: string): SegmentationProvider {
       )
       if (!masks.length) throw new SegmentationError('segmenter returned no usable mask')
       return masks
-    },
-  }
-}
-
-const FAL_ORIGIN = 'https://fal.run'
-const FAL_SAM3_PATH = '/fal-ai/sam-3/image'
-const FAL_TIMEOUT_MS = 30_000
-const FAL_MAX_MASKS = 3
-
-interface FalImage {
-  readonly url?: unknown
-}
-interface FalResponse {
-  readonly masks?: readonly FalImage[]
-  readonly scores?: readonly unknown[]
-  readonly metadata?: readonly { readonly index?: unknown; readonly score?: unknown }[]
-}
-
-function pixelBox(box: AgentNormalizedBox, width: number, height: number) {
-  return {
-    x_min: Math.max(0, Math.floor(box.x * width)),
-    y_min: Math.max(0, Math.floor(box.y * height)),
-    x_max: Math.min(width - 1, Math.ceil((box.x + box.width) * width - 1e-6)),
-    y_max: Math.min(height - 1, Math.ceil((box.y + box.height) * height - 1e-6)),
-  }
-}
-
-/** 把一张 PNG 蒙版（任意通道、可能被缩放过）读成原图尺寸的单通道二值图。 */
-export async function binaryMask(
-  bytes: Uint8Array,
-  width: number,
-  height: number,
-): Promise<Uint8Array> {
-  const { data, info } = await sharp(bytes)
-    .resize(width, height, { fit: 'fill', kernel: 'nearest' })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-  const out = new Uint8Array(width * height)
-  for (let i = 0; i < out.length; i++) {
-    const at = i * info.channels
-    // 白底黑字或带透明底的蒙版都认：亮且不透明才算目标。
-    const luma = (data[at]! + data[at + 1]! + data[at + 2]!) / 3
-    out[i] = luma >= 128 && data[at + 3]! >= 128 ? 255 : 0
-  }
-  return out
-}
-
-/** fal SAM 3 的请求体：文本提示加模型给的框与提示点，要多张候选并带分数，结果直接回 data URI。 */
-export function falSam3Body(request: SegmentationRequest & { readonly dataUrl: string }) {
-  return {
-    image_url: request.dataUrl,
-    prompt: request.prompt,
-    box_prompts: [pixelBox(request.box, request.width, request.height)],
-    point_prompts: (request.points ?? []).map((point) => ({
-      x: Math.round(point.x * request.width),
-      y: Math.round(point.y * request.height),
-      label: point.include ? 1 : 0,
-    })),
-    apply_mask: false,
-    sync_mode: true,
-    output_format: 'png',
-    return_multiple_masks: true,
-    max_masks: FAL_MAX_MASKS,
-    include_scores: true,
-  }
-}
-
-/** 解出 fal 的回包；外链不跟（不替上游去拉任意地址），只认 sync_mode 的 data URI。 */
-export async function falSam3Masks(
-  body: unknown,
-  width: number,
-  height: number,
-): Promise<SegmentationMask[]> {
-  const parsed = (body && typeof body === 'object' ? body : {}) as FalResponse
-  const masks = Array.isArray(parsed.masks) ? parsed.masks.slice(0, FAL_MAX_MASKS) : []
-  const decoded: SegmentationMask[] = []
-  for (const [index, mask] of masks.entries()) {
-    const url = typeof mask?.url === 'string' ? mask.url : ''
-    const match = /^data:image\/[a-z+.-]+;base64,(.+)$/i.exec(url)
-    if (!match) continue
-    const score = parsed.scores?.[index] ?? parsed.metadata?.[index]?.score
-    decoded.push({
-      data: await binaryMask(Buffer.from(match[1]!, 'base64'), width, height),
-      width,
-      height,
-      ...(typeof score === 'number' && Number.isFinite(score) ? { score } : {}),
-    })
-  }
-  return decoded
-}
-
-function falSam3(key: string): SegmentationProvider {
-  return {
-    id: 'fal-sam3',
-    async segment(request) {
-      const dataUrl = await requestDataUrl(request)
-      const fetchImpl = providerFetch(falFetchOverride ?? (fetch as AgentFetch), FAL_ORIGIN)
-      const timeout = AbortSignal.timeout(FAL_TIMEOUT_MS)
-      const signal = request.signal ? AbortSignal.any([request.signal, timeout]) : timeout
-      const response = await fetchImpl(`${FAL_ORIGIN}${FAL_SAM3_PATH}`, {
-        method: 'POST',
-        headers: { authorization: `Key ${key}`, 'content-type': 'application/json' },
-        body: JSON.stringify(falSam3Body({ ...request, dataUrl })),
-        signal,
-      }).catch((error) => {
-        throw new SegmentationError('fal request failed', { cause: error })
-      })
-      if (!response.ok) {
-        await response.body?.cancel()
-        throw new SegmentationError(`fal HTTP ${response.status}`)
-      }
-      const decoded = await falSam3Masks(
-        await response.json().catch(() => null),
-        request.width,
-        request.height,
-      )
-      if (!decoded.length) throw new SegmentationError('fal returned no usable mask')
-      return decoded
     },
   }
 }
@@ -428,7 +301,7 @@ export function dilateMask(
 }
 
 /** 二值图的方形内收：对补集外扩再取补。图片边缘之外不算空白，贴边的蒙版不会被啃掉。 */
-export function erodeMask(
+function erodeMask(
   source: Uint8Array,
   width: number,
   height: number,
@@ -443,7 +316,7 @@ export function erodeMask(
 }
 
 /** 清理半径：约每 160px 长边 1px，3–12px。闭运算补上窄于两倍半径的缺口。 */
-export function cleanupRadius(width: number, height: number): number {
+function cleanupRadius(width: number, height: number): number {
   return Math.min(12, Math.max(3, Math.round(Math.max(width, height) / 160)))
 }
 
@@ -501,7 +374,9 @@ export function cleanMask(source: Uint8Array, width: number, height: number): Ui
   }
 
   const parts = labelComponents(mask, true, width, height, true)
-  const largest = Math.max(...parts.areas)
+  // 连通块可能上万个（噪声蒙版），不能把它们全摊成 Math.max 的参数。
+  let largest = 0
+  for (const partArea of parts.areas) if (partArea > largest) largest = partArea
   const islandMax = Math.min(largest * 0.1, total * 0.002)
   for (let i = 0; i < total; i++) {
     const label = parts.labels[i]!
@@ -608,9 +483,8 @@ export async function segmentProposal(request: SegmentationRequest) {
 /** 探针至多这么久跑一次：公开接口，不能让人借它把分割服务一直占着。 */
 const PROBE_INTERVAL_MS = 30_000
 let lastProbe: { at: number; result: SegmenterProbe } | null = null
-let probeSequence = 0
 
-export interface SegmenterProbe {
+interface SegmenterProbe {
   /** 新图：编码加一次解码的往返。 */
   readonly firstMs: number
   /** 同一张图再点一下：只解码的往返。 */
@@ -664,7 +538,9 @@ export async function segmenterStatus(probe: boolean) {
   if (lastProbe && Date.now() - lastProbe.at < PROBE_INTERVAL_MS)
     return { ...status, probe: lastProbe.result }
   lastProbe = { at: Date.now(), result: { firstMs: -1, clickMs: -1, at: Date.now() } }
-  const key = `probe:${++probeSequence}`
+  // 固定一个键：分割服务的编码缓存只有几格，每次换新键会把真实用户的图挤出去。
+  const namespace = config.agent.segmentation.segmenterNamespace
+  const key = namespace ? `${namespace}:probe` : 'probe'
   const body = { key, box: [0.3, 0.2, 0.7, 0.8], output: { width: 512, height: 384 } }
   const call = async (extra: Record<string, unknown>) => {
     const begun = Date.now()

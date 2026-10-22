@@ -64,10 +64,11 @@ export interface AgentToolContext {
    */
   readonly maskProposals?: Set<string>
   /**
-   * 这一轮用户要改的是图里的单个对象或局部（见 `edit-intent.ts`，只按字面判断）。为真时
-   * `editImage` 不接受无蒙版的整图编辑，要先发范围确认。
+   * 这一轮用户要改的是图里的单个对象或局部（见 `edit-intent.ts`，只按字面判断）时存在。
+   * `editImage` 第一次无蒙版的整图编辑会被退回、提醒先发范围确认，并记下 `nudged`；
+   * 同一轮再调就放行。
    */
-  readonly singleObjectEdit?: boolean
+  readonly singleObjectEdit?: { nudged: boolean }
   /** 此刻的授权原文；缺席即这一轮没有授权原文可核对。 */
   readonly authorization?: () => TurnAuthorizationText
   /** 「这次付费操作能不能提交」的唯一回答者；缺席即这一轮没有遮罩计划要守。 */

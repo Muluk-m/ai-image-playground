@@ -2,9 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   addClick,
   annotationRegions,
-  boxIoU,
-  boxMask,
-  clipToBox,
   confirmedMaskSource,
   dilateMask,
   editMaskRgba,
@@ -13,72 +10,27 @@ import {
   maskAnswerReference,
   maskAnswerText,
   maskArea,
-  maskBounds,
   maskOutputCount,
-  pickSegmentMask,
-  promptPoints,
   proposalRegions,
   regionForClick,
-  resizeMask,
-  targetFromEditMask,
 } from '../../../../features/agent/lib/maskProposal'
+
+/** 一个矩形的二值蒙版（测试夹具）。 */
+function rect(
+  width: number,
+  height: number,
+  box: { x: number; y: number; width: number; height: number },
+) {
+  const data = new Uint8Array(width * height)
+  for (let y = Math.round(box.y * height); y < Math.round((box.y + box.height) * height); y++)
+    for (let x = Math.round(box.x * width); x < Math.round((box.x + box.width) * width); x++)
+      data[y * width + x] = 1
+  return { data, width, height }
+}
 
 const WORDS = { confirmed: '按确认的范围修改', keep: '不动：', annotation: '标注', arrow: '箭头' }
 
 describe('范围蒙版', () => {
-  it('rasterizes the agent box at the original size', () => {
-    const mask = boxMask(100, 50, { x: 0.1, y: 0.2, width: 0.3, height: 0.4 })
-    expect(maskArea(mask)).toBe(30 * 20)
-    const bounds = maskBounds(mask)!
-    expect(bounds.x).toBeCloseTo(0.1)
-    expect(bounds.y).toBeCloseTo(0.2)
-    expect(bounds.width).toBeCloseTo(0.3)
-    expect(bounds.height).toBeCloseTo(0.4)
-  })
-
-  it('turns the box into a center point for the point-only decoder and keeps exclude points', () => {
-    const box = { x: 0.2, y: 0.4, width: 0.4, height: 0.2 }
-    expect(promptPoints(box, undefined, 1000, 500)).toEqual({ points: [[400, 250]], labels: [1] })
-    expect(promptPoints(box, [{ x: 0.55, y: 0.5, include: false }], 1000, 500)).toEqual({
-      points: [
-        [400, 250],
-        [550, 250],
-      ],
-      labels: [1, 0],
-    })
-    // 智能体已经给了落在目标上的点，就不再自己补框心。
-    expect(promptPoints(box, [{ x: 0.3, y: 0.5, include: true }], 1000, 500).labels).toEqual([1])
-  })
-
-  it('prefers the candidate that matches the box and falls back when none does', () => {
-    const box = { x: 0.2, y: 0.2, width: 0.5, height: 0.5 }
-    const right = boxMask(100, 100, { x: 0.22, y: 0.22, width: 0.45, height: 0.46 })
-    const whole = boxMask(100, 100, { x: 0, y: 0, width: 1, height: 1 })
-    const elsewhere = boxMask(100, 100, { x: 0.8, y: 0.8, width: 0.2, height: 0.2 })
-    expect(boxIoU(maskBounds(right)!, box)).toBeGreaterThan(0.8)
-    expect(maskArea(pickSegmentMask([whole, right], [0.99, 0.9], box)!)).toBe(maskArea(right))
-    expect(pickSegmentMask([elsewhere], [1], box)).toBeNull()
-  })
-
-  it('clips spill outside the box', () => {
-    const clipped = clipToBox(boxMask(100, 100, { x: 0, y: 0, width: 1, height: 1 }), {
-      x: 0.4,
-      y: 0.4,
-      width: 0.2,
-      height: 0.2,
-    })
-    const bounds = maskBounds(clipped)!
-    expect(bounds.x).toBeGreaterThanOrEqual(0.36)
-    expect(bounds.x + bounds.width).toBeLessThanOrEqual(0.64)
-  })
-
-  it('upscales a small segmentation back to the original size', () => {
-    const small = boxMask(10, 10, { x: 0.5, y: 0, width: 0.5, height: 1 })
-    const large = resizeMask(small, 100, 40)
-    expect([large.width, large.height]).toEqual([100, 40])
-    expect(maskArea(large)).toBe(50 * 40)
-  })
-
   it('expands the edge by exactly the radius', () => {
     const single = { data: new Uint8Array(21 * 21), width: 21, height: 21 }
     single.data[10 * 21 + 10] = 1
@@ -93,12 +45,11 @@ describe('范围蒙版', () => {
   })
 
   it('writes the upstream mask format: opaque keeps, transparent edits', () => {
-    const mask = boxMask(4, 2, { x: 0.5, y: 0, width: 0.5, height: 1 })
+    const mask = rect(4, 2, { x: 0.5, y: 0, width: 0.5, height: 1 })
     const rgba = editMaskRgba(mask)
     expect(rgba[3]).toBe(255)
     expect(rgba[3 * 4 + 3]).toBe(0)
     expect(Array.from(rgba.subarray(12, 15))).toEqual([255, 255, 255])
-    expect(targetFromEditMask(rgba, 4, 2).data).toEqual(mask.data)
   })
 })
 
@@ -209,7 +160,7 @@ describe('addClick', () => {
 
 describe('反选', () => {
   it('selects everything but the subject and eats into its edge', () => {
-    const mask = boxMask(100, 100, { x: 0.4, y: 0.4, width: 0.2, height: 0.2 })
+    const mask = rect(100, 100, { x: 0.4, y: 0.4, width: 0.2, height: 0.2 })
     const inverted = invertMask(mask, 3)
     const at = (x: number, y: number) => inverted.data[y * 100 + x]
     expect(at(10, 10)).toBeTruthy()
