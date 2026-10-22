@@ -20,8 +20,11 @@ runs:
     # lacks (~21 MB). The Azure apt mirror sometimes serves them at ~70 kB/s: 4 minutes in the
     # Checks job and 14 in the rollout job of run 39799977649. Keep the downloaded .deb files in
     # the Actions cache and seed apt with them, so apt installs the same packages without fetching
-    # them. apt checks each file against its index and downloads anything stale, so a cache that
-    # falls behind the mirror only costs the old download time. The smoke script is unchanged.
+    # them. apt does NOT re-hash a file it finds in /var/cache/apt/archives: a matching name and
+    # size is enough (pkgAcqArchive in apt-pkg/acquire-item.cc). So before seeding, every cached
+    # file must match the SHA256 that the freshly updated, signed apt index lists for that exact
+    # package and version; anything else is deleted and apt downloads it again. A cache that falls
+    # behind the mirror only costs the old download time. The smoke script is unchanged.
     # ImageOS / ImageVersion are runner environment variables, not part of the `env` context.
     - name: Name the package cache after the runner image
       id: debs-key
@@ -46,10 +49,30 @@ runs:
       run: |
         mkdir -p "$DEBS"
         echo 'APT::Keep-Downloaded-Packages "true";' | sudo tee /etc/apt/apt.conf.d/99-keep-debs >/dev/null
-        if compgen -G "$DEBS/*.deb" >/dev/null; then
-          sudo cp "$DEBS"/*.deb /var/cache/apt/archives/
-          echo "Seeded $(find "$DEBS" -name '*.deb' | wc -l) cached packages."
-        fi
+        compgen -G "$DEBS/*.deb" >/dev/null || exit 0
+        # The index is what vouches for a file, so refresh it (signature-checked) first.
+        sudo apt-get update -qq
+        seeded=0 dropped=0
+        for deb in "$DEBS"/*.deb; do
+          pkg=$(dpkg-deb -f "$deb" Package 2>/dev/null) || pkg=
+          ver=$(dpkg-deb -f "$deb" Version 2>/dev/null) || ver=
+          arch=$(dpkg-deb -f "$deb" Architecture 2>/dev/null) || arch=
+          got=$(sha256sum "$deb" | cut -d' ' -f1)
+          # Captured first: with pipefail, `grep -q` closing the pipe early would fail the match.
+          listed=
+          if [ -n "$pkg" ] && [ -n "$ver" ]; then
+            listed=$(apt-cache show "$pkg=$ver" "$pkg:$arch=$ver" 2>/dev/null || true)
+          fi
+          if [ -n "$listed" ] && grep -qx "SHA256: $got" <<<"$listed"; then
+            sudo cp "$deb" /var/cache/apt/archives/
+            seeded=$((seeded + 1))
+          else
+            echo "Dropping $(basename "$deb"): not in the apt index with this SHA256."
+            rm -f "$deb"
+            dropped=$((dropped + 1))
+          fi
+        done
+        echo "Seeded $seeded verified cached packages; dropped $dropped."
     - name: Check browser regression cases
       if: inputs.test-runner == 'true'
       shell: bash
