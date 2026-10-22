@@ -83,7 +83,7 @@
     {
       "id": "grok-images",
       "kind": "openai-queue",
-      "label": "Grok Imagine Image",
+      "label": "Grok",
       "baseUrlRef": "GROK_BASE_URL",
       "requiresSecret": true,
       "auth": {
@@ -228,7 +228,7 @@
     {
       "id": "vertex-images",
       "kind": "gemini-queue",
-      "label": "Vertex AI",
+      "label": "Gemini",
       "baseUrlRef": "VERTEX_BASE_URL",
       "requiresSecret": true,
       "auth": {
