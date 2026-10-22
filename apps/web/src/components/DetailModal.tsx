@@ -683,6 +683,7 @@ export default function DetailModal() {
                     paramKey="size"
                     className="font-medium"
                     actualParams={currentActualParams}
+                    measuredSize={currentImageSize ? currentImageSize.replace('×', 'x') : undefined}
                   />
                 </div>
                 <div className="bg-card rounded-lg px-3 py-2">
