@@ -9,11 +9,14 @@ import { useTranslation } from '../../../i18n'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { fillMaskLasso, isUsableMaskLasso } from '../../../lib/mask'
 import { useStore } from '../../../store'
+import { exportMaskCanvasDataUrl, paintMaskStroke } from '../../canvas/lib/inpaintMask'
 import { refineEditRegion } from '../lib/agentClient'
 import { attachmentUploadsEnabled } from '../lib/attachmentUploads'
 import {
   addClick,
   annotationRegions,
+  cardMaskPlacement,
+  cardMaskStroke,
   editMaskRgba,
   invertInset,
   invertMask,
@@ -39,12 +42,13 @@ interface RegionState extends MaskRegionView {
   /** 用户在这个区域上点的包含 / 排除点，按顺序累积，每次整组发给分割服务。 */
   readonly clicks: readonly AgentMaskPromptPoint[]
 }
+type RegionPixels = { number: number; pixels: ImageData }
 type Snapshot = {
   pixels: ImageData
   annotations: MaskAnnotation[]
   regions: RegionState[]
   inverted: boolean
-  regionMask?: { number: number; pixels: ImageData }
+  regionMasks?: RegionPixels[]
 }
 
 /** 覆盖层只画在缩小的预览上；导出的蒙版始终是原图尺寸。 */
@@ -52,10 +56,12 @@ const PREVIEW_EDGE = 1024
 const HISTORY_BYTES = 32 * 1024 * 1024
 const MAX_ANNOTATIONS = 12
 const MAX_CLICKS = 12
-/** 点选是主工具；画笔、橡皮、框、套索补细节；箭头与文字只做说明。 */
-const SHAPE_TOOLS = [
+/** 点选与画笔、橡皮是常用的修正工具；框、套索在「更多工具」里；箭头与文字只做说明。 */
+const PAINT_TOOLS = [
   { tool: 'brush', icon: 'brush', label: 'maskProposal.toolBrush' },
   { tool: 'eraser', icon: 'erase', label: 'maskProposal.toolEraser' },
+] as const satisfies readonly { tool: Tool; icon: string; label: string }[]
+const SHAPE_TOOLS = [
   { tool: 'box', icon: 'selectRectangle', label: 'maskProposal.toolBox' },
   { tool: 'lasso', icon: 'selectLasso', label: 'maskProposal.toolLasso' },
 ] as const satisfies readonly { tool: Tool; icon: string; label: string }[]
@@ -112,12 +118,15 @@ function complementCanvas(mask: HTMLCanvasElement): HTMLCanvasElement {
   return canvas
 }
 
-function maskDataUrl(mask: TargetMask): string {
+/** 确认时送回去的蒙版：与画布涂抹走同一个导出（空选区拦截、PNG 编码）。 */
+async function maskDataUrl(mask: TargetMask): Promise<string> {
   const canvas = canvasOf(mask.width, mask.height)
-  canvas
-    .getContext('2d')!
-    .putImageData(new ImageData(editMaskRgba(mask), mask.width, mask.height), 0, 0)
-  return canvas.toDataURL('image/png')
+  context2d(canvas).putImageData(new ImageData(editMaskRgba(mask), mask.width, mask.height), 0, 0)
+  return await exportMaskCanvasDataUrl(canvas)
+}
+
+function pixelsOf(canvas: HTMLCanvasElement): ImageData {
+  return context2d(canvas).getImageData(0, 0, canvas.width, canvas.height)
 }
 
 /** 编辑格式（透明 = 重绘）的蒙版图 → 白色不透明 = 目标的画布，按原图尺寸。 */
@@ -347,8 +356,15 @@ export default function AgentMaskProposalCard({
     start: Point
     last: Point
     path: Point[]
-    width: number
+    /** 落笔时预览图在屏幕上的宽度：笔刷按屏幕粗细换算到原图。 */
+    displayed: number
     before?: ImageData
+  } | null>(null)
+  /** 卡片打开时的 AI 建议，「恢复 AI 建议」回到这里。 */
+  const autoRef = useRef<{
+    pixels: ImageData
+    regionMasks: RegionPixels[]
+    regions: RegionState[]
   } | null>(null)
   const undoRef = useRef<Snapshot[]>([])
   const redoRef = useRef<Snapshot[]>([])
@@ -519,6 +535,11 @@ export default function AgentMaskProposalCard({
           if (region.selected) context.drawImage(masks.get(region.number)!, 0, 0)
         regionMasksRef.current = masks
         maskRef.current = mask
+        autoRef.current = {
+          pixels: pixelsOf(mask),
+          regionMasks: [...masks].map(([number, canvas]) => ({ number, pixels: pixelsOf(canvas) })),
+          regions: views.map((one) => ({ ...one, clicks: [] })),
+        }
         setStatus(rough ? 'rough' : 'suggested')
         redraw()
       } catch {
@@ -540,15 +561,15 @@ export default function AgentMaskProposalCard({
     }
   }
 
-  const remember = (extra: Partial<Pick<Snapshot, 'pixels' | 'regionMask'>> = {}) => {
+  const remember = (extra: Partial<Pick<Snapshot, 'pixels' | 'regionMasks'>> = {}) => {
     const mask = maskRef.current
     if (!mask) return
     undoRef.current.push({
-      pixels: extra.pixels ?? context2d(mask).getImageData(0, 0, mask.width, mask.height),
+      pixels: extra.pixels ?? pixelsOf(mask),
       annotations,
       regions,
       inverted,
-      ...(extra.regionMask ? { regionMask: extra.regionMask } : {}),
+      ...(extra.regionMasks ? { regionMasks: extra.regionMasks } : {}),
     })
     const limit = Math.max(
       1,
@@ -567,47 +588,72 @@ export default function AgentMaskProposalCard({
     const to = direction === 'undo' ? redoRef.current : undoRef.current
     const previous = from.pop()
     if (!previous) return
-    const regionCanvas = previous.regionMask
-      ? regionMasksRef.current.get(previous.regionMask.number)
-      : undefined
+    const regionCanvases = (previous.regionMasks ?? []).flatMap((one) => {
+      const canvas = regionMasksRef.current.get(one.number)
+      return canvas ? [{ ...one, canvas }] : []
+    })
     to.push({
-      pixels: context2d(mask).getImageData(0, 0, mask.width, mask.height),
+      pixels: pixelsOf(mask),
       annotations,
       regions,
       inverted,
-      ...(previous.regionMask && regionCanvas
+      ...(regionCanvases.length
         ? {
-            regionMask: {
-              number: previous.regionMask.number,
-              pixels: context2d(regionCanvas).getImageData(0, 0, mask.width, mask.height),
-            },
+            regionMasks: regionCanvases.map((one) => ({
+              number: one.number,
+              pixels: pixelsOf(one.canvas),
+            })),
           }
         : {}),
     })
     context2d(mask).putImageData(previous.pixels, 0, 0)
-    if (previous.regionMask && regionCanvas)
-      context2d(regionCanvas).putImageData(previous.regionMask.pixels, 0, 0)
+    for (const one of regionCanvases) context2d(one.canvas).putImageData(one.pixels, 0, 0)
     setAnnotations(previous.annotations)
     setRegions(previous.regions)
     setInverted(previous.inverted)
+    setTouched(true)
     setHistory({ undo: undoRef.current.length > 0, redo: redoRef.current.length > 0 })
     redraw()
   }
 
-  const paint = (from: Point, to: Point, erase: boolean, width: number) => {
+  /**
+   * 画笔加进范围、橡皮擦出范围。光栅化用画布涂抹的 `paintMaskStroke`：这张画布白色不透明
+   * = 要改，正是它「画出来的就是可重绘区」那种渲染语义。
+   */
+  const paint = (points: readonly Point[], tool: 'brush' | 'eraser', displayed: number) => {
     const mask = maskRef.current
     if (!mask) return
-    const context = mask.getContext('2d')!
-    context.save()
-    context.globalCompositeOperation = erase ? 'destination-out' : 'source-over'
-    context.strokeStyle = context.fillStyle = '#fff'
-    context.lineWidth = width
-    context.lineCap = context.lineJoin = 'round'
-    context.beginPath()
-    context.moveTo(from.x * mask.width, from.y * mask.height)
-    context.lineTo(to.x * mask.width, to.y * mask.height)
-    context.stroke()
-    context.restore()
+    const { width, height } = mask
+    paintMaskStroke(
+      context2d(mask),
+      cardMaskPlacement(width, height),
+      { width, height },
+      cardMaskStroke(tool, points, brush, displayed, width, height),
+      { inverted: true, color: '#fff' },
+    )
+    redraw()
+  }
+
+  /** 回到卡片打开时的 AI 建议：范围、点选、对象选择与反选都复原；可以撤销。 */
+  const resetToAuto = () => {
+    const mask = maskRef.current
+    const auto = autoRef.current
+    if (!mask || !auto || locked || refining || drawing) return
+    remember({
+      regionMasks: [...regionMasksRef.current].map(([number, canvas]) => ({
+        number,
+        pixels: pixelsOf(canvas),
+      })),
+    })
+    context2d(mask).putImageData(auto.pixels, 0, 0)
+    for (const one of auto.regionMasks) {
+      const canvas = regionMasksRef.current.get(one.number)
+      if (canvas) context2d(canvas).putImageData(one.pixels, 0, 0)
+    }
+    setRegions(auto.regions)
+    setActive(auto.regions.find((one) => one.selected)?.number ?? 1)
+    setInverted(proposal.invert === true)
+    setTouched(false)
     redraw()
   }
 
@@ -664,12 +710,7 @@ export default function AgentMaskProposalCard({
     const clicks = addClick(region.clicks, { x: point.x, y: point.y, include }, MAX_CLICKS)
     const selected = region.selected || include
     const regionCanvas = regionMasksRef.current.get(number)!
-    remember({
-      regionMask: {
-        number,
-        pixels: context2d(regionCanvas).getImageData(0, 0, mask.width, mask.height),
-      },
-    })
+    remember({ regionMasks: [{ number, pixels: pixelsOf(regionCanvas) }] })
     const nextRegions = regions.map((one) =>
       one.number === number ? { ...one, clicks, selected } : one,
     )
@@ -736,14 +777,11 @@ export default function AgentMaskProposalCard({
       start: point,
       last: point,
       path: [point],
-      width: Math.max(2, (brush * mask.width) / displayed),
-      ...(tool === 'brush' || tool === 'eraser'
-        ? { before: context2d(mask).getImageData(0, 0, mask.width, mask.height) }
-        : {}),
+      displayed,
+      ...(tool === 'brush' || tool === 'eraser' ? { before: pixelsOf(mask) } : {}),
     }
     setDrawing(true)
-    if (tool === 'brush' || tool === 'eraser')
-      paint(point, point, tool === 'eraser', pointerRef.current.width)
+    if (tool === 'brush' || tool === 'eraser') paint([point], tool, displayed)
   }
 
   const move = (event: PointerEvent<HTMLDivElement>) => {
@@ -752,7 +790,7 @@ export default function AgentMaskProposalCard({
     const point = pointOnImage(event)
     if (!point) return
     if (pointer.tool === 'brush' || pointer.tool === 'eraser') {
-      paint(pointer.last, point, pointer.tool === 'eraser', pointer.width)
+      paint([pointer.last, point], pointer.tool, pointer.displayed)
     } else if (pointer.tool === 'lasso') {
       pointer.path.push(point)
       setSketch([...pointer.path])
@@ -826,7 +864,7 @@ export default function AgentMaskProposalCard({
       const original = attachmentUploadsEnabled() ? undefined : await inlineOriginal(source)
       const reference = maskAnswerReference(
         proposal,
-        maskDataUrl(target),
+        await maskDataUrl(target),
         annotationRegions(annotations),
         original,
       )
@@ -878,7 +916,7 @@ export default function AgentMaskProposalCard({
   return (
     <section
       className="studio-mask-proposal"
-      data-editing={editing || undefined}
+      data-editing={editing || tool === 'brush' || tool === 'eraser' || undefined}
       data-look={look}
       aria-label={message.question}
       onKeyDown={(event) => {
@@ -905,6 +943,35 @@ export default function AgentMaskProposalCard({
           <Icon name="select" />
           {t('maskProposal.toolPoint')}
         </Button>
+        {PAINT_TOOLS.map((one) => (
+          <Button
+            key={one.tool}
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-pressed={tool === one.tool}
+            title={t(one.tool === 'brush' ? 'maskProposal.brushTitle' : 'maskProposal.eraserTitle')}
+            disabled={locked || drawing || !ready}
+            onClick={() => setTool(one.tool)}
+          >
+            <Icon name={one.icon} />
+            {t(one.label)}
+          </Button>
+        ))}
+        {(tool === 'brush' || tool === 'eraser') && (
+          <span className="studio-mask-proposal-brush">
+            <span>{t('maskProposal.brushSize')}</span>
+            <Slider
+              aria-label={t('maskProposal.brushSize')}
+              min={6}
+              max={120}
+              value={[brush]}
+              onValueChange={([value]) => setBrush(value ?? brush)}
+              disabled={locked || drawing}
+              className="w-20"
+            />
+          </span>
+        )}
         {tool === 'point' && (
           <SegmentedTabs
             label={t('maskProposal.toolPoint')}
@@ -967,20 +1034,17 @@ export default function AgentMaskProposalCard({
         >
           <Icon name="redo" />
         </Button>
-        {editing && (tool === 'brush' || tool === 'eraser') && (
-          <span className="studio-mask-proposal-brush">
-            <span>{t('maskProposal.brushSize')}</span>
-            <Slider
-              aria-label={t('maskProposal.brushSize')}
-              min={6}
-              max={120}
-              value={[brush]}
-              onValueChange={([value]) => setBrush(value ?? brush)}
-              disabled={locked || drawing}
-              className="w-20"
-            />
-          </span>
-        )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          title={t('maskProposal.resetTitle')}
+          disabled={!touched || locked || drawing || refining || !ready}
+          onClick={resetToAuto}
+        >
+          <Icon name="refresh" />
+          {t('maskProposal.reset')}
+        </Button>
       </div>
       <div className="studio-mask-proposal-stage">
         {source ? (
@@ -1053,7 +1117,9 @@ export default function AgentMaskProposalCard({
             ? t('maskProposal.invertHint')
             : tool === 'point'
               ? t('maskProposal.pointHint')
-              : t('maskProposal.edgeHint')}
+              : tool === 'brush' || tool === 'eraser'
+                ? t('maskProposal.brushHint')
+                : t('maskProposal.edgeHint')}
         </p>
       )}
       {numbered && (
@@ -1180,7 +1246,8 @@ export default function AgentMaskProposalCard({
           disabled={locked || !ready}
           onClick={() => {
             setEditing((value) => !value)
-            if (editing && tool !== 'point') setTool('point')
+            if (editing && tool !== 'point' && tool !== 'brush' && tool !== 'eraser')
+              setTool('point')
           }}
         >
           <Icon name={editing ? 'close' : 'brush'} />

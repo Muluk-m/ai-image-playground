@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   addClick,
   annotationRegions,
+  cardMaskPlacement,
+  cardMaskStroke,
   confirmedMaskSource,
   dilateMask,
   editMaskRgba,
@@ -14,6 +16,7 @@ import {
   proposalRegions,
   regionForClick,
 } from '../../../../features/agent/lib/maskProposal'
+import { paintMaskStroke } from '../../../../features/canvas/lib/inpaintMask'
 
 /** 一个矩形的二值蒙版（测试夹具）。 */
 function rect(
@@ -175,5 +178,73 @@ describe('反选', () => {
     expect(invertInset(512, 512)).toBe(12)
     expect(invertInset(1536, 1024)).toBe(18)
     expect(invertInset(4096, 3000)).toBe(24)
+  })
+})
+
+describe('card brush and eraser reuse the canvas stroke rasterizer', () => {
+  function recorder() {
+    return {
+      save: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+    } as unknown as CanvasRenderingContext2D & {
+      moveTo: ReturnType<typeof vi.fn>
+      lineTo: ReturnType<typeof vi.fn>
+    }
+  }
+
+  it('maps relative card points onto original-size mask pixels', () => {
+    // 4K 原图在卡片上显示 640px 宽：屏幕上 24px 的笔刷，原图上是 144px。
+    const stroke = cardMaskStroke(
+      'brush',
+      [
+        { x: 0.5, y: 0.5 },
+        { x: 0.6, y: 0.25 },
+      ],
+      24,
+      640,
+      3840,
+      2160,
+    )
+    expect(stroke.points).toEqual([
+      { x: 1920, y: 1080 },
+      { x: 2304, y: 540 },
+    ])
+    expect(stroke.width).toBe(144)
+    const ctx = recorder()
+    paintMaskStroke(ctx, cardMaskPlacement(3840, 2160), { width: 3840, height: 2160 }, stroke, {
+      inverted: true,
+      color: '#fff',
+    })
+    expect(ctx.moveTo).toHaveBeenCalledWith(1920, 1080)
+    expect(ctx.lineTo).toHaveBeenCalledWith(2304, 540)
+    // 非正方形图上笔宽也不打折：摆放就是原图像素，两轴倍率都是 1。
+    expect(ctx.lineWidth).toBe(144)
+  })
+
+  it.each([
+    { tool: 'brush' as const, operation: 'source-over' },
+    { tool: 'eraser' as const, operation: 'destination-out' },
+  ])('$tool adds to / removes from the white-is-target card mask', ({ tool, operation }) => {
+    const ctx = recorder()
+    paintMaskStroke(
+      ctx,
+      cardMaskPlacement(1248, 1248),
+      { width: 1248, height: 1248 },
+      cardMaskStroke(tool, [{ x: 0.25, y: 0.75 }], 30, 312, 1248, 1248),
+      { inverted: true, color: '#fff' },
+    )
+    expect(ctx.globalCompositeOperation).toBe(operation)
+    // 单点轻触留一个圆点。
+    expect(ctx.moveTo).toHaveBeenCalledWith(312, 936)
+    expect(ctx.lineTo).toHaveBeenCalledWith(312.01, 936)
+    expect(ctx.lineWidth).toBe(120)
+  })
+
+  it('never shrinks a stroke below 2 original pixels', () => {
+    expect(cardMaskStroke('eraser', [{ x: 0, y: 0 }], 6, 2000, 400, 300).width).toBe(2)
   })
 })
