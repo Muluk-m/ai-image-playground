@@ -1,17 +1,18 @@
-# One EdgeTAM segmenter shared by every deployment on this VPS (internal, paid, test). It is its
-# own compose project, like infra, so no single app project owns it and redeploying one edition
-# never restarts it for the others. See deploy/segmenter/README.md.
+# The EdgeTAM segmenter, one instance per line: `test` (test releases only) and `prod` (production
+# releases only, shared by internal and paid). Each is its own compose project, like infra, so no
+# single app project owns it and redeploying one edition never restarts it for the others, while a
+# test release can never touch what production calls. See deploy/segmenter/README.md.
 #
 # Stateless: no env file, no database, no provider credential, no published port, read-only root.
 # It is reachable only on the app networks it is attached to: scripts/segmenter-deploy.sh connects
 # it to `<project>_application` of each edition that uses it, with the alias `segmenter`, so every
 # edition calls http://segmenter:8080 while the editions stay unable to reach each other.
-name: image-playground-segmenter
+name: image-playground-segmenter-${SEGMENTER_INSTANCE:?SEGMENTER_INSTANCE is set by scripts/segmenter-deploy.sh}
 
 services:
   segmenter:
     image: ${SEGMENTER_IMAGE:?SEGMENTER_IMAGE is set by scripts/segmenter-deploy.sh}
-    container_name: image-playground-segmenter
+    container_name: image-playground-segmenter-${SEGMENTER_INSTANCE}
     init: true
     restart: unless-stopped
     read_only: true
@@ -42,5 +43,5 @@ services:
 networks:
   # Its own network only; it needs no egress (the weights are in the image).
   segmenter:
-    name: image-playground-segmenter
+    name: image-playground-segmenter-${SEGMENTER_INSTANCE}
     internal: true
