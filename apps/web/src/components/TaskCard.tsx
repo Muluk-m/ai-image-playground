@@ -171,7 +171,7 @@ export default function TaskCard({
   const duration = (() => {
     let seconds: number
     if (task.status === 'running') {
-      seconds = Math.floor((now - task.createdAt) / 1000)
+      seconds = Math.floor((now - (task.batchStartedAt ?? task.createdAt)) / 1000)
     } else if (task.elapsed != null) {
       seconds = Math.floor(task.elapsed / 1000)
     } else {
@@ -184,8 +184,12 @@ export default function TaskCard({
   })()
   const isSwipeReady = Math.abs(swipeOffset) >= 40
   const showSwipeAction = isSwipeReady || swipeActionActive
-  const showRunningTimer = task.status === 'running'
-  const runningLabel = task.queuePhase ? t(`card.phase.${task.queuePhase}`) : t('card.generating')
+  const showRunningTimer = task.status === 'running' && !task.batchQueued
+  const runningLabel = task.batchQueued
+    ? t('card.batchQueued')
+    : task.queuePhase
+      ? t(`card.phase.${task.queuePhase}`)
+      : t('card.generating')
   const swipeBgClass = showSwipeAction
     ? swipeStartedSelected
       ? 'bg-muted'
