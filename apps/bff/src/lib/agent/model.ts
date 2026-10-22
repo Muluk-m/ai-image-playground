@@ -14,6 +14,7 @@ import { type AgentDispatchObserver, guardedAgentFetch } from './outbound-budget
 import { observeOverloadResponse } from './overload-response'
 import { providerFetch } from './provider-fetch'
 import type { ConfiguredAgentRuntime } from './provider-settings'
+import { requestInputTokens } from './request-budget'
 import { AGENT_STREAM_IDLE_TIMEOUT_MS, withIdleTimeout } from './stream-idle'
 import { retryOverloadedStream } from './stream-retry'
 import { agentThinking } from './thinking'
@@ -113,47 +114,65 @@ export function agentModel(depth?: AgentThinkingDepth): Model<'openai-completion
 
 export function agentStreamFn(
   depth?: AgentThinkingDepth,
-  observer: AgentDispatchObserver & { onRetry?: (message: AssistantMessage) => Promise<void> } = {},
+  observer: AgentDispatchObserver & {
+    onRetry?: (message: AssistantMessage, nextModelId: string) => Promise<void>
+  } = {},
   selectedRuntime?: ConfiguredAgentRuntime,
 ): StreamFn {
-  const { models } = selectedRuntime ?? runtime(depth)
   const transport = fetchImpl ?? globalThis.fetch
-  return (model, context, options) => {
-    // 证据属于这一份请求、这一轮尝试；网络异常的文本不能替代上游拒绝响应。
-    let rejection: ReturnType<typeof observeOverloadResponse> | undefined
-    return retryOverloadedStream(
-      (streamModel, context, options) => {
-        rejection = undefined
-        const guarded = guardedAgentFetch(async (input, init) => {
-          const response = await transport(input, init)
-          rejection = observeOverloadResponse(response)
-          return rejection.response
-        }, observer)
-        const outbound =
-          selectedRuntime && !selectedRuntime.trustedGateway
-            ? providerFetch(guarded, selectedRuntime.model.baseUrl)
-            : guarded
-        return models.streamSimple(streamModel, context, {
-          ...options,
-          maxRetries: 0,
-          fetch: withIdleTimeout(outbound, idleMs) as typeof globalThis.fetch,
-        })
-      },
-      () => {
-        const rejected = rejection?.isRejected() ?? false
-        if (rejected)
+  // 过载判断要读这一次 fetch 看到的响应。主模型和备用模型各开一条流，共用这一个槽。
+  const slot: { rejected: () => boolean } = { rejected: () => false }
+  const bind = (
+    selected: Pick<ConfiguredAgentRuntime, 'model' | 'models' | 'trustedGateway'> | undefined,
+  ): StreamFn => {
+    const { models } = selected ?? runtime(depth)
+    return (streamModel, context, options) => {
+      let rejection: ReturnType<typeof observeOverloadResponse> | undefined
+      const guarded = guardedAgentFetch(async (input, init) => {
+        const response = await transport(input, init)
+        rejection = observeOverloadResponse(response)
+        return rejection.response
+      }, observer)
+      const outbound =
+        selected && !selected.trustedGateway
+          ? providerFetch(guarded, selected.model.baseUrl)
+          : guarded
+      slot.rejected = () => {
+        const overloaded = rejection?.isRejected() ?? false
+        if (overloaded)
           log.warn(
             {
               event: 'agent.upstream_overload',
-              model: model.id,
+              model: streamModel.id,
               httpStatus: rejection?.response.status,
             },
             'upstream explicitly rejected model request due to overload',
           )
-        return rejected
-      },
+        return overloaded
+      }
+      return models.streamSimple(streamModel, context, {
+        ...options,
+        maxRetries: 0,
+        fetch: withIdleTimeout(outbound, idleMs) as typeof globalThis.fetch,
+      })
+    }
+  }
+  const fallback = selectedRuntime?.fallback
+  return (model, context, options) =>
+    retryOverloadedStream(
+      bind(selectedRuntime),
+      () => slot.rejected(),
       observer.onRetry,
       retryBackoffMs,
+      fallback
+        ? {
+            model: fallback.model,
+            stream: bind(fallback),
+            reasoning: fallback.effort === 'off' ? undefined : fallback.effort,
+            fits: (request) =>
+              requestInputTokens(request) <=
+              fallback.model.contextWindow - fallback.model.maxTokens,
+          }
+        : undefined,
     )(model, context, options)
-  }
 }
