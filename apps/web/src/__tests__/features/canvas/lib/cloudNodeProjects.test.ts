@@ -774,11 +774,10 @@ it("renews this device's old upload claim when a new upload round starts", async
     session.canvas!.origin,
   )
   await vi.waitFor(() => expect(uploadMediaSource).toHaveBeenCalledTimes(1))
-  await vi.waitFor(() =>
-    expect(Number(serverNode(server, 'photo')?.data.meta?.uploadStartedAt)).toBeGreaterThan(
-      Date.now() - 60_000,
-    ),
-  )
+  await vi.waitFor(() => {
+    const data = serverNode(server, 'photo')?.data as { meta?: Record<string, string> } | undefined
+    expect(Number(data?.meta?.uploadStartedAt)).toBeGreaterThan(Date.now() - 60_000)
+  })
   upload.resolve({ id: uploaded, sha256: 'photo' })
   await session.sync()
   expect(serverNode(server, 'photo')?.data).toMatchObject({ mediaId: uploaded })
