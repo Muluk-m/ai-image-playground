@@ -926,6 +926,9 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       // 引用清单与并进来的唤醒说明的位置，两条路因此只有一种拼法。
       const sent = turnModelPrompt(turnPromptBody(input, images.references), evidence)
       await execution.assert()
+      // 中止可能落在上面这次确认租约的等待里：那时 pi 还没开跑，`agent.abort()` 无处可去。
+      // 不在开跑前同步再看一眼，这一轮会照常请求上游并跑完。
+      if (aborted) return
       return agent.prompt(sent.text, sent.content)
     })
     .catch((thrown) => {
