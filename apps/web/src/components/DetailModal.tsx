@@ -1,4 +1,4 @@
-import { formatImageRatio } from '@image-playground/shared'
+import { formatImageRatio, parseImageSize } from '@image-playground/shared'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useImagePreview } from '../hooks/useImagePreview'
@@ -13,7 +13,7 @@ import {
   getClipboardFailureMessage,
 } from '../lib/clipboard'
 import { loadImageOriginal } from '../lib/imageSource'
-import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
+import { ActualValueBadge, DetailParamValue, measuredSizeOf } from '../lib/paramDisplay'
 import {
   editOutputImage,
   removeTask,
@@ -683,7 +683,7 @@ export default function DetailModal() {
                     paramKey="size"
                     className="font-medium"
                     actualParams={currentActualParams}
-                    measuredSize={currentImageSize ? currentImageSize.replace('×', 'x') : undefined}
+                    measuredSize={measuredSizeOf(parseImageSize(currentImageSize ?? ''))}
                   />
                 </div>
                 <div className="bg-card rounded-lg px-3 py-2">
