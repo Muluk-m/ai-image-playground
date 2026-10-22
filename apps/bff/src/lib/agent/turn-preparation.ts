@@ -222,6 +222,8 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     return { kind: 'authentication_required' }
 
   // 用户没确认确认门拦下的卡就发了新消息：那几张卡作废。读历史之前做，这一轮看到的就是作废之后的样子。
+  // 已排上的确认门续跑不在作废之列：续跑只在那一轮的卡全部确认后才排（与作废握同一把会话锁），
+  // 排上了就说明那一轮已没有待确认的卡、用户都点了确认，它按收件箱顺序先于这条新消息跑完。
   if (source.kind === 'message') await voidPendingToolGates(conversationId, userId)
   // 读历史会把窗口里结束了的后台任务结算成终局：唤醒与并进来的唤醒看到的就是它们的结果。
   // 窗口之外更老的那些不在这一趟里，由会话快照（`routes/agent.ts`）与维护任务结算。

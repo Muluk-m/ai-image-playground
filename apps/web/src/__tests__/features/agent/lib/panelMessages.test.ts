@@ -351,6 +351,21 @@ describe('直播专属', () => {
     // 续播（跟进服务端起的续跑轮）不是新消息：卡不动。
     const followed = replay([START], null, { messages: [gated], turns: {} })
     expect(followed.messages[0]).toMatchObject({ status: 'awaiting_confirmation' })
+    // 那条用户消息已经以服务端 id 在面板上（例如先读回了快照）：卡照样作废，用户消息不重复。
+    const shownUser: AgentPanelMessage = {
+      kind: 'text',
+      id: 'user-1',
+      turnId: TURN,
+      role: 'user',
+      text: USER_TEXT,
+      streaming: false,
+    }
+    const resent = replay([START], USER_TEXT, { messages: [gated, shownUser], turns: {} })
+    expect(resent.messages.find((one) => one.id === 'tool-gated')).toMatchObject({
+      status: 'failed',
+      errorCode: 'cancelled',
+    })
+    expect(resent.messages.filter((one) => one.id === 'user-1')).toHaveLength(1)
   })
 
   it('用户消息已经在面板上时，重放的 turnStart 不再添一条', () => {

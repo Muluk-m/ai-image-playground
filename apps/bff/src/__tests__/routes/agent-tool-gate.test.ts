@@ -297,6 +297,45 @@ describe('确认门', () => {
     expect(calls).toHaveLength(2)
   })
 
+  it('续跑已被取走、那一轮还在跑时重放确认：仍告诉调用方去跟进；跑完之后不再说', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [() => toolCallCompletion(generate('call-1'))]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一只橘猫', GATED)
+    const [pending] = await cardsOf(conversationId)
+    const input = {
+      conversationId,
+      owner: { kind: 'device' as const, deviceId: DEVICE },
+      messageId: pending!.messageId,
+      prompt: pending!.block.prompt ?? '',
+      deviceId: DEVICE,
+      userId: null,
+    }
+    expect(await confirmAgentGeneration(input)).toMatchObject({ kind: 'created', continued: true })
+    // 假装续跑已被另一个实例取走、正在跑：收件箱那一行记着取走它的轮次，执行租约是那一轮。
+    const continuationTurn = 'continuation-turn'
+    await db
+      .update(schema.agent_inbox)
+      .set({ status: 'consumed', consumed_turn_id: continuationTurn })
+      .where(eq(schema.agent_inbox.conversation_id, conversationId))
+    await db
+      .update(schema.agent_executions)
+      .set({ turn_id: continuationTurn, state: 'running', heartbeat_at: Date.now() })
+      .where(eq(schema.agent_executions.conversation_id, conversationId))
+    // 第一次确认的响应丢了，客户端重试：交回同一张卡，并让它跟进正在跑的那一轮。
+    expect(await confirmAgentGeneration(input)).toMatchObject({ kind: 'replayed', continued: true })
+
+    await db
+      .update(schema.agent_executions)
+      .set({ state: 'completed' })
+      .where(eq(schema.agent_executions.conversation_id, conversationId))
+    const settled = await confirmAgentGeneration(input)
+    expect(settled.kind).toBe('replayed')
+    expect('continued' in settled ? settled.continued : undefined).toBeUndefined()
+    expect(await tasksOf(conversationId)).toHaveLength(1)
+  })
+
   it('没确认就发了新消息：卡作废、不提交，再点确认也交不出去', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [

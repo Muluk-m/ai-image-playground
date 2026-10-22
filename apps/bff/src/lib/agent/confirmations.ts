@@ -27,7 +27,7 @@ import type { BffTransaction } from '../private-overlay'
 import { lockMediaOwner } from '../projectMedia'
 import { createQueueTask } from '../taskSubmission'
 import type { AgentOwner } from './conversations'
-import { enqueueAgentResume, gateResumePending } from './inbox'
+import { enqueueAgentResume, gateResumeLive } from './inbox'
 import {
   validateImageParameters,
   validateProductionConfirmation,
@@ -435,8 +435,9 @@ async function continueGatedTurn(
     tx,
   )
   if (queued) return { continued: true }
-  // 早就排过（上一次确认、或重放）：还没被起轮取走就让调用方再开一次轮，取走过的不再碰。
-  return (await gateResumePending(tx, input.conversationId, card.turnId)) ? { continued: true } : {}
+  // 早就排过（上一次确认的响应丢了、另一台设备、重放）：续跑还在等或正在跑，就照样告诉调用方
+  // 去跟进（还在等的顺带再开一次轮，正在跑的开轮是空操作）；跑完了就不再碰。
+  return (await gateResumeLive(tx, input.conversationId, card.turnId)) ? { continued: true } : {}
 }
 
 /**

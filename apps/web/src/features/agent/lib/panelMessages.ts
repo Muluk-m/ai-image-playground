@@ -272,26 +272,28 @@ export function reduceAgentPanelEvent(
         ),
         // 续播没有正文可补（`pendingUserText` 为空），找不到那条用户消息就不显示它：
         // 空气泡比少一条更糟。
+        // 用户的新消息起了轮：服务端准备这一轮时已把确认门还没确认的稿作废（不提交、不扣费），
+        // 卡在这一刻跟着换掉——不论那条用户消息是否已在面板上。起轮没成就不会走到这里，卡仍可确认。
         messages:
-          pendingUserText === null || state.messages.some((one) => one.id === event.userMessageId)
+          pendingUserText === null
             ? state.messages
-            : [
-                // 用户的新消息起了轮：服务端准备这一轮时已把确认门还没确认的稿作废（不提交、不扣费），
-                // 卡在这一刻跟着换掉。起轮没成就不会走到这里，卡仍可确认。
-                // 先上屏的那条换成服务端的 id；同一轮不会有第二条待确认的。
-                ...voidGatedDrafts(
-                  state.messages.filter((one) => one.kind !== 'text' || !one.pending),
-                ),
-                textCard(
-                  event.userMessageId,
-                  turnId,
-                  'user',
-                  pendingUserText,
-                  state.messages.find(
-                    (one): one is AgentTextMessage => one.kind === 'text' && one.pending === true,
-                  )?.references,
-                ),
-              ],
+            : state.messages.some((one) => one.id === event.userMessageId)
+              ? voidGatedDrafts(state.messages)
+              : [
+                  // 先上屏的那条换成服务端的 id；同一轮不会有第二条待确认的。
+                  ...voidGatedDrafts(
+                    state.messages.filter((one) => one.kind !== 'text' || !one.pending),
+                  ),
+                  textCard(
+                    event.userMessageId,
+                    turnId,
+                    'user',
+                    pendingUserText,
+                    state.messages.find(
+                      (one): one is AgentTextMessage => one.kind === 'text' && one.pending === true,
+                    )?.references,
+                  ),
+                ],
       }
     case 'assistantStart':
       // 先定稿再替换：重放同一条 `assistantStart` 时，替换会原样还它 `streaming: true`。

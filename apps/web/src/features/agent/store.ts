@@ -2621,11 +2621,20 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
 
     acceptGenerationReceipt(conversationId, view, continued = false) {
       if (get().conversationId !== conversationId) return
-      // 续跑跟进放在最前：卡片本身是否需要改写，都不影响那一轮已经在服务端起跑。
-      if (continued) jobs.followContinuation(conversationId)
       const incoming = panelMessage(view.id, view.turnId, view.role, view.content)
-      if (incoming.kind !== 'tool') return
       const shown = get().messages.find((one) => one.id === incoming.id)
+      // 续跑跟进放在最前：卡片本身是否需要改写，都不影响那一轮已经在服务端起跑。确认的响应丢了、
+      // 由同步读回时没有 `continued`：面板上还等着确认的确认门卡读回来已提交，也去跟进一次
+      // （那一轮没在跑时跟进是空操作）。
+      const gateSettled =
+        incoming.kind === 'tool' &&
+        incoming.gated === true &&
+        incoming.status !== 'awaiting_confirmation' &&
+        incoming.status !== 'failed' &&
+        shown?.kind === 'tool' &&
+        shown.status === 'awaiting_confirmation'
+      if (continued || gateSettled) jobs.followContinuation(conversationId)
+      if (incoming.kind !== 'tool') return
       if (
         shown?.kind === 'tool' &&
         agentJobUnsettled(incoming) &&

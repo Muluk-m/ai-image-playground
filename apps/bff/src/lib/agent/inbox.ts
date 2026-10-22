@@ -646,8 +646,11 @@ export async function enqueueAgentResume(
   return executor ? write(executor) : db.transaction(write)
 }
 
-/** 确认门拦下的这一轮排过的续跑此刻还在等起轮（没被取走、也没撤回）。 */
-export async function gateResumePending(
+/**
+ * 确认门拦下的这一轮排过的续跑此刻还「活着」：还在等起轮，或者已被取走、取走它的那一轮正在跑。
+ * 确认重放据此告诉客户端去跟进；续跑跑完、撤回或失败之后都不算。
+ */
+export async function gateResumeLive(
   executor: typeof db | BffTransaction,
   conversationId: string,
   turnId: string,
@@ -659,7 +662,11 @@ export async function gateResumePending(
       and(
         eq(inbox.conversation_id, conversationId),
         eq(inbox.client_message_id, agentGateResumeKey(turnId)),
-        eq(inbox.status, 'pending'),
+        sql`(${inbox.status} = 'pending' OR (${inbox.status} = 'consumed' AND EXISTS (
+          SELECT 1 FROM ${schema.agent_executions} running
+          WHERE running.conversation_id = ${inbox.conversation_id}
+            AND running.turn_id = ${inbox.consumed_turn_id}
+            AND running.state = 'running')))`,
       ),
     )
     .limit(1)
