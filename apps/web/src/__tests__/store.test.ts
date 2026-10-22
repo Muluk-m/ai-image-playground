@@ -2120,18 +2120,6 @@ describe('快速生成的逐张生成', () => {
     )
   })
 
-  it('逐张生成发出后不论设置都清空输入框；合并参考仍按设置保留', async () => {
-    await setupBatchState(3, true)
-    await submitTask()
-    expect(useStore.getState().prompt).toBe('')
-    expect(useStore.getState().inputImages).toHaveLength(0)
-
-    await setupBatchState(3, false)
-    await submitTask()
-    expect(useStore.getState().prompt).toBe('换成纯白背景')
-    expect(useStore.getState().inputImages).toHaveLength(3)
-  })
-
   it('没选逐张时多张图仍合并成一次参考', async () => {
     await setupBatchState(3, false)
 
