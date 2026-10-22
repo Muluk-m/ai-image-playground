@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import * as Y from 'yjs'
 import {
+  CANVAS_UPLOAD_CLOCK_SKEW_MS,
   CANVAS_UPLOAD_STALE_MS,
   canvasProjectDocument,
   canvasUploadingElsewhere,
@@ -331,6 +332,11 @@ describe('canvas upload claims', () => {
       canvasUploadingElsewhere(claimed('other', now - CANVAS_UPLOAD_STALE_MS), 'me', now),
     ).toBe(false)
     expect(canvasUploadingElsewhere({ fileId: 'local-1' }, 'me', now)).toBe(false)
+    // 别的设备时钟快几分钟照样算在传；开始时间远在未来（时钟错乱或伪造）不算，避免一直绕过缺图处理。
+    expect(canvasUploadingElsewhere(claimed('other', now + 60_000), 'me', now)).toBe(true)
+    expect(
+      canvasUploadingElsewhere(claimed('other', now + CANVAS_UPLOAD_CLOCK_SKEW_MS + 1), 'me', now),
+    ).toBe(false)
     expect(canvasUploadingElsewhere({ ...claimed('other', now), mediaId: 'm' }, 'me', now)).toBe(
       false,
     )

@@ -77,6 +77,8 @@ export const CANVAS_UPLOAD_DEVICE_META = 'uploadDevice'
 export const CANVAS_UPLOAD_STARTED_META = 'uploadStartedAt'
 /** 超过这么久还没收成云媒体，就不再显示「上传中」而显示缺图（上传那台设备可能已离线或失败）。 */
 export const CANVAS_UPLOAD_STALE_MS = 30 * 60_000
+/** 别的设备写的开始时间最多可以比本机时钟晚这么多（设备间的时钟偏差）。 */
+export const CANVAS_UPLOAD_CLOCK_SKEW_MS = 5 * 60_000
 
 interface CanvasUploadData {
   fileId?: string
@@ -93,7 +95,15 @@ export function canvasUploadingElsewhere(
   if (data.mediaId || !isLocalCanvasFileId(data.fileId)) return false
   const by = data.meta?.[CANVAS_UPLOAD_DEVICE_META]
   const since = Number(data.meta?.[CANVAS_UPLOAD_STARTED_META])
-  return !!by && by !== device && Number.isFinite(since) && now - since < CANVAS_UPLOAD_STALE_MS
+  // 开始时间不能比本机时钟晚太多：容忍设备间几分钟的时钟偏差，再往后的（时钟错乱或伪造）不算在传，
+  // 否则这个节点会一直被当成上传中、绕过缺图处理。
+  return (
+    !!by &&
+    by !== device &&
+    Number.isFinite(since) &&
+    since - now <= CANVAS_UPLOAD_CLOCK_SKEW_MS &&
+    now - since < CANVAS_UPLOAD_STALE_MS
+  )
 }
 
 /** 去掉上传声明（收成云媒体后）；没有声明时原样返回。 */

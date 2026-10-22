@@ -745,6 +745,80 @@ it('rechecks after the rename wait and holds back a local candidate added meanwh
   record.dispose()
 })
 
+it("renews this device's old upload claim when a new upload round starts", async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const upload = deferred<NonNullable<Awaited<ReturnType<typeof uploadMediaSource>>>>()
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockImplementationOnce(() => upload.promise)
+  record.editor.doc.files = { photo: 'data:image/png;base64,cGhvdG8=' }
+  // 上一轮失败留下的本设备声明，已经 29 分钟了。
+  const old = Date.now() - 29 * 60_000
+  insertCanvasNode(
+    session.canvas!.doc,
+    {
+      id: 'photo',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: {
+        fileId: 'photo',
+        meta: { uploadDevice: getDeviceId(), uploadStartedAt: String(old) },
+      },
+    },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(uploadMediaSource).toHaveBeenCalledTimes(1))
+  await vi.waitFor(() =>
+    expect(Number(serverNode(server, 'photo')?.data.meta?.uploadStartedAt)).toBeGreaterThan(
+      Date.now() - 60_000,
+    ),
+  )
+  upload.resolve({ id: uploaded, sha256: 'photo' })
+  await session.sync()
+  expect(serverNode(server, 'photo')?.data).toMatchObject({ mediaId: uploaded })
+  record.dispose()
+})
+
+it('uploads a legacy image whose fileId the server would not accept before sending it', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const upload = deferred<NonNullable<Awaited<ReturnType<typeof uploadMediaSource>>>>()
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockImplementationOnce(() => upload.promise)
+  // 历史数据里带空格、斜杠的 fileId 不是服务端收的上传中格式：不能先发，照旧先收成云媒体。
+  record.editor.doc.files = { 'old dir/photo.png': 'data:image/png;base64,cGhvdG8=' }
+  insertCanvasNode(
+    session.canvas!.doc,
+    {
+      id: 'legacy',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: { fileId: 'old dir/photo.png' },
+    },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(uploadMediaSource).toHaveBeenCalledTimes(1))
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  expect(serverNode(server, 'legacy')).toBeUndefined()
+  upload.resolve({ id: uploaded, sha256: 'photo' })
+  await session.sync()
+  expect(serverNode(server, 'legacy')?.data).toMatchObject({ mediaId: uploaded })
+  expect(session.getSnapshot().status).toBe('saved')
+  record.dispose()
+})
+
 it('reports a local image whose original is gone instead of passing it off as uploading', async () => {
   pendingMedia.supported = true
   const { session, record, socket, server } = await fixture()
