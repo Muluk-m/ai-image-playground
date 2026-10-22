@@ -66,7 +66,7 @@ import {
   AgentTransportError,
   type AgentTurnSource,
   abortTurn,
-  confirmToolPrompt,
+  confirmToolCard,
   fetchConversations,
   fetchMessages,
   fetchSubmissionReceipt,
@@ -341,7 +341,8 @@ export interface AgentState {
    * 确认一张草稿卡：把这份提示词原样交给服务端提交生成任务，面板换上提交之后的那张卡，
    * 并接着等任务结果。重复点击、多标签页同时确认都只会有一个任务。
    */
-  acceptGenerationReceipt(conversationId: string, view: AgentMessageView): void
+  /** `continued`：服务端接着确认门拦下的那一轮起了续跑，面板跟进那一轮的流。 */
+  acceptGenerationReceipt(conversationId: string, view: AgentMessageView, continued?: boolean): void
   confirmPrompt(messageId: string, prompt: string): Promise<AgentPromptConfirmResult>
   /**
    * 按面板上的先后逐张确认所有待确认草稿。一张被拒（余额不够、没登录）就停下，
@@ -2618,11 +2619,18 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       set((state) => ({ promptDrafts: { ...state.promptDrafts, [messageId]: prompt } }))
     },
 
-    acceptGenerationReceipt(conversationId, view) {
+    acceptGenerationReceipt(conversationId, view, continued = false) {
       if (get().conversationId !== conversationId) return
       const incoming = panelMessage(view.id, view.turnId, view.role, view.content)
-      if (incoming.kind !== 'tool') return
       const shown = get().messages.find((one) => one.id === incoming.id)
+      // 续跑跟进放在最前：卡片本身是否需要改写，都不影响那一轮已经在服务端起跑。确认的响应丢了、
+      // 由同步读回时没有 `continued`：读回来的确认门卡已提交、任务还没出结果，就去跟进一次。不看
+      // 面板上原来那张卡的状态——别的标签页或快照可能先把它改成了已提交。跟进按会话去重，那一轮
+      // 没在跑时是空操作。
+      const gateSettled =
+        incoming.kind === 'tool' && incoming.gated === true && agentJobUnsettled(incoming)
+      if (continued || gateSettled) jobs.followContinuation(conversationId)
+      if (incoming.kind !== 'tool') return
       if (
         shown?.kind === 'tool' &&
         agentJobUnsettled(incoming) &&
@@ -2653,15 +2661,21 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const text = prompt.trim()
       // 空提示词提交不了；界面按住了按钮，这里守住第二道。
       if (!conversationId || draft?.kind !== 'tool' || !text) return { ok: false, reason: 'failed' }
+      // 确认门拦下的稿：用户已经发出新消息、新的一轮正在起（`turn` 在消息上屏那一刻就是 running），
+      // 服务端起轮时会把它作废。这时的确认与新轮抢跑，不交出去；起轮失败回到空闲后仍可确认。
+      if (draft.gated && get().turn === 'running') return { ok: false, reason: 'notConfirmable' }
       let view: AgentMessageView
+      let continued = false
       try {
-        view = await confirmToolPrompt(
+        const confirmed = await confirmToolCard(
           conversationId,
           messageId,
           text,
           undefined,
           draft.productionDraftRevision,
         )
+        view = confirmed.message
+        continued = confirmed.continued === true
       } catch (thrown) {
         if (!(thrown instanceof AgentRequestError)) return { ok: false, reason: 'failed' }
         if (thrown.status === 404) return { ok: false, reason: 'gone' }
@@ -2698,6 +2712,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         }
       })
       jobs.track(conversationId, card, { kind: 'reserve' })
+      // 确认门拦下的那一轮卡都确认完了，服务端接着它起了续跑：跟进去，回复接在原来那段后面。
+      if (continued) jobs.followContinuation(conversationId)
       return { ok: true }
     },
 
