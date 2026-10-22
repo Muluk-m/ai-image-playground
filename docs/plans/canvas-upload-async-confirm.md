@@ -41,7 +41,7 @@ complete 是同步的，返回 `ready` 后前端才拿到可以写进文档的 `
 - 画布文档允许引用 `verifying` 状态的 `mediaId`：`canvasSyncStore` 的所有权检查改为 `status IN ('verifying','ready','rejected')`。`rejected` 也必须放行：`accessCanvasDocument` 每次更新都校验整份文档，上传设备离线时，被拒的节点会一直留在文档里，只放行 `verifying`/`ready` 会让之后所有不相关的编辑都因 `canvas_media_not_owned` 失败。被拒的引用在文档里是墓碑，只用于显示「图片无效」，`accessMedia` 对它返回 422，不签发 URL。
 - 本机：节点继续用本机原图显示，不必等预览。
 - 别的设备：看到 `verifying` 的节点时显示「图片处理中」，拿到 `ready` 事件后再拉预览。已有的 WS 通道可以推一条 `media.ready` 或 `media.rejected`。
-- 状态事件只是加速，不能是唯一来源：校验可能在引用进文档之前就完成，设备也可能正好断线，而项目 WS 重连时只重放 Yjs 文档，文档里只有 `mediaId`，没有校验状态。所以（1）WS 订阅/重连时，服务端对文档里仍在 `verifying` 或已 `rejected` 的 `mediaId` 补发一次当前状态快照；（2）客户端对每个停在「处理中」的节点用 `accessMedia` 退避轮询（如 2s、4s、8s，上限 30s），直到 `ready` 或 `rejected`。事件、快照、轮询任一先到即可。
+- 状态事件只是加速，不能是唯一来源：校验可能在引用进文档之前就完成，设备也可能正好断线，而项目 WS 重连时只重放 Yjs 文档，文档里只有 `mediaId`，没有校验状态。所以（1）WS 订阅/重连时，服务端对文档里仍在 `verifying` 或已 `rejected` 的 `mediaId` 补发一次当前状态快照；（2）客户端对每个停在「处理中」的节点用 `accessMedia` 退避轮询（如 2s、4s、8s，上限 30s），直到 `ready` 或 `rejected`。事件、快照、轮询任一先到即可。三条路径都要带上拒绝原因：原因存在 `media_objects.rejected_reason`（见第 3 节迁移），快照和 `accessMedia` 的 422 响应体都从这一列读，不依赖那条可能丢失的实时事件。
 - 失败：变成 `rejected` 后，服务端从文档里拿不掉这个引用，所以由客户端负责。上传设备收到 `media.rejected` 后，把节点打回 `media-local` 并给出原因：不支持的类型、超像素、动图。其他设备显示「图片无效」。
 - 依赖确认结果的地方要改成等 `ready`：生成任务拿这张图做参考图、导出、分享、智能体读图。统一在取签名 URL 的 `accessMedia` 处等待，或返回 409 `media_verifying` 让调用方重试。
 - 收益：从用户视角看，图片节点在 PUT 完成时就「已保存」，4 张图的总时间约为 reserve 加 PUT 的最大值。按 test 环境实测，约 1.5–2s，原来是 4s 以上。
@@ -49,11 +49,18 @@ complete 是同步的，返回 `ready` 后前端才拿到可以写进文档的 `
 ## 3. 推荐路线
 1. **A（单独 PR）**：只改服务端，不改协议，确认从约 1.7s 降到约 1.0s。
 2. **B + C（需要评审的协议变更）**：
-   - DB 迁移：`media_objects_status_check` 加 `verifying` 和 `rejected`。
+   - DB 迁移：`media_objects_status_check` 加 `verifying` 和 `rejected`；新增可空列 `rejected_reason`，存稳定的原因码（`unsupported_type`、`pixel_limit`、`animated`、`corrupt`），置 `rejected` 时和状态同一条 UPDATE 写入，在删除暂存对象之前落库。
    - API：`complete` 返回 202；新增 WS 事件；`accessMedia` 增加 `media_verifying`。
    - shared：画布校验接受 `verifying`；新老客户端兼容。旧客户端只认 `ready`，所以 `complete` 要看 capabilities 位 `asyncMediaConfirm` 决定：只有新客户端带 `prefer: async` 时才返回 202，旧客户端仍然同步等待。
+   - 新老服务端也要兼容：现在的 `canvasSyncStore` 只放行 `status = 'ready'`，回滚或灰度混跑时，旧 BFF 会拒绝所有仍含 `verifying`/`rejected` 节点的文档更新，而 `rejected` 节点永远不会变回 `ready`。所以分两次发布：
+     1. 扩展版：DB 迁移、`canvasSyncStore` 放行三种状态、`accessMedia` 认识 `verifying`/`rejected`、快照和轮询路径都上线，但服务端从不写这两个状态，`complete` 仍然同步。
+     2. 启用版：扩展版在所有实例上跑稳后，用服务端开关 `ASYNC_MEDIA_CONFIRM`（默认关）打开 202 和后台校验。之后回滚只允许退到扩展版，不退到扩展版之前；要彻底退回，先关开关，再等存量 `verifying` 处理完。
    - 计费和配额：`reserved_bytes` 在 reserve 时就已占用，不受影响。
-   - `rejected` 的回收要单独设计，不能交给现有的 sweep：普通画布上传 `attachment_managed = false`，而 `purgeExpiredAttachmentMedia` 只扫 managed 附件；文档里的引用还会保护这行不被删。方案：置 `rejected` 时立即删除暂存对象（服务端专用 key 尚未写入）；行本身保留为墓碑，`reserved_bytes` 按 0 计；新增 `purgeRejectedMedia` 定时任务，删除已不被任何文档引用、且 `rejected` 超过 7 天的行。
+   - `rejected` 的回收要单独设计，不能交给现有的 sweep：普通画布上传 `attachment_managed = false`，而 `purgeExpiredAttachmentMedia` 只扫 managed 附件；文档里的引用还会保护这行不被删。方案：
+     - 置 `rejected` 时立即删除暂存对象（服务端专用 key 尚未写入）；行本身保留为墓碑，保留暂存 key，`reserved_bytes` 按 0 计。
+     - 只删一次不够：预签名 PUT 有效期 600 秒（`durableMediaStore.sign`），客户端在这期间重试 PUT 会把暂存对象重新建出来。所以 `purgeRejectedMedia` 在删行之前按行里保存的暂存 key 再删一次对象（对象不存在也算成功）；删行发生在 `rejected` 7 天后，远超签名有效期，此后不会再有对象被建出来。
+     - 项目引用要先清：`canvasSyncStore` 写 `media_references` 只增不删，节点从文档里消失后那条 `owner_kind = 'project'` 的边还在，而外键是 `onDelete: 'restrict'`，墓碑行永远删不掉。所以 `purgeRejectedMedia` 对每个候选行，在项目行锁内读当前文档，文档已不再引用这个 `mediaId` 的项目，删掉对应的 project 引用；被拒的媒体没有有效字节，迁移归档用不到这些边。之后只有在其他 `owner_kind` 的引用也不存在时才删行，否则留到下一轮。
+     - 定时任务删除的条件：`rejected` 超过 7 天，且上面两步做完后已没有任何引用。
 
 ## 4. 风险与待定
 - **C 的跨设备体验**：别的设备会短暂看到没有预览的节点，需要设计「处理中」占位。
