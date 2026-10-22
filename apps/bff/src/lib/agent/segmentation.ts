@@ -198,53 +198,112 @@ function edgeTam(origin: string): SegmentationProvider {
   }
 }
 
-function maskBounds(mask: SegmentationMask) {
-  let minX = mask.width,
-    minY = mask.height,
-    maxX = -1,
-    maxY = -1,
-    area = 0
-  for (let y = 0; y < mask.height; y++)
-    for (let x = 0; x < mask.width; x++) {
-      if (!mask.data[y * mask.width + x]) continue
-      area++
-      if (x < minX) minX = x
-      if (y < minY) minY = y
-      if (x > maxX) maxX = x
-      if (y > maxY) maxY = y
+/** 框在蒙版像素坐标里的整数范围（左上含、右下不含）。 */
+function pixelBox(box: AgentNormalizedBox, width: number, height: number) {
+  const x0 = Math.max(0, Math.min(width, Math.round(box.x * width)))
+  const y0 = Math.max(0, Math.min(height, Math.round(box.y * height)))
+  const x1 = Math.max(x0, Math.min(width, Math.round((box.x + box.width) * width)))
+  const y1 = Math.max(y0, Math.min(height, Math.round((box.y + box.height) * height)))
+  return { x0, y0, x1, y1 }
+}
+
+/**
+ * 去掉候选蒙版里与主体不相连的零碎块（8 邻接）。留下：最大的那块；含正向提示点的块；
+ * 面积不小于最大块一半、且大半落在框内的块（被遮挡断开的同一对象）。其余小岛都去掉，
+ * 例如分割服务顺带圈进来的挂画一角、窗帘一片。
+ */
+export function dropStrayFragments(
+  mask: SegmentationMask,
+  box: AgentNormalizedBox,
+  points?: readonly AgentMaskPromptPoint[],
+): SegmentationMask {
+  const { width, height } = mask
+  const parts = labelComponents(mask.data, true, width, height, true)
+  const count = parts.areas.length - 1
+  if (count <= 1) return mask
+  const { x0, y0, x1, y1 } = pixelBox(box, width, height)
+  const inBox = new Float64Array(count + 1)
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const label = parts.labels[y * width + x]!
+      if (label) inBox[label]!++
     }
-  return area ? { minX, minY, maxX: maxX + 1, maxY: maxY + 1, area } : null
+  let largest = 0
+  for (let label = 1; label <= count; label++)
+    if (parts.areas[label]! > (parts.areas[largest] ?? 0)) largest = label
+  const keep = new Uint8Array(count + 1)
+  keep[largest] = 1
+  for (const point of points ?? []) {
+    if (!point.include) continue
+    const px = Math.min(width - 1, Math.max(0, Math.floor(point.x * width)))
+    const py = Math.min(height - 1, Math.max(0, Math.floor(point.y * height)))
+    const label = parts.labels[py * width + px]!
+    if (label) keep[label] = 1
+  }
+  const big = parts.areas[largest]!
+  for (let label = 1; label <= count; label++) {
+    const area = parts.areas[label]!
+    if (area >= big * FRAGMENT_KEEP_RATIO && inBox[label]! >= area * 0.5) keep[label] = 1
+  }
+  const data = new Uint8Array(mask.data.length)
+  for (let i = 0; i < data.length; i++) if (keep[parts.labels[i]!]) data[i] = 255
+  return { ...mask, data }
 }
 
-/** 模型给的框与蒙版外接框的交并比；两者都在原图像素坐标里。 */
+/** 与最大块不相连的部分至少要有它这么大（比例）才算同一对象被遮挡断开，否则当零碎去掉。 */
+export const FRAGMENT_KEEP_RATIO = 0.5
+
+/**
+ * 蒙版与模型给的框按像素比：`inside` 是蒙版落在框内的比例（圈出框外的东西就低），
+ * `coverage` 是蒙版占框面积的比例（只圈了对象一小块就低）。不再用外接框交并比：
+ * 一张散成几片（挂画一角加窗帘一片）的错蒙版，外接框反而可能与框对得很齐。
+ */
+export function boxOverlap(mask: SegmentationMask, box: AgentNormalizedBox) {
+  const { x0, y0, x1, y1 } = pixelBox(box, mask.width, mask.height)
+  let area = 0
+  let inside = 0
+  for (let y = 0; y < mask.height; y++) {
+    const row = y * mask.width
+    for (let x = 0; x < mask.width; x++) {
+      if (!mask.data[row + x]) continue
+      area++
+      if (x >= x0 && x < x1 && y >= y0 && y < y1) inside++
+    }
+  }
+  const boxArea = (x1 - x0) * (y1 - y0)
+  return {
+    inside: area ? inside / area : 0,
+    coverage: boxArea ? inside / boxArea : 0,
+  }
+}
+
+/** 蒙版至少这么大比例落在框内，否则当分割认错了对象。 */
+export const MIN_MASK_INSIDE_BOX = 0.5
+
+/**
+ * 与框的一致度：框内比例 × 覆盖率的平方根。开平方让细长对象（灯杆、在宽框里的人）不至于
+ * 因为占框比例小就输给更小的局部，同时整件对象仍比只圈一块的候选得分高。
+ */
 export function boxAgreement(mask: SegmentationMask, box: AgentNormalizedBox): number {
-  const bounds = maskBounds(mask)
-  if (!bounds) return 0
-  const bx0 = box.x * mask.width,
-    by0 = box.y * mask.height,
-    bx1 = (box.x + box.width) * mask.width,
-    by1 = (box.y + box.height) * mask.height
-  const ix = Math.max(0, Math.min(bounds.maxX, bx1) - Math.max(bounds.minX, bx0))
-  const iy = Math.max(0, Math.min(bounds.maxY, by1) - Math.max(bounds.minY, by0))
-  const inter = ix * iy
-  const union =
-    (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY) + (bx1 - bx0) * (by1 - by0) - inter
-  return union > 0 ? inter / union : 0
+  const { inside, coverage } = boxOverlap(mask, box)
+  return inside < MIN_MASK_INSIDE_BOX ? 0 : inside * Math.sqrt(coverage)
 }
 
-/** 最低框一致度：低于它就当分割认错了对象，退回按框。 */
-export const MIN_BOX_AGREEMENT = 0.3
-
-/** 置信度乘框一致度取最高的那张；都对不上框时返回 null。 */
+/**
+ * 每张候选先去掉零碎块，再按「置信度 × 与框的像素一致度」取最高的一张（交回的就是去碎后的
+ * 那张）；大半落在框外的候选不参选，都不行时返回 null（调用方按框兜底）。
+ */
 export function pickMask(
   masks: readonly SegmentationMask[],
   box: AgentNormalizedBox,
+  points?: readonly AgentMaskPromptPoint[],
 ): SegmentationMask | null {
   let best: SegmentationMask | null = null
   let bestValue = 0
-  for (const mask of masks) {
+  for (const candidate of masks) {
+    const mask = dropStrayFragments(candidate, box, points)
     const agreement = boxAgreement(mask, box)
-    if (agreement < MIN_BOX_AGREEMENT) continue
+    if (!agreement) continue
     const value = (mask.score ?? 1) * agreement
     if (value > bestValue) {
       best = mask
@@ -437,7 +496,7 @@ export function promptBox(
 }
 
 /**
- * 跑一次服务端分割：三张候选里按「置信度 × 与框的交并比」取一张，放大回原图并外扩。
+ * 跑一次服务端分割：三张候选各自去掉零碎块后，按「置信度 × 与框的像素一致度」取一张，放大回原图并外扩。
  * 任何失败都只记一笔并返回 null，调用方按框兜底。
  */
 export async function segmentProposal(request: SegmentationRequest) {
@@ -447,7 +506,7 @@ export async function segmentProposal(request: SegmentationRequest) {
   try {
     const masks = await provider.segment(request)
     const segmentedMs = Date.now() - startedAt
-    const chosen = pickMask(masks, request.box)
+    const chosen = pickMask(masks, request.box, request.points)
     const picked = chosen ? await shapeMask(chosen, request.width, request.height) : null
     log.info(
       {
