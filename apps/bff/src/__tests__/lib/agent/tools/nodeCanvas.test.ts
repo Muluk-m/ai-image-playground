@@ -354,6 +354,22 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
   expect(proposal.details).not.toHaveProperty('job')
   expect(proposal.details?.canvasRun).toMatchObject({ direct: true, status: 'pending' })
   expect(proposal.details?.canvasRun).not.toHaveProperty('autoRun')
+  // 直接出图的回执与查询：明说已自动开始运行、无需用户确认，不能让模型转述成「等待确认后开跑」。
+  const receipt = (result: { content: readonly unknown[] }) =>
+    JSON.parse((result.content[0] as { text: string }).text) as { note: string }
+  expect(receipt(proposal).note).toContain('原标签页已自动开始运行，无需用户确认')
+  expect(receipt(proposal).note).toContain('不要说待确认、等待确认、等原标签页确认')
+  const directProposal = await runNodes
+    .create({ ...context, params: { autoSubmit: true } })
+    .execute('direct-lookup', { nodeIds: ['image'] }, undefined, undefined)
+  const directId = directProposal.details?.canvasRun?.authorizationId
+  if (!directId) throw new Error('missing direct authorization')
+  // 查询这一轮关着直接出图也不影响：说法跟着授权自己记下的那一轮偏好走。
+  const directLookup = await runNodes
+    .create({ ...context, params: { autoSubmit: false } })
+    .execute('lookup-direct', { authorizationId: directId }, undefined, undefined)
+  expect(receipt(directLookup).note).toContain('正在自动开始运行，无需用户确认')
+  expect(receipt(directLookup).note).not.toMatch(/^待/)
   const rows = await db
     .select({ id: schema.agent_stage_authorizations.id })
     .from(schema.agent_stage_authorizations)
@@ -362,6 +378,14 @@ it('only proposes an authorized batch and never submits or modifies the canvas b
     .create({ ...context, params: { autoSubmit: false }, autoSubmit: { take: () => true } })
     .execute('manual', { nodeIds: ['image'], autoSubmit: true } as never, undefined, undefined)
   expect(turnedOff.details?.canvasRun).toMatchObject({ direct: false, status: 'pending' })
+  expect(receipt(turnedOff).note).toContain('阶段授权待确认')
+  expect(receipt(turnedOff).note).not.toContain('无需用户确认')
+  const manualId = turnedOff.details?.canvasRun?.authorizationId
+  if (!manualId) throw new Error('missing manual authorization')
+  const manualLookup = await runNodes
+    .create({ ...context, params: { autoSubmit: true } })
+    .execute('lookup-manual', { authorizationId: manualId }, undefined, undefined)
+  expect(receipt(manualLookup).note).toContain('待用户在确认卡上确认')
   const explicit = await runNodes
     .create({ ...context, params: { autoSubmit: true } })
     .execute('direct', { nodeIds: ['image'] }, undefined, undefined)
@@ -936,6 +960,11 @@ it('lays out grid first frames with asset references and finalizes the storyboar
   const tasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
   const proposal = await run(runStoryboardFrames, { storyboardId: 'board' })
   const canvasRun = proposal.details?.canvasRun
+  // 直接出图下的首帧回执：分镜表随开跑自动定稿，不出现「开跑前确认」这类会被转述成等人的说法。
+  const frameNote = JSON.parse((proposal.content[0] as { text: string }).text).note as string
+  expect(frameNote).toContain('无需用户确认')
+  expect(frameNote).toContain('分镜表自动定稿')
+  expect(frameNote).not.toContain('开跑前确认')
   expect(canvasRun).toMatchObject({
     stage: '首帧',
     status: 'pending',

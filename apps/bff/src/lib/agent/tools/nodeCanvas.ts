@@ -676,12 +676,17 @@ async function proposing<T>(propose: () => Promise<T>): Promise<T> {
     throw error
   }
 }
+/**
+ * 直接出图时对用户怎么说。授权在服务端要经原标签页「确认」一次才能开跑，但那是标签页自己按偏好
+ * 自动完成的，不是人在点：回执里一出现「确认」，模型就会转述成「等待确认后开跑」，用户以为要他动手。
+ */
+const DIRECT_SAY =
+  '对用户只说「已登记并自动开始运行」，不要说待确认、等待确认、等原标签页确认或需要用户操作。'
 const STAGE_NOTE = {
-  direct:
-    '直接出图：阶段授权已登记，原标签页会立即开跑，没有确认卡，也不等待撤销。不要说待确认。只有 taskIds 中的任务已提交。不得声称已生成。',
+  direct: `直接出图：阶段授权已登记，原标签页已自动开始运行，无需用户确认，没有确认卡，也不等待撤销。${DIRECT_SAY}只有 taskIds 中的任务已提交。不得声称已生成。`,
   pending:
     '阶段授权待确认；用户确认前不会提交或扣费。确认后只由原标签页运行，实际提交与花费应查询授权状态。不得声称已生成。',
-  storyboardDirect: '原标签页开跑前确认这条授权，分镜表随之定稿。',
+  storyboardDirect: '开始运行时分镜表自动定稿，用户不需要做任何操作。',
   storyboardPending: '用户确认这条授权时分镜表随之定稿。',
   storyboardStale:
     '这条首帧阶段授权登记之后分镜表的镜头又改过，它已过时，确认会被拒绝，不会提交或扣费。不要请用户确认它；向用户说明镜头表改过，需要按新镜头表重新发起首帧阶段。',
@@ -736,6 +741,16 @@ function canvasStageResult(
     details: { canvasRun },
   }
 }
+/**
+ * 查询授权时的说明。直接出图登记的授权在原标签页自动确认前也是 pending，这段时间只差标签页接手，
+ * 不能说成「待确认」：按授权自己记下的那一轮偏好分开说，不看查询这一轮。
+ */
+function authorizationLookupNote(authorization: StageAuthorization): string {
+  if (authorization.status !== 'pending') return '只有 taskIds 中的任务已提交；不代表已完成。'
+  if (authorization.turn?.autoSubmit === true)
+    return `直接出图登记的授权，原标签页正在自动开始运行，无需用户确认；还没有任务记录，尚未提交。${DIRECT_SAY}`
+  return '待用户在确认卡上确认，尚未提交。'
+}
 export const runNodes = defineAgentTool({
   name: 'runNodes',
   label: '阶段授权',
@@ -743,7 +758,7 @@ export const runNodes = defineAgentTool({
   available,
   onError: 'continue',
   guidance:
-    '为画布节点生成图片或视频都用 runNodes。先 readCanvas 确认节点名称与范围。是否立即开跑由这一轮请求里的用户直接出图偏好决定，工具参数改不了。回执会写明是待确认还是已交给原标签页开跑。只有查到 taskIds 才能说已提交，有真实结果才能说已完成。画布不使用出图模式每轮自动提交额度。',
+    '为画布节点生成图片或视频都用 runNodes。先 readCanvas 确认节点名称与范围。是否立即开跑由这一轮请求里的用户直接出图偏好决定，工具参数改不了。回执会写明是待用户确认，还是已自动开始运行、无需用户确认。只有查到 taskIds 才能说已提交，有真实结果才能说已完成。画布不使用出图模式每轮自动提交额度。',
   description:
     '为当前云端画布的一组可生成图片或视频节点登记持久化阶段授权。预算由服务端按节点模型、数量和倍率计算，estimatedCredits 不决定上限。有提示词的素材按普通出图授权；没写提示词但有素材描述的图片素材按「素材名：描述」出图；两者都没有的素材不会单独授权。直接出图时原标签页立即开跑；用户关掉直接出图时才等确认卡。提供 authorizationId 时只查询真实授权状态、已用额度与任务记录，不重新提交。范围外或预算不足必须重新提案。',
   parameters: Type.Object({
@@ -771,10 +786,7 @@ export const runNodes = defineAgentTool({
             text: JSON.stringify({
               ...authorization,
               submitted: authorization.attempts.some((attempt) => attempt.taskIds.length > 0),
-              note:
-                authorization.status === 'pending'
-                  ? '待确认，尚未提交。'
-                  : '只有 taskIds 中的任务已提交；不代表已完成。',
+              note: authorizationLookupNote(authorization),
             }),
           },
         ],
@@ -956,9 +968,9 @@ export const runStoryboardFrames = defineAgentTool({
   available,
   onError: 'continue',
   guidance:
-    '分镜表出首帧只用本工具，顺序是先素材、后首帧：分镜表引用的人物、地点素材都有图之后再调用；素材还没有图时，先用 runNodes（stage 写「素材」）出素材，素材批跑完系统会唤醒你，那时再调用本工具。首帧节点由本工具自己铺：不要用 createNodes、connectNodes 手工搭首帧节点，也不要对首帧节点用 runNodes。默认 mode 为 grid，宫格一次出图再切分；用户要求某一镜单独重出时传 shotIds（逐镜），shotIds 填分镜表镜头 id，不是首帧节点 id。素材缺图时本工具不铺节点也不登记授权，回执会列出缺图的素材节点：照回执在同一轮接着用 runNodes 发起素材阶段，不要停下来只向用户转述；画布上已有合适的图就用 importCanvasImage 收进素材。这条授权一经确认，分镜表就定稿。只有查到 taskIds 才能说已提交，读到真实结果才能说已完成。',
+    '分镜表出首帧只用本工具，顺序是先素材、后首帧：分镜表引用的人物、地点素材都有图之后再调用；素材还没有图时，先用 runNodes（stage 写「素材」）出素材，素材批跑完系统会唤醒你，那时再调用本工具。首帧节点由本工具自己铺：不要用 createNodes、connectNodes 手工搭首帧节点，也不要对首帧节点用 runNodes。默认 mode 为 grid，宫格一次出图再切分；用户要求某一镜单独重出时传 shotIds（逐镜），shotIds 填分镜表镜头 id，不是首帧节点 id。素材缺图时本工具不铺节点也不登记授权，回执会列出缺图的素材节点：照回执在同一轮接着用 runNodes 发起素材阶段，不要停下来只向用户转述；画布上已有合适的图就用 importCanvasImage 收进素材。这条授权开始运行时分镜表就定稿：直接出图开着时原标签页自动开跑，无需用户确认，不要对用户说要等确认；用户关掉直接出图时才由他在确认卡上确认。只有查到 taskIds 才能说已提交，读到真实结果才能说已完成。',
   description:
-    '按分镜表铺首帧：每镜一个首帧节点，宫格模式另建宫格节点；首帧与宫格连上该镜人物、地点素材作为参考，再为本次要出图的节点登记首帧阶段授权，附镜头表摘要（镜数、总时长、每镜一句）。确认授权即把分镜表定稿；提案后镜头表被改过，确认会失败，需要重新提案。直接出图开着时原标签页立即确认并开跑。素材缺图时整次拒绝。',
+    '按分镜表铺首帧：每镜一个首帧节点，宫格模式另建宫格节点；首帧与宫格连上该镜人物、地点素材作为参考，再为本次要出图的节点登记首帧阶段授权，附镜头表摘要（镜数、总时长、每镜一句）。授权开始运行即把分镜表定稿；提案后镜头表被改过，授权会被拒绝，需要重新提案。直接出图开着时原标签页自动开跑，无需用户确认；用户关掉直接出图时才等确认卡。素材缺图时整次拒绝。',
   parameters: Type.Object({
     storyboardId: id,
     mode: Type.Optional(Type.Union([Type.Literal('grid'), Type.Literal('individual')])),

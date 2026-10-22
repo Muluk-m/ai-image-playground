@@ -146,8 +146,36 @@ describe('confirmed generation instructions in model history', () => {
       },
     })
     expect(summary).toContain('直接出图')
-    expect(summary).toContain('不要说待确认')
+    expect(summary).toContain('无需用户确认')
+    expect(summary).toContain('不要对用户说待确认、等待确认或等原标签页确认')
     expect(summary).not.toContain('待确认的提案')
+  })
+
+  it('does not tell the model a direct first-frame stage waits for a confirmation', () => {
+    const canvasRun = {
+      authorizationId: 'frames',
+      projectId: 'project',
+      stage: '首帧',
+      nodeIds: ['grid'],
+      nodeNames: ['首帧宫格'],
+      estimatedCredits: 100,
+      budgetCap: 100,
+      status: 'pending' as const,
+      storyboard: { storyboardId: 'board', shotCount: 2, totalSeconds: 9, shots: [] },
+    }
+    const block = {
+      type: 'toolResult' as const,
+      toolCallId: 'frames',
+      toolName: 'runStoryboardFrames' as const,
+      title: '首帧阶段',
+      status: 'succeeded' as const,
+    }
+    const direct = agentToolResultSummary({ ...block, canvasRun: { ...canvasRun, direct: true } })
+    expect(direct).toContain('开始运行即把分镜表（2 镜，共 9 秒）定稿')
+    expect(direct).toContain('无需用户确认')
+    expect(direct).not.toContain('确认这条授权')
+    const manual = agentToolResultSummary({ ...block, canvasRun: { ...canvasRun, direct: false } })
+    expect(manual).toContain('待确认的提案')
   })
 })
 
