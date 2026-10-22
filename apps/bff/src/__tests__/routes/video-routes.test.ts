@@ -380,6 +380,36 @@ describe('video submit validation', () => {
     expect(json.error).toBe('video_not_supported')
   })
 
+  it('refuses a model whose channel is disabled instead of falling through to the gateway', async () => {
+    _setChannelsForTesting(channels, [
+      {
+        id: 'agnes-video',
+        kind: 'openai-queue',
+        label: 'Agnes AI Video',
+        baseUrl: 'https://agnes.example/v1',
+        auth: { type: 'bearer', secretRef: 'AGNES_API_KEY', secret: 'k' },
+        allowedPaths: ['videos'],
+        models: [
+          {
+            id: 'agnes-video-2.5-flash',
+            label: 'Agnes Video 2.5 Flash',
+            media: 'video',
+            capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
+          },
+        ],
+        defaults: { asyncTasks: true },
+      },
+    ])
+    const { status, json } = await submit('agnes-video-2.5-flash', {
+      video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' },
+    })
+
+    expect(status).toBe(400)
+    expect(json.error).toBe('model_unavailable')
+    const rows = await db.select({ id: schema.tasks.id }).from(schema.tasks)
+    expect(rows).toEqual([])
+  })
+
   it('rejects a video model submitted without video parameters', async () => {
     const { status, json } = await submit('grok-imagine-video', {})
 

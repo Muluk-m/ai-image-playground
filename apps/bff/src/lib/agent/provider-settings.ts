@@ -15,6 +15,7 @@ import {
   AGENT_PROVIDER_APIS,
   AGENT_PROVIDER_SECRET_REFS,
   type AgentConfiguredModel,
+  type AgentModelBinding,
   type AgentModelSettings,
   type AgentProviderSettings,
   type AgentProviderTemplate,
@@ -230,17 +231,26 @@ export function validateAgentModelSettings(value: unknown): AgentModelSettings {
   for (const key of AGENT_PROFILE_KEYS) {
     const profile = value.profiles[key]
     if (!isObject(profile)) invalid(`缺少 ${key} 档位`)
-    keys(profile, ['providerId', 'modelId', 'reasoning'])
-    const provider = settings.providers.find((item) => item.id === profile.providerId)
-    if (!provider) invalid(`${key} 档位引用了不存在的 Provider`)
-    const model = configuredModels(provider).find((item) => item.id === profile.modelId)
-    if (!model) invalid(`${key} 档位引用了不存在的模型`)
-    if (!model.input.includes('image'))
-      invalid(`${key} 档位需要支持图片输入的模型，以便使用视觉工具`)
-    if (!getSupportedThinkingLevels(model).includes(profile.reasoning as ModelReasoningLevel))
-      invalid(`${key} 档位的模型不支持所选推理强度`)
+    keys(profile, ['providerId', 'modelId', 'reasoning', 'fallback'])
+    validateBinding(settings, profile, `${key} 档位`)
+    if (profile.fallback !== undefined) {
+      if (!isObject(profile.fallback)) invalid(`${key} 档位的过载备用无效`)
+      keys(profile.fallback, ['providerId', 'modelId', 'reasoning'])
+      validateBinding(settings, profile.fallback, `${key} 档位的过载备用`)
+    }
   }
   return settings
+}
+
+function validateBinding(settings: AgentModelSettings, binding: object, label: string): void {
+  const profile = binding as AgentModelBinding
+  const provider = settings.providers.find((item) => item.id === profile.providerId)
+  if (!provider) invalid(`${label}引用了不存在的 Provider`)
+  const model = configuredModels(provider).find((item) => item.id === profile.modelId)
+  if (!model) invalid(`${label}引用了不存在的模型`)
+  if (!model.input.includes('image')) invalid(`${label}需要支持图片输入的模型，以便使用视觉工具`)
+  if (!getSupportedThinkingLevels(model).includes(profile.reasoning))
+    invalid(`${label}的模型不支持所选推理强度`)
 }
 
 type PiThinkingMap = NonNullable<Model<Api>['thinkingLevelMap']>
@@ -305,7 +315,7 @@ export function configuredModels(provider: AgentProviderSettings): Model<Api>[] 
         original?.reasoning === true || custom.reasoningLevels.some((level) => level !== 'off'),
       thinkingLevelMap: configuredThinkingMap({ custom, original }),
       cost: original?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      ...(provider.id === 'upstream-gateway' && custom.api === 'openai-completions'
+      ...((provider.id === 'upstream-gateway' || !original) && custom.api === 'openai-completions'
         ? {
             compat: {
               supportsStore: false,
@@ -331,19 +341,34 @@ export function providerCredentialReady(provider: AgentProviderSettings): boolea
     : !!resolveChatApiKey(provider.models[0]?.id ?? '')
 }
 
-/** Snapshot once before pricing; all calls in this turn use this same model and effort. */
+interface AgentRuntimeCore {
+  model: Model<Api>
+  models: ReturnType<typeof createModels>
+  effort: ModelReasoningLevel
+  providerId: string
+  trustedGateway: boolean
+}
+
+/** Snapshot once before pricing. An overload before output may switch to `fallback` for that request. */
 export function configuredAgentRuntime(settings: AgentModelSettings, depth?: AgentThinkingDepth) {
   const profile = settings.profiles[depth ?? 'default']
-  const provider = settings.providers.find((item) => item.id === profile.providerId)
+  return {
+    ...bindRuntime(settings, profile),
+    fallback: profile.fallback ? bindRuntime(settings, profile.fallback) : undefined,
+  }
+}
+
+function bindRuntime(settings: AgentModelSettings, binding: AgentModelBinding): AgentRuntimeCore {
+  const provider = settings.providers.find((item) => item.id === binding.providerId)
   if (!provider) invalid('所选 Provider 不存在')
-  const model = configuredModels(provider).find((item) => item.id === profile.modelId)
+  const model = configuredModels(provider).find((item) => item.id === binding.modelId)
   if (!model) invalid('所选模型不存在')
   // The legacy gateway used a non-reasoning model for the default/off profile.
   // Preserve its system-message wire role even though the configurable model also exposes effort levels.
   if (
     provider.id === 'upstream-gateway' &&
     model.api === 'openai-completions' &&
-    profile.reasoning === 'off'
+    binding.reasoning === 'off'
   ) {
     model.compat = { ...model.compat, supportsDeveloperRole: false }
   }
@@ -366,7 +391,7 @@ export function configuredAgentRuntime(settings: AgentModelSettings, depth?: Age
   return {
     model,
     models,
-    effort: profile.reasoning,
+    effort: binding.reasoning,
     providerId: provider.id,
     trustedGateway:
       provider.id === 'upstream-gateway' &&
