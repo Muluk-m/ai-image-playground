@@ -88,12 +88,13 @@ export default function AgentCopyDiagnostic({
     >
       <PopoverTrigger asChild>
         {variant === 'link' ? (
-          <button
+          <Button
             type="button"
-            className="text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            variant="ghost"
+            className="h-auto px-0 py-0 text-xs font-normal text-muted-foreground underline-offset-4 hover:bg-transparent hover:text-foreground hover:underline"
           >
             {t('error.details')}
-          </button>
+          </Button>
         ) : (
           <Button
             type="button"
