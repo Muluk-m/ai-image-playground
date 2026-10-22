@@ -126,6 +126,8 @@ export function createMediaProcessingLimiter(options: MediaProcessingLimiterOpti
       // 计数只收非负整数：负数会低估在途字节，NaN 会让之后的准入判断永远不成立。
       if (!Number.isSafeInteger(bytes) || bytes < 0)
         throw new RangeError('invalid media processing bytes')
+      // 先按当前预算排一次：预算变大后，排着的可能已经放得进，不该因此对新请求报满。
+      if (queue.length) drain()
       if (!queue.length && admits(bytes)) admit(bytes)
       else {
         if (queue.length >= options.queueLimit) throw busy('processing_queue_full')
