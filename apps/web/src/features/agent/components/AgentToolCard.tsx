@@ -89,6 +89,14 @@ function useStatusNote(
     !message.job
   )
     return t('retry.withdrawn')
+  // 确认门拦下的稿没确认就发了新消息：没提交、没扣费。
+  if (
+    message.status === 'failed' &&
+    message.errorCode === 'cancelled' &&
+    message.gated &&
+    !message.job
+  )
+    return t('tool.gateVoided')
   // 用户取消的后台任务：预扣的按原桶退回，卡上说清楚钱回来了。
   if (message.status === 'failed' && message.errorCode === 'cancelled' && message.job)
     return isClientCapabilityEnabled('billing:credits')

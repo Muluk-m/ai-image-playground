@@ -414,6 +414,18 @@ it('会唤醒的任务结束后去挂服务端起的那一轮', async () => {
   expect(state.adopted[0]).toMatchObject({ join: 'turn-wake' })
 })
 
+it('确认门拦下的卡确认完：跟进服务端接着那一轮起的续跑', async () => {
+  const { state, port } = fakeSession()
+  const { jobs: background } = jobModule(port)
+  state.messages = [card()]
+  messages = () => snapshot([historyMessage({})], { turnId: 'turn-continued' })
+
+  background.followContinuation(CONVERSATION)
+
+  await vi.waitFor(() => expect(state.adopted).toHaveLength(1))
+  expect(state.adopted[0]).toMatchObject({ join: 'turn-continued' })
+})
+
 it('服务端跳过了唤醒：结果卡记下原因的那份快照换上来', async () => {
   const { state, port } = fakeSession()
   const { jobs: background } = jobModule(port)

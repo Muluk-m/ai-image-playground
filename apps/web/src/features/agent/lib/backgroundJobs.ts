@@ -121,6 +121,11 @@ export interface AgentBackgroundJobs {
   /** 画布节点运行的回报同样走持久的唤醒：每条授权只接一次。 */
   followStageRun(conversationId: string, authorizationId: string): void
   /**
+   * 确认门拦下的卡确认完了：服务端接着被拦下的那一轮起了续跑，面板空着就跟进那一轮的流，
+   * 续跑的回复接在原来那段回复后面。
+   */
+  followContinuation(conversationId: string): void
+  /**
    * 单独取消这张结果卡提交的任务；服务端按原桶退回，卡随即换成取消后的结局。还在重试队列里
    * 排着的重试记录也走这里：撤回它，失败占位保持原来那次失败。
    */
@@ -582,6 +587,10 @@ export function createAgentBackgroundJobs({
       followWake(conversationId, JSON.stringify([conversationId, batchId, version]), () =>
         fetchBatchWakeReceipt(batchId, version),
       )
+    },
+
+    followContinuation(conversationId) {
+      void followWakeTurn(conversationId)
     },
 
     followStageRun(conversationId, authorizationId) {

@@ -722,6 +722,20 @@ export async function confirmToolPrompt(
   fetcher: Fetcher = authenticatedBffFetch,
   draftRevision?: number,
 ): Promise<AgentMessageView> {
+  return (await confirmToolCard(conversationId, messageId, prompt, fetcher, draftRevision)).message
+}
+
+/**
+ * 同 {@link confirmToolPrompt}，连同整份响应一起交回：确认门拦下的卡确认完之后服务端会接着那一轮
+ * 起续跑（`continued`），对话面板要跟进那一轮的流。
+ */
+export async function confirmToolCard(
+  conversationId: string,
+  messageId: string,
+  prompt: string,
+  fetcher: Fetcher = authenticatedBffFetch,
+  draftRevision?: number,
+): Promise<AgentConfirmationResponse> {
   const response = await fetcher(url(`/conversations/${conversationId}/confirmations`), {
     ...jsonInit({
       deviceId: getDeviceId(),
@@ -733,8 +747,7 @@ export async function confirmToolPrompt(
   })
   if (!response.ok) throw await requestError(response)
   // 端点的响应形状由协议定死，与这个文件里其它端点一样按它读。
-  const body = (await response.json()) as AgentConfirmationResponse
-  return body.message
+  return (await response.json()) as AgentConfirmationResponse
 }
 
 /**

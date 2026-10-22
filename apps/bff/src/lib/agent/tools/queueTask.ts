@@ -88,6 +88,16 @@ function submittedText(words: MediaWords, count: number, size?: string): string 
 }
 
 /**
+ * 确认门续跑时接在历史末尾的回执（见 `tool-gate.ts`）：与当场提交那一句同一种说法，
+ * 提示词换成用户确认的那一份——他可能在卡上改过。
+ */
+export function confirmedSubmissionText(media: ChannelMedia, prompt: string | undefined): string {
+  const words = WORDS[media]
+  const executed = prompt ? `执行提示词：${prompt}。` : ''
+  return `已按用户要求提交${words.verb}任务，这次调用已经提交并计费，结果会显示在对话的产物卡片中。${executed}不要描述成品的样子，也不要为同一件事再提交一次；结果由系统在任务结束时告诉你。`
+}
+
+/**
  * 该介质的模型。优先用这一轮里用户选的，解析不出来（模型下线、介质不符）就退回运营配置的，
  * 再没有就取内置 channel 里这一介质的第一个。用户选错模型不该让整轮失败；运营配置的
  * 那个被下线（channels.json `disabled`）也一样，照样落到第一个可用的。
@@ -272,6 +282,9 @@ export async function draftQueueTask(
     }
   }
 
+  // 确认门拦下的调用：材料照样存成待确认的稿，但给模型的回执与当场提交时逐字相同——智能体不知道
+  // 停过，这一轮在这次调用之后停住，用户确认后接着跑（见 `tool-gate.ts`）。
+  const held = !bound && context.gate?.holds(input.toolCallId ?? '') === true
   await saveGenerationDraft({
     conversationId: context.conversationId,
     turnId: context.turnId,
@@ -289,10 +302,16 @@ export async function draftQueueTask(
   context.maskedEditPlan?.submitted(submission)
   if (input.media === 'image') context.imageCombinations?.submitted(input.referenceIds ?? [])
   return {
-    content: [{ type: 'text', text: draftText(words, count, imageSize) }],
+    content: [
+      {
+        type: 'text',
+        text: held ? submittedText(words, count, imageSize) : draftText(words, count, imageSize),
+      },
+    ],
     details: {
       executedPrompt: input.prompt,
       awaitingConfirmation: true as const,
+      ...(held ? { gated: true as const } : {}),
       ...(bound ? { productionDraftRevision: 1 } : {}),
       ...(input.videoRecord ? { video: input.videoRecord } : {}),
       ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),

@@ -180,7 +180,9 @@ export default function AgentVideoToolCard({
               ? 'job.cancelledRefunded'
               : 'job.cancelled',
           )
-        : t('retry.withdrawn')
+        : message.gated
+          ? t('tool.gateVoided')
+          : t('retry.withdrawn')
       : (agentToolFailureText(message.errorCode) ?? message.message ?? t('tool.notFinished'))
   const id = `agent-tool-card-${message.id}`
   if (message.status === 'awaiting_confirmation')

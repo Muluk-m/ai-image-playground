@@ -184,6 +184,7 @@ export function toolResultBlock(
       ...(details.executedPrompt ? { prompt: details.executedPrompt } : {}),
       title: start.title,
       ...(details.anchorObjectId ? { anchorObjectId: details.anchorObjectId } : {}),
+      ...(details.gated ? { gated: true as const } : {}),
     }
   }
   if (details?.job) {

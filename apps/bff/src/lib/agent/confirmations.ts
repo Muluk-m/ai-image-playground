@@ -17,7 +17,7 @@ import {
   agentTitleLine,
   unshapeQueuePrompt,
 } from '@image-playground/shared'
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { resolveQueueModel } from '../channels'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from '../imageArchive'
@@ -27,11 +27,18 @@ import type { BffTransaction } from '../private-overlay'
 import { lockMediaOwner } from '../projectMedia'
 import { createQueueTask } from '../taskSubmission'
 import type { AgentOwner } from './conversations'
+import { enqueueAgentResume } from './inbox'
 import {
   validateImageParameters,
   validateProductionConfirmation,
 } from './production-generation-validation'
 import { shapeQueuePrompt } from './prompt-shaping'
+import {
+  GATE_VOIDED_MESSAGE,
+  isPendingGate,
+  pendingGateMessages,
+  turnHasPendingGate,
+} from './tool-gate-records'
 import { AgentToolError, queueRefusalCode } from './tools/errors'
 import { agentVideoRequestError } from './video-models'
 
@@ -136,9 +143,14 @@ export interface ConfirmGenerationInput {
 }
 
 export type ConfirmGenerationOutcome =
-  | { readonly kind: 'created'; readonly message: AgentMessageView }
+  | {
+      readonly kind: 'created'
+      readonly message: AgentMessageView
+      /** 确认门拦下的那一轮排上了续跑（见 `tool-gate.ts`）：调用方要去接着开轮。 */
+      readonly continued?: true
+    }
   /** 这张卡已经确认过：交回同一张已提交的卡，不再提交第二次。 */
-  | { readonly kind: 'replayed'; readonly message: AgentMessageView }
+  | { readonly kind: 'replayed'; readonly message: AgentMessageView; readonly continued?: true }
   | { readonly kind: 'not_found' }
   /** 这条消息不是一张等确认的生成卡，或者它的材料已经不在了。 */
   | { readonly kind: 'not_confirmable' }
@@ -187,17 +199,15 @@ export async function confirmAgentGeneration(
       const draft = await readDraft(tx, input.conversationId, card)
       if (!draft) return { kind: 'not_confirmable' }
       // 这份草稿已经用掉了（上一次确认写回卡片之前进程死了）：认领那条任务，不再提交。
-      if (draft.task_id)
-        return {
-          kind: 'replayed',
-          message: await writeSubmitted(tx, card, draft, draft.prompt, draft.task_id),
-        }
+      if (draft.task_id) {
+        const message = await writeSubmitted(tx, card, draft, draft.prompt, draft.task_id)
+        return { kind: 'replayed', message, ...(await continueGatedTurn(tx, card, input)) }
+      }
       const adopted = await taskOfCommand(tx, draft)
-      if (adopted)
-        return {
-          kind: 'replayed',
-          message: await claimSubmitted(tx, card, draft, adopted.prompt, adopted.taskId),
-        }
+      if (adopted) {
+        const message = await claimSubmitted(tx, card, draft, adopted.prompt, adopted.taskId)
+        return { kind: 'replayed', message, ...(await continueGatedTurn(tx, card, input)) }
+      }
       // 会话此刻仍在、仍是这个人的：删除与登录改挂都会动这一行，锁住它再建任务，
       // 付了费的任务就不会落进一个已经删掉或已经易主的会话。
       if (!(await conversationStillOwned(tx, input))) return { kind: 'not_found' }
@@ -267,10 +277,12 @@ export async function confirmAgentGeneration(
         // 提交没成：草稿原样留着，用户改了提示词、充了积分还能再确认一次。
         return { kind: 'refused', code: queueRefusalCode(submitted.kind) }
       }
+      const message = await claimSubmitted(tx, card, draft, prompt, submitted.taskId)
       return {
         kind: 'created',
         draftId: draft.id,
-        message: await claimSubmitted(tx, card, draft, prompt, submitted.taskId),
+        message,
+        ...(await continueGatedTurn(tx, card, input)),
       }
     },
   )
@@ -387,6 +399,90 @@ async function conversationStillOwned(
     .limit(1)
     .for('update')
   return row !== undefined
+}
+
+/**
+ * 确认门拦下的卡（见 `tool-gate.ts`）确认之后：那一轮拦下的卡都确认完了，就在同一个事务里排一次
+ * 续跑，让那一轮接着往下走；还有没确认的就先不排，等最后一张。卡片改写与续跑同一次提交——
+ * 任务建了而续跑丢了、或续跑排了而卡还停在待确认，两种都不会出现。续跑按轮去重，只排一次。
+ */
+async function continueGatedTurn(
+  tx: BffTransaction,
+  card: ToolCard,
+  input: ConfirmGenerationInput,
+): Promise<{ readonly continued?: true }> {
+  if (card.block.gated !== true) return {}
+  // 卡片已经在这个事务里改写成已提交：查到的只会是同一轮里别的、还没确认的卡。
+  if (await turnHasPendingGate(tx, input.conversationId, card.turnId)) return {}
+  const snapshot = card.block.snapshot
+  const queued = await enqueueAgentResume(
+    input.conversationId,
+    {
+      interruptedTurnId: card.turnId,
+      deviceId: input.deviceId,
+      ...(snapshot?.mode ? { mode: snapshot.mode } : {}),
+      ...(snapshot?.params ? { params: snapshot.params } : {}),
+      gate: true,
+    },
+    Date.now(),
+    tx,
+  )
+  return queued ? { continued: true } : {}
+}
+
+/**
+ * 用户没确认就发了新消息：这个会话里所有还在等的确认门卡就地改成作废（`failed` + `cancelled`），
+ * 草稿的输入图一并丢掉。与确认握同一把会话锁，所以一张卡只会有一个结局：先确认的那一下赢，
+ * 作废看到的就是已提交；先作废的话，晚到的确认看到的是一张不能再确认的卡。返回作废了几张。
+ */
+export async function voidPendingToolGates(
+  conversationId: string,
+  userId: string | null,
+): Promise<number> {
+  const voided = await db.transaction(async (tx) => {
+    const rows = await pendingGateMessages(tx, conversationId)
+    if (!rows.length) return []
+    await lockConversation(tx, conversationId, userId)
+    // 拿到锁之后再读一遍：等锁的那会儿可能刚有一张被确认了。
+    const locked = await pendingGateMessages(tx, conversationId)
+    const drafts: string[] = []
+    for (const row of locked) {
+      const content = row.content.map((block): AgentContentBlock => {
+        if (!isPendingGate(block)) return block
+        drafts.push(block.toolCallId)
+        return {
+          ...block,
+          status: 'failed',
+          errorCode: 'cancelled',
+          message: GATE_VOIDED_MESSAGE,
+        }
+      })
+      await tx
+        .update(schema.agent_messages)
+        .set({ content })
+        .where(
+          and(
+            eq(schema.agent_messages.conversation_id, conversationId),
+            eq(schema.agent_messages.id, row.id),
+          ),
+        )
+    }
+    if (!drafts.length) return []
+    const rowsOfDrafts = await tx
+      .select({ id: schema.agent_generation_drafts.id })
+      .from(schema.agent_generation_drafts)
+      .where(
+        and(
+          eq(schema.agent_generation_drafts.conversation_id, conversationId),
+          inArray(schema.agent_generation_drafts.tool_call_id, drafts),
+          isNull(schema.agent_generation_drafts.task_id),
+        ),
+      )
+    return rowsOfDrafts.map((draft) => draft.id)
+  })
+  // 作废的稿再也确认不了，归档的输入图没有读路径了；删不掉只是个孤儿，由 bucket lifecycle 收。
+  for (const id of voided) await discardDraftInputs(id)
+  return voided.length
 }
 
 async function discardDraftInputs(draftId: string): Promise<void> {

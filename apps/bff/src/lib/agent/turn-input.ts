@@ -250,15 +250,73 @@ function withSkillTexts(
   return bodies.length ? [text, ...bodies].join('\n\n') : text
 }
 
+/**
+ * 确认门续跑：被拦下的那一轮里那几次调用，连同用户确认后它们的回执（见 `tool-gate.ts`）。
+ * 回放时它们不再作为卡片摘要出现，而是作为一对真正的工具调用与工具结果接在历史末尾，
+ * `Agent.continue()` 从这里接着往下走——智能体看到的就是调了工具、拿到了回执。
+ */
+export interface AgentTurnContinuation {
+  readonly calls: readonly {
+    readonly toolCallId: string
+    readonly toolName: string
+    readonly args: Readonly<Record<string, unknown>>
+    /** 给模型的回执：与当场提交时同一种说法，提示词是用户确认的那一份。 */
+    readonly result: string
+  }[]
+}
+
+/** 续跑接在末尾的那一对：一条只有工具调用的助手消息，后面跟着每次调用的结果。 */
+function continuationMessages(continuation: AgentTurnContinuation, at: number): AgentMessage[] {
+  const model = agentModel()
+  return [
+    {
+      role: 'assistant',
+      content: continuation.calls.map((call) => ({
+        type: 'toolCall' as const,
+        id: call.toolCallId,
+        name: call.toolName,
+        arguments: { ...call.args },
+      })),
+      api: model.api,
+      provider: model.provider,
+      model: model.id,
+      usage: EMPTY_USAGE,
+      stopReason: 'toolUse',
+      timestamp: at,
+    },
+    ...continuation.calls.map(
+      (call): AgentMessage => ({
+        role: 'toolResult',
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        content: [{ type: 'text', text: call.result }],
+        isError: false,
+        timestamp: at,
+      }),
+    ),
+  ]
+}
+
 /** 历史消息回放成 pi 的形状；助手消息的用量与停因是回放占位，不进任何计费。 */
 function replayed(
   history: readonly AgentMessageView[],
   selectionHistoryStart = history.length,
   skillTexts: ReadonlyMap<string, string> = NO_SKILL_TEXTS,
+  continuation?: AgentTurnContinuation,
 ): AgentMessage[] {
   const model = agentModel()
   const messages: AgentMessage[] = []
-  for (const [index, message] of history.entries()) {
+  const continued = new Set(continuation?.calls.map((call) => call.toolCallId))
+  for (const [index, original] of history.entries()) {
+    // 续跑的那几次调用改由末尾那一对工具调用与结果呈现，卡片摘要不再重复一遍。
+    const message = continued.size
+      ? {
+          ...original,
+          content: original.content.filter(
+            (block) => block.type !== 'toolResult' || !continued.has(block.toolCallId),
+          ),
+        }
+      : original
     const text = withSkillTexts(
       replayTurnText(message, index >= selectionHistoryStart ? 'retained' : 'historical'),
       message,
@@ -280,6 +338,8 @@ function replayed(
           },
     )
   }
+  if (continuation?.calls.length)
+    messages.push(...continuationMessages(continuation, history.at(-1)?.createdAt ?? 0))
   return messages
 }
 
@@ -296,13 +356,14 @@ export function turnInitialState(
   audience: AgentTurnAudience = ANONYMOUS_AUDIENCE,
   skillTexts: ReadonlyMap<string, string> = NO_SKILL_TEXTS,
   directImage = false,
+  continuation?: AgentTurnContinuation,
 ): {
   readonly systemPrompt: string
   readonly messages: AgentMessage[]
 } {
   return {
     systemPrompt: systemPrompt(mode, autoSubmit, audience, directImage),
-    messages: replayed(history, selectionHistoryStart, skillTexts),
+    messages: replayed(history, selectionHistoryStart, skillTexts, continuation),
   }
 }
 
@@ -399,6 +460,13 @@ export interface AgentTurnInput {
   readonly conversationState?: string
   /** 出图模式：系统提示词里生成流程那一句换成另一份，长度不同。 */
   readonly autoSubmit: boolean
+  /**
+   * 智能体模式关掉了直接出图：生成调用由确认门拦下（见 `tool-gate.ts`）。智能体不知道有这道门，
+   * 系统提示词与出图模式逐字相同（`promptAutoSubmit`）；`autoSubmit` 仍为假，这一轮不领自动提交额度。
+   */
+  readonly toolGate?: true
+  /** 确认门续跑：没有新的用户话，历史末尾接上那几次调用与回执，`Agent.continue()` 接着走。 */
+  readonly continuation?: AgentTurnContinuation
   /** 图片生成：系统提示词改成原话出图，缓存键因此和对话模式分开。 */
   readonly directImage?: boolean
   /** 选区继承起点：澄清链推导，或改图计划保护时的 0。 */
@@ -419,13 +487,19 @@ export function turnInitialStateOf(input: AgentTurnInput): {
   const state = turnInitialState(
     input.history.messages,
     input.mode,
-    input.autoSubmit,
+    promptAutoSubmit(input),
     input.selectionHistoryStart,
     input.audience,
     input.skillTexts,
     input.directImage === true,
+    input.continuation,
   )
   return { ...state, messages: input.modelHistory?.messages ?? state.messages }
+}
+
+/** 系统提示词按出图模式写：真开了出图模式，或者有确认门（智能体不该看出两者的差别）。 */
+export function promptAutoSubmit(input: Pick<AgentTurnInput, 'autoSubmit' | 'toolGate'>): boolean {
+  return input.autoSubmit || input.toolGate === true
 }
 
 /**

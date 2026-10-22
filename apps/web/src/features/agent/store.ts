@@ -65,7 +65,7 @@ import {
   AgentTransportError,
   type AgentTurnSource,
   abortTurn,
-  confirmToolPrompt,
+  confirmToolCard,
   fetchConversations,
   fetchMessages,
   fetchSubmissionReceipt,
@@ -2649,14 +2649,17 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       // 空提示词提交不了；界面按住了按钮，这里守住第二道。
       if (!conversationId || draft?.kind !== 'tool' || !text) return { ok: false, reason: 'failed' }
       let view: AgentMessageView
+      let continued = false
       try {
-        view = await confirmToolPrompt(
+        const confirmed = await confirmToolCard(
           conversationId,
           messageId,
           text,
           undefined,
           draft.productionDraftRevision,
         )
+        view = confirmed.message
+        continued = confirmed.continued === true
       } catch (thrown) {
         if (!(thrown instanceof AgentRequestError)) return { ok: false, reason: 'failed' }
         if (thrown.status === 404) return { ok: false, reason: 'gone' }
@@ -2693,6 +2696,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         }
       })
       jobs.track(conversationId, card, { kind: 'reserve' })
+      // 确认门拦下的那一轮卡都确认完了，服务端接着它起了续跑：跟进去，回复接在原来那段后面。
+      if (continued) jobs.followContinuation(conversationId)
       return { ok: true }
     },
 

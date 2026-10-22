@@ -56,6 +56,7 @@ function toolCard(block: AgentToolResultBlock, id: string, turnId: string): Agen
     ...(block.video ? { video: block.video } : {}),
     ...(block.prompt ? { prompt: block.prompt } : {}),
     status: block.status,
+    ...(block.gated ? { gated: true as const } : {}),
     ...(block.productionDraftRevision !== undefined
       ? { productionDraftRevision: block.productionDraftRevision }
       : {}),

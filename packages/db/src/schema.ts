@@ -628,6 +628,11 @@ export interface AgentInboxResumePayload {
   readonly wake?: Pick<AgentInboxTaskResultPayload, 'turnId' | 'taskIds' | 'batch' | 'stageRun'>
   /** 被打断那一轮发话时的画布。续跑仍认它，不退回当时还没同步完的服务端文档。 */
   readonly canvas?: AgentCanvasSnapshot
+  /**
+   * 不是被打断，而是被确认门拦下（`interruptedTurnId` 即被拦下的那一轮）：用户把那一轮拦下的卡
+   * 都确认了，续跑接着那几次工具调用往下走，不给模型额外的说明（见 BFF `tool-gate.ts`）。
+   */
+  readonly gate?: true
 }
 
 export type AgentInboxPayload =

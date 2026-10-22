@@ -402,19 +402,25 @@ async function executeResumeTurn(
   assertOwnership: () => Promise<void>,
 ): Promise<StartConversationTurnResult> {
   const [{ prepareAgentTurn }, { startAgentTurn }] = await turnModules()
+  const execution = turnExecution(conversationId, turnId, assertOwnership)
   const prepared = await prepareAgentTurn({
     conversationId,
     owner,
     turnId,
-    execution: turnExecution(conversationId, turnId, assertOwnership),
+    execution,
     source: { kind: 'resume', resume },
   })
+  // 确认门续跑要接的卡一张都不在了（消息被删）：取走它不起轮，没有可接的。
+  if (prepared.kind === 'no_results' && resume.gate) {
+    await execution.write((tx) => consumeAgentMessage(tx, conversationId, resume.id, turnId))
+    return { kind: 'withdrawn' }
+  }
   return startPreparedTurn(prepared, startAgentTurn)
 }
 
 /**
- * 起轮准备的结果换成取件方认得的那一种。`no_results` 与 `wake_limit` 只有唤醒来源会出现，
- * 所以这里不该看见它们。
+ * 起轮准备的结果换成取件方认得的那一种。`no_results` 与 `wake_limit` 只有唤醒来源（以及确认门
+ * 续跑的 `no_results`，由 `executeResumeTurn` 先了结）会出现，所以这里不该看见它们。
  */
 async function startPreparedTurn(
   prepared: TurnPreparation,

@@ -44,6 +44,7 @@ import {
 } from '../lib/agent/confirmations'
 import {
   announceQueuedMessage,
+  pickUpGateContinuation,
   pickUpIdleConversation,
   promoteToInterjection,
   sendToConversationInbox,
@@ -655,7 +656,12 @@ export const agentRoutes = new Elysia()
         }
         return status(409, refused)
       }
-      const response: AgentConfirmationResponse = { message: outcome.message }
+      // 确认门拦下的那一轮排上了续跑：这里就去开轮，界面拿到 `continued` 后跟进那一轮的流。
+      if ('continued' in outcome && outcome.continued) pickUpGateContinuation(conversation.id)
+      const response: AgentConfirmationResponse = {
+        message: outcome.message,
+        ...('continued' in outcome && outcome.continued ? { continued: true as const } : {}),
+      }
       return response
     },
     {
