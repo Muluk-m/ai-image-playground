@@ -7,9 +7,11 @@ on:
     branches: [main, test]
 permissions:
   contents: read
+# PR 上新的推送取消同一 PR 的旧运行（pull_request 的 ref 是 refs/pull/N/merge，按 PR 分组）。
+# main/test 的 push 不取消：main 的结果要交给 deploy.yml，正在跑的不打断，只让最新的一个排队。
 concurrency:
   group: web-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   # 合并到 main 的提交若与它的 PR 最后一次通过的 Web checks 是同一棵树，下面四个 job 已经在
   # 那次跑过，main 上不再重跑，直接交给部署。PR 落后于 main（合并后树不同）、来自 fork、或找不到
