@@ -65,6 +65,8 @@ async function readMediaBytes(store: ObjectStore, key: string) {
   return bytes
 }
 
+const KNOWN_MEDIA_MAX_HELD_BYTES = 64 * 1024 * 1024
+
 /**
  * 这次执行手里已有的原件字节，按「哪个存储里的哪个 key」记。
  * 生成结果刚写进 durable、输入刚从存储读出来做上游请求，入库时就不必再从对象存储读一遍——
@@ -74,10 +76,19 @@ async function readMediaBytes(store: ObjectStore, key: string) {
 export class KnownMediaBytes {
   // 输入记的是送上游那份 data URL（与请求共用同一个字符串），入库时才解码，等上游时不多攥一份原始字节。
   private readonly bytes = new Map<string, Uint8Array | string>()
+  // 只有结果的原始字节是额外攥着的（从前写完即放）；总量封顶，超出的那几张照旧回存储读。
+  // 常见的一两张结果远不到上限，多图大图任务不至于把 worker 内存吃满。
+  private held = 0
+  constructor(private readonly maxHeldBytes = KNOWN_MEDIA_MAX_HELD_BYTES) {}
   private static key(store: 'durable' | 'object', key: string) {
     return `${store}:${key}`
   }
   remember(store: 'durable' | 'object', key: string, bytes: Uint8Array | string) {
+    this.forget(store, key)
+    if (typeof bytes !== 'string') {
+      if (this.held + bytes.length > this.maxHeldBytes) return
+      this.held += bytes.length
+    }
     this.bytes.set(KnownMediaBytes.key(store, key), bytes)
   }
   get(store: 'durable' | 'object', key: string) {
@@ -109,7 +120,10 @@ export class KnownMediaBytes {
   }
   /** 入库成功就放掉，不让整个任务期间一直攥着所有原件。 */
   forget(store: 'durable' | 'object', key: string) {
-    this.bytes.delete(KnownMediaBytes.key(store, key))
+    const name = KnownMediaBytes.key(store, key)
+    const value = this.bytes.get(name)
+    if (value !== undefined && typeof value !== 'string') this.held -= value.length
+    this.bytes.delete(name)
   }
 }
 

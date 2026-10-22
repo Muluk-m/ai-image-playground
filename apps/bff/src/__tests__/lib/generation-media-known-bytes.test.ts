@@ -228,3 +228,19 @@ it('贴着配额上限时两张并行预留被误拒的那张，等同伴发布�
     .where(eq(schema.media_objects.user_id, USER))
   expect(rows.map((row) => row.status)).toEqual(['ready', 'ready'])
 })
+
+it('手里攥着的结果字节有总量上限，超出的不记、入库时回存储读', () => {
+  const known = new KnownMediaBytes(10)
+  known.remember('durable', 'a', new Uint8Array(6))
+  known.remember('durable', 'b', new Uint8Array(6))
+  expect(known.get('durable', 'a')?.length).toBe(6)
+  expect(known.get('durable', 'b')).toBeUndefined()
+  // 放掉一张就腾出额度。
+  known.forget('durable', 'a')
+  known.remember('durable', 'b', new Uint8Array(6))
+  expect(known.get('durable', 'b')?.length).toBe(6)
+  // 同一个 key 重写不重复计数。
+  known.remember('durable', 'b', new Uint8Array(4))
+  known.remember('durable', 'c', new Uint8Array(6))
+  expect(known.get('durable', 'c')?.length).toBe(6)
+})
