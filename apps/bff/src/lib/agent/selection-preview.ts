@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import type { ImageContent } from '@earendil-works/pi-ai'
 import type { AgentTurnReference } from '@image-playground/shared'
 import sharp from 'sharp'
-import { toModelImageDataUrl } from './modelImage'
+import { PREVIEW_RESIZE, toModelImageDataUrl } from './modelImage'
 import { selectionSettings as settings } from './selection-settings'
 import { assertVisualBytes, visualMetadata, withVisualPreparation } from './visual-resources'
 
@@ -135,7 +135,7 @@ async function prepareSelection(
         return `${arrowMarkup(region, info.width, info.height, radius)}<rect x="${x}" y="${y}" width="${region.width * info.width}" height="${region.height * info.height}" fill="none" stroke="#159cf6" stroke-width="${radius / 5}"/><circle cx="${x + radius}" cy="${y + radius}" r="${radius}" fill="#159cf6" stroke="white" stroke-width="${radius / 6}"/><text x="${x + radius}" y="${y + radius * 1.35}" text-anchor="middle" fill="white" font-size="${radius * 1.3}" font-family="sans-serif">${region.number ?? index + 1}</text>`
       })
       .join('')
-    const preview = await sharp(raw)
+    const composed = await sharp(raw)
       .composite([
         { input: overlay, raw: { width: info.width, height: info.height, channels: 4 } },
         ...(regionLabels
@@ -148,6 +148,12 @@ async function prepareSelection(
             ]
           : []),
       ])
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    // 定位图只给对话模型看「圈在哪」：按预览规格缩小。原尺寸 PNG 在 4K 原图上就有十几 MB，
+    // 连同原件和裁片一起会超出整轮的图片字节预算，确认卡就提交不了。裁片是生图参考，保持原尺寸。
+    const preview = await sharp(composed.data, { raw: composed.info })
+      .resize(PREVIEW_RESIZE)
       .png()
       .toBuffer()
     // 参考裁片只携带原色选区；不把定位用的蓝色或总包围框内的未选对象送入生图参考。
