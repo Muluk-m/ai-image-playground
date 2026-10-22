@@ -198,16 +198,40 @@ async function ownedMedia(userId: string, id: string, executor: Pick<typeof db, 
   return row
 }
 
-// Overlap storage I/O for two originals, while decoding at most one image at a time.
+/**
+ * 确认一张图的时间几乎都花在和对象存储之间来回（读回原件、写原件和预览、核对），CPU 只在解码那一段。
+ * 每实例同时处理 4 张，让存储 I/O 重叠；解码仍一次一张（withMediaDecode）。原件要整张缓冲，
+ * 所以另按字节限额：在途原件合计不超过两张最大原件，小图 4 张并行，大图仍最多两张。
+ */
+const MEDIA_PROCESSING_SLOTS = 4
+const MEDIA_PROCESSING_QUEUE = 8
+// 附件的单张上限不超过素材上限（attachmentLimits 取两者较小），按素材上限算即可。
+const processingByteBudget = () => 2 * config.operator.quotas['sync:asset-image-bytes']
 let processing = 0
-const processingQueue: { resume: () => void; reject: () => void }[] = []
-async function withMediaProcessing<T>(work: () => Promise<T>): Promise<T> {
-  if (processing < 2) processing++
-  else {
-    if (processingQueue.length >= 8)
+let processingBytes = 0
+const processingQueue: { bytes: number; resume: () => void; reject: () => void }[] = []
+// 第一张总能进：单张超过限额也不会永远排不上。
+const admits = (bytes: number) =>
+  processing < MEDIA_PROCESSING_SLOTS &&
+  (processing === 0 || processingBytes + bytes <= processingByteBudget())
+function drainProcessing() {
+  while (processingQueue.length && admits(processingQueue[0]!.bytes)) {
+    const next = processingQueue.shift()!
+    processing++
+    processingBytes += next.bytes
+    next.resume()
+  }
+}
+async function withMediaProcessing<T>(bytes: number, work: () => Promise<T>): Promise<T> {
+  if (!processingQueue.length && admits(bytes)) {
+    processing++
+    processingBytes += bytes
+  } else {
+    if (processingQueue.length >= MEDIA_PROCESSING_QUEUE)
       throw new MediaError(503, 'media_processing_busy', 'processing_queue_full')
     await new Promise<void>((resolve, reject) => {
       const entry = {
+        bytes,
         resume: () => {
           clearTimeout(timer)
           resolve()
@@ -216,6 +240,8 @@ async function withMediaProcessing<T>(work: () => Promise<T>): Promise<T> {
           const index = processingQueue.indexOf(entry)
           if (index >= 0) processingQueue.splice(index, 1)
           reject(new MediaError(503, 'media_processing_busy', 'processing_queue_timeout'))
+          // 队首超时离开后，后面较小的那张可能已经放得进。
+          drainProcessing()
         },
       }
       const timer = setTimeout(entry.reject, 10_000)
@@ -225,9 +251,9 @@ async function withMediaProcessing<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work()
   } finally {
-    const next = processingQueue.shift()
-    if (next) next.resume()
-    else processing--
+    processing--
+    processingBytes -= bytes
+    drainProcessing()
   }
 }
 let decoding: Promise<void> = Promise.resolve()
@@ -258,12 +284,14 @@ export async function completeMedia(userId: string, id: string) {
   if (pending) return pending
   if (confirmations.size >= MAX_CONFIRMATIONS)
     throw new MediaError(503, 'media_processing_busy', 'confirmation_capacity_full')
-  const operation = processMedia(userId, id).finally(() => confirmations.delete(key))
+  const operation = processMedia(userId, id, existing.bytes).finally(() =>
+    confirmations.delete(key),
+  )
   confirmations.set(key, operation)
   return operation
 }
 
-async function processMedia(userId: string, id: string) {
+async function processMedia(userId: string, id: string, bytes: number) {
   const started = performance.now()
   let phase = 'lock_wait'
   let phaseStarted = started
@@ -283,7 +311,7 @@ async function processMedia(userId: string, id: string) {
       const available = await withMediaObjectLock(id, async () => true)
       mark(available ? 'processing_wait' : 'lock_wait')
       const result = available
-        ? await withMediaProcessing(() => {
+        ? await withMediaProcessing(bytes, () => {
             mark('lock_wait')
             return withMediaObjectLock(id, async (database) => {
               mark('read_metadata')
