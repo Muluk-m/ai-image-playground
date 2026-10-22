@@ -143,12 +143,61 @@ describe('上传簿记与并发编辑', () => {
         other.stop()
       })
 
-  it('不认以前的 clientID 时，重新打开的设备输掉的写入补不回来', async () => {
+  for (const [editorId, uploaderId] of [
+    [1, 2],
+    [2, 1],
+  ] as const)
+    it(`上传方已离线时，重新打开的编辑方无论输赢都把收成云媒体合回来（editor=${editorId}）`, async () => {
+      const devices = pair(editorId, uploaderId)
+      edit(devices.editor.doc, { name: 'renamed' })
+      promoteCanvasResultMedia(devices.uploader.doc, 'image', 'local-file', media, local)
+      // 上传方收尾后就关了：服务端只有它的收成云媒体，补写只能靠重新打开的编辑方。
+      devices.uploader.stop()
+      devices.editor.stop()
+      const next = reopen(devices.editor.doc, 10 + editorId, true)
+      const server = devices.uploader.doc
+
+      Y.applyUpdate(next.doc, Y.encodeStateAsUpdate(server, Y.encodeStateVector(next.doc)), remote)
+      await Promise.resolve()
+      Y.applyUpdate(server, Y.encodeStateAsUpdate(next.doc, Y.encodeStateVector(server)), remote)
+
+      for (const doc of [next.doc, server]) {
+        expect(data(doc).name).toBe('renamed')
+        expect(data(doc).mediaId).toBe(media)
+        expect(data(doc).fileId).toBe(`cloud-${media}`)
+      }
+      next.stop()
+    })
+
+  it('补写排队期间又进来一次远端写入时，按最新一版重新合，收成云媒体和改名都在', async () => {
+    // uploader=2 的收成云媒体顶掉 editor=1 的改名；补写还没跑，又同步进来上传方随后改的提示词。
+    const devices = pair(1, 2)
+    edit(devices.editor.doc, { name: 'renamed' })
+    promoteCanvasResultMedia(devices.uploader.doc, 'image', 'local-file', media, local)
+    const before = Y.encodeStateVector(devices.editor.doc)
+    Y.applyUpdate(devices.editor.doc, Y.encodeStateAsUpdate(devices.uploader.doc, before), remote)
+    const middle = Y.encodeStateVector(devices.editor.doc)
+    edit(devices.uploader.doc, {
+      meta: { ...data(devices.uploader.doc).meta, nodePrompt: 'a cat' },
+    })
+    Y.applyUpdate(devices.editor.doc, Y.encodeStateAsUpdate(devices.uploader.doc, middle), remote)
+    await Promise.resolve()
+
+    expect(data(devices.editor.doc).name).toBe('renamed')
+    expect(data(devices.editor.doc).mediaId).toBe(media)
+    // 提示词和改名都是用户编辑、彼此并发，按整份 data 取舍，这里不要求两者都留。
+    devices.editor.stop()
+    devices.uploader.stop()
+  })
+
+  it('不认以前的 clientID、上传方又已离线时，重新打开的设备输掉的写入补不回来', async () => {
     // editor=1 输给 uploader=2 的收成云媒体，改名只能靠重新打开的 editor 自己补。
     const devices = pair(1, 2)
     edit(devices.editor.doc, { name: 'renamed' })
     promoteCanvasResultMedia(devices.uploader.doc, 'image', 'local-file', media, local)
     devices.editor.stop()
+    // 上传方也已离线（不再补写），只剩重新打开的编辑方。
+    devices.uploader.stop()
     const next = reopen(devices.editor.doc, 13, false)
 
     await exchange(next.doc, devices.uploader.doc)
@@ -156,7 +205,6 @@ describe('上传簿记与并发编辑', () => {
     expect(data(next.doc).mediaId).toBe(media)
     expect(data(next.doc).name).toBe('photo')
     next.stop()
-    devices.uploader.stop()
   })
 
   it('先后修改（远端看过本机这一版）不补写', async () => {
