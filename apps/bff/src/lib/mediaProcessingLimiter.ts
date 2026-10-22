@@ -55,7 +55,10 @@ export function createMediaProcessingLimiter(options: MediaProcessingLimiterOpti
     try {
       return options.busy(reason)
     } catch (error) {
-      return error
+      // 回调自己抛了非 Error（字符串、undefined）时也给调用方一个稳定的 Error，原异常放进 cause。
+      return error instanceof Error
+        ? error
+        : new Error(`media processing ${reason}`, { cause: error })
     }
   }
   let active = 0
