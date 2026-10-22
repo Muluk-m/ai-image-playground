@@ -9,7 +9,11 @@ import {
   updateCanvasNode,
 } from '../canvas-document'
 import { promoteCanvasResultMedia } from '../canvas-results'
-import { mergeCanvasUploadConflict, watchCanvasUploadConflicts } from '../canvas-upload-conflicts'
+import {
+  mergeCanvasUploadConflict,
+  readOverwrittenLocalData,
+  watchCanvasUploadConflicts,
+} from '../canvas-upload-conflicts'
 
 const local = canvasOrigin('user', 'test')
 const remote = canvasOrigin('system', 'remote')
@@ -153,5 +157,66 @@ describe('上传簿记与并发编辑', () => {
       mergeCanvasUploadConflict({ ...base, name: 'x' }, { ...base, name: 'y' }),
     ).toBeUndefined()
     expect(mergeCanvasUploadConflict(base, promoted)).toBeUndefined()
+  })
+
+  it('合并结果与赢的一版只差键顺序时不重复写回', () => {
+    const base = { fileId: 'local-file', name: 'photo', meta: claim }
+    const winner = {
+      meta: { contentIdentity: 'local-file' },
+      name: 'x',
+      mediaId: media,
+      fileId: `cloud-${media}`,
+    }
+    expect(mergeCanvasUploadConflict({ ...base, name: 'x' }, winner)).toBeUndefined()
+  })
+
+  it('Yjs 内部结构不认识时当作没有冲突，不抛错', () => {
+    const fake = {
+      target: {},
+      adds: () => true,
+      deletes: () => true,
+    } as unknown as Y.YEvent<Y.AbstractType<unknown>>
+    expect(readOverwrittenLocalData(fake, 1)).toBeUndefined()
+    const broken = {
+      target: { _map: new Map([['data', { id: { client: 1 } }]]) },
+      adds: () => true,
+      deletes: () => true,
+    } as unknown as Y.YEvent<Y.AbstractType<unknown>>
+    expect(readOverwrittenLocalData(broken, 1)).toBeUndefined()
+  })
+})
+
+describe('Yjs 内部结构契约（升级 yjs 时这里失败就要同步改 readOverwrittenLocalData）', () => {
+  it('Y.Map 的 _map 条目带 id/left/origin/deleted/content，并发覆盖可以读出输掉的一版', async () => {
+    const a = new Y.Doc()
+    a.clientID = 1
+    const b = new Y.Doc()
+    b.clientID = 2
+    const nodeA = a.getMap<Y.Map<unknown>>('nodes')
+    a.transact(() => {
+      const node = new Y.Map<unknown>()
+      node.set('data', { v: 'base' })
+      nodeA.set('n', node)
+    })
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a))
+    a.getMap<Y.Map<unknown>>('nodes').get('n')?.set('data', { v: 'from-a' })
+    b.getMap<Y.Map<unknown>>('nodes').get('n')?.set('data', { v: 'from-b' })
+
+    const item = (
+      nodeA.get('n') as unknown as { _map: Map<string, Record<string, unknown>> }
+    )._map.get('data')
+    for (const key of ['id', 'left', 'origin', 'deleted', 'content'])
+      expect(item && key in item).toBe(true)
+
+    const seen: { lost: unknown; winner: unknown }[] = []
+    nodeA.observeDeep((events) => {
+      for (const event of events) {
+        const overwritten = readOverwrittenLocalData(event, a.clientID)
+        if (overwritten) seen.push(overwritten)
+      }
+    })
+    Y.applyUpdate(a, Y.encodeStateAsUpdate(b, Y.encodeStateVector(a)))
+    // clientID 大的一方（b）在 Yjs 的取舍里赢，a 的那一版被并发顶掉。
+    expect(seen).toEqual([{ lost: { v: 'from-a' }, winner: { v: 'from-b' } }])
   })
 })
