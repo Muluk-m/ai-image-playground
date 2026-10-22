@@ -21,8 +21,8 @@ env:
   PRIVATE_OVERLAY_REPO: Muluk-m/ai-image-playground-private
 jobs:
   # The gate before the rollout is four jobs running side by side, the same split web.yml uses:
-  # public lint/build/startup (checks), the database-backed suites (tests), the web vitest
-  # (web-tests) and the paid build with the pinned overlay (paid-checks). The rollout job used to
+  # public lint/build/startup (checks), the database-backed suites (tests, two runners), the web
+  # vitest (web-tests, two shards) and the paid build with the pinned overlay (paid-checks). The rollout job used to
   # rerun the paid half itself after Checks had finished; it now waits for all four instead.
   # Local `pnpm test` keeps running one package at a time; only these CI commands are parallel.
   checks:
@@ -55,10 +55,21 @@ jobs:
           label: test-startup-public
       - run: pnpm --dir apps/admin build
 
+  # Same split as web.yml: bff's Bun suites on one runner, the other packages on another, and the
+  # web vitest sharded across two. Nothing stacks extra concurrency on one machine: a timing test
+  # in shared times out when it competes for CPU (PR #1458, first attempt).
   tests:
-    name: Tests
+    name: Tests (${{ matrix.part.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        part:
+          - name: bff
+            filter: "--filter=@image-playground/bff"
+          - name: packages
+            filter: "--filter=!@image-playground/web --filter=!@image-playground/bff"
     services:
       postgres:
         image: postgres:17
@@ -72,7 +83,7 @@ jobs:
       TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
       VITEST_MAX_WORKERS: 1
       # Every suite gets its own database, so files can run side by side (scripts/run-bun-tests-isolated.ts).
-      BUN_TEST_JOBS: 6
+      BUN_TEST_JOBS: 4
       NODE_OPTIONS: --no-experimental-webstorage
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -80,12 +91,16 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup
-      - run: pnpm test --concurrency=3 --env-mode=loose --filter='!@image-playground/web'
+      - run: pnpm test --concurrency=1 --env-mode=loose ${{ matrix.part.filter }}
 
   web-tests:
-    name: Web tests
+    name: Web tests (${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     env:
       VITEST_MAX_WORKERS: 2
       NODE_OPTIONS: --no-experimental-webstorage
@@ -95,7 +110,7 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup
-      - run: pnpm test --env-mode=loose --filter=@image-playground/web
+      - run: pnpm test --env-mode=loose --filter=@image-playground/web -- --shard=${{ matrix.shard }}/2
 
   paid-checks:
     name: Paid build checks
