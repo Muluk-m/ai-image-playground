@@ -5,7 +5,7 @@ import { openImageExport } from '../features/image-export/store'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
 import { modelLabel } from '../lib/channels/publicChannels'
-import { ActualValueBadge, getParamDisplay } from '../lib/paramDisplay'
+import { ActualValueBadge, getParamDisplay, measuredSizeOf } from '../lib/paramDisplay'
 import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
@@ -195,8 +195,9 @@ export default function TaskCard({
   const qualityDisplay = getParamDisplay(task, 'quality')
   const showQuality = task.params.quality !== 'auto' || qualityDisplay.isMismatch
 
-  const sizeDisplay = getParamDisplay(task, 'size')
-  const showSize = task.params.size !== 'auto' || sizeDisplay.isMismatch
+  // 尺寸以产出原图的真实像素为准（和左上角角标同一个来源），请求值只是没有像素时的兜底。
+  const sizeDisplay = getParamDisplay(task, 'size', task.actualParams, measuredSizeOf(preview))
+  const showSize = sizeDisplay.requestedValue !== 'auto' || sizeDisplay.hasActualValue
 
   const formatDisplay = getParamDisplay(task, 'output_format')
   const showFormat = task.params.output_format !== 'png' || formatDisplay.isMismatch
