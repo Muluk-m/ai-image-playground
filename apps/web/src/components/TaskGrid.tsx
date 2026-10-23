@@ -480,7 +480,7 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
     }),
     [],
   )
-  // 逐张卡里的格子不显示选中态，所以 Ctrl/⌘ 点也只是打开这一张，不悄悄加进批量选择。
+  // 逐张卡里「第 N 张详情」打开这一张的作品详情；格子不显示选中态，所以不走 Ctrl/⌘ 多选那一套。
   const batchHandlers = useMemo<BatchItemHandlers>(
     () => ({
       ...handlers,
