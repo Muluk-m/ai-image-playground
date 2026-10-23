@@ -27,7 +27,7 @@ import {
   recordAgentToolCall,
   touchAgentConversation,
 } from './conversations'
-import { singleObjectEditIntent } from './edit-intent'
+import { singleObjectEditIntent, wholeImageEditIntent } from './edit-intent'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost, type TurnExecution } from './execution'
 import { scheduleAgentFollowUps } from './follow-ups'
@@ -228,6 +228,17 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     text: input.text,
     hasNewReferences: input.references.length > 0,
   })
+  // 唤醒轮的 text 是系统说明，不是用户的话；澄清作答连同它答的那句原话一起看。
+  const userAsk = [
+    ...history.messages
+      .slice(clarificationChainStart(history.messages))
+      .flatMap((message) =>
+        message.role === 'user'
+          ? message.content.flatMap((block) => (block.type === 'text' ? [block.text] : []))
+          : [],
+      ),
+    input.text,
+  ].join('\n')
   const turnTools = agentTurnTools(
     {
       mode,
@@ -240,21 +251,11 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       visualWorkset,
       imageCombinations,
       maskProposals: new Set<string>(),
-      // 唤醒轮的 text 是系统说明，不是用户的话；澄清作答连同它答的那句原话一起看。
-      ...(!prepared.wake &&
-      singleObjectEditIntent(
-        [
-          ...history.messages
-            .slice(clarificationChainStart(history.messages))
-            .flatMap((message) =>
-              message.role === 'user'
-                ? message.content.flatMap((block) => (block.type === 'text' ? [block.text] : []))
-                : [],
-            ),
-          input.text,
-        ].join('\n'),
-      )
+      ...(!prepared.wake && singleObjectEditIntent(userAsk)
         ? { singleObjectEdit: { nudged: false } }
+        : {}),
+      ...(!prepared.wake && wholeImageEditIntent(userAsk)
+        ? { wholeImageEdit: { nudged: false } }
         : {}),
       authorization: () => authorization.current(),
       maskedEditPlan,
