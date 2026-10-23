@@ -722,14 +722,15 @@ export async function retryToolCall(
  * 确认一张草稿卡：把用户核对过（可能改过）的提示词原样交给服务端，它照这份字提交生成任务，
  * 不再经模型改写。服务端就地改写同一条消息，返回提交之后它的样子。
  * 重复确认是幂等的：已经提交过的那条原样返回，不会出第二个任务。
+ * 确认门拦下的卡确认完之后服务端会接着那一轮起续跑（`continued`），调用方要跟进那一轮的流。
  */
-export async function confirmToolPrompt(
+export async function confirmToolCard(
   conversationId: string,
   messageId: string,
   prompt: string,
   fetcher: Fetcher = authenticatedBffFetch,
   draftRevision?: number,
-): Promise<AgentMessageView> {
+): Promise<AgentConfirmationResponse> {
   const response = await fetcher(url(`/conversations/${conversationId}/confirmations`), {
     ...jsonInit({
       deviceId: getDeviceId(),
@@ -741,8 +742,7 @@ export async function confirmToolPrompt(
   })
   if (!response.ok) throw await requestError(response)
   // 端点的响应形状由协议定死，与这个文件里其它端点一样按它读。
-  const body = (await response.json()) as AgentConfirmationResponse
-  return body.message
+  return (await response.json()) as AgentConfirmationResponse
 }
 
 /**

@@ -60,6 +60,7 @@
     "background": "正在后台生成，完成后会在这里显示",
     "preparing": "准备中",
     "notFinished": "没有完成",
+    "gateVoided": "没有确认就发了新消息，这次没有提交，也没有扣费",
     "delivering": "产物已生成，正在载入…",
     "offCanvas": "产物不在当前画布上，可以再放入。",
     "deliveryFailed": "产物已生成，但载入失败，可以重试。",

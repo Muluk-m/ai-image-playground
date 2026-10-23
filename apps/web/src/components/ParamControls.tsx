@@ -1,4 +1,4 @@
-import { parseImageSize } from '@image-playground/shared'
+import { nearestImageSize, parseImageSize } from '@image-playground/shared'
 import { memo, type ReactNode, useMemo, useState } from 'react'
 import { useTranslation } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
@@ -17,7 +17,6 @@ import { useStore } from '../store'
 import {
   DEFAULT_PARAMS,
   GEMINI_ASPECT_RATIOS,
-  GEMINI_IMAGE_SIZES,
   GEMINI_THINKING_LEVELS,
   type TaskParams,
 } from '../types'
@@ -87,6 +86,7 @@ export function ImageSettings({
   size = 'md',
   extra,
   controlled,
+  fixedCount,
 }: {
   showCount?: boolean
   agentManaged?: boolean
@@ -94,6 +94,8 @@ export function ImageSettings({
   size?: ComposerControlSize
   extra?: ExtraSettings
   controlled?: ControlledParams
+  /** 张数由别处定死（逐张生成：一张参考图出一张）：摘要写这个数，卡片里数量只读。 */
+  fixedCount?: number
 }) {
   const { t } = useTranslation('composer')
   const storedParams = useStore((s) => s.params)
@@ -145,12 +147,19 @@ export function ImageSettings({
       ? 'auto'
       : selection.ratio
   const ratioLabel = ratio === 'auto' ? autoLabel : ratio
+  // 存着的档位这个模型不认（旧的 512、换模型前的 2K）时按最近一档显示，与提交时 BFF 的换法一致。
+  const geminiImageSize = params.gemini_image_size
+    ? nearestImageSize(params.gemini_image_size, capabilities.geminiImageSizes)
+    : undefined
   const sizeSummary = isGemini
-    ? [ratioLabel, tuning ? params.gemini_image_size : undefined]
+    ? [ratioLabel, tuning ? geminiImageSize : undefined]
     : selection.kind === 'custom'
       ? [capabilities.size ? params.size.replace('x', '×') : sizeRatioLabel(params.size)] // design-allow glyph-icon: 乘号
       : [ratioLabel, selection.kind === 'preset' && capabilities.size ? selection.tier : undefined]
-  const summary = [...sizeSummary, countVisible ? t('settings.count', { count: params.n }) : '']
+  const summary = [
+    ...sizeSummary,
+    countVisible ? t('settings.count', { count: fixedCount ?? params.n }) : '',
+  ]
     .filter(Boolean)
     .join(' · ')
   // 摘要里看不到、又偏离了默认值的参数。
@@ -172,7 +181,7 @@ export function ImageSettings({
           ...(agentManaged ? {} : { gemini_thinking_level: undefined }),
         }
       : { size: DEFAULT_PARAMS.size }
-    if (countVisible) patch.n = DEFAULT_PARAMS.n
+    if (countVisible && fixedCount === undefined) patch.n = DEFAULT_PARAMS.n
     if (outputs) {
       Object.assign(patch, {
         quality: DEFAULT_PARAMS.quality,
@@ -280,8 +289,8 @@ export function ImageSettings({
               <SettingsSection title={t('param.resolution')}>
                 <SettingsSegmented
                   label={t('param.resolution')}
-                  options={withAuto(GEMINI_IMAGE_SIZES, t('settings.autoOption'))}
-                  value={params.gemini_image_size ?? 'auto'}
+                  options={withAuto(capabilities.geminiImageSizes, t('settings.autoOption'))}
+                  value={geminiImageSize ?? 'auto'}
                   onChange={(value) => setParams({ gemini_image_size: fromAuto(value) })}
                 />
               </SettingsSection>
@@ -319,12 +328,18 @@ export function ImageSettings({
 
         {countVisible && (
           <SettingsSection title={t('param.count')}>
-            <SettingsSegmented
-              label={t('param.count')}
-              options={countOptions.map((n) => ({ value: n, label: String(n) }))}
-              value={params.n}
-              onChange={(n) => setParams({ n })}
-            />
+            {fixedCount === undefined ? (
+              <SettingsSegmented
+                label={t('param.count')}
+                options={countOptions.map((n) => ({ value: n, label: String(n) }))}
+                value={params.n}
+                onChange={(n) => setParams({ n })}
+              />
+            ) : (
+              <p className="text-sm tabular-nums text-foreground">
+                {t('settings.fixedCount', { count: fixedCount })}
+              </p>
+            )}
           </SettingsSection>
         )}
 
@@ -448,15 +463,22 @@ const ParamControls = memo(function ParamControls({
   showCount = false,
   agentManaged = false,
   size = 'md',
+  fixedCount,
 }: {
   showCount?: boolean
   agentManaged?: boolean
   size?: ComposerControlSize
+  fixedCount?: number
 }) {
   return (
     <>
       <ModelSelector size={size} />
-      <ImageSettings showCount={showCount} agentManaged={agentManaged} size={size} />
+      <ImageSettings
+        showCount={showCount}
+        agentManaged={agentManaged}
+        size={size}
+        fixedCount={fixedCount}
+      />
     </>
   )
 })

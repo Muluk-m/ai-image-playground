@@ -64,6 +64,7 @@
     "background": "Generating in the background; the result will appear here",
     "preparing": "Preparing",
     "notFinished": "Did not finish",
+    "gateVoided": "You sent a new message before confirming, so this one was not submitted and nothing was charged",
     "delivering": "Generated, loading the result…",
     "offCanvas": "Not on the current canvas. You can add it again.",
     "deliveryFailed": "Generated, but the result could not be loaded. You can retry.",

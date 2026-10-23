@@ -2,7 +2,7 @@ import type { InputImage } from '../types'
 import { modelSupportsEdit, NO_EDIT_SUPPORT_MESSAGE } from './channels/profileSelectors'
 import { getPublicChannels } from './channels/publicChannels'
 import type { ClientProfile } from './channels/types'
-import { API_MAX_IMAGES, MAX_INPUT_IMAGES_MESSAGE } from './inputImageLimit'
+import { API_MAX_IMAGES, maxInputImagesMessage } from './inputImageLimit'
 import { remapImageMentionsForOrder } from './promptImageMentions'
 
 /**
@@ -214,7 +214,10 @@ export const CANVAS_HANDOFF_ADMISSION: ReferenceAdmission = {
   acceptsReferences: true,
 }
 
-/** 被拒时给用户看的那句话；两条文案都随界面语言变，所以按调用时取。 */
-export function referenceRefusalMessage(reason: ReferenceRefusal): string {
-  return reason === 'noEdit' ? NO_EDIT_SUPPORT_MESSAGE : MAX_INPUT_IMAGES_MESSAGE
+/** 被拒时给用户看的那句话，上限报的是这次撞上的那一道；文案随界面语言变，所以按调用时取。 */
+export function referenceRefusalMessage(
+  reason: ReferenceRefusal,
+  limit: number = API_MAX_IMAGES,
+): string {
+  return reason === 'noEdit' ? NO_EDIT_SUPPORT_MESSAGE : maxInputImagesMessage(limit)
 }

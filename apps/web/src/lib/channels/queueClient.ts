@@ -42,6 +42,7 @@ const BFF_SUBMIT_ERROR_KEYS = {
 } as const
 
 const { POLL_BACKOFF_MS, POLL_MAX_MS, POLL_MAX_CONSECUTIVE_FAILURES } = QUEUE_TIMEOUTS
+const CONFIRMING_POLL_MS = 1000
 
 /** 队列产出的字节地址。留在传输层，避免认证启动时提前加载用户 store。 */
 export function queueOutputUrl(taskId: string, outputIndex: number): string {
@@ -358,8 +359,11 @@ async function poll(
   let consecutiveFailures = 0
   let lastTransientError: unknown = null
 
+  let phase: StatusResponse['phase'] | undefined
   for (let attempt = 0; Date.now() < deadline; attempt++) {
-    await sleep(POLL_BACKOFF_MS[Math.min(attempt, POLL_BACKOFF_MS.length - 1)]!)
+    const backoff = POLL_BACKOFF_MS[Math.min(attempt, POLL_BACKOFF_MS.length - 1)]!
+    // 「结果确认中」只剩入库几秒：退避已涨到 5 s 的话，图早好了还要干等一轮，这一段按 1 s 看。
+    await sleep(phase === 'confirming' ? Math.min(backoff, CONFIRMING_POLL_MS) : backoff)
     const outcome = await classifyPollResponse(url)
 
     switch (outcome.kind) {
@@ -372,6 +376,8 @@ async function poll(
       case 'fatal':
         throw new Error(i18next.t('queue.statusFailed', { ns: 'lib', reason: outcome.message }))
       case 'transient': {
+        // 1 s 只给拿到「确认中」之后的那一下；连不上时照常退避，别把重启/断网的容忍时长压没了。
+        phase = undefined
         consecutiveFailures++
         lastTransientError = outcome.error
         if (consecutiveFailures >= POLL_MAX_CONSECUTIVE_FAILURES) {
@@ -387,6 +393,7 @@ async function poll(
         break
       }
       case 'pending':
+        phase = outcome.phase
         if (outcome.phase) onStatus?.(outcome.phase)
         consecutiveFailures = 0
         lastTransientError = null
