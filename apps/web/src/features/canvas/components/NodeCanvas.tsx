@@ -166,6 +166,8 @@ import TextNodeComposer from './TextNodeComposer'
 import TimelineEditorHost from './TimelineEditor'
 import VideoNodeComposer from './VideoNodeComposer'
 
+/** 批量导入时同时解码的张数。 */
+const IMPORT_DECODE_CONCURRENCY = 4
 const NodeImageEditor = lazy(() => import('./NodeImageEditor'))
 
 type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation; group?: CanvasGroup }>
@@ -1455,13 +1457,24 @@ function Flow({
       // 先确认解得开再问张数、建节点：空文件、伪装成 .png 的文本不该留下一个永远「上传中」的节点，
       // 也不该算进「确认导入 N 张」里。解好的结果留着，确认后直接用：每张只读、解一次，
       // 确认的张数就是落到画布上的张数（单张已按大小限额过滤；这些图确认后本来就要写进画布，确认前先留着不多占）。
+      // 同时解几张，不一张接一张等，也不让一大批同时占着解码；结果按拖入顺序排回去。
+      const decoded: (ReadImageFile | null)[] = new Array(candidates.length)
+      let next = 0
+      await Promise.all(
+        Array.from({ length: Math.min(IMPORT_DECODE_CONCURRENCY, candidates.length) }, async () => {
+          while (next < candidates.length) {
+            const index = next++
+            decoded[index] = await readImageFile(candidates[index]).catch(notInvalid)
+          }
+        }),
+      )
       const invalid: string[] = []
       const valid: { file: File; image: ReadImageFile }[] = []
-      for (const file of candidates) {
-        const image = await readImageFile(file).catch(notInvalid)
+      candidates.forEach((file, index) => {
+        const image = decoded[index]
         if (image) valid.push({ file, image })
         else invalid.push(file.name)
-      }
+      })
       if (!here()) return
       if (invalid.length) showInvalidImages(invalid)
       if (valid.length === 0) return
