@@ -184,6 +184,8 @@ export interface MaskRegionView {
   readonly box: AgentNormalizedBox
   readonly selected: boolean
   readonly maskMediaId?: string
+  /** 用户在所有区域之外点出来的新块：服务端只按它自己的点分割，不借提议的框和种子点。 */
+  readonly added?: true
 }
 
 export function proposalRegions(
@@ -207,15 +209,6 @@ export function proposalRegions(
   ]
 }
 
-function inBox(box: AgentNormalizedBox, point: Point): boolean {
-  return (
-    point.x >= box.x &&
-    point.x <= box.x + box.width &&
-    point.y >= box.y &&
-    point.y <= box.y + box.height
-  )
-}
-
 /** 新的一下离之前某一下这么近，就当作改主意：换掉旧的，不让一正一负叠在同一处。 */
 const CLICK_REPLACE_DISTANCE = 0.03
 
@@ -234,22 +227,84 @@ export function addClick(
 }
 
 /**
- * 点一下落在哪个区域上：先看点在谁的蒙版里，再看在谁的框里（多个就取面积最小的），
- * 都不是就交给当前区域。排除点只认已经包含它的那个区域。
+ * 点一下落在哪个区域上：点在谁的蒙版里就是谁（当前区域优先）。包含点落在所有蒙版之外时
+ * 返回 `'added'`：另加一块包住点到的对象，原来的区域原样保留——不再把点并进某个区域、
+ * 撑大它的框重新分割（那样常把原来的对象换掉，例如点了旁边的挂画、椅子就没了）。
+ * 排除点只认已经包含它的那个区域，都不在就交给当前区域。
  */
 export function regionForClick(
-  regions: readonly MaskRegionView[],
   containing: readonly number[],
-  point: Point,
   include: boolean,
   active: number,
-): number {
+): number | 'added' {
   if (containing.length) return containing.includes(active) ? active : containing[0]!
-  if (!include) return active
-  const boxed = regions
-    .filter((one) => inBox(one.box, point))
-    .sort((a, b) => a.box.width * a.box.height - b.box.width * b.box.height)
-  return boxed[0]?.number ?? active
+  return include ? 'added' : active
+}
+
+/** 新加的一块：编号接在已有区域后面，先用点周围的小框占位，分割回来后换成蒙版的外接框。 */
+export function addedRegion(regions: readonly MaskRegionView[], point: Point): MaskRegionView {
+  const number = Math.max(0, ...regions.map((one) => one.number)) + 1
+  const side = 0.02
+  return {
+    number,
+    box: {
+      x: Math.max(0, Math.min(1 - side, point.x - side / 2)),
+      y: Math.max(0, Math.min(1 - side, point.y - side / 2)),
+      width: side,
+      height: side,
+    },
+    selected: true,
+    added: true,
+  }
+}
+
+/** 点选重新分割时发给服务端的请求：新加的块只带它自己的点；提议里有多个区域时带区域编号。 */
+export function refineRequest(
+  region: Pick<MaskRegionView, 'number' | 'added'>,
+  numbered: boolean,
+  points: readonly AgentMaskPromptPoint[],
+): { region?: number; area?: 'added'; points: readonly AgentMaskPromptPoint[] } {
+  if (region.added) return { area: 'added', points }
+  return { ...(numbered ? { region: region.number } : {}), points }
+}
+
+/**
+ * 读提议里存好的区域蒙版：取地址或解码任一步失败都交回 null，由调用方按框兜底，
+ * 不让一张蒙版读不到就把整张卡片标成失败。
+ */
+export async function storedRegionMask<T>(
+  maskMediaId: string,
+  resolve: (source: string) => Promise<string> | string,
+  load: (source: string) => Promise<T>,
+): Promise<T | null> {
+  try {
+    return await load(await resolve(`aip-media:${maskMediaId}`))
+  } catch {
+    return null
+  }
+}
+
+/** 蒙版的外接框（归一化）；空蒙版为 null。 */
+export function targetBounds(mask: TargetMask): AgentNormalizedBox | null {
+  let x0 = mask.width
+  let y0 = mask.height
+  let x1 = -1
+  let y1 = -1
+  for (let y = 0; y < mask.height; y++)
+    for (let x = 0; x < mask.width; x++) {
+      if (!mask.data[y * mask.width + x]) continue
+      if (x < x0) x0 = x
+      if (x > x1) x1 = x
+      if (y < y0) y0 = y
+      if (y > y1) y1 = y
+    }
+  if (x1 < 0) return null
+  return {
+    x: x0 / mask.width,
+    y: y0 / mask.height,
+    width: (x1 + 1 - x0) / mask.width,
+    height: (y1 + 1 - y0) / mask.height,
+  }
 }
 
 /** 确认后要出几张：默认 2；直接出图模式下输入框选了更多就按它（服务端同一口径）。 */

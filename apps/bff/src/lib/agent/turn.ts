@@ -37,7 +37,6 @@ import {
   archiveAgentReferences,
   claimConversationMedia,
   createAgentImageSource,
-  type ResolvedAgentImage,
   removeAgentTurnReferences,
   requireAgentImages,
   resolveTurnReferences,
@@ -60,6 +59,7 @@ import {
   assertRequestWithinBudget,
   requestOverheadTokens,
 } from './request-budget'
+import { omittedReviewNote, prepareReviewImages } from './review-images'
 import { type RunningTurn, registerRunningTurn } from './runningTurns'
 import { InvalidSelectionError } from './selection-preview'
 import type { AgentTurnAudience } from './skills'
@@ -76,7 +76,6 @@ import {
   isAgentToolName,
 } from './tools'
 import { toolErrorText } from './tools/adapter'
-import { AgentToolError } from './tools/errors'
 import { createTurnAuthorization } from './turn-authorization'
 import { agentTurnFailure } from './turn-failure'
 import {
@@ -92,7 +91,6 @@ import {
 } from './turn-input'
 import { recordAgentTurnSummary } from './turn-summary'
 import { createAgentUsageLedger } from './usage-ledger'
-import { assertVisualBytes, visualByteLimit } from './visual-resources'
 import { createVisualWorkset } from './visual-workset'
 
 export interface AgentTurnSettlement {
@@ -902,33 +900,13 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   void requireAgentImages(images, shownImageRequests(requestAgentReferences(input)))
     .then(async (references) => {
       if (aborted) return
-      // Stop before reading the rest of an oversized review batch; missing evidence cannot count as reviewed.
-      const reviewed: ResolvedAgentImage[] = []
-      const imageBytes = (image: ResolvedAgentImage) =>
-        Buffer.byteLength(image.dataUrl, 'utf8') +
-        Buffer.byteLength(image.maskDataUrl ?? '', 'utf8')
-      let preparedBytes = references.reduce((sum, image) => sum + imageBytes(image), 0)
-      assertVisualBytes(preparedBytes)
-      for (const id of input.reviewImageIds) {
-        const image = await images.resolve(id)
-        if (!image)
-          throw new AgentToolError(
-            'invalid_params',
-            `复核图片 ${id} 无法读取，联合复核未完成。请重新添加有效图片或选择需要复核的范围。`,
-          )
-        preparedBytes += imageBytes(image)
-        assertVisualBytes(preparedBytes)
-        reviewed.push(image)
-      }
-      // 批次唤醒的复核图尽力附带：旧产物可能已删、几批同时完成可能超预算，跳过即可，
-      // 唤醒说明让模型以图片清单为准，没附上的如实说未查看。
-      const byteLimit = visualByteLimit()
-      for (const id of input.optionalReviewImageIds ?? []) {
-        const image = await images.resolve(id).catch(() => null)
-        if (!image || preparedBytes + imageBytes(image) > byteLimit) continue
-        preparedBytes += imageBytes(image)
-        reviewed.push(image)
-      }
+      // 复核用预览而不是原件：4K 产物的原件会把整轮请求撑过字节预算。装不下的如实告诉模型。
+      const { reviewed, omitted } = await prepareReviewImages(
+        images,
+        references,
+        input.reviewImageIds,
+        input.optionalReviewImageIds,
+      )
       const reviewSet = new Set(reviewed)
       const evidence = await turnVisualEvidence([...references, ...reviewed], (image) =>
         reviewSet.has(image) ? 'result-review' : 'initial',
@@ -936,7 +914,10 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       if (aborted) return
       // 正文与预扣估算读的是同一份轮输入（`turnPromptBody`）：`/skill-name` 的展开范围、
       // 引用清单与并进来的唤醒说明的位置，两条路因此只有一种拼法。
-      const sent = turnModelPrompt(turnPromptBody(input, images.references), evidence)
+      const sent = turnModelPrompt(
+        turnPromptBody(input, images.references) + omittedReviewNote(omitted),
+        evidence,
+      )
       await execution.assert()
       // 中止可能落在上面这次确认租约的等待里：那时 pi 还没开跑，`agent.abort()` 无处可去。
       // 不在开跑前同步再看一眼，这一轮会照常请求上游并跑完。

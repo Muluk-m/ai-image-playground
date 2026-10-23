@@ -1,5 +1,6 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
 import {
+  Fragment,
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useLayoutEffect,
@@ -30,7 +31,7 @@ import {
 import { useActiveAgentSurface } from '../lib/activeAgentSurface'
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
-import { answerableClarificationId } from '../lib/panelMessages'
+import { answerableClarificationId, messagelessFailedTurns } from '../lib/panelMessages'
 import { usePlanCardState } from '../lib/planCardState'
 import { isProductionDraft } from '../lib/promptDraft'
 import { useAgentSkills } from '../lib/useAgentSkills'
@@ -441,6 +442,23 @@ export default function AgentPanel({
   // 页脚跟在本轮最后一条消息后面。重试记录自成一轮、按时间追加在对话末尾，可能夹在一轮的
   // 消息中间，所以按「这一轮的最后一条」认，而不只看下一条换没换轮。
   const lastOfTurn = new Map(messages.map((message, index) => [message.turnId, index]))
+  // 没有消息的失败轮（刷新后也要看得见）挂在前一轮之后；正在错误横幅里显示的那一轮不重复。
+  const messageless = messagelessFailedTurns(messages, turns)
+  const bannerTurnId =
+    error && typeof errorDiagnostic?.turnId === 'string' ? errorDiagnostic.turnId : undefined
+  const orphanFooters = (anchor: number) =>
+    messageless
+      .get(anchor)
+      ?.filter((footer) => footer.turnId !== bannerTurnId)
+      .map((footer) => (
+        <div
+          key={`turn:${footer.turnId}`}
+          data-agent-turn-id={footer.turnId}
+          className="studio-agent-message-block"
+        >
+          <AgentTurnCost footer={footer} />
+        </div>
+      ))
   const jobsByTurn = new Map<string, AgentToolMessage[]>()
   for (const message of messages) {
     if (message.kind !== 'tool' || !message.job) continue
@@ -598,133 +616,156 @@ export default function AgentPanel({
                       <AgentSuggestions className="studio-suggestions" />
                     </div>
                   ))}
-                {messages.map((message, index) => {
-                  const planRun = planRuns.starts.get(index)
-                  if (planRuns.absorbed.has(index) && !planRun) return null
-                  if (planRun) {
-                    const lastIndex = index + planRun.length - 1
-                    const footer =
-                      lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
-                    return (
-                      <div
-                        key={`${planKeys.get(index)}:${historyCached}`}
-                        data-agent-message-id={message.id}
-                        className="studio-agent-message-block"
-                      >
-                        <fieldset disabled={historyCached} className="contents">
-                          <AgentGenerationPlan messages={planRun} plan={planCard} />
-                        </fieldset>
-                        {footer && !turnShowsImageReceipt(messages, message.turnId) && (
-                          <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
-                        )}
-                      </div>
-                    )
-                  }
-                  const imageRun = imageRuns.starts.get(index)
-                  if (imageRuns.absorbed.has(index) && !imageRun) return null
-                  if (imageRun) {
-                    const lastIndex = index + imageRun.length - 1
-                    const footer =
-                      lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
-                    return (
-                      <div
-                        key={`${message.id}:${historyCached}`}
-                        data-agent-message-id={message.id}
-                        className="studio-agent-message-block"
-                      >
-                        <fieldset disabled={historyCached} className="contents">
-                          <AgentImageRun
-                            messages={imageRun}
-                            onViewCanvas={onViewCanvas}
-                            onPreviewResult={onPreviewResult}
-                            onPreviewProduction={onPreviewProduction}
-                          />
-                        </fieldset>
-                        {footer && !turnShowsImageReceipt(messages, message.turnId) && (
-                          <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
-                        )}
-                      </div>
-                    )
-                  }
-                  const fetchedRun = fetchedRuns?.starts.get(index)
-                  if (fetchedRuns?.absorbed.has(index) && !fetchedRun) return null
-                  if (fetchedRun) {
-                    const lastIndex = index + fetchedRun.length - 1
-                    const footer =
-                      lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
-                    return (
-                      <div
-                        key={`${message.id}:${historyCached}`}
-                        className="studio-agent-message-block"
-                      >
-                        <div className="studio-agent-fetched-strip">
-                          {fetchedRun.map((image) => (
-                            <div
-                              key={image.id}
-                              data-agent-message-id={image.id}
-                              className="studio-agent-fetched-strip-item"
-                            >
-                              <fieldset disabled={historyCached} className="contents">
-                                <AgentToolCard
-                                  message={image}
-                                  onViewCanvas={onViewCanvas}
-                                  onPreviewResult={onPreviewResult}
-                                  compactFetched
-                                />
-                              </fieldset>
+                {orphanFooters(-1)}
+                {messages.map((message, index) => (
+                  <Fragment key={planKeys.get(index) ?? `${message.id}:block`}>
+                    {(() => {
+                      const planRun = planRuns.starts.get(index)
+                      if (planRuns.absorbed.has(index) && !planRun) return null
+                      if (planRun) {
+                        const lastIndex = index + planRun.length - 1
+                        const footer =
+                          lastOfTurn.get(message.turnId) === lastIndex
+                            ? turns[message.turnId]
+                            : null
+                        return (
+                          <div
+                            key={`${planKeys.get(index)}:${historyCached}`}
+                            data-agent-message-id={message.id}
+                            className="studio-agent-message-block"
+                          >
+                            <fieldset disabled={historyCached} className="contents">
+                              <AgentGenerationPlan messages={planRun} plan={planCard} />
+                            </fieldset>
+                            {footer && !turnShowsImageReceipt(messages, message.turnId) && (
+                              <AgentTurnCost
+                                footer={footer}
+                                jobs={jobsByTurn.get(message.turnId)}
+                              />
+                            )}
+                          </div>
+                        )
+                      }
+                      const imageRun = imageRuns.starts.get(index)
+                      if (imageRuns.absorbed.has(index) && !imageRun) return null
+                      if (imageRun) {
+                        const lastIndex = index + imageRun.length - 1
+                        const footer =
+                          lastOfTurn.get(message.turnId) === lastIndex
+                            ? turns[message.turnId]
+                            : null
+                        return (
+                          <div
+                            key={`${message.id}:${historyCached}`}
+                            data-agent-message-id={message.id}
+                            className="studio-agent-message-block"
+                          >
+                            <fieldset disabled={historyCached} className="contents">
+                              <AgentImageRun
+                                messages={imageRun}
+                                onViewCanvas={onViewCanvas}
+                                onPreviewResult={onPreviewResult}
+                                onPreviewProduction={onPreviewProduction}
+                              />
+                            </fieldset>
+                            {footer && !turnShowsImageReceipt(messages, message.turnId) && (
+                              <AgentTurnCost
+                                footer={footer}
+                                jobs={jobsByTurn.get(message.turnId)}
+                              />
+                            )}
+                          </div>
+                        )
+                      }
+                      const fetchedRun = fetchedRuns?.starts.get(index)
+                      if (fetchedRuns?.absorbed.has(index) && !fetchedRun) return null
+                      if (fetchedRun) {
+                        const lastIndex = index + fetchedRun.length - 1
+                        const footer =
+                          lastOfTurn.get(message.turnId) === lastIndex
+                            ? turns[message.turnId]
+                            : null
+                        return (
+                          <div
+                            key={`${message.id}:${historyCached}`}
+                            className="studio-agent-message-block"
+                          >
+                            <div className="studio-agent-fetched-strip">
+                              {fetchedRun.map((image) => (
+                                <div
+                                  key={image.id}
+                                  data-agent-message-id={image.id}
+                                  className="studio-agent-fetched-strip-item"
+                                >
+                                  <fieldset disabled={historyCached} className="contents">
+                                    <AgentToolCard
+                                      message={image}
+                                      onViewCanvas={onViewCanvas}
+                                      onPreviewResult={onPreviewResult}
+                                      compactFetched
+                                    />
+                                  </fieldset>
+                                </div>
+                              ))}
                             </div>
-                          ))}
+                            {footer && !turnShowsImageReceipt(messages, message.turnId) && (
+                              <AgentTurnCost
+                                footer={footer}
+                                jobs={jobsByTurn.get(message.turnId)}
+                              />
+                            )}
+                          </div>
+                        )
+                      }
+                      const footer =
+                        lastOfTurn.get(message.turnId) === index ? turns[message.turnId] : null
+                      const trail = grouping.trails.get(index)
+                      if (grouping.absorbed.has(index) && !trail && !footer) return null
+                      // 历史里可能落下一条空的助手文本。它不显示内容，也不该留下块间距。
+                      if (
+                        message.kind === 'text' &&
+                        message.role === 'assistant' &&
+                        !message.streaming &&
+                        !message.text.trim() &&
+                        !trail &&
+                        !footer
+                      )
+                        return null
+                      return (
+                        <div
+                          key={
+                            message.kind === 'text' ? message.id : `${message.id}:${historyCached}`
+                          }
+                          data-agent-message-id={message.id}
+                          className="studio-agent-message-block"
+                        >
+                          {trail && (
+                            <AgentActivityTrail
+                              steps={trail.steps}
+                              spent={trail.spent}
+                              revealId={located?.id}
+                              revealSeq={located?.seq}
+                            />
+                          )}
+                          {!grouping.absorbed.has(index) &&
+                            renderMessage(
+                              message,
+                              answerableId,
+                              skills,
+                              onViewCanvas,
+                              onPreviewResult,
+                              onPreviewProduction,
+                              historyCached,
+                            )}
+                          {footer && !turnShowsImageReceipt(messages, message.turnId) && (
+                            <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
+                          )}
                         </div>
-                        {footer && !turnShowsImageReceipt(messages, message.turnId) && (
-                          <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
-                        )}
-                      </div>
-                    )
-                  }
-                  const footer =
-                    lastOfTurn.get(message.turnId) === index ? turns[message.turnId] : null
-                  const trail = grouping.trails.get(index)
-                  if (grouping.absorbed.has(index) && !trail && !footer) return null
-                  // 历史里可能落下一条空的助手文本。它不显示内容，也不该留下块间距。
-                  if (
-                    message.kind === 'text' &&
-                    message.role === 'assistant' &&
-                    !message.streaming &&
-                    !message.text.trim() &&
-                    !trail &&
-                    !footer
-                  )
-                    return null
-                  return (
-                    <div
-                      key={message.kind === 'text' ? message.id : `${message.id}:${historyCached}`}
-                      data-agent-message-id={message.id}
-                      className="studio-agent-message-block"
-                    >
-                      {trail && (
-                        <AgentActivityTrail
-                          steps={trail.steps}
-                          spent={trail.spent}
-                          revealId={located?.id}
-                          revealSeq={located?.seq}
-                        />
-                      )}
-                      {!grouping.absorbed.has(index) &&
-                        renderMessage(
-                          message,
-                          answerableId,
-                          skills,
-                          onViewCanvas,
-                          onPreviewResult,
-                          onPreviewProduction,
-                          historyCached,
-                        )}
-                      {footer && !turnShowsImageReceipt(messages, message.turnId) && (
-                        <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
-                      )}
-                    </div>
-                  )
-                })}
+                      )
+                    })()}
+                    {orphanFooters(index)}
+                  </Fragment>
+                ))}
                 <AgentActivity />
                 <AgentHistoryStatus />
                 {presentation === 'page' && <AgentFollowUpChips />}
