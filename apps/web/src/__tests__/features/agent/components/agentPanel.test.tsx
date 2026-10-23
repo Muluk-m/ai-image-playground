@@ -2101,6 +2101,75 @@ describe('AgentPanel', () => {
       useAgentStore.setState({ confirmPrompt: original })
     }
   })
+
+  it('同一轮前一段计划消失时，后一段计划不重挂；已提交张数按产出数计', async () => {
+    const original = useAgentStore.getState().confirmPrompt
+    const confirmPrompt = vi.fn(async (id: string) => {
+      if (id === 'd')
+        return {
+          ok: false as const,
+          reason: 'refused' as const,
+          code: 'insufficient_credits' as const,
+        }
+      // a 成交的同时，前一段计划里的 x 也在别处被确认：前一段整段消失。
+      useAgentStore.setState((state) => ({
+        messages: state.messages.map((one) =>
+          (one.id === id || one.id === 'x') && one.kind === 'tool'
+            ? { ...one, status: 'submitted' as const }
+            : one,
+        ),
+      }))
+      return { ok: true as const }
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      confirmPrompt,
+      conversationId: 'conversation-plan',
+      messages: [
+        planDraft('x', '猫x'),
+        {
+          kind: 'text',
+          id: 'between',
+          turnId: 'turn-plan',
+          role: 'assistant',
+          text: '再来两张',
+          streaming: false,
+        },
+        {
+          ...planDraft('a', '猫a'),
+          snapshot: {
+            mode: 'image',
+            args: { n: 2 },
+            target: { provider: 'muvloom', model: 'flare' },
+          },
+        },
+        planDraft('d', '猫d'),
+      ],
+    })
+    try {
+      render()
+      expect(host.querySelectorAll('[aria-label="生成计划"]')).toHaveLength(2)
+      await act(async () => {
+        ;[...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '全部生成（3）')
+          ?.click()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      expect(confirmPrompt.mock.calls.map(([id]) => id)).toEqual(['a', 'd'])
+      expect(host.querySelectorAll('[aria-label="生成计划"]')).toHaveLength(1)
+      expect(
+        host.querySelector('[data-plan-refused="insufficient_credits"]')?.textContent,
+      ).toContain('积分不够，这次没有生成')
+      expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+        '已提交 2 张，「猫d」未提交',
+      )
+    } finally {
+      useAgentStore.setState({ confirmPrompt: original })
+    }
+  })
 })
 
 it('shows a cached image result as its tile while syncing instead of a prompt card', async () => {
