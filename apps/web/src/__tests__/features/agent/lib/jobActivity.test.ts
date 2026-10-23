@@ -63,7 +63,10 @@ describe('切走之后的对话（BUG-16）', () => {
 
     fetchJobs.mockResolvedValue([
       view(
-        tool('a', { status: 'succeeded', artifacts: [{}, {}] as unknown as AgentToolMessage['artifacts'] }),
+        tool('a', {
+          status: 'succeeded',
+          artifacts: [{}, {}] as unknown as AgentToolMessage['artifacts'],
+        }),
       ),
       view(
         tool('b', {
