@@ -164,6 +164,62 @@ it('fits square and landscape results to their actual ratios without fixed-ratio
   }
 })
 
+it('letterboxes 16:9 batch results on the tile surface, with the transparency grid only behind the pixels', async () => {
+  // 测试环境 4K 扶手椅：两张 16:9 结果放在批量方格里，上下留边不能露出棋盘格。
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: async (id: string) => `data:image/png;base64,${id}`,
+  } as unknown as AgentCanvasSink)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentToolCard
+          message={{
+            kind: 'tool',
+            id: 'letterbox',
+            turnId: 'turn',
+            toolCallId: 'call',
+            toolName: 'editImage',
+            title: '两张图片',
+            status: 'succeeded',
+            delivery: 'placed',
+            artifacts: [
+              { artifactId: 'wide', width: 3840, height: 2160 },
+              { artifactId: 'unknown' },
+            ].map((artifact, outputIndex) => ({
+              ...artifact,
+              outputIndex,
+              taskId: 'task',
+              media: 'image' as const,
+              mime: 'image/png',
+            })),
+          }}
+          onPreviewResult={vi.fn()}
+        />,
+      ),
+    )
+    const tiles = host.querySelectorAll<HTMLElement>('.studio-agent-inline-tile')
+    expect(tiles[0]!.style.aspectRatio).toBe('1')
+    const [wide, unknown] = [
+      ...host.querySelectorAll<HTMLImageElement>('.studio-agent-inline-open img'),
+    ]
+    expect(wide!.dataset.fit).toBe('width')
+    // 比例还不知道：不垫棋盘格（CSS 只给 [data-fit] 的图垫），加载后按实际比例放。
+    expect(unknown!.dataset.fit).toBeUndefined()
+    Object.defineProperties(unknown!, {
+      naturalWidth: { value: 600 },
+      naturalHeight: { value: 900 },
+    })
+    act(() => unknown!.dispatchEvent(new Event('load')))
+    expect(unknown!.dataset.fit).toBe('height')
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
 it('shows all generated images together and edits the clicked artifact', async () => {
   const host = document.createElement('div')
   const root = createRoot(host)
