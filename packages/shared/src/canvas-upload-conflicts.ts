@@ -109,12 +109,15 @@ function withBookkeeping(user: UploadData, book: UploadData): UploadData {
 export function mergeCanvasUploadConflict(lost: unknown, winner: unknown): UploadData | undefined {
   if (!isData(lost) || !isData(winner)) return undefined
   let merged: UploadData
-  const bookkeeping = (book: UploadData, user: UploadData) =>
-    isPromotionOf(book, user) || isClaimOf(book, user) || isReleaseOf(book, user)
   if (bookkeeping(winner, lost)) merged = withBookkeeping(lost, winner)
   else if (bookkeeping(lost, winner)) merged = withBookkeeping(winner, lost)
   else return undefined
   return sameValue(merged, winner) ? undefined : merged
+}
+
+/** book 是在 user 这一版上做的上传簿记（收成云媒体、声明、撤销声明）。 */
+function bookkeeping(book: UploadData, user: UploadData): boolean {
+  return isPromotionOf(book, user) || isClaimOf(book, user) || isReleaseOf(book, user)
 }
 
 /** 与键顺序无关的深比较：merged 是展开后重写的对象，键顺序可能和 winner 不同。 */
@@ -184,15 +187,74 @@ function lastContent(item: ItemShape): unknown {
 }
 
 /**
- * 这次远端事件里，节点 data 上有没有本机写入和远端写入并发（谁也没见过谁）：有的话返回输掉的那一版
- * 和现在生效的那一版，否则（先后改、两边都不是本机、内部结构不认识）返回 undefined。两种取舍都认：
- * 远端赢、本机这一版被顶掉；本机赢、远端这次写入一进来就是被删掉的。后一种不能指望远端那台设备来补：
- * 它可能已经离线（比如重新打开时才合并的离线改动），所以本机也补；两边都补时写的是同一份合并结果，会收敛。
+ * 从生效的一版往左列出 data 的全部历史条目，并找出其中「并发输掉的一版」：满足 isCandidate、已被删除，
+ * 而且生效的一版和这次新加的条目（isNew）都没见过它（不在它们的 origin 链上）。见过的是先后改，不补。
+ * 只列各条并发分支上最新的一版：同一分支上更早的条目被同分支后来的写入见过，自然排除。按从旧到新返回。
+ */
+function concurrentLosers(
+  current: ItemShape,
+  isNew: (item: ItemShape) => boolean,
+  isCandidate: (item: ItemShape) => boolean,
+): ItemShape[] | undefined {
+  const chain: ItemShape[] = []
+  for (let item: unknown = current; item; item = (item as ItemShape).left) {
+    if (!isItemShape(item)) {
+      reportUnsupported('Item')
+      return undefined
+    }
+    chain.push(item)
+  }
+  const key = (id: { client: number; clock: number }) => `${id.client}:${id.clock}`
+  const byId = new Map(chain.map((item) => [key(item.id), item]))
+  const seen = new Set<ItemShape>()
+  for (const item of chain) {
+    if (item !== current && !isNew(item)) continue
+    // 沿 origin 链往回走：写这一版时看到的上一版、再上一版……都被它见过。
+    for (let origin = item.origin; origin; ) {
+      const seenItem = byId.get(key(origin))
+      if (!seenItem || seen.has(seenItem)) break
+      seen.add(seenItem)
+      origin = seenItem.origin
+    }
+  }
+  return chain
+    .filter((item) => item !== current && item.deleted && isCandidate(item) && !seen.has(item))
+    .reverse()
+}
+
+/**
+ * 生效的一版和几个并发输掉的版本（从旧到新）合并，都相对生效的那一版判断：
+ * 生效的是簿记时，用户改动取输家里最新的一版、叠上生效的簿记；输家里的簿记都叠到结果上，
+ * 收成云媒体最后叠（它盖过声明和撤销）。输家之间按 Yjs 原样取舍，不互相合。合不出变化时返回 undefined。
+ */
+export function mergeCanvasUploadConflicts(
+  lost: unknown[],
+  winner: unknown,
+): UploadData | undefined {
+  if (lost.length === 1) return mergeCanvasUploadConflict(lost[0], winner)
+  if (!isData(winner)) return undefined
+  const versions = lost.filter(isData)
+  let merged = winner
+  const user = [...versions].reverse().find((version) => bookkeeping(winner, version))
+  if (user) merged = withBookkeeping(user, winner)
+  const books = versions
+    .filter((version) => bookkeeping(version, winner))
+    .sort((a, b) => Number(!!a.mediaId) - Number(!!b.mediaId))
+  for (const book of books) merged = withBookkeeping(merged, book)
+  return sameValue(merged, winner) ? undefined : merged
+}
+
+/**
+ * 这次远端事件里，节点 data 上有没有本机写入和远端写入并发（谁也没见过谁）：有的话返回输掉的各版
+ * （从旧到新）和现在生效的那一版，否则（先后改、两边都不是本机、内部结构不认识）返回 undefined。两种取舍都认：
+ * 远端赢、本机这一版被顶掉；本机赢、远端这次写入一进来就是被删掉的（远端的几次并发写入都算，不止最近一次）。
+ * 后一种不能指望远端那台设备来补：它可能已经离线（比如重新打开时才合并的离线改动），所以本机也补；
+ * 两边都补时写的是同一份合并结果，会收敛。
  */
 export function readOverwrittenLocalData(
   event: Y.YEvent<Y.AbstractType<unknown>>,
   local: number | ((client: number) => boolean),
-): { lost: unknown; winner: unknown } | undefined {
+): { lost: unknown[]; winner: unknown } | undefined {
   try {
     const isLocal = typeof local === 'number' ? (client: number) => client === local : local
     const map = (event.target as unknown as { _map?: unknown })._map
@@ -207,30 +269,18 @@ export function readOverwrittenLocalData(
       return undefined
     }
     if (current.deleted) return undefined
-    if (!event.adds(current as never)) {
-      // 本机这一版还生效：看这次新加、却一进来就被删掉的远端条目，离它最近的那个是远端最后写的一版。
-      if (!isLocal(current.id.client)) return undefined
-      let loser = current.left
-      while (loser && isItemShape(loser) && !event.adds(loser as never)) loser = loser.left
-      if (!loser || !isItemShape(loser) || !loser.deleted || isLocal(loser.id.client))
-        return undefined
-      // 远端以本机这一版为起点写的，就会排在它右边成为生效版；排在左边被删，说明远端没见过它。
-      if (loser.origin && Y.compareIDs(loser.origin, current.id)) return undefined
-      return { lost: lastContent(loser), winner: lastContent(current) }
-    }
-    // 这次之前生效的那一版：往左跳过这次新加的条目，第一个旧条目就是它。
-    let previous = current.left
-    while (previous && isItemShape(previous) && event.adds(previous as never))
-      previous = previous.left
-    if (!previous || !isItemShape(previous)) return undefined
-    if (!isLocal(previous.id.client) || !event.deletes(previous as never)) return undefined
-    // 这次新加的条目里有以它为起点写的，说明远端看过本机这一版，是先后改，不是并发。
-    for (let item: ItemShape | null = current; item && item !== previous; item = item.left) {
-      if (!isItemShape(item)) return undefined
-      if (event.adds(item as never) && item.origin && Y.compareIDs(item.origin, previous.id))
-        return undefined
-    }
-    return { lost: lastContent(previous), winner: lastContent(current) }
+    const adds = (item: ItemShape) => event.adds(item as never)
+    const localWins = !adds(current)
+    // 本机这一版还生效：看这次新加、却一进来就被删掉的远端条目。
+    // 远端这次写入生效：看这次被删掉的本机条目。
+    if (localWins && !isLocal(current.id.client)) return undefined
+    const losers = concurrentLosers(current, adds, (item) =>
+      localWins
+        ? adds(item) && !isLocal(item.id.client)
+        : event.deletes(item as never) && isLocal(item.id.client),
+    )
+    if (!losers?.length) return undefined
+    return { lost: losers.map(lastContent), winner: lastContent(current) }
   } catch (error) {
     reportUnsupported('读取时出错', error)
     return undefined
@@ -238,15 +288,15 @@ export function readOverwrittenLocalData(
 }
 
 /**
- * 重新打开时从本机 IndexedDB 一次性回放的历史里，节点 data 有没有两次并发写入（谁也没见过谁）：
- * 比如两个标签页离线时各写了一次，都是本机写的，回放前也都不在内存里。返回输掉的那一版和生效的那一版。
+ * 重新打开时从本机 IndexedDB 一次性回放的历史里，节点 data 有没有并发写入（谁也没见过谁）：
+ * 比如两个标签页离线时各写了一次，都是本机写的，回放前也都不在内存里。返回输掉的各版和生效的那一版。
  * 回放从空文档开始时节点本身也是这次新加的，Yjs 不为它发事件，所以按事务（回放结束、回收删除内容之前）读：
- * 输掉的条目在这次回放里加进来又被删掉、生效的一版之后没有以它为起点写的，就是并发；有就是先后改。
+ * 输掉的条目在这次回放里加进来又被删掉、生效的一版和其后的写入都没见过它，就是并发；见过就是先后改。
  */
 export function readReplayedOverwrite(
   node: Y.Map<unknown>,
   transaction: Y.Transaction,
-): { lost: unknown; winner: unknown } | undefined {
+): { lost: unknown[]; winner: unknown } | undefined {
   try {
     const added = (item: ItemShape) =>
       item.id.clock >= (transaction.beforeState.get(item.id.client) ?? 0)
@@ -262,17 +312,9 @@ export function readReplayedOverwrite(
       return undefined
     }
     if (current.deleted || !added(current)) return undefined
-    for (let loser = current.left; loser; loser = loser.left) {
-      if (!isItemShape(loser)) return undefined
-      if (!added(loser)) return undefined
-      // 右边（更晚）的条目里有以它为起点写的：它之后都是先后改，再往左只会更旧。
-      for (let item: ItemShape | null = current; item && item !== loser; item = item.left) {
-        if (!isItemShape(item)) return undefined
-        if (item.origin && Y.compareIDs(item.origin, loser.id)) return undefined
-      }
-      if (loser.deleted) return { lost: lastContent(loser), winner: lastContent(current) }
-    }
-    return undefined
+    const losers = concurrentLosers(current, added, added)
+    if (!losers?.length) return undefined
+    return { lost: losers.map(lastContent), winner: lastContent(current) }
   } catch (error) {
     reportUnsupported('读取时出错', error)
     return undefined
@@ -296,7 +338,7 @@ export function watchCanvasUploadConflicts(
   isReplay: (origin: unknown) => boolean = () => false,
 ): () => void {
   const nodes = doc.getMap<Y.Map<unknown>>('nodes')
-  type Repair = { id: string; lost: unknown; winner: unknown; data: UploadData }
+  type Repair = { id: string; lost: unknown[]; winner: unknown; data: UploadData }
   let stopped = false
   const observer = (events: Y.YEvent<Y.AbstractType<unknown>>[], transaction: Y.Transaction) => {
     if (isReplay(transaction.origin) || !isRemote(transaction.origin)) return
@@ -307,7 +349,7 @@ export function watchCanvasUploadConflicts(
       const overwritten = readOverwrittenLocalData(event, isLocalClient)
       if (!overwritten) continue
       const { lost, winner } = overwritten
-      const data = mergeCanvasUploadConflict(lost, winner)
+      const data = mergeCanvasUploadConflicts(lost, winner)
       if (data) repairs.push({ id: String(event.path[0]), lost, winner, data })
     }
     repair(repairs)
@@ -320,7 +362,7 @@ export function watchCanvasUploadConflicts(
       const overwritten = readReplayedOverwrite(node, transaction)
       if (!overwritten) return
       const { lost, winner } = overwritten
-      const data = mergeCanvasUploadConflict(lost, winner)
+      const data = mergeCanvasUploadConflicts(lost, winner)
       if (data) repairs.push({ id, lost, winner, data })
     })
     repair(repairs)
@@ -336,7 +378,7 @@ export function watchCanvasUploadConflicts(
           if (now === undefined) continue
           // 排队期间同一调用栈里又进来别的远端写入、节点已不是赢的那一版：输掉的那一版谁都没合进去过，
           // 按现在这一版重新合；合不出来（比如上传已经收尾）就不写。
-          const next = now === winner ? data : mergeCanvasUploadConflict(lost, now)
+          const next = now === winner ? data : mergeCanvasUploadConflicts(lost, now)
           if (next) updateCanvasNode(doc, id, { data: next as never }, origin)
         }
       }, origin)

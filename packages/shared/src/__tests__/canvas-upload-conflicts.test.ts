@@ -265,6 +265,31 @@ describe('上传簿记与并发编辑', () => {
     stop()
   })
 
+  it('本机赢、远端一次带来几个并发版本时，每一版都看：更早的收成云媒体也合回来', async () => {
+    // 上传方(1)收成云媒体，另一台编辑方(2)没见过它就改了名，服务端把两者一起发给本机(9)；
+    // 本机离线时也改了提示词，clientID 最大在 Yjs 取舍里赢。离本机最近的输家是改名，收成云媒体在更左边。
+    const { editor: other, uploader } = pair(2, 1)
+    const self = device(9)
+    Y.applyUpdate(self.doc, Y.encodeStateAsUpdate(uploader.doc), remote)
+    promoteCanvasResultMedia(uploader.doc, 'image', 'local-file', media, local)
+    edit(other.doc, { name: 'renamed' })
+    edit(self.doc, { meta: { ...data(self.doc).meta, nodePrompt: 'a cat' } })
+    uploader.stop()
+    other.stop()
+    // 服务端还留着输掉那一版的内容（没回收删除内容）时，本机一次收到两版。
+    const server = new Y.Doc({ gc: false })
+    Y.applyUpdate(server, Y.encodeStateAsUpdate(uploader.doc))
+    Y.applyUpdate(server, Y.encodeStateAsUpdate(other.doc))
+
+    Y.applyUpdate(self.doc, Y.encodeStateAsUpdate(server, Y.encodeStateVector(self.doc)), remote)
+    await Promise.resolve()
+
+    expect(data(self.doc).meta?.nodePrompt).toBe('a cat')
+    expect(data(self.doc).mediaId).toBe(media)
+    expect(data(self.doc).fileId).toBe(`cloud-${media}`)
+    self.stop()
+  })
+
   it('补写排队期间又进来一次远端写入时，按最新一版重新合，收成云媒体和改名都在', async () => {
     // uploader=2 的收成云媒体顶掉 editor=1 的改名；补写还没跑，又同步进来上传方随后改的提示词。
     const devices = pair(1, 2)
@@ -496,7 +521,7 @@ describe('Yjs 内部结构契约（升级 yjs 时这里失败就要同步改 rea
     for (const key of ['id', 'left', 'origin', 'deleted', 'content'])
       expect(item && key in item).toBe(true)
 
-    const seen: { lost: unknown; winner: unknown }[] = []
+    const seen: { lost: unknown[]; winner: unknown }[] = []
     nodeA.observeDeep((events) => {
       for (const event of events) {
         const overwritten = readOverwrittenLocalData(event, a.clientID)
@@ -505,6 +530,6 @@ describe('Yjs 内部结构契约（升级 yjs 时这里失败就要同步改 rea
     })
     Y.applyUpdate(a, Y.encodeStateAsUpdate(b, Y.encodeStateVector(a)))
     // clientID 大的一方（b）在 Yjs 的取舍里赢，a 的那一版被并发顶掉。
-    expect(seen).toEqual([{ lost: { v: 'from-a' }, winner: { v: 'from-b' } }])
+    expect(seen).toEqual([{ lost: [{ v: 'from-a' }], winner: { v: 'from-b' } }])
   })
 })
