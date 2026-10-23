@@ -47,6 +47,7 @@ type TestViewport = { x: number; y: number; zoom: number }
 const mocks = vi.hoisted(() => ({
   open: vi.fn(),
   importImages: vi.fn(async () => 1),
+  placeImage: vi.fn(),
   readImage: vi.fn(async (_file: File) => ({
     dataUrl: 'data:image/png;base64,AA==',
     width: 1,
@@ -69,6 +70,7 @@ vi.mock('../../../../features/canvas/lib/nodeCanvasDocument', () => ({
 }))
 vi.mock('../../../../features/canvas/lib/nodeCanvasGenerate', () => ({
   fillImageNode: mocks.importImages,
+  placeDecodedImage: mocks.placeImage,
   readImageFile: mocks.readImage,
   InvalidImageFileError: class extends Error {
     constructor(readonly fileName: string) {
@@ -800,7 +802,7 @@ it('opens the add-node menu when a connection ends on blank canvas space', async
 })
 
 it('places a dropped image where the pointer is', async () => {
-  mocks.importImages.mockClear()
+  mocks.placeImage.mockClear()
   await render()
   const surface = host.querySelector('.studio-node-canvas')!
   const file = new File(['png'], 'shot.png', { type: 'image/png' })
@@ -820,7 +822,7 @@ it('places a dropped image where the pointer is', async () => {
     (n) => n.id !== 'image' && n.type === 'image',
   )!
   expect(created.x + created.width / 2).toBe(30)
-  expect(mocks.importImages).toHaveBeenCalledWith(
+  expect(mocks.placeImage).toHaveBeenCalledWith(
     workspace.editor,
     canvas.doc,
     created.id,
@@ -835,7 +837,7 @@ it('rejects an empty or fake image before creating a node, and says which file',
   const { InvalidImageFileError } = await import(
     '../../../../features/canvas/lib/nodeCanvasGenerate'
   )
-  mocks.importImages.mockClear()
+  mocks.placeImage.mockClear()
   mocks.readImage.mockImplementationOnce(async (file: File) => {
     throw new InvalidImageFileError(file.name)
   })
@@ -863,14 +865,14 @@ it('rejects an empty or fake image before creating a node, and says which file',
     expect(toast).toHaveBeenCalledWith(expect.stringContaining('fake.png'), 'error'),
   )
   expect(readCanvasDocument(canvas.doc).nodes).toHaveLength(before)
-  expect(mocks.importImages).not.toHaveBeenCalled()
+  expect(mocks.placeImage).not.toHaveBeenCalled()
 })
 
 it('asks to confirm only the images that will actually land on the canvas', async () => {
   const { InvalidImageFileError } = await import(
     '../../../../features/canvas/lib/nodeCanvasGenerate'
   )
-  mocks.importImages.mockClear()
+  mocks.placeImage.mockClear()
   mocks.readImage.mockClear()
   mocks.readImage.mockImplementation(async (file: File) => {
     if (file.name.startsWith('fake')) throw new InvalidImageFileError(file.name)
@@ -902,12 +904,12 @@ it('asks to confirm only the images that will actually land on the canvas', asyn
     const dialog = useStore.getState().confirmDialog!
     expect(`${dialog.message} ${dialog.confirmText}`).toContain('4')
     expect(`${dialog.message} ${dialog.confirmText}`).not.toContain('6')
-    expect(mocks.importImages).not.toHaveBeenCalled()
+    expect(mocks.placeImage).not.toHaveBeenCalled()
     expect(mocks.readImage).toHaveBeenCalledTimes(6)
     await act(async () => {
       dialog.action()
     })
-    await vi.waitFor(() => expect(mocks.importImages).toHaveBeenCalledTimes(4))
+    await vi.waitFor(() => expect(mocks.placeImage).toHaveBeenCalledTimes(4))
     // 确认前只校验不攒解码结果：确认后四张有效的各重读一次再建节点。
     expect(mocks.readImage).toHaveBeenCalledTimes(10)
   } finally {
@@ -921,8 +923,53 @@ it('asks to confirm only the images that will actually land on the canvas', asyn
   }
 })
 
-it('drops an image import whose canvas went away while the files were being checked', async () => {
+it('writes each confirmed image as its node is created, without a second decode that can strand it', async () => {
+  mocks.placeImage.mockClear()
   mocks.importImages.mockClear()
+  // 写图那一步若再解码一次并失败（浏览器解码器偶发出错），旧做法会留下空节点、后面整批都不导入。
+  mocks.importImages.mockRejectedValue(new Error('decode failed'))
+  useStore.setState({ confirmDialog: null })
+  try {
+    await render()
+    const before = readCanvasDocument(canvas.doc).nodes.length
+    const surface = host.querySelector('.studio-node-canvas')!
+    const event = new MouseEvent('drop', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 30,
+      clientY: 40,
+    })
+    Object.defineProperty(event, 'dataTransfer', {
+      value: {
+        types: ['Files'],
+        files: ['a.png', 'b.png', 'c.png', 'd.png'].map(
+          (name) => new File(['x'], name, { type: 'image/png' }),
+        ),
+        items: [],
+      },
+    })
+    await act(async () => {
+      surface.dispatchEvent(event)
+    })
+    await vi.waitFor(() => expect(useStore.getState().confirmDialog).not.toBeNull())
+    await act(async () => {
+      useStore.getState().confirmDialog!.action()
+    })
+    await vi.waitFor(() => expect(mocks.placeImage).toHaveBeenCalledTimes(4))
+    const created = readCanvasDocument(canvas.doc).nodes.slice(before)
+    expect(created).toHaveLength(4)
+    // 每个新建的节点都同步写上了图，没有一个停在空节点。
+    expect(mocks.placeImage.mock.calls.map((call) => call[2])).toEqual(created.map((n) => n.id))
+    expect(mocks.importImages).not.toHaveBeenCalled()
+  } finally {
+    mocks.importImages.mockReset()
+    mocks.importImages.mockImplementation(async () => 1)
+    useStore.setState({ confirmDialog: null })
+  }
+})
+
+it('drops an image import whose canvas went away while the files were being checked', async () => {
+  mocks.placeImage.mockClear()
   let release: () => void = () => {}
   mocks.readImage.mockImplementationOnce(
     () =>
@@ -958,14 +1005,14 @@ it('drops an image import whose canvas went away while the files were being chec
     })
     await act(async () => {})
     expect(useStore.getState().confirmDialog).toBeNull()
-    expect(mocks.importImages).not.toHaveBeenCalled()
+    expect(mocks.placeImage).not.toHaveBeenCalled()
   } finally {
     useStore.setState({ confirmDialog: null })
   }
 })
 
 it('does not import into a canvas that went away while the confirmation was open', async () => {
-  mocks.importImages.mockClear()
+  mocks.placeImage.mockClear()
   useStore.setState({ confirmDialog: null })
   try {
     await render()
@@ -995,7 +1042,7 @@ it('does not import into a canvas that went away while the confirmation was open
       dialog.action()
     })
     await act(async () => {})
-    expect(mocks.importImages).not.toHaveBeenCalled()
+    expect(mocks.placeImage).not.toHaveBeenCalled()
   } finally {
     useStore.setState({ confirmDialog: null })
   }

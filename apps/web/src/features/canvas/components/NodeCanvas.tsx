@@ -114,6 +114,7 @@ import { type NodeCanvasFocus, registerNodeCanvasFocus } from '../lib/nodeCanvas
 import {
   fillImageNode,
   InvalidImageFileError,
+  placeDecodedImage,
   readImageFile,
   resumeNodeGenerations,
   submitNodeImage,
@@ -1429,8 +1430,9 @@ function Flow({
               late.push(file.name)
               continue
             }
+            // 已经解过：建节点和写图同步完成，中间不让出执行权。
             const id = createNode(canvas, 'image', point, textFill)
-            await fillImageNode(editor, canvas.doc, id, image, file.name)
+            placeDecodedImage(editor, canvas.doc, id, image, file.name)
             selectNode(id)
           }
           if (late.length) showInvalidImages(late)
