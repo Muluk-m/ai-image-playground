@@ -77,11 +77,13 @@ function disarmDirectAgentNodeRun(key: string) {
  */
 function armDirectAgentNodeRun(key: string, proposal: AgentCanvasRunProposal) {
   disarmDirectAgentNodeRun(key)
+  // 运行权是登记时那个账号的：等画布、刷新清单期间换了账号，旧提案不能在新账号下开跑。
+  const sameAccount = accountScope()
   let stopped = false
   let refreshing = false
   const attempt = () => {
     if (stopped || refreshing) return
-    if (!origins.has(key) || runs.has(key)) return stop()
+    if (!sameAccount() || !origins.has(key) || runs.has(key)) return stop()
     if (agentNodeRunBridge()?.projectId !== proposal.projectId) return
     refreshing = true
     // refreshChannels 不会 reject：拉取失败时保留现有清单（与卡片报价同一降级策略），
@@ -89,6 +91,7 @@ function armDirectAgentNodeRun(key: string, proposal: AgentCanvasRunProposal) {
     void refreshChannels().then(() => {
       refreshing = false
       if (stopped) return
+      if (!sameAccount()) return stop()
       if (startAgentNodeRun(key, proposal, 0) || runs.has(key) || !origins.has(key)) stop()
     })
   }
@@ -436,7 +439,11 @@ export function startAgentNodeRun(
           publish(key, { ...base, authorization, status: 'countdown', remaining })
           const timer = setInterval(() => {
             remaining -= 1
-            if (remaining > 0)
+            if (!live()) {
+              // 倒计时中换了账号或这个 key 已归新的一次运行：不再往卡上写，交给下面的核对收尾。
+              clearInterval(timer)
+              resolve()
+            } else if (remaining > 0)
               publish(key, { ...base, authorization, status: 'countdown', remaining })
             else {
               clearInterval(timer)
@@ -472,7 +479,7 @@ export function startAgentNodeRun(
             started = true
             active = id
           }
-          if (!control.signal.aborted)
+          if (!control.signal.aborted && live())
             publish(key, { ...base, authorization, status: 'running', completed, active: id })
         },
         confirmed.executionToken,
