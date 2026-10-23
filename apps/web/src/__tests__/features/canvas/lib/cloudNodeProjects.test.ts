@@ -774,6 +774,40 @@ it('does not take over or re-upload an image another tab is uploading even when 
   record.dispose()
 })
 
+it('still uploads a cached image claimed elsewhere when pending media is unsupported', async () => {
+  pendingMedia.supported = false
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const vector = Y.encodeStateVector(server)
+  const claim = { uploadDevice: `${getDeviceId()}:othertab`, uploadStartedAt: String(Date.now()) }
+  insertCanvasNode(
+    server,
+    {
+      id: 'other-tab',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: { fileId: 'tab-photo', meta: claim },
+    },
+    origin,
+  )
+  // 本标签页从 IndexedDB 场景缓存里也拿到了这张原图。
+  record.editor.doc.files = { 'tab-photo': 'data:image/png;base64,cGhvdG8=' }
+  socket.receive(canvasSyncUpdate(Y.encodeStateAsUpdate(server, vector)))
+  vi.mocked(uploadMediaSource).mockClear().mockResolvedValue({ id: uploaded, sha256: 'legacy' })
+  moveCanvasNodes(session.canvas!.doc, [{ id: 'text', x: 23, y: 24 }], session.canvas!.origin)
+  await session.sync()
+  expect(serverNode(server, 'text')).toMatchObject({ x: 23, y: 24 })
+  // 不支持上传中节点时服务端不收本机 fileId：照旧先传成云媒体再发。
+  expect(uploadMediaSource).toHaveBeenCalled()
+  expect(serverNode(server, 'other-tab')?.data).toHaveProperty('mediaId')
+  vi.mocked(uploadMediaSource).mockReset()
+  record.dispose()
+})
+
 it('clears an upload failure once the failed image is deleted', async () => {
   pendingMedia.supported = true
   const { session, record, socket, server } = await fixture()

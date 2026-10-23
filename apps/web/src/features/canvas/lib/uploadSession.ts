@@ -1,13 +1,25 @@
 import { getDeviceId } from '../../../lib/deviceId'
 
+const KEY = 'canvas-uploader-tab'
 let uploader: string | undefined
 
 /**
- * 画布上传声明里记的「谁在传」：按标签页区分，而不只是按浏览器。
- * 同一浏览器开两个标签页时 getDeviceId() 相同，但原图只在加图的那个标签页内存里；
- * 用设备 ID 加本页随机后缀，另一个标签页才会把它当成别处在传，而不是自己缺图或重复上传。
+ * 写上传声明用的「上传者」：设备 ID 再加本标签页的随机后缀。同一浏览器的另一个标签页内存里没有这张原图，
+ * 要把它当成别处在传。后缀存在 sessionStorage 里：刷新本标签页后仍认得自己写的声明，接着传；
+ * 存不了（隐私模式等）时退回只在内存里。
  */
 export function getCanvasUploaderId(): string {
-  uploader ??= `${getDeviceId()}:${crypto.randomUUID().slice(0, 8)}`
+  if (uploader) return uploader
+  let tab: string | null = null
+  try {
+    tab = sessionStorage.getItem(KEY)
+  } catch {}
+  if (!tab || !/^[\w-]{1,32}$/.test(tab)) {
+    tab = crypto.randomUUID().slice(0, 8)
+    try {
+      sessionStorage.setItem(KEY, tab)
+    } catch {}
+  }
+  uploader = `${getDeviceId()}:${tab}`
   return uploader
 }

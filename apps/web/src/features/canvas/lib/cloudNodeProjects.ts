@@ -712,8 +712,8 @@ export class CloudNodeProjectSession {
         isLocalCanvasFileId(fileId) &&
         !mediaId &&
         files[fileId] &&
-        // 别的标签页/设备的有效声明不抢：由它去传。
-        !canvasUploadingElsewhere(node.data, device, now) &&
+        // 别的标签页/设备的有效声明不抢：由它去传（与 prepareMedia 一致，只在支持上传中节点时）。
+        (!supportsCanvasPendingMedia() || !canvasUploadingElsewhere(node.data, device, now)) &&
         (renew || meta?.[CANVAS_UPLOAD_DEVICE_META] !== device)
       )
         claims.push({ id: node.id, data: node.data })
@@ -773,7 +773,8 @@ export class CloudNodeProjectSession {
         !!node.data.fileId &&
         !node.data.mediaId &&
         !!files[node.data.fileId] &&
-        !canvasUploadingElsewhere(node.data, device, now),
+        // 与 prepareMedia 一致：只有支持上传中节点时才把别处在传的交给别处。
+        (!supportsCanvasPendingMedia() || !canvasUploadingElsewhere(node.data, device, now)),
     )
   }
   /** 一次只跑一轮后台上传；跑的时候又来了改动，就在这一轮结束后再补一轮。 */
