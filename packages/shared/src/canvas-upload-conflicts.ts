@@ -466,3 +466,50 @@ export function watchCanvasUploadConflicts(
     doc.off('afterTransaction', replayed)
   }
 }
+
+/**
+ * 服务端收下客户端的更新时用：边套用边找节点 data 上被并发写入顶掉的上传簿记（声明、撤销、收成云媒体），
+ * 在同一次保存里把合并结果写回去。服务端文档默认回收删除内容，套用完之后输掉的一版就读不到了；
+ * 而输掉写入的那台设备可能收到确认就关了页面，来不及收到房间刷新、自己补写。这里在回收之前读，
+ * 「本机」指这次更新之前就有条目的客户端，「远端」指这次更新里新加条目的客户端，两种取舍都认。
+ * 返回补写了几个节点。
+ */
+export function applyCanvasUpdateKeepingUploads(
+  doc: Y.Doc,
+  update: Uint8Array,
+  origin: CanvasOrigin,
+): number {
+  const nodes = doc.getMap<Y.Map<unknown>>('nodes')
+  const repairs: { id: string; lost: unknown[]; winner: unknown; data: UploadData }[] = []
+  const observer = (events: Y.YEvent<Y.AbstractType<unknown>>[], transaction: Y.Transaction) => {
+    const existing = (client: number) =>
+      (transaction.afterState.get(client) ?? 0) === (transaction.beforeState.get(client) ?? 0)
+    for (const event of events) {
+      if (event.path.length !== 1) continue
+      const overwritten = readOverwrittenLocalData(event, existing)
+      if (!overwritten) continue
+      const { lost, winner } = overwritten
+      const data = mergeCanvasUploadConflicts(lost, winner)
+      if (data) repairs.push({ id: String(event.path[0]), lost, winner, data })
+    }
+  }
+  nodes.observeDeep(observer)
+  try {
+    Y.applyUpdate(doc, update)
+  } finally {
+    nodes.unobserveDeep(observer)
+  }
+  if (!repairs.length) return 0
+  let repaired = 0
+  doc.transact(() => {
+    for (const { id, lost, winner, data } of repairs) {
+      const now = nodes.get(id)?.get('data')
+      if (now === undefined) continue
+      const next = now === winner ? data : mergeCanvasUploadConflicts(lost, now)
+      if (!next) continue
+      updateCanvasNode(doc, id, { data: next as never }, origin)
+      repaired++
+    }
+  }, origin)
+  return repaired
+}
