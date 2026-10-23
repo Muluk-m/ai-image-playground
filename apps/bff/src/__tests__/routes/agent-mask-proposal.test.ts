@@ -253,6 +253,23 @@ describe('范围确认卡', () => {
       { x: 0.5, y: 0.5, include: true },
       { x: 0.68, y: 0.7, include: false },
     ])
+    // 在所有区域之外点包含点：另加一块（假分割服务只在中间出蒙版，点落在那里）。只按用户的点分割，不带种子点、不借（也不撑大）区域的框。
+    const outside = await refine(proposal.id, {
+      area: 'added',
+      points: [{ x: 0.6, y: 0.4, include: true }],
+    })
+    expect(outside.status).toBe(200)
+    expect(segmented.at(-1)?.box).toBeUndefined()
+    expect(segmented.at(-1)?.points).toEqual([{ x: 0.6, y: 0.4, include: true }])
+    // 只有排除点时没有可加的对象。
+    expect(
+      (
+        await refine(proposal.id, {
+          area: 'added',
+          points: [{ x: 0.9, y: 0.1, include: false }],
+        })
+      ).status,
+    ).toBe(502)
     expect(
       (await refine('someone-else', { points: [{ x: 0.5, y: 0.5, include: true }] })).status,
     ).toBe(404)

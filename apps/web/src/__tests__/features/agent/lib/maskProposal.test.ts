@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   addClick,
+  addedRegion,
   annotationRegions,
   cardMaskPlacement,
   cardMaskStroke,
@@ -14,7 +15,9 @@ import {
   maskArea,
   maskOutputCount,
   proposalRegions,
+  refineRequest,
   regionForClick,
+  targetBounds,
 } from '../../../../features/agent/lib/maskProposal'
 import { paintMaskStroke } from '../../../../features/canvas/lib/inpaintMask'
 
@@ -120,15 +123,41 @@ describe('card regions and confirmation', () => {
     ])
   })
 
-  it('sends a click to the region under it, else the smallest box around it, else the active one', () => {
-    const regions = [
-      { number: 1, box: { x: 0, y: 0, width: 1, height: 1 }, selected: true },
-      { number: 2, box: { x: 0.6, y: 0.6, width: 0.2, height: 0.2 }, selected: false },
-    ]
-    expect(regionForClick(regions, [2], { x: 0.1, y: 0.1 }, true, 1)).toBe(2)
-    expect(regionForClick(regions, [1, 2], { x: 0.7, y: 0.7 }, true, 1)).toBe(1)
-    expect(regionForClick(regions, [], { x: 0.7, y: 0.7 }, true, 1)).toBe(2)
-    expect(regionForClick(regions, [], { x: 0.7, y: 0.7 }, false, 1)).toBe(1)
+  it('sends a click to the region under it, and adds a new area for an include click outside every mask', () => {
+    expect(regionForClick([2], true, 1)).toBe(2)
+    expect(regionForClick([1, 2], true, 1)).toBe(1)
+    // 包含点在所有蒙版之外（哪怕落在某个框里）：另加一块，不把点并进区域、撑大它的框。
+    expect(regionForClick([], true, 1)).toBe('added')
+    expect(regionForClick([], false, 1)).toBe(1)
+  })
+
+  it('keeps the only AI region when the user adds an area outside it', () => {
+    // 测试环境 4K 扶手椅：唯一的区域是椅子，用户在椅子外点包含点。原来会把点并进椅子、
+    // 撑大框重新分割，椅子被换成墙上的挂画；现在另加一块，椅子原样留着、照旧选中。
+    const chair = { number: 1, box: { x: 0.3, y: 0.4, width: 0.3, height: 0.4 }, selected: true }
+    const added = addedRegion([chair], { x: 0.85, y: 0.2 })
+    expect(added).toMatchObject({ number: 2, selected: true, added: true })
+    expect(added.box.x).toBeCloseTo(0.84, 5)
+    expect(added.box.y).toBeCloseTo(0.19, 5)
+    const points = [{ x: 0.85, y: 0.2, include: true }]
+    // 新块只按自己的点分割（不带区域编号，也不借椅子的框）；椅子自己的点选照旧带编号。
+    expect(refineRequest(added, true, points)).toEqual({ area: 'added', points })
+    expect(refineRequest(chair, true, points)).toEqual({ region: 1, points })
+    expect(refineRequest(chair, false, points)).toEqual({ points })
+    expect(addedRegion([chair, added], { x: 1, y: 1 })).toMatchObject({
+      number: 3,
+      box: { x: 0.98, y: 0.98 },
+    })
+  })
+
+  it('measures the bounds of the added area from its mask', () => {
+    expect(targetBounds(rect(10, 10, { x: 0.2, y: 0.3, width: 0.5, height: 0.4 }))).toEqual({
+      x: 0.2,
+      y: 0.3,
+      width: 0.5,
+      height: 0.4,
+    })
+    expect(targetBounds({ data: new Uint8Array(4), width: 2, height: 2 })).toBeNull()
   })
 
   it('makes two images by default and keeps a larger composer count', () => {

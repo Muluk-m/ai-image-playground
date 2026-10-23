@@ -455,6 +455,17 @@ describe('server segmentation', () => {
     expect(count(pickMask([main], box)!)).toBe(30 * 40 + 25 * 40)
   })
 
+  it('picks a point-only candidate by whether it covers the clicked point, keeping only that piece', () => {
+    // 卡片上「另加一块」没有框：选盖住用户点的那张，只留点到的那块，不留顺带圈进来的大片。
+    const clicked = { x: 0.8, y: 0.8, include: true }
+    const elsewhere = mask(100, 100, [0, 0, 50, 50], 0.99)
+    const object = paint(mask(100, 100, [70, 70, 90, 90], 0.6), [0, 0, 40, 40])
+    const picked = pickMask([elsewhere, object], undefined, [clicked])
+    expect(picked?.score).toBe(0.6)
+    expect(count(picked!)).toBe(20 * 20)
+    expect(pickMask([elsewhere], undefined, [clicked])).toBeNull()
+  })
+
   it('leaves a single-piece mask untouched', () => {
     const single = mask(50, 50, [10, 10, 30, 30], 0.5)
     expect(dropStrayFragments(single, { x: 0, y: 0, width: 1, height: 1 })).toBe(single)
