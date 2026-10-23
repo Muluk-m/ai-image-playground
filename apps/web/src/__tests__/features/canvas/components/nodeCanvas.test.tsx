@@ -924,6 +924,61 @@ it('asks to confirm only the images that will actually land on the canvas', asyn
   }
 })
 
+it('decodes a batch a few at a time instead of one by one, and still places it in drop order', async () => {
+  mocks.placeImage.mockClear()
+  mocks.readImage.mockClear()
+  let inFlight = 0
+  let peak = 0
+  const names = ['a.png', 'b.png', 'c.png', 'd.png', 'e.png', 'f.png']
+  mocks.readImage.mockImplementation(async (file: File) => {
+    inFlight += 1
+    peak = Math.max(peak, inFlight)
+    // 越靠前的越慢：完成顺序和拖入顺序相反。
+    await new Promise((resolve) =>
+      setTimeout(resolve, (names.length - names.indexOf(file.name)) * 5),
+    )
+    inFlight -= 1
+    return { dataUrl: 'data:image/png;base64,AA==', width: 1, height: 1 }
+  })
+  useStore.setState({ confirmDialog: null })
+  try {
+    await render()
+    const surface = host.querySelector('.studio-node-canvas')!
+    const event = new MouseEvent('drop', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 30,
+      clientY: 40,
+    })
+    Object.defineProperty(event, 'dataTransfer', {
+      value: {
+        types: ['Files'],
+        files: names.map((name) => new File(['x'], name, { type: 'image/png' })),
+        items: [],
+      },
+    })
+    await act(async () => {
+      surface.dispatchEvent(event)
+    })
+    await vi.waitFor(() => expect(useStore.getState().confirmDialog).not.toBeNull())
+    // 并行解，但有上限：不是一张接一张，也不是六张同时占着解码。
+    expect(peak).toBe(4)
+    await act(async () => {
+      useStore.getState().confirmDialog!.action()
+    })
+    await vi.waitFor(() => expect(mocks.placeImage).toHaveBeenCalledTimes(6))
+    expect(mocks.placeImage.mock.calls.map((call) => call[4])).toEqual(names)
+  } finally {
+    mocks.readImage.mockReset()
+    mocks.readImage.mockImplementation(async () => ({
+      dataUrl: 'data:image/png;base64,AA==',
+      width: 1,
+      height: 1,
+    }))
+    useStore.setState({ confirmDialog: null })
+  }
+})
+
 it('writes each confirmed image as its node is created, without a second decode that can strand it', async () => {
   mocks.placeImage.mockClear()
   mocks.importImages.mockClear()
