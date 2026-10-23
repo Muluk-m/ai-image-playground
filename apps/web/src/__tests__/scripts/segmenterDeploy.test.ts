@@ -247,9 +247,11 @@ describe('segmenter-deploy.sh (one shared, versioned container)', () => {
     expect(s.containers[`${shared}-prev`]?.networks).toEqual([shared])
     expect(Object.keys(s.containers).sort()).toEqual([shared, `${shared}-prev`].sort())
     const all = calls()
-    expect(all.indexOf(`stop ${shared}-prev`)).toBeGreaterThan(
-      all.findLastIndex((c) => c.startsWith('network disconnect')),
-    )
+    const lastDisconnect =
+      all.length -
+      1 -
+      [...all].reverse().findIndex((c: string) => c.startsWith('network disconnect'))
+    expect(all.indexOf(`stop ${shared}-prev`)).toBeGreaterThan(lastDisconnect)
   })
 
   it('starts the first one when there is none yet', () => {

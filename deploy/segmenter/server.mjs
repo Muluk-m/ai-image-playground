@@ -39,6 +39,7 @@ env.localModelPath = `${MODEL_DIR}/`
 
 let loaded = null
 let loading = null
+let disposing = null
 let idleTimer = null
 let running = 0
 let waiting = 0
@@ -54,6 +55,9 @@ function log(event, fields = {}) {
 async function ensureLoaded() {
   if (loaded) return loaded
   loading ??= (async () => {
+    // An idle unload may still be releasing the previous ONNX sessions; loading a second copy
+    // alongside it could push the container past its memory limit.
+    if (disposing) await disposing
     const startedAt = performance.now()
     const options = {
       dtype: DTYPE,
@@ -86,7 +90,12 @@ async function unload() {
   loaded = null
   cache.clear()
   stats.unloads++
-  await current.model.dispose?.()
+  disposing = Promise.resolve(current.model.dispose?.())
+    .catch((error) => log('segmenter.dispose_failed', { error: String(error) }))
+    .finally(() => {
+      disposing = null
+    })
+  await disposing
   log('segmenter.unloaded', { rssMB: Math.round(process.memoryUsage().rss / 1e6) })
 }
 
