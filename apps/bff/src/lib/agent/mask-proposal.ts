@@ -253,6 +253,18 @@ const UNAVAILABLE = /^范围确认暂时不可用（(.*)）。不要再调用/s
  * 范围确认失败后发给用户的那一句：轮直接收尾，不再追加模型调用。可以照实说的原因
  * （比如尺寸超限）带上，参数类失败只说没改成；都不叫用户自己去画。
  */
+const USER_MASK_PRESENT_GUIDANCE =
+  '本轮已经有用户画好的选区，直接按选区调 editImage，不要再提议范围。'
+
+/**
+ * 这两种退回是给模型的提醒、不是失败：交回模型让它改调 editImage，不能当范围确认失败收尾，
+ * 否则整图要求会以「没能圈出范围」结束。
+ */
+export function maskProposalGuidance(errorText: string): boolean {
+  const said = errorText.trim()
+  return said === WHOLE_IMAGE_EDIT_NUDGE || said === USER_MASK_PRESENT_GUIDANCE
+}
+
 export function maskProposalFailedText(errorText: string): string {
   const reason = UNAVAILABLE.exec(errorText)?.[1]
   return reason
@@ -299,11 +311,7 @@ async function propose(
   },
   signal?: AbortSignal,
 ): Promise<AgentToolResult<MaskProposalDetails>> {
-  if (context.images.masked)
-    throw new AgentToolError(
-      'invalid_params',
-      '本轮已经有用户画好的选区，直接按选区调 editImage，不要再提议范围。',
-    )
+  if (context.images.masked) throw new AgentToolError('invalid_params', USER_MASK_PRESENT_GUIDANCE)
   // 整图要求（变成夜景、调成黑白）不该先圈范围；只提醒一次，模型坚持就照常发卡（字面判断会误判）。
   if (context.wholeImageEdit && !context.wholeImageEdit.nudged) {
     context.wholeImageEdit.nudged = true

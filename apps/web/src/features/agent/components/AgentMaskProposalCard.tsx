@@ -118,6 +118,29 @@ function complementCanvas(mask: HTMLCanvasElement): HTMLCanvasElement {
   return canvas
 }
 
+/**
+ * 从总范围里去掉一个区域：只擦它的蒙版会连同与它重叠的、仍选中的区域一起擦掉，
+ * 所以擦完把其他选中区域落在重叠处的那部分补回来（只补重叠处，别处的橡皮擦痕迹不动）。
+ */
+function removeRegionFromMask(
+  mask: HTMLCanvasElement,
+  removed: HTMLCanvasElement,
+  stillSelected: readonly HTMLCanvasElement[],
+) {
+  const context = mask.getContext('2d')!
+  context.save()
+  context.globalCompositeOperation = 'destination-out'
+  context.drawImage(removed, 0, 0)
+  context.restore()
+  if (!stillSelected.length) return
+  const overlap = canvasOf(mask.width, mask.height)
+  const overlapContext = overlap.getContext('2d')!
+  for (const other of stillSelected) overlapContext.drawImage(other, 0, 0)
+  overlapContext.globalCompositeOperation = 'destination-in'
+  overlapContext.drawImage(removed, 0, 0)
+  context.drawImage(overlap, 0, 0)
+}
+
 /** 确认时送回去的蒙版：与画布涂抹走同一个导出（空选区拦截、PNG 编码）。 */
 async function maskDataUrl(mask: TargetMask): Promise<string> {
   const canvas = canvasOf(mask.width, mask.height)
@@ -657,16 +680,20 @@ export default function AgentMaskProposalCard({
     redraw()
   }
 
+  /** 除了这个区域以外仍选中的区域蒙版。 */
+  const otherSelectedMasks = (number: number) =>
+    regions.flatMap((one) => {
+      const canvas = one.selected && one.number !== number && regionMasksRef.current.get(one.number)
+      return canvas ? [canvas] : []
+    })
+
   /** 把一个区域的新蒙版换进总范围：先去掉它旧的那份，选中时再放进新的。 */
   const swapRegionMask = (number: number, next: HTMLCanvasElement, selected: boolean) => {
     const mask = maskRef.current
     const current = regionMasksRef.current.get(number)
     if (!mask || !current) return
     const context = mask.getContext('2d')!
-    context.save()
-    context.globalCompositeOperation = 'destination-out'
-    context.drawImage(current, 0, 0)
-    context.restore()
+    removeRegionFromMask(mask, current, otherSelectedMasks(number))
     if (selected) context.drawImage(next, 0, 0)
     const keep = context2d(current)
     keep.clearRect(0, 0, current.width, current.height)
@@ -685,11 +712,8 @@ export default function AgentMaskProposalCard({
     const region = regions.find((one) => one.number === number)
     if (!mask || !regionMask || !region || locked || refining) return
     remember()
-    const context = mask.getContext('2d')!
-    context.save()
-    if (region.selected) context.globalCompositeOperation = 'destination-out'
-    context.drawImage(regionMask, 0, 0)
-    context.restore()
+    if (region.selected) removeRegionFromMask(mask, regionMask, otherSelectedMasks(number))
+    else mask.getContext('2d')!.drawImage(regionMask, 0, 0)
     setRegions((current) =>
       current.map((one) => (one.number === number ? { ...one, selected: !one.selected } : one)),
     )
