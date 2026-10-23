@@ -293,6 +293,48 @@ function pointCoverage(mask: SegmentationMask, points?: readonly AgentMaskPrompt
   return inside / included.length
 }
 
+/**
+ * 只按点分割时细条候选的平均厚度上限（占图短边的比例）：用户点在挂画的细边框、桌腿一类的细边上时，
+ * 模型三张候选里置信度最高的常是那一条边，卡片上就成了贴边的一道细线。
+ */
+export const POINT_SLIVER_THICKNESS = 0.05
+/** 细条还要够「长」：长边至少是平均厚度的这么多倍，小而紧凑的东西（杯子、开关）不算细条。 */
+export const POINT_SLIVER_ELONGATION = 6
+/** 只按点分割时超过整图这个比例的候选当作「把墙/地板一起圈了」，有更合适的候选就不选它。 */
+export const POINT_OVERSIZED_AREA = 0.5
+/** 细条或过大的候选在打分时乘的折扣：仍可当唯一可用的候选，但有整体对象时让给整体对象。 */
+const POINT_SHAPE_PENALTY = 0.25
+
+/**
+ * 只按点分割时候选的形状系数：平均厚度（面积 ÷ 外接框长边）很薄又很长的细条、或圈了大半张图的，
+ * 打折；其余为 1。带框时不用这个，框本身已经约束了对象的大小与形状。
+ */
+export function pointShapeFactor(mask: SegmentationMask): number {
+  const { width, height, data } = mask
+  let area = 0
+  let x0 = width
+  let y0 = height
+  let x1 = -1
+  let y1 = -1
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      if (!data[y * width + x]) continue
+      area++
+      if (x < x0) x0 = x
+      if (x > x1) x1 = x
+      if (y < y0) y0 = y
+      if (y > y1) y1 = y
+    }
+  if (!area) return 0
+  if (area / (width * height) > POINT_OVERSIZED_AREA) return POINT_SHAPE_PENALTY
+  const long = Math.max(x1 - x0 + 1, y1 - y0 + 1)
+  const thickness = area / long
+  const sliver =
+    thickness < POINT_SLIVER_THICKNESS * Math.min(width, height) &&
+    long >= POINT_SLIVER_ELONGATION * thickness
+  return sliver ? POINT_SHAPE_PENALTY : 1
+}
+
 /** 与最大块不相连的部分至少要有它这么大（比例）才算同一对象被遮挡断开，否则当零碎去掉。 */
 export const FRAGMENT_KEEP_RATIO = 0.5
 
@@ -346,9 +388,10 @@ export function pickMask(
   for (const candidate of masks) {
     const mask = dropStrayFragments(candidate, box, points)
     // 只按点分割时没有框可比：按正向点落进蒙版的比例，一个都没落进的候选不要。
+    // 再按形状打折：点在细边上时不交回那一条边，让给盖住同一点的整体对象。
     const agreement = box ? boxAgreement(mask, box) : pointCoverage(mask, points)
     if (!agreement) continue
-    const value = (mask.score ?? 1) * agreement
+    const value = (mask.score ?? 1) * agreement * (box ? 1 : pointShapeFactor(mask))
     if (value > bestValue) {
       best = mask
       bestValue = value
