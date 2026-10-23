@@ -6,13 +6,14 @@ import type {
   StageRunRecord,
 } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
+import { refreshChannels } from '../../../lib/channels/bootstrapChannels'
 import {
   billedNodeQuantity,
   type NodeBatchError,
   type NodeBatchJob,
   type NodeBatchPlan,
 } from '../../canvas/lib/nodeBatch'
-import { agentNodeRunBridge } from './nodeRunBridge'
+import { agentNodeRunBridge, subscribeAgentNodeRun } from './nodeRunBridge'
 import { stageAuthorizationClient } from './stageAuthorizationClient'
 
 export const AGENT_NODE_RUN_UNDO_SECONDS = 5
@@ -49,9 +50,54 @@ const runs = new Map<string, AgentNodeRun>()
 const controls = new Map<string, { control: AbortController; authorizationId: string }>()
 const listeners = new Set<() => void>()
 let revision = 0
-export function registerAgentNodeRunOrigin(key: string, origin: AgentNodeRunOrigin = {}) {
+/**
+ * 本标签页拿到运行权。直接出图的提案在这里就开跑，不等运行卡渲染出来：
+ * 聊天面板收起（从首页「画布创作」进项目的默认状态）时运行卡根本没挂载，
+ * 把开跑挂在卡片上，授权就一直停在 pending，而智能体已经说了「会立即开跑」。
+ */
+export function registerAgentNodeRunOrigin(
+  key: string,
+  origin: AgentNodeRunOrigin = {},
+  proposal?: AgentCanvasRunProposal,
+) {
   origins.set(key, origin)
   for (const listener of listeners) listener()
+  if (proposal?.direct) armDirectAgentNodeRun(key, proposal)
+}
+// 等画布接上再开跑的直接出图：拿着运行权、还没开跑的那几张。
+const directWaits = new Map<string, () => void>()
+function disarmDirectAgentNodeRun(key: string) {
+  directWaits.get(key)?.()
+}
+/**
+ * 画布（运行桥）已经挂着就立刻开跑，否则等它挂上。开跑前先把模型清单刷新一下（30 秒节流）：
+ * 模型刚被停用时不按旧清单提交。`busy` 之类会自己消失的拦截不开跑，画布重新挂上时再试。
+ */
+function armDirectAgentNodeRun(key: string, proposal: AgentCanvasRunProposal) {
+  disarmDirectAgentNodeRun(key)
+  let stopped = false
+  let refreshing = false
+  const attempt = () => {
+    if (stopped || refreshing) return
+    if (!origins.has(key) || runs.has(key)) return stop()
+    if (agentNodeRunBridge()?.projectId !== proposal.projectId) return
+    refreshing = true
+    void refreshChannels()
+      .catch(() => {})
+      .then(() => {
+        refreshing = false
+        if (stopped) return
+        if (startAgentNodeRun(key, proposal, 0) || runs.has(key) || !origins.has(key)) stop()
+      })
+  }
+  const unsubscribe = subscribeAgentNodeRun(attempt)
+  const stop = () => {
+    stopped = true
+    unsubscribe()
+    if (directWaits.get(key) === stop) directWaits.delete(key)
+  }
+  directWaits.set(key, stop)
+  attempt()
 }
 /**
  * 换会话或清掉消息之后调用。还没确认的提案不在 runs 里，随消息一起丢掉。
@@ -62,6 +108,7 @@ export function releaseIdleAgentNodeRunOrigins() {
   for (const key of origins.keys()) {
     if (runs.has(key)) continue
     origins.delete(key)
+    disarmDirectAgentNodeRun(key)
     changed = true
   }
   if (!changed) return
@@ -90,6 +137,7 @@ export function forgetAgentNodeRun(key: string, control?: AbortController) {
   if (!runs.has(key) && !origins.has(key) && !dropControl) return
   runs.delete(key)
   origins.delete(key)
+  disarmDirectAgentNodeRun(key)
   if (dropControl) controls.delete(key)
   revision += 1
   for (const listener of listeners) listener()
