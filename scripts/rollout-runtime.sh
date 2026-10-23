@@ -17,6 +17,19 @@ command -v timeout >/dev/null 2>&1 || { echo 'The VPS requires coreutils timeout
 
 # A failed or timed-out Docker query is unknown, never evidence that a container stopped.
 docker_probe() { timeout 10 docker "$@"; }
+# The shared segmenter (scripts/segmenter-deploy.sh). vps-deploy.sh decides it per release and
+# exports AGENT_SEGMENTER_URL (empty when off). Any other path into this script (app-compose.sh
+# rollback, a manual run) reads the same decision back from where the deploy left it: the edition
+# uses the segmenter exactly when the shared container is attached to its app network, so a
+# rollback keeps it on, and keeps it off.
+if [ -z "${AGENT_SEGMENTER_URL+set}" ]; then
+  AGENT_SEGMENTER_URL=
+  case " $(docker_probe inspect \
+    --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' \
+    image-playground-segmenter 2>/dev/null || true) " in
+    *" ${project}_application "*) AGENT_SEGMENTER_URL=http://segmenter:8080 ;;
+  esac
+fi
 image_snapshot=$(docker_probe image inspect --format '{{.Id}} {{index .Config.Labels "app.execution-protocol"}}' "$image")
 image_id=${image_snapshot% *}
 if [ "${image_snapshot##* }" != 1 ] || [ -z "$image_id" ]; then

@@ -273,6 +273,30 @@ describe('segmenter-deploy.sh (one shared, versioned container)', () => {
     )
   })
 
+  it('counts a container that answers as serving while Docker still reports it starting', () => {
+    // Right after `up` replaced it: Docker's first health check is up to 30 s away.
+    seed({ [shared]: container({ version: '2', healthy: false }) })
+    expect(run(['healthy']).status).toBe(0)
+    expect(run(['current', '2']).status).toBe(0)
+    seed({ [shared]: container({ version: '2', healthy: false, answers: false }) })
+    expect(run(['healthy']).status).not.toBe(0)
+    seed({ [shared]: container({ version: '2', healthy: false, running: false }) })
+    expect(run(['healthy']).status).not.toBe(0)
+    expect(run(['current', '2']).status).not.toBe(0)
+  })
+
+  it('detaches an edition that is not to use it, idempotently, and never touches the container', () => {
+    seed({ [shared]: container({ version: '1', networks: [shared, ...apps] }) })
+    expect(run(['detach', 'image-playground-test']).status).toBe(0)
+    expect(read().containers[shared]?.networks).toEqual([shared, apps[0]])
+    expect(run(['detach', 'image-playground-test']).status).toBe(0)
+    expect(read().containers[shared]?.networks).toEqual([shared, apps[0]])
+    seed({})
+    expect(run(['detach', 'image-playground-test']).status).toBe(0)
+    expect(calls().filter((c) => c.startsWith('network disconnect'))).toHaveLength(1)
+    expect(calls().join('\n')).not.toMatch(/^(rm|stop|run|rename) /m)
+  })
+
   it('reports health and version, and refuses anything else', () => {
     seed({ [shared]: container({ version: '2' }) })
     expect(run(['healthy']).status).toBe(0)
@@ -281,5 +305,6 @@ describe('segmenter-deploy.sh (one shared, versioned container)', () => {
     expect(run(['up', 'img', 'latest']).status).toBe(2)
     expect(run(['up', 'test', 'img']).status).toBe(2)
     expect(run(['attach', 'test', 'image-playground-test']).status).toBe(2)
+    expect(run(['detach']).status).toBe(2)
   })
 })
