@@ -18,6 +18,7 @@ import {
   applyCanvasUpdateKeepingUploads,
   canvasUploadConflictsSupported,
   mergeCanvasUploadConflict,
+  mergeCanvasUploadConflicts,
   readOverwrittenLocalData,
   watchCanvasUploadConflicts,
 } from '../canvas-upload-conflicts'
@@ -498,6 +499,32 @@ describe('上传簿记与并发编辑', () => {
     expect(errors).toHaveBeenCalledTimes(1)
     expect(String(errors.mock.calls[0]?.[0])).toContain('Yjs 内部结构与预期不符')
     errors.mockRestore()
+  })
+})
+
+describe('多版簿记叠加顺序', () => {
+  it('用户改动赢过几版簿记时，声明和撤销按簿记时间叠，较旧的撤销不会撤掉较新的续期', () => {
+    const base = { fileId: 'local-file', name: 'photo', meta: claim }
+    const winner = { ...base, name: 'renamed' }
+    const release = {
+      fileId: 'local-file',
+      name: 'photo',
+      meta: { [CANVAS_UPLOAD_RELEASED_META]: '2000' },
+    }
+    const renewal = {
+      fileId: 'local-file',
+      name: 'photo',
+      meta: { [CANVAS_UPLOAD_DEVICE_META]: 'uploader', [CANVAS_UPLOAD_STARTED_META]: '3000' },
+    }
+    for (const lost of [
+      [release, renewal],
+      [renewal, release],
+    ]) {
+      const merged = mergeCanvasUploadConflicts(lost, winner)
+      expect(merged?.name).toBe('renamed')
+      expect(merged?.meta?.[CANVAS_UPLOAD_DEVICE_META]).toBe('uploader')
+      expect(merged?.meta?.[CANVAS_UPLOAD_STARTED_META]).toBe('3000')
+    }
   })
 })
 

@@ -239,7 +239,12 @@ export function mergeCanvasUploadConflicts(
   if (user) merged = withBookkeeping(user, winner)
   const books = versions
     .filter((version) => bookkeeping(version, winner))
-    .sort((a, b) => Number(!!a.mediaId) - Number(!!b.mediaId))
+    // 收成云媒体最后叠；声明和撤销之间按簿记时间从旧到新叠，不按 Yjs 的条目顺序（取决于 clientID），
+    // 否则较旧的撤销可能叠在较新的续期声明之后，把还在传的设备的声明撤掉。
+    .sort(
+      (a, b) =>
+        Number(!!a.mediaId) - Number(!!b.mediaId) || bookkeepingTime(a) - bookkeepingTime(b),
+    )
   for (const book of books) merged = withBookkeeping(merged, book)
   return sameValue(merged, winner) ? undefined : merged
 }
