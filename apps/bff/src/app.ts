@@ -148,13 +148,22 @@ const requestStartedAt = new WeakMap<Request, number>()
 function rejectionFields(
   request: Request,
   value: unknown,
-  context: object,
+  thrown: { error?: unknown; code?: unknown },
 ): { error?: string; userId?: string } {
   // 只有出错的请求，上下文里才有 error / code。
-  const thrown = context as { error?: unknown; code?: unknown }
   const error = responseErrorCode(value) ?? thrownErrorCode(thrown),
     userId = requestAuthUserId(request)
   return { ...(error ? { error } : {}), ...(userId ? { userId } : {}) }
+}
+
+/** 出错的请求上下文里才有 error / code，Elysia 的类型没声明它们。 */
+interface AfterResponseContext {
+  request: Request
+  route: string
+  set: { status?: number | string }
+  responseValue: unknown
+  error?: unknown
+  code?: unknown
 }
 
 const ERROR_CODE = /^[a-z][a-z0-9_]{0,63}$/
@@ -201,8 +210,16 @@ export const app = new Elysia()
   .onRequest(({ request }) => {
     requestStartedAt.set(request, performance.now())
   })
-  .onAfterResponse({ as: 'global' }, (context) => {
-    const { request, route, set, responseValue } = context
+  // 参数必须解构：Elysia 按用到的字段决定要不要提前解析请求体，整个 context 传进来会让所有路由
+  // 都被预先读掉 body（头像上传、自读 JSON 的路由会坏）。
+  .onAfterResponse({ as: 'global' }, (({
+    request,
+    route,
+    set,
+    responseValue,
+    error,
+    code,
+  }: AfterResponseContext) => {
     const startedAt = requestStartedAt.get(request)
     if (startedAt === undefined) return
     const { pathname } = new URL(request.url)
@@ -217,7 +234,7 @@ export const app = new Elysia()
       status,
       durationMs: Math.round(durationMs),
       // 被拒的请求带上错误码和是谁，排查 409 这类问题不用再去翻别的表。
-      ...(status >= 400 ? rejectionFields(request, responseValue, context) : {}),
+      ...(status >= 400 ? rejectionFields(request, responseValue, { error, code }) : {}),
     }
     if (status >= 500) log.error(fields, 'API request failed')
     else if (status >= 400) log.warn(fields, 'API request rejected')
@@ -228,7 +245,7 @@ export const app = new Elysia()
       status: responseStatus(responseValue, set.status),
       durationMs: performance.now() - startedAt,
     })
-  })
+  }) as (context: object) => void)
   .use(apiErrorHandler())
   .use(cors({ origin: corsOrigin, credentials: true, exposeHeaders: [REQUEST_ID_HEADER] }))
   // `ok` is what the healthchecks and rollout read; `version` lets the deploy workflow confirm the
