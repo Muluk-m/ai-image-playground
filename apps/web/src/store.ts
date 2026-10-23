@@ -1886,6 +1886,7 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
           status: 'error',
           error: errorMessage,
           errorCode: failure.code,
+          cancelled: failure.cancelled,
           ...getRawErrorPayload(failure.error),
           customRecoverable: false,
           finishedAt: Date.now(),
@@ -1893,7 +1894,8 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
         })
         // 逐张生成的失败汇总在那一组的卡片上，不一条条弹详情；最后一张失败也要给整组报个数。
         if (latestTask.origin?.kind === 'batch') announceBatchSettled(latestTask.origin.setId)
-        else useStore.getState().setDetailTaskId(job.taskId)
+        // 取消不是失败：卡片已显示「已取消」，不再自动弹出详情去报错。
+        else if (!failure.cancelled) useStore.getState().setDetailTaskId(job.taskId)
       } finally {
         releaseGenerationTask(job.taskId)
       }
