@@ -1,9 +1,9 @@
-import { type MouseEvent as ReactMouseEvent, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { taskExportSources } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
 import AssetThumb from '../features/library/components/AssetThumb'
 import { useTranslation } from '../i18n'
-import { retryTask } from '../store'
+import { retryTask, useStore } from '../store'
 import type { TaskRecord } from '../types'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
 import { Button } from './ui/button'
@@ -32,7 +32,8 @@ function useClock(active: boolean): number {
 
 /** 逐张生成里的一张作品可做的事，与单张作品卡同一套处理函数。 */
 export interface BatchItemHandlers {
-  open(task: TaskRecord, event: ReactMouseEvent): void
+  /** 打开这一张的作品详情（参数、复用、删除等）。 */
+  open(task: TaskRecord): void
   reuse(task: TaskRecord): void
   edit(task: TaskRecord): void
   send(task: TaskRecord): void
@@ -43,7 +44,7 @@ function shotIndex(task: TaskRecord, fallback: number): string {
   return task.origin?.shotId ?? String(fallback + 1)
 }
 
-/** 逐张生成的一格：出了图就是图（点开看这一张），在跑的转圈计时，排队的写「排队中」。 */
+/** 逐张生成的一格：出了图就是图（点开放大看这一张），在跑的转圈计时，排队的写「排队中」。 */
 function BatchTile({
   task,
   now,
@@ -55,7 +56,7 @@ function BatchTile({
   now: number
   name: string
   index: string
-  onOpen?: (task: TaskRecord, event: ReactMouseEvent) => void
+  onOpen?: (task: TaskRecord) => void
 }) {
   const { t } = useTranslation('task')
   const imageId = task.outputImages[0]
@@ -66,7 +67,7 @@ function BatchTile({
         variant="ghost"
         size={null}
         data-batch-tile="done"
-        onClick={(event) => onOpen(task, event)}
+        onClick={() => onOpen(task)}
         aria-label={t('set.openItem', { index })}
         className="block aspect-square h-auto w-full cursor-pointer overflow-hidden rounded-lg border border-border p-0 transition hover:border-primary/60 hover:bg-transparent focus-visible:ring-primary focus-visible:ring-offset-0"
       >
@@ -109,16 +110,24 @@ function BatchItem({
   name,
   now,
   handlers,
+  onZoom,
 }: {
   task: TaskRecord
   index: string
   name: string
   now: number
   handlers: BatchItemHandlers
+  onZoom: (task: TaskRecord) => void
 }) {
   const { t } = useTranslation('task')
   const done = task.status === 'done' && task.outputImages.length > 0
   const actions = [
+    {
+      key: 'detail',
+      icon: 'info',
+      label: t('set.itemDetail', { index }),
+      run: () => handlers.open(task),
+    },
     { key: 'reuse', icon: 'reuse', label: t('action.reuse'), run: () => handlers.reuse(task) },
     { key: 'edit', icon: 'edit', label: t('action.editOutput'), run: () => handlers.edit(task) },
     {
@@ -142,7 +151,7 @@ function BatchItem({
           now={now}
           name={name}
           index={index}
-          onOpen={done ? handlers.open : undefined}
+          onOpen={done ? onZoom : undefined}
         />
       </div>
       <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
@@ -216,6 +225,16 @@ export default function SetHistoryCard({
   const doneTasks = tasks.filter((task) => task.status === 'done' && task.outputImages.length > 0)
   // 逐张生成的一组在卡里展开，不再把每张散到网格里去。
   const listed = batch && expanded && itemHandlers !== undefined
+  // 点格子直接放大看这一张，和单张作品卡在详情里点图一样用全局大图预览；左右键在这一批出了图的几张间切换。
+  const setLightboxImageId = useStore((state) => state.setLightboxImageId)
+  const zoom = (task: TaskRecord) => {
+    const imageId = task.outputImages[0]
+    if (imageId)
+      setLightboxImageId(
+        imageId,
+        doneTasks.flatMap((one) => one.outputImages.slice(0, 1)),
+      )
+  }
 
   return (
     <div
@@ -291,6 +310,7 @@ export default function SetHistoryCard({
               name={name}
               now={now}
               handlers={itemHandlers}
+              onZoom={zoom}
             />
           ))}
         </ul>
@@ -305,7 +325,7 @@ export default function SetHistoryCard({
               now={now}
               name={name}
               index={shotIndex(task, index)}
-              onOpen={itemHandlers?.open}
+              onOpen={zoom}
             />
           ))}
           {hiddenTiles > 0 && (
