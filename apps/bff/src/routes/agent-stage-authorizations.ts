@@ -7,7 +7,11 @@ import {
   readStageAuthorization,
   StageAuthorizationError,
 } from '../lib/agent/stage-authorizations'
-import { readStageRunWakeReceipt, reportStageRun } from '../lib/agent/stage-runs'
+import {
+  noteBlockedStageRun,
+  readStageRunWakeReceipt,
+  reportStageRun,
+} from '../lib/agent/stage-runs'
 import { isCapabilityEnabled } from '../lib/capabilities'
 import { deviceIdSchema } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
@@ -71,6 +75,23 @@ export const stageAuthorizationRoutes = new Elysia({ name: 'agent-stage-authoriz
             outcome: t.UnionEnum([...STAGE_RUN_OUTCOMES]),
             reason: t.Optional(t.UnionEnum([...STAGE_RUN_REASONS])),
             retried: t.Optional(t.Boolean()),
+          }),
+          { minItems: 1, maxItems: 200 },
+        ),
+      }),
+    },
+  )
+  .post(
+    '/api/agent/stage-authorizations/:id/blocked',
+    ({ authUser, params, body }) => noteBlockedStageRun(authUser!.id, params.id, body.nodes),
+    {
+      params,
+      body: t.Object({
+        nodes: t.Array(
+          t.Object({
+            nodeId: t.String({ minLength: 1, maxLength: 128 }),
+            outcome: t.Literal('blocked'),
+            reason: t.UnionEnum([...STAGE_RUN_REASONS]),
           }),
           { minItems: 1, maxItems: 200 },
         ),

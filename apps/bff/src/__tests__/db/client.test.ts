@@ -3,24 +3,50 @@ import { resolve } from 'node:path'
 
 const sourceRoot = resolve(import.meta.dir, '../..')
 
-/** Runs a query burst in a fresh process, whose pool is built the way bff and worker build it. */
-async function startPool(env: Record<string, string>) {
+const GATE = 4_242_001
+/** The child waits on two events with 15-second deadlines each; a green run takes about a second. */
+const CHILD_DEADLINE_MS = 40_000
+
+/**
+ * Runs a query burst in a fresh process, whose pool is built the way bff and worker build it.
+ *
+ * The burst queues more queries than the pool allows behind an advisory lock held by a separate
+ * connection, so every query is still running when the pool has opened all it may. The lock is
+ * released only once `connections` backends of the pool wait on it: how many the pool opened no
+ * longer depends on how fast the runner happens to connect. Idle connections are then awaited
+ * until the server no longer lists them, with a deadline far past the idle timeout.
+ */
+async function startPool(env: Record<string, string>, connections = 0) {
   const child = Bun.spawn(
     [
       process.execPath,
       '-e',
-      // More concurrent queries than the pool allows: the backends they land on are the pool.
-      // After the idle timeout none of them may still be connected.
       `const { sql } = await import('drizzle-orm')
+       const { SQL } = await import('bun')
        const { db, close } = await import('./db/client.ts')
-       const burst = await Promise.all(Array.from({ length: 8 }, () =>
+       const gate = new SQL(process.env.DATABASE_URL, { max: 1 })
+       const until = async (check, what) => {
+         const deadline = Date.now() + 15_000
+         while (!(await check())) {
+           if (Date.now() > deadline) throw new Error('timed out waiting for ' + what)
+           await Bun.sleep(20)
+         }
+       }
+       await gate.unsafe('SELECT pg_advisory_lock(${GATE})')
+       const burst = Promise.all(Array.from({ length: 8 }, () =>
          db.execute(sql\`SELECT pg_backend_pid() AS pid, current_setting('application_name') AS name,
-           pg_sleep(0.2)\`)))
-       const pids = [...new Set(burst.map((rows) => rows[0].pid))]
-       await Bun.sleep(2_500)
-       const [{ open }] = await db.execute(sql\`SELECT count(*)::int AS open FROM pg_stat_activity
-         WHERE pid IN (\${sql.join(pids, sql\`, \`)})\`)
-       console.log(JSON.stringify({ connections: pids.length, name: burst[0][0].name, open }))
+           pg_advisory_xact_lock_shared(${GATE})\`)))
+       const waiting = async () => (await gate.unsafe(
+         "SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND objid = ${GATE} AND NOT granted"))[0].n
+       await until(async () => (await waiting()) >= ${connections}, 'the pool to open its connections')
+       await gate.unsafe('SELECT pg_advisory_unlock(${GATE})')
+       const rows = await burst
+       const pids = [...new Set(rows.map((result) => result[0].pid))]
+       const stillOpen = async () => (await gate.unsafe(
+         'SELECT count(*)::int AS n FROM pg_stat_activity WHERE pid IN (' + pids.map(Number).join(', ') + ')'))[0].n
+       await until(async () => (await stillOpen()) === 0, 'idle connections to close')
+       console.log(JSON.stringify({ connections: pids.length, name: rows[0][0].name, open: await stillOpen() }))
+       await gate.close()
        await close()`,
     ],
     {
@@ -43,21 +69,28 @@ async function startPool(env: Record<string, string>) {
 }
 
 describe('BFF database pool', () => {
-  it('sizes the pool, names it after the role and closes idle connections, all from env', async () => {
-    const result = await startPool({
-      APP_ROLE: 'worker',
-      DATABASE_POOL_MAX: '4',
-      DATABASE_IDLE_TIMEOUT_SECONDS: '1',
-    })
-    expect(result.stderr).toBe('')
-    expect(JSON.parse(result.stdout)).toEqual({ connections: 4, name: 'aip-worker', open: 0 })
-  })
+  it(
+    'sizes the pool, names it after the role and closes idle connections, all from env',
+    async () => {
+      const result = await startPool(
+        { APP_ROLE: 'worker', DATABASE_POOL_MAX: '4', DATABASE_IDLE_TIMEOUT_SECONDS: '1' },
+        4,
+      )
+      expect(result.stderr).toBe('')
+      expect(JSON.parse(result.stdout)).toEqual({ connections: 4, name: 'aip-worker', open: 0 })
+    },
+    CHILD_DEADLINE_MS,
+  )
 
-  it('names the pool after the BFF outside the worker role', async () => {
-    const result = await startPool({ APP_ROLE: 'bff', DATABASE_IDLE_TIMEOUT_SECONDS: '1' })
-    expect(result.stderr).toBe('')
-    expect(JSON.parse(result.stdout)).toMatchObject({ name: 'aip-bff' })
-  })
+  it(
+    'names the pool after the BFF outside the worker role',
+    async () => {
+      const result = await startPool({ APP_ROLE: 'bff', DATABASE_IDLE_TIMEOUT_SECONDS: '1' }, 8)
+      expect(result.stderr).toBe('')
+      expect(JSON.parse(result.stdout)).toMatchObject({ connections: 8, name: 'aip-bff' })
+    },
+    CHILD_DEADLINE_MS,
+  )
 
   it.each([
     'DATABASE_POOL_MAX',

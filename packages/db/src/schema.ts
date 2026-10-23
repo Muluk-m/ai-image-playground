@@ -546,6 +546,12 @@ export const agent_messages = pgTable(
     primaryKey({ columns: [t.conversation_id, t.id] }),
     uniqueIndex('idx_agent_messages_conversation_seq').on(t.conversation_id, t.seq),
     index('idx_agent_messages_turn').on(t.conversation_id, t.turn_id),
+    // 确认门还等着确认的卡（见 BFF `tool-gate-records.ts`）：发新消息时在会话锁里找它们。
+    index('idx_agent_messages_pending_gate')
+      .on(t.conversation_id)
+      .where(
+        sql`${t.deleted_at} IS NULL AND ${t.content} @> '[{"type":"toolResult","status":"awaiting_confirmation","gated":true}]'::jsonb`,
+      ),
     check('agent_messages_role_check', sql`${t.role} IN ('user', 'assistant')`),
   ],
 )
@@ -587,6 +593,8 @@ export interface AgentInboxUserMessagePayload {
   readonly canvas?: AgentCanvasSnapshot
   /** 发话时客户端看到的入口。项目文档记下入口之前，起轮按它判定，缺席才看有没有带画布。 */
   readonly experience?: 'chat' | 'canvas'
+  /** 发话时的模式（Agent 或画布），决定这一轮的工具；缺席按 Agent 模式。 */
+  readonly surface?: 'agent' | 'canvas'
 }
 
 /**
@@ -628,6 +636,11 @@ export interface AgentInboxResumePayload {
   readonly wake?: Pick<AgentInboxTaskResultPayload, 'turnId' | 'taskIds' | 'batch' | 'stageRun'>
   /** 被打断那一轮发话时的画布。续跑仍认它，不退回当时还没同步完的服务端文档。 */
   readonly canvas?: AgentCanvasSnapshot
+  /**
+   * 不是被打断，而是被确认门拦下（`interruptedTurnId` 即被拦下的那一轮）：用户把那一轮拦下的卡
+   * 都确认了，续跑接着那几次工具调用往下走，不给模型额外的说明（见 BFF `tool-gate.ts`）。
+   */
+  readonly gate?: true
 }
 
 export type AgentInboxPayload =
@@ -670,6 +683,10 @@ export const agent_inbox = pgTable(
     index('idx_agent_inbox_pending')
       .on(t.conversation_id, t.seq)
       .where(sql`${t.status} = 'pending'`),
+    // 唤醒与续跑按消费轮次往回追发起消息（见 `lib/agent/experience.ts`）。
+    index('idx_agent_inbox_consumed_turn')
+      .on(t.conversation_id, t.consumed_turn_id)
+      .where(sql`${t.status} = 'consumed'`),
     check(
       'agent_inbox_kind_check',
       sql`${t.kind} IN ('user_message', 'clarification_answer', 'task_result', 'system_event')`,

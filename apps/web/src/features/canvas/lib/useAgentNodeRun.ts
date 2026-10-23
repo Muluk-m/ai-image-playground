@@ -4,7 +4,8 @@ import {
   readCanvasDocument,
   stageExecutionSpecsMatch,
 } from '@image-playground/shared'
-import { useEffect } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
+import { getStoredChannels, subscribeChannels } from '../../../lib/channels/channelStore'
 import { useStore } from '../../../store'
 import { registerAgentNodeRun } from '../../agent/lib/nodeRunBridge'
 import { stageAuthorizationClient } from '../../agent/lib/stageAuthorizationClient'
@@ -31,6 +32,8 @@ export function useAgentNodeRun({
   const settings = useStore((state) => state.settings)
   const params = useStore((state) => state.params)
   const draft = useVideoStore((state) => state.draft)
+  // 模型清单刷新后重新登记：卡片与直接出图按新清单报价（视频模型被停用或恢复）。
+  const channels = useSyncExternalStore(subscribeChannels, getStoredChannels)
   useEffect(() => {
     if (!active || !projectId) return
     const quote = (proposal: AgentCanvasRunProposal) => {
@@ -150,5 +153,5 @@ export function useAgentNodeRun({
         )
       },
     })
-  }, [active, projectId, canvas, editor, revision, files, settings, params, draft])
+  }, [active, projectId, canvas, editor, revision, files, settings, params, draft, channels])
 }

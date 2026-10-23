@@ -2,14 +2,22 @@
  * Adapted from assistant-ui Elements `model-selector` (MIT, AgentbaseAI).
  * 只取外观与结构：沿用项目的 Radix Popover，不引入 cmdk / base-ui。
  */
-import { type KeyboardEvent, useId, useMemo, useState } from 'react'
+import type { ModelBadge, ModelLogoId } from '@image-playground/shared'
+import { type KeyboardEvent, useId, useMemo, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
-import { getProfileModelOptions, updateSelectedModel } from '../../lib/channels/profileSelectors'
+import { subscribeChannels } from '../../lib/channels/channelStore'
+import {
+  getProfileModelOptions,
+  updateSelectedModel,
+  usableEtaMaxSeconds,
+  usableEtaSeconds,
+} from '../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../lib/channels/publicChannels'
 import { cn } from '../../lib/utils'
 import { useStore } from '../../store'
 import { compactModelName, ModelLogo } from '../ModelIdentity'
+import Badge from '../patterns/Badge'
 import SearchField from '../patterns/SearchField'
 import { Button } from '../ui/button'
 import { Icon } from '../ui/icon'
@@ -21,8 +29,16 @@ export interface ModelChoice {
   value: string
   model: string
   profileId: string
+  /** 该渠道给这个模型声明的图标；不写按 id 前缀给厂商图标。 */
+  logo?: ModelLogoId
   label: string
   description?: string
+  /** 渠道下发的说明标签（最新 / 质量好 / 速度快 / 便宜），按顺序显示在名字后面。 */
+  badges?: readonly ModelBadge[]
+  /** 典型单张耗时，显示成「约 N 秒」，一分钟以上显示成「约 N 分钟」。 */
+  etaSeconds?: number
+  /** 耗时随档位变化时的上界，有就显示成「约 N–M 秒」。 */
+  etaMaxSeconds?: number
 }
 
 /** 模型多到这个数才给搜索框。 */
@@ -35,8 +51,13 @@ export function useModelChoices() {
   const activeProfile = useMemo(() => getActiveApiProfile(settings), [settings])
   const activeView = clientProfileToApiProfile(activeProfile)
 
+  // 订阅渠道清单：清单晚到或只改了标签 / 耗时时 profiles 不一定变，不订阅就会停在旧选项上。
+  const publicChannels = useSyncExternalStore(
+    subscribeChannels,
+    getPublicChannels,
+    getPublicChannels,
+  )
   const options = useMemo(() => {
-    const publicChannels = getPublicChannels()
     return settings.profiles.flatMap((profile) => {
       const view = clientProfileToApiProfile(profile)
       return getProfileModelOptions(profile, publicChannels).map(
@@ -46,10 +67,14 @@ export function useModelChoices() {
           profileId: profile.id,
           label: compactModelName(option.id, option.label),
           description: view.name,
+          ...(option.badges ? { badges: option.badges } : {}),
+          ...(option.etaSeconds !== undefined ? { etaSeconds: option.etaSeconds } : {}),
+          ...(option.etaMaxSeconds !== undefined ? { etaMaxSeconds: option.etaMaxSeconds } : {}),
+          ...(option.logo ? { logo: option.logo } : {}),
         }),
       )
     })
-  }, [settings.profiles])
+  }, [settings.profiles, publicChannels])
 
   const currentValue = `${activeProfile.id}::${activeView.model}`
   const current = options.find((option) => option.value === currentValue)
@@ -84,6 +109,52 @@ function moveOptionFocus(event: KeyboardEvent<HTMLElement>) {
   items[index === -1 && step === -1 ? items.length - 1 : next]?.focus()
 }
 
+/** 「推荐」「最新」用芽绿，其余保持中性，绿色只做点缀。 */
+const BADGE_TONE: Record<ModelBadge, 'primary' | 'neutral'> = {
+  recommended: 'primary',
+  latest: 'primary',
+  quality: 'neutral',
+  fast: 'neutral',
+  value: 'neutral',
+}
+
+/**
+ * 名字后接说明标签，有预估耗时时在下一行用次要文字写「约 N 秒」。
+ * 写成返回元素的函数而不是组件：Button 靠静态遍历 children 判断有没有可见文字，
+ * 包一层组件它就看不见名字，会把 aria-label 当成悬停提示再显示一遍。
+ */
+function modelOptionName(
+  option: ModelChoice,
+  badgeLabel: (badge: ModelBadge) => string,
+  eta: string | undefined,
+) {
+  const badges = option.badges ?? []
+  return (
+    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span title={option.label} className="min-w-0 truncate font-medium text-foreground">
+        {option.label}
+      </span>
+      {/* 标签和耗时放在第二行：名字那一行要和右侧 provider 名抢位置，两枚标签放上去在 w-80 的弹层里会折行。
+          第二行永远单行，每行高度一致。挤不下时耗时和标签各自缩短成省略号，不整枚裁掉；整行带 title 可看全。 */}
+      {eta || badges.length > 0 ? (
+        <span
+          title={[eta, ...badges.map(badgeLabel)].filter(Boolean).join(' · ')}
+          className="flex min-w-0 items-center gap-1 whitespace-nowrap"
+        >
+          {eta ? (
+            <span className="min-w-0 truncate text-label-sm text-muted-foreground">{eta}</span>
+          ) : null}
+          {badges.map((badge) => (
+            <Badge key={badge} tone={BADGE_TONE[badge]} className="min-w-0">
+              <span className="min-w-0 truncate">{badgeLabel(badge)}</span>
+            </Badge>
+          ))}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
 /** 紧凑模型列表：名称与渠道排在同一行，选中项右侧打勾。 */
 export function ModelList({
   options,
@@ -97,12 +168,33 @@ export function ModelList({
   className?: string
 }) {
   const { t } = useTranslation('composer')
+  const badgeLabel = (badge: ModelBadge) => t(`param.modelBadge.${badge}`)
+  // 一分钟以上按分钟说：「约 80 秒」不如「约 1 分钟」好读，预估本来就只是量级。
+  const etaLabel = (seconds: number, maxSeconds: number | undefined) => {
+    if (maxSeconds !== undefined) {
+      // 两分钟以内按秒写范围（「约 40–100 秒」），再长才换成分钟，免得 100 秒被四舍五入成「约 2 分钟」。
+      if (maxSeconds < 120) return t('param.modelEtaRange', { min: seconds, max: maxSeconds })
+      const min = Math.max(1, Math.round(seconds / 60))
+      const max = Math.round(maxSeconds / 60)
+      if (max > min) return t('param.modelEtaRangeMinutes', { min, max })
+      return t('param.modelEtaMinutes', { minutes: max })
+    }
+    return seconds < 60
+      ? t('param.modelEta', { seconds })
+      : t('param.modelEtaMinutes', { minutes: Math.round(seconds / 60) })
+  }
   const [query, setQuery] = useState('')
   const listId = useId()
   const needle = query.trim().toLocaleLowerCase()
   const visible = needle
     ? options.filter((option) =>
-        `${option.label} ${option.model} ${option.description ?? ''}`
+        [
+          option.label,
+          option.model,
+          option.description ?? '',
+          ...(option.badges ?? []).map(badgeLabel),
+        ]
+          .join(' ')
           .toLocaleLowerCase()
           .includes(needle),
       )
@@ -129,6 +221,11 @@ export function ModelList({
         {visible.map((option, index) => {
           const selected = option.value === value
           const tabStop = selected || (index === 0 && !visible.some((o) => o.value === value))
+          const eta = usableEtaSeconds(option.etaSeconds)
+          const etaText =
+            eta !== undefined
+              ? etaLabel(eta, usableEtaMaxSeconds(option.etaMaxSeconds, eta))
+              : undefined
           return (
             <Button
               variant="ghost"
@@ -137,9 +234,12 @@ export function ModelList({
               role="option"
               aria-selected={selected}
               tabIndex={tabStop ? 0 : -1}
-              aria-label={
-                option.description ? `${option.label} · ${option.description}` : option.label
-              }
+              aria-label={[
+                option.label,
+                ...(option.badges ?? []).map(badgeLabel),
+                ...(etaText ? [etaText] : []),
+                ...(option.description ? [option.description] : []),
+              ].join(' · ')}
               onClick={() => onPick(option.value)}
               className={cn(
                 'flex h-auto min-h-10 w-full justify-start whitespace-normal px-3 py-2 text-left text-body-sm focus-visible:bg-accent',
@@ -147,11 +247,9 @@ export function ModelList({
               )}
             >
               <span className="flex shrink-0">
-                <ModelLogo model={option.model} />
+                <ModelLogo model={option.model} logo={option.logo ?? null} />
               </span>
-              <span className="min-w-0 flex-1 break-words font-medium text-foreground">
-                {option.label}
-              </span>
+              {modelOptionName(option, badgeLabel, etaText)}
               {option.description && (
                 <OverflowText
                   text={option.description}
@@ -207,7 +305,11 @@ export function ModelSelector({
           }}
         >
           <span className="flex shrink-0 items-center text-muted-foreground">
-            {!label && current ? <ModelLogo model={current.model} /> : <Icon name="model" />}
+            {!label && current ? (
+              <ModelLogo model={current.model} logo={current.logo ?? null} />
+            ) : (
+              <Icon name="model" />
+            )}
           </span>
           <span ref={name.ref} className="creation-model-name min-w-0 truncate">
             {shown}
@@ -234,7 +336,7 @@ export function ModelSelector({
             .querySelector<HTMLElement>('input, [role="option"][tabindex="0"]')
             ?.focus({ preventScroll: false })
         }}
-        className="flex max-h-[min(26rem,var(--radix-popover-content-available-height))] w-72 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl p-1 shadow-popover"
+        className="flex max-h-[min(26rem,var(--radix-popover-content-available-height))] w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl p-1 shadow-popover"
       >
         <ModelList
           options={options}
