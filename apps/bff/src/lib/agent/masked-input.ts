@@ -244,13 +244,36 @@ export async function cropMaskedInput(source: string, mask: string, crop: Masked
   }
 }
 
-/** 送上游的请求里换上截图与截下的选区；其余输入图（参考图）原样保留。 */
-export async function cropMaskedUpstream(
-  request: { readonly input_images?: readonly string[]; readonly mask?: string },
+/**
+ * 截图模式下提示词里的位置（选区「原图位置」、编号区域、箭头）都按整张原图写的，
+ * 送去的却只是其中一块：在提示词后补一句换算说明，免得模型按截图坐标去找对象。
+ */
+export function croppedPromptNote(
   crop: MaskedCrop,
+  originalSize?: { readonly width: number; readonly height: number },
+) {
+  const whole = originalSize ? `${originalSize.width}×${originalSize.height} 的` : ''
+  return `（截图说明：第 1 张输入图只是${whole}整张原图中左上角在 (${crop.left}, ${crop.top})、大小 ${crop.width}×${crop.height} 的一块，右侧与底部可能有补边。上文提到的原图位置、编号区域和箭头坐标都按整张原图计算：像素坐标减去 (${crop.left}, ${crop.top}) 才是这张图里的位置，比例坐标先乘整张原图的宽高再换算。要改的范围以透明选区为准。）`
+}
+
+/** 送上游的请求里换上截图与截下的选区、给提示词补上坐标换算说明；其余输入图（参考图）原样保留。 */
+export async function cropMaskedUpstream(
+  request: {
+    readonly input_images?: readonly string[]
+    readonly mask?: string
+    readonly prompt?: string
+  },
+  crop: MaskedCrop,
+  originalSize?: { readonly width: number; readonly height: number },
 ) {
   const [source, ...references] = request.input_images ?? []
   if (!source || !request.mask) throw new TypeError('截图模式缺少原图或选区')
   const cropped = await cropMaskedInput(source, request.mask, crop)
-  return { input_images: [cropped.source, ...references], mask: cropped.mask }
+  return {
+    input_images: [cropped.source, ...references],
+    mask: cropped.mask,
+    ...(request.prompt
+      ? { prompt: `${request.prompt}\n\n${croppedPromptNote(crop, originalSize)}` }
+      : {}),
+  }
 }
