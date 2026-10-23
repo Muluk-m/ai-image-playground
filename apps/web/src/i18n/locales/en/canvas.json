@@ -468,6 +468,17 @@
     "timeline_other": "Timeline · {{count}} clips",
     "mediaMissing": "Media missing",
     "mediaUploading": "Uploading image",
+    "uploadRejected": "Image upload failed",
+    "uploadRejectedReason": {
+      "media_invalid_image": "The file is damaged or not a readable image",
+      "media_unsupported_image": "This image format isn't supported",
+      "media_too_large": "The file is too large",
+      "media_image_too_large": "The image dimensions are too large",
+      "media_image_pixels_exceeded": "The image has too many pixels",
+      "other": "The server couldn't accept this image"
+    },
+    "uploadRetry": "Retry",
+    "uploadRemove": "Remove",
     "loadFailed": "The node canvas couldn't open. Refresh to try again.",
     "addTitle": "Add node",
     "addText": "Text",

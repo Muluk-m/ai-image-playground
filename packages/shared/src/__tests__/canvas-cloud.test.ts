@@ -6,11 +6,13 @@ import {
   canvasProjectDocument,
   canvasUploadClaimNextChange,
   canvasUploadingElsewhere,
+  canvasUploadRejection,
   initializeCanvasConnectionRules,
   nextCanvasUploadStamp,
   releaseCanvasUploadClaim,
   validateCloudCanvas,
   withoutCanvasUploadClaim,
+  withoutCanvasUploadRejection,
 } from '../canvas-cloud'
 import {
   canvasOrigin,
@@ -389,6 +391,36 @@ describe('canvas upload claims', () => {
     const plain = { prompt: 'p' }
     expect(withoutCanvasUploadClaim(plain)).toBe(plain)
     expect(withoutCanvasUploadClaim(undefined)).toBeUndefined()
+  })
+  it('服务端收不了的图：撤销时记下错误码，重新声明或收成云媒体后就不算失败', () => {
+    const rejected = releaseCanvasUploadClaim(
+      claimed('tab', now - 5).meta,
+      now,
+      'media_invalid_image',
+    )
+    expect(rejected).toEqual({
+      prompt: 'p',
+      uploadReleasedAt: String(now),
+      uploadRejected: 'media_invalid_image',
+    })
+    expect(canvasUploadRejection({ fileId: 'local', meta: rejected })).toBe('media_invalid_image')
+    // 暂时性失败撤销时不带错误码，也去掉上一次的失败记录。
+    expect(releaseCanvasUploadClaim(rejected, now)).not.toHaveProperty('uploadRejected')
+    // 重新声明在传（用户点了重试）、已有云媒体：都不再显示上传失败。
+    expect(
+      canvasUploadRejection({
+        fileId: 'local',
+        meta: { ...rejected, uploadDevice: 'tab', uploadStartedAt: String(now + 1) },
+      }),
+    ).toBeUndefined()
+    expect(canvasUploadRejection({ fileId: 'local', mediaId: 'm', meta: rejected })).toBeUndefined()
+    expect(withoutCanvasUploadClaim(rejected)).toEqual({ prompt: 'p' })
+    expect(withoutCanvasUploadRejection(rejected)).toEqual({
+      prompt: 'p',
+      uploadReleasedAt: String(now),
+    })
+    const plain = { prompt: 'p' }
+    expect(withoutCanvasUploadRejection(plain)).toBe(plain)
   })
   it('新簿记的时间总晚于节点上已有的声明或撤销，即使本机时钟落后', () => {
     const ahead = { uploadDevice: 'b', uploadStartedAt: '5000', prompt: 'p' }

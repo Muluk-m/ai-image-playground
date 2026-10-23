@@ -1,6 +1,7 @@
 import * as Y from 'yjs'
 import {
   CANVAS_UPLOAD_DEVICE_META,
+  CANVAS_UPLOAD_REJECTED_META,
   CANVAS_UPLOAD_RELEASED_META,
   CANVAS_UPLOAD_STARTED_META,
   canvasUploadBookkeepingTime,
@@ -89,6 +90,10 @@ function withBookkeeping(user: UploadData, book: UploadData): UploadData {
       meta: {
         ...withoutCanvasUploadClaim(user.meta),
         [CANVAS_UPLOAD_RELEASED_META]: book.meta?.[CANVAS_UPLOAD_RELEASED_META] ?? '',
+        // 撤销时记下的「服务端永远收不了」也是这次簿记的一部分，不能被并发的用户改动冲掉。
+        ...(book.meta?.[CANVAS_UPLOAD_REJECTED_META]
+          ? { [CANVAS_UPLOAD_REJECTED_META]: book.meta[CANVAS_UPLOAD_REJECTED_META] }
+          : {}),
       },
     }
   return {

@@ -11,6 +11,7 @@ import {
   canvasText,
   canvasUploadClaimNextChange,
   canvasUploadingElsewhere,
+  canvasUploadRejection,
   connectCanvasNodes,
   createCanvasGroup,
   disconnectCanvasNodes,
@@ -27,6 +28,7 @@ import {
   type ScriptBrief,
   ungroupCanvasNodes,
   updateCanvasNode,
+  withoutCanvasUploadRejection,
 } from '@image-playground/shared'
 import {
   applyNodeChanges,
@@ -411,20 +413,79 @@ export function useUploadingElsewhere(data: UploadClaimData): boolean {
   return canvasUploadingElsewhere(data, device, now)
 }
 
+/**
+ * 服务端判定收不了的图（损坏、超限）：显示上传失败和原因。本机还有原图时可以重试（换了图或服务端放宽后），
+ * 也可以直接移除；别的会话、别的设备没有原图，只能移除。
+ */
+function RejectedUpload({
+  nodeId,
+  fileId,
+  reason,
+}: {
+  nodeId: string
+  fileId: string
+  reason: string
+}) {
+  const { t } = useTranslation('canvas')
+  const canvas = useContext(TextCanvasContext)
+  const files = useContext(FilesContext)
+  const retry = () => {
+    if (!canvas) return
+    const node = readCanvasDocument(canvas.doc).nodes.find((n) => n.id === nodeId)
+    if (!node || (node.type !== 'image' && node.type !== 'video') || node.data.fileId !== fileId)
+      return
+    // 去掉失败记录不是用户的编辑，不进撤销栈；它本身是一次改动，会话据此重新声明并上传。
+    updateCanvasNode(
+      canvas.doc,
+      nodeId,
+      { data: { ...node.data, meta: withoutCanvasUploadRejection(node.data.meta) } },
+      canvasOrigin('system', 'upload-retry'),
+    )
+  }
+  return (
+    <div className="studio-node-missing studio-node-rejected text-sm" role="alert">
+      <div className="flex flex-col items-center gap-2 px-3 text-center">
+        <span className="font-medium text-destructive">{t('nodes.uploadRejected')}</span>
+        <span className="text-xs">
+          {t(`nodes.uploadRejectedReason.${reason}`, {
+            defaultValue: t('nodes.uploadRejectedReason.other'),
+          })}
+        </span>
+        <div className="nodrag nopan flex gap-2">
+          {files[fileId] && (
+            <Button size="sm" variant="outline" onClick={retry}>
+              {t('nodes.uploadRetry')}
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => canvas && removeNodes(canvas, [nodeId])}>
+            {t('nodes.uploadRemove')}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Picture({
+  nodeId,
   fileId,
   rotation,
   upload,
 }: {
+  nodeId: string
   fileId?: string
   rotation?: number
-  /** 节点 data，用来判断是不是别的设备在传（useUploadingElsewhere）。 */
+  /** 节点 data，用来判断是不是别的设备在传（useUploadingElsewhere）、是不是已判定上传失败。 */
   upload: UploadClaimData
 }) {
   const { t } = useTranslation('canvas')
   const uploadingElsewhere = useUploadingElsewhere(upload)
   const files = useContext(FilesContext)
   const source = useNodeMedia(fileId ? files[fileId] : undefined)
+  const rejected = canvasUploadRejection(upload)
+  // 本机有原图也不显示它：服务端收不了的多半本身就解不开，显示出来只是一张破图。
+  if (fileId && rejected)
+    return <RejectedUpload nodeId={nodeId} fileId={fileId} reason={rejected} />
   if (!source)
     return (
       <div className="studio-node-missing text-sm">
@@ -502,7 +563,7 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
           </span>
         )}
         {fileId ? (
-          <Picture fileId={fileId} rotation={rotation} upload={node.data} />
+          <Picture nodeId={node.id} fileId={fileId} rotation={rotation} upload={node.data} />
         ) : pending ? (
           <Pending pending={pending} />
         ) : (
@@ -586,7 +647,7 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
       <NodeCaption node={node} />
       <div className="studio-node studio-node--video" data-rotated={rotation ? true : undefined}>
         {fileId ? (
-          <Picture fileId={fileId} rotation={rotation} upload={node.data} />
+          <Picture nodeId={node.id} fileId={fileId} rotation={rotation} upload={node.data} />
         ) : (
           <div className="studio-node-empty">
             <Icon name="video" size="lg" />
