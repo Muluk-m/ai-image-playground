@@ -376,34 +376,18 @@ async function processMedia(
   }
 }
 
-/** 客户端直传的暂存原件：先看大小，再按登记的字节数整张读进来，多一个字节都算不符。 */
+/**
+ * 客户端直传的暂存原件是客户端可写的：一次 Range GET 读至多 bytes + 1 字节，多一个字节就知道比登记的大，
+ * 内存上界不变，也省掉先 HEAD 查大小的那次往返。
+ */
 async function readStagedOriginal(
   store: ReturnType<typeof durableMediaStore>,
   row: Media,
   mark: (phase: string) => void,
 ) {
-  mark('storage_open')
-  const source = await store.open(row.staging_key)
-  if (source.size !== row.bytes) throw new MediaError(422, 'media_size_mismatch')
   mark('storage_read')
-  const reader = source.stream(0, row.bytes - 1).getReader()
-  const bytes = new Uint8Array(row.bytes)
-  let offset = 0
-  try {
-    while (true) {
-      const part = await reader.read()
-      if (part.done) break
-      if (offset + part.value.length > bytes.length)
-        throw new MediaError(422, 'media_size_mismatch')
-      bytes.set(part.value, offset)
-      offset += part.value.length
-    }
-  } finally {
-    await reader.cancel()
-    reader.releaseLock()
-  }
-  // 读短了不能靠补出来的零去碰哈希：尾部本来就是零的图会蒙混过关。错误码与从前哈希不符一致。
-  if (offset !== row.bytes) throw new MediaError(422, 'media_hash_mismatch')
+  const bytes = await store.readUpTo(row.staging_key, row.bytes + 1)
+  if (bytes.length !== row.bytes) throw new MediaError(422, 'media_size_mismatch')
   return bytes
 }
 
@@ -503,11 +487,8 @@ async function publishMedia(
       store.write(objectKey, bytes, row.content_type),
       store.write(previewKey, preview, 'image/webp'),
     ])
+    // 写入成功即可读（R2/S3 写后读强一致），不再逐个 HEAD 回读核对，省一次往返。
     for (const result of written) if (result.status === 'rejected') throw result.reason
-    mark('storage_verify')
-    const [original, thumbnail] = await Promise.all([store.open(objectKey), store.open(previewKey)])
-    if (original.size !== bytes.length || thumbnail.size !== preview.length)
-      throw new MediaError(503, 'media_not_readable')
     mark('publish')
     return await database.transaction(async (tx) => {
       await lockMediaOwner(tx, userId)
