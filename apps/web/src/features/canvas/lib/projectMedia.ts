@@ -99,7 +99,8 @@ export function projectDocument(
   return isProjectDocument(document) ? document : null
 }
 
-const MEDIA_CONCURRENCY = 4
+/** 一次补传几张原图；节点画布与旧画布共用，与 mediaUpload 的上传并发位一致。 */
+export const MEDIA_CONCURRENCY = 4
 
 export async function prepareProjectMedia(
   doc: CanvasDoc,

@@ -187,6 +187,7 @@ import {
 } from '../lib/db'
 import { _setRuntimeConfigForTesting } from '../lib/runtimeConfig'
 import { dismissSubmittedTasks, submittedTaskSnapshot } from '../lib/submittedTaskAttention'
+import { taskCancelled } from '../lib/taskError'
 import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
   addCompletedCanvasTask,
@@ -684,6 +685,20 @@ describe('mask draft lifecycle in store actions', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+
+  it('排队中被取消：卡片记成已取消，不自动弹出失败详情', async () => {
+    vi.mocked(callImageApi).mockRejectedValue(taskCancelled('任务已取消'))
+    useStore.setState({ prompt: 'a red cat', params: { ...DEFAULT_PARAMS }, detailTaskId: null })
+
+    await submitTask()
+    await waitUntil(
+      () => useStore.getState().tasks[0]?.status === 'error',
+      'cancelled task did not settle',
+    )
+
+    expect(useStore.getState().tasks[0]?.cancelled).toBe(true)
+    expect(useStore.getState().detailTaskId).toBeNull()
   })
 
   it('把自己挂的超时 abort 写成超时文案，不把浏览器那句「用户取消了」甩给用户', async () => {
@@ -1973,6 +1988,246 @@ describe('submitTask 槽位批量展开', () => {
   })
 })
 
+describe('快速生成的逐张生成', () => {
+  const channel: PublicChannel = {
+    id: 'batch-openai',
+    kind: 'openai-queue',
+    label: 'OpenAI',
+    models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit', 'n'] }],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+  const images = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      id: `ref-${index + 1}`,
+      dataUrl: `data:image/png;base64,ref${index + 1}`,
+    }))
+
+  async function setupBatchState(count: number, batchGenerate: boolean) {
+    const db = await import('../lib/db')
+    for (const image of images(count))
+      await db.putImage({ ...image, source: 'upload', createdAt: Date.now() })
+    setChannels([channel])
+    const profile: BuiltinEdgeProfile = {
+      id: channel.id,
+      source: 'builtin-edge',
+      channelId: channel.id,
+      selectedModelId: channel.models[0].id,
+    }
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [profile],
+        activeProfileId: profile.id,
+        clearInputAfterSubmit: false,
+      }),
+      prompt: '换成纯白背景',
+      slotValues: {},
+      inputImages: images(count),
+      maskDraft: null,
+      params: { ...DEFAULT_PARAMS, n: 4 },
+      batchGenerate,
+      tasks: [],
+      detailTaskId: null,
+      showSettings: false,
+      toast: null,
+      confirmDialog: null,
+      showToast: vi.fn(),
+      setConfirmDialog: vi.fn(),
+    })
+  }
+
+  beforeEach(async () => {
+    await bootstrapClientCapabilities(false, '')
+    setSignedIn(false)
+    vi.mocked(callImageApi).mockClear()
+    vi.mocked(callImageApi).mockResolvedValue({
+      images: ['data:image/png;base64,generated'],
+      actualParamsList: [{ size: '1x1' }],
+    })
+  })
+
+  afterEach(() => {
+    setChannels([])
+    useStore.setState({ batchGenerate: false })
+  })
+
+  it('每张参考图各发一条 n=1 的任务，只带自己那张图，同属一组', async () => {
+    await setupBatchState(3, true)
+
+    await submitTask()
+    await waitUntil(
+      () => vi.mocked(callImageApi).mock.calls.length === 3,
+      'per-image requests were not sent',
+    )
+
+    const tasks = useStore.getState().tasks
+    expect(tasks).toHaveLength(3)
+    expect(tasks.map((t) => t.inputImageIds)).toEqual([['ref-1'], ['ref-2'], ['ref-3']])
+    expect(tasks.every((t) => t.params.n === 1)).toBe(true)
+    expect(new Set(tasks.map((t) => t.origin?.setId)).size).toBe(1)
+    expect(tasks.map((t) => t.origin)).toEqual([
+      expect.objectContaining({ kind: 'batch', shotId: '1' }),
+      expect.objectContaining({ kind: 'batch', shotId: '2' }),
+      expect.objectContaining({ kind: 'batch', shotId: '3' }),
+    ])
+    const calls = vi.mocked(callImageApi).mock.calls
+    expect(calls.map((c) => c[0].inputImageDataUrls)).toEqual([
+      ['data:image/png;base64,ref1'],
+      ['data:image/png;base64,ref2'],
+      ['data:image/png;base64,ref3'],
+    ])
+    expect(calls.every((c) => c[0].params.n === 1)).toBe(true)
+  })
+
+  it('整组出完只报一次总张数，不按每张报「已生成 1 张」', async () => {
+    await setupBatchState(2, true)
+
+    await submitTask()
+    await waitUntil(
+      () =>
+        useStore.getState().tasks.length === 2 &&
+        useStore.getState().tasks.every((t) => t.status === 'done'),
+      'batch did not finish',
+    )
+
+    const doneToasts = vi
+      .mocked(useStore.getState().showToast)
+      .mock.calls.filter(([, type]) => type !== 'error')
+    expect(doneToasts).toEqual([['生成完成，共 2 张图片', 'success']])
+  })
+
+  it('有失败时整组报已出几张、共几张；重试补齐后报全部', async () => {
+    await setupBatchState(2, true)
+    vi.mocked(callImageApi)
+      .mockRejectedValueOnce(new Error('上游拒绝了这张图'))
+      .mockResolvedValue({
+        images: ['data:image/png;base64,generated'],
+        actualParamsList: [{ size: '1x1' }],
+      })
+
+    await submitTask()
+    await waitUntil(
+      () =>
+        useStore.getState().tasks.length === 2 &&
+        useStore.getState().tasks.every((t) => t.status !== 'running'),
+      'batch did not settle',
+    )
+    const showToast = vi.mocked(useStore.getState().showToast)
+    expect(showToast.mock.calls).toEqual([['已生成 1/2 张，其余失败', 'info']])
+
+    const failed = useStore.getState().tasks.find((t) => t.status === 'error')
+    if (!failed) throw new Error('expected one failed item')
+    showToast.mockClear()
+    await retryTask(failed)
+    await waitUntil(
+      () => useStore.getState().tasks.filter((t) => t.status === 'done').length === 2,
+      'retry did not finish',
+    )
+    expect(showToast.mock.calls).toEqual([['生成完成，共 2 张图片', 'success']])
+  })
+
+  it('同时最多发 5 张，其余排队，完成一张才发下一张', async () => {
+    await setupBatchState(7, true)
+    const gates: Array<() => void> = []
+    vi.mocked(callImageApi).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          gates.push(() =>
+            resolve({
+              images: ['data:image/png;base64,generated'],
+              actualParamsList: [{ size: '1x1' }],
+            }),
+          )
+        }),
+    )
+
+    await submitTask()
+    await waitUntil(() => gates.length === 5, 'first five were not sent')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(vi.mocked(callImageApi).mock.calls).toHaveLength(5)
+    const queued = () => useStore.getState().tasks.filter((t) => t.batchQueued)
+    expect(queued().map((t) => t.origin?.shotId)).toEqual(['6', '7'])
+
+    gates[0]()
+    await waitUntil(() => gates.length === 6, 'sixth was not sent after one finished')
+    expect(queued().map((t) => t.origin?.shotId)).toEqual(['7'])
+
+    for (let i = 1; i < 6; i++) gates[i]()
+    await waitUntil(() => gates.length === 7, 'last was not sent')
+    gates[6]()
+    await waitUntil(
+      () => useStore.getState().tasks.every((t) => t.status === 'done'),
+      'batch did not finish',
+    )
+    expect(queued()).toHaveLength(0)
+  })
+
+  it('快速生成能分批加到 50 张，第 51 张按 50 张的上限拒绝', async () => {
+    await setupBatchState(7, true)
+    const more = (from: number, count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: `more-${from + index}`,
+        dataUrl: `data:image/png;base64,more${from + index}`,
+      }))
+
+    expect(useStore.getState().attachInputImages(more(8, 10))).not.toBeNull()
+    expect(useStore.getState().attachInputImages(more(18, 33))).not.toBeNull()
+    expect(useStore.getState().inputImages).toHaveLength(50)
+
+    expect(useStore.getState().attachInputImages(more(51, 1))).toBeNull()
+    expect(useStore.getState().inputImages).toHaveLength(50)
+    expect(useStore.getState().showToast).toHaveBeenLastCalledWith(
+      expect.stringContaining('50'),
+      'error',
+    )
+  })
+
+  it('没选逐张时多张图仍合并成一次参考', async () => {
+    await setupBatchState(3, false)
+
+    await submitTask()
+
+    const tasks = useStore.getState().tasks
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0].inputImageIds).toEqual(['ref-1', 'ref-2', 'ref-3'])
+    expect(tasks[0].origin).toBeUndefined()
+  })
+
+  it('超过模型一次能带的张数时只能逐张', async () => {
+    await setupBatchState(20, false)
+
+    await submitTask()
+
+    expect(useStore.getState().tasks).toHaveLength(20)
+  })
+
+  it('失败的那张重试后留在原来那一组里，不弹详情', async () => {
+    await setupBatchState(2, true)
+    vi.mocked(callImageApi)
+      .mockRejectedValueOnce(new Error('上游拒绝了这张图'))
+      .mockResolvedValue({
+        images: ['data:image/png;base64,generated'],
+        actualParamsList: [{ size: '1x1' }],
+      })
+
+    await submitTask()
+    await waitUntil(
+      () => useStore.getState().tasks.every((t) => t.status !== 'running'),
+      'batch did not settle',
+    )
+    const failed = useStore.getState().tasks.find((t) => t.status === 'error')
+    if (!failed) throw new Error('expected one failed item')
+    expect(useStore.getState().detailTaskId).toBeNull()
+
+    const before = new Set(useStore.getState().tasks.map((t) => t.id))
+    await retryTask(failed)
+
+    const retried = useStore.getState().tasks.find((t) => !before.has(t.id))
+    expect(retried?.origin).toEqual(failed.origin)
+    expect(retried?.inputImageIds).toEqual(failed.inputImageIds)
+  })
+})
+
 describe('素材引用与模板套用后提交', () => {
   const PANDA = 'data:image/png;base64,panda'
   const HALL = 'data:image/png;base64,hall'
@@ -2198,6 +2453,30 @@ describe('submitPrepared 显式参数提交接缝', () => {
     await clearImages()
     await putImage({ id: imageA.id, dataUrl: PREPARED_IMAGE, source: 'upload', createdAt: 0 })
     setupPreparedState()
+  })
+
+  it('转圈期间改了输入框，到点后不清空新输入', async () => {
+    useStore.setState({
+      settings: { ...useStore.getState().settings, clearInputAfterSubmit: true },
+      prompt: '一只猫',
+      inputImages: [{ id: imageA.id, dataUrl: PREPARED_IMAGE }],
+    })
+    let release: () => void = () => {}
+    const hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const pending = submitTask({ holdClear: hold })
+    await vi.waitFor(() => expect(useStore.getState().tasks).toHaveLength(1))
+    useStore.setState({ prompt: '一只狗' })
+    release()
+    await pending
+    expect(useStore.getState().prompt).toBe('一只狗')
+    expect(useStore.getState().inputImages).toHaveLength(1)
+
+    useStore.setState({ tasks: [], prompt: '一只猫' })
+    await submitTask({ holdClear: Promise.resolve() })
+    expect(useStore.getState().prompt).toBe('')
+    expect(useStore.getState().inputImages).toHaveLength(0)
   })
 
   it('只有用户主动发送才记下作品卡注意力', async () => {

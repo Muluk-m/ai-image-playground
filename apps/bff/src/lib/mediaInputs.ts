@@ -3,6 +3,8 @@ import sharp from 'sharp'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { durableMediaStore } from './durableMediaStore'
+import { log } from './logger'
+import { ObjectStoreHttpError } from './objectStore'
 
 /** 提交里按云媒体身份给的输入图：`aip-media:<media_objects.id>`。 */
 export const MEDIA_INPUT_PATTERN = '^aip-media:[0-9a-f-]{36}$'
@@ -13,6 +15,18 @@ const MAX_EDGE = 2048
 const PASSTHROUGH_BYTES = 256 * 1024
 const UPSTREAM_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
 const LOAD_CONCURRENCY = 3
+// 对象存储读一张输入图的单次期限与次数。Bun 的 S3 读取本身没有超时、遇 5xx 也不重试：
+// 2026-10-23 test 桶在 R2 内部错误期间，提交请求被挂住 5～8 分钟才返回。两次各 15 秒，最坏约 30 秒给出明确失败。
+const READ_ATTEMPTS = 2
+const READ_RETRY_DELAY_MS = 200
+let readAttemptTimeoutMs = 15_000
+
+/** 测试用：把单次读取期限调短，免得用例真等 15 秒。不传恢复默认值。 */
+export function setMediaInputReadTimeoutForTesting(ms?: number) {
+  if (ms !== undefined && (!Number.isFinite(ms) || ms < 0 || ms > 60_000))
+    throw new Error('media input read timeout must be a finite number in [0, 60000]')
+  readAttemptTimeoutMs = ms ?? 15_000
+}
 
 export class MediaInputError extends Error {}
 
@@ -52,7 +66,11 @@ async function compressed(bytes: Uint8Array, contentType: string): Promise<strin
 export async function resolveMediaInputs(
   userId: string | null,
   inputs: readonly string[] | undefined,
-  options: { readonly masked: boolean },
+  options: {
+    readonly masked: boolean
+    /** 请求自己的取消信号：客户端断开后不再替它等对象存储。 */
+    readonly signal?: AbortSignal
+  },
 ): Promise<string[] | undefined> {
   if (!inputs?.some((input) => MEDIA_INPUT.test(input))) return inputs ? [...inputs] : inputs
   if (!userId) throw new MediaInputError('按媒体引用输入图需要登录')
@@ -84,11 +102,9 @@ export async function resolveMediaInputs(
     if (row.bytes > config.operator.quotas['sync:asset-image-bytes'])
       throw new MediaInputError('输入图片过大')
     const key = row.key
-    return durableMediaStore()
-      .read(key)
-      .then((bytes) =>
-        options.masked ? exact(bytes, row.contentType) : compressed(bytes, row.contentType),
-      )
+    return readInput(id, key, options.signal).then((bytes) =>
+      options.masked ? exact(bytes, row.contentType) : compressed(bytes, row.contentType),
+    )
   }
   // 先确权，再按固定并发读取：16 张大图同时解码会占满内存，逐张串行又把延迟叠起来。
   for (const id of ids)
@@ -108,6 +124,99 @@ export async function resolveMediaInputs(
       return id ? resolved.get(id)! : input
     }),
   )
+}
+
+function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason)
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason)
+    signal.addEventListener('abort', abort, { once: true })
+    pending.then(
+      (value) => {
+        signal.removeEventListener('abort', abort)
+        resolve(value)
+      },
+      (error) => {
+        signal.removeEventListener('abort', abort)
+        reject(error)
+      },
+    )
+  })
+}
+
+function storageStatus(error: unknown): number | string | undefined {
+  if (error instanceof ObjectStoreHttpError) return error.status
+  // 超时/取消的 DOMException 也带数字 code（如 23），那不是对象存储给的状态，记名字。
+  if (error instanceof DOMException) return error.name
+  const code = (error as { code?: unknown } | null)?.code
+  return typeof code === 'string' || typeof code === 'number' ? code : undefined
+}
+
+// 只对「可能下次就好」的失败重试：卡住超时、对象存储 5xx/429、连接被断开/拒绝。
+// DNS、TLS、签名配置、实现错误这类永久故障重试也没用，只会拉长失败请求。
+const TRANSIENT_CODES = new Set([
+  'InternalError',
+  'ServiceUnavailable',
+  'SlowDown',
+  'RequestTimeout',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'EPIPE',
+  'ConnectionClosed',
+  'ConnectionRefused',
+  'ConnectionReset',
+])
+
+function transient(status: number | string | undefined, timedOut: boolean): boolean {
+  if (timedOut) return true
+  if (typeof status === 'number') return status >= 500 || status === 429
+  return typeof status === 'string' && TRANSIENT_CODES.has(status)
+}
+
+/**
+ * 每次尝试都有期限，且跟随请求取消；读不到就把对象键、状态码和原始异常记进日志再抛，
+ * 不再只剩一句「读取输入图片失败」。4xx 与客户端已断开不重试。
+ */
+async function readInput(
+  mediaId: string,
+  key: string,
+  requestSignal: AbortSignal | undefined,
+): Promise<Uint8Array> {
+  for (let attempt = 1; ; attempt++) {
+    const timeout = AbortSignal.timeout(readAttemptTimeoutMs)
+    const signal = requestSignal ? AbortSignal.any([requestSignal, timeout]) : timeout
+    const started = performance.now()
+    try {
+      return await abortable(durableMediaStore().read(key, signal), signal)
+    } catch (error) {
+      const clientGone = Boolean(requestSignal?.aborted)
+      const status = storageStatus(error)
+      const timedOut = timeout.aborted
+      const retry = !clientGone && transient(status, timedOut) && attempt < READ_ATTEMPTS
+      log.warn(
+        {
+          event: 'media_input.read_failed',
+          mediaId,
+          objectKey: key,
+          attempt,
+          elapsedMs: Math.round(performance.now() - started),
+          timedOut,
+          clientGone,
+          storageStatus: status,
+          willRetry: retry,
+          err: error,
+        },
+        'input image read from object storage failed',
+      )
+      if (!retry) throw error
+      // 退避期间客户端断开，就不再开下一轮读取。
+      if (requestSignal)
+        await abortable(Bun.sleep(READ_RETRY_DELAY_MS), requestSignal).catch(() => {})
+      else await Bun.sleep(READ_RETRY_DELAY_MS)
+      if (requestSignal?.aborted) throw error
+    }
+  }
 }
 
 /** 带遮罩：尺寸不能动；上游不认的格式按原尺寸转 PNG（保留 alpha）。 */

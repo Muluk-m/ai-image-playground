@@ -20,7 +20,8 @@ export interface ObjectEntry {
 
 export interface ObjectStore {
   write(key: string, bytes: Uint8Array, contentType: string, signal?: AbortSignal): Promise<void>
-  read(key: string): Promise<Uint8Array<ArrayBuffer>>
+  /** 给了 `signal` 就必须可取消：对象存储卡住时调用方靠它把等待限定在自己的期限内。 */
+  read(key: string, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>>
   /** 视频这类大对象走这条；小对象整份 `read` 更省一次元信息往返。 */
   open(key: string, signal?: AbortSignal): Promise<ObjectRangeReader>
   listPrefix(prefix: string): Promise<string[]>
@@ -41,6 +42,42 @@ export async function readObjectWithinLimit(
     throw new SafeFetchError('too_large', `内容超过 ${maxBytes} 字节上限`)
   if (object.size === 0) return new Uint8Array(0)
   return readCapped(new Response(object.stream(0, object.size - 1)), maxBytes)
+}
+
+/** 对象存储按 HTTP 状态拒绝了请求；`status` 用来区分可重试的 5xx 和不必再试的 4xx。 */
+/**
+ * Bun 的 fetch 传输层错误把完整预签名地址放在可枚举的 `path` 上，消息里也可能带着它。
+ * 原样交给日志，签名会先进 Docker/Fluent Bit 原始记录，那时下游的脱敏还没来得及处理。
+ * 这里只留名字、错误码和去掉地址的消息。
+ */
+export function withoutSignedUrl(error: unknown, url: string): unknown {
+  if (error instanceof ObjectStoreHttpError || error instanceof DOMException) return error
+  const source = error as {
+    name?: unknown
+    message?: unknown
+    code?: unknown
+    cause?: unknown
+  } | null
+  const message = String(source?.message ?? error)
+    .split(url)
+    .join('<signed-url>')
+    .replace(/https?:\/\/\S*X-Amz-\S*/gi, '<signed-url>')
+  const clean = new Error(message)
+  if (typeof source?.name === 'string') clean.name = source.name
+  // 网络错误码可能挂在 cause 上（ECONNRESET 之类）；cause 本身可能带地址，只取码。
+  const code = source?.code ?? (source?.cause as { code?: unknown } | null | undefined)?.code
+  if (typeof code === 'string' || typeof code === 'number') Object.assign(clean, { code })
+  return clean
+}
+
+export class ObjectStoreHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'ObjectStoreHttpError'
+  }
 }
 
 export type S3ClientLike = Pick<Bun.S3Client, 'write' | 'file' | 'list' | 'delete'>
@@ -104,8 +141,24 @@ export class S3ObjectStore implements ObjectStore {
     if (!response.ok) throw new Error(`Object upload failed (${response.status})`)
   }
 
-  async read(key: string): Promise<Uint8Array<ArrayBuffer>> {
-    return new Uint8Array(await this.client.file(this.keyPrefix + key).arrayBuffer())
+  async read(key: string, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
+    const file = this.client.file(this.keyPrefix + key)
+    if (!signal) return new Uint8Array(await file.arrayBuffer())
+    // Bun 的 S3File.arrayBuffer 没有超时也不收取消信号：对端接了连接却不回包时会一直挂着。
+    signal.throwIfAborted()
+    const url = file.presign({ method: 'GET', expiresIn: 60 })
+    try {
+      const response = await fetch(url, { signal })
+      if (!response.ok) {
+        await response.body?.cancel()
+        throw new ObjectStoreHttpError(response.status, `Object read failed (${response.status})`)
+      }
+      return new Uint8Array(await response.arrayBuffer())
+    } catch (error) {
+      // 只有确实是取消原因本身才原样抛；传输错误和取消撞在一起时仍要脱敏。
+      if (signal.aborted && error === signal.reason) throw error
+      throw withoutSignedUrl(error, url)
+    }
   }
 
   /**

@@ -41,6 +41,7 @@
   "toast": {
     "generateDone_one": "Generated {{count}} image",
     "generateDone_other": "Generated {{count}} images",
+    "generateDonePartial": "Generated {{done}} of {{total}} images; the rest failed",
     "configReused": "Settings reused in the input bar",
     "imageMissingForEdit": "That image no longer exists, so it cannot be edited",
     "imageMissingForCanvas": "That image no longer exists, so it cannot go to the canvas",
