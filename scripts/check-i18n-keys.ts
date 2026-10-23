@@ -21,6 +21,8 @@ const CATALOG_DIR = join(WEB_SRC, 'i18n', 'locales', 'zh-CN')
  * 拼出来的，就逐条列完整 key，免得把同级里真正没人用的 key 一起放过。
  */
 const DYNAMIC_PREFIXES = [
+  // features/canvas/components/NodeCanvas.tsx：上传被拒的原因按服务端媒体错误码拼 `uploadRejectedReason.${code}`。
+  'canvas:nodes.uploadRejectedReason.',
   'canvas:imagePresets.',
   'common:locale.',
   'locale.',
