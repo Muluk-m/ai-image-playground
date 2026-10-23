@@ -1,0 +1,12 @@
+{
+  "capabilities": {
+    "accounts:login": true,
+    "accounts:self-register": false,
+    "accounts:sync": true,
+    "agent:chat": true
+  },
+  "quotas": {
+    "agent:turns-per-device-minute": 0,
+    "agent:turns-per-ip-hour": 0
+  }
+}
