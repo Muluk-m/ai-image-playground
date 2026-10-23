@@ -820,6 +820,43 @@ describe('发送与中止共用一颗按钮', () => {
     expect(abort).not.toHaveBeenCalled()
   })
 
+  it('刚发出去时按钮在原位变成中止：连点的第二下不停掉刚发出的这一轮，过一会儿才可中止', () => {
+    vi.useFakeTimers()
+    try {
+      const abort = vi.fn(async () => {})
+      useAgentStore.setState({ abort })
+      render()
+      type('画一只猫')
+      act(() => {
+        trailing().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      expect(send).toHaveBeenCalledTimes(1)
+      act(() => {
+        useAgentStore.setState({ turn: 'running', activeTurn: { turnId: 'turn-1' } })
+      })
+
+      // 双击的第二下、或焦点停在按钮上又按一次回车：这时按钮不是可点的中止。
+      expect(trailing().getAttribute('aria-label')).not.toBe('中止')
+      expect(trailing().disabled).toBe(true)
+      act(() => {
+        trailing().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      expect(abort).not.toHaveBeenCalled()
+
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(trailing().getAttribute('aria-label')).toBe('中止')
+      expect(trailing().disabled).toBe(false)
+      act(() => {
+        trailing().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      expect(abort).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('写着字时 Esc 仍能中止，不必先清空输入框', () => {
     const abort = vi.fn(async () => {})
     useAgentStore.setState({ turn: 'running', activeTurn: { turnId: 'turn-1' }, abort })
