@@ -541,6 +541,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       useStore.getState().appMode === 'canvas' &&
       store.getState().conversationId === conversationId &&
       (typeof document === 'undefined' || document.visibilityState !== 'hidden'),
+    refreshCovers: () => void useCanvasProjectStore.getState().refreshCloud(),
   })
   store.subscribe((state, previous) => {
     if (state.conversationId !== previous.conversationId || state.messages !== previous.messages)

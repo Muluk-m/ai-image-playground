@@ -51,12 +51,15 @@ interface Hooks {
   viewing(conversationId: string): boolean
   fetchJobs(conversationId: string): Promise<readonly AgentBackgroundJobView[]>
   pollIntervalMs: number
+  /** 出完了新图：重新拉一次项目目录，侧栏缩略图马上换成封面，不用等刷新。 */
+  refreshCovers(): void
 }
 
 const hooks: Hooks = {
   viewing: () => false,
   fetchJobs: requestJobs,
   pollIntervalMs: AWAY_POLL_MS,
+  refreshCovers: () => {},
 }
 
 /** 面板 store 告诉这里怎样算「正看着」；测试也从这里换掉请求与节奏。 */
@@ -112,6 +115,7 @@ function complete(
     patch(conversationId, null)
     return
   }
+  if (counts.images > 0 || counts.videos > 0) hooks.refreshCovers()
   if (hooks.viewing(conversationId)) {
     patch(conversationId, null)
     return

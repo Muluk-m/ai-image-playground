@@ -46,6 +46,13 @@ it('排队时说清前面还有几张，而不是只说「排队中」（BUG-17�
     '排队中 · 下一张就轮到',
   )
   // 服务端没给位置时照旧。
+  // 并发 1、前面只有正在生成的那张：下一张就是它（QA：之前最小只到「前面还有 1 张」）。
+  expect(agentJobPhaseLabel({ phase: 'queued', queue: { ahead: 1, limit: 1 } })).toBe(
+    '排队中 · 下一张就轮到',
+  )
+  expect(agentJobPhaseLabel({ phase: 'queued', queue: { ahead: 2, limit: 1 } })).toBe(
+    '排队中 · 前面还有 2 张',
+  )
   expect(agentJobPhaseLabel({ phase: 'queued' })).toBe('排队中')
 })
 
