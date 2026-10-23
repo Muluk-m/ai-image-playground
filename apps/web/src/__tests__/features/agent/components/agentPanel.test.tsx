@@ -2362,6 +2362,41 @@ describe('AgentPanel', () => {
     }
   })
 
+  it('计划还在拟时按了「取消」，后面再追加稿（卡片换 key 重挂）也不会自己弹回来', async () => {
+    useAgentStore.setState({
+      conversationId: 'conversation-plan',
+      turn: 'running',
+      activeTurn: { turnId: 'turn-plan' },
+      messages: ['a', 'b'].map((id) => ({ ...planDraft(id, `猫${id}`), gated: true as const })),
+    })
+    const plan = () => host.querySelector('[aria-label="生成计划"]')
+    const button = (label: string) =>
+      [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+        (one) => one.textContent === label,
+      )
+    try {
+      render()
+      await act(async () => {
+        button('取消')?.click()
+      })
+      expect(plan()?.textContent).toContain('未生成')
+      await act(async () => {
+        useAgentStore.setState((state) => ({
+          messages: [...state.messages, { ...planDraft('c', '猫c'), gated: true as const }],
+        }))
+      })
+      expect(plan()?.textContent).toContain('未生成')
+      expect(button('继续确认')).toBeTruthy()
+      await act(async () => {
+        button('继续确认')?.click()
+      })
+      expect(plan()?.textContent).not.toContain('未生成')
+      expect(plan()?.querySelectorAll('li')).toHaveLength(3)
+    } finally {
+      useAgentStore.setState({ turn: 'idle', activeTurn: null })
+    }
+  })
+
   it('上次停在某张、取消它再生成剩下的：新一次停下的那张标出来，不再显示上次的停因', async () => {
     const original = useAgentStore.getState().confirmPrompt
     const refused = new Set(['b', 'd'])
