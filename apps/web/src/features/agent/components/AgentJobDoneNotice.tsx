@@ -57,14 +57,19 @@ export default function AgentJobDoneNotice() {
     if (!notice) return
     const { conversationId } = notice
     useStore.getState().setAppMode('canvas')
-    await useAgentStore.getState().selectConversation(conversationId)
+    try {
+      await useAgentStore.getState().selectConversation(conversationId)
+    } catch {
+      // 加载出错：提示留着，用户可以再点一次。
+      return
+    }
     // 切换可能被拦下（别的对话这一轮还在跑、保存失败）：没切过去就把提示留着，用户还能再点。
     if (useAgentStore.getState().conversationId === conversationId)
       markAgentConversationSeen(conversationId)
   }
 
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex max-w-[min(360px,calc(100vw-2rem))]">
+    <div className="pointer-events-none fixed bottom-4 right-4 z-[1390] flex max-w-[min(360px,calc(100vw-2rem))]">
       {/* live region 常驻，只换里面的内容，读屏才会播报。 */}
       <div role="status" aria-live="polite" className="w-full">
         {notice ? (

@@ -142,3 +142,21 @@ it('出的是视频就说「个视频」，不说成「张图」（Codex P2）',
   )
   expect(host.textContent).toContain('「咖啡海报」3 张图、1 个视频已生成')
 })
+
+it('查看时加载出错也不抛到外面，提示留着（复审 P1）', async () => {
+  selectConversation.mockImplementationOnce(async () => {
+    throw new Error('load failed')
+  })
+  act(() =>
+    useAgentJobActivity.setState({
+      notice: { conversationId: 'conv-1', images: 1, videos: 0, failed: 0, at: 1 },
+    }),
+  )
+  const view = [...host.querySelectorAll('button')].find((one) => one.textContent === '查看')!
+  await act(async () => view.click())
+  expect(useAgentJobActivity.getState().notice?.conversationId).toBe('conv-1')
+})
+
+it('提示在通知层，不会被作品预览这类浮层盖住（复审 P1）', () => {
+  expect(host.querySelector('[role="status"]')?.parentElement?.className).toContain('z-[1390]')
+})

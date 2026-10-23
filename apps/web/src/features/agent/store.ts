@@ -551,7 +551,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     if (
       conversationId &&
       useStore.getState().appMode === 'canvas' &&
-      document.visibilityState !== 'hidden'
+      (typeof document === 'undefined' || document.visibilityState !== 'hidden')
     )
       markAgentConversationSeen(conversationId)
   }
