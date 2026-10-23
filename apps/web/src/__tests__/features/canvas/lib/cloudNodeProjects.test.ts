@@ -15,6 +15,7 @@ import {
   readCanvasDocument,
   readCanvasSyncMessage,
   recordCanvasResult,
+  updateCanvasNode,
   validateCloudCanvas,
 } from '@image-playground/shared'
 import i18next from 'i18next'
@@ -1194,6 +1195,37 @@ it('saves around a server-held image whose original is gone and whose upload cla
   expect(serverNode(server, 'stale')?.data).not.toHaveProperty('mediaId')
   expect(uploadMediaSource).not.toHaveBeenCalled()
   expect(showToast).not.toHaveBeenCalled()
+  record.dispose()
+})
+
+it('keeps a server-held unfinished image renamed on a device without its original (BUG-15)', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const vector = Y.encodeStateVector(server)
+  const data = { fileId: 'el_far', name: 'far.png', createdAt: Date.now() - 2 * 60 * 60_000 }
+  insertCanvasNode(
+    server,
+    { id: 'far', type: 'image', x: 0, y: 0, width: 50, height: 50, data },
+    origin,
+  )
+  socket.receive(canvasSyncUpdate(Y.encodeStateAsUpdate(server, vector)))
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('saved'))
+  vi.mocked(uploadMediaSource).mockClear()
+  record.editor.doc.files = {}
+  // 本机改名会写出一份新的 data，但服务端仍存着这张图的引用：别的设备还能补传，不能摘成空卡片。
+  updateCanvasNode(
+    session.canvas!.doc,
+    'far',
+    { data: { ...data, name: 'renamed.png' } },
+    session.canvas!.origin,
+  )
+  await session.sync()
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(serverNode(server, 'far')?.data).toMatchObject({ fileId: 'el_far', name: 'renamed.png' })
+  expect(showToast).not.toHaveBeenCalled()
+  expect(uploadMediaSource).not.toHaveBeenCalled()
   record.dispose()
 })
 
