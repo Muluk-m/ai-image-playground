@@ -368,6 +368,18 @@ function isReadImageFile(value: File | ReadImageFile): value is ReadImageFile {
   return typeof (value as ReadImageFile).dataUrl === 'string'
 }
 
+/** 导出的入口可能收到不是 readImageFile 产出的对象：空 data URL、缺尺寸的一律不写进画布。 */
+function checkedReadImage(image: ReadImageFile, name?: string): ReadImageFile {
+  const valid =
+    image.dataUrl.startsWith('data:image/') &&
+    Number.isFinite(image.width) &&
+    Number.isFinite(image.height) &&
+    image.width > 0 &&
+    image.height > 0
+  if (!valid) throw new InvalidImageFileError(name ?? 'image')
+  return image
+}
+
 export async function fillImageNode(
   editor: CanvasEditor,
   doc: Y.Doc,
@@ -375,7 +387,7 @@ export async function fillImageNode(
   file: File | ReadImageFile,
   name = isReadImageFile(file) ? undefined : file.name,
 ): Promise<void> {
-  const image = isReadImageFile(file) ? file : await readImageFile(file)
+  const image = isReadImageFile(file) ? checkedReadImage(file, name) : await readImageFile(file)
   await putBitmapOnNode(editor, doc, nodeId, image, name)
 }
 

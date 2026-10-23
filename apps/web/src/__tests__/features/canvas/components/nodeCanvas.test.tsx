@@ -866,6 +866,57 @@ it('rejects an empty or fake image before creating a node, and says which file',
   expect(mocks.importImages).not.toHaveBeenCalled()
 })
 
+it('asks to confirm only the images that will actually land on the canvas', async () => {
+  const { InvalidImageFileError } = await import(
+    '../../../../features/canvas/lib/nodeCanvasGenerate'
+  )
+  mocks.importImages.mockClear()
+  mocks.readImage.mockImplementation(async (file: File) => {
+    if (file.name.startsWith('fake')) throw new InvalidImageFileError(file.name)
+    return { dataUrl: 'data:image/png;base64,AA==', width: 1, height: 1 }
+  })
+  useStore.setState({ confirmDialog: null })
+  try {
+    await render()
+    const surface = host.querySelector('.studio-node-canvas')!
+    const event = new MouseEvent('drop', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 30,
+      clientY: 40,
+    })
+    const names = ['a.png', 'b.png', 'c.png', 'd.png', 'fake1.png', 'fake2.png']
+    Object.defineProperty(event, 'dataTransfer', {
+      value: {
+        types: ['Files'],
+        files: names.map((name) => new File(['x'], name, { type: 'image/png' })),
+        items: [],
+      },
+    })
+    await act(async () => {
+      surface.dispatchEvent(event)
+    })
+    // 六张里两张解不开：确认框按四张问，不按六张。
+    await vi.waitFor(() => expect(useStore.getState().confirmDialog).not.toBeNull())
+    const dialog = useStore.getState().confirmDialog!
+    expect(`${dialog.message} ${dialog.confirmText}`).toContain('4')
+    expect(`${dialog.message} ${dialog.confirmText}`).not.toContain('6')
+    expect(mocks.importImages).not.toHaveBeenCalled()
+    await act(async () => {
+      dialog.action()
+    })
+    await vi.waitFor(() => expect(mocks.importImages).toHaveBeenCalledTimes(4))
+  } finally {
+    mocks.readImage.mockReset()
+    mocks.readImage.mockImplementation(async () => ({
+      dataUrl: 'data:image/png;base64,AA==',
+      width: 1,
+      height: 1,
+    }))
+    useStore.setState({ confirmDialog: null })
+  }
+})
+
 it('leaves selection intact when Escape closes a model listbox', async () => {
   await render()
   act(() =>

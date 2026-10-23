@@ -148,3 +148,26 @@ it('reads a File from another window even though it fails this window’s instan
     doc.destroy()
   }
 })
+
+it.each([
+  ['an empty data URL', { dataUrl: '', width: 10, height: 10 }],
+  ['missing size', { dataUrl: 'data:image/png;base64,AA==', width: 0, height: Number.NaN }],
+  ['a non-image data URL', { dataUrl: 'data:text/plain;base64,AA==', width: 10, height: 10 }],
+])('refuses to put %s onto a node even when passed as an already-read image', async (_label, image) => {
+  const doc = new Y.Doc()
+  const origin = canvasOrigin('user', 'media-test')
+  const undo = createCanvasUndoManager(doc, origin)
+  const canvas = { doc, origin, undo, destroy: async () => doc.destroy() }
+  const editor = new CanvasEditor(new CanvasDoc())
+  try {
+    const id = createNode(canvas, 'image', { x: 0, y: 0 }, '')
+    const before = editor.doc.elements
+    await expect(fillImageNode(editor, doc, id, image, 'bad.png')).rejects.toBeInstanceOf(
+      InvalidImageFileError,
+    )
+    expect(editor.doc.elements).toBe(before)
+  } finally {
+    undo.destroy()
+    doc.destroy()
+  }
+})
