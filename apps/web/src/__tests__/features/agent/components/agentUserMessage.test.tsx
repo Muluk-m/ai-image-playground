@@ -269,3 +269,24 @@ it('方向控制符在气泡里显示成可见标记，不再翻转后面的文�
     act(() => root.unmount())
   }
 })
+
+it('可见标记不参与气泡的自动方向判定：右到左消息仍按右到左排', async () => {
+  const message: AgentTextMessage = {
+    kind: 'text',
+    id: 'user-bidi-rtl',
+    turnId: 'turn-bidi-rtl',
+    role: 'user',
+    streaming: false,
+    text: '\u202Eمرحبا',
+  }
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<AgentUserMessage message={message} skills={[]} />))
+    // dir=auto 跳过带 dir 属性的后代：标记必须自带方向，才不会成为第一个强 LTR 字符。
+    const marker = host.querySelector<HTMLElement>('[data-bidi-control]')!
+    expect(marker.getAttribute('dir')).toBe('ltr')
+  } finally {
+    act(() => root.unmount())
+  }
+})

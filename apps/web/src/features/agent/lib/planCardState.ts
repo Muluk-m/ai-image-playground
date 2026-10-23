@@ -22,6 +22,10 @@ export type PlanCardState = {
   busy: ReadonlySet<string>
   /** 停下的那张稿与原因。 */
   stops: ReadonlyMap<string, PlanStop>
+  /** 用户按了「取消」的计划里的稿：计划还在拟、后面再追加稿换 key 重挂时，卡片仍是收起的。 */
+  dismissed: ReadonlySet<string>
+  /** 展开编辑的那张稿。 */
+  open: string | null
 }
 
 export type PlanCardControl = PlanCardState & {
@@ -34,6 +38,9 @@ export type PlanCardControl = PlanCardState & {
   /** 这些稿不再确认中（成交、被拒或循环结束）。 */
   release: (ids: readonly string[]) => void
   stop: (id: string, stop: PlanStop) => void
+  /** 收起（取消）或恢复整段计划：ids 是这段计划此刻的全部稿。 */
+  dismiss: (ids: readonly string[], dismissed: boolean) => void
+  setOpen: (id: string | null) => void
 }
 
 type Stored = PlanCardState & { conversationId: string | null }
@@ -43,6 +50,8 @@ const empty = (conversationId: string | null): Stored => ({
   skipped: new Set(),
   busy: new Set(),
   stops: new Map(),
+  dismissed: new Set(),
+  open: null,
 })
 
 const withoutIds = <T>(set: ReadonlySet<T>, ids: readonly T[]) => {
@@ -60,9 +69,15 @@ function prune(
 ): Stored {
   if (stored.conversationId !== conversationId) return empty(conversationId)
   const dead = (id: string) => !liveIds.has(id)
-  if (![...stored.skipped, ...stored.busy, ...stored.stops.keys()].some(dead)) return stored
+  if (
+    ![...stored.skipped, ...stored.busy, ...stored.stops.keys(), ...stored.dismissed].some(dead) &&
+    !(stored.open !== null && dead(stored.open))
+  )
+    return stored
   return {
     conversationId,
+    dismissed: new Set([...stored.dismissed].filter((id) => !dead(id))),
+    open: stored.open !== null && dead(stored.open) ? null : stored.open,
     skipped: new Set([...stored.skipped].filter((id) => !dead(id))),
     busy: new Set([...stored.busy].filter((id) => !dead(id))),
     stops: new Map([...stored.stops].filter(([id]) => !dead(id))),
@@ -124,5 +139,16 @@ export function usePlanCardState(
         ...state,
         stops: new Map(state.stops).set(id, stop),
       })),
+    dismiss: (ids, dismissed) =>
+      update(conversationId, (state) => {
+        if (!dismissed) {
+          const next = withoutIds(state.dismissed, ids)
+          return next === state.dismissed ? state : { ...state, dismissed: next }
+        }
+        if (ids.every((id) => state.dismissed.has(id))) return state
+        return { ...state, dismissed: new Set([...state.dismissed, ...ids]) }
+      }),
+    setOpen: (id) =>
+      update(conversationId, (state) => (state.open === id ? state : { ...state, open: id })),
   }
 }

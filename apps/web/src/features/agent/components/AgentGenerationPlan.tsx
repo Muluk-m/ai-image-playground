@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Checkbox } from '../../../components/patterns/Checkbox'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
@@ -34,8 +33,13 @@ export default function AgentGenerationPlan({
 }) {
   const { t } = useTranslation('agent')
   const drafts = useAgentStore((state) => state.promptDrafts)
-  const [openId, setOpenId] = useState<string | null>(null)
-  const [dismissed, setDismissed] = useState(false)
+  // 展开哪张、是否已取消也挂在稿 id 上：计划还在拟时每追加一张稿卡片就换 key 重挂，
+  // 卡片自己的 state 会丢，已取消的计划又自己弹回来。
+  const openId = plan.open
+  const setOpenId = plan.setOpen
+  const planIds = messages.map((message) => message.id)
+  const dismissed = messages.some((message) => plan.dismissed.has(message.id))
+  const setDismissed = (value: boolean) => plan.dismiss(planIds, value)
   const { skipped } = plan
   const submitting = messages.some((message) => plan.busy.has(message.id))
   // 这段计划里停下的那一张（若有）与原因。

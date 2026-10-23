@@ -237,19 +237,35 @@ function consecutiveImageRuns(
 }
 
 /**
- * 计划卡的 key 锚在这段计划的最后一张稿上，不锚第一张，也不按段序编号。
+ * 计划卡的 key 跟着这段计划走：沿用上一帧这段里任意一张稿已经拿到的 key，都没有才用最后一张稿的 id 新起。
  *
- * 「全部生成」自上而下逐张确认：前面的稿成交后就不再是待确认稿，计划从下一张起算。key 若取
- * 第一张稿的 id，这一刻整张计划卡就被卸下重挂——还在跑的确认循环把后面那张被拒（例如积分不足）
- * 的结果写进一个已经不在的组件，用户什么也看不见。按「本轮第几段」编号也不行：同一轮里被别的
- * 消息隔开的前一段计划确认完消失后，后一段的序号跟着变，同样会被重挂。最后一张稿要等整段都
- * 提交完才离开，期间这段计划的 key 不变，也不受其他段增减影响。
+ * - 「全部生成」自上而下逐张确认：前面的稿成交离开，剩下的稿还带着原来的 key，卡片不重挂——
+ *   否则还在跑的确认循环把后面被拒（例如积分不足）的结果写进已卸下的组件，用户什么也看不见。
+ * - 计划还在拟时末尾不断追加稿：新稿跟着前面那几张的 key，卡片也不重挂，正在编辑的输入框不丢焦点和光标。
+ * - 按「本轮第几段」编号不行：同一轮里前一段计划消失后，后一段的序号会变。
+ * - 一段被拆成两段（中间一张在别处成交）时，前一段留着原 key，后一段换新的，同一帧里 key 不重复。
+ *
+ * `memo` 是上一帧「稿 id → key」，函数按这一帧重写它，只留还在计划里的稿。
  */
 function planRunKeys(
   starts: ReadonlyMap<number, readonly AgentToolMessage[]>,
+  memo: Map<string, string>,
 ): Map<number, string> {
   const keys = new Map<number, string>()
-  for (const [index, run] of starts) keys.set(index, `plan:${run[run.length - 1]?.id ?? index}`)
+  const used = new Set<string>()
+  const next = new Map<string, string>()
+  for (const [index, run] of [...starts].sort(([a], [b]) => a - b)) {
+    const inherited = run
+      .map((message) => memo.get(message.id))
+      .find((key): key is string => key !== undefined && !used.has(key))
+    let key = inherited ?? `plan:${run[run.length - 1]?.id ?? index}`
+    if (used.has(key)) key = `${key}:${index}`
+    used.add(key)
+    keys.set(index, key)
+    for (const message of run) next.set(message.id, key)
+  }
+  memo.clear()
+  for (const [id, key] of next) memo.set(id, key)
   return keys
 }
 
@@ -319,6 +335,8 @@ export default function AgentPanel({
     }
   }, [dock, presentation, open])
   const followLatest = useRef(true)
+  // 计划卡 key 的上一帧记录（稿 id → key），见 planRunKeys。
+  const planKeyMemo = useRef(new Map<string, string>())
   /** 离开底部期间来了新内容：浮出「有新消息」，回到底部即收起。 */
   const [unseen, setUnseen] = useState(false)
   const [search, setSearch] = useState('')
@@ -470,7 +488,7 @@ export default function AgentPanel({
   const grouping = groupPanelMessages(messages)
   const fetchedRuns = presentation === 'page' && onPreviewResult ? fetchedImageRuns(messages) : null
   const planRuns = consecutiveImageRuns(messages, isImagePlanDraft, 1)
-  const planKeys = planRunKeys(planRuns.starts)
+  const planKeys = planRunKeys(planRuns.starts, planKeyMemo.current)
   const imageRuns = consecutiveImageRuns(messages, isImageOutput, 2)
 
   return (
