@@ -25,8 +25,9 @@ export interface AccountQueueTask {
 }
 
 /**
- * 每条排队任务前面还有几张：在生成的全算，排队的只算比它先提交的（同一刻按 id），
- * 与调度挑任务的先后一致。只给 `targets` 里还在排队的那几条。
+ * 每条排队任务前面还有几张：在生成的全算，排队的只算比它先提交、且重试时间已到的（同一刻按 id）。
+ * 这是账号维度的近似：调度还会按供应商槽位分轮挑，跨供应商时实际先后可能略有出入。
+ * 只给 `targets` 里还在排队的那几条。
  */
 export function accountQueuePositions(
   targets: readonly string[],

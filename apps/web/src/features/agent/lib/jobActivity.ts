@@ -2,7 +2,7 @@ import type { AgentBackgroundJobView } from '@image-playground/shared'
 import { create } from 'zustand'
 import { accountScope } from '../../../lib/authScope'
 import type { AgentPanelMessage, AgentToolMessage } from '../types'
-import { fetchJobs as requestJobs } from './agentClient'
+import { AgentRequestError, fetchJobs as requestJobs } from './agentClient'
 import { agentJobUnsettled } from './jobProgress'
 
 /**
@@ -145,7 +145,13 @@ function watchAway(conversationId: string, ids: readonly string[]) {
       let jobs: readonly AgentBackgroundJobView[]
       try {
         jobs = await hooks.fetchJobs(conversationId)
-      } catch {
+      } catch (error) {
+        // 对话已经删了（或不再属于这个账号）：不再等，侧栏的「在跑」也收掉；其它错误下次再问。
+        if (error instanceof AgentRequestError && (error.status === 404 || error.status === 403)) {
+          away.delete(conversationId)
+          patch(conversationId, null)
+          return
+        }
         continue
       }
       if (!live()) return
