@@ -2,6 +2,8 @@ import { afterAll, beforeAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
+  applyPromptRewriteGuard,
+  buildAspectInstruction,
   canvasNodeKind,
   canvasOrigin,
   connectCanvasNodes,
@@ -1174,6 +1176,60 @@ it('keeps the submitted duration and rejects an authorization whose content is n
     spentCredits: 0,
     attempts: [{ taskIds: [] }],
   })
+})
+
+it('accepts the no_rewrite guard and composition suffix the dispatch layer pins on a non-Gemini prompt', async () => {
+  // 创作页 no_rewrite（默认开）给非 Gemini 模型的 prompt 钉防改写前缀；gpt-image-2.5-flare 不认 size，
+  // 还会按 size 再钉构图后缀。授权冻结的是原文「嫩芽」，两段机器指令不能让阶段任务 409。
+  const proposal = await fixture()
+  const { executionToken } = await (await request(proposal.authorizationId, '/confirm', {})).json()
+  await request(proposal.authorizationId, '/preflight', {
+    nodeId: 'a',
+    model: 'gpt-image-2.5-flare',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken,
+    attemptId: 'guarded',
+  })
+  const auth = {
+    authorizationId: proposal.authorizationId,
+    executionToken,
+    attemptId: 'guarded',
+    nodeId: 'a',
+  }
+  const suffix = `\n\n${buildAspectInstruction('1536x1024')}`
+  // 夹带用户内容、或后缀和本次 size 对不上，仍然按越权拒绝。
+  for (const prompt of [
+    `${applyPromptRewriteGuard('嫩芽')} 再加一只猫`,
+    applyPromptRewriteGuard('别的内容'),
+    `${applyPromptRewriteGuard('嫩芽')}\n\n${buildAspectInstruction('1024x1536')}`,
+  ]) {
+    const rejected = await queueSubmit({
+      prompt,
+      size: '1536x1024',
+      device_id: 'stage-test-device',
+      client_request_id: crypto.randomUUID(),
+      stage_authorization: auth,
+    })
+    expect(rejected.status).toBe(409)
+    expect(await rejected.json()).toMatchObject({ error: 'stage_authorization_scope' })
+  }
+  const accepted = await queueSubmit({
+    prompt: `${applyPromptRewriteGuard('嫩芽')}${suffix}`,
+    size: '1536x1024',
+    device_id: 'stage-test-device',
+    client_request_id: crypto.randomUUID(),
+    stage_authorization: auth,
+  })
+  expect(accepted.status).toBe(200)
+  const { request_id } = await accepted.json()
+  const state = await (await request(proposal.authorizationId)).json()
+  expect(state.attempts[0].taskIds).toEqual([request_id])
+  // 上游拿到的仍是带 guard 的那一句：只放宽比较，不改提交内容。
+  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, request_id))
+  expect((task!.request_payload as { prompt: string }).prompt).toBe(
+    `${applyPromptRewriteGuard('嫩芽')}${suffix}`,
+  )
 })
 
 it('discards archived inputs when stage consumption fails after preparation', async () => {
