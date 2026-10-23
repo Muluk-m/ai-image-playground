@@ -28,6 +28,14 @@ import {
 } from '../lib/nodeRuns'
 import { stageAuthorizationClient } from '../lib/stageAuthorizationClient'
 
+/** 跑到一半被授权拦下的原因 → 卡片上的人话。其余原因由智能体在对话里说明。 */
+const REJECTION_NOTES = {
+  spec_changed: 'nodeRun.rejected.specChanged',
+  authorization: 'nodeRun.rejected.authorization',
+  budget_exceeded: 'nodeRun.rejected.budget',
+  retry_limit: 'nodeRun.rejected.retryLimit',
+} as const
+
 export default function AgentNodeRunCard({
   runKey,
   proposal,
@@ -150,6 +158,18 @@ export default function AgentNodeRunCard({
     ? Object.fromEntries(report.nodes.map((node) => [node.nodeId, node.outcome]))
     : undefined
   const unfinished = report?.nodes.filter((node) => node.outcome !== 'completed').length ?? 0
+  // 被授权拦下的节点说清楚为什么，别让人只看到「没出结果」去猜是不是模型坏了。
+  const rejections = [
+    ...new Set(
+      (report?.nodes ?? []).flatMap((node) =>
+        node.outcome === 'failed' &&
+        typeof node.reason === 'string' &&
+        Object.prototype.hasOwnProperty.call(REJECTION_NOTES, node.reason)
+          ? [REJECTION_NOTES[node.reason as keyof typeof REJECTION_NOTES]]
+          : [],
+      ),
+    ),
+  ]
   const skippedReason = wakeSkipped ?? skippedLive
   const statusLabel =
     run?.status === 'done' && unfinished > 0
@@ -234,6 +254,11 @@ export default function AgentNodeRunCard({
           {...(outcomes ? { outcomes } : {})}
         />
       )}
+      {rejections.map((key) => (
+        <p key={key} role="status" className={CARD_NOTE}>
+          {t(key)}
+        </p>
+      ))}
       {(skippedReason === 'insufficient_credits' || skippedReason === 'wake_limit') && (
         <p role="status" className={CARD_NOTE}>
           {t(`job.wakeSkipped.${skippedReason}`)}

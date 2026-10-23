@@ -35,6 +35,7 @@ import { assetNodeContext } from './nodeAssetGeneration'
 import { type NodeReference, referenceFileIds } from './nodeCanvasFlow'
 import { submitNodeImage } from './nodeCanvasGenerate'
 import { submitNodeVideo } from './nodeCanvasVideo'
+import { takeNodeJobFailure } from './nodeJobFailures'
 import { nodeVideoConfiguration } from './nodeVideoConfiguration'
 import { nodeReferenceDraft } from './useNodeReferenceDraft'
 
@@ -54,7 +55,11 @@ export type NodeBatchError =
   | 'stale'
   | 'local'
 export class NodeBatchFailure extends Error {
-  constructor(public readonly code: NodeBatchError) {
+  constructor(
+    public readonly code: NodeBatchError,
+    /** `failed` 时 BFF 拒绝提交给的错误码（如 `stage_authorization_scope`），没有就是上游失败。 */
+    public readonly submitError?: string,
+  ) {
     super(code)
   }
 }
@@ -518,11 +523,11 @@ function waitForNodeBatchResult(
   }
   remember(submitted)
   return new Promise((resolve, reject) => {
-    const finish = (error?: NodeBatchError) => {
+    const finish = (error?: NodeBatchError, submitError?: string) => {
       doc.off('update', check)
       doc.off('destroy', destroy)
       signal.removeEventListener('abort', cancel)
-      error ? reject(new NodeBatchFailure(error)) : resolve()
+      error ? reject(new NodeBatchFailure(error, submitError)) : resolve()
     }
     const cancel = () => finish('cancelled'),
       destroy = () => finish('cancelled')
@@ -532,8 +537,8 @@ function waitForNodeBatchResult(
       // 只看这一次提交建出的任务：同一节点上一次失败留下的错误任务（授权内重试时）不算这次失败。
       const jobs = canvasNodeJobs(doc, id).filter((job) => !previousJobs.has(job.id))
       remember(jobs)
-      if (jobs.some((job) => job.status === 'error' || job.status === 'stale'))
-        return finish('failed')
+      const failedJob = jobs.find((job) => job.status === 'error' || job.status === 'stale')
+      if (failedJob) return finish('failed', takeNodeJobFailure(failedJob.id))
       if (jobs.some((job) => job.status === 'loading')) return
       const main = canvasMainResult(doc, id)
       finish(
