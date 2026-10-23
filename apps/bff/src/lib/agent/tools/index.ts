@@ -8,6 +8,7 @@ import type {
   AgentToolResultBlock,
   AgentTurnParams,
 } from '@image-playground/shared'
+import { isCapabilityEnabled } from '../../capabilities'
 import { log } from '../../logger'
 import { clarificationTool } from '../clarification'
 import type { AgentImageSource } from '../images'
@@ -258,12 +259,14 @@ export function agentTurnTools(context: AgentToolContext, failures?: ToolFailure
 
 /**
  * 范围确认卡只在 chat 里给登录用户：它要引用存好的原件，画布上用户本来就能直接圈选。
- * 与改图工具同进同出——这一轮改不了图，就没有范围可确认。
+ * 与改图工具同进同出——这一轮改不了图，就没有范围可确认。卡片的原图和蒙版走 `/api/media`，
+ * 没开 accounts:sync 时那里一律拒绝，卡片打不开，也就不发。
  */
 function offersMaskProposal(mode: AgentMode, audience?: AgentToolAudience): boolean {
   return (
     audience?.experience === 'chat' &&
     Boolean(audience.userId) &&
+    isCapabilityEnabled('accounts:sync') &&
     present(mode, audience).some((tool) => tool.name === 'editImage')
   )
 }
