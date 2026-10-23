@@ -68,7 +68,9 @@ export default function ProjectCover({
     const fail = () => setSettled({ key, failed: true })
     if (!source || !mediaIdentity(source)) return fail()
     // 预览可能已坏在缓存里：先丢掉它再算失败，之后的重试（自动或「刷新项目」）才会重新下载。
-    void invalidateMediaPreview(source).catch(() => {}).finally(fail)
+    void invalidateMediaPreview(source)
+      .catch(() => {})
+      .finally(fail)
   }, [key, source])
   const loaded = source !== undefined && settled?.key === key && !settled.failed
   const failed = source !== undefined && settled?.key === key && settled.failed
