@@ -17,11 +17,12 @@ import {
   type AgentTurnParams,
   type AgentTurnReference,
 } from '@image-playground/shared'
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, not, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne, not, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 import { lockMediaOwner, MediaError } from '../projectMedia'
 import { claimConversationMedia, validateConversationMediaSelections } from './images'
+import { PENDING_GATE } from './tool-gate-records'
 
 /**
  * 会话收件箱（`agent_inbox`）里的用户消息与唤醒。忙时发的话排在这里，当前回复可以结束时由
@@ -49,6 +50,7 @@ export interface QueuedUserMessage {
   readonly params?: AgentTurnParams
   readonly canvas?: AgentCanvasSnapshot
   readonly experience?: 'chat' | 'canvas'
+  readonly surface?: 'agent' | 'canvas'
 }
 
 export interface EnqueueUserMessage {
@@ -62,6 +64,7 @@ export interface EnqueueUserMessage {
   readonly params?: AgentTurnParams
   readonly canvas?: AgentCanvasSnapshot
   readonly experience?: 'chat' | 'canvas'
+  readonly surface?: 'agent' | 'canvas'
 }
 
 export interface InboxEntry {
@@ -196,6 +199,7 @@ export async function enqueueAgentUserMessage(
       ...(message.params ? { params: message.params } : {}),
       ...(message.canvas ? { canvas: message.canvas } : {}),
       ...(message.experience ? { experience: message.experience } : {}),
+      ...(message.surface ? { surface: message.surface } : {}),
       ...(answering ? { clarificationAnswer: true as const } : {}),
     }
     const [row] = await tx
@@ -372,6 +376,21 @@ export const heldByClarification = sql`(${inbox.kind} = 'user_message' AND EXIST
     )
 ))`
 
+/**
+ * 收件箱这一行是唤醒或中断续跑，而会话里有一张确认门拦下、还没了结的卡（见 `tool-gate.ts`）：
+ * 它得等用户先拿主意。智能体以为那次调用已经提交了，这时起一轮去看别的结果，它会把一张还没提交的
+ * 图当成已经在跑。用户确认后排的续跑、用户发的新消息（会先把那几张卡作废）都不在此列。
+ * 与 {@link heldByClarification} 一样写成相关子查询，巡查在 SQL 里就把它排除掉。
+ */
+export const heldByToolGate = sql`((${inbox.kind} = 'task_result'
+    OR (${inbox.kind} = 'system_event' AND (${inbox.payload} -> 'gate') IS NULL))
+  AND EXISTS (
+    SELECT 1 FROM ${schema.agent_messages} gated
+    WHERE gated.conversation_id = ${inbox.conversation_id}
+      AND gated.deleted_at IS NULL
+      AND gated.content @> ${PENDING_GATE}
+  ))`
+
 /** 收件箱里有没有还没起轮的唤醒或中断续跑：它们不是用户的话，没人发送时要有人来开轮。 */
 export async function hasPendingAgentWake(conversationId: string): Promise<boolean> {
   const [row] = await db
@@ -419,6 +438,7 @@ function queuedMessageOf(row: InboxRow): QueuedUserMessage {
     ...(payload.params ? { params: payload.params } : {}),
     ...(payload.canvas ? { canvas: payload.canvas } : {}),
     ...(payload.experience ? { experience: payload.experience } : {}),
+    ...(payload.surface ? { surface: payload.surface } : {}),
   }
 }
 
@@ -446,6 +466,7 @@ export async function nextAgentInboxEntry(conversationId: string): Promise<NextI
         inArray(inbox.kind, [...TURN_KINDS]),
         eq(inbox.status, 'pending'),
         not(heldByClarification),
+        not(heldByToolGate),
       ),
     )
     .orderBy(...turnOrder)
@@ -492,6 +513,31 @@ export async function skipAgentWake(
         eq(inbox.id, id),
         eq(inbox.kind, 'task_result'),
         eq(inbox.status, 'pending'),
+      ),
+    )
+    .returning({ id: inbox.id })
+  return rows.length > 0
+}
+
+/**
+ * 确认门续跑开不了轮（积分不够）：不起轮就了结它，记成已撤回，不当成一条发送失败。
+ * 只有它仍待处理时才成立。
+ */
+export async function skipAgentGateResume(
+  tx: BffTransaction,
+  conversationId: string,
+  id: string,
+): Promise<boolean> {
+  const rows = await tx
+    .update(inbox)
+    .set({ status: 'cancelled' })
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        eq(inbox.id, id),
+        eq(inbox.kind, 'system_event'),
+        eq(inbox.status, 'pending'),
+        sql`(${inbox.payload} -> 'gate') IS NOT NULL`,
       ),
     )
     .returning({ id: inbox.id })
@@ -583,6 +629,9 @@ export async function enqueueAgentWake(
 /** 中断续跑记录的客户端消息 id：同一轮只能排进一次，重复的补写不会排出第二条。 */
 export const agentResumeKey = (turnId: string) => `resume:${turnId}`
 
+/** 确认门续跑的客户端消息 id：被拦下的那一轮只续一次，与中断续跑各算各的。 */
+export const agentGateResumeKey = (turnId: string) => `gate:${turnId}`
+
 /**
  * 为被打断的那一轮排一次中断续跑。同一轮只排一次（按客户端消息 id 去重），所以反复补写、
  * 多个实例同时接手都只续一次。返回这一次是不是真排进去了。传入事务时在那个事务里排：
@@ -609,7 +658,9 @@ export async function enqueueAgentResume(
         seq: sql`(SELECT COALESCE(MAX(${inbox.seq}), 0) + 1 FROM ${inbox} WHERE ${inbox.conversation_id} = ${conversationId})`,
         kind: 'system_event',
         status: 'pending',
-        client_message_id: agentResumeKey(payload.interruptedTurnId),
+        client_message_id: payload.gate
+          ? agentGateResumeKey(payload.interruptedTurnId)
+          : agentResumeKey(payload.interruptedTurnId),
         payload,
         created_at: now,
       })
@@ -618,6 +669,68 @@ export async function enqueueAgentResume(
     return rows.length > 0
   }
   return executor ? write(executor) : db.transaction(write)
+}
+
+/**
+ * 确认门拦下的这一轮排过的续跑此刻还「活着」：还在等起轮，或者已被取走、取走它的那一轮还没跑完。
+ * 确认重放据此告诉客户端去跟进；续跑跑完、撤回或失败之后都不算。
+ */
+export async function gateResumeLive(
+  executor: typeof db | BffTransaction,
+  conversationId: string,
+  turnId: string,
+): Promise<boolean> {
+  const [row] = await executor
+    .select({ id: inbox.id })
+    .from(inbox)
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        eq(inbox.client_message_id, agentGateResumeKey(turnId)),
+        // 取走它的那一轮还没落页脚就算活着：从取件提交、到开轮登记执行、到跑完落页脚，都在其中，
+        // 没有「已取走却还没开跑」的空窗。
+        sql`(${inbox.status} = 'pending' OR (${inbox.status} = 'consumed' AND NOT EXISTS (
+          SELECT 1 FROM ${schema.agent_turns} settled
+          WHERE settled.conversation_id = ${inbox.conversation_id}
+            AND settled.turn_id = ${inbox.consumed_turn_id})))`,
+      ),
+    )
+    .limit(1)
+  return row !== undefined
+}
+
+/**
+ * 确认门拦下的那一轮之后，用户有没有再发过话（还在等或已被取走；撤回的不算）。按收件箱序号认先后，
+ * 不比毫秒时间戳：触发那一轮的消息本身、并进那一轮的插话都不算；那一轮还在跑时就发出、卡落库之前
+ * 就进了收件箱的新消息照样算。那一轮不是从收件箱起的（认不出它的位置）才退回按卡落库的时刻比。
+ */
+export async function userMessageAfterTurn(
+  executor: typeof db | BffTransaction,
+  conversationId: string,
+  turnId: string,
+  cardCreatedAt: number,
+): Promise<boolean> {
+  const [started] = await executor
+    .select({ seq: sql<number | null>`max(${inbox.seq})` })
+    .from(inbox)
+    .where(and(eq(inbox.conversation_id, conversationId), eq(inbox.consumed_turn_id, turnId)))
+  const startedSeq = started?.seq ?? null
+  const after =
+    startedSeq === null ? gt(inbox.created_at, cardCreatedAt) : gt(inbox.seq, Number(startedSeq))
+  const [row] = await executor
+    .select({ id: inbox.id })
+    .from(inbox)
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        inArray(inbox.kind, [...USER_KINDS]),
+        inArray(inbox.status, ['pending', 'consumed']),
+        or(isNull(inbox.consumed_turn_id), ne(inbox.consumed_turn_id, turnId)),
+        after,
+      ),
+    )
+    .limit(1)
+  return row !== undefined
 }
 
 /** 这一轮被打断后是否排上过中断续跑（不论后来有没有跑完）。 */

@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { stripInlineReasoning } from '@image-playground/shared'
+import { useEffect, useMemo, useState } from 'react'
 import { MessageActions } from '../../../components/assistant-ui/elements/message-actions'
 import { useTranslation } from '../../../i18n'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
@@ -43,7 +44,13 @@ function CopyReplyButton({ text }: { text: string }) {
 }
 
 /** 助手回复整段展示、按 Markdown 渲染；操作跟在正文下面，不浮在角落。 */
-export default function AgentReply({ text, streaming }: Props) {
+export default function AgentReply({ text: stored, streaming }: Props) {
+  // 服务端已在模型适配层把正文开头的推理拆走；这里只兜修复之前落库的旧回复，流式中不逐段重扫。
+  const text = useMemo(
+    () => (streaming ? stored : stripInlineReasoning(stored)),
+    [stored, streaming],
+  )
+  if (!text && !streaming) return null
   return (
     <div className="studio-agent-reply-wrap min-w-0 max-w-full self-start">
       <div

@@ -11,6 +11,7 @@ import { describeEmptyResult, extractMeta, resolveImageBytesRef } from '../lib/e
 import {
   archiveGenerationOutputs,
   generationSourceCheckpoint,
+  KnownMediaBytes,
   missingGenerationOutputs,
   spoolGenerationOutputs,
 } from '../lib/generationMedia'
@@ -155,7 +156,9 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       if (!preserved) return
       request = preserved
     }
-    const hydratedRequest = await hydrateInputImages(request)
+    // 入库时直接用手里这份字节，不再回对象存储读：输入刚读来送上游，结果下面刚写进去。
+    const known = new KnownMediaBytes()
+    const hydratedRequest = await hydrateInputImages(request, { onObjectRead: known.rememberRead })
     // 老任务只有 preserve_outside_mask、没有 masked_original_size：那时不补边，交付时也不裁边。
     protectOutput = request.preserve_outside_mask
       ? await protectMaskedOutput(
@@ -172,6 +175,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         archivePayload,
         protectOutput,
         signal,
+        known,
       )
       if (!(await execution.saveCheckpoint(archivePayload))) return
       const missing = await missingGenerationOutputs(id, task.provider, archivePayload)
@@ -181,6 +185,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         archivePayload,
         request,
         missing,
+        known,
       )
       await execution.finish({
         status: missing.size ? 'failed' : 'completed',
@@ -298,14 +303,21 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       }
     }
     const archivedPayload = cloudArchive
-      ? await spoolGenerationOutputs(id, task.provider, payload, protectOutput, signal)
+      ? await spoolGenerationOutputs(id, task.provider, payload, protectOutput, signal, known)
       : await archiveOutputImages(id, task.provider, payload, protectOutput)
     if (cloudArchive) {
       archivePayload = archivedPayload
       if (!(await execution.saveCheckpoint(archivePayload))) return
     }
     const media = cloudArchive
-      ? await archiveGenerationOutputs(task.user_id!, task.provider, archivedPayload, request)
+      ? await archiveGenerationOutputs(
+          task.user_id!,
+          task.provider,
+          archivedPayload,
+          request,
+          undefined,
+          known,
+        )
       : undefined
     await execution.finish({
       status: 'completed',

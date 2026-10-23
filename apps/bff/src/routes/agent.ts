@@ -22,6 +22,7 @@ import {
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
   DEVICE_ID_HEADER,
+  isAgentSurface,
   parseAgentCanvasSnapshot,
   SYNC_NAME_MAX_LENGTH,
 } from '@image-playground/shared'
@@ -44,6 +45,7 @@ import {
 } from '../lib/agent/confirmations'
 import {
   announceQueuedMessage,
+  pickUpGateContinuation,
   pickUpIdleConversation,
   promoteToInterjection,
   sendToConversationInbox,
@@ -655,7 +657,12 @@ export const agentRoutes = new Elysia()
         }
         return status(409, refused)
       }
-      const response: AgentConfirmationResponse = { message: outcome.message }
+      // 确认门拦下的那一轮排上了续跑：这里就去开轮，界面拿到 `continued` 后跟进那一轮的流。
+      if ('continued' in outcome && outcome.continued) pickUpGateContinuation(conversation.id)
+      const response: AgentConfirmationResponse = {
+        message: outcome.message,
+        ...('continued' in outcome && outcome.continued ? { continued: true as const } : {}),
+      }
       return response
     },
     {
@@ -778,6 +785,7 @@ export const agentRoutes = new Elysia()
             ...(body.experience === 'chat' || body.experience === 'canvas'
               ? { experience: body.experience }
               : {}),
+            ...(isAgentSurface(body.surface) ? { surface: body.surface } : {}),
           })
         } catch (error) {
           if (error instanceof MediaError) return status(error.status, { error: error.message })
@@ -813,6 +821,8 @@ export const agentRoutes = new Elysia()
         canvas: t.Optional(t.Any()),
         /** 发话时客户端看到的入口；只在项目还没记下入口时参考，不认识的值当没带。 */
         experience: t.Optional(t.Any()),
+        /** 这一轮的模式：agent（只生图改图）或 canvas（画布节点）。不认识的值当没带，按 agent 算。 */
+        surface: t.Optional(t.Any()),
       }),
     },
   )
@@ -954,10 +964,12 @@ export const agentRoutes = new Elysia()
           resolveAgentMode(query.mode ?? 'image'),
           authUser?.id ?? null,
           resolveAgentModel('image')?.model,
+          // 画布技能只进画布视图的 `/` 菜单；不带 surface 的旧客户端按 Agent 模式。
+          query.surface === 'canvas' ? 'canvas' : 'chat',
         ),
       }
     },
-    { query: t.Object({ mode: modeSchema }) },
+    { query: t.Object({ mode: modeSchema, surface: t.Optional(t.String()) }) },
   )
   .get(
     // 预置模板的封面与参考图。图片随技能目录发布，所以取法也跟着技能走：认技能名与文件名，

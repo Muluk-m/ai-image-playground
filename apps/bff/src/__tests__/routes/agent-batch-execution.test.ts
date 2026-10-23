@@ -2003,6 +2003,8 @@ it('对话批次固定原项目归属，画布拒绝通用生成批次', async (
         deviceId: DEVICE,
         text: '拟一个白底图计划',
         references: [{ imageId: 'original', mediaId }],
+        // 画布项目里只有画布视图发出的轮才算画布模式；Agent 视图照常出批次。
+        surface: experience === 'canvas' ? 'canvas' : 'agent',
       })
     ).text()
     const { batches } = await (

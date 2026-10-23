@@ -107,4 +107,50 @@ describe('the history folded by set', () => {
 
     expect(cardIds()).toEqual(['a1', 'a2'])
   })
+
+  it('lists each failed image of a per-image batch with its reason and a retry', async () => {
+    const batch = (shotId: string) => ({ setId: 'batch-1', shotId, kind: 'batch' as const })
+    useStore.setState({
+      tasks: [
+        task('b1', 5, batch('1')),
+        {
+          ...task('b2', 5, batch('2')),
+          status: 'error',
+          error: '图片太大，上游拒绝了\n详情',
+          inputImageIds: ['ref-2'],
+        },
+      ],
+    })
+    await render()
+
+    const card = document.querySelector('[data-set-history-card]')
+    expect(card?.textContent).toContain('提示词 b1')
+    expect(card?.textContent).toContain('逐张生成')
+    expect(card?.textContent).toContain('完成 1/2')
+    const failure = document.querySelector('[data-set-history-failure]')
+    expect(failure?.textContent).toContain('第 2 张')
+    expect(failure?.textContent).toContain('图片太大，上游拒绝了')
+    expect(failure?.textContent).not.toContain('详情')
+    expect(failure?.querySelector('button')?.textContent).toBe('重试')
+  })
+
+  it('counts running and queued images of a per-image batch separately', async () => {
+    const batch = (shotId: string) => ({ setId: 'batch-2', shotId, kind: 'batch' as const })
+    const running = (id: string, shotId: string, queued = false) => ({
+      ...task(id, 5, batch(shotId)),
+      status: 'running' as const,
+      outputImages: [],
+      ...(queued ? { batchQueued: true as const } : {}),
+    })
+    useStore.setState({
+      tasks: [running('q1', '1'), running('q2', '2'), running('q3', '3', true)],
+    })
+    await render()
+
+    const card = document.querySelector('[data-set-history-card]')
+    expect(card?.textContent).toContain('完成 0/3 · 生成中 2 · 排队中 1')
+    expect(document.querySelectorAll('[data-batch-tile="running"]')).toHaveLength(2)
+    const queuedTile = document.querySelector('[data-batch-tile="queued"]')
+    expect(queuedTile?.textContent).toBe('排队中')
+  })
 })

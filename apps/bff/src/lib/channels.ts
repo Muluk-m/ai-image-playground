@@ -32,9 +32,18 @@ import type {
   ChannelMedia,
   ChannelModel,
   DiscoveredChannel,
+  GeminiImageSize,
+  ModelBadge,
+  ModelLogoId,
   QueueProvider,
 } from '@image-playground/shared'
-import { CHANNEL_CAPABILITIES } from '@image-playground/shared'
+import {
+  CHANNEL_CAPABILITIES,
+  GEMINI_IMAGE_SIZES,
+  isModelEtaSeconds,
+  MODEL_BADGES,
+  MODEL_LOGOS,
+} from '@image-playground/shared'
 import { isObject } from './type-guards'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -58,6 +67,16 @@ export interface InternalChannel {
   allowedPaths: string[]
   models: ChannelModel[]
   defaults: ChannelDefaults
+  /**
+   * 本进程内同时发往该渠道的上游请求上限（含一单多张拆出来的每一条）。BFF 私有，不进发现清单。
+   * 目前只有 gemini-queue 的 generateContent 同步请求认它，其余 kind 写了会在加载时报错。
+   */
+  maxConcurrency?: number
+  /**
+   * 按模型的同时在途上限（`models[].maxConcurrency`），写了就压过渠道级的 `maxConcurrency`、按
+   * 「渠道 + 模型」单独排队。同样 BFF 私有、只允许 gemini-queue。Vertex 实测限流按模型各算各的。
+   */
+  modelMaxConcurrency?: Readonly<Record<string, number>>
 }
 
 /** parseChannel 的产物：baseUrl 尚未解析，只有 `baseUrl` / `baseUrlRef` 二选一。 */
@@ -125,6 +144,69 @@ function parseMedia(v: unknown, ctx: string): ChannelMedia | undefined {
   return v as ChannelMedia
 }
 
+/** 选择器标签：只认 shared 里登记过的 token，重复的视为配置错误。 */
+function parseBadges(v: unknown, ctx: string): ModelBadge[] | undefined {
+  if (v === undefined) return undefined
+  if (!Array.isArray(v)) throw new ChannelsLoadError(`${ctx}.badges must be an array`)
+  const seen = new Set<string>()
+  return v.map((badge) => {
+    if (typeof badge !== 'string' || !MODEL_BADGES.includes(badge as ModelBadge))
+      throw new ChannelsLoadError(
+        `${ctx}: invalid badge '${String(badge)}' (allowed: ${MODEL_BADGES.join(', ')})`,
+      )
+    if (seen.has(badge)) throw new ChannelsLoadError(`${ctx}: duplicate badge '${badge}'`)
+    seen.add(badge)
+    return badge as ModelBadge
+  })
+}
+
+function parseEtaSeconds(v: unknown, ctx: string): number | undefined {
+  if (v === undefined) return undefined
+  if (!isModelEtaSeconds(v))
+    throw new ChannelsLoadError(`${ctx}.etaSeconds must be an integer between 1 and 3600`)
+  return v
+}
+
+/** 范围上界：同样 1–3600 整数，必须配着 etaSeconds 写且严格大于它，否则范围没有意义。 */
+function parseEtaMaxSeconds(
+  v: unknown,
+  etaSeconds: number | undefined,
+  ctx: string,
+): number | undefined {
+  if (v === undefined) return undefined
+  if (!isModelEtaSeconds(v))
+    throw new ChannelsLoadError(`${ctx}.etaMaxSeconds must be an integer between 1 and 3600`)
+  if (etaSeconds === undefined || v <= etaSeconds)
+    throw new ChannelsLoadError(`${ctx}.etaMaxSeconds must come with a smaller etaSeconds`)
+  return v
+}
+
+function parseLogo(v: unknown, ctx: string): ModelLogoId | undefined {
+  if (v === undefined) return undefined
+  if (typeof v !== 'string' || !MODEL_LOGOS.includes(v as ModelLogoId))
+    throw new ChannelsLoadError(
+      `${ctx}: invalid logo '${String(v)}' (allowed: ${MODEL_LOGOS.join(', ')})`,
+    )
+  return v as ModelLogoId
+}
+
+/** 分辨率档位：`GEMINI_IMAGE_SIZES` 的非空子集，不重复。 */
+function parseImageSizes(v: unknown, ctx: string): GeminiImageSize[] | undefined {
+  if (v === undefined) return undefined
+  if (!Array.isArray(v) || v.length === 0)
+    throw new ChannelsLoadError(`${ctx}.imageSizes must be a non-empty array`)
+  const seen = new Set<string>()
+  return v.map((size) => {
+    if (typeof size !== 'string' || !GEMINI_IMAGE_SIZES.includes(size as GeminiImageSize))
+      throw new ChannelsLoadError(
+        `${ctx}: invalid imageSize '${String(size)}' (allowed: ${GEMINI_IMAGE_SIZES.join(', ')})`,
+      )
+    if (seen.has(size)) throw new ChannelsLoadError(`${ctx}: duplicate imageSize '${size}'`)
+    seen.add(size)
+    return size as GeminiImageSize
+  })
+}
+
 function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
   if (!Array.isArray(v) || v.length === 0)
     throw new ChannelsLoadError(`${channelCtx}: models must be a non-empty array`)
@@ -132,11 +214,21 @@ function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
     const ctx = `${channelCtx}.models[${idx}]`
     if (!isObject(raw)) throw new ChannelsLoadError(`${ctx} must be an object`)
     const media = parseMedia(raw.media, ctx)
+    const badges = parseBadges(raw.badges, ctx)
+    const etaSeconds = parseEtaSeconds(raw.etaSeconds, ctx)
+    const etaMaxSeconds = parseEtaMaxSeconds(raw.etaMaxSeconds, etaSeconds, ctx)
+    const logo = parseLogo(raw.logo, ctx)
+    const imageSizes = parseImageSizes(raw.imageSizes, ctx)
     return {
       id: requireNonEmptyString(raw.id, `${ctx}.id`),
       label: requireNonEmptyString(raw.label, `${ctx}.label`),
       capabilities: parseCapabilities(raw.capabilities, ctx),
       ...(media ? { media } : {}),
+      ...(badges ? { badges } : {}),
+      ...(etaSeconds !== undefined ? { etaSeconds } : {}),
+      ...(etaMaxSeconds !== undefined ? { etaMaxSeconds } : {}),
+      ...(logo ? { logo } : {}),
+      ...(imageSizes ? { imageSizes } : {}),
     }
   })
 }
@@ -233,6 +325,15 @@ function parseOptionalFlag(v: unknown, ctx: string): boolean {
   return v === true
 }
 
+function parseMaxConcurrency(v: unknown, kind: ChannelKind, ctx: string): number | undefined {
+  if (v === undefined) return undefined
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 64)
+    throw new ChannelsLoadError(`${ctx}.maxConcurrency must be an integer between 1 and 64`)
+  if (kind !== 'gemini-queue')
+    throw new ChannelsLoadError(`${ctx}.maxConcurrency is only supported on gemini-queue channels`)
+  return v
+}
+
 function parseChannel(raw: unknown, idx: number): ParsedChannel {
   const ctx = `channels[${idx}]`
   if (!isObject(raw)) throw new ChannelsLoadError(`${ctx} must be an object`)
@@ -246,6 +347,17 @@ function parseChannel(raw: unknown, idx: number): ParsedChannel {
   if (!isStringArray(raw.allowedPaths) || raw.allowedPaths.length === 0)
     throw new ChannelsLoadError(`${ctx}.allowedPaths must be a non-empty string[]`)
 
+  const maxConcurrency = parseMaxConcurrency(raw.maxConcurrency, raw.kind as ChannelKind, ctx)
+  const models = parseModels(raw.models, ctx)
+  const modelMaxConcurrency: Record<string, number> = {}
+  ;(raw.models as unknown[]).forEach((model, index) => {
+    const limit = parseMaxConcurrency(
+      (model as { maxConcurrency?: unknown }).maxConcurrency,
+      raw.kind as ChannelKind,
+      `${ctx}.models[${index}]`,
+    )
+    if (limit !== undefined) modelMaxConcurrency[models[index]!.id] = limit
+  })
   return {
     id: raw.id,
     kind: raw.kind as ChannelKind,
@@ -255,8 +367,10 @@ function parseChannel(raw: unknown, idx: number): ParsedChannel {
     disabled: parseOptionalFlag(raw.disabled, `${ctx}.disabled`),
     auth: parseAuth(raw.auth, ctx),
     allowedPaths: raw.allowedPaths,
-    models: parseModels(raw.models, ctx),
+    models,
     defaults: parseDefaults(raw.defaults, ctx),
+    ...(maxConcurrency !== undefined ? { maxConcurrency } : {}),
+    ...(Object.keys(modelMaxConcurrency).length ? { modelMaxConcurrency } : {}),
   }
 }
 
