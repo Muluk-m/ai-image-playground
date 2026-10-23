@@ -921,6 +921,86 @@ it('asks to confirm only the images that will actually land on the canvas', asyn
   }
 })
 
+it('drops an image import whose canvas went away while the files were being checked', async () => {
+  mocks.importImages.mockClear()
+  let release: () => void = () => {}
+  mocks.readImage.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve({ dataUrl: 'data:image/png;base64,AA==', width: 1, height: 1 })
+      }),
+  )
+  useStore.setState({ confirmDialog: null })
+  try {
+    await render()
+    const surface = host.querySelector('.studio-node-canvas')!
+    const event = new MouseEvent('drop', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 30,
+      clientY: 40,
+    })
+    Object.defineProperty(event, 'dataTransfer', {
+      value: {
+        types: ['Files'],
+        files: [new File(['x'], 'a.png', { type: 'image/png' })],
+        items: [],
+      },
+    })
+    await act(async () => {
+      surface.dispatchEvent(event)
+    })
+    await vi.waitFor(() => expect(mocks.readImage).toHaveBeenCalled())
+    // 解码还没完就离开了画布。
+    await act(async () => root.render(<div />))
+    await act(async () => {
+      release()
+    })
+    await act(async () => {})
+    expect(useStore.getState().confirmDialog).toBeNull()
+    expect(mocks.importImages).not.toHaveBeenCalled()
+  } finally {
+    useStore.setState({ confirmDialog: null })
+  }
+})
+
+it('does not import into a canvas that went away while the confirmation was open', async () => {
+  mocks.importImages.mockClear()
+  useStore.setState({ confirmDialog: null })
+  try {
+    await render()
+    const surface = host.querySelector('.studio-node-canvas')!
+    const event = new MouseEvent('drop', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 30,
+      clientY: 40,
+    })
+    Object.defineProperty(event, 'dataTransfer', {
+      value: {
+        types: ['Files'],
+        files: ['a.png', 'b.png', 'c.png', 'd.png'].map(
+          (name) => new File(['x'], name, { type: 'image/png' }),
+        ),
+        items: [],
+      },
+    })
+    await act(async () => {
+      surface.dispatchEvent(event)
+    })
+    await vi.waitFor(() => expect(useStore.getState().confirmDialog).not.toBeNull())
+    const dialog = useStore.getState().confirmDialog!
+    await act(async () => root.render(<div />))
+    await act(async () => {
+      dialog.action()
+    })
+    await act(async () => {})
+    expect(mocks.importImages).not.toHaveBeenCalled()
+  } finally {
+    useStore.setState({ confirmDialog: null })
+  }
+})
+
 it('leaves selection intact when Escape closes a model listbox', async () => {
   await render()
   act(() =>

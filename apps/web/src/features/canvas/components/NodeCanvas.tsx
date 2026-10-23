@@ -1385,10 +1385,21 @@ function Flow({
     setScriptPoint(null)
     selectNode(id)
   }
+  // 当前挂着的画布；卸载或换了画布就变，进行中的导入据此放弃。
+  const liveCanvas = useRef<typeof canvas | null>(canvas)
+  useEffect(() => {
+    liveCanvas.current = canvas
+    return () => {
+      liveCanvas.current = null
+    }
+  }, [canvas])
   const placeFiles = (files: File[]) => {
     const candidates = acceptImageFiles(files)
     if (candidates.length === 0) return
     const point = placeAt.current
+    // 逐张解码要花时间：这期间换了项目或离开画布，就不再弹确认框、不往旧画布里写。
+    const target = canvas
+    const here = () => liveCanvas.current === target
     const failed = () => useStore.getState().showToast(t('import.failed'), 'error')
     const notInvalid = (error: unknown) => {
       if (error instanceof InvalidImageFileError) return null
@@ -1403,14 +1414,17 @@ function Flow({
         if (await readImageFile(file).then(() => true, notInvalid)) valid.push(file)
         else invalid.push(file.name)
       }
+      if (!here()) return
       if (invalid.length) showInvalidImages(invalid)
       if (valid.length === 0) return
       confirmImageBatch(valid.length, () => {
         void (async () => {
           const late: string[] = []
           for (const file of valid) {
+            if (!here()) return
             // 确认后再读一遍；校验到确认之间文件变了（被删、被改）就跳过，不留空节点。
             const image = await readImageFile(file).catch(notInvalid)
+            if (!here()) return
             if (!image) {
               late.push(file.name)
               continue
