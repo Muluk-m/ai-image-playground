@@ -284,6 +284,85 @@ export async function storedRegionMask<T>(
   }
 }
 
+/**
+ * 区域编号徽标放在哪：蒙版里离边缘最远的那一点（不可达极点），归一化坐标；空蒙版为 null。
+ * 外接框左上角常落在别的对象上（椅子框的左上角是挂画），凹形或细长的区域连重心都可能在蒙版外，
+ * 极点总在区域内部最「宽」的地方。`alpha` 是逐像素的不透明度（0–255），≥ 128 算选中；
+ * 调用方先把蒙版缩到几十像素宽再传进来，两遍倒角距离变换，线性时间。
+ */
+export function regionAnchor(
+  alpha: ArrayLike<number>,
+  width: number,
+  height: number,
+  stride = 1,
+  offset = 0,
+): Point | null {
+  if (width <= 0 || height <= 0) return null
+  const far = width + height
+  const distance = new Float32Array(width * height)
+  let any = false
+  for (let i = 0; i < distance.length; i++) {
+    const inside = (alpha[i * stride + offset] ?? 0) >= 128
+    distance[i] = inside ? far : 0
+    any ||= inside
+  }
+  if (!any) return null
+  // 图外也算边界：徽标不贴着画面边缘。
+  const at = (x: number, y: number) =>
+    x < 0 || y < 0 || x >= width || y >= height ? 0 : distance[y * width + x]!
+  const diagonal = Math.SQRT2
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x
+      if (!distance[i]) continue
+      distance[i] = Math.min(
+        distance[i]!,
+        at(x - 1, y) + 1,
+        at(x, y - 1) + 1,
+        at(x - 1, y - 1) + diagonal,
+        at(x + 1, y - 1) + diagonal,
+      )
+    }
+  let peak = 0
+  for (let y = height - 1; y >= 0; y--)
+    for (let x = width - 1; x >= 0; x--) {
+      const i = y * width + x
+      if (!distance[i]) continue
+      distance[i] = Math.min(
+        distance[i]!,
+        at(x + 1, y) + 1,
+        at(x, y + 1) + 1,
+        at(x + 1, y + 1) + diagonal,
+        at(x - 1, y + 1) + diagonal,
+      )
+      if (distance[i]! > peak) peak = distance[i]!
+    }
+  // 细条、长方块里离边一样远的点连成一条脊：取脊上离脊中心最近的那点，不偏到一头。
+  const ridge = (i: number) => distance[i]! >= peak - 0.5
+  let sumX = 0
+  let sumY = 0
+  let count = 0
+  for (let i = 0; i < distance.length; i++)
+    if (ridge(i)) {
+      sumX += i % width
+      sumY += Math.floor(i / width)
+      count++
+    }
+  const meanX = sumX / count
+  const meanY = sumY / count
+  let best = 0
+  let bestGap = Infinity
+  for (let i = 0; i < distance.length; i++) {
+    if (!ridge(i)) continue
+    const gap = ((i % width) - meanX) ** 2 + (Math.floor(i / width) - meanY) ** 2
+    if (gap < bestGap) {
+      bestGap = gap
+      best = i
+    }
+  }
+  return { x: ((best % width) + 0.5) / width, y: (Math.floor(best / width) + 0.5) / height }
+}
+
 /** 蒙版的外接框（归一化）；空蒙版为 null。 */
 export function targetBounds(mask: TargetMask): AgentNormalizedBox | null {
   let x0 = mask.width
