@@ -409,3 +409,13 @@ it('恢复已有本地任务时同步待核查阶段', async () => {
   )
   expect(task).toMatchObject({ status: 'running', queuePhase: 'reconciling' })
 })
+
+it('云端失败卡保留错误分类，内容审核展示与复制均可识别原因', () => {
+  expect(
+    taskFromGeneration({ ...summary, status: 'failed', errorType: 'content_policy', cover: null }),
+  ).toMatchObject({
+    status: 'error',
+    errorCode: 'content_policy',
+    error: i18next.t('agentTool.content_policy', { ns: 'errors' }),
+  })
+})
