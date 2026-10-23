@@ -43,7 +43,9 @@ export default function AgentGenerationPlan({
   const selected = messages.filter((message) => !skipped.has(message.id))
   const count = selected.reduce((sum, message) => sum + agentDraftOutputCount(message), 0)
   const credits = agentPlanCreditTotal(selected)
-  // 余额属于账户；这个 hook 也让余额变化（充值、别处扣费）时卡片跟着重算。
+  // 这里只取账户总余额（availableCredits 与传入的模型、数量无关，hook 签名需要才传首张的）；
+  // 整组需求是上面按每张稿各自模型与产出数逐张估价求和的 credits，两者相比。
+  // 这个 hook 也让余额变化（充值、别处扣费）时卡片跟着重算。
   const available = usePrivateSubmissionGuard({
     model: messages[0]?.snapshot?.target?.model ?? '',
     quantity: 1,
@@ -73,7 +75,10 @@ export default function AgentGenerationPlan({
   const confirm = () => {
     if (!selected.length || submitting || short) return
     const ids = selected.map((message) => message.id)
-    plan.begin(ids)
+    plan.begin(
+      ids,
+      messages.map((message) => message.id),
+    )
     void (async () => {
       let confirmed = 0
       try {

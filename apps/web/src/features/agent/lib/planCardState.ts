@@ -26,8 +26,11 @@ export type PlanCardState = {
 
 export type PlanCardControl = PlanCardState & {
   skip: (id: string, skip: boolean) => void
-  /** 开始一次「全部生成」：清掉这些稿上旧的停因，标为确认中。 */
-  begin: (ids: readonly string[]) => void
+  /**
+   * 开始一次「全部生成」：把 ids 标为确认中，并清掉整段计划（planIds）上旧的停因。
+   * 上次停下的那张被取消勾选、没在这次里，它的停因也要清，否则卡上仍指着上次那张。
+   */
+  begin: (ids: readonly string[], planIds: readonly string[]) => void
   /** 这些稿不再确认中（成交、被拒或循环结束）。 */
   release: (ids: readonly string[]) => void
   stop: (id: string, stop: PlanStop) => void
@@ -105,10 +108,10 @@ export function usePlanCardState(
         else skipped.delete(id)
         return { ...state, skipped }
       }),
-    begin: (ids) =>
+    begin: (ids, planIds) =>
       update(conversationId, (state) => {
         const stops = new Map(state.stops)
-        for (const id of ids) stops.delete(id)
+        for (const id of [...planIds, ...ids]) stops.delete(id)
         return { ...state, stops, busy: new Set([...state.busy, ...ids]) }
       }),
     release: (ids) =>
