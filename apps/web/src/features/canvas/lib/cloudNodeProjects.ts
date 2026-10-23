@@ -603,6 +603,8 @@ export class CloudNodeProjectSession {
     // 本机缺原图又没有有效声明（原图被清理、损坏，或那台设备传了 30 分钟还没收成云媒体），仍按缺图报错。
     const pendingAllowed = supportsCanvasPendingMedia()
     for (const node of nodes) {
+      // 别的标签页/设备声明在传、还没过期的，即使本机缓存里也有原图，也交给它传，免得重复上传、互抢声明。
+      if (pendingAllowed && node.elsewhere) continue
       const source = this.record.editor.doc.files[node.fileId]
       if (source) sources.add(source)
       else if (!pendingAllowed || !node.elsewhere) failure ??= new Error('canvas_media_missing')
@@ -710,6 +712,8 @@ export class CloudNodeProjectSession {
         isLocalCanvasFileId(fileId) &&
         !mediaId &&
         files[fileId] &&
+        // 别的标签页/设备的有效声明不抢：由它去传。
+        !canvasUploadingElsewhere(node.data, device, now) &&
         (renew || meta?.[CANVAS_UPLOAD_DEVICE_META] !== device)
       )
         claims.push({ id: node.id, data: node.data })
@@ -761,12 +765,15 @@ export class CloudNodeProjectSession {
   private hasLocalImages() {
     if (!this.canvas) return false
     const files = this.record.editor.doc.files
+    const device = getCanvasUploaderId()
+    const now = Date.now()
     return readCanvasDocument(this.canvas.doc).nodes.some(
       (node) =>
         (node.type === 'image' || node.type === 'video') &&
         !!node.data.fileId &&
         !node.data.mediaId &&
-        !!files[node.data.fileId],
+        !!files[node.data.fileId] &&
+        !canvasUploadingElsewhere(node.data, device, now),
     )
   }
   /** 一次只跑一轮后台上传；跑的时候又来了改动，就在这一轮结束后再补一轮。 */
@@ -848,13 +855,23 @@ export class CloudNodeProjectSession {
           if (this.uploading) await this.uploading
           // Promotion awaits I/O; include edits made during those awaits before acknowledging this version.
           let preparedVersion: number
-          do {
-            preparedVersion = this.editVersion
-            await this.prepareVideoMedia()
-            await this.prepareMedia()
-            if (this.project.cloud?.nameDirty) await this.flushName()
-            this.current()
-          } while (preparedVersion !== this.editVersion)
+          try {
+            do {
+              preparedVersion = this.editVersion
+              await this.prepareVideoMedia()
+              await this.prepareMedia()
+              if (this.project.cloud?.nameDirty) await this.flushName()
+              this.current()
+            } while (preparedVersion !== this.editVersion)
+          } catch (error) {
+            // 前台这轮上传也失败了：和后台失败一样撤掉本标签页的上传声明，别处不再显示「上传中」、
+            // 复制也不再被挡；撤销本身是一次改动，记成失败版本，免得它触发后台再传一轮。
+            if (!this.controller.signal.aborted && this.sameAccount()) {
+              this.releaseLocalUploads()
+              this.failedUploadVersion = this.editVersion
+            }
+            throw error
+          }
         }
         // 失败的那几张已经传上去或被删掉：不再拿上一轮的失败拦「已保存」。
         if (!this.uploading && !this.hasLocalImages()) this.mediaFailure = undefined
