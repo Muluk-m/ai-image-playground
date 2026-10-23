@@ -253,10 +253,18 @@ export function mergeCanvasUploadConflicts(
  */
 export function readOverwrittenLocalData(
   event: Y.YEvent<Y.AbstractType<unknown>>,
-  local: number | ((client: number) => boolean),
+  local: number | ((client: number) => boolean) | 'existing',
 ): { lost: unknown[]; winner: unknown } | undefined {
   try {
-    const isLocal = typeof local === 'number' ? (client: number) => client === local : local
+    const adds = (item: ItemShape) => event.adds(item as never)
+    // 'existing'（服务端用）：「本机」指这次更新之前文档里已有的条目，逐条按时钟判断，
+    // 不按客户端：同一客户端可能这次也带来了新条目。
+    const isLocal: (item: ItemShape) => boolean =
+      local === 'existing'
+        ? (item) => !adds(item)
+        : typeof local === 'number'
+          ? (item) => item.id.client === local
+          : (item) => local(item.id.client)
     const map = (event.target as unknown as { _map?: unknown })._map
     if (!(map instanceof Map)) {
       reportUnsupported('Y.Map._map')
@@ -269,15 +277,12 @@ export function readOverwrittenLocalData(
       return undefined
     }
     if (current.deleted) return undefined
-    const adds = (item: ItemShape) => event.adds(item as never)
     const localWins = !adds(current)
     // 本机这一版还生效：看这次新加、却一进来就被删掉的远端条目。
     // 远端这次写入生效：看这次被删掉的本机条目。
-    if (localWins && !isLocal(current.id.client)) return undefined
+    if (localWins && !isLocal(current)) return undefined
     const losers = concurrentLosers(current, adds, (item) =>
-      localWins
-        ? adds(item) && !isLocal(item.id.client)
-        : event.deletes(item as never) && isLocal(item.id.client),
+      localWins ? adds(item) && !isLocal(item) : event.deletes(item as never) && isLocal(item),
     )
     if (!losers?.length) return undefined
     return { lost: losers.map(lastContent), winner: lastContent(current) }
@@ -481,12 +486,10 @@ export function applyCanvasUpdateKeepingUploads(
 ): number {
   const nodes = doc.getMap<Y.Map<unknown>>('nodes')
   const repairs: { id: string; lost: unknown[]; winner: unknown; data: UploadData }[] = []
-  const observer = (events: Y.YEvent<Y.AbstractType<unknown>>[], transaction: Y.Transaction) => {
-    const existing = (client: number) =>
-      (transaction.afterState.get(client) ?? 0) === (transaction.beforeState.get(client) ?? 0)
+  const observer = (events: Y.YEvent<Y.AbstractType<unknown>>[], _transaction: Y.Transaction) => {
     for (const event of events) {
       if (event.path.length !== 1) continue
-      const overwritten = readOverwrittenLocalData(event, existing)
+      const overwritten = readOverwrittenLocalData(event, 'existing')
       if (!overwritten) continue
       const { lost, winner } = overwritten
       const data = mergeCanvasUploadConflicts(lost, winner)
