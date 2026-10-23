@@ -9,7 +9,7 @@ import type {
   AgentPlaceOutcome,
   AgentReservation,
 } from '../../agent/lib/canvasSink'
-import type { CanvasEditor } from './editor'
+import { type CanvasEditor, containedImageBox } from './editor'
 import { focusNodeCanvas, revealNodeCanvas } from './nodeCanvasFocus'
 import { markPlaceholderStatus, placeImagesIntoTargets } from './placeholderShapeOps'
 import { computePlaceholderTargets, type PlacementTarget } from './placement'
@@ -265,7 +265,15 @@ export function createAgentCanvasSink(
       const cacheKey = `${element?.type === 'image' ? `${objectId}:${element.fileId}` : objectId}:${scale}`
       const cached = thumbnails.get(cacheKey)
       if (cached) return cached
-      const rendered = await editor.toImage([objectId], { scale, background: 'transparent' })
+      // 缩略图只取图本身那一块：框比图宽（16:9 产物落在 360×360 的预留位置）时，拉伸成框的
+      // 形状会把图压扁，留着框又会在结果卡里多出两条透明边。
+      const contained = element?.type === 'image' ? containedImageBox(element) : null
+      const rendered = await editor.toImage([objectId], {
+        scale,
+        background: 'transparent',
+        fit: 'contain',
+        ...(contained ? { bounds: contained } : {}),
+      })
       if (rendered) thumbnails.set(cacheKey, rendered)
       return rendered
     },
