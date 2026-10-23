@@ -88,7 +88,9 @@ export default function SetHistoryCard({
   const done = tasks.filter((task) => task.status === 'done').length
   const queued = tasks.filter((task) => task.status === 'running' && task.batchQueued).length
   const running = tasks.filter((task) => task.status === 'running').length - queued
-  const failedTasks = tasks.filter((task) => task.status === 'error')
+  // 排队中被撤回的那几张记成「已取消」：积分已退，不是失败，不进失败清单、不给重试。
+  const cancelled = tasks.filter((task) => task.status === 'error' && task.cancelled).length
+  const failedTasks = tasks.filter((task) => task.status === 'error' && !task.cancelled)
   const failed = failedTasks.length
   const previews = tasks.flatMap((task) => task.outputImages).slice(0, PREVIEW_LIMIT)
   // 失败的那几张单独列在下面，格子里只摆出了图的、在跑的和排队的。
@@ -127,6 +129,7 @@ export default function SetHistoryCard({
             {batch && running > 0 ? ` · ${t('set.runningCount', { running })}` : ''}
             {batch && queued > 0 ? ` · ${t('set.queuedCount', { queued })}` : ''}
             {failed > 0 ? ` · ${t('set.failedCount', { failed })}` : ''}
+            {cancelled > 0 ? ` · ${t('set.cancelledCount', { cancelled })}` : ''}
           </p>
         </div>
         <Button
