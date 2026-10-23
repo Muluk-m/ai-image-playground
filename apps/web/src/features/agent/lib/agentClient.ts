@@ -783,7 +783,12 @@ export interface EditRegionRefinement {
 export async function refineEditRegion(
   conversationId: string,
   proposalId: string,
-  input: { readonly region?: number; readonly points: readonly AgentMaskPromptPoint[] },
+  input: {
+    readonly region?: number
+    /** 在所有区域之外另加一块：服务端只按这些点分割，不借提议的框。 */
+    readonly area?: 'added'
+    readonly points: readonly AgentMaskPromptPoint[]
+  },
   signal?: AbortSignal,
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<EditRegionRefinement> {
