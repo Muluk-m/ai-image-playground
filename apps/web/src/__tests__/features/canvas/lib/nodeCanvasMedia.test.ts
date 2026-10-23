@@ -115,3 +115,36 @@ it.each([
   await expect(readImageFile(file)).rejects.toBeInstanceOf(InvalidImageFileError)
   await expect(readImageFile(file)).rejects.toMatchObject({ fileName: file.name })
 })
+
+it('reads a File from another window even though it fails this window’s instanceof File', async () => {
+  const doc = new Y.Doc()
+  const origin = canvasOrigin('user', 'media-test')
+  const undo = createCanvasUndoManager(doc, origin)
+  const canvas = { doc, origin, undo, destroy: async () => doc.destroy() }
+  const editor = new CanvasEditor(new CanvasDoc())
+  let previous = editor.doc.elements
+  const unsubscribe = editor.doc.subscribe(() => {
+    const next = editor.doc.elements
+    synchronizeLegacyElements(doc, previous, next, origin)
+    previous = next
+  })
+  try {
+    dimensions.mockReset()
+    dimensions.mockResolvedValue({ width: 640, height: 480 })
+    const id = createNode(canvas, 'image', { x: 400, y: 300 }, '')
+    // 跨 window 的 File：原型链不在本窗口，结构上仍是带 name 的 Blob。
+    const foreign = Object.assign(new Blob(['pixels'], { type: 'image/png' }), {
+      name: 'other-window.png',
+      lastModified: 0,
+    }) as unknown as File
+    expect(foreign instanceof File).toBe(false)
+    await fillImageNode(editor, doc, id, foreign)
+    expect(readCanvasDocument(doc).nodes[0]).toMatchObject({
+      data: { naturalWidth: 640, naturalHeight: 480, name: 'other-window.png' },
+    })
+  } finally {
+    unsubscribe()
+    undo.destroy()
+    doc.destroy()
+  }
+})
