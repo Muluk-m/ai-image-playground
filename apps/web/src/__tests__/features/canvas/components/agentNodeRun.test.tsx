@@ -9,6 +9,8 @@ import * as Y from 'yjs'
 import AgentNodeRunCard from '../../../../features/agent/components/AgentNodeRunCard'
 import { agentNodeRunBridge } from '../../../../features/agent/lib/nodeRunBridge'
 import {
+  agentNodeRun,
+  isAgentNodeRunOrigin,
   noteAgentNodeRunBlocked,
   registerAgentNodeRunOrigin,
   startAgentNodeRun,
@@ -365,6 +367,9 @@ it('starts a direct run while the chat panel is collapsed and no run card is mou
   expect(reports).toEqual([
     expect.objectContaining({ nodes: [{ nodeId: 'a', outcome: 'completed' }] }),
   ])
+  // 没有卡来收尾：跑完交过结局，运行和来源都得由运行表自己收走，不在标签页里一直留着。
+  expect(agentNodeRun('direct-collapsed')).toBeUndefined()
+  expect(isAgentNodeRunOrigin('direct-collapsed')).toBe(false)
 })
 
 it('waits for the canvas of the proposal before starting a direct run', async () => {
