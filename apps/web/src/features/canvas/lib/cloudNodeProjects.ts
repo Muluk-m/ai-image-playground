@@ -305,7 +305,7 @@ export class CloudNodeProjectSession {
         if (!response.ok) throw new ProjectRequestError(response.status, 'canvas_load_failed')
         const loaded = new Uint8Array(await response.arrayBuffer())
         Y.applyUpdate(doc, loaded, remoteOrigin)
-        this.noteReceived(loaded)
+        this.noteReceived(loaded, true)
         this.current()
         this.project = await projectRepository.update(this.project.id, {
           cloud: { revision: remote.revision },
@@ -528,10 +528,12 @@ export class CloudNodeProjectSession {
           void this.readCommands().catch(() => {})
         } else if (message.kind === 'vector') {
           this.serverVector = message.value
+          this.noteServerFiles()
           void this.readCommands().catch(() => {})
           this.requestSync()
         } else {
           this.serverVector = message.value
+          this.noteServerFiles()
           const version = this.sentVersion
           this.sentVersion = undefined
           if (version === this.editVersion) {
@@ -618,12 +620,42 @@ export class CloudNodeProjectSession {
   private readonly missingSince = new Map<string, number>()
   /** 服务端推过来的更新里每个客户端最远的时钟：服务端发得出来的记录，它自己一定存着。 */
   private readonly receivedClocks = new Map<number, number>()
-  private noteReceived(update: Uint8Array) {
+  /**
+   * 服务端存过的「节点 → 本机格式 fileId」引用（`nodeId\u0000fileId`）。节点的 data 之后在本机改过
+   * （例如改名）时，data 这一项已不在服务端，但服务端仍存着这张图的引用，不能当成从没上过服务端摘掉。
+   */
+  private readonly serverFiles = new Set<string>()
+  private noteReceived(update: Uint8Array, fullState = false) {
     for (const struct of Y.decodeUpdate(update).structs) {
       const end = struct.id.clock + struct.length
       if (end > (this.receivedClocks.get(struct.id.client) ?? 0))
         this.receivedClocks.set(struct.id.client, end)
     }
+    if (fullState) {
+      // 整份服务端状态：单独读一遍，本机未同步的改动不会盖住服务端存着的引用。
+      const server = new Y.Doc({ gc: true })
+      try {
+        Y.applyUpdate(server, update)
+        for (const node of readCanvasDocument(server).nodes)
+          if ((node.type === 'image' || node.type === 'video') && node.data.fileId)
+            this.serverFiles.add(`${node.id}\u0000${node.data.fileId}`)
+      } finally {
+        server.destroy()
+      }
+    }
+    this.noteServerFiles()
+  }
+  /** 当前文档里 data 已在服务端的图片/视频节点，记下它们的 fileId 引用。 */
+  private noteServerFiles() {
+    if (!this.canvas || !this.serverVector) return
+    for (const node of readCanvasDocument(this.canvas.doc).nodes)
+      if (
+        (node.type === 'image' || node.type === 'video') &&
+        node.data.fileId &&
+        !node.data.mediaId &&
+        this.serverHoldsNodeData(node.id)
+      )
+        this.serverFiles.add(`${node.id}\u0000${node.data.fileId}`)
   }
   /**
    * 服务端是否已经存着这个节点现在的 data（data 这一项的 Yjs 记录在服务端状态向量之内，或是服务端推过来的）。
@@ -698,7 +730,11 @@ export class CloudNodeProjectSession {
       if (source) {
         sources.add(source)
         this.missingSince.delete(node.fileId)
-      } else if (this.serverHoldsNodeData(node.nodeId)) continue
+      } else if (
+        this.serverHoldsNodeData(node.nodeId) ||
+        this.serverFiles.has(`${node.nodeId}\u0000${node.fileId}`)
+      )
+        continue
       else if (lost(node.fileId, node.createdAt)) lostNodes.push(node)
       else failure ??= new Error('canvas_media_missing')
     }
@@ -1181,7 +1217,7 @@ export class CloudNodeProjectSession {
     this.current()
     if (this.canvas) {
       Y.applyUpdate(this.canvas.doc, update, remoteOrigin)
-      this.noteReceived(update)
+      this.noteReceived(update, true)
     }
     this.projectToEditor()
     await this.readCommands()
