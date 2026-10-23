@@ -56,6 +56,7 @@
   },
   "tool": {
     "canvasReadNodes": "已读取节点：{{nodes}}",
+    "canvasReadUnnamed": "未命名节点",
     "canvasReadNone": "无",
     "background": "正在后台生成，完成后会在这里显示",
     "preparing": "准备中",

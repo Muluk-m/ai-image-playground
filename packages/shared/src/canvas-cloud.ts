@@ -80,6 +80,11 @@ export function isLocalCanvasFileId(value: unknown): value is string {
  */
 export const CANVAS_UPLOAD_DEVICE_META = 'uploadDevice'
 export const CANVAS_UPLOAD_STARTED_META = 'uploadStartedAt'
+/**
+ * 上传失败停下时撤掉声明的时间。不只删掉声明，还记下撤销时间：并发合并时据此认出「撤掉声明」这次簿记，
+ * 别的设备同时改节点时照抄来的旧声明（开始时间早于它）不会被当成新声明把它顶回去。
+ */
+export const CANVAS_UPLOAD_RELEASED_META = 'uploadReleasedAt'
 /** 超过这么久还没收成云媒体，就不再显示「上传中」而显示缺图（上传那台设备可能已离线或失败）。 */
 export const CANVAS_UPLOAD_STALE_MS = 30 * 60_000
 /** 别的设备写的开始时间最多可以比本机时钟晚这么多（设备间的时钟偏差）。 */
@@ -129,18 +134,61 @@ export function canvasUploadClaimNextChange(
   return undefined
 }
 
-/** 去掉上传声明（收成云媒体后）；没有声明时原样返回。 */
+/** 去掉上传声明和撤销记录（收成云媒体后）；都没有时原样返回。 */
 export function withoutCanvasUploadClaim(
   meta: Record<string, string> | undefined,
 ): Record<string, string> | undefined {
-  if (!meta || !(CANVAS_UPLOAD_DEVICE_META in meta || CANVAS_UPLOAD_STARTED_META in meta))
+  if (
+    !meta ||
+    !(
+      CANVAS_UPLOAD_DEVICE_META in meta ||
+      CANVAS_UPLOAD_STARTED_META in meta ||
+      CANVAS_UPLOAD_RELEASED_META in meta
+    )
+  )
     return meta
   const {
     [CANVAS_UPLOAD_DEVICE_META]: _device,
     [CANVAS_UPLOAD_STARTED_META]: _since,
+    [CANVAS_UPLOAD_RELEASED_META]: _released,
     ...rest
   } = meta
   return rest
+}
+
+const uploadTime = (value: string | undefined) => {
+  const at = Number(value)
+  return value !== undefined && Number.isFinite(at) ? at : Number.NEGATIVE_INFINITY
+}
+/** meta 上最近一次上传簿记（写声明或撤销声明）的时间；都没有时为负无穷。 */
+export function canvasUploadBookkeepingTime(meta: Record<string, string> | undefined): number {
+  const claimed = meta?.[CANVAS_UPLOAD_DEVICE_META]
+    ? uploadTime(meta[CANVAS_UPLOAD_STARTED_META])
+    : Number.NEGATIVE_INFINITY
+  return Math.max(claimed, uploadTime(meta?.[CANVAS_UPLOAD_RELEASED_META]))
+}
+/**
+ * 新一次簿记（声明或撤销）要写的时间：取本机时钟，但至少比节点上已有的簿记晚 1ms。
+ * 设备间时钟有偏差时，本机时钟可能落后于别的设备写的旧声明；这样新簿记仍按写入先后排在后面，
+ * 并发合并不会把它当成照抄来的旧值。
+ */
+export function nextCanvasUploadStamp(
+  meta: Record<string, string> | undefined,
+  now: number,
+): number {
+  const previous = canvasUploadBookkeepingTime(meta)
+  return Number.isFinite(previous) ? Math.max(now, Math.floor(previous) + 1) : now
+}
+
+/** 上传失败停下时撤掉声明：去掉声明，记下撤销时间（见 CANVAS_UPLOAD_RELEASED_META）。 */
+export function releaseCanvasUploadClaim(
+  meta: Record<string, string> | undefined,
+  now: number,
+): Record<string, string> {
+  return {
+    ...withoutCanvasUploadClaim(meta),
+    [CANVAS_UPLOAD_RELEASED_META]: String(nextCanvasUploadStamp(meta, now)),
+  }
 }
 const finite = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 10_000_000
@@ -328,8 +376,8 @@ export function validateCloudCanvas(
         ])
       )
         throw new Error('invalid_canvas_node')
-      // mediaId 要么没有，要么是字符串：null 之类的空值不能混进「还没 mediaId」那一支冒充上传中节点。
-      if ('mediaId' in data && data.mediaId !== undefined && typeof data.mediaId !== 'string')
+      // mediaId 要么没有，要么是合法的云媒体 id：null、空串或任意字符串都不能混进来。
+      if ('mediaId' in data && data.mediaId !== undefined && !isMediaId(data.mediaId))
         throw new Error('invalid_canvas_node')
       // 本机原图还在上传的节点先同步位置等改动：没有 mediaId 时 fileId 只是上传那台设备的本机 id，
       // 别处只当「上传中」显示；拿到 mediaId 后 fileId 必须换成 cloud-<mediaId>。

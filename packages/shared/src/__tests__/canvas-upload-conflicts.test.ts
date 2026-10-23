@@ -1,6 +1,11 @@
 import { describe, expect, it, spyOn } from 'bun:test'
 import * as Y from 'yjs'
-import { CANVAS_UPLOAD_DEVICE_META, CANVAS_UPLOAD_STARTED_META } from '../canvas-cloud'
+import {
+  CANVAS_UPLOAD_DEVICE_META,
+  CANVAS_UPLOAD_RELEASED_META,
+  CANVAS_UPLOAD_STARTED_META,
+  releaseCanvasUploadClaim,
+} from '../canvas-cloud'
 import {
   canvasOrigin,
   type ImageNodeData,
@@ -10,7 +15,10 @@ import {
 } from '../canvas-document'
 import { promoteCanvasResultMedia } from '../canvas-results'
 import {
+  applyCanvasUpdateKeepingUploads,
+  canvasUploadConflictsSupported,
   mergeCanvasUploadConflict,
+  mergeCanvasUploadConflicts,
   readOverwrittenLocalData,
   watchCanvasUploadConflicts,
 } from '../canvas-upload-conflicts'
@@ -25,6 +33,11 @@ function device(clientID: number) {
   doc.clientID = clientID
   const stop = watchCanvasUploadConflicts(doc, (origin) => origin === remote, local)
   return { doc, stop }
+}
+function fromUpdate(update: Uint8Array) {
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, update)
+  return doc
 }
 function data(doc: Y.Doc): ImageNodeData {
   return readCanvasDocument(doc).nodes.find((node) => node.id === 'image')?.data as ImageNodeData
@@ -105,6 +118,28 @@ describe('上传簿记与并发编辑', () => {
       uploader.stop()
     })
 
+  for (const [editorId, uploaderId] of [
+    [1, 2],
+    [2, 1],
+  ] as const)
+    it(`上传失败撤掉声明与别的设备改提示词并发时两边都保留（editor=${editorId}）`, async () => {
+      const { editor, uploader } = pair(editorId, uploaderId)
+      // 编辑方照抄着旧声明改提示词；上传方同时因上传失败撤掉声明。
+      edit(editor.doc, { meta: { ...data(editor.doc).meta, nodePrompt: 'a cat' } })
+      edit(uploader.doc, { meta: releaseCanvasUploadClaim(data(uploader.doc).meta, 2000) })
+
+      await exchange(editor.doc, uploader.doc)
+
+      for (const doc of [editor.doc, uploader.doc]) {
+        expect(data(doc).meta?.nodePrompt).toBe('a cat')
+        expect(data(doc).meta?.[CANVAS_UPLOAD_DEVICE_META]).toBeUndefined()
+        expect(data(doc).meta?.[CANVAS_UPLOAD_STARTED_META]).toBeUndefined()
+        expect(data(doc).meta?.[CANVAS_UPLOAD_RELEASED_META]).toBe('2000')
+      }
+      editor.stop()
+      uploader.stop()
+    })
+
   // 离线改完关掉页面，重新打开时 clientID 换了，初次合并服务端状态才撞上并发。
   function reopen(before: Y.Doc, clientID: number, known: boolean) {
     const doc = new Y.Doc()
@@ -168,6 +203,95 @@ describe('上传簿记与并发编辑', () => {
       }
       next.stop()
     })
+
+  // 同一浏览器两个标签页离线时各写一次，都落在共用的 IndexedDB 里；重新打开时一次性回放，两次写入都是本机的。
+  for (const [renamerId, releaserId] of [
+    [1, 2],
+    [2, 1],
+  ] as const)
+    it(`从 IndexedDB 回放出两个标签页的并发写入时也两边都保留（renamer=${renamerId}）`, async () => {
+      const { editor: renamer, uploader: releaser } = pair(renamerId, releaserId)
+      const base = Y.encodeStateAsUpdate(releaser.doc)
+      edit(renamer.doc, { name: 'renamed' })
+      edit(releaser.doc, { meta: releaseCanvasUploadClaim(data(releaser.doc).meta, 2000) })
+      const stored = [
+        base,
+        Y.encodeStateAsUpdate(renamer.doc, Y.encodeStateVector(fromUpdate(base))),
+        Y.encodeStateAsUpdate(releaser.doc, Y.encodeStateVector(fromUpdate(base))),
+      ]
+      renamer.stop()
+      releaser.stop()
+      const reopened = new Y.Doc()
+      reopened.clientID = 30
+      const replay = Symbol('indexeddb')
+      const stop = watchCanvasUploadConflicts(
+        reopened,
+        (origin) => origin === remote,
+        local,
+        undefined,
+        (origin) => origin === replay,
+      )
+      // y-indexeddb 打开时把存着的更新放在一个事务里回放。
+      reopened.transact(() => {
+        for (const update of stored) Y.applyUpdate(reopened, update)
+      }, replay)
+      await Promise.resolve()
+
+      expect(data(reopened).name).toBe('renamed')
+      expect(data(reopened).meta?.[CANVAS_UPLOAD_DEVICE_META]).toBeUndefined()
+      expect(data(reopened).meta?.[CANVAS_UPLOAD_RELEASED_META]).toBe('2000')
+      stop()
+    })
+
+  it('回放出的先后修改（后一次看过前一次）不补写', async () => {
+    const { uploader } = pair(1, 2)
+    edit(uploader.doc, { name: 'first' })
+    edit(uploader.doc, { name: 'second' })
+    uploader.stop()
+    const reopened = new Y.Doc()
+    const replay = Symbol('indexeddb')
+    const stop = watchCanvasUploadConflicts(
+      reopened,
+      () => false,
+      local,
+      undefined,
+      (o) => o === replay,
+    )
+    let writes = 0
+    reopened.on('afterTransaction', (transaction) => {
+      if (transaction.origin === local) writes++
+    })
+    Y.applyUpdate(reopened, Y.encodeStateAsUpdate(uploader.doc), replay)
+    await Promise.resolve()
+    expect(data(reopened).name).toBe('second')
+    expect(writes).toBe(0)
+    stop()
+  })
+
+  it('本机赢、远端一次带来几个并发版本时，每一版都看：更早的收成云媒体也合回来', async () => {
+    // 上传方(1)收成云媒体，另一台编辑方(2)没见过它就改了名，服务端把两者一起发给本机(9)；
+    // 本机离线时也改了提示词，clientID 最大在 Yjs 取舍里赢。离本机最近的输家是改名，收成云媒体在更左边。
+    const { editor: other, uploader } = pair(2, 1)
+    const self = device(9)
+    Y.applyUpdate(self.doc, Y.encodeStateAsUpdate(uploader.doc), remote)
+    promoteCanvasResultMedia(uploader.doc, 'image', 'local-file', media, local)
+    edit(other.doc, { name: 'renamed' })
+    edit(self.doc, { meta: { ...data(self.doc).meta, nodePrompt: 'a cat' } })
+    uploader.stop()
+    other.stop()
+    // 服务端还留着输掉那一版的内容（没回收删除内容）时，本机一次收到两版。
+    const server = new Y.Doc({ gc: false })
+    Y.applyUpdate(server, Y.encodeStateAsUpdate(uploader.doc))
+    Y.applyUpdate(server, Y.encodeStateAsUpdate(other.doc))
+
+    Y.applyUpdate(self.doc, Y.encodeStateAsUpdate(server, Y.encodeStateVector(self.doc)), remote)
+    await Promise.resolve()
+
+    expect(data(self.doc).meta?.nodePrompt).toBe('a cat')
+    expect(data(self.doc).mediaId).toBe(media)
+    expect(data(self.doc).fileId).toBe(`cloud-${media}`)
+    self.stop()
+  })
 
   it('补写排队期间又进来一次远端写入时，按最新一版重新合，收成云媒体和改名都在', async () => {
     // uploader=2 的收成云媒体顶掉 editor=1 的改名；补写还没跑，又同步进来上传方随后改的提示词。
@@ -261,6 +385,39 @@ describe('上传簿记与并发编辑', () => {
     expect(mergeCanvasUploadConflict(base, promoted)).toBeUndefined()
   })
 
+  it('撤掉声明按时间认：照抄旧声明的用户编辑不算新声明，撤销之后的新声明照样胜出', () => {
+    const base = { fileId: 'local-file', name: 'photo', meta: claim }
+    const released = { ...base, meta: releaseCanvasUploadClaim(claim, 2000) }
+    const merged = { ...base, name: 'x', meta: { [CANVAS_UPLOAD_RELEASED_META]: '2000' } }
+    expect(mergeCanvasUploadConflict({ ...base, name: 'x' }, released)).toEqual(merged)
+    expect(mergeCanvasUploadConflict(released, { ...base, name: 'x' })).toEqual(merged)
+    // 撤销之后又重新声明（时间更新）：新声明胜出。
+    const reclaimed = {
+      ...base,
+      meta: {
+        ...released.meta,
+        [CANVAS_UPLOAD_DEVICE_META]: 'tab',
+        [CANVAS_UPLOAD_STARTED_META]: '3000',
+      },
+    }
+    expect(mergeCanvasUploadConflict(released, reclaimed)).toBeUndefined()
+    expect(mergeCanvasUploadConflict(reclaimed, released)).toEqual(reclaimed)
+  })
+
+  it('本机时钟落后时，接管后撤销仍排在别的设备的旧声明之后', () => {
+    // 设备 B 的时钟快，旧声明记在 5000；设备 A（时钟 1000）接管后失败撤销。
+    const base = {
+      fileId: 'local-file',
+      name: 'photo',
+      meta: { ...claim, uploadStartedAt: '5000' },
+    }
+    const released = { ...base, meta: releaseCanvasUploadClaim(base.meta, 1000) }
+    const edited = { ...base, name: 'x' }
+    const merged = { ...edited, meta: released.meta }
+    expect(mergeCanvasUploadConflict(edited, released)).toEqual(merged)
+    expect(mergeCanvasUploadConflict(released, edited)).toEqual(merged)
+  })
+
   it('本机这一版经远端多个中间版本后才被覆盖时，是先后改，不补写', async () => {
     const { editor, uploader } = pair(1, 2)
     promoteCanvasResultMedia(editor.doc, 'image', 'local-file', media, local)
@@ -345,7 +502,154 @@ describe('上传簿记与并发编辑', () => {
   })
 })
 
+describe('多版簿记叠加顺序', () => {
+  it('用户改动赢过几版簿记时，声明和撤销按簿记时间叠，较旧的撤销不会撤掉较新的续期', () => {
+    const base = { fileId: 'local-file', name: 'photo', meta: claim }
+    const winner = { ...base, name: 'renamed' }
+    const release = {
+      fileId: 'local-file',
+      name: 'photo',
+      meta: { [CANVAS_UPLOAD_RELEASED_META]: '2000' },
+    }
+    const renewal = {
+      fileId: 'local-file',
+      name: 'photo',
+      meta: { [CANVAS_UPLOAD_DEVICE_META]: 'uploader', [CANVAS_UPLOAD_STARTED_META]: '3000' },
+    }
+    for (const lost of [
+      [release, renewal],
+      [renewal, release],
+    ]) {
+      const merged = mergeCanvasUploadConflicts(lost, winner)
+      expect(merged?.name).toBe('renamed')
+      expect(merged?.meta?.[CANVAS_UPLOAD_DEVICE_META]).toBe('uploader')
+      expect(merged?.meta?.[CANVAS_UPLOAD_STARTED_META]).toBe('3000')
+    }
+  })
+})
+
+describe('服务端收更新时补回并发顶掉的上传簿记', () => {
+  // 服务端文档默认回收删除内容；上传方收到确认就关页面时，只能靠服务端在回收前合回去。
+  for (const [editorId, uploaderId] of [
+    [1, 2],
+    [2, 1],
+  ] as const)
+    for (const promotionFirst of [false, true])
+      it(`收成云媒体与改名并发、上传方已离开（editor=${editorId}，${promotionFirst ? '先到收成云媒体' : '先到改名'}）`, () => {
+        const editor = new Y.Doc()
+        editor.clientID = editorId
+        const uploader = new Y.Doc()
+        uploader.clientID = uploaderId
+        insertCanvasNode(
+          uploader,
+          {
+            id: 'image',
+            type: 'image',
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+            data: { fileId: 'local-file', name: 'photo', meta: claim },
+          },
+          local,
+        )
+        const server = new Y.Doc()
+        Y.applyUpdate(server, Y.encodeStateAsUpdate(uploader))
+        Y.applyUpdate(editor, Y.encodeStateAsUpdate(uploader))
+        const base = Y.encodeStateVector(server)
+        edit(editor, { name: 'renamed' })
+        promoteCanvasResultMedia(uploader, 'image', 'local-file', media, local)
+        const updates = [Y.encodeStateAsUpdate(editor, base), Y.encodeStateAsUpdate(uploader, base)]
+        if (promotionFirst) updates.reverse()
+        let repaired = 0
+        for (const update of updates)
+          repaired += applyCanvasUpdateKeepingUploads(server, update, remote)
+
+        expect(repaired).toBe(1)
+        const viewer = fromUpdate(Y.encodeStateAsUpdate(server))
+        expect(data(viewer).name).toBe('renamed')
+        expect(data(viewer).mediaId).toBe(media)
+        expect(data(viewer).fileId).toBe(`cloud-${media}`)
+        expect(data(viewer).meta?.[CANVAS_UPLOAD_DEVICE_META]).toBeUndefined()
+      })
+
+  it('同一份更新里赢的那个客户端也带了别的新改动时，仍按条目认出旧的生效版本', () => {
+    const editor = new Y.Doc()
+    editor.clientID = 2
+    const uploader = new Y.Doc()
+    uploader.clientID = 1
+    insertCanvasNode(
+      uploader,
+      {
+        id: 'image',
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80,
+        data: { fileId: 'local-file', name: 'photo', meta: claim },
+      },
+      local,
+    )
+    const server = new Y.Doc()
+    Y.applyUpdate(server, Y.encodeStateAsUpdate(uploader))
+    Y.applyUpdate(editor, Y.encodeStateAsUpdate(uploader))
+    const base = Y.encodeStateVector(server)
+    // 改名先到服务端，成了生效的一版（editor 的旧条目）。
+    edit(editor, { name: 'renamed' })
+    Y.applyUpdate(server, Y.encodeStateAsUpdate(editor, base))
+    const afterRename = Y.encodeStateVector(editor)
+    // 之后同一份更新里同时带来 editor 的一处无关新改动和 uploader 并发的收成云媒体。
+    insertCanvasNode(
+      editor,
+      { id: 'note', type: 'image', x: 200, y: 0, width: 10, height: 10, data: {} },
+      local,
+    )
+    promoteCanvasResultMedia(uploader, 'image', 'local-file', media, local)
+    const update = Y.mergeUpdates([
+      Y.encodeStateAsUpdate(editor, afterRename),
+      Y.encodeStateAsUpdate(uploader, base),
+    ])
+    expect(applyCanvasUpdateKeepingUploads(server, update, remote)).toBe(1)
+    const viewer = fromUpdate(Y.encodeStateAsUpdate(server))
+    expect(data(viewer).name).toBe('renamed')
+    expect(data(viewer).mediaId).toBe(media)
+    expect(data(viewer).fileId).toBe(`cloud-${media}`)
+  })
+
+  it('先后修改（看过上一版）不补写', () => {
+    const doc = new Y.Doc()
+    doc.clientID = 1
+    insertCanvasNode(
+      doc,
+      {
+        id: 'image',
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80,
+        data: { fileId: 'local-file', name: 'photo', meta: claim },
+      },
+      local,
+    )
+    const server = new Y.Doc()
+    expect(applyCanvasUpdateKeepingUploads(server, Y.encodeStateAsUpdate(doc), remote)).toBe(0)
+    const before = Y.encodeStateVector(doc)
+    promoteCanvasResultMedia(doc, 'image', 'local-file', media, local)
+    edit(doc, { name: 'renamed' })
+    expect(
+      applyCanvasUpdateKeepingUploads(server, Y.encodeStateAsUpdate(doc, before), remote),
+    ).toBe(0)
+    expect(data(fromUpdate(Y.encodeStateAsUpdate(server))).name).toBe('renamed')
+  })
+})
+
 describe('Yjs 内部结构契约（升级 yjs 时这里失败就要同步改 readOverwrittenLocalData）', () => {
+  it('运行时自检在当前 yjs 下通过（不通过时客户端不在图片上传完之前同步文档）', () => {
+    expect(canvasUploadConflictsSupported()).toBe(true)
+  })
+
   it('Y.Map 的 _map 条目带 id/left/origin/deleted/content，并发覆盖可以读出输掉的一版', async () => {
     const a = new Y.Doc()
     a.clientID = 1
@@ -367,7 +671,7 @@ describe('Yjs 内部结构契约（升级 yjs 时这里失败就要同步改 rea
     for (const key of ['id', 'left', 'origin', 'deleted', 'content'])
       expect(item && key in item).toBe(true)
 
-    const seen: { lost: unknown; winner: unknown }[] = []
+    const seen: { lost: unknown[]; winner: unknown }[] = []
     nodeA.observeDeep((events) => {
       for (const event of events) {
         const overwritten = readOverwrittenLocalData(event, a.clientID)
@@ -376,6 +680,6 @@ describe('Yjs 内部结构契约（升级 yjs 时这里失败就要同步改 rea
     })
     Y.applyUpdate(a, Y.encodeStateAsUpdate(b, Y.encodeStateVector(a)))
     // clientID 大的一方（b）在 Yjs 的取舍里赢，a 的那一版被并发顶掉。
-    expect(seen).toEqual([{ lost: { v: 'from-a' }, winner: { v: 'from-b' } }])
+    expect(seen).toEqual([{ lost: [{ v: 'from-a' }], winner: { v: 'from-b' } }])
   })
 })

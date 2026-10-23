@@ -60,6 +60,7 @@
   },
   "tool": {
     "canvasReadNodes": "Read nodes: {{nodes}}",
+    "canvasReadUnnamed": "Unnamed node",
     "canvasReadNone": "None",
     "background": "Generating in the background; the result will appear here",
     "preparing": "Preparing",
