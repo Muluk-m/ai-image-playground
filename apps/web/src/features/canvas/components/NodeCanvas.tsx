@@ -114,7 +114,6 @@ import { type NodeCanvasFocus, registerNodeCanvasFocus } from '../lib/nodeCanvas
 import {
   fillImageNode,
   InvalidImageFileError,
-  type ReadImageFile,
   readImageFile,
   resumeNodeGenerations,
   submitNodeImage,
@@ -1391,28 +1390,36 @@ function Flow({
     if (candidates.length === 0) return
     const point = placeAt.current
     const failed = () => useStore.getState().showToast(t('import.failed'), 'error')
+    const notInvalid = (error: unknown) => {
+      if (error instanceof InvalidImageFileError) return null
+      throw error
+    }
     void (async () => {
       // 先确认解得开再问张数、建节点：空文件、伪装成 .png 的文本不该留下一个永远「上传中」的节点，
-      // 也不该算进「确认导入 N 张」里。
+      // 也不该算进「确认导入 N 张」里。逐张校验后只留 File，不攒解码结果：大批量在确认前不占内存。
       const invalid: string[] = []
-      const images: { image: ReadImageFile; name: string }[] = []
+      const valid: File[] = []
       for (const file of candidates) {
-        const image = await readImageFile(file).catch((error: unknown) => {
-          if (error instanceof InvalidImageFileError) return null
-          throw error
-        })
-        if (image) images.push({ image, name: file.name })
+        if (await readImageFile(file).then(() => true, notInvalid)) valid.push(file)
         else invalid.push(file.name)
       }
       if (invalid.length) showInvalidImages(invalid)
-      if (images.length === 0) return
-      confirmImageBatch(images.length, () => {
+      if (valid.length === 0) return
+      confirmImageBatch(valid.length, () => {
         void (async () => {
-          for (const { image, name } of images) {
+          const late: string[] = []
+          for (const file of valid) {
+            // 确认后再读一遍；校验到确认之间文件变了（被删、被改）就跳过，不留空节点。
+            const image = await readImageFile(file).catch(notInvalid)
+            if (!image) {
+              late.push(file.name)
+              continue
+            }
             const id = createNode(canvas, 'image', point, textFill)
-            await fillImageNode(editor, canvas.doc, id, image, name)
+            await fillImageNode(editor, canvas.doc, id, image, file.name)
             selectNode(id)
           }
+          if (late.length) showInvalidImages(late)
         })().catch(failed)
       })
     })().catch(failed)
