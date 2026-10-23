@@ -1,12 +1,10 @@
 import { projectArtifactId } from '@image-playground/shared'
-import { and, asc, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 
 /** 状态摘要只回看这么久：更早的卡片与批次已经不是“刚才那件事”。 */
 export const CONVERSATION_STATE_WINDOW_MS = 24 * 60 * 60 * 1000
 const MAX_DRAFTS = 10
-/** 按卡分类时每页扫的草稿行数。 */
-const DRAFT_PAGE_SIZE = 50
 const MAX_BATCHES = 5
 const MAX_NODE_RUNS = 8
 const MAX_LISTED_ARTIFACTS = 12
@@ -39,63 +37,63 @@ export interface ConversationStateFacts {
   readonly batches: readonly BatchFact[]
 }
 
-type DraftCardState = 'pending' | 'voided' | 'hidden'
-
 /**
  * 草稿行只记得「还没建任务」，分不出那张卡还在等、已经作废，还是确认门拦着：按同一轮同一次调用的卡认。
+ * 作废只改写卡片，草稿行的 `task_id` 照样是空的，单看草稿会把作废的稿当成还在等确认。
  * - 确认门拦下、还在等的卡（`gated` + `awaiting_confirmation`）：智能体本就不知道有这道门，不列；
- * - 作废的卡（`gated` + `cancelled`）：草稿行还在，但这次已经了结，单列成「已作废」；
- * - 普通待确认卡、找不到卡的旧数据：照旧算待确认。
+ * - 作废的卡（`gated` + `failed` + `cancelled`）：草稿行还在，但这次已经了结，单列成「已作废」；
+ * - 普通待确认卡、找不到卡的旧数据：照旧算待确认；
+ * - 别的终局（已提交、成功、失败）：任务归任务管，这一段不再说它。
+ *
+ * 一条语句、一个快照里认卡、分类、各取最新 `MAX_DRAFTS` 条：先截条数再分类，较新的作废稿会挤掉更早还在等的卡；
+ * 分页跨多条语句又会在读取期间被确认、作废改动结果集。同一张卡出现在多条消息里时按会话内 `seq` 取最后写的那条。
  */
-function draftCardState(
-  cards: ReadonlyMap<string, CardFacts>,
-  turnId: string,
-  toolCallId: string,
-): DraftCardState {
-  const card = cards.get(cardKey(turnId, toolCallId))
-  if (!card) return 'pending'
-  if (card.status === 'awaiting_confirmation') return card.gated === true ? 'hidden' : 'pending'
-  if (card.gated === true && card.status === 'failed' && card.errorCode === 'cancelled')
-    return 'voided'
-  // 别的终局（已提交、成功、失败）：任务归任务管，这一段不再说它。
-  return 'hidden'
-}
-
-const cardKey = (turnId: string, toolCallId: string) => JSON.stringify([turnId, toolCallId])
-
-type CardFacts = {
-  readonly status?: unknown
-  readonly gated?: unknown
-  readonly errorCode?: unknown
-}
-
-/**
- * 草稿对应的卡：作废只改写卡片，草稿行的 `task_id` 照样是空的，单看草稿会把作废的稿当成还在等确认。
- * 同一张卡若出现在多条消息里，按会话内 `seq`（写入锁保证的顺序）排，后写的覆盖先写的。
- */
-async function draftCards(
+async function readDraftFacts(
   conversationId: string,
-  turnIds: readonly string[],
-): Promise<Map<string, CardFacts>> {
-  const cards = new Map<string, CardFacts>()
-  const turns = [...new Set(turnIds)]
-  if (!turns.length) return cards
-  const rows = await db
-    .select({ turnId: schema.agent_messages.turn_id, content: schema.agent_messages.content })
-    .from(schema.agent_messages)
-    .where(
-      and(
-        eq(schema.agent_messages.conversation_id, conversationId),
-        inArray(schema.agent_messages.turn_id, turns),
-        eq(schema.agent_messages.role, 'assistant'),
-        isNull(schema.agent_messages.deleted_at),
-      ),
+  since: number,
+): Promise<{ pendingDrafts: PendingDraftFact[]; voidedDrafts: PendingDraftFact[] }> {
+  const rows = (await db.execute(sql`
+    WITH classified AS (
+      SELECT d.prompt, d.created_at, d.id,
+        CASE
+          WHEN card.block IS NULL THEN 'pending'
+          WHEN card.block->>'status' = 'awaiting_confirmation'
+            THEN CASE WHEN card.block->'gated' = 'true'::jsonb THEN 'hidden' ELSE 'pending' END
+          WHEN card.block->'gated' = 'true'::jsonb
+            AND card.block->>'status' = 'failed'
+            AND card.block->>'errorCode' = 'cancelled' THEN 'voided'
+          ELSE 'hidden'
+        END AS state
+      FROM agent_generation_drafts d
+      LEFT JOIN LATERAL (
+        SELECT b.block
+        FROM agent_messages m
+        CROSS JOIN LATERAL jsonb_array_elements(m.content) AS b(block)
+        WHERE m.conversation_id = d.conversation_id
+          AND m.turn_id = d.turn_id
+          AND m.role = 'assistant'
+          AND m.deleted_at IS NULL
+          AND b.block->>'type' = 'toolResult'
+          AND b.block->>'toolCallId' = d.tool_call_id
+        ORDER BY m.seq DESC
+        LIMIT 1
+      ) card ON true
+      WHERE d.conversation_id = ${conversationId}
+        AND d.task_id IS NULL
+        AND d.created_at >= ${new Date(since).toISOString()}::timestamptz
+    ), ranked AS (
+      SELECT prompt, state, created_at, id,
+        row_number() OVER (PARTITION BY state ORDER BY created_at DESC, id DESC) AS rank
+      FROM classified
+      WHERE state <> 'hidden'
     )
-    .orderBy(asc(schema.agent_messages.seq))
-  for (const row of rows)
-    for (const block of row.content)
-      if (block.type === 'toolResult') cards.set(cardKey(row.turnId, block.toolCallId), block)
-  return cards
+    SELECT prompt, state FROM ranked
+    WHERE rank <= ${MAX_DRAFTS}
+    ORDER BY created_at DESC, id DESC
+  `)) as unknown as Array<{ prompt: string; state: 'pending' | 'voided' }>
+  const pick = (state: 'pending' | 'voided') =>
+    rows.filter((row) => row.state === state).map((row) => ({ title: draftTitle(row.prompt) }))
+  return { pendingDrafts: pick('pending'), voidedDrafts: pick('voided') }
 }
 
 function draftTitle(prompt: string): string {
@@ -150,45 +148,7 @@ export async function readConversationStateFacts(
   now: number = Date.now(),
 ): Promise<ConversationStateFacts> {
   const since = now - CONVERSATION_STATE_WINDOW_MS
-  // 按页扫草稿、按卡分类，两类都凑够 `MAX_DRAFTS` 或扫完为止：较新的作废、已了结的稿会被滤掉，
-  // 不能先截条数再分类，否则它们会挤掉更早还在等确认的卡。
-  const pendingDrafts: PendingDraftFact[] = []
-  const voidedDrafts: PendingDraftFact[] = []
-  for (let offset = 0; pendingDrafts.length < MAX_DRAFTS || voidedDrafts.length < MAX_DRAFTS; ) {
-    const page = await db
-      .select({
-        prompt: schema.agent_generation_drafts.prompt,
-        turnId: schema.agent_generation_drafts.turn_id,
-        toolCallId: schema.agent_generation_drafts.tool_call_id,
-      })
-      .from(schema.agent_generation_drafts)
-      .where(
-        and(
-          eq(schema.agent_generation_drafts.conversation_id, conversationId),
-          isNull(schema.agent_generation_drafts.task_id),
-          gte(schema.agent_generation_drafts.created_at, since),
-        ),
-      )
-      .orderBy(
-        desc(schema.agent_generation_drafts.created_at),
-        desc(schema.agent_generation_drafts.id),
-      )
-      .limit(DRAFT_PAGE_SIZE)
-      .offset(offset)
-    if (!page.length) break
-    offset += page.length
-    const cards = await draftCards(
-      conversationId,
-      page.map((draft) => draft.turnId),
-    )
-    for (const draft of page) {
-      const state = draftCardState(cards, draft.turnId, draft.toolCallId)
-      const into =
-        state === 'pending' ? pendingDrafts : state === 'voided' ? voidedDrafts : undefined
-      if (into && into.length < MAX_DRAFTS) into.push({ title: draftTitle(draft.prompt) })
-    }
-    if (page.length < DRAFT_PAGE_SIZE) break
-  }
+  const { pendingDrafts, voidedDrafts } = await readDraftFacts(conversationId, since)
 
   const recentMessages = await db
     .select({ content: schema.agent_messages.content })
