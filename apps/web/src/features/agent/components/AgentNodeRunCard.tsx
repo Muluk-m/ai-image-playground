@@ -25,6 +25,7 @@ import {
   startAgentNodeRun,
   stopAgentNodeRun,
   subscribeAgentNodeRuns,
+  watchAgentNodeRun,
 } from '../lib/nodeRuns'
 import { stageAuthorizationClient } from '../lib/stageAuthorizationClient'
 
@@ -62,21 +63,12 @@ export default function AgentNodeRunCard({
     if (live && (live.status === 'done' || live.status === 'undone' || live.status === 'failed'))
       settled.current = live
   }, [live])
+  // 卡挂着时由卡收走跑完的运行；卡不在（聊天面板收起）时由运行表自己收。
+  useEffect(() => watchAgentNodeRun(runKey), [runKey])
   // 报价前把模型清单刷新一下（30 秒节流，失败保留原清单）：运营停用或恢复视频模型后，卡片按新清单报价。
   useEffect(() => {
     void refreshChannels()
   }, [])
-  useEffect(() => {
-    if (!proposal.direct || !origin || !bridge) return
-    // 直接出图等清单刷新完再报价开跑：模型刚被停用时不按旧清单提交。
-    let cancelled = false
-    void refreshChannels().then(() => {
-      if (!cancelled) startAgentNodeRun(runKey, proposal, 0)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [bridge, origin, proposal, runKey])
   useEffect(() => {
     if (!live || (live.status !== 'done' && live.status !== 'undone' && live.status !== 'failed'))
       return

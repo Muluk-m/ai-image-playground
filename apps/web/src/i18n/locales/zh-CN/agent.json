@@ -170,7 +170,8 @@
     "gateJump": "跳到卡片",
     "gateSend": "仍然发送这句话",
     "gateRunNodes": "确认运行节点（{{count}}）",
-    "nodeRunMissed": "有 {{count}} 组没能开始。请打开对应画布后，在卡片上确认。"
+    "nodeRunMissed": "有 {{count}} 组没能开始。请打开对应画布后，在卡片上确认。",
+    "drafting": "助手还在拟这份草稿，拟完再确认。"
   },
   "plan": {
     "title": "生成计划",
@@ -181,7 +182,10 @@
     "cancel": "取消",
     "restore": "继续确认",
     "dismissed": "未生成",
-    "promptAria": "修改提示词"
+    "insufficient": "可用 {{available}} 积分，不够合计约 {{credits}} 积分。取消勾选几张，或先充值。",
+    "stoppedAfter_other": "已提交 {{count}} 张，「{{title}}」未提交：{{reason}}",
+    "promptAria": "修改提示词",
+    "drafting": "助手还在拟这份计划，拟完再生成。"
   },
   "toolFailure": {
     "recharge": "去充值",
