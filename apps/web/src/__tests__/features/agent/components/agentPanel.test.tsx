@@ -2233,6 +2233,98 @@ describe('AgentPanel', () => {
     }
   })
 
+  it('确认途中计划最后一张在别处成交、计划换 key 重挂时，后面被拒的那张照样标出来', async () => {
+    const original = useAgentStore.getState().confirmPrompt
+    const confirmPrompt = vi.fn(async (id: string) => {
+      if (id === 'b')
+        return {
+          ok: false as const,
+          reason: 'refused' as const,
+          code: 'insufficient_credits' as const,
+        }
+      // a 成交的同时，计划最后一张 c 在另一个标签页里被确认：计划从 a,b,c 变成只剩 b。
+      useAgentStore.setState((state) => ({
+        messages: state.messages.map((one) =>
+          (one.id === id || one.id === 'c') && one.kind === 'tool'
+            ? { ...one, status: 'submitted' as const }
+            : one,
+        ),
+      }))
+      return { ok: true as const }
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      confirmPrompt,
+      conversationId: 'conversation-plan',
+      messages: ['a', 'b', 'c'].map((id) => planDraft(id, `猫${id}`)),
+    })
+    try {
+      render()
+      await act(async () => {
+        ;[...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '全部生成（3）')
+          ?.click()
+        await vi.waitFor(() => expect(confirmPrompt).toHaveBeenCalledTimes(2))
+      })
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[role="alert"]')?.textContent).toContain('已提交 1 张')
+      })
+      expect(confirmPrompt.mock.calls.map(([id]) => id)).toEqual(['a', 'b'])
+      expect(
+        host.querySelector('[data-plan-refused="insufficient_credits"]')?.textContent,
+      ).toContain('积分不够，这次没有生成')
+      expect(host.textContent).toContain('全部生成（1）')
+    } finally {
+      useAgentStore.setState({ confirmPrompt: original })
+    }
+  })
+
+  it('计划卡的跳过勾选按会话隔离、随稿移除丢弃：同一个 id 的新稿默认勾选', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      conversationId: 'conversation-one',
+      messages: ['a', 'b'].map((id) => planDraft(id, `猫${id}`)),
+    })
+    render()
+    const checked = (title: string) =>
+      host.querySelector(`[role="checkbox"][aria-label="${title}"]`)?.getAttribute('aria-checked')
+    act(() => {
+      host.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="猫a"]')?.click()
+    })
+    expect(checked('猫a')).toBe('false')
+    // 换到另一个会话，后端恰好复用了 id「a」：不能继承上个会话的跳过。
+    await act(async () => {
+      useAgentStore.setState({
+        conversationId: 'conversation-two',
+        messages: ['a', 'b'].map((id) => planDraft(id, `狗${id}`)),
+      })
+      await settle()
+    })
+    expect(checked('狗a')).toBe('true')
+    expect(host.textContent).toContain('全部生成（2）')
+    // 同一会话里稿被移除后再出现同 id 的新稿：同样不带旧状态。
+    act(() => {
+      host.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="狗a"]')?.click()
+    })
+    expect(checked('狗a')).toBe('false')
+    await act(async () => {
+      useAgentStore.setState({ messages: [planDraft('b', '狗b')] })
+      await settle()
+    })
+    await act(async () => {
+      useAgentStore.setState({ messages: ['a', 'b'].map((id) => planDraft(id, `鸟${id}`)) })
+      await settle()
+    })
+    expect(checked('鸟a')).toBe('true')
+  })
+
   it('中途被拒的提示在渲染时翻译：切换语言后跟着变', async () => {
     const original = useAgentStore.getState().confirmPrompt
     const confirmPrompt = vi.fn(async (id: string) => {

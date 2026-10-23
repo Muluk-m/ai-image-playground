@@ -6,6 +6,7 @@ import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { agentPlanCreditTotal } from '../lib/draftCredits'
+import type { AgentPromptConfirmFailure, PlanCardControl } from '../lib/planCardState'
 import { agentDraftOutputCount } from '../lib/promptDraft'
 import {
   agentToolFailureAction,
@@ -16,37 +17,29 @@ import {
 import { type AgentPromptConfirmResult, useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
 
-type AgentPromptConfirmFailure = Extract<AgentPromptConfirmResult, { ok: false }>
-
 /**
  * 同一轮里待确认的生图草稿收成一张计划。取消勾选的行不提交；取消按钮不调用接口。
  */
 export default function AgentGenerationPlan({
   messages,
-  skipped,
-  onSkip,
+  plan,
 }: {
   messages: readonly AgentToolMessage[]
-  /** 用户取消勾选的稿。由面板保管：计划随提交拆段、重挂时勾选状态不能重置。 */
-  skipped: ReadonlySet<string>
-  onSkip: (id: string, skip: boolean) => void
+  /**
+   * 勾选、确认中、停在哪张及原因，都由面板按稿 id 保管：计划随逐张提交、别处确认拆段换 key 重挂时，
+   * 还在跑的确认循环照样写得进来，卡片重挂后读得回来。
+   */
+  plan: PlanCardControl
 }) {
   const { t } = useTranslation('agent')
   const drafts = useAgentStore((state) => state.promptDrafts)
   const [openId, setOpenId] = useState<string | null>(null)
   const [dismissed, setDismissed] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  // 只存失败的事实，文案在渲染时翻译：切换语言后提示跟着变。
-  const [error, setError] = useState<
-    | { kind: 'empty' }
-    | { kind: 'failed'; failure: AgentPromptConfirmFailure; confirmed: number; title: string }
-    | null
-  >(null)
-  // 停下的那一张与它的原因：被拒（积分不足、没登录）时就地标在那一行，并给出路。
-  const [stopped, setStopped] = useState<{
-    id: string
-    failure: AgentPromptConfirmFailure
-  } | null>(null)
+  const { skipped } = plan
+  const submitting = messages.some((message) => plan.busy.has(message.id))
+  // 这段计划里停下的那一张（若有）与原因。
+  const stoppedAt = messages.find((message) => plan.stops.has(message.id))
+  const error = stoppedAt ? plan.stops.get(stoppedAt.id) : undefined
   const selected = messages.filter((message) => !skipped.has(message.id))
   const count = selected.reduce((sum, message) => sum + agentDraftOutputCount(message), 0)
   const credits = agentPlanCreditTotal(selected)
@@ -79,32 +72,37 @@ export default function AgentGenerationPlan({
 
   const confirm = () => {
     if (!selected.length || submitting || short) return
-    setSubmitting(true)
-    setError(null)
-    setStopped(null)
+    const ids = selected.map((message) => message.id)
+    plan.begin(ids)
     void (async () => {
       let confirmed = 0
-      for (const message of selected) {
-        const prompt = (drafts[message.id] ?? message.prompt ?? '').trim()
-        if (!prompt) {
-          setError({ kind: 'empty' })
-          setSubmitting(false)
-          return
+      try {
+        for (const message of selected) {
+          const prompt = (drafts[message.id] ?? message.prompt ?? '').trim()
+          if (!prompt) {
+            plan.stop(message.id, { kind: 'empty' })
+            return
+          }
+          const result = await useAgentStore
+            .getState()
+            .confirmPrompt(message.id, prompt)
+            .catch((): AgentPromptConfirmResult => ({ ok: false, reason: 'failed' }))
+          if (!result.ok) {
+            plan.stop(message.id, {
+              kind: 'failed',
+              failure: result,
+              confirmed,
+              title: message.title,
+            })
+            return
+          }
+          plan.release([message.id])
+          // 文案说的是「已提交 N 张」：一张稿可能要 n 张图，按产出数计，不按稿数。
+          confirmed += agentDraftOutputCount(message)
         }
-        const result = await useAgentStore
-          .getState()
-          .confirmPrompt(message.id, prompt)
-          .catch((): AgentPromptConfirmResult => ({ ok: false, reason: 'failed' }))
-        if (!result.ok) {
-          setStopped({ id: message.id, failure: result })
-          setError({ kind: 'failed', failure: result, confirmed, title: message.title })
-          setSubmitting(false)
-          return
-        }
-        // 文案说的是「已提交 N 张」：一张稿可能要 n 张图，按产出数计，不按稿数。
-        confirmed += agentDraftOutputCount(message)
+      } finally {
+        plan.release(ids)
       }
-      setSubmitting(false)
     })()
   }
 
@@ -135,8 +133,10 @@ export default function AgentGenerationPlan({
           const prompt = drafts[message.id] ?? message.prompt ?? ''
           const open = openId === message.id
           const refused =
-            stopped?.id === message.id && stopped.failure.reason === 'refused'
-              ? stopped.failure.code
+            stoppedAt?.id === message.id &&
+            error?.kind === 'failed' &&
+            error.failure.reason === 'refused'
+              ? error.failure.code
               : undefined
           const action = agentToolFailureAction(refused)
           return (
@@ -145,7 +145,7 @@ export default function AgentGenerationPlan({
                 <Checkbox
                   checked={!skipped.has(message.id)}
                   aria-label={message.title}
-                  onChange={(value) => onSkip(message.id, !value)}
+                  onChange={(value) => plan.skip(message.id, !value)}
                 />
                 <Button
                   type="button"
