@@ -268,6 +268,22 @@ export function refineRequest(
   return { ...(numbered ? { region: region.number } : {}), points }
 }
 
+/**
+ * 读提议里存好的区域蒙版：取地址或解码任一步失败都交回 null，由调用方按框兜底，
+ * 不让一张蒙版读不到就把整张卡片标成失败。
+ */
+export async function storedRegionMask<T>(
+  maskMediaId: string,
+  resolve: (source: string) => Promise<string> | string,
+  load: (source: string) => Promise<T>,
+): Promise<T | null> {
+  try {
+    return await load(await resolve(`aip-media:${maskMediaId}`))
+  } catch {
+    return null
+  }
+}
+
 /** 蒙版的外接框（归一化）；空蒙版为 null。 */
 export function targetBounds(mask: TargetMask): AgentNormalizedBox | null {
   let x0 = mask.width
