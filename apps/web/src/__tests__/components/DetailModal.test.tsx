@@ -16,15 +16,21 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const THUMBNAIL = 'data:image/webp;base64,dGh1bWI='
 const ORIGINAL = 'data:image/png;base64,b3JpZ2luYWw='
 
-const { loadImageOriginal, loadImagePreview } = vi.hoisted(() => ({
+const { loadImageOriginal, loadImagePreview, copyTextToClipboard } = vi.hoisted(() => ({
   loadImageOriginal: vi.fn(),
   loadImagePreview: vi.fn(),
+  copyTextToClipboard: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../lib/imageSource', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/imageSource')>()),
   loadImageOriginal,
   loadImagePreview,
+}))
+
+vi.mock('../../lib/clipboard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/clipboard')>()),
+  copyTextToClipboard,
 }))
 
 let host: HTMLDivElement
@@ -110,6 +116,29 @@ it('内容安全拒绝：卡上写可行动的那句、给改提示词的出路�
   expect(labels.some((label) => label.includes('重试'))).toBe(false)
 })
 
+it('排队中被取消的任务：详情写「已取消」，可复制取消诊断', async () => {
+  useStore.setState({
+    tasks: [{ ...task, status: 'error', error: '任务已取消', cancelled: true, outputImages: [] }],
+    detailTaskId: task.id,
+  })
+
+  await act(async () => root.render(<DetailModal />))
+
+  const text = document.body.textContent ?? ''
+  expect(text).toContain('已取消')
+  expect(text).not.toContain('生成失败')
+  expect(document.body.querySelector('.text-destructive')).toBeNull()
+  expect(document.body.querySelector('[aria-label="复制完整报错"]')).toBeNull()
+  const copy = document.body.querySelector<HTMLButtonElement>('[aria-label="复制诊断信息"]')!
+  await act(async () => copy.click())
+  expect(JSON.parse(copyTextToClipboard.mock.calls[0]![0])).toMatchObject({
+    message: '已取消',
+    taskId: task.id,
+    status: 'cancelled',
+    errorType: null,
+  })
+})
+
 it('认不出分类的失败照旧显示上游原文', async () => {
   useStore.setState({
     tasks: [{ ...task, status: 'error', error: 'HTTP 502 bad gateway', outputImages: [] }],
@@ -172,4 +201,50 @@ it('来源里的模型写渠道 label，不写模型 id', async () => {
     (el) => el.textContent === '来源',
   )
   expect(sourceLabel?.parentElement?.querySelector('svg')).not.toBeNull()
+})
+
+it('未保存具体错误时，说明原因缺失并复制可定位的任务信息', async () => {
+  useStore.setState({
+    tasks: [
+      {
+        ...task,
+        status: 'error',
+        error: '   ',
+        bffRequestId: 'queue-request-1',
+        apiModel: 'gpt-image-2.5-flare',
+        outputImages: [],
+      },
+    ],
+    detailTaskId: task.id,
+  })
+  await act(async () => root.render(<DetailModal />))
+  expect(document.body.textContent).toContain('未记录具体失败原因')
+  const copy = document.body.querySelector<HTMLButtonElement>('[aria-label="复制完整报错"]')!
+  await act(async () => copy.click())
+  expect(JSON.parse(copyTextToClipboard.mock.calls[0]![0])).toMatchObject({
+    message: expect.stringContaining('未记录具体失败原因'),
+    taskId: task.id,
+    requestId: 'queue-request-1',
+    model: 'gpt-image-2.5-flare',
+    status: 'error',
+    createdAt: new Date(task.createdAt).toISOString(),
+  })
+})
+
+it('复制保留完整上游报错和错误分类', async () => {
+  const upstream = 'HTTP 502 bad gateway\nrequest_id: upstream-request-1'
+  useStore.setState({
+    tasks: [
+      { ...task, status: 'error', error: upstream, errorCode: 'upstream_error', outputImages: [] },
+    ],
+    detailTaskId: task.id,
+  })
+  await act(async () => root.render(<DetailModal />))
+  const copy = document.body.querySelector<HTMLButtonElement>('[aria-label="复制完整报错"]')!
+  await act(async () => copy.click())
+  expect(JSON.parse(copyTextToClipboard.mock.calls[0]![0])).toMatchObject({
+    message: upstream,
+    errorType: 'upstream_error',
+    taskId: task.id,
+  })
 })

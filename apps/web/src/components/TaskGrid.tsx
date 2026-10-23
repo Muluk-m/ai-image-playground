@@ -29,6 +29,7 @@ import {
   submittedTaskSnapshot,
   subscribeSubmittedTasks,
 } from '../lib/submittedTaskAttention'
+import { taskMatchesStatusFilter } from '../lib/taskStatusFilter'
 import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } from '../store'
 import type { TaskRecord } from '../types'
 import SetHistoryCard from './SetHistoryCard'
@@ -196,8 +197,7 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
 
     return sorted.filter((t) => {
       if (filterFavorite && !t.isFavorite) return false
-      const matchStatus = filterStatus === 'all' || t.status === filterStatus
-      if (!matchStatus) return false
+      if (!taskMatchesStatusFilter(t, filterStatus)) return false
 
       if (!q) return true
       const prompt = (t.prompt || '').toLowerCase()
