@@ -21,7 +21,12 @@ describe('node job failure codes', () => {
     expect(stageRejectionReason('stage_authorization_scope')).toBe('spec_changed')
     expect(stageRejectionReason('stage_authorization_budget')).toBe('budget_exceeded')
     expect(stageRejectionReason('stage_authorization_retry_limit')).toBe('retry_limit')
+    expect(stageRejectionReason('stage_authorization_attempt_conflict')).toBe('spec_changed')
     expect(stageRejectionReason('stage_authorization_inactive')).toBe('authorization')
+    expect(stageRejectionReason('stage_authorization_not_found')).toBe('authorization')
+    // 没列出的授权码不猜原因，按普通失败走重试。
+    expect(stageRejectionReason('stage_authorization_node_already_started')).toBeUndefined()
+    expect(stageRejectionReason('stage_authorization_something_new')).toBeUndefined()
     expect(stageRejectionReason('quota_exceeded')).toBeUndefined()
     expect(stageRejectionReason(undefined)).toBeUndefined()
   })

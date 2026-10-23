@@ -19,16 +19,21 @@ import type { NodeCanvasDocument } from './nodeCanvasDocument'
  * 照常按上游失败处理（可以重试一次）。
  */
 export function stageRejectionReason(code: string | undefined): StageRunReason | undefined {
-  if (!code?.startsWith('stage_authorization_')) return undefined
+  // 只认已知的拒绝码；没列出的（含以后新增的）按普通失败走原来的重试流程，不猜原因。
   switch (code) {
     case 'stage_authorization_scope':
+    case 'stage_authorization_attempt_conflict': // 模型、倍率或数量和授权时不一致
       return 'spec_changed'
     case 'stage_authorization_budget':
       return 'budget_exceeded'
     case 'stage_authorization_retry_limit':
       return 'retry_limit'
-    default:
+    case 'stage_authorization_inactive':
+    case 'stage_authorization_not_found':
+    case 'stage_authorization_stale':
       return 'authorization'
+    default:
+      return undefined
   }
 }
 
