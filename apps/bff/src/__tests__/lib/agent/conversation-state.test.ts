@@ -316,6 +316,45 @@ describe('readConversationStateFacts', () => {
     expect(facts.pendingDrafts).toEqual([{ title: '一座灯塔' }])
     expect(facts.voidedDrafts).toHaveLength(10)
   })
+
+  // 同一张卡出现在多条消息里时，以后写的为准，不看数据库返回顺序。
+  it('同一张卡有多条记录时按后写的认', async () => {
+    await conversation('replayed')
+    await draft('replayed', 'banana', '一根黄色香蕉')
+    const card = (status: string, extra: Record<string, unknown> = {}) => ({
+      type: 'toolResult' as const,
+      toolCallId: 'banana',
+      toolName: 'generateImage',
+      title: 'banana',
+      gated: true,
+      status,
+      ...extra,
+    })
+    // 先插后写的那条，库里自然顺序就和写入先后相反。
+    await db.insert(schema.agent_messages).values([
+      {
+        conversation_id: 'replayed',
+        id: 'later',
+        turn_id: 'turn',
+        seq: 2,
+        role: 'assistant',
+        content: [card('failed', { errorCode: 'cancelled' })],
+        created_at: NOW,
+      },
+      {
+        conversation_id: 'replayed',
+        id: 'earlier',
+        turn_id: 'turn',
+        seq: 1,
+        role: 'assistant',
+        content: [card('awaiting_confirmation')],
+        created_at: NOW - 1000,
+      },
+    ] as (typeof schema.agent_messages.$inferInsert)[])
+
+    const facts = await readConversationStateFacts('replayed', NOW)
+    expect(facts.voidedDrafts).toEqual([{ title: '一根黄色香蕉' }])
+  })
 })
 
 describe('renderConversationState', () => {
