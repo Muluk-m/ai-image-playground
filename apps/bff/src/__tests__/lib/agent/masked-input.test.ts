@@ -178,10 +178,23 @@ describe('crop around the selection', () => {
     expect(prepared.size).toBe(`${padded.width}x${padded.height}`)
 
     const upstream = await cropMaskedUpstream(
-      { input_images: [prepared.source, 'data:image/png;base64,cmVm'], mask: prepared.mask },
+      {
+        input_images: [prepared.source, 'data:image/png;base64,cmVm'],
+        mask: prepared.mask,
+        prompt: '把选区里的椅子换成绿色，选区原图位置 {"left":2000}',
+      },
       crop,
+      prepared.originalSize,
     )
     expect(upstream.input_images[1]).toBe('data:image/png;base64,cmVm')
+    // 提示词里的位置按整张原图写：补上截图在原图里的偏移，原文不动。
+    expect(upstream.prompt).toStartWith('把选区里的椅子换成绿色，选区原图位置 {"left":2000}')
+    expect(upstream.prompt).toContain(`(${crop.left}, ${crop.top})`)
+    expect(upstream.prompt).toContain(`${crop.width}×${crop.height}`)
+    expect(
+      (await cropMaskedUpstream({ input_images: [prepared.source], mask: prepared.mask }, crop))
+        .prompt,
+    ).toBeUndefined()
     const sent = await sharp(decode(upstream.input_images[0]!))
       .raw()
       .toBuffer({ resolveWithObject: true })
