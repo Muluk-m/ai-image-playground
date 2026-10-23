@@ -150,6 +150,28 @@ function storageStatus(error: unknown): number | string | undefined {
   return typeof code === 'string' || typeof code === 'number' ? code : undefined
 }
 
+// 只对「可能下次就好」的失败重试：卡住超时、对象存储 5xx/429、连接被断开/拒绝。
+// DNS、TLS、签名配置、实现错误这类永久故障重试也没用，只会拉长失败请求。
+const TRANSIENT_CODES = new Set([
+  'InternalError',
+  'ServiceUnavailable',
+  'SlowDown',
+  'RequestTimeout',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'EPIPE',
+  'ConnectionClosed',
+  'ConnectionRefused',
+  'ConnectionReset',
+])
+
+function transient(status: number | string | undefined, timedOut: boolean): boolean {
+  if (timedOut) return true
+  if (typeof status === 'number') return status >= 500 || status === 429
+  return typeof status === 'string' && TRANSIENT_CODES.has(status)
+}
+
 /**
  * 每次尝试都有期限，且跟随请求取消；读不到就把对象键、状态码和原始异常记进日志再抛，
  * 不再只剩一句「读取输入图片失败」。4xx 与客户端已断开不重试。
@@ -168,8 +190,8 @@ async function readInput(
     } catch (error) {
       const clientGone = Boolean(requestSignal?.aborted)
       const status = storageStatus(error)
-      const clientError = typeof status === 'number' && status >= 400 && status < 500
-      const retry = !clientGone && !clientError && attempt < READ_ATTEMPTS
+      const timedOut = timeout.aborted
+      const retry = !clientGone && transient(status, timedOut) && attempt < READ_ATTEMPTS
       log.warn(
         {
           event: 'media_input.read_failed',
@@ -177,7 +199,7 @@ async function readInput(
           objectKey: key,
           attempt,
           elapsedMs: Math.round(performance.now() - started),
-          timedOut: timeout.aborted,
+          timedOut,
           clientGone,
           storageStatus: status,
           willRetry: retry,
@@ -186,7 +208,11 @@ async function readInput(
         'input image read from object storage failed',
       )
       if (!retry) throw error
-      await Bun.sleep(READ_RETRY_DELAY_MS)
+      // 退避期间客户端断开，就不再开下一轮读取。
+      if (requestSignal)
+        await abortable(Bun.sleep(READ_RETRY_DELAY_MS), requestSignal).catch(() => {})
+      else await Bun.sleep(READ_RETRY_DELAY_MS)
+      if (requestSignal?.aborted) throw error
     }
   }
 }
