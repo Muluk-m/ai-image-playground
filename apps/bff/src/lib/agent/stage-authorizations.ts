@@ -25,7 +25,7 @@ import * as Y from 'yjs'
 import { db, schema } from '../../db/client'
 import { accessCanvasDocument, CanvasSyncError } from '../canvasSyncStore'
 import { isCapabilityEnabled } from '../capabilities'
-import { modelCapabilities } from '../channels'
+import { modelCapabilities, resolveQueueModel } from '../channels'
 import { log } from '../logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
 
@@ -858,8 +858,9 @@ export interface StagePromptShaping {
  * 一致（没声明能力的模型按支持 size 处理，不加后缀）。
  */
 function dispatchedPromptVariants(prompt: string, shaping: StagePromptShaping): string[] {
-  const guarded =
-    shaping.provider === 'gemini' ? [prompt] : [prompt, applyPromptRewriteGuard(prompt)]
+  // 协议族以 channels.json 为准：路径里的 provider 是调用方写的，不能让它决定放宽哪一种写法。
+  const provider = resolveQueueModel('image', shaping.model)?.provider ?? shaping.provider
+  const guarded = provider === 'gemini' ? [prompt] : [prompt, applyPromptRewriteGuard(prompt)]
   const capabilities = modelCapabilities(shaping.model)
   const instruction =
     shaping.size && capabilities && !capabilities.includes('size')
