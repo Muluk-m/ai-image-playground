@@ -145,6 +145,10 @@ function watchAway(conversationId: string, ids: readonly string[]) {
         continue
       }
       if (!live()) return
+      // 切走期间出完的图把助手叫醒、又提交了新的一批：这些也算这个对话还没出完的，一起等。
+      for (const job of jobs)
+        if (job.result.status === 'submitted' || job.result.status === 'queued')
+          entry.ids.add(job.messageId)
       for (const job of jobs)
         if (
           entry.ids.has(job.messageId) &&

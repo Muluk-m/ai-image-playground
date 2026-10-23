@@ -116,6 +116,28 @@ describe('切走之后的对话（BUG-16）', () => {
     expect(useAgentJobActivity.getState().notice).toMatchObject({ images: 0, videos: 2, failed: 0 })
   })
 
+  it('切走期间又提交了新的一批，也一起等，不提前说出完了（复审 P2）', async () => {
+    const pending = [tool('a')]
+    fetchJobs.mockResolvedValue(pending.map(view))
+    panel(['conv-1', pending], ['conv-2', []])
+    await vi.waitFor(() => expect(fetchJobs).toHaveBeenCalledWith('conv-1'))
+    let calls = 0
+    fetchJobs.mockImplementation(async () => {
+      calls += 1
+      return [view(tool('a', { status: 'succeeded' })), view(tool('b'))]
+    })
+    await vi.waitFor(() => expect(calls).toBeGreaterThanOrEqual(3))
+    expect(useAgentJobActivity.getState().notice).toBeNull()
+    expect(useAgentJobActivity.getState().activity['conv-1']?.running).toBe(1)
+
+    fetchJobs.mockImplementation(async () => [
+      view(tool('a', { status: 'succeeded' })),
+      view(tool('b', { status: 'succeeded' })),
+    ])
+    await vi.waitFor(() => expect(useAgentJobActivity.getState().notice).not.toBeNull())
+    expect(useAgentJobActivity.getState().notice).toMatchObject({ images: 2, failed: 0 })
+  })
+
   it('全是用户自己取消的，不提示', async () => {
     fetchJobs.mockResolvedValue([
       view(
