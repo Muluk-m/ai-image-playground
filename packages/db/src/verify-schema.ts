@@ -121,6 +121,8 @@ export const EXPECTED_INDEXES = [
   'idx_agent_inbox_conversation_seq',
   'idx_agent_inbox_client_message',
   'idx_agent_inbox_pending',
+  'idx_agent_inbox_consumed_turn',
+  'idx_agent_messages_pending_gate',
   'agent_jobs_pkey',
   'idx_agent_jobs_undelivered',
   'agent_generation_drafts_pkey',

@@ -5,6 +5,7 @@ import { db, schema } from '../../db/client'
 import { askChatModel, ChatTimeoutError, isTransientChatError } from '../chatCompletion'
 import { log } from '../logger'
 import { isObject } from '../type-guards'
+import { trackAgentBackgroundWork } from './background-work'
 
 /**
  * 中文一句加上 Haiku 的思考会顶满旧的 180：线上 claude-haiku-5-5 以
@@ -272,16 +273,15 @@ export function scheduleAgentFollowUps(
   },
   ask?: FollowUpAsk,
 ): void {
-  const write = (lines: readonly string[]) => {
-    void recordAgentFollowUps(input.conversationId, input.turnId, lines).catch((err) => {
+  const write = (lines: readonly string[]) =>
+    recordAgentFollowUps(input.conversationId, input.turnId, lines).catch((err) => {
       log.warn(
         { event: 'agent.follow_ups_failed', turnId: input.turnId, err },
         'follow-up suggestions were not stored',
       )
     })
-  }
   const draft = followUpTexts(input.messages)
-  void (async () => {
+  const run = async () => {
     // 出图完成后的复查往往只有助手的话。沿用会话里上一句用户的话，否则预测没有口吻可跟。
     let userText = draft.userText
     let recentContext = draft.recentContext ?? ''
@@ -293,7 +293,7 @@ export function scheduleAgentFollowUps(
           { event: 'agent.follow_ups_failed', turnId: input.turnId, err },
           'follow-up suggestions were not generated',
         )
-        write([])
+        await write([])
         return
       }
       if (userText) {
@@ -303,16 +303,25 @@ export function scheduleAgentFollowUps(
       }
     }
     if (!userText) {
-      write([])
+      await write([])
       return
     }
     // bun test 会把 NODE_ENV 设成 test。没注入 ask 就不问模型：别的用例把同一条 chat fetch
     // 当成自己的计数器，旁路再打一次会把次数和重试预算打乱。列保持 null，那些用例不用认识它。
     if (!ask && process.env.NODE_ENV === 'test') return
-    write(
+    await write(
       await suggestFollowUps({ userText, assistantText: draft.assistantText, recentContext }, ask),
     )
-  })()
+  }
+  // 登记成后台工作：调用方不等它，清场与测试要等它落完库（见 `background-work.ts`）。
+  trackAgentBackgroundWork(
+    run().catch((err) =>
+      log.warn(
+        { event: 'agent.follow_ups_failed', turnId: input.turnId, err },
+        'follow-up suggestions were not generated',
+      ),
+    ),
+  )
 }
 
 /** 会话里最近一句用户的话。这一轮自己没有时用它。 */

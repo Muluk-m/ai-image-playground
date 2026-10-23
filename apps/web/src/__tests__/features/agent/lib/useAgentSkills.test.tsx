@@ -5,7 +5,9 @@ import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const fetchAgentSkills = vi.hoisted(() => vi.fn<(mode: string) => Promise<AgentSkillSummary[]>>())
+const fetchAgentSkills = vi.hoisted(() =>
+  vi.fn<(mode: string, fetcher?: unknown, surface?: string) => Promise<AgentSkillSummary[]>>(),
+)
 
 vi.mock('../../../../features/agent/lib/agentClient', () => ({ fetchAgentSkills }))
 
@@ -32,8 +34,8 @@ let host: HTMLDivElement
 let root: Root
 let seen: string[][]
 
-function Probe({ mode = 'image' }: { mode?: AgentMode }) {
-  const names = useAgentSkills(mode).map((skill) => skill.name)
+function Probe({ mode = 'image', surface }: { mode?: AgentMode; surface?: 'agent' | 'canvas' }) {
+  const names = useAgentSkills(mode, surface).map((skill) => skill.name)
   seen.push(names)
   return <div>{names.join(',')}</div>
 }
@@ -123,5 +125,23 @@ describe('useAgentSkills', () => {
     await mount()
 
     expect(seen[seen.length - 1]).toEqual(['create-look'])
+  })
+
+  it('画布视图单独取一份带画布技能的清单，Agent 模式的清单不受影响', async () => {
+    const briefs = { ...createLook, name: 'script-briefs' } as AgentSkillSummary
+    fetchAgentSkills.mockImplementation((_mode, _fetcher, surface) =>
+      Promise.resolve(surface === 'canvas' ? [createLook, briefs] : [createLook]),
+    )
+    root = createRoot(host)
+    await act(async () => {
+      root.render(
+        <>
+          <Probe />
+          <Probe surface="canvas" />
+        </>,
+      )
+    })
+    expect(fetchAgentSkills.mock.calls).toEqual([['image'], ['image', undefined, 'canvas']])
+    expect(host.textContent).toBe('create-lookcreate-look,script-briefs')
   })
 })

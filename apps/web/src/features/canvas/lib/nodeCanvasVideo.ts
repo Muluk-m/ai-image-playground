@@ -24,6 +24,7 @@ import type { VideoDraft } from '../../video/types'
 import type { CanvasEditor } from './editor'
 import type { NodeReference } from './nodeCanvasFlow'
 import { adoptNodeResult, recordNodeOutput, selectNodeResult } from './nodeCanvasResults'
+import { noteNodeJobFailure } from './nodeJobFailures'
 import { canvasVideoPromptRefusal, guardAllows } from './submitVideoFromCanvas'
 import { generationInputIds, inputIndices } from './videoInputs'
 import { videoOptionRejection } from './videoRejection'
@@ -160,6 +161,7 @@ export function submitNodeVideo(
     {
       delivered() {},
       failed(_nodeId, failure) {
+        noteNodeJobFailure(jobId, failure.error)
         const job = canvasNodeJobs(doc).find((job) => job.id === jobId)
         if (job) setCanvasNodeJob(doc, { ...job, status: 'error', message: failure.text }, origin)
         useStore.getState().showToast(failure.text, 'error')

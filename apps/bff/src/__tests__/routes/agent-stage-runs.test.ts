@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
+import { afterAll, afterEach, beforeEach, expect, it, spyOn } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
@@ -81,6 +81,37 @@ _setPrivateBffOverlayForTesting({
 const { app } = await import('../../app')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { _setChannelsForTesting } = await import('../../lib/channels')
+const { log } = await import('../../lib/logger')
+const { _resetInactiveModelsForTesting } = await import('../../lib/model-availability')
+type InternalChannel = import('../../lib/channels').InternalChannel
+
+/** 只支持文生与首帧的视频模型：参考生、首尾帧都不行。 */
+const LITE_VIDEO_CHANNEL: InternalChannel = {
+  id: 'video-gateway',
+  kind: 'openai-queue',
+  label: 'Video',
+  baseUrl: 'https://gateway.example/v1',
+  auth: { type: 'bearer', secretRef: 'VIDEO_API_KEY', secret: 'k' },
+  allowedPaths: ['videos/generations'],
+  models: [
+    {
+      id: 'grok-imagine-video-1.5-lite',
+      label: 'Lite',
+      media: 'video',
+      capabilities: ['generate'],
+    },
+  ],
+  defaults: { asyncTasks: true },
+}
+const VIDEO_PARAMS: AgentTurnParams = {
+  video: {
+    model: 'grok-imagine-video-1.5-lite',
+    durationSeconds: 5,
+    resolution: '480p',
+    aspectRatio: '16:9',
+  },
+}
+const VIDEO_NODE = [{ id: 'v', type: 'video', videoMode: 'text', prompt: '缓慢推镜' }]
 const { db, schema, close } = await import('../../db/client')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
@@ -100,6 +131,7 @@ beforeEach(async () => {
   reservation = { kind: 'reserved', credits: 0 }
   settled.clear()
   _setChannelsForTesting([TEST_IMAGE_CHANNEL])
+  _resetInactiveModelsForTesting()
   await db.delete(schema.tasks)
   await db.delete(schema.agent_conversations)
   await db.delete(schema.user_sessions)
@@ -125,7 +157,15 @@ afterAll(async () => {
 })
 
 /** 智能体在画布上建两个节点，再为给定节点提出一次阶段授权。 */
-async function proposal(nodeIds = ['a', 'b'], params?: AgentTurnParams, stage = '素材') {
+async function proposal(
+  nodeIds = ['a', 'b'],
+  params?: AgentTurnParams,
+  stage = '素材',
+  nodes: readonly Record<string, unknown>[] = [
+    { id: 'a', type: 'image', prompt: '嫩芽' },
+    { id: 'b', type: 'image', prompt: '大树' },
+  ],
+) {
   const conversationId = crypto.randomUUID(),
     projectId = crypto.randomUUID(),
     now = Date.now()
@@ -169,17 +209,7 @@ async function proposal(nodeIds = ['a', 'b'], params?: AgentTurnParams, stage = 
     },
     ...(params ? { params } : {}),
   }
-  await createNodes.create(context).execute(
-    'create',
-    {
-      nodes: [
-        { id: 'a', type: 'image', prompt: '嫩芽' },
-        { id: 'b', type: 'image', prompt: '大树' },
-      ],
-    },
-    undefined,
-    undefined,
-  )
+  await createNodes.create(context).execute('create', { nodes }, undefined, undefined)
   const result = await runNodes
     .create(context)
     .execute('proposal', { stage, nodeIds }, undefined, undefined)
@@ -342,6 +372,202 @@ it('wakes for a direct run blocked before confirmation and ends the authorizatio
   expect(JSON.stringify(calls[0]!.messages)).toContain('首帧或尾帧帧位为空')
   // 被拦下的一批还没确认就没有执行凭证：确认不了，也提交不了。
   expect((await request(run.authorizationId, '/confirm', {})).status).toBe(409)
+})
+
+it('lists the deployment models and lets a direct round fix a model-blocked batch itself', async () => {
+  const run = await proposal(['a'])
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' }],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  if (!wake) throw new Error('missing wake content')
+  expect(wake.text).toContain('当前部署实际可用的出图模型：gpt-image-2.5-flare')
+  expect(wake.text).toContain('目标应是图片节点')
+  expect(wake.text).toContain('这一轮沿用直接出图：能按上面改好的')
+  expect(wake.text).not.toContain('这一轮不要自行发起新的付费运行；')
+})
+
+it('does not self-fix a model-blocked batch that also has nodes blocked for other reasons', async () => {
+  const run = await proposal(['a', 'b'])
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [
+      { nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' },
+      { nodeId: 'b', outcome: 'blocked', reason: 'missing_media' },
+    ],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  if (!wake) throw new Error('missing wake content')
+  expect(wake.text).toContain('当前部署实际可用的出图模型')
+  expect(wake.text).not.toContain('这一轮沿用直接出图')
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+})
+
+it('still asks first after a model-blocked batch when auto-submit was off', async () => {
+  const run = await proposal(['a'], { autoSubmit: false })
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' }],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  if (!wake) throw new Error('missing wake content')
+  expect(wake.text).toContain('当前部署实际可用的出图模型')
+  expect(wake.text).not.toContain('这一轮沿用直接出图')
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+})
+
+async function blockedWake(
+  run: { conversationId: string; authorizationId: string },
+  nodeId: string,
+) {
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId, outcome: 'blocked', reason: 'model_unavailable' }],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  if (!wake) throw new Error('missing wake content')
+  return wake.text
+}
+
+it('does not self-fix a video batch once the deployment has no video model left', async () => {
+  _setChannelsForTesting([TEST_IMAGE_CHANNEL, LITE_VIDEO_CHANNEL])
+  const run = await proposal(['v'], VIDEO_PARAMS, '视频', VIDEO_NODE)
+  // 提案之后运营把视频模型全停了：页面拦在「模型不可用」，服务端此刻也没有。
+  _setChannelsForTesting([TEST_IMAGE_CHANNEL])
+  const text = await blockedWake(run, 'v')
+  expect(text).toContain('视频模型及支持的模式：无')
+  expect(text).toContain('与它的视频模式（videoMode）无关，不要改 videoMode')
+  expect(text).toContain('把它转成 image 节点')
+  expect(text).toContain('告诉他暂时没有可用的视频模型')
+  expect(text).not.toContain('这一轮沿用直接出图')
+  expect(text).toContain('这一轮不要自行发起新的付费运行；')
+})
+
+it('reruns a video batch as is when only the page model list was stale', async () => {
+  _setChannelsForTesting([TEST_IMAGE_CHANNEL, LITE_VIDEO_CHANNEL])
+  const run = await proposal(['v'], VIDEO_PARAMS, '视频', VIDEO_NODE)
+  const text = await blockedWake(run, 'v')
+  expect(text).toContain('grok-imagine-video-1.5-lite（文生（text）、首帧（first））')
+  expect(text).toContain('视频节点原样重新发起即可，不要改 videoMode')
+  expect(text).not.toContain('把它转成 image 节点')
+  expect(text).toContain('这一轮沿用直接出图：能按上面改好的')
+  expect(text).not.toContain('视频模式换成可用模型支持的')
+})
+
+it('leaves stopped models out of the models the wake lists', async () => {
+  const run = await proposal(['a'])
+  const overlay = await (await import('../../lib/private-overlay')).loadPrivateBffOverlay()
+  _setPrivateBffOverlayForTesting({
+    ...overlay,
+    taskHooks: {
+      ...overlay.taskHooks,
+      inactiveModels: async () => new Set(['gpt-image-2.5-flare']),
+    },
+  })
+  try {
+    expect(await blockedWake(run, 'a')).toContain('当前部署实际可用的出图模型：无')
+  } finally {
+    _setPrivateBffOverlayForTesting(overlay)
+  }
+})
+
+it('logs every reported node with its reason and the user', async () => {
+  const run = await proposal(['a', 'b'])
+  const logged = spyOn(log, 'info')
+  try {
+    const report = await request(run.authorizationId, '/report', {
+      deviceId: DEVICE,
+      nodes: [
+        { nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' },
+        { nodeId: 'b', outcome: 'skipped', reason: 'stopped' },
+      ],
+    })
+    expect(report.status).toBe(200)
+    const entry = logged.mock.calls
+      .map(([fields]) => fields as unknown as Record<string, unknown>)
+      .find((fields) => fields?.event === 'agent.stage.reported')
+    expect(entry).toMatchObject({
+      authorizationId: run.authorizationId,
+      userId: USER_ID,
+      nodes: [
+        { nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' },
+        { nodeId: 'b', outcome: 'skipped', reason: 'stopped' },
+      ],
+    })
+  } finally {
+    logged.mockRestore()
+  }
+})
+
+it('logs a confirmation card blocked before it ran without ending it or waking', async () => {
+  const run = await proposal(['a'], { autoSubmit: false })
+  const blocked = { nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' }] }
+  const logged = spyOn(log, 'info')
+  try {
+    const response = await request(run.authorizationId, '/blocked', blocked)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ logged: true })
+    const entry = logged.mock.calls
+      .map(([fields]) => fields as unknown as Record<string, unknown>)
+      .find((fields) => fields?.event === 'agent.stage.blocked')
+    expect(entry).toMatchObject({
+      authorizationId: run.authorizationId,
+      conversationId: run.conversationId,
+      userId: USER_ID,
+      status: 'pending',
+      nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' }],
+    })
+    // 同一组拦截再报一次：不再记。
+    const again = await request(run.authorizationId, '/blocked', blocked)
+    expect(await again.json()).toEqual({ logged: false })
+    expect(
+      logged.mock.calls.filter(
+        ([fields]) =>
+          (fields as unknown as Record<string, unknown>)?.event === 'agent.stage.blocked',
+      ),
+    ).toHaveLength(1)
+  } finally {
+    logged.mockRestore()
+  }
+  expect((await stored(run.authorizationId)).status).toBe('pending')
+  expect(await wakeRows(run.conversationId)).toHaveLength(0)
+  // 不是这条授权里的节点、或者不是自己的授权：不记。
+  const stranger = await request(run.authorizationId, '/blocked', {
+    nodes: [{ nodeId: 'zzz', outcome: 'blocked', reason: 'model_unavailable' }],
+  })
+  expect(stranger.status).toBe(422)
+  const otherCookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) =>
+    createUserSession('stage-run-other', tx),
+  )}`
+  expect((await request(run.authorizationId, '/blocked', blocked, otherCookie)).status).toBe(404)
+  // 卡已经结束：不再记。
+  expect((await request(run.authorizationId, '/end', {})).status).toBe(200)
+  const ended = await request(run.authorizationId, '/blocked', {
+    nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'missing_media' }],
+  })
+  expect(ended.status).toBe(409)
+  expect(await ended.json()).toEqual({ error: 'stage_authorization_inactive' })
 })
 
 it('points a first-frame batch back to runStoryboardFrames, not runNodes', async () => {

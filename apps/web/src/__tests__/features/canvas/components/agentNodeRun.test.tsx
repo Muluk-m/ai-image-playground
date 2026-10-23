@@ -9,6 +9,7 @@ import * as Y from 'yjs'
 import AgentNodeRunCard from '../../../../features/agent/components/AgentNodeRunCard'
 import { agentNodeRunBridge } from '../../../../features/agent/lib/nodeRunBridge'
 import {
+  noteAgentNodeRunBlocked,
   registerAgentNodeRunOrigin,
   startAgentNodeRun,
 } from '../../../../features/agent/lib/nodeRuns'
@@ -45,12 +46,15 @@ const proposal: AgentCanvasRunProposal = {
 let plan: NodeBatchPlan
 let authorization: StageAuthorization
 let rejectPreflight: boolean
+let preflightCode: string
 let loseReport: boolean
 let reportWake: 'queued' | 'duplicate'
 let ends: number
 let confirms: number
 let preflights: number
 let reports: { nodes: { nodeId: string; outcome: string; reason?: string; retried?: boolean }[] }[]
+let blocked: { url: string; nodes: unknown }[]
+let loseBlocked: boolean
 let cleanup: () => Promise<void>
 function fixturePlan(signature: string): NodeBatchPlan {
   return {
@@ -118,12 +122,15 @@ const button = (text: string) =>
 beforeEach(() => {
   vi.useFakeTimers()
   rejectPreflight = false
+  preflightCode = 'stage_authorization_budget'
   loseReport = false
   reportWake = 'queued'
   ends = 0
   confirms = 0
   preflights = 0
   reports = []
+  blocked = []
+  loseBlocked = false
   authorization = {
     id: 'authorization',
     conversationId: 'conversation',
@@ -149,6 +156,11 @@ beforeEach(() => {
         if (loseReport) throw new TypeError('Failed to fetch')
         return Response.json({ authorization, wake: reportWake })
       }
+      if (url.endsWith('/blocked')) {
+        if (loseBlocked) throw new TypeError('Failed to fetch')
+        blocked.push({ url, nodes: JSON.parse(String(init?.body)).nodes })
+        return Response.json({ logged: true })
+      }
       if (url.endsWith('/wake'))
         return reports.length
           ? Response.json({ status: 'pending' })
@@ -164,8 +176,7 @@ beforeEach(() => {
       }
       if (url.endsWith('/preflight')) {
         preflights += 1
-        if (rejectPreflight)
-          return Response.json({ error: 'stage_authorization_budget' }, { status: 409 })
+        if (rejectPreflight) return Response.json({ error: preflightCode }, { status: 409 })
       }
       if (url.endsWith('/end')) {
         ends += 1
@@ -264,6 +275,17 @@ it('stops retrying when the retry would exceed the budget', async () => {
   await act(async () => {})
   expect(preflights).toBe(2)
   expect(reports[0]?.nodes).toEqual([{ nodeId: 'a', outcome: 'failed', reason: 'budget_exceeded' }])
+})
+it('reports a retry preflight rejected as inactive with the authorization reason', async () => {
+  mocks.run.mockImplementation(async (...args: unknown[]) => {
+    rejectPreflight = true
+    preflightCode = 'stage_authorization_inactive'
+    const hooks = args[7] as NodeBatchHooks
+    expect(await hooks.recover?.(plan.jobs[0]!, new NodeBatchFailure('failed'))).toBe('skip')
+  })
+  await mount('retry-inactive', true, { ...proposal, direct: true })
+  await act(async () => {})
+  expect(reports[0]?.nodes).toEqual([{ nodeId: 'a', outcome: 'failed', reason: 'authorization' }])
 })
 it('reports a direct run blocked before start with the missing input', async () => {
   const job = fixturePlan('media').jobs[0]!
@@ -369,6 +391,52 @@ it('refuses to confirm a blocked quote', async () => {
   expect(startAgentNodeRun('blocked', proposal)).toBe(false)
   expect(confirms).toBe(0)
 })
+it('logs a confirmation card blocked before it ran once, without reporting or ending it', async () => {
+  const job = fixturePlan('model').jobs[0]!
+  plan = {
+    ...fixturePlan('model'),
+    error: 'model',
+    jobs: [{ ...job, blocked: 'model_unavailable' }],
+  }
+  await mount('blocked-card', true, { ...proposal, authorizationId: 'blocked-card' })
+  await act(async () => {})
+  await act(async () => vi.advanceTimersByTimeAsync(2000))
+  expect(button('确认运行')?.disabled).toBe(true)
+  expect(blocked).toEqual([
+    {
+      url: expect.stringContaining('/api/agent/stage-authorizations/blocked-card/blocked'),
+      nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' }],
+    },
+  ])
+  expect(reports).toEqual([])
+  expect(ends).toBe(0)
+  expect(confirms).toBe(0)
+})
+it('logs a blocked card again after the first attempt failed to reach the server', async () => {
+  const job = fixturePlan('model').jobs[0]!
+  const blockedPlan = {
+    ...fixturePlan('model'),
+    error: 'model' as const,
+    jobs: [{ ...job, blocked: 'model_unavailable' as const }],
+  }
+  const card = { ...proposal, authorizationId: 'retry-card' }
+  loseBlocked = true
+  noteAgentNodeRunBlocked(card, blockedPlan)
+  await vi.advanceTimersByTimeAsync(0)
+  loseBlocked = false
+  noteAgentNodeRunBlocked(card, blockedPlan)
+  await vi.advanceTimersByTimeAsync(0)
+  noteAgentNodeRunBlocked(card, blockedPlan)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(blocked).toHaveLength(1)
+  cleanup = async () => {}
+})
+it('does not log a card that can still run', async () => {
+  await mount('runnable-card', true, { ...proposal, authorizationId: 'runnable-card' })
+  await act(async () => {})
+  expect(button('确认运行')?.disabled).toBe(false)
+  expect(blocked).toEqual([])
+})
 it('ends authorization before start when the countdown is undone', async () => {
   await mount('undo')
   await act(async () => button('确认运行')!.click())
@@ -454,4 +522,16 @@ it('stops later nodes when the running card is stopped', async () => {
   // 用户自己停下不唤醒智能体。
   await act(async () => {})
   expect(reports).toHaveLength(0)
+})
+it('does not retry a node the BFF refused for scope, and says why on the card', async () => {
+  mocks.run.mockImplementation(async (...args: unknown[]) => {
+    const hooks = args[7] as NodeBatchHooks
+    const failure = new NodeBatchFailure('failed', 'stage_authorization_scope')
+    expect(await hooks.recover?.(plan.jobs[0]!, failure)).toBe('skip')
+  })
+  await mount('scope-refused', true, { ...proposal, direct: true })
+  await act(async () => {})
+  expect(preflights).toBe(1)
+  expect(reports[0]?.nodes).toEqual([{ nodeId: 'a', outcome: 'failed', reason: 'spec_changed' }])
+  expect(document.body.textContent).toContain('有节点的提交内容和你确认时不一致')
 })

@@ -44,6 +44,7 @@ import AgentBatchItemResult, {
   AgentBatchAnalysisEvidence,
   AgentBatchItemStatus,
 } from './AgentBatchItemResult'
+import AgentBatchResultGallery from './AgentBatchResultGallery'
 
 function statusIcon(status: BatchDisplayStatus) {
   if (status === 'in_flight' || status === 'in_progress') return 'loading'
@@ -802,6 +803,9 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           </span>
         )}
       </div>
+      {resultFiles.length > 0 && (
+        <AgentBatchResultGallery artifacts={resultFiles.map((file) => file.artifact)} />
+      )}
       {page.analysisSummary && (
         <AgentBatchAnalysisSummary summary={page.analysisSummary} items={page.items} />
       )}
