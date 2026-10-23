@@ -188,6 +188,15 @@ describe('tools share capabilities across creation modes', () => {
     }
   })
 
+  it('does not offer the region confirmation card when accounts:sync is off', () => {
+    // 卡片的原图和蒙版走 /api/media，没开同步时那里一律拒绝；这份运营配置没开同步。
+    const names = agentToolDeclarations('image', AGENT).map((tool) => tool.name)
+    expect(names).toContain('editImage')
+    expect(names).not.toContain('proposeEditRegion')
+    const prompt = turnInitialState([], 'image', true, 0, AGENT).systemPrompt
+    expect(prompt).not.toContain('proposeEditRegion')
+  })
+
   it('brings the canvas tools and canvas prompt back in canvas mode', () => {
     const names = agentToolDeclarations('image', CANVAS).map((tool) => tool.name)
     // 节点编辑与运行还要 accounts:sync，这份运营配置没开；读画布在画布模式里总在。
