@@ -23,24 +23,31 @@ type AgentPromptConfirmFailure = Extract<AgentPromptConfirmResult, { ok: false }
  */
 export default function AgentGenerationPlan({
   messages,
+  skipped,
+  onSkip,
 }: {
   messages: readonly AgentToolMessage[]
+  /** 用户取消勾选的稿。由面板保管：计划随提交拆段、重挂时勾选状态不能重置。 */
+  skipped: ReadonlySet<string>
+  onSkip: (id: string, skip: boolean) => void
 }) {
   const { t } = useTranslation('agent')
   const drafts = useAgentStore((state) => state.promptDrafts)
-  const [checked, setChecked] = useState<Readonly<Record<string, boolean>>>(() =>
-    Object.fromEntries(messages.map((message) => [message.id, true])),
-  )
   const [openId, setOpenId] = useState<string | null>(null)
   const [dismissed, setDismissed] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // 只存失败的事实，文案在渲染时翻译：切换语言后提示跟着变。
+  const [error, setError] = useState<
+    | { kind: 'empty' }
+    | { kind: 'failed'; failure: AgentPromptConfirmFailure; confirmed: number; title: string }
+    | null
+  >(null)
   // 停下的那一张与它的原因：被拒（积分不足、没登录）时就地标在那一行，并给出路。
   const [stopped, setStopped] = useState<{
     id: string
     failure: AgentPromptConfirmFailure
   } | null>(null)
-  const selected = messages.filter((message) => checked[message.id] !== false)
+  const selected = messages.filter((message) => !skipped.has(message.id))
   const count = selected.reduce((sum, message) => sum + agentDraftOutputCount(message), 0)
   const credits = agentPlanCreditTotal(selected)
   // 余额属于账户；这个 hook 也让余额变化（充值、别处扣费）时卡片跟着重算。
@@ -51,6 +58,24 @@ export default function AgentGenerationPlan({
   // 估价与余额都读得到时才判；读不到就交给服务端把关，不凭空挡住用户。
   const short = credits !== undefined && available !== undefined && credits > available
   const recharge = agentToolFailureAction('insufficient_credits')
+  const failureReason = (failure: AgentPromptConfirmFailure) =>
+    failure.reason === 'gone'
+      ? t('confirm.gone')
+      : failure.reason === 'notConfirmable'
+        ? t('confirm.notConfirmable')
+        : ((failure.reason === 'refused' ? agentToolFailureText(failure.code) : null) ??
+          t('confirm.failed'))
+  const errorText = !error
+    ? null
+    : error.kind === 'empty'
+      ? t('confirm.empty')
+      : error.confirmed > 0
+        ? t('plan.stoppedAfter', {
+            count: error.confirmed,
+            title: error.title,
+            reason: failureReason(error.failure),
+          })
+        : failureReason(error.failure)
 
   const confirm = () => {
     if (!selected.length || submitting || short) return
@@ -62,7 +87,7 @@ export default function AgentGenerationPlan({
       for (const message of selected) {
         const prompt = (drafts[message.id] ?? message.prompt ?? '').trim()
         if (!prompt) {
-          setError(t('confirm.empty'))
+          setError({ kind: 'empty' })
           setSubmitting(false)
           return
         }
@@ -71,19 +96,8 @@ export default function AgentGenerationPlan({
           .confirmPrompt(message.id, prompt)
           .catch((): AgentPromptConfirmResult => ({ ok: false, reason: 'failed' }))
         if (!result.ok) {
-          const reason =
-            result.reason === 'gone'
-              ? t('confirm.gone')
-              : result.reason === 'notConfirmable'
-                ? t('confirm.notConfirmable')
-                : ((result.reason === 'refused' ? agentToolFailureText(result.code) : null) ??
-                  t('confirm.failed'))
           setStopped({ id: message.id, failure: result })
-          setError(
-            confirmed > 0
-              ? t('plan.stoppedAfter', { count: confirmed, title: message.title, reason })
-              : reason,
-          )
+          setError({ kind: 'failed', failure: result, confirmed, title: message.title })
           setSubmitting(false)
           return
         }
@@ -129,11 +143,9 @@ export default function AgentGenerationPlan({
             <li key={message.id}>
               <div className="studio-agent-plan-row">
                 <Checkbox
-                  checked={checked[message.id] !== false}
+                  checked={!skipped.has(message.id)}
                   aria-label={message.title}
-                  onChange={(value) =>
-                    setChecked((current) => ({ ...current, [message.id]: value }))
-                  }
+                  onChange={(value) => onSkip(message.id, !value)}
                 />
                 <Button
                   type="button"
@@ -215,9 +227,9 @@ export default function AgentGenerationPlan({
           )}
         </p>
       )}
-      {error && (
+      {errorText && (
         <p role="alert" className="text-xs text-destructive">
-          {error}
+          {errorText}
         </p>
       )}
       <footer className="studio-agent-plan-foot">
