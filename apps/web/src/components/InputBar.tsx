@@ -242,8 +242,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const batchTotalCredits = batchActive
     ? batchCredits(batchImageCount, perImageGuard.estimatedCredits)
     : undefined
-  // 单张超限的图在选图时就标出来、拦住发送，不让它发出去再失败。上限来自服务端下发的配置：
-  // 交给智能体的按附件/云媒体那一档，快速生成随请求带上、按普通云媒体那一档。
+  // 参考图随请求一起发，单张超限会在发出后失败：选图时就标出来、拦住发送。快速生成按归档上限；
+  // 交给智能体的按这一档部署下发的单张上限（服务端配置），不让超限的图发出去再失败。
   const oversizedIndexes = useMemo(
     () =>
       toCanvas
@@ -253,14 +253,14 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         : oversizedReferenceIndexes(inputImages),
     [toCanvas, inputImages],
   )
-  const oversizedNotice = oversizedIndexes.length
-    ? toCanvas
+  const oversizedNotice = !oversizedIndexes.length
+    ? null
+    : toCanvas
       ? t('image.referenceTooLarge', {
           index: oversizedIndexes.map((index) => index + 1).join('、'),
           maxSize: formatImageLimit(referenceImageLimit().imageBytes),
         })
       : oversizedReferenceMessage(oversizedIndexes)
-    : null
   // 生成模式挂着模板胶囊时：素材条数要与素材位对上。画布档不管它（那是智能体的事）。
   const lookSubmitting = useLookSubmission((s) => s.submitting)
   const libraryAssets = useLibraryStore((s) => s.assets)
