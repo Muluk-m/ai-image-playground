@@ -6,6 +6,26 @@ vi.mock('../../../../lib/imagePreprocessing', async () => ({
 }))
 
 import 'fake-indexeddb/auto'
+
+/** 计划卡的余额判断读 overlay 门禁；只有设了 guard 的用例才替换，其余照旧走真实实现。 */
+const overlayGuard = vi.hoisted(() => ({
+  current: null as null | { estimatedCredits?: number; availableCredits?: number },
+}))
+vi.mock('../../../../lib/privateOverlay', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../lib/privateOverlay')>()
+  return {
+    ...actual,
+    usePrivateSubmissionGuard: (input: Parameters<typeof actual.usePrivateSubmissionGuard>[0]) => {
+      const real = actual.usePrivateSubmissionGuard(input)
+      return overlayGuard.current ? { blocked: false, ...overlayGuard.current } : real
+    },
+    getPrivateSubmissionGuard: (input: Parameters<typeof actual.getPrivateSubmissionGuard>[0]) =>
+      overlayGuard.current
+        ? { blocked: false, ...overlayGuard.current }
+        : actual.getPrivateSubmissionGuard(input),
+  }
+})
+
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -1989,6 +2009,97 @@ describe('AgentPanel', () => {
     })
     expect(host.textContent).toContain('未生成')
     expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('/confirmations')
+  })
+
+  const planDraft = (id: string, title: string): AgentToolMessage => ({
+    kind: 'tool',
+    id,
+    turnId: 'turn-plan',
+    toolCallId: id,
+    toolName: 'generateImage',
+    title,
+    prompt: `${title}的提示词`,
+    status: 'awaiting_confirmation',
+    snapshot: { mode: 'image', args: { n: 1 }, target: { provider: 'muvloom', model: 'flare' } },
+  })
+
+  it('余额不够计划合计时，确认前就在卡上说明并按住「全部生成」', () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    overlayGuard.current = { estimatedCredits: 100, availableCredits: 320 }
+    try {
+      useAgentStore.setState({
+        conversationId: 'conversation-plan',
+        messages: ['a', 'b', 'c', 'd'].map((id) => planDraft(id, `猫${id}`)),
+      })
+      render()
+      const generate = () =>
+        [...host.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+          button.textContent?.startsWith('全部生成'),
+        )!
+      expect(host.textContent).toContain('合计约 400 积分')
+      expect(host.querySelector('[data-plan-short]')?.textContent).toContain(
+        '可用 320 积分，不够合计约 400 积分',
+      )
+      expect(generate().disabled).toBe(true)
+      // 少勾一张就够了：提示消失，按钮放开。
+      act(() => {
+        host.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="猫d"]')?.click()
+      })
+      expect(host.querySelector('[data-plan-short]')).toBeNull()
+      expect(generate().disabled).toBe(false)
+    } finally {
+      overlayGuard.current = null
+    }
+  })
+
+  it('逐张确认中途被拒（积分不足）时，被拒那一行就地标出原因，不随计划卡重挂而丢失', async () => {
+    const original = useAgentStore.getState().confirmPrompt
+    const confirmPrompt = vi.fn(async (id: string) => {
+      if (id === 'd')
+        return {
+          ok: false as const,
+          reason: 'refused' as const,
+          code: 'insufficient_credits' as const,
+        }
+      // 成交的那张就地换成已提交：计划从下一张起算。
+      useAgentStore.setState((state) => ({
+        messages: state.messages.map((one) =>
+          one.id === id && one.kind === 'tool' ? { ...one, status: 'submitted' as const } : one,
+        ),
+      }))
+      return { ok: true as const }
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      confirmPrompt,
+      conversationId: 'conversation-plan',
+      messages: ['a', 'b', 'c', 'd'].map((id) => planDraft(id, `猫${id}`)),
+    })
+    try {
+      render()
+      await act(async () => {
+        ;[...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '全部生成（4）')
+          ?.click()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      expect(confirmPrompt.mock.calls.map(([id]) => id)).toEqual(['a', 'b', 'c', 'd'])
+      expect(host.textContent).toContain('全部生成（1）')
+      expect(
+        host.querySelector('[data-plan-refused="insufficient_credits"]')?.textContent,
+      ).toContain('积分不够，这次没有生成')
+      expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+        '已提交 3 张，「猫d」未提交：积分不够，这次没有生成',
+      )
+    } finally {
+      useAgentStore.setState({ confirmPrompt: original })
+    }
   })
 })
 

@@ -197,6 +197,9 @@
     "cancel": "Cancel",
     "restore": "Review again",
     "dismissed": "Not generated",
+    "insufficient": "You have {{available}} credits available, not enough for about {{credits}}. Uncheck some images or top up first.",
+    "stoppedAfter_one": "Submitted {{count}} image; \"{{title}}\" was not submitted: {{reason}}",
+    "stoppedAfter_other": "Submitted {{count}} images; \"{{title}}\" was not submitted: {{reason}}",
     "promptAria": "Edit prompt"
   },
   "toolFailure": {
