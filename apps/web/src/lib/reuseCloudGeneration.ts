@@ -48,8 +48,9 @@ export async function reuseCloudGeneration(source: CloudReuseSource, signal: Abo
   )
   if (!channel) throw new Error('model_unavailable')
   const guard = `${PROMPT_REWRITE_GUARD_PREFIX}\n`
+  // 平台投影已剥掉 guard、改由 `no_rewrite` 带着；早先镜像下来的卡提示词里可能还带着前缀。
   const guarded = source.prompt.startsWith(guard)
-  const params: TaskParams = { ...source.params, no_rewrite: guarded }
+  const params: TaskParams = { ...source.params, no_rewrite: guarded || !!source.params.no_rewrite }
   // Each reference has its own signed URL and download. Restore them concurrently;
   // preserve the recorded order, and only replace the draft once every image is ready.
   // 用户站在那儿等，所以这几张插队到作品页正在铺的预览之前。

@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
-import type { GenerationSummary } from '@image-playground/shared'
+import {
+  buildAspectInstruction,
+  type GenerationSummary,
+  PROMPT_REWRITE_GUARD_PREFIX,
+} from '@image-playground/shared'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { i18next } from '../../i18n'
 import { getCachedGenerations } from '../../lib/db'
 import {
+  cloudReuseSourceFromGeneration,
   loadPlatformGenerations,
   mergeHistory,
   receivePlatformPage,
@@ -105,6 +110,34 @@ it('平台记录投影成一张普通卡：封面用云媒体引用，参考图�
     remoteOnly: true,
   })
   expect(task.params).toMatchObject({ size: '1536x1024', quality: 'high', n: 2 })
+})
+
+it('作品卡显示用户写的原文：剥掉防改写前缀与构图指令，防改写改由参数带着', () => {
+  const shaped = {
+    ...summary,
+    prompt: `${PROMPT_REWRITE_GUARD_PREFIX}\n一只猫\n\n${buildAspectInstruction('1536x1024')}`,
+  }
+  const task = taskFromGeneration(shaped)
+  expect(task.prompt).toBe('一只猫')
+  expect(task.params.no_rewrite).toBe(true)
+  expect(cloudReuseSourceFromGeneration(shaped)).toMatchObject({
+    prompt: '一只猫',
+    params: { no_rewrite: true },
+  })
+})
+
+it('没开防改写的记录原样显示，参数记成关闭；Gemini 不剥前缀', () => {
+  expect(taskFromGeneration(summary)).toMatchObject({
+    prompt: '一只猫',
+    params: { no_rewrite: false },
+  })
+  const gemini = taskFromGeneration({
+    ...summary,
+    provider: 'gemini',
+    prompt: `${PROMPT_REWRITE_GUARD_PREFIX}\n一只猫`,
+  })
+  expect(gemini.prompt).toBe(`${PROMPT_REWRITE_GUARD_PREFIX}\n一只猫`)
+  expect(gemini.params.no_rewrite).toBe(false)
 })
 
 it('镜像卡记下封面原件的真实像素：缩略图只有临时 URL，尺寸以平台媒体元数据为准', () => {
