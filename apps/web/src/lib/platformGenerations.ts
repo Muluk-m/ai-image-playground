@@ -222,6 +222,7 @@ export function mergeHistory(
       // 不带上这份尺寸，卡片就退回请求档位（Gemini 直接显示 auto）。
       ...(adoptRemoteOutputs && settled.measuredSize ? { measuredSize: settled.measuredSize } : {}),
       status: settled.status,
+      cancelled: settled.cancelled,
       queuePhase: settled.queuePhase,
       error: sameFailure || settled.error,
       errorCode: settled.status === 'error' ? (remote.record.errorType ?? undefined) : undefined,
@@ -293,9 +294,10 @@ function sortRows(rows: readonly PlatformGenerationRow[]): PlatformGenerationRow
  */
 function statusPatch(
   item: GenerationSummary,
-): Pick<TaskRecord, 'status' | 'error' | 'finishedAt' | 'elapsed' | 'queuePhase'> {
+): Pick<TaskRecord, 'status' | 'cancelled' | 'error' | 'finishedAt' | 'elapsed' | 'queuePhase'> {
   return {
     status: statusFromGeneration(item.status),
+    cancelled: item.status === 'cancelled' ? true : undefined,
     queuePhase: item.status === 'reconciling' ? 'reconciling' : undefined,
     error: item.errorType ? generationErrorText(item.errorType) : null,
     finishedAt: item.completedAt,

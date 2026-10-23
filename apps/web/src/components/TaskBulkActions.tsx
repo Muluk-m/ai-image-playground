@@ -3,6 +3,7 @@ import { taskExportSources } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useTranslation } from '../i18n'
+import { taskMatchesStatusFilter } from '../lib/taskStatusFilter'
 import { removeMultipleTasks, setTaskFavorite, useStore } from '../store'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
 import { Button } from './ui/button'
@@ -29,13 +30,18 @@ export default function TaskBulkActions() {
     const q = searchQuery.trim().toLowerCase()
     return sorted.filter((task) => {
       if (filterFavorite && !task.isFavorite) return false
-      if (filterStatus !== 'all' && task.status !== filterStatus) return false
+      if (!taskMatchesStatusFilter(task, filterStatus)) return false
       if (!q) return true
       return task.prompt.toLowerCase().includes(q)
     })
   }, [tasks, searchQuery, filterStatus, filterFavorite])
 
-  const allSelected = selectedTaskIds.length === filteredTasks.length && filteredTasks.length > 0
+  // 按可见卡片逐一比对：切了筛选后留下的隐藏选中不能凑数成「全选」。
+  const allSelected = useMemo(() => {
+    if (!filteredTasks.length) return false
+    const selected = new Set(selectedTaskIds)
+    return filteredTasks.every((task) => selected.has(task.id))
+  }, [filteredTasks, selectedTaskIds])
 
   const handleSelectAllToggle = useCallback(() => {
     if (allSelected) clearSelection()

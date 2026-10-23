@@ -434,7 +434,15 @@ export default function DetailModal() {
                 )}
               </>
             )}
-            {task.status === 'error' && (
+            {task.status === 'error' && task.cancelled && (
+              <div className="w-full max-w-md px-4 text-center">
+                <Icon name="close" size="lg" className="mx-auto mb-2 text-muted-foreground" />
+                <p className="text-sm leading-6 text-muted-foreground">
+                  {t('common:state.cancelled')}
+                </p>
+              </div>
+            )}
+            {task.status === 'error' && !task.cancelled && (
               <div className="w-full max-w-md px-4 text-center">
                 <Icon name="error" size="lg" className="mx-auto mb-2 text-destructive" />
                 <p
