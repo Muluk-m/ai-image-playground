@@ -1997,9 +1997,12 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       // 这一轮可能在画布上发起运行：原标签页报价前把模型清单刷新一下（有节流，失败保留原清单）。
       void refreshChannels()
       // 重试沿用这一次已经定下的消息 id：服务端可能其实收下了，同一个 id 才认得出是同一条、不会再排一次。
+      // 参数、画布与是否回答澄清也沿用这一次定下的：同一个 id 只能代表同一个请求，用户中途改了
+      // 设置或画布，重试的仍是没发出去的那一条。
       let retryMessageId = clientMessageId
+      let retryReplay = replay
       const resend = () =>
-        get().send(text, references, onAccepted, mode, retryMessageId, replay, modelOverride)
+        get().send(text, references, onAccepted, mode, retryMessageId, retryReplay, modelOverride)
       /** 服务端收下之前就失败：说清原因与下一步，能重试的给卡片挂上「重试」。 */
       const failUnsent = (fallback: string | undefined, thrown?: unknown) => {
         const described = describeSendFailure(thrown)
@@ -2071,6 +2074,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         replay?.clarificationAnswer ?? answerableClarificationId(get().messages) !== null
       const messageId = clientMessageId ?? crypto.randomUUID()
       retryMessageId = messageId
+      const { references: _captured, ...unsentSnapshot } = captured.snapshot
+      retryReplay = { ...unsentSnapshot, clarificationAnswer }
       // 交出去之前先落本机，并且等它写完：这句话与服务端之间隔着几秒网络，刷新、断网都在
       // 这段里，只在内存里就等于没发过。写完才发，回来时照样看得到，也能拿同一个 id 重发。
       const journaled = sourceProject ? { projectId: sourceProject.id, id: messageId } : null
