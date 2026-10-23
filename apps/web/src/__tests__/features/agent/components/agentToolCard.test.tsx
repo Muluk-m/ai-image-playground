@@ -24,7 +24,14 @@ const store = vi.hoisted(() => ({
   messages: [] as AgentToolMessage[],
   turns: {} as Record<string, AgentTurnFooter>,
   cancelJob: vi.fn(async (_messageId: string) => {}),
-  jobProgress: {} as Record<string, { stage: 'submitted' | 'running'; submittedAt: number }>,
+  jobProgress: {} as Record<
+    string,
+    {
+      stage: 'submitted' | 'running'
+      submittedAt: number
+      queue?: { ahead: number; limit: number }
+    }
+  >,
   toolStartedAt: {} as Record<string, number>,
   appendImageAction: vi.fn(),
   patchImageAction: vi.fn(),
@@ -495,6 +502,38 @@ it('offers cancel on each pending tile instead of the batch action row', () => {
     expect(host.querySelector('.studio-agent-batch-meta')?.textContent).toBe('0/2 完成')
   } finally {
     act(() => root.unmount())
+  }
+})
+
+it('批量出图的排队图块写出前面还有几张，整组说一次套餐并发原因（BUG-17）', () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const pending = (id: string): AgentToolMessage => ({
+    kind: 'tool',
+    id,
+    turnId: 'turn',
+    toolCallId: `call-${id}`,
+    toolName: 'generateImage',
+    title: '白色圆形台盆',
+    status: 'submitted',
+    job: { taskId: `task-${id}`, media: 'image' },
+  })
+  store.jobProgress = {
+    a: { stage: 'submitted', submittedAt: 1, queue: { ahead: 3, limit: 3 } },
+    b: { stage: 'submitted', submittedAt: 1, queue: { ahead: 4, limit: 3 } },
+  }
+  try {
+    act(() => root.render(<AgentImageRun messages={[pending('a'), pending('b')]} />))
+    const captions = [...host.querySelectorAll('.studio-agent-tile-caption')].map(
+      (one) => one.textContent,
+    )
+    expect(captions).toEqual(['排队中 · 前面还有 3 张', '排队中 · 前面还有 4 张'])
+    const notes = host.querySelectorAll('[data-agent-queue-note]')
+    expect(notes).toHaveLength(1)
+    expect(notes[0]?.textContent).toContain('当前套餐可同时生成 3 张')
+  } finally {
+    act(() => root.unmount())
+    store.jobProgress = {}
   }
 })
 

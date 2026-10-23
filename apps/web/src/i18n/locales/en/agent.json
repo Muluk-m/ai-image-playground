@@ -614,6 +614,26 @@
       "locateMessage": "Jump to message",
       "succeeded": "Done",
       "failed": "Did not finish"
+    },
+    "queue": {
+      "ahead_one": "Queued · {{count}} ahead",
+      "ahead_other": "Queued · {{count}} ahead",
+      "next": "Queued · up next",
+      "reason_one": "Your plan generates {{count}} image at a time; the rest wait in submission order, so opening more chats won't make it faster.",
+      "reason_other": "Your plan generates {{count}} images at a time; the rest wait in submission order, so opening more chats won't make it faster.",
+      "upgrade": "Upgrade plan"
+    },
+    "done": {
+      "title": "Generation finished",
+      "body_one": "{{count}} image ready in “{{name}}”",
+      "body_other": "{{count}} images ready in “{{name}}”",
+      "bodyFailed_one": "“{{name}}” finished: {{count}} ready, {{failed}} didn't finish",
+      "bodyFailed_other": "“{{name}}” finished: {{count}} ready, {{failed}} didn't finish",
+      "untitled": "New chat",
+      "view": "View",
+      "dismiss": "Dismiss",
+      "running": "Generating",
+      "unseen": "New images"
     }
   },
   "save": {
