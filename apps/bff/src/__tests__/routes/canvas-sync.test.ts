@@ -18,6 +18,7 @@ import {
   insertCanvasNode,
   moveCanvasGroups,
   moveCanvasNodes,
+  promoteCanvasResultMedia,
   readCanvasDocument,
   readCanvasGroups,
   readCanvasSyncMessage,
@@ -466,6 +467,61 @@ it('persists group membership and movement with the same cloud document', async 
   expect(readCanvasGroups(restored)).toEqual(readCanvasGroups(doc))
   expect(readCanvasDocument(restored).nodes[0]).toMatchObject({ x: 332, y: 264 })
   doc.destroy()
+  restored.destroy()
+})
+
+it('keeps an upload promotion that lost to a concurrent rename after the uploader left', async () => {
+  // 上传方(1)收成云媒体、编辑方(2)没见过它就改了名；编辑方 clientID 大，在 Yjs 取舍里赢。
+  // 上传方收到确认就关了页面，服务端要在回收删除内容之前把 mediaId 合回去。
+  const id = await create()
+  const mediaId = crypto.randomUUID()
+  const now = Date.now()
+  await db.insert(schema.media_objects).values({
+    id: mediaId,
+    user_id: 'owner',
+    sha256: mediaId,
+    bytes: 1,
+    content_type: 'image/png',
+    status: 'ready',
+    reserved_bytes: 0,
+    staging_key: mediaId,
+    object_key: mediaId,
+    expires_at: now + 86400000,
+    created_at: now,
+    updated_at: now,
+  })
+  const uploader = new Y.Doc()
+  uploader.clientID = 1
+  Y.applyUpdate(uploader, await accessCanvasDocument('owner', id))
+  insertCanvasNode(
+    uploader,
+    {
+      id: 'photo',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 80,
+      data: { fileId: 'local-photo', name: 'photo' },
+    },
+    origin,
+  )
+  const editor = new Y.Doc()
+  editor.clientID = 2
+  Y.applyUpdate(editor, await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(uploader)))
+  const vector = Y.encodeStateVector(editor)
+  const photo = () => readCanvasDocument(editor).nodes.find((node) => node.id === 'photo')!
+  updateCanvasNode(editor, 'photo', { data: { ...photo().data, name: 'renamed' } }, origin)
+  promoteCanvasResultMedia(uploader, 'photo', 'local-photo', mediaId, origin)
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(editor, vector))
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(uploader, vector))
+  uploader.destroy()
+
+  const restored = new Y.Doc()
+  Y.applyUpdate(restored, await accessCanvasDocument('owner', id))
+  const data = readCanvasDocument(restored).nodes.find((node) => node.id === 'photo')!.data
+  expect(data).toMatchObject({ name: 'renamed', mediaId, fileId: `cloud-${mediaId}` })
+  editor.destroy()
   restored.destroy()
 })
 
