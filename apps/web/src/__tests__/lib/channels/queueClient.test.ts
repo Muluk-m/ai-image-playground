@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { callQueueChannelApi } from '../../../lib/channels/queueClient'
 import type { BuiltinEdgeProfile, PublicChannel } from '../../../lib/channels/types'
-import { taskErrorTypeOf } from '../../../lib/taskError'
+import { generationFailure } from '../../../lib/generationJob'
+import { isTaskCancelled, taskErrorTypeOf } from '../../../lib/taskError'
 
 const STORAGE_KEY = 'image-playground.device_id'
 
@@ -351,6 +352,19 @@ describe('callQueueChannelApi submit body', () => {
       (err: unknown) => err,
     )
     expect(taskErrorTypeOf(failure)).toBe('content_policy')
+  })
+
+  it('排队中被取消：轮询带出「已取消」标记，不当成失败', async () => {
+    const call = await loadCallQueueChannelApi()
+    mockFetchJson(
+      { request_id: 'rid-1', status: 'queued' },
+      { request_id: 'rid-1', status: 'cancelled', submitted_at: Date.now() },
+    )
+    const failure = await call(mockOpts(), mockProfile(), mockChannel()).catch(
+      (err: unknown) => err,
+    )
+    expect(isTaskCancelled(failure)).toBe(true)
+    expect(generationFailure(failure).cancelled).toBe(true)
   })
 
   it('429 daily_quota_exceeded 抛中文错误且 quotaExceeded=true', async () => {

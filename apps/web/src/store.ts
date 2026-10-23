@@ -1885,6 +1885,7 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
           status: 'error',
           error: errorMessage,
           errorCode: failure.code,
+          cancelled: failure.cancelled,
           ...getRawErrorPayload(failure.error),
           customRecoverable: false,
           finishedAt: Date.now(),
