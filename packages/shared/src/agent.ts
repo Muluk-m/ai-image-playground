@@ -983,6 +983,17 @@ export interface AgentBackgroundJobProgress {
    * 其他阶段缺席，已用时间仍从 `submittedAt` 算。
    */
   readonly phaseSince?: number
+  /**
+   * 还在排队时它在本账号队列里的位置。账号同时生成的张数由套餐定（没订阅是 1），
+   * 超出的按提交先后排队：`ahead` 是排在它前面、还没出完的张数（在生成的加上更早提交的），
+   * `limit` 是此刻这个账号能同时生成几张。旧服务端缺席，界面只说「排队中」。
+   */
+  readonly queue?: AgentJobQueuePosition
+}
+
+export interface AgentJobQueuePosition {
+  readonly ahead: number
+  readonly limit: number
 }
 
 export interface AgentBackgroundJobsResponse {

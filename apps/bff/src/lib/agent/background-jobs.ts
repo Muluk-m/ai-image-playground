@@ -2,6 +2,7 @@ import {
   type AgentBackgroundJobProgress,
   type AgentBackgroundJobView,
   type AgentContentBlock,
+  type AgentJobQueuePosition,
   type AgentMessageView,
   type AgentToolResultBlock,
   type AgentWakeSkipReason,
@@ -10,6 +11,7 @@ import {
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelTasks } from '../../db/task-transitions'
+import { accountConcurrencyLimit, accountQueuePositions } from '../account-concurrency'
 import { cancelAnalysisTasks } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
@@ -319,6 +321,7 @@ export async function agentJobViews(
       lease_expires_at: schema.tasks.lease_expires_at,
       next_retry_at: schema.tasks.next_retry_at,
       reconcile_started_at: schema.tasks.reconcile_started_at,
+      user_id: schema.tasks.user_id,
     })
     .from(schema.tasks)
     .where(
@@ -327,6 +330,7 @@ export async function agentJobViews(
         eq(schema.tasks.agent_conversation_id, conversationId),
       ),
     )
+  const queue = await accountQueue(tasks)
   // 阶段按任务表的持久字段算（ADR 0009），不压扁成只看 status：重启或滚动发布后重新排队、
   // 但已有上游任务号的是在重连，执行器租约过期的也是，不能说成「排队」或「生成中」。
   const progress = new Map(
@@ -342,6 +346,7 @@ export async function agentJobViews(
                 ...(task.status === 'reconciling' && task.reconcile_started_at != null
                   ? { phaseSince: task.reconcile_started_at }
                   : {}),
+                ...(queue.has(task.id) ? { queue: queue.get(task.id) } : {}),
               },
             ],
           ]
@@ -355,6 +360,57 @@ export async function agentJobViews(
         : undefined
     return current ? { ...job, progress: current } : job
   })
+}
+
+/**
+ * 还在排队的那几条在本账号队列里排第几：账号同时生成的张数由套餐定，用户只看到「排队中」
+ * 不知道在等什么（BUG-17）。只在确有排队、还没拿到上游任务号时才多读一次；读不到就不给，
+ * 界面照旧只说排队中。
+ */
+async function accountQueue(
+  tasks: readonly {
+    id: string
+    status: string
+    user_id: string | null
+    upstream_task_ids: string[] | null
+  }[],
+): Promise<Map<string, AgentJobQueuePosition>> {
+  const waiting = tasks.filter(
+    (task) => task.status === 'queued' && task.user_id && !task.upstream_task_ids?.length,
+  )
+  const userId = waiting[0]?.user_id
+  if (!userId) return new Map()
+  try {
+    return await db.transaction(async (tx) => {
+      const unfinished = await tx
+        .select({
+          id: schema.tasks.id,
+          status: schema.tasks.status,
+          submittedAt: schema.tasks.submitted_at,
+        })
+        .from(schema.tasks)
+        .where(
+          and(
+            eq(schema.tasks.user_id, userId),
+            eq(schema.tasks.kind, 'queue'),
+            inArray(schema.tasks.status, ['queued', 'in_progress']),
+          ),
+        )
+      const limit = await accountConcurrencyLimit(tx, userId, Date.now())
+      return accountQueuePositions(
+        waiting.map((task) => task.id),
+        unfinished.flatMap((task) =>
+          task.status === 'queued' || task.status === 'in_progress'
+            ? [{ id: task.id, status: task.status, submittedAt: task.submittedAt }]
+            : [],
+        ),
+        limit,
+      )
+    })
+  } catch (error) {
+    log.warn({ event: 'agent.job_queue_position_failed', err: error }, 'queue position unavailable')
+    return new Map()
+  }
 }
 
 /**
