@@ -58,9 +58,21 @@ const PERMANENT_MEDIA_REJECTIONS = new Set([
   'media_image_too_large',
   'media_image_pixels_exceeded',
 ])
-function permanentMediaRejection(error: unknown): boolean {
-  if (error instanceof MediaRequestError) return PERMANENT_MEDIA_REJECTIONS.has(error.code)
+const OVERSIZED_MEDIA = new Set([
+  'media_too_large',
+  'media_image_too_large',
+  'media_image_pixels_exceeded',
+])
+type MediaRejection = 'invalid' | 'oversized'
+/** 永久失败分两类提示：坏图（空/损坏/不支持）与超限（图是好的，只是太大），文案不能混。 */
+function permanentMediaRejection(error: unknown): MediaRejection | undefined {
+  if (error instanceof MediaRequestError) {
+    if (!PERMANENT_MEDIA_REJECTIONS.has(error.code)) return undefined
+    return OVERSIZED_MEDIA.has(error.code) ? 'oversized' : 'invalid'
+  }
   return error instanceof Error && error.message === 'unsupported_local_media'
+    ? 'invalid'
+    : undefined
 }
 type CommandReadPurpose = 'passive' | 'after-reverse'
 export type CanvasCloudSession = CloudProjectSession | CloudNodeProjectSession
@@ -558,35 +570,46 @@ export class CloudNodeProjectSession {
     }
     // 永远收不了的原图（BUG-10）：不能再拿它挡整张画布的保存，把引用它的节点摘成空图片卡、候选撤掉。
     // 注意本机根本没有原图（files 里查不到）的仍按缺图挡着：那可能是别的设备还在传，摘了会毁掉它的图。
-    const rejected = new Set<string>()
+    const rejected = new Map<string, MediaRejection>()
     const drop = () => {
       if (!rejected.size) return
-      const names: string[] = []
-      let dropped = 0
+      const names: Record<MediaRejection, string[]> = { invalid: [], oversized: [] }
+      const kinds = new Set<MediaRejection>()
       // 上传期间可能有新改动，按当前文档再核对一次；只读一遍文档，不在每个节点上重建整张画布。
       const current = new Map(readCanvasDocument(doc).nodes.map((node) => [node.id, node]))
       doc.transact(() => {
         for (const { nodeId, fileId } of nodes) {
           const source = this.record.editor.doc.files[fileId]
-          if (!source || !rejected.has(source)) continue
+          const kind = source ? rejected.get(source) : undefined
+          if (!kind) continue
           const node = current.get(nodeId)
           if (!node || !('fileId' in node.data) || node.data.fileId !== fileId) continue
           if (!dropCanvasNodeFile(doc, nodeId, fileId, legacyOrigin)) continue
-          dropped++
-          if (node.data.name) names.push(node.data.name)
+          kinds.add(kind)
+          if (node.data.name) names[kind].push(node.data.name)
         }
-        const dropping = new Set<string>()
+        const dropping = new Map<string, MediaRejection>()
         for (const { fileId } of results) {
           const source = this.record.editor.doc.files[fileId]
-          if (source && rejected.has(source)) dropping.add(fileId)
+          const kind = source ? rejected.get(source) : undefined
+          if (kind) dropping.set(fileId, kind)
         }
-        for (const fileId of dropping) dropped += dropCanvasResultFile(doc, fileId, legacyOrigin)
+        for (const [fileId, kind] of dropping)
+          if (dropCanvasResultFile(doc, fileId, legacyOrigin)) kinds.add(kind)
       }, legacyOrigin)
-      if (!dropped) return
-      const message = names.length
-        ? i18next.t('nodes.uploadRejected', { ns: 'canvas', names: [...new Set(names)].join('、') })
-        : i18next.t('nodes.uploadRejectedUnnamed', { ns: 'canvas' })
-      useStore.getState().showToast(message, 'error')
+      for (const kind of kinds) {
+        const list = [...new Set(names[kind])]
+        const joined = list.join('、')
+        const message =
+          kind === 'oversized'
+            ? list.length
+              ? i18next.t('nodes.uploadTooLarge', { ns: 'canvas', names: joined })
+              : i18next.t('nodes.uploadTooLargeUnnamed', { ns: 'canvas' })
+            : list.length
+              ? i18next.t('nodes.uploadRejected', { ns: 'canvas', names: joined })
+              : i18next.t('nodes.uploadRejectedUnnamed', { ns: 'canvas' })
+        useStore.getState().showToast(message, 'error')
+      }
     }
     // 与旧画布 prepareProjectMedia 同一个写法：同时传 MEDIA_CONCURRENCY 张，传完一张就把它收进文档；
     // 一张失败不拦其余的，全部跑完再报第一条错，下次同步只剩失败的那几张。
@@ -607,7 +630,8 @@ export class CloudNodeProjectSession {
             failure ??= error
             return
           }
-          if (permanentMediaRejection(error)) rejected.add(source)
+          const kind = permanentMediaRejection(error)
+          if (kind) rejected.set(source, kind)
           else failure ??= error
         }
       }

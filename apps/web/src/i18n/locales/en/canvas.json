@@ -487,6 +487,8 @@
     "zoomOut": "Zoom out",
     "uploadRejected": "{{names}} is not a valid image (empty or corrupted). It was removed from its node; the rest of the canvas saves normally. You can upload it again.",
     "uploadRejectedUnnamed": "An image was not valid (empty or corrupted). It was removed from its node; the rest of the canvas saves normally.",
+    "uploadTooLarge": "{{names}} is too large (over the upload size or pixel limit). It was removed from its node; the rest of the canvas saves normally. Shrink or compress it and upload again.",
+    "uploadTooLargeUnnamed": "An image was too large (over the upload size or pixel limit). It was removed from its node; the rest of the canvas saves normally.",
     "historyFull": "Canvas undo history is full. This action was not applied; your content is preserved.",
     "undo": "Undo",
     "redo": "Redo",
