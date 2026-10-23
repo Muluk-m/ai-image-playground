@@ -1,8 +1,9 @@
 import { pickLookAssetImageId } from '@image-playground/shared'
 import { create } from 'zustand'
 import { describeError, i18next } from '../../i18n'
+import { getActiveApiProfile } from '../../lib/apiProfiles'
 import { accountScope } from '../../lib/authScope'
-import type { ReferenceAdmission } from '../../lib/referenceDraft'
+import { type ReferenceAdmission, referenceAdmission } from '../../lib/referenceDraft'
 import { ensureAssetImage } from '../../lib/sync/assetImages'
 import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
 import { DEFAULT_PARAMS, type InputImage } from '../../types'
@@ -502,7 +503,9 @@ async function writeTemplateIntoComposer(
   // 取不到图的那一位跟素材被删掉一样：引用降级为「已移除」，套用照旧。
   const covers = await referencesForImageIds(imageIdsByOldIndex.filter((id) => id !== null))
   // 模板要的素材是一组：放不下就整条不套用，免得留下半条参考图配一句改过的提示词。
-  if (!main.attachInputImages(covers)) return
+  // 模板是合并参考的一套：只按模型一次能带的张数收。
+  if (!main.attachInputImages(covers, referenceAdmission(getActiveApiProfile(main.settings))))
+    return
 
   main.setPrompt(
     remapTemplateMentions(template.prompt, imageIdsByOldIndex, useStore.getState().inputImages),
