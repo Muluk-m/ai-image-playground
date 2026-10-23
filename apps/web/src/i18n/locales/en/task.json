@@ -44,7 +44,6 @@
   "detail": {
     "errorUnavailable": "No specific failure reason was recorded. Copy the diagnostics to help investigate.",
     "copyDiagnostics": "Copy diagnostics",
-    "generateFailed": "Generation failed",
     "contentPolicy": "This prompt didn't pass the provider's content review, so the generation was rejected. Reword it and try again — resubmitting the same prompt lands the same way.",
     "rewritePrompt": "Edit the prompt",
     "errorCopied": "Full error copied",
