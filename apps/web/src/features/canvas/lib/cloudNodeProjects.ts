@@ -5,6 +5,8 @@ import {
   canvasSyncStep1,
   canvasSyncStep2,
   createCanvasUndoManager,
+  dropCanvasNodeFile,
+  dropCanvasResultFile,
   importLegacyElements,
   type LegacyCanvasElement,
   type ProjectDocument,
@@ -45,6 +47,21 @@ import type { SceneRecord } from './sceneRecord'
 
 const remoteOrigin = canvasOrigin('system', 'cloud-sync')
 const legacyOrigin = canvasOrigin('system', 'legacy-editor')
+/**
+ * 这几种失败是这份字节本身的问题（0 字节、不是图、损坏、超限），再传多少次都一样。
+ * 配额、限流、网络、校验不一致都可能下次就好，不在此列。
+ */
+const PERMANENT_MEDIA_REJECTIONS = new Set([
+  'media_invalid_image',
+  'media_unsupported_image',
+  'media_too_large',
+  'media_image_too_large',
+  'media_image_pixels_exceeded',
+])
+function permanentMediaRejection(error: unknown): boolean {
+  if (error instanceof MediaRequestError) return PERMANENT_MEDIA_REJECTIONS.has(error.code)
+  return error instanceof Error && error.message === 'unsupported_local_media'
+}
 type CommandReadPurpose = 'passive' | 'after-reverse'
 export type CanvasCloudSession = CloudProjectSession | CloudNodeProjectSession
 
@@ -539,6 +556,34 @@ export class CloudNodeProjectSession {
         if (this.record.editor.doc.files[fileId] === source)
           promoteCanvasStoredResult(doc, resultId, fileId, mediaId, legacyOrigin)
     }
+    // 永远收不了的原图（BUG-10）：不能再拿它挡整张画布的保存，把引用它的节点摘成空图片卡、候选撤掉。
+    // 注意本机根本没有原图（files 里查不到）的仍按缺图挡着：那可能是别的设备还在传，摘了会毁掉它的图。
+    const rejected = new Set<string>()
+    const drop = () => {
+      if (!rejected.size) return
+      const names: string[] = []
+      let dropped = 0
+      doc.transact(() => {
+        for (const { nodeId, fileId } of nodes) {
+          const source = this.record.editor.doc.files[fileId]
+          if (!source || !rejected.has(source)) continue
+          const current = readCanvasDocument(doc).nodes.find((n) => n.id === nodeId)
+          if (!current || !('fileId' in current.data) || current.data.fileId !== fileId) continue
+          dropped++
+          if (current.data.name) names.push(current.data.name)
+          dropCanvasNodeFile(doc, nodeId, fileId, legacyOrigin)
+        }
+        for (const { fileId } of results) {
+          const source = this.record.editor.doc.files[fileId]
+          if (source && rejected.has(source)) dropCanvasResultFile(doc, fileId, legacyOrigin)
+        }
+      }, legacyOrigin)
+      if (!dropped) return
+      const message = names.length
+        ? i18next.t('nodes.uploadRejected', { ns: 'canvas', names: [...new Set(names)].join('、') })
+        : i18next.t('nodes.uploadRejectedUnnamed', { ns: 'canvas' })
+      useStore.getState().showToast(message, 'error')
+    }
     // 与旧画布 prepareProjectMedia 同一个写法：同时传 MEDIA_CONCURRENCY 张，传完一张就把它收进文档；
     // 一张失败不拦其余的，全部跑完再报第一条错，下次同步只剩失败的那几张。
     const queue = [...sources]
@@ -554,12 +599,17 @@ export class CloudNodeProjectSession {
           this.bindings.set(source, mediaId)
           promote(source, mediaId)
         } catch (error) {
-          failure ??= error
-          if (this.controller.signal.aborted || !this.sameAccount()) return
+          if (this.controller.signal.aborted || !this.sameAccount()) {
+            failure ??= error
+            return
+          }
+          if (permanentMediaRejection(error)) rejected.add(source)
+          else failure ??= error
         }
       }
     }
     await Promise.all(Array.from({ length: Math.min(MEDIA_CONCURRENCY, queue.length) }, worker))
+    drop()
     if (failure !== undefined) throw failure
   }
   requestSync = () => {
