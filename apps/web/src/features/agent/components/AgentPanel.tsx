@@ -235,25 +235,19 @@ function consecutiveImageRuns(
 }
 
 /**
- * 计划卡的 key 跟着轮次走，不跟着第一张稿走。
+ * 计划卡的 key 锚在这段计划的最后一张稿上，不锚第一张，也不按段序编号。
  *
- * 「全部生成」逐张确认：第一张成交后它不再是待确认稿，计划从下一张起算。key 若取第一张稿的
- * id，这一刻整张计划卡就被卸下重挂——还在跑的确认循环把后面那张被拒（例如积分不足）的结果
- * 写进一个已经不在的组件，用户什么也看不见。同一轮里偶尔有被别的消息隔开的几段计划，
- * 按它在本轮里的先后编号区分。
+ * 「全部生成」自上而下逐张确认：前面的稿成交后就不再是待确认稿，计划从下一张起算。key 若取
+ * 第一张稿的 id，这一刻整张计划卡就被卸下重挂——还在跑的确认循环把后面那张被拒（例如积分不足）
+ * 的结果写进一个已经不在的组件，用户什么也看不见。按「本轮第几段」编号也不行：同一轮里被别的
+ * 消息隔开的前一段计划确认完消失后，后一段的序号跟着变，同样会被重挂。最后一张稿要等整段都
+ * 提交完才离开，期间这段计划的 key 不变，也不受其他段增减影响。
  */
 function planRunKeys(
-  messages: readonly AgentPanelMessage[],
   starts: ReadonlyMap<number, readonly AgentToolMessage[]>,
 ): Map<number, string> {
   const keys = new Map<number, string>()
-  const seen = new Map<string, number>()
-  for (const index of [...starts.keys()].sort((a, b) => a - b)) {
-    const turnId = messages[index]?.turnId ?? ''
-    const ordinal = seen.get(turnId) ?? 0
-    seen.set(turnId, ordinal + 1)
-    keys.set(index, `plan:${turnId}:${ordinal}`)
-  }
+  for (const [index, run] of starts) keys.set(index, `plan:${run[run.length - 1]?.id ?? index}`)
   return keys
 }
 
@@ -450,7 +444,7 @@ export default function AgentPanel({
   const grouping = groupPanelMessages(messages)
   const fetchedRuns = presentation === 'page' && onPreviewResult ? fetchedImageRuns(messages) : null
   const planRuns = consecutiveImageRuns(messages, isImagePlanDraft, 1)
-  const planKeys = planRunKeys(messages, planRuns.starts)
+  const planKeys = planRunKeys(planRuns.starts)
   const imageRuns = consecutiveImageRuns(messages, isImageOutput, 2)
 
   return (

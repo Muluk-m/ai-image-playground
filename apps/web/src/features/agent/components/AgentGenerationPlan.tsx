@@ -87,7 +87,8 @@ export default function AgentGenerationPlan({
           setSubmitting(false)
           return
         }
-        confirmed += 1
+        // 文案说的是「已提交 N 张」：一张稿可能要 n 张图，按产出数计，不按稿数。
+        confirmed += agentDraftOutputCount(message)
       }
       setSubmitting(false)
     })()
