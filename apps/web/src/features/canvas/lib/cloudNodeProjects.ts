@@ -23,6 +23,7 @@ import {
   synchronizeLegacyElements,
   updateCanvasNode,
   watchCanvasUploadConflicts,
+  withoutCanvasUploadClaim,
 } from '@image-playground/shared'
 import i18next from 'i18next'
 import { IndexeddbPersistence } from 'y-indexeddb'
@@ -31,7 +32,6 @@ import { authenticatedBffFetch } from '../../../lib/authClient'
 import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import { supportsCanvasPendingMedia } from '../../../lib/clientCapabilities'
 import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
-import { getDeviceId } from '../../../lib/deviceId'
 import { uploadMediaSource } from '../../../lib/mediaUpload'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
@@ -50,6 +50,7 @@ import {
 } from './projectMedia'
 import { type CanvasProject, projectRepository } from './projectRepository'
 import type { SceneRecord } from './sceneRecord'
+import { getCanvasUploaderId } from './uploadSession'
 
 const remoteOrigin = canvasOrigin('system', 'cloud-sync')
 const legacyOrigin = canvasOrigin('system', 'legacy-editor')
@@ -563,7 +564,7 @@ export class CloudNodeProjectSession {
     const doc = this.canvas.doc
     // 先列出这一轮要收成云媒体的全部本机原图，按原图去重：同一张图挂在几个节点或候选上只传一次。
     const nodes: { nodeId: string; fileId: string; elsewhere: boolean }[] = []
-    const device = getDeviceId()
+    const device = getCanvasUploaderId()
     const now = Date.now()
     for (const node of readCanvasDocument(doc).nodes) {
       if (
@@ -670,7 +671,7 @@ export class CloudNodeProjectSession {
       return false
     // 本机缺原图、也没有别的设备有效声明在传的节点不能当「上传中」发出去：走原流程报缺图。
     const files = this.record.editor.doc.files
-    const device = getDeviceId()
+    const device = getCanvasUploaderId()
     const now = Date.now()
     return readCanvasDocument(this.canvas.doc).nodes.every(
       (node) =>
@@ -692,7 +693,7 @@ export class CloudNodeProjectSession {
     if (!this.canvas) return
     const doc = this.canvas.doc
     const files = this.record.editor.doc.files
-    const device = getDeviceId()
+    const device = getCanvasUploaderId()
     const now = String(Date.now())
     const claims: { id: string; data: ImageNodeData }[] = []
     for (const node of readCanvasDocument(doc).nodes) {
@@ -722,6 +723,28 @@ export class CloudNodeProjectSession {
               },
             },
           },
+          legacyOrigin,
+        )
+    }, legacyOrigin)
+  }
+  /** 后台上传失败停下时，去掉本标签页对还没收成云媒体的节点写的上传声明。 */
+  private releaseLocalUploads() {
+    if (!this.canvas) return
+    const doc = this.canvas.doc
+    const device = getCanvasUploaderId()
+    const released: { id: string; data: ImageNodeData }[] = []
+    for (const node of readCanvasDocument(doc).nodes) {
+      if (node.type !== 'image' && node.type !== 'video') continue
+      if (!node.data.mediaId && node.data.meta?.[CANVAS_UPLOAD_DEVICE_META] === device)
+        released.push({ id: node.id, data: node.data })
+    }
+    if (!released.length) return
+    doc.transact(() => {
+      for (const { id, data } of released)
+        updateCanvasNode(
+          doc,
+          id,
+          { data: { ...data, meta: withoutCanvasUploadClaim(data.meta) } },
           legacyOrigin,
         )
     }, legacyOrigin)
@@ -778,7 +801,15 @@ export class CloudNodeProjectSession {
         // 这一轮开始后又有改动（例如刚加了新图）：不能就此停下，否则要等到下一次编辑才会再传。
         // 只按文档版本判断：这一轮开始前写的上传声明不算，持续失败不会自己循环重试。
         this.uploadAgain = false
-        if (this.editVersion !== roundVersion) this.requestSync()
+        if (this.editVersion !== roundVersion) {
+          this.requestSync()
+          return
+        }
+        // 不再自动重传：去掉本标签页写的上传声明并同步出去，别处不再一直显示「上传中」、
+        // 复制项目也不再被当成还在上传；用户再改动或手动同步时 claimLocalUploads 会重新声明。
+        // 去掉声明本身也是一次改动，把它记成失败版本，免得它触发新一轮上传。
+        this.releaseLocalUploads()
+        this.failedUploadVersion = this.editVersion
       })
   }
   private send(): Promise<void> {
