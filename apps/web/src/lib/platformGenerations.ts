@@ -344,7 +344,7 @@ function statusFromGeneration(status: QueueStatus): TaskStatus {
  * 有任何一条可能缀过、或清单还没到 / 模型已下架认不出，就只剥逐字一致的那一句（前面还得是提交侧拼上的空行），
  * 这是机器生成的英文，用户原句恰好这样结尾的概率可以忽略。
  */
-function promptFromGeneration(item: GenerationSummary): string {
+export function promptFromGeneration(item: GenerationSummary): string {
   const models = getPublicChannels()
     .flatMap((channel) => channel.models)
     .filter((model) => model.id === item.model)

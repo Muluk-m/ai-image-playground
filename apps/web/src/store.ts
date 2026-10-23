@@ -75,6 +75,7 @@ import {
   isPlatformGeneration,
   loadPlatformGenerations,
   type PlatformGenerationRow,
+  promptFromGeneration,
   refreshPlatformGeneration,
   setPlatformFavorite,
   watchPlatformGeneration,
@@ -2179,7 +2180,9 @@ export async function materializeRemoteTask(task: TaskRecord): Promise<TaskRecor
   ])
   const localized: TaskRecord = {
     ...task,
-    prompt: detail?.prompt ?? task.prompt,
+    // 平台详情里是发给上游的那一句（防改写前缀、构图指令）；本机卡要的是用户原文，
+    // 否则重试时 callImageApi 按 no_rewrite 再钉一遍前缀，卡上也重新露出机器指令。
+    prompt: detail ? promptFromGeneration(detail) : task.prompt,
     outputImages,
     inputImageIds,
     maskImageId,
