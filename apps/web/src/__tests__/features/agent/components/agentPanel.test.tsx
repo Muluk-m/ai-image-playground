@@ -2087,7 +2087,12 @@ describe('AgentPanel', () => {
         ;[...host.querySelectorAll<HTMLButtonElement>('button')]
           .find((button) => button.textContent === '全部生成（4）')
           ?.click()
-        await new Promise((resolve) => setTimeout(resolve, 0))
+        await vi.waitFor(() => expect(confirmPrompt).toHaveBeenCalledTimes(4))
+      })
+      // 等逐张确认走完、结局横幅渲染出来，不赌一次定时器就够。
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[role="alert"]')?.textContent).toContain('已提交 3 张')
       })
       expect(confirmPrompt.mock.calls.map(([id]) => id)).toEqual(['a', 'b', 'c', 'd'])
       expect(host.textContent).toContain('全部生成（1）')
@@ -2156,7 +2161,12 @@ describe('AgentPanel', () => {
         ;[...host.querySelectorAll<HTMLButtonElement>('button')]
           .find((button) => button.textContent === '全部生成（3）')
           ?.click()
-        await new Promise((resolve) => setTimeout(resolve, 0))
+        await vi.waitFor(() => expect(confirmPrompt).toHaveBeenCalledTimes(2))
+      })
+      // 等逐张确认走完、结局横幅渲染出来，不赌一次定时器就够。
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[role="alert"]')?.textContent).toContain('已提交 2 张')
       })
       expect(confirmPrompt.mock.calls.map(([id]) => id)).toEqual(['a', 'd'])
       expect(host.querySelectorAll('[aria-label="生成计划"]')).toHaveLength(1)
