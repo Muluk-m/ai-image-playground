@@ -114,7 +114,14 @@ import {
   referenceFileIds,
 } from '../lib/nodeCanvasFlow'
 import { type NodeCanvasFocus, registerNodeCanvasFocus } from '../lib/nodeCanvasFocus'
-import { fillImageNode, resumeNodeGenerations, submitNodeImage } from '../lib/nodeCanvasGenerate'
+import {
+  fillImageNode,
+  InvalidImageFileError,
+  type ReadImageFile,
+  readImageFile,
+  resumeNodeGenerations,
+  submitNodeImage,
+} from '../lib/nodeCanvasGenerate'
 import {
   addCanvasReference,
   CanvasReferenceLimitError,
@@ -1424,19 +1431,43 @@ function Flow({
     selectNode(id)
   }
   const placeFiles = (files: File[]) => {
-    const images = acceptImageFiles(files)
-    if (images.length === 0) return
+    const candidates = acceptImageFiles(files)
+    if (candidates.length === 0) return
     const point = placeAt.current
-    confirmImageBatch(images.length, () => {
-      void (async () => {
-        for (const file of images) {
-          const id = createNode(canvas, 'image', point, textFill)
-          await fillImageNode(editor, canvas.doc, id, file)
-          selectNode(id)
-        }
-      })().catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
-    })
+    const failed = () => useStore.getState().showToast(t('import.failed'), 'error')
+    void (async () => {
+      // 先确认解得开再问张数、建节点：空文件、伪装成 .png 的文本不该留下一个永远「上传中」的节点，
+      // 也不该算进「确认导入 N 张」里。
+      const invalid: string[] = []
+      const images: { image: ReadImageFile; name: string }[] = []
+      for (const file of candidates) {
+        const image = await readImageFile(file).catch((error: unknown) => {
+          if (error instanceof InvalidImageFileError) return null
+          throw error
+        })
+        if (image) images.push({ image, name: file.name })
+        else invalid.push(file.name)
+      }
+      if (invalid.length) showInvalidImages(invalid)
+      if (images.length === 0) return
+      confirmImageBatch(images.length, () => {
+        void (async () => {
+          for (const { image, name } of images) {
+            const id = createNode(canvas, 'image', point, textFill)
+            await fillImageNode(editor, canvas.doc, id, image, name)
+            selectNode(id)
+          }
+        })().catch(failed)
+      })
+    })().catch(failed)
   }
+  const showInvalidImages = (names: readonly string[]) =>
+    useStore
+      .getState()
+      .showToast(
+        t('import.invalidFiles', { count: names.length, names: names.join('、') }),
+        'error',
+      )
   useEffect(() => {
     setNodes((current) => {
       const previous = new Map(current.map((one) => [one.id, one]))
@@ -1810,8 +1841,10 @@ function Flow({
     }
   }
   const uploadInto = (id: string, file: File) => {
-    void fillImageNode(editor, canvas.doc, id, file).catch(() =>
-      useStore.getState().showToast(t('import.failed'), 'error'),
+    void fillImageNode(editor, canvas.doc, id, file).catch((error: unknown) =>
+      error instanceof InvalidImageFileError
+        ? showInvalidImages([error.fileName])
+        : useStore.getState().showToast(t('import.failed'), 'error'),
     )
   }
   const spawnBeside = (nodeId: string, side: 'left' | 'right') => {

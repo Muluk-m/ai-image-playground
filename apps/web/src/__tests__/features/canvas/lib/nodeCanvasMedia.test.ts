@@ -12,7 +12,11 @@ import * as Y from 'yjs'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { createNode } from '../../../../features/canvas/lib/nodeCanvasActions'
-import { fillImageNode } from '../../../../features/canvas/lib/nodeCanvasGenerate'
+import {
+  fillImageNode,
+  InvalidImageFileError,
+  readImageFile,
+} from '../../../../features/canvas/lib/nodeCanvasGenerate'
 import type * as CanvasImage from '../../../../lib/canvasImage'
 
 const dimensions = vi.hoisted(() => vi.fn())
@@ -91,6 +95,78 @@ it.each([
     })
   } finally {
     unsubscribe()
+    undo.destroy()
+    doc.destroy()
+  }
+})
+
+it.each([
+  ['a 0-byte file', new File([], 'zero.png', { type: 'image/png' }), undefined],
+  ['text renamed to .png', new File(['hello'], 'fake.png', { type: 'image/png' }), 'reject'],
+  [
+    'an image without pixels',
+    new File(['x'], 'empty.png', { type: 'image/png' }),
+    { width: 0, height: 0 },
+  ],
+] as const)('rejects %s before anything reaches the canvas', async (_label, file, decoded) => {
+  dimensions.mockReset()
+  if (decoded === 'reject') dimensions.mockRejectedValue(new Error('decode'))
+  else if (decoded) dimensions.mockResolvedValue(decoded)
+  await expect(readImageFile(file)).rejects.toBeInstanceOf(InvalidImageFileError)
+  await expect(readImageFile(file)).rejects.toMatchObject({ fileName: file.name })
+})
+
+it('reads a File from another window even though it fails this window’s instanceof File', async () => {
+  const doc = new Y.Doc()
+  const origin = canvasOrigin('user', 'media-test')
+  const undo = createCanvasUndoManager(doc, origin)
+  const canvas = { doc, origin, undo, destroy: async () => doc.destroy() }
+  const editor = new CanvasEditor(new CanvasDoc())
+  let previous = editor.doc.elements
+  const unsubscribe = editor.doc.subscribe(() => {
+    const next = editor.doc.elements
+    synchronizeLegacyElements(doc, previous, next, origin)
+    previous = next
+  })
+  try {
+    dimensions.mockReset()
+    dimensions.mockResolvedValue({ width: 640, height: 480 })
+    const id = createNode(canvas, 'image', { x: 400, y: 300 }, '')
+    // 跨 window 的 File：原型链不在本窗口，结构上仍是带 name 的 Blob。
+    const foreign = Object.assign(new Blob(['pixels'], { type: 'image/png' }), {
+      name: 'other-window.png',
+      lastModified: 0,
+    }) as unknown as File
+    expect(foreign instanceof File).toBe(false)
+    await fillImageNode(editor, doc, id, foreign)
+    expect(readCanvasDocument(doc).nodes[0]).toMatchObject({
+      data: { naturalWidth: 640, naturalHeight: 480, name: 'other-window.png' },
+    })
+  } finally {
+    unsubscribe()
+    undo.destroy()
+    doc.destroy()
+  }
+})
+
+it.each([
+  ['an empty data URL', { dataUrl: '', width: 10, height: 10 }],
+  ['missing size', { dataUrl: 'data:image/png;base64,AA==', width: 0, height: Number.NaN }],
+  ['a non-image data URL', { dataUrl: 'data:text/plain;base64,AA==', width: 10, height: 10 }],
+])('refuses to put %s onto a node even when passed as an already-read image', async (_label, image) => {
+  const doc = new Y.Doc()
+  const origin = canvasOrigin('user', 'media-test')
+  const undo = createCanvasUndoManager(doc, origin)
+  const canvas = { doc, origin, undo, destroy: async () => doc.destroy() }
+  const editor = new CanvasEditor(new CanvasDoc())
+  try {
+    const id = createNode(canvas, 'image', { x: 0, y: 0 }, '')
+    const before = editor.doc.elements
+    await expect(fillImageNode(editor, doc, id, image, 'bad.png')).rejects.toBeInstanceOf(
+      InvalidImageFileError,
+    )
+    expect(editor.doc.elements).toBe(before)
+  } finally {
     undo.destroy()
     doc.destroy()
   }
