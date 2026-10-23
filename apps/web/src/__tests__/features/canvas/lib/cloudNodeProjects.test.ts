@@ -16,6 +16,7 @@ import {
   readCanvasSyncMessage,
   recordCanvasResult,
 } from '@image-playground/shared'
+import i18next from 'i18next'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import { createArtifactDelivery } from '../../../../features/agent/lib/artifactDelivery'
@@ -466,10 +467,19 @@ it('keeps uploading the other images when one fails and retries only the failed 
 })
 
 it.each([
-  ['an empty or undecodable file', () => new MediaRequestError(422, 'media_invalid_image')],
-  ['an oversized image', () => new MediaRequestError(413, 'media_too_large')],
-  ['an unsupported local source', () => new Error('unsupported_local_media')],
-])('saves the rest of the canvas when %s can never be uploaded (BUG-10)', async (_name, reject) => {
+  [
+    'an empty or undecodable file',
+    () => new MediaRequestError(422, 'media_invalid_image'),
+    'uploadRejected',
+  ],
+  ['an oversized image', () => new MediaRequestError(413, 'media_too_large'), 'uploadTooLarge'],
+  [
+    'an over-pixel image',
+    () => new MediaRequestError(422, 'media_image_pixels_exceeded'),
+    'uploadTooLarge',
+  ],
+  ['an unsupported local source', () => new Error('unsupported_local_media'), 'uploadRejected'],
+])('saves the rest of the canvas when %s can never be uploaded (BUG-10)', async (_name, reject, toastKey) => {
   const { session, record, socket, server } = await fixture()
   acknowledgeWrites(socket, server)
   socket.receive(canvasSyncAck(server))
@@ -524,6 +534,13 @@ it.each([
   expect(saved?.data).toEqual({ name: 'zero.png' })
   expect(showToast).toHaveBeenCalledTimes(1)
   expect(showToast.mock.calls[0]?.[1]).toBe('error')
+  // 超限的图不是坏图，提示不能说“为空或已损坏”。
+  expect(String(showToast.mock.calls[0]?.[0])).toBe(
+    i18next.t(toastKey === 'uploadTooLarge' ? 'nodes.uploadTooLarge' : 'nodes.uploadRejected', {
+      ns: 'canvas',
+      names: 'zero.png',
+    }),
+  )
   expect(canvasResults(server).some((r) => r.id === 'zero-upload')).toBe(false)
   // 坏图只试一次，不会每轮同步都再传一遍。
   expect(
