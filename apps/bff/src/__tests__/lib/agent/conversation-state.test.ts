@@ -356,6 +356,34 @@ describe('readConversationStateFacts', () => {
     const facts = await readConversationStateFacts('replayed', NOW)
     expect(facts.voidedDrafts).toEqual([{ title: '一根黄色香蕉' }])
   })
+
+  it('同一条消息里同一张卡出现两次时按后面那块认', async () => {
+    await conversation('twice')
+    await draft('twice', 'banana-twice', '一根黄色香蕉')
+    const card = (status: string, extra: Record<string, unknown> = {}) => ({
+      type: 'toolResult' as const,
+      toolCallId: 'banana-twice',
+      toolName: 'generateImage',
+      title: 'banana-twice',
+      gated: true,
+      status,
+      ...extra,
+    })
+    await db.insert(schema.agent_messages).values([
+      {
+        conversation_id: 'twice',
+        id: 'both',
+        turn_id: 'turn',
+        seq: 1,
+        role: 'assistant',
+        content: [card('awaiting_confirmation'), card('failed', { errorCode: 'cancelled' })],
+        created_at: NOW,
+      },
+    ] as (typeof schema.agent_messages.$inferInsert)[])
+
+    const facts = await readConversationStateFacts('twice', NOW)
+    expect(facts.voidedDrafts).toEqual([{ title: '一根黄色香蕉' }])
+  })
 })
 
 describe('renderConversationState', () => {
