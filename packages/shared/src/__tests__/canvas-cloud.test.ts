@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'bun:test'
 import * as Y from 'yjs'
 import {
+  CANVAS_UPLOAD_CLOCK_SKEW_MS,
+  CANVAS_UPLOAD_STALE_MS,
   canvasProjectDocument,
+  canvasUploadClaimNextChange,
+  canvasUploadingElsewhere,
   initializeCanvasConnectionRules,
+  nextCanvasUploadStamp,
+  releaseCanvasUploadClaim,
   validateCloudCanvas,
+  withoutCanvasUploadClaim,
 } from '../canvas-cloud'
 import {
   canvasOrigin,
@@ -91,16 +98,58 @@ describe('cloud canvas migration and protocol', () => {
     expect(canvasProjectDocument(doc, document)).toEqual(document)
     validateCloudCanvas(doc, document)
   })
-  it('rejects local bitmap references, malformed roots and non-finite geometry', () => {
+  it('accepts an uploading local image but rejects forged or inline bitmap references', () => {
     const doc = new Y.Doc()
     importLegacyElements(doc, [], origin)
-    insertCanvasNode(
-      doc,
-      { id: 'bad', type: 'image', x: 0, y: 0, width: 10, height: 10, data: { fileId: 'local' } },
-      origin,
-    )
-    expect(() => validateCloudCanvas(doc, legacy)).toThrow()
-    deleteCanvasNode(doc, 'bad', origin)
+    let next = 0
+    const image = (fileId: string, mediaId?: string) => ({
+      id: `upload-${next++}`,
+      type: 'image' as const,
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      data: { fileId, ...(mediaId ? { mediaId } : {}) },
+    })
+    // 上传还没完成：只有本机认得的 fileId，先同步位置；旧读模型里不出现这张图。
+    insertCanvasNode(doc, image('Vk3n_x-9:story-grid:0'), origin)
+    validateCloudCanvas(doc, legacy)
+    expect(canvasProjectDocument(doc, legacy).elements).toEqual([])
+    for (const forged of [
+      image('cloud-11111111-1111-4111-8111-111111111111'),
+      image('data:image/png;base64,AAAA'),
+      image('x'.repeat(257)),
+      image('local', '11111111-1111-4111-8111-111111111111'),
+      // 客户端用普通对象 files[fileId] 查本机图，原型链上的名字会查到继承来的函数或对象。
+      image('__proto__'),
+      image('constructor'),
+      image('toString'),
+    ]) {
+      insertCanvasNode(doc, forged, origin)
+      expect(() => validateCloudCanvas(doc, legacy)).toThrow(
+        forged.data.fileId.startsWith('data:') ? 'invalid_canvas_node' : 'canvas_media_not_ready',
+      )
+      deleteCanvasNode(doc, forged.id, origin)
+    }
+    // mediaId 是 null、空串或不是 UUID 的字符串时直接判非法，不能当成「还没 mediaId」的上传中节点放过去。
+    for (const mediaId of [null, 0, false, '', 'x']) {
+      const forged = {
+        ...image('Vk3n_x-9:story-grid:0'),
+        data: { fileId: 'Vk3n_x-9:story-grid:0', mediaId },
+      }
+      insertCanvasNode(doc, forged as never, origin)
+      expect(() => validateCloudCanvas(doc, legacy)).toThrow('invalid_canvas_node')
+      deleteCanvasNode(doc, forged.id, origin)
+    }
+    // 不带 fileId 的空节点也一样。
+    const noFile = { ...image('unused'), data: { mediaId: 'x' } }
+    insertCanvasNode(doc, noFile as never, origin)
+    expect(() => validateCloudCanvas(doc, legacy)).toThrow('invalid_canvas_node')
+    deleteCanvasNode(doc, noFile.id, origin)
+  })
+  it('rejects malformed roots and non-finite geometry', () => {
+    const doc = new Y.Doc()
+    importLegacyElements(doc, [], origin)
     doc.getMap('secrets').set('payload', true)
     expect(() => validateCloudCanvas(doc, legacy)).toThrow()
   })
@@ -289,4 +338,66 @@ it('rejects malformed timeline slot payloads even when their target is absent', 
     doc.getMap('timelineSlots').set(JSON.stringify(['timeline', 'source', 'a', field]), value)
     expect(() => validateCloudCanvas(doc, legacy)).toThrow('invalid_canvas_timeline')
   }
+})
+
+describe('canvas upload claims', () => {
+  const now = 1_000_000_000
+  const claimed = (by: string, since: number) => ({
+    fileId: 'local-1',
+    meta: { uploadDevice: by, uploadStartedAt: String(since), prompt: 'p' },
+  })
+
+  it('给出上传中状态下一次翻转的时刻，到点前后结果确实不同', () => {
+    const fresh = claimed('other', now - 1000)
+    const expiry = canvasUploadClaimNextChange(fresh, 'me', now)
+    expect(expiry).toBe(now - 1000 + CANVAS_UPLOAD_STALE_MS)
+    expect(canvasUploadingElsewhere(fresh, 'me', (expiry as number) - 1)).toBe(true)
+    expect(canvasUploadingElsewhere(fresh, 'me', expiry as number)).toBe(false)
+    const ahead = claimed('other', now + CANVAS_UPLOAD_CLOCK_SKEW_MS + 60_000)
+    const start = canvasUploadClaimNextChange(ahead, 'me', now) as number
+    expect(canvasUploadingElsewhere(ahead, 'me', start - 1)).toBe(false)
+    expect(canvasUploadingElsewhere(ahead, 'me', start)).toBe(true)
+    expect(canvasUploadClaimNextChange(claimed('me', now), 'me', now)).toBeUndefined()
+    expect(
+      canvasUploadClaimNextChange(claimed('other', now - CANVAS_UPLOAD_STALE_MS), 'me', now),
+    ).toBeUndefined()
+    expect(canvasUploadClaimNextChange({ ...fresh, mediaId: 'm' }, 'me', now)).toBeUndefined()
+  })
+
+  it('只把别的设备声明在传、还没过期的本机图片当作上传中', () => {
+    expect(canvasUploadingElsewhere(claimed('other', now - 1000), 'me', now)).toBe(true)
+    expect(canvasUploadingElsewhere(claimed('me', now - 1000), 'me', now)).toBe(false)
+    expect(
+      canvasUploadingElsewhere(claimed('other', now - CANVAS_UPLOAD_STALE_MS), 'me', now),
+    ).toBe(false)
+    expect(canvasUploadingElsewhere({ fileId: 'local-1' }, 'me', now)).toBe(false)
+    // 别的设备时钟快几分钟照样算在传；开始时间远在未来（时钟错乱或伪造）不算，避免一直绕过缺图处理。
+    expect(canvasUploadingElsewhere(claimed('other', now + 60_000), 'me', now)).toBe(true)
+    expect(
+      canvasUploadingElsewhere(claimed('other', now + CANVAS_UPLOAD_CLOCK_SKEW_MS + 1), 'me', now),
+    ).toBe(false)
+    expect(canvasUploadingElsewhere({ ...claimed('other', now), mediaId: 'm' }, 'me', now)).toBe(
+      false,
+    )
+    expect(
+      canvasUploadingElsewhere({ ...claimed('other', now), fileId: 'cloud-x' }, 'me', now),
+    ).toBe(false)
+  })
+
+  it('收成云媒体时去掉声明、保留其余 meta', () => {
+    expect(withoutCanvasUploadClaim(claimed('other', now).meta)).toEqual({ prompt: 'p' })
+    const plain = { prompt: 'p' }
+    expect(withoutCanvasUploadClaim(plain)).toBe(plain)
+    expect(withoutCanvasUploadClaim(undefined)).toBeUndefined()
+  })
+  it('新簿记的时间总晚于节点上已有的声明或撤销，即使本机时钟落后', () => {
+    const ahead = { uploadDevice: 'b', uploadStartedAt: '5000', prompt: 'p' }
+    // 本机时钟（1000）落后于别的设备写的声明（5000）：撤销仍记成更晚的 5001。
+    expect(releaseCanvasUploadClaim(ahead, 1000)).toEqual({ prompt: 'p', uploadReleasedAt: '5001' })
+    expect(nextCanvasUploadStamp({ uploadReleasedAt: '7000' }, 1000)).toBe(7001)
+    expect(nextCanvasUploadStamp(ahead, 9000)).toBe(9000)
+    expect(nextCanvasUploadStamp(undefined, 9000)).toBe(9000)
+    // 没有设备的开始时间不算声明。
+    expect(nextCanvasUploadStamp({ uploadStartedAt: '5000' }, 1000)).toBe(1000)
+  })
 })
