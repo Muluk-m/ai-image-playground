@@ -89,7 +89,7 @@ jobs:
     steps:
       - name: Resolve PR context
         id: ctx
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             if (context.eventName === 'workflow_dispatch') {
@@ -125,7 +125,7 @@ jobs:
             core.setOutput('title', pr.title || '');
 
       - name: Checkout PR head
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ steps.ctx.outputs.head_sha }}
@@ -133,7 +133,7 @@ jobs:
       # 统计脚本取自可信提交：PR 事件用目标分支的 base，不执行 PR 自己改过的脚本；
       # 评论触发是 main，手动测评是有写权限的人选的分支。
       - name: Checkout CI tools
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           path: .ci-tools
@@ -141,7 +141,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
 
@@ -283,7 +283,7 @@ jobs:
 
       - name: Post review results
         if: github.event_name != 'workflow_dispatch'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RESULT_PATH: ${{ steps.review.outputs.result_path }}
           STDERR_PATH: ${{ steps.review.outputs.stderr_path }}
