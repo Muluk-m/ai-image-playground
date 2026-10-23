@@ -10,6 +10,8 @@ import AgentNodeRunCard from '../../../../features/agent/components/AgentNodeRun
 import { agentNodeRunBridge } from '../../../../features/agent/lib/nodeRunBridge'
 import {
   agentNodeRun,
+  agentNodeRunControl,
+  forgetAgentNodeRun,
   isAgentNodeRunOrigin,
   noteAgentNodeRunBlocked,
   registerAgentNodeRunOrigin,
@@ -409,6 +411,63 @@ it('releases a collapsed-panel run when the account switches while confirming', 
     expect(agentNodeRun('direct-switched-confirm')).toBeUndefined()
     expect(isAgentNodeRunOrigin('direct-switched-confirm')).toBe(false)
   } finally {
+    setClientStorageScope(null)
+  }
+})
+
+it('releases a blocked direct run when the account switches while reporting', async () => {
+  const job = fixturePlan('media').jobs[0]!
+  plan = { ...fixturePlan('media'), error: 'media', jobs: [{ ...job, blocked: 'missing_media' }] }
+  const served = fetch
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/report')) setClientStorageScope('someone-else')
+      return served(input, init)
+    }),
+  )
+  try {
+    await mount('blocked-switched-report', true, { ...proposal, direct: true }, undefined, false)
+    await act(async () => {})
+    expect(reports).toHaveLength(1)
+    // 卡上停在「正在交」：终局才收的规则收不走，换了账号也得收走。
+    expect(agentNodeRun('blocked-switched-report')).toBeUndefined()
+    expect(isAgentNodeRunOrigin('blocked-switched-report')).toBe(false)
+  } finally {
+    setClientStorageScope(null)
+  }
+})
+
+it('leaves a newer run of the same key alone when an account-switched run cleans up', async () => {
+  const key = 'switched-reused'
+  const served = fetch
+  let first = true
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await served(input, init)
+      if (first && String(input).endsWith('/confirm')) {
+        first = false
+        // 旧运行确认中换了账号；新账号下同一 key 被收走后又登记、开跑了一次。
+        setClientStorageScope('someone-else')
+        forgetAgentNodeRun(key)
+        registerAgentNodeRunOrigin(key, {})
+        expect(startAgentNodeRun(key, proposal, 5)).toBe(true)
+      }
+      return response
+    }),
+  )
+  try {
+    await mount(key, true, { ...proposal, direct: true }, undefined, false)
+    await act(async () => {})
+    expect(confirms).toBe(2)
+    expect(mocks.run).not.toHaveBeenCalled()
+    // 旧运行收尾不能把新账号这一次的运行卡和运行权一并删掉。
+    expect(agentNodeRun(key)?.status).toBe('countdown')
+    expect(isAgentNodeRunOrigin(key)).toBe(true)
+  } finally {
+    agentNodeRunControl(key)?.abort()
+    await act(async () => {})
     setClientStorageScope(null)
   }
 })

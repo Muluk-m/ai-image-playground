@@ -48,6 +48,8 @@ export interface AgentNodeRunOrigin {
 const origins = new Map<string, AgentNodeRunOrigin>()
 const runs = new Map<string, AgentNodeRun>()
 const controls = new Map<string, { control: AbortController; authorizationId: string }>()
+// 每次开跑的身份。换账号后旧运行收尾时凭它认领：同一 key 已被收走又开了新的一次，就不动新的。
+const owners = new Map<string, symbol>()
 const listeners = new Set<() => void>()
 let revision = 0
 /**
@@ -160,8 +162,30 @@ export function forgetAgentNodeRun(key: string, control?: AbortController) {
   if (!runs.has(key) && !origins.has(key) && !dropControl) return
   runs.delete(key)
   origins.delete(key)
+  owners.delete(key)
   disarmDirectAgentNodeRun(key)
   if (dropControl) controls.delete(key)
+  revision += 1
+  for (const listener of listeners) listener()
+}
+/**
+ * 换了账号后收走这次运行留下的运行卡和运行权。它们属于原账号，新账号下不该再显示或保留；
+ * 但只收自己的：key 已经换了一次运行（被收走后又开跑），或运行权已重新登记，都原样留着。
+ */
+function forgetSwitchedRun(
+  key: string,
+  owner: symbol,
+  origin: AgentNodeRunOrigin | undefined,
+  control?: AbortController,
+) {
+  if (owners.get(key) !== owner) return
+  owners.delete(key)
+  runs.delete(key)
+  if (origins.get(key) === origin) {
+    origins.delete(key)
+    disarmDirectAgentNodeRun(key)
+  }
+  if (control && controls.get(key)?.control === control) controls.delete(key)
   revision += 1
   for (const listener of listeners) listener()
 }
@@ -349,10 +373,13 @@ export function startAgentNodeRun(
   if (!authorizationId || !origins.has(key) || runs.has(key)) return false
   const plan = agentNodeRunBridge()?.quote(proposal)
   const sameAccount = accountScope()
+  const owner = Symbol(key)
+  const origin = origins.get(key)
   // 直接出图开跑前就被拦下（缺首帧、缺素材、参数不可用……）：不提交，把原因交给智能体，授权随之结束。
   // 需要确认的卡在这种情况下按钮是灰的，用户看得到原因，不自动回报。
   if (proposal.direct && plan?.error && PERSISTENT_BLOCKS.has(plan.error)) {
     const error = plan.error
+    owners.set(key, owner)
     void reportRun(
       key,
       { jobs: plan.jobs, credits: plan.credits, status: 'failed', error, completed: 0 },
@@ -362,7 +389,9 @@ export function startAgentNodeRun(
       sameAccount,
     ).then((reported) => {
       if (!reported) void stageAuthorizationClient.end(authorizationId).catch(() => {})
-      releaseUnwatchedRun(key)
+      // 交的途中换了账号：卡上停在「正在交」，终局才收的规则收不走它，按换账号收走。
+      if (!sameAccount()) forgetSwitchedRun(key, owner, origin)
+      else releaseUnwatchedRun(key)
     })
     return true
   }
@@ -370,6 +399,7 @@ export function startAgentNodeRun(
   const base: RunBase = { jobs: plan.jobs, credits: plan.credits }
   const control = new AbortController()
   controls.set(key, { control, authorizationId })
+  owners.set(key, owner)
   publish(key, { ...base, status: 'confirming' })
   void (async () => {
     let authorization: StageAuthorization | undefined
@@ -477,7 +507,7 @@ export function startAgentNodeRun(
           sameAccount,
         )
         if (reported) authorization = undefined
-      } else if (terminal) publish(key, terminal)
+      } else if (terminal && sameAccount()) publish(key, terminal)
       if (authorization) {
         try {
           const ended = await stageAuthorizationClient.end(authorizationId)
@@ -490,7 +520,7 @@ export function startAgentNodeRun(
       }
       // 换了账号：确认中或倒计时里提前退出的运行停在非终局，终局才收的规则收不走它。
       // 它属于原账号，新账号下不该再显示或保留，这里直接收走。
-      if (!sameAccount()) forgetAgentNodeRun(key, control)
+      if (!sameAccount()) forgetSwitchedRun(key, owner, origin, control)
       else releaseUnwatchedRun(key)
     }
   })()
