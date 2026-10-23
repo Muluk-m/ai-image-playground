@@ -99,6 +99,11 @@ import {
 } from './lib/draftSubmission'
 import { agentDraft, bindNewAgentDraft, DraftSession } from './lib/drafts'
 import { pollFollowUps, shouldPollFollowUps } from './lib/followUps'
+import {
+  configureAgentJobActivity,
+  markAgentConversationSeen,
+  reportAgentPanel,
+} from './lib/jobActivity'
 import { agentJobUnsettled } from './lib/jobProgress'
 import {
   addQueuedMessage,
@@ -530,6 +535,30 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       state.conversationId,
     )
   })
+  // 对话外也要知道生成出完了（BUG-16）：开着的对话每次变化报给 jobActivity，切走时还没出完的交给它。
+  configureAgentJobActivity({
+    viewing: (conversationId) =>
+      useStore.getState().appMode === 'canvas' &&
+      store.getState().conversationId === conversationId &&
+      (typeof document === 'undefined' || document.visibilityState !== 'hidden'),
+  })
+  store.subscribe((state, previous) => {
+    if (state.conversationId !== previous.conversationId || state.messages !== previous.messages)
+      reportAgentPanel(state.conversationId, state.messages, previous)
+  })
+  const seeCurrent = () => {
+    const conversationId = store.getState().conversationId
+    if (
+      conversationId &&
+      useStore.getState().appMode === 'canvas' &&
+      document.visibilityState !== 'hidden'
+    )
+      markAgentConversationSeen(conversationId)
+  }
+  useStore.subscribe((state, previous) => {
+    if (state.appMode !== previous.appMode) seeCurrent()
+  })
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', seeCurrent)
   let cache: ReturnType<typeof conversationCache> | null = null
   let pendingCacheWrite: (() => void) | undefined
   let cacheTimer: ReturnType<typeof setTimeout> | undefined

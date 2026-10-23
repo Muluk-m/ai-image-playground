@@ -16,6 +16,7 @@ import Sidebar from './components/Sidebar'
 import TaskBulkActions from './components/TaskBulkActions'
 import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
+import AgentJobDoneNotice from './features/agent/components/AgentJobDoneNotice'
 import SkillStarterGuide from './features/agent/components/SkillStarterGuide'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import HeroCanvasProjects from './features/canvas/components/HeroCanvasProjects'
@@ -219,6 +220,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       <SaveTemplateDialog />
       <ConfirmDialog />
       <Toast />
+      <AgentJobDoneNotice />
       <UpdateBanner />
       <MaskEditorModal />
       <ImageContextMenu />
