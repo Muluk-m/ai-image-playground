@@ -276,11 +276,11 @@ describe('readConversationStateFacts', () => {
     expect(text).not.toContain('一只橘猫')
   })
 
-  // Codex 审查：先截 10 条再分类，较新的作废稿会占满名额，把更早还在等的普通卡挤掉。
+  // Codex 审查：先截条数再分类，较新的作废稿会占满名额，把更早还在等的普通卡挤掉；超过一页也一样。
   it('较新的作废稿占不掉更早还在等确认的卡', async () => {
     await conversation('crowded')
     await draft('crowded', 'old-manual', '一座灯塔', NOW - 60_000)
-    const voided = Array.from({ length: 12 }, (_, index) => `voided-${index}`)
+    const voided = Array.from({ length: 120 }, (_, index) => `voided-${index}`)
     for (const [index, id] of voided.entries())
       await draft('crowded', id, `作废 ${index}`, NOW - index)
     await db.insert(schema.agent_messages).values([
@@ -317,7 +317,7 @@ describe('readConversationStateFacts', () => {
     expect(facts.voidedDrafts).toHaveLength(10)
   })
 
-  // 同一张卡出现在多条消息里时，以后写的为准，不看数据库返回顺序。
+  // 同一张卡出现在多条消息里时，以 seq 更大的为准，不看数据库返回顺序和时间戳。
   it('同一张卡有多条记录时按后写的认', async () => {
     await conversation('replayed')
     await draft('replayed', 'banana', '一根黄色香蕉')
@@ -330,7 +330,7 @@ describe('readConversationStateFacts', () => {
       status,
       ...extra,
     })
-    // 先插后写的那条，库里自然顺序就和写入先后相反。
+    // 先插后写的那条，库里自然顺序、时间戳都和写入先后相反。
     await db.insert(schema.agent_messages).values([
       {
         conversation_id: 'replayed',
@@ -339,7 +339,8 @@ describe('readConversationStateFacts', () => {
         seq: 2,
         role: 'assistant',
         content: [card('failed', { errorCode: 'cancelled' })],
-        created_at: NOW,
+        // 恢复链路可能带着更早的时间戳写入：以会话内 seq 为准，不看 created_at。
+        created_at: NOW - 1000,
       },
       {
         conversation_id: 'replayed',
@@ -348,7 +349,7 @@ describe('readConversationStateFacts', () => {
         seq: 1,
         role: 'assistant',
         content: [card('awaiting_confirmation')],
-        created_at: NOW - 1000,
+        created_at: NOW,
       },
     ] as (typeof schema.agent_messages.$inferInsert)[])
 
