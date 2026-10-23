@@ -18,10 +18,16 @@ function ResultThumbnail({
 }) {
   const { t } = useTranslation(['agent', 'errors'])
   const [source, setSource] = useState<string | null | undefined>(undefined)
+  // 批次跑着时卡片每次轮询都换一份新 JSON，产物对象身份跟着变；按取图用到的字段认同一张图，
+  // 不然每拍都把已显示的缩略图重取一遍（没有媒体身份的产物取的是原图，还会挤掉 12 张的缓存）。
+  const latest = useRef(artifact)
+  latest.current = artifact
+  const identity = `${artifact.artifactId}|${artifact.mediaId ?? ''}|${artifact.taskId}|${artifact.outputIndex}|${artifact.mime}`
   useEffect(() => {
+    if (!identity) return
     let live = true
     const current = accountScope()
-    void displayArtifactBitmap(artifact).then(
+    void displayArtifactBitmap(latest.current).then(
       (bitmap) => {
         if (live && current()) setSource(bitmap)
       },
@@ -32,7 +38,7 @@ function ResultThumbnail({
     return () => {
       live = false
     }
-  }, [artifact])
+  }, [identity])
   const label = t('batch.viewResult', { index: index + 1 })
   return (
     <Button
