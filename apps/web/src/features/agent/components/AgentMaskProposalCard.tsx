@@ -801,6 +801,8 @@ export default function AgentMaskProposalCard({
       addAnnotation({ id: nextAnnotationRef.current++, kind: 'note', at: point, note: '' })
       return
     }
+    // 按点重算还没回来时不收画笔、橡皮、套索和框：结果回来会整块换掉这个区域，中间手改的会被悄悄盖掉。
+    if (refining) return
     event.currentTarget.setPointerCapture(event.pointerId)
     const mask = maskRef.current
     const displayed = Math.max(1, imageRef.current!.getBoundingClientRect().width)
