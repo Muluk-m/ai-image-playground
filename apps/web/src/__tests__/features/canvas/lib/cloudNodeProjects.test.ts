@@ -681,6 +681,33 @@ it('does not keep retrying an upload that keeps failing when nothing new was add
   record.dispose()
 })
 
+it('retries a background upload that stopped after failing once the browser comes back online', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  vi.mocked(uploadMediaSource).mockClear().mockRejectedValue(new Error('offline'))
+  record.editor.doc.files = { photo: 'data:image/png;base64,cGhvdG8=' }
+  insertCanvasNode(
+    session.canvas!.doc,
+    { id: 'photo', type: 'image', x: 5, y: 6, width: 50, height: 50, data: { fileId: 'photo' } },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('media-local'))
+  await vi.waitFor(() =>
+    expect(serverNode(server, 'photo')?.data).not.toHaveProperty('meta.uploadDevice'),
+  )
+  const failedCalls = vi.mocked(uploadMediaSource).mock.calls.length
+  // 网络恢复：不用等用户再改动，重新上传一次。
+  vi.mocked(uploadMediaSource).mockClear().mockResolvedValue({ id: uploaded, sha256: 'online' })
+  window.dispatchEvent(new Event('online'))
+  await vi.waitFor(() => expect(serverNode(server, 'photo')?.data).toHaveProperty('mediaId'))
+  expect(failedCalls).toBeGreaterThan(0)
+  expect(uploadMediaSource).toHaveBeenCalled()
+  vi.mocked(uploadMediaSource).mockReset()
+  record.dispose()
+})
+
 it('treats an upload claimed by another tab of the same browser as uploading elsewhere', async () => {
   pendingMedia.supported = true
   const { session, record, socket, server } = await fixture()

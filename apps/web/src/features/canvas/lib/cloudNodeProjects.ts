@@ -12,6 +12,7 @@ import {
   importLegacyElements,
   isLocalCanvasFileId,
   type LegacyCanvasElement,
+  nextCanvasUploadStamp,
   type ProjectDocument,
   type ProjectVideoRef,
   projectKind,
@@ -437,6 +438,12 @@ export class CloudNodeProjectSession {
   }
   private resume = () => {
     this.retries = 0
+    // 断网导致后台上传失败停下的：网络恢复时重新传一次（每次恢复在线只试一轮，不会循环重试）。
+    // 换了账号的不传，send 里的 current() 也会拦下已关闭的会话。
+    if (this.failedUploadVersion !== undefined && this.sameAccount()) {
+      this.failedUploadVersion = undefined
+      this.requestSync()
+    }
     this.connect()
   }
   private connect() {
@@ -694,7 +701,7 @@ export class CloudNodeProjectSession {
     const doc = this.canvas.doc
     const files = this.record.editor.doc.files
     const device = getCanvasUploaderId()
-    const now = String(Date.now())
+    const now = Date.now()
     const claims: { id: string; data: ImageNodeData }[] = []
     for (const node of readCanvasDocument(doc).nodes) {
       if (node.type !== 'image' && node.type !== 'video') continue
@@ -719,7 +726,7 @@ export class CloudNodeProjectSession {
               meta: {
                 ...data.meta,
                 [CANVAS_UPLOAD_DEVICE_META]: device,
-                [CANVAS_UPLOAD_STARTED_META]: now,
+                [CANVAS_UPLOAD_STARTED_META]: String(nextCanvasUploadStamp(data.meta, now)),
               },
             },
           },

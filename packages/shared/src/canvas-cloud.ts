@@ -156,12 +156,39 @@ export function withoutCanvasUploadClaim(
   return rest
 }
 
+const uploadTime = (value: string | undefined) => {
+  const at = Number(value)
+  return value !== undefined && Number.isFinite(at) ? at : Number.NEGATIVE_INFINITY
+}
+/** meta 上最近一次上传簿记（写声明或撤销声明）的时间；都没有时为负无穷。 */
+export function canvasUploadBookkeepingTime(meta: Record<string, string> | undefined): number {
+  const claimed = meta?.[CANVAS_UPLOAD_DEVICE_META]
+    ? uploadTime(meta[CANVAS_UPLOAD_STARTED_META])
+    : Number.NEGATIVE_INFINITY
+  return Math.max(claimed, uploadTime(meta?.[CANVAS_UPLOAD_RELEASED_META]))
+}
+/**
+ * 新一次簿记（声明或撤销）要写的时间：取本机时钟，但至少比节点上已有的簿记晚 1ms。
+ * 设备间时钟有偏差时，本机时钟可能落后于别的设备写的旧声明；这样新簿记仍按写入先后排在后面，
+ * 并发合并不会把它当成照抄来的旧值。
+ */
+export function nextCanvasUploadStamp(
+  meta: Record<string, string> | undefined,
+  now: number,
+): number {
+  const previous = canvasUploadBookkeepingTime(meta)
+  return Number.isFinite(previous) ? Math.max(now, Math.floor(previous) + 1) : now
+}
+
 /** 上传失败停下时撤掉声明：去掉声明，记下撤销时间（见 CANVAS_UPLOAD_RELEASED_META）。 */
 export function releaseCanvasUploadClaim(
   meta: Record<string, string> | undefined,
   now: number,
 ): Record<string, string> {
-  return { ...withoutCanvasUploadClaim(meta), [CANVAS_UPLOAD_RELEASED_META]: String(now) }
+  return {
+    ...withoutCanvasUploadClaim(meta),
+    [CANVAS_UPLOAD_RELEASED_META]: String(nextCanvasUploadStamp(meta, now)),
+  }
 }
 const finite = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 10_000_000
@@ -349,8 +376,8 @@ export function validateCloudCanvas(
         ])
       )
         throw new Error('invalid_canvas_node')
-      // mediaId 要么没有，要么是字符串：null 之类的空值不能混进「还没 mediaId」那一支冒充上传中节点。
-      if ('mediaId' in data && data.mediaId !== undefined && typeof data.mediaId !== 'string')
+      // mediaId 要么没有，要么是合法的云媒体 id：null、空串或任意字符串都不能混进来。
+      if ('mediaId' in data && data.mediaId !== undefined && !isMediaId(data.mediaId))
         throw new Error('invalid_canvas_node')
       // 本机原图还在上传的节点先同步位置等改动：没有 mediaId 时 fileId 只是上传那台设备的本机 id，
       // 别处只当「上传中」显示；拿到 mediaId 后 fileId 必须换成 cloud-<mediaId>。
