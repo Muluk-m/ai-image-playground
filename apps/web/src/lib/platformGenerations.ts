@@ -21,6 +21,7 @@ import {
   type TaskRecord,
   type TaskStatus,
 } from '../types'
+import { getPublicChannels } from './channels/publicChannels'
 import { deleteCachedGeneration, getCachedGenerations, putCachedGeneration } from './db'
 import { mediaRef, readRemoteGeneration } from './remoteGenerations'
 import type { CloudReuseSource } from './reuseCloudGeneration'
@@ -336,12 +337,19 @@ function statusFromGeneration(status: QueueStatus): TaskStatus {
 /**
  * 平台记下的是发给上游的那一句：创作页开着「防改写」时钉了 guard 前缀，模型不认 `size` 时还缀了构图指令。
  * 作品卡和复用要的是用户写的原文，机器指令剥掉；防改写这一项改由参数 `no_rewrite` 带着。
+ *
+ * 构图指令跟提交侧（`callImageApi`）用同一个判据：模型声明了 `size` 能力就没缀过，不剥——
+ * 用户自己写在结尾的同一句话要原样留着，Gemini 也一样。清单还没到、或模型已下架时认不出能力，
+ * 只剥逐字一致的那一句（前面还得是提交侧拼上的空行），这是机器生成的英文，用户原句恰好这样结尾的概率可以忽略。
  */
 function promptFromGeneration(item: GenerationSummary): string {
+  const caps = getPublicChannels()
+    .flatMap((channel) => channel.models)
+    .find((model) => model.id === item.model)?.capabilities
   return unshapeQueuePrompt({
     provider: item.provider === 'gemini' ? 'gemini' : 'openai-compat',
     prompt: item.prompt,
-    size: item.parameters.size,
+    size: caps?.includes('size') ? undefined : item.parameters.size,
   })
 }
 
