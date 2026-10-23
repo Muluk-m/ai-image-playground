@@ -17,6 +17,7 @@ import {
   proposalRegions,
   refineRequest,
   regionForClick,
+  storedRegionMask,
   targetBounds,
 } from '../../../../features/agent/lib/maskProposal'
 import { paintMaskStroke } from '../../../../features/canvas/lib/inpaintMask'
@@ -148,6 +149,31 @@ describe('card regions and confirmation', () => {
       number: 3,
       box: { x: 0.98, y: 0.98 },
     })
+  })
+
+  it('falls back to the box when a stored region mask cannot be resolved or decoded', async () => {
+    // 取蒙版地址就失败（媒体解析抛错）时也要交回 null 让卡片按框兜底，不能把整张卡片标成失败。
+    const load = vi.fn(async (source: string) => `image:${source}`)
+    await expect(
+      storedRegionMask(
+        'r2',
+        async () => {
+          throw new Error('media_network_error')
+        },
+        load,
+      ),
+    ).resolves.toBeNull()
+    expect(load).not.toHaveBeenCalled()
+    await expect(
+      storedRegionMask(
+        'r2',
+        () => 'blob:r2',
+        async () => Promise.reject(new Error('decode')),
+      ),
+    ).resolves.toBeNull()
+    await expect(storedRegionMask('r2', async (source) => `blob:${source}`, load)).resolves.toBe(
+      'image:blob:aip-media:r2',
+    )
   })
 
   it('measures the bounds of the added area from its mask', () => {
