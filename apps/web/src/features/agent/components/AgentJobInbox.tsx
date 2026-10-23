@@ -6,6 +6,7 @@ import { useTranslation } from '../../../i18n'
 import { CARD_NOTE, INK, INK_3, LIST_ROW } from '../agentStyles'
 import { agentCanvasSink } from '../lib/canvasSink'
 import { agentJobInbox, agentToolProgress } from '../lib/jobProgress'
+import { agentChatViewRoot, revealAgentMessage } from '../lib/revealMessage'
 import { agentToolFailureText } from '../lib/toolFailure'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
@@ -14,10 +15,19 @@ import { AgentJobCancel, useAgentJobProgressText, useAgentToolProgress } from '.
 /**
  * 点一行就把镜头带到它在画布上的那一处：结束了的是产物，还在跑的是它占的位。
  * 本地项目刷新或换设备后，在跑的任务要等交付才重新占位；这时退到它贴着的那个画布对象。
+ * 对话视图里画布不可见，改为滚到对话里的那条消息并高亮（BUG-19）。
  */
 function locate(message: AgentToolMessage): void {
+  const chat = agentChatViewRoot()
+  if (chat) {
+    revealAgentMessage(message.id, chat)
+    return
+  }
   const sink = agentCanvasSink()
-  if (!sink) return
+  if (!sink) {
+    revealAgentMessage(message.id)
+    return
+  }
   if (message.status === 'submitted') {
     const found = sink.focusPending?.({
       messageId: message.id,
@@ -71,7 +81,7 @@ function InboxRow({ message, onLocate }: { message: AgentToolMessage; onLocate: 
       <Button
         type="button"
         variant="ghost"
-        title={t('job.inbox.locate')}
+        title={agentChatViewRoot() ? t('job.inbox.locateMessage') : t('job.inbox.locate')}
         className={`${LIST_ROW} h-auto min-w-0 flex-1 flex-col items-start gap-0.5 font-normal`}
         onClick={() => {
           locate(message)

@@ -1182,6 +1182,8 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-agent-log-content { display: flex; flex-direction: column; gap: 20px; width: min(760px, 100%); min-height: 100%; margin-inline: auto; }
 .studio-agent-message-block { position: relative; display: flex; flex-direction: column; gap: 9px; min-width: 0; }
 .studio-agent-message-block:empty { display: none; }
+/* 从「生成任务」定位过来的那条消息：短暂描一圈，2 秒后撤掉（BUG-19）。 */
+[data-agent-located='true'] { border-radius: 14px; box-shadow: 0 0 0 2px hsl(var(--ring)); transition: box-shadow 0.3s ease; }
 .studio-sidebar--page .studio-agent-composer,
 .studio-sidebar--page .studio-agent-pending-drafts,
 .studio-sidebar--page .studio-agent-message-queue { width: min(760px, 100%); margin-inline: auto; }
