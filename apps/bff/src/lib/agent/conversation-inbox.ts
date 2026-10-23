@@ -22,7 +22,11 @@ import {
 import type { RunningTurn } from './runningTurns'
 import { runningTurn } from './runningTurns'
 import type { TurnNotStarted } from './start-turn'
-import { drainConversationInbox, kickConversationInbox } from './start-turn'
+import {
+  awaitConversationHandoff,
+  drainConversationInbox,
+  kickConversationInbox,
+} from './start-turn'
 
 /**
  * 排队消息的规则。`inbox.ts` 是收件箱里的一行行记录，这里是围着它的那几件事：发送、撤回、
@@ -125,6 +129,15 @@ export function announceQueuedMessage(
 }
 
 /**
+ * 用户确认完确认门拦下的卡，那一轮的续跑已经排进收件箱（见 `tool-gate.ts`）：当场开轮，界面跟进它的流。
+ * 本实例正在下线就不接，留给新版本的巡查（见 `inbox-pickup`）。
+ */
+export function pickUpGateContinuation(conversationId: string): void {
+  if (bffDrain.status().draining) return
+  kickConversationInbox(conversationId)
+}
+
+/**
  * 快照读到这个会话没人在跑：队里还有人等着（排着的消息或唤醒）就接着开轮。收尾的那个实例
  * 下线了或半路没了时由它兜住，不必等定时巡查；本实例正在下线就不接，留给新版本（见
  * `inbox-pickup`）。轮到时没能开轮的那几条不算在等：它们等的是用户撤掉，不是有人来取。
@@ -146,6 +159,9 @@ export async function sendToConversationInbox(
   conversationId: string,
   message: EnqueueUserMessage,
 ): Promise<InboxSendResult> {
+  // 上一轮的终帧已经发出、租约还没放：等它交接完再进收件箱，这一条才能自己开轮、拿到自己的流。
+  // 等待有上限，收尾卡住时照常入队、退回排队回执（见 `awaitConversationHandoff`）。
+  await awaitConversationHandoff(conversationId)
   const enqueued = await enqueueAgentUserMessage(conversationId, message)
   if (enqueued.kind === 'full') return { kind: 'full' }
   const { entry } = enqueued

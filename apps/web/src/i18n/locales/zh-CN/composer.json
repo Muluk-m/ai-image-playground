@@ -76,7 +76,18 @@
     "noModel": "未选择",
     "model": "模型",
     "searchModel": "搜索模型",
-    "noModelMatch": "没有匹配的模型"
+    "noModelMatch": "没有匹配的模型",
+    "modelEta": "约 {{seconds}} 秒",
+    "modelEtaMinutes": "约 {{minutes}} 分钟",
+    "modelEtaRange": "约 {{min}}–{{max}} 秒",
+    "modelEtaRangeMinutes": "约 {{min}}–{{max}} 分钟",
+    "modelBadge": {
+      "recommended": "推荐",
+      "latest": "最新",
+      "quality": "质量好",
+      "fast": "速度快",
+      "value": "便宜"
+    }
   },
   "size": {
     "customRatioLabel": "输入自定义比例",
@@ -146,7 +157,8 @@
       "low": "低",
       "medium": "中",
       "high": "高"
-    }
+    },
+    "fixedCount": "共 {{count}} 张 · 每张图出 1 张"
   },
   "studio": {
     "type": "创作类型",
@@ -187,5 +199,16 @@
       "image": "图片",
       "video": "视频"
     }
+  },
+  "batch": {
+    "usage": "参考图用法",
+    "merge": "合并参考",
+    "each": "逐张生成",
+    "selected": "已选 {{count}}/{{max}}",
+    "full": "已达上限",
+    "mergeLimit": "超过 {{max}} 张只能逐张生成",
+    "oversized": "第 {{index}} 张超过 {{mb}} MB，请移除或换一张更小的图",
+    "sendLabel": "逐张生成 {{count}} 张",
+    "sendLabelCredits": "逐张生成 {{count}} 张，共 {{credits}} 积分"
   }
 }

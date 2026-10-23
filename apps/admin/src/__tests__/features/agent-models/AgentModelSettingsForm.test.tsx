@@ -57,6 +57,59 @@ it('changes a product depth effort without changing its model or another depth',
   })
 })
 
+it('saves an overload fallback for one depth and leaves the others unset', async () => {
+  const save = vi.fn(async (_settings: AgentModelSettingsView['settings']) => {})
+  render(<AgentModelSettingsForm initial={fixture()} save={save} pending={false} error={null} />)
+  expect(screen.getByText(/只切换一次/)).toBeInTheDocument()
+  fireEvent.keyDown(screen.getByRole('combobox', { name: '深度 · 过载备用 Provider' }), {
+    key: 'ArrowDown',
+  })
+  fireEvent.click(await screen.findByRole('option', { name: 'Example' }))
+  expect(screen.getByRole('button', { name: '保存配置' })).toBeDisabled()
+  fireEvent.keyDown(screen.getByRole('combobox', { name: '深度 · 过载备用模型' }), {
+    key: 'ArrowDown',
+  })
+  fireEvent.click(await screen.findByRole('option', { name: 'Model A (model-a)' }))
+  fireEvent.keyDown(screen.getByRole('combobox', { name: '深度 · 过载备用推理强度' }), {
+    key: 'ArrowDown',
+  })
+  fireEvent.click(await screen.findByRole('option', { name: '低（low）' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存配置' }))
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+  expect(save.mock.calls[0]?.[0].profiles.deep).toEqual({
+    providerId: 'example',
+    modelId: 'model-a',
+    reasoning: 'high',
+    fallback: { providerId: 'example', modelId: 'model-a', reasoning: 'low' },
+  })
+  expect(save.mock.calls[0]?.[0].profiles.medium).not.toHaveProperty('fallback')
+  expect(save.mock.calls[0]?.[0].profiles.fast).not.toHaveProperty('fallback')
+  expect(save.mock.calls[0]?.[0].profiles.default).not.toHaveProperty('fallback')
+})
+
+it('omits a cleared overload fallback from the saved settings', async () => {
+  const initial = fixture()
+  initial.settings.profiles.deep.fallback = {
+    providerId: 'example',
+    modelId: 'model-a',
+    reasoning: 'low',
+  }
+  const save = vi.fn(async (_settings: AgentModelSettingsView['settings']) => {})
+  render(<AgentModelSettingsForm initial={initial} save={save} pending={false} error={null} />)
+  fireEvent.keyDown(screen.getByRole('combobox', { name: '深度 · 过载备用 Provider' }), {
+    key: 'ArrowDown',
+  })
+  fireEvent.click(await screen.findByRole('option', { name: '不切换' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存配置' }))
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+  expect(save.mock.calls[0]?.[0].profiles.deep).toEqual({
+    providerId: 'example',
+    modelId: 'model-a',
+    reasoning: 'high',
+  })
+  expect(save.mock.calls[0]?.[0].profiles.deep).not.toHaveProperty('fallback')
+})
+
 it('lets operators add a model draft and retains edits when saving fails', () => {
   render(
     <AgentModelSettingsForm

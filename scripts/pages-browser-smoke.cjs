@@ -324,19 +324,27 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
                 'base64',
               ),
             })
-            await page.waitForFunction(
-              (ids) => [...document.querySelectorAll('.react-flow__node')].some(
-                (node) => !ids.includes(node.getAttribute('data-id')),
-              ),
-              beforeIds,
+            // 不能拿「DOM 里第一次冒出来的新 id」当上传结果：新节点按空位落点插入，可能在视口外。
+            // 画布开着 onlyRenderVisibleElements，还没测量的节点照常挂上，测量后发现在视口外就被裁掉，
+            // 等文件读完、选中并把镜头移过去才再出现。抓到第一帧再去取 id，正好落在被裁掉的空窗里
+            // （偶发「Upload did not create a node」）。这里等产品的终态：带上传文件名、已选中、在视口里。
+            const uploadedId = await (await page.waitForFunction(
+              ({ ids, name }) => {
+                const frame = document.querySelector('.react-flow')?.getBoundingClientRect()
+                if (!frame) return null
+                for (const node of document.querySelectorAll('.react-flow__node.selected')) {
+                  const id = node.getAttribute('data-id')
+                  if (!id || ids.includes(id)) continue
+                  if (!node.querySelector('.studio-node-caption')?.textContent?.includes(name)) continue
+                  const box = node.getBoundingClientRect()
+                  if (box.right > frame.left && box.left < frame.right &&
+                    box.bottom > frame.top && box.top < frame.bottom) return id
+                }
+                return null
+              },
+              { ids: beforeIds, name: 'smoke-upload.png' },
               { timeout: timeoutMs },
-            )
-            const uploadedId = await page.locator('.react-flow__node').evaluateAll(
-              (nodes, ids) => nodes.map((node) => node.getAttribute('data-id'))
-                .find((id) => id && !ids.includes(id)),
-              beforeIds,
-            )
-            if (!uploadedId) throw new Error('Upload did not create a node')
+            )).jsonValue()
             const uploaded = page.locator(`.react-flow__node[data-id="${uploadedId}"]`)
             const uploadedImage = uploaded.locator('img').first()
             await uploadedImage.waitFor({ state: 'visible', timeout: timeoutMs })
@@ -362,8 +370,16 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
             }, { x: previewBox.x + previewBox.width / 2, y: previewBox.y + previewBox.height / 2 })
             if (previewHit !== '全屏查看') throw new Error(`Composer hit target missed: ${previewHit}`)
             await previewButton.click()
-            await page.locator('[data-lightbox-root]').waitFor({ state: 'visible', timeout: timeoutMs })
-            await page.keyboard.press('Escape')
+            const lightbox = page.locator('[data-lightbox-root]')
+            await lightbox.waitFor({ state: 'visible', timeout: timeoutMs })
+            // 用预览自己的关闭按钮，不按 ESC：ESC 走全局栈，预览在 DOM 里出现之后、它的 effect
+            // 入栈之前按下去会落空，预览一直盖着画布，后面的点击全被挡住（偶发超时）。点击处理器随
+            // DOM 一起挂上，没有这个空窗。
+            await page
+              .getByRole('dialog', { name: '图片预览', exact: true })
+              .getByRole('button', { name: '关闭', exact: true })
+              .click()
+            await lightbox.waitFor({ state: 'hidden', timeout: timeoutMs })
             await page.setViewportSize({ width: 390, height: 844 })
             await navigation.getByRole('button', { name: '适应画布', exact: true }).click()
             await page.waitForFunction(

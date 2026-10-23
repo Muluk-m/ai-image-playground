@@ -8,6 +8,7 @@ import {
 } from '../../../features/library/store'
 import { assetCoverImageId } from '../../../features/library/types'
 import { DEFAULT_SETTINGS, normalizeSettings } from '../../../lib/apiProfiles'
+import { BATCH_GENERATE_MAX } from '../../../lib/batchGenerate'
 import { setChannels } from '../../../lib/channels/channelStore'
 import { storeImage } from '../../../lib/db'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
@@ -241,7 +242,7 @@ describe('attaching an asset', () => {
     expect(useStore.getState().showToast).toHaveBeenLastCalledWith('已在参考图中', 'info')
   })
 
-  it('refuses once the reference strip is full', async () => {
+  it('快速生成里参考图过了 16 张还能继续加', async () => {
     const imageId = await storeImage(IMAGE_A)
     await useLibraryStore.getState().saveAsset(imageId, '白底图')
     useStore.setState({
@@ -253,10 +254,26 @@ describe('attaching an asset', () => {
 
     expect(
       await useLibraryStore.getState().attachAsset(useLibraryStore.getState().assets[0].id),
+    ).not.toBeNull()
+    expect(useStore.getState().inputImages).toHaveLength(API_MAX_IMAGES + 1)
+  })
+
+  it('refuses once the reference strip is full', async () => {
+    const imageId = await storeImage(IMAGE_A)
+    await useLibraryStore.getState().saveAsset(imageId, '白底图')
+    useStore.setState({
+      inputImages: Array.from({ length: BATCH_GENERATE_MAX }, (_, index) => ({
+        id: `filler-${index}`,
+        dataUrl: IMAGE_B,
+      })),
+    })
+
+    expect(
+      await useLibraryStore.getState().attachAsset(useLibraryStore.getState().assets[0].id),
     ).toBeNull()
-    expect(useStore.getState().inputImages).toHaveLength(API_MAX_IMAGES)
+    expect(useStore.getState().inputImages).toHaveLength(BATCH_GENERATE_MAX)
     expect(useStore.getState().showToast).toHaveBeenCalledWith(
-      expect.stringContaining('已达上限'),
+      expect.stringContaining(`已达上限（${BATCH_GENERATE_MAX} 张）`),
       'error',
     )
   })

@@ -794,6 +794,19 @@ it('归档读取先检查对象长度，拒绝超限原件时不整份缓冲且�
   const { request_id: id } = await (
     await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
   ).json()
+  // 同一次执行里归档直接用内存里的字节，不回读暂存；只有重启后接着归档才会读暂存对象，
+  // 所以先让 worker 在暂存写完后停掉，再在恢复的那次执行里给出超限的对象长度。
+  const { abortRunningTask } = await import('../../workers/task-execution')
+  durable.afterWrite = (key) => {
+    if (key === `${id}/out/0`) {
+      abortRunningTask(id)
+      throw new DOMException('Worker stopped after object write', 'AbortError')
+    }
+  }
+  await runTask(id)
+  durable.afterWrite = undefined
+  const { recoverTasksByIds } = await import('../../db/maintenance')
+  await recoverTasksByIds([id])
   durable.oversizedSpool = true
   await runTask(id)
   expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('queued')
@@ -1206,4 +1219,52 @@ it('cleans more than one candidate batch while retaining a failed prefix for the
   }
   expect(await purgeOldTasks()).toBe(1)
   expect(await db.select().from(schema.tasks)).toEqual([])
+})
+
+it('实际尺寸取落库原件的真实像素：Gemini 不回报 size，OpenAI 回报值与原图不符时也以原图为准', async () => {
+  const png = await sharp({ create: { width: 16, height: 9, channels: 3, background: '#335577' } })
+    .png()
+    .toBuffer()
+  const b64 = png.toString('base64')
+  const cases = [
+    {
+      provider: 'gemini',
+      model: 'gemini-3-pro-image-preview',
+      // 前端把参数面板里的 OpenAI 尺寸也一并带上；Gemini 只按比例与档位出图。
+      body: { size: '1024x1024', aspect_ratio: '16:9', image_size: '2K' },
+      response: {
+        candidates: [
+          { content: { parts: [{ inlineData: { mimeType: 'image/png', data: b64 } }] } },
+        ],
+      },
+    },
+    {
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      body: { size: '1024x1024' },
+      response: { size: '1024x1024', data: [{ b64_json: b64 }] },
+    },
+  ] as const
+  for (const [index, item] of cases.entries()) {
+    setUpstreamFetchForTesting((async () => Response.json(item.response)) as NonNullable<
+      Parameters<typeof setUpstreamFetchForTesting>[0]
+    >)
+    const { request_id: id } = await (
+      await request(`/v1/queue/${item.provider}/${item.model}/submit`, deviceA, {
+        ...input,
+        ...item.body,
+        client_request_id: `measured-size-${index}`,
+      })
+    ).json()
+    await runTask(id)
+    const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+    expect(detail.status).toBe('completed')
+    expect(detail.parameters.size).toBe('1024x1024')
+    expect(detail.actualParameters.size).toBe('16x9')
+    const listed = (await (await request('/api/generations', deviceB)).json()).items.find(
+      (entry: { id: string }) => entry.id === id,
+    )
+    expect(listed.actualParameters.size).toBe('16x9')
+    expect(listed.cover).toMatchObject({ width: 16, height: 9 })
+  }
 })
