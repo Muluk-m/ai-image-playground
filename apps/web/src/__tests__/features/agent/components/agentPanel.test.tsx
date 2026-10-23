@@ -1215,6 +1215,66 @@ describe('AgentPanel', () => {
     expect(host.textContent).toContain('对话 42 · 生图 85')
   })
 
+  it('刷新后，没有消息的失败轮（如结果复核）仍在原位置显示失败页脚', () => {
+    const text = (id: string, turnId: string, role: 'user' | 'assistant', body: string) =>
+      ({ kind: 'text', id, turnId, role, text: body, streaming: false }) as const
+    useAgentStore.setState({
+      messages: [
+        text('user-1', 'turn-1', 'user', '把椅子换成红色'),
+        text('reply-1', 'turn-1', 'assistant', '好的，已经改好'),
+        text('user-3', 'turn-3', 'user', '再亮一点'),
+      ],
+      turns: {
+        'turn-1': { turnId: 'turn-1', stopReason: 'completed' },
+        'turn-2': {
+          turnId: 'turn-2',
+          stopReason: 'failed',
+          error: 'agent_request_budget_exceeded',
+        },
+        'turn-restart': {
+          turnId: 'turn-restart',
+          stopReason: 'failed',
+          error: 'agent_turn_interrupted',
+        },
+        'turn-3': { turnId: 'turn-3', stopReason: 'completed' },
+      },
+    })
+    render()
+
+    const failed = host.querySelector('[data-agent-turn-id="turn-2"]')
+    expect(failed?.textContent).toContain('请求未发送')
+    const order = [...host.querySelectorAll('[data-agent-message-id], [data-agent-turn-id]')].map(
+      (node) =>
+        node.getAttribute('data-agent-message-id') ?? node.getAttribute('data-agent-turn-id'),
+    )
+    expect(order).toEqual(['user-1', 'reply-1', 'turn-2', 'user-3'])
+    expect(host.querySelector('[data-agent-turn-id="turn-restart"]')).toBeNull()
+  })
+
+  it('正在错误横幅里显示的失败轮不再重复一条页脚', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画',
+          streaming: false,
+        },
+      ],
+      turns: {
+        'turn-1': { turnId: 'turn-1', stopReason: 'completed' },
+        'turn-2': { turnId: 'turn-2', stopReason: 'failed', error: 'agent_run_failed' },
+      },
+      error: '这一轮没有跑完',
+      errorDiagnostic: { turnId: 'turn-2' },
+    })
+    render()
+
+    expect(host.querySelector('[data-agent-turn-id="turn-2"]')).toBeNull()
+  })
+
   it('对话限时免费且没有实扣时，只保留耗时', async () => {
     await enableChatFree()
     useAgentStore.setState({

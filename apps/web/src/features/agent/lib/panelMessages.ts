@@ -524,3 +524,34 @@ export function agentActivityPhase(
     return null
   return 'thinking'
 }
+
+/**
+ * 失败了却没留下任何消息的轮（比如结果复核这种系统唤醒轮，在请求发出前就被预算拦下）。
+ *
+ * 页脚平时挂在本轮最后一条消息后面；这种轮没有消息可挂，刷新后失败就悄无声息地消失了。
+ * 这里把它们挂到前面最近一个有消息的轮的最后一条消息之后（键是消息下标，-1 表示放在最前），
+ * 按轮的先后顺序（`turns` 的插入顺序即创建顺序）。被服务重启打断、已经自动续上的轮不算失败。
+ */
+export function messagelessFailedTurns(
+  messages: readonly AgentPanelMessage[],
+  turns: Readonly<Record<string, AgentTurnFooter>>,
+): Map<number, AgentTurnFooter[]> {
+  const lastOfTurn = new Map<string, number>()
+  messages.forEach((message, index) => {
+    lastOfTurn.set(message.turnId, index)
+  })
+  const anchored = new Map<number, AgentTurnFooter[]>()
+  let anchor = -1
+  for (const [turnId, footer] of Object.entries(turns)) {
+    const last = lastOfTurn.get(turnId)
+    if (last !== undefined) {
+      anchor = Math.max(anchor, last)
+      continue
+    }
+    if (footer.stopReason !== 'failed' || footer.error === 'agent_turn_interrupted') continue
+    const list = anchored.get(anchor) ?? []
+    list.push(footer)
+    anchored.set(anchor, list)
+  }
+  return anchored
+}
