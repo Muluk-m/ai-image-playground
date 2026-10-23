@@ -103,6 +103,7 @@
     "storyboardFallback": "Storyboard",
     "productShotFallback": "Product shot task",
     "doneCount": "Done {{done}}/{{total}}",
+    "cancelledCount": "{{cancelled}} cancelled",
     "failedCount": "{{failed}} failed",
     "expandToView": "Expand",
     "resultAlt": "{{name}} result",
