@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
-import type { GenerationDetail } from '@image-playground/shared'
+import { type GenerationDetail, PROMPT_REWRITE_GUARD_PREFIX } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -120,6 +120,13 @@ afterEach(async () => {
 })
 /** 作品卡上的「送入画布」就是这个 store 动作；平台记录走显式放置。 */
 const task = () => taskFromGeneration({ ...detail, cover: detail.outputs[0]! })
+it('names the placed node with the user prompt, not the stored rewrite guard prefix', async () => {
+  generationResponse = { ...detail, prompt: `${PROMPT_REWRITE_GUARD_PREFIX}\n绿色的小树` }
+  const { outputs: _outputs, ...summary } = generationResponse
+  await sendTaskToCanvas(taskFromGeneration({ ...summary, cover: detail.outputs[0]! }))
+  const [element] = currentCanvasWorkspace().doc.elements as readonly { name?: string }[]
+  expect(element?.name).toBe('绿色的小树')
+})
 it('places the displayed cover by media identity even when it is not output zero', async () => {
   const cover = {
     ...detail.outputs[0]!,
