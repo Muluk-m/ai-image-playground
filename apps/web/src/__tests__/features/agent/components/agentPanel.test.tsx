@@ -2325,6 +2325,43 @@ describe('AgentPanel', () => {
     expect(checked('鸟a')).toBe('true')
   })
 
+  it('计划还在拟（拟它的那一轮在跑）时按住「全部生成」并说明；那一轮结束后才可确认', async () => {
+    const original = useAgentStore.getState().confirmPrompt
+    const confirmPrompt = vi.fn(async () => ({ ok: true as const }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      confirmPrompt,
+      conversationId: 'conversation-plan',
+      turn: 'running',
+      activeTurn: { turnId: 'turn-plan' },
+      messages: ['a', 'b'].map((id) => ({ ...planDraft(id, `猫${id}`), gated: true as const })),
+    })
+    const button = () =>
+      [...host.querySelectorAll<HTMLButtonElement>('button')].find((one) =>
+        one.textContent?.startsWith('全部生成'),
+      )
+    try {
+      render()
+      expect(button()?.disabled).toBe(true)
+      expect(host.querySelector('[aria-label="生成计划"]')?.textContent).toContain('助手还在拟')
+      await act(async () => {
+        button()?.click()
+      })
+      expect(confirmPrompt).not.toHaveBeenCalled()
+      expect(host.textContent).not.toContain('已失效')
+      await act(async () => {
+        useAgentStore.setState({ turn: 'idle', activeTurn: null })
+      })
+      expect(button()?.disabled).toBe(false)
+      expect(host.textContent).not.toContain('助手还在拟')
+    } finally {
+      useAgentStore.setState({ confirmPrompt: original, turn: 'idle', activeTurn: null })
+    }
+  })
+
   it('上次停在某张、取消它再生成剩下的：新一次停下的那张标出来，不再显示上次的停因', async () => {
     const original = useAgentStore.getState().confirmPrompt
     const refused = new Set(['b', 'd'])
