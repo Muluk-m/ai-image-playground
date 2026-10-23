@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { callQueueChannelApi } from '../../../lib/channels/queueClient'
 import type { BuiltinEdgeProfile, PublicChannel } from '../../../lib/channels/types'
-import { taskErrorTypeOf } from '../../../lib/taskError'
+import { generationFailure } from '../../../lib/generationJob'
+import { isTaskCancelled, taskErrorTypeOf } from '../../../lib/taskError'
 
 const STORAGE_KEY = 'image-playground.device_id'
 
@@ -248,6 +249,90 @@ describe('callQueueChannelApi submit body', () => {
     expect(phases).toEqual(['reconnecting'])
   })
 
+  it('结果确认中不按长退避等：退避已到 5 s 时也 1 s 后再看', async () => {
+    vi.useFakeTimers()
+    try {
+      const call = await loadCallQueueChannelApi()
+      const pending = (phase: string) => ({
+        request_id: 'rid-1',
+        status: 'in_progress',
+        phase,
+        submitted_at: Date.now(),
+      })
+      const responses: unknown[] = [
+        { request_id: 'rid-1', status: 'queued' },
+        ...Array.from({ length: 5 }, () => pending('generating')),
+        pending('confirming'),
+        pending('confirming'),
+        {
+          request_id: 'rid-1',
+          status: 'failed',
+          submitted_at: Date.now(),
+          error: { message: 'test-stop', type: 'unknown' },
+        },
+      ]
+      const calledAt: number[] = []
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        calledAt.push(Date.now())
+        return new Response(JSON.stringify(responses.shift()), { status: 200 })
+      })
+      const outcome = expect(call(mockOpts(), mockProfile(), mockChannel())).rejects.toThrow(
+        'test-stop',
+      )
+      await vi.runAllTimersAsync()
+      await outcome
+      const gaps = calledAt.slice(1).map((at, index) => at - calledAt[index]!)
+      // 生成中照旧 0.5→1→2→3→5 s 退避；转入确认后每 1 s 一轮。
+      expect(gaps).toEqual([500, 1000, 2000, 3000, 5000, 5000, 1000, 1000])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('确认中遇到连不上照常退避，1 s 只给成功拿到「确认中」之后的那一下', async () => {
+    vi.useFakeTimers()
+    try {
+      const call = await loadCallQueueChannelApi()
+      const pending = (phase: string) => ({
+        request_id: 'rid-1',
+        status: 'in_progress',
+        phase,
+        submitted_at: Date.now(),
+      })
+      const responses: (unknown | 503)[] = [
+        { request_id: 'rid-1', status: 'queued' },
+        ...Array.from({ length: 5 }, () => pending('generating')),
+        pending('confirming'),
+        503,
+        503,
+        pending('confirming'),
+        {
+          request_id: 'rid-1',
+          status: 'failed',
+          submitted_at: Date.now(),
+          error: { message: 'test-stop', type: 'unknown' },
+        },
+      ]
+      const calledAt: number[] = []
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        calledAt.push(Date.now())
+        const next = responses.shift()
+        return next === 503
+          ? new Response('', { status: 503 })
+          : new Response(JSON.stringify(next), { status: 200 })
+      })
+      const outcome = expect(call(mockOpts(), mockProfile(), mockChannel())).rejects.toThrow(
+        'test-stop',
+      )
+      await vi.runAllTimersAsync()
+      await outcome
+      const gaps = calledAt.slice(1).map((at, index) => at - calledAt[index]!)
+      expect(gaps).toEqual([500, 1000, 2000, 3000, 5000, 5000, 1000, 5000, 5000, 1000])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('把失败分类带出轮询，界面才能按码出文案', async () => {
     const call = await loadCallQueueChannelApi()
     // taskError 是纯函数模块，不参与 loadCallQueueChannelApi 的 resetModules 重载。
@@ -267,6 +352,19 @@ describe('callQueueChannelApi submit body', () => {
       (err: unknown) => err,
     )
     expect(taskErrorTypeOf(failure)).toBe('content_policy')
+  })
+
+  it('排队中被取消：轮询带出「已取消」标记，不当成失败', async () => {
+    const call = await loadCallQueueChannelApi()
+    mockFetchJson(
+      { request_id: 'rid-1', status: 'queued' },
+      { request_id: 'rid-1', status: 'cancelled', submitted_at: Date.now() },
+    )
+    const failure = await call(mockOpts(), mockProfile(), mockChannel()).catch(
+      (err: unknown) => err,
+    )
+    expect(isTaskCancelled(failure)).toBe(true)
+    expect(generationFailure(failure).cancelled).toBe(true)
   })
 
   it('429 daily_quota_exceeded 抛中文错误且 quotaExceeded=true', async () => {

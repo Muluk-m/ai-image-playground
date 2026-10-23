@@ -45,6 +45,9 @@
 .creation-send:hover { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
 .creation-send:disabled { opacity: .5; background: hsl(var(--secondary)); border-color: hsl(var(--border) / .7); color: hsl(var(--muted-foreground)); }
 .creation-send > svg { width: 20px; height: 20px; }
+.creation-send[data-cost] { width: auto; gap: 6px; padding: 0 10px 0 12px; }
+.creation-send-cost { display: inline-flex; align-items: center; gap: 4px; @apply text-sm; font-weight: 500; font-variant-numeric: tabular-nums; }
+.creation-send-cost > svg { width: 14px; height: 14px; }
 .creation-popover { border-radius: 16px; padding: 8px; max-width: calc(100vw - 24px); box-shadow: var(--shadow-popover); }
 .creation-menu-label { display: block; @apply text-label-sm; color: hsl(var(--muted-foreground)); padding: 8px 10px; }
 .creation-menu-item { display: flex; gap: 12px; width: 100%; justify-content: flex-start; height: auto; min-height: 44px; font-weight: 400; border-radius: 10px; }
@@ -157,6 +160,7 @@
 :where(.creation-stack-card) img { width: 100%; height: 100%; object-fit: cover; }
 .creation-stack-count { position: absolute; left: 2px; bottom: 2px; padding: 0 4px; border-radius: 4px; background: hsl(var(--scrim) / .7); color: hsl(var(--on-media)); @apply text-label-sm; }
 .creation-stack-add { position: relative; flex-shrink: 0; }
+.creation-stack-aside { display: flex; align-items: center; min-width: 0; flex: 1 1 auto; align-self: center; }
 .creation-stack-expand { position: absolute; left: 0; bottom: 100%; opacity: 0; pointer-events: none; z-index: 2; }
 .creation-stack-entry:hover .creation-stack-expand, .creation-stack-entry:focus-within .creation-stack-expand { opacity: 1; pointer-events: auto; }
 .creation-reference-hover { width: max-content; min-width: 240px; max-width: min(640px, calc(100vw - 24px)); padding: 12px; border-radius: 12px; @apply shadow-popover; }
@@ -166,6 +170,8 @@
 .creation-reference-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: hsl(var(--muted-foreground)); @apply text-xs; }
 .creation-reference-list { display: flex; align-items: flex-start; gap: 4px; overflow-x: auto; padding: 4px 0; scrollbar-width: thin; }
 .creation-reference-list > * { flex-shrink: 0; }
+/* 逐张生成能放几十张：按行折返、限两行半高，超出在层内滚动。 */
+.creation-reference-stack[data-compact] .creation-reference-list { flex-wrap: wrap; overflow-x: hidden; overflow-y: auto; max-height: 172px; }
 .creation-reference-list > [data-slot="composer-attachments"] { flex-wrap: nowrap; width: auto; gap: 4px; }
 .creation-reference-list > [data-slot="composer-attachments"] > div { flex-shrink: 0; }
 /* Expanded references stay a compact filmstrip in every composer, including canvas. */
@@ -226,6 +232,32 @@
   .creation-toolbar[data-has-mode=false] { grid-template-columns: minmax(0, 1fr) 44px; gap: 6px; }
  }
 }
+
+/* 逐张生成：发送键上写着整批积分。窄输入框里模式、模型收成纯图标，参数摘要（「智能 · 3 张」）完整可读。 */
+.creation-toolbar:has(.creation-send[data-cost])[data-has-mode=true] { grid-template-columns: minmax(0, max-content) minmax(0, 1fr) max-content; }
+.creation-toolbar:has(.creation-send[data-cost])[data-has-mode=false] { grid-template-columns: minmax(0, 1fr) max-content; }
+.creation-composer .creation-toolbar .creation-send[data-cost] { width: auto; }
+@container creation-composer (max-width: 520px) {
+ .creation-toolbar:has(.creation-send[data-cost]) { gap: 4px; }
+ .creation-toolbar:has(.creation-send[data-cost]) .creation-live-controls { gap: 4px; }
+ .creation-toolbar:has(.creation-send[data-cost]) .creation-mode-trigger,
+ .creation-toolbar:has(.creation-send[data-cost]) .creation-live-controls > .creation-model-trigger { width: 36px; min-width: 36px; max-width: 36px; flex: 0 0 36px; padding-inline: 0; justify-content: center; }
+ .creation-toolbar:has(.creation-send[data-cost]) :is(.creation-mode-trigger, .creation-model-trigger) > svg:last-child,
+ .creation-toolbar:has(.creation-send[data-cost]) :is(.creation-mode-full, .creation-mode-short, .creation-model-name) { display: none; }
+ .creation-toolbar:has(.creation-send[data-cost]) .creation-live-controls > button[aria-haspopup=dialog]:not([role=combobox]) { flex: 0 1 auto; max-width: none; }
+ .creation-composer .creation-toolbar .creation-send[data-cost] { gap: 4px; padding: 0 10px; }
+}
+@media (pointer: coarse) {
+ @container creation-composer (max-width: 520px) {
+  .creation-toolbar:has(.creation-send[data-cost]) .creation-mode-trigger,
+  .creation-toolbar:has(.creation-send[data-cost]) .creation-live-controls > .creation-model-trigger { width: 44px; min-width: 44px; max-width: 44px; flex-basis: 44px; }
+ }
+}
+
+/* 参考区标题里的「合并参考 | 逐张生成」与已选张数。 */
+.creation-batch-controls { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 4px; }
+.creation-batch-segmented { width: 11rem; flex-shrink: 0; }
+.creation-batch-count { display: inline-flex; min-width: 0; align-items: center; gap: 8px; color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; @apply text-xs; }
 
 /* Small reference tiles must not collapse the writing area beneath them. */
 .creation-body:has(.creation-reference-stack[data-expanded="true"]) { gap: 12px; }

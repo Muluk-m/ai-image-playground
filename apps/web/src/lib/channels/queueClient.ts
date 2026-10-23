@@ -26,7 +26,7 @@ import {
 } from '../imageApiShared'
 import { bffBaseUrl } from '../runtimeConfig'
 import { nearestAspectRatio } from '../size'
-import { taskFailure } from '../taskError'
+import { taskCancelled, taskFailure } from '../taskError'
 import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
 
 /**
@@ -39,9 +39,25 @@ const BFF_SUBMIT_ERROR_KEYS = {
   invalid_video_request: 'queue.bffInvalidVideoRequest',
   invalid_video_source: 'queue.bffInvalidVideoSource',
   invalid_input_image: 'queue.bffInvalidInputImage',
+  stage_authorization_scope: 'queue.bffStageScope',
+  stage_authorization_budget: 'queue.bffStageBudget',
+  stage_authorization_inactive: 'queue.bffStageInactive',
+  stage_authorization_not_found: 'queue.bffStageInactive',
+  stage_authorization_attempt_conflict: 'queue.bffStageAttemptConflict',
 } as const
 
+/**
+ * 提交被 BFF 拒绝时带上的稳定错误码（`{ error }`）。文案给人看，这个码给调用方分支：
+ * 阶段授权按它判断要不要重试、该向智能体报哪个原因。
+ */
+export function submitErrorCodeOf(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('submitErrorCode' in error)) return undefined
+  const code = (error as { submitErrorCode: unknown }).submitErrorCode
+  return typeof code === 'string' ? code : undefined
+}
+
 const { POLL_BACKOFF_MS, POLL_MAX_MS, POLL_MAX_CONSECUTIVE_FAILURES } = QUEUE_TIMEOUTS
+const CONFIRMING_POLL_MS = 1000
 
 /** 队列产出的字节地址。留在传输层，避免认证启动时提前加载用户 store。 */
 export function queueOutputUrl(taskId: string, outputIndex: number): string {
@@ -256,7 +272,11 @@ async function postSubmit(
         ? BFF_SUBMIT_ERROR_KEYS[code as keyof typeof BFF_SUBMIT_ERROR_KEYS]
         : undefined
     const reason = localized ? i18next.t(localized, { ns: 'lib' }) : await getApiErrorMessage(res)
-    throw new Error(i18next.t('queue.submitFailed', { ns: 'lib', reason }))
+    const err = new Error(i18next.t('queue.submitFailed', { ns: 'lib', reason })) as Error & {
+      submitErrorCode?: string
+    }
+    if (code) err.submitErrorCode = code
+    throw err
   }
   const json = (await res.json()) as SubmitResponse
   if (!json.request_id) throw new Error(i18next.t('queue.submitMissingRequestId', { ns: 'lib' }))
@@ -358,8 +378,11 @@ async function poll(
   let consecutiveFailures = 0
   let lastTransientError: unknown = null
 
+  let phase: StatusResponse['phase'] | undefined
   for (let attempt = 0; Date.now() < deadline; attempt++) {
-    await sleep(POLL_BACKOFF_MS[Math.min(attempt, POLL_BACKOFF_MS.length - 1)]!)
+    const backoff = POLL_BACKOFF_MS[Math.min(attempt, POLL_BACKOFF_MS.length - 1)]!
+    // 「结果确认中」只剩入库几秒：退避已涨到 5 s 的话，图早好了还要干等一轮，这一段按 1 s 看。
+    await sleep(phase === 'confirming' ? Math.min(backoff, CONFIRMING_POLL_MS) : backoff)
     const outcome = await classifyPollResponse(url)
 
     switch (outcome.kind) {
@@ -368,10 +391,12 @@ async function poll(
       case 'failed':
         throw taskFailure(outcome.message, outcome.errorType)
       case 'cancelled':
-        throw new Error(i18next.t('queue.cancelled', { ns: 'lib' }))
+        throw taskCancelled(i18next.t('queue.cancelled', { ns: 'lib' }))
       case 'fatal':
         throw new Error(i18next.t('queue.statusFailed', { ns: 'lib', reason: outcome.message }))
       case 'transient': {
+        // 1 s 只给拿到「确认中」之后的那一下；连不上时照常退避，别把重启/断网的容忍时长压没了。
+        phase = undefined
         consecutiveFailures++
         lastTransientError = outcome.error
         if (consecutiveFailures >= POLL_MAX_CONSECUTIVE_FAILURES) {
@@ -387,6 +412,7 @@ async function poll(
         break
       }
       case 'pending':
+        phase = outcome.phase
         if (outcome.phase) onStatus?.(outcome.phase)
         consecutiveFailures = 0
         lastTransientError = null

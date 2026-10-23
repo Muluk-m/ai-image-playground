@@ -31,7 +31,7 @@
     "fallback": "Cannot create the account right now, check your connection and retry"
   },
   "link": {
-    "identity_taken": "That third-party account is already linked to another account",
+    "identity_taken": "That third-party account is already linked to another account. Sign out and use Google to sign in to the original account.",
     "unauthenticated": "Your session expired, sign in again before linking",
     "access_denied": "You canceled the third-party authorization",
     "fallback": "Linking failed, please try again later"
@@ -76,6 +76,7 @@
     "unauthorized": "Your session expired. Sign in again, then duplicate the project.",
     "canvas_sync_unavailable": "This environment cannot duplicate projects.",
     "account_changed": "The account changed. Reopen the project, then duplicate it.",
+    "canvas_media_pending": "Some images are still uploading. Duplicate the project after they finish.",
     "fallback": "Could not duplicate the project. Please retry."
   },
   "agentTool": {

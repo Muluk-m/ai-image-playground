@@ -172,15 +172,18 @@ export default function AgentVideoToolCard({
     message.status === 'failed' && agentRetryAvailable(message.errorCode, message) && !liveRetry
   const rerunBlock = agentRerunBlock(message)
   const action = agentToolFailureAction(message.errorCode, rerunBlock)
+  // 取消有三种来历：后台任务被取消、确认门的卡因新消息作废、重试被撤回。
+  const cancelledText = () => {
+    if (message.job)
+      return t(
+        isClientCapabilityEnabled('billing:credits') ? 'job.cancelledRefunded' : 'job.cancelled',
+      )
+    if (message.gated) return t('tool.gateVoided')
+    return t('retry.withdrawn')
+  }
   const failureText =
     message.errorCode === 'cancelled'
-      ? message.job
-        ? t(
-            isClientCapabilityEnabled('billing:credits')
-              ? 'job.cancelledRefunded'
-              : 'job.cancelled',
-          )
-        : t('retry.withdrawn')
+      ? cancelledText()
       : (agentToolFailureText(message.errorCode) ?? message.message ?? t('tool.notFinished'))
   const id = `agent-tool-card-${message.id}`
   if (message.status === 'awaiting_confirmation')
