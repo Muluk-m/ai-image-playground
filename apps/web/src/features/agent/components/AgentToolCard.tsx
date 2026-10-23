@@ -81,6 +81,15 @@ function useStatusNote(
   if (message.status === 'submitted') return t('tool.background')
   // 重试队列里排着：前一条重试结束后才提交，还没扣费。
   if (message.status === 'queued') return t('retry.queued')
+  // 确认门拦下的稿没确认就发了新消息：没提交、没扣费。排在重试撤回前面：卡带不带 `retryOf`，
+  // 作废的都是确认门这张稿。
+  if (
+    message.status === 'failed' &&
+    message.errorCode === 'cancelled' &&
+    message.gated &&
+    !message.job
+  )
+    return t('tool.gateVoided')
   // 排着时就撤回的重试：从没提交过，也就没有要退的钱。
   if (
     message.status === 'failed' &&
@@ -796,8 +805,11 @@ function StandardAgentToolCard({
             <p className={CARD_NOTE}>
               {t('tool.canvasReadNodes', {
                 nodes:
-                  message.canvasRead.map((node) => `${node.name} (${node.id})`).join('、') ||
-                  t('tool.canvasReadNone'),
+                  message.canvasRead
+                    .map((node) =>
+                      node.name && node.name !== node.id ? node.name : t('tool.canvasReadUnnamed'),
+                    )
+                    .join('、') || t('tool.canvasReadNone'),
               })}
             </p>
           )}

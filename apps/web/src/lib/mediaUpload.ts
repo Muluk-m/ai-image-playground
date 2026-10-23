@@ -36,9 +36,9 @@ function slots(limit: number) {
     }
   }
 }
-// Keep original buffering bounded while two confirmations overlap storage I/O.
+// 同时传 4 张，确认也 4 张并行：服务端每实例同样处理 4 张（存储 I/O 重叠，解码一次一张）。
 const uploading = slots(4)
-const confirming = slots(2)
+const confirming = slots(4)
 
 /** 本地原图读取卡住时按超时失败（映射为 media_timeout），不让上传一直停在排队。 */
 const LOCAL_READ_TIMEOUT_MS = 30_000
@@ -157,6 +157,8 @@ export async function uploadMediaSource(
           outcome = 'skipped'
           return undefined
         }
+        // 0 字节、改了扩展名的文本：这份字节再传多少次都不是图，按服务端同一个错误码报，调用方可据此判定永久失败。
+        if (bytes.byteLength === 0) throw new MediaRequestError(422, 'media_invalid_image')
         // 类型识别、必要时转 PNG 和转码后的再次摘要单独计，不算进 hash。
         timer.mark('convert')
         let contentType = imageMimeFromBytes(bytes)
@@ -164,7 +166,17 @@ export async function uploadMediaSource(
         if (!contentType) {
           if (options.purpose === 'conversation-attachment')
             throw new MediaRequestError(422, 'media_unsupported_image')
-          body = await (await imageDataUrlToPngBlob(source)).arrayBuffer()
+          // 只有浏览器解不出这份字节才算坏图；解出来后转 PNG 失败（画布、内存）是本机问题，照常按可重试报。
+          let decoded: Blob
+          try {
+            decoded = await imageDataUrlToPngBlob(source)
+          } catch (error) {
+            // 与 canvasImage 的 IMAGE_DECODE_FAILED 同值；不直接引常量，测试里整模块替换 canvasImage 时也成立。
+            if ((error as { code?: unknown } | null)?.code === 'image_decode_failed')
+              throw new MediaRequestError(422, 'media_invalid_image')
+            throw error
+          }
+          body = await decoded.arrayBuffer()
           contentType = 'image/png'
           current()
         }

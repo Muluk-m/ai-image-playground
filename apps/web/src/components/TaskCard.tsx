@@ -5,7 +5,7 @@ import { openImageExport } from '../features/image-export/store'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
 import { modelLabel } from '../lib/channels/publicChannels'
-import { ActualValueBadge, getParamDisplay } from '../lib/paramDisplay'
+import { ActualValueBadge, getParamDisplay, measuredSizeOf } from '../lib/paramDisplay'
 import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
@@ -171,7 +171,7 @@ export default function TaskCard({
   const duration = (() => {
     let seconds: number
     if (task.status === 'running') {
-      seconds = Math.floor((now - task.createdAt) / 1000)
+      seconds = Math.floor((now - (task.batchStartedAt ?? task.createdAt)) / 1000)
     } else if (task.elapsed != null) {
       seconds = Math.floor(task.elapsed / 1000)
     } else {
@@ -184,8 +184,12 @@ export default function TaskCard({
   })()
   const isSwipeReady = Math.abs(swipeOffset) >= 40
   const showSwipeAction = isSwipeReady || swipeActionActive
-  const showRunningTimer = task.status === 'running'
-  const runningLabel = task.queuePhase ? t(`card.phase.${task.queuePhase}`) : t('card.generating')
+  const showRunningTimer = task.status === 'running' && !task.batchQueued
+  const runningLabel = task.batchQueued
+    ? t('card.batchQueued')
+    : task.queuePhase
+      ? t(`card.phase.${task.queuePhase}`)
+      : t('card.generating')
   const swipeBgClass = showSwipeAction
     ? swipeStartedSelected
       ? 'bg-muted'
@@ -195,8 +199,9 @@ export default function TaskCard({
   const qualityDisplay = getParamDisplay(task, 'quality')
   const showQuality = task.params.quality !== 'auto' || qualityDisplay.isMismatch
 
-  const sizeDisplay = getParamDisplay(task, 'size')
-  const showSize = task.params.size !== 'auto' || sizeDisplay.isMismatch
+  // 尺寸以产出原图的真实像素为准（和左上角角标同一个来源），请求值只是没有像素时的兜底。
+  const sizeDisplay = getParamDisplay(task, 'size', task.actualParams, measuredSizeOf(preview))
+  const showSize = sizeDisplay.requestedValue !== 'auto' || sizeDisplay.hasActualValue
 
   const formatDisplay = getParamDisplay(task, 'output_format')
   const showFormat = task.params.output_format !== 'png' || formatDisplay.isMismatch
@@ -207,6 +212,7 @@ export default function TaskCard({
   const showTransparentOutput = Boolean(task.transparentOutput || task.params.transparent_output)
   const model = task.apiModel ?? ''
   const showModel = Boolean(model)
+  const modelName = showModel ? compactModelName(model, modelLabel(model, task.apiProfileId)) : ''
 
   return (
     <div className="relative rounded-xl">
@@ -266,7 +272,15 @@ export default function TaskCard({
                 <span className="text-xs text-muted-foreground">{runningLabel}</span>
               </div>
             )}
-            {task.status === 'error' && (
+            {task.status === 'error' && task.cancelled && (
+              <div className="flex flex-col items-center gap-1 px-2">
+                <Icon name="close" size="lg" className="text-muted-foreground" />
+                <span className="text-xs text-muted-foreground text-center leading-tight">
+                  {t('common:state.cancelled')}
+                </span>
+              </div>
+            )}
+            {task.status === 'error' && !task.cancelled && (
               <div className="flex flex-col items-center gap-1 px-2">
                 <Icon name="error" size="lg" className="text-destructive" />
                 <span className="text-xs text-destructive text-center leading-tight">
@@ -334,70 +348,104 @@ export default function TaskCard({
               >
                 {/* Model */}
                 {showModel && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-xs flex-shrink-0">
+                  <span
+                    title={modelName}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-xs min-w-0 max-w-full"
+                  >
                     <ModelLogo model={model} />
-                    <span>{compactModelName(model, modelLabel(model, task.apiProfileId))}</span>
+                    <span className="min-w-0 truncate">{modelName}</span>
                   </span>
                 )}
                 {/* Mask */}
                 {task.maskImageId && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-xs flex-shrink-0">
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-xs min-w-0 max-w-full">
                     <Icon name="brush" size="xs" />
-                    {t('card.inpaint')}
+                    <span className="min-w-0 truncate" title={t('card.inpaint')}>
+                      {t('card.inpaint')}
+                    </span>
                   </span>
                 )}
                 {showTransparentOutput && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-success/10 dark:bg-success/10 text-success dark:text-success text-xs flex-shrink-0">
-                    {t('card.transparentBackground')}
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-success/10 dark:bg-success/10 text-success dark:text-success text-xs min-w-0 max-w-full">
+                    <span className="min-w-0 truncate" title={t('card.transparentBackground')}>
+                      {t('card.transparentBackground')}
+                    </span>
                   </span>
                 )}
                 {/* Params: only show if not default or mismatch */}
                 {showQuality && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
-                    <span className="text-muted-foreground">{t('param.quality')}</span>
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs min-w-0 max-w-full">
+                    <span className="shrink-0 text-muted-foreground">{t('param.quality')}</span>
                     {qualityDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={qualityDisplay.displayValue}
-                        className="px-1 rounded-sm"
+                        className="min-w-0 max-w-full px-1 rounded-sm"
+                        truncate
                       />
                     ) : (
-                      <span className="text-muted-foreground">{qualityDisplay.displayValue}</span>
+                      <span
+                        className="min-w-0 truncate text-muted-foreground"
+                        title={qualityDisplay.displayValue}
+                      >
+                        {qualityDisplay.displayValue}
+                      </span>
                     )}
                   </span>
                 )}
                 {showSize && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
-                    <span className="text-muted-foreground">{t('param.size')}</span>
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs min-w-0 max-w-full">
+                    <span className="shrink-0 text-muted-foreground">{t('param.size')}</span>
                     {sizeDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={sizeDisplay.displayValue}
-                        className="px-1 rounded-sm"
+                        className="min-w-0 max-w-full px-1 rounded-sm"
+                        truncate
                       />
                     ) : (
-                      <span className="text-muted-foreground">{sizeDisplay.displayValue}</span>
+                      <span
+                        className="min-w-0 truncate text-muted-foreground"
+                        title={sizeDisplay.displayValue}
+                      >
+                        {sizeDisplay.displayValue}
+                      </span>
                     )}
                   </span>
                 )}
                 {showFormat && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
-                    <span className="text-muted-foreground">{t('param.format')}</span>
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs min-w-0 max-w-full">
+                    <span className="shrink-0 text-muted-foreground">{t('param.format')}</span>
                     {formatDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={formatDisplay.displayValue}
-                        className="px-1 rounded-sm"
+                        className="min-w-0 max-w-full px-1 rounded-sm"
+                        truncate
                       />
                     ) : (
-                      <span className="text-muted-foreground">{formatDisplay.displayValue}</span>
+                      <span
+                        className="min-w-0 truncate text-muted-foreground"
+                        title={formatDisplay.displayValue}
+                      >
+                        {formatDisplay.displayValue}
+                      </span>
                     )}
                   </span>
                 )}
                 {showN && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
-                    <span className="text-muted-foreground">{t('param.count')}</span>
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs min-w-0 max-w-full">
+                    <span className="shrink-0 text-muted-foreground">{t('param.count')}</span>
                     {nDisplay.isMismatch ? (
-                      <ActualValueBadge value={nDisplay.displayValue} className="px-1 rounded-sm" />
+                      <ActualValueBadge
+                        value={nDisplay.displayValue}
+                        className="min-w-0 max-w-full px-1 rounded-sm"
+                        truncate
+                      />
                     ) : (
-                      <span className="text-muted-foreground">{nDisplay.displayValue}</span>
+                      <span
+                        className="min-w-0 truncate text-muted-foreground"
+                        title={nDisplay.displayValue}
+                      >
+                        {nDisplay.displayValue}
+                      </span>
                     )}
                   </span>
                 )}

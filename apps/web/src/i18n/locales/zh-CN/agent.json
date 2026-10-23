@@ -56,10 +56,12 @@
   },
   "tool": {
     "canvasReadNodes": "已读取节点：{{nodes}}",
+    "canvasReadUnnamed": "未命名节点",
     "canvasReadNone": "无",
     "background": "正在后台生成，完成后会在这里显示",
     "preparing": "准备中",
     "notFinished": "没有完成",
+    "gateVoided": "没有确认就发了新消息，这次没有提交，也没有扣费",
     "delivering": "产物已生成，正在载入…",
     "offCanvas": "产物不在当前画布上，可以再放入。",
     "deliveryFailed": "产物已生成，但载入失败，可以重试。",
@@ -748,6 +750,12 @@
     "partial": "{{count}} 个节点没有出结果，已完成的结果会保留。",
     "reported": "已把这批结果交给智能体，它会接着说明。",
     "reportFailed": "没能把结果交给智能体，可以在对话里直接问它。",
+    "rejected": {
+      "specChanged": "有节点的提交内容和你确认时不一致，没有提交，也没有扣费。可以让智能体重新发起授权。",
+      "authorization": "授权已结束或失效，有节点没有提交，也没有扣费。",
+      "budget": "有节点超出了这次授权的预算，没有提交。",
+      "retryLimit": "有节点已经自动重试过，仍然失败。"
+    },
     "storyboard": {
       "summary": "镜头表：{{count}} 镜，共 {{seconds}} 秒",
       "shot": "第 {{index}} 镜 · {{seconds}} 秒 · {{line}}",

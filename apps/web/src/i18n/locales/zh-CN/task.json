@@ -30,6 +30,7 @@
   },
   "card": {
     "generating": "生成中...",
+    "batchQueued": "排队中",
     "phase": {
       "queued": "排队中...",
       "generating": "生成中...",
@@ -41,7 +42,8 @@
     "transparentBackground": "透明背景"
   },
   "detail": {
-    "generateFailed": "生成失败",
+    "errorUnavailable": "未记录具体失败原因，请复制诊断信息以便排查。",
+    "copyDiagnostics": "复制诊断信息",
     "contentPolicy": "这次的提示词没通过内容审核，上游拒绝了这次生成。换个说法再试——同样的提示词再提交一次还是这个结果。",
     "rewritePrompt": "改一下提示词",
     "errorCopied": "完整报错已复制",
@@ -67,7 +69,8 @@
     "createdAt": "创建于 {{time}}",
     "elapsed": "耗时 {{duration}}",
     "copyAll": "全部复制",
-    "dialog": "作品详情"
+    "dialog": "作品详情",
+    "networkFailed": "网络中断，这一张没能完成，请重试。"
   },
   "rawUrls": {
     "title": "原始图片链接 ({{n}})",
@@ -101,9 +104,15 @@
     "storyboardFallback": "分镜",
     "productShotFallback": "商品图任务",
     "doneCount": "完成 {{done}}/{{total}}",
+    "cancelledCount": "已取消 {{cancelled}}",
     "failedCount": "失败 {{failed}}",
     "expandToView": "展开查看",
-    "resultAlt": "{{name}} 结果"
+    "resultAlt": "{{name}} 结果",
+    "batchTag": "逐张生成",
+    "runningCount": "生成中 {{running}}",
+    "queuedCount": "排队中 {{queued}}",
+    "failedList": "失败的图",
+    "failedItem": "第 {{index}} 张"
   },
   "cloudHistory": {
     "refresh": "刷新",

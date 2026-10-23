@@ -89,7 +89,10 @@ export interface ChannelModel {
   media?: ChannelMedia
   /** 选择器里的说明标签，按数组顺序展示；缺省不显示。 */
   badges?: ModelBadge[]
-  /** 典型单张耗时（秒，实测中位数的量级），选择器显示成「约 N 秒 / 分钟」；只是提示，不参与超时。 */
+  /**
+   * 典型单张耗时（秒，实测中位数的量级），选择器显示成「约 N 秒 / 分钟」；只是提示，不参与超时。
+   * 按用户实际等待算：提交到卡片出图，含上游生成之后的结果确认（入库、出预览）、轮询和取图。
+   */
   etaSeconds?: number
   /**
    * 耗时随档位变化时的上界（秒，同样 1–3600 整数，且大于 etaSeconds）。写了就显示成「约 N–M 秒」，
@@ -98,6 +101,11 @@ export interface ChannelModel {
   etaMaxSeconds?: number
   /** 选择器、任务卡等处显示的模型图标；缺省按 id 前缀取厂商图标。 */
   logo?: ModelLogoId
+  /**
+   * Gemini 协议模型认的分辨率档位（`GEMINI_IMAGE_SIZES` 的子集，按实测填）。写了面板就只列这几档，
+   * BFF 把绕过面板的其它档位换成最近一档再发；不写按共享档位全列、原样透传。
+   */
+  imageSizes?: import('./image-parameters').GeminiImageSize[]
 }
 
 /**
