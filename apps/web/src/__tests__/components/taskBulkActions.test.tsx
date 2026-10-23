@@ -64,7 +64,9 @@ it('「失败」筛选下全选只选网格里看得见的失败卡，不带上�
     host.querySelector<HTMLButtonElement>('[aria-label="取消全选"]')?.click()
   })
   expect(useStore.getState().selectedTaskIds).toEqual([])
-  act(() => useStore.setState({ selectedTaskIds: ['done', 'cancelled'] }))
+  // 留下一张看不见的选中，和可见张数相同：仍不算全选。
+  act(() => useStore.setState({ selectedTaskIds: ['cancelled'] }))
+  expect(host.querySelector('[aria-label="取消全选"]')).toBeNull()
   act(() => {
     host.querySelector<HTMLButtonElement>('[aria-label="全选当前可见"]')?.click()
   })

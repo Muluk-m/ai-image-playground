@@ -36,7 +36,12 @@ export default function TaskBulkActions() {
     })
   }, [tasks, searchQuery, filterStatus, filterFavorite])
 
-  const allSelected = selectedTaskIds.length === filteredTasks.length && filteredTasks.length > 0
+  // 按可见卡片逐一比对：切了筛选后留下的隐藏选中不能凑数成「全选」。
+  const allSelected = useMemo(() => {
+    if (!filteredTasks.length) return false
+    const selected = new Set(selectedTaskIds)
+    return filteredTasks.every((task) => selected.has(task.id))
+  }, [filteredTasks, selectedTaskIds])
 
   const handleSelectAllToggle = useCallback(() => {
     if (allSelected) clearSelection()
