@@ -151,14 +151,21 @@ attach() {
       disconnect "$network" "$split"
       # Still serving another app network: leave it (and its network) for that edition's deploy.
       [ "$(attached "$split")" = "$split " ] || [ "$(attached "$split")" = "" ] || continue
-      docker rm -f "$split" >/dev/null && echo "removed $split"
+      # Cleanup only: a failure here warns and never fails the attach that already happened.
+      if docker rm -f "$split" >/dev/null; then echo "removed $split"; else
+        echo "Warning: could not remove $split" >&2
+        continue
+      fi
     fi
     # Its own internal network, once nothing is left on it. Idempotent: gone means done.
     if docker network inspect "$split" >/dev/null 2>&1 &&
       [ "$(docker network inspect "$split" --format '{{len .Containers}}' 2>/dev/null || echo 1)" = 0 ]; then
-      docker network rm "$split" >/dev/null && echo "removed network $split"
+      if docker network rm "$split" >/dev/null; then echo "removed network $split"; else
+        echo "Warning: could not remove network $split" >&2
+      fi
     fi
   done
+  return 0
 }
 
 command=${1:-}

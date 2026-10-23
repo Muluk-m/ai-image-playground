@@ -84,6 +84,7 @@ switch (cmd) {
     save()
     break
   case 'rm':
+    if (process.env.FAIL_RM === args[args.length - 1]) process.exit(1)
     delete s.containers[args[args.length - 1]]
     save()
     break
@@ -245,6 +246,21 @@ describe('segmenter-deploy.sh (one shared, versioned container)', () => {
     })
     expect(s.networks).toContain(`${shared}-prod`)
     expect(calls().join('\n')).not.toMatch(/^(rm|stop|network rm) /m)
+  })
+
+  it('still succeeds, with a warning, when a leftover cannot be removed', () => {
+    seed({
+      [shared]: container({ version: '1' }),
+      [`${shared}-test`]: container({ networks: [`${shared}-test`, apps[1]!] }),
+    })
+    writeFileSync(state, JSON.stringify({ ...read(), networks: [shared, `${shared}-test`] }))
+    const result = run(['attach', 'image-playground-test'], { FAIL_RM: `${shared}-test` })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stderr).toContain(`could not remove ${shared}-test`)
+    const s = read()
+    expect(s.containers[shared]?.networks).toEqual([shared, apps[1]])
+    expect(s.containers[`${shared}-test`]?.networks).toEqual([`${shared}-test`])
+    expect(s.networks).toContain(`${shared}-test`)
   })
 
   it('is a no-op when attached again with nothing left over', () => {
