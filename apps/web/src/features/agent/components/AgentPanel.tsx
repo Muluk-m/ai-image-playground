@@ -31,6 +31,7 @@ import { useActiveAgentSurface } from '../lib/activeAgentSurface'
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
+import { usePlanCardState } from '../lib/planCardState'
 import { isProductionDraft } from '../lib/promptDraft'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { agentPanelPresent } from '../panelLayout'
@@ -234,6 +235,39 @@ function consecutiveImageRuns(
   return { starts, absorbed }
 }
 
+/**
+ * 计划卡的 key 跟着这段计划走：沿用上一帧这段里任意一张稿已经拿到的 key，都没有才用最后一张稿的 id 新起。
+ *
+ * - 「全部生成」自上而下逐张确认：前面的稿成交离开，剩下的稿还带着原来的 key，卡片不重挂——
+ *   否则还在跑的确认循环把后面被拒（例如积分不足）的结果写进已卸下的组件，用户什么也看不见。
+ * - 计划还在拟时末尾不断追加稿：新稿跟着前面那几张的 key，卡片也不重挂，正在编辑的输入框不丢焦点和光标。
+ * - 按「本轮第几段」编号不行：同一轮里前一段计划消失后，后一段的序号会变。
+ * - 一段被拆成两段（中间一张在别处成交）时，前一段留着原 key，后一段换新的，同一帧里 key 不重复。
+ *
+ * `memo` 是上一帧「稿 id → key」，函数按这一帧重写它，只留还在计划里的稿。
+ */
+function planRunKeys(
+  starts: ReadonlyMap<number, readonly AgentToolMessage[]>,
+  memo: Map<string, string>,
+): Map<number, string> {
+  const keys = new Map<number, string>()
+  const used = new Set<string>()
+  const next = new Map<string, string>()
+  for (const [index, run] of [...starts].sort(([a], [b]) => a - b)) {
+    const inherited = run
+      .map((message) => memo.get(message.id))
+      .find((key): key is string => key !== undefined && !used.has(key))
+    let key = inherited ?? `plan:${run[run.length - 1]?.id ?? index}`
+    if (used.has(key)) key = `${key}:${index}`
+    used.add(key)
+    keys.set(index, key)
+    for (const message of run) next.set(message.id, key)
+  }
+  memo.clear()
+  for (const [id, key] of next) memo.set(id, key)
+  return keys
+}
+
 export default function AgentPanel({
   doc,
   editor,
@@ -300,6 +334,8 @@ export default function AgentPanel({
     }
   }, [dock, presentation, open])
   const followLatest = useRef(true)
+  // 计划卡 key 的上一帧记录（稿 id → key），见 planRunKeys。
+  const planKeyMemo = useRef(new Map<string, string>())
   /** 离开底部期间来了新内容：浮出「有新消息」，回到底部即收起。 */
   const [unseen, setUnseen] = useState(false)
   const [search, setSearch] = useState('')
@@ -331,6 +367,13 @@ export default function AgentPanel({
     followLatest.current = false
   }
   const conversationId = useAgentStore((state) => state.conversationId)
+  // 计划卡的勾选、确认中与停因按稿 id 记在面板上、按会话隔离：卡片随逐张提交或别处确认拆段、
+  // 换 key 重挂时状态不丢，还在跑的确认循环也写得回来；稿成交或被移除后对应状态随即丢弃。
+  const planDraftIds = useMemo(
+    () => new Set(messages.filter(isImagePlanDraft).map((message) => message.id)),
+    [messages],
+  )
+  const planCard = usePlanCardState(conversationId, planDraftIds)
   useLayoutEffect(() => {
     followLatest.current = true
     setUnseen(false)
@@ -427,6 +470,7 @@ export default function AgentPanel({
   const grouping = groupPanelMessages(messages)
   const fetchedRuns = presentation === 'page' && onPreviewResult ? fetchedImageRuns(messages) : null
   const planRuns = consecutiveImageRuns(messages, isImagePlanDraft, 1)
+  const planKeys = planRunKeys(planRuns.starts, planKeyMemo.current)
   const imageRuns = consecutiveImageRuns(messages, isImageOutput, 2)
 
   return (
@@ -581,12 +625,12 @@ export default function AgentPanel({
                       lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
                     return (
                       <div
-                        key={`${message.id}:${historyCached}`}
+                        key={`${planKeys.get(index)}:${historyCached}`}
                         data-agent-message-id={message.id}
                         className="studio-agent-message-block"
                       >
                         <fieldset disabled={historyCached} className="contents">
-                          <AgentGenerationPlan messages={planRun} />
+                          <AgentGenerationPlan messages={planRun} plan={planCard} />
                         </fieldset>
                         {footer && !turnShowsImageReceipt(messages, message.turnId) && (
                           <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
