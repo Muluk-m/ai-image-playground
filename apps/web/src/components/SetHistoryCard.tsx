@@ -61,15 +61,17 @@ function BatchTile({
   const imageId = task.outputImages[0]
   if (task.status === 'done' && imageId)
     return onOpen ? (
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size={null}
         data-batch-tile="done"
         onClick={(event) => onOpen(task, event)}
         aria-label={t('set.openItem', { index })}
-        className="aspect-square cursor-pointer overflow-hidden rounded-lg border border-border transition hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className="block aspect-square h-auto w-full cursor-pointer overflow-hidden rounded-lg border border-border p-0 transition hover:border-primary/60 hover:bg-transparent focus-visible:ring-primary focus-visible:ring-offset-0"
       >
         <AssetThumb imageId={imageId} alt={t('set.resultAlt', { name })} />
-      </button>
+      </Button>
     ) : (
       <div className="aspect-square overflow-hidden rounded-lg border border-border">
         <AssetThumb imageId={imageId} alt={t('set.resultAlt', { name })} />

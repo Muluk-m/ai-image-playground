@@ -217,5 +217,22 @@ describe('the history folded by set', () => {
       const sources = vi.mocked(openImageExport).mock.calls[0]?.[0]
       expect(sources?.map((source) => source.id)).toEqual(['c1:img-1', 'c2:img-2', 'c3:img-3'])
     })
+
+    it('keeps failed and cancelled shots openable as cards once expanded', async () => {
+      useStore.setState({
+        tasks: [
+          { ...task('c1', 5, batch('1')), outputImages: ['img-1'] },
+          { ...task('c2', 5, batch('2')), status: 'error', error: '内容不合规' },
+          { ...task('c3', 5, batch('3')), status: 'error', error: '已取消', cancelled: true },
+        ],
+      })
+      await render()
+      expand()
+
+      const items = [...document.querySelectorAll('[data-set-history-card] [data-batch-item]')]
+      expect(items.map((item) => item.getAttribute('data-batch-item'))).toEqual(['c1'])
+      // 失败、取消的那几张仍是作品卡，能点开详情看原因、复制诊断或删除。
+      expect(cardIds()).toEqual(['c2', 'c3'])
+    })
   })
 })

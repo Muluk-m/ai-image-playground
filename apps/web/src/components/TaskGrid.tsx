@@ -534,8 +534,13 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
               />
             ),
           },
-          // 逐张生成的一组在卡里逐张列出（见 SetHistoryCard）；其余的套展开成单张作品卡。
-          ...(expanded && !batch ? item.tasks.map(renderTask) : []),
+          // 逐张生成的一组：出了图的在卡里逐张列出（见 SetHistoryCard），失败/取消的那几张仍展开成作品卡，
+          // 好打开详情看原因、复制诊断或删除；其余的套整套展开成单张作品卡。
+          ...(expanded
+            ? (batch ? item.tasks.filter((task) => task.status === 'error') : item.tasks).map(
+                renderTask,
+              )
+            : []),
         ],
       }
     })
