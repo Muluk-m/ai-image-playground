@@ -74,7 +74,14 @@ const OVERSIZED_MEDIA = new Set([
   'media_image_too_large',
   'media_image_pixels_exceeded',
 ])
-type MediaRejection = 'invalid' | 'oversized'
+type MediaRejection = 'invalid' | 'oversized' | 'missing'
+/**
+ * 只在本机、从没到过服务端的节点或候选，原图在本机也找不到、又已经放了这么久（BUG-15）：
+ * 谁都补不回来，只能摘掉，不能再挡整张画布。刚加的图原图可能还在写入，不算。
+ */
+const LOST_MEDIA_AGE_MS = CANVAS_UPLOAD_STALE_MS
+/** 没有创建时间的老节点：本次会话里连续这么久都找不到原图，才当作找不回来。 */
+const LOST_MEDIA_SEEN_MS = 60_000
 /** 永久失败分两类提示：坏图（空/损坏/不支持）与超限（图是好的，只是太大），文案不能混。 */
 function permanentMediaRejection(error: unknown): MediaRejection | undefined {
   if (error instanceof MediaRequestError) {
@@ -307,7 +314,9 @@ export class CloudNodeProjectSession {
           { signal: this.controller.signal, cache: 'no-store' },
         )
         if (!response.ok) throw new ProjectRequestError(response.status, 'canvas_load_failed')
-        Y.applyUpdate(doc, new Uint8Array(await response.arrayBuffer()), remoteOrigin)
+        const loaded = new Uint8Array(await response.arrayBuffer())
+        Y.applyUpdate(doc, loaded, remoteOrigin)
+        this.noteReceived(loaded, true)
         this.current()
         this.project = await projectRepository.update(this.project.id, {
           cloud: { revision: remote.revision },
@@ -370,7 +379,9 @@ export class CloudNodeProjectSession {
             throw new ProjectRequestError(response.status, 'canvas_command_reverse_failed')
           }
           this.current()
-          Y.applyUpdate(doc, new Uint8Array(await response.arrayBuffer()), remoteOrigin)
+          const reversed = new Uint8Array(await response.arrayBuffer())
+          Y.applyUpdate(doc, reversed, remoteOrigin)
+          this.noteReceived(reversed)
           await this.readCommands('after-reverse')
         },
         (error) => {
@@ -524,13 +535,16 @@ export class CloudNodeProjectSession {
         const message = readCanvasSyncMessage(new Uint8Array(event.data))
         if (message.kind === 'update') {
           Y.applyUpdate(this.canvas.doc, message.value, remoteOrigin)
+          this.noteReceived(message.value)
           void this.readCommands().catch(() => {})
         } else if (message.kind === 'vector') {
           this.serverVector = message.value
+          this.noteServerFiles()
           void this.readCommands().catch(() => {})
           this.requestSync()
         } else {
           this.serverVector = message.value
+          this.noteServerFiles()
           const version = this.sentVersion
           this.sentVersion = undefined
           if (version === this.editVersion) {
@@ -613,11 +627,68 @@ export class CloudNodeProjectSession {
       }
     }
   }
+  /** 本次会话里第一次发现本机没有这张原图的时间（没有创建时间的老节点据此判断是不是找不回来了）。 */
+  private readonly missingSince = new Map<string, number>()
+  /** 服务端推过来的更新里每个客户端最远的时钟：服务端发得出来的记录，它自己一定存着。 */
+  private readonly receivedClocks = new Map<number, number>()
+  /**
+   * 服务端存过的「节点 → 本机格式 fileId」引用（`nodeId\u0000fileId`）。节点的 data 之后在本机改过
+   * （例如改名）时，data 这一项已不在服务端，但服务端仍存着这张图的引用，不能当成从没上过服务端摘掉。
+   */
+  private readonly serverFiles = new Set<string>()
+  private noteReceived(update: Uint8Array, fullState = false) {
+    for (const struct of Y.decodeUpdate(update).structs) {
+      const end = struct.id.clock + struct.length
+      if (end > (this.receivedClocks.get(struct.id.client) ?? 0))
+        this.receivedClocks.set(struct.id.client, end)
+    }
+    if (fullState) {
+      // 整份服务端状态：单独读一遍，本机未同步的改动不会盖住服务端存着的引用。
+      const server = new Y.Doc({ gc: true })
+      try {
+        Y.applyUpdate(server, update)
+        for (const node of readCanvasDocument(server).nodes)
+          if ((node.type === 'image' || node.type === 'video') && node.data.fileId)
+            this.serverFiles.add(`${node.id}\u0000${node.data.fileId}`)
+      } finally {
+        server.destroy()
+      }
+    }
+    this.noteServerFiles()
+  }
+  /** 当前文档里 data 已在服务端的图片/视频节点，记下它们的 fileId 引用。 */
+  private noteServerFiles() {
+    if (!this.canvas || !this.serverVector) return
+    for (const node of readCanvasDocument(this.canvas.doc).nodes)
+      if (
+        (node.type === 'image' || node.type === 'video') &&
+        node.data.fileId &&
+        !node.data.mediaId &&
+        this.serverHoldsNodeData(node.id)
+      )
+        this.serverFiles.add(`${node.id}\u0000${node.data.fileId}`)
+  }
+  /**
+   * 服务端是否已经存着这个节点现在的 data（data 这一项的 Yjs 记录在服务端状态向量之内，或是服务端推过来的）。
+   * 是的话这一轮发出去的改动里不会带它，本机缺不缺原图都不影响服务端收不收这次保存。
+   */
+  private serverHoldsNodeData(nodeId: string): boolean {
+    if (!this.canvas || !this.serverVector) return false
+    const node = this.canvas.doc.getMap<Y.Map<unknown>>('nodes').get(nodeId)
+    const item = node?._map.get('data')
+    if (!item || item.deleted) return false
+    const { client, clock } = item.id
+    const known = Math.max(
+      Y.decodeStateVector(this.serverVector).get(client) ?? 0,
+      this.receivedClocks.get(client) ?? 0,
+    )
+    return clock < known
+  }
   private async prepareMedia() {
     if (!this.canvas) return
     const doc = this.canvas.doc
     // 先列出这一轮要收成云媒体的全部本机原图，按原图去重：同一张图挂在几个节点或候选上只传一次。
-    const nodes: { nodeId: string; fileId: string; elsewhere: boolean }[] = []
+    const nodes: { nodeId: string; fileId: string; elsewhere: boolean; createdAt?: number }[] = []
     const device = getCanvasUploaderId()
     const now = Date.now()
     for (const node of readCanvasDocument(doc).nodes) {
@@ -631,10 +702,11 @@ export class CloudNodeProjectSession {
         nodeId: node.id,
         fileId: node.data.fileId,
         elsewhere: canvasUploadingElsewhere(node.data, device, now),
+        createdAt: node.data.createdAt,
       })
     }
     // Previously chosen candidates remain durable even after another candidate becomes main.
-    const results: { resultId: string; fileId: string }[] = []
+    const results: { resultId: string; fileId: string; createdAt: number }[] = []
     for (const result of canvasResults(doc)) {
       const fileId =
         result.source.type === 'file'
@@ -642,23 +714,47 @@ export class CloudNodeProjectSession {
           : !result.display?.mediaId
             ? result.display?.fileId
             : undefined
-      if (fileId) results.push({ resultId: result.id, fileId })
+      if (fileId) results.push({ resultId: result.id, fileId, createdAt: result.createdAt })
     }
     let failure: unknown
     const sources = new Set<string>()
     // 别的设备声明在传、还没过期的上传中节点，本机没有原图是正常的，由那台设备去传；
     // 本机缺原图又没有有效声明（原图被清理、损坏，或那台设备传了 30 分钟还没收成云媒体），仍按缺图报错。
     const pendingAllowed = supportsCanvasPendingMedia()
+    // 本机没有原图的（BUG-15）：服务端已经存着这个节点的当前内容时，挡着也补不回来，照常保存其余改动、
+    // 节点原样留着（别的设备若还有原图仍能补传）；只在本机、放了很久的摘掉；其余（刚加的、还不知道服务端
+    // 有什么）照旧按缺图挡着。
+    const lostNodes: { nodeId: string; fileId: string }[] = []
+    const lostResults = new Set<string>()
+    const lost = (fileId: string, createdAt: number | undefined) => {
+      if (!this.serverVector) return false
+      if (typeof createdAt === 'number' && Number.isFinite(createdAt))
+        return now - createdAt >= LOST_MEDIA_AGE_MS
+      const since = this.missingSince.get(fileId) ?? now
+      this.missingSince.set(fileId, since)
+      return now - since >= LOST_MEDIA_SEEN_MS
+    }
     for (const node of nodes) {
       // 别的标签页/设备声明在传、还没过期的，即使本机缓存里也有原图，也交给它传，免得重复上传、互抢声明。
       if (pendingAllowed && node.elsewhere) continue
       const source = this.record.editor.doc.files[node.fileId]
-      if (source) sources.add(source)
-      else if (!pendingAllowed || !node.elsewhere) failure ??= new Error('canvas_media_missing')
+      if (source) {
+        sources.add(source)
+        this.missingSince.delete(node.fileId)
+      } else if (
+        this.serverHoldsNodeData(node.nodeId) ||
+        this.serverFiles.has(`${node.nodeId}\u0000${node.fileId}`)
+      )
+        continue
+      else if (lost(node.fileId, node.createdAt)) lostNodes.push(node)
+      else failure ??= new Error('canvas_media_missing')
     }
-    for (const { fileId } of results) {
+    for (const { fileId, createdAt } of results) {
       const source = this.record.editor.doc.files[fileId]
-      if (source) sources.add(source)
+      if (source) {
+        sources.add(source)
+        this.missingSince.delete(fileId)
+      } else if (lost(fileId, createdAt)) lostResults.add(fileId)
       else failure ??= new Error('canvas_media_missing')
     }
     const promote = (source: string, mediaId: string) => {
@@ -677,8 +773,13 @@ export class CloudNodeProjectSession {
     const rejected = new Map<string, MediaRejection>()
     const drop = () => {
       // 同步已取消或换了账号：不再改这份文档。
-      if (!rejected.size || this.controller.signal.aborted || !this.sameAccount()) return
-      const names: Record<MediaRejection, string[]> = { invalid: [], oversized: [] }
+      if (
+        (!rejected.size && !lostNodes.length && !lostResults.size) ||
+        this.controller.signal.aborted ||
+        !this.sameAccount()
+      )
+        return
+      const names: Record<MediaRejection, string[]> = { invalid: [], oversized: [], missing: [] }
       const kinds = new Set<MediaRejection>()
       // 上传期间可能有新改动，按当前文档再核对一次；只读一遍文档，不在每个节点上重建整张画布。
       const current = new Map(readCanvasDocument(doc).nodes.map((node) => [node.id, node]))
@@ -701,18 +802,37 @@ export class CloudNodeProjectSession {
         }
         for (const [fileId, kind] of dropping)
           if (dropCanvasResultFile(doc, fileId, legacyOrigin)) kinds.add(kind)
+        // 本机找不到原图的那几张：期间原图又出现了（例如别处写回了缓存）就不摘。
+        for (const { nodeId, fileId } of lostNodes) {
+          if (this.record.editor.doc.files[fileId]) continue
+          const node = current.get(nodeId)
+          if (!node || !('fileId' in node.data) || node.data.fileId !== fileId) continue
+          if (!dropCanvasNodeFile(doc, nodeId, fileId, legacyOrigin)) continue
+          kinds.add('missing')
+          if (node.data.name) names.missing.push(node.data.name)
+        }
+        for (const fileId of lostResults)
+          if (
+            !this.record.editor.doc.files[fileId] &&
+            dropCanvasResultFile(doc, fileId, legacyOrigin)
+          )
+            kinds.add('missing')
       }, legacyOrigin)
       for (const kind of kinds) {
         const list = [...new Set(names[kind])]
         const joined = list.join('、')
         const message =
-          kind === 'oversized'
+          kind === 'missing'
             ? list.length
-              ? i18next.t('nodes.uploadTooLarge', { ns: 'canvas', names: joined })
-              : i18next.t('nodes.uploadTooLargeUnnamed', { ns: 'canvas' })
-            : list.length
-              ? i18next.t('nodes.uploadRejected', { ns: 'canvas', names: joined })
-              : i18next.t('nodes.uploadRejectedUnnamed', { ns: 'canvas' })
+              ? i18next.t('nodes.uploadMissing', { ns: 'canvas', names: joined })
+              : i18next.t('nodes.uploadMissingUnnamed', { ns: 'canvas' })
+            : kind === 'oversized'
+              ? list.length
+                ? i18next.t('nodes.uploadTooLarge', { ns: 'canvas', names: joined })
+                : i18next.t('nodes.uploadTooLargeUnnamed', { ns: 'canvas' })
+              : list.length
+                ? i18next.t('nodes.uploadRejected', { ns: 'canvas', names: joined })
+                : i18next.t('nodes.uploadRejectedUnnamed', { ns: 'canvas' })
         useStore.getState().showToast(message, 'error')
       }
     }
@@ -1106,7 +1226,10 @@ export class CloudNodeProjectSession {
     if (!response.ok) throw new ProjectRequestError(response.status, 'canvas_load_failed')
     const update = new Uint8Array(await response.arrayBuffer())
     this.current()
-    if (this.canvas) Y.applyUpdate(this.canvas.doc, update, remoteOrigin)
+    if (this.canvas) {
+      Y.applyUpdate(this.canvas.doc, update, remoteOrigin)
+      this.noteReceived(update, true)
+    }
     this.projectToEditor()
     await this.readCommands()
   }
