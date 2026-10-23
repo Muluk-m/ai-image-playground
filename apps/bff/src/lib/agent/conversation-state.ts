@@ -5,8 +5,8 @@ import { db, schema } from '../../db/client'
 /** 状态摘要只回看这么久：更早的卡片与批次已经不是“刚才那件事”。 */
 export const CONVERSATION_STATE_WINDOW_MS = 24 * 60 * 60 * 1000
 const MAX_DRAFTS = 10
-/** 按卡分类前先多扫一些草稿行：较新的作废、已了结的稿会被滤掉，不能让它们占满 `MAX_DRAFTS` 挤掉更早还在等的卡。 */
-const DRAFT_SCAN_LIMIT = 100
+/** 按卡分类时每页扫的草稿行数。 */
+const DRAFT_PAGE_SIZE = 50
 const MAX_BATCHES = 5
 const MAX_NODE_RUNS = 8
 const MAX_LISTED_ARTIFACTS = 12
@@ -48,10 +48,7 @@ type DraftCardState = 'pending' | 'voided' | 'hidden'
  * - 普通待确认卡、找不到卡的旧数据：照旧算待确认。
  */
 function draftCardState(
-  cards: ReadonlyMap<
-    string,
-    { readonly status?: unknown; readonly gated?: unknown; readonly errorCode?: unknown }
-  >,
+  cards: ReadonlyMap<string, CardFacts>,
   turnId: string,
   toolCallId: string,
 ): DraftCardState {
@@ -65,6 +62,41 @@ function draftCardState(
 }
 
 const cardKey = (turnId: string, toolCallId: string) => JSON.stringify([turnId, toolCallId])
+
+type CardFacts = {
+  readonly status?: unknown
+  readonly gated?: unknown
+  readonly errorCode?: unknown
+}
+
+/**
+ * 草稿对应的卡：作废只改写卡片，草稿行的 `task_id` 照样是空的，单看草稿会把作废的稿当成还在等确认。
+ * 同一张卡若出现在多条消息里，按会话内 `seq`（写入锁保证的顺序）排，后写的覆盖先写的。
+ */
+async function draftCards(
+  conversationId: string,
+  turnIds: readonly string[],
+): Promise<Map<string, CardFacts>> {
+  const cards = new Map<string, CardFacts>()
+  const turns = [...new Set(turnIds)]
+  if (!turns.length) return cards
+  const rows = await db
+    .select({ turnId: schema.agent_messages.turn_id, content: schema.agent_messages.content })
+    .from(schema.agent_messages)
+    .where(
+      and(
+        eq(schema.agent_messages.conversation_id, conversationId),
+        inArray(schema.agent_messages.turn_id, turns),
+        eq(schema.agent_messages.role, 'assistant'),
+        isNull(schema.agent_messages.deleted_at),
+      ),
+    )
+    .orderBy(asc(schema.agent_messages.seq))
+  for (const row of rows)
+    for (const block of row.content)
+      if (block.type === 'toolResult') cards.set(cardKey(row.turnId, block.toolCallId), block)
+  return cards
+}
 
 function draftTitle(prompt: string): string {
   const flat = prompt.replace(/\s+/g, ' ').trim()
@@ -118,48 +150,45 @@ export async function readConversationStateFacts(
   now: number = Date.now(),
 ): Promise<ConversationStateFacts> {
   const since = now - CONVERSATION_STATE_WINDOW_MS
-  const drafts = await db
-    .select({
-      prompt: schema.agent_generation_drafts.prompt,
-      turnId: schema.agent_generation_drafts.turn_id,
-      toolCallId: schema.agent_generation_drafts.tool_call_id,
-    })
-    .from(schema.agent_generation_drafts)
-    .where(
-      and(
-        eq(schema.agent_generation_drafts.conversation_id, conversationId),
-        isNull(schema.agent_generation_drafts.task_id),
-        gte(schema.agent_generation_drafts.created_at, since),
-      ),
+  // 按页扫草稿、按卡分类，两类都凑够 `MAX_DRAFTS` 或扫完为止：较新的作废、已了结的稿会被滤掉，
+  // 不能先截条数再分类，否则它们会挤掉更早还在等确认的卡。
+  const pendingDrafts: PendingDraftFact[] = []
+  const voidedDrafts: PendingDraftFact[] = []
+  for (let offset = 0; pendingDrafts.length < MAX_DRAFTS || voidedDrafts.length < MAX_DRAFTS; ) {
+    const page = await db
+      .select({
+        prompt: schema.agent_generation_drafts.prompt,
+        turnId: schema.agent_generation_drafts.turn_id,
+        toolCallId: schema.agent_generation_drafts.tool_call_id,
+      })
+      .from(schema.agent_generation_drafts)
+      .where(
+        and(
+          eq(schema.agent_generation_drafts.conversation_id, conversationId),
+          isNull(schema.agent_generation_drafts.task_id),
+          gte(schema.agent_generation_drafts.created_at, since),
+        ),
+      )
+      .orderBy(
+        desc(schema.agent_generation_drafts.created_at),
+        desc(schema.agent_generation_drafts.id),
+      )
+      .limit(DRAFT_PAGE_SIZE)
+      .offset(offset)
+    if (!page.length) break
+    offset += page.length
+    const cards = await draftCards(
+      conversationId,
+      page.map((draft) => draft.turnId),
     )
-    .orderBy(desc(schema.agent_generation_drafts.created_at))
-    .limit(DRAFT_SCAN_LIMIT)
-
-  // 草稿对应的卡：作废只改写卡片，草稿行的 `task_id` 照样是空的，单看草稿会把作废的稿当成还在等确认。
-  const draftTurns = [...new Set(drafts.map((draft) => draft.turnId))]
-  const cardRows = draftTurns.length
-    ? await db
-        .select({ turnId: schema.agent_messages.turn_id, content: schema.agent_messages.content })
-        .from(schema.agent_messages)
-        .where(
-          and(
-            eq(schema.agent_messages.conversation_id, conversationId),
-            inArray(schema.agent_messages.turn_id, draftTurns),
-            eq(schema.agent_messages.role, 'assistant'),
-            isNull(schema.agent_messages.deleted_at),
-          ),
-        )
-        // 同一张卡若出现在多条消息里，按写入先后排，后写的覆盖先写的。
-        .orderBy(asc(schema.agent_messages.created_at), asc(schema.agent_messages.seq))
-    : []
-  const cards = new Map<string, { status?: unknown; gated?: unknown; errorCode?: unknown }>()
-  for (const row of cardRows)
-    for (const block of row.content)
-      if (block.type === 'toolResult') cards.set(cardKey(row.turnId, block.toolCallId), block)
-  const draftStates = drafts.map((draft) => ({
-    title: draftTitle(draft.prompt),
-    state: draftCardState(cards, draft.turnId, draft.toolCallId),
-  }))
+    for (const draft of page) {
+      const state = draftCardState(cards, draft.turnId, draft.toolCallId)
+      const into =
+        state === 'pending' ? pendingDrafts : state === 'voided' ? voidedDrafts : undefined
+      if (into && into.length < MAX_DRAFTS) into.push({ title: draftTitle(draft.prompt) })
+    }
+    if (page.length < DRAFT_PAGE_SIZE) break
+  }
 
   const recentMessages = await db
     .select({ content: schema.agent_messages.content })
@@ -219,14 +248,8 @@ export async function readConversationStateFacts(
     : []
 
   return {
-    pendingDrafts: draftStates
-      .filter((draft) => draft.state === 'pending')
-      .slice(0, MAX_DRAFTS)
-      .map(({ title }) => ({ title })),
-    voidedDrafts: draftStates
-      .filter((draft) => draft.state === 'voided')
-      .slice(0, MAX_DRAFTS)
-      .map(({ title }) => ({ title })),
+    pendingDrafts,
+    voidedDrafts,
     pendingNodeRuns: recentMessages
       .flatMap((message) => manualNodeRuns(message.content))
       .slice(0, MAX_NODE_RUNS),
