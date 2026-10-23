@@ -4,7 +4,13 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TaskGrid from '../../components/TaskGrid'
+import { openImageExport } from '../../features/image-export/store'
 import { readLegacyProductJobs } from '../../lib/legacyProductHistory'
+
+vi.mock('../../features/image-export/store', async (original) => ({
+  ...(await original<object>()),
+  openImageExport: vi.fn(),
+}))
 
 vi.mock('../../lib/legacyProductHistory', async (original) => ({
   ...(await original<object>()),
@@ -47,9 +53,11 @@ beforeEach(() => {
     filterStatus: 'all',
     filterFavorite: false,
     selectedTaskIds: [],
+    detailTaskId: null,
     showToast: vi.fn(),
     setConfirmDialog: vi.fn(),
   })
+  vi.mocked(openImageExport).mockClear()
   vi.mocked(readLegacyProductJobs).mockResolvedValue([
     { id: 'set-1', name: '奶油浴缸', images: [] },
   ])
@@ -152,5 +160,62 @@ describe('the history folded by set', () => {
     expect(document.querySelectorAll('[data-batch-tile="running"]')).toHaveLength(2)
     const queuedTile = document.querySelector('[data-batch-tile="queued"]')
     expect(queuedTile?.textContent).toBe('排队中')
+  })
+
+  describe('a finished per-image batch', () => {
+    const batch = (shotId: string) => ({ setId: 'batch-3', shotId, kind: 'batch' as const })
+    const finished = () =>
+      useStore.setState({
+        tasks: [
+          { ...task('c1', 5, batch('1')), outputImages: ['img-1'] },
+          { ...task('c2', 5, batch('2')), outputImages: ['img-2'] },
+          { ...task('c3', 5, batch('3')), outputImages: ['img-3'] },
+        ],
+      })
+    const click = (node: Element | null | undefined) => {
+      if (!node) throw new Error('missing element')
+      act(() => node.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    }
+    const expand = () => click(document.querySelector('button[aria-expanded="false"]'))
+
+    it('opens the image a thumbnail shows', async () => {
+      finished()
+      await render()
+
+      click(document.querySelector('[aria-label="查看第 2 张"]'))
+
+      expect(useStore.getState().detailTaskId).toBe('c2')
+    })
+
+    it('lists every image inside the card once expanded, each with its own download', async () => {
+      finished()
+      await render()
+      expand()
+
+      const items = [...document.querySelectorAll('[data-set-history-card] [data-batch-item]')]
+      expect(items.map((item) => item.getAttribute('data-batch-item'))).toEqual(['c1', 'c2', 'c3'])
+      expect(items.map((item) => item.textContent)).toEqual(['第 1 张', '第 2 张', '第 3 张'])
+      // 不再把每张散成网格里的单张卡。
+      expect(cardIds()).toEqual([])
+
+      click(items[1]?.querySelector('[aria-label="下载第 2 张"]'))
+      expect(openImageExport).toHaveBeenCalledTimes(1)
+      const sources = vi.mocked(openImageExport).mock.calls[0]?.[0]
+      expect(sources?.map((source) => source.id)).toEqual(['c2:img-2'])
+
+      click(items[2]?.querySelector('[aria-label="查看第 3 张"]'))
+      expect(useStore.getState().detailTaskId).toBe('c3')
+    })
+
+    it('downloads all images of the batch at once', async () => {
+      finished()
+      await render()
+      expand()
+
+      click(document.querySelector('[data-batch-download-all]'))
+
+      const sources = vi.mocked(openImageExport).mock.calls[0]?.[0]
+      expect(sources?.map((source) => source.id)).toEqual(['c1:img-1', 'c2:img-2', 'c3:img-3'])
+    })
   })
 })
