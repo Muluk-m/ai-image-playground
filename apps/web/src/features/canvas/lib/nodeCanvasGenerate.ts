@@ -90,14 +90,14 @@ function generationMeta(pending: PendingGeneration | undefined): NodeGenerationM
 }
 
 /** 把一张位图写进这个节点。已有旧元素就换图，否则用同一个 id 放进旧存档，同步会填上 fileId。 */
-async function putBitmapOnNode(
+function putBitmapOnNode(
   editor: CanvasEditor,
   doc: Y.Doc,
   nodeId: string,
   image: ReadImageFile,
   name?: string,
   onlyIfEmpty = false,
-): Promise<boolean> {
+): boolean {
   const node = imageNode(doc, nodeId)
   if (!node) return false
   const { dataUrl, width: naturalWidth, height: naturalHeight } = image
@@ -352,9 +352,11 @@ export interface ReadImageFile {
  */
 export async function readImageFile(file: File): Promise<ReadImageFile> {
   if (!file.type.startsWith('image/') || file.size === 0) throw new InvalidImageFileError(file.name)
-  const dataUrl = await fileToDataUrl(file)
+  let dataUrl
   let size
   try {
+    // 读不出来（文件被删、被锁）也按这一张不可用处理，不拖垮整批。
+    dataUrl = await fileToDataUrl(file)
     size = await getImageDimensions(dataUrl)
   } catch {
     throw new InvalidImageFileError(file.name)
@@ -368,15 +370,21 @@ function isReadImageFile(value: File | ReadImageFile): value is ReadImageFile {
   return typeof (value as ReadImageFile).dataUrl === 'string'
 }
 
-/** 导出的入口可能收到不是 readImageFile 产出的对象：空 data URL、缺尺寸的一律不写进画布。 */
-function checkedReadImage(image: ReadImageFile, name?: string): ReadImageFile {
-  const valid =
+/**
+ * 导出的入口可能收到不是 readImageFile 产出的对象：空 data URL、缺尺寸的、
+ * 前缀像图其实解不开的，一律不写进画布。字符串和数字看着对不算，得真解一次。
+ */
+async function checkedReadImage(image: ReadImageFile, name?: string): Promise<ReadImageFile> {
+  const invalid = () => new InvalidImageFileError(name ?? 'image')
+  const shaped =
     image.dataUrl.startsWith('data:image/') &&
     Number.isFinite(image.width) &&
     Number.isFinite(image.height) &&
     image.width > 0 &&
     image.height > 0
-  if (!valid) throw new InvalidImageFileError(name ?? 'image')
+  if (!shaped) throw invalid()
+  const size = await getImageDimensions(image.dataUrl).catch(() => null)
+  if (!size || !(size.width > 0 && size.height > 0)) throw invalid()
   return image
 }
 
@@ -387,8 +395,25 @@ export async function fillImageNode(
   file: File | ReadImageFile,
   name = isReadImageFile(file) ? undefined : file.name,
 ): Promise<void> {
-  const image = isReadImageFile(file) ? checkedReadImage(file, name) : await readImageFile(file)
-  await putBitmapOnNode(editor, doc, nodeId, image, name)
+  const image = isReadImageFile(file)
+    ? await checkedReadImage(file, name)
+    : await readImageFile(file)
+  putBitmapOnNode(editor, doc, nodeId, image, name)
+}
+
+/**
+ * 把刚由 `readImageFile` 解出来的图同步写进节点，不再解码、不让出执行权。
+ * 批量导入建完节点紧接着调用：建节点和写图之间没有 await，就不会在中途换了画布还往旧画布写，
+ * 也不会因为第二次解码失败留下一个空节点、拖垮后面的整批。
+ */
+export function placeDecodedImage(
+  editor: CanvasEditor,
+  doc: Y.Doc,
+  nodeId: string,
+  image: ReadImageFile,
+  name?: string,
+): void {
+  putBitmapOnNode(editor, doc, nodeId, image, name)
 }
 
 /**
