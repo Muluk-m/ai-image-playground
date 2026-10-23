@@ -143,6 +143,16 @@ it('出的是视频就说「个视频」，不说成「张图」（Codex P2）',
   expect(host.textContent).toContain('「咖啡海报」3 张图、1 个视频已生成')
 })
 
+it('一张都没出来时只说没完成几项，不说「0 张图已生成」（复审 P1）', () => {
+  act(() =>
+    useAgentJobActivity.setState({
+      notice: { conversationId: 'conv-1', images: 0, videos: 0, failed: 2, at: 1 },
+    }),
+  )
+  expect(host.textContent).toContain('「咖啡海报」生成结束：2 项没有完成')
+  expect(host.textContent).not.toContain('0 张图')
+})
+
 it('查看时加载出错也不抛到外面，提示留着（复审 P1）', async () => {
   selectConversation.mockImplementationOnce(async () => {
     throw new Error('load failed')

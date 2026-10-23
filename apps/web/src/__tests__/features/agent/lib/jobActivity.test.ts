@@ -181,6 +181,19 @@ describe('切走之后的对话（BUG-16）', () => {
     )
   })
 
+  it('切回来之前后台还没问到就已出完：面板接手后照样结算并记一笔（复审 P1）', async () => {
+    panel(['conv-1', [tool('a')]], ['conv-2', []])
+    const done = tool('a', {
+      status: 'succeeded',
+      artifacts: [{}] as unknown as AgentToolMessage['artifacts'],
+    })
+    reportAgentPanel('conv-1', [done], { conversationId: 'conv-2', messages: [] })
+    expect(useAgentJobActivity.getState().activity['conv-1']).toMatchObject({
+      running: 0,
+      done: { images: 1 },
+    })
+  })
+
   it('全是用户自己取消的，不提示', async () => {
     fetchJobs.mockResolvedValue([
       view(
