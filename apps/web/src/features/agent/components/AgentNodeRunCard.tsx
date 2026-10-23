@@ -162,7 +162,9 @@ export default function AgentNodeRunCard({
   const rejections = [
     ...new Set(
       (report?.nodes ?? []).flatMap((node) =>
-        node.outcome === 'failed' && node.reason && node.reason in REJECTION_NOTES
+        node.outcome === 'failed' &&
+        typeof node.reason === 'string' &&
+        Object.prototype.hasOwnProperty.call(REJECTION_NOTES, node.reason)
           ? [REJECTION_NOTES[node.reason as keyof typeof REJECTION_NOTES]]
           : [],
       ),
