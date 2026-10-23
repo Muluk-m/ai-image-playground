@@ -157,6 +157,8 @@ export async function uploadMediaSource(
           outcome = 'skipped'
           return undefined
         }
+        // 0 字节、改了扩展名的文本：这份字节再传多少次都不是图，按服务端同一个错误码报，调用方可据此判定永久失败。
+        if (bytes.byteLength === 0) throw new MediaRequestError(422, 'media_invalid_image')
         // 类型识别、必要时转 PNG 和转码后的再次摘要单独计，不算进 hash。
         timer.mark('convert')
         let contentType = imageMimeFromBytes(bytes)
@@ -164,7 +166,13 @@ export async function uploadMediaSource(
         if (!contentType) {
           if (options.purpose === 'conversation-attachment')
             throw new MediaRequestError(422, 'media_unsupported_image')
-          body = await (await imageDataUrlToPngBlob(source)).arrayBuffer()
+          let decoded: Blob
+          try {
+            decoded = await imageDataUrlToPngBlob(source)
+          } catch {
+            throw new MediaRequestError(422, 'media_invalid_image')
+          }
+          body = await decoded.arrayBuffer()
           contentType = 'image/png'
           current()
         }

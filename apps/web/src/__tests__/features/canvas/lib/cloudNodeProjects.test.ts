@@ -41,6 +41,7 @@ import {
 import type { SceneRecord } from '../../../../features/canvas/lib/sceneRecord'
 import { authenticatedBffFetch } from '../../../../lib/authClient'
 import { setClientStorageScope } from '../../../../lib/authScope'
+import { MediaRequestError } from '../../../../lib/cloudMedia'
 import { getDeviceId } from '../../../../lib/deviceId'
 import { uploadMediaSource } from '../../../../lib/mediaUpload'
 import { openSceneRecord } from '../../../helpers/sceneRecord'
@@ -105,7 +106,8 @@ const defaultUpload = async () => ({ id: '11111111-1111-4111-8111-111111111111',
 vi.mock('../../../../lib/mediaUpload', () => ({
   uploadMediaSource: vi.fn(async () => ({ id: '11111111-1111-4111-8111-111111111111' })),
 }))
-vi.mock('../../../../store', () => ({ useStore: { getState: () => ({ showToast: vi.fn() }) } }))
+const showToast = vi.hoisted(() => vi.fn())
+vi.mock('../../../../store', () => ({ useStore: { getState: () => ({ showToast }) } }))
 class Socket {
   static OPEN = 1
   static instances: Socket[] = []
@@ -135,6 +137,7 @@ afterEach(() => {
   for (const s of sessions.splice(0)) s.dispose()
   // A test that replaces the upload implementation must not leak it into later tests.
   vi.mocked(uploadMediaSource).mockImplementation(defaultUpload)
+  showToast.mockClear()
   pendingMedia.supported = false
   vi.useRealTimers()
   vi.restoreAllMocks()
@@ -1003,6 +1006,143 @@ it('still waits for media before sending a local candidate the server cannot acc
     type: 'media',
     mediaId: uploaded,
   })
+  record.dispose()
+})
+
+it.each([
+  ['an empty or undecodable file', () => new MediaRequestError(422, 'media_invalid_image')],
+  ['an oversized image', () => new MediaRequestError(413, 'media_too_large')],
+  ['an unsupported local source', () => new Error('unsupported_local_media')],
+])('saves the rest of the canvas when %s can never be uploaded (BUG-10)', async (_name, reject) => {
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const zero = 'data:image/png;base64,'
+  const ok = `data:image/png;base64,${btoa('ok')}`
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockImplementation(async (source) => {
+      if (source === zero) throw reject()
+      return { id: '66666666-6666-4666-8666-666666666666', sha256: 'ok' }
+    })
+  const { doc } = session.canvas!
+  record.editor.doc.files = { zero, ok }
+  insertCanvasNode(
+    doc,
+    {
+      id: 'zero',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: { fileId: 'zero', name: 'zero.png', naturalWidth: 1, naturalHeight: 1 },
+    },
+    session.canvas!.origin,
+  )
+  recordCanvasResult(
+    doc,
+    {
+      id: 'zero-upload',
+      nodeId: 'zero',
+      kind: 'image',
+      source: { type: 'file', fileId: 'zero' },
+      createdAt: 1,
+    },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('saved'))
+  // 之后的正常上传也照样保存，不会被那张坏图一直挡住。
+  insertCanvasNode(
+    doc,
+    { id: 'ok', type: 'image', x: 60, y: 0, width: 50, height: 50, data: { fileId: 'ok' } },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() =>
+    expect(readCanvasDocument(server).nodes.find((n) => n.id === 'ok')?.data).toMatchObject({
+      mediaId: '66666666-6666-4666-8666-666666666666',
+    }),
+  )
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('saved'))
+  const saved = readCanvasDocument(server).nodes.find((n) => n.id === 'zero')
+  expect(saved?.data).toEqual({ name: 'zero.png' })
+  expect(showToast).toHaveBeenCalledTimes(1)
+  expect(showToast.mock.calls[0]?.[1]).toBe('error')
+  expect(canvasResults(server).some((r) => r.id === 'zero-upload')).toBe(false)
+  // 坏图只试一次，不会每轮同步都再传一遍。
+  expect(
+    vi.mocked(uploadMediaSource).mock.calls.filter(([source]) => source === zero),
+  ).toHaveLength(1)
+  record.dispose()
+})
+
+it('tells the user when only a candidate used the unusable image', async () => {
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockRejectedValue(new MediaRequestError(422, 'media_invalid_image'))
+  const { doc } = session.canvas!
+  record.editor.doc.files = { bad: 'data:image/png;base64,' }
+  insertCanvasNode(
+    doc,
+    { id: 'image', type: 'image', x: 0, y: 0, width: 50, height: 50, data: {} },
+    session.canvas!.origin,
+  )
+  recordCanvasResult(
+    doc,
+    {
+      id: 'bad',
+      nodeId: 'image',
+      kind: 'image',
+      source: { type: 'file', fileId: 'bad' },
+      createdAt: 1,
+    },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('saved'))
+  expect(canvasResults(server)).toEqual([])
+  expect(showToast).toHaveBeenCalledTimes(1)
+  record.dispose()
+})
+
+it('keeps the local image and retries when an upload fails for a reason that may pass later', async () => {
+  const { session, record, socket, server } = await fixture()
+  socket.receive(canvasSyncAck(server))
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockRejectedValue(new MediaRequestError(503, 'media_network_error'))
+  record.editor.doc.files = { image: 'data:image/png;base64,aGVsbG8=' }
+  insertCanvasNode(
+    session.canvas!.doc,
+    { id: 'image', type: 'image', x: 0, y: 0, width: 50, height: 50, data: { fileId: 'image' } },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('media-local'))
+  expect(
+    readCanvasDocument(session.canvas!.doc).nodes.find((n) => n.id === 'image')?.data,
+  ).toMatchObject({ fileId: 'image' })
+  await expect(session.sync()).rejects.toMatchObject({ code: 'media_network_error' })
+  expect(uploadMediaSource).toHaveBeenCalledTimes(2)
+  record.dispose()
+})
+
+it('does not strip an image whose original is not on this device', async () => {
+  const { session, record, socket, server } = await fixture()
+  socket.receive(canvasSyncAck(server))
+  vi.mocked(uploadMediaSource).mockClear()
+  record.editor.doc.files = {}
+  insertCanvasNode(
+    session.canvas!.doc,
+    { id: 'image', type: 'image', x: 0, y: 0, width: 50, height: 50, data: { fileId: 'gone' } },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('media-local'))
+  expect(
+    readCanvasDocument(session.canvas!.doc).nodes.find((n) => n.id === 'image')?.data,
+  ).toMatchObject({ fileId: 'gone' })
+  expect(uploadMediaSource).not.toHaveBeenCalled()
   record.dispose()
 })
 
