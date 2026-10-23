@@ -83,14 +83,20 @@ export default function AgentClarification({
   }
 
   if (message.maskProposal) {
-    if (answered)
+    if (answered) {
+      // 确认与否先看回答里有没有带着这张图的蒙版：回答文字按当时的界面语言存，切换语言后
+      // 前缀就对不上了；文字前缀只兜底蒙版读不到的旧记录。
+      const mask = confirmedMaskSource(answerReferences, message.maskProposal)
       return (
         <AnsweredMaskProposal
           proposal={message.maskProposal}
-          confirmed={answer?.startsWith(t('maskProposal.answerConfirmed')) ?? false}
-          mask={confirmedMaskSource(answerReferences, message.maskProposal)}
+          confirmed={
+            mask !== null || (answer?.startsWith(t('maskProposal.answerConfirmed')) ?? false)
+          }
+          mask={mask}
         />
       )
+    }
     return (
       <AgentMaskProposalCard
         message={message}
