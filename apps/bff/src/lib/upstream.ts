@@ -116,6 +116,32 @@ function concurrencyFor(
 }
 
 /**
+ * 这个模型在 BFF 里受哪个同时在途上限管（`models[].maxConcurrency` 或渠道级 `maxConcurrency`），
+ * 以及同一个上限下有哪些模型。没有声明上限时给 undefined。调度器的空闲并发判定用它，
+ * 确保弹性名额不会让同一个上限下正在跑的任务数超过上限（例如 Vertex 每个模型 2）。
+ */
+export function taskConcurrencyScope(
+  provider: QueueProvider,
+  model: string,
+): { models: string[]; limit: number } | undefined {
+  const kind = provider === 'gemini' ? 'gemini-queue' : 'openai-queue'
+  for (const channel of getRoutableChannels()) {
+    if (!channelRouteStyle(channel.id) || channel.kind !== kind) continue
+    const declared = channel.models.find((m) => m.id === model)
+    if (!declared) continue
+    const perModel = channel.modelMaxConcurrency
+    if (perModel && Object.hasOwn(perModel, declared.id))
+      return { models: [declared.id], limit: perModel[declared.id]! }
+    if (!channel.maxConcurrency) return undefined
+    const shared = channel.models
+      .map((m) => m.id)
+      .filter((id) => !(perModel && Object.hasOwn(perModel, id)))
+    return { models: shared, limit: channel.maxConcurrency }
+  }
+  return undefined
+}
+
+/**
  * provider + model → 上游 baseUrl、API key 与协议风格。
  * 返回的 baseUrl 统一**含版本段**（如 .../v1、.../v1beta），调用方拼相对路径，
  * 杜绝 channel baseUrl（含版本段）与 env baseUrl（不含）两套约定打架拼出 /v1/v1。

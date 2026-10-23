@@ -97,6 +97,16 @@ export interface PrivateTaskHooks {
     userId: string
     now: number
   }): Promise<number>
+  /**
+   * 套餐的保证并发与空闲时可用并发（弹性名额）。保证并发永远放行；空闲并发只在服务器有余量、
+   * 没有别人排队时才放行，见 workers/idle-concurrency.ts。无订阅账号两者相等。
+   * 可选（先扩后缩）：缺席时退回 `accountConcurrencyLimit`，空闲并发等于保证并发。
+   */
+  accountConcurrencyEntitlement?(input: {
+    tx: BffTransaction
+    userId: string
+    now: number
+  }): Promise<{ guaranteed: number; idle: number }>
   onUserCreated(input: {
     tx: BffTransaction
     userId: string

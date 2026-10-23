@@ -1,12 +1,17 @@
 import type { QueueProvider } from '@image-playground/shared'
 import { and, asc, eq, gt, inArray, isNull, lte, notInArray, or, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
+import { checkIdleSlot } from './idle-concurrency'
 import { accountGenerationLimits } from './task-execution'
 
 /**
  * Read the oldest tasks that can actually claim an account slot. A cursor and the partial
  * provider/time index keep a single account's large backlog from forcing a full queue sort.
  * The claim transaction still enforces the limit; this read only chooses fair candidates.
+ *
+ * Accounts whose guaranteed slots are full but whose plan has idle slots left get at most one
+ * idle candidate, considered only after every guaranteed candidate this tick (see
+ * idle-concurrency.ts); the claim re-checks it under a lock.
  */
 export async function selectRunnableTasks(
   provider: QueueProvider,
@@ -20,6 +25,14 @@ export async function selectRunnableTasks(
   const selectedTaskIds = new Set<string>()
   const plannedTotal = new Map<string, number>()
   const plannedProvider = new Map<string, number>()
+  const plannedModels: Array<{ id: string; model: string }> = []
+  const idleCandidates: Array<{
+    id: string
+    userId: string
+    model: string
+    eligibleSince: number
+  }> = []
+  const idleCandidateUsers = new Set<string>()
   let roundSelections = 0
   let cursor: { sortAt: number; id: string } | undefined
   const eligibleAt = sql`greatest(${schema.tasks.submitted_at}, coalesce(${schema.tasks.next_retry_at}, ${schema.tasks.submitted_at}))`
@@ -43,6 +56,7 @@ export async function selectRunnableTasks(
       .select({
         id: schema.tasks.id,
         userId: schema.tasks.user_id,
+        model: schema.tasks.model,
         submittedAt: schema.tasks.submitted_at,
         nextRetryAt: schema.tasks.next_retry_at,
       })
@@ -108,7 +122,7 @@ export async function selectRunnableTasks(
         activeTotal.set(row.userId, (activeTotal.get(row.userId) ?? 0) + Number(row.count))
         if (row.provider === provider) activeProvider.set(row.userId, Number(row.count))
       }
-      const limits = new Map<string, { total: number; provider: number }>()
+      const limits = new Map<string, { total: number; provider: number; idle: number }>()
       for (const task of due) {
         if (task.userId) {
           if (roundUsers.has(task.userId) || excludedUsers.has(task.userId)) continue
@@ -121,16 +135,31 @@ export async function selectRunnableTasks(
           const onProvider =
             (activeProvider.get(task.userId) ?? 0) + (plannedProvider.get(task.userId) ?? 0)
           if (total >= limit.total || onProvider >= limit.provider) {
+            if (
+              onProvider < limit.provider &&
+              total < limit.idle &&
+              !idleCandidateUsers.has(task.userId)
+            ) {
+              idleCandidateUsers.add(task.userId)
+              idleCandidates.push({
+                id: task.id,
+                userId: task.userId,
+                model: task.model,
+                eligibleSince: Math.max(task.submittedAt, task.nextRetryAt ?? task.submittedAt),
+              })
+            }
             excludedUsers.add(task.userId)
             continue
           }
           plannedTotal.set(task.userId, (plannedTotal.get(task.userId) ?? 0) + 1)
           plannedProvider.set(task.userId, (plannedProvider.get(task.userId) ?? 0) + 1)
           roundUsers.add(task.userId)
-          if (total + 1 >= limit.total || onProvider + 1 >= limit.provider) {
+          // Keep an account that may still use an idle slot visible so its next task is seen.
+          if (onProvider + 1 >= limit.provider || total + 1 >= limit.idle) {
             excludedUsers.add(task.userId)
           }
         }
+        plannedModels.push({ id: task.id, model: task.model })
         selectedTaskIds.add(task.id)
         roundSelections++
         selected.push({
@@ -140,6 +169,22 @@ export async function selectRunnableTasks(
         if (selected.length >= available) break
       }
     })
+  }
+  // Idle slots go last: every guaranteed candidate this tick is already planned above.
+  for (const candidate of idleCandidates.sort((a, b) => a.eligibleSince - b.eligibleSince)) {
+    if (selected.length >= available) break
+    const decision = await db.transaction((tx) =>
+      checkIdleSlot(tx, {
+        provider,
+        model: candidate.model,
+        userId: candidate.userId,
+        now,
+        planned: plannedModels,
+      }),
+    )
+    if (!decision.granted) continue
+    plannedModels.push({ id: candidate.id, model: candidate.model })
+    selected.push({ id: candidate.id, eligibleSince: candidate.eligibleSince })
   }
   return selected
 }
