@@ -4,6 +4,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Sidebar from '../../components/Sidebar'
+import { useAgentJobActivity } from '../../features/agent/lib/jobActivity'
 import { type CanvasProject, projectRepository } from '../../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { useLibraryStore } from '../../features/library/store'
@@ -162,6 +163,42 @@ it('对话和画布同时列出，每区最多五条，空项目用图标缩略�
   expect(rows('canvas-')).toHaveLength(3)
   expect(host.querySelectorAll('[data-project-thumb="chat"]')).toHaveLength(5)
   expect(host.querySelectorAll('[data-project-thumb="canvas"]')).toHaveLength(3)
+})
+
+it('对话里还有图在出时转圈，出完了没回去看就留一个点（BUG-16）', () => {
+  const [running, done, idle] = seed('chat', 3).map((project, index) => ({
+    ...project,
+    conversationId: `conv-${index}`,
+    cover: 'https://example.com/cover.jpg',
+  }))
+  act(() => {
+    useCanvasProjectStore.setState({
+      projects: [running!, done!, idle!],
+      cloudCatalog: {},
+      loaded: true,
+    })
+    useAgentJobActivity.setState({
+      activity: {
+        'conv-0': { running: 2 },
+        'conv-1': {
+          running: 0,
+          done: { conversationId: 'conv-1', images: 3, videos: 0, failed: 0, at: 1 },
+        },
+      },
+    })
+  })
+  const row = (name: string) =>
+    [...host.querySelectorAll('span.truncate')]
+      .find((el) => el.textContent === name)!
+      .closest('button')!
+  expect(row(running!.name).querySelector('[data-project-activity="running"]')).not.toBeNull()
+  expect(row(running!.name).querySelector('[data-project-thumb="loading"]')).not.toBeNull()
+  expect(row(running!.name).textContent).toContain('正在生成')
+  expect(row(done!.name).querySelector('[data-project-activity="done"]')).not.toBeNull()
+  expect(row(done!.name).querySelector('[aria-label="有新生成的图"]')).not.toBeNull()
+  expect(row(idle!.name).querySelector('[data-project-activity]')).toBeNull()
+  expect(row(idle!.name).querySelector('[data-project-thumb="cover"]')).not.toBeNull()
+  act(() => useAgentJobActivity.setState({ activity: {} }))
 })
 
 it('有封面的项目用封面图', () => {

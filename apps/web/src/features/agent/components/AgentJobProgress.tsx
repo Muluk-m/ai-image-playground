@@ -2,8 +2,11 @@ import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
 import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
+import { Button } from '../../../components/ui/button'
 import { Icon, type IconName } from '../../../components/ui/icon'
 import { i18next, useTranslation } from '../../../i18n'
+import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
+import { openPricingSheet } from '../../pricing/pricingSheetState'
 import { CARD_NOTE } from '../agentStyles'
 import { type AgentToolProgress, agentToolProgress, formatElapsed } from '../lib/jobProgress'
 import { useAgentStore } from '../store'
@@ -31,9 +34,15 @@ export function useElapsed(since: number | undefined): number | null {
 }
 
 export function agentJobPhaseLabel(
-  progress: Pick<AgentToolProgress, 'phase' | 'phaseSince'>,
+  progress: Pick<AgentToolProgress, 'phase' | 'phaseSince' | 'queue'>,
   now = Date.now(),
 ): string {
+  // 只说「排队中」用户不知道在等什么（BUG-17）：带上前面还有几张。前面只剩正在生成的
+  // （不超过套餐并发数）就是下一张轮到它，不然并发 1 时永远是「前面还有 1 张」。
+  if (progress.phase === 'queued' && progress.queue)
+    return progress.queue.ahead > progress.queue.limit
+      ? i18next.t('job.queue.ahead', { ns: 'agent', count: progress.queue.ahead })
+      : i18next.t('job.queue.next', { ns: 'agent' })
   if (
     progress.phase === 'reconciling' &&
     progress.phaseSince !== undefined &&
@@ -53,17 +62,49 @@ export function useAgentJobProgressText(progress: AgentToolProgress | null): str
   return i18next.t('job.progress', { ns: 'agent', phase, elapsed: formatElapsed(elapsed) })
 }
 
+/**
+ * 排队的原因：账号同时生成的张数由套餐定，超出的按提交先后排队，多开对话也不会更快。
+ * 有计费的部署顺带给升级入口。
+ */
+export function AgentJobQueueNote({ limit }: { limit: number }) {
+  const { t } = useTranslation('agent')
+  return (
+    <p className={CARD_NOTE} data-agent-queue-note="">
+      {t('job.queue.reason', { count: limit })}
+      {isClientCapabilityEnabled('billing:credits') && (
+        <>
+          {' '}
+          <Button
+            type="button"
+            variant="link"
+            size="xs"
+            className="h-auto p-0 align-baseline"
+            onClick={() => openPricingSheet()}
+          >
+            {t('job.queue.upgrade')}
+          </Button>
+        </>
+      )}
+    </p>
+  )
+}
+
 /** 服务端只提供阶段，没有完成百分比；使用不定进度，避免把第三阶段画成 75%。 */
 export default function AgentJobProgress({ progress }: { progress: AgentToolProgress }) {
   const { t } = useTranslation('agent')
   const text = useAgentJobProgressText(progress)
   return (
-    <JobProgress
-      aria-label={t('job.progressAria')}
-      aria-valuetext={text ?? undefined}
-      label={text ?? ''}
-      className="text-xs"
-    />
+    <>
+      <JobProgress
+        aria-label={t('job.progressAria')}
+        aria-valuetext={text ?? undefined}
+        label={text ?? ''}
+        className="text-xs"
+      />
+      {progress.phase === 'queued' && progress.queue && (
+        <AgentJobQueueNote limit={progress.queue.limit} />
+      )}
+    </>
   )
 }
 
