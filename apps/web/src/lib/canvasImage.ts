@@ -30,12 +30,20 @@ export function calculateFitSize(
   return { width: fit(width), height: fit(height), scale, wasResized: true }
 }
 
+export const IMAGE_DECODE_FAILED = 'image_decode_failed'
+
 export async function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   dataUrl = await resolveMediaSource(dataUrl)
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error(i18next.t('image.loadFailed', { ns: 'lib' })))
+    // 带上 code：调用方据此区分「浏览器解不出这份字节」和画布、内存等本机失败。
+    image.onerror = () =>
+      reject(
+        Object.assign(new Error(i18next.t('image.loadFailed', { ns: 'lib' })), {
+          code: IMAGE_DECODE_FAILED,
+        }),
+      )
     image.src = dataUrl
   })
 }
