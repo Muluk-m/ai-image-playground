@@ -158,3 +158,35 @@ it('does not call crypto.randomUUID when the module is only imported outside a p
     spy.mockRestore()
   }
 })
+
+it('re-renders with the new id once a duplicated tab settles on a fresh suffix', async () => {
+  // react-dom 加载时读 navigator.userAgent：替换 navigator 时一起带上。
+  const { userAgent } = navigator
+  withLocks()
+  vi.stubGlobal('navigator', { ...navigator, locks, userAgent })
+  vi.useFakeTimers()
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  vi.resetModules()
+  const original = await loadModule()
+  await original.canvasUploaderSettled()
+  const before = original.getCanvasUploaderId()
+  vi.resetModules()
+  const copy = await loadModule()
+  const { act, createElement } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  function Probe() {
+    return createElement('span', null, copy.useCanvasUploaderId())
+  }
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  act(() => root.render(createElement(Probe)))
+  // 复制页刚打开时还读到原页的后缀。
+  expect(host.textContent).toBe(before)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(copy.CANVAS_UPLOADER_LOCK_WAIT_MS)
+    await copy.canvasUploaderSettled()
+  })
+  expect(host.textContent).toBe(copy.getCanvasUploaderId())
+  expect(host.textContent).not.toBe(before)
+  act(() => root.unmount())
+})

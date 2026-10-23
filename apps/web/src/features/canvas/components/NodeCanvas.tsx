@@ -128,7 +128,7 @@ import { createImagePresetNode } from '../lib/nodeImagePreset'
 import { submitNodeWithLook } from '../lib/nodeLookSubmit'
 import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
 import { generateTextNode } from '../lib/textGeneration'
-import { getCanvasUploaderId } from '../lib/uploadSession'
+import { useCanvasUploaderId } from '../lib/uploadSession'
 import { useAgentNodeRun } from '../lib/useAgentNodeRun'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
@@ -396,7 +396,7 @@ type UploadClaimData = Parameters<typeof canvasUploadingElsewhere>[0]
  */
 export function useUploadingElsewhere(data: UploadClaimData): boolean {
   const [tick, setTick] = useState(0)
-  const device = getCanvasUploaderId()
+  const device = useCanvasUploaderId()
   const now = Date.now()
   const next = canvasUploadClaimNextChange(data, device, now)
   useEffect(() => {
