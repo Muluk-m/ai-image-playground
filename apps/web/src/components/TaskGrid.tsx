@@ -32,7 +32,7 @@ import {
 import { taskMatchesStatusFilter } from '../lib/taskStatusFilter'
 import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } from '../store'
 import type { TaskRecord } from '../types'
-import SetHistoryCard from './SetHistoryCard'
+import SetHistoryCard, { type BatchItemHandlers } from './SetHistoryCard'
 import TaskCard from './TaskCard'
 
 /** 网格列数与 `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` 的断点保持一致。 */
@@ -480,6 +480,17 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
     }),
     [],
   )
+  // 逐张卡里的格子不显示选中态，所以 Ctrl/⌘ 点也只是打开这一张，不悄悄加进批量选择。
+  const batchHandlers = useMemo<BatchItemHandlers>(
+    () => ({
+      ...handlers,
+      open: (task) => {
+        if (useStore.getState().selectedTaskIds.length > 0) clearSelection()
+        setDetailTaskId(task.id)
+      },
+    }),
+    [handlers, clearSelection, setDetailTaskId],
+  )
   const selectedSet = useMemo(() => new Set(selectedTaskIds), [selectedTaskIds])
   // 列表只在任务、展开状态或选中态变化时重建；纯滚动的更新只处理可见行。
   const items = useMemo(() => {
@@ -521,6 +532,7 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
                 actions={batch ? [t('set.batchTag')] : legacyActionLabels(job)}
                 tasks={item.tasks}
                 batch={batch}
+                itemHandlers={batch ? batchHandlers : undefined}
                 attended={batch && item.tasks.some((task) => submittedIds.includes(task.id))}
                 expanded={expanded}
                 onToggle={() =>
@@ -533,7 +545,13 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
               />
             ),
           },
-          ...(expanded ? item.tasks.map(renderTask) : []),
+          // 逐张生成的一组：出了图的在卡里逐张列出（见 SetHistoryCard），失败/取消的那几张仍展开成作品卡，
+          // 好打开详情看原因、复制诊断或删除；其余的套整套展开成单张作品卡。
+          ...(expanded
+            ? (batch ? item.tasks.filter((task) => task.status === 'error') : item.tasks).map(
+                renderTask,
+              )
+            : []),
         ],
       }
     })
@@ -548,6 +566,7 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
     submittedIds,
     selectedSet,
     handlers,
+    batchHandlers,
   ])
 
   // 按当前列数分行，只渲染视口附近的几行。
