@@ -14,6 +14,29 @@ import type { CanvasEditor } from './editor'
 import { billedNodeQuantity, currentNodeBatch, NodeBatchFailure, runNodeBatch } from './nodeBatch'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
 
+/**
+ * 提交被阶段授权拦下时，把 BFF 的错误码翻成报给智能体的原因；不是授权拒绝就返回 undefined，
+ * 照常按上游失败处理（可以重试一次）。
+ */
+export function stageRejectionReason(code: string | undefined): StageRunReason | undefined {
+  // 只认已知的拒绝码；没列出的（含以后新增的）按普通失败走原来的重试流程，不猜原因。
+  switch (code) {
+    case 'stage_authorization_scope':
+    case 'stage_authorization_attempt_conflict': // 模型、倍率或数量和授权时不一致
+      return 'spec_changed'
+    case 'stage_authorization_budget':
+      return 'budget_exceeded'
+    case 'stage_authorization_retry_limit':
+      return 'retry_limit'
+    case 'stage_authorization_inactive':
+    case 'stage_authorization_not_found':
+    case 'stage_authorization_stale':
+      return 'authorization'
+    default:
+      return undefined
+  }
+}
+
 export function useAgentNodeRun({
   canvas,
   editor,
@@ -110,6 +133,9 @@ export function useAgentNodeRun({
                 })
                 return 'skip' as const
               }
+              // BFF 按授权拒绝了这次提交：原样再提一遍还是同样被拒，不白占一次重试，直接报原因。
+              const rejected = stageRejectionReason(error.submitError)
+              if (rejected) return failed(rejected)
               if (retried.has(job.id)) return failed('generation_failed')
               if (signal.aborted) throw new NodeBatchFailure('cancelled')
               const attemptId = crypto.randomUUID()

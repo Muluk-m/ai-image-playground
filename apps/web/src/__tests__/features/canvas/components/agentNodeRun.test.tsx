@@ -511,3 +511,15 @@ it('stops later nodes when the running card is stopped', async () => {
   await act(async () => {})
   expect(reports).toHaveLength(0)
 })
+it('does not retry a node the BFF refused for scope, and says why on the card', async () => {
+  mocks.run.mockImplementation(async (...args: unknown[]) => {
+    const hooks = args[7] as NodeBatchHooks
+    const failure = new NodeBatchFailure('failed', 'stage_authorization_scope')
+    expect(await hooks.recover?.(plan.jobs[0]!, failure)).toBe('skip')
+  })
+  await mount('scope-refused', true, { ...proposal, direct: true })
+  await act(async () => {})
+  expect(preflights).toBe(1)
+  expect(reports[0]?.nodes).toEqual([{ nodeId: 'a', outcome: 'failed', reason: 'spec_changed' }])
+  expect(document.body.textContent).toContain('有节点的提交内容和你确认时不一致')
+})
