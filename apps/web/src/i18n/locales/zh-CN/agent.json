@@ -522,6 +522,26 @@
       "locateMessage": "定位到消息",
       "succeeded": "已完成",
       "failed": "没有完成"
+    },
+    "queue": {
+      "ahead_other": "排队中 · 前面还有 {{count}} 张",
+      "next": "排队中 · 下一张就轮到",
+      "reason_other": "当前套餐可同时生成 {{count}} 张，其余按提交顺序排队，多开对话也不会更快。",
+      "upgrade": "升级套餐"
+    },
+    "done": {
+      "title": "生成完成",
+      "body": "「{{name}}」{{ready}}已生成",
+      "bodyAllFailed_other": "「{{name}}」生成结束：{{count}} 项没有完成",
+      "bodyFailed_other": "「{{name}}」生成结束：{{ready}}已生成，{{count}} 项没有完成",
+      "images_other": "{{count}} 张图",
+      "videos_other": "{{count}} 个视频",
+      "mixed": "{{images}}、{{videos}}",
+      "untitled": "新对话",
+      "view": "查看",
+      "dismiss": "关闭提示",
+      "running": "正在生成",
+      "unseen": "有新生成的图"
     }
   },
   "save": {

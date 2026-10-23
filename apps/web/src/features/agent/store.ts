@@ -99,6 +99,11 @@ import {
 } from './lib/draftSubmission'
 import { agentDraft, bindNewAgentDraft, DraftSession } from './lib/drafts'
 import { pollFollowUps, shouldPollFollowUps } from './lib/followUps'
+import {
+  configureAgentJobActivity,
+  markAgentConversationSeen,
+  reportAgentPanel,
+} from './lib/jobActivity'
 import { agentJobUnsettled } from './lib/jobProgress'
 import {
   addQueuedMessage,
@@ -530,6 +535,48 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       state.conversationId,
     )
   })
+  // 对话外也要知道生成出完了（BUG-16）：开着的对话每次变化报给 jobActivity，切走时还没出完的交给它。
+  configureAgentJobActivity({
+    viewing: (conversationId) =>
+      useStore.getState().appMode === 'canvas' &&
+      store.getState().conversationId === conversationId &&
+      (typeof document === 'undefined' || document.visibilityState !== 'hidden'),
+    refreshCovers: () => {
+      // 目录正在拉（启动/手动刷新）时 refreshCloud 会直接跳过：等这次拉完再补一次，免得封面没换上。
+      const projects = useCanvasProjectStore
+      if (!projects.getState().cloudLoading) {
+        void projects.getState().refreshCloud()
+        return
+      }
+      const stop = projects.subscribe((state) => {
+        if (state.cloudLoading) return
+        stop()
+        void projects.getState().refreshCloud()
+      })
+      // 订阅前那次拉取可能已经结束：再看一眼，免得补刷永远等不到。
+      if (!projects.getState().cloudLoading) {
+        stop()
+        void projects.getState().refreshCloud()
+      }
+    },
+  })
+  store.subscribe((state, previous) => {
+    if (state.conversationId !== previous.conversationId || state.messages !== previous.messages)
+      reportAgentPanel(state.conversationId, state.messages, previous)
+  })
+  const seeCurrent = () => {
+    const conversationId = store.getState().conversationId
+    if (
+      conversationId &&
+      useStore.getState().appMode === 'canvas' &&
+      (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+    )
+      markAgentConversationSeen(conversationId)
+  }
+  useStore.subscribe((state, previous) => {
+    if (state.appMode !== previous.appMode) seeCurrent()
+  })
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', seeCurrent)
   let cache: ReturnType<typeof conversationCache> | null = null
   let pendingCacheWrite: (() => void) | undefined
   let cacheTimer: ReturnType<typeof setTimeout> | undefined
