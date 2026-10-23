@@ -861,9 +861,14 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 .studio-agent-inline-tile { position: relative; overflow: hidden; min-width: 0; width: 100%; aspect-ratio: 4 / 3; border-radius: 8px; background: hsl(var(--muted)); }
 .studio-agent-inline-open { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: hsl(var(--muted-foreground)); }
 .studio-agent-inline-open img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center; }
+/* 结果格比例与图不同时（批量的方格、16:9 的图）图元素只占画面那一块：留边处露出格子自己的深色底，
+   透明棋盘格只垫在图像素后面——不透明的图看不到棋盘格，不像一张破图。比例未知前不垫棋盘格。 */
+.studio-agent-inline-open img[data-fit="width"] { width: 100%; height: auto; max-height: 100%; }
+.studio-agent-inline-open img[data-fit="height"] { width: auto; max-width: 100%; height: 100%; }
 /* Preserve alpha in the bitmap; the same neutral surface makes both white and
    hsl(var(--scrim)) transparent artwork readable in cards and the full-size viewer. */
-:where(.studio-agent-inline-open, .studio-artifact-pane-image, .studio-artifact-pane-thumb) img {
+.studio-agent-inline-open img[data-fit],
+:where(.studio-artifact-pane-image, .studio-artifact-pane-thumb) img {
   background: repeating-conic-gradient(hsl(var(--transparency-grid-dark)) 0% 25%, hsl(var(--transparency-grid-light)) 0% 50%) 0 / 16px 16px;
 }
 .studio-agent-inline-actions { position: absolute; right: 8px; bottom: 8px; z-index: 1; display: flex; gap: 2px; padding: 3px; border: 1px solid hsl(var(--on-media) / .13); border-radius: 10px; background: hsl(var(--scrim) / .55); color: hsl(var(--on-media)); opacity: 0; transform: translateY(4px); transition: opacity .15s ease, transform .15s ease; backdrop-filter: blur(12px); }

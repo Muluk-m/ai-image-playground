@@ -42,6 +42,7 @@ import { artifactReferenceSource, previewArtifactBitmap } from '../lib/artifactS
 import { agentCanvasSink } from '../lib/canvasSink'
 import { agentDraftOutputCount } from '../lib/promptDraft'
 import { agentRerunBlock, agentRetryRemaining, agentRetrySlotTasks } from '../lib/retry'
+import { tileFit } from '../lib/tileFit'
 import {
   agentToolFailureAction,
   agentToolFailureActionLabel,
@@ -890,8 +891,10 @@ function StandardAgentToolCard({
       imageRatios[tile.id] ?? ('ratio' in tile ? tile.ratio : undefined)
     const groupRatio = tiles.map(tileRatio).find((ratio) => ratio !== undefined && ratio > 0) ?? 1
     const batch = generatedImage && tiles.length >= 2
+    const tileAspect = (tile: (typeof tiles)[number]) =>
+      generatedImage ? (batch || embed ? 1 : groupRatio) : tileRatio(tile)
     const tileStyle = (tile: (typeof tiles)[number]): CSSProperties => ({
-      aspectRatio: generatedImage ? (batch || embed ? 1 : groupRatio) : tileRatio(tile),
+      aspectRatio: tileAspect(tile),
       ...(generatedImage &&
         !batch &&
         !embed && { width: `${IMAGE_PREVIEW_MAX_EDGE * Math.min(groupRatio, 1)}px` }),
@@ -929,6 +932,7 @@ function StandardAgentToolCard({
                 <img
                   src={tile.source}
                   alt={t('tool.resultNumber', { number: index + 1 })}
+                  data-fit={tileFit(tileRatio(tile), tileAspect(tile)) ?? undefined}
                   loading="lazy"
                   onLoad={(event) => {
                     const { naturalWidth, naturalHeight } = event.currentTarget
