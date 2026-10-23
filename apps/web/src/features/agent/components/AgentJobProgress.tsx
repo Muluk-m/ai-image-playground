@@ -1,4 +1,4 @@
-import { type AgentJobQueuePosition, QUEUE_TIMEOUTS } from '@image-playground/shared'
+import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
 import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
@@ -65,11 +65,11 @@ export function useAgentJobProgressText(progress: AgentToolProgress | null): str
  * 排队的原因：账号同时生成的张数由套餐定，超出的按提交先后排队，多开对话也不会更快。
  * 有计费的部署顺带给升级入口。
  */
-export function AgentJobQueueNote({ queue }: { queue: AgentJobQueuePosition }) {
+export function AgentJobQueueNote({ limit }: { limit: number }) {
   const { t } = useTranslation('agent')
   return (
     <p className={CARD_NOTE} data-agent-queue-note="">
-      {t('job.queue.reason', { count: queue.limit })}
+      {t('job.queue.reason', { count: limit })}
       {isClientCapabilityEnabled('billing:credits') && (
         <>
           {' '}
@@ -101,7 +101,7 @@ export default function AgentJobProgress({ progress }: { progress: AgentToolProg
         className="text-xs"
       />
       {progress.phase === 'queued' && progress.queue && (
-        <AgentJobQueueNote queue={progress.queue} />
+        <AgentJobQueueNote limit={progress.queue.limit} />
       )}
     </>
   )
