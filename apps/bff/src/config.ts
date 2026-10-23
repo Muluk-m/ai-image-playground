@@ -250,5 +250,11 @@ export const config = {
       openaiCompat: positiveIntEnv('WORKER_OPENAI_CONCURRENCY', 4),
       gemini: positiveIntEnv('WORKER_GEMINI_CONCURRENCY', 4),
     },
+    /**
+     * 空闲时可用并发（弹性名额）总开关。关着时只按套餐的保证并发放行，与以前完全一样；
+     * 开着时，套餐另配了「空闲时可用并发」的账号在服务器有余量、且没有别人排队时可以多跑。
+     * 判定与防超发见 workers/idle-concurrency.ts。
+     */
+    idleConcurrencyEnabled: booleanEnv('WORKER_IDLE_CONCURRENCY_ENABLED', false),
   },
 }
