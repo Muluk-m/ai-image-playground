@@ -171,3 +171,50 @@ it.each([
     doc.destroy()
   }
 })
+
+it('refuses an already-read image whose data URL looks right but cannot be decoded', async () => {
+  const doc = new Y.Doc()
+  const origin = canvasOrigin('user', 'media-test')
+  const undo = createCanvasUndoManager(doc, origin)
+  const canvas = { doc, origin, undo, destroy: async () => doc.destroy() }
+  const editor = new CanvasEditor(new CanvasDoc())
+  try {
+    dimensions.mockReset()
+    dimensions.mockRejectedValue(new Error('decode'))
+    const id = createNode(canvas, 'image', { x: 0, y: 0 }, '')
+    const before = editor.doc.elements
+    await expect(
+      fillImageNode(
+        editor,
+        doc,
+        id,
+        { dataUrl: 'data:image/png;base64,garbage', width: 1, height: 1 },
+        'garbage.png',
+      ),
+    ).rejects.toBeInstanceOf(InvalidImageFileError)
+    expect(editor.doc.elements).toBe(before)
+  } finally {
+    undo.destroy()
+    doc.destroy()
+  }
+})
+
+it('treats a file the browser cannot read as that one invalid file', async () => {
+  dimensions.mockReset()
+  dimensions.mockResolvedValue({ width: 10, height: 10 })
+  // 选中后文件被删、被锁：FileReader 报错，只算这一张不可用，不让整批失败。
+  const read = vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function (
+    this: FileReader,
+  ) {
+    queueMicrotask(() => this.onerror?.(new ProgressEvent('error') as ProgressEvent<FileReader>))
+  })
+  try {
+    const file = new File(['x'], 'gone.png', { type: 'image/png' })
+    await expect(readImageFile(file)).rejects.toMatchObject({
+      name: 'InvalidImageFileError',
+      fileName: 'gone.png',
+    })
+  } finally {
+    read.mockRestore()
+  }
+})
