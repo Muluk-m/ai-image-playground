@@ -20,6 +20,8 @@ export interface AccountQueueTask {
   readonly id: string
   readonly status: 'queued' | 'in_progress'
   readonly submittedAt: number
+  /** 失败后等重试的时刻；没到之前调度不会挑它，也就不占前面的位置。 */
+  readonly nextRetryAt?: number | null
 }
 
 /**
@@ -30,6 +32,7 @@ export function accountQueuePositions(
   targets: readonly string[],
   unfinished: readonly AccountQueueTask[],
   limit: number,
+  now: number = Date.now(),
 ): Map<string, AgentJobQueuePosition> {
   const running = unfinished.filter((task) => task.status === 'in_progress').length
   const queued = unfinished
@@ -37,8 +40,11 @@ export function accountQueuePositions(
     .sort((a, b) => a.submittedAt - b.submittedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const wanted = new Set(targets)
   const positions = new Map<string, AgentJobQueuePosition>()
-  queued.forEach((task, index) => {
-    if (wanted.has(task.id)) positions.set(task.id, { ahead: running + index, limit })
-  })
+  let dueAhead = 0
+  for (const task of queued) {
+    if (wanted.has(task.id)) positions.set(task.id, { ahead: running + dueAhead, limit })
+    // 还在等重试时间的任务调度暂时不挑，不算排在别人前面。
+    if (task.nextRetryAt == null || task.nextRetryAt <= now) dueAhead++
+  }
   return positions
 }

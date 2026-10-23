@@ -87,6 +87,35 @@ describe('切走之后的对话（BUG-16）', () => {
     })
   })
 
+  it('视频卡出完按视频记，不算进图里（Codex P2）', async () => {
+    const pending = [
+      tool('v', { toolName: 'generateVideo', job: { taskId: 'task-v', media: 'video' } }),
+      tool('w', { toolName: 'generateVideo', job: { taskId: 'task-w', media: 'video' } }),
+    ]
+    fetchJobs.mockResolvedValue(pending.map(view))
+    panel(['conv-1', pending], ['conv-2', []])
+    await vi.waitFor(() => expect(fetchJobs).toHaveBeenCalledWith('conv-1'))
+    fetchJobs.mockResolvedValue([
+      view(
+        tool('v', {
+          toolName: 'generateVideo',
+          job: { taskId: 'task-v', media: 'video' },
+          status: 'succeeded',
+          artifacts: [{ media: 'video' }] as unknown as AgentToolMessage['artifacts'],
+        }),
+      ),
+      view(
+        tool('w', {
+          toolName: 'generateVideo',
+          job: { taskId: 'task-w', media: 'video' },
+          status: 'succeeded',
+        }),
+      ),
+    ])
+    await vi.waitFor(() => expect(useAgentJobActivity.getState().notice).not.toBeNull())
+    expect(useAgentJobActivity.getState().notice).toMatchObject({ images: 0, videos: 2, failed: 0 })
+  })
+
   it('全是用户自己取消的，不提示', async () => {
     fetchJobs.mockResolvedValue([
       view(
@@ -110,9 +139,12 @@ describe('切走之后的对话（BUG-16）', () => {
 
     useAgentJobActivity.setState({
       activity: {
-        'conv-3': { running: 0, done: { conversationId: 'conv-3', images: 1, failed: 0, at: 1 } },
+        'conv-3': {
+          running: 0,
+          done: { conversationId: 'conv-3', images: 1, videos: 0, failed: 0, at: 1 },
+        },
       },
-      notice: { conversationId: 'conv-3', images: 1, failed: 0, at: 1 },
+      notice: { conversationId: 'conv-3', images: 1, videos: 0, failed: 0, at: 1 },
     })
     markAgentConversationSeen('conv-3')
     expect(useAgentJobActivity.getState().activity['conv-3']).toBeUndefined()
