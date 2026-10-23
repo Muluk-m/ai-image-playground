@@ -36,9 +36,9 @@ function slots(limit: number) {
     }
   }
 }
-// Keep original buffering bounded while two confirmations overlap storage I/O.
+// 同时传 4 张，确认也 4 张并行：服务端每实例同样处理 4 张（存储 I/O 重叠，解码一次一张）。
 const uploading = slots(4)
-const confirming = slots(2)
+const confirming = slots(4)
 
 /** 本地原图读取卡住时按超时失败（映射为 media_timeout），不让上传一直停在排队。 */
 const LOCAL_READ_TIMEOUT_MS = 30_000
