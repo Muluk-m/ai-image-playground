@@ -196,7 +196,10 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
 
     return sorted.filter((t) => {
       if (filterFavorite && !t.isFavorite) return false
-      const matchStatus = filterStatus === 'all' || t.status === filterStatus
+      // 被取消的任务记在 error 里，但它不是失败：「失败」筛选里不该出现「已取消」的卡。
+      const matchStatus =
+        filterStatus === 'all' ||
+        (t.status === filterStatus && !(filterStatus === 'error' && t.cancelled))
       if (!matchStatus) return false
 
       if (!q) return true
