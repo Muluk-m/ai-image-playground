@@ -846,6 +846,12 @@
     "partial": "{{count}} nodes produced no result. Completed results are kept.",
     "reported": "Results handed to the assistant. It will follow up.",
     "reportFailed": "Couldn't hand the results to the assistant. Ask it in the chat.",
+    "rejected": {
+      "specChanged": "A node's submission no longer matched what you approved, so it was not submitted or charged. Ask the agent to request approval again.",
+      "authorization": "The approval ended or became invalid, so a node was not submitted or charged.",
+      "budget": "A node would exceed this approval's budget, so it was not submitted.",
+      "retryLimit": "A node already retried automatically and still failed."
+    },
     "storyboard": {
       "summary": "Shot list: {{count}} shots, {{seconds}}s total",
       "shot": "Shot {{index}} · {{seconds}}s · {{line}}",
