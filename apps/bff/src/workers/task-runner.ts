@@ -216,7 +216,11 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       request: request.masked_crop
         ? {
             ...hydratedRequest,
-            ...(await cropMaskedUpstream(hydratedRequest, request.masked_crop)),
+            ...(await cropMaskedUpstream(
+              hydratedRequest,
+              request.masked_crop,
+              request.masked_original_size,
+            )),
           }
         : hydratedRequest,
       signal,
