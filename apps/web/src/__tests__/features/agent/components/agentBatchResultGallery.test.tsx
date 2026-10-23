@@ -4,14 +4,19 @@ import type { AgentBatchPage, AgentToolArtifact } from '@image-playground/shared
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
+import AgentBatchResultGallery from '../../../../features/agent/components/AgentBatchResultGallery'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
 import { panelMessage } from '../../../../features/agent/lib/panelMessages'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
 
+const displayReads = vi.hoisted(() => [] as string[])
+
 vi.mock('../../../../features/agent/lib/artifactSource', async (original) => ({
   ...(await original<typeof import('../../../../features/agent/lib/artifactSource')>()),
-  displayArtifactBitmap: async (artifact: AgentToolArtifact) =>
-    `data:image/png;base64,display-${artifact.taskId}`,
+  displayArtifactBitmap: async (artifact: AgentToolArtifact) => {
+    displayReads.push(artifact.artifactId)
+    return `data:image/png;base64,display-${artifact.taskId}`
+  },
   previewArtifactBitmap: async (artifact: AgentToolArtifact) =>
     `data:image/png;base64,original-${artifact.taskId}`,
 }))
@@ -94,6 +99,7 @@ function finishedPage(): AgentBatchPage {
 }
 
 afterEach(() => {
+  displayReads.length = 0
   vi.unstubAllGlobals()
   document.body.innerHTML = ''
 })
@@ -149,6 +155,31 @@ it('shows finished batch outputs as images in the chat without expanding any ite
         ),
       ).not.toBeNull(),
     )
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+  }
+})
+
+it('does not fetch shown thumbnails again when a poll brings the same outputs as new objects', async () => {
+  const artifacts = (): AgentToolArtifact[] =>
+    [0, 1].map((index) => ({
+      artifactId: `poll-artifact-${index}`,
+      media: 'image',
+      taskId: `poll-task-${index}`,
+      outputIndex: 0,
+      mime: 'image/png',
+    }))
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<AgentBatchResultGallery artifacts={artifacts()} />))
+    await vi.waitFor(() => expect(host.querySelectorAll('img')).toHaveLength(2))
+    for (let poll = 0; poll < 3; poll++)
+      await act(async () => root.render(<AgentBatchResultGallery artifacts={artifacts()} />))
+    expect(host.querySelectorAll('img')).toHaveLength(2)
+    expect(displayReads.sort()).toEqual(['poll-artifact-0', 'poll-artifact-1'])
   } finally {
     act(() => root.unmount())
     host.remove()
