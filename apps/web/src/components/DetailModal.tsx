@@ -250,10 +250,29 @@ export default function DetailModal() {
     void setTaskFavorite(task, !task.isFavorite)
   }
 
+  const errorText = task.cancelled
+    ? t('common:state.cancelled')
+    : task.error?.trim()
+      ? describeError(task.error)
+      : t('detail.errorUnavailable')
+
   const handleCopyError = async () => {
-    const errorText = task.error ? describeError(task.error) : t('detail.generateFailed')
+    const diagnostics = JSON.stringify(
+      {
+        message: errorText,
+        taskId: task.id,
+        requestId: task.bffRequestId,
+        status: task.cancelled ? 'cancelled' : task.status,
+        errorType: task.errorCode ?? null,
+        provider: task.apiProvider ?? task.cloudProvider,
+        model: task.apiModel,
+        createdAt: new Date(task.createdAt).toISOString(),
+      },
+      null,
+      2,
+    )
     try {
-      await copyTextToClipboard(errorText)
+      await copyTextToClipboard(diagnostics)
       showToast(t('detail.errorCopied'), 'success')
     } catch (err) {
       showToast(getClipboardFailureMessage(t('detail.copyErrorFailed'), err), 'error')
@@ -434,7 +453,25 @@ export default function DetailModal() {
                 )}
               </>
             )}
-            {task.status === 'error' && (
+            {task.status === 'error' && task.cancelled && (
+              <div className="w-full max-w-md px-4 text-center">
+                <Icon name="close" size="lg" className="mx-auto mb-2 text-muted-foreground" />
+                <p className="text-sm leading-6 text-muted-foreground">
+                  {t('common:state.cancelled')}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  onClick={handleCopyError}
+                  className="mt-3"
+                  aria-label={t('detail.copyDiagnostics')}
+                >
+                  <Icon name="copy" />
+                </Button>
+              </div>
+            )}
+            {task.status === 'error' && !task.cancelled && (
               <div className="w-full max-w-md px-4 text-center">
                 <Icon name="error" size="lg" className="mx-auto mb-2 text-destructive" />
                 <p
@@ -445,11 +482,7 @@ export default function DetailModal() {
                     WebkitLineClamp: 4,
                   }}
                 >
-                  {blockedByContentPolicy
-                    ? t('detail.contentPolicy')
-                    : task.error
-                      ? describeError(task.error)
-                      : t('detail.generateFailed')}
+                  {blockedByContentPolicy ? t('detail.contentPolicy') : errorText}
                 </p>
                 {blockedByContentPolicy && (
                   <Button
