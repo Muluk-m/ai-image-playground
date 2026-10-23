@@ -94,21 +94,13 @@ async function putBitmapOnNode(
   editor: CanvasEditor,
   doc: Y.Doc,
   nodeId: string,
-  dataUrl: string,
+  image: ReadImageFile,
   name?: string,
   onlyIfEmpty = false,
 ): Promise<boolean> {
   const node = imageNode(doc, nodeId)
   if (!node) return false
-  let naturalWidth: number | undefined
-  let naturalHeight: number | undefined
-  try {
-    const dims = await getImageDimensions(dataUrl)
-    naturalWidth = dims.width
-    naturalHeight = dims.height
-  } catch {
-    // Intrinsic metadata is optional; a decode must never change the frame.
-  }
+  const { dataUrl, width: naturalWidth, height: naturalHeight } = image
   const current = imageNode(doc, nodeId)
   if (!current || (onlyIfEmpty && (current.data.fileId || current.data.mediaId))) return false
   const patch = {
@@ -338,15 +330,48 @@ export function submitNodeImage(
 }
 
 /** 上传的文件填进这张卡，不另起一个节点。 */
+/** 选进来的文件不是浏览器解得开的图片：空文件、改了扩展名的文本、损坏的图。 */
+export class InvalidImageFileError extends Error {
+  constructor(readonly fileName: string) {
+    super('invalid_image_file')
+    this.name = 'InvalidImageFileError'
+  }
+}
+
+export interface ReadImageFile {
+  dataUrl: string
+  width: number
+  height: number
+}
+
+/**
+ * 把文件读成 data URL，并确认浏览器真能把它解成一张有尺寸的图。
+ * MIME 只是浏览器按扩展名猜的：0 字节的 zero.png、内容是文本的 fake.png 都报 image/png。
+ * 不先解码就建节点，节点会带着一个解不开的位图写进协同文档，上传那边认不出它是图、
+ * 也就从不发请求，节点在别的会话里永远停在「图片上传中」。
+ */
+export async function readImageFile(file: File): Promise<ReadImageFile> {
+  if (!file.type.startsWith('image/') || file.size === 0) throw new InvalidImageFileError(file.name)
+  const dataUrl = await fileToDataUrl(file)
+  let size
+  try {
+    size = await getImageDimensions(dataUrl)
+  } catch {
+    throw new InvalidImageFileError(file.name)
+  }
+  if (!(size.width > 0 && size.height > 0)) throw new InvalidImageFileError(file.name)
+  return { dataUrl, width: size.width, height: size.height }
+}
+
 export async function fillImageNode(
   editor: CanvasEditor,
   doc: Y.Doc,
   nodeId: string,
-  file: File,
+  file: File | ReadImageFile,
+  name = file instanceof File ? file.name : undefined,
 ): Promise<void> {
-  if (!file.type.startsWith('image/')) return
-  const dataUrl = await fileToDataUrl(file)
-  await putBitmapOnNode(editor, doc, nodeId, dataUrl, file.name)
+  const image = file instanceof File ? await readImageFile(file) : file
+  await putBitmapOnNode(editor, doc, nodeId, image, name)
 }
 
 /**

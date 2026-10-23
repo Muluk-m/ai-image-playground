@@ -47,6 +47,11 @@ type TestViewport = { x: number; y: number; zoom: number }
 const mocks = vi.hoisted(() => ({
   open: vi.fn(),
   importImages: vi.fn(async () => 1),
+  readImage: vi.fn(async (_file: File) => ({
+    dataUrl: 'data:image/png;base64,AA==',
+    width: 1,
+    height: 1,
+  })),
   submitImage: vi.fn(() => true),
   viewport: { x: 0, y: 0, zoom: 1 },
   move: null as ((viewport: TestViewport) => void) | null,
@@ -64,6 +69,12 @@ vi.mock('../../../../features/canvas/lib/nodeCanvasDocument', () => ({
 }))
 vi.mock('../../../../features/canvas/lib/nodeCanvasGenerate', () => ({
   fillImageNode: mocks.importImages,
+  readImageFile: mocks.readImage,
+  InvalidImageFileError: class extends Error {
+    constructor(readonly fileName: string) {
+      super('invalid_image_file')
+    }
+  },
   resumeNodeGenerations: vi.fn(),
   submitNodeImage: mocks.submitImage,
 }))
@@ -809,9 +820,50 @@ it('places a dropped image where the pointer is', async () => {
     (n) => n.id !== 'image' && n.type === 'image',
   )!
   expect(created.x + created.width / 2).toBe(30)
-  expect(mocks.importImages).toHaveBeenCalledWith(workspace.editor, canvas.doc, created.id, file)
+  expect(mocks.importImages).toHaveBeenCalledWith(
+    workspace.editor,
+    canvas.doc,
+    created.id,
+    { dataUrl: 'data:image/png;base64,AA==', width: 1, height: 1 },
+    'shot.png',
+  )
   act(() => canvas.undo.undo())
   expect(readCanvasDocument(canvas.doc).nodes.some((n) => n.id === created.id)).toBe(false)
+})
+
+it('rejects an empty or fake image before creating a node, and says which file', async () => {
+  const { InvalidImageFileError } = await import(
+    '../../../../features/canvas/lib/nodeCanvasGenerate'
+  )
+  mocks.importImages.mockClear()
+  mocks.readImage.mockImplementationOnce(async (file: File) => {
+    throw new InvalidImageFileError(file.name)
+  })
+  const toast = vi.spyOn(useStore.getState(), 'showToast')
+  await render()
+  const before = readCanvasDocument(canvas.doc).nodes.length
+  const surface = host.querySelector('.studio-node-canvas')!
+  const event = new MouseEvent('drop', {
+    bubbles: true,
+    cancelable: true,
+    clientX: 30,
+    clientY: 40,
+  })
+  Object.defineProperty(event, 'dataTransfer', {
+    value: {
+      types: ['Files'],
+      files: [new File(['not an image'], 'fake.png', { type: 'image/png' })],
+      items: [],
+    },
+  })
+  await act(async () => {
+    surface.dispatchEvent(event)
+  })
+  await vi.waitFor(() =>
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining('fake.png'), 'error'),
+  )
+  expect(readCanvasDocument(canvas.doc).nodes).toHaveLength(before)
+  expect(mocks.importImages).not.toHaveBeenCalled()
 })
 
 it('leaves selection intact when Escape closes a model listbox', async () => {

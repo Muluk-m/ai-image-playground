@@ -43,6 +43,12 @@ vi.mock('../../../../features/canvas/lib/nodeCanvasDocument', () => ({
 }))
 vi.mock('../../../../features/canvas/lib/nodeCanvasGenerate', () => ({
   fillImageNode: mocks.importImages,
+  readImageFile: vi.fn(async () => ({
+    dataUrl: 'data:image/png;base64,AA==',
+    width: 1,
+    height: 1,
+  })),
+  InvalidImageFileError: class extends Error {},
   resumeNodeGenerations: vi.fn(),
   submitNodeImage: mocks.submitImage,
 }))

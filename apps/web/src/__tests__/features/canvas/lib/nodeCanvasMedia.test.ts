@@ -12,7 +12,11 @@ import * as Y from 'yjs'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { createNode } from '../../../../features/canvas/lib/nodeCanvasActions'
-import { fillImageNode } from '../../../../features/canvas/lib/nodeCanvasGenerate'
+import {
+  fillImageNode,
+  InvalidImageFileError,
+  readImageFile,
+} from '../../../../features/canvas/lib/nodeCanvasGenerate'
 import type * as CanvasImage from '../../../../lib/canvasImage'
 
 const dimensions = vi.hoisted(() => vi.fn())
@@ -94,4 +98,20 @@ it.each([
     undo.destroy()
     doc.destroy()
   }
+})
+
+it.each([
+  ['a 0-byte file', new File([], 'zero.png', { type: 'image/png' }), undefined],
+  ['text renamed to .png', new File(['hello'], 'fake.png', { type: 'image/png' }), 'reject'],
+  [
+    'an image without pixels',
+    new File(['x'], 'empty.png', { type: 'image/png' }),
+    { width: 0, height: 0 },
+  ],
+] as const)('rejects %s before anything reaches the canvas', async (_label, file, decoded) => {
+  dimensions.mockReset()
+  if (decoded === 'reject') dimensions.mockRejectedValue(new Error('decode'))
+  else if (decoded) dimensions.mockResolvedValue(decoded)
+  await expect(readImageFile(file)).rejects.toBeInstanceOf(InvalidImageFileError)
+  await expect(readImageFile(file)).rejects.toMatchObject({ fileName: file.name })
 })

@@ -156,6 +156,8 @@
   "import": {
     "inputAria": "Import canvas images",
     "noneImported": "No images imported. Choose a valid image file.",
+    "invalidFiles_one": "{{count}} file is not a valid image (empty or corrupted) and was not imported: {{names}}",
+    "invalidFiles_other": "{{count}} files are not valid images (empty or corrupted) and were not imported: {{names}}",
     "failed": "Image import failed, please retry",
     "openMenu": "Import to canvas",
     "images": "Import images",
