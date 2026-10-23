@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
-import type { GenerationSummary } from '@image-playground/shared'
+import {
+  buildAspectInstruction,
+  type GenerationSummary,
+  PROMPT_REWRITE_GUARD_PREFIX,
+} from '@image-playground/shared'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { i18next } from '../../i18n'
 import { getCachedGenerations } from '../../lib/db'
 import {
+  cloudReuseSourceFromGeneration,
   loadPlatformGenerations,
   mergeHistory,
   receivePlatformPage,
@@ -16,6 +21,11 @@ import { useStore } from '../../store'
 import { DEFAULT_PARAMS, type TaskRecord } from '../../types'
 
 const readRemoteGeneration = vi.hoisted(() => vi.fn())
+const channels = vi.hoisted(() => ({ list: [] as unknown[] }))
+vi.mock('../../lib/channels/publicChannels', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/channels/publicChannels')>()),
+  getPublicChannels: () => channels.list,
+}))
 vi.mock('../../lib/remoteGenerations', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/remoteGenerations')>()),
   readRemoteGeneration,
@@ -105,6 +115,71 @@ it('平台记录投影成一张普通卡：封面用云媒体引用，参考图�
     remoteOnly: true,
   })
   expect(task.params).toMatchObject({ size: '1536x1024', quality: 'high', n: 2 })
+})
+
+it('作品卡显示用户写的原文：剥掉防改写前缀与构图指令，防改写改由参数带着', () => {
+  const shaped = {
+    ...summary,
+    prompt: `${PROMPT_REWRITE_GUARD_PREFIX}\n一只猫\n\n${buildAspectInstruction('1536x1024')}`,
+  }
+  const task = taskFromGeneration(shaped)
+  expect(task.prompt).toBe('一只猫')
+  expect(task.params.no_rewrite).toBe(true)
+  expect(cloudReuseSourceFromGeneration(shaped)).toMatchObject({
+    prompt: '一只猫',
+    params: { no_rewrite: true },
+  })
+})
+
+it('模型认 size 时提交侧没缀构图指令：用户自己写的同一句结尾原样保留，Gemini 也一样', () => {
+  const ending = `一只猫\n\n${buildAspectInstruction('1536x1024')}`
+  channels.list = [
+    {
+      id: 'channel',
+      models: [
+        { id: 'gpt-image-2', capabilities: ['size'] },
+        { id: 'gemini-image', capabilities: ['size'] },
+        { id: 'codex-image', capabilities: ['quality'] },
+      ],
+    },
+  ]
+  try {
+    expect(taskFromGeneration({ ...summary, prompt: ending }).prompt).toBe(ending)
+    expect(
+      taskFromGeneration({ ...summary, provider: 'gemini', model: 'gemini-image', prompt: ending })
+        .prompt,
+    ).toBe(ending)
+    expect(taskFromGeneration({ ...summary, model: 'codex-image', prompt: ending }).prompt).toBe(
+      '一只猫',
+    )
+    // 同一个模型挂在两条渠道上、其中一条丢 size：提交时可能缀过，按缀过剥。
+    channels.list = [
+      { id: 'native', models: [{ id: 'gpt-image-2', capabilities: ['size'] }] },
+      { id: 'gateway', models: [{ id: 'gpt-image-2', capabilities: ['quality'] }] },
+    ]
+    expect(taskFromGeneration({ ...summary, prompt: ending }).prompt).toBe('一只猫')
+    channels.list = [
+      { id: 'gateway', models: [{ id: 'gpt-image-2', capabilities: ['quality'] }] },
+      { id: 'native', models: [{ id: 'gpt-image-2', capabilities: ['size'] }] },
+    ]
+    expect(taskFromGeneration({ ...summary, prompt: ending }).prompt).toBe('一只猫')
+  } finally {
+    channels.list = []
+  }
+})
+
+it('没开防改写的记录原样显示，参数记成关闭；Gemini 不剥前缀', () => {
+  expect(taskFromGeneration(summary)).toMatchObject({
+    prompt: '一只猫',
+    params: { no_rewrite: false },
+  })
+  const gemini = taskFromGeneration({
+    ...summary,
+    provider: 'gemini',
+    prompt: `${PROMPT_REWRITE_GUARD_PREFIX}\n一只猫`,
+  })
+  expect(gemini.prompt).toBe(`${PROMPT_REWRITE_GUARD_PREFIX}\n一只猫`)
+  expect(gemini.params.no_rewrite).toBe(false)
 })
 
 it('镜像卡记下封面原件的真实像素：缩略图只有临时 URL，尺寸以平台媒体元数据为准', () => {
