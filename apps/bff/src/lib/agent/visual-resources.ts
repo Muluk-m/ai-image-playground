@@ -111,6 +111,18 @@ export function visualByteLimit(): number {
   return limit
 }
 
+/**
+ * 读出来只为现缩成预览的那份原件，字节上限按像素预算而不是请求预算算。
+ *
+ * 请求预算管的是发给模型的字节；预览源图本身不进请求，缩完才进。拿请求预算卡源图，
+ * 一张 4K 无损产物（base64 后 20MB 上下）就会在缩之前被拒，复核整轮失败。
+ * 像素预算已经限住了解码，这里按「每像素 4 字节的未压缩位图 + 1MB 封装」再折成 base64 给出上限，
+ * 合法的压缩图不会超过它。
+ */
+export function previewSourceByteLimit(): number {
+  return Math.max(visualByteLimit(), Math.ceil(((visualPixelLimit() * 4 + 1024 * 1024) * 4) / 3))
+}
+
 export function assertVisualBytes(bytes: number): void {
   const limit = visualByteLimit()
   if (!Number.isSafeInteger(limit) || limit < 1 || bytes > limit)
