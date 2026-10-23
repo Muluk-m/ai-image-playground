@@ -234,6 +234,29 @@ function consecutiveImageRuns(
   return { starts, absorbed }
 }
 
+/**
+ * 计划卡的 key 跟着轮次走，不跟着第一张稿走。
+ *
+ * 「全部生成」逐张确认：第一张成交后它不再是待确认稿，计划从下一张起算。key 若取第一张稿的
+ * id，这一刻整张计划卡就被卸下重挂——还在跑的确认循环把后面那张被拒（例如积分不足）的结果
+ * 写进一个已经不在的组件，用户什么也看不见。同一轮里偶尔有被别的消息隔开的几段计划，
+ * 按它在本轮里的先后编号区分。
+ */
+function planRunKeys(
+  messages: readonly AgentPanelMessage[],
+  starts: ReadonlyMap<number, readonly AgentToolMessage[]>,
+): Map<number, string> {
+  const keys = new Map<number, string>()
+  const seen = new Map<string, number>()
+  for (const index of [...starts.keys()].sort((a, b) => a - b)) {
+    const turnId = messages[index]?.turnId ?? ''
+    const ordinal = seen.get(turnId) ?? 0
+    seen.set(turnId, ordinal + 1)
+    keys.set(index, `plan:${turnId}:${ordinal}`)
+  }
+  return keys
+}
+
 export default function AgentPanel({
   doc,
   editor,
@@ -427,6 +450,7 @@ export default function AgentPanel({
   const grouping = groupPanelMessages(messages)
   const fetchedRuns = presentation === 'page' && onPreviewResult ? fetchedImageRuns(messages) : null
   const planRuns = consecutiveImageRuns(messages, isImagePlanDraft, 1)
+  const planKeys = planRunKeys(messages, planRuns.starts)
   const imageRuns = consecutiveImageRuns(messages, isImageOutput, 2)
 
   return (
@@ -581,7 +605,7 @@ export default function AgentPanel({
                       lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
                     return (
                       <div
-                        key={`${message.id}:${historyCached}`}
+                        key={`${planKeys.get(index)}:${historyCached}`}
                         data-agent-message-id={message.id}
                         className="studio-agent-message-block"
                       >
