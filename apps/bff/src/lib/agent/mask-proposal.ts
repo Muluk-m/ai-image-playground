@@ -16,6 +16,7 @@ import { Type } from 'typebox'
 import { db, schema } from '../../db/client'
 import { modelLabel, resolveQueueModel, strictMaskModels } from '../channels'
 import { storeMedia } from '../projectMedia'
+import { WHOLE_IMAGE_EDIT_NUDGE } from './edit-intent'
 import { addConversationMediaClaims, readConversationMedia } from './images'
 import { maskedEditSize } from './masked-input'
 import {
@@ -303,6 +304,11 @@ async function propose(
       'invalid_params',
       '本轮已经有用户画好的选区，直接按选区调 editImage，不要再提议范围。',
     )
+  // 整图要求（变成夜景、调成黑白）不该先圈范围；只提醒一次，模型坚持就照常发卡（字面判断会误判）。
+  if (context.wholeImageEdit && !context.wholeImageEdit.nudged) {
+    context.wholeImageEdit.nudged = true
+    throw new AgentToolError('invalid_params', WHOLE_IMAGE_EDIT_NUDGE)
+  }
   const target = clip(params.target.trim(), MASK_TARGET_MAX)
   const change = clip(params.change.trim(), MASK_CHANGE_MAX)
   if (!target || !change) throw new AgentToolError('invalid_params', '要写清改哪个对象、改成什么')
