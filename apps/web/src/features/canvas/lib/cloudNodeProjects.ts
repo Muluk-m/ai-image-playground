@@ -665,7 +665,8 @@ export class CloudNodeProjectSession {
     // 注意本机根本没有原图（files 里查不到）的仍按缺图挡着：那可能是别的设备还在传，摘了会毁掉它的图。
     const rejected = new Map<string, MediaRejection>()
     const drop = () => {
-      if (!rejected.size) return
+      // 同步已取消或换了账号：不再改这份文档。
+      if (!rejected.size || this.controller.signal.aborted || !this.sameAccount()) return
       const names: Record<MediaRejection, string[]> = { invalid: [], oversized: [] }
       const kinds = new Set<MediaRejection>()
       // 上传期间可能有新改动，按当前文档再核对一次；只读一遍文档，不在每个节点上重建整张画布。
