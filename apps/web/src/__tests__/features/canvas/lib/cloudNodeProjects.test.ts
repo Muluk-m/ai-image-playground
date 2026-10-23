@@ -68,7 +68,8 @@ const defaultUpload = async () => ({ id: '11111111-1111-4111-8111-111111111111',
 vi.mock('../../../../lib/mediaUpload', () => ({
   uploadMediaSource: vi.fn(async () => ({ id: '11111111-1111-4111-8111-111111111111' })),
 }))
-vi.mock('../../../../store', () => ({ useStore: { getState: () => ({ showToast: vi.fn() }) } }))
+const showToast = vi.hoisted(() => vi.fn())
+vi.mock('../../../../store', () => ({ useStore: { getState: () => ({ showToast }) } }))
 class Socket {
   static OPEN = 1
   static instances: Socket[] = []
@@ -98,6 +99,7 @@ afterEach(() => {
   for (const s of sessions.splice(0)) s.dispose()
   // A test that replaces the upload implementation must not leak it into later tests.
   vi.mocked(uploadMediaSource).mockImplementation(defaultUpload)
+  showToast.mockClear()
   vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -520,11 +522,44 @@ it.each([
   await vi.waitFor(() => expect(session.getSnapshot().status).toBe('saved'))
   const saved = readCanvasDocument(server).nodes.find((n) => n.id === 'zero')
   expect(saved?.data).toEqual({ name: 'zero.png' })
+  expect(showToast).toHaveBeenCalledTimes(1)
+  expect(showToast.mock.calls[0]?.[1]).toBe('error')
   expect(canvasResults(server).some((r) => r.id === 'zero-upload')).toBe(false)
   // 坏图只试一次，不会每轮同步都再传一遍。
   expect(
     vi.mocked(uploadMediaSource).mock.calls.filter(([source]) => source === zero),
   ).toHaveLength(1)
+  record.dispose()
+})
+
+it('tells the user when only a candidate used the unusable image', async () => {
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockRejectedValue(new MediaRequestError(422, 'media_invalid_image'))
+  const { doc } = session.canvas!
+  record.editor.doc.files = { bad: 'data:image/png;base64,' }
+  insertCanvasNode(
+    doc,
+    { id: 'image', type: 'image', x: 0, y: 0, width: 50, height: 50, data: {} },
+    session.canvas!.origin,
+  )
+  recordCanvasResult(
+    doc,
+    {
+      id: 'bad',
+      nodeId: 'image',
+      kind: 'image',
+      source: { type: 'file', fileId: 'bad' },
+      createdAt: 1,
+    },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('saved'))
+  expect(canvasResults(server)).toEqual([])
+  expect(showToast).toHaveBeenCalledTimes(1)
   record.dispose()
 })
 
