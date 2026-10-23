@@ -43,9 +43,10 @@ export function accountQueuePositions(
   const positions = new Map<string, AgentJobQueuePosition>()
   let dueAhead = 0
   for (const task of queued) {
+    // 还在等重试时间的任务调度暂时不挑：不算排在别人前面，自己也不报位置。
+    if (task.nextRetryAt != null && task.nextRetryAt > now) continue
     if (wanted.has(task.id)) positions.set(task.id, { ahead: running + dueAhead, limit })
-    // 还在等重试时间的任务调度暂时不挑，不算排在别人前面。
-    if (task.nextRetryAt == null || task.nextRetryAt <= now) dueAhead++
+    dueAhead++
   }
   return positions
 }

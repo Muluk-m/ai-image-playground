@@ -553,6 +553,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         stop()
         void projects.getState().refreshCloud()
       })
+      // 订阅前那次拉取可能已经结束：再看一眼，免得补刷永远等不到。
+      if (!projects.getState().cloudLoading) {
+        stop()
+        void projects.getState().refreshCloud()
+      }
     },
   })
   store.subscribe((state, previous) => {

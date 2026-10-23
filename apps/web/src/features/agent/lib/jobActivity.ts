@@ -148,6 +148,7 @@ function watchAway(conversationId: string, ids: readonly string[]) {
       } catch (error) {
         // 对话已经删了（或不再属于这个账号）：不再等，侧栏的「在跑」也收掉；其它错误下次再问。
         if (error instanceof AgentRequestError && (error.status === 404 || error.status === 403)) {
+          if (!live()) return
           away.delete(conversationId)
           patch(conversationId, null)
           return
@@ -209,7 +210,9 @@ export function reportAgentPanel(
     const from = previous.conversationId
     panel = null
     if (left.length) watchAway(from, left)
-    else if (!useAgentJobActivity.getState().activity[from]?.done) patch(from, null)
+    // 回来时历史还没拉到就又走了：后台那份还在等，「在跑」别收掉。
+    else if (!away.has(from) && !useAgentJobActivity.getState().activity[from]?.done)
+      patch(from, null)
   }
   if (!conversationId) {
     panel = null
@@ -217,9 +220,9 @@ export function reportAgentPanel(
   }
   if (panel?.conversationId !== conversationId) {
     panel = { conversationId, ids: new Set() }
-    // 回到这个对话：面板接着等，后台那份停下；用户看到了，「出完了」那一笔也收掉。
-    away.delete(conversationId)
   }
+  // 回到这个对话：历史拉到了，面板接着等，后台那份才停下；还没拉到（或拉失败）时后台继续守着。
+  if (messages.length) away.delete(conversationId)
   const unsettled = messages.filter(agentJobUnsettled)
   for (const message of unsettled) panel.ids.add(message.id)
   const current = useAgentJobActivity.getState().activity[conversationId]
@@ -241,7 +244,7 @@ export function reportAgentPanel(
     )
     return
   }
-  if (current && !current.done) patch(conversationId, null)
+  if (current && !current.done && !away.has(conversationId)) patch(conversationId, null)
   if (current?.done && hooks.viewing(conversationId)) markAgentConversationSeen(conversationId)
 }
 
