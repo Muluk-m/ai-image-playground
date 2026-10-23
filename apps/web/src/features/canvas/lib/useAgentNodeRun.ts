@@ -149,14 +149,9 @@ export function useAgentNodeRun({
                   unitMultiplier: job.unitMultiplier ?? 1,
                 })
               } catch (rejected) {
-                const code = rejected instanceof Error ? rejected.message : ''
-                return failed(
-                  code === 'stage_authorization_budget'
-                    ? 'budget_exceeded'
-                    : code === 'stage_authorization_retry_limit'
-                      ? 'retry_limit'
-                      : 'generation_failed',
-                )
+                // 重试前的预检被拒和提交被拒用同一张映射，原因说法保持一致。
+                const code = rejected instanceof Error ? rejected.message : undefined
+                return failed(stageRejectionReason(code) ?? 'generation_failed')
               }
               authorizations[job.id] = {
                 authorizationId,
