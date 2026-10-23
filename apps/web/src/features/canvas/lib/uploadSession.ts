@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { getDeviceId } from '../../../lib/deviceId'
 
 const KEY = 'canvas-uploader-tab'
@@ -109,3 +110,21 @@ export function canvasUploaderSettled(): Promise<void> {
 
 // 页面一加载就开始确认后缀，打开画布时通常早已定下来。
 if (typeof window !== 'undefined') currentTab()
+
+/**
+ * 渲染里用的上传者 ID：后缀定下来之前读到的可能还会换（复制出来的标签页拿不到锁、换新后缀），
+ * 而换后缀不会触发重渲染。定下来后再取一次，免得一直拿旧后缀把本页自己的声明显示成别处在传。
+ */
+export function useCanvasUploaderId(): string {
+  const [id, setId] = useState(getCanvasUploaderId)
+  useEffect(() => {
+    let live = true
+    void canvasUploaderSettled().then(() => {
+      if (live) setId(getCanvasUploaderId())
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+  return id
+}
