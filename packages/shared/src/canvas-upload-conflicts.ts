@@ -1,6 +1,7 @@
 import * as Y from 'yjs'
 import {
   CANVAS_UPLOAD_DEVICE_META,
+  CANVAS_UPLOAD_RELEASED_META,
   CANVAS_UPLOAD_STARTED_META,
   isLocalCanvasFileId,
   withoutCanvasUploadClaim,
@@ -28,15 +29,24 @@ function isPromotionOf(promoted: UploadData, base: UploadData): boolean {
   )
 }
 
+const time = (value: string | undefined) => {
+  const at = Number(value)
+  return value !== undefined && Number.isFinite(at) ? at : Number.NEGATIVE_INFINITY
+}
+/** data 上最近一次上传簿记（写声明或撤销声明）的时间；都没有时为负无穷。 */
+function bookkeepingTime(data: UploadData): number {
+  const claimed = data.meta?.[CANVAS_UPLOAD_DEVICE_META]
+    ? time(data.meta?.[CANVAS_UPLOAD_STARTED_META])
+    : Number.NEGATIVE_INFINITY
+  return Math.max(claimed, time(data.meta?.[CANVAS_UPLOAD_RELEASED_META]))
+}
+
 /**
  * claimed 是不是给 base 写上（或续上）上传声明的那一次写入。声明总是用写入时的时间，
- * 所以要比 base 的声明新；用户编辑只会照抄已有的（更旧的）声明，不会被当成簿记。
+ * 所以要比 base 上的簿记（声明或撤销）新；用户编辑只会照抄已有的（更旧的）声明，不会被当成簿记。
  */
 function isClaimOf(claimed: UploadData, base: UploadData): boolean {
-  const since = Number(claimed.meta?.[CANVAS_UPLOAD_STARTED_META])
-  const before = base.meta?.[CANVAS_UPLOAD_DEVICE_META]
-    ? Number(base.meta?.[CANVAS_UPLOAD_STARTED_META])
-    : Number.NEGATIVE_INFINITY
+  const since = time(claimed.meta?.[CANVAS_UPLOAD_STARTED_META])
   return (
     !!claimed.meta?.[CANVAS_UPLOAD_DEVICE_META] &&
     !claimed.mediaId &&
@@ -44,11 +54,28 @@ function isClaimOf(claimed: UploadData, base: UploadData): boolean {
     isLocalCanvasFileId(base.fileId) &&
     claimed.fileId === base.fileId &&
     Number.isFinite(since) &&
-    since > (Number.isNaN(before) ? Number.NEGATIVE_INFINITY : before)
+    since > bookkeepingTime(base)
   )
 }
 
-/** 用户的改动（user）上叠上传簿记（book）：只取 fileId / mediaId / 上传声明 / contentIdentity。 */
+/**
+ * released 是不是上传失败停下时撤掉声明的那一次写入：没有声明、带撤销时间，且比 base 上的簿记新。
+ * 用户编辑照抄的是撤销之前的旧声明，时间更早，所以不会把撤销顶回去。
+ */
+function isReleaseOf(released: UploadData, base: UploadData): boolean {
+  const at = time(released.meta?.[CANVAS_UPLOAD_RELEASED_META])
+  return (
+    !released.meta?.[CANVAS_UPLOAD_DEVICE_META] &&
+    !released.mediaId &&
+    !base.mediaId &&
+    isLocalCanvasFileId(base.fileId) &&
+    released.fileId === base.fileId &&
+    Number.isFinite(at) &&
+    at > bookkeepingTime(base)
+  )
+}
+
+/** 用户的改动（user）上叠上传簿记（book）：只取 fileId / mediaId / 上传声明或撤销 / contentIdentity。 */
 function withBookkeeping(user: UploadData, book: UploadData): UploadData {
   if (book.mediaId)
     return {
@@ -58,6 +85,14 @@ function withBookkeeping(user: UploadData, book: UploadData): UploadData {
       meta: {
         ...withoutCanvasUploadClaim(user.meta),
         ...(book.meta?.contentIdentity ? { contentIdentity: book.meta.contentIdentity } : {}),
+      },
+    }
+  if (!book.meta?.[CANVAS_UPLOAD_DEVICE_META])
+    return {
+      ...user,
+      meta: {
+        ...withoutCanvasUploadClaim(user.meta),
+        [CANVAS_UPLOAD_RELEASED_META]: book.meta?.[CANVAS_UPLOAD_RELEASED_META] ?? '',
       },
     }
   return {
@@ -71,16 +106,17 @@ function withBookkeeping(user: UploadData, book: UploadData): UploadData {
 }
 
 /**
- * 节点 data 在 Yjs 里是整块值，并发写只留一个。上传簿记（声明、收成云媒体）和用户编辑并发时，
+ * 节点 data 在 Yjs 里是整块值，并发写只留一个。上传簿记（声明、撤销声明、收成云媒体）和用户编辑并发时，
  * 把输掉的一方补回赢的一方：簿记赢了就把用户改动叠回去，用户改动赢了就把簿记叠上去。
  * 两边都不是簿记（两个人同时改）时按 Yjs 原样取舍，返回 undefined；合并结果与 winner 相同也返回 undefined。
  */
 export function mergeCanvasUploadConflict(lost: unknown, winner: unknown): UploadData | undefined {
   if (!isData(lost) || !isData(winner)) return undefined
   let merged: UploadData
-  if (isPromotionOf(winner, lost) || isClaimOf(winner, lost)) merged = withBookkeeping(lost, winner)
-  else if (isPromotionOf(lost, winner) || isClaimOf(lost, winner))
-    merged = withBookkeeping(winner, lost)
+  const bookkeeping = (book: UploadData, user: UploadData) =>
+    isPromotionOf(book, user) || isClaimOf(book, user) || isReleaseOf(book, user)
+  if (bookkeeping(winner, lost)) merged = withBookkeeping(lost, winner)
+  else if (bookkeeping(lost, winner)) merged = withBookkeeping(winner, lost)
   else return undefined
   return sameValue(merged, winner) ? undefined : merged
 }

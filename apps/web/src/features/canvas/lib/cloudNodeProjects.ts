@@ -20,10 +20,10 @@ import {
   promoteCanvasVideoMedia,
   readCanvasDocument,
   readCanvasSyncMessage,
+  releaseCanvasUploadClaim,
   synchronizeLegacyElements,
   updateCanvasNode,
   watchCanvasUploadConflicts,
-  withoutCanvasUploadClaim,
 } from '@image-playground/shared'
 import i18next from 'i18next'
 import { IndexeddbPersistence } from 'y-indexeddb'
@@ -732,6 +732,7 @@ export class CloudNodeProjectSession {
     if (!this.canvas) return
     const doc = this.canvas.doc
     const device = getCanvasUploaderId()
+    const now = Date.now()
     const released: { id: string; data: ImageNodeData }[] = []
     for (const node of readCanvasDocument(doc).nodes) {
       if (node.type !== 'image' && node.type !== 'video') continue
@@ -744,7 +745,7 @@ export class CloudNodeProjectSession {
         updateCanvasNode(
           doc,
           id,
-          { data: { ...data, meta: withoutCanvasUploadClaim(data.meta) } },
+          { data: { ...data, meta: releaseCanvasUploadClaim(data.meta, now) } },
           legacyOrigin,
         )
     }, legacyOrigin)
