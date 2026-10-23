@@ -21,6 +21,8 @@ export interface AgentJobCompletion {
   readonly conversationId: string
   /** 生成出来的图（一张卡可能出几张）。 */
   readonly images: number
+  /** 生成出来的视频：提示里单独说「个视频」，不算进图里。 */
+  readonly videos: number
   /** 没有完成的任务（失败；用户自己取消的不算）。 */
   readonly failed: number
   readonly at: number
@@ -70,25 +72,43 @@ const patch = (conversationId: string, next: AgentConversationActivity | null) =
     return { activity }
   })
 
-const imageCount = (artifacts: readonly unknown[] | undefined) =>
-  Math.max(1, artifacts?.length ?? 0)
+const isVideoCard = (result: Pick<AgentToolMessage, 'toolName' | 'job' | 'video'>) =>
+  result.toolName === 'generateVideo' || result.job?.media === 'video' || result.video != null
 
-/** 一组已经结束的卡，算出生成了几张、几个没成。 */
+/** 一组已经结束的卡，算出生成了几张图、几个视频、几个没成。 */
 function tally(
-  results: readonly Pick<AgentToolMessage, 'status' | 'errorCode' | 'artifacts'>[],
-): Pick<AgentJobCompletion, 'images' | 'failed'> {
+  results: readonly Pick<
+    AgentToolMessage,
+    'status' | 'errorCode' | 'artifacts' | 'toolName' | 'job' | 'video'
+  >[],
+): Pick<AgentJobCompletion, 'images' | 'videos' | 'failed'> {
   let images = 0
+  let videos = 0
   let failed = 0
   for (const result of results) {
-    if (result.status === 'succeeded') images += imageCount(result.artifacts)
-    else if (result.status === 'failed' && result.errorCode !== 'cancelled') failed += 1
+    if (result.status === 'succeeded') {
+      const artifacts = result.artifacts ?? []
+      if (artifacts.length === 0) {
+        // 结果卡还没带上成品：按这张卡出的是什么记一份。
+        if (isVideoCard(result)) videos += 1
+        else images += 1
+        continue
+      }
+      for (const artifact of artifacts) {
+        if (artifact.media === 'video') videos += 1
+        else images += 1
+      }
+    } else if (result.status === 'failed' && result.errorCode !== 'cancelled') failed += 1
   }
-  return { images, failed }
+  return { images, videos, failed }
 }
 
-function complete(conversationId: string, counts: Pick<AgentJobCompletion, 'images' | 'failed'>) {
+function complete(
+  conversationId: string,
+  counts: Pick<AgentJobCompletion, 'images' | 'videos' | 'failed'>,
+) {
   // 全是用户自己取消的：没什么可看的，也不提示。
-  if (counts.images === 0 && counts.failed === 0) {
+  if (counts.images === 0 && counts.videos === 0 && counts.failed === 0) {
     patch(conversationId, null)
     return
   }

@@ -387,6 +387,7 @@ async function accountQueue(
           id: schema.tasks.id,
           status: schema.tasks.status,
           submittedAt: schema.tasks.submitted_at,
+          nextRetryAt: schema.tasks.next_retry_at,
         })
         .from(schema.tasks)
         .where(
@@ -396,15 +397,24 @@ async function accountQueue(
             inArray(schema.tasks.status, ['queued', 'in_progress']),
           ),
         )
-      const limit = await accountConcurrencyLimit(tx, userId, Date.now())
+      const now = Date.now()
+      const limit = await accountConcurrencyLimit(tx, userId, now)
       return accountQueuePositions(
         waiting.map((task) => task.id),
         unfinished.flatMap((task) =>
           task.status === 'queued' || task.status === 'in_progress'
-            ? [{ id: task.id, status: task.status, submittedAt: task.submittedAt }]
+            ? [
+                {
+                  id: task.id,
+                  status: task.status,
+                  submittedAt: task.submittedAt,
+                  nextRetryAt: task.nextRetryAt,
+                },
+              ]
             : [],
         ),
         limit,
+        now,
       )
     })
   } catch (error) {

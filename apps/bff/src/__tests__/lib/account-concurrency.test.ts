@@ -39,4 +39,18 @@ describe('accountQueuePositions（BUG-17）', () => {
     )
     expect(positions.size).toBe(0)
   })
+
+  test('还在等重试时间的任务调度暂时不挑，不算排在前面（Codex P2）', () => {
+    const positions = accountQueuePositions(
+      ['b'],
+      [
+        { id: 'retry', status: 'queued', submittedAt: 100, nextRetryAt: 5_000 },
+        { id: 'due', status: 'queued', submittedAt: 110, nextRetryAt: 900 },
+        { id: 'b', status: 'queued', submittedAt: 120, nextRetryAt: null },
+      ],
+      1,
+      1_000,
+    )
+    expect(positions.get('b')).toEqual({ ahead: 1, limit: 1 })
+  })
 })

@@ -530,8 +530,11 @@
     },
     "done": {
       "title": "生成完成",
-      "body_other": "「{{name}}」{{count}} 张图已生成",
-      "bodyFailed_other": "「{{name}}」生成结束：{{count}} 张已生成，{{failed}} 张没有完成",
+      "body": "「{{name}}」{{ready}}已生成",
+      "bodyFailed_other": "「{{name}}」生成结束：{{ready}}已生成，{{count}} 项没有完成",
+      "images_other": "{{count}} 张图",
+      "videos_other": "{{count}} 个视频",
+      "mixed": "{{images}}、{{videos}}",
       "untitled": "新对话",
       "view": "查看",
       "dismiss": "关闭提示",
