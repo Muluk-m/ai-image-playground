@@ -110,6 +110,21 @@ it('内容安全拒绝：卡上写可行动的那句、给改提示词的出路�
   expect(labels.some((label) => label.includes('重试'))).toBe(false)
 })
 
+it('排队中被取消的任务：详情写「已取消」，不摆红色失败和复制错误', async () => {
+  useStore.setState({
+    tasks: [{ ...task, status: 'error', error: '任务已取消', cancelled: true, outputImages: [] }],
+    detailTaskId: task.id,
+  })
+
+  await act(async () => root.render(<DetailModal />))
+
+  const text = document.body.textContent ?? ''
+  expect(text).toContain('已取消')
+  expect(text).not.toContain('生成失败')
+  expect(document.body.querySelector('.text-destructive')).toBeNull()
+  expect(document.body.querySelector('[aria-label="复制完整报错"]')).toBeNull()
+})
+
 it('认不出分类的失败照旧显示上游原文', async () => {
   useStore.setState({
     tasks: [{ ...task, status: 'error', error: 'HTTP 502 bad gateway', outputImages: [] }],

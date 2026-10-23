@@ -14,6 +14,15 @@ export function taskFailure(message: string, errorType?: TaskErrorType): Error {
   return error
 }
 
+/** 任务在平台上被取消（排队中被撤回等）：不是失败，卡片要显示「已取消」。 */
+export function taskCancelled(message: string): Error {
+  return Object.assign(new Error(message), { taskCancelled: true })
+}
+
+export function isTaskCancelled(err: unknown): boolean {
+  return !!err && typeof err === 'object' && 'taskCancelled' in err && err.taskCancelled === true
+}
+
 /** 取回分类；没带分类（旧 BFF、认不出的失败、非 Error）时返回 undefined。 */
 export function taskErrorTypeOf(err: unknown): TaskErrorType | undefined {
   if (!err || typeof err !== 'object' || !('taskErrorType' in err)) return undefined
