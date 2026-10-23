@@ -507,6 +507,48 @@ it('keeps an old run from resuming after switching accounts away and back', asyn
   }
 })
 
+it('does not start a waiting direct run after the account switched', async () => {
+  const key = 'direct-armed-switched'
+  // 面板登记了直接出图的运行权，但画布还没挂上；等的这段时间换了账号。
+  registerAgentNodeRunOrigin(key, {}, { ...proposal, direct: true })
+  setClientStorageScope('someone-else')
+  try {
+    await mount(key, false, { ...proposal, direct: true }, undefined, false)
+    await act(async () => vi.advanceTimersByTimeAsync(5000))
+    // 画布挂上后不能拿旧账号的提案在新账号下确认、开跑。
+    expect(confirms).toBe(0)
+    expect(mocks.run).not.toHaveBeenCalled()
+    expect(agentNodeRun(key)).toBeUndefined()
+  } finally {
+    forgetAgentNodeRun(key)
+    setClientStorageScope(null)
+  }
+})
+
+it('stops publishing countdown ticks once the account switched', async () => {
+  const key = 'countdown-switched'
+  const seen: string[] = []
+  registerAgentNodeRunOrigin(key, {})
+  await mount(key, false, proposal, undefined, false)
+  expect(startAgentNodeRun(key, proposal, 5)).toBe(true)
+  await act(async () => {})
+  expect(agentNodeRun(key)?.status).toBe('countdown')
+  setClientStorageScope('someone-else')
+  try {
+    // 新账号下同一 key 收走后又登记了一次：旧倒计时不能再把状态写回来。
+    forgetAgentNodeRun(key)
+    registerAgentNodeRunOrigin(key, {})
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    const run = agentNodeRun(key)
+    if (run) seen.push(run.status)
+    expect(seen).toEqual([])
+    expect(mocks.run).not.toHaveBeenCalled()
+  } finally {
+    forgetAgentNodeRun(key)
+    setClientStorageScope(null)
+  }
+})
+
 it('waits for the canvas of the proposal before starting a direct run', async () => {
   await mount('direct-other-project', true, {
     ...proposal,
