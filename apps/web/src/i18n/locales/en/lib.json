@@ -57,7 +57,11 @@
     "bffVideoParamsRequired": "The video task is missing its video parameters",
     "bffInvalidVideoRequest": "These video settings are outside what the model allows, adjust them and retry",
     "bffInvalidVideoSource": "That source video cannot be used, pick another one",
-    "bffInvalidInputImage": "That reference image cannot be used, pick another one"
+    "bffInvalidInputImage": "That reference image cannot be used, pick another one",
+    "bffStageScope": "What was submitted no longer matches the node you approved; ask the agent to request approval again",
+    "bffStageBudget": "This exceeds the budget you approved",
+    "bffStageInactive": "This approval has ended or expired; ask the agent to request approval again",
+    "bffStageAttemptConflict": "This submission no longer matches the approved run (model or count changed); run it again"
   },
   "dispatch": {
     "channelNotFound": "Built-in channel not found: {{id}}",

@@ -12,6 +12,7 @@ import * as Y from 'yjs'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { currentNodeBatch, runNodeBatch } from '../../../../features/canvas/lib/nodeBatch'
+import { noteNodeJobFailure } from '../../../../features/canvas/lib/nodeJobFailures'
 
 const mocks = vi.hoisted(() => ({ submit: vi.fn() }))
 vi.mock('../../../../features/canvas/lib/nodeCanvasGenerate', () => ({
@@ -283,4 +284,31 @@ it('caps retries itself even when the hook keeps asking for one', async () => {
   expect(t.started).toEqual(['a', 'a', 'x'])
   expect(recover).toHaveBeenCalledTimes(2)
   expect(skipped).toEqual(['b'])
+})
+
+it('hands the BFF refusal code of the failed job to recover', async () => {
+  const t = setup()
+  const recover = vi.fn(async () => 'skip' as const)
+  const running = runNodeBatch(
+    t.doc,
+    t.editor,
+    ['a'],
+    currentNodeBatch(t.doc, t.editor, ['a'])!,
+    new AbortController().signal,
+    () => {},
+    undefined,
+    { recover },
+  )
+  await vi.waitFor(() => expect(t.started).toEqual(['a']))
+  // 提交被 BFF 409 拒绝：画布侧先记下错误码，再把节点任务标成失败。
+  noteNodeJobFailure(
+    'job-a',
+    Object.assign(new Error('refused'), { submitErrorCode: 'stage_authorization_scope' }),
+  )
+  fail(t, 'a')
+  await running.catch(() => {})
+  expect(recover).toHaveBeenCalledWith(
+    expect.objectContaining({ id: 'a' }),
+    expect.objectContaining({ code: 'failed', submitError: 'stage_authorization_scope' }),
+  )
 })
