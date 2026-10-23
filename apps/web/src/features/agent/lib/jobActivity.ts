@@ -221,8 +221,10 @@ export function reportAgentPanel(
   if (panel?.conversationId !== conversationId) {
     panel = { conversationId, ids: new Set() }
   }
-  // 回到这个对话：历史拉到了，面板接着等，后台那份才停下；还没拉到（或拉失败）时后台继续守着。
-  if (messages.length) away.delete(conversationId)
+  // 回到这个对话：历史里出现了后台在等的那几张卡，面板接着等，后台那份才停下；还没拉到（或拉失败）时后台继续守着。
+  const watched = away.get(conversationId)
+  if (watched && messages.some((message) => watched.ids.has(message.id)))
+    away.delete(conversationId)
   const unsettled = messages.filter(agentJobUnsettled)
   for (const message of unsettled) panel.ids.add(message.id)
   const current = useAgentJobActivity.getState().activity[conversationId]

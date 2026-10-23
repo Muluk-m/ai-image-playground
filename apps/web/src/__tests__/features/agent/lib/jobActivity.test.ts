@@ -161,7 +161,9 @@ describe('切走之后的对话（BUG-16）', () => {
   it('切回去时历史还没拉到就又走了，后台照样等到出完再提示（复审 P2）', async () => {
     const pending = [tool('a')]
     fetchJobs.mockResolvedValue(pending.map(view))
-    panel(['conv-1', pending], ['conv-2', []], ['conv-1', []], ['conv-3', []])
+    const chat = { kind: 'user', id: 'u-1' } as unknown as AgentPanelMessage
+    // 只拉到普通消息（历史部分加载）也不算接手。
+    panel(['conv-1', pending], ['conv-2', []], ['conv-1', []], ['conv-1', [chat]], ['conv-3', []])
     expect(useAgentJobActivity.getState().activity['conv-1']?.running).toBe(1)
     fetchJobs.mockResolvedValue([
       view(
