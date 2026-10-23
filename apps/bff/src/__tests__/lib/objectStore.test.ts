@@ -190,6 +190,22 @@ describe('S3ObjectStore key prefix', () => {
       expect(JSON.stringify({ ...reset, message: reset.message })).not.toContain('expiresIn=60')
       expect(reset.message).toContain('<signed-url>')
 
+      // 取消和传输错误撞在一起：信号已经取消，抛出来的却是带地址的传输错误，也要脱敏。
+      const racing = new AbortController()
+      transport.mockImplementationOnce(
+        Object.assign(
+          (url: RequestInfo | URL) => {
+            racing.abort(new Error('deadline'))
+            return Promise.reject(
+              Object.assign(new Error(`reset ${String(url)}`), { path: String(url) }),
+            )
+          },
+          { preconnect: globalThis.fetch.preconnect },
+        ),
+      )
+      const raced = await subject.read('objects/u/m/original', racing.signal).catch((e) => e)
+      expect(JSON.stringify({ ...raced, message: raced.message })).not.toContain('expiresIn=60')
+
       transport.mockImplementation(
         Object.assign(
           (_url: RequestInfo | URL, options?: RequestInit) =>

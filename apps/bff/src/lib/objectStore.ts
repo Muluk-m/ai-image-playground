@@ -149,7 +149,8 @@ export class S3ObjectStore implements ObjectStore {
       }
       return new Uint8Array(await response.arrayBuffer())
     } catch (error) {
-      if (signal.aborted) throw error
+      // 只有确实是取消原因本身才原样抛；传输错误和取消撞在一起时仍要脱敏。
+      if (signal.aborted && error === signal.reason) throw error
       throw withoutSignedUrl(error, url)
     }
   }
