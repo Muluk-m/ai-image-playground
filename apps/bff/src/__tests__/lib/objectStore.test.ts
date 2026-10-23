@@ -206,6 +206,22 @@ describe('S3ObjectStore key prefix', () => {
       const raced = await subject.read('objects/u/m/original', racing.signal).catch((e) => e)
       expect(JSON.stringify({ ...raced, message: raced.message })).not.toContain('expiresIn=60')
 
+      // 错误码挂在 cause 上时也要带出来，上层靠它判断能不能重试。
+      transport.mockImplementationOnce(
+        Object.assign(
+          (url: RequestInfo | URL) =>
+            Promise.reject(
+              new TypeError('fetch failed', {
+                cause: Object.assign(new Error(`connect ${String(url)}`), { code: 'ECONNRESET' }),
+              }),
+            ),
+          { preconnect: globalThis.fetch.preconnect },
+        ),
+      )
+      const caused = await subject.read('objects/u/m/original', controller.signal).catch((e) => e)
+      expect(caused.code).toBe('ECONNRESET')
+      expect(caused.cause).toBeUndefined()
+
       transport.mockImplementation(
         Object.assign(
           (_url: RequestInfo | URL, options?: RequestInit) =>
