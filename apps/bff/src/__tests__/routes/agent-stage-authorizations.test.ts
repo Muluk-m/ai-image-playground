@@ -2,6 +2,8 @@ import { afterAll, beforeAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
+  applyPromptRewriteGuard,
+  buildAspectInstruction,
   canvasNodeKind,
   canvasOrigin,
   connectCanvasNodes,
@@ -75,6 +77,7 @@ const {
   expireStaleStageAuthorizations,
   proposeStageAuthorization,
   stageAuthorizationInFlightTaskIds,
+  stageBindingAccepts,
 } = await import('../../lib/agent/stage-authorizations')
 const { createAgentImageSource } = await import('../../lib/agent/images')
 let cookie: string
@@ -1176,6 +1179,135 @@ it('keeps the submitted duration and rejects an authorization whose content is n
   })
 })
 
+it('accepts the no_rewrite guard and composition suffix the dispatch layer pins on a non-Gemini prompt', async () => {
+  // 创作页 no_rewrite（默认开）给非 Gemini 模型的 prompt 钉防改写前缀；gpt-image-2.5-flare 不认 size，
+  // 还会按 size 再钉构图后缀。授权冻结的是原文「嫩芽」，两段机器指令不能让阶段任务 409。
+  const proposal = await fixture()
+  const { executionToken } = await (await request(proposal.authorizationId, '/confirm', {})).json()
+  await request(proposal.authorizationId, '/preflight', {
+    nodeId: 'a',
+    model: 'gpt-image-2.5-flare',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken,
+    attemptId: 'guarded',
+  })
+  const auth = {
+    authorizationId: proposal.authorizationId,
+    executionToken,
+    attemptId: 'guarded',
+    nodeId: 'a',
+  }
+  const suffix = `\n\n${buildAspectInstruction('1536x1024')}`
+  // 夹带用户内容、或后缀和本次 size 对不上，仍然按越权拒绝。
+  for (const prompt of [
+    `${applyPromptRewriteGuard('嫩芽')} 再加一只猫`,
+    applyPromptRewriteGuard('别的内容'),
+    `${applyPromptRewriteGuard('嫩芽')}\n\n${buildAspectInstruction('1024x1536')}`,
+  ]) {
+    const rejected = await queueSubmit({
+      prompt,
+      size: '1536x1024',
+      device_id: 'stage-test-device',
+      client_request_id: crypto.randomUUID(),
+      stage_authorization: auth,
+    })
+    expect(rejected.status).toBe(409)
+    expect(await rejected.json()).toMatchObject({ error: 'stage_authorization_scope' })
+  }
+  const accepted = await queueSubmit({
+    prompt: `${applyPromptRewriteGuard('嫩芽')}${suffix}`,
+    size: '1536x1024',
+    device_id: 'stage-test-device',
+    client_request_id: crypto.randomUUID(),
+    stage_authorization: auth,
+  })
+  expect(accepted.status).toBe(200)
+  const { request_id } = await accepted.json()
+  const state = await (await request(proposal.authorizationId)).json()
+  expect(state.attempts[0].taskIds).toEqual([request_id])
+  // 上游拿到的仍是带 guard 的那一句：只放宽比较，不改提交内容。
+  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, request_id))
+  expect((task!.request_payload as { prompt: string }).prompt).toBe(
+    `${applyPromptRewriteGuard('嫩芽')}${suffix}`,
+  )
+})
+
+it('only accepts dispatch shaping the selected model would actually get', async () => {
+  const { getChannels, _setChannelsForTesting } = await import('../../lib/channels')
+  const saved = getChannels()
+  // 测试进程里只有 openai-images 有密钥；补一个认 size 的 openai-compat 模型和一个 Gemini 模型。
+  const channel = (id: string, kind: 'openai-queue' | 'gemini-queue', capabilities: string[]) => ({
+    id: `shaping-${id}`,
+    kind,
+    label: id,
+    baseUrl: 'https://gateway.example/v1',
+    auth: { type: 'bearer' as const, secretRef: 'SHAPING_API_KEY', secret: 'k' },
+    allowedPaths: ['images/generations'],
+    models: [{ id, label: id, capabilities: capabilities as never }],
+    defaults: {},
+  })
+  _setChannelsForTesting([
+    ...saved,
+    channel('sized-image', 'openai-queue', ['generate', 'size']),
+    channel('gemini-sized-image', 'gemini-queue', ['generate', 'size']),
+  ])
+  try {
+    const binding = { nodeId: 'a', kind: 'image' as const, prompt: '嫩芽', inputCount: 0 }
+    const instruction = buildAspectInstruction('1536x1024')
+    const accepts = (prompt: string, model: string, provider: 'openai-compat' | 'gemini') =>
+      stageBindingAccepts(
+        binding,
+        { prompt, inputCount: 0 },
+        { provider, model, size: '1536x1024' },
+      )
+    // gpt-image-2.5-flare 不认 size：guard、后缀、两者都有都是分发层的合法产物。
+    for (const prompt of [
+      '嫩芽',
+      applyPromptRewriteGuard('嫩芽'),
+      `嫩芽\n\n${instruction}`,
+      `${applyPromptRewriteGuard('嫩芽')}\n\n${instruction}`,
+    ])
+      expect(accepts(prompt, 'gpt-image-2.5-flare', 'openai-compat')).toBe(true)
+    // 认 size 的模型分发层不加构图后缀，只可能加 guard。
+    expect(accepts(`嫩芽\n\n${instruction}`, 'sized-image', 'openai-compat')).toBe(false)
+    expect(accepts(applyPromptRewriteGuard('嫩芽'), 'sized-image', 'openai-compat')).toBe(true)
+    // Gemini 不加 guard；协议族按 channels.json 认，路径里写成 openai-compat 也不放宽。
+    expect(accepts(applyPromptRewriteGuard('嫩芽'), 'gemini-sized-image', 'gemini')).toBe(false)
+    expect(accepts(applyPromptRewriteGuard('嫩芽'), 'gemini-sized-image', 'openai-compat')).toBe(
+      false,
+    )
+    // 只往原文上加、不从提交里剥：原文自己就以构图句结尾时照常通过。
+    const authored = { ...binding, prompt: `嫩芽\n\n${instruction}` }
+    expect(
+      stageBindingAccepts(
+        authored,
+        { prompt: applyPromptRewriteGuard(authored.prompt), inputCount: 0 },
+        { provider: 'openai-compat', model: 'sized-image', size: '1536x1024' },
+      ),
+    ).toBe(true)
+    // 网页分发层不看原文是否已带 guard，原文以 guard 开头时会被再钉一次，这也是合法产物。
+    const guardedOriginal = { ...binding, prompt: applyPromptRewriteGuard('嫩芽') }
+    expect(
+      stageBindingAccepts(
+        guardedOriginal,
+        { prompt: applyPromptRewriteGuard(guardedOriginal.prompt), inputCount: 0 },
+        { provider: 'openai-compat', model: 'gpt-image-2.5-flare', size: '1536x1024' },
+      ),
+    ).toBe(true)
+    // 不带 shaping（视频）只做逐字比。
+    expect(
+      stageBindingAccepts(
+        binding,
+        { prompt: applyPromptRewriteGuard('嫩芽'), inputCount: 0 },
+        undefined,
+      ),
+    ).toBe(false)
+  } finally {
+    _setChannelsForTesting(saved)
+  }
+})
+
 it('discards archived inputs when stage consumption fails after preparation', async () => {
   const { InMemoryObjectStore } = await import('../helpers/inMemoryObjectStore')
   const { setObjectStoreForTesting } = await import('../../lib/objectStore')
@@ -1820,6 +1952,35 @@ it('submits an authorized image and a fractional reference video through confirm
         models: [{ ...sampleModel, id: 'grok-imagine-video', label: 'Grok', media: 'video' }],
       },
     ])
+    const submitVideo = (prompt: string) =>
+      app.handle(
+        new Request('http://localhost/v1/queue/openai-compat/grok-imagine-video/submit', {
+          method: 'POST',
+          headers: { cookie, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            prompt,
+            device_id: 'stage-test-device',
+            client_request_id: crypto.randomUUID(),
+            input_images: [PIXEL],
+            video: {
+              duration_seconds: 1.9,
+              aspect_ratio: '16:9',
+              resolution: '720p',
+              reference_image_indices: [0],
+            },
+            stage_authorization: {
+              authorizationId: video.authorizationId,
+              executionToken: videoToken,
+              attemptId: 'video-happy',
+              nodeId: 'clip',
+            },
+          }),
+        }),
+      )
+    // 视频提交不经过分发层改写，带 guard 前缀的 prompt 会原样发给上游，必须按越权拒绝。
+    const guardedVideo = await submitVideo(applyPromptRewriteGuard('海浪'))
+    expect(guardedVideo.status).toBe(409)
+    expect(await guardedVideo.json()).toMatchObject({ error: 'stage_authorization_scope' })
     const videoSubmit = await app.handle(
       new Request('http://localhost/v1/queue/openai-compat/grok-imagine-video/submit', {
         method: 'POST',
