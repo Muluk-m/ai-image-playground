@@ -31,6 +31,7 @@ import {
   proposalRegions,
   refineRequest,
   regionForClick,
+  storedRegionMask,
   type TargetMask,
   targetBounds,
 } from '../lib/maskProposal'
@@ -547,9 +548,11 @@ export default function AgentMaskProposalCard({
         const masks = new Map<number, HTMLCanvasElement>()
         for (const region of views) {
           if (region.maskMediaId) {
-            const server = await loadImage(
-              await resolveMediaSource(`aip-media:${region.maskMediaId}`, 'original', true),
-            ).catch(() => null)
+            const server = await storedRegionMask(
+              region.maskMediaId,
+              (source) => resolveMediaSource(source, 'original', true),
+              loadImage,
+            )
             if (server) {
               masks.set(region.number, targetCanvas(server, width, height))
               continue
