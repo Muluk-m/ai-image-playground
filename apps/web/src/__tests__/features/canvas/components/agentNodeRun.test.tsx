@@ -9,6 +9,8 @@ import * as Y from 'yjs'
 import AgentNodeRunCard from '../../../../features/agent/components/AgentNodeRunCard'
 import { agentNodeRunBridge } from '../../../../features/agent/lib/nodeRunBridge'
 import {
+  agentNodeRun,
+  isAgentNodeRunOrigin,
   noteAgentNodeRunBlocked,
   registerAgentNodeRunOrigin,
   startAgentNodeRun,
@@ -83,8 +85,9 @@ async function mount(
   origin = true,
   next: AgentCanvasRunProposal = proposal,
   onReported?: (authorizationId: string) => void,
+  card = true,
 ) {
-  if (origin) registerAgentNodeRunOrigin(runKey, onReported ? { onReported } : {})
+  if (origin) registerAgentNodeRunOrigin(runKey, onReported ? { onReported } : {}, next)
   const doc = new Y.Doc(),
     source = canvasOrigin('user', 'test'),
     undo = createCanvasUndoManager(doc, source)
@@ -104,7 +107,8 @@ async function mount(
       revision: plan.signature,
       files: {},
     })
-    return <AgentNodeRunCard runKey={runKey} proposal={next} />
+    // 聊天面板收起时只有画布挂着，运行卡不渲染。
+    return card ? <AgentNodeRunCard runKey={runKey} proposal={next} /> : null
   }
   const host = document.createElement('div')
   document.body.append(host)
@@ -352,6 +356,31 @@ it('starts a direct run with no confirmation card and no undo wait', async () =>
   expect(confirms).toBe(1)
   expect(preflights).toBe(1)
   expect(mocks.run).toHaveBeenCalledOnce()
+})
+
+it('starts a direct run while the chat panel is collapsed and no run card is mounted', async () => {
+  await mount('direct-collapsed', true, { ...proposal, direct: true }, undefined, false)
+  await act(async () => {})
+  expect(confirms).toBe(1)
+  expect(preflights).toBe(1)
+  expect(mocks.run).toHaveBeenCalledOnce()
+  expect(reports).toEqual([
+    expect.objectContaining({ nodes: [{ nodeId: 'a', outcome: 'completed' }] }),
+  ])
+  // 没有卡来收尾：跑完交过结局，运行和来源都得由运行表自己收走，不在标签页里一直留着。
+  expect(agentNodeRun('direct-collapsed')).toBeUndefined()
+  expect(isAgentNodeRunOrigin('direct-collapsed')).toBe(false)
+})
+
+it('waits for the canvas of the proposal before starting a direct run', async () => {
+  await mount('direct-other-project', true, {
+    ...proposal,
+    projectId: 'another',
+    direct: true,
+  })
+  await act(async () => vi.advanceTimersByTimeAsync(5000))
+  expect(confirms).toBe(0)
+  expect(mocks.run).not.toHaveBeenCalled()
 })
 
 it('stops rereading an authorization after repeated failures', async () => {
