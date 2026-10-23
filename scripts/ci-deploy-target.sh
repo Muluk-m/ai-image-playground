@@ -72,7 +72,7 @@ admin_bundle_changed() {
 api_tree_changed() {
   # The VPS runs the copies of these scripts shipped inside the release tarball. A change that
   # does not roll out an API image never reaches the host.
-  printf '%s\n' "$1" | grep -Eq '^(apps/bff/|apps/admin/|packages/|Dockerfile$|deploy/|pnpm-workspace\.yaml$|scripts/build-vps-release\.sh$|scripts/docker-entrypoint\.sh$|scripts/vps-deploy\.sh$|scripts/app-compose\.sh$|scripts/rollout-runtime\.sh$|scripts/check-test-isolation\.sh$|scripts/lib/deploy-common\.sh$)' ||
+  printf '%s\n' "$1" | grep -Eq '^(apps/bff/|apps/admin/|packages/|Dockerfile$|deploy/|pnpm-workspace\.yaml$|scripts/build-vps-release\.sh$|scripts/docker-entrypoint\.sh$|scripts/vps-deploy\.sh$|scripts/app-compose\.sh$|scripts/rollout-runtime\.sh$|scripts/check-test-isolation\.sh$|scripts/segmenter-deploy\.sh$|scripts/lib/deploy-common\.sh$)' ||
     lock_changed "$1" . apps/bff apps/admin packages/db packages/node-kit packages/shared \
       private/apps/bff private/apps/admin
 }
