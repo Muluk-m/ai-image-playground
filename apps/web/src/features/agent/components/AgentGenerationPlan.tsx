@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Checkbox } from '../../../components/patterns/Checkbox'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
@@ -6,6 +5,7 @@ import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { agentPlanCreditTotal } from '../lib/draftCredits'
+import { agentDraftStillDrafting } from '../lib/draftingTurn'
 import type { AgentPromptConfirmFailure, PlanCardControl } from '../lib/planCardState'
 import { agentDraftOutputCount } from '../lib/promptDraft'
 import {
@@ -33,8 +33,13 @@ export default function AgentGenerationPlan({
 }) {
   const { t } = useTranslation('agent')
   const drafts = useAgentStore((state) => state.promptDrafts)
-  const [openId, setOpenId] = useState<string | null>(null)
-  const [dismissed, setDismissed] = useState(false)
+  // 展开哪张、是否已取消也挂在稿 id 上：计划还在拟时每追加一张稿卡片就换 key 重挂，
+  // 卡片自己的 state 会丢，已取消的计划又自己弹回来。
+  const openId = plan.open
+  const setOpenId = plan.setOpen
+  const planIds = messages.map((message) => message.id)
+  const dismissed = messages.some((message) => plan.dismissed.has(message.id))
+  const setDismissed = (value: boolean) => plan.dismiss(planIds, value)
   const { skipped } = plan
   const submitting = messages.some((message) => plan.busy.has(message.id))
   // 这段计划里停下的那一张（若有）与原因。
@@ -52,14 +57,20 @@ export default function AgentGenerationPlan({
   }).availableCredits
   // 估价与余额都读得到时才判；读不到就交给服务端把关，不凭空挡住用户。
   const short = credits !== undefined && available !== undefined && credits > available
+  // 拟这段计划的那一轮还在跑：后面的稿可能还没出来，服务端此时也不收确认。按住按钮并说明。
+  const drafting = useAgentStore((state) =>
+    messages.some((message) => agentDraftStillDrafting(state, message)),
+  )
   const recharge = agentToolFailureAction('insufficient_credits')
   const failureReason = (failure: AgentPromptConfirmFailure) =>
     failure.reason === 'gone'
       ? t('confirm.gone')
       : failure.reason === 'notConfirmable'
         ? t('confirm.notConfirmable')
-        : ((failure.reason === 'refused' ? agentToolFailureText(failure.code) : null) ??
-          t('confirm.failed'))
+        : failure.reason === 'drafting'
+          ? t('confirm.drafting')
+          : ((failure.reason === 'refused' ? agentToolFailureText(failure.code) : null) ??
+            t('confirm.failed'))
   const errorText = !error
     ? null
     : error.kind === 'empty'
@@ -73,7 +84,7 @@ export default function AgentGenerationPlan({
         : failureReason(error.failure)
 
   const confirm = () => {
-    if (!selected.length || submitting || short) return
+    if (!selected.length || submitting || short || drafting) return
     const ids = selected.map((message) => message.id)
     plan.begin(
       ids,
@@ -232,6 +243,11 @@ export default function AgentGenerationPlan({
           )}
         </p>
       )}
+      {drafting && !submitting && (
+        <p role="status" data-plan-drafting className="text-xs text-muted-foreground">
+          {t('plan.drafting')}
+        </p>
+      )}
       {errorText && (
         <p role="alert" className="text-xs text-destructive">
           {errorText}
@@ -252,7 +268,7 @@ export default function AgentGenerationPlan({
           <Button
             type="button"
             size="sm"
-            disabled={submitting || count === 0 || short}
+            disabled={submitting || count === 0 || short || drafting}
             onClick={confirm}
           >
             {submitting ? t('confirm.submitting') : t('plan.generate', { count })}
