@@ -91,6 +91,7 @@ import { type AgentJobSession, createAgentBackgroundJobs } from './lib/backgroun
 import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
 import { conversationCache } from './lib/conversationCache'
 import { browserConversationPrefetch } from './lib/conversationPrefetch'
+import { agentDraftStillDrafting } from './lib/draftingTurn'
 import {
   type DraftSubmissionDispatch,
   type DraftSubmissionInput,
@@ -188,13 +189,14 @@ function readModelAuto(): boolean {
  * - `refused`：服务端拒了这次提交（积分不够、没登录、参数不成立……），码即出路。
  * - `gone`：这条消息不在了（换了账号、会话已删）。
  * - `notConfirmable`：它已经不是待确认的草稿（别处确认过、草稿过期）。
+ * - `drafting`：拟它的那一轮还在跑（计划还没拟完），这时不交确认；那一轮结束后再点即可。
  * - `failed`：请求本身没成（断网、超时、服务端出错），原样再点一次即可。
  */
 export type AgentPromptConfirmResult =
   | { readonly ok: true }
   | {
       readonly ok: false
-      readonly reason: 'refused' | 'gone' | 'notConfirmable' | 'failed'
+      readonly reason: 'refused' | 'gone' | 'notConfirmable' | 'drafting' | 'failed'
       readonly code?: AgentToolErrorCode
     }
 
@@ -2696,6 +2698,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (!conversationId || draft?.kind !== 'tool' || !text) return { ok: false, reason: 'failed' }
       // 确认门拦下的稿：用户已经发出新消息、新的一轮正在起（`turn` 在消息上屏那一刻就是 running），
       // 服务端起轮时会把它作废。这时的确认与新轮抢跑，不交出去；起轮失败回到空闲后仍可确认。
+      // 拟它的那一轮自己还在跑（计划没拟完）：说明还在拟，不说成已失效。
+      if (agentDraftStillDrafting(get(), draft)) return { ok: false, reason: 'drafting' }
       if (draft.gated && get().turn === 'running') return { ok: false, reason: 'notConfirmable' }
       let view: AgentMessageView
       let continued = false

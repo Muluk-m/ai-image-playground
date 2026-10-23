@@ -79,13 +79,40 @@ it('云端会话关联在另一设备恢复，刷新关联不覆盖本机未同�
   }
   const imported = await projectRepository.importCloud(summary)
   expect(imported.conversationId).toBe(summary.conversationId)
-  await projectRepository.update(id, { name: '本机未同步名称' })
+  // 本机改了名还没推上去：目录刷新不拿云端那份盖回去。
+  await projectRepository.update(id, {
+    name: '本机未同步名称',
+    cloud: { ...imported.cloud!, nameDirty: true },
+  })
   const changed = { ...summary, conversationId: crypto.randomUUID(), revision: 4 }
   const refreshed = await projectRepository.importCloud(changed)
   expect(refreshed.conversationId).toBe(changed.conversationId)
   expect(refreshed.name).toBe('本机未同步名称')
   expect(refreshed.cloud?.revision).toBe(3)
   expect((await projectRepository.list())[0]?.conversationId).toBe(changed.conversationId)
+})
+
+it('本机没有待推的改名时，云端目录里的新名称（别的标签页或设备改的）刷新就跟上', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const summary = {
+    id: crypto.randomUUID(),
+    name: '画布B',
+    revision: 3,
+    createdAt: 1,
+    updatedAt: 2,
+    elementCount: 1,
+    coverMediaId: null,
+    conversationId: crypto.randomUUID(),
+  }
+  await projectRepository.importCloud(summary)
+  const renamed = await projectRepository.importCloud({
+    ...summary,
+    name: '画布B-改名',
+    updatedAt: 3,
+  })
+  expect(renamed.name).toBe('画布B-改名')
+  expect(renamed.customName).toBe(true)
+  expect((await projectRepository.list())[0]?.name).toBe('画布B-改名')
 })
 
 it('云端那份还叫未命名时不算用户起的名字，会话标题还能接手', async () => {
