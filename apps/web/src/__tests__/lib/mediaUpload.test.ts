@@ -217,3 +217,32 @@ it.each([
   ).rejects.toThrow(code)
   expect(states[states.length - 1]).toBe('failed')
 })
+
+it.each([
+  ['an empty file', 'data:image/png;base64,', new Uint8Array()],
+  [
+    'text renamed to .png',
+    `data:image/png;base64,${btoa('not an image')}`,
+    new TextEncoder().encode('not an image'),
+  ],
+])('reports %s as a permanent invalid image without asking the server', async (_name, input, body) => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal(
+    'Image',
+    class {
+      onerror?: () => void
+      set src(_source: string) {
+        queueMicrotask(() => this.onerror?.())
+      }
+    },
+  )
+  const fetch = vi.fn(async (url: string) => {
+    if (url === input) return new Response(body)
+    throw new Error(`Unexpected fetch ${url}`)
+  })
+  vi.stubGlobal('fetch', fetch)
+  await expect(
+    uploadMediaSource(input, { signal: new AbortController().signal }),
+  ).rejects.toMatchObject({ status: 422, code: 'media_invalid_image' })
+  expect(fetch).toHaveBeenCalledTimes(1)
+})

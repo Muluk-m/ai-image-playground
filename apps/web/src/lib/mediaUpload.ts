@@ -94,12 +94,20 @@ export async function uploadMediaSource(
           return options.known
         }
         if (options.uploadMissing === false) return undefined
+        // 0 字节、改了扩展名的文本：这份字节再传多少次都不是图，按服务端同一个错误码报，调用方可据此判定永久失败。
+        if (bytes.byteLength === 0) throw new MediaRequestError(422, 'media_invalid_image')
         let contentType = imageMimeFromBytes(bytes)
         let body = bytes
         if (!contentType) {
           if (options.purpose === 'conversation-attachment')
             throw new MediaRequestError(422, 'media_unsupported_image')
-          body = await (await imageDataUrlToPngBlob(source)).arrayBuffer()
+          let decoded: Blob
+          try {
+            decoded = await imageDataUrlToPngBlob(source)
+          } catch {
+            throw new MediaRequestError(422, 'media_invalid_image')
+          }
+          body = await decoded.arrayBuffer()
           contentType = 'image/png'
           current()
         }
