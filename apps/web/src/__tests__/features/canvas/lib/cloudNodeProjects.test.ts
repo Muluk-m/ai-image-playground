@@ -29,7 +29,11 @@ import { CloudNodeProjectSession } from '../../../../features/canvas/lib/cloudNo
 import { registerNodeCanvasFocus } from '../../../../features/canvas/lib/nodeCanvasFocus'
 import type { CanvasCommandSummary } from '../../../../features/canvas/lib/nodeCanvasHistory'
 import { type CloudSceneCheckpoint } from '../../../../features/canvas/lib/persistence'
-import { getCloudProject, ProjectRequestError } from '../../../../features/canvas/lib/projectClient'
+import {
+  getCloudProject,
+  ProjectRequestError,
+  putCloudProject,
+} from '../../../../features/canvas/lib/projectClient'
 import { projectDocument } from '../../../../features/canvas/lib/projectMedia'
 import {
   type CanvasProject,
@@ -45,24 +49,30 @@ import { uploadMediaSource } from '../../../../lib/mediaUpload'
 import { openSceneRecord } from '../../../helpers/sceneRecord'
 
 const origin = canvasOrigin('user', 'fixture')
-vi.mock('../../../../features/canvas/lib/projectClient', () => ({
-  getCloudProject: vi.fn(async (id: string) => ({
-    id,
-    revision: 1,
-    name: 'Cloud',
-    elementCount: 1,
-    document: { version: 1, elements: [] },
-  })),
-  putCloudProject: vi.fn(),
-  ProjectRequestError: class extends Error {
+vi.mock('../../../../features/canvas/lib/projectClient', () => {
+  class ProjectRequestError extends Error {
     constructor(
       readonly status: number,
       message: string,
     ) {
       super(message)
     }
-  },
-}))
+  }
+  return {
+    getCloudProject: vi.fn(async (id: string) => ({
+      id,
+      revision: 1,
+      name: 'Cloud',
+      elementCount: 1,
+      document: { version: 1, elements: [] },
+    })),
+    // 夹具里服务端已经有这个项目：建项目的 PUT 跟真服务端一样回 409。
+    putCloudProject: vi.fn(async () => {
+      throw new ProjectRequestError(409, 'project_conflict')
+    }),
+    ProjectRequestError,
+  }
+})
 vi.mock('../../../../features/agent/lib/artifactSource', () => ({
   artifactBitmap: vi.fn(async () => 'data:image/png;base64,AQID'),
 }))
@@ -2214,5 +2224,43 @@ it('keeps a reserved cloud video in the node document when submission is rejecte
     pending: { status: 'error', meta: { agentErrorCode: 'invalid_params' } },
   })
   expect(record.editor.getPlaceholder(ids[0]!)?.status).toBe('error')
+  record.dispose()
+})
+
+it('opens a project created on this device by creating it first, without a 404 identity read', async () => {
+  const project = await projectRepository.create('Fresh', undefined, true)
+  const record = await openSceneRecord(project.sceneKey)
+  let exists = false
+  vi.mocked(putCloudProject).mockImplementationOnce(async () => {
+    exists = true
+    return { id: project.id, revision: 1, name: 'Fresh', elementCount: 0, updatedAt: 1 } as never
+  })
+  vi.mocked(getCloudProject).mockClear()
+  vi.mocked(getCloudProject).mockImplementationOnce(async (id) => {
+    if (!exists) throw new ProjectRequestError(404, 'project_not_found')
+    return {
+      id,
+      revision: 1,
+      name: 'Fresh',
+      elementCount: 0,
+      document: { version: 1, elements: [] },
+    } as never
+  })
+  vi.mocked(authenticatedBffFetch).mockImplementation(async (url) =>
+    String(url).endsWith('/canvas/commands')
+      ? Response.json([])
+      : new Response(new Uint8Array(Y.encodeStateAsUpdate(new Y.Doc())).buffer),
+  )
+  vi.stubGlobal('WebSocket', Socket)
+  const session = new CloudNodeProjectSession(project, record, () => {})
+  sessions.push(session)
+  await session.load()
+  expect(putCloudProject).toHaveBeenCalledWith(
+    project.id,
+    expect.objectContaining({ baseRevision: 0 }),
+    expect.any(AbortSignal),
+  )
+  expect(getCloudProject).toHaveBeenCalledTimes(1)
+  expect(await vi.mocked(getCloudProject).mock.results[0]!.value).toMatchObject({ revision: 1 })
   record.dispose()
 })
