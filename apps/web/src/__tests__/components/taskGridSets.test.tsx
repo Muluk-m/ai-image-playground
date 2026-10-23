@@ -54,6 +54,8 @@ beforeEach(() => {
     filterFavorite: false,
     selectedTaskIds: [],
     detailTaskId: null,
+    lightboxImageId: null,
+    lightboxImageList: [],
     showToast: vi.fn(),
     setConfirmDialog: vi.fn(),
   })
@@ -178,20 +180,23 @@ describe('the history folded by set', () => {
     }
     const expand = () => click(document.querySelector('button[aria-expanded="false"]'))
 
-    it('opens the image a thumbnail shows', async () => {
+    it('enlarges the image a thumbnail shows, browsable across the batch', async () => {
       finished()
       await render()
 
-      click(document.querySelector('[aria-label="查看第 2 张"]'))
+      click(document.querySelector('[aria-label="放大查看第 2 张"]'))
 
-      expect(useStore.getState().detailTaskId).toBe('c2')
+      // 直接进大图预览，不是作品详情弹窗；左右切换的范围是这一批出了图的几张。
+      expect(useStore.getState().lightboxImageId).toBe('img-2')
+      expect(useStore.getState().lightboxImageList).toEqual(['img-1', 'img-2', 'img-3'])
+      expect(useStore.getState().detailTaskId).toBeNull()
     })
 
-    it('opens a thumbnail on Ctrl/Cmd-click instead of silently selecting it', async () => {
+    it('enlarges a thumbnail on Ctrl/Cmd-click instead of silently selecting it', async () => {
       finished()
       await render()
 
-      const tile = document.querySelector('[aria-label="查看第 2 张"]')
+      const tile = document.querySelector('[aria-label="放大查看第 2 张"]')
       act(() => {
         tile?.dispatchEvent(
           new MouseEvent('click', { bubbles: true, ctrlKey: true, metaKey: true }),
@@ -199,7 +204,7 @@ describe('the history folded by set', () => {
       })
 
       expect(useStore.getState().selectedTaskIds).toEqual([])
-      expect(useStore.getState().detailTaskId).toBe('c2')
+      expect(useStore.getState().lightboxImageId).toBe('img-2')
     })
 
     it('lists every image inside the card once expanded, each with its own download', async () => {
@@ -218,8 +223,14 @@ describe('the history folded by set', () => {
       const sources = vi.mocked(openImageExport).mock.calls[0]?.[0]
       expect(sources?.map((source) => source.id)).toEqual(['c2:img-2'])
 
-      click(items[2]?.querySelector('[aria-label="查看第 3 张"]'))
-      expect(useStore.getState().detailTaskId).toBe('c3')
+      click(items[2]?.querySelector('[aria-label="放大查看第 3 张"]'))
+      expect(useStore.getState().lightboxImageId).toBe('img-3')
+      expect(useStore.getState().lightboxImageList).toEqual(['img-1', 'img-2', 'img-3'])
+      expect(useStore.getState().detailTaskId).toBeNull()
+
+      // 作品详情（参数、删除等）走每行的「第 N 张详情」。
+      click(items[0]?.querySelector('[aria-label="第 1 张详情"]'))
+      expect(useStore.getState().detailTaskId).toBe('c1')
     })
 
     it('downloads all images of the batch at once', async () => {
