@@ -152,6 +152,17 @@ it('模型认 size 时提交侧没缀构图指令：用户自己写的同一句�
     expect(taskFromGeneration({ ...summary, model: 'codex-image', prompt: ending }).prompt).toBe(
       '一只猫',
     )
+    // 同一个模型挂在两条渠道上、其中一条丢 size：提交时可能缀过，按缀过剥。
+    channels.list = [
+      { id: 'native', models: [{ id: 'gpt-image-2', capabilities: ['size'] }] },
+      { id: 'gateway', models: [{ id: 'gpt-image-2', capabilities: ['quality'] }] },
+    ]
+    expect(taskFromGeneration({ ...summary, prompt: ending }).prompt).toBe('一只猫')
+    channels.list = [
+      { id: 'gateway', models: [{ id: 'gpt-image-2', capabilities: ['quality'] }] },
+      { id: 'native', models: [{ id: 'gpt-image-2', capabilities: ['size'] }] },
+    ]
+    expect(taskFromGeneration({ ...summary, prompt: ending }).prompt).toBe('一只猫')
   } finally {
     channels.list = []
   }
