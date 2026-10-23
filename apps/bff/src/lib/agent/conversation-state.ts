@@ -1,5 +1,5 @@
 import { projectArtifactId } from '@image-playground/shared'
-import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 
 /** 状态摘要只回看这么久：更早的卡片与批次已经不是“刚才那件事”。 */
@@ -149,6 +149,8 @@ export async function readConversationStateFacts(
             isNull(schema.agent_messages.deleted_at),
           ),
         )
+        // 同一张卡若出现在多条消息里，按写入先后排，后写的覆盖先写的。
+        .orderBy(asc(schema.agent_messages.created_at), asc(schema.agent_messages.seq))
     : []
   const cards = new Map<string, { status?: unknown; gated?: unknown; errorCode?: unknown }>()
   for (const row of cardRows)
