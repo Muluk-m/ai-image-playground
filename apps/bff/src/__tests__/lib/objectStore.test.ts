@@ -4,7 +4,9 @@ import { stubGlobalFetch } from '../helpers/upstreamStubs'
 
 process.env.DATABASE_URL ??= 'postgresql://unused:unused@127.0.0.1:5432/unused'
 const { createDurableMediaStore } = await import('../../lib/durableMediaStore')
-const { readObjectWithinLimit, S3ObjectStore } = await import('../../lib/objectStore')
+const { ObjectStoreHttpError, readObjectWithinLimit, S3ObjectStore } = await import(
+  '../../lib/objectStore'
+)
 type S3ClientLike = import('../../lib/objectStore').S3ClientLike
 
 interface ListCall {
@@ -143,6 +145,49 @@ describe('S3ObjectStore key prefix', () => {
         headers: { range: 'bytes=0-1' },
         signal: controller.signal,
       })
+    } finally {
+      transport.mockRestore()
+    }
+  })
+
+  it('带期限的整份读取走同一客户端签名的 GET：可取消，非 2xx 带上状态码', async () => {
+    const client = new FakeS3Client()
+    client.objects.set('paid/objects/u/m/original', new Uint8Array([9]))
+    const subject = store(client, 'paid/')
+    const controller = new AbortController()
+    const transport = spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(new Uint8Array([1, 2, 3])),
+    )
+    try {
+      expect(await subject.read('objects/u/m/original', controller.signal)).toEqual(
+        new Uint8Array([1, 2, 3]),
+      )
+      expect(transport.mock.calls[0]?.[0]).toContain(
+        'paid/objects/u/m/original?expiresIn=60&method=GET',
+      )
+      expect(transport.mock.calls[0]?.[1]).toMatchObject({ signal: controller.signal })
+
+      transport.mockResolvedValueOnce(new Response('InternalError', { status: 500 }))
+      const failed = await subject.read('objects/u/m/original', controller.signal).catch((e) => e)
+      expect(failed).toBeInstanceOf(ObjectStoreHttpError)
+      expect(failed.status).toBe(500)
+
+      transport.mockImplementation(
+        Object.assign(
+          (_url: RequestInfo | URL, options?: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), {
+                once: true,
+              })
+            }),
+          { preconnect: globalThis.fetch.preconnect },
+        ),
+      )
+      const waiting = subject.read('objects/u/m/original', controller.signal)
+      controller.abort(new Error('deadline'))
+      await expect(waiting).rejects.toThrow('deadline')
+      // 不给信号时仍走原来的客户端读取。
+      expect(await subject.read('objects/u/m/original')).toEqual(new Uint8Array([9]))
     } finally {
       transport.mockRestore()
     }
