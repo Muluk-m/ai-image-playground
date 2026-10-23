@@ -166,11 +166,15 @@ export async function uploadMediaSource(
         if (!contentType) {
           if (options.purpose === 'conversation-attachment')
             throw new MediaRequestError(422, 'media_unsupported_image')
+          // 只有浏览器解不出这份字节才算坏图；解出来后转 PNG 失败（画布、内存）是本机问题，照常按可重试报。
           let decoded: Blob
           try {
             decoded = await imageDataUrlToPngBlob(source)
-          } catch {
-            throw new MediaRequestError(422, 'media_invalid_image')
+          } catch (error) {
+            // 与 canvasImage 的 IMAGE_DECODE_FAILED 同值；不直接引常量，测试里整模块替换 canvasImage 时也成立。
+            if ((error as { code?: unknown } | null)?.code === 'image_decode_failed')
+              throw new MediaRequestError(422, 'media_invalid_image')
+            throw error
           }
           body = await decoded.arrayBuffer()
           contentType = 'image/png'

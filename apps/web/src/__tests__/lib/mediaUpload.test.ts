@@ -446,3 +446,32 @@ it.each([
   ).rejects.toMatchObject({ status: 422, code: 'media_invalid_image' })
   expect(fetch).toHaveBeenCalledTimes(1)
 })
+
+it('keeps a PNG conversion failure retryable when the browser could decode the image', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal(
+    'Image',
+    class {
+      naturalWidth = 1
+      naturalHeight = 1
+      onload?: () => void
+      set src(_source: string) {
+        queueMicrotask(() => this.onload?.())
+      }
+    },
+  )
+  // 解码成功、但拿不到 2d 画布：不是这份字节坏了，不能报成永久的坏图。
+  const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+  const input = `data:image/png;base64,${btoa('decodable but unsniffed')}`
+  const fetch = vi.fn(async (url: string) => {
+    if (url === input) return new Response(new TextEncoder().encode('decodable but unsniffed'))
+    throw new Error(`Unexpected fetch ${url}`)
+  })
+  vi.stubGlobal('fetch', fetch)
+  const error = await uploadMediaSource(input, { signal: new AbortController().signal }).catch(
+    (e: unknown) => e,
+  )
+  expect(error).toBeInstanceOf(Error)
+  expect(error).not.toMatchObject({ code: 'media_invalid_image' })
+  context.mockRestore()
+})
