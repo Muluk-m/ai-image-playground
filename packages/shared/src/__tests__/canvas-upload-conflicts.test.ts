@@ -15,6 +15,7 @@ import {
 } from '../canvas-document'
 import { promoteCanvasResultMedia } from '../canvas-results'
 import {
+  applyCanvasUpdateKeepingUploads,
   canvasUploadConflictsSupported,
   mergeCanvasUploadConflict,
   readOverwrittenLocalData,
@@ -497,6 +498,79 @@ describe('上传簿记与并发编辑', () => {
     expect(errors).toHaveBeenCalledTimes(1)
     expect(String(errors.mock.calls[0]?.[0])).toContain('Yjs 内部结构与预期不符')
     errors.mockRestore()
+  })
+})
+
+describe('服务端收更新时补回并发顶掉的上传簿记', () => {
+  // 服务端文档默认回收删除内容；上传方收到确认就关页面时，只能靠服务端在回收前合回去。
+  for (const [editorId, uploaderId] of [
+    [1, 2],
+    [2, 1],
+  ] as const)
+    for (const promotionFirst of [false, true])
+      it(`收成云媒体与改名并发、上传方已离开（editor=${editorId}，${promotionFirst ? '先到收成云媒体' : '先到改名'}）`, () => {
+        const editor = new Y.Doc()
+        editor.clientID = editorId
+        const uploader = new Y.Doc()
+        uploader.clientID = uploaderId
+        insertCanvasNode(
+          uploader,
+          {
+            id: 'image',
+            type: 'image',
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+            data: { fileId: 'local-file', name: 'photo', meta: claim },
+          },
+          local,
+        )
+        const server = new Y.Doc()
+        Y.applyUpdate(server, Y.encodeStateAsUpdate(uploader))
+        Y.applyUpdate(editor, Y.encodeStateAsUpdate(uploader))
+        const base = Y.encodeStateVector(server)
+        edit(editor, { name: 'renamed' })
+        promoteCanvasResultMedia(uploader, 'image', 'local-file', media, local)
+        const updates = [Y.encodeStateAsUpdate(editor, base), Y.encodeStateAsUpdate(uploader, base)]
+        if (promotionFirst) updates.reverse()
+        let repaired = 0
+        for (const update of updates)
+          repaired += applyCanvasUpdateKeepingUploads(server, update, remote)
+
+        expect(repaired).toBe(1)
+        const viewer = fromUpdate(Y.encodeStateAsUpdate(server))
+        expect(data(viewer).name).toBe('renamed')
+        expect(data(viewer).mediaId).toBe(media)
+        expect(data(viewer).fileId).toBe(`cloud-${media}`)
+        expect(data(viewer).meta?.[CANVAS_UPLOAD_DEVICE_META]).toBeUndefined()
+      })
+
+  it('先后修改（看过上一版）不补写', () => {
+    const doc = new Y.Doc()
+    doc.clientID = 1
+    insertCanvasNode(
+      doc,
+      {
+        id: 'image',
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80,
+        data: { fileId: 'local-file', name: 'photo', meta: claim },
+      },
+      local,
+    )
+    const server = new Y.Doc()
+    expect(applyCanvasUpdateKeepingUploads(server, Y.encodeStateAsUpdate(doc), remote)).toBe(0)
+    const before = Y.encodeStateVector(doc)
+    promoteCanvasResultMedia(doc, 'image', 'local-file', media, local)
+    edit(doc, { name: 'renamed' })
+    expect(
+      applyCanvasUpdateKeepingUploads(server, Y.encodeStateAsUpdate(doc, before), remote),
+    ).toBe(0)
+    expect(data(fromUpdate(Y.encodeStateAsUpdate(server))).name).toBe('renamed')
   })
 })
 
