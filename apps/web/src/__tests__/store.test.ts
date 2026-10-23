@@ -1,3 +1,4 @@
+import { PROMPT_REWRITE_GUARD_PREFIX } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const failTaskPuts = vi.hoisted(() => new Set<string>())
@@ -196,6 +197,7 @@ import {
   getTaskApiProfile,
   initStore,
   markInterruptedOpenAIRunningTasks,
+  materializeRemoteTask,
   retryTask,
   reuseConfig,
   submitPrepared,
@@ -2640,6 +2642,36 @@ describe('submitPrepared 显式参数提交接缝', () => {
 })
 
 describe('展开平台记录的详情', () => {
+  it('平台记录落成本机任务时用用户原文，不带防改写前缀（重试不会再钉一遍）', async () => {
+    readRemoteGeneration.mockResolvedValue({
+      id: 'gen-guard',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.5-flare',
+      status: 'completed',
+      archiveStatus: 'none',
+      errorType: null,
+      cover: null,
+      createdAt: 1_000,
+      startedAt: 2_000,
+      completedAt: 62_000,
+      revision: '1',
+      prompt: `${PROMPT_REWRITE_GUARD_PREFIX}\n一只猫`,
+      parameters: {},
+      actualParameters: {},
+      inputs: [],
+      mask: null,
+      outputs: [],
+    })
+    useStore.setState({ tasks: [] })
+
+    const local = await materializeRemoteTask(
+      task({ id: 'gen-guard', remoteOnly: true, prompt: '一只猫', outputImages: [] }),
+    )
+
+    expect(local.prompt).toBe('一只猫')
+    expect(useStore.getState().tasks[0]?.prompt).toBe('一只猫')
+  })
+
   it('平台那条已经跑完时卡片跟着落终态，不再一直显示生成中', async () => {
     const image = (mediaId: string) => ({
       index: 0,
