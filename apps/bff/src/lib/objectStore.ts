@@ -52,15 +52,21 @@ export async function readObjectWithinLimit(
  */
 export function withoutSignedUrl(error: unknown, url: string): unknown {
   if (error instanceof ObjectStoreHttpError || error instanceof DOMException) return error
-  const source = error as { name?: unknown; message?: unknown; code?: unknown } | null
+  const source = error as {
+    name?: unknown
+    message?: unknown
+    code?: unknown
+    cause?: unknown
+  } | null
   const message = String(source?.message ?? error)
     .split(url)
     .join('<signed-url>')
     .replace(/https?:\/\/\S*X-Amz-\S*/gi, '<signed-url>')
   const clean = new Error(message)
   if (typeof source?.name === 'string') clean.name = source.name
-  if (typeof source?.code === 'string' || typeof source?.code === 'number')
-    Object.assign(clean, { code: source.code })
+  // 网络错误码可能挂在 cause 上（ECONNRESET 之类）；cause 本身可能带地址，只取码。
+  const code = source?.code ?? (source?.cause as { code?: unknown } | null | undefined)?.code
+  if (typeof code === 'string' || typeof code === 'number') Object.assign(clean, { code })
   return clean
 }
 
