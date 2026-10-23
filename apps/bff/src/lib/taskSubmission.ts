@@ -424,11 +424,15 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
               }
             : {}),
         },
-        // 创作页分发层会给 prompt 钉防改写前缀 / 构图后缀，授权冻结的是原文。
-        {
-          provider: input.provider,
-          ...(input.request.size ? { size: input.request.size } : {}),
-        },
+        // 创作页分发层会给图片 prompt 钉防改写前缀 / 构图后缀，授权冻结的是原文。
+        // 视频提交原样发冻结的 prompt，不放宽。
+        input.video
+          ? undefined
+          : {
+              provider: input.provider,
+              model: input.model,
+              ...(input.request.size ? { size: input.request.size } : {}),
+            },
       )
     if (input.userId && commandId)
       await tx.insert(schema.generation_commands).values({

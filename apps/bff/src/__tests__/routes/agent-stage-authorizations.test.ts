@@ -77,6 +77,7 @@ const {
   expireStaleStageAuthorizations,
   proposeStageAuthorization,
   stageAuthorizationInFlightTaskIds,
+  stageBindingAccepts,
 } = await import('../../lib/agent/stage-authorizations')
 const { createAgentImageSource } = await import('../../lib/agent/images')
 let cookie: string
@@ -1232,6 +1233,44 @@ it('accepts the no_rewrite guard and composition suffix the dispatch layer pins 
   )
 })
 
+it('only accepts dispatch shaping the selected model would actually get', () => {
+  const binding = { nodeId: 'a', kind: 'image' as const, prompt: '嫩芽', inputCount: 0 }
+  const instruction = buildAspectInstruction('1536x1024')
+  const accepts = (prompt: string, model: string, provider: 'openai-compat' | 'gemini') =>
+    stageBindingAccepts(binding, { prompt, inputCount: 0 }, { provider, model, size: '1536x1024' })
+  // gpt-image-2.5-flare 不认 size：guard、后缀、两者都有都是分发层的合法产物。
+  for (const prompt of [
+    '嫩芽',
+    applyPromptRewriteGuard('嫩芽'),
+    `嫩芽\n\n${instruction}`,
+    `${applyPromptRewriteGuard('嫩芽')}\n\n${instruction}`,
+  ])
+    expect(accepts(prompt, 'gpt-image-2.5-flare', 'openai-compat')).toBe(true)
+  // 认 size 的模型分发层不加构图后缀；Gemini 不加 guard。
+  expect(accepts(`嫩芽\n\n${instruction}`, 'agnes-image-2.5-flash', 'openai-compat')).toBe(false)
+  expect(accepts(applyPromptRewriteGuard('嫩芽'), 'agnes-image-2.5-flash', 'openai-compat')).toBe(
+    true,
+  )
+  expect(accepts(applyPromptRewriteGuard('嫩芽'), 'gemini-3-pro-image', 'gemini')).toBe(false)
+  // 只往原文上加、不从提交里剥：原文自己就以构图句结尾时照常逐字通过。
+  const authored = { ...binding, prompt: `嫩芽\n\n${instruction}` }
+  expect(
+    stageBindingAccepts(
+      authored,
+      { prompt: applyPromptRewriteGuard(authored.prompt), inputCount: 0 },
+      { provider: 'openai-compat', model: 'agnes-image-2.5-flash', size: '1536x1024' },
+    ),
+  ).toBe(true)
+  // 不带 shaping（视频）只做逐字比。
+  expect(
+    stageBindingAccepts(
+      binding,
+      { prompt: applyPromptRewriteGuard('嫩芽'), inputCount: 0 },
+      undefined,
+    ),
+  ).toBe(false)
+})
+
 it('discards archived inputs when stage consumption fails after preparation', async () => {
   const { InMemoryObjectStore } = await import('../helpers/inMemoryObjectStore')
   const { setObjectStoreForTesting } = await import('../../lib/objectStore')
@@ -1876,6 +1915,35 @@ it('submits an authorized image and a fractional reference video through confirm
         models: [{ ...sampleModel, id: 'grok-imagine-video', label: 'Grok', media: 'video' }],
       },
     ])
+    const submitVideo = (prompt: string) =>
+      app.handle(
+        new Request('http://localhost/v1/queue/openai-compat/grok-imagine-video/submit', {
+          method: 'POST',
+          headers: { cookie, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            prompt,
+            device_id: 'stage-test-device',
+            client_request_id: crypto.randomUUID(),
+            input_images: [PIXEL],
+            video: {
+              duration_seconds: 1.9,
+              aspect_ratio: '16:9',
+              resolution: '720p',
+              reference_image_indices: [0],
+            },
+            stage_authorization: {
+              authorizationId: video.authorizationId,
+              executionToken: videoToken,
+              attemptId: 'video-happy',
+              nodeId: 'clip',
+            },
+          }),
+        }),
+      )
+    // 视频提交不经过分发层改写，带 guard 前缀的 prompt 会原样发给上游，必须按越权拒绝。
+    const guardedVideo = await submitVideo(applyPromptRewriteGuard('海浪'))
+    expect(guardedVideo.status).toBe(409)
+    expect(await guardedVideo.json()).toMatchObject({ error: 'stage_authorization_scope' })
     const videoSubmit = await app.handle(
       new Request('http://localhost/v1/queue/openai-compat/grok-imagine-video/submit', {
         method: 'POST',
