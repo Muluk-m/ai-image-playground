@@ -1,5 +1,6 @@
 import {
   CANVAS_UPLOAD_DEVICE_META,
+  CANVAS_UPLOAD_STALE_MS,
   CANVAS_UPLOAD_STARTED_META,
   canvasOrigin,
   canvasProjectDocument,
@@ -95,6 +96,8 @@ export class CloudNodeProjectSession {
   private upload: { done: number; total: number } | undefined
   private uploading: Promise<void> | undefined
   private uploadAgain = false
+  /** 这一轮后台上传里续期上传声明带来的文档版本增量：判断「这一轮开始后有没有新改动」时不算它。 */
+  private claimRenewals = 0
   /**
    * 上一轮后台上传失败时那一轮开始的文档版本。版本没变（只有这一轮自己写的声明之类）就不再自动开新一轮，
    * 免得持续失败时「写声明→触发同步→再传→再失败」一直转；用户再改动或手动同步时才重试。
@@ -643,6 +646,7 @@ export class CloudNodeProjectSession {
     const worker = async () => {
       for (let source = queue.shift(); source !== undefined; source = queue.shift()) {
         try {
+          if (pendingAllowed) this.renewLocalClaims(nodes, source)
           const mediaId = (await uploadMediaSource(source, { signal: this.controller.signal }))?.id
           this.current()
           if (!mediaId) throw new Error('canvas_media_missing')
@@ -742,6 +746,50 @@ export class CloudNodeProjectSession {
         )
     }, legacyOrigin)
   }
+  /**
+   * 一张原图真正开始上传时，给挂着它、由本设备声明的节点续上声明时间。一轮要传很多张时，
+   * 排在后面的图可能在开头写声明 30 分钟后才开始传；不续期的话别的设备会把它判成过期，
+   * 复制项目时放行一份只有本机 fileId 的快照。只续已过了一半有效期的声明，免得每张图都写一次文档。
+   */
+  private renewLocalClaims(nodes: readonly { nodeId: string; fileId: string }[], source: string) {
+    if (!this.canvas) return
+    const doc = this.canvas.doc
+    const files = this.record.editor.doc.files
+    const device = getCanvasUploaderId()
+    const now = Date.now()
+    const renewed: { id: string; data: ImageNodeData }[] = []
+    for (const { nodeId, fileId } of nodes) {
+      if (files[fileId] !== source) continue
+      const current = readCanvasDocument(doc).nodes.find((n) => n.id === nodeId)
+      if (!current || (current.type !== 'image' && current.type !== 'video')) continue
+      const { data } = current
+      if (data.fileId !== fileId || data.mediaId) continue
+      if (data.meta?.[CANVAS_UPLOAD_DEVICE_META] !== device) continue
+      const since = Number(data.meta?.[CANVAS_UPLOAD_STARTED_META])
+      if (Number.isFinite(since) && now - since < CANVAS_UPLOAD_STALE_MS / 2) continue
+      renewed.push({ id: nodeId, data })
+    }
+    if (!renewed.length) return
+    const before = this.editVersion
+    doc.transact(() => {
+      for (const { id, data } of renewed)
+        updateCanvasNode(
+          doc,
+          id,
+          {
+            data: {
+              ...data,
+              meta: {
+                ...data.meta,
+                [CANVAS_UPLOAD_STARTED_META]: String(nextCanvasUploadStamp(data.meta, now)),
+              },
+            },
+          },
+          legacyOrigin,
+        )
+    }, legacyOrigin)
+    this.claimRenewals += this.editVersion - before
+  }
   /** 后台上传失败停下时，去掉本标签页对还没收成云媒体的节点写的上传声明。 */
   private releaseLocalUploads() {
     if (!this.canvas) return
@@ -791,6 +839,7 @@ export class CloudNodeProjectSession {
     this.uploading = (async () => {
       do {
         this.uploadAgain = false
+        this.claimRenewals = 0
         roundVersion = this.editVersion
         await this.prepareMedia()
         this.current()
@@ -821,7 +870,8 @@ export class CloudNodeProjectSession {
         // 这一轮开始后又有改动（例如刚加了新图）：不能就此停下，否则要等到下一次编辑才会再传。
         // 只按文档版本判断：这一轮开始前写的上传声明不算，持续失败不会自己循环重试。
         this.uploadAgain = false
-        if (this.editVersion !== roundVersion) {
+        // 续期声明不算新改动，否则一直失败又传得久的批次会自己循环重试。
+        if (this.editVersion - this.claimRenewals !== roundVersion) {
           this.requestSync()
           return
         }
