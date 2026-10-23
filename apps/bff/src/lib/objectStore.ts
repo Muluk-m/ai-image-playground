@@ -161,6 +161,29 @@ export class S3ObjectStore implements ObjectStore {
     }
   }
 
+  /**
+   * 一次 Range GET 读回对象开头至多 maxBytes 字节，不先发 HEAD 查大小。读多读少由调用方按返回长度判断：
+   * 想核对「恰好 n 字节」就传 n + 1，内存上界仍是 n + 1。
+   */
+  async readUpTo(key: string, maxBytes: number): Promise<Uint8Array<ArrayBuffer>> {
+    const file = this.client.file(this.keyPrefix + key)
+    try {
+      // S3File.slice 的 end 是开区间，.stream() 翻译成上游的 Range 请求。
+      return await collectUpTo(file.slice(0, maxBytes).stream(), maxBytes)
+    } catch (error) {
+      // 零字节对象上的 bytes=0-n 是不可满足的范围（416，Bun 抛 code 为 InvalidRange 的 S3Error），
+      // 不是存储故障：查一次大小，确认为空就按读到 0 字节返回，让调用方判成大小不符。
+      // 其他错误（网络、权限、上游 5xx）一律原样抛出，不能被当成空对象吞掉。
+      if ((error as { code?: unknown } | null)?.code !== 'InvalidRange') throw error
+      const size = await file.stat().then(
+        (stat) => stat.size,
+        () => undefined,
+      )
+      if (size === 0) return new Uint8Array(0)
+      throw error
+    }
+  }
+
   async open(key: string, signal?: AbortSignal): Promise<ObjectRangeReader> {
     const file = this.client.file(this.keyPrefix + key)
     if (!signal) {
@@ -219,6 +242,29 @@ export class S3ObjectStore implements ObjectStore {
     } while (continuationToken)
     return entries
   }
+}
+
+/** 把流收进至多 maxBytes 的缓冲；上游多给也只留前 maxBytes 字节并停止读取。 */
+export async function collectUpTo(
+  stream: ReadableStream<Uint8Array>,
+  maxBytes: number,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const buffer = new Uint8Array(maxBytes)
+  let offset = 0
+  const reader = stream.getReader()
+  try {
+    while (offset < maxBytes) {
+      const part = await reader.read()
+      if (part.done) break
+      const take = Math.min(part.value.length, maxBytes - offset)
+      buffer.set(part.value.subarray(0, take), offset)
+      offset += take
+    }
+  } finally {
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
+  return buffer.subarray(0, offset)
 }
 
 function signedRange(

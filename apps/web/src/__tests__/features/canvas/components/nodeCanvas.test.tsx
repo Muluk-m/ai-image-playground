@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  CANVAS_UPLOAD_STALE_MS,
   canvasOrigin,
   connectCanvasNodes,
   createCanvasUndoManager,
@@ -22,7 +23,9 @@ import {
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
-import NodeCanvas from '../../../../features/canvas/components/NodeCanvas'
+import NodeCanvas, {
+  useUploadingElsewhere,
+} from '../../../../features/canvas/components/NodeCanvas'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
 import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCanvasDocument'
 import type { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
@@ -1135,5 +1138,35 @@ it('sends a preset template through the selected image node', async () => {
     useLibraryStore.setState({ looks: [], assets: [], noteLookUsed })
     useStore.setState({ params, settings })
     resetChannelCatalog()
+  }
+})
+
+it('别的设备的上传声明到点过期后，不等别的改动也会从「上传中」换成缺图', () => {
+  vi.useFakeTimers()
+  try {
+    const start = 1_800_000_000_000
+    vi.setSystemTime(start)
+    const data = {
+      fileId: 'local-upload',
+      meta: { uploadDevice: 'another-device', uploadStartedAt: String(start - 1000) },
+    }
+    function Probe() {
+      return createElement('span', null, String(useUploadingElsewhere(data)))
+    }
+    const host = document.createElement('div')
+    const probeRoot = createRoot(host)
+    act(() => probeRoot.render(createElement(Probe)))
+    expect(host.textContent).toBe('true')
+    act(() => {
+      vi.advanceTimersByTime(CANVAS_UPLOAD_STALE_MS - 2000)
+    })
+    expect(host.textContent).toBe('true')
+    act(() => {
+      vi.advanceTimersByTime(2000)
+    })
+    expect(host.textContent).toBe('false')
+    act(() => probeRoot.unmount())
+  } finally {
+    vi.useRealTimers()
   }
 })
