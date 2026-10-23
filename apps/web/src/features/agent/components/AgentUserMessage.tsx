@@ -8,6 +8,7 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
+import { visibleBidiControls } from '../../../lib/bidiControls'
 import { createMaskPreviewDataUrl } from '../../../lib/canvasImage'
 import { mediaIdentity } from '../../../lib/cloudMedia'
 import {
@@ -415,7 +416,7 @@ export default memo(function AgentUserMessage({
     const reference = references[span.index]
     if (!reference) continue
     inlined.add(span.index)
-    content.push(text.slice(from, span.start))
+    content.push(...visibleBidiControls(text.slice(from, span.start), `text-${from}`))
     content.push(
       <ReferenceThumbnail
         key={span.start}
@@ -427,7 +428,7 @@ export default memo(function AgentUserMessage({
     )
     from = span.end
   }
-  content.push(text.slice(from))
+  content.push(...visibleBidiControls(text.slice(from), `text-${from}`))
   // 画布选区自动带上的参考图在提示词里没有胶囊，正文因此没有 `[image N]` 可挂。它们照样是
   // 这条消息发出去的东西：排在气泡上方，发出的那一刻、换成服务端 id 之后、以及重新读回
   // 历史时都是同一份列表，看到的就一样。
@@ -443,7 +444,8 @@ export default memo(function AgentUserMessage({
           attached={attached}
         />
       )}
-      <p className={`${USER_BUBBLE} studio-agent-user-message`}>
+      {/* dir=auto 让气泡自成一个隔离的方向上下文：内容里的方向字符不会影响外面的版式。 */}
+      <p dir="auto" className={`${USER_BUBBLE} studio-agent-user-message [unicode-bidi:isolate]`}>
         {invocation && <AgentSkillBadge skill={invocation.skill} />}
         {content}
       </p>

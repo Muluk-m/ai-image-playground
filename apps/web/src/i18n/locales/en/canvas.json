@@ -156,6 +156,8 @@
   "import": {
     "inputAria": "Import canvas images",
     "noneImported": "No images imported. Choose a valid image file.",
+    "invalidFiles_one": "{{count}} file is not a valid image (empty or corrupted) and was not imported: {{names}}",
+    "invalidFiles_other": "{{count}} files are not valid images (empty or corrupted) and were not imported: {{names}}",
     "failed": "Image import failed, please retry",
     "openMenu": "Import to canvas",
     "images": "Import images",
@@ -491,6 +493,8 @@
     "uploadRejectedUnnamed": "An image was not valid (empty or corrupted). It was removed from its node; the rest of the canvas saves normally.",
     "uploadTooLarge": "{{names}} is too large (over the upload size or pixel limit). It was removed from its node; the rest of the canvas saves normally. Shrink or compress it and upload again.",
     "uploadTooLargeUnnamed": "An image was too large (over the upload size or pixel limit). It was removed from its node; the rest of the canvas saves normally.",
+    "uploadMissing": "The original of {{names}} is no longer on this device and was never uploaded. It was removed from its node; the rest of the canvas saves normally. You can upload it again.",
+    "uploadMissingUnnamed": "The original of an image is no longer on this device and was never uploaded. It was removed from its node; the rest of the canvas saves normally.",
     "historyFull": "Canvas undo history is full. This action was not applied; your content is preserved.",
     "undo": "Undo",
     "redo": "Redo",
