@@ -56,6 +56,13 @@ export type ProjectSyncStatus =
   | 'quota-error'
   | 'format-error'
 
+/** 画布同步状态。`upload` 只有节点画布在把本机图片收成云媒体时才带：这一批已传完几张、共几张。 */
+export interface ProjectSyncSnapshot {
+  status: ProjectSyncStatus
+  message: SyncMessage | null
+  upload?: { done: number; total: number }
+}
+
 type SyncMessage =
   | 'errors:projectSync.project_deleted'
   | 'errors:projectSync.recovery_changed'
@@ -141,7 +148,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
   private queue: Promise<unknown> = Promise.resolve()
   private readonly sameAccount = accountScope()
   private readonly controller = new AbortController()
-  private state: { status: ProjectSyncStatus; message: SyncMessage | null } = {
+  private state: ProjectSyncSnapshot = {
     status: 'loading',
     message: null,
   }

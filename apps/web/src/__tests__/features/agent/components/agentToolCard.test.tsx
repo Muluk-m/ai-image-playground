@@ -1187,7 +1187,7 @@ it('shows the fetched image and a link back to where it came from', async () => 
   }
 })
 
-it('shows which canvas nodes a read used without replaying their full document', () => {
+it('shows canvas node names without exposing internal IDs, including legacy unnamed nodes', () => {
   const host = document.createElement('div')
   const root = createRoot(host)
   try {
@@ -1205,13 +1205,16 @@ it('shows which canvas nodes a read used without replaying their full document',
             canvasRead: [
               { id: 'script-1', name: '第一幕' },
               { id: 'image-2', name: '角色' },
+              { id: 'ep1_frame_a_20261019', name: 'ep1_frame_a_20261019' },
+              { id: 'ep1_video_a_20261019', name: '' },
             ],
           }}
         />,
       ),
     )
-    expect(host.textContent).toContain('第一幕 (script-1)')
-    expect(host.textContent).toContain('角色 (image-2)')
+    expect(host.textContent).toContain('已读取节点：第一幕、角色、未命名节点、未命名节点')
+    for (const id of ['script-1', 'image-2', 'ep1_frame_a_20261019', 'ep1_video_a_20261019'])
+      expect(host.innerHTML).not.toContain(id)
   } finally {
     act(() => root.unmount())
   }
