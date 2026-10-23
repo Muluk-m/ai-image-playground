@@ -390,6 +390,29 @@ it('releases a collapsed-panel run even when the account switched mid-run', asyn
   }
 })
 
+it('releases a collapsed-panel run when the account switches while confirming', async () => {
+  const served = fetch
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await served(input, init)
+      if (String(input).endsWith('/confirm')) setClientStorageScope('someone-else')
+      return response
+    }),
+  )
+  try {
+    await mount('direct-switched-confirm', true, { ...proposal, direct: true }, undefined, false)
+    await act(async () => {})
+    expect(confirms).toBe(1)
+    expect(mocks.run).not.toHaveBeenCalled()
+    // 停在「确认中」退出的运行不是终局，也得收走，不在标签页里一直留着。
+    expect(agentNodeRun('direct-switched-confirm')).toBeUndefined()
+    expect(isAgentNodeRunOrigin('direct-switched-confirm')).toBe(false)
+  } finally {
+    setClientStorageScope(null)
+  }
+})
+
 it('waits for the canvas of the proposal before starting a direct run', async () => {
   await mount('direct-other-project', true, {
     ...proposal,
