@@ -552,20 +552,29 @@ export async function refineEditRegion(input: {
   readonly userId: string
   readonly proposalId: string
   readonly region?: number
+  /**
+   * `added`：用户在所有区域之外点了包含点，要另加一块。只按用户自己的点分割点到的对象，
+   * 不带提议的种子点、也不借区域的框——原来的区域由卡片原样保留，新块并进去。
+   */
+  readonly area?: 'added'
   readonly points: readonly AgentMaskPromptPoint[]
   readonly signal?: AbortSignal
 }): Promise<RefineEditRegionResult> {
   const proposal = await findMaskProposal(input.conversationId, input.proposalId)
   if (!proposal) return { kind: 'not_found' }
+  const added = input.area === 'added'
   const region =
-    input.region === undefined
+    input.region === undefined || added
       ? undefined
       : proposal.regions?.find((one) => one.number === input.region)
-  if (input.region !== undefined && !region) return { kind: 'not_found' }
+  if (input.region !== undefined && !added && !region) return { kind: 'not_found' }
   const provider = segmentationProvider()
   if (!provider) return { kind: 'unavailable' }
   const user = cleanPoints(input.points) ?? []
-  const points = seedPoints((region ?? proposal).points, user).slice(-MASK_PROMPT_POINTS_MAX)
+  if (added && !user.some((point) => point.include)) return { kind: 'failed' }
+  const points = (added ? user : seedPoints((region ?? proposal).points, user)).slice(
+    -MASK_PROMPT_POINTS_MAX,
+  )
   const startedAt = Date.now()
   const segmented = await segmentProposal({
     key: segmenterKey(proposal.mediaId),
@@ -581,7 +590,7 @@ export async function refineEditRegion(input: {
     },
     width: proposal.width,
     height: proposal.height,
-    box: promptBox((region ?? proposal).box, user),
+    ...(added ? {} : { box: promptBox((region ?? proposal).box, user) }),
     ...(points.length ? { points } : {}),
     ...(input.signal ? { signal: input.signal } : {}),
   })
