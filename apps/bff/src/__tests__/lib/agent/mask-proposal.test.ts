@@ -38,6 +38,7 @@ const {
   dilationRadius,
   dropStrayFragments,
   pickMask,
+  pointShapeFactor,
   promptBox,
   segmentationProvider,
   resetSegmenterProbeForTesting,
@@ -464,6 +465,22 @@ describe('server segmentation', () => {
     expect(picked?.score).toBe(0.6)
     expect(count(picked!)).toBe(20 * 20)
     expect(pickMask([elsewhere], undefined, [clicked])).toBeNull()
+  })
+
+  it('prefers the whole clicked object over a confident thin edge of it for a point-only click', () => {
+    // 测试环境 4K 扶手椅：用户点在挂画左侧的黑色细边框上，置信度最高的候选只是那一条边框。
+    const clicked = { x: 0.15, y: 0.45, include: true }
+    const edge = mask(200, 100, [29, 0, 32, 50], 0.95)
+    const painting = mask(200, 100, [29, 0, 86, 50], 0.82)
+    const wall = mask(200, 100, [0, 0, 200, 80], 0.9)
+    expect(pointShapeFactor(edge)).toBeLessThan(1)
+    expect(pointShapeFactor(painting)).toBe(1)
+    expect(pointShapeFactor(wall)).toBeLessThan(1)
+    expect(pickMask([edge, painting, wall], undefined, [clicked])?.score).toBe(0.82)
+    // 只有细条可选时仍交回它（用户真点了一根杆子），不当失败。
+    expect(pickMask([edge], undefined, [clicked])?.score).toBe(0.95)
+    // 小而紧凑的东西不算细条。
+    expect(pointShapeFactor(mask(200, 100, [10, 10, 14, 14], 0.9))).toBe(1)
   })
 
   it('leaves a single-piece mask untouched', () => {
