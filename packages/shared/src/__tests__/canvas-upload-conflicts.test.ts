@@ -307,6 +307,20 @@ describe('上传簿记与并发编辑', () => {
     expect(mergeCanvasUploadConflict(reclaimed, released)).toEqual(reclaimed)
   })
 
+  it('本机时钟落后时，接管后撤销仍排在别的设备的旧声明之后', () => {
+    // 设备 B 的时钟快，旧声明记在 5000；设备 A（时钟 1000）接管后失败撤销。
+    const base = {
+      fileId: 'local-file',
+      name: 'photo',
+      meta: { ...claim, uploadStartedAt: '5000' },
+    }
+    const released = { ...base, meta: releaseCanvasUploadClaim(base.meta, 1000) }
+    const edited = { ...base, name: 'x' }
+    const merged = { ...edited, meta: released.meta }
+    expect(mergeCanvasUploadConflict(edited, released)).toEqual(merged)
+    expect(mergeCanvasUploadConflict(released, edited)).toEqual(merged)
+  })
+
   it('本机这一版经远端多个中间版本后才被覆盖时，是先后改，不补写', async () => {
     const { editor, uploader } = pair(1, 2)
     promoteCanvasResultMedia(editor.doc, 'image', 'local-file', media, local)

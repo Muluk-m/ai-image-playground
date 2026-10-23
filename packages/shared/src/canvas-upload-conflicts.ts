@@ -3,6 +3,7 @@ import {
   CANVAS_UPLOAD_DEVICE_META,
   CANVAS_UPLOAD_RELEASED_META,
   CANVAS_UPLOAD_STARTED_META,
+  canvasUploadBookkeepingTime,
   isLocalCanvasFileId,
   withoutCanvasUploadClaim,
 } from './canvas-cloud'
@@ -34,16 +35,11 @@ const time = (value: string | undefined) => {
   return value !== undefined && Number.isFinite(at) ? at : Number.NEGATIVE_INFINITY
 }
 /** data 上最近一次上传簿记（写声明或撤销声明）的时间；都没有时为负无穷。 */
-function bookkeepingTime(data: UploadData): number {
-  const claimed = data.meta?.[CANVAS_UPLOAD_DEVICE_META]
-    ? time(data.meta?.[CANVAS_UPLOAD_STARTED_META])
-    : Number.NEGATIVE_INFINITY
-  return Math.max(claimed, time(data.meta?.[CANVAS_UPLOAD_RELEASED_META]))
-}
+const bookkeepingTime = (data: UploadData) => canvasUploadBookkeepingTime(data.meta)
 
 /**
- * claimed 是不是给 base 写上（或续上）上传声明的那一次写入。声明总是用写入时的时间，
- * 所以要比 base 上的簿记（声明或撤销）新；用户编辑只会照抄已有的（更旧的）声明，不会被当成簿记。
+ * claimed 是不是给 base 写上（或续上）上传声明的那一次写入。声明的时间由 nextCanvasUploadStamp 取，
+ * 总比 base 上的簿记（声明或撤销）新，设备间时钟有偏差也一样；用户编辑只会照抄已有的（更旧的）声明，不会被当成簿记。
  */
 function isClaimOf(claimed: UploadData, base: UploadData): boolean {
   const since = time(claimed.meta?.[CANVAS_UPLOAD_STARTED_META])
