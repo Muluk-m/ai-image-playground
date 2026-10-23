@@ -46,6 +46,7 @@ const proposal: AgentCanvasRunProposal = {
 let plan: NodeBatchPlan
 let authorization: StageAuthorization
 let rejectPreflight: boolean
+let preflightCode: string
 let loseReport: boolean
 let reportWake: 'queued' | 'duplicate'
 let ends: number
@@ -121,6 +122,7 @@ const button = (text: string) =>
 beforeEach(() => {
   vi.useFakeTimers()
   rejectPreflight = false
+  preflightCode = 'stage_authorization_budget'
   loseReport = false
   reportWake = 'queued'
   ends = 0
@@ -174,8 +176,7 @@ beforeEach(() => {
       }
       if (url.endsWith('/preflight')) {
         preflights += 1
-        if (rejectPreflight)
-          return Response.json({ error: 'stage_authorization_budget' }, { status: 409 })
+        if (rejectPreflight) return Response.json({ error: preflightCode }, { status: 409 })
       }
       if (url.endsWith('/end')) {
         ends += 1
@@ -274,6 +275,17 @@ it('stops retrying when the retry would exceed the budget', async () => {
   await act(async () => {})
   expect(preflights).toBe(2)
   expect(reports[0]?.nodes).toEqual([{ nodeId: 'a', outcome: 'failed', reason: 'budget_exceeded' }])
+})
+it('reports a retry preflight rejected as inactive with the authorization reason', async () => {
+  mocks.run.mockImplementation(async (...args: unknown[]) => {
+    rejectPreflight = true
+    preflightCode = 'stage_authorization_inactive'
+    const hooks = args[7] as NodeBatchHooks
+    expect(await hooks.recover?.(plan.jobs[0]!, new NodeBatchFailure('failed'))).toBe('skip')
+  })
+  await mount('retry-inactive', true, { ...proposal, direct: true })
+  await act(async () => {})
+  expect(reports[0]?.nodes).toEqual([{ nodeId: 'a', outcome: 'failed', reason: 'authorization' }])
 })
 it('reports a direct run blocked before start with the missing input', async () => {
   const job = fixturePlan('media').jobs[0]!

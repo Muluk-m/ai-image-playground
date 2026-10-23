@@ -16,7 +16,10 @@ import {
  */
 const requestUsers = new WeakMap<Request, string>()
 function rememberUser(request: Request, user: AuthUserView | null): AuthUserView | null {
+  // 同一个请求可能经过多次认证 derive，以最后一次结果为准：这次没解析出用户就清掉旧记录，
+  // 免得把未认证的拒绝记到别人头上。
   if (user) requestUsers.set(request, user.id)
+  else requestUsers.delete(request)
   return user
 }
 export function requestAuthUserId(request: Request): string | undefined {
