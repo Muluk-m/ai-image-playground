@@ -252,6 +252,18 @@ it('平台已完成时，本机残留的生成中卡不能盖住作品和终态'
   })
 })
 
+it('平台上被取消的记录投影成「已取消」，本机残留的失败卡也接过这个终态', async () => {
+  const cancelled = { ...summary, status: 'cancelled', cover: null } as const
+  expect(taskFromGeneration(cancelled)).toMatchObject({ status: 'error', cancelled: true })
+  expect(taskFromGeneration({ ...summary, status: 'failed' }).cancelled).toBeUndefined()
+  await receivePlatformPage([cancelled])
+  const [card] = mergeHistory(
+    [localTask({ bffRequestId: summary.id, status: 'running', finishedAt: null })],
+    useStore.getState().platformGenerations,
+  )
+  expect(card).toMatchObject({ id: 'local-1', status: 'error', cancelled: true })
+})
+
 it('本机完成卡缺图时，使用平台已经归档的封面', async () => {
   await receivePlatformPage([summary])
   const [card] = mergeHistory(
@@ -396,4 +408,14 @@ it('恢复已有本地任务时同步待核查阶段', async () => {
     useStore.getState().platformGenerations,
   )
   expect(task).toMatchObject({ status: 'running', queuePhase: 'reconciling' })
+})
+
+it('云端失败卡保留错误分类，内容审核展示与复制均可识别原因', () => {
+  expect(
+    taskFromGeneration({ ...summary, status: 'failed', errorType: 'content_policy', cover: null }),
+  ).toMatchObject({
+    status: 'error',
+    errorCode: 'content_policy',
+    error: i18next.t('agentTool.content_policy', { ns: 'errors' }),
+  })
 })
