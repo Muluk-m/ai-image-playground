@@ -2,11 +2,15 @@ import { afterAll, beforeAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
+  CANVAS_UPLOAD_DEVICE_META,
+  CANVAS_UPLOAD_STALE_MS,
+  CANVAS_UPLOAD_STARTED_META,
   canvasOrigin,
   canvasResults,
   canvasSyncStep1,
   canvasSyncStep2,
   canvasSyncUpdate,
+  insertCanvasNode,
   moveCanvasNodes,
   readCanvasDocument,
   readCanvasSyncMessage,
@@ -402,4 +406,65 @@ it('uses a caller suffix and drops one that is not a short label', async () => {
   })
   expect(rejected.status).toBe(200)
   expect(((await rejected.json()) as { name: string }).name).toBe('窗台 副本')
+})
+
+it('还有设备在传的图片时拒绝复制，声明过期后照常复制', async () => {
+  const { accessCanvasDocument } = await import('../../lib/canvasSyncStore')
+  const sourceId = crypto.randomUUID()
+  const created = await fetch(`${base}/api/projects/${sourceId}`, {
+    method: 'PUT',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      requestId: crypto.randomUUID(),
+      baseRevision: 0,
+      name: '上传中',
+      document: { version: 1, experience: 'canvas', elements: [] },
+    }),
+  })
+  expect(created.status).toBe(200)
+  const write = async (startedAt: number) => {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, await accessCanvasDocument('owner', sourceId))
+    const vector = Y.encodeStateVector(doc)
+    insertCanvasNode(
+      doc,
+      {
+        id: `pending-${startedAt}`,
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        data: {
+          fileId: `local-${startedAt}`,
+          meta: {
+            [CANVAS_UPLOAD_DEVICE_META]: 'device-a',
+            [CANVAS_UPLOAD_STARTED_META]: String(startedAt),
+          },
+        },
+      },
+      origin,
+    )
+    await accessCanvasDocument('owner', sourceId, Y.encodeStateAsUpdate(doc, vector))
+  }
+  const copy = () =>
+    fetch(`${base}/api/projects/${sourceId}/copy`, { method: 'POST', headers: { cookie } })
+
+  // 过期的声明（上传方早已离线）不挡复制：副本里那张和原件一样按缺图处理。
+  await write(Date.now() - CANVAS_UPLOAD_STALE_MS - 1000)
+  expect((await copy()).status).toBe(200)
+
+  await write(Date.now())
+  const before = await db
+    .select({ value: count() })
+    .from(schema.canvas_projects)
+    .where(eq(schema.canvas_projects.user_id, 'owner'))
+  const pending = await copy()
+  expect(pending.status).toBe(409)
+  expect(await pending.json()).toEqual({ error: 'canvas_media_pending' })
+  const after = await db
+    .select({ value: count() })
+    .from(schema.canvas_projects)
+    .where(eq(schema.canvas_projects.user_id, 'owner'))
+  expect(after[0]?.value).toBe(before[0]?.value)
 })
