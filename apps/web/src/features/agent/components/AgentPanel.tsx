@@ -650,6 +650,7 @@ export default function AgentPanel({
                           <div
                             key={`${planKeys.get(index)}:${historyCached}`}
                             data-agent-message-id={message.id}
+                            data-agent-run-ids={planRun.map((one) => one.id).join(' ')}
                             className="studio-agent-message-block"
                           >
                             <fieldset disabled={historyCached} className="contents">
@@ -676,6 +677,7 @@ export default function AgentPanel({
                           <div
                             key={`${message.id}:${historyCached}`}
                             data-agent-message-id={message.id}
+                            data-agent-run-ids={imageRun.map((one) => one.id).join(' ')}
                             className="studio-agent-message-block"
                           >
                             <fieldset disabled={historyCached} className="contents">
