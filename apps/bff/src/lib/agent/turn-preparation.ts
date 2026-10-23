@@ -53,6 +53,7 @@ import {
   type QueuedWake,
 } from './inbox'
 import { interruptedSubmissions, resumeTurnPrompt } from './interrupted'
+import { confirmedMaskProposalParams } from './mask-proposal'
 import {
   canRetainModelHistory,
   modelHistorySignature,
@@ -686,6 +687,10 @@ async function resumeContent(
   }
 }
 
+function withParams(params: AgentTurnParams | undefined): { params?: AgentTurnParams } {
+  return params ? { params } : {}
+}
+
 /**
  * 确认门续跑：用户把被拦下那一轮的卡都确认了，这一轮接着那几次调用往下走。没有用户消息，也不给
  * 模型任何说明——历史末尾接上那几次调用与回执，`startAgentTurn` 用 `Agent.continue()` 起跑。
@@ -805,7 +810,7 @@ async function messageContent(
         }
       : {}),
     mode,
-    ...(message.params ? { params: message.params } : {}),
+    ...withParams(confirmedMaskProposalParams(window.messages, message.references, message.params)),
     ...(message.canvas ? { canvas: message.canvas } : {}),
     selectionHistoryStart: clarificationChainStart(window.messages),
     deviceId: message.deviceId,

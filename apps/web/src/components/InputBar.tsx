@@ -6,6 +6,11 @@ import AgentParamsChip, {
 import AgentSkillBadge from '../features/agent/components/AgentSkillBadge'
 import { useAssetSlots } from '../features/agent/components/useAssetSlots'
 import { getLeadingAgentSkill } from '../features/agent/lib/agentSkillMentions'
+import { formatImageLimit } from '../features/agent/lib/attachmentUploadErrors'
+import {
+  referenceImageLimit,
+  referenceSourceTooLarge,
+} from '../features/agent/lib/attachmentUploads'
 import { agentComposerFillPrompt, useComposerFillTarget } from '../features/agent/lib/composerFill'
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
 import { useAgentSkills } from '../features/agent/lib/useAgentSkills'
@@ -237,14 +242,25 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const batchTotalCredits = batchActive
     ? batchCredits(batchImageCount, perImageGuard.estimatedCredits)
     : undefined
-  // 参考图随请求一起发，单张超限会在发出后失败：选图时就标出来、拦住发送。
+  // 参考图随请求一起发，单张超限会在发出后失败：选图时就标出来、拦住发送。快速生成按归档上限；
+  // 交给智能体的按这一档部署下发的单张上限（服务端配置），不让超限的图发出去再失败。
   const oversizedIndexes = useMemo(
-    () => (toCanvas ? [] : oversizedReferenceIndexes(inputImages)),
+    () =>
+      toCanvas
+        ? inputImages.flatMap((image, index) =>
+            referenceSourceTooLarge(image.dataUrl) ? [index] : [],
+          )
+        : oversizedReferenceIndexes(inputImages),
     [toCanvas, inputImages],
   )
-  const oversizedNotice = oversizedIndexes.length
-    ? oversizedReferenceMessage(oversizedIndexes)
-    : null
+  const oversizedNotice = !oversizedIndexes.length
+    ? null
+    : toCanvas
+      ? t('image.referenceTooLarge', {
+          index: oversizedIndexes.map((index) => index + 1).join('、'),
+          maxSize: formatImageLimit(referenceImageLimit().imageBytes),
+        })
+      : oversizedReferenceMessage(oversizedIndexes)
   // 生成模式挂着模板胶囊时：素材条数要与素材位对上。画布档不管它（那是智能体的事）。
   const lookSubmitting = useLookSubmission((s) => s.submitting)
   const libraryAssets = useLibraryStore((s) => s.assets)
@@ -268,7 +284,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const skillNeedsCanvas = Boolean(leadingSkill) && !toCanvas
   // 模板准备中按钮变成停止：只有点按钮才取消，回车不取消、也不发新的一条。
   const submitReady =
-    !lookSubmitting && (toCanvas ? Boolean(prompt.trim()) : canSubmit && !skillNeedsCanvas)
+    !lookSubmitting &&
+    (toCanvas
+      ? Boolean(prompt.trim()) && oversizedIndexes.length === 0
+      : canSubmit && !skillNeedsCanvas)
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
   const promptMissing = !prompt.trim() && (toCanvas || !activeLook)
   const submitBlockedTip = oversizedNotice

@@ -20,12 +20,14 @@ import { createAutoSubmitBudget } from './auto-submit'
 import { AGENT_CLARIFICATION_TOOL, clarificationFromResult } from './clarification'
 import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
+import { CONFIRMED_EDIT_CALL_PREFIX, confirmedMaskEditCall, toolCallStream } from './confirmed-edit'
 import {
   type AgentOwner,
   appendAgentMessage,
   recordAgentToolCall,
   touchAgentConversation,
 } from './conversations'
+import { singleObjectEditIntent, wholeImageEditIntent } from './edit-intent'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost, type TurnExecution } from './execution'
 import { scheduleAgentFollowUps } from './follow-ups'
@@ -42,6 +44,12 @@ import {
   shownImageRequests,
 } from './images'
 import { AGENT_LENGTH_CONTINUE_NOTE, agentLengthFailureText } from './length-continuation'
+import {
+  AGENT_MASK_PROPOSAL_TOOL,
+  maskProposalFailedText,
+  maskProposalFromResult,
+  maskProposalGuidance,
+} from './mask-proposal'
 import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
 import { modelHistoryTransform, saveModelHistoryAfterTurn } from './model-history'
@@ -67,11 +75,13 @@ import {
   createToolFailureLog,
   isAgentToolName,
 } from './tools'
+import { toolErrorText } from './tools/adapter'
 import { AgentToolError } from './tools/errors'
 import { createTurnAuthorization } from './turn-authorization'
 import { agentTurnFailure } from './turn-failure'
 import {
   type AgentTurnInput,
+  clarificationChainStart,
   expandSkillInvocation,
   requestAgentReferences,
   turnInitialStateOf,
@@ -198,6 +208,9 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     ...(prepared.wake?.plan ? { carried: prepared.wake.plan.authorization } : {}),
   })
   let clarified = false
+  /** 确认范围后按提议直接提交的那一次调用试过没有；提交成功本轮就到此为止。 */
+  let directEditTried = false
+  let directEditSubmitted = false
   let combinationClarified = false
   /** 这一轮已经拟出待确认的稿：接下来该说话的是用户，再问一次模型只是白花钱。 */
   let drafted = false
@@ -217,6 +230,17 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     text: input.text,
     hasNewReferences: input.references.length > 0,
   })
+  // 唤醒轮的 text 是系统说明，不是用户的话；澄清作答连同它答的那句原话一起看。
+  const userAsk = [
+    ...history.messages
+      .slice(clarificationChainStart(history.messages))
+      .flatMap((message) =>
+        message.role === 'user'
+          ? message.content.flatMap((block) => (block.type === 'text' ? [block.text] : []))
+          : [],
+      ),
+    input.text,
+  ].join('\n')
   // 智能体模式关掉了直接出图：生成调用由确认门拦下，智能体不知道（见 `tool-gate.ts`）。
   const gate = createAgentToolGate(input.toolGate === true)
   const turnTools = agentTurnTools(
@@ -230,6 +254,13 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       images,
       visualWorkset,
       imageCombinations,
+      maskProposals: new Set<string>(),
+      ...(!prepared.wake && singleObjectEditIntent(userAsk)
+        ? { singleObjectEdit: { nudged: false } }
+        : {}),
+      ...(!prepared.wake && wholeImageEditIntent(userAsk)
+        ? { wholeImageEdit: { nudged: false } }
+        : {}),
       authorization: () => authorization.current(),
       maskedEditPlan,
       assertExecution: execution.assert,
@@ -300,6 +331,21 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     },
     streamFn: async (model, context, options) => {
       await execution.assert()
+      // 确认范围后的那一轮：第一次调用按提议直接提交，不问模型（见 `confirmed-edit.ts`）。
+      // 工具失败时下一次调用照常交给模型，它看得到这次调用和失败原因。
+      if (!directEditTried) {
+        directEditTried = true
+        const args = prepared.wake
+          ? null
+          : await confirmedMaskEditCall(history.messages, input.references, images)
+        if (args) {
+          log.info(
+            { event: 'agent.confirmed_edit_direct', conversationId, turnId },
+            'submitting the confirmed mask edit without a model call',
+          )
+          return toolCallStream(model, 'editImage', args)
+        }
+      }
       // 最后一道闸：算出来就超限的请求不发。上游那边它是一个更贵、更慢、必然被拒的请求，
       // 而这一刻退回去发更完整的历史只会更超（见 `request-budget.ts`）。
       // pi 的契约是 streamFn 的失败要编进返回流里，所以它把这一抛翻成「上游出错」的终帧；
@@ -390,8 +436,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     toolExecution: 'sequential',
     // 确认门在这里认出要拦的生成调用；拦下的那次在花钱那一步停住，卡片停在待确认（`drafted`）。
     beforeToolCall: (context) => gate.beforeToolCall(context),
-    // 澄清、拟稿（包括确认门拦下）或用户中止后，不再回上游追加一次模型调用。
-    shouldStopAfterTurn: () => clarified || drafted || aborted || !!error,
+    // 澄清、拟稿（包括确认门拦下）、按确认范围直接提交或用户中止后，不再回上游追加一次模型调用。
+    shouldStopAfterTurn: () => clarified || drafted || directEditSubmitted || aborted || !!error,
     transformContext: (messages) =>
       visualWorkset.transform(messages, retained?.transform ?? compact),
   })
@@ -433,6 +479,27 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   const write = (append: (executor: typeof db | BffTransaction) => Promise<void>) => {
     writes = writes.then(() => execution.write(append))
     return writes
+  }
+
+  // 范围确认失败：记一条日志，给用户一句话并收尾。模型再试一次也只会拿到同样的失败，
+  // 或者改去整图编辑、叫用户手画，三种都不是用户要的。
+  const maskProposalFailed = async (reason: string) => {
+    log.warn(
+      {
+        event: 'agent.tool_failed',
+        conversationId,
+        turnId,
+        tool: AGENT_MASK_PROPOSAL_TOOL,
+        reason,
+      },
+      'mask proposal tool failed',
+    )
+    const messageId = crypto.randomUUID()
+    const text = maskProposalFailedText(reason)
+    events.emit({ type: 'assistantStart', messageId })
+    events.emit({ type: 'textDelta', messageId, delta: text })
+    await storeBlock({ type: 'text', text }, messageId)
+    clarified = true
   }
 
   const closeOpen = async () => {
@@ -639,9 +706,23 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       }
     }
     // 澄清不出工具卡，所以它不在工具注册表里，`openTools` 也没有它的登记。
-    if (event.type === 'tool_execution_end' && event.toolName === AGENT_CLARIFICATION_TOOL) {
-      const block = event.isError ? null : clarificationFromResult(event.result)
-      if (!block) return
+    if (
+      event.type === 'tool_execution_end' &&
+      (event.toolName === AGENT_CLARIFICATION_TOOL || event.toolName === AGENT_MASK_PROPOSAL_TOOL)
+    ) {
+      const block = event.isError
+        ? null
+        : event.toolName === AGENT_MASK_PROPOSAL_TOOL
+          ? maskProposalFromResult(event.result)
+          : clarificationFromResult(event.result)
+      if (!block) {
+        // 提醒类的退回（整图要求、已有选区）照常交回模型，让它改调 editImage；其余才收尾。
+        if (event.isError && event.toolName === AGENT_MASK_PROPOSAL_TOOL && !aborted) {
+          const reason = toolErrorText(event.result)
+          if (!maskProposalGuidance(reason)) await maskProposalFailed(reason)
+        }
+        return
+      }
       const messageId = crypto.randomUUID()
       events.emit({ ...block, messageId })
       await storeBlock(block, messageId)
@@ -662,6 +743,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       events.emit({ type: 'toolEnd', messageId: pending.messageId, ...fields })
       await storeBlock(block, pending.messageId)
       if (block.status === 'awaiting_confirmation') drafted = true
+      if (!event.isError && event.toolCallId.startsWith(CONFIRMED_EDIT_CALL_PREFIX))
+        directEditSubmitted = true
       const combinationQuestion = event.isError ? null : clarificationFromResult(event.result)
       if (combinationQuestion && !combinationClarified) {
         const messageId = crypto.randomUUID()

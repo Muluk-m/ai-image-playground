@@ -1649,3 +1649,59 @@ html[data-home='true'] .app-inset-panel { overflow: clip; }
   mask-image: linear-gradient(to bottom, transparent, hsl(var(--foreground)));
   -webkit-mask-image: linear-gradient(to bottom, transparent, hsl(var(--foreground)));
 }
+
+/* 范围确认卡：智能体提议的修改范围，用户确认或在卡内调整。 */
+.studio-mask-proposal { display: flex; width: min(440px, 100%); flex-direction: column; gap: 12px; padding: 16px; border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--card)); }
+.studio-mask-proposal[data-editing] { width: min(720px, 100%); }
+.studio-mask-proposal-title { display: flex; align-items: center; gap: 8px; font-size: theme('fontSize.title'); font-weight: 600; }
+.studio-mask-proposal-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px; border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--background)); }
+.studio-mask-proposal-toolbar button[aria-pressed="true"] { background: hsl(var(--primary) / .15); color: hsl(var(--primary)); }
+.studio-mask-proposal-brush { display: flex; align-items: center; gap: 8px; padding-inline: 8px; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.label-sm'); }
+.studio-mask-proposal-stage { position: relative; display: flex; justify-content: center; overflow: hidden; border-radius: 10px; background: hsl(var(--background)); }
+.studio-mask-proposal-image { position: relative; display: inline-block; max-width: 100%; }
+.studio-mask-proposal-image > img { display: block; max-width: 100%; max-height: 320px; object-fit: contain; user-select: none; }
+.studio-mask-proposal[data-editing] .studio-mask-proposal-image > img { max-height: 480px; }
+.studio-mask-proposal-image > canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.studio-mask-proposal-hit { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
+.studio-mask-proposal-hit[data-tool="text"] { cursor: text; }
+.studio-mask-proposal-placeholder { width: 100%; aspect-ratio: 4 / 3; }
+.studio-mask-proposal-badge { position: absolute; display: grid; width: 20px; height: 20px; place-items: center; border: 2px solid hsl(var(--on-media)); border-radius: 9999px; background: hsl(var(--canvas-annotation)); color: hsl(var(--on-media)); font-size: theme('fontSize.label-sm'); font-weight: 600; transform: translate(-50%, -50%); pointer-events: none; }
+.studio-mask-proposal-badge[data-static] { position: static; flex: 0 0 auto; transform: none; }
+.studio-mask-proposal-state { position: absolute; top: 8px; left: 8px; display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid hsl(var(--on-media) / .25); border-radius: 9999px; background: hsl(var(--scrim) / .6); color: hsl(var(--on-media)); font-size: theme('fontSize.label-sm'); font-weight: 500; backdrop-filter: blur(6px); }
+.studio-mask-proposal-state[data-look="suggested"] { border-style: dashed; border-color: hsl(var(--on-media) / .7); }
+.studio-mask-proposal-state[data-look="edited"] { border-color: hsl(var(--on-media) / .7); }
+.studio-mask-proposal-state[data-look="warning"] { border-color: transparent; background: hsl(var(--warning)); color: hsl(var(--warning-foreground)); }
+.studio-mask-proposal-state[data-look="confirmed"] { position: static; align-self: flex-start; border-color: hsl(var(--canvas-annotation)); background: hsl(var(--canvas-annotation) / .15); color: hsl(var(--canvas-annotation)); }
+.studio-mask-proposal-reading { display: grid; gap: 4px; font-size: theme('fontSize.body-sm'); }
+.studio-mask-proposal-reading > div { display: flex; gap: 8px; }
+.studio-mask-proposal-reading dt { flex: 0 0 auto; color: hsl(var(--muted-foreground)); }
+.studio-mask-proposal-muted { display: flex; align-items: center; gap: 6px; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.xs'); }
+.studio-mask-proposal-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.studio-mask-proposal-notes { display: flex; flex-direction: column; gap: 8px; }
+.studio-mask-proposal-notes ol { display: flex; flex-direction: column; gap: 8px; }
+.studio-mask-proposal-notes li { display: flex; align-items: center; gap: 8px; }
+/* 主工具点选：添加 / 排除两档，Alt 临时反转；没有 Alt 的触屏用这两档。 */
+.studio-mask-proposal-segment { display: inline-flex; align-items: center; gap: 4px; }
+.studio-mask-proposal-hit[data-tool="point"] { cursor: copy; }
+.studio-mask-proposal-hit[data-exclude] { cursor: not-allowed; }
+.studio-mask-proposal-point { position: absolute; display: grid; width: 16px; height: 16px; place-items: center; border: 1.5px solid hsl(var(--on-media)); border-radius: 9999px; background: hsl(var(--success)); color: hsl(var(--on-media)); transform: translate(-50%, -50%); pointer-events: none; box-shadow: 0 1px 3px hsl(var(--scrim) / .5); }
+.studio-mask-proposal-point[data-exclude] { background: hsl(var(--destructive)); }
+.studio-mask-proposal-point svg { width: 10px; height: 10px; }
+.studio-mask-proposal-hint { color: hsl(var(--muted-foreground)); font-size: theme('fontSize.xs'); text-align: center; }
+/* 相似对象的编号：方角，与圆形的标注编号区分开；选中的实底，没选中的虚线。 */
+.studio-mask-proposal-region { position: absolute; pointer-events: none; display: grid; min-width: 22px; height: 22px; place-items: center; padding: 0 6px; border: 1.5px dashed hsl(var(--on-media) / .85); border-radius: 6px; background: hsl(var(--scrim) / .55); color: hsl(var(--on-media)); font-size: theme('fontSize.label-sm'); font-weight: 600; transform: translate(-50%, -50%); }
+.studio-mask-proposal-region[data-selected] { border-style: solid; border-color: hsl(var(--on-media)); background: hsl(var(--canvas-annotation)); }
+.studio-mask-proposal-region[data-static] { position: static; transform: none; }
+.studio-mask-proposal-regions { display: flex; flex-direction: column; gap: 6px; }
+.studio-mask-proposal-regions > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.studio-mask-proposal-regions > div > button { padding-left: 4px; border-radius: 9999px; color: hsl(var(--muted-foreground)); }
+.studio-mask-proposal-regions > div > button[aria-pressed="true"] { border-color: hsl(var(--canvas-annotation) / .6); background: hsl(var(--canvas-annotation) / .1); color: hsl(var(--foreground)); }
+.studio-mask-proposal-regions .studio-mask-proposal-region { min-width: 18px; height: 18px; padding: 0 4px; border-width: 1px; }
+/* 已确认：缩略图主色实线描边，与建议时的白色虚线一眼区分。 */
+.studio-mask-proposal[data-look="confirmed"] { width: min(440px, 100%); padding: 12px; border-color: hsl(var(--canvas-annotation) / .45); }
+.studio-mask-proposal-confirmed { display: flex; align-items: center; gap: 12px; }
+.studio-mask-proposal-confirmed-text { display: flex; min-width: 0; flex-direction: column; gap: 6px; font-size: theme('fontSize.body-sm'); }
+.studio-mask-proposal-thumb { position: relative; flex: 0 0 auto; overflow: hidden; border-radius: 8px; background: hsl(var(--background)); }
+.studio-mask-proposal-thumb > img { display: block; max-width: 120px; max-height: 120px; object-fit: contain; }
+.studio-mask-proposal-thumb > canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.studio-mask-proposal-thumb:not([data-ready]) { width: 120px; height: 90px; }

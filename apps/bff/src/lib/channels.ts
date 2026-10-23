@@ -585,6 +585,32 @@ export function modelCapabilities(model: string): readonly ChannelCapability[] |
   return undefined
 }
 
+/** 严格局部编辑（圈外逐像素不变）只交给这一族：声明了 `mask` 且服务端合成认得它的尺寸规则。 */
+export const STRICT_MASK_MODEL = /^gpt-image-2\.5(?:[.-]|$)/
+
+/** 能按蒙版严格局部编辑的图片模型，按 channels 顺序。 */
+export function strictMaskModels(): { provider: QueueProvider; model: string; label: string }[] {
+  const found: { provider: QueueProvider; model: string; label: string }[] = []
+  for (const channel of loaded)
+    for (const model of channel.models)
+      if (
+        (model.media ?? 'image') === 'image' &&
+        model.capabilities.includes('mask') &&
+        STRICT_MASK_MODEL.test(model.id)
+      )
+        found.push({ provider: queueProviderOf(channel.kind), model: model.id, label: model.label })
+  return found
+}
+
+/** 渠道里登记的模型名；不认识的模型就用 id。 */
+export function modelLabel(model: string): string {
+  for (const channel of loaded) {
+    const declared = channel.models.find((m) => m.id === model)
+    if (declared) return declared.label
+  }
+  return model
+}
+
 /** 给了 id 就按 id 找，没给就取该介质的默认模型——channels 数组顺序是产品契约。 */
 export function resolveQueueModel(
   media: ChannelMedia,

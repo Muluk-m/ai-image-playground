@@ -565,11 +565,12 @@ describe('智能体改图工具', () => {
       const frames = await runTurn(conversationId, '[image 1] 设计新界面', {
         references: [{ imageId: 'canvas-original', dataUrl: PIXEL }],
       })
+      // 内联附图给模型看的是缩略图，不是原件那份字节。
       expect(calls[0]!.messages.at(-1)!.content).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             type: 'image_url',
-            image_url: expect.objectContaining({ url: PIXEL }),
+            image_url: expect.objectContaining({ url: expect.stringMatching(/^data:image\//) }),
           }),
         ]),
       )
@@ -629,9 +630,10 @@ describe('智能体改图工具', () => {
           image_url?: { url: string }
         }[]
         const image = content.find((block) => block.type === 'image_url')!.image_url!.url
-        expect(image).toStartWith('data:image/png;base64,')
+        // SVG 先栅格化，模型看的是它的缩略图（位图，尺寸不变）。
+        expect(image).toStartWith('data:image/webp;base64,')
         expect(await sharp(Buffer.from(image.split(',')[1]!, 'base64')).metadata()).toMatchObject({
-          format: 'png',
+          format: 'webp',
           width: 24,
           height: 16,
         })
