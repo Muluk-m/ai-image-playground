@@ -111,7 +111,13 @@ import {
   referenceFileIds,
 } from '../lib/nodeCanvasFlow'
 import { type NodeCanvasFocus, registerNodeCanvasFocus } from '../lib/nodeCanvasFocus'
-import { fillImageNode, resumeNodeGenerations, submitNodeImage } from '../lib/nodeCanvasGenerate'
+import {
+  fillImageNode,
+  InvalidImageFileError,
+  readImageFile,
+  resumeNodeGenerations,
+  submitNodeImage,
+} from '../lib/nodeCanvasGenerate'
 import {
   addCanvasReference,
   CanvasReferenceLimitError,
@@ -1385,14 +1391,32 @@ function Flow({
     const point = placeAt.current
     confirmImageBatch(images.length, () => {
       void (async () => {
+        const invalid: string[] = []
         for (const file of images) {
+          // 先确认解得开再建节点：空文件、伪装成 .png 的文本不该留下一个永远「上传中」的节点。
+          const image = await readImageFile(file).catch((error: unknown) => {
+            if (error instanceof InvalidImageFileError) return null
+            throw error
+          })
+          if (!image) {
+            invalid.push(file.name)
+            continue
+          }
           const id = createNode(canvas, 'image', point, textFill)
-          await fillImageNode(editor, canvas.doc, id, file)
+          await fillImageNode(editor, canvas.doc, id, image, file.name)
           selectNode(id)
         }
+        if (invalid.length) showInvalidImages(invalid)
       })().catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
     })
   }
+  const showInvalidImages = (names: readonly string[]) =>
+    useStore
+      .getState()
+      .showToast(
+        t('import.invalidFiles', { count: names.length, names: names.join('、') }),
+        'error',
+      )
   useEffect(() => {
     setNodes((current) => {
       const previous = new Map(current.map((one) => [one.id, one]))
@@ -1766,8 +1790,10 @@ function Flow({
     }
   }
   const uploadInto = (id: string, file: File) => {
-    void fillImageNode(editor, canvas.doc, id, file).catch(() =>
-      useStore.getState().showToast(t('import.failed'), 'error'),
+    void fillImageNode(editor, canvas.doc, id, file).catch((error: unknown) =>
+      error instanceof InvalidImageFileError
+        ? showInvalidImages([error.fileName])
+        : useStore.getState().showToast(t('import.failed'), 'error'),
     )
   }
   const spawnBeside = (nodeId: string, side: 'left' | 'right') => {

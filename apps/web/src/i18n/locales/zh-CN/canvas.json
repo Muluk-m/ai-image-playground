@@ -145,6 +145,7 @@
   "import": {
     "inputAria": "导入画布图片",
     "noneImported": "未能导入图片，请选择有效的图片文件",
+    "invalidFiles_other": "{{count}} 个文件不是有效图片（空文件或已损坏），未导入：{{names}}",
     "failed": "图片导入失败，请重试",
     "openMenu": "导入到画布",
     "images": "导入图片",
