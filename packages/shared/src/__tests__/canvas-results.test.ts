@@ -20,6 +20,7 @@ import {
   canvasResultIsStale,
   canvasResults,
   chooseCanvasResult,
+  dropCanvasResultFile,
   promoteCanvasResultMedia,
   promoteCanvasVideoMedia,
   recordCanvasResult,
@@ -27,6 +28,54 @@ import {
 } from '../canvas-results'
 
 const origin = canvasOrigin('user', 'results')
+it('drops references to a permanently rejected local file from candidate results', () => {
+  const doc = fixture()
+  try {
+    recordCanvasResult(
+      doc,
+      {
+        id: 'edit',
+        nodeId: 'image',
+        kind: 'image',
+        source: { type: 'file', fileId: 'bad' },
+        createdAt: 1,
+      },
+      origin,
+    )
+    doc.getMap<string>('mainResults').set('image', 'edit')
+    recordCanvasResult(
+      doc,
+      {
+        id: 'queued',
+        nodeId: 'image',
+        kind: 'image',
+        source: { type: 'queue', taskId: 'task', outputIndex: 0 },
+        createdAt: 2,
+        display: { fileId: 'bad', naturalWidth: 10, naturalHeight: 10 },
+      },
+      origin,
+    )
+    recordCanvasResult(
+      doc,
+      {
+        id: 'fine',
+        nodeId: 'image',
+        kind: 'image',
+        source: { type: 'file', fileId: 'ok' },
+        createdAt: 3,
+      },
+      origin,
+    )
+    dropCanvasResultFile(doc, 'bad', origin)
+    expect(canvasResults(doc).map((result) => result.id)).toEqual(['queued', 'fine'])
+    expect(doc.getMap('mainResults').has('image')).toBe(false)
+    expect(canvasResults(doc)[0]?.display).toEqual({ naturalWidth: 10, naturalHeight: 10 })
+    expect(canvasResults(doc)[0]?.source).toEqual({ type: 'queue', taskId: 'task', outputIndex: 0 })
+  } finally {
+    doc.destroy()
+  }
+})
+
 it('marks preset output stale when its preset or supplemental requirement changes', () => {
   const doc = fixture()
   try {

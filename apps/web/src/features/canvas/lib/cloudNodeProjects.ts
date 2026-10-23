@@ -9,6 +9,7 @@ import {
   canvasUploadingElsewhere,
   canvasUploadRejection,
   createCanvasUndoManager,
+  dropCanvasResultFile,
   type ImageNodeData,
   importLegacyElements,
   isLocalCanvasFileId,
@@ -639,11 +640,21 @@ export class CloudNodeProjectSession {
       if (source) sources.add(source)
       else if (!pendingAllowed || !node.elsewhere) failure ??= new Error('canvas_media_missing')
     }
-    for (const { fileId } of results) {
-      const source = this.record.editor.doc.files[fileId]
+    // 节点上已记下被拒的原图，候选结果里同一张也不再传：撤掉引用，不然每轮都是同样的 422。
+    const rejectedSources = new Map<string, string>()
+    for (const node of nodes) {
+      const source = this.record.editor.doc.files[node.fileId]
+      if (node.rejected && source) rejectedSources.set(source, node.rejected)
+    }
+    const known: { resultId: string; fileId: string }[] = []
+    for (const result of results) {
+      const source = this.record.editor.doc.files[result.fileId]
+      if (source && rejectedSources.has(source)) continue
+      known.push(result)
       if (source) sources.add(source)
       else failure ??= new Error('canvas_media_missing')
     }
+    if (known.length < results.length) this.dropRejectedResults(results, rejectedSources)
     const promote = (source: string, mediaId: string) => {
       for (const { nodeId, fileId } of nodes) {
         if (this.record.editor.doc.files[fileId] !== source) continue
@@ -696,7 +707,10 @@ export class CloudNodeProjectSession {
     } finally {
       if (total) this.progress(undefined)
     }
-    if (rejections.size) this.markRejected(nodes, rejections)
+    if (rejections.size) {
+      this.markRejected(nodes, rejections)
+      this.dropRejectedResults(results, rejections)
+    }
     if (failure !== undefined) throw failure
   }
   requestSync = () => {
@@ -757,7 +771,9 @@ export class CloudNodeProjectSession {
           !current ||
           (current.type !== 'image' && current.type !== 'video') ||
           current.data.fileId !== fileId ||
-          current.data.mediaId
+          current.data.mediaId ||
+          // 已经记过同一个错误码就不再写：每写一次都是一次文档改动，会再触发一轮同步。
+          canvasUploadRejection(current.data) === rejected
         )
           continue
         updateCanvasNode(
@@ -772,6 +788,24 @@ export class CloudNodeProjectSession {
           legacyOrigin,
         )
       }
+    }, legacyOrigin)
+  }
+  /** 候选结果里引用被拒原图的那几条撤掉引用（dropCanvasResultFile），文档才发得出去、也不再重传。 */
+  private dropRejectedResults(
+    results: readonly { resultId: string; fileId: string }[],
+    rejected: ReadonlyMap<string, string>,
+  ) {
+    if (!this.canvas) return
+    const doc = this.canvas.doc
+    const files = this.record.editor.doc.files
+    const gone = new Set<string>()
+    for (const { fileId } of results) {
+      const source = files[fileId]
+      if (source !== undefined && rejected.has(source)) gone.add(fileId)
+    }
+    if (!gone.size) return
+    doc.transact(() => {
+      for (const fileId of gone) dropCanvasResultFile(doc, fileId, legacyOrigin)
     }, legacyOrigin)
   }
   /**

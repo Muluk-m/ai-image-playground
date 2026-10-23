@@ -2107,3 +2107,78 @@ it('keeps blocking the save on a rejected image while pending media is off, with
   vi.mocked(uploadMediaSource).mockReset()
   record.dispose()
 })
+
+it('drops a rejected image from local candidate results instead of re-uploading it forever', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockRejectedValue(new MediaRequestError(422, 'media_invalid_image'))
+  record.editor.doc.files = {
+    broken: 'data:image/png;base64,YnJva2Vu',
+    split: 'data:image/png;base64,c3BsaXQ=',
+  }
+  const doc = session.canvas!.doc
+  // 图片编辑采用的结果：节点和它的 file 候选指向同一张坏图；另有一条只在候选里的坏图。
+  doc.transact(() => {
+    insertCanvasNode(
+      doc,
+      {
+        id: 'edited',
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 50,
+        height: 50,
+        data: { fileId: 'broken' },
+      },
+      session.canvas!.origin,
+    )
+    recordCanvasResult(
+      doc,
+      {
+        id: 'edit',
+        nodeId: 'edited',
+        kind: 'image',
+        source: { type: 'file', fileId: 'broken' },
+        createdAt: 1,
+        adopted: true,
+        display: { fileId: 'broken' },
+      },
+      session.canvas!.origin,
+    )
+    doc.getMap<string>('mainResults').set('edited', 'edit')
+    recordCanvasResult(
+      doc,
+      {
+        id: 'piece',
+        nodeId: 'edited',
+        kind: 'image',
+        source: { type: 'file', fileId: 'split' },
+        createdAt: 2,
+      },
+      session.canvas!.origin,
+    )
+  }, session.canvas!.origin)
+  await vi.waitFor(() => {
+    expect(serverNode(server, 'edited')?.data).toHaveProperty(
+      'meta.uploadRejected',
+      'media_invalid_image',
+    )
+    expect(session.getSnapshot().status).toBe('saved')
+  })
+  // 候选里的坏图引用撤掉，服务端从没收到本机 file 来源；节点仍挂着原图，显示上传失败。
+  expect(canvasResults(doc)).toEqual([])
+  expect(canvasResults(server)).toEqual([])
+  const calls = vi.mocked(uploadMediaSource).mock.calls.length
+  expect(calls).toBe(2)
+  moveCanvasNodes(doc, [{ id: 'text', x: 9, y: 9 }], session.canvas!.origin)
+  await session.sync()
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  expect(serverNode(server, 'text')).toMatchObject({ x: 9, y: 9 })
+  expect(vi.mocked(uploadMediaSource).mock.calls.length).toBe(calls)
+  vi.mocked(uploadMediaSource).mockReset()
+  record.dispose()
+})
