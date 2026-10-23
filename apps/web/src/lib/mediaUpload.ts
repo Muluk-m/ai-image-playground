@@ -1,5 +1,5 @@
 import { accountScope } from './authScope'
-import { imageDataUrlToPngBlob } from './canvasImage'
+import { imageToPngBlob, loadImage } from './canvasImage'
 import { getAttachmentLimits } from './clientCapabilities'
 import { MediaRequestError } from './cloudMedia'
 import { imageMimeFromBytes } from './imageBytes'
@@ -101,12 +101,14 @@ export async function uploadMediaSource(
         if (!contentType) {
           if (options.purpose === 'conversation-attachment')
             throw new MediaRequestError(422, 'media_unsupported_image')
-          let decoded: Blob
+          // 只有浏览器解不出这份字节才算坏图；解出来后转 PNG 失败（画布、内存）是本机问题，照常按可重试报。
+          let image: HTMLImageElement
           try {
-            decoded = await imageDataUrlToPngBlob(source)
+            image = await loadImage(source)
           } catch {
             throw new MediaRequestError(422, 'media_invalid_image')
           }
+          const decoded = await imageToPngBlob(image)
           body = await decoded.arrayBuffer()
           contentType = 'image/png'
           current()

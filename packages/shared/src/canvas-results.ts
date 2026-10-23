@@ -266,8 +266,8 @@ export function dropCanvasNodeFile(
 ): boolean {
   const node = doc.getMap<Y.Map<unknown>>('nodes').get(nodeId)
   if (!node) return false
-  const data = node.get('data') as ImageNodeData
-  if (data.fileId !== fileId || data.mediaId) return false
+  const data = node.get('data') as ImageNodeData | undefined
+  if (!data || typeof data !== 'object' || data.fileId !== fileId || data.mediaId) return false
   const { fileId: _file, naturalWidth: _width, naturalHeight: _height, meta, ...rest } = data
   // 内容身份跟着图走：留着它下游的输入指纹会以为原图还在，继续复用基于坏图的结果。
   // 上传声明也一并去掉：原图已摘掉，不再有人在传它。

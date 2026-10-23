@@ -52,7 +52,11 @@ export async function dataUrlToBlob(dataUrl: string, fallbackType = 'image/png')
 }
 
 export async function imageDataUrlToPngBlob(dataUrl: string): Promise<Blob> {
-  const image = await loadImage(dataUrl)
+  return imageToPngBlob(await loadImage(dataUrl))
+}
+
+/** 已解码的图片转成 PNG；失败（拿不到 2d 上下文、toBlob 出错）与字节本身无关。 */
+export async function imageToPngBlob(image: HTMLImageElement): Promise<Blob> {
   const canvas = document.createElement('canvas')
   canvas.width = image.naturalWidth
   canvas.height = image.naturalHeight
