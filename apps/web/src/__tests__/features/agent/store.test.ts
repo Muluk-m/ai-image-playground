@@ -702,16 +702,27 @@ describe('发送反馈', () => {
     await state().send('画一只橘猫')
     expect(unsentRetryAvailable(state().error)).toBe(true)
 
+    // 失败后用户改了思考深度：重试的仍是没发出去的那一条，参数不跟着变。
+    const before = state().thinkingDepth
+    useAgentStore.setState({ thinkingDepth: before === 'deep' ? 'fast' : 'deep' })
     turnResponse = () => turnStream(TURN_START, TURN_END)
     retryUnsent()
     const turnBodies = () =>
       fetchMock.mock.calls
         .filter(([url, init]) => /\/turns$/.test(String(url)) && init?.method === 'POST')
-        .map(([, init]) => JSON.parse(String(init?.body)) as { clientMessageId?: string })
+        .map(
+          ([, init]) =>
+            JSON.parse(String(init?.body)) as {
+              clientMessageId?: string
+              params?: { thinkingDepth?: string }
+            },
+        )
     await vi.waitFor(() => expect(turnBodies()).toHaveLength(2))
     const [first, second] = turnBodies()
     expect(first?.clientMessageId).toEqual(expect.any(String))
     expect(second?.clientMessageId).toBe(first?.clientMessageId)
+    expect(first?.params?.thinkingDepth).toBe(before)
+    expect(second?.params).toEqual(first?.params)
   })
 
   it('敲下回车消息立刻上屏，turnStart 到了换成服务端的 id', async () => {
