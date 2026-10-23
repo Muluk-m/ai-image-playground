@@ -871,6 +871,7 @@ it('asks to confirm only the images that will actually land on the canvas', asyn
     '../../../../features/canvas/lib/nodeCanvasGenerate'
   )
   mocks.importImages.mockClear()
+  mocks.readImage.mockClear()
   mocks.readImage.mockImplementation(async (file: File) => {
     if (file.name.startsWith('fake')) throw new InvalidImageFileError(file.name)
     return { dataUrl: 'data:image/png;base64,AA==', width: 1, height: 1 }
@@ -902,10 +903,13 @@ it('asks to confirm only the images that will actually land on the canvas', asyn
     expect(`${dialog.message} ${dialog.confirmText}`).toContain('4')
     expect(`${dialog.message} ${dialog.confirmText}`).not.toContain('6')
     expect(mocks.importImages).not.toHaveBeenCalled()
+    expect(mocks.readImage).toHaveBeenCalledTimes(6)
     await act(async () => {
       dialog.action()
     })
     await vi.waitFor(() => expect(mocks.importImages).toHaveBeenCalledTimes(4))
+    // 确认前只校验不攒解码结果：确认后四张有效的各重读一次再建节点。
+    expect(mocks.readImage).toHaveBeenCalledTimes(10)
   } finally {
     mocks.readImage.mockReset()
     mocks.readImage.mockImplementation(async () => ({
