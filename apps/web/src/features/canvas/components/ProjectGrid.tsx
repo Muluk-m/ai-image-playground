@@ -127,7 +127,11 @@ export default function ProjectGrid({
                 variant="outline"
                 size="sm"
                 disabled={cloudLoading}
-                onClick={() => void useCanvasProjectStore.getState().refreshCloud()}
+                onClick={() => {
+                  const store = useCanvasProjectStore.getState()
+                  store.retryProjectCovers()
+                  void store.refreshCloud()
+                }}
               >
                 <Icon name="refresh" className={cloudLoading ? 'animate-spin' : undefined} />
                 {cloudLoading

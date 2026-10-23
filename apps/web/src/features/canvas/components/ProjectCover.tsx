@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import MediaImage from '../../../components/MediaImage'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
+import { invalidateMediaPreview } from '../../../lib/cloudMedia'
 import { useCanvasProjectStore } from '../projectStore'
 
 /** 封面迟迟没出来就先收起转圈、换成图标；之后真加载到了照样换成图片。 */
@@ -52,30 +53,40 @@ export default function ProjectCover({
   const { t } = useTranslation('canvas')
   const retryRound = useCanvasProjectStore((state) => state.coverRetryRound)
   const [sentinel, near] = useNearViewport()
-  const [attempt, setAttempt] = useState({ source, round: retryRound, auto: 0 })
+  // 本次加载属于哪一轮「刷新项目」；只有没取到的封面才跟进新一轮，已显示的封面不重载。
+  // 换了封面就从当前轮次重新开始。
+  const [pinned, setPinned] = useState({ source, round: retryRound })
+  const round = pinned.source === source ? pinned.round : retryRound
+  const [autoRetry, setAutoRetry] = useState({ base: '', count: 0 })
   const [settled, setSettled] = useState<{ key: string; failed: boolean }>()
   const [timedOut, setTimedOut] = useState<string>()
-  // 换了封面或点了「刷新项目」：从头再取，自动重试次数清零。
-  if (attempt.source !== source || attempt.round !== retryRound)
-    setAttempt({ source, round: retryRound, auto: 0 })
-  const key = `${source ?? ''}#${attempt.round}#${attempt.auto}`
-  const fail = useCallback(() => setSettled({ key, failed: true }), [key])
+  const base = `${source ?? ''}#${round}`
+  const retries = autoRetry.base === base ? autoRetry.count : 0
+  const key = `${base}#${retries}`
+  const onResolveError = useCallback(() => setSettled({ key, failed: true }), [key])
+  const onImageError = useCallback(() => {
+    setSettled({ key, failed: true })
+    // 预览可能已坏在缓存里：丢掉它，重试时才会重新下载。
+    if (source) void invalidateMediaPreview(source).catch(() => {})
+  }, [key, source])
   const loaded = source !== undefined && settled?.key === key && !settled.failed
   const failed = source !== undefined && settled?.key === key && settled.failed
-  const loading = source ? !loaded && !failed && timedOut !== key : pending
+  const stalled = failed || (!loaded && timedOut === key)
+  const loading = source ? !loaded && !stalled : pending
+  useEffect(() => {
+    if (pinned.source !== source || (stalled && retryRound !== round))
+      setPinned({ source, round: pinned.source === source ? retryRound : round })
+  }, [pinned.source, source, stalled, retryRound, round])
   useEffect(() => {
     if (!source || !near) return
     const timer = setTimeout(() => setTimedOut(key), PROJECT_COVER_TIMEOUT_MS)
     return () => clearTimeout(timer)
   }, [source, near, key])
   useEffect(() => {
-    if (!failed || attempt.auto > 0) return
-    const timer = setTimeout(
-      () => setAttempt((one) => (one.auto > 0 ? one : { ...one, auto: one.auto + 1 })),
-      PROJECT_COVER_RETRY_MS,
-    )
+    if (!failed || retries > 0) return
+    const timer = setTimeout(() => setAutoRetry({ base, count: 1 }), PROJECT_COVER_RETRY_MS)
     return () => clearTimeout(timer)
-  }, [failed, attempt.auto])
+  }, [failed, retries, base])
   const showImage = Boolean(source) && near
   return (
     <>
@@ -99,8 +110,8 @@ export default function ProjectCover({
             loading="lazy"
             data-project-cover-state={loaded ? 'loaded' : failed ? 'failed' : 'loading'}
             onLoad={() => setSettled({ key, failed: false })}
-            onError={fail}
-            onResolveError={fail}
+            onError={onImageError}
+            onResolveError={onResolveError}
             className={`relative h-full w-full ${fit === 'cover' ? 'object-cover' : 'object-contain'} ${loaded ? '' : 'opacity-0'}`}
           />
         </>
