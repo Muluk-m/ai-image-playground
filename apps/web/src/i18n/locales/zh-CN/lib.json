@@ -55,7 +55,11 @@
     "bffVideoParamsRequired": "视频任务缺少视频参数",
     "bffInvalidVideoRequest": "视频参数不符合该模型的限制，请调整后重试",
     "bffInvalidVideoSource": "源视频不可用，请换一个来源",
-    "bffInvalidInputImage": "参考图无法使用，请换一张"
+    "bffInvalidInputImage": "参考图无法使用，请换一张",
+    "bffStageScope": "提交内容和授权时确认的节点不一致，请让智能体重新发起授权",
+    "bffStageBudget": "超出这次授权的预算上限",
+    "bffStageInactive": "这次授权已结束或过期，请让智能体重新发起授权",
+    "bffStageAttemptConflict": "这次提交和授权预检对不上（模型或张数变了），请重新运行"
   },
   "dispatch": {
     "channelNotFound": "找不到内置 channel：{{id}}",
