@@ -82,13 +82,13 @@ function armDirectAgentNodeRun(key: string, proposal: AgentCanvasRunProposal) {
     if (!origins.has(key) || runs.has(key)) return stop()
     if (agentNodeRunBridge()?.projectId !== proposal.projectId) return
     refreshing = true
-    void refreshChannels()
-      .catch(() => {})
-      .then(() => {
-        refreshing = false
-        if (stopped) return
-        if (startAgentNodeRun(key, proposal, 0) || runs.has(key) || !origins.has(key)) stop()
-      })
+    // refreshChannels 不会 reject：拉取失败时保留现有清单（与卡片报价同一降级策略），
+    // 已下线的模型提交时服务端会按 model_unavailable 拒掉。
+    void refreshChannels().then(() => {
+      refreshing = false
+      if (stopped) return
+      if (startAgentNodeRun(key, proposal, 0) || runs.has(key) || !origins.has(key)) stop()
+    })
   }
   const unsubscribe = subscribeAgentNodeRun(attempt)
   const stop = () => {
@@ -131,6 +131,29 @@ function publish(key: string, run: AgentNodeRun) {
   revision += 1
   runs.set(key, run)
   for (const listener of listeners) listener()
+}
+// 正挂着的运行卡。卡在就由卡在终局交完后收走运行（它要先把结局留在卡面上）。
+const watchedCards = new Map<string, number>()
+/** 运行卡挂载时调用，返回卸载时的释放函数。 */
+export function watchAgentNodeRun(key: string): () => void {
+  watchedCards.set(key, (watchedCards.get(key) ?? 0) + 1)
+  return () => {
+    const left = (watchedCards.get(key) ?? 1) - 1
+    if (left > 0) watchedCards.set(key, left)
+    else watchedCards.delete(key)
+  }
+}
+/**
+ * 没有卡在看的运行，终局交完就收走。聊天面板收起时直接出图的运行卡从不挂载，
+ * 不在这里收，跑完的运行连同运行权、回调会在这个标签页里一直留着。之后再打开面板，
+ * 卡片按服务端记录显示，和刷新后看到的一样。
+ */
+function releaseUnwatchedRun(key: string) {
+  if (watchedCards.has(key)) return
+  const run = runs.get(key)
+  if (!run || (run.status !== 'done' && run.status !== 'undone' && run.status !== 'failed')) return
+  if (run.report?.wake === 'reporting') return
+  forgetAgentNodeRun(key, controls.get(key)?.control)
 }
 export function forgetAgentNodeRun(key: string, control?: AbortController) {
   const dropControl = control !== undefined && controls.get(key)?.control === control
@@ -339,6 +362,7 @@ export function startAgentNodeRun(
       sameAccount,
     ).then((reported) => {
       if (!reported) void stageAuthorizationClient.end(authorizationId).catch(() => {})
+      releaseUnwatchedRun(key)
     })
     return true
   }
@@ -464,6 +488,7 @@ export function startAgentNodeRun(
           // 换账号后这枚会话已经不属于原用户，登出会在服务端收回。丢失回执也不能靠本地状态重放。
         }
       }
+      releaseUnwatchedRun(key)
     }
   })()
   return true
