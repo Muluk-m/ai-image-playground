@@ -115,6 +115,7 @@ import {
   fillImageNode,
   InvalidImageFileError,
   placeDecodedImage,
+  type ReadImageFile,
   readImageFile,
   resumeNodeGenerations,
   submitNodeImage,
@@ -1408,35 +1409,30 @@ function Flow({
     }
     void (async () => {
       // 先确认解得开再问张数、建节点：空文件、伪装成 .png 的文本不该留下一个永远「上传中」的节点，
-      // 也不该算进「确认导入 N 张」里。逐张校验后只留 File，不攒解码结果：大批量在确认前不占内存。
+      // 也不该算进「确认导入 N 张」里。解好的结果留着，确认后直接用：每张只读、解一次，
+      // 确认的张数就是落到画布上的张数（单张已按大小限额过滤；这些图确认后本来就要写进画布，确认前先留着不多占）。
       const invalid: string[] = []
-      const valid: File[] = []
+      const valid: { file: File; image: ReadImageFile }[] = []
       for (const file of candidates) {
-        if (await readImageFile(file).then(() => true, notInvalid)) valid.push(file)
+        const image = await readImageFile(file).catch(notInvalid)
+        if (image) valid.push({ file, image })
         else invalid.push(file.name)
       }
       if (!here()) return
       if (invalid.length) showInvalidImages(invalid)
       if (valid.length === 0) return
       confirmImageBatch(valid.length, () => {
-        void (async () => {
-          const late: string[] = []
-          for (const file of valid) {
-            if (!here()) return
-            // 确认后再读一遍；校验到确认之间文件变了（被删、被改）就跳过，不留空节点。
-            const image = await readImageFile(file).catch(notInvalid)
-            if (!here()) return
-            if (!image) {
-              late.push(file.name)
-              continue
-            }
-            // 已经解过：建节点和写图同步完成，中间不让出执行权。
+        if (!here()) return
+        try {
+          // 都已经解过：建节点和写图同步完成，中间不让出执行权，不会留下空节点。
+          for (const { file, image } of valid) {
             const id = createNode(canvas, 'image', point, textFill)
             placeDecodedImage(editor, canvas.doc, id, image, file.name)
             selectNode(id)
           }
-          if (late.length) showInvalidImages(late)
-        })().catch(failed)
+        } catch {
+          failed()
+        }
       })
     })().catch(failed)
   }
