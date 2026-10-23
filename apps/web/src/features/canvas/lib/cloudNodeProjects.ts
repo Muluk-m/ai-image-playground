@@ -757,10 +757,13 @@ export class CloudNodeProjectSession {
     const files = this.record.editor.doc.files
     const device = getCanvasUploaderId()
     const now = Date.now()
+    const targets = nodes.filter(({ fileId }) => files[fileId] === source)
+    if (!targets.length) return
+    // 只读一次文档、按 id 建索引：一批有很多张图时，每张开始传都要走一遍。
+    const byId = new Map(readCanvasDocument(doc).nodes.map((node) => [node.id, node]))
     const renewed: { id: string; data: ImageNodeData }[] = []
-    for (const { nodeId, fileId } of nodes) {
-      if (files[fileId] !== source) continue
-      const current = readCanvasDocument(doc).nodes.find((n) => n.id === nodeId)
+    for (const { nodeId, fileId } of targets) {
+      const current = byId.get(nodeId)
       if (!current || (current.type !== 'image' && current.type !== 'video')) continue
       const { data } = current
       if (data.fileId !== fileId || data.mediaId) continue
