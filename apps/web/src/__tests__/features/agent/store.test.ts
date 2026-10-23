@@ -18,7 +18,7 @@ import {
   conversationStarted,
 } from '../../../features/agent/lib/panelMessages'
 import * as turnSubmission from '../../../features/agent/lib/turnSubmission'
-import { useAgentStore } from '../../../features/agent/store'
+import { retryUnsent, unsentRetryAvailable, useAgentStore } from '../../../features/agent/store'
 import { scopedStorageName, setClientStorageScope } from '../../../lib/authScope'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
@@ -695,6 +695,23 @@ describe('发送反馈', () => {
     expect(state().turn).toBe('failed')
     expect(state().messages).toEqual([])
     expect(conversationStarted(state().messages)).toBe(false)
+  })
+
+  it('没收下的那条点「重试」沿用原来的消息 id，服务端其实收下过也认得出是同一条', async () => {
+    turnResponse = () => new Response(JSON.stringify({ error: 'rate_limited' }), { status: 429 })
+    await state().send('画一只橘猫')
+    expect(unsentRetryAvailable(state().error)).toBe(true)
+
+    turnResponse = () => turnStream(TURN_START, TURN_END)
+    retryUnsent()
+    const turnBodies = () =>
+      fetchMock.mock.calls
+        .filter(([url, init]) => /\/turns$/.test(String(url)) && init?.method === 'POST')
+        .map(([, init]) => JSON.parse(String(init?.body)) as { clientMessageId?: string })
+    await vi.waitFor(() => expect(turnBodies()).toHaveLength(2))
+    const [first, second] = turnBodies()
+    expect(first?.clientMessageId).toEqual(expect.any(String))
+    expect(second?.clientMessageId).toBe(first?.clientMessageId)
   })
 
   it('敲下回车消息立刻上屏，turnStart 到了换成服务端的 id', async () => {
