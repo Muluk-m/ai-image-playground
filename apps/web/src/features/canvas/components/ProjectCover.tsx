@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import MediaImage from '../../../components/MediaImage'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
-import { invalidateMediaPreview } from '../../../lib/cloudMedia'
+import { invalidateMediaPreview, mediaIdentity } from '../../../lib/cloudMedia'
 import { useCanvasProjectStore } from '../projectStore'
 
 /** 封面迟迟没出来就先收起转圈、换成图标；之后真加载到了照样换成图片。 */
@@ -65,9 +65,10 @@ export default function ProjectCover({
   const key = `${base}#${retries}`
   const onResolveError = useCallback(() => setSettled({ key, failed: true }), [key])
   const onImageError = useCallback(() => {
-    setSettled({ key, failed: true })
-    // 预览可能已坏在缓存里：丢掉它，重试时才会重新下载。
-    if (source) void invalidateMediaPreview(source).catch(() => {})
+    const fail = () => setSettled({ key, failed: true })
+    if (!source || !mediaIdentity(source)) return fail()
+    // 预览可能已坏在缓存里：先丢掉它再算失败，之后的重试（自动或「刷新项目」）才会重新下载。
+    void invalidateMediaPreview(source).catch(() => {}).finally(fail)
   }, [key, source])
   const loaded = source !== undefined && settled?.key === key && !settled.failed
   const failed = source !== undefined && settled?.key === key && settled.failed
