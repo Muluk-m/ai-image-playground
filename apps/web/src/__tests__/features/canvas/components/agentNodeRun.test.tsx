@@ -10,6 +10,8 @@ import AgentNodeRunCard from '../../../../features/agent/components/AgentNodeRun
 import { agentNodeRunBridge } from '../../../../features/agent/lib/nodeRunBridge'
 import {
   agentNodeRun,
+  agentNodeRunControl,
+  forgetAgentNodeRun,
   isAgentNodeRunOrigin,
   noteAgentNodeRunBlocked,
   registerAgentNodeRunOrigin,
@@ -23,6 +25,7 @@ import {
   type NodeBatchPlan,
 } from '../../../../features/canvas/lib/nodeBatch'
 import { useAgentNodeRun } from '../../../../features/canvas/lib/useAgentNodeRun'
+import { setClientStorageScope } from '../../../../lib/authScope'
 import { useStore } from '../../../../store'
 
 const mocks = vi.hoisted(() => ({
@@ -370,6 +373,138 @@ it('starts a direct run while the chat panel is collapsed and no run card is mou
   // 没有卡来收尾：跑完交过结局，运行和来源都得由运行表自己收走，不在标签页里一直留着。
   expect(agentNodeRun('direct-collapsed')).toBeUndefined()
   expect(isAgentNodeRunOrigin('direct-collapsed')).toBe(false)
+})
+
+it('releases a collapsed-panel run even when the account switched mid-run', async () => {
+  mocks.run.mockImplementationOnce(async () => {
+    setClientStorageScope('someone-else')
+  })
+  try {
+    await mount('direct-switched', true, { ...proposal, direct: true }, undefined, false)
+    await act(async () => {})
+    expect(mocks.run).toHaveBeenCalledOnce()
+    expect(ends).toBe(1)
+    // 换账号后不写回执，但跑完的运行和来源照样收走。
+    expect(agentNodeRun('direct-switched')).toBeUndefined()
+    expect(isAgentNodeRunOrigin('direct-switched')).toBe(false)
+  } finally {
+    setClientStorageScope(null)
+  }
+})
+
+it('releases a collapsed-panel run when the account switches while confirming', async () => {
+  const served = fetch
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await served(input, init)
+      if (String(input).endsWith('/confirm')) setClientStorageScope('someone-else')
+      return response
+    }),
+  )
+  try {
+    await mount('direct-switched-confirm', true, { ...proposal, direct: true }, undefined, false)
+    await act(async () => {})
+    expect(confirms).toBe(1)
+    expect(mocks.run).not.toHaveBeenCalled()
+    // 停在「确认中」退出的运行不是终局，也得收走，不在标签页里一直留着。
+    expect(agentNodeRun('direct-switched-confirm')).toBeUndefined()
+    expect(isAgentNodeRunOrigin('direct-switched-confirm')).toBe(false)
+  } finally {
+    setClientStorageScope(null)
+  }
+})
+
+it('releases a blocked direct run when the account switches while reporting', async () => {
+  const job = fixturePlan('media').jobs[0]!
+  plan = { ...fixturePlan('media'), error: 'media', jobs: [{ ...job, blocked: 'missing_media' }] }
+  const served = fetch
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/report')) setClientStorageScope('someone-else')
+      return served(input, init)
+    }),
+  )
+  try {
+    await mount('blocked-switched-report', true, { ...proposal, direct: true }, undefined, false)
+    await act(async () => {})
+    expect(reports).toHaveLength(1)
+    // 卡上停在「正在交」：终局才收的规则收不走，换了账号也得收走。
+    expect(agentNodeRun('blocked-switched-report')).toBeUndefined()
+    expect(isAgentNodeRunOrigin('blocked-switched-report')).toBe(false)
+  } finally {
+    setClientStorageScope(null)
+  }
+})
+
+it('leaves a newer run of the same key alone when an account-switched run cleans up', async () => {
+  const key = 'switched-reused'
+  const served = fetch
+  let first = true
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await served(input, init)
+      if (first && String(input).endsWith('/confirm')) {
+        first = false
+        // 旧运行确认中换了账号；新账号下同一 key 被收走后又登记、开跑了一次。
+        setClientStorageScope('someone-else')
+        forgetAgentNodeRun(key)
+        registerAgentNodeRunOrigin(key, {})
+        expect(startAgentNodeRun(key, proposal, 5)).toBe(true)
+      }
+      return response
+    }),
+  )
+  try {
+    await mount(key, true, { ...proposal, direct: true }, undefined, false)
+    await act(async () => {})
+    expect(confirms).toBe(2)
+    expect(mocks.run).not.toHaveBeenCalled()
+    // 旧运行收尾不能把新账号这一次的运行卡和运行权一并删掉。
+    expect(agentNodeRun(key)?.status).toBe('countdown')
+    expect(isAgentNodeRunOrigin(key)).toBe(true)
+  } finally {
+    agentNodeRunControl(key)?.abort()
+    await act(async () => {})
+    setClientStorageScope(null)
+  }
+})
+
+it('keeps an old run from resuming after switching accounts away and back', async () => {
+  const key = 'switched-back'
+  const served = fetch
+  let first = true
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await served(input, init)
+      if (first && String(input).endsWith('/confirm')) {
+        first = false
+        // 旧运行确认中换到别的账号又换回来；回来后同一 key 被收走后又登记、开跑了一次。
+        setClientStorageScope('someone-else')
+        setClientStorageScope(null)
+        forgetAgentNodeRun(key)
+        registerAgentNodeRunOrigin(key, {})
+        expect(startAgentNodeRun(key, proposal, 5)).toBe(true)
+      }
+      return response
+    }),
+  )
+  try {
+    await mount(key, true, { ...proposal, direct: true }, undefined, false)
+    await act(async () => {})
+    expect(confirms).toBe(2)
+    // 旧运行属于换走之前的那次登录：换回同一账号也不能接着跑、不能把状态写到新运行上。
+    expect(mocks.run).not.toHaveBeenCalled()
+    expect(agentNodeRun(key)?.status).toBe('countdown')
+    expect(isAgentNodeRunOrigin(key)).toBe(true)
+  } finally {
+    agentNodeRunControl(key)?.abort()
+    await act(async () => {})
+    setClientStorageScope(null)
+  }
 })
 
 it('waits for the canvas of the proposal before starting a direct run', async () => {
