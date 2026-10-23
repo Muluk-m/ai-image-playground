@@ -2325,6 +2325,64 @@ describe('AgentPanel', () => {
     expect(checked('鸟a')).toBe('true')
   })
 
+  it('上次停在某张、取消它再生成剩下的：新一次停下的那张标出来，不再显示上次的停因', async () => {
+    const original = useAgentStore.getState().confirmPrompt
+    const refused = new Set(['b', 'd'])
+    const confirmPrompt = vi.fn(async (id: string) => {
+      if (refused.has(id))
+        return {
+          ok: false as const,
+          reason: 'refused' as const,
+          code: 'insufficient_credits' as const,
+        }
+      useAgentStore.setState((state) => ({
+        messages: state.messages.map((one) =>
+          one.id === id && one.kind === 'tool' ? { ...one, status: 'submitted' as const } : one,
+        ),
+      }))
+      return { ok: true as const }
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      confirmPrompt,
+      conversationId: 'conversation-plan',
+      messages: ['b', 'c', 'd'].map((id) => planDraft(id, `猫${id}`)),
+    })
+    const click = (label: string) =>
+      [...host.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent === label)
+        ?.click()
+    try {
+      render()
+      await act(async () => {
+        click('全部生成（3）')
+        await vi.waitFor(() => expect(confirmPrompt).toHaveBeenCalledTimes(1))
+      })
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[data-plan-refused]')).not.toBeNull()
+      })
+      // 取消停下的 b，生成剩下两张：c 成交，d 被拒。
+      await act(async () => {
+        host.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="猫b"]')?.click()
+      })
+      await act(async () => {
+        click('全部生成（2）')
+        await vi.waitFor(() => expect(confirmPrompt).toHaveBeenCalledTimes(3))
+      })
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[role="alert"]')?.textContent).toContain('「猫d」未提交')
+      })
+      expect(host.querySelectorAll('[data-plan-refused]')).toHaveLength(1)
+    } finally {
+      useAgentStore.setState({ confirmPrompt: original })
+    }
+  })
+
   it('中途被拒的提示在渲染时翻译：切换语言后跟着变', async () => {
     const original = useAgentStore.getState().confirmPrompt
     const confirmPrompt = vi.fn(async (id: string) => {
