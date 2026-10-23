@@ -246,3 +246,26 @@ it('英文界面把同一条消息里的引用显示成 Image N', async () => {
     act(() => root.unmount())
   }
 })
+
+it('方向控制符在气泡里显示成可见标记，不再翻转后面的文字', async () => {
+  const message: AgentTextMessage = {
+    kind: 'text',
+    id: 'user-bidi',
+    turnId: 'turn-bidi',
+    role: 'user',
+    streaming: false,
+    text: 'invoice\u202Efdp.exe 中文',
+  }
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<AgentUserMessage message={message} skills={[]} />))
+    const bubble = host.querySelector<HTMLElement>('.studio-agent-user-message')!
+    expect(bubble.getAttribute('dir')).toBe('auto')
+    expect(bubble.textContent).not.toMatch(/[\u202A-\u202E\u2066-\u2069]/)
+    expect(bubble.textContent).toBe('invoiceU+202Efdp.exe 中文')
+    expect(bubble.querySelector('[data-bidi-control]')?.textContent).toBe('U+202E')
+  } finally {
+    act(() => root.unmount())
+  }
+})
