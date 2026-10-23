@@ -53,4 +53,18 @@ describe('accountQueuePositions（BUG-17）', () => {
     )
     expect(positions.get('b')).toEqual({ ahead: 1, limit: 1 })
   })
+
+  test('自己还在等重试时间的，不报排队位置（复审 P1）', () => {
+    const positions = accountQueuePositions(
+      ['retry', 'b'],
+      [
+        { id: 'retry', status: 'queued', submittedAt: 100, nextRetryAt: 5_000 },
+        { id: 'b', status: 'queued', submittedAt: 120, nextRetryAt: null },
+      ],
+      1,
+      1_000,
+    )
+    expect(positions.has('retry')).toBe(false)
+    expect(positions.get('b')).toEqual({ ahead: 0, limit: 1 })
+  })
 })

@@ -158,6 +158,27 @@ describe('切走之后的对话（BUG-16）', () => {
     expect(useAgentJobActivity.getState().notice).toBeNull()
   })
 
+  it('切回去时历史还没拉到就又走了，后台照样等到出完再提示（复审 P2）', async () => {
+    const pending = [tool('a')]
+    fetchJobs.mockResolvedValue(pending.map(view))
+    panel(['conv-1', pending], ['conv-2', []], ['conv-1', []], ['conv-3', []])
+    expect(useAgentJobActivity.getState().activity['conv-1']?.running).toBe(1)
+    fetchJobs.mockResolvedValue([
+      view(
+        tool('a', {
+          status: 'succeeded',
+          artifacts: [{}] as unknown as AgentToolMessage['artifacts'],
+        }),
+      ),
+    ])
+    await vi.waitFor(() =>
+      expect(useAgentJobActivity.getState().notice).toMatchObject({
+        conversationId: 'conv-1',
+        images: 1,
+      }),
+    )
+  })
+
   it('全是用户自己取消的，不提示', async () => {
     fetchJobs.mockResolvedValue([
       view(
