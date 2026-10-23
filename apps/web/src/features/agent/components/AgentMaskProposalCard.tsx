@@ -30,6 +30,7 @@ import {
   type Point,
   proposalRegions,
   refineRequest,
+  regionAnchor,
   regionForClick,
   storedRegionMask,
   type TargetMask,
@@ -91,6 +92,42 @@ function canvasOf(width: number, height: number): HTMLCanvasElement {
 
 function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   return canvas.getContext('2d', { willReadFrequently: true })!
+}
+
+/** 算徽标位置时把区域蒙版缩到这么宽：几十像素足够找到区域内部，逐帧重算也不卡。 */
+const ANCHOR_GRID = 96
+
+/** 区域编号徽标的位置：蒙版内部离边缘最远的点；蒙版缩小后没剩下像素（极细的区域）就用框的中心。 */
+function badgeAnchor(region: MaskRegionView, canvas: HTMLCanvasElement | undefined): Point {
+  const center = {
+    x: region.box.x + region.box.width / 2,
+    y: region.box.y + region.box.height / 2,
+  }
+  if (!canvas?.width || !canvas.height) return center
+  const width = Math.min(ANCHOR_GRID, canvas.width)
+  const height = Math.max(1, Math.round((width * canvas.height) / canvas.width))
+  const small = canvasOf(width, height)
+  const context = context2d(small)
+  context.drawImage(canvas, 0, 0, width, height)
+  return regionAnchor(context.getImageData(0, 0, width, height).data, width, height, 4, 3) ?? center
+}
+
+/** 徽标以锚点为中心，离画面边缘至少留出半个徽标，不被裁掉。 */
+function badgeStyle(point: Point) {
+  return {
+    left: `clamp(14px, ${point.x * 100}%, calc(100% - 14px))`,
+    top: `clamp(14px, ${point.y * 100}%, calc(100% - 14px))`,
+  }
+}
+
+function sameAnchors(a: ReadonlyMap<number, Point>, b: ReadonlyMap<number, Point>): boolean {
+  if (a.size !== b.size) return false
+  for (const [number, point] of a) {
+    const other = b.get(number)
+    if (!other || Math.abs(other.x - point.x) > 1e-3 || Math.abs(other.y - point.y) > 1e-3)
+      return false
+  }
+  return true
 }
 
 function readTarget(canvas: HTMLCanvasElement): TargetMask {
@@ -426,6 +463,8 @@ export default function AgentMaskProposalCard({
   const [other, setOther] = useState('')
   // 反选：卡片上点选、画笔调整的始终是主体；显示与确认时取它以外的部分（往主体里收一圈）。
   const [inverted, setInverted] = useState(proposal.invert === true)
+  // 每个区域编号徽标的位置（归一化），随蒙版变化在重绘时更新。
+  const [anchors, setAnchors] = useState<ReadonlyMap<number, Point>>(() => new Map())
   const locked = answered || running || submitting
   const ready = status === 'suggested' || status === 'rough'
   const numbered = regions.length > 1
@@ -502,6 +541,15 @@ export default function AgentMaskProposalCard({
       context.stroke()
     }
     context.restore()
+    if (numbered) {
+      const next = new Map(
+        regions.map((region) => [
+          region.number,
+          badgeAnchor(region, regionMasksRef.current.get(region.number)),
+        ]),
+      )
+      setAnchors((current) => (sameAnchors(current, next) ? current : next))
+    }
   }, [annotations, inverted, look, numbered, regions, sketch])
 
   // 帧里总是跑最新的那版重绘：排帧之后样式（建议 → 已调整）变了，也按新的画。
@@ -1179,7 +1227,12 @@ export default function AgentMaskProposalCard({
                   key={region.number}
                   className="studio-mask-proposal-region"
                   data-selected={region.selected || undefined}
-                  style={{ left: `${region.box.x * 100}%`, top: `${region.box.y * 100}%` }}
+                  style={badgeStyle(
+                    anchors.get(region.number) ?? {
+                      x: region.box.x + region.box.width / 2,
+                      y: region.box.y + region.box.height / 2,
+                    },
+                  )}
                   aria-hidden="true"
                 >
                   {region.number}

@@ -16,6 +16,7 @@ import {
   maskOutputCount,
   proposalRegions,
   refineRequest,
+  regionAnchor,
   regionForClick,
   storedRegionMask,
   targetBounds,
@@ -301,5 +302,47 @@ describe('card brush and eraser reuse the canvas stroke rasterizer', () => {
 
   it('never shrinks a stroke below 2 original pixels', () => {
     expect(cardMaskStroke('eraser', [{ x: 0, y: 0 }], 6, 2000, 400, 300).width).toBe(2)
+  })
+})
+
+describe('区域编号徽标位置', () => {
+  const grid = (width: number, height: number, cells: (x: number, y: number) => boolean) => {
+    const alpha = new Uint8Array(width * height)
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) if (cells(x, y)) alpha[y * width + x] = 255
+    return alpha
+  }
+  const inside = (
+    alpha: Uint8Array,
+    width: number,
+    point: { x: number; y: number },
+    height: number,
+  ) => alpha[Math.floor(point.y * height) * width + Math.floor(point.x * width)] === 255
+
+  it('puts the badge inside an L-shaped region even though its box corner and centroid are outside', () => {
+    // 椅子式的 L 形：外接框左上角与重心都不在区域里。
+    const alpha = grid(40, 40, (x, y) => (x < 10 && y >= 4) || (y >= 30 && x < 36))
+    const point = regionAnchor(alpha, 40, 40)!
+    expect(inside(alpha, 40, point, 40)).toBe(true)
+    expect(alpha[0]).toBe(0)
+  })
+
+  it('keeps the badge on a thin strip instead of its top edge', () => {
+    // 贴着左侧的一条细竖条：徽标在条里、上下居中附近，不在画面顶边。
+    const alpha = grid(60, 40, (x, y) => x >= 8 && x < 11 && y < 20)
+    const point = regionAnchor(alpha, 60, 40)!
+    expect(inside(alpha, 60, point, 40)).toBe(true)
+    expect(point.y).toBeGreaterThan(0.1)
+  })
+
+  it('reads the alpha channel of RGBA pixels and returns null for an empty mask', () => {
+    const rgba = new Uint8Array(20 * 10 * 4)
+    for (let y = 2; y < 8; y++) for (let x = 12; x < 18; x++) rgba[(y * 20 + x) * 4 + 3] = 255
+    const point = regionAnchor(rgba, 20, 10, 4, 3)!
+    expect(point.x).toBeGreaterThan(0.6)
+    expect(point.x).toBeLessThan(0.9)
+    expect(point.y).toBeGreaterThan(0.2)
+    expect(point.y).toBeLessThan(0.8)
+    expect(regionAnchor(new Uint8Array(20 * 10 * 4), 20, 10, 4, 3)).toBeNull()
   })
 })
