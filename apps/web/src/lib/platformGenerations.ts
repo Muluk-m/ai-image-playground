@@ -5,7 +5,11 @@ import type {
   TaskStatus as QueueStatus,
   TaskErrorType,
 } from '@image-playground/shared'
-import { QUEUE_TIMEOUTS } from '@image-playground/shared'
+import {
+  PROMPT_REWRITE_GUARD_PREFIX,
+  QUEUE_TIMEOUTS,
+  unshapeQueuePrompt,
+} from '@image-playground/shared'
 import { i18next } from '../i18n'
 import { useStore } from '../store'
 import {
@@ -55,7 +59,7 @@ export function taskFromGeneration(
   return {
     id: item.id,
     bffRequestId: item.id,
-    prompt: item.prompt,
+    prompt: promptFromGeneration(item),
     params: paramsFromGeneration(item),
     actualParams: pickActual(item),
     apiModel: item.model,
@@ -78,7 +82,7 @@ export function cloudReuseSourceFromGeneration(item: GenerationSummary): CloudRe
   return {
     provider: item.provider,
     model: item.model,
-    prompt: item.prompt,
+    prompt: promptFromGeneration(item),
     params: paramsFromGeneration(item),
     inputs: item.inputs.map((image) => mediaRef(image.mediaId)),
     mask: item.mask ? mediaRef(item.mask.mediaId) : null,
@@ -329,11 +333,25 @@ function statusFromGeneration(status: QueueStatus): TaskStatus {
  * 平台记录的参数投影。Gemini 那三项也照抄：这份参数同时是卡面显示和「复用配置」的来源，
  * 漏掉它们，复用一条 Gemini 生成就会悄悄换掉画面比例、分辨率档位和思考级别。
  */
+/**
+ * 平台记下的是发给上游的那一句：创作页开着「防改写」时钉了 guard 前缀，模型不认 `size` 时还缀了构图指令。
+ * 作品卡和复用要的是用户写的原文，机器指令剥掉；防改写这一项改由参数 `no_rewrite` 带着。
+ */
+function promptFromGeneration(item: GenerationSummary): string {
+  return unshapeQueuePrompt({
+    provider: item.provider === 'gemini' ? 'gemini' : 'openai-compat',
+    prompt: item.prompt,
+    size: item.parameters.size,
+  })
+}
+
 function paramsFromGeneration(item: GenerationSummary): TaskParams {
   const { size, quality, output_format, output_compression, n } = item.parameters
   const { aspect_ratio, image_size, thinking_level } = item.parameters
   return {
     ...DEFAULT_PARAMS,
+    no_rewrite:
+      item.provider !== 'gemini' && item.prompt.startsWith(`${PROMPT_REWRITE_GUARD_PREFIX}\n`),
     ...(size ? { size } : {}),
     ...(quality ? { quality: quality as TaskParams['quality'] } : {}),
     ...(output_format ? { output_format: output_format as TaskParams['output_format'] } : {}),
