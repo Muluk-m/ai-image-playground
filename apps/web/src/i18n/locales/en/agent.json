@@ -184,7 +184,8 @@
     "gateJump": "Jump to the cards",
     "gateSend": "Send this message anyway",
     "gateRunNodes": "Run these nodes ({{count}})",
-    "nodeRunMissed": "{{count}} could not start. Open that canvas and confirm on the card."
+    "nodeRunMissed": "{{count}} could not start. Open that canvas and confirm on the card.",
+    "drafting": "The assistant is still drafting this. Confirm once it finishes."
   },
   "plan": {
     "title": "Generation plan",
@@ -201,7 +202,8 @@
     "insufficient": "You have {{available}} credits available, not enough for about {{credits}}. Uncheck some images or top up first.",
     "stoppedAfter_one": "Submitted {{count}} image; \"{{title}}\" was not submitted: {{reason}}",
     "stoppedAfter_other": "Submitted {{count}} images; \"{{title}}\" was not submitted: {{reason}}",
-    "promptAria": "Edit prompt"
+    "promptAria": "Edit prompt",
+    "drafting": "The assistant is still drafting this plan. Generate once it finishes."
   },
   "toolFailure": {
     "recharge": "Top up",

@@ -50,6 +50,7 @@ type TestViewport = { x: number; y: number; zoom: number }
 const mocks = vi.hoisted(() => ({
   open: vi.fn(),
   importImages: vi.fn(async () => 1),
+  placeImage: vi.fn(),
   readImage: vi.fn(async (_file: File) => ({
     dataUrl: 'data:image/png;base64,AA==',
     width: 1,
@@ -72,6 +73,7 @@ vi.mock('../../../../features/canvas/lib/nodeCanvasDocument', () => ({
 }))
 vi.mock('../../../../features/canvas/lib/nodeCanvasGenerate', () => ({
   fillImageNode: mocks.importImages,
+  placeDecodedImage: mocks.placeImage,
   readImageFile: mocks.readImage,
   InvalidImageFileError: class extends Error {
     constructor(readonly fileName: string) {
@@ -803,7 +805,7 @@ it('opens the add-node menu when a connection ends on blank canvas space', async
 })
 
 it('places a dropped image where the pointer is', async () => {
-  mocks.importImages.mockClear()
+  mocks.placeImage.mockClear()
   await render()
   const surface = host.querySelector('.studio-node-canvas')!
   const file = new File(['png'], 'shot.png', { type: 'image/png' })
@@ -823,7 +825,7 @@ it('places a dropped image where the pointer is', async () => {
     (n) => n.id !== 'image' && n.type === 'image',
   )!
   expect(created.x + created.width / 2).toBe(30)
-  expect(mocks.importImages).toHaveBeenCalledWith(
+  expect(mocks.placeImage).toHaveBeenCalledWith(
     workspace.editor,
     canvas.doc,
     created.id,
@@ -838,7 +840,7 @@ it('rejects an empty or fake image before creating a node, and says which file',
   const { InvalidImageFileError } = await import(
     '../../../../features/canvas/lib/nodeCanvasGenerate'
   )
-  mocks.importImages.mockClear()
+  mocks.placeImage.mockClear()
   mocks.readImage.mockImplementationOnce(async (file: File) => {
     throw new InvalidImageFileError(file.name)
   })
@@ -866,14 +868,15 @@ it('rejects an empty or fake image before creating a node, and says which file',
     expect(toast).toHaveBeenCalledWith(expect.stringContaining('fake.png'), 'error'),
   )
   expect(readCanvasDocument(canvas.doc).nodes).toHaveLength(before)
-  expect(mocks.importImages).not.toHaveBeenCalled()
+  expect(mocks.placeImage).not.toHaveBeenCalled()
 })
 
 it('asks to confirm only the images that will actually land on the canvas', async () => {
   const { InvalidImageFileError } = await import(
     '../../../../features/canvas/lib/nodeCanvasGenerate'
   )
-  mocks.importImages.mockClear()
+  mocks.placeImage.mockClear()
+  mocks.readImage.mockClear()
   mocks.readImage.mockImplementation(async (file: File) => {
     if (file.name.startsWith('fake')) throw new InvalidImageFileError(file.name)
     return { dataUrl: 'data:image/png;base64,AA==', width: 1, height: 1 }
@@ -904,11 +907,15 @@ it('asks to confirm only the images that will actually land on the canvas', asyn
     const dialog = useStore.getState().confirmDialog!
     expect(`${dialog.message} ${dialog.confirmText}`).toContain('4')
     expect(`${dialog.message} ${dialog.confirmText}`).not.toContain('6')
-    expect(mocks.importImages).not.toHaveBeenCalled()
+    expect(mocks.placeImage).not.toHaveBeenCalled()
+    expect(mocks.readImage).toHaveBeenCalledTimes(6)
     await act(async () => {
       dialog.action()
     })
-    await vi.waitFor(() => expect(mocks.importImages).toHaveBeenCalledTimes(4))
+    await vi.waitFor(() => expect(mocks.placeImage).toHaveBeenCalledTimes(4))
+    // 每张只读、解一次：确认后直接用确认前解好的结果，确认的张数就是落到画布上的张数。
+    expect(mocks.readImage).toHaveBeenCalledTimes(6)
+    expect(mocks.placeImage.mock.calls.map((call) => call[4])).toEqual(names.slice(0, 4))
   } finally {
     mocks.readImage.mockReset()
     mocks.readImage.mockImplementation(async () => ({
@@ -916,6 +923,186 @@ it('asks to confirm only the images that will actually land on the canvas', asyn
       width: 1,
       height: 1,
     }))
+    useStore.setState({ confirmDialog: null })
+  }
+})
+
+it('decodes a batch a few at a time instead of one by one, and still places it in drop order', async () => {
+  mocks.placeImage.mockClear()
+  mocks.readImage.mockClear()
+  let inFlight = 0
+  let peak = 0
+  const names = ['a.png', 'b.png', 'c.png', 'd.png', 'e.png', 'f.png']
+  mocks.readImage.mockImplementation(async (file: File) => {
+    inFlight += 1
+    peak = Math.max(peak, inFlight)
+    // 越靠前的越慢：完成顺序和拖入顺序相反。
+    await new Promise((resolve) =>
+      setTimeout(resolve, (names.length - names.indexOf(file.name)) * 5),
+    )
+    inFlight -= 1
+    return { dataUrl: 'data:image/png;base64,AA==', width: 1, height: 1 }
+  })
+  useStore.setState({ confirmDialog: null })
+  try {
+    await render()
+    const surface = host.querySelector('.studio-node-canvas')!
+    const event = new MouseEvent('drop', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 30,
+      clientY: 40,
+    })
+    Object.defineProperty(event, 'dataTransfer', {
+      value: {
+        types: ['Files'],
+        files: names.map((name) => new File(['x'], name, { type: 'image/png' })),
+        items: [],
+      },
+    })
+    await act(async () => {
+      surface.dispatchEvent(event)
+    })
+    await vi.waitFor(() => expect(useStore.getState().confirmDialog).not.toBeNull())
+    // 并行解，但有上限：不是一张接一张，也不是六张同时占着解码。
+    expect(peak).toBe(4)
+    await act(async () => {
+      useStore.getState().confirmDialog!.action()
+    })
+    await vi.waitFor(() => expect(mocks.placeImage).toHaveBeenCalledTimes(6))
+    expect(mocks.placeImage.mock.calls.map((call) => call[4])).toEqual(names)
+  } finally {
+    mocks.readImage.mockReset()
+    mocks.readImage.mockImplementation(async () => ({
+      dataUrl: 'data:image/png;base64,AA==',
+      width: 1,
+      height: 1,
+    }))
+    useStore.setState({ confirmDialog: null })
+  }
+})
+
+it('writes each confirmed image as its node is created, without a second decode that can strand it', async () => {
+  mocks.placeImage.mockClear()
+  mocks.importImages.mockClear()
+  // 写图那一步若再解码一次并失败（浏览器解码器偶发出错），旧做法会留下空节点、后面整批都不导入。
+  mocks.importImages.mockRejectedValue(new Error('decode failed'))
+  useStore.setState({ confirmDialog: null })
+  try {
+    await render()
+    const before = readCanvasDocument(canvas.doc).nodes.length
+    const surface = host.querySelector('.studio-node-canvas')!
+    const event = new MouseEvent('drop', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 30,
+      clientY: 40,
+    })
+    Object.defineProperty(event, 'dataTransfer', {
+      value: {
+        types: ['Files'],
+        files: ['a.png', 'b.png', 'c.png', 'd.png'].map(
+          (name) => new File(['x'], name, { type: 'image/png' }),
+        ),
+        items: [],
+      },
+    })
+    await act(async () => {
+      surface.dispatchEvent(event)
+    })
+    await vi.waitFor(() => expect(useStore.getState().confirmDialog).not.toBeNull())
+    await act(async () => {
+      useStore.getState().confirmDialog!.action()
+    })
+    await vi.waitFor(() => expect(mocks.placeImage).toHaveBeenCalledTimes(4))
+    const created = readCanvasDocument(canvas.doc).nodes.slice(before)
+    expect(created).toHaveLength(4)
+    // 每个新建的节点都同步写上了图，没有一个停在空节点。
+    expect(mocks.placeImage.mock.calls.map((call) => call[2])).toEqual(created.map((n) => n.id))
+    expect(mocks.importImages).not.toHaveBeenCalled()
+  } finally {
+    mocks.importImages.mockReset()
+    mocks.importImages.mockImplementation(async () => 1)
+    useStore.setState({ confirmDialog: null })
+  }
+})
+
+it('drops an image import whose canvas went away while the files were being checked', async () => {
+  mocks.placeImage.mockClear()
+  let release: () => void = () => {}
+  mocks.readImage.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve({ dataUrl: 'data:image/png;base64,AA==', width: 1, height: 1 })
+      }),
+  )
+  useStore.setState({ confirmDialog: null })
+  try {
+    await render()
+    const surface = host.querySelector('.studio-node-canvas')!
+    const event = new MouseEvent('drop', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 30,
+      clientY: 40,
+    })
+    Object.defineProperty(event, 'dataTransfer', {
+      value: {
+        types: ['Files'],
+        files: [new File(['x'], 'a.png', { type: 'image/png' })],
+        items: [],
+      },
+    })
+    await act(async () => {
+      surface.dispatchEvent(event)
+    })
+    await vi.waitFor(() => expect(mocks.readImage).toHaveBeenCalled())
+    // 解码还没完就离开了画布。
+    await act(async () => root.render(<div />))
+    await act(async () => {
+      release()
+    })
+    await act(async () => {})
+    expect(useStore.getState().confirmDialog).toBeNull()
+    expect(mocks.placeImage).not.toHaveBeenCalled()
+  } finally {
+    useStore.setState({ confirmDialog: null })
+  }
+})
+
+it('does not import into a canvas that went away while the confirmation was open', async () => {
+  mocks.placeImage.mockClear()
+  useStore.setState({ confirmDialog: null })
+  try {
+    await render()
+    const surface = host.querySelector('.studio-node-canvas')!
+    const event = new MouseEvent('drop', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 30,
+      clientY: 40,
+    })
+    Object.defineProperty(event, 'dataTransfer', {
+      value: {
+        types: ['Files'],
+        files: ['a.png', 'b.png', 'c.png', 'd.png'].map(
+          (name) => new File(['x'], name, { type: 'image/png' }),
+        ),
+        items: [],
+      },
+    })
+    await act(async () => {
+      surface.dispatchEvent(event)
+    })
+    await vi.waitFor(() => expect(useStore.getState().confirmDialog).not.toBeNull())
+    const dialog = useStore.getState().confirmDialog!
+    await act(async () => root.render(<div />))
+    await act(async () => {
+      dialog.action()
+    })
+    await act(async () => {})
+    expect(mocks.placeImage).not.toHaveBeenCalled()
+  } finally {
     useStore.setState({ confirmDialog: null })
   }
 })
