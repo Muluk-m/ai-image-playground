@@ -129,11 +129,22 @@ it('never lets two pages settle on the same suffix even when both start together
   expect([a, b].filter((page) => page.getCanvasUploaderId().endsWith(':shared01'))).toHaveLength(1)
 })
 
-it('does not reuse a stored suffix when Web Locks are unavailable', async () => {
+it('keeps the stored suffix across a reload when Web Locks are unavailable', async () => {
+  // 没有 Web Locks 时刷新/崩溃重开仍认得自己写的上传声明，接着传，而不是当成别处在传等 30 分钟。
   vi.stubGlobal('navigator', { ...navigator, locks: undefined })
-  sessionStorage.setItem('canvas-uploader-tab', 'copied01')
+  sessionStorage.setItem('canvas-uploader-tab', 'reload01')
   const page = await openPage()
-  expect(page.getCanvasUploaderId().endsWith(':copied01')).toBe(false)
+  await page.canvasUploaderSettled()
+  expect(page.getCanvasUploaderId().endsWith(':reload01')).toBe(true)
+})
+
+it('still gives a fresh tab its own suffix when Web Locks are unavailable', async () => {
+  vi.stubGlobal('navigator', { ...navigator, locks: undefined })
+  const first = await openPage()
+  const id = first.getCanvasUploaderId()
+  sessionStorage.clear()
+  const second = await openPage()
+  expect(second.getCanvasUploaderId()).not.toBe(id)
 })
 
 it('does not call crypto.randomUUID when the module is only imported outside a page', async () => {

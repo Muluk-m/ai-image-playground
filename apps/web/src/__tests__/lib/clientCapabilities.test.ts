@@ -9,7 +9,14 @@ import {
 } from '../../lib/clientCapabilities'
 import { allCapabilitiesOff } from '../fixtures/capabilities'
 
+const yjsSelfCheck = vi.hoisted(() => ({ ok: true }))
+vi.mock('@image-playground/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@image-playground/shared')>()),
+  canvasUploadConflictsSupported: () => yjsSelfCheck.ok,
+}))
+
 afterEach(async () => {
+  yjsSelfCheck.ok = true
   vi.unstubAllGlobals()
   await bootstrapClientCapabilities(false, '')
 })
@@ -47,6 +54,26 @@ describe('client capability bootstrap', () => {
           ...allCapabilitiesOff(),
           projectDocumentIdentity: true,
           canvasPendingMedia: false,
+        }),
+      ),
+    )
+
+    await bootstrapClientCapabilities(true, 'https://bff.example.com')
+
+    expect(supportsProjectDocumentIdentity()).toBe(true)
+    expect(supportsCanvasPendingMedia()).toBe(false)
+  })
+
+  it('keeps pending canvas media off when the installed yjs fails the conflict self-check', async () => {
+    // 服务端开了开关，但 yjs 内部结构变了、并发覆盖补不回来：不冒险先发文档。
+    yjsSelfCheck.ok = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          ...allCapabilitiesOff(),
+          projectDocumentIdentity: true,
+          canvasPendingMedia: true,
         }),
       ),
     )

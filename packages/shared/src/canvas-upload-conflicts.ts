@@ -321,6 +321,79 @@ export function readReplayedOverwrite(
   }
 }
 
+let selfCheck: boolean | undefined
+
+/**
+ * 运行时自检：用两份小文档实际造一次并发覆盖（远端赢、本机赢、本机存储回放各一次），确认按 Yjs 内部结构
+ * 读得出输掉的一版。readOverwrittenLocalData 依赖 Y.Map._map 与 Item 的 left/origin/content 等未公开结构；
+ * 装上的 yjs 内部变了（升级、重复安装）时这里返回 false，调用方要据此不走依赖补写的流程（例如不在图片
+ * 上传完之前同步文档），而不是静默继续、让上传声明或 mediaId 被并发写入顶掉后补不回来。结果只算一次。
+ */
+export function canvasUploadConflictsSupported(): boolean {
+  selfCheck ??= runSelfCheck()
+  return selfCheck
+}
+
+function runSelfCheck(): boolean {
+  try {
+    const value = (data: unknown) => (isData(data) ? data.v : undefined)
+    const seed = new Y.Doc()
+    seed.clientID = 1
+    seed.transact(() => {
+      const node = new Y.Map<unknown>()
+      node.set('data', { v: 'base' })
+      seed.getMap<Y.Map<unknown>>('nodes').set('n', node)
+    })
+    const base = Y.encodeStateAsUpdate(seed)
+    const writer = (clientID: number, v: string) => {
+      const doc = new Y.Doc()
+      doc.clientID = clientID
+      Y.applyUpdate(doc, base)
+      doc.getMap<Y.Map<unknown>>('nodes').get('n')?.set('data', { v })
+      return doc
+    }
+    // 同一 key 并发写入时 clientID 大的一边生效。
+    const live = (localId: number, remoteId: number) => {
+      const local = writer(localId, 'local')
+      const remote = writer(remoteId, 'remote')
+      let found: { lost: unknown[]; winner: unknown } | undefined
+      local.getMap('nodes').observeDeep((events) => {
+        for (const event of events)
+          if (event.path.length === 1) found ??= readOverwrittenLocalData(event, localId)
+      })
+      Y.applyUpdate(local, Y.encodeStateAsUpdate(remote, Y.encodeStateVector(local)))
+      return found
+    }
+    const remoteWins = live(2, 3)
+    const localWins = live(3, 2)
+    const replay = new Y.Doc()
+    replay.clientID = 9
+    let replayed: { lost: unknown[]; winner: unknown } | undefined
+    replay.on('afterTransaction', (transaction: Y.Transaction) => {
+      const node = replay.getMap<Y.Map<unknown>>('nodes').get('n')
+      if (node instanceof Y.Map) replayed ??= readReplayedOverwrite(node, transaction)
+    })
+    replay.transact(() => {
+      Y.applyUpdate(replay, Y.encodeStateAsUpdate(writer(2, 'remote')))
+      Y.applyUpdate(replay, Y.encodeStateAsUpdate(writer(3, 'local')))
+    })
+    return (
+      remoteWins?.lost.length === 1 &&
+      value(remoteWins.lost[0]) === 'local' &&
+      value(remoteWins.winner) === 'remote' &&
+      localWins?.lost.length === 1 &&
+      value(localWins.lost[0]) === 'remote' &&
+      value(localWins.winner) === 'local' &&
+      replayed?.lost.length === 1 &&
+      value(replayed.lost[0]) === 'remote' &&
+      value(replayed.winner) === 'local'
+    )
+  } catch (error) {
+    reportUnsupported('自检时出错', error)
+    return false
+  }
+}
+
 /**
  * 盯住远端更新：本机写的节点 data 被一次「没见过它」的远端写入顶掉时（并发，而不是先后），
  * 按 mergeCanvasUploadConflict 把两边合回去再写一次。只由输掉写入的那台设备补，别的设备不重复写。

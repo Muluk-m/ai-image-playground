@@ -4,6 +4,7 @@ import {
   type CapabilityKey,
   type ClientCapabilityKey,
   type ClientCapabilityManifest,
+  canvasUploadConflictsSupported,
 } from '@image-playground/shared'
 
 function disabledManifest(): ClientCapabilityManifest {
@@ -134,9 +135,12 @@ export function supportsProjectDocumentIdentity(): boolean {
   return projectDocumentIdentity
 }
 
-/** 旧 API 拒收带本机 fileId 的画布节点；服务端声明支持后才在图片上传完之前同步文档。 */
+/**
+ * 旧 API 拒收带本机 fileId 的画布节点；服务端声明支持后才在图片上传完之前同步文档。
+ * 先发文档要靠并发覆盖后的补写（依赖 Yjs 内部结构）；装上的 yjs 自检不通过时照旧等图片上云再同步。
+ */
 export function supportsCanvasPendingMedia(): boolean {
-  return canvasPendingMedia
+  return canvasPendingMedia && canvasUploadConflictsSupported()
 }
 
 export function getClientCapabilityManifest(): Readonly<ClientCapabilityManifest> {
