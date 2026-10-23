@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import {
   billedStageQuantity,
   canvasOrigin,
+  type QueueProvider,
   readCanvasDocument,
   STAGE_RUN_MAX_RETRIES,
   type StageAuthorization,
@@ -15,6 +16,7 @@ import {
   stageExecutionBindingMatches,
   stageExecutionSpecsMatch,
   storyboardFingerprint,
+  unshapeQueuePrompt,
   updateCanvasNode,
 } from '@image-playground/shared'
 import { and, asc, eq, inArray, isNull, lt, ne, sql } from 'drizzle-orm'
@@ -840,6 +842,29 @@ export async function preflightStageAuthorization(
     })
   })
 }
+/**
+ * 队列里提交的 prompt 可能被分发层钉上两段机器指令：防改写前缀（`no_rewrite`，非 Gemini）
+ * 和构图后缀（模型不认 `size` 时按请求自身的 size 生成）。授权时冻结的是用户确认的原文，
+ * 所以先逐字比，不一致再剥掉这两段精确的固定串后比一次。能被剥掉的只有这两段固定文本，
+ * 后缀还必须和本次请求的 size 对得上，用户内容、输入图数量、视频参数一个字都不放宽。
+ */
+function stageBindingAccepts(
+  binding: StageExecutionBinding,
+  execution: StageExecutionFingerprint,
+  shaping: { readonly provider: QueueProvider; readonly size?: string } | undefined,
+): boolean {
+  if (stageExecutionBindingMatches(binding, execution)) return true
+  if (!shaping) return false
+  const prompt = unshapeQueuePrompt({
+    provider: shaping.provider,
+    prompt: execution.prompt,
+    ...(shaping.size ? { size: shaping.size } : {}),
+  })
+  return (
+    prompt !== execution.prompt && stageExecutionBindingMatches(binding, { ...execution, prompt })
+  )
+}
+
 /** Called inside the queue task transaction: a failed gate rolls back task and billing together. */
 export async function consumeStageAuthorization(
   tx: BffTransaction,
@@ -849,6 +874,8 @@ export async function consumeStageAuthorization(
   usage: { model: string; quantity: number; unitMultiplier: number },
   credits: number,
   execution: StageExecutionFingerprint,
+  /** 队列提交的协议族与 size：用来认出分发层钉上的机器指令，见 `stageBindingAccepts`。 */
+  shaping?: { readonly provider: QueueProvider; readonly size?: string },
 ) {
   if (!userId) throw new StageAuthorizationError('stage_authorization_inactive')
   const quantity = billedStageQuantity(usage.quantity)
@@ -876,7 +903,7 @@ export async function consumeStageAuthorization(
   )
     throw new StageAuthorizationError('stage_authorization_attempt_conflict')
   const binding = state.bindings?.find((item) => item.nodeId === ref.nodeId)
-  if (!binding || !stageExecutionBindingMatches(binding, execution))
+  if (!binding || !stageBindingAccepts(binding, execution, shaping))
     throw new StageAuthorizationError('stage_authorization_scope')
   if (
     attempt.spentCredits + credits > attempt.reservedCredits ||

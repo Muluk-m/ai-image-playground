@@ -424,6 +424,11 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
               }
             : {}),
         },
+        // 创作页分发层会给 prompt 钉防改写前缀 / 构图后缀，授权冻结的是原文。
+        {
+          provider: input.provider,
+          ...(input.request.size ? { size: input.request.size } : {}),
+        },
       )
     if (input.userId && commandId)
       await tx.insert(schema.generation_commands).values({
