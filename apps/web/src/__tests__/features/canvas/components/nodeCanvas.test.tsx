@@ -910,8 +910,9 @@ it('asks to confirm only the images that will actually land on the canvas', asyn
       dialog.action()
     })
     await vi.waitFor(() => expect(mocks.placeImage).toHaveBeenCalledTimes(4))
-    // 确认前只校验不攒解码结果：确认后四张有效的各重读一次再建节点。
-    expect(mocks.readImage).toHaveBeenCalledTimes(10)
+    // 每张只读、解一次：确认后直接用确认前解好的结果，确认的张数就是落到画布上的张数。
+    expect(mocks.readImage).toHaveBeenCalledTimes(6)
+    expect(mocks.placeImage.mock.calls.map((call) => call[4])).toEqual(names.slice(0, 4))
   } finally {
     mocks.readImage.mockReset()
     mocks.readImage.mockImplementation(async () => ({
