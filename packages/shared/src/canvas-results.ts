@@ -1,4 +1,5 @@
 import type * as Y from 'yjs'
+import { withoutCanvasUploadClaim } from './canvas-cloud'
 import { type CanvasOrigin, type ImageNodeData, readCanvasDocument } from './canvas-document'
 import { canvasFingerprint } from './canvas-fingerprint'
 import { storyboardFingerprint } from './canvas-storyboard'
@@ -193,7 +194,7 @@ export function promoteCanvasResultMedia(
         mediaId,
         fileId: `cloud-${mediaId}`,
         meta: {
-          ...data.meta,
+          ...withoutCanvasUploadClaim(data.meta),
           contentIdentity: data.meta?.contentIdentity ?? data.mediaId ?? fileId,
         },
       })
@@ -269,7 +270,8 @@ export function dropCanvasNodeFile(
   if (data.fileId !== fileId || data.mediaId) return false
   const { fileId: _file, naturalWidth: _width, naturalHeight: _height, meta, ...rest } = data
   // 内容身份跟着图走：留着它下游的输入指纹会以为原图还在，继续复用基于坏图的结果。
-  const { contentIdentity: _identity, ...kept } = meta ?? {}
+  // 上传声明也一并去掉：原图已摘掉，不再有人在传它。
+  const { contentIdentity: _identity, ...kept } = withoutCanvasUploadClaim(meta) ?? {}
   const next: ImageNodeData = Object.keys(kept).length ? { ...rest, meta: kept } : rest
   doc.transact(() => node.set('data', next), origin)
   return true

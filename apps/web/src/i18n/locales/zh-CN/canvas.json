@@ -167,6 +167,7 @@
     "loadError": "画布读取失败",
     "conflict": "这个项目有两份不同的修改",
     "mediaLocal": "画布里有内容还没保存完",
+    "mediaUploading": "图片上传中 {{done}}/{{total}}",
     "retry": "重试",
     "localError": "改动还没保存",
     "authError": "请重新登录后再保存",
@@ -448,6 +449,7 @@
   "nodes": {
     "timeline_other": "时间线 · {{count}} 段",
     "mediaMissing": "素材缺失",
+    "mediaUploading": "图片上传中",
     "loadFailed": "节点画布打不开，请刷新重试",
     "addTitle": "添加节点",
     "addText": "文本",

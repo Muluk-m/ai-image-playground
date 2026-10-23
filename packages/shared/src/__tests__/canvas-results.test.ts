@@ -447,7 +447,7 @@ it('turns a node with an unusable local image into an empty card the server acce
         name: 'zero.png',
         naturalWidth: 1,
         naturalHeight: 1,
-        meta: { contentIdentity: 'zero', kept: 'yes' },
+        meta: { contentIdentity: 'zero', kept: 'yes', uploadDevice: 'me', uploadStartedAt: '1' },
       },
     },
     origin,
@@ -475,7 +475,7 @@ it('turns a node with an unusable local image into an empty card the server acce
   // 期间换了图的节点不动。
   expect(dropCanvasNodeFile(doc, 'other', 'zero', origin)).toBe(false)
   const nodes = readCanvasDocument(doc).nodes
-  // 内容身份跟着坏图一起去掉，下游指纹不会再当它还在。
+  // 内容身份跟着坏图一起去掉，下游指纹不会再当它还在；上传声明也去掉。
   expect(nodes.find((n) => n.id === 'zero')?.data).toEqual({
     name: 'zero.png',
     meta: { kept: 'yes' },
