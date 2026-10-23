@@ -2064,6 +2064,53 @@ describe('快速生成的逐张生成', () => {
     expect(calls.every((c) => c[0].params.n === 1)).toBe(true)
   })
 
+  it('整组出完只报一次总张数，不按每张报「已生成 1 张」', async () => {
+    await setupBatchState(2, true)
+
+    await submitTask()
+    await waitUntil(
+      () =>
+        useStore.getState().tasks.length === 2 &&
+        useStore.getState().tasks.every((t) => t.status === 'done'),
+      'batch did not finish',
+    )
+
+    const doneToasts = vi
+      .mocked(useStore.getState().showToast)
+      .mock.calls.filter(([, type]) => type !== 'error')
+    expect(doneToasts).toEqual([['生成完成，共 2 张图片', 'success']])
+  })
+
+  it('有失败时整组报已出几张、共几张；重试补齐后报全部', async () => {
+    await setupBatchState(2, true)
+    vi.mocked(callImageApi)
+      .mockRejectedValueOnce(new Error('上游拒绝了这张图'))
+      .mockResolvedValue({
+        images: ['data:image/png;base64,generated'],
+        actualParamsList: [{ size: '1x1' }],
+      })
+
+    await submitTask()
+    await waitUntil(
+      () =>
+        useStore.getState().tasks.length === 2 &&
+        useStore.getState().tasks.every((t) => t.status !== 'running'),
+      'batch did not settle',
+    )
+    const showToast = vi.mocked(useStore.getState().showToast)
+    expect(showToast.mock.calls).toEqual([['已生成 1/2 张，其余失败', 'info']])
+
+    const failed = useStore.getState().tasks.find((t) => t.status === 'error')
+    if (!failed) throw new Error('expected one failed item')
+    showToast.mockClear()
+    await retryTask(failed)
+    await waitUntil(
+      () => useStore.getState().tasks.filter((t) => t.status === 'done').length === 2,
+      'retry did not finish',
+    )
+    expect(showToast.mock.calls).toEqual([['生成完成，共 2 张图片', 'success']])
+  })
+
   it('同时最多发 5 张，其余排队，完成一张才发下一张', async () => {
     await setupBatchState(7, true)
     const gates: Array<() => void> = []
