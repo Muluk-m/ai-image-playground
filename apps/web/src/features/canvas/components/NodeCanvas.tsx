@@ -9,6 +9,8 @@ import {
   canvasOrigin,
   canvasResults,
   canvasText,
+  canvasUploadClaimNextChange,
+  canvasUploadingElsewhere,
   connectCanvasNodes,
   createCanvasGroup,
   disconnectCanvasNodes,
@@ -134,6 +136,7 @@ import { createImagePresetNode } from '../lib/nodeImagePreset'
 import { submitNodeWithLook } from '../lib/nodeLookSubmit'
 import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
 import { generateTextNode } from '../lib/textGeneration'
+import { useCanvasUploaderId } from '../lib/uploadSession'
 import { useAgentNodeRun } from '../lib/useAgentNodeRun'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
@@ -395,11 +398,52 @@ function Pending({ pending }: { pending: PendingGeneration }) {
   )
 }
 
-function Picture({ fileId, rotation }: { fileId?: string; rotation?: number }) {
+type UploadClaimData = Parameters<typeof canvasUploadingElsewhere>[0]
+
+/**
+ * 别的设备声明在传、还没过期（canvasUploadingElsewhere）。声明到点过期时没有别的改动会触发重渲染，
+ * 所以按 canvasUploadClaimNextChange 定一个时钟，到点自己再算一次。
+ */
+export function useUploadingElsewhere(data: UploadClaimData): boolean {
+  const [tick, setTick] = useState(0)
+  const device = useCanvasUploaderId()
+  const now = Date.now()
+  const next = canvasUploadClaimNextChange(data, device, now)
+  useEffect(() => {
+    if (next === undefined) return
+    // setTimeout 的延迟超过 2^31-1 毫秒会立刻触发，分段等：没到点的那次重渲染带着新的 tick 再定一次。
+    const timer = setTimeout(
+      () => setTick((tick) => tick + 1),
+      Math.min(Math.max(next - Date.now(), 0) + 1, 2 ** 31 - 1),
+    )
+    return () => clearTimeout(timer)
+  }, [next, tick])
+  return canvasUploadingElsewhere(data, device, now)
+}
+
+function Picture({
+  fileId,
+  rotation,
+  upload,
+}: {
+  fileId?: string
+  rotation?: number
+  /** 节点 data，用来判断是不是别的设备在传（useUploadingElsewhere）。 */
+  upload: UploadClaimData
+}) {
   const { t } = useTranslation('canvas')
+  const uploadingElsewhere = useUploadingElsewhere(upload)
   const files = useContext(FilesContext)
   const source = useNodeMedia(fileId ? files[fileId] : undefined)
-  if (!source) return <div className="studio-node-missing text-sm">{t('nodes.mediaMissing')}</div>
+  if (!source)
+    return (
+      <div className="studio-node-missing text-sm">
+        {/* 别的设备还在上传的图片：文档里先到的只有它的本机 fileId，原图要等那边传完。 */}
+        {fileId && uploadingElsewhere && !files[fileId]
+          ? t('nodes.mediaUploading')
+          : t('nodes.mediaMissing')}
+      </div>
+    )
   return (
     <img
       src={source}
@@ -468,7 +512,7 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
           </span>
         )}
         {fileId ? (
-          <Picture fileId={fileId} rotation={rotation} />
+          <Picture fileId={fileId} rotation={rotation} upload={node.data} />
         ) : pending ? (
           <Pending pending={pending} />
         ) : (
@@ -552,7 +596,7 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
       <NodeCaption node={node} />
       <div className="studio-node studio-node--video" data-rotated={rotation ? true : undefined}>
         {fileId ? (
-          <Picture fileId={fileId} rotation={rotation} />
+          <Picture fileId={fileId} rotation={rotation} upload={node.data} />
         ) : (
           <div className="studio-node-empty">
             <Icon name="video" size="lg" />
