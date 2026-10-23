@@ -72,7 +72,7 @@ it('五张并发上传确认排队完成，存储读取四张并行、第五张�
   })
   let active = 0
   let peak = 0
-  const originalOpen = storage.open.bind(storage)
+  const originalRead = storage.readUpTo.bind(storage)
   let completions: Promise<Response>[] = []
   try {
     const readyBytes = await sharp({
@@ -89,13 +89,13 @@ it('五张并发上传确认排队完成，存储读取四张并行、第五张�
     ).json()
     await storage.write(key(readyUpload.uploadUrl), readyBytes, 'image/png')
     expect((await request(`media/${readyUpload.id}/complete`, deviceA, {})).status).toBe(200)
-    storage.open = async (path) => {
-      if (!path.startsWith('staging/')) return originalOpen(path)
+    storage.readUpTo = async (path, maxBytes) => {
+      if (!path.startsWith('staging/')) return originalRead(path, maxBytes)
       peak = Math.max(peak, ++active)
       if (active === 4) secondStarted()
       try {
         await blocked
-        return await originalOpen(path)
+        return await originalRead(path, maxBytes)
       } finally {
         active--
       }
@@ -162,7 +162,7 @@ it('五张并发上传确认排队完成，存储读取四张并行、第五张�
 it('大原件按字节限额排队：在途合计不超过两张最大原件', async () => {
   const { config } = await import('../../config')
   const previousOperator = config.operator
-  const originalOpen = storage.open.bind(storage)
+  const originalRead = storage.readUpTo.bind(storage)
   let release!: () => void
   const blocked = new Promise<void>((resolve) => {
     release = resolve
@@ -200,12 +200,12 @@ it('大原件按字节限额排队：在途合计不超过两张最大原件', a
         'sync:asset-image-bytes': Math.max(...uploads.map((upload) => upload.bytes.length)),
       },
     }
-    storage.open = async (path) => {
-      if (!path.startsWith('staging/')) return originalOpen(path)
+    storage.readUpTo = async (path, maxBytes) => {
+      if (!path.startsWith('staging/')) return originalRead(path, maxBytes)
       peak = Math.max(peak, ++active)
       try {
         await blocked
-        return await originalOpen(path)
+        return await originalRead(path, maxBytes)
       } finally {
         active--
       }
@@ -220,7 +220,7 @@ it('大原件按字节限额排队：在途合计不超过两张最大原件', a
     expect(peak).toBe(2)
   } finally {
     release()
-    storage.open = originalOpen
+    storage.readUpTo = originalRead
     await Promise.allSettled(completions)
     config.operator = previousOperator
   }
@@ -327,6 +327,35 @@ it('真实内容、字节数和摘要必须全部匹配，失败不能让另一�
   expect(await (await request(`media/${upload.id}/complete`, deviceA, {})).json()).toMatchObject({
     error: 'media_size_mismatch',
   })
+  // 比登记的大：只读到「登记字节数 + 1」就能判定，不把整份客户端写入的对象读进内存。
+  storage.events.length = 0
+  await storage.write(key(upload.uploadUrl), new Uint8Array([1, 2, 3, 4, 5, 6]), 'image/png')
+  expect(await (await request(`media/${upload.id}/complete`, deviceA, {})).json()).toMatchObject({
+    error: 'media_size_mismatch',
+  })
+  expect(storage.events.filter((event) => event.includes('staging/'))).toEqual([
+    `write:${key(upload.uploadUrl)}`,
+    `readUpTo:${key(upload.uploadUrl)}:4`,
+  ])
+})
+
+it('确认只读一次暂存原件，写好的原件和预览不再回读核对', async () => {
+  const bytes = await sharp({ create: { width: 8, height: 6, channels: 4, background: '#123456' } })
+    .png()
+    .toBuffer()
+  const upload = await (
+    await request('media/uploads', deviceA, {
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      bytes: bytes.length,
+      contentType: 'image/png',
+    })
+  ).json()
+  await storage.write(key(upload.uploadUrl), bytes, 'image/png')
+  storage.events.length = 0
+  expect((await request(`media/${upload.id}/complete`, deviceA, {})).status).toBe(200)
+  const reads = storage.events.filter((event) => /^(open|read|readUpTo|stream):/.test(event))
+  expect(reads).toEqual([`readUpTo:${key(upload.uploadUrl)}:${bytes.length + 1}`])
+  expect(storage.events.filter((event) => event.startsWith('write:'))).toHaveLength(2)
 })
 
 it('对象存储写入缓慢时，同一账号仍能保存画布结构；失败确认可以原身份重试', async () => {
@@ -609,7 +638,7 @@ describe('confirmation coordination', () => {
     }
     const target = await (await request('media/uploads', deviceA, descriptor)).json()
     await storage.write(key(target.uploadUrl), bytes, 'image/png')
-    const originalOpen = storage.open.bind(storage)
+    const originalRead = storage.readUpTo.bind(storage)
     let release!: () => void
     const blocked = new Promise<void>((resolve) => {
       release = resolve
@@ -623,13 +652,13 @@ describe('confirmation coordination', () => {
       targetReading = resolve
     })
     const blockerKeys = new Set(blockers.map((upload) => key(upload.uploadUrl)))
-    storage.open = async (path) => {
+    storage.readUpTo = async (path, maxBytes) => {
       if (blockerKeys.has(path)) await blocked
       if (path === key(target.uploadUrl)) {
         targetReading()
         await targetHeld
       }
-      return originalOpen(path)
+      return originalRead(path, maxBytes)
     }
     const busy = blockers.map((upload) => request(`media/${upload.id}/complete`, deviceA, {}))
     try {
@@ -653,7 +682,7 @@ describe('confirmation coordination', () => {
     } finally {
       release()
       releaseTarget()
-      storage.open = originalOpen
+      storage.readUpTo = originalRead
       await Promise.allSettled(busy)
     }
   })
@@ -672,7 +701,7 @@ describe('confirmation coordination', () => {
     }
     const target = await (await request('media/uploads', deviceA, descriptor)).json()
     await storage.write(key(target.uploadUrl), bytes, 'image/png')
-    const originalOpen = storage.open.bind(storage)
+    const originalReadUpTo = storage.readUpTo.bind(storage)
     let releaseTarget!: () => void
     const targetHeld = new Promise<void>((resolve) => {
       releaseTarget = resolve
@@ -688,9 +717,9 @@ describe('confirmation coordination', () => {
         await targetHeld
       }
     }
-    storage.open = async (path) => {
+    storage.readUpTo = async (path, maxBytes) => {
       await hold(path)
-      return originalOpen(path)
+      return originalReadUpTo(path, maxBytes)
     }
     try {
       const confirmation = request(`media/${target.id}/complete`, deviceA, {})
@@ -714,14 +743,14 @@ describe('confirmation coordination', () => {
       expect(row).toMatchObject({ status: 'pending', content_type: 'image/jpeg' })
     } finally {
       releaseTarget()
-      storage.open = originalOpen
+      storage.readUpTo = originalReadUpTo
     }
   })
 
   it('same-image confirmations share processing, preserve ownership and leave capacity for other images', async () => {
     const upload = await pendingConfirmation()
     const other = await pendingConfirmation('#abcdef')
-    const originalOpen = storage.open.bind(storage)
+    const originalRead = storage.readUpTo.bind(storage)
     let release!: () => void
     const blocked = new Promise<void>((resolve) => {
       release = resolve
@@ -731,13 +760,13 @@ describe('confirmation coordination', () => {
       started = resolve
     })
     let reads = 0
-    storage.open = async (path) => {
+    storage.readUpTo = async (path, maxBytes) => {
       if (path === key(upload.uploadUrl)) {
         reads++
         started()
         await blocked
       }
-      return originalOpen(path)
+      return originalRead(path, maxBytes)
     }
     const first = request(`media/${upload.id}/complete`, deviceA, {})
     await reading
@@ -793,7 +822,7 @@ describe('confirmation coordination', () => {
 
   it('shared storage failure stays a 503 and a later confirmation can retry', async () => {
     const upload = await pendingConfirmation()
-    const originalOpen = storage.open.bind(storage)
+    const originalRead = storage.readUpTo.bind(storage)
     let release!: () => void
     let started!: () => void
     const blocked = new Promise<void>((resolve) => {
@@ -802,7 +831,7 @@ describe('confirmation coordination', () => {
     const reading = new Promise<void>((resolve) => {
       started = resolve
     })
-    storage.open = async () => {
+    storage.readUpTo = async () => {
       started()
       await blocked
       throw new Error('storage offline')
@@ -816,7 +845,7 @@ describe('confirmation coordination', () => {
       expect(response.status).toBe(503)
       expect(await response.json()).toEqual({ error: 'media_storage_unavailable' })
     }
-    storage.open = originalOpen
+    storage.readUpTo = originalRead
     expect((await request(`media/${upload.id}/complete`, deviceA, {})).status).toBe(200)
   })
 
@@ -832,7 +861,7 @@ describe('confirmation coordination', () => {
     const busy = await Promise.all(
       ['#112233', '#445566', '#778899', '#aabbcc'].map((color) => pendingConfirmation(color)),
     )
-    const originalOpen = storage.open.bind(storage)
+    const originalRead = storage.readUpTo.bind(storage)
     let releaseBusy!: () => void
     const blocked = new Promise<void>((resolve) => {
       releaseBusy = resolve
@@ -842,12 +871,12 @@ describe('confirmation coordination', () => {
       occupied = resolve
     })
     let reads = 0
-    storage.open = async (path) => {
+    storage.readUpTo = async (path, maxBytes) => {
       if (path.startsWith('staging/')) {
         if (++reads === 4) occupied()
         await blocked
       }
-      return originalOpen(path)
+      return originalRead(path, maxBytes)
     }
     const local = busy.map((upload) => request(`media/${upload.id}/complete`, deviceA, {}))
     await occupiedSlots
