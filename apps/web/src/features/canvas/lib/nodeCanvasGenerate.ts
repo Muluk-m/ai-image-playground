@@ -363,14 +363,19 @@ export async function readImageFile(file: File): Promise<ReadImageFile> {
   return { dataUrl, width: size.width, height: size.height }
 }
 
+/** 按结构判别：别的 window / iframe 传进来的 File 过不了本窗口的 `instanceof File`。 */
+function isReadImageFile(value: File | ReadImageFile): value is ReadImageFile {
+  return typeof (value as ReadImageFile).dataUrl === 'string'
+}
+
 export async function fillImageNode(
   editor: CanvasEditor,
   doc: Y.Doc,
   nodeId: string,
   file: File | ReadImageFile,
-  name = file instanceof File ? file.name : undefined,
+  name = isReadImageFile(file) ? undefined : file.name,
 ): Promise<void> {
-  const image = file instanceof File ? await readImageFile(file) : file
+  const image = isReadImageFile(file) ? file : await readImageFile(file)
   await putBitmapOnNode(editor, doc, nodeId, image, name)
 }
 
