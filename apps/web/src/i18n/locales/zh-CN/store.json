@@ -40,6 +40,7 @@
   },
   "toast": {
     "generateDone_other": "生成完成，共 {{count}} 张图片",
+    "generateDonePartial": "已生成 {{done}}/{{total}} 张，其余失败",
     "configReused": "已复用配置到输入框",
     "imageMissingForEdit": "图片已不存在，无法编辑",
     "imageMissingForCanvas": "图片已不存在，无法送入画布",
