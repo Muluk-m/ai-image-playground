@@ -188,6 +188,7 @@ import {
 } from '../lib/db'
 import { _setRuntimeConfigForTesting } from '../lib/runtimeConfig'
 import { dismissSubmittedTasks, submittedTaskSnapshot } from '../lib/submittedTaskAttention'
+import { taskCancelled } from '../lib/taskError'
 import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
   addCompletedCanvasTask,
@@ -686,6 +687,20 @@ describe('mask draft lifecycle in store actions', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+
+  it('排队中被取消：卡片记成已取消，不自动弹出失败详情', async () => {
+    vi.mocked(callImageApi).mockRejectedValue(taskCancelled('任务已取消'))
+    useStore.setState({ prompt: 'a red cat', params: { ...DEFAULT_PARAMS }, detailTaskId: null })
+
+    await submitTask()
+    await waitUntil(
+      () => useStore.getState().tasks[0]?.status === 'error',
+      'cancelled task did not settle',
+    )
+
+    expect(useStore.getState().tasks[0]?.cancelled).toBe(true)
+    expect(useStore.getState().detailTaskId).toBeNull()
   })
 
   it('把自己挂的超时 abort 写成超时文案，不把浏览器那句「用户取消了」甩给用户', async () => {
