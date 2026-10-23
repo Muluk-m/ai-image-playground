@@ -4,7 +4,8 @@
     "accounts:sync": true,
     "agent:chat": true,
     "billing:credits": true,
-    "generation:byok": false
+    "generation:byok": false,
+    "generation:video": true
   },
   "quotas": {
     "sync:user-projects": 30,

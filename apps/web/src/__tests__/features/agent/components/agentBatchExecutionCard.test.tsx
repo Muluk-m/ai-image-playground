@@ -556,7 +556,13 @@ it('polls one active batch at a time, exposes each outcome, and stops after its 
     expect(host.querySelector('details[data-batch-status="reconciling"]')?.textContent).toContain(
       '结果确认中',
     )
-    expect(imageReads).toBe(0)
+    // The finished output shows up in the chat right away, outside the collapsed status group.
+    await vi.waitFor(() => expect(imageReads).toBe(1))
+    await vi.waitFor(() =>
+      expect(
+        host.querySelector('[data-batch-result="batch-output-0"] img[src^="data:image/png"]'),
+      ).not.toBeNull(),
+    )
     saved = {
       ...saved,
       batch: { ...saved.batch, status: 'closed', actualCredits: 7 },

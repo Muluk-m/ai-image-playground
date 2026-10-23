@@ -6,6 +6,7 @@ import {
   getPublicChannel,
   getPublicChannels,
   modelLabel,
+  modelLogo,
 } from '../../../lib/channels/publicChannels'
 import type { ClientProfile } from '../../../lib/channels/types'
 import { GROK_CHANNEL, IMAGE_CHANNEL } from '../../features/video/fixtures'
@@ -99,5 +100,53 @@ describe('getPublicChannels', () => {
       { id: 'img-a', label: 'Image A' },
       { id: 'img-b', label: 'Image B' },
     ])
+  })
+})
+
+describe('selector metadata from an unvalidated catalog', () => {
+  const STALE: DiscoveredChannel = {
+    id: 'stale',
+    kind: 'gemini-queue',
+    label: 'Stale',
+    models: [
+      {
+        id: 'img-a',
+        label: 'Image A',
+        capabilities: ['generate'],
+        badges: ['fast', 'brand-new', 'fast', 'value'] as never,
+        logo: 'future-logo' as never,
+      },
+      { id: 'img-b', label: 'Image B', capabilities: ['generate'], logo: 'nano-banana' },
+    ],
+    defaults: {},
+  }
+
+  it('keeps only badges the client knows, once each and in order', () => {
+    setChannels([STALE])
+    const [first] = getProfileModelOptions(builtinProfile('stale', 'img-a'), getPublicChannels())
+    expect(first?.badges).toEqual(['fast', 'value'])
+  })
+
+  it('gives each selector option the logo its own channel declares', () => {
+    const other: DiscoveredChannel = {
+      id: 'other',
+      kind: 'gemini-queue',
+      label: 'Other',
+      models: [{ id: 'img-b', label: 'Image B', capabilities: ['generate'] }],
+      defaults: {},
+    }
+    setChannels([STALE, other])
+    const fromStale = getProfileModelOptions(builtinProfile('stale', 'img-b'), getPublicChannels())
+    const fromOther = getProfileModelOptions(builtinProfile('other', 'img-b'), getPublicChannels())
+    expect(fromStale.find((one) => one.id === 'img-b')?.logo).toBe('nano-banana')
+    expect(fromOther[0]).not.toHaveProperty('logo')
+    // 不认识的 token 不下发给选择器。
+    expect(fromStale.find((one) => one.id === 'img-a')).not.toHaveProperty('logo')
+  })
+
+  it('ignores a logo token the client has no icon for', () => {
+    setChannels([STALE])
+    expect(modelLogo('img-a')).toBeUndefined()
+    expect(modelLogo('img-b')).toBe('nano-banana')
   })
 })

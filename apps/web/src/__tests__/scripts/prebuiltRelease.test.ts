@@ -401,6 +401,11 @@ describe('receivers with the shared segmenter', () => {
       `rollout image-playground-test ai-image-playground:test-${short}-${short}`,
     )
     expect(calls.join('\n')).not.toMatch(/segmenter (up|attach)/)
+    // Detached, so a later rollback (which reads the attachment back) agrees.
+    expect(calls.indexOf('segmenter detach image-playground-test')).toBeGreaterThan(-1)
+    expect(calls.indexOf('segmenter detach image-playground-test')).toBeLessThan(
+      calls.findIndex((c) => c.startsWith('rollout ')),
+    )
   })
 
   it('replaces the shared segmenter from a production release only when its version is not running, before the executors', () => {
@@ -417,6 +422,8 @@ describe('receivers with the shared segmenter', () => {
     expect(calls).toContain(`tag ${segmenterImage} ai-image-playground:segmenter`)
     // Production editions stay off it unless SEGMENTER_EDITIONS lists them.
     expect(calls.join('\n')).not.toMatch(/segmenter (attach|healthy)|segmenter=/)
+    expect(calls).toContain('segmenter detach image-playground-internal')
+    expect(calls).toContain('segmenter detach image-playground-paid')
   })
 
   it('skips the self-test when that version already runs', () => {
@@ -456,6 +463,7 @@ describe('receivers with the shared segmenter', () => {
     expect(calls.join('\n')).not.toContain('segmenter up')
     expect(calls).toContain('segmenter attach image-playground-internal')
     expect(calls).toContain('segmenter attach image-playground-paid')
+    expect(calls.join('\n')).not.toContain('segmenter detach')
     expect(calls).toContain(
       `rollout image-playground-internal ai-image-playground:vps-main-${short} segmenter=http://segmenter:8080`,
     )

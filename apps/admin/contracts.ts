@@ -726,6 +726,10 @@ export interface AgentPromptItem {
   media: string
   model: string
   taskId: string | null
+  /** Stable instruction identity; tasks from one tool call share it. */
+  groupId?: string | null
+  /** All queue tasks emitted by the same tool instruction, including taskId. */
+  taskIds?: string[]
   userText: string | null
   chatModel: string | null
   inputTokens: number

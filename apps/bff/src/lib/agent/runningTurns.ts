@@ -47,3 +47,13 @@ export function registerRunningTurn(turn: RunningTurn): () => void {
     if (running.get(turn.conversationId) === turn) running.delete(turn.conversationId)
   }
 }
+
+/** 本进程里此刻在跑的轮。测试等它们落定时用。 */
+export function runningTurnsForTesting(): RunningTurn[] {
+  return [...running.values()]
+}
+
+/** 测试之间的清场：上一个用例留下还在跑的轮一律中止，否则它会写向下一个用例刚清掉的数据。 */
+export function abortRunningTurnsForTesting(): void {
+  for (const turn of running.values()) turn.abort()
+}

@@ -27,6 +27,7 @@ import {
   PANEL_MAX_WIDTH_RATIO,
   TAB,
 } from '../agentStyles'
+import { useActiveAgentSurface } from '../lib/activeAgentSurface'
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
@@ -263,8 +264,9 @@ export default function AgentPanel({
   const tab = useAgentStore((state) => state.tab)
   const messages = useAgentStore((state) => state.messages)
   const turns = useAgentStore((state) => state.turns)
-  const imageSkills = useAgentSkills('image')
-  const videoSkills = useAgentSkills('video')
+  const surface = useActiveAgentSurface()
+  const imageSkills = useAgentSkills('image', surface)
+  const videoSkills = useAgentSkills('video', surface)
   const skills = useMemo(() => [...imageSkills, ...videoSkills], [imageSkills, videoSkills])
   const error = useAgentStore((state) => state.error)
   const returnedMessagesError = useAgentStore((state) => state.returnedMessagesError)

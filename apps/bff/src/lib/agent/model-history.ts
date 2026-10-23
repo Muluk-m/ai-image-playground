@@ -10,6 +10,8 @@ import { type CompactionSettings, compactionBudget, contextSizeTokens } from './
 import type { AgentContextTransform } from './compaction-transform'
 import { type AgentHistoryWindow, type AgentOwner, listAgentHistoryWindow } from './conversations'
 import { ConversationExecutionLost } from './execution'
+import { rewriteInlineReasoning } from './inline-reasoning'
+import { agentInlineReasoningTags } from './model-limits'
 import { type AgentTurnAudience, visibleAgentSkills } from './skills'
 import { estimateMessageTokens } from './token-estimate'
 import { agentToolDeclarations } from './tools'
@@ -209,6 +211,12 @@ export function modelHistorySkillsMatch(
   return [...current].every(([id, text]) => previous.get(id) === text || loaded.get(id) === text)
 }
 
+function withoutInlineReasoning(message: AgentMessage): AgentMessage {
+  if (message.role !== 'assistant') return message
+  const tags = agentInlineReasoningTags(message.model)
+  return tags ? rewriteInlineReasoning(message, tags) : message
+}
+
 /** 必须在会话确权之后、预扣之前调用。故障只丢缓存，不改变产品历史。 */
 export async function readModelHistory(
   identity: ModelHistoryKey & { readonly history: readonly AgentMessageView[] },
@@ -233,7 +241,8 @@ export async function readModelHistory(
     // 估算失败必须在缓存边界内回退，不让缓存影响本轮可用性。
     if (snapshot.messages.some((message) => !Number.isFinite(estimateMessageTokens(message))))
       return undefined
-    return snapshot.messages
+    // 修复前存下的原生历史里，助手正文开头可能还带着推理标签；按那条消息的模型配置拆掉再回放。
+    return snapshot.messages.map(withoutInlineReasoning)
   } catch {
     // 首次使用、对象过期与存储故障都可以走已有回放；不记录原始会话或图片。
     return undefined
@@ -279,6 +288,7 @@ export interface ModelHistorySave {
   readonly owner: AgentOwner
   readonly mode: AgentMode
   readonly userId: string | null
+  readonly experience?: 'chat' | 'canvas'
   /** 起轮时的产品历史，接上本轮逐条写下的原貌。 */
   readonly expectedHistory: readonly AgentMessageView[]
   readonly previousSkills?: ReadonlyMap<string, string>
@@ -305,7 +315,7 @@ export async function saveModelHistoryAfterTurn(save: ModelHistorySave): Promise
     if (historyFingerprint !== modelHistoryFingerprint(save.expectedHistory)) return
     const skillTexts = await untilAborted(
       signal,
-      replayedSkillTexts(current.messages, save.mode, save.userId),
+      replayedSkillTexts(current.messages, save.mode, save.userId, save.experience),
     )
     if (!modelHistorySkillsMatch(save.messages, save.previousSkills ?? new Map(), skillTexts)) {
       log.info(
