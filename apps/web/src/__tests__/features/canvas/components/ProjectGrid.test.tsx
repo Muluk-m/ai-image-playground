@@ -142,3 +142,33 @@ it('读取项目列表时只在按钮上显示加载，卡片不跟着一起转�
     useCanvasProjectStore.setState({ cloudLoading: false })
   }
 })
+
+it('只有点「刷新项目」才重取失败封面，后台同步不动已显示的封面', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  useCanvasProjectStore.setState({
+    projects: [untitled('chat', 'chat')],
+    activeId: null,
+    cloudCatalog: {},
+    cloudLoading: false,
+    cloudError: null,
+    coverRetryRound: 0,
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<ProjectGrid />))
+    await act(async () => useCanvasProjectStore.getState().refreshCloud())
+    expect(useCanvasProjectStore.getState().coverRetryRound).toBe(0)
+    const refresh = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('刷新项目'),
+    ) as HTMLButtonElement | undefined
+    if (refresh) {
+      await act(async () => refresh.click())
+      expect(useCanvasProjectStore.getState().coverRetryRound).toBe(1)
+    }
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})

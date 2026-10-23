@@ -103,6 +103,10 @@ it('封面迟迟取不到就停止转圈，失败后自动重试一次，「刷�
     // 超时后真加载到了，照样换成图片。
     await act(async () => cover().dispatchEvent(new Event('load')))
     expect(cover().getAttribute('data-project-cover-state')).toBe('loaded')
+    // 已显示的封面不随「刷新项目」重载。
+    const shown = cover()
+    await act(async () => useCanvasProjectStore.getState().retryProjectCovers())
+    expect(cover()).toBe(shown)
 
     await act(async () => root.render(<ProjectCover source="data:image/png;base64,BAUG" chat />))
     const first = cover()
@@ -118,9 +122,7 @@ it('封面迟迟取不到就停止转圈，失败后自动重试一次，「刷�
     expect(cover()).toBe(second)
     expect(host.querySelector('[role=status]')).toBeNull()
 
-    await act(async () =>
-      useCanvasProjectStore.setState((state) => ({ coverRetryRound: state.coverRetryRound + 1 })),
-    )
+    await act(async () => useCanvasProjectStore.getState().retryProjectCovers())
     expect(cover()).not.toBe(second)
     expect(cover().getAttribute('data-project-cover-state')).toBe('loading')
   } finally {
