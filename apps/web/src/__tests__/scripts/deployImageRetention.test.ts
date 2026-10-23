@@ -74,6 +74,25 @@ describe('select_stale_images', () => {
     ])
   })
 
+  it('抠图服务按自己的版本打 tag（segmenter-<版本>-<sha>），也照样只留最新的 N 代', () => {
+    const seg = (v: number, sha: string) => `ai-image-playground:segmenter-${v}-${sha}`
+    const tags = [
+      'ai-image-playground:segmenter',
+      seg(2, 'aaaaaaaaaaa4'),
+      seg(1, 'aaaaaaaaaaa3'),
+      'ai-image-playground:segmenter-test',
+      seg(1, 'aaaaaaaaaaa2'),
+      seg(1, 'aaaaaaaaaaa1'),
+    ]
+    expect(stale('ai-image-playground:segmenter', 2, tags, [seg(1, 'aaaaaaaaaaa1')])).toEqual([
+      seg(1, 'aaaaaaaaaaa2'),
+    ])
+    // 别的形态不认这种形状，免得把 <alias>-<数字>-<sha> 的手工 tag 当成发布产物。
+    expect(
+      stale('ai-image-playground:vps-main', 0, ['ai-image-playground:vps-main-1-aaaaaaa1']),
+    ).toEqual([])
+  })
+
   it('两个形态共用仓库名时互不误删', () => {
     const tags = [internal('aaaaaaa1'), paid('aaaaaaa1', 'bbbbbbb1'), internal('aaaaaaa2')]
     expect(stale('ai-image-playground:vps-main', 1, tags)).toEqual([internal('aaaaaaa2')])
@@ -281,5 +300,60 @@ esac
     expect(tighter).toBeGreaterThan(free)
     expect(receiver).toContain('reclaim_deploy_disk "$release" "$rolled_out $backup_image"')
     expect(receiver).not.toContain('prune_old_images')
+  })
+})
+
+/**
+ * 发布目录里的镜像归档，只有其中每个应用镜像都在部署日志里 ok 过才删。备份 sidecar 和共享抠图服务
+ * 跟着各形态一起上，不单独记日志；要是把它们也算进去，带抠图服务的生产发布就永远删不掉归档。
+ */
+describe('release_was_deployed', () => {
+  function deployed(rows: string[], logLines: string[]) {
+    const dir = mkdtempSync(join(tmpdir(), 'aip-release-deployed-'))
+    try {
+      const release = join(dir, 'release')
+      mkdirSync(release)
+      writeFileSync(join(release, 'images.tsv'), `${rows.join('\n')}\n`)
+      const log = join(dir, 'deployments.log')
+      writeFileSync(log, logLines.map((line) => `${line}\n`).join(''))
+      return execFileSync(
+        'sh',
+        [
+          '-c',
+          `. "$0"; deployments_log=$2; release_was_deployed "$1" && echo yes || echo no`,
+          lib,
+          release,
+          log,
+        ],
+        { encoding: 'utf8' },
+      ).trim()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+  const ok = (image: string) =>
+    `2026-10-23T00:00:00Z internal public=a private=- image=${image} by=ci result=ok`
+
+  it('不等抠图服务和备份的日志行，它们本来就没有', () => {
+    const rows = [
+      'internal\tai-image-playground:vps-main-aaaaaaa1\tsha256:1\ta\t-',
+      'backup\tai-image-playground:backup-aaaaaaa1\tsha256:2\ta\t-',
+      'segmenter\tai-image-playground:segmenter-1-aaaaaaa1\tsha256:3\ta\t-',
+    ]
+    expect(deployed(rows, [ok('ai-image-playground:vps-main-aaaaaaa1')])).toBe('yes')
+  })
+
+  it('应用镜像没上成功就保留归档', () => {
+    const rows = [
+      'internal\tai-image-playground:vps-main-aaaaaaa1\tsha256:1\ta\t-',
+      'segmenter\tai-image-playground:segmenter-1-aaaaaaa1\tsha256:3\ta\t-',
+    ]
+    expect(deployed(rows, [])).toBe('no')
+  })
+
+  it('只带抠图服务、没有应用镜像的目录不算上过', () => {
+    expect(
+      deployed(['segmenter\tai-image-playground:segmenter-1-aaaaaaa1\tsha256:3\ta\t-'], []),
+    ).toBe('no')
   })
 })

@@ -55,7 +55,18 @@ an app release:
 - `scripts/vps-deploy.sh`: every edition listed in `SEGMENTER_EDITIONS` (deploy.env, default
   `test`) is attached after its rollout while the shared container is healthy, and its BFF and
   worker get `AGENT_SEGMENTER_URL=http://segmenter:8080` plus `AGENT_SEGMENTER_NAMESPACE=<project>`.
-  Test releases only ever attach; they never start, restart or replace it.
+  Test releases only ever attach; they never start, restart or replace it. An edition that does
+  not get it (not listed, or the shared container is not serving) is detached instead, so
+  "attached to `<project>_application`" always means "this edition uses the segmenter".
+- Rollback (`scripts/app-compose.sh rollback`) and any other run of `scripts/rollout-runtime.sh`
+  that vps-deploy did not start read that back: attached gives the executors the same two
+  variables, not attached leaves them out. The first Compose deploy of a project gets them through
+  `deploy/compose.app.yaml`.
+- "Serving" means Docker reports the container healthy, or it is running and answers `/health`
+  right now: for up to 30 s after `up` replaced it Docker still says `starting`.
+- Old `ai-image-playground:segmenter-<VERSION>-<sha>` tags are pruned like the editions' (the
+  newest two and the running one are kept), and a release archive does not wait for a deploy-log
+  line for the segmenter (there is none).
 - Cache keys are `<project>:media:<mediaId>`, so one environment never reuses another's
   embeddings. The service holds no other state and no secrets.
 - Turning it on for production editions (needs Nain's go-ahead): set

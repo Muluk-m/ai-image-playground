@@ -16,10 +16,14 @@
 #     removes a leftover per-environment instance (and then its network) that serves no app
 #     network any more. Idempotent. Test releases only ever call this (and `healthy`): they never build, start,
 #     restart or replace the segmenter.
+#   scripts/segmenter-deploy.sh detach <project>
+#     Takes <project>_application off the shared container: the edition is not to use it.
+#     Attached means enabled, which is what rollout-runtime.sh reads back on a rollback. Idempotent.
 #   scripts/segmenter-deploy.sh healthy
-#     Succeeds when the shared container is running and healthy.
+#     Succeeds when the shared container is running and serving: Docker reports it healthy, or it
+#     answers /health (Docker still says `starting` for up to 30 s after `up` replaced it).
 #   scripts/segmenter-deploy.sh current <version>
-#     Succeeds when the shared container already runs <version> and is healthy.
+#     Succeeds when the shared container already runs <version> and is serving.
 set -eu
 
 container='image-playground-segmenter'
@@ -31,7 +35,7 @@ version_label='online.muvloom.segmenter.version'
 split_instances="$container-test $container-prod"
 
 usage() {
-  echo "Usage: scripts/segmenter-deploy.sh up <image> <version> | attach <project> | healthy | current <version>" >&2
+  echo "Usage: scripts/segmenter-deploy.sh up <image> <version> | attach <project> | detach <project> | healthy | current <version>" >&2
   exit 2
 }
 
@@ -69,6 +73,14 @@ answers() {
     >/dev/null 2>&1
 }
 
+# Serving: Docker says healthy, or it runs and answers right now. Right after `up` replaced it,
+# Docker still reports `starting` until the first 30 s health interval, although `up` only
+# switched over once it answered; editions deployed in that window must still get it.
+usable() {
+  if healthy "$1"; then return 0; fi
+  [ "$(docker inspect "$1" --format '{{.State.Running}}' 2>/dev/null || true)" = true ] && answers "$1"
+}
+
 start_next() {
   docker network inspect "$own_network" >/dev/null 2>&1 ||
     docker network create --internal "$own_network" >/dev/null
@@ -86,7 +98,7 @@ start_next() {
 }
 
 current() {
-  exists "$container" && healthy "$container" &&
+  exists "$container" && usable "$container" &&
     [ "$(docker inspect "$container" --format "{{index .Config.Labels \"$version_label\"}}")" = "$1" ]
 }
 
@@ -168,6 +180,14 @@ attach() {
   return 0
 }
 
+# The edition is not (or no longer) to use it. Attached means enabled: rollout-runtime.sh reads it
+# back on a rollback. Idempotent; nothing to do when there is no shared container.
+detach() {
+  network=$1_application
+  exists "$container" || return 0
+  disconnect "$network" "$container"
+}
+
 command=${1:-}
 case $command in
   up)
@@ -181,7 +201,11 @@ case $command in
     ;;
   healthy)
     [ $# -eq 1 ] || usage
-    healthy "$container"
+    usable "$container"
+    ;;
+  detach)
+    [ $# -eq 2 ] || usage
+    detach "$2"
     ;;
   current)
     [ $# -eq 2 ] || usage
