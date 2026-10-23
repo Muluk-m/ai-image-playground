@@ -472,6 +472,41 @@ it('leaves a newer run of the same key alone when an account-switched run cleans
   }
 })
 
+it('keeps an old run from resuming after switching accounts away and back', async () => {
+  const key = 'switched-back'
+  const served = fetch
+  let first = true
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await served(input, init)
+      if (first && String(input).endsWith('/confirm')) {
+        first = false
+        // 旧运行确认中换到别的账号又换回来；回来后同一 key 被收走后又登记、开跑了一次。
+        setClientStorageScope('someone-else')
+        setClientStorageScope(null)
+        forgetAgentNodeRun(key)
+        registerAgentNodeRunOrigin(key, {})
+        expect(startAgentNodeRun(key, proposal, 5)).toBe(true)
+      }
+      return response
+    }),
+  )
+  try {
+    await mount(key, true, { ...proposal, direct: true }, undefined, false)
+    await act(async () => {})
+    expect(confirms).toBe(2)
+    // 旧运行属于换走之前的那次登录：换回同一账号也不能接着跑、不能把状态写到新运行上。
+    expect(mocks.run).not.toHaveBeenCalled()
+    expect(agentNodeRun(key)?.status).toBe('countdown')
+    expect(isAgentNodeRunOrigin(key)).toBe(true)
+  } finally {
+    agentNodeRunControl(key)?.abort()
+    await act(async () => {})
+    setClientStorageScope(null)
+  }
+})
+
 it('waits for the canvas of the proposal before starting a direct run', async () => {
   await mount('direct-other-project', true, {
     ...proposal,
