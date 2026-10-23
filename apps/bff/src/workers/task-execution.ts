@@ -373,6 +373,10 @@ export async function claimTaskExecution(
       )
       .limit(1)
     if (!candidate) return null
+    // 开了弹性名额时，同一 provider 上的所有认领（保证、弹性、匿名）都串在一把锁上：
+    // 否则弹性判定读完正在跑的数之后、看排队之前，别人的保证认领提交了，两边都看不见对方而超发。
+    // 锁顺序固定为「用户行 → provider 锁」，匿名任务没有用户行只拿 provider 锁。
+    const serializeProviderClaims = config.worker.idleConcurrencyEnabled
     if (candidate.userId) {
       // Serialize account counts/claims while permitting FK KEY SHARE: a finishing task may
       // hold user_change_heads before inserting user_changes, which references this user.
@@ -381,6 +385,7 @@ export async function claimTaskExecution(
         .from(schema.users)
         .where(eq(schema.users.id, candidate.userId))
         .for('no key update')
+      if (serializeProviderClaims) await lockIdleSlotClaims(tx, candidate.provider)
       const limits = await accountGenerationLimits(
         tx,
         candidate.userId,
@@ -405,7 +410,6 @@ export async function claimTaskExecution(
       if (activeTotal >= limits.total) {
         // 保证并发用满了：只剩弹性名额。先拿锁再判定，多个 worker 同时放弹性名额也不会超发。
         if (activeTotal >= limits.idle) return null
-        await lockIdleSlotClaims(tx, candidate.provider)
         const decision = await checkIdleSlot(tx, {
           provider: candidate.provider,
           model: candidate.model,
@@ -435,6 +439,8 @@ export async function claimTaskExecution(
           runningInScope: decision.runningInScope,
         }
       }
+    } else if (serializeProviderClaims) {
+      await lockIdleSlotClaims(tx, candidate.provider)
     }
     const [row] = await tx
       .update(schema.tasks)

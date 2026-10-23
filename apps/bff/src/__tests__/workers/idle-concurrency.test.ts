@@ -218,6 +218,22 @@ describe('入门版空闲时可用并发', () => {
     expect(results.filter(Boolean).every((one) => one?.idleSlot)).toBe(true)
   })
 
+  it('弹性认领和别人的保证认领同时来，不会两边都放而超过全局上限', async () => {
+    await running(STARTER)
+    await running('other-1')
+    await running('other-2')
+    const elastic = await queue(STARTER)
+    const guaranteed = await queue('other-3')
+    const [elasticClaim, guaranteedClaim] = await Promise.all([claim(elastic), claim(guaranteed)])
+    expect(guaranteedClaim).not.toBeNull()
+    expect(elasticClaim).toBeNull()
+    const inProgress = await db
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.status, 'in_progress'))
+    expect(inProgress).toHaveLength(4)
+  })
+
   it('多个调度方同时放弹性名额不超过全局余量', async () => {
     billing.entitlementFor = (userId) =>
       userId === STARTER ? { guaranteed: 1, idle: 4 } : { guaranteed: 1, idle: 1 }
