@@ -31,6 +31,7 @@ import { useActiveAgentSurface } from '../lib/activeAgentSurface'
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
+import { usePlanCardState } from '../lib/planCardState'
 import { isProductionDraft } from '../lib/promptDraft'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { agentPanelPresent } from '../panelLayout'
@@ -348,6 +349,13 @@ export default function AgentPanel({
     followLatest.current = false
   }
   const conversationId = useAgentStore((state) => state.conversationId)
+  // 计划卡的勾选、确认中与停因按稿 id 记在面板上、按会话隔离：卡片随逐张提交或别处确认拆段、
+  // 换 key 重挂时状态不丢，还在跑的确认循环也写得回来；稿成交或被移除后对应状态随即丢弃。
+  const planDraftIds = useMemo(
+    () => new Set(messages.filter(isImagePlanDraft).map((message) => message.id)),
+    [messages],
+  )
+  const planCard = usePlanCardState(conversationId, planDraftIds)
   useLayoutEffect(() => {
     followLatest.current = true
     setUnseen(false)
@@ -604,7 +612,7 @@ export default function AgentPanel({
                         className="studio-agent-message-block"
                       >
                         <fieldset disabled={historyCached} className="contents">
-                          <AgentGenerationPlan messages={planRun} />
+                          <AgentGenerationPlan messages={planRun} plan={planCard} />
                         </fieldset>
                         {footer && !turnShowsImageReceipt(messages, message.turnId) && (
                           <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
