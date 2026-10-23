@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
 import {
+  applyPromptRewriteGuard,
   billedStageQuantity,
+  buildAspectInstruction,
   canvasOrigin,
   type QueueProvider,
   readCanvasDocument,
@@ -16,7 +18,6 @@ import {
   stageExecutionBindingMatches,
   stageExecutionSpecsMatch,
   storyboardFingerprint,
-  unshapeQueuePrompt,
   updateCanvasNode,
 } from '@image-playground/shared'
 import { and, asc, eq, inArray, isNull, lt, ne, sql } from 'drizzle-orm'
@@ -24,6 +25,7 @@ import * as Y from 'yjs'
 import { db, schema } from '../../db/client'
 import { accessCanvasDocument, CanvasSyncError } from '../canvasSyncStore'
 import { isCapabilityEnabled } from '../capabilities'
+import { modelCapabilities } from '../channels'
 import { log } from '../logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
 
@@ -842,26 +844,46 @@ export async function preflightStageAuthorization(
     })
   })
 }
+/** 队列图片提交里用来认出分发层机器指令的上下文，见 `stageBindingAccepts`。 */
+export interface StagePromptShaping {
+  readonly provider: QueueProvider
+  readonly model: string
+  readonly size?: string
+}
+
 /**
- * 队列里提交的 prompt 可能被分发层钉上两段机器指令：防改写前缀（`no_rewrite`，非 Gemini）
- * 和构图后缀（模型不认 `size` 时按请求自身的 size 生成）。授权时冻结的是用户确认的原文，
- * 所以先逐字比，不一致再剥掉这两段精确的固定串后比一次。能被剥掉的只有这两段固定文本，
- * 后缀还必须和本次请求的 size 对得上，用户内容、输入图数量、视频参数一个字都不放宽。
+ * 创作页分发层（`callImageApi`）从授权冻结的原文能拼出的全部 prompt：原文本身；非 Gemini 且
+ * 开着 no_rewrite 时前面加防改写 guard；模型声明过能力且其中没有 `size` 时，末尾再按本次请求
+ * 的 size 加构图指令。条件和 web 的 `getParamCapabilities().size`、BFF 的 `shapeQueuePrompt`
+ * 一致（没声明能力的模型按支持 size 处理，不加后缀）。
  */
-function stageBindingAccepts(
+function dispatchedPromptVariants(prompt: string, shaping: StagePromptShaping): string[] {
+  const guarded =
+    shaping.provider === 'gemini' ? [prompt] : [prompt, applyPromptRewriteGuard(prompt)]
+  const capabilities = modelCapabilities(shaping.model)
+  const instruction =
+    shaping.size && capabilities && !capabilities.includes('size')
+      ? buildAspectInstruction(shaping.size)
+      : null
+  return instruction ? [...guarded, ...guarded.map((item) => `${item}\n\n${instruction}`)] : guarded
+}
+
+/**
+ * 授权冻结的是用户确认的原文，队列提交的 prompt 可能被分发层钉上机器指令。先逐字比；不一致时
+ * 从原文正向拼出分发层可能产出的几种写法，提交的必须和其中之一逐字相等。只往原文上加、不从
+ * 提交里剥，所以用户内容一个字都不放宽：多一个字、少一个字、换一种 size 的后缀、给支持 size
+ * 的模型加后缀、给 Gemini 加 guard 都对不上。视频提交不经过分发层改写，不传 shaping，只做逐字比。
+ */
+export function stageBindingAccepts(
   binding: StageExecutionBinding,
   execution: StageExecutionFingerprint,
-  shaping: { readonly provider: QueueProvider; readonly size?: string } | undefined,
+  shaping: StagePromptShaping | undefined,
 ): boolean {
   if (stageExecutionBindingMatches(binding, execution)) return true
   if (!shaping) return false
-  const prompt = unshapeQueuePrompt({
-    provider: shaping.provider,
-    prompt: execution.prompt,
-    ...(shaping.size ? { size: shaping.size } : {}),
-  })
   return (
-    prompt !== execution.prompt && stageExecutionBindingMatches(binding, { ...execution, prompt })
+    dispatchedPromptVariants(binding.prompt, shaping).includes(execution.prompt) &&
+    stageExecutionBindingMatches(binding, { ...execution, prompt: binding.prompt })
   )
 }
 
@@ -874,8 +896,8 @@ export async function consumeStageAuthorization(
   usage: { model: string; quantity: number; unitMultiplier: number },
   credits: number,
   execution: StageExecutionFingerprint,
-  /** 队列提交的协议族与 size：用来认出分发层钉上的机器指令，见 `stageBindingAccepts`。 */
-  shaping?: { readonly provider: QueueProvider; readonly size?: string },
+  /** 图片提交的协议族、模型与 size：用来认出分发层钉上的机器指令，见 `stageBindingAccepts`。 */
+  shaping?: StagePromptShaping,
 ) {
   if (!userId) throw new StageAuthorizationError('stage_authorization_inactive')
   const quantity = billedStageQuantity(usage.quantity)
