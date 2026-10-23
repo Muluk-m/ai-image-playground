@@ -31,8 +31,78 @@ export interface BatchFact {
 
 export interface ConversationStateFacts {
   readonly pendingDrafts: readonly PendingDraftFact[]
+  /** 确认门拦下、用户没确认就发了新消息而作废的稿：没提交、没扣费，不再等任何人。 */
+  readonly voidedDrafts: readonly PendingDraftFact[]
   readonly pendingNodeRuns: readonly PendingNodeRunFact[]
   readonly batches: readonly BatchFact[]
+}
+
+/**
+ * 草稿行只记得「还没建任务」，分不出那张卡还在等、已经作废，还是确认门拦着：按同一轮同一次调用的卡认。
+ * 作废只改写卡片，草稿行的 `task_id` 照样是空的，单看草稿会把作废的稿当成还在等确认。
+ * - 确认门拦下、还在等的卡（`gated` + `awaiting_confirmation`）：智能体本就不知道有这道门，不列；
+ * - 作废的卡（`gated` + `failed` + `cancelled`）：草稿行还在，但这次已经了结，单列成「已作废」；
+ * - 普通待确认卡、找不到卡的旧数据：照旧算待确认；
+ * - 别的终局（已提交、成功、失败）：任务归任务管，这一段不再说它。
+ *
+ * 一条语句、一个快照里认卡、分类、各取最新 `MAX_DRAFTS` 条：先截条数再分类，较新的作废稿会挤掉更早还在等的卡；
+ * 分页跨多条语句又会在读取期间被确认、作废改动结果集。同一张卡出现在多条消息、或同一条消息里出现多次时，按会话内 `seq`、再按块在消息里的位置取最后写的那条。
+ */
+async function readDraftFacts(
+  conversationId: string,
+  since: number,
+): Promise<{ pendingDrafts: PendingDraftFact[]; voidedDrafts: PendingDraftFact[] }> {
+  const rows = (await db.execute(sql`
+    WITH classified AS (
+      SELECT d.prompt, d.created_at, d.id,
+        CASE
+          WHEN card.block IS NULL THEN 'pending'
+          WHEN card.block->>'status' = 'awaiting_confirmation'
+            THEN CASE WHEN card.block->'gated' = 'true'::jsonb THEN 'hidden' ELSE 'pending' END
+          WHEN card.block->'gated' = 'true'::jsonb
+            AND card.block->>'status' = 'failed'
+            AND card.block->>'errorCode' = 'cancelled' THEN 'voided'
+          ELSE 'hidden'
+        END AS state
+      FROM agent_generation_drafts d
+      LEFT JOIN LATERAL (
+        SELECT b.block
+        FROM agent_messages m
+        CROSS JOIN LATERAL jsonb_array_elements(m.content) WITH ORDINALITY AS b(block, position)
+        WHERE m.conversation_id = d.conversation_id
+          AND m.turn_id = d.turn_id
+          AND m.role = 'assistant'
+          AND m.deleted_at IS NULL
+          AND b.block->>'type' = 'toolResult'
+          AND b.block->>'toolCallId' = d.tool_call_id
+        ORDER BY m.seq DESC, b.position DESC
+        LIMIT 1
+      ) card ON true
+      WHERE d.conversation_id = ${conversationId}
+        AND d.task_id IS NULL
+        AND d.created_at >= ${new Date(since).toISOString()}::timestamptz
+    ), ranked AS (
+      SELECT prompt, state, created_at, id,
+        row_number() OVER (PARTITION BY state ORDER BY created_at DESC, id DESC) AS rank
+      FROM classified
+      WHERE state <> 'hidden'
+    )
+    SELECT prompt, state FROM ranked
+    WHERE rank <= ${MAX_DRAFTS}
+    ORDER BY created_at DESC, id DESC
+  `)) as unknown
+  // `db.execute` 不带结果类型：在边界上逐行核对字段，别名或类型变了宁可少列，也不把怪值写进系统事实。
+  const valid = (Array.isArray(rows) ? rows : []).filter(
+    (row): row is { prompt: string; state: 'pending' | 'voided' } =>
+      typeof row === 'object' &&
+      row !== null &&
+      typeof (row as { prompt?: unknown }).prompt === 'string' &&
+      ((row as { state?: unknown }).state === 'pending' ||
+        (row as { state?: unknown }).state === 'voided'),
+  )
+  const pick = (state: 'pending' | 'voided') =>
+    valid.filter((row) => row.state === state).map((row) => ({ title: draftTitle(row.prompt) }))
+  return { pendingDrafts: pick('pending'), voidedDrafts: pick('voided') }
 }
 
 function draftTitle(prompt: string): string {
@@ -87,18 +157,7 @@ export async function readConversationStateFacts(
   now: number = Date.now(),
 ): Promise<ConversationStateFacts> {
   const since = now - CONVERSATION_STATE_WINDOW_MS
-  const drafts = await db
-    .select({ prompt: schema.agent_generation_drafts.prompt })
-    .from(schema.agent_generation_drafts)
-    .where(
-      and(
-        eq(schema.agent_generation_drafts.conversation_id, conversationId),
-        isNull(schema.agent_generation_drafts.task_id),
-        gte(schema.agent_generation_drafts.created_at, since),
-      ),
-    )
-    .orderBy(desc(schema.agent_generation_drafts.created_at))
-    .limit(MAX_DRAFTS)
+  const { pendingDrafts, voidedDrafts } = await readDraftFacts(conversationId, since)
 
   const recentMessages = await db
     .select({ content: schema.agent_messages.content })
@@ -158,7 +217,8 @@ export async function readConversationStateFacts(
     : []
 
   return {
-    pendingDrafts: drafts.map((draft) => ({ title: draftTitle(draft.prompt) })),
+    pendingDrafts,
+    voidedDrafts,
     pendingNodeRuns: recentMessages
       .flatMap((message) => manualNodeRuns(message.content))
       .slice(0, MAX_NODE_RUNS),
@@ -210,12 +270,23 @@ function nodeRunLine(run: PendingNodeRunFact): string {
 }
 
 export function renderConversationState(facts: ConversationStateFacts): string | undefined {
-  if (!facts.pendingDrafts.length && !facts.pendingNodeRuns.length && !facts.batches.length)
+  if (
+    !facts.pendingDrafts.length &&
+    !facts.voidedDrafts.length &&
+    !facts.pendingNodeRuns.length &&
+    !facts.batches.length
+  )
     return undefined
   const lines = ['（系统事实，不是用户说的话）本会话当前状态：']
   if (facts.pendingDrafts.length)
     lines.push(
       `- 待用户在卡片上确认的生成 ${facts.pendingDrafts.length} 张（尚未提交，未扣费）：${facts.pendingDrafts
+        .map((draft) => `「${draft.title}」`)
+        .join('、')}`,
+    )
+  if (facts.voidedDrafts.length)
+    lines.push(
+      `- 已作废的生成 ${facts.voidedDrafts.length} 张（没有提交任务，也没有扣费；不在等确认，不要说它还在卡片上等确认）：${facts.voidedDrafts
         .map((draft) => `「${draft.title}」`)
         .join('、')}`,
     )

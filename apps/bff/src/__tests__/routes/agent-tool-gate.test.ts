@@ -395,6 +395,10 @@ describe('确认门', () => {
     })
     // 新的一轮里，智能体看得到那次调用没交出去。
     expect(JSON.stringify(calls[1]!.messages)).toContain(GATE_VOIDED_MESSAGE)
+    // 系统事实与回放说的是同一件事：作废的稿不再算「待确认」，单列成已作废、没提交、没扣费。
+    const facts = JSON.stringify(calls[1]!.messages)
+    expect(facts).not.toContain('待用户在卡片上确认的生成')
+    expect(facts).toContain('已作废的生成 1 张（没有提交任务，也没有扣费')
     const { status } = await confirm(conversationId, pending!)
     expect(status).toBe(422)
     expect(await tasksOf(conversationId)).toEqual([])
