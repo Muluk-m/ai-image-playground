@@ -31,6 +31,7 @@ import { useActiveAgentSurface } from '../lib/activeAgentSurface'
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
+import { usePlanCardState } from '../lib/planCardState'
 import { isProductionDraft } from '../lib/promptDraft'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { agentPanelPresent } from '../panelLayout'
@@ -319,16 +320,6 @@ export default function AgentPanel({
   const followLatest = useRef(true)
   /** 离开底部期间来了新内容：浮出「有新消息」，回到底部即收起。 */
   const [unseen, setUnseen] = useState(false)
-  // 计划卡里取消勾选的稿按消息 id 记在面板上：计划随逐张提交拆段、换 key 重挂时不能把跳过的稿重新勾上。
-  const [planSkipped, setPlanSkipped] = useState<ReadonlySet<string>>(() => new Set())
-  const skipPlanDraft = (id: string, skip: boolean) =>
-    setPlanSkipped((current) => {
-      if (current.has(id) === skip) return current
-      const next = new Set(current)
-      if (skip) next.add(id)
-      else next.delete(id)
-      return next
-    })
   const [search, setSearch] = useState('')
   // 每次定位都换一个序号：同一步被点第二次（中间被用户收起过）也要重新展开。
   const [located, setLocated] = useState<{ id: string; seq: number } | null>(null)
@@ -358,6 +349,13 @@ export default function AgentPanel({
     followLatest.current = false
   }
   const conversationId = useAgentStore((state) => state.conversationId)
+  // 计划卡的勾选、确认中与停因按稿 id 记在面板上、按会话隔离：卡片随逐张提交或别处确认拆段、
+  // 换 key 重挂时状态不丢，还在跑的确认循环也写得回来；稿成交或被移除后对应状态随即丢弃。
+  const planDraftIds = useMemo(
+    () => new Set(messages.filter(isImagePlanDraft).map((message) => message.id)),
+    [messages],
+  )
+  const planCard = usePlanCardState(conversationId, planDraftIds)
   useLayoutEffect(() => {
     followLatest.current = true
     setUnseen(false)
@@ -614,11 +612,7 @@ export default function AgentPanel({
                         className="studio-agent-message-block"
                       >
                         <fieldset disabled={historyCached} className="contents">
-                          <AgentGenerationPlan
-                            messages={planRun}
-                            skipped={planSkipped}
-                            onSkip={skipPlanDraft}
-                          />
+                          <AgentGenerationPlan messages={planRun} plan={planCard} />
                         </fieldset>
                         {footer && !turnShowsImageReceipt(messages, message.turnId) && (
                           <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
