@@ -145,6 +145,24 @@ describe('tools share capabilities across creation modes', () => {
     for (const line of agentToolGuidance(mode)) expect(prompt).toContain(line)
   })
 
+  // 「再次生成」：用户在新的一句话里明确要再来一张，是新的请求。「不要为同一件事调第二次」
+  // 「不自行付费重试」是管模型自己起意的，不能让它把用户的明确要求当成重试、只用文字描述变化。
+  it.each([
+    false,
+    true,
+  ])('treats an explicit regenerate as a new request (autoSubmit=%p)', (autoSubmit) => {
+    const prompt = turnInitialState([], 'image', autoSubmit, 0, {
+      userId: null,
+      looks: [],
+      experience: 'chat',
+    }).systemPrompt
+    expect(prompt).not.toContain('分别调用。不要为同一件事调第二次')
+    expect(prompt).toContain('同一次请求里不要为同一件事调第二次')
+    expect(prompt).toContain('用户在新的一句话里明确要求再次生成')
+    expect(prompt).toContain('不算重试')
+    expect(prompt).toContain('不要只用文字描述')
+  })
+
   it.each(['image', 'video'] as const)('does not assume a canvas in %s turns', (mode) => {
     for (const autoSubmit of [false, true]) {
       const prompt = turnInitialState([], mode, autoSubmit, 0, {
