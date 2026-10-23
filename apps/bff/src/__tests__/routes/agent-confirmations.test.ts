@@ -302,6 +302,43 @@ describe('生成前确认', () => {
     expect(block.artifacts).toBeUndefined()
   })
 
+  it('拟稿并入了设计意图时，标题也跟着改过的那一句走', async () => {
+    const calls: AgentCall[] = []
+    draftingTurn(calls, 'generateImage', {
+      prompt: '用途：写实宠物肖像\n主体：一只小狗，正面坐姿，微微歪头',
+      designIntent: { message: '让观众感受到小狗的亲近与温暖', focalPoint: '小狗的眼睛' },
+    })
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一只小狗，1:1')
+    const pending = await pendingCard(conversationId)
+    expect(pending.block.prompt).toStartWith('画面要表达')
+    expect(pending.block.title).toStartWith('用途：写实宠物肖像')
+
+    const edited = '一只柯基犬坐在绿色草地上，水彩插画风格'
+    const { status, json } = await confirm(conversationId, pending.messageId, edited)
+
+    expect(status).toBe(200)
+    const block = blockOf(json)
+    expect(block.prompt).toBe(edited)
+    expect(block.title).toBe(edited)
+  })
+
+  it('改的只是设计意图下面那句时，标题照那句重截，不截成「画面要表达」', async () => {
+    const calls: AgentCall[] = []
+    draftingTurn(calls, 'generateImage', {
+      prompt: '用途：写实宠物肖像\n主体：一只小狗',
+      designIntent: { message: '亲近与温暖', focalPoint: '眼睛' },
+    })
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一只小狗')
+    const pending = await pendingCard(conversationId)
+    const edited = pending.block.prompt!.replace('一只小狗', '一只柯基')
+
+    const { json } = await confirm(conversationId, pending.messageId, edited)
+
+    expect(blockOf(json).title).toBe('用途：写实宠物肖像 主体：一只柯基')
+  })
+
   it('提交的是用户改过的那一句，不是模型写的浅灰绿色', async () => {
     const calls: AgentCall[] = []
     draftingTurn(calls, 'generateImage', { prompt: GREEN_DRAFT })
