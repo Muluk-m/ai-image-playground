@@ -37,7 +37,7 @@ const { pickUpStrandedInboxes, strandedInboxConversations } = await import(
   '../../../lib/agent/inbox-pickup'
 )
 const { bffDrain } = await import('../../../lib/drain')
-const { settleInboxHandoffsForTesting } = await import('../../../lib/agent/start-turn')
+const { settleAgentBackgroundWorkForTesting } = await import('../../../lib/agent/background-work')
 
 await silenceChatUpstream()
 
@@ -102,7 +102,7 @@ async function idleConversation(): Promise<string> {
   await response.text()
   await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
   // 收尾那一轮放手后还会去收件箱看一眼；不等它跑完，接下来放进去的消息会被它抢先开轮。
-  await settleInboxHandoffsForTesting()
+  await settleAgentBackgroundWorkForTesting()
   return conversationId
 }
 
@@ -244,7 +244,7 @@ describe('接手没人处理的排队消息', () => {
     first.finish()
     await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
     // 快照里没有在跑的轮时，租约可能还没放；等收尾的接力跑完再看。
-    await settleInboxHandoffsForTesting()
+    await settleAgentBackgroundWorkForTesting()
 
     // 没有记成开不了轮，也没被处理：新版本的巡查会接手它。
     expect(await queueList(conversationId)).toEqual([queued.queued])

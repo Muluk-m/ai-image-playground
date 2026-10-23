@@ -287,10 +287,7 @@ describe('tool declarations in the estimate', () => {
       'viewImage',
       'viewVideo',
       'readLibrary',
-      'readCanvas',
-      'arrangeTimeline',
-      'editCanvasObject',
-      'arrangeCanvas',
+      // 没声明模式按 Agent 模式算，画布工具不在清单里。
       // 联网工具没有开关，所以它们在任何部署里都随清单发出去；取图那两个要登录，这里没有。
       'webSearch',
       'webFetch',
@@ -624,5 +621,33 @@ describe('clarification visual continuity', () => {
     const pending = input(history, '原场景', [], { selectionHistoryStart: 0 })
     expect(imageBlocks(estimatedTurnInput(pending).at(-1)!)).toBe(2)
     expect(turnPromptBody(pending)).not.toContain('不代表本轮意图')
+  })
+})
+
+describe('product history replay', () => {
+  it('drops a leading reasoning tag stored before the model adapter split it, keeps the rest', () => {
+    const history: AgentMessageView[] = [
+      {
+        id: 'u',
+        turnId: 't',
+        role: 'user',
+        content: [{ type: 'text', text: '<think>用户原话</think>' }],
+        createdAt: 1,
+      },
+      {
+        id: 'a',
+        turnId: 't',
+        role: 'assistant',
+        content: [
+          { type: 'text', text: '<thinking>Reading canvas</thinking>\n好的，<think>正文</think>' },
+        ],
+        createdAt: 2,
+      },
+    ]
+    const replayed = turnInitialState(history, 'image').messages
+    expect(JSON.stringify(replayed[0])).toContain('<think>用户原话</think>')
+    expect(replayed[1]).toMatchObject({
+      content: [{ type: 'text', text: '好的，<think>正文</think>' }],
+    })
   })
 })

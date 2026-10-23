@@ -146,6 +146,8 @@ export interface GenerationReport<H> extends GenerationOutcomeReport<H, CallApiR
 /** 起一批生成时还要能开记录：`open` 同步返回句柄（画布要求占位框在第一个 await 之前出现）。 */
 export interface GenerationSink<H, C> extends GenerationReport<H> {
   open(unit: GenerationUnit<C>): H
+  /** 有就由它决定什么时候真正发出（排队限并发）；没有就立刻发。 */
+  schedule?(handle: H, send: () => Promise<void>): void
 }
 
 /**
@@ -167,6 +169,14 @@ export function admitGeneration(
   return false
 }
 
+/** 浏览器层的请求没发出去（断网、连接被拒）：fetch 抛的 TypeError，各浏览器文案不同。 */
+function isNetworkFailure(err: unknown): boolean {
+  return (
+    err instanceof TypeError &&
+    /failed to fetch|networkerror|load failed|network request failed/i.test(err.message)
+  )
+}
+
 /**
  * 失败 → 可行动的人话。内容安全拒绝有自己的出路（改写提示词），其余照抄错误本身那句。
  * 宿主要按码分支（工作台详情弹窗）就读 `code`，不必再认一遍文案。
@@ -179,7 +189,9 @@ export function generationFailure(err: unknown): GenerationFailure {
     text:
       code === 'content_policy'
         ? i18next.t('detail.contentPolicy', { ns: 'task' })
-        : describeError(err),
+        : isNetworkFailure(err)
+          ? i18next.t('detail.networkFailed', { ns: 'task' })
+          : describeError(err),
   }
 }
 
@@ -227,7 +239,9 @@ export function startGeneration<H, C>(spec: GenerationSpec<C>, sink: GenerationS
       }
       const handle = sink.open(unit)
       handles.push(handle)
-      void runUnit(spec.settings, unit, handle, sink)
+      const send = () => runUnit(spec.settings, unit, handle, sink)
+      if (sink.schedule) sink.schedule(handle, send)
+      else void send()
     }
   }
   return handles

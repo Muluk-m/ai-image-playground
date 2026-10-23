@@ -4,7 +4,9 @@ import { webcrypto } from 'node:crypto'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
-import ProjectSyncStatus from '../../../../features/canvas/components/ProjectSyncStatus'
+import ProjectSyncStatus, {
+  PENDING_VISIBLE_AFTER_MS,
+} from '../../../../features/canvas/components/ProjectSyncStatus'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CloudProjectSession } from '../../../../features/canvas/lib/cloudProjects'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
@@ -153,4 +155,82 @@ it('安静模式下媒体未保存时仍可重试同步，成功后隐藏提示'
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   }
+})
+
+it('安静模式下短暂的等待保存不露面，持续卡住才提示并给重试', () => {
+  vi.useFakeTimers()
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  let snapshot: { status: 'pending' | 'syncing' | 'saved' | 'offline'; message: null } = {
+    status: 'pending',
+    message: null,
+  }
+  const listeners = new Set<() => void>()
+  const sync = vi.fn(async () => {})
+  const session = {
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    getSnapshot: () => snapshot,
+    reload: vi.fn(async () => {}),
+    sync,
+  } as unknown as CloudProjectSession
+  const set = (status: typeof snapshot.status) =>
+    act(() => {
+      snapshot = { status, message: null }
+      for (const listener of listeners) listener()
+    })
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    act(() => root.render(<ProjectSyncStatus session={session} quiet />))
+    // 跑节点时 pending 与 syncing 来回跳：每一段都很短，一直不露面。
+    for (let i = 0; i < 5; i++) {
+      act(() => vi.advanceTimersByTime(PENDING_VISIBLE_AFTER_MS - 1000))
+      expect(host.childElementCount).toBe(0)
+      set('syncing')
+      expect(host.childElementCount).toBe(0)
+      set('pending')
+      expect(host.childElementCount).toBe(0)
+    }
+    set('saved')
+    expect(host.childElementCount).toBe(0)
+    // 连续卡在 pending 超过阈值：提示等待保存，并给重试。
+    set('pending')
+    act(() => vi.advanceTimersByTime(PENDING_VISIBLE_AFTER_MS))
+    expect(host.textContent).toContain('等待保存')
+    const retry = host.querySelector('button')
+    expect(retry?.textContent).toBe('重试')
+    act(() => retry?.click())
+    expect(sync).toHaveBeenCalledOnce()
+    // 存上了立即收起；再进 pending 重新计时。
+    set('saved')
+    expect(host.childElementCount).toBe(0)
+    set('pending')
+    expect(host.childElementCount).toBe(0)
+    // 真正的故障不等阈值，立刻显示。
+    set('offline')
+    expect(host.textContent).toContain('改动已保留，等待联网')
+  } finally {
+    act(() => root.unmount())
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  }
+})
+
+it('非安静模式照常立即显示等待保存', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  const snapshot = { status: 'pending' as const, message: null }
+  const session = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    reload: vi.fn(async () => {}),
+    sync: vi.fn(async () => {}),
+  } as unknown as CloudProjectSession
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  act(() => root.render(<ProjectSyncStatus session={session} />))
+  expect(host.textContent).toContain('等待保存')
+  act(() => root.unmount())
+  vi.unstubAllGlobals()
 })

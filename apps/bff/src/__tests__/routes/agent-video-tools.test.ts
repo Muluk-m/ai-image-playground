@@ -134,6 +134,7 @@ async function runTurn(
   references: unknown[] = [],
   mode = 'video',
   params?: import('@image-playground/shared').AgentTurnParams,
+  surface?: 'agent' | 'canvas',
 ) {
   const response = await app.handle(
     new Request(`http://localhost/api/agent/conversations/${conversationId}/turns`, {
@@ -143,7 +144,7 @@ async function runTurn(
         cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
       },
       // 默认覆盖对话里的视频生成；显式 image 用例验证跨创作类型工具装配。
-      body: JSON.stringify({ deviceId: DEVICE, text, references, mode, params }),
+      body: JSON.stringify({ deviceId: DEVICE, text, references, mode, params, surface }),
     }),
   )
   return parseFrames(await response.text())
@@ -306,7 +307,14 @@ describe('智能体生视频工具', () => {
       ]),
     )
     const id = await startConversation('canvas')
-    const frames = await runTurn(id, 'Create an ocean image and video', [], 'image')
+    const frames = await runTurn(
+      id,
+      'Create an ocean image and video',
+      [],
+      'image',
+      undefined,
+      'canvas',
+    )
     const drafts = eventsOfType(frames, 'toolEnd')
     expect(drafts).toEqual([expect.objectContaining({ toolName: name, status: 'failed' })])
     expect(
