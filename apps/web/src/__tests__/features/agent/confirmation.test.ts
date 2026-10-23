@@ -223,6 +223,24 @@ it('确认门拦下的稿：新消息的那一轮正在起时不交确认，免�
   expect(posted).toHaveLength(1)
 })
 
+it('拟稿的那一轮还在跑时确认它拟的稿：不交确认，说明还在拟，不当作别处确认过', async () => {
+  history = () => [{ ...draftMessage, content: [{ ...drafted, gated: true }] }]
+  await state().selectConversation(CONVERSATION)
+  useAgentStore.setState({ turn: 'running', activeTurn: { turnId: 'turn-1' } })
+  expect(await state().confirmPrompt('tool-1', CORRECTED)).toEqual({
+    ok: false,
+    reason: 'drafting',
+  })
+  expect(posted).toEqual([])
+  // 换成别的一轮在跑（用户发了新消息）：仍按作废前的规矩不交。
+  useAgentStore.setState({ activeTurn: { turnId: 'turn-2' } })
+  expect(await state().confirmPrompt('tool-1', CORRECTED)).toEqual({
+    ok: false,
+    reason: 'notConfirmable',
+  })
+  expect(posted).toEqual([])
+})
+
 it('确认之后服务端接着那一轮续跑（continued）：去跟进那一轮', async () => {
   history = () => [{ ...draftMessage, content: [{ ...drafted, gated: true }] }]
   await state().selectConversation(CONVERSATION)

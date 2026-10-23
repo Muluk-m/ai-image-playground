@@ -36,10 +36,13 @@ export default function AgentConfirmationGate({
       .confirmAllPrompts()
       .then((result) => {
         if (result.failure && !result.failure.ok) {
+          // 拟它的那一轮还在跑：说「还在拟」，不说成「已确认 0 张后停下、请逐张再试」——卡上此时也确认不了。
           setFailure(
-            (result.failure.reason === 'refused'
-              ? agentToolFailureText(result.failure.code)
-              : null) ?? t('confirm.allFailed', { count: result.confirmed }),
+            result.failure.reason === 'drafting'
+              ? t('confirm.drafting')
+              : ((result.failure.reason === 'refused'
+                  ? agentToolFailureText(result.failure.code)
+                  : null) ?? t('confirm.allFailed', { count: result.confirmed })),
           )
         }
         setSubmitting(false)
