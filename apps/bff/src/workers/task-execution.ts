@@ -16,6 +16,7 @@ import {
 import { durableGenerationInputs } from '../lib/generationMedia'
 import { log } from '../lib/logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../lib/private-overlay'
+import { checkIdleSlot, lockIdleSlotClaims, providerConcurrencyLimit } from './idle-concurrency'
 
 /**
  * 任务执行：认领 → 带 fence 的写 → 收尾。
@@ -86,6 +87,8 @@ export interface TaskExecution {
   /** 认领时读到的行。`preserveInputs` 换掉 request_payload 后以它的返回值为准。 */
   readonly task: ClaimedTask
   readonly claimedAt: number
+  /** 这次认领用的是空闲时可用并发（弹性名额），不是套餐的保证并发。 */
+  readonly idleSlot: boolean
   /** 上游 fetch 的中止信号：取消、停机、失租都从这里出。 */
   readonly signal: AbortSignal
   /** 主动停掉这次执行的上游请求；扇出的兄弟请求共用这个信号，一并停。 */
@@ -130,6 +133,7 @@ class TaskExecutionHandle implements TaskExecution {
     token: string,
     readonly claimedAt: number,
     readonly task: ClaimedTask,
+    readonly idleSlot = false,
   ) {
     this.#token = token
     this.#leaseExpiresAt = claimedAt + TASK_LEASE_MS
@@ -348,9 +352,17 @@ export async function claimTaskExecution(
   claimedAt = Date.now(),
 ): Promise<TaskExecution | null> {
   const token = `${hostname()}:${crypto.randomUUID()}`
+  let idleSlot:
+    | { activeTotal: number; runningOnProvider: number; runningInScope: number | null }
+    | undefined
   const claimed = await db.transaction(async (tx) => {
+    idleSlot = undefined
     const [candidate] = await tx
-      .select({ userId: schema.tasks.user_id, provider: schema.tasks.provider })
+      .select({
+        userId: schema.tasks.user_id,
+        provider: schema.tasks.provider,
+        model: schema.tasks.model,
+      })
       .from(schema.tasks)
       .where(
         and(
@@ -361,6 +373,10 @@ export async function claimTaskExecution(
       )
       .limit(1)
     if (!candidate) return null
+    // 开了弹性名额时，同一 provider 上的所有认领（保证、弹性、匿名）都串在一把锁上：
+    // 否则弹性判定读完正在跑的数之后、看排队之前，别人的保证认领提交了，两边都看不见对方而超发。
+    // 锁顺序固定为「用户行 → provider 锁」，匿名任务没有用户行只拿 provider 锁。
+    const serializeProviderClaims = config.worker.idleConcurrencyEnabled
     if (candidate.userId) {
       // Serialize account counts/claims while permitting FK KEY SHARE: a finishing task may
       // hold user_change_heads before inserting user_changes, which references this user.
@@ -369,6 +385,7 @@ export async function claimTaskExecution(
         .from(schema.users)
         .where(eq(schema.users.id, candidate.userId))
         .for('no key update')
+      if (serializeProviderClaims) await lockIdleSlotClaims(tx, candidate.provider)
       const limits = await accountGenerationLimits(
         tx,
         candidate.userId,
@@ -388,11 +405,42 @@ export async function claimTaskExecution(
             eq(schema.tasks.status, 'in_progress'),
           ),
         )
-      if (
-        Number(active?.total ?? 0) >= limits.total ||
-        Number(active?.provider ?? 0) >= limits.provider
-      )
-        return null
+      const activeTotal = Number(active?.total ?? 0)
+      if (Number(active?.provider ?? 0) >= limits.provider) return null
+      if (activeTotal >= limits.total) {
+        // 保证并发用满了：只剩弹性名额。先拿锁再判定，多个 worker 同时放弹性名额也不会超发。
+        if (activeTotal >= limits.idle) return null
+        const decision = await checkIdleSlot(tx, {
+          provider: candidate.provider,
+          model: candidate.model,
+          userId: candidate.userId,
+          now: claimedAt,
+        })
+        if (!decision.granted) {
+          log.info(
+            {
+              event: 'task.idle_slot_denied',
+              taskId: id,
+              userId: candidate.userId,
+              provider: candidate.provider,
+              model: candidate.model,
+              reason: decision.reason,
+              activeTotal,
+              guaranteed: limits.total,
+              idle: limits.idle,
+            },
+            'idle concurrency slot denied',
+          )
+          return null
+        }
+        idleSlot = {
+          activeTotal,
+          runningOnProvider: decision.runningOnProvider,
+          runningInScope: decision.runningInScope,
+        }
+      }
+    } else if (serializeProviderClaims) {
+      await lockIdleSlotClaims(tx, candidate.provider)
     }
     const [row] = await tx
       .update(schema.tasks)
@@ -427,7 +475,23 @@ export async function claimTaskExecution(
     return row
   })
   if (!claimed) return null
-  const execution = new TaskExecutionHandle(id, token, claimedAt, claimed)
+  if (idleSlot)
+    log.info(
+      {
+        event: 'task.idle_slot_granted',
+        taskId: id,
+        userId: claimed.user_id,
+        provider: claimed.provider,
+        model: claimed.model,
+        idleSlot: true,
+        activeTotalBefore: idleSlot.activeTotal,
+        runningOnProvider: idleSlot.runningOnProvider,
+        providerLimit: providerConcurrencyLimit(claimed.provider),
+        runningInModelScope: idleSlot.runningInScope,
+      },
+      'task claimed on idle concurrency slot',
+    )
+  const execution = new TaskExecutionHandle(id, token, claimedAt, claimed, Boolean(idleSlot))
   running.set(id, execution)
   return execution
 }
@@ -438,15 +502,23 @@ export async function accountGenerationLimits(
   userId: string,
   provider: QueueProvider,
   now: number,
-): Promise<{ total: number; provider: number }> {
+): Promise<{ total: number; provider: number; idle: number }> {
   const overlay = await loadPrivateBffOverlay()
-  const entitled = (await overlay.taskHooks.accountConcurrencyLimit?.({ tx, userId, now })) ?? 3
-  const requested = Number.isInteger(entitled) && entitled > 0 ? entitled : 1
-  const providerSlots =
-    provider === 'openai-compat'
-      ? config.worker.concurrency.openaiCompat
-      : config.worker.concurrency.gemini
-  return { total: requested, provider: Math.max(1, providerSlots - 1) }
+  const hooks = overlay.taskHooks
+  const entitlement = hooks.accountConcurrencyEntitlement
+    ? await hooks.accountConcurrencyEntitlement({ tx, userId, now })
+    : { guaranteed: (await hooks.accountConcurrencyLimit?.({ tx, userId, now })) ?? 3, idle: 0 }
+  const guaranteed = entitlement.guaranteed
+  const requested = Number.isInteger(guaranteed) && guaranteed > 0 ? guaranteed : 1
+  const idle =
+    config.worker.idleConcurrencyEnabled && Number.isInteger(entitlement.idle)
+      ? Math.max(requested, entitlement.idle)
+      : requested
+  return {
+    total: requested,
+    provider: Math.max(1, providerConcurrencyLimit(provider) - 1),
+    idle,
+  }
 }
 
 /** cancel route / scheduler 调用：打断对应任务的上游 fetch。返回是否找到。 */
