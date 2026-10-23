@@ -3,6 +3,7 @@ import { extname, join } from 'node:path'
 import { cors } from '@elysiajs/cors'
 import { Elysia, StatusMap } from 'elysia'
 import { config } from './config'
+import { StageAuthorizationError } from './lib/agent/stage-authorizations'
 import { apiErrorHandler, isApiPath } from './lib/api-errors'
 import { appRelease, appVersion } from './lib/app-version'
 import { isCapabilityEnabled } from './lib/capabilities'
@@ -10,6 +11,7 @@ import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { REQUEST_ID_HEADER } from './lib/request-context'
 import { gzipBlob } from './lib/staticCompression'
+import { requestAuthUserId } from './lib/user-auth'
 import { createApiMetrics, isCountedPath } from './ops/api-metrics'
 import { accountRoutes } from './routes/account'
 import { agentRoutes } from './routes/agent'
@@ -143,6 +145,43 @@ async function serveSpaFallback(): Promise<Response | null> {
 export const apiMetrics = createApiMetrics(hostname())
 const requestStartedAt = new WeakMap<Request, number>()
 
+function rejectionFields(
+  request: Request,
+  value: unknown,
+  context: object,
+): { error?: string; userId?: string } {
+  // 只有出错的请求，上下文里才有 error / code。
+  const thrown = context as { error?: unknown; code?: unknown }
+  const error = responseErrorCode(value) ?? thrownErrorCode(thrown),
+    userId = requestAuthUserId(request)
+  return { ...(error ? { error } : {}), ...(userId ? { userId } : {}) }
+}
+
+const ERROR_CODE = /^[a-z][a-z0-9_]{0,63}$/
+
+/**
+ * 被拒请求的错误码（`{ error: 'stage_authorization_scope' }` 里的那个），只认短的蛇形标识；
+ * message、额度等其余字段一律不进访问日志。Response 对象的正文已经发出去了，不再读。
+ */
+function responseErrorCode(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object' || value instanceof Response) return undefined
+  const body =
+    'response' in value && 'code' in value ? (value as { response: unknown }).response : value
+  if (!body || typeof body !== 'object' || !('error' in body)) return undefined
+  const code = (body as { error: unknown }).error
+  return typeof code === 'string' && ERROR_CODE.test(code) ? code : undefined
+}
+
+/**
+ * 路由作用域 onError 改写出来的响应体不会回到这里，只能从抛出的错误认：阶段授权拒绝用它自己的
+ * 错误码，请求体校验失败按各路由统一回的 invalid_request 记。
+ */
+function thrownErrorCode({ error, code }: { error?: unknown; code?: unknown }): string | undefined {
+  if (error instanceof StageAuthorizationError) return error.code
+  if (code === 'VALIDATION') return 'invalid_request'
+  return undefined
+}
+
 /**
  * 路由直接返回 Response 时它自己带着状态码，`set.status` 仍是默认的 200；
  * `status(4xx, …)` 返回的对象把状态码放在 `code` 上。三处都看，才不会把错误数成成功。
@@ -162,7 +201,8 @@ export const app = new Elysia()
   .onRequest(({ request }) => {
     requestStartedAt.set(request, performance.now())
   })
-  .onAfterResponse({ as: 'global' }, ({ request, route, set, responseValue }) => {
+  .onAfterResponse({ as: 'global' }, (context) => {
+    const { request, route, set, responseValue } = context
     const startedAt = requestStartedAt.get(request)
     if (startedAt === undefined) return
     const { pathname } = new URL(request.url)
@@ -176,6 +216,8 @@ export const app = new Elysia()
       ...(route ? {} : { path: pathname.slice(0, 200) }),
       status,
       durationMs: Math.round(durationMs),
+      // 被拒的请求带上错误码和是谁，排查 409 这类问题不用再去翻别的表。
+      ...(status >= 400 ? rejectionFields(request, responseValue, context) : {}),
     }
     if (status >= 500) log.error(fields, 'API request failed')
     else if (status >= 400) log.warn(fields, 'API request rejected')

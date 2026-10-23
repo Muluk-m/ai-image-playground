@@ -39,7 +39,22 @@ const BFF_SUBMIT_ERROR_KEYS = {
   invalid_video_request: 'queue.bffInvalidVideoRequest',
   invalid_video_source: 'queue.bffInvalidVideoSource',
   invalid_input_image: 'queue.bffInvalidInputImage',
+  stage_authorization_scope: 'queue.bffStageScope',
+  stage_authorization_budget: 'queue.bffStageBudget',
+  stage_authorization_inactive: 'queue.bffStageInactive',
+  stage_authorization_not_found: 'queue.bffStageInactive',
+  stage_authorization_attempt_conflict: 'queue.bffStageAttemptConflict',
 } as const
+
+/**
+ * 提交被 BFF 拒绝时带上的稳定错误码（`{ error }`）。文案给人看，这个码给调用方分支：
+ * 阶段授权按它判断要不要重试、该向智能体报哪个原因。
+ */
+export function submitErrorCodeOf(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('submitErrorCode' in error)) return undefined
+  const code = (error as { submitErrorCode: unknown }).submitErrorCode
+  return typeof code === 'string' ? code : undefined
+}
 
 const { POLL_BACKOFF_MS, POLL_MAX_MS, POLL_MAX_CONSECUTIVE_FAILURES } = QUEUE_TIMEOUTS
 const CONFIRMING_POLL_MS = 1000
@@ -257,7 +272,11 @@ async function postSubmit(
         ? BFF_SUBMIT_ERROR_KEYS[code as keyof typeof BFF_SUBMIT_ERROR_KEYS]
         : undefined
     const reason = localized ? i18next.t(localized, { ns: 'lib' }) : await getApiErrorMessage(res)
-    throw new Error(i18next.t('queue.submitFailed', { ns: 'lib', reason }))
+    const err = new Error(i18next.t('queue.submitFailed', { ns: 'lib', reason })) as Error & {
+      submitErrorCode?: string
+    }
+    if (code) err.submitErrorCode = code
+    throw err
   }
   const json = (await res.json()) as SubmitResponse
   if (!json.request_id) throw new Error(i18next.t('queue.submitMissingRequestId', { ns: 'lib' }))
