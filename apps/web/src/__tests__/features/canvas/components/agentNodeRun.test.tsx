@@ -23,6 +23,7 @@ import {
   type NodeBatchPlan,
 } from '../../../../features/canvas/lib/nodeBatch'
 import { useAgentNodeRun } from '../../../../features/canvas/lib/useAgentNodeRun'
+import { setClientStorageScope } from '../../../../lib/authScope'
 import { useStore } from '../../../../store'
 
 const mocks = vi.hoisted(() => ({
@@ -370,6 +371,23 @@ it('starts a direct run while the chat panel is collapsed and no run card is mou
   // 没有卡来收尾：跑完交过结局，运行和来源都得由运行表自己收走，不在标签页里一直留着。
   expect(agentNodeRun('direct-collapsed')).toBeUndefined()
   expect(isAgentNodeRunOrigin('direct-collapsed')).toBe(false)
+})
+
+it('releases a collapsed-panel run even when the account switched mid-run', async () => {
+  mocks.run.mockImplementationOnce(async () => {
+    setClientStorageScope('someone-else')
+  })
+  try {
+    await mount('direct-switched', true, { ...proposal, direct: true }, undefined, false)
+    await act(async () => {})
+    expect(mocks.run).toHaveBeenCalledOnce()
+    expect(ends).toBe(1)
+    // 换账号后不写回执，但跑完的运行和来源照样收走。
+    expect(agentNodeRun('direct-switched')).toBeUndefined()
+    expect(isAgentNodeRunOrigin('direct-switched')).toBe(false)
+  } finally {
+    setClientStorageScope(null)
+  }
 })
 
 it('waits for the canvas of the proposal before starting a direct run', async () => {

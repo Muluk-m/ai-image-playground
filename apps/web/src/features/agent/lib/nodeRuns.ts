@@ -481,8 +481,8 @@ export function startAgentNodeRun(
       if (authorization) {
         try {
           const ended = await stageAuthorizationClient.end(authorizationId)
-          if (!sameAccount()) return
-          const run = runs.get(key)
+          // 换了账号就不把回执写回原运行，但下面照样回收，不能提前 return 跳过。
+          const run = sameAccount() ? runs.get(key) : undefined
           if (run) publish(key, { ...run, authorization: ended })
         } catch {
           // 换账号后这枚会话已经不属于原用户，登出会在服务端收回。丢失回执也不能靠本地状态重放。
