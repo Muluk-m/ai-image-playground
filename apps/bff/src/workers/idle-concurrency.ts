@@ -18,14 +18,16 @@ import { taskConcurrencyScope } from '../lib/upstream'
  * 3. 没有别人在排队：这个 provider 上没有其他账号（含匿名任务）已到点、还在 queued 的任务。
  *    别人的任务——不管是标准/专业用户还是别人的第 1 个任务——一律先跑，弹性名额不挤占任何人。
  *
- * 防超发：判定和认领在同一个事务里，弹性认领先拿按 provider 的事务级 advisory 锁，
- * 多个 worker（发版交接时新旧两个）同时放弹性名额只能排队一个个来，后一个一定看得见前一个
- * 已提交的认领。保证并发的认领不拿这把锁，热路径不变。
+ * 防超发：判定和认领在同一个事务里。开关开启时，这个 provider 上的**所有**认领（保证、弹性、
+ * 匿名）都在锁住用户行之后拿同一把按 provider 的事务级 advisory 锁，所以弹性判定读到的
+ * in_progress 数和排队情况在它提交前不会被别的认领改掉；多个 worker（发版交接时新旧两个）
+ * 只能一个个来，后一个一定看得见前一个已提交的认领。只给弹性认领加锁不够：别人的保证认领
+ * 和弹性判定交错时两边都看不见对方，会超过全局上限。开关关闭时不拿这把锁，热路径不变。
  *
  * 已经在跑的弹性任务不中断；余量没了只是不再放新的。
  */
 
-/** 弹性认领在同一 provider 上串行；按 provider 分键，两类 provider 互不阻塞。 */
+/** 开关开启时同一 provider 上的所有认领串行；按 provider 分键，两类 provider 互不阻塞。 */
 export async function lockIdleSlotClaims(tx: BffTransaction, provider: QueueProvider) {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`idle-concurrency:${provider}`}))`)
 }
