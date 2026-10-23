@@ -771,6 +771,20 @@ describe('BFF optional user auth', () => {
       const recovered = await submit()
       expect(recovered.status).toBe(200)
       expect(reads).toBe(2)
+
+      // 永久故障（证书/配置错误）重试也没用，不该再拖一轮。
+      reads = 0
+      durable.read = () => {
+        reads++
+        return Promise.reject(
+          Object.assign(new Error('unable to verify the first certificate'), {
+            code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+          }),
+        )
+      }
+      const permanent = await submit()
+      expect(permanent.status).toBe(503)
+      expect(reads).toBe(1)
     } finally {
       setMediaInputReadTimeoutForTesting()
     }
