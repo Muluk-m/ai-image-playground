@@ -33,12 +33,14 @@ function view(message: AgentToolMessage): AgentBackgroundJobView {
 
 const viewing = vi.fn((_conversationId: string) => false)
 const fetchJobs = vi.fn(async (_conversationId: string): Promise<AgentBackgroundJobView[]> => [])
+const refreshCovers = vi.fn(() => {})
 
 beforeEach(() => {
   resetAgentJobActivity()
   viewing.mockReset().mockReturnValue(false)
   fetchJobs.mockReset().mockResolvedValue([])
-  configureAgentJobActivity({ viewing, fetchJobs, pollIntervalMs: 1 })
+  refreshCovers.mockClear()
+  configureAgentJobActivity({ viewing, fetchJobs, refreshCovers, pollIntervalMs: 1 })
 })
 
 afterEach(() => resetAgentJobActivity())
@@ -85,6 +87,8 @@ describe('切走之后的对话（BUG-16）', () => {
       running: 0,
       done: { images: 2 },
     })
+    // 侧栏缩略图马上换封面，不用等刷新（QA）。
+    expect(refreshCovers).toHaveBeenCalledTimes(1)
   })
 
   it('视频卡出完按视频记，不算进图里（Codex P2）', async () => {
