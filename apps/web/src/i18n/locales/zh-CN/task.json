@@ -42,6 +42,8 @@
     "transparentBackground": "透明背景"
   },
   "detail": {
+    "errorUnavailable": "未记录具体失败原因，请复制诊断信息以便排查。",
+    "copyDiagnostics": "复制诊断信息",
     "generateFailed": "生成失败",
     "contentPolicy": "这次的提示词没通过内容审核，上游拒绝了这次生成。换个说法再试——同样的提示词再提交一次还是这个结果。",
     "rewritePrompt": "改一下提示词",
