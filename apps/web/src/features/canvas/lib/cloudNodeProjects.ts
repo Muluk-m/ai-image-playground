@@ -51,7 +51,7 @@ import {
 } from './projectMedia'
 import { type CanvasProject, projectRepository } from './projectRepository'
 import type { SceneRecord } from './sceneRecord'
-import { getCanvasUploaderId } from './uploadSession'
+import { canvasUploaderSettled, getCanvasUploaderId } from './uploadSession'
 
 const remoteOrigin = canvasOrigin('system', 'cloud-sync')
 const legacyOrigin = canvasOrigin('system', 'legacy-editor')
@@ -169,19 +169,23 @@ export class CloudNodeProjectSession {
     const doc = new Y.Doc({ guid: scopedStorageName(nodeCanvasDatabaseName(this.record.key)) })
     const persistence = new IndexeddbPersistence(nodeCanvasDatabaseName(this.record.key), doc)
     this.persistence = persistence
+    // 先发文档后，图片还在后台上传时别的设备就能改这个节点：上传簿记与并发编辑互相顶掉时补回来。
+    // 要赶在套用服务端初始状态之前注册：离线时的本机写入在打开这一刻才跟远端合并。
+    // 重新打开后 clientID 会换，所以认本机以前在这份文档上用过的 clientID。
+    // 还要赶在 IndexedDB 回放之前注册：同一浏览器两个标签页离线时各自写进共用的 IndexedDB，
+    // 两次并发写入要到重新打开回放时才撞上，回放的事务以 persistence 为 origin。
+    const localClients = rememberCanvasClientId(doc)
+    this.stopUploadConflicts = watchCanvasUploadConflicts(
+      doc,
+      (origin) => origin === remoteOrigin,
+      legacyOrigin,
+      (client) => localClients.has(client),
+      (origin) => origin === persistence,
+    )
     try {
-      await persistence.whenSynced
+      // 也等本标签页的上传者 ID 定下来（复制标签页撞号要先换掉），之后的上传声明都用同一个 ID。
+      await Promise.all([persistence.whenSynced, canvasUploaderSettled()])
       this.current()
-      // 先发文档后，图片还在后台上传时别的设备就能改这个节点：上传簿记与并发编辑互相顶掉时补回来。
-      // 要赶在套用服务端初始状态之前注册：离线时的本机写入在打开这一刻才跟远端合并。
-      // 重新打开后 clientID 会换，所以认本机以前在这份文档上用过的 clientID。
-      const localClients = rememberCanvasClientId(doc)
-      this.stopUploadConflicts = watchCanvasUploadConflicts(
-        doc,
-        (origin) => origin === remoteOrigin,
-        legacyOrigin,
-        (client) => localClients.has(client),
-      )
       // Preserve the browser's pre-migration scene, including unsent images and local geometry.
       if (!doc.getMap('meta').get('legacyImported') && this.record.editor.doc.elements.length)
         await writePersistedScene(this.record.contents(), `${this.record.key}:pre-node-migration`)

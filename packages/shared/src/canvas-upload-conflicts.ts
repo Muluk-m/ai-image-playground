@@ -238,23 +238,69 @@ export function readOverwrittenLocalData(
 }
 
 /**
+ * 重新打开时从本机 IndexedDB 一次性回放的历史里，节点 data 有没有两次并发写入（谁也没见过谁）：
+ * 比如两个标签页离线时各写了一次，都是本机写的，回放前也都不在内存里。返回输掉的那一版和生效的那一版。
+ * 回放从空文档开始时节点本身也是这次新加的，Yjs 不为它发事件，所以按事务（回放结束、回收删除内容之前）读：
+ * 输掉的条目在这次回放里加进来又被删掉、生效的一版之后没有以它为起点写的，就是并发；有就是先后改。
+ */
+export function readReplayedOverwrite(
+  node: Y.Map<unknown>,
+  transaction: Y.Transaction,
+): { lost: unknown; winner: unknown } | undefined {
+  try {
+    const added = (item: ItemShape) =>
+      item.id.clock >= (transaction.beforeState.get(item.id.client) ?? 0)
+    const map = (node as unknown as { _map?: unknown })._map
+    if (!(map instanceof Map)) {
+      reportUnsupported('Y.Map._map')
+      return undefined
+    }
+    const current: unknown = map.get('data')
+    if (current === undefined) return undefined
+    if (!isItemShape(current)) {
+      reportUnsupported('Item')
+      return undefined
+    }
+    if (current.deleted || !added(current)) return undefined
+    for (let loser = current.left; loser; loser = loser.left) {
+      if (!isItemShape(loser)) return undefined
+      if (!added(loser)) return undefined
+      // 右边（更晚）的条目里有以它为起点写的：它之后都是先后改，再往左只会更旧。
+      for (let item: ItemShape | null = current; item && item !== loser; item = item.left) {
+        if (!isItemShape(item)) return undefined
+        if (item.origin && Y.compareIDs(item.origin, loser.id)) return undefined
+      }
+      if (loser.deleted) return { lost: lastContent(loser), winner: lastContent(current) }
+    }
+    return undefined
+  } catch (error) {
+    reportUnsupported('读取时出错', error)
+    return undefined
+  }
+}
+
+/**
  * 盯住远端更新：本机写的节点 data 被一次「没见过它」的远端写入顶掉时（并发，而不是先后），
  * 按 mergeCanvasUploadConflict 把两边合回去再写一次。只由输掉写入的那台设备补，别的设备不重复写。
  * 返回的函数取消监听，并让已排队、还没执行的补写失效；持有文档的一方销毁前必须调用。
  * 本机写入来自重新打开前的会话时，clientID 已经换过；isLocalClient 用来认出本机以前用过的 clientID，
  * 默认只认当前的 doc.clientID。要在套用服务端初始状态之前注册，初次合并里的并发覆盖才能被补回。
+ * isReplay 认出从本机存储回放历史的事务（例如 IndexedDB 加载）：回放里两次写入可能都是本机写的，
+ * 按 readReplayedOverwrite 找并发覆盖。要在回放开始之前注册。
  */
 export function watchCanvasUploadConflicts(
   doc: Y.Doc,
   isRemote: (origin: unknown) => boolean,
   origin: CanvasOrigin,
   isLocalClient: (client: number) => boolean = (client) => client === doc.clientID,
+  isReplay: (origin: unknown) => boolean = () => false,
 ): () => void {
   const nodes = doc.getMap<Y.Map<unknown>>('nodes')
+  type Repair = { id: string; lost: unknown; winner: unknown; data: UploadData }
   let stopped = false
   const observer = (events: Y.YEvent<Y.AbstractType<unknown>>[], transaction: Y.Transaction) => {
-    if (!isRemote(transaction.origin)) return
-    const repairs: { id: string; lost: unknown; winner: unknown; data: UploadData }[] = []
+    if (isReplay(transaction.origin) || !isRemote(transaction.origin)) return
+    const repairs: Repair[] = []
     for (const event of events) {
       // 不看 event.keys：本机赢时远端写入一进来就被删，data 的值没变，keys 里没有它，但事件照样触发。
       if (event.path.length !== 1) continue
@@ -264,6 +310,22 @@ export function watchCanvasUploadConflicts(
       const data = mergeCanvasUploadConflict(lost, winner)
       if (data) repairs.push({ id: String(event.path[0]), lost, winner, data })
     }
+    repair(repairs)
+  }
+  const replayed = (transaction: Y.Transaction) => {
+    if (!isReplay(transaction.origin)) return
+    const repairs: Repair[] = []
+    nodes.forEach((node, id) => {
+      if (!(node instanceof Y.Map)) return
+      const overwritten = readReplayedOverwrite(node, transaction)
+      if (!overwritten) return
+      const { lost, winner } = overwritten
+      const data = mergeCanvasUploadConflict(lost, winner)
+      if (data) repairs.push({ id, lost, winner, data })
+    })
+    repair(repairs)
+  }
+  const repair = (repairs: Repair[]) => {
     if (!repairs.length) return
     // 观察者里不改文档：等这次事务收尾后再写，写之前确认节点还停在赢的那一版。
     queueMicrotask(() => {
@@ -281,9 +343,11 @@ export function watchCanvasUploadConflicts(
     })
   }
   nodes.observeDeep(observer)
+  doc.on('afterTransaction', replayed)
   return () => {
     // 停掉之后连已经排队的补写也作废：会话销毁时文档可能正在 destroy。
     stopped = true
     nodes.unobserveDeep(observer)
+    doc.off('afterTransaction', replayed)
   }
 }
