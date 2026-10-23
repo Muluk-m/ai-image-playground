@@ -3,6 +3,8 @@ import { getDeviceId } from '../../../lib/deviceId'
 const KEY = 'canvas-uploader-tab'
 const CHANNEL = 'canvas-uploader-tab'
 const TAB = /^[\w-]{1,32}$/
+/** 沿用存着的后缀前，等这么久看有没有同后缀的页面回应（同源标签页之间的消息一般几毫秒就到）。 */
+export const CANVAS_UPLOADER_PROBE_MS = 150
 
 interface Announce {
   type: 'hello' | 'here'
@@ -13,11 +15,25 @@ interface Announce {
 
 let tab: string | undefined
 let channel: BroadcastChannel | undefined
-const nonce = crypto.randomUUID()
-const born = Date.now()
+let nonce: string | undefined
+let born = 0
+/** 定下来之后后缀不再换：之后撞上的都是更晚启动的页面，由它们换。 */
+let settled = false
+let settledPromise: Promise<void> | undefined
+
+function randomId(): string {
+  // 运行时调用（不在模块加载时），boot/polyfills 已经装好；连 randomUUID 都没有时退回 Math.random。
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
+  }
+}
 
 function freshTab(): string {
-  const next = crypto.randomUUID().slice(0, 8)
+  const next = randomId()
+    .replace(/[^\w-]/g, '')
+    .slice(0, 8)
   try {
     sessionStorage.setItem(KEY, next)
   } catch {}
@@ -36,32 +52,53 @@ function isAnnounce(value: unknown): value is Announce {
 }
 
 function announce(type: Announce['type']) {
-  if (!tab) return
+  if (!tab || !nonce) return
   try {
     channel?.postMessage({ type, tab, nonce, born } satisfies Announce)
   } catch {}
 }
 
 /**
- * 「复制标签页」会把 sessionStorage 一起复制，新页拿到和原页一样的后缀。每个页面启动时在同源的
- * BroadcastChannel 上报一下自己的后缀；撞上同一后缀的另一个页面时，后启动的那个（同时启动的按 nonce 定）
- * 换一个新后缀（同时启动的两边都换），先启动的回一声让对方知道撞了。刷新本页时原来的页面已经没了，没人回应，后缀保持不变。
+ * 「复制标签页」会把 sessionStorage 一起复制，新页拿到和原页一样的后缀。沿用存着的后缀时先在同源的
+ * BroadcastChannel 上报一下，等一小会儿：撞上同一后缀的另一个页面时，后启动的那个换一个新后缀
+ * （同一毫秒启动分不出先后时两边都换），先启动的回一声让对方知道撞了。刷新本页时原来的页面已经没了，
+ * 没人回应，后缀保持不变。等待结束就定下来，之后不再换，在途上传的声明始终用同一个 ID。
+ * 没有 BroadcastChannel 的环境确认不了唯一性，不沿用存着的后缀，每次加载都换新的。
  */
-function watchCollisions() {
-  if (channel || typeof BroadcastChannel === 'undefined') return
+function start() {
+  nonce = randomId()
+  born = Date.now()
+  let stored: string | null = null
   try {
-    channel = new BroadcastChannel(CHANNEL)
-  } catch {
-    return
+    stored = sessionStorage.getItem(KEY)
+  } catch {}
+  if (typeof BroadcastChannel !== 'undefined') {
+    try {
+      channel = new BroadcastChannel(CHANNEL)
+    } catch {
+      channel = undefined
+    }
   }
+  if (!channel || !stored || !TAB.test(stored)) {
+    tab = freshTab()
+    settled = true
+    settledPromise = Promise.resolve()
+  } else {
+    tab = stored
+    settledPromise = new Promise((resolve) =>
+      setTimeout(() => {
+        settled = true
+        resolve()
+      }, CANVAS_UPLOADER_PROBE_MS),
+    )
+  }
+  if (!channel) return
   channel.onmessage = (event: MessageEvent) => {
     const other = event.data
     if (!isAnnounce(other) || other.nonce === nonce || other.tab !== tab) return
-    // 同一毫秒启动分不出谁是原页，两边都换：宁可都不认旧声明，也不让复制页冒认原页的上传。
-    const lose = born >= other.born
     // 先用撞上的后缀回一声，让对方也知道撞了（同时启动时对方也要换）。
     if (other.type === 'hello') announce('here')
-    if (lose) {
+    if (!settled && born >= other.born) {
       tab = freshTab()
       announce('hello')
     }
@@ -70,15 +107,8 @@ function watchCollisions() {
 }
 
 function currentTab(): string {
-  if (!tab) {
-    let stored: string | null = null
-    try {
-      stored = sessionStorage.getItem(KEY)
-    } catch {}
-    tab = stored && TAB.test(stored) ? stored : freshTab()
-    watchCollisions()
-  }
-  return tab
+  if (!tab) start()
+  return tab as string
 }
 
 /**
@@ -90,5 +120,11 @@ export function getCanvasUploaderId(): string {
   return `${getDeviceId()}:${currentTab()}`
 }
 
-// 页面一加载就上报后缀，尽早发现复制标签页撞号，不等第一次上传。
+/** 上传者 ID 定下来（不会再因撞号而换）时 resolve；写上传声明之前要等它。 */
+export function canvasUploaderSettled(): Promise<void> {
+  currentTab()
+  return settledPromise as Promise<void>
+}
+
+// 页面一加载就开始确认后缀，打开画布时通常早已定下来。
 if (typeof window !== 'undefined') currentTab()

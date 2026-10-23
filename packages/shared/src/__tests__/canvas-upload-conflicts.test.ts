@@ -31,6 +31,11 @@ function device(clientID: number) {
   const stop = watchCanvasUploadConflicts(doc, (origin) => origin === remote, local)
   return { doc, stop }
 }
+function fromUpdate(update: Uint8Array) {
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, update)
+  return doc
+}
 function data(doc: Y.Doc): ImageNodeData {
   return readCanvasDocument(doc).nodes.find((node) => node.id === 'image')?.data as ImageNodeData
 }
@@ -195,6 +200,70 @@ describe('上传簿记与并发编辑', () => {
       }
       next.stop()
     })
+
+  // 同一浏览器两个标签页离线时各写一次，都落在共用的 IndexedDB 里；重新打开时一次性回放，两次写入都是本机的。
+  for (const [renamerId, releaserId] of [
+    [1, 2],
+    [2, 1],
+  ] as const)
+    it(`从 IndexedDB 回放出两个标签页的并发写入时也两边都保留（renamer=${renamerId}）`, async () => {
+      const { editor: renamer, uploader: releaser } = pair(renamerId, releaserId)
+      const base = Y.encodeStateAsUpdate(releaser.doc)
+      edit(renamer.doc, { name: 'renamed' })
+      edit(releaser.doc, { meta: releaseCanvasUploadClaim(data(releaser.doc).meta, 2000) })
+      const stored = [
+        base,
+        Y.encodeStateAsUpdate(renamer.doc, Y.encodeStateVector(fromUpdate(base))),
+        Y.encodeStateAsUpdate(releaser.doc, Y.encodeStateVector(fromUpdate(base))),
+      ]
+      renamer.stop()
+      releaser.stop()
+      const reopened = new Y.Doc()
+      reopened.clientID = 30
+      const replay = Symbol('indexeddb')
+      const stop = watchCanvasUploadConflicts(
+        reopened,
+        (origin) => origin === remote,
+        local,
+        undefined,
+        (origin) => origin === replay,
+      )
+      // y-indexeddb 打开时把存着的更新放在一个事务里回放。
+      reopened.transact(() => {
+        for (const update of stored) Y.applyUpdate(reopened, update)
+      }, replay)
+      await Promise.resolve()
+
+      expect(data(reopened).name).toBe('renamed')
+      expect(data(reopened).meta?.[CANVAS_UPLOAD_DEVICE_META]).toBeUndefined()
+      expect(data(reopened).meta?.[CANVAS_UPLOAD_RELEASED_META]).toBe('2000')
+      stop()
+    })
+
+  it('回放出的先后修改（后一次看过前一次）不补写', async () => {
+    const { uploader } = pair(1, 2)
+    edit(uploader.doc, { name: 'first' })
+    edit(uploader.doc, { name: 'second' })
+    uploader.stop()
+    const reopened = new Y.Doc()
+    const replay = Symbol('indexeddb')
+    const stop = watchCanvasUploadConflicts(
+      reopened,
+      () => false,
+      local,
+      undefined,
+      (o) => o === replay,
+    )
+    let writes = 0
+    reopened.on('afterTransaction', (transaction) => {
+      if (transaction.origin === local) writes++
+    })
+    Y.applyUpdate(reopened, Y.encodeStateAsUpdate(uploader.doc), replay)
+    await Promise.resolve()
+    expect(data(reopened).name).toBe('second')
+    expect(writes).toBe(0)
+    stop()
+  })
 
   it('补写排队期间又进来一次远端写入时，按最新一版重新合，收成云媒体和改名都在', async () => {
     // uploader=2 的收成云媒体顶掉 editor=1 的改名；补写还没跑，又同步进来上传方随后改的提示词。
