@@ -172,6 +172,24 @@ describe('S3ObjectStore key prefix', () => {
       expect(failed).toBeInstanceOf(ObjectStoreHttpError)
       expect(failed.status).toBe(500)
 
+      // 传输层错误不能把预签名地址（凭证和签名）带进日志。
+      transport.mockImplementationOnce(
+        Object.assign(
+          (url: RequestInfo | URL) =>
+            Promise.reject(
+              Object.assign(new Error(`socket closed while fetching ${String(url)}`), {
+                code: 'ConnectionClosed',
+                path: String(url),
+              }),
+            ),
+          { preconnect: globalThis.fetch.preconnect },
+        ),
+      )
+      const reset = await subject.read('objects/u/m/original', controller.signal).catch((e) => e)
+      expect(reset.code).toBe('ConnectionClosed')
+      expect(JSON.stringify({ ...reset, message: reset.message })).not.toContain('expiresIn=60')
+      expect(reset.message).toContain('<signed-url>')
+
       transport.mockImplementation(
         Object.assign(
           (_url: RequestInfo | URL, options?: RequestInit) =>

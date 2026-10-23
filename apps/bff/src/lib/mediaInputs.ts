@@ -23,6 +23,8 @@ let readAttemptTimeoutMs = 15_000
 
 /** 测试用：把单次读取期限调短，免得用例真等 15 秒。不传恢复默认值。 */
 export function setMediaInputReadTimeoutForTesting(ms?: number) {
+  if (ms !== undefined && (!Number.isFinite(ms) || ms < 0 || ms > 60_000))
+    throw new Error('media input read timeout must be a finite number in [0, 60000]')
   readAttemptTimeoutMs = ms ?? 15_000
 }
 
