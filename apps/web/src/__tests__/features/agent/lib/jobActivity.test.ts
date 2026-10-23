@@ -1,5 +1,6 @@
 import type { AgentBackgroundJobView } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AgentRequestError } from '../../../../features/agent/lib/agentClient'
 import {
   configureAgentJobActivity,
   markAgentConversationSeen,
@@ -140,6 +141,21 @@ describe('切走之后的对话（BUG-16）', () => {
     ])
     await vi.waitFor(() => expect(useAgentJobActivity.getState().notice).not.toBeNull())
     expect(useAgentJobActivity.getState().notice).toMatchObject({ images: 2, failed: 0 })
+  })
+
+  it('守着的对话被删了（/jobs 404）就不再等，侧栏的在跑也收掉（复审 P2）', async () => {
+    const pending = [tool('a')]
+    fetchJobs.mockResolvedValue(pending.map(view))
+    panel(['conv-1', pending], ['conv-2', []])
+    await vi.waitFor(() => expect(fetchJobs).toHaveBeenCalledWith('conv-1'))
+    fetchJobs.mockRejectedValue(new AgentRequestError(404, 'not_found'))
+    await vi.waitFor(() =>
+      expect(useAgentJobActivity.getState().activity['conv-1']).toBeUndefined(),
+    )
+    const calls = fetchJobs.mock.calls.length
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(fetchJobs.mock.calls.length).toBe(calls)
+    expect(useAgentJobActivity.getState().notice).toBeNull()
   })
 
   it('全是用户自己取消的，不提示', async () => {
