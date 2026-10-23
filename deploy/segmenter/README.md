@@ -44,8 +44,10 @@ an app release:
   networks fails halfway, all of them are given back to the old one. The receiver self-tests a new
   version before that and warns instead of failing the release when it does not start.
 - To roll out a new segmenter: change `deploy/segmenter`, bump `VERSION`, merge to main. To roll
-  back: `docker start image-playground-segmenter-prev` and move the networks back, or bump to a new
-  version with the old code.
+  back: `scripts/segmenter-deploy.sh rollback` on the VPS (starts `image-playground-segmenter-prev`,
+  waits for `/health`, moves every app network to it, stops the current one and swaps the two
+  names; running it again rolls forward), then fix the code and bump `VERSION`, since a release
+  with the rolled-back `VERSION` would start it again. Do not start `-prev` by hand.
 - `scripts/segmenter-deploy.sh attach <project>` connects it to `<project>_application` with the
   alias `segmenter` (idempotent). Each edition reaches `http://segmenter:8080` on its own app
   network, and the editions still cannot reach each other (no executor joins a shared network).
@@ -67,8 +69,8 @@ an app release:
 - Old `ai-image-playground:segmenter-<VERSION>-<sha>` tags are pruned like the editions' (the
   newest two and the running one are kept), and a release archive does not wait for a deploy-log
   line for the segmenter (there is none).
-- Cache keys are `<project>:media:<mediaId>`, so one environment never reuses another's
-  embeddings. The service holds no other state and no secrets.
+- The service scopes cached embeddings by the request's namespace (`<project>`), so one
+  environment never reuses another's, even for the same media ID. The service holds no other state and no secrets.
 - Turning it on for production editions (needs Nain's go-ahead): set
   `SEGMENTER_EDITIONS="internal paid test"` in deploy.env.
 

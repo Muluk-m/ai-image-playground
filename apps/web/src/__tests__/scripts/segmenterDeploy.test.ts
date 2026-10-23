@@ -79,12 +79,18 @@ switch (cmd) {
   }
   case 'exec':
     process.exit(c(args[0])?.answers ? 0 : 1)
+  case 'start':
+    c(args[0]).running = true
+    save()
+    break
   case 'stop':
     c(args[0]).running = false
     save()
     break
   case 'rm':
     if (process.env.FAIL_RM === args[args.length - 1]) process.exit(1)
+    // Like Docker: a running container needs -f.
+    if (c(args[args.length - 1])?.running && !args.includes('-f')) process.exit(1)
     delete s.containers[args[args.length - 1]]
     save()
     break
@@ -187,6 +193,63 @@ describe('segmenter-deploy.sh (one shared, versioned container)', () => {
     expect(s.containers[shared]).toMatchObject({ version: '3', running: true })
     expect(s.containers[shared]?.networks.sort()).toEqual([shared, ...apps].sort())
     expect(s.containers[`${shared}-next`]?.networks).toEqual([shared])
+  })
+
+  it('rolls back to the previous version only once it answers, swapping the names so it can roll forward again', () => {
+    seed({
+      [shared]: container({ networks: [shared, ...apps], version: '4' }),
+      [`${shared}-prev`]: container({ version: '3', running: false }),
+    })
+    const result = run(['rollback'])
+    expect(result.status, result.stderr).toBe(0)
+    let s = read()
+    expect(s.containers[shared]).toMatchObject({ version: '3', running: true })
+    expect(s.containers[shared]?.networks.sort()).toEqual([shared, ...apps].sort())
+    expect(s.containers[`${shared}-prev`]).toMatchObject({ version: '4', running: false })
+    expect(s.containers[`${shared}-prev`]?.networks).toEqual([shared])
+    const all = calls()
+    expect(all.findIndex((c) => c.startsWith(`exec ${shared}-prev `))).toBeLessThan(
+      all.findIndex((c) => c.startsWith('network connect')),
+    )
+    expect(run(['rollback']).status).toBe(0)
+    s = read()
+    expect(s.containers[shared]).toMatchObject({ version: '4', running: true })
+    expect(s.containers[`${shared}-prev`]).toMatchObject({ version: '3', running: false })
+  })
+
+  it('leaves the current one serving when the previous version does not answer', () => {
+    seed({
+      [shared]: container({ networks: [shared, ...apps], version: '4' }),
+      [`${shared}-prev`]: container({ version: '3', running: false, answers: false }),
+    })
+    const result = run(['rollback'], { SEGMENTER_START_TIMEOUT: '0' })
+    expect(result.status).not.toBe(0)
+    const s = read()
+    expect(s.containers[shared]).toMatchObject({ version: '4', running: true })
+    expect(s.containers[shared]?.networks).toEqual([shared, ...apps])
+    expect(s.containers[`${shared}-prev`]).toMatchObject({ running: false, networks: [shared] })
+    seed({ [shared]: container({ version: '4' }) })
+    expect(run(['rollback']).status).not.toBe(0)
+  })
+
+  it('upgrades from a hand rollback that left -prev serving, without removing it while it serves', () => {
+    seed({
+      [shared]: container({ networks: [shared], version: '4', running: false }),
+      [`${shared}-prev`]: container({ networks: [shared, ...apps], version: '3' }),
+    })
+    const result = run(['up', 'ai-image-playground:segmenter-5-abc', '5'])
+    expect(result.status, result.stderr).toBe(0)
+    const s = read()
+    expect(s.containers[shared]).toMatchObject({ version: '5', running: true })
+    expect(s.containers[shared]?.networks.sort()).toEqual([shared, ...apps].sort())
+    // The version that was serving is the rollback copy; the rolled-back one is gone.
+    expect(s.containers[`${shared}-prev`]).toMatchObject({ version: '3', running: false })
+    expect(s.containers[`${shared}-prev`]?.networks).toEqual([shared])
+    expect(Object.keys(s.containers).sort()).toEqual([shared, `${shared}-prev`].sort())
+    const all = calls()
+    expect(all.indexOf(`stop ${shared}-prev`)).toBeGreaterThan(
+      all.findLastIndex((c) => c.startsWith('network disconnect')),
+    )
   })
 
   it('starts the first one when there is none yet', () => {
@@ -306,5 +369,6 @@ describe('segmenter-deploy.sh (one shared, versioned container)', () => {
     expect(run(['up', 'test', 'img']).status).toBe(2)
     expect(run(['attach', 'test', 'image-playground-test']).status).toBe(2)
     expect(run(['detach']).status).toBe(2)
+    expect(run(['rollback', '3']).status).toBe(2)
   })
 })
