@@ -1233,42 +1233,79 @@ it('accepts the no_rewrite guard and composition suffix the dispatch layer pins 
   )
 })
 
-it('only accepts dispatch shaping the selected model would actually get', () => {
-  const binding = { nodeId: 'a', kind: 'image' as const, prompt: '嫩芽', inputCount: 0 }
-  const instruction = buildAspectInstruction('1536x1024')
-  const accepts = (prompt: string, model: string, provider: 'openai-compat' | 'gemini') =>
-    stageBindingAccepts(binding, { prompt, inputCount: 0 }, { provider, model, size: '1536x1024' })
-  // gpt-image-2.5-flare 不认 size：guard、后缀、两者都有都是分发层的合法产物。
-  for (const prompt of [
-    '嫩芽',
-    applyPromptRewriteGuard('嫩芽'),
-    `嫩芽\n\n${instruction}`,
-    `${applyPromptRewriteGuard('嫩芽')}\n\n${instruction}`,
+it('only accepts dispatch shaping the selected model would actually get', async () => {
+  const { getChannels, _setChannelsForTesting } = await import('../../lib/channels')
+  const saved = getChannels()
+  // 测试进程里只有 openai-images 有密钥；补一个认 size 的 openai-compat 模型和一个 Gemini 模型。
+  const channel = (id: string, kind: 'openai-queue' | 'gemini-queue', capabilities: string[]) => ({
+    id: `shaping-${id}`,
+    kind,
+    label: id,
+    baseUrl: 'https://gateway.example/v1',
+    auth: { type: 'bearer' as const, secretRef: 'SHAPING_API_KEY', secret: 'k' },
+    allowedPaths: ['images/generations'],
+    models: [{ id, label: id, capabilities: capabilities as never }],
+    defaults: {},
+  })
+  _setChannelsForTesting([
+    ...saved,
+    channel('sized-image', 'openai-queue', ['generate', 'size']),
+    channel('gemini-sized-image', 'gemini-queue', ['generate', 'size']),
   ])
-    expect(accepts(prompt, 'gpt-image-2.5-flare', 'openai-compat')).toBe(true)
-  // 认 size 的模型分发层不加构图后缀；Gemini 不加 guard。
-  expect(accepts(`嫩芽\n\n${instruction}`, 'agnes-image-2.5-flash', 'openai-compat')).toBe(false)
-  expect(accepts(applyPromptRewriteGuard('嫩芽'), 'agnes-image-2.5-flash', 'openai-compat')).toBe(
-    true,
-  )
-  expect(accepts(applyPromptRewriteGuard('嫩芽'), 'gemini-3-pro-image', 'gemini')).toBe(false)
-  // 只往原文上加、不从提交里剥：原文自己就以构图句结尾时照常逐字通过。
-  const authored = { ...binding, prompt: `嫩芽\n\n${instruction}` }
-  expect(
-    stageBindingAccepts(
-      authored,
-      { prompt: applyPromptRewriteGuard(authored.prompt), inputCount: 0 },
-      { provider: 'openai-compat', model: 'agnes-image-2.5-flash', size: '1536x1024' },
-    ),
-  ).toBe(true)
-  // 不带 shaping（视频）只做逐字比。
-  expect(
-    stageBindingAccepts(
-      binding,
-      { prompt: applyPromptRewriteGuard('嫩芽'), inputCount: 0 },
-      undefined,
-    ),
-  ).toBe(false)
+  try {
+    const binding = { nodeId: 'a', kind: 'image' as const, prompt: '嫩芽', inputCount: 0 }
+    const instruction = buildAspectInstruction('1536x1024')
+    const accepts = (prompt: string, model: string, provider: 'openai-compat' | 'gemini') =>
+      stageBindingAccepts(
+        binding,
+        { prompt, inputCount: 0 },
+        { provider, model, size: '1536x1024' },
+      )
+    // gpt-image-2.5-flare 不认 size：guard、后缀、两者都有都是分发层的合法产物。
+    for (const prompt of [
+      '嫩芽',
+      applyPromptRewriteGuard('嫩芽'),
+      `嫩芽\n\n${instruction}`,
+      `${applyPromptRewriteGuard('嫩芽')}\n\n${instruction}`,
+    ])
+      expect(accepts(prompt, 'gpt-image-2.5-flare', 'openai-compat')).toBe(true)
+    // 认 size 的模型分发层不加构图后缀，只可能加 guard。
+    expect(accepts(`嫩芽\n\n${instruction}`, 'sized-image', 'openai-compat')).toBe(false)
+    expect(accepts(applyPromptRewriteGuard('嫩芽'), 'sized-image', 'openai-compat')).toBe(true)
+    // Gemini 不加 guard；协议族按 channels.json 认，路径里写成 openai-compat 也不放宽。
+    expect(accepts(applyPromptRewriteGuard('嫩芽'), 'gemini-sized-image', 'gemini')).toBe(false)
+    expect(accepts(applyPromptRewriteGuard('嫩芽'), 'gemini-sized-image', 'openai-compat')).toBe(
+      false,
+    )
+    // 只往原文上加、不从提交里剥：原文自己就以构图句结尾时照常通过。
+    const authored = { ...binding, prompt: `嫩芽\n\n${instruction}` }
+    expect(
+      stageBindingAccepts(
+        authored,
+        { prompt: applyPromptRewriteGuard(authored.prompt), inputCount: 0 },
+        { provider: 'openai-compat', model: 'sized-image', size: '1536x1024' },
+      ),
+    ).toBe(true)
+    // 网页分发层不看原文是否已带 guard，原文以 guard 开头时会被再钉一次，这也是合法产物。
+    const guardedOriginal = { ...binding, prompt: applyPromptRewriteGuard('嫩芽') }
+    expect(
+      stageBindingAccepts(
+        guardedOriginal,
+        { prompt: applyPromptRewriteGuard(guardedOriginal.prompt), inputCount: 0 },
+        { provider: 'openai-compat', model: 'gpt-image-2.5-flare', size: '1536x1024' },
+      ),
+    ).toBe(true)
+    // 不带 shaping（视频）只做逐字比。
+    expect(
+      stageBindingAccepts(
+        binding,
+        { prompt: applyPromptRewriteGuard('嫩芽'), inputCount: 0 },
+        undefined,
+      ),
+    ).toBe(false)
+  } finally {
+    _setChannelsForTesting(saved)
+  }
 })
 
 it('discards archived inputs when stage consumption fails after preparation', async () => {
