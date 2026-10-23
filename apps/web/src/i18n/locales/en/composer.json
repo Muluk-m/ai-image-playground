@@ -82,7 +82,18 @@
     "noModel": "Not selected",
     "model": "Model",
     "searchModel": "Search models",
-    "noModelMatch": "No matching models"
+    "noModelMatch": "No matching models",
+    "modelEta": "~{{seconds}}s",
+    "modelEtaMinutes": "~{{minutes}} min",
+    "modelEtaRange": "~{{min}}–{{max}}s",
+    "modelEtaRangeMinutes": "~{{min}}–{{max}} min",
+    "modelBadge": {
+      "recommended": "Recommended",
+      "latest": "Latest",
+      "quality": "Best quality",
+      "fast": "Fastest",
+      "value": "Low cost"
+    }
   },
   "size": {
     "customRatioLabel": "Enter a custom ratio",
@@ -153,7 +164,8 @@
       "low": "Low",
       "medium": "Medium",
       "high": "High"
-    }
+    },
+    "fixedCount": "{{count}} total · 1 per image"
   },
   "studio": {
     "type": "Creation type",
@@ -194,5 +206,16 @@
       "image": "Image",
       "video": "Video"
     }
+  },
+  "batch": {
+    "usage": "Reference use",
+    "merge": "Combine",
+    "each": "Per image",
+    "selected": "{{count}}/{{max}} selected",
+    "full": "Limit reached",
+    "mergeLimit": "Over {{max}} images runs per image only",
+    "oversized": "Image {{index}} is over {{mb}} MB. Remove it or use a smaller one",
+    "sendLabel": "Generate {{count}} images, one per reference",
+    "sendLabelCredits": "Generate {{count}} images, one per reference, {{credits}} credits"
   }
 }
