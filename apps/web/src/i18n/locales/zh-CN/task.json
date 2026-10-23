@@ -42,7 +42,8 @@
     "transparentBackground": "透明背景"
   },
   "detail": {
-    "generateFailed": "生成失败",
+    "errorUnavailable": "未记录具体失败原因，请复制诊断信息以便排查。",
+    "copyDiagnostics": "复制诊断信息",
     "contentPolicy": "这次的提示词没通过内容审核，上游拒绝了这次生成。换个说法再试——同样的提示词再提交一次还是这个结果。",
     "rewritePrompt": "改一下提示词",
     "errorCopied": "完整报错已复制",
@@ -103,6 +104,7 @@
     "storyboardFallback": "分镜",
     "productShotFallback": "商品图任务",
     "doneCount": "完成 {{done}}/{{total}}",
+    "cancelledCount": "已取消 {{cancelled}}",
     "failedCount": "失败 {{failed}}",
     "expandToView": "展开查看",
     "resultAlt": "{{name}} 结果",
