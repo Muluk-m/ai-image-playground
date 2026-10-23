@@ -488,7 +488,10 @@ export function startAgentNodeRun(
           // 换账号后这枚会话已经不属于原用户，登出会在服务端收回。丢失回执也不能靠本地状态重放。
         }
       }
-      releaseUnwatchedRun(key)
+      // 换了账号：确认中或倒计时里提前退出的运行停在非终局，终局才收的规则收不走它。
+      // 它属于原账号，新账号下不该再显示或保留，这里直接收走。
+      if (!sameAccount()) forgetAgentNodeRun(key, control)
+      else releaseUnwatchedRun(key)
     }
   })()
   return true
