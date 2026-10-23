@@ -60,22 +60,24 @@ function holdLock(locks: LockManager, name: string, waitMs: number): Promise<boo
  * 「复制标签页」会把 sessionStorage 一起复制，新页拿到和原页一样的后缀。用 Web Locks 保证同一时刻
  * 一个后缀只属于一个页面：每个页面一直持有自己后缀的锁。沿用存着的后缀时先拿它的锁（拿锁是原子的，
  * 两个页面不可能同时拿到）：刷新本页时旧页面卸载后锁就放了，能拿到，后缀不变；复制出来的页拿不到，
- * 换一个新后缀。拿到锁之后后缀就定下来，不再换。不支持 Web Locks 的环境确认不了唯一性，
- * 不沿用存着的后缀，每次加载都换新的。
+ * 换一个新后缀。拿到锁之后后缀就定下来，不再换。
+ * 不支持 Web Locks 的环境（Safari 15.4 之前）确认不了唯一性，照样沿用存着的后缀：刷新、崩溃后重开
+ * 比「复制标签页」常见得多，换新后缀会让本页把自己的旧声明当成别处在传，30 分钟过期前都不接着传；
+ * 复制标签页在这些浏览器里两页同号：复制出的页内存里没有原图，可能把这些节点当缺图、撤掉声明，
+ * 别处在原页传完之前会显示缺图；原页照常上传、收成云媒体后恢复。两害取其轻。
  */
 function start() {
   let stored: string | null = null
   try {
     stored = sessionStorage.getItem(KEY)
   } catch {}
+  tab = stored && TAB.test(stored) ? stored : freshTab()
+  const reused = tab === stored
   const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
   if (!locks || typeof locks.request !== 'function') {
-    tab = freshTab()
     settledPromise = Promise.resolve()
     return
   }
-  tab = stored && TAB.test(stored) ? stored : freshTab()
-  const reused = tab === stored
   settledPromise = (async () => {
     if (await holdLock(locks, LOCK + tab, reused ? CANVAS_UPLOADER_LOCK_WAIT_MS : 0)) return
     // 别的页面正持有这个后缀：换新后缀再拿，随机后缀撞上的概率可以忽略，拿不到也照用。

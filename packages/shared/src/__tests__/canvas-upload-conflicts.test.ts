@@ -15,6 +15,7 @@ import {
 } from '../canvas-document'
 import { promoteCanvasResultMedia } from '../canvas-results'
 import {
+  canvasUploadConflictsSupported,
   mergeCanvasUploadConflict,
   readOverwrittenLocalData,
   watchCanvasUploadConflicts,
@@ -500,6 +501,10 @@ describe('上传簿记与并发编辑', () => {
 })
 
 describe('Yjs 内部结构契约（升级 yjs 时这里失败就要同步改 readOverwrittenLocalData）', () => {
+  it('运行时自检在当前 yjs 下通过（不通过时客户端不在图片上传完之前同步文档）', () => {
+    expect(canvasUploadConflictsSupported()).toBe(true)
+  })
+
   it('Y.Map 的 _map 条目带 id/left/origin/deleted/content，并发覆盖可以读出输掉的一版', async () => {
     const a = new Y.Doc()
     a.clientID = 1
