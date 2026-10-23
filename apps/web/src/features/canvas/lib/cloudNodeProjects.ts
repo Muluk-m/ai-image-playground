@@ -187,15 +187,8 @@ export class CloudNodeProjectSession {
         let remote
         let created = false
         const needsMigration = !doc.getMap('meta').get('legacyImported')
-        try {
-          remote = await getCloudProject(this.project.id, this.controller.signal)
-        } catch (error) {
-          if (
-            !(error instanceof ProjectRequestError && error.status === 404) ||
-            this.project.cloud?.revision
-          )
-            throw error
-          // Create an empty server document; this device's full Y.Doc is merged after media preparation.
+        // Create an empty server document; this device's full Y.Doc is merged after media preparation.
+        const create = async () => {
           try {
             await putCloudProject(
               this.project.id,
@@ -209,10 +202,28 @@ export class CloudNodeProjectSession {
             )
             created = true
           } catch (writeError) {
+            // 409：别的标签页/设备已经建好了，接着读它那份。
             if (!(writeError instanceof ProjectRequestError && writeError.status === 409))
               throw writeError
           }
+        }
+        if (this.project.cloud?.revision === 0) {
+          // 本机新建、还从没写到云端的项目：服务端必然没有它。先读只会换来一条 404
+          // project_not_found（每次新建对话/画布都在控制台和监控里留一条），直接建。
+          await create()
           remote = await getCloudProject(this.project.id, this.controller.signal)
+        } else {
+          try {
+            remote = await getCloudProject(this.project.id, this.controller.signal)
+          } catch (error) {
+            if (
+              !(error instanceof ProjectRequestError && error.status === 404) ||
+              this.project.cloud?.revision
+            )
+              throw error
+            await create()
+            remote = await getCloudProject(this.project.id, this.controller.signal)
+          }
         }
         this.current()
         this.identity = remote.document
