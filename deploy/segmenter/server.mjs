@@ -6,7 +6,8 @@
 // network: the weights are baked into the image at build time (fetch-model.mjs).
 //
 // Memory: the model is loaded on the first request and released after SEGMENTER_IDLE_MS without
-// one, so an idle container holds only the Node runtime. Up to SEGMENTER_CACHE image embeddings
+// one. The freed memory is not returned to the OS, so an idle container still sits at about
+// 450 MB RSS (measured on the VPS). Up to SEGMENTER_CACHE image embeddings
 // stay in memory so include/exclude clicks only run the small decoder.
 import http from 'node:http'
 import { AutoProcessor, EdgeTamModel, env, RawImage } from '@huggingface/transformers'

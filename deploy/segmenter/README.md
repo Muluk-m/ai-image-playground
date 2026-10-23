@@ -19,7 +19,9 @@ Runtime limits:
   slots (`SEGMENTER_NAMESPACE_MAX`), so one edition cannot fill the queue for the others. The BFF
   also limits each user to one click in flight and 30 per minute (`429`).
 - 2 ORT threads, with the CPU memory arena off.
-- The model loads on the first request and is released after 10 minutes idle.
+- The model loads on the first request and is released after 10 minutes idle. Releasing it does
+  not give the memory back to the OS: measured on the VPS, the container stays at about 450 MB RSS
+  while idle (`/health` reports `loaded: false`, `rssMB` ≈ 450–470), so budget for that.
 - Up to 3 image embeddings are cached. The status probe always uses one fixed key per namespace.
 - Measured locally on 2 cores: about 360 MB RSS with the model loaded, about 0.4–0.6 s encode, and 0.05–0.09 s per click for decode.
 - Container limits: memory and swap 900m, 2 CPUs.
@@ -47,8 +49,9 @@ an app release:
 - `scripts/segmenter-deploy.sh attach <project>` connects it to `<project>_application` with the
   alias `segmenter` (idempotent). Each edition reaches `http://segmenter:8080` on its own app
   network, and the editions still cannot reach each other (no executor joins a shared network).
-  It also stops (does not remove) a leftover `image-playground-segmenter-test`/`-prod` from the
-  short-lived per-environment layout once it no longer serves any app network.
+  It also removes a leftover `image-playground-segmenter-test`/`-prod` container from the
+  short-lived per-environment layout once it no longer serves any app network, and then its own
+  internal network of the same name once nothing is attached to it. Running it again is a no-op.
 - `scripts/vps-deploy.sh`: every edition listed in `SEGMENTER_EDITIONS` (deploy.env, default
   `test`) is attached after its rollout while the shared container is healthy, and its BFF and
   worker get `AGENT_SEGMENTER_URL=http://segmenter:8080` plus `AGENT_SEGMENTER_NAMESPACE=<project>`.

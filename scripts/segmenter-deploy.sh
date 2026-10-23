@@ -12,8 +12,9 @@
 #     and the old one is left exactly as it was; if the move fails halfway, every network is given
 #     back to the old container before exiting.
 #   scripts/segmenter-deploy.sh attach <project>
-#     Attaches the shared container to <project>_application with the alias `segmenter`.
-#     Idempotent. Test releases only ever call this (and `healthy`): they never build, start,
+#     Attaches the shared container to <project>_application with the alias `segmenter`, and
+#     removes a leftover per-environment instance (and then its network) that serves no app
+#     network any more. Idempotent. Test releases only ever call this (and `healthy`): they never build, start,
 #     restart or replace the segmenter.
 #   scripts/segmenter-deploy.sh healthy
 #     Succeeds when the shared container is running and healthy.
@@ -73,7 +74,8 @@ start_next() {
     docker network create --internal "$own_network" >/dev/null
   # Stateless: no env file, no database, no credential, no published port, read-only root, and
   # only its own internal network until an app network is attached. One request at a time; the
-  # model is unloaded after 10 idle minutes (about 360 MB when loaded).
+  # model is unloaded after 10 idle minutes, but the process stays at about 450 MB RSS even then
+  # (measured on the VPS), so plan for that, not for the bare Node runtime.
   docker run --detach --name "$next" --label "$version_label=$2" \
     --init --restart unless-stopped --read-only --tmpfs /tmp:size=16m \
     --memory 900m --memory-swap 900m --cpus 2 \
@@ -145,10 +147,17 @@ attach() {
   network=$1_application
   connect "$network" "$container"
   for split in $split_instances; do
-    exists "$split" || continue
-    disconnect "$network" "$split"
-    [ "$(attached "$split")" = "$split " ] || [ "$(attached "$split")" = "" ] || continue
-    docker stop "$split" >/dev/null 2>&1 && echo "stopped $split (kept, not removed)"
+    if exists "$split"; then
+      disconnect "$network" "$split"
+      # Still serving another app network: leave it (and its network) for that edition's deploy.
+      [ "$(attached "$split")" = "$split " ] || [ "$(attached "$split")" = "" ] || continue
+      docker rm -f "$split" >/dev/null && echo "removed $split"
+    fi
+    # Its own internal network, once nothing is left on it. Idempotent: gone means done.
+    if docker network inspect "$split" >/dev/null 2>&1 &&
+      [ "$(docker network inspect "$split" --format '{{len .Containers}}' 2>/dev/null || echo 1)" = 0 ]; then
+      docker network rm "$split" >/dev/null && echo "removed network $split"
+    fi
   done
 }
 
