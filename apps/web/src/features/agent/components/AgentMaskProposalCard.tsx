@@ -372,7 +372,11 @@ export default function AgentMaskProposalCard({
   const regionMasksRef = useRef(new Map<number, HTMLCanvasElement>())
   const previewRef = useRef<HTMLCanvasElement>(null)
   const frameRef = useRef<number | null>(null)
-  const refineRef = useRef({ sequence: 0, controller: null as AbortController | null })
+  const refineRef = useRef({
+    sequence: 0,
+    controller: null as AbortController | null,
+    region: null as number | null,
+  })
   const pointerRef = useRef<{
     id: number
     tool: Tool
@@ -731,6 +735,9 @@ export default function AgentMaskProposalCard({
     const number = regionForClick(regions, hits, point, include, active)
     const region = regions.find((one) => one.number === number)
     if (!region) return
+    // 另一个区域还在重算：这一下先不收。中途换区域会把那边的请求作废，它的点已经记进状态、
+    // 蒙版却再也不会更新，确认时就漏了用户点过的范围。同一个区域连点照旧以最后一次为准。
+    if (refineRef.current.controller && refineRef.current.region !== number) return
     const clicks = addClick(region.clicks, { x: point.x, y: point.y, include }, MAX_CLICKS)
     const selected = region.selected || include
     const regionCanvas = regionMasksRef.current.get(number)!
@@ -744,6 +751,7 @@ export default function AgentMaskProposalCard({
     const controller = new AbortController()
     const sequence = ++refineRef.current.sequence
     refineRef.current.controller = controller
+    refineRef.current.region = number
     setRefining(true)
     try {
       const refined = await refineEditRegion(
@@ -768,6 +776,7 @@ export default function AgentMaskProposalCard({
     } finally {
       if (sequence === refineRef.current.sequence) {
         refineRef.current.controller = null
+        refineRef.current.region = null
         setRefining(false)
       }
     }
