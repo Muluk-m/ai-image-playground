@@ -277,7 +277,7 @@ export const projectRepository = {
       // 云端目录只有摘要，画布类型要等文档读回来才知道；在那之前这条记录先不带它。
       let result: StoredProject
       request.onsuccess = () => {
-        // 列表不能覆盖本机尚未同步的名称或文档；打开项目时再核对修订。
+        // 列表不能覆盖本机尚未同步的名称（见下）或文档；打开项目时再核对修订。
         result = request.result ?? {
           id: summary.id,
           name: summary.name,
@@ -291,6 +291,14 @@ export const projectRepository = {
           cover: summary.coverMediaId ? `aip-media:${summary.coverMediaId}` : undefined,
           cloud: { revision: summary.revision },
         }
+        // 本机没有待推的改名（`nameDirty`）时，云端那份名称就是最新的：别的标签页、别的设备
+        // 改过名，刷新目录时跟上，侧栏与页面不用等重新打开项目。未推的本机改名照旧优先。
+        if (request.result && !result.cloud?.nameDirty && result.name !== summary.name)
+          result = {
+            ...result,
+            name: summary.name,
+            customName: summary.name !== UNTITLED_PROJECT,
+          }
         if (result.cloud?.deleted)
           result = { ...result, cloud: { ...result.cloud, deleted: false } }
         if (summary.conversationId !== undefined)
