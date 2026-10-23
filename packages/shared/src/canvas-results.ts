@@ -228,6 +228,28 @@ export function promoteCanvasStoredResult(
     )
 }
 
+/**
+ * 服务端判定永远收不了的本机原图（损坏、超限）：候选结果里引用它的那几条不能再留着本机文件——
+ * 本机 file 来源的候选服务端不收，留着就每轮都要先上传、又是同样的 422。
+ * file 来源的候选整条撤掉（节点本身仍挂着这张图、显示上传失败，重试从节点走）；
+ * 别的来源只是展示缓存用了这张图，去掉缓存里的 fileId，来源本身照旧保留。
+ */
+export function dropCanvasResultFile(doc: Y.Doc, fileId: string, origin: CanvasOrigin): void {
+  const results = doc.getMap<CanvasResult>('nodeResults')
+  const mains = doc.getMap<string>('mainResults')
+  doc.transact(() => {
+    for (const result of [...results.values()]) {
+      if (result.source.type === 'file' && result.source.fileId === fileId) {
+        results.delete(result.id)
+        if (mains.get(result.nodeId) === result.id) mains.delete(result.nodeId)
+      } else if (result.display?.fileId === fileId && !result.display.mediaId) {
+        const { fileId: _, ...display } = result.display
+        results.set(result.id, { ...result, display })
+      }
+    }
+  }, origin)
+}
+
 /** A decoded poster is a new cache entry for the same video, not a new main result. */
 export function refreshCanvasResultDisplay(
   doc: Y.Doc,
