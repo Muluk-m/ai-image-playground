@@ -563,20 +563,24 @@ export class CloudNodeProjectSession {
       if (!rejected.size) return
       const names: string[] = []
       let dropped = 0
+      // 上传期间可能有新改动，按当前文档再核对一次；只读一遍文档，不在每个节点上重建整张画布。
+      const current = new Map(readCanvasDocument(doc).nodes.map((node) => [node.id, node]))
       doc.transact(() => {
         for (const { nodeId, fileId } of nodes) {
           const source = this.record.editor.doc.files[fileId]
           if (!source || !rejected.has(source)) continue
-          const current = readCanvasDocument(doc).nodes.find((n) => n.id === nodeId)
-          if (!current || !('fileId' in current.data) || current.data.fileId !== fileId) continue
+          const node = current.get(nodeId)
+          if (!node || !('fileId' in node.data) || node.data.fileId !== fileId) continue
+          if (!dropCanvasNodeFile(doc, nodeId, fileId, legacyOrigin)) continue
           dropped++
-          if (current.data.name) names.push(current.data.name)
-          dropCanvasNodeFile(doc, nodeId, fileId, legacyOrigin)
+          if (node.data.name) names.push(node.data.name)
         }
+        const dropping = new Set<string>()
         for (const { fileId } of results) {
           const source = this.record.editor.doc.files[fileId]
-          if (source && rejected.has(source)) dropCanvasResultFile(doc, fileId, legacyOrigin)
+          if (source && rejected.has(source)) dropping.add(fileId)
         }
+        for (const fileId of dropping) dropped += dropCanvasResultFile(doc, fileId, legacyOrigin)
       }, legacyOrigin)
       if (!dropped) return
       const message = names.length
