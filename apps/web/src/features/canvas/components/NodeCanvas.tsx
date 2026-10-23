@@ -45,7 +45,6 @@ import {
   useStoreApi,
 } from '@xyflow/react'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
-import { getDeviceId } from '../../../lib/deviceId'
 import { useNodeMedia } from './NodeMediaImage'
 import '@xyflow/react/dist/style.css'
 import { nodeCardSize } from '@image-playground/shared'
@@ -136,6 +135,7 @@ import { createImagePresetNode } from '../lib/nodeImagePreset'
 import { submitNodeWithLook } from '../lib/nodeLookSubmit'
 import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
 import { generateTextNode } from '../lib/textGeneration'
+import { useCanvasUploaderId } from '../lib/uploadSession'
 import { useAgentNodeRun } from '../lib/useAgentNodeRun'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
@@ -403,7 +403,7 @@ type UploadClaimData = Parameters<typeof canvasUploadingElsewhere>[0]
  */
 export function useUploadingElsewhere(data: UploadClaimData): boolean {
   const [tick, setTick] = useState(0)
-  const device = getDeviceId()
+  const device = useCanvasUploaderId()
   const now = Date.now()
   const next = canvasUploadClaimNextChange(data, device, now)
   useEffect(() => {

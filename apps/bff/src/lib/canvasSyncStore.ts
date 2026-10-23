@@ -1,4 +1,5 @@
 import {
+  applyCanvasUpdateKeepingUploads,
   type CloudProjectSummary,
   canvasNodeJobs,
   canvasOrigin,
@@ -30,6 +31,7 @@ export class CanvasSyncError extends Error {
   }
 }
 const origin = canvasOrigin('system', 'cloud-archive')
+const uploadRepairOrigin = canvasOrigin('system', 'upload-conflict-repair')
 const documents = schema.canvas_documents
 const updates = schema.canvas_updates
 const base64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64')
@@ -279,7 +281,9 @@ export async function accessCanvasDocument(
         const before = Y.encodeStateAsUpdate(doc)
         const acceptedTasks = referencedTasks(doc)
         try {
-          Y.applyUpdate(doc, update)
+          // 并发顶掉的上传簿记（例如收成云媒体输给别处的改名）要在回收删除内容之前合回去：
+          // 上传方收到确认就可能关页面，等不到房间刷新自己补写。
+          applyCanvasUpdateKeepingUploads(doc, update, uploadRepairOrigin)
           validateCloudCanvas(doc, project.document, legacyConnections)
         } catch {
           throw new CanvasSyncError(400, 'invalid_canvas_document')

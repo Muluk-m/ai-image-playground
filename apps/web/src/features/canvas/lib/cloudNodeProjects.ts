@@ -1,5 +1,6 @@
 import {
   CANVAS_UPLOAD_DEVICE_META,
+  CANVAS_UPLOAD_STALE_MS,
   CANVAS_UPLOAD_STARTED_META,
   canvasOrigin,
   canvasProjectDocument,
@@ -14,6 +15,7 @@ import {
   importLegacyElements,
   isLocalCanvasFileId,
   type LegacyCanvasElement,
+  nextCanvasUploadStamp,
   type ProjectDocument,
   type ProjectVideoRef,
   projectKind,
@@ -22,6 +24,7 @@ import {
   promoteCanvasVideoMedia,
   readCanvasDocument,
   readCanvasSyncMessage,
+  releaseCanvasUploadClaim,
   synchronizeLegacyElements,
   updateCanvasNode,
   watchCanvasUploadConflicts,
@@ -33,7 +36,6 @@ import { authenticatedBffFetch } from '../../../lib/authClient'
 import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import { supportsCanvasPendingMedia } from '../../../lib/clientCapabilities'
 import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
-import { getDeviceId } from '../../../lib/deviceId'
 import { uploadMediaSource } from '../../../lib/mediaUpload'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
@@ -52,6 +54,7 @@ import {
 } from './projectMedia'
 import { type CanvasProject, projectRepository } from './projectRepository'
 import type { SceneRecord } from './sceneRecord'
+import { canvasUploaderSettled, getCanvasUploaderId } from './uploadSession'
 
 const remoteOrigin = canvasOrigin('system', 'cloud-sync')
 const legacyOrigin = canvasOrigin('system', 'legacy-editor')
@@ -66,9 +69,21 @@ const PERMANENT_MEDIA_REJECTIONS = new Set([
   'media_image_too_large',
   'media_image_pixels_exceeded',
 ])
-function permanentMediaRejection(error: unknown): boolean {
-  if (error instanceof MediaRequestError) return PERMANENT_MEDIA_REJECTIONS.has(error.code)
+const OVERSIZED_MEDIA = new Set([
+  'media_too_large',
+  'media_image_too_large',
+  'media_image_pixels_exceeded',
+])
+type MediaRejection = 'invalid' | 'oversized'
+/** 永久失败分两类提示：坏图（空/损坏/不支持）与超限（图是好的，只是太大），文案不能混。 */
+function permanentMediaRejection(error: unknown): MediaRejection | undefined {
+  if (error instanceof MediaRequestError) {
+    if (!PERMANENT_MEDIA_REJECTIONS.has(error.code)) return undefined
+    return OVERSIZED_MEDIA.has(error.code) ? 'oversized' : 'invalid'
+  }
   return error instanceof Error && error.message === 'unsupported_local_media'
+    ? 'invalid'
+    : undefined
 }
 type CommandReadPurpose = 'passive' | 'after-reverse'
 export type CanvasCloudSession = CloudProjectSession | CloudNodeProjectSession
@@ -110,6 +125,8 @@ export class CloudNodeProjectSession {
   private upload: { done: number; total: number } | undefined
   private uploading: Promise<void> | undefined
   private uploadAgain = false
+  /** 这一轮后台上传里续期上传声明带来的文档版本增量：判断「这一轮开始后有没有新改动」时不算它。 */
+  private claimRenewals = 0
   /**
    * 上一轮后台上传失败时那一轮开始的文档版本。版本没变（只有这一轮自己写的声明之类）就不再自动开新一轮，
    * 免得持续失败时「写声明→触发同步→再传→再失败」一直转；用户再改动或手动同步时才重试。
@@ -184,19 +201,23 @@ export class CloudNodeProjectSession {
     const doc = new Y.Doc({ guid: scopedStorageName(nodeCanvasDatabaseName(this.record.key)) })
     const persistence = new IndexeddbPersistence(nodeCanvasDatabaseName(this.record.key), doc)
     this.persistence = persistence
+    // 先发文档后，图片还在后台上传时别的设备就能改这个节点：上传簿记与并发编辑互相顶掉时补回来。
+    // 要赶在套用服务端初始状态之前注册：离线时的本机写入在打开这一刻才跟远端合并。
+    // 重新打开后 clientID 会换，所以认本机以前在这份文档上用过的 clientID。
+    // 还要赶在 IndexedDB 回放之前注册：同一浏览器两个标签页离线时各自写进共用的 IndexedDB，
+    // 两次并发写入要到重新打开回放时才撞上，回放的事务以 persistence 为 origin。
+    const localClients = rememberCanvasClientId(doc)
+    this.stopUploadConflicts = watchCanvasUploadConflicts(
+      doc,
+      (origin) => origin === remoteOrigin,
+      legacyOrigin,
+      (client) => localClients.has(client),
+      (origin) => origin === persistence,
+    )
     try {
-      await persistence.whenSynced
+      // 也等本标签页的上传者 ID 定下来（复制标签页撞号要先换掉），之后的上传声明都用同一个 ID。
+      await Promise.all([persistence.whenSynced, canvasUploaderSettled()])
       this.current()
-      // 先发文档后，图片还在后台上传时别的设备就能改这个节点：上传簿记与并发编辑互相顶掉时补回来。
-      // 要赶在套用服务端初始状态之前注册：离线时的本机写入在打开这一刻才跟远端合并。
-      // 重新打开后 clientID 会换，所以认本机以前在这份文档上用过的 clientID。
-      const localClients = rememberCanvasClientId(doc)
-      this.stopUploadConflicts = watchCanvasUploadConflicts(
-        doc,
-        (origin) => origin === remoteOrigin,
-        legacyOrigin,
-        (client) => localClients.has(client),
-      )
       // Preserve the browser's pre-migration scene, including unsent images and local geometry.
       if (!doc.getMap('meta').get('legacyImported') && this.record.editor.doc.elements.length)
         await writePersistedScene(this.record.contents(), `${this.record.key}:pre-node-migration`)
@@ -464,6 +485,12 @@ export class CloudNodeProjectSession {
   }
   private resume = () => {
     this.retries = 0
+    // 断网导致后台上传失败停下的：网络恢复时重新传一次（每次恢复在线只试一轮，不会循环重试）。
+    // 换了账号的不传，send 里的 current() 也会拦下已关闭的会话。
+    if (this.failedUploadVersion !== undefined && this.sameAccount()) {
+      this.failedUploadVersion = undefined
+      this.requestSync()
+    }
     this.connect()
   }
   private connect() {
@@ -591,7 +618,7 @@ export class CloudNodeProjectSession {
     const doc = this.canvas.doc
     // 先列出这一轮要收成云媒体的全部本机原图，按原图去重：同一张图挂在几个节点或候选上只传一次。
     const nodes: { nodeId: string; fileId: string; elsewhere: boolean }[] = []
-    const device = getDeviceId()
+    const device = getCanvasUploaderId()
     const now = Date.now()
     for (const node of readCanvasDocument(doc).nodes) {
       if (
@@ -623,6 +650,8 @@ export class CloudNodeProjectSession {
     // 本机缺原图又没有有效声明（原图被清理、损坏，或那台设备传了 30 分钟还没收成云媒体），仍按缺图报错。
     const pendingAllowed = supportsCanvasPendingMedia()
     for (const node of nodes) {
+      // 别的标签页/设备声明在传、还没过期的，即使本机缓存里也有原图，也交给它传，免得重复上传、互抢声明。
+      if (pendingAllowed && node.elsewhere) continue
       const source = this.record.editor.doc.files[node.fileId]
       if (source) sources.add(source)
       else if (!pendingAllowed || !node.elsewhere) failure ??= new Error('canvas_media_missing')
@@ -645,35 +674,47 @@ export class CloudNodeProjectSession {
     }
     // 永远收不了的原图（BUG-10）：不能再拿它挡整张画布的保存，把引用它的节点摘成空图片卡、候选撤掉。
     // 注意本机根本没有原图（files 里查不到）的仍按缺图挡着：那可能是别的设备还在传，摘了会毁掉它的图。
-    const rejected = new Set<string>()
+    const rejected = new Map<string, MediaRejection>()
     const drop = () => {
-      if (!rejected.size) return
-      const names: string[] = []
-      let dropped = 0
+      // 同步已取消或换了账号：不再改这份文档。
+      if (!rejected.size || this.controller.signal.aborted || !this.sameAccount()) return
+      const names: Record<MediaRejection, string[]> = { invalid: [], oversized: [] }
+      const kinds = new Set<MediaRejection>()
       // 上传期间可能有新改动，按当前文档再核对一次；只读一遍文档，不在每个节点上重建整张画布。
       const current = new Map(readCanvasDocument(doc).nodes.map((node) => [node.id, node]))
       doc.transact(() => {
         for (const { nodeId, fileId } of nodes) {
           const source = this.record.editor.doc.files[fileId]
-          if (!source || !rejected.has(source)) continue
+          const kind = source ? rejected.get(source) : undefined
+          if (!kind) continue
           const node = current.get(nodeId)
           if (!node || !('fileId' in node.data) || node.data.fileId !== fileId) continue
           if (!dropCanvasNodeFile(doc, nodeId, fileId, legacyOrigin)) continue
-          dropped++
-          if (node.data.name) names.push(node.data.name)
+          kinds.add(kind)
+          if (node.data.name) names[kind].push(node.data.name)
         }
-        const dropping = new Set<string>()
+        const dropping = new Map<string, MediaRejection>()
         for (const { fileId } of results) {
           const source = this.record.editor.doc.files[fileId]
-          if (source && rejected.has(source)) dropping.add(fileId)
+          const kind = source ? rejected.get(source) : undefined
+          if (kind) dropping.set(fileId, kind)
         }
-        for (const fileId of dropping) dropped += dropCanvasResultFile(doc, fileId, legacyOrigin)
+        for (const [fileId, kind] of dropping)
+          if (dropCanvasResultFile(doc, fileId, legacyOrigin)) kinds.add(kind)
       }, legacyOrigin)
-      if (!dropped) return
-      const message = names.length
-        ? i18next.t('nodes.uploadRejected', { ns: 'canvas', names: [...new Set(names)].join('、') })
-        : i18next.t('nodes.uploadRejectedUnnamed', { ns: 'canvas' })
-      useStore.getState().showToast(message, 'error')
+      for (const kind of kinds) {
+        const list = [...new Set(names[kind])]
+        const joined = list.join('、')
+        const message =
+          kind === 'oversized'
+            ? list.length
+              ? i18next.t('nodes.uploadTooLarge', { ns: 'canvas', names: joined })
+              : i18next.t('nodes.uploadTooLargeUnnamed', { ns: 'canvas' })
+            : list.length
+              ? i18next.t('nodes.uploadRejected', { ns: 'canvas', names: joined })
+              : i18next.t('nodes.uploadRejectedUnnamed', { ns: 'canvas' })
+        useStore.getState().showToast(message, 'error')
+      }
     }
     // 与旧画布 prepareProjectMedia 同一个写法：同时传 MEDIA_CONCURRENCY 张，传完一张就把它收进文档；
     // 一张失败不拦其余的，全部跑完再报第一条错，下次同步只剩失败的那几张。
@@ -689,6 +730,7 @@ export class CloudNodeProjectSession {
     const worker = async () => {
       for (let source = queue.shift(); source !== undefined; source = queue.shift()) {
         try {
+          if (pendingAllowed) this.renewLocalClaims(nodes, source)
           const mediaId = (await uploadMediaSource(source, { signal: this.controller.signal }))?.id
           this.current()
           if (!mediaId) throw new Error('canvas_media_missing')
@@ -700,7 +742,8 @@ export class CloudNodeProjectSession {
             failure ??= error
             return
           }
-          if (permanentMediaRejection(error)) rejected.add(source)
+          const kind = permanentMediaRejection(error)
+          if (kind) rejected.set(source, kind)
           else failure ??= error
         }
       }
@@ -735,7 +778,7 @@ export class CloudNodeProjectSession {
       return false
     // 本机缺原图、也没有别的设备有效声明在传的节点不能当「上传中」发出去：走原流程报缺图。
     const files = this.record.editor.doc.files
-    const device = getDeviceId()
+    const device = getCanvasUploaderId()
     const now = Date.now()
     return readCanvasDocument(this.canvas.doc).nodes.every(
       (node) =>
@@ -757,8 +800,8 @@ export class CloudNodeProjectSession {
     if (!this.canvas) return
     const doc = this.canvas.doc
     const files = this.record.editor.doc.files
-    const device = getDeviceId()
-    const now = String(Date.now())
+    const device = getCanvasUploaderId()
+    const now = Date.now()
     const claims: { id: string; data: ImageNodeData }[] = []
     for (const node of readCanvasDocument(doc).nodes) {
       if (node.type !== 'image' && node.type !== 'video') continue
@@ -767,6 +810,8 @@ export class CloudNodeProjectSession {
         isLocalCanvasFileId(fileId) &&
         !mediaId &&
         files[fileId] &&
+        // 别的标签页/设备的有效声明不抢：由它去传（与 prepareMedia 一致，只在支持上传中节点时）。
+        (!supportsCanvasPendingMedia() || !canvasUploadingElsewhere(node.data, device, now)) &&
         (renew || meta?.[CANVAS_UPLOAD_DEVICE_META] !== device)
       )
         claims.push({ id: node.id, data: node.data })
@@ -783,10 +828,80 @@ export class CloudNodeProjectSession {
               meta: {
                 ...data.meta,
                 [CANVAS_UPLOAD_DEVICE_META]: device,
-                [CANVAS_UPLOAD_STARTED_META]: now,
+                [CANVAS_UPLOAD_STARTED_META]: String(nextCanvasUploadStamp(data.meta, now)),
               },
             },
           },
+          legacyOrigin,
+        )
+    }, legacyOrigin)
+  }
+  /**
+   * 一张原图真正开始上传时，给挂着它、由本设备声明的节点续上声明时间。一轮要传很多张时，
+   * 排在后面的图可能在开头写声明 30 分钟后才开始传；不续期的话别的设备会把它判成过期，
+   * 复制项目时放行一份只有本机 fileId 的快照。只续已过了一半有效期的声明，免得每张图都写一次文档。
+   */
+  private renewLocalClaims(nodes: readonly { nodeId: string; fileId: string }[], source: string) {
+    if (!this.canvas) return
+    const doc = this.canvas.doc
+    const files = this.record.editor.doc.files
+    const device = getCanvasUploaderId()
+    const now = Date.now()
+    const targets = nodes.filter(({ fileId }) => files[fileId] === source)
+    if (!targets.length) return
+    // 只读一次文档、按 id 建索引：一批有很多张图时，每张开始传都要走一遍。
+    const byId = new Map(readCanvasDocument(doc).nodes.map((node) => [node.id, node]))
+    const renewed: { id: string; data: ImageNodeData }[] = []
+    for (const { nodeId, fileId } of targets) {
+      const current = byId.get(nodeId)
+      if (!current || (current.type !== 'image' && current.type !== 'video')) continue
+      const { data } = current
+      if (data.fileId !== fileId || data.mediaId) continue
+      if (data.meta?.[CANVAS_UPLOAD_DEVICE_META] !== device) continue
+      const since = Number(data.meta?.[CANVAS_UPLOAD_STARTED_META])
+      if (Number.isFinite(since) && now - since < CANVAS_UPLOAD_STALE_MS / 2) continue
+      renewed.push({ id: nodeId, data })
+    }
+    if (!renewed.length) return
+    const before = this.editVersion
+    doc.transact(() => {
+      for (const { id, data } of renewed)
+        updateCanvasNode(
+          doc,
+          id,
+          {
+            data: {
+              ...data,
+              meta: {
+                ...data.meta,
+                [CANVAS_UPLOAD_STARTED_META]: String(nextCanvasUploadStamp(data.meta, now)),
+              },
+            },
+          },
+          legacyOrigin,
+        )
+    }, legacyOrigin)
+    this.claimRenewals += this.editVersion - before
+  }
+  /** 后台上传失败停下时，去掉本标签页对还没收成云媒体的节点写的上传声明。 */
+  private releaseLocalUploads() {
+    if (!this.canvas) return
+    const doc = this.canvas.doc
+    const device = getCanvasUploaderId()
+    const now = Date.now()
+    const released: { id: string; data: ImageNodeData }[] = []
+    for (const node of readCanvasDocument(doc).nodes) {
+      if (node.type !== 'image' && node.type !== 'video') continue
+      if (!node.data.mediaId && node.data.meta?.[CANVAS_UPLOAD_DEVICE_META] === device)
+        released.push({ id: node.id, data: node.data })
+    }
+    if (!released.length) return
+    doc.transact(() => {
+      for (const { id, data } of released)
+        updateCanvasNode(
+          doc,
+          id,
+          { data: { ...data, meta: releaseCanvasUploadClaim(data.meta, now) } },
           legacyOrigin,
         )
     }, legacyOrigin)
@@ -795,12 +910,16 @@ export class CloudNodeProjectSession {
   private hasLocalImages() {
     if (!this.canvas) return false
     const files = this.record.editor.doc.files
+    const device = getCanvasUploaderId()
+    const now = Date.now()
     return readCanvasDocument(this.canvas.doc).nodes.some(
       (node) =>
         (node.type === 'image' || node.type === 'video') &&
         !!node.data.fileId &&
         !node.data.mediaId &&
-        !!files[node.data.fileId],
+        !!files[node.data.fileId] &&
+        // 与 prepareMedia 一致：只有支持上传中节点时才把别处在传的交给别处。
+        (!supportsCanvasPendingMedia() || !canvasUploadingElsewhere(node.data, device, now)),
     )
   }
   /** 一次只跑一轮后台上传；跑的时候又来了改动，就在这一轮结束后再补一轮。 */
@@ -813,6 +932,7 @@ export class CloudNodeProjectSession {
     this.uploading = (async () => {
       do {
         this.uploadAgain = false
+        this.claimRenewals = 0
         roundVersion = this.editVersion
         await this.prepareMedia()
         this.current()
@@ -843,7 +963,16 @@ export class CloudNodeProjectSession {
         // 这一轮开始后又有改动（例如刚加了新图）：不能就此停下，否则要等到下一次编辑才会再传。
         // 只按文档版本判断：这一轮开始前写的上传声明不算，持续失败不会自己循环重试。
         this.uploadAgain = false
-        if (this.editVersion !== roundVersion) this.requestSync()
+        // 续期声明不算新改动，否则一直失败又传得久的批次会自己循环重试。
+        if (this.editVersion - this.claimRenewals !== roundVersion) {
+          this.requestSync()
+          return
+        }
+        // 不再自动重传：去掉本标签页写的上传声明并同步出去，别处不再一直显示「上传中」、
+        // 复制项目也不再被当成还在上传；用户再改动或手动同步时 claimLocalUploads 会重新声明。
+        // 去掉声明本身也是一次改动，把它记成失败版本，免得它触发新一轮上传。
+        this.releaseLocalUploads()
+        this.failedUploadVersion = this.editVersion
       })
   }
   private send(): Promise<void> {
@@ -874,13 +1003,23 @@ export class CloudNodeProjectSession {
           if (this.uploading) await this.uploading
           // Promotion awaits I/O; include edits made during those awaits before acknowledging this version.
           let preparedVersion: number
-          do {
-            preparedVersion = this.editVersion
-            await this.prepareVideoMedia()
-            await this.prepareMedia()
-            if (this.project.cloud?.nameDirty) await this.flushName()
-            this.current()
-          } while (preparedVersion !== this.editVersion)
+          try {
+            do {
+              preparedVersion = this.editVersion
+              await this.prepareVideoMedia()
+              await this.prepareMedia()
+              if (this.project.cloud?.nameDirty) await this.flushName()
+              this.current()
+            } while (preparedVersion !== this.editVersion)
+          } catch (error) {
+            // 前台这轮上传也失败了：和后台失败一样撤掉本标签页的上传声明，别处不再显示「上传中」、
+            // 复制也不再被挡；撤销本身是一次改动，记成失败版本，免得它触发后台再传一轮。
+            if (!this.controller.signal.aborted && this.sameAccount()) {
+              this.releaseLocalUploads()
+              this.failedUploadVersion = this.editVersion
+            }
+            throw error
+          }
         }
         // 失败的那几张已经传上去或被删掉：不再拿上一轮的失败拦「已保存」。
         if (!this.uploading && !this.hasLocalImages()) this.mediaFailure = undefined

@@ -7,6 +7,8 @@ import {
   canvasUploadClaimNextChange,
   canvasUploadingElsewhere,
   initializeCanvasConnectionRules,
+  nextCanvasUploadStamp,
+  releaseCanvasUploadClaim,
   validateCloudCanvas,
   withoutCanvasUploadClaim,
 } from '../canvas-cloud'
@@ -129,8 +131,8 @@ describe('cloud canvas migration and protocol', () => {
       )
       deleteCanvasNode(doc, forged.id, origin)
     }
-    // mediaId 是 null 之类的非字符串时直接判非法，不能当成「还没 mediaId」的上传中节点放过去。
-    for (const mediaId of [null, 0, false]) {
+    // mediaId 是 null、空串或不是 UUID 的字符串时直接判非法，不能当成「还没 mediaId」的上传中节点放过去。
+    for (const mediaId of [null, 0, false, '', 'x']) {
       const forged = {
         ...image('Vk3n_x-9:story-grid:0'),
         data: { fileId: 'Vk3n_x-9:story-grid:0', mediaId },
@@ -139,6 +141,11 @@ describe('cloud canvas migration and protocol', () => {
       expect(() => validateCloudCanvas(doc, legacy)).toThrow('invalid_canvas_node')
       deleteCanvasNode(doc, forged.id, origin)
     }
+    // 不带 fileId 的空节点也一样。
+    const noFile = { ...image('unused'), data: { mediaId: 'x' } }
+    insertCanvasNode(doc, noFile as never, origin)
+    expect(() => validateCloudCanvas(doc, legacy)).toThrow('invalid_canvas_node')
+    deleteCanvasNode(doc, noFile.id, origin)
   })
   it('rejects malformed roots and non-finite geometry', () => {
     const doc = new Y.Doc()
@@ -382,5 +389,15 @@ describe('canvas upload claims', () => {
     const plain = { prompt: 'p' }
     expect(withoutCanvasUploadClaim(plain)).toBe(plain)
     expect(withoutCanvasUploadClaim(undefined)).toBeUndefined()
+  })
+  it('新簿记的时间总晚于节点上已有的声明或撤销，即使本机时钟落后', () => {
+    const ahead = { uploadDevice: 'b', uploadStartedAt: '5000', prompt: 'p' }
+    // 本机时钟（1000）落后于别的设备写的声明（5000）：撤销仍记成更晚的 5001。
+    expect(releaseCanvasUploadClaim(ahead, 1000)).toEqual({ prompt: 'p', uploadReleasedAt: '5001' })
+    expect(nextCanvasUploadStamp({ uploadReleasedAt: '7000' }, 1000)).toBe(7001)
+    expect(nextCanvasUploadStamp(ahead, 9000)).toBe(9000)
+    expect(nextCanvasUploadStamp(undefined, 9000)).toBe(9000)
+    // 没有设备的开始时间不算声明。
+    expect(nextCanvasUploadStamp({ uploadStartedAt: '5000' }, 1000)).toBe(1000)
   })
 })
