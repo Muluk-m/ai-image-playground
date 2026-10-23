@@ -108,7 +108,14 @@ async function executeTask(execution: TaskExecution): Promise<void> {
   let request = task.request_payload
 
   log.info(
-    { event: 'task.started', taskId: id, provider: task.provider, model: task.model },
+    {
+      event: 'task.started',
+      taskId: id,
+      userId: task.user_id,
+      provider: task.provider,
+      model: task.model,
+      idleSlot: execution.idleSlot,
+    },
     'task started',
   )
 
@@ -313,7 +320,13 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       completedAt: now(),
     })
     log.info(
-      { event: 'task.completed', taskId: id, imageCount: meta.images.length },
+      {
+        event: 'task.completed',
+        taskId: id,
+        imageCount: meta.images.length,
+        idleSlot: execution.idleSlot,
+        elapsedMs: now() - claimedAt,
+      },
       'task completed',
     )
   } catch (err) {
@@ -407,6 +420,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         {
           event: 'task.failed',
           taskId: id,
+          idleSlot: execution.idleSlot,
           errorType,
           attempt: attemptJustFailed,
           upstreamStatus: upstreamFailure.status,
