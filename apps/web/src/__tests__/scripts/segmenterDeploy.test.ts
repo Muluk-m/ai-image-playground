@@ -45,8 +45,17 @@ switch (cmd) {
   }
   case 'network': {
     const [sub, ...rest] = args
-    if (sub === 'inspect') process.exit(s.networks.includes(rest[0]) ? 0 : 1)
+    if (sub === 'inspect') {
+      if (!s.networks.includes(rest[0])) process.exit(1)
+      if (fmt.includes('Containers'))
+        process.stdout.write(String(Object.values(s.containers).filter((one) => one.networks.includes(rest[0])).length))
+      process.exit(0)
+    }
     if (sub === 'create') s.networks.push(rest[rest.length - 1])
+    if (sub === 'rm') {
+      if (Object.values(s.containers).some((one) => one.networks.includes(rest[0]))) process.exit(1)
+      s.networks = s.networks.filter((n) => n !== rest[0])
+    }
     if (sub === 'connect') {
       const [net, name] = rest.slice(-2)
       if (process.env.FAIL_CONNECT === net + ':' + name) process.exit(1)
@@ -185,19 +194,67 @@ describe('segmenter-deploy.sh (one shared, versioned container)', () => {
     expect(read().containers[shared]).toMatchObject({ version: '1', running: true })
   })
 
-  it('attaches an app to the shared container and stops a per-environment instance left on that network', () => {
+  it('attaches an app to the shared container and removes a per-environment instance left on that network, with its own network', () => {
     seed({
       [shared]: container({ version: '1' }),
       [`${shared}-test`]: container({ networks: [`${shared}-test`, apps[1]!] }),
     })
-    expect(run(['attach', 'image-playground-test']).status).toBe(0)
+    writeFileSync(
+      state,
+      JSON.stringify({ ...read(), networks: [shared, `${shared}-test`, apps[1]] }),
+    )
+    const result = run(['attach', 'image-playground-test'])
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain(`removed ${shared}-test`)
+    expect(result.stdout).toContain(`removed network ${shared}-test`)
     const s = read()
     expect(s.containers[shared]?.networks).toEqual([shared, apps[1]])
-    expect(s.containers[`${shared}-test`]).toMatchObject({
-      running: false,
-      networks: [`${shared}-test`],
+    expect(Object.keys(s.containers)).toEqual([shared])
+    expect(s.networks).toEqual([shared, apps[1]])
+    // The shared container and its own network are never touched.
+    expect(calls().join('\n')).not.toMatch(new RegExp(`^(rm|stop)( -f)? ${shared}$`, 'm'))
+    expect(calls().join('\n')).not.toMatch(new RegExp(`^network rm ${shared}$`, 'm'))
+  })
+
+  it('removes an already stopped leftover and a network left without its container', () => {
+    seed({
+      [shared]: container({ version: '1' }),
+      [`${shared}-test`]: container({ networks: [`${shared}-test`], running: false }),
     })
-    expect(calls().join('\n')).not.toMatch(/^rm /m)
+    writeFileSync(
+      state,
+      JSON.stringify({ ...read(), networks: [shared, `${shared}-test`, `${shared}-prod`] }),
+    )
+    expect(run(['attach', 'image-playground-test']).status).toBe(0)
+    const s = read()
+    expect(Object.keys(s.containers)).toEqual([shared])
+    expect(s.networks).toEqual([shared])
+  })
+
+  it('keeps a leftover that still serves another app network, and its network', () => {
+    seed({
+      [shared]: container({ version: '1' }),
+      [`${shared}-prod`]: container({ networks: [`${shared}-prod`, apps[1]!, apps[0]!] }),
+    })
+    writeFileSync(state, JSON.stringify({ ...read(), networks: [shared, `${shared}-prod`] }))
+    expect(run(['attach', 'image-playground-test']).status).toBe(0)
+    const s = read()
+    expect(s.containers[`${shared}-prod`]).toMatchObject({
+      running: true,
+      networks: [`${shared}-prod`, apps[0]],
+    })
+    expect(s.networks).toContain(`${shared}-prod`)
+    expect(calls().join('\n')).not.toMatch(/^(rm|stop|network rm) /m)
+  })
+
+  it('is a no-op when attached again with nothing left over', () => {
+    seed({ [shared]: container({ version: '1', networks: [shared, apps[1]!] }) })
+    expect(run(['attach', 'image-playground-test']).status).toBe(0)
+    expect(run(['attach', 'image-playground-test']).status).toBe(0)
+    expect(read().containers[shared]?.networks).toEqual([shared, apps[1]])
+    expect(calls().join('\n')).not.toMatch(
+      /^(rm|stop|run|network (rm|connect|disconnect|create)) /m,
+    )
   })
 
   it('reports health and version, and refuses anything else', () => {
