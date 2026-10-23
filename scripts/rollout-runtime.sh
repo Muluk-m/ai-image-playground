@@ -21,7 +21,7 @@ docker_probe() { timeout 10 docker "$@"; }
 # exports AGENT_SEGMENTER_URL (empty when off). Any other path into this script (app-compose.sh
 # rollback, a manual run) reads the same decision back from where the deploy left it: the edition
 # uses the segmenter exactly when the shared container is attached to its app network, so a
-# rollback keeps it on, and keeps it off.
+# rollback keeps whatever the last release chose.
 if [ -z "${AGENT_SEGMENTER_URL+set}" ]; then
   AGENT_SEGMENTER_URL=
   case " $(docker_probe inspect \

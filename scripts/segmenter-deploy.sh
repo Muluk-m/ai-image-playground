@@ -19,6 +19,9 @@
 #   scripts/segmenter-deploy.sh detach <project>
 #     Takes <project>_application off the shared container: the edition is not to use it.
 #     Attached means enabled, which is what rollout-runtime.sh reads back on a rollback. Idempotent.
+#   scripts/segmenter-deploy.sh rollback
+#     By hand only: back to `image-playground-segmenter-prev`, which is started and checked before
+#     it gets every app network; the two swap names, so running it again rolls forward.
 #   scripts/segmenter-deploy.sh healthy
 #     Succeeds when the shared container is running and serving: Docker reports it healthy, or it
 #     answers /health (Docker still says `starting` for up to 30 s after `up` replaced it).
@@ -35,7 +38,7 @@ version_label='online.muvloom.segmenter.version'
 split_instances="$container-test $container-prod"
 
 usage() {
-  echo "Usage: scripts/segmenter-deploy.sh up <image> <version> | attach <project> | detach <project> | healthy | current <version>" >&2
+  echo "Usage: scripts/segmenter-deploy.sh up <image> <version> | attach <project> | detach <project> | rollback | healthy | current <version>" >&2
   exit 2
 }
 
@@ -61,6 +64,10 @@ exists() {
   docker inspect "$1" >/dev/null 2>&1
 }
 
+running() {
+  [ "$(docker inspect "$1" --format '{{.State.Running}}' 2>/dev/null || true)" = true ]
+}
+
 healthy() {
   [ "$(docker inspect "$1" --format '{{.State.Health.Status}}' 2>/dev/null || true)" = healthy ]
 }
@@ -78,7 +85,7 @@ answers() {
 # switched over once it answered; editions deployed in that window must still get it.
 usable() {
   if healthy "$1"; then return 0; fi
-  [ "$(docker inspect "$1" --format '{{.State.Running}}' 2>/dev/null || true)" = true ] && answers "$1"
+  running "$1" && answers "$1"
 }
 
 start_next() {
@@ -124,35 +131,81 @@ up() {
     sleep 2
     waited=$((waited + 2))
   done
-  networks=
-  if exists "$container"; then
-    for network in $(attached "$container"); do
-      [ "$network" = "$own_network" ] || networks="$networks $network"
-    done
-  fi
-  moved=
-  # Whatever goes wrong while moving, the old container gets every network back.
-  give_back() {
-    for network in $moved; do
-      connect "$network" "$container" || echo "Warning: could not give $network back to $container" >&2
-      disconnect "$network" "$next" || true
-    done
-  }
-  trap give_back EXIT
-  for network in $networks; do
-    connect "$network" "$next"
-    moved="$moved $network"
-    disconnect "$network" "$container"
-  done
-  trap - EXIT
-  if exists "$container"; then
+  # Normally the serving one is $container. After a hand rollback that started $prev instead
+  # (the stopped $container is the version that was rolled back), $prev is serving: take its
+  # networks and keep it as the rollback copy, and drop the stopped one.
+  source=$container
+  if exists "$prev" && running "$prev" && ! running "$container"; then source=$prev; fi
+  networks=$(app_networks "$source")
+  move_networks "$source" "$next" "$networks"
+  if [ "$source" = "$prev" ]; then
+    docker stop "$prev" >/dev/null
+    if exists "$container"; then docker rm -f "$container" >/dev/null; fi
+  elif exists "$container"; then
     docker stop "$container" >/dev/null
     # One rollback copy: the stopped version before this one.
-    if exists "$prev"; then docker rm "$prev" >/dev/null; fi
+    if exists "$prev"; then docker rm -f "$prev" >/dev/null; fi
     docker rename "$container" "$prev"
   fi
   docker rename "$next" "$container"
   echo "segmenter $version running; networks:$networks"
+}
+
+# The app networks of <container>, not its own internal one.
+app_networks() {
+  exists "$1" || return 0
+  for network in $(attached "$1"); do
+    [ "$network" = "$own_network" ] || printf ' %s' "$network"
+  done
+}
+
+# move_networks <from> <to> <networks>: whatever goes wrong while moving, <from> gets every
+# network back and the script exits nonzero.
+move_networks() {
+  move_from=$1
+  move_to=$2
+  moved=
+  give_back() {
+    for network in $moved; do
+      connect "$network" "$move_from" || echo "Warning: could not give $network back to $move_from" >&2
+      disconnect "$network" "$move_to" || true
+    done
+  }
+  trap give_back EXIT
+  for network in $3; do
+    connect "$network" "$move_to"
+    moved="$moved $network"
+    disconnect "$network" "$move_from"
+  done
+  trap - EXIT
+}
+
+# Back to the stopped version before this one: started, checked, given every app network, and only
+# then the current one stopped. The two swap names, so the serving one is always $container and
+# `rollback` again rolls forward. A release with the rolled-back VERSION would start that version
+# again: fix it and bump VERSION.
+rollback() {
+  exists "$prev" || { echo "no $prev to roll back to" >&2; return 1; }
+  exists "$container" || { echo "no $container to roll back from" >&2; return 1; }
+  docker start "$prev" >/dev/null
+  waited=0
+  until answers "$prev"; do
+    if [ "$waited" -ge "${SEGMENTER_START_TIMEOUT:-180}" ] || ! running "$prev"; then
+      docker logs --tail 40 "$prev" >&2 || true
+      docker stop "$prev" >/dev/null || true
+      echo "$prev did not get healthy; $container was left serving" >&2
+      return 1
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
+  networks=$(app_networks "$container")
+  move_networks "$container" "$prev" "$networks"
+  docker stop "$container" >/dev/null
+  docker rename "$container" "$container-swap"
+  docker rename "$prev" "$container"
+  docker rename "$container-swap" "$prev"
+  echo "segmenter rolled back; networks:$networks"
 }
 
 attach() {
@@ -198,6 +251,10 @@ case $command in
   attach)
     [ $# -eq 2 ] || usage
     attach "$2"
+    ;;
+  rollback)
+    [ $# -eq 1 ] || usage
+    rollback
     ;;
   healthy)
     [ $# -eq 1 ] || usage

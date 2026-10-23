@@ -147,7 +147,10 @@ function packBits(data, offset, length) {
 async function segment(request) {
   const { model, processor } = await ensureLoaded()
   const imageProcessor = processor.image_processor ?? processor
-  let entry = cache.get(request.key)
+  // Editions share this process and may use the same media ID (restored or copied fixtures), so
+  // an embedding is only ever reused within the namespace that computed it.
+  const cacheKey = `${request.namespace}\n${request.key}`
+  let entry = cache.get(cacheKey)
   let encodeMs = 0
   if (!entry) {
     if (!request.image && !request.raw) throw new RequestError(404, 'image_required')
@@ -165,7 +168,7 @@ async function segment(request) {
     encodeMs = Math.round(performance.now() - startedAt)
     stats.encodes++
   }
-  remember(request.key, entry)
+  remember(cacheKey, entry)
   const startedAt = performance.now()
   const prompt = {}
   if (request.points.length) {
