@@ -7,6 +7,7 @@ import {
   canvasSyncStep1,
   canvasSyncStep2,
   canvasUploadingElsewhere,
+  canvasUploadRejection,
   createCanvasUndoManager,
   type ImageNodeData,
   importLegacyElements,
@@ -25,6 +26,7 @@ import {
   synchronizeLegacyElements,
   updateCanvasNode,
   watchCanvasUploadConflicts,
+  withoutCanvasUploadRejection,
 } from '@image-playground/shared'
 import i18next from 'i18next'
 import { IndexeddbPersistence } from 'y-indexeddb'
@@ -78,6 +80,23 @@ function rememberCanvasClientId(doc: Y.Doc): Set<number> {
   }
   return new Set(ids)
 }
+/**
+ * 服务端（或本机预处理）判定这张原图永远收不了的错误码：同一份字节再传也是同样结果。
+ * 解码超时（media_image_processing_limit）、哈希不符等可能是暂时性的，不在其中，照旧按失败重试。
+ */
+const PERMANENT_MEDIA_REJECTIONS = new Set([
+  'media_invalid_image',
+  'media_unsupported_image',
+  'media_too_large',
+  'media_image_too_large',
+  'media_image_pixels_exceeded',
+])
+export function permanentMediaRejection(error: unknown): string | undefined {
+  const code =
+    error instanceof MediaRequestError ? error.code : error instanceof Error ? error.message : ''
+  return PERMANENT_MEDIA_REJECTIONS.has(code) ? code : undefined
+}
+
 export class CloudNodeProjectSession {
   canvas: NodeCanvasDocument | undefined
   private persistence: IndexeddbPersistence | undefined
@@ -574,7 +593,7 @@ export class CloudNodeProjectSession {
     if (!this.canvas) return
     const doc = this.canvas.doc
     // 先列出这一轮要收成云媒体的全部本机原图，按原图去重：同一张图挂在几个节点或候选上只传一次。
-    const nodes: { nodeId: string; fileId: string; elsewhere: boolean }[] = []
+    const nodes: { nodeId: string; fileId: string; elsewhere: boolean; rejected?: string }[] = []
     const device = getCanvasUploaderId()
     const now = Date.now()
     for (const node of readCanvasDocument(doc).nodes) {
@@ -588,6 +607,7 @@ export class CloudNodeProjectSession {
         nodeId: node.id,
         fileId: node.data.fileId,
         elsewhere: canvasUploadingElsewhere(node.data, device, now),
+        rejected: canvasUploadRejection(node.data),
       })
     }
     // Previously chosen candidates remain durable even after another candidate becomes main.
@@ -607,6 +627,12 @@ export class CloudNodeProjectSession {
     // 本机缺原图又没有有效声明（原图被清理、损坏，或那台设备传了 30 分钟还没收成云媒体），仍按缺图报错。
     const pendingAllowed = supportsCanvasPendingMedia()
     for (const node of nodes) {
+      // 服务端已判定永远收不了的图（损坏、超限）：再传也是同样的 422，不传。支持上传中节点时它照样留在文档里、
+      // 节点上显示上传失败，不挡别的改动保存；不支持时服务端文档收不了它，仍按失败报出来，等用户移除或重试。
+      if (node.rejected) {
+        if (!pendingAllowed) failure ??= new MediaRequestError(422, node.rejected)
+        continue
+      }
       // 别的标签页/设备声明在传、还没过期的，即使本机缓存里也有原图，也交给它传，免得重复上传、互抢声明。
       if (pendingAllowed && node.elsewhere) continue
       const source = this.record.editor.doc.files[node.fileId]
@@ -637,6 +663,7 @@ export class CloudNodeProjectSession {
       if (known) promote(source, known)
       else queue.push(source)
     }
+    const rejections = new Map<string, string>()
     const total = queue.length
     let done = 0
     if (total) this.progress({ done, total })
@@ -650,8 +677,17 @@ export class CloudNodeProjectSession {
           promote(source, mediaId)
           this.progress({ done: ++done, total })
         } catch (error) {
-          failure ??= error
-          if (this.controller.signal.aborted || !this.sameAccount()) return
+          if (this.controller.signal.aborted || !this.sameAccount()) {
+            failure ??= error
+            return
+          }
+          const rejected = permanentMediaRejection(error)
+          if (rejected) {
+            rejections.set(source, rejected)
+            this.progress({ done: ++done, total })
+            // 支持上传中节点时坏图只记在节点上，不算这一轮的失败：别的图照常收进文档、改动照常保存。
+            if (!pendingAllowed) failure ??= error
+          } else failure ??= error
         }
       }
     }
@@ -660,6 +696,7 @@ export class CloudNodeProjectSession {
     } finally {
       if (total) this.progress(undefined)
     }
+    if (rejections.size) this.markRejected(nodes, rejections)
     if (failure !== undefined) throw failure
   }
   requestSync = () => {
@@ -693,8 +730,49 @@ export class CloudNodeProjectSession {
         !!node.data.mediaId ||
         // 服务端只收本机格式的上传中 fileId；历史数据里格式不合的照旧先上传再发。
         (isLocalCanvasFileId(node.data.fileId) && !!files[node.data.fileId]) ||
-        canvasUploadingElsewhere(node.data, device, now),
+        canvasUploadingElsewhere(node.data, device, now) ||
+        // 已判定上传失败的节点服务端照收，本机没有原图（别的会话、别的设备）也不用等。
+        !!canvasUploadRejection(node.data),
     )
+  }
+  /**
+   * 服务端判定永远收不了的原图：撤掉这些节点的上传声明并记下错误码（CANVAS_UPLOAD_REJECTED_META）。
+   * 记在文档里，刷新、别的会话和别的设备都据此显示「上传失败」，而不是一直当成上传中或待保存。
+   */
+  private markRejected(
+    nodes: readonly { nodeId: string; fileId: string }[],
+    rejections: ReadonlyMap<string, string>,
+  ) {
+    if (!this.canvas) return
+    const doc = this.canvas.doc
+    const files = this.record.editor.doc.files
+    const now = Date.now()
+    doc.transact(() => {
+      for (const { nodeId, fileId } of nodes) {
+        const source = files[fileId]
+        const rejected = source === undefined ? undefined : rejections.get(source)
+        if (!rejected) continue
+        const current = readCanvasDocument(doc).nodes.find((n) => n.id === nodeId)
+        if (
+          !current ||
+          (current.type !== 'image' && current.type !== 'video') ||
+          current.data.fileId !== fileId ||
+          current.data.mediaId
+        )
+          continue
+        updateCanvasNode(
+          doc,
+          nodeId,
+          {
+            data: {
+              ...current.data,
+              meta: releaseCanvasUploadClaim(current.data.meta, now, rejected),
+            },
+          },
+          legacyOrigin,
+        )
+      }
+    }, legacyOrigin)
   }
   /**
    * 先发文档前，给本机要传的节点写上「本设备在传、何时开始」：别的设备据此显示上传中，
@@ -716,6 +794,7 @@ export class CloudNodeProjectSession {
         isLocalCanvasFileId(fileId) &&
         !mediaId &&
         files[fileId] &&
+        !canvasUploadRejection(node.data) &&
         // 别的标签页/设备的有效声明不抢：由它去传（与 prepareMedia 一致，只在支持上传中节点时）。
         (!supportsCanvasPendingMedia() || !canvasUploadingElsewhere(node.data, device, now)) &&
         (renew || meta?.[CANVAS_UPLOAD_DEVICE_META] !== device)
@@ -777,6 +856,8 @@ export class CloudNodeProjectSession {
         !!node.data.fileId &&
         !node.data.mediaId &&
         !!files[node.data.fileId] &&
+        // 已判定上传失败的不算待传：用户点重试去掉失败记录后才再传。
+        !canvasUploadRejection(node.data) &&
         // 与 prepareMedia 一致：只有支持上传中节点时才把别处在传的交给别处。
         (!supportsCanvasPendingMedia() || !canvasUploadingElsewhere(node.data, device, now)),
     )

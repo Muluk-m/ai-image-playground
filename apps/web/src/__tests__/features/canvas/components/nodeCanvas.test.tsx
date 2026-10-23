@@ -1170,3 +1170,50 @@ it('别的设备的上传声明到点过期后，不等别的改动也会从「�
     vi.useRealTimers()
   }
 })
+
+it('shows a rejected upload as failed with retry and remove instead of a broken image', async () => {
+  const meta = { uploadReleasedAt: '1', uploadRejected: 'media_invalid_image' }
+  insertCanvasNode(
+    canvas.doc,
+    {
+      id: 'broken',
+      type: 'image',
+      x: 400,
+      y: 0,
+      width: 200,
+      height: 200,
+      data: { fileId: 'file', meta },
+    },
+    canvas.origin,
+  )
+  // 别的会话/设备：本机没有原图，只能移除。
+  insertCanvasNode(
+    canvas.doc,
+    {
+      id: 'remote',
+      type: 'image',
+      x: 700,
+      y: 0,
+      width: 200,
+      height: 200,
+      data: { fileId: 'gone', meta },
+    },
+    canvas.origin,
+  )
+  await render()
+  const node = (id: string) => host.querySelector<HTMLElement>(`[data-node-id="${id}"]`)!
+  expect(node('broken').textContent).toContain('图片上传失败')
+  expect(node('broken').textContent).toContain('图片文件已损坏或无法识别')
+  expect(node('broken').querySelector('img')).toBeNull()
+  expect(node('remote').textContent).toContain('图片上传失败')
+  expect(node('remote').textContent).not.toContain('图片上传中')
+  const button = (id: string, label: string) =>
+    [...node(id).querySelectorAll('button')].find((b) => b.textContent === label)
+  expect(button('remote', '重试')).toBeUndefined()
+  await act(async () => button('broken', '重试')!.click())
+  const data = readCanvasDocument(canvas.doc).nodes.find((n) => n.id === 'broken')!.data
+  expect(data).not.toHaveProperty('meta.uploadRejected')
+  expect(data).toMatchObject({ fileId: 'file', meta: { uploadReleasedAt: '1' } })
+  await act(async () => button('remote', '移除')!.click())
+  expect(readCanvasDocument(canvas.doc).nodes.some((n) => n.id === 'remote')).toBe(false)
+})

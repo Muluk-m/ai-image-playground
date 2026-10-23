@@ -15,7 +15,9 @@ import {
   readCanvasDocument,
   readCanvasSyncMessage,
   recordCanvasResult,
+  updateCanvasNode,
   validateCloudCanvas,
+  withoutCanvasUploadRejection,
 } from '@image-playground/shared'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
@@ -24,7 +26,10 @@ import { artifactBitmap } from '../../../../features/agent/lib/artifactSource'
 import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import type { AgentToolMessage } from '../../../../features/agent/types'
 import { createAgentCanvasSink } from '../../../../features/canvas/lib/agentCanvasSink'
-import { CloudNodeProjectSession } from '../../../../features/canvas/lib/cloudNodeProjects'
+import {
+  CloudNodeProjectSession,
+  permanentMediaRejection,
+} from '../../../../features/canvas/lib/cloudNodeProjects'
 import { registerNodeCanvasFocus } from '../../../../features/canvas/lib/nodeCanvasFocus'
 import type { CanvasCommandSummary } from '../../../../features/canvas/lib/nodeCanvasHistory'
 import { type CloudSceneCheckpoint } from '../../../../features/canvas/lib/persistence'
@@ -38,6 +43,7 @@ import type { SceneRecord } from '../../../../features/canvas/lib/sceneRecord'
 import { getCanvasUploaderId } from '../../../../features/canvas/lib/uploadSession'
 import { authenticatedBffFetch } from '../../../../lib/authClient'
 import { setClientStorageScope } from '../../../../lib/authScope'
+import { MediaRequestError } from '../../../../lib/cloudMedia'
 import { getDeviceId } from '../../../../lib/deviceId'
 import { uploadMediaSource } from '../../../../lib/mediaUpload'
 import { openSceneRecord } from '../../../helpers/sceneRecord'
@@ -1947,5 +1953,157 @@ it('keeps a reserved cloud video in the node document when submission is rejecte
     pending: { status: 'error', meta: { agentErrorCode: 'invalid_params' } },
   })
   expect(record.editor.getPlaceholder(ids[0]!)?.status).toBe('error')
+  record.dispose()
+})
+
+it('only treats rejections that the same bytes can never pass as permanent', () => {
+  expect(permanentMediaRejection(new MediaRequestError(422, 'media_invalid_image'))).toBe(
+    'media_invalid_image',
+  )
+  expect(permanentMediaRejection(new MediaRequestError(413, 'media_too_large'))).toBe(
+    'media_too_large',
+  )
+  // 本机预处理解不开的图也是同一个错误码。
+  expect(permanentMediaRejection(new Error('media_image_pixels_exceeded'))).toBe(
+    'media_image_pixels_exceeded',
+  )
+  // 解码超时、哈希不符、断网都可能是暂时的，照旧按失败处理、可重试。
+  expect(permanentMediaRejection(new MediaRequestError(422, 'media_image_processing_limit'))).toBe(
+    undefined,
+  )
+  expect(permanentMediaRejection(new MediaRequestError(422, 'media_hash_mismatch'))).toBe(undefined)
+  expect(permanentMediaRejection(new Error('offline'))).toBe(undefined)
+})
+
+it('marks an image the server rejects as failed, saves the rest, and stops re-uploading it', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockRejectedValue(new MediaRequestError(422, 'media_invalid_image'))
+  record.editor.doc.files = { broken: 'data:image/png;base64,YnJva2Vu' }
+  insertCanvasNode(
+    session.canvas!.doc,
+    { id: 'broken', type: 'image', x: 5, y: 6, width: 50, height: 50, data: { fileId: 'broken' } },
+    session.canvas!.origin,
+  )
+  // 服务端永远收不了的图：记在节点上（别处、刷新后都能显示上传失败），声明撤掉，不再是「上传中」。
+  await vi.waitFor(() => {
+    expect(serverNode(server, 'broken')?.data).toMatchObject({
+      fileId: 'broken',
+      meta: { uploadRejected: 'media_invalid_image' },
+    })
+    expect(serverNode(server, 'broken')?.data).not.toHaveProperty('meta.uploadDevice')
+  })
+  // 其余改动都已保存：不能因为一张坏图一直挂着「还没保存完」。
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('saved'))
+  const calls = vi.mocked(uploadMediaSource).mock.calls.length
+  expect(calls).toBe(1)
+  // 之后的编辑、手动同步都不再重传这张坏图，也照常保存。
+  moveCanvasNodes(session.canvas!.doc, [{ id: 'text', x: 9, y: 9 }], session.canvas!.origin)
+  await session.sync()
+  expect(serverNode(server, 'text')).toMatchObject({ x: 9, y: 9 })
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(vi.mocked(uploadMediaSource).mock.calls.length).toBe(calls)
+  vi.mocked(uploadMediaSource).mockReset()
+  record.dispose()
+})
+
+it('saves around an image another session already found the server rejects', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const vector = Y.encodeStateVector(server)
+  // 刷新后的新会话、别的设备：本机没有这张原图，只看到文档里的失败记录。
+  insertCanvasNode(
+    server,
+    {
+      id: 'broken',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: {
+        fileId: 'gone',
+        meta: { uploadReleasedAt: '1', uploadRejected: 'media_invalid_image' },
+      },
+    },
+    origin,
+  )
+  socket.receive(canvasSyncUpdate(Y.encodeStateAsUpdate(server, vector)))
+  vi.mocked(uploadMediaSource).mockClear()
+  moveCanvasNodes(session.canvas!.doc, [{ id: 'text', x: 5, y: 6 }], session.canvas!.origin)
+  await session.sync()
+  expect(serverNode(server, 'text')).toMatchObject({ x: 5, y: 6 })
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(uploadMediaSource).not.toHaveBeenCalled()
+  record.dispose()
+})
+
+it('uploads a rejected image again once its failure is cleared for a retry', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockRejectedValueOnce(new MediaRequestError(422, 'media_invalid_image'))
+  record.editor.doc.files = { photo: 'data:image/png;base64,cGhvdG8=' }
+  const doc = session.canvas!.doc
+  insertCanvasNode(
+    doc,
+    { id: 'photo', type: 'image', x: 5, y: 6, width: 50, height: 50, data: { fileId: 'photo' } },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() =>
+    expect(serverNode(server, 'photo')?.data).toHaveProperty('meta.uploadRejected'),
+  )
+  vi.mocked(uploadMediaSource).mockResolvedValue({ id: uploaded, sha256: 'photo' })
+  const node = readCanvasDocument(doc).nodes.find((n) => n.id === 'photo')!
+  if (node.type !== 'image') throw new Error('expected image')
+  // 节点上的「重试」：去掉失败记录，会话重新声明并上传。
+  updateCanvasNode(
+    doc,
+    'photo',
+    { data: { ...node.data, meta: withoutCanvasUploadRejection(node.data.meta) } },
+    canvasOrigin('system', 'upload-retry'),
+  )
+  await vi.waitFor(() =>
+    expect(serverNode(server, 'photo')?.data).toMatchObject({ mediaId: uploaded }),
+  )
+  expect(serverNode(server, 'photo')?.data).not.toHaveProperty('meta.uploadRejected')
+  vi.mocked(uploadMediaSource).mockReset()
+  record.dispose()
+})
+
+it('keeps blocking the save on a rejected image while pending media is off, without re-uploading it', async () => {
+  // 开关关着时服务端文档不能带只有本机 fileId 的节点：坏图仍按失败报出来，等用户移除；但不再一遍遍重传。
+  pendingMedia.supported = false
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockRejectedValue(new MediaRequestError(422, 'media_invalid_image'))
+  record.editor.doc.files = { broken: 'data:image/png;base64,YnJva2Vu' }
+  insertCanvasNode(
+    session.canvas!.doc,
+    { id: 'broken', type: 'image', x: 5, y: 6, width: 50, height: 50, data: { fileId: 'broken' } },
+    session.canvas!.origin,
+  )
+  await expect(session.sync()).rejects.toThrow('media_invalid_image')
+  expect(
+    readCanvasDocument(session.canvas!.doc).nodes.find((n) => n.id === 'broken')?.data,
+  ).toMatchObject({
+    meta: { uploadRejected: 'media_invalid_image' },
+  })
+  await expect(session.sync()).rejects.toThrow('media_invalid_image')
+  expect(uploadMediaSource).toHaveBeenCalledTimes(1)
+  expect(serverNode(server, 'broken')).toBeUndefined()
+  vi.mocked(uploadMediaSource).mockReset()
   record.dispose()
 })

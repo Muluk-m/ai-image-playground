@@ -402,6 +402,21 @@ describe('上传簿记与并发编辑', () => {
     expect(mergeCanvasUploadConflict(reclaimed, released)).toEqual(reclaimed)
   })
 
+  it('撤销时记下的上传失败与并发的用户改动合并时保留下来', () => {
+    const base = { fileId: 'local-file', name: 'photo', meta: claim }
+    const rejected = {
+      ...base,
+      meta: releaseCanvasUploadClaim(claim, 2000, 'media_invalid_image'),
+    }
+    const merged = {
+      ...base,
+      name: 'x',
+      meta: { [CANVAS_UPLOAD_RELEASED_META]: '2000', uploadRejected: 'media_invalid_image' },
+    }
+    expect(mergeCanvasUploadConflict({ ...base, name: 'x' }, rejected)).toEqual(merged)
+    expect(mergeCanvasUploadConflict(rejected, { ...base, name: 'x' })).toEqual(merged)
+  })
+
   it('本机时钟落后时，接管后撤销仍排在别的设备的旧声明之后', () => {
     // 设备 B 的时钟快，旧声明记在 5000；设备 A（时钟 1000）接管后失败撤销。
     const base = {

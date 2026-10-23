@@ -85,6 +85,12 @@ export const CANVAS_UPLOAD_STARTED_META = 'uploadStartedAt'
  * 别的设备同时改节点时照抄来的旧声明（开始时间早于它）不会被当成新声明把它顶回去。
  */
 export const CANVAS_UPLOAD_RELEASED_META = 'uploadReleasedAt'
+/**
+ * 服务端判定这张原图永远收不了（损坏、超出尺寸或分辨率上限）时，撤掉声明的同时记下错误码。
+ * 有了它各处都知道这是「上传失败」而不是「还在传」或「待保存」：不再显示上传中、不再拿它挡保存、
+ * 也不在每次改动时把同一张坏图再传一遍；用户点重试时重新写声明会去掉它。
+ */
+export const CANVAS_UPLOAD_REJECTED_META = 'uploadRejected'
 /** 超过这么久还没收成云媒体，就不再显示「上传中」而显示缺图（上传那台设备可能已离线或失败）。 */
 export const CANVAS_UPLOAD_STALE_MS = 30 * 60_000
 /** 别的设备写的开始时间最多可以比本机时钟晚这么多（设备间的时钟偏差）。 */
@@ -134,7 +140,26 @@ export function canvasUploadClaimNextChange(
   return undefined
 }
 
-/** 去掉上传声明和撤销记录（收成云媒体后）；都没有时原样返回。 */
+/**
+ * 这个上传中节点被服务端判定为永远收不了时的错误码（见 CANVAS_UPLOAD_REJECTED_META）；
+ * 已收成云媒体、不是本机 fileId，或之后又有设备重新声明在传的，都返回 undefined。
+ */
+export function canvasUploadRejection(data: CanvasUploadData): string | undefined {
+  if (data.mediaId || !isLocalCanvasFileId(data.fileId)) return undefined
+  if (data.meta?.[CANVAS_UPLOAD_DEVICE_META]) return undefined
+  return data.meta?.[CANVAS_UPLOAD_REJECTED_META] || undefined
+}
+
+/** 用户点「重试」时去掉失败记录，让这张图重新进入上传；没有时原样返回。 */
+export function withoutCanvasUploadRejection(
+  meta: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!meta || !(CANVAS_UPLOAD_REJECTED_META in meta)) return meta
+  const { [CANVAS_UPLOAD_REJECTED_META]: _rejected, ...rest } = meta
+  return rest
+}
+
+/** 去掉上传声明、撤销记录和失败记录（收成云媒体后）；都没有时原样返回。 */
 export function withoutCanvasUploadClaim(
   meta: Record<string, string> | undefined,
 ): Record<string, string> | undefined {
@@ -143,7 +168,8 @@ export function withoutCanvasUploadClaim(
     !(
       CANVAS_UPLOAD_DEVICE_META in meta ||
       CANVAS_UPLOAD_STARTED_META in meta ||
-      CANVAS_UPLOAD_RELEASED_META in meta
+      CANVAS_UPLOAD_RELEASED_META in meta ||
+      CANVAS_UPLOAD_REJECTED_META in meta
     )
   )
     return meta
@@ -151,6 +177,7 @@ export function withoutCanvasUploadClaim(
     [CANVAS_UPLOAD_DEVICE_META]: _device,
     [CANVAS_UPLOAD_STARTED_META]: _since,
     [CANVAS_UPLOAD_RELEASED_META]: _released,
+    [CANVAS_UPLOAD_REJECTED_META]: _rejected,
     ...rest
   } = meta
   return rest
@@ -180,14 +207,19 @@ export function nextCanvasUploadStamp(
   return Number.isFinite(previous) ? Math.max(now, Math.floor(previous) + 1) : now
 }
 
-/** 上传失败停下时撤掉声明：去掉声明，记下撤销时间（见 CANVAS_UPLOAD_RELEASED_META）。 */
+/**
+ * 上传失败停下时撤掉声明：去掉声明，记下撤销时间（见 CANVAS_UPLOAD_RELEASED_META）。
+ * rejected 是服务端判定永远收不了的错误码，一并记下（见 CANVAS_UPLOAD_REJECTED_META）；暂时性失败不传。
+ */
 export function releaseCanvasUploadClaim(
   meta: Record<string, string> | undefined,
   now: number,
+  rejected?: string,
 ): Record<string, string> {
   return {
     ...withoutCanvasUploadClaim(meta),
     [CANVAS_UPLOAD_RELEASED_META]: String(nextCanvasUploadStamp(meta, now)),
+    ...(rejected ? { [CANVAS_UPLOAD_REJECTED_META]: rejected } : {}),
   }
 }
 const finite = (value: unknown) =>

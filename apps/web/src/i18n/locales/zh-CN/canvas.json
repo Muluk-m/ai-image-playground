@@ -450,6 +450,17 @@
     "timeline_other": "时间线 · {{count}} 段",
     "mediaMissing": "素材缺失",
     "mediaUploading": "图片上传中",
+    "uploadRejected": "图片上传失败",
+    "uploadRejectedReason": {
+      "media_invalid_image": "图片文件已损坏或无法识别",
+      "media_unsupported_image": "不支持这种图片格式",
+      "media_too_large": "图片文件太大",
+      "media_image_too_large": "图片尺寸太大",
+      "media_image_pixels_exceeded": "图片像素超出上限",
+      "other": "服务端收不了这张图"
+    },
+    "uploadRetry": "重试",
+    "uploadRemove": "移除",
     "loadFailed": "节点画布打不开，请刷新重试",
     "addTitle": "添加节点",
     "addText": "文本",
