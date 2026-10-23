@@ -1,6 +1,7 @@
 import { agentTitleLine } from '@image-playground/shared'
 import sharp from 'sharp'
 import { Type } from 'typebox'
+import { isCapabilityEnabled } from '../../capabilities'
 import { SINGLE_OBJECT_EDIT_NUDGE } from '../edit-intent'
 import { requireAgentImages } from '../images'
 import { chooseMaskModel } from '../mask-proposal'
@@ -153,6 +154,8 @@ export const editImage = defineAgentTool({
         !context.singleObjectEdit.nudged &&
         context.experience === 'chat' &&
         context.userId &&
+        // 没开同步就没有范围确认卡可走（见 tools/index.ts offersMaskProposal），不提醒。
+        isCapabilityEnabled('accounts:sync') &&
         !context.images.masked &&
         !context.maskedEditPlan?.protected &&
         !images.some((image) => image.maskDataUrl) &&

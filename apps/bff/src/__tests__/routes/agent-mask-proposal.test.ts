@@ -22,7 +22,10 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.UPSTREAM_OPENAI_API_KEY = ''
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
-process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-config.json')
+process.env.OPERATOR_CONFIG_FILE = resolve(
+  import.meta.dir,
+  '../agent-mask-proposal-operator-config.json',
+)
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { agentRoutes } = await import('../../routes/agent')
