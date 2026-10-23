@@ -21,7 +21,11 @@ export interface SegmentationRequest {
   /** 原图像素宽高；坐标按它归一化，`segmentProposal` 交回的蒙版也是这个尺寸。 */
   readonly width: number
   readonly height: number
-  readonly box: AgentNormalizedBox
+  /**
+   * 目标大致的框。卡片上「点一下加一块」时没有框：只按用户的点分割那个对象，
+   * 不借用已有区域的框（借了会把框撑大、换掉原来的区域）。
+   */
+  readonly box?: AgentNormalizedBox
   readonly points?: readonly AgentMaskPromptPoint[]
   readonly signal?: AbortSignal
 }
@@ -157,7 +161,7 @@ function edgeTam(origin: string): SegmentationProvider {
       const output = segmenterSize(request.width, request.height)
       const box = request.box
       const prompt = {
-        box: [box.x, box.y, box.x + box.width, box.y + box.height],
+        ...(box ? { box: [box.x, box.y, box.x + box.width, box.y + box.height] } : {}),
         points: (request.points ?? []).map((point) => [point.x, point.y, point.include ? 1 : 0]),
         output,
       }
@@ -214,13 +218,27 @@ function pixelBox(box: AgentNormalizedBox, width: number, height: number) {
  */
 export function dropStrayFragments(
   mask: SegmentationMask,
-  box: AgentNormalizedBox,
+  box: AgentNormalizedBox | undefined,
   points?: readonly AgentMaskPromptPoint[],
 ): SegmentationMask {
   const { width, height } = mask
   const parts = labelComponents(mask.data, true, width, height, true)
   const count = parts.areas.length - 1
   if (count <= 1) return mask
+  // 没有框（只按点分割）：只留含正向点的块，没有这样的块就留最大的一块。
+  if (!box) {
+    const keep = new Uint8Array(count + 1)
+    for (const label of includedLabels(parts.labels, width, height, points)) keep[label] = 1
+    if (!keep.some(Boolean)) {
+      let largest = 1
+      for (let label = 2; label <= count; label++)
+        if (parts.areas[label]! > parts.areas[largest]!) largest = label
+      keep[largest] = 1
+    }
+    const data = new Uint8Array(mask.data.length)
+    for (let i = 0; i < data.length; i++) if (keep[parts.labels[i]!]) data[i] = 255
+    return { ...mask, data }
+  }
   const { x0, y0, x1, y1 } = pixelBox(box, width, height)
   const inBox = new Float64Array(count + 1)
   for (let y = y0; y < y1; y++)
@@ -233,13 +251,7 @@ export function dropStrayFragments(
     if (parts.areas[label]! > (parts.areas[largest] ?? 0)) largest = label
   const keep = new Uint8Array(count + 1)
   keep[largest] = 1
-  for (const point of points ?? []) {
-    if (!point.include) continue
-    const px = Math.min(width - 1, Math.max(0, Math.floor(point.x * width)))
-    const py = Math.min(height - 1, Math.max(0, Math.floor(point.y * height)))
-    const label = parts.labels[py * width + px]!
-    if (label) keep[label] = 1
-  }
+  for (const label of includedLabels(parts.labels, width, height, points)) keep[label] = 1
   const big = parts.areas[largest]!
   for (let label = 1; label <= count; label++) {
     const area = parts.areas[label]!
@@ -248,6 +260,37 @@ export function dropStrayFragments(
   const data = new Uint8Array(mask.data.length)
   for (let i = 0; i < data.length; i++) if (keep[parts.labels[i]!]) data[i] = 255
   return { ...mask, data }
+}
+
+/** 正向提示点落在的连通块编号（0 = 背景不算）。 */
+function includedLabels(
+  labels: ArrayLike<number>,
+  width: number,
+  height: number,
+  points?: readonly AgentMaskPromptPoint[],
+): number[] {
+  const hit: number[] = []
+  for (const point of points ?? []) {
+    if (!point.include) continue
+    const px = Math.min(width - 1, Math.max(0, Math.floor(point.x * width)))
+    const py = Math.min(height - 1, Math.max(0, Math.floor(point.y * height)))
+    const label = labels[py * width + px]!
+    if (label) hit.push(label)
+  }
+  return hit
+}
+
+/** 正向点有几成落在蒙版上；没有正向点时算 1。 */
+function pointCoverage(mask: SegmentationMask, points?: readonly AgentMaskPromptPoint[]): number {
+  const included = (points ?? []).filter((point) => point.include)
+  if (!included.length) return 1
+  let inside = 0
+  for (const point of included) {
+    const px = Math.min(mask.width - 1, Math.max(0, Math.floor(point.x * mask.width)))
+    const py = Math.min(mask.height - 1, Math.max(0, Math.floor(point.y * mask.height)))
+    if (mask.data[py * mask.width + px]) inside++
+  }
+  return inside / included.length
 }
 
 /** 与最大块不相连的部分至少要有它这么大（比例）才算同一对象被遮挡断开，否则当零碎去掉。 */
@@ -295,14 +338,15 @@ export function boxAgreement(mask: SegmentationMask, box: AgentNormalizedBox): n
  */
 export function pickMask(
   masks: readonly SegmentationMask[],
-  box: AgentNormalizedBox,
+  box: AgentNormalizedBox | undefined,
   points?: readonly AgentMaskPromptPoint[],
 ): SegmentationMask | null {
   let best: SegmentationMask | null = null
   let bestValue = 0
   for (const candidate of masks) {
     const mask = dropStrayFragments(candidate, box, points)
-    const agreement = boxAgreement(mask, box)
+    // 只按点分割时没有框可比：按正向点落进蒙版的比例，一个都没落进的候选不要。
+    const agreement = box ? boxAgreement(mask, box) : pointCoverage(mask, points)
     if (!agreement) continue
     const value = (mask.score ?? 1) * agreement
     if (value > bestValue) {

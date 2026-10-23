@@ -14,6 +14,7 @@ import { refineEditRegion } from '../lib/agentClient'
 import { attachmentUploadsEnabled, mediaFallbackEnabled } from '../lib/attachmentUploads'
 import {
   addClick,
+  addedRegion,
   annotationRegions,
   cardMaskPlacement,
   cardMaskStroke,
@@ -28,8 +29,11 @@ import {
   maskOutputCount,
   type Point,
   proposalRegions,
+  refineRequest,
   regionForClick,
+  storedRegionMask,
   type TargetMask,
+  targetBounds,
 } from '../lib/maskProposal'
 import { useAgentStore } from '../store'
 import type { AgentClarificationMessage } from '../types'
@@ -376,6 +380,8 @@ export default function AgentMaskProposalCard({
     sequence: 0,
     controller: null as AbortController | null,
     region: null as number | null,
+    /** 同一个区域上一次还没算完时又点的：等那次结束（服务端名额放出来）再按最新的点发。 */
+    queued: null as (() => Promise<void>) | null,
   })
   const pointerRef = useRef<{
     id: number
@@ -514,6 +520,7 @@ export default function AgentMaskProposalCard({
       // 卸载（含开发模式的重复挂载）时取消并清空，否则后面的重绘永远排不上。
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
       frameRef.current = null
+      refineRef.current.queued = null
       refineRef.current.controller?.abort()
     },
     [],
@@ -544,9 +551,11 @@ export default function AgentMaskProposalCard({
         const masks = new Map<number, HTMLCanvasElement>()
         for (const region of views) {
           if (region.maskMediaId) {
-            const server = await loadImage(
-              await resolveMediaSource(`aip-media:${region.maskMediaId}`, 'original', true),
-            ).catch(() => null)
+            const server = await storedRegionMask(
+              region.maskMediaId,
+              (source) => resolveMediaSource(source, 'original', true),
+              loadImage,
+            )
             if (server) {
               masks.set(region.number, targetCanvas(server, width, height))
               continue
@@ -725,29 +734,62 @@ export default function AgentMaskProposalCard({
     redraw()
   }
 
-  /** 点一下：在这个区域上叠加点，交给服务端重新分割；旧请求的结果晚到就丢掉。 */
+  /**
+   * 点一下：在这个区域上叠加点，交给服务端重新分割；同一区域连点时排队按最新的点发。包含点落在所有
+   * 区域的蒙版之外时另加一块（新编号、只按用户的点分割），并进总范围，原来的区域不动。
+   */
   const click = async (point: Point, include: boolean) => {
     const mask = maskRef.current
     if (!mask || !conversationId) return
     const hits = regions
       .filter((one) => covers(regionMasksRef.current.get(one.number), point))
       .map((one) => one.number)
-    const number = regionForClick(regions, hits, point, include, active)
-    const region = regions.find((one) => one.number === number)
+    const target = regionForClick(hits, include, active)
+    const fresh = target === 'added' ? addedRegion(regions, point) : null
+    const number = fresh ? fresh.number : (target as number)
+    const region: RegionState | undefined = fresh
+      ? { ...fresh, clicks: [] }
+      : regions.find((one) => one.number === number)
     if (!region) return
     // 另一个区域还在重算：这一下先不收。中途换区域会把那边的请求作废，它的点已经记进状态、
-    // 蒙版却再也不会更新，确认时就漏了用户点过的范围。同一个区域连点照旧以最后一次为准。
-    if (refineRef.current.controller && refineRef.current.region !== number) return
+    // 蒙版却再也不会更新，确认时就漏了用户点过的范围。同一个区域连点排队，以最后一次为准。
+    if (refineRef.current.controller && (fresh || refineRef.current.region !== number)) return
     const clicks = addClick(region.clicks, { x: point.x, y: point.y, include }, MAX_CLICKS)
     const selected = region.selected || include
-    const regionCanvas = regionMasksRef.current.get(number)!
-    remember({ regionMasks: [{ number, pixels: pixelsOf(regionCanvas) }] })
-    const nextRegions = regions.map((one) =>
-      one.number === number ? { ...one, clicks, selected } : one,
-    )
+    if (fresh) {
+      // 新块的蒙版先是空的；撤销时区域列表回到加之前，这张画布留着也不会再被画进去。
+      regionMasksRef.current.set(number, canvasOf(mask.width, mask.height))
+      remember()
+    } else {
+      const regionCanvas = regionMasksRef.current.get(number)!
+      remember({ regionMasks: [{ number, pixels: pixelsOf(regionCanvas) }] })
+    }
+    const nextRegions = fresh
+      ? [...regions, { ...region, clicks }]
+      : regions.map((one) => (one.number === number ? { ...one, clicks, selected } : one))
     setRegions(nextRegions)
     setActive(number)
-    refineRef.current.controller?.abort()
+    const send = () => refine(region, clicks, selected, regions, active)
+    // 同一个区域还在算：不中止它（中止浏览器请求不保证服务端那份名额已经放出来，紧接着的
+    // 请求会被限流打回），记下最新的点，等它结束再发。
+    if (refineRef.current.controller) {
+      refineRef.current.queued = send
+      return
+    }
+    await send()
+  }
+
+  /** 发一次点选重新分割，结果换进这个区域；失败就撤回这一步、改用画笔。 */
+  const refine = async (
+    region: RegionState,
+    clicks: readonly AgentMaskPromptPoint[],
+    selected: boolean,
+    rollback: RegionState[],
+    rollbackActive: number,
+  ) => {
+    const mask = maskRef.current
+    if (!mask || !conversationId) return
+    const number = region.number
     const controller = new AbortController()
     const sequence = ++refineRef.current.sequence
     refineRef.current.controller = controller
@@ -757,27 +799,43 @@ export default function AgentMaskProposalCard({
       const refined = await refineEditRegion(
         conversationId,
         proposal.id,
-        { ...(proposal.regions?.length ? { region: number } : {}), points: clicks },
+        refineRequest(region, Boolean(proposal.regions?.length), clicks),
         controller.signal,
       )
       const image = await loadImage(refined.mask)
       if (sequence !== refineRef.current.sequence) return
-      swapRegionMask(number, targetCanvas(image, mask.width, mask.height), selected)
+      const next = targetCanvas(image, mask.width, mask.height)
+      if (region.added) {
+        const box = targetBounds(readTarget(next))
+        if (!box) throw new Error('empty added area')
+        setRegions((current) =>
+          current.map((one) => (one.number === number ? { ...one, box } : one)),
+        )
+      }
+      swapRegionMask(number, next, selected)
       redraw()
     } catch {
       if (controller.signal.aborted || sequence !== refineRef.current.sequence) return
+      // 后面还排着一次：按最新的点再算，这次的失败不撤回。
+      if (refineRef.current.queued) return
       // 点没生效：撤回这一步，改用画笔。
       undoRef.current.pop()
-      setRegions(regions)
+      setRegions(rollback)
+      setActive(rollbackActive)
       setHistory({ undo: undoRef.current.length > 0, redo: redoRef.current.length > 0 })
       showToast(t('maskProposal.pointUnavailable'), 'error')
       setEditing(true)
       setTool('brush')
     } finally {
       if (sequence === refineRef.current.sequence) {
-        refineRef.current.controller = null
-        refineRef.current.region = null
-        setRefining(false)
+        const queued = controller.signal.aborted ? null : refineRef.current.queued
+        refineRef.current.queued = null
+        if (queued) void queued()
+        else {
+          refineRef.current.controller = null
+          refineRef.current.region = null
+          setRefining(false)
+        }
       }
     }
   }

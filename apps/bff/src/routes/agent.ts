@@ -480,6 +480,7 @@ export const agentRoutes = new Elysia()
           userId: authUser.id,
           proposalId: params.proposalId,
           ...(body.region === undefined ? {} : { region: body.region }),
+          ...(body.area ? { area: body.area } : {}),
           points: body.points,
           signal: request.signal,
         })
@@ -501,6 +502,7 @@ export const agentRoutes = new Elysia()
       body: t.Object({
         deviceId: deviceIdSchema(),
         region: t.Optional(t.Integer({ minimum: 1, maximum: 99 })),
+        area: t.Optional(t.Literal('added')),
         points: t.Array(
           t.Object({
             x: t.Number({ minimum: 0, maximum: 1 }),
