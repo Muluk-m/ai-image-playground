@@ -521,6 +521,7 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
                 actions={batch ? [t('set.batchTag')] : legacyActionLabels(job)}
                 tasks={item.tasks}
                 batch={batch}
+                itemHandlers={batch ? handlers : undefined}
                 attended={batch && item.tasks.some((task) => submittedIds.includes(task.id))}
                 expanded={expanded}
                 onToggle={() =>
@@ -533,7 +534,8 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
               />
             ),
           },
-          ...(expanded ? item.tasks.map(renderTask) : []),
+          // 逐张生成的一组在卡里逐张列出（见 SetHistoryCard）；其余的套展开成单张作品卡。
+          ...(expanded && !batch ? item.tasks.map(renderTask) : []),
         ],
       }
     })
