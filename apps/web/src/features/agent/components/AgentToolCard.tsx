@@ -809,8 +809,7 @@ function StandardAgentToolCard({
                     .map((node) =>
                       node.name && node.name !== node.id ? node.name : t('tool.canvasReadUnnamed'),
                     )
-                    .join('、') ||
-                  t('tool.canvasReadNone'),
+                    .join('、') || t('tool.canvasReadNone'),
               })}
             </p>
           )}
