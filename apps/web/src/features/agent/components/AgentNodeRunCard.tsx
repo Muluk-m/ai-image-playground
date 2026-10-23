@@ -67,17 +67,6 @@ export default function AgentNodeRunCard({
     void refreshChannels()
   }, [])
   useEffect(() => {
-    if (!proposal.direct || !origin || !bridge) return
-    // 直接出图等清单刷新完再报价开跑：模型刚被停用时不按旧清单提交。
-    let cancelled = false
-    void refreshChannels().then(() => {
-      if (!cancelled) startAgentNodeRun(runKey, proposal, 0)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [bridge, origin, proposal, runKey])
-  useEffect(() => {
     if (!live || (live.status !== 'done' && live.status !== 'undone' && live.status !== 'failed'))
       return
     // 结局还在交给智能体：交完再收走，卡上才看得到交没交上。
