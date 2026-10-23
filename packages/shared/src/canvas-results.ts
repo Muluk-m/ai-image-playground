@@ -228,6 +228,54 @@ export function promoteCanvasStoredResult(
     )
 }
 
+/**
+ * 服务端判定永远收不了的本机原图（损坏、超限）：候选结果里引用它的那几条不能再留着本机文件——
+ * 本机 file 来源的候选服务端不收，留着就每轮都要先上传、又是同样的 422。
+ * file 来源的候选整条撤掉；别的来源只是展示缓存用了这张图，去掉缓存里的 fileId，来源本身照旧保留。
+ */
+export function dropCanvasResultFile(doc: Y.Doc, fileId: string, origin: CanvasOrigin): number {
+  const results = doc.getMap<CanvasResult>('nodeResults')
+  const mains = doc.getMap<string>('mainResults')
+  let changed = 0
+  doc.transact(() => {
+    for (const result of [...results.values()]) {
+      if (result.source.type === 'file' && result.source.fileId === fileId) {
+        results.delete(result.id)
+        if (mains.get(result.nodeId) === result.id) mains.delete(result.nodeId)
+        changed++
+      } else if (result.display?.fileId === fileId && !result.display.mediaId) {
+        const { fileId: _, ...display } = result.display
+        results.set(result.id, { ...result, display })
+        changed++
+      }
+    }
+  }, origin)
+  return changed
+}
+
+/**
+ * 节点挂着的本机原图永远收不了（0 字节、不是图、损坏）时把图摘掉，节点变回空图片卡：
+ * 名字、位置、连线都保留，用户可以重新填图；服务端本来就收空图片节点，新旧客户端都认。
+ * 只在节点还挂着同一个本机 fileId、且没收成云媒体时摘，期间换了图的不动。
+ */
+export function dropCanvasNodeFile(
+  doc: Y.Doc,
+  nodeId: string,
+  fileId: string,
+  origin: CanvasOrigin,
+): boolean {
+  const node = doc.getMap<Y.Map<unknown>>('nodes').get(nodeId)
+  if (!node) return false
+  const data = node.get('data') as ImageNodeData
+  if (data.fileId !== fileId || data.mediaId) return false
+  const { fileId: _file, naturalWidth: _width, naturalHeight: _height, meta, ...rest } = data
+  // 内容身份跟着图走：留着它下游的输入指纹会以为原图还在，继续复用基于坏图的结果。
+  const { contentIdentity: _identity, ...kept } = meta ?? {}
+  const next: ImageNodeData = Object.keys(kept).length ? { ...rest, meta: kept } : rest
+  doc.transact(() => node.set('data', next), origin)
+  return true
+}
+
 /** A decoded poster is a new cache entry for the same video, not a new main result. */
 export function refreshCanvasResultDisplay(
   doc: Y.Doc,

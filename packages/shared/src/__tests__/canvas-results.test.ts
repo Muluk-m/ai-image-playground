@@ -20,6 +20,8 @@ import {
   canvasResultIsStale,
   canvasResults,
   chooseCanvasResult,
+  dropCanvasNodeFile,
+  dropCanvasResultFile,
   promoteCanvasResultMedia,
   promoteCanvasVideoMedia,
   recordCanvasResult,
@@ -427,4 +429,60 @@ it('binds storyboard output to its reviewed revision without changing ordinary n
     origin,
   )
   expect(canvasResultIsStale(doc, 'image')).toBe(true)
+})
+
+it('turns a node with an unusable local image into an empty card the server accepts (BUG-10)', () => {
+  const doc = new Y.Doc()
+  insertCanvasNode(
+    doc,
+    {
+      id: 'zero',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: {
+        fileId: 'zero',
+        name: 'zero.png',
+        naturalWidth: 1,
+        naturalHeight: 1,
+        meta: { contentIdentity: 'zero', kept: 'yes' },
+      },
+    },
+    origin,
+  )
+  insertCanvasNode(
+    doc,
+    { id: 'other', type: 'image', x: 0, y: 0, width: 50, height: 50, data: { fileId: 'replaced' } },
+    origin,
+  )
+  recordCanvasResult(
+    doc,
+    {
+      id: 'file',
+      nodeId: 'zero',
+      kind: 'image',
+      source: { type: 'file', fileId: 'zero' },
+      createdAt: 1,
+    },
+    origin,
+  )
+  chooseCanvasResult(doc, 'zero', 'file', { data: { fileId: 'zero' } }, origin)
+  expect(() => validateCloudCanvas(doc, { version: 1, elements: [] })).toThrow()
+  expect(dropCanvasResultFile(doc, 'zero', origin)).toBe(1)
+  expect(dropCanvasNodeFile(doc, 'zero', 'zero', origin)).toBe(true)
+  // 期间换了图的节点不动。
+  expect(dropCanvasNodeFile(doc, 'other', 'zero', origin)).toBe(false)
+  const nodes = readCanvasDocument(doc).nodes
+  // 内容身份跟着坏图一起去掉，下游指纹不会再当它还在。
+  expect(nodes.find((n) => n.id === 'zero')?.data).toEqual({
+    name: 'zero.png',
+    meta: { kept: 'yes' },
+  })
+  expect(nodes.find((n) => n.id === 'other')?.data).toEqual({ fileId: 'replaced' })
+  expect(canvasResults(doc)).toEqual([])
+  expect(canvasMainResult(doc, 'zero')).toBeUndefined()
+  deleteCanvasNode(doc, 'other', origin)
+  expect(() => validateCloudCanvas(doc, { version: 1, elements: [] })).not.toThrow()
 })
