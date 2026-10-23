@@ -46,7 +46,7 @@
     "tailwind-merge": "^2.6.1",
     "y-indexeddb": "^9.0.12",
     "y-quill": "^1.0.0",
-    "yjs": "^13.6.33",
+    "yjs": "13.6.33",
     "zustand": "^5.0.5"
   },
   "devDependencies": {
