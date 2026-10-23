@@ -34,7 +34,7 @@ export function groupTasksBySet(tasks: readonly TaskRecord[]): HistoryItem[] {
 /**
  * 逐张生成的一组：每张参考图只留最新的一次尝试（重试顶替失败的那次），按参考图在条上的顺序排。
  */
-function batchAttempts(tasks: readonly TaskRecord[]): TaskRecord[] {
+export function batchAttempts(tasks: readonly TaskRecord[]): TaskRecord[] {
   const latest = new Map<string, TaskRecord>()
   for (const task of tasks) {
     const shot = task.origin?.shotId ?? task.id
