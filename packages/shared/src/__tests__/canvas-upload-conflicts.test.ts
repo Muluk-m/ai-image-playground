@@ -546,6 +546,50 @@ describe('服务端收更新时补回并发顶掉的上传簿记', () => {
         expect(data(viewer).meta?.[CANVAS_UPLOAD_DEVICE_META]).toBeUndefined()
       })
 
+  it('同一份更新里赢的那个客户端也带了别的新改动时，仍按条目认出旧的生效版本', () => {
+    const editor = new Y.Doc()
+    editor.clientID = 2
+    const uploader = new Y.Doc()
+    uploader.clientID = 1
+    insertCanvasNode(
+      uploader,
+      {
+        id: 'image',
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80,
+        data: { fileId: 'local-file', name: 'photo', meta: claim },
+      },
+      local,
+    )
+    const server = new Y.Doc()
+    Y.applyUpdate(server, Y.encodeStateAsUpdate(uploader))
+    Y.applyUpdate(editor, Y.encodeStateAsUpdate(uploader))
+    const base = Y.encodeStateVector(server)
+    // 改名先到服务端，成了生效的一版（editor 的旧条目）。
+    edit(editor, { name: 'renamed' })
+    Y.applyUpdate(server, Y.encodeStateAsUpdate(editor, base))
+    const afterRename = Y.encodeStateVector(editor)
+    // 之后同一份更新里同时带来 editor 的一处无关新改动和 uploader 并发的收成云媒体。
+    insertCanvasNode(
+      editor,
+      { id: 'note', type: 'image', x: 200, y: 0, width: 10, height: 10, data: {} },
+      local,
+    )
+    promoteCanvasResultMedia(uploader, 'image', 'local-file', media, local)
+    const update = Y.mergeUpdates([
+      Y.encodeStateAsUpdate(editor, afterRename),
+      Y.encodeStateAsUpdate(uploader, base),
+    ])
+    expect(applyCanvasUpdateKeepingUploads(server, update, remote)).toBe(1)
+    const viewer = fromUpdate(Y.encodeStateAsUpdate(server))
+    expect(data(viewer).name).toBe('renamed')
+    expect(data(viewer).mediaId).toBe(media)
+    expect(data(viewer).fileId).toBe(`cloud-${media}`)
+  })
+
   it('先后修改（看过上一版）不补写', () => {
     const doc = new Y.Doc()
     doc.clientID = 1
