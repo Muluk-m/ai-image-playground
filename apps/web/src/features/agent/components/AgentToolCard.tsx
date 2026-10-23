@@ -805,7 +805,11 @@ function StandardAgentToolCard({
             <p className={CARD_NOTE}>
               {t('tool.canvasReadNodes', {
                 nodes:
-                  message.canvasRead.map((node) => `${node.name} (${node.id})`).join('、') ||
+                  message.canvasRead
+                    .map((node) =>
+                      node.name && node.name !== node.id ? node.name : t('tool.canvasReadUnnamed'),
+                    )
+                    .join('、') ||
                   t('tool.canvasReadNone'),
               })}
             </p>
