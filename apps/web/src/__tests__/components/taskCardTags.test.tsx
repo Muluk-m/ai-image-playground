@@ -69,3 +69,21 @@ it('详情弹窗用的 ActualValueBadge 不截断，多行 revised prompt 能完
   expect(host.querySelector('.truncate')).toBeNull()
   expect(host.textContent).toContain('第二行')
 })
+
+it('被取消的任务显示「已取消」，不显示红色「失败」', () => {
+  const noop = () => {}
+  act(() =>
+    root.render(
+      <TaskCard
+        task={{ ...task, status: 'error', cancelled: true, error: 'BFF 任务被取消' }}
+        onReuse={noop}
+        onEditOutputs={noop}
+        onSendToCanvas={noop}
+        onDelete={noop}
+        onClick={noop}
+      />,
+    ),
+  )
+  expect(host.textContent).toContain('已取消')
+  expect(host.textContent).not.toContain('失败')
+})

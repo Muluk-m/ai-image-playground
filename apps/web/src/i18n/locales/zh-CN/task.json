@@ -103,6 +103,7 @@
     "storyboardFallback": "分镜",
     "productShotFallback": "商品图任务",
     "doneCount": "完成 {{done}}/{{total}}",
+    "cancelledCount": "已取消 {{cancelled}}",
     "failedCount": "失败 {{failed}}",
     "expandToView": "展开查看",
     "resultAlt": "{{name}} 结果",
