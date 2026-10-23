@@ -187,6 +187,21 @@ describe('the history folded by set', () => {
       expect(useStore.getState().detailTaskId).toBe('c2')
     })
 
+    it('opens a thumbnail on Ctrl/Cmd-click instead of silently selecting it', async () => {
+      finished()
+      await render()
+
+      const tile = document.querySelector('[aria-label="查看第 2 张"]')
+      act(() => {
+        tile?.dispatchEvent(
+          new MouseEvent('click', { bubbles: true, ctrlKey: true, metaKey: true }),
+        )
+      })
+
+      expect(useStore.getState().selectedTaskIds).toEqual([])
+      expect(useStore.getState().detailTaskId).toBe('c2')
+    })
+
     it('lists every image inside the card once expanded, each with its own download', async () => {
       finished()
       await render()
