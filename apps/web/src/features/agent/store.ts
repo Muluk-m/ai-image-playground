@@ -303,6 +303,11 @@ export interface AgentState {
     replay?: TurnSubmissionReplay,
     /** 快捷编辑在校验遮罩能力时固定的模型，避免上传期间切换模型造成校验与起轮不一致。 */
     modelOverride?: string,
+    /**
+     * 服务端没收下（拒收、断网、撤回）时把这句话交还给发送方自己的草稿；返回是否已落盘。
+     * 首屏交接用它把话放回新项目的输入框，而不是只留在补发日志里、输入框却空着。
+     */
+    onUnsent?: (submission: UnsentTurnSubmission) => Promise<boolean>,
   ): Promise<void | 'cancelled'>
   submitDraft(input: DraftSubmissionInput): Promise<void>
   abort(): Promise<void>
@@ -2755,8 +2760,17 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
   }
   return {
     ...initial,
-    send: (text, references, onAccepted, mode, clientMessageId, replay, modelOverride) =>
-      initial.send(text, references, onAccepted, mode, clientMessageId, replay, modelOverride),
+    send: (text, references, onAccepted, mode, clientMessageId, replay, modelOverride, onUnsent) =>
+      initial.send(
+        text,
+        references,
+        onAccepted,
+        mode,
+        clientMessageId,
+        replay,
+        modelOverride,
+        onUnsent,
+      ),
     submitDraft: (input) => submitDraft(input, initial.send),
   }
 })

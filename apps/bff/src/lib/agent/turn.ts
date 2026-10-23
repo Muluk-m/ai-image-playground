@@ -27,7 +27,7 @@ import {
   recordAgentToolCall,
   touchAgentConversation,
 } from './conversations'
-import { singleObjectEditIntent } from './edit-intent'
+import { singleObjectEditIntent, wholeImageEditIntent } from './edit-intent'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost, type TurnExecution } from './execution'
 import { scheduleAgentFollowUps } from './follow-ups'
@@ -229,6 +229,17 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     text: input.text,
     hasNewReferences: input.references.length > 0,
   })
+  // 唤醒轮的 text 是系统说明，不是用户的话；澄清作答连同它答的那句原话一起看。
+  const userAsk = [
+    ...history.messages
+      .slice(clarificationChainStart(history.messages))
+      .flatMap((message) =>
+        message.role === 'user'
+          ? message.content.flatMap((block) => (block.type === 'text' ? [block.text] : []))
+          : [],
+      ),
+    input.text,
+  ].join('\n')
   // 智能体模式关掉了直接出图：生成调用由确认门拦下，智能体不知道（见 `tool-gate.ts`）。
   const gate = createAgentToolGate(input.toolGate === true)
   const turnTools = agentTurnTools(
@@ -243,21 +254,11 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       visualWorkset,
       imageCombinations,
       maskProposals: new Set<string>(),
-      // 唤醒轮的 text 是系统说明，不是用户的话；澄清作答连同它答的那句原话一起看。
-      ...(!prepared.wake &&
-      singleObjectEditIntent(
-        [
-          ...history.messages
-            .slice(clarificationChainStart(history.messages))
-            .flatMap((message) =>
-              message.role === 'user'
-                ? message.content.flatMap((block) => (block.type === 'text' ? [block.text] : []))
-                : [],
-            ),
-          input.text,
-        ].join('\n'),
-      )
+      ...(!prepared.wake && singleObjectEditIntent(userAsk)
         ? { singleObjectEdit: { nudged: false } }
+        : {}),
+      ...(!prepared.wake && wholeImageEditIntent(userAsk)
+        ? { wholeImageEdit: { nudged: false } }
         : {}),
       authorization: () => authorization.current(),
       maskedEditPlan,
@@ -434,7 +435,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     toolExecution: 'sequential',
     // 确认门在这里认出要拦的生成调用；拦下的那次在花钱那一步停住，卡片停在待确认（`drafted`）。
     beforeToolCall: (context) => gate.beforeToolCall(context),
-    // 澄清、拟稿（包括确认门拦下）、直接改图已提交或用户中止后，不再回上游追加一次模型调用。
+    // 澄清、拟稿（包括确认门拦下）、按确认范围直接提交或用户中止后，不再回上游追加一次模型调用。
     shouldStopAfterTurn: () => clarified || drafted || directEditSubmitted || aborted || !!error,
     transformContext: (messages) =>
       visualWorkset.transform(messages, retained?.transform ?? compact),

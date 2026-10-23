@@ -69,6 +69,11 @@ export interface AgentToolContext {
    * 同一轮再调就放行。
    */
   readonly singleObjectEdit?: { nudged: boolean }
+  /**
+   * 这一轮用户要的是整张图的变化（见 `edit-intent.ts`）时存在。`proposeEditRegion` 第一次被调
+   * 会退回、提醒直接整图编辑，并记下 `nudged`；同一轮再调就照常发卡。
+   */
+  readonly wholeImageEdit?: { nudged: boolean }
   /** 此刻的授权原文；缺席即这一轮没有授权原文可核对。 */
   readonly authorization?: () => TurnAuthorizationText
   /** 「这次付费操作能不能提交」的唯一回答者；缺席即这一轮没有遮罩计划要守。 */
