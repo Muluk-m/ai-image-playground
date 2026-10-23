@@ -562,6 +562,8 @@
     "done": {
       "title": "Generation finished",
       "body": "{{ready}} ready in “{{name}}”",
+      "bodyAllFailed_one": "“{{name}}” finished: {{count}} didn't finish",
+      "bodyAllFailed_other": "“{{name}}” finished: {{count}} didn't finish",
       "bodyFailed_one": "“{{name}}” finished: {{ready}} ready, {{count}} didn't finish",
       "bodyFailed_other": "“{{name}}” finished: {{ready}} ready, {{count}} didn't finish",
       "images_one": "{{count}} image",

@@ -48,9 +48,12 @@ export default function AgentJobDoneNotice() {
         : t('job.done.images', { count: notice.images })
     : ''
   const body = notice
-    ? notice.failed
-      ? t('job.done.bodyFailed', { name, ready, count: notice.failed })
-      : t('job.done.body', { name, ready })
+    ? !notice.images && !notice.videos
+      ? // 一张都没出来：只说没完成几项，别说成「0 张图已生成」。
+        t('job.done.bodyAllFailed', { name, count: notice.failed })
+      : notice.failed
+        ? t('job.done.bodyFailed', { name, ready, count: notice.failed })
+        : t('job.done.body', { name, ready })
     : ''
 
   const view = async () => {

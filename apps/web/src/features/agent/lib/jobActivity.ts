@@ -223,8 +223,11 @@ export function reportAgentPanel(
   }
   // 回到这个对话：历史里出现了后台在等的那几张卡，面板接着等，后台那份才停下；还没拉到（或拉失败）时后台继续守着。
   const watched = away.get(conversationId)
-  if (watched && messages.some((message) => watched.ids.has(message.id)))
+  if (watched && messages.some((message) => watched.ids.has(message.id))) {
+    // 接手时把后台在等的卡记到面板上：切回来之前已经出完的，也照样结算、记一笔。
+    for (const message of messages) if (watched.ids.has(message.id)) panel.ids.add(message.id)
     away.delete(conversationId)
+  }
   const unsettled = messages.filter(agentJobUnsettled)
   for (const message of unsettled) panel.ids.add(message.id)
   const current = useAgentJobActivity.getState().activity[conversationId]

@@ -531,6 +531,7 @@
     "done": {
       "title": "生成完成",
       "body": "「{{name}}」{{ready}}已生成",
+      "bodyAllFailed_other": "「{{name}}」生成结束：{{count}} 项没有完成",
       "bodyFailed_other": "「{{name}}」生成结束：{{ready}}已生成，{{count}} 项没有完成",
       "images_other": "{{count}} 张图",
       "videos_other": "{{count}} 个视频",
