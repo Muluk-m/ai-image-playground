@@ -181,6 +181,8 @@
     "cancel": "取消",
     "restore": "继续确认",
     "dismissed": "未生成",
+    "insufficient": "可用 {{available}} 积分，不够合计约 {{credits}} 积分。取消勾选几张，或先充值。",
+    "stoppedAfter_other": "已提交 {{count}} 张，「{{title}}」未提交：{{reason}}",
     "promptAria": "修改提示词"
   },
   "toolFailure": {
