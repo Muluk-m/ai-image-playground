@@ -530,6 +530,43 @@ function serverNode(server: Y.Doc, id: string) {
   return readCanvasDocument(server).nodes.find((node) => node.id === id)
 }
 
+it('never writes an image node without its media while pending media is switched off', async () => {
+  // 开关关着（分阶段上线第一阶段）：旧版页面不能读到只有本机 fileId 的节点，文档等图片上云后才带上它。
+  pendingMedia.supported = false
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const upload = deferred<NonNullable<Awaited<ReturnType<typeof uploadMediaSource>>>>()
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockImplementationOnce(() => upload.promise)
+  const seen: unknown[] = []
+  server.on('update', () => {
+    const node = serverNode(server, 'photo')
+    if (node) seen.push(node.data)
+  })
+  record.editor.doc.files = { photo: 'data:image/png;base64,cGhvdG8=' }
+  insertCanvasNode(
+    session.canvas!.doc,
+    { id: 'photo', type: 'image', x: 0, y: 0, width: 50, height: 50, data: { fileId: 'photo' } },
+    session.canvas!.origin,
+  )
+  const sync = session.sync()
+  await vi.waitFor(() => expect(uploadMediaSource).toHaveBeenCalledTimes(1))
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  expect(serverNode(server, 'photo')).toBeUndefined()
+  upload.resolve({ id: uploaded, sha256: 'photo' })
+  await sync
+  expect(serverNode(server, 'photo')?.data).toMatchObject({
+    mediaId: uploaded,
+    fileId: `cloud-${uploaded}`,
+  })
+  expect(serverNode(server, 'photo')?.data).not.toHaveProperty('meta.uploadDevice')
+  expect(seen.length).toBeGreaterThan(0)
+  for (const data of seen) expect(data).toMatchObject({ mediaId: uploaded })
+  record.dispose()
+})
+
 it('saves edits while an image uploads, then the image once it lands', async () => {
   pendingMedia.supported = true
   const { session, record, socket, server } = await fixture()

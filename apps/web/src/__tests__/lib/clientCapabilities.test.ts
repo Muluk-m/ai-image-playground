@@ -38,6 +38,25 @@ describe('client capability bootstrap', () => {
     expect(supportsCanvasPendingMedia()).toBe(true)
   })
 
+  it('keeps pending canvas media off while the server advertises it as false', async () => {
+    // 分阶段上线的第一阶段：服务端带着这个键但值为 false，客户端照旧等图片上云再同步。
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          ...allCapabilitiesOff(),
+          projectDocumentIdentity: true,
+          canvasPendingMedia: false,
+        }),
+      ),
+    )
+
+    await bootstrapClientCapabilities(true, 'https://bff.example.com')
+
+    expect(supportsProjectDocumentIdentity()).toBe(true)
+    expect(supportsCanvasPendingMedia()).toBe(false)
+  })
+
   it('keeps known capabilities enabled when an older server omits newer keys', async () => {
     const legacyManifest: Partial<Record<ClientCapabilityKey, boolean>> = {
       ...allCapabilitiesOff(),
