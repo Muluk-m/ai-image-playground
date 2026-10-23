@@ -26,7 +26,7 @@ import {
 } from '../imageApiShared'
 import { bffBaseUrl } from '../runtimeConfig'
 import { nearestAspectRatio } from '../size'
-import { taskFailure } from '../taskError'
+import { taskCancelled, taskFailure } from '../taskError'
 import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
 
 /**
@@ -391,7 +391,7 @@ async function poll(
       case 'failed':
         throw taskFailure(outcome.message, outcome.errorType)
       case 'cancelled':
-        throw new Error(i18next.t('queue.cancelled', { ns: 'lib' }))
+        throw taskCancelled(i18next.t('queue.cancelled', { ns: 'lib' }))
       case 'fatal':
         throw new Error(i18next.t('queue.statusFailed', { ns: 'lib', reason: outcome.message }))
       case 'transient': {
