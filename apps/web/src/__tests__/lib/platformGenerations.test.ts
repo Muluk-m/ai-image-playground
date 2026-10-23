@@ -107,6 +107,28 @@ it('平台记录投影成一张普通卡：封面用云媒体引用，参考图�
   expect(task.params).toMatchObject({ size: '1536x1024', quality: 'high', n: 2 })
 })
 
+it('镜像卡记下封面原件的真实像素：缩略图只有临时 URL，尺寸以平台媒体元数据为准', () => {
+  const gemini = {
+    ...summary,
+    provider: 'gemini',
+    model: 'gemini-3-pro-image',
+    parameters: { size: '1024x1024', aspect_ratio: '16:9', image_size: '2K' },
+    actualParameters: {},
+    cover: { ...summary.cover, width: 2752, height: 1536 },
+  }
+  expect(taskFromGeneration(gemini).measuredSize).toBe('2752x1536')
+  expect(
+    taskFromGeneration({
+      ...gemini,
+      outputs: [{ ...gemini.cover, width: 1376, height: 768 }],
+    }).measuredSize,
+  ).toBe('1376x768')
+  expect(taskFromGeneration({ ...gemini, cover: null })).not.toHaveProperty('measuredSize')
+  expect(
+    taskFromGeneration({ ...gemini, cover: { ...gemini.cover, width: null } }),
+  ).not.toHaveProperty('measuredSize')
+})
+
 it.each([
   ['queued', 'running'],
   ['in_progress', 'running'],
@@ -230,6 +252,18 @@ it('平台已完成时，本机残留的生成中卡不能盖住作品和终态'
   })
 })
 
+it('平台上被取消的记录投影成「已取消」，本机残留的失败卡也接过这个终态', async () => {
+  const cancelled = { ...summary, status: 'cancelled', cover: null } as const
+  expect(taskFromGeneration(cancelled)).toMatchObject({ status: 'error', cancelled: true })
+  expect(taskFromGeneration({ ...summary, status: 'failed' }).cancelled).toBeUndefined()
+  await receivePlatformPage([cancelled])
+  const [card] = mergeHistory(
+    [localTask({ bffRequestId: summary.id, status: 'running', finishedAt: null })],
+    useStore.getState().platformGenerations,
+  )
+  expect(card).toMatchObject({ id: 'local-1', status: 'error', cancelled: true })
+})
+
 it('本机完成卡缺图时，使用平台已经归档的封面', async () => {
   await receivePlatformPage([summary])
   const [card] = mergeHistory(
@@ -241,6 +275,42 @@ it('本机完成卡缺图时，使用平台已经归档的封面', async () => {
     status: 'done',
     outputImages: [`aip-media:${summary.cover.mediaId}`],
   })
+})
+
+it('接过平台出图时一并接过实测像素，本机自己的图不被平台尺寸覆盖', async () => {
+  await receivePlatformPage([
+    { ...summary, cover: { ...summary.cover, width: 2752, height: 1536 } },
+  ])
+  const rows = useStore.getState().platformGenerations
+  const [adopted] = mergeHistory(
+    [
+      localTask({
+        bffRequestId: summary.id,
+        status: 'running',
+        outputImages: [],
+        finishedAt: null,
+      }),
+    ],
+    rows,
+  )
+  expect(adopted).toMatchObject({
+    outputImages: [`aip-media:${summary.cover.mediaId}`],
+    measuredSize: '2752x1536',
+  })
+
+  const [kept] = mergeHistory(
+    [
+      localTask({
+        bffRequestId: summary.id,
+        status: 'running',
+        outputImages: ['local-image'],
+        finishedAt: null,
+      }),
+    ],
+    rows,
+  )
+  expect(kept.outputImages).toEqual(['local-image'])
+  expect(kept).not.toHaveProperty('measuredSize')
 })
 
 it('平台已失败时，本机残留的生成中卡也要收口', async () => {
@@ -338,4 +408,14 @@ it('恢复已有本地任务时同步待核查阶段', async () => {
     useStore.getState().platformGenerations,
   )
   expect(task).toMatchObject({ status: 'running', queuePhase: 'reconciling' })
+})
+
+it('云端失败卡保留错误分类，内容审核展示与复制均可识别原因', () => {
+  expect(
+    taskFromGeneration({ ...summary, status: 'failed', errorType: 'content_policy', cover: null }),
+  ).toMatchObject({
+    status: 'error',
+    errorCode: 'content_policy',
+    error: i18next.t('agentTool.content_policy', { ns: 'errors' }),
+  })
 })

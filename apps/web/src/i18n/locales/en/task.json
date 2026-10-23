@@ -30,6 +30,7 @@
   },
   "card": {
     "generating": "Generating...",
+    "batchQueued": "Queued",
     "phase": {
       "queued": "Queued...",
       "generating": "Generating...",
@@ -41,7 +42,8 @@
     "transparentBackground": "Transparent"
   },
   "detail": {
-    "generateFailed": "Generation failed",
+    "errorUnavailable": "No specific failure reason was recorded. Copy the diagnostics to help investigate.",
+    "copyDiagnostics": "Copy diagnostics",
     "contentPolicy": "This prompt didn't pass the provider's content review, so the generation was rejected. Reword it and try again — resubmitting the same prompt lands the same way.",
     "rewritePrompt": "Edit the prompt",
     "errorCopied": "Full error copied",
@@ -67,7 +69,8 @@
     "createdAt": "Created {{time}}",
     "elapsed": "Took {{duration}}",
     "copyAll": "Copy all",
-    "dialog": "Work details"
+    "dialog": "Work details",
+    "networkFailed": "The connection dropped and this one didn't finish. Please retry."
   },
   "rawUrls": {
     "title": "Raw image links ({{n}})",
@@ -101,9 +104,15 @@
     "storyboardFallback": "Storyboard",
     "productShotFallback": "Product shot task",
     "doneCount": "Done {{done}}/{{total}}",
+    "cancelledCount": "{{cancelled}} cancelled",
     "failedCount": "{{failed}} failed",
     "expandToView": "Expand",
-    "resultAlt": "{{name}} result"
+    "resultAlt": "{{name}} result",
+    "batchTag": "Per image",
+    "runningCount": "{{running}} running",
+    "queuedCount": "{{queued}} queued",
+    "failedList": "Failed images",
+    "failedItem": "Image {{index}}"
   },
   "cloudHistory": {
     "refresh": "Refresh",

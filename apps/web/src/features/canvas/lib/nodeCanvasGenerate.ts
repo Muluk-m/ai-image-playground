@@ -23,6 +23,7 @@ import type { CanvasEditor } from './editor'
 import { fileToDataUrl } from './importImages'
 import { saveAssetNodeResult } from './nodeAssetGeneration'
 import { adoptNodeResult, recordNodeOutput, selectNodeResult } from './nodeCanvasResults'
+import { noteNodeJobFailure } from './nodeJobFailures'
 import { persistLocalNodeResults } from './nodeResultPersistence'
 
 const generationOrigin: CanvasOrigin = canvasOrigin('system', 'node-generation')
@@ -262,6 +263,7 @@ function nodeGenerationSink(
       finishCanvasNodeJob(doc, handle.jobId, generationOrigin)
     },
     failed(handle, failure) {
+      noteNodeJobFailure(handle.jobId, failure.error)
       const job = canvasNodeJobs(doc).find((job) => job.id === handle.jobId)
       if (job)
         setCanvasNodeJob(doc, { ...job, status: 'error', message: failure.text }, generationOrigin)

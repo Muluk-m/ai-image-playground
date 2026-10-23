@@ -4,7 +4,9 @@ import { stubGlobalFetch } from '../helpers/upstreamStubs'
 
 process.env.DATABASE_URL ??= 'postgresql://unused:unused@127.0.0.1:5432/unused'
 const { createDurableMediaStore } = await import('../../lib/durableMediaStore')
-const { readObjectWithinLimit, S3ObjectStore } = await import('../../lib/objectStore')
+const { ObjectStoreHttpError, readObjectWithinLimit, S3ObjectStore } = await import(
+  '../../lib/objectStore'
+)
 type S3ClientLike = import('../../lib/objectStore').S3ClientLike
 
 interface ListCall {
@@ -154,6 +156,99 @@ describe('S3ObjectStore key prefix', () => {
         headers: { range: 'bytes=0-1' },
         signal: controller.signal,
       })
+    } finally {
+      transport.mockRestore()
+    }
+  })
+
+  it('带期限的整份读取走同一客户端签名的 GET：可取消，非 2xx 带上状态码', async () => {
+    const client = new FakeS3Client()
+    client.objects.set('paid/objects/u/m/original', new Uint8Array([9]))
+    const subject = store(client, 'paid/')
+    const controller = new AbortController()
+    const transport = spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(new Uint8Array([1, 2, 3])),
+    )
+    try {
+      expect(await subject.read('objects/u/m/original', controller.signal)).toEqual(
+        new Uint8Array([1, 2, 3]),
+      )
+      expect(transport.mock.calls[0]?.[0]).toContain(
+        'paid/objects/u/m/original?expiresIn=60&method=GET',
+      )
+      expect(transport.mock.calls[0]?.[1]).toMatchObject({ signal: controller.signal })
+
+      transport.mockResolvedValueOnce(new Response('InternalError', { status: 500 }))
+      const failed = await subject.read('objects/u/m/original', controller.signal).catch((e) => e)
+      expect(failed).toBeInstanceOf(ObjectStoreHttpError)
+      expect(failed.status).toBe(500)
+
+      // 传输层错误不能把预签名地址（凭证和签名）带进日志。
+      transport.mockImplementationOnce(
+        Object.assign(
+          (url: RequestInfo | URL) =>
+            Promise.reject(
+              Object.assign(new Error(`socket closed while fetching ${String(url)}`), {
+                code: 'ConnectionClosed',
+                path: String(url),
+              }),
+            ),
+          { preconnect: globalThis.fetch.preconnect },
+        ),
+      )
+      const reset = await subject.read('objects/u/m/original', controller.signal).catch((e) => e)
+      expect(reset.code).toBe('ConnectionClosed')
+      expect(JSON.stringify({ ...reset, message: reset.message })).not.toContain('expiresIn=60')
+      expect(reset.message).toContain('<signed-url>')
+
+      // 取消和传输错误撞在一起：信号已经取消，抛出来的却是带地址的传输错误，也要脱敏。
+      const racing = new AbortController()
+      transport.mockImplementationOnce(
+        Object.assign(
+          (url: RequestInfo | URL) => {
+            racing.abort(new Error('deadline'))
+            return Promise.reject(
+              Object.assign(new Error(`reset ${String(url)}`), { path: String(url) }),
+            )
+          },
+          { preconnect: globalThis.fetch.preconnect },
+        ),
+      )
+      const raced = await subject.read('objects/u/m/original', racing.signal).catch((e) => e)
+      expect(JSON.stringify({ ...raced, message: raced.message })).not.toContain('expiresIn=60')
+
+      // 错误码挂在 cause 上时也要带出来，上层靠它判断能不能重试。
+      transport.mockImplementationOnce(
+        Object.assign(
+          (url: RequestInfo | URL) =>
+            Promise.reject(
+              new TypeError('fetch failed', {
+                cause: Object.assign(new Error(`connect ${String(url)}`), { code: 'ECONNRESET' }),
+              }),
+            ),
+          { preconnect: globalThis.fetch.preconnect },
+        ),
+      )
+      const caused = await subject.read('objects/u/m/original', controller.signal).catch((e) => e)
+      expect(caused.code).toBe('ECONNRESET')
+      expect(caused.cause).toBeUndefined()
+
+      transport.mockImplementation(
+        Object.assign(
+          (_url: RequestInfo | URL, options?: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), {
+                once: true,
+              })
+            }),
+          { preconnect: globalThis.fetch.preconnect },
+        ),
+      )
+      const waiting = subject.read('objects/u/m/original', controller.signal)
+      controller.abort(new Error('deadline'))
+      await expect(waiting).rejects.toThrow('deadline')
+      // 不给信号时仍走原来的客户端读取。
+      expect(await subject.read('objects/u/m/original')).toEqual(new Uint8Array([9]))
     } finally {
       transport.mockRestore()
     }
