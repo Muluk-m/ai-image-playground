@@ -251,6 +251,14 @@ describe('proposeEditRegion', () => {
     ).rejects.toThrow('提示点')
   })
 
+  it('sends a whole-image ask back to editImage once, then proposes if the agent insists', async () => {
+    const tool = maskProposalTool(
+      context({ wholeImageEdit: { nudged: false } }, url(await picture(1024, 768))),
+    )
+    await expect(run(tool, args)).rejects.toThrow('直接调 editImage 按整图编辑')
+    expect(maskProposalFromResult(await run(tool, args))?.question).toBe('确认修改范围：杯身和把手')
+  })
+
   it('refuses when the turn already carries a user selection or the image has no stored original', async () => {
     const image = url(await picture(64, 64))
     const masked = context({}, image)
