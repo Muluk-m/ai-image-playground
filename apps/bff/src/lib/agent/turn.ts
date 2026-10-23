@@ -48,6 +48,7 @@ import {
   AGENT_MASK_PROPOSAL_TOOL,
   maskProposalFailedText,
   maskProposalFromResult,
+  maskProposalGuidance,
 } from './mask-proposal'
 import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
@@ -708,8 +709,11 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
           ? maskProposalFromResult(event.result)
           : clarificationFromResult(event.result)
       if (!block) {
-        if (event.isError && event.toolName === AGENT_MASK_PROPOSAL_TOOL && !aborted)
-          await maskProposalFailed(toolErrorText(event.result))
+        // 提醒类的退回（整图要求、已有选区）照常交回模型，让它改调 editImage；其余才收尾。
+        if (event.isError && event.toolName === AGENT_MASK_PROPOSAL_TOOL && !aborted) {
+          const reason = toolErrorText(event.result)
+          if (!maskProposalGuidance(reason)) await maskProposalFailed(reason)
+        }
         return
       }
       const messageId = crypto.randomUUID()

@@ -563,6 +563,51 @@ describe('范围确认卡', () => {
     expect(insisted!.status).not.toBe('failed')
   }, 20_000)
 
+  it('sends a whole-image ask back to the model when it first proposes a region, without ending the turn', async () => {
+    const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
+    const conversationId = (json as { conversation: { id: string } }).conversation.id
+    const bath = await sharp(ORIGINAL).jpeg({ quality: 80 }).toBuffer()
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'propose',
+            name: 'proposeEditRegion',
+            args: {
+              imageId: 'file_bathtub',
+              target: '整个画面',
+              change: '变成夜景',
+              keep: [],
+              box: { x: 0, y: 0, width: 1, height: 1 },
+            },
+          }),
+        () =>
+          toolCallCompletion({
+            id: 'whole',
+            name: 'editImage',
+            args: { prompt: '变成夜景', imageIds: ['file_bathtub'] },
+          }),
+        () => completionStream('好'),
+      ]),
+    )
+    const frames = await runTurn(
+      conversationId,
+      '变成夜景',
+      [{ imageId: 'file_bathtub', dataUrl: `data:image/jpeg;base64,${bath.toString('base64')}` }],
+      { thinkingDepth: 'fast', model: 'agnes-image' },
+    )
+    expect(calls.length).toBeGreaterThanOrEqual(2)
+    expect(eventsOfType(frames, 'clarification')).toHaveLength(0)
+    const said = eventsOfType(frames, 'textDelta')
+      .map((event) => (event as unknown as { delta: string }).delta)
+      .join('')
+    expect(said).not.toContain('没有改图')
+    const [edited] = eventsOfType(frames, 'toolEnd')
+    expect(edited).toMatchObject({ toolName: 'editImage' })
+    expect(edited!.status).not.toBe('failed')
+  }, 20_000)
+
   it('still lets the agent edit the whole image for an overall request or an image too small to mask', async () => {
     const small = await sharp({
       create: { width: 320, height: 240, channels: 4, background: '#808080' },
