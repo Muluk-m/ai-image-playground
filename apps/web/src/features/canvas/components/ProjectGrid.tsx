@@ -186,10 +186,10 @@ export default function ProjectGrid({
                     fit="cover"
                     source={project.cover}
                     chat={projectExperience(project) === 'chat'}
+                    // 读取项目列表只在「刷新项目」按钮上转圈；卡片只为正在出图的对话转圈。
                     pending={
-                      cloudLoading ||
-                      (Boolean(project.conversationId) &&
-                        project.conversationId === runningConversationId)
+                      Boolean(project.conversationId) &&
+                      project.conversationId === runningConversationId
                     }
                   />
                 </>
