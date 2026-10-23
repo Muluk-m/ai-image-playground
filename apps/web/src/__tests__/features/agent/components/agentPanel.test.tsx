@@ -43,6 +43,7 @@ import type { AgentDeliveryStatus, AgentToolMessage } from '../../../../features
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { useLibraryStore } from '../../../../features/library/store'
+import { ensureLocaleLoaded, i18next } from '../../../../i18n'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
 import { useStore } from '../../../../store'
@@ -2177,6 +2178,113 @@ describe('AgentPanel', () => {
         '已提交 2 张，「猫d」未提交',
       )
     } finally {
+      useAgentStore.setState({ confirmPrompt: original })
+    }
+  })
+
+  it('取消勾选的稿在计划随提交拆段、重挂后仍不勾选，不会被下一次「全部生成」带上', async () => {
+    const original = useAgentStore.getState().confirmPrompt
+    const confirmPrompt = vi.fn(async (id: string) => {
+      if (id === 'd')
+        return {
+          ok: false as const,
+          reason: 'refused' as const,
+          code: 'insufficient_credits' as const,
+        }
+      useAgentStore.setState((state) => ({
+        messages: state.messages.map((one) =>
+          one.id === id && one.kind === 'tool' ? { ...one, status: 'submitted' as const } : one,
+        ),
+      }))
+      return { ok: true as const }
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      confirmPrompt,
+      conversationId: 'conversation-plan',
+      messages: ['a', 'b', 'c', 'd'].map((id) => planDraft(id, `猫${id}`)),
+    })
+    try {
+      render()
+      act(() => {
+        host.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="猫a"]')?.click()
+      })
+      await act(async () => {
+        ;[...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '全部生成（3）')
+          ?.click()
+        await vi.waitFor(() => expect(confirmPrompt).toHaveBeenCalledTimes(3))
+      })
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[role="alert"]')?.textContent).toContain('已提交 2 张')
+      })
+      // b、c 成交后 a 与 d 分成两段计划，a 那段换了 key 重挂：仍是跳过的。
+      expect(host.querySelectorAll('[aria-label="生成计划"]')).toHaveLength(2)
+      expect(
+        host.querySelector('[role="checkbox"][aria-label="猫a"]')?.getAttribute('aria-checked'),
+      ).toBe('false')
+      expect(confirmPrompt.mock.calls.map(([id]) => id)).toEqual(['b', 'c', 'd'])
+    } finally {
+      useAgentStore.setState({ confirmPrompt: original })
+    }
+  })
+
+  it('中途被拒的提示在渲染时翻译：切换语言后跟着变', async () => {
+    const original = useAgentStore.getState().confirmPrompt
+    const confirmPrompt = vi.fn(async (id: string) => {
+      if (id === 'b')
+        return {
+          ok: false as const,
+          reason: 'refused' as const,
+          code: 'insufficient_credits' as const,
+        }
+      useAgentStore.setState((state) => ({
+        messages: state.messages.map((one) =>
+          one.id === id && one.kind === 'tool' ? { ...one, status: 'submitted' as const } : one,
+        ),
+      }))
+      return { ok: true as const }
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      confirmPrompt,
+      conversationId: 'conversation-plan',
+      messages: ['a', 'b'].map((id) => planDraft(id, `猫${id}`)),
+    })
+    const language = i18next.language
+    try {
+      render()
+      await act(async () => {
+        ;[...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '全部生成（2）')
+          ?.click()
+        await vi.waitFor(() => expect(confirmPrompt).toHaveBeenCalledTimes(2))
+      })
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[role="alert"]')?.textContent).toContain('已提交 1 张')
+      })
+      await ensureLocaleLoaded('en')
+      await act(async () => {
+        await i18next.changeLanguage('en')
+      })
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[role="alert"]')?.textContent).toBe(
+          'Submitted 1 image; "猫b" was not submitted: Not enough credits, so this wasn\'t submitted',
+        )
+      })
+    } finally {
+      await act(async () => {
+        await i18next.changeLanguage(language)
+      })
       useAgentStore.setState({ confirmPrompt: original })
     }
   })

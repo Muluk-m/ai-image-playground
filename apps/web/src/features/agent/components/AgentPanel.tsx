@@ -319,6 +319,16 @@ export default function AgentPanel({
   const followLatest = useRef(true)
   /** 离开底部期间来了新内容：浮出「有新消息」，回到底部即收起。 */
   const [unseen, setUnseen] = useState(false)
+  // 计划卡里取消勾选的稿按消息 id 记在面板上：计划随逐张提交拆段、换 key 重挂时不能把跳过的稿重新勾上。
+  const [planSkipped, setPlanSkipped] = useState<ReadonlySet<string>>(() => new Set())
+  const skipPlanDraft = (id: string, skip: boolean) =>
+    setPlanSkipped((current) => {
+      if (current.has(id) === skip) return current
+      const next = new Set(current)
+      if (skip) next.add(id)
+      else next.delete(id)
+      return next
+    })
   const [search, setSearch] = useState('')
   // 每次定位都换一个序号：同一步被点第二次（中间被用户收起过）也要重新展开。
   const [located, setLocated] = useState<{ id: string; seq: number } | null>(null)
@@ -604,7 +614,11 @@ export default function AgentPanel({
                         className="studio-agent-message-block"
                       >
                         <fieldset disabled={historyCached} className="contents">
-                          <AgentGenerationPlan messages={planRun} />
+                          <AgentGenerationPlan
+                            messages={planRun}
+                            skipped={planSkipped}
+                            onSkip={skipPlanDraft}
+                          />
                         </fieldset>
                         {footer && !turnShowsImageReceipt(messages, message.turnId) && (
                           <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
