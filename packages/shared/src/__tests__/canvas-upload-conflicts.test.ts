@@ -1,6 +1,11 @@
 import { describe, expect, it, spyOn } from 'bun:test'
 import * as Y from 'yjs'
-import { CANVAS_UPLOAD_DEVICE_META, CANVAS_UPLOAD_STARTED_META } from '../canvas-cloud'
+import {
+  CANVAS_UPLOAD_DEVICE_META,
+  CANVAS_UPLOAD_RELEASED_META,
+  CANVAS_UPLOAD_STARTED_META,
+  releaseCanvasUploadClaim,
+} from '../canvas-cloud'
 import {
   canvasOrigin,
   type ImageNodeData,
@@ -100,6 +105,28 @@ describe('上传簿记与并发编辑', () => {
       for (const doc of [editor.doc, uploader.doc]) {
         expect(data(doc).meta?.nodePrompt).toBe('a cat')
         expect(data(doc).meta?.[CANVAS_UPLOAD_STARTED_META]).toBe('2000')
+      }
+      editor.stop()
+      uploader.stop()
+    })
+
+  for (const [editorId, uploaderId] of [
+    [1, 2],
+    [2, 1],
+  ] as const)
+    it(`上传失败撤掉声明与别的设备改提示词并发时两边都保留（editor=${editorId}）`, async () => {
+      const { editor, uploader } = pair(editorId, uploaderId)
+      // 编辑方照抄着旧声明改提示词；上传方同时因上传失败撤掉声明。
+      edit(editor.doc, { meta: { ...data(editor.doc).meta, nodePrompt: 'a cat' } })
+      edit(uploader.doc, { meta: releaseCanvasUploadClaim(data(uploader.doc).meta, 2000) })
+
+      await exchange(editor.doc, uploader.doc)
+
+      for (const doc of [editor.doc, uploader.doc]) {
+        expect(data(doc).meta?.nodePrompt).toBe('a cat')
+        expect(data(doc).meta?.[CANVAS_UPLOAD_DEVICE_META]).toBeUndefined()
+        expect(data(doc).meta?.[CANVAS_UPLOAD_STARTED_META]).toBeUndefined()
+        expect(data(doc).meta?.[CANVAS_UPLOAD_RELEASED_META]).toBe('2000')
       }
       editor.stop()
       uploader.stop()
@@ -259,6 +286,25 @@ describe('上传簿记与并发编辑', () => {
       mergeCanvasUploadConflict({ ...base, name: 'x' }, { ...base, name: 'y' }),
     ).toBeUndefined()
     expect(mergeCanvasUploadConflict(base, promoted)).toBeUndefined()
+  })
+
+  it('撤掉声明按时间认：照抄旧声明的用户编辑不算新声明，撤销之后的新声明照样胜出', () => {
+    const base = { fileId: 'local-file', name: 'photo', meta: claim }
+    const released = { ...base, meta: releaseCanvasUploadClaim(claim, 2000) }
+    const merged = { ...base, name: 'x', meta: { [CANVAS_UPLOAD_RELEASED_META]: '2000' } }
+    expect(mergeCanvasUploadConflict({ ...base, name: 'x' }, released)).toEqual(merged)
+    expect(mergeCanvasUploadConflict(released, { ...base, name: 'x' })).toEqual(merged)
+    // 撤销之后又重新声明（时间更新）：新声明胜出。
+    const reclaimed = {
+      ...base,
+      meta: {
+        ...released.meta,
+        [CANVAS_UPLOAD_DEVICE_META]: 'tab',
+        [CANVAS_UPLOAD_STARTED_META]: '3000',
+      },
+    }
+    expect(mergeCanvasUploadConflict(released, reclaimed)).toBeUndefined()
+    expect(mergeCanvasUploadConflict(reclaimed, released)).toEqual(reclaimed)
   })
 
   it('本机这一版经远端多个中间版本后才被覆盖时，是先后改，不补写', async () => {

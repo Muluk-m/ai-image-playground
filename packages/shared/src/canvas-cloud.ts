@@ -80,6 +80,11 @@ export function isLocalCanvasFileId(value: unknown): value is string {
  */
 export const CANVAS_UPLOAD_DEVICE_META = 'uploadDevice'
 export const CANVAS_UPLOAD_STARTED_META = 'uploadStartedAt'
+/**
+ * 上传失败停下时撤掉声明的时间。不只删掉声明，还记下撤销时间：并发合并时据此认出「撤掉声明」这次簿记，
+ * 别的设备同时改节点时照抄来的旧声明（开始时间早于它）不会被当成新声明把它顶回去。
+ */
+export const CANVAS_UPLOAD_RELEASED_META = 'uploadReleasedAt'
 /** 超过这么久还没收成云媒体，就不再显示「上传中」而显示缺图（上传那台设备可能已离线或失败）。 */
 export const CANVAS_UPLOAD_STALE_MS = 30 * 60_000
 /** 别的设备写的开始时间最多可以比本机时钟晚这么多（设备间的时钟偏差）。 */
@@ -129,18 +134,34 @@ export function canvasUploadClaimNextChange(
   return undefined
 }
 
-/** 去掉上传声明（收成云媒体后）；没有声明时原样返回。 */
+/** 去掉上传声明和撤销记录（收成云媒体后）；都没有时原样返回。 */
 export function withoutCanvasUploadClaim(
   meta: Record<string, string> | undefined,
 ): Record<string, string> | undefined {
-  if (!meta || !(CANVAS_UPLOAD_DEVICE_META in meta || CANVAS_UPLOAD_STARTED_META in meta))
+  if (
+    !meta ||
+    !(
+      CANVAS_UPLOAD_DEVICE_META in meta ||
+      CANVAS_UPLOAD_STARTED_META in meta ||
+      CANVAS_UPLOAD_RELEASED_META in meta
+    )
+  )
     return meta
   const {
     [CANVAS_UPLOAD_DEVICE_META]: _device,
     [CANVAS_UPLOAD_STARTED_META]: _since,
+    [CANVAS_UPLOAD_RELEASED_META]: _released,
     ...rest
   } = meta
   return rest
+}
+
+/** 上传失败停下时撤掉声明：去掉声明，记下撤销时间（见 CANVAS_UPLOAD_RELEASED_META）。 */
+export function releaseCanvasUploadClaim(
+  meta: Record<string, string> | undefined,
+  now: number,
+): Record<string, string> {
+  return { ...withoutCanvasUploadClaim(meta), [CANVAS_UPLOAD_RELEASED_META]: String(now) }
 }
 const finite = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 10_000_000
