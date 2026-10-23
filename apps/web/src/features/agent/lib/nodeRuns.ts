@@ -290,18 +290,21 @@ async function reportRun(
   nodes: readonly StageRunNodeReport[],
   executionToken: string | undefined,
   sameAccount: () => boolean,
+  owner: symbol,
 ): Promise<boolean> {
   const origin = origins.get(key)
   let published = false
+  // 回报跨 await：账号换过、或这个 key 已经归了更新的一次运行，就不再往卡上写，也不去接唤醒轮。
+  const live = () => sameAccount() && owners.get(key) === owner
   const update = (report: AgentNodeRunReport, authorization?: StageAuthorization) => {
-    if (!sameAccount()) return
+    if (!live()) return
     // 第一次发的是终局本身；之后在卡上那份之上补回执（卡在交完之前不会收走它）。
     const run = published ? (runs.get(key) ?? terminal) : terminal
     published = true
     publish(key, { ...run, report, ...(authorization ? { authorization } : {}) })
   }
   const follow = () => {
-    if (sameAccount()) origin?.onReported?.(authorizationId)
+    if (live()) origin?.onReported?.(authorizationId)
   }
   update({ nodes, wake: 'reporting' })
   try {
@@ -374,6 +377,9 @@ export function startAgentNodeRun(
   const plan = agentNodeRunBridge()?.quote(proposal)
   const sameAccount = accountScope()
   const owner = Symbol(key)
+  // 跨 await 的每一步都要同时核对账号和运行权：换走又换回同一账号时 scope 一样，
+  // 但这个 key 可能已经归了更新的一次运行，旧运行不能再接着跑或往卡上写。
+  const live = () => sameAccount() && owners.get(key) === owner
   const origin = origins.get(key)
   // 直接出图开跑前就被拦下（缺首帧、缺素材、参数不可用……）：不提交，把原因交给智能体，授权随之结束。
   // 需要确认的卡在这种情况下按钮是灰的，用户看得到原因，不自动回报。
@@ -387,11 +393,12 @@ export function startAgentNodeRun(
       blockedReport(proposal, plan, error),
       undefined,
       sameAccount,
+      owner,
     ).then((reported) => {
       if (!reported) void stageAuthorizationClient.end(authorizationId).catch(() => {})
       // 交的途中换了账号：卡上停在「正在交」，终局才收的规则收不走它，按换账号收走。
       if (!sameAccount()) forgetSwitchedRun(key, owner, origin)
-      else releaseUnwatchedRun(key)
+      else if (live()) releaseUnwatchedRun(key)
     })
     return true
   }
@@ -422,7 +429,7 @@ export function startAgentNodeRun(
       )
       authorization = confirmed.authorization
       executionToken = confirmed.executionToken
-      if (control.signal.aborted || !sameAccount()) return
+      if (control.signal.aborted || !live()) return
       if (undoSeconds > 0)
         await new Promise<void>((resolve) => {
           let remaining = undoSeconds
@@ -445,7 +452,7 @@ export function startAgentNodeRun(
             { once: true },
           )
         })
-      if (control.signal.aborted || !sameAccount()) return
+      if (control.signal.aborted || !live()) return
       const bridge = agentNodeRunBridge()
       if (bridge?.projectId !== proposal.projectId)
         throw Object.assign(new Error('changed'), { code: 'changed' })
@@ -479,7 +486,7 @@ export function startAgentNodeRun(
       const run = runs.get(key)
       const code = batchError(error)
       // 用户自己撤销或停下、换了账号：不唤醒，那是用户自己的决定。
-      const reportable = !control.signal.aborted && sameAccount() && run?.status !== 'undone'
+      const reportable = !control.signal.aborted && live() && run?.status !== 'undone'
       if (reportable)
         nodes = started
           ? interruptedReport(proposal, outcomes, active, code)
@@ -497,7 +504,7 @@ export function startAgentNodeRun(
         }
     } finally {
       if (controls.get(key)?.control === control) controls.delete(key)
-      if (terminal && nodes && sameAccount()) {
+      if (terminal && nodes && live()) {
         const reported = await reportRun(
           key,
           terminal,
@@ -505,14 +512,15 @@ export function startAgentNodeRun(
           nodes,
           executionToken,
           sameAccount,
+          owner,
         )
         if (reported) authorization = undefined
-      } else if (terminal && sameAccount()) publish(key, terminal)
+      } else if (terminal && live()) publish(key, terminal)
       if (authorization) {
         try {
           const ended = await stageAuthorizationClient.end(authorizationId)
           // 换了账号就不把回执写回原运行，但下面照样回收，不能提前 return 跳过。
-          const run = sameAccount() ? runs.get(key) : undefined
+          const run = live() ? runs.get(key) : undefined
           if (run) publish(key, { ...run, authorization: ended })
         } catch {
           // 换账号后这枚会话已经不属于原用户，登出会在服务端收回。丢失回执也不能靠本地状态重放。
@@ -521,7 +529,7 @@ export function startAgentNodeRun(
       // 换了账号：确认中或倒计时里提前退出的运行停在非终局，终局才收的规则收不走它。
       // 它属于原账号，新账号下不该再显示或保留，这里直接收走。
       if (!sameAccount()) forgetSwitchedRun(key, owner, origin, control)
-      else releaseUnwatchedRun(key)
+      else if (live()) releaseUnwatchedRun(key)
     }
   })()
   return true
