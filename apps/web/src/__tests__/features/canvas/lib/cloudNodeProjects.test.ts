@@ -35,6 +35,7 @@ import {
   projectRepository,
 } from '../../../../features/canvas/lib/projectRepository'
 import type { SceneRecord } from '../../../../features/canvas/lib/sceneRecord'
+import { getCanvasUploaderId } from '../../../../features/canvas/lib/uploadSession'
 import { authenticatedBffFetch } from '../../../../lib/authClient'
 import { setClientStorageScope } from '../../../../lib/authScope'
 import { getDeviceId } from '../../../../lib/deviceId'
@@ -549,7 +550,7 @@ it('saves edits while an image uploads, then the image once it lands', async () 
   await vi.waitFor(() =>
     expect(serverNode(server, 'photo')?.data).toEqual({
       fileId: 'photo',
-      meta: { uploadDevice: getDeviceId(), uploadStartedAt: expect.any(String) },
+      meta: { uploadDevice: getCanvasUploaderId(), uploadStartedAt: expect.any(String) },
     }),
   )
   validateCloudCanvas(server, { version: 1, elements: [] })
@@ -669,7 +670,48 @@ it('does not keep retrying an upload that keeps failing when nothing new was add
   await new Promise((resolve) => setTimeout(resolve, 500))
   expect(vi.mocked(uploadMediaSource).mock.calls.length).toBeLessThanOrEqual(2)
   expect(session.getSnapshot().status).toBe('media-local')
+  // 停下不再重传时去掉本标签页的上传声明并同步出去：别处不再一直显示「上传中」，复制也不再被挡。
+  await vi.waitFor(() => {
+    expect(serverNode(server, 'photo')?.data).toMatchObject({ fileId: 'photo' })
+    expect(serverNode(server, 'photo')?.data).not.toHaveProperty('meta.uploadDevice')
+    expect(serverNode(server, 'photo')?.data).not.toHaveProperty('meta.uploadStartedAt')
+  })
+  expect(vi.mocked(uploadMediaSource).mock.calls.length).toBeLessThanOrEqual(2)
   vi.mocked(uploadMediaSource).mockReset()
+  record.dispose()
+})
+
+it('treats an upload claimed by another tab of the same browser as uploading elsewhere', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const vector = Y.encodeStateVector(server)
+  // 同一浏览器的另一个标签页在传：设备 ID 相同，但原图只在那个标签页内存里。
+  insertCanvasNode(
+    server,
+    {
+      id: 'other-tab',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: {
+        fileId: 'tab-photo',
+        meta: { uploadDevice: `${getDeviceId()}:othertab`, uploadStartedAt: String(Date.now()) },
+      },
+    },
+    origin,
+  )
+  socket.receive(canvasSyncUpdate(Y.encodeStateAsUpdate(server, vector)))
+  vi.mocked(uploadMediaSource).mockClear()
+  moveCanvasNodes(session.canvas!.doc, [{ id: 'text', x: 21, y: 22 }], session.canvas!.origin)
+  await session.sync()
+  expect(serverNode(server, 'text')).toMatchObject({ x: 21, y: 22 })
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(uploadMediaSource).not.toHaveBeenCalled()
+  expect(getCanvasUploaderId()).not.toBe(getDeviceId())
   record.dispose()
 })
 
@@ -885,7 +927,7 @@ it("renews this device's old upload claim when a new upload round starts", async
       height: 50,
       data: {
         fileId: 'photo',
-        meta: { uploadDevice: getDeviceId(), uploadStartedAt: String(old) },
+        meta: { uploadDevice: getCanvasUploaderId(), uploadStartedAt: String(old) },
       },
     },
     session.canvas!.origin,
