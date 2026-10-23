@@ -46,7 +46,8 @@ export default function GenerationHistory({ userId, hero }: { userId?: string; h
   }, [hero, hasMore, loading, failed, loadMore])
 
   const openLibrary = () => {
-    useLibraryStore.getState().setTab('assets')
+    // 「我的作品」来的人要找的是生成的图：落到能看到对话 / 画布封面的「项目」，不是空的素材页（BUG-18）。
+    useLibraryStore.getState().setTab('projects')
     useStore.getState().setAppMode('library')
   }
   return (

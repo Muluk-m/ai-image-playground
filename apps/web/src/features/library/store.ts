@@ -129,7 +129,8 @@ export interface LibraryState {
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
   onLibraryPage: false,
-  tab: 'assets',
+  // 先落「项目」：生成的图都在对话 / 画布里，封面一眼可见；空的「素材」页只收手动存的（BUG-18）。
+  tab: 'projects',
   searchKeyword: '',
   assets: [],
   templates: [],

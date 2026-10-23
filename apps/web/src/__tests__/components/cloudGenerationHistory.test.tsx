@@ -201,12 +201,13 @@ it('首页保留去资产库入口', async () => {
     'fetch',
     vi.fn(async () => page([item])),
   )
-  useLibraryStore.setState({ tab: 'projects' })
+  // 之前停在空的素材页；「我的作品」来的人要看生成的图，得落到「项目」（BUG-18）。
+  useLibraryStore.setState({ tab: 'assets' })
   await act(async () => root.render(<GenerationHistory userId="owner" hero />))
   await waitCards(1)
   await click('去资产库')
   expect(useStore.getState().appMode).toBe('library')
-  expect(useLibraryStore.getState().tab).toBe('assets')
+  expect(useLibraryStore.getState().tab).toBe('projects')
 })
 
 it('到达最后一页后移除底部遮罩，最后一张作品可完整查看', async () => {

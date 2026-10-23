@@ -531,12 +531,14 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     variant="ghost"
                     size="icon"
                     type="button"
-                    className="studio-assets-trigger"
+                    className="studio-assets-trigger studio-assets-trigger--labeled"
                     aria-label={t('workspace.assets')}
-                    title={t('workspace.assets')}
+                    autoTooltip={false}
                     onClick={() => setAssetDrawerOpen(true)}
                   >
                     <Icon name="folder" />
+                    {/* 只放图标时没人认得出这是看图的地方（BUG-18）。窄屏收回成图标，靠 aria-label。 */}
+                    <span className="studio-assets-trigger-label">{t('workspace.assets')}</span>
                   </Button>
                 </>
               )}
