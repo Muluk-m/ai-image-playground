@@ -46,7 +46,7 @@ export interface ConversationStateFacts {
  * - 别的终局（已提交、成功、失败）：任务归任务管，这一段不再说它。
  *
  * 一条语句、一个快照里认卡、分类、各取最新 `MAX_DRAFTS` 条：先截条数再分类，较新的作废稿会挤掉更早还在等的卡；
- * 分页跨多条语句又会在读取期间被确认、作废改动结果集。同一张卡出现在多条消息里时按会话内 `seq` 取最后写的那条。
+ * 分页跨多条语句又会在读取期间被确认、作废改动结果集。同一张卡出现在多条消息、或同一条消息里出现多次时，按会话内 `seq`、再按块在消息里的位置取最后写的那条。
  */
 async function readDraftFacts(
   conversationId: string,
@@ -68,14 +68,14 @@ async function readDraftFacts(
       LEFT JOIN LATERAL (
         SELECT b.block
         FROM agent_messages m
-        CROSS JOIN LATERAL jsonb_array_elements(m.content) AS b(block)
+        CROSS JOIN LATERAL jsonb_array_elements(m.content) WITH ORDINALITY AS b(block, position)
         WHERE m.conversation_id = d.conversation_id
           AND m.turn_id = d.turn_id
           AND m.role = 'assistant'
           AND m.deleted_at IS NULL
           AND b.block->>'type' = 'toolResult'
           AND b.block->>'toolCallId' = d.tool_call_id
-        ORDER BY m.seq DESC
+        ORDER BY m.seq DESC, b.position DESC
         LIMIT 1
       ) card ON true
       WHERE d.conversation_id = ${conversationId}
@@ -90,9 +90,18 @@ async function readDraftFacts(
     SELECT prompt, state FROM ranked
     WHERE rank <= ${MAX_DRAFTS}
     ORDER BY created_at DESC, id DESC
-  `)) as unknown as Array<{ prompt: string; state: 'pending' | 'voided' }>
+  `)) as unknown
+  // `db.execute` 不带结果类型：在边界上逐行核对字段，别名或类型变了宁可少列，也不把怪值写进系统事实。
+  const valid = (Array.isArray(rows) ? rows : []).filter(
+    (row): row is { prompt: string; state: 'pending' | 'voided' } =>
+      typeof row === 'object' &&
+      row !== null &&
+      typeof (row as { prompt?: unknown }).prompt === 'string' &&
+      ((row as { state?: unknown }).state === 'pending' ||
+        (row as { state?: unknown }).state === 'voided'),
+  )
   const pick = (state: 'pending' | 'voided') =>
-    rows.filter((row) => row.state === state).map((row) => ({ title: draftTitle(row.prompt) }))
+    valid.filter((row) => row.state === state).map((row) => ({ title: draftTitle(row.prompt) }))
   return { pendingDrafts: pick('pending'), voidedDrafts: pick('voided') }
 }
 
