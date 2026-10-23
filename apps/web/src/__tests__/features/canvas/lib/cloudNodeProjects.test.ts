@@ -174,10 +174,12 @@ async function fixture(
 }
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((finish) => {
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((finish, fail) => {
     resolve = finish
+    reject = fail
   })
-  return { promise, resolve }
+  return { promise, resolve, reject }
 }
 function canvasLoads() {
   return vi
@@ -687,6 +689,72 @@ it('uploads an image added during a failed round without waiting for another edi
     expect(serverNode(server, 'photo')?.data).toMatchObject({ mediaId: uploaded }),
   )
   await vi.waitFor(() => expect(session.getSnapshot().status).toBe('saved'))
+  record.dispose()
+})
+
+it("renews this tab's claim when a queued image starts uploading late in a long batch", async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const uploads = Array.from({ length: 5 }, () =>
+    deferred<NonNullable<Awaited<ReturnType<typeof uploadMediaSource>>>>(),
+  )
+  const sources = uploads.map((_, index) => `data:image/png;base64,${btoa(`late-${index}`)}`)
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockImplementation(async (source) => uploads[sources.indexOf(source)]!.promise)
+  record.editor.doc.files = Object.fromEntries(
+    sources.map((source, index) => [`f${index}`, source]),
+  )
+  const doc = session.canvas!.doc
+  doc.transact(() => {
+    for (let index = 0; index < 5; index++)
+      insertCanvasNode(
+        doc,
+        {
+          id: `n${index}`,
+          type: 'image',
+          x: index * 60,
+          y: 0,
+          width: 50,
+          height: 50,
+          data: { fileId: `f${index}` },
+        },
+        session.canvas!.origin,
+      )
+  }, session.canvas!.origin)
+  await vi.waitFor(() => expect(uploadMediaSource).toHaveBeenCalledTimes(4))
+  const startedAt = (id: string) =>
+    Number(
+      (serverNode(server, id)?.data as { meta?: Record<string, string> } | undefined)?.meta
+        ?.uploadStartedAt,
+    )
+  await vi.waitFor(() => expect(startedAt('n4')).toBeGreaterThan(0))
+  const claimed = startedAt('n4')
+  // 前四张传了 20 分钟：第五张这时才开始传，它开头写的声明已过了一半有效期，要续上。
+  const later = Date.now() + 20 * 60_000
+  const now = vi.spyOn(Date, 'now').mockReturnValue(later)
+  try {
+    // 第一张失败（不收进文档，这一轮就没有别的改动），空出的位置开始传第五张。
+    uploads[0]!.reject(new Error('upload unavailable'))
+    await vi.waitFor(() => expect(uploadMediaSource).toHaveBeenCalledTimes(5))
+    await vi.waitFor(() => expect(startedAt('n4')).toBeGreaterThanOrEqual(later))
+    expect(startedAt('n4')).toBeGreaterThan(claimed)
+    // 已经在传的那几张不跟着续：只有开始传的那张写文档。
+    expect(startedAt('n1')).toBe(claimed)
+    // 续期不算新改动：这一轮失败时照旧停下、撤掉声明，不会自己再传一轮。
+    for (const upload of uploads.slice(1)) upload.reject(new Error('upload unavailable'))
+    await vi.waitFor(() => expect(session.getSnapshot().status).toBe('media-local'))
+    await vi.waitFor(() =>
+      expect(serverNode(server, 'n4')?.data).not.toHaveProperty('meta.uploadDevice'),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(uploadMediaSource).toHaveBeenCalledTimes(5)
+  } finally {
+    now.mockRestore()
+  }
+  vi.mocked(uploadMediaSource).mockReset()
   record.dispose()
 })
 
