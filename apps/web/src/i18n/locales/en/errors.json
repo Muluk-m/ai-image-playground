@@ -136,6 +136,7 @@
     "attachment_animated_image": "Animated images are not supported. Export a still PNG, JPG, or WebP and select it again.",
     "attachment_quality_limit": "The image cannot meet the upload limit at 90% encoding quality. Crop it and select it again.",
     "attachment_compression_failed": "Image preparation failed. Export the image as PNG, JPG, or WebP and select it again.",
-    "attachment_compression_timeout": "Image preparation timed out. Select the image again; if it still fails, resize it first."
+    "attachment_compression_timeout": "Image preparation timed out. Select the image again; if it still fails, resize it first.",
+    "reference_too_large": "This image is larger than {{maxSize}}. Please choose a smaller one."
   }
 }

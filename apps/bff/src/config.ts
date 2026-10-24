@@ -170,6 +170,18 @@ export const config = {
     imageModel: env('AGENT_IMAGE_MODEL', ''),
     /** 生视频工具用的模型。留空跟随内置 channel 的默认视频模型。 */
     videoModel: env('AGENT_VIDEO_MODEL', ''),
+    /**
+     * 修改范围提议（`proposeEditRegion`）与卡片上点选细化的服务端分割。
+     * `AGENT_SEGMENTER_URL` 指向自建的 EdgeTAM 服务（deploy/segmenter），部署脚本在它跑起来时注入，
+     * 没有它时卡片按智能体给的框兜底。不接任何第三方分割服务，用户原图不会因此发到外部。
+     * `AGENT_SEGMENTATION_PROVIDER=off` 强制关闭服务端分割。
+     */
+    segmentation: {
+      provider: env('AGENT_SEGMENTATION_PROVIDER', 'edgetam'),
+      segmenterUrl: env('AGENT_SEGMENTER_URL', ''),
+      /** 共享分割服务里本部署的缓存键前缀（部署时传项目名），各环境的图像编码互不复用。 */
+      segmenterNamespace: env('AGENT_SEGMENTER_NAMESPACE', ''),
+    },
   },
   databaseUrl: env('DATABASE_URL'),
   /** 连接池上限与空闲回收，部署按角色设（deploy/compose.app.yaml）；worker 与 BFF 用各自的 application_name。 */

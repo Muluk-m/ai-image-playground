@@ -372,7 +372,8 @@ it('活动选区和联合依赖不能释放，替换准入失败不清空旧证�
   calls.length = 0
   config.operator = {
     ...operator,
-    quotas: { ...operator.quotas, 'agent:request-max-bytes': 220_000 },
+    // 内联图给模型的是缩略图，比原件小；上限跟着收紧，d 的完整原图才仍然放不进去。
+    quotas: { ...operator.quotas, 'agent:request-max-bytes': 140_000 },
   }
   setAgentFetchForTesting(
     scriptedAgentFetch(calls, [
@@ -443,7 +444,8 @@ it('活动选区和联合依赖不能释放，替换准入失败不清空旧证�
   expect(observed).toMatchObject({
     imageId: 'a',
     evidence: [
-      { source: 'initial', representation: 'original', width: 8, height: 8, selection: false },
+      // 内联上传的图也只给模型看缩略图；没有选区的那张不需要原件。
+      { source: 'initial', representation: 'preview', width: 8, height: 8, selection: false },
     ],
   })
   expect(observed?.evidence[0]?.bytes).toBeGreaterThan(0)

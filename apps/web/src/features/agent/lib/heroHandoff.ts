@@ -7,6 +7,7 @@ import type { VideoDraft } from '../../video/types'
 import { agentPanelPresent } from '../panelLayout'
 import { useAgentStore } from '../store'
 import { fillAgentComposer } from './composerFill'
+import { currentProjectDraft } from './projectLifecycle'
 import { type AgentDraft, draftForSubmit } from './references'
 
 /** 画布的生成栏要等切过去挂上才能接话；挂载在下一帧到几帧之间，最多等这么久。 */
@@ -56,10 +57,16 @@ export async function startCanvasFromComposer(
     return true
   }
   useAgentStore.getState().setMode(mode)
+  // 新项目的对话输入框：服务端没收下（图太大、选区无效、网络断了…）时这句话连同参考图放回这里，
+  // 与对话输入框里发失败同一个收场——错误卡说原因，草稿留着改完再发，不会凭空没了。
+  const projectDraft = currentProjectDraft(useAgentStore.getState().conversationId)
+  let returnedId: string | undefined
   const result = await useAgentStore.getState().send(
     submission.text,
     submission.references,
     () => {
+      // 卡片上点「重试」发出去了：放回输入框的那份就不要再留着，免得再发一遍。
+      if (returnedId) void projectDraft.acceptSubmission(returnedId)
       const store = useStore.getState()
       if (store.prompt === draft.prompt) {
         store.setPrompt('')
@@ -67,6 +74,14 @@ export async function startCanvasFromComposer(
       }
     },
     mode,
+    undefined,
+    undefined,
+    undefined,
+    async (unsent) => {
+      await projectDraft.ready
+      returnedId = unsent.id
+      return projectDraft.returnUnsent({ ...draft, submission: unsent })
+    },
   )
   return result !== 'cancelled'
 }

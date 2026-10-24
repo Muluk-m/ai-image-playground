@@ -39,10 +39,16 @@ export interface MaskRenderMode {
 }
 
 /**
+ * 笔画坐标系落在哪：画布上是图元素本身；不在画布上的地方（例如范围确认卡）传原图像素矩形
+ * `{ x: 0, y: 0, width: 原图宽, height: 原图高, rotation: 0 }`，笔画就直接按原图像素记。
+ */
+export type MaskPlacement = Pick<ImageEl, 'x' | 'y' | 'width' | 'height' | 'rotation'>
+
+/**
  * 页面坐标 → 遮罩像素坐标。Konva 的 rotation 绕元素左上角（与 `elementBounds` 同一约定），
  * 所以这里是「平移到左上角 → 反向旋转 → 按展示尺寸与位图尺寸的比例缩放」。
  */
-export function pageToMaskPixel(el: ImageEl, size: MaskSize, point: Point): Point {
+export function pageToMaskPixel(el: MaskPlacement, size: MaskSize, point: Point): Point {
   const rad = (el.rotation * Math.PI) / 180
   const cos = Math.cos(rad)
   const sin = Math.sin(rad)
@@ -60,7 +66,7 @@ export function pageToMaskPixel(el: ImageEl, size: MaskSize, point: Point): Poin
  */
 export function paintMaskStroke(
   ctx: CanvasRenderingContext2D,
-  el: ImageEl,
+  el: MaskPlacement,
   size: MaskSize,
   stroke: MaskStroke,
   mode: MaskRenderMode,
@@ -106,7 +112,7 @@ export function paintMaskStroke(
  */
 export function renderMask(
   canvas: HTMLCanvasElement,
-  el: ImageEl,
+  el: MaskPlacement,
   strokes: readonly MaskStroke[],
   mode: MaskRenderMode,
 ): CanvasRenderingContext2D {
@@ -131,21 +137,31 @@ export function renderMask(
  * 让它走到上游只会换回一张整图重绘，用户还以为自己圈过了。
  */
 export async function exportMaskDataUrl(
-  el: ImageEl,
+  el: MaskPlacement,
   size: MaskSize,
   strokes: readonly MaskStroke[],
 ): Promise<string> {
   const canvas = document.createElement('canvas')
   canvas.width = size.width
   canvas.height = size.height
-  const ctx = renderMask(canvas, el, strokes, { inverted: false, color: '#fff' })
-  assertUsableMaskCoverage(classifyMaskAlpha(ctx.getImageData(0, 0, size.width, size.height)))
+  renderMask(canvas, el, strokes, { inverted: false, color: '#fff' })
+  return await exportMaskCanvasDataUrl(canvas)
+}
+
+/**
+ * 已经是遮罩语义（不透明 = 保留、透明 = 重绘）的画布 → 送上游的 PNG。空选区同样在这里拦下。
+ * 画布涂抹与范围确认卡共用这一个出口。
+ */
+export async function exportMaskCanvasDataUrl(canvas: HTMLCanvasElement): Promise<string> {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
+  assertUsableMaskCoverage(classifyMaskAlpha(ctx.getImageData(0, 0, canvas.width, canvas.height)))
   const blob = await canvasToBlob(canvas, 'image/png')
   return await blobDataUrl(blob)
 }
 
 /** Bounds use the same inverse image transform as the authoritative mask renderer. */
-export function maskStrokeRegion(image: ImageEl, stroke: MaskStroke, number: number) {
+export function maskStrokeRegion(image: MaskPlacement, stroke: MaskStroke, number: number) {
   const points = stroke.points.map((point) =>
     pageToMaskPixel(image, { width: 1, height: 1 }, point),
   )
