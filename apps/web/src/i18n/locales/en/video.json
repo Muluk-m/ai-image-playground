@@ -50,7 +50,7 @@
     "edit": "Edit"
   },
   "download": {
-    "fetchFailed": "Could not fetch the video: {{status}}"
+    "fetchFailed": "Couldn't download the video. Try again"
   },
   "store": {
     "emptyPrompt": "Write a description first"

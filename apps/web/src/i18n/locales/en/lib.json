@@ -27,32 +27,28 @@
     "corsBlocked": "The image was generated, but the provider does not allow cross-origin requests, so downloading it failed.{{hint}}",
     "offline": "Image download failed (no network).{{hint}}",
     "failed": "Image download failed (cross-origin restriction, expired link, or network error).{{hint}}",
-    "httpFailed": "Image URL download failed: HTTP {{status}}"
+    "httpFailed": "Couldn't download the image. Try again"
   },
   "proxy": {
-    "upstreamFailed": "Upstream API call failed (proxy layer)"
+    "upstreamFailed": "The generation service had a problem. Try again later"
   },
   "queue": {
-    "unsupportedKindCall": "callQueueChannelApi: unsupported channel kind {{kind}}",
-    "unsupportedKindResume": "resumeQueueChannelApi: unsupported channel kind {{kind}}",
-    "unsupportedKindVideo": "submitVideoRequest: unsupported channel kind {{kind}}",
-    "completedWithoutImages": "The BFF returned completed but the images list is empty",
-    "completedWithoutOutputs": "The BFF returned completed but the output list is empty",
+    "unsupportedKindVideo": "This model can't generate video. Pick another model",
+    "noOutput": "Nothing came out this time. Try again",
     "insufficientCredits": "Not enough credits. Top up or start a plan, then generate again",
     "dailyQuotaUsed": "All {{quota}} images for today are used up",
     "dailyQuotaExhausted": "Today's generation quota is used up",
     "quotaResetHint": "{{exhausted}}, resets at 00:00 UTC",
-    "submitFailed": "BFF submit failed: {{reason}}",
-    "submitMissingRequestId": "The BFF submit response has no request_id",
-    "taskFailed": "The BFF task failed",
-    "cancelled": "The BFF task was canceled",
-    "statusFailed": "BFF status query failed: {{reason}}",
-    "consecutiveFailures": "The BFF was unreachable {{attempts}} times in a row: {{reason}}",
-    "pollLastError": ", last error: {{reason}}",
-    "pollTimeout": "The BFF task did not finish within {{seconds}}s{{trailing}}",
-    "resultMetaFailed": "Could not fetch the BFF result meta: {{reason}}",
-    "notCompleted": "The BFF returned a non-completed status: {{status}}",
-    "imageFetchFailed": "Could not fetch BFF image #{{index}}: {{reason}}",
+    "submitFailed": "Submit failed: {{reason}}",
+    "submitMissingRequestId": "Submit failed. Try again",
+    "taskFailed": "Generation failed. Try again",
+    "cancelled": "Task canceled",
+    "statusFailed": "Couldn't check progress. Refresh and try again",
+    "consecutiveFailures": "Can't reach the generation service. Check your network and try again",
+    "pollTimeout": "This is taking too long. Check your history for the result later",
+    "resultMetaFailed": "Couldn't load the result. Try again",
+    "notCompleted": "Generation hasn't finished yet. Check back later",
+    "imageFetchFailed": "Couldn't load the generated image. Try again",
     "bffVideoNotSupported": "This model cannot generate video",
     "bffVideoParamsRequired": "The video task is missing its video parameters",
     "bffInvalidVideoRequest": "These video settings are outside what the model allows, adjust them and retry",
@@ -61,17 +57,20 @@
     "bffStageScope": "What was submitted no longer matches the node you approved; ask the agent to request approval again",
     "bffStageBudget": "This exceeds the budget you approved",
     "bffStageInactive": "This approval has ended or expired; ask the agent to request approval again",
-    "bffStageAttemptConflict": "This submission no longer matches the approved run (model or count changed); run it again"
+    "bffStageAttemptConflict": "This submission no longer matches the approved run (model or count changed); run it again",
+    "bffModelUnavailable": "This model is unavailable right now. Pick another model",
+    "bffInvalidRequest": "These settings aren't accepted. Adjust them and try again",
+    "bffStorageUnavailable": "Reference images can't be read right now. Try again later",
+    "bffDuplicateSubmit": "This conflicts with an earlier request. Submit again"
   },
   "dispatch": {
-    "channelNotFound": "Built-in channel not found: {{id}}",
+    "channelNotFound": "The selected model wasn't found. Pick another model",
     "channelsUnavailable": "Platform channels are temporarily unreachable. Retrying.",
-    "unsupportedChannelKind": "Unsupported built-in channel kind: {{kind}}",
-    "resumeProfileMissing": "No matching built-in channel profile was found when resuming the BFF queue task",
-    "resumeKindNotQueue": "channel kind {{kind}} is not a queue, cannot resume"
+    "unsupportedModel": "This model isn't supported. Pick another model",
+    "resumeModelGone": "The model used for this generation is no longer available"
   },
   "profile": {
-    "missingModelId": "Missing model ID"
+    "missingModelId": "Pick a model first"
   },
   "param": {
     "actualResponseValue": "Actual API response value"
