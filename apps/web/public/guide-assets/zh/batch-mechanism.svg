@@ -2,11 +2,11 @@
 <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="none" stroke="#c1eb94" stroke-width="1.5"/></marker></defs>
 <rect width="1000" height="850" rx="24" fill="#111311"/>
 <g font-family="PingFang SC, Arial, sans-serif" fill="#f6f6f4">
-<text x="40" y="53" font-size="32" fill="#f6f6f4" font-weight="600" text-anchor="start">逐张生成是怎样运行的</text>
+<text x="40" y="53" font-size="32" fill="#f6f6f4" font-weight="600" text-anchor="start">逐张生成运行机制</text>
 <text x="40" y="90" font-size="23" fill="#a6a9a2" font-weight="400" text-anchor="start">3 张输入图 · 1 份提示词 · 3 个独立任务</text>
 <rect x="40" y="120" width="920" height="100" rx="16" fill="#252e20" stroke="#566946"/>
-<text x="64" y="158" font-size="21" fill="#c1eb94" font-weight="600" text-anchor="start">你只写一次</text>
-<text x="64" y="196" font-size="25" fill="#f6f6f4" font-weight="400" text-anchor="start">提示词 P：保留当前图中的商品，背景改成纯白色。</text>
+<text x="64" y="158" font-size="21" fill="#c1eb94" font-weight="600" text-anchor="start">共用提示词</text>
+<text x="64" y="196" font-size="25" fill="#f6f6f4" font-weight="400" text-anchor="start">提示词 P：保留当前图中的商品，背景改为纯白色。</text>
 <path d="M192 220 V258" fill="none" stroke="#c1eb94" stroke-width="2.5" marker-end="url(#arrow)"/>
 <path d="M500 220 V258" fill="none" stroke="#c1eb94" stroke-width="2.5" marker-end="url(#arrow)"/>
 <path d="M808 220 V258" fill="none" stroke="#c1eb94" stroke-width="2.5" marker-end="url(#arrow)"/>
@@ -43,7 +43,7 @@
 <text x="808" y="602" font-size="24" fill="#f6f6f4" font-weight="400" text-anchor="middle">生成 1 次</text>
 <rect x="680" y="625" width="256" height="58" rx="16" fill="#252825" stroke="#323531"/>
 <text x="808" y="663" font-size="25" fill="#f6f6f4" font-weight="400" text-anchor="middle">结果 C · 1 张</text>
-<text x="500" y="751" font-size="25" fill="#f6f6f4" font-weight="600" text-anchor="middle">各任务只看自己的图，不读取其他图或其他任务的结果。</text>
-<text x="500" y="792" font-size="22" fill="#a6a9a2" font-weight="400" text-anchor="middle">模型与设置共用；任务可同时执行或排队，无需等上一张完成。</text>
+<text x="500" y="751" font-size="25" fill="#f6f6f4" font-weight="600" text-anchor="middle">任务间不共享参考图或生成结果。</text>
+<text x="500" y="792" font-size="22" fill="#a6a9a2" font-weight="400" text-anchor="middle">共用模型与设置；任务可并发执行或排队。</text>
 <text x="500" y="827" font-size="19" fill="#a6a9a2" font-weight="400" text-anchor="middle">示例未使用提示词槽位。</text>
 </g></svg>
