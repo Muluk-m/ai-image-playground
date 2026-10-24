@@ -97,7 +97,7 @@ export async function bootstrapClientCapabilities(
 
 async function requestManifest(
   bffBaseUrl: string,
-): Promise<{ body: unknown; parsed: ClientCapabilityManifest | null } | null> {
+): Promise<{ body: unknown; parsed: ClientCapabilityManifest } | null> {
   const controller = new AbortController()
   let retryTimer: ReturnType<typeof setTimeout> | undefined
   let deadline: ReturnType<typeof setTimeout> | undefined
@@ -106,13 +106,14 @@ async function requestManifest(
       let started = 0
       let pending = 0
       let settled = false
+      let retryable = true
       const finish = (deliver: () => void) => {
         if (settled) return
         settled = true
         deliver()
       }
       const start = () => {
-        if (settled || started > CAPABILITY_RETRY_DELAYS_MS.length) return
+        if (settled || !retryable || started > CAPABILITY_RETRY_DELAYS_MS.length) return
         clearTimeout(retryTimer)
         const delay = CAPABILITY_RETRY_DELAYS_MS[started++]
         pending++
@@ -123,18 +124,31 @@ async function requestManifest(
             cache: 'no-store',
             signal: controller.signal,
           })
-          if (!response.ok) throw new Error('capability_manifest_unavailable')
+          if (!response.ok) {
+            if ([408, 429, 500, 502, 503, 504].includes(response.status))
+              throw new Error('capability_manifest_unavailable')
+            return null
+          }
           const body: unknown = await response.json()
           const parsed = parseManifest(body)
-          if (!parsed) throw new Error('capability_manifest_unavailable')
+          if (!parsed) return null
           return { body, parsed }
         })().then(
-          (result) => finish(() => resolve(result)),
+          (result) => {
+            pending--
+            if (settled) return
+            if (result) finish(() => resolve(result))
+            else {
+              retryable = false
+              clearTimeout(retryTimer)
+              if (pending === 0) finish(() => resolve(null))
+            }
+          },
           (error: unknown) => {
             pending--
             if (settled) return
-            if (started <= CAPABILITY_RETRY_DELAYS_MS.length) start()
-            else if (pending === 0) finish(() => reject(error))
+            if (pending === 0 && (!retryable || started > CAPABILITY_RETRY_DELAYS_MS.length))
+              finish(() => reject(error))
           },
         )
       }

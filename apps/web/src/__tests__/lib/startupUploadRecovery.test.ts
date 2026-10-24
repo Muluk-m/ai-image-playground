@@ -98,7 +98,7 @@ it('does not let late manifests overwrite the first completed response', async (
   expect(vi.getTimerCount()).toBe(0)
 })
 
-it('retries prompt transport failures without waiting for fallback timers', async () => {
+it('keeps the retry delay after prompt transport failures', async () => {
   vi.useFakeTimers()
   vi.stubGlobal(
     'fetch',
@@ -107,7 +107,11 @@ it('retries prompt transport failures without waiting for fallback timers', asyn
       .mockRejectedValueOnce(new TypeError('failed to fetch'))
       .mockResolvedValueOnce(Response.json({ 'accounts:login': true })),
   )
-  await expect(bootstrapClientCapabilities(true, '', true)).resolves.toMatchObject({
+  const boot = bootstrapClientCapabilities(true, '', true)
+  await vi.advanceTimersByTimeAsync(4999)
+  expect(fetch).toHaveBeenCalledTimes(1)
+  await vi.advanceTimersByTimeAsync(1)
+  await expect(boot).resolves.toMatchObject({
     'accounts:login': true,
   })
   expect(fetch).toHaveBeenCalledTimes(2)
@@ -142,7 +146,16 @@ it.each([
   expect(result).not.toHaveBeenCalled()
   await vi.advanceTimersByTimeAsync(1000)
   await expect(boot).resolves.toMatchObject({ 'accounts:login': true })
-  expect(fetch).toHaveBeenCalledTimes(3)
+  expect(fetch).toHaveBeenCalledTimes(failure === 'http' ? 3 : 2)
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it.each([400, 401, 403, 404])('fails closed without retrying a permanent %s response', async (status) => {
+  vi.useFakeTimers()
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status })))
+  await expect(bootstrapClientCapabilities(true, '', true)).rejects.toThrow('capability_manifest_unavailable')
+  await vi.advanceTimersByTimeAsync(30_000)
+  expect(fetch).toHaveBeenCalledTimes(1)
   expect(vi.getTimerCount()).toBe(0)
 })
 
