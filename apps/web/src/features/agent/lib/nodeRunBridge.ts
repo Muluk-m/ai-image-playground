@@ -14,6 +14,10 @@ export interface AgentNodeRunBridge {
   /** Wait for generated media and the server canvas acknowledgement before waking review. */
   readonly syncResults?: () => Promise<void>
   quote(proposal: AgentCanvasRunProposal): NodeBatchPlan | null
+  /**
+   * Executes an already checked batch. Callers go through `nodeRuns`, which re-quotes the plan,
+   * matches its signature and specs, and preflights every node before calling this.
+   */
   run(
     proposal: AgentCanvasRunProposal,
     plan: NodeBatchPlan,

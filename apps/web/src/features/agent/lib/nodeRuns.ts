@@ -723,7 +723,7 @@ export interface AgentNodeRunSnapshot {
   readonly wakeSkipped?: NonNullable<StageRunRecord['wakeSkipped']>
 }
 
-/** A view observes a run; releasing it never stops execution or grants execution rights. */
+/** 运行卡的视图：只观察运行。释放视图不会停止执行，持有视图也不代表拿到运行权。 */
 export function createAgentNodeRunView(key: string, initialProposal: AgentCanvasRunProposal) {
   let proposal = initialProposal
   const sameAccount = accountScope()
@@ -777,7 +777,7 @@ export function createAgentNodeRunView(key: string, initialProposal: AgentCanvas
     for (const observer of observers) observer()
     const live = runs.get(key)
     if (live && isTerminalRun(live) && live.report?.wake !== 'reporting') {
-      // Finish publishing the receipt and following the wake before retiring this run.
+      // 先让回执发布完、唤醒跟进完，再收走这次运行。
       queueMicrotask(() => {
         if (runs.get(key) === live) forgetAgentNodeRun(key, controls.get(key)?.control)
       })
