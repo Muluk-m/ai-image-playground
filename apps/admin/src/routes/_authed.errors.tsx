@@ -50,7 +50,7 @@ const BOOT_REASON_LABEL: Record<string, string> = {
   preload: '分片加载连续失败',
 }
 
-function KindBadge({ kind }: { kind: ClientErrorKind, ClientErrorSource }) {
+function KindBadge({ kind }: { kind: ClientErrorKind }) {
   return (
     <Badge variant={kind === 'boot' || kind === 'react' ? 'destructive' : 'warning'}>
       {KIND_LABEL[kind] ?? kind}
