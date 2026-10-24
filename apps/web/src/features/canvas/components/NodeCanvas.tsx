@@ -891,8 +891,10 @@ function Flow({
   active,
   onChat,
   viewKey,
+  syncResults,
 }: {
   viewKey: string
+  syncResults?: () => Promise<void>
   onChat?: () => void
   canvas: NodeCanvasDocument
   container: RefObject<HTMLDivElement | null>
@@ -1296,6 +1298,7 @@ function Flow({
     active,
     revision: snapshot,
     files,
+    syncResults,
   })
   const center = () => {
     const rect = container.current?.getBoundingClientRect()
@@ -3036,10 +3039,11 @@ export default function NodeCanvas({
             active={active}
             onChat={onChat}
             viewKey={workspace.record.key}
+            syncResults={workspace.cloud?.sync}
           />
         </ReactFlowProvider>
       ),
-    [canvas, active, workspace.editor, onChat],
+    [canvas, active, workspace.editor, workspace.cloud, onChat],
   )
   if (failed)
     return (

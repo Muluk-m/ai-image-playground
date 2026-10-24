@@ -44,6 +44,7 @@ export function useAgentNodeRun({
   active,
   revision,
   files,
+  syncResults,
 }: {
   canvas: NodeCanvasDocument
   editor: CanvasEditor
@@ -51,6 +52,7 @@ export function useAgentNodeRun({
   active: boolean
   revision: unknown
   files: unknown
+  syncResults?: () => Promise<void>
 }) {
   const settings = useStore((state) => state.settings)
   const params = useStore((state) => state.params)
@@ -58,7 +60,7 @@ export function useAgentNodeRun({
   // 模型清单刷新后重新登记：卡片与直接出图按新清单报价（视频模型被停用或恢复）。
   const channels = useSyncExternalStore(subscribeChannels, getStoredChannels)
   useEffect(() => {
-    if (!active || !projectId) return
+    if (!active || !projectId || !syncResults) return
     const quote = (proposal: AgentCanvasRunProposal) => {
       if (proposal.projectId !== projectId) return null
       const graph = readCanvasDocument(canvas.doc)
@@ -84,6 +86,7 @@ export function useAgentNodeRun({
     }
     return registerAgentNodeRun({
       projectId,
+      syncResults,
       quote,
       run: async (proposal, signature, signal, progress, executionToken, record) => {
         const plan = quote(proposal)
@@ -174,5 +177,17 @@ export function useAgentNodeRun({
         )
       },
     })
-  }, [active, projectId, canvas, editor, revision, files, settings, params, draft, channels])
+  }, [
+    active,
+    projectId,
+    canvas,
+    editor,
+    revision,
+    files,
+    settings,
+    params,
+    draft,
+    channels,
+    syncResults,
+  ])
 }
