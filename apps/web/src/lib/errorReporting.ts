@@ -239,6 +239,12 @@ const DELIVERY_ERROR_NAMES = new Set([
 ])
 const DELIVERY_ERROR_CODES = new Set([
   'media_upload_failed',
+  'media_invalid_image',
+  'media_unsupported_image',
+  'media_image_pixels_exceeded',
+  'media_image_processing_limit',
+  'media_size_mismatch',
+  'media_hash_mismatch',
   'invalid_media_upload',
   'invalid_media_confirmation',
   'original_missing',

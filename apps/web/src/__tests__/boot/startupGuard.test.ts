@@ -7,6 +7,7 @@ import type { IndexHtmlTransformContext } from 'vite'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   BOOT_READY_EVENT,
+  BOOT_STAGE_EVENT,
   PRELOAD_RELOAD_STORAGE_KEY,
   PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY,
   RELOAD_QUERY_PARAM,
@@ -242,6 +243,8 @@ it('reports why the workspace could not open, with the exceptions seen before it
   vi.stubGlobal('fetch', fetchMock)
   Object.defineProperty(navigator, 'sendBeacon', { configurable: true, value: sendBeacon })
   try {
+    document.dispatchEvent(new CustomEvent(BOOT_STAGE_EVENT, { detail: 'capabilities' }))
+    document.dispatchEvent(new CustomEvent(BOOT_STAGE_EVENT, { detail: 'SECRET-account-data' }))
     window.dispatchEvent(
       new ErrorEvent('error', {
         message: 'boom',
@@ -266,6 +269,10 @@ it('reports why the workspace could not open, with the exceptions seen before it
       context: {
         detail: { tag: 'script', src: expect.stringContaining('/assets/main-missing.js') },
         rendered: false,
+        stage: 'capabilities',
+        stageElapsedMs: expect.any(Number),
+        visibility: document.visibilityState,
+        readyState: document.readyState,
         errors: [expect.objectContaining({ type: 'error', message: 'boom' })],
       },
     })
@@ -737,7 +744,7 @@ it('preserves a failed lazy module rejection while the recovery navigation is pe
         write: false,
         minify: false,
         modulePreload: { polyfill: false },
-        rollupOptions: { input: 'virtual:entry' },
+        rollupOptions: { input: 'virtual:entry', preserveEntrySignatures: 'strict' },
       },
     });
     process.stdout.write(result.output.find(chunk => chunk.type === 'chunk' && chunk.isEntry).code);
@@ -745,9 +752,10 @@ it('preserves a failed lazy module rejection while the recovery navigation is pe
     // Keep Vite's real preload helper; replace only the unavailable module transport.
     .replace(/import\([^)]+\)/g, 'loadChunk()')
     .replaceAll('import.meta.url', JSON.stringify('https://app.test/assets/entry.js'))
-    .replace(/export \{\s*(\w+) as load\s*\};?/, 'return $1;')
+    .replace(/export \{\s*(\w+)(?: as load)?\s*\};?/, 'return $1;')
   const original = new TypeError('Failed to fetch dynamically imported module: /assets/canvas.js')
   const load = window.Function('loadChunk', source)(() => Promise.reject(original))
+  expect(typeof load, source).toBe('function')
   const outcome = await load().then(
     (module: { default: unknown }) => module.default,
     (error: unknown) => error,
