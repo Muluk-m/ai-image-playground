@@ -408,7 +408,7 @@ export const guideZhCN: GuideContent = {
                   '每个任务的图片上下文仅包含当前输入图，不包含其他参考图或其他任务的结果。任务可并发执行或排队，完成顺序不固定。',
                 ),
                 shot(
-                  img('batch-mechanism'),
+                  img('batch-mechanism-v2'),
                   '逐张生成运行机制：图 A、B、C 分别与同一提示词组成独立任务，各生成一张结果，任务间不共享图片',
                 ),
               ],
