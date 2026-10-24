@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import {
+  CANVAS_UPLOAD_CLOCK_SKEW_MS,
   canvasOrigin,
   canvasResults,
   canvasSyncAck,
   canvasSyncStep1,
   canvasSyncStep2,
   canvasSyncUpdate,
+  canvasUploadingElsewhere,
   chooseCanvasResult,
   deleteCanvasNode,
   importLegacyElements,
@@ -799,7 +801,10 @@ it('saves edits while an image uploads, then the image once it lands', async () 
   await vi.waitFor(() =>
     expect(serverNode(server, 'photo')?.data).toEqual({
       fileId: 'photo',
-      meta: { uploadDevice: getCanvasUploaderId(), uploadStartedAt: expect.any(String) },
+      meta: {
+        uploadDevice: getCanvasUploaderId(),
+        uploadStartedAt: expect.any(String),
+      },
     }),
   )
   validateCloudCanvas(server, { version: 1, elements: [] })
@@ -832,6 +837,52 @@ it('saves edits while an image uploads, then the image once it lands', async () 
   expect(serverNode(server, 'photo')?.data).not.toHaveProperty('meta.uploadDevice')
   expect(session.getSnapshot()).toEqual({ status: 'saved', message: null })
   expect(uploadMediaSource).toHaveBeenCalledTimes(1)
+  record.dispose()
+})
+
+it.each([
+  'claim',
+  'release',
+] as const)('repairs an inherited fast-clock %s before uploading locally', async (kind) => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const now = Date.now()
+  vi.spyOn(Date, 'now').mockReturnValue(now)
+  const future = String(now + CANVAS_UPLOAD_CLOCK_SKEW_MS + 60_000)
+  const meta: Record<string, string> =
+    kind === 'claim'
+      ? { uploadDevice: 'fast-device', uploadStartedAt: future }
+      : { uploadReleasedAt: future }
+  const upload = deferred<NonNullable<Awaited<ReturnType<typeof uploadMediaSource>>>>()
+  vi.mocked(uploadMediaSource)
+    .mockClear()
+    .mockImplementationOnce(() => upload.promise)
+  record.editor.doc.files = { photo: 'data:image/png;base64,cGhvdG8=' }
+  insertCanvasNode(
+    session.canvas!.doc,
+    {
+      id: 'photo',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: { fileId: 'photo', meta },
+    },
+    session.canvas!.origin,
+  )
+  await vi.waitFor(() => expect(uploadMediaSource).toHaveBeenCalledTimes(1))
+  await vi.waitFor(() => {
+    const node = readCanvasDocument(server)
+      .nodes.filter((node) => node.type === 'image')
+      .find((node) => node.id === 'photo')!
+    expect(canvasUploadingElsewhere(node.data, 'another-device', now)).toBe(true)
+  })
+  upload.resolve({ id: uploaded, sha256: 'photo' })
+  await session.sync()
+  expect(serverNode(server, 'photo')?.data).toMatchObject({ mediaId: uploaded })
   record.dispose()
 })
 
@@ -902,7 +953,10 @@ it('uploads an image added during a failed round without waiting for another edi
   record.dispose()
 })
 
-it("renews this tab's claim when a queued image starts uploading late in a long batch", async () => {
+it.each([
+  20 * 60_000,
+  -6 * 60_000,
+])("renews this tab's queued upload claim after the clock moves by %i ms", async (elapsed) => {
   pendingMedia.supported = true
   const { session, record, socket, server } = await fixture()
   acknowledgeWrites(socket, server)
@@ -942,15 +996,25 @@ it("renews this tab's claim when a queued image starts uploading late in a long 
     )
   await vi.waitFor(() => expect(startedAt('n4')).toBeGreaterThan(0))
   const claimed = startedAt('n4')
-  // 前四张传了 20 分钟：第五张这时才开始传，它开头写的声明已过了一半有效期，要续上。
-  const later = Date.now() + 20 * 60_000
+  // 第五张开始前已过半个有效期，或本机时钟被调回：都要重新写可被其他设备识别的有效声明。
+  const later = Date.now() + elapsed
   const now = vi.spyOn(Date, 'now').mockReturnValue(later)
   try {
     // 第一张失败（不收进文档，这一轮就没有别的改动），空出的位置开始传第五张。
     uploads[0]!.reject(new Error('upload unavailable'))
     await vi.waitFor(() => expect(uploadMediaSource).toHaveBeenCalledTimes(5))
     await vi.waitFor(() => expect(startedAt('n4')).toBeGreaterThanOrEqual(later))
-    expect(startedAt('n4')).toBeGreaterThan(claimed)
+    await vi.waitFor(() => expect(startedAt('n4')).not.toBe(claimed))
+    expect(startedAt('n4')).toBeLessThanOrEqual(later + CANVAS_UPLOAD_CLOCK_SKEW_MS)
+    expect(
+      canvasUploadingElsewhere(
+        readCanvasDocument(server)
+          .nodes.filter((node) => node.type === 'image')
+          .find((node) => node.id === 'n4')!.data,
+        'observer',
+        later,
+      ),
+    ).toBe(true)
     // 已经在传的那几张不跟着续：只有开始传的那张写文档。
     expect(startedAt('n1')).toBe(claimed)
     // 续期不算新改动：这一轮失败时照旧停下、撤掉声明，不会自己再传一轮。

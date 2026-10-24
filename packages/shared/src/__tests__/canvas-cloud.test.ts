@@ -4,8 +4,10 @@ import {
   CANVAS_UPLOAD_CLOCK_SKEW_MS,
   CANVAS_UPLOAD_STALE_MS,
   canvasProjectDocument,
+  canvasUploadBookkeepingTime,
   canvasUploadClaimNextChange,
   canvasUploadingElsewhere,
+  claimCanvasUpload,
   initializeCanvasConnectionRules,
   nextCanvasUploadStamp,
   releaseCanvasUploadClaim,
@@ -393,11 +395,70 @@ describe('canvas upload claims', () => {
   it('新簿记的时间总晚于节点上已有的声明或撤销，即使本机时钟落后', () => {
     const ahead = { uploadDevice: 'b', uploadStartedAt: '5000', prompt: 'p' }
     // 本机时钟（1000）落后于别的设备写的声明（5000）：撤销仍记成更晚的 5001。
-    expect(releaseCanvasUploadClaim(ahead, 1000)).toEqual({ prompt: 'p', uploadReleasedAt: '5001' })
+    expect(releaseCanvasUploadClaim(ahead, 1000)).toEqual({
+      prompt: 'p',
+      uploadReleasedAt: '5001',
+    })
     expect(nextCanvasUploadStamp({ uploadReleasedAt: '7000' }, 1000)).toBe(7001)
     expect(nextCanvasUploadStamp(ahead, 9000)).toBe(9000)
     expect(nextCanvasUploadStamp(undefined, 9000)).toBe(9000)
+    expect(claimCanvasUpload(ahead, 'local', 9000)).toEqual({
+      prompt: 'p',
+      uploadDevice: 'local',
+      uploadStartedAt: '9000',
+    })
     // 没有设备的开始时间不算声明。
     expect(nextCanvasUploadStamp({ uploadStartedAt: '5000' }, 1000)).toBe(1000)
+  })
+  it('does not inherit a claim or release beyond the clock skew window', () => {
+    const inherited: Record<string, string>[] = [
+      { uploadDevice: 'fast', uploadStartedAt: String(now + CANVAS_UPLOAD_CLOCK_SKEW_MS + 1) },
+      { uploadReleasedAt: String(now + 60 * 60_000) },
+      { uploadDevice: 'fast', uploadStartedAt: String(now + CANVAS_UPLOAD_CLOCK_SKEW_MS) },
+    ]
+    for (const meta of inherited) {
+      const startedAt = nextCanvasUploadStamp(meta, now)
+      expect(startedAt).toBe(now)
+      expect(canvasUploadingElsewhere(claimed('new-uploader', startedAt), 'observer', now)).toBe(
+        true,
+      )
+    }
+  })
+
+  it('keeps logical order across repair, renewal, release and reclaim without extending the lease', () => {
+    const histories: Record<string, string>[] = [
+      { uploadDevice: 'fast', uploadStartedAt: String(now + 60 * 60_000), prompt: 'p' },
+      { uploadReleasedAt: String(now + 60 * 60_000), prompt: 'p' },
+    ]
+    for (const inherited of histories) {
+      const first = claimCanvasUpload(inherited, 'local', now)
+      const renewed = claimCanvasUpload(first, 'local', now)
+      const released = releaseCanvasUploadClaim(renewed, now)
+      const reclaimed = claimCanvasUpload(released, 'second', now)
+      let previous = canvasUploadBookkeepingTime(inherited)
+      for (const meta of [first, renewed, released, reclaimed]) {
+        expect(canvasUploadBookkeepingTime(meta)).toBeGreaterThan(previous)
+        previous = canvasUploadBookkeepingTime(meta)
+        expect(withoutCanvasUploadClaim(meta)).toEqual({ prompt: 'p' })
+      }
+      expect(Number(first.uploadStartedAt)).toBe(now)
+      expect(Number(renewed.uploadStartedAt)).toBe(now + 1)
+      expect(Number(released.uploadReleasedAt)).toBe(now + 2)
+      expect(Number(reclaimed.uploadStartedAt)).toBe(now + 3)
+      expect(canvasUploadingElsewhere({ fileId: 'photo', meta: renewed }, 'observer', now)).toBe(
+        true,
+      )
+      expect(canvasUploadingElsewhere({ fileId: 'photo', meta: released }, 'observer', now)).toBe(
+        false,
+      )
+      // 逻辑序号即使仍在未来，也不能延长 30 分钟的上传有效期。
+      expect(
+        canvasUploadingElsewhere(
+          { fileId: 'photo', meta: reclaimed },
+          'observer',
+          now + 3 + CANVAS_UPLOAD_STALE_MS,
+        ),
+      ).toBe(false)
+    }
   })
 })

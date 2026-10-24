@@ -1,9 +1,12 @@
 import { describe, expect, it, spyOn } from 'bun:test'
 import * as Y from 'yjs'
 import {
+  CANVAS_UPLOAD_CLOCK_SKEW_MS,
   CANVAS_UPLOAD_DEVICE_META,
   CANVAS_UPLOAD_RELEASED_META,
   CANVAS_UPLOAD_STARTED_META,
+  canvasUploadingElsewhere,
+  claimCanvasUpload,
   releaseCanvasUploadClaim,
 } from '../canvas-cloud'
 import {
@@ -363,6 +366,66 @@ describe('上传簿记与并发编辑', () => {
     uploader.stop()
   })
 
+  for (const [editorId, uploaderId] of [
+    [1, 2],
+    [2, 1],
+  ] as const)
+    for (const inherited of ['claim', 'release'] as const)
+      it(`repairs a fast-clock ${inherited} through claim, release and reclaim against concurrent edits (editor=${editorId})`, async () => {
+        const { editor, uploader } = pair(editorId, uploaderId)
+        const now = 1000
+        const future = String(now + CANVAS_UPLOAD_CLOCK_SKEW_MS + 60_000)
+        edit(uploader.doc, {
+          meta:
+            inherited === 'claim'
+              ? { uploadDevice: 'fast-device', uploadStartedAt: future }
+              : { uploadReleasedAt: future },
+        })
+        Y.applyUpdate(editor.doc, Y.encodeStateAsUpdate(uploader.doc), remote)
+        try {
+          const claimed = claimCanvasUpload(data(uploader.doc).meta, 'normal-device', now)
+          edit(uploader.doc, { meta: claimed })
+          edit(editor.doc, { name: 'renamed while taking over' })
+          await exchange(editor.doc, uploader.doc)
+          for (const doc of [editor.doc, uploader.doc]) {
+            expect(data(doc).name).toBe('renamed while taking over')
+            expect(data(doc).meta).toEqual(claimed)
+            expect(canvasUploadingElsewhere(data(doc), 'observer', now)).toBe(true)
+          }
+          const released = releaseCanvasUploadClaim(claimed, now)
+          edit(uploader.doc, { meta: released })
+          edit(editor.doc, { name: 'renamed while failing' })
+          await exchange(editor.doc, uploader.doc)
+          for (const doc of [editor.doc, uploader.doc]) {
+            expect(data(doc).name).toBe('renamed while failing')
+            expect(data(doc).meta).toEqual(released)
+            expect(canvasUploadingElsewhere(data(doc), 'observer', now)).toBe(false)
+          }
+          const reclaimed = claimCanvasUpload(released, 'second-device', now)
+          edit(uploader.doc, { meta: reclaimed })
+          edit(editor.doc, { name: 'renamed while retrying' })
+          await exchange(editor.doc, uploader.doc)
+          for (const doc of [editor.doc, uploader.doc]) {
+            expect(data(doc).name).toBe('renamed while retrying')
+            expect(data(doc).meta).toEqual(reclaimed)
+            expect(canvasUploadingElsewhere(data(doc), 'observer', now)).toBe(true)
+          }
+          // 真实上传完成仍覆盖上传声明，用户改名保留，簿记一起清除。
+          promoteCanvasResultMedia(uploader.doc, 'image', 'local-file', media, local)
+          edit(editor.doc, { name: 'renamed while completing' })
+          await exchange(editor.doc, uploader.doc)
+          for (const doc of [editor.doc, uploader.doc]) {
+            expect(data(doc)).toMatchObject({ name: 'renamed while completing', mediaId: media })
+            expect(data(doc).meta).toEqual({ contentIdentity: 'local-file' })
+          }
+        } finally {
+          editor.stop()
+          uploader.stop()
+          editor.doc.destroy()
+          uploader.doc.destroy()
+        }
+      })
+
   it('mergeCanvasUploadConflict 只认上传簿记', () => {
     const base = { fileId: 'local-file', name: 'photo', meta: claim }
     const promoted = {
@@ -388,7 +451,7 @@ describe('上传簿记与并发编辑', () => {
   it('撤掉声明按时间认：照抄旧声明的用户编辑不算新声明，撤销之后的新声明照样胜出', () => {
     const base = { fileId: 'local-file', name: 'photo', meta: claim }
     const released = { ...base, meta: releaseCanvasUploadClaim(claim, 2000) }
-    const merged = { ...base, name: 'x', meta: { [CANVAS_UPLOAD_RELEASED_META]: '2000' } }
+    const merged = { ...base, name: 'x', meta: released.meta }
     expect(mergeCanvasUploadConflict({ ...base, name: 'x' }, released)).toEqual(merged)
     expect(mergeCanvasUploadConflict(released, { ...base, name: 'x' })).toEqual(merged)
     // 撤销之后又重新声明（时间更新）：新声明胜出。
@@ -643,6 +706,38 @@ describe('服务端收更新时补回并发顶掉的上传簿记', () => {
     ).toBe(0)
     expect(data(fromUpdate(Y.encodeStateAsUpdate(server))).name).toBe('renamed')
   })
+})
+
+describe('server repair with a bounded lease and a separate logical stamp', () => {
+  for (const first of ['bookkeeping', 'editor'] as const)
+    for (const editorId of [1, 3])
+      it(`retains a repaired claim against a copied future claim (${first} first, editor=${editorId})`, () => {
+        const { editor, uploader } = pair(editorId, 2)
+        const now = 1000
+        edit(uploader.doc, {
+          meta: { uploadDevice: 'fast', uploadStartedAt: String(now + 60 * 60_000) },
+        })
+        Y.applyUpdate(editor.doc, Y.encodeStateAsUpdate(uploader.doc), remote)
+        const server = fromUpdate(Y.encodeStateAsUpdate(uploader.doc))
+        try {
+          const vector = Y.encodeStateVector(server)
+          const claimed = claimCanvasUpload(data(uploader.doc).meta, 'normal', now)
+          edit(uploader.doc, { meta: claimed })
+          edit(editor.doc, { name: 'edited offline' })
+          const books = Y.encodeStateAsUpdate(uploader.doc, vector)
+          const edits = Y.encodeStateAsUpdate(editor.doc, vector)
+          for (const update of first === 'bookkeeping' ? [books, edits] : [edits, books])
+            applyCanvasUpdateKeepingUploads(server, update, remote)
+          expect(data(server)).toMatchObject({ name: 'edited offline', meta: claimed })
+          expect(canvasUploadingElsewhere(data(server), '', now)).toBe(true)
+        } finally {
+          editor.stop()
+          uploader.stop()
+          editor.doc.destroy()
+          uploader.doc.destroy()
+          server.destroy()
+        }
+      })
 })
 
 describe('Yjs 内部结构契约（升级 yjs 时这里失败就要同步改 readOverwrittenLocalData）', () => {
