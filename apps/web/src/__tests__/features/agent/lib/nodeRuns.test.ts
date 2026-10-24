@@ -238,3 +238,36 @@ it('keeps unconfirmed origins until the conversation state has been cleared', ()
   expect(isAgentNodeRunOrigin('origin-cap-0')).toBe(false)
   expect(isAgentNodeRunOrigin('origin-cap-200')).toBe(false)
 })
+
+it.each([
+  ['stage_authorization_budget', 'budget_exceeded'],
+  ['stage_authorization_inactive', 'authorization'],
+])('reports retry preflight refusal %s without another submission', async (code, reason) => {
+  submit.mockImplementation(async () => {
+    preflight = async () => { throw new Error(code) }
+    throw new NodeBatchFailure('failed')
+  })
+  const { view } = observe('refused-retry')
+  view.start()
+  await vi.advanceTimersByTimeAsync(5000)
+  expect(submit).toHaveBeenCalledTimes(1)
+  expect(requests.filter((action) => action === 'preflight')).toHaveLength(2)
+  expect(reports[0]?.nodes).toEqual([{ nodeId: 'a', outcome: 'failed', reason }])
+})
+
+it('does not report if a pending retry preflight rejects after stop', async () => {
+  let reject!: (error: Error) => void
+  submit.mockImplementation(async () => {
+    preflight = () => new Promise((_resolve, fail) => { reject = fail })
+    throw new NodeBatchFailure('failed')
+  })
+  const { view } = observe('stop-retry')
+  view.start()
+  await vi.advanceTimersByTimeAsync(5000)
+  view.stop()
+  reject(new Error('stage_authorization_inactive'))
+  await flush()
+  expect(submit).toHaveBeenCalledTimes(1)
+  expect(reports).toHaveLength(0)
+  expect(requests).toContain('end')
+})

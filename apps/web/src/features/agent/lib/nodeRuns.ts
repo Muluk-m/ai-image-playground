@@ -221,9 +221,6 @@ function forgetSwitchedRun(
   revision += 1
   for (const listener of listeners) listener()
 }
-export function agentNodeRunControl(key: string): AbortController | undefined {
-  return controls.get(key)?.control
-}
 /**
  * 开跑前就拦下、且不会自己消失的错误：报给智能体让它说明缺什么。`busy`（正在生成或上传）与
  * `balance`（余额不足或还没读到）会自己变化，不报：前者等它跑完再开，后者按「积分不足不唤醒」处理。
@@ -436,7 +433,7 @@ async function runAuthorizedNodeBatch(
   if (!proposal.authorizationId) throw new NodeBatchFailure('authorization')
   const authorizationId = proposal.authorizationId
   const authorizations: Record<string, StageAuthorizationSubmission> = {}
-  for (const job of plan.jobs) {
+  const preflightJob = async (job: NodeBatchJob) => {
     assertCurrent()
     const attemptId = crypto.randomUUID()
     await stageAuthorizationClient.preflight(authorizationId, {
@@ -455,6 +452,7 @@ async function runAuthorizedNodeBatch(
       executionToken,
     }
   }
+  for (const job of plan.jobs) await preflightJob(job)
   assertCurrent()
   const retried = new Set<string>()
   await bridge.run(proposal, plan, {
@@ -478,28 +476,13 @@ async function runAuthorizedNodeBatch(
         const rejected = stageRejectionReason(error.submitError)
         if (rejected) return failed(rejected)
         if (retried.has(job.id)) return failed('generation_failed')
-        assertCurrent()
-        const attemptId = crypto.randomUUID()
         try {
-          await stageAuthorizationClient.preflight(authorizationId, {
-            executionToken,
-            attemptId,
-            nodeId: job.id,
-            model: job.model,
-            quantity: billedNodeQuantity(job),
-            unitMultiplier: job.unitMultiplier ?? 1,
-          })
+          await preflightJob(job)
         } catch (rejected) {
-          // 重试前的预检被拒和提交被拒用同一张映射，原因说法保持一致。
+          assertCurrent()
+          // 重试预检与提交被授权拒绝时使用同一组回报原因。
           const code = rejected instanceof Error ? rejected.message : undefined
           return failed(stageRejectionReason(code) ?? 'generation_failed')
-        }
-        assertCurrent()
-        authorizations[job.id] = {
-          authorizationId,
-          nodeId: job.id,
-          attemptId,
-          executionToken,
         }
         retried.add(job.id)
         return 'retry'
@@ -514,6 +497,7 @@ async function runAuthorizedNodeBatch(
         record({ nodeId: job.id, outcome: 'skipped', reason: 'upstream_failed' }),
     },
   })
+  assertCurrent()
 }
 
 export function startAgentNodeRun(
@@ -715,6 +699,7 @@ export interface AgentNodeRunSnapshot {
   readonly run?: AgentNodeRun
   readonly plan?: NodeBatchPlan | null
   readonly authorization?: StageAuthorization
+  readonly origin: boolean
   readonly canConfirm: boolean
   readonly readFailed: boolean
   readonly readReady: boolean
@@ -722,7 +707,8 @@ export interface AgentNodeRunSnapshot {
 }
 
 /** A view observes a run; releasing it never stops execution or grants execution rights. */
-export function createAgentNodeRunView(key: string, proposal: AgentCanvasRunProposal) {
+export function createAgentNodeRunView(key: string, initialProposal: AgentCanvasRunProposal) {
+  let proposal = initialProposal
   const sameAccount = accountScope()
   const observers = new Set<() => void>()
   let settled: AgentNodeRun | undefined
@@ -732,7 +718,7 @@ export function createAgentNodeRunView(key: string, proposal: AgentCanvasRunProp
   let timer: ReturnType<typeof setTimeout> | undefined
   let disconnect: (() => void) | undefined
   const readSnapshot = (): AgentNodeRunSnapshot => {
-    if (!sameAccount()) return { canConfirm: false, readFailed: false, readReady: false }
+    if (!sameAccount()) return { origin: false, canConfirm: false, readFailed: false, readReady: false }
     const live = runs.get(key)
     if (live && isTerminalRun(live)) settled = live
     const run = live ?? settled
@@ -745,6 +731,7 @@ export function createAgentNodeRunView(key: string, proposal: AgentCanvasRunProp
       authorization,
       canConfirm: !proposal.direct && !run &&
         (authorization?.status ?? proposal.status) === 'pending' && origins.has(key),
+      origin: origins.has(key),
       readFailed,
       readReady: stored !== undefined,
       wakeSkipped: agentNodeRunWakeSkipped(proposal.authorizationId),
@@ -798,6 +785,18 @@ export function createAgentNodeRunView(key: string, proposal: AgentCanvasRunProp
   }
   return {
     getSnapshot: () => snapshot,
+    updateProposal: (next: AgentCanvasRunProposal) => {
+      if (proposal === next) return
+      const restartRead = proposal.authorizationId !== next.authorizationId || proposal.direct !== next.direct
+      proposal = next
+      if (restartRead) {
+        stopReading()
+        stored = undefined
+        readFailed = false
+      }
+      update()
+      if (restartRead) read()
+    },
     subscribe: (observer: () => void) => {
       observers.add(observer)
       if (observers.size === 1) {

@@ -3,7 +3,7 @@ import type {
   AgentWakeSkipReason,
   StageAuthorization,
 } from '@image-playground/shared'
-import { useMemo, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { ApprovalCard } from '../../../components/assistant-ui/elements/approval-card'
 import Credits from '../../../components/Credits'
 import { Button } from '../../../components/ui/button'
@@ -22,22 +22,26 @@ const REJECTION_NOTES = {
   retry_limit: 'nodeRun.rejected.retryLimit',
 } as const
 
-export default function AgentNodeRunCard({
-  runKey,
-  proposal,
-  wakeSkipped,
-}: {
+interface AgentNodeRunCardProps {
   runKey: string
   proposal: AgentCanvasRunProposal
   /** 服务端记在运行卡上的「唤醒没有起轮」原因；刷新之后也在。 */
   wakeSkipped?: AgentWakeSkipReason
-}) {
+}
+
+export default function AgentNodeRunCard(props: AgentNodeRunCardProps) {
+  return <NodeRunCard key={props.runKey} {...props} />
+}
+
+function NodeRunCard({ runKey, proposal, wakeSkipped }: AgentNodeRunCardProps) {
   const { t } = useTranslation(['agent', 'canvas'])
-  const view = useMemo(() => createAgentNodeRunView(runKey, proposal), [runKey, proposal])
+  const [view] = useState(() => createAgentNodeRunView(runKey, proposal))
+  useEffect(() => view.updateProposal(proposal), [view, proposal])
   const {
     run,
     authorization,
     plan,
+    origin,
     canConfirm,
     readFailed,
     readReady,
