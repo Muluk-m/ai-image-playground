@@ -15,7 +15,7 @@ const event = (delta: object, finish_reason: string | null = null) =>
     `data: ${JSON.stringify({ id: 'fixture', choices: [{ index: 0, delta, finish_reason }] })}\n\n`,
   )
 
-function upstream(argumentsText: string, step: number, hang = false) {
+function upstream(argumentsText: string, step: number, hang = false, done = '[DONE]') {
   const seen = { cancelled: false, calls: 0 }
   setAgentFetchForTesting(async () => {
     seen.calls += 1
@@ -43,7 +43,7 @@ function upstream(argumentsText: string, step: number, hang = false) {
             offset += step
           } else if (!hang) {
             controller.enqueue(event({}, 'tool_calls'))
-            controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+            controller.enqueue(encoder.encode(`data: ${done}\n\n`))
             controller.close()
           }
         },
@@ -107,3 +107,12 @@ it('cancels runaway arguments at the real model budget without retrying', async 
   expect(seen.cancelled).toBe(true)
   expect(seen.calls).toBe(1)
 }, 5_000)
+
+it('flushes arguments before a DONE marker with trailing whitespace accepted by the SDK', async () => {
+  upstream('{"nodeIds":["a"]}', 2, false, '[DONE] ')
+  const { result } = await consume()
+  expect(result.stopReason).toBe('toolUse')
+  expect(result.content).toEqual([
+    { type: 'toolCall', id: 'call_1', name: 'runNodes', arguments: { nodeIds: ['a'] } },
+  ])
+})
