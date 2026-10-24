@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { CLIENT_ERRORS_PATH } from '@image-playground/shared'
-import type { IndexHtmlTransformContext } from 'vite'
+import { build, type IndexHtmlTransformContext } from 'vite'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   BOOT_READY_EVENT,
@@ -712,4 +712,44 @@ it.each([
   } finally {
     link.remove()
   }
+})
+
+
+it('preserves a failed lazy module rejection while the recovery navigation is pending', async () => {
+  vi.useRealTimers()
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  const result = await build({
+    configFile: false,
+    envFile: false,
+    logLevel: 'silent',
+    plugins: [{
+      name: 'lazy-recovery-fixture',
+      resolveId: (id) => id.startsWith('virtual:') ? `\0${id}` : null,
+      load: (id) => id === '\0virtual:entry'
+        ? "export const load = () => import('virtual:canvas')"
+        : id === '\0virtual:canvas' ? 'export default function Canvas() {}' : null,
+    }],
+    build: {
+      write: false,
+      minify: false,
+      modulePreload: { polyfill: false },
+      rollupOptions: { input: 'virtual:entry' },
+    },
+  })
+  if (Array.isArray(result) || !('output' in result)) throw new Error('Expected one fixture bundle')
+  const entry = result.output.find((chunk) => chunk.type === 'chunk' && chunk.isEntry)
+  if (!entry || entry.type !== 'chunk') throw new Error('Missing fixture entry')
+  // Keep Vite's real preload helper; replace only the browser's unavailable module transport.
+  const source = entry.code
+    .replace(/import\([^)]+\)/g, 'loadChunk()')
+    .replaceAll('import.meta.url', JSON.stringify('https://app.test/assets/entry.js'))
+    .replace(/export \{\s*(\w+) as load\s*\};?/, 'return $1;')
+  const original = new TypeError('Failed to fetch dynamically imported module: /assets/canvas.js')
+  const load = window.Function('loadChunk', source)(() => Promise.reject(original))
+  const outcome = await load().then(
+    (module: { default: unknown }) => module.default,
+    (error: unknown) => error,
+  ).catch((error: unknown) => error)
+  expect(replace).toHaveBeenCalledTimes(1)
+  expect(outcome).toBe(original)
 })
