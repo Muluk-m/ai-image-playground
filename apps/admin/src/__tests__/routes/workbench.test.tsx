@@ -159,6 +159,12 @@ vi.mock('../../lib/api-client', () => {
       if (session.failToday) throw new Error('today unavailable')
       return overview
     }
+    if (url.startsWith('/api/client-errors/')) {
+      return { fingerprint: 'aaaaaaaaaaaaaaaa', events: [
+        { id: 'recovered', kind: 'boot', message: 'timeout', received_at: Date.now(), source: 'local', recovered_at: Date.now() },
+        { id: 'unknown', kind: 'boot', message: 'timeout', received_at: Date.now(), source: 'automation', recovered_at: null },
+      ] }
+    }
     if (url.startsWith('/api/client-errors')) {
       return {
         range: '7d',
@@ -168,6 +174,8 @@ vi.mock('../../lib/api-client', () => {
         groups: [
           {
             fingerprint: 'aaaaaaaaaaaaaaaa',
+            sources: { local: 1, automation: 1, marked_test: 0, unclassified: 0 },
+            recovered: 1,
             kind: 'boot',
             name: 'BootFailure',
             message: 'timeout',
@@ -640,4 +648,15 @@ describe('user detail controls', () => {
     expect(screen.queryByRole('tab', { name: '运营操作' })).not.toBeInTheDocument()
     expect(screen.queryByText('积分账户')).not.toBeInTheDocument()
   })
+})
+
+
+it('keeps mixed frontend reports visible and distinguishes exact recovery from unknown', async () => {
+  renderAt('/errors')
+  expect(await screen.findByText(/本地预览 1 · 自动化浏览器 1/)).toHaveTextContent('已恢复 1/2')
+  fireEvent.click(screen.getByRole('button', { name: '30 秒内没渲染出界面' }))
+  expect(await screen.findByText('恢复未确认')).toBeInTheDocument()
+  expect(screen.getByText(/^已恢复 ·/)).toBeInTheDocument()
+  expect(screen.getByText('本地预览')).toBeInTheDocument()
+  expect(screen.getByText('自动化浏览器')).toBeInTheDocument()
 })
