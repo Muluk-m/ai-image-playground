@@ -138,7 +138,10 @@ async function requestManifest(
           },
         )
       }
-      deadline = setTimeout(() => finish(() => reject(new Error('capability_request_timeout'))), CAPABILITY_DEADLINE_MS)
+      deadline = setTimeout(
+        () => finish(() => reject(new Error('capability_request_timeout'))),
+        CAPABILITY_DEADLINE_MS,
+      )
       start()
     })
   } finally {
