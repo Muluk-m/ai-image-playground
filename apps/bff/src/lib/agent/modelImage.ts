@@ -2,6 +2,7 @@ import sharp from 'sharp'
 import { AgentToolError } from './tools/errors'
 import {
   assertVisualBytes,
+  previewSourceByteLimit,
   visualMetadata,
   visualPixelLimit,
   withVisualPreparation,
@@ -22,8 +23,15 @@ export const MODEL_IMAGE_MIMES: ReadonlySet<string> = new Set([
   'image/webp',
 ])
 
-function parseDataUrl(value: string): { mime: string; bytes: Buffer } | null {
-  assertVisualBytes(Buffer.byteLength(value, 'utf8'))
+function parseDataUrl(value: string, sourceOnly = false): { mime: string; bytes: Buffer } | null {
+  // 只用来现缩的源图不进请求，按像素预算折出的上限卡；其余直接进请求，按请求预算卡。
+  const bytes = Buffer.byteLength(value, 'utf8')
+  if (!sourceOnly) assertVisualBytes(bytes)
+  else if (bytes > previewSourceByteLimit())
+    throw new AgentToolError(
+      'quota_exceeded',
+      `图片需要 ${bytes} 字节，超过预览源图上限 ${previewSourceByteLimit()}；本次图片未送入模型。请重新添加符合预算的图片。`,
+    )
   const match = /^data:([^;,]+);base64,(.+)$/i.exec(value)
   return match ? { mime: match[1]!.toLowerCase(), bytes: Buffer.from(match[2]!, 'base64') } : null
 }
@@ -63,7 +71,7 @@ export const PREVIEW_RESIZE = {
  * 转换失败必须明确报告；不能把预览请求静默升级为无界原件。
  */
 async function previewImage(dataUrl: string): Promise<string> {
-  const parsed = parseDataUrl(dataUrl)
+  const parsed = parseDataUrl(dataUrl, true)
   if (!parsed) return conversionFailure()
   await visualMetadata(parsed.bytes)
   try {
