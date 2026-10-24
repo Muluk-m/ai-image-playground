@@ -733,6 +733,126 @@ const page = (id: string, source: Chapter): GuidePage => ({
     : source.subsections,
 })
 
+const batchPage: GuidePage = {
+  id: 'batch',
+  title: 'Batch generation: one task per image',
+  summary: 'Apply one prompt to each input image, with a separate generation task for every image.',
+  meta: {
+    title: 'Batch generation and per-image tasks - Muvloom user guide',
+    description:
+      'Learn how Muvloom Per image generation reuses one prompt in independent tasks, each seeing only its own reference image. Compare Combine, check counts and credits, and retry failed items.',
+  },
+  updated: '2026-10-24',
+  intro: [
+    p(
+      'Use [[Per image]] to apply the same edit to several images, such as replacing backgrounds or changing their style. Write the instruction once; Muvloom applies it separately to every input image.',
+    ),
+  ],
+  sections: [
+    {
+      id: 'batch-how-it-works',
+      title: 'One input image, one independent generation',
+      blocks: [
+        p(
+          '**Without prompt slots, N input images create N separate tasks, each requesting one output image.** One click submits the batch, while each image is generated independently.',
+        ),
+        p(
+          'For images A, B and C with the prompt “Keep the product and make the background white”: ',
+        ),
+        table(
+          ['Task', 'What the model receives', 'Expected result'],
+          ['1', 'Image A only + the prompt', 'A with a white background'],
+          ['2', 'Image B only + the same prompt', 'B with a white background'],
+          ['3', 'Image C only + the same prompt', 'C with a white background'],
+        ),
+        p(
+          '**Each task sees only its current input image.** The task for B does not receive A, C, or the result generated for A. Tasks do not share image context or inherit the previous result. They use the model and settings selected for this submission, and reuse the same prompt for each image.',
+        ),
+        note(
+          '“Per image” describes how tasks are split. It does not mean one task must finish before the next starts: tasks may run together or queue, and can finish in a different order.',
+        ),
+      ],
+    },
+    {
+      id: 'batch-reference-choice',
+      title: 'Per image or Combine?',
+      blocks: [
+        table(
+          ['Comparison', 'Per image', 'Combine'],
+          ['References in each task', 'Only the current image', 'All selected references together'],
+          [
+            'How the prompt is used',
+            'The same instruction applied to each image',
+            'One instruction describing how the references relate',
+          ],
+          [
+            '3 input images, Count set to 1',
+            '3 tasks, one output each',
+            'One output using all 3 references',
+          ],
+          [
+            'Good for',
+            'Giving each product a white background',
+            'Placing the product from image 1 in the scene from image 2',
+          ],
+        ),
+        tip(
+          'Choose [[Per image]] when each input needs its own edited result. Choose [[Combine]] when the model needs to understand several images together.',
+        ),
+      ],
+    },
+    {
+      id: 'batch-start',
+      title: 'Start a per-image batch',
+      blocks: [
+        steps(
+          'Select [[Quick generate]] and image generation on the Create page, then choose a model that supports reference images.',
+          'Add at least 2 images from your computer, a folder or your asset library. You can also drag or paste images.',
+          'Under [[Reference use]], select [[Per image]].',
+          'Write a prompt that makes sense for every image. Check the model, aspect ratio and other generation settings.',
+          'Check the total image count and estimated credits on the send button, then submit. Review progress and results under [[My works]].',
+        ),
+        note(
+          'A single reference uses ordinary image-to-image generation. Per image is not offered while using a mask or an applied template. When the reference count exceeds the model’s Combine limit, only Per image is available.',
+        ),
+      ],
+    },
+    {
+      id: 'batch-write-prompt',
+      title: 'Write a self-contained instruction',
+      blocks: [
+        p(
+          'Describe what to do with “the current image”. Include the background, lighting, composition and details to preserve in this one prompt; the same text is reused for each image.',
+        ),
+        prompt(
+          'Example: product images on white',
+          'Keep the shape, colors, materials and markings of the product in the current image. Replace the background with pure white. Center the complete product and add a soft, natural contact shadow. Do not add text or other objects.',
+        ),
+        warn(
+          'Do not ask a Per image task to copy another reference, put image 1 into image 2, or match the previous generated result: it cannot see those images. Use Combine for cross-image instructions, or submit separately when each image needs a different instruction.',
+        ),
+        tip(
+          'A shared prompt gives every task the same requirements, but does not guarantee identical composition, lighting or details. Try a small batch before processing more images.',
+        ),
+      ],
+    },
+    {
+      id: 'batch-count-and-cost',
+      title: 'Counts, credits and retries',
+      blocks: [
+        list(
+          '**Default count**: 5 input images mean 5 tasks requesting one image each. The ordinary Count setting does not multiply this total.',
+          '**Prompt-slot exception**: if slots such as `{background}` expand into several prompts, each image is used once with each expanded prompt. For example, 3 images × 2 backgrounds = 6 tasks; each task still sees only its own image. Check the total on the send button.',
+          '**Limits**: at most 50 output images per submission, including image count × prompt combinations when using slots. Each reference image must be no larger than 50 MB.',
+          '**Estimated credits**: the batch estimate is the per-image estimate × total image count for the selected model and settings. Check it before submitting.',
+          '**Retries**: inspect the failed item in My works, then revise the prompt or retry as directed. Keep completed results; you do not need to submit the entire batch again.',
+        ),
+      ],
+    },
+  ],
+  related: ['create/composer', 'create/agent'],
+}
+
 export const guideEn: GuideContent = {
   lang: 'en',
   root: GUIDE_PATHS.en,
@@ -770,7 +890,7 @@ export const guideEn: GuideContent = {
     {
       id: 'create',
       title: 'Create',
-      pages: [page('composer', chapter('create')), page('agent', chapter('agent'))],
+      pages: [page('composer', chapter('create')), batchPage, page('agent', chapter('agent'))],
     },
     { id: 'canvas', title: 'Canvas', pages: [page('basics', chapter('canvas'))] },
     { id: 'assets', title: 'Assets', pages: [page('library', chapter('assets'))] },
