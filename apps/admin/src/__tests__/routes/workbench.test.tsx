@@ -160,10 +160,27 @@ vi.mock('../../lib/api-client', () => {
       return overview
     }
     if (url.startsWith('/api/client-errors/')) {
-      return { fingerprint: 'aaaaaaaaaaaaaaaa', events: [
-        { id: 'recovered', kind: 'boot', message: 'timeout', received_at: Date.now(), source: 'local', recovered_at: Date.now() },
-        { id: 'unknown', kind: 'boot', message: 'timeout', received_at: Date.now(), source: 'automation', recovered_at: null },
-      ] }
+      return {
+        fingerprint: 'aaaaaaaaaaaaaaaa',
+        events: [
+          {
+            id: 'recovered',
+            kind: 'boot',
+            message: 'timeout',
+            received_at: Date.now(),
+            source: 'local',
+            recovered_at: Date.now(),
+          },
+          {
+            id: 'unknown',
+            kind: 'boot',
+            message: 'timeout',
+            received_at: Date.now(),
+            source: 'automation',
+            recovered_at: null,
+          },
+        ],
+      }
     }
     if (url.startsWith('/api/client-errors')) {
       return {
@@ -649,7 +666,6 @@ describe('user detail controls', () => {
     expect(screen.queryByText('积分账户')).not.toBeInTheDocument()
   })
 })
-
 
 it('keeps mixed frontend reports visible and distinguishes exact recovery from unknown', async () => {
   renderAt('/errors')

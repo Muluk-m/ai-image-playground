@@ -21,7 +21,12 @@ import {
 import { isoTime } from '@/lib/format'
 import { useClientErrorEvents, useClientErrors } from '@/lib/queries'
 import { parseOverviewSearch, RANGE_LABEL, type Range } from '@/lib/search-params'
-import type { ClientErrorEvent, ClientErrorGroup, ClientErrorKind, ClientErrorSource } from '@/lib/types'
+import type {
+  ClientErrorEvent,
+  ClientErrorGroup,
+  ClientErrorKind,
+  ClientErrorSource,
+} from '@/lib/types'
 import { useRangeSearch } from '@/lib/useRangeSearch'
 
 export const Route = createFileRoute('/_authed/errors')({
@@ -159,10 +164,14 @@ function ClientErrorsPage() {
                           {title(group)}
                         </button>
                         <p className="text-xs text-muted-foreground">
-                          {group.sources && Object.entries(group.sources)
-                            .filter(([, count]) => count > 0)
-                            .map(([source, count]) => `${SOURCE_LABEL[source as ClientErrorSource]} ${count}`)
-                            .join(' · ')}
+                          {group.sources &&
+                            Object.entries(group.sources)
+                              .filter(([, count]) => count > 0)
+                              .map(
+                                ([source, count]) =>
+                                  `${SOURCE_LABEL[source as ClientErrorSource]} ${count}`,
+                              )
+                              .join(' · ')}
                           {group.recovered > 0 ? ` · 已恢复 ${group.recovered}/${group.count}` : ''}
                         </p>
                         {group.last_url ? (

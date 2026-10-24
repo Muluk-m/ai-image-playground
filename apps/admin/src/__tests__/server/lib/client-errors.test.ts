@@ -85,16 +85,42 @@ it('labels mixed sources without hiding them and only accepts exact recovery evi
     { id: 'lookalike', url: 'https://localhost.example/image' },
     { id: 'wrong-operation', context: { incidentId, operation: 'media.upload' } },
   ]
-  await writer.db.insert(writer.schema.client_errors).values(cases.map((entry) => ({
-    ...row(entry.id, fingerprint, 'error', 0.25, 'recovery-device'),
-    user_id: entry.id === 'lookalike' ? 'other-user' : 'recovery-user',
-    context: { incidentId: entry.id === 'ordinary' ? 'different-incident' : incidentId, operation },
-    ...entry,
-  })))
+  await writer.db.insert(writer.schema.client_errors).values(
+    cases.map((entry) => ({
+      ...row(entry.id, fingerprint, 'error', 0.25, 'recovery-device'),
+      user_id: entry.id === 'lookalike' ? 'other-user' : 'recovery-user',
+      context: {
+        incidentId: entry.id === 'ordinary' ? 'different-incident' : incidentId,
+        operation,
+      },
+      ...entry,
+    })),
+  )
   await writer.db.insert(writer.schema.client_error_recoveries).values([
-    { id: 'matching', incident_id: incidentId, operation, device_id: 'recovery-device', user_id: 'recovery-user', received_at: errorTime - 1000 },
-    { id: 'wrong-device', incident_id: 'different-incident', operation, device_id: 'other-device', user_id: 'recovery-user', received_at: errorTime + 1000 },
-    { id: 'unsupported', incident_id: incidentId, operation: 'media.upload', device_id: 'recovery-device', user_id: 'recovery-user', received_at: errorTime + 1000 },
+    {
+      id: 'matching',
+      incident_id: incidentId,
+      operation,
+      device_id: 'recovery-device',
+      user_id: 'recovery-user',
+      received_at: errorTime - 1000,
+    },
+    {
+      id: 'wrong-device',
+      incident_id: 'different-incident',
+      operation,
+      device_id: 'other-device',
+      user_id: 'recovery-user',
+      received_at: errorTime + 1000,
+    },
+    {
+      id: 'unsupported',
+      incident_id: incidentId,
+      operation: 'media.upload',
+      device_id: 'recovery-device',
+      user_id: 'recovery-user',
+      received_at: errorTime + 1000,
+    },
   ])
   try {
     const result = await getClientErrors('1d')
@@ -117,7 +143,20 @@ it('labels mixed sources without hiding them and only accepts exact recovery evi
     expect(events.find((event) => event.id === 'lookalike')?.source).toBe('unclassified')
   } finally {
     const { inArray } = await import('drizzle-orm')
-    await writer.db.delete(writer.schema.client_errors).where(inArray(writer.schema.client_errors.id, cases.map((entry) => entry.id)))
-    await writer.db.delete(writer.schema.client_error_recoveries).where(inArray(writer.schema.client_error_recoveries.id, ['matching', 'wrong-device', 'unsupported']))
+    await writer.db.delete(writer.schema.client_errors).where(
+      inArray(
+        writer.schema.client_errors.id,
+        cases.map((entry) => entry.id),
+      ),
+    )
+    await writer.db
+      .delete(writer.schema.client_error_recoveries)
+      .where(
+        inArray(writer.schema.client_error_recoveries.id, [
+          'matching',
+          'wrong-device',
+          'unsupported',
+        ]),
+      )
   }
 })

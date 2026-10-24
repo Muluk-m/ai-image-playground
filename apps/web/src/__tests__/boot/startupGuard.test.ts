@@ -722,12 +722,16 @@ it.each([
   }
 })
 
-
 it('preserves a failed lazy module rejection while the recovery navigation is pending', async () => {
   vi.useRealTimers()
   sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
   // Build outside jsdom so esbuild keeps Node's native TypedArray realm.
-  const source = execFileSync(process.execPath, ['--input-type=module', '-e', `
+  const source = execFileSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
     import { build } from 'vite';
     const result = await build({
       configFile: false,
@@ -748,7 +752,10 @@ it('preserves a failed lazy module rejection while the recovery navigation is pe
       },
     });
     process.stdout.write(result.output.find(chunk => chunk.type === 'chunk' && chunk.isEntry).code);
-  `], { cwd: resolve(__dirname, '../../..'), encoding: 'utf8', timeout: 15000 })
+  `,
+    ],
+    { cwd: resolve(__dirname, '../../..'), encoding: 'utf8', timeout: 15000 },
+  )
     // Keep Vite's real preload helper; replace only the unavailable module transport.
     .replace(/import\([^)]+\)/g, 'loadChunk()')
     .replaceAll('import.meta.url', JSON.stringify('https://app.test/assets/entry.js'))
@@ -756,10 +763,12 @@ it('preserves a failed lazy module rejection while the recovery navigation is pe
   const original = new TypeError('Failed to fetch dynamically imported module: /assets/canvas.js')
   const load = window.Function('loadChunk', source)(() => Promise.reject(original))
   expect(typeof load, source).toBe('function')
-  const outcome = await load().then(
-    (module: { default: unknown }) => module.default,
-    (error: unknown) => error,
-  ).catch((error: unknown) => error)
+  const outcome = await load()
+    .then(
+      (module: { default: unknown }) => module.default,
+      (error: unknown) => error,
+    )
+    .catch((error: unknown) => error)
   expect(replace).toHaveBeenCalledTimes(1)
   expect(outcome).toBe(original)
 })

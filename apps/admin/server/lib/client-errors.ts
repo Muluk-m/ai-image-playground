@@ -46,7 +46,10 @@ function classifiedErrors(range: Range) {
       FROM client_error_recoveries r
       WHERE r.incident_id = e.context->>'incidentId'
         AND r.operation = e.context->>'operation'
-        AND r.operation IN (${sql.join(CLIENT_ERROR_RECOVERY_OPERATIONS.map((operation) => sql`${operation}`), sql`, `)})
+        AND r.operation IN (${sql.join(
+          CLIENT_ERROR_RECOVERY_OPERATIONS.map((operation) => sql`${operation}`),
+          sql`, `,
+        )})
         AND r.device_id = e.device_id
         AND r.user_id IS NOT DISTINCT FROM e.user_id
         AND r.received_at <= NOW()
