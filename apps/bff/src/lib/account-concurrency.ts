@@ -11,11 +11,7 @@ export async function accountConcurrencyLimit(
   now: number,
 ): Promise<number> {
   const overlay = await loadPrivateBffOverlay()
-  const hooks = overlay.taskHooks
-  // 与调度同源：有保证并发/空闲并发之分时，排队说明认保证并发。
-  const entitled = hooks.accountConcurrencyEntitlement
-    ? (await hooks.accountConcurrencyEntitlement({ tx, userId, now })).guaranteed
-    : ((await hooks.accountConcurrencyLimit?.({ tx, userId, now })) ?? 3)
+  const entitled = (await overlay.taskHooks.accountConcurrencyLimit?.({ tx, userId, now })) ?? 3
   return Number.isInteger(entitled) && entitled > 0 ? entitled : 1
 }
 
@@ -24,16 +20,20 @@ export interface AccountQueueTask {
   readonly id: string
   readonly status: 'queued' | 'in_progress'
   readonly submittedAt: number
+  /** 失败后等重试的时刻；没到之前调度不会挑它，也就不占前面的位置。 */
+  readonly nextRetryAt?: number | null
 }
 
 /**
- * 每条排队任务前面还有几张：在生成的全算，排队的只算比它先提交的（同一刻按 id），
- * 与调度挑任务的先后一致。只给 `targets` 里还在排队的那几条。
+ * 每条排队任务前面还有几张：在生成的全算，排队的只算比它先提交、且重试时间已到的（同一刻按 id）。
+ * 这是账号维度的近似：调度还会按供应商槽位分轮挑，跨供应商时实际先后可能略有出入。
+ * 只给 `targets` 里还在排队的那几条。
  */
 export function accountQueuePositions(
   targets: readonly string[],
   unfinished: readonly AccountQueueTask[],
   limit: number,
+  now: number = Date.now(),
 ): Map<string, AgentJobQueuePosition> {
   const running = unfinished.filter((task) => task.status === 'in_progress').length
   const queued = unfinished
@@ -41,8 +41,12 @@ export function accountQueuePositions(
     .sort((a, b) => a.submittedAt - b.submittedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const wanted = new Set(targets)
   const positions = new Map<string, AgentJobQueuePosition>()
-  queued.forEach((task, index) => {
-    if (wanted.has(task.id)) positions.set(task.id, { ahead: running + index, limit })
-  })
+  let dueAhead = 0
+  for (const task of queued) {
+    // 还在等重试时间的任务调度暂时不挑：不算排在别人前面，自己也不报位置。
+    if (task.nextRetryAt != null && task.nextRetryAt > now) continue
+    if (wanted.has(task.id)) positions.set(task.id, { ahead: running + dueAhead, limit })
+    dueAhead++
+  }
   return positions
 }

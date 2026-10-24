@@ -180,7 +180,10 @@ it('对话里还有图在出时转圈，出完了没回去看就留一个点（B
     useAgentJobActivity.setState({
       activity: {
         'conv-0': { running: 2 },
-        'conv-1': { running: 0, done: { conversationId: 'conv-1', images: 3, failed: 0, at: 1 } },
+        'conv-1': {
+          running: 0,
+          done: { conversationId: 'conv-1', images: 3, videos: 0, failed: 0, at: 1 },
+        },
       },
     })
   })

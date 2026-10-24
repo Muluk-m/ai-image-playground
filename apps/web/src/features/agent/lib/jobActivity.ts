@@ -2,7 +2,7 @@ import type { AgentBackgroundJobView } from '@image-playground/shared'
 import { create } from 'zustand'
 import { accountScope } from '../../../lib/authScope'
 import type { AgentPanelMessage, AgentToolMessage } from '../types'
-import { fetchJobs as requestJobs } from './agentClient'
+import { AgentRequestError, fetchJobs as requestJobs } from './agentClient'
 import { agentJobUnsettled } from './jobProgress'
 
 /**
@@ -21,6 +21,8 @@ export interface AgentJobCompletion {
   readonly conversationId: string
   /** 生成出来的图（一张卡可能出几张）。 */
   readonly images: number
+  /** 生成出来的视频：提示里单独说「个视频」，不算进图里。 */
+  readonly videos: number
   /** 没有完成的任务（失败；用户自己取消的不算）。 */
   readonly failed: number
   readonly at: number
@@ -49,12 +51,15 @@ interface Hooks {
   viewing(conversationId: string): boolean
   fetchJobs(conversationId: string): Promise<readonly AgentBackgroundJobView[]>
   pollIntervalMs: number
+  /** 出完了新图：重新拉一次项目目录，侧栏缩略图马上换成封面，不用等刷新。 */
+  refreshCovers(): void
 }
 
 const hooks: Hooks = {
   viewing: () => false,
   fetchJobs: requestJobs,
   pollIntervalMs: AWAY_POLL_MS,
+  refreshCovers: () => {},
 }
 
 /** 面板 store 告诉这里怎样算「正看着」；测试也从这里换掉请求与节奏。 */
@@ -70,28 +75,47 @@ const patch = (conversationId: string, next: AgentConversationActivity | null) =
     return { activity }
   })
 
-const imageCount = (artifacts: readonly unknown[] | undefined) =>
-  Math.max(1, artifacts?.length ?? 0)
+const isVideoCard = (result: Pick<AgentToolMessage, 'toolName' | 'job' | 'video'>) =>
+  result.toolName === 'generateVideo' || result.job?.media === 'video' || result.video != null
 
-/** 一组已经结束的卡，算出生成了几张、几个没成。 */
+/** 一组已经结束的卡，算出生成了几张图、几个视频、几个没成。 */
 function tally(
-  results: readonly Pick<AgentToolMessage, 'status' | 'errorCode' | 'artifacts'>[],
-): Pick<AgentJobCompletion, 'images' | 'failed'> {
+  results: readonly Pick<
+    AgentToolMessage,
+    'status' | 'errorCode' | 'artifacts' | 'toolName' | 'job' | 'video'
+  >[],
+): Pick<AgentJobCompletion, 'images' | 'videos' | 'failed'> {
   let images = 0
+  let videos = 0
   let failed = 0
   for (const result of results) {
-    if (result.status === 'succeeded') images += imageCount(result.artifacts)
-    else if (result.status === 'failed' && result.errorCode !== 'cancelled') failed += 1
+    if (result.status === 'succeeded') {
+      const artifacts = result.artifacts ?? []
+      if (artifacts.length === 0) {
+        // 结果卡还没带上成品：按这张卡出的是什么记一份。
+        if (isVideoCard(result)) videos += 1
+        else images += 1
+        continue
+      }
+      for (const artifact of artifacts) {
+        if (artifact.media === 'video') videos += 1
+        else images += 1
+      }
+    } else if (result.status === 'failed' && result.errorCode !== 'cancelled') failed += 1
   }
-  return { images, failed }
+  return { images, videos, failed }
 }
 
-function complete(conversationId: string, counts: Pick<AgentJobCompletion, 'images' | 'failed'>) {
+function complete(
+  conversationId: string,
+  counts: Pick<AgentJobCompletion, 'images' | 'videos' | 'failed'>,
+) {
   // 全是用户自己取消的：没什么可看的，也不提示。
-  if (counts.images === 0 && counts.failed === 0) {
+  if (counts.images === 0 && counts.videos === 0 && counts.failed === 0) {
     patch(conversationId, null)
     return
   }
+  if (counts.images > 0 || counts.videos > 0) hooks.refreshCovers()
   if (hooks.viewing(conversationId)) {
     patch(conversationId, null)
     return
@@ -121,10 +145,21 @@ function watchAway(conversationId: string, ids: readonly string[]) {
       let jobs: readonly AgentBackgroundJobView[]
       try {
         jobs = await hooks.fetchJobs(conversationId)
-      } catch {
+      } catch (error) {
+        // 对话已经删了（或不再属于这个账号）：不再等，侧栏的「在跑」也收掉；其它错误下次再问。
+        if (error instanceof AgentRequestError && (error.status === 404 || error.status === 403)) {
+          if (!live()) return
+          away.delete(conversationId)
+          patch(conversationId, null)
+          return
+        }
         continue
       }
       if (!live()) return
+      // 切走期间出完的图把助手叫醒、又提交了新的一批：这些也算这个对话还没出完的，一起等。
+      for (const job of jobs)
+        if (job.result.status === 'submitted' || job.result.status === 'queued')
+          entry.ids.add(job.messageId)
       for (const job of jobs)
         if (
           entry.ids.has(job.messageId) &&
@@ -175,7 +210,9 @@ export function reportAgentPanel(
     const from = previous.conversationId
     panel = null
     if (left.length) watchAway(from, left)
-    else if (!useAgentJobActivity.getState().activity[from]?.done) patch(from, null)
+    // 回来时历史还没拉到就又走了：后台那份还在等，「在跑」别收掉。
+    else if (!away.has(from) && !useAgentJobActivity.getState().activity[from]?.done)
+      patch(from, null)
   }
   if (!conversationId) {
     panel = null
@@ -183,7 +220,12 @@ export function reportAgentPanel(
   }
   if (panel?.conversationId !== conversationId) {
     panel = { conversationId, ids: new Set() }
-    // 回到这个对话：面板接着等，后台那份停下；用户看到了，「出完了」那一笔也收掉。
+  }
+  // 回到这个对话：历史里出现了后台在等的那几张卡，面板接着等，后台那份才停下；还没拉到（或拉失败）时后台继续守着。
+  const watched = away.get(conversationId)
+  if (watched && messages.some((message) => watched.ids.has(message.id))) {
+    // 接手时把后台在等的卡记到面板上：切回来之前已经出完的，也照样结算、记一笔。
+    for (const message of messages) if (watched.ids.has(message.id)) panel.ids.add(message.id)
     away.delete(conversationId)
   }
   const unsettled = messages.filter(agentJobUnsettled)
@@ -207,7 +249,7 @@ export function reportAgentPanel(
     )
     return
   }
-  if (current && !current.done) patch(conversationId, null)
+  if (current && !current.done && !away.has(conversationId)) patch(conversationId, null)
   if (current?.done && hooks.viewing(conversationId)) markAgentConversationSeen(conversationId)
 }
 

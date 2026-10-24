@@ -37,9 +37,10 @@ export function agentJobPhaseLabel(
   progress: Pick<AgentToolProgress, 'phase' | 'phaseSince' | 'queue'>,
   now = Date.now(),
 ): string {
-  // 只说「排队中」用户不知道在等什么（BUG-17）：带上前面还有几张。
+  // 只说「排队中」用户不知道在等什么（BUG-17）：带上前面还有几张。前面只剩正在生成的
+  // （不超过套餐并发数）就是下一张轮到它，不然并发 1 时永远是「前面还有 1 张」。
   if (progress.phase === 'queued' && progress.queue)
-    return progress.queue.ahead > 0
+    return progress.queue.ahead > progress.queue.limit
       ? i18next.t('job.queue.ahead', { ns: 'agent', count: progress.queue.ahead })
       : i18next.t('job.queue.next', { ns: 'agent' })
   if (

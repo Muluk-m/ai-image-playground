@@ -527,7 +527,7 @@ it('批量出图的排队图块写出前面还有几张，整组说一次套餐�
     const captions = [...host.querySelectorAll('.studio-agent-tile-caption')].map(
       (one) => one.textContent,
     )
-    expect(captions).toEqual(['排队中 · 前面还有 3 张', '排队中 · 前面还有 4 张'])
+    expect(captions).toEqual(['排队中 · 下一张就轮到', '排队中 · 前面还有 4 张'])
     const notes = host.querySelectorAll('[data-agent-queue-note]')
     expect(notes).toHaveLength(1)
     expect(notes[0]?.textContent).toContain('当前套餐可同时生成 3 张')
