@@ -11,6 +11,7 @@ import {
   prompt,
   shot,
   steps,
+  stepsWith,
   table,
   tip,
   warn,
@@ -756,6 +757,11 @@ const batchPage: GuidePage = {
         p(
           '**Without prompt slots, N input images create N separate tasks, each requesting one output image.** One click submits the batch, while each image is generated independently.',
         ),
+        shot(
+          img('batch-mechanism'),
+          'Per-image execution: the same prompt pairs separately with images A, B and C to create three independent tasks, each producing one result without sharing images or results',
+          'Write the prompt once; each task uses it once. Every column is a separate generation.',
+        ),
         p(
           'For images A, B and C with the prompt “Keep the product and make the background white”: ',
         ),
@@ -805,15 +811,75 @@ const batchPage: GuidePage = {
       id: 'batch-start',
       title: 'Start a per-image batch',
       blocks: [
-        steps(
+        stepsWith(
+          shot(
+            img('batch-select'),
+            'Quick generate with three reference images and Per image selected',
+            'Actual interface: switch between Combine and Per image above the reference thumbnails.',
+            [
+              { x: 40, y: 8 },
+              { x: 28, y: 43 },
+              { x: 25, y: 26 },
+            ],
+          ),
           'Select [[Quick generate]] and image generation on the Create page, then choose a model that supports reference images.',
-          'Add at least 2 images from your computer, a folder or your asset library. You can also drag or paste images.',
-          'Under [[Reference use]], select [[Per image]].',
-          'Write a prompt that makes sense for every image. Check the model, aspect ratio and other generation settings.',
-          'Check the total image count and estimated credits on the send button, then submit. Review progress and results under [[My works]].',
+          'Use the plus button to add at least 2 references from your computer, a folder or your asset library. You can also drag or paste images.',
+          'Expand the references and select [[Per image]] above the thumbnails. The 3 references shown create 3 separate tasks.',
+        ),
+        p(
+          'Write a prompt that makes sense for every image and check the model, aspect ratio and other settings. Before submitting, check the count and credits as shown below.',
         ),
         note(
           'A single reference uses ordinary image-to-image generation. Per image is not offered while using a mask or an applied template. When the reference count exceeds the model’s Combine limit, only Per image is available.',
+        ),
+      ],
+    },
+    {
+      id: 'batch-before-submit',
+      title: 'Check the count and cost before submitting',
+      blocks: [
+        stepsWith(
+          shot(
+            img('batch-count-cost'),
+            'Generation settings show Auto, 3 images, and the send button shows an estimated total of 240 credits',
+            'Example: 3 images, an estimated 240 credits in total. Pricing varies by model and settings; check the current estimate.',
+            [
+              { x: 41, y: 53 },
+              { x: 84, y: 53 },
+            ],
+          ),
+          '**Total images**: the settings chip at the bottom shows [[Auto · 3 images]]. This is the expected output count. Without prompt slots, 3 references create 3 tasks, each requesting one image.',
+          '**Total credits**: the lightning number on the green send button is the estimate for the entire batch. Here, [[240]] covers all 3 images, rather than 240 per image. Click send after checking both numbers.',
+        ),
+      ],
+    },
+    {
+      id: 'batch-view-results',
+      title: 'Find and inspect the results',
+      blocks: [
+        p(
+          'After submitting, scroll down to [[My works]] to find your generation records and results.',
+        ),
+        shot(
+          img('batch-results'),
+          'My works below the composer, showing existing work cards',
+          'Existing works shown as an example: find My works, then locate your Per image batch.',
+        ),
+        stepsWith(
+          shot(
+            img('batch-expanded'),
+            'Expanded Per image batch showing Done 3/3, three individual result rows, per-image details and download controls, and Download all',
+            'An actual previous Per image batch: the prompt is “抠图” (remove the background), with all 3 tasks completed.',
+            [
+              { x: 31, y: 24 },
+              { x: 48, y: 64 },
+              { x: 36, y: 10 },
+            ],
+            315,
+          ),
+          '**Batch progress**: the [[Per image]] card shows the completed count. [[Done 3/3]] means all three tasks have finished. Click [[Expand]] to see the individual results; the button then changes to [[Collapse]].',
+          '**Individual results**: each image has its own row. Click a thumbnail to enlarge it, or its details icon to see that image’s prompt, reference and settings. The row also offers download, reuse and editing controls.',
+          '**Download**: use [[Download all]] at the top of the batch to download the generated results together, or the download button on a row for a single image.',
         ),
       ],
     },
@@ -842,7 +908,7 @@ const batchPage: GuidePage = {
       blocks: [
         list(
           '**Default count**: 5 input images mean 5 tasks requesting one image each. The ordinary Count setting does not multiply this total.',
-          '**Prompt-slot exception**: if slots such as `{background}` expand into several prompts, each image is used once with each expanded prompt. For example, 3 images × 2 backgrounds = 6 tasks; each task still sees only its own image. Check the total on the send button.',
+          '**Prompt-slot exception**: if slots such as `{background}` expand into several prompts, each image is used once with each expanded prompt. For example, 3 images × 2 backgrounds = 6 tasks; each task still sees only its own image. Check the total image count before submitting.',
           '**Limits**: at most 50 output images per submission, including image count × prompt combinations when using slots. Each reference image must be no larger than 50 MB.',
           '**Estimated credits**: the batch estimate is the per-image estimate × total image count for the selected model and settings. Check it before submitting.',
           '**Retries**: inspect the failed item in My works, then revise the prompt or retry as directed. Keep completed results; you do not need to submit the entire batch again.',
