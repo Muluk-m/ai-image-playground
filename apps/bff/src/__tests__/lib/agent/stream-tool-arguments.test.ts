@@ -74,6 +74,17 @@ describe('model stream tool-argument limit', () => {
     await expect(response.text()).rejects.toBeInstanceOf(AgentToolArgumentsTooLargeError)
   })
 
+  it('fails a line that keeps growing without a newline', async () => {
+    const { fetchFn, seen } = sseFetch(
+      `data: {"choices":[{"delta":{"content":"${'x'.repeat(20_000)}`,
+      500,
+      true,
+    )
+    const response = await withToolArgumentLimit(fetchFn, 1_000)('https://gateway.test/v1/chat')
+    await expect(response.text()).rejects.toBeInstanceOf(AgentToolArgumentsTooLargeError)
+    expect(seen.cancelled).toBe(true)
+  }, 2_000)
+
   it('does not count streamed text toward the tool-argument limit', async () => {
     let body = ''
     for (let i = 0; i < 50; i++) body += event({ content: '雨夜旧车站'.repeat(10) })
