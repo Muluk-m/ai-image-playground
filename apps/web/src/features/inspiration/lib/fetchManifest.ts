@@ -47,7 +47,7 @@ export async function fetchRemoteManifest(
   try {
     payload = await response.json()
   } catch {
-    throw new Error(i18next.t('manifest.notJson', { ns: 'inspiration' }))
+    throw new Error(i18next.t('manifest.loadFailed', { ns: 'inspiration' }))
   }
   const manifest = validateManifest(payload)
   if (!manifest) {

@@ -49,7 +49,6 @@
     "fallback": "Cannot unlink right now, please try again later"
   },
   "generations": {
-    "grok_channel_unavailable": "Grok model channel is temporarily unavailable. Please try again later.",
     "fallback": "Unable to load the history. Please refresh and try again."
   },
   "projectSync": {
@@ -89,8 +88,8 @@
     "authentication_required": "Sign in to generate",
     "invalid_params": "The parameters didn't hold up, so this wasn't submitted",
     "source_unavailable": "The source site denied access or couldn't provide the content. Try another public source",
-    "content_policy": "The prompt didn't pass content review, so the provider rejected it",
-    "model_unavailable": "The model it needed isn't available right now",
+    "content_policy": "The prompt didn't pass content review. Try rewording it",
+    "model_unavailable": "This model is unavailable right now. Pick another model",
     "service_unavailable": "Batch execution isn't open. Ask the assistant to draft from the per-image results",
     "cancelled": "Stopped",
     "fallback": "Didn't finish"

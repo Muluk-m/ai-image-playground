@@ -276,7 +276,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     : skillNeedsCanvas
       ? t('submit.skillNeedsCanvas')
       : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
-        ? (submissionGuard.disabledReason ?? t('submit.apiNotConfigured'))
+        ? (submissionGuard.disabledReason ?? t('submit.noModel'))
         : promptMissing
           ? t('submit.promptRequired')
           : null
@@ -328,7 +328,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         ? maskDraft
           ? t('submit.maskEditShortcut')
           : t('submit.generateShortcut')
-        : t('submit.configureApiFirst'))
+        : t('submit.noModel'))
   // 参考图入口按附图那条准入规则显隐：认不认参考图、条还放不放得下，由 `lib/referenceDraft`
   // 判一次，附图与禁用态不会各说各话。首屏「画布」档附的图是交给画布第一轮的，那一轮用哪个
   // 模型由服务端定，所以只剩条的上限管着。

@@ -1013,7 +1013,7 @@ describe('失败卡按错误码给出路', () => {
     ['authentication_required', '需要先登录才能生成', '去登录'],
     ['invalid_params', '这次的参数不成立，没有提交', '让助手重新处理'],
     ['source_unavailable', '来源网站拒绝或无法提供内容，请换个公开来源', '让助手重新处理'],
-    ['model_unavailable', '要用的模型暂时不可用', '让助手重新处理'],
+    ['model_unavailable', '该模型暂不可用，请换其他模型', '让助手重新处理'],
     [
       'service_unavailable',
       '批次执行还没开放。可以让助手按已有的逐图结果另拟计划',

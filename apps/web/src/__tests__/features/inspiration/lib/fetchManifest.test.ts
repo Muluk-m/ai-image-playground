@@ -44,12 +44,16 @@ describe('fetchRemoteManifest', () => {
 
   it('throws on HTTP error', async () => {
     mockFetch(() => Promise.resolve(new Response('not found', { status: 404 })))
-    await expect(fetchRemoteManifest('https://x/manifest.json')).rejects.toThrow(/HTTP 404/)
+    await expect(fetchRemoteManifest('https://x/manifest.json')).rejects.toThrow(
+      '灵感库加载失败，请刷新重试',
+    )
   })
 
   it('throws on non-JSON body', async () => {
     mockFetch(() => Promise.resolve(new Response('<html>oops</html>', { status: 200 })))
-    await expect(fetchRemoteManifest('https://x/manifest.json')).rejects.toThrow(/非 JSON/)
+    await expect(fetchRemoteManifest('https://x/manifest.json')).rejects.toThrow(
+      '灵感库加载失败，请刷新重试',
+    )
   })
 
   it('throws on structurally invalid manifest', async () => {
