@@ -3,31 +3,16 @@ import type {
   AgentWakeSkipReason,
   StageAuthorization,
 } from '@image-playground/shared'
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { ApprovalCard } from '../../../components/assistant-ui/elements/approval-card'
 import Credits from '../../../components/Credits'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
-import { refreshChannels } from '../../../lib/channels/bootstrapChannels'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import NodeBatchJobs from '../../canvas/components/NodeBatchJobs'
 import { CARD_NOTE } from '../agentStyles'
-import { agentNodeRunBridge, subscribeAgentNodeRun } from '../lib/nodeRunBridge'
-import {
-  type AgentNodeRun,
-  agentNodeRun,
-  agentNodeRunControl,
-  agentNodeRunWakeSkipped,
-  forgetAgentNodeRun,
-  isAgentNodeRunOrigin,
-  noteAgentNodeRunBlocked,
-  startAgentNodeRun,
-  stopAgentNodeRun,
-  subscribeAgentNodeRuns,
-  watchAgentNodeRun,
-} from '../lib/nodeRuns'
-import { stageAuthorizationClient } from '../lib/stageAuthorizationClient'
+import { createAgentNodeRunView } from '../lib/nodeRuns'
 
 /** 跑到一半被授权拦下的原因 → 卡片上的人话。其余原因由智能体在对话里说明。 */
 const REJECTION_NOTES = {
@@ -48,80 +33,19 @@ export default function AgentNodeRunCard({
   wakeSkipped?: AgentWakeSkipReason
 }) {
   const { t } = useTranslation(['agent', 'canvas'])
-  const bridge = useSyncExternalStore(subscribeAgentNodeRun, agentNodeRunBridge)
-  const live = useSyncExternalStore(subscribeAgentNodeRuns, () => agentNodeRun(runKey))
-  const settled = useRef<AgentNodeRun>(undefined)
-  const run = live ?? settled.current
-  const origin = useSyncExternalStore(subscribeAgentNodeRuns, () => isAgentNodeRunOrigin(runKey))
-  const skippedLive = useSyncExternalStore(subscribeAgentNodeRuns, () =>
-    agentNodeRunWakeSkipped(proposal.authorizationId),
-  )
-  const [stored, setStored] = useState<StageAuthorization>()
-  const [readFailed, setReadFailed] = useState(false)
-  const [readAttempt, setReadAttempt] = useState(0)
-  useEffect(() => {
-    if (live && (live.status === 'done' || live.status === 'undone' || live.status === 'failed'))
-      settled.current = live
-  }, [live])
-  // 卡挂着时由卡收走跑完的运行；卡不在（聊天面板收起）时由运行表自己收。
-  useEffect(() => watchAgentNodeRun(runKey), [runKey])
-  // 报价前把模型清单刷新一下（30 秒节流，失败保留原清单）：运营停用或恢复视频模型后，卡片按新清单报价。
-  useEffect(() => {
-    void refreshChannels()
-  }, [])
-  useEffect(() => {
-    if (!live || (live.status !== 'done' && live.status !== 'undone' && live.status !== 'failed'))
-      return
-    // 结局还在交给智能体：交完再收走，卡上才看得到交没交上。
-    if (live.report?.wake === 'reporting') return
-    forgetAgentNodeRun(runKey, agentNodeRunControl(runKey))
-  }, [live, runKey])
-  useEffect(() => {
-    const authorizationId = proposal.authorizationId
-    if (!authorizationId || proposal.direct) return
-    let active = true
-    let timer: number | undefined
-    let failures = 0
-    const refresh = async () => {
-      try {
-        const state = await stageAuthorizationClient.read(authorizationId)
-        if (!active) return
-        failures = 0
-        setReadFailed(false)
-        setStored(state)
-        if (state.status === 'pending' || state.status === 'active')
-          timer = window.setTimeout(() => {
-            void refresh()
-          }, 3000)
-      } catch {
-        if (!active) return
-        failures += 1
-        if (failures >= 5) {
-          setReadFailed(true)
-          return
-        }
-        const delay = Math.min(30_000, 3000 * 2 ** (failures - 1))
-        timer = window.setTimeout(() => {
-          void refresh()
-        }, delay)
-      }
-    }
-    void refresh()
-    return () => {
-      active = false
-      clearTimeout(timer)
-    }
-  }, [proposal.authorizationId, proposal.direct, readAttempt])
-  const authorization =
-    run?.authorization &&
-    (run.status !== 'running' || run.authorization.audit.length > (stored?.audit.length ?? 0))
-      ? run.authorization
-      : stored
-  const plan = run ? undefined : bridge?.quote(proposal)
+  const view = useMemo(() => createAgentNodeRunView(runKey, proposal), [runKey, proposal])
+  const {
+    run,
+    authorization,
+    plan,
+    canConfirm,
+    readFailed,
+    readReady,
+    wakeSkipped: skippedLive,
+  } = useSyncExternalStore(view.subscribe, view.getSnapshot)
   const jobs = run?.jobs ?? plan?.jobs
   const credits = run?.credits ?? plan?.credits ?? proposal.estimatedCredits
   usePrivateSubmissionGuard({ model: jobs?.[0]?.model ?? '', quantity: 1 })
-  const pending = (authorization?.status ?? proposal.status) === 'pending'
   const submitted = authorization?.attempts.some((attempt) => attempt.taskIds.length > 0)
   const status = authorization?.status ?? proposal.status
   const statusLabels: Record<StageAuthorization['status'], string> = {
@@ -173,12 +97,6 @@ export default function AgentNodeRunCard({
           : run?.status === 'failed'
             ? t(`canvas:nodeBatch.${run.error}`)
             : subtitle
-  const canConfirm = !proposal.direct && !run && pending && origin
-  // 按钮因开跑前的拦截置灰：服务端记一条 agent.stage.blocked（同一组原因只记一次）。
-  const blockedByPlan = Boolean(canConfirm && !readFailed && plan?.error)
-  useEffect(() => {
-    if (blockedByPlan) noteAgentNodeRunBlocked(proposal, plan)
-  }, [blockedByPlan, plan, proposal])
   if (proposal.direct && !run && !plan?.error && !plan?.blocked && !skippedReason) return null
   const canUndo = run?.status === 'countdown'
   return (
@@ -197,22 +115,22 @@ export default function AgentNodeRunCard({
       statusLabel={statusLabel}
       icon={<Icon name="play" size="sm" />}
       disabled={
-        canConfirm && !readFailed && (!stored || !plan || Boolean(plan.error) || plan.blocked)
+        canConfirm && !readFailed && (!readReady || !plan || Boolean(plan.error) || plan.blocked)
       }
       {...(canConfirm && !readFailed
         ? {
             allowOnceLabel: t('nodeRun.run'),
-            onAllowOnce: () => startAgentNodeRun(runKey, proposal),
+            onAllowOnce: view.start,
           }
         : {})}
       {...(canUndo
         ? {
             allowOnceLabel: t('nodeRun.undo', { seconds: run.remaining }),
-            onAllowOnce: () => stopAgentNodeRun(runKey),
+            onAllowOnce: view.stop,
           }
         : {})}
       {...(run?.status === 'running' || run?.status === 'confirming'
-        ? { denyLabel: t('canvas:nodeBatch.stop'), onDeny: () => stopAgentNodeRun(runKey) }
+        ? { denyLabel: t('canvas:nodeBatch.stop'), onDeny: view.stop }
         : {})}
       details={[
         {
@@ -282,7 +200,7 @@ export default function AgentNodeRunCard({
             variant="link"
             size="xs"
             className="h-auto px-0 text-label-sm"
-            onClick={() => setReadAttempt((attempt) => attempt + 1)}
+            onClick={view.retryRead}
           >
             {t('nodeRun.retryRead')}
           </Button>
