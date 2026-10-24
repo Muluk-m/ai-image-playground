@@ -1329,6 +1329,68 @@ it('drops a never-uploaded image whose original has been gone for long, keeping 
   expect(uploadMediaSource).not.toHaveBeenCalled()
   record.dispose()
 })
+it('keeps a server-held missing candidate instead of deleting its reference (BUG-15)', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  const vector = Y.encodeStateVector(server)
+  insertCanvasNode(
+    server,
+    { id: 'candidate-node', type: 'image', x: 0, y: 0, width: 50, height: 50, data: {} },
+    origin,
+  )
+  recordCanvasResult(
+    server,
+    {
+      id: 'server-candidate',
+      nodeId: 'candidate-node',
+      kind: 'image',
+      source: { type: 'file', fileId: 'old-file' },
+      createdAt: Date.now() - 2 * 60 * 60_000,
+    },
+    origin,
+  )
+  socket.receive(canvasSyncUpdate(Y.encodeStateAsUpdate(server, vector)))
+  socket.receive(canvasSyncAck(server))
+  record.editor.doc.files = {}
+  moveCanvasNodes(session.canvas!.doc, [{ id: 'text', x: 11, y: 12 }], session.canvas!.origin)
+  await session.sync()
+  expect(serverNode(server, 'text')).toMatchObject({ x: 11, y: 12 })
+  expect(canvasResults(server).some((result) => result.id === 'server-candidate')).toBe(true)
+  expect(session.getSnapshot().status).toBe('saved')
+  record.dispose()
+})
+it('does not inherit a missing timer when a fileId is attached to a new node (BUG-15)', async () => {
+  pendingMedia.supported = true
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  record.editor.doc.files = {}
+  const doc = session.canvas!.doc
+  insertCanvasNode(
+    doc,
+    {
+      id: 'old-node',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: { fileId: 'reuse', createdAt: 1 },
+    },
+    session.canvas!.origin,
+  )
+  await session.sync()
+  expect(serverNode(server, 'old-node')?.data).not.toHaveProperty('fileId')
+  insertCanvasNode(
+    doc,
+    { id: 'new-node', type: 'image', x: 0, y: 0, width: 50, height: 50, data: { fileId: 'reuse' } },
+    session.canvas!.origin,
+  )
+  await expect(session.sync()).rejects.toThrow('canvas_media_missing')
+  expect(serverNode(server, 'new-node')).toBeUndefined()
+  record.dispose()
+})
 
 it('drops an undated never-uploaded image only after it stays missing for a while (BUG-15)', async () => {
   pendingMedia.supported = true
