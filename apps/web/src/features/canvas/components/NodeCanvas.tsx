@@ -9,6 +9,8 @@ import {
   canvasOrigin,
   canvasResults,
   canvasText,
+  canvasUploadClaimNextChange,
+  canvasUploadingElsewhere,
   connectCanvasNodes,
   createCanvasGroup,
   disconnectCanvasNodes,
@@ -111,7 +113,15 @@ import {
   referenceFileIds,
 } from '../lib/nodeCanvasFlow'
 import { type NodeCanvasFocus, registerNodeCanvasFocus } from '../lib/nodeCanvasFocus'
-import { fillImageNode, resumeNodeGenerations, submitNodeImage } from '../lib/nodeCanvasGenerate'
+import {
+  fillImageNode,
+  InvalidImageFileError,
+  placeDecodedImage,
+  type ReadImageFile,
+  readImageFile,
+  resumeNodeGenerations,
+  submitNodeImage,
+} from '../lib/nodeCanvasGenerate'
 import {
   addCanvasReference,
   CanvasReferenceLimitError,
@@ -126,6 +136,7 @@ import { createImagePresetNode } from '../lib/nodeImagePreset'
 import { submitNodeWithLook } from '../lib/nodeLookSubmit'
 import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
 import { generateTextNode } from '../lib/textGeneration'
+import { useCanvasUploaderId } from '../lib/uploadSession'
 import { useAgentNodeRun } from '../lib/useAgentNodeRun'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
@@ -155,6 +166,8 @@ import TextNodeComposer from './TextNodeComposer'
 import TimelineEditorHost from './TimelineEditor'
 import VideoNodeComposer from './VideoNodeComposer'
 
+/** 批量导入时同时解码的张数。 */
+const IMPORT_DECODE_CONCURRENCY = 4
 const NodeImageEditor = lazy(() => import('./NodeImageEditor'))
 
 type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation; group?: CanvasGroup }>
@@ -385,11 +398,52 @@ function Pending({ pending }: { pending: PendingGeneration }) {
   )
 }
 
-function Picture({ fileId, rotation }: { fileId?: string; rotation?: number }) {
+type UploadClaimData = Parameters<typeof canvasUploadingElsewhere>[0]
+
+/**
+ * 别的设备声明在传、还没过期（canvasUploadingElsewhere）。声明到点过期时没有别的改动会触发重渲染，
+ * 所以按 canvasUploadClaimNextChange 定一个时钟，到点自己再算一次。
+ */
+export function useUploadingElsewhere(data: UploadClaimData): boolean {
+  const [tick, setTick] = useState(0)
+  const device = useCanvasUploaderId()
+  const now = Date.now()
+  const next = canvasUploadClaimNextChange(data, device, now)
+  useEffect(() => {
+    if (next === undefined) return
+    // setTimeout 的延迟超过 2^31-1 毫秒会立刻触发，分段等：没到点的那次重渲染带着新的 tick 再定一次。
+    const timer = setTimeout(
+      () => setTick((tick) => tick + 1),
+      Math.min(Math.max(next - Date.now(), 0) + 1, 2 ** 31 - 1),
+    )
+    return () => clearTimeout(timer)
+  }, [next, tick])
+  return canvasUploadingElsewhere(data, device, now)
+}
+
+function Picture({
+  fileId,
+  rotation,
+  upload,
+}: {
+  fileId?: string
+  rotation?: number
+  /** 节点 data，用来判断是不是别的设备在传（useUploadingElsewhere）。 */
+  upload: UploadClaimData
+}) {
   const { t } = useTranslation('canvas')
+  const uploadingElsewhere = useUploadingElsewhere(upload)
   const files = useContext(FilesContext)
   const source = useNodeMedia(fileId ? files[fileId] : undefined)
-  if (!source) return <div className="studio-node-missing text-sm">{t('nodes.mediaMissing')}</div>
+  if (!source)
+    return (
+      <div className="studio-node-missing text-sm">
+        {/* 别的设备还在上传的图片：文档里先到的只有它的本机 fileId，原图要等那边传完。 */}
+        {fileId && uploadingElsewhere && !files[fileId]
+          ? t('nodes.mediaUploading')
+          : t('nodes.mediaMissing')}
+      </div>
+    )
   return (
     <img
       src={source}
@@ -458,7 +512,7 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
           </span>
         )}
         {fileId ? (
-          <Picture fileId={fileId} rotation={rotation} />
+          <Picture fileId={fileId} rotation={rotation} upload={node.data} />
         ) : pending ? (
           <Pending pending={pending} />
         ) : (
@@ -542,7 +596,7 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
       <NodeCaption node={node} />
       <div className="studio-node studio-node--video" data-rotated={rotation ? true : undefined}>
         {fileId ? (
-          <Picture fileId={fileId} rotation={rotation} />
+          <Picture fileId={fileId} rotation={rotation} upload={node.data} />
         ) : (
           <div className="studio-node-empty">
             <Icon name="video" size="lg" />
@@ -1379,20 +1433,73 @@ function Flow({
     setScriptPoint(null)
     selectNode(id)
   }
+  // 当前挂着的画布；卸载或换了画布就变，进行中的导入据此放弃。
+  const liveCanvas = useRef<typeof canvas | null>(canvas)
+  useEffect(() => {
+    liveCanvas.current = canvas
+    return () => {
+      liveCanvas.current = null
+    }
+  }, [canvas])
   const placeFiles = (files: File[]) => {
-    const images = acceptImageFiles(files)
-    if (images.length === 0) return
+    const candidates = acceptImageFiles(files)
+    if (candidates.length === 0) return
     const point = placeAt.current
-    confirmImageBatch(images.length, () => {
-      void (async () => {
-        for (const file of images) {
-          const id = createNode(canvas, 'image', point, textFill)
-          await fillImageNode(editor, canvas.doc, id, file)
-          selectNode(id)
+    // 逐张解码要花时间：这期间换了项目或离开画布，就不再弹确认框、不往旧画布里写。
+    const target = canvas
+    const here = () => liveCanvas.current === target
+    const failed = () => useStore.getState().showToast(t('import.failed'), 'error')
+    const notInvalid = (error: unknown) => {
+      if (error instanceof InvalidImageFileError) return null
+      throw error
+    }
+    void (async () => {
+      // 先确认解得开再问张数、建节点：空文件、伪装成 .png 的文本不该留下一个永远「上传中」的节点，
+      // 也不该算进「确认导入 N 张」里。解好的结果留着，确认后直接用：每张只读、解一次，
+      // 确认的张数就是落到画布上的张数（单张已按大小限额过滤；这些图确认后本来就要写进画布，确认前先留着不多占）。
+      // 同时解几张，不一张接一张等，也不让一大批同时占着解码；结果按拖入顺序排回去。
+      const decoded: (ReadImageFile | null)[] = new Array(candidates.length)
+      let next = 0
+      await Promise.all(
+        Array.from({ length: Math.min(IMPORT_DECODE_CONCURRENCY, candidates.length) }, async () => {
+          while (next < candidates.length) {
+            const index = next++
+            decoded[index] = await readImageFile(candidates[index]).catch(notInvalid)
+          }
+        }),
+      )
+      const invalid: string[] = []
+      const valid: { file: File; image: ReadImageFile }[] = []
+      candidates.forEach((file, index) => {
+        const image = decoded[index]
+        if (image) valid.push({ file, image })
+        else invalid.push(file.name)
+      })
+      if (!here()) return
+      if (invalid.length) showInvalidImages(invalid)
+      if (valid.length === 0) return
+      confirmImageBatch(valid.length, () => {
+        if (!here()) return
+        try {
+          // 都已经解过：建节点和写图同步完成，中间不让出执行权，不会留下空节点。
+          for (const { file, image } of valid) {
+            const id = createNode(canvas, 'image', point, textFill)
+            placeDecodedImage(editor, canvas.doc, id, image, file.name)
+            selectNode(id)
+          }
+        } catch {
+          failed()
         }
-      })().catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
-    })
+      })
+    })().catch(failed)
   }
+  const showInvalidImages = (names: readonly string[]) =>
+    useStore
+      .getState()
+      .showToast(
+        t('import.invalidFiles', { count: names.length, names: names.join('、') }),
+        'error',
+      )
   useEffect(() => {
     setNodes((current) => {
       const previous = new Map(current.map((one) => [one.id, one]))
@@ -1766,8 +1873,10 @@ function Flow({
     }
   }
   const uploadInto = (id: string, file: File) => {
-    void fillImageNode(editor, canvas.doc, id, file).catch(() =>
-      useStore.getState().showToast(t('import.failed'), 'error'),
+    void fillImageNode(editor, canvas.doc, id, file).catch((error: unknown) =>
+      error instanceof InvalidImageFileError
+        ? showInvalidImages([error.fileName])
+        : useStore.getState().showToast(t('import.failed'), 'error'),
     )
   }
   const spawnBeside = (nodeId: string, side: 'left' | 'right') => {

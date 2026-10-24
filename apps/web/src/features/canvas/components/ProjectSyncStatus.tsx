@@ -62,7 +62,9 @@ export default function ProjectSyncStatus({
   const { t } = useTranslation(['canvas', 'errors'])
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const [resolving, setResolving] = useState(false)
-  const pendingStalled = usePendingStalled(state.status === 'pending')
+  // 图片在后台上传时 pending 是在等上传，不是卡住：只显示上传进度，不亮「等待保存 / 重试」。
+  const upload = state.upload
+  const pendingStalled = usePendingStalled(state.status === 'pending' && !upload)
   const resolve = async (choice: 'cloud' | 'copy') => {
     if (resolving) return
     setResolving(true)
@@ -78,12 +80,28 @@ export default function ProjectSyncStatus({
       setResolving(false)
     }
   }
-  if (quiet && (QUIET[state.status] || (state.status === 'pending' && !pendingStalled))) return null
+  const statusHidden =
+    (state.status === 'pending' && Boolean(upload)) ||
+    (quiet && (QUIET[state.status] || (state.status === 'pending' && !pendingStalled)))
+  if (statusHidden && !upload) return null
+  const uploadLine = upload && (
+    <p className="inline-flex items-center gap-1.5">
+      <Icon name="loading" size="xs" className="animate-spin motion-reduce:animate-none" />
+      {t('sync.mediaUploading', { done: upload.done, total: upload.total })}
+    </p>
+  )
+  if (statusHidden)
+    return (
+      <div className="pointer-events-auto max-w-sm text-xs text-muted-foreground" role="status">
+        {uploadLine}
+      </div>
+    )
   return (
     <div
       className="pointer-events-auto max-w-sm text-xs text-muted-foreground"
       role={state.status.endsWith('error') || state.status === 'conflict' ? 'alert' : 'status'}
     >
+      {uploadLine}
       <p className="inline-flex items-center gap-1.5">
         {['loading', 'pending', 'syncing'].includes(state.status) && (
           <Icon name="loading" size="xs" className="animate-spin motion-reduce:animate-none" />

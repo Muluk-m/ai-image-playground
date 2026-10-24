@@ -24,7 +24,14 @@ const store = vi.hoisted(() => ({
   messages: [] as AgentToolMessage[],
   turns: {} as Record<string, AgentTurnFooter>,
   cancelJob: vi.fn(async (_messageId: string) => {}),
-  jobProgress: {} as Record<string, { stage: 'submitted' | 'running'; submittedAt: number }>,
+  jobProgress: {} as Record<
+    string,
+    {
+      stage: 'submitted' | 'running'
+      submittedAt: number
+      queue?: { ahead: number; limit: number }
+    }
+  >,
   toolStartedAt: {} as Record<string, number>,
   appendImageAction: vi.fn(),
   patchImageAction: vi.fn(),
@@ -439,6 +446,38 @@ it('offers cancel on each pending tile instead of the batch action row', () => {
     expect(host.querySelector('.studio-agent-batch-meta')?.textContent).toBe('0/2 完成')
   } finally {
     act(() => root.unmount())
+  }
+})
+
+it('批量出图的排队图块写出前面还有几张，整组说一次套餐并发原因（BUG-17）', () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const pending = (id: string): AgentToolMessage => ({
+    kind: 'tool',
+    id,
+    turnId: 'turn',
+    toolCallId: `call-${id}`,
+    toolName: 'generateImage',
+    title: '白色圆形台盆',
+    status: 'submitted',
+    job: { taskId: `task-${id}`, media: 'image' },
+  })
+  store.jobProgress = {
+    a: { stage: 'submitted', submittedAt: 1, queue: { ahead: 3, limit: 3 } },
+    b: { stage: 'submitted', submittedAt: 1, queue: { ahead: 4, limit: 3 } },
+  }
+  try {
+    act(() => root.render(<AgentImageRun messages={[pending('a'), pending('b')]} />))
+    const captions = [...host.querySelectorAll('.studio-agent-tile-caption')].map(
+      (one) => one.textContent,
+    )
+    expect(captions).toEqual(['排队中 · 下一张就轮到', '排队中 · 前面还有 4 张'])
+    const notes = host.querySelectorAll('[data-agent-queue-note]')
+    expect(notes).toHaveLength(1)
+    expect(notes[0]?.textContent).toContain('当前套餐可同时生成 3 张')
+  } finally {
+    act(() => root.unmount())
+    store.jobProgress = {}
   }
 })
 
@@ -1187,7 +1226,7 @@ it('shows the fetched image and a link back to where it came from', async () => 
   }
 })
 
-it('shows which canvas nodes a read used without replaying their full document', () => {
+it('shows canvas node names without exposing internal IDs, including legacy unnamed nodes', () => {
   const host = document.createElement('div')
   const root = createRoot(host)
   try {
@@ -1205,13 +1244,16 @@ it('shows which canvas nodes a read used without replaying their full document',
             canvasRead: [
               { id: 'script-1', name: '第一幕' },
               { id: 'image-2', name: '角色' },
+              { id: 'ep1_frame_a_20261019', name: 'ep1_frame_a_20261019' },
+              { id: 'ep1_video_a_20261019', name: '' },
             ],
           }}
         />,
       ),
     )
-    expect(host.textContent).toContain('第一幕 (script-1)')
-    expect(host.textContent).toContain('角色 (image-2)')
+    expect(host.textContent).toContain('已读取节点：第一幕、角色、未命名节点、未命名节点')
+    for (const id of ['script-1', 'image-2', 'ep1_frame_a_20261019', 'ep1_video_a_20261019'])
+      expect(host.innerHTML).not.toContain(id)
   } finally {
     act(() => root.unmount())
   }

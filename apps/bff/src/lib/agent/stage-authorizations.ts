@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto'
 import {
+  applyPromptRewriteGuard,
   billedStageQuantity,
+  buildAspectInstruction,
   canvasOrigin,
+  type QueueProvider,
   readCanvasDocument,
   STAGE_RUN_MAX_RETRIES,
   type StageAuthorization,
@@ -22,6 +25,7 @@ import * as Y from 'yjs'
 import { db, schema } from '../../db/client'
 import { accessCanvasDocument, CanvasSyncError } from '../canvasSyncStore'
 import { isCapabilityEnabled } from '../capabilities'
+import { modelCapabilities, resolveQueueModel } from '../channels'
 import { log } from '../logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
 
@@ -840,6 +844,50 @@ export async function preflightStageAuthorization(
     })
   })
 }
+/** 队列图片提交里用来认出分发层机器指令的上下文，见 `stageBindingAccepts`。 */
+export interface StagePromptShaping {
+  readonly provider: QueueProvider
+  readonly model: string
+  readonly size?: string
+}
+
+/**
+ * 创作页分发层（`callImageApi`）从授权冻结的原文能拼出的全部 prompt：原文本身；非 Gemini 且
+ * 开着 no_rewrite 时前面加防改写 guard；模型声明过能力且其中没有 `size` 时，末尾再按本次请求
+ * 的 size 加构图指令。条件和 web 的 `getParamCapabilities().size`、BFF 的 `shapeQueuePrompt`
+ * 一致（没声明能力的模型按支持 size 处理，不加后缀）。
+ */
+function dispatchedPromptVariants(prompt: string, shaping: StagePromptShaping): string[] {
+  // 协议族以 channels.json 为准：路径里的 provider 是调用方写的，不能让它决定放宽哪一种写法。
+  const provider = resolveQueueModel('image', shaping.model)?.provider ?? shaping.provider
+  const guarded = provider === 'gemini' ? [prompt] : [prompt, applyPromptRewriteGuard(prompt)]
+  const capabilities = modelCapabilities(shaping.model)
+  const instruction =
+    shaping.size && capabilities && !capabilities.includes('size')
+      ? buildAspectInstruction(shaping.size)
+      : null
+  return instruction ? [...guarded, ...guarded.map((item) => `${item}\n\n${instruction}`)] : guarded
+}
+
+/**
+ * 授权冻结的是用户确认的原文，队列提交的 prompt 可能被分发层钉上机器指令。先逐字比；不一致时
+ * 从原文正向拼出分发层可能产出的几种写法，提交的必须和其中之一逐字相等。只往原文上加、不从
+ * 提交里剥，所以用户内容一个字都不放宽：多一个字、少一个字、换一种 size 的后缀、给支持 size
+ * 的模型加后缀、给 Gemini 加 guard 都对不上。视频提交不经过分发层改写，不传 shaping，只做逐字比。
+ */
+export function stageBindingAccepts(
+  binding: StageExecutionBinding,
+  execution: StageExecutionFingerprint,
+  shaping: StagePromptShaping | undefined,
+): boolean {
+  if (stageExecutionBindingMatches(binding, execution)) return true
+  if (!shaping) return false
+  return (
+    dispatchedPromptVariants(binding.prompt, shaping).includes(execution.prompt) &&
+    stageExecutionBindingMatches(binding, { ...execution, prompt: binding.prompt })
+  )
+}
+
 /** Called inside the queue task transaction: a failed gate rolls back task and billing together. */
 export async function consumeStageAuthorization(
   tx: BffTransaction,
@@ -849,6 +897,8 @@ export async function consumeStageAuthorization(
   usage: { model: string; quantity: number; unitMultiplier: number },
   credits: number,
   execution: StageExecutionFingerprint,
+  /** 图片提交的协议族、模型与 size：用来认出分发层钉上的机器指令，见 `stageBindingAccepts`。 */
+  shaping?: StagePromptShaping,
 ) {
   if (!userId) throw new StageAuthorizationError('stage_authorization_inactive')
   const quantity = billedStageQuantity(usage.quantity)
@@ -876,7 +926,7 @@ export async function consumeStageAuthorization(
   )
     throw new StageAuthorizationError('stage_authorization_attempt_conflict')
   const binding = state.bindings?.find((item) => item.nodeId === ref.nodeId)
-  if (!binding || !stageExecutionBindingMatches(binding, execution))
+  if (!binding || !stageBindingAccepts(binding, execution, shaping))
     throw new StageAuthorizationError('stage_authorization_scope')
   if (
     attempt.spentCredits + credits > attempt.reservedCredits ||

@@ -21,7 +21,7 @@ import {
   notifyPrivateSubmissionError,
   notifyPrivateSubmissionSettled,
 } from './privateOverlay'
-import { taskErrorTypeOf } from './taskError'
+import { isTaskCancelled, taskErrorTypeOf } from './taskError'
 
 /**
  * 生成任务的生命周期：门禁 → 扇出 → 幂等键 → 受理 → 队列 → 出片 / 失败 → 结算通知。
@@ -47,6 +47,8 @@ export interface GenerationFailure {
   error: unknown
   code: TaskErrorType | undefined
   text: string
+  /** 平台上被取消，不算失败。 */
+  cancelled?: true
 }
 
 /** 这次提交里的一份变体：一句**要发出去的**提示词配一组输入图。 */
@@ -186,6 +188,7 @@ export function generationFailure(err: unknown): GenerationFailure {
   return {
     error: err,
     code,
+    ...(isTaskCancelled(err) ? { cancelled: true as const } : {}),
     text:
       code === 'content_policy'
         ? i18next.t('detail.contentPolicy', { ns: 'task' })

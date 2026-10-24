@@ -76,6 +76,7 @@
     "unauthorized": "Your session expired. Sign in again, then duplicate the project.",
     "canvas_sync_unavailable": "This environment cannot duplicate projects.",
     "account_changed": "The account changed. Reopen the project, then duplicate it.",
+    "canvas_media_pending": "Some images are still uploading. Duplicate the project after they finish.",
     "fallback": "Could not duplicate the project. Please retry."
   },
   "agentTool": {

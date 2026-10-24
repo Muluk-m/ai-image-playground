@@ -6,6 +6,12 @@ import AgentConfirmationGate from '../../../../features/agent/components/AgentCo
 import type { ConfirmationHint } from '../../../../features/agent/lib/pendingConfirmations'
 
 const startNodeRun = vi.hoisted(() => vi.fn(() => true))
+const confirmAll = vi.hoisted(() =>
+  vi.fn(
+    (): Promise<{ confirmed: number; failure: { ok: false; reason: string } | null }> =>
+      Promise.resolve({ confirmed: 0, failure: null }),
+  ),
+)
 
 vi.mock('../../../../features/agent/lib/nodeRuns', () => ({
   startAgentNodeRun: startNodeRun,
@@ -21,7 +27,7 @@ vi.mock('../../../../features/agent/store', () => ({
           canvasRun: { projectId: 'project', nodeIds: ['n1'] },
         },
       ],
-      confirmAllPrompts: () => Promise.resolve({ confirmed: 0, failure: null }),
+      confirmAllPrompts: confirmAll,
     }),
   },
 }))
@@ -105,4 +111,15 @@ it('starts a pending node run from its own button and leaves generation drafts a
   act(() => button('确认运行节点（1）')!.click())
   expect(startNodeRun).toHaveBeenCalledWith('nodes', { projectId: 'project', nodeIds: ['n1'] })
   expect(host.textContent).not.toContain('没能开始')
+})
+
+it('says the plan is still being drafted instead of asking to retry card by card', async () => {
+  confirmAll.mockResolvedValueOnce({ confirmed: 0, failure: { ok: false, reason: 'drafting' } })
+  act(() =>
+    root.render(<AgentConfirmationGate pending={pending} onJump={jump} onSendAnyway={send} />),
+  )
+  await act(async () => button('全部确认生成')!.click())
+  const alert = host.querySelector('[role="alert"]')?.textContent
+  expect(alert).toBe('助手还在拟这份草稿，拟完再确认。')
+  expect(alert).not.toContain('逐张再试')
 })

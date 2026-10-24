@@ -29,7 +29,8 @@
   },
   "state": {
     "generating": "Generating",
-    "failed": "Failed"
+    "failed": "Failed",
+    "cancelled": "Canceled"
   },
   "toast": {
     "copySucceeded": "Copied",

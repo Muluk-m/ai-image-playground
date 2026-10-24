@@ -272,7 +272,15 @@ export default function TaskCard({
                 <span className="text-xs text-muted-foreground">{runningLabel}</span>
               </div>
             )}
-            {task.status === 'error' && (
+            {task.status === 'error' && task.cancelled && (
+              <div className="flex flex-col items-center gap-1 px-2">
+                <Icon name="close" size="lg" className="text-muted-foreground" />
+                <span className="text-xs text-muted-foreground text-center leading-tight">
+                  {t('common:state.cancelled')}
+                </span>
+              </div>
+            )}
+            {task.status === 'error' && !task.cancelled && (
               <div className="flex flex-col items-center gap-1 px-2">
                 <Icon name="error" size="lg" className="text-destructive" />
                 <span className="text-xs text-destructive text-center leading-tight">

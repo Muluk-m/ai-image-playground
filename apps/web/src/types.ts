@@ -148,6 +148,8 @@ export interface TaskRecord {
   bffRequestId?: string
   /** Server-reported durable queue phase; absent for older BFFs. */
   queuePhase?: TaskProgressPhase
+  /** `status: 'error'` 里被取消的那一种（排队中被撤回）：积分已退，卡片显示「已取消」而不是「失败」。 */
+  cancelled?: true
   /** 逐张生成里还在本机排队、没发出去的一张（同时只发 BATCH_GENERATE_CONCURRENCY 张）。 */
   batchQueued?: true
   /** 逐张生成的那张真正发出去的时刻；计时从这里起，而不是从排队起。 */

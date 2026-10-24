@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useAgentJobActivity } from '../features/agent/lib/jobActivity'
 import { useAgentStore } from '../features/agent/store'
 import {
   catalogProjectId,
@@ -394,7 +395,12 @@ function ProjectSection({
               onClick={() => onOpen(project.id)}
               className="h-full min-w-0 flex-1 justify-start gap-2 px-1 text-body-sm font-normal text-inherit hover:bg-transparent hover:text-inherit disabled:opacity-100"
             >
-              <ProjectThumb cover={project.cover} chat={chat} busy={opening === project.id} />
+              <ProjectThumb
+                cover={project.cover}
+                chat={chat}
+                busy={opening === project.id}
+                conversationId={project.conversationId}
+              />
               <span className="truncate">{projectEntryName(project)}</span>
             </Button>
             <Button
@@ -416,26 +422,57 @@ function ProjectSection({
 }
 
 /** 有封面就用项目封面；空对话用对话图标，空画布用画布图标。封面来自目录上的 `cover`。 */
-function ProjectThumb({ cover, chat, busy }: { cover?: string; chat: boolean; busy: boolean }) {
+function ProjectThumb({
+  cover,
+  chat,
+  busy,
+  conversationId,
+}: {
+  cover?: string
+  chat: boolean
+  busy: boolean
+  conversationId?: string | null
+}) {
+  const { t } = useTranslation('agent')
   const [failed, setFailed] = useState(false)
-  const showCover = Boolean(cover) && !failed && !busy
+  // 这段对话还有图在出 / 出完了还没回去看（BUG-16）：人在别处也能从侧栏看出来。
+  const activity = useAgentJobActivity((state) =>
+    conversationId ? state.activity[conversationId] : undefined,
+  )
+  const generating = !busy && (activity?.running ?? 0) > 0
+  const unseen = !busy && !generating && Boolean(activity?.done)
+  const spinning = busy || generating
+  const showCover = Boolean(cover) && !failed && !spinning
   return (
     <span
-      data-project-thumb={busy ? 'loading' : showCover ? 'cover' : chat ? 'chat' : 'canvas'}
-      className="grid size-7 shrink-0 place-items-center overflow-hidden rounded-md bg-muted text-muted-foreground"
+      className="relative shrink-0"
+      data-project-activity={generating ? 'running' : unseen ? 'done' : undefined}
     >
-      {busy ? (
-        <Icon name="loading" size="xs" className="animate-spin text-primary" />
-      ) : showCover && cover ? (
-        <MediaImage
-          src={cover}
-          alt=""
-          className="size-full object-cover"
-          onError={() => setFailed(true)}
+      <span
+        data-project-thumb={spinning ? 'loading' : showCover ? 'cover' : chat ? 'chat' : 'canvas'}
+        className="grid size-7 place-items-center overflow-hidden rounded-md bg-muted text-muted-foreground"
+      >
+        {spinning ? (
+          <Icon name="loading" size="xs" className="animate-spin text-primary" />
+        ) : showCover && cover ? (
+          <MediaImage
+            src={cover}
+            alt=""
+            className="size-full object-cover"
+            onError={() => setFailed(true)}
+          />
+        ) : (
+          <Icon name={chat ? 'chat' : 'canvas'} size="xs" />
+        )}
+      </span>
+      {generating ? <span className="sr-only">{t('job.done.running')}</span> : null}
+      {unseen ? (
+        <span
+          role="img"
+          aria-label={t('job.done.unseen')}
+          className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-primary ring-2 ring-background"
         />
-      ) : (
-        <Icon name={chat ? 'chat' : 'canvas'} size="xs" />
-      )}
+      ) : null}
     </span>
   )
 }

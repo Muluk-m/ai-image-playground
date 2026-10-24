@@ -1,3 +1,4 @@
+import { PROMPT_REWRITE_GUARD_PREFIX } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const failTaskPuts = vi.hoisted(() => new Set<string>())
@@ -187,6 +188,7 @@ import {
 } from '../lib/db'
 import { _setRuntimeConfigForTesting } from '../lib/runtimeConfig'
 import { dismissSubmittedTasks, submittedTaskSnapshot } from '../lib/submittedTaskAttention'
+import { taskCancelled } from '../lib/taskError'
 import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
   addCompletedCanvasTask,
@@ -196,6 +198,7 @@ import {
   getTaskApiProfile,
   initStore,
   markInterruptedOpenAIRunningTasks,
+  materializeRemoteTask,
   retryTask,
   reuseConfig,
   submitPrepared,
@@ -684,6 +687,20 @@ describe('mask draft lifecycle in store actions', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+
+  it('排队中被取消：卡片记成已取消，不自动弹出失败详情', async () => {
+    vi.mocked(callImageApi).mockRejectedValue(taskCancelled('任务已取消'))
+    useStore.setState({ prompt: 'a red cat', params: { ...DEFAULT_PARAMS }, detailTaskId: null })
+
+    await submitTask()
+    await waitUntil(
+      () => useStore.getState().tasks[0]?.status === 'error',
+      'cancelled task did not settle',
+    )
+
+    expect(useStore.getState().tasks[0]?.cancelled).toBe(true)
+    expect(useStore.getState().detailTaskId).toBeNull()
   })
 
   it('把自己挂的超时 abort 写成超时文案，不把浏览器那句「用户取消了」甩给用户', async () => {
@@ -2064,6 +2081,53 @@ describe('快速生成的逐张生成', () => {
     expect(calls.every((c) => c[0].params.n === 1)).toBe(true)
   })
 
+  it('整组出完只报一次总张数，不按每张报「已生成 1 张」', async () => {
+    await setupBatchState(2, true)
+
+    await submitTask()
+    await waitUntil(
+      () =>
+        useStore.getState().tasks.length === 2 &&
+        useStore.getState().tasks.every((t) => t.status === 'done'),
+      'batch did not finish',
+    )
+
+    const doneToasts = vi
+      .mocked(useStore.getState().showToast)
+      .mock.calls.filter(([, type]) => type !== 'error')
+    expect(doneToasts).toEqual([['生成完成，共 2 张图片', 'success']])
+  })
+
+  it('有失败时整组报已出几张、共几张；重试补齐后报全部', async () => {
+    await setupBatchState(2, true)
+    vi.mocked(callImageApi)
+      .mockRejectedValueOnce(new Error('上游拒绝了这张图'))
+      .mockResolvedValue({
+        images: ['data:image/png;base64,generated'],
+        actualParamsList: [{ size: '1x1' }],
+      })
+
+    await submitTask()
+    await waitUntil(
+      () =>
+        useStore.getState().tasks.length === 2 &&
+        useStore.getState().tasks.every((t) => t.status !== 'running'),
+      'batch did not settle',
+    )
+    const showToast = vi.mocked(useStore.getState().showToast)
+    expect(showToast.mock.calls).toEqual([['已生成 1/2 张，其余失败', 'info']])
+
+    const failed = useStore.getState().tasks.find((t) => t.status === 'error')
+    if (!failed) throw new Error('expected one failed item')
+    showToast.mockClear()
+    await retryTask(failed)
+    await waitUntil(
+      () => useStore.getState().tasks.filter((t) => t.status === 'done').length === 2,
+      'retry did not finish',
+    )
+    expect(showToast.mock.calls).toEqual([['生成完成，共 2 张图片', 'success']])
+  })
+
   it('同时最多发 5 张，其余排队，完成一张才发下一张', async () => {
     await setupBatchState(7, true)
     const gates: Array<() => void> = []
@@ -2593,6 +2657,36 @@ describe('submitPrepared 显式参数提交接缝', () => {
 })
 
 describe('展开平台记录的详情', () => {
+  it('平台记录落成本机任务时用用户原文，不带防改写前缀（重试不会再钉一遍）', async () => {
+    readRemoteGeneration.mockResolvedValue({
+      id: 'gen-guard',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.5-flare',
+      status: 'completed',
+      archiveStatus: 'none',
+      errorType: null,
+      cover: null,
+      createdAt: 1_000,
+      startedAt: 2_000,
+      completedAt: 62_000,
+      revision: '1',
+      prompt: `${PROMPT_REWRITE_GUARD_PREFIX}\n一只猫`,
+      parameters: {},
+      actualParameters: {},
+      inputs: [],
+      mask: null,
+      outputs: [],
+    })
+    useStore.setState({ tasks: [] })
+
+    const local = await materializeRemoteTask(
+      task({ id: 'gen-guard', remoteOnly: true, prompt: '一只猫', outputImages: [] }),
+    )
+
+    expect(local.prompt).toBe('一只猫')
+    expect(useStore.getState().tasks[0]?.prompt).toBe('一只猫')
+  })
+
   it('平台那条已经跑完时卡片跟着落终态，不再一直显示生成中', async () => {
     const image = (mediaId: string) => ({
       index: 0,

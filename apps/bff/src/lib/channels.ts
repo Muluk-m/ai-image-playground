@@ -35,6 +35,7 @@ import type {
   GeminiImageSize,
   ModelBadge,
   ModelLogoId,
+  ModelTier,
   QueueProvider,
 } from '@image-playground/shared'
 import {
@@ -43,6 +44,7 @@ import {
   isModelEtaSeconds,
   MODEL_BADGES,
   MODEL_LOGOS,
+  MODEL_TIERS,
 } from '@image-playground/shared'
 import { isObject } from './type-guards'
 
@@ -160,6 +162,15 @@ function parseBadges(v: unknown, ctx: string): ModelBadge[] | undefined {
   })
 }
 
+function parseTier(v: unknown, ctx: string): ModelTier | undefined {
+  if (v === undefined) return undefined
+  if (typeof v !== 'string' || !MODEL_TIERS.includes(v as ModelTier))
+    throw new ChannelsLoadError(
+      `${ctx}: invalid tier '${String(v)}' (allowed: ${MODEL_TIERS.join(', ')})`,
+    )
+  return v as ModelTier
+}
+
 function parseEtaSeconds(v: unknown, ctx: string): number | undefined {
   if (v === undefined) return undefined
   if (!isModelEtaSeconds(v))
@@ -215,6 +226,7 @@ function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
     if (!isObject(raw)) throw new ChannelsLoadError(`${ctx} must be an object`)
     const media = parseMedia(raw.media, ctx)
     const badges = parseBadges(raw.badges, ctx)
+    const tier = parseTier(raw.tier, ctx)
     const etaSeconds = parseEtaSeconds(raw.etaSeconds, ctx)
     const etaMaxSeconds = parseEtaMaxSeconds(raw.etaMaxSeconds, etaSeconds, ctx)
     const logo = parseLogo(raw.logo, ctx)
@@ -225,6 +237,7 @@ function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
       capabilities: parseCapabilities(raw.capabilities, ctx),
       ...(media ? { media } : {}),
       ...(badges ? { badges } : {}),
+      ...(tier ? { tier } : {}),
       ...(etaSeconds !== undefined ? { etaSeconds } : {}),
       ...(etaMaxSeconds !== undefined ? { etaMaxSeconds } : {}),
       ...(logo ? { logo } : {}),
