@@ -749,7 +749,7 @@ export class CloudNodeProjectSession {
       const source = this.record.editor.doc.files[node.fileId]
       if (source) {
         sources.add(source)
-        this.missingSince.delete(node.fileId)
+        this.missingSince.delete(`node:${node.nodeId}:${node.fileId}`)
       } else if (
         this.serverHoldsNodeData(node.nodeId) ||
         this.serverFiles.has(`${node.nodeId}\u0000${node.fileId}`)
@@ -764,7 +764,7 @@ export class CloudNodeProjectSession {
         sources.add(source)
         this.missingSince.delete(`result:${resultId}:${fileId}`)
       } else if (this.serverResultFiles.has(`${resultId}\u0000${fileId}`)) continue
-      else if (lost(fileId, createdAt)) lostResults.add(resultId)
+      else if (lost(`result:${resultId}:${fileId}`, createdAt)) lostResults.add(resultId)
       else failure ??= new Error('canvas_media_missing')
     }
     const promote = (source: string, mediaId: string) => {

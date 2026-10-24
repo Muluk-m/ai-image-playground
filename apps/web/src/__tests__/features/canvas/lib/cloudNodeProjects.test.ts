@@ -1392,6 +1392,106 @@ it('does not inherit a missing timer when a fileId is attached to a new node (BU
   record.dispose()
 })
 
+it('isolates missing timers for undated candidates sharing a fileId (BUG-15)', async () => {
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const { doc, origin } = session.canvas!
+  record.editor.doc.files = {}
+  // Legacy Yjs records can lack createdAt even though new CanvasResult records require it.
+  const candidate = (id: string) => ({
+    id,
+    nodeId: 'text',
+    kind: 'image',
+    source: { type: 'file', fileId: 'shared-missing' },
+  })
+  const vector = Y.encodeStateVector(server)
+  server.getMap('nodeResults').set('server-held', candidate('server-held'))
+  socket.receive(canvasSyncUpdate(Y.encodeStateAsUpdate(server, vector)))
+  socket.receive(canvasSyncAck(server))
+  const started = Date.now()
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(started)
+  doc.transact(() => doc.getMap('nodeResults').set('first', candidate('first')), origin)
+  await expect(session.sync()).rejects.toThrow('canvas_media_missing')
+  clock.mockReturnValue(started + 30_000)
+  doc.transact(() => doc.getMap('nodeResults').set('second', candidate('second')), origin)
+  await expect(session.sync()).rejects.toThrow('canvas_media_missing')
+  clock.mockReturnValue(started + 61_000)
+  await expect(session.sync()).rejects.toThrow('canvas_media_missing')
+  expect(
+    canvasResults(doc)
+      .map((result) => result.id)
+      .sort(),
+  ).toEqual(['second', 'server-held'])
+  expect(canvasResults(server).map((result) => result.id)).toEqual(['server-held'])
+  clock.mockReturnValue(started + 91_000)
+  await session.sync()
+  expect(canvasResults(doc).map((result) => result.id)).toEqual(['server-held'])
+  expect(canvasResults(server).map((result) => result.id)).toEqual(['server-held'])
+  record.dispose()
+})
+
+it.each([
+  'node',
+  'candidate',
+] as const)('resets an undated %s missing timer when its original returns (BUG-15)', async (kind) => {
+  const { session, record, socket, server } = await fixture()
+  acknowledgeWrites(socket, server)
+  socket.receive(canvasSyncAck(server))
+  const { doc, origin } = session.canvas!
+  record.editor.doc.files = {}
+  const started = Date.now()
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(started)
+  if (kind === 'node')
+    insertCanvasNode(
+      doc,
+      {
+        id: 'recovering',
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 50,
+        height: 50,
+        data: { fileId: 'returning' },
+      },
+      origin,
+    )
+  // Exercise an undated legacy record without changing the contract for new results.
+  else
+    doc.transact(
+      () =>
+        doc.getMap('nodeResults').set('recovering', {
+          id: 'recovering',
+          nodeId: 'text',
+          kind: 'image',
+          source: { type: 'file', fileId: 'returning' },
+        }),
+      origin,
+    )
+  await expect(session.sync()).rejects.toThrow('canvas_media_missing')
+  clock.mockReturnValue(started + 30_000)
+  record.editor.doc.files = { returning: 'data:image/png;base64,cGhvdG8=' }
+  // The original is readable again, but a transient upload failure leaves its reference local.
+  vi.mocked(uploadMediaSource).mockRejectedValue(new MediaRequestError(503, 'media_network_error'))
+  await expect(session.sync()).rejects.toMatchObject({ code: 'media_network_error' })
+  record.editor.doc.files = {}
+  clock.mockReturnValue(started + 61_000)
+  await expect(session.sync()).rejects.toThrow('canvas_media_missing')
+  if (kind === 'node')
+    expect(
+      readCanvasDocument(doc).nodes.find((node) => node.id === 'recovering')?.data,
+    ).toMatchObject({ fileId: 'returning' })
+  else expect(canvasResults(doc).some((result) => result.id === 'recovering')).toBe(true)
+  clock.mockReturnValue(started + 120_000)
+  await expect(session.sync()).rejects.toThrow('canvas_media_missing')
+  clock.mockReturnValue(started + 122_000)
+  await session.sync()
+  if (kind === 'node') expect(serverNode(server, 'recovering')?.data).not.toHaveProperty('fileId')
+  else expect(canvasResults(server)).toEqual([])
+  expect(session.getSnapshot().status).toBe('saved')
+  record.dispose()
+})
+
 it('drops an undated never-uploaded image only after it stays missing for a while (BUG-15)', async () => {
   pendingMedia.supported = true
   const { session, record, socket, server } = await fixture()
