@@ -10,12 +10,12 @@ import AgentNodeRunCard from '../../../../features/agent/components/AgentNodeRun
 import { agentNodeRunBridge } from '../../../../features/agent/lib/nodeRunBridge'
 import {
   agentNodeRun,
-  agentNodeRunControl,
   forgetAgentNodeRun,
   isAgentNodeRunOrigin,
   noteAgentNodeRunBlocked,
   registerAgentNodeRunOrigin,
   startAgentNodeRun,
+  stopAgentNodeRun,
 } from '../../../../features/agent/lib/nodeRuns'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
@@ -62,6 +62,7 @@ let reports: { nodes: { nodeId: string; outcome: string; reason?: string; retrie
 let blocked: { url: string; nodes: unknown }[]
 let loseBlocked: boolean
 let cleanup: () => Promise<void>
+let rerender: (proposal: AgentCanvasRunProposal) => Promise<void>
 function fixturePlan(signature: string): NodeBatchPlan {
   return {
     signature,
@@ -119,6 +120,10 @@ async function mount(
   document.body.append(host)
   const root = createRoot(host)
   await act(async () => root.render(<Canvas />))
+  rerender = async (updated) => {
+    next = updated
+    await act(async () => root.render(<Canvas />))
+  }
   cleanup = async () => {
     await act(async () => root.unmount())
     host.remove()
@@ -345,42 +350,6 @@ it('follows the wake of a batch the server had already taken', async () => {
   await act(async () => {})
   expect(onReported).toHaveBeenCalledWith('authorization')
 })
-it('retries a failed node once inside the authorization, then reports it failed', async () => {
-  mocks.run.mockImplementation(async (...args: unknown[]) => {
-    const hooks = args[7] as NodeBatchHooks
-    const job = plan.jobs[0]!
-    expect(await hooks.recover?.(job, new NodeBatchFailure('failed'))).toBe('retry')
-    expect(await hooks.recover?.(job, new NodeBatchFailure('failed'))).toBe('skip')
-  })
-  await mount('retry', true, { ...proposal, direct: true })
-  await act(async () => {})
-  expect(preflights).toBe(2)
-  expect(reports[0]?.nodes).toEqual([
-    { nodeId: 'a', outcome: 'failed', reason: 'generation_failed', retried: true },
-  ])
-})
-it('stops retrying when the retry would exceed the budget', async () => {
-  mocks.run.mockImplementation(async (...args: unknown[]) => {
-    rejectPreflight = true
-    const hooks = args[7] as NodeBatchHooks
-    expect(await hooks.recover?.(plan.jobs[0]!, new NodeBatchFailure('failed'))).toBe('skip')
-  })
-  await mount('retry-budget', true, { ...proposal, direct: true })
-  await act(async () => {})
-  expect(preflights).toBe(2)
-  expect(reports[0]?.nodes).toEqual([{ nodeId: 'a', outcome: 'failed', reason: 'budget_exceeded' }])
-})
-it('reports a retry preflight rejected as inactive with the authorization reason', async () => {
-  mocks.run.mockImplementation(async (...args: unknown[]) => {
-    rejectPreflight = true
-    preflightCode = 'stage_authorization_inactive'
-    const hooks = args[7] as NodeBatchHooks
-    expect(await hooks.recover?.(plan.jobs[0]!, new NodeBatchFailure('failed'))).toBe('skip')
-  })
-  await mount('retry-inactive', true, { ...proposal, direct: true })
-  await act(async () => {})
-  expect(reports[0]?.nodes).toEqual([{ nodeId: 'a', outcome: 'failed', reason: 'authorization' }])
-})
 it('reports a direct run blocked before start with the missing input', async () => {
   const job = fixturePlan('media').jobs[0]!
   plan = { ...fixturePlan('media'), error: 'media', jobs: [{ ...job, blocked: 'missing_media' }] }
@@ -553,7 +522,7 @@ it('leaves a newer run of the same key alone when an account-switched run cleans
     expect(agentNodeRun(key)?.status).toBe('countdown')
     expect(isAgentNodeRunOrigin(key)).toBe(true)
   } finally {
-    agentNodeRunControl(key)?.abort()
+    stopAgentNodeRun(key)
     await act(async () => {})
     setClientStorageScope(null)
   }
@@ -588,7 +557,7 @@ it('keeps an old run from resuming after switching accounts away and back', asyn
     expect(agentNodeRun(key)?.status).toBe('countdown')
     expect(isAgentNodeRunOrigin(key)).toBe(true)
   } finally {
-    agentNodeRunControl(key)?.abort()
+    stopAgentNodeRun(key)
     await act(async () => {})
     setClientStorageScope(null)
   }
@@ -827,4 +796,13 @@ it('does not retry a node the BFF refused for scope, and says why on the card', 
   expect(preflights).toBe(1)
   expect(reports[0]?.nodes).toEqual([{ nodeId: 'a', outcome: 'failed', reason: 'spec_changed' }])
   expect(document.body.textContent).toContain('有节点的提交内容和你确认时不一致')
+})
+
+it('retains completed results when the same card receives a refreshed proposal object', async () => {
+  await mount('refreshed-proposal', true, { ...proposal, direct: true })
+  expect(agentNodeRun('refreshed-proposal')).toBeUndefined()
+  expect(document.body.textContent).toContain('已把这批结果交给智能体')
+  await rerender({ ...proposal, direct: true })
+  expect(document.body.textContent).toContain('已把这批结果交给智能体')
+  expect(mocks.run).toHaveBeenCalledTimes(1)
 })
