@@ -11,6 +11,8 @@ interface AgentNodeBatchExecution {
 /** Mounted node canvas only. Receiving/replaying a proposal never runs it by itself. */
 export interface AgentNodeRunBridge {
   readonly projectId: string
+  /** Wait for generated media and the server canvas acknowledgement before waking review. */
+  readonly syncResults?: () => Promise<void>
   quote(proposal: AgentCanvasRunProposal): NodeBatchPlan | null
   run(
     proposal: AgentCanvasRunProposal,

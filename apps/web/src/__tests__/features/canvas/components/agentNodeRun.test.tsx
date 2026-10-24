@@ -31,6 +31,7 @@ import { useStore } from '../../../../store'
 const mocks = vi.hoisted(() => ({
   current: vi.fn(),
   run: vi.fn<(...args: unknown[]) => Promise<void>>(async () => {}),
+  syncResults: vi.fn<() => Promise<void>>(async () => {}),
 }))
 // The batch runner is the canvas execution boundary of the authorization store seam.
 vi.mock('../../../../features/canvas/lib/nodeBatch', async (original) => ({
@@ -110,6 +111,7 @@ async function mount(
       active: true,
       revision: plan.signature,
       files: {},
+      syncResults: mocks.syncResults,
     })
     // 聊天面板收起时只有画布挂着，运行卡不渲染。
     return card ? <AgentNodeRunCard runKey={runKey} proposal={next} /> : null
@@ -200,6 +202,8 @@ beforeEach(() => {
   plan = fixturePlan('first')
   mocks.current.mockImplementation(() => plan)
   mocks.run.mockReset()
+  mocks.syncResults.mockReset()
+  mocks.syncResults.mockResolvedValue(undefined)
   mocks.run.mockImplementation(async (...args: unknown[]) => {
     authorization = { ...authorization, spentCredits: 20 }
     for (const job of plan.jobs) (args[7] as NodeBatchHooks | undefined)?.completed?.(job)
@@ -210,6 +214,89 @@ afterEach(async () => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
   expect(agentNodeRunBridge()).toBeNull()
+})
+it('does not wake review while generated images are still being saved to the server canvas', async () => {
+  let saved!: () => void
+  mocks.syncResults.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        saved = resolve
+      }),
+  )
+  const followed = vi.fn()
+  await mount('review-waits-for-images', true, { ...proposal, direct: true }, followed)
+  await act(async () => {})
+  try {
+    expect(mocks.run).toHaveBeenCalledOnce()
+    expect(reports).toEqual([])
+    expect(followed).not.toHaveBeenCalled()
+  } finally {
+    await act(async () => saved?.())
+  }
+  expect(reports).toEqual([
+    expect.objectContaining({ nodes: [{ nodeId: 'a', outcome: 'completed' }] }),
+  ])
+  expect(followed).toHaveBeenCalledOnce()
+  expect(mocks.run).toHaveBeenCalledOnce()
+})
+it('keeps a failed image save from waking review or submitting another generation', async () => {
+  mocks.syncResults.mockRejectedValueOnce(new Error('media_upload_failed'))
+  const followed = vi.fn()
+  await mount('review-save-failed', true, { ...proposal, direct: true }, followed)
+  await act(async () => vi.advanceTimersByTimeAsync(60_000))
+  expect(reports).toEqual([])
+  expect(followed).not.toHaveBeenCalled()
+  expect(mocks.run).toHaveBeenCalledOnce()
+  expect(ends).toBe(1)
+  expect(document.body.textContent).toContain('没能把结果交给智能体')
+})
+it('does not report old-account results after switching accounts during image sync', async () => {
+  let saved!: () => void
+  mocks.syncResults.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        saved = resolve
+      }),
+  )
+  const followed = vi.fn()
+  const key = 'review-sync-account-switched'
+  await mount(key, true, { ...proposal, direct: true }, followed, false)
+  await act(async () => {})
+  try {
+    expect(mocks.syncResults).toHaveBeenCalledOnce()
+    setClientStorageScope('someone-else')
+    await act(async () => saved())
+    expect(reports).toEqual([])
+    expect(followed).not.toHaveBeenCalled()
+    expect(agentNodeRun(key)).toBeUndefined()
+    expect(isAgentNodeRunOrigin(key)).toBe(false)
+  } finally {
+    setClientStorageScope(null)
+  }
+})
+it('also saves completed images before reporting an interrupted batch', async () => {
+  let saved!: () => void
+  mocks.syncResults.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        saved = resolve
+      }),
+  )
+  mocks.run.mockImplementation(async (...args: unknown[]) => {
+    const progress = args[5] as (completed: number, id: string) => void
+    const hooks = args[7] as NodeBatchHooks
+    progress(0, 'a')
+    hooks.completed?.(plan.jobs[0]!)
+    throw new NodeBatchFailure('changed')
+  })
+  await mount('partial-review-waits', true, { ...proposal, direct: true })
+  await act(async () => {})
+  expect(reports).toEqual([])
+  await act(async () => saved())
+  expect(reports).toEqual([
+    expect.objectContaining({ nodes: [{ nodeId: 'a', outcome: 'completed' }] }),
+  ])
+  expect(mocks.run).toHaveBeenCalledOnce()
 })
 it('shows scope and budget, confirms once, then preflights and runs only after the undo window', async () => {
   await mount('confirm')
