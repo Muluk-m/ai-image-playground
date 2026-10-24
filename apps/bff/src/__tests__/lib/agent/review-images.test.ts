@@ -109,7 +109,9 @@ it('shrinks a real 4K PNG larger than the request budget before preparing review
   expect(omitted).toEqual([])
   expect(reviewed).toHaveLength(1)
   expect(Buffer.byteLength(reviewed[0]!.dataUrl)).toBeLessThan(16 * 1024 * 1024)
-  const metadata = await sharp(Buffer.from(reviewed[0]!.dataUrl.split(',')[1]!, 'base64')).metadata()
+  const metadata = await sharp(
+    Buffer.from(reviewed[0]!.dataUrl.split(',')[1]!, 'base64'),
+  ).metadata()
   expect(metadata.format).toBe('webp')
   expect(metadata.width).toBe(1024)
   expect(metadata.height).toBe(576)
