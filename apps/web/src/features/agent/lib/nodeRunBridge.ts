@@ -1,19 +1,21 @@
-import type { AgentCanvasRunProposal, StageRunNodeReport } from '@image-playground/shared'
-import type { NodeBatchPlan } from '../../canvas/lib/nodeBatch'
+import type { AgentCanvasRunProposal, StageAuthorizationSubmission } from '@image-playground/shared'
+import type { NodeBatchHooks, NodeBatchPlan } from '../../canvas/lib/nodeBatch'
+
+interface AgentNodeBatchExecution {
+  readonly signal: AbortSignal
+  readonly progress: (completed: number, id: string) => void
+  readonly authorizations: Readonly<Record<string, StageAuthorizationSubmission>>
+  readonly hooks: NodeBatchHooks
+}
 
 /** Mounted node canvas only. Receiving/replaying a proposal never runs it by itself. */
 export interface AgentNodeRunBridge {
   readonly projectId: string
   quote(proposal: AgentCanvasRunProposal): NodeBatchPlan | null
-  /** Rejects with `NodeBatchFailure` when the quoted signature no longer matches the canvas. */
   run(
     proposal: AgentCanvasRunProposal,
-    signature: string,
-    signal: AbortSignal,
-    progress: (completed: number, id: string) => void,
-    executionToken: string,
-    /** 每个节点有了结局就记一笔：完成、失败（授权内至多自动重试一次）、或因上游失败没跑。 */
-    record?: (report: StageRunNodeReport) => void,
+    plan: NodeBatchPlan,
+    execution: AgentNodeBatchExecution,
   ): Promise<void>
 }
 let current: AgentNodeRunBridge | null = null
