@@ -43,16 +43,17 @@ export function useAgentNodeRun({
     return registerAgentNodeRun({
       projectId,
       quote,
-      run: (proposal, plan, execution) => runNodeBatch(
-        canvas.doc,
-        editor,
-        proposal.nodeIds,
-        plan,
-        execution.signal,
-        execution.progress,
-        execution.authorizations,
-        execution.hooks,
-      ),
+      run: (proposal, plan, execution) =>
+        runNodeBatch(
+          canvas.doc,
+          editor,
+          proposal.nodeIds,
+          plan,
+          execution.signal,
+          execution.progress,
+          execution.authorizations,
+          execution.hooks,
+        ),
     })
   }, [active, projectId, canvas, editor, revision, files, settings, params, draft, channels])
 }

@@ -15,5 +15,4 @@ describe('node job failure codes', () => {
     expect(takeNodeJobFailure('job-1')).toBeUndefined()
     expect(takeNodeJobFailure('job-2')).toBeUndefined()
   })
-
 })

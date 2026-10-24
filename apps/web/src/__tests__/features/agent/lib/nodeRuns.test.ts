@@ -11,15 +11,25 @@ import {
   registerAgentNodeRunOrigin,
   releaseIdleAgentNodeRunOrigins,
 } from '../../../../features/agent/lib/nodeRuns'
-import { executeNodeBatch, NodeBatchFailure, type NodeBatchPlan } from '../../../../features/canvas/lib/nodeBatch'
+import {
+  executeNodeBatch,
+  NodeBatchFailure,
+  type NodeBatchPlan,
+} from '../../../../features/canvas/lib/nodeBatch'
 import { setClientStorageScope } from '../../../../lib/authScope'
 import { useStore } from '../../../../store'
 
 vi.mock('../../../../lib/channels/bootstrapChannels', () => ({ refreshChannels: async () => {} }))
 
 const proposal: AgentCanvasRunProposal = {
-  projectId: 'project', nodeIds: ['a'], nodeNames: ['A'],
-  authorizationId: 'authorization', stage: '素材', estimatedCredits: 20, budgetCap: 40, status: 'pending',
+  projectId: 'project',
+  nodeIds: ['a'],
+  nodeNames: ['A'],
+  authorizationId: 'authorization',
+  stage: '素材',
+  estimatedCredits: 20,
+  budgetCap: 40,
+  status: 'pending',
 }
 let authorization: StageAuthorization
 let plan: NodeBatchPlan
@@ -48,47 +58,82 @@ beforeEach(() => {
   disposals = []
   keys = []
   authorization = {
-    id: 'authorization', conversationId: 'conversation', projectId: 'project', stage: '素材',
-    nodeIds: ['a'], nodeNames: ['A'], estimatedCredits: 20, budgetCap: 40,
-    spentCredits: 0, status: 'pending', attempts: [], audit: [],
+    id: 'authorization',
+    conversationId: 'conversation',
+    projectId: 'project',
+    stage: '素材',
+    nodeIds: ['a'],
+    nodeNames: ['A'],
+    estimatedCredits: 20,
+    budgetCap: 40,
+    spentCredits: 0,
+    status: 'pending',
+    attempts: [],
+    audit: [],
   }
   plan = {
-    signature: 'same', credits: 20,
-    jobs: [{ id: 'a', label: 'A', kind: 'image', model: 'fixture', quantity: 1,
-      prompt: 'A', refs: [], roles: {}, temporary: {}, dependencies: [] }],
-    settings: useStore.getState().settings, params: useStore.getState().params,
+    signature: 'same',
+    credits: 20,
+    jobs: [
+      {
+        id: 'a',
+        label: 'A',
+        kind: 'image',
+        model: 'fixture',
+        quantity: 1,
+        prompt: 'A',
+        refs: [],
+        roles: {},
+        temporary: {},
+        dependencies: [],
+      },
+    ],
+    settings: useStore.getState().settings,
+    params: useStore.getState().params,
   }
   preflight = async () => {}
   readAuthorization = async () => authorization
   submit = vi.fn(async () => {})
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const action = String(input).split('/').at(-1)!
-    requests.push(action)
-    if (action === 'confirm') {
-      authorization = { ...authorization, status: 'active', audit: [{ kind: 'confirmed', at: Date.now() }] }
-      return Response.json({ authorization, executionToken: 'token' })
-    }
-    if (action === 'preflight') {
-      await preflight()
-      return Response.json(authorization)
-    }
-    if (action === 'report') {
-      reports.push(JSON.parse(String(init?.body)))
-      authorization = { ...authorization, status: 'ended' }
-      return Response.json({ authorization, wake: 'queued' })
-    }
-    if (action === 'end') {
-      authorization = { ...authorization, status: 'ended' }
-      return Response.json(authorization)
-    }
-    return Response.json(await readAuthorization())
-  }))
-  disconnect = registerAgentNodeRun({
-    projectId: 'project', quote: () => plan,
-    run: (_proposal, captured, execution) => executeNodeBatch(captured, {
-      ...execution.hooks, signal: execution.signal, progress: execution.progress,
-      current: () => plan, submit,
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const action = String(input).split('/').pop()!
+      requests.push(action)
+      if (action === 'confirm') {
+        authorization = {
+          ...authorization,
+          status: 'active',
+          audit: [{ kind: 'confirmed', at: Date.now() }],
+        }
+        return Response.json({ authorization, executionToken: 'token' })
+      }
+      if (action === 'preflight') {
+        await preflight()
+        return Response.json(authorization)
+      }
+      if (action === 'report') {
+        reports.push(JSON.parse(String(init?.body)))
+        authorization = { ...authorization, status: 'ended' }
+        return Response.json({ authorization, wake: 'queued' })
+      }
+      if (action === 'end') {
+        authorization = { ...authorization, status: 'ended' }
+        return Response.json(authorization)
+      }
+      return Response.json(await readAuthorization())
     }),
+  )
+  disconnect = registerAgentNodeRun({
+    projectId: 'project',
+    quote: () => plan,
+    run: (_proposal, captured, execution) =>
+      executeNodeBatch(captured, {
+        ...execution.hooks,
+        signal: execution.signal,
+        progress: execution.progress,
+        current: () => plan,
+        submit,
+      }),
   })
 })
 afterEach(async () => {
@@ -116,31 +161,43 @@ it.each([
   await vi.advanceTimersByTimeAsync(5000)
   expect(submit).toHaveBeenCalledTimes(1)
   expect(requests.filter((action) => action === 'preflight')).toHaveLength(1)
-  expect(reports).toEqual([expect.objectContaining({ nodes: [{ nodeId: 'a', outcome: 'failed', reason }] })])
+  expect(reports).toEqual([
+    expect.objectContaining({ nodes: [{ nodeId: 'a', outcome: 'failed', reason }] }),
+  ])
   expect(view.getSnapshot().run?.report?.wake).toBe('queued')
   expect(agentNodeRun(code)).toBeUndefined()
 })
 
-it.each(['stage_authorization_node_already_started', 'stage_authorization_something_new', 'quota_exceeded', undefined])(
-  'preserves the one retry for an unrecognized failure %s', async (code) => {
-    submit.mockRejectedValue(new NodeBatchFailure('failed', code))
-    const { view } = observe('retry')
-    view.start()
-    await vi.advanceTimersByTimeAsync(5000)
-    expect(submit).toHaveBeenCalledTimes(2)
-    expect(requests.filter((action) => action === 'preflight')).toHaveLength(2)
-    expect(reports[0]?.nodes).toEqual([{ nodeId: 'a', outcome: 'failed', reason: 'generation_failed', retried: true }])
-  },
-)
+it.each([
+  'stage_authorization_node_already_started',
+  'stage_authorization_something_new',
+  'quota_exceeded',
+  undefined,
+])('preserves the one retry for an unrecognized failure %s', async (code) => {
+  submit.mockRejectedValue(new NodeBatchFailure('failed', code))
+  const { view } = observe('retry')
+  view.start()
+  await vi.advanceTimersByTimeAsync(5000)
+  expect(submit).toHaveBeenCalledTimes(2)
+  expect(requests.filter((action) => action === 'preflight')).toHaveLength(2)
+  expect(reports[0]?.nodes).toEqual([
+    { nodeId: 'a', outcome: 'failed', reason: 'generation_failed', retried: true },
+  ])
+})
 
 it('keeps confirming and reports once after the last view disconnects and conversation switches', async () => {
   let confirm!: () => void
-  const ready = new Promise<void>((resolve) => { confirm = resolve })
+  const ready = new Promise<void>((resolve) => {
+    confirm = resolve
+  })
   const fetch = globalThis.fetch
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (String(input).endsWith('/confirm')) await ready
-    return fetch(input, init)
-  }))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/confirm')) await ready
+      return fetch(input, init)
+    }),
+  )
   const { view, unsubscribe } = observe('detached')
   view.start()
   unsubscribe()
@@ -154,9 +211,14 @@ it('keeps confirming and reports once after the last view disconnects and conver
   expect(isAgentNodeRunOrigin('detached')).toBe(false)
 })
 
-it.each(['initial', 'retry'])('does not submit after switching accounts during %s preflight', async (phase) => {
+it.each([
+  'initial',
+  'retry',
+])('does not submit after switching accounts during %s preflight', async (phase) => {
   let finish!: () => void
-  const pending = new Promise<void>((resolve) => { finish = resolve })
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve
+  })
   let count = 0
   preflight = async () => {
     count += 1
@@ -177,7 +239,10 @@ it.each(['initial', 'retry'])('does not submit after switching accounts during %
 
 it('does not publish an authorization read from a disconnected subscription', async () => {
   let finish!: (state: StageAuthorization) => void
-  readAuthorization = () => new Promise((resolve) => { finish = resolve })
+  readAuthorization = () =>
+    new Promise((resolve) => {
+      finish = resolve
+    })
   const { view, unsubscribe } = observe('late-read', false)
   unsubscribe()
   finish({ ...authorization, status: 'ended' })
@@ -192,7 +257,9 @@ it('does not publish an authorization read from a disconnected subscription', as
 })
 
 it('shares one polling loop across subscribers and restarts after a manual retry', async () => {
-  readAuthorization = async () => { throw new TypeError('offline') }
+  readAuthorization = async () => {
+    throw new TypeError('offline')
+  }
   const { view, unsubscribe } = observe('polling', false)
   const second = view.subscribe(() => {})
   disposals.push(second)
@@ -214,7 +281,10 @@ it('shares one polling loop across subscribers and restarts after a manual retry
 
 it('stops future submissions without reporting or waking the agent', async () => {
   let finish!: () => void
-  preflight = () => new Promise((resolve) => { finish = resolve })
+  preflight = () =>
+    new Promise((resolve) => {
+      finish = resolve
+    })
   const { view } = observe('stop')
   view.start()
   await vi.advanceTimersByTimeAsync(5000)

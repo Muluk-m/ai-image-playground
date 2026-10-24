@@ -12,9 +12,9 @@ import { refreshChannels } from '../../../lib/channels/bootstrapChannels'
 import {
   billedNodeQuantity,
   type NodeBatchError,
+  NodeBatchFailure,
   type NodeBatchJob,
   type NodeBatchPlan,
-  NodeBatchFailure,
 } from '../../canvas/lib/nodeBatch'
 import { type AgentNodeRunBridge, agentNodeRunBridge, subscribeAgentNodeRun } from './nodeRunBridge'
 import { stageAuthorizationClient } from './stageAuthorizationClient'
@@ -493,8 +493,7 @@ async function runAuthorizedNodeBatch(
           outcome: 'completed',
           ...(retried.has(job.id) ? { retried: true } : {}),
         }),
-      skipped: (job) =>
-        record({ nodeId: job.id, outcome: 'skipped', reason: 'upstream_failed' }),
+      skipped: (job) => record({ nodeId: job.id, outcome: 'skipped', reason: 'upstream_failed' }),
     },
   })
   assertCurrent()
@@ -722,15 +721,20 @@ export function createAgentNodeRunView(key: string, initialProposal: AgentCanvas
     const live = runs.get(key)
     if (live && isTerminalRun(live)) settled = live
     const run = live ?? settled
-    const authorization = run?.authorization &&
+    const authorization =
+      run?.authorization &&
       (run.status !== 'running' || run.authorization.audit.length > (stored?.audit.length ?? 0))
-      ? run.authorization : stored
+        ? run.authorization
+        : stored
     return {
       run,
       plan: run ? undefined : quoteAgentNodeRun(proposal),
       authorization,
-      canConfirm: !proposal.direct && !run &&
-        (authorization?.status ?? proposal.status) === 'pending' && origins.has(key),
+      canConfirm:
+        !proposal.direct &&
+        !run &&
+        (authorization?.status ?? proposal.status) === 'pending' &&
+        origins.has(key),
       origin: origins.has(key),
       readFailed,
       readReady: stored !== undefined,
@@ -822,7 +826,9 @@ export function createAgentNodeRunView(key: string, initialProposal: AgentCanvas
       }
     },
     start: () => sameAccount() && startAgentNodeRun(key, proposal),
-    stop: () => { if (sameAccount()) stopAgentNodeRun(key) },
+    stop: () => {
+      if (sameAccount()) stopAgentNodeRun(key)
+    },
     retryRead: read,
   }
 }
