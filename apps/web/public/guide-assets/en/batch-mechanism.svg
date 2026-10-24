@@ -2,10 +2,10 @@
 <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="none" stroke="#c1eb94" stroke-width="1.5"/></marker></defs>
 <rect width="1000" height="850" rx="24" fill="#111311"/>
 <g font-family="PingFang SC, Arial, sans-serif" fill="#f6f6f4">
-<text x="40" y="53" font-size="32" fill="#f6f6f4" font-weight="600" text-anchor="start">How per-image generation works</text>
+<text x="40" y="53" font-size="32" fill="#f6f6f4" font-weight="600" text-anchor="start">Per-image generation</text>
 <text x="40" y="90" font-size="23" fill="#a6a9a2" font-weight="400" text-anchor="start">3 input images · 1 shared prompt · 3 independent tasks</text>
 <rect x="40" y="120" width="920" height="100" rx="16" fill="#252e20" stroke="#566946"/>
-<text x="64" y="158" font-size="21" fill="#c1eb94" font-weight="600" text-anchor="start">Write once</text>
+<text x="64" y="158" font-size="21" fill="#c1eb94" font-weight="600" text-anchor="start">Shared prompt</text>
 <text x="64" y="196" font-size="25" fill="#f6f6f4" font-weight="400" text-anchor="start">Prompt P: Keep the product in this image. Make the background white.</text>
 <path d="M192 220 V258" fill="none" stroke="#c1eb94" stroke-width="2.5" marker-end="url(#arrow)"/>
 <path d="M500 220 V258" fill="none" stroke="#c1eb94" stroke-width="2.5" marker-end="url(#arrow)"/>
@@ -43,7 +43,7 @@
 <text x="808" y="602" font-size="24" fill="#f6f6f4" font-weight="400" text-anchor="middle">Generate once</text>
 <rect x="680" y="625" width="256" height="58" rx="16" fill="#252825" stroke="#323531"/>
 <text x="808" y="663" font-size="25" fill="#f6f6f4" font-weight="400" text-anchor="middle">Result C · 1 image</text>
-<text x="500" y="751" font-size="25" fill="#f6f6f4" font-weight="600" text-anchor="middle">Each task sees its own image, not other images or task results.</text>
-<text x="500" y="792" font-size="22" fill="#a6a9a2" font-weight="400" text-anchor="middle">Shared model and settings. Tasks may run together or queue.</text>
+<text x="500" y="751" font-size="25" fill="#f6f6f4" font-weight="600" text-anchor="middle">Tasks do not share reference images or results.</text>
+<text x="500" y="792" font-size="22" fill="#a6a9a2" font-weight="400" text-anchor="middle">Shared model and settings. Tasks may run concurrently or queue.</text>
 <text x="500" y="827" font-size="19" fill="#a6a9a2" font-weight="400" text-anchor="middle">This example does not use prompt slots.</text>
 </g></svg>
