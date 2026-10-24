@@ -37,6 +37,9 @@ interface ProjectState {
   routeError: string | null
   cloudError: string | null
   cloudLoading: boolean
+  /** 用户点「刷新项目」时 +1，没取到的封面据此重新加载；后台同步与加载更多不动它。 */
+  coverRetryRound: number
+  retryProjectCovers(): void
   cloudCursor: string | null
   cloudCatalog: Record<string, CloudProjectSummary>
   refreshCloud(more?: boolean): Promise<void>
@@ -93,6 +96,10 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
   routeError: null,
   cloudError: null,
   cloudLoading: false,
+  coverRetryRound: 0,
+  retryProjectCovers() {
+    set((state) => ({ coverRetryRound: state.coverRetryRound + 1 }))
+  },
   cloudCursor: null,
   cloudCatalog: {},
   async refreshCloud(more = false) {

@@ -90,25 +90,17 @@ function generationMeta(pending: PendingGeneration | undefined): NodeGenerationM
 }
 
 /** 把一张位图写进这个节点。已有旧元素就换图，否则用同一个 id 放进旧存档，同步会填上 fileId。 */
-async function putBitmapOnNode(
+function putBitmapOnNode(
   editor: CanvasEditor,
   doc: Y.Doc,
   nodeId: string,
-  dataUrl: string,
+  image: ReadImageFile,
   name?: string,
   onlyIfEmpty = false,
-): Promise<boolean> {
+): boolean {
   const node = imageNode(doc, nodeId)
   if (!node) return false
-  let naturalWidth: number | undefined
-  let naturalHeight: number | undefined
-  try {
-    const dims = await getImageDimensions(dataUrl)
-    naturalWidth = dims.width
-    naturalHeight = dims.height
-  } catch {
-    // Intrinsic metadata is optional; a decode must never change the frame.
-  }
+  const { dataUrl, width: naturalWidth, height: naturalHeight } = image
   const current = imageNode(doc, nodeId)
   if (!current || (onlyIfEmpty && (current.data.fileId || current.data.mediaId))) return false
   const patch = {
@@ -338,15 +330,90 @@ export function submitNodeImage(
 }
 
 /** 上传的文件填进这张卡，不另起一个节点。 */
+/** 选进来的文件不是浏览器解得开的图片：空文件、改了扩展名的文本、损坏的图。 */
+export class InvalidImageFileError extends Error {
+  constructor(readonly fileName: string) {
+    super('invalid_image_file')
+    this.name = 'InvalidImageFileError'
+  }
+}
+
+export interface ReadImageFile {
+  dataUrl: string
+  width: number
+  height: number
+}
+
+/**
+ * 把文件读成 data URL，并确认浏览器真能把它解成一张有尺寸的图。
+ * MIME 只是浏览器按扩展名猜的：0 字节的 zero.png、内容是文本的 fake.png 都报 image/png。
+ * 不先解码就建节点，节点会带着一个解不开的位图写进协同文档，上传那边认不出它是图、
+ * 也就从不发请求，节点在别的会话里永远停在「图片上传中」。
+ */
+export async function readImageFile(file: File): Promise<ReadImageFile> {
+  if (!file.type.startsWith('image/') || file.size === 0) throw new InvalidImageFileError(file.name)
+  let dataUrl
+  let size
+  try {
+    // 读不出来（文件被删、被锁）也按这一张不可用处理，不拖垮整批。
+    dataUrl = await fileToDataUrl(file)
+    size = await getImageDimensions(dataUrl)
+  } catch {
+    throw new InvalidImageFileError(file.name)
+  }
+  if (!(size.width > 0 && size.height > 0)) throw new InvalidImageFileError(file.name)
+  return { dataUrl, width: size.width, height: size.height }
+}
+
+/** 按结构判别：别的 window / iframe 传进来的 File 过不了本窗口的 `instanceof File`。 */
+function isReadImageFile(value: File | ReadImageFile): value is ReadImageFile {
+  return typeof (value as ReadImageFile).dataUrl === 'string'
+}
+
+/**
+ * 导出的入口可能收到不是 readImageFile 产出的对象：空 data URL、缺尺寸的、
+ * 前缀像图其实解不开的，一律不写进画布。字符串和数字看着对不算，得真解一次。
+ */
+async function checkedReadImage(image: ReadImageFile, name?: string): Promise<ReadImageFile> {
+  const invalid = () => new InvalidImageFileError(name ?? 'image')
+  const shaped =
+    image.dataUrl.startsWith('data:image/') &&
+    Number.isFinite(image.width) &&
+    Number.isFinite(image.height) &&
+    image.width > 0 &&
+    image.height > 0
+  if (!shaped) throw invalid()
+  const size = await getImageDimensions(image.dataUrl).catch(() => null)
+  if (!size || !(size.width > 0 && size.height > 0)) throw invalid()
+  return image
+}
+
 export async function fillImageNode(
   editor: CanvasEditor,
   doc: Y.Doc,
   nodeId: string,
-  file: File,
+  file: File | ReadImageFile,
+  name = isReadImageFile(file) ? undefined : file.name,
 ): Promise<void> {
-  if (!file.type.startsWith('image/')) return
-  const dataUrl = await fileToDataUrl(file)
-  await putBitmapOnNode(editor, doc, nodeId, dataUrl, file.name)
+  const image = isReadImageFile(file)
+    ? await checkedReadImage(file, name)
+    : await readImageFile(file)
+  putBitmapOnNode(editor, doc, nodeId, image, name)
+}
+
+/**
+ * 把刚由 `readImageFile` 解出来的图同步写进节点，不再解码、不让出执行权。
+ * 批量导入建完节点紧接着调用：建节点和写图之间没有 await，就不会在中途换了画布还往旧画布写，
+ * 也不会因为第二次解码失败留下一个空节点、拖垮后面的整批。
+ */
+export function placeDecodedImage(
+  editor: CanvasEditor,
+  doc: Y.Doc,
+  nodeId: string,
+  image: ReadImageFile,
+  name?: string,
+): void {
+  putBitmapOnNode(editor, doc, nodeId, image, name)
 }
 
 /**
