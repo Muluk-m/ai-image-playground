@@ -75,6 +75,7 @@ import {
   isPlatformGeneration,
   loadPlatformGenerations,
   type PlatformGenerationRow,
+  promptFromGeneration,
   refreshPlatformGeneration,
   setPlatformFavorite,
   watchPlatformGeneration,
@@ -99,6 +100,7 @@ import {
 } from './lib/referenceDraft'
 import { deleteRemoteGeneration, mediaRef, readRemoteGeneration } from './lib/remoteGenerations'
 import { cloudReuseSourceFromTask, reuseCloudGeneration } from './lib/reuseCloudGeneration'
+import { batchAttempts } from './lib/setHistory'
 import { watchSubmissionContext } from './lib/submissionContext'
 import { noteUserSubmittedTasks } from './lib/submittedTaskAttention'
 import { readPendingChanges, writePendingChanges } from './lib/sync/pending'
@@ -1844,12 +1846,15 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
           customRecoverable: false,
         })
 
-        useStore
-          .getState()
-          .showToast(
-            i18next.t('toast.generateDone', { ns: 'store', count: outputIds.length }),
-            'success',
-          )
+        // 逐张生成整组收尾时才报一次；单条任务照旧报这一条出了几张。
+        if (task.origin?.kind === 'batch') announceBatchSettled(task.origin.setId)
+        else
+          useStore
+            .getState()
+            .showToast(
+              i18next.t('toast.generateDone', { ns: 'store', count: outputIds.length }),
+              'success',
+            )
         const currentMask = useStore.getState().maskDraft
         if (
           job.maskDataUrl &&
@@ -1881,18 +1886,48 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
           status: 'error',
           error: errorMessage,
           errorCode: failure.code,
+          cancelled: failure.cancelled,
           ...getRawErrorPayload(failure.error),
           customRecoverable: false,
           finishedAt: Date.now(),
           elapsed: Date.now() - job.createdAt,
         })
-        // 逐张生成的失败汇总在那一组的卡片上，不一条条弹详情。
-        if (latestTask.origin?.kind !== 'batch') useStore.getState().setDetailTaskId(job.taskId)
+        // 逐张生成的失败汇总在那一组的卡片上，不一条条弹详情；最后一张失败也要给整组报个数。
+        if (latestTask.origin?.kind === 'batch') announceBatchSettled(latestTask.origin.setId)
+        // 取消不是失败：卡片已显示「已取消」，不再自动弹出详情去报错。
+        else if (!failure.cancelled) useStore.getState().setDetailTaskId(job.taskId)
       } finally {
         releaseGenerationTask(job.taskId)
       }
     },
   }
+}
+
+/**
+ * 逐张生成的一组全部落定（每张参考图的最新一次尝试都不在跑）时报一次总数，而不是每张各报「已生成 1 张」。
+ * 全成：「生成完成，共 N 张图片」；有失败：「已生成 x/N 张」；一张没成就不报，失败看组卡片。
+ */
+function announceBatchSettled(setId: string) {
+  const attempts = batchAttempts(
+    useStore.getState().tasks.filter((t) => t.origin?.kind === 'batch' && t.origin.setId === setId),
+  )
+  if (attempts.length === 0 || attempts.some((t) => t.status === 'running')) return
+  const done = attempts.filter((t) => t.status === 'done')
+  if (done.length === 0) return
+  const { showToast } = useStore.getState()
+  if (done.length === attempts.length) {
+    const count = done.reduce((sum, t) => sum + t.outputImages.length, 0)
+    showToast(i18next.t('toast.generateDone', { ns: 'store', count }), 'success')
+    return
+  }
+  showToast(
+    i18next.t('toast.generateDonePartial', {
+      ns: 'store',
+      done: done.length,
+      total: attempts.length,
+    }),
+    'info',
+  )
 }
 
 /** 逐张生成（含其重试）共用一个限流：所有批次加起来同时最多发这么多张。 */
@@ -2147,7 +2182,9 @@ export async function materializeRemoteTask(task: TaskRecord): Promise<TaskRecor
   ])
   const localized: TaskRecord = {
     ...task,
-    prompt: detail?.prompt ?? task.prompt,
+    // 平台详情里是发给上游的那一句（防改写前缀、构图指令）；本机卡要的是用户原文，
+    // 否则重试时 callImageApi 按 no_rewrite 再钉一遍前缀，卡上也重新露出机器指令。
+    prompt: detail ? promptFromGeneration(detail) : task.prompt,
     outputImages,
     inputImageIds,
     maskImageId,

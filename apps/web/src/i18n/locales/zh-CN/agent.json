@@ -56,6 +56,7 @@
   },
   "tool": {
     "canvasReadNodes": "已读取节点：{{nodes}}",
+    "canvasReadUnnamed": "未命名节点",
     "canvasReadNone": "无",
     "background": "正在后台生成，完成后会在这里显示",
     "preparing": "准备中",
@@ -169,7 +170,8 @@
     "gateJump": "跳到卡片",
     "gateSend": "仍然发送这句话",
     "gateRunNodes": "确认运行节点（{{count}}）",
-    "nodeRunMissed": "有 {{count}} 组没能开始。请打开对应画布后，在卡片上确认。"
+    "nodeRunMissed": "有 {{count}} 组没能开始。请打开对应画布后，在卡片上确认。",
+    "drafting": "助手还在拟这份草稿，拟完再确认。"
   },
   "plan": {
     "title": "生成计划",
@@ -180,7 +182,10 @@
     "cancel": "取消",
     "restore": "继续确认",
     "dismissed": "未生成",
-    "promptAria": "修改提示词"
+    "insufficient": "可用 {{available}} 积分，不够合计约 {{credits}} 积分。取消勾选几张，或先充值。",
+    "stoppedAfter_other": "已提交 {{count}} 张，「{{title}}」未提交：{{reason}}",
+    "promptAria": "修改提示词",
+    "drafting": "助手还在拟这份计划，拟完再生成。"
   },
   "toolFailure": {
     "recharge": "去充值",
@@ -514,8 +519,29 @@
       "summaryFailed": "{{running}} 个进行中 · {{completed}} 个已完成 · {{failed}} 个没有完成",
       "count": "{{done}}/{{total}}",
       "locate": "在画布上定位",
+      "locateMessage": "定位到消息",
       "succeeded": "已完成",
       "failed": "没有完成"
+    },
+    "queue": {
+      "ahead_other": "排队中 · 前面还有 {{count}} 张",
+      "next": "排队中 · 下一张就轮到",
+      "reason_other": "当前套餐可同时生成 {{count}} 张，其余按提交顺序排队，多开对话也不会更快。",
+      "upgrade": "升级套餐"
+    },
+    "done": {
+      "title": "生成完成",
+      "body": "「{{name}}」{{ready}}已生成",
+      "bodyAllFailed_other": "「{{name}}」生成结束：{{count}} 项没有完成",
+      "bodyFailed_other": "「{{name}}」生成结束：{{ready}}已生成，{{count}} 项没有完成",
+      "images_other": "{{count}} 张图",
+      "videos_other": "{{count}} 个视频",
+      "mixed": "{{images}}、{{videos}}",
+      "untitled": "新对话",
+      "view": "查看",
+      "dismiss": "关闭提示",
+      "running": "正在生成",
+      "unseen": "有新生成的图"
     }
   },
   "save": {
@@ -749,6 +775,12 @@
     "partial": "{{count}} 个节点没有出结果，已完成的结果会保留。",
     "reported": "已把这批结果交给智能体，它会接着说明。",
     "reportFailed": "没能把结果交给智能体，可以在对话里直接问它。",
+    "rejected": {
+      "specChanged": "有节点的提交内容和你确认时不一致，没有提交，也没有扣费。可以让智能体重新发起授权。",
+      "authorization": "授权已结束或失效，有节点没有提交，也没有扣费。",
+      "budget": "有节点超出了这次授权的预算，没有提交。",
+      "retryLimit": "有节点已经自动重试过，仍然失败。"
+    },
     "storyboard": {
       "summary": "镜头表：{{count}} 镜，共 {{seconds}} 秒",
       "shot": "第 {{index}} 镜 · {{seconds}} 秒 · {{line}}",

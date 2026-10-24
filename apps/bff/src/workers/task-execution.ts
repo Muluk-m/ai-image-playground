@@ -13,6 +13,7 @@ import {
   saveArchiveCheckpoint,
   type TerminalTaskUpdate,
 } from '../db/task-transitions'
+import { accountConcurrencyLimit } from '../lib/account-concurrency'
 import { durableGenerationInputs } from '../lib/generationMedia'
 import { log } from '../lib/logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../lib/private-overlay'
@@ -507,7 +508,7 @@ export async function accountGenerationLimits(
   const hooks = overlay.taskHooks
   const entitlement = hooks.accountConcurrencyEntitlement
     ? await hooks.accountConcurrencyEntitlement({ tx, userId, now })
-    : { guaranteed: (await hooks.accountConcurrencyLimit?.({ tx, userId, now })) ?? 3, idle: 0 }
+    : { guaranteed: await accountConcurrencyLimit(tx, userId, now), idle: 0 }
   const guaranteed = entitlement.guaranteed
   const requested = Number.isInteger(guaranteed) && guaranteed > 0 ? guaranteed : 1
   const idle =

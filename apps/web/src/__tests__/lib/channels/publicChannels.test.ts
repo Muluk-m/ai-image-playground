@@ -114,9 +114,16 @@ describe('selector metadata from an unvalidated catalog', () => {
         label: 'Image A',
         capabilities: ['generate'],
         badges: ['fast', 'brand-new', 'fast', 'value'] as never,
+        tier: 'fast',
         logo: 'future-logo' as never,
       },
-      { id: 'img-b', label: 'Image B', capabilities: ['generate'], logo: 'nano-banana' },
+      {
+        id: 'img-b',
+        label: 'Image B',
+        capabilities: ['generate'],
+        tier: 'turbo' as never,
+        logo: 'nano-banana',
+      },
     ],
     defaults: {},
   }
@@ -125,6 +132,16 @@ describe('selector metadata from an unvalidated catalog', () => {
     setChannels([STALE])
     const [first] = getProfileModelOptions(builtinProfile('stale', 'img-a'), getPublicChannels())
     expect(first?.badges).toEqual(['fast', 'value'])
+  })
+
+  it('keeps a known selector group and drops one the client does not know', () => {
+    setChannels([STALE])
+    const [first, second] = getProfileModelOptions(
+      builtinProfile('stale', 'img-a'),
+      getPublicChannels(),
+    )
+    expect(first?.tier).toBe('fast')
+    expect(second).not.toHaveProperty('tier')
   })
 
   it('gives each selector option the logo its own channel declares', () => {
