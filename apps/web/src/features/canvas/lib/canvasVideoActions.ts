@@ -4,7 +4,7 @@ import {
   type VideoDuration,
   type VideoGenerationRecord,
 } from '@image-playground/shared'
-import { i18next } from '../../../i18n'
+import { describeError, i18next, UserFacingError } from '../../../i18n'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import {
@@ -132,7 +132,7 @@ export async function submitCanvasDerive(
       return false
     }
   } catch (err) {
-    toast(err instanceof Error ? err.message : String(err))
+    toast(describeError(err))
     return false
   }
   if (!guardAllows(generation)) return false
@@ -387,7 +387,9 @@ export async function downloadCanvasVideo(node: CanvasVideoNode): Promise<void> 
   try {
     const res = await authenticatedBffFetch(videoOutputUrl(node.video))
     if (!res.ok)
-      throw new Error(i18next.t('download.fetchFailed', { ns: 'video', status: res.status }))
+      throw new UserFacingError(
+        i18next.t('download.fetchFailed', { ns: 'video', status: res.status }),
+      )
     downloadBlob(await res.blob(), `video-${node.video.taskId}-${node.video.outputIndex}.mp4`)
   } catch (err) {
     toast(
