@@ -150,10 +150,17 @@ it.each([
   expect(vi.getTimerCount()).toBe(0)
 })
 
-it.each([400, 401, 403, 404])('fails closed without retrying a permanent %s response', async (status) => {
+it.each([
+  400, 401, 403, 404,
+])('fails closed without retrying a permanent %s response', async (status) => {
   vi.useFakeTimers()
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status })))
-  await expect(bootstrapClientCapabilities(true, '', true)).rejects.toThrow('capability_manifest_unavailable')
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(null, { status })),
+  )
+  await expect(bootstrapClientCapabilities(true, '', true)).rejects.toThrow(
+    'capability_manifest_unavailable',
+  )
   await vi.advanceTimersByTimeAsync(30_000)
   expect(fetch).toHaveBeenCalledTimes(1)
   expect(vi.getTimerCount()).toBe(0)
