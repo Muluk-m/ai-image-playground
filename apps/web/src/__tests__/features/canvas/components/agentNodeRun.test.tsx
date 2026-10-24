@@ -31,6 +31,7 @@ import { useStore } from '../../../../store'
 const mocks = vi.hoisted(() => ({
   current: vi.fn(),
   run: vi.fn<(...args: unknown[]) => Promise<void>>(async () => {}),
+  syncResults: vi.fn<() => Promise<void>>(async () => {}),
 }))
 // The batch runner is the canvas execution boundary of the authorization store seam.
 vi.mock('../../../../features/canvas/lib/nodeBatch', async (original) => ({
@@ -109,6 +110,7 @@ async function mount(
       active: true,
       revision: plan.signature,
       files: {},
+      syncResults: mocks.syncResults,
     })
     // 聊天面板收起时只有画布挂着，运行卡不渲染。
     return card ? <AgentNodeRunCard runKey={runKey} proposal={next} /> : null
@@ -195,6 +197,8 @@ beforeEach(() => {
   plan = fixturePlan('first')
   mocks.current.mockImplementation(() => plan)
   mocks.run.mockReset()
+  mocks.syncResults.mockReset()
+  mocks.syncResults.mockResolvedValue(undefined)
   mocks.run.mockImplementation(async (...args: unknown[]) => {
     authorization = { ...authorization, spentCredits: 20 }
     for (const job of plan.jobs) (args[7] as NodeBatchHooks | undefined)?.completed?.(job)
@@ -205,6 +209,25 @@ afterEach(async () => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
   expect(agentNodeRunBridge()).toBeNull()
+})
+it('does not wake review while generated images are still being saved to the server canvas', async () => {
+  let saved!: () => void
+  mocks.syncResults.mockImplementation(() => new Promise<void>((resolve) => { saved = resolve }))
+  const followed = vi.fn()
+  await mount('review-waits-for-images', true, { ...proposal, direct: true }, followed)
+  await act(async () => {})
+  try {
+    expect(mocks.run).toHaveBeenCalledOnce()
+    expect(reports).toEqual([])
+    expect(followed).not.toHaveBeenCalled()
+  } finally {
+    await act(async () => saved?.())
+  }
+  expect(reports).toEqual([
+    expect.objectContaining({ nodes: [{ nodeId: 'a', outcome: 'completed' }] }),
+  ])
+  expect(followed).toHaveBeenCalledOnce()
+  expect(mocks.run).toHaveBeenCalledOnce()
 })
 it('shows scope and budget, confirms once, then preflights and runs only after the undo window', async () => {
   await mount('confirm')
