@@ -1140,23 +1140,8 @@ function isApiRequestNetworkError(err: unknown): boolean {
   return false
 }
 
-function getApiRequestNetworkErrorHint(err: unknown, task: TaskRecord): string | null {
+function getApiRequestNetworkErrorHint(err: unknown): string | null {
   if (!isApiRequestNetworkError(err)) return null
-
-  const elapsedSeconds = Math.max(0, (Date.now() - task.createdAt) / 1000)
-
-  if (elapsedSeconds <= 15) {
-    return i18next.t('networkHint.generic', { ns: 'store' })
-  }
-
-  if (elapsedSeconds >= 55 && elapsedSeconds <= 75) {
-    return i18next.t('networkHint.reverseProxy60s', { ns: 'store' })
-  }
-
-  if (elapsedSeconds >= 110 && elapsedSeconds <= 140) {
-    return i18next.t('networkHint.cdn120s', { ns: 'store' })
-  }
-
   return i18next.t('networkHint.generic', { ns: 'store' })
 }
 
@@ -1878,7 +1863,7 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
         let errorMessage = isOwnTimeoutAbortError(failure.error)
           ? createOpenAITimeoutError(job.timeoutSeconds)
           : failure.text
-        const networkErrorHint = getApiRequestNetworkErrorHint(failure.error, latestTask)
+        const networkErrorHint = getApiRequestNetworkErrorHint(failure.error)
         if (networkErrorHint && !errorMessage.includes(IMAGE_FETCH_CORS_HINT)) {
           errorMessage += `\n${networkErrorHint}`
         }

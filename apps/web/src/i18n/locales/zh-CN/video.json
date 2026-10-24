@@ -50,7 +50,7 @@
     "edit": "改视频"
   },
   "download": {
-    "fetchFailed": "视频拉取失败：{{status}}"
+    "fetchFailed": "视频下载失败，请重试"
   },
   "store": {
     "emptyPrompt": "请先写一句描述"
