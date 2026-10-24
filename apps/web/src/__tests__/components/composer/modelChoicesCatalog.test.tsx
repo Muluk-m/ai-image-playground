@@ -27,7 +27,7 @@ const channel = (etaSeconds: number): PublicChannel => ({
       id: 'gpt-image-2.5-flare',
       label: 'Flare',
       capabilities: ['generate'],
-      badges: ['recommended'],
+      tier: 'quality',
       etaSeconds,
     },
   ],
@@ -36,7 +36,11 @@ const channel = (etaSeconds: number): PublicChannel => ({
 
 function Probe() {
   const { options } = useModelChoices()
-  return <output>{options.map((one) => `${one.model}:${one.etaSeconds ?? '-'}`).join(',')}</output>
+  return (
+    <output>
+      {options.map((one) => `${one.model}:${one.tier ?? '-'}:${one.etaSeconds ?? '-'}`).join(',')}
+    </output>
+  )
 }
 
 it('shows the latest channel metadata after the catalog is replaced', () => {
@@ -49,8 +53,8 @@ it('shows the latest channel metadata after the catalog is replaced', () => {
     },
   })
   act(() => root.render(<Probe />))
-  expect(host.textContent).toBe('gpt-image-2.5-flare:30')
+  expect(host.textContent).toBe('gpt-image-2.5-flare:quality:30')
 
   act(() => setChannels([channel(45)]))
-  expect(host.textContent).toBe('gpt-image-2.5-flare:45')
+  expect(host.textContent).toBe('gpt-image-2.5-flare:quality:45')
 })
