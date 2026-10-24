@@ -86,6 +86,13 @@ describe('model stream tool-argument limit', () => {
     expect(seen.cancelled).toBe(true)
   }, 2_000)
 
+  it('fails an oversized line that arrives whole in one chunk', async () => {
+    const line = `data: {"choices":[{"delta":{"content":"${'x'.repeat(AGENT_SSE_LINE_MAX_CHARS)}"}}]}\n\n`
+    const { fetchFn } = sseFetch(line, line.length)
+    const response = await withToolArgumentLimit(fetchFn, 1_000)('https://gateway.test/v1/chat')
+    await expect(response.text()).rejects.toBeInstanceOf(AgentToolArgumentsTooLargeError)
+  })
+
   it('passes a long text event on one line even when it exceeds the tool-argument limit', async () => {
     const body = event({ content: '雨'.repeat(10_000) })
     const { fetchFn } = sseFetch(body, 512)
