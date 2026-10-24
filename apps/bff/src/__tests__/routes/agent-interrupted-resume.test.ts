@@ -242,6 +242,10 @@ const DRAFT_STALL_LOCK = 8_731_042
  * 把 `call-2` 那次调用按在草稿落库那一步，放手时这一笔再也写不下去：测试握着这把咨询锁的
  * 这段时间里，第一张卡已经落库（用户看得见、也确认得了），而这一轮还在准备第二张——进程正是
  * 死在这里，准备了一半的那次调用什么也没留下。
+ *
+ * 放手之前必须先等到那一笔真的停在锁上（{@link secondDraftParked}）：草稿落库不走执行租约，
+ * 还没走到触发器的那一笔要是赶在放手、删掉触发器之后才落下，它就成了一张落了库的待确认草稿，
+ * 补写照它补出「等待确认」的卡，按「在等用户」不再续跑——那是另一种中断，不是这里要演的。
  */
 async function holdSecondDraft(): Promise<() => Promise<void>> {
   await db.execute(
@@ -274,6 +278,15 @@ async function holdSecondDraft(): Promise<() => Promise<void>> {
     await db.execute(sql`DROP TRIGGER hold_second_draft ON agent_generation_drafts`)
     await db.execute(sql`DROP FUNCTION hold_second_draft()`)
   }
+}
+
+/** `call-2` 的草稿插入此刻正卡在触发器里那把咨询锁上，放手后它只会抛错。 */
+async function secondDraftParked(): Promise<boolean> {
+  const rows = await db.execute(sql`
+    SELECT 1 FROM pg_locks
+    WHERE locktype = 'advisory' AND NOT granted
+      AND ((classid::bigint << 32) | objid::bigint) = ${DRAFT_STALL_LOCK}`)
+  return rows.length > 0
 }
 
 /**
@@ -449,6 +462,8 @@ describe('中断续跑', () => {
       expect(await tasksOf(conversationId)).toEqual([])
       const [confirmed] = await confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
       expect(confirmed).toMatchObject({ status: 'submitted', prompt: '一只橘猫' })
+      // 第二张正在落库：它停在锁上，放手后这一笔落不下去。
+      await waitFor(secondDraftParked, 3_000)
       // 确认之后执行者就没了：这一轮再想落库就发现租约丢了。
       await abandonExecution(conversationId)
     } finally {
