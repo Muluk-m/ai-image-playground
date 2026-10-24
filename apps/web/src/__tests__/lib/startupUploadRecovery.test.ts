@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest'
-import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
+import { bootstrapClientCapabilities, getClientCapabilityManifest } from '../../lib/clientCapabilities'
 import { transferMedia } from '../../lib/mediaTransfer'
 
 vi.mock('../../lib/runtimeConfig', () => ({ bffBaseUrl: () => 'https://api.test' }))
@@ -41,6 +41,47 @@ function upload(signal: AbortSignal) {
   })
 }
 
+it('bounds a stalled manifest body even when the transport ignores abort', async () => {
+  vi.useFakeTimers()
+  const signals: AbortSignal[] = []
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+    signals.push(init.signal!)
+    return new Response(new ReadableStream())
+  }))
+  const outcome = expect(bootstrapClientCapabilities(true, '', true)).rejects.toThrow('capability_request_timeout')
+  await vi.advanceTimersByTimeAsync(30_000)
+  await outcome
+  expect(signals).toHaveLength(3)
+  expect(signals.every((signal) => signal.aborted)).toBe(true)
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it('does not let late manifests overwrite the first completed response', async () => {
+  vi.useFakeTimers()
+  let late!: (response: Response) => void
+  vi.stubGlobal('fetch', vi.fn()
+    .mockReturnValueOnce(new Promise<Response>((resolve) => { late = resolve }))
+    .mockResolvedValueOnce(Response.json({ 'accounts:login': false })))
+  const boot = bootstrapClientCapabilities(true, '', true)
+  await vi.advanceTimersByTimeAsync(5000)
+  expect(await boot).toMatchObject({ 'accounts:login': false })
+  late(Response.json({ 'accounts:login': true }))
+  await vi.advanceTimersByTimeAsync(30_000)
+  expect(getClientCapabilityManifest()['accounts:login']).toBe(false)
+  expect(fetch).toHaveBeenCalledTimes(2)
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it('retries prompt transport failures without waiting for fallback timers', async () => {
+  vi.useFakeTimers()
+  vi.stubGlobal('fetch', vi.fn()
+    .mockRejectedValueOnce(new TypeError('failed to fetch'))
+    .mockResolvedValueOnce(Response.json({ 'accounts:login': true })))
+  await expect(bootstrapClientCapabilities(true, '', true)).resolves.toMatchObject({ 'accounts:login': true })
+  expect(fetch).toHaveBeenCalledTimes(2)
+  expect(vi.getTimerCount()).toBe(0)
+})
+
 it('retries a transport-aborted response body while the caller remains active', async () => {
   vi.useFakeTimers()
   const fetchMock = vi.fn()
@@ -77,4 +118,17 @@ it('bounds repeated transport aborts to four attempts', async () => {
   await vi.advanceTimersByTimeAsync(10_000)
   await outcome
   expect(fetchMock).toHaveBeenCalledTimes(4)
+})
+
+it('stops immediately when the caller cancels during abort recovery backoff', async () => {
+  vi.useFakeTimers()
+  const caller = new AbortController()
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('interrupted', 'AbortError')))
+  const pending = upload(caller.signal)
+  const outcome = expect(pending).rejects.toThrow('user cancelled')
+  await vi.advanceTimersByTimeAsync(100)
+  caller.abort(new Error('user cancelled'))
+  await outcome
+  await vi.advanceTimersByTimeAsync(10_000)
+  expect(fetch).toHaveBeenCalledTimes(1)
 })
