@@ -1,85 +1,189 @@
+import { createParser } from 'eventsource-parser'
 import { log } from '../logger'
 import type { AgentFetch } from './model'
 
-/** 每个输出 token 最多按这么多字符算；超出说明网关没执行 max_tokens，模型在失控地吐参数。 */
+/** 与模型输出预算独立的流解析保护；正文不占工具参数额度。 */
 export const AGENT_TOOL_ARGUMENT_CHARS_PER_TOKEN = 6
-
-/** 单个 SSE 事件行的长度上限，只防缓冲无限增长；与工具参数额度无关。 */
 export const AGENT_SSE_LINE_MAX_CHARS = 1_048_576
+const MAX_ARGUMENT_DEPTH = 64
 
 export class AgentToolArgumentsTooLargeError extends Error {
   constructor(readonly maxChars: number) {
-    super(`Model streamed more than ${maxChars} characters of tool-call arguments`)
+    super(`Model streamed more than ${maxChars} characters of tool-call arguments or SSE data`)
     this.name = 'AgentToolArgumentsTooLargeError'
   }
 }
 
-interface ChatChunk {
-  choices?: Array<{
-    delta?: {
-      tool_calls?: Array<{ function?: { arguments?: unknown }; custom?: { input?: unknown } }>
-    }
-  }>
+interface ToolDelta {
+  index?: number
+  function?: { arguments?: string }
+  custom?: { input?: string }
 }
 
-function argumentChars(payload: string): number {
-  let chunk: ChatChunk
-  try {
-    chunk = JSON.parse(payload)
-  } catch {
-    return 0
+interface ChatChunk {
+  id?: string
+  choices?: Array<{ index?: number; delta?: { tool_calls?: ToolDelta[] } }>
+}
+
+interface BufferedArguments {
+  choice: number
+  index: number
+  custom: boolean
+  pieces: string[]
+  depth: number
+  quoted: boolean
+  escaped: boolean
+}
+
+/** 跨增量跟踪 JSON 字符串与括号；字符串内的括号不计深度，不递归解析半成品。 */
+function checkDepth(state: BufferedArguments, piece: string): void {
+  if (state.custom) return
+  for (const char of piece) {
+    if (state.quoted) {
+      if (state.escaped) state.escaped = false
+      else if (char === '\\') state.escaped = true
+      else if (char === '"') state.quoted = false
+    } else if (char === '"') state.quoted = true
+    else if (char === '{' || char === '[') {
+      state.depth += 1
+      if (state.depth > MAX_ARGUMENT_DEPTH)
+        throw new Error(`Model tool-call arguments exceed nesting limit ${MAX_ARGUMENT_DEPTH}`)
+    } else if (char === '}' || char === ']') state.depth = Math.max(0, state.depth - 1)
   }
-  let chars = 0
-  for (const choice of chunk.choices ?? [])
-    for (const call of choice.delta?.tool_calls ?? []) {
-      const piece = call.function?.arguments ?? call.custom?.input
-      if (typeof piece === 'string') chars += piece.length
-    }
-  return chars
 }
 
 /**
- * 给 Chat Completions 流的工具参数总长设上限。pi 每收到一个参数增量都把累计的整串重新解析
- * 一遍，失控的工具调用因此是 O(n²) 的 CPU，会把 BFF 主线程拖死（2026-10-24 paid 事故）。
- * 这里只线性扫一遍 SSE，越线就让流报错并取消上游。
+ * pi 每个参数增量都会重解析累计 JSON。先线性收集有界参数，流结束时一次交给 SDK，
+ * 避免合法长参数和失控流的 O(n²) 开销。正文、推理、工具名称及用量仍即时透传；
+ * BFF 本就只在 message_end 后执行工具，不消费不完整的 toolcall_delta 参数。
  */
 export function withToolArgumentLimit(fetchFn: AgentFetch, maxChars: number): AgentFetch {
   return async (input, init) => {
     const response = await fetchFn(input, init)
-    if (!response.body) return response
+    if (!response.body || !response.ok) return response
     const decoder = new TextDecoder()
-    let pending = ''
+    const encoder = new TextEncoder()
+    const argumentsByCall = new Map<string, BufferedArguments>()
+    const choiceOrder = new Set<number>()
     let total = 0
-    const fail = (controller: TransformStreamDefaultController<Uint8Array>) => {
-      log.warn(
-        { event: 'agent.tool_arguments_too_large', maxChars },
-        'model streamed oversized tool-call arguments',
+    let responseId: string | undefined
+    let finished = false
+    let output: TransformStreamDefaultController<Uint8Array>
+    const emit = (data: string, event?: string) => {
+      output.enqueue(
+        encoder.encode(
+          `${event ? `event: ${event}\n` : ''}${data
+            .split('\n')
+            .map((line) => `data: ${line}`)
+            .join('\n')}\n\n`,
+        ),
       )
-      controller.error(new AgentToolArgumentsTooLargeError(maxChars))
-      return false
     }
-    /** 越线时让流报错并返回 false，这一块不再往下游送。只在新到的文本里找换行，保持线性。 */
-    const scan = (text: string, controller: TransformStreamDefaultController<Uint8Array>) => {
-      let start = 0
-      for (let end = text.indexOf('\n'); end !== -1; end = text.indexOf('\n', start)) {
-        const line = pending + text.slice(start, end)
-        pending = ''
-        start = end + 1
-        if (line.length > AGENT_SSE_LINE_MAX_CHARS) return fail(controller)
-        if (line.startsWith('data:')) total += argumentChars(line.slice(5).trim())
-        if (total > maxChars) return fail(controller)
+    const flushArguments = () => {
+      const choices = new Map<number, ToolDelta[]>()
+      for (const state of argumentsByCall.values()) {
+        const value = state.pieces.join('')
+        const call: ToolDelta = state.custom
+          ? { index: state.index, custom: { input: value } }
+          : { index: state.index, function: { arguments: value } }
+        const calls = choices.get(state.choice) ?? []
+        calls.push(call)
+        choices.set(state.choice, calls)
       }
-      pending += text.slice(start)
-      // 一直不换行的单行同样要截断：否则缓冲无限增长，参数也永远数不到。
-      return pending.length > AGENT_SSE_LINE_MAX_CHARS ? fail(controller) : true
+      if (choices.size)
+        emit(
+          JSON.stringify({
+            id: responseId,
+            choices: [...choiceOrder].map((index) => ({
+              index,
+              delta: { tool_calls: choices.get(index) ?? [] },
+            })),
+          }),
+        )
+      argumentsByCall.clear()
     }
+    const parser = createParser({
+      maxBufferSize: AGENT_SSE_LINE_MAX_CHARS,
+      onError(error) {
+        if (error.type === 'max-buffer-size-exceeded')
+          throw new AgentToolArgumentsTooLargeError(AGENT_SSE_LINE_MAX_CHARS)
+      },
+      onEvent(event) {
+        if (finished) return
+        if (event.data.length > AGENT_SSE_LINE_MAX_CHARS)
+          throw new AgentToolArgumentsTooLargeError(AGENT_SSE_LINE_MAX_CHARS)
+        if (event.data === '[DONE]') {
+          flushArguments()
+          finished = true
+          emit(event.data, event.event)
+          return
+        }
+        let chunk: ChatChunk
+        try {
+          chunk = JSON.parse(event.data)
+        } catch {
+          emit(event.data, event.event)
+          return
+        }
+        if (!chunk || !Array.isArray(chunk.choices)) {
+          emit(event.data, event.event)
+          return
+        }
+        responseId ??= chunk.id
+        let changed = false
+        for (const choice of chunk.choices) {
+          choiceOrder.add(choice?.index ?? 0)
+          if (!Array.isArray(choice?.delta?.tool_calls)) continue
+          for (const call of choice.delta.tool_calls) {
+            const piece = call.function?.arguments ?? call.custom?.input
+            if (typeof piece !== 'string' || !piece) continue
+            total += piece.length
+            if (total > maxChars) throw new AgentToolArgumentsTooLargeError(maxChars)
+            const key = `${choice.index ?? 0}:${call.index ?? 0}`
+            let state = argumentsByCall.get(key)
+            if (!state) {
+              state = {
+                choice: choice.index ?? 0,
+                index: call.index ?? 0,
+                custom: !call.function,
+                pieces: [],
+                depth: 0,
+                quoted: false,
+                escaped: false,
+              }
+              argumentsByCall.set(key, state)
+            }
+            checkDepth(state, piece)
+            state.pieces.push(piece)
+            if (call.function) delete call.function.arguments
+            if (call.custom) delete call.custom.input
+            changed = true
+          }
+        }
+        emit(changed ? JSON.stringify(chunk) : event.data, event.event)
+      },
+    })
     const body = response.body.pipeThrough(
       new TransformStream<Uint8Array, Uint8Array>({
         transform(chunk, controller) {
-          if (scan(decoder.decode(chunk, { stream: true }), controller)) controller.enqueue(chunk)
+          output = controller
+          try {
+            // 限制每次 feed 的工作量，也让跨行但未收尾的 SSE 事件及时触发缓冲上限。
+            for (let start = 0; start < chunk.length; start += 16_384)
+              parser.feed(decoder.decode(chunk.subarray(start, start + 16_384), { stream: true }))
+          } catch (error) {
+            log.warn(
+              { event: 'agent.tool_arguments_rejected', maxChars, err: error },
+              'rejected unsafe model tool arguments',
+            )
+            throw error
+          }
         },
         flush(controller) {
-          scan(`${decoder.decode()}\n`, controller)
+          output = controller
+          parser.feed(decoder.decode())
+          // 与 SSE/SDK 保持一致：没有空行收尾的事件不交付；已收到的参数仍须保留。
+          flushArguments()
         },
       }),
     )

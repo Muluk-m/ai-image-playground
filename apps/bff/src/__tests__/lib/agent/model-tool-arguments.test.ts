@@ -80,10 +80,30 @@ it('does not reparse every incomplete tool argument delta in the real SDK', asyn
 }, 10_000)
 
 it('rejects nested arguments below the character cap before the SDK can stall', async () => {
-  const seen = upstream('['.repeat(2000), 8)
+  const seen = upstream('['.repeat(24_000), 8, true)
   const { result } = await consume()
   expect(result.stopReason).toBe('error')
   expect(result.errorMessage).toContain('nesting')
+  expect(seen.cancelled).toBe(true)
+  expect(seen.calls).toBe(1)
+}, 5_000)
+
+it('retains long valid arguments with the current 128K model output budget', async () => {
+  const args = { text: 'x'.repeat(96_000) }
+  upstream(JSON.stringify(args), 8)
+  const { result, argumentDeltas } = await consume()
+  expect(result.stopReason).toBe('toolUse')
+  expect(result.content).toEqual([
+    { type: 'toolCall', id: 'call_1', name: 'runNodes', arguments: args },
+  ])
+  expect(argumentDeltas).toBe(1)
+}, 5_000)
+
+it('cancels runaway arguments at the real model budget without retrying', async () => {
+  const seen = upstream('x'.repeat(agentModel('fast').maxTokens * 6 + 1), 1024, true)
+  const { result } = await consume()
+  expect(result.stopReason).toBe('error')
+  expect(result.errorMessage).toContain('characters')
   expect(seen.cancelled).toBe(true)
   expect(seen.calls).toBe(1)
 }, 5_000)
