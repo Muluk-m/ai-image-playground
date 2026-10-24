@@ -320,6 +320,7 @@ async function reportRun(
   executionToken: string | undefined,
   sameAccount: () => boolean,
   owner: symbol,
+  syncResults?: () => Promise<void>,
 ): Promise<boolean> {
   const origin = origins.get(key)
   let published = false
@@ -336,6 +337,16 @@ async function reportRun(
     if (live()) origin?.onReported?.(authorizationId)
   }
   update({ nodes, wake: 'reporting' })
+  // 回报会立即唤醒读服务端画布；本机生成完成还不代表媒体与节点已在服务端可读。
+  if (syncResults && nodes.some((node) => node.outcome === 'completed')) {
+    try {
+      await syncResults()
+    } catch {
+      update({ nodes, wake: 'failed' })
+      return false
+    }
+  }
+  if (!live()) return false
   try {
     const result = await stageAuthorizationClient.report(authorizationId, {
       nodes,
@@ -549,6 +560,7 @@ export function startAgentNodeRun(
     let started = false
     let terminal: AgentNodeRun | undefined
     let nodes: StageRunNodeReport[] | undefined
+    let syncResults: (() => Promise<void>) | undefined
     try {
       const confirmed = await stageAuthorizationClient.confirm(
         authorizationId,
@@ -592,6 +604,8 @@ export function startAgentNodeRun(
       const bridge = agentNodeRunBridge()
       if (bridge?.projectId !== proposal.projectId)
         throw Object.assign(new Error('changed'), { code: 'changed' })
+      // 保留开跑时的会话，切换项目后仍同步这一批所属的画布。
+      syncResults = bridge.syncResults
       publish(key, {
         ...base,
         authorization,
@@ -651,6 +665,7 @@ export function startAgentNodeRun(
           executionToken,
           sameAccount,
           owner,
+          syncResults,
         )
         if (reported) authorization = undefined
       } else if (terminal && live()) publish(key, terminal)
