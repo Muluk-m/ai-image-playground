@@ -65,6 +65,7 @@ export function withToolArgumentLimit(fetchFn: AgentFetch, maxChars: number): Ag
         const line = pending + text.slice(start, end)
         pending = ''
         start = end + 1
+        if (line.length > AGENT_SSE_LINE_MAX_CHARS) return fail(controller)
         if (line.startsWith('data:')) total += argumentChars(line.slice(5).trim())
         if (total > maxChars) return fail(controller)
       }
