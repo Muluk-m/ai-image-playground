@@ -123,9 +123,11 @@ async function requestManifest(
             cache: 'no-store',
             signal: controller.signal,
           })
-          if (!response.ok) return null
+          if (!response.ok) throw new Error('capability_manifest_unavailable')
           const body: unknown = await response.json()
-          return { body, parsed: parseManifest(body) }
+          const parsed = parseManifest(body)
+          if (!parsed) throw new Error('capability_manifest_unavailable')
+          return { body, parsed }
         })().then(
           (result) => finish(() => resolve(result)),
           (error: unknown) => {

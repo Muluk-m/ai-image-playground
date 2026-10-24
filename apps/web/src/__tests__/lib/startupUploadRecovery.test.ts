@@ -82,6 +82,27 @@ it('retries prompt transport failures without waiting for fallback timers', asyn
   expect(vi.getTimerCount()).toBe(0)
 })
 
+it.each(['http', 'malformed'])('keeps a healthy pending request when a fallback response is %s', async (failure) => {
+  vi.useFakeTimers()
+  const failedResponse = () => failure === 'http'
+    ? new Response(null, { status: 503 })
+    : Response.json({ 'accounts:login': 'invalid' })
+  vi.stubGlobal('fetch', vi.fn()
+    .mockImplementationOnce(() => new Promise<Response>((resolve) => {
+      setTimeout(() => resolve(Response.json({ 'accounts:login': true })), 16_000)
+    }))
+    .mockImplementation(async () => failedResponse()))
+  const result = vi.fn()
+  const boot = bootstrapClientCapabilities(true, '', true)
+  void boot.then(result, result)
+  await vi.advanceTimersByTimeAsync(15_000)
+  expect(result).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(1000)
+  await expect(boot).resolves.toMatchObject({ 'accounts:login': true })
+  expect(fetch).toHaveBeenCalledTimes(3)
+  expect(vi.getTimerCount()).toBe(0)
+})
+
 it('retries a transport-aborted response body while the caller remains active', async () => {
   vi.useFakeTimers()
   const fetchMock = vi.fn()
