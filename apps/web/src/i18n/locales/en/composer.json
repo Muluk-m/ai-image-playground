@@ -87,12 +87,10 @@
     "modelEtaMinutes": "~{{minutes}} min",
     "modelEtaRange": "~{{min}}–{{max}}s",
     "modelEtaRangeMinutes": "~{{min}}–{{max}} min",
-    "modelBadge": {
-      "recommended": "Recommended",
-      "latest": "Latest",
-      "quality": "Best quality",
-      "fast": "Fastest",
-      "value": "Low cost"
+    "modelNew": "New",
+    "modelTier": {
+      "fast": "Fast",
+      "quality": "High quality"
     }
   },
   "size": {

@@ -2,7 +2,7 @@
  * Adapted from assistant-ui Elements `model-selector` (MIT, AgentbaseAI).
  * 只取外观与结构：沿用项目的 Radix Popover，不引入 cmdk / base-ui。
  */
-import type { ModelBadge, ModelLogoId } from '@image-playground/shared'
+import type { ModelBadge, ModelLogoId, ModelTier } from '@image-playground/shared'
 import { type KeyboardEvent, useId, useMemo, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
@@ -20,7 +20,7 @@ import { compactModelName, ModelLogo } from '../ModelIdentity'
 import Badge from '../patterns/Badge'
 import SearchField from '../patterns/SearchField'
 import { Button } from '../ui/button'
-import { Icon } from '../ui/icon'
+import { Icon, type IconName } from '../ui/icon'
 import { OverflowText, useOverflowTitle } from '../ui/overflowTitle'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { type ComposerControlSize, composerModelChipClass } from './SettingsPanel'
@@ -33,8 +33,10 @@ export interface ModelChoice {
   logo?: ModelLogoId
   label: string
   description?: string
-  /** 渠道下发的说明标签（最新 / 质量好 / 速度快 / 便宜），按顺序显示在名字后面。 */
+  /** 渠道下发的标签 token；只有 'latest' 会显示，是名字旁一枚很小的「New」。 */
   badges?: readonly ModelBadge[]
+  /** 选择器分组（快速 / 高质量）；没有就排在分组后面，不带组头。 */
+  tier?: ModelTier
   /** 典型单张耗时，显示成「约 N 秒」，一分钟以上显示成「约 N 分钟」。 */
   etaSeconds?: number
   /** 耗时随档位变化时的上界，有就显示成「约 N–M 秒」。 */
@@ -68,6 +70,7 @@ export function useModelChoices() {
           label: compactModelName(option.id, option.label),
           description: view.name,
           ...(option.badges ? { badges: option.badges } : {}),
+          ...(option.tier ? { tier: option.tier } : {}),
           ...(option.etaSeconds !== undefined ? { etaSeconds: option.etaSeconds } : {}),
           ...(option.etaMaxSeconds !== undefined ? { etaMaxSeconds: option.etaMaxSeconds } : {}),
           ...(option.logo ? { logo: option.logo } : {}),
@@ -109,46 +112,66 @@ function moveOptionFocus(event: KeyboardEvent<HTMLElement>) {
   items[index === -1 && step === -1 ? items.length - 1 : next]?.focus()
 }
 
-/** 「推荐」「最新」用芽绿，其余保持中性，绿色只做点缀。 */
-const BADGE_TONE: Record<ModelBadge, 'primary' | 'neutral'> = {
-  recommended: 'primary',
-  latest: 'primary',
-  quality: 'neutral',
-  fast: 'neutral',
-  value: 'neutral',
+/** 分组顺序与组头图标：快速组在前，组头只有一个小图标加组名，不配说明文字。 */
+const TIER_ORDER: readonly ModelTier[] = ['fast', 'quality']
+const TIER_ICON: Record<ModelTier, IconName> = { fast: 'speed', quality: 'quality' }
+const TIER_LABEL_KEY = {
+  fast: 'param.modelTier.fast',
+  quality: 'param.modelTier.quality',
+} as const satisfies Record<ModelTier, string>
+
+interface ModelGroup {
+  tier?: ModelTier
+  options: ModelChoice[]
+}
+
+/** 组内从快到慢；没写耗时的排在组尾，同档保持渠道顺序。 */
+function byEta(a: ModelChoice, b: ModelChoice) {
+  const left = usableEtaSeconds(a.etaSeconds)
+  const right = usableEtaSeconds(b.etaSeconds)
+  if (left === right) return 0
+  if (left === undefined) return 1
+  if (right === undefined) return -1
+  return left - right
+}
+
+/** 有任何一项带分组才分组；都不带（比如文本模型列表）就原样一组、不出组头。 */
+function groupByTier(options: readonly ModelChoice[]): ModelGroup[] {
+  if (!options.some((option) => option.tier)) return [{ options: [...options] }]
+  const groups: ModelGroup[] = TIER_ORDER.map((tier) => ({
+    tier,
+    options: options.filter((option) => option.tier === tier).sort(byEta),
+  })).filter((group) => group.options.length > 0)
+  const rest = options.filter((option) => !option.tier)
+  return rest.length ? [...groups, { options: rest }] : groups
 }
 
 /**
- * 名字后接说明标签，有预估耗时时在下一行用次要文字写「约 N 秒」。
+ * 名字一行（新模型在名字旁带一枚很小的 New），有预估耗时时在下一行用次要文字写「约 N 秒」。
+ * 快慢和画质交给分组表达，名字后面不挂说明标签。
  * 写成返回元素的函数而不是组件：Button 靠静态遍历 children 判断有没有可见文字，
  * 包一层组件它就看不见名字，会把 aria-label 当成悬停提示再显示一遍。
  */
 function modelOptionName(
   option: ModelChoice,
-  badgeLabel: (badge: ModelBadge) => string,
+  newLabel: string | undefined,
   eta: string | undefined,
 ) {
-  const badges = option.badges ?? []
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span title={option.label} className="min-w-0 truncate font-medium text-foreground">
-        {option.label}
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span title={option.label} className="min-w-0 truncate font-medium text-foreground">
+          {option.label}
+        </span>
+        {newLabel ? (
+          <Badge tone="primary" className="shrink-0 px-1">
+            {newLabel}
+          </Badge>
+        ) : null}
       </span>
-      {/* 标签和耗时放在第二行：名字那一行要和右侧 provider 名抢位置，两枚标签放上去在 w-80 的弹层里会折行。
-          第二行永远单行，每行高度一致。挤不下时耗时和标签各自缩短成省略号，不整枚裁掉；整行带 title 可看全。 */}
-      {eta || badges.length > 0 ? (
-        <span
-          title={[eta, ...badges.map(badgeLabel)].filter(Boolean).join(' · ')}
-          className="flex min-w-0 items-center gap-1 whitespace-nowrap"
-        >
-          {eta ? (
-            <span className="min-w-0 truncate text-label-sm text-muted-foreground">{eta}</span>
-          ) : null}
-          {badges.map((badge) => (
-            <Badge key={badge} tone={BADGE_TONE[badge]} className="min-w-0">
-              <span className="min-w-0 truncate">{badgeLabel(badge)}</span>
-            </Badge>
-          ))}
+      {eta ? (
+        <span title={eta} className="min-w-0 truncate text-label-sm text-muted-foreground">
+          {eta}
         </span>
       ) : null}
     </span>
@@ -168,7 +191,8 @@ export function ModelList({
   className?: string
 }) {
   const { t } = useTranslation('composer')
-  const badgeLabel = (badge: ModelBadge) => t(`param.modelBadge.${badge}`)
+  const newLabel = (option: ModelChoice) =>
+    option.badges?.includes('latest') ? t('param.modelNew') : undefined
   // 一分钟以上按分钟说：「约 80 秒」不如「约 1 分钟」好读，预估本来就只是量级。
   const etaLabel = (seconds: number, maxSeconds: number | undefined) => {
     if (maxSeconds !== undefined) {
@@ -192,13 +216,16 @@ export function ModelList({
           option.label,
           option.model,
           option.description ?? '',
-          ...(option.badges ?? []).map(badgeLabel),
+          option.tier ? t(TIER_LABEL_KEY[option.tier]) : '',
         ]
           .join(' ')
           .toLocaleLowerCase()
           .includes(needle),
       )
     : options
+  const groups = groupByTier(visible)
+  const firstShown = groups[0]?.options[0]
+  const hasSelected = visible.some((option) => option.value === value)
   return (
     <div className={cn('flex min-h-0 flex-col gap-1', className)}>
       {options.length > SEARCH_THRESHOLD && (
@@ -218,46 +245,73 @@ export function ModelList({
         onKeyDown={moveOptionFocus}
         className="min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {visible.map((option, index) => {
-          const selected = option.value === value
-          const tabStop = selected || (index === 0 && !visible.some((o) => o.value === value))
-          const eta = usableEtaSeconds(option.etaSeconds)
-          const etaText =
-            eta !== undefined
-              ? etaLabel(eta, usableEtaMaxSeconds(option.etaMaxSeconds, eta))
-              : undefined
+        {groups.map((group, groupIndex) => {
+          const headingId = `${listId}-${group.tier ?? 'rest'}`
+          const rows = group.options.map((option) => {
+            const selected = option.value === value
+            const tabStop = selected || (option === firstShown && !hasSelected)
+            const eta = usableEtaSeconds(option.etaSeconds)
+            const etaText =
+              eta !== undefined
+                ? etaLabel(eta, usableEtaMaxSeconds(option.etaMaxSeconds, eta))
+                : undefined
+            const isNew = newLabel(option)
+            return (
+              <Button
+                variant="ghost"
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                tabIndex={tabStop ? 0 : -1}
+                aria-label={[
+                  option.label,
+                  ...(isNew ? [isNew] : []),
+                  ...(etaText ? [etaText] : []),
+                  ...(option.description ? [option.description] : []),
+                ].join(' · ')}
+                onClick={() => onPick(option.value)}
+                className={cn(
+                  'flex h-auto min-h-10 w-full justify-start whitespace-normal px-3 py-2 text-left text-body-sm focus-visible:bg-accent',
+                  selected && 'bg-accent',
+                )}
+              >
+                <span className="flex shrink-0">
+                  <ModelLogo model={option.model} logo={option.logo ?? null} />
+                </span>
+                {modelOptionName(option, isNew, etaText)}
+                {option.description && (
+                  <OverflowText
+                    text={option.description}
+                    className="max-w-20 truncate text-label-sm text-muted-foreground"
+                  />
+                )}
+                {selected && <Icon name="check" />}
+              </Button>
+            )
+          })
+          if (!group.tier)
+            return (
+              <div key="rest" className={cn(groupIndex > 0 && 'mt-1 border-t border-border pt-1')}>
+                {rows}
+              </div>
+            )
           return (
-            <Button
-              variant="ghost"
-              key={option.value}
-              type="button"
-              role="option"
-              aria-selected={selected}
-              tabIndex={tabStop ? 0 : -1}
-              aria-label={[
-                option.label,
-                ...(option.badges ?? []).map(badgeLabel),
-                ...(etaText ? [etaText] : []),
-                ...(option.description ? [option.description] : []),
-              ].join(' · ')}
-              onClick={() => onPick(option.value)}
-              className={cn(
-                'flex h-auto min-h-10 w-full justify-start whitespace-normal px-3 py-2 text-left text-body-sm focus-visible:bg-accent',
-                selected && 'bg-accent',
-              )}
+            <div
+              key={group.tier}
+              role="group"
+              aria-labelledby={headingId}
+              className={cn(groupIndex > 0 && 'mt-1 border-t border-border pt-1')}
             >
-              <span className="flex shrink-0">
-                <ModelLogo model={option.model} logo={option.logo ?? null} />
-              </span>
-              {modelOptionName(option, badgeLabel, etaText)}
-              {option.description && (
-                <OverflowText
-                  text={option.description}
-                  className="max-w-20 truncate text-label-sm text-muted-foreground"
-                />
-              )}
-              {selected && <Icon name="check" />}
-            </Button>
+              <div
+                id={headingId}
+                className="flex items-center gap-1.5 px-3 pt-2 pb-1 text-label-sm font-medium text-muted-foreground"
+              >
+                <Icon name={TIER_ICON[group.tier]} size="xs" />
+                {t(TIER_LABEL_KEY[group.tier])}
+              </div>
+              {rows}
+            </div>
           )
         })}
         {!visible.length && (
