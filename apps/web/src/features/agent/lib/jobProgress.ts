@@ -1,4 +1,8 @@
-import type { AgentBackgroundJobProgress, AgentToolName } from '@image-playground/shared'
+import type {
+  AgentBackgroundJobProgress,
+  AgentJobQueuePosition,
+  AgentToolName,
+} from '@image-playground/shared'
 import type { AgentPanelMessage, AgentToolMessage } from '../types'
 
 /**
@@ -43,6 +47,8 @@ export interface AgentToolProgress {
   readonly since?: number
   /** 当前阶段的起点。结果确认用它判断是否超过 30 分钟；其它阶段缺席。 */
   readonly phaseSince?: number
+  /** 还在排队时它在本账号队列里的位置；服务端没给就缺席，只说「排队中」。 */
+  readonly queue?: AgentJobQueuePosition
 }
 
 /**
@@ -77,8 +83,9 @@ export function agentToolProgress(
   }
   if (message.status === 'submitted') {
     if (!job) return at('submitted')
-    if (job.phase) return at(job.phase)
-    return at(job.stage === 'running' ? 'generating' : 'queued')
+    const phase = job.phase ?? (job.stage === 'running' ? 'generating' : 'queued')
+    const progress = at(phase)
+    return phase === 'queued' && job.queue ? { ...progress, queue: job.queue } : progress
   }
   if (message.status === 'succeeded' && message.delivery === 'pending') return at('delivering')
   return null

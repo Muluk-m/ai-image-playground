@@ -112,7 +112,12 @@
     "runningCount": "{{running}} running",
     "queuedCount": "{{queued}} queued",
     "failedList": "Failed images",
-    "failedItem": "Image {{index}}"
+    "failedItem": "Image {{index}}",
+    "openItem": "Enlarge image {{index}}",
+    "itemDetail": "Details of image {{index}}",
+    "downloadItem": "Download image {{index}}",
+    "downloadAll": "Download all",
+    "itemList": "Images"
   },
   "cloudHistory": {
     "refresh": "Refresh",

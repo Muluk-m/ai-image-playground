@@ -38,6 +38,17 @@ export class InMemoryObjectStore implements ObjectStore {
     return stored.bytes.slice()
   }
 
+  async readUpTo(key: string, maxBytes: number): Promise<Uint8Array<ArrayBuffer>> {
+    this.events.push(`readUpTo:${key}:${maxBytes}`)
+    if (this.readFailuresRemaining > 0) {
+      this.readFailuresRemaining--
+      throw new Error('in-memory read failure')
+    }
+    const stored = this.objects.get(key)
+    if (!stored) throw new Error(`missing object: ${key}`)
+    return stored.bytes.slice(0, maxBytes)
+  }
+
   async open(key: string): Promise<ObjectRangeReader> {
     this.events.push(`open:${key}`)
     if (this.readFailuresRemaining > 0) {

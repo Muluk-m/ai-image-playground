@@ -10,6 +10,8 @@ export interface DurableMediaStore extends ObjectStore {
     signal: AbortSignal,
   ): Promise<void>
   sign(key: string, method: 'GET' | 'PUT', contentType?: string): string
+  /** 一次请求读回至多 maxBytes 字节（不先查大小），见 S3ObjectStore.readUpTo。 */
+  readUpTo(key: string, maxBytes: number): Promise<Uint8Array<ArrayBuffer>>
 }
 
 let production: DurableMediaStore | undefined
