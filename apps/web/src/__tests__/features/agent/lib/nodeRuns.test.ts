@@ -314,7 +314,9 @@ it.each([
   ['stage_authorization_inactive', 'authorization'],
 ])('reports retry preflight refusal %s without another submission', async (code, reason) => {
   submit.mockImplementation(async () => {
-    preflight = async () => { throw new Error(code) }
+    preflight = async () => {
+      throw new Error(code)
+    }
     throw new NodeBatchFailure('failed')
   })
   const { view } = observe('refused-retry')
@@ -328,7 +330,10 @@ it.each([
 it('does not report if a pending retry preflight rejects after stop', async () => {
   let reject!: (error: Error) => void
   submit.mockImplementation(async () => {
-    preflight = () => new Promise((_resolve, fail) => { reject = fail })
+    preflight = () =>
+      new Promise((_resolve, fail) => {
+        reject = fail
+      })
     throw new NodeBatchFailure('failed')
   })
   const { view } = observe('stop-retry')
@@ -340,4 +345,38 @@ it('does not report if a pending retry preflight rejects after stop', async () =
   expect(submit).toHaveBeenCalledTimes(1)
   expect(reports).toHaveLength(0)
   expect(requests).toContain('end')
+})
+
+it('does not apply an old stop receipt to a new account run with the same key', async () => {
+  let finish!: () => void
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  const fetch = globalThis.fetch
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/end')) {
+        const ended = { ...authorization, status: 'ended' }
+        await pending
+        return Response.json(ended)
+      }
+      return fetch(input, init)
+    }),
+  )
+  const old = observe('reused-key')
+  old.view.start()
+  await flush()
+  old.view.stop()
+  await flush()
+  setClientStorageScope('new-account')
+  const next = observe('reused-key')
+  expect(next.view.start()).toBe(true)
+  await flush()
+  finish()
+  await flush()
+  expect(agentNodeRun('reused-key')?.status).toBe('countdown')
+  expect(agentNodeRun('reused-key')?.authorization?.status).toBe('active')
+  next.view.stop()
+  await flush()
 })

@@ -10,12 +10,12 @@ import AgentNodeRunCard from '../../../../features/agent/components/AgentNodeRun
 import { agentNodeRunBridge } from '../../../../features/agent/lib/nodeRunBridge'
 import {
   agentNodeRun,
-  stopAgentNodeRun,
   forgetAgentNodeRun,
   isAgentNodeRunOrigin,
   noteAgentNodeRunBlocked,
   registerAgentNodeRunOrigin,
   startAgentNodeRun,
+  stopAgentNodeRun,
 } from '../../../../features/agent/lib/nodeRuns'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'

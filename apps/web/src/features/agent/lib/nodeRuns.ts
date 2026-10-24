@@ -677,6 +677,8 @@ export function stopAgentNodeRun(key: string) {
   const run = runs.get(key),
     execution = controls.get(key)
   if (!run || !execution) return
+  const sameAccount = accountScope()
+  const owner = owners.get(key)
   execution.control.abort()
   if (run.status === 'countdown' || run.status === 'confirming')
     publish(key, {
@@ -688,6 +690,7 @@ export function stopAgentNodeRun(key: string) {
   void stageAuthorizationClient
     .end(execution.authorizationId)
     .then((authorization) => {
+      if (!sameAccount() || owners.get(key) !== owner) return
       const current = runs.get(key)
       if (current) publish(key, { ...current, authorization })
     })
@@ -717,7 +720,8 @@ export function createAgentNodeRunView(key: string, initialProposal: AgentCanvas
   let timer: ReturnType<typeof setTimeout> | undefined
   let disconnect: (() => void) | undefined
   const readSnapshot = (): AgentNodeRunSnapshot => {
-    if (!sameAccount()) return { origin: false, canConfirm: false, readFailed: false, readReady: false }
+    if (!sameAccount())
+      return { origin: false, canConfirm: false, readFailed: false, readReady: false }
     const live = runs.get(key)
     if (live && isTerminalRun(live)) settled = live
     const run = live ?? settled
@@ -791,7 +795,8 @@ export function createAgentNodeRunView(key: string, initialProposal: AgentCanvas
     getSnapshot: () => snapshot,
     updateProposal: (next: AgentCanvasRunProposal) => {
       if (proposal === next) return
-      const restartRead = proposal.authorizationId !== next.authorizationId || proposal.direct !== next.direct
+      const restartRead =
+        proposal.authorizationId !== next.authorizationId || proposal.direct !== next.direct
       proposal = next
       if (restartRead) {
         stopReading()
