@@ -163,7 +163,7 @@ it('reloads once when stale HTML references a deleted chunk, then asks instead o
   ready()
   sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
   const first = preloadError()
-  expect(first.defaultPrevented).toBe(true)
+  expect(first.defaultPrevented).toBe(false)
   expect(Number(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY))).toBeGreaterThan(0)
   finishReveal()
   expect(document.getElementById('boot')).toBeNull()
@@ -570,7 +570,7 @@ it('does not renew spent recovery when each document commits a loading screen be
   sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
   sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
   ready()
-  expect(preloadError().defaultPrevented).toBe(true)
+  expect(preloadError().defaultPrevented).toBe(false)
   expect(replace).toHaveBeenCalledTimes(1)
 
   document.body.innerHTML = bodyHtml
@@ -672,7 +672,7 @@ it.each([
   document.head.append(link)
   try {
     link.dispatchEvent(new Event('error'))
-    expect(preloadError(`Unable to preload CSS for ${link.href}`).defaultPrevented).toBe(true)
+    expect(preloadError(`Unable to preload CSS for ${link.href}`).defaultPrevented).toBe(false)
     expect(errorPanelVisible()).toBe(false)
     await vi.advanceTimersByTimeAsync(2000)
     expect(replace).not.toHaveBeenCalled()
@@ -686,7 +686,7 @@ it.each([
       // Duplicate reports must neither cancel the wait nor extend its original deadline.
       expect(
         preloadError('Unable to preload CSS for /assets/lazy-canvas.css').defaultPrevented,
-      ).toBe(true)
+      ).toBe(false)
       await vi.advanceTimersByTimeAsync(10000)
       expect(errorPanelVisible()).toBe(true)
       expect(replace).not.toHaveBeenCalled()

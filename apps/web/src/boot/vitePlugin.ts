@@ -212,11 +212,12 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     if(recovery&&typeof message==='string'&&message.startsWith(cssPrefix)){
       try{
         const url=new URL(message.slice(cssPrefix.length),location.href);
-        if(recovery.failedStyles.has(url.href)){event.preventDefault();return}
+        if(recovery.failedStyles.has(url.href))return
       }catch{}
     }
     if(!retry()){fail('preload',{message:clip(message,300)});return}
-    event.preventDefault();
+    // Cancelling Vite's event resolves its import helper to undefined, crashing React.lazy.
+    // Navigation is asynchronous: preserve the original rejection until this document unloads.
   };
   const onReady=()=>{
     rendered=true;
