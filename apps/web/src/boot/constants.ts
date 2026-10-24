@@ -1,5 +1,15 @@
 // Shared by the inline startup guard (via vite.config.ts) and the app bundle, so keep it dependency-free.
 export const BOOT_READY_EVENT = 'app:boot-ready'
+export const BOOT_STAGE_EVENT = 'app:boot-stage'
+export const BOOT_STAGES = [
+  'entry',
+  'runtime-config',
+  'modules',
+  'capabilities',
+  'account',
+  'account-data',
+  'workspace',
+] as const
 /** Per-tab recovery budgets: only explicit user retry clears spent attempts. */
 export const PRELOAD_RELOAD_STORAGE_KEY = 'aip.preload-reload-at'
 export const PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY = 'aip.preload-resource-recovery-at'
