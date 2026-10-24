@@ -1128,7 +1128,7 @@ it('keeps Grok account-pool details out of queue and agent responses while retai
     const response = await request(`/v1/queue/requests/${id}${suffix}`, deviceB)
     const body = await response.json()
     expect(body.error.message).toBe(
-      'Grok model channel is temporarily unavailable. Please try again later.',
+      'This model is temporarily unavailable. Please choose another model.',
     )
     expect(body.error.type).toBe('upstream_error')
   }
@@ -1137,7 +1137,7 @@ it('keeps Grok account-pool details out of queue and agent responses while retai
   const { queueTaskOutcome } = await import('../../lib/taskSubmission')
   expect(queueTaskOutcome(stored!)).toMatchObject({
     kind: 'failed',
-    reason: 'Grok model channel is temporarily unavailable. Please try again later.',
+    reason: 'This model is temporarily unavailable. Please choose another model.',
   })
 })
 

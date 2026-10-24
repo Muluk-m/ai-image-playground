@@ -169,14 +169,7 @@ export async function bootstrapLocale(): Promise<void> {
 
 /** Translate known operational failures; unknown messages remain interpolation values. */
 export function describeError(error: unknown): string {
-  const message = error instanceof Error && error.message ? error.message : String(error)
-  if (
-    message === 'No eligible Grok media accounts' ||
-    message === 'Grok model channel is temporarily unavailable. Please try again later.'
-  ) {
-    return i18next.t('generations.grok_channel_unavailable', { ns: 'errors' })
-  }
-  return message
+  return error instanceof Error && error.message ? error.message : String(error)
 }
 
 // 导入本模块即完成初始化：组件只从这里取 useTranslation，就不会出现「先渲染后初始化」。
