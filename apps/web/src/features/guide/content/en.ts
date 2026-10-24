@@ -761,7 +761,7 @@ const batchPage: GuidePage = {
           'Each task receives only its current input image, with no other references or task results. Tasks may run concurrently or queue; completion order can vary.',
         ),
         shot(
-          img('batch-mechanism'),
+          img('batch-mechanism-v2'),
           'Images A, B and C pair with the same prompt in three independent tasks, each producing one result without sharing images',
         ),
       ],
