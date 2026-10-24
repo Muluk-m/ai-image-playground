@@ -2,7 +2,7 @@ import { formatImageRatio, parseImageSize } from '@image-playground/shared'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useImagePreview } from '../hooks/useImagePreview'
-import { describeError, useTranslation } from '../i18n'
+import { useTranslation } from '../i18n'
 import { formatDateTime } from '../i18n/format'
 import { getActiveApiProfile, getApiProviderLabel } from '../lib/apiProfiles'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
@@ -14,6 +14,7 @@ import {
 } from '../lib/clipboard'
 import { loadImageOriginal } from '../lib/imageSource'
 import { ActualValueBadge, DetailParamValue, measuredSizeOf } from '../lib/paramDisplay'
+import { taskRecordErrorText } from '../lib/taskError'
 import {
   editOutputImage,
   removeTask,
@@ -252,9 +253,7 @@ export default function DetailModal() {
 
   const errorText = task.cancelled
     ? t('common:state.cancelled')
-    : task.error?.trim()
-      ? describeError(task.error)
-      : t('detail.errorUnavailable')
+    : (taskRecordErrorText(task) ?? t('detail.errorUnavailable'))
 
   const handleCopyError = async () => {
     const diagnostics = JSON.stringify(

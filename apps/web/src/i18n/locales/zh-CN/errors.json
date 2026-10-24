@@ -1,4 +1,9 @@
 {
+  "common": {
+    "storageFull": "浏览器存储空间不足，请清理后重试",
+    "network": "网络连接失败，请检查网络后重试",
+    "fallback": "操作没有完成，请重试"
+  },
   "agentQueue": {
     "stop_failed": "中止未成功，请点击中止重试。",
     "fallback": "消息恢复失败，请重试。",

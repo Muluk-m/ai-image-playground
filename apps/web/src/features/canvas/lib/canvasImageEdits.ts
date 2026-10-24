@@ -1,4 +1,4 @@
-import { i18next } from '../../../i18n'
+import { describeError, i18next } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import {
   modelSupportsEdit,
@@ -69,7 +69,7 @@ export async function applyCanvasCrop(
     })
     return true
   } catch (err) {
-    showToast(err instanceof Error ? err.message : String(err), 'error')
+    showToast(describeError(err), 'error')
     return false
   }
 }
@@ -125,7 +125,7 @@ export async function submitCanvasCutout(editor: CanvasEditor, image: ImageEl): 
     })
     return started
   } catch (err) {
-    showToast(err instanceof Error ? err.message : String(err), 'error')
+    showToast(describeError(err), 'error')
     return false
   }
 }
@@ -189,7 +189,7 @@ export async function submitCanvasOutpaint(
     })
     return started
   } catch (err) {
-    showToast(err instanceof Error ? err.message : String(err), 'error')
+    showToast(describeError(err), 'error')
     return false
   }
 }
@@ -232,7 +232,7 @@ export async function submitCanvasImageEdit(
     })
     return started
   } catch (err) {
-    showToast(err instanceof Error ? err.message : String(err), 'error')
+    showToast(describeError(err), 'error')
     return false
   }
 }
@@ -302,7 +302,7 @@ export async function submitCanvasResize(
     })
     return started
   } catch (err) {
-    showToast(err instanceof Error ? err.message : String(err), 'error')
+    showToast(describeError(err), 'error')
     return false
   }
 }
