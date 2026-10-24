@@ -112,7 +112,8 @@ export function withToolArgumentLimit(fetchFn: AgentFetch, maxChars: number): Ag
         if (finished) return
         if (event.data.length > AGENT_SSE_LINE_MAX_CHARS)
           throw new AgentToolArgumentsTooLargeError(AGENT_SSE_LINE_MAX_CHARS)
-        if (event.data === '[DONE]') {
+        // 与 OpenAI SDK 的结束标记匹配规则一致，兼容尾随空白。
+        if (event.data.startsWith('[DONE]')) {
           flushArguments()
           finished = true
           emit(event.data, event.event)
