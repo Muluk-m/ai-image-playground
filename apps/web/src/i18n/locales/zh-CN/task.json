@@ -112,7 +112,12 @@
     "runningCount": "生成中 {{running}}",
     "queuedCount": "排队中 {{queued}}",
     "failedList": "失败的图",
-    "failedItem": "第 {{index}} 张"
+    "failedItem": "第 {{index}} 张",
+    "openItem": "放大查看第 {{index}} 张",
+    "itemDetail": "第 {{index}} 张详情",
+    "downloadItem": "下载第 {{index}} 张",
+    "downloadAll": "全部下载",
+    "itemList": "逐张结果"
   },
   "cloudHistory": {
     "refresh": "刷新",

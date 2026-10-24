@@ -3,8 +3,10 @@ import {
   type GeminiImageSize,
   isModelEtaSeconds,
   MODEL_BADGES,
+  MODEL_TIERS,
   type ModelBadge,
   type ModelLogoId,
+  type ModelTier,
 } from '@image-playground/shared'
 import { i18next } from '../../i18n'
 import { knownModelLogo } from './publicChannels'
@@ -119,6 +121,11 @@ export function knownModelBadges(value: unknown): ModelBadge[] {
   return known
 }
 
+/** 选择器分组：清单不经浏览器校验，认不出的值按「不分组」处理。 */
+export function knownModelTier(value: unknown): ModelTier | undefined {
+  return MODEL_TIERS.includes(value as ModelTier) ? (value as ModelTier) : undefined
+}
+
 /** 返回该 profile 的模型展示项（id + 人类可读 label）。 */
 export function getProfileModelOptions(
   profile: ClientProfile,
@@ -127,6 +134,7 @@ export function getProfileModelOptions(
   id: string
   label: string
   badges?: ModelBadge[]
+  tier?: ModelTier
   etaSeconds?: number
   etaMaxSeconds?: number
   logo?: ModelLogoId
@@ -138,10 +146,12 @@ export function getProfileModelOptions(
         const etaMaxSeconds = usableEtaMaxSeconds(model.etaMaxSeconds, etaSeconds)
         const badges = knownModelBadges(model.badges)
         const logo = knownModelLogo(model.logo)
+        const tier = knownModelTier(model.tier)
         return {
           id: model.id,
           label: model.label ?? model.id,
           ...(badges.length ? { badges } : {}),
+          ...(tier ? { tier } : {}),
           ...(etaSeconds !== undefined ? { etaSeconds } : {}),
           ...(etaMaxSeconds !== undefined ? { etaMaxSeconds } : {}),
           ...(logo ? { logo } : {}),

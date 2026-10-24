@@ -5,7 +5,11 @@ import type {
   TaskStatus as QueueStatus,
   TaskErrorType,
 } from '@image-playground/shared'
-import { QUEUE_TIMEOUTS } from '@image-playground/shared'
+import {
+  PROMPT_REWRITE_GUARD_PREFIX,
+  QUEUE_TIMEOUTS,
+  unshapeQueuePrompt,
+} from '@image-playground/shared'
 import { i18next } from '../i18n'
 import { useStore } from '../store'
 import {
@@ -17,6 +21,7 @@ import {
   type TaskRecord,
   type TaskStatus,
 } from '../types'
+import { getPublicChannels } from './channels/publicChannels'
 import { deleteCachedGeneration, getCachedGenerations, putCachedGeneration } from './db'
 import { mediaRef, readRemoteGeneration } from './remoteGenerations'
 import type { CloudReuseSource } from './reuseCloudGeneration'
@@ -55,7 +60,7 @@ export function taskFromGeneration(
   return {
     id: item.id,
     bffRequestId: item.id,
-    prompt: item.prompt,
+    prompt: promptFromGeneration(item),
     params: paramsFromGeneration(item),
     actualParams: pickActual(item),
     apiModel: item.model,
@@ -78,7 +83,7 @@ export function cloudReuseSourceFromGeneration(item: GenerationSummary): CloudRe
   return {
     provider: item.provider,
     model: item.model,
-    prompt: item.prompt,
+    prompt: promptFromGeneration(item),
     params: paramsFromGeneration(item),
     inputs: item.inputs.map((image) => mediaRef(image.mediaId)),
     mask: item.mask ? mediaRef(item.mask.mediaId) : null,
@@ -335,11 +340,35 @@ function statusFromGeneration(status: QueueStatus): TaskStatus {
  * 平台记录的参数投影。Gemini 那三项也照抄：这份参数同时是卡面显示和「复用配置」的来源，
  * 漏掉它们，复用一条 Gemini 生成就会悄悄换掉画面比例、分辨率档位和思考级别。
  */
+/**
+ * 平台记下的是发给上游的那一句：创作页开着「防改写」时钉了 guard 前缀，模型不认 `size` 时还缀了构图指令。
+ * 作品卡和复用要的是用户写的原文，机器指令剥掉；防改写这一项改由参数 `no_rewrite` 带着。
+ *
+ * 构图指令跟提交侧（`callImageApi`）用同一个判据：模型声明了 `size` 能力就没缀过。平台记录只有
+ * provider/model、不知道走的哪条渠道，同一个模型 id 又可能挂在能力不同的几条渠道上：只有挂着它的
+ * 每一条渠道都声明了 `size`（提交时不可能缀过）才原样保留——用户自己写在结尾的同一句话、Gemini 都不剥；
+ * 有任何一条可能缀过、或清单还没到 / 模型已下架认不出，就只剥逐字一致的那一句（前面还得是提交侧拼上的空行），
+ * 这是机器生成的英文，用户原句恰好这样结尾的概率可以忽略。
+ */
+export function promptFromGeneration(item: GenerationSummary): string {
+  const models = getPublicChannels()
+    .flatMap((channel) => channel.models)
+    .filter((model) => model.id === item.model)
+  const sized = models.length > 0 && models.every((model) => model.capabilities.includes('size'))
+  return unshapeQueuePrompt({
+    provider: item.provider === 'gemini' ? 'gemini' : 'openai-compat',
+    prompt: item.prompt,
+    size: sized ? undefined : item.parameters.size,
+  })
+}
+
 function paramsFromGeneration(item: GenerationSummary): TaskParams {
   const { size, quality, output_format, output_compression, n } = item.parameters
   const { aspect_ratio, image_size, thinking_level } = item.parameters
   return {
     ...DEFAULT_PARAMS,
+    no_rewrite:
+      item.provider !== 'gemini' && item.prompt.startsWith(`${PROMPT_REWRITE_GUARD_PREFIX}\n`),
     ...(size ? { size } : {}),
     ...(quality ? { quality: quality as TaskParams['quality'] } : {}),
     ...(output_format ? { output_format: output_format as TaskParams['output_format'] } : {}),
