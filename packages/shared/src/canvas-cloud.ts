@@ -82,9 +82,11 @@ export const CANVAS_UPLOAD_DEVICE_META = 'uploadDevice'
 export const CANVAS_UPLOAD_STARTED_META = 'uploadStartedAt'
 /**
  * 上传失败停下时撤掉声明的时间。不只删掉声明，还记下撤销时间：并发合并时据此认出「撤掉声明」这次簿记，
- * 别的设备同时改节点时照抄来的旧声明（开始时间早于它）不会被当成新声明把它顶回去。
+ * 别的设备同时改节点时照抄来的旧声明不会被当成新声明把它顶回去；顺序由 uploadStamp 记录。
  */
 export const CANVAS_UPLOAD_RELEASED_META = 'uploadReleasedAt'
+/** 并发合并用的逻辑时间，允许继承未来值；不用于判断上传有效期。只在与时钟时间不同时写入，其余回退到声明/撤销时间。 */
+export const CANVAS_UPLOAD_STAMP_META = 'uploadStamp'
 /** 超过这么久还没收成云媒体，就不再显示「上传中」而显示缺图（上传那台设备可能已离线或失败）。 */
 export const CANVAS_UPLOAD_STALE_MS = 30 * 60_000
 /** 别的设备写的开始时间最多可以比本机时钟晚这么多（设备间的时钟偏差）。 */
@@ -143,7 +145,8 @@ export function withoutCanvasUploadClaim(
     !(
       CANVAS_UPLOAD_DEVICE_META in meta ||
       CANVAS_UPLOAD_STARTED_META in meta ||
-      CANVAS_UPLOAD_RELEASED_META in meta
+      CANVAS_UPLOAD_RELEASED_META in meta ||
+      CANVAS_UPLOAD_STAMP_META in meta
     )
   )
     return meta
@@ -151,6 +154,7 @@ export function withoutCanvasUploadClaim(
     [CANVAS_UPLOAD_DEVICE_META]: _device,
     [CANVAS_UPLOAD_STARTED_META]: _since,
     [CANVAS_UPLOAD_RELEASED_META]: _released,
+    [CANVAS_UPLOAD_STAMP_META]: _stamp,
     ...rest
   } = meta
   return rest
@@ -160,34 +164,60 @@ const uploadTime = (value: string | undefined) => {
   const at = Number(value)
   return value !== undefined && Number.isFinite(at) ? at : Number.NEGATIVE_INFINITY
 }
-/** meta 上最近一次上传簿记（写声明或撤销声明）的时间；都没有时为负无穷。 */
+/** meta 上最近一次上传簿记的逻辑时间；旧文档只有声明/撤销时间，都没有时为负无穷。 */
 export function canvasUploadBookkeepingTime(meta: Record<string, string> | undefined): number {
+  return Math.max(uploadWallTime(meta), uploadTime(meta?.[CANVAS_UPLOAD_STAMP_META]))
+}
+
+function uploadWallTime(meta: Record<string, string> | undefined): number {
   const claimed = meta?.[CANVAS_UPLOAD_DEVICE_META]
     ? uploadTime(meta[CANVAS_UPLOAD_STARTED_META])
     : Number.NEGATIVE_INFINITY
   return Math.max(claimed, uploadTime(meta?.[CANVAS_UPLOAD_RELEASED_META]))
 }
 /**
- * 新一次簿记（声明或撤销）要写的时间：取本机时钟，但至少比节点上已有的簿记晚 1ms。
- * 设备间时钟有偏差时，本机时钟可能落后于别的设备写的旧声明；这样新簿记仍按写入先后排在后面，
- * 并发合并不会把它当成照抄来的旧值。
+ * 声明/撤销的时钟时间：正常时至少比旧时间晚 1ms；继承值会超过允许偏差时改用本机现在。
+ * 逻辑先后另存 uploadStamp，否则降低时钟时间后，并发编辑照抄的旧声明会把这次簿记顶回去。
  */
 export function nextCanvasUploadStamp(
   meta: Record<string, string> | undefined,
   now: number,
 ): number {
-  const previous = canvasUploadBookkeepingTime(meta)
-  return Number.isFinite(previous) ? Math.max(now, Math.floor(previous) + 1) : now
+  const next = Math.max(now, Math.floor(uploadWallTime(meta)) + 1)
+  return next - now <= CANVAS_UPLOAD_CLOCK_SKEW_MS ? next : now
 }
 
-/** 上传失败停下时撤掉声明：去掉声明，记下撤销时间（见 CANVAS_UPLOAD_RELEASED_META）。 */
+function nextUploadBookkeepingStamp(meta: Record<string, string> | undefined, now: number): number {
+  return Math.max(now, Math.floor(canvasUploadBookkeepingTime(meta)) + 1)
+}
+
+/** 写入或续签声明，同时记录有效期时间和并发合并顺序。 */
+export function claimCanvasUpload(
+  meta: Record<string, string> | undefined,
+  device: string,
+  now: number,
+): Record<string, string> {
+  const at = nextCanvasUploadStamp(meta, now)
+  const stamp = nextUploadBookkeepingStamp(meta, now)
+  return {
+    ...withoutCanvasUploadClaim(meta),
+    [CANVAS_UPLOAD_DEVICE_META]: device,
+    [CANVAS_UPLOAD_STARTED_META]: String(at),
+    ...(stamp > at ? { [CANVAS_UPLOAD_STAMP_META]: String(stamp) } : {}),
+  }
+}
+
+/** 上传失败停下时撤掉声明：去掉声明，记下撤销时间与逻辑顺序。 */
 export function releaseCanvasUploadClaim(
   meta: Record<string, string> | undefined,
   now: number,
 ): Record<string, string> {
+  const at = nextCanvasUploadStamp(meta, now)
+  const stamp = nextUploadBookkeepingStamp(meta, now)
   return {
     ...withoutCanvasUploadClaim(meta),
-    [CANVAS_UPLOAD_RELEASED_META]: String(nextCanvasUploadStamp(meta, now)),
+    [CANVAS_UPLOAD_RELEASED_META]: String(at),
+    ...(stamp > at ? { [CANVAS_UPLOAD_STAMP_META]: String(stamp) } : {}),
   }
 }
 const finite = (value: unknown) =>

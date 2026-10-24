@@ -1,4 +1,5 @@
 import {
+  CANVAS_UPLOAD_CLOCK_SKEW_MS,
   CANVAS_UPLOAD_DEVICE_META,
   CANVAS_UPLOAD_STALE_MS,
   CANVAS_UPLOAD_STARTED_META,
@@ -8,6 +9,7 @@ import {
   canvasSyncStep1,
   canvasSyncStep2,
   canvasUploadingElsewhere,
+  claimCanvasUpload,
   createCanvasUndoManager,
   dropCanvasNodeFile,
   dropCanvasResult,
@@ -16,7 +18,6 @@ import {
   importLegacyElements,
   isLocalCanvasFileId,
   type LegacyCanvasElement,
-  nextCanvasUploadStamp,
   type ProjectDocument,
   type ProjectVideoRef,
   projectKind,
@@ -951,11 +952,7 @@ export class CloudNodeProjectSession {
           {
             data: {
               ...data,
-              meta: {
-                ...data.meta,
-                [CANVAS_UPLOAD_DEVICE_META]: device,
-                [CANVAS_UPLOAD_STARTED_META]: String(nextCanvasUploadStamp(data.meta, now)),
-              },
+              meta: claimCanvasUpload(data.meta, device, now),
             },
           },
           legacyOrigin,
@@ -985,7 +982,12 @@ export class CloudNodeProjectSession {
       if (data.fileId !== fileId || data.mediaId) continue
       if (data.meta?.[CANVAS_UPLOAD_DEVICE_META] !== device) continue
       const since = Number(data.meta?.[CANVAS_UPLOAD_STARTED_META])
-      if (Number.isFinite(since) && now - since < CANVAS_UPLOAD_STALE_MS / 2) continue
+      if (
+        Number.isFinite(since) &&
+        since - now <= CANVAS_UPLOAD_CLOCK_SKEW_MS &&
+        now - since < CANVAS_UPLOAD_STALE_MS / 2
+      )
+        continue
       renewed.push({ id: nodeId, data })
     }
     if (!renewed.length) return
@@ -998,10 +1000,7 @@ export class CloudNodeProjectSession {
           {
             data: {
               ...data,
-              meta: {
-                ...data.meta,
-                [CANVAS_UPLOAD_STARTED_META]: String(nextCanvasUploadStamp(data.meta, now)),
-              },
+              meta: claimCanvasUpload(data.meta, device, now),
             },
           },
           legacyOrigin,

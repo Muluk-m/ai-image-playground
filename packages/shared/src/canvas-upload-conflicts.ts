@@ -2,6 +2,7 @@ import * as Y from 'yjs'
 import {
   CANVAS_UPLOAD_DEVICE_META,
   CANVAS_UPLOAD_RELEASED_META,
+  CANVAS_UPLOAD_STAMP_META,
   CANVAS_UPLOAD_STARTED_META,
   canvasUploadBookkeepingTime,
   isLocalCanvasFileId,
@@ -38,8 +39,8 @@ const time = (value: string | undefined) => {
 const bookkeepingTime = (data: UploadData) => canvasUploadBookkeepingTime(data.meta)
 
 /**
- * claimed 是不是给 base 写上（或续上）上传声明的那一次写入。声明的时间由 nextCanvasUploadStamp 取，
- * 总比 base 上的簿记（声明或撤销）新，设备间时钟有偏差也一样；用户编辑只会照抄已有的（更旧的）声明，不会被当成簿记。
+ * claimed 是不是给 base 写上（或续上）上传声明的那一次写入。声明的逻辑顺序由 uploadStamp 记录，
+ * 总比 base 上的簿记（声明或撤销）新，不受声明有效期时间的钳制影响；用户编辑只会照抄已有的（更旧的）声明，不会被当成簿记。
  */
 function isClaimOf(claimed: UploadData, base: UploadData): boolean {
   const since = time(claimed.meta?.[CANVAS_UPLOAD_STARTED_META])
@@ -50,13 +51,13 @@ function isClaimOf(claimed: UploadData, base: UploadData): boolean {
     isLocalCanvasFileId(base.fileId) &&
     claimed.fileId === base.fileId &&
     Number.isFinite(since) &&
-    since > bookkeepingTime(base)
+    bookkeepingTime(claimed) > bookkeepingTime(base)
   )
 }
 
 /**
  * released 是不是上传失败停下时撤掉声明的那一次写入：没有声明、带撤销时间，且比 base 上的簿记新。
- * 用户编辑照抄的是撤销之前的旧声明，时间更早，所以不会把撤销顶回去。
+ * 用户编辑照抄的是撤销之前的旧声明，逻辑顺序更早，所以不会把撤销顶回去。
  */
 function isReleaseOf(released: UploadData, base: UploadData): boolean {
   const at = time(released.meta?.[CANVAS_UPLOAD_RELEASED_META])
@@ -67,7 +68,7 @@ function isReleaseOf(released: UploadData, base: UploadData): boolean {
     isLocalCanvasFileId(base.fileId) &&
     released.fileId === base.fileId &&
     Number.isFinite(at) &&
-    at > bookkeepingTime(base)
+    bookkeepingTime(released) > bookkeepingTime(base)
   )
 }
 
@@ -83,22 +84,17 @@ function withBookkeeping(user: UploadData, book: UploadData): UploadData {
         ...(book.meta?.contentIdentity ? { contentIdentity: book.meta.contentIdentity } : {}),
       },
     }
-  if (!book.meta?.[CANVAS_UPLOAD_DEVICE_META])
-    return {
-      ...user,
-      meta: {
-        ...withoutCanvasUploadClaim(user.meta),
-        [CANVAS_UPLOAD_RELEASED_META]: book.meta?.[CANVAS_UPLOAD_RELEASED_META] ?? '',
-      },
-    }
-  return {
-    ...user,
-    meta: {
-      ...user.meta,
-      [CANVAS_UPLOAD_DEVICE_META]: book.meta?.[CANVAS_UPLOAD_DEVICE_META] ?? '',
-      [CANVAS_UPLOAD_STARTED_META]: book.meta?.[CANVAS_UPLOAD_STARTED_META] ?? '',
-    },
+  const meta = { ...withoutCanvasUploadClaim(user.meta) }
+  for (const key of [
+    CANVAS_UPLOAD_DEVICE_META,
+    CANVAS_UPLOAD_STARTED_META,
+    CANVAS_UPLOAD_RELEASED_META,
+    CANVAS_UPLOAD_STAMP_META,
+  ]) {
+    const value = book.meta?.[key]
+    if (value !== undefined) meta[key] = value
   }
+  return { ...user, meta }
 }
 
 /**
