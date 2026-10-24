@@ -252,6 +252,18 @@ export function dropCanvasResultFile(doc: Y.Doc, fileId: string, origin: CanvasO
   }, origin)
   return changed
 }
+/** Remove one unuploaded candidate without touching another result that reuses its fileId. */
+export function dropCanvasResult(doc: Y.Doc, resultId: string, origin: CanvasOrigin): boolean {
+  const results = doc.getMap<CanvasResult>('nodeResults')
+  const mains = doc.getMap<string>('mainResults')
+  if (!results.has(resultId)) return false
+  doc.transact(() => {
+    const result = results.get(resultId)
+    results.delete(resultId)
+    if (result && mains.get(result.nodeId) === resultId) mains.delete(result.nodeId)
+  }, origin)
+  return true
+}
 
 /**
  * 节点挂着的本机原图永远收不了（0 字节、不是图、损坏）时把图摘掉，节点变回空图片卡：
