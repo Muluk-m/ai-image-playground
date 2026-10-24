@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  AGENT_SSE_LINE_MAX_CHARS,
   AgentToolArgumentsTooLargeError,
   withToolArgumentLimit,
 } from '../../../lib/agent/stream-tool-arguments'
@@ -76,14 +77,21 @@ describe('model stream tool-argument limit', () => {
 
   it('fails a line that keeps growing without a newline', async () => {
     const { fetchFn, seen } = sseFetch(
-      `data: {"choices":[{"delta":{"content":"${'x'.repeat(20_000)}`,
-      500,
+      `data: {"choices":[{"delta":{"content":"${'x'.repeat(AGENT_SSE_LINE_MAX_CHARS)}`,
+      64 * 1024,
       true,
     )
     const response = await withToolArgumentLimit(fetchFn, 1_000)('https://gateway.test/v1/chat')
     await expect(response.text()).rejects.toBeInstanceOf(AgentToolArgumentsTooLargeError)
     expect(seen.cancelled).toBe(true)
   }, 2_000)
+
+  it('passes a long text event on one line even when it exceeds the tool-argument limit', async () => {
+    const body = event({ content: '雨'.repeat(10_000) })
+    const { fetchFn } = sseFetch(body, 512)
+    const response = await withToolArgumentLimit(fetchFn, 100)('https://gateway.test/v1/chat')
+    expect(await response.text()).toBe(body)
+  })
 
   it('does not count streamed text toward the tool-argument limit', async () => {
     let body = ''

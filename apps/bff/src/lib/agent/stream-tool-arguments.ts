@@ -4,8 +4,8 @@ import type { AgentFetch } from './model'
 /** 每个输出 token 最多按这么多字符算；超出说明网关没执行 max_tokens，模型在失控地吐参数。 */
 export const AGENT_TOOL_ARGUMENT_CHARS_PER_TOKEN = 6
 
-/** 单个 SSE 事件里除参数以外的 JSON 外壳，留足余量。 */
-const LINE_OVERHEAD_CHARS = 4_096
+/** 单个 SSE 事件行的长度上限，只防缓冲无限增长；与工具参数额度无关。 */
+export const AGENT_SSE_LINE_MAX_CHARS = 1_048_576
 
 export class AgentToolArgumentsTooLargeError extends Error {
   constructor(readonly maxChars: number) {
@@ -70,7 +70,7 @@ export function withToolArgumentLimit(fetchFn: AgentFetch, maxChars: number): Ag
       }
       pending += text.slice(start)
       // 一直不换行的单行同样要截断：否则缓冲无限增长，参数也永远数不到。
-      return pending.length > maxChars + LINE_OVERHEAD_CHARS ? fail(controller) : true
+      return pending.length > AGENT_SSE_LINE_MAX_CHARS ? fail(controller) : true
     }
     const body = response.body.pipeThrough(
       new TransformStream<Uint8Array, Uint8Array>({
