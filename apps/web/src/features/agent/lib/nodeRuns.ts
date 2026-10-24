@@ -734,7 +734,16 @@ export function createAgentNodeRunView(key: string, initialProposal: AgentCanvas
   let readGeneration = 0
   let timer: ReturnType<typeof setTimeout> | undefined
   let disconnect: (() => void) | undefined
+  // 运行表的通知覆盖本标签页所有运行；只有本卡读到的这几项变了才重算报价、通知卡片。
+  const runInputs = () => [
+    sameAccount(),
+    runs.get(key),
+    origins.has(key),
+    agentNodeRunWakeSkipped(proposal.authorizationId),
+  ]
+  let seenRunInputs: unknown[] = []
   const readSnapshot = (): AgentNodeRunSnapshot => {
+    seenRunInputs = runInputs()
     if (!sameAccount())
       return { origin: false, canConfirm: false, readFailed: false, readReady: false }
     const live = runs.get(key)
@@ -773,6 +782,9 @@ export function createAgentNodeRunView(key: string, initialProposal: AgentCanvas
         if (runs.get(key) === live) forgetAgentNodeRun(key, controls.get(key)?.control)
       })
     }
+  }
+  const runsChanged = () => {
+    if (runInputs().some((input, index) => input !== seenRunInputs[index])) update()
   }
   const stopReading = () => {
     readGeneration += 1
@@ -825,7 +837,7 @@ export function createAgentNodeRunView(key: string, initialProposal: AgentCanvas
       observers.add(observer)
       if (observers.size === 1) {
         const unwatch = watchAgentNodeRun(key)
-        const unsubscribeRuns = subscribeAgentNodeRuns(update)
+        const unsubscribeRuns = subscribeAgentNodeRuns(runsChanged)
         const unsubscribeCanvas = subscribeAgentNodeRun(update)
         disconnect = () => {
           stopReading()

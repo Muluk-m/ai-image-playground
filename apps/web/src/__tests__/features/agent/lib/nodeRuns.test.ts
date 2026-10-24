@@ -279,6 +279,29 @@ it('shares one polling loop across subscribers and restarts after a manual retry
   expect(requests).toHaveLength(7)
 })
 
+it('ignores run-table changes that belong to other cards', async () => {
+  keys.push('idle')
+  const view = createAgentNodeRunView('idle', { ...proposal, authorizationId: undefined })
+  let notified = 0
+  disposals.push(
+    view.subscribe(() => {
+      notified += 1
+    }),
+  )
+  const before = notified
+  let busyNotified = 0
+  const busy = observe('busy')
+  disposals.push(
+    busy.view.subscribe(() => {
+      busyNotified += 1
+    }),
+  )
+  busy.view.start()
+  await vi.advanceTimersByTimeAsync(5000)
+  expect(busyNotified).toBeGreaterThan(0)
+  expect(notified).toBe(before)
+})
+
 it('stops future submissions without reporting or waking the agent', async () => {
   let finish!: () => void
   preflight = () =>
