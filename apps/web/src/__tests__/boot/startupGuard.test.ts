@@ -758,7 +758,7 @@ it('preserves a failed lazy module rejection while the recovery navigation is pe
   )
     // Keep Vite's real preload helper; replace only the unavailable module transport.
     .replace(/import\([^)]+\)/g, 'loadChunk()')
-    .replaceAll('import.meta.url', JSON.stringify('https://app.test/assets/entry.js'))
+    .replace(/import\.meta\.url/g, JSON.stringify('https://app.test/assets/entry.js'))
     .replace(/export \{\s*(\w+)(?: as load)?\s*\};?/, 'return $1;')
   const original = new TypeError('Failed to fetch dynamically imported module: /assets/canvas.js')
   const load = window.Function('loadChunk', source)(() => Promise.reject(original))
