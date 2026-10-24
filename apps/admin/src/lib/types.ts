@@ -3,6 +3,7 @@ export type {
   ClientErrorEvent,
   ClientErrorEventsResult,
   ClientErrorGroup,
+  ClientErrorSource,
   ClientErrorKind,
   ClientErrorsResult,
   ClientErrorTrendBucket,

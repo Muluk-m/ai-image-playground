@@ -1,9 +1,11 @@
+import { CLIENT_ERROR_RECOVERY_OPERATIONS } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
 import type {
   ClientErrorEvent,
   ClientErrorEventsResult,
   ClientErrorGroup,
   ClientErrorKind,
+  ClientErrorSource,
   ClientErrorsResult,
   Range,
 } from '../../contracts'
@@ -29,6 +31,28 @@ function epochMs(value: unknown): number {
 
 function text(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value)
+}
+
+/** Keep all reports; provenance is a label, not proof that a failure is harmless. */
+function classifiedErrors(range: Range) {
+  return sql`SELECT e.*,
+    CASE
+      WHEN url ~* '^https?://(localhost|127\\.[0-9]+\\.[0-9]+\\.[0-9]+|\\[::1\\])(:[0-9]+)?(/|$)' THEN 'local'
+      WHEN context->>'diagnostic' = 'true' OR message ~ '(^|_)synthetic(_|$)' THEN 'marked_test'
+      WHEN user_agent LIKE '%HeadlessChrome/%' THEN 'automation'
+      ELSE 'unclassified'
+    END AS source,
+    (SELECT GREATEST(MIN(r.received_at), e.received_at)
+      FROM client_error_recoveries r
+      WHERE r.incident_id = e.context->>'incidentId'
+        AND r.operation = e.context->>'operation'
+        AND r.operation IN (${sql.join(CLIENT_ERROR_RECOVERY_OPERATIONS.map((operation) => sql`${operation}`), sql`, `)})
+        AND r.device_id = e.device_id
+        AND r.user_id IS NOT DISTINCT FROM e.user_id
+        AND r.received_at <= NOW()
+      HAVING COUNT(*) > 0
+    ) AS recovered_at
+    FROM client_errors e WHERE e.received_at >= ${since(range)}`
 }
 
 /**
@@ -79,6 +103,7 @@ export async function getClientErrors(range: Range): Promise<ClientErrorsResult>
       WHERE received_at >= ${since(range)}
     `),
     db.execute(sql`
+      WITH classified AS (${classifiedErrors(range)})
       SELECT g.*, l.kind, l.name, l.message, l.url, l.release
       FROM (
         SELECT
@@ -86,10 +111,14 @@ export async function getClientErrors(range: Range): Promise<ClientErrorsResult>
           COUNT(*) AS count,
           COUNT(DISTINCT device_id) AS devices,
           COUNT(DISTINCT user_id) AS users,
+          COUNT(*) FILTER (WHERE source = 'local') AS local_events,
+          COUNT(*) FILTER (WHERE source = 'automation') AS automation_events,
+          COUNT(*) FILTER (WHERE source = 'marked_test') AS marked_test_events,
+          COUNT(*) FILTER (WHERE source = 'unclassified') AS unclassified_events,
+          COUNT(recovered_at) AS recovered,
           MIN(received_at) AS first_seen,
           MAX(received_at) AS last_seen
-        FROM client_errors
-        WHERE received_at >= ${since(range)}
+        FROM classified
         GROUP BY fingerprint
         ORDER BY count DESC, last_seen DESC
         LIMIT ${GROUP_LIMIT}
@@ -118,6 +147,13 @@ export async function getClientErrors(range: Range): Promise<ClientErrorsResult>
     trend: buckets,
     groups: (groupRows as unknown as Row[]).map(
       (row): ClientErrorGroup => ({
+        sources: {
+          local: Number(row.local_events),
+          automation: Number(row.automation_events),
+          marked_test: Number(row.marked_test_events),
+          unclassified: Number(row.unclassified_events),
+        },
+        recovered: Number(row.recovered),
         fingerprint: String(row.fingerprint),
         kind: row.kind as ClientErrorKind,
         name: text(row.name),
@@ -140,10 +176,11 @@ export async function getClientErrorEvents(
 ): Promise<ClientErrorEventsResult> {
   const { db } = getDbHandle()
   const rows = (await db.execute(sql`
+    WITH classified AS (${classifiedErrors(range)})
     SELECT id, received_at, kind, name, message, stack, url, release, device_id, user_id,
-           user_agent, context
-    FROM client_errors
-    WHERE fingerprint = ${fingerprint} AND received_at >= ${since(range)}
+           user_agent, context, source, recovered_at
+    FROM classified
+    WHERE fingerprint = ${fingerprint}
     ORDER BY received_at DESC
     LIMIT ${EVENT_LIMIT}
   `)) as unknown as Row[]
@@ -151,6 +188,8 @@ export async function getClientErrorEvents(
     fingerprint,
     events: rows.map(
       (row): ClientErrorEvent => ({
+        source: row.source as ClientErrorSource,
+        recovered_at: row.recovered_at == null ? null : epochMs(row.recovered_at),
         id: String(row.id),
         received_at: epochMs(row.received_at),
         kind: row.kind as ClientErrorKind,
