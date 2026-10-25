@@ -18,6 +18,7 @@ import { providerFetch } from './provider-fetch'
 import type { ConfiguredAgentRuntime } from './provider-settings'
 import { requestInputTokens } from './request-budget'
 import { AGENT_STREAM_IDLE_TIMEOUT_MS, withIdleTimeout } from './stream-idle'
+import { withOutputLimit } from './stream-output-limit'
 import { retryOverloadedStream } from './stream-retry'
 import { AGENT_TOOL_ARGUMENT_CHARS_PER_TOKEN, withToolArgumentLimit } from './stream-tool-arguments'
 import { agentThinking } from './thinking'
@@ -157,7 +158,7 @@ export function agentStreamFn(
         ...options,
         maxRetries: 0,
         fetch: withToolArgumentLimit(
-          withIdleTimeout(outbound, idleMs),
+          withOutputLimit(withIdleTimeout(outbound, idleMs), streamModel.maxTokens),
           streamModel.maxTokens * AGENT_TOOL_ARGUMENT_CHARS_PER_TOKEN,
         ) as typeof globalThis.fetch,
       })
