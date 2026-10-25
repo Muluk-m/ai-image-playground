@@ -1,7 +1,7 @@
 {
   "size": {
     "tooLarge": "{{label}} is too large: {{size}}, the limit is {{limit}}",
-    "imageInputPayload": "Total image input payload"
+    "imageInputPayload": "Total reference image size"
   },
   "canvas": {
     "unsupported": "This browser does not support Canvas",

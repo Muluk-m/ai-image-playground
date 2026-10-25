@@ -174,8 +174,8 @@ describe('定价页', () => {
     expect(text).toContain('600,000')
     expect(text).toContain('4,000')
     expect(text).toContain('40,000')
-    expect(text).toContain('购买的当月马上发放')
-    expect(text).toContain('1 元 400 积分')
+    expect(text).toContain('购买当月立即发放')
+    expect(text).toContain('每元 400 积分')
     expect(text).toContain('5%')
     expect(host.querySelector('[aria-current="page"]')?.textContent).toBe('定价')
     expect(document.title).toBe('定价 · 幕芽 Muvloom')
@@ -215,7 +215,7 @@ describe('定价页', () => {
   it('接口失败时不展示旧价格', async () => {
     installCatalog({ error: 'nope' }, 503)
     await renderPage()
-    expect(host.textContent ?? '').toContain('价格没有读出来')
+    expect(host.textContent ?? '').toContain('方案加载失败，请重试')
     expect(host.textContent ?? '').not.toContain('¥39')
   })
 

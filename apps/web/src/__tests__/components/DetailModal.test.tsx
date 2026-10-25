@@ -111,7 +111,7 @@ it('内容安全拒绝：卡上写可行动的那句、给改提示词的出路�
   const labels = Array.from(document.body.querySelectorAll('button')).map((b) =>
     (b.textContent ?? b.getAttribute('aria-label') ?? '').trim(),
   )
-  expect(labels).toContain('改一下提示词')
+  expect(labels).toContain('修改提示词')
   // 原样重试稳定复现同一个拒绝，这条出路撤掉。
   expect(labels.some((label) => label.includes('重试'))).toBe(false)
 })

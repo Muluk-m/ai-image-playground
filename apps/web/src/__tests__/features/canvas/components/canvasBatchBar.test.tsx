@@ -123,7 +123,7 @@ describe('画布多图工具条', () => {
     if (!square) throw new Error('No ratio item')
     act(() => square.click())
     expect(actions.resize).not.toHaveBeenCalled()
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('这是 AI 处理')
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('将逐张发起生成任务')
 
     act(() => dialogButton('取消').click())
     expect(document.querySelector('[role="dialog"]')).toBeNull()
@@ -145,7 +145,7 @@ describe('画布多图工具条', () => {
     doc.setSelection(['a', 'b'])
     act(() => root.render(<CanvasBatchBar editor={editor} />))
 
-    for (const label of ['局部重绘', '擦除', '裁切', '扩图']) expect(labels()).not.toContain(label)
+    for (const label of ['局部重绘', '擦除', '裁剪', '扩图']) expect(labels()).not.toContain(label)
   })
 
   it('取消选择直接在工具条上，且不再提供复制一份', () => {

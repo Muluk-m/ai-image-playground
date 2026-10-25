@@ -1,7 +1,7 @@
 {
   "size": {
     "tooLarge": "{{label}}过大：{{size}}，上限为 {{limit}}",
-    "imageInputPayload": "图像输入有效负载总大小"
+    "imageInputPayload": "参考图总大小"
   },
   "canvas": {
     "unsupported": "当前浏览器不支持 Canvas",
