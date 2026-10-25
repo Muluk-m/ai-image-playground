@@ -105,7 +105,7 @@ export function withOutputLimit(fetchFn: AgentFetch, maxTokens: number): AgentFe
     let usedMilli = 0
     let responseId: string | undefined
     let capped = false
-    let output: TransformStreamDefaultController<Uint8Array>
+    const ready: Uint8Array[] = []
     const parser = createParser({
       maxBufferSize: AGENT_SSE_LINE_MAX_CHARS,
       // 超长单行由工具参数那一层报错，这里只管输出预算。
@@ -135,26 +135,43 @@ export function withOutputLimit(fetchFn: AgentFetch, maxTokens: number): AgentFe
           capped = true
           log.warn({ event: 'agent.output_capped', maxTokens }, 'model output ran past its budget')
           const finish = { index: 0, delta: {}, finish_reason: 'length' }
-          output.enqueue(encoder.encode(sse(JSON.stringify({ id: responseId, choices: [finish] }))))
-          output.enqueue(encoder.encode(sse('[DONE]')))
-          output.terminate()
+          ready.push(encoder.encode(sse(JSON.stringify({ id: responseId, choices: [finish] }))))
+          ready.push(encoder.encode(sse('[DONE]')))
           return
         }
-        output.enqueue(encoder.encode(sse(event.data, event.event)))
+        ready.push(encoder.encode(sse(event.data, event.event)))
       },
     })
-    const body = response.body.pipeThrough(
-      new TransformStream<Uint8Array, Uint8Array>({
-        transform(chunk, controller) {
-          output = controller
-          if (!capped) parser.feed(decoder.decode(chunk, { stream: true }))
-        },
-        flush(controller) {
-          output = controller
-          if (!capped) parser.feed(decoder.decode())
-        },
-      }),
-    )
+    // 自己读上游而不是 pipeThrough：收尾与出错时要确定地取消上游，网关替身未必理会级联取消。
+    const reader = response.body.getReader()
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          while (!ready.length && !capped) {
+            const chunk = await reader.read()
+            if (chunk.done) {
+              parser.feed(decoder.decode())
+              for (const piece of ready.splice(0)) controller.enqueue(piece)
+              controller.close()
+              return
+            }
+            parser.feed(decoder.decode(chunk.value, { stream: true }))
+          }
+        } catch (error) {
+          controller.error(error)
+          void reader.cancel(error).catch(() => {})
+          return
+        }
+        for (const piece of ready.splice(0)) controller.enqueue(piece)
+        if (capped) {
+          controller.close()
+          void reader.cancel().catch(() => {})
+        }
+      },
+      cancel(reason) {
+        return reader.cancel(reason)
+      },
+    })
     return new Response(body, {
       status: response.status,
       statusText: response.statusText,
