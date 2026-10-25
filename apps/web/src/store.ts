@@ -7,7 +7,7 @@ import { discardPendingSubmission, queuePendingSubmission } from './auth/pending
 import { projectExperience } from './features/canvas/lib/projectRepository'
 import { readProjectRoute } from './features/canvas/lib/projectRoute'
 import { useCanvasProjectStore } from './features/canvas/projectStore'
-import { describeError, i18next } from './i18n'
+import { describeError, i18next, UserFacingError } from './i18n'
 import {
   type ApiProfile,
   clientProfileToApiProfile,
@@ -1508,7 +1508,7 @@ export async function submitPrepared(
     try {
       const target = orderInputImagesForMask(input.inputImages, input.maskDraft.targetImageId)[0]
       if (target.id !== input.inputImages[0]?.id)
-        throw new Error(i18next.t('task.maskImageMissing', { ns: 'store' }))
+        throw new UserFacingError(i18next.t('task.maskImageMissing', { ns: 'store' }))
       const coverage = await validateMaskMatchesImage(input.maskDraft.maskDataUrl, target.dataUrl)
       if (!current()) return []
       if (coverage === 'full') {
@@ -1761,12 +1761,12 @@ async function loadTaskInputs(
   const inputDataUrls: string[] = []
   for (const imgId of task.inputImageIds) {
     const dataUrl = await ensureImageCached(imgId)
-    if (!dataUrl) throw new Error(i18next.t('task.inputImageMissing', { ns: 'store' }))
+    if (!dataUrl) throw new UserFacingError(i18next.t('task.inputImageMissing', { ns: 'store' }))
     inputDataUrls.push(dataUrl)
   }
   if (!task.maskImageId) return { inputDataUrls }
   const maskDataUrl = await ensureImageCached(task.maskImageId)
-  if (!maskDataUrl) throw new Error(i18next.t('task.maskImageMissing', { ns: 'store' }))
+  if (!maskDataUrl) throw new UserFacingError(i18next.t('task.maskImageMissing', { ns: 'store' }))
   return { inputDataUrls, maskDataUrl }
 }
 
@@ -2876,7 +2876,8 @@ export async function importData(
     const unzipped = unzipSync(new Uint8Array(buffer))
 
     const manifestBytes = unzipped['manifest.json']
-    if (!manifestBytes) throw new Error(i18next.t('error.manifestMissing', { ns: 'store' }))
+    if (!manifestBytes)
+      throw new UserFacingError(i18next.t('error.manifestMissing', { ns: 'store' }))
 
     const data: ExportData = JSON.parse(strFromU8(manifestBytes))
 
@@ -2972,7 +2973,7 @@ export async function storeImageFromUrl(
   const res = await fetcher(src)
   const blob = await res.blob()
   if (!blob.type.startsWith('image/'))
-    throw new Error(i18next.t('error.notAnImage', { ns: 'store' }))
+    throw new UserFacingError(i18next.t('error.notAnImage', { ns: 'store' }))
   const dataUrl = await blobToDataUrl(blob)
   const id = await storeImage(dataUrl, 'upload')
   cacheImage(id, dataUrl)
