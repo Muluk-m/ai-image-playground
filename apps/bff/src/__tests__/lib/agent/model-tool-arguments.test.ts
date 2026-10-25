@@ -15,7 +15,22 @@ const event = (delta: object, finish_reason: string | null = null) =>
     `data: ${JSON.stringify({ id: 'fixture', choices: [{ index: 0, delta, finish_reason }] })}\n\n`,
   )
 
-function upstream(argumentsText: string, step: number, hang = false, done = '[DONE]') {
+/** 不重复的长文本：真实的长参数每一段都不同，不会被当成退化循环。 */
+const varied = (length: number, unit = (i: number) => `shot-${i} `) => {
+  let text = ''
+  for (let i = 0; text.length < length; i++) text += unit(i)
+  return text.slice(0, length)
+}
+
+function upstream(
+  argumentsText: string,
+  step: number,
+  hang = false,
+  done = '[DONE]',
+  delta = (piece: string): object => ({
+    tool_calls: [{ index: 0, function: { arguments: piece } }],
+  }),
+) {
   const seen = { cancelled: false, calls: 0 }
   setAgentFetchForTesting(async () => {
     seen.calls += 1
@@ -33,13 +48,7 @@ function upstream(argumentsText: string, step: number, hang = false, done = '[DO
               }),
             )
           } else if (offset < argumentsText.length) {
-            controller.enqueue(
-              event({
-                tool_calls: [
-                  { index: 0, function: { arguments: argumentsText.slice(offset, offset + step) } },
-                ],
-              }),
-            )
+            controller.enqueue(event(delta(argumentsText.slice(offset, offset + step))))
             offset += step
           } else if (!hang) {
             controller.enqueue(event({}, 'tool_calls'))
@@ -69,7 +78,7 @@ async function consume() {
 }
 
 it('does not reparse every incomplete tool argument delta in the real SDK', async () => {
-  const args = { nodeIds: ['a', 'b'], text: '雨\\"[{}]'.repeat(2000) }
+  const args = { nodeIds: ['a', 'b'], text: varied(16_000, (i) => `雨${i}\\"[{}]`) }
   upstream(JSON.stringify(args), 4)
   const { result, argumentDeltas } = await consume()
   expect(result.stopReason).toBe('toolUse')
@@ -89,7 +98,7 @@ it('rejects nested arguments below the character cap before the SDK can stall', 
 }, 5_000)
 
 it('retains long valid arguments with the current 128K model output budget', async () => {
-  const args = { text: 'x'.repeat(96_000) }
+  const args = { text: varied(96_000) }
   upstream(JSON.stringify(args), 8)
   const { result, argumentDeltas } = await consume()
   expect(result.stopReason).toBe('toolUse')
@@ -99,11 +108,36 @@ it('retains long valid arguments with the current 128K model output budget', asy
   expect(argumentDeltas).toBe(1)
 }, 5_000)
 
-it('cancels runaway arguments at the real model budget without retrying', async () => {
-  const seen = upstream('x'.repeat(agentModel('fast').maxTokens * 6 + 1), 1024, true)
+it('ends runaway arguments at the model budget the way an enforced max_tokens would', async () => {
+  const seen = upstream(varied(agentModel('fast').maxTokens * 6), 1024, true)
+  const { result } = await consume()
+  expect(result.stopReason).toBe('length')
+  expect(seen.cancelled).toBe(true)
+  expect(seen.calls).toBe(1)
+}, 10_000)
+
+it('ends runaway text at the model budget', async () => {
+  const seen = upstream(
+    varied(agentModel('fast').maxTokens * 6),
+    1024,
+    true,
+    '[DONE]',
+    (piece) => ({
+      content: piece,
+    }),
+  )
+  const { result } = await consume()
+  expect(result.stopReason).toBe('length')
+  expect(seen.cancelled).toBe(true)
+}, 10_000)
+
+it('fails a model call whose output degenerates into a loop', async () => {
+  const seen = upstream('林雨捡起蓝色小册子。'.repeat(2_000), 16, true, '[DONE]', (piece) => ({
+    content: piece,
+  }))
   const { result } = await consume()
   expect(result.stopReason).toBe('error')
-  expect(result.errorMessage).toContain('characters')
+  expect(result.errorMessage).toContain('loop')
   expect(seen.cancelled).toBe(true)
   expect(seen.calls).toBe(1)
 }, 5_000)
