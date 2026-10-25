@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { UserFacingError } from '../../i18n'
 import { generationFailure } from '../../lib/generationJob'
 import { taskFailure } from '../../lib/taskError'
 
@@ -22,7 +23,15 @@ describe('generation failure text', () => {
     ).toBe('该模型暂不可用，请换其他模型')
   })
 
-  it('keeps the error itself for unclassified failures', () => {
-    expect(generationFailure(new Error('上游拒绝了这张图')).text).toContain('上游拒绝了这张图')
+  it('keeps our own user-facing message for unclassified failures', () => {
+    expect(generationFailure(new UserFacingError('积分不足，请充值或开通套餐后再生成')).text).toBe(
+      '积分不足，请充值或开通套餐后再生成',
+    )
+  })
+
+  it('hides raw messages of unexpected errors', () => {
+    expect(generationFailure(new Error('Cannot read properties of undefined')).text).toBe(
+      '操作没有完成，请重试',
+    )
   })
 })

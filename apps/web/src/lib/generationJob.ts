@@ -195,7 +195,6 @@ export function generationFailure(err: unknown): GenerationFailure {
 }
 
 function generationFailureText(err: unknown, code: TaskErrorType | undefined): string {
-  if (code === 'content_policy') return i18next.t('detail.contentPolicy', { ns: 'task' })
   if (code) return taskErrorText(code)
   if (isNetworkFailure(err)) return i18next.t('detail.networkFailed', { ns: 'task' })
   return describeError(err)
