@@ -259,7 +259,7 @@ export default function DetailModal() {
     const diagnostics = JSON.stringify(
       {
         // 复制给运营排查：带存下的原文，界面上那句是按分类换过的。
-        message: task.error?.trim() || errorText,
+        message: (!task.cancelled && task.error?.trim()) || errorText,
         taskId: task.id,
         requestId: task.bffRequestId,
         status: task.cancelled ? 'cancelled' : task.status,
