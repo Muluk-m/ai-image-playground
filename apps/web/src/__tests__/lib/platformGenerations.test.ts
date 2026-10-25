@@ -420,7 +420,7 @@ it('平台最终失败原因覆盖本机临时超时，并清掉旧错误分类'
   )
   expect(card).toMatchObject({
     status: 'error',
-    error: i18next.t('agentTool.content_policy', { ns: 'errors' }),
+    error: i18next.t('detail.contentPolicy', { ns: 'task' }),
     errorCode: 'content_policy',
     finishedAt: summary.completedAt,
   })
@@ -491,6 +491,6 @@ it('云端失败卡保留错误分类，内容审核展示与复制均可识别�
   ).toMatchObject({
     status: 'error',
     errorCode: 'content_policy',
-    error: i18next.t('agentTool.content_policy', { ns: 'errors' }),
+    error: i18next.t('detail.contentPolicy', { ns: 'task' }),
   })
 })

@@ -10,7 +10,7 @@ import {
   type VideoGenerationRecord,
 } from '@image-playground/shared'
 import type * as Y from 'yjs'
-import { i18next } from '../../../i18n'
+import { i18next, UserFacingError } from '../../../i18n'
 import { getStoredChannel } from '../../../lib/channels/channelStore'
 import { awaitQueueOutputs, submitVideoRequest } from '../../../lib/channels/queueClient'
 import { videoModelOptions } from '../../../lib/channels/videoChannels'
@@ -57,7 +57,8 @@ async function settle(
   initialResultId?: string,
 ): Promise<void> {
   const outputs = await awaitQueueOutputs(requestId)
-  if (!outputs.length) throw new Error(i18next.t('nodes.generationFailed', { ns: 'canvas' }))
+  if (!outputs.length)
+    throw new UserFacingError(i18next.t('nodes.generationFailed', { ns: 'canvas' }))
   const results = await Promise.all(
     outputs.map((output) =>
       recordNodeOutput(doc, {
@@ -169,7 +170,7 @@ export function submitNodeVideo(
     },
     async () => {
       const channel = getStoredChannel(option.channelId)
-      if (!channel) throw new Error(i18next.t('nodes.noVideoModel', { ns: 'canvas' }))
+      if (!channel) throw new UserFacingError(i18next.t('nodes.noVideoModel', { ns: 'canvas' }))
       const requestId = await submitVideoRequest({
         channel,
         model: option.modelId,

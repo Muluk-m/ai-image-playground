@@ -12,11 +12,6 @@ export type PlaceItem = Pick<
   'dataUrl' | 'id' | 'video' | 'name' | 'groupId' | 'createdAt'
 >
 
-/** 统一的错误消息提取（画布任务终局共用）。 */
-export function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
-}
-
 /** 从占位框自身几何取放置目标（恢复 / 重试无内存运行态时的兜底）。 */
 export function targetFromShape(view: PlaceholderView): PlacementTarget {
   return { x: view.x, y: view.y, w: view.w, h: view.h }

@@ -1,4 +1,9 @@
 {
+  "common": {
+    "storageFull": "Browser storage is full. Free up space and try again",
+    "network": "Network connection failed. Check your network and try again",
+    "fallback": "That didn't work. Please try again"
+  },
   "agentQueue": {
     "stop_failed": "Could not confirm the stop. Please retry.",
     "fallback": "Message recovery failed. Please try again.",
