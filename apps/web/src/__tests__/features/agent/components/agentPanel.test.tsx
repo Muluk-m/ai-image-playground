@@ -2406,7 +2406,7 @@ describe('AgentPanel', () => {
     try {
       render()
       expect(button()?.disabled).toBe(true)
-      expect(host.querySelector('[aria-label="生成计划"]')?.textContent).toContain('助手还在拟')
+      expect(host.querySelector('[aria-label="生成计划"]')?.textContent).toContain('正在生成计划')
       await act(async () => {
         button()?.click()
       })
@@ -2416,7 +2416,7 @@ describe('AgentPanel', () => {
         useAgentStore.setState({ turn: 'idle', activeTurn: null })
       })
       expect(button()?.disabled).toBe(false)
-      expect(host.textContent).not.toContain('助手还在拟')
+      expect(host.textContent).not.toContain('正在生成计划')
     } finally {
       useAgentStore.setState({ confirmPrompt: original, turn: 'idle', activeTurn: null })
     }

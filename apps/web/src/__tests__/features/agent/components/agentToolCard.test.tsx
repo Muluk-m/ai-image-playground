@@ -883,19 +883,19 @@ describe('没有唤醒智能体', () => {
 
   it('says the assistant did not review the result because credits ran out', () => {
     expect(render({ ...ended, wakeSkipped: 'insufficient_credits' })).toContain(
-      '积分不足，助手未查看结果',
+      '积分不足，智能体未查看结果',
     )
   })
 
   it('says the assistant stopped checking back after too many wakes in a row', () => {
     expect(render({ ...ended, wakeSkipped: 'wake_limit' })).toContain(
-      '助手已连续自动查看 3 次，等你发话后再继续',
+      '智能体已连续自动查看 3 次，等你发话后再继续',
     )
   })
 
   it('says nothing about waking when the wake was not skipped', () => {
     const text = render(ended)
-    expect(text).not.toContain('助手未查看结果')
+    expect(text).not.toContain('智能体未查看结果')
     expect(text).not.toContain('连续自动查看')
   })
 })
