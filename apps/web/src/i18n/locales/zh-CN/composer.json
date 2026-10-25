@@ -35,7 +35,8 @@
     "addFailed": "图片添加失败：{{reason}}",
     "attach": "添加参考图（最多 {{count}} 张，单张 ≤{{mb}}MB）",
     "attachImages": "添加图片",
-    "attachFolder": "添加文件夹"
+    "attachFolder": "添加文件夹",
+    "referenceTooLarge": "第 {{index}} 张图片超过 {{maxSize}}，请换一张更小的图"
   },
   "slot": {
     "heading": "槽位 {{slot}}",

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ImageEl } from '../../../../features/canvas/lib/canvasDoc'
 import {
+  exportMaskCanvasDataUrl,
   maskStrokeRegion,
   pageToMaskPixel,
   paintMaskStroke,
@@ -184,4 +185,14 @@ it('uses stable numbers and rotated normalized bounds for numbered region eviden
   expect(result.y).toBeCloseTo(0.1)
   expect(result.width).toBeCloseTo(0.4)
   expect(result.height).toBeCloseTo(0.3)
+})
+
+it('refuses to export a mask canvas with nothing selected', async () => {
+  const data = new Uint8ClampedArray(2 * 1 * 4).fill(255)
+  const canvas = {
+    width: 2,
+    height: 1,
+    getContext: () => ({ getImageData: () => ({ data }) }),
+  } as unknown as HTMLCanvasElement
+  await expect(exportMaskCanvasDataUrl(canvas)).rejects.toThrow()
 })
