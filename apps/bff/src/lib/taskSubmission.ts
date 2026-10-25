@@ -251,10 +251,13 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
       size: strict.size,
       // 保护选区外像素要逐像素比对，有损格式与压缩会把它毁掉。
       output_format: 'png' as const,
+      // 局部编辑要一张完全不透明的图：带透明度的结果既合成不回原图，也过不了对齐校验。
+      extra: { ...rest.extra, background: 'opaque' },
     },
     facts: {
       preserve_outside_mask: true as const,
       masked_original_size: strict.originalSize,
+      ...(strict.crop ? { masked_crop: strict.crop } : {}),
     },
   }
 }
