@@ -40,9 +40,10 @@ it('does not retry or return bytes after switching accounts', async () => {
 it('uses one total deadline, including response body reads', async () => {
   const fetch = vi.fn(async (_url: string, init: RequestInit) => ({
     ok: true,
-    blob: () => new Promise((_resolve, reject) => {
-      init.signal!.addEventListener('abort', () => reject(init.signal!.reason), { once: true })
-    }),
+    blob: () =>
+      new Promise((_resolve, reject) => {
+        init.signal!.addEventListener('abort', () => reject(init.signal!.reason), { once: true })
+      }),
   }))
   vi.stubGlobal('fetch', fetch)
   const result = fetchDownloadBlob('/image')
@@ -55,10 +56,15 @@ it('uses one total deadline, including response body reads', async () => {
 
 it('retries an unexpected body abort while the caller is still active', async () => {
   const controller = new AbortController()
-  const fetch = vi.fn().mockResolvedValueOnce({
-    ok: true,
-    blob: async () => { throw new DOMException('transport abort', 'AbortError') },
-  }).mockResolvedValueOnce(new Response('complete'))
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      blob: async () => {
+        throw new DOMException('transport abort', 'AbortError')
+      },
+    })
+    .mockResolvedValueOnce(new Response('complete'))
   vi.stubGlobal('fetch', fetch)
   const result = fetchDownloadBlob('/image', { credentials: 'include', signal: controller.signal })
   await vi.advanceTimersByTimeAsync(500)

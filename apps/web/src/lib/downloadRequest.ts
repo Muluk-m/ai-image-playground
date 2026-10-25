@@ -42,10 +42,12 @@ export async function fetchDownloadBlob(
         return blob
       } catch (error) {
         current()
-        const transient = error instanceof DownloadRequestError
-          ? [408, 429, 500, 502, 503, 504].includes(error.status)
-          : error instanceof TypeError || (error instanceof DOMException &&
-            (error.name === 'AbortError' || error.name === 'TimeoutError'))
+        const transient =
+          error instanceof DownloadRequestError
+            ? [408, 429, 500, 502, 503, 504].includes(error.status)
+            : error instanceof TypeError ||
+              (error instanceof DOMException &&
+                (error.name === 'AbortError' || error.name === 'TimeoutError'))
         if (!transient || attempt >= 2) throw error
         await new Promise<void>((resolve, reject) => {
           const abort = () => {
@@ -53,10 +55,13 @@ export async function fetchDownloadBlob(
             signal.removeEventListener('abort', abort)
             reject(signal.reason)
           }
-          const delay = setTimeout(() => {
-            signal.removeEventListener('abort', abort)
-            resolve()
-          }, 500 * 2 ** attempt)
+          const delay = setTimeout(
+            () => {
+              signal.removeEventListener('abort', abort)
+              resolve()
+            },
+            500 * 2 ** attempt,
+          )
           signal.addEventListener('abort', abort, { once: true })
           if (signal.aborted) abort()
         })
