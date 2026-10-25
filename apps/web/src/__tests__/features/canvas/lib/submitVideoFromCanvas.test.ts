@@ -2,6 +2,7 @@ import { VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
+import { taskFailure } from '../../../../lib/taskError'
 
 const MODEL = 'doubao-seedance-2-0-mini-260615'
 const support = VIDEO_MODEL_SUPPORT[MODEL]!
@@ -328,12 +329,17 @@ describe('画布生成栏的视频档', () => {
   })
 
   it('marks the placeholder failed when the queue fails', async () => {
-    mocks.awaitQueueOutputs.mockRejectedValueOnce(new Error('上游超时'))
+    mocks.awaitQueueOutputs.mockRejectedValueOnce(
+      taskFailure('upstream timed out', 'upstream_timeout'),
+    )
 
     await submitVideoFromCanvas(editor, '海浪')
     await settle()
 
-    expect(editor.getPlaceholders()[0]).toMatchObject({ status: 'error', message: '上游超时' })
+    expect(editor.getPlaceholders()[0]).toMatchObject({
+      status: 'error',
+      message: '生成超时，这次没有出来',
+    })
   })
 })
 

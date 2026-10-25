@@ -1,5 +1,5 @@
 import { INSPIRATION_KINDS, type InspirationKind } from '@image-playground/shared'
-import { i18next } from '../../../i18n'
+import { i18next, UserFacingError } from '../../../i18n'
 import { getApiErrorMessage } from '../../../lib/imageApiShared'
 import { bffBaseUrl, getRuntimeConfig } from '../../../lib/runtimeConfig'
 import type { InspirationManifest } from '../types'
@@ -36,7 +36,7 @@ export async function fetchRemoteManifest(
     signal: signal ?? AbortSignal.timeout(10_000),
   })
   if (!response.ok) {
-    throw new Error(
+    throw new UserFacingError(
       i18next.t('manifest.loadFailed', {
         ns: 'inspiration',
         reason: await getApiErrorMessage(response),
@@ -47,11 +47,11 @@ export async function fetchRemoteManifest(
   try {
     payload = await response.json()
   } catch {
-    throw new Error(i18next.t('manifest.loadFailed', { ns: 'inspiration' }))
+    throw new UserFacingError(i18next.t('manifest.loadFailed', { ns: 'inspiration' }))
   }
   const manifest = validateManifest(payload)
   if (!manifest) {
-    throw new Error(i18next.t('manifest.invalid', { ns: 'inspiration' }))
+    throw new UserFacingError(i18next.t('manifest.invalid', { ns: 'inspiration' }))
   }
   return manifest
 }

@@ -12,7 +12,7 @@ import {
   updateCanvasNode,
 } from '@image-playground/shared'
 import type * as Y from 'yjs'
-import { i18next } from '../../../i18n'
+import { i18next, UserFacingError } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { getImageDimensions } from '../../../lib/canvasImage'
 import { type GenerationSink, resumeGeneration, startGeneration } from '../../../lib/generationJob'
@@ -202,7 +202,8 @@ function nodeGenerationSink(
     progress() {},
     async delivered(handle, result) {
       const images = result.images.filter((item): item is string => Boolean(item))
-      if (!images.length) throw new Error(i18next.t('placeholder.failed', { ns: 'canvas' }))
+      if (!images.length)
+        throw new UserFacingError(i18next.t('placeholder.failed', { ns: 'canvas' }))
       const taskId = handle.requestId ?? handle.clientRequestId ?? handle.jobId
       const history = {
         id: `canvas:${taskId}`,

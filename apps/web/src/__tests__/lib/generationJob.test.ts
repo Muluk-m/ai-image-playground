@@ -22,6 +22,7 @@ vi.mock('../../lib/privateOverlay', async (importOriginal) => {
 })
 
 import { setSignedIn, subscribeLoginPrompt } from '../../auth/loginPrompt'
+import { UserFacingError } from '../../i18n'
 import { DEFAULT_SETTINGS, getActiveApiProfile, normalizeSettings } from '../../lib/apiProfiles'
 import { setChannels } from '../../lib/channels/channelStore'
 import type { ChannelCapability, PublicChannel } from '../../lib/channels/types'
@@ -251,7 +252,7 @@ describe('受理与结算通知', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
     const { sink, failures } = recordingSink()
     sink.persisted = async () => {
-      throw new Error('IndexedDB is full')
+      throw new DOMException('IndexedDB is full', 'QuotaExceededError')
     }
 
     startGeneration(
@@ -265,7 +266,7 @@ describe('受理与结算通知', () => {
     )
     await vi.waitFor(() => expect(failures).toHaveLength(1))
 
-    expect(failures[0]!.text).toBe('IndexedDB is full')
+    expect(failures[0]!.text).toBe('浏览器存储空间不足，请清理后重试')
     expect(fetchMock).not.toHaveBeenCalled()
     expect(overlay.errored).toHaveBeenCalledTimes(1)
     expect(overlay.settled).toHaveBeenCalledTimes(1)
@@ -358,7 +359,7 @@ describe('刷新后续跑与首次提交同一套收尾', () => {
         params: { ...DEFAULT_PARAMS },
         clientRequestId: 'request-1',
         resend: async () => {
-          throw new Error('输入图已丢失')
+          throw new UserFacingError('输入图已丢失')
         },
       },
       0,
