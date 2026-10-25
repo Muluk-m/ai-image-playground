@@ -132,7 +132,7 @@ describe('model output limit', () => {
   })
 
   it('fails an oversized event instead of silently dropping it', async () => {
-    const { fetchFn } = sseFetch(`${event({ content: 'x'.repeat(1_100_000) })}`, 64 * 1024)
+    const { fetchFn } = sseFetch(`${event({ content: varied(1_100_000) })}`, 64 * 1024)
     const response = await withOutputLimit(fetchFn, 10_000_000)('https://gateway.test/v1/chat')
     await expect(response.text()).rejects.toBeInstanceOf(AgentToolArgumentsTooLargeError)
   })

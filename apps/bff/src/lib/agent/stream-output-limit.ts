@@ -116,6 +116,8 @@ export function withOutputLimit(fetchFn: AgentFetch, maxTokens: number): AgentFe
       },
       onEvent(event) {
         if (capped) return
+        if (event.data.length > AGENT_SSE_LINE_MAX_CHARS)
+          throw new AgentToolArgumentsTooLargeError(AGENT_SSE_LINE_MAX_CHARS)
         let chunk:
           | { id?: string; choices?: Array<{ index?: number; delta?: OutputDelta }> }
           | undefined
