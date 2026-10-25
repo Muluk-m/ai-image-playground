@@ -21,7 +21,7 @@ import {
   notifyPrivateSubmissionError,
   notifyPrivateSubmissionSettled,
 } from './privateOverlay'
-import { isTaskCancelled, taskErrorTypeOf } from './taskError'
+import { isTaskCancelled, taskErrorText, taskErrorTypeOf } from './taskError'
 
 /**
  * 生成任务的生命周期：门禁 → 扇出 → 幂等键 → 受理 → 队列 → 出片 / 失败 → 结算通知。
@@ -180,7 +180,8 @@ function isNetworkFailure(err: unknown): boolean {
 }
 
 /**
- * 失败 → 可行动的人话。内容安全拒绝有自己的出路（改写提示词），其余照抄错误本身那句。
+ * 失败 → 可行动的人话。带分类的按分类出文案，内容安全拒绝有自己的出路（改写提示词）；
+ * 没有分类的（提交被拒、断网等）用错误本身那句，那些已经是本地化文案。
  * 宿主要按码分支（工作台详情弹窗）就读 `code`，不必再认一遍文案。
  */
 export function generationFailure(err: unknown): GenerationFailure {
@@ -189,13 +190,14 @@ export function generationFailure(err: unknown): GenerationFailure {
     error: err,
     code,
     ...(isTaskCancelled(err) ? { cancelled: true as const } : {}),
-    text:
-      code === 'content_policy'
-        ? i18next.t('detail.contentPolicy', { ns: 'task' })
-        : isNetworkFailure(err)
-          ? i18next.t('detail.networkFailed', { ns: 'task' })
-          : describeError(err),
+    text: generationFailureText(err, code),
   }
+}
+
+function generationFailureText(err: unknown, code: TaskErrorType | undefined): string {
+  if (code) return taskErrorText(code)
+  if (isNetworkFailure(err)) return i18next.t('detail.networkFailed', { ns: 'task' })
+  return describeError(err)
 }
 
 /**

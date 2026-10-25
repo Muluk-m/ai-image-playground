@@ -1,5 +1,5 @@
 import { applyPromptRewriteGuard, buildAspectInstruction } from '@image-playground/shared'
-import { i18next } from '../i18n'
+import { i18next, UserFacingError } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from './apiProfiles'
 import { createMaskPreviewDataUrl } from './canvasImage'
 import { ensureChannelsLoaded } from './channels/bootstrapChannels'
@@ -57,11 +57,11 @@ async function loadCatalogForDispatch(): Promise<void> {
 
 function requireDispatchChannel(channelId: string) {
   if (!channelId) {
-    throw new Error(i18next.t('dispatch.channelNotFound', { ns: 'lib', id: channelId }))
+    throw new UserFacingError(i18next.t('dispatch.channelNotFound', { ns: 'lib', id: channelId }))
   }
   const channel = getPublicChannel(channelId)
   if (channel) return channel
-  throw new Error(
+  throw new UserFacingError(
     i18next.t(channelsSettled() ? 'dispatch.channelNotFound' : 'dispatch.channelsUnavailable', {
       ns: 'lib',
       id: channelId,
@@ -118,7 +118,7 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   // 全部走 queue：浏览器 → BFF 都是 < 1s 短请求，永远绕开 CF Edge ~60s 死线。
   // 生成 / 编辑 / mask 编辑都靠 BFF worker 调上游区分。
   if (toQueueProvider(channel.kind) === null) {
-    throw new Error(i18next.t('dispatch.unsupportedChannelKind', { ns: 'lib', kind: channel.kind }))
+    throw new UserFacingError(i18next.t('dispatch.unsupportedModel', { ns: 'lib' }))
   }
   return callQueueChannelApi(opts, profile, channel)
 }
@@ -135,11 +135,11 @@ export async function resumeQueueImageApi(
   opts = prepared.opts
   const { profile } = prepared
   if (!profile.channelId) {
-    throw new Error(i18next.t('dispatch.resumeProfileMissing', { ns: 'lib' }))
+    throw new UserFacingError(i18next.t('dispatch.resumeModelGone', { ns: 'lib' }))
   }
   const channel = requireDispatchChannel(profile.channelId)
   if (toQueueProvider(channel.kind) === null) {
-    throw new Error(i18next.t('dispatch.resumeKindNotQueue', { ns: 'lib', kind: channel.kind }))
+    throw new UserFacingError(i18next.t('dispatch.resumeModelGone', { ns: 'lib' }))
   }
   return resumeQueueChannelApi(opts, profile, channel, requestId)
 }

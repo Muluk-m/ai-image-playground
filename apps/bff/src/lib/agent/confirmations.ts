@@ -27,6 +27,7 @@ import type { BffTransaction } from '../private-overlay'
 import { lockMediaOwner } from '../projectMedia'
 import { createQueueTask } from '../taskSubmission'
 import type { AgentOwner } from './conversations'
+import { writtenPrompt } from './design-intent'
 import { enqueueAgentResume, gateResumeLive, userMessageAfterTurn } from './inbox'
 import {
   validateImageParameters,
@@ -641,6 +642,9 @@ async function claimSubmitted(
 function retitle(title: string, drafted: string, confirmed: string): string {
   if (title === agentTitleLine(drafted, TITLE_MAX_CHARS))
     return agentTitleLine(confirmed, TITLE_MAX_CHARS)
+  // 拟稿并入了设计意图：标题截的是模型写的那句，不是并好的整段；确认的那句照同样的规则截。
+  if (title === agentTitleLine(writtenPrompt(drafted), TITLE_MAX_CHARS))
+    return agentTitleLine(writtenPrompt(confirmed), TITLE_MAX_CHARS)
   if (title === `视频：${agentTitleLine(drafted, VIDEO_TITLE_MAX_CHARS)}`)
     return `视频：${agentTitleLine(confirmed, VIDEO_TITLE_MAX_CHARS)}`
   return title

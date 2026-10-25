@@ -24,7 +24,14 @@ const store = vi.hoisted(() => ({
   messages: [] as AgentToolMessage[],
   turns: {} as Record<string, AgentTurnFooter>,
   cancelJob: vi.fn(async (_messageId: string) => {}),
-  jobProgress: {} as Record<string, { stage: 'submitted' | 'running'; submittedAt: number }>,
+  jobProgress: {} as Record<
+    string,
+    {
+      stage: 'submitted' | 'running'
+      submittedAt: number
+      queue?: { ahead: number; limit: number }
+    }
+  >,
   toolStartedAt: {} as Record<string, number>,
   appendImageAction: vi.fn(),
   patchImageAction: vi.fn(),
@@ -158,6 +165,62 @@ it('fits square and landscape results to their actual ratios without fixed-ratio
       'square',
       'data:image/png;base64,preview',
     )
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
+it('letterboxes 16:9 batch results on the tile surface, with the transparency grid only behind the pixels', async () => {
+  // 测试环境 4K 扶手椅：两张 16:9 结果放在批量方格里，上下留边不能露出棋盘格。
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: async (id: string) => `data:image/png;base64,${id}`,
+  } as unknown as AgentCanvasSink)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentToolCard
+          message={{
+            kind: 'tool',
+            id: 'letterbox',
+            turnId: 'turn',
+            toolCallId: 'call',
+            toolName: 'editImage',
+            title: '两张图片',
+            status: 'succeeded',
+            delivery: 'placed',
+            artifacts: [
+              { artifactId: 'wide', width: 3840, height: 2160 },
+              { artifactId: 'unknown' },
+            ].map((artifact, outputIndex) => ({
+              ...artifact,
+              outputIndex,
+              taskId: 'task',
+              media: 'image' as const,
+              mime: 'image/png',
+            })),
+          }}
+          onPreviewResult={vi.fn()}
+        />,
+      ),
+    )
+    const tiles = host.querySelectorAll<HTMLElement>('.studio-agent-inline-tile')
+    expect(tiles[0]!.style.aspectRatio).toBe('1')
+    const [wide, unknown] = [
+      ...host.querySelectorAll<HTMLImageElement>('.studio-agent-inline-open img'),
+    ]
+    expect(wide!.dataset.fit).toBe('width')
+    // 比例还不知道：不垫棋盘格（CSS 只给 [data-fit] 的图垫），加载后按实际比例放。
+    expect(unknown!.dataset.fit).toBeUndefined()
+    Object.defineProperties(unknown!, {
+      naturalWidth: { value: 600 },
+      naturalHeight: { value: 900 },
+    })
+    act(() => unknown!.dispatchEvent(new Event('load')))
+    expect(unknown!.dataset.fit).toBe('height')
   } finally {
     act(() => root.unmount())
     setAgentCanvasSink(null)
@@ -439,6 +502,38 @@ it('offers cancel on each pending tile instead of the batch action row', () => {
     expect(host.querySelector('.studio-agent-batch-meta')?.textContent).toBe('0/2 完成')
   } finally {
     act(() => root.unmount())
+  }
+})
+
+it('批量出图的排队图块写出前面还有几张，整组说一次套餐并发原因（BUG-17）', () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const pending = (id: string): AgentToolMessage => ({
+    kind: 'tool',
+    id,
+    turnId: 'turn',
+    toolCallId: `call-${id}`,
+    toolName: 'generateImage',
+    title: '白色圆形台盆',
+    status: 'submitted',
+    job: { taskId: `task-${id}`, media: 'image' },
+  })
+  store.jobProgress = {
+    a: { stage: 'submitted', submittedAt: 1, queue: { ahead: 3, limit: 3 } },
+    b: { stage: 'submitted', submittedAt: 1, queue: { ahead: 4, limit: 3 } },
+  }
+  try {
+    act(() => root.render(<AgentImageRun messages={[pending('a'), pending('b')]} />))
+    const captions = [...host.querySelectorAll('.studio-agent-tile-caption')].map(
+      (one) => one.textContent,
+    )
+    expect(captions).toEqual(['排队中 · 下一张就轮到', '排队中 · 前面还有 4 张'])
+    const notes = host.querySelectorAll('[data-agent-queue-note]')
+    expect(notes).toHaveLength(1)
+    expect(notes[0]?.textContent).toContain('当前套餐可同时生成 3 张')
+  } finally {
+    act(() => root.unmount())
+    store.jobProgress = {}
   }
 })
 
@@ -788,19 +883,19 @@ describe('没有唤醒智能体', () => {
 
   it('says the assistant did not review the result because credits ran out', () => {
     expect(render({ ...ended, wakeSkipped: 'insufficient_credits' })).toContain(
-      '积分不足，助手未查看结果',
+      '积分不足，智能体未查看结果',
     )
   })
 
   it('says the assistant stopped checking back after too many wakes in a row', () => {
     expect(render({ ...ended, wakeSkipped: 'wake_limit' })).toContain(
-      '助手已连续自动查看 3 次，等你发话后再继续',
+      '智能体已连续自动查看 3 次，等你发话后再继续',
     )
   })
 
   it('says nothing about waking when the wake was not skipped', () => {
     const text = render(ended)
-    expect(text).not.toContain('助手未查看结果')
+    expect(text).not.toContain('智能体未查看结果')
     expect(text).not.toContain('连续自动查看')
   })
 })
@@ -906,7 +1001,7 @@ describe('失败卡按错误码给出路', () => {
       expect(host.querySelector('[data-slot="tool-error"]')).not.toBeNull()
       expect(host.querySelector('[data-slot="error-state"]')).toBeNull()
       expect(host.textContent).toContain('这次的参数不成立')
-      expect(buttons(host)).toContain('让助手重新处理')
+      expect(buttons(host)).toContain('让智能体重新处理')
     } finally {
       unmount()
     }
@@ -916,13 +1011,13 @@ describe('失败卡按错误码给出路', () => {
     ['insufficient_credits', '积分不够，这次没有生成', '去充值'],
     ['quota_exceeded', '今天的生成额度已经用完', '去充值'],
     ['authentication_required', '需要先登录才能生成', '去登录'],
-    ['invalid_params', '这次的参数不成立，没有提交', '让助手重新处理'],
-    ['source_unavailable', '来源网站拒绝或无法提供内容，请换个公开来源', '让助手重新处理'],
-    ['model_unavailable', '要用的模型暂时不可用', '让助手重新处理'],
+    ['invalid_params', '这次的参数不成立，没有提交', '让智能体重新处理'],
+    ['source_unavailable', '来源网站拒绝或无法提供内容，请换个公开来源', '让智能体重新处理'],
+    ['model_unavailable', '该模型暂不可用，请换其他模型', '让智能体重新处理'],
     [
       'service_unavailable',
-      '批次执行还没开放。可以让助手按已有的逐图结果另拟计划',
-      '让助手重新处理',
+      '批次执行还没开放。可以让智能体按已有的逐图结果另拟计划',
+      '让智能体重新处理',
     ],
   ] as const)('%s 显示译文与「%s」对应的出路', (code, text, action) => {
     const { host, unmount } = render(failed(code))
@@ -938,8 +1033,8 @@ describe('失败卡按错误码给出路', () => {
   })
 
   it.each([
-    ['upstream_error', '生成服务出错了，这次没有出来'],
-    ['timeout', '生成超时，这次没有出来'],
+    ['upstream_error', '生成服务异常，本次未能完成'],
+    ['timeout', '生成超时，本次未能完成'],
     ['no_output', '生成完成了，但没有拿到结果'],
     ['result_unknown', '这次的结果没能确认，可能已经生成；请先看看画布与历史'],
     ['cancelled', '已中止'],
@@ -961,7 +1056,7 @@ describe('失败卡按错误码给出路', () => {
     setChannels([RETRY_CHANNEL])
     const { host, unmount } = render(localEditFailure())
     try {
-      expect(buttons(host)).toEqual(['让助手重新处理', '错误详情'])
+      expect(buttons(host)).toEqual(['让智能体重新处理', '错误详情'])
       act(() => host.querySelector('button')!.click())
       expect(send).toHaveBeenCalledWith(
         '「一只橘猫」没有完成：它是按当时的选区或方案改的，原样重做会改错地方。请换个做法重新处理。',
@@ -980,7 +1075,7 @@ describe('失败卡按错误码给出路', () => {
       retryOf: { messageId: 'origin', toolCallId: 'c' },
     })
     try {
-      expect(buttons(host).filter((label) => label === '让助手重新处理')).toEqual([])
+      expect(buttons(host).filter((label) => label === '让智能体重新处理')).toEqual([])
     } finally {
       unmount()
     }

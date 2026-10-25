@@ -35,6 +35,7 @@ import type {
   GeminiImageSize,
   ModelBadge,
   ModelLogoId,
+  ModelTier,
   QueueProvider,
 } from '@image-playground/shared'
 import {
@@ -43,7 +44,9 @@ import {
   isModelEtaSeconds,
   MODEL_BADGES,
   MODEL_LOGOS,
+  MODEL_TIERS,
 } from '@image-playground/shared'
+import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -160,6 +163,15 @@ function parseBadges(v: unknown, ctx: string): ModelBadge[] | undefined {
   })
 }
 
+function parseTier(v: unknown, ctx: string): ModelTier | undefined {
+  if (v === undefined) return undefined
+  if (typeof v !== 'string' || !MODEL_TIERS.includes(v as ModelTier))
+    throw new ChannelsLoadError(
+      `${ctx}: invalid tier '${String(v)}' (allowed: ${MODEL_TIERS.join(', ')})`,
+    )
+  return v as ModelTier
+}
+
 function parseEtaSeconds(v: unknown, ctx: string): number | undefined {
   if (v === undefined) return undefined
   if (!isModelEtaSeconds(v))
@@ -215,6 +227,7 @@ function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
     if (!isObject(raw)) throw new ChannelsLoadError(`${ctx} must be an object`)
     const media = parseMedia(raw.media, ctx)
     const badges = parseBadges(raw.badges, ctx)
+    const tier = parseTier(raw.tier, ctx)
     const etaSeconds = parseEtaSeconds(raw.etaSeconds, ctx)
     const etaMaxSeconds = parseEtaMaxSeconds(raw.etaMaxSeconds, etaSeconds, ctx)
     const logo = parseLogo(raw.logo, ctx)
@@ -225,6 +238,7 @@ function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
       capabilities: parseCapabilities(raw.capabilities, ctx),
       ...(media ? { media } : {}),
       ...(badges ? { badges } : {}),
+      ...(tier ? { tier } : {}),
       ...(etaSeconds !== undefined ? { etaSeconds } : {}),
       ...(etaMaxSeconds !== undefined ? { etaMaxSeconds } : {}),
       ...(logo ? { logo } : {}),
@@ -650,9 +664,19 @@ function sanitizeChannel(c: InternalChannel): DiscoveredChannel {
     id: c.id,
     kind: c.kind,
     label: c.label,
-    models: c.models,
+    models: c.models.map(withCatalogCapabilities),
     defaults: c.defaults,
   }
+}
+
+/**
+ * 图片模型附上能力目录里的 family 与 image（ADR 0027，只增不删）：现有字段原样保留，
+ * 目录里没有的模型、视频模型都不加，前端旧代码不读这两个字段，行为不变。
+ */
+function withCatalogCapabilities(model: ChannelModel): ChannelModel {
+  if ((model.media ?? 'image') !== 'image') return model
+  const spec = findCatalogModel(model.id)
+  return spec ? { ...model, ...publishModelCapabilities(spec) } : model
 }
 
 /** 仅供测试：直接塞入解析好的 channels，绕过文件系统。 */
