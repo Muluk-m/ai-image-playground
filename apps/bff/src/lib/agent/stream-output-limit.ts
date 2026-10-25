@@ -1,7 +1,7 @@
 import { createParser } from 'eventsource-parser'
 import { log } from '../logger'
 import type { AgentFetch } from './model'
-import { AGENT_SSE_LINE_MAX_CHARS } from './stream-tool-arguments'
+import { AGENT_SSE_LINE_MAX_CHARS, AgentToolArgumentsTooLargeError } from './stream-tool-arguments'
 import { estimateTextTokenMilli } from './token-estimate'
 
 /** 估算口径与上游分词器不同，越过预算这么多倍才收尾，写满预算的合法回复不受影响。 */
@@ -105,21 +105,28 @@ export function withOutputLimit(fetchFn: AgentFetch, maxTokens: number): AgentFe
     let usedMilli = 0
     let responseId: string | undefined
     let capped = false
+    const choices = new Set<number>()
     const ready: Uint8Array[] = []
     const parser = createParser({
       maxBufferSize: AGENT_SSE_LINE_MAX_CHARS,
-      // 超长单行由工具参数那一层报错，这里只管输出预算。
-      onError() {},
+      // 丢掉超长事件会让外层看不到它、下游拿到缺内容的流，所以与外层一样直接报错。
+      onError(error) {
+        if (error.type === 'max-buffer-size-exceeded')
+          throw new AgentToolArgumentsTooLargeError(AGENT_SSE_LINE_MAX_CHARS)
+      },
       onEvent(event) {
         if (capped) return
-        let chunk: { id?: string; choices?: Array<{ delta?: OutputDelta }> } | undefined
+        let chunk:
+          | { id?: string; choices?: Array<{ index?: number; delta?: OutputDelta }> }
+          | undefined
         if (!event.data.startsWith('[DONE]'))
           try {
             chunk = JSON.parse(event.data)
           } catch {}
         responseId ??= chunk?.id
         if (Array.isArray(chunk?.choices))
-          for (const choice of chunk.choices)
+          for (const choice of chunk.choices) {
+            choices.add(choice?.index ?? 0)
             for (const text of choice?.delta ? deltaTexts(choice.delta) : []) {
               usedMilli += estimateTextTokenMilli(text)
               const period = repetition.push(text)
@@ -131,15 +138,20 @@ export function withOutputLimit(fetchFn: AgentFetch, maxTokens: number): AgentFe
                 throw new AgentOutputRepetitionError(period)
               }
             }
+          }
+        // 越线的这一段已计入预算，照常交付，再为每个 choice 补上截断收尾。
+        ready.push(encoder.encode(sse(event.data, event.event)))
         if (usedMilli > limitMilli) {
           capped = true
           log.warn({ event: 'agent.output_capped', maxTokens }, 'model output ran past its budget')
-          const finish = { index: 0, delta: {}, finish_reason: 'length' }
-          ready.push(encoder.encode(sse(JSON.stringify({ id: responseId, choices: [finish] }))))
+          const finish = [...choices].map((index) => ({
+            index,
+            delta: {},
+            finish_reason: 'length',
+          }))
+          ready.push(encoder.encode(sse(JSON.stringify({ id: responseId, choices: finish }))))
           ready.push(encoder.encode(sse('[DONE]')))
-          return
         }
-        ready.push(encoder.encode(sse(event.data, event.event)))
       },
     })
     // 自己读上游而不是 pipeThrough：收尾与出错时要确定地取消上游，网关替身未必理会级联取消。
@@ -172,10 +184,10 @@ export function withOutputLimit(fetchFn: AgentFetch, maxTokens: number): AgentFe
         return reader.cancel(reason)
       },
     })
-    return new Response(body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    })
+    // 这里重新编码了响应体，原来的长度与编码头不再成立。
+    const headers = new Headers(response.headers)
+    for (const name of ['content-length', 'content-encoding', 'transfer-encoding'])
+      headers.delete(name)
+    return new Response(body, { status: response.status, statusText: response.statusText, headers })
   }
 }
