@@ -75,6 +75,7 @@ import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { downloadBlob } from '../../../lib/downloadImages'
+import { fetchDownloadBlob } from '../../../lib/downloadRequest'
 import { reportDeliveryFailure } from '../../../lib/errorReporting'
 import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
 import { MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
@@ -2600,14 +2601,8 @@ function Flow({
                                 if (source) {
                                   let stage: 'original' | 'fetch' | 'blob' | 'trigger' = 'original'
                                   void resolveMediaSource(source, 'original', true)
-                                    .then((url) => {
-                                      stage = 'fetch'
-                                      return fetch(url, { credentials: 'include' })
-                                    })
-                                    .then(async (response) => {
-                                      if (!response.ok) throw new Error('download failed')
-                                      stage = 'blob'
-                                      const blob = await response.blob()
+                                    .then((url) => fetchDownloadBlob(url, { credentials: 'include' }, (next) => { stage = next }))
+                                    .then((blob) => {
                                       const extension =
                                         blob.type.split('/')[1]?.split(';')[0] ||
                                         (composerNode.type === 'video' ? 'mp4' : 'png')

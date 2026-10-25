@@ -1,3 +1,4 @@
+import { fetchDownloadBlob } from './downloadRequest'
 import { reportDeliveryFailure } from './errorReporting'
 import { loadImageOriginal } from './imageSource'
 
@@ -46,10 +47,7 @@ export async function downloadImagesByIds(
         failed++
         continue
       }
-      stage = 'fetch'
-      const res = await fetch(url)
-      stage = 'blob'
-      const blob = await res.blob()
+      const blob = await fetchDownloadBlob(url, {}, (next) => { stage = next })
       const ext = blob.type.split('/')[1] || 'png'
       stage = 'trigger'
       downloadBlob(blob, `${filenamePrefix}-${Date.now()}-${success}.${ext}`)
