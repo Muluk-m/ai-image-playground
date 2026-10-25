@@ -26,7 +26,7 @@ function SkillsPage() {
   return (
     <Page
       crumbs={[{ label: '灵感库', to: '/inspirations' }, { label: '技能目录' }]}
-      description="当前部署带着哪些技能，只读"
+      description="当前镜像内置技能清单（只读）"
       actions={
         <SegmentedControl
           label="按创作类型筛选"
