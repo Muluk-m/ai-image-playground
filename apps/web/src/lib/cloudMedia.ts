@@ -190,7 +190,12 @@ export async function resolveMediaSource(
     return bounded(async () => {
       assertScope()
       const deadline = variant === 'original' ? new AbortController() : undefined
-      const timer = deadline ? setTimeout(() => deadline.abort(new DOMException('Media download timed out', 'TimeoutError')), 300_000) : undefined
+      const timer = deadline
+        ? setTimeout(
+            () => deadline.abort(new DOMException('Media download timed out', 'TimeoutError')),
+            300_000,
+          )
+        : undefined
       try {
         for (let attempt = 0; attempt < 2; attempt++) {
           let stage: 'access' | 'fetch' | 'body' = 'access'
@@ -199,10 +204,13 @@ export async function resolveMediaSource(
             const access = await mediaJson<Access>(`/${id}/access`, { signal: deadline?.signal })
             assertScope()
             stage = 'fetch'
-            const response = await fetch(variant === 'preview' ? access.previewUrl : access.originalUrl, {
-              credentials: 'omit',
-              signal: deadline?.signal ?? AbortSignal.timeout(30_000),
-            })
+            const response = await fetch(
+              variant === 'preview' ? access.previewUrl : access.originalUrl,
+              {
+                credentials: 'omit',
+                signal: deadline?.signal ?? AbortSignal.timeout(30_000),
+              },
+            )
             assertScope()
             if (!response.ok) {
               void response.body?.cancel().catch(() => {})
@@ -231,12 +239,16 @@ export async function resolveMediaSource(
             deadline?.signal.throwIfAborted()
             // Refresh signed URLs on expiry; original downloads also recover interrupted bodies
             // and temporary API/storage failures, before any bytes enter the cache.
-            const expired = stage === 'fetch' && error instanceof MediaRequestError && error.status === 403
-            const network = error instanceof TypeError && (stage === 'fetch' || variant === 'original')
-            const transientOriginal = variant === 'original' && (
-              (error instanceof MediaRequestError && [408, 429, 500, 502, 503, 504].includes(error.status)) ||
-              (error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError'))
-            )
+            const expired =
+              stage === 'fetch' && error instanceof MediaRequestError && error.status === 403
+            const network =
+              error instanceof TypeError && (stage === 'fetch' || variant === 'original')
+            const transientOriginal =
+              variant === 'original' &&
+              ((error instanceof MediaRequestError &&
+                [408, 429, 500, 502, 503, 504].includes(error.status)) ||
+                (error instanceof DOMException &&
+                  (error.name === 'AbortError' || error.name === 'TimeoutError')))
             if (attempt === 0 && (expired || network || transientOriginal)) continue
             throw error
           }
