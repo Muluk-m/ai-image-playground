@@ -517,6 +517,8 @@ export function taskFailureCode(errorType: TaskErrorType | null | undefined): Ag
       return 'timeout'
     case 'content_policy':
       return 'content_policy'
+    case 'model_unavailable':
+      return 'model_unavailable'
     case 'upstream_no_image':
       return 'no_output'
     // 执行者丢了（ADR 0009）或上游的结局查不到：上游可能已经出图、已经计费，原样再跑一次
@@ -983,6 +985,17 @@ export interface AgentBackgroundJobProgress {
    * 其他阶段缺席，已用时间仍从 `submittedAt` 算。
    */
   readonly phaseSince?: number
+  /**
+   * 还在排队时它在本账号队列里的位置。账号同时生成的张数由套餐定（没订阅是 1），
+   * 超出的按提交先后排队：`ahead` 是排在它前面、还没出完的张数（在生成的加上更早提交的），
+   * `limit` 是此刻这个账号能同时生成几张。旧服务端缺席，界面只说「排队中」。
+   */
+  readonly queue?: AgentJobQueuePosition
+}
+
+export interface AgentJobQueuePosition {
+  readonly ahead: number
+  readonly limit: number
 }
 
 export interface AgentBackgroundJobsResponse {

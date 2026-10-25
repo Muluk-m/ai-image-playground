@@ -1,6 +1,7 @@
 import {
   isContentPolicyEmptyResult,
   isContentPolicyRejection,
+  isModelUnavailableRejection,
   QUEUE_TIMEOUTS,
   type TaskErrorType,
 } from '@image-playground/shared'
@@ -378,7 +379,9 @@ async function executeTask(execution: TaskExecution): Promise<void> {
               payload: upstreamFailure.body,
             })
           ? 'content_policy'
-          : 'upstream_error'
+          : isModelUnavailableRejection({ message, payload: upstreamFailure.body })
+            ? 'model_unavailable'
+            : 'upstream_error'
 
     const attemptJustFailed = task.attempt_count + 1
     if (

@@ -365,7 +365,7 @@ it('直接出图在卡片里显示为开，用户可以关掉', () => {
   toggle()
   const toggleSwitch = document.body.querySelector<HTMLButtonElement>('[role="switch"]')!
   expect(toggleSwitch.getAttribute('aria-checked')).toBe('true')
-  expect(document.body.textContent).toContain('默认开启')
+  expect(document.body.textContent).toContain('拟好提示词后直接生成')
   act(() => toggleSwitch.click())
   expect(useAgentStore.getState().autoSubmit).toBe(false)
   expect(toggleSwitch.getAttribute('aria-checked')).toBe('false')

@@ -215,7 +215,7 @@ describe('定价页', () => {
   it('接口失败时不展示旧价格', async () => {
     installCatalog({ error: 'nope' }, 503)
     await renderPage()
-    expect(host.textContent ?? '').toContain('价格没有读出来')
+    expect(host.textContent ?? '').toContain('方案加载失败，请重试')
     expect(host.textContent ?? '').not.toContain('¥39')
   })
 

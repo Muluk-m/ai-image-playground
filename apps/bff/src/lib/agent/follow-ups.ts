@@ -94,6 +94,7 @@ export function followUpPrompt(source: FollowUpSource): string {
     '只输出 JSON：{"lines":["..."]}',
     '规则：',
     '- 只写一句，就是用户最可能打的那一句。',
+    '- 如果对话已明确结束，或没有合理的下一句，输出 {"lines":[]}，不要硬凑建议。',
     '- 用用户的口吻、第一人称，写成可以直接发出去的话。',
     '- 用用户上一条消息的语言写。',
     '- 短。中文尽量不超过 40 个字；任何语言都不要超过 80 个字符。',
@@ -138,7 +139,18 @@ async function askFollowUpModel(prompt: string, userText: string): Promise<unkno
       // Luna can finish with plain text despite the prompt; require JSON on the wire too.
       responseFormat: 'json_object',
     },
-    (value) => (normalizeFollowUpLines(value, userText).length > 0 ? value : null),
+    (value) => {
+      if (normalizeFollowUpLines(value, userText).length > 0) return value
+      // 模型用空数组或空白句表示没有下一句；这是完成态，不是上游故障。
+      // 只接受明确的空值，不能把格式错误、超长或重复原话也当作正常弃答。
+      if (
+        isObject(value) &&
+        Array.isArray(value.lines) &&
+        value.lines.every((line) => typeof line === 'string' && !line.trim())
+      )
+        return value
+      return null
+    },
   )
 }
 

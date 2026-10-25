@@ -7,7 +7,7 @@ import { discardPendingSubmission, queuePendingSubmission } from './auth/pending
 import { projectExperience } from './features/canvas/lib/projectRepository'
 import { readProjectRoute } from './features/canvas/lib/projectRoute'
 import { useCanvasProjectStore } from './features/canvas/projectStore'
-import { describeError, i18next } from './i18n'
+import { describeError, i18next, UserFacingError } from './i18n'
 import {
   type ApiProfile,
   clientProfileToApiProfile,
@@ -75,6 +75,7 @@ import {
   isPlatformGeneration,
   loadPlatformGenerations,
   type PlatformGenerationRow,
+  promptFromGeneration,
   refreshPlatformGeneration,
   setPlatformFavorite,
   watchPlatformGeneration,
@@ -1139,23 +1140,8 @@ function isApiRequestNetworkError(err: unknown): boolean {
   return false
 }
 
-function getApiRequestNetworkErrorHint(err: unknown, task: TaskRecord): string | null {
+function getApiRequestNetworkErrorHint(err: unknown): string | null {
   if (!isApiRequestNetworkError(err)) return null
-
-  const elapsedSeconds = Math.max(0, (Date.now() - task.createdAt) / 1000)
-
-  if (elapsedSeconds <= 15) {
-    return i18next.t('networkHint.generic', { ns: 'store' })
-  }
-
-  if (elapsedSeconds >= 55 && elapsedSeconds <= 75) {
-    return i18next.t('networkHint.reverseProxy60s', { ns: 'store' })
-  }
-
-  if (elapsedSeconds >= 110 && elapsedSeconds <= 140) {
-    return i18next.t('networkHint.cdn120s', { ns: 'store' })
-  }
-
   return i18next.t('networkHint.generic', { ns: 'store' })
 }
 
@@ -1522,7 +1508,7 @@ export async function submitPrepared(
     try {
       const target = orderInputImagesForMask(input.inputImages, input.maskDraft.targetImageId)[0]
       if (target.id !== input.inputImages[0]?.id)
-        throw new Error(i18next.t('task.maskImageMissing', { ns: 'store' }))
+        throw new UserFacingError(i18next.t('task.maskImageMissing', { ns: 'store' }))
       const coverage = await validateMaskMatchesImage(input.maskDraft.maskDataUrl, target.dataUrl)
       if (!current()) return []
       if (coverage === 'full') {
@@ -1775,12 +1761,12 @@ async function loadTaskInputs(
   const inputDataUrls: string[] = []
   for (const imgId of task.inputImageIds) {
     const dataUrl = await ensureImageCached(imgId)
-    if (!dataUrl) throw new Error(i18next.t('task.inputImageMissing', { ns: 'store' }))
+    if (!dataUrl) throw new UserFacingError(i18next.t('task.inputImageMissing', { ns: 'store' }))
     inputDataUrls.push(dataUrl)
   }
   if (!task.maskImageId) return { inputDataUrls }
   const maskDataUrl = await ensureImageCached(task.maskImageId)
-  if (!maskDataUrl) throw new Error(i18next.t('task.maskImageMissing', { ns: 'store' }))
+  if (!maskDataUrl) throw new UserFacingError(i18next.t('task.maskImageMissing', { ns: 'store' }))
   return { inputDataUrls, maskDataUrl }
 }
 
@@ -1877,7 +1863,7 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
         let errorMessage = isOwnTimeoutAbortError(failure.error)
           ? createOpenAITimeoutError(job.timeoutSeconds)
           : failure.text
-        const networkErrorHint = getApiRequestNetworkErrorHint(failure.error, latestTask)
+        const networkErrorHint = getApiRequestNetworkErrorHint(failure.error)
         if (networkErrorHint && !errorMessage.includes(IMAGE_FETCH_CORS_HINT)) {
           errorMessage += `\n${networkErrorHint}`
         }
@@ -2181,7 +2167,9 @@ export async function materializeRemoteTask(task: TaskRecord): Promise<TaskRecor
   ])
   const localized: TaskRecord = {
     ...task,
-    prompt: detail?.prompt ?? task.prompt,
+    // 平台详情里是发给上游的那一句（防改写前缀、构图指令）；本机卡要的是用户原文，
+    // 否则重试时 callImageApi 按 no_rewrite 再钉一遍前缀，卡上也重新露出机器指令。
+    prompt: detail ? promptFromGeneration(detail) : task.prompt,
     outputImages,
     inputImageIds,
     maskImageId,
@@ -2888,7 +2876,8 @@ export async function importData(
     const unzipped = unzipSync(new Uint8Array(buffer))
 
     const manifestBytes = unzipped['manifest.json']
-    if (!manifestBytes) throw new Error(i18next.t('error.manifestMissing', { ns: 'store' }))
+    if (!manifestBytes)
+      throw new UserFacingError(i18next.t('error.manifestMissing', { ns: 'store' }))
 
     const data: ExportData = JSON.parse(strFromU8(manifestBytes))
 
@@ -2984,7 +2973,7 @@ export async function storeImageFromUrl(
   const res = await fetcher(src)
   const blob = await res.blob()
   if (!blob.type.startsWith('image/'))
-    throw new Error(i18next.t('error.notAnImage', { ns: 'store' }))
+    throw new UserFacingError(i18next.t('error.notAnImage', { ns: 'store' }))
   const dataUrl = await blobToDataUrl(blob)
   const id = await storeImage(dataUrl, 'upload')
   cacheImage(id, dataUrl)
