@@ -105,13 +105,13 @@ it('内容安全拒绝：卡上写可行动的那句、给改提示词的出路�
   await act(async () => root.render(<DetailModal />))
 
   const text = document.body.textContent ?? ''
-  expect(text).toContain('没通过内容审核')
+  expect(text).toContain('未通过内容审核')
   // 上游英文原文只留给「复制完整错误」，不糊在卡面上。
   expect(text).not.toContain('safety system')
   const labels = Array.from(document.body.querySelectorAll('button')).map((b) =>
     (b.textContent ?? b.getAttribute('aria-label') ?? '').trim(),
   )
-  expect(labels).toContain('改一下提示词')
+  expect(labels).toContain('修改提示词')
   // 原样重试稳定复现同一个拒绝，这条出路撤掉。
   expect(labels.some((label) => label.includes('重试'))).toBe(false)
 })

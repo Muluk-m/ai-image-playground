@@ -338,7 +338,7 @@ describe('画布生成栏的视频档', () => {
 
     expect(editor.getPlaceholders()[0]).toMatchObject({
       status: 'error',
-      message: '生成超时，这次没有出来',
+      message: '生成超时，本次未能完成',
     })
   })
 })

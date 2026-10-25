@@ -9,9 +9,9 @@
     "favorite": "Add to favorites",
     "unfavorite": "Remove from favorites",
     "reuse": "Reuse config",
-    "editOutput": "Edit output",
-    "sendToCanvas": "Send to canvas",
-    "sendToCanvasTitle": "Send to canvas",
+    "editOutput": "Inpaint",
+    "sendToCanvas": "Add to canvas",
+    "sendToCanvasTitle": "Add to canvas",
     "deleteRecord": "Delete record"
   },
   "confirm": {

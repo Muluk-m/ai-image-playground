@@ -182,9 +182,9 @@
     "composer": "Creation composer",
     "prompt": "Describe your idea",
     "placeholders": {
-      "agent": "Tell me what you want to create, or share a script or reference image. I’ll help shape the idea and plan the next steps.",
-      "image": "Describe the subject, setting and visual style. Add reference images to guide the composition, colors or details.",
-      "video": "Describe the action, camera movement and changing atmosphere. Add a reference image to give your video a starting point."
+      "agent": "Describe the image or short film you want, or drop in references and scripts",
+      "image": "Describe the subject, scene, and lighting style, or add reference images",
+      "video": "Describe the action and camera movement, or add frames and references"
     },
     "send": "Generate",
     "preview": "Preview",

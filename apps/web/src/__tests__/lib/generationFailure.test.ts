@@ -14,7 +14,7 @@ describe('generation failure text', () => {
     const text = generationFailure(
       taskFailure('upstream returned 502: <html>Bad Gateway</html>', 'upstream_error'),
     ).text
-    expect(text).toBe('生成服务出错了，这次没有出来')
+    expect(text).toBe('生成服务异常，本次未能完成')
   })
 
   it('asks for another model when the model is unavailable', () => {

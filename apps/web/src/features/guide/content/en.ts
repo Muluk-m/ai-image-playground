@@ -118,10 +118,10 @@ const chapters: Chapter[] = [
               'Load the prompt, parameters and reference images back into the prompt box.',
             ],
             [
-              '[[Edit output]]',
+              '[[Inpaint]]',
               'Use the result as a reference and open the mask editor for inpainting.',
             ],
-            ['[[Send to canvas]]', 'Continue editing the image on a canvas.'],
+            ['[[Place on canvas]]', 'Continue editing the image on a canvas.'],
             [
               '[[Download image]]',
               'Download the original file; works with several images download them all.',
@@ -147,11 +147,11 @@ const chapters: Chapter[] = [
             ],
             [
               'A specific detail',
-              'Click [[Edit output]], paint the area and describe the change. See [Inpainting](/guide/en/create/composer/#mask-edit).',
+              'Click [[Inpaint]], paint the area and describe the change. See [Inpainting](/guide/en/create/composer/#mask-edit).',
             ],
             [
               'Comparing versions',
-              'Click [[Send to canvas]], annotate the image and generate alongside it. See [Canvas](/guide/en/canvas/basics/).',
+              'Click [[Place on canvas]], annotate the image and generate alongside it. See [Canvas](/guide/en/canvas/basics/).',
             ],
             [
               'Hard to describe in words',
@@ -342,7 +342,7 @@ const chapters: Chapter[] = [
             'Inpainting changes only the area you paint, for tasks such as changing a color, removing an object or replacing an element.',
           ),
           steps(
-            'Click [[Edit output]] on a work card, click the brush icon on a reference thumbnail, or right-click an image and choose [[Edit]].',
+            'Click [[Inpaint]] on a work card, click the brush icon on a reference thumbnail, or right-click an image and choose [[Edit]].',
             'In the editor, outline an area with [[Lasso]] or brush it with [[Paint]]; use [[Erase]] to refine the selection. The blue overlay marks the area to change.',
             'Click [[Save]]. The image moves to the first reference slot with a MASK badge, and the submit button changes to [[Edit mask]].',
             'Describe the change in the prompt, for example “replace the cup with a pink ceramic mug”, then click [[Edit mask]].',
@@ -411,7 +411,7 @@ const chapters: Chapter[] = [
             'On the home page, switch to [[Canvas]], describe your request and click [[Start creating]]. A new canvas project opens and the AI agent takes over.',
             'In the sidebar, click [[＋]] next to Canvases to create a canvas, or [[All]] to see every project.',
             'Recent canvases are listed in the sidebar; click ↗ ([[Open immersive]]) to open one with the sidebar collapsed.',
-            'Click [[Send to canvas]] on a work card to add the image to the current canvas.',
+            'Click [[Place on canvas]] on a work card to add the image to the current canvas.',
           ),
           p('Canvases save automatically and sync to the cloud once you are signed in.'),
         ],

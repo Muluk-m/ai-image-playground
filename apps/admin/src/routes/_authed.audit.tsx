@@ -33,7 +33,7 @@ export const Route = createFileRoute('/_authed/audit')({ component: AuditPage })
 const ACTION_LABEL: Record<string, string> = {
   'user.create': '创建用户',
   'user.oauth-register': '三方注册',
-  'user.status.update': '改用户状态',
+  'user.status.update': '变更用户状态',
   'user.note.update': '修改用户备注',
   'user.password.reset': '重置密码',
   'user.password.self-update': '用户自改密码',

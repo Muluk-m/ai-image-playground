@@ -9,9 +9,9 @@
     "favorite": "收藏记录",
     "unfavorite": "取消收藏",
     "reuse": "复用配置",
-    "editOutput": "编辑输出",
-    "sendToCanvas": "送入画布",
-    "sendToCanvasTitle": "送入画布",
+    "editOutput": "局部重绘",
+    "sendToCanvas": "放入画布",
+    "sendToCanvasTitle": "放入画布",
     "deleteRecord": "删除记录"
   },
   "confirm": {
@@ -44,8 +44,8 @@
   "detail": {
     "errorUnavailable": "未记录具体失败原因，请复制诊断信息以便排查。",
     "copyDiagnostics": "复制诊断信息",
-    "contentPolicy": "这次的提示词没通过内容审核。换个说法再试——同样的提示词再提交一次还是这个结果。",
-    "rewritePrompt": "改一下提示词",
+    "contentPolicy": "提示词未通过内容审核，请修改描述后重试（直接重试仍会失败）。",
+    "rewritePrompt": "修改提示词",
     "errorCopied": "完整报错已复制",
     "copyErrorFailed": "复制报错失败",
     "promptCopied": "提示词已复制",
