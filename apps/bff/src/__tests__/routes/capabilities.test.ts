@@ -38,8 +38,8 @@ describe('GET /api/capabilities', () => {
     expect(body['canvas:node-run']).toBe(true)
     expect(body['canvas:script']).toBe(true)
     expect(body.projectDocumentIdentity).toBe(true)
-    // 分阶段上线：先不让客户端写上传中节点，旧版页面不会读到它们。
-    expect(body.canvasPendingMedia).toBe(false)
+    // 读取端（#1452）上线满一天后打开：客户端可写上传中节点，不再等图片上云才同步。
+    expect(body.canvasPendingMedia).toBe(true)
     expect(body['accounts:login']).toBe(true)
     expect(body['accounts:self-register']).toBe(false)
     expect(body['accounts:sync']).toBe(false)

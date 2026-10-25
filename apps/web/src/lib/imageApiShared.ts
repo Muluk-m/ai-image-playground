@@ -1,6 +1,6 @@
 import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import { isContentPolicyRejection, type TaskProgressPhase } from '@image-playground/shared'
-import { i18next } from '../i18n'
+import { i18next, UserFacingError } from '../i18n'
 import type { AppSettings, TaskParams } from '../types'
 import { taskFailure } from './taskError'
 
@@ -81,7 +81,7 @@ export function getDataUrlDecodedByteSize(dataUrl: string): number {
 
 function assertMaxBytes(label: string, bytes: number, maxBytes: number) {
   if (bytes > maxBytes) {
-    throw new Error(
+    throw new UserFacingError(
       i18next.t('size.tooLarge', {
         ns: 'lib',
         label,
@@ -171,20 +171,26 @@ export async function fetchImageUrlAsDataUrl(
     if (err instanceof TypeError) {
       const probe = await probeNoCorsReachability(url)
       if (probe === 'opaque') {
-        throw new Error(
+        throw new UserFacingError(
           i18next.t('imageFetch.corsBlocked', { ns: 'lib', hint: IMAGE_FETCH_CORS_HINT }),
         )
       }
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        throw new Error(i18next.t('imageFetch.offline', { ns: 'lib', hint: IMAGE_FETCH_CORS_HINT }))
+        throw new UserFacingError(
+          i18next.t('imageFetch.offline', { ns: 'lib', hint: IMAGE_FETCH_CORS_HINT }),
+        )
       }
-      throw new Error(i18next.t('imageFetch.failed', { ns: 'lib', hint: IMAGE_FETCH_CORS_HINT }))
+      throw new UserFacingError(
+        i18next.t('imageFetch.failed', { ns: 'lib', hint: IMAGE_FETCH_CORS_HINT }),
+      )
     }
     throw err
   }
 
   if (!response.ok) {
-    throw new Error(i18next.t('imageFetch.httpFailed', { ns: 'lib', status: response.status }))
+    throw new UserFacingError(
+      i18next.t('imageFetch.httpFailed', { ns: 'lib', status: response.status }),
+    )
   }
 
   const blob = await response.blob()

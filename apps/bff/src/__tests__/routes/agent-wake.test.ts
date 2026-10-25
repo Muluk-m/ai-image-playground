@@ -39,6 +39,8 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { config } = await import('../../config')
 const operator = config.operator
+/** 一张 1024² 噪声原件（PNG 的 base64 约 5.6MB）放不进，两张预览放得下。 */
+const PREVIEW_BUDGET = 5_000_000
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { _setChannelsForTesting } = await import('../../lib/channels')
@@ -314,8 +316,10 @@ describe('唤醒', () => {
     const artifactId = projectArtifactId(task!.id, 0)
     expect(woken).toContain(`完成，图片 ${artifactId}`)
     // 产物本身作为视觉证据附上，模型看得到它，不只是一个 id。
-    expect(woken).toContain(`视觉输入 1：图片 ${artifactId} 原图`)
-    expect(woken).toContain(`data:image/png;base64,${TEST_RESULT_PAYLOAD.data[0]!.b64_json}`)
+    // 复核看的是预览（缩略图），原件不进这一轮的请求。
+    expect(woken).toContain(`视觉输入 1：图片 ${artifactId} 缩略图`)
+    expect(woken).toMatch(/data:image\/[a-z]+;base64,/)
+    expect(woken).not.toContain(`base64,${TEST_RESULT_PAYLOAD.data[0]!.b64_json}`)
   })
 
   it('wakes once for a batch, after every task of that submission has ended', async () => {
@@ -573,7 +577,7 @@ describe('局部改图', () => {
     const woken = lastUserInput(calls[1]!)
     const artifactId = projectArtifactId(task!.id, 0)
     expect(woken).toContain('需要复核')
-    expect(woken).toContain(`图片 ${artifactId} 原图`)
+    expect(woken).toContain(`图片 ${artifactId} 缩略图`)
     const { messages } = await snapshot(conversationId)
     const card = messages
       .flatMap((message) => message.content)
@@ -706,31 +710,32 @@ describe('唤醒轮接着提交那一轮的改图计划', () => {
   })
 })
 
-it('复核批次累计字节超限时停止读取后续原件，并明确联合复核未完成', async () => {
+it('复核批次超出字节预算时这一轮照常跑完：只附装得下的预览，没附上的如实列出', async () => {
   const store = new InMemoryObjectStore()
   setObjectStoreForTesting(store)
   setAgentFetchForTesting(
     scriptedAgentFetch(calls, [
       () => toolCallCompletion(generate('review-bounded', { reviewAfterCompletion: true, n: 4 })),
-      () => completionStream('不应在证据不完整时宣称复核成功'),
+      () => completionStream('有两张没看到，如实说明'),
     ]),
   )
   const conversationId = await startConversation()
   await runTurn(conversationId, '生成四张图片并放在一起复核')
   await confirmDrafts(conversationId)
   const [task] = await tasksOf(conversationId)
-  const png = await sharp(randomBytes(128 * 128 * 4), {
-    raw: { width: 128, height: 128, channels: 4 },
+  const png = await sharp(randomBytes(1024 * 1024 * 4), {
+    raw: { width: 1024, height: 1024, channels: 4 },
   })
     .png()
     .toBuffer()
   const keys = [0, 1, 2, 3].map((index) => `${task!.id}/out/${index}`)
   for (const key of keys) await store.write(key, png, 'image/png')
+  // 按原件附图时连一张都装不下（旧行为：整轮报「这一轮没有跑完」）。
+  expect(Buffer.from(png).toString('base64').length).toBeGreaterThan(PREVIEW_BUDGET)
   config.operator = {
     ...operator,
-    quotas: { ...operator.quotas, 'agent:request-max-bytes': 220_000 },
+    quotas: { ...operator.quotas, 'agent:request-max-bytes': PREVIEW_BUDGET },
   }
-  store.events.length = 0
   calls.length = 0
   expect(
     await workerSettles(task!.id, {
@@ -741,14 +746,19 @@ it('复核批次累计字节超限时停止读取后续原件，并明确联合�
   expect(await pickUpStrandedInboxes()).toBe(1)
   await waitForTurns(conversationId, 2)
   const result = await snapshot(conversationId)
-  const failed = result.turns.find((turn) => turn.stopReason === 'failed')
-  expect(calls).toHaveLength(0)
-  expect(failed?.failure?.message.includes('未完成')).toBe(true)
-  expect(
-    store.events.some(
-      (event) => event.startsWith(`stream:${keys[3]}:`) || event === `read:${keys[3]}`,
-    ),
-  ).toBe(false)
+  expect(result.turns.some((turn) => turn.stopReason === 'failed')).toBe(false)
+  expect(calls).toHaveLength(1)
+  const woken = lastUserInput(calls[0]!)
+  const ids = [0, 1, 2, 3].map((index) => projectArtifactId(task!.id, index))
+  const attached = ids.filter((id) => woken.includes(`图片 ${id} 缩略图`))
+  const note = woken.slice(woken.indexOf('【复核说明】'))
+  const omitted = ids.filter((id) => !attached.includes(id))
+  // 装得下的才附上；其余每一张都写进复核说明，模型不会把没看到的说成看过。
+  expect(attached.length).toBeGreaterThan(0)
+  expect(omitted.length).toBeGreaterThan(0)
+  expect(woken).toContain('【复核说明】')
+  for (const id of omitted) expect(note).toContain(id)
+  expect(woken).not.toContain('原图')
 })
 
 describe('滚动发布', () => {

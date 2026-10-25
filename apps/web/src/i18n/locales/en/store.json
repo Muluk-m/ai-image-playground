@@ -10,19 +10,17 @@
     "interrupted": "Request interrupted",
     "byokUnrecoverable": "This bring-your-own-key task can't be resumed. Generate it again.",
     "timeout": "Request timed out: still unfinished after {{timeoutSeconds}} seconds. Retry later or raise the timeout.",
-    "profileMissing": "Cannot find the API profile this task used.",
+    "profileMissing": "The model used for this task wasn't found. Pick another model and try again",
     "inputImageMissing": "The input image no longer exists",
     "maskImageMissing": "The mask image no longer exists"
   },
   "networkHint": {
-    "reverseProxy60s": "Hint: the request was cut off after about 60 seconds, which is usually the default timeout of a reverse proxy such as Nginx rather than an error from the endpoint. Raise the proxy timeout (proxy_read_timeout, for example), or lower the image size/quality and retry.",
-    "cdn120s": "Hint: the request was cut off after about 120 seconds, which is usually a CDN or gateway timeout such as Cloudflare's rather than an error from the endpoint. On Cloudflare, consider a higher plan or a direct address that skips the CDN.",
-    "generic": "Hint: the request was cut off after a long wait, usually a reverse proxy or gateway timeout rather than an error from the endpoint. Check the proxy timeout settings, or lower the image size/quality and retry."
+    "generic": "Tip: the connection waited too long and was dropped. Try again later, or lower the size or quality."
   },
   "submit": {
     "modelUnavailable": "That model or profile is no longer available. Pick another one.",
     "noChannel": "No platform model is available",
-    "invalidProfile": "Complete the request API profile first: {{reason}}",
+    "invalidProfile": "This model is unavailable right now. Pick another model",
     "promptRequired": "Enter a prompt",
     "blocked": "Generation is unavailable right now",
     "slotUnfilled": "Slot {{slot}} has no value",

@@ -13,9 +13,10 @@ import {
   saveArchiveCheckpoint,
   type TerminalTaskUpdate,
 } from '../db/task-transitions'
+import { accountConcurrencyLimit } from '../lib/account-concurrency'
 import { durableGenerationInputs } from '../lib/generationMedia'
 import { log } from '../lib/logger'
-import { type BffTransaction, loadPrivateBffOverlay } from '../lib/private-overlay'
+import type { BffTransaction } from '../lib/private-overlay'
 
 /**
  * 任务执行：认领 → 带 fence 的写 → 收尾。
@@ -439,9 +440,7 @@ export async function accountGenerationLimits(
   provider: QueueProvider,
   now: number,
 ): Promise<{ total: number; provider: number }> {
-  const overlay = await loadPrivateBffOverlay()
-  const entitled = (await overlay.taskHooks.accountConcurrencyLimit?.({ tx, userId, now })) ?? 3
-  const requested = Number.isInteger(entitled) && entitled > 0 ? entitled : 1
+  const requested = await accountConcurrencyLimit(tx, userId, now)
   const providerSlots =
     provider === 'openai-compat'
       ? config.worker.concurrency.openaiCompat
