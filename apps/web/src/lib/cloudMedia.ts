@@ -189,43 +189,62 @@ export async function resolveMediaSource(
     }
     return bounded(async () => {
       assertScope()
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const access = await mediaJson<Access>(`/${id}/access`)
-        assertScope()
-        let response: Response
-        try {
-          response = await fetch(variant === 'preview' ? access.previewUrl : access.originalUrl, {
-            credentials: 'omit',
-            signal: AbortSignal.timeout(variant === 'original' ? 300_000 : 30_000),
-          })
-        } catch (error) {
-          assertScope()
-          // R2 omits CORS headers on expired signatures, so browsers expose a network error.
-          if (error instanceof TypeError && attempt === 0) continue
-          throw error
+      const deadline = variant === 'original' ? new AbortController() : undefined
+      const timer = deadline ? setTimeout(() => deadline.abort(new DOMException('Media download timed out', 'TimeoutError')), 300_000) : undefined
+      try {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          let stage: 'access' | 'fetch' | 'body' = 'access'
+          try {
+            deadline?.signal.throwIfAborted()
+            const access = await mediaJson<Access>(`/${id}/access`, { signal: deadline?.signal })
+            assertScope()
+            stage = 'fetch'
+            const response = await fetch(variant === 'preview' ? access.previewUrl : access.originalUrl, {
+              credentials: 'omit',
+              signal: deadline?.signal ?? AbortSignal.timeout(30_000),
+            })
+            assertScope()
+            if (!response.ok) {
+              void response.body?.cancel().catch(() => {})
+              throw new MediaRequestError(response.status, 'media_download_failed')
+            }
+            stage = 'body'
+            const bytes = await response.arrayBuffer()
+            const contentType = response.headers.get('content-type') ?? 'application/octet-stream'
+            const data = await blobDataUrl(new Blob([bytes], { type: contentType }))
+            assertScope()
+            deadline?.signal.throwIfAborted()
+            remember(key, data)
+            if (
+              await persist({
+                id: cacheId,
+                data: bytes,
+                contentType,
+                bytes: bytes.byteLength,
+                lastUsedAt: Date.now(),
+              })
+            )
+              bypassDiskCache.delete(key)
+            return data
+          } catch (error) {
+            assertScope()
+            deadline?.signal.throwIfAborted()
+            // Refresh signed URLs on expiry; original downloads also recover interrupted bodies
+            // and temporary API/storage failures, before any bytes enter the cache.
+            const expired = stage === 'fetch' && error instanceof MediaRequestError && error.status === 403
+            const network = error instanceof TypeError && (stage === 'fetch' || variant === 'original')
+            const transientOriginal = variant === 'original' && (
+              (error instanceof MediaRequestError && [408, 429, 500, 502, 503, 504].includes(error.status)) ||
+              (error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError'))
+            )
+            if (attempt === 0 && (expired || network || transientOriginal)) continue
+            throw error
+          }
         }
-        assertScope()
-        if (response.status === 403 && attempt === 0) continue
-        if (!response.ok) throw new MediaRequestError(response.status, 'media_download_failed')
-        // 取字节而不是 Blob：落盘存的就是字节，data URL 也由同一份字节换算，只解码一次。
-        const bytes = await response.arrayBuffer()
-        const contentType = response.headers.get('content-type') ?? 'application/octet-stream'
-        const data = await blobDataUrl(new Blob([bytes], { type: contentType }))
-        assertScope()
-        remember(key, data)
-        if (
-          await persist({
-            id: cacheId,
-            data: bytes,
-            contentType,
-            bytes: bytes.byteLength,
-            lastUsedAt: Date.now(),
-          })
-        )
-          bypassDiskCache.delete(key)
-        return data
+        throw new Error('media_download_failed')
+      } finally {
+        clearTimeout(timer)
       }
-      throw new Error('media_download_failed')
     }, urgent)
   })()
   loading.set(key, operation)
