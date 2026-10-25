@@ -39,7 +39,7 @@ it('shows readable model names and OpenAI logos while submitting the selected op
       />,
     ),
   )
-  const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="选择 Chat 模型"]')!
+  const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="选择文本模型"]')!
   expect(trigger.textContent).toBe('GPT-6 Luna')
   expect(trigger.querySelector('svg[viewBox="0 0 256 260"]')).not.toBeNull()
   await act(async () => trigger.click())
@@ -77,7 +77,7 @@ it('preserves a configured model label instead of replacing it with the model id
       />,
     ),
   )
-  expect(host.querySelector('button[aria-label="选择 Chat 模型"]')?.textContent).toBe(
+  expect(host.querySelector('button[aria-label="选择文本模型"]')?.textContent).toBe(
     'Creative Writer',
   )
 })

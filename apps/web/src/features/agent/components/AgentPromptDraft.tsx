@@ -7,6 +7,7 @@ import { useTranslation } from '../../../i18n'
 import ProductionDraftCard from '../../production/components/ProductionDraftCard'
 import type { ProductionPane } from '../../production/lib/productionContext'
 import { CARD_NOTE, CARD_TEXT } from '../agentStyles'
+import { agentDraftStillDrafting } from '../lib/draftingTurn'
 import { agentDraftOutputCount, isProductionDraft } from '../lib/promptDraft'
 import {
   agentToolFailureAction,
@@ -43,13 +44,15 @@ function StandardPromptDraft({ message }: { message: AgentToolMessage }) {
   const [failure, setFailure] = useState<AgentPromptConfirmFailure | null>(null)
   const noteId = useId()
   const ready = prompt.trim().length > 0
+  // 拟它的那一轮还在跑：服务端此时不收确认，先按住并说明，免得点了只得到「已失效」。
+  const drafting = useAgentStore((state) => agentDraftStillDrafting(state, message))
   const count = agentDraftOutputCount(message)
   // 被拒时那一个出路（去充值、去登录、让助手换个做法）；其余失败原样再点一次即可。
   const refused = failure?.reason === 'refused' ? failure.code : undefined
   const action = agentToolFailureAction(refused)
 
   const confirm = () => {
-    if (!ready || submittingRef.current) return
+    if (!ready || drafting || submittingRef.current) return
     submittingRef.current = true
     setSubmitting(true)
     setFailure(null)
@@ -71,6 +74,7 @@ function StandardPromptDraft({ message }: { message: AgentToolMessage }) {
     if (!failure) return null
     if (failure.reason === 'gone') return t('confirm.gone')
     if (failure.reason === 'notConfirmable') return t('confirm.notConfirmable')
+    if (failure.reason === 'drafting') return t('confirm.drafting')
     return agentToolFailureText(refused) ?? t('confirm.failed')
   }
 
@@ -89,10 +93,10 @@ function StandardPromptDraft({ message }: { message: AgentToolMessage }) {
       onAllowOnce={confirm}
       allowOnceLabel={t('confirm.submit')}
       statusLabel={t('confirm.submitting')}
-      disabled={!ready || submitting}
+      disabled={!ready || drafting || submitting}
     >
       <p id={noteId} className="text-xs leading-relaxed text-muted-foreground">
-        {t('confirm.pending')}
+        {drafting ? t('confirm.drafting') : t('confirm.pending')}
       </p>
       {message.video && (
         <>

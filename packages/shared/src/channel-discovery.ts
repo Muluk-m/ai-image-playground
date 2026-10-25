@@ -62,13 +62,19 @@ export type ChannelCapability = (typeof CHANNEL_CAPABILITIES)[number]
 export type ChannelMedia = 'image' | 'video'
 
 /**
- * 模型选择器里名字后面那几个说明标签。只放运营能讲清楚依据的特征（实测耗时、官方定位）；
- * 文案在前端 i18n（`composer.param.modelBadge.*`），这里只是稳定的 token。
- * 'recommended' = 平台默认推荐的模型；'latest' = 同系列最新发布；'quality' = 同系列画质最好；
- * 'fast' = 同系列最快；'value' = 同系列最便宜。
+ * 模型标签 token。选择器只把 'latest' 显示成名字旁一枚很小的「New」，其余 token 不再显示：
+ * 快慢与画质改由分组（`tier`）和耗时表达，不在名字后面挂说明文字。其余 token 仍然合法，
+ * 只为兼容已有的运营配置（未知 token 会让渠道配置加载失败）。
  */
 export const MODEL_BADGES = ['recommended', 'latest', 'quality', 'fast', 'value'] as const
 export type ModelBadge = (typeof MODEL_BADGES)[number]
+
+/**
+ * 模型选择器的分组：'fast' 排在「快速」组，'quality' 排在「高质量」组，组内按 etaSeconds 从快到慢。
+ * 不写的模型排在分组之后，不带组头。
+ */
+export const MODEL_TIERS = ['fast', 'quality'] as const
+export type ModelTier = (typeof MODEL_TIERS)[number]
 
 /**
  * 模型自带的品牌图标。不写时前端按模型 id 前缀给厂商图标（OpenAI / Gemini / Grok…）；写了就用
@@ -87,8 +93,10 @@ export interface ChannelModel {
   label: string
   capabilities: ChannelCapability[]
   media?: ChannelMedia
-  /** 选择器里的说明标签，按数组顺序展示；缺省不显示。 */
+  /** 标签 token；选择器只显示 'latest'（一枚「New」）。 */
   badges?: ModelBadge[]
+  /** 选择器分组（快速 / 高质量）；缺省不分组。 */
+  tier?: ModelTier
   /**
    * 典型单张耗时（秒，实测中位数的量级），选择器显示成「约 N 秒 / 分钟」；只是提示，不参与超时。
    * 按用户实际等待算：提交到卡片出图，含上游生成之后的结果确认（入库、出预览）、轮询和取图。

@@ -452,6 +452,7 @@ describe('parseChannelsConfig', () => {
                 label: 'B',
                 capabilities: ['generate'],
                 badges: ['fast', 'value'],
+                tier: 'fast',
                 etaSeconds: 3,
                 logo: 'nano-banana',
                 imageSizes: ['1K', '2K'],
@@ -474,6 +475,7 @@ describe('parseChannelsConfig', () => {
     const [tagged, ranged, plain] = getDiscoveredChannels()[0]!.models
     expect(tagged).toMatchObject({
       badges: ['fast', 'value'],
+      tier: 'fast',
       etaSeconds: 3,
       logo: 'nano-banana',
       imageSizes: ['1K', '2K'],
@@ -481,6 +483,7 @@ describe('parseChannelsConfig', () => {
     expect(tagged).not.toHaveProperty('etaMaxSeconds')
     expect(ranged).toMatchObject({ etaSeconds: 40, etaMaxSeconds: 100 })
     expect(plain).not.toHaveProperty('badges')
+    expect(plain).not.toHaveProperty('tier')
     expect(plain).not.toHaveProperty('etaSeconds')
     expect(plain).not.toHaveProperty('logo')
     expect(plain).not.toHaveProperty('imageSizes')
@@ -490,6 +493,8 @@ describe('parseChannelsConfig', () => {
     [{ badges: 'fast' }, /badges must be an array/],
     [{ badges: ['newest'] }, /invalid badge 'newest'/],
     [{ badges: ['fast', 'fast'] }, /duplicate badge 'fast'/],
+    [{ tier: 'slow' }, /invalid tier 'slow'/],
+    [{ tier: 1 }, /invalid tier '1'/],
     [{ etaSeconds: 0 }, /etaSeconds/],
     [{ etaSeconds: 2.5 }, /etaSeconds/],
     [{ etaSeconds: '14' }, /etaSeconds/],
@@ -633,7 +638,7 @@ describe('shipped channels.json', () => {
         id: 'gpt-image-2.5-flare',
         label: 'GPT Image 2.5 Flare',
         capabilities,
-        badges: ['recommended'],
+        tier: 'quality',
         // 线上实测单张约 39–45 秒，四个质量档像素一样、耗时也接近。
         etaSeconds: 40,
       },
@@ -641,6 +646,7 @@ describe('shipped channels.json', () => {
         id: 'gpt-image-2.5-sunburst',
         label: 'GPT Image 2.5 Sunburst',
         capabilities,
+        tier: 'quality',
         etaSeconds: 40,
       },
     ])
@@ -677,6 +683,7 @@ describe('shipped channels.json', () => {
         id: 'grok-imagine-image-2.0',
         label: 'Grok Imagine Image 2.0',
         capabilities: ['generate', 'edit', 'n', 'quality'],
+        tier: 'quality',
         // 线上实测：低档约 40 秒、中档约 70 秒、高档（2K）约 100 秒，选择器显示成范围。
         etaSeconds: 40,
         etaMaxSeconds: 100,
@@ -814,9 +821,9 @@ describe('shipped channels.json', () => {
         label: 'Nano Banana 2.1',
         capabilities: ['generate', 'edit', 'size'],
         badges: ['latest'],
-        // 用户实际等的是「提交 → 卡片出图」：上游实测（10 月 22 日）2.1 约 30 秒、Pro 约 25 秒，
-        // 再加结果确认、轮询与取图约 5 秒（10 月 23 日线上拆解）。
-        etaSeconds: 35,
+        tier: 'fast',
+        // 10 月 24 日实测：Lite 约 3 秒、2.1 约 14 秒、Pro 约 24 秒。
+        etaSeconds: 14,
         logo: 'nano-banana',
         imageSizes: ['1K', '2K'],
       },
@@ -824,8 +831,8 @@ describe('shipped channels.json', () => {
         id: 'gemini-3-pro-image',
         label: 'Nano Banana Pro',
         capabilities: ['generate', 'edit', 'size'],
-        badges: ['quality'],
-        etaSeconds: 30,
+        tier: 'quality',
+        etaSeconds: 24,
         logo: 'nano-banana',
         imageSizes: ['1K', '2K'],
       },
@@ -833,10 +840,8 @@ describe('shipped channels.json', () => {
         id: 'gemini-3.1-flash-lite-image',
         label: 'Nano Banana 2 Lite',
         capabilities: ['generate', 'edit', 'size'],
-        badges: ['fast', 'value'],
-        // Lite 文生图端到端约 10–15 秒；带参考图的编辑多一次上传和一张输入入库，约 20–25 秒。
-        etaSeconds: 15,
-        etaMaxSeconds: 25,
+        tier: 'fast',
+        etaSeconds: 3,
         logo: 'nano-banana',
         imageSizes: ['1K'],
       },

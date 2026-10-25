@@ -1,4 +1,4 @@
-import { i18next } from '../i18n'
+import { i18next, UserFacingError } from '../i18n'
 import type { InputImage } from '../types'
 import type { Point } from './viewportTransform'
 
@@ -6,7 +6,7 @@ export type MaskCoverage = 'empty' | 'partial' | 'full'
 
 export function validateMaskTarget(inputImages: InputImage[], targetImageId: string): InputImage {
   const target = inputImages.find((img) => img.id === targetImageId)
-  if (!target) throw new Error(i18next.t('mask.baseImageMissing', { ns: 'lib' }))
+  if (!target) throw new UserFacingError(i18next.t('mask.baseImageMissing', { ns: 'lib' }))
   return target
 }
 
@@ -79,6 +79,6 @@ export function classifyMaskAlpha(imageData: Pick<ImageData, 'data'>): MaskCover
 
 export function assertUsableMaskCoverage(coverage: MaskCoverage): void {
   if (coverage === 'empty') {
-    throw new Error(i18next.t('mask.emptySelection', { ns: 'lib' }))
+    throw new UserFacingError(i18next.t('mask.emptySelection', { ns: 'lib' }))
   }
 }

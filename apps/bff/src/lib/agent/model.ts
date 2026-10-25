@@ -18,7 +18,9 @@ import { providerFetch } from './provider-fetch'
 import type { ConfiguredAgentRuntime } from './provider-settings'
 import { requestInputTokens } from './request-budget'
 import { AGENT_STREAM_IDLE_TIMEOUT_MS, withIdleTimeout } from './stream-idle'
+import { withOutputLimit } from './stream-output-limit'
 import { retryOverloadedStream } from './stream-retry'
+import { AGENT_TOOL_ARGUMENT_CHARS_PER_TOKEN, withToolArgumentLimit } from './stream-tool-arguments'
 import { agentThinking } from './thinking'
 
 const PROVIDER_ID = 'upstream-gateway'
@@ -155,7 +157,10 @@ export function agentStreamFn(
       const stream = models.streamSimple(streamModel, context, {
         ...options,
         maxRetries: 0,
-        fetch: withIdleTimeout(outbound, idleMs) as typeof globalThis.fetch,
+        fetch: withToolArgumentLimit(
+          withOutputLimit(withIdleTimeout(outbound, idleMs), streamModel.maxTokens),
+          streamModel.maxTokens * AGENT_TOOL_ARGUMENT_CHARS_PER_TOKEN,
+        ) as typeof globalThis.fetch,
       })
       // 把推理写在正文开头标签里的模型，在这一层就拆成 thinking：正文、落库与原生历史都不带标签。
       const tags = agentInlineReasoningTags(streamModel.id)

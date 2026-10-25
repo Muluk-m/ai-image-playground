@@ -7,7 +7,7 @@ import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { Slider } from '../../../components/ui/slider'
 import { Textarea } from '../../../components/ui/textarea'
-import { useTranslation } from '../../../i18n'
+import { describeError, useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import type { CanvasEditor } from '../lib/editor'
 import type { NodeCanvasDocument } from '../lib/nodeCanvasDocument'
@@ -60,7 +60,7 @@ export default function NodeImageEditor({
         if (alive) setSource(value)
       })
       .catch((reason) => {
-        if (alive) setError(String(reason.message ?? reason))
+        if (alive) setError(describeError(reason))
       })
     return () => {
       alive = false
@@ -168,7 +168,7 @@ export default function NodeImageEditor({
     try {
       if (await finishNodeImageEdit(editor, canvas, source, mode, strokes, prompt.trim())) onClose()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError(describeError(reason))
     } finally {
       running.current = false
       setBusy(false)

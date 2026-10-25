@@ -1,4 +1,4 @@
-import { i18next } from '../../../i18n'
+import { i18next, UserFacingError } from '../../../i18n'
 import { canvasToBlob } from '../../../lib/canvasImage'
 import { blobDataUrl } from '../../../lib/cloudMedia'
 import { assertUsableMaskCoverage, classifyMaskAlpha, maskPaintOperation } from '../../../lib/mask'
@@ -111,7 +111,7 @@ export function renderMask(
   mode: MaskRenderMode,
 ): CanvasRenderingContext2D {
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
+  if (!ctx) throw new UserFacingError(i18next.t('canvas.unsupported', { ns: 'lib' }))
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   if (!mode.inverted) {
     // 遮罩底色是「全保留」：没涂过的地方必须完全不透明，否则整张图都成了可重绘区。
