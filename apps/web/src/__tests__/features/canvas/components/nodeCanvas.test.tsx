@@ -410,7 +410,11 @@ it.each([
     }
   } else await act(async () => button!.click())
   if (stage !== 'missing')
-    expect(toast).toHaveBeenCalledWith(i18next.t('import.failed', { ns: 'canvas' }), 'error')
+    await vi.waitFor(
+      () =>
+        expect(toast).toHaveBeenCalledWith(i18next.t('import.failed', { ns: 'canvas' }), 'error'),
+      { timeout: 3_000 },
+    )
   else expect(toast).not.toHaveBeenCalled()
   const errors = (await reports()).flatMap((batch) => batch.errors)
   expect(errors).toHaveLength(1)
@@ -419,6 +423,28 @@ it.each([
     stage: stage === 'missing' ? 'original' : stage,
   })
   expect(JSON.stringify(await reports())).not.toContain(secret)
+})
+
+it('retries a transient failure from the real download button and triggers only once', async () => {
+  const reports = captureClientErrors()
+  await render()
+  act(() => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
+  const button = host.querySelector<HTMLButtonElement>(
+    `button[aria-label="${i18next.t('nodes.download', { ns: 'canvas' })}"]`,
+  )!
+  const fetch = vi
+    .spyOn(globalThis, 'fetch')
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    .mockResolvedValueOnce(new Response('bytes', { headers: { 'content-type': 'image/png' } }))
+  const trigger = vi.spyOn(downloads, 'downloadBlob').mockImplementation(() => {})
+  const toast = vi.spyOn(useStore.getState(), 'showToast').mockImplementation(() => {})
+  await act(async () => {
+    button.click()
+    await vi.waitFor(() => expect(trigger).toHaveBeenCalledTimes(1), { timeout: 2_000 })
+  })
+  expect(fetch).toHaveBeenCalledTimes(2)
+  expect(toast).not.toHaveBeenCalled()
+  expect(await reports()).toEqual([])
 })
 
 it('does not report file-save success when the real download button only triggers a download', async () => {
