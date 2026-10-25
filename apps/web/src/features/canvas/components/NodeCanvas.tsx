@@ -2601,7 +2601,11 @@ function Flow({
                                 if (source) {
                                   let stage: 'original' | 'fetch' | 'blob' | 'trigger' = 'original'
                                   void resolveMediaSource(source, 'original', true)
-                                    .then((url) => fetchDownloadBlob(url, { credentials: 'include' }, (next) => { stage = next }))
+                                    .then((url) =>
+                                      fetchDownloadBlob(url, { credentials: 'include' }, (next) => {
+                                        stage = next
+                                      }),
+                                    )
                                     .then((blob) => {
                                       const extension =
                                         blob.type.split('/')[1]?.split(';')[0] ||

@@ -47,7 +47,9 @@ export async function downloadImagesByIds(
         failed++
         continue
       }
-      const blob = await fetchDownloadBlob(url, {}, (next) => { stage = next })
+      const blob = await fetchDownloadBlob(url, {}, (next) => {
+        stage = next
+      })
       const ext = blob.type.split('/')[1] || 'png'
       stage = 'trigger'
       downloadBlob(blob, `${filenamePrefix}-${Date.now()}-${success}.${ext}`)
