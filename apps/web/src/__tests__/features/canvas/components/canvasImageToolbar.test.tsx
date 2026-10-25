@@ -66,7 +66,7 @@ it('inserts region 1 after restarting intelligent edit or switching back from er
     draw()
     expect(host.querySelector('[contenteditable]')?.textContent).toContain('@区域1')
     const send = [...host.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
-      button.textContent?.includes('发送给 Agent'),
+      button.textContent?.includes('发送给智能体'),
     )
     expect(send?.disabled).toBe(true)
     act(() =>

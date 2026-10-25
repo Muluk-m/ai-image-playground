@@ -63,7 +63,10 @@ function matchesPhrase(text: string | null | undefined): boolean {
 }
 
 /** 上游错误 envelope 里的码与人话。各家形状略有出入，按 `in` 逐层收窄，不假设结构。 */
-function readErrorEnvelope(payload: unknown): { code: string | null; message: string | null } {
+export function readErrorEnvelope(payload: unknown): {
+  code: string | null
+  message: string | null
+} {
   if (!payload || typeof payload !== 'object' || !('error' in payload))
     return { code: null, message: null }
   const error = payload.error

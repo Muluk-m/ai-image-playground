@@ -91,6 +91,7 @@ import { type AgentJobSession, createAgentBackgroundJobs } from './lib/backgroun
 import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
 import { conversationCache } from './lib/conversationCache'
 import { browserConversationPrefetch } from './lib/conversationPrefetch'
+import { agentDraftStillDrafting } from './lib/draftingTurn'
 import {
   type DraftSubmissionDispatch,
   type DraftSubmissionInput,
@@ -98,6 +99,11 @@ import {
 } from './lib/draftSubmission'
 import { agentDraft, bindNewAgentDraft, DraftSession } from './lib/drafts'
 import { pollFollowUps, shouldPollFollowUps } from './lib/followUps'
+import {
+  configureAgentJobActivity,
+  markAgentConversationSeen,
+  reportAgentPanel,
+} from './lib/jobActivity'
 import { agentJobUnsettled } from './lib/jobProgress'
 import {
   addQueuedMessage,
@@ -188,13 +194,14 @@ function readModelAuto(): boolean {
  * - `refused`：服务端拒了这次提交（积分不够、没登录、参数不成立……），码即出路。
  * - `gone`：这条消息不在了（换了账号、会话已删）。
  * - `notConfirmable`：它已经不是待确认的草稿（别处确认过、草稿过期）。
+ * - `drafting`：拟它的那一轮还在跑（计划还没拟完），这时不交确认；那一轮结束后再点即可。
  * - `failed`：请求本身没成（断网、超时、服务端出错），原样再点一次即可。
  */
 export type AgentPromptConfirmResult =
   | { readonly ok: true }
   | {
       readonly ok: false
-      readonly reason: 'refused' | 'gone' | 'notConfirmable' | 'failed'
+      readonly reason: 'refused' | 'gone' | 'notConfirmable' | 'drafting' | 'failed'
       readonly code?: AgentToolErrorCode
     }
 
@@ -550,6 +557,48 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       state.conversationId,
     )
   })
+  // 对话外也要知道生成出完了（BUG-16）：开着的对话每次变化报给 jobActivity，切走时还没出完的交给它。
+  configureAgentJobActivity({
+    viewing: (conversationId) =>
+      useStore.getState().appMode === 'canvas' &&
+      store.getState().conversationId === conversationId &&
+      (typeof document === 'undefined' || document.visibilityState !== 'hidden'),
+    refreshCovers: () => {
+      // 目录正在拉（启动/手动刷新）时 refreshCloud 会直接跳过：等这次拉完再补一次，免得封面没换上。
+      const projects = useCanvasProjectStore
+      if (!projects.getState().cloudLoading) {
+        void projects.getState().refreshCloud()
+        return
+      }
+      const stop = projects.subscribe((state) => {
+        if (state.cloudLoading) return
+        stop()
+        void projects.getState().refreshCloud()
+      })
+      // 订阅前那次拉取可能已经结束：再看一眼，免得补刷永远等不到。
+      if (!projects.getState().cloudLoading) {
+        stop()
+        void projects.getState().refreshCloud()
+      }
+    },
+  })
+  store.subscribe((state, previous) => {
+    if (state.conversationId !== previous.conversationId || state.messages !== previous.messages)
+      reportAgentPanel(state.conversationId, state.messages, previous)
+  })
+  const seeCurrent = () => {
+    const conversationId = store.getState().conversationId
+    if (
+      conversationId &&
+      useStore.getState().appMode === 'canvas' &&
+      (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+    )
+      markAgentConversationSeen(conversationId)
+  }
+  useStore.subscribe((state, previous) => {
+    if (state.appMode !== previous.appMode) seeCurrent()
+  })
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', seeCurrent)
   let cache: ReturnType<typeof conversationCache> | null = null
   let pendingCacheWrite: (() => void) | undefined
   let cacheTimer: ReturnType<typeof setTimeout> | undefined
@@ -663,7 +712,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         message.canvasRun?.authorizationId &&
         message.canvasRun.status === 'pending'
       )
-        registerAgentNodeRunOrigin(message.id, stageRunOrigin(conversationId))
+        registerAgentNodeRunOrigin(message.id, stageRunOrigin(conversationId), message.canvasRun)
   }
 
   /**
@@ -746,7 +795,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       // Origin rights are memory-only. History, reconnects and other devices never auto-start.
       // 本标签页自己发出的轮，以及本标签页开跑的那批运行回报唤醒、由本标签页接上的那一轮，才带运行权。
       if (sent && card.kind === 'tool' && card.canvasRun)
-        registerAgentNodeRunOrigin(card.id, stageRunOrigin(conversationId))
+        registerAgentNodeRunOrigin(card.id, stageRunOrigin(conversationId), card.canvasRun)
       if (card.kind !== 'tool') turnDelivery.discard(event.messageId)
       // 后台任务：占的位不随这一轮收掉，交给任务，等它结束再落。
       else if (event.status === 'submitted')
@@ -2696,6 +2745,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (!conversationId || draft?.kind !== 'tool' || !text) return { ok: false, reason: 'failed' }
       // 确认门拦下的稿：用户已经发出新消息、新的一轮正在起（`turn` 在消息上屏那一刻就是 running），
       // 服务端起轮时会把它作废。这时的确认与新轮抢跑，不交出去；起轮失败回到空闲后仍可确认。
+      // 拟它的那一轮自己还在跑（计划没拟完）：说明还在拟，不说成已失效。
+      if (agentDraftStillDrafting(get(), draft)) return { ok: false, reason: 'drafting' }
       if (draft.gated && get().turn === 'running') return { ok: false, reason: 'notConfirmable' }
       let view: AgentMessageView
       let continued = false
