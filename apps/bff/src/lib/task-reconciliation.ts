@@ -245,6 +245,7 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
                 hydrated.input_images?.[0] ?? '',
                 hydrated.mask ?? '',
                 task.request_payload.masked_original_size,
+                task.request_payload.masked_crop,
               )
               checkpoint = await spoolGenerationOutputs(
                 taskId,
@@ -305,6 +306,7 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
                 hydrated.input_images?.[0] ?? '',
                 hydrated.mask ?? '',
                 task.request_payload.masked_original_size,
+                task.request_payload.masked_crop,
               )
             }
             const cloud = Boolean(task.user_id && isCapabilityEnabled('accounts:sync'))
