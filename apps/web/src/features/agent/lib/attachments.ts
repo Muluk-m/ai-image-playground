@@ -5,7 +5,8 @@ import {
 import { i18next } from '../../../i18n'
 import { getAttachmentLimits } from '../../../lib/clientCapabilities'
 import { blobDataUrl } from '../../../lib/cloudMedia'
-import { preprocessImageFile } from '../../../lib/imagePreprocessing'
+import { IMAGE_PREPROCESSING, preprocessImageFile } from '../../../lib/imagePreprocessing'
+import { jpegOrientation } from '../../../lib/imagePreprocessing/orientation'
 import { registerLocalAttachmentSource } from '../../../lib/localAttachmentSources'
 import {
   attachReferences as admitReferences,
@@ -13,7 +14,7 @@ import {
 } from '../../../lib/referenceDraft'
 import { useStore } from '../../../store'
 import { assetViewImages, useLibraryStore } from '../../library/store'
-import { attachmentUploadsEnabled } from './attachmentUploads'
+import { attachmentUploadsEnabled, mediaFallbackEnabled } from './attachmentUploads'
 import {
   type AgentDraft,
   type AgentReference,
@@ -46,6 +47,33 @@ export function referenceLimitMessage(
       })
 }
 
+const ORIGINAL_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
+
+/**
+ * 带 EXIF 方向（手机竖拍）的 JPEG 原件：浏览器按方向转正了显示、选区也画在转正后的图上，
+ * 原字节却还是没转的——服务端会拒收这种图的选区。这里按原尺寸转正后重新编码，不缩小。
+ */
+async function uprightOriginal(file: File): Promise<Blob> {
+  if (file.type !== 'image/jpeg') return file
+  if (jpegOrientation(await file.arrayBuffer()) === 1) return file
+  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('media_unsupported_image')
+    context.drawImage(bitmap, 0, 0)
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.95),
+    )
+    if (!blob) throw new Error('media_unsupported_image')
+    return blob
+  } finally {
+    bitmap.close()
+  }
+}
+
 function fileStem(name: string): string {
   const stem = name.replace(/\.[^.]+$/, '').trim()
   return (stem || name).slice(0, 60)
@@ -66,9 +94,21 @@ export function filesToReferences(
       name: fileStem(file.name),
     }))
   }
+  // 附件通道关着、但能按普通云媒体上传：原件原样留着（局部改图要按原图像素出图），
+  // 超过单张上限的在输入框里就标出来、拦住发送，不缩小了再悄悄发。
+  const keepOriginal = mediaFallbackEnabled()
   return (async () => {
     const sources: string[] = []
     for (const file of files) {
+      if (keepOriginal && ORIGINAL_TYPES.has(file.type)) {
+        if (file.size > IMAGE_PREPROCESSING.maxInputBytes)
+          throw new Error('attachment_input_too_large')
+        const upright = await uprightOriginal(file)
+        if (upright.size > IMAGE_PREPROCESSING.maxInputBytes)
+          throw new Error('attachment_input_too_large')
+        sources.push(await blobDataUrl(upright))
+        continue
+      }
       const image = await preprocessImageFile(file)
       sources.push(await blobDataUrl(new Blob([image.data], { type: image.contentType })))
     }
