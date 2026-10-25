@@ -393,7 +393,7 @@ export async function downloadCanvasVideo(node: CanvasVideoNode): Promise<void> 
     downloadBlob(await res.blob(), `video-${node.video.taskId}-${node.video.outputIndex}.mp4`)
   } catch (err) {
     toast(
-      err instanceof Error
+      err instanceof UserFacingError
         ? err.message
         : i18next.t('videoToolbar.downloadFailed', { ns: 'canvas' }),
     )
