@@ -1,5 +1,5 @@
 import type { AgentMarkedRegion } from '@image-playground/shared'
-import { i18next } from '../../../i18n'
+import { i18next, UserFacingError } from '../../../i18n'
 import { assertUsableMaskCoverage, classifyMaskAlpha } from '../../../lib/mask'
 import { calculateMaskWorkingSize } from '../../../lib/maskPreprocess'
 
@@ -29,7 +29,7 @@ export function exportMarkedImage(
     image.naturalWidth !== mask.width ||
     image.naturalHeight !== mask.height
   )
-    throw new Error(i18next.t('mask.sizeMismatch', { ns: 'composer' }))
+    throw new UserFacingError(i18next.t('mask.sizeMismatch', { ns: 'composer' }))
   const context = mask.getContext('2d', { willReadFrequently: true })
   if (!context) throw new Error('Mask canvas is unavailable')
   assertUsableMaskCoverage(classifyMaskAlpha(context.getImageData(0, 0, mask.width, mask.height)))

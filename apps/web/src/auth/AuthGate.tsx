@@ -1,6 +1,6 @@
 import type { AuthUserView } from '@image-playground/shared'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
-import { signalBootReady } from '../boot/ready'
+import { signalBootReady, signalBootStage } from '../boot/ready'
 import { Button } from '../components/ui/button'
 import { Icon } from '../components/ui/icon'
 import PricingSheet from '../features/pricing/PricingSheet'
@@ -108,6 +108,7 @@ export function AuthGate() {
     let retryTimer: number | undefined
     const abortController = new AbortController()
     async function boot(): Promise<void> {
+      signalBootStage('account')
       try {
         setRecoveryBackend(
           !accountsLoginEnabled && localRecoveryEnabled ? runtime.bff.baseUrl : null,
@@ -116,6 +117,7 @@ export function AuthGate() {
           const id = localRecoveryEnabled ? await recoverStorageUser() : null
           if (cancelled) return
           setClientStorageScope(id)
+          signalBootStage('workspace')
           setPhase('ready')
           consumeLoginIntent()
           return
@@ -135,6 +137,7 @@ export function AuthGate() {
         setClientStorageScope(currentUser?.id ?? null)
         if (!currentUser) {
           // 匿名可读：channel 清单只列出这个部署提供哪些模型，不含任何凭据。
+          signalBootStage('account-data')
           await bootstrapChannels(
             runtime.bff.enabled,
             runtime.bff.baseUrl,
@@ -146,10 +149,12 @@ export function AuthGate() {
           if (pendingSend) setLoginReason('gated-action')
           noteBrowserSession(null)
           setUser(null)
+          signalBootStage('workspace')
           setPhase('ready')
           consumeLoginIntent(() => setLoginReason('gated-action'))
           return
         }
+        signalBootStage('account-data')
         const [adopted] = await Promise.all([
           // 必须跑在 <App/> 之前：store 是 lazy 加载的，一旦求值就读走 IndexedDB 与 persist key。
           adoptAnonymousStorage(),
@@ -161,6 +166,7 @@ export function AuthGate() {
           setAdoptedTaskCount(adopted)
           noteBrowserSession(currentUser.id)
           setUser(currentUser)
+          signalBootStage('workspace')
           setPhase('ready')
           consumeLoginIntent()
         }

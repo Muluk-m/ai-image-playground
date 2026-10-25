@@ -158,7 +158,7 @@ it('does not report a deleted image when the generation detail request fails', a
 
 it('does not substitute another output when the selected media is absent', async () => {
   await sendTaskToCanvas(task(), 'aip-media:44444444-4444-4444-8444-444444444444')
-  expect(toasts).toEqual(['图片已不存在，无法送入画布'])
+  expect(toasts).toEqual(['图片已不存在，无法放入画布'])
   expect(currentCanvasWorkspace().doc.elements).toHaveLength(0)
 })
 async function place() {

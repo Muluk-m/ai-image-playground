@@ -80,8 +80,7 @@
     "canvasFailed": "Could not start the canvas. The prompt and references remain in the input."
   },
   "manifest": {
-    "loadFailed": "Could not load the remote inspiration manifest: {{reason}}",
-    "notJson": "The remote inspiration manifest did not return JSON",
+    "loadFailed": "Couldn't load inspiration. Refresh and try again",
     "invalid": "The remote inspiration manifest has an invalid structure"
   }
 }

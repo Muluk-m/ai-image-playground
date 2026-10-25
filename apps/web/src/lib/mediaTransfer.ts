@@ -21,7 +21,9 @@ async function retry<T>(work: () => Promise<T>, signal: AbortSignal, current: ()
         error instanceof MediaRequestError
           ? [408, 429, 500, 502, 503, 504].includes(error.status)
           : error instanceof TypeError ||
-            (error instanceof DOMException && error.name === 'TimeoutError')
+            // current() above rejects caller cancellation and account/backend changes first.
+            (error instanceof DOMException &&
+              (error.name === 'TimeoutError' || error.name === 'AbortError'))
       if (!transient || attempt >= 3) throw error
       await new Promise<void>((resolve, reject) => {
         const abort = () => {
