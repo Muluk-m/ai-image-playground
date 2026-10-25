@@ -9,9 +9,13 @@ import * as Y from 'yjs'
 import AgentNodeRunCard from '../../../../features/agent/components/AgentNodeRunCard'
 import { agentNodeRunBridge } from '../../../../features/agent/lib/nodeRunBridge'
 import {
+  agentNodeRun,
+  forgetAgentNodeRun,
+  isAgentNodeRunOrigin,
   noteAgentNodeRunBlocked,
   registerAgentNodeRunOrigin,
   startAgentNodeRun,
+  stopAgentNodeRun,
 } from '../../../../features/agent/lib/nodeRuns'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
@@ -21,11 +25,13 @@ import {
   type NodeBatchPlan,
 } from '../../../../features/canvas/lib/nodeBatch'
 import { useAgentNodeRun } from '../../../../features/canvas/lib/useAgentNodeRun'
+import { setClientStorageScope } from '../../../../lib/authScope'
 import { useStore } from '../../../../store'
 
 const mocks = vi.hoisted(() => ({
   current: vi.fn(),
   run: vi.fn<(...args: unknown[]) => Promise<void>>(async () => {}),
+  syncResults: vi.fn<() => Promise<void>>(async () => {}),
 }))
 // The batch runner is the canvas execution boundary of the authorization store seam.
 vi.mock('../../../../features/canvas/lib/nodeBatch', async (original) => ({
@@ -46,6 +52,7 @@ const proposal: AgentCanvasRunProposal = {
 let plan: NodeBatchPlan
 let authorization: StageAuthorization
 let rejectPreflight: boolean
+let preflightCode: string
 let loseReport: boolean
 let reportWake: 'queued' | 'duplicate'
 let ends: number
@@ -55,6 +62,7 @@ let reports: { nodes: { nodeId: string; outcome: string; reason?: string; retrie
 let blocked: { url: string; nodes: unknown }[]
 let loseBlocked: boolean
 let cleanup: () => Promise<void>
+let rerender: (proposal: AgentCanvasRunProposal) => Promise<void>
 function fixturePlan(signature: string): NodeBatchPlan {
   return {
     signature,
@@ -82,8 +90,9 @@ async function mount(
   origin = true,
   next: AgentCanvasRunProposal = proposal,
   onReported?: (authorizationId: string) => void,
+  card = true,
 ) {
-  if (origin) registerAgentNodeRunOrigin(runKey, onReported ? { onReported } : {})
+  if (origin) registerAgentNodeRunOrigin(runKey, onReported ? { onReported } : {}, next)
   const doc = new Y.Doc(),
     source = canvasOrigin('user', 'test'),
     undo = createCanvasUndoManager(doc, source)
@@ -102,13 +111,19 @@ async function mount(
       active: true,
       revision: plan.signature,
       files: {},
+      syncResults: mocks.syncResults,
     })
-    return <AgentNodeRunCard runKey={runKey} proposal={next} />
+    // 聊天面板收起时只有画布挂着，运行卡不渲染。
+    return card ? <AgentNodeRunCard runKey={runKey} proposal={next} /> : null
   }
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)
   await act(async () => root.render(<Canvas />))
+  rerender = async (updated) => {
+    next = updated
+    await act(async () => root.render(<Canvas />))
+  }
   cleanup = async () => {
     await act(async () => root.unmount())
     host.remove()
@@ -121,6 +136,7 @@ const button = (text: string) =>
 beforeEach(() => {
   vi.useFakeTimers()
   rejectPreflight = false
+  preflightCode = 'stage_authorization_budget'
   loseReport = false
   reportWake = 'queued'
   ends = 0
@@ -174,8 +190,7 @@ beforeEach(() => {
       }
       if (url.endsWith('/preflight')) {
         preflights += 1
-        if (rejectPreflight)
-          return Response.json({ error: 'stage_authorization_budget' }, { status: 409 })
+        if (rejectPreflight) return Response.json({ error: preflightCode }, { status: 409 })
       }
       if (url.endsWith('/end')) {
         ends += 1
@@ -187,6 +202,8 @@ beforeEach(() => {
   plan = fixturePlan('first')
   mocks.current.mockImplementation(() => plan)
   mocks.run.mockReset()
+  mocks.syncResults.mockReset()
+  mocks.syncResults.mockResolvedValue(undefined)
   mocks.run.mockImplementation(async (...args: unknown[]) => {
     authorization = { ...authorization, spentCredits: 20 }
     for (const job of plan.jobs) (args[7] as NodeBatchHooks | undefined)?.completed?.(job)
@@ -197,6 +214,89 @@ afterEach(async () => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
   expect(agentNodeRunBridge()).toBeNull()
+})
+it('does not wake review while generated images are still being saved to the server canvas', async () => {
+  let saved!: () => void
+  mocks.syncResults.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        saved = resolve
+      }),
+  )
+  const followed = vi.fn()
+  await mount('review-waits-for-images', true, { ...proposal, direct: true }, followed)
+  await act(async () => {})
+  try {
+    expect(mocks.run).toHaveBeenCalledOnce()
+    expect(reports).toEqual([])
+    expect(followed).not.toHaveBeenCalled()
+  } finally {
+    await act(async () => saved?.())
+  }
+  expect(reports).toEqual([
+    expect.objectContaining({ nodes: [{ nodeId: 'a', outcome: 'completed' }] }),
+  ])
+  expect(followed).toHaveBeenCalledOnce()
+  expect(mocks.run).toHaveBeenCalledOnce()
+})
+it('keeps a failed image save from waking review or submitting another generation', async () => {
+  mocks.syncResults.mockRejectedValueOnce(new Error('media_upload_failed'))
+  const followed = vi.fn()
+  await mount('review-save-failed', true, { ...proposal, direct: true }, followed)
+  await act(async () => vi.advanceTimersByTimeAsync(60_000))
+  expect(reports).toEqual([])
+  expect(followed).not.toHaveBeenCalled()
+  expect(mocks.run).toHaveBeenCalledOnce()
+  expect(ends).toBe(1)
+  expect(document.body.textContent).toContain('没能把结果交给智能体')
+})
+it('does not report old-account results after switching accounts during image sync', async () => {
+  let saved!: () => void
+  mocks.syncResults.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        saved = resolve
+      }),
+  )
+  const followed = vi.fn()
+  const key = 'review-sync-account-switched'
+  await mount(key, true, { ...proposal, direct: true }, followed, false)
+  await act(async () => {})
+  try {
+    expect(mocks.syncResults).toHaveBeenCalledOnce()
+    setClientStorageScope('someone-else')
+    await act(async () => saved())
+    expect(reports).toEqual([])
+    expect(followed).not.toHaveBeenCalled()
+    expect(agentNodeRun(key)).toBeUndefined()
+    expect(isAgentNodeRunOrigin(key)).toBe(false)
+  } finally {
+    setClientStorageScope(null)
+  }
+})
+it('also saves completed images before reporting an interrupted batch', async () => {
+  let saved!: () => void
+  mocks.syncResults.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        saved = resolve
+      }),
+  )
+  mocks.run.mockImplementation(async (...args: unknown[]) => {
+    const progress = args[5] as (completed: number, id: string) => void
+    const hooks = args[7] as NodeBatchHooks
+    progress(0, 'a')
+    hooks.completed?.(plan.jobs[0]!)
+    throw new NodeBatchFailure('changed')
+  })
+  await mount('partial-review-waits', true, { ...proposal, direct: true })
+  await act(async () => {})
+  expect(reports).toEqual([])
+  await act(async () => saved())
+  expect(reports).toEqual([
+    expect.objectContaining({ nodes: [{ nodeId: 'a', outcome: 'completed' }] }),
+  ])
+  expect(mocks.run).toHaveBeenCalledOnce()
 })
 it('shows scope and budget, confirms once, then preflights and runs only after the undo window', async () => {
   await mount('confirm')
@@ -249,31 +349,6 @@ it('follows the wake of a batch the server had already taken', async () => {
   await mount('duplicate-report', true, { ...proposal, direct: true }, onReported)
   await act(async () => {})
   expect(onReported).toHaveBeenCalledWith('authorization')
-})
-it('retries a failed node once inside the authorization, then reports it failed', async () => {
-  mocks.run.mockImplementation(async (...args: unknown[]) => {
-    const hooks = args[7] as NodeBatchHooks
-    const job = plan.jobs[0]!
-    expect(await hooks.recover?.(job, new NodeBatchFailure('failed'))).toBe('retry')
-    expect(await hooks.recover?.(job, new NodeBatchFailure('failed'))).toBe('skip')
-  })
-  await mount('retry', true, { ...proposal, direct: true })
-  await act(async () => {})
-  expect(preflights).toBe(2)
-  expect(reports[0]?.nodes).toEqual([
-    { nodeId: 'a', outcome: 'failed', reason: 'generation_failed', retried: true },
-  ])
-})
-it('stops retrying when the retry would exceed the budget', async () => {
-  mocks.run.mockImplementation(async (...args: unknown[]) => {
-    rejectPreflight = true
-    const hooks = args[7] as NodeBatchHooks
-    expect(await hooks.recover?.(plan.jobs[0]!, new NodeBatchFailure('failed'))).toBe('skip')
-  })
-  await mount('retry-budget', true, { ...proposal, direct: true })
-  await act(async () => {})
-  expect(preflights).toBe(2)
-  expect(reports[0]?.nodes).toEqual([{ nodeId: 'a', outcome: 'failed', reason: 'budget_exceeded' }])
 })
 it('reports a direct run blocked before start with the missing input', async () => {
   const job = fixturePlan('media').jobs[0]!
@@ -340,6 +415,205 @@ it('starts a direct run with no confirmation card and no undo wait', async () =>
   expect(confirms).toBe(1)
   expect(preflights).toBe(1)
   expect(mocks.run).toHaveBeenCalledOnce()
+})
+
+it('starts a direct run while the chat panel is collapsed and no run card is mounted', async () => {
+  await mount('direct-collapsed', true, { ...proposal, direct: true }, undefined, false)
+  await act(async () => {})
+  expect(confirms).toBe(1)
+  expect(preflights).toBe(1)
+  expect(mocks.run).toHaveBeenCalledOnce()
+  expect(reports).toEqual([
+    expect.objectContaining({ nodes: [{ nodeId: 'a', outcome: 'completed' }] }),
+  ])
+  // 没有卡来收尾：跑完交过结局，运行和来源都得由运行表自己收走，不在标签页里一直留着。
+  expect(agentNodeRun('direct-collapsed')).toBeUndefined()
+  expect(isAgentNodeRunOrigin('direct-collapsed')).toBe(false)
+})
+
+it('releases a collapsed-panel run even when the account switched mid-run', async () => {
+  mocks.run.mockImplementationOnce(async () => {
+    setClientStorageScope('someone-else')
+  })
+  try {
+    await mount('direct-switched', true, { ...proposal, direct: true }, undefined, false)
+    await act(async () => {})
+    expect(mocks.run).toHaveBeenCalledOnce()
+    expect(ends).toBe(1)
+    // 换账号后不写回执，但跑完的运行和来源照样收走。
+    expect(agentNodeRun('direct-switched')).toBeUndefined()
+    expect(isAgentNodeRunOrigin('direct-switched')).toBe(false)
+  } finally {
+    setClientStorageScope(null)
+  }
+})
+
+it('releases a collapsed-panel run when the account switches while confirming', async () => {
+  const served = fetch
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await served(input, init)
+      if (String(input).endsWith('/confirm')) setClientStorageScope('someone-else')
+      return response
+    }),
+  )
+  try {
+    await mount('direct-switched-confirm', true, { ...proposal, direct: true }, undefined, false)
+    await act(async () => {})
+    expect(confirms).toBe(1)
+    expect(mocks.run).not.toHaveBeenCalled()
+    // 停在「确认中」退出的运行不是终局，也得收走，不在标签页里一直留着。
+    expect(agentNodeRun('direct-switched-confirm')).toBeUndefined()
+    expect(isAgentNodeRunOrigin('direct-switched-confirm')).toBe(false)
+  } finally {
+    setClientStorageScope(null)
+  }
+})
+
+it('releases a blocked direct run when the account switches while reporting', async () => {
+  const job = fixturePlan('media').jobs[0]!
+  plan = { ...fixturePlan('media'), error: 'media', jobs: [{ ...job, blocked: 'missing_media' }] }
+  const served = fetch
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/report')) setClientStorageScope('someone-else')
+      return served(input, init)
+    }),
+  )
+  try {
+    await mount('blocked-switched-report', true, { ...proposal, direct: true }, undefined, false)
+    await act(async () => {})
+    expect(reports).toHaveLength(1)
+    // 卡上停在「正在交」：终局才收的规则收不走，换了账号也得收走。
+    expect(agentNodeRun('blocked-switched-report')).toBeUndefined()
+    expect(isAgentNodeRunOrigin('blocked-switched-report')).toBe(false)
+  } finally {
+    setClientStorageScope(null)
+  }
+})
+
+it('leaves a newer run of the same key alone when an account-switched run cleans up', async () => {
+  const key = 'switched-reused'
+  const served = fetch
+  let first = true
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await served(input, init)
+      if (first && String(input).endsWith('/confirm')) {
+        first = false
+        // 旧运行确认中换了账号；新账号下同一 key 被收走后又登记、开跑了一次。
+        setClientStorageScope('someone-else')
+        forgetAgentNodeRun(key)
+        registerAgentNodeRunOrigin(key, {})
+        expect(startAgentNodeRun(key, proposal, 5)).toBe(true)
+      }
+      return response
+    }),
+  )
+  try {
+    await mount(key, true, { ...proposal, direct: true }, undefined, false)
+    await act(async () => {})
+    expect(confirms).toBe(2)
+    expect(mocks.run).not.toHaveBeenCalled()
+    // 旧运行收尾不能把新账号这一次的运行卡和运行权一并删掉。
+    expect(agentNodeRun(key)?.status).toBe('countdown')
+    expect(isAgentNodeRunOrigin(key)).toBe(true)
+  } finally {
+    stopAgentNodeRun(key)
+    await act(async () => {})
+    setClientStorageScope(null)
+  }
+})
+
+it('keeps an old run from resuming after switching accounts away and back', async () => {
+  const key = 'switched-back'
+  const served = fetch
+  let first = true
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await served(input, init)
+      if (first && String(input).endsWith('/confirm')) {
+        first = false
+        // 旧运行确认中换到别的账号又换回来；回来后同一 key 被收走后又登记、开跑了一次。
+        setClientStorageScope('someone-else')
+        setClientStorageScope(null)
+        forgetAgentNodeRun(key)
+        registerAgentNodeRunOrigin(key, {})
+        expect(startAgentNodeRun(key, proposal, 5)).toBe(true)
+      }
+      return response
+    }),
+  )
+  try {
+    await mount(key, true, { ...proposal, direct: true }, undefined, false)
+    await act(async () => {})
+    expect(confirms).toBe(2)
+    // 旧运行属于换走之前的那次登录：换回同一账号也不能接着跑、不能把状态写到新运行上。
+    expect(mocks.run).not.toHaveBeenCalled()
+    expect(agentNodeRun(key)?.status).toBe('countdown')
+    expect(isAgentNodeRunOrigin(key)).toBe(true)
+  } finally {
+    stopAgentNodeRun(key)
+    await act(async () => {})
+    setClientStorageScope(null)
+  }
+})
+
+it('does not start a waiting direct run after the account switched', async () => {
+  const key = 'direct-armed-switched'
+  // 面板登记了直接出图的运行权，但画布还没挂上；等的这段时间换了账号。
+  registerAgentNodeRunOrigin(key, {}, { ...proposal, direct: true })
+  setClientStorageScope('someone-else')
+  try {
+    await mount(key, false, { ...proposal, direct: true }, undefined, false)
+    await act(async () => vi.advanceTimersByTimeAsync(5000))
+    // 画布挂上后不能拿旧账号的提案在新账号下确认、开跑。
+    expect(confirms).toBe(0)
+    expect(mocks.run).not.toHaveBeenCalled()
+    expect(agentNodeRun(key)).toBeUndefined()
+  } finally {
+    forgetAgentNodeRun(key)
+    setClientStorageScope(null)
+  }
+})
+
+it('stops publishing countdown ticks once the account switched', async () => {
+  const key = 'countdown-switched'
+  const seen: string[] = []
+  registerAgentNodeRunOrigin(key, {})
+  await mount(key, false, proposal, undefined, false)
+  expect(startAgentNodeRun(key, proposal, 5)).toBe(true)
+  await act(async () => {})
+  expect(agentNodeRun(key)?.status).toBe('countdown')
+  setClientStorageScope('someone-else')
+  try {
+    // 新账号下同一 key 收走后又登记了一次：旧倒计时不能再把状态写回来。
+    forgetAgentNodeRun(key)
+    registerAgentNodeRunOrigin(key, {})
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    const run = agentNodeRun(key)
+    if (run) seen.push(run.status)
+    expect(seen).toEqual([])
+    expect(mocks.run).not.toHaveBeenCalled()
+  } finally {
+    forgetAgentNodeRun(key)
+    setClientStorageScope(null)
+  }
+})
+
+it('waits for the canvas of the proposal before starting a direct run', async () => {
+  await mount('direct-other-project', true, {
+    ...proposal,
+    projectId: 'another',
+    direct: true,
+  })
+  await act(async () => vi.advanceTimersByTimeAsync(5000))
+  expect(confirms).toBe(0)
+  expect(mocks.run).not.toHaveBeenCalled()
 })
 
 it('stops rereading an authorization after repeated failures', async () => {
@@ -510,4 +784,25 @@ it('stops later nodes when the running card is stopped', async () => {
   // 用户自己停下不唤醒智能体。
   await act(async () => {})
   expect(reports).toHaveLength(0)
+})
+it('does not retry a node the BFF refused for scope, and says why on the card', async () => {
+  mocks.run.mockImplementation(async (...args: unknown[]) => {
+    const hooks = args[7] as NodeBatchHooks
+    const failure = new NodeBatchFailure('failed', 'stage_authorization_scope')
+    expect(await hooks.recover?.(plan.jobs[0]!, failure)).toBe('skip')
+  })
+  await mount('scope-refused', true, { ...proposal, direct: true })
+  await act(async () => {})
+  expect(preflights).toBe(1)
+  expect(reports[0]?.nodes).toEqual([{ nodeId: 'a', outcome: 'failed', reason: 'spec_changed' }])
+  expect(document.body.textContent).toContain('有节点的提交内容和你确认时不一致')
+})
+
+it('retains completed results when the same card receives a refreshed proposal object', async () => {
+  await mount('refreshed-proposal', true, { ...proposal, direct: true })
+  expect(agentNodeRun('refreshed-proposal')).toBeUndefined()
+  expect(document.body.textContent).toContain('已把这批结果交给智能体')
+  await rerender({ ...proposal, direct: true })
+  expect(document.body.textContent).toContain('已把这批结果交给智能体')
+  expect(mocks.run).toHaveBeenCalledTimes(1)
 })

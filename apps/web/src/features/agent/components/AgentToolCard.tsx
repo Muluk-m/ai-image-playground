@@ -40,8 +40,10 @@ import {
 } from '../lib/artifactPreview'
 import { artifactReferenceSource, previewArtifactBitmap } from '../lib/artifactSource'
 import { agentCanvasSink } from '../lib/canvasSink'
+import { agentToolProgress } from '../lib/jobProgress'
 import { agentDraftOutputCount } from '../lib/promptDraft'
 import { agentRerunBlock, agentRetryRemaining, agentRetrySlotTasks } from '../lib/retry'
+import { tileFit } from '../lib/tileFit'
 import {
   agentToolFailureAction,
   agentToolFailureActionLabel,
@@ -55,6 +57,8 @@ import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentIconButton from './AgentIconButton'
 import AgentJobProgress, {
   AgentJobCancel,
+  AgentJobQueueNote,
+  agentJobPhaseLabel,
   useAgentJobProgressText,
   useAgentToolProgress,
 } from './AgentJobProgress'
@@ -81,6 +85,15 @@ function useStatusNote(
   if (message.status === 'submitted') return t('tool.background')
   // 重试队列里排着：前一条重试结束后才提交，还没扣费。
   if (message.status === 'queued') return t('retry.queued')
+  // 确认门拦下的稿没确认就发了新消息：没提交、没扣费。排在重试撤回前面：卡带不带 `retryOf`，
+  // 作废的都是确认门这张稿。
+  if (
+    message.status === 'failed' &&
+    message.errorCode === 'cancelled' &&
+    message.gated &&
+    !message.job
+  )
+    return t('tool.gateVoided')
   // 排着时就撤回的重试：从没提交过，也就没有要退的钱。
   if (
     message.status === 'failed' &&
@@ -495,7 +508,12 @@ function GeneratingTile({
       <div className="studio-agent-tile-face">
         <Icon name={queued ? 'clock' : 'image'} className="text-muted-foreground" />
         {queued || !progress ? (
-          <span className="studio-agent-tile-caption">{t('job.phase.queued')}</span>
+          <span className="studio-agent-tile-caption">
+            {/* 批量出图看的就是这些图块：前面还有几张直接写在块上（BUG-17）。 */}
+            {index === 0 && progress?.phase === 'queued' && progress.queue
+              ? agentJobPhaseLabel(progress)
+              : t('job.phase.queued')}
+          </span>
         ) : (
           <JobProgress
             label={text ?? t(`job.phase.${progress.phase}`)}
@@ -796,8 +814,11 @@ function StandardAgentToolCard({
             <p className={CARD_NOTE}>
               {t('tool.canvasReadNodes', {
                 nodes:
-                  message.canvasRead.map((node) => `${node.name} (${node.id})`).join('、') ||
-                  t('tool.canvasReadNone'),
+                  message.canvasRead
+                    .map((node) =>
+                      node.name && node.name !== node.id ? node.name : t('tool.canvasReadUnnamed'),
+                    )
+                    .join('、') || t('tool.canvasReadNone'),
               })}
             </p>
           )}
@@ -878,8 +899,10 @@ function StandardAgentToolCard({
       imageRatios[tile.id] ?? ('ratio' in tile ? tile.ratio : undefined)
     const groupRatio = tiles.map(tileRatio).find((ratio) => ratio !== undefined && ratio > 0) ?? 1
     const batch = generatedImage && tiles.length >= 2
+    const tileAspect = (tile: (typeof tiles)[number]) =>
+      generatedImage ? (batch || embed ? 1 : groupRatio) : tileRatio(tile)
     const tileStyle = (tile: (typeof tiles)[number]): CSSProperties => ({
-      aspectRatio: generatedImage ? (batch || embed ? 1 : groupRatio) : tileRatio(tile),
+      aspectRatio: tileAspect(tile),
       ...(generatedImage &&
         !batch &&
         !embed && { width: `${IMAGE_PREVIEW_MAX_EDGE * Math.min(groupRatio, 1)}px` }),
@@ -917,6 +940,7 @@ function StandardAgentToolCard({
                 <img
                   src={tile.source}
                   alt={t('tool.resultNumber', { number: index + 1 })}
+                  data-fit={tileFit(tileRatio(tile), tileAspect(tile)) ?? undefined}
                   loading="lazy"
                   onLoad={(event) => {
                     const { naturalWidth, naturalHeight } = event.currentTarget
@@ -1380,6 +1404,14 @@ export function AgentImageRun({
     0,
   )
   const lead = messages.find((message) => message.prompt) ?? messages[0]
+  // 有图在按套餐并发排队：整组只说一次为什么排、怎么更快（BUG-17）。
+  const queueLimit = useAgentStore((state) => {
+    for (const message of messages) {
+      const queue = agentToolProgress(message, state.jobProgress[message.id])?.queue
+      if (queue) return queue.limit
+    }
+    return undefined
+  })
   return (
     <div
       className="studio-agent-inline-result studio-agent-inline-result--generated studio-agent-inline-result--batch"
@@ -1392,6 +1424,7 @@ export function AgentImageRun({
           <span>{t('job.doneCount', { done, total })}</span>
         </div>
       )}
+      {done < total && queueLimit !== undefined && <AgentJobQueueNote limit={queueLimit} />}
       <div className="studio-agent-inline-gallery" data-count={total}>
         {messages.map((message) => (
           <AgentToolCard

@@ -426,6 +426,16 @@ describe('runMigrations', () => {
     })
   }, 30_000)
 
+  it('indexes pending tool-gate cards by conversation (0076)', async () => {
+    const [index] = await connection.client<{ indexdef: string }[]>`
+      SELECT indexdef FROM pg_indexes
+      WHERE schemaname = 'public' AND indexname = 'idx_agent_messages_pending_gate'
+    `
+    expect(index?.indexdef).toContain('(conversation_id)')
+    expect(index?.indexdef).toContain('deleted_at IS NULL')
+    expect(index?.indexdef).toContain('awaiting_confirmation')
+  })
+
   it('indexes consumed inbox rows by turn (0075)', async () => {
     const [index] = await connection.client<{ indexdef: string }[]>`
       SELECT indexdef FROM pg_indexes

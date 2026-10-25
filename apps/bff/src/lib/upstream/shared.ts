@@ -25,6 +25,11 @@ export type ChannelRouteStyle =
   | 'ark-videos'
   /** Google Veo：提交拿 operation name，轮询 base + 该 name，成片要带 key 去 Google 域内取。 */
   | 'veo-videos'
+  /**
+   * Google Vertex AI（Agent Platform）直连：Gemini 原生 generateContent，key 走 `x-goog-api-key`，
+   * baseUrl 是 `.../publishers/google`（global 端点，含项目段），分辨率按模型收口。
+   */
+  | 'vertex-generate-content'
 
 export interface UpstreamCallResult {
   payload: unknown

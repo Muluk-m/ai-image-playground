@@ -1,4 +1,9 @@
 {
+  "common": {
+    "storageFull": "Browser storage is full. Free up space and try again",
+    "network": "Network connection failed. Check your network and try again",
+    "fallback": "That didn't work. Please try again"
+  },
   "agentQueue": {
     "stop_failed": "Could not confirm the stop. Please retry.",
     "fallback": "Message recovery failed. Please try again.",
@@ -31,7 +36,7 @@
     "fallback": "Cannot create the account right now, check your connection and retry"
   },
   "link": {
-    "identity_taken": "That third-party account is already linked to another account",
+    "identity_taken": "That third-party account is already linked to another account. Sign out and use Google to sign in to the original account.",
     "unauthenticated": "Your session expired, sign in again before linking",
     "access_denied": "You canceled the third-party authorization",
     "fallback": "Linking failed, please try again later"
@@ -49,7 +54,6 @@
     "fallback": "Cannot unlink right now, please try again later"
   },
   "generations": {
-    "grok_channel_unavailable": "Grok model channel is temporarily unavailable. Please try again later.",
     "fallback": "Unable to load the history. Please refresh and try again."
   },
   "projectSync": {
@@ -76,11 +80,12 @@
     "unauthorized": "Your session expired. Sign in again, then duplicate the project.",
     "canvas_sync_unavailable": "This environment cannot duplicate projects.",
     "account_changed": "The account changed. Reopen the project, then duplicate it.",
+    "canvas_media_pending": "Some images are still uploading. Duplicate the project after they finish.",
     "fallback": "Could not duplicate the project. Please retry."
   },
   "agentTool": {
-    "upstream_error": "The generation service failed, so nothing came out",
-    "timeout": "Generation timed out, so nothing came out",
+    "upstream_error": "Generation service error; this run did not complete",
+    "timeout": "Generation timed out; this run did not complete",
     "no_output": "Generation finished but returned no result",
     "result_unknown": "We lost track of this one, so it may still have come out; check the canvas and history",
     "insufficient_credits": "Not enough credits, so this wasn't submitted",
@@ -88,9 +93,9 @@
     "authentication_required": "Sign in to generate",
     "invalid_params": "The parameters didn't hold up, so this wasn't submitted",
     "source_unavailable": "The source site denied access or couldn't provide the content. Try another public source",
-    "content_policy": "The prompt didn't pass content review, so the provider rejected it",
-    "model_unavailable": "The model it needed isn't available right now",
-    "service_unavailable": "Batch execution isn't open. Ask the assistant to draft from the per-image results",
+    "content_policy": "The prompt didn't pass content review. Try rewording it",
+    "model_unavailable": "This model is unavailable right now. Pick another model",
+    "service_unavailable": "Batch execution isn't open. Ask the agent to draft from the per-image results",
     "cancelled": "Stopped",
     "fallback": "Didn't finish"
   },

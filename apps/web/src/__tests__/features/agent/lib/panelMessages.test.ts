@@ -328,6 +328,59 @@ describe('直播专属', () => {
     ])
   })
 
+  it('用户的新消息起了轮：确认门还没确认的稿换成作废；续播与不是门拦下的稿不动', () => {
+    const gated: AgentPanelMessage = {
+      kind: 'tool',
+      id: 'tool-gated',
+      turnId: 'turn-0',
+      toolCallId: 'call-0',
+      toolName: 'generateImage',
+      title: '一只橘猫',
+      status: 'awaiting_confirmation',
+      gated: true,
+    }
+    const draft: AgentPanelMessage = { ...gated, id: 'tool-draft', gated: undefined }
+    const sent = replay([START], USER_TEXT, { messages: [gated, draft, pending], turns: {} })
+    expect(sent.messages.find((one) => one.id === 'tool-gated')).toMatchObject({
+      status: 'failed',
+      errorCode: 'cancelled',
+    })
+    expect(sent.messages.find((one) => one.id === 'tool-draft')).toMatchObject({
+      status: 'awaiting_confirmation',
+    })
+    // 续播重放拦下这张卡的那一轮：它的 turnStart 不是新消息，卡不动。
+    const own = { ...gated, turnId: TURN }
+    const followed = replay([START], null, { messages: [own], turns: {} })
+    expect(followed.messages[0]).toMatchObject({ status: 'awaiting_confirmation' })
+    // 唤醒或续跑起的轮不是用户说话：服务端不作废，面板也不动别的轮拦下的卡。
+    const woke = replay(
+      [{ type: 'turnStart', turnId: TURN, userMessageId: 'user-1', wake: true }],
+      null,
+      { messages: [gated], turns: {} },
+    )
+    expect(woke.messages[0]).toMatchObject({ status: 'awaiting_confirmation' })
+    // 别处（另一个标签页）发的新消息起了轮：本页没有正文可补，卡照样作废，也不补用户气泡。
+    const elsewhere = replay([START], null, { messages: [gated], turns: {} })
+    expect(elsewhere.messages).toEqual([
+      expect.objectContaining({ id: 'tool-gated', status: 'failed', errorCode: 'cancelled' }),
+    ])
+    // 那条用户消息已经以服务端 id 在面板上（例如先读回了快照）：卡照样作废，用户消息不重复。
+    const shownUser: AgentPanelMessage = {
+      kind: 'text',
+      id: 'user-1',
+      turnId: TURN,
+      role: 'user',
+      text: USER_TEXT,
+      streaming: false,
+    }
+    const resent = replay([START], USER_TEXT, { messages: [gated, shownUser], turns: {} })
+    expect(resent.messages.find((one) => one.id === 'tool-gated')).toMatchObject({
+      status: 'failed',
+      errorCode: 'cancelled',
+    })
+    expect(resent.messages.filter((one) => one.id === 'user-1')).toHaveLength(1)
+  })
+
   it('用户消息已经在面板上时，重放的 turnStart 不再添一条', () => {
     const once = replay([START], USER_TEXT)
     const twice = replay([START, START], USER_TEXT)

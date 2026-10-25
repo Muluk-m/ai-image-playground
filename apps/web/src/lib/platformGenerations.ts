@@ -1,11 +1,14 @@
 import type {
   GenerationDetail,
+  GenerationImage,
   GenerationSummary,
   TaskStatus as QueueStatus,
-  TaskErrorType,
 } from '@image-playground/shared'
-import { QUEUE_TIMEOUTS } from '@image-playground/shared'
-import { i18next } from '../i18n'
+import {
+  PROMPT_REWRITE_GUARD_PREFIX,
+  QUEUE_TIMEOUTS,
+  unshapeQueuePrompt,
+} from '@image-playground/shared'
 import { useStore } from '../store'
 import {
   DEFAULT_PARAMS,
@@ -16,9 +19,12 @@ import {
   type TaskRecord,
   type TaskStatus,
 } from '../types'
+import { getPublicChannels } from './channels/publicChannels'
 import { deleteCachedGeneration, getCachedGenerations, putCachedGeneration } from './db'
 import { mediaRef, readRemoteGeneration } from './remoteGenerations'
 import type { CloudReuseSource } from './reuseCloudGeneration'
+import { measuredSizeOf } from './size'
+import { taskErrorText } from './taskError'
 
 /**
  * 平台记录的本机缓存。
@@ -53,12 +59,13 @@ export function taskFromGeneration(
   return {
     id: item.id,
     bffRequestId: item.id,
-    prompt: item.prompt,
+    prompt: promptFromGeneration(item),
     params: paramsFromGeneration(item),
     actualParams: pickActual(item),
     apiModel: item.model,
     // 复用要认回内置 channel，认的是 provider + model 这一对，所以 provider 也得留在卡上。
     cloudProvider: item.provider,
+    ...measuredSizePatch('outputs' in item ? (item.outputs[0] ?? item.cover) : item.cover),
     inputImageIds: inputs,
     maskImageId: mask,
     maskTargetImageId: mask ? (inputs[0] ?? null) : null,
@@ -75,7 +82,7 @@ export function cloudReuseSourceFromGeneration(item: GenerationSummary): CloudRe
   return {
     provider: item.provider,
     model: item.model,
-    prompt: item.prompt,
+    prompt: promptFromGeneration(item),
     params: paramsFromGeneration(item),
     inputs: item.inputs.map((image) => mediaRef(image.mediaId)),
     mask: item.mask ? mediaRef(item.mask.mediaId) : null,
@@ -212,15 +219,20 @@ export function mergeHistory(
       remote.record.errorType != null &&
       task.errorCode === remote.record.errorType &&
       task.error
+    const adoptRemoteOutputs = !task.outputImages.length
     return {
       ...task,
+      // 接过平台的出图时一并接过它的实测像素：平台出图是 aip-media 引用，预览拿不到宽高，
+      // 不带上这份尺寸，卡片就退回请求档位（Gemini 直接显示 auto）。
+      ...(adoptRemoteOutputs && settled.measuredSize ? { measuredSize: settled.measuredSize } : {}),
       status: settled.status,
+      cancelled: settled.cancelled,
       queuePhase: settled.queuePhase,
       error: sameFailure || settled.error,
       errorCode: settled.status === 'error' ? (remote.record.errorType ?? undefined) : undefined,
       finishedAt: settled.finishedAt,
       elapsed: settled.elapsed,
-      outputImages: task.outputImages.length ? task.outputImages : settled.outputImages,
+      outputImages: adoptRemoteOutputs ? settled.outputImages : task.outputImages,
     }
   })
   const projected = rows
@@ -286,30 +298,19 @@ function sortRows(rows: readonly PlatformGenerationRow[]): PlatformGenerationRow
  */
 function statusPatch(
   item: GenerationSummary,
-): Pick<TaskRecord, 'status' | 'error' | 'finishedAt' | 'elapsed' | 'queuePhase'> {
+): Pick<
+  TaskRecord,
+  'status' | 'cancelled' | 'error' | 'errorCode' | 'finishedAt' | 'elapsed' | 'queuePhase'
+> {
   return {
     status: statusFromGeneration(item.status),
+    cancelled: item.status === 'cancelled' ? true : undefined,
     queuePhase: item.status === 'reconciling' ? 'reconciling' : undefined,
-    error: item.errorType ? generationErrorText(item.errorType) : null,
+    error: item.errorType ? taskErrorText(item.errorType) : null,
+    errorCode: item.errorType ?? undefined,
     finishedAt: item.completedAt,
     elapsed: item.completedAt && item.startedAt ? item.completedAt - item.startedAt : null,
   }
-}
-
-function generationErrorText(code: TaskErrorType): string {
-  const key = (
-    {
-      upstream_timeout: 'agentTool.timeout',
-      upstream_result_unknown: 'agentTool.result_unknown',
-      upstream_error: 'agentTool.upstream_error',
-      content_policy: 'agentTool.content_policy',
-      upstream_no_image: 'agentTool.no_output',
-      interrupted: 'agentTool.cancelled',
-      object_storage_error: 'agentTool.upstream_error',
-      unknown: 'agentTool.fallback',
-    } as const
-  )[code]
-  return i18next.t(key, { ns: 'errors' })
 }
 
 function statusFromGeneration(status: QueueStatus): TaskStatus {
@@ -322,11 +323,35 @@ function statusFromGeneration(status: QueueStatus): TaskStatus {
  * 平台记录的参数投影。Gemini 那三项也照抄：这份参数同时是卡面显示和「复用配置」的来源，
  * 漏掉它们，复用一条 Gemini 生成就会悄悄换掉画面比例、分辨率档位和思考级别。
  */
+/**
+ * 平台记下的是发给上游的那一句：创作页开着「防改写」时钉了 guard 前缀，模型不认 `size` 时还缀了构图指令。
+ * 作品卡和复用要的是用户写的原文，机器指令剥掉；防改写这一项改由参数 `no_rewrite` 带着。
+ *
+ * 构图指令跟提交侧（`callImageApi`）用同一个判据：模型声明了 `size` 能力就没缀过。平台记录只有
+ * provider/model、不知道走的哪条渠道，同一个模型 id 又可能挂在能力不同的几条渠道上：只有挂着它的
+ * 每一条渠道都声明了 `size`（提交时不可能缀过）才原样保留——用户自己写在结尾的同一句话、Gemini 都不剥；
+ * 有任何一条可能缀过、或清单还没到 / 模型已下架认不出，就只剥逐字一致的那一句（前面还得是提交侧拼上的空行），
+ * 这是机器生成的英文，用户原句恰好这样结尾的概率可以忽略。
+ */
+export function promptFromGeneration(item: GenerationSummary): string {
+  const models = getPublicChannels()
+    .flatMap((channel) => channel.models)
+    .filter((model) => model.id === item.model)
+  const sized = models.length > 0 && models.every((model) => model.capabilities.includes('size'))
+  return unshapeQueuePrompt({
+    provider: item.provider === 'gemini' ? 'gemini' : 'openai-compat',
+    prompt: item.prompt,
+    size: sized ? undefined : item.parameters.size,
+  })
+}
+
 function paramsFromGeneration(item: GenerationSummary): TaskParams {
   const { size, quality, output_format, output_compression, n } = item.parameters
   const { aspect_ratio, image_size, thinking_level } = item.parameters
   return {
     ...DEFAULT_PARAMS,
+    no_rewrite:
+      item.provider !== 'gemini' && item.prompt.startsWith(`${PROMPT_REWRITE_GUARD_PREFIX}\n`),
     ...(size ? { size } : {}),
     ...(quality ? { quality: quality as TaskParams['quality'] } : {}),
     ...(output_format ? { output_format: output_format as TaskParams['output_format'] } : {}),
@@ -336,6 +361,11 @@ function paramsFromGeneration(item: GenerationSummary): TaskParams {
     gemini_image_size: GEMINI_IMAGE_SIZES.find((value) => value === image_size),
     gemini_thinking_level: GEMINI_THINKING_LEVELS.find((value) => value === thinking_level),
   }
+}
+
+function measuredSizePatch(image: GenerationImage | null): Pick<TaskRecord, 'measuredSize'> {
+  const measuredSize = measuredSizeOf(image)
+  return measuredSize ? { measuredSize } : {}
 }
 
 function pickActual(item: GenerationSummary): Partial<TaskParams> | undefined {

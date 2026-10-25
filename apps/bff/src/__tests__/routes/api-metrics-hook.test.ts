@@ -16,6 +16,7 @@ const { close, db, schema } = await import('../../db/client')
 const { log } = await import('../../lib/logger')
 const { closeServerLogDatabase } = await import('../../lib/server-logs')
 const { REQUEST_ID_HEADER, withRequestContext } = await import('../../lib/request-context')
+const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { captureLogLines } = await import('../helpers/logCapture')
 const lines = captureLogLines(log)
 
@@ -150,6 +151,70 @@ describe('API statistics on the real request pipeline', () => {
       },
     })
     expect((await send(stream)).status).toBe(413)
+  })
+})
+
+describe('rejected request access logs', () => {
+  it('carry the error code and user id of a rejected request, and nothing else from the body', async () => {
+    await db.insert(schema.users).values({
+      id: 'log-owner',
+      username: 'log-owner',
+      password_hash: 'unused',
+      status: 'active',
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    })
+    const token = await db.transaction((tx) => createUserSession('log-owner', tx))
+    const submit = (path: string, body: Record<string, unknown>) =>
+      app.handle(
+        new Request(`http://localhost/v1/queue/${path}/submit`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            cookie: `${USER_SESSION_COOKIE}=${token}`,
+          },
+          body: JSON.stringify({ device_id: 'log-device', ...body }),
+        }),
+      )
+    lines.splice(0)
+    // 依次：路由 onError 改写的校验失败、抛出的阶段授权拒绝、status() 返回的普通拒绝、
+    // 错误码里拼了请求内容的拒绝（不记）、没登录的 404。
+    expect((await submit('openai-compat/gpt-image-2', { prompt: '' })).status).toBe(400)
+    const stage = await submit('openai-compat/gpt-image-2', {
+      prompt: '秘密提示词',
+      stage_authorization: {
+        authorizationId: 'no-such-authorization',
+        nodeId: 'a',
+        attemptId: 'attempt',
+        executionToken: 'secret-execution-token',
+      },
+    })
+    expect(stage.status).toBe(404)
+    expect(
+      (
+        await submit('openai-compat/gpt-image-2', {
+          prompt: '秘密提示词',
+          video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' },
+        })
+      ).status,
+    ).toBe(400)
+    expect((await submit('no-such-provider/m', { prompt: '秘密提示词' })).status).toBe(400)
+    await get('/api/no-such-endpoint')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    const logged = lines
+      .splice(0)
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((line) => line.event === 'http.request')
+    expect(logged.map(({ status, error, userId }) => ({ status, error, userId }))).toEqual([
+      { status: 400, error: 'invalid_request', userId: 'log-owner' },
+      { status: 404, error: 'stage_authorization_not_found', userId: 'log-owner' },
+      { status: 400, error: 'video_not_supported', userId: 'log-owner' },
+      { status: 400, error: undefined, userId: 'log-owner' },
+      { status: 404, error: undefined, userId: undefined },
+    ])
+    const text = JSON.stringify(logged)
+    for (const secret of ['秘密提示词', 'secret-execution-token', 'no-such-provider', '不支持'])
+      expect(text).not.toContain(secret)
   })
 })
 

@@ -132,7 +132,7 @@ export const submitRoutes = new Elysia()
   })
   .post(
     '/v1/queue/:provider/:model/submit',
-    async ({ params, body, status, authUser }) => {
+    async ({ params, body, status, authUser, request }) => {
       const { provider, model } = params
       const queueProvider = asQueueProvider(provider)
       if (!queueProvider) {
@@ -200,6 +200,7 @@ export const submitRoutes = new Elysia()
       try {
         inputImages = await resolveMediaInputs(authUser?.id ?? null, rest.input_images, {
           masked: Boolean(rest.mask),
+          signal: request.signal,
         })
       } catch (error) {
         if (error instanceof MediaInputError)

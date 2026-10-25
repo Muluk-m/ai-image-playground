@@ -7,12 +7,12 @@ export const API_MAX_IMAGES = QUEUE_MAX_INPUT_IMAGES
 export const MAX_IMAGE_BYTES = MAX_IMAGE_UPLOAD_BYTES
 export const MAX_IMAGE_MB = MAX_IMAGE_BYTES / (1024 * 1024)
 
-function buildMaxInputImagesMessage(): string {
-  return i18next.t('image.limitReached', { ns: 'lib', max: API_MAX_IMAGES })
+export function maxInputImagesMessage(max: number = API_MAX_IMAGES): string {
+  return i18next.t('image.limitReached', { ns: 'lib', max })
 }
 
 /** `export let` 的 live binding：语言切换后已 import 这条文案的模块读到的是新一份。 */
-export let MAX_INPUT_IMAGES_MESSAGE = buildMaxInputImagesMessage()
+export let MAX_INPUT_IMAGES_MESSAGE = maxInputImagesMessage()
 i18next.on('languageChanged', () => {
-  MAX_INPUT_IMAGES_MESSAGE = buildMaxInputImagesMessage()
+  MAX_INPUT_IMAGES_MESSAGE = maxInputImagesMessage()
 })

@@ -1,7 +1,7 @@
 import { storyboardShotLabel } from '@image-playground/shared'
 import type { AssetRecord, LookRecord, Tombstone } from '../features/library/types'
 import type { VideoTask } from '../features/video/types'
-import { i18next } from '../i18n'
+import { i18next, UserFacingError } from '../i18n'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 import { accountScope, scopedStorageName } from './authScope'
 import type { LegacyProductJob, LegacyStoryboardRecord } from './legacyProductHistory'
@@ -587,7 +587,7 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error(i18next.t('image.loadFailed', { ns: 'lib' })))
+    image.onerror = () => reject(new UserFacingError(i18next.t('image.loadFailed', { ns: 'lib' })))
     image.src = dataUrl
   })
 }
@@ -598,14 +598,15 @@ export async function createImageThumbnail(
   const image = await loadImage(dataUrl)
   const width = image.naturalWidth
   const height = image.naturalHeight
-  if (width <= 0 || height <= 0) throw new Error(i18next.t('image.invalidSize', { ns: 'lib' }))
+  if (width <= 0 || height <= 0)
+    throw new UserFacingError(i18next.t('image.invalidSize', { ns: 'lib' }))
 
   const scale = Math.min(1, THUMBNAIL_MAX_SIZE / Math.max(width, height))
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.round(width * scale))
   canvas.height = Math.max(1, Math.round(height * scale))
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
+  if (!ctx) throw new UserFacingError(i18next.t('canvas.unsupported', { ns: 'lib' }))
   ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
 
   return {

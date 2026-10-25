@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
-import type { GenerationSummary } from '@image-playground/shared'
+import {
+  buildAspectInstruction,
+  type GenerationSummary,
+  PROMPT_REWRITE_GUARD_PREFIX,
+} from '@image-playground/shared'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { i18next } from '../../i18n'
 import { getCachedGenerations } from '../../lib/db'
 import {
+  cloudReuseSourceFromGeneration,
   loadPlatformGenerations,
   mergeHistory,
   receivePlatformPage,
@@ -16,6 +21,11 @@ import { useStore } from '../../store'
 import { DEFAULT_PARAMS, type TaskRecord } from '../../types'
 
 const readRemoteGeneration = vi.hoisted(() => vi.fn())
+const channels = vi.hoisted(() => ({ list: [] as unknown[] }))
+vi.mock('../../lib/channels/publicChannels', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/channels/publicChannels')>()),
+  getPublicChannels: () => channels.list,
+}))
 vi.mock('../../lib/remoteGenerations', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/remoteGenerations')>()),
   readRemoteGeneration,
@@ -105,6 +115,93 @@ it('平台记录投影成一张普通卡：封面用云媒体引用，参考图�
     remoteOnly: true,
   })
   expect(task.params).toMatchObject({ size: '1536x1024', quality: 'high', n: 2 })
+})
+
+it('作品卡显示用户写的原文：剥掉防改写前缀与构图指令，防改写改由参数带着', () => {
+  const shaped = {
+    ...summary,
+    prompt: `${PROMPT_REWRITE_GUARD_PREFIX}\n一只猫\n\n${buildAspectInstruction('1536x1024')}`,
+  }
+  const task = taskFromGeneration(shaped)
+  expect(task.prompt).toBe('一只猫')
+  expect(task.params.no_rewrite).toBe(true)
+  expect(cloudReuseSourceFromGeneration(shaped)).toMatchObject({
+    prompt: '一只猫',
+    params: { no_rewrite: true },
+  })
+})
+
+it('模型认 size 时提交侧没缀构图指令：用户自己写的同一句结尾原样保留，Gemini 也一样', () => {
+  const ending = `一只猫\n\n${buildAspectInstruction('1536x1024')}`
+  channels.list = [
+    {
+      id: 'channel',
+      models: [
+        { id: 'gpt-image-2', capabilities: ['size'] },
+        { id: 'gemini-image', capabilities: ['size'] },
+        { id: 'codex-image', capabilities: ['quality'] },
+      ],
+    },
+  ]
+  try {
+    expect(taskFromGeneration({ ...summary, prompt: ending }).prompt).toBe(ending)
+    expect(
+      taskFromGeneration({ ...summary, provider: 'gemini', model: 'gemini-image', prompt: ending })
+        .prompt,
+    ).toBe(ending)
+    expect(taskFromGeneration({ ...summary, model: 'codex-image', prompt: ending }).prompt).toBe(
+      '一只猫',
+    )
+    // 同一个模型挂在两条渠道上、其中一条丢 size：提交时可能缀过，按缀过剥。
+    channels.list = [
+      { id: 'native', models: [{ id: 'gpt-image-2', capabilities: ['size'] }] },
+      { id: 'gateway', models: [{ id: 'gpt-image-2', capabilities: ['quality'] }] },
+    ]
+    expect(taskFromGeneration({ ...summary, prompt: ending }).prompt).toBe('一只猫')
+    channels.list = [
+      { id: 'gateway', models: [{ id: 'gpt-image-2', capabilities: ['quality'] }] },
+      { id: 'native', models: [{ id: 'gpt-image-2', capabilities: ['size'] }] },
+    ]
+    expect(taskFromGeneration({ ...summary, prompt: ending }).prompt).toBe('一只猫')
+  } finally {
+    channels.list = []
+  }
+})
+
+it('没开防改写的记录原样显示，参数记成关闭；Gemini 不剥前缀', () => {
+  expect(taskFromGeneration(summary)).toMatchObject({
+    prompt: '一只猫',
+    params: { no_rewrite: false },
+  })
+  const gemini = taskFromGeneration({
+    ...summary,
+    provider: 'gemini',
+    prompt: `${PROMPT_REWRITE_GUARD_PREFIX}\n一只猫`,
+  })
+  expect(gemini.prompt).toBe(`${PROMPT_REWRITE_GUARD_PREFIX}\n一只猫`)
+  expect(gemini.params.no_rewrite).toBe(false)
+})
+
+it('镜像卡记下封面原件的真实像素：缩略图只有临时 URL，尺寸以平台媒体元数据为准', () => {
+  const gemini = {
+    ...summary,
+    provider: 'gemini',
+    model: 'gemini-3-pro-image',
+    parameters: { size: '1024x1024', aspect_ratio: '16:9', image_size: '2K' },
+    actualParameters: {},
+    cover: { ...summary.cover, width: 2752, height: 1536 },
+  }
+  expect(taskFromGeneration(gemini).measuredSize).toBe('2752x1536')
+  expect(
+    taskFromGeneration({
+      ...gemini,
+      outputs: [{ ...gemini.cover, width: 1376, height: 768 }],
+    }).measuredSize,
+  ).toBe('1376x768')
+  expect(taskFromGeneration({ ...gemini, cover: null })).not.toHaveProperty('measuredSize')
+  expect(
+    taskFromGeneration({ ...gemini, cover: { ...gemini.cover, width: null } }),
+  ).not.toHaveProperty('measuredSize')
 })
 
 it.each([
@@ -230,6 +327,18 @@ it('平台已完成时，本机残留的生成中卡不能盖住作品和终态'
   })
 })
 
+it('平台上被取消的记录投影成「已取消」，本机残留的失败卡也接过这个终态', async () => {
+  const cancelled = { ...summary, status: 'cancelled', cover: null } as const
+  expect(taskFromGeneration(cancelled)).toMatchObject({ status: 'error', cancelled: true })
+  expect(taskFromGeneration({ ...summary, status: 'failed' }).cancelled).toBeUndefined()
+  await receivePlatformPage([cancelled])
+  const [card] = mergeHistory(
+    [localTask({ bffRequestId: summary.id, status: 'running', finishedAt: null })],
+    useStore.getState().platformGenerations,
+  )
+  expect(card).toMatchObject({ id: 'local-1', status: 'error', cancelled: true })
+})
+
 it('本机完成卡缺图时，使用平台已经归档的封面', async () => {
   await receivePlatformPage([summary])
   const [card] = mergeHistory(
@@ -241,6 +350,42 @@ it('本机完成卡缺图时，使用平台已经归档的封面', async () => {
     status: 'done',
     outputImages: [`aip-media:${summary.cover.mediaId}`],
   })
+})
+
+it('接过平台出图时一并接过实测像素，本机自己的图不被平台尺寸覆盖', async () => {
+  await receivePlatformPage([
+    { ...summary, cover: { ...summary.cover, width: 2752, height: 1536 } },
+  ])
+  const rows = useStore.getState().platformGenerations
+  const [adopted] = mergeHistory(
+    [
+      localTask({
+        bffRequestId: summary.id,
+        status: 'running',
+        outputImages: [],
+        finishedAt: null,
+      }),
+    ],
+    rows,
+  )
+  expect(adopted).toMatchObject({
+    outputImages: [`aip-media:${summary.cover.mediaId}`],
+    measuredSize: '2752x1536',
+  })
+
+  const [kept] = mergeHistory(
+    [
+      localTask({
+        bffRequestId: summary.id,
+        status: 'running',
+        outputImages: ['local-image'],
+        finishedAt: null,
+      }),
+    ],
+    rows,
+  )
+  expect(kept.outputImages).toEqual(['local-image'])
+  expect(kept).not.toHaveProperty('measuredSize')
 })
 
 it('平台已失败时，本机残留的生成中卡也要收口', async () => {
@@ -275,7 +420,7 @@ it('平台最终失败原因覆盖本机临时超时，并清掉旧错误分类'
   )
   expect(card).toMatchObject({
     status: 'error',
-    error: i18next.t('agentTool.content_policy', { ns: 'errors' }),
+    error: i18next.t('detail.contentPolicy', { ns: 'task' }),
     errorCode: 'content_policy',
     finishedAt: summary.completedAt,
   })
@@ -338,4 +483,14 @@ it('恢复已有本地任务时同步待核查阶段', async () => {
     useStore.getState().platformGenerations,
   )
   expect(task).toMatchObject({ status: 'running', queuePhase: 'reconciling' })
+})
+
+it('云端失败卡保留错误分类，内容审核展示与复制均可识别原因', () => {
+  expect(
+    taskFromGeneration({ ...summary, status: 'failed', errorType: 'content_policy', cover: null }),
+  ).toMatchObject({
+    status: 'error',
+    errorCode: 'content_policy',
+    error: i18next.t('detail.contentPolicy', { ns: 'task' }),
+  })
 })

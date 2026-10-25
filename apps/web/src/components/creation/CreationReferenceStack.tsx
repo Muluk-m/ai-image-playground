@@ -18,6 +18,8 @@ export function CreationReferenceStack({
   uploading = false,
   onClear,
   disabled = false,
+  compact = false,
+  aside,
 }: {
   add: ReactNode
   /** Context tiles that stay beside attachments and the add action in both display modes. */
@@ -30,6 +32,10 @@ export function CreationReferenceStack({
   uploading?: boolean
   onClear?: () => void
   disabled?: boolean
+  /** 图多时展开层按行折返、限高滚动，不排成一长条。 */
+  compact?: boolean
+  /** 参考区标题行右侧的控件与说明；收起时排在添加按钮后面。 */
+  aside?: ReactNode
 }) {
   const { t } = useTranslation('composer')
   const [expanded, setExpanded] = useReferenceDisplay()
@@ -80,7 +86,9 @@ export function CreationReferenceStack({
       aria-label={t('studio.references', { count })}
     >
       <div className="creation-reference-heading">
-        <span>{t('studio.references', { count })}</span>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+          {expanded && aside ? aside : <span>{t('studio.references', { count })}</span>}
+        </div>
         <div className="flex items-center gap-2">
           {onClear && (
             <Button type="button" variant="ghost" size="xs" disabled={disabled} onClick={onClear}>
@@ -151,6 +159,7 @@ export function CreationReferenceStack({
         data-filled={count > 0}
         data-expanded={expanded && count > 0}
         data-failed={failed || undefined}
+        data-compact={compact || undefined}
       >
         {expanded && count > 0 ? (
           panel
@@ -205,6 +214,7 @@ export function CreationReferenceStack({
               </PopoverAnchor>
             )}
             <div className="creation-stack-add">{add}</div>
+            {aside && count > 0 && <div className="creation-stack-aside">{aside}</div>}
           </>
         )}
         <PopoverContent

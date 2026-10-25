@@ -98,6 +98,38 @@ describe('folding a product shot job in the history', () => {
     expect(document.querySelectorAll('.task-card-wrapper')).toHaveLength(0)
   })
 
+  it('counts a task cancelled in the queue as cancelled, not as a failure', async () => {
+    useStore.setState({
+      tasks: [
+        task('task-1', 'job-1', 'done'),
+        { ...task('task-2', 'job-1', 'error'), cancelled: true },
+      ],
+    })
+    await act(async () => root.render(<TaskGrid />))
+
+    const card = document.querySelector('[data-set-history-card]')
+    expect(card?.textContent).toContain('已取消 1')
+    expect(card?.textContent).not.toContain('失败')
+  })
+
+  it('leaves cancelled tasks out of the failed filter', async () => {
+    const single = (id: string, status: TaskRecord['status'], cancelled?: true): TaskRecord => ({
+      ...task(id, 'unused', status),
+      origin: undefined,
+      ...(cancelled ? { cancelled } : {}),
+    })
+    useStore.setState({
+      tasks: [single('task-5', 'error'), single('task-6', 'error', true)],
+      filterStatus: 'error',
+    })
+    await act(async () => root.render(<TaskGrid />))
+
+    const ids = [...document.querySelectorAll('.task-card-wrapper')].map((node) =>
+      node.getAttribute('data-task-id'),
+    )
+    expect(ids).toEqual(['task-5'])
+  })
+
   it('tags the card with each action the job ran', async () => {
     await act(async () => root.render(<TaskGrid />))
 

@@ -14,6 +14,39 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   issue_comment:
     types: [created]
+  # 手动测评审耗时：对任意提交区间跑一遍，不发 PR 评论。
+  workflow_dispatch:
+    inputs:
+      from_sha:
+        description: 评审起点提交
+        required: true
+      to_sha:
+        description: 评审终点提交
+        required: true
+      effort:
+        description: ocr --effort（low / medium / high，留空用工作流默认）
+        required: false
+        default: ''
+      extra_body:
+        description: 合并进每个 LLM 请求体的 JSON，例如 {"reasoning_effort":"low"}；留空用工作流默认
+        required: false
+        default: ''
+      model:
+        description: 评审用模型（留空用 LLM_MODEL）
+        required: false
+        default: ''
+      probe:
+        description: 先单独调几次模型接口测延迟
+        type: boolean
+        default: false
+      probe_models:
+        description: 延迟实测要对比的模型，逗号分隔（留空只测评审用模型）
+        required: false
+        default: ''
+      review:
+        description: 实测后是否接着跑完整评审
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -21,7 +54,7 @@ permissions:
 
 # 同一 head 的重复运行互相替代；不同 head 各自一组，连续 push 不漏评。
 concurrency:
-  group: ai-code-review-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.event.pull_request.head.sha || github.event.comment.id }}
+  group: ai-code-review-${{ github.event.pull_request.number || github.event.issue.number || 'dispatch' }}-${{ github.event.pull_request.head.sha || github.event.comment.id || github.run_id }}
   cancel-in-progress: true
 
 env:
@@ -29,6 +62,15 @@ env:
   LLM_MODEL: gpt-6.1-sol
   # 低于这一级的意见只进 Job Summary，不刷到 PR 上。
   MIN_SEVERITY: P1
+  # 每个请求附带的 LLM 参数（JSON）与 ocr 评审力度；留空即 ocr / 网关默认。
+  LLM_EXTRA_BODY: ''
+  # 网关单次往返 10–60s（各模型都一样，见 PR 说明），medium 的第二轮评审+二次过滤会让最慢的组
+  # 串行请求翻倍、整次评审 18–30 分钟；low 只跑一轮。
+  OCR_EFFORT: low
+  # 单组总上限（分钟，按评审轮数折算成 --timeout），必须小于 job 的 timeout-minutes，
+  # 这样慢组由 ocr 自己判超时，其余组的结果照常发出来，而不是整个 job 被取消、什么都不剩。
+  OCR_GROUP_TIMEOUT: '18'
+  OCR_VERSION: 1.13.3
 
 jobs:
   review:
@@ -40,7 +82,8 @@ jobs:
           || (github.event_name == 'issue_comment'
               && github.event.issue.pull_request != null
               && startsWith(github.event.comment.body, '/review')
-              && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) }}
+              && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+          || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -49,6 +92,16 @@ jobs:
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
+            if (context.eventName === 'workflow_dispatch') {
+              const { from_sha: from, to_sha: to } = context.payload.inputs;
+              core.setOutput('base_ref', 'main');
+              core.setOutput('dispatch_from', from);
+              core.setOutput('base_sha', '');
+              core.setOutput('head_sha', to);
+              core.setOutput('pr_number', '');
+              core.setOutput('title', `benchmark ${from.slice(0, 8)}..${to.slice(0, 8)}`);
+              return;
+            }
             let pr;
             if (context.eventName === 'issue_comment') {
               const { data } = await github.rest.pulls.get({
@@ -77,6 +130,16 @@ jobs:
           fetch-depth: 0
           ref: ${{ steps.ctx.outputs.head_sha }}
 
+      # 统计脚本取自可信提交：PR 事件用目标分支的 base，不执行 PR 自己改过的脚本；
+      # 评论触发是 main，手动测评是有写权限的人选的分支。
+      - name: Checkout CI tools
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: .ci-tools
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -84,12 +147,14 @@ jobs:
 
       - name: Install OpenCodeReview
         run: |
-          npm install -g @alibaba-group/open-code-review
+          npm install -g "@alibaba-group/open-code-review@${OCR_VERSION}"
           echo "::notice::OpenCodeReview installed: $(ocr version 2>/dev/null || echo unknown)"
 
       - name: Configure OCR
         env:
           OCR_LLM_AUTH_TOKEN: ${{ secrets.CI_LLM_API_KEY }}
+          EXTRA_BODY: ${{ inputs.extra_body || env.LLM_EXTRA_BODY }}
+          INPUT_MODEL: ${{ inputs.model }}
         run: |
           if [ -z "$OCR_LLM_AUTH_TOKEN" ]; then
             echo "::error::仓库 secret CI_LLM_API_KEY 未配置"
@@ -97,18 +162,41 @@ jobs:
           fi
           ocr config set llm.url "$LLM_URL"
           ocr config set llm.auth_token "$OCR_LLM_AUTH_TOKEN"
-          ocr config set llm.model "$LLM_MODEL"
+          ocr config set llm.model "${INPUT_MODEL:-$LLM_MODEL}"
           ocr config set llm.use_anthropic false
           ocr config set language Chinese
+          if [ -n "$EXTRA_BODY" ]; then
+            ocr config set llm.extra_body "$EXTRA_BODY"
+            echo "已设置 llm.extra_body"
+          fi
+
+      - name: Probe LLM latency
+        if: github.event_name == 'workflow_dispatch' && inputs.probe
+        timeout-minutes: 12
+        continue-on-error: true
+        env:
+          LLM_MODEL: ${{ inputs.model || env.LLM_MODEL }}
+          OCR_LLM_AUTH_TOKEN: ${{ secrets.CI_LLM_API_KEY }}
+          PROBE_MODELS: ${{ inputs.probe_models }}
+        run: |
+          python3 .ci-tools/scripts/ci/llm-probe.py apps/bff/src/lib/agent/tool-gate.ts | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Resolve review range
         id: range
+        if: github.event_name != 'workflow_dispatch' || inputs.review
         env:
           BASE_REF: ${{ steps.ctx.outputs.base_ref }}
           BASE_SHA: ${{ steps.ctx.outputs.base_sha }}
           HEAD_SHA: ${{ steps.ctx.outputs.head_sha }}
           PR_NUMBER: ${{ steps.ctx.outputs.pr_number }}
+          DISPATCH_FROM: ${{ steps.ctx.outputs.dispatch_from }}
         run: |
+          if [ -n "$DISPATCH_FROM" ]; then
+            git cat-file -e "${DISPATCH_FROM}^{commit}" 2>/dev/null || git fetch --no-tags origin "$DISPATCH_FROM"
+            echo "from_sha=${DISPATCH_FROM}" >> "$GITHUB_OUTPUT"
+            echo "scope=benchmark" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           git rev-parse --verify --quiet "origin/${BASE_REF}^{commit}" >/dev/null \
             || git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
           git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null \
@@ -142,12 +230,16 @@ jobs:
 
       - name: Run OpenCodeReview
         id: review
+        if: github.event_name != 'workflow_dispatch' || inputs.review
         env:
           FROM_SHA: ${{ steps.range.outputs.from_sha }}
           REVIEW_SCOPE: ${{ steps.range.outputs.scope }}
           HEAD_SHA: ${{ steps.ctx.outputs.head_sha }}
           BACKGROUND: ${{ steps.ctx.outputs.title }}
           REVIEW_GUIDANCE: "请用中文评审。每条评审意见必须以严重级别标签开头，格式 [P0] / [P1] / [P2]：[P0]=阻断性缺陷（安全漏洞、数据丢失、崩溃、必现逻辑错误）；[P1]=重要问题（异常与边界处理缺失、并发/性能隐患、明显坏味道）；[P2]=优化建议（可读性、命名、轻微改进）。标签置于该条意见最前，例如：[P1] 这里未校验空值……"
+          EFFORT: ${{ inputs.effort || env.OCR_EFFORT }}
+          # 每个 LLM 请求的耗时、状态码、token 记到 ~/.opencodereview/raw，供下一步统计；不上传。
+          OCR_RAW_LOGGING: "1"
           EXCLUDE: "**/node_modules/**,**/dist/**,**/build/**,**/out/**,**/.turbo/**,**/coverage/**,**/generated/**,**/*.generated.*,**/*.min.js,**/*.min.css,**/*.map,**/__snapshots__/**,**/*.snap,**/pnpm-lock.yaml,**/package-lock.json,**/bun.lockb,**/*.lock"
         run: |
           RESULT_PATH="${RUNNER_TEMP:-/tmp}/ocr-result.json"
@@ -158,6 +250,10 @@ jobs:
           BG="$REVIEW_GUIDANCE"
           if [ -n "$BACKGROUND" ]; then BG="${BG}"$'\n\n'"业务背景：${BACKGROUND}"; fi
 
+          # ocr 的单组上限 = --timeout × 评审轮数（low 1 / medium 2 / high 3），按轮数折算保证总上限不变。
+          case "$EFFORT" in medium|"") ROUNDS=2 ;; high) ROUNDS=3 ;; *) ROUNDS=1 ;; esac
+          GROUP_TIMEOUT=$(( OCR_GROUP_TIMEOUT / ROUNDS ))
+
           echo "::notice::Reviewing ${FROM_SHA}..${HEAD_SHA} (${REVIEW_SCOPE})"
           # 非阻断：评审本身失败不让 CI 红，结果由下一步呈现。
           ocr review \
@@ -166,14 +262,27 @@ jobs:
             --format json \
             --audience agent \
             --concurrency 8 \
+            ${EFFORT:+--effort "$EFFORT"} \
+            --timeout "$GROUP_TIMEOUT" \
             --background "$BG" \
             --exclude "$EXCLUDE" \
-            > "${RESULT_PATH}" 2> "${STDERR_PATH}" || true
+            > "${RESULT_PATH}" 2> >(tee "${STDERR_PATH}" >&2) || true
 
+          # stderr 已实时打到日志里（即使 job 被取消也看得到进度），这里只补 JSON 结果。
           echo "----- ocr stdout (json) -----"; cat "${RESULT_PATH}" || true
-          echo "----- ocr stderr -----"; cat "${STDERR_PATH}" || true
+
+      - name: Review timing breakdown
+        if: always() && steps.review.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          if [ ! -f .ci-tools/scripts/ci/ocr-timing.py ]; then
+            echo "可信提交里还没有 ocr-timing.py，跳过耗时统计"
+            exit 0
+          fi
+          python3 .ci-tools/scripts/ci/ocr-timing.py | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Post review results
+        if: github.event_name != 'workflow_dispatch'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         env:
           RESULT_PATH: ${{ steps.review.outputs.result_path }}

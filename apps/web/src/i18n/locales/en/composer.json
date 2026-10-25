@@ -52,8 +52,7 @@
     "maskEdit": "Edit mask",
     "maskEditShortcut": "Edit mask (Ctrl+Enter)",
     "generateShortcut": "Generate (Ctrl+Enter)",
-    "configureApiFirst": "Configure the API first",
-    "apiNotConfigured": "Configure the API in Settings first",
+    "noModel": "No model is available right now. Try again later",
     "startCanvas": "Start creating",
     "skillNeedsCanvas": "Skills run in projects. Switch to Smart creation or Canvas to send",
     "promptRequired": "Enter a prompt to generate"
@@ -81,7 +80,16 @@
     "noModel": "Not selected",
     "model": "Model",
     "searchModel": "Search models",
-    "noModelMatch": "No matching models"
+    "noModelMatch": "No matching models",
+    "modelEta": "~{{seconds}}s",
+    "modelEtaMinutes": "~{{minutes}} min",
+    "modelEtaRange": "~{{min}}–{{max}}s",
+    "modelEtaRangeMinutes": "~{{min}}–{{max}} min",
+    "modelNew": "New",
+    "modelTier": {
+      "fast": "Fast",
+      "quality": "High quality"
+    }
   },
   "size": {
     "customRatioLabel": "Enter a custom ratio",
@@ -152,7 +160,8 @@
       "low": "Low",
       "medium": "Medium",
       "high": "High"
-    }
+    },
+    "fixedCount": "{{count}} total · 1 per image"
   },
   "studio": {
     "type": "Creation type",
@@ -173,9 +182,9 @@
     "composer": "Creation composer",
     "prompt": "Describe your idea",
     "placeholders": {
-      "agent": "Tell me what you want to create, or share a script or reference image. I’ll help shape the idea and plan the next steps.",
-      "image": "Describe the subject, setting and visual style. Add reference images to guide the composition, colors or details.",
-      "video": "Describe the action, camera movement and changing atmosphere. Add a reference image to give your video a starting point."
+      "agent": "Describe the image or short film you want, or drop in references and scripts",
+      "image": "Describe the subject, scene, and lighting style, or add reference images",
+      "video": "Describe the action and camera movement, or add frames and references"
     },
     "send": "Generate",
     "preview": "Preview",
@@ -193,5 +202,16 @@
       "image": "Image",
       "video": "Video"
     }
+  },
+  "batch": {
+    "usage": "Reference use",
+    "merge": "Combine",
+    "each": "Per image",
+    "selected": "{{count}}/{{max}} selected",
+    "full": "Limit reached",
+    "mergeLimit": "Over {{max}} images runs per image only",
+    "oversized": "Image {{index}} is over {{mb}} MB. Remove it or use a smaller one",
+    "sendLabel": "Generate {{count}} images, one per reference",
+    "sendLabelCredits": "Generate {{count}} images, one per reference, {{credits}} credits"
   }
 }

@@ -61,11 +61,59 @@ export type ChannelCapability = (typeof CHANNEL_CAPABILITIES)[number]
 /** 模型产出的媒介类型。缺省 image — 存量 channel 配置不写这个字段。 */
 export type ChannelMedia = 'image' | 'video'
 
+/**
+ * 模型标签 token。选择器只把 'latest' 显示成名字旁一枚很小的「New」，其余 token 不再显示：
+ * 快慢与画质改由分组（`tier`）和耗时表达，不在名字后面挂说明文字。其余 token 仍然合法，
+ * 只为兼容已有的运营配置（未知 token 会让渠道配置加载失败）。
+ */
+export const MODEL_BADGES = ['recommended', 'latest', 'quality', 'fast', 'value'] as const
+export type ModelBadge = (typeof MODEL_BADGES)[number]
+
+/**
+ * 模型选择器的分组：'fast' 排在「快速」组，'quality' 排在「高质量」组，组内按 etaSeconds 从快到慢。
+ * 不写的模型排在分组之后，不带组头。
+ */
+export const MODEL_TIERS = ['fast', 'quality'] as const
+export type ModelTier = (typeof MODEL_TIERS)[number]
+
+/**
+ * 模型自带的品牌图标。不写时前端按模型 id 前缀给厂商图标（OpenAI / Gemini / Grok…）；写了就用
+ * `apps/web/public/model-logos/<token>.svg`。只登记有官方来源的图标，来源写在资源文件旁的说明里。
+ */
+export const MODEL_LOGOS = ['nano-banana'] as const
+export type ModelLogoId = (typeof MODEL_LOGOS)[number]
+
+/** `etaSeconds` 的合法取值：1–3600 的整数。BFF 加载渠道配置和前端展示都按这一条判断。 */
+export function isModelEtaSeconds(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 3600
+}
+
 export interface ChannelModel {
   id: string
   label: string
   capabilities: ChannelCapability[]
   media?: ChannelMedia
+  /** 标签 token；选择器只显示 'latest'（一枚「New」）。 */
+  badges?: ModelBadge[]
+  /** 选择器分组（快速 / 高质量）；缺省不分组。 */
+  tier?: ModelTier
+  /**
+   * 典型单张耗时（秒，实测中位数的量级），选择器显示成「约 N 秒 / 分钟」；只是提示，不参与超时。
+   * 按用户实际等待算：提交到卡片出图，含上游生成之后的结果确认（入库、出预览）、轮询和取图。
+   */
+  etaSeconds?: number
+  /**
+   * 耗时随档位变化时的上界（秒，同样 1–3600 整数，且大于 etaSeconds）。写了就显示成「约 N–M 秒」，
+   * 比如 Grok 低档约 40 秒、高档（2K）约 100 秒；只是提示，不参与超时。
+   */
+  etaMaxSeconds?: number
+  /** 选择器、任务卡等处显示的模型图标；缺省按 id 前缀取厂商图标。 */
+  logo?: ModelLogoId
+  /**
+   * Gemini 协议模型认的分辨率档位（`GEMINI_IMAGE_SIZES` 的子集，按实测填）。写了面板就只列这几档，
+   * BFF 把绕过面板的其它档位换成最近一档再发；不写按共享档位全列、原样透传。
+   */
+  imageSizes?: import('./image-parameters').GeminiImageSize[]
 }
 
 /**

@@ -50,6 +50,8 @@ export interface AgentToolMessage {
   readonly canvasRun?: import('@image-playground/shared').AgentCanvasRunProposal
   readonly canvasRead?: readonly { id: string; name: string }[]
   readonly productionDraftRevision?: number
+  /** 确认门拦下的稿（`AgentToolResultBlock.gated`）：作废时卡上要说清是因为发了新消息。 */
+  readonly gated?: true
   readonly video?: import('@image-playground/shared').VideoGenerationRecord
   readonly kind: 'tool'
   readonly id: string

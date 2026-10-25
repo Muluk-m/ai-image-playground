@@ -35,7 +35,6 @@ import {
   archiveAgentReferences,
   claimConversationMedia,
   createAgentImageSource,
-  type ResolvedAgentImage,
   removeAgentTurnReferences,
   requireAgentImages,
   resolveTurnReferences,
@@ -52,10 +51,12 @@ import {
   assertRequestWithinBudget,
   requestOverheadTokens,
 } from './request-budget'
+import { omittedReviewNote, prepareReviewImages } from './review-images'
 import { type RunningTurn, registerRunningTurn } from './runningTurns'
 import { InvalidSelectionError } from './selection-preview'
 import type { AgentTurnAudience } from './skills'
 import { agentThinking } from './thinking'
+import { createAgentToolGate } from './tool-gate'
 import {
   type AgentSubmissionReplay,
   type AgentToolStart,
@@ -66,7 +67,6 @@ import {
   createToolFailureLog,
   isAgentToolName,
 } from './tools'
-import { AgentToolError } from './tools/errors'
 import { createTurnAuthorization } from './turn-authorization'
 import { agentTurnFailure } from './turn-failure'
 import {
@@ -81,7 +81,6 @@ import {
 } from './turn-input'
 import { recordAgentTurnSummary } from './turn-summary'
 import { createAgentUsageLedger } from './usage-ledger'
-import { assertVisualBytes, visualByteLimit } from './visual-resources'
 import { createVisualWorkset } from './visual-workset'
 
 export interface AgentTurnSettlement {
@@ -216,6 +215,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     text: input.text,
     hasNewReferences: input.references.length > 0,
   })
+  // 智能体模式关掉了直接出图：生成调用由确认门拦下，智能体不知道（见 `tool-gate.ts`）。
+  const gate = createAgentToolGate(input.toolGate === true)
   const turnTools = agentTurnTools(
     {
       mode,
@@ -239,6 +240,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         ? { autoSubmit: createAutoSubmitBudget() }
         : {}),
       ...(prepared.wake?.replay ? { replay: prepared.wake.replay } : {}),
+      ...(input.toolGate ? { gate: gate.view } : {}),
     },
     toolFailures,
   )
@@ -384,7 +386,9 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     steeringMode: 'all',
     // 逐个跑：每次调用都是一条计费任务，并发起来事件次序也对不上产出落画布的顺序。
     toolExecution: 'sequential',
-    // 澄清、拟稿或用户中止后，不再回上游追加一次模型调用。
+    // 确认门在这里认出要拦的生成调用；拦下的那次在花钱那一步停住，卡片停在待确认（`drafted`）。
+    beforeToolCall: (context) => gate.beforeToolCall(context),
+    // 澄清、拟稿（包括确认门拦下）或用户中止后，不再回上游追加一次模型调用。
     shouldStopAfterTurn: () => clarified || drafted || aborted || !!error,
     transformContext: (messages) =>
       visualWorkset.transform(messages, retained?.transform ?? compact),
@@ -813,33 +817,13 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   void requireAgentImages(images, shownImageRequests(requestAgentReferences(input)))
     .then(async (references) => {
       if (aborted) return
-      // Stop before reading the rest of an oversized review batch; missing evidence cannot count as reviewed.
-      const reviewed: ResolvedAgentImage[] = []
-      const imageBytes = (image: ResolvedAgentImage) =>
-        Buffer.byteLength(image.dataUrl, 'utf8') +
-        Buffer.byteLength(image.maskDataUrl ?? '', 'utf8')
-      let preparedBytes = references.reduce((sum, image) => sum + imageBytes(image), 0)
-      assertVisualBytes(preparedBytes)
-      for (const id of input.reviewImageIds) {
-        const image = await images.resolve(id)
-        if (!image)
-          throw new AgentToolError(
-            'invalid_params',
-            `复核图片 ${id} 无法读取，联合复核未完成。请重新添加有效图片或选择需要复核的范围。`,
-          )
-        preparedBytes += imageBytes(image)
-        assertVisualBytes(preparedBytes)
-        reviewed.push(image)
-      }
-      // 批次唤醒的复核图尽力附带：旧产物可能已删、几批同时完成可能超预算，跳过即可，
-      // 唤醒说明让模型以图片清单为准，没附上的如实说未查看。
-      const byteLimit = visualByteLimit()
-      for (const id of input.optionalReviewImageIds ?? []) {
-        const image = await images.resolve(id).catch(() => null)
-        if (!image || preparedBytes + imageBytes(image) > byteLimit) continue
-        preparedBytes += imageBytes(image)
-        reviewed.push(image)
-      }
+      // 复核用预览而不是原件：4K 产物的原件会把整轮请求撑过字节预算。装不下的如实告诉模型。
+      const { reviewed, omitted } = await prepareReviewImages(
+        images,
+        references,
+        input.reviewImageIds,
+        input.optionalReviewImageIds,
+      )
       const reviewSet = new Set(reviewed)
       const evidence = await turnVisualEvidence([...references, ...reviewed], (image) =>
         reviewSet.has(image) ? 'result-review' : 'initial',
@@ -847,11 +831,17 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       if (aborted) return
       // 正文与预扣估算读的是同一份轮输入（`turnPromptBody`）：`/skill-name` 的展开范围、
       // 引用清单与并进来的唤醒说明的位置，两条路因此只有一种拼法。
-      const sent = turnModelPrompt(turnPromptBody(input, images.references), evidence)
+      const sent = turnModelPrompt(
+        turnPromptBody(input, images.references) + omittedReviewNote(omitted),
+        evidence,
+      )
       await execution.assert()
       // 中止可能落在上面这次确认租约的等待里：那时 pi 还没开跑，`agent.abort()` 无处可去。
       // 不在开跑前同步再看一眼，这一轮会照常请求上游并跑完。
       if (aborted) return
+      // 确认门续跑：历史末尾已经接上那几次调用与回执（见 `turn-input.ts`），不加任何新话，
+      // 从工具结果接着往下走——对智能体来说这就是同一轮。
+      if (input.continuation) return agent.continue()
       return agent.prompt(sent.text, sent.content)
     })
     .catch((thrown) => {

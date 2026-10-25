@@ -37,6 +37,8 @@ const DYNAMIC_PREFIXES = [
   'canvas:rectEdit.handle.',
   // features/canvas/components/CanvasResizeMenu.tsx：按 RESIZE_RATIOS 里的比例拼 key。
   'canvas:resize.ratio.',
+  // components/composer/ModelSelector.tsx：按 shared 的 MODEL_BADGES 拼 key。
+  'composer:param.modelBadge.',
   // features/agent/components/SkillStarterGuide.tsx：按 shared 的 AGENT_SKILL_SCENES 拼 key。
   'agent:starters.scene.',
   // features/agent/components/AgentAssetDrawer.tsx：按媒体类型拼 `assets.${one}`。

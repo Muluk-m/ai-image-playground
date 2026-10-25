@@ -69,6 +69,11 @@ export interface AgentToolContext {
    * 领得到额度的调用当场提交并计费，领不到的退回等待确认。
    */
   readonly autoSubmit?: AgentAutoSubmitBudget
+  /**
+   * 确认门（见 `tool-gate.ts`）：它拦下的那次生成调用在花钱那一步停住，材料存成待确认的稿，
+   * 给模型的回执与当场提交时一样。缺席即这一轮没有确认门。
+   */
+  readonly gate?: AgentToolGateView
   /** 续跑轮里已经提交的后台调用，用于提交去重。 */
   readonly replay?: AgentSubmissionReplay
   /**
@@ -77,6 +82,11 @@ export interface AgentToolContext {
    * 但没有它运营就看不见这笔成本。缺席即这一轮没有账本可记。
    */
   readonly recordWebSearch?: (attempt: ChatAttempt) => Promise<void>
+}
+
+/** 工具眼里的确认门：只回答「这一次调用是不是被拦下了」。 */
+export interface AgentToolGateView {
+  holds(toolCallId: string): boolean
 }
 
 /** 被打断那一轮已经提交的一次调用：按调用内容算出的幂等键，与它提交出的后台任务。 */
@@ -113,6 +123,10 @@ export interface AgentToolDetails {
    */
   readonly productionDraftRevision?: number
   readonly awaitingConfirmation?: true
+  /** 这份待确认的稿是确认门拦下来的：智能体不知道，确认后同一轮接着跑。 */
+  readonly gated?: true
+  /** 拦下那一刻交给模型的回执原文；续跑原样接回（见 `tool-gate.ts`）。 */
+  readonly gateReceipt?: string
   /** 读取技能这一步读到了什么；只有那个工具会填。 */
   readonly skill?: AgentSkillOutcome
   /** 排时间线的结果；只有那个工具会填。 */

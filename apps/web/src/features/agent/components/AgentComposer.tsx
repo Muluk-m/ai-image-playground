@@ -283,6 +283,11 @@ function ComposerAttachmentThumb({
 
 /** 附件菜单贴在回形针上方：两条目加内边距的实测高度，越界的那点由 ContextMenu 夹回视口。 */
 const ATTACH_MENU_HEIGHT = 96
+/**
+ * 发出去之后这颗按钮在原位变成中止。双击发送的第二下、焦点停在按钮上连按的第二次回车，
+ * 都会落在它身上，把服务端还没收下的那一轮当场停掉。发出后先按住这么久，再变成可点的中止。
+ */
+const STOP_ARM_DELAY_MS = 800
 
 /** `@` 与 `/` 两个弹层共用一个菜单，所以候选身份要能分得出是哪一支。 */
 type ComposerSuggestion = AgentMentionValue | { readonly type: 'skill'; readonly name: string }
@@ -936,7 +941,15 @@ export default function AgentComposer({
    * 点下去这颗按钮当场变回发送，不再有「正在中止…」的禁用态：跟服务端交涉的那几百毫秒里
    * 用户照常打字、照常发，`send` 会静默等中止落定再起新轮。
    */
-  const stopMode = running && !stopping && !draft.prompt.trim()
+  const [stopHeld, setStopHeld] = useState(false)
+  const stopHoldTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const holdStop = () => {
+    clearTimeout(stopHoldTimer.current)
+    setStopHeld(true)
+    stopHoldTimer.current = setTimeout(() => setStopHeld(false), STOP_ARM_DELAY_MS)
+  }
+  useEffect(() => () => clearTimeout(stopHoldTimer.current), [])
+  const stopMode = running && !stopping && !draft.prompt.trim() && !stopHeld
   const bypassConfirmation = useRef(false)
   const [confirmationHeld, setConfirmationHeld] = useState(false)
   useEffect(() => {
@@ -954,6 +967,7 @@ export default function AgentComposer({
     }
     bypassConfirmation.current = false
     setConfirmationHeld(false)
+    if (draft.prompt.trim()) holdStop()
     void useAgentStore.getState().submitDraft({
       session,
       snapshot: draft,

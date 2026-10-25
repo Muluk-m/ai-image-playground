@@ -1,10 +1,12 @@
 import {
+  applyCanvasUpdateKeepingUploads,
   type CloudProjectSummary,
   canvasNodeJobs,
   canvasOrigin,
   canvasProjectDocument,
   canvasResultMediaIds,
   canvasResults,
+  canvasUploadingElsewhere,
   copiedCanvasProjectName,
   importLegacyElements,
   initializeCanvasConnectionRules,
@@ -29,6 +31,7 @@ export class CanvasSyncError extends Error {
   }
 }
 const origin = canvasOrigin('system', 'cloud-archive')
+const uploadRepairOrigin = canvasOrigin('system', 'upload-conflict-repair')
 const documents = schema.canvas_documents
 const updates = schema.canvas_updates
 const base64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64')
@@ -278,7 +281,9 @@ export async function accessCanvasDocument(
         const before = Y.encodeStateAsUpdate(doc)
         const acceptedTasks = referencedTasks(doc)
         try {
-          Y.applyUpdate(doc, update)
+          // 并发顶掉的上传簿记（例如收成云媒体输给别处的改名）要在回收删除内容之前合回去：
+          // 上传方收到确认就可能关页面，等不到房间刷新自己补写。
+          applyCanvasUpdateKeepingUploads(doc, update, uploadRepairOrigin)
           validateCloudCanvas(doc, project.document, legacyConnections)
         } catch {
           throw new CanvasSyncError(400, 'invalid_canvas_document')
@@ -378,12 +383,22 @@ export async function copyCanvasProject(
     const copy = new Y.Doc()
     try {
       Y.applyUpdate(copy, Y.encodeStateAsUpdate(loaded.doc))
-      const now = Date.now()
       const id = crypto.randomUUID()
       // 副本是一张新画布，不保留「返回来源对话」。原件自己的回链留在原件上。
       const { sourceProjectId: _sourceProjectId, ...identity } = project.document
       const document = canvasProjectDocument(copy, identity)
       const snapshot = readCanvasDocument(copy)
+      // 还在上传的图片（某台设备声明在传、还没过期）不能带进副本：副本拿不到那台设备的原图，
+      // 原件传完收成云媒体也不会改到副本上，副本会一直缺图。让用户等上传完再复制。
+      const now = Date.now()
+      if (
+        snapshot.nodes.some(
+          (node) =>
+            (node.type === 'image' || node.type === 'video') &&
+            canvasUploadingElsewhere(node.data, '', now),
+        )
+      )
+        throw new CanvasSyncError(409, 'canvas_media_pending')
       const summary: CloudProjectSummary = {
         id,
         name: copiedCanvasProjectName(project.name, suffix),
