@@ -9,7 +9,7 @@ import { parseModelCatalog } from './validate'
  * BFF 启动会因此失败，而不是带着错的能力上线。
  *
  * 目录只描述模型本身，不描述「这台部署能不能用」：启用哪些模型仍由 channels.json + env 决定，
- * 启停和单价仍在价目表。目前还没有代码读它（PR-2 起由 /api/channels 下发）。
+ * 启停和单价仍在价目表。BFF 在 `/api/channels` 的图片模型上附带 `family` 与 `image`（见 publish.ts），前端暂时还不读。
  */
 export const MODEL_CATALOG: readonly ModelSpec[] = parseModelCatalog(raw).models
 
@@ -20,6 +20,7 @@ export function findCatalogModel(id: string): ModelSpec | undefined {
   return BY_ID.get(id)
 }
 
+export * from './publish'
 export * from './resolve'
 export * from './schema'
 export { modelCatalogProblems, parseModelCatalog } from './validate'
