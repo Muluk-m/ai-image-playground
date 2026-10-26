@@ -1488,50 +1488,50 @@ it('别的设备的上传声明到点过期后，不等别的改动也会从「�
   }
 })
 
-it.each(['image', 'video'] as const)(
-  'offers retry on a failed %s node and confirms only that node',
-  async (kind) => {
-    for (const id of ['failed-one', 'failed-two']) {
-      insertCanvasNode(
-        canvas.doc,
-        {
-          id,
-          type: 'image',
-          x: 200,
-          y: 0,
-          width: 360,
-          height: 240,
-          data: { name: id, meta: { nodeKind: kind, nodePrompt: 'a quiet forest' } },
-        },
-        canvas.origin,
-      )
-      setCanvasNodeJob(
-        canvas.doc,
-        {
-          id: `job-${id}`,
-          nodeId: id,
-          createdAt: 1,
-          status: 'error',
-          message: 'upstream failed',
-          meta: { prompt: 'a quiet forest', clientRequestId: `job-${id}` },
-        },
-        canvas.origin,
-      )
-    }
-    await render()
-    const card = host.querySelector('[data-node-id="failed-one"]')!
-    const retry = [...card.querySelectorAll('button')].find(
-      (button) => button.textContent?.trim() === '重试',
+it.each([
+  'image',
+  'video',
+] as const)('offers retry on a failed %s node and confirms only that node', async (kind) => {
+  for (const id of ['failed-one', 'failed-two']) {
+    insertCanvasNode(
+      canvas.doc,
+      {
+        id,
+        type: 'image',
+        x: 200,
+        y: 0,
+        width: 360,
+        height: 240,
+        data: { name: id, meta: { nodeKind: kind, nodePrompt: 'a quiet forest' } },
+      },
+      canvas.origin,
     )
-    expect(retry).toBeDefined()
-    await act(async () => retry!.click())
-    const dialog = document.querySelector('[role="dialog"]')!
-    expect(dialog.textContent).toContain('failed-one')
-    expect(dialog.textContent).not.toContain('failed-two')
-    expect(dialog.textContent).toContain('1 个生成节点')
-    expect(mocks.submitImage).not.toHaveBeenCalled()
-  },
-)
+    setCanvasNodeJob(
+      canvas.doc,
+      {
+        id: `job-${id}`,
+        nodeId: id,
+        createdAt: 1,
+        status: 'error',
+        message: 'upstream failed',
+        meta: { prompt: 'a quiet forest', clientRequestId: `job-${id}` },
+      },
+      canvas.origin,
+    )
+  }
+  await render()
+  const card = host.querySelector('[data-node-id="failed-one"]')!
+  const retry = [...card.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === '重试',
+  )
+  expect(retry).toBeDefined()
+  await act(async () => retry!.click())
+  const dialog = document.querySelector('[role="dialog"]')!
+  expect(dialog.textContent).toContain('failed-one')
+  expect(dialog.textContent).not.toContain('failed-two')
+  expect(dialog.textContent).toContain('1 个生成节点')
+  expect(mocks.submitImage).not.toHaveBeenCalled()
+})
 
 it('does not offer retry while a node is generating', async () => {
   setCanvasNodeJob(
