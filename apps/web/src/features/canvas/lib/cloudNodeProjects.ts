@@ -1,13 +1,16 @@
 import {
+  CANVAS_UPLOAD_CLOCK_SKEW_MS,
   CANVAS_UPLOAD_DEVICE_META,
   CANVAS_UPLOAD_STALE_MS,
-  CANVAS_UPLOAD_STARTED_META,
   canvasOrigin,
   canvasProjectDocument,
   canvasResults,
   canvasSyncStep1,
   canvasSyncStep2,
+  canvasUploadClaimTime,
   canvasUploadingElsewhere,
+  canvasUploadNodeKey,
+  claimCanvasUpload,
   createCanvasUndoManager,
   dropCanvasNodeFile,
   dropCanvasResult,
@@ -16,7 +19,6 @@ import {
   importLegacyElements,
   isLocalCanvasFileId,
   type LegacyCanvasElement,
-  nextCanvasUploadStamp,
   type ProjectDocument,
   type ProjectVideoRef,
   projectKind,
@@ -710,7 +712,12 @@ export class CloudNodeProjectSession {
       nodes.push({
         nodeId: node.id,
         fileId: node.data.fileId,
-        elsewhere: canvasUploadingElsewhere(node.data, device, now),
+        elsewhere: canvasUploadingElsewhere(
+          node.data,
+          device,
+          now,
+          canvasUploadNodeKey(this.canvas!.doc, node.id),
+        ),
         createdAt: node.data.createdAt,
       })
     }
@@ -913,7 +920,12 @@ export class CloudNodeProjectSession {
         !!node.data.mediaId ||
         // 服务端只收本机格式的上传中 fileId；历史数据里格式不合的照旧先上传再发。
         (isLocalCanvasFileId(node.data.fileId) && !!files[node.data.fileId]) ||
-        canvasUploadingElsewhere(node.data, device, now),
+        canvasUploadingElsewhere(
+          node.data,
+          device,
+          now,
+          canvasUploadNodeKey(this.canvas!.doc, node.id),
+        ),
     )
   }
   /**
@@ -937,7 +949,13 @@ export class CloudNodeProjectSession {
         !mediaId &&
         files[fileId] &&
         // 别的标签页/设备的有效声明不抢：由它去传（与 prepareMedia 一致，只在支持上传中节点时）。
-        (!supportsCanvasPendingMedia() || !canvasUploadingElsewhere(node.data, device, now)) &&
+        (!supportsCanvasPendingMedia() ||
+          !canvasUploadingElsewhere(
+            node.data,
+            device,
+            now,
+            canvasUploadNodeKey(this.canvas!.doc, node.id),
+          )) &&
         (renew || meta?.[CANVAS_UPLOAD_DEVICE_META] !== device)
       )
         claims.push({ id: node.id, data: node.data })
@@ -951,11 +969,7 @@ export class CloudNodeProjectSession {
           {
             data: {
               ...data,
-              meta: {
-                ...data.meta,
-                [CANVAS_UPLOAD_DEVICE_META]: device,
-                [CANVAS_UPLOAD_STARTED_META]: String(nextCanvasUploadStamp(data.meta, now)),
-              },
+              meta: claimCanvasUpload(data, device, now, canvasUploadNodeKey(doc, id)),
             },
           },
           legacyOrigin,
@@ -984,8 +998,13 @@ export class CloudNodeProjectSession {
       const { data } = current
       if (data.fileId !== fileId || data.mediaId) continue
       if (data.meta?.[CANVAS_UPLOAD_DEVICE_META] !== device) continue
-      const since = Number(data.meta?.[CANVAS_UPLOAD_STARTED_META])
-      if (Number.isFinite(since) && now - since < CANVAS_UPLOAD_STALE_MS / 2) continue
+      const since = canvasUploadClaimTime(data, canvasUploadNodeKey(doc, nodeId))
+      if (
+        Number.isFinite(since) &&
+        since - now <= CANVAS_UPLOAD_CLOCK_SKEW_MS &&
+        now - since < CANVAS_UPLOAD_STALE_MS / 2
+      )
+        continue
       renewed.push({ id: nodeId, data })
     }
     if (!renewed.length) return
@@ -998,10 +1017,7 @@ export class CloudNodeProjectSession {
           {
             data: {
               ...data,
-              meta: {
-                ...data.meta,
-                [CANVAS_UPLOAD_STARTED_META]: String(nextCanvasUploadStamp(data.meta, now)),
-              },
+              meta: claimCanvasUpload(data, device, now, canvasUploadNodeKey(doc, id)),
             },
           },
           legacyOrigin,
@@ -1045,7 +1061,13 @@ export class CloudNodeProjectSession {
         !node.data.mediaId &&
         !!files[node.data.fileId] &&
         // 与 prepareMedia 一致：只有支持上传中节点时才把别处在传的交给别处。
-        (!supportsCanvasPendingMedia() || !canvasUploadingElsewhere(node.data, device, now)),
+        (!supportsCanvasPendingMedia() ||
+          !canvasUploadingElsewhere(
+            node.data,
+            device,
+            now,
+            canvasUploadNodeKey(this.canvas!.doc, node.id),
+          )),
     )
   }
   /** 一次只跑一轮后台上传；跑的时候又来了改动，就在这一轮结束后再补一轮。 */
