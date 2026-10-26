@@ -28,6 +28,7 @@ import { canonicalJson } from './canonicalJson'
 import { isCapabilityEnabled } from './capabilities'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
+import { modelUnavailable } from './model-availability'
 import { objectStore } from './objectStore'
 import { type BffTransaction, loadPrivateBffOverlay } from './private-overlay'
 import { reserveProjectOutputs } from './projectArchive'
@@ -349,6 +350,9 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
       )
       const replay = await replayCommand(tx, input.userId, commandId, hash)
       if (replay) return replay
+    }
+    if (await modelUnavailable(tx, input.model)) {
+      return { kind: 'price_unavailable' as const, model: input.model }
     }
     const inserted = await tx
       .insert(schema.tasks)
