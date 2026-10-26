@@ -80,7 +80,7 @@
     "unauthorized": "登录已过期，请重新登录后再复制。",
     "canvas_sync_unavailable": "当前环境不能复制项目。",
     "account_changed": "账号已经切换，请重新打开后再复制。",
-    "canvas_media_pending": "还有图片在上传，传完后再复制。",
+    "canvas_media_pending": "项目中还有未保存到云端的媒体，暂时无法复制。请完成上传、重新上传缺失的原图，或移除相应内容后再试。",
     "fallback": "复制项目失败，请重试。"
   },
   "agentTool": {
