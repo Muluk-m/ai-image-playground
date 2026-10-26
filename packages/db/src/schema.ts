@@ -211,6 +211,22 @@ export const operator_audits = pgTable(
   ],
 )
 
+/** 系统替运营下架模型的原因；运营手动下架不写原因。 */
+export type ModelPauseReason = 'upstream_unavailable'
+
+/**
+ * 运营停用的模型。没有行即上架：新接入的模型不用先登记一行才能用。
+ * 页面的模型列表、智能体可用的模型与提交前的拦截都只认这一张表；单价归收费模块，不在这里。
+ */
+export const model_availability = pgTable('model_availability', {
+  model: text('model').primaryKey(),
+  active: boolean('active').notNull(),
+  /** 有值即系统自动暂停（上游没有可用账号），等运营补上容量后手动恢复。 */
+  pause_reason: text('pause_reason').$type<ModelPauseReason>(),
+  paused_at: epochMs('paused_at'),
+  updated_at: epochMs('updated_at').notNull(),
+})
+
 export type InspirationKind = 'showcase' | 'template' | 'skill'
 export type InspirationStatus = 'draft' | 'published' | 'archived'
 export interface InspirationParams {

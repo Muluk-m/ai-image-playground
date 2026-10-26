@@ -17,7 +17,7 @@ import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { askChatModel } from '../chatCompletion'
 import { log } from '../logger'
-import { refreshInactiveModels } from '../model-availability'
+import { modelUnavailable, refreshInactiveModels } from '../model-availability'
 import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { isObject } from '../type-guards'
@@ -371,6 +371,9 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         : null
 
     committed = await execution.write(async (tx) => {
+      // 运营停用的对话模型不起轮；不计费的部署没有预扣那一道，这里是唯一的关。
+      if (await modelUnavailable(tx, selectedModel))
+        throw new TurnStartRollback({ kind: 'price_unavailable', model: selectedModel })
       // 先取走再预扣：两步同在这个事务里，任一步不成立就整笔回滚，那一条原样待处理。
       if (!(await consumeAgentMessage(tx, conversationId, sourceId(source), turnId)))
         throw new TurnStartRollback({ kind: 'withdrawn' })

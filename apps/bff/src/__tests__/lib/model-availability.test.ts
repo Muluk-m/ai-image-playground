@@ -1,9 +1,10 @@
 import { afterEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 
-const TEST_DB = process.env.TEST_DATABASE_URL
-if (!TEST_DB) throw new Error('TEST_DATABASE_URL is required for PostgreSQL tests')
-process.env.DATABASE_URL = TEST_DB
+import { resetTestDatabase } from '@image-playground/db/testing'
+
+// 停用清单也读公开库的 model_availability，要一个迁好的库。
+process.env.DATABASE_URL = await resetTestDatabase('bff_model_availability')
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-video-operator-config.json')
 
 const { _setChannelsForTesting } = await import('../../lib/channels')
