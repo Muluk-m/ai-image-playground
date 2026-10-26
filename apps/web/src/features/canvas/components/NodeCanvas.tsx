@@ -382,7 +382,8 @@ function PendingConnectionOverlay({
   )
 }
 
-function Pending({ pending }: { pending: PendingGeneration }) {
+function Pending({ pending, nodeId }: { pending: PendingGeneration; nodeId: string }) {
+  const run = useContext(NodeStoryboardContext)?.onRun
   const { t } = useTranslation('canvas')
   const status =
     pending.type === 'generation' ? (pending.errorCode ? 'error' : 'loading') : pending.status
@@ -394,7 +395,23 @@ function Pending({ pending }: { pending: PendingGeneration }) {
         : t('placeholder.generating')
   return (
     <div className="studio-node-pending text-sm" data-failed={status !== 'loading' || undefined}>
-      {label}
+      <div className="flex flex-col items-center gap-3">
+        <span>{label}</span>
+        {status !== 'loading' && run && (
+          <Button
+            size="sm"
+            className="nodrag nopan"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation()
+              run([nodeId])
+            }}
+          >
+            <Icon name="refresh" />
+            {t('common:action.retry')}
+          </Button>
+        )}
+      </div>
     </div>
   )
 }
@@ -515,7 +532,7 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
         {fileId ? (
           <Picture fileId={fileId} rotation={rotation} upload={node.data} />
         ) : pending ? (
-          <Pending pending={pending} />
+          <Pending pending={pending} nodeId={node.id} />
         ) : (
           <div className="studio-node-empty">
             <Icon name={nodeIconName(node)} size="lg" />
@@ -531,7 +548,7 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
         )}
         {fileId && pending && (
           <div className="absolute inset-x-0 bottom-0 bg-background/80 py-2">
-            <Pending pending={pending} />
+            <Pending pending={pending} nodeId={node.id} />
           </div>
         )}
       </div>
@@ -557,7 +574,7 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
         <NodeCaption node={node} />
         <div className="studio-node studio-node--video">
           {pending ? (
-            <Pending pending={pending} />
+            <Pending pending={pending} nodeId={node.id} />
           ) : (
             <div className="studio-node-empty">
               <Icon name="video" size="lg" />
