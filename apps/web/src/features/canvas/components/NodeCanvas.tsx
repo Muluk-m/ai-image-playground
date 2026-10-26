@@ -384,7 +384,7 @@ function PendingConnectionOverlay({
 
 function Pending({ pending, nodeId }: { pending: PendingGeneration; nodeId: string }) {
   const run = useContext(NodeStoryboardContext)?.onRun
-  const { t } = useTranslation('canvas')
+  const { t } = useTranslation(['canvas', 'common'])
   const status =
     pending.type === 'generation' ? (pending.errorCode ? 'error' : 'loading') : pending.status
   const label =
