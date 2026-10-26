@@ -2,6 +2,8 @@
 import {
   CANVAS_UPLOAD_STALE_MS,
   canvasOrigin,
+  canvasUploadNodeKey,
+  claimCanvasUpload,
   connectCanvasNodes,
   createCanvasUndoManager,
   IMAGE_PRESETS,
@@ -26,6 +28,7 @@ import * as Y from 'yjs'
 import NodeCanvas, {
   useUploadingElsewhere,
 } from '../../../../features/canvas/components/NodeCanvas'
+import { TextCanvasContext } from '../../../../features/canvas/components/NodeTextBody'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
 import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCanvasDocument'
 import type { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
@@ -1483,6 +1486,54 @@ it('别的设备的上传声明到点过期后，不等别的改动也会从「�
     expect(host.textContent).toBe('false')
     act(() => probeRoot.unmount())
   } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('a bound lease uses its real expiry even when the legacy order is far in the future', () => {
+  vi.useFakeTimers()
+  const host = document.createElement('div'),
+    probeRoot = createRoot(host)
+  try {
+    const now = 1_800_000_000_000
+    vi.setSystemTime(now)
+    const node = readCanvasDocument(canvas.doc).nodes.find((n) => n.type === 'image')!
+    const old = {
+      ...node.data,
+      meta: { uploadDevice: 'old-fast-device', uploadStartedAt: String(now + 60 * 60_000) },
+    }
+    updateCanvasNode(
+      canvas.doc,
+      node.id,
+      {
+        data: {
+          ...old,
+          meta: claimCanvasUpload(
+            old,
+            'another-device',
+            now,
+            canvasUploadNodeKey(canvas.doc, node.id),
+          ),
+        },
+      },
+      canvas.origin,
+    )
+    const data = readCanvasDocument(canvas.doc).nodes.find((n) => n.type === 'image')!.data
+    function Probe() {
+      return createElement('span', null, String(useUploadingElsewhere(data, node.id)))
+    }
+    act(() =>
+      probeRoot.render(
+        createElement(TextCanvasContext.Provider, { value: canvas }, createElement(Probe)),
+      ),
+    )
+    expect(host.textContent).toBe('true')
+    act(() => vi.advanceTimersByTime(CANVAS_UPLOAD_STALE_MS - 1))
+    expect(host.textContent).toBe('true')
+    act(() => vi.advanceTimersByTime(2))
+    expect(host.textContent).toBe('false')
+  } finally {
+    act(() => probeRoot.unmount())
     vi.useRealTimers()
   }
 })

@@ -11,6 +11,7 @@ import {
   canvasText,
   canvasUploadClaimNextChange,
   canvasUploadingElsewhere,
+  canvasUploadNodeKey,
   connectCanvasNodes,
   createCanvasGroup,
   disconnectCanvasNodes,
@@ -405,11 +406,13 @@ type UploadClaimData = Parameters<typeof canvasUploadingElsewhere>[0]
  * 别的设备声明在传、还没过期（canvasUploadingElsewhere）。声明到点过期时没有别的改动会触发重渲染，
  * 所以按 canvasUploadClaimNextChange 定一个时钟，到点自己再算一次。
  */
-export function useUploadingElsewhere(data: UploadClaimData): boolean {
+export function useUploadingElsewhere(data: UploadClaimData, nodeId?: string): boolean {
+  const canvas = useContext(TextCanvasContext)
+  const nodeKey = canvas && nodeId ? canvasUploadNodeKey(canvas.doc, nodeId) : undefined
   const [tick, setTick] = useState(0)
   const device = useCanvasUploaderId()
   const now = Date.now()
-  const next = canvasUploadClaimNextChange(data, device, now)
+  const next = canvasUploadClaimNextChange(data, device, now, nodeKey)
   useEffect(() => {
     if (next === undefined) return
     // setTimeout 的延迟超过 2^31-1 毫秒会立刻触发，分段等：没到点的那次重渲染带着新的 tick 再定一次。
@@ -419,10 +422,11 @@ export function useUploadingElsewhere(data: UploadClaimData): boolean {
     )
     return () => clearTimeout(timer)
   }, [next, tick])
-  return canvasUploadingElsewhere(data, device, now)
+  return canvasUploadingElsewhere(data, device, now, nodeKey)
 }
 
 function Picture({
+  nodeId,
   fileId,
   rotation,
   upload,
@@ -431,9 +435,10 @@ function Picture({
   rotation?: number
   /** 节点 data，用来判断是不是别的设备在传（useUploadingElsewhere）。 */
   upload: UploadClaimData
+  nodeId: string
 }) {
   const { t } = useTranslation('canvas')
-  const uploadingElsewhere = useUploadingElsewhere(upload)
+  const uploadingElsewhere = useUploadingElsewhere(upload, nodeId)
   const files = useContext(FilesContext)
   const source = useNodeMedia(fileId ? files[fileId] : undefined)
   if (!source)
@@ -513,7 +518,7 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
           </span>
         )}
         {fileId ? (
-          <Picture fileId={fileId} rotation={rotation} upload={node.data} />
+          <Picture nodeId={node.id} fileId={fileId} rotation={rotation} upload={node.data} />
         ) : pending ? (
           <Pending pending={pending} />
         ) : (
@@ -597,7 +602,7 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
       <NodeCaption node={node} />
       <div className="studio-node studio-node--video" data-rotated={rotation ? true : undefined}>
         {fileId ? (
-          <Picture fileId={fileId} rotation={rotation} upload={node.data} />
+          <Picture nodeId={node.id} fileId={fileId} rotation={rotation} upload={node.data} />
         ) : (
           <div className="studio-node-empty">
             <Icon name="video" size="lg" />
