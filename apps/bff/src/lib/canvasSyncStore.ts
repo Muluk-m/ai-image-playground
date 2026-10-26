@@ -6,7 +6,6 @@ import {
   canvasProjectDocument,
   canvasResultMediaIds,
   canvasResults,
-  canvasUploadingElsewhere,
   copiedCanvasProjectName,
   importLegacyElements,
   initializeCanvasConnectionRules,
@@ -388,17 +387,22 @@ export async function copyCanvasProject(
       const { sourceProjectId: _sourceProjectId, ...identity } = project.document
       const document = canvasProjectDocument(copy, identity)
       const snapshot = readCanvasDocument(copy)
-      // 还在上传的图片（某台设备声明在传、还没过期）不能带进副本：副本拿不到那台设备的原图，
-      // 原件传完收成云媒体也不会改到副本上，副本会一直缺图。让用户等上传完再复制。
-      const now = Date.now()
-      if (
-        snapshot.nodes.some(
-          (node) =>
-            (node.type === 'image' || node.type === 'video') &&
-            canvasUploadingElsewhere(node.data, '', now),
+      // 副本不会继承来源设备的本机文件或后续上传回填。声明是否有效只影响上传 UX，
+      // 不能证明媒体已经可复制；检查整份文档，包括未选中的历史候选。
+      const unresolvedNode = snapshot.nodes.some((node) => {
+        if (node.type !== 'image' && node.type !== 'video') return false
+        return (
+          (!!node.data.fileId && !node.data.mediaId) ||
+          ('video' in node.data && !!node.data.video && !node.data.video.mediaId)
         )
-      )
-        throw new CanvasSyncError(409, 'canvas_media_pending')
+      })
+      const unresolvedResult = canvasResults(copy).some((result) => {
+        if (result.display?.fileId && !result.display.mediaId) return true
+        if (result.source.type !== 'file' && result.source.type !== 'local') return false
+        return result.kind === 'video' ? !result.display?.video?.mediaId : !result.display?.mediaId
+      })
+      if (unresolvedNode || unresolvedResult) throw new CanvasSyncError(409, 'canvas_media_pending')
+      const now = Date.now()
       const summary: CloudProjectSummary = {
         id,
         name: copiedCanvasProjectName(project.name, suffix),
