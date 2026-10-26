@@ -112,11 +112,8 @@ export interface PrivateTaskHooks {
   /** Worker-only integrations; absent in older overlays. */
   runWorkerMaintenance?(now: number): Promise<void>
   /**
-   * 运营停用的模型：它们不出现在 `/api/channels`，页面上就没有入口。提交那一侧不靠它——
-   * 停用模型的预扣本来就回 `price_unavailable`，没刷新的老页面照样被拒，不会打到上游。
-   *
-   * 可选成员（「先扩后缩」）：钉住的 overlay 还没有这一项时加载照常，缺席即全部上架。
-   * 每次页面启动都会问一次，实现方自己决定缓存，别让它在热路径上每次查库。
+   * 旧版收费模块记在自己单价表里的停用模型。上下架已归公开库的 `model_availability`，这一项只在迁移完成前
+   * 补进同一份清单；可选成员，缺席即没有遗留停用。
    */
   inactiveModels?(): Promise<ReadonlySet<string>>
 }
