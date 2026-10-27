@@ -69,7 +69,7 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）执行 `pnpm li
 `apps/web` 构建；公开 workspace 的完整 `pnpm test` 分两个并行 job：web 的 vitest 单独一个，其余包在带 PostgreSQL 的 job 中跑（Bun 数据库测试 4 路并发）；
 `with-overlay` job 再用 `private.lock` 钉住的 overlay 跑 lint / typecheck / build 与私有包测试。
 
-**默认交付到生产。** 代码修改通过检查后，继续创建 PR、等 CI、合并 `main`；合并后由部署 workflow 自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为。修 bug 的 PR 检查齐了直接完成整条链路，无需再次询问是否部署；功能或行为变更、带迁移、涉及成本的 PR 合并前要 Nain 确认（见[发布手册](docs/agents/release.md)）。用户明确要求仅本地修改或暂不合并时照办。
+**默认交付到生产。** 代码修改通过检查后，继续创建 PR、等 CI、合并 `main`；合并后由部署 workflow 自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为。修 bug 的 PR 检查齐了直接完成整条链路，无需再次询问是否部署；功能或行为变更、带迁移的 PR 合并前要 Nain 确认（见[发布手册](docs/agents/release.md)）。用户明确要求仅本地修改或暂不合并时照办。
 
 **交付不能停在本地。** 用户指定测试环境或明确暂不上生产时，完成改动后自动走测试环境发布：工作分支提交 → 远端检查 → 将最新 `main` 与工作分支合入 `test` → 跟进 Deploy test → 核对线上版本并实测变更。不再次询问是否部署，不把已提交、已推送或 workflow 已触发当作交付完成；失败继续处理，外部阻塞明确报告且待办保持阻塞状态。测试验收不代表获准上生产。
 
@@ -83,7 +83,7 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）执行 `pnpm li
 
 **关键流程证据。** 改到注册/登录、支付/计费、生成（出图、出视频）流程的 PR，必须附测试账号在测试环境（https://test.muvloom.online）走通该流程的截图或录屏，写明账号类型、环境和提交。证据里不能出现密码、验证码、token 或真实用户数据。`scripts/agent-smoke.ts`（[智能体上线手册](docs/deploy/agent-rollout.md)第七节）、`scripts/pages-browser-smoke.sh`（[部署手册](docs/deploy/image-release.md)「前端启动验收」）和[云端测试](docs/agents/cloud-tests.md)只能作补充：它们不走真实登录、付款或生成，不能代替证据。
 
-**成本硬规则。** 改到模型调用、模型/供应商切换、定价、额度、计费，或任何会提高推理成本的改动（更贵的默认模型、更多调用次数、更长上下文、更大输出、放宽限额），合并前必须有 Nain 的明确确认。PR 模板里勾「本 PR 涉及成本」，拿到确认后再勾「Nain 已明确确认」，并在「确认来源：」后写明 Nain 原话的位置；Agent 不能替 Nain 勾。`.github/workflows/cost-gate.yml` 按 `scripts/cost-gate.mjs` 的路径清单检查：命中或作者声明涉及成本时打 `needs-owner-cost-approval` 标签，没有确认就让 `Cost gate` 失败。判定脚本用目标分支上的版本，改它要等合并后才对后续 PR 生效。路径清单只是兜底，清单外的成本改动也要自己声明。
+**成本与影响说明。** 改到模型调用、模型/供应商切换、定价、额度、计费，或任何会改变推理成本的改动（更贵的默认模型、更多调用次数、更长上下文、更大输出、放宽限额），必须在 PR 描述的「成本与影响」和给 Nain 的汇报里写清楚改了什么、对成本的影响。`.github/workflows/cost-impact.yml` 按 `scripts/cost-impact.mjs` 的路径清单检查，命中时打 `cost-impact` 标签提醒，只提示、不拦合并；清单外的成本改动同样要写。其中属于功能或行为变更的，仍按上面「默认交付到生产」要 Nain 确认。
 
 ## 测试约定
 
