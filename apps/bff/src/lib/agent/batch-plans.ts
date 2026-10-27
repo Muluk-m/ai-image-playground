@@ -12,7 +12,7 @@ import type {
   AnalysisIntent,
   ImagePresetRatio,
 } from '@image-playground/shared'
-import { sizeForAspectRatio } from '@image-playground/shared'
+import { withAspectRatio } from '@image-playground/shared'
 import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/bun-sql'
 import { config } from '../../config'
@@ -174,8 +174,9 @@ export async function createAgentBatchPlan(
         ...common,
         kind: 'generation',
         params: {
-          ...params,
-          ...(item.aspectRatio ? { size: sizeForAspectRatio(params.size, item.aspectRatio) } : {}),
+          // 与单张工具同一条覆盖规则：项上写了比例就换尺寸并去掉输入框的 gemini 比例，
+          // 否则 gemini 照旧按全局比例出图，卡上与回复说的比例都不成立（BUG-30）。
+          ...withAspectRatio(params, item.aspectRatio),
           ...target,
         },
       })
