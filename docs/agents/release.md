@@ -67,7 +67,7 @@ git push origin HEAD:test
    - 只改了前端（API 树没变）时，没有后端可发，`pages-paid` 只等 `pages-internal` 成功。
    - 只改了后端时，`pages-internal` 被跳过，闸门只剩内部 `/health`。
    - 发布时间：以前两站并行，现在收费版串在内部版之后。按 2026-10 的记录（构建约 4 分钟、两套一起送上 VPS 约 1.5–2 分钟、每个站 2 分钟左右），一次前后端都发的发布从约 10 分钟变成约 12–13 分钟；只发后端约多 1 分钟（多一个 job 和一次 SSH）。收费版在这段时间里比内部版晚几分钟上线。
-   - 失败后的重跑：同一个 run 里 VPS 会收两次同一个发布 ID，第二次落在 `~/releases/<id>.run-<run_id>`。所以只能用「Re-run failed jobs」，不能用「Re-run all jobs」，后者会让内部那次撞上「Release directory already exists」。要放开这一点得改服务器上的 `aip-ci-receive`，要 Nain 批准。重跑本身也要 Nain 批准（见下）。
+   - 失败后的重跑：同一个 run 里 VPS 会收两次同一个发布 ID，第二次落在 `~/releases/<id>.run-<run_id>`。所以只能用「Re-run failed jobs」，不能用「Re-run all jobs」，后者会让内部那次撞上「Release directory already exists」。第三次收同一个 ID 也会撞上，所以失败的 job 如果已经把发布目录传上 VPS（日志里 receive 已完成），重跑它同样会失败，要先找 Nain。要放开这一点得改服务器上的 `aip-ci-receive`，要 Nain 批准。重跑本身也要 Nain 批准（见下）。
 
 Agent 合并后只跟进这个 workflow 的结果，失败就看日志处理，不手动补发。手动重跑 Deploy production 或走应急手动发布要 Nain 批准。
 

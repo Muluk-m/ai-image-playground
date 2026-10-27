@@ -166,6 +166,8 @@ jobs:
         with:
           name: vps-release
           path: ${{ runner.temp }}/${{ steps.build.outputs.release_id }}
+          # 重跑 backend 时同名 artifact 已存在；发布 ID 由两个 SHA 决定，内容相同，直接覆盖。
+          overwrite: true
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 1
