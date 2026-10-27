@@ -283,9 +283,13 @@ describe('proposeEditRegion', () => {
       [4032, 3024],
       [300, 400],
     ] as const) {
-      const tool = maskProposalTool(context({}, url(await picture(width, height))))
+      // 只看尺寸：纯色图生成快，避免逐像素造大图在 CI 上超过 5 秒。
+      const flat = await sharp({ create: { width, height, channels: 3, background: '#808080' } })
+        .png()
+        .toBuffer()
+      const tool = maskProposalTool(context({}, url(flat)))
       const proposal = maskProposalFromResult(await run(tool, args))!.maskProposal!
-      expect(proposal).toBeDefined()
+      expect([proposal.width, proposal.height]).toEqual([width, height])
     }
   })
 
