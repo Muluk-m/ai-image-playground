@@ -1,4 +1,9 @@
-import type { AgentToolArtifact } from '@image-playground/shared'
+import {
+  type AgentToolArtifact,
+  agentImageShape,
+  presetAspectRatio,
+  withAspectRatio,
+} from '@image-playground/shared'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { ImageGallery } from '../../../components/assistant-ui/elements/image-gallery'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
@@ -462,28 +467,6 @@ function RetryRecord({ message }: { message: AgentToolMessage }) {
       />
     </div>
   )
-}
-
-function gcd(left: number, right: number): number {
-  let a = Math.abs(left)
-  let b = Math.abs(right)
-  while (b) {
-    const next = a % b
-    a = b
-    b = next
-  }
-  return a || 1
-}
-
-function ratioTag(size: string | undefined, aspect: string | undefined): string | undefined {
-  if (aspect) return aspect
-  if (!size || size === 'auto') return undefined
-  const match = /^(\d+)x(\d+)$/.exec(size)
-  if (!match) return undefined
-  const width = Number(match[1])
-  const height = Number(match[2])
-  const divisor = gcd(width, height)
-  return `${width / divisor}:${height / divisor}`
 }
 
 function GeneratingTile({
@@ -964,11 +947,15 @@ function StandardAgentToolCard({
     const modelName = model
       ? compactModelName(model, modelLabel(model, message.snapshot?.target?.provider))
       : null
+    // 头部写这次实际提交的画幅：工具参数里的比例覆盖输入框，且只取该供应商认的字段（BUG-20）。
+    const shape = agentImageShape(
+      message.snapshot?.target?.provider,
+      withAspectRatio(params, presetAspectRatio(message.snapshot?.args.aspectRatio)),
+    )
     const tags = generatedImage
       ? [
-          params?.gemini_image_size ||
-            (params?.size && params.size !== 'auto' ? params.size : undefined),
-          ratioTag(params?.size, params?.gemini_aspect_ratio),
+          shape.imageSize ?? shape.size,
+          shape.aspectRatio,
           t('tool.batchCount', { count: tiles.length }),
           message.title,
         ].filter((tag): tag is string => Boolean(tag))

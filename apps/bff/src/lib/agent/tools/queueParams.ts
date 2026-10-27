@@ -5,7 +5,7 @@ import {
   type ImagePresetRatio,
   nearestAspectRatio,
   requestedImageCount,
-  sizeForAspectRatio,
+  withAspectRatio,
 } from '@image-playground/shared'
 import { Type } from 'typebox'
 
@@ -28,22 +28,9 @@ export const aspectRatioParameter = Type.Optional(
   ),
 )
 
-/**
- * 模型按用户原话指定的比例覆盖轮参数里的尺寸，档位不变。没有这一项时，模型承诺的比例
- * 根本送不到上游（2026-10-13 会话 1808d8cf：说好 16:9，实际出 1024x1024）。
- */
-export function withAspectRatio(
-  params: AgentTurnParams | undefined,
-  ratio: ImagePresetRatio | undefined,
-): AgentTurnParams | undefined {
-  if (!ratio) return params
-  // gemini 优先读输入框里的 aspectRatio，不去掉它，模型指定的比例在 gemini 上不生效。
-  const { gemini_aspect_ratio: _chosen, ...rest } = params ?? {}
-  return { ...rest, size: sizeForAspectRatio(params?.size, ratio) }
-}
-
+/** 比例覆盖与展示共用一份，放在 shared（`agent-image-shape.ts`）。 */
 /** 工具显式张数优先，否则沿用用户本轮选择的张数。 */
-export { requestedImageCount }
+export { requestedImageCount, withAspectRatio }
 
 /** 提交生成任务的工具共用：成功后要不要被唤醒回来复核。失败一律唤醒，不归它管。 */
 export const reviewParameter = Type.Optional(
