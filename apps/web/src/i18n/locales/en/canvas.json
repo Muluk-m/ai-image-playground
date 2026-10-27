@@ -760,6 +760,7 @@
     "yesterday": "Yesterday",
     "date": "{{month}}/{{day}}",
     "empty": "Nothing found",
+    "loading": "Loading assets…",
     "loadFailed": "Some items could not be loaded",
     "selected": "{{count}} selected",
     "download": "Download",

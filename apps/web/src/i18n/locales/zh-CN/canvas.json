@@ -738,6 +738,7 @@
     "yesterday": "昨天",
     "date": "{{month}}月{{day}}日",
     "empty": "没有找到内容",
+    "loading": "正在读取资产…",
     "loadFailed": "有些内容没能读取",
     "selected": "已选 {{count}} 项",
     "download": "下载",
