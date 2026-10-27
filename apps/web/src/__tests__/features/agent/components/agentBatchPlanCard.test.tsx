@@ -631,3 +631,22 @@ it('同名输入图按各自媒体身份显示不同缩略图，便于核对完�
   expect(fetched).toContain(`http://bff.test/api/media/${secondId}/access`)
   expect(fetched.some((url) => url.endsWith('/original'))).toBe(false)
 })
+
+it('纯文字生图的计划项没有输入图时标明文生图，仍显示报价与确认入口（BUG-25）', async () => {
+  saved = {
+    ...saved,
+    batch: { ...saved.batch, itemCount: 2, executionEnabled: true },
+    items: saved.items.slice(0, 2).map((item) => ({ ...item, inputs: [] })),
+  }
+  await render()
+  const summaries = [...host.querySelectorAll('summary')]
+  expect(summaries).toHaveLength(2)
+  for (const summary of summaries) {
+    expect(summary.textContent).toContain('纯文字生图')
+    expect(summary.querySelector('img')).toBeNull()
+  }
+  expect(host.textContent).toContain('700')
+  expect([...host.querySelectorAll('button')].some((one) => one.textContent === '确认生成')).toBe(
+    true,
+  )
+})
