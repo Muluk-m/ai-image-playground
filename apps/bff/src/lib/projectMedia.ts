@@ -121,6 +121,13 @@ export async function reserveMedia(userId: string, input: UploadDescriptor) {
  */
 const ORIENTED_SIZE_SINCE = Date.UTC(2026, 9, 27, 17)
 const orientationChecked = new Map<string, { width: number; height: number }>()
+async function currentReady(id: string): Promise<Media | undefined> {
+  const [current] = await db
+    .select()
+    .from(media)
+    .where(and(eq(media.id, id), eq(media.status, 'ready')))
+  return current
+}
 export async function withOrientedSize(row: Media): Promise<Media> {
   if (
     row.status !== 'ready' ||
@@ -132,11 +139,11 @@ export async function withOrientedSize(row: Media): Promise<Media> {
     !row.content_type.startsWith('image/')
   )
     return row
-  // 并发的另一次请求可能已经核完：这份快照是它改之前读的，交回缓存里的结论而不是旧宽高。
+  // 核过的：宽高和结论一致就直接用；不一致说明这份快照是纠正之前读的（或库里又变了），以库里现在的为准。
   const known = orientationChecked.get(row.id)
-  if (known)
-    return known.width === row.width && known.height === row.height ? row : { ...row, ...known }
+  if (known && known.width === row.width && known.height === row.height) return row
   try {
+    if (known) return (await currentReady(row.id)) ?? row
     const preview = await durableMediaStore().readUpTo(
       row.preview_key,
       (row.preview_bytes || PREVIEW_BUDGET) + 1,
@@ -175,7 +182,8 @@ export async function withOrientedSize(row: Media): Promise<Media> {
       )
     if (fixed) return checked(fixed)
     // 并发的另一次请求已经改过（或这行刚变了）：交回库里现在的那份，不交回旧宽高。
-    const [current] = await db.select().from(media).where(eq(media.id, row.id))
+    // 不再是 ready（正在删、被回收）就不记结论，照旧交回预留时的那份，与核对之前的契约一致。
+    const current = await currentReady(row.id)
     return current ? checked(current) : row
   } catch (error) {
     // 核不了就照旧返回：宽高只影响展示比例，不该因此让这次上传失败。
