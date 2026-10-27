@@ -130,14 +130,17 @@ jobs:
           fetch-depth: 0
           ref: ${{ steps.ctx.outputs.head_sha }}
 
-      # 统计脚本取自可信提交：PR 事件用目标分支的 base，不执行 PR 自己改过的脚本；
+      # 统计脚本和评审约定 REVIEW.md 取自可信提交：PR 事件用目标分支的 base，不用 PR 自己改过的版本；
       # 评论触发是 main，手动测评是有写权限的人选的分支。
       - name: Checkout CI tools
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           path: .ci-tools
-          sparse-checkout: scripts/ci
+          sparse-checkout: |
+            scripts/ci/
+            /REVIEW.md
+          sparse-checkout-cone-mode: false
           persist-credentials: false
 
       - name: Setup Node.js
@@ -248,6 +251,12 @@ jobs:
           echo "stderr_path=${STDERR_PATH}" >> "$GITHUB_OUTPUT"
 
           BG="$REVIEW_GUIDANCE"
+          # 可信提交里有 REVIEW.md 就附上，按其中的严重/一般与 P0/P1/P2 对照来定级；没有就跳过。
+          if [ -f .ci-tools/REVIEW.md ]; then
+            BG="${BG}"$'\n\n'"本仓库的评审约定（REVIEW.md，取自目标分支）：严重=P0/P1，一般=P2，[既有问题] 不计数。"$'\n'"$(cat .ci-tools/REVIEW.md)"
+          else
+            echo "可信提交里没有 REVIEW.md，只用内置评审要求"
+          fi
           if [ -n "$BACKGROUND" ]; then BG="${BG}"$'\n\n'"业务背景：${BACKGROUND}"; fi
 
           # ocr 的单组上限 = --timeout × 评审轮数（low 1 / medium 2 / high 3），按轮数折算保证总上限不变。
