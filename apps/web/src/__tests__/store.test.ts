@@ -2029,6 +2029,7 @@ describe('快速生成的逐张生成', () => {
       params: { ...DEFAULT_PARAMS, n: 4 },
       batchGenerate,
       sharedImageIds: [],
+      composerPerTaskMentions: null,
       tasks: [],
       detailTaskId: null,
       showSettings: false,
@@ -2051,7 +2052,7 @@ describe('快速生成的逐张生成', () => {
 
   afterEach(() => {
     setChannels([])
-    useStore.setState({ batchGenerate: false })
+    useStore.setState({ batchGenerate: false, sharedImageIds: [], composerPerTaskMentions: null })
   })
 
   it('每张参考图各发一条 n=1 的任务，只带自己那张图，同属一组', async () => {
@@ -2105,6 +2106,34 @@ describe('快速生成的逐张生成', () => {
       'ref-1',
       'ref-2',
     ])
+  })
+
+  it('输入框这一刻不按每个任务数序号（画布档等）时，挪掉共享图按条上的位置重排提示词', async () => {
+    await setupBatchState(3, true)
+    useStore.getState().toggleSharedImage('ref-3')
+    useStore.getState().setComposerPerTaskMentions(false)
+    useStore.setState({ prompt: `参考 ${getSelectedImageMentionLabel(1)}` })
+
+    useStore.getState().removeInputImage(2)
+
+    expect(useStore.getState().inputImages.map((one) => one.id)).toEqual(['ref-1', 'ref-2'])
+    expect(useStore.getState().prompt).toBe(`参考 ${getSelectedImageMentionLabel(1)}`)
+  })
+
+  it('共享图换成遮罩对齐过的副本：仍是共享参考，指向它的引用跟着走', async () => {
+    await setupBatchState(3, true)
+    useStore.getState().toggleSharedImage('ref-3')
+    useStore.getState().setBatchGenerate(false)
+    useStore.setState({ prompt: `参考 ${getSelectedImageMentionLabel(2)}` })
+
+    const aligned = { id: 'ref-3-aligned', dataUrl: 'data:image/png;base64,aligned' }
+    useStore.getState().replaceInputImages(
+      useStore.getState().inputImages.map((one) => (one.id === 'ref-3' ? aligned : one)),
+      { equivalentImageIds: { 'ref-3': aligned.id } },
+    )
+
+    expect(useStore.getState().sharedImageIds).toEqual([aligned.id])
+    expect(useStore.getState().prompt).toBe(`参考 ${getSelectedImageMentionLabel(2)}`)
   })
 
   it('2 张目标 × 1 张共享：发 2 条任务，每条带自己的目标图 + 共享图，序号按每条的张数换', async () => {
