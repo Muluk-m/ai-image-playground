@@ -338,19 +338,19 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const uploadDetail = failedUpload
     ? attachmentUploadErrorMessage(attachmentUploadError(failedUpload), getAttachmentLimits())
     : null
-  // 文件本身坏了的那几张（不能重传）：输入框下只说哪张、移除后就能发；具体原因留在参考素材层里。
+  // 文件本身坏了的那几张（不能重传）：缩略图上标红、× 常显；原因仍是原来那一行。
   const unusableIndexes = uploadReferences.flatMap((reference, index) =>
     attachmentUploadState(reference) === 'failed' &&
     !canRetryAttachmentUpload(attachmentUploadError(reference))
       ? [index]
       : [],
   )
-  const uploadNotice =
-    unusableIndexes.length > 1
-      ? t('composer:studio.referencesUnusable', { count: unusableIndexes.length })
-      : unusableIndexes.length === 1
-        ? t('composer:studio.referenceUnusable', { index: unusableIndexes[0] + 1 })
-        : uploadDetail
+  // 还在传的那几张：像即梦一样只在缩略图上转圈，不另起一行文字。
+  const pendingIndexes = uploadReferences.flatMap((reference, index) => {
+    const state = attachmentUploadState(reference)
+    return state === 'queued' || state === 'uploading' || state === 'verifying' ? [index] : []
+  })
+  const uploadNotice = uploadDetail
   const removeUnusableLabel =
     unusableIndexes.length > 1
       ? t('composer:studio.removeUnusableReferences')
@@ -1112,6 +1112,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     const isMaskTarget = maskDraft?.targetImageId === img.id
     // 坏图的 × 常显：不用先悬停才找得到删除入口。
     const isUnusable = unusableIndexes.includes(idx)
+    const isUploading = pendingIndexes.includes(idx)
     const canEdit = !maskTargetImage || isMaskTarget
     const imageHintText = isMaskTarget ? t('image.maskFirstHint') : ''
     const displaySrc = isMaskTarget && maskPreviewUrl ? maskPreviewUrl : img.dataUrl
@@ -1320,6 +1321,18 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-background/55 text-destructive"
               >
                 <Icon name="error" size="lg" />
+              </span>
+            )}
+            {isUploading && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-background/55 text-foreground"
+              >
+                <Icon
+                  name="loading"
+                  size="lg"
+                  className="animate-spin motion-reduce:animate-none"
+                />
               </span>
             )}
             {isMaskTarget && (
@@ -1643,11 +1656,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               referenceNotice ? (
                 <span role="alert" className="text-xs leading-snug text-destructive">
                   {referenceNotice}
-                </span>
-              ) : uploadProgress ? (
-                // 读屏播报交给参考素材条里那条 status，这里只给眼睛看，免得念两遍。
-                <span aria-hidden="true" className="text-xs leading-snug text-muted-foreground">
-                  {uploadProgress}
                 </span>
               ) : (
                 <SubmissionBillingAction
