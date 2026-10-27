@@ -215,7 +215,7 @@ export default function RotateTool() {
         </div>
       }
     >
-      <section className="flex min-h-0 flex-1 flex-col gap-4 p-5">
+      <section className="flex flex-none flex-col gap-4 p-5 lg:min-h-0 lg:flex-1">
         <div className="flex items-center justify-between gap-3">
           <span className="min-w-0 truncate text-sm font-medium">{selected?.name}</span>
           <Button
