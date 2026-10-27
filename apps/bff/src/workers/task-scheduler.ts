@@ -12,7 +12,6 @@ import {
 import { selectRunnableTasks } from './runnable-tasks'
 import { abortRunningTask, failCrashedExecution, runningTaskIds } from './task-execution'
 import { runTask } from './task-runner'
-import { cancelUpstreamOfCancelledTask } from './upstream-cancel'
 
 type ExecuteTask = (id: string) => Promise<void>
 
@@ -256,14 +255,6 @@ export class TaskScheduler {
       }
       if (abortRunningTask(id)) {
         log.info({ event: 'task.cancel_observed', taskId: id }, 'worker observed cancellation')
-        // 只有用户取消才去叫停上游；reconciling 等其余状态的中断，上游任务还要接着核查。
-        if (statuses.get(id) === 'cancelled')
-          void cancelUpstreamOfCancelledTask(id).catch((err) =>
-            log.warn(
-              { event: 'task.upstream_cancel', taskId: id, outcome: 'error', err: String(err) },
-              'upstream cancel crashed',
-            ),
-          )
       }
     }
   }
