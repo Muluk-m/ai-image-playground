@@ -1,10 +1,13 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import Overlay from '../../../components/patterns/Overlay'
 import SearchField from '../../../components/patterns/SearchField'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
+import { useCanvasAssetsEntry } from '../lib/assetsEntry'
 import { type AssetDay, type CanvasAssetItem, groupAssetsByDay } from '../lib/canvasAssets'
-import { type CanvasAssetScope, useCanvasAssets } from '../lib/useCanvasAssets'
+import { useCanvasAssets } from '../lib/useCanvasAssets'
+import MediaTransferCard from './MediaTransferCard'
 
 type Media = CanvasAssetItem['media']
 
@@ -51,30 +54,34 @@ function AssetThumb({ item, className }: { item: CanvasAssetItem; className: str
   )
 }
 
+/**
+ * 画布「资产」整屏弹窗：四边留 24px，带遮罩。顶上一行是标题、图片/视频页签、搜索、选择与关闭，
+ * 下一行是所有项目/当前项目。点一件或「应用到画布」就在画面中间放上节点并关掉弹窗；
+ * 「下载」打包 ZIP，弹窗不关。关掉时清空勾选、退出选择，页签和项目范围留到下次。
+ */
 export default function NodeAssetsPanel({
   conversationId,
   canvasItems,
-  style,
   onClose,
   onPlace,
   onDownload,
 }: {
-  /** 当前项目绑定的对话；还没聊过时为 null，当前项目就是空的。 */
+  /** 当前项目绑定的对话；还没聊过时为 null，当前项目就只有画布节点的结果。 */
   conversationId: string | null
   /** 本画布节点跑出的结果，算在当前项目里。 */
   canvasItems?: readonly CanvasAssetItem[]
-  style?: CSSProperties
   onClose: () => void
-  /** 放上画布并选中；返回是否成功，失败时保留勾选。 */
+  /** 放上画布并选中；返回是否成功，失败时弹窗不关、保留勾选。 */
   onPlace: (items: readonly CanvasAssetItem[]) => Promise<boolean>
   onDownload: (items: readonly CanvasAssetItem[]) => void
 }) {
   const { t } = useTranslation('canvas')
+  const titleId = useId()
+  const media = useCanvasAssetsEntry((s) => s.media)
+  const setMedia = useCanvasAssetsEntry((s) => s.setMedia)
+  const scope = useCanvasAssetsEntry((s) => s.scope)
+  const setScope = useCanvasAssetsEntry((s) => s.setScope)
   const [query, setQuery] = useState('')
-  const [list, setList] = useState(false)
-  const [wide, setWide] = useState(false)
-  const [media, setMedia] = useState<Media>('image')
-  const [scope, setScope] = useState<CanvasAssetScope>('project')
   const [selecting, setSelecting] = useState(false)
   const [picked, setPicked] = useState<readonly string[]>([])
   const assets = useCanvasAssets(conversationId, scope, canvasItems)
@@ -104,6 +111,12 @@ export default function NodeAssetsPanel({
         ? t('assetsPanel.yesterday')
         : t('assetsPanel.date', { month: day.month, day: day.day })
 
+  // 打开就把焦点放进搜索框；子组件的 effect 先于 Overlay 的焦点陷阱，陷阱看到焦点已在里面就不再改。
+  const searchRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    searchRef.current?.focus({ preventScroll: true })
+  }, [])
+
   const gridRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const { hasMore, loading, failed, loadMore } = assets
@@ -120,33 +133,42 @@ export default function NodeAssetsPanel({
     return () => observer.disconnect()
   }, [hasMore, loading, failed, loadMore])
 
+  const place = async (items: readonly CanvasAssetItem[]) => {
+    if (!items.length) return
+    if (await onPlace(items)) onClose()
+  }
   const toggleSelecting = () => {
     setSelecting((on) => !on)
     setPicked([])
   }
   const choose = (item: CanvasAssetItem) => {
     if (!selecting) {
-      void onPlace([item])
+      void place([item])
       return
     }
     setPicked((current) =>
       current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id],
     )
   }
-  const apply = async () => {
-    if (!pickedItems.length) return
-    if (!(await onPlace(pickedItems))) return
+  const switchMedia = (next: Media) => {
+    if (next === media) return
+    setMedia(next)
     setPicked([])
-    setSelecting(false)
   }
-  const tab = (value: string, label: string, selected: boolean, onSelect: () => void) => (
+  const tab = (
+    value: string,
+    label: string,
+    selected: boolean,
+    onSelect: () => void,
+    className: string,
+  ) => (
     <Button
       key={value}
       type="button"
       variant="ghost"
       role="tab"
       aria-selected={selected}
-      className="studio-assets-tab"
+      className={className}
       onClick={onSelect}
     >
       {label}
@@ -154,156 +176,154 @@ export default function NodeAssetsPanel({
   )
 
   return (
-    <aside
-      className="studio-assets-panel"
-      data-wide={wide || undefined}
-      style={style}
-      aria-label={t('assetsPanel.title')}
-    >
-      <div className="studio-assets-head">
-        <SearchField
-          className="studio-assets-search"
-          value={query}
-          placeholder={t('assetsPanel.search')}
-          aria-label={t('assetsPanel.search')}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="studio-assets-iconbtn"
-          aria-label={list ? t('assetsPanel.gridView') : t('assetsPanel.listView')}
-          aria-pressed={list}
-          onClick={() => setList((on) => !on)}
-        >
-          <Icon name={list ? 'grid' : 'list'} />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="studio-assets-iconbtn"
-          aria-label={t('assetsPanel.close')}
-          onClick={onClose}
-        >
-          <Icon name="close" />
-        </Button>
-      </div>
-      <div className="studio-assets-tabs">
-        <div role="tablist" className="studio-assets-tablist">
-          {tab('image', t('assetsPanel.images', { count: counts.image }), media === 'image', () =>
-            setMedia('image'),
-          )}
-          {tab('video', t('assetsPanel.videos', { count: counts.video }), media === 'video', () =>
-            setMedia('video'),
-          )}
-        </div>
-        <span className="flex-1" />
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          className="studio-assets-textbtn"
-          aria-pressed={selecting}
-          onClick={toggleSelecting}
-        >
-          {selecting ? t('assetsPanel.cancel') : t('assetsPanel.select')}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="studio-assets-iconbtn"
-          aria-label={wide ? t('assetsPanel.collapse') : t('assetsPanel.expand')}
-          aria-pressed={wide}
-          onClick={() => setWide((on) => !on)}
-        >
-          <Icon name={wide ? 'minimize' : 'fullscreen'} size="sm" />
-        </Button>
-      </div>
-      {wide && (
-        <div role="tablist" className="studio-assets-tabs studio-assets-scope">
-          {tab('all', t('assetsPanel.scopeAll'), scope === 'all', () => setScope('all'))}
-          {tab('project', t('assetsPanel.scopeProject'), scope === 'project', () =>
-            setScope('project'),
-          )}
-        </div>
-      )}
+    <Overlay onClose={onClose} tier="assets" layout="fill" role="none">
       <div
-        ref={gridRef}
-        className="studio-assets-grid"
-        data-list={list || undefined}
-        data-selecting={selecting || undefined}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="studio-canvas-assets-modal"
       >
-        {groups.map((group) => (
-          <div key={group.key} className="contents">
-            <p className="studio-assets-day">{dayLabel(group.day)}</p>
-            {group.items.map((item) => {
-              const on = picked.includes(item.id)
-              const common = {
-                type: 'button' as const,
-                variant: 'ghost' as const,
-                title: item.title,
-                'aria-label': item.title,
-                'data-selected': on || undefined,
-                ...(selecting ? { role: 'checkbox', 'aria-checked': on } : {}),
-                onClick: () => choose(item),
-              }
-              return list ? (
-                <Button key={item.id} {...common} className="studio-assets-row">
-                  <AssetThumb item={item} className="studio-assets-row-thumb" />
-                  <span className="studio-assets-format">{item.format}</span>
-                </Button>
-              ) : (
-                <Button key={item.id} {...common} className="studio-assets-card">
-                  <AssetThumb item={item} className="studio-assets-card-thumb" />
-                  <span className="studio-assets-pill">
-                    {item.media === 'video' ? t('assetsPanel.tagVideo') : t('assetsPanel.tagImage')}
-                  </span>
-                  {selecting && (
-                    <span className="studio-assets-check" aria-hidden>
-                      {on && <Icon name="check" size="xs" />}
-                    </span>
-                  )}
-                </Button>
-              )
-            })}
+        <div className="studio-canvas-assets-head">
+          <h2 id={titleId} className="studio-canvas-assets-title">
+            {t('assetsPanel.title')}
+          </h2>
+          <div role="tablist" className="studio-canvas-assets-tablist">
+            {tab(
+              'image',
+              t('assetsPanel.images', { count: counts.image }),
+              media === 'image',
+              () => switchMedia('image'),
+              'studio-canvas-assets-tab',
+            )}
+            {tab(
+              'video',
+              t('assetsPanel.videos', { count: counts.video }),
+              media === 'video',
+              () => switchMedia('video'),
+              'studio-canvas-assets-tab',
+            )}
           </div>
-        ))}
-        {!shown.length && !loading && (
-          <p className="studio-assets-day">
-            {failed ? t('assetsPanel.loadFailed') : t('assetsPanel.empty')}
-          </p>
-        )}
-        {hasMore && <div ref={endRef} className="studio-assets-end" aria-hidden />}
-      </div>
-      {selecting && (
-        <div className="studio-assets-bar">
-          <span className="studio-assets-count">
-            {t('assetsPanel.selected', { count: pickedItems.length })}
-          </span>
+          <span className="flex-1" />
+          <SearchField
+            ref={searchRef}
+            className="studio-canvas-assets-search"
+            value={query}
+            placeholder={t('assetsPanel.search')}
+            aria-label={t('assetsPanel.search')}
+            onChange={(event) => setQuery(event.target.value)}
+          />
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="studio-assets-barbtn"
-            disabled={!pickedItems.length}
-            onClick={() => onDownload(pickedItems)}
+            className="studio-canvas-assets-select"
+            aria-pressed={selecting}
+            onClick={toggleSelecting}
           >
-            {t('assetsPanel.download')}
+            {selecting ? t('assetsPanel.cancel') : t('assetsPanel.select')}
           </Button>
           <Button
             type="button"
-            size="sm"
-            className="studio-assets-barbtn studio-assets-apply"
-            disabled={!pickedItems.length}
-            onClick={() => void apply()}
+            variant="ghost"
+            size="icon-sm"
+            className="studio-canvas-assets-iconbtn"
+            aria-label={t('assetsPanel.close')}
+            onClick={onClose}
           >
-            {t('assetsPanel.apply')}
+            <Icon name="close" />
           </Button>
         </div>
-      )}
-    </aside>
+        <div role="tablist" className="studio-canvas-assets-scope">
+          {tab(
+            'all',
+            t('assetsPanel.scopeAll'),
+            scope === 'all',
+            () => setScope('all'),
+            'studio-canvas-assets-chip',
+          )}
+          {tab(
+            'project',
+            t('assetsPanel.scopeProject'),
+            scope === 'project',
+            () => setScope('project'),
+            'studio-canvas-assets-chip',
+          )}
+        </div>
+        <div
+          ref={gridRef}
+          className="studio-canvas-assets-grid"
+          data-selecting={selecting || undefined}
+        >
+          {groups.map((group) => (
+            <div key={group.key} className="contents">
+              <p className="studio-canvas-assets-day">{dayLabel(group.day)}</p>
+              {group.items.map((item) => {
+                const on = picked.includes(item.id)
+                return (
+                  <Button
+                    key={item.id}
+                    type="button"
+                    variant="ghost"
+                    title={item.title}
+                    aria-label={item.title}
+                    data-selected={on || undefined}
+                    {...(selecting ? { role: 'checkbox', 'aria-checked': on } : {})}
+                    className="studio-canvas-assets-card"
+                    onClick={() => choose(item)}
+                  >
+                    <AssetThumb item={item} className="studio-canvas-assets-card-thumb" />
+                    <span className="studio-canvas-assets-pill">
+                      {item.media === 'video'
+                        ? t('assetsPanel.tagVideo')
+                        : t('assetsPanel.tagImage')}
+                    </span>
+                    {selecting && (
+                      <span className="studio-canvas-assets-check" aria-hidden>
+                        {on && <Icon name="check" size="xs" />}
+                      </span>
+                    )}
+                  </Button>
+                )
+              })}
+            </div>
+          ))}
+          {!shown.length && !loading && (
+            <p className="studio-canvas-assets-day">
+              {failed ? t('assetsPanel.loadFailed') : t('assetsPanel.empty')}
+            </p>
+          )}
+          {hasMore && <div ref={endRef} className="studio-canvas-assets-end" aria-hidden />}
+        </div>
+        {selecting && (
+          <div className="studio-canvas-assets-bar">
+            <span className="studio-canvas-assets-count">
+              {t('assetsPanel.selected', { count: pickedItems.length })}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="studio-canvas-assets-barbtn"
+              disabled={!pickedItems.length}
+              onClick={() => onDownload(pickedItems)}
+            >
+              <Icon name="download" />
+              {t('assetsPanel.download')}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="studio-canvas-assets-barbtn studio-canvas-assets-apply"
+              disabled={!pickedItems.length}
+              onClick={() => void place(pickedItems)}
+            >
+              {t('assetsPanel.apply')}
+            </Button>
+          </div>
+        )}
+      </div>
+      {/* 下载时弹窗不关：传输卡跟进弹窗这一层，抬到底部操作条上方。 */}
+      <MediaTransferCard lifted />
+    </Overlay>
   )
 }

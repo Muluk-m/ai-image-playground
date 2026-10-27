@@ -44,8 +44,6 @@ export default function NodeCanvasToolbar({
   onMenu,
   onUpload,
   onAssets,
-  assetsPanelOpen,
-  onAssetsPanel,
   mode,
   onMode,
   zoom,
@@ -70,9 +68,6 @@ export default function NodeCanvasToolbar({
   onMenu: () => void
   onUpload: () => void
   onAssets: () => void
-  /** 画布「资产」浮层：本项目与所有项目生成过的图和视频。 */
-  assetsPanelOpen: boolean
-  onAssetsPanel: () => void
   mode: 'select' | 'pan'
   onMode: (mode: 'select' | 'pan') => void
   zoom: number
@@ -110,12 +105,6 @@ export default function NodeCanvasToolbar({
         <NodeTool icon="list" label={t('timeline.title')} onClick={() => onCreate('timeline')} />
         <span className="studio-node-tool-divider" />
         <NodeTool icon="folder" label={t('nodes.materials')} onClick={onAssets} />
-        <NodeTool
-          icon="history"
-          label={t('assetsPanel.title')}
-          pressed={assetsPanelOpen}
-          onClick={onAssetsPanel}
-        />
         <NodeTool icon="upload" label={t('nodes.addUpload')} onClick={onUpload} />
       </div>
       <div className="studio-node-navigation" role="toolbar" aria-label={t('nodes.canvasTools')}>
