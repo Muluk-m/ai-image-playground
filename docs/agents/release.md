@@ -62,8 +62,12 @@ git push origin HEAD:test
 
 1. `main` 上的 `Web checks` 通过后，`.github/workflows/deploy.yml`（Deploy production）经 `workflow_run` 自动开始，同一时间只跑一单（并发组 `production-deploy`）。
 2. `target` 判定哪些部分要发（API、内部站、收费站、Admin），已在跑后代提交的部分不回退；`release` 打 `vMAJOR.MINOR.PATCH` 标签。
-3. `backend` 在 Actions 构建镜像，经 GHCR 和 SSH 受限命令送到 VPS，`rollout-runtime.sh` 先跑兼容迁移（`bun run /app/apps/bff/src/db/migrate.ts`），再做新旧两代排空切换。
-4. `pages` 等对应 API 的 `/health` 报出新版本后发布内部站与收费站并跑 Chromium 验收，最后由 `admin-pages` 发后台前端。
+3. **先发内部版。** `backend` 在 Actions 构建两套镜像（经 GHCR），但只把内部版经 SSH 受限命令送到 VPS（`deploy <id> internal <run>`），`rollout-runtime.sh` 先跑兼容迁移（`bun run /app/apps/bff/src/db/migrate.ts`），再做新旧两代排空切换。随后 `pages-internal` 等内部 API 的 `/health` 报出新版本，发内部站并跑 Chromium 验收。
+4. **内部版验收通过才发收费版。** 闸门有两项：内部 API 的 `/health` 报的是这次的提交；这次要发前端时，`pages-internal`（含 Chromium 验收）成功。都过了，`backend-paid` 才把同一份发布目录（同一批镜像 digest，不重新构建）以 `deploy <id> paid <run>` 送上 VPS，接着 `pages-paid` 发收费站并验收，最后 `admin-pages` 发后台前端。任何一项不过，收费版的后端和前端都不动，停在上一版；内部版已经发出去的不会自动撤回，按「五、回滚」处理。
+   - 只改了前端（API 树没变）时，没有后端可发，`pages-paid` 只等 `pages-internal` 成功。
+   - 只改了后端时，`pages-internal` 被跳过，闸门只剩内部 `/health`。
+   - 发布时间：以前两站并行，现在收费版串在内部版之后。按 2026-10 的记录（构建约 4 分钟、两套一起送上 VPS 约 1.5–2 分钟、每个站 2 分钟左右），一次前后端都发的发布从约 10 分钟变成约 12–13 分钟；只发后端约多 1 分钟（多一个 job 和一次 SSH）。收费版在这段时间里比内部版晚几分钟上线。
+   - 失败后的重跑：同一个 run 里 VPS 会收两次同一个发布 ID，第二次落在 `~/releases/<id>.run-<run_id>`。所以只能用「Re-run failed jobs」，不能用「Re-run all jobs」，后者会让内部那次撞上「Release directory already exists」。要放开这一点得改服务器上的 `aip-ci-receive`，要 Nain 批准。重跑本身也要 Nain 批准（见下）。
 
 Agent 合并后只跟进这个 workflow 的结果，失败就看日志处理，不手动补发。手动重跑 Deploy production 或走应急手动发布要 Nain 批准。
 
