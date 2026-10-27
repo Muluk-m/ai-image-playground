@@ -342,7 +342,7 @@ it('另一设备删除后旧请求不复活项目，回收恢复保留内容并�
   expect((await (await request('/trash', deviceA)).json()).projects).toHaveLength(0)
 })
 
-it('回收项目仍占数量配额；过期项目不可恢复，旧目录游标仍返回墓碑', async () => {
+it('回收项目不占数量配额、恢复时重新检查；过期项目不可恢复，旧目录游标仍返回墓碑', async () => {
   const ids = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()].sort()
   const write = { requestId: crypto.randomUUID(), baseRevision: 0, name: '容量', document }
   for (const id of ids)
@@ -359,7 +359,17 @@ it('回收项目仍占数量配额；过期项目不可恢复，旧目录游标�
       )
     ).status,
   ).toBe(200)
+  // BUG-52：删掉的项目不再占位置，删一个就能再建一个；满额时恢复要拒绝，不然会超出上限。
+  expect((await request(`/${crypto.randomUUID()}`, deviceA, write)).status).toBe(200)
   expect((await request(`/${crypto.randomUUID()}`, deviceA, write)).status).toBe(413)
+  const full = await app.handle(
+    new Request(`http://localhost/api/projects/${id}/restore`, {
+      method: 'POST',
+      headers: { cookie: deviceB },
+    }),
+  )
+  expect(full.status).toBe(413)
+  expect((await full.json()).error).toBe('project_quota_exceeded')
   await db
     .update(schema.canvas_projects)
     .set({ restore_until: Date.now() - 1000 })

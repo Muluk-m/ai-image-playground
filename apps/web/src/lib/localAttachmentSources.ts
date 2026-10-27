@@ -94,6 +94,11 @@ export async function withAttachmentDocumentLock<T>(
   return await (locks()?.request(`attachment-documents:${dbName}`, work) ?? work())
 }
 let sourceWriter = Promise.resolve()
+/** 选图时这张原图有多大：那叠参考图的总进度按它加权（BUG-53）。只是估值，处理后实际发出的字节会变小。 */
+const sourceSizes = new Map<string, number>()
+export function localAttachmentBytes(source: string): number | undefined {
+  return sourceSizes.get(source)
+}
 
 /** Register existing canvas/library pixels without copying them into a draft or decoding the queue. */
 export function registerLocalAttachmentSource(
@@ -104,6 +109,13 @@ export function registerLocalAttachmentSource(
   if (typeof source === 'string' && !source.startsWith('data:image/')) return source
   const id = crypto.randomUUID()
   const handle = `aip-local:${id}`
+  sourceSizes.set(
+    handle,
+    typeof source === 'string'
+      ? Math.floor(((source.length - source.indexOf(',') - 1) * 3) / 4)
+      : source.size,
+  )
+  if (sourceSizes.size > 500) sourceSizes.delete(sourceSizes.keys().next().value!)
   const current = accountScope()
   const controller = new AbortController()
   const dbName = scopedStorageName(BASE_DB_NAME)

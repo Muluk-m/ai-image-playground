@@ -20,7 +20,6 @@ import {
   formatImageLimit,
 } from '../features/agent/lib/attachmentUploadErrors'
 import {
-  attachmentStackProgress,
   attachmentUploadError,
   attachmentUploadProgress,
   attachmentUploadRevision,
@@ -35,6 +34,7 @@ import { agentComposerFillPrompt, useComposerFillTarget } from '../features/agen
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
 import type { AgentDraft } from '../features/agent/lib/references'
 import { useAgentSkills } from '../features/agent/lib/useAgentSkills'
+import { useAttachmentStackProgress } from '../features/agent/lib/useAttachmentStackProgress'
 import CanvasVideoParams from '../features/canvas/components/CanvasVideoParams'
 import { useActiveLook } from '../features/library/lib/activeLook'
 import {
@@ -325,19 +325,15 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     canRetryAttachmentUpload(attachmentUploadError(uploadReferences[index]!)),
   )
   // 每张失败图的原因都要看得到：超限那句之外，坏图、超时各说一句，标明是第几张（BUG-44）。
-  const uploadDetail = failedIndexes.length
-    ? failedIndexes
-        .map((index) =>
-          t('composer:studio.referenceIssue', {
-            index: index + 1,
-            reason: attachmentUploadErrorMessage(
-              attachmentUploadError(uploadReferences[index]!),
-              getAttachmentLimits(),
-            ),
-          }),
-        )
-        .join('\n')
-    : null
+  const uploadDetailLines = failedIndexes.map((index) =>
+    t('composer:studio.referenceIssue', {
+      index: index + 1,
+      reason: attachmentUploadErrorMessage(
+        attachmentUploadError(uploadReferences[index]!),
+        getAttachmentLimits(),
+      ),
+    }),
+  )
   const retryUpload = (index: number) => {
     const reference = uploadReferences[index]
     if (reference) void retryAttachmentUploads(reference).catch(() => {})
@@ -348,7 +344,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     return state === 'queued' || state === 'uploading' || state === 'verifying' ? [index] : []
   })
   // 收起的那叠和每张缩略图上都显示百分比，与对话页输入框一致；超限的那几张不传，不算进去（BUG-42）。
-  const stackProgress = attachmentStackProgress(
+  const stackProgress = useAttachmentStackProgress(
     uploadReferences.filter((_, index) => !oversizedIndexes.includes(index)),
   )
   // 用不了的图（超限的、传失败的）一视同仁：× 常显，「移除」一并删掉（BUG-49）。
@@ -366,7 +362,15 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     for (const index of [...unusableIndexes].reverse()) useStore.getState().removeInputImage(index)
   }
   // 参考图条顶部和输入框下方用同一句：每张用不了的图都列出来，不另起一行（BUG-44）。
-  const referenceNotice = [oversizedNotice, uploadDetail].filter(Boolean).join('\n') || null
+  // 原因按图片顺序排：超限的那句放在它最靠前那张的位置，不总排第一（第 15 轮）。
+  const referenceNotice =
+    [
+      ...(oversizedNotice ? [{ index: oversizedIndexes[0]!, text: oversizedNotice }] : []),
+      ...failedIndexes.map((index, at) => ({ index, text: uploadDetailLines[at]! })),
+    ]
+      .sort((a, b) => a.index - b.index)
+      .map((line) => line.text)
+      .join('\n') || null
   const uploadProgress =
     uploadsPending > 0
       ? t('composer:studio.uploadProgress', {

@@ -16,7 +16,7 @@ import {
   readCanvasSyncMessage,
   recordCanvasResult,
 } from '@image-playground/shared'
-import { count, eq } from 'drizzle-orm'
+import { and, count, eq, isNull } from 'drizzle-orm'
 import * as Y from 'yjs'
 
 process.env.DATABASE_URL = await resetTestDatabase('canvas_project_copy')
@@ -346,7 +346,9 @@ it('rejects a copy once the owner has reached the project quota', async () => {
   const [row] = await db
     .select({ count: count() })
     .from(schema.canvas_projects)
-    .where(eq(schema.canvas_projects.user_id, 'owner'))
+    .where(
+      and(eq(schema.canvas_projects.user_id, 'owner'), isNull(schema.canvas_projects.deleted_at)),
+    )
   const quotas = config.operator.quotas as { 'sync:user-projects': number }
   const previous = quotas['sync:user-projects']
   quotas['sync:user-projects'] = Number(row!.count)
