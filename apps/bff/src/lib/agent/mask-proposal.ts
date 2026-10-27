@@ -67,9 +67,12 @@ const boxSchema = (description: string) =>
 const pointSchema = Type.Object({
   x: unit('点的 x，0–1'),
   y: unit('点的 y，0–1'),
-  include: Type.Boolean({
-    description: 'true 表示落在要改的对象上，false 表示明确不改的地方',
-  }),
+  // 漏写按落在目标上算：少一个布尔值不值得让整张卡片发不出去。
+  include: Type.Optional(
+    Type.Boolean({
+      description: 'true（默认）表示落在要改的对象上，false 表示明确不改的地方',
+    }),
+  ),
 })
 
 const parameters = Type.Object({
@@ -94,8 +97,11 @@ const parameters = Type.Object({
       description: '用户明确或显然不想动的东西，至多 4 项（多写的会被截掉），例如「桌面」「书」。',
     }),
   ),
-  box: boxSchema(
-    '把要改的全部部分框进去的外接框（略宽于对象），坐标按原图归一化，原点在左上。有 instances 时框住选中的那几个。',
+  // 列了 instances 时模型常常只给各自的框；缺了就用选中那几个的并集，不因此退回。
+  box: Type.Optional(
+    boxSchema(
+      '把要改的全部部分框进去的外接框（略宽于对象），坐标按原图归一化，原点在左上。有 instances 时可省略，按选中的那几个算。',
+    ),
   ),
   points: Type.Optional(
     Type.Array(pointSchema, {
@@ -117,7 +123,10 @@ const parameters = Type.Object({
         label: Type.Optional(
           Type.String({ maxLength: 200, description: '短称呼，例如「左边的杯子」' }),
         ),
-        selected: Type.Boolean({ description: '用户要改的是不是这一个' }),
+        // 模型常只给选中的那个写 selected=true，其余省略；省略按没选中算。
+        selected: Type.Optional(
+          Type.Boolean({ description: '用户要改的是不是这一个；不改的可以省略' }),
+        ),
         points: Type.Optional(
           Type.Array(pointSchema, { maxItems: 32, description: '可选，落在这一个对象上的点' }),
         ),
@@ -155,7 +164,7 @@ function cleanBox(box: AgentNormalizedBox): AgentNormalizedBox {
 }
 
 function cleanPoints(
-  points: readonly AgentMaskPromptPoint[] | undefined,
+  points: readonly PointParams[] | undefined,
 ): AgentMaskPromptPoint[] | undefined {
   if (!points?.length) return undefined
   for (const point of points)
@@ -168,14 +177,30 @@ function cleanPoints(
       point.y > 1
     )
       throw new AgentToolError('invalid_params', '提示点坐标要落在 0–1 之内')
-  return points.map(({ x, y, include }) => ({ x, y, include: include === true }))
+  return points.map(({ x, y, include }) => ({ x, y, include: include !== false }))
+}
+
+interface PointParams {
+  x: number
+  y: number
+  include?: boolean
 }
 
 interface InstanceParams {
   box: AgentNormalizedBox
   label?: string
-  selected: boolean
-  points?: AgentMaskPromptPoint[]
+  selected?: boolean
+  points?: PointParams[]
+}
+
+/** 几个框的外接框：没给总框时，用选中的那几个拼出来。 */
+function unionBox(boxes: readonly AgentNormalizedBox[]): AgentNormalizedBox {
+  if (boxes.length === 1) return boxes[0]!
+  const x = Math.min(...boxes.map((one) => one.x))
+  const y = Math.min(...boxes.map((one) => one.y))
+  const right = Math.max(...boxes.map((one) => one.x + one.width))
+  const bottom = Math.max(...boxes.map((one) => one.y + one.height))
+  return { x, y, width: right - x, height: bottom - y }
 }
 
 /** 相似对象按从左到右、从上到下编号；至少要有一个选中，不然卡片打开就是空的。 */
@@ -320,8 +345,8 @@ async function propose(
     target: string
     change: string
     keep?: string[]
-    box: AgentNormalizedBox
-    points?: AgentMaskPromptPoint[]
+    box?: AgentNormalizedBox
+    points?: PointParams[]
     invert?: boolean
     instances?: InstanceParams[]
   },
@@ -336,11 +361,22 @@ async function propose(
   const target = clip(params.target.trim(), MASK_TARGET_MAX)
   const change = clip(params.change.trim(), MASK_CHANGE_MAX)
   if (!target || !change) throw new AgentToolError('invalid_params', '要写清改哪个对象、改成什么')
-  const box = cleanBox(params.box)
   const points = cleanPoints(params.points)?.slice(0, MASK_POINTS_MAX)
   const invert = params.invert === true
   // 换背景只认 box 框住的那一个主体；多列的相似对象没有意义，丢掉。
   const instances = invert ? undefined : cleanInstances(params.instances)
+  const box = params.box
+    ? cleanBox(params.box)
+    : instances
+      ? unionBox(instances.filter((one) => one.selected).map((one) => one.box))
+      : params.instances?.length === 1 && !invert
+        ? cleanBox(params.instances[0]!.box)
+        : null
+  if (!box)
+    throw new AgentToolError(
+      'invalid_params',
+      '要给 box：把要改的部分框进去的外接框，坐标按原图归一化到 0–1',
+    )
   const keep = [...new Set((params.keep ?? []).map((one) => clip(one.trim(), MASK_KEEP_ITEM_MAX)))]
     .filter(Boolean)
     .slice(0, MASK_KEEP_MAX)
