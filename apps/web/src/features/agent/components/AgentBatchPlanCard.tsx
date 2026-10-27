@@ -191,9 +191,10 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     let active = true
     setRestored(false)
     setRestorationFailed(false)
+    const operation = operations.current
     void fetchBatchPlan(batchId)
       .then((result) => {
-        if (active && commands.current()) setPage(result)
+        if (active && commands.current() && operation === operations.current) setPage(result)
       })
       .catch(() => {
         if (active && commands.current()) setError('fallback')
@@ -273,22 +274,32 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     )
       useAgentStore.getState().followBatchWake(completedConversation, batchId, completedVersion)
   }, [completedConversation, completedVersion, activeConversation, activeTurn, batchId, commands])
-  // 同一轮后建的计划会让先前的草稿作废（BUG-39）。轮次结束时草稿卡重读一次，换成作废后的状态。
-  const draftConversation = page?.batch.status === 'draft' ? page.batch.conversationId : null
+  // 同一轮后建的计划会让先前的草稿作废（BUG-39）。轮次结束时草稿卡重读一次，换成作废后的状态；
+  // 轮次结束时草稿还没读到，就等读到后再重读。
+  const pageStatus = page?.batch.status
+  const draftConversation = pageStatus === 'draft' ? page?.batch.conversationId : null
   const turnWasRunning = useRef(false)
+  const refreshAfterTurn = useRef(false)
   useEffect(() => {
     const running = activeTurn === 'running'
-    const ended = turnWasRunning.current && !running
+    if (turnWasRunning.current && !running) refreshAfterTurn.current = true
+    if (running) refreshAfterTurn.current = false
     turnWasRunning.current = running
-    if (!ended || dirty || !draftConversation || draftConversation !== activeConversation) return
-    if (working.current || !commands.current()) return
-    const operation = operations.current
+    if (!refreshAfterTurn.current || !pageStatus) return
+    if (!draftConversation || draftConversation !== activeConversation) {
+      refreshAfterTurn.current = false
+      return
+    }
+    if (dirty || working.current || !commands.current()) return
+    refreshAfterTurn.current = false
+    // 递增序号：在途的初次读取或轮询晚到时不会盖掉这次读到的作废状态。
+    const operation = ++operations.current
     void fetchBatchPlan(batchId)
       .then((result) => {
         if (commands.current() && operation === operations.current) setPage(result)
       })
       .catch(() => {})
-  }, [activeTurn, activeConversation, draftConversation, dirty, batchId, commands])
+  }, [activeTurn, activeConversation, pageStatus, draftConversation, dirty, batchId, commands])
   const watch = hasActiveWork(page)
   useEffect(() => {
     if (!watch || dirty) return

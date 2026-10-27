@@ -311,8 +311,9 @@ const itemIdentity = (item: Pick<AgentBatchItem, 'key' | 'kind' | 'inputs'>) =>
  * 同一轮里后建的计划覆盖了先前的草稿（先前每一项都原样在新计划里），先前那张作废：
  * 置为已取消，服务端不再接受确认（BUG-39）。
  *
- * 分批保存（每次不超过 8 项）的各段编号互不覆盖，不受影响；为防各段重复用编号，
- * 项数相同且已满 8 项的不算覆盖。用户动过（版本 > 1）或已确认的草稿不动。
+ * 分批保存（每次不超过 8 项）的各段编号互不覆盖，不受影响。新旧都是满 8 项且身份一致时，
+ * 可能是重做，也可能是各段重复用了编号：每项都带原图（各段不会处理同一批图），或至少一项
+ * 提示词原样未改，才算重做。用户动过（版本 > 1）或已确认的草稿不动。
  */
 async function supersedeTurnDrafts(
   tx: BffTransaction,
@@ -345,6 +346,7 @@ async function supersedeTurnDrafts(
       key: schema.agent_batch_items.key,
       kind: schema.agent_batch_items.kind,
       inputs: schema.agent_batch_items.inputs,
+      prompt: schema.agent_batch_items.prompt,
     })
     .from(schema.agent_batch_items)
     .where(
@@ -357,13 +359,17 @@ async function supersedeTurnDrafts(
       ),
     )
   const newer = new Set(newerItems.map(itemIdentity))
+  const newerPrompts = new Set(newerItems.map((item) => JSON.stringify([item.key, item.prompt])))
   const superseded = drafts
     .map((draft) => rows.filter((row) => row.batchId === draft.id))
     .filter(
       (earlier) =>
         earlier.length > 0 &&
         earlier.every((item) => newer.has(itemIdentity(item))) &&
-        (newerItems.length > earlier.length || newerItems.length < 8),
+        (newerItems.length > earlier.length ||
+          newerItems.length < 8 ||
+          earlier.every((item) => item.inputs.length > 0) ||
+          earlier.some((item) => newerPrompts.has(JSON.stringify([item.key, item.prompt])))),
     )
     .map((earlier) => earlier[0]!.batchId)
   if (!superseded.length) return
