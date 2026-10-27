@@ -431,6 +431,7 @@
     "copyLog": "复制原始日志",
     "copied": "已复制",
     "copyFailed": "复制失败，请重试",
+    "textTooLong": "消息太长，这条没有发出去。最多 {{max}} 字，请删减后再发。",
     "imageTooLarge": "图片太大，这条没有发出去。单张最多 {{maxSize}}，请换一张更小的图再发。",
     "uploadFailed": "参考图没能上传，这条没有发出去：{{reason}}",
     "signedOut": "登录已失效，这条没有发出去。请重新登录后再发。",

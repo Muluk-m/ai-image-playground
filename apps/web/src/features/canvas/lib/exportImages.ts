@@ -101,22 +101,54 @@ export async function exportCanvasImages(
   ids: Iterable<string> | undefined,
   opts: CanvasExportOptions = {},
 ): Promise<CanvasExportResult> {
-  const elements = exportableElements(doc, ids)
-  if (elements.length === 0) return { exported: 0, failed: 0 }
+  return downloadMediaBundle(canvasExportEntries(doc, ids), opts)
+}
 
+/** 画布上这些节点里能导出的图和视频，按创建顺序。 */
+export function canvasExportEntries(
+  doc: CanvasDoc,
+  ids: Iterable<string> | undefined,
+): MediaBundleEntry[] {
+  return exportableElements(doc, ids).map((element) => ({
+    name: canvasImageName(element),
+    fetch: () => elementBlob(doc, element),
+  }))
+}
+
+/** 一件要落到本地的作品：名字不含扩展名，字节按需去取，取不到给 null。 */
+export interface MediaBundleEntry {
+  readonly name: string
+  readonly fetch: () => Promise<{ blob: Blob; ext: string } | null>
+}
+
+/**
+ * 一件直接落盘，多件打成一个 zip。
+ *
+ * 多件时不逐个 `a.click()`——浏览器会把连续下载当成滥用，只保留最后一次，
+ * 用户点「导出 12 张」最后只拿到一张。zip 不压缩（`level: 0`）：png / jpeg / mp4
+ * 已经是压缩格式，再压一遍只换来几秒的主线程卡顿。
+ */
+export async function downloadMediaBundle(
+  entries: readonly MediaBundleEntry[],
+  opts: CanvasExportOptions = {},
+): Promise<CanvasExportResult> {
+  if (entries.length === 0) return { exported: 0, failed: 0 }
   const files: Record<string, Uint8Array> = {}
-  const single: Array<{ blob: Blob; name: string }> = []
+  let lone: { blob: Blob; name: string } | undefined
   let failed = 0
-  for (const [index, element] of elements.entries()) {
-    const fetched = await elementBlob(doc, element)
-    opts.onProgress?.(index + 1, elements.length)
+  for (const [index, entry] of entries.entries()) {
+    const fetched = await entry.fetch().catch((err: unknown) => {
+      console.warn('[canvas] 导出条目失败', err)
+      return null
+    })
+    opts.onProgress?.(index + 1, entries.length)
     if (!fetched) {
       failed += 1
       continue
     }
-    const named = withExtension(safeFileName(canvasImageName(element)), fetched.ext)
-    if (elements.length === 1) {
-      single.push({ blob: fetched.blob, name: named })
+    const named = withExtension(safeFileName(entry.name), fetched.ext)
+    if (entries.length === 1) {
+      lone = { blob: fetched.blob, name: named }
       continue
     }
     // 序号前缀让 zip 里的顺序等于画布上的顺序；一次生成的几张图名字都是同一条提示词，
@@ -125,8 +157,6 @@ export async function exportCanvasImages(
       await fetched.blob.arrayBuffer(),
     )
   }
-
-  const lone = single[0]
   if (lone) {
     downloadBlob(lone.blob, lone.name)
     return { exported: 1, failed }
