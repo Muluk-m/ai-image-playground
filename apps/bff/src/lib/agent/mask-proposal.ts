@@ -269,9 +269,16 @@ export function maskProposalGuidance(errorText: string): boolean {
 const MASK_PARAMS_RETRY_HINT =
   '按上面的提示改好参数，再调一次 proposeEditRegion；不要改成整图编辑，也不要叫用户自己去画。'
 
-/** 只有参数写错的失败值得交回模型重试；暂不可用、分割与存储出错都不会因为重试变好。 */
+/** pi 在调 execute 之前按 schema 校验参数，失败时的原话以这一句开头（pi-ai `dist/utils/validation.js`）。 */
+const SCHEMA_REJECTED = `Validation failed for tool "${AGENT_MASK_PROPOSAL_TOOL}"`
+
+/**
+ * 只有参数写错的失败值得交回模型重试：我们自己的参数校验（带尾注）和 pi 的 schema 校验
+ * （坐标小于 0、缺字段）。暂不可用、分割与存储出错都不会因为重试变好。
+ */
 export function maskProposalRetryable(errorText: string): boolean {
-  return errorText.trim().endsWith(MASK_PARAMS_RETRY_HINT)
+  const said = errorText.trim()
+  return said.endsWith(MASK_PARAMS_RETRY_HINT) || said.startsWith(SCHEMA_REJECTED)
 }
 
 export function maskProposalFailedText(errorText: string): string {
