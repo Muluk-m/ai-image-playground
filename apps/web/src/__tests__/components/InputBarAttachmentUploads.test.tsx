@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /** 每张图挂上后上传到了哪一步：键是 dataUrl。 */
-const uploads = new Map<string, { state: 'failed' | 'ready'; error?: string }>()
+const uploads = new Map<string, { state: 'failed' | 'ready' | 'uploading'; error?: string }>()
 const primed: string[][] = []
 
 vi.mock('../../features/agent/lib/useAgentSkills', () => ({ useAgentSkills: () => [] }))
@@ -78,7 +78,7 @@ afterEach(() => {
 describe('首页交给智能体的参考图（BUG-27）', () => {
   it('挂上就开始上传，与对话页输入框同一套', () => {
     mountWith([GOOD])
-    expect(primed.at(-1)).toEqual([GOOD])
+    expect(primed[primed.length - 1]).toEqual([GOOD])
   })
 
   it('坏文件当场标出并拦住发送：不建项目、不留空对话', () => {
@@ -93,14 +93,38 @@ describe('首页交给智能体的参考图（BUG-27）', () => {
     expect(startCanvasFromComposer).not.toHaveBeenCalled()
   })
 
-  it('网络这类可重试的失败照旧能发，发送前重传一次', () => {
+  it('还在上传时不建项目，等传完', () => {
+    uploads.set(GOOD, { state: 'uploading' })
+    mountWith([GOOD])
+    expect(startButton().disabled).toBe(true)
+    act(() => startButton().click())
+    expect(startCanvasFromComposer).not.toHaveBeenCalled()
+  })
+
+  it('网络这类可重试的失败显示原因、仍可点：先重传，成功后才建项目', async () => {
     uploads.set(BAD, { state: 'failed', error: 'media_network_error' })
     mountWith([BAD])
-    expect(host.querySelector('[role=alert]')).toBeNull()
+    expect(host.querySelector('[role=alert]')?.textContent).toBeTruthy()
     expect(startButton().disabled).toBe(false)
+    let finish!: () => void
+    vi.mocked(retryAttachmentUploads).mockImplementationOnce(
+      () => new Promise<void>((resolve) => (finish = resolve)),
+    )
     act(() => startButton().click())
     expect(retryAttachmentUploads).toHaveBeenCalledWith({ dataUrl: BAD })
+    expect(startCanvasFromComposer).not.toHaveBeenCalled()
+    expect(startButton().disabled).toBe(true)
+    await act(async () => finish())
     expect(startCanvasFromComposer).toHaveBeenCalledTimes(1)
+  })
+
+  it('重传仍失败就留在首页，不建项目', async () => {
+    uploads.set(BAD, { state: 'failed', error: 'media_network_error' })
+    mountWith([BAD])
+    vi.mocked(retryAttachmentUploads).mockRejectedValueOnce(new Error('media_network_error'))
+    await act(async () => startButton().click())
+    expect(startCanvasFromComposer).not.toHaveBeenCalled()
+    expect(startButton().disabled).toBe(false)
   })
 
   it('全部就绪时照常发送', () => {
