@@ -3,6 +3,7 @@ import { db, schema } from '../db/client'
 import { cancelTasks } from '../db/task-transitions'
 import { log } from '../lib/logger'
 import { taskAccessWhere } from '../lib/task-access'
+import { cancelUpstreamOfCancelledTasks } from '../lib/upstream-cancel'
 import { requireUser } from '../lib/user-auth'
 
 /**
@@ -20,6 +21,7 @@ export const cancelRoutes = new Elysia().use(requireUser).put(
 
     if (cancelled.length > 0) {
       log.info({ event: 'task.cancel_requested', taskId: params.id }, 'task cancelled')
+      void cancelUpstreamOfCancelledTasks(cancelled.map((row) => row.id))
       return { request_id: params.id, status: 'cancelled' as const }
     }
 
