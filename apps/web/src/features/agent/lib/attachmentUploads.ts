@@ -264,16 +264,37 @@ export function attachmentUploadState(reference: Uploadable): MediaUploadState |
   )
 }
 
-/** 正在直传时已发出的百分比；带遮罩时取较慢的那张。还没开始发或不在直传时为空。 */
+/**
+ * 正在直传时已发出的百分比；带遮罩时取较慢的那张。字节交完、等服务端确认（verifying）时停在 99%，
+ * 确认了才算传完。还没开始发或不在直传时为空。
+ */
 export function attachmentUploadProgress(reference: Uploadable): number | undefined {
-  if (attachmentUploadState(reference) !== 'uploading') return undefined
+  const state = attachmentUploadState(reference)
+  if (state !== 'uploading' && state !== 'verifying') return undefined
   const known = sourcesToUpload(reference).map((source) => {
     const entry = currentEntries().get(source)
-    if (entry?.state === 'ready' || entry?.state === 'verifying') return 100
+    if (entry?.state === 'ready') return 100
+    if (entry?.state === 'verifying') return 99
     return entry?.state === 'uploading' ? entry.progress : 0
   })
   if (known.some((value) => value === undefined)) return undefined
   return Math.min(...(known as number[]))
+}
+
+/**
+ * 收起的那叠参考图的总进度：在传的每张取平均，排队还没开始发的按 0 算，传完和传失败的不计。
+ * 有一张在传却不知道进度（浏览器不报字节数）时为空，只转圈（BUG-42）。
+ */
+export function attachmentStackProgress(references: readonly Uploadable[]): number | undefined {
+  const values = references.flatMap((reference) => {
+    const state = attachmentUploadState(reference)
+    if (state === 'queued') return [0]
+    return state === 'uploading' || state === 'verifying'
+      ? [attachmentUploadProgress(reference)]
+      : []
+  })
+  if (!values.length || values.some((value) => value === undefined)) return undefined
+  return Math.floor((values as number[]).reduce((sum, value) => sum + value, 0) / values.length)
 }
 
 export function attachmentUploadError(reference: Uploadable): string | undefined {
@@ -342,9 +363,9 @@ function start(source: string, retry = false): Promise<MediaUploadResult> {
       },
       onProgress(fraction) {
         // 浏览器报的是交给网络栈的字节数，不是对端收到的：小文件一下就「发完」，
-        // 实际还要等十几秒才传完。全部交出后不再报数，退回「上传中」等响应，
-        // 免得在真正传完之前就显示 100%（BUG-42）。
-        const progress = fraction >= 1 ? undefined : Math.min(99, Math.floor(fraction * 100))
+        // 实际还要等十几秒才传完。所以封顶 99%，交完之后停在 99% 等服务端确认，
+        // 既不在真正传完之前显示 100%，也不把百分比收掉只剩转圈（BUG-42）。
+        const progress = Math.min(99, Math.floor(fraction * 100))
         if (entry.state !== 'uploading' || progress === entry.progress) return
         entry.progress = progress
         changed()
