@@ -93,11 +93,14 @@ async function statusOf(id: string) {
   return row
 }
 
-const arkTask = (id: string, extra: Partial<typeof schema.tasks.$inferInsert> = {}) => ({
+const arkTask = (
+  id: string,
+  extra: Partial<typeof schema.tasks.$inferInsert> = {},
+): typeof schema.tasks.$inferInsert => ({
   id,
-  provider: 'openai-compat' as const,
+  provider: 'openai-compat',
   model: ARK_MODEL,
-  status: 'queued' as const,
+  status: 'queued',
   request_payload: {
     prompt: 'a cat',
     video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' },
