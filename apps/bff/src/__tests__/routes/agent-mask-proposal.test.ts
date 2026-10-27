@@ -620,6 +620,28 @@ describe('范围确认卡', () => {
     expect(await db.select().from(schema.tasks)).toHaveLength(0)
   }, 20_000)
 
+  it('also gives the model one retry when its arguments fail the tool schema', async () => {
+    const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
+    const conversationId = (json as { conversation: { id: string } }).conversation.id
+    const bath = await sharp(ORIGINAL).jpeg({ quality: 80 }).toBuffer()
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () => proposeCall('negative', { x: -0.1, y: 0.3, width: 0.5, height: 0.4 }),
+        () => proposeCall('fixed', { x: 0, y: 0.3, width: 0.5, height: 0.4 }),
+      ]),
+    )
+    const frames = await runTurn(
+      conversationId,
+      '把浴缸换成红色',
+      [{ imageId: 'file_bathtub', dataUrl: `data:image/jpeg;base64,${bath.toString('base64')}` }],
+      { thinkingDepth: 'fast', model: 'agnes-image' },
+    )
+    expect(calls).toHaveLength(2)
+    const [card] = eventsOfType(frames, 'clarification') as unknown as AgentClarificationBlock[]
+    expect(card?.maskProposal?.target).toBe('浴缸')
+  }, 20_000)
+
   it('ends the turn when the retried proposal is rejected again', async () => {
     const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
     const conversationId = (json as { conversation: { id: string } }).conversation.id
