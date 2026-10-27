@@ -133,9 +133,27 @@ export default function NodeAssetsPanel({
     return () => observer.disconnect()
   }, [hasMore, loading, failed, loadMore])
 
+  // 放置要先取像素，期间再点不重复建节点；失败（含抛错）时保留已选、弹窗不关，提示由 onPlace 给。
+  const placing = useRef(false)
+  const [busy, setBusy] = useState(false)
   const place = async (items: readonly CanvasAssetItem[]) => {
-    if (!items.length) return
-    if (await onPlace(items)) onClose()
+    if (!items.length || placing.current) return
+    placing.current = true
+    setBusy(true)
+    let placed = false
+    try {
+      placed = await onPlace(items)
+    } catch {
+      placed = false
+    } finally {
+      placing.current = false
+      setBusy(false)
+    }
+    if (placed) onClose()
+  }
+  const switchScope = (next: 'all' | 'project') => {
+    setScope(next)
+    setPicked([])
   }
   const toggleSelecting = () => {
     setSelecting((on) => !on)
@@ -238,14 +256,14 @@ export default function NodeAssetsPanel({
             'all',
             t('assetsPanel.scopeAll'),
             scope === 'all',
-            () => setScope('all'),
+            () => switchScope('all'),
             'studio-canvas-assets-chip',
           )}
           {tab(
             'project',
             t('assetsPanel.scopeProject'),
             scope === 'project',
-            () => setScope('project'),
+            () => switchScope('project'),
             'studio-canvas-assets-chip',
           )}
         </div>
@@ -314,7 +332,7 @@ export default function NodeAssetsPanel({
               type="button"
               size="sm"
               className="studio-canvas-assets-barbtn studio-canvas-assets-apply"
-              disabled={!pickedItems.length}
+              disabled={!pickedItems.length || busy}
               onClick={() => void place(pickedItems)}
             >
               {t('assetsPanel.apply')}

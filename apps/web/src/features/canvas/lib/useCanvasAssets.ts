@@ -86,8 +86,11 @@ function useBatchAssets(
     [messages],
   )
   const batchKey = [...new Set(batchMessages.map((one) => one.batchId))].join('\n')
+  // 轮询回调读最新的消息与时间；在提交后同步，避免渲染期写 ref。此 effect 排在轮询 effect 前面，先跑。
   const latest = useRef({ batchMessages, time })
-  latest.current = { batchMessages, time }
+  useEffect(() => {
+    latest.current = { batchMessages, time }
+  }, [batchMessages, time])
   const [byBatch, setByBatch] = useState<Record<string, readonly CanvasAssetItem[]>>({})
   const [failed, setFailed] = useState(false)
   useEffect(() => {
