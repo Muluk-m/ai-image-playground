@@ -769,6 +769,7 @@
     "outputFormat": "Output format",
     "compression": "Compression quality",
     "inputImage": "Input image {{index}}",
+    "textOnlyInput": "Text to image",
     "valueAuto": "Auto",
     "valueHigh": "High",
     "valueMedium": "Medium",
