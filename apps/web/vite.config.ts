@@ -83,8 +83,8 @@ export default defineConfig(() => {
     test: {
       ...vitestGuard('apps/web', parseCLI),
       // i18n 初始化跟着 locale 走，测试里必须钉死，否则 jsdom 的 en-US 会把
-      // 所有断言中文文案的历史用例打红。
-      setupFiles: ['./src/__tests__/setup/i18n.ts'],
+      // 所有断言中文文案的历史用例打红。直传 PUT 在用例里改回 fetch，见 setup/mediaPut.ts。
+      setupFiles: ['./src/__tests__/setup/i18n.ts', './src/__tests__/setup/mediaPut.ts'],
     },
     build: {
       // Windows 上大量用户用 360/QQ/搜狗等国产浏览器，内核常停在 Chromium 80 多版本；
