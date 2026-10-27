@@ -217,6 +217,26 @@ it('downscales a 20 MP photo to a 4000 px long side', async () => {
   })
 })
 
+// 缩到 4000 还放不进读图字节预算时说图太大，不交出一张超预算的图，也不说成来源网站的问题。
+it('refuses a downscaled image that still does not fit the byte budget', async () => {
+  const operator = config.operator
+  config.operator = { ...operator, quotas: { ...operator.quotas, 'agent:request-max-bytes': 200 } }
+  try {
+    const photo = await sharp({
+      create: { width: 5000, height: 4000, channels: 3, background: '#4a7' },
+    })
+      .jpeg({ quality: 60 })
+      .toBuffer()
+    serve(photo, 'image/jpeg')
+    const thrown = await run('https://example.com/noisy.jpg').catch((error: unknown) => error)
+    expect(thrown).toMatchObject({ code: 'invalid_params' })
+    expect((thrown as Error).message).toContain('太大')
+    expect((thrown as Error).message).not.toContain('来源')
+  } finally {
+    config.operator = operator
+  }
+})
+
 // 地址是模型写的，指向内网就是一次 SSRF：拒绝并让模型换来源，不能原样重试。
 it('refuses a host that resolves into the private network', async () => {
   serve(PNG, 'image/png', '10.0.0.5')

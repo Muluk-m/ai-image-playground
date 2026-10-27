@@ -8,7 +8,10 @@ describe('agentToolFailureText', () => {
     expect(agentToolFailureText('invalid_params', 'fetchImage')).toBe(
       '这个地址取回来的不是可用的图片，请换一个图片地址',
     )
-    expect(agentToolFailureText('invalid_params', 'fetchListingImages')).toBe(
+  })
+
+  it('keeps the generic copy for listing pages, where the address may simply not be a product page', () => {
+    expect(agentToolFailureText('invalid_params', 'fetchListingImages')).not.toBe(
       '这个地址取回来的不是可用的图片，请换一个图片地址',
     )
   })

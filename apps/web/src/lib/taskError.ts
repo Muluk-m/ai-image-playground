@@ -43,8 +43,11 @@ const WEB_READ_TOOLS: ReadonlySet<string> = new Set([
   'fetchListingImages',
 ])
 
-/** 取网图的工具：参数不成立在这里是「取回来的不是可用的图片」（网页、过大），不是模型写错了参数（BUG-48）。 */
-const IMAGE_FETCH_TOOLS: ReadonlySet<string> = new Set(['fetchImage', 'fetchListingImages'])
+/**
+ * 取单张网图：参数不成立在这里是「取回来的不是可用的图片」（网页、过大），不是模型写错了参数（BUG-48）。
+ * 商品图不在此列：它的参数不成立多半是地址不是可识别的商品页，说成「不是图片」会误导。
+ */
+const IMAGE_FETCH_TOOLS: ReadonlySet<string> = new Set(['fetchImage'])
 
 /**
  * 失败原因的一句话，按错误码取译文。没有码（旧记录）时返回 null，调用方照旧处理。
