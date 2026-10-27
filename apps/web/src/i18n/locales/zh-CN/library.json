@@ -167,7 +167,11 @@
   "mention": {
     "headingImages": "本次参考图",
     "headingAssets": "素材",
-    "assetsEmptyNote": "还没有素材，右键参考图可保存"
+    "assetsEmptyNote": "还没有素材，右键参考图可保存",
+    "headingPerTask": "逐张生成 · 每个任务里的图",
+    "perTaskTarget": "每个任务的目标图",
+    "perTaskShared": "共享参考",
+    "perTaskSharedNamed": "{{name}} · 共享"
   },
   "toast": {
     "assetSaved": "已存为素材",

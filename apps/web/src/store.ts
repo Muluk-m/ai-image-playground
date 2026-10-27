@@ -26,12 +26,21 @@ import {
   batchPerImage,
   oversizedReferenceIndexes,
   oversizedReferenceMessage,
+  partitionSharedReferences,
   quickGenerateAdmission,
+  remapSharedMentions,
+  sharedPinBlock,
+  sharedReferenceGroups,
+  sharedReferenceTaskLimit,
 } from './lib/batchGenerate'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { ensureChannelsLoaded } from './lib/channels/bootstrapChannels'
 import { channelsSettled, subscribeChannels } from './lib/channels/channelStore'
-import { getProfileModels, updateSelectedModel } from './lib/channels/profileSelectors'
+import {
+  getModelReferenceMax,
+  getProfileModels,
+  updateSelectedModel,
+} from './lib/channels/profileSelectors'
 import { getPublicChannels } from './lib/channels/publicChannels'
 import type { ClientProfile } from './lib/channels/types'
 import { isVideoModeAvailable } from './lib/channels/videoChannels'
@@ -80,7 +89,7 @@ import {
   setPlatformFavorite,
   watchPlatformGeneration,
 } from './lib/platformGenerations'
-import { replaceImageMentionsForApi } from './lib/promptImageMentions'
+import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
   expandPromptSlots,
   getSubmissionImageCount,
@@ -657,6 +666,13 @@ interface AppState {
   batchGenerate: boolean
   setBatchGenerate: (on: boolean) => void
   /**
+   * 逐张生成时设成共享参考的图（按 id，先设的在前）：每个任务都带上它们。它们在条上始终排在队尾，
+   * 目标图在前。只在这一次编辑里有效，不进持久化，和 `batchGenerate` 一样。
+   */
+  sharedImageIds: string[]
+  /** 设成共享参考 / 变回目标图；最后一张目标图、每个任务已满时不动。 */
+  toggleSharedImage: (imageId: string) => void
+  /**
    * 侧栏此刻摊开还是收起。`null` 表示按入口默认：首页与对话摊开，画布收起。
    * 用户按折叠键就写成明确的开或关，换入口时回到默认。
    */
@@ -713,6 +729,42 @@ interface AppState {
   setConfirmDialog: (d: AppState['confirmDialog']) => void
 }
 
+/**
+ * 这一刻提示词里的序号按哪一套算：逐张生成时是「每个任务里的图」（@图1 = 目标图，@图2… = 共享参考），
+ * 合并参考时是条上的位置。和输入框判断逐张的口径一致（模板与遮罩在那边另行排除）。
+ */
+function sharedMentionMode(s: AppState): boolean {
+  return (
+    !s.maskDraft &&
+    batchPerImage(
+      s.inputImages.length,
+      s.batchGenerate,
+      referenceAdmission(getActiveApiProfile(s.settings)).limit,
+    )
+  )
+}
+
+/**
+ * 有共享参考时条换成 `images` 之后的落定：共享参考按它们在 `images` 里的先后收到队尾，不在条上的
+ * 去掉；一张目标图都不剩时第一张共享参考变回目标图。提示词按这一刻的模式跟着走：逐张时只挪
+ * 共享序号，合并时按条上的位置重排。
+ */
+function settleSharedReferences(
+  s: AppState,
+  images: readonly InputImage[],
+): Pick<AppState, 'inputImages' | 'sharedImageIds' | 'prompt'> {
+  const wasShared = new Set(s.sharedImageIds)
+  let sharedImageIds = images.filter((one) => wasShared.has(one.id)).map((one) => one.id)
+  if (sharedImageIds.length > 0 && sharedImageIds.length === images.length)
+    sharedImageIds = sharedImageIds.slice(1)
+  const { targets, shared } = partitionSharedReferences(images, sharedImageIds)
+  const inputImages = [...targets, ...shared]
+  const prompt = sharedMentionMode(s)
+    ? remapSharedMentions(s.prompt, s.sharedImageIds, sharedImageIds)
+    : remapImageMentionsForOrder(s.prompt, s.inputImages, inputImages)
+  return { inputImages, sharedImageIds, prompt }
+}
+
 export const useStore = create<AppState>()(
   persist(
     (set, get) => ({
@@ -737,11 +789,23 @@ export const useStore = create<AppState>()(
           showToast(referenceRefusalMessage(result.reason, effective.limit), 'error')
           return null
         }
-        set({ inputImages: [...result.draft.references] })
-        return [...result.indexes]
+        if (get().sharedImageIds.length === 0) {
+          set({ inputImages: [...result.draft.references] })
+          return [...result.indexes]
+        }
+        // 有共享参考时新图是目标图，插在共享参考前面；返回的序号按落定后的条重新数。
+        const next = settleSharedReferences(get(), [...result.draft.references])
+        set(next)
+        const placed = result.indexes.map((index) => result.draft.references[index]!.id)
+        return placed.map((id) => next.inputImages.findIndex((one) => one.id === id))
       },
       removeInputImage: (idx) =>
         set((s) => {
+          if (s.sharedImageIds.length > 0)
+            return settleSharedReferences(
+              s,
+              s.inputImages.filter((_, at) => at !== idx),
+            )
           const shouldClearMask = s.inputImages[idx]?.id === s.maskDraft?.targetImageId
           const draft = removeReference({ prompt: s.prompt, references: s.inputImages }, idx)
           return {
@@ -755,6 +819,7 @@ export const useStore = create<AppState>()(
           for (const img of s.inputImages) imageCache.delete(img.id)
           return {
             inputImages: [],
+            sharedImageIds: [],
             prompt: replaceReferences({ prompt: s.prompt, references: s.inputImages }, []).prompt,
             maskDraft: null,
             maskEditorImageId: null,
@@ -762,6 +827,10 @@ export const useStore = create<AppState>()(
         }),
       replaceInputImages: (imgs, options) =>
         set((s) => {
+          if (s.sharedImageIds.length > 0 && !s.maskDraft) {
+            const next = settleSharedReferences(s, imgs)
+            return options?.prompt === undefined ? next : { ...next, prompt: options.prompt }
+          }
           const keepsMask =
             Boolean(s.maskDraft) && imgs.some((img) => img.id === s.maskDraft?.targetImageId)
           const references = keepsMask
@@ -780,6 +849,22 @@ export const useStore = create<AppState>()(
         }),
       moveInputImage: (fromIdx, toIdx) =>
         set((s) => {
+          if (s.sharedImageIds.length > 0) {
+            const moved = s.inputImages[fromIdx]
+            if (!moved) return s
+            // 目标图只在目标图之间挪，共享参考只在共享参考之间挪：拖动不改它是哪一种。
+            const targetCount = s.inputImages.length - s.sharedImageIds.length
+            const isShared = s.sharedImageIds.includes(moved.id)
+            const to = isShared
+              ? Math.max(targetCount, Math.min(s.inputImages.length, toIdx))
+              : Math.max(0, Math.min(targetCount, toIdx))
+            const insertAt = fromIdx < to ? to - 1 : to
+            if (insertAt === fromIdx) return s
+            const images = [...s.inputImages]
+            images.splice(fromIdx, 1)
+            images.splice(insertAt, 0, moved)
+            return settleSharedReferences(s, images)
+          }
           const maskTargetImageId = s.maskDraft?.targetImageId
           // 被遮的那张钉在第一位：它自己不能挪，别的也插不到它前面去。
           if (maskTargetImageId && s.inputImages[fromIdx]?.id === maskTargetImageId) return s
@@ -801,7 +886,13 @@ export const useStore = create<AppState>()(
             { prompt: s.prompt, references: s.inputImages },
             orderImagesWithMaskFirst(s.inputImages, maskDraft?.targetImageId),
           )
-          return { maskDraft, inputImages: [...draft.references], prompt: draft.prompt }
+          return {
+            maskDraft,
+            inputImages: [...draft.references],
+            prompt: draft.prompt,
+            // 遮罩编辑不走逐张生成，共享参考随之作废。
+            ...(maskDraft ? { sharedImageIds: [] } : {}),
+          }
         })
         if (maskDraft && !maskDraft.maskImageId) {
           void storeImage(maskDraft.maskDataUrl, 'mask')
@@ -896,6 +987,33 @@ export const useStore = create<AppState>()(
       createTarget: 'generate',
       batchGenerate: false,
       setBatchGenerate: (batchGenerate) => set({ batchGenerate }),
+      sharedImageIds: [],
+      toggleSharedImage: (imageId) =>
+        set((s) => {
+          const image = s.inputImages.find((one) => one.id === imageId)
+          if (!image) return s
+          const { targets, shared } = partitionSharedReferences(s.inputImages, s.sharedImageIds)
+          const previousIds = shared.map((one) => one.id)
+          if (previousIds.includes(imageId)) {
+            const rest = shared.filter((one) => one.id !== imageId)
+            const nextIds = rest.map((one) => one.id)
+            // 变回目标图：排到目标图的最后，指向它的共享序号降级成文字，后面的往前挪。
+            return {
+              sharedImageIds: nextIds,
+              inputImages: [...targets, image, ...rest],
+              prompt: remapSharedMentions(s.prompt, previousIds, nextIds),
+            }
+          }
+          const limit = sharedReferenceTaskLimit(
+            getModelReferenceMax(getActiveApiProfile(s.settings), getPublicChannels()),
+          )
+          if (sharedPinBlock(s.inputImages, s.sharedImageIds, imageId, limit)) return s
+          // 设成共享：挪到队尾，成为下一个 @图(M+2)；已有的序号都不变。
+          return {
+            sharedImageIds: [...previousIds, imageId],
+            inputImages: [...targets.filter((one) => one.id !== imageId), ...shared, image],
+          }
+        }),
       creationSelections: {},
       projectCreationTargets: {},
       setCreateTarget: (createTarget) => {
@@ -1371,6 +1489,11 @@ export interface PreparedSubmission {
    * 与遮罩、`origin` 互斥。
    */
   eachImage?: true
+  /**
+   * 逐张生成时的共享参考（按 id）：不单独出图，跟着每个任务一起发，排在那个任务的目标图后面
+   * （@图2…）。张数与积分只按目标图算。合并参考时忽略。
+   */
+  sharedImageIds?: string[]
 }
 
 /**
@@ -1499,6 +1622,19 @@ export async function submitPrepared(
     )
     return []
   }
+  // 一组参考图对应一条变体：合并参考是整条一组，逐张生成是每张目标图带上共享参考自成一组。
+  const referenceGroups = eachImage
+    ? sharedReferenceGroups(input.inputImages, input.sharedImageIds ?? [])
+    : [input.inputImages]
+  if (eachImage) {
+    // 每个任务 1 张目标 + M 张共享，按这个模型一次能带的张数收口。
+    const taskLimit = sharedReferenceTaskLimit(getModelReferenceMax(profile, getPublicChannels()))
+    const perTask = referenceGroups[0]?.length ?? 0
+    if (perTask > taskLimit) {
+      showToast(referenceRefusalMessage('overflow', taskLimit), 'error')
+      return []
+    }
+  }
   const oversized = oversizedReferenceIndexes(input.inputImages)
   if (oversized.length) {
     showToast(oversizedReferenceMessage(oversized), 'error')
@@ -1541,7 +1677,7 @@ export async function submitPrepared(
   const taskParams = eachImage ? { ...derivedParams, n: 1 } : derivedParams
   const imageCount = getSubmissionImageCount(trimmedPrompt, input.slotValues ?? {}, taskParams.n)
   const batchMax = eachImage ? BATCH_GENERATE_MAX : MAX_BATCH_IMAGES
-  if ((eachImage ? imageCount * input.inputImages.length : imageCount) > batchMax) {
+  if ((eachImage ? imageCount * referenceGroups.length : imageCount) > batchMax) {
     showToast(i18next.t('submit.batchLimit', { ns: 'store', max: batchMax }), 'error')
     return []
   }
@@ -1583,8 +1719,6 @@ export async function submitPrepared(
   }
 
   if (!current()) return []
-  // 一组参考图对应一条变体：合并参考是整条一组，逐张生成是每张图自成一组。
-  const referenceGroups = eachImage ? input.inputImages.map((img) => [img]) : [input.inputImages]
   const jobs = startGeneration<WorkbenchJob, WorkbenchVariant>(
     {
       settings: requestSettings,
@@ -1598,6 +1732,7 @@ export async function submitPrepared(
             ? createTransparentOutputMeta(taskPrompt)
             : null
           return {
+            // 逐张时按这个任务里的张数（1 + 共享）换序号；没有对应图的序号按普通文字发出。
             prompt: replaceImageMentionsForApi(
               transparent?.effectivePrompt ?? taskPrompt,
               inputImageDataUrls.length,
@@ -1647,8 +1782,17 @@ export async function submitPrepared(
  * 这里只管 composer 自己的事：孤儿遮罩草稿兜底、归一化参数写回、成功后的收尾。
  */
 export async function submitTask(options: { holdClear?: Promise<unknown> } = {}) {
-  const { settings, prompt, slotValues, inputImages, maskDraft, params, batchGenerate, showToast } =
-    useStore.getState()
+  const {
+    settings,
+    prompt,
+    slotValues,
+    inputImages,
+    maskDraft,
+    params,
+    batchGenerate,
+    sharedImageIds,
+    showToast,
+  } = useStore.getState()
 
   // 遮罩草稿的目标图已不在参考图条里：草稿留着也提交不了，清掉并提示重新选区。
   if (maskDraft && !inputImages.some((img) => img.id === maskDraft.targetImageId)) {
@@ -1685,7 +1829,12 @@ export async function submitTask(options: { holdClear?: Promise<unknown> } = {})
         params: taskParams,
         maskDraft,
         profileId: activeProfile.id,
-        ...(eachImage ? { eachImage: true as const } : {}),
+        ...(eachImage
+          ? {
+              eachImage: true as const,
+              ...(sharedImageIds.length > 0 ? { sharedImageIds: [...sharedImageIds] } : {}),
+            }
+          : {}),
       },
       { signal: controller.signal, isCurrent: context.isCurrent },
     )

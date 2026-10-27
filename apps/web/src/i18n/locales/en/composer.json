@@ -213,6 +213,22 @@
     "mergeLimit": "Over {{max}} images runs per image only",
     "oversized": "Image {{index}} is over {{mb}} MB. Remove it or use a smaller one",
     "sendLabel": "Generate {{count}} images, one per reference",
-    "sendLabelCredits": "Generate {{count}} images, one per reference, {{credits}} credits"
+    "sendLabelCredits": "Generate {{count}} images, one per reference, {{credits}} credits",
+    "pin": "Share with every image",
+    "pinLastTarget": "Keep at least 1 target image",
+    "pinFull": "Up to {{max}} images per task (1 target + {{shared}} shared). Shared references are full",
+    "unpin": "Stop sharing, use as a target",
+    "shared": "Shared",
+    "sharedIndex": "Img {{n}}",
+    "sharedTile": "Shared reference {{label}}",
+    "targetTile": "Target image {{n}}",
+    "ruleShared": "Per image: target = {{target}}, shared = {{shared}}",
+    "ruleNoShared": "Per image: {{target}} = each task's own target. Hover an image and click the pin to share it with every task",
+    "listSeparator": ", ",
+    "mentionMissingPerTask": "Each task has only {{count}} images, so {{labels}} has no image and is sent as plain text",
+    "mentionMissing": "Only {{count}} reference images, so {{labels}} has no image and is sent as plain text",
+    "summaryCount": "Generate {{count}} images",
+    "summaryShared": "each with {{count}} shared references",
+    "summaryCredits": "{{credits}} credits"
   }
 }

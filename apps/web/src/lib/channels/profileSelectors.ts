@@ -180,3 +180,15 @@ export function updateSelectedModel(
   const valid = channel?.models.some((model) => model.id === modelId) ?? false
   return valid ? { ...profile, selectedModelId: modelId } : profile
 }
+
+/** 当前模型声明的参考图上限（能力目录下发）；清单没到或目录里没登记就是 null，按「未知」处理。 */
+export function getModelReferenceMax(
+  profile: ClientProfile,
+  publicChannels: PublicChannel[],
+): number | null {
+  const channel = publicChannels.find((item) => item.id === profile.channelId)
+  const model =
+    channel?.models.find((item) => item.id === profile.selectedModelId) ?? channel?.models[0]
+  const max: unknown = model?.image?.references?.max
+  return typeof max === 'number' && Number.isFinite(max) ? max : null
+}

@@ -40,9 +40,14 @@ import {
   batchPerImage,
   oversizedReferenceIndexes,
   oversizedReferenceMessage,
+  partitionSharedReferences,
   quickGenerateAdmission,
+  sharedPinBlock,
+  sharedReferenceTaskLimit,
 } from '../lib/batchGenerate'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
+import { getModelReferenceMax } from '../lib/channels/profileSelectors'
+import { getPublicChannels } from '../lib/channels/publicChannels'
 import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { confirmImageBatch } from '../lib/confirmImageBatch'
@@ -57,7 +62,10 @@ import { syncMentionTagSelection } from '../lib/promptEditorDom'
 import { computePromptHeight } from '../lib/promptHeight'
 import {
   createMentionLabels,
+  createPerTaskMentionLabels,
   getAtImageQuery,
+  getImageMentionLabel,
+  getMentionedImageIndexes,
   getSelectedImageMentionLabel,
   type MentionLabelResolver,
 } from '../lib/promptImageMentions'
@@ -111,6 +119,9 @@ function useIsMobile() {
 
 /** 逐张生成点发送后按钮转圈的最短时长，之后才清空输入框。 */
 const BATCH_SEND_FEEDBACK_MS = 500
+/** 逐张生成时 @图1 的占位身份：它指「每个任务各自的目标图」，不是哪一张具体的图。 */
+const PER_TASK_TARGET_ID = 'per-task-target'
+const NO_SHARED_IMAGES: InputImage[] = []
 
 /** `inline`：首屏那一版——不吸底，跟着 hero 排在流里，卡面换成带发光描边的大卡。 */
 export default function InputBar({ inline = false }: { inline?: boolean } = {}) {
@@ -139,6 +150,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const clearMaskDraft = useStore((s) => s.clearMaskDraft)
   const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
   const moveInputImage = useStore((s) => s.moveInputImage)
+  const sharedImageIds = useStore((s) => s.sharedImageIds)
+  const toggleSharedImage = useStore((s) => s.toggleSharedImage)
 
   const [referencesExpanded] = useReferenceDisplay()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -229,9 +242,20 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const batchMergeLimit = modelAdmission.limit
   const batchActive =
     batchOffered && batchPerImage(inputImages.length, batchChosen, batchMergeLimit)
-  // 逐张生成每张参考图按 n=1 出图，提示词槽展开几条就再乘几条，与实际发出的任务数一致。
+  // 逐张生成时被图钉设为共享参考的图跟着每个任务走，不单独出图；张数和积分只按目标图算。
+  const sharedPartition = useMemo(
+    () => (batchActive ? partitionSharedReferences(inputImages, sharedImageIds) : null),
+    [batchActive, inputImages, sharedImageIds],
+  )
+  const sharedImages = sharedPartition?.shared ?? NO_SHARED_IMAGES
+  const batchTargetCount = sharedPartition?.targets.length ?? 0
+  // 每个任务 = 1 张目标图 + 全部共享参考，不能超过模型一次能带的参考图数。
+  const sharedTaskLimit = sharedReferenceTaskLimit(
+    getModelReferenceMax(activeProfile, getPublicChannels()) ?? Number.NaN,
+  )
+  // 逐张生成每张目标图按 n=1 出图，提示词槽展开几条就再乘几条，与实际发出的任务数一致。
   const batchImageCount = batchActive
-    ? inputImages.length * getSubmissionImageCount(prompt, slotValues, 1)
+    ? batchTargetCount * getSubmissionImageCount(prompt, slotValues, 1)
     : 0
   const submissionGuard = usePrivateSubmissionGuard({
     model: activeView.model,
@@ -370,9 +394,26 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     ? (inputImages.find((img) => img.id === maskDraft.targetImageId) ?? null)
     : null
   // 序号胶囊的显示标签随界面语言变；编辑器 HTML 与光标换算都按这份解析器缓存，语言也是入参。
-  const mentionLabels = useMemo(
-    () => createMentionLabels(inputImages, getAssetNamesByImageId(assets)),
-    [inputImages, assets, i18n.language],
+  // 逐张生成时序号指每个任务里的图（@图1 目标图，@图2… 共享参考），不是参考区里的顺序。
+  // 没有对应图的序号照样显示成胶囊、标成警示，提交时按普通文字发出，不悄悄删掉。
+  const perTaskMentions = sharedPartition !== null
+  const mentionLabels = useMemo<MentionLabelResolver>(() => {
+    const names = getAssetNamesByImageId(assets)
+    if (perTaskMentions) return createPerTaskMentionLabels(sharedImages, names)
+    const byStrip = createMentionLabels(inputImages, names)
+    return (index) => byStrip(index) ?? getImageMentionLabel(index)
+  }, [perTaskMentions, sharedImages, inputImages, assets, i18n.language])
+  const mentionSlotCount = perTaskMentions ? 1 + sharedImages.length : inputImages.length
+  const invalidMention = useCallback(
+    (imageIndex: number) => imageIndex >= mentionSlotCount,
+    [mentionSlotCount],
+  )
+  const invalidMentionLabels = useMemo(
+    () =>
+      [...new Set(getMentionedImageIndexes(prompt).filter((index) => index >= mentionSlotCount))]
+        .sort((a, b) => a - b)
+        .map((index) => getImageMentionLabel(index)),
+    [prompt, mentionSlotCount, i18n.language],
   )
   // 开头的 `/技能` 要变成带图标的胶囊，与画布输入框同一种呈现——用户从资产页「用智能体创建」
   // 跳过来看到的不该是一行裸文本。名字还在打的时候不提升，否则菜单会被胶囊关在外面。
@@ -408,8 +449,12 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const promptEditor = usePromptEditor({
     value: prompt,
     labels: mentionLabels,
+    invalidMention,
     // 引用的序号由条的顺序定义，所以这份 id 必须与 `mentionLabels` 同一条参考图列表、同一个顺序。
-    referenceIds: inputImages.map((image) => image.id),
+    // 逐张生成时 @图1 是「各自的目标图」，没有固定身份，用占位 id 让它在本输入框里复制粘贴仍是 @图1。
+    referenceIds: perTaskMentions
+      ? [PER_TASK_TARGET_ID, ...sharedImages.map((image) => image.id)]
+      : inputImages.map((image) => image.id),
     onChange: setPrompt,
     slotValues,
     command: skillCommand,
@@ -446,6 +491,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           inputImages,
           assets,
           canAttachAssets: acceptsReferences,
+          ...(perTaskMentions
+            ? { perTaskShared: sharedImages, labelByImageId: getAssetNamesByImageId(assets) }
+            : {}),
         })
       : []
   const templateMenuGroups =
@@ -968,6 +1016,24 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   }
 
   const renderImageThumb = (img: (typeof inputImages)[number], idx: number) => {
+    const sharedAt = sharedImages.findIndex((image) => image.id === img.id)
+    const isShared = sharedAt >= 0
+    // 逐张生成时这张图在每个任务里的序号：目标图都是 @图1，共享参考依次 @图2…
+    const mentionIndex = !perTaskMentions ? idx : isShared ? sharedAt + 1 : 0
+    const tileLabel = perTaskMentions
+      ? isShared
+        ? t('batch.sharedTile', { label: mentionLabels(mentionIndex) })
+        : t('batch.targetTile', { n: idx + 1 })
+      : (mentionLabels(idx) ?? undefined)
+    const pinBlock = sharedPartition
+      ? sharedPinBlock(inputImages, sharedImageIds, img.id, sharedTaskLimit)
+      : null
+    const pinTip =
+      pinBlock === 'lastTarget'
+        ? t('batch.pinLastTarget')
+        : pinBlock === 'full'
+          ? t('batch.pinFull', { max: sharedTaskLimit, shared: sharedTaskLimit - 1 })
+          : t('batch.pin')
     const isMaskTarget = maskDraft?.targetImageId === img.id
     const canEdit = !maskTargetImage || isMaskTarget
     const imageHintText = isMaskTarget ? t('image.maskFirstHint') : ''
@@ -1121,7 +1187,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             imageHintText || (
               <img
                 src={displaySrc}
-                alt={mentionLabels(idx) ?? ''}
+                alt={tileLabel ?? ''}
                 className="creation-reference-preview-image"
               />
             )
@@ -1138,9 +1204,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   : 'border border-border'
             }`}
             data-oversized={oversizedIndexes.includes(idx) || undefined}
+            data-shared-reference={isShared || undefined}
             role="button"
             tabIndex={0}
-            aria-label={mentionLabels(idx) ?? undefined}
+            aria-label={tileLabel}
             onKeyDown={(e) => {
               if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
               e.preventDefault()
@@ -1186,8 +1253,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               </span>
             )}
             {/* design-allow arbitrary-font: 72px 缩略图上的序号角标 */}
-            <span className="absolute bottom-1 left-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/55 text-[9px] font-semibold text-white backdrop-blur-sm z-10 pointer-events-none">
-              {idx + 1}
+            <span className="absolute bottom-1 left-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-black/55 px-1 text-[9px] font-semibold text-white backdrop-blur-sm z-10 pointer-events-none">
+              {isShared ? t('batch.sharedIndex', { n: mentionIndex + 1 }) : idx + 1}
             </span>
           </div>
         </Hint>
@@ -1215,6 +1282,52 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             </Button>
           </Hint>
         )}
+        {sharedPartition &&
+          (isShared ? (
+            <Hint
+              tooltip={t('batch.unpin')}
+              side="top"
+              disableHoverableContent
+              className="creation-reference-action-hint"
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                aria-label={t('batch.unpin')}
+                aria-pressed
+                className="creation-reference-shared"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleSharedImage(img.id)
+                }}
+              >
+                <Icon name="pin" size="xs" />
+                <span>{t('batch.shared')}</span>
+              </Button>
+            </Hint>
+          ) : (
+            <Hint
+              tooltip={pinTip}
+              side="top"
+              disableHoverableContent
+              className="creation-reference-action-hint"
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                aria-label={pinTip}
+                aria-pressed={false}
+                aria-disabled={pinBlock ? true : undefined}
+                className="creation-reference-pin opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (!pinBlock) toggleSharedImage(img.id)
+                }}
+              >
+                <Icon name="pin" size="xs" />
+              </Button>
+            </Hint>
+          ))}
         <Hint
           tooltip={t('common:action.remove')}
           side="right"
@@ -1241,7 +1354,14 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const renderImageThumbs = () => {
     return (
       <div className="contents">
-        <div className="contents">{inputImages.map((img, idx) => renderImageThumb(img, idx))}</div>
+        <div className="contents">
+          {inputImages.map((img, idx) => [
+            sharedImages[0]?.id === img.id && (
+              <span key="shared-divider" aria-hidden className="creation-reference-divider" />
+            ),
+            renderImageThumb(img, idx),
+          ])}
+        </div>
         {touchDragPreview?.src &&
           createPortal(
             <div
@@ -1262,7 +1382,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               icon={<Icon name="link" />}
               label={t('image.insertMention')}
               onClick={() => {
-                insertImageMentionAtCursor(thumbMenu.index)
+                const sharedAt = sharedImages.findIndex((image) => image.id === thumbMenu.imageId)
+                insertImageMentionAtCursor(perTaskMentions ? sharedAt + 1 : thumbMenu.index)
                 setThumbMenu(null)
               }}
             />
@@ -1468,6 +1589,38 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 </Button>
               )}
             </div>
+            {(perTaskMentions || invalidMentionLabels.length > 0) && (
+              <div className="creation-mention-rules">
+                {perTaskMentions && (
+                  <p>
+                    {sharedImages.length > 0
+                      ? t('batch.ruleShared', {
+                          target: getImageMentionLabel(0),
+                          shared: sharedImages
+                            .map((_, i) => mentionLabels(i + 1))
+                            .join(t('batch.listSeparator')),
+                        })
+                      : t('batch.ruleNoShared', { target: getImageMentionLabel(0) })}
+                  </p>
+                )}
+                {invalidMentionLabels.length > 0 && (perTaskMentions || inputImages.length > 0) && (
+                  <p role="status" data-tone="warning">
+                    <Icon name="warning" size="xs" />
+                    <span>
+                      {perTaskMentions
+                        ? t('batch.mentionMissingPerTask', {
+                            count: mentionSlotCount,
+                            labels: invalidMentionLabels.join(t('batch.listSeparator')),
+                          })
+                        : t('batch.mentionMissing', {
+                            count: inputImages.length,
+                            labels: invalidMentionLabels.join(t('batch.listSeparator')),
+                          })}
+                    </span>
+                  </p>
+                )}
+              </div>
+            )}
           </CreationBody>
           <CreationToolbar
             mode={
@@ -1493,6 +1646,18 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               oversizedNotice ? (
                 <span role="alert" className="text-xs leading-snug text-destructive">
                   {oversizedNotice}
+                </span>
+              ) : batchActive && !submissionGuard.blockedAction ? (
+                <span className="creation-batch-summary">
+                  {[
+                    t('batch.summaryCount', { count: batchImageCount }),
+                    sharedImages.length > 0 &&
+                      t('batch.summaryShared', { count: sharedImages.length }),
+                    batchTotalCredits !== undefined &&
+                      t('batch.summaryCredits', { credits: batchTotalCredits.toLocaleString() }),
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                 </span>
               ) : (
                 <SubmissionBillingAction

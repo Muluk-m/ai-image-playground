@@ -117,7 +117,9 @@
     "itemDetail": "Details of image {{index}}",
     "downloadItem": "Download image {{index}}",
     "downloadAll": "Download all",
-    "itemList": "Images"
+    "itemList": "Images",
+    "sharedReferences": "Shared in every image",
+    "taskReferences": "References: 1 target + {{count}} shared"
   },
   "cloudHistory": {
     "refresh": "Refresh",
