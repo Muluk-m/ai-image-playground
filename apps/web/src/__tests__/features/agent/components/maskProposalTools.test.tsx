@@ -64,7 +64,7 @@ function pressedTools(segmentation: AgentMaskProposal['segmentation']) {
   const message = clarification(segmentation)
   useAgentStore.setState({ messages: [message] as never })
   act(() => {
-    root.render(<AgentClarification message={message} />)
+    root.render(<AgentClarification message={message} answered={false} />)
   })
   return [...host.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button[aria-pressed]')]
 }
