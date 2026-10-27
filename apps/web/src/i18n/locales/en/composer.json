@@ -195,6 +195,7 @@
     "newProject": "New project",
     "references": "References ({{count}})",
     "removeReference": "Remove image {{index}}",
+    "referenceIssue": "Image {{index}}: {{reason}}",
     "removeUnusableReferences": "Remove unusable images",
     "uploadProgress": "Uploading {{ready}}/{{total}}",
     "viewAllReferences": "View all",
