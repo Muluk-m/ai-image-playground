@@ -5,7 +5,7 @@ import { useTranslation } from '../../../i18n'
 import { formatDate } from '../../../i18n/format'
 import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import { copyDeletedProjectLocally, restoreProject } from '../lib/activeProject'
-import { listRecycledCloudProjects } from '../lib/projectClient'
+import { listRecycledCloudProjects, ProjectRequestError } from '../lib/projectClient'
 import { type CanvasProject, projectDisplayName } from '../lib/projectRepository'
 import { useCanvasProjectStore } from '../projectStore'
 
@@ -22,7 +22,8 @@ export default function ProjectTrash({
   const [cursor, setCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState(false)
+  // 恢复撞上项目数上限要直说，重试回收站列表解决不了（BUG-52）。
+  const [error, setError] = useState<false | 'fallback' | 'project_quota_exceeded'>(false)
   const scope = scopedStorageName('canvas')
   useEffect(() => {
     let cancelled = false
@@ -36,7 +37,7 @@ export default function ProjectTrash({
           setCursor(page.nextCursor)
         },
         () => {
-          if (!cancelled) setError(true)
+          if (!cancelled) setError('fallback')
         },
       )
       .finally(() => {
@@ -55,7 +56,7 @@ export default function ProjectTrash({
       const project = await copyDeletedProjectLocally(id)
       if (isCurrent()) await onOpen(project)
     } catch {
-      if (isCurrent()) setError(true)
+      if (isCurrent()) setError('fallback')
     } finally {
       setBusy(false)
     }
@@ -69,8 +70,13 @@ export default function ProjectTrash({
       await restoreProject(id)
       if (!isCurrent()) return
       setProjects((all) => all.filter((one) => one.id !== id))
-    } catch {
-      if (isCurrent()) setError(true)
+    } catch (failure) {
+      if (isCurrent())
+        setError(
+          failure instanceof ProjectRequestError && failure.code === 'project_quota_exceeded'
+            ? 'project_quota_exceeded'
+            : 'fallback',
+        )
     } finally {
       setBusy(false)
     }
@@ -89,7 +95,7 @@ export default function ProjectTrash({
       setCursor(page.nextCursor)
       setError(false)
     } catch {
-      if (isCurrent()) setError(true)
+      if (isCurrent()) setError('fallback')
     } finally {
       setBusy(false)
     }
@@ -108,10 +114,16 @@ export default function ProjectTrash({
       {loading && <p role="status">{t('grid.loadingCloud')}</p>}
       {error && (
         <div role="alert">
-          {t('errors:projectRecycle.fallback')}{' '}
-          <Button variant="link" disabled={busy} onClick={() => void more()}>
-            {t('grid.retryCloud')}
-          </Button>
+          {error === 'project_quota_exceeded' ? (
+            t('errors:projectSync.project_quota_exceeded')
+          ) : (
+            <>
+              {t('errors:projectRecycle.fallback')}{' '}
+              <Button variant="link" disabled={busy} onClick={() => void more()}>
+                {t('grid.retryCloud')}
+              </Button>
+            </>
+          )}
         </div>
       )}
       {!loading && !projects.length && !localCopies.length && (
