@@ -1653,6 +1653,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 status={oversizedNotice ?? uploadDetail ?? uploadProgress ?? undefined}
                 onRemoveFailed={removeUnusableLabel ? removeUnusable : undefined}
                 removeFailedLabel={removeUnusableLabel}
+                showUploadingStatus={false}
                 onClear={() => useStore.getState().clearInputImages()}
                 previews={inputImages
                   .slice(-3)
