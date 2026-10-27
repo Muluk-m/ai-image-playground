@@ -9,6 +9,8 @@
 // 标准输入是改动文件列表（一行一个）。设置了 GITHUB_OUTPUT 时写出 sensitive=true|false。
 // 路径清单不是完整定义：清单外的成本改动同样要在描述里写明。
 import { appendFileSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 /** 改到这些文件即视为可能影响成本。测试目录不算：只改测试不会改变线上花费。 */
 export const COST_PATHS = [
@@ -48,7 +50,7 @@ export function costFiles(files) {
   )
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const files = readFileSync(0, 'utf8')
     .split('\n')
     .map((line) => line.trim())
