@@ -86,6 +86,7 @@ import { useLibraryStore } from '../../library/store'
 import type { AssetRecord } from '../../library/types'
 import PlayBadge from '../../video/components/PlayBadge'
 import { arrangementKey, arrangeNodes, type CanvasPlacement } from '../lib/arrangeNodes'
+import { useCanvasAssetsEntry } from '../lib/assetsEntry'
 import type { CanvasAssetItem } from '../lib/canvasAssets'
 import { newElementId } from '../lib/canvasDoc'
 import { useCanvasResultAssets } from '../lib/canvasResultAssets'
@@ -1339,27 +1340,16 @@ function Flow({
         }) ?? { x: 0, y: 0 })
       : { x: 0, y: 0 }
   }
-  const [assetsPanel, setAssetsPanel] = useState<{ left: number; top: number } | null>(null)
-  const placeAssetsPanel = () => {
-    const box = container.current?.getBoundingClientRect()
-    const tools = container.current?.querySelector('.studio-node-tools')?.getBoundingClientRect()
-    if (!box || !tools) return { left: 16, top: 16 }
-    // 竖排工具栏时贴在它右侧、顶端对齐；窄屏工具栏横到顶部时放在它下面。
-    return tools.height >= tools.width
-      ? { left: tools.right - box.left + 8, top: tools.top - box.top }
-      : { left: tools.left - box.left, top: tools.bottom - box.top + 8 }
-  }
-  const placeAssetsPanelRef = useRef(placeAssetsPanel)
-  placeAssetsPanelRef.current = placeAssetsPanel
-  const assetsPanelOpen = assetsPanel !== null
-  const canvasResultItems = useCanvasResultAssets(editor, canvas, projectName, assetsPanelOpen)
+  // 「资产」入口在全局顶栏：画布挂着才出现，开关状态放在共享 store 里。
+  const assetsPanelOpen = useCanvasAssetsEntry((s) => s.open)
+  const setAssetsPanelOpen = useCanvasAssetsEntry((s) => s.setOpen)
   useEffect(() => {
-    if (!assetsPanelOpen) return
-    const reposition = () => setAssetsPanel(placeAssetsPanelRef.current())
-    window.addEventListener('resize', reposition)
-    return () => window.removeEventListener('resize', reposition)
-  }, [assetsPanelOpen])
-  // 资产浮层里点一件或「应用到画布」：在当前画面中间建节点并选中，不挪视口，浮层保持打开。
+    const entry = useCanvasAssetsEntry.getState()
+    entry.setAvailable(true)
+    return () => entry.setAvailable(false)
+  }, [])
+  const canvasResultItems = useCanvasResultAssets(editor, canvas, projectName, assetsPanelOpen)
+  // 资产弹窗里点一件或「应用到画布」：在当前画面中间建节点并选中，不挪视口；成功后弹窗自己关掉。
   const placeAssets = async (items: readonly CanvasAssetItem[]) => {
     try {
       const ids = await insertResultNodes(
@@ -2434,10 +2424,6 @@ function Flow({
                           placeAt.current = center()
                           setAssetsOpen(true)
                         }}
-                        assetsPanelOpen={assetsPanelOpen}
-                        onAssetsPanel={() =>
-                          setAssetsPanel((open) => (open ? null : placeAssetsPanel()))
-                        }
                         onUpload={() => {
                           placeAt.current = center()
                           fileInput.current?.click()
@@ -2529,12 +2515,11 @@ function Flow({
                           <NodeTool icon="delete" label={t('nodes.delete')} onClick={remove} />
                         </div>
                       )}
-                      {assetsPanel && (
+                      {assetsPanelOpen && (
                         <NodeAssetsPanel
                           conversationId={projectConversationId}
                           canvasItems={canvasResultItems}
-                          style={assetsPanel}
-                          onClose={() => setAssetsPanel(null)}
+                          onClose={() => setAssetsPanelOpen(false)}
                           onPlace={placeAssets}
                           onDownload={(items) =>
                             void transferMedia(
@@ -2544,7 +2529,8 @@ function Flow({
                           }
                         />
                       )}
-                      <MediaTransferCard />
+                      {/* 资产弹窗开着时传输卡由弹窗那一层渲染，免得被遮罩挡住 */}
+                      {!assetsPanelOpen && <MediaTransferCard />}
                       {scriptPoint && (
                         <ScriptBriefDialog
                           onClose={() => setScriptPoint(null)}

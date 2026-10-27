@@ -27,6 +27,7 @@ import * as Y from 'yjs'
 import NodeCanvas, {
   useUploadingElsewhere,
 } from '../../../../features/canvas/components/NodeCanvas'
+import { useCanvasAssetsEntry } from '../../../../features/canvas/lib/assetsEntry'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
 import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCanvasDocument'
 import type { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
@@ -630,18 +631,22 @@ it('preserves a video rotation when switching from its poster to playback', asyn
   expect(host.querySelector('[data-node-id="image"] .studio-node-caption')).not.toBeNull()
 })
 
-it('keeps the materials picker and opens the assets panel from the left toolbar', async () => {
+it('keeps the materials picker and moves the assets entry out of the left toolbar', async () => {
   await render()
   const tool = (label: string) =>
     host.querySelector<HTMLButtonElement>(`.studio-node-tools button[aria-label="${label}"]`)
   expect(tool('素材')).not.toBeNull()
-  expect(tool('资产')).not.toBeNull()
-  expect(host.querySelector('.studio-assets-panel')).toBeNull()
-  await act(async () => tool('资产')!.click())
-  expect(host.querySelector('.studio-assets-panel')).not.toBeNull()
-  expect(tool('资产')!.getAttribute('aria-pressed')).toBe('true')
-  await act(async () => tool('资产')!.click())
-  expect(host.querySelector('.studio-assets-panel')).toBeNull()
+  expect(tool('资产')).toBeNull()
+  // 入口在全局顶栏：画布挂着时 store 标记可用，打开后整屏弹窗 portal 到 body。
+  expect(useCanvasAssetsEntry.getState().available).toBe(true)
+  expect(document.querySelector('.studio-canvas-assets-modal')).toBeNull()
+  await act(async () => useCanvasAssetsEntry.getState().setOpen(true))
+  expect(document.querySelector('.studio-canvas-assets-modal')).not.toBeNull()
+  await act(async () => useCanvasAssetsEntry.getState().setOpen(false))
+  expect(document.querySelector('.studio-canvas-assets-modal')).toBeNull()
+  act(() => root.unmount())
+  expect(useCanvasAssetsEntry.getState().available).toBe(false)
+  root = createRoot(host)
 })
 
 it('opens an add menu on a double-click of the empty canvas', async () => {
