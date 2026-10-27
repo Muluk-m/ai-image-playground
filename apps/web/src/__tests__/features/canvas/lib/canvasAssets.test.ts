@@ -100,6 +100,17 @@ describe('canvas assets', () => {
     expect(sorted.map((one) => one.id)).toEqual(['a', 'd'])
   })
 
+  it('keeps a queue and a local result that share a task id', () => {
+    const task = (id: string, type: 'queue' | 'local') =>
+      ({
+        id,
+        createdAt: 1,
+        insert: { kind: 'image', source: { type, taskId: 't1', outputIndex: 0 } },
+      }) as CanvasAssetItem
+    const sorted = sortCanvasAssets([task('q', 'queue'), task('l', 'local')])
+    expect(sorted.map((one) => one.id).sort()).toEqual(['l', 'q'])
+  })
+
   it('groups by today, yesterday and a calendar date', () => {
     const now = new Date(2026, 9, 27, 15).getTime()
     const groups = groupAssetsByDay(

@@ -216,7 +216,7 @@ export function sortCanvasAssets(items: readonly CanvasAssetItem[]): CanvasAsset
           ? `media:${source.mediaId}`
           : source.type === 'file'
             ? `file:${source.fileId}`
-            : `task:${source.taskId}:${source.outputIndex}`
+            : `${source.type}:${source.taskId}:${source.outputIndex}`
       if (seen.has(item.id) || seen.has(key)) return false
       seen.add(item.id)
       seen.add(key)
