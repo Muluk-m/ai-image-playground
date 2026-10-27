@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentClarification from '../../../../features/agent/components/AgentClarification'
 import { useAgentStore } from '../../../../features/agent/store'
+import { stubPointerApis } from '../../../helpers/radix'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -42,6 +43,8 @@ let host: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  // 画笔工具带 Radix 滑块，要用到 ResizeObserver。
+  stubPointerApis()
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => new Response(null, { status: 404 })),
