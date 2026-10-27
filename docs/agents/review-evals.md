@@ -37,13 +37,13 @@ gh workflow run ai-review.yml --ref <要测的配置所在分支> \
 ```
 
 - `--ref` 决定用哪一版工作流和提示词：测改动前的配置用 `main`，测改动后的用改动所在的分支。REVIEW.md 背景也取自这个 ref。
-- 手动运行不发 PR 评论，结果只在该次运行的 Job Summary 里。`MIN_SEVERITY` 以下的意见也在 Summary 里。
+- 手动运行跳过「Post review results」，不发 PR 评论，也不把意见写进 Job Summary（Summary 里只有耗时统计）。评审意见在该次运行「Run OpenCodeReview」步骤日志末尾 `----- ocr stdout (json) -----` 之后的 JSON 里，含全部级别（不按 `MIN_SEVERITY` 过滤）。日志会过期，记录时把命中的那几条意见原文摘进下面的表格或附在 PR 里。
 - 第 5 题很大，可能撞上 `OCR_GROUP_TIMEOUT`；超时的组照实记录为超时。
 - ocr 会跳过只改 `.md` 的区间，以上题目都含代码，不受影响。
 
 ## 记录
 
-每次回放在下面追加一行，链接到对应的 Actions 运行。「命中」指 Summary 里有一条意见明确说中了上面「本该看出什么」的要点（级别也写上）。
+每次回放在下面追加一行，链接到对应的 Actions 运行。「命中」指 JSON 结果里有一条意见明确说中了上面「本该看出什么」的要点（级别也写上）。
 
 | 日期（UTC+8） | 配置（ref@SHA、模型、effort） | 题 1 | 题 2 | 题 3 | 题 4 | 题 5 | 运行链接 | 结论 |
 |---|---|---|---|---|---|---|---|---|
