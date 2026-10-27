@@ -1,4 +1,12 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { createPortal } from 'react-dom'
 import AgentParamsChip, {
   AgentExecutionSettings,
@@ -397,6 +405,12 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   // 逐张生成时序号指每个任务里的图（@图1 目标图，@图2… 共享参考），不是参考区里的顺序。
   // 没有对应图的序号照样显示成胶囊、标成警示，提交时按普通文字发出，不悄悄删掉。
   const perTaskMentions = sharedPartition !== null
+  // 换图、挪图时 store 按这一刻的口径重排提示词里的序号：画布档、模板胶囊这些只有输入框知道，交给它。
+  const setComposerPerTaskMentions = useStore((s) => s.setComposerPerTaskMentions)
+  useLayoutEffect(() => {
+    setComposerPerTaskMentions(perTaskMentions)
+  }, [perTaskMentions, setComposerPerTaskMentions])
+  useLayoutEffect(() => () => setComposerPerTaskMentions(null), [setComposerPerTaskMentions])
   const mentionLabels = useMemo<MentionLabelResolver>(() => {
     const names = getAssetNamesByImageId(assets)
     if (perTaskMentions) return createPerTaskMentionLabels(sharedImages, names)

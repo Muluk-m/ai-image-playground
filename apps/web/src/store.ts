@@ -670,6 +670,13 @@ interface AppState {
    * 目标图在前。只在这一次编辑里有效，不进持久化，和 `batchGenerate` 一样。
    */
   sharedImageIds: string[]
+  /**
+   * 快速生成输入框这一刻是否按「每个任务里的图」数序号（@图1 = 目标图，@图2… = 共享参考）。
+   * 由输入框按它自己的口径（画布档、模板胶囊、遮罩、模型能否带图）写进来；没有输入框挂着时为 null，
+   * 由 store 按逐张开关与图数自己判断。
+   */
+  composerPerTaskMentions: boolean | null
+  setComposerPerTaskMentions: (value: boolean | null) => void
   /** 设成共享参考 / 变回目标图；最后一张目标图、每个任务已满时不动。 */
   toggleSharedImage: (imageId: string) => void
   /**
@@ -734,6 +741,7 @@ interface AppState {
  * 合并参考时是条上的位置。和输入框判断逐张的口径一致（模板与遮罩在那边另行排除）。
  */
 function sharedMentionMode(s: AppState): boolean {
+  if (s.composerPerTaskMentions !== null) return s.composerPerTaskMentions
   return (
     !s.maskDraft &&
     batchPerImage(
@@ -752,16 +760,19 @@ function sharedMentionMode(s: AppState): boolean {
 function settleSharedReferences(
   s: AppState,
   images: readonly InputImage[],
+  equivalentImageIds: Record<string, string> = {},
 ): Pick<AppState, 'inputImages' | 'sharedImageIds' | 'prompt'> {
-  const wasShared = new Set(s.sharedImageIds)
+  // 同一位换成了等价的新图（遮罩对齐过的副本）时，按新 id 认它原来的身份。
+  const previousSharedIds = s.sharedImageIds.map((id) => equivalentImageIds[id] ?? id)
+  const wasShared = new Set(previousSharedIds)
   let sharedImageIds = images.filter((one) => wasShared.has(one.id)).map((one) => one.id)
   if (sharedImageIds.length > 0 && sharedImageIds.length === images.length)
     sharedImageIds = sharedImageIds.slice(1)
   const { targets, shared } = partitionSharedReferences(images, sharedImageIds)
   const inputImages = [...targets, ...shared]
   const prompt = sharedMentionMode(s)
-    ? remapSharedMentions(s.prompt, s.sharedImageIds, sharedImageIds)
-    : remapImageMentionsForOrder(s.prompt, s.inputImages, inputImages)
+    ? remapSharedMentions(s.prompt, previousSharedIds, sharedImageIds)
+    : remapImageMentionsForOrder(s.prompt, s.inputImages, inputImages, equivalentImageIds)
   return { inputImages, sharedImageIds, prompt }
 }
 
@@ -828,7 +839,7 @@ export const useStore = create<AppState>()(
       replaceInputImages: (imgs, options) =>
         set((s) => {
           if (s.sharedImageIds.length > 0 && !s.maskDraft) {
-            const next = settleSharedReferences(s, imgs)
+            const next = settleSharedReferences(s, imgs, options?.equivalentImageIds)
             return options?.prompt === undefined ? next : { ...next, prompt: options.prompt }
           }
           const keepsMask =
@@ -988,6 +999,8 @@ export const useStore = create<AppState>()(
       batchGenerate: false,
       setBatchGenerate: (batchGenerate) => set({ batchGenerate }),
       sharedImageIds: [],
+      composerPerTaskMentions: null,
+      setComposerPerTaskMentions: (composerPerTaskMentions) => set({ composerPerTaskMentions }),
       toggleSharedImage: (imageId) =>
         set((s) => {
           const image = s.inputImages.find((one) => one.id === imageId)
