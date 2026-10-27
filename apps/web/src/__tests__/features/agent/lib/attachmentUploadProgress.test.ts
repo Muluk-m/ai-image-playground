@@ -69,6 +69,10 @@ it('exposes whole-percent direct-upload progress while the attachment is uploadi
   const xhr = FakeXhr.all[0]!
   xhr.upload.onprogress?.({ lengthComputable: true, loaded: 3, total: 8 } as ProgressEvent)
   expect(attachmentUploadProgress(reference)).toBe(37)
+  // 全部交给网络栈不等于对端收到了：不报 100%，退回「上传中」等响应（BUG-42）。
+  xhr.upload.onprogress?.({ lengthComputable: true, loaded: 8, total: 8 } as ProgressEvent)
+  expect(attachmentUploadState(reference)).toBe('uploading')
+  expect(attachmentUploadProgress(reference)).toBeUndefined()
   xhr.status = 200
   xhr.onload?.()
   expect(await prepared).toEqual([{ imageId: 'one', mediaId: 'one' }])

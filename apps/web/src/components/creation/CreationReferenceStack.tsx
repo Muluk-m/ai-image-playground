@@ -16,6 +16,7 @@ export function CreationReferenceStack({
   status,
   failed = false,
   uploading = false,
+  progress,
   onClear,
   onRemoveFailed,
   removeFailedLabel,
@@ -33,6 +34,8 @@ export function CreationReferenceStack({
   status?: string
   failed?: boolean
   uploading?: boolean
+  /** 上传中且知道进度时，收起的那叠上把转圈换成百分比（0–99）；不知道就继续转圈。 */
+  progress?: number
   onClear?: () => void
   /** 有坏图时收起的那叠缩略图上常显一个 ×，点了只移除坏图。 */
   onRemoveFailed?: () => void
@@ -202,8 +205,15 @@ export function CreationReferenceStack({
                     </span>
                     <span className="creation-stack-count">{failed ? '!' : count}</span>
                     {uploading && (
-                      <span className="creation-stack-upload">
-                        <Icon name="loading" className="animate-spin motion-reduce:animate-none" />
+                      <span className="creation-stack-upload" data-progress={progress}>
+                        {progress === undefined ? (
+                          <Icon
+                            name="loading"
+                            className="animate-spin motion-reduce:animate-none"
+                          />
+                        ) : (
+                          `${progress}%`
+                        )}
                       </span>
                     )}
                   </Button>
