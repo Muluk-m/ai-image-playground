@@ -372,12 +372,12 @@ it('修复前入库的 EXIF 方向 6 旧记录：再次上传撞上时按转正�
   const upload = await (await request('media/uploads', deviceA, descriptor)).json()
   await storage.write(key(upload.uploadUrl), bytes, 'image/jpeg')
   expect((await request(`media/${upload.id}/complete`, deviceA, {})).status).toBe(200)
-  // 模拟修复前的那条记录：按原始像素记成横的，更新时间早于修复上线。
+  // 模拟修复前的那条记录：按原始像素记成横的，入库早于修复上线。
   const { eq } = await import('drizzle-orm')
   const legacyAt = Date.UTC(2026, 9, 20)
   await db
     .update(schema.media_objects)
-    .set({ width: 16, height: 12, updated_at: legacyAt })
+    .set({ width: 16, height: 12, created_at: legacyAt, updated_at: legacyAt })
     .where(eq(schema.media_objects.id, upload.id))
   const again = await request('media/uploads', deviceB, descriptor)
   expect(again.status).toBe(200)
@@ -402,6 +402,52 @@ it('修复前入库的 EXIF 方向 6 旧记录：再次上传撞上时按转正�
   expect(storage.events.slice(reads).filter((event) => event.startsWith('readUpTo:'))).toEqual([])
 })
 
+it('旧记录核对：回读临时失败的下次还会再核，并发两次都交回纠正后的宽高（BUG-43）', async () => {
+  const bytes = await sharp({
+    create: { width: 16, height: 12, channels: 3, background: '#335577' },
+  })
+    .jpeg()
+    .withMetadata({ orientation: 6 })
+    .toBuffer()
+  const descriptor = {
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    bytes: bytes.length,
+    contentType: 'image/jpeg',
+  }
+  const upload = await (await request('media/uploads', deviceA, descriptor)).json()
+  await storage.write(key(upload.uploadUrl), bytes, 'image/jpeg')
+  expect((await request(`media/${upload.id}/complete`, deviceA, {})).status).toBe(200)
+  const { eq } = await import('drizzle-orm')
+  // 只把入库时间改旧、updated_at 仍是新的：被别的更新前移过的旧记录也要核到。
+  await db
+    .update(schema.media_objects)
+    .set({ width: 16, height: 12, created_at: Date.UTC(2026, 9, 20) })
+    .where(eq(schema.media_objects.id, upload.id))
+  const [stale] = await db
+    .select()
+    .from(schema.media_objects)
+    .where(eq(schema.media_objects.id, upload.id))
+  const failing = spyOn(storage, 'readUpTo').mockRejectedValueOnce(new Error('transient'))
+  try {
+    // 回读失败：照旧返回旧宽高，上传本身不失败。
+    expect(await (await request('media/uploads', deviceB, descriptor)).json()).toMatchObject({
+      width: 16,
+      height: 12,
+    })
+  } finally {
+    failing.mockRestore()
+  }
+  const [first, second] = await Promise.all([
+    request('media/uploads', deviceA, descriptor).then((response) => response.json()),
+    request('media/uploads', deviceB, descriptor).then((response) => response.json()),
+  ])
+  expect(first).toMatchObject({ width: 12, height: 16 })
+  expect(second).toMatchObject({ width: 12, height: 16 })
+  // 另一次请求在纠正之前读到的快照，核过之后拿到的是纠正后的宽高。
+  const { withOrientedSize } = await import('../../lib/projectMedia')
+  expect(await withOrientedSize(stale!)).toMatchObject({ width: 12, height: 16 })
+})
+
 it('修复前入库、朝向本来就对的旧记录不改', async () => {
   const bytes = await sharp({
     create: { width: 16, height: 12, channels: 3, background: '#224466' },
@@ -420,7 +466,7 @@ it('修复前入库、朝向本来就对的旧记录不改', async () => {
   const legacyAt = Date.UTC(2026, 9, 20)
   await db
     .update(schema.media_objects)
-    .set({ updated_at: legacyAt })
+    .set({ created_at: legacyAt, updated_at: legacyAt })
     .where(eq(schema.media_objects.id, upload.id))
   expect(await (await request('media/uploads', deviceB, descriptor)).json()).toMatchObject({
     width: 16,
