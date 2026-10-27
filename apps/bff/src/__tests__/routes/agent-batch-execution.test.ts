@@ -2353,3 +2353,88 @@ it('confirms one independently priced analysis after its origin turn settled and
     setChatFetchForTesting()
   }
 })
+
+it('对话里出了新计划，先前轮次删过项的旧计划作废，确认被拒且不扣费（BUG-39）', async () => {
+  billing.reset()
+  billing.answer = { kind: 'reserved', credits: 7 }
+  billing.settledCredits = 7
+  const fruit = (key: string) => ({ key, imageIds: [], prompt: `${key} 静物`, dependencies: [] })
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  const turn = async (id: string, args: Record<string, unknown>, text: string) => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () => toolCallCompletion({ id, name: 'planImageBatch', args }),
+          () => completionStream('请确认计划'),
+        ],
+      ),
+    )
+    await (
+      await request(`agent/conversations/${conversation.id}/turns`, { deviceId: DEVICE, text })
+    ).text()
+    const [row] = await db
+      .select({ id: schema.agent_batches.id })
+      .from(schema.agent_batches)
+      .where(eq(schema.agent_batches.tool_call_id, id))
+    return `agent/batches/${row!.id}`
+  }
+  const fruits = await turn(
+    'fruit-plan',
+    { title: '水果静物', rule: '写实', items: [fruit('banana'), fruit('grape'), fruit('orange')] },
+    '香蕉、葡萄、橙子各一张，先出计划卡',
+  )
+  const draft = await (await request(fruits)).json()
+  const trimmed = await request(
+    fruits,
+    {
+      expectedVersion: 1,
+      title: draft.batch.title,
+      rule: draft.batch.rule,
+      items: draft.items
+        .filter((item: { key: string }) => item.key !== 'orange')
+        .map((item: Record<string, unknown>, ordinal: number) => ({
+          key: item.key,
+          ordinal,
+          kind: item.kind,
+          inputs: item.inputs,
+          prompt: item.prompt,
+          dependencies: item.dependencies,
+          params: item.params,
+        })),
+    },
+    'PATCH',
+  )
+  expect(trimmed.status).toBe(200)
+  const saved = await trimmed.json()
+  expect(saved.batch).toMatchObject({ status: 'draft', version: 2, itemCount: 2 })
+
+  const apple = await turn(
+    'apple-plan',
+    { title: '红苹果', rule: '写实', items: [fruit('apple')] },
+    '换个方案，不要水果了，只做 1 张红苹果',
+  )
+  expect((await (await request(fruits)).json()).batch.status).toBe('cancelled')
+  expect((await (await request(apple)).json()).batch.status).toBe('draft')
+  const stale = await request(`${fruits}/confirm`, {
+    commandId: 'confirm-superseded',
+    expectedVersion: 2,
+    expectedDigest: saved.batch.digest,
+    deviceId: DEVICE,
+  })
+  expect(stale.status).toBe(409)
+  expect(billing.reservations.filter((one) => one.model !== 'fixture-agent-model')).toHaveLength(0)
+  expect((await (await request(fruits)).json()).batch).toMatchObject({
+    status: 'cancelled',
+    submittedCount: 0,
+  })
+
+  // 用户明确要另做一份时保留先前计划。
+  const pear = await turn(
+    'pear-plan',
+    { title: '梨', rule: '写实', items: [fruit('pear')], keepEarlierPlans: true },
+    '苹果那张留着，另外再做一张梨',
+  )
+  expect((await (await request(apple)).json()).batch.status).toBe('draft')
+  expect((await (await request(pear)).json()).batch.status).toBe('draft')
+})
