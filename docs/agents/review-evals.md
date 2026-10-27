@@ -4,7 +4,7 @@
 改 ocr（`.github/workflows/ai-review.yml`）的**模型、提示词（`REVIEW_GUIDANCE`、REVIEW.md 背景）或评审力度（`OCR_EFFORT` / `LLM_EXTRA_BODY`）之前**，
 先用改动前和改动后的配置各回放一遍下面的题目并记录结果，再决定要不要改。没回放、没记录的，不改。
 
-回放会花 `CI_LLM_API_KEY` 的额度（第 5 题很大），跑之前先跟 Nain 说一声。本文只说明怎么做，加入本文的 PR 没有跑过回放。
+回放会花 `CI_LLM_API_KEY` 的额度（第 5 题很大），跑之前先跟 Nain 说一声。2026-10-27 的第一次回放是 Nain 同意额度后跑的，结果见「记录」。
 
 ## 题目
 
@@ -47,7 +47,26 @@ gh workflow run ai-review.yml --ref <要测的配置所在分支> \
 
 | 日期（UTC+8） | 配置（ref@SHA、模型、effort） | 题 1 | 题 2 | 题 3 | 题 4 | 题 5 | 运行链接 | 结论 |
 |---|---|---|---|---|---|---|---|---|
-| （尚未回放） | | | | | | | | |
+| 2026-10-27 19:56 | `main@3e6b01d57`（改 medium 之前的配置，没有 REVIEW.md 背景）、`gpt-6.1-sol`、low | 未命中 | 部分命中（P1） | 未命中 | 未命中 | 未命中 | [1](https://github.com/Muluk-m/ai-image-playground/actions/runs/40499890840) [2](https://github.com/Muluk-m/ai-image-playground/actions/runs/40499900157) [3](https://github.com/Muluk-m/ai-image-playground/actions/runs/40499909592) [4](https://github.com/Muluk-m/ai-image-playground/actions/runs/40499918841) [5](https://github.com/Muluk-m/ai-image-playground/actions/runs/40499927733) | 5 题命中 0 题、部分命中 1 题。low 能挑出代码层面的 bug，但看不出依赖/打包风险、双版本边界和「要不要 Nain 确认」这类流程问题 |
+
+### 2026-10-27 low 回放明细
+
+每题一次，五个运行同时开跑。token 取自各运行 Summary 的 ocr 耗时统计；网关按 token 计费，单价以网关账单为准，这里只记用量。
+
+| 题 | 运行 | 耗时 | 意见数（P1/P2，含 critical/high/medium/low） | 输入 / 输出 token | 本该看出 | 实际说了什么 |
+|---|---|---|---|---|---|---|
+| 1 #1167 | [40499890840](https://github.com/Muluk-m/ai-image-playground/actions/runs/40499890840) | 6.1 分 | 5（全 P1） | 411,254 / 16,159 | 新依赖改变分块，`manualChunks` 循环导入，要求生产构建冒烟 | 5 条都在画布组件内部：video cleanup 打断播放、i18n 复数 key 不匹配、忽略 `mediaId`、`onInit` 时容器尺寸为 0、标注层级。`apps/web/package.json` 在评审组里，但没有一条提到新依赖对打包的影响。**未命中** |
+| 2 #1260 | [40499900157](https://github.com/Muluk-m/ai-image-playground/actions/runs/40499900157) | 3.4 分 | 2（P1） | 128,646 / 8,506 | 失败顺序与部分完成状态：BFF 已切新版后 admin 代理失败，不回滚 | `rollout-runtime.sh:751`：失败时新 Admin 容器不在 `created` 里、`restore` 不停它、`admin-pending` 已写入，会遗留实例；`:669`：只看 worker 数判断 reload 成功，没确认流量到了新 upstream。说中了「失败路径留下半完成状态」，但没点出 BFF 已经切换、整次发布不回退。**部分命中（P1）** |
+| 3 #725 | [40499909592](https://github.com/Muluk-m/ai-image-playground/actions/runs/40499909592) | 3.0 分 | 2（P2） | 39,380 / 2,604 | 付费专属代码进了公开树 | 只有 `TierBadge` 的 `aria-label` 和 `size` 校验两条 P2。**未命中** |
+| 4 #670 | [40499918841](https://github.com/Muluk-m/ai-image-playground/actions/runs/40499918841) | 3.4 分 | 5（3 P1、2 P2） | 434,344 / 12,480 | 用户可感知的行为改动要 Nain 确认、附测试环境截图 | 抓到了真问题：首屏在云端记录加载前误判为空导致布局跳动（P1）、图片未预留高度（P1）、分类失效后永久骨架（P1）；另有重复配置、死导入。没有提到需要确认或截图。**未命中**（要点），代码层面有收获 |
+| 5 #40 | [40499927733](https://github.com/Muluk-m/ai-image-playground/actions/runs/40499927733) | 15.3 分 | 60（critical 1、high 26 等） | 4,868,648 / 116,814 | base 分支不对、巨型 PR 不该直接进 main | 60 条，覆盖鉴权、CORS、XSS、迁移、计费原子性等，没有一条说 PR 太大或该先进 `test`；ocr 只看 diff，在意料之中。没有组超时。**未命中** |
+| 合计 | | | 74 | 5,882,272 / 156,563 | | |
+
+第 5 题一题就占了约 83% 的输入 token。以后只想比较配置时，可以先跑 1–4 题，第 5 题单独决定。
+
+### 建议：medium 对比回放（未跑）
+
+本次只按要求跑了 low。PR 把默认改成 medium，按「改评审力度之前先回放」的规则，合并前最好在改动分支上用 medium 再跑一遍 1–4 题（`--ref ci/review-hardening`，会带上 REVIEW.md 背景），看题 1/3/4 有没有变化。预计用量约为本次 1–4 题的 2 倍：输入约 200 万 token、输出约 8 万，耗时每题 5–12 分钟。第 5 题对比价值低、用量大，建议不跑。要不要跑，由 Nain 决定。
 
 ## 新增题目
 
