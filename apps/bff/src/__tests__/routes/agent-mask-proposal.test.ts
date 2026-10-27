@@ -642,6 +642,56 @@ describe('范围确认卡', () => {
     expect(card?.maskProposal?.target).toBe('浴缸')
   }, 20_000)
 
+  it('shows the candidates card in one call when the model marks only the chosen one and skips the overall box', async () => {
+    const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
+    const conversationId = (json as { conversation: { id: string } }).conversation.id
+    const bath = await sharp(ORIGINAL).jpeg({ quality: 80 }).toBuffer()
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'loose',
+            name: 'proposeEditRegion',
+            args: {
+              imageId: 'file_bathtub',
+              target: '其中一个浴缸',
+              change: '换成红色',
+              instances: [
+                { box: { x: 0.6, y: 0.3, width: 0.3, height: 0.4 }, label: '右边' },
+                {
+                  box: { x: 0.1, y: 0.3, width: 0.3, height: 0.4 },
+                  label: '左边',
+                  selected: true,
+                  points: [{ x: 0.25, y: 0.5 }],
+                },
+              ],
+            },
+          }),
+      ]),
+    )
+    const frames = await runTurn(
+      conversationId,
+      '把其中一个浴缸换成红色',
+      [{ imageId: 'file_bathtub', dataUrl: `data:image/jpeg;base64,${bath.toString('base64')}` }],
+      { thinkingDepth: 'fast', model: 'agnes-image' },
+    )
+    expect(calls).toHaveLength(1)
+    const [card] = eventsOfType(frames, 'clarification') as unknown as AgentClarificationBlock[]
+    const proposal = card?.maskProposal
+    expect(proposal?.box).toEqual({ x: 0.1, y: 0.3, width: 0.3, height: 0.4 })
+    expect(
+      proposal?.regions?.map((one) => ({
+        label: one.label,
+        selected: one.selected,
+        points: one.points,
+      })),
+    ).toEqual([
+      { label: '左边', selected: true, points: [{ x: 0.25, y: 0.5, include: true }] },
+      { label: '右边', selected: false, points: undefined },
+    ])
+  }, 20_000)
+
   it('ends the turn when the retried proposal is rejected again', async () => {
     const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
     const conversationId = (json as { conversation: { id: string } }).conversation.id
