@@ -182,22 +182,39 @@ it('refuses bytes that are not an image', async () => {
 
   expect(thrown).toMatchObject({ code: 'invalid_params' })
   expect((thrown as Error).message).toContain('不是图片')
+  // 不是图片就只说不是图片，不混进像素预算（BUG-48）。
+  expect((thrown as Error).message).not.toContain('像素')
+  expect((thrown as Error).message).not.toContain('预算')
   expect(await db.select({ id: schema.media_objects.id }).from(schema.media_objects)).toEqual([])
 })
 
-// 网图超过读图像素预算：是来源给不出能用的图，不能报成「参数不成立」（QA 线上：取青岛风景图失败后改图照常成功）。
-it('reports an image over the pixel budget as an unavailable source, not bad params', async () => {
+// 超过读图像素预算的网图等比缩小后收进来，不拒绝、也不说成来源网站的问题（BUG-47）。
+it('downscales an image over the pixel budget instead of refusing it', async () => {
   const operator = config.operator
   config.operator = { ...operator, quotas: { ...operator.quotas, 'agent:visual-max-pixels': 40 } }
   try {
     serve(PNG, 'image/png')
-    const thrown = await run('https://example.com/huge.png').catch((error: unknown) => error)
-    expect(thrown).toMatchObject({ code: 'source_unavailable' })
-    expect((thrown as Error).message).toContain('8×6')
-    expect(await db.select({ id: schema.media_objects.id }).from(schema.media_objects)).toEqual([])
+    const { details } = await run('https://example.com/huge.png')
+    const fetched = details.fetchedImages?.[0]
+    expect(fetched).toMatchObject({ width: 7, height: 5 })
   } finally {
     config.operator = operator
   }
+})
+
+it('downscales a 20 MP photo to a 4000 px long side', async () => {
+  const photo = await sharp({
+    create: { width: 5000, height: 4000, channels: 3, background: '#4a7' },
+  })
+    .jpeg({ quality: 60 })
+    .toBuffer()
+  serve(photo, 'image/jpeg')
+  const { details } = await run('https://example.com/landscape.jpg')
+  expect(details.fetchedImages?.[0]).toMatchObject({
+    mime: 'image/jpeg',
+    width: 4000,
+    height: 3200,
+  })
 })
 
 // 地址是模型写的，指向内网就是一次 SSRF：拒绝并让模型换来源，不能原样重试。
