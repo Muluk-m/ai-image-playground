@@ -13,7 +13,7 @@ import type {
   ImagePresetRatio,
 } from '@image-playground/shared'
 import { withAspectRatio } from '@image-playground/shared'
-import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/bun-sql'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
@@ -294,8 +294,92 @@ export async function createAgentBatchPlan(
       .insert(schema.agent_batch_items)
       .values(items.map((item) => ({ batch_id: id, version: 1, ...batchItemValues(item) })))
     await insertBatchMediaReferences(tx, userId, id, mediaIds, now)
+    await supersedeTurnDrafts(tx, userId, context.conversationId, context.turnId, id, items, now)
     return id
   })
+}
+
+/** 处理项的身份：编号、类型与输入原图及遮罩（按序）。同一身份视为同一项，提示词可改。 */
+const itemIdentity = (item: Pick<AgentBatchItem, 'key' | 'kind' | 'inputs'>) =>
+  JSON.stringify([
+    item.key,
+    item.kind,
+    item.inputs.map((input) => [input.mediaId, input.maskMediaId ?? null]),
+  ])
+
+/**
+ * 同一轮里后建的计划覆盖了先前的草稿（先前每一项都原样在新计划里），先前那张作废：
+ * 置为已取消，服务端不再接受确认（BUG-39）。
+ *
+ * 分批保存（每次不超过 8 项）的各段编号互不覆盖，不受影响；为防各段重复用编号，
+ * 项数相同且已满 8 项的不算覆盖。用户动过（版本 > 1）或已确认的草稿不动。
+ */
+async function supersedeTurnDrafts(
+  tx: BffTransaction,
+  userId: string,
+  conversationId: string,
+  turnId: string,
+  newerId: string,
+  newerItems: readonly AgentBatchItem[],
+  now: number,
+): Promise<void> {
+  const drafts = await tx
+    .select({ id: schema.agent_batches.id })
+    .from(schema.agent_batches)
+    .where(
+      and(
+        eq(schema.agent_batches.conversation_id, conversationId),
+        eq(schema.agent_batches.user_id, userId),
+        eq(schema.agent_batches.origin_turn_id, turnId),
+        eq(schema.agent_batches.status, 'draft'),
+        eq(schema.agent_batches.current_version, 1),
+        isNull(schema.agent_batches.confirmation_command_id),
+        ne(schema.agent_batches.id, newerId),
+      ),
+    )
+    .for('update')
+  if (!drafts.length) return
+  const rows = await tx
+    .select({
+      batchId: schema.agent_batch_items.batch_id,
+      key: schema.agent_batch_items.key,
+      kind: schema.agent_batch_items.kind,
+      inputs: schema.agent_batch_items.inputs,
+    })
+    .from(schema.agent_batch_items)
+    .where(
+      and(
+        inArray(
+          schema.agent_batch_items.batch_id,
+          drafts.map((draft) => draft.id),
+        ),
+        eq(schema.agent_batch_items.version, 1),
+      ),
+    )
+  const newer = new Set(newerItems.map(itemIdentity))
+  const superseded = drafts
+    .map((draft) => rows.filter((row) => row.batchId === draft.id))
+    .filter(
+      (earlier) =>
+        earlier.length > 0 &&
+        earlier.every((item) => newer.has(itemIdentity(item))) &&
+        (newerItems.length > earlier.length || newerItems.length < 8),
+    )
+    .map((earlier) => earlier[0]!.batchId)
+  if (!superseded.length) return
+  await tx
+    .update(schema.agent_batches)
+    .set({ status: 'cancelled', updated_at: now })
+    .where(inArray(schema.agent_batches.id, superseded))
+  await tx
+    .delete(schema.media_references)
+    .where(
+      and(
+        eq(schema.media_references.owner_kind, 'batch'),
+        inArray(schema.media_references.owner_id, superseded),
+        eq(schema.media_references.user_id, userId),
+      ),
+    )
 }
 
 export class BatchPlanError extends Error {

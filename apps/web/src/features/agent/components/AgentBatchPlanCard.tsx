@@ -30,6 +30,7 @@ import {
 } from '../lib/agentClient'
 import { batchCommands } from '../lib/batchCommands'
 import { noteBatchAwaitingConfirmation } from '../lib/batchDrafts'
+import { recountBatchText } from '../lib/batchRecount'
 import { batchResultFiles, exportBatchResults } from '../lib/batchResultExport'
 import {
   BATCH_ITEM_PAGE_SIZE,
@@ -272,6 +273,22 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     )
       useAgentStore.getState().followBatchWake(completedConversation, batchId, completedVersion)
   }, [completedConversation, completedVersion, activeConversation, activeTurn, batchId, commands])
+  // 同一轮后建的计划会让先前的草稿作废（BUG-39）。轮次结束时草稿卡重读一次，换成作废后的状态。
+  const draftConversation = page?.batch.status === 'draft' ? page.batch.conversationId : null
+  const turnWasRunning = useRef(false)
+  useEffect(() => {
+    const running = activeTurn === 'running'
+    const ended = turnWasRunning.current && !running
+    turnWasRunning.current = running
+    if (!ended || dirty || !draftConversation || draftConversation !== activeConversation) return
+    if (working.current || !commands.current()) return
+    const operation = operations.current
+    void fetchBatchPlan(batchId)
+      .then((result) => {
+        if (commands.current() && operation === operations.current) setPage(result)
+      })
+      .catch(() => {})
+  }, [activeTurn, activeConversation, draftConversation, dirty, batchId, commands])
   const watch = hasActiveWork(page)
   useEffect(() => {
     if (!watch || dirty) return
@@ -343,8 +360,8 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     apply(() =>
       updateBatchPlan(batchId, {
         expectedVersion: page.batch.version,
-        title: page.batch.title,
-        rule: page.batch.rule,
+        title: recountBatchText(page.batch.title, page.batch.itemCount, page.items.length),
+        rule: recountBatchText(page.batch.rule, page.batch.itemCount, page.items.length),
         items: page.items.map((item): AgentBatchUpdate['items'][number] => {
           const base = {
             key: item.key,
