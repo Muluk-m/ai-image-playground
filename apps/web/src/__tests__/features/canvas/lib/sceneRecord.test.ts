@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
+import { ProjectRequestError } from '../../../../features/canvas/lib/projectClient'
 import { type CloudSceneStrategy, SceneRecord } from '../../../../features/canvas/lib/sceneRecord'
 import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../../../lib/authScope'
@@ -223,6 +224,22 @@ describe('项目画布存档', () => {
     record.editor.doc.setCamera({ x: 7 })
     await record.open()
     expect(record.editor.doc.camera.x).toBe(7)
+  })
+
+  it('云端因项目数到上限拒建时记下错误码，重开成功后清掉（BUG-52）', async () => {
+    const record = new SceneRecord(new CanvasEditor(new CanvasDoc()), freshSceneKey())
+    const full = new ProjectRequestError(413, 'project_quota_exceeded')
+    await expect(
+      record.open(async () => {
+        throw full
+      }),
+    ).rejects.toBe(full)
+    expect(record.getSnapshot()).toMatchObject({
+      loadFailed: true,
+      loadErrorCode: 'project_quota_exceeded',
+    })
+    await record.open()
+    expect(record.getSnapshot()).toMatchObject({ loadFailed: false, loadErrorCode: undefined })
   })
 
   it('读不到就不许写：读失败期间不落盘，重开成功后恢复原内容（ADR-0005）', async () => {

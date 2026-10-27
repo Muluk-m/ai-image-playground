@@ -421,7 +421,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     if (!hasAgent) return
     void useAgentStore.getState().load()
   }, [hasAgent, workspace])
-  const { loading, loadFailed, saveFailed } = useSyncExternalStore(
+  const { loading, loadFailed, loadErrorCode, saveFailed } = useSyncExternalStore(
     workspace.subscribe,
     workspace.getSnapshot,
   )
@@ -949,7 +949,11 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       {loadFailed ? (
         <div role="alert" className="studio-canvas-status">
           <div>
-            <p>{t('loadError.message')}</p>
+            <p>
+              {loadErrorCode === 'project_quota_exceeded'
+                ? t('projectSync.project_quota_exceeded', { ns: 'errors' })
+                : t('loadError.message')}
+            </p>
             <Button
               variant="link"
               size="sm"

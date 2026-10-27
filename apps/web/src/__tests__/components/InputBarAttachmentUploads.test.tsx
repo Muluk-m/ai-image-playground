@@ -208,6 +208,24 @@ describe('首页交给智能体的参考图（BUG-27）', () => {
     expect(frames.map((frame) => frame.textContent?.match(/\d+%/)?.[0])).toEqual(['42%', '99%'])
   })
 
+  it('收起的那叠的总百分比只增不减：一张传完后不往回跳，全部传完才收掉（BUG-53）', () => {
+    uploads.set(GOOD, { state: 'uploading', progress: 60 })
+    uploads.set(BAD, { state: 'uploading', progress: 20 })
+    localStorage.removeItem(REFERENCE_DISPLAY_KEY)
+    mountWith([GOOD, BAD])
+    const stack = () => host.querySelector('.creation-stack-upload')?.textContent
+    expect(stack()).toBe('40%')
+    uploads.set(GOOD, { state: 'ready' })
+    act(() => root.render(<InputBar inline />))
+    expect(stack()).toBe('40%')
+    uploads.set(BAD, { state: 'uploading', progress: 70 })
+    act(() => root.render(<InputBar inline />))
+    expect(stack()).toBe('70%')
+    uploads.set(BAD, { state: 'ready' })
+    act(() => root.render(<InputBar inline />))
+    expect(host.querySelector('.creation-stack-upload')).toBeNull()
+  })
+
   it('超限的图和坏图一样：× 常显、一并移除，两处原因是同一句（BUG-49）', () => {
     const HUGE = 'data:image/png;base64,SFVHRQ=='
     oversized.add(HUGE)
@@ -217,6 +235,8 @@ describe('首页交给智能体的参考图（BUG-27）', () => {
     const bottom = host.querySelector('[role=alert]')?.textContent ?? ''
     expect(bottom).toContain('第 3 张')
     expect(bottom).toContain('第 2 张图片：请先转换为 PNG、JPEG 或 WebP 格式')
+    // 原因按图片顺序排：第 2 张在第 3 张前面，超限那句不总排第一。
+    expect(bottom.indexOf('第 2 张')).toBeLessThan(bottom.indexOf('第 3 张'))
     const panel = openReferenceStack(host)
     expect(panel.querySelector('.creation-reference-status')?.textContent).toBe(bottom)
     const removes = [...panel.querySelectorAll('.creation-reference-remove')]

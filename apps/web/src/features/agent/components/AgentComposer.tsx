@@ -117,7 +117,6 @@ import {
   canRetryAttachmentUpload,
 } from '../lib/attachmentUploadErrors'
 import {
-  attachmentStackProgress,
   attachmentUploadError,
   attachmentUploadProgress,
   attachmentUploadRevision,
@@ -161,6 +160,7 @@ import {
 } from '../lib/references'
 import { createSelectionReferences } from '../lib/selectionReferences'
 import { useAgentSkills } from '../lib/useAgentSkills'
+import { useAttachmentStackProgress } from '../lib/useAttachmentStackProgress'
 import { useAgentStore } from '../store'
 import AgentConfirmationGate, { scrollToAgentMessage } from './AgentConfirmationGate'
 import AgentParamsChip, { AgentExecutionSettings } from './AgentParamsChip'
@@ -464,7 +464,7 @@ export default function AgentComposer({
     ),
   ).length
   // 收起的那叠也要看得到进度（BUG-42）。
-  const stackProgress = attachmentStackProgress(draft.references.map(uploadReference))
+  const stackProgress = useAttachmentStackProgress(draft.references.map(uploadReference))
   const referenceStatus = failedReference
     ? attachmentUploadErrorMessage(
         attachmentUploadError(uploadReference(failedReference)),
