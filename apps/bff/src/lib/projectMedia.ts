@@ -116,22 +116,26 @@ export async function reserveMedia(userId: string, input: UploadDescriptor) {
 /**
  * #1550 之前发布的图按原始像素记宽高，EXIF 方向 5–8 的竖拍照片因此被记成横的。
  * 不做全量回填：只在再次上传撞上这条旧记录时，拿已转正的预览核一次朝向，
- * 不一致就把这一行的宽高对调（BUG-43）。核过的行 updated_at 会前移，之后不再查。
+ * 不一致就把这一行的宽高对调（BUG-43）。按不变的 created_at 判断新旧：updated_at 会被别的更新前移，
+ * 拿它判断会把没核过的旧记录漏掉。核过的结论按进程缓存，之后命中直接用缓存里的宽高。
  */
 const ORIENTED_SIZE_SINCE = Date.UTC(2026, 9, 27, 17)
-const orientationChecked = new Set<string>()
+const orientationChecked = new Map<string, { width: number; height: number }>()
 export async function withOrientedSize(row: Media): Promise<Media> {
   if (
     row.status !== 'ready' ||
-    row.updated_at >= ORIENTED_SIZE_SINCE ||
+    row.created_at >= ORIENTED_SIZE_SINCE ||
     !row.preview_key ||
     !row.width ||
     !row.height ||
     row.width === row.height ||
-    !row.content_type.startsWith('image/') ||
-    orientationChecked.has(row.id)
+    !row.content_type.startsWith('image/')
   )
     return row
+  // 并发的另一次请求可能已经核完：这份快照是它改之前读的，交回缓存里的结论而不是旧宽高。
+  const known = orientationChecked.get(row.id)
+  if (known)
+    return known.width === row.width && known.height === row.height ? row : { ...row, ...known }
   try {
     const preview = await durableMediaStore().readUpTo(
       row.preview_key,
@@ -141,7 +145,8 @@ export async function withOrientedSize(row: Media): Promise<Media> {
     // 只在核对有了结论后才记下：读取或更新临时失败的，下次命中还会再核。
     const checked = (result: Media) => {
       if (orientationChecked.size >= 10_000) orientationChecked.clear()
-      orientationChecked.add(row.id)
+      if (result.width && result.height)
+        orientationChecked.set(row.id, { width: result.width, height: result.height })
       return result
     }
     if (!width || !height || width === height || width > height === row.width > row.height)
