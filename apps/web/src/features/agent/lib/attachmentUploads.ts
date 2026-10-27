@@ -13,6 +13,7 @@ import { MediaRequestError, mediaIdentity, resolveMediaSource } from '../../../l
 import { BASE_DB_NAME } from '../../../lib/db'
 import {
   hasLocalAttachmentSources,
+  localAttachmentBytes,
   localAttachmentFailure,
   localAttachmentIdentity,
   onLocalAttachmentReleased,
@@ -281,20 +282,46 @@ export function attachmentUploadProgress(reference: Uploadable): number | undefi
   return Math.min(...(known as number[]))
 }
 
+/** 这张参考图按多少字节算进总进度：data URL 直接量，本机原图按选图时的大小；量不出来为空。 */
+function referenceBytes(reference: Uploadable): number | undefined {
+  let total = 0
+  for (const source of sourcesToUpload(reference)) {
+    const bytes = dataUrlBytes(source) ?? localAttachmentBytes(source)
+    if (bytes === undefined) return undefined
+    total += bytes
+  }
+  return total
+}
+
 /**
- * 收起的那叠参考图的总进度：在传的每张取平均，排队还没开始发的按 0 算，传完和传失败的不计。
- * 有一张在传却不知道进度（浏览器不报字节数）时为空，只转圈（BUG-42）。
+ * 收起的那叠参考图的总进度，按字节加权：排队的算 0，在传的按已发出的比例，`batch` 里已经传完的算 100，
+ * 传失败的不计（BUG-53：只平均在传的几张，传完一张总数就往回跳）。不在 `batch` 里的已就绪图是之前那批的，不算。
+ * 没有在传的、或有一张在传却不知道进度（浏览器不报字节数）时为空，只转圈（BUG-42）。
  */
-export function attachmentStackProgress(references: readonly Uploadable[]): number | undefined {
-  const values = references.flatMap((reference) => {
+export function attachmentStackProgress(
+  references: readonly Uploadable[],
+  batch: ReadonlySet<string> = new Set(),
+): number | undefined {
+  const items = references.flatMap((reference) => {
     const state = attachmentUploadState(reference)
-    if (state === 'queued') return [0]
-    return state === 'uploading' || state === 'verifying'
-      ? [attachmentUploadProgress(reference)]
-      : []
+    if (state === 'queued') return [{ reference, progress: 0 }]
+    if (state === 'uploading' || state === 'verifying')
+      return [{ reference, progress: attachmentUploadProgress(reference) }]
+    return state === 'ready' && batch.has(reference.dataUrl) ? [{ reference, progress: 100 }] : []
   })
-  if (!values.length || values.some((value) => value === undefined)) return undefined
-  return Math.floor((values as number[]).reduce((sum, value) => sum + value, 0) / values.length)
+  if (items.every((item) => item.progress === 100)) return undefined
+  if (items.some((item) => item.progress === undefined)) return undefined
+  const sizes = items.map((item) => referenceBytes(item.reference))
+  const known = sizes.filter((size): size is number => size !== undefined && size > 0)
+  const fallback = known.length ? known.reduce((sum, size) => sum + size, 0) / known.length : 1
+  const weights = sizes.map((size) => (size !== undefined && size > 0 ? size : fallback))
+  const total = weights.reduce((sum, weight) => sum + weight, 0)
+  const sent = items.reduce(
+    (sum, item, index) => sum + (item.progress as number) * weights[index]!,
+    0,
+  )
+  // 还有没传完的就不报 100%。
+  return Math.min(99, Math.floor(sent / total))
 }
 
 export function attachmentUploadError(reference: Uploadable): string | undefined {

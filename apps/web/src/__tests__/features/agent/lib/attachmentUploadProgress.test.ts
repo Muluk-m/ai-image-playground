@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto'
 import { webcrypto } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
 import {
+  attachmentStackProgress,
   attachmentUploadProgress,
   attachmentUploadState,
   prepareAttachmentReferences,
@@ -88,4 +89,77 @@ it('exposes whole-percent direct-upload progress while the attachment is uploadi
   expect(await prepared).toEqual([{ imageId: 'one', mediaId: 'one' }])
   expect(attachmentUploadState(reference)).toBe('ready')
   expect(attachmentUploadProgress(reference)).toBeUndefined()
+})
+
+it('收起那叠的总进度按字节加权，传完的那张按 100% 算，不往回跳（BUG-53）', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  FakeXhr.all = []
+  vi.stubGlobal('XMLHttpRequest', FakeXhr)
+  setClientStorageScope('attachment-stack-progress-test')
+  const png = (size: number) => {
+    const bytes = new Uint8Array(size)
+    bytes.set([137, 80, 78, 71, 13, 10, 26, 10])
+    return bytes
+  }
+  const smallBytes = png(8)
+  const bigBytes = png(24)
+  const small = `data:image/png;base64,${Buffer.from(smallBytes).toString('base64')}`
+  const big = `data:image/png;base64,${Buffer.from(bigBytes).toString('base64')}`
+  let uploadsMade = 0
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.endsWith('/api/capabilities'))
+        return Response.json({ 'accounts:sync': true, 'agent:attachments': true })
+      if (input === small) return new Response(smallBytes)
+      if (input === big) return new Response(bigBytes)
+      if (input.endsWith('/api/media/uploads')) {
+        uploadsMade += 1
+        return Response.json({
+          id: `m${uploadsMade}`,
+          status: 'pending',
+          uploadUrl: `https://storage.test/m${uploadsMade}`,
+          leaseExpiresAt: Date.now() + 1200_000,
+        })
+      }
+      const done = /\/(m\d+)\/complete$/.exec(input)?.[1]
+      if (done) return Response.json({ id: done, status: 'ready' })
+      throw new Error(`Unexpected fetch ${input}`)
+    }),
+  )
+  await loadRuntimeConfig(async () => Response.json({ bff: { enabled: true, baseUrl: '' } }))
+  await bootstrapClientCapabilities(true, '')
+  const references = [{ dataUrl: small }, { dataUrl: big }]
+  const batch = new Set([small, big])
+  const prepared = prepareAttachmentReferences([
+    { imageId: 'small', dataUrl: small },
+    { imageId: 'big', dataUrl: big },
+  ])
+  await vi.waitFor(() => expect(FakeXhr.all.length).toBeGreaterThan(0))
+  const first = FakeXhr.all[0]!
+  first.upload.onprogress?.({ lengthComputable: true, loaded: 1, total: 2 } as ProgressEvent)
+  // 小图 8 字节、大图 24 字节：一张传一半时，按字节算是 12% 或 37%，不是两张平均的 25%。
+  const halfway = attachmentStackProgress(references, batch)
+  const sequential = FakeXhr.all.length === 1
+  first.status = 200
+  first.onload?.()
+  await vi.waitFor(() =>
+    expect(references.some((reference) => attachmentUploadState(reference) === 'ready')).toBe(true),
+  )
+  // 先传完的那张就是第一个请求对应的图。
+  const firstIsSmall = attachmentUploadState({ dataUrl: small }) === 'ready'
+  if (sequential) expect(halfway).toBe(firstIsSmall ? 12 : 37)
+  await vi.waitFor(() => expect(FakeXhr.all).toHaveLength(2))
+  const second = FakeXhr.all[1]!
+  second.upload.onprogress?.({ lengthComputable: true, loaded: 0, total: 2 } as ProgressEvent)
+  // 传完的那张按 100% 留在总数里；旧算法只平均在传的那张，这里会掉回 0%。
+  const afterOne = attachmentStackProgress(references, batch)
+  expect(afterOne).toBe(firstIsSmall ? 25 : 75)
+  expect(afterOne).toBeGreaterThanOrEqual(halfway ?? 0)
+  // 不在这一批里的已就绪图是之前那批的，不算：只剩在传的那张。
+  expect(attachmentStackProgress(references)).toBe(0)
+  second.status = 200
+  second.onload?.()
+  await prepared
+  expect(attachmentStackProgress(references, batch)).toBeUndefined()
 })
