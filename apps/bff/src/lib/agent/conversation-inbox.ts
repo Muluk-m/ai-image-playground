@@ -304,7 +304,7 @@ export async function stopConversationTurn(
   const { returned, fresh } = await returnAgentMessages(conversationId, turnId)
   for (const queueId of fresh)
     notifyConversation(conversationId, { type: 'queuedMessageWithdrawn', queueId })
-  active.abort()
+  active.abort('user_stop')
   // 这一轮自己提交、还没出结果的出图任务一并取消退款（BUG-32）。中止之后才晚落库的那几条由轮收尾
   // 再扫一遍（见 `turn.ts`）。取消失败不拦停止：轮已经停了，任务照常跑完、照常结算。
   const cancelledTaskIds = await cancelStoppedTurnJobs(conversationId, turnId).catch((err) => {

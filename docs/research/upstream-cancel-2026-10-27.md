@@ -2,7 +2,9 @@
 
 用户中止一轮时，平台已退还积分（见 [ADR 0012 修订](../adr/0012-agent-background-jobs-and-postgres-inbox.md)）。本文回答：已提交给上游的任务能不能叫停，叫停后上游还收不收钱。结论决定「中止」的真实成本落在谁身上。
 
-实现：`apps/bff/src/lib/upstream.ts` `cancelUpstreamTasks`（只有声明了 `cancelUrl` 的线路会发请求）与 `apps/bff/src/workers/upstream-cancel.ts`；结果记 `task.upstream_cancel` 日志，`outcome` 取值 `cancelled` / `partial` / `unsupported` / `connection_aborted` / `no_upstream_task`。
+实现：`apps/bff/src/lib/upstream.ts` `cancelUpstreamTasks`（只有声明了 `cancelUrl` 的线路会发请求）与 `apps/bff/src/lib/upstream-cancel.ts`（取消入口提交后直接触发；上游 id 晚于取消落库时由 `apps/bff/src/workers/task-execution.ts` 补发）；结果记 `task.upstream_cancel` 日志，`outcome` 取值 `cancelled` / `partial` / `unsupported` / `upstream_id_unknown` / `no_upstream_task`，补发的带 `late: true`。
+
+已知限制：任务表不保存提交时的渠道快照，叫停按 provider/model 解析当前渠道；提交后渠道下线、替换或 base URL 变更，叫停可能落空（只影响上游成本，不影响退款）。
 
 | 上游（线路） | 能否取消已提交任务 | 我们怎么做 | 取消后上游是否仍计费 | 依据 |
 | --- | --- | --- | --- | --- |
