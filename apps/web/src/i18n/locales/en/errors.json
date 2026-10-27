@@ -93,6 +93,7 @@
     "authentication_required": "Sign in to generate",
     "invalid_params": "The parameters didn't hold up, so this wasn't submitted",
     "source_unavailable": "The source site denied access or couldn't provide the content. Try another public source",
+    "source_timeout": "The web source timed out; nothing was read",
     "content_policy": "The prompt didn't pass content review. Try rewording it",
     "model_unavailable": "This model is unavailable right now. Pick another model",
     "service_unavailable": "Batch execution isn't open. Ask the agent to draft from the per-image results",
