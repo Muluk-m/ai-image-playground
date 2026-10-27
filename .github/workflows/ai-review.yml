@@ -65,11 +65,13 @@ env:
   # 每个请求附带的 LLM 参数（JSON）与 ocr 评审力度；留空即 ocr / 网关默认。
   LLM_EXTRA_BODY: ''
   # 网关单次往返 10–60s（各模型都一样，见 PR 说明），medium 的第二轮评审+二次过滤会让最慢的组
-  # 串行请求翻倍、整次评审 18–30 分钟；low 只跑一轮。
-  OCR_EFFORT: low
+  # 串行请求翻倍、整次评审 18–30 分钟；low 只跑一轮。2026-10-27 起用 medium：多一轮评审换召回，
+  # 每次评审的请求数和 token 约为 low 的 2 倍（回放记录见 docs/agents/review-evals.md）。
+  OCR_EFFORT: medium
   # 单组总上限（分钟，按评审轮数折算成 --timeout），必须小于 job 的 timeout-minutes，
   # 这样慢组由 ocr 自己判超时，其余组的结果照常发出来，而不是整个 job 被取消、什么都不剩。
-  OCR_GROUP_TIMEOUT: '18'
+  # medium 两轮，每轮 15 分钟；job 上限 45 分钟，留出装 ocr 和发评论的时间。
+  OCR_GROUP_TIMEOUT: '30'
   OCR_VERSION: 1.13.3
 
 jobs:
@@ -85,7 +87,7 @@ jobs:
               && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
           || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Resolve PR context
         id: ctx
