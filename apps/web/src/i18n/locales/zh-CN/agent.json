@@ -729,6 +729,7 @@
     "outputFormat": "输出格式",
     "compression": "压缩质量",
     "inputImage": "输入图 {{index}}",
+    "textOnlyInput": "纯文字生图",
     "valueAuto": "自动",
     "valueHigh": "高",
     "valueMedium": "中",
