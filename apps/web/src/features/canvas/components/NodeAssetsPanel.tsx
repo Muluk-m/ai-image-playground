@@ -305,9 +305,14 @@ export default function NodeAssetsPanel({
               })}
             </div>
           ))}
-          {!shown.length && !loading && (
-            <p className="studio-canvas-assets-day">
-              {failed ? t('assetsPanel.loadFailed') : t('assetsPanel.empty')}
+          {/* 还在翻页找时说「正在读取」，翻完仍为空才说没找到，避免长时间一片空白。 */}
+          {!shown.length && (
+            <p className="studio-canvas-assets-day" role="status">
+              {(loading || hasMore) && !failed
+                ? t('assetsPanel.loading')
+                : failed
+                  ? t('assetsPanel.loadFailed')
+                  : t('assetsPanel.empty')}
             </p>
           )}
           {hasMore && <div ref={endRef} className="studio-canvas-assets-end" aria-hidden />}

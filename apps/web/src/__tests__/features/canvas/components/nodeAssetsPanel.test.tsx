@@ -10,11 +10,18 @@ import { useMediaTransferStore } from '../../../../features/canvas/lib/mediaTran
 const assets = vi.hoisted(() => ({
   items: [] as CanvasAssetItem[],
   scopes: [] as string[],
+  hasMore: false,
 }))
 vi.mock('../../../../features/canvas/lib/useCanvasAssets', () => ({
   useCanvasAssets: (_conversationId: string | null, scope: string) => {
     assets.scopes.push(scope)
-    return { items: assets.items, loading: false, failed: false, hasMore: false, loadMore() {} }
+    return {
+      items: assets.items,
+      loading: false,
+      failed: false,
+      hasMore: assets.hasMore,
+      loadMore() {},
+    }
   },
 }))
 
@@ -94,6 +101,7 @@ describe('NodeAssetsPanel', () => {
     ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
     useCanvasAssetsEntry.setState({ open: false, media: 'image', scope: 'project' })
     useMediaTransferStore.setState({ transfer: null })
+    assets.hasMore = false
     host = document.createElement('div')
     document.body.append(host)
     root = createRoot(host)
@@ -203,6 +211,23 @@ describe('NodeAssetsPanel', () => {
     expect(document.body.textContent).toContain('已选 1 项')
     await click(byText('所有项目'))
     expect(document.body.textContent).toContain('已选 0 项')
+  })
+
+  it('says it is still loading while nothing matches but more pages remain, else nothing found', async () => {
+    const search = async (value: string) => {
+      const box = document.querySelector<HTMLInputElement>('input[placeholder="搜索资产…"]')!
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(box, value)
+        box.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    }
+    assets.hasMore = true
+    render()
+    await search('zzz')
+    expect(document.querySelector('[role="status"]')?.textContent).toBe('正在读取资产…')
+    assets.hasMore = false
+    await search('zzzz')
+    expect(document.querySelector('[role="status"]')?.textContent).toBe('没有找到内容')
   })
 
   it('clears the selection when switching between images and videos', async () => {
