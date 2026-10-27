@@ -670,6 +670,120 @@ it('重复确认两图计划只提交两项，重读后 worker 从队列执行�
   expect(billing.reservations.filter((one) => one.model !== 'fixture-agent-model')).toHaveLength(2)
 })
 
+it('纯文字需求也能保存批次计划，编辑、报价、确认后按文生图提交且不带输入图（BUG-25）', async () => {
+  billing.answer = { kind: 'reserved', credits: 7 }
+  billing.settledCredits = 7
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'batch-text-only',
+            name: 'planImageBatch',
+            args: {
+              title: '水果静物系列',
+              rule: '同一画风的水果静物',
+              items: [
+                { key: 'banana', imageIds: [], prompt: '香蕉静物，方形构图', dependencies: [] },
+                {
+                  key: 'grape',
+                  imageIds: [],
+                  prompt: '葡萄静物，横版构图',
+                  dependencies: [],
+                  aspectRatio: '16:9',
+                },
+              ],
+            },
+          }),
+        () => completionStream('请确认计划'),
+      ],
+    ),
+  )
+  const turn = await request(`agent/conversations/${conversation.id}/turns`, {
+    deviceId: DEVICE,
+    text: '做一个 2 张的水果静物系列，先出计划卡让我确认',
+  })
+  expect(turn.status).toBe(200)
+  await turn.text()
+  const { batches } = await (await request(`agent/conversations/${conversation.id}/batches`)).json()
+  expect(batches).toHaveLength(1)
+  const path = `agent/batches/${batches[0].id}`
+  const draft = await (await request(path)).json()
+  expect(draft.items).toMatchObject([
+    { key: 'banana', kind: 'generation', inputs: [] },
+    { key: 'grape', kind: 'generation', inputs: [], params: { size: '1280x720' } },
+  ])
+  expect(draft.batch.estimate.generation).toMatchObject({ estimatedChargeCredits: 14 })
+  // 用户在卡上改提示词：零输入的生成项也要能通过修订校验。
+  const editedResponse = await request(
+    path,
+    {
+      expectedVersion: draft.batch.version,
+      title: draft.batch.title,
+      rule: draft.batch.rule,
+      items: draft.items.map((item: { key: string; prompt: string }) => ({
+        ...item,
+        prompt: item.key === 'banana' ? '香蕉静物，浅色背景' : item.prompt,
+      })),
+    },
+    'PATCH',
+  )
+  expect(editedResponse.status).toBe(200)
+  const edited = await editedResponse.json()
+  expect(edited.batch.version).toBe(draft.batch.version + 1)
+  expect(edited.items[0]).toMatchObject({ prompt: '香蕉静物，浅色背景', inputs: [] })
+  const confirm = {
+    commandId: 'confirm-text-only',
+    expectedVersion: edited.batch.version,
+    expectedDigest: edited.batch.digest,
+    deviceId: DEVICE,
+  }
+  expect((await request(`${path}/confirm`, confirm)).status).toBe(200)
+  const running = await (await request(path)).json()
+  expect(running.batch).toMatchObject({ status: 'running', submittedCount: 2 })
+  const taskIds: string[] = running.items.map(
+    (item: { execution: { taskId: string } }) => item.execution.taskId,
+  )
+  const result = await sharp({
+    create: { width: 8, height: 6, channels: 4, background: '#eeeeee' },
+  })
+    .png()
+    .toBuffer()
+  const calls: { url: string; multipart: boolean; body: string }[] = []
+  setUpstreamFetchForTesting(async (url, init) => {
+    const body = init?.body
+    calls.push({
+      url: String(url),
+      multipart: body instanceof FormData,
+      body: body instanceof FormData ? String(body.get('prompt')) : String(body),
+    })
+    return Response.json({ data: [{ b64_json: result.toString('base64') }] })
+  })
+  for (const taskId of taskIds) await runTask(taskId)
+  const completed = await (await request(path)).json()
+  expect(completed.batch).toMatchObject({ status: 'closed', submittedCount: 2, actualCredits: 14 })
+  expect(calls).toHaveLength(2)
+  for (const call of calls) {
+    expect(call.multipart).toBe(false)
+    expect(call.url).not.toContain('/edits')
+  }
+  expect(calls[0]!.body).toContain('香蕉静物，浅色背景')
+  expect(calls[1]!.body).toContain('葡萄静物')
+  expect(billing.reservations.filter((one) => one.model !== 'fixture-agent-model')).toHaveLength(2)
+  const references = await db
+    .select()
+    .from(schema.media_references)
+    .where(
+      and(
+        eq(schema.media_references.owner_kind, 'batch'),
+        eq(schema.media_references.owner_id, batches[0].id),
+      ),
+    )
+  expect(references).toHaveLength(0)
+})
+
 it('暂停与第二项准备竞态后不再提交，已入队项继续完成，恢复只提交剩余项', async () => {
   billing.reset()
   billing.answer = { kind: 'reserved', credits: 7 }
