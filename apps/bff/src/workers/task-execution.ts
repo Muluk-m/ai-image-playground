@@ -13,6 +13,7 @@ import {
   saveArchiveCheckpoint,
   type TerminalTaskUpdate,
 } from '../db/task-transitions'
+import { accountConcurrencyLimit } from '../lib/account-concurrency'
 import { durableGenerationInputs } from '../lib/generationMedia'
 import { log } from '../lib/logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../lib/private-overlay'
