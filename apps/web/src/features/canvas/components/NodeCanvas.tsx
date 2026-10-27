@@ -86,6 +86,7 @@ import { useLibraryStore } from '../../library/store'
 import type { AssetRecord } from '../../library/types'
 import PlayBadge from '../../video/components/PlayBadge'
 import { arrangementKey, arrangeNodes, type CanvasPlacement } from '../lib/arrangeNodes'
+import type { CanvasAssetItem } from '../lib/canvasAssets'
 import { newElementId } from '../lib/canvasDoc'
 import {
   type CanvasViewportBox,
@@ -93,8 +94,10 @@ import {
   withLivePositions,
 } from '../lib/canvasViewport'
 import type { CanvasEditor } from '../lib/editor'
+import { canvasExportEntries } from '../lib/exportImages'
 import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
 import { openLocalNodeCanvas } from '../lib/localNodeCanvas'
+import { transferMedia } from '../lib/mediaTransfer'
 import { assetNodeContext } from '../lib/nodeAssetGeneration'
 import { ASSET_DRAG_TYPE, insertAssetNode, saveNodeAsAsset } from '../lib/nodeAssets'
 import {
@@ -130,7 +133,7 @@ import {
   type ReferenceSlot,
   uploadCanvasReference,
 } from '../lib/nodeCanvasReferences'
-import { spreadNodeResults } from '../lib/nodeCanvasResults'
+import { insertResultNodes, spreadNodeResults } from '../lib/nodeCanvasResults'
 import { clearNodeCanvasSelection, setNodeCanvasSelection } from '../lib/nodeCanvasSelection'
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
 import { createImagePresetNode } from '../lib/nodeImagePreset'
@@ -145,8 +148,10 @@ import { CanvasLodProvider, CanvasOverview, NodeLodCard, useCanvasLod } from './
 import CanvasVideoPlayer from './CanvasVideoPlayer'
 import FilmExportStatus from './FilmExportStatus'
 import ImageNodeComposer from './ImageNodeComposer'
+import MediaTransferCard from './MediaTransferCard'
 import NodeAddMenu from './NodeAddMenu'
 import NodeAssetPicker from './NodeAssetPicker'
+import NodeAssetsPanel from './NodeAssetsPanel'
 import NodeAssetTools from './NodeAssetTools'
 import NodeBatchDialog from './NodeBatchDialog'
 import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
@@ -927,6 +932,11 @@ function Flow({
         (project) => project.sceneKey === viewKey && project.cloud && !project.cloud.deleted,
       )?.id,
   )
+  const project = useCanvasProjectStore((state) =>
+    state.projects.find((one) => one.sceneKey === viewKey),
+  )
+  const projectName = project?.name ?? ''
+  const projectConversationId = project?.conversationId ?? null
   const flowStore = useStoreApi()
   const snapshot = useDocumentSnapshot(canvas)
   useStoryboardGridSplitting(canvas, editor)
@@ -1290,7 +1300,7 @@ function Flow({
       setAddingAsset(false)
     }
   }
-  const selectCreatedBatch = (ids: string[]) => {
+  const selectCreatedBatch = (ids: string[], reveal = true) => {
     const chosen = new Set(ids)
     const created = readCanvasDocument(canvas.doc).nodes.filter((node) => chosen.has(node.id))
     selectNode(null)
@@ -1303,6 +1313,7 @@ function Flow({
         .map((node) => ({ ...node, selected: false })),
       ...created.map((node) => toFlowNode(node, true)),
     ])
+    if (!reveal) return
     const bounds = contentBounds({ nodes: created, edges: [], annotations: [] })
     const viewport =
       bounds &&
@@ -1326,6 +1337,48 @@ function Flow({
           y: rect.top + rect.height / 2,
         }) ?? { x: 0, y: 0 })
       : { x: 0, y: 0 }
+  }
+  const [assetsPanel, setAssetsPanel] = useState<{ left: number; top: number } | null>(null)
+  const placeAssetsPanel = () => {
+    const box = container.current?.getBoundingClientRect()
+    const tools = container.current?.querySelector('.studio-node-tools')?.getBoundingClientRect()
+    if (!box || !tools) return { left: 16, top: 16 }
+    // 竖排工具栏时贴在它右侧、顶端对齐；窄屏工具栏横到顶部时放在它下面。
+    return tools.height >= tools.width
+      ? { left: tools.right - box.left + 8, top: tools.top - box.top }
+      : { left: tools.left - box.left, top: tools.bottom - box.top + 8 }
+  }
+  useEffect(() => {
+    if (!assetsPanel) return
+    const reposition = () => setAssetsPanel(placeAssetsPanel())
+    window.addEventListener('resize', reposition)
+    return () => window.removeEventListener('resize', reposition)
+  })
+  // 资产浮层里点一件或「应用到画布」：在当前画面中间建节点并选中，不挪视口，浮层保持打开。
+  const placeAssets = async (items: readonly CanvasAssetItem[]) => {
+    try {
+      const ids = await insertResultNodes(
+        editor,
+        canvas,
+        items.map((item) => item.insert),
+        center(),
+      )
+      if (!ids.length) throw new Error('nothing placed')
+      selectCreatedBatch(ids, false)
+      return true
+    } catch {
+      useStore.getState().showToast(t('import.failed'), 'error')
+      return false
+    }
+  }
+  const downloadSelection = () => {
+    const ids = [...selectedIds.current]
+    const entries = canvasExportEntries(editor.doc, ids)
+    if (!entries.length) {
+      useStore.getState().showToast(t('batch.exportFailed'), 'error')
+      return
+    }
+    void transferMedia(entries, projectName)
   }
   const fit = () => {
     showFrame(undefined, 0.25, 0.05, 8, 250)
@@ -2376,6 +2429,10 @@ function Flow({
                           placeAt.current = center()
                           setAssetsOpen(true)
                         }}
+                        assetsPanelOpen={!!assetsPanel}
+                        onAssetsPanel={() =>
+                          setAssetsPanel((open) => (open ? null : placeAssetsPanel()))
+                        }
                         onUpload={() => {
                           placeAt.current = center()
                           fileInput.current?.click()
@@ -2458,9 +2515,30 @@ function Flow({
                             label={t('nodes.duplicate')}
                             onClick={duplicate}
                           />
+                          <span className="studio-node-tool-divider" />
+                          <NodeTool
+                            icon="download"
+                            label={common('action.download')}
+                            onClick={downloadSelection}
+                          />
                           <NodeTool icon="delete" label={t('nodes.delete')} onClick={remove} />
                         </div>
                       )}
+                      {assetsPanel && (
+                        <NodeAssetsPanel
+                          conversationId={projectConversationId}
+                          style={assetsPanel}
+                          onClose={() => setAssetsPanel(null)}
+                          onPlace={placeAssets}
+                          onDownload={(items) =>
+                            void transferMedia(
+                              items.map((item) => item.download),
+                              projectName,
+                            )
+                          }
+                        />
+                      )}
+                      <MediaTransferCard />
                       {scriptPoint && (
                         <ScriptBriefDialog
                           onClose={() => setScriptPoint(null)}
