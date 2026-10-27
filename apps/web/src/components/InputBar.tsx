@@ -261,6 +261,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const sharedTaskLimit = sharedReferenceTaskLimit(
     getModelReferenceMax(activeProfile, getPublicChannels()) ?? Number.NaN,
   )
+  // 换模型后共享参考可能超出新模型每个任务能带的张数：切换那一刻就在输入框里提示，发送时 store 仍会拦。
+  const sharedOverflow = sharedPartition
+    ? Math.max(0, 1 + sharedImages.length - sharedTaskLimit)
+    : 0
+  const sharedLimitNotice = sharedOverflow
+    ? t('batch.sharedOverLimit', { max: sharedTaskLimit, count: sharedOverflow })
+    : null
   // 逐张生成每张目标图按 n=1 出图，提示词槽展开几条就再乘几条，与实际发出的任务数一致。
   const batchImageCount = batchActive
     ? batchTargetCount * getSubmissionImageCount(prompt, slotValues, 1)
@@ -1603,36 +1610,22 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 </Button>
               )}
             </div>
-            {(perTaskMentions || invalidMentionLabels.length > 0) && (
+            {invalidMentionLabels.length > 0 && (perTaskMentions || inputImages.length > 0) && (
               <div className="creation-mention-rules">
-                {perTaskMentions && (
-                  <p>
-                    {sharedImages.length > 0
-                      ? t('batch.ruleShared', {
-                          target: getImageMentionLabel(0),
-                          shared: sharedImages
-                            .map((_, i) => mentionLabels(i + 1))
-                            .join(t('batch.listSeparator')),
+                <p role="status" data-tone="warning">
+                  <Icon name="warning" size="xs" />
+                  <span>
+                    {perTaskMentions
+                      ? t('batch.mentionMissingPerTask', {
+                          count: mentionSlotCount,
+                          labels: invalidMentionLabels.join(t('batch.listSeparator')),
                         })
-                      : t('batch.ruleNoShared', { target: getImageMentionLabel(0) })}
-                  </p>
-                )}
-                {invalidMentionLabels.length > 0 && (perTaskMentions || inputImages.length > 0) && (
-                  <p role="status" data-tone="warning">
-                    <Icon name="warning" size="xs" />
-                    <span>
-                      {perTaskMentions
-                        ? t('batch.mentionMissingPerTask', {
-                            count: mentionSlotCount,
-                            labels: invalidMentionLabels.join(t('batch.listSeparator')),
-                          })
-                        : t('batch.mentionMissing', {
-                            count: inputImages.length,
-                            labels: invalidMentionLabels.join(t('batch.listSeparator')),
-                          })}
-                    </span>
-                  </p>
-                )}
+                      : t('batch.mentionMissing', {
+                          count: inputImages.length,
+                          labels: invalidMentionLabels.join(t('batch.listSeparator')),
+                        })}
+                  </span>
+                </p>
               </div>
             )}
           </CreationBody>
@@ -1661,12 +1654,22 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 <span role="alert" className="text-xs leading-snug text-destructive">
                   {oversizedNotice}
                 </span>
+              ) : sharedLimitNotice ? (
+                <span role="alert" className="text-xs leading-snug text-destructive">
+                  {sharedLimitNotice}
+                </span>
               ) : batchActive && !submissionGuard.blockedAction ? (
+                // 逐张只留一行：张数 · @图1 目标图 · 共享的序号 · 积分，规则靠序号胶囊和图钉本身说明。
                 <span className="creation-batch-summary">
                   {[
                     t('batch.summaryCount', { count: batchImageCount }),
+                    t('batch.summaryTarget', { target: getImageMentionLabel(0) }),
                     sharedImages.length > 0 &&
-                      t('batch.summaryShared', { count: sharedImages.length }),
+                      t('batch.summaryShared', {
+                        labels: sharedImages
+                          .map((_, i) => mentionLabels(i + 1))
+                          .join(t('batch.listSeparator')),
+                      }),
                     batchTotalCredits !== undefined &&
                       t('batch.summaryCredits', { credits: batchTotalCredits.toLocaleString() }),
                   ]

@@ -652,10 +652,13 @@ describe('逐张生成的共享参考', () => {
     })
   })
 
-  it('点图钉设共享：带「共享」角标排到最后，底部按目标图计张数并说明每张带几张共享', () => {
+  it('点图钉设共享：带「共享」角标排到最后，底部一行按目标图计张数并列出共享序号', () => {
     const panel = openReferenceStack(host)
     expect(panel.querySelectorAll('.creation-reference-pin')).toHaveLength(3)
-    expect(host.querySelector('.creation-mention-rules')?.textContent).toContain('@图1')
+    expect(host.querySelector('.creation-batch-summary')?.textContent).toBe(
+      '逐张 3 张 · @图1 目标图',
+    )
+    expect(host.querySelector('.creation-mention-rules')).toBeNull()
 
     const pin = panel.querySelector<HTMLButtonElement>('.creation-reference-pin')!
     expect(pin.getAttribute('aria-label')).toBe('设为共享参考')
@@ -665,12 +668,43 @@ describe('逐张生成的共享参考', () => {
     const shared = host.querySelector<HTMLButtonElement>('.creation-reference-shared')!
     expect(shared.textContent).toContain('共享')
     expect(shared.getAttribute('aria-pressed')).toBe('true')
-    expect(host.querySelector('.creation-mention-rules')?.textContent).toContain(
-      '逐张时：目标图 = @图1，共享参考 = @图2',
+    expect(host.querySelector('.creation-batch-summary')?.textContent).toBe(
+      '逐张 2 张 · @图1 目标图 · @图2 共享',
     )
-    const summary = host.querySelector('.creation-batch-summary')?.textContent ?? ''
-    expect(summary).toContain('逐张生成 2 张')
-    expect(summary).toContain('每张都会带上 1 张共享参考')
+  })
+
+  it('换到每个任务带不下这些共享参考的模型时，切换当下就提示', () => {
+    act(() => useStore.getState().toggleSharedImage('a'))
+    act(() => useStore.getState().toggleSharedImage('b'))
+    openReferenceStack(host)
+    expect(host.querySelector('[role="alert"]')).toBeNull()
+
+    setChannels([
+      {
+        ...channel,
+        models: [
+          ...channel.models,
+          {
+            id: 'small-ref',
+            label: 'Small Ref',
+            capabilities: ['generate', 'edit'],
+            image: { references: { max: 2 } },
+          },
+        ],
+      } as PublicChannel,
+    ])
+    act(() =>
+      useStore.setState((s) => ({
+        settings: normalizeSettings({
+          ...s.settings,
+          profiles: s.settings.profiles.map((p) => ({ ...p, selectedModelId: 'small-ref' })),
+        }),
+      })),
+    )
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe(
+      '当前模型每个任务最多 2 张图，请取消 1 张共享参考',
+    )
+    expect(host.querySelector('.creation-batch-summary')).toBeNull()
   })
 
   it('剩一张目标图时图钉点不了；超出每个任务张数的 @ 序号标黄提示但不删', () => {
