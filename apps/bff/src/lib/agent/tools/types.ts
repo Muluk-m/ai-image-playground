@@ -64,12 +64,6 @@ export interface AgentToolContext {
    */
   readonly maskProposals?: Set<string>
   /**
-   * 这一轮用户要改的是图里的单个对象或局部（见 `edit-intent.ts`，只按字面判断）时存在。
-   * `editImage` 第一次无蒙版的整图编辑会被退回、提醒先发范围确认，并记下 `nudged`；
-   * 同一轮再调就放行。
-   */
-  readonly singleObjectEdit?: { nudged: boolean }
-  /**
    * 这一轮用户要的是整张图的变化（见 `edit-intent.ts`）时存在。`proposeEditRegion` 第一次被调
    * 会退回、提醒直接整图编辑，并记下 `nudged`；同一轮再调就照常发卡。
    */
