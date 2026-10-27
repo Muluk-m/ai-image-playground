@@ -19,6 +19,7 @@ import type { BffTransaction } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { taskProgressPhase } from '../task-progress'
 import { type QueueTaskTerminalRow, queueTaskOutcome } from '../taskSubmission'
+import { cancelUpstreamOfCancelledTasks } from '../upstream-cancel'
 import { queueArtifacts } from './tools/queueTask'
 
 /**
@@ -454,6 +455,7 @@ export async function cancelStoppedTurnJobs(
       },
       'stopping the turn cancelled its in-flight jobs',
     )
+  void cancelUpstreamOfCancelledTasks(cancelled.map((row) => row.id))
   return cancelled.map((row) => row.id)
 }
 
@@ -469,5 +471,6 @@ export async function cancelAgentJob(conversationId: string, taskId: string): Pr
       eq(schema.tasks.kind, 'queue'),
     )!,
   )
+  void cancelUpstreamOfCancelledTasks(cancelled.map((row) => row.id))
   return cancelled.length > 0
 }

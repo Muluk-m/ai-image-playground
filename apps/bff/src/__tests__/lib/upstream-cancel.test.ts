@@ -21,6 +21,8 @@ const { setUpstreamFetchForTesting, setAsyncPollBackoffForTesting } = await impo
   '../../lib/upstream'
 )
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
+const { cancelTasks } = await import('../../db/task-transitions')
+const { cancelUpstreamOfCancelledTasks } = await import('../../lib/upstream-cancel')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 type InternalChannel = import('../../lib/channels').InternalChannel
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
@@ -49,10 +51,13 @@ const arkVideoChannel: InternalChannel = {
 
 type Call = { url: string; method: string }
 let calls: Call[] = []
+// 提交请求在上游「建起任务」之后、响应回到 worker 之前停住，用来复现取消先落库、上游 id 后到。
+let holdPost: Promise<void> | null = null
 
 beforeEach(async () => {
   await db.delete(schema.tasks)
   calls = []
+  holdPost = null
   setObjectStoreForTesting(new InMemoryObjectStore())
   setAsyncPollBackoffForTesting([5])
   _setChannelsForTesting([arkVideoChannel])
@@ -60,7 +65,10 @@ beforeEach(async () => {
     const url = typeof input === 'string' ? input : String(input)
     const method = init?.method ?? 'GET'
     calls.push({ url, method })
-    if (method === 'POST' && url === ARK_TASKS) return json({ id: 'task_ark_1' })
+    if (method === 'POST' && url === ARK_TASKS) {
+      if (holdPost) await holdPost
+      return json({ id: 'task_ark_1' })
+    }
     if (method === 'DELETE') return json({})
     return json({ id: 'task_ark_1', status: 'queued' })
   }) as unknown as TestFetch)
@@ -85,70 +93,76 @@ async function statusOf(id: string) {
   return row
 }
 
+const arkTask = (id: string, extra: Partial<typeof schema.tasks.$inferInsert> = {}) => ({
+  id,
+  provider: 'openai-compat' as const,
+  model: ARK_MODEL,
+  status: 'queued' as const,
+  request_payload: {
+    prompt: 'a cat',
+    video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' },
+  },
+  submitted_at: 1,
+  ...extra,
+})
+const deletes = () => calls.filter((call) => call.method === 'DELETE')
+
 describe('取消后尽力叫停上游（BUG-32）', () => {
-  it('用户取消一条在方舟排队的视频任务时，worker 向方舟发 DELETE', async () => {
-    await db.insert(schema.tasks).values({
-      id: 'ark-cancel',
-      provider: 'openai-compat',
-      model: ARK_MODEL,
-      status: 'queued',
-      request_payload: {
-        prompt: 'a cat',
-        video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' },
-      },
-      submitted_at: 1,
-    })
+  it('取消一条已拿到方舟任务 id、正排队等续轮询的任务：不靠 worker 运行中登记，直接发 DELETE', async () => {
+    // 没有任何 worker 在跑它：上游 id 已落库，任务回到 queued 等下一次轮询。
+    await db
+      .insert(schema.tasks)
+      .values(
+        arkTask('ark-waiting', { upstream_task_ids: ['task_ark_1'], upstream_submitted_at: 1 }),
+      )
 
-    const scheduler = new TaskScheduler({ pollIntervalMs: 10_000 })
-    scheduler.start()
-    try {
-      await waitFor(async () => (await statusOf('ark-cancel'))?.upstream?.length === 1)
+    const cancelled = await cancelTasks(eq(schema.tasks.id, 'ark-waiting'))
+    await cancelUpstreamOfCancelledTasks(cancelled.map((row) => row.id))
 
-      await db
-        .update(schema.tasks)
-        .set({ status: 'cancelled', completed_at: Date.now() })
-        .where(eq(schema.tasks.id, 'ark-cancel'))
-      await scheduler.tick()
-      await waitFor(() => calls.some((call) => call.method === 'DELETE'))
-      await waitFor(() => scheduler.activeCount() === 0)
-    } finally {
-      scheduler.stop()
-    }
-
-    expect(calls.filter((call) => call.method === 'DELETE')).toEqual([
-      { url: `${ARK_TASKS}/task_ark_1`, method: 'DELETE' },
-    ])
-    expect((await statusOf('ark-cancel'))?.status).toBe('cancelled')
+    expect((await statusOf('ark-waiting'))?.status).toBe('cancelled')
+    expect(deletes()).toEqual([{ url: `${ARK_TASKS}/task_ark_1`, method: 'DELETE' }])
   })
 
-  it('库里转去核查（reconciling）而中断执行时不去取消上游：上游任务还要接着核查', async () => {
-    await db.insert(schema.tasks).values({
-      id: 'ark-reconcile',
-      provider: 'openai-compat',
-      model: ARK_MODEL,
-      status: 'queued',
-      request_payload: {
-        prompt: 'a cat',
-        video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' },
-      },
-      submitted_at: 1,
+  it('转去核查（reconciling）的任务不去取消上游：上游任务还要接着核查', async () => {
+    await db.insert(schema.tasks).values(
+      arkTask('ark-reconcile', {
+        status: 'reconciling',
+        reconciliation_required: true,
+        upstream_task_ids: ['task_ark_1'],
+        upstream_submitted_at: 1,
+        upstream_invocation_count: 1,
+      }),
+    )
+
+    await cancelUpstreamOfCancelledTasks(['ark-reconcile'])
+
+    expect(deletes()).toEqual([])
+  })
+
+  it('取消先落库、上游 id 后到：写入 id 被栅栏挡下时由 worker 补发 DELETE', async () => {
+    let release!: () => void
+    holdPost = new Promise((resolve) => {
+      release = resolve
     })
+    await db.insert(schema.tasks).values(arkTask('ark-late'))
 
     const scheduler = new TaskScheduler({ pollIntervalMs: 10_000 })
     scheduler.start()
     try {
-      await waitFor(async () => (await statusOf('ark-reconcile'))?.upstream?.length === 1)
-      await db
-        .update(schema.tasks)
-        .set({ status: 'reconciling', reconciliation_required: true })
-        .where(eq(schema.tasks.id, 'ark-reconcile'))
-      await scheduler.tick()
+      await waitFor(() => calls.some((call) => call.method === 'POST'))
+      // 取消入口此刻读不到上游 id，只能退款，叫停不了上游。
+      const cancelled = await cancelTasks(eq(schema.tasks.id, 'ark-late'))
+      await cancelUpstreamOfCancelledTasks(cancelled.map((row) => row.id))
+      expect(deletes()).toEqual([])
+
+      release()
+      await waitFor(() => deletes().length > 0)
       await waitFor(() => scheduler.activeCount() === 0)
-      await Bun.sleep(50)
     } finally {
       scheduler.stop()
     }
 
-    expect(calls.some((call) => call.method === 'DELETE')).toBe(false)
+    expect(deletes()).toEqual([{ url: `${ARK_TASKS}/task_ark_1`, method: 'DELETE' }])
+    expect((await statusOf('ark-late'))?.status).toBe('cancelled')
   })
 })

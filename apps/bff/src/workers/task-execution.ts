@@ -17,6 +17,7 @@ import { accountConcurrencyLimit } from '../lib/account-concurrency'
 import { durableGenerationInputs } from '../lib/generationMedia'
 import { log } from '../lib/logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../lib/private-overlay'
+import { cancelLateUpstreamTasks } from '../lib/upstream-cancel'
 import { checkIdleSlot, lockIdleSlotClaims, providerConcurrencyLimit } from './idle-concurrency'
 
 /**
@@ -267,7 +268,11 @@ class TaskExecutionHandle implements TaskExecution {
       .where(this.#own())
       .returning({ id: schema.tasks.id })
     // A late response remains dispatch evidence, but the former owner must not start polling.
-    if (!updated.length) this.abort()
+    if (!updated.length) {
+      this.abort()
+      // 取消先落库、上游 id 后到：取消入口当时看不到这个 id，由这里补发（BUG-32）。
+      void cancelLateUpstreamTasks(this.taskId, taskIds)
+    }
   }
 
   async readUpstreamSubmission(): Promise<UpstreamSubmission | undefined> {
