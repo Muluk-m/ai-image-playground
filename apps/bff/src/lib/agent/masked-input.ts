@@ -229,12 +229,13 @@ function orient(image: Sharp, orientation: number) {
       return image.rotate(180)
     case 4:
       return image.flip()
+    // 同一条 sharp 管线里 flop 先于 rotate 执行：方向 5 = 先顺转 90° 再水平翻 = flop + rotate(270)。
     case 5:
-      return image.rotate(90).flop()
+      return image.rotate(270).flop()
     case 6:
       return image.rotate(90)
     case 7:
-      return image.rotate(270).flop()
+      return image.rotate(90).flop()
     case 8:
       return image.rotate(270)
     default:

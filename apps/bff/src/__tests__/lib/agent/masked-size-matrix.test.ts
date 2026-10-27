@@ -66,13 +66,18 @@ async function roundTrip(sourceUrl: string, maskUrl: string) {
   const [requestedWidth, requestedHeight] = prepared.size.split('x').map(Number)
   // 上游不管请求尺寸，按输入长宽比出约 1.57MP。
   const scale = Math.sqrt(UPSTREAM_OUTPUT_PIXELS / (sentMeta.width! * sentMeta.height!))
-  const candidate = await sharp({
-    create: {
-      width: Math.max(1, Math.round(sentMeta.width! * scale)),
-      height: Math.max(1, Math.round(sentMeta.height! * scale)),
-      channels: 3,
-      background: '#00ff00',
-    },
+  // 候选内容按位置编码（R=横向、G=纵向比例），用来核对拉回原尺寸后选区内没有错位或被裁掉。
+  const candidateWidth = Math.max(1, Math.round(sentMeta.width! * scale))
+  const candidateHeight = Math.max(1, Math.round(sentMeta.height! * scale))
+  const candidateRaw = Buffer.alloc(candidateWidth * candidateHeight * 3)
+  for (let y = 0; y < candidateHeight; y++)
+    for (let x = 0; x < candidateWidth; x++) {
+      const offset = (y * candidateWidth + x) * 3
+      candidateRaw[offset] = Math.round((255 * (x + 0.5)) / candidateWidth)
+      candidateRaw[offset + 1] = Math.round((255 * (y + 0.5)) / candidateHeight)
+    }
+  const candidate = await sharp(candidateRaw, {
+    raw: { width: candidateWidth, height: candidateHeight, channels: 3 },
   })
     .png()
     .toBuffer()
@@ -195,18 +200,41 @@ describe('masked edits have no size gates', () => {
       expect([trip.result.info.width, trip.result.info.height]).toEqual([item.width, item.height])
       expect(trip.output.inspection.outsideChangedPixels).toBeGreaterThanOrEqual(0)
       expect(outsideChanged(trip.result, trip.original, inRect(item.rect))).toBe(0)
-      // 选区里确实用上了生成结果（纯绿）。
-      const cx = Math.floor((item.rect.left + item.rect.right) / 2)
-      const cy = Math.floor((item.rect.top + item.rect.bottom) / 2)
-      const offset = (cy * item.width + cx) * 4
-      if (!item.alpha)
-        expect([...trip.result.data.subarray(offset, offset + 3)]).toEqual([0, 255, 0])
+      // 选区里用上了生成结果，且位置对得上：截图（或整图）里的相对位置 = 候选里的相对位置。
+      if (!item.alpha) {
+        const area = trip.prepared.crop ?? {
+          left: 0,
+          top: 0,
+          width: item.width,
+          height: item.height,
+        }
+        const inset = 8
+        for (const [x, y] of [
+          [item.rect.left + inset, item.rect.top + inset],
+          [item.rect.right - 1 - inset, item.rect.bottom - 1 - inset],
+          [
+            Math.floor((item.rect.left + item.rect.right) / 2),
+            Math.floor((item.rect.top + item.rect.bottom) / 2),
+          ],
+        ] as const) {
+          const offset = (y * item.width + x) * 4
+          const expectedR = (255 * (x - area.left + 0.5)) / area.width
+          const expectedG = (255 * (y - area.top + 0.5)) / area.height
+          expect(Math.abs(trip.result.data[offset]! - expectedR)).toBeLessThanOrEqual(6)
+          expect(Math.abs(trip.result.data[offset + 1]! - expectedG)).toBeLessThanOrEqual(6)
+          expect(trip.result.data[offset + 2]).toBe(0)
+        }
+      }
     }, 60_000)
 
   for (const [orientation, rawWidth, rawHeight] of [
-    [6, 400, 300],
-    [8, 400, 300],
+    [2, 300, 400],
     [3, 300, 400],
+    [4, 300, 400],
+    [5, 400, 300],
+    [6, 400, 300],
+    [7, 400, 300],
+    [8, 400, 300],
   ] as const)
     it(`EXIF orientation ${orientation} JPEG is edited upright with the outside unchanged`, async () => {
       const jpeg = await sharp(pattern(rawWidth, rawHeight), {
@@ -229,28 +257,39 @@ describe('masked edits have no size gates', () => {
       expect(trip.original).toEqual(await sharp(jpeg).rotate().ensureAlpha().raw().toBuffer())
     }, 60_000)
 
-  it('turns a selection drawn on the raw (not upright) pixels together with the photo', async () => {
-    const jpeg = await sharp(pattern(400, 300), { raw: { width: 400, height: 300, channels: 4 } })
-      .jpeg({ quality: 90 })
-      .withMetadata({ orientation: 6 })
-      .toBuffer()
-    const rawRect = { left: 10, top: 20, right: 60, bottom: 80 }
-    const prepared = await prepareMaskedInput(
-      'gpt-image-2.5-flare',
-      url(jpeg, 'image/jpeg'),
-      url(await selection(400, 300, rawRect)),
-    )
-    expect(prepared.originalSize).toEqual({ width: 300, height: 400 })
-    const mask = await sharp(decode(prepared.mask))
-      .ensureAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true })
-    expect([mask.info.width, mask.info.height]).toEqual([300, 400])
-    // 方向 6 顺时针转 90°：原始 (x, y) 落到 (H-1-y, x)。
-    const at = (x: number, y: number) => mask.data[(y * 300 + x) * 4 + 3]
-    expect(at(300 - 1 - 50, 30)).toBe(0)
-    expect(at(300 - 1 - 150, 30)).toBe(255)
-  })
+  for (const orientation of [5, 6, 7, 8])
+    it(`orientation ${orientation}: turns a selection drawn on the raw pixels together with the photo`, async () => {
+      const jpeg = await sharp(pattern(400, 300), { raw: { width: 400, height: 300, channels: 4 } })
+        .jpeg({ quality: 90 })
+        .withMetadata({ orientation })
+        .toBuffer()
+      // 非对称选区，转错方向一定对不上。
+      const rawMask = await selection(400, 300, { left: 10, top: 20, right: 60, bottom: 140 })
+      const prepared = await prepareMaskedInput(
+        'gpt-image-2.5-flare',
+        url(jpeg, 'image/jpeg'),
+        url(rawMask),
+      )
+      expect(prepared.originalSize).toEqual({ width: 300, height: 400 })
+      const mask = await sharp(decode(prepared.mask))
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+      // 期望值：给蒙版打上同一个 EXIF 方向，让 sharp 自动转正。
+      const expected = await sharp(
+        await sharp(rawMask).tiff({ compression: 'none' }).withMetadata({ orientation }).toBuffer(),
+      )
+        .rotate()
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+      expect([mask.info.width, mask.info.height]).toEqual([
+        expected.info.width,
+        expected.info.height,
+      ])
+      const alpha = (data: Buffer) => data.filter((_, index) => index % 4 === 3)
+      expect(alpha(mask.data)).toEqual(alpha(expected.data))
+    })
 
   it('crops an extreme panorama around the selection to the aspect limit before scaling', () => {
     const crop = scaledEditCrop(9000, 1000, { left: 7000, top: 100, right: 7400, bottom: 900 })

@@ -171,11 +171,14 @@ export async function protectMaskedOutput(
     throw new MaskedOutputError('截取区域超出原图，未提交编辑')
   // 上游实际收到的画幅：截图模式是补边后的截图，整图模式就是（已补边的）原图。
   // 缩放截图模式（原尺寸送不上去时）：回来的图直接拉回截图原尺寸，没有补边。
-  const upstream = crop
-    ? crop.sendWidth && crop.sendHeight
-      ? { width: crop.width, height: crop.height }
-      : paddedEditSize(crop.width, crop.height)
-    : { width, height }
+  // 缩放截图模式（原尺寸送不上去时）：上游收到的是缩放后的截图 sendWidth×sendHeight，没有补边；
+  // 候选先按这个画幅对齐，再整块拉伸回截图原尺寸（缩放的逆过程）。
+  const send = crop?.sendWidth && crop.sendHeight ? crop : undefined
+  const upstream = send
+    ? { width: send.sendWidth!, height: send.sendHeight! }
+    : crop
+      ? paddedEditSize(crop.width, crop.height)
+      : { width, height }
   const featherPixels =
     Math.min(width, height) >= maskedEditSettings.boundary.minImageEdge
       ? maskedEditSettings.boundary.featherPixels
@@ -233,7 +236,14 @@ export async function protectMaskedOutput(
       upstream.height,
       candidateWidth,
       candidateHeight,
-      crop ? { x: focus.x - crop.left, y: focus.y - crop.top } : focus,
+      send
+        ? {
+            x: ((focus.x - send.left) * upstream.width) / send.width,
+            y: ((focus.y - send.top) * upstream.height) / send.height,
+          }
+        : crop
+          ? { x: focus.x - crop.left, y: focus.y - crop.top }
+          : focus,
     )
     if (fit.fit) {
       let resized = sharp(generated.data, { raw: generated.info }).resize(
@@ -243,6 +253,15 @@ export async function protectMaskedOutput(
       )
       if (fit.fit === 2) resized = resized.extract({ left: fit.left, top: fit.top, ...upstream })
       generated = await pixels(await resized.png().toBuffer())
+      ignoreCandidateAlpha(generated)
+    }
+    if (send) {
+      generated = await pixels(
+        await sharp(generated.data, { raw: generated.info })
+          .resize(send.width, send.height, { fit: 'fill' })
+          .png()
+          .toBuffer(),
+      )
       ignoreCandidateAlpha(generated)
     }
     if (crop) generated = placeCrop(source, generated, crop)

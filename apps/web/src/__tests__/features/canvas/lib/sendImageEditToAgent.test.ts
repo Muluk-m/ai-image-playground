@@ -182,18 +182,18 @@ describe('画布单图快捷编辑经 Agent 对话发送', () => {
     expect(await sendImageEditToAgent(editor(), image, '请编辑')).toBe(true)
   })
 
-  it('遮罩工作图过小时在发送前拒绝', async () => {
+  it('遮罩工作图小于上游下限也照常交给 Agent：服务端会放大再拉回原尺寸', async () => {
     media.prepare.mockResolvedValueOnce({
       dataUrl: 'data:image/png;base64,SMALL',
-      width: 512,
-      height: 512,
+      width: 300,
+      height: 400,
     })
     expect(
       await sendImageEditToAgent(editor(), image, '请编辑', {
         strokes: [{ tool: 'brush', points: [{ x: 10, y: 10 }], width: 8 }],
       }),
-    ).toBe(false)
-    expect(agent.send).not.toHaveBeenCalled()
+    ).toBe(true)
+    expect(agent.send).toHaveBeenCalledTimes(1)
   })
 
   it('当前模型不支持原生遮罩时不会把区域操作交给 Agent', async () => {
@@ -206,12 +206,12 @@ describe('画布单图快捷编辑经 Agent 对话发送', () => {
     expect(agent.send).not.toHaveBeenCalled()
   })
 
-  it('扩图后的工作图超限时不提交到 Agent', async () => {
+  it('扩图后的工作图超过解码上限时不提交到 Agent', async () => {
     media.outpaint.mockResolvedValueOnce({
       source: 'data:image/png;base64,TOO_LARGE',
       mask: 'data:image/png;base64,MASK',
-      width: 4000,
-      height: 4000,
+      width: 7000,
+      height: 7000,
     })
     expect(
       await sendImageEditToAgent(editor(), image, '请扩图', {
@@ -221,9 +221,9 @@ describe('画布单图快捷编辑经 Agent 对话发送', () => {
     expect(agent.send).not.toHaveBeenCalled()
   })
 
-  it('扩图框超限时不创建大画布', async () => {
-    media.rectSize.mockReturnValueOnce({ width: 4000, height: 4000 })
-    media.rectSize.mockReturnValueOnce({ width: 4000, height: 4000 })
+  it('扩图框超过解码上限时不创建大画布', async () => {
+    media.rectSize.mockReturnValueOnce({ width: 7000, height: 7000 })
+    media.rectSize.mockReturnValueOnce({ width: 7000, height: 7000 })
     expect(
       await sendImageEditToAgent(editor(), image, '请扩图', {
         frame: { mode: 'outpaint', rect: { x: -40, y: 0, w: 552, h: 512 } },
@@ -231,6 +231,21 @@ describe('画布单图快捷编辑经 Agent 对话发送', () => {
     ).toBe(false)
     expect(media.outpaint).not.toHaveBeenCalled()
     expect(agent.send).not.toHaveBeenCalled()
+  })
+
+  it('扩出超宽画幅（4000×1000）也照常交给 Agent，不再按长宽比拒绝', async () => {
+    media.outpaint.mockResolvedValueOnce({
+      source: 'data:image/png;base64,WIDE',
+      mask: 'data:image/png;base64,MASK',
+      width: 4000,
+      height: 1000,
+    })
+    expect(
+      await sendImageEditToAgent(editor(), image, '请扩图', {
+        frame: { mode: 'outpaint', rect: { x: -40, y: 0, w: 552, h: 512 } },
+      }),
+    ).toBe(true)
+    expect(agent.send).toHaveBeenCalledTimes(1)
   })
 })
 
