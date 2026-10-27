@@ -45,6 +45,10 @@ function report(result: CanvasExportResult) {
     )
 }
 
+function allFailed(entries: readonly MediaBundleEntry[]): CanvasExportResult {
+  return { exported: 0, failed: entries.length }
+}
+
 /**
  * 下载一组作品。一件直接落盘；多件打成 `<项目名>_<n>项.zip`，底部传输卡片跟着走
  * 等待中 → 打包中 → 已完成。部分或全部取不到时另给一条提示。
@@ -54,7 +58,7 @@ export async function transferMedia(
   projectName: string,
 ): Promise<CanvasExportResult> {
   if (entries.length < 2) {
-    const result = await downloadMediaBundle(entries)
+    const result = await downloadMediaBundle(entries).catch(() => allFailed(entries))
     if (entries.length) report(result)
     return result
   }
@@ -67,10 +71,11 @@ export async function transferMedia(
   useMediaTransferStore.setState({
     transfer: { id, fileName: `${baseName}.zip`, status: 'waiting', progress: 0 },
   })
+  // 单条取不到由 downloadMediaBundle 自己记成 failed；打包或落盘本身出错也收成「失败」，卡片不会停在打包中。
   const result = await downloadMediaBundle(entries, {
     baseName,
     onProgress: (done, total) => patch(id, { status: 'packing', progress: done / total }),
-  })
+  }).catch(() => allFailed(entries))
   patch(id, { status: result.exported ? 'finished' : 'failed', progress: 1 })
   report(result)
   return result
