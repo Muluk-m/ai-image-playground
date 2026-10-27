@@ -67,17 +67,24 @@ async function downscaled(
       .timeout({ seconds: 30 })
       .rotate()
       .resize({ width: target.width, height: target.height, fit: 'fill' })
-    if (!metadata.hasAlpha)
-      return {
-        bytes: await resized.flatten({ background: '#ffffff' }).jpeg({ quality: 90 }).toBuffer(),
-        mime: 'image/jpeg',
-      }
-    const png = await resized.clone().png().toBuffer()
-    if (png.byteLength <= visualByteLimit()) return { bytes: png, mime: 'image/png' }
-    return { bytes: await resized.webp({ quality: 90 }).toBuffer(), mime: 'image/webp' }
+    const limit = visualByteLimit()
+    if (metadata.hasAlpha) {
+      const png = await resized.clone().png().toBuffer()
+      if (png.byteLength <= limit) return { bytes: png, mime: 'image/png' }
+    }
+    const opaque = metadata.hasAlpha ? resized : resized.flatten({ background: '#ffffff' })
+    // 噪点多的图缩到 4000 也可能仍超读取预算：逐级降质量，直到放得下。
+    for (const quality of [90, 80, 70, 60]) {
+      const encoded = metadata.hasAlpha
+        ? await opaque.clone().webp({ quality }).toBuffer()
+        : await opaque.clone().jpeg({ quality }).toBuffer()
+      if (encoded.byteLength <= limit)
+        return { bytes: encoded, mime: metadata.hasAlpha ? 'image/webp' : 'image/jpeg' }
+    }
   } catch {
     throw tooLarge(width, height)
   }
+  throw tooLarge(width, height)
 }
 
 /**
@@ -88,11 +95,14 @@ async function downscaled(
 async function toStorableImage(bytes: Uint8Array): Promise<{ bytes: Uint8Array; mime: string }> {
   let metadata: Metadata
   try {
-    metadata = await sharp(bytes, { limitInputPixels: MEDIA_UPLOAD_MAX_PIXELS }).metadata()
+    // 只读文件头，不解码：这里不设像素上限，免得超大的真图在这一步被当成「不是图片」。
+    metadata = await sharp(bytes, { limitInputPixels: false }).metadata()
   } catch {
     throw notAnImage()
   }
   if (!metadata.width || !metadata.height) throw notAnImage()
+  if (metadata.width * metadata.height * (metadata.pages ?? 1) > MEDIA_UPLOAD_MAX_PIXELS)
+    throw tooLarge(metadata.width, metadata.height)
   // 方向 5–8 存的是转置后的宽高，按显示方向算长边。
   const turned = (metadata.orientation ?? 1) >= 5
   const width = turned ? metadata.height : metadata.width
