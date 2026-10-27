@@ -188,8 +188,6 @@
     "start": "开始创作",
     "newProject": "新建项目",
     "references": "参考素材（{{count}}）",
-    "referenceUnusable": "第 {{index}} 张图片无法使用，移除后可发送",
-    "referencesUnusable": "{{count}} 张图片无法使用，移除后可发送",
     "removeReference": "移除第 {{index}} 张图片",
     "removeUnusableReferences": "移除无法使用的图片",
     "uploadProgress": "上传中 {{ready}}/{{total}}",
