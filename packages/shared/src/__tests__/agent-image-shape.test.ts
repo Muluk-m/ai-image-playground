@@ -44,7 +44,7 @@ describe('agentImageShape', () => {
       agentImageShape(undefined, { gemini_image_size: '2K', gemini_aspect_ratio: '9:16' }),
     ).toEqual({ imageSize: '2K', aspectRatio: '9:16' })
     expect(agentImageShape(undefined, { size: '1536x1024' })).toEqual({
-      imageSize: '1536x1024',
+      size: '1536x1024',
       aspectRatio: '3:2',
     })
   })
