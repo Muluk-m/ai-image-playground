@@ -125,9 +125,13 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     if(reloading)return true;
     if(fatal||navigator.onLine===false)return false;
     try{
-      if(sessionStorage.getItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)})!==null)return false;
+      // One automatic reload per HTML build: a tab left open across a release must still recover
+      // when the next release deletes chunks it references. Values without a build count as none.
+      const htmlBuild=document.querySelector('meta[name=${JSON.stringify(BUILD_META_NAME)}]')?.content||'';
+      const spent=sessionStorage.getItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)});
+      if(spent!==null&&(spent.includes('|')?spent.slice(spent.indexOf('|')+1):'')===htmlBuild)return false;
       // Without persistent storage an automatic navigation could loop forever.
-      sessionStorage.setItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)},String(Date.now()));
+      sessionStorage.setItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)},Date.now()+'|'+htmlBuild);
     }catch{return false}
     refresh();
     return true;
