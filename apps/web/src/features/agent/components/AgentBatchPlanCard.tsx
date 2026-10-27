@@ -30,7 +30,7 @@ import {
 } from '../lib/agentClient'
 import { batchCommands } from '../lib/batchCommands'
 import { noteBatchAwaitingConfirmation } from '../lib/batchDrafts'
-import { recountBatchText } from '../lib/batchRecount'
+import { pruneRemovedFromList, recountBatchText } from '../lib/batchRecount'
 import { batchResultFiles, exportBatchResults } from '../lib/batchResultExport'
 import {
   BATCH_ITEM_PAGE_SIZE,
@@ -274,7 +274,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     )
       useAgentStore.getState().followBatchWake(completedConversation, batchId, completedVersion)
   }, [completedConversation, completedVersion, activeConversation, activeTurn, batchId, commands])
-  // 同一轮后建的计划会让先前的草稿作废（BUG-39）。轮次结束时草稿卡重读一次，换成作废后的状态；
+  // 后建的计划（同一轮或之后的轮次）会让先前未确认的草稿作废（BUG-39）。轮次结束时草稿卡重读一次，换成作废后的状态；
   // 轮次结束时草稿还没读到，就等读到后再重读。
   const pageStatus = page?.batch.status
   const draftConversation = pageStatus === 'draft' ? page?.batch.conversationId : null
@@ -779,11 +779,18 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
             page.items.some((entry) => entry.dependencies.includes(item.key))
           }
           onClick={() => {
+            const items = page.items
+              .filter((entry) => entry.key !== item.key)
+              .map((entry, ordinal) => ({ ...entry, ordinal }))
+            const kept = items.map((entry) => entry.prompt)
             setPage({
               ...page,
-              items: page.items
-                .filter((entry) => entry.key !== item.key)
-                .map((entry, ordinal) => ({ ...entry, ordinal })),
+              batch: {
+                ...page.batch,
+                title: pruneRemovedFromList(page.batch.title, item.prompt, kept),
+                rule: pruneRemovedFromList(page.batch.rule, item.prompt, kept),
+              },
+              items,
             })
             markDirty()
           }}

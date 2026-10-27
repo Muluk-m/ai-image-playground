@@ -141,6 +141,15 @@ export async function batchWakeContent(
         .filter((artifact) => artifact.media === 'image')
         .map((artifact) => artifact.artifactId),
     )
+  // 用户确认前在卡片上删掉的项（BUG-39）：不说清楚，复核时会把它当成漏掉的产物。
+  const original = await db
+    .select({ key: items.key })
+    .from(items)
+    .where(and(eq(items.batch_id, notice.batchId), eq(items.version, 1)))
+    .orderBy(asc(items.ordinal))
+    .limit(100)
+  const kept = new Set(rows.map((row) => row.itemKey))
+  const removed = original.map((row) => row.key).filter((key) => !kept.has(key))
   const hasAnalysis = rows.some((row) => row.kind === 'analysis')
   const hasGeneration = rows.some((row) => row.kind === 'generation')
   const optionalReviewImageIds = generated.slice(0, BATCH_WAKE_REVIEW_IMAGE_MAX)
@@ -161,6 +170,11 @@ export async function batchWakeContent(
       '（系统通知，不是用户说的话）已确认批次的一版执行结果全部确定。汇总下面的执行事实，不要重新提交任务或自动发起付费分析。',
       `批次 ${notice.batchId}，版本 ${notice.version}，共 ${results.length} 项：`,
       JSON.stringify(results),
+      ...(removed.length
+        ? [
+            `用户确认前从计划里移除了这些项，没有提交、也不需要产物：${removed.join('、')}。复核时不要把它们当成漏掉或尚未查看的图。`,
+          ]
+        : []),
       ...guidance,
     ].join('\n'),
     optionalReviewImageIds,
