@@ -357,6 +357,82 @@ it('EXIF 方向 6 的照片按显示宽高入库', async () => {
   expect(await completed.json()).toMatchObject({ status: 'ready', width: 6, height: 8 })
 })
 
+it('修复前入库的 EXIF 方向 6 旧记录：再次上传撞上时按转正的预览纠正宽高，只纠正一次（BUG-43）', async () => {
+  const bytes = await sharp({
+    create: { width: 16, height: 12, channels: 3, background: '#654321' },
+  })
+    .jpeg()
+    .withMetadata({ orientation: 6 })
+    .toBuffer()
+  const descriptor = {
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    bytes: bytes.length,
+    contentType: 'image/jpeg',
+  }
+  const upload = await (await request('media/uploads', deviceA, descriptor)).json()
+  await storage.write(key(upload.uploadUrl), bytes, 'image/jpeg')
+  expect((await request(`media/${upload.id}/complete`, deviceA, {})).status).toBe(200)
+  // 模拟修复前的那条记录：按原始像素记成横的，更新时间早于修复上线。
+  const { eq } = await import('drizzle-orm')
+  const legacyAt = Date.UTC(2026, 9, 20)
+  await db
+    .update(schema.media_objects)
+    .set({ width: 16, height: 12, updated_at: legacyAt })
+    .where(eq(schema.media_objects.id, upload.id))
+  const again = await request('media/uploads', deviceB, descriptor)
+  expect(again.status).toBe(200)
+  expect(await again.json()).toMatchObject({
+    id: upload.id,
+    status: 'ready',
+    width: 12,
+    height: 16,
+  })
+  const [row] = await db
+    .select()
+    .from(schema.media_objects)
+    .where(eq(schema.media_objects.id, upload.id))
+  expect(row).toMatchObject({ width: 12, height: 16 })
+  expect(row!.updated_at).toBeGreaterThan(legacyAt)
+  // 已纠正（或修复后入库）的记录不再回读预览。
+  const reads = storage.events.length
+  expect(await (await request('media/uploads', deviceA, descriptor)).json()).toMatchObject({
+    width: 12,
+    height: 16,
+  })
+  expect(storage.events.slice(reads).filter((event) => event.startsWith('readUpTo:'))).toEqual([])
+})
+
+it('修复前入库、朝向本来就对的旧记录不改', async () => {
+  const bytes = await sharp({
+    create: { width: 16, height: 12, channels: 3, background: '#224466' },
+  })
+    .jpeg()
+    .toBuffer()
+  const descriptor = {
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    bytes: bytes.length,
+    contentType: 'image/jpeg',
+  }
+  const upload = await (await request('media/uploads', deviceA, descriptor)).json()
+  await storage.write(key(upload.uploadUrl), bytes, 'image/jpeg')
+  expect((await request(`media/${upload.id}/complete`, deviceA, {})).status).toBe(200)
+  const { eq } = await import('drizzle-orm')
+  const legacyAt = Date.UTC(2026, 9, 20)
+  await db
+    .update(schema.media_objects)
+    .set({ updated_at: legacyAt })
+    .where(eq(schema.media_objects.id, upload.id))
+  expect(await (await request('media/uploads', deviceB, descriptor)).json()).toMatchObject({
+    width: 16,
+    height: 12,
+  })
+  const [row] = await db
+    .select()
+    .from(schema.media_objects)
+    .where(eq(schema.media_objects.id, upload.id))
+  expect(row).toMatchObject({ width: 16, height: 12, updated_at: legacyAt })
+})
+
 it('确认只读一次暂存原件，写好的原件和预览不再回读核对', async () => {
   const bytes = await sharp({ create: { width: 8, height: 6, channels: 4, background: '#123456' } })
     .png()
