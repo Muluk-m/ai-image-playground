@@ -208,4 +208,29 @@ it('tells the model which items the user removed before confirming', async () =>
   expect(content!.text).toContain('用户确认前从计划里移除了这些项')
   expect(content!.text).toContain('orange_portrait')
   expect(content!.text).not.toContain('item-0、')
+
+  // 初版已经确认过（之后的是重试版或分析转生成），和初版的差集就不是用户删项。
+  await db
+    .update(schema.agent_batch_plans)
+    .set({
+      confirmation: {
+        phase: 'generation',
+        itemKeys: [...itemKeys, 'orange_portrait'],
+        requiresResume: false,
+      },
+    })
+    .where(
+      and(
+        eq(schema.agent_batch_plans.batch_id, 'trimmed'),
+        eq(schema.agent_batch_plans.version, 1),
+      ),
+    )
+  const retried = await batchWakeContent('trimmed', OWNER, {
+    batchId: 'trimmed',
+    version: 2,
+    eventVersion: 1,
+    itemKeys,
+  })
+  expect(retried).not.toBeNull()
+  expect(retried!.text).not.toContain('用户确认前从计划里移除了这些项')
 })
