@@ -314,6 +314,31 @@ export function maskProposalFailedText(errorText: string): string {
 }
 
 /** 内联上传的原图存成媒体并挂到会话上，返回与云媒体引用同形的引用。 */
+/**
+ * 手机照片常带 EXIF 方向（原始像素横着、显示时转正）。模型看到的、浏览器卡片显示的都是转正后的图，
+ * 选区确认也只认方向为 1 的原件（selection-preview）。所以发卡前先按方向转正，
+ * 一律存成无损 PNG（像素与原图转正后逐一相同）。没有方向的原样返回。
+ */
+export async function uprightOriginal(bytes: Buffer, dataUrl: string) {
+  const metadata = await sharp(bytes, { limitInputPixels: visualPixelLimit() }).metadata()
+  if ((metadata.orientation ?? 1) === 1) return { bytes, dataUrl, metadata, rotated: false }
+  const rotated = sharp(bytes, { limitInputPixels: visualPixelLimit() }).rotate()
+  // 无损保存转正结果：JPEG 再编码会改动选区外的每个像素，合成时保留的就不是原图了。
+  const { data, info } = await rotated.png().toBuffer({ resolveWithObject: true })
+  return {
+    bytes: data,
+    dataUrl: `data:image/png;base64,${data.toString('base64')}`,
+    metadata: {
+      ...metadata,
+      format: 'png' as const,
+      width: info.width,
+      height: info.height,
+      orientation: 1,
+    },
+    rotated: true,
+  }
+}
+
 async function persistOriginal(
   context: AgentToolContext,
   userId: string,
@@ -384,15 +409,19 @@ async function propose(
   const imageId = context.images.identify(params.imageId)
   const image = await context.images.resolve(imageId, 'original')
   if (!image) throw new MaskProposalUnavailable(`图片 ${params.imageId} 不可用`)
-  const bytes = Buffer.from(image.dataUrl.slice(image.dataUrl.indexOf(',') + 1), 'base64')
-  const metadata = await sharp(bytes, { limitInputPixels: visualPixelLimit() }).metadata()
+  const original = await uprightOriginal(
+    Buffer.from(image.dataUrl.slice(image.dataUrl.indexOf(',') + 1), 'base64'),
+    image.dataUrl,
+  )
+  const { bytes, metadata } = original
   // 云媒体里已有原件就直接引用；随消息内联上传的图（附件上传未开启时就是这样）在服务端
   // 存成媒体并挂到会话上，与蒙版走同一条路，卡片、点选与确认都按这个 id 取原件。
-  const [stored] = await context.images.resolveMediaReferences([imageId])
+  // 带 EXIF 方向的原件不能直接引用：存一份转正的，分割、卡片与确认都在转正后的坐标里。
+  const [stored] = original.rotated ? [] : await context.images.resolveMediaReferences([imageId])
   const reference =
     stored ??
     (context.userId
-      ? await persistOriginal(context, context.userId, imageId, bytes, image.dataUrl)
+      ? await persistOriginal(context, context.userId, imageId, bytes, original.dataUrl)
       : null)
   if (!reference) throw new MaskProposalUnavailable('这张图还没有保存的原件（未登录）')
   const width = metadata.width ?? 0
@@ -408,7 +437,7 @@ async function propose(
   // 同一张原图用同一个缓存键：多个区域与卡片上的点选都只编码一次。
   const segment = (target: { box: AgentNormalizedBox; points?: AgentMaskPromptPoint[] }) =>
     segmentProposal({
-      dataUrl: image.dataUrl,
+      dataUrl: original.dataUrl,
       key: segmenterKey(reference.mediaId),
       width,
       height,

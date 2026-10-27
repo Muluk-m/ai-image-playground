@@ -144,7 +144,15 @@ export type PersistedSubmitRequest = Omit<SubmitRequest, 'input_images' | 'mask'
    * 选区只占大图一小块时，送上游的是围着选区截下的这一块（原图坐标）；落库的仍是整张原图与
    * 选区，交付时把生成结果贴回这个位置再合成。没有这一项就是整图送上游。
    */
-  masked_crop?: { left: number; top: number; width: number; height: number }
+  masked_crop?: {
+    left: number
+    top: number
+    width: number
+    height: number
+    /** 原尺寸送不上去（太大、太小、太扁）时，截下的这一块先缩放到这个尺寸再送上游。 */
+    sendWidth?: number
+    sendHeight?: number
+  }
   input_images?: StoredImageRef[]
   mask?: StoredImageRef
   video?: PersistedVideoRequest

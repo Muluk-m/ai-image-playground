@@ -426,7 +426,7 @@ describe('范围确认卡', () => {
             id: 'propose',
             name: 'proposeEditRegion',
             args: {
-              imageId: 'file_wide',
+              imageId: 'file_gone',
               target: '浴缸',
               change: '换一个浴缸',
               keep: [],
@@ -436,7 +436,7 @@ describe('范围确认卡', () => {
         () => completionStream('请你在图上手动圈选浴缸'),
       ]),
     )
-    // 严格蒙版模型改不了这么宽的原图：范围确认不可用。
+    // 模型指了一张不存在的图：范围确认不可用。（原先用 4200×1000 宽图触发尺寸拒绝；尺寸门槛已取消。）
     const wide = await sharp({
       create: { width: 4200, height: 1000, channels: 4, background: '#808080' },
     })
@@ -719,18 +719,13 @@ describe('范围确认卡', () => {
     expect(said).not.toMatch(/手动|圈选后|自己画/)
   }, 20_000)
 
-  it('still lets the agent edit the whole image for an overall request or an image too small to mask', async () => {
-    const small = await sharp({
-      create: { width: 320, height: 240, channels: 4, background: '#808080' },
-    })
-      .png()
-      .toBuffer()
+  it('still lets the agent edit the whole image for an overall request', async () => {
+    // 小图（如 320×240）不再算「太小没法圈」：尺寸门槛已取消，单对象请求照样先提议范围。
     const bath = await sharp(ORIGINAL).jpeg({ quality: 80 }).toBuffer()
     for (const [text, bytes, mime] of [
       ['把整张图调成黑白的', bath, 'image/jpeg'],
       ['变成夜景', bath, 'image/jpeg'],
       ['只把亮度调高一点', bath, 'image/jpeg'],
-      ['把这个浴缸换一下', small, 'image/png'],
     ] as const) {
       const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
       const conversationId = (json as { conversation: { id: string } }).conversation.id

@@ -3,15 +3,14 @@ import { labelComponents } from './mask-regions'
 import { estimateTranslation, inspectMaskedAlignment } from './masked-alignment'
 import { inwardMaskDistance } from './masked-boundary'
 import { maskedEditSettings } from './masked-edit-settings'
-import { type MaskedCrop, paddedEditSize } from './masked-input'
-import { selectionSettings } from './selection-settings'
+import { MASKED_INPUT_MAX_PIXELS, type MaskedCrop, paddedEditSize } from './masked-input'
 
 export class MaskedOutputError extends Error {}
 
 type Pixels = Awaited<ReturnType<typeof pixels>>
 
 async function pixels(bytes: Uint8Array) {
-  const image = sharp(bytes, { limitInputPixels: selectionSettings.maxPixels })
+  const image = sharp(bytes, { limitInputPixels: MASKED_INPUT_MAX_PIXELS })
   const metadata = await image.metadata()
   if ((metadata.orientation ?? 1) !== 1 || (metadata.pages ?? 1) !== 1)
     throw new MaskedOutputError('生成图的方向或帧数无法与选区对应，未应用修改，可重试')
@@ -164,11 +163,22 @@ export async function protectMaskedOutput(
       crop.width <= 0 ||
       crop.height <= 0 ||
       crop.left + crop.width > width ||
-      crop.top + crop.height > height)
+      crop.top + crop.height > height ||
+      (crop.sendWidth !== undefined && !(Number.isInteger(crop.sendWidth) && crop.sendWidth > 0)) ||
+      (crop.sendHeight !== undefined &&
+        !(Number.isInteger(crop.sendHeight) && crop.sendHeight > 0)))
   )
     throw new MaskedOutputError('截取区域超出原图，未提交编辑')
   // 上游实际收到的画幅：截图模式是补边后的截图，整图模式就是（已补边的）原图。
-  const upstream = crop ? paddedEditSize(crop.width, crop.height) : { width, height }
+  // 缩放截图模式（原尺寸送不上去时）：回来的图直接拉回截图原尺寸，没有补边。
+  // 缩放截图模式（原尺寸送不上去时）：上游收到的是缩放后的截图 sendWidth×sendHeight，没有补边；
+  // 候选先按这个画幅对齐，再整块拉伸回截图原尺寸（缩放的逆过程）。
+  const send = crop?.sendWidth && crop.sendHeight ? crop : undefined
+  const upstream = send
+    ? { width: send.sendWidth!, height: send.sendHeight! }
+    : crop
+      ? paddedEditSize(crop.width, crop.height)
+      : { width, height }
   const featherPixels =
     Math.min(width, height) >= maskedEditSettings.boundary.minImageEdge
       ? maskedEditSettings.boundary.featherPixels
@@ -226,7 +236,14 @@ export async function protectMaskedOutput(
       upstream.height,
       candidateWidth,
       candidateHeight,
-      crop ? { x: focus.x - crop.left, y: focus.y - crop.top } : focus,
+      send
+        ? {
+            x: ((focus.x - send.left) * upstream.width) / send.width,
+            y: ((focus.y - send.top) * upstream.height) / send.height,
+          }
+        : crop
+          ? { x: focus.x - crop.left, y: focus.y - crop.top }
+          : focus,
     )
     if (fit.fit) {
       let resized = sharp(generated.data, { raw: generated.info }).resize(
@@ -236,6 +253,15 @@ export async function protectMaskedOutput(
       )
       if (fit.fit === 2) resized = resized.extract({ left: fit.left, top: fit.top, ...upstream })
       generated = await pixels(await resized.png().toBuffer())
+      ignoreCandidateAlpha(generated)
+    }
+    if (send) {
+      generated = await pixels(
+        await sharp(generated.data, { raw: generated.info })
+          .resize(send.width, send.height, { fit: 'fill' })
+          .png()
+          .toBuffer(),
+      )
       ignoreCandidateAlpha(generated)
     }
     if (crop) generated = placeCrop(source, generated, crop)
@@ -347,6 +373,8 @@ export async function protectMaskedOutput(
           maskedCropTop: crop?.top ?? 0,
           maskedCropWidth: crop?.width ?? width,
           maskedCropHeight: crop?.height ?? height,
+          maskedSendWidth: crop?.sendWidth ?? 0,
+          maskedSendHeight: crop?.sendHeight ?? 0,
           translucentPixels: fitted.translucentPixels,
           regions: regions.length,
           regionsUnchanged: regionCheck.unchanged,
