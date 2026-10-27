@@ -1317,12 +1317,12 @@ export default function AgentComposer({
                                   <Icon name="brush" />
                                 </span>
                               </Button>
+                              {/* 传失败的图 × 常显，与首页输入框一致（BUG-49）。 */}
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="icon"
                                 aria-label={t('composer.removeReferenceAria', { label })}
-                                // 传失败的图 × 常显，与首页输入框一致（BUG-49）。
                                 className={`absolute right-0 top-0 z-20 h-11 w-11 rounded-none bg-transparent text-foreground hover:bg-transparent ${
                                   uploadState === 'failed'
                                     ? ''
