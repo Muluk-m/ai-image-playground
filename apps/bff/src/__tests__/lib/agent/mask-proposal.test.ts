@@ -29,8 +29,10 @@ const {
   maskProposalFailedText,
   maskProposalTool,
   seedPoints,
+  uprightOriginal,
 } = await import('../../../lib/agent/mask-proposal')
 const { maskedEditSize } = await import('../../../lib/agent/masked-input')
+const { imageSelection } = await import('../../../lib/agent/selection-preview')
 const { protectMaskedOutput } = await import('../../../lib/agent/masked-output')
 const {
   boxAgreement,
@@ -285,6 +287,59 @@ describe('proposeEditRegion', () => {
       const proposal = maskProposalFromResult(await run(tool, args))!.maskProposal!
       expect(proposal).toBeDefined()
     }
+  })
+
+  it('turns EXIF-rotated phone photos upright before proposing, so card and confirm share one frame', async () => {
+    // 原始像素 400×300、方向 6（显示为 300×400）。确认时只认方向为 1 的原件。
+    const rawJpeg = await sharp(await picture(400, 300))
+      .jpeg()
+      .withMetadata({ orientation: 6 })
+      .toBuffer()
+    const upright = await uprightOriginal(
+      rawJpeg,
+      `data:image/jpeg;base64,${rawJpeg.toString('base64')}`,
+    )
+    expect(upright.rotated).toBe(true)
+    expect([upright.metadata.width, upright.metadata.height]).toEqual([300, 400])
+    const stored = await sharp(upright.bytes).metadata()
+    expect([stored.width, stored.height, stored.orientation ?? 1]).toEqual([300, 400, 1])
+    expect(upright.dataUrl.startsWith('data:image/jpeg;base64,')).toBe(true)
+    // 转正后的像素与 sharp 自动转正一致（JPEG 95 重编码，允许小误差）。
+    const expected = await sharp(rawJpeg).rotate().raw().toBuffer()
+    const actual = await sharp(upright.bytes).raw().toBuffer()
+    let worst = 0
+    for (let index = 0; index < expected.length; index++)
+      worst = Math.max(worst, Math.abs(expected[index]! - actual[index]!))
+    expect(worst).toBeLessThan(24)
+    // 不复用带方向的那份已存原件：未登录时没法另存转正的，就说清楚不可用。
+    const tool = maskProposalTool(
+      context(
+        {},
+        upright.dataUrl.replace(upright.bytes.toString('base64'), rawJpeg.toString('base64')),
+      ),
+    )
+    await expect(run(tool, args)).rejects.toBeInstanceOf(MaskProposalUnavailable)
+    const plain = await uprightOriginal(await picture(40, 30), url(await picture(40, 30)))
+    expect(plain.rotated).toBe(false)
+  })
+
+  it('accepts an 8000-px-wide selection in the agent selection check', async () => {
+    // 智能体读图预算（agent:visual-max-pixels，默认 16777216）以内最宽的那类：8000×2000。
+    const width = 8000
+    const height = 2000
+    const source = await sharp({
+      create: { width, height, channels: 3, background: '#808080' },
+    })
+      .png()
+      .toBuffer()
+    const raw = Buffer.alloc(width * height * 4, 255)
+    for (let y = 800; y < 1200; y++)
+      for (let x = 3000; x < 3400; x++) raw[(y * width + x) * 4 + 3] = 0
+    const mask = await sharp(raw, { raw: { width, height, channels: 4 } })
+      .png()
+      .toBuffer()
+    const result = await imageSelection({ dataUrl: url(source), maskDataUrl: url(mask) }, false)
+    expect(result?.bounds).toEqual({ left: 3000, top: 800, width: 400, height: 400 })
   })
 
   it('tells the user in one sentence why the region could not be proposed', () => {
