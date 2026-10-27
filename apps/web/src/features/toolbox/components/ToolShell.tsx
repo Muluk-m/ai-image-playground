@@ -113,8 +113,8 @@ export default function ToolShell({
       ) : sidebar ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
           {children}
-          <aside className="flex shrink-0 flex-col border-t border-border bg-card lg:w-72 lg:overflow-y-auto lg:border-l lg:border-t-0">
-            <div className="flex-1 p-5">{controls}</div>
+          <aside className="flex shrink-0 flex-col border-t border-border bg-card lg:w-72 lg:overflow-hidden lg:border-l lg:border-t-0">
+            <div className="min-h-0 flex-1 p-5 lg:overflow-y-auto">{controls}</div>
             {footer}
           </aside>
         </div>

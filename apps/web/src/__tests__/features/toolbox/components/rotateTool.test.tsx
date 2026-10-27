@@ -2,10 +2,10 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import RotateTool from '../../../../features/toolbox/components/RotateTool'
 import { downloadImages } from '../../../../features/toolbox/lib/deliver'
 import { rotateImage } from '../../../../features/toolbox/lib/rotation'
 import { useToolboxStore } from '../../../../features/toolbox/store'
-import RotateTool from '../../../../features/toolbox/tools/rotate'
 import { stubPointerApis } from '../../../helpers/radix'
 
 vi.mock('../../../../features/toolbox/lib/deliver', () => ({

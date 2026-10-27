@@ -1,8 +1,8 @@
 import ExportTool from '../../image-export/ExportTool'
 import { TOOLS } from '../lib/registry'
 import { useToolboxStore } from '../store'
-import RotateTool from '../tools/rotate'
 import CombineView from './CombineView'
+import RotateTool from './RotateTool'
 import ToolCatalog from './ToolCatalog'
 import ToolView from './ToolView'
 
