@@ -18,6 +18,8 @@ import {
 } from './canvasAssets'
 
 const PAGE_SIZE = 24
+/** 每次最多读这么多段对话，空对话很多时也不会一口气把全部历史拉完。 */
+const CONVERSATIONS_PER_PAGE = 12
 const BATCH_REFRESH_MS = 4_000
 const NO_MESSAGES: readonly AgentPanelMessage[] = []
 
@@ -161,8 +163,9 @@ function useOtherAssets(enabled: boolean, conversationId: string | null) {
       setLoading(true)
       setFailed(false)
       const page: CanvasAssetItem[] = []
+      let read = 0
       try {
-        while (page.length < PAGE_SIZE && !cancelled) {
+        while (page.length < PAGE_SIZE && read < CONVERSATIONS_PER_PAGE && !cancelled) {
           if (!conversations)
             conversations = (await fetchConversations())
               .map((one) => one.id)
@@ -178,6 +181,7 @@ function useOtherAssets(enabled: boolean, conversationId: string | null) {
             ),
           )
           next += 1
+          read += 1
         }
       } catch {
         if (!cancelled) setFailed(true)
