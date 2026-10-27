@@ -39,7 +39,26 @@ const STORABLE_MIMES: Record<string, true | undefined> = {
  * 自己能改的事，交回去让它换一个。
  */
 async function toStorableImage(bytes: Uint8Array): Promise<{ bytes: Uint8Array; mime: string }> {
-  assertVisualBytes(bytes.byteLength)
+  // 图太大是来源给不出能用的图，不是模型写错了参数（见 `webError.ts`）：归成来源不可用，
+  // 时间线就不会在改图照常成功时冒出一行「这次的参数不成立」。
+  try {
+    assertVisualBytes(bytes.byteLength)
+  } catch (error) {
+    throw new AgentToolError(
+      'source_unavailable',
+      `${error instanceof Error ? error.message : '图片超出读取上限'}。请换一张小一些的图片地址，不要原样重试这个地址。`,
+    )
+  }
+  const header = await sharp(bytes)
+    .metadata()
+    .catch(() => null)
+  const pixels = (header?.width ?? 0) * (header?.height ?? 0) * (header?.pages ?? 1)
+  const limit = visualPixelLimit()
+  if (pixels > limit)
+    throw new AgentToolError(
+      'source_unavailable',
+      `这张网图 ${header!.width}×${header!.height}，超过可读取的像素上限 ${limit}，没有取进来。请换一张尺寸小一些的图片地址，不要原样重试这个地址。`,
+    )
   await visualMetadata(bytes).catch((error) => {
     throw new AgentToolError(
       'invalid_params',
@@ -59,11 +78,11 @@ async function toStorableImage(bytes: Uint8Array): Promise<{ bytes: Uint8Array; 
   }
 }
 
-/** 落库被拒的那几种结局各归哪一类：太大、超配额是额度问题，其余是这张图本身不成立。 */
+/** 落库被拒的那几种结局各归哪一类：太大是来源给不出能存的图，超配额是额度问题，其余是这张图本身不成立。 */
 function storeFailure(error: MediaError): AgentToolError {
   if (error.message === 'media_too_large')
     return new AgentToolError(
-      'invalid_params',
+      'source_unavailable',
       `这张图超过单张上限（${Math.floor(assetImageByteLimit() / (1024 * 1024))} MB），换一张小一点的。`,
     )
   if (error.message === 'media_quota_exceeded')
