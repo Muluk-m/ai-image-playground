@@ -20,4 +20,13 @@ describe('recountBatchText', () => {
     expect(recountBatchText('两张一组，共十张', 10, 9)).toBe('两张一组，共九张')
     expect(recountBatchText('从十三张备选里选', 3, 2)).toBe('从十三张备选里选')
   })
+
+  it('序数和局部数量不当作总数', () => {
+    expect(recountBatchText('共三张水果图；第三张用俯视构图', 3, 2)).toBe(
+      '共两张水果图；第三张用俯视构图',
+    )
+    expect(recountBatchText('共三张，每组三张', 3, 2)).toBe('共两张，每组三张')
+    expect(recountBatchText('共 三张，每组 三张', 3, 2)).toBe('共 两张，每组 三张')
+    expect(recountBatchText('风格统一。 三张都用暖色', 3, 2)).toBe('风格统一。 两张都用暖色')
+  })
 })
