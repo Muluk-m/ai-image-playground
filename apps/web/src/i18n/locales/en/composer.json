@@ -194,8 +194,6 @@
     "start": "Start creating",
     "newProject": "New project",
     "references": "References ({{count}})",
-    "referenceUnusable": "Image {{index}} can't be used. Remove it to send.",
-    "referencesUnusable": "{{count}} images can't be used. Remove them to send.",
     "removeReference": "Remove image {{index}}",
     "removeUnusableReferences": "Remove unusable images",
     "uploadProgress": "Uploading {{ready}}/{{total}}",
