@@ -572,7 +572,8 @@
     "applyArrangement": "保留",
     "zoomMenu": "缩放画布",
     "pickFromCanvas": "从画布选择",
-    "finishPicking": "完成选择"
+    "finishPicking": "完成选择",
+    "materials": "素材"
   },
   "pixelEdit": {
     "title": "编辑图片",
@@ -719,6 +720,40 @@
     "continuous-storyboard": {
       "title": "连续分镜图",
       "description": "把一段剧情画成连续的分镜拼图"
+    }
+  },
+  "assetsPanel": {
+    "title": "资产",
+    "search": "搜索资产…",
+    "listView": "列表视图",
+    "gridView": "网格视图",
+    "close": "关闭资产",
+    "images": "图片 ({{count}})",
+    "videos": "视频 ({{count}})",
+    "tagImage": "图片",
+    "tagVideo": "视频",
+    "select": "选择",
+    "cancel": "取消",
+    "expand": "展开",
+    "collapse": "收起",
+    "scopeAll": "所有项目",
+    "scopeProject": "当前项目",
+    "today": "今天",
+    "yesterday": "昨天",
+    "date": "{{month}}月{{day}}日",
+    "empty": "没有找到内容",
+    "loadFailed": "有些内容没能读取",
+    "selected": "已选 {{count}} 项",
+    "download": "下载",
+    "apply": "应用到画布",
+    "transfer": {
+      "active": "正在传输 {{done}}/{{total}} 项",
+      "done": "已完成 {{done}}/{{total}} 项",
+      "waiting": "等待中",
+      "packing": "打包中",
+      "finished": "已完成",
+      "failed": "失败",
+      "zipName": "{{name}}_{{count}}项"
     }
   }
 }
