@@ -28,7 +28,7 @@ import {
   recordAgentToolCall,
   touchAgentConversation,
 } from './conversations'
-import { singleObjectEditIntent, wholeImageEditIntent } from './edit-intent'
+import { wholeImageEditIntent } from './edit-intent'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost, type TurnExecution } from './execution'
 import { scheduleAgentFollowUps } from './follow-ups'
@@ -49,6 +49,7 @@ import {
   maskProposalFailedText,
   maskProposalFromResult,
   maskProposalGuidance,
+  maskProposalRetryable,
 } from './mask-proposal'
 import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
@@ -254,9 +255,6 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       visualWorkset,
       imageCombinations,
       maskProposals: new Set<string>(),
-      ...(!prepared.wake && singleObjectEditIntent(userAsk)
-        ? { singleObjectEdit: { nudged: false } }
-        : {}),
       ...(!prepared.wake && wholeImageEditIntent(userAsk)
         ? { wholeImageEdit: { nudged: false } }
         : {}),
@@ -482,8 +480,10 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     return writes
   }
 
-  // 范围确认失败：记一条日志，给用户一句话并收尾。模型再试一次也只会拿到同样的失败，
-  // 或者改去整图编辑、叫用户手画，三种都不是用户要的。
+  // 范围确认失败：记一条日志，给用户一句话并收尾。暂不可用、分割出错这类失败，模型再试
+  // 一次也只会拿到同样的结果，或者改去整图编辑、叫用户手画，都不是用户要的。
+  // 参数写错（外接框越界、实例没标 selected）例外：交回模型改参数重试一次，再错才收尾。
+  let maskProposalRetried = false
   const maskProposalFailed = async (reason: string) => {
     log.warn(
       {
@@ -720,7 +720,22 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         // 提醒类的退回（整图要求、已有选区）照常交回模型，让它改调 editImage；其余才收尾。
         if (event.isError && event.toolName === AGENT_MASK_PROPOSAL_TOOL && !aborted) {
           const reason = toolErrorText(event.result)
-          if (!maskProposalGuidance(reason)) await maskProposalFailed(reason)
+          if (maskProposalGuidance(reason)) return
+          if (!maskProposalRetried && maskProposalRetryable(reason)) {
+            maskProposalRetried = true
+            log.info(
+              {
+                event: 'agent.tool_retry',
+                conversationId,
+                turnId,
+                tool: AGENT_MASK_PROPOSAL_TOOL,
+                reason,
+              },
+              'mask proposal params rejected, model may retry once',
+            )
+            return
+          }
+          await maskProposalFailed(reason)
         }
         return
       }
