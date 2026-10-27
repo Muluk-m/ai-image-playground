@@ -28,6 +28,15 @@ describe('recountBatchText', () => {
     expect(recountBatchText('共三张，每组三张', 3, 2)).toBe('共两张，每组三张')
     expect(recountBatchText('共 三张，每组 三张', 3, 2)).toBe('共 两张，每组 三张')
     expect(recountBatchText('风格统一。 三张都用暖色', 3, 2)).toBe('风格统一。 两张都用暖色')
+    expect(recountBatchText('前三张用暖色，其中三张为竖版', 5, 4)).toBe('前三张用暖色，其中三张为竖版')
+  })
+
+  it('正文里提到总数的地方也改（BUG-50）', () => {
+    expect(
+      recountBatchText('共 3 张；保持三张整体为自然、温暖、写实的风格，这三张构图统一', 3, 2),
+    ).toBe('共 2 张；保持两张整体为自然、温暖、写实的风格，这两张构图统一')
+    expect(recountBatchText('保持 3 张色调一致', 3, 2)).toBe('保持 2 张色调一致')
+    expect(recountBatchText('保持三张整体一致，每组三张', 3, 2)).toBe('保持两张整体一致，每组三张')
   })
 })
 
