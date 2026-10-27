@@ -1,5 +1,6 @@
 import { type CanvasResult, canvasResults, readCanvasDocument } from '@image-playground/shared'
 import { useEffect, useMemo, useState } from 'react'
+import type * as Y from 'yjs'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { dataUrlToBlob } from '../../../lib/canvasImage'
 import { videoOutputUrl } from '../../../lib/channels/queueClient'
@@ -116,17 +117,25 @@ export function useCanvasResultAssets(
   enabled: boolean,
 ): readonly CanvasAssetItem[] {
   const [version, setVersion] = useState(0)
-  const [cache] = useState<ResultItemCache>(() => new Map())
+  // 缓存的条目闭包了 editor 和画布，换了任一个就整个丢掉。
+  const cache = useMemo<ResultItemCache>(
+    () => (void editor, void canvas, new Map()),
+    [editor, canvas],
+  )
   useEffect(() => {
     if (!enabled) return
     const results = canvas.doc.getMap('nodeResults')
     const nodes = canvas.doc.getMap('nodes')
     const bump = () => setVersion((one) => one + 1)
+    // 只关心节点增删和 data（名字、提示词）；拖动、选中改的是别的字段，不重算。
+    const onNodes = (events: Y.YEvent<Y.AbstractType<unknown>>[]) => {
+      if (events.some((event) => event.target === nodes || event.keys.has('data'))) bump()
+    }
     results.observe(bump)
-    nodes.observeDeep(bump)
+    nodes.observeDeep(onNodes)
     return () => {
       results.unobserve(bump)
-      nodes.unobserveDeep(bump)
+      nodes.unobserveDeep(onNodes)
     }
   }, [canvas, enabled])
   return useMemo(

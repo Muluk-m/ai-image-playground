@@ -314,8 +314,8 @@ export interface CanvasResultInsert {
   readonly video?: CanvasResultDisplay['video']
 }
 
-/** 新建节点之间的横向间距。 */
-const INSERT_GAP = 48
+/** 新建节点之间的横向间距，与 createNode 贴着已有节点排时的间距一致。 */
+const INSERT_GAP = 168
 
 /**
  * 把成品各建成一个节点，以 point 为中心横排开。全部取到像素后才落一个节点；
@@ -344,13 +344,17 @@ export async function insertResultNodes(
   }
   if (canvas.doc.isDestroyed) return []
   const width = canvasNodeRegistry.image.size.width
-  const step = width + INSERT_GAP
+  // 第一个按整排大致居中，其余都贴着前一个往右排：前一个已经按实际比例定了尺寸，
+  // 排成一行而不是被彼此的避让挤成台阶。
+  const first = point.x - ((prepared.length - 1) * (width + INSERT_GAP)) / 2
   const ids: string[] = []
   canvas.undo.stopCapturing()
   canvas.doc.transact(() => {
-    prepared.forEach(({ item, result, data }, index) => {
-      const x = point.x + (index - (prepared.length - 1) / 2) * step
-      const id = createNode(canvas, item.kind, { x, y: point.y }, '')
+    prepared.forEach(({ item, result, data }) => {
+      const previous = ids.length ? mediaNode(canvas.doc, ids[ids.length - 1]!) : null
+      const id = previous
+        ? createNode(canvas, item.kind, point, '', { nodes: [previous], side: 'right' })
+        : createNode(canvas, item.kind, { x: first, y: point.y }, '')
       const placed = { ...result, nodeId: id }
       recordCanvasResult(canvas.doc, placed, system)
       if (item.name)
