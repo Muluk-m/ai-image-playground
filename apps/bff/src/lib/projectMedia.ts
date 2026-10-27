@@ -20,7 +20,11 @@ import { PREVIEW_RESIZE } from './agent/modelImage'
 import { isCapabilityEnabled } from './capabilities'
 import { durableMediaStore } from './durableMediaStore'
 import { log } from './logger'
-import { assertMediaImageProcessingBudget, MEDIA_UPLOAD_MAX_PIXELS } from './media-image-limits'
+import {
+  assertMediaImageProcessingBudget,
+  displayedImageSize,
+  MEDIA_UPLOAD_MAX_PIXELS,
+} from './media-image-limits'
 import { withMediaObjectLock } from './mediaObjectLock'
 import { createMediaProcessingLimiter } from './mediaProcessingLimiter'
 import { attachmentLimits } from './operator-config'
@@ -516,8 +520,7 @@ async function publishMedia(
           preview_key: previewKey,
           preview_bytes: preview.length,
           reserved_bytes: bytes.length + preview.length,
-          width: metadata.width!,
-          height: metadata.height!,
+          ...displayedImageSize(metadata),
           updated_at: Date.now(),
         })
         .where(eq(media.id, id))
