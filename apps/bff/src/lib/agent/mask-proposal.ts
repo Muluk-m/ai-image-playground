@@ -275,22 +275,25 @@ export function maskProposalFailedText(errorText: string): string {
 /** 内联上传的原图存成媒体并挂到会话上，返回与云媒体引用同形的引用。 */
 /**
  * 手机照片常带 EXIF 方向（原始像素横着、显示时转正）。模型看到的、浏览器卡片显示的都是转正后的图，
- * 选区确认也只认方向为 1 的原件（selection-preview）。所以发卡前先按方向转正：JPEG 用 95 质量、
- * 不做色度抽样重编码，其它格式转无损 PNG。没有方向的原样返回。
+ * 选区确认也只认方向为 1 的原件（selection-preview）。所以发卡前先按方向转正，
+ * 一律存成无损 PNG（像素与原图转正后逐一相同）。没有方向的原样返回。
  */
 export async function uprightOriginal(bytes: Buffer, dataUrl: string) {
   const metadata = await sharp(bytes, { limitInputPixels: visualPixelLimit() }).metadata()
   if ((metadata.orientation ?? 1) === 1) return { bytes, dataUrl, metadata, rotated: false }
   const rotated = sharp(bytes, { limitInputPixels: visualPixelLimit() }).rotate()
-  const jpeg = metadata.format === 'jpeg'
-  const { data, info } = await (jpeg
-    ? rotated.jpeg({ quality: 95, chromaSubsampling: '4:4:4' })
-    : rotated.png()
-  ).toBuffer({ resolveWithObject: true })
+  // 无损保存转正结果：JPEG 再编码会改动选区外的每个像素，合成时保留的就不是原图了。
+  const { data, info } = await rotated.png().toBuffer({ resolveWithObject: true })
   return {
     bytes: data,
-    dataUrl: `data:${jpeg ? 'image/jpeg' : 'image/png'};base64,${data.toString('base64')}`,
-    metadata: { ...metadata, width: info.width, height: info.height, orientation: 1 },
+    dataUrl: `data:image/png;base64,${data.toString('base64')}`,
+    metadata: {
+      ...metadata,
+      format: 'png' as const,
+      width: info.width,
+      height: info.height,
+      orientation: 1,
+    },
     rotated: true,
   }
 }
