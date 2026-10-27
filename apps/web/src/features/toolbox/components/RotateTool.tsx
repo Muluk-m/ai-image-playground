@@ -231,45 +231,36 @@ export default function RotateTool() {
             <Icon name="close" />
           </Button>
         </div>
-        <div className="grid min-h-80 flex-1 grid-cols-1 gap-4 sm:grid-cols-2">
-          {(['original', 'adjusted'] as const).map((view) => (
-            <figure key={view} className="flex min-h-64 min-w-0 flex-col gap-3">
-              <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-[repeating-conic-gradient(hsl(var(--muted)/0.35)_0%_25%,transparent_0%_50%)] bg-[length:16px_16px] p-4">
-                {view === 'original' ? (
-                  <img
-                    src={selected?.url}
-                    alt={t('rotation.original')}
-                    className="h-full w-full object-contain"
-                  />
-                ) : source ? (
-                  <RotationPreview source={source} settings={settings} />
-                ) : (
-                  <div className="grid h-full place-items-center text-sm text-destructive">
-                    {t('result.undecodable')}
-                  </div>
-                )}
-                {view === 'adjusted' && grid && (
-                  <div
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-4 grid grid-cols-3 grid-rows-3"
-                  >
-                    {Array.from({ length: 9 }, (_, index) => (
-                      <div key={index} className="border border-primary/20" />
-                    ))}
-                  </div>
-                )}
-              </div>
-              <figcaption className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span>{t(`rotation.${view}`)}</span>
-                {selected && (
-                  <span className="tabular-nums">
-                    {view === 'original' ? selected.width : size?.width} ×{' '}
-                    {view === 'original' ? selected.height : size?.height}
-                  </span>
-                )}
-              </figcaption>
-            </figure>
-          ))}
+        <div className="grid min-h-80 flex-1">
+          <figure className="flex min-h-64 min-w-0 flex-col gap-3">
+            <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-[repeating-conic-gradient(hsl(var(--muted)/0.35)_0%_25%,transparent_0%_50%)] bg-[length:16px_16px] p-4">
+              {source ? (
+                <RotationPreview source={source} settings={settings} />
+              ) : (
+                <div className="grid h-full place-items-center text-sm text-destructive">
+                  {t('result.undecodable')}
+                </div>
+              )}
+              {grid && (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-4 grid grid-cols-3 grid-rows-3"
+                >
+                  {Array.from({ length: 9 }, (_, index) => (
+                    <div key={index} className="border border-primary/20" />
+                  ))}
+                </div>
+              )}
+            </div>
+            <figcaption className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span>{t('rotation.adjusted')}</span>
+              {size && (
+                <span className="tabular-nums">
+                  {size.width} × {size.height}
+                </span>
+              )}
+            </figcaption>
+          </figure>
         </div>
         <div className="flex shrink-0 gap-2 overflow-x-auto py-1" aria-label={t('rotation.images')}>
           {items.map((item) => (
