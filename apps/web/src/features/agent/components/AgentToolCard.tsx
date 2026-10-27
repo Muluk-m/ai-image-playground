@@ -114,7 +114,11 @@ function useStatusNote(
       : t('job.cancelled')
   // 有错误码就只认码（ADR 0006）；旧记录没有码，照旧显示当时存下的那句话。
   if (message.status === 'failed')
-    return agentToolFailureText(message.errorCode) ?? message.message ?? t('tool.notFinished')
+    return (
+      agentToolFailureText(message.errorCode, message.toolName) ??
+      message.message ??
+      t('tool.notFinished')
+    )
   if (message.delivery === 'pending') return t('tool.delivering')
   // 失败要说清为什么没写入；其余只说画布上现在有没有它（切过画布、或用户删掉了）。
   if (message.delivery === 'failed') return t('tool.deliveryFailed')

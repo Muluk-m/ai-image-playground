@@ -339,6 +339,24 @@ it('真实内容、字节数和摘要必须全部匹配，失败不能让另一�
   ])
 })
 
+it('EXIF 方向 6 的照片按显示宽高入库', async () => {
+  const bytes = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#123456' } })
+    .jpeg()
+    .withMetadata({ orientation: 6 })
+    .toBuffer()
+  const upload = await (
+    await request('media/uploads', deviceA, {
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      bytes: bytes.length,
+      contentType: 'image/jpeg',
+    })
+  ).json()
+  await storage.write(key(upload.uploadUrl), bytes, 'image/jpeg')
+  const completed = await request(`media/${upload.id}/complete`, deviceA, {})
+  expect(completed.status).toBe(200)
+  expect(await completed.json()).toMatchObject({ status: 'ready', width: 6, height: 8 })
+})
+
 it('确认只读一次暂存原件，写好的原件和预览不再回读核对', async () => {
   const bytes = await sharp({ create: { width: 8, height: 6, channels: 4, background: '#123456' } })
     .png()
