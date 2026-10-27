@@ -386,6 +386,92 @@ describe('readConversationStateFacts', () => {
   })
 })
 
+describe('removed batch items (BUG-51)', () => {
+  const item = (batchId: string, version: number, key: string, ordinal: number) => ({
+    batch_id: batchId,
+    version,
+    key,
+    ordinal,
+    kind: 'generation' as const,
+    inputs: [],
+    prompt: `一只${key}\n竖版`,
+    params: { model: 'fixture', provider: 'openai-compat' as const },
+    dependencies: [],
+  })
+  const plan = (batchId: string, version: number, count: number, confirmed: boolean) => ({
+    batch_id: batchId,
+    version,
+    title: '小动物',
+    rule: 'rule',
+    digest: 'a'.repeat(64),
+    item_count: count,
+    estimate_snapshot: { analysis: estimate, generation: estimate },
+    created_at: NOW,
+    ...(confirmed
+      ? { confirmation: { commandId: `c-${batchId}-${version}`, confirmedAt: NOW } as never }
+      : {}),
+  })
+
+  it('lists v1 items missing from the first confirmed version, not from later retries', async () => {
+    await conversation('trimmed')
+    await db.insert(schema.agent_batches).values({
+      id: 'zoo',
+      user_id: 'owner',
+      conversation_id: 'trimmed',
+      origin_turn_id: 'origin',
+      tool_call_id: 'zoo',
+      experience: 'chat',
+      status: 'closed',
+      current_version: 3,
+      confirmed_version: 3,
+      created_at: NOW,
+      updated_at: NOW,
+    })
+    await db.insert(schema.agent_batch_plans).values([
+      plan('zoo', 1, 3, false),
+      plan('zoo', 2, 2, true),
+      plan('zoo', 3, 1, true),
+    ])
+    await db
+      .insert(schema.agent_batch_items)
+      .values([
+        item('zoo', 1, 'cat', 0),
+        item('zoo', 1, 'dog', 1),
+        item('zoo', 1, 'rabbit', 2),
+        item('zoo', 2, 'cat', 0),
+        item('zoo', 2, 'dog', 1),
+        item('zoo', 3, 'dog', 0),
+      ])
+
+    const facts = await readConversationStateFacts('trimmed', NOW)
+    expect(facts.batches[0]!.removed).toEqual([{ key: 'rabbit', prompt: '一只rabbit 竖版' }])
+  })
+
+  it('reports nothing removed when the first version was confirmed as is', async () => {
+    await conversation('intact')
+    await db.insert(schema.agent_batches).values({
+      id: 'farm',
+      user_id: 'owner',
+      conversation_id: 'intact',
+      origin_turn_id: 'origin',
+      tool_call_id: 'farm',
+      experience: 'chat',
+      status: 'closed',
+      current_version: 2,
+      confirmed_version: 2,
+      created_at: NOW,
+      updated_at: NOW,
+    })
+    await db.insert(schema.agent_batch_plans).values([plan('farm', 1, 2, true), plan('farm', 2, 1, true)])
+    await db
+      .insert(schema.agent_batch_items)
+      .values([item('farm', 1, 'cow', 0), item('farm', 1, 'pig', 1), item('farm', 2, 'pig', 0)])
+
+    const facts = await readConversationStateFacts('intact', NOW)
+    expect(facts.batches[0]!.removed).toEqual([])
+  })
+})
+
 describe('renderConversationState', () => {
   it('tells the model a confirmation phrase must not resubmit finished work', () => {
     const text = renderConversationState({
@@ -401,6 +487,7 @@ describe('renderConversationState', () => {
           completed: 6,
           failed: 0,
           artifactIds: ['agent_t1_0'],
+          removed: [],
         },
         {
           batchId: 'b2',
@@ -410,6 +497,7 @@ describe('renderConversationState', () => {
           completed: 1,
           failed: 0,
           artifactIds: [],
+          removed: [],
         },
       ],
     })
@@ -421,5 +509,29 @@ describe('renderConversationState', () => {
     expect(text).toContain('批次 b1「六角度」：已执行完毕，完成 6/6；产物：agent_t1_0')
     expect(text).toContain('批次 b2「修正」：执行中，已完成 1/3')
     expect(text).toContain('不要为这类话重新调用生成工具')
+    expect(text).not.toContain('删掉')
+  })
+
+  it('names items the user removed before confirming so they are not reported missing', () => {
+    const text = renderConversationState({
+      pendingDrafts: [],
+      voidedDrafts: [],
+      pendingNodeRuns: [],
+      batches: [
+        {
+          batchId: 'b1',
+          title: '小动物',
+          status: 'closed',
+          itemCount: 2,
+          completed: 2,
+          failed: 0,
+          artifactIds: [],
+          removed: [{ key: 'rabbit', prompt: '一只白色兔子，竖版' }],
+        },
+      ],
+    })
+    expect(text).toContain(
+      '批次 b1「小动物」：已执行完毕，完成 2/2；用户确认前已从计划里删掉：rabbit（一只白色兔子，竖版），这一批只有上面 2 项，删掉的不算缺',
+    )
   })
 })

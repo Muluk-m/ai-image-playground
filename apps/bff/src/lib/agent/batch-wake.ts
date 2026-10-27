@@ -139,7 +139,14 @@ export async function batchWakeContent(
     .flatMap((row) =>
       (row.artifacts ?? [])
         .filter((artifact) => artifact.media === 'image')
-        .map((artifact) => artifact.artifactId),
+        .map((artifact) => ({
+          id: artifact.artifactId,
+          // 写明实际像素：没有尺寸时模型只能凭看图猜画幅，写出「但画面实际为横版，符合 16:9」这种话（BUG-51）。
+          label:
+            artifact.width && artifact.height
+              ? `${artifact.artifactId}（${artifact.width}×${artifact.height}）`
+              : artifact.artifactId,
+        })),
     )
   // 用户确认前在卡片上删掉的项（BUG-39）：不说清楚，复核时会把它当成漏掉的产物。
   // 只有「这一版就是从草稿第一次确认的那一版」时，和初版的差集才是用户删项：草稿编辑只发生在
@@ -168,12 +175,14 @@ export async function batchWakeContent(
   const removed = original.map((row) => row.key).filter((key) => !kept.has(key))
   const hasAnalysis = rows.some((row) => row.kind === 'analysis')
   const hasGeneration = rows.some((row) => row.kind === 'generation')
-  const optionalReviewImageIds = generated.slice(0, BATCH_WAKE_REVIEW_IMAGE_MAX)
+  const optionalReviewImageIds = generated
+    .slice(0, BATCH_WAKE_REVIEW_IMAGE_MAX)
+    .map((artifact) => artifact.id)
   const guidance: string[] = []
   if (hasGeneration)
     guidance.push(
       generated.length
-        ? `生成项的产物：${generated.join('、')}。前 ${optionalReviewImageIds.length} 张会尽量作为图片随这一轮附上，实际附上哪些以本轮图片清单为准。对照用户这一批的要求逐张复核附上的图：逐项写出用户要求保留或修改的属性是否做到，不合格的指出是哪一张、哪里不对，只给修改建议，不要自行重新生成。清单里没有的产物如实说明尚未查看，可以用 viewImage 查看。`
+        ? `生成项的产物：${generated.map((artifact) => artifact.label).join('、')}。括号里是实际像素，说画幅时以它为准。前 ${optionalReviewImageIds.length} 张会尽量作为图片随这一轮附上，实际附上哪些以本轮图片清单为准。对照用户这一批的要求逐张复核附上的图：逐项写出用户要求保留或修改的属性是否做到：做到的直接说符合，不要用「但」「实际为」这类转折去写一个符合的属性；不合格的指出是哪一张、哪里不对，只给修改建议，不要自行重新生成。清单里没有的产物如实说明尚未查看，可以用 viewImage 查看。`
         : '生成项没有可复核的产物：说明失败或取消的是哪几项，不要自行重新生成。',
     )
   if (hasAnalysis)
