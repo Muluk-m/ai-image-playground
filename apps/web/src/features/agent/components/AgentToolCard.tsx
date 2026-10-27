@@ -540,9 +540,11 @@ function StandardAgentToolCard({
   const [selectedArtifactId, setSelectedArtifactId] = useState<string>()
   const [imageRatios, setImageRatios] = useState<Record<string, number>>({})
   const [copiedPrompt, setCopiedPrompt] = useState(false)
-  const showReceipt = useAgentStore(
-    (state) => turnImageReceipt(state.messages, message.turnId)?.cardId === message.id,
-  )
+  // 这张卡收尾本轮时带出结算行；张数与本轮末尾的页脚同一口径（本轮全部成功出图）。
+  const receiptCount = useAgentStore((state) => {
+    const receipt = turnImageReceipt(state.messages, message.turnId)
+    return receipt?.cardId === message.id ? receipt.outputCount : null
+  })
   const turnFooter = useAgentStore((state) => state.turns?.[message.turnId])
   const turnMessages = useAgentStore((state) => state.messages)
   const receiptJobs = useMemo(
@@ -1141,8 +1143,8 @@ function StandardAgentToolCard({
               )}
             </MessageActions>
           )}
-        {showReceipt && turnFooter && (
-          <AgentTurnCost footer={turnFooter} jobs={receiptJobs} outputCount={tiles.length} />
+        {receiptCount !== null && turnFooter && (
+          <AgentTurnCost footer={turnFooter} jobs={receiptJobs} outputCount={receiptCount} />
         )}
         {promptOpen && message.prompt && (
           <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
