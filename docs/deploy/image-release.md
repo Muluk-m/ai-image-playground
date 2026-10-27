@@ -15,8 +15,12 @@
 1. 触发：`Web checks` 在 main 的 push 上成功（`workflow_run`），或在 main 上手动 `workflow_dispatch`。main 上的 `Web checks` 先由 `prior` 核对：提交与其同仓 PR 头的代码树相同、且该 PR 头的 `Web checks` 已通过时，其余检查跳过（结论仍为 success），直接进入部署；PR 落后于 main、来自 fork 或找不到通过记录时照常全跑。并发组 `production-deploy` 不取消在跑的发布，排队只留最新一次。
 2. `target`：[`scripts/ci-deploy-target.sh`](../../scripts/ci-deploy-target.sh) 判定。提交不是 `origin/main` 最新、或任一 API / 站点已运行其后代提交（不回退）则整单跳过。三边各自和自己线上的提交比：API 读两套 `/health`，内部站与收费站读各自的 `/version.json`，Admin 站读自己的 `/version.json`。C 端包（`apps/web`、`apps/website`、`packages/shared`）自那以后变了才发内部站和收费站并跑浏览器冒烟，Admin 包（`apps/admin`、`packages/shared`）变了才发 Admin 站，API 树没变就跳过镜像。lockfile 变动只算作实际安装这些依赖的一边有变：[`scripts/lock-closure-changed.mjs`](../../scripts/lock-closure-changed.mjs) 对比两次提交中该边 importer（含链接到的 workspace 包）可达的全部包快照，只加前端依赖不会重建 API 镜像；读不到或解析失败按有变处理。某一边被上次跳过，它的版本就停在旧提交，下次仍会补发；已经发过的一边不会因为别的边落后而重发。版本读不到或几份副本不一致的一边照常发布。三边都没变、或都已在跑这个提交时，自动触发跳过，手动触发照常重发（私有 overlay 单独更新用这个）。跳过记 notice，不算失败。
 3. `release`：在同一个 `production-deploy` 并发组里根据根 `package.json` 的主次版本和已有 `vMAJOR.MINOR.*` 标签算出下一个补丁，打上 `vMAJOR.MINOR.PATCH` 并推送，避免两次发布抢同一个补丁。不把版本提交回 main。
-4. `backend`：仅在 API 树有变化时检出该提交，用 deploy key 按 `private.lock` 钉住的提交检出私有仓库到 `private/`，`GITHUB_TOKEN` 登录 GHCR，执行 `build-vps-release.sh all $RUNNER_TEMP/aip-<公开12位>-<私有12位>`（带上 `APP_RELEASE`）；再 `tar | ssh` 交给 VPS 上的 forced command，输出与退出码回传到 job。
-5. `pages`：API 这次有发布时，每个站先轮询自己对应 API `/health` 的 `version`（内部版 `<公开sha>`，付费版 `<公开sha>+<私有sha>`，最长 300 秒）。API 被跳过时不等待。然后内部版（无 `private/`）与付费版（克隆同一私有提交）两个 job 并行构建发布，各自用 Chromium 验收自己的生产站；两者结束后 `admin-pages` 再发后台前端（`pages-release.sh internal|paid|admin`，含域名 `version.json` 校验）。两站互不阻塞：一边失败不撤回另一边已发布的站点。构建时的 `APP_RELEASE` 写进设置里的版本号。
+4. `backend`：仅在 API 树有变化时检出该提交，用 deploy key 按 `private.lock` 钉住的提交检出私有仓库到 `private/`，`GITHUB_TOKEN` 登录 GHCR，执行 `build-vps-release.sh all $RUNNER_TEMP/aip-<公开12位>-<私有12位>`（带上 `APP_RELEASE`）；再 `tar | ssh` 交给 VPS 上的 forced command，**只发内部版**（`deploy <id> internal <run_id>`），输出与退出码回传到 job。发布目录另存为 artifact `vps-release`（保留 1 天），给后面的 `backend-paid` 用。
+5. `pages-internal` → `backend-paid` → `pages-paid`（先内部、后付费，2026-10-27 起）：
+   - `pages-internal`：API 这次有发布时，先轮询内部 API `/health` 的 `version` 等于 `<公开sha>`（最长 300 秒），再构建发布内部站，用 Chromium 验收。前端没变时整个 job 跳过。
+   - `backend-paid`：只在 `backend` 成功、且 `pages-internal` 成功或被跳过时运行。先再确认内部 `/health` 仍是 `<公开sha>`，然后取回 `vps-release`、恢复脚本的可执行位，以 `deploy <id> paid <run_id>` 发付费后端。同一个 run 第二次收同一个 ID，VPS 上落在 `<id>.run-<run_id>`，因此失败后只能「Re-run failed jobs」。
+   - `pages-paid`：只在 `pages-internal` 成功、`backend-paid` 成功或被跳过时运行。等付费 API `/health` 报 `<公开sha>+<私有sha>`，克隆同一私有提交，构建发布付费站并跑 Chromium 验收。
+   - 两站的步骤是同一份（YAML 锚点 `&pages-steps`），只差 edition。内部版验收不过，付费版后端和前端都停在上一版；已发布的内部版不自动撤回。之后 `admin-pages` 再发后台前端（`pages-release.sh internal|paid|admin`，含域名 `version.json` 校验）。构建时的 `APP_RELEASE` 写进设置里的版本号。
 6. 部署日志 `by=github-actions/run-<run_id>`；手动发布仍记 `user@host`（`DEPLOY_ACTOR` 可覆盖，写入时空白等字符换成 `-`）。
 
 ### 前端启动验收
@@ -112,7 +116,7 @@ macmini2 现有生产配置参考：`/Users/mac/services/aip-free-recovery-20260
 后台服务端还是 compose 里的 `admin` 容器，只出 API，经 tunnel 暴露成 `admin-api.muvloom.online`。
 两个域名同站（eTLD+1 相同），所以 `SameSite=Lax` 的 `admin_session` cookie 在 `fetch(credentials:'include')` 和 `<img>` 上都带得过去；`*.pages.dev` 预览域登不上，与主站一致。
 
-日常发布不用管它：`deploy.yml` 的 `pages` job 在付费站之后自动跑 `pages-release.sh admin`。应急手动发布：
+日常发布不用管它：`deploy.yml` 的 `admin-pages` job 在付费站（`pages-paid`）之后自动跑 `pages-release.sh admin`。应急手动发布：
 
 ```sh
 export PAGES_ENV_FILE=/absolute/protected/pages.env
