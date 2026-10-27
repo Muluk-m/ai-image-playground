@@ -14,9 +14,8 @@ Agent 从 PR 到上线的完整链路，以及每一步谁能拍板。命令与�
 
 | 步骤 | 谁拍板 | 说明 |
 | --- | --- | --- |
-| 修 bug 的 PR 合并 main（会发生产） | Agent，检查齐了即可 | 检查见「合并前检查」；改到成本相关时还要满足下面的成本一行 |
+| 修 bug 的 PR 合并 main（会发生产） | Agent，检查齐了即可 | 检查见「合并前检查」；涉及成本的要在描述和汇报里写清成本影响 |
 | 功能或行为变更的 PR 合并 main（会发生产） | **需 Nain 批准** | 用户能感知的新功能、交互或默认行为变化，都算 |
-| 涉及成本的 PR 合并 | **需 Nain 批准** | 见 AGENTS.md「成本硬规则」，由 Cost gate 检查 |
 | 带数据库迁移的 PR 合并 main | **需 Nain 批准** | 合并即在生产跑迁移，数据库不会自动回滚 |
 | 私有 overlay 仓合并 | **需 Nain 批准** | 合并即发生产，并跑私有迁移 |
 | 生产回滚（镜像回滚、前端回滚、revert PR） | **需 Nain 批准** | 紧急时先报告现象和建议的回滚目标，再等批准 |
@@ -30,12 +29,12 @@ Agent 从 PR 到上线的完整链路，以及每一步谁能拍板。命令与�
 
 1. 从最新 `origin/main` 拉工作分支，不在 `main`、`test` 上直接改。提交与 PR 标题按 AGENTS.md「提交规范」（Conventional Commits，描述用中文）。
 2. 按 AGENTS.md「完成任务的硬性检查清单」跑格式化、lint、typecheck 与测试；重任务交给云端或 CI。
-3. 开 PR，按 [PR 模板](../../.github/pull_request_template.md) 填写。改到关键流程要附证据（AGENTS.md「关键流程证据」）；涉及成本要勾成本复选框（AGENTS.md「成本硬规则」）。
+3. 开 PR，按 [PR 模板](../../.github/pull_request_template.md) 填写。改到关键流程要附证据（AGENTS.md「关键流程证据」）；涉及成本要在「成本与影响」写清改了什么、对成本的影响（AGENTS.md「成本与影响说明」）。
 4. 合并前三项缺一不可：
-   - **CI 全绿**：`Web checks`、`Cost gate` 等 PR 上的检查都通过。
+   - **CI 全绿**：`Web checks` 等 PR 上的检查都通过（`Cost impact` 只打标签提示，不拦合并）。
    - **`/review`**：在 PR 评论 `/review` 触发 AI Code Review（`.github/workflows/ai-review.yml`，不阻断合并），处理其中的有效意见。
    - **`@codex review`**：在 PR 评论 `@codex review`，处理有效意见。评论后 30 分钟仍没有回复就继续，并在 PR 里注明「Codex 30 分钟未回复」。
-5. 用 squash merge 合并，合并说明用中文。修 bug 的 PR 检查齐了即可合并；功能或行为变更、带迁移、涉及成本的 PR 要先等 Nain 批准（见上表）。
+5. 用 squash merge 合并，合并说明用中文。修 bug 的 PR 检查齐了即可合并；功能或行为变更、带迁移的 PR 要先等 Nain 批准（见上表）。
 
 ## 二、测试环境（test 分支）
 

@@ -1,0 +1,81 @@
+name: Cost impact
+# 成本与影响说明（AGENTS.md）：PR 改到模型调用、模型/供应商切换、定价、额度或计费相关文件时，
+# 打 cost-impact 标签并在 Job Summary 列出命中的文件，提醒作者在 PR 描述「成本与影响」里写清楚。
+# 只提示、不拦合并：两个 job 都不会因为命中而失败。判定逻辑在 scripts/cost-impact.mjs。
+# 它不属于 Web checks，不影响 deploy.yml 的触发。
+#
+# 判定 job 只有只读 token，执行的是目标分支（base）上的脚本；打标签的 job 不 checkout、不执行仓库代码。
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+concurrency:
+  group: cost-impact-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  detect:
+    name: Cost impact detection
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      sensitive: ${{ steps.detect.outputs.sensitive }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cost-impact.mjs
+          sparse-checkout-cone-mode: false
+      # 目标分支上还没有脚本时（引入它的那个 PR），用 PR 自带的版本。
+      - name: Bootstrap script from PR head
+        if: hashFiles('scripts/cost-impact.mjs') == ''
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cost-impact.mjs
+          sparse-checkout-cone-mode: false
+      - name: List changed files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        # 改名的文件同时列出旧路径。
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/files.txt"
+      - name: Detect
+        id: detect
+        run: node scripts/cost-impact.mjs < "$RUNNER_TEMP/files.txt"
+  label:
+    name: Cost impact label
+    needs: detect
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Sync label
+        # fork 来的 PR 拿到的是只读 token，改不了标签；只提示，失败也不影响合并。
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SENSITIVE: ${{ needs.detect.outputs.sensitive }}
+        run: |
+          set -euo pipefail
+          label=cost-impact
+          if [ "$SENSITIVE" = true ]; then
+            gh label create "$label" --repo "$GITHUB_REPOSITORY" --color FBCA04 \
+              --description '可能影响成本：描述里要写清改了什么、成本影响' --force
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" \
+              -f "labels[]=$label" > /dev/null
+            echo "::notice::这个 PR 可能影响成本，请在描述「成本与影响」里写明改了什么、对成本的影响。"
+          elif gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '.[].name' | grep -qx "$label"; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels/$label" > /dev/null
+          fi
