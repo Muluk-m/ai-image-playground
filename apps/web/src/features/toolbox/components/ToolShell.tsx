@@ -18,17 +18,55 @@ export default function ToolShell({
   summary,
   deliverables,
   children,
+  sidebar = false,
+  downloadLabel,
 }: {
   tool: ToolDefinition
   controls: ReactNode
   summary: ReactNode
   deliverables: readonly DeliverableImage[]
   children: ReactNode
+  sidebar?: boolean
+  downloadLabel?: string
 }) {
   const { t } = useTranslation('toolbox')
   const count = useToolboxStore((state) => state.items.length)
   const { dragging, dropZoneProps, inputs, openFiles, openFolder } = useToolboxIntake()
   const name = t(`tool.${tool.id}.name`)
+
+  const footer = (
+    <div
+      className={
+        sidebar
+          ? 'flex shrink-0 flex-col gap-3 border-t border-border p-5'
+          : 'flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-background px-5 py-3'
+      }
+    >
+      <div className="text-sm tabular-nums">{summary}</div>
+      <span className={sidebar ? 'flex flex-col gap-2' : 'ml-auto flex gap-2'}>
+        <Button
+          variant="outline"
+          className="gap-1.5 px-2 sm:gap-2 sm:px-4"
+          disabled={deliverables.length === 0}
+          onClick={() => void sendImagesToComposer(deliverables)}
+        >
+          <Icon name="sendToComposer" />
+          {t('footer.sendToComposer')}
+        </Button>
+        <Button
+          className="gap-1.5 px-2 sm:gap-2 sm:px-4"
+          disabled={deliverables.length === 0}
+          onClick={() => void downloadImages(deliverables, `${name}.zip`)}
+        >
+          <Icon name="download" />
+          {downloadLabel ??
+            (deliverables.length > 1
+              ? t('footer.downloadAll', { count: deliverables.length })
+              : t('footer.download'))}
+        </Button>
+      </span>
+    </div>
+  )
 
   return (
     <main
@@ -47,9 +85,11 @@ export default function ToolShell({
           </>
         }
       />
-      <div className="flex shrink-0 flex-wrap items-end gap-5 border-b border-border bg-muted/30 px-6 py-3">
-        {controls}
-      </div>
+      {!sidebar && (
+        <div className="flex shrink-0 flex-wrap items-end gap-5 border-b border-border bg-muted/30 px-6 py-3">
+          {controls}
+        </div>
+      )}
       {count === 0 ? (
         <div className="grid min-h-0 flex-1 place-items-center p-6">
           <div
@@ -67,33 +107,18 @@ export default function ToolShell({
             </div>
           </div>
         </div>
+      ) : sidebar ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+          {children}
+          <aside className="flex shrink-0 flex-col border-t border-border bg-card lg:w-72 lg:overflow-hidden lg:border-l lg:border-t-0">
+            <div className="min-h-0 flex-1 p-5 lg:overflow-y-auto">{controls}</div>
+            {footer}
+          </aside>
+        </div>
       ) : (
         children
       )}
-      <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-background px-5 py-3">
-        <span className="text-sm tabular-nums">{summary}</span>
-        <span className="ml-auto flex gap-2">
-          <Button
-            variant="outline"
-            className="gap-1.5 px-2 sm:gap-2 sm:px-4"
-            disabled={deliverables.length === 0}
-            onClick={() => void sendImagesToComposer(deliverables)}
-          >
-            <Icon name="sendToComposer" />
-            {t('footer.sendToComposer')}
-          </Button>
-          <Button
-            className="gap-1.5 px-2 sm:gap-2 sm:px-4"
-            disabled={deliverables.length === 0}
-            onClick={() => void downloadImages(deliverables, `${name}.zip`)}
-          >
-            <Icon name="download" />
-            {deliverables.length > 1
-              ? t('footer.downloadAll', { count: deliverables.length })
-              : t('footer.download')}
-          </Button>
-        </span>
-      </div>
+      {!sidebar && footer}
     </main>
   )
 }

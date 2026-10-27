@@ -137,7 +137,7 @@ export function agentToolStage(partialResult: unknown): AgentToolStage | undefin
 }
 
 /** pi 把工具抛出的错误写成结果的文字块。 */
-function toolErrorText(result: unknown): string {
+export function toolErrorText(result: unknown): string {
   return agentTextFromBlocks(piToolResult(result).content ?? []) || '工具执行失败'
 }
 

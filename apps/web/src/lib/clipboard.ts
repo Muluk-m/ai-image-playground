@@ -1,4 +1,4 @@
-import { i18next } from '../i18n'
+import { i18next, UserFacingError } from '../i18n'
 
 export { copyTextToClipboard } from './clipboardText'
 
@@ -23,12 +23,14 @@ async function transcodeImageBlobToPng(blob: Blob): Promise<Blob> {
     canvas.width = bitmap.width
     canvas.height = bitmap.height
     const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
+    if (!ctx) throw new UserFacingError(i18next.t('canvas.unsupported', { ns: 'lib' }))
     ctx.drawImage(bitmap, 0, 0)
     return await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
         (png) =>
-          png ? resolve(png) : reject(new Error(i18next.t('image.transcodeFailed', { ns: 'lib' }))),
+          png
+            ? resolve(png)
+            : reject(new UserFacingError(i18next.t('image.transcodeFailed', { ns: 'lib' }))),
         'image/png',
       )
     })

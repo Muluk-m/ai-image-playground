@@ -141,6 +141,6 @@ describe('submitCanvasCutout', () => {
     // 这一次已经花掉了积分：扔掉比给一张还带背景的图更坏，但得说清楚。
     const after = doc.elements.filter((el) => el.type === 'image')[0]
     expect(after?.type === 'image' && doc.files[after.fileId]).toBe(GREEN)
-    expect(mocks.showToast).toHaveBeenCalledWith(expect.stringContaining('背景'), 'error')
+    expect(mocks.showToast).toHaveBeenCalledWith(expect.stringContaining('抠图边缘'), 'error')
   })
 })

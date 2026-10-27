@@ -28,6 +28,7 @@ import { canonicalJson } from './canonicalJson'
 import { isCapabilityEnabled } from './capabilities'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
+import { modelUnavailable } from './model-availability'
 import { objectStore } from './objectStore'
 import { type BffTransaction, loadPrivateBffOverlay } from './private-overlay'
 import { reserveProjectOutputs } from './projectArchive'
@@ -251,10 +252,13 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
       size: strict.size,
       // 保护选区外像素要逐像素比对，有损格式与压缩会把它毁掉。
       output_format: 'png' as const,
+      // 局部编辑要一张完全不透明的图：带透明度的结果既合成不回原图，也过不了对齐校验。
+      extra: { ...rest.extra, background: 'opaque' },
     },
     facts: {
       preserve_outside_mask: true as const,
       masked_original_size: strict.originalSize,
+      ...(strict.crop ? { masked_crop: strict.crop } : {}),
     },
   }
 }
@@ -346,6 +350,9 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
       )
       const replay = await replayCommand(tx, input.userId, commandId, hash)
       if (replay) return replay
+    }
+    if (await modelUnavailable(tx, input.model)) {
+      return { kind: 'price_unavailable' as const, model: input.model }
     }
     const inserted = await tx
       .insert(schema.tasks)

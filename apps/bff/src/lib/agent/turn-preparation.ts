@@ -17,7 +17,7 @@ import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { askChatModel } from '../chatCompletion'
 import { log } from '../logger'
-import { refreshInactiveModels } from '../model-availability'
+import { modelUnavailable, refreshInactiveModels } from '../model-availability'
 import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { isObject } from '../type-guards'
@@ -53,6 +53,7 @@ import {
   type QueuedWake,
 } from './inbox'
 import { interruptedSubmissions, resumeTurnPrompt } from './interrupted'
+import { confirmedMaskProposalParams } from './mask-proposal'
 import {
   canRetainModelHistory,
   modelHistorySignature,
@@ -370,6 +371,9 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         : null
 
     committed = await execution.write(async (tx) => {
+      // 运营停用的对话模型不起轮；不计费的部署没有预扣那一道，这里是唯一的关。
+      if (await modelUnavailable(tx, selectedModel))
+        throw new TurnStartRollback({ kind: 'price_unavailable', model: selectedModel })
       // 先取走再预扣：两步同在这个事务里，任一步不成立就整笔回滚，那一条原样待处理。
       if (!(await consumeAgentMessage(tx, conversationId, sourceId(source), turnId)))
         throw new TurnStartRollback({ kind: 'withdrawn' })
@@ -686,6 +690,10 @@ async function resumeContent(
   }
 }
 
+function withParams(params: AgentTurnParams | undefined): { params?: AgentTurnParams } {
+  return params ? { params } : {}
+}
+
 /**
  * 确认门续跑：用户把被拦下那一轮的卡都确认了，这一轮接着那几次调用往下走。没有用户消息，也不给
  * 模型任何说明——历史末尾接上那几次调用与回执，`startAgentTurn` 用 `Agent.continue()` 起跑。
@@ -805,7 +813,7 @@ async function messageContent(
         }
       : {}),
     mode,
-    ...(message.params ? { params: message.params } : {}),
+    ...withParams(confirmedMaskProposalParams(window.messages, message.references, message.params)),
     ...(message.canvas ? { canvas: message.canvas } : {}),
     selectionHistoryStart: clarificationChainStart(window.messages),
     deviceId: message.deviceId,

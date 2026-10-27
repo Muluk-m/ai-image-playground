@@ -3,14 +3,12 @@ import type {
   GenerationImage,
   GenerationSummary,
   TaskStatus as QueueStatus,
-  TaskErrorType,
 } from '@image-playground/shared'
 import {
   PROMPT_REWRITE_GUARD_PREFIX,
   QUEUE_TIMEOUTS,
   unshapeQueuePrompt,
 } from '@image-playground/shared'
-import { i18next } from '../i18n'
 import { useStore } from '../store'
 import {
   DEFAULT_PARAMS,
@@ -26,6 +24,7 @@ import { deleteCachedGeneration, getCachedGenerations, putCachedGeneration } fro
 import { mediaRef, readRemoteGeneration } from './remoteGenerations'
 import type { CloudReuseSource } from './reuseCloudGeneration'
 import { measuredSizeOf } from './size'
+import { taskErrorText } from './taskError'
 
 /**
  * 平台记录的本机缓存。
@@ -307,27 +306,11 @@ function statusPatch(
     status: statusFromGeneration(item.status),
     cancelled: item.status === 'cancelled' ? true : undefined,
     queuePhase: item.status === 'reconciling' ? 'reconciling' : undefined,
-    error: item.errorType ? generationErrorText(item.errorType) : null,
+    error: item.errorType ? taskErrorText(item.errorType) : null,
     errorCode: item.errorType ?? undefined,
     finishedAt: item.completedAt,
     elapsed: item.completedAt && item.startedAt ? item.completedAt - item.startedAt : null,
   }
-}
-
-function generationErrorText(code: TaskErrorType): string {
-  const key = (
-    {
-      upstream_timeout: 'agentTool.timeout',
-      upstream_result_unknown: 'agentTool.result_unknown',
-      upstream_error: 'agentTool.upstream_error',
-      content_policy: 'agentTool.content_policy',
-      upstream_no_image: 'agentTool.no_output',
-      interrupted: 'agentTool.cancelled',
-      object_storage_error: 'agentTool.upstream_error',
-      unknown: 'agentTool.fallback',
-    } as const
-  )[code]
-  return i18next.t(key, { ns: 'errors' })
 }
 
 function statusFromGeneration(status: QueueStatus): TaskStatus {

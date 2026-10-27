@@ -265,6 +265,7 @@ const FAILURE_REASON_LABELS: Record<string, string> = {
   upstream_result_unknown: '结果未确认',
   upstream_error: '上游错误',
   content_policy: '内容审核拒绝',
+  model_unavailable: '模型不可用',
   upstream_no_image: '没有拿到结果',
   interrupted: '服务重启打断',
   object_storage_error: '存储失败',

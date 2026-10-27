@@ -88,6 +88,10 @@ services:
       DATABASE_POOL_MAX: "6"
       STATIC_DIR: ""
       EXECUTOR_ORIGIN: http://bff:37377
+      # The shared segmenter, when vps-deploy.sh turned it on for this edition (empty otherwise,
+      # which leaves the edit-region card on the agent's box). rollout-runtime.sh does the same.
+      AGENT_SEGMENTER_URL: ${AGENT_SEGMENTER_URL:-}
+      AGENT_SEGMENTER_NAMESPACE: ${AGENT_SEGMENTER_NAMESPACE:-}
       # Override in app.env when something other than cloudflared terminates the ingress.
       CLIENT_IP_SOURCE: ${CLIENT_IP_SOURCE:-cf-connecting-ip}
     command:
@@ -129,6 +133,8 @@ services:
       # (1 + 2), plus one so the queue poll and maintenance loop never wait behind settlements.
       # Raise it with those concurrencies.
       DATABASE_POOL_MAX: "4"
+      AGENT_SEGMENTER_URL: ${AGENT_SEGMENTER_URL:-}
+      AGENT_SEGMENTER_NAMESPACE: ${AGENT_SEGMENTER_NAMESPACE:-}
     command:
       - bun
       - run

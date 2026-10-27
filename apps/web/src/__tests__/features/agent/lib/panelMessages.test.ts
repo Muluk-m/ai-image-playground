@@ -284,6 +284,38 @@ describe('历史与直播同源', () => {
     expect(answerableClarificationId(history.messages)).toBe('clarify-1')
   })
 
+  it('范围确认卡随澄清一起读回：提议原样带到卡片上', () => {
+    const proposal = {
+      id: 'proposal-1',
+      imageId: 'image-1',
+      mediaId: '00000000-0000-4000-8000-000000000001',
+      width: 1280,
+      height: 960,
+      target: '杯身',
+      change: '换成米白色',
+      keep: ['桌面'],
+      box: { x: 0.2, y: 0.2, width: 0.4, height: 0.5 },
+      segmentation: 'browser' as const,
+      model: { id: 'gpt-image-2.5-flare', label: 'GPT Image 2.5 Flare' },
+    }
+    const history = panelStateFromHistory({
+      messages: [
+        stored('user-1', [{ type: 'text', text: '把杯子改成米白色' }], 'user'),
+        stored('clarify-1', [
+          {
+            type: 'clarification',
+            question: '确认修改范围：杯身',
+            options: [],
+            maskProposal: proposal,
+          },
+        ]),
+      ],
+      turns: [],
+    })
+    expect(history.messages[1]).toMatchObject({ kind: 'clarification', maskProposal: proposal })
+    expect(answerableClarificationId(history.messages)).toBe('clarify-1')
+  })
+
   it('刷新后读回的澄清仍知道选了什么：答案就是它之后那条用户消息', () => {
     const history = panelStateFromHistory({
       messages: [

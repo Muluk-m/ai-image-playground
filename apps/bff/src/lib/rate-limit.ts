@@ -93,13 +93,17 @@ export interface WindowLimiter {
  * 吞吐限速：固定窗口内数次数，超了就拒，不额外锁定。与上面按失败次数锁定的限速器
  * 是两件事，别把成功的请求记成 failure。
  */
-export function createWindowLimiter(windowMs: number, maxEntries = 1024): WindowLimiter {
+export function createWindowLimiter(
+  windowMs: number,
+  maxEntries = 1024,
+  clock: () => number = Date.now,
+): WindowLimiter {
   const entries = new Map<string, { count: number; windowStart: number }>()
 
   return {
     over(key, max) {
       if (max <= 0) return false
-      const now = Date.now()
+      const now = clock()
       const entry = entries.get(key)
       const live =
         entry && now - entry.windowStart <= windowMs ? entry : { count: 0, windowStart: now }

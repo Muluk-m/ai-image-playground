@@ -246,7 +246,7 @@ const zhFeatures: Array<Pick<FeatureChapter, 'title' | 'body'>> = [
   },
   {
     title: '圈哪里，改哪里',
-    body: '圈出位置写上要求即可。局部重绘、擦除、抠图、扩图、裁切都在手边。',
+    body: '圈出位置写上要求即可。局部重绘、擦除、抠图、扩图、裁剪都在手边。',
   },
   {
     title: '让图片动起来',
@@ -315,8 +315,8 @@ const zh: MarketingCopy = {
     start: '免费开始',
   },
   hero: {
-    line1: '说出你要的画面',
-    line2: '剩下的交给幕芽',
+    line1: '说出你的画面设想',
+    line2: '交由幕芽成片',
     body: '智能体帮你写提示词、排好生成计划，图片和视频一次出齐。不满意，就在画布上接着改。',
     start: '免费开始创作',
     see: '看看能做什么',
@@ -397,7 +397,7 @@ const en: MarketingCopy = {
     start: 'Start free',
   },
   hero: {
-    line1: 'Say the picture you want',
+    line1: 'Describe the vision',
     line2: 'Muvloom handles the rest',
     body: 'The agent writes the prompt and the generation plan, then delivers images and video together. If it isn’t right, keep editing on the canvas.',
     start: 'Start creating free',

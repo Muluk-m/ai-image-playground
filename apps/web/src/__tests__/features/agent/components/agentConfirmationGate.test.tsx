@@ -120,6 +120,6 @@ it('says the plan is still being drafted instead of asking to retry card by card
   )
   await act(async () => button('全部确认生成')!.click())
   const alert = host.querySelector('[role="alert"]')?.textContent
-  expect(alert).toBe('助手还在拟这份草稿，拟完再确认。')
+  expect(alert).toBe('正在生成草稿，完成后即可确认。')
   expect(alert).not.toContain('逐张再试')
 })

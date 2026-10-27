@@ -9,6 +9,7 @@ import {
   insertCanvasNode,
   moveCanvasNodes,
   readCanvasDocument,
+  setCanvasNodeJob,
   updateCanvasNode,
 } from '@image-playground/shared'
 import {
@@ -410,7 +411,11 @@ it.each([
     }
   } else await act(async () => button!.click())
   if (stage !== 'missing')
-    expect(toast).toHaveBeenCalledWith(i18next.t('import.failed', { ns: 'canvas' }), 'error')
+    await vi.waitFor(
+      () =>
+        expect(toast).toHaveBeenCalledWith(i18next.t('import.failed', { ns: 'canvas' }), 'error'),
+      { timeout: 3_000 },
+    )
   else expect(toast).not.toHaveBeenCalled()
   const errors = (await reports()).flatMap((batch) => batch.errors)
   expect(errors).toHaveLength(1)
@@ -419,6 +424,28 @@ it.each([
     stage: stage === 'missing' ? 'original' : stage,
   })
   expect(JSON.stringify(await reports())).not.toContain(secret)
+})
+
+it('retries a transient failure from the real download button and triggers only once', async () => {
+  const reports = captureClientErrors()
+  await render()
+  act(() => host.querySelector<HTMLElement>('[data-node-id="image"]')!.click())
+  const button = host.querySelector<HTMLButtonElement>(
+    `button[aria-label="${i18next.t('nodes.download', { ns: 'canvas' })}"]`,
+  )!
+  const fetch = vi
+    .spyOn(globalThis, 'fetch')
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    .mockResolvedValueOnce(new Response('bytes', { headers: { 'content-type': 'image/png' } }))
+  const trigger = vi.spyOn(downloads, 'downloadBlob').mockImplementation(() => {})
+  const toast = vi.spyOn(useStore.getState(), 'showToast').mockImplementation(() => {})
+  await act(async () => {
+    button.click()
+    await vi.waitFor(() => expect(trigger).toHaveBeenCalledTimes(1), { timeout: 2_000 })
+  })
+  expect(fetch).toHaveBeenCalledTimes(2)
+  expect(toast).not.toHaveBeenCalled()
+  expect(await reports()).toEqual([])
 })
 
 it('does not report file-save success when the real download button only triggers a download', async () => {
@@ -1459,4 +1486,70 @@ it('别的设备的上传声明到点过期后，不等别的改动也会从「�
   } finally {
     vi.useRealTimers()
   }
+})
+
+it.each([
+  'image',
+  'video',
+] as const)('offers retry on a failed %s node and confirms only that node', async (kind) => {
+  for (const id of ['failed-one', 'failed-two']) {
+    insertCanvasNode(
+      canvas.doc,
+      {
+        id,
+        type: 'image',
+        x: 200,
+        y: 0,
+        width: 360,
+        height: 240,
+        data: { name: id, meta: { nodeKind: kind, nodePrompt: 'a quiet forest' } },
+      },
+      canvas.origin,
+    )
+    setCanvasNodeJob(
+      canvas.doc,
+      {
+        id: `job-${id}`,
+        nodeId: id,
+        createdAt: 1,
+        status: 'error',
+        message: 'upstream failed',
+        meta: { prompt: 'a quiet forest', clientRequestId: `job-${id}` },
+      },
+      canvas.origin,
+    )
+  }
+  await render()
+  const card = host.querySelector('[data-node-id="failed-one"]')!
+  const retry = [...card.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === '重试',
+  )
+  expect(retry).toBeDefined()
+  await act(async () => retry!.click())
+  const dialog = document.querySelector('[role="dialog"]')!
+  expect(dialog.textContent).toContain('failed-one')
+  expect(dialog.textContent).not.toContain('failed-two')
+  expect(dialog.textContent).toContain('1 个生成节点')
+  expect(mocks.submitImage).not.toHaveBeenCalled()
+})
+
+it('does not offer retry while a node is generating', async () => {
+  setCanvasNodeJob(
+    canvas.doc,
+    {
+      id: 'loading-job',
+      nodeId: 'image',
+      createdAt: 1,
+      status: 'loading',
+      message: '',
+      meta: { prompt: 'forest', clientRequestId: 'loading-job' },
+    },
+    canvas.origin,
+  )
+  await render()
+  const card = host.querySelector('[data-node-id="image"]')!
+  expect(card.textContent).toContain('生成中')
+  expect([...card.querySelectorAll('button')].some((button) => button.textContent === '重试')).toBe(
+    false,
+  )
 })
