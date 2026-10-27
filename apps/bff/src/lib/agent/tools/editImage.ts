@@ -154,7 +154,8 @@ export const editImage = defineAgentTool({
         !context.singleObjectEdit.nudged &&
         context.experience === 'chat' &&
         context.userId &&
-        // 没开同步就没有范围确认卡可走（见 tools/index.ts offersMaskProposal），不提醒。
+        // 范围确认卡下线或没开同步时没有卡可走（见 tools/index.ts offersMaskProposal），不提醒。
+        isCapabilityEnabled('agent:edit-region') &&
         isCapabilityEnabled('accounts:sync') &&
         !context.images.masked &&
         !context.maskedEditPlan?.protected &&
