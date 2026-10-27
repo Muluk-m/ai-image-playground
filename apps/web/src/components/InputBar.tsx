@@ -335,9 +335,32 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const [retryingUploads, setRetryingUploads] = useState(false)
   const canvasSubmittingRef = useRef(false)
   const uploadsBlocked = retryingUploads || uploadsPending > 0 || fatalUpload !== undefined
-  const uploadNotice = failedUpload
+  const uploadDetail = failedUpload
     ? attachmentUploadErrorMessage(attachmentUploadError(failedUpload), getAttachmentLimits())
     : null
+  // 文件本身坏了的那几张（不能重传）：缩略图上标红、× 常显；原因仍是原来那一行。
+  const unusableIndexes = uploadReferences.flatMap((reference, index) =>
+    attachmentUploadState(reference) === 'failed' &&
+    !canRetryAttachmentUpload(attachmentUploadError(reference))
+      ? [index]
+      : [],
+  )
+  // 还在传的那几张：像即梦一样只在缩略图上转圈，不另起一行文字。
+  const pendingIndexes = uploadReferences.flatMap((reference, index) => {
+    const state = attachmentUploadState(reference)
+    return state === 'queued' || state === 'uploading' || state === 'verifying' ? [index] : []
+  })
+  const uploadNotice = uploadDetail
+  const removeUnusableLabel =
+    unusableIndexes.length > 1
+      ? t('composer:studio.removeUnusableReferences')
+      : unusableIndexes.length === 1
+        ? t('composer:studio.removeReference', { index: unusableIndexes[0] + 1 })
+        : undefined
+  // 从后往前删，前面的序号不会跟着挪；提示词里对这几张的 @ 引用由 removeInputImage 一并收拾。
+  const removeUnusable = () => {
+    for (const index of [...unusableIndexes].reverse()) useStore.getState().removeInputImage(index)
+  }
   const referenceNotice = oversizedNotice ?? uploadNotice
   const uploadProgress =
     uploadsPending > 0 || retryingUploads
@@ -1087,6 +1110,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
 
   const renderImageThumb = (img: (typeof inputImages)[number], idx: number) => {
     const isMaskTarget = maskDraft?.targetImageId === img.id
+    // 坏图的 × 常显：不用先悬停才找得到删除入口。
+    const isUnusable = unusableIndexes.includes(idx)
+    const isUploading = pendingIndexes.includes(idx)
     const canEdit = !maskTargetImage || isMaskTarget
     const imageHintText = isMaskTarget ? t('image.maskFirstHint') : ''
     const displaySrc = isMaskTarget && maskPreviewUrl ? maskPreviewUrl : img.dataUrl
@@ -1249,7 +1275,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         >
           <div
             className={`creation-reference-frame relative w-[72px] h-[72px] rounded-xl overflow-hidden shadow-sm cursor-grab active:cursor-grabbing select-none ${
-              oversizedIndexes.includes(idx)
+              oversizedIndexes.includes(idx) || isUnusable
                 ? 'border-2 border-destructive'
                 : isMaskTarget
                   ? 'border-2 border-primary'
@@ -1289,12 +1315,24 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 />
               </div>
             )}
-            {oversizedIndexes.includes(idx) && (
+            {(oversizedIndexes.includes(idx) || isUnusable) && (
               <span
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-background/55 text-destructive"
               >
                 <Icon name="error" size="lg" />
+              </span>
+            )}
+            {isUploading && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-background/55 text-foreground"
+              >
+                <Icon
+                  name="loading"
+                  size="lg"
+                  className="animate-spin motion-reduce:animate-none"
+                />
               </span>
             )}
             {isMaskTarget && (
@@ -1342,8 +1380,12 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           <Button
             type="button"
             variant="ghost"
-            aria-label={t('common:action.remove')}
-            className="creation-reference-remove opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+            aria-label={t('composer:studio.removeReference', { index: idx + 1 })}
+            className={`creation-reference-remove transition-opacity ${
+              isUnusable
+                ? ''
+                : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100'
+            }`}
             onClick={(e) => {
               e.stopPropagation()
               removeInputImage(idx)
@@ -1473,7 +1515,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 }
                 failed={Boolean(referenceNotice)}
                 uploading={!referenceNotice && Boolean(uploadProgress)}
-                status={referenceNotice ?? uploadProgress ?? undefined}
+                status={oversizedNotice ?? uploadDetail ?? uploadProgress ?? undefined}
+                onRemoveFailed={removeUnusableLabel ? removeUnusable : undefined}
+                removeFailedLabel={removeUnusableLabel}
+                showUploadingStatus={false}
                 onClear={() => useStore.getState().clearInputImages()}
                 previews={inputImages
                   .slice(-3)

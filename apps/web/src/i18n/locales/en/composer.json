@@ -194,6 +194,8 @@
     "start": "Start creating",
     "newProject": "New project",
     "references": "References ({{count}})",
+    "removeReference": "Remove image {{index}}",
+    "removeUnusableReferences": "Remove unusable images",
     "uploadProgress": "Uploading {{ready}}/{{total}}",
     "viewAllReferences": "View all",
     "clearReferences": "Clear references",
