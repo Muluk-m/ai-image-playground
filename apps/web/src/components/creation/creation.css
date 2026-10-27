@@ -194,6 +194,8 @@
 .creation-reference-stack[data-failed=true] .creation-stack-card:last-child { border-color: hsl(var(--destructive)); }
 
 .creation-stack-upload { position: absolute; inset: 16px; display: grid; place-items: center; border-radius: 50%; background: hsl(var(--scrim) / .72); color: hsl(var(--on-media)); }
+/* 收起那叠上的坏图 ×：压在右上角外沿，不盖住缩略图。 */
+.creation-stack-entry > .creation-reference-remove { top: -6px; right: -6px; }
 .creation-reference-status { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: hsl(var(--muted-foreground)); @apply text-xs; }
 .creation-reference-status[data-failed=true] { color: hsl(var(--destructive)); }
 .creation-send[aria-busy=true] { color: hsl(var(--primary)); }

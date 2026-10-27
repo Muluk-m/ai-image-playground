@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext'
 import { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 import AgentJobInbox from '../features/agent/components/AgentJobInbox'
 import { agentPanelPresent } from '../features/agent/panelLayout'
+import CanvasAssetsEntryButton from '../features/canvas/components/CanvasAssetsEntryButton'
 import { useWorkspaceViewport } from '../hooks/useMobileWorkspace'
 import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
 import { isInFloatingLayer } from '../lib/dropdown'
@@ -163,6 +164,7 @@ export default function Header() {
       >
         {workbench && agentPanelPresent() ? <AgentJobInbox /> : null}
         <div ref={floatRef} className="studio-header-float flex items-center gap-2">
+          <CanvasAssetsEntryButton />
           {auth.user ? <PrivateWebHeaderCreditAction /> : null}
           {auth.user ? <HeaderMembershipChip /> : null}
           <LocaleGlobe />

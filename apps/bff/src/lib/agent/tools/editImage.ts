@@ -1,12 +1,7 @@
 import { agentTitleLine } from '@image-playground/shared'
-import sharp from 'sharp'
 import { Type } from 'typebox'
-import { isCapabilityEnabled } from '../../capabilities'
-import { SINGLE_OBJECT_EDIT_NUDGE } from '../edit-intent'
 import { requireAgentImages } from '../images'
-import { chooseMaskModel } from '../mask-proposal'
 import { prepareMaskedEdit } from '../masked-edit'
-import { maskedEditSize } from '../masked-input'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
 import {
@@ -133,7 +128,11 @@ export const editImage = defineAgentTool({
       const snapshot = context.authorization?.()
       // 只有明确的参数关卡（图片 id、选区绑定、授权原文）拦下的才算参数不成立；读库、读对象存储、
       // 解码出的错不是模型的参数问题，照旧落进未分类。
-      const images = await requireAgentImages(context.images, params.imageIds)
+      // 改图输入：超大图先等比缩到最长边 4000 再送（带选区的原样，遮罩绑着原图像素）。
+      const images = await requireAgentImages(
+        context.images,
+        params.imageIds.map((imageId) => ({ imageId, variant: 'edit' as const })),
+      )
       if (
         (context.maskedEditPlan?.protected || context.images.masked) &&
         !images.some((image) => image.maskDataUrl)
@@ -148,24 +147,6 @@ export const editImage = defineAgentTool({
           'invalid_params',
           '这张图的修改范围正在等用户确认，确认后会带着蒙版回来；这一轮不要先改它。',
         )
-      // 单对象修改先提醒走范围确认，只提醒一次：模型坚持就按整图编辑提交（字面判断会误判）。
-      if (
-        context.singleObjectEdit &&
-        !context.singleObjectEdit.nudged &&
-        context.experience === 'chat' &&
-        context.userId &&
-        // 范围确认卡下线或没开同步时没有卡可走（见 tools/index.ts offersMaskProposal），不提醒。
-        isCapabilityEnabled('agent:edit-region') &&
-        isCapabilityEnabled('accounts:sync') &&
-        !context.images.masked &&
-        !context.maskedEditPlan?.protected &&
-        !images.some((image) => image.maskDataUrl) &&
-        !params.selectionBindings?.length &&
-        (await maskable(images[0]!.dataUrl, context.params?.model))
-      ) {
-        context.singleObjectEdit.nudged = true
-        throw new AgentToolError('invalid_params', SINGLE_OBJECT_EDIT_NUDGE)
-      }
       const prepared = await prepareMaskedEdit(
         images,
         params.selectionBindings,
@@ -231,15 +212,3 @@ export const editImage = defineAgentTool({
     }
   },
 })
-
-/** 这张图能不能走范围确认：有按蒙版生成的模型，且原图尺寸在它的局部编辑范围内。不能时不拦整图编辑。 */
-async function maskable(dataUrl: string, preferred: string | undefined): Promise<boolean> {
-  try {
-    const { model } = chooseMaskModel(preferred)
-    const bytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64')
-    const { width, height } = await sharp(bytes).metadata()
-    return Boolean(width && height) && !('problem' in maskedEditSize(model.id, width!, height!))
-  } catch {
-    return false
-  }
-}

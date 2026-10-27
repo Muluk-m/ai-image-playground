@@ -104,7 +104,7 @@ export default function NodeCanvasToolbar({
         />
         <NodeTool icon="list" label={t('timeline.title')} onClick={() => onCreate('timeline')} />
         <span className="studio-node-tool-divider" />
-        <NodeTool icon="folder" label={t('nodes.assets')} onClick={onAssets} />
+        <NodeTool icon="folder" label={t('nodes.materials')} onClick={onAssets} />
         <NodeTool icon="upload" label={t('nodes.addUpload')} onClick={onUpload} />
       </div>
       <div className="studio-node-navigation" role="toolbar" aria-label={t('nodes.canvasTools')}>

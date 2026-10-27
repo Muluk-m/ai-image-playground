@@ -456,6 +456,7 @@
     "copyLog": "Copy original log",
     "copied": "Copied",
     "copyFailed": "Copy failed. Try again.",
+    "textTooLong": "This message is too long, so it was not sent. Messages can be up to {{max}} characters; shorten it and send again.",
     "imageTooLarge": "This image is too large, so the message was not sent. Each image can be up to {{maxSize}}; choose a smaller one and send again.",
     "uploadFailed": "A reference image could not be uploaded, so the message was not sent: {{reason}}",
     "signedOut": "You have been signed out, so the message was not sent. Sign in again and resend.",

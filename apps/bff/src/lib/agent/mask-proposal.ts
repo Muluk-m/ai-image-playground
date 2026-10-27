@@ -67,9 +67,12 @@ const boxSchema = (description: string) =>
 const pointSchema = Type.Object({
   x: unit('点的 x，0–1'),
   y: unit('点的 y，0–1'),
-  include: Type.Boolean({
-    description: 'true 表示落在要改的对象上，false 表示明确不改的地方',
-  }),
+  // 漏写按落在目标上算：少一个布尔值不值得让整张卡片发不出去。
+  include: Type.Optional(
+    Type.Boolean({
+      description: 'true（默认）表示落在要改的对象上，false 表示明确不改的地方',
+    }),
+  ),
 })
 
 const parameters = Type.Object({
@@ -94,8 +97,11 @@ const parameters = Type.Object({
       description: '用户明确或显然不想动的东西，至多 4 项（多写的会被截掉），例如「桌面」「书」。',
     }),
   ),
-  box: boxSchema(
-    '把要改的全部部分框进去的外接框（略宽于对象），坐标按原图归一化，原点在左上。有 instances 时框住选中的那几个。',
+  // 列了 instances 时模型常常只给各自的框；缺了就用选中那几个的并集，不因此退回。
+  box: Type.Optional(
+    boxSchema(
+      '把要改的全部部分框进去的外接框（略宽于对象），坐标按原图归一化，原点在左上。有 instances 时可省略，按选中的那几个算。',
+    ),
   ),
   points: Type.Optional(
     Type.Array(pointSchema, {
@@ -117,7 +123,10 @@ const parameters = Type.Object({
         label: Type.Optional(
           Type.String({ maxLength: 200, description: '短称呼，例如「左边的杯子」' }),
         ),
-        selected: Type.Boolean({ description: '用户要改的是不是这一个' }),
+        // 模型常只给选中的那个写 selected=true，其余省略；省略按没选中算。
+        selected: Type.Optional(
+          Type.Boolean({ description: '用户要改的是不是这一个；不改的可以省略' }),
+        ),
         points: Type.Optional(
           Type.Array(pointSchema, { maxItems: 32, description: '可选，落在这一个对象上的点' }),
         ),
@@ -125,7 +134,7 @@ const parameters = Type.Object({
       {
         maxItems: 32,
         description:
-          '画面里有多个相似对象（例如几只杯子、几个人）时逐个列出，含不改的那几个，按从左到右排；selected 标出用户要改的。卡片上按编号显示，用户可以点编号增减。只有一个目标时不要写。',
+          '用户指的是哪一个拿不准、画面里有多个相似对象（例如几只杯子、几个人）时逐个列出，含不改的那几个，按从左到右排；selected 标出最可能是用户要改的。卡片上按编号显示，用户可以点编号增减。只有一个目标时不要写。',
       },
     ),
   ),
@@ -155,7 +164,7 @@ function cleanBox(box: AgentNormalizedBox): AgentNormalizedBox {
 }
 
 function cleanPoints(
-  points: readonly AgentMaskPromptPoint[] | undefined,
+  points: readonly PointParams[] | undefined,
 ): AgentMaskPromptPoint[] | undefined {
   if (!points?.length) return undefined
   for (const point of points)
@@ -168,14 +177,30 @@ function cleanPoints(
       point.y > 1
     )
       throw new AgentToolError('invalid_params', '提示点坐标要落在 0–1 之内')
-  return points.map(({ x, y, include }) => ({ x, y, include: include === true }))
+  return points.map(({ x, y, include }) => ({ x, y, include: include !== false }))
+}
+
+interface PointParams {
+  x: number
+  y: number
+  include?: boolean
 }
 
 interface InstanceParams {
   box: AgentNormalizedBox
   label?: string
-  selected: boolean
-  points?: AgentMaskPromptPoint[]
+  selected?: boolean
+  points?: PointParams[]
+}
+
+/** 几个框的外接框：没给总框时，用选中的那几个拼出来。 */
+function unionBox(boxes: readonly AgentNormalizedBox[]): AgentNormalizedBox {
+  if (boxes.length === 1) return boxes[0]!
+  const x = Math.min(...boxes.map((one) => one.x))
+  const y = Math.min(...boxes.map((one) => one.y))
+  const right = Math.max(...boxes.map((one) => one.x + one.width))
+  const bottom = Math.max(...boxes.map((one) => one.y + one.height))
+  return { x, y, width: right - x, height: bottom - y }
 }
 
 /** 相似对象按从左到右、从上到下编号；至少要有一个选中，不然卡片打开就是空的。 */
@@ -265,6 +290,22 @@ export function maskProposalGuidance(errorText: string): boolean {
   return said === WHOLE_IMAGE_EDIT_NUDGE || said === USER_MASK_PRESENT_GUIDANCE
 }
 
+/** 参数类退回的尾注：告诉模型怎么改；turn.ts 认这个尾注放它重试一次。 */
+const MASK_PARAMS_RETRY_HINT =
+  '按上面的提示改好参数，再调一次 proposeEditRegion；不要改成整图编辑，也不要叫用户自己去画。'
+
+/** pi 在调 execute 之前按 schema 校验参数，失败时的原话以这一句开头（pi-ai `dist/utils/validation.js`）。 */
+const SCHEMA_REJECTED = `Validation failed for tool "${AGENT_MASK_PROPOSAL_TOOL}"`
+
+/**
+ * 只有参数写错的失败值得交回模型重试：我们自己的参数校验（带尾注）和 pi 的 schema 校验
+ * （坐标小于 0、缺字段）。暂不可用、分割与存储出错都不会因为重试变好。
+ */
+export function maskProposalRetryable(errorText: string): boolean {
+  const said = errorText.trim()
+  return said.endsWith(MASK_PARAMS_RETRY_HINT) || said.startsWith(SCHEMA_REJECTED)
+}
+
 export function maskProposalFailedText(errorText: string): string {
   const reason = UNAVAILABLE.exec(errorText)?.[1]
   return reason
@@ -329,8 +370,8 @@ async function propose(
     target: string
     change: string
     keep?: string[]
-    box: AgentNormalizedBox
-    points?: AgentMaskPromptPoint[]
+    box?: AgentNormalizedBox
+    points?: PointParams[]
     invert?: boolean
     instances?: InstanceParams[]
   },
@@ -345,11 +386,22 @@ async function propose(
   const target = clip(params.target.trim(), MASK_TARGET_MAX)
   const change = clip(params.change.trim(), MASK_CHANGE_MAX)
   if (!target || !change) throw new AgentToolError('invalid_params', '要写清改哪个对象、改成什么')
-  const box = cleanBox(params.box)
   const points = cleanPoints(params.points)?.slice(0, MASK_POINTS_MAX)
   const invert = params.invert === true
   // 换背景只认 box 框住的那一个主体；多列的相似对象没有意义，丢掉。
   const instances = invert ? undefined : cleanInstances(params.instances)
+  const box = params.box
+    ? cleanBox(params.box)
+    : instances
+      ? unionBox(instances.filter((one) => one.selected).map((one) => one.box))
+      : params.instances?.length === 1 && !invert
+        ? cleanBox(params.instances[0]!.box)
+        : null
+  if (!box)
+    throw new AgentToolError(
+      'invalid_params',
+      '要给 box：把要改的部分框进去的外接框，坐标按原图归一化到 0–1',
+    )
   const keep = [...new Set((params.keep ?? []).map((one) => clip(one.trim(), MASK_KEEP_ITEM_MAX)))]
     .filter(Boolean)
     .slice(0, MASK_KEEP_MAX)
@@ -463,14 +515,29 @@ export function maskProposalTool(context: AgentToolContext): AgentTool {
     label: '确认修改范围',
     description: MASK_PROPOSAL_DESCRIPTION,
     parameters,
-    execute: async (_toolCallId, params, signal) =>
-      propose(context, params as Parameters<typeof propose>[1], signal),
+    execute: async (_toolCallId, params, signal) => {
+      try {
+        return await propose(context, params as Parameters<typeof propose>[1], signal)
+      } catch (error) {
+        // 外接框越界、实例没标 selected 这类参数毛病，模型改一下参数就能重试；带上记号交回。
+        // 暂不可用（未登录、尺寸超限）也是 invalid_params，但重试没用，照原样收尾。
+        if (
+          error instanceof AgentToolError &&
+          error.code === 'invalid_params' &&
+          !(error instanceof MaskProposalUnavailable) &&
+          !maskProposalGuidance(error.message)
+        ) {
+          throw new AgentToolError('invalid_params', `${error.message}。${MASK_PARAMS_RETRY_HINT}`)
+        }
+        throw error
+      }
+    },
   }
   return asPiTool(tool)
 }
 
 const MASK_PROPOSAL_DESCRIPTION =
-  '用户要改图里某个对象或局部（含「换掉 X、背景不变」）、或只换背景，而本轮没有附带选区时，必须先用它请用户确认修改范围，不要整图改：你给出对象名与外接框，系统据此圈出蒙版，用户在卡片上确认，或者点选增减、调整范围、加标注。画面里有几个相似对象时用 instances 逐个列出并标出要改的，卡片会按编号显示。要换背景时用 invert：框住要保留的主体，系统取反。发出后这一轮结束；确认后用户会带着蒙版作为下一条消息回来，再按选区调 editImage。生成只改蒙版内，蒙版外像素与原图一致。'
+  '请用户在卡片上确认要改图里的哪一部分。只在两条同时成立时用：用户明确只要改图里的某一部分、其余保持不变；而且你看图后拿不准他指的是哪一部分（比如画面里有三个瓶子，他只说「把瓶子换了」）。目标明确时不要用它，直接调 editImage：画面里只有一个这样的对象，或他用位置、特征点名了是哪一个（「最左边那个瓶子」）。整张图的变化（风格、色调、光线、季节昼夜、构图）也不用它。你给出对象名与外接框，系统据此圈出蒙版，用户在卡片上确认，或者点选增减、调整范围、加标注。把说得通的几个候选用 instances 逐个列出（含不改的），最可能是他要改的标 selected，卡片会按编号显示、他可以改选。只换背景、但拿不准要保留的主体是哪一个时用 invert：框住最可能要保留的主体，系统取反。发出后这一轮结束；确认后用户会带着蒙版作为下一条消息回来，再按选区调 editImage。生成只改蒙版内，蒙版外像素与原图一致。'
 
 /** 只给预扣估算与清单用的声明；不需要运行期 context。 */
 export const maskProposalDeclaration = {
@@ -480,7 +547,7 @@ export const maskProposalDeclaration = {
 }
 
 export const MASK_PROPOSAL_GUIDANCE =
-  '用户要改图里的某一个对象或局部（换掉、改色、去掉某样东西，包括「把 X 换一下、背景不变」这类说法），或者只换背景、主体不动，而本轮没有附带选区时，先调 proposeEditRegion 请他确认修改范围，不要直接整图改；第一次无蒙版的整图编辑会被系统退回提醒。如果要的其实是整张图的变化（季节、昼夜、明暗、画风、把人整体变成卡通），就照原样再调一次 editImage，会按整图提交。不要先追问要换成什么样：用户没说的交给生成按原话处理，确认卡上他可以补充。只有要改的对象本身真有歧义（比如有几个都说得通、又不能用 instances 列出来让他选）时才先问一句。确认后他会带着蒙版回来，再按选区调 editImage；生成只改蒙版内，蒙版外像素保持原样。已有选区、或用户要的是整体风格、色调、光线、构图变化时不用它。'
+  'proposeEditRegion（修改范围确认卡）只在两条同时成立时调用：一是用户明确要只改图里的某一部分、其余不变（换掉、改色、去掉某样东西，或只换背景）；二是你看图后拿不准他指的是哪一部分，例如画面里有几个相似的对象，他只说「把瓶子换了」「改一下那个人」；这时就发这张卡让他在图上点选，不要改用 askClarification 的文字单选问是哪一个。目标明确时不要发卡，直接调 editImage：画面里只有一个这样的对象，或他用位置、特征点名了是哪一个（「最左边的瓶子」「穿红衣服的人」），或前文已经说清楚。直接改时 prompt 照他的原话写明改哪个、改成什么、其余保持原样，不要替他加没说过的要求。整张图的变化（风格、色调、光线、季节昼夜、构图、把人整体变成卡通）不用它；本轮已有用户选区时也不用，直接按选区改。发卡前不要先追问要换成什么样：用户没说的交给生成按原话处理，确认卡上他可以补充。把说得通的几个候选用 instances 列出，最可能的标 selected。确认后他会带着蒙版回来，再按选区调 editImage；生成只改蒙版内，蒙版外像素保持原样。'
 
 export function maskProposalFromResult(result: unknown): AgentClarificationBlock | null {
   const block = piToolResult<MaskProposalDetails>(result).details?.clarification
