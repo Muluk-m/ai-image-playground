@@ -81,6 +81,14 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）执行 `pnpm li
 
 合并前必须 CI 全绿，并处理 `/review` 与 `@codex review` 的有效意见；Codex 30 分钟没回复就继续，在 PR 里注明超时。用 squash merge，合并说明用中文。PR 按 [PR 模板](.github/pull_request_template.md) 填写。
 
+**先验证再开 PR。** 开 PR（包括草稿）之前：
+
+1. 跑完上面「硬性检查清单」的 lint、typecheck 和改动包的测试，再跑改动涉及的构建（前端 `pnpm --dir apps/web build`，Admin `pnpm --dir apps/admin build`，或根目录 `pnpm build`），把命令和结果摘要贴进 PR 的「怎么测的」。
+2. 改了界面的 PR，附测试环境（https://test.muvloom.online）的截图；只有本地截图不算。
+3. 开一个不带本次对话上下文的子 Agent，只给它 diff 和 [REVIEW.md](REVIEW.md)，让它按里面的格式复查；处理完它的严重问题再开 PR。
+
+**评审。** 怎么评、什么算严重、哪些文件可跳过、输出格式，见 [REVIEW.md](REVIEW.md)。作者 Agent 与 Codex 最多来回 3 轮：第 2 轮起只看新增改动、不重复已提过的问题；3 轮后仍有严重问题就停下，重新想方案或交给 Nain。规则细节见 REVIEW.md「评审轮次上限」。
+
 **关键流程证据。** 改到注册/登录、支付/计费、生成（出图、出视频）流程的 PR，必须附测试账号在测试环境（https://test.muvloom.online）走通该流程的截图或录屏，写明账号类型、环境和提交。证据里不能出现密码、验证码、token 或真实用户数据。`scripts/agent-smoke.ts`（[智能体上线手册](docs/deploy/agent-rollout.md)第七节）、`scripts/pages-browser-smoke.sh`（[部署手册](docs/deploy/image-release.md)「前端启动验收」）和[云端测试](docs/agents/cloud-tests.md)只能作补充：它们不走真实登录、付款或生成，不能代替证据。
 
 **成本与影响说明。** 改到模型调用、模型/供应商切换、定价、额度、计费，或任何会改变推理成本的改动（更贵的默认模型、更多调用次数、更长上下文、更大输出、放宽限额），必须在 PR 描述的「成本与影响」和给 Nain 的汇报里写清楚改了什么、对成本的影响。`.github/workflows/cost-impact.yml` 按 `scripts/cost-impact.mjs` 的路径清单检查，命中时打 `cost-impact` 标签提醒，只提示、不拦合并；清单外的成本改动同样要写。其中属于功能或行为变更的，仍按上面「默认交付到生产」要 Nain 确认。
