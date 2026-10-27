@@ -116,32 +116,41 @@ export async function reserveMedia(userId: string, input: UploadDescriptor) {
 /**
  * #1550 之前发布的图按原始像素记宽高，EXIF 方向 5–8 的竖拍照片因此被记成横的。
  * 不做全量回填：只在再次上传撞上这条旧记录时，拿已转正的预览核一次朝向，
- * 不一致就把这一行的宽高对调（BUG-43）。核过的行 updated_at 会前移，之后不再查。
+ * 不一致就把这一行的宽高对调（BUG-43）。按不变的 created_at 判断新旧：updated_at 会被别的更新前移，
+ * 拿它判断会把没核过的旧记录漏掉。核过的结论按进程缓存，之后命中直接用缓存里的宽高。
  */
 const ORIENTED_SIZE_SINCE = Date.UTC(2026, 9, 27, 17)
-const orientationChecked = new Set<string>()
+const orientationChecked = new Map<string, { width: number; height: number }>()
 export async function withOrientedSize(row: Media): Promise<Media> {
   if (
     row.status !== 'ready' ||
-    row.updated_at >= ORIENTED_SIZE_SINCE ||
+    row.created_at >= ORIENTED_SIZE_SINCE ||
     !row.preview_key ||
     !row.width ||
     !row.height ||
     row.width === row.height ||
-    !row.content_type.startsWith('image/') ||
-    orientationChecked.has(row.id)
+    !row.content_type.startsWith('image/')
   )
     return row
+  // 并发的另一次请求可能已经核完：这份快照是它改之前读的，交回缓存里的结论而不是旧宽高。
+  const known = orientationChecked.get(row.id)
+  if (known)
+    return known.width === row.width && known.height === row.height ? row : { ...row, ...known }
   try {
     const preview = await durableMediaStore().readUpTo(
       row.preview_key,
       (row.preview_bytes || PREVIEW_BUDGET) + 1,
     )
     const { width, height } = await sharp(preview).metadata()
-    if (orientationChecked.size >= 10_000) orientationChecked.clear()
-    orientationChecked.add(row.id)
+    // 只在核对有了结论后才记下：读取或更新临时失败的，下次命中还会再核。
+    const checked = (result: Media) => {
+      if (orientationChecked.size >= 10_000) orientationChecked.clear()
+      if (result.width && result.height)
+        orientationChecked.set(row.id, { width: result.width, height: result.height })
+      return result
+    }
     if (!width || !height || width === height || width > height === row.width > row.height)
-      return row
+      return checked(row)
     const [fixed] = await db
       .update(media)
       .set({ width: row.height, height: row.width, updated_at: Date.now() })
@@ -164,7 +173,10 @@ export async function withOrientedSize(row: Media): Promise<Media> {
         },
         '旧记录的宽高与转正后的朝向不一致，已对调',
       )
-    return fixed ?? row
+    if (fixed) return checked(fixed)
+    // 并发的另一次请求已经改过（或这行刚变了）：交回库里现在的那份，不交回旧宽高。
+    const [current] = await db.select().from(media).where(eq(media.id, row.id))
+    return current ? checked(current) : row
   } catch (error) {
     // 核不了就照旧返回：宽高只影响展示比例，不该因此让这次上传失败。
     log.warn(
@@ -189,7 +201,8 @@ async function reserveOwnedMedia(
 ) {
   const attachment = input.purpose === 'conversation-attachment'
   if (input.bytes > byteLimit) throw new MediaError(413, 'media_too_large')
-  const row = await db.transaction(async (tx): Promise<Media> => {
+  type Reserved = { ready: Media } | { result: ReturnType<typeof uploadResult> }
+  const reserved = await db.transaction(async (tx): Promise<Reserved> => {
     await lockMediaOwner(tx, userId)
     let [existing] = await tx
       .select()
@@ -221,7 +234,9 @@ async function reserveOwnedMedia(
       existing &&
       (existing.status === 'ready' || (described && existing.expires_at > now + 600_000))
     )
-      return existing
+      return existing.status === 'ready' && reviseReady
+        ? { ready: existing }
+        : { result: uploadResult(existing) }
     const reserved = input.bytes + previewBudget
     const used = await mediaUsage(tx, userId, now)
     const previous =
@@ -253,10 +268,12 @@ async function reserveOwnedMedia(
             ...values,
           })
           .returning()
-    return row!
+    // 签名在事务内：组装返回值失败时这次预留随事务回滚，不白占额度。
+    return { result: uploadResult(row!) }
   })
-  // 存储读放在事务外：不占着这位用户的锁去等对象存储。
-  return uploadResult(row.status === 'ready' && reviseReady ? await reviseReady(row) : row)
+  // 已发布的旧记录要核对朝向：存储读放在事务外，不占着这位用户的锁去等对象存储。
+  if ('result' in reserved) return reserved.result
+  return uploadResult(reviseReady ? await reviseReady(reserved.ready) : reserved.ready)
 }
 
 async function ownedMedia(userId: string, id: string, executor: Pick<typeof db, 'select'> = db) {
