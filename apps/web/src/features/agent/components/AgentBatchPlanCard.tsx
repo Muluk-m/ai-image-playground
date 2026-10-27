@@ -4,6 +4,7 @@ import type {
   AgentBatchPage,
   AgentBatchUpdate,
 } from '@image-playground/shared'
+import { agentImageShape } from '@image-playground/shared'
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
 import MediaImage from '../../../components/MediaImage'
@@ -109,7 +110,8 @@ function OutputParameters({ params }: { params: AgentBatchGenerationItem['params
   }
   const rows: readonly (readonly [string, string | undefined])[] = [
     [t('batch.quality'), params.quality ? level(params.quality) : undefined],
-    [t('batch.aspectRatio'), params.gemini_aspect_ratio],
+    // 写上游实际按的比例：openai 系看 size，gemini 看自己的比例档，不显示另一家的字段（BUG-30）。
+    [t('batch.aspectRatio'), agentImageShape(params.provider, params).aspectRatio],
     [
       t('batch.thinking'),
       params.gemini_thinking_level ? level(params.gemini_thinking_level) : undefined,
