@@ -630,6 +630,20 @@ it('preserves a video rotation when switching from its poster to playback', asyn
   expect(host.querySelector('[data-node-id="image"] .studio-node-caption')).not.toBeNull()
 })
 
+it('keeps the materials picker and opens the assets panel from the left toolbar', async () => {
+  await render()
+  const tool = (label: string) =>
+    host.querySelector<HTMLButtonElement>(`.studio-node-tools button[aria-label="${label}"]`)
+  expect(tool('素材')).not.toBeNull()
+  expect(tool('资产')).not.toBeNull()
+  expect(host.querySelector('.studio-assets-panel')).toBeNull()
+  await act(async () => tool('资产')!.click())
+  expect(host.querySelector('.studio-assets-panel')).not.toBeNull()
+  expect(tool('资产')!.getAttribute('aria-pressed')).toBe('true')
+  await act(async () => tool('资产')!.click())
+  expect(host.querySelector('.studio-assets-panel')).toBeNull()
+})
+
 it('opens an add menu on a double-click of the empty canvas', async () => {
   await render()
   const surface = host.querySelector('.studio-node-canvas')!
