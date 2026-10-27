@@ -93,6 +93,18 @@ it('reads the ordinary media limit the server advertises, only with cloud sync o
   expect(referenceImageLimit().byId).toBe(false)
 })
 
+it('attachments on without bulk limits fall back to the media limit, not the inline one', async () => {
+  // 测试环境：附件通道开着、批量附件关着，服务端不下发 attachmentLimits，附件预留按普通云媒体上限收。
+  await boot({ ...SYNCED, 'agent:attachments': true })
+  expect(mediaFallbackEnabled()).toBe(false)
+  expect(referenceImageLimit()).toEqual({ imageBytes: MEDIA_LIMIT, byId: true })
+  expect(referenceSourceTooLarge(pngDataUrl(3_100_000))).toBe(false)
+  expect(referenceSourceTooLarge(pngDataUrl(MEDIA_LIMIT + 1))).toBe(true)
+  expect(attachmentUploadErrorMessage('media_too_large')).toBe(
+    '图片文件过大：最多支持 3.3 MiB。请压缩文件后重新上传。',
+  )
+})
+
 it('uploads an image too long to inline as ordinary media and sends it by id, unscaled', async () => {
   await boot(SYNCED)
   const small = pngDataUrl(1000)

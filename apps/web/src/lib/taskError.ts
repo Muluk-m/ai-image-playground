@@ -35,9 +35,25 @@ export function taskErrorTypeOf(err: unknown): TaskErrorType | undefined {
   return typeof carried === 'string' ? (carried as TaskErrorType) : undefined
 }
 
-/** 失败原因的一句话，按错误码取译文。没有码（旧记录）时返回 null，调用方照旧处理。 */
-export function agentToolFailureText(code: AgentToolErrorCode | undefined): string | null {
+/** 只读网页、搜索、取网图的那几个工具：它们超时是来源没响应，不是生成超时。 */
+const WEB_READ_TOOLS: ReadonlySet<string> = new Set([
+  'webFetch',
+  'webSearch',
+  'fetchImage',
+  'fetchListingImages',
+])
+
+/**
+ * 失败原因的一句话，按错误码取译文。没有码（旧记录）时返回 null，调用方照旧处理。
+ * 带上工具名时，联网读取的超时说成「联网读取超时」，不说成生成超时。
+ */
+export function agentToolFailureText(
+  code: AgentToolErrorCode | undefined,
+  toolName?: string,
+): string | null {
   const t = i18next.getFixedT(null, 'errors')
+  if (code === 'timeout' && toolName && WEB_READ_TOOLS.has(toolName))
+    return t('agentTool.source_timeout')
   switch (code) {
     case undefined:
       return null
