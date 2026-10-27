@@ -1,7 +1,6 @@
 import type { AttachmentLimits } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
-import { getMediaLimits } from '../../../lib/clientCapabilities'
-import { mediaFallbackEnabled, REFERENCE_TOO_LARGE, referenceImageLimit } from './attachmentUploads'
+import { REFERENCE_TOO_LARGE, referenceImageLimit, referenceMediaLimits } from './attachmentUploads'
 
 /** 上限按 MB 说给用户听：10485760 → 「10 MB」。 */
 export function formatImageLimit(bytes: number): string {
@@ -49,8 +48,8 @@ export function attachmentUploadErrorMessage(
     return t('attachment.reference_too_large', {
       maxSize: formatImageLimit(referenceImageLimit().imageBytes),
     })
-  // 附件通道关着时，图走普通云媒体那一档；上限按那一档说。
-  limits ??= mediaFallbackEnabled() ? getMediaLimits() : undefined
+  // 没有附件专用上限时，图走普通云媒体那一档；上限按那一档说。
+  limits ??= referenceMediaLimits()
   if (
     !limits &&
     ['media_image_pixels_exceeded', 'media_image_too_large', 'media_too_large'].includes(code ?? '')

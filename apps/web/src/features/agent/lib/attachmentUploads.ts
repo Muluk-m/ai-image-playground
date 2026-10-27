@@ -1,4 +1,8 @@
-import { type AgentTurnReference, IMAGE_DATA_URL_MAX_CHARS } from '@image-playground/shared'
+import {
+  type AgentTurnReference,
+  IMAGE_DATA_URL_MAX_CHARS,
+  type MediaLimits,
+} from '@image-playground/shared'
 import { isUserStorageScope, scopedStorageName } from '../../../lib/authScope'
 import {
   getAttachmentLimits,
@@ -175,11 +179,20 @@ export interface ReferenceImageLimit {
   readonly byId: boolean
 }
 
+/**
+ * 按 id 发的那一档单张上限。附件通道开着、但没开批量附件时服务端不下发 attachmentLimits，
+ * 附件预留按普通云媒体上限收（`reserveMedia`），这里同源回退，不落到内联请求体那道（BUG-37）。
+ */
+export function referenceMediaLimits():
+  | Pick<MediaLimits, 'imageBytes' | 'imagePixels'>
+  | undefined {
+  if (attachmentUploadsEnabled()) return getAttachmentLimits() ?? getMediaLimits()
+  return mediaFallbackEnabled() ? getMediaLimits() : undefined
+}
+
 export function referenceImageLimit(): ReferenceImageLimit {
-  const attachments = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
-  if (attachments) return { imageBytes: attachments.imageBytes, byId: true }
-  const media = mediaFallbackEnabled() ? getMediaLimits() : undefined
-  if (media) return { imageBytes: media.imageBytes, byId: true }
+  const limits = referenceMediaLimits()
+  if (limits) return { imageBytes: limits.imageBytes, byId: true }
   return { imageBytes: Math.floor((IMAGE_DATA_URL_MAX_CHARS - 64) / 4) * 3, byId: false }
 }
 
