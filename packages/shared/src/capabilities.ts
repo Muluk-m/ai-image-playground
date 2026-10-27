@@ -14,6 +14,12 @@ export const CAPABILITIES = {
   'agent:batch-plans': { defaultValue: false, clientExposed: true },
   'agent:attachments': { defaultValue: false, clientExposed: true },
   'agent:bulk-attachments': { defaultValue: false, clientExposed: true },
+  /**
+   * 智能体先提议修改范围（`proposeEditRegion` 范围确认卡）再按蒙版局部编辑。2026-10-27 线上
+   * 屡次报「原图尺寸超出模型支持的局部编辑范围」后整轮无图，按 Nain 要求下线：默认关，
+   * 关着时智能体不再收到这个工具、也不再把单对象修改退回去要求先圈范围，改图回到整图编辑。
+   */
+  'agent:edit-region': { defaultValue: false, clientExposed: false },
   'billing:credits': { defaultValue: false, clientExposed: true },
   /**
    * 对话限时免费的运营期。开着时对话轮**真的不计费**：BFF 既不预扣也不结算
