@@ -19,8 +19,11 @@ function measureRotationLayout() {
   }
   const boundary = rect(main)
   const right = Math.min(innerWidth, boundary.right)
+  const previews = [...main.querySelectorAll('figure')]
+  if (previews.length !== 1) return [{ visible: false, target: 'expected one adjusted preview' }]
   const targets = [
-    main.querySelector('section'), main.querySelector('aside'), ...main.querySelectorAll('figure'),
+    main.querySelector('section'), main.querySelector('aside'), ...previews,
+    main.querySelector('figure canvas'),
     [...main.querySelectorAll('button')].find(button => button.textContent.trim() === '导出图片'),
   ]
   return targets.map(element => {
@@ -55,9 +58,8 @@ async function checkRotationEditor(page, outputDir) {
     await input.setInputFiles({ name, mimeType: 'image/png', buffer: Buffer.from(base64, 'base64') })
     await page.getByRole('button', { name, exact: true }).click()
     await page.waitForFunction(({ width, height }) => {
-      const image = document.querySelector('main img[alt="原图"]')
-      return image?.naturalWidth === width && image?.naturalHeight === height
-        && document.querySelector('main canvas')?.width > 0
+      const canvas = document.querySelector('main canvas[aria-label="调整后"]')
+      return canvas?.width > 0 && Math.abs(canvas.width / canvas.height - width / height) < 0.001
     }, { width, height })
     await page.waitForFunction(() => [...document.querySelectorAll('main button')]
       .find(button => button.textContent.trim() === '导出图片')?.disabled === false)
