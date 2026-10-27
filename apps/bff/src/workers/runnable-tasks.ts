@@ -182,7 +182,12 @@ export async function selectRunnableTasks(
         planned: plannedModels,
       }),
     )
-    if (!decision.granted) continue
+    if (!decision.granted) {
+      // 全局满了、或有别人在排队（剩下的候选彼此就是「别人在排队」）时后面的候选也不会通过，
+      // 不再逐个开事务；只有某个模型通道满了才值得看下一个候选。
+      if (decision.reason !== 'model_full') break
+      continue
+    }
     plannedModels.push({ id: candidate.id, model: candidate.model })
     selected.push({ id: candidate.id, eligibleSince: candidate.eligibleSince })
   }
