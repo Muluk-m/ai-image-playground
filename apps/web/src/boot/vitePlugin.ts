@@ -4,6 +4,8 @@ import type { IndexHtmlTransformContext } from 'vite'
 import { LOCALE_STORAGE_KEY } from '../i18n/storageKey'
 import {
   BOOT_READY_EVENT,
+  BOOT_STAGE_EVENT,
+  BOOT_STAGES,
   BUILD_META_NAME,
   DEVICE_ID_STORAGE_KEY,
   PRELOAD_RELOAD_STORAGE_KEY,
@@ -44,6 +46,8 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
   let rendered=false;
   let fatal=false;
   const sproutStarted=performance.now();
+  let stage='entry';
+  let stageStarted=sproutStarted;
   let cause=null;
   let reported=false;
   let reloading=false;
@@ -63,7 +67,7 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
         kind:'boot',name:'BootFailure',message:failure.reason,
         url:clip(location.origin+location.pathname+location.hash,1000),
         release:build?build.content.slice(0,12):undefined,
-        context:{detail:failure.detail,rendered,elapsedMs:Math.round(performance.now()),online:navigator.onLine,errors:early},
+        context:{detail:failure.detail,stage,stageElapsedMs:Math.round(performance.now()-stageStarted),visibility:document.visibilityState,readyState:document.readyState,rendered,elapsedMs:Math.round(performance.now()),online:navigator.onLine,errors:early},
       }]});
       // The API origin lives in runtime config, which the page already preloads. Same 5 s cap as
       // the app's loadRuntimeConfig: a hung connection must not leave the report pending forever.
@@ -121,9 +125,13 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     if(reloading)return true;
     if(fatal||navigator.onLine===false)return false;
     try{
-      if(sessionStorage.getItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)})!==null)return false;
+      // One automatic reload per HTML build: a tab left open across a release must still recover
+      // when the next release deletes chunks it references. Values without a build count as none.
+      const htmlBuild=document.querySelector('meta[name=${JSON.stringify(BUILD_META_NAME)}]')?.content||'';
+      const spent=sessionStorage.getItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)});
+      if(spent!==null&&(spent.includes('|')?spent.slice(spent.indexOf('|')+1):'')===htmlBuild)return false;
       // Without persistent storage an automatic navigation could loop forever.
-      sessionStorage.setItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)},String(Date.now()));
+      sessionStorage.setItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)},Date.now()+'|'+htmlBuild);
     }catch{return false}
     refresh();
     return true;
@@ -208,11 +216,12 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     if(recovery&&typeof message==='string'&&message.startsWith(cssPrefix)){
       try{
         const url=new URL(message.slice(cssPrefix.length),location.href);
-        if(recovery.failedStyles.has(url.href)){event.preventDefault();return}
+        if(recovery.failedStyles.has(url.href))return
       }catch{}
     }
     if(!retry()){fail('preload',{message:clip(message,300)});return}
-    event.preventDefault();
+    // Cancelling Vite's event resolves its import helper to undefined, crashing React.lazy.
+    // Navigation is asynchronous: preserve the original rejection until this document unloads.
   };
   const onReady=()=>{
     rendered=true;
@@ -252,6 +261,9 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
   window.addEventListener('unhandledrejection',onRejection);
   window.addEventListener('vite:preloadError',onPreloadError);
   document.addEventListener('click',(event)=>{if(event.target instanceof Element&&event.target.closest('#boot-retry')){resetBudget();refresh()}});
+  document.addEventListener(${JSON.stringify(BOOT_STAGE_EVENT)},(event)=>{
+    if(!rendered&&${JSON.stringify(BOOT_STAGES)}.includes(event.detail)&&stage!==event.detail){stage=event.detail;stageStarted=performance.now()}
+  });
   document.addEventListener('DOMContentLoaded',()=>{if(fatal)show()},{once:true});
   document.addEventListener(${JSON.stringify(BOOT_READY_EVENT)},onReady,{once:true});
 })()`

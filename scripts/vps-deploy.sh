@@ -160,7 +160,10 @@ EOF
   # go-ahead) is attached to the shared segmenter and its executors get its address, but only
   # while it is healthy. It is optional: otherwise the executors are not told about it and
   # edit-region cards fall back to the agent's box, so this warns instead of failing the release.
+  # An edition that does not get it is detached, so a later rollback (which reads the attachment
+  # back, see rollout-runtime.sh) agrees with this release.
   AGENT_SEGMENTER_URL=
+  AGENT_SEGMENTER_NAMESPACE=$project
   case " ${SEGMENTER_EDITIONS:-test} " in
     *" $edition "*)
       if [ -z "$segmenter_up" ]; then
@@ -169,7 +172,10 @@ EOF
       [ "$segmenter_up" != ok ] || AGENT_SEGMENTER_URL=http://segmenter:8080
       ;;
   esac
-  export AGENT_SEGMENTER_URL
+  export AGENT_SEGMENTER_URL AGENT_SEGMENTER_NAMESPACE
+  if [ -z "$AGENT_SEGMENTER_URL" ] && ! "$release/scripts/segmenter-deploy.sh" detach "$project"; then
+    echo "Warning: could not detach the segmenter from $project." >&2
+  fi
   APP_IMAGE=$image BACKUP_IMAGE=$backup_image "$release/scripts/app-compose.sh" up "$project"
   # The app network exists only once the project is up; the executors resolve `segmenter` per
   # request, so attaching right after is soon enough, and before the first card is asked for.

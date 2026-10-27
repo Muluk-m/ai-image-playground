@@ -526,6 +526,8 @@ export function taskFailureCode(errorType: TaskErrorType | null | undefined): Ag
       return 'timeout'
     case 'content_policy':
       return 'content_policy'
+    case 'model_unavailable':
+      return 'model_unavailable'
     case 'upstream_no_image':
       return 'no_output'
     // 执行者丢了（ADR 0009）或上游的结局查不到：上游可能已经出图、已经计费，原样再跑一次

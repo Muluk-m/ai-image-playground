@@ -27,15 +27,27 @@ export interface FetchSlot<F> {
   set(impl?: F): void
 }
 
+/**
+ * Bun 把 `undici` 解析成运行时内置的那份：Agent 的 headers/body 超时不生效，fetch 自带一道 300 秒的总超时，
+ * 到点抛 `TimeoutError: The operation timed out.`（Bun 1.3.14 实测；只有 `timeout: false` 关得掉）。
+ * 上游生图常常跑过 5 分钟，被它切掉就成了「结果未知」。所以一律关掉，整体时长交给调用方的 deadline。
+ */
+export function withoutRuntimeTimeout(init?: UndiciFetchInit): UndiciFetchInit {
+  return { ...init, timeout: false } as UndiciFetchInit
+}
+
+const runtimeFetch = ((input: UndiciFetchInput, init?: UndiciFetchInit) =>
+  undiciFetch(input, withoutRuntimeTimeout(init))) as typeof undiciFetch
+
 /** 响应形状由各调用方的窄接口决定，泛型表达不了「undiciFetch 可赋给 F」，故此处断言一次。 */
 export function createFetchSlot<F>(): FetchSlot<F> {
-  let impl = undiciFetch as F
+  let impl = runtimeFetch as F
   return {
     get current() {
       return impl
     },
     set(next?: F) {
-      impl = next ?? (undiciFetch as F)
+      impl = next ?? (runtimeFetch as F)
     },
   }
 }

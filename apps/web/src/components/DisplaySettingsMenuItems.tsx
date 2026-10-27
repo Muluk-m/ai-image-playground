@@ -1,5 +1,6 @@
 import { openPricingSheet } from '../features/pricing/pricingSheetState'
 import { useTranslation } from '../i18n'
+import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import DisplaySettingsFields from './DisplaySettingsFields'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
@@ -31,7 +32,7 @@ export default function DisplaySettingsMenuItems({
   const { t } = useTranslation('shell')
   return (
     <>
-      {showPlans ? (
+      {showPlans && isClientCapabilityEnabled('billing:credits') ? (
         <Button
           type="button"
           role="menuitem"

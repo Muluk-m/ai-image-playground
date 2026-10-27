@@ -1,6 +1,6 @@
 {
   "landing": {
-    "title": "给想象，一段镜头。",
+    "title": "给想象一段镜头",
     "subtitle": "描述画面、动作和运镜，作品会在画布里展开。",
     "cases": "案例",
     "casesHint": "点一下把提示词填进上面的输入框",
@@ -36,7 +36,7 @@
   },
   "derive": {
     "titleExtend": "续写 · 从最后一帧往后",
-    "titleEdit": "改视频 · 保留画面改内容",
+    "titleEdit": "编辑视频 · 保留构图修改内容",
     "placeholderExtend": "接下来发生什么，镜头怎么动",
     "placeholderEdit": "改什么，保留什么",
     "extendLabel": "接多长",
@@ -47,10 +47,10 @@
     "tooShort": "源片不足 {{seconds}} 秒",
     "tooLong": "源片超过 {{seconds}} 秒",
     "extend": "续写",
-    "edit": "改视频"
+    "edit": "编辑视频"
   },
   "download": {
-    "fetchFailed": "视频拉取失败：{{status}}"
+    "fetchFailed": "视频下载失败，请重试"
   },
   "store": {
     "emptyPrompt": "请先写一句描述"
@@ -64,14 +64,14 @@
     "modeUnsupported": "不支持的视频模式",
     "durationUnsupported": "{{label}} 时长只支持 {{durations}} 秒",
     "extendDurationOutOfRange": "续写时长只支持 {{min}}-{{max}} 秒",
-    "editDurationMissing": "改视频缺少源片时长",
+    "editDurationMissing": "编辑视频缺少源片时长",
     "aspectRatioUnsupported": "{{label}} 画幅只支持 {{allowed}}",
     "resolutionUnsupported": "{{label}} 清晰度只支持 {{allowed}}",
     "durationForResolutionUnsupported": "{{label}} {{resolution}} 只支持 {{durations}} 秒",
     "frameUnsupported": "{{label}} 不支持{{frame}}",
     "frameImageMissing": "{{frame}}图片不存在",
     "deriveModeUnsupported": "{{label}} 不支持{{mode}}",
-    "deriveFramesRejected": "续写和改视频不接受首尾帧、参考图、关键帧或声音",
+    "deriveFramesRejected": "续写和编辑视频不接受首尾帧、参考图、关键帧或声音",
     "deriveSourceMissing": "{{mode}}缺少源视频",
     "referenceUnsupported": "{{label}} 不支持参考图",
     "referenceTooMany": "{{label}} 最多 {{max}} 张参考图",

@@ -1,6 +1,6 @@
 import type { AgentMarkedRegion } from '@image-playground/shared'
 import { accountRequired } from '../../../auth/loginPrompt'
-import { i18next } from '../../../i18n'
+import { describeError, i18next } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { loadImage } from '../../../lib/canvasImage'
 import { modelSupportsNativeMask } from '../../../lib/channels/profileSelectors'
@@ -168,16 +168,13 @@ export async function sendImageEditToAgent(
             finish(false)
           },
           (error: unknown) => {
-            if (!settled)
-              useStore
-                .getState()
-                .showToast(error instanceof Error ? error.message : String(error), 'error')
+            if (!settled) useStore.getState().showToast(describeError(error), 'error')
             finish(false)
           },
         )
     })
   } catch (error) {
-    useStore.getState().showToast(error instanceof Error ? error.message : String(error), 'error')
+    useStore.getState().showToast(describeError(error), 'error')
     return false
   }
 }

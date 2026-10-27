@@ -10,6 +10,7 @@ import {
   canvasUploadingElsewhere,
   createCanvasUndoManager,
   dropCanvasNodeFile,
+  dropCanvasResult,
   dropCanvasResultFile,
   type ImageNodeData,
   importLegacyElements,
@@ -627,15 +628,16 @@ export class CloudNodeProjectSession {
       }
     }
   }
-  /** 本次会话里第一次发现本机没有这张原图的时间（没有创建时间的老节点据此判断是不是找不回来了）。 */
+  /** 本次会话里第一次发现某个具体节点/候选缺原图的时间，不能让同一 fileId 的新关联继承旧计时。 */
   private readonly missingSince = new Map<string, number>()
   /** 服务端推过来的更新里每个客户端最远的时钟：服务端发得出来的记录，它自己一定存着。 */
   private readonly receivedClocks = new Map<number, number>()
-  /**
-   * 服务端存过的「节点 → 本机格式 fileId」引用（`nodeId\u0000fileId`）。节点的 data 之后在本机改过
-   * （例如改名）时，data 这一项已不在服务端，但服务端仍存着这张图的引用，不能当成从没上过服务端摘掉。
-   */
+  /** 仅由服务端响应/推送构成的 Yjs 快照，用于识别服务端已有候选。 */
+  private serverSnapshot?: Y.Doc
+  /** 服务端存过的「节点 → 本机格式 fileId」引用。 */
   private readonly serverFiles = new Set<string>()
+  /** 服务端存过的「候选 id → 本机格式 fileId」引用。 */
+  private readonly serverResultFiles = new Set<string>()
   private noteReceived(update: Uint8Array, fullState = false) {
     for (const struct of Y.decodeUpdate(update).structs) {
       const end = struct.id.clock + struct.length
@@ -643,15 +645,22 @@ export class CloudNodeProjectSession {
         this.receivedClocks.set(struct.id.client, end)
     }
     if (fullState) {
-      // 整份服务端状态：单独读一遍，本机未同步的改动不会盖住服务端存着的引用。
-      const server = new Y.Doc({ gc: true })
-      try {
-        Y.applyUpdate(server, update)
-        for (const node of readCanvasDocument(server).nodes)
-          if ((node.type === 'image' || node.type === 'video') && node.data.fileId)
-            this.serverFiles.add(`${node.id}\u0000${node.data.fileId}`)
-      } finally {
-        server.destroy()
+      this.serverSnapshot?.destroy()
+      this.serverSnapshot = new Y.Doc({ gc: true })
+    }
+    if (this.serverSnapshot) {
+      Y.applyUpdate(this.serverSnapshot, update)
+      for (const node of readCanvasDocument(this.serverSnapshot).nodes)
+        if ((node.type === 'image' || node.type === 'video') && node.data.fileId)
+          this.serverFiles.add(`${node.id}\u0000${node.data.fileId}`)
+      for (const result of canvasResults(this.serverSnapshot)) {
+        const fileId =
+          result.source.type === 'file'
+            ? result.source.fileId
+            : !result.display?.mediaId
+              ? result.display?.fileId
+              : undefined
+        if (fileId) this.serverResultFiles.add(`${result.id}\u0000${fileId}`)
       }
     }
     this.noteServerFiles()
@@ -726,12 +735,12 @@ export class CloudNodeProjectSession {
     // 有什么）照旧按缺图挡着。
     const lostNodes: { nodeId: string; fileId: string }[] = []
     const lostResults = new Set<string>()
-    const lost = (fileId: string, createdAt: number | undefined) => {
+    const lost = (key: string, createdAt: number | undefined) => {
       if (!this.serverVector) return false
       if (typeof createdAt === 'number' && Number.isFinite(createdAt))
         return now - createdAt >= LOST_MEDIA_AGE_MS
-      const since = this.missingSince.get(fileId) ?? now
-      this.missingSince.set(fileId, since)
+      const since = this.missingSince.get(key) ?? now
+      this.missingSince.set(key, since)
       return now - since >= LOST_MEDIA_SEEN_MS
     }
     for (const node of nodes) {
@@ -740,21 +749,22 @@ export class CloudNodeProjectSession {
       const source = this.record.editor.doc.files[node.fileId]
       if (source) {
         sources.add(source)
-        this.missingSince.delete(node.fileId)
+        this.missingSince.delete(`node:${node.nodeId}:${node.fileId}`)
       } else if (
         this.serverHoldsNodeData(node.nodeId) ||
         this.serverFiles.has(`${node.nodeId}\u0000${node.fileId}`)
       )
         continue
-      else if (lost(node.fileId, node.createdAt)) lostNodes.push(node)
+      else if (lost(`node:${node.nodeId}:${node.fileId}`, node.createdAt)) lostNodes.push(node)
       else failure ??= new Error('canvas_media_missing')
     }
-    for (const { fileId, createdAt } of results) {
+    for (const { resultId, fileId, createdAt } of results) {
       const source = this.record.editor.doc.files[fileId]
       if (source) {
         sources.add(source)
-        this.missingSince.delete(fileId)
-      } else if (lost(fileId, createdAt)) lostResults.add(fileId)
+        this.missingSince.delete(`result:${resultId}:${fileId}`)
+      } else if (this.serverResultFiles.has(`${resultId}\u0000${fileId}`)) continue
+      else if (lost(`result:${resultId}:${fileId}`, createdAt)) lostResults.add(resultId)
       else failure ??= new Error('canvas_media_missing')
     }
     const promote = (source: string, mediaId: string) => {
@@ -811,12 +821,8 @@ export class CloudNodeProjectSession {
           kinds.add('missing')
           if (node.data.name) names.missing.push(node.data.name)
         }
-        for (const fileId of lostResults)
-          if (
-            !this.record.editor.doc.files[fileId] &&
-            dropCanvasResultFile(doc, fileId, legacyOrigin)
-          )
-            kinds.add('missing')
+        for (const resultId of lostResults)
+          if (dropCanvasResult(doc, resultId, legacyOrigin)) kinds.add('missing')
       }, legacyOrigin)
       for (const kind of kinds) {
         const list = [...new Set(names[kind])]
@@ -1336,6 +1342,8 @@ export class CloudNodeProjectSession {
     this.stopUploadConflicts?.()
     this.socket?.close()
     this.rejectWaits(new Error('project_scope_changed'))
+    this.serverSnapshot?.destroy()
+    this.serverSnapshot = undefined
     this.canvas?.undo.destroy()
     const doc = this.canvas?.doc
     void this.persistence?.destroy().finally(() => doc?.destroy())

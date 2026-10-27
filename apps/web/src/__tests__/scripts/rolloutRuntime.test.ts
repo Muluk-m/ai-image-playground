@@ -106,6 +106,12 @@ case "$cmd" in
       case "$1" in --format) shift; format=$1 ;; esac
       shift
     done
+    # The shared segmenter lives outside this project: $M/segmenter-networks lists its networks.
+    if [ "$1" = image-playground-segmenter ]; then
+      [ -f "$M/segmenter-networks" ] || exit 1
+      cat "$M/segmenter-networks"
+      exit 0
+    fi
     name=$(find_name "$1") || exit 1
     dir=$C/$name
     state=$(cat "$dir/state")
@@ -291,11 +297,16 @@ function legacyExecutor(drain: ContainerSpec['drain'] = 'missing') {
 }
 
 function run(env: NodeJS.ProcessEnv = {}, image = 'fixture:new') {
+  return spawnRun(process.env, env, image)
+}
+
+/** Like run, with `base` instead of process.env underneath, so a test can unset a variable. */
+function spawnRun(base: NodeJS.ProcessEnv, env: NodeJS.ProcessEnv = {}, image = 'fixture:new') {
   const result = spawnSync('sh', [script, 'fixture', image], {
     encoding: 'utf8',
     timeout: 20_000,
     env: {
-      ...process.env,
+      ...base,
       PATH: `${join(root, 'bin')}:${process.env.PATH}`,
       MOCK_ROOT: root,
       APP_CONFIG_DIR: config,
@@ -601,6 +612,18 @@ describe('rollout-runtime.sh: release containers', () => {
     return size
   }
 
+  it('gives the first Compose deploy the same segmenter address the release executors get', () => {
+    const compose = readFileSync(join(repo, 'deploy/compose.app.yaml'), 'utf8')
+    for (const service of ['bff', 'worker']) {
+      const block =
+        new RegExp(`\\n  ${service}:\\n([\\s\\S]*?)(?=\\n  [a-z][a-z-]*:\\n|$)`).exec(
+          compose,
+        )?.[1] ?? ''
+      expect(block).toContain('AGENT_SEGMENTER_URL: ${AGENT_SEGMENTER_URL:-}')
+      expect(block).toContain('AGENT_SEGMENTER_NAMESPACE: ${AGENT_SEGMENTER_NAMESPACE:-}')
+    }
+  })
+
   it('gives release executors the pool sizes Compose gives the same roles', () => {
     currentGeneration()
     const result = run()
@@ -807,6 +830,38 @@ describe('rollout-runtime.sh: legacy executor', () => {
     expect(result.status).toBe(0)
     for (const line of result.log.filter((one) => one.startsWith('create ')))
       expect(line).not.toContain('AGENT_SEGMENTER_')
+  })
+
+  it('reads the segmenter back from the attachment when no deploy decided it (rollback)', () => {
+    currentGeneration()
+    writeFileSync(
+      join(root, 'segmenter-networks'),
+      'image-playground-segmenter fixture_application ',
+    )
+    const env: NodeJS.ProcessEnv = { ...process.env }
+    delete env.AGENT_SEGMENTER_URL
+    const result = spawnRun(env)
+    expect(result.status, result.stderr).toBe(0)
+    const creates = result.log.filter((one) => one.startsWith('create '))
+    expect(creates).toHaveLength(2)
+    for (const line of creates)
+      expect(line).toMatch(
+        /-e AGENT_SEGMENTER_URL=http:\/\/segmenter:8080 -e AGENT_SEGMENTER_NAMESPACE=fixture /,
+      )
+  })
+
+  it('leaves the segmenter out on a rollback when this edition is not attached, or there is none', () => {
+    for (const networks of ['image-playground-segmenter other_application ', null]) {
+      currentGeneration()
+      if (networks === null) rmSync(join(root, 'segmenter-networks'), { force: true })
+      else writeFileSync(join(root, 'segmenter-networks'), networks)
+      const env: NodeJS.ProcessEnv = { ...process.env }
+      delete env.AGENT_SEGMENTER_URL
+      const result = spawnRun(env)
+      expect(result.status, result.stderr).toBe(0)
+      for (const line of result.log.filter((one) => one.startsWith('create ')))
+        expect(line).not.toContain('AGENT_SEGMENTER_')
+    }
   })
 
   it('tolerates a legacy flag when there is no legacy executor recorded', () => {

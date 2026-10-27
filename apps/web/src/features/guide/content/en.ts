@@ -11,6 +11,7 @@ import {
   prompt,
   shot,
   steps,
+  stepsWith,
   table,
   tip,
   warn,
@@ -117,10 +118,10 @@ const chapters: Chapter[] = [
               'Load the prompt, parameters and reference images back into the prompt box.',
             ],
             [
-              '[[Edit output]]',
+              '[[Inpaint]]',
               'Use the result as a reference and open the mask editor for inpainting.',
             ],
-            ['[[Send to canvas]]', 'Continue editing the image on a canvas.'],
+            ['[[Place on canvas]]', 'Continue editing the image on a canvas.'],
             [
               '[[Download image]]',
               'Download the original file; works with several images download them all.',
@@ -146,11 +147,11 @@ const chapters: Chapter[] = [
             ],
             [
               'A specific detail',
-              'Click [[Edit output]], paint the area and describe the change. See [Inpainting](/guide/en/create/composer/#mask-edit).',
+              'Click [[Inpaint]], paint the area and describe the change. See [Inpainting](/guide/en/create/composer/#mask-edit).',
             ],
             [
               'Comparing versions',
-              'Click [[Send to canvas]], annotate the image and generate alongside it. See [Canvas](/guide/en/canvas/basics/).',
+              'Click [[Place on canvas]], annotate the image and generate alongside it. See [Canvas](/guide/en/canvas/basics/).',
             ],
             [
               'Hard to describe in words',
@@ -341,7 +342,7 @@ const chapters: Chapter[] = [
             'Inpainting changes only the area you paint, for tasks such as changing a color, removing an object or replacing an element.',
           ),
           steps(
-            'Click [[Edit output]] on a work card, click the brush icon on a reference thumbnail, or right-click an image and choose [[Edit]].',
+            'Click [[Inpaint]] on a work card, click the brush icon on a reference thumbnail, or right-click an image and choose [[Edit]].',
             'In the editor, outline an area with [[Lasso]] or brush it with [[Paint]]; use [[Erase]] to refine the selection. The blue overlay marks the area to change.',
             'Click [[Save]]. The image moves to the first reference slot with a MASK badge, and the submit button changes to [[Edit mask]].',
             'Describe the change in the prompt, for example “replace the cup with a pink ceramic mug”, then click [[Edit mask]].',
@@ -410,7 +411,7 @@ const chapters: Chapter[] = [
             'On the home page, switch to [[Canvas]], describe your request and click [[Start creating]]. A new canvas project opens and the AI agent takes over.',
             'In the sidebar, click [[＋]] next to Canvases to create a canvas, or [[All]] to see every project.',
             'Recent canvases are listed in the sidebar; click ↗ ([[Open immersive]]) to open one with the sidebar collapsed.',
-            'Click [[Send to canvas]] on a work card to add the image to the current canvas.',
+            'Click [[Place on canvas]] on a work card to add the image to the current canvas.',
           ),
           p('Canvases save automatically and sync to the cloud once you are signed in.'),
         ],
@@ -733,6 +734,161 @@ const page = (id: string, source: Chapter): GuidePage => ({
     : source.subsections,
 })
 
+const batchPage: GuidePage = {
+  id: 'batch',
+  title: 'Batch generation',
+  summary: 'Apply one prompt to multiple images in independent tasks.',
+  meta: {
+    title: 'Batch generation and per-image tasks - Muvloom user guide',
+    description:
+      'Understand per-image tasks, reference scope and prompt reuse. Select a mode, check counts and credits, and review results.',
+  },
+  updated: '2026-10-24',
+  intro: [
+    p(
+      'Use [[Per image]] for consistent edits across multiple images, including background replacement, cutouts and style changes.',
+    ),
+  ],
+  sections: [
+    {
+      id: 'batch-how-it-works',
+      title: 'Execution model',
+      blocks: [
+        p(
+          '**Without prompt slots, N input images create N independent tasks, each requesting one output image.** Enter the prompt once; each task reuses it with the selected model and settings.',
+        ),
+        p(
+          'Each task receives only its current input image, with no other references or task results. Tasks may run concurrently or queue; completion order can vary.',
+        ),
+        shot(
+          img('batch-mechanism-v2'),
+          'Images A, B and C pair with the same prompt in three independent tasks, each producing one result without sharing images',
+        ),
+      ],
+    },
+    {
+      id: 'batch-reference-choice',
+      title: 'Mode selection',
+      blocks: [
+        table(
+          ['Comparison', 'Per image', 'Combine'],
+          ['Reference scope', 'Current image only', 'All selected images together'],
+          [
+            '3 references, Count set to 1',
+            '3 tasks, one output each',
+            'One output using all 3 references',
+          ],
+          [
+            'Use cases',
+            'Individual cutouts, background replacement',
+            'Product-scene composition, cross-image style references',
+          ],
+        ),
+      ],
+    },
+    {
+      id: 'batch-start',
+      title: 'Setup',
+      blocks: [
+        stepsWith(
+          shot(
+            img('batch-select'),
+            'Quick generate with three references and Per image selected',
+            undefined,
+            [
+              { x: 40, y: 8 },
+              { x: 28, y: 43 },
+              { x: 25, y: 26 },
+            ],
+          ),
+          'Select [[Quick generate]] → [[Image]] and a model that supports references.',
+          'Use the plus button to add at least 2 images. Folder import, asset selection, drag and paste are also supported.',
+          'Expand the references and select [[Per image]]. Enter the prompt and configure the aspect ratio and other settings.',
+        ),
+        note(
+          'A single reference uses ordinary image-to-image generation. Per image is unavailable with a mask or applied template, and required when references exceed the model’s Combine limit.',
+        ),
+      ],
+    },
+    {
+      id: 'batch-before-submit',
+      title: 'Submission checks',
+      blocks: [
+        stepsWith(
+          shot(
+            img('batch-count-cost'),
+            'Generation settings show 3 images; the send button estimates 240 credits',
+            'Example pricing. Check the estimate for the selected model and settings.',
+            [
+              { x: 41, y: 53 },
+              { x: 84, y: 53 },
+            ],
+          ),
+          '**Output count**: check the settings chip at the bottom, showing [[3 images]] here.',
+          '**Total cost**: check the credits on the send button, showing [[240]] for the entire batch here. Confirm both before sending.',
+        ),
+      ],
+    },
+    {
+      id: 'batch-view-results',
+      title: 'Results',
+      blocks: [
+        p('Review batch progress and results in [[My works]] below the composer.'),
+        shot(
+          img('batch-results'),
+          'My works and existing work cards',
+          'Existing works shown as an example',
+        ),
+        stepsWith(
+          shot(
+            img('batch-expanded'),
+            'Completed Per image batch showing Done 3/3, individual details and download controls',
+            'Previous batch: “抠图” (remove the background), Done 3/3.',
+            [
+              { x: 31, y: 24 },
+              { x: 48, y: 74 },
+              { x: 36, y: 10 },
+            ],
+            315,
+          ),
+          '**Progress**: [[Done 3/3]] indicates completion. Select [[Expand]] to display individual results.',
+          '**Details**: click a thumbnail to enlarge it, or the details icon to inspect that task’s prompt, reference and settings.',
+          '**Download**: select [[Download all]] for the batch, or use an individual row’s download button.',
+        ),
+      ],
+    },
+    {
+      id: 'batch-write-prompt',
+      title: 'Prompt guidelines',
+      blocks: [
+        p(
+          'Describe the edit for “the current image”. Avoid references to other images or previous results.',
+        ),
+        prompt(
+          'Product image on white',
+          'Preserve the shape, colors, materials and markings of the product in the current image. Replace the background with pure white. Center the complete product and add a natural contact shadow. Do not add text or other objects.',
+        ),
+        note(
+          'Use [[Combine]] for cross-image instructions, or submit separately for different edits. A shared prompt does not guarantee identical composition or details; validate a small batch first.',
+        ),
+      ],
+    },
+    {
+      id: 'batch-count-and-cost',
+      title: 'Limits and retries',
+      blocks: [
+        list(
+          '**Task count**: input images × prompt combinations. The ordinary Count setting does not multiply this total. With slots, 3 images × 2 backgrounds create 6 tasks.',
+          '**Limits**: up to 50 output images per batch; each reference must be no larger than 50 MB.',
+          '**Cost**: for the same model and settings, batch estimate = per-image estimate × total output count.',
+          '**Retries**: review the failure reason and retry the affected task. Completed results are retained.',
+        ),
+      ],
+    },
+  ],
+  related: ['create/composer', 'create/agent'],
+}
+
 export const guideEn: GuideContent = {
   lang: 'en',
   root: GUIDE_PATHS.en,
@@ -770,7 +926,7 @@ export const guideEn: GuideContent = {
     {
       id: 'create',
       title: 'Create',
-      pages: [page('composer', chapter('create')), page('agent', chapter('agent'))],
+      pages: [page('composer', chapter('create')), batchPage, page('agent', chapter('agent'))],
     },
     { id: 'canvas', title: 'Canvas', pages: [page('basics', chapter('canvas'))] },
     { id: 'assets', title: 'Assets', pages: [page('library', chapter('assets'))] },

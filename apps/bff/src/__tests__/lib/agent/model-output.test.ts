@@ -18,7 +18,8 @@ const { compactionSettings } = await import('../../../lib/agent/compaction-setti
 afterEach(() => setAgentFetchForTesting())
 
 it('sends each registered model ceiling through the SDK and retains output beyond the old 8K cap', async () => {
-  const answer = '完整输出。'.repeat(9000)
+  // 每句不同：同一句循环会被当成退化输出截停。
+  const answer = Array.from({ length: 9000 }, (_, i) => `完整输出${i}。`).join('')
   for (const depth of ['fast', 'medium', 'deep', undefined] as const) {
     const model = agentModel(depth)
     let payload: Record<string, unknown> | undefined

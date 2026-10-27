@@ -6,7 +6,8 @@
 // network: the weights are baked into the image at build time (fetch-model.mjs).
 //
 // Memory: the model is loaded on the first request and released after SEGMENTER_IDLE_MS without
-// one, so an idle container holds only the Node runtime. Up to SEGMENTER_CACHE image embeddings
+// one. The freed memory is not returned to the OS, so an idle container still sits at about
+// 450 MB RSS (measured on the VPS). Up to SEGMENTER_CACHE image embeddings
 // stay in memory so include/exclude clicks only run the small decoder.
 import http from 'node:http'
 import { AutoProcessor, EdgeTamModel, env, RawImage } from '@huggingface/transformers'
@@ -38,6 +39,7 @@ env.localModelPath = `${MODEL_DIR}/`
 
 let loaded = null
 let loading = null
+let disposing = null
 let idleTimer = null
 let running = 0
 let waiting = 0
@@ -53,6 +55,9 @@ function log(event, fields = {}) {
 async function ensureLoaded() {
   if (loaded) return loaded
   loading ??= (async () => {
+    // An idle unload may still be releasing the previous ONNX sessions; loading a second copy
+    // alongside it could push the container past its memory limit.
+    if (disposing) await disposing
     const startedAt = performance.now()
     const options = {
       dtype: DTYPE,
@@ -85,7 +90,12 @@ async function unload() {
   loaded = null
   cache.clear()
   stats.unloads++
-  await current.model.dispose?.()
+  disposing = Promise.resolve(current.model.dispose?.())
+    .catch((error) => log('segmenter.dispose_failed', { error: String(error) }))
+    .finally(() => {
+      disposing = null
+    })
+  await disposing
   log('segmenter.unloaded', { rssMB: Math.round(process.memoryUsage().rss / 1e6) })
 }
 
@@ -146,7 +156,10 @@ function packBits(data, offset, length) {
 async function segment(request) {
   const { model, processor } = await ensureLoaded()
   const imageProcessor = processor.image_processor ?? processor
-  let entry = cache.get(request.key)
+  // Editions share this process and may use the same media ID (restored or copied fixtures), so
+  // an embedding is only ever reused within the namespace that computed it.
+  const cacheKey = `${request.namespace}\n${request.key}`
+  let entry = cache.get(cacheKey)
   let encodeMs = 0
   if (!entry) {
     if (!request.image && !request.raw) throw new RequestError(404, 'image_required')
@@ -164,7 +177,7 @@ async function segment(request) {
     encodeMs = Math.round(performance.now() - startedAt)
     stats.encodes++
   }
-  remember(request.key, entry)
+  remember(cacheKey, entry)
   const startedAt = performance.now()
   const prompt = {}
   if (request.points.length) {
