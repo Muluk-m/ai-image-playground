@@ -298,4 +298,40 @@ describe('masked edits have no size gates', () => {
     expect(crop.left + crop.width).toBeGreaterThanOrEqual(7400)
     expect(acceptable(crop.sendWidth, crop.sendHeight)).toBe(true)
   })
+  it('keeps tiny far-apart selections visible to upstream when the crop is scaled down', async () => {
+    // 8000×4500 上两个相隔很远的 3×3 小点：截图覆盖大片、缩到 ~1.5MP 后最近邻会把它们整块丢掉。
+    const width = 8000
+    const height = 4500
+    const raw = Buffer.alloc(width * height * 4, 255)
+    const dots = [
+      { x: 1001, y: 1203 },
+      { x: 6997, y: 3301 },
+    ]
+    for (const dot of dots)
+      for (let y = dot.y; y < dot.y + 3; y++)
+        for (let x = dot.x; x < dot.x + 3; x++) raw[(y * width + x) * 4 + 3] = 0
+    const mask = await sharp(raw, { raw: { width, height, channels: 4 } })
+      .png()
+      .toBuffer()
+    const source = await sharp(pattern(width, height), { raw: { width, height, channels: 4 } })
+      .png()
+      .toBuffer()
+    const prepared = await prepareMaskedInput('gpt-image-2.5-flare', url(source), url(mask))
+    const crop = prepared.crop!
+    expect(crop.sendWidth).toBeDefined()
+    const sent = await cropMaskedUpstream(
+      { input_images: [prepared.source], mask: prepared.mask },
+      crop,
+      prepared.originalSize,
+    )
+    const sentMask = await sharp(decode(sent.mask)).ensureAlpha().raw().toBuffer({
+      resolveWithObject: true,
+    })
+    const { width: sw, height: sh } = sentMask.info
+    for (const dot of dots) {
+      const x = Math.floor(((dot.x + 1 - crop.left) / crop.width) * sw)
+      const y = Math.floor(((dot.y + 1 - crop.top) / crop.height) * sh)
+      expect(sentMask.data[(y * sw + x) * 4 + 3]).toBe(0)
+    }
+  })
 })

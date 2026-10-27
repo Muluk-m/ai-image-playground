@@ -341,6 +341,39 @@ export async function prepareMaskedInput(model: string, original: string, origin
 }
 
 /**
+ * 把选区缩放到发送尺寸，取每个发送像素覆盖范围内最「要改」的那个值（alpha 最小）。
+ * 最近邻缩小会把细线、远处的小区域整块漏掉：上游看不到那里要改，交付时却仍按原选区合成。
+ * 这样原选区里的每一块在发送选区里都有覆盖；放大时就是最近邻。交付合成仍按原尺寸选区，不受这里影响。
+ */
+async function conservativeMask(region: Sharp, width: number, height: number) {
+  const { data, info } = await region.ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  const channels = info.channels
+  const scaleX = info.width / width
+  const scaleY = info.height / height
+  const span = (index: number, scale: number, limit: number) => {
+    const from = Math.min(limit - 1, Math.floor(index * scale))
+    return [from, Math.min(limit, Math.max(from + 1, Math.ceil((index + 1) * scale)))] as const
+  }
+  const out = Buffer.alloc(width * height * 4, 255)
+  for (let y = 0; y < height; y++) {
+    const [top, bottom] = span(y, scaleY, info.height)
+    for (let x = 0; x < width; x++) {
+      const [left, right] = span(x, scaleX, info.width)
+      let alpha = 255
+      for (let sy = top; sy < bottom && alpha > 0; sy++)
+        for (let sx = left; sx < right; sx++) {
+          const value = data[(sy * info.width + sx) * channels + channels - 1]!
+          if (value < alpha) alpha = value
+        }
+      out[(y * width + x) * 4 + 3] = alpha
+    }
+  }
+  return sharp(out, { raw: { width, height, channels: 4 } })
+    .png()
+    .toBuffer()
+}
+
+/**
  * 截图模式送上游前的那一步：从原图与选区里截出 `crop`，右、下补到尺寸倍数（原图补边沿用
  * 边缘像素，选区补成保留区）。都是无损 PNG。
  */
@@ -356,14 +389,7 @@ export async function cropMaskedInput(source: string, mask: string, crop: Masked
       })
     return {
       source: toDataUrl(await region(source).resize(send).png().toBuffer()),
-      // 选区缩放用最近邻，保持只有「改 / 不改」两种；交付时按原尺寸选区合成，不受这里影响。
-      mask: toDataUrl(
-        await region(mask)
-          .ensureAlpha()
-          .resize({ ...send, kernel: 'nearest' })
-          .png()
-          .toBuffer(),
-      ),
+      mask: toDataUrl(await conservativeMask(region(mask), crop.sendWidth, crop.sendHeight)),
     }
   }
   const padded = paddedEditSize(crop.width, crop.height)
