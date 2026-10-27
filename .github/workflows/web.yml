@@ -67,7 +67,7 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - run: python3 scripts/test-cloud-test.py
-      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs
+      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs
       - run: pnpm lint
       # The production Dockerfile rebuilds the web package from an allowlisted context.
       # Run the same web stage when build inputs change, so missing .dockerignore entries

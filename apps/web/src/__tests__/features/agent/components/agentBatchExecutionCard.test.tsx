@@ -1153,3 +1153,61 @@ it('keeps polling a paused batch while item progress is reconciling despite a le
     vi.unstubAllGlobals()
   }
 })
+
+it('plan card ratio row shows the ratio each item is submitted with, not the other provider field', async () => {
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  const base = initialPage()
+  const saved: AgentBatchPage = {
+    ...base,
+    items: [
+      {
+        ...base.items[0]!,
+        kind: 'generation',
+        params: {
+          provider: 'openai-compat',
+          model: 'image-model',
+          size: '1280x720',
+          gemini_aspect_ratio: '9:16',
+        },
+      },
+      {
+        ...base.items[1]!,
+        kind: 'generation',
+        params: {
+          provider: 'gemini',
+          model: 'gemini-model',
+          size: '1024x1024',
+          gemini_image_size: '1K',
+        },
+      },
+    ],
+  }
+  vi.stubGlobal('fetch', async () => Response.json(saved))
+  const message = panelMessage('message-ratio', 'turn-original', 'assistant', [
+    {
+      type: 'toolResult',
+      toolName: 'planImageBatch',
+      toolCallId: 'call-ratio',
+      title: '商品图',
+      status: 'succeeded',
+      batchId: saved.batch.id,
+    },
+  ])
+  if (message.kind !== 'tool') throw new Error('expected tool card')
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<AgentToolCard message={message} />))
+    await vi.waitFor(() => expect(host.querySelector('details')).not.toBeNull())
+    act(() => host.querySelector('summary')!.click())
+    const ratios = [...host.querySelectorAll('dt')]
+      .filter((dt) => dt.textContent === '宽高比')
+      .map((dt) => dt.nextElementSibling?.textContent)
+    expect(ratios).toEqual(['16:9', '1:1'])
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    vi.unstubAllGlobals()
+  }
+})
