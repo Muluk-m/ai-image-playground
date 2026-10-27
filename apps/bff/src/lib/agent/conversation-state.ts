@@ -297,7 +297,7 @@ function removedLine(batch: BatchFact): string {
     .map((item) => `${item.key}（${item.prompt}）`)
     .join('、')
   const more = batch.removed.length > MAX_LISTED_REMOVED ? ` 等 ${batch.removed.length} 项` : ''
-  return `；用户确认前已从计划里删掉：${listed}${more}，这一批只有上面 ${batch.itemCount} 项，删掉的不算缺，用户问还缺什么时不要把它们列为缺少`
+  return `；用户确认前已从计划里删掉：${listed}${more}。这一批只有 ${batch.itemCount} 项，删掉的是用户自己去掉的，不是漏生成：用户问还缺哪张、还差什么时，按这一批的完成情况回答（全部完成就说这一批不缺），不要回答「还缺」删掉的项；可以顺带问要不要另外补做`
 }
 
 function batchLine(batch: BatchFact): string {
