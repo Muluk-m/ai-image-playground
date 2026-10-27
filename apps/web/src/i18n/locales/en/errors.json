@@ -92,6 +92,7 @@
     "quota_exceeded": "Today's generation quota is used up",
     "authentication_required": "Sign in to generate",
     "invalid_params": "The parameters didn't hold up, so this wasn't submitted",
+    "image_unusable": "That address didn't return a usable image. Try another image URL",
     "source_unavailable": "The source site denied access or couldn't provide the content. Try another public source",
     "source_timeout": "The web source timed out; nothing was read",
     "content_policy": "The prompt didn't pass content review. Try rewording it",
