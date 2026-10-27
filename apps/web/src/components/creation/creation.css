@@ -288,3 +288,34 @@
  .creation-mode-trigger > svg:last-child { width: 12px; height: 12px; }
  .creation-toolbar .creation-model-trigger { background: hsl(var(--muted) / .4); }
 }
+
+/* 逐张生成：左上角图钉把这张设为共享参考（每个任务都带上它）；已共享的换成「共享」角标，点它取消。 */
+:is(.creation-composer, .creation-reference-hover) .creation-reference-pin {
+  position: absolute; top: 4px; left: 4px; z-index: 30;
+  display: grid; place-items: center;
+  width: 16px; height: 16px; min-width: 16px; min-height: 16px; padding: 0;
+  border: 0; border-radius: 50%;
+  background: hsl(var(--scrim) / .72); color: hsl(var(--on-media));
+  box-shadow: none;
+}
+:is(.creation-composer, .creation-reference-hover) .creation-reference-pin:hover { background: hsl(var(--scrim) / .88); color: hsl(var(--on-media)); }
+:is(.creation-composer, .creation-reference-hover) .creation-reference-pin[aria-disabled=true] { color: hsl(var(--on-media) / .45); cursor: not-allowed; }
+:is(.creation-composer, .creation-reference-hover) .creation-reference-pin::before { content: ""; position: absolute; inset: -4px; }
+:is(.creation-composer, .creation-reference-hover) .creation-reference-pin > svg { width: 10px; height: 10px; }
+:is(.creation-composer, .creation-reference-hover) .creation-reference-shared {
+  position: absolute; top: 3px; left: 3px; z-index: 30;
+  display: inline-flex; align-items: center; gap: 2px;
+  height: 16px; min-height: 16px; min-width: 0; padding: 0 4px;
+  border: 0; border-radius: 4px;
+  background: hsl(var(--primary)); color: hsl(var(--primary-foreground));
+  box-shadow: none; @apply text-label-sm;
+}
+:is(.creation-composer, .creation-reference-hover) .creation-reference-shared:hover { background: hsl(var(--primary) / .85); color: hsl(var(--primary-foreground)); }
+:is(.creation-composer, .creation-reference-hover) .creation-reference-shared > svg { width: 9px; height: 9px; }
+.creation-reference-list [data-shared-reference] { outline: 1.5px solid hsl(var(--primary) / .8); outline-offset: -1.5px; }
+.creation-reference-divider { flex-shrink: 0; align-self: stretch; width: 1px; margin: 0 2px; background: hsl(var(--border)); }
+/* 提示词下面：逐张生成时序号指什么，以及没有对应图的序号。 */
+.creation-mention-rules { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; color: hsl(var(--muted-foreground)); @apply text-xs; }
+.creation-mention-rules > [data-tone=warning] { display: flex; align-items: flex-start; gap: 4px; color: hsl(var(--warning)); }
+.creation-mention-rules > [data-tone=warning] > svg { flex-shrink: 0; margin-top: 2px; }
+.creation-batch-summary { color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; @apply text-xs; }

@@ -207,6 +207,22 @@
     "mergeLimit": "超过 {{max}} 张只能逐张生成",
     "oversized": "第 {{index}} 张超过 {{mb}} MB，请移除或换一张更小的图",
     "sendLabel": "逐张生成 {{count}} 张",
-    "sendLabelCredits": "逐张生成 {{count}} 张，共 {{credits}} 积分"
+    "sendLabelCredits": "逐张生成 {{count}} 张，共 {{credits}} 积分",
+    "pin": "设为共享参考",
+    "pinLastTarget": "至少留 1 张目标图",
+    "pinFull": "每个任务最多 {{max}} 张图（1 张目标 + {{shared}} 张共享），共享参考已满",
+    "unpin": "取消共享，变回目标图",
+    "shared": "共享",
+    "sharedIndex": "图{{n}}",
+    "sharedTile": "共享参考 {{label}}",
+    "targetTile": "目标图 {{n}}",
+    "ruleShared": "逐张时：目标图 = {{target}}，共享参考 = {{shared}}",
+    "ruleNoShared": "逐张时 {{target}} = 各自的目标图；悬停图片点图钉，可设为每张都带上的共享参考",
+    "listSeparator": "、",
+    "mentionMissingPerTask": "逐张时每个任务只有 {{count}} 张图，{{labels}} 没有对应的图，会按普通文字发出",
+    "mentionMissing": "参考区只有 {{count}} 张图，{{labels}} 没有对应的图，会按普通文字发出",
+    "summaryCount": "逐张生成 {{count}} 张",
+    "summaryShared": "每张都会带上 {{count}} 张共享参考",
+    "summaryCredits": "消耗 {{credits}} 积分"
   }
 }

@@ -609,3 +609,76 @@ it('clears references and their masks while preserving prompt text', () => {
   expect(useStore.getState().maskDraft).toBeNull()
   expect(useStore.getState().prompt).toBe('保留这段文字')
 })
+
+describe('逐张生成的共享参考', () => {
+  const channel: PublicChannel = {
+    id: 'shared-openai',
+    kind: 'openai-queue',
+    label: 'OpenAI',
+    models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit', 'n'] }],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+
+  beforeEach(() => {
+    setChannels([channel])
+    act(() =>
+      useStore.setState({
+        settings: normalizeSettings({
+          ...DEFAULT_SETTINGS,
+          profiles: [
+            {
+              id: 'shared-profile',
+              source: 'builtin-edge',
+              channelId: channel.id,
+              selectedModelId: 'gpt-image-2',
+            },
+          ],
+          activeProfileId: 'shared-profile',
+        }),
+        inputImages: ['a', 'b', 'c'].map((id) => ({ id, dataUrl: 'data:image/png;base64,AA' })),
+        sharedImageIds: [],
+        maskDraft: null,
+        batchGenerate: true,
+      }),
+    )
+  })
+
+  afterEach(() => {
+    useStore.setState({ inputImages: [], sharedImageIds: [], batchGenerate: false })
+  })
+
+  it('点图钉设共享：带「共享」角标排到最后，底部按目标图计张数并说明每张带几张共享', () => {
+    const panel = openReferenceStack(host)
+    expect(panel.querySelectorAll('.creation-reference-pin')).toHaveLength(3)
+    expect(host.querySelector('.creation-mention-rules')?.textContent).toContain('@图1')
+
+    const pin = panel.querySelector<HTMLButtonElement>('.creation-reference-pin')!
+    expect(pin.getAttribute('aria-label')).toBe('设为共享参考')
+    act(() => pin.click())
+
+    expect(useStore.getState().sharedImageIds).toEqual(['a'])
+    const shared = host.querySelector<HTMLButtonElement>('.creation-reference-shared')!
+    expect(shared.textContent).toContain('共享')
+    expect(shared.getAttribute('aria-pressed')).toBe('true')
+    expect(host.querySelector('.creation-mention-rules')?.textContent).toContain(
+      '逐张时：目标图 = @图1，共享参考 = @图2',
+    )
+    const summary = host.querySelector('.creation-batch-summary')?.textContent ?? ''
+    expect(summary).toContain('逐张生成 2 张')
+    expect(summary).toContain('每张都会带上 1 张共享参考')
+  })
+
+  it('剩一张目标图时图钉点不了；超出每个任务张数的 @ 序号标黄提示但不删', () => {
+    act(() => useStore.getState().toggleSharedImage('a'))
+    act(() => useStore.getState().toggleSharedImage('b'))
+    const panel = openReferenceStack(host)
+    const pin = panel.querySelector<HTMLButtonElement>('.creation-reference-pin')!
+    expect(pin.getAttribute('aria-disabled')).toBe('true')
+    expect(useStore.getState().sharedImageIds).toEqual(['a', 'b'])
+
+    act(() => useStore.setState({ prompt: '参考 \u2063@图5\u2064' }))
+    expect(host.querySelector('.mention-tag-invalid')).not.toBeNull()
+    expect(host.querySelector('[data-tone="warning"]')?.textContent).toContain('@图5')
+    expect(useStore.getState().prompt).toContain('@图5')
+  })
+})

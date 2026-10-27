@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createMentionLabels,
+  createPerTaskMentionLabels,
   getAtImageQuery,
   getPromptMentionParts,
   getSelectedImageMentionLabel,
@@ -184,5 +185,20 @@ describe('replaceImageMentionsForApi', () => {
     expect(replaceImageMentionsForApi(`把 ${getSelectedImageMentionLabel(2)} 变蓝`, 2)).toBe(
       '把 @图3 变蓝',
     )
+  })
+})
+
+describe('createPerTaskMentionLabels', () => {
+  it('@图1 是目标图，后面按共享参考编号，有名字用名字，超出范围也留着胶囊', () => {
+    const per = createPerTaskMentionLabels(images, { 'image-b': '白T' })
+    expect(per(0)).toBe('@图1')
+    expect(per(1)).toBe('@图2')
+    expect(per(2)).toBe('@白T')
+    expect(per(5)).toBe('@图6')
+  })
+
+  it('逐张发送时按每个任务的张数换序号，越界的按普通文字发', () => {
+    const prompt = `把 ${getSelectedImageMentionLabel(0)} 换上 ${getSelectedImageMentionLabel(1)}，参考 ${getSelectedImageMentionLabel(2)}`
+    expect(replaceImageMentionsForApi(prompt, 2)).toBe('把 [image 1] 换上 [image 2]，参考 @图3')
   })
 })

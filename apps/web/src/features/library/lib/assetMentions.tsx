@@ -1,5 +1,6 @@
 import MediaImage from '../../../components/MediaImage'
 import type { SuggestionMenuGroup, SuggestionMenuOption } from '../../../components/SuggestionMenu'
+import { Icon } from '../../../components/ui/icon'
 import { i18next } from '../../../i18n'
 import { getImageMentionLabel, imageMentionMatches } from '../../../lib/promptImageMentions'
 import type { InputImage } from '../../../types'
@@ -79,17 +80,69 @@ export function assetOptions<T>(
     }))
 }
 
+/**
+ * 逐张生成时 `@` 列的是每个任务里的图：@图1 是各自的目标图，@图2… 依次是共享参考。
+ * 不列素材：附加进来的素材会成为又一张目标图，没有固定的序号可引用。
+ */
+function perTaskMentionGroups(
+  query: string,
+  shared: readonly InputImage[],
+  labelByImageId: Record<string, string>,
+): SuggestionMenuGroup<AtMentionValue>[] {
+  const target: SuggestionMenuOption<AtMentionValue> & { index: number } = {
+    key: 'image:per-task-target',
+    label: getImageMentionLabel(0),
+    description: i18next.t('mention.perTaskTarget', { ns: 'library' }),
+    icon: <Icon name="images" />,
+    value: { type: 'image', index: 0 },
+    index: 0,
+  }
+  const sharedOptions = shared.map((image, i) => {
+    const name = labelByImageId[image.id]
+    return {
+      key: `image:${image.id}`,
+      label: getImageMentionLabel(i + 1),
+      description: name
+        ? i18next.t('mention.perTaskSharedNamed', { ns: 'library', name })
+        : i18next.t('mention.perTaskShared', { ns: 'library' }),
+      thumbnail: <MediaImage src={image.dataUrl} className="h-full w-full object-cover" alt="" />,
+      value: { type: 'image', index: i + 1 } as AtMentionValue,
+      index: i + 1,
+    }
+  })
+  const options = [target, ...sharedOptions].filter(
+    (option) =>
+      imageMentionMatches(query, option.index) ||
+      labelMatches(query, option.label) ||
+      labelMatches(query, option.description ?? ''),
+  )
+  if (options.length === 0) return []
+  return [
+    {
+      key: 'images',
+      heading: i18next.t('mention.headingPerTask', { ns: 'library' }),
+      options,
+    },
+  ]
+}
+
 export function buildAtMentionGroups({
   query,
   inputImages,
   assets,
   canAttachAssets = true,
+  perTaskShared,
+  labelByImageId = {},
 }: {
   query: string
   inputImages: InputImage[]
   assets: AssetRecord[]
   canAttachAssets?: boolean
+  /** 逐张生成：传入共享参考（可为空），候选改按每个任务里的序号列。 */
+  perTaskShared?: readonly InputImage[]
+  labelByImageId?: Record<string, string>
 }): SuggestionMenuGroup<AtMentionValue>[] {
+  if (perTaskShared) return perTaskMentionGroups(query, perTaskShared, labelByImageId)
   const imageOptions = inputImageOptions<AtMentionValue>(
     inputImages,
     query,

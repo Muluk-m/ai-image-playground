@@ -2028,6 +2028,7 @@ describe('快速生成的逐张生成', () => {
       maskDraft: null,
       params: { ...DEFAULT_PARAMS, n: 4 },
       batchGenerate,
+      sharedImageIds: [],
       tasks: [],
       detailTaskId: null,
       showSettings: false,
@@ -2079,6 +2080,60 @@ describe('快速生成的逐张生成', () => {
       ['data:image/png;base64,ref3'],
     ])
     expect(calls.every((c) => c[0].params.n === 1)).toBe(true)
+  })
+
+  it('设成共享的图挪到队尾，再点变回目标图；最后一张目标图设不了', async () => {
+    await setupBatchState(3, true)
+    const { toggleSharedImage } = useStore.getState()
+
+    toggleSharedImage('ref-1')
+    expect(useStore.getState().sharedImageIds).toEqual(['ref-1'])
+    expect(useStore.getState().inputImages.map((one) => one.id)).toEqual([
+      'ref-2',
+      'ref-3',
+      'ref-1',
+    ])
+
+    toggleSharedImage('ref-2')
+    toggleSharedImage('ref-3')
+    expect(useStore.getState().sharedImageIds).toEqual(['ref-1', 'ref-2'])
+
+    toggleSharedImage('ref-1')
+    expect(useStore.getState().sharedImageIds).toEqual(['ref-2'])
+    expect(useStore.getState().inputImages.map((one) => one.id)).toEqual([
+      'ref-3',
+      'ref-1',
+      'ref-2',
+    ])
+  })
+
+  it('2 张目标 × 1 张共享：发 2 条任务，每条带自己的目标图 + 共享图，序号按每条的张数换', async () => {
+    await setupBatchState(3, true)
+    useStore.getState().toggleSharedImage('ref-3')
+    useStore.setState({
+      prompt: `把 ${getSelectedImageMentionLabel(0)} 穿上 ${getSelectedImageMentionLabel(1)}，像 ${getSelectedImageMentionLabel(2)}`,
+    })
+
+    await submitTask()
+    await waitUntil(
+      () => vi.mocked(callImageApi).mock.calls.length === 2,
+      'shared-reference requests were not sent',
+    )
+
+    const tasks = useStore.getState().tasks
+    expect(tasks.map((t) => t.inputImageIds)).toEqual([
+      ['ref-1', 'ref-3'],
+      ['ref-2', 'ref-3'],
+    ])
+    const calls = vi.mocked(callImageApi).mock.calls
+    expect(calls.map((c) => c[0].inputImageDataUrls)).toEqual([
+      ['data:image/png;base64,ref1', 'data:image/png;base64,ref3'],
+      ['data:image/png;base64,ref2', 'data:image/png;base64,ref3'],
+    ])
+    expect(calls.map((c) => c[0].prompt)).toEqual([
+      '把 [image 1] 穿上 [image 2]，像 @图3',
+      '把 [image 1] 穿上 [image 2]，像 @图3',
+    ])
   })
 
   it('整组出完只报一次总张数，不按每张报「已生成 1 张」', async () => {

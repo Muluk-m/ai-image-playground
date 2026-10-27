@@ -605,6 +605,13 @@ input[type="number"] {
   box-shadow: 0 0 0 2px hsl(var(--primary) / 0.25);
 }
 
+/* 没有对应图的序号：逐张生成时超出每个任务的张数，提交时按普通文字发出 */
+.mention-tag.mention-tag-invalid {
+  background: hsl(var(--warning) / 0.12);
+  color: hsl(var(--warning));
+  border-color: hsl(var(--warning) / 0.45);
+}
+
 .dark .mention-tag {
   background: hsl(var(--primary) / 0.12);
   color: hsl(var(--primary));
@@ -621,6 +628,12 @@ input[type="number"] {
 .dark [contenteditable] *::selection {
   background: hsl(var(--primary) / 0.3);
   color: inherit;
+}
+
+.dark .mention-tag.mention-tag-invalid {
+  background: hsl(var(--warning) / 0.14);
+  color: hsl(var(--warning));
+  border-color: hsl(var(--warning) / 0.4);
 }
 
 .dark .mention-tag:hover {

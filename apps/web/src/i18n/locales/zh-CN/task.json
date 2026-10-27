@@ -117,7 +117,9 @@
     "itemDetail": "第 {{index}} 张详情",
     "downloadItem": "下载第 {{index}} 张",
     "downloadAll": "全部下载",
-    "itemList": "逐张结果"
+    "itemList": "逐张结果",
+    "sharedReferences": "每张都带上",
+    "taskReferences": "参考图：1 张目标 + {{count}} 张共享"
   },
   "cloudHistory": {
     "refresh": "刷新",

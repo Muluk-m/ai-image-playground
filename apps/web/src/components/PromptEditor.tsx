@@ -136,6 +136,11 @@ export interface PromptEditorOptions {
   readonly commandChip?: ReactNode
   /** `/` 查询的解析器；缺席即这个输入框没有命令菜单。 */
   readonly parseCommand?: (visible: string, cursor: number) => PromptEditorTrigger | null
+  /**
+   * 这个序号此刻没有对应的图（例如逐张生成时超出每个任务的张数）：胶囊照样保留，标成警示色，
+   * 提交时按普通文字发出。跟 `labels` 一起变，缺席即都有效。
+   */
+  readonly invalidMention?: (imageIndex: number) => boolean
   /** 引用胶囊里放什么；返回 null 即保留序号文本。 */
   readonly renderMention?: (imageIndex: number, label: string) => ReactNode
   /**
@@ -285,7 +290,7 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     typedRef.current = null
     const pendingCaret = caretRef.current
     caretRef.current = null
-    const { renderMention, renderSlot } = optionsRef.current
+    const { renderMention, renderSlot, invalidMention } = optionsRef.current
     // 命令胶囊缺席时必须重画：它是外部写进来的，或者刚打完最后一个空格。
     const commandMissing =
       Boolean(command) && !composingRef.current && !el.querySelector('[data-prompt-command]')
@@ -320,6 +325,8 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     )) {
       const imageIndex = getMentionedImageIndexes(element.dataset.mentionText ?? '')[0]
       const label = element.textContent ?? ''
+      if (imageIndex !== undefined && invalidMention?.(imageIndex))
+        element.classList.add('mention-tag-invalid')
       if (imageIndex === undefined || !renderMention?.(imageIndex, label)) continue
       // 标签留在 data- 上：胶囊换成缩略图之后，光标仍按标签长度数。
       element.dataset.mentionLabel = label
