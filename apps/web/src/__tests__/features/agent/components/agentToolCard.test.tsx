@@ -1384,6 +1384,71 @@ it('shows batch results without hover editing tools', async () => {
   }
 })
 
+it.each([
+  {
+    provider: 'openai-compat',
+    args: { aspectRatio: '16:9' },
+    shows: ['1280x720', '16:9'],
+    hides: ['9:16', '1K'],
+  },
+  { provider: 'gemini', args: { aspectRatio: '1:1' }, shows: ['1K', '1:1'], hides: ['9:16'] },
+  { provider: 'gemini', args: {}, shows: ['1K', '9:16'], hides: [] },
+])('result header shows the ratio this job was submitted with: %o', async ({
+  provider,
+  args,
+  shows,
+  hides,
+}) => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: async (id: string) => `data:image/png;base64,${id}`,
+  } as unknown as AgentCanvasSink)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentToolCard
+          message={{
+            kind: 'tool',
+            id: 'edit',
+            turnId: 'turn',
+            toolCallId: 'call',
+            toolName: 'editImage',
+            title: '夜景横版',
+            prompt: '扩展为横版并加满月',
+            status: 'succeeded',
+            delivery: 'placed',
+            snapshot: {
+              mode: 'image',
+              args,
+              params: { gemini_aspect_ratio: '9:16', gemini_image_size: '1K' },
+              target: { provider, model: 'test-model' },
+            },
+            artifacts: [
+              {
+                artifactId: 'night',
+                outputIndex: 0,
+                taskId: 'task',
+                media: 'image' as const,
+                mime: 'image/png',
+              },
+            ],
+          }}
+          onPreviewResult={vi.fn()}
+          onViewCanvas={vi.fn()}
+        />,
+      ),
+    )
+    const meta = host.querySelector('.studio-agent-batch-meta')?.textContent ?? ''
+    for (const tag of shows) expect(meta).toContain(tag)
+    for (const tag of hides) expect(meta).not.toContain(tag)
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
 describe.each([
   'image',
   'batch',

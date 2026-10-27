@@ -185,6 +185,56 @@ it('Agent 拟定两张图的固定计划，刷新恢复完整范围且不为生�
   expect(billing.reservations.some((entry) => entry.model === 'fixture-agent-model')).toBe(true)
 })
 
+it('项上的比例覆盖输入框的 gemini 比例，计划与执行按同一个比例', async () => {
+  const first = await upload('#13579b')
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  const calls: AgentCall[] = []
+  setAgentFetchForTesting(
+    scriptedAgentFetch(calls, [
+      () =>
+        toolCallCompletion({
+          id: 'batch-plan-ratio',
+          name: 'planImageBatch',
+          args: {
+            title: '方形抱枕',
+            rule: '每张 1:1',
+            items: [
+              {
+                key: 'square',
+                imageIds: ['first'],
+                prompt: '沙发上的抱枕，1:1 方形画面',
+                dependencies: [],
+                aspectRatio: '1:1',
+              },
+              {
+                key: 'inherit',
+                imageIds: ['first'],
+                prompt: '床上的抱枕',
+                dependencies: [],
+              },
+            ],
+          },
+        }),
+      () => completionStream('计划已保存。'),
+    ]),
+  )
+  const response = await request(`agent/conversations/${conversation.id}/turns`, {
+    deviceId: DEVICE,
+    text: '基于这张图做两张抱枕图，先出计划卡',
+    references: [{ imageId: 'first', mediaId: first }],
+    params: { gemini_aspect_ratio: '9:16', gemini_image_size: '1K' },
+  })
+  expect(response.status).toBe(200)
+  parseFrames(await response.text())
+  const { batches } = await (await request(`agent/conversations/${conversation.id}/batches`)).json()
+  const { items } = await (await request(`agent/batches/${batches[0].id}`)).json()
+  const [square, inherit] = items
+  expect(square.params.size).toBe('1024x1024')
+  expect(square.params.gemini_aspect_ratio).toBeUndefined()
+  expect(square.params.gemini_image_size).toBe('1K')
+  expect(inherit.params.gemini_aspect_ratio).toBe('9:16')
+})
+
 it('修改生成新版本，旧版本写入冲突，翻页保持原版本顺序和内容', async () => {
   const first = await upload('#334455')
   const second = await upload('#556677')
