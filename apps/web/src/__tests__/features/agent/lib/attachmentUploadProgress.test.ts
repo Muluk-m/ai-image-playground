@@ -42,6 +42,10 @@ it('exposes whole-percent direct-upload progress while the attachment is uploadi
   vi.stubGlobal('XMLHttpRequest', FakeXhr)
   setClientStorageScope('attachment-progress-test')
   const source = 'data:image/png;base64,iVBORw0KGgo='
+  let confirm!: () => void
+  const confirmed = new Promise<void>((resolve) => {
+    confirm = resolve
+  })
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string) => {
@@ -55,7 +59,10 @@ it('exposes whole-percent direct-upload progress while the attachment is uploadi
           uploadUrl: 'https://storage.test/one',
           leaseExpiresAt: Date.now() + 1200_000,
         })
-      if (input.endsWith('/complete')) return Response.json({ id: 'one', status: 'ready' })
+      if (input.endsWith('/complete')) {
+        await confirmed
+        return Response.json({ id: 'one', status: 'ready' })
+      }
       throw new Error(`Unexpected fetch ${input}`)
     }),
   )
@@ -69,12 +76,15 @@ it('exposes whole-percent direct-upload progress while the attachment is uploadi
   const xhr = FakeXhr.all[0]!
   xhr.upload.onprogress?.({ lengthComputable: true, loaded: 3, total: 8 } as ProgressEvent)
   expect(attachmentUploadProgress(reference)).toBe(37)
-  // 全部交给网络栈不等于对端收到了：不报 100%，退回「上传中」等响应（BUG-42）。
+  // 全部交给网络栈不等于对端收到了：不报 100%，停在 99% 等服务端确认，百分比不收掉（BUG-42）。
   xhr.upload.onprogress?.({ lengthComputable: true, loaded: 8, total: 8 } as ProgressEvent)
   expect(attachmentUploadState(reference)).toBe('uploading')
-  expect(attachmentUploadProgress(reference)).toBeUndefined()
+  expect(attachmentUploadProgress(reference)).toBe(99)
   xhr.status = 200
   xhr.onload?.()
+  await vi.waitFor(() => expect(attachmentUploadState(reference)).toBe('verifying'))
+  expect(attachmentUploadProgress(reference)).toBe(99)
+  confirm()
   expect(await prepared).toEqual([{ imageId: 'one', mediaId: 'one' }])
   expect(attachmentUploadState(reference)).toBe('ready')
   expect(attachmentUploadProgress(reference)).toBeUndefined()
