@@ -34,7 +34,7 @@ jobs:
             scripts/cost-gate.mjs
           sparse-checkout-cone-mode: false
       # 只有引入本检查的那个 PR 会走到这里：目标分支上还没有脚本，只能用 PR 自带的版本。
-      # 这个 job 的 token 是只读的，脚本被改也只能影响判定结果，拿不到写权限。
+      # 这个 job 的 token 只读，执行脚本的那一步也不传 token。
       - name: Bootstrap script from PR head
         if: hashFiles('scripts/cost-gate.mjs') == ''
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -44,16 +44,20 @@ jobs:
           sparse-checkout: |
             scripts/cost-gate.mjs
           sparse-checkout-cone-mode: false
-      - name: Decide
-        id: decide
+      - name: List changed files
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_BODY: ${{ github.event.pull_request.body }}
+        # 改名的文件同时列出旧路径，免得把成本文件挪出清单就绕过检查。
         run: |
-          set -euo pipefail
-          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename' > "$RUNNER_TEMP/files.txt"
-          node scripts/cost-gate.mjs < "$RUNNER_TEMP/files.txt"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/files.txt"
+      - name: Decide
+        id: decide
+        # 这一步不给 token：引入本检查的那个 PR 跑的是 PR 自带的脚本。
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/cost-gate.mjs < "$RUNNER_TEMP/files.txt"
   cost:
     name: Owner cost approval
     needs: decide
