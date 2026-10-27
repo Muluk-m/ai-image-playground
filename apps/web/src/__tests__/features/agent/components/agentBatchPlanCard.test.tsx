@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
 import { panelMessage } from '../../../../features/agent/lib/panelMessages'
+import { useAgentStore } from '../../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
 
 const exportedIds = vi.hoisted(() => [] as string[][])
@@ -375,6 +376,51 @@ it('exports every completed result without opening the finished rows', async () 
 function batchArtifact(id: string): AgentToolArtifact {
   return { artifactId: id, media: 'image', taskId: `task-${id}`, outputIndex: 0, mime: 'image/png' }
 }
+
+it('rereads a draft superseded during the turn even when its first read lands after the turn', async () => {
+  const fetchMock = vi.mocked(fetch)
+  const serve = fetchMock.getMockImplementation()!
+  let releaseFirst: (() => void) | undefined
+  let reads = 0
+  fetchMock.mockImplementation(async (input, init) => {
+    if (!init?.method || init.method === 'GET') {
+      reads++
+      if (reads === 1) {
+        const draft = Response.json(saved)
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve
+        })
+        return draft
+      }
+    }
+    return serve(input, init)
+  })
+  const store = useAgentStore.getState()
+  const previous = { conversationId: store.conversationId, turn: store.turn }
+  try {
+    act(() => useAgentStore.setState({ conversationId: 'conversation-1', turn: 'running' }))
+    const message = panelMessage('message-1', 'turn-1', 'assistant', [
+      {
+        type: 'toolResult',
+        toolName: 'planImageBatch',
+        toolCallId: 'call-1',
+        title: '商品白底图',
+        status: 'succeeded',
+        batchId: 'batch-1',
+      },
+    ])
+    if (message.kind !== 'tool') throw new Error('expected tool message')
+    await act(async () => root.render(<AgentToolCard message={message} />))
+    await vi.waitFor(() => expect(releaseFirst).toBeDefined())
+    saved = { ...saved, batch: { ...saved.batch, status: 'cancelled' } }
+    act(() => useAgentStore.setState({ turn: 'idle' }))
+    await act(async () => releaseFirst?.())
+    await vi.waitFor(() => expect(host.textContent).toContain('已取消'))
+    expect(reads).toBe(2)
+  } finally {
+    act(() => useAgentStore.setState(previous))
+  }
+})
 
 async function render() {
   const message = panelMessage('message-1', 'turn-1', 'assistant', [
