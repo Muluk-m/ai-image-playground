@@ -88,6 +88,7 @@ import PlayBadge from '../../video/components/PlayBadge'
 import { arrangementKey, arrangeNodes, type CanvasPlacement } from '../lib/arrangeNodes'
 import type { CanvasAssetItem } from '../lib/canvasAssets'
 import { newElementId } from '../lib/canvasDoc'
+import { useCanvasResultAssets } from '../lib/canvasResultAssets'
 import {
   type CanvasViewportBox,
   planCanvasViewport,
@@ -1351,6 +1352,7 @@ function Flow({
   const placeAssetsPanelRef = useRef(placeAssetsPanel)
   placeAssetsPanelRef.current = placeAssetsPanel
   const assetsPanelOpen = assetsPanel !== null
+  const canvasResultItems = useCanvasResultAssets(editor, canvas, projectName, assetsPanelOpen)
   useEffect(() => {
     if (!assetsPanelOpen) return
     const reposition = () => setAssetsPanel(placeAssetsPanelRef.current())
@@ -2530,6 +2532,7 @@ function Flow({
                       {assetsPanel && (
                         <NodeAssetsPanel
                           conversationId={projectConversationId}
+                          canvasItems={canvasResultItems}
                           style={assetsPanel}
                           onClose={() => setAssetsPanel(null)}
                           onPlace={placeAssets}
