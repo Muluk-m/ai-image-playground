@@ -197,7 +197,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         if (active && commands.current() && operation === operations.current) setPage(result)
       })
       .catch(() => {
-        if (active && commands.current()) setError('fallback')
+        if (active && commands.current() && operation === operations.current) setError('fallback')
       })
     void commands
       .read()
