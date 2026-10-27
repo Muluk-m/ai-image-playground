@@ -28,7 +28,7 @@ export function turnCostWithJobs(
 /**
  * 一轮有出图结果时，页脚写成带张数的结算行。它只能放在这一轮最后：
  * 最后一张成功的出图卡正好是本轮最后一条，就由卡片自己带出（`cardId`）；
- * 后面还有取消的卡或文字，就留给本轮末尾的页脚，张数按本轮全部成功出图合计。
+ * 后面还有取消的卡或文字，就留给本轮末尾的页脚。两处张数都按本轮全部成功出图合计。
  */
 export function turnImageReceipt(
   messages: readonly AgentPanelMessage[],
