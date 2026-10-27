@@ -172,6 +172,39 @@ describe('NodeAssetsPanel', () => {
     expect(document.body.textContent).toContain('已选 1 项')
   })
 
+  it('keeps the selection and stays open when placing throws, and places only once while busy', async () => {
+    let finish: (ok: boolean) => void = () => {}
+    const onPlace = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = resolve
+        }),
+    )
+    render({ onPlace })
+    await click(byText('选择'))
+    await click(byLabel('作品 a'))
+    await click(byText('应用到画布'))
+    await click(byText('应用到画布'))
+    expect(onPlace).toHaveBeenCalledTimes(1)
+    await act(async () => finish(false))
+    onPlace.mockImplementationOnce(async () => {
+      throw new Error('boom')
+    })
+    await click(byText('应用到画布'))
+    expect(onPlace).toHaveBeenCalledTimes(2)
+    expect(dialog()).not.toBeNull()
+    expect(document.body.textContent).toContain('已选 1 项')
+  })
+
+  it('clears the selection when switching project scope', async () => {
+    render()
+    await click(byText('选择'))
+    await click(byLabel('作品 a'))
+    expect(document.body.textContent).toContain('已选 1 项')
+    await click(byText('所有项目'))
+    expect(document.body.textContent).toContain('已选 0 项')
+  })
+
   it('clears the selection when switching between images and videos', async () => {
     render()
     await click(byText('选择'))

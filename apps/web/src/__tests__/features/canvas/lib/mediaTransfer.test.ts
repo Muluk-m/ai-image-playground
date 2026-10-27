@@ -5,9 +5,13 @@ import { transferMedia, useMediaTransferStore } from '../../../../features/canva
 import { useStore } from '../../../../store'
 
 const downloaded: Array<{ blob: Blob; filename: string }> = []
+let saveFails = false
 
 vi.mock('../../../../lib/downloadImages', () => ({
-  downloadBlob: (blob: Blob, filename: string) => downloaded.push({ blob, filename }),
+  downloadBlob: (blob: Blob, filename: string) => {
+    if (saveFails) throw new Error('save blocked')
+    downloaded.push({ blob, filename })
+  },
 }))
 
 function entry(name: string, body: string | null): MediaBundleEntry {
@@ -20,6 +24,7 @@ function entry(name: string, body: string | null): MediaBundleEntry {
 describe('transferMedia', () => {
   beforeEach(() => {
     downloaded.length = 0
+    saveFails = false
     useMediaTransferStore.setState({ transfer: null })
   })
 
@@ -51,5 +56,18 @@ describe('transferMedia', () => {
     expect(useMediaTransferStore.getState().transfer?.status).toBe('failed')
     expect(useMediaTransferStore.getState().transfer?.fileName).toBe('Muvloom_2项.zip')
     expect(showToast).toHaveBeenCalledWith(expect.any(String), 'error')
+  })
+
+  it('marks the transfer failed instead of hanging when saving itself throws', async () => {
+    const showToast = vi.spyOn(useStore.getState(), 'showToast')
+    saveFails = true
+    const result = await transferMedia([entry('a', 'a'), entry('b', 'b')], '我的项目')
+    expect(result).toEqual({ exported: 0, failed: 2 })
+    expect(useMediaTransferStore.getState().transfer?.status).toBe('failed')
+    expect(showToast).toHaveBeenCalledWith(expect.any(String), 'error')
+    await expect(transferMedia([entry('a', 'a')], '我的项目')).resolves.toEqual({
+      exported: 0,
+      failed: 1,
+    })
   })
 })
