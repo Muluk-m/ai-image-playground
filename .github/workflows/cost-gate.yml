@@ -3,6 +3,9 @@ name: Cost gate
 # Nain 的明确确认。这里只用 GITHUB_TOKEN：命中时给 PR 打 needs-owner-cost-approval 标签，
 # 描述里没勾「Nain 已明确确认」并写明确认来源就让这个检查失败。判定逻辑在
 # scripts/cost-gate.mjs。它不属于 Web checks，不影响 deploy.yml 的触发。
+#
+# 分两个 job：判定 job 只有只读 token，执行的是目标分支（base）上的 scripts/cost-gate.mjs，
+# PR 改这个脚本影响不到自己的检查；打标签和失败的 job 有写权限，但不 checkout、不执行任何仓库代码。
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited, ready_for_review]
@@ -12,17 +15,32 @@ concurrency:
   group: cost-gate-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 jobs:
-  cost:
-    name: Owner cost approval
+  decide:
+    name: Cost classification
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
-      issues: write
-      pull-requests: write
+      pull-requests: read
+    outputs:
+      sensitive: ${{ steps.decide.outputs.sensitive }}
+      approved: ${{ steps.decide.outputs.approved }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cost-gate.mjs
+          sparse-checkout-cone-mode: false
+      # 只有引入本检查的那个 PR 会走到这里：目标分支上还没有脚本，只能用 PR 自带的版本。
+      # 这个 job 的 token 是只读的，脚本被改也只能影响判定结果，拿不到写权限。
+      - name: Bootstrap script from PR head
+        if: hashFiles('scripts/cost-gate.mjs') == ''
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
           sparse-checkout: |
             scripts/cost-gate.mjs
           sparse-checkout-cone-mode: false
@@ -34,22 +52,37 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
-          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename' > files.txt
-          node scripts/cost-gate.mjs < files.txt
-      - name: Label
-        if: steps.decide.outputs.sensitive == 'true'
-        # fork 来的 PR 拿到的是只读 token，打不上标签；检查本身照样生效。
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename' > "$RUNNER_TEMP/files.txt"
+          node scripts/cost-gate.mjs < "$RUNNER_TEMP/files.txt"
+  cost:
+    name: Owner cost approval
+    needs: decide
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Sync label
+        # fork 来的 PR 拿到的是只读 token，改不了标签；检查本身照样生效。
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          SENSITIVE: ${{ needs.decide.outputs.sensitive }}
         run: |
-          gh label create needs-owner-cost-approval --repo "$GITHUB_REPOSITORY" --color B60205 \
-            --description '涉及成本，合并前需要 Nain 明确确认' --force
-          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" \
-            -f 'labels[]=needs-owner-cost-approval' > /dev/null
+          set -euo pipefail
+          label=needs-owner-cost-approval
+          if [ "$SENSITIVE" = true ]; then
+            gh label create "$label" --repo "$GITHUB_REPOSITORY" --color B60205 \
+              --description '涉及成本，合并前需要 Nain 明确确认' --force
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" \
+              -f "labels[]=$label" > /dev/null
+          elif gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '.[].name' | grep -qx "$label"; then
+            # 改动后不再涉及成本：撤掉之前打的标签，免得标签和检查结果对不上。
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels/$label" > /dev/null
+          fi
       - name: Require owner confirmation
-        if: steps.decide.outputs.sensitive == 'true' && steps.decide.outputs.approved != 'true'
+        if: needs.decide.outputs.sensitive == 'true' && needs.decide.outputs.approved != 'true'
         run: |
-          echo "::error::这个 PR 涉及成本（见上一步列出的文件或作者声明）。合并前需要 Nain 明确确认：在 PR 描述里勾上「Nain 已明确确认这项成本改动」，并在「确认来源：」后写明 Nain 原话的位置。"
+          echo "::error::这个 PR 涉及成本（判定 job 的日志里列出了命中的文件，或作者勾了「本 PR 涉及成本」）。合并前需要 Nain 明确确认：在 PR 描述里勾上「Nain 已明确确认这项成本改动」，并在「确认来源：」后写明 Nain 原话的位置。"
           exit 1
