@@ -415,7 +415,7 @@ describe('范围确认卡', () => {
     expect(eventsOfType(answered, 'turnEnd')[0]).toMatchObject({ stopReason: 'completed' })
   }, 20_000)
 
-  it('stops after one failed region proposal and tells the user, without retrying', async () => {
+  it('stops after an unavailable region proposal and tells the user, without retrying', async () => {
     const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
     const conversationId = (json as { conversation: { id: string } }).conversation.id
     const calls: AgentCall[] = []
@@ -583,6 +583,68 @@ describe('范围确认卡', () => {
     const [edited] = eventsOfType(frames, 'toolEnd')
     expect(edited).toMatchObject({ toolName: 'editImage' })
     expect(edited!.status).not.toBe('failed')
+  }, 20_000)
+
+  const proposeCall = (id: string, box: { x: number; y: number; width: number; height: number }) =>
+    toolCallCompletion({
+      id,
+      name: 'proposeEditRegion',
+      args: { imageId: 'file_bathtub', target: '浴缸', change: '换成红色', keep: [], box },
+    })
+
+  it('hands a params mistake back to the model once, and shows the card when it fixes the box', async () => {
+    const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
+    const conversationId = (json as { conversation: { id: string } }).conversation.id
+    const bath = await sharp(ORIGINAL).jpeg({ quality: 80 }).toBuffer()
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () => proposeCall('overflow', { x: 0.7, y: 0.3, width: 0.5, height: 0.4 }),
+        () => proposeCall('fixed', { x: 0.5, y: 0.3, width: 0.5, height: 0.4 }),
+      ]),
+    )
+    const frames = await runTurn(
+      conversationId,
+      '把浴缸换成红色',
+      [{ imageId: 'file_bathtub', dataUrl: `data:image/jpeg;base64,${bath.toString('base64')}` }],
+      { thinkingDepth: 'fast', model: 'agnes-image' },
+    )
+    expect(calls).toHaveLength(2)
+    expect(JSON.stringify(calls[1])).toContain('超出了图片范围')
+    const [card] = eventsOfType(frames, 'clarification') as unknown as AgentClarificationBlock[]
+    expect(card?.maskProposal?.target).toBe('浴缸')
+    const said = eventsOfType(frames, 'textDelta')
+      .map((event) => (event as unknown as { delta: string }).delta)
+      .join('')
+    expect(said).not.toContain('没有改图')
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  }, 20_000)
+
+  it('ends the turn when the retried proposal is rejected again', async () => {
+    const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
+    const conversationId = (json as { conversation: { id: string } }).conversation.id
+    const bath = await sharp(ORIGINAL).jpeg({ quality: 80 }).toBuffer()
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () => proposeCall('overflow', { x: 0.7, y: 0.3, width: 0.5, height: 0.4 }),
+        () => proposeCall('again', { x: 0.8, y: 0.3, width: 0.5, height: 0.4 }),
+        () => completionStream('请你在图上手动圈选浴缸'),
+      ]),
+    )
+    const frames = await runTurn(
+      conversationId,
+      '把浴缸换成红色',
+      [{ imageId: 'file_bathtub', dataUrl: `data:image/jpeg;base64,${bath.toString('base64')}` }],
+      { thinkingDepth: 'fast', model: 'agnes-image' },
+    )
+    expect(calls).toHaveLength(2)
+    expect(eventsOfType(frames, 'clarification')).toHaveLength(0)
+    const said = eventsOfType(frames, 'textDelta')
+      .map((event) => (event as unknown as { delta: string }).delta)
+      .join('')
+    expect(said).toContain('没有改图')
+    expect(said).not.toMatch(/手动|圈选后|自己画/)
   }, 20_000)
 
   it('still lets the agent edit the whole image for an overall request or an image too small to mask', async () => {
