@@ -1,11 +1,11 @@
-import type { InputHTMLAttributes } from 'react'
+import type { ComponentProps } from 'react'
 import { cn } from '../../lib/utils'
 import { Icon } from '../ui/icon'
 
 export default function SearchField({
   className,
   ...props
-}: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'>) {
+}: Omit<ComponentProps<'input'>, 'type'>) {
   return (
     <label
       className={cn(

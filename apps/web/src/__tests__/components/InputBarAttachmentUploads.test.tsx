@@ -93,6 +93,30 @@ describe('首页交给智能体的参考图（BUG-27）', () => {
     expect(startCanvasFromComposer).not.toHaveBeenCalled()
   })
 
+  it('坏文件：不加新的文字行；那叠缩略图上直接有 ×，点了只移走坏图', () => {
+    uploads.set(GOOD, { state: 'ready' })
+    uploads.set(BAD, { state: 'failed', error: 'media_unsupported_image' })
+    mountWith([GOOD, BAD])
+    expect(host.textContent).not.toContain('移除后可发送')
+    const remove = host.querySelector<HTMLButtonElement>('button[aria-label="移除第 2 张图片"]')
+    expect(remove).not.toBeNull()
+    act(() => remove?.click())
+    expect(useStore.getState().inputImages.map((image) => image.dataUrl)).toEqual([GOOD])
+    expect(host.querySelector('[role=alert]')).toBeNull()
+    expect(startButton().disabled).toBe(false)
+  })
+
+  it('上传中只在缩略图上转圈，输入框下不加文字', () => {
+    uploads.set(GOOD, { state: 'uploading' })
+    uploads.set(BAD, { state: 'ready' })
+    mountWith([GOOD, BAD])
+    const visible = Array.from(host.querySelectorAll('span')).filter(
+      (el) => el.textContent?.includes('上传中') && !el.classList.contains('sr-only'),
+    )
+    expect(visible).toEqual([])
+    expect(host.querySelector('.creation-stack-upload')).not.toBeNull()
+  })
+
   it('还在上传时不建项目，等传完', () => {
     uploads.set(GOOD, { state: 'uploading' })
     mountWith([GOOD])
