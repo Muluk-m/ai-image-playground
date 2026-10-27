@@ -17,8 +17,8 @@
       "options": "Ratio · Store & social sizes"
     },
     "rotate": {
-      "name": "Rotate & flip",
-      "options": "90° · Horizontal · Vertical"
+      "name": "Rotate & mirror",
+      "options": "Any angle · Horizontal / vertical mirror"
     },
     "collage": {
       "name": "Collage",
@@ -166,5 +166,19 @@
     "invalidSize": "Enter a whole number greater than 0",
     "pendingSize": "Awaiting size",
     "unknownSize": "Calculated on export"
+  },
+  "rotation": {
+    "angle": "Exact angle",
+    "left": "90° left",
+    "right": "90° right",
+    "mirror": "Mirror",
+    "grid": "Guide grid",
+    "expand": "Keep full image",
+    "reset": "Reset adjustments",
+    "original": "Original",
+    "adjusted": "Adjusted",
+    "images": "Select image",
+    "lossless": "PNG · Lossless",
+    "export": "Export image"
   }
 }
