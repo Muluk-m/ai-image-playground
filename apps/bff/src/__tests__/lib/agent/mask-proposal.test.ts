@@ -274,11 +274,17 @@ describe('proposeEditRegion', () => {
     await expect(refused).rejects.not.toThrow(/手动圈选|自己画/)
   })
 
-  it('refuses originals the strict model cannot edit instead of silently downscaling', async () => {
-    const tool = maskProposalTool(context({}, url(await picture(4200, 1000))))
-    const refused = run(tool, args)
-    await expect(refused).rejects.toBeInstanceOf(MaskProposalUnavailable)
-    await expect(refused).rejects.toThrow('4200×1000')
+  it('proposes regions on originals outside the native edit size; submission scales them', async () => {
+    // 线上 4032×3024 与 300×400 原图曾在这里整轮报「原图尺寸超出模型支持的局部编辑范围」。
+    for (const [width, height] of [
+      [4200, 1000],
+      [4032, 3024],
+      [300, 400],
+    ] as const) {
+      const tool = maskProposalTool(context({}, url(await picture(width, height))))
+      const proposal = maskProposalFromResult(await run(tool, args))!.maskProposal!
+      expect(proposal).toBeDefined()
+    }
   })
 
   it('tells the user in one sentence why the region could not be proposed', () => {
