@@ -60,9 +60,12 @@ export function agentImageShape(
   const size = params?.size && params.size !== 'auto' ? params.size : undefined
   // 老记录的快照没存目标供应商，不知道哪组字段生效：照旧有什么显示什么，不丢 gemini 的档位与比例。
   if (!provider) {
-    const imageSize = params?.gemini_image_size ?? size
     const aspectRatio = params?.gemini_aspect_ratio ?? sizeRatio(size)
-    return { ...(imageSize ? { imageSize } : {}), ...(aspectRatio ? { aspectRatio } : {}) }
+    return {
+      ...(size ? { size } : {}),
+      ...(params?.gemini_image_size ? { imageSize: params.gemini_image_size } : {}),
+      ...(aspectRatio ? { aspectRatio } : {}),
+    }
   }
   if (provider === 'gemini') {
     const aspectRatio = params?.gemini_aspect_ratio ?? (size ? nearestAspectRatio(size) : undefined)
