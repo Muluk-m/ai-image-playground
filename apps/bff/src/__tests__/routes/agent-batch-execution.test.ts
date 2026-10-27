@@ -1298,7 +1298,8 @@ it('原件超过准备字节预算时在流读取前暂停，刷新可见原因�
   const path = `agent/batches/${batches[0].id}`
   const draft = await (await request(path)).json()
   // The storage boundary advertises a large object without allocating its body in the fixture.
-  storage.advertisedSize = 32 * 1024 * 1024
+  // 无选区输入会先缩到最长边 4000 再送（BUG-35），源图按上传上限读；超过上传上限的仍在读取前暂停。
+  storage.advertisedSize = 64 * 1024 * 1024
   const start = storage.events.length
   try {
     const response = await request(`${path}/confirm`, {
