@@ -216,13 +216,13 @@
     "sharedIndex": "图{{n}}",
     "sharedTile": "共享参考 {{label}}",
     "targetTile": "目标图 {{n}}",
-    "ruleShared": "逐张时：目标图 = {{target}}，共享参考 = {{shared}}",
-    "ruleNoShared": "逐张时 {{target}} = 各自的目标图；悬停图片点图钉，可设为每张都带上的共享参考",
     "listSeparator": "、",
     "mentionMissingPerTask": "逐张时每个任务只有 {{count}} 张图，{{labels}} 没有对应的图，会按普通文字发出",
     "mentionMissing": "参考区只有 {{count}} 张图，{{labels}} 没有对应的图，会按普通文字发出",
-    "summaryCount": "逐张生成 {{count}} 张",
-    "summaryShared": "每张都会带上 {{count}} 张共享参考",
-    "summaryCredits": "消耗 {{credits}} 积分"
+    "summaryCount": "逐张 {{count}} 张",
+    "summaryShared": "{{labels}} 共享",
+    "summaryCredits": "{{credits}} 积分",
+    "summaryTarget": "{{target}} 目标图",
+    "sharedOverLimit_other": "当前模型每个任务最多 {{max}} 张图，请取消 {{count}} 张共享参考"
   }
 }

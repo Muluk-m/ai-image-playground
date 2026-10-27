@@ -222,13 +222,14 @@
     "sharedIndex": "Img {{n}}",
     "sharedTile": "Shared reference {{label}}",
     "targetTile": "Target image {{n}}",
-    "ruleShared": "Per image: target = {{target}}, shared = {{shared}}",
-    "ruleNoShared": "Per image: {{target}} = each task's own target. Hover an image and click the pin to share it with every task",
     "listSeparator": ", ",
     "mentionMissingPerTask": "Each task has only {{count}} images, so {{labels}} has no image and is sent as plain text",
     "mentionMissing": "Only {{count}} reference images, so {{labels}} has no image and is sent as plain text",
-    "summaryCount": "Generate {{count}} images",
-    "summaryShared": "each with {{count}} shared references",
-    "summaryCredits": "{{credits}} credits"
+    "summaryCount": "{{count}} images, one by one",
+    "summaryShared": "{{labels}} shared",
+    "summaryCredits": "{{credits}} credits",
+    "summaryTarget": "{{target}} target",
+    "sharedOverLimit_one": "This model takes up to {{max}} images per task. Unpin {{count}} shared reference",
+    "sharedOverLimit_other": "This model takes up to {{max}} images per task. Unpin {{count}} shared references"
   }
 }
