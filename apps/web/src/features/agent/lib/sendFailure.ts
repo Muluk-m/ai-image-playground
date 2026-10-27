@@ -1,4 +1,4 @@
-import { IMAGE_DATA_URL_MAX_CHARS } from '@image-playground/shared'
+import { AGENT_USER_MESSAGE_MAX_CHARS, IMAGE_DATA_URL_MAX_CHARS } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { MediaRequestError } from '../../../lib/cloudMedia'
 import { AgentRequestError, AgentTransportError } from './agentClient'
@@ -21,6 +21,16 @@ function referenceTooLong(message: string | undefined): boolean {
     message &&
       /\/references\/\d+\/(mask)?dataUrl/i.test(message) &&
       (/length/i.test(message) || message.includes(String(IMAGE_DATA_URL_MAX_CHARS))),
+  )
+}
+
+/** 服务端 schema 报的是这句话本身超了字数上限（`/text: Expected string length less or equal to …`）；下限（空文本）不算。 */
+function textTooLong(message: string | undefined): boolean {
+  return Boolean(
+    message &&
+      /^\/text\b/i.test(message) &&
+      (/less (than )?or equal|maxLength/i.test(message) ||
+        message.includes(String(AGENT_USER_MESSAGE_MAX_CHARS))),
   )
 }
 
@@ -48,6 +58,14 @@ export function describeSendFailure(thrown: unknown): SendFailure | undefined {
   }
   if (thrown instanceof AgentRequestError) {
     if (thrown.status === 413 || referenceTooLong(thrown.serverMessage)) return tooLarge()
+    if (textTooLong(thrown.serverMessage))
+      return {
+        message: i18next.t('error.textTooLong', {
+          ns: 'agent',
+          max: AGENT_USER_MESSAGE_MAX_CHARS,
+        }),
+        retryable: false,
+      }
     if (thrown.status === 429)
       return { message: i18next.t('error.rateLimited', { ns: 'agent' }), retryable: true }
     if (thrown.code === 'invalid_selection')
