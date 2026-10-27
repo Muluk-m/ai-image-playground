@@ -34,6 +34,7 @@ import { pauseBatchForAnalysisAuthentication, reconcileAgentBatchProgress } from
 import { lockConversation } from './confirmations'
 import { type ResolvedAgentImage, readConversationMedia } from './images'
 import { prepareMaskedEdit } from './masked-edit'
+import { editSourceByteLimit, toEditInputDataUrl } from './modelImage'
 import { shapeQueuePrompt } from './prompt-shaping'
 import { imageSelection } from './selection-preview'
 import { AgentToolError } from './tools/errors'
@@ -214,25 +215,31 @@ async function prepareItem(
 ): Promise<CreateQueueTaskInput> {
   const images: ResolvedAgentImage[] = []
   let remainingBytes = visualByteLimit()
-  const readInput = async (mediaId: string) => {
+  // fit：无选区的输入按改图规则读——超大图等比缩到最长边 4000 再送（BUG-35）；
+  // 选区原图与遮罩绑着原像素，照旧原样并按剩余请求预算卡。
+  const readInput = async (mediaId: string, fit: boolean) => {
     const media = await readConversationMedia(
       mediaId,
       batch.conversation_id!,
       batch.user_id,
       'original',
       false,
-      Math.floor((remainingBytes * 3) / 4),
+      fit ? Math.floor((editSourceByteLimit() * 3) / 4) : Math.floor((remainingBytes * 3) / 4),
     )
     if (!media) throw new BatchPlanError('invalid_batch_plan', 422)
-    await visualMetadata(media.bytes)
-    const dataUrl = `data:${media.contentType};base64,${Buffer.from(media.bytes).toString('base64')}`
+    const source = `data:${media.contentType};base64,${Buffer.from(media.bytes).toString('base64')}`
+    let dataUrl = source
+    if (fit) dataUrl = await toEditInputDataUrl(source)
+    else await visualMetadata(media.bytes)
     remainingBytes -= Buffer.byteLength(dataUrl, 'utf8')
     if (remainingBytes < 0) throw new BatchPlanError('batch_input_limit', 422)
     return dataUrl
   }
   for (const reference of item.inputs) {
-    const dataUrl = await readInput(reference.mediaId)
-    const maskDataUrl = reference.maskMediaId ? await readInput(reference.maskMediaId) : undefined
+    const dataUrl = await readInput(reference.mediaId, !reference.maskMediaId)
+    const maskDataUrl = reference.maskMediaId
+      ? await readInput(reference.maskMediaId, false)
+      : undefined
     images.push({
       imageId: reference.imageId,
       dataUrl,
