@@ -1,4 +1,12 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { createPortal } from 'react-dom'
 import AgentParamsChip, {
   AgentExecutionSettings,
@@ -6,10 +14,20 @@ import AgentParamsChip, {
 import AgentSkillBadge from '../features/agent/components/AgentSkillBadge'
 import { useAssetSlots } from '../features/agent/components/useAssetSlots'
 import { getLeadingAgentSkill } from '../features/agent/lib/agentSkillMentions'
-import { formatImageLimit } from '../features/agent/lib/attachmentUploadErrors'
 import {
+  attachmentUploadErrorMessage,
+  canRetryAttachmentUpload,
+  formatImageLimit,
+} from '../features/agent/lib/attachmentUploadErrors'
+import {
+  attachmentUploadError,
+  attachmentUploadRevision,
+  attachmentUploadState,
+  primeAttachmentUploads,
   referenceImageLimit,
   referenceSourceTooLarge,
+  retryAttachmentUploads,
+  subscribeAttachmentUploads,
 } from '../features/agent/lib/attachmentUploads'
 import { agentComposerFillPrompt, useComposerFillTarget } from '../features/agent/lib/composerFill'
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
@@ -44,7 +62,7 @@ import {
 } from '../lib/batchGenerate'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { isVideoModeAvailable } from '../lib/channels/videoChannels'
-import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
+import { getAttachmentLimits, isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { confirmImageBatch } from '../lib/confirmImageBatch'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
@@ -261,6 +279,27 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           maxSize: formatImageLimit(referenceImageLimit().imageBytes),
         })
       : oversizedReferenceMessage(oversizedIndexes)
+  // 交给智能体的参考图与对话页输入框同一套上传：挂上就开始传、传失败就地标出并拦住发送。
+  // 否则坏图要等点了发送、新项目已经建好才报错，留下一个空对话（BUG-27）。
+  useSyncExternalStore(subscribeAttachmentUploads, attachmentUploadRevision)
+  const uploadReferences = useMemo(
+    () => (toCanvas ? inputImages.map((image) => ({ dataUrl: image.dataUrl })) : []),
+    [toCanvas, inputImages],
+  )
+  useEffect(() => primeAttachmentUploads(uploadReferences), [uploadReferences])
+  // 只拦文件本身的问题（格式、损坏、超限）；网络这类可重试的失败照旧放行，发送时重传一次。
+  const failedUploads = uploadReferences.filter(
+    (reference) =>
+      !referenceSourceTooLarge(reference.dataUrl) && attachmentUploadState(reference) === 'failed',
+  )
+  const failedUpload = failedUploads.find(
+    (reference) => !canRetryAttachmentUpload(attachmentUploadError(reference)),
+  )
+  const referenceNotice =
+    oversizedNotice ??
+    (failedUpload
+      ? attachmentUploadErrorMessage(attachmentUploadError(failedUpload), getAttachmentLimits())
+      : null)
   // 生成模式挂着模板胶囊时：素材条数要与素材位对上。画布档不管它（那是智能体的事）。
   const lookSubmitting = useLookSubmission((s) => s.submitting)
   const libraryAssets = useLibraryStore((s) => s.assets)
@@ -285,13 +324,11 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   // 模板准备中按钮变成停止：只有点按钮才取消，回车不取消、也不发新的一条。
   const submitReady =
     !lookSubmitting &&
-    (toCanvas
-      ? Boolean(prompt.trim()) && oversizedIndexes.length === 0
-      : canSubmit && !skillNeedsCanvas)
+    (toCanvas ? Boolean(prompt.trim()) && !referenceNotice : canSubmit && !skillNeedsCanvas)
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
   const promptMissing = !prompt.trim() && (toCanvas || !activeLook)
-  const submitBlockedTip = oversizedNotice
-    ? oversizedNotice
+  const submitBlockedTip = referenceNotice
+    ? referenceNotice
     : skillNeedsCanvas
       ? t('submit.skillNeedsCanvas')
       : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
@@ -301,6 +338,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           : null
   const submit = () => {
     if (lookSubmitting || batchSendingRef.current) return
+    if (toCanvas) {
+      // 挂图时那次上传若因网络等原因失败，这里重新传一次；发送等的就是这次重传，而不是缓存的失败。
+      for (const reference of failedUploads) void retryAttachmentUploads(reference).catch(() => {})
+    }
     if (toCanvas)
       void startCanvasFromComposer(
         undefined,
@@ -1353,8 +1394,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     />
                   )
                 }
-                failed={oversizedIndexes.length > 0}
-                status={oversizedNotice ?? undefined}
+                failed={Boolean(referenceNotice)}
+                status={referenceNotice ?? undefined}
                 onClear={() => useStore.getState().clearInputImages()}
                 previews={inputImages
                   .slice(-3)
@@ -1490,9 +1531,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               ) : undefined
             }
             status={
-              oversizedNotice ? (
+              referenceNotice ? (
                 <span role="alert" className="text-xs leading-snug text-destructive">
-                  {oversizedNotice}
+                  {referenceNotice}
                 </span>
               ) : (
                 <SubmissionBillingAction
