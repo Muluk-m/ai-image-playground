@@ -59,6 +59,8 @@ async function checkRotationEditor(page, outputDir) {
       return image?.naturalWidth === width && image?.naturalHeight === height
         && document.querySelector('main canvas')?.width > 0
     }, { width, height })
+    await page.waitForFunction(() => [...document.querySelectorAll('main button')]
+      .find(button => button.textContent.trim() === '导出图片')?.disabled === false)
     for (const viewport of [{ width: 1280, height: 800 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
       await page.setViewportSize(viewport)
       const layout = await page.evaluate(measureRotationLayout)
