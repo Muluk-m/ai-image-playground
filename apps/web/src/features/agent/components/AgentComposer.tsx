@@ -117,6 +117,7 @@ import {
   canRetryAttachmentUpload,
 } from '../lib/attachmentUploadErrors'
 import {
+  attachmentStackProgress,
   attachmentUploadError,
   attachmentUploadProgress,
   attachmentUploadRevision,
@@ -462,20 +463,8 @@ export default function AgentComposer({
       attachmentUploadState(uploadReference(reference)) ?? '',
     ),
   ).length
-  // 收起的那叠也要看得到进度：每张在传的都知道进度时取平均，有一张不知道就只转圈（BUG-42）。
-  const uploadingProgress = draft.references.flatMap((reference) => {
-    const upload = uploadReference(reference)
-    return ['queued', 'uploading', 'verifying'].includes(attachmentUploadState(upload) ?? '')
-      ? [attachmentUploadProgress(upload)]
-      : []
-  })
-  const stackProgress =
-    uploadingProgress.length && uploadingProgress.every((value) => value !== undefined)
-      ? Math.floor(
-          uploadingProgress.reduce<number>((sum, value) => sum + (value ?? 0), 0) /
-            uploadingProgress.length,
-        )
-      : undefined
+  // 收起的那叠也要看得到进度（BUG-42）。
+  const stackProgress = attachmentStackProgress(draft.references.map(uploadReference))
   const referenceStatus = failedReference
     ? attachmentUploadErrorMessage(
         attachmentUploadError(uploadReference(failedReference)),
@@ -1328,12 +1317,17 @@ export default function AgentComposer({
                                   <Icon name="brush" />
                                 </span>
                               </Button>
+                              {/* 传失败的图 × 常显，与首页输入框一致（BUG-49）。 */}
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="icon"
                                 aria-label={t('composer.removeReferenceAria', { label })}
-                                className="absolute right-0 top-0 z-20 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                                className={`absolute right-0 top-0 z-20 h-11 w-11 rounded-none bg-transparent text-foreground hover:bg-transparent ${
+                                  uploadState === 'failed'
+                                    ? ''
+                                    : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100'
+                                }`}
                                 onClick={() => setDraft(removeReference(draft, index))}
                               >
                                 <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">

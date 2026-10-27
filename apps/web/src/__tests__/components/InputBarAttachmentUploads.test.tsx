@@ -5,7 +5,11 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /** 每张图挂上后上传到了哪一步：键是 dataUrl。 */
-const uploads = new Map<string, { state: 'failed' | 'ready' | 'uploading'; error?: string }>()
+const uploads = new Map<
+  string,
+  { state: 'failed' | 'ready' | 'uploading' | 'verifying'; error?: string; progress?: number }
+>()
+const oversized = new Set<string>()
 const primed: string[][] = []
 
 vi.mock('../../features/agent/lib/useAgentSkills', () => ({ useAgentSkills: () => [] }))
@@ -22,10 +26,24 @@ vi.mock('../../features/agent/lib/attachmentUploads', async (importOriginal) => 
     }),
     attachmentUploadState: (ref: { dataUrl: string }) => uploads.get(ref.dataUrl)?.state,
     attachmentUploadError: (ref: { dataUrl: string }) => uploads.get(ref.dataUrl)?.error,
+    attachmentUploadProgress: (ref: { dataUrl: string }) => uploads.get(ref.dataUrl)?.progress,
+    attachmentStackProgress: (refs: { dataUrl: string }[]) => {
+      const values = refs.flatMap((ref) => {
+        const upload = uploads.get(ref.dataUrl)
+        return upload?.state === 'uploading' || upload?.state === 'verifying'
+          ? [upload.progress]
+          : []
+      })
+      return values.length && values.every((value) => value !== undefined)
+        ? Math.floor(values.reduce((sum, value) => sum + value, 0) / values.length)
+        : undefined
+    },
+    referenceSourceTooLarge: (source: string) => oversized.has(source),
     retryAttachmentUploads: vi.fn(async () => {}),
   }
 })
 
+import { REFERENCE_DISPLAY_KEY } from '../../components/creation/referenceDisplay'
 import InputBar from '../../components/InputBar'
 import { retryAttachmentUploads } from '../../features/agent/lib/attachmentUploads'
 import { startCanvasFromComposer } from '../../features/agent/lib/heroHandoff'
@@ -63,6 +81,7 @@ const startButton = () =>
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
   uploads.clear()
+  oversized.clear()
   primed.length = 0
   vi.mocked(startCanvasFromComposer).mockClear()
   vi.mocked(retryAttachmentUploads).mockClear()
@@ -175,6 +194,33 @@ describe('首页交给智能体的参考图（BUG-27）', () => {
     const status = host.querySelector('[role=alert]')?.textContent ?? ''
     expect(status).toContain('第 2 张图片：请先转换为 PNG、JPEG 或 WebP 格式')
     expect(status).toContain('第 3 张图片：')
+  })
+
+  it('上传中缩略图和收起的那叠都显示百分比，字节交完等确认时停在 99%（BUG-42）', () => {
+    uploads.set(GOOD, { state: 'uploading', progress: 42 })
+    uploads.set(BAD, { state: 'verifying', progress: 99 })
+    // 前面的用例展开过参考图；这里要看收起的那叠。
+    localStorage.removeItem(REFERENCE_DISPLAY_KEY)
+    mountWith([GOOD, BAD])
+    expect(host.querySelector('.creation-stack-upload')?.textContent).toBe('70%')
+    const panel = openReferenceStack(host)
+    const frames = [...panel.querySelectorAll('.creation-reference-frame')]
+    expect(frames.map((frame) => frame.textContent?.match(/\d+%/)?.[0])).toEqual(['42%', '99%'])
+  })
+
+  it('超限的图和坏图一样：× 常显、一并移除，两处原因是同一句（BUG-49）', () => {
+    const HUGE = 'data:image/png;base64,SFVHRQ=='
+    oversized.add(HUGE)
+    uploads.set(GOOD, { state: 'ready' })
+    uploads.set(BAD, { state: 'failed', error: 'media_unsupported_image' })
+    mountWith([GOOD, BAD, HUGE])
+    const bottom = host.querySelector('[role=alert]')?.textContent ?? ''
+    expect(bottom).toContain('第 3 张')
+    expect(bottom).toContain('第 2 张图片：请先转换为 PNG、JPEG 或 WebP 格式')
+    const panel = openReferenceStack(host)
+    expect(panel.querySelector('.creation-reference-status')?.textContent).toBe(bottom)
+    const removes = [...panel.querySelectorAll('.creation-reference-remove')]
+    expect(removes.map((el) => el.className.includes('opacity-0'))).toEqual([true, false, false])
   })
 
   it('发送的是点击时的草稿', () => {
