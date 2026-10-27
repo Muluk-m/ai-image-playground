@@ -32,7 +32,11 @@ function source(previews: Record<string, number | null>, calls: string[] = []): 
       const size = previews[imageId]
       if (size === null || size === undefined) return null
       const length = variant === 'preview' ? size : 5000
-      return { imageId, dataUrl: 'x'.repeat(length), visualVariant: variant }
+      return {
+        imageId,
+        dataUrl: 'x'.repeat(length),
+        visualVariant: variant === 'preview' ? 'preview' : 'original',
+      }
     },
   }
 }
@@ -99,7 +103,7 @@ it('shrinks a real 4K PNG larger than the request budget before preparing review
         return {
           imageId,
           dataUrl: variant === 'preview' ? await toPreviewDataUrl(original) : original,
-          visualVariant: variant,
+          visualVariant: variant === 'preview' ? 'preview' : 'original',
         }
       },
     },
