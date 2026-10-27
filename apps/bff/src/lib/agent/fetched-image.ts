@@ -67,11 +67,11 @@ async function downscaled(
       .timeout({ seconds: 30 })
       .rotate()
       .resize({ width: target.width, height: target.height, fit: 'fill' })
-    // 送进模型时按 base64 走，按 3/4 留出编码开销（与批次输入的换算一致）。
-    const limit = Math.floor((visualByteLimit() * 3) / 4)
+    // 送进模型时是 data URL：按 base64 长度加前缀余量判断（与 modelImage 的换算一致）。
+    const fits = (n: number) => Math.ceil((n * 4) / 3) + 32 <= visualByteLimit()
     if (metadata.hasAlpha) {
       const png = await resized.clone().png().toBuffer()
-      if (png.byteLength <= limit) return { bytes: png, mime: 'image/png' }
+      if (fits(png.byteLength)) return { bytes: png, mime: 'image/png' }
     }
     const opaque = metadata.hasAlpha ? resized : resized.flatten({ background: '#ffffff' })
     // 噪点多的图缩到 4000 也可能仍超读取预算：逐级降质量，直到放得下。
@@ -79,7 +79,7 @@ async function downscaled(
       const encoded = metadata.hasAlpha
         ? await opaque.clone().webp({ quality }).toBuffer()
         : await opaque.clone().jpeg({ quality }).toBuffer()
-      if (encoded.byteLength <= limit)
+      if (fits(encoded.byteLength))
         return { bytes: encoded, mime: metadata.hasAlpha ? 'image/webp' : 'image/jpeg' }
     }
   } catch {
