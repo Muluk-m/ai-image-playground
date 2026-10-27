@@ -537,6 +537,7 @@ describe('范围确认卡', () => {
     expect(offered).toContain('proposeEditRegion')
     expect(offered).toContain('拿不准')
     expect(offered).toContain('目标明确时不要')
+    expect(offered).toContain('不要改用 askClarification')
   }, 20_000)
 
   it('sends a whole-image ask back to the model when it first proposes a region, without ending the turn', async () => {
