@@ -27,7 +27,8 @@ export function turnCostWithJobs(
 
 /**
  * 一轮有出图结果时，页脚写成带张数的结算行。它只能放在这一轮最后：
- * 结果卡正好是本轮最后一条，就由卡片自己带出（`cardId`）；后面还有取消的卡或文字，就留给对话末尾。
+ * 最后一张成功的出图卡正好是本轮最后一条，就由卡片自己带出（`cardId`）；
+ * 后面还有取消的卡或文字，就留给本轮末尾的页脚。两处张数都按本轮全部成功出图合计。
  */
 export function turnImageReceipt(
   messages: readonly AgentPanelMessage[],
@@ -35,21 +36,21 @@ export function turnImageReceipt(
 ): { cardId?: string; outputCount: number } | null {
   let last = -1
   let card = -1
+  let outputCount = 0
   messages.forEach((message, index) => {
     if (message.turnId !== turnId) return
     last = index
     if (
-      message.kind === 'tool' &&
-      (message.toolName === 'generateImage' || message.toolName === 'editImage') &&
-      message.status === 'succeeded' &&
-      message.artifacts?.some((artifact) => artifact.media === 'image')
+      message.kind !== 'tool' ||
+      (message.toolName !== 'generateImage' && message.toolName !== 'editImage') ||
+      message.status !== 'succeeded'
     )
-      card = index
+      return
+    const images = message.artifacts?.filter((artifact) => artifact.media === 'image').length ?? 0
+    if (!images) return
+    card = index
+    outputCount += images
   })
-  const found = messages[card]
-  if (!found || found.kind !== 'tool') return null
-  return {
-    cardId: card === last ? found.id : undefined,
-    outputCount: found.artifacts?.length ?? 0,
-  }
+  if (card < 0) return null
+  return { cardId: card === last ? messages[card]?.id : undefined, outputCount }
 }
