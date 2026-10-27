@@ -21,7 +21,9 @@ import {
   formatImageLimit,
 } from '../features/agent/lib/attachmentUploadErrors'
 import {
+  attachmentStackProgress,
   attachmentUploadError,
+  attachmentUploadProgress,
   attachmentUploadRevision,
   attachmentUploadState,
   primeAttachmentUploads,
@@ -377,16 +379,25 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     const state = attachmentUploadState(reference)
     return state === 'queued' || state === 'uploading' || state === 'verifying' ? [index] : []
   })
+  // 收起的那叠和每张缩略图上都显示百分比，与对话页输入框一致；超限的那几张不传，不算进去（BUG-42）。
+  const stackProgress = attachmentStackProgress(
+    uploadReferences.filter((_, index) => !oversizedIndexes.includes(index)),
+  )
+  // 用不了的图（超限的、传失败的）一视同仁：× 常显，「移除」一并删掉（BUG-49）。
+  const unusableIndexes = [...new Set([...oversizedIndexes, ...failedIndexes])].sort(
+    (a, b) => a - b,
+  )
   const removeUnusableLabel =
-    failedIndexes.length > 1
+    unusableIndexes.length > 1
       ? t('composer:studio.removeUnusableReferences')
-      : failedIndexes.length === 1
-        ? t('composer:studio.removeReference', { index: failedIndexes[0] + 1 })
+      : unusableIndexes.length === 1
+        ? t('composer:studio.removeReference', { index: unusableIndexes[0]! + 1 })
         : undefined
   // 从后往前删，前面的序号不会跟着挪；提示词里对这几张的 @ 引用由 removeInputImage 一并收拾。
   const removeUnusable = () => {
-    for (const index of [...failedIndexes].reverse()) useStore.getState().removeInputImage(index)
+    for (const index of [...unusableIndexes].reverse()) useStore.getState().removeInputImage(index)
   }
+  // 参考图条顶部和输入框下方用同一句：每张用不了的图都列出来，不另起一行（BUG-44）。
   const referenceNotice = [oversizedNotice, uploadDetail].filter(Boolean).join('\n') || null
   const uploadProgress =
     uploadsPending > 0
@@ -1168,10 +1179,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           ? t('batch.pinFull', { max: sharedTaskLimit, shared: sharedTaskLimit - 1 })
           : t('batch.pin')
     const isMaskTarget = maskDraft?.targetImageId === img.id
-    // 坏图的 × 常显：不用先悬停才找得到删除入口。
-    const isUnusable = failedIndexes.includes(idx)
+    // 坏图（超限的、传失败的）× 常显：不用先悬停才找得到删除入口（BUG-49）。
+    const isUnusable = unusableIndexes.includes(idx)
     const canRetry = retryableIndexes.includes(idx)
     const isUploading = pendingIndexes.includes(idx)
+    const uploadReference = uploadReferences[idx]
+    const uploadPercent =
+      isUploading && uploadReference ? attachmentUploadProgress(uploadReference) : undefined
     const canEdit = !maskTargetImage || isMaskTarget
     const imageHintText = isMaskTarget ? t('image.maskFirstHint') : ''
     const displaySrc = isMaskTarget && maskPreviewUrl ? maskPreviewUrl : img.dataUrl
@@ -1386,13 +1400,16 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             {isUploading && (
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-background/55 text-foreground"
+                className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 bg-background/55 text-foreground"
               >
                 <Icon
                   name="loading"
                   size="lg"
                   className="animate-spin motion-reduce:animate-none"
                 />
+                {uploadPercent !== undefined && (
+                  <span className="text-label-sm leading-3 tabular-nums">{uploadPercent}%</span>
+                )}
               </span>
             )}
             {isMaskTarget && (
@@ -1655,7 +1672,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 }
                 failed={Boolean(referenceNotice)}
                 uploading={!referenceNotice && Boolean(uploadProgress)}
-                status={oversizedNotice ?? uploadDetail ?? uploadProgress ?? undefined}
+                progress={stackProgress}
+                status={referenceNotice ?? uploadProgress ?? undefined}
                 onRemoveFailed={removeUnusableLabel ? removeUnusable : undefined}
                 removeFailedLabel={removeUnusableLabel}
                 showUploadingStatus={false}

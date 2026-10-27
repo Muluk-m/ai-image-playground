@@ -78,6 +78,13 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
       (element) => element.textContent?.includes('重试'),
     )
     expect(retry).toBeDefined()
+    // 传失败的图 × 常显，不用悬停才找得到（BUG-49）。
+    const remove = () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label^="移除参考图"]') ??
+      document.querySelector<HTMLButtonElement>(
+        '.creation-reference-panel button[aria-label^="移除参考图"]',
+      )
+    expect(remove()?.className).not.toContain('opacity-0')
     fail = false
     await act(async () => {
       retry!.click()
@@ -92,6 +99,7 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
       await confirmation
     })
     await vi.waitFor(() => expect(button.disabled).toBe(false))
+    expect(remove()?.className).toContain('opacity-0')
     expect(button.className).not.toContain('bg-secondary')
     expect(button.getAttribute('aria-busy')).toBeNull()
     expect(host.querySelector('.creation-reference-status[aria-busy="true"]')).toBeNull()
