@@ -137,16 +137,18 @@ it('收起那叠的总进度按字节加权，传完的那张按 100% 算，不�
   ])
   await vi.waitFor(() => expect(FakeXhr.all.length).toBeGreaterThan(0))
   const first = FakeXhr.all[0]!
-  const firstIsSmall = attachmentUploadState({ dataUrl: small }) === 'uploading'
   first.upload.onprogress?.({ lengthComputable: true, loaded: 1, total: 2 } as ProgressEvent)
   // 小图 8 字节、大图 24 字节：一张传一半时，按字节算是 12% 或 37%，不是两张平均的 25%。
   const halfway = attachmentStackProgress(references, batch)
-  if (FakeXhr.all.length === 1) expect(halfway).toBe(firstIsSmall ? 12 : 37)
+  const sequential = FakeXhr.all.length === 1
   first.status = 200
   first.onload?.()
   await vi.waitFor(() =>
     expect(references.some((reference) => attachmentUploadState(reference) === 'ready')).toBe(true),
   )
+  // 先传完的那张就是第一个请求对应的图。
+  const firstIsSmall = attachmentUploadState({ dataUrl: small }) === 'ready'
+  if (sequential) expect(halfway).toBe(firstIsSmall ? 12 : 37)
   await vi.waitFor(() => expect(FakeXhr.all).toHaveLength(2))
   const second = FakeXhr.all[1]!
   second.upload.onprogress?.({ lengthComputable: true, loaded: 0, total: 2 } as ProgressEvent)
