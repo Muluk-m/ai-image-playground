@@ -12,7 +12,7 @@ import type {
   AnalysisIntent,
   ImagePresetRatio,
 } from '@image-playground/shared'
-import { sizeForAspectRatio } from '@image-playground/shared'
+import { withAspectRatio } from '@image-playground/shared'
 import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/bun-sql'
 import { config } from '../../config'
@@ -99,6 +99,47 @@ export function sameArchivedReference(
   )
 }
 
+/** 纯文字生图的计划没有输入图，不查也不登记媒体引用（空 values 会让插入直接报错）。 */
+export async function readyBatchMedia(
+  tx: BffTransaction,
+  userId: string,
+  mediaIds: readonly string[],
+): Promise<readonly { id: string }[]> {
+  if (!mediaIds.length) return []
+  return tx
+    .select({ id: schema.media_objects.id })
+    .from(schema.media_objects)
+    .where(
+      and(
+        eq(schema.media_objects.user_id, userId),
+        eq(schema.media_objects.status, 'ready'),
+        inArray(schema.media_objects.id, [...mediaIds]),
+      ),
+    )
+}
+
+export async function insertBatchMediaReferences(
+  tx: BffTransaction,
+  userId: string,
+  batchId: string,
+  mediaIds: readonly string[],
+  now: number,
+): Promise<void> {
+  if (!mediaIds.length) return
+  await tx
+    .insert(schema.media_references)
+    .values(
+      mediaIds.map((mediaId) => ({
+        user_id: userId,
+        media_id: mediaId,
+        owner_kind: 'batch' as const,
+        owner_id: batchId,
+        created_at: now,
+      })),
+    )
+    .onConflictDoNothing()
+}
+
 const emptyEstimate = {
   status: 'available' as const,
   estimatedCredits: 0,
@@ -150,6 +191,7 @@ export async function createAgentBatchPlan(
     if (item.kind === 'analysis') {
       if (!isCapabilityEnabled('agent:batch-analysis') || !config.agent.model)
         invalid('图片分析暂未开放。')
+      if (!inputs.length) invalid('分析项必须指定要分析的图片。')
       const prepared = await prepareBatchAnalysis({
         userId,
         model: config.agent.model,
@@ -174,8 +216,9 @@ export async function createAgentBatchPlan(
         ...common,
         kind: 'generation',
         params: {
-          ...params,
-          ...(item.aspectRatio ? { size: sizeForAspectRatio(params.size, item.aspectRatio) } : {}),
+          // 与单张工具同一条覆盖规则：项上写了比例就换尺寸并去掉输入框的 gemini 比例，
+          // 否则 gemini 照旧按全局比例出图，卡上与回复说的比例都不成立（BUG-30）。
+          ...withAspectRatio(params, item.aspectRatio),
           ...target,
         },
       })
@@ -207,16 +250,7 @@ export async function createAgentBatchPlan(
       )
     if (existing) return existing.id
     const mediaIds = batchMediaIds(items)
-    const ready = await tx
-      .select({ id: schema.media_objects.id })
-      .from(schema.media_objects)
-      .where(
-        and(
-          eq(schema.media_objects.user_id, userId),
-          eq(schema.media_objects.status, 'ready'),
-          inArray(schema.media_objects.id, mediaIds),
-        ),
-      )
+    const ready = await readyBatchMedia(tx, userId, mediaIds)
     if (ready.length !== mediaIds.length) invalid('批次所需的图片已不可用，请检查完整范围。')
     const [project] = await tx
       .select({ id: schema.canvas_projects.id, revision: schema.canvas_projects.revision })
@@ -259,15 +293,7 @@ export async function createAgentBatchPlan(
     await tx
       .insert(schema.agent_batch_items)
       .values(items.map((item) => ({ batch_id: id, version: 1, ...batchItemValues(item) })))
-    await tx.insert(schema.media_references).values(
-      mediaIds.map((mediaId) => ({
-        user_id: userId,
-        media_id: mediaId,
-        owner_kind: 'batch' as const,
-        owner_id: id,
-        created_at: now,
-      })),
-    )
+    await insertBatchMediaReferences(tx, userId, id, mediaIds, now)
     return id
   })
 }
@@ -843,16 +869,7 @@ export async function updateAgentBatchPlan(
       }
     })
     const mediaIds = batchMediaIds(items)
-    const ready = await tx
-      .select({ id: schema.media_objects.id })
-      .from(schema.media_objects)
-      .where(
-        and(
-          eq(schema.media_objects.user_id, userId),
-          eq(schema.media_objects.status, 'ready'),
-          inArray(schema.media_objects.id, mediaIds),
-        ),
-      )
+    const ready = await readyBatchMedia(tx, userId, mediaIds)
     if (ready.length !== mediaIds.length) throw new BatchPlanError('invalid_batch_plan', 422)
     const estimate = await quoteBatchPlan(tx, userId, items)
     const version = batch.current_version + 1
@@ -886,15 +903,7 @@ export async function updateAgentBatchPlan(
           eq(schema.media_references.user_id, userId),
         ),
       )
-    await tx.insert(schema.media_references).values(
-      mediaIds.map((mediaId) => ({
-        user_id: userId,
-        media_id: mediaId,
-        owner_kind: 'batch' as const,
-        owner_id: id,
-        created_at: now,
-      })),
-    )
+    await insertBatchMediaReferences(tx, userId, id, mediaIds, now)
   })
 }
 
