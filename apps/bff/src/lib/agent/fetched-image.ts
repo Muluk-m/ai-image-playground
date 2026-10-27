@@ -68,7 +68,7 @@ async function downscaled(
       .rotate()
       .resize({ width: target.width, height: target.height, fit: 'fill' })
     // 送进模型时是 data URL：按 base64 长度加前缀余量判断（与 modelImage 的换算一致）。
-    const fits = (n: number) => Math.ceil((n * 4) / 3) + 32 <= visualByteLimit()
+    const fits = (n: number) => 4 * Math.ceil(n / 3) + 32 <= visualByteLimit()
     if (metadata.hasAlpha) {
       const png = await resized.clone().png().toBuffer()
       if (fits(png.byteLength)) return { bytes: png, mime: 'image/png' }
