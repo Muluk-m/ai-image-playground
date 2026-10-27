@@ -2136,6 +2136,20 @@ describe('快速生成的逐张生成', () => {
     expect(useStore.getState().prompt).toBe(`参考 ${getSelectedImageMentionLabel(2)}`)
   })
 
+  it('复用整份草稿时共享图被挪到队尾，给的提示词跟着新顺序重排', async () => {
+    await setupBatchState(3, true)
+    useStore.getState().toggleSharedImage('ref-3')
+    useStore.getState().setBatchGenerate(false)
+    const [a, , c] = images(3)
+
+    useStore
+      .getState()
+      .replaceInputImages([c!, a!], { prompt: `参考 ${getSelectedImageMentionLabel(0)}` })
+
+    expect(useStore.getState().inputImages.map((one) => one.id)).toEqual(['ref-1', 'ref-3'])
+    expect(useStore.getState().prompt).toBe(`参考 ${getSelectedImageMentionLabel(1)}`)
+  })
+
   it('2 张目标 × 1 张共享：发 2 条任务，每条带自己的目标图 + 共享图，序号按每条的张数换', async () => {
     await setupBatchState(3, true)
     useStore.getState().toggleSharedImage('ref-3')
