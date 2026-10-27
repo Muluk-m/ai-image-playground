@@ -97,3 +97,16 @@ it('首屏发出去被收下：新项目输入框不留这句话，首屏输入�
   expect(draft.getSnapshot().draft.prompt).toBe('')
   expect(useStore.getState().prompt).toBe('')
 })
+
+it('首屏这句话超了字数：不建项目、不发话，就地报原因，草稿留在首屏', async () => {
+  const projects = useCanvasProjectStore.getState().projects.length
+  const conversationId = useAgentStore.getState().conversationId
+  const text = '秋'.repeat(4001)
+  useStore.getState().setPrompt(text)
+  expect(await startCanvasFromComposer(undefined, 'chat')).toBe(false)
+  expect(useCanvasProjectStore.getState().projects).toHaveLength(projects)
+  expect(useAgentStore.getState().conversationId).toBe(conversationId)
+  expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
+  expect(useStore.getState().toast?.message).toContain('4000')
+  expect(useStore.getState().prompt).toBe(text)
+})
