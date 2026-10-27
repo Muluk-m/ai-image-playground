@@ -800,6 +800,58 @@ it('同一轮后建的完整计划让先前不完整的草稿作废，分批保�
   expect(edit.status).toBe(409)
 })
 
+it('满 8 项的重做沿用编号时让旧草稿作废，重复编号但提示词全换的分段保留（BUG-39）', async () => {
+  const keys = Array.from({ length: 8 }, (_, index) => `k${index + 1}`)
+  const plan = (style: (key: string) => string) =>
+    keys.map((key) => ({ key, imageIds: [], prompt: style(key), dependencies: [] }))
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'chunk-a',
+            name: 'planImageBatch',
+            args: { title: '静物', rule: '写实', items: plan((key) => `${key} 静物`) },
+          }),
+        () =>
+          toolCallCompletion({
+            id: 'chunk-b',
+            name: 'planImageBatch',
+            args: { title: '油画', rule: '油画', items: plan((key) => `${key} 油画`) },
+          }),
+        () =>
+          toolCallCompletion({
+            id: 'redo-b',
+            name: 'planImageBatch',
+            args: {
+              title: '油画',
+              rule: '油画',
+              items: plan((key) => (key === 'k1' ? 'k1 油画，暖色' : `${key} 油画`)),
+            },
+          }),
+        () => completionStream('计划已保存'),
+      ],
+    ),
+  )
+  await (
+    await request(`agent/conversations/${conversation.id}/turns`, {
+      deviceId: DEVICE,
+      text: '十六张静物和油画，先出计划卡',
+    })
+  ).text()
+  const rows = await db
+    .select({ call: schema.agent_batches.tool_call_id, status: schema.agent_batches.status })
+    .from(schema.agent_batches)
+    .where(eq(schema.agent_batches.conversation_id, conversation.id))
+  expect(Object.fromEntries(rows.map((row) => [row.call, row.status]))).toEqual({
+    'chunk-a': 'draft',
+    'chunk-b': 'cancelled',
+    'redo-b': 'draft',
+  })
+})
+
 it('读取生成批次的分析时照常回执没有分析项，不报参数错误（OBS-ACC-2）', async () => {
   const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
   setAgentFetchForTesting(
