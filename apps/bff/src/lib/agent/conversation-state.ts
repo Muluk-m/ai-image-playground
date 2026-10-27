@@ -252,7 +252,8 @@ export async function readConversationStateFacts(
 }
 
 /**
- * 用户确认前删掉的项 = 初版有、第一次确认的那一版没有的项（与 batch-wake 同一口径）。
+ * 用户确认前删掉的项 = 初版有、第一次真正提交执行的那一版没有的项（与 batch-wake 同一口径）。
+ * 以 attempts 里最早的版本为准：plans.confirmation 在保存待再次确认的修订提案时就写入，不代表用户已确认。
  * 草稿编辑只发生在第一次确认之前；之后的重试版只带未完成的项，不能拿来算删项。
  * 初版的提示词还留在对话历史的 planImageBatch 回执里，不在每轮写明，模型会把删掉的项当成还缺（BUG-51）。
  */
@@ -262,11 +263,11 @@ async function readRemovedItems(
   const rows = (await db.execute(sql`
     WITH first_confirmed AS (
       SELECT batch_id, MIN(version) AS version
-      FROM ${schema.agent_batch_plans}
+      FROM ${schema.agent_batch_attempts}
       WHERE batch_id IN (${sql.join(
         batchIds.map((id) => sql`${id}`),
         sql`, `,
-      )}) AND confirmation IS NOT NULL
+      )})
       GROUP BY batch_id
     )
     SELECT original.batch_id AS "batchId", original.key, LEFT(original.prompt, ${REMOVED_PROMPT_CHARS}) AS prompt
