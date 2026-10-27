@@ -378,8 +378,6 @@
     "removeReference": "移除参考图",
     "modelUnsupported": "当前模型不支持遮罩重绘，请切到 GPT Image 系列",
     "videoUnsupported": "视频不支持局部重绘",
-    "tooSmall": "图片太小，局部重绘要求约 80 万像素以上",
-    "tooWide": "图片长宽比超过 3:1，局部重绘不支持",
     "sourceGone": "源图已不在画布上",
     "canvasAria": "智能改图标记区",
     "regionLimit": "最多可标记 {{max}} 个区域，请删除不需要的区域后继续。",
