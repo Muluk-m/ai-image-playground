@@ -747,8 +747,6 @@
   "assetsPanel": {
     "title": "Assets",
     "search": "Search assets…",
-    "listView": "List view",
-    "gridView": "Grid view",
     "close": "Close assets",
     "images": "Images ({{count}})",
     "videos": "Videos ({{count}})",
@@ -756,8 +754,6 @@
     "tagVideo": "Video",
     "select": "Select",
     "cancel": "Cancel",
-    "expand": "Expand",
-    "collapse": "Collapse",
     "scopeAll": "All projects",
     "scopeProject": "This project",
     "today": "Today",
@@ -775,7 +771,8 @@
       "packing": "Packing",
       "finished": "Done",
       "failed": "Failed",
-      "zipName": "{{name}}_{{count}} items"
+      "zipName": "{{name}}_{{count}} items",
+      "close": "Close transfer"
     }
   }
 }
