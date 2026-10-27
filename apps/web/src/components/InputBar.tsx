@@ -365,6 +365,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const removeUnusable = () => {
     for (const index of [...unusableIndexes].reverse()) useStore.getState().removeInputImage(index)
   }
+  // 参考图条顶部和输入框下方用同一句：每张用不了的图都列出来，不另起一行（BUG-44）。
   const referenceNotice = [oversizedNotice, uploadDetail].filter(Boolean).join('\n') || null
   const uploadProgress =
     uploadsPending > 0
@@ -1537,7 +1538,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 failed={Boolean(referenceNotice)}
                 uploading={!referenceNotice && Boolean(uploadProgress)}
                 progress={stackProgress}
-                // 与输入框下方那行同一句：每张用不了的图都列出来，不另起一行（BUG-44）。
                 status={referenceNotice ?? uploadProgress ?? undefined}
                 onRemoveFailed={removeUnusableLabel ? removeUnusable : undefined}
                 removeFailedLabel={removeUnusableLabel}
