@@ -39,6 +39,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
+const { runningTurn } = await import('../../lib/agent/runningTurns')
 const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
@@ -526,6 +527,46 @@ describe('生成改为后台任务', () => {
       body: { deviceId: DEVICE },
     })
     expect(finalized).toHaveLength(1)
+  })
+
+  it('a turn aborted for any reason other than the user stop (e.g. lost lease) leaves its jobs running and charged', async () => {
+    const calls: AgentCall[] = []
+    const reply = controlledCompletion()
+    let at = 0
+    const answers = [() => generateCall(), (signal?: AbortSignal) => reply.responseFor(signal)]
+    setAgentFetchForTesting(recordingAgentFetch(calls, (signal) => answers[at++]!(signal)))
+    const conversationId = await startConversation()
+
+    const response = await turnRequest(conversationId, '画一只猫', {
+      thinkingDepth: 'medium',
+      autoSubmit: true,
+    })
+    reply.push('在画了')
+    const seen = await readFrames(response, 1)
+    const turnId = eventsOfType(seen, 'turnStart')[0]!.turnId
+    for (let i = 0; i < 400 && (await db.select().from(schema.tasks)).length < 1; i++)
+      await Bun.sleep(5)
+    const [task] = await db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.agent_turn_id, turnId))
+    await finishTask(task!.id, 'in_progress')
+    finalized.length = 0
+
+    // 会话心跳丢了租约：start-turn 调的是不带原因的 abort()。
+    runningTurn(conversationId)!.abort()
+    for (let i = 0; i < 400; i++) {
+      const [summary] = await db
+        .select()
+        .from(schema.agent_turns)
+        .where(eq(schema.agent_turns.turn_id, turnId))
+      if (summary) break
+      await Bun.sleep(5)
+    }
+
+    const [after] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, task!.id))
+    expect(after!.status).toBe('in_progress')
+    expect(finalized).toEqual([])
   })
 
   it('cancels unfinished tasks when the conversation is deleted', async () => {
