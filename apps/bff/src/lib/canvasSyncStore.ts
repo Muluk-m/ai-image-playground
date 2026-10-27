@@ -21,6 +21,7 @@ import * as Y from 'yjs'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import type { BffTransaction } from './private-overlay'
+import { projectQuotaFull } from './projects'
 
 export class CanvasSyncError extends Error {
   constructor(
@@ -372,12 +373,7 @@ export async function copyCanvasProject(
       )
     if (!project) throw new CanvasSyncError(404, 'project_not_found')
     if (project.deleted_at !== null) throw new CanvasSyncError(410, 'project_deleted')
-    const [total] = await tx
-      .select({ count: count() })
-      .from(schema.canvas_projects)
-      .where(eq(schema.canvas_projects.user_id, userId))
-    if ((total?.count ?? 0) >= config.operator.quotas['sync:user-projects'])
-      throw new CanvasSyncError(413, 'project_quota_exceeded')
+    if (await projectQuotaFull(tx, userId)) throw new CanvasSyncError(413, 'project_quota_exceeded')
     const loaded = await load(tx, sourceId)
     if (!loaded) throw new CanvasSyncError(404, 'project_not_found')
     const copy = new Y.Doc()

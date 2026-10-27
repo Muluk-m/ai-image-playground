@@ -9,6 +9,7 @@ import { config } from '../config'
 import { db, schema } from '../db/client'
 import { withAgentLifecycle } from './agent/lifecycle'
 import { runningTurn } from './agent/runningTurns'
+import type { BffTransaction } from './private-overlay'
 
 const table = schema.canvas_projects
 const summaryColumns = {
@@ -209,11 +210,7 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
         .set(values)
         .where(and(eq(table.id, id), eq(table.user_id, userId)))
     } else {
-      const [total] = await tx
-        .select({ count: count() })
-        .from(table)
-        .where(eq(table.user_id, userId))
-      if ((total?.count ?? 0) >= config.operator.quotas['sync:user-projects'])
+      if (await projectQuotaFull(tx, userId))
         return { ok: false as const, status: 413 as const, error: 'project_quota_exceeded' }
       const created = await tx
         .insert(table)
@@ -265,6 +262,15 @@ export async function listRecycledProjects(userId: string, pageSize: number, cur
   }
 }
 
+/** 项目数额度只算没删的项目；回收站里的不占位置，恢复时再按额度检查（BUG-52）。 */
+export async function projectQuotaFull(tx: BffTransaction, userId: string): Promise<boolean> {
+  const [total] = await tx
+    .select({ count: count() })
+    .from(table)
+    .where(and(eq(table.user_id, userId), isNull(table.deleted_at)))
+  return (total?.count ?? 0) >= config.operator.quotas['sync:user-projects']
+}
+
 export async function recycleProject(userId: string, id: string, restore = false) {
   return withAgentLifecycle({ kind: 'user', userId }, () =>
     db.transaction(async (tx) => {
@@ -282,6 +288,8 @@ export async function recycleProject(userId: string, id: string, restore = false
       if (restore && project.deleted_at != null && (project.restore_until ?? 0) <= now)
         return { ok: false as const, status: 410 as const, error: 'project_expired' }
       if ((project.deleted_at == null) === restore) return { ok: true as const }
+      if (restore && (await projectQuotaFull(tx, userId)))
+        return { ok: false as const, status: 413 as const, error: 'project_quota_exceeded' }
       if (!restore && project.conversation_id) {
         const [task] = await tx
           .select({ id: schema.tasks.id })
