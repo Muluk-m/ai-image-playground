@@ -17,6 +17,7 @@ import { bffDrain } from '../drain'
 import { log } from '../logger'
 import type { BffTransaction, TaskOutcome } from '../private-overlay'
 import { createAutoSubmitBudget } from './auto-submit'
+import { cancelStoppedTurnJobs } from './background-jobs'
 import { AGENT_CLARIFICATION_TOOL, clarificationFromResult } from './clarification'
 import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
@@ -311,6 +312,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   let failure: AgentTurnFailure | undefined
   let error: AgentTurnErrorCode | undefined
   let aborted = false
+  // 只有用户点「中止」才连带取消本轮任务；租约丢失等中止不能把还在正常跑的出图当退款处理。
+  let userStopped = false
   /** 本轮已经为长度截断续写过一次。再截断就失败，避免无限续。 */
   let lengthContinuations = 0
   /** 截断消息里的工具参数不完整，那些 start/end 不能变成用户看得见的工具卡。 */
@@ -904,8 +907,9 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       })
       return messageId
     },
-    abort() {
+    abort(reason?: 'user_stop') {
       aborted = true
+      if (reason === 'user_stop') userStopped = true
       agent.abort()
     },
   }
@@ -967,6 +971,15 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       await closeOpen()
       flushQueued()
       await writes
+      // 用户中止：停止接口已经取消过这一轮的出图任务，这里在工具全部落定之后再扫一遍，接住中止那一刻
+      // 还在提交路上、之后才落库的任务（BUG-32）。重复取消是空操作。
+      if (userStopped)
+        await cancelStoppedTurnJobs(conversationId, turnId).catch((err) => {
+          log.error(
+            { event: 'agent.stop_cancel_failed', conversationId, turnId, err },
+            'stopped turn could not cancel its late jobs',
+          )
+        })
 
       const { usage, upstreamInvocationCount } = ledger.settlement()
       const outcome: TaskOutcome = error ? 'failed' : aborted ? 'cancelled' : 'completed'

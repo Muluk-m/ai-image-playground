@@ -791,6 +791,53 @@ async function collectFanOutResults<T>(
   return settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : []))
 }
 
+/** 一次上游取消尝试的结果，只进日志，不影响我们这边的取消与退款。 */
+export type UpstreamCancelOutcome =
+  | { readonly taskId: string; readonly outcome: 'cancelled'; readonly status: number }
+  | { readonly taskId: string; readonly outcome: 'rejected'; readonly status: number }
+  | { readonly taskId: string; readonly outcome: 'error'; readonly error: string }
+
+const UPSTREAM_CANCEL_TIMEOUT_MS = 10_000
+
+/**
+ * 用户取消任务后尽力叫停上游已经建起来的异步任务（BUG-32）。只对有取消接口的线路发请求，其余
+ * 返回 null：同步线路靠断开连接收手，异步线路（sub2api、xAI、Veo）没有取消接口，只能停止轮询。
+ * 失败只返回结果、从不抛出——退款早已在取消事务里落定，与这里无关。
+ */
+export async function cancelUpstreamTasks(
+  provider: QueueProvider,
+  model: string,
+  taskIds: readonly string[],
+): Promise<UpstreamCancelOutcome[] | null> {
+  let route: UpstreamRoute
+  try {
+    route = resolveUpstream(provider, model)
+  } catch {
+    return null
+  }
+  const cancelUrl = VIDEO_STYLE_SPECS[route.style]?.cancelUrl
+  if (!cancelUrl || taskIds.length === 0) return null
+  const headers = upstreamAuthHeader(route.style, route.key)
+  return Promise.all(
+    taskIds.map(async (taskId): Promise<UpstreamCancelOutcome> => {
+      try {
+        const res = await upstreamTransport.current(cancelUrl(route.baseUrl, taskId), {
+          method: 'DELETE',
+          headers,
+          signal: AbortSignal.timeout(UPSTREAM_CANCEL_TIMEOUT_MS),
+          dispatcher: upstreamDispatcher,
+        })
+        await res.text().catch(() => '')
+        return res.ok
+          ? { taskId, outcome: 'cancelled', status: res.status }
+          : { taskId, outcome: 'rejected', status: res.status }
+      } catch (err) {
+        return { taskId, outcome: 'error', error: err instanceof Error ? err.message : String(err) }
+      }
+    }),
+  )
+}
+
 /** Google 直连认自己的 key 头；其余上游都是 Bearer。 */
 function upstreamAuthHeader(style: ChannelRouteStyle, key: string): Record<string, string> {
   if (!key) return {}
