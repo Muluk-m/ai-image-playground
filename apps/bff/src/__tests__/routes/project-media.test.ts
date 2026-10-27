@@ -402,6 +402,44 @@ it('修复前入库的 EXIF 方向 6 旧记录：再次上传撞上时按转正�
   expect(storage.events.slice(reads).filter((event) => event.startsWith('readUpTo:'))).toEqual([])
 })
 
+it('旧记录核对：回读临时失败的下次还会再核，并发两次都交回纠正后的宽高（BUG-43）', async () => {
+  const bytes = await sharp({
+    create: { width: 16, height: 12, channels: 3, background: '#335577' },
+  })
+    .jpeg()
+    .withMetadata({ orientation: 6 })
+    .toBuffer()
+  const descriptor = {
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    bytes: bytes.length,
+    contentType: 'image/jpeg',
+  }
+  const upload = await (await request('media/uploads', deviceA, descriptor)).json()
+  await storage.write(key(upload.uploadUrl), bytes, 'image/jpeg')
+  expect((await request(`media/${upload.id}/complete`, deviceA, {})).status).toBe(200)
+  const { eq } = await import('drizzle-orm')
+  await db
+    .update(schema.media_objects)
+    .set({ width: 16, height: 12, updated_at: Date.UTC(2026, 9, 20) })
+    .where(eq(schema.media_objects.id, upload.id))
+  const failing = spyOn(storage, 'readUpTo').mockRejectedValueOnce(new Error('transient'))
+  try {
+    // 回读失败：照旧返回旧宽高，上传本身不失败。
+    expect(await (await request('media/uploads', deviceB, descriptor)).json()).toMatchObject({
+      width: 16,
+      height: 12,
+    })
+  } finally {
+    failing.mockRestore()
+  }
+  const [first, second] = await Promise.all([
+    request('media/uploads', deviceA, descriptor).then((response) => response.json()),
+    request('media/uploads', deviceB, descriptor).then((response) => response.json()),
+  ])
+  expect(first).toMatchObject({ width: 12, height: 16 })
+  expect(second).toMatchObject({ width: 12, height: 16 })
+})
+
 it('修复前入库、朝向本来就对的旧记录不改', async () => {
   const bytes = await sharp({
     create: { width: 16, height: 12, channels: 3, background: '#224466' },

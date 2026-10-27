@@ -138,10 +138,14 @@ export async function withOrientedSize(row: Media): Promise<Media> {
       (row.preview_bytes || PREVIEW_BUDGET) + 1,
     )
     const { width, height } = await sharp(preview).metadata()
-    if (orientationChecked.size >= 10_000) orientationChecked.clear()
-    orientationChecked.add(row.id)
+    // 只在核对有了结论后才记下：读取或更新临时失败的，下次命中还会再核。
+    const checked = (result: Media) => {
+      if (orientationChecked.size >= 10_000) orientationChecked.clear()
+      orientationChecked.add(row.id)
+      return result
+    }
     if (!width || !height || width === height || width > height === row.width > row.height)
-      return row
+      return checked(row)
     const [fixed] = await db
       .update(media)
       .set({ width: row.height, height: row.width, updated_at: Date.now() })
@@ -164,7 +168,10 @@ export async function withOrientedSize(row: Media): Promise<Media> {
         },
         '旧记录的宽高与转正后的朝向不一致，已对调',
       )
-    return fixed ?? row
+    if (fixed) return checked(fixed)
+    // 并发的另一次请求已经改过（或这行刚变了）：交回库里现在的那份，不交回旧宽高。
+    const [current] = await db.select().from(media).where(eq(media.id, row.id))
+    return current ? checked(current) : row
   } catch (error) {
     // 核不了就照旧返回：宽高只影响展示比例，不该因此让这次上传失败。
     log.warn(
@@ -189,7 +196,8 @@ async function reserveOwnedMedia(
 ) {
   const attachment = input.purpose === 'conversation-attachment'
   if (input.bytes > byteLimit) throw new MediaError(413, 'media_too_large')
-  const row = await db.transaction(async (tx): Promise<Media> => {
+  type Reserved = { ready: Media } | { result: ReturnType<typeof uploadResult> }
+  const reserved = await db.transaction(async (tx): Promise<Reserved> => {
     await lockMediaOwner(tx, userId)
     let [existing] = await tx
       .select()
@@ -221,7 +229,9 @@ async function reserveOwnedMedia(
       existing &&
       (existing.status === 'ready' || (described && existing.expires_at > now + 600_000))
     )
-      return existing
+      return existing.status === 'ready' && reviseReady
+        ? { ready: existing }
+        : { result: uploadResult(existing) }
     const reserved = input.bytes + previewBudget
     const used = await mediaUsage(tx, userId, now)
     const previous =
@@ -253,10 +263,12 @@ async function reserveOwnedMedia(
             ...values,
           })
           .returning()
-    return row!
+    // 签名在事务内：组装返回值失败时这次预留随事务回滚，不白占额度。
+    return { result: uploadResult(row!) }
   })
-  // 存储读放在事务外：不占着这位用户的锁去等对象存储。
-  return uploadResult(row.status === 'ready' && reviseReady ? await reviseReady(row) : row)
+  // 已发布的旧记录要核对朝向：存储读放在事务外，不占着这位用户的锁去等对象存储。
+  if ('result' in reserved) return reserved.result
+  return uploadResult(reviseReady ? await reviseReady(reserved.ready) : reserved.ready)
 }
 
 async function ownedMedia(userId: string, id: string, executor: Pick<typeof db, 'select'> = db) {
