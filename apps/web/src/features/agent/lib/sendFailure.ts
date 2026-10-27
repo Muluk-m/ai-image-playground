@@ -24,12 +24,13 @@ function referenceTooLong(message: string | undefined): boolean {
   )
 }
 
-/** 服务端 schema 报的是这句话本身超了字数上限（`/text: Expected string length…`）。 */
+/** 服务端 schema 报的是这句话本身超了字数上限（`/text: Expected string length less or equal to …`）；下限（空文本）不算。 */
 function textTooLong(message: string | undefined): boolean {
   return Boolean(
     message &&
       /^\/text\b/i.test(message) &&
-      (/length/i.test(message) || message.includes(String(AGENT_USER_MESSAGE_MAX_CHARS))),
+      (/less (than )?or equal|maxLength/i.test(message) ||
+        message.includes(String(AGENT_USER_MESSAGE_MAX_CHARS))),
   )
 }
 
