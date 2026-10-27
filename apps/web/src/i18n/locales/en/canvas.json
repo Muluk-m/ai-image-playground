@@ -591,7 +591,8 @@
     "applyArrangement": "Keep",
     "zoomMenu": "Canvas zoom",
     "pickFromCanvas": "Select from canvas",
-    "finishPicking": "Finish selection"
+    "finishPicking": "Finish selection",
+    "materials": "Materials"
   },
   "pixelEdit": {
     "title": "Edit image",
@@ -741,6 +742,40 @@
     "continuous-storyboard": {
       "title": "Continuous storyboard",
       "description": "Turn a story into a continuous storyboard sheet"
+    }
+  },
+  "assetsPanel": {
+    "title": "Assets",
+    "search": "Search assets…",
+    "listView": "List view",
+    "gridView": "Grid view",
+    "close": "Close assets",
+    "images": "Images ({{count}})",
+    "videos": "Videos ({{count}})",
+    "tagImage": "Image",
+    "tagVideo": "Video",
+    "select": "Select",
+    "cancel": "Cancel",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "scopeAll": "All projects",
+    "scopeProject": "This project",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "date": "{{month}}/{{day}}",
+    "empty": "Nothing found",
+    "loadFailed": "Some items could not be loaded",
+    "selected": "{{count}} selected",
+    "download": "Download",
+    "apply": "Apply to canvas",
+    "transfer": {
+      "active": "Transferring {{done}}/{{total}}",
+      "done": "Completed {{done}}/{{total}}",
+      "waiting": "Waiting",
+      "packing": "Packing",
+      "finished": "Done",
+      "failed": "Failed",
+      "zipName": "{{name}}_{{count}} items"
     }
   }
 }
