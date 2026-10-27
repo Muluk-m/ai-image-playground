@@ -268,7 +268,8 @@ async function prepareItem(
         prompt: masked?.prompt ?? item.prompt,
         size: params.size,
       }),
-      input_images: inputImages,
+      // 纯文字生图项（BUG-25）不带 input_images，与单张 generateImage 的请求一致。
+      ...(inputImages.length ? { input_images: inputImages } : {}),
       ...(masked?.mask ? { mask: masked.mask } : {}),
       device_id: batch.device_id!,
       client_request_id: `batch:${batch.id}:${batch.confirmed_version}:${item.key}:${attempt}`,

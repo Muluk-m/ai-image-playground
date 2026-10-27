@@ -561,6 +561,12 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
               {t('batch.retryItem')}
             </span>
           )}
+          {item.kind === 'generation' && item.inputs.length === 0 && (
+            <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5">
+              <Icon name="text" size="xs" />
+              {t('batch.textOnlyInput')}
+            </span>
+          )}
           {item.inputs.map((input, inputIndex) => {
             const name = input.name ?? t('batch.inputImage', { index: inputIndex + 1 })
             return (
