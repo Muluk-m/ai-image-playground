@@ -108,7 +108,14 @@ describe('首页交给智能体的参考图（BUG-27）', () => {
     expect(startButton().disabled).toBe(false)
     let finish!: () => void
     vi.mocked(retryAttachmentUploads).mockImplementationOnce(
-      () => new Promise<void>((resolve) => (finish = resolve)),
+      () =>
+        new Promise<void>(
+          (resolve) =>
+            (finish = () => {
+              uploads.set(BAD, { state: 'ready' })
+              resolve()
+            }),
+        ),
     )
     act(() => startButton().click())
     expect(retryAttachmentUploads).toHaveBeenCalledWith({ dataUrl: BAD })
@@ -116,6 +123,30 @@ describe('首页交给智能体的参考图（BUG-27）', () => {
     expect(startButton().disabled).toBe(true)
     await act(async () => finish())
     expect(startCanvasFromComposer).toHaveBeenCalledTimes(1)
+  })
+
+  it('重传期间改了草稿就作罢，不把没确认过的内容发出去', async () => {
+    uploads.set(BAD, { state: 'failed', error: 'media_network_error' })
+    mountWith([BAD])
+    let finish!: () => void
+    vi.mocked(retryAttachmentUploads).mockImplementationOnce(
+      () => new Promise<void>((resolve) => (finish = resolve)),
+    )
+    act(() => startButton().click())
+    act(() => startButton().click())
+    expect(retryAttachmentUploads).toHaveBeenCalledTimes(1)
+    act(() => useStore.getState().setPrompt('改过的文字'))
+    await act(async () => finish())
+    expect(startCanvasFromComposer).not.toHaveBeenCalled()
+  })
+
+  it('发送的是点击时的草稿', () => {
+    uploads.set(GOOD, { state: 'ready' })
+    mountWith([GOOD])
+    act(() => startButton().click())
+    expect(vi.mocked(startCanvasFromComposer).mock.calls[0]?.[0]).toMatchObject({
+      references: [{ id: 'img-0', dataUrl: GOOD }],
+    })
   })
 
   it('重传仍失败就留在首页，不建项目', async () => {
