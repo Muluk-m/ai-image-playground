@@ -93,6 +93,30 @@ describe('首页交给智能体的参考图（BUG-27）', () => {
     expect(startCanvasFromComposer).not.toHaveBeenCalled()
   })
 
+  it('坏文件：输入框下说清哪张、移除后可发；那叠缩略图上直接有 ×，点了只移走坏图', () => {
+    uploads.set(GOOD, { state: 'ready' })
+    uploads.set(BAD, { state: 'failed', error: 'media_unsupported_image' })
+    mountWith([GOOD, BAD])
+    const alerts = Array.from(host.querySelectorAll('[role=alert]')).map((el) => el.textContent)
+    expect(alerts).toContain('第 2 张图片无法使用，移除后可发送')
+    const remove = host.querySelector<HTMLButtonElement>('button[aria-label="移除第 2 张图片"]')
+    expect(remove).not.toBeNull()
+    act(() => remove?.click())
+    expect(useStore.getState().inputImages.map((image) => image.dataUrl)).toEqual([GOOD])
+    expect(host.querySelector('[role=alert]')).toBeNull()
+    expect(startButton().disabled).toBe(false)
+  })
+
+  it('上传进度写在输入框下，不只给读屏', () => {
+    uploads.set(GOOD, { state: 'uploading' })
+    uploads.set(BAD, { state: 'ready' })
+    mountWith([GOOD, BAD])
+    const visible = Array.from(host.querySelectorAll('span')).filter(
+      (el) => el.textContent === '上传中 1/2' && !el.classList.contains('sr-only'),
+    )
+    expect(visible.length).toBeGreaterThan(0)
+  })
+
   it('还在上传时不建项目，等传完', () => {
     uploads.set(GOOD, { state: 'uploading' })
     mountWith([GOOD])
