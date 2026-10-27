@@ -1744,7 +1744,7 @@ html[data-home='true'] .app-inset-panel { overflow: clip; }
   flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 12px 12px;
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: max-content; gap: 6px; align-content: start;
 }
-.studio-assets-panel[data-wide] .studio-assets-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.studio-assets-panel[data-wide] .studio-assets-grid:not([data-list]) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .studio-assets-grid[data-list] { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .studio-assets-day { grid-column: 1 / -1; margin: 14px 2px 4px; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.sm'); }
 .studio-assets-end { grid-column: 1 / -1; height: 1px; }
