@@ -46,15 +46,19 @@ it('pads only right and bottom without resampling source pixels or moving the se
   expect(delivered.inspection).toMatchObject({ width, height })
 })
 
-it('rejects unsupported models and impossible output sizes before generation', async () => {
+it('refuses only unsupported models; sizes outside the native range are scaled, not refused', async () => {
   const source = await sharp({
     create: { width: 800, height: 800, channels: 4, background: '#fff' },
   })
     .png()
     .toBuffer()
-  await expect(prepareMaskedInput('gpt-image-2.5-flare', url(source), url(source))).rejects.toThrow(
-    '原图尺寸',
-  )
+  const rawMask = Buffer.alloc(800 * 800 * 4, 255)
+  rawMask[(400 * 800 + 400) * 4 + 3] = 0
+  const mask = await sharp(rawMask, { raw: { width: 800, height: 800, channels: 4 } })
+    .png()
+    .toBuffer()
+  const prepared = await prepareMaskedInput('gpt-image-2.5-flare', url(source), url(mask))
+  expect(prepared.crop?.sendWidth).toBeGreaterThan(800)
   await expect(prepareMaskedInput('gemini-image', url(source), url(source))).rejects.toThrow(
     '当前模型',
   )
