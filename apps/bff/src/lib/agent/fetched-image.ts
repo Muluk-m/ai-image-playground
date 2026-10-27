@@ -67,7 +67,8 @@ async function downscaled(
       .timeout({ seconds: 30 })
       .rotate()
       .resize({ width: target.width, height: target.height, fit: 'fill' })
-    const limit = visualByteLimit()
+    // 送进模型时按 base64 走，按 3/4 留出编码开销（与批次输入的换算一致）。
+    const limit = Math.floor((visualByteLimit() * 3) / 4)
     if (metadata.hasAlpha) {
       const png = await resized.clone().png().toBuffer()
       if (png.byteLength <= limit) return { bytes: png, mime: 'image/png' }
@@ -101,7 +102,8 @@ async function toStorableImage(bytes: Uint8Array): Promise<{ bytes: Uint8Array; 
     throw notAnImage()
   }
   if (!metadata.width || !metadata.height) throw notAnImage()
-  if (metadata.width * metadata.height * (metadata.pages ?? 1) > MEDIA_UPLOAD_MAX_PIXELS)
+  // 动图只解第一帧，解码上限按单帧算。
+  if (metadata.width * metadata.height > MEDIA_UPLOAD_MAX_PIXELS)
     throw tooLarge(metadata.width, metadata.height)
   // 方向 5–8 存的是转置后的宽高，按显示方向算长边。
   const turned = (metadata.orientation ?? 1) >= 5
