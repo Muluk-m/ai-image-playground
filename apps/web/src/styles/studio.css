@@ -1718,7 +1718,7 @@ html[data-home='true'] .app-inset-panel { overflow: clip; }
 
 /* 画布资产浮层：贴着左侧工具栏右边，顶端对齐工具栏，向下铺到底部导航上方。 */
 .studio-assets-panel {
-  position: absolute; z-index: 430; bottom: 76px; width: 404px; max-width: calc(100% - 32px);
+  position: absolute; z-index: 431; bottom: 76px; width: 404px; max-width: calc(100% - 32px);
   display: flex; flex-direction: column; overflow: hidden;
   border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--card)); box-shadow: var(--shadow-popover);
 }

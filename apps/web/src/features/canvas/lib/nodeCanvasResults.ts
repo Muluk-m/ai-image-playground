@@ -32,7 +32,7 @@ const system = canvasOrigin('system', 'node-result')
 const pixels = new WeakMap<Y.Doc, Map<string, string>>()
 const selections = new WeakMap<Y.Doc, Map<string, number>>()
 
-function sourceKey(source: CanvasResult['source']): string {
+export function sourceKey(source: CanvasResult['source']): string {
   if (source.type === 'file') return JSON.stringify(['file', source.fileId])
   if (source.type === 'media') return JSON.stringify(['media', source.mediaId])
   return JSON.stringify([source.type, source.taskId, source.outputIndex])
@@ -113,7 +113,8 @@ export async function recordNodeOutput(
   return result
 }
 
-async function imageSource(
+/** 一件结果此刻能显示的位图来源（data URL 或 aip-media:）；取不到抛 candidate_expired。 */
+export async function imageSource(
   editor: CanvasEditor,
   doc: Y.Doc,
   result: CanvasResult,
