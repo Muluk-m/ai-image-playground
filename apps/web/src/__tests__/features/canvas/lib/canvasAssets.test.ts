@@ -27,8 +27,12 @@ function tool(overrides: Partial<AgentToolMessage>): AgentToolMessage {
   }
 }
 
-function item(id: string, createdAt: number): CanvasAssetItem {
-  return { id, createdAt } as CanvasAssetItem
+function item(id: string, createdAt: number, mediaId = id): CanvasAssetItem {
+  return {
+    id,
+    createdAt,
+    insert: { kind: 'image', source: { type: 'media', mediaId } },
+  } as CanvasAssetItem
 }
 
 describe('canvas assets', () => {
@@ -89,6 +93,11 @@ describe('canvas assets', () => {
   it('sorts newest first and drops duplicates', () => {
     const sorted = sortCanvasAssets([item('a', 1), item('b', 3), item('a', 1), item('c', 2)])
     expect(sorted.map((one) => one.id)).toEqual(['b', 'c', 'a'])
+  })
+
+  it('drops a canvas result that points at an asset already listed', () => {
+    const sorted = sortCanvasAssets([item('a', 2), item('result:r1', 1, 'a'), item('d', 0)])
+    expect(sorted.map((one) => one.id)).toEqual(['a', 'd'])
   })
 
   it('groups by today, yesterday and a calendar date', () => {

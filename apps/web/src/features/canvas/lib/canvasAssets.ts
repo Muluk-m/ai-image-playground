@@ -202,7 +202,7 @@ export function canvasAssetsFromBatch(
   })
 }
 
-/** 新的在前；同一时间按出现顺序倒排，去掉重复的产物。 */
+/** 新的在前；同一时间按出现顺序倒排，去掉重复的产物（同 id 或同一份来源）。 */
 export function sortCanvasAssets(items: readonly CanvasAssetItem[]): CanvasAssetItem[] {
   const seen = new Set<string>()
   return items
@@ -210,8 +210,16 @@ export function sortCanvasAssets(items: readonly CanvasAssetItem[]): CanvasAsset
     .sort((a, b) => b.item.createdAt - a.item.createdAt || b.index - a.index)
     .map(({ item }) => item)
     .filter((item) => {
-      if (seen.has(item.id)) return false
+      const source = item.insert.source
+      const key =
+        source.type === 'media'
+          ? `media:${source.mediaId}`
+          : source.type === 'file'
+            ? `file:${source.fileId}`
+            : `task:${source.taskId}:${source.outputIndex}`
+      if (seen.has(item.id) || seen.has(key)) return false
       seen.add(item.id)
+      seen.add(key)
       return true
     })
 }

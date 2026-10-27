@@ -206,12 +206,13 @@ function useOtherAssets(enabled: boolean, conversationId: string | null) {
 }
 
 /**
- * 画布资产浮层的数据：当前项目对话里生成成功的图和视频（含批量计划的产物），
+ * 画布资产浮层的数据：当前项目对话里生成成功的图和视频（含批量计划的产物）加上画布节点跑出的结果，
  * 切到所有项目时再按需读其它对话。
  */
 export function useCanvasAssets(
   conversationId: string | null,
   scope: CanvasAssetScope,
+  canvasItems: readonly CanvasAssetItem[] = [],
 ): CanvasAssets {
   const project = useProjectMessages(conversationId)
   const batch = useBatchAssets(conversationId, project.messages, project.time)
@@ -222,9 +223,10 @@ export function useCanvasAssets(
         ? [
             ...canvasAssetsFromMessages(project.messages, conversationId, project.time),
             ...batch.items,
+            ...canvasItems,
           ]
-        : [],
-    [conversationId, project.messages, project.time, batch.items],
+        : canvasItems,
+    [conversationId, project.messages, project.time, batch.items, canvasItems],
   )
   const items = useMemo(
     () => sortCanvasAssets(scope === 'all' ? [...projectItems, ...others.items] : projectItems),

@@ -53,6 +53,7 @@ function AssetThumb({ item, className }: { item: CanvasAssetItem; className: str
 
 export default function NodeAssetsPanel({
   conversationId,
+  canvasItems,
   style,
   onClose,
   onPlace,
@@ -60,6 +61,8 @@ export default function NodeAssetsPanel({
 }: {
   /** 当前项目绑定的对话；还没聊过时为 null，当前项目就是空的。 */
   conversationId: string | null
+  /** 本画布节点跑出的结果，算在当前项目里。 */
+  canvasItems?: readonly CanvasAssetItem[]
   style?: CSSProperties
   onClose: () => void
   /** 放上画布并选中；返回是否成功，失败时保留勾选。 */
@@ -74,7 +77,7 @@ export default function NodeAssetsPanel({
   const [scope, setScope] = useState<CanvasAssetScope>('project')
   const [selecting, setSelecting] = useState(false)
   const [picked, setPicked] = useState<readonly string[]>([])
-  const assets = useCanvasAssets(conversationId, scope)
+  const assets = useCanvasAssets(conversationId, scope, canvasItems)
   const counts = useMemo(() => {
     const next = { image: 0, video: 0 }
     for (const item of assets.items) next[item.media] += 1
