@@ -76,6 +76,18 @@ describe('turnImageReceipt', () => {
     expect(turnImageReceipt(messages, 'turn-1')).toEqual({ cardId: undefined, outputCount: 1 })
   })
 
+  it('counts every image of the turn and ignores non-image outputs when the footer closes the turn', () => {
+    const video: AgentToolMessage = {
+      ...image('mixed', 'succeeded'),
+      artifacts: [
+        { artifactId: 'v', media: 'video', taskId: 'mixed', outputIndex: 0, mime: 'video/mp4' },
+        { artifactId: 'i', media: 'image', taskId: 'mixed', outputIndex: 1, mime: 'image/png' },
+      ],
+    }
+    const messages = [image('first', 'succeeded'), video, image('stopped', 'failed')]
+    expect(turnImageReceipt(messages, 'turn-1')).toEqual({ cardId: undefined, outputCount: 2 })
+  })
+
   it('has no image receipt when every image was cancelled', () => {
     expect(turnImageReceipt([image('stopped', 'failed'), text('tail')], 'turn-1')).toBeNull()
   })
