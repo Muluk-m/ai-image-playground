@@ -1,8 +1,12 @@
-import sharp from 'sharp'
+import { MAX_IMAGE_UPLOAD_BYTES } from '@image-playground/shared'
+import sharp, { type Metadata } from 'sharp'
+import { config } from '../../config'
+import { assertMediaImageProcessingBudget, MEDIA_UPLOAD_MAX_PIXELS } from '../media-image-limits'
 import { AgentToolError } from './tools/errors'
 import {
   assertVisualBytes,
   previewSourceByteLimit,
+  visualByteLimit,
   visualMetadata,
   visualPixelLimit,
   withVisualPreparation,
@@ -23,11 +27,15 @@ export const MODEL_IMAGE_MIMES: ReadonlySet<string> = new Set([
   'image/webp',
 ])
 
-function parseDataUrl(value: string, sourceOnly = false): { mime: string; bytes: Buffer } | null {
+function parseDataUrl(
+  value: string,
+  sourceOnly: boolean | 'checked' = false,
+): { mime: string; bytes: Buffer } | null {
   // 只用来现缩的源图不进请求，按像素预算折出的上限卡；其余直接进请求，按请求预算卡。
+  // 'checked'：调用方已按自己的源图上限卡过。
   const bytes = Buffer.byteLength(value, 'utf8')
   if (!sourceOnly) assertVisualBytes(bytes)
-  else if (bytes > previewSourceByteLimit())
+  else if (sourceOnly === true && bytes > previewSourceByteLimit())
     throw new AgentToolError(
       'quota_exceeded',
       `图片需要 ${bytes} 字节，超过预览源图上限 ${previewSourceByteLimit()}；本次图片未送入模型。请重新添加符合预算的图片。`,
@@ -127,8 +135,111 @@ async function regionImage(dataUrl: string, region: ImageRegion): Promise<string
   }
 }
 
+/**
+ * 改图输入的最长边（BUG-35，Nain 2026-10-28 定）：超大图先等比缩到这以内再改，不再整轮拒绝。
+ * 上游出图本来只有 1–4 MP，缩到 4000 不影响结果。
+ */
+export const EDIT_INPUT_MAX_EDGE = 4000
+
+/** 改图源图能读多大：与用户能上传的一致（`mediaLimits`），不按请求预算卡——缩完才进请求。 */
+export function editSourceByteLimit(): number {
+  return Math.max(
+    visualByteLimit(),
+    Math.ceil(
+      (Math.min(config.operator.quotas['sync:asset-image-bytes'], MAX_IMAGE_UPLOAD_BYTES) * 4) / 3,
+    ) + 64,
+  )
+}
+
+/** 缩到最长边 ≤ {@link EDIT_INPUT_MAX_EDGE} 且像素不超准备预算；极端长宽比按两者中更紧的那条收。 */
+export function editInputSize(
+  width: number,
+  height: number,
+  pixelLimit = visualPixelLimit(),
+): { width: number; height: number } {
+  const scale = Math.min(
+    1,
+    EDIT_INPUT_MAX_EDGE / Math.max(width, height),
+    Math.sqrt(pixelLimit / (width * height)),
+  )
+  if (scale >= 1) return { width, height }
+  // 向下取整，保证两条上限都不被四舍五入顶破；短边至少 1px。
+  return {
+    width: Math.max(1, Math.floor(width * scale)),
+    height: Math.max(1, Math.floor(height * scale)),
+  }
+}
+
+/**
+ * 改图输入：最长边超过 4000、像素超准备预算或字节超请求预算的图，按 EXIF 方向摆正后等比缩小，
+ * 不透明的转 JPEG、带透明的转 PNG（放不下再转 WebP）。其余照常走格式归一，原样送出。
+ *
+ * 源图解码上限与上传校验同源（{@link MEDIA_UPLOAD_MAX_PIXELS} + 处理预算），能挂上的图都能改。
+ */
+async function editInputImage(dataUrl: string): Promise<string> {
+  const bytes = Buffer.byteLength(dataUrl, 'utf8')
+  if (bytes > editSourceByteLimit())
+    throw new AgentToolError(
+      'quota_exceeded',
+      `图片需要 ${bytes} 字节，超过改图源图上限 ${editSourceByteLimit()}；本次图片未送入模型。请重新添加更小的图片。`,
+    )
+  const parsed = parseDataUrl(dataUrl, 'checked')
+  if (!parsed) return conversionFailure()
+  let metadata: Metadata
+  try {
+    metadata = await sharp(parsed.bytes, { limitInputPixels: MEDIA_UPLOAD_MAX_PIXELS }).metadata()
+    if (!metadata.width || !metadata.height) return conversionFailure()
+    assertMediaImageProcessingBudget({
+      ...metadata,
+      width: metadata.width,
+      height: metadata.height,
+    })
+  } catch (error) {
+    if (error instanceof AgentToolError) throw error
+    return conversionFailure()
+  }
+  const pixelLimit = visualPixelLimit()
+  const pages = metadata.pages ?? 1
+  // 方向 5–8 存的是转置后的宽高，按显示方向算长边。
+  const turned = (metadata.orientation ?? 1) >= 5
+  const width = turned ? metadata.height : metadata.width
+  const height = turned ? metadata.width : metadata.height
+  const oversized =
+    Math.max(width, height) > EDIT_INPUT_MAX_EDGE ||
+    width * height * pages > pixelLimit ||
+    bytes > visualByteLimit()
+  if (!oversized) return normalizeImage(dataUrl)
+  const target = editInputSize(width, height, pixelLimit)
+  try {
+    const resized = sharp(parsed.bytes, { limitInputPixels: MEDIA_UPLOAD_MAX_PIXELS })
+      .timeout({ seconds: 30 })
+      .rotate()
+      .resize({ width: target.width, height: target.height, fit: 'fill' })
+    let output: { buffer: Buffer; mime: string }
+    if (metadata.hasAlpha) {
+      output = { buffer: await resized.clone().png().toBuffer(), mime: 'image/png' }
+      if (Math.ceil((output.buffer.length * 4) / 3) + 32 > visualByteLimit())
+        output = { buffer: await resized.webp({ quality: 90 }).toBuffer(), mime: 'image/webp' }
+    } else {
+      output = {
+        buffer: await resized.flatten({ background: '#ffffff' }).jpeg({ quality: 85 }).toBuffer(),
+        mime: 'image/jpeg',
+      }
+    }
+    const fitted = `data:${output.mime};base64,${output.buffer.toString('base64')}`
+    assertVisualBytes(Buffer.byteLength(fitted, 'utf8'))
+    return fitted
+  } catch (error) {
+    if (error instanceof AgentToolError) throw error
+    return conversionFailure()
+  }
+}
+
 export const toModelImageDataUrl = (dataUrl: string): Promise<string> =>
   withVisualPreparation(() => normalizeImage(dataUrl))
+/** 送进改图的输入（无遮罩）：超大图等比缩小后再送，见 {@link editInputImage}。 */
+export const toEditInputDataUrl = (dataUrl: string): Promise<string> =>
+  withVisualPreparation(() => editInputImage(dataUrl))
 export const toPreviewDataUrl = (dataUrl: string): Promise<string> =>
   withVisualPreparation(() => previewImage(dataUrl))
 export const toRegionDataUrl = (dataUrl: string, region: ImageRegion): Promise<string> =>

@@ -908,6 +908,49 @@ describe('智能体改图工具', () => {
     ])
   })
 
+  it('scales an oversized reference to a 4000px long edge before submitting the edit', async () => {
+    // BUG-35：最长边超过 4000 的图先等比缩小再改，不再整轮拒绝。
+    const large = `data:image/jpeg;base64,${(
+      await sharp({ create: { width: 5000, height: 3000, channels: 3, background: '#3366cc' } })
+        .jpeg()
+        .toBuffer()
+    ).toString('base64')}`
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'call-large',
+              name: 'editImage',
+              args: { prompt: '把背景换成浅木色', imageIds: ['canvas-large'] },
+            }),
+          () => completionStream('改好了'),
+        ],
+      ),
+    )
+    const stop = settleSubmittedTasks('completed')
+    const conversationId = await startConversation()
+    const frames = await runTurn(conversationId, '把 [image 1] 的背景换成浅木色', {
+      references: [{ imageId: 'canvas-large', dataUrl: large }],
+    })
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({ status: 'awaiting_confirmation' })
+    await confirmDrafts(conversationId)
+    await settledResults(conversationId)
+    stop()
+    const [task] = await db.select().from(schema.tasks)
+    const [input] = task!.request_payload.input_images! as unknown as {
+      mime: string
+      object: string
+    }[]
+    expect(input!.mime).toBe('image/jpeg')
+    const archived = storage.objects.get(input!.object)!
+    expect(await sharp(Buffer.from(archived.bytes)).metadata()).toMatchObject({
+      width: 4000,
+      height: 2400,
+    })
+  })
+
   it('passes the mask the user drew on that reference', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(
