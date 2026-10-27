@@ -265,6 +265,15 @@ export function maskProposalGuidance(errorText: string): boolean {
   return said === WHOLE_IMAGE_EDIT_NUDGE || said === USER_MASK_PRESENT_GUIDANCE
 }
 
+/** 参数类退回的尾注：告诉模型怎么改；turn.ts 认这个尾注放它重试一次。 */
+const MASK_PARAMS_RETRY_HINT =
+  '按上面的提示改好参数，再调一次 proposeEditRegion；不要改成整图编辑，也不要叫用户自己去画。'
+
+/** 只有参数写错的失败值得交回模型重试；暂不可用、分割与存储出错都不会因为重试变好。 */
+export function maskProposalRetryable(errorText: string): boolean {
+  return errorText.trim().endsWith(MASK_PARAMS_RETRY_HINT)
+}
+
 export function maskProposalFailedText(errorText: string): string {
   const reason = UNAVAILABLE.exec(errorText)?.[1]
   return reason
@@ -434,8 +443,23 @@ export function maskProposalTool(context: AgentToolContext): AgentTool {
     label: '确认修改范围',
     description: MASK_PROPOSAL_DESCRIPTION,
     parameters,
-    execute: async (_toolCallId, params, signal) =>
-      propose(context, params as Parameters<typeof propose>[1], signal),
+    execute: async (_toolCallId, params, signal) => {
+      try {
+        return await propose(context, params as Parameters<typeof propose>[1], signal)
+      } catch (error) {
+        // 外接框越界、实例没标 selected 这类参数毛病，模型改一下参数就能重试；带上记号交回。
+        // 暂不可用（未登录、尺寸超限）也是 invalid_params，但重试没用，照原样收尾。
+        if (
+          error instanceof AgentToolError &&
+          error.code === 'invalid_params' &&
+          !(error instanceof MaskProposalUnavailable) &&
+          !maskProposalGuidance(error.message)
+        ) {
+          throw new AgentToolError('invalid_params', `${error.message}。${MASK_PARAMS_RETRY_HINT}`)
+        }
+        throw error
+      }
+    },
   }
   return asPiTool(tool)
 }
