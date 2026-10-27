@@ -18,6 +18,7 @@ const { config } = await import('../../config')
 const { claimTaskExecution } = await import('../../workers/task-execution')
 const { selectRunnableTasks } = await import('../../workers/runnable-tasks')
 const { _setChannelsForTesting } = await import('../../lib/channels')
+const { taskConcurrencyScope } = await import('../../lib/upstream')
 
 const STARTER = 'starter-user'
 const STANDARD = 'standard-user'
@@ -204,6 +205,29 @@ describe('入门版空闲时可用并发', () => {
       .where(eq(schema.tasks.id, sameModel))
     const other = await claim(sameModel)
     expect(other?.idleSlot).toBe(true)
+  })
+
+  it('退役旧模型名落到原渠道的声明模型，旧队列任务也计入同一上限', async () => {
+    const grokVideo = {
+      id: 'grok-video',
+      kind: 'openai-queue',
+      label: 'Grok Imagine Video',
+      baseUrl: 'https://grok.invalid/v1',
+      auth: { type: 'bearer', secretRef: 'GROK_API_KEY', secret: 'grok-test-key' },
+      allowedPaths: [],
+      models: [{ id: 'grok-imagine-video-1.5-lite', label: 'lite', capabilities: ['generate'] }],
+      defaults: { timeout: 600 },
+      maxConcurrency: 1,
+    } as unknown as InternalChannel
+    _setChannelsForTesting([vertexChannel, grokVideo])
+    const scope = { models: ['grok-imagine-video-1.5-lite', 'grok-imagine-video'], limit: 1 }
+    expect(taskConcurrencyScope('openai-compat', 'grok-imagine-video')).toEqual(scope)
+    expect(taskConcurrencyScope('openai-compat', 'grok-imagine-video-1.5-lite')).toEqual(scope)
+
+    await running('other-1', { model: 'grok-imagine-video' })
+    await running(STARTER, { model: 'grok-imagine-video-1.5-lite' })
+    const next = await queue(STARTER, { model: 'grok-imagine-video-1.5-lite' })
+    expect(await claim(next)).toBeNull()
   })
 
   it('同一入门用户三个认领同时来，只按空闲并发上限放 2 个', async () => {

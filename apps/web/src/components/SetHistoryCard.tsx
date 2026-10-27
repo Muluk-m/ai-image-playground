@@ -3,6 +3,7 @@ import { taskExportSources } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
 import AssetThumb from '../features/library/components/AssetThumb'
 import { useTranslation } from '../i18n'
+import { taskRecordErrorText } from '../lib/taskError'
 import { retryTask, useStore } from '../store'
 import type { TaskRecord } from '../types'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
@@ -365,9 +366,9 @@ export default function SetHistoryCard({
                 </p>
                 <p
                   className="line-clamp-2 text-xs text-destructive"
-                  title={task.error ?? undefined}
+                  title={taskRecordErrorText(task) ?? undefined}
                 >
-                  {task.error?.split('\n')[0] || t('common:state.failed')}
+                  {taskRecordErrorText(task)?.split('\n')[0] || t('common:state.failed')}
                 </p>
               </div>
               <Button

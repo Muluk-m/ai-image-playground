@@ -177,6 +177,13 @@ describe('ci-deploy-target.sh', () => {
     expect(log).toContain(`web bundle (internal and paid sites) unchanged since ${previous}`)
   })
 
+  it('ships the API when only the segmenter deploy script changes, since the release carries it', () => {
+    const previous = commits[2]
+    const tip = commitOnTip('scripts/segmenter-deploy.sh', '#!/bin/sh\n')
+    serveSides({ api: previous, web: previous, admin: previous })
+    expect(decide(tip).decision).toBe(result(true, false, false))
+  })
+
   it('ships only the Admin site and the API when the admin app changes', () => {
     const previous = commits[2]
     const tip = commitOnTip('apps/admin/src/main.tsx', 'export {}\n')

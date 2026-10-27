@@ -53,6 +53,8 @@ export interface StoredImageRef {
  * - `content_policy`: 上游内容安全判定拒绝了这次请求（OpenAI safety system、Grok 网关内容
  *   策略、Gemini 的 blockReason/SAFETY 类 finishReason）。它与 `upstream_error` 的区别是
  *   出路：原样重试稳定复现，只有改提示词才有意义。
+ * - `model_unavailable`: 上游表示这个模型当前没有可用的账号或渠道（如 Grok 账号池耗尽），
+ *   换模型才有出路
  * - `upstream_no_image`: 上游 HTTP 200 但解析不出图，且不是内容安全拒绝
  * - `interrupted`: BFF 重启时被打断（startup recovery 标记）
  * - `object_storage_error`: object storage read/write failed, or archiving could not fetch the
@@ -64,6 +66,7 @@ export type TaskErrorType =
   | 'upstream_result_unknown'
   | 'upstream_error'
   | 'content_policy'
+  | 'model_unavailable'
   | 'upstream_no_image'
   | 'interrupted'
   | 'object_storage_error'

@@ -1,4 +1,6 @@
 import { afterEach, expect, it } from 'bun:test'
+import { randomBytes } from 'node:crypto'
+import sharp from 'sharp'
 
 process.env.PORT = '0'
 process.env.DATABASE_URL = 'postgres://unused/unused'
@@ -79,4 +81,38 @@ it('批次唤醒的尽力复核图也走预览，装不下或读不到的跳过'
 it('读不出来的必需复核图仍然报错：缺图不能算复核过', async () => {
   setLimit(1000)
   await expect(prepareReviewImages(source({ a: null }), [], ['a'])).rejects.toThrow('复核图片 a')
+})
+
+it('shrinks a real 4K PNG larger than the request budget before preparing review evidence', async () => {
+  setLimit(16 * 1024 * 1024)
+  const { toPreviewDataUrl } = await import('../../../lib/agent/modelImage')
+  const png = await sharp(randomBytes(3840 * 2160 * 3), {
+    raw: { width: 3840, height: 2160, channels: 3 },
+  })
+    .png()
+    .toBuffer()
+  const original = `data:image/png;base64,${png.toString('base64')}`
+  expect(Buffer.byteLength(original)).toBeGreaterThan(16 * 1024 * 1024)
+  const { reviewed, omitted } = await prepareReviewImages(
+    {
+      async resolve(imageId, variant) {
+        return {
+          imageId,
+          dataUrl: variant === 'preview' ? await toPreviewDataUrl(original) : original,
+          visualVariant: variant,
+        }
+      },
+    },
+    [],
+    ['4k-result'],
+  )
+  expect(omitted).toEqual([])
+  expect(reviewed).toHaveLength(1)
+  expect(Buffer.byteLength(reviewed[0]!.dataUrl)).toBeLessThan(16 * 1024 * 1024)
+  const metadata = await sharp(
+    Buffer.from(reviewed[0]!.dataUrl.split(',')[1]!, 'base64'),
+  ).metadata()
+  expect(metadata.format).toBe('webp')
+  expect(metadata.width).toBe(1024)
+  expect(metadata.height).toBe(576)
 })

@@ -5,7 +5,7 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Slider } from '../../../components/ui/slider'
 import { Textarea } from '../../../components/ui/textarea'
-import { useTranslation } from '../../../i18n'
+import { describeError, useTranslation } from '../../../i18n'
 import { classifyMaskAlpha, fillMaskLasso, isUsableMaskLasso } from '../../../lib/mask'
 import { prepareMaskTargetDataUrl } from '../../../lib/maskPreprocess'
 import { useStore } from '../../../store'
@@ -171,7 +171,7 @@ export default function AgentArtifactEditDialog({
         if (active) setWorking(prepared.dataUrl)
       })
       .catch((error) => {
-        if (active) showToast(error instanceof Error ? error.message : String(error), 'error')
+        if (active) showToast(describeError(error), 'error')
       })
       .finally(() => {
         if (active) setLoading(false)
@@ -640,7 +640,7 @@ export default function AgentArtifactEditDialog({
       else input = extendImage(image, extension)
       onGenerate(input, regionPrompt.serialize().trim())
     } catch (error) {
-      showToast(error instanceof Error ? error.message : String(error), 'error')
+      showToast(describeError(error), 'error')
     }
   }
 

@@ -4,7 +4,10 @@ import { promptLogin } from '../../../auth/loginPrompt'
 import { i18next } from '../../../i18n'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { notifyPrivateSubmissionError, PrivateWebOverlayPresent } from '../../../lib/privateOverlay'
+import { agentToolFailureText } from '../../../lib/taskError'
 import type { AgentRerunBlock } from './retry'
+
+export { agentToolFailureText }
 
 /**
  * 一次失败的工具调用给用户的出路。界面只按错误码决定（ADR 0006），不读服务端的 `message`。
@@ -59,43 +62,6 @@ export function agentToolFailureAction(
       return block !== null && code !== undefined && AGENT_RETRYABLE_ERROR_CODES.includes(code)
         ? 'reprocess'
         : null
-  }
-}
-
-/** 失败原因的一句话，按错误码取译文。没有码（旧记录）时返回 null，调用方照旧处理。 */
-export function agentToolFailureText(code: AgentToolErrorCode | undefined): string | null {
-  const t = i18next.getFixedT(null, 'errors')
-  switch (code) {
-    case undefined:
-      return null
-    case 'upstream_error':
-      return t('agentTool.upstream_error')
-    case 'timeout':
-      return t('agentTool.timeout')
-    case 'no_output':
-      return t('agentTool.no_output')
-    case 'result_unknown':
-      return t('agentTool.result_unknown')
-    case 'insufficient_credits':
-      return t('agentTool.insufficient_credits')
-    case 'quota_exceeded':
-      return t('agentTool.quota_exceeded')
-    case 'authentication_required':
-      return t('agentTool.authentication_required')
-    case 'invalid_params':
-      return t('agentTool.invalid_params')
-    case 'source_unavailable':
-      return t('agentTool.source_unavailable')
-    case 'content_policy':
-      return t('agentTool.content_policy')
-    case 'model_unavailable':
-      return t('agentTool.model_unavailable')
-    case 'service_unavailable':
-      return t('agentTool.service_unavailable')
-    case 'cancelled':
-      return t('agentTool.cancelled')
-    default:
-      return t('agentTool.fallback')
   }
 }
 

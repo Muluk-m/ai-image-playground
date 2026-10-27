@@ -636,7 +636,7 @@ export default function AgentPanel({
                   ))}
                 {orphanFooters(-1)}
                 {messages.map((message, index) => (
-                  <Fragment key={planKeys.get(index) ?? `${message.id}:block`}>
+                  <Fragment key={`${planKeys.get(index) ?? message.id}:block`}>
                     {(() => {
                       const planRun = planRuns.starts.get(index)
                       if (planRuns.absorbed.has(index) && !planRun) return null
@@ -648,7 +648,7 @@ export default function AgentPanel({
                             : null
                         return (
                           <div
-                            key={`${planKeys.get(index)}:${historyCached}`}
+                            key={`${planKeys.get(index) ?? message.id}:${historyCached}`}
                             data-agent-message-id={message.id}
                             data-agent-run-ids={planRun.map((one) => one.id).join(' ')}
                             className="studio-agent-message-block"

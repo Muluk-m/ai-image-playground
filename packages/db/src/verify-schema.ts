@@ -43,6 +43,7 @@ export const EXPECTED_TABLES = [
   'api_minutes',
   'client_errors',
   'client_error_recoveries',
+  'model_availability',
   'server_logs',
   'container_samples',
   'host_samples',
@@ -197,6 +198,7 @@ export const EXPECTED_INDEXES = [
   'user_looks_user_id_id_pk',
   'user_templates_user_id_id_pk',
   'users_pkey',
+  'model_availability_pkey',
 ] as const
 
 export const EXPECTED_COLUMNS = [

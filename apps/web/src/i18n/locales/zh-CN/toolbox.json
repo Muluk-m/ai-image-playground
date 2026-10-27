@@ -17,8 +17,8 @@
       "options": "比例 · 电商 / 社媒尺寸"
     },
     "rotate": {
-      "name": "旋转翻转",
-      "options": "90° · 水平 · 垂直"
+      "name": "旋转与镜像",
+      "options": "任意角度 · 水平 / 垂直镜像"
     },
     "collage": {
       "name": "拼图",
@@ -158,5 +158,19 @@
     "invalidSize": "请输入大于 0 的整数尺寸",
     "pendingSize": "待输入",
     "unknownSize": "导出时计算"
+  },
+  "rotation": {
+    "angle": "精确角度",
+    "left": "左转 90°",
+    "right": "右转 90°",
+    "mirror": "镜像",
+    "grid": "辅助网格",
+    "expand": "保留完整画面",
+    "reset": "重置调整",
+    "original": "原图",
+    "adjusted": "调整后",
+    "images": "选择图片",
+    "lossless": "PNG · 无损",
+    "export": "导出图片"
   }
 }

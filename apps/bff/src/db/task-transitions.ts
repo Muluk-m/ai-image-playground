@@ -7,6 +7,7 @@ import {
 import { and, eq, gt, inArray, type SQL, sql } from 'drizzle-orm'
 import { agentJobsEnded } from '../lib/agent/wake'
 import { type GenerationMediaLink, publishGenerationImages } from '../lib/generationMedia'
+import { pauseUnavailableModel } from '../lib/model-availability'
 import { type BffTransaction, loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
 import { publishProjectOutputs } from '../lib/projectArchive'
 import { db, schema } from './client'
@@ -234,6 +235,7 @@ export async function finishTask(
       .returning({
         id: schema.tasks.id,
         userId: schema.tasks.user_id,
+        model: schema.tasks.model,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
       })
     if (!finished) return false
@@ -257,6 +259,9 @@ export async function finishTask(
       upstreamStatus: update.upstreamStatus ?? null,
       actualUsage: update.actualUsage,
     })
+    if (update.status === 'failed' && update.errorType === 'model_unavailable') {
+      await pauseUnavailableModel(tx, finished.model, update.completedAt)
+    }
     // 智能体的后台任务：同一个事务里判断要不要唤醒它，终态与唤醒要么一起落、要么都不落。
     await agentJobsEnded(tx, [finished.id], update.completedAt)
     await publishGenerations(tx, [finished.id])

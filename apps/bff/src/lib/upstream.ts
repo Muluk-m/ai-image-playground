@@ -127,18 +127,39 @@ export function taskConcurrencyScope(
   const kind = provider === 'gemini' ? 'gemini-queue' : 'openai-queue'
   for (const channel of getRoutableChannels()) {
     if (!channelRouteStyle(channel.id) || channel.kind !== kind) continue
-    const declared = channel.models.find((m) => m.id === model)
+    const declared = declaredChannelModel(channel, model)
     if (!declared) continue
     const perModel = channel.modelMaxConcurrency
     if (perModel && Object.hasOwn(perModel, declared.id))
-      return { models: [declared.id], limit: perModel[declared.id]! }
+      return { models: withLegacyAliases(channel, [declared.id]), limit: perModel[declared.id]! }
     if (!channel.maxConcurrency) return undefined
     const shared = channel.models
       .map((m) => m.id)
       .filter((id) => !(perModel && Object.hasOwn(perModel, id)))
-    return { models: shared, limit: channel.maxConcurrency }
+    return { models: withLegacyAliases(channel, shared), limit: channel.maxConcurrency }
   }
   return undefined
+}
+
+/** 从发现清单退役、旧队列任务仍落到原渠道某个声明模型上的模型名：渠道 → 旧名 → 声明模型。 */
+const LEGACY_MODEL_ALIASES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  'grok-video': { 'grok-imagine-video': 'grok-imagine-video-1.5-lite' },
+}
+
+/** 渠道里承接这个模型名的声明模型；退役旧名按 LEGACY_MODEL_ALIASES 落到原线路。 */
+function declaredChannelModel(channel: InternalChannel, model: string) {
+  const exact = channel.models.find((m) => m.id === model)
+  if (exact) return exact
+  const target = LEGACY_MODEL_ALIASES[channel.id]?.[model]
+  return target ? channel.models.find((m) => m.id === target) : undefined
+}
+
+/** 同一上限下的模型清单补上落到这些模型的退役旧名，在途计数才算得到旧队列任务。 */
+function withLegacyAliases(channel: InternalChannel, ids: string[]): string[] {
+  const aliases = Object.entries(LEGACY_MODEL_ALIASES[channel.id] ?? {})
+    .filter(([legacy, target]) => ids.includes(target) && !ids.includes(legacy))
+    .map(([legacy]) => legacy)
+  return aliases.length ? [...ids, ...aliases] : ids
 }
 
 /**
@@ -154,11 +175,7 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
     const style = channelRouteStyle(channel.id)
     if (!style || channel.kind !== kind) continue
     // 从发现清单退役后，旧队列任务仍要在原 Grok 线路提交或续轮询。
-    const declared =
-      channel.models.find((m) => m.id === model) ??
-      (channel.id === 'grok-video' && model === 'grok-imagine-video'
-        ? channel.models.find((m) => m.id === 'grok-imagine-video-1.5-lite')
-        : undefined)
+    const declared = declaredChannelModel(channel, model)
     if (!declared) continue
     return {
       baseUrl: channel.baseUrl,
@@ -249,9 +266,9 @@ export function setUpstreamFetchForTesting(fetchImpl?: UpstreamFetch): void {
 }
 
 /**
- * Bun fetch 的 client timeout 无法可靠覆盖，改用 Undici Agent 的公开配置项。
- * transport headers/body 都比应用硬超时长 1min，确保正常终止统一由下方
- * AbortController 决定；不再依赖 undocumented idleTimeout 或强制 Connection: close。
+ * 正常终止统一由下方的 deadline 决定。Bun 自带的 300 秒 fetch 超时在 transport 那一层关掉
+ * （`timeoutFetch.ts` 的 withoutRuntimeTimeout）；Agent 的 headers/body 超时比应用硬超时长 1min，
+ * 只在 Node 下生效，作兜底。
  */
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const {

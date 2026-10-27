@@ -426,3 +426,25 @@ it('sends malformed caller-supplied causes without losing the remaining queue', 
     bodies.flatMap(({ body }) => body.errors.map((error: { message: string }) => error.message)),
   ).toEqual(['first', 'second'])
 })
+
+it.each([
+  'media_invalid_image',
+  'media_unsupported_image',
+  'media_image_pixels_exceeded',
+  'media_image_processing_limit',
+  'media_size_mismatch',
+  'media_hash_mismatch',
+])('retains the safe media rejection code %s', async (code) => {
+  configureErrorReporting('')
+  reportDeliveryFailure(
+    { operation: 'media.upload', stage: 'complete' },
+    {
+      name: 'Error',
+      status: 422,
+      code,
+    },
+  )
+  flushClientErrors()
+  const reports = (await sentBodies()).flatMap((sent) => sent.body.errors)
+  expect(reports[0].context).toMatchObject({ status: 422, errorCode: code })
+})

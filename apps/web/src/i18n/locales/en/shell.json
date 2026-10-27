@@ -87,7 +87,7 @@
     "subtitle": "Start with a prompt or reference image. Keep editing from there."
   },
   "createTarget": {
-    "aria": "Where this prompt goes",
+    "aria": "Choose creation mode",
     "generate": "Quick generate",
     "chat": "Smart creation",
     "canvas": "Canvas"

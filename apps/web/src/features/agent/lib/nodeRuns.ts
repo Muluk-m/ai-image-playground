@@ -1,20 +1,46 @@
 import type {
   AgentCanvasRunProposal,
   StageAuthorization,
+  StageAuthorizationSubmission,
   StageRunNodeReport,
   StageRunReason,
   StageRunRecord,
 } from '@image-playground/shared'
+import { stageExecutionSpecsMatch } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
 import { refreshChannels } from '../../../lib/channels/bootstrapChannels'
 import {
   billedNodeQuantity,
   type NodeBatchError,
+  NodeBatchFailure,
   type NodeBatchJob,
   type NodeBatchPlan,
 } from '../../canvas/lib/nodeBatch'
-import { agentNodeRunBridge, subscribeAgentNodeRun } from './nodeRunBridge'
+import { type AgentNodeRunBridge, agentNodeRunBridge, subscribeAgentNodeRun } from './nodeRunBridge'
 import { stageAuthorizationClient } from './stageAuthorizationClient'
+
+/**
+ * 提交被阶段授权拦下时，把 BFF 的错误码翻成报给智能体的原因；不是授权拒绝就返回 undefined，
+ * 照常按上游失败处理（可以重试一次）。
+ */
+function stageRejectionReason(code: string | undefined): StageRunReason | undefined {
+  // 只认已知的拒绝码；没列出的（含以后新增的）按普通失败走原来的重试流程，不猜原因。
+  switch (code) {
+    case 'stage_authorization_scope':
+    case 'stage_authorization_attempt_conflict': // 模型、倍率或数量和授权时不一致
+      return 'spec_changed'
+    case 'stage_authorization_budget':
+      return 'budget_exceeded'
+    case 'stage_authorization_retry_limit':
+      return 'retry_limit'
+    case 'stage_authorization_inactive':
+    case 'stage_authorization_not_found':
+    case 'stage_authorization_stale':
+      return 'authorization'
+    default:
+      return undefined
+  }
+}
 
 export const AGENT_NODE_RUN_UNDO_SECONDS = 5
 /** 这一批交给智能体的回报：逐节点结局，以及唤醒走到了哪一步。 */
@@ -140,12 +166,15 @@ function publish(key: string, run: AgentNodeRun) {
 // 正挂着的运行卡。卡在就由卡在终局交完后收走运行（它要先把结局留在卡面上）。
 const watchedCards = new Map<string, number>()
 /** 运行卡挂载时调用，返回卸载时的释放函数。 */
-export function watchAgentNodeRun(key: string): () => void {
+function watchAgentNodeRun(key: string): () => void {
   watchedCards.set(key, (watchedCards.get(key) ?? 0) + 1)
   return () => {
     const left = (watchedCards.get(key) ?? 1) - 1
     if (left > 0) watchedCards.set(key, left)
-    else watchedCards.delete(key)
+    else {
+      watchedCards.delete(key)
+      releaseUnwatchedRun(key)
+    }
   }
 }
 /**
@@ -191,9 +220,6 @@ function forgetSwitchedRun(
   if (control && controls.get(key)?.control === control) controls.delete(key)
   revision += 1
   for (const listener of listeners) listener()
-}
-export function agentNodeRunControl(key: string): AbortController | undefined {
-  return controls.get(key)?.control
 }
 /**
  * 开跑前就拦下、且不会自己消失的错误：报给智能体让它说明缺什么。`busy`（正在生成或上传）与
@@ -294,6 +320,7 @@ async function reportRun(
   executionToken: string | undefined,
   sameAccount: () => boolean,
   owner: symbol,
+  syncResults?: () => Promise<void>,
 ): Promise<boolean> {
   const origin = origins.get(key)
   let published = false
@@ -310,6 +337,16 @@ async function reportRun(
     if (live()) origin?.onReported?.(authorizationId)
   }
   update({ nodes, wake: 'reporting' })
+  // 回报会立即唤醒读服务端画布；本机生成完成还不代表媒体与节点已在服务端可读。
+  if (syncResults && nodes.some((node) => node.outcome === 'completed')) {
+    try {
+      await syncResults()
+    } catch {
+      update({ nodes, wake: 'failed' })
+      return false
+    }
+  }
+  if (!live()) return false
   try {
     const result = await stageAuthorizationClient.report(authorizationId, {
       nodes,
@@ -370,6 +407,109 @@ export function noteAgentNodeRunBlocked(
   })
 }
 
+function quoteAgentNodeRun(proposal: AgentCanvasRunProposal, bridge = agentNodeRunBridge()) {
+  const plan = bridge?.quote(proposal)
+  if (!plan) return plan
+  // 临时上传不在服务端快照里。确认前就停住并提示，不能拖到提交才因张数对不上失败。
+  if (plan.jobs.some((job) => Object.keys(job.temporary).length > 0))
+    return { ...plan, error: 'local' as const }
+  if (!proposal.specs?.length || plan.error) return plan
+  const live = plan.jobs.map((job) => ({
+    nodeId: job.id,
+    model: job.model,
+    quantity: billedNodeQuantity(job),
+    unitMultiplier: job.unitMultiplier ?? 1,
+  }))
+  return stageExecutionSpecsMatch(live, proposal.specs)
+    ? plan
+    : { ...plan, error: 'stale' as const }
+}
+
+async function runAuthorizedNodeBatch(
+  bridge: AgentNodeRunBridge,
+  proposal: AgentCanvasRunProposal,
+  signature: string,
+  signal: AbortSignal,
+  progress: (completed: number, id: string) => void,
+  executionToken: string,
+  record: (report: StageRunNodeReport) => void,
+  live: () => boolean,
+) {
+  const assertCurrent = () => {
+    if (signal.aborted || !live()) throw new NodeBatchFailure('cancelled')
+  }
+  const plan = quoteAgentNodeRun(proposal, bridge)
+  if (!plan || plan.signature !== signature || plan.error || plan.blocked)
+    throw new NodeBatchFailure(plan?.error ?? 'changed')
+  if (!proposal.authorizationId) throw new NodeBatchFailure('authorization')
+  const authorizationId = proposal.authorizationId
+  const authorizations: Record<string, StageAuthorizationSubmission> = {}
+  const preflightJob = async (job: NodeBatchJob) => {
+    assertCurrent()
+    const attemptId = crypto.randomUUID()
+    await stageAuthorizationClient.preflight(authorizationId, {
+      executionToken,
+      attemptId,
+      nodeId: job.id,
+      model: job.model,
+      quantity: billedNodeQuantity(job),
+      unitMultiplier: job.unitMultiplier ?? 1,
+    })
+    assertCurrent()
+    authorizations[job.id] = {
+      authorizationId,
+      nodeId: job.id,
+      attemptId,
+      executionToken,
+    }
+  }
+  for (const job of plan.jobs) await preflightJob(job)
+  assertCurrent()
+  const retried = new Set<string>()
+  await bridge.run(proposal, plan, {
+    signal,
+    progress,
+    authorizations,
+    hooks: {
+      // 授权内同一节点至多自动重试一次；重试另开一次预检，花费计入授权已用额度。
+      recover: async (job, error) => {
+        if (!(error instanceof NodeBatchFailure) || error.code !== 'failed') throw error
+        const failed = (reason: StageRunReason) => {
+          record({
+            nodeId: job.id,
+            outcome: 'failed',
+            reason,
+            ...(retried.has(job.id) ? { retried: true } : {}),
+          })
+          return 'skip' as const
+        }
+        // BFF 按授权拒绝了这次提交：原样再提一遍还是同样被拒，不白占一次重试，直接报原因。
+        const rejected = stageRejectionReason(error.submitError)
+        if (rejected) return failed(rejected)
+        if (retried.has(job.id)) return failed('generation_failed')
+        try {
+          await preflightJob(job)
+        } catch (rejected) {
+          assertCurrent()
+          // 重试预检与提交被授权拒绝时使用同一组回报原因。
+          const code = rejected instanceof Error ? rejected.message : undefined
+          return failed(stageRejectionReason(code) ?? 'generation_failed')
+        }
+        retried.add(job.id)
+        return 'retry'
+      },
+      completed: (job) =>
+        record({
+          nodeId: job.id,
+          outcome: 'completed',
+          ...(retried.has(job.id) ? { retried: true } : {}),
+        }),
+      skipped: (job) => record({ nodeId: job.id, outcome: 'skipped', reason: 'upstream_failed' }),
+    },
+  })
+  assertCurrent()
+}
+
 export function startAgentNodeRun(
   key: string,
   proposal: AgentCanvasRunProposal,
@@ -377,7 +517,7 @@ export function startAgentNodeRun(
 ): boolean {
   const authorizationId = proposal.authorizationId
   if (!authorizationId || !origins.has(key) || runs.has(key)) return false
-  const plan = agentNodeRunBridge()?.quote(proposal)
+  const plan = quoteAgentNodeRun(proposal)
   const sameAccount = accountScope()
   const owner = Symbol(key)
   // 跨 await 的每一步都要同时核对账号和运行权：换走又换回同一账号时 scope 一样，
@@ -420,6 +560,7 @@ export function startAgentNodeRun(
     let started = false
     let terminal: AgentNodeRun | undefined
     let nodes: StageRunNodeReport[] | undefined
+    let syncResults: (() => Promise<void>) | undefined
     try {
       const confirmed = await stageAuthorizationClient.confirm(
         authorizationId,
@@ -463,6 +604,8 @@ export function startAgentNodeRun(
       const bridge = agentNodeRunBridge()
       if (bridge?.projectId !== proposal.projectId)
         throw Object.assign(new Error('changed'), { code: 'changed' })
+      // 保留开跑时的会话，切换项目后仍同步这一批所属的画布。
+      syncResults = bridge.syncResults
       publish(key, {
         ...base,
         authorization,
@@ -470,7 +613,8 @@ export function startAgentNodeRun(
         completed: 0,
         active: plan.jobs[0]?.id ?? '',
       })
-      await bridge.run(
+      await runAuthorizedNodeBatch(
+        bridge,
         proposal,
         plan.signature,
         control.signal,
@@ -486,6 +630,7 @@ export function startAgentNodeRun(
         (report) => {
           outcomes.set(report.nodeId, report)
         },
+        live,
       )
       nodes = interruptedReport(proposal, outcomes, undefined, undefined)
       terminal = { ...base, authorization, status: 'done' }
@@ -499,7 +644,7 @@ export function startAgentNodeRun(
           ? interruptedReport(proposal, outcomes, active, code)
           : // 确认时规格就对不上，或开跑前的预检、复核没过：一个都没提交，算被拦下。
             authorization || code === 'stale'
-            ? blockedReport(proposal, agentNodeRunBridge()?.quote(proposal) ?? plan, code)
+            ? blockedReport(proposal, quoteAgentNodeRun(proposal) ?? plan, code)
             : undefined
       if (run?.status !== 'undone')
         terminal = {
@@ -520,6 +665,7 @@ export function startAgentNodeRun(
           executionToken,
           sameAccount,
           owner,
+          syncResults,
         )
         if (reported) authorization = undefined
       } else if (terminal && live()) publish(key, terminal)
@@ -546,6 +692,8 @@ export function stopAgentNodeRun(key: string) {
   const run = runs.get(key),
     execution = controls.get(key)
   if (!run || !execution) return
+  const sameAccount = accountScope()
+  const owner = owners.get(key)
   execution.control.abort()
   if (run.status === 'countdown' || run.status === 'confirming')
     publish(key, {
@@ -557,8 +705,166 @@ export function stopAgentNodeRun(key: string) {
   void stageAuthorizationClient
     .end(execution.authorizationId)
     .then((authorization) => {
+      if (!sameAccount() || owners.get(key) !== owner) return
       const current = runs.get(key)
       if (current) publish(key, { ...current, authorization })
     })
     .catch(() => {})
+}
+
+export interface AgentNodeRunSnapshot {
+  readonly run?: AgentNodeRun
+  readonly plan?: NodeBatchPlan | null
+  readonly authorization?: StageAuthorization
+  readonly origin: boolean
+  readonly canConfirm: boolean
+  readonly readFailed: boolean
+  readonly readReady: boolean
+  readonly wakeSkipped?: NonNullable<StageRunRecord['wakeSkipped']>
+}
+
+/** 运行卡的视图：只观察运行。释放视图不会停止执行，持有视图也不代表拿到运行权。 */
+export function createAgentNodeRunView(key: string, initialProposal: AgentCanvasRunProposal) {
+  let proposal = initialProposal
+  const sameAccount = accountScope()
+  const observers = new Set<() => void>()
+  let settled: AgentNodeRun | undefined
+  let stored: StageAuthorization | undefined
+  let readFailed = false
+  let readGeneration = 0
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let disconnect: (() => void) | undefined
+  // 运行表的通知覆盖本标签页所有运行；只有本卡读到的这几项变了才重算报价、通知卡片。
+  const runInputs = () => [
+    sameAccount(),
+    runs.get(key),
+    origins.has(key),
+    agentNodeRunWakeSkipped(proposal.authorizationId),
+  ]
+  let seenRunInputs: unknown[] = []
+  const readSnapshot = (): AgentNodeRunSnapshot => {
+    seenRunInputs = runInputs()
+    if (!sameAccount())
+      return { origin: false, canConfirm: false, readFailed: false, readReady: false }
+    const live = runs.get(key)
+    if (live && isTerminalRun(live)) settled = live
+    const run = live ?? settled
+    const authorization =
+      run?.authorization &&
+      (run.status !== 'running' || run.authorization.audit.length > (stored?.audit.length ?? 0))
+        ? run.authorization
+        : stored
+    return {
+      run,
+      plan: run ? undefined : quoteAgentNodeRun(proposal),
+      authorization,
+      canConfirm:
+        !proposal.direct &&
+        !run &&
+        (authorization?.status ?? proposal.status) === 'pending' &&
+        origins.has(key),
+      origin: origins.has(key),
+      readFailed,
+      readReady: stored !== undefined,
+      wakeSkipped: agentNodeRunWakeSkipped(proposal.authorizationId),
+    }
+  }
+  let snapshot = readSnapshot()
+  const update = () => {
+    snapshot = readSnapshot()
+    if (snapshot.canConfirm && !snapshot.readFailed && snapshot.plan?.error)
+      noteAgentNodeRunBlocked(proposal, snapshot.plan)
+    for (const observer of observers) observer()
+    const live = runs.get(key)
+    if (live && isTerminalRun(live) && live.report?.wake !== 'reporting') {
+      // 先让回执发布完、唤醒跟进完，再收走这次运行。
+      queueMicrotask(() => {
+        if (runs.get(key) === live) forgetAgentNodeRun(key, controls.get(key)?.control)
+      })
+    }
+  }
+  const runsChanged = () => {
+    if (runInputs().some((input, index) => input !== seenRunInputs[index])) update()
+  }
+  const stopReading = () => {
+    readGeneration += 1
+    clearTimeout(timer)
+  }
+  const read = () => {
+    stopReading()
+    const id = proposal.authorizationId
+    if (!id || proposal.direct || !observers.size || !sameAccount()) return
+    const generation = readGeneration
+    const current = () => observers.size > 0 && generation === readGeneration && sameAccount()
+    let failures = 0
+    const refresh = async () => {
+      try {
+        const state = await stageAuthorizationClient.read(id)
+        if (!current()) return
+        failures = 0
+        readFailed = false
+        stored = state
+        update()
+        if (state.status === 'pending' || state.status === 'active')
+          timer = setTimeout(refresh, 3000)
+      } catch {
+        if (!current()) return
+        failures += 1
+        if (failures >= 5) {
+          readFailed = true
+          update()
+        } else timer = setTimeout(refresh, Math.min(30_000, 3000 * 2 ** (failures - 1)))
+      }
+    }
+    void refresh()
+  }
+  return {
+    getSnapshot: () => snapshot,
+    updateProposal: (next: AgentCanvasRunProposal) => {
+      if (proposal === next) return
+      const restartRead =
+        proposal.authorizationId !== next.authorizationId || proposal.direct !== next.direct
+      proposal = next
+      if (restartRead) {
+        stopReading()
+        stored = undefined
+        readFailed = false
+      }
+      update()
+      if (restartRead) read()
+    },
+    subscribe: (observer: () => void) => {
+      observers.add(observer)
+      if (observers.size === 1) {
+        const unwatch = watchAgentNodeRun(key)
+        const unsubscribeRuns = subscribeAgentNodeRuns(runsChanged)
+        const unsubscribeCanvas = subscribeAgentNodeRun(update)
+        disconnect = () => {
+          stopReading()
+          unsubscribeRuns()
+          unsubscribeCanvas()
+          unwatch()
+        }
+        update()
+        void refreshChannels()
+        read()
+      }
+      return () => {
+        observers.delete(observer)
+        if (!observers.size) {
+          disconnect?.()
+          disconnect = undefined
+        }
+      }
+    },
+    start: () => sameAccount() && startAgentNodeRun(key, proposal),
+    stop: () => {
+      if (sameAccount()) stopAgentNodeRun(key)
+    },
+    retryRead: read,
+  }
+}
+
+function isTerminalRun(run: AgentNodeRun) {
+  return run.status === 'done' || run.status === 'undone' || run.status === 'failed'
 }

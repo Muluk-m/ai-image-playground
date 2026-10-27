@@ -54,7 +54,8 @@ stage() {
 # select_stale_images <moving-alias> <keep> <protected-tags>
 #
 # Reads one edition's image references on stdin, newest first, and prints the ones to delete.
-# Only commit-qualified tags are candidates (<alias>-<sha> or <alias>-<sha>-<sha>): the moving
+# Only commit-qualified tags are candidates (<alias>-<sha> or <alias>-<sha>-<sha>, and for the
+# segmenter <alias>-<version>-<sha>): the moving
 # alias itself and hand-named images such as <alias>-relay-removal are never touched. A
 # protected tag (the one just rolled out, or one a container still runs) is kept without using
 # up one of the <keep> slots, so a rollback target never disappears because of it.
@@ -64,11 +65,14 @@ select_stale_images() {
       n = split(protected, list, " ")
       for (i = 1; i <= n; i++) guard[list[i]] = 1
       prefix = alias "-"
+      segmenter = alias ~ /:segmenter$/
     }
     {
       if (index($0, prefix) != 1) next
       suffix = substr($0, length(prefix) + 1)
-      if (suffix !~ /^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]+(-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]+)?$/) next
+      sha = "[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]+"
+      # The segmenter is versioned on its own: segmenter-<VERSION>-<sha>.
+      if (suffix !~ ("^" sha "(-" sha ")?$") && !(segmenter && suffix ~ ("^[0-9]+-" sha "$"))) next
       if ($0 in guard) next
       kept++
       if (kept > keep) print $0
@@ -104,10 +108,11 @@ release_untagged_image() {
 #
 # True when every application image the release carries is in the deploy log with result=ok, so
 # `docker load` has consumed its archive long ago. A release still being copied in, or one that
-# never went out, is not deployed and keeps its archive.
+# never went out, is not deployed and keeps its archive. The backup sidecar and the shared
+# segmenter ride along with the editions and get no log line of their own.
 release_was_deployed() {
   [ -f "$1/images.tsv" ] && [ -f "$deployments_log" ] || return 1
-  images=$(awk -F '\t' '$1 != "backup" { print $2 }' "$1/images.tsv")
+  images=$(awk -F '\t' '$1 != "backup" && $1 != "segmenter" { print $2 }' "$1/images.tsv")
   [ -n "$images" ] || return 1
   for image in $images; do
     grep -q " image=$image by=.* result=ok\$" "$deployments_log" || return 1

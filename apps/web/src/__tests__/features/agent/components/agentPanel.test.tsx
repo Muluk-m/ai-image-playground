@@ -2000,17 +2000,17 @@ describe('AgentPanel', () => {
     })
     render()
 
-    const step = host.querySelector('section[aria-label="去背景"]')!
+    const step = host.querySelector('section[aria-label="抠图"]')!
     expect(step).not.toBeNull()
     expect(step.querySelector('img')?.getAttribute('src')).toBe(CANVAS_THUMBNAIL)
-    expect(step.querySelector('img[alt="去背景"]')?.getAttribute('src')).toBe(SERVER_IMAGE)
+    expect(step.querySelector('img[alt="抠图"]')?.getAttribute('src')).toBe(SERVER_IMAGE)
     expect(step.textContent).toContain('3s')
     expect(step.querySelector('[role="img"]')?.getAttribute('aria-label')).toContain('2')
 
     act(() => {
       step.querySelector<HTMLButtonElement>('button[aria-label="移除这一步"]')!.click()
     })
-    expect(host.querySelector('section[aria-label="去背景"]')).toBeNull()
+    expect(host.querySelector('section[aria-label="抠图"]')).toBeNull()
     expect(useAgentStore.getState().messages).toEqual([])
   })
 
@@ -2406,7 +2406,7 @@ describe('AgentPanel', () => {
     try {
       render()
       expect(button()?.disabled).toBe(true)
-      expect(host.querySelector('[aria-label="生成计划"]')?.textContent).toContain('助手还在拟')
+      expect(host.querySelector('[aria-label="生成计划"]')?.textContent).toContain('正在生成计划')
       await act(async () => {
         button()?.click()
       })
@@ -2416,7 +2416,7 @@ describe('AgentPanel', () => {
         useAgentStore.setState({ turn: 'idle', activeTurn: null })
       })
       expect(button()?.disabled).toBe(false)
-      expect(host.textContent).not.toContain('助手还在拟')
+      expect(host.textContent).not.toContain('正在生成计划')
     } finally {
       useAgentStore.setState({ confirmPrompt: original, turn: 'idle', activeTurn: null })
     }
