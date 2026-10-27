@@ -38,4 +38,14 @@ describe('agentImageShape', () => {
     expect(presetAspectRatio(undefined)).toBeUndefined()
     expect(sizeRatio('1024x1536')).toBe('2:3')
   })
+
+  it('老记录没存供应商时照旧显示已有字段，不丢 gemini 的档位与比例', () => {
+    expect(
+      agentImageShape(undefined, { gemini_image_size: '2K', gemini_aspect_ratio: '9:16' }),
+    ).toEqual({ imageSize: '2K', aspectRatio: '9:16' })
+    expect(agentImageShape(undefined, { size: '1536x1024' })).toEqual({
+      imageSize: '1536x1024',
+      aspectRatio: '3:2',
+    })
+  })
 })
