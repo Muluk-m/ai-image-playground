@@ -40,6 +40,14 @@ export function recountBatchText(text: string, from: number, to: number): string
 const LIST_RUN = /[\p{Script=Han}A-Za-z0-9]+(?:、[\p{Script=Han}A-Za-z0-9]+)+/gu
 const LIST_COUNT = /^(\d{1,2}|[一二两三四五六七八九十]{1,3})(\s*[张项幅])/
 
+/**
+ * 提示词里的排除说明（「不出现葡萄、橙子」「避免香蕉」）不算这一项画的东西：
+ * 智能体写的系列提示词几乎每项都会点名排除其他项，不去掉就永远认不出被删项的名字。
+ */
+const NEGATED =
+  /(?:不要出现|不出现|不要|不得|不能|不含|不包含|避免|排除|禁止|无需)[^。；;！!？?\n]*/g
+const affirmed = (prompt: string) => prompt.replace(NEGATED, '')
+
 /** 列表项里只属于被删项、不属于任何保留项的名字（首项取后缀、末项取前缀、中间取整项）。 */
 function removedName(
   part: string,
@@ -47,8 +55,10 @@ function removedName(
   removed: string,
   kept: readonly string[],
 ): string | null {
+  const drawn = affirmed(removed)
+  const others = kept.map(affirmed)
   const owned = (name: string) =>
-    name.length >= 2 && removed.includes(name) && !kept.some((prompt) => prompt.includes(name))
+    name.length >= 2 && drawn.includes(name) && !others.some((prompt) => prompt.includes(name))
   if (side === 'middle') return owned(part) ? part : null
   for (let length = part.length; length >= 2; length -= 1) {
     const name = side === 'first' ? part.slice(part.length - length) : part.slice(0, length)
