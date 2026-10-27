@@ -34,10 +34,11 @@ import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId, messagelessFailedTurns } from '../lib/panelMessages'
 import { usePlanCardState } from '../lib/planCardState'
 import { isProductionDraft } from '../lib/promptDraft'
+import { turnImageReceipt } from '../lib/turnCost'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { agentPanelPresent } from '../panelLayout'
 import { retryUnsent, unsentRetryAvailable, useAgentStore } from '../store'
-import type { AgentPanelMessage, AgentToolMessage } from '../types'
+import type { AgentPanelMessage, AgentToolMessage, AgentTurnFooter } from '../types'
 import AgentActivity from './AgentActivity'
 import AgentActivityTrail from './AgentActivityTrail'
 import AgentClarification from './AgentClarification'
@@ -484,6 +485,18 @@ export default function AgentPanel({
     jobs.push(message)
     jobsByTurn.set(message.turnId, jobs)
   }
+  // 有出图结果的轮：结果卡是本轮最后一条时由卡片带出结算行，否则页脚照常落在本轮末尾，并带上张数。
+  const renderTurnFooter = (footer: AgentTurnFooter, turnId: string) => {
+    const receipt = turnImageReceipt(messages, turnId)
+    if (receipt?.cardId) return null
+    return (
+      <AgentTurnCost
+        footer={footer}
+        jobs={jobsByTurn.get(turnId)}
+        outputCount={receipt?.outputCount}
+      />
+    )
+  }
   // 连续的过程步（读画布、看图、读技能）折成一条固定高度的活动轨，不再一步一张空卡。
   const grouping = groupPanelMessages(messages)
   const fetchedRuns = presentation === 'page' && onPreviewResult ? fetchedImageRuns(messages) : null
@@ -656,12 +669,7 @@ export default function AgentPanel({
                             <fieldset disabled={historyCached} className="contents">
                               <AgentGenerationPlan messages={planRun} plan={planCard} />
                             </fieldset>
-                            {footer && !turnShowsImageReceipt(messages, message.turnId) && (
-                              <AgentTurnCost
-                                footer={footer}
-                                jobs={jobsByTurn.get(message.turnId)}
-                              />
-                            )}
+                            {footer && renderTurnFooter(footer, message.turnId)}
                           </div>
                         )
                       }
@@ -688,12 +696,7 @@ export default function AgentPanel({
                                 onPreviewProduction={onPreviewProduction}
                               />
                             </fieldset>
-                            {footer && !turnShowsImageReceipt(messages, message.turnId) && (
-                              <AgentTurnCost
-                                footer={footer}
-                                jobs={jobsByTurn.get(message.turnId)}
-                              />
-                            )}
+                            {footer && renderTurnFooter(footer, message.turnId)}
                           </div>
                         )
                       }
@@ -728,12 +731,7 @@ export default function AgentPanel({
                                 </div>
                               ))}
                             </div>
-                            {footer && !turnShowsImageReceipt(messages, message.turnId) && (
-                              <AgentTurnCost
-                                footer={footer}
-                                jobs={jobsByTurn.get(message.turnId)}
-                              />
-                            )}
+                            {footer && renderTurnFooter(footer, message.turnId)}
                           </div>
                         )
                       }
@@ -777,9 +775,7 @@ export default function AgentPanel({
                               onPreviewProduction,
                               historyCached,
                             )}
-                          {footer && !turnShowsImageReceipt(messages, message.turnId) && (
-                            <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
-                          )}
+                          {footer && renderTurnFooter(footer, message.turnId)}
                         </div>
                       )
                     })()}
@@ -855,18 +851,6 @@ export default function AgentPanel({
         )}
       </div>
     </AgentReplyImagesProvider>
-  )
-}
-
-/** 这轮的生图结果自己写出耗时和积分，页脚不再重复一份。 */
-function turnShowsImageReceipt(messages: readonly AgentPanelMessage[], turnId: string): boolean {
-  return messages.some(
-    (message) =>
-      message.turnId === turnId &&
-      message.kind === 'tool' &&
-      (message.toolName === 'generateImage' || message.toolName === 'editImage') &&
-      message.status === 'succeeded' &&
-      Boolean(message.artifacts?.some((artifact) => artifact.media === 'image')),
   )
 }
 
