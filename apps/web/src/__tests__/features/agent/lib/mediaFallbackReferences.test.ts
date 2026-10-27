@@ -170,9 +170,20 @@ it('turns rejected sends into a reason and a next step', () => {
   expect(describeSendFailure(new MediaRequestError(413, 'media_too_large'))?.message).toContain(
     '图片太大',
   )
+  const longText = new AgentRequestError(
+    400,
+    'invalid_request',
+    undefined,
+    '/text: Expected string length less or equal to 4000',
+  )
+  expect(describeSendFailure(longText)).toMatchObject({ retryable: false })
+  expect(describeSendFailure(longText)?.message).toContain('最多 4000 字')
   expect(describeSendFailure(new AgentRequestError(400, 'invalid_request'))).toMatchObject({
     retryable: false,
   })
+  expect(describeSendFailure(new AgentRequestError(400, 'invalid_request'))?.message).not.toContain(
+    '最多 4000 字',
+  )
   expect(describeSendFailure(new AgentRequestError(503, 'upstream'))).toMatchObject({
     retryable: true,
   })
