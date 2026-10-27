@@ -17,6 +17,8 @@ export function CreationReferenceStack({
   failed = false,
   uploading = false,
   onClear,
+  onRemoveFailed,
+  removeFailedLabel,
   disabled = false,
   compact = false,
   aside,
@@ -31,6 +33,9 @@ export function CreationReferenceStack({
   failed?: boolean
   uploading?: boolean
   onClear?: () => void
+  /** 有坏图时收起的那叠缩略图上常显一个 ×，点了只移除坏图。 */
+  onRemoveFailed?: () => void
+  removeFailedLabel?: string
   disabled?: boolean
   /** 图多时展开层按行折返、限高滚动，不排成一长条。 */
   compact?: boolean
@@ -199,6 +204,20 @@ export function CreationReferenceStack({
                       </span>
                     )}
                   </Button>
+                  {onRemoveFailed && removeFailedLabel && (
+                    <Hint tooltip={removeFailedLabel}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="creation-reference-remove"
+                        aria-label={removeFailedLabel}
+                        disabled={disabled}
+                        onClick={onRemoveFailed}
+                      >
+                        <Icon name="close" size="xs" />
+                      </Button>
+                    </Hint>
+                  )}
                   {count > 1 && !hovered && (
                     <Button
                       type="button"
