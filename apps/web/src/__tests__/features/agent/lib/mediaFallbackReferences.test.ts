@@ -181,6 +181,13 @@ it('turns rejected sends into a reason and a next step', () => {
   expect(describeSendFailure(new AgentRequestError(400, 'invalid_request'))).toMatchObject({
     retryable: false,
   })
+  const emptyText = new AgentRequestError(
+    400,
+    'invalid_request',
+    undefined,
+    '/text: Expected string length greater or equal to 1',
+  )
+  expect(describeSendFailure(emptyText)?.message).not.toContain('最多 4000 字')
   expect(describeSendFailure(new AgentRequestError(400, 'invalid_request'))?.message).not.toContain(
     '最多 4000 字',
   )
