@@ -1,5 +1,6 @@
-# Production deployment: every commit on main that passes "Web checks" goes out, backend first
-# (images through GHCR, received on the VPS), then both Pages sites once the APIs serve it.
+# Production deployment: every commit on main that passes "Web checks" goes out. The internal
+# edition goes first (backend, then its Pages site, checked in Chromium); the paid edition is
+# shipped only after that acceptance passed. Order and the gate: docs/agents/release.md 「三」.
 # Runbook, secrets and break-glass manual release: docs/deploy/image-release.md.
 name: Deploy production
 on:
@@ -91,7 +92,7 @@ jobs:
           echo "Tagged v${version}"
 
   backend:
-    name: Backend images and VPS rollout
+    name: Backend images and VPS rollout (internal)
     needs: [target, release]
     if: needs.target.outputs.deploy_api == 'true' && needs.release.result == 'success'
     runs-on: ubuntu-latest
@@ -101,6 +102,7 @@ jobs:
       packages: write
     outputs:
       private_sha: ${{ steps.overlay.outputs.commit }}
+      release_id: ${{ steps.build.outputs.release_id }}
     steps:
       - name: Require secrets
         env:
@@ -157,7 +159,19 @@ jobs:
           release_id="aip-$(printf %.12s "$PUBLIC_SHA")-$(printf %.12s "$PRIVATE_SHA")"
           ./scripts/build-vps-release.sh all "$RUNNER_TEMP/$release_id"
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
-      - name: Ship the release to the VPS and roll it out
+      # 同一份发布目录（脚本、compose、镜像 digest，不含镜像和密钥）留给 backend-paid 用，
+      # 付费版不重新构建，发的就是内部站验收过的那一批镜像。
+      - name: Keep the release for the paid rollout
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vps-release
+          path: ${{ runner.temp }}/${{ steps.build.outputs.release_id }}
+          # 重跑 backend 时同名 artifact 已存在；发布 ID 由两个 SHA 决定，内容相同，直接覆盖。
+          overwrite: true
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+      - name: Ship the internal release to the VPS and roll it out
         env:
           RELEASE_ID: ${{ steps.build.outputs.release_id }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
@@ -173,13 +187,14 @@ jobs:
             ssh -i "$RUNNER_TEMP/vps-key" -o IdentitiesOnly=yes -o BatchMode=yes \
               -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/vps-known-hosts" \
               -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
-              "$VPS_SSH_USER@$VPS_SSH_HOST" "deploy $RELEASE_ID all $GITHUB_RUN_ID"
+              "$VPS_SSH_USER@$VPS_SSH_HOST" "deploy $RELEASE_ID internal $GITHUB_RUN_ID"
       - name: Remove the SSH key
         if: always()
         run: rm -f "$RUNNER_TEMP/vps-key"
 
-  # 内部站与付费站互不依赖，并行构建发布，各自在 Chromium 里验收自己那一份。
-  pages:
+  # 先内部、后付费。内部站的验收：内部 API 的 /health 报这次的提交，且（这次发前端时）
+  # pages-internal 在 Chromium 里验收通过。任何一项不过，付费版后端和前端都不动，停在上一版。
+  pages-internal:
     name: Pages (${{ matrix.edition }})
     needs: [target, release, backend]
     if: >-
@@ -190,12 +205,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
-      fail-fast: false
       matrix:
-        edition: [internal, paid]
+        edition: [internal]
     env:
       EDITION: ${{ matrix.edition }}
-    steps:
+    steps: &pages-steps
       - name: Require secrets
         env:
           PAGES_ENV: ${{ secrets.PAGES_ENV }}
@@ -310,15 +324,113 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP"/*-cloudflare.env "$RUNNER_TEMP/pages.env"
 
+  backend-paid:
+    name: Backend VPS rollout (paid)
+    needs: [target, release, backend, pages-internal]
+    if: >-
+      always() &&
+      needs.backend.result == 'success' &&
+      (needs.pages-internal.result == 'success' || needs.pages-internal.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Require secrets
+        env:
+          PAGES_ENV: ${{ secrets.PAGES_ENV }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+          VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+        run: |
+          missing=
+          for name in PAGES_ENV VPS_SSH_KEY VPS_SSH_KNOWN_HOSTS VPS_SSH_HOST VPS_SSH_USER; do
+            [ -n "$(printenv "$name")" ] || missing="$missing $name"
+          done
+          [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
+      # 这次没发前端时 pages-internal 被跳过，闸门只剩这一项；发了前端时它在 pages-internal 里
+      # 已经过了一次，这里再确认一次内部 API 仍是这一版（中间没人回滚）。
+      - name: Require the internal API to serve this commit
+        env:
+          PAGES_ENV: ${{ secrets.PAGES_ENV }}
+          PUBLIC_SHA: ${{ needs.target.outputs.sha }}
+        run: |
+          printf '%s\n' "$PAGES_ENV" > "$RUNNER_TEMP/pages.env"
+          # shellcheck source=/dev/null
+          . "$RUNNER_TEMP/pages.env"
+          rm -f "$RUNNER_TEMP/pages.env"
+          deadline=$(( $(date +%s) + 300 ))
+          while :; do
+            version=$(curl -fsS --max-time 10 "${INTERNAL_BFF_BASE_URL%/}/health" 2>/dev/null |
+              sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)
+            [ "$version" = "$PUBLIC_SHA" ] && { echo "internal API serves $version"; break; }
+            [ "$(date +%s)" -lt "$deadline" ] ||
+              { echo "::error::internal /health reports '${version}', expected $PUBLIC_SHA; paid stays on the previous release."; exit 1; }
+            sleep 10
+          done
+      - name: Fetch the release the internal edition passed with
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: vps-release
+          path: ${{ runner.temp }}/${{ needs.backend.outputs.release_id }}
+      # artifact 不保留可执行位；scripts/ 下的 .sh 在源码里都是 755，按原样恢复（lib/ 只被 source）。
+      - name: Restore the script modes
+        env:
+          RELEASE_ID: ${{ needs.backend.outputs.release_id }}
+        run: chmod 755 "$RUNNER_TEMP/$RELEASE_ID"/scripts/*.sh
+      # 同一个 run 里第二次 receive：~/releases/<id> 已被内部那次占用，ci-receive.sh 会改用
+      # <id>.run-<run_id>。所以这个 run 失败后只能「Re-run failed jobs」，不能「Re-run all jobs」
+      # （那样内部那次会撞上两个目录都已存在）。见 docs/agents/release.md「三」。
+      - name: Ship the paid release to the VPS and roll it out
+        env:
+          RELEASE_ID: ${{ needs.backend.outputs.release_id }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+          VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+        run: |
+          umask 077
+          printf '%s\n' "$VPS_SSH_KEY" > "$RUNNER_TEMP/vps-key"
+          printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/vps-known-hosts"
+          # The key is bound to scripts/ci-receive.sh on the VPS; the command below is all it accepts.
+          tar -C "$RUNNER_TEMP/$RELEASE_ID" -czf - . |
+            ssh -i "$RUNNER_TEMP/vps-key" -o IdentitiesOnly=yes -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/vps-known-hosts" \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+              "$VPS_SSH_USER@$VPS_SSH_HOST" "deploy $RELEASE_ID paid $GITHUB_RUN_ID"
+      - name: Remove the SSH key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/vps-key"
+
+  pages-paid:
+    name: Pages (${{ matrix.edition }})
+    needs: [target, release, backend, pages-internal, backend-paid]
+    if: >-
+      always() &&
+      needs.target.outputs.deploy_web == 'true' &&
+      needs.release.result == 'success' &&
+      needs.pages-internal.result == 'success' &&
+      (needs.backend-paid.result == 'success' || needs.backend-paid.result == 'skipped') &&
+      (needs.backend.result == 'success' || needs.backend.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      matrix:
+        edition: [paid]
+    env:
+      EDITION: ${{ matrix.edition }}
+    # 与 pages-internal 同一组步骤（YAML 锚点），只是 edition 不同。
+    steps: *pages-steps
+
   admin-pages:
     name: Pages (admin)
-    needs: [target, release, backend, pages]
+    needs: [target, release, backend, backend-paid, pages-paid]
     if: >-
       always() &&
       needs.target.outputs.deploy_admin == 'true' &&
       needs.release.result == 'success' &&
       (needs.backend.result == 'success' || needs.backend.result == 'skipped') &&
-      (needs.pages.result == 'success' || needs.pages.result == 'skipped')
+      (needs.backend-paid.result == 'success' || needs.backend-paid.result == 'skipped') &&
+      (needs.pages-paid.result == 'success' || needs.pages-paid.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
