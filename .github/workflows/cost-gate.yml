@@ -1,0 +1,55 @@
+name: Cost gate
+# 成本硬规则（AGENTS.md）：改到模型调用、模型/供应商切换、定价、额度或计费的 PR，合并前要有
+# Nain 的明确确认。这里只用 GITHUB_TOKEN：命中时给 PR 打 needs-owner-cost-approval 标签，
+# 描述里没勾「Nain 已明确确认」并写明确认来源就让这个检查失败。判定逻辑在
+# scripts/cost-gate.mjs。它不属于 Web checks，不影响 deploy.yml 的触发。
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+permissions:
+  contents: read
+concurrency:
+  group: cost-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  cost:
+    name: Owner cost approval
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: |
+            scripts/cost-gate.mjs
+          sparse-checkout-cone-mode: false
+      - name: Decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename' > files.txt
+          node scripts/cost-gate.mjs < files.txt
+      - name: Label
+        if: steps.decide.outputs.sensitive == 'true'
+        # fork 来的 PR 拿到的是只读 token，打不上标签；检查本身照样生效。
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh label create needs-owner-cost-approval --repo "$GITHUB_REPOSITORY" --color B60205 \
+            --description '涉及成本，合并前需要 Nain 明确确认' --force
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" \
+            -f 'labels[]=needs-owner-cost-approval' > /dev/null
+      - name: Require owner confirmation
+        if: steps.decide.outputs.sensitive == 'true' && steps.decide.outputs.approved != 'true'
+        run: |
+          echo "::error::这个 PR 涉及成本（见上一步列出的文件或作者声明）。合并前需要 Nain 明确确认：在 PR 描述里勾上「Nain 已明确确认这项成本改动」，并在「确认来源：」后写明 Nain 原话的位置。"
+          exit 1
