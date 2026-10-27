@@ -39,6 +39,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
+const { runningTurn } = await import('../../lib/agent/runningTurns')
 const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
@@ -441,6 +442,131 @@ describe('生成改为后台任务', () => {
 
     expect((await onlyTask()).status).toBe('queued')
     expect((await readJobs(conversationId))[0]!.result.status).toBe('submitted')
+  })
+
+  it('stopping a turn cancels and refunds the jobs it submitted, once, and keeps finished ones charged', async () => {
+    const calls: AgentCall[] = []
+    const reply = controlledCompletion()
+    let at = 0
+    const answers = [
+      () => generateCall(),
+      () =>
+        toolCallCompletion({
+          id: 'call-2',
+          name: 'generateImage',
+          args: { prompt: '一只黑猫趴在沙发上', n: 1 },
+        }),
+      (signal?: AbortSignal) => reply.responseFor(signal),
+    ]
+    setAgentFetchForTesting(recordingAgentFetch(calls, (signal) => answers[at++]!(signal)))
+    const conversationId = await startConversation()
+    const earlier = await startConversation()
+
+    // 出图模式：这一轮当场提交两条任务，接着还在说话。
+    const response = await turnRequest(conversationId, '画两只猫', {
+      thinkingDepth: 'medium',
+      autoSubmit: true,
+    })
+    reply.push('两张都在画了')
+    const seen = await readFrames(response, 1)
+    const turnId = eventsOfType(seen, 'turnStart')[0]!.turnId
+    for (let i = 0; i < 400 && (await db.select().from(schema.tasks)).length < 2; i++)
+      await Bun.sleep(5)
+    const tasks = await db.select().from(schema.tasks).where(eq(schema.tasks.agent_turn_id, turnId))
+    expect(tasks).toHaveLength(2)
+    const done = tasks.find((task) => task.client_request_id?.endsWith(':call-1'))
+    const running = tasks.find((task) => task.client_request_id?.endsWith(':call-2'))
+    // 第一张在中止前已经出完：照常扣费，不退。
+    await finishTask(done!.id, 'completed')
+    await finishTask(running!.id, 'in_progress')
+    // 别的会话里不相干的任务不受影响。
+    const [other] = await db
+      .insert(schema.tasks)
+      .values({
+        ...running!,
+        id: crypto.randomUUID(),
+        client_request_id: null,
+        agent_conversation_id: earlier,
+        status: 'queued',
+      })
+      .returning()
+    finalized.length = 0
+
+    const stopped = await request(
+      `/api/agent/conversations/${conversationId}/turns/${turnId}/abort`,
+      { method: 'POST', body: { deviceId: DEVICE } },
+    )
+    expect(stopped.status).toBe(200)
+    expect(await stopped.json()).toMatchObject({ aborted: true, cancelledTaskIds: [running!.id] })
+    for (let i = 0; i < 400; i++) {
+      const [summary] = await db
+        .select()
+        .from(schema.agent_turns)
+        .where(eq(schema.agent_turns.turn_id, turnId))
+      if (summary) break
+      await Bun.sleep(5)
+    }
+
+    const status = async (id: string) =>
+      (await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)))[0]!.status
+    expect(await status(done!.id)).toBe('completed')
+    expect(await status(running!.id)).toBe('cancelled')
+    expect(await status(other!.id)).toBe('queued')
+    // 退款只发生一次：停止接口取消一次，轮收尾再扫一遍是空操作。
+    expect(finalized).toEqual([{ taskId: running!.id, outcome: 'cancelled' }])
+    const jobs = await readJobs(conversationId)
+    // 任务卡读到的就是「已取消」（failed + cancelled），与单独取消一条任务同一份结果。
+    expect(jobs.find((job) => job.result.job?.taskId === running!.id)?.result).toMatchObject({
+      status: 'failed',
+      errorCode: 'cancelled',
+    })
+
+    // 重发停止（上一次的响应丢了）：不会再取消、再退一次。
+    await request(`/api/agent/conversations/${conversationId}/turns/${turnId}/abort`, {
+      method: 'POST',
+      body: { deviceId: DEVICE },
+    })
+    expect(finalized).toHaveLength(1)
+  })
+
+  it('a turn aborted for any reason other than the user stop (e.g. lost lease) leaves its jobs running and charged', async () => {
+    const calls: AgentCall[] = []
+    const reply = controlledCompletion()
+    let at = 0
+    const answers = [() => generateCall(), (signal?: AbortSignal) => reply.responseFor(signal)]
+    setAgentFetchForTesting(recordingAgentFetch(calls, (signal) => answers[at++]!(signal)))
+    const conversationId = await startConversation()
+
+    const response = await turnRequest(conversationId, '画一只猫', {
+      thinkingDepth: 'medium',
+      autoSubmit: true,
+    })
+    reply.push('在画了')
+    const seen = await readFrames(response, 1)
+    const turnId = eventsOfType(seen, 'turnStart')[0]!.turnId
+    for (let i = 0; i < 400 && (await db.select().from(schema.tasks)).length < 1; i++)
+      await Bun.sleep(5)
+    const [task] = await db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.agent_turn_id, turnId))
+    await finishTask(task!.id, 'in_progress')
+    finalized.length = 0
+
+    // 会话心跳丢了租约：start-turn 调的是不带原因的 abort()。
+    runningTurn(conversationId)!.abort()
+    for (let i = 0; i < 400; i++) {
+      const [summary] = await db
+        .select()
+        .from(schema.agent_turns)
+        .where(eq(schema.agent_turns.turn_id, turnId))
+      if (summary) break
+      await Bun.sleep(5)
+    }
+
+    const [after] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, task!.id))
+    expect(after!.status).toBe('in_progress')
+    expect(finalized).toEqual([])
   })
 
   it('cancels unfinished tasks when the conversation is deleted', async () => {

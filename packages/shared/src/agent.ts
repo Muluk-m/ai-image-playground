@@ -1353,6 +1353,12 @@ export interface AgentReturnedQueuedMessage {
 export interface AgentTurnAbortedBody {
   readonly aborted: true
   readonly returned?: readonly AgentReturnedQueuedMessage[]
+  /**
+   * 随这次停止一并取消、积分已退回的出图任务（这一轮自己提交、还没出结果的）。已完成的照常扣费，
+   * 不在其中；中止之后才落库的那几条由轮收尾再取消，也不在其中——任务卡照常轮询到「已取消」。
+   * 老服务端没有这一项。
+   */
+  readonly cancelledTaskIds?: readonly string[]
 }
 
 /** 满额时的 409 响应体。 */
