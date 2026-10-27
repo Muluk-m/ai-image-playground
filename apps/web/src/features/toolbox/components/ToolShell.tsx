@@ -19,7 +19,6 @@ export default function ToolShell({
   deliverables,
   children,
   sidebar = false,
-  busy = false,
   downloadLabel,
 }: {
   tool: ToolDefinition
@@ -28,12 +27,11 @@ export default function ToolShell({
   deliverables: readonly DeliverableImage[]
   children: ReactNode
   sidebar?: boolean
-  busy?: boolean
   downloadLabel?: string
 }) {
   const { t } = useTranslation('toolbox')
   const count = useToolboxStore((state) => state.items.length)
-  const { dragging, dropZoneProps, inputs, openFiles, openFolder } = useToolboxIntake(busy)
+  const { dragging, dropZoneProps, inputs, openFiles, openFolder } = useToolboxIntake()
   const name = t(`tool.${tool.id}.name`)
 
   const footer = (
@@ -49,7 +47,7 @@ export default function ToolShell({
         <Button
           variant="outline"
           className="gap-1.5 px-2 sm:gap-2 sm:px-4"
-          disabled={busy || deliverables.length === 0}
+          disabled={deliverables.length === 0}
           onClick={() => void sendImagesToComposer(deliverables)}
         >
           <Icon name="sendToComposer" />
@@ -57,7 +55,7 @@ export default function ToolShell({
         </Button>
         <Button
           className="gap-1.5 px-2 sm:gap-2 sm:px-4"
-          disabled={busy || deliverables.length === 0}
+          disabled={deliverables.length === 0}
           onClick={() => void downloadImages(deliverables, `${name}.zip`)}
         >
           <Icon name="download" />
@@ -78,7 +76,6 @@ export default function ToolShell({
       {inputs}
       <ToolboxHeader
         back
-        busy={busy}
         onAddImages={openFiles}
         onAddFolder={openFolder}
         title={
