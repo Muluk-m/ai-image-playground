@@ -27,7 +27,7 @@ import {
   recordAgentToolCall,
   touchAgentConversation,
 } from './conversations'
-import { singleObjectEditIntent, wholeImageEditIntent } from './edit-intent'
+import { wholeImageEditIntent } from './edit-intent'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost, type TurnExecution } from './execution'
 import { scheduleAgentFollowUps } from './follow-ups'
@@ -253,9 +253,6 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       visualWorkset,
       imageCombinations,
       maskProposals: new Set<string>(),
-      ...(!prepared.wake && singleObjectEditIntent(userAsk)
-        ? { singleObjectEdit: { nudged: false } }
-        : {}),
       ...(!prepared.wake && wholeImageEditIntent(userAsk)
         ? { wholeImageEdit: { nudged: false } }
         : {}),

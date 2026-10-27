@@ -506,81 +506,37 @@ describe('范围确认卡', () => {
     expect(await db.select().from(schema.tasks)).toHaveLength(0)
   })
 
-  it('nudges a whole-image edit for a single-object request toward proposing the region', async () => {
+  it('edits an obvious single target directly: no region card is forced on a localized ask', async () => {
     const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
     const conversationId = (json as { conversation: { id: string } }).conversation.id
     const bath = await sharp(ORIGINAL).jpeg({ quality: 80 }).toBuffer()
-    const inline = `data:image/jpeg;base64,${bath.toString('base64')}`
-    setSegmentationProviderForTesting({
-      id: 'edgetam',
-      async segment() {
-        const data = new Uint8Array(320 * 240)
-        for (let y = 80; y < 170; y++) for (let x = 110; x < 210; x++) data[y * 320 + x] = 255
-        return [{ data, width: 320, height: 240, score: 0.9 }]
-      },
-    })
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () =>
           toolCallCompletion({
-            id: 'whole',
+            id: 'direct',
             name: 'editImage',
-            args: { prompt: '把背景换成现代石材浴室', imageIds: ['file_bathtub'] },
+            args: { prompt: '把浴缸换成白色独立式浴缸，其余保持原样', imageIds: ['file_bathtub'] },
           }),
-        () =>
-          toolCallCompletion({
-            id: 'propose',
-            name: 'proposeEditRegion',
-            args: {
-              imageId: 'file_bathtub',
-              target: '浴缸',
-              change: '换一个浴缸，背景不变',
-              box: { x: 0.3, y: 0.3, width: 0.4, height: 0.45 },
-            },
-          }),
-        () => completionStream('不该走到这里'),
+        () => completionStream('好'),
       ]),
     )
     const frames = await runTurn(
       conversationId,
       '我想把这个浴缸换一下背景不变那种',
-      [{ imageId: 'file_bathtub', dataUrl: inline }],
-      { thinkingDepth: 'fast', model: 'agnes-image' },
-    )
-    const [refused] = eventsOfType(frames, 'toolEnd')
-    expect(refused).toMatchObject({ toolName: 'editImage', status: 'failed' })
-    expect(refused!.message).toContain('proposeEditRegion')
-    const [question] = eventsOfType(frames, 'clarification') as unknown as AgentClarificationBlock[]
-    expect(question?.maskProposal).toMatchObject({ imageId: 'file_bathtub', target: '浴缸' })
-    expect(calls).toHaveLength(2)
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
-  }, 20_000)
-
-  it('lets the agent insist on a whole-image edit after one nudge, so a misread intent is not a dead end', async () => {
-    const { json } = await post('/api/agent/conversations', { deviceId: DEVICE })
-    const conversationId = (json as { conversation: { id: string } }).conversation.id
-    const bath = await sharp(ORIGINAL).jpeg({ quality: 80 }).toBuffer()
-    const edit = (id: string) => () =>
-      toolCallCompletion({
-        id,
-        name: 'editImage',
-        args: { prompt: '把画面换成黄昏时分的海边', imageIds: ['file_bathtub'] },
-      })
-    setAgentFetchForTesting(
-      scriptedAgentFetch([], [edit('first'), edit('again'), () => completionStream('好')]),
-    )
-    const frames = await runTurn(
-      conversationId,
-      '把这里换成海边',
       [{ imageId: 'file_bathtub', dataUrl: `data:image/jpeg;base64,${bath.toString('base64')}` }],
       { thinkingDepth: 'fast', model: 'agnes-image' },
     )
-    const [nudged, insisted] = eventsOfType(frames, 'toolEnd')
-    expect(nudged).toMatchObject({ toolName: 'editImage', status: 'failed' })
-    expect(nudged!.message).toContain('再调一次 editImage')
-    expect(insisted).toMatchObject({ toolName: 'editImage' })
-    expect(insisted!.status).not.toBe('failed')
+    const [edited] = eventsOfType(frames, 'toolEnd')
+    expect(edited).toMatchObject({ toolName: 'editImage' })
+    expect(edited!.status).not.toBe('failed')
+    expect(eventsOfType(frames, 'clarification')).toHaveLength(0)
+    // 什么时候发范围确认交给模型按指引判断：只在「只改一部分」且「拿不准指哪一个」时。
+    const offered = JSON.stringify([calls[0]!.messages, calls[0]!.tools])
+    expect(offered).toContain('proposeEditRegion')
+    expect(offered).toContain('拿不准')
+    expect(offered).toContain('目标明确时不要')
   }, 20_000)
 
   it('sends a whole-image ask back to the model when it first proposes a region, without ending the turn', async () => {
