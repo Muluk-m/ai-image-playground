@@ -303,14 +303,14 @@ describe('proposeEditRegion', () => {
     expect([upright.metadata.width, upright.metadata.height]).toEqual([300, 400])
     const stored = await sharp(upright.bytes).metadata()
     expect([stored.width, stored.height, stored.orientation ?? 1]).toEqual([300, 400, 1])
-    expect(upright.dataUrl.startsWith('data:image/jpeg;base64,')).toBe(true)
-    // 转正后的像素与 sharp 自动转正一致（JPEG 95 重编码，允许小误差）。
+    expect(upright.dataUrl.startsWith('data:image/png;base64,')).toBe(true)
+    // 转正后无损保存：像素与 sharp 自动转正逐一相同，选区外不会因重编码失真。
     const expected = await sharp(rawJpeg).rotate().raw().toBuffer()
     const actual = await sharp(upright.bytes).raw().toBuffer()
     let worst = 0
     for (let index = 0; index < expected.length; index++)
       worst = Math.max(worst, Math.abs(expected[index]! - actual[index]!))
-    expect(worst).toBeLessThan(24)
+    expect(worst).toBe(0)
     // 不复用带方向的那份已存原件：未登录时没法另存转正的，就说清楚不可用。
     const tool = maskProposalTool(
       context(
