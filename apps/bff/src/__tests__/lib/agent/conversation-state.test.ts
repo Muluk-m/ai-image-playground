@@ -412,6 +412,29 @@ describe('removed batch items (BUG-51)', () => {
       : {}),
   })
 
+  // 真正提交过的版本以 attempts 为准：plans.confirmation 在修订提案时就会写入。
+  const submit = async (batchId: string, version: number, key: string, attempt = 1) => {
+    const taskId = `${batchId}-${version}-${key}-${attempt}`
+    await db.insert(schema.tasks).values({
+      id: taskId,
+      user_id: 'owner',
+      provider: 'openai-compat',
+      model: 'fixture',
+      status: 'completed',
+      request_payload: { device_id: 'device', prompt: 'prompt', n: 1 },
+      submitted_at: NOW,
+    })
+    await db.insert(schema.agent_batch_attempts).values({
+      batch_id: batchId,
+      version,
+      item_key: key,
+      attempt,
+      task_id: taskId,
+      reserved_credits: 100,
+      submitted_at: NOW,
+    })
+  }
+
   it('lists v1 items missing from the first confirmed version, not from later retries', async () => {
     await conversation('trimmed')
     await db.insert(schema.agent_batches).values({
@@ -440,6 +463,9 @@ describe('removed batch items (BUG-51)', () => {
         item('zoo', 2, 'dog', 1),
         item('zoo', 3, 'dog', 0),
       ])
+    await submit('zoo', 2, 'cat')
+    await submit('zoo', 2, 'dog')
+    await submit('zoo', 3, 'dog', 2)
 
     const facts = await readConversationStateFacts('trimmed', NOW)
     expect(facts.batches[0]!.removed).toEqual([{ key: 'rabbit', prompt: '一只rabbit 竖版' }])
@@ -466,8 +492,36 @@ describe('removed batch items (BUG-51)', () => {
     await db
       .insert(schema.agent_batch_items)
       .values([item('farm', 1, 'cow', 0), item('farm', 1, 'pig', 1), item('farm', 2, 'pig', 0)])
+    await submit('farm', 1, 'cow')
+    await submit('farm', 1, 'pig')
+    await submit('farm', 2, 'pig', 2)
 
     const facts = await readConversationStateFacts('intact', NOW)
+    expect(facts.batches[0]!.removed).toEqual([])
+  })
+
+  it('ignores a revision proposal that carries confirmation but was never submitted', async () => {
+    await conversation('proposed')
+    await db.insert(schema.agent_batches).values({
+      id: 'pond',
+      user_id: 'owner',
+      conversation_id: 'proposed',
+      origin_turn_id: 'origin',
+      tool_call_id: 'pond',
+      experience: 'chat',
+      status: 'paused',
+      current_version: 2,
+      created_at: NOW,
+      updated_at: NOW,
+    })
+    await db
+      .insert(schema.agent_batch_plans)
+      .values([plan('pond', 1, 2, false), plan('pond', 2, 1, true)])
+    await db
+      .insert(schema.agent_batch_items)
+      .values([item('pond', 1, 'duck', 0), item('pond', 1, 'frog', 1), item('pond', 2, 'frog', 0)])
+
+    const facts = await readConversationStateFacts('proposed', NOW)
     expect(facts.batches[0]!.removed).toEqual([])
   })
 })

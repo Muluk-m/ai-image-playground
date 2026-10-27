@@ -31,6 +31,7 @@ describe('recountBatchText', () => {
     expect(recountBatchText('前三张用暖色，其中三张为竖版', 5, 4)).toBe(
       '前三张用暖色，其中三张为竖版',
     )
+    expect(recountBatchText('共 100 张，保持 100 张统一', 100, 99)).toBe('共 99 张，保持 99 张统一')
   })
 
   it('正文里提到总数的地方也改（BUG-50）', () => {
