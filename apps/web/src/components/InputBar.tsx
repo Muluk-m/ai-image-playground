@@ -32,6 +32,7 @@ import {
 } from '../features/agent/lib/attachmentUploads'
 import { agentComposerFillPrompt, useComposerFillTarget } from '../features/agent/lib/composerFill'
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
+import type { AgentDraft } from '../features/agent/lib/references'
 import { useAgentSkills } from '../features/agent/lib/useAgentSkills'
 import CanvasVideoParams from '../features/canvas/components/CanvasVideoParams'
 import { useActiveLook } from '../features/library/lib/activeLook'
@@ -143,6 +144,42 @@ const PER_TASK_TARGET_ID = 'per-task-target'
 const NO_SHARED_IMAGES: InputImage[] = []
 
 /** `inline`：首屏那一版——不吸底，跟着 hero 排在流里，卡面换成带发光描边的大卡。 */
+/**
+ * 交给智能体的参考图现在能不能发：还在传（pending）、文件本身坏了（fatal）都不能；
+ * 网络这类可重试的失败（failed 里非 fatal 的）点发送时先重传。超限图另有提示，这里只记一笔。
+ */
+function referenceUploadGate(references: readonly { dataUrl: string }[]) {
+  const failed: { dataUrl: string }[] = []
+  let pending = 0
+  let oversized = false
+  for (const reference of references) {
+    if (referenceSourceTooLarge(reference.dataUrl)) {
+      oversized = true
+      continue
+    }
+    const state = attachmentUploadState(reference)
+    if (state === 'failed') failed.push({ dataUrl: reference.dataUrl })
+    else if (state === 'queued' || state === 'uploading' || state === 'verifying') pending += 1
+  }
+  const fatal = failed.find(
+    (reference) => !canRetryAttachmentUpload(attachmentUploadError(reference)),
+  )
+  return { failed, fatal, pending, oversized }
+}
+
+function sameReferences(
+  images: readonly { id: string; dataUrl: string }[],
+  references: readonly { id: string; dataUrl: string }[],
+): boolean {
+  return (
+    images.length === references.length &&
+    images.every(
+      (image, index) =>
+        image.id === references[index]?.id && image.dataUrl === references[index]?.dataUrl,
+    )
+  )
+}
+
 export default function InputBar({ inline = false }: { inline?: boolean } = {}) {
   const { t, i18n } = useTranslation(['composer', 'common'])
   const prompt = useStore((s) => s.prompt)
@@ -314,18 +351,14 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   useEffect(() => primeAttachmentUploads(uploadReferences), [uploadReferences])
   // 传完才建项目：还在传、或文件本身有问题（格式、损坏、超限）时拦住发送；
   // 网络这类可重试的失败照样显示原因，但按钮可点，点了先重传，重传成功才建项目。
-  const uploadStates = uploadReferences.map((reference) =>
-    referenceSourceTooLarge(reference.dataUrl) ? undefined : attachmentUploadState(reference),
-  )
-  const failedUploads = uploadReferences.filter((_, index) => uploadStates[index] === 'failed')
-  const fatalUpload = failedUploads.find(
-    (reference) => !canRetryAttachmentUpload(attachmentUploadError(reference)),
-  )
+  const {
+    failed: failedUploads,
+    fatal: fatalUpload,
+    pending: uploadsPending,
+  } = referenceUploadGate(uploadReferences)
   const failedUpload = fatalUpload ?? failedUploads[0]
-  const uploadsPending = uploadStates.filter(
-    (state) => state === 'queued' || state === 'uploading' || state === 'verifying',
-  ).length
   const [retryingUploads, setRetryingUploads] = useState(false)
+  const canvasSubmittingRef = useRef(false)
   const uploadsBlocked = retryingUploads || uploadsPending > 0 || fatalUpload !== undefined
   const uploadNotice = failedUpload
     ? attachmentUploadErrorMessage(attachmentUploadError(failedUpload), getAttachmentLimits())
@@ -381,23 +414,42 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const submit = () => {
     if (lookSubmitting || batchSendingRef.current) return
     if (toCanvas) {
-      const handoff = () =>
-        startCanvasFromComposer(
-          undefined,
-          createTarget === 'chat' ? 'chat' : 'canvas',
-          creationMode === 'video' ? 'video' : 'image',
-        )
-      if (!failedUploads.length) {
-        void handoff()
-        return
+      if (canvasSubmittingRef.current) return
+      // 发的就是点击这一刻的草稿：重传期间用户再改文字或附件，这次就作罢，由他重新发送。
+      const { prompt: draftPrompt, inputImages: images } = useStore.getState()
+      const draft: AgentDraft = {
+        prompt: draftPrompt,
+        references: images.map((image) => ({ id: image.id, dataUrl: image.dataUrl })),
       }
-      // 挂图时那次上传因网络等原因失败：先重传，全部成功才建项目；仍失败就留在首页，原因照旧显示。
-      setRetryingUploads(true)
-      void Promise.allSettled(failedUploads.map((reference) => retryAttachmentUploads(reference)))
-        .then((results) => {
-          if (results.every((result) => result.status === 'fulfilled')) return handoff()
-        })
-        .finally(() => setRetryingUploads(false))
+      const blocked = (gate: ReturnType<typeof referenceUploadGate>) =>
+        gate.oversized || gate.pending > 0 || gate.fatal !== undefined
+      const gate = referenceUploadGate(draft.references)
+      if (blocked(gate)) return
+      canvasSubmittingRef.current = true
+      if (gate.failed.length) setRetryingUploads(true)
+      void (async () => {
+        try {
+          if (gate.failed.length) {
+            // 挂图时那次上传因网络等原因失败：先重传，全部成功才建项目；仍失败就留在首页，原因照旧显示。
+            await Promise.allSettled(
+              gate.failed.map((reference) => retryAttachmentUploads(reference)),
+            )
+            const now = useStore.getState()
+            if (now.prompt !== draft.prompt || !sameReferences(now.inputImages, draft.references))
+              return
+            const after = referenceUploadGate(draft.references)
+            if (blocked(after) || after.failed.length) return
+          }
+          await startCanvasFromComposer(
+            draft,
+            createTarget === 'chat' ? 'chat' : 'canvas',
+            creationMode === 'video' ? 'video' : 'image',
+          )
+        } finally {
+          canvasSubmittingRef.current = false
+          setRetryingUploads(false)
+        }
+      })()
     } else if (activeLook) void submitWithLook(activeLook, lookBody)
     else if (batchActive) {
       // 逐张生成一次发很多张，按钮先转一下再清空输入框，让这次点击有回应。
