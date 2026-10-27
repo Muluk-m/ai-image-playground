@@ -83,7 +83,7 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）执行 `pnpm li
 
 **关键流程证据。** 改到注册/登录、支付/计费、生成（出图、出视频）流程的 PR，必须附测试账号在测试环境（https://test.muvloom.online）走通该流程的截图或录屏，写明账号类型、环境和提交。证据里不能出现密码、验证码、token 或真实用户数据。`scripts/agent-smoke.ts`（[智能体上线手册](docs/deploy/agent-rollout.md)第七节）、`scripts/pages-browser-smoke.sh`（[部署手册](docs/deploy/image-release.md)「前端启动验收」）和[云端测试](docs/agents/cloud-tests.md)只能作补充：它们不走真实登录、付款或生成，不能代替证据。
 
-**成本硬规则。** 改到模型调用、模型/供应商切换、定价、额度、计费，或任何会提高推理成本的改动（更贵的默认模型、更多调用次数、更长上下文、更大输出、放宽限额），合并前必须有 Nain 的明确确认。PR 模板里勾「本 PR 涉及成本」，拿到确认后再勾「Nain 已明确确认」，并在「确认来源：」后写明 Nain 原话的位置；Agent 不能替 Nain 勾。`.github/workflows/cost-gate.yml` 按 `scripts/cost-gate.mjs` 的路径清单检查：命中或作者声明涉及成本时打 `needs-owner-cost-approval` 标签，没有确认就让 `Cost gate` 失败。路径清单只是兜底，清单外的成本改动也要自己声明。
+**成本硬规则。** 改到模型调用、模型/供应商切换、定价、额度、计费，或任何会提高推理成本的改动（更贵的默认模型、更多调用次数、更长上下文、更大输出、放宽限额），合并前必须有 Nain 的明确确认。PR 模板里勾「本 PR 涉及成本」，拿到确认后再勾「Nain 已明确确认」，并在「确认来源：」后写明 Nain 原话的位置；Agent 不能替 Nain 勾。`.github/workflows/cost-gate.yml` 按 `scripts/cost-gate.mjs` 的路径清单检查：命中或作者声明涉及成本时打 `needs-owner-cost-approval` 标签，没有确认就让 `Cost gate` 失败。判定脚本用目标分支上的版本，改它要等合并后才对后续 PR 生效。路径清单只是兜底，清单外的成本改动也要自己声明。
 
 ## 测试约定
 
