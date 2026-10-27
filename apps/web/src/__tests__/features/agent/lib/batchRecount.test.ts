@@ -66,4 +66,15 @@ describe('pruneRemovedFromList', () => {
       '香蕉、葡萄、苹果三张',
     )
   })
+  it('提示词里点名排除其他项时照样认出被删项（BUG-39 test 复测）', () => {
+    const series = (fruit: string, others: string) =>
+      `用途：水果静物系列。主体：一个成熟${fruit}。光线：柔和侧光，清晰呈现${fruit}的质感。约束：画面只突出${fruit}，不出现${others}或其他水果。`
+    expect(
+      pruneRemovedFromList(
+        '统一规则：香蕉、葡萄、橙子三张；三张均为水果静物摄影',
+        series('橙子', '香蕉、葡萄'),
+        [series('香蕉', '葡萄、橙子'), series('葡萄', '香蕉、橙子')],
+      ),
+    ).toBe('统一规则：香蕉、葡萄两张；三张均为水果静物摄影')
+  })
 })
