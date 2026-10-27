@@ -36,3 +36,83 @@ export function recountBatchText(text: string, from: number, to: number): string
         parseChineseCount(count) === from && to < 100 ? `${lead}${chineseCount(to)}${tail}` : match,
     )
 }
+
+const LIST_RUN = /[\p{Script=Han}A-Za-z0-9]+(?:、[\p{Script=Han}A-Za-z0-9]+)+/gu
+const LIST_COUNT = /^(\d{1,2}|[一二两三四五六七八九十]{1,3})(\s*[张项幅])/
+
+/**
+ * 提示词里的排除说明（「不出现葡萄、橙子」「避免香蕉」）不算这一项画的东西：
+ * 智能体写的系列提示词几乎每项都会点名排除其他项，不去掉就永远认不出被删项的名字。
+ */
+const NEGATED =
+  /(?:不要出现|不出现|不要|不得|不能|不含|不包含|避免|排除|禁止|无需)[^。；;！!？?\n]*/g
+const affirmed = (prompt: string) => prompt.replace(NEGATED, '')
+
+/** 列表项里只属于被删项、不属于任何保留项的名字（首项取后缀、末项取前缀、中间取整项）。 */
+function removedName(
+  part: string,
+  side: 'first' | 'middle' | 'last',
+  removed: string,
+  kept: readonly string[],
+): string | null {
+  const drawn = affirmed(removed)
+  const others = kept.map(affirmed)
+  const owned = (name: string) =>
+    name.length >= 2 && drawn.includes(name) && !others.some((prompt) => prompt.includes(name))
+  if (side === 'middle') return owned(part) ? part : null
+  for (let length = part.length; length >= 2; length -= 1) {
+    const name = side === 'first' ? part.slice(part.length - length) : part.slice(0, length)
+    if (owned(name)) return name
+  }
+  return null
+}
+
+/**
+ * 删掉某项后，把标题和统一规则里用「、」列举的这一项去掉，并改写紧跟在列举后的张数（BUG-39）：
+ * 「分别创作香蕉、葡萄、橙子三张」删掉橙子后变成「分别创作香蕉、葡萄两张」。
+ * 只删被删项提示词里有、保留项提示词里都没有的名字；拿不准就不改，交给用户自己改。
+ */
+export function pruneRemovedFromList(
+  text: string,
+  removedPrompt: string,
+  keptPrompts: readonly string[],
+): string {
+  return text.replace(LIST_RUN, (run) => {
+    const parts = run.split('、')
+    const last = parts.length - 1
+    let head = ''
+    let tail = ''
+    const names: string[] = []
+    let dropped = 0
+    for (const [index, part] of parts.entries()) {
+      const side = index === 0 ? 'first' : index === last ? 'last' : 'middle'
+      const name = removedName(part, side, removedPrompt, keptPrompts)
+      if (side === 'first') head = name ? part.slice(0, part.length - name.length) : ''
+      if (side === 'last') tail = name ? part.slice(name.length) : ''
+      if (name) {
+        dropped += 1
+        continue
+      }
+      names.push(side === 'first' ? part.slice(head.length) : side === 'last' ? part : part)
+    }
+    if (dropped === 0 || names.length === 0) return run
+    if (!tail) {
+      // 末项保留：它自带的「三张」还挂在末项后面，拆出来以便改数。
+      const kept = names[names.length - 1]!
+      const at = kept.search(/(\d{1,2}|[一二两三四五六七八九十]{1,3})\s*[张项幅]$/)
+      if (at > 0) {
+        tail = kept.slice(at)
+        names[names.length - 1] = kept.slice(0, at)
+      }
+    }
+    const count = LIST_COUNT.exec(tail)
+    if (count) {
+      const before = /^\d/.test(count[1]!) ? Number(count[1]) : parseChineseCount(count[1]!)
+      if (before === parts.length) {
+        const after = parts.length - dropped
+        tail = `${/^\d/.test(count[1]!) ? after : chineseCount(after)}${tail.slice(count[1]!.length)}`
+      }
+    }
+    return `${head}${names.join('、')}${tail}`
+  })
+}

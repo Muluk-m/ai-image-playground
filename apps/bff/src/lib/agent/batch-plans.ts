@@ -52,6 +52,8 @@ interface PlanInput {
     readonly dependencies?: readonly string[]
     readonly aspectRatio?: ImagePresetRatio
   }[]
+  /** 用户明确要保留先前的计划另做一份时为 true；默认新计划作废本对话先前轮次未确认的计划。 */
+  readonly keepEarlierPlans?: boolean
 }
 
 function invalid(message: string): never {
@@ -151,7 +153,7 @@ export async function createAgentBatchPlan(
   context: AgentToolContext,
   toolCallId: string,
   input: PlanInput,
-): Promise<string> {
+): Promise<{ readonly id: string; readonly superseded: readonly string[] }> {
   if (!batchPlansAvailable(context) || !context.userId) invalid('请登录后使用批次计划。')
   const userId = context.userId
   const requestedIds = [
@@ -248,7 +250,7 @@ export async function createAgentBatchPlan(
           eq(schema.agent_batches.tool_call_id, toolCallId),
         ),
       )
-    if (existing) return existing.id
+    if (existing) return { id: existing.id, superseded: [] }
     const mediaIds = batchMediaIds(items)
     const ready = await readyBatchMedia(tx, userId, mediaIds)
     if (ready.length !== mediaIds.length) invalid('批次所需的图片已不可用，请检查完整范围。')
@@ -295,8 +297,55 @@ export async function createAgentBatchPlan(
       .values(items.map((item) => ({ batch_id: id, version: 1, ...batchItemValues(item) })))
     await insertBatchMediaReferences(tx, userId, id, mediaIds, now)
     await supersedeTurnDrafts(tx, userId, context.conversationId, context.turnId, id, items, now)
-    return id
+    const superseded = input.keepEarlierPlans
+      ? []
+      : await supersedeEarlierTurnDrafts(tx, userId, context.conversationId, context.turnId, now)
+    return { id, superseded }
   })
+}
+
+/**
+ * 对话里出了新计划，先前轮次还没确认的草稿作废（BUG-39）：置为已取消，卡片刷新后不能再确认，
+ * 服务端确认也会拒绝（`confirmAgentBatch` 只接受 draft），不会再按旧计划扣费。
+ * 同一轮分批保存的各段不受影响（只看别的轮次）；已确认、执行中或暂停的批次不动。
+ */
+async function supersedeEarlierTurnDrafts(
+  tx: BffTransaction,
+  userId: string,
+  conversationId: string,
+  turnId: string,
+  now: number,
+): Promise<string[]> {
+  const drafts = await tx
+    .select({ id: schema.agent_batches.id })
+    .from(schema.agent_batches)
+    .where(
+      and(
+        eq(schema.agent_batches.conversation_id, conversationId),
+        eq(schema.agent_batches.user_id, userId),
+        ne(schema.agent_batches.origin_turn_id, turnId),
+        eq(schema.agent_batches.status, 'draft'),
+        isNull(schema.agent_batches.confirmation_command_id),
+        isNull(schema.agent_batches.confirmed_version),
+      ),
+    )
+    .for('update')
+  const ids = drafts.map((draft) => draft.id)
+  if (!ids.length) return ids
+  await tx
+    .update(schema.agent_batches)
+    .set({ status: 'cancelled', updated_at: now })
+    .where(inArray(schema.agent_batches.id, ids))
+  await tx
+    .delete(schema.media_references)
+    .where(
+      and(
+        eq(schema.media_references.owner_kind, 'batch'),
+        inArray(schema.media_references.owner_id, ids),
+        eq(schema.media_references.user_id, userId),
+      ),
+    )
+  return ids
 }
 
 /** 处理项的身份：编号、类型与输入原图及遮罩（按序）。同一身份视为同一项，提示词可改。 */
