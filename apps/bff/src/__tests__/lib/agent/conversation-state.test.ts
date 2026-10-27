@@ -427,11 +427,9 @@ describe('removed batch items (BUG-51)', () => {
       created_at: NOW,
       updated_at: NOW,
     })
-    await db.insert(schema.agent_batch_plans).values([
-      plan('zoo', 1, 3, false),
-      plan('zoo', 2, 2, true),
-      plan('zoo', 3, 1, true),
-    ])
+    await db
+      .insert(schema.agent_batch_plans)
+      .values([plan('zoo', 1, 3, false), plan('zoo', 2, 2, true), plan('zoo', 3, 1, true)])
     await db
       .insert(schema.agent_batch_items)
       .values([
@@ -462,7 +460,9 @@ describe('removed batch items (BUG-51)', () => {
       created_at: NOW,
       updated_at: NOW,
     })
-    await db.insert(schema.agent_batch_plans).values([plan('farm', 1, 2, true), plan('farm', 2, 1, true)])
+    await db
+      .insert(schema.agent_batch_plans)
+      .values([plan('farm', 1, 2, true), plan('farm', 2, 1, true)])
     await db
       .insert(schema.agent_batch_items)
       .values([item('farm', 1, 'cow', 0), item('farm', 1, 'pig', 1), item('farm', 2, 'pig', 0)])
