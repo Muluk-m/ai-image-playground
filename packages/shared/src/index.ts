@@ -1,6 +1,7 @@
 export * from './agent'
 export * from './agent-batch'
 export * from './agent-canvas-snapshot'
+export * from './agent-image-shape'
 export * from './agent-inline-reasoning'
 export * from './agent-model-settings'
 export * from './analysis'
