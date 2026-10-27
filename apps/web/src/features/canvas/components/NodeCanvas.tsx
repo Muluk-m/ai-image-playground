@@ -1348,12 +1348,15 @@ function Flow({
       ? { left: tools.right - box.left + 8, top: tools.top - box.top }
       : { left: tools.left - box.left, top: tools.bottom - box.top + 8 }
   }
+  const placeAssetsPanelRef = useRef(placeAssetsPanel)
+  placeAssetsPanelRef.current = placeAssetsPanel
+  const assetsPanelOpen = assetsPanel !== null
   useEffect(() => {
-    if (!assetsPanel) return
-    const reposition = () => setAssetsPanel(placeAssetsPanel())
+    if (!assetsPanelOpen) return
+    const reposition = () => setAssetsPanel(placeAssetsPanelRef.current())
     window.addEventListener('resize', reposition)
     return () => window.removeEventListener('resize', reposition)
-  })
+  }, [assetsPanelOpen])
   // 资产浮层里点一件或「应用到画布」：在当前画面中间建节点并选中，不挪视口，浮层保持打开。
   const placeAssets = async (items: readonly CanvasAssetItem[]) => {
     try {
@@ -2429,7 +2432,7 @@ function Flow({
                           placeAt.current = center()
                           setAssetsOpen(true)
                         }}
-                        assetsPanelOpen={!!assetsPanel}
+                        assetsPanelOpen={assetsPanelOpen}
                         onAssetsPanel={() =>
                           setAssetsPanel((open) => (open ? null : placeAssetsPanel()))
                         }
