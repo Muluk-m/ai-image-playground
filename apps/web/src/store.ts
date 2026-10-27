@@ -840,7 +840,12 @@ export const useStore = create<AppState>()(
         set((s) => {
           if (s.sharedImageIds.length > 0 && !s.maskDraft) {
             const next = settleSharedReferences(s, imgs, options?.equivalentImageIds)
-            return options?.prompt === undefined ? next : { ...next, prompt: options.prompt }
+            if (options?.prompt === undefined) return next
+            // 整份草稿换进来（复用历史任务）：给的提示词按 `imgs` 的顺序数，落定可能把共享图挪到队尾，跟着重排。
+            return {
+              ...next,
+              prompt: remapImageMentionsForOrder(options.prompt, [...imgs], next.inputImages),
+            }
           }
           const keepsMask =
             Boolean(s.maskDraft) && imgs.some((img) => img.id === s.maskDraft?.targetImageId)
