@@ -110,7 +110,69 @@ export async function reserveMedia(userId: string, input: UploadDescriptor) {
     ? (attachmentLimits(config.operator)?.imageBytes ??
       config.operator.quotas['sync:asset-image-bytes'])
     : config.operator.quotas['sync:asset-image-bytes']
-  return reserveOwnedMedia(userId, input, byteLimit, PREVIEW_BUDGET)
+  return reserveOwnedMedia(userId, input, byteLimit, PREVIEW_BUDGET, withOrientedSize)
+}
+
+/**
+ * #1550 之前发布的图按原始像素记宽高，EXIF 方向 5–8 的竖拍照片因此被记成横的。
+ * 不做全量回填：只在再次上传撞上这条旧记录时，拿已转正的预览核一次朝向，
+ * 不一致就把这一行的宽高对调（BUG-43）。核过的行 updated_at 会前移，之后不再查。
+ */
+const ORIENTED_SIZE_SINCE = Date.UTC(2026, 9, 27, 17)
+const orientationChecked = new Set<string>()
+export async function withOrientedSize(row: Media): Promise<Media> {
+  if (
+    row.status !== 'ready' ||
+    row.updated_at >= ORIENTED_SIZE_SINCE ||
+    !row.preview_key ||
+    !row.width ||
+    !row.height ||
+    row.width === row.height ||
+    !row.content_type.startsWith('image/') ||
+    orientationChecked.has(row.id)
+  )
+    return row
+  try {
+    const preview = await durableMediaStore().readUpTo(
+      row.preview_key,
+      (row.preview_bytes || PREVIEW_BUDGET) + 1,
+    )
+    const { width, height } = await sharp(preview).metadata()
+    if (orientationChecked.size >= 10_000) orientationChecked.clear()
+    orientationChecked.add(row.id)
+    if (!width || !height || width === height || width > height === row.width > row.height)
+      return row
+    const [fixed] = await db
+      .update(media)
+      .set({ width: row.height, height: row.width, updated_at: Date.now() })
+      .where(
+        and(
+          eq(media.id, row.id),
+          eq(media.status, 'ready'),
+          eq(media.width, row.width),
+          eq(media.height, row.height),
+        ),
+      )
+      .returning()
+    if (fixed)
+      log.info(
+        {
+          event: 'media.oriented_size_corrected',
+          mediaId: row.id,
+          width: fixed.width,
+          height: fixed.height,
+        },
+        '旧记录的宽高与转正后的朝向不一致，已对调',
+      )
+    return fixed ?? row
+  } catch (error) {
+    // 核不了就照旧返回：宽高只影响展示比例，不该因此让这次上传失败。
+    log.warn(
+      { event: 'media.oriented_size_check_failed', mediaId: row.id, error: String(error) },
+      '旧记录的朝向核对失败，沿用原宽高',
+    )
+    return row
+  }
 }
 
 /** Server-owned queue output only; never grants a client an arbitrary video upload. */
@@ -123,10 +185,11 @@ async function reserveOwnedMedia(
   input: UploadDescriptor,
   byteLimit: number,
   previewBudget: number,
+  reviseReady?: (row: Media) => Promise<Media>,
 ) {
   const attachment = input.purpose === 'conversation-attachment'
   if (input.bytes > byteLimit) throw new MediaError(413, 'media_too_large')
-  return db.transaction(async (tx) => {
+  const row = await db.transaction(async (tx): Promise<Media> => {
     await lockMediaOwner(tx, userId)
     let [existing] = await tx
       .select()
@@ -158,7 +221,7 @@ async function reserveOwnedMedia(
       existing &&
       (existing.status === 'ready' || (described && existing.expires_at > now + 600_000))
     )
-      return uploadResult(existing)
+      return existing
     const reserved = input.bytes + previewBudget
     const used = await mediaUsage(tx, userId, now)
     const previous =
@@ -190,8 +253,10 @@ async function reserveOwnedMedia(
             ...values,
           })
           .returning()
-    return uploadResult(row!)
+    return row!
   })
+  // 存储读放在事务外：不占着这位用户的锁去等对象存储。
+  return uploadResult(row.status === 'ready' && reviseReady ? await reviseReady(row) : row)
 }
 
 async function ownedMedia(userId: string, id: string, executor: Pick<typeof db, 'select'> = db) {

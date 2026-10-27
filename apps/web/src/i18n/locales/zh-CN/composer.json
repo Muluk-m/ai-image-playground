@@ -189,6 +189,7 @@
     "newProject": "新建项目",
     "references": "参考素材（{{count}}）",
     "removeReference": "移除第 {{index}} 张图片",
+    "referenceIssue": "第 {{index}} 张图片：{{reason}}",
     "removeUnusableReferences": "移除无法使用的图片",
     "uploadProgress": "上传中 {{ready}}/{{total}}",
     "viewAllReferences": "查看全部",

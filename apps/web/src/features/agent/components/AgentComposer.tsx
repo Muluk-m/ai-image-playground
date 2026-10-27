@@ -462,6 +462,20 @@ export default function AgentComposer({
       attachmentUploadState(uploadReference(reference)) ?? '',
     ),
   ).length
+  // 收起的那叠也要看得到进度：每张在传的都知道进度时取平均，有一张不知道就只转圈（BUG-42）。
+  const uploadingProgress = draft.references.flatMap((reference) => {
+    const upload = uploadReference(reference)
+    return ['queued', 'uploading', 'verifying'].includes(attachmentUploadState(upload) ?? '')
+      ? [attachmentUploadProgress(upload)]
+      : []
+  })
+  const stackProgress =
+    uploadingProgress.length && uploadingProgress.every((value) => value !== undefined)
+      ? Math.floor(
+          uploadingProgress.reduce<number>((sum, value) => sum + (value ?? 0), 0) /
+            uploadingProgress.length,
+        )
+      : undefined
   const referenceStatus = failedReference
     ? attachmentUploadErrorMessage(
         attachmentUploadError(uploadReference(failedReference)),
@@ -1185,6 +1199,7 @@ export default function AgentComposer({
                 }
                 failed={Boolean(failedReference)}
                 uploading={uploadingCount > 0}
+                progress={stackProgress}
                 status={referenceStatus}
                 previews={draft.references.slice(-3).map((reference, offset) => {
                   const index =

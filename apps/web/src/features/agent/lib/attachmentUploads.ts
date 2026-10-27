@@ -341,7 +341,10 @@ function start(source: string, retry = false): Promise<MediaUploadResult> {
         changed()
       },
       onProgress(fraction) {
-        const progress = Math.floor(fraction * 100)
+        // 浏览器报的是交给网络栈的字节数，不是对端收到的：小文件一下就「发完」，
+        // 实际还要等十几秒才传完。全部交出后不再报数，退回「上传中」等响应，
+        // 免得在真正传完之前就显示 100%（BUG-42）。
+        const progress = fraction >= 1 ? undefined : Math.min(99, Math.floor(fraction * 100))
         if (entry.state !== 'uploading' || progress === entry.progress) return
         entry.progress = progress
         changed()
