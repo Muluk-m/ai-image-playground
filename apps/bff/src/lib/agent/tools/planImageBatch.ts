@@ -11,9 +11,9 @@ export const planImageBatch = defineAgentTool({
   modes: ['image'],
   label: '批次计划',
   description:
-    '针对固定的一组图片拟定分析或编辑计划，保存统一规则、完整范围与每项提示词供用户审查和确认报价。调用只保存草稿。analysis 项检查或比较图片，generation 项生成图片；不同处理目标各列一项。超过 8 项时分多次保存，每次不超过 8 项。',
+    '拟定批量生图或图片分析计划，保存统一规则、完整范围与每项提示词供用户审查和确认报价。调用只保存草稿。generation 项生成图片：基于已有图片时 imageIds 填对应图片，纯文字生图（系列图、多张不同场景等）时 imageIds 传空数组；analysis 项检查或比较图片，必须带图片。不同处理目标各列一项。超过 8 项时分多次保存，每次不超过 8 项。',
   guidance:
-    '用户要求批量处理对话中的图片时，用 planImageBatch 展示固定范围与逐项提示词；必须列齐用户要求的输入，不可静默漏图。超过 8 项时分多次保存，每次不超过 8 项。计划保存后等待用户确认报价，不可宣称已开始执行。analysis 仅在分析能力开放时使用。联合比较必须单列 intent=joint_comparison 的 analysis 项，把需要比较的原图放在同一次调用；逐图检查使用 inspection。无法准备完整输入时先明确说明，不得用逐图检查代替联合比较。',
+    '用户要求批量处理对话中的图片，或要求先出计划卡/批量计划再生成多张图时，用 planImageBatch 展示固定范围与逐项提示词；没有参考图的纯文字需求同样可以出计划卡，generation 项的 imageIds 传空数组，不得以没有图片为由拒绝出卡。有参考图时必须列齐用户要求的输入，不可静默漏图。超过 8 项时分多次保存，每次不超过 8 项。计划保存后等待用户确认报价，不可宣称已开始执行。analysis 仅在分析能力开放时使用。联合比较必须单列 intent=joint_comparison 的 analysis 项，把需要比较的原图放在同一次调用；逐图检查使用 inspection。无法准备完整输入时先明确说明，不得用逐图检查代替联合比较。',
   onError: 'continue',
   available: (_mode, audience) => batchPlansAvailable(audience),
   parameters: Type.Object({
@@ -26,8 +26,9 @@ export const planImageBatch = defineAgentTool({
         ),
         kind: Type.Optional(Type.Union([Type.Literal('generation'), Type.Literal('analysis')])),
         key: Type.String({ minLength: 1, maxLength: 128 }),
+        // 纯文字生图的 generation 项没有输入图（BUG-25）；analysis 项在保存时仍要求至少一张。
         imageIds: Type.Array(Type.String({ minLength: 1, maxLength: 128 }), {
-          minItems: 1,
+          minItems: 0,
           maxItems: 100,
         }),
         prompt: Type.String({ minLength: 1, maxLength: 4000 }),
