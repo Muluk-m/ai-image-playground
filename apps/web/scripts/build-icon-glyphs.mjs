@@ -182,6 +182,7 @@ const GLYPHS = {
   blocked: ['solar', 'forbidden-circle'],
   lock: ['solar', 'lock'],
   unlock: ['solar', 'lock-unlocked'],
+  pin: ['solar', 'pin'],
   key: ['solar', 'key'],
   visible: ['solar', 'eye'],
   hidden: ['solar', 'eye-closed'],

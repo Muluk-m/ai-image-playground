@@ -172,7 +172,11 @@
   "mention": {
     "headingImages": "References",
     "headingAssets": "Assets",
-    "assetsEmptyNote": "No assets yet — right-click a reference to save one"
+    "assetsEmptyNote": "No assets yet — right-click a reference to save one",
+    "headingPerTask": "Per image · images in each task",
+    "perTaskTarget": "Each task's target image",
+    "perTaskShared": "Shared reference",
+    "perTaskSharedNamed": "{{name}} · shared"
   },
   "toast": {
     "assetSaved": "Saved as an asset",

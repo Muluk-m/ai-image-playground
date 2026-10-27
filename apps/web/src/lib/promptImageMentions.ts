@@ -46,6 +46,21 @@ export function createMentionLabels(
   }
 }
 
+/**
+ * 逐张生成时每个任务里的图：@图1 是各自的目标图，@图2… 依次是 `shared`。
+ * 每个序号都给标签：超出的照样显示成胶囊，由输入框标成警示，提交时按普通文字发出。
+ */
+export function createPerTaskMentionLabels(
+  shared: readonly InputImage[],
+  labelByImageId: Record<string, string> = {},
+): MentionLabelResolver {
+  return (index) => {
+    const image = index > 0 ? shared[index - 1] : undefined
+    const named = image ? labelByImageId[image.id] : undefined
+    return named ? `@${named}` : getImageMentionLabel(index)
+  }
+}
+
 function stripImageMentionMarkers(prompt: string): string {
   return prompt.replace(/[\u2063\u2064]/g, '')
 }

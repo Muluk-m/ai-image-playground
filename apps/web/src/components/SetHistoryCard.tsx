@@ -105,6 +105,41 @@ function BatchTile({
 }
 
 /** 展开后逐张列出的一行：缩略图点开看大图，后面是复用、编辑、送入画布、下载。 */
+const SHARED_THUMB_LIMIT = 2
+
+/**
+ * 逐张生成带了共享参考时，一张的参考图：自己的目标图 + 每张都带上的共享参考（最多摆 2 张，余下记数）。
+ * 只有一张参考图（没设共享）时不显示。
+ */
+function TaskReferences({ imageIds }: { imageIds: readonly string[] }) {
+  const { t } = useTranslation('task')
+  const [target, ...shared] = imageIds
+  if (!target || shared.length === 0) return null
+  const hidden = shared.length - SHARED_THUMB_LIMIT
+  return (
+    <div
+      data-task-references
+      role="img"
+      aria-label={t('set.taskReferences', { count: shared.length })}
+      className="flex items-center gap-1 text-xs text-muted-foreground"
+    >
+      <span className="size-6 shrink-0 overflow-hidden rounded border border-border">
+        <AssetThumb imageId={target} alt="" />
+      </span>
+      <span aria-hidden>+</span>
+      {shared.slice(0, SHARED_THUMB_LIMIT).map((imageId) => (
+        <span
+          key={imageId}
+          className="size-6 shrink-0 overflow-hidden rounded border border-primary/50"
+        >
+          <AssetThumb imageId={imageId} alt="" />
+        </span>
+      ))}
+      {hidden > 0 && <span aria-hidden>+{hidden}</span>}
+    </div>
+  )
+}
+
 function BatchItem({
   task,
   index,
@@ -155,9 +190,12 @@ function BatchItem({
           onOpen={done ? onZoom : undefined}
         />
       </div>
-      <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
-        {t('set.failedItem', { index })}
-      </p>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <p className="truncate text-xs font-medium text-foreground">
+          {t('set.failedItem', { index })}
+        </p>
+        <TaskReferences imageIds={task.inputImageIds} />
+      </div>
       {done && (
         <div className="flex shrink-0 items-center gap-0.5">
           {actions.map((action) => (
@@ -226,6 +264,8 @@ export default function SetHistoryCard({
   const doneTasks = tasks.filter((task) => task.status === 'done' && task.outputImages.length > 0)
   // 逐张生成的一组在卡里展开，不再把每张散到网格里去。
   const listed = batch && expanded && itemHandlers !== undefined
+  // 同一批逐张生成的共享参考每张都一样，折起来时在标题下摆一次。
+  const sharedIds = batch ? (tasks[0]?.inputImageIds.slice(1) ?? []) : []
   // 点格子直接放大看这一张，和单张作品卡在详情里点图一样用全局大图预览；左右键在这一批出了图的几张间切换。
   const setLightboxImageId = useStore((state) => state.setLightboxImageId)
   const zoom = (task: TaskRecord) => {
@@ -269,6 +309,25 @@ export default function SetHistoryCard({
             {failed > 0 ? ` · ${t('set.failedCount', { failed })}` : ''}
             {cancelled > 0 ? ` · ${t('set.cancelledCount', { cancelled })}` : ''}
           </p>
+          {batch && !listed && sharedIds.length > 0 && (
+            <div
+              data-set-shared-references
+              className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground"
+            >
+              <span>{t('set.sharedReferences')}</span>
+              {sharedIds.slice(0, SHARED_THUMB_LIMIT).map((imageId) => (
+                <span
+                  key={imageId}
+                  className="size-5 shrink-0 overflow-hidden rounded border border-primary/50"
+                >
+                  <AssetThumb imageId={imageId} alt="" />
+                </span>
+              ))}
+              {sharedIds.length > SHARED_THUMB_LIMIT && (
+                <span>+{sharedIds.length - SHARED_THUMB_LIMIT}</span>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {listed && doneTasks.length > 1 && (
@@ -364,6 +423,11 @@ export default function SetHistoryCard({
                 <p className="text-xs font-medium text-foreground">
                   {t('set.failedItem', { index: task.origin?.shotId ?? '' })}
                 </p>
+                {task.inputImageIds.length > 1 && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('set.taskReferences', { count: task.inputImageIds.length - 1 })}
+                  </p>
+                )}
                 <p
                   className="line-clamp-2 text-xs text-destructive"
                   title={taskRecordErrorText(task) ?? undefined}

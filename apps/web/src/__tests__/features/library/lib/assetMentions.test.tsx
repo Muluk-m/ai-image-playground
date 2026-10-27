@@ -237,3 +237,26 @@ describe('@ 菜单的素材分组', () => {
     expect(host.textContent ?? '').not.toContain('还没有素材')
   })
 })
+
+describe('逐张生成的 @ 候选', () => {
+  it('按每个任务里的序号列：@图1 是各自的目标图，后面是共享参考，不列素材', () => {
+    const groups = buildAtMentionGroups({
+      query: '',
+      inputImages,
+      assets: [asset({ id: '9', name: '熊猫', imageId: 'other' })],
+      perTaskShared: [inputImages[1]!],
+      labelByImageId: { 'image-b': '白T' },
+    })
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0]!.options.map((o) => [o.label, o.description, o.value])).toEqual([
+      ['@图1', '每个任务的目标图', { type: 'image', index: 0 }],
+      ['@图2', '白T · 共享', { type: 'image', index: 1 }],
+    ])
+  })
+
+  it('没有共享参考时只剩 @图1', () => {
+    const groups = buildAtMentionGroups({ query: '', inputImages, assets: [], perTaskShared: [] })
+    expect(groups[0]!.options.map((o) => o.label)).toEqual(['@图1'])
+  })
+})
