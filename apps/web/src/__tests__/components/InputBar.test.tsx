@@ -173,7 +173,7 @@ describe('首屏的生成设置', () => {
   it('对话创作与画布创作都走 Agent 输入，但保留各自入口', () => {
     remount('chat')
     expect(openSettings()('张数')).toBeNull()
-    expect(editor().getAttribute('data-placeholder')).toContain('梳理思路')
+    expect(editor().getAttribute('data-placeholder')).toContain('描述你想做的画面或短片')
     expect(useStore.getState().createTarget).toBe('chat')
   })
 

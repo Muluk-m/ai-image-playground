@@ -155,7 +155,7 @@ describe('client capability bootstrap', () => {
     }
   })
 
-  it('retries with longer timeouts before failing startup', async () => {
+  it('starts bounded fallback requests while earlier requests remain pending', async () => {
     vi.useFakeTimers()
     try {
       const fetchMock = vi
@@ -169,7 +169,7 @@ describe('client capability bootstrap', () => {
       void boot.then(settled, settled)
       await vi.advanceTimersByTimeAsync(5000)
       expect(fetchMock).toHaveBeenCalledTimes(2)
-      // The second attempt waits 10s, not another 5s.
+      // Wait another 10s before the final fallback, without discarding earlier responses.
       await vi.advanceTimersByTimeAsync(9000)
       expect(fetchMock).toHaveBeenCalledTimes(2)
       await vi.advanceTimersByTimeAsync(1000)

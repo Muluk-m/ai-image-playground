@@ -143,6 +143,7 @@ import {
 } from './lib/projectLifecycle'
 import { isProductionDraft } from './lib/promptDraft'
 import { type AgentRetryRefusal, agentRetryRemaining, agentRetrySlotTasks } from './lib/retry'
+import { describeSendFailure } from './lib/sendFailure'
 import { agentToolFailureText, promptAgentRecharge } from './lib/toolFailure'
 import { toAgentTurnParams } from './lib/turnParams'
 import {
@@ -309,6 +310,11 @@ export interface AgentState {
     replay?: TurnSubmissionReplay,
     /** 快捷编辑在校验遮罩能力时固定的模型，避免上传期间切换模型造成校验与起轮不一致。 */
     modelOverride?: string,
+    /**
+     * 服务端没收下（拒收、断网、撤回）时把这句话交还给发送方自己的草稿；返回是否已落盘。
+     * 首屏交接用它把话放回新项目的输入框，而不是只留在补发日志里、输入框却空着。
+     */
+    onUnsent?: (submission: UnsentTurnSubmission) => Promise<boolean>,
   ): Promise<void | 'cancelled'>
   submitDraft(input: DraftSubmissionInput): Promise<void>
   abort(): Promise<void>
@@ -426,6 +432,22 @@ const failPatch = (
 })
 
 const REFERENCES_NOT_UPLOADED = () => i18next.t('error.referencesNotUploaded', { ns: 'agent' })
+
+/**
+ * 最近一次没能发出去（服务端还没收下）的那条话，卡片上的「重试」按原样再发一次。
+ * 只在错误卡还显示着同一句话时有效；别处改了 `error` 就自然失效。
+ */
+let unsentRetry: { error: string; run: () => Promise<unknown> } | null = null
+
+export function unsentRetryAvailable(error: string | null): boolean {
+  return Boolean(error && unsentRetry?.error === error)
+}
+
+export function retryUnsent(): void {
+  const pending = unsentRetry
+  unsentRetry = null
+  if (pending && useAgentStore.getState().error === pending.error) void pending.run()
+}
 
 let pendingSeq = 0
 const PENDING_PREFIX = 'pending_'
@@ -1633,11 +1655,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         error:
           code === 'queue_full'
             ? i18next.t('error.queueFull', { ns: 'agent', count: AGENT_QUEUE_MAX_PENDING })
-            : code === 'invalid_selection'
-              ? i18next.t('error.invalidSelection', { ns: 'agent' })
-              : code === 'invalid_reference'
-                ? i18next.t('error.invalidReference', { ns: 'agent' })
-                : i18next.t('error.queueFailed', { ns: 'agent' }),
+            : (describeSendFailure(thrown)?.message ??
+              i18next.t('error.queueFailed', { ns: 'agent' })),
       })
       return false
     }
@@ -2026,6 +2045,21 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     ) {
       // 这一轮可能在画布上发起运行：原标签页报价前把模型清单刷新一下（有节流，失败保留原清单）。
       void refreshChannels()
+      // 重试沿用这一次已经定下的消息 id：服务端可能其实收下了，同一个 id 才认得出是同一条、不会再排一次。
+      // 参数、画布与是否回答澄清也沿用这一次定下的：同一个 id 只能代表同一个请求，用户中途改了
+      // 设置或画布，重试的仍是没发出去的那一条。
+      let retryMessageId = clientMessageId
+      let retryReplay = replay
+      const resend = () =>
+        get().send(text, references, onAccepted, mode, retryMessageId, retryReplay, modelOverride)
+      /** 服务端收下之前就失败：说清原因与下一步，能重试的给卡片挂上「重试」。 */
+      const failUnsent = (fallback: string | undefined, thrown?: unknown) => {
+        const described = describeSendFailure(thrown)
+        fail(described?.message ?? fallback, thrown)
+        const shown = get().error
+        unsentRetry =
+          shown && (described ? described.retryable : true) ? { error: shown, run: resend } : null
+      }
       const sameAccount = accountScope()
       const turnParams = replay?.params ?? {
         ...currentTurnParams(mode),
@@ -2088,6 +2122,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const clarificationAnswer =
         replay?.clarificationAnswer ?? answerableClarificationId(get().messages) !== null
       const messageId = clientMessageId ?? crypto.randomUUID()
+      retryMessageId = messageId
+      const { references: _captured, ...unsentSnapshot } = captured.snapshot
+      retryReplay = { ...unsentSnapshot, clarificationAnswer }
       // 交出去之前先落本机，并且等它写完：这句话与服务端之间隔着几秒网络，刷新、断网都在
       // 这段里，只在内存里就等于没发过。写完才发，回来时照样看得到，也能拿同一个 id 重发。
       const journaled = sourceProject ? { projectId: sourceProject.id, id: messageId } : null
@@ -2284,7 +2321,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             }
           }
         } catch (thrown) {
-          if (turnDelivery.isCurrent()) fail(undefined, thrown)
+          if (turnDelivery.isCurrent()) failUnsent(undefined, thrown)
           await turnDelivery.settled()
           return
         }
@@ -2294,7 +2331,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           prepared = await prepare()
         } catch (thrown) {
           if (submission.cancelled) return await cancelUnsent()
-          if (turnDelivery.isCurrent()) fail(REFERENCES_NOT_UPLOADED(), thrown)
+          if (turnDelivery.isCurrent()) failUnsent(REFERENCES_NOT_UPLOADED(), thrown)
           await turnDelivery.settled()
           return
         }
@@ -2359,14 +2396,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           if (submission.cancelled && !(thrown instanceof AgentRequestError))
             return await cancelUnsent()
           if (turnDelivery.isCurrent())
-            fail(
+            failUnsent(
               thrown instanceof AgentRequestError && thrown.status === 429
                 ? TURN_RATE_LIMITED()
-                : thrown instanceof AgentRequestError && thrown.code === 'invalid_selection'
-                  ? i18next.t('error.invalidSelection', { ns: 'agent' })
-                  : thrown instanceof AgentRequestError && thrown.code === 'invalid_reference'
-                    ? i18next.t('error.invalidReference', { ns: 'agent' })
-                    : undefined,
+                : undefined,
               thrown,
             )
           await turnDelivery.settled()
@@ -2786,8 +2819,17 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
   }
   return {
     ...initial,
-    send: (text, references, onAccepted, mode, clientMessageId, replay, modelOverride) =>
-      initial.send(text, references, onAccepted, mode, clientMessageId, replay, modelOverride),
+    send: (text, references, onAccepted, mode, clientMessageId, replay, modelOverride, onUnsent) =>
+      initial.send(
+        text,
+        references,
+        onAccepted,
+        mode,
+        clientMessageId,
+        replay,
+        modelOverride,
+        onUnsent,
+      ),
     submitDraft: (input) => submitDraft(input, initial.send),
   }
 })

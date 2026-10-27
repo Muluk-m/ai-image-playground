@@ -24,7 +24,14 @@ const FIELDS = [
 ] as const
 const LEGACY_MESSAGE = 'Original upstream error detail was not recorded by this version.'
 
-export default function AgentCopyDiagnostic({ diagnostic }: { diagnostic: object }) {
+export default function AgentCopyDiagnostic({
+  diagnostic,
+  variant = 'icon',
+}: {
+  diagnostic: object
+  /** `link`：错误卡里那条次要的「错误详情」文字链接；其余位置仍是图标按钮。 */
+  variant?: 'icon' | 'link'
+}) {
   const { t } = useTranslation(['agent', 'common'])
   const [open, setOpen] = useState(false)
   const [result, setResult] = useState<'copied' | 'copyFailed' | null>(null)
@@ -80,16 +87,26 @@ export default function AgentCopyDiagnostic({ diagnostic }: { diagnostic: object
       }}
     >
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={t('diagnostic.title')}
-          title={t('diagnostic.title')}
-        >
-          <Icon name="diagnostic" />
-          <span className="sr-only">{t('diagnostic.title')}</span>
-        </Button>
+        {variant === 'link' ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-auto px-0 py-0 text-xs font-normal text-muted-foreground underline-offset-4 hover:bg-transparent hover:text-foreground hover:underline"
+          >
+            {t('error.details')}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t('diagnostic.title')}
+            title={t('diagnostic.title')}
+          >
+            <Icon name="diagnostic" />
+            <span className="sr-only">{t('diagnostic.title')}</span>
+          </Button>
+        )}
       </PopoverTrigger>
       <PopoverContent
         aria-label={t('diagnostic.title')}

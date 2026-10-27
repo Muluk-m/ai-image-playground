@@ -9,6 +9,7 @@ import {
   archiveOutputImages,
   decodeDataUrl,
   detectMediaMime,
+  InputPreservationError,
   MaskedOutputArchiveError,
   ObjectStorageError,
   type OutputTransform,
@@ -295,6 +296,16 @@ export async function spoolGenerationOutputs(
 export async function durableGenerationInputs(
   request: PersistedSubmitRequest,
 ): Promise<PersistedSubmitRequest> {
+  try {
+    return await preserveGenerationInputs(request)
+  } catch (cause) {
+    throw new InputPreservationError(!(cause instanceof MediaError) || cause.status === 503, {
+      cause,
+    })
+  }
+}
+
+function preserveGenerationInputs(request: PersistedSubmitRequest) {
   return withMediaTransfer(async () => {
     const preserve = async (ref: NonNullable<PersistedSubmitRequest['mask']>) => {
       if (ref.store === 'durable') return ref

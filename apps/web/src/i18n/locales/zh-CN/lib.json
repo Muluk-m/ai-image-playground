@@ -1,7 +1,7 @@
 {
   "size": {
     "tooLarge": "{{label}}过大：{{size}}，上限为 {{limit}}",
-    "imageInputPayload": "图像输入有效负载总大小"
+    "imageInputPayload": "参考图总大小"
   },
   "canvas": {
     "unsupported": "当前浏览器不支持 Canvas",
@@ -25,32 +25,28 @@
     "corsBlocked": "图片已生成，但因服务商未允许跨域，图片链接下载失败。{{hint}}",
     "offline": "图片链接下载失败（网络不可用）。{{hint}}",
     "failed": "图片链接下载失败（可能因跨域限制、链接过期或网络异常）。{{hint}}",
-    "httpFailed": "图片 URL 下载失败：HTTP {{status}}"
+    "httpFailed": "图片下载失败，请重试"
   },
   "proxy": {
-    "upstreamFailed": "上游 API 调用失败（代理层）"
+    "upstreamFailed": "生成服务暂时出错，请稍后重试"
   },
   "queue": {
-    "unsupportedKindCall": "callQueueChannelApi: 不支持的 channel kind {{kind}}",
-    "unsupportedKindResume": "resumeQueueChannelApi: 不支持的 channel kind {{kind}}",
-    "unsupportedKindVideo": "submitVideoRequest: 不支持的 channel kind {{kind}}",
-    "completedWithoutImages": "BFF 返回 completed 但 images 列表为空",
-    "completedWithoutOutputs": "BFF 返回 completed 但输出列表为空",
+    "unsupportedKindVideo": "当前模型暂不支持视频生成，请换其他模型",
+    "noOutput": "这次没有生成出结果，请重试",
     "insufficientCredits": "积分不足，请充值或开通套餐后再生成",
     "dailyQuotaUsed": "今日 {{quota}} 张已用完",
     "dailyQuotaExhausted": "今日生成额度已用完",
     "quotaResetHint": "{{exhausted}}，UTC 0 点（北京 8 点）后重置",
-    "submitFailed": "BFF submit 失败：{{reason}}",
-    "submitMissingRequestId": "BFF submit 响应缺少 request_id",
-    "taskFailed": "BFF 任务执行失败",
-    "cancelled": "BFF 任务被取消",
-    "statusFailed": "BFF status 查询失败：{{reason}}",
-    "consecutiveFailures": "BFF 连续 {{attempts}} 次连不上：{{reason}}",
-    "pollLastError": "，最后一次错误：{{reason}}",
-    "pollTimeout": "BFF 任务超过 {{seconds}}s 未完成{{trailing}}",
-    "resultMetaFailed": "BFF result meta 拉取失败：{{reason}}",
-    "notCompleted": "BFF 返回非 completed 状态：{{status}}",
-    "imageFetchFailed": "BFF image #{{index}} 拉取失败：{{reason}}",
+    "submitFailed": "提交失败：{{reason}}",
+    "submitMissingRequestId": "提交失败，请重试",
+    "taskFailed": "生成失败，请重试",
+    "cancelled": "任务已取消",
+    "statusFailed": "查询生成进度失败，请刷新后重试",
+    "consecutiveFailures": "连不上生成服务，请检查网络后重试",
+    "pollTimeout": "生成时间过长，请稍后在历史记录中查看结果",
+    "resultMetaFailed": "读取生成结果失败，请重试",
+    "notCompleted": "生成还没有完成，请稍后查看",
+    "imageFetchFailed": "读取生成的图片失败，请重试",
     "bffVideoNotSupported": "该模型不支持视频生成",
     "bffVideoParamsRequired": "视频任务缺少视频参数",
     "bffInvalidVideoRequest": "视频参数不符合该模型的限制，请调整后重试",
@@ -59,17 +55,20 @@
     "bffStageScope": "提交内容和授权时确认的节点不一致，请让智能体重新发起授权",
     "bffStageBudget": "超出这次授权的预算上限",
     "bffStageInactive": "这次授权已结束或过期，请让智能体重新发起授权",
-    "bffStageAttemptConflict": "这次提交和授权预检对不上（模型或张数变了），请重新运行"
+    "bffStageAttemptConflict": "这次提交和授权预检对不上（模型或张数变了），请重新运行",
+    "bffModelUnavailable": "该模型暂不可用，请换其他模型",
+    "bffInvalidRequest": "参数不符合要求，请调整后重试",
+    "bffStorageUnavailable": "参考图暂时读取不了，请稍后重试",
+    "bffDuplicateSubmit": "这次提交和之前的请求冲突，请重新提交"
   },
   "dispatch": {
-    "channelNotFound": "找不到内置 channel：{{id}}",
+    "channelNotFound": "找不到所选模型，请换其他模型",
     "channelsUnavailable": "平台渠道暂时连不上，正在重试",
-    "unsupportedChannelKind": "不支持的内置 channel kind：{{kind}}",
-    "resumeProfileMissing": "恢复 BFF queue 任务时未找到对应内置 channel profile",
-    "resumeKindNotQueue": "channel kind {{kind}} 非 queue，无法恢复"
+    "unsupportedModel": "当前模型暂不支持，请换其他模型",
+    "resumeModelGone": "这次生成用的模型已不可用，无法继续"
   },
   "profile": {
-    "missingModelId": "缺少模型 ID"
+    "missingModelId": "请先选择模型"
   },
   "param": {
     "actualResponseValue": "API 实际响应值"

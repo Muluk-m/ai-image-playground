@@ -1,12 +1,14 @@
 import {
   isContentPolicyEmptyResult,
   isContentPolicyRejection,
+  isModelUnavailableRejection,
   QUEUE_TIMEOUTS,
   type TaskErrorType,
 } from '@image-playground/shared'
+import { cropMaskedUpstream } from '../lib/agent/masked-input'
 import { MaskedOutputError, protectMaskedOutput } from '../lib/agent/masked-output'
 import { isCapabilityEnabled } from '../lib/capabilities'
-import { describeEmptyResult, extractMeta } from '../lib/extractImages'
+import { describeEmptyResult, extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import {
   archiveGenerationOutputs,
   generationSourceCheckpoint,
@@ -16,6 +18,7 @@ import {
 } from '../lib/generationMedia'
 import {
   archiveOutputImages,
+  fetchSourceImage,
   hydrateInputImages,
   MaskedOutputArchiveError,
   ObjectStorageError,
@@ -170,6 +173,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
           hydratedRequest.input_images?.[0] ?? '',
           hydratedRequest.mask ?? '',
           request.masked_original_size,
+          request.masked_crop,
         )
       : undefined
     if (archivePayload) {
@@ -209,7 +213,17 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       reconciliationRequired: task.reconciliation_required,
       provider: task.provider,
       model: task.model,
-      request: hydratedRequest,
+      // 截图模式：落库的是整张原图与选区，送上游的只是选区周围那一块。
+      request: request.masked_crop
+        ? {
+            ...hydratedRequest,
+            ...(await cropMaskedUpstream(
+              hydratedRequest,
+              request.masked_crop,
+              request.masked_original_size,
+            )),
+          }
+        : hydratedRequest,
       signal,
       resume,
       onUpstreamTaskIds: (taskIds) =>
@@ -378,7 +392,9 @@ async function executeTask(execution: TaskExecution): Promise<void> {
               payload: upstreamFailure.body,
             })
           ? 'content_policy'
-          : 'upstream_error'
+          : isModelUnavailableRejection({ message, payload: upstreamFailure.body })
+            ? 'model_unavailable'
+            : 'upstream_error'
 
     const attemptJustFailed = task.attempt_count + 1
     if (

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { CLIENT_ERRORS_PATH } from '@image-playground/shared'
@@ -6,6 +7,8 @@ import type { IndexHtmlTransformContext } from 'vite'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   BOOT_READY_EVENT,
+  BOOT_STAGE_EVENT,
+  BUILD_META_NAME,
   PRELOAD_RELOAD_STORAGE_KEY,
   PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY,
   RELOAD_QUERY_PARAM,
@@ -161,8 +164,8 @@ it('reloads once when stale HTML references a deleted chunk, then asks instead o
   ready()
   sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
   const first = preloadError()
-  expect(first.defaultPrevented).toBe(true)
-  expect(Number(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY))).toBeGreaterThan(0)
+  expect(first.defaultPrevented).toBe(false)
+  expect(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY)).not.toBeNull()
   finishReveal()
   expect(document.getElementById('boot')).toBeNull()
 
@@ -176,6 +179,31 @@ it('keeps a spent automatic reload budget until the user explicitly retries', ()
   sessionStorage.setItem(PRELOAD_RELOAD_STORAGE_KEY, String(Date.now() - 120000))
   expect(preloadError().defaultPrevented).toBe(false)
   expect(errorPanelVisible()).toBe(true)
+})
+
+it('reloads once more when a later release deletes a chunk this long-lived tab still references', () => {
+  const meta = document.createElement('meta')
+  meta.name = BUILD_META_NAME
+  meta.content = 'release-b'
+  document.head.append(meta)
+  try {
+    // An earlier release already spent this tab's budget.
+    sessionStorage.setItem(PRELOAD_RELOAD_STORAGE_KEY, `${Date.now() - 86_400_000}|release-a`)
+    installGuard()
+    ready()
+    preloadError()
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY)).toMatch(/\|release-b$/)
+
+    // The same build failing again asks instead of looping.
+    document.body.innerHTML = bodyHtml
+    installGuard()
+    expect(preloadError().defaultPrevented).toBe(false)
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(errorPanelVisible()).toBe(true)
+  } finally {
+    meta.remove()
+  }
 })
 
 it('unregisters legacy workers without depending on the app module or deleting user storage', async () => {
@@ -241,6 +269,8 @@ it('reports why the workspace could not open, with the exceptions seen before it
   vi.stubGlobal('fetch', fetchMock)
   Object.defineProperty(navigator, 'sendBeacon', { configurable: true, value: sendBeacon })
   try {
+    document.dispatchEvent(new CustomEvent(BOOT_STAGE_EVENT, { detail: 'capabilities' }))
+    document.dispatchEvent(new CustomEvent(BOOT_STAGE_EVENT, { detail: 'SECRET-account-data' }))
     window.dispatchEvent(
       new ErrorEvent('error', {
         message: 'boom',
@@ -265,6 +295,10 @@ it('reports why the workspace could not open, with the exceptions seen before it
       context: {
         detail: { tag: 'script', src: expect.stringContaining('/assets/main-missing.js') },
         rendered: false,
+        stage: 'capabilities',
+        stageElapsedMs: expect.any(Number),
+        visibility: document.visibilityState,
+        readyState: document.readyState,
         errors: [expect.objectContaining({ type: 'error', message: 'boom' })],
       },
     })
@@ -562,7 +596,7 @@ it('does not renew spent recovery when each document commits a loading screen be
   sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
   sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
   ready()
-  expect(preloadError().defaultPrevented).toBe(true)
+  expect(preloadError().defaultPrevented).toBe(false)
   expect(replace).toHaveBeenCalledTimes(1)
 
   document.body.innerHTML = bodyHtml
@@ -664,7 +698,7 @@ it.each([
   document.head.append(link)
   try {
     link.dispatchEvent(new Event('error'))
-    expect(preloadError(`Unable to preload CSS for ${link.href}`).defaultPrevented).toBe(true)
+    expect(preloadError(`Unable to preload CSS for ${link.href}`).defaultPrevented).toBe(false)
     expect(errorPanelVisible()).toBe(false)
     await vi.advanceTimersByTimeAsync(2000)
     expect(replace).not.toHaveBeenCalled()
@@ -678,7 +712,7 @@ it.each([
       // Duplicate reports must neither cancel the wait nor extend its original deadline.
       expect(
         preloadError('Unable to preload CSS for /assets/lazy-canvas.css').defaultPrevented,
-      ).toBe(true)
+      ).toBe(false)
       await vi.advanceTimersByTimeAsync(10000)
       expect(errorPanelVisible()).toBe(true)
       expect(replace).not.toHaveBeenCalled()
@@ -712,4 +746,55 @@ it.each([
   } finally {
     link.remove()
   }
+})
+
+it('preserves a failed lazy module rejection while the recovery navigation is pending', async () => {
+  vi.useRealTimers()
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  // Build outside jsdom so esbuild keeps Node's native TypedArray realm.
+  const source = execFileSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+    import { build } from 'vite';
+    const result = await build({
+      configFile: false,
+      envFile: false,
+      logLevel: 'silent',
+      plugins: [{
+        name: 'lazy-recovery-fixture',
+        resolveId: id => id.startsWith('virtual:') ? id : null,
+        load: id => id === 'virtual:entry'
+          ? "export const load = () => import('virtual:canvas')"
+          : id === 'virtual:canvas' ? 'export default function Canvas() {}' : null,
+      }],
+      build: {
+        write: false,
+        minify: false,
+        modulePreload: { polyfill: false },
+        rollupOptions: { input: 'virtual:entry', preserveEntrySignatures: 'strict' },
+      },
+    });
+    process.stdout.write(result.output.find(chunk => chunk.type === 'chunk' && chunk.isEntry).code);
+  `,
+    ],
+    { cwd: resolve(__dirname, '../../..'), encoding: 'utf8', timeout: 15000 },
+  )
+    // Keep Vite's real preload helper; replace only the unavailable module transport.
+    .replace(/import\([^)]+\)/g, 'loadChunk()')
+    .replace(/import\.meta\.url/g, JSON.stringify('https://app.test/assets/entry.js'))
+    .replace(/export \{\s*(\w+)(?: as load)?\s*\};?/, 'return $1;')
+  const original = new TypeError('Failed to fetch dynamically imported module: /assets/canvas.js')
+  const load = window.Function('loadChunk', source)(() => Promise.reject(original))
+  expect(typeof load, source).toBe('function')
+  const outcome = await load()
+    .then(
+      (module: { default: unknown }) => module.default,
+      (error: unknown) => error,
+    )
+    .catch((error: unknown) => error)
+  expect(replace).toHaveBeenCalledTimes(1)
+  expect(outcome).toBe(original)
 })

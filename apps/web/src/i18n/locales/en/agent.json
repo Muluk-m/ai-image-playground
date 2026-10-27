@@ -160,7 +160,7 @@
     "retryFailed": "The retry could not be submitted. Please try again."
   },
   "confirm": {
-    "pending": "Read the prompt below — you can edit it — then press Confirm and generate.",
+    "pending": "Edit the prompt below if needed, then confirm to start generating.",
     "fieldAria": "Prompt awaiting confirmation",
     "submit": "Confirm and generate",
     "submitting": "Submitting…",
@@ -169,8 +169,8 @@
     "outputsImage_other": "Generates {{count}} images once confirmed",
     "outputsVideo_one": "Generates {{count}} video once confirmed",
     "outputsVideo_other": "Generates {{count}} videos once confirmed",
-    "gone": "This draft card is gone. Ask the assistant to draft it again.",
-    "notConfirmable": "This draft is no longer valid — it may have been confirmed elsewhere. Ask the assistant to draft it again.",
+    "gone": "This draft has expired. Ask the agent to generate a new plan.",
+    "notConfirmable": "This draft is no longer valid. Ask the agent to generate a new plan.",
     "failed": "Couldn't submit it. Your edited prompt is kept, please retry.",
     "allPending_one": "{{count}} draft waiting for you",
     "allPending_other": "{{count}} drafts waiting for you",
@@ -185,7 +185,7 @@
     "gateSend": "Send this message anyway",
     "gateRunNodes": "Run these nodes ({{count}})",
     "nodeRunMissed": "{{count}} could not start. Open that canvas and confirm on the card.",
-    "drafting": "The assistant is still drafting this. Confirm once it finishes."
+    "drafting": "Generating draft. Confirm once it finishes."
   },
   "plan": {
     "title": "Generation plan",
@@ -203,13 +203,13 @@
     "stoppedAfter_one": "Submitted {{count}} image; \"{{title}}\" was not submitted: {{reason}}",
     "stoppedAfter_other": "Submitted {{count}} images; \"{{title}}\" was not submitted: {{reason}}",
     "promptAria": "Edit prompt",
-    "drafting": "The assistant is still drafting this plan. Generate once it finishes."
+    "drafting": "Generating plan. Confirm once it finishes."
   },
   "toolFailure": {
     "recharge": "Top up",
     "login": "Sign in",
-    "reprocess": "Ask the assistant to redo it",
-    "rewrite": "Ask the assistant to rewrite the prompt",
+    "reprocess": "Ask the agent to redo it",
+    "rewrite": "Ask the agent to rewrite the prompt",
     "reprocessMessage": "\"{{title}}\" didn't finish: {{reason}}. Please take a different approach and redo it.",
     "rewriteMessage": "\"{{title}}\" did not finish: {{reason}}. Rewrite the prompt so it passes review while keeping what I wanted in the picture, tell me what you changed, then submit.",
     "blocked": {
@@ -285,7 +285,7 @@
     "attachFolder": "Choose folder",
     "sending": "Sending…",
     "sendAndCreate": "Send and draft the prompt",
-    "sendAndCreateTitle": "Send: the assistant drafts a prompt first; generation starts only after you confirm",
+    "sendAndCreateTitle": "Send: the agent drafts a prompt first; generation starts only after you confirm",
     "tooManyReferences_one": "At most {{count}} reference image per turn",
     "tooManyReferences_other": "At most {{count}} reference images per turn",
     "tooManyUploads_one": "At most {{count}} uploaded or library image per turn",
@@ -335,7 +335,7 @@
     "thinkingLegend": "Thinking depth",
     "thinkingSummary": "Thinking: {{label}}",
     "autoSubmitLabel": "Generate directly",
-    "autoSubmitHint": "On by default. The assistant generates and charges as soon as the prompt is ready. Turn this off to confirm each card first."
+    "autoSubmitHint": "Generate directly after drafting the prompt; turn off to confirm before generating."
   },
   "mentions": {
     "headingResults": "Conversation images",
@@ -362,6 +362,61 @@
     "other": "Other…",
     "otherAria": "Other answer",
     "otherPlaceholder": "Tell it what you want"
+  },
+  "maskProposal": {
+    "title": "Confirm the edit area",
+    "change": "Change",
+    "keep": "Keep",
+    "lock": "Only the selected area is redrawn; every pixel outside it stays identical",
+    "edgeHint": "If edges, shadows or reflections should change too, include them",
+    "invert": "Invert",
+    "invertHint": "Inverted: everything outside the subject changes, and the edge reaches slightly into the subject so hair is redrawn. Clicks and brush still adjust the subject.",
+    "invertTitle": "Edit everything outside the selection, e.g. replace the background",
+    "model": "Generated with {{model}} using the mask",
+    "switched": "{{from}} can't follow a mask, so {{model}} is used this time",
+    "confirm": "Confirm and generate {{count}}",
+    "adjust": "More tools",
+    "other": "Other…",
+    "cancelAdjust": "Hide tools",
+    "stateSuggested": "AI suggestion",
+    "stateEdited": "Adjusted",
+    "stateConfirmed": "Confirmed",
+    "refining": "Updating the area…",
+    "rough": "Rough area. Check the edges",
+    "loadFailed": "Couldn't load the original. Try again later",
+    "empty": "The area is empty. Mark the part to change",
+    "toolPoint": "Click select",
+    "pointInclude": "Add",
+    "pointExclude": "Exclude",
+    "pointHint": "Click to add, Alt (⌥)-click to exclude",
+    "pointUnavailable": "Click selection is unavailable. Use the brush instead",
+    "regions": "{{count}} similar objects. Pick the numbers to change",
+    "region": "Object {{number}}",
+    "toolLasso": "Lasso",
+    "toolBox": "Box",
+    "toolBrush": "Brush",
+    "toolEraser": "Eraser",
+    "brushTitle": "Paint missed parts into the area",
+    "eraserTitle": "Erase parts that shouldn't change",
+    "brushHint": "Brush in what should change, erase what shouldn't. Generation uses the area as you adjusted it.",
+    "toolArrow": "Arrow note",
+    "toolText": "Text note",
+    "undo": "Undo",
+    "redo": "Redo",
+    "reset": "Restore AI suggestion",
+    "resetTitle": "Discard your adjustments and return to the AI's area",
+    "brushSize": "Brush",
+    "annotationPlaceholder": "What should happen here",
+    "removeAnnotation": "Remove note {{number}}",
+    "annotationHint": "Notes only explain; they are never drawn into the image",
+    "answered": "Area confirmed: {{target}}",
+    "answeredOther": "Answered · Confirm the edit area",
+    "answerConfirmed": "Edit within the confirmed area",
+    "answerKeep": "Keep: ",
+    "answerAnnotation": "Note",
+    "answerArrow": "arrow",
+    "preparing": "Preparing the mask…",
+    "prepareFailed": "Couldn't prepare the mask. Try again"
   },
   "connection": {
     "reconnecting": "Connection lost, reconnecting…"
@@ -400,7 +455,15 @@
     "toolFailed": "A tool failed. Check the failed tool card.",
     "copyLog": "Copy original log",
     "copied": "Copied",
-    "copyFailed": "Copy failed. Try again."
+    "copyFailed": "Copy failed. Try again.",
+    "imageTooLarge": "This image is too large, so the message was not sent. Each image can be up to {{maxSize}}; choose a smaller one and send again.",
+    "uploadFailed": "A reference image could not be uploaded, so the message was not sent: {{reason}}",
+    "signedOut": "You have been signed out, so the message was not sent. Sign in again and resend.",
+    "serverUnavailable": "The service is temporarily unavailable, so the message was not sent. You can retry.",
+    "requestRejected": "The server did not accept this message. Edit it and send again, or send us the error details if this keeps happening.",
+    "network": "The connection dropped, so the message was not sent. You can retry.",
+    "retry": "Retry",
+    "details": "Error details"
   },
   "project": {
     "createFailed": "Could not create the project. Your current work is kept, please retry.",
@@ -533,8 +596,8 @@
     "cancelled": "Cancelled",
     "cancelledRefunded": "Cancelled, credits refunded",
     "wakeSkipped": {
-      "insufficient_credits": "Not enough credits, the assistant didn't review this result",
-      "wake_limit": "The assistant has checked back 3 times in a row and will wait for you before continuing"
+      "insufficient_credits": "Not enough credits, the agent didn't review this result",
+      "wake_limit": "The agent has checked back 3 times in a row and will wait for you before continuing"
     },
     "inbox": {
       "title": "Generation jobs",
@@ -593,7 +656,7 @@
     "savedAsset": "Saved as asset: {{name}}",
     "savedLook": "Saved as look: {{name}}",
     "failed": "Couldn't save it, please retry",
-    "imageGone": "Some images are gone. Ask the assistant for a fresh pass.",
+    "imageGone": "Some images are gone. Ask the agent to generate them again.",
     "assetMeta": "{{kind}} · {{background}}",
     "lookMeta": "{{purpose}} · {{size}} · {{slots}} asset slots",
     "kind": {

@@ -45,6 +45,17 @@ export class SourceImageFetchError extends ObjectStorageError {
   }
 }
 
+/** 输入原件转存发生在调用上游之前，重试不会重复生成；只有媒体本身不合格时不重试。 */
+export class InputPreservationError extends ObjectStorageError {
+  constructor(
+    readonly retryable: boolean,
+    options?: ErrorOptions,
+  ) {
+    super('Object storage input preservation failed', options)
+    this.name = 'InputPreservationError'
+  }
+}
+
 export function isStoredImageRef(value: unknown): value is StoredImageRef {
   if (!value || typeof value !== 'object') return false
   const ref = value as Partial<StoredImageRef>
@@ -93,6 +104,7 @@ export async function hydrateInputImages(
   const {
     preserve_outside_mask: _boundary,
     masked_original_size: _originalSize,
+    masked_crop: _crop,
     ...upstreamRequest
   } = request as PersistedSubmitRequest
   const hydrated = { ...upstreamRequest } as HydratedSubmitRequest

@@ -249,9 +249,9 @@ export function setUpstreamFetchForTesting(fetchImpl?: UpstreamFetch): void {
 }
 
 /**
- * Bun fetch 的 client timeout 无法可靠覆盖，改用 Undici Agent 的公开配置项。
- * transport headers/body 都比应用硬超时长 1min，确保正常终止统一由下方
- * AbortController 决定；不再依赖 undocumented idleTimeout 或强制 Connection: close。
+ * 正常终止统一由下方的 deadline 决定。Bun 自带的 300 秒 fetch 超时在 transport 那一层关掉
+ * （`timeoutFetch.ts` 的 withoutRuntimeTimeout）；Agent 的 headers/body 超时比应用硬超时长 1min，
+ * 只在 Node 下生效，作兜底。
  */
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const {

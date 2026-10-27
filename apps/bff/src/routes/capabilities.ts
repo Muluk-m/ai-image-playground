@@ -5,9 +5,9 @@ import { requireInternalService } from '../lib/user-auth'
 
 /**
  * 是否让客户端写入上传中的图片节点。已开着的旧版页面遇到别的设备的本机 fileId 会报缺图、存不了编辑，
- * 所以先发布能容忍这种节点的新读取端，等旧页面换代后再打开（见 #1452 的分阶段上线说明）。
+ * 所以先发布能容忍这种节点的新读取端（#1452），旧页面换代后由本开关打开写入。
  */
-export const CANVAS_PENDING_MEDIA_WRITES = false
+export const CANVAS_PENDING_MEDIA_WRITES = true
 
 export const capabilitiesRoutes = new Elysia().get(
   '/api/capabilities',
@@ -19,8 +19,7 @@ export const capabilitiesRoutes = new Elysia().get(
     projectDocumentIdentity: true
     /**
      * 画布文档可带还在上传的本机图片节点（无 mediaId 的本机 fileId），客户端据此不再等上传完才同步。
-     * 分阶段上线：先只发布能容忍上传中节点的读取端，这里暂时为 false，客户端照旧等图片上云再同步；
-     * 旧版页面基本都刷新到新版后，再另开 PR 改成 true 打开写入。
+     * 分阶段上线：先发布了能容忍上传中节点的读取端（#1452），旧版页面换代后这里打开写入。
      */
     canvasPendingMedia: boolean
   } => ({

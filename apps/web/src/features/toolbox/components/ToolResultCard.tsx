@@ -8,7 +8,7 @@ import type { ToolFailure } from '../lib/tool'
 import type { ToolResult } from '../lib/useToolResults'
 import type { ToolboxItem } from '../store'
 
-function FailureText({ failure }: { failure: ToolFailure }) {
+export function FailureText({ failure }: { failure: ToolFailure }) {
   const { t } = useTranslation('toolbox')
   if (failure.code === 'canvasLimit')
     return (

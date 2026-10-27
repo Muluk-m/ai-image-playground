@@ -7,6 +7,7 @@ import {
   type ClientCapabilityKey,
   type ClientCapabilityManifest,
   MAX_IMAGE_UPLOAD_BYTES,
+  type MediaLimits,
   QUOTAS,
   type QuotaKey,
   type QuotaValues,
@@ -327,6 +328,15 @@ export function attachmentLimits(config: ResolvedOperatorConfig): AttachmentLimi
   }
 }
 
+/** 普通云媒体的单张上限：与 `reserveMedia` 不带用途时、`completeMedia` 的像素上限同源。 */
+export function mediaLimits(config: ResolvedOperatorConfig): MediaLimits | undefined {
+  if (!config.capabilities['accounts:sync']) return undefined
+  return {
+    imageBytes: Math.min(config.quotas['sync:asset-image-bytes'], MAX_IMAGE_UPLOAD_BYTES),
+    imagePixels: MEDIA_UPLOAD_MAX_PIXELS,
+  }
+}
+
 const LEGACY_CANVAS_CAPABILITIES = {
   'canvas:nodes': true,
   'canvas:blank-generate': true,
@@ -340,10 +350,12 @@ export function clientCapabilityManifest(
   const manifest = {} as Record<ClientCapabilityKey, boolean>
   for (const key of clientCapabilityKeys) manifest[key] = config.capabilities[key]
   const limits = attachmentLimits(config)
+  const media = mediaLimits(config)
   // 旧前端仍用这四个字段决定画布和子功能是否出现。新前端不再读取，响应里固定为开。
   return {
     ...manifest,
     ...(limits ? { attachmentLimits: limits } : {}),
+    ...(media ? { mediaLimits: media } : {}),
     ...LEGACY_CANVAS_CAPABILITIES,
   }
 }

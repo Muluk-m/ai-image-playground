@@ -6,7 +6,10 @@ import { MAX_IMAGE_BYTES, MAX_IMAGE_MB } from './inputImageLimit'
  * 拖入、粘贴或从文件夹选进来的一堆文件里只留图片，太大的也丢掉；丢掉的那些各提示一次。
  * 一张图都没剩就说「只支持图片」；剩下了就说跳过了几个，免得用户以为整个文件夹都没进来。
  */
-export function acceptImageFiles(files: readonly File[]): File[] {
+export function acceptImageFiles(
+  files: readonly File[],
+  options: { keepOversized?: boolean } = {},
+): File[] {
   const images = files.filter((file) => file.type.startsWith('image/'))
   const skipped = files.length - images.length
   if (skipped > 0) {
@@ -19,6 +22,9 @@ export function acceptImageFiles(files: readonly File[]): File[] {
         'error',
       )
   }
+  // keepOversized：调用方会把超限的图留在输入框里、就地标红并拦住发送（按服务端下发的单张上限判断），
+  // 这里不再先丢掉——丢掉只弹一条一闪而过的提示，用户接着发出去的是一条没有图的消息。
+  if (options.keepOversized) return images
   const sized = images.filter((file) => file.size <= MAX_IMAGE_BYTES)
   if (sized.length < images.length) {
     useStore.getState().showToast(

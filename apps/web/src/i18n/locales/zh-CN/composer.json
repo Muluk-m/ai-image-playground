@@ -35,7 +35,8 @@
     "addFailed": "图片添加失败：{{reason}}",
     "attach": "添加参考图（最多 {{count}} 张，单张 ≤{{mb}}MB）",
     "attachImages": "添加图片",
-    "attachFolder": "添加文件夹"
+    "attachFolder": "添加文件夹",
+    "referenceTooLarge": "第 {{index}} 张图片超过 {{maxSize}}，请换一张更小的图"
   },
   "slot": {
     "heading": "槽位 {{slot}}",
@@ -47,8 +48,7 @@
     "maskEdit": "遮罩编辑",
     "maskEditShortcut": "遮罩编辑 (Ctrl+Enter)",
     "generateShortcut": "生成 (Ctrl+Enter)",
-    "configureApiFirst": "请先配置 API",
-    "apiNotConfigured": "请先在设置里配置 API",
+    "noModel": "暂无可用模型，请稍后再试",
     "startCanvas": "开始创作",
     "skillNeedsCanvas": "技能只能在项目中使用，切到「智能创作」或「画布创作」再发送",
     "promptRequired": "请输入提示词后再生成"
@@ -177,9 +177,9 @@
     "composer": "创作输入框",
     "prompt": "描述你的创意",
     "placeholders": {
-      "agent": "告诉我你想完成什么，也可以放入脚本或参考图。我会帮你梳理思路、安排创作步骤。",
-      "image": "描绘主体、场景和画面风格；添加参考图，让构图、色彩或细节更贴近你的想法。",
-      "video": "描述谁在做什么、镜头如何移动、氛围怎样变化。也可以添加参考图，作为这段视频的起点。"
+      "agent": "描述你想做的画面或短片，可拖入参考图或脚本",
+      "image": "描述主体、场景与光影风格，或添加参考图",
+      "video": "描述画面动作与运镜方式，或添加首尾帧与参考图"
     },
     "send": "生成",
     "preview": "预览",

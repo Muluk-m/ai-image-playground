@@ -190,6 +190,25 @@ describe('async submit phase', () => {
     expect(upstream.calls.filter((url) => url.endsWith('/async'))).toHaveLength(1)
   })
 
+  it('把上游的账号池耗尽记成 model_unavailable', async () => {
+    upstream.handler = (url) =>
+      url.endsWith('/async')
+        ? json({ task_id: 'imgtask_1' }, 202)
+        : json({
+            status: 'failed',
+            http_status: 400,
+            error: { message: 'No eligible Grok media accounts' },
+          })
+    await insertTask('async-no-accounts')
+
+    await runTask('async-no-accounts')
+
+    expect(await readTask('async-no-accounts')).toMatchObject({
+      status: 'failed',
+      errorType: 'model_unavailable',
+    })
+  })
+
   it('keeps the stored id when a retryable failure sends the task back to the queue', async () => {
     upstream.handler = (url) =>
       url.endsWith('/async')
