@@ -121,6 +121,8 @@ export async function uploadMediaSource(
     known?: MediaUploadResult
     uploadMissing?: boolean
     onState?: (state: MediaUploadState) => void
+    /** 直传已发出的比例，0–1。 */
+    onProgress?: (fraction: number) => void
   },
 ): Promise<MediaUploadResult | undefined> {
   const sameAccount = accountScope()
@@ -192,6 +194,7 @@ export async function uploadMediaSource(
             current,
             purpose: options.purpose,
             onPhase: timer.mark,
+            onProgress: options.onProgress,
             onReserved: (id) => {
               mediaId = id
             },

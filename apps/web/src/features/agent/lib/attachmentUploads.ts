@@ -37,6 +37,8 @@ interface Entry {
   state: MediaUploadState
   result?: MediaUploadResult
   errorCode?: string
+  /** 直传进度，整数百分比；只在 uploading 时有意义。 */
+  progress?: number
   promise: Promise<MediaUploadResult>
   controller: AbortController
 }
@@ -262,6 +264,18 @@ export function attachmentUploadState(reference: Uploadable): MediaUploadState |
   )
 }
 
+/** 正在直传时已发出的百分比；带遮罩时取较慢的那张。还没开始发或不在直传时为空。 */
+export function attachmentUploadProgress(reference: Uploadable): number | undefined {
+  if (attachmentUploadState(reference) !== 'uploading') return undefined
+  const known = sourcesToUpload(reference).map((source) => {
+    const entry = currentEntries().get(source)
+    if (entry?.state === 'ready' || entry?.state === 'verifying') return 100
+    return entry?.state === 'uploading' ? entry.progress : 0
+  })
+  if (known.some((value) => value === undefined)) return undefined
+  return Math.min(...(known as number[]))
+}
+
 export function attachmentUploadError(reference: Uploadable): string | undefined {
   if (blockedLocalAttachments(reference)) return 'attachment_capability_unavailable'
   if (oversizedReferenceSource(reference.dataUrl)) return REFERENCE_TOO_LARGE
@@ -323,6 +337,13 @@ function start(source: string, retry = false): Promise<MediaUploadResult> {
       onState(state) {
         if (state === 'ready' || state === 'failed') return
         entry.state = state
+        entry.progress = undefined
+        changed()
+      },
+      onProgress(fraction) {
+        const progress = Math.floor(fraction * 100)
+        if (entry.state !== 'uploading' || progress === entry.progress) return
+        entry.progress = progress
         changed()
       },
     })
