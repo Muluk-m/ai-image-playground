@@ -2321,6 +2321,12 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             }
           }
         } catch (thrown) {
+          // 建会话这一步只在本机报「这一轮没有跑完」，服务端看不到：把真实原因记下来（BUG-45）。
+          if (!conversationId)
+            reportClientError('error', thrown, {
+              operation: 'agent.conversation.create',
+              stage: target ? 'bind' : 'create',
+            })
           if (turnDelivery.isCurrent()) failUnsent(undefined, thrown)
           await turnDelivery.settled()
           return
