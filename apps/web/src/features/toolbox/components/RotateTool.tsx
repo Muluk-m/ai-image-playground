@@ -3,6 +3,7 @@ import { Checkbox } from '../../../components/patterns/Checkbox'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
+import { OverflowText } from '../../../components/ui/overflowTitle'
 import { Slider } from '../../../components/ui/slider'
 import { useTranslation } from '../../../i18n'
 import { outputFileName } from '../lib/naming'
@@ -215,9 +216,12 @@ export default function RotateTool() {
         </div>
       }
     >
-      <section className="flex flex-none flex-col gap-4 p-5 lg:min-h-0 lg:flex-1">
+      <section className="flex min-w-0 flex-none flex-col gap-4 p-5 lg:min-h-0 lg:flex-1">
         <div className="flex items-center justify-between gap-3">
-          <span className="min-w-0 truncate text-sm font-medium">{selected?.name}</span>
+          <OverflowText
+            text={selected?.name ?? ''}
+            className="min-w-0 truncate text-sm font-medium"
+          />
           <Button
             variant="ghost"
             size="icon-sm"
