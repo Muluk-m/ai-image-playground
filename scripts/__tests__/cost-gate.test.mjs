@@ -18,6 +18,10 @@ test('模型、供应商、定价、额度和 overlay 的改动算成本相关',
     'apps/bff/src/lib/upstream/openai.ts',
     'apps/bff/src/lib/upstream.ts',
     'apps/bff/src/lib/token-pricing.ts',
+    'apps/bff/src/lib/agent/chat-task.ts',
+    'apps/bff/src/lib/agent/batch-execution.ts',
+    'apps/bff/src/lib/taskSubmission.ts',
+    'apps/bff/src/db/task-transitions.ts',
     'apps/bff/src/lib/quota.ts',
     'apps/admin/server/routes/agent-models.ts',
     'apps/web/src/features/pricing/PricingPage.tsx',
@@ -64,4 +68,10 @@ test('作者自己勾「涉及成本」也要确认，即使路径清单没命�
 
 test('不涉及成本的 PR 不需要确认', () => {
   assert.equal(decide(['docs/agents/release.md'], template).sensitive, false)
+})
+
+test('成本文件改名到清单外，按旧路径照样命中', () => {
+  // 工作流把 pulls/N/files 的 filename 和 previous_filename 都喂进来。
+  const files = ['apps/bff/src/lib/pricing-v2.ts', 'apps/bff/src/lib/token-pricing.ts']
+  assert.deepEqual(decide(files, template).matched, ['apps/bff/src/lib/token-pricing.ts'])
 })
