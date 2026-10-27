@@ -644,7 +644,12 @@ describe('逐张生成的共享参考', () => {
   })
 
   afterEach(() => {
-    useStore.setState({ inputImages: [], sharedImageIds: [], batchGenerate: false })
+    useStore.setState({
+      inputImages: [],
+      sharedImageIds: [],
+      batchGenerate: false,
+      composerPerTaskMentions: null,
+    })
   })
 
   it('点图钉设共享：带「共享」角标排到最后，底部按目标图计张数并说明每张带几张共享', () => {
@@ -680,5 +685,14 @@ describe('逐张生成的共享参考', () => {
     expect(host.querySelector('.mention-tag-invalid')).not.toBeNull()
     expect(host.querySelector('[data-tone="warning"]')?.textContent).toContain('@图5')
     expect(useStore.getState().prompt).toContain('@图5')
+  })
+
+  it('画布档不按每个任务数序号，告诉 store 换图时按条上的位置重排', () => {
+    expect(useStore.getState().composerPerTaskMentions).toBe(true)
+    remount('canvas')
+    expect(useStore.getState().composerPerTaskMentions).toBe(false)
+    act(() => root.unmount())
+    expect(useStore.getState().composerPerTaskMentions).toBeNull()
+    mount(<InputBar />)
   })
 })
