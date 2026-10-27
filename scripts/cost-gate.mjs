@@ -21,6 +21,11 @@ export const COST_PATHS = [
   // 智能体的模型选择、供应商请求、上下文压缩与出站预算/限额
   /^apps\/bff\/src\/lib\/agent\/(model[^/]*|provider-[^/]*|video-models|outbound-budget|compaction[^/]*)\.ts$/,
   /^apps\/bff\/src\/lib\/agent\/[^/]*(limit|budget)[^/]*\.ts$/,
+  // 智能体的预扣、结算、授权与批量执行（调用次数与扣费入口）
+  /^apps\/bff\/src\/lib\/agent\/(chat-task|background-jobs|batch-execution|batch-plans|turn-preparation|turn-authorization|stage-authorizations)\.ts$/,
+  // 任务提交、状态流转与计费 hook 接缝
+  /^apps\/bff\/src\/lib\/(taskSubmission|private-overlay|private-host)\.ts$/,
+  /^apps\/bff\/src\/db\/task-transitions\.ts$/,
   // 上游供应商调用
   /^apps\/bff\/src\/lib\/upstream(\.ts$|\/)/,
   /^apps\/bff\/src\/lib\/(chatCompletion|channels|model-availability|token-pricing|quota|account-concurrency|rate-limit|operator-config)\.ts$/,
