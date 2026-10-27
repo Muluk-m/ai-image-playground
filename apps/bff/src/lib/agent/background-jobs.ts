@@ -424,6 +424,40 @@ async function accountQueue(
 }
 
 /**
+ * 用户点「中止」停下这一轮时，连带取消这一轮自己提交、还在排队或在跑的出图任务，按原桶退回积分
+ * （ADR 0012 修订，BUG-32）。只认 `agent_turn_id` 指向这一轮的工具任务：早先轮次提交的、用户在卡上
+ * 确认过的不归这一轮，照旧跑完。已经完成的照常扣费；已向上游派发、要核查的批量项按原规则进
+ * reconciling，预扣留到核查定论。重复调用是空操作：只动 queued / in_progress 的行，预扣已释放的
+ * 不会再退一次（结算侧按预扣状态幂等）。
+ *
+ * 批量计划不在此列：计划项挂在提出计划的那一轮上，而那一轮在用户确认计划前就已收尾，执行中能被
+ * 中止的只会是之后的轮次；计划卡上有自己的暂停。
+ */
+export async function cancelStoppedTurnJobs(
+  conversationId: string,
+  turnId: string,
+): Promise<string[]> {
+  const cancelled = await cancelTasks(
+    and(
+      eq(schema.tasks.agent_conversation_id, conversationId),
+      eq(schema.tasks.agent_turn_id, turnId),
+      eq(schema.tasks.kind, 'queue'),
+    )!,
+  )
+  if (cancelled.length > 0)
+    log.info(
+      {
+        event: 'agent.stop_cancelled_jobs',
+        conversationId,
+        turnId,
+        taskIds: cancelled.map((row) => row.id),
+      },
+      'stopping the turn cancelled its in-flight jobs',
+    )
+  return cancelled.map((row) => row.id)
+}
+
+/**
  * 用户单独取消这个会话里的一个后台任务，按原桶退回。只认挂在这个会话下、由工具提交的任务；
  * 已经结束的任务不动。返回是否真的取消了一个任务。
  */

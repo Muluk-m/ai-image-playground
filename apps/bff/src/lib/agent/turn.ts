@@ -17,6 +17,7 @@ import { bffDrain } from '../drain'
 import { log } from '../logger'
 import type { BffTransaction, TaskOutcome } from '../private-overlay'
 import { createAutoSubmitBudget } from './auto-submit'
+import { cancelStoppedTurnJobs } from './background-jobs'
 import { AGENT_CLARIFICATION_TOOL, clarificationFromResult } from './clarification'
 import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
@@ -952,6 +953,15 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       await closeOpen()
       flushQueued()
       await writes
+      // 用户中止：停止接口已经取消过这一轮的出图任务，这里在工具全部落定之后再扫一遍，接住中止那一刻
+      // 还在提交路上、之后才落库的任务（BUG-32）。重复取消是空操作。
+      if (aborted)
+        await cancelStoppedTurnJobs(conversationId, turnId).catch((err) => {
+          log.error(
+            { event: 'agent.stop_cancel_failed', conversationId, turnId, err },
+            'stopped turn could not cancel its late jobs',
+          )
+        })
 
       const { usage, upstreamInvocationCount } = ledger.settlement()
       const outcome: TaskOutcome = error ? 'failed' : aborted ? 'cancelled' : 'completed'
