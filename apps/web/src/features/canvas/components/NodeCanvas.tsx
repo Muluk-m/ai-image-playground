@@ -86,15 +86,20 @@ import { useLibraryStore } from '../../library/store'
 import type { AssetRecord } from '../../library/types'
 import PlayBadge from '../../video/components/PlayBadge'
 import { arrangementKey, arrangeNodes, type CanvasPlacement } from '../lib/arrangeNodes'
+import { useCanvasAssetsEntry } from '../lib/assetsEntry'
+import type { CanvasAssetItem } from '../lib/canvasAssets'
 import { newElementId } from '../lib/canvasDoc'
+import { useCanvasResultAssets } from '../lib/canvasResultAssets'
 import {
   type CanvasViewportBox,
   planCanvasViewport,
   withLivePositions,
 } from '../lib/canvasViewport'
 import type { CanvasEditor } from '../lib/editor'
+import { canvasExportEntries } from '../lib/exportImages'
 import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
 import { openLocalNodeCanvas } from '../lib/localNodeCanvas'
+import { transferMedia } from '../lib/mediaTransfer'
 import { assetNodeContext } from '../lib/nodeAssetGeneration'
 import { ASSET_DRAG_TYPE, insertAssetNode, saveNodeAsAsset } from '../lib/nodeAssets'
 import {
@@ -130,7 +135,7 @@ import {
   type ReferenceSlot,
   uploadCanvasReference,
 } from '../lib/nodeCanvasReferences'
-import { spreadNodeResults } from '../lib/nodeCanvasResults'
+import { insertResultNodes, spreadNodeResults } from '../lib/nodeCanvasResults'
 import { clearNodeCanvasSelection, setNodeCanvasSelection } from '../lib/nodeCanvasSelection'
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
 import { createImagePresetNode } from '../lib/nodeImagePreset'
@@ -145,8 +150,10 @@ import { CanvasLodProvider, CanvasOverview, NodeLodCard, useCanvasLod } from './
 import CanvasVideoPlayer from './CanvasVideoPlayer'
 import FilmExportStatus from './FilmExportStatus'
 import ImageNodeComposer from './ImageNodeComposer'
+import MediaTransferCard from './MediaTransferCard'
 import NodeAddMenu from './NodeAddMenu'
 import NodeAssetPicker from './NodeAssetPicker'
+import NodeAssetsPanel from './NodeAssetsPanel'
 import NodeAssetTools from './NodeAssetTools'
 import NodeBatchDialog from './NodeBatchDialog'
 import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
@@ -927,6 +934,11 @@ function Flow({
         (project) => project.sceneKey === viewKey && project.cloud && !project.cloud.deleted,
       )?.id,
   )
+  const project = useCanvasProjectStore((state) =>
+    state.projects.find((one) => one.sceneKey === viewKey),
+  )
+  const projectName = project?.name ?? ''
+  const projectConversationId = project?.conversationId ?? null
   const flowStore = useStoreApi()
   const snapshot = useDocumentSnapshot(canvas)
   useStoryboardGridSplitting(canvas, editor)
@@ -1290,7 +1302,7 @@ function Flow({
       setAddingAsset(false)
     }
   }
-  const selectCreatedBatch = (ids: string[]) => {
+  const selectCreatedBatch = (ids: string[], reveal = true) => {
     const chosen = new Set(ids)
     const created = readCanvasDocument(canvas.doc).nodes.filter((node) => chosen.has(node.id))
     selectNode(null)
@@ -1303,6 +1315,7 @@ function Flow({
         .map((node) => ({ ...node, selected: false })),
       ...created.map((node) => toFlowNode(node, true)),
     ])
+    if (!reveal) return
     const bounds = contentBounds({ nodes: created, edges: [], annotations: [] })
     const viewport =
       bounds &&
@@ -1326,6 +1339,41 @@ function Flow({
           y: rect.top + rect.height / 2,
         }) ?? { x: 0, y: 0 })
       : { x: 0, y: 0 }
+  }
+  // 「资产」入口在全局顶栏：画布挂着才出现，开关状态放在共享 store 里。
+  const assetsPanelOpen = useCanvasAssetsEntry((s) => s.open)
+  const setAssetsPanelOpen = useCanvasAssetsEntry((s) => s.setOpen)
+  useEffect(() => {
+    const entry = useCanvasAssetsEntry.getState()
+    entry.setAvailable(true)
+    return () => entry.setAvailable(false)
+  }, [])
+  const canvasResultItems = useCanvasResultAssets(editor, canvas, projectName, assetsPanelOpen)
+  // 资产弹窗里点一件或「应用到画布」：在当前画面中间建节点并选中，不挪视口；成功后弹窗自己关掉。
+  const placeAssets = async (items: readonly CanvasAssetItem[]) => {
+    try {
+      const ids = await insertResultNodes(
+        editor,
+        canvas,
+        items.map((item) => item.insert),
+        center(),
+      )
+      if (!ids.length) throw new Error('nothing placed')
+      selectCreatedBatch(ids, false)
+      return true
+    } catch {
+      useStore.getState().showToast(t('import.failed'), 'error')
+      return false
+    }
+  }
+  const downloadSelection = () => {
+    const ids = [...selectedIds.current]
+    const entries = canvasExportEntries(editor.doc, ids)
+    if (!entries.length) {
+      useStore.getState().showToast(t('batch.exportFailed'), 'error')
+      return
+    }
+    void transferMedia(entries, projectName)
   }
   const fit = () => {
     showFrame(undefined, 0.25, 0.05, 8, 250)
@@ -2458,9 +2506,31 @@ function Flow({
                             label={t('nodes.duplicate')}
                             onClick={duplicate}
                           />
+                          <span className="studio-node-tool-divider" />
+                          <NodeTool
+                            icon="download"
+                            label={common('action.download')}
+                            onClick={downloadSelection}
+                          />
                           <NodeTool icon="delete" label={t('nodes.delete')} onClick={remove} />
                         </div>
                       )}
+                      {assetsPanelOpen && (
+                        <NodeAssetsPanel
+                          conversationId={projectConversationId}
+                          canvasItems={canvasResultItems}
+                          onClose={() => setAssetsPanelOpen(false)}
+                          onPlace={placeAssets}
+                          onDownload={(items) =>
+                            void transferMedia(
+                              items.map((item) => item.download),
+                              projectName,
+                            )
+                          }
+                        />
+                      )}
+                      {/* 资产弹窗开着时传输卡由弹窗那一层渲染，免得被遮罩挡住 */}
+                      {!assetsPanelOpen && <MediaTransferCard />}
                       {scriptPoint && (
                         <ScriptBriefDialog
                           onClose={() => setScriptPoint(null)}
