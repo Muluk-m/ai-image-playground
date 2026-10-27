@@ -11,4 +11,13 @@ describe('recountBatchText', () => {
     expect(recountBatchText('共 3 张，比例 16:9、9:16', 3, 3)).toBe('共 3 张，比例 16:9、9:16')
     expect(recountBatchText('共 13 张，每张 3 种配色', 3, 2)).toBe('共 13 张，每张 3 种配色')
   })
+
+  it('中文数字写的总数也跟着改', () => {
+    expect(recountBatchText('三张水果静物保持统一的写实质感；每张只突出指定水果', 3, 2)).toBe(
+      '两张水果静物保持统一的写实质感；每张只突出指定水果',
+    )
+    expect(recountBatchText('共十二幅海报', 12, 11)).toBe('共十一幅海报')
+    expect(recountBatchText('两张一组，共十张', 10, 9)).toBe('两张一组，共九张')
+    expect(recountBatchText('从十三张备选里选', 3, 2)).toBe('从十三张备选里选')
+  })
 })
