@@ -367,9 +367,32 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const [retryingUploads, setRetryingUploads] = useState(false)
   const canvasSubmittingRef = useRef(false)
   const uploadsBlocked = retryingUploads || uploadsPending > 0 || fatalUpload !== undefined
-  const uploadNotice = failedUpload
+  const uploadDetail = failedUpload
     ? attachmentUploadErrorMessage(attachmentUploadError(failedUpload), getAttachmentLimits())
     : null
+  // 文件本身坏了的那几张（不能重传）：输入框下只说哪张、移除后就能发；具体原因留在参考素材层里。
+  const unusableIndexes = uploadReferences.flatMap((reference, index) =>
+    attachmentUploadState(reference) === 'failed' &&
+    !canRetryAttachmentUpload(attachmentUploadError(reference))
+      ? [index]
+      : [],
+  )
+  const uploadNotice =
+    unusableIndexes.length > 1
+      ? t('composer:studio.referencesUnusable', { count: unusableIndexes.length })
+      : unusableIndexes.length === 1
+        ? t('composer:studio.referenceUnusable', { index: unusableIndexes[0] + 1 })
+        : uploadDetail
+  const removeUnusableLabel =
+    unusableIndexes.length > 1
+      ? t('composer:studio.removeUnusableReferences')
+      : unusableIndexes.length === 1
+        ? t('composer:studio.removeReference', { index: unusableIndexes[0] + 1 })
+        : undefined
+  // 从后往前删，前面的序号不会跟着挪；提示词里对这几张的 @ 引用由 removeInputImage 一并收拾。
+  const removeUnusable = () => {
+    for (const index of [...unusableIndexes].reverse()) useStore.getState().removeInputImage(index)
+  }
   const referenceNotice = oversizedNotice ?? uploadNotice
   const uploadProgress =
     uploadsPending > 0 || retryingUploads
@@ -1167,6 +1190,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           ? t('batch.pinFull', { max: sharedTaskLimit, shared: sharedTaskLimit - 1 })
           : t('batch.pin')
     const isMaskTarget = maskDraft?.targetImageId === img.id
+    // 坏图的 × 常显：不用先悬停才找得到删除入口。
+    const isUnusable = unusableIndexes.includes(idx)
     const canEdit = !maskTargetImage || isMaskTarget
     const imageHintText = isMaskTarget ? t('image.maskFirstHint') : ''
     const displaySrc = isMaskTarget && maskPreviewUrl ? maskPreviewUrl : img.dataUrl
@@ -1329,7 +1354,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         >
           <div
             className={`creation-reference-frame relative w-[72px] h-[72px] rounded-xl overflow-hidden shadow-sm cursor-grab active:cursor-grabbing select-none ${
-              oversizedIndexes.includes(idx)
+              oversizedIndexes.includes(idx) || isUnusable
                 ? 'border-2 border-destructive'
                 : isMaskTarget
                   ? 'border-2 border-primary'
@@ -1370,7 +1395,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 />
               </div>
             )}
-            {oversizedIndexes.includes(idx) && (
+            {(oversizedIndexes.includes(idx) || isUnusable) && (
               <span
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-background/55 text-destructive"
@@ -1469,8 +1494,12 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           <Button
             type="button"
             variant="ghost"
-            aria-label={t('common:action.remove')}
-            className="creation-reference-remove opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+            aria-label={t('composer:studio.removeReference', { index: idx + 1 })}
+            className={`creation-reference-remove transition-opacity ${
+              isUnusable
+                ? ''
+                : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100'
+            }`}
             onClick={(e) => {
               e.stopPropagation()
               removeInputImage(idx)
@@ -1608,7 +1637,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 }
                 failed={Boolean(referenceNotice)}
                 uploading={!referenceNotice && Boolean(uploadProgress)}
-                status={referenceNotice ?? uploadProgress ?? undefined}
+                status={oversizedNotice ?? uploadDetail ?? uploadProgress ?? undefined}
+                onRemoveFailed={removeUnusableLabel ? removeUnusable : undefined}
+                removeFailedLabel={removeUnusableLabel}
                 onClear={() => useStore.getState().clearInputImages()}
                 previews={inputImages
                   .slice(-3)
@@ -1769,6 +1800,11 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               ) : sharedLimitNotice ? (
                 <span role="alert" className="text-xs leading-snug text-destructive">
                   {sharedLimitNotice}
+                </span>
+              ) : uploadProgress ? (
+                // 读屏播报交给参考素材条里那条 status，这里只给眼睛看，免得念两遍。
+                <span aria-hidden="true" className="text-xs leading-snug text-muted-foreground">
+                  {uploadProgress}
                 </span>
               ) : batchActive && !submissionGuard.blockedAction ? (
                 // 逐张只留一行：张数 · @图1 目标图 · 共享的序号 · 积分，规则靠序号胶囊和图钉本身说明。
