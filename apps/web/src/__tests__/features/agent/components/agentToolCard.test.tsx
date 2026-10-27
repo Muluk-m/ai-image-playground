@@ -1049,6 +1049,20 @@ describe('失败卡按错误码给出路', () => {
     }
   })
 
+  it.each([
+    'webFetch',
+    'webSearch',
+    'fetchImage',
+  ] as const)('%s 超时说成联网读取超时，不说生成超时', (toolName) => {
+    const { host, unmount } = render({ ...failed('timeout'), toolName })
+    try {
+      expect(host.textContent).toContain('联网读取超时，没拿到内容')
+      expect(host.textContent).not.toContain('生成超时')
+    } finally {
+      unmount()
+    }
+  })
+
   // 这三个码的正常出路是画布占位上的重试。认得出是哪一次生成、却重出不了时（局部或连锁改图、
   // 模型已下线）重试给不出来，不能让这张卡停在一句原因上。
   it('局部改图失败给不出重试时改为让助手重新处理，并说清重出不了什么', () => {

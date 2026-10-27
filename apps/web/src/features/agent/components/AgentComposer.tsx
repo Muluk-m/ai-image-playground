@@ -118,6 +118,7 @@ import {
 } from '../lib/attachmentUploadErrors'
 import {
   attachmentUploadError,
+  attachmentUploadProgress,
   attachmentUploadRevision,
   attachmentUploadState,
   attachmentUploadsEnabled,
@@ -176,6 +177,7 @@ function ComposerAttachmentThumb({
   frameClassName = '',
   alt = '',
   uploading = false,
+  progress,
   failed = false,
   retryPreview = false,
 }: {
@@ -184,6 +186,8 @@ function ComposerAttachmentThumb({
   frameClassName?: string
   alt?: string
   uploading?: boolean
+  /** 直传百分比；有就在转圈下面显示数字，代替「上传中」。 */
+  progress?: number
   failed?: boolean
   retryPreview?: boolean
 }) {
@@ -243,7 +247,13 @@ function ComposerAttachmentThumb({
       {(pending || uploading) && (
         <AttachmentLoading
           uploading={uploading}
-          label={uploading ? t('composer.upload.uploading') : undefined}
+          label={
+            uploading
+              ? progress === undefined
+                ? t('composer.upload.uploading')
+                : `${progress}%`
+              : undefined
+          }
         />
       )}
       {previewFailed &&
@@ -1267,6 +1277,7 @@ export default function AgentComposer({
                               <ComposerAttachmentThumb
                                 src={reference.dataUrl}
                                 uploading={isUploading}
+                                progress={attachmentUploadProgress(uploadReference(reference))}
                                 failed={uploadState === 'failed'}
                                 frameClassName="h-full w-full"
                                 className={`h-full w-full object-contain ${masked ? 'ring-1 ring-ring/70' : ''}`}

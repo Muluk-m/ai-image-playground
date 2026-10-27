@@ -93,6 +93,7 @@
     "authentication_required": "需要先登录才能生成",
     "invalid_params": "这次的参数不成立，没有提交",
     "source_unavailable": "来源网站拒绝或无法提供内容，请换个公开来源",
+    "source_timeout": "联网读取超时，没拿到内容",
     "content_policy": "这次的提示词没通过内容审核，请换个说法",
     "model_unavailable": "该模型暂不可用，请换其他模型",
     "service_unavailable": "批次执行还没开放。可以让智能体按已有的逐图结果另拟计划",
