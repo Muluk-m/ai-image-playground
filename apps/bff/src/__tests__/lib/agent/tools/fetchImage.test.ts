@@ -185,6 +185,21 @@ it('refuses bytes that are not an image', async () => {
   expect(await db.select({ id: schema.media_objects.id }).from(schema.media_objects)).toEqual([])
 })
 
+// 网图超过读图像素预算：是来源给不出能用的图，不能报成「参数不成立」（QA 线上：取青岛风景图失败后改图照常成功）。
+it('reports an image over the pixel budget as an unavailable source, not bad params', async () => {
+  const operator = config.operator
+  config.operator = { ...operator, quotas: { ...operator.quotas, 'agent:visual-max-pixels': 40 } }
+  try {
+    serve(PNG, 'image/png')
+    const thrown = await run('https://example.com/huge.png').catch((error: unknown) => error)
+    expect(thrown).toMatchObject({ code: 'source_unavailable' })
+    expect((thrown as Error).message).toContain('8×6')
+    expect(await db.select({ id: schema.media_objects.id }).from(schema.media_objects)).toEqual([])
+  } finally {
+    config.operator = operator
+  }
+})
+
 // 地址是模型写的，指向内网就是一次 SSRF：拒绝并让模型换来源，不能原样重试。
 it('refuses a host that resolves into the private network', async () => {
   serve(PNG, 'image/png', '10.0.0.5')
