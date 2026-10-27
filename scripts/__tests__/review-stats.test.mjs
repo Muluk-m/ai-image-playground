@@ -59,6 +59,21 @@ test('GraphQL 节点缺字段时也能压平', () => {
   })
   assert.deepEqual(p.reviews, [{ author: '', commit: 'a' }])
   assert.deepEqual(p.threads, [{ author: '', isResolved: false, isOutdated: false }])
+  assert.equal(p.truncated, false)
+})
+
+test('review 或讨论串超过一页的 PR 标为统计不全并写进周报', () => {
+  const node = (number, reviewsMore, threadsMore) => ({
+    number,
+    title: 't',
+    mergedAt: 'x',
+    reviews: { pageInfo: { hasNextPage: reviewsMore }, nodes: [] },
+    reviewThreads: { pageInfo: { hasNextPage: threadsMore }, nodes: [] },
+  })
+  const stats = summarize([node(1, true, false), node(2, false, true), node(3, false, false)].map(normalize))
+  assert.deepEqual(stats.truncated, [1, 2])
+  assert.match(formatMarkdown(stats, { repo: 'o/r', since: 'd' }), /统计不全：#1、#2/)
+  assert.doesNotMatch(formatMarkdown(summarize([]), { repo: 'o/r', since: 'd' }), /统计不全/)
 })
 
 test('参数校验', () => {

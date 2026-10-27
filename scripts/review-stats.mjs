@@ -8,6 +8,7 @@
 // - revert：标题以 revert 开头（不分大小写）。
 // - 评审轮数：AI 评审（ocr 的 github-actions[bot] 与 Codex 的 chatgpt-codex-connector[bot]）提交的 review
 //   针对过几个不同的 head 提交；一个 PR 没有 AI review 记 0 轮。
+// - 单个 PR 只取前 100 条 review 与讨论串；超出的 PR 在输出里单独列为「统计不全」。
 // - ocr 意见去向：ocr 发起的行内讨论串，已解决 = resolved，代码已改到那一行 = outdated（多半已处理），
 //   其余 = open（未处理或作者回复不改）。
 import { execFileSync } from 'node:child_process'
@@ -70,6 +71,7 @@ export function summarize(prs) {
     averageRoundsReviewed: average(reviewed),
     overCap: prs.filter((_, i) => rounds[i] > 3).map((pr) => pr.number),
     ocr: { ...ocr, total: ocr.resolved + ocr.outdated + ocr.open },
+    truncated: prs.filter((pr) => pr.truncated).map((pr) => pr.number),
   }
 }
 
@@ -83,6 +85,11 @@ export function formatMarkdown(stats, { repo, since }) {
     `- 超过 3 轮的 PR：${stats.overCap.length ? stats.overCap.map((n) => `#${n}`).join('、') : '无'}`,
     `- ocr 行内意见 ${stats.ocr.total} 条：已解决 ${stats.ocr.resolved}，代码已改动 ${stats.ocr.outdated}，未处理 ${stats.ocr.open}`,
   ]
+  if (stats.truncated.length) {
+    lines.push(
+      `- ⚠️ 统计不全：${stats.truncated.map((n) => `#${n}`).join('、')} 的 review 或讨论串超过 100 条，只算了前 100 条`,
+    )
+  }
   return `${lines.join('\n')}\n`
 }
 
@@ -91,8 +98,8 @@ const QUERY = `query($q: String!, $endCursor: String) {
     pageInfo { hasNextPage endCursor }
     nodes { ... on PullRequest {
       number title mergedAt
-      reviews(first: 100) { nodes { author { login } commit { oid } } }
-      reviewThreads(first: 100) { nodes { isResolved isOutdated comments(first: 1) { nodes { author { login } } } } }
+      reviews(first: 100) { pageInfo { hasNextPage } nodes { author { login } commit { oid } } }
+      reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved isOutdated comments(first: 1) { nodes { author { login } } } } }
     } }
   }
 }`
@@ -103,6 +110,8 @@ export function normalize(node) {
     number: node.number,
     title: node.title,
     mergedAt: node.mergedAt,
+    // 单个 PR 的 review 或讨论串超过 100 条时只取到第一页；标出来，不静默少算。
+    truncated: Boolean(node.reviews?.pageInfo?.hasNextPage || node.reviewThreads?.pageInfo?.hasNextPage),
     reviews: (node.reviews?.nodes ?? []).map((r) => ({ author: r.author?.login ?? '', commit: r.commit?.oid ?? '' })),
     threads: (node.reviewThreads?.nodes ?? []).map((t) => ({
       author: t.comments?.nodes?.[0]?.author?.login ?? '',
@@ -143,6 +152,9 @@ if (import.meta.url === entry) {
     const args = parseArgs(process.argv.slice(2))
     const since = new Date(Date.now() - args.days * 86_400_000).toISOString().slice(0, 10)
     const stats = summarize(fetchMergedPrs(args.repo, since))
+    if (stats.truncated.length) {
+      process.stderr.write(`警告：${stats.truncated.length} 个 PR 的 review 或讨论串超过 100 条，统计不全\n`)
+    }
     process.stdout.write(args.json ? `${JSON.stringify(stats, null, 2)}\n` : formatMarkdown(stats, { repo: args.repo, since }))
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)

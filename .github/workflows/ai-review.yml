@@ -251,9 +251,16 @@ jobs:
           echo "stderr_path=${STDERR_PATH}" >> "$GITHUB_OUTPUT"
 
           BG="$REVIEW_GUIDANCE"
-          # 可信提交里有 REVIEW.md 就附上，按其中的严重/一般与 P0/P1/P2 对照来定级；没有就跳过。
+          # 可信提交里有 REVIEW.md 就附上，用来判断什么算严重、哪些不挑、哪些文件跳过；没有就跳过。
+          # 它的「输出格式」一节（[严重|一般]）是写给人和 Codex 的，去掉，标签仍按上面的 [P0]/[P1]/[P2]，
+          # 下一步按 P 级解析和过滤。只取前 REVIEW_MAX_BYTES 字节，文件异常变大也不会挤掉内置要求或撑爆上下文。
+          REVIEW_MAX_BYTES=12000
           if [ -f .ci-tools/REVIEW.md ]; then
-            BG="${BG}"$'\n\n'"本仓库的评审约定（REVIEW.md，取自目标分支）：严重=P0/P1，一般=P2，[既有问题] 不计数。"$'\n'"$(cat .ci-tools/REVIEW.md)"
+            RULES="$(awk '/^## /{skip=($0 ~ /^## 输出格式/)} !skip' .ci-tools/REVIEW.md | head -c "$REVIEW_MAX_BYTES" || true)"
+            if [ "$(wc -c < .ci-tools/REVIEW.md)" -gt "$REVIEW_MAX_BYTES" ]; then
+              echo "::warning::REVIEW.md 超过 ${REVIEW_MAX_BYTES} 字节，只附前 ${REVIEW_MAX_BYTES} 字节"
+            fi
+            BG="${BG}"$'\n\n'"以下是本仓库的评审约定（REVIEW.md，取自目标分支），用来判断严重程度和评审范围。输出格式仍按上面的 [P0]/[P1]/[P2] 标签，不要用 [严重]/[一般]：其中的「严重」写成 [P0] 或 [P1]，「一般」写成 [P2]；本 PR 之前就存在的问题不要报。"$'\n'"${RULES}"
           else
             echo "可信提交里没有 REVIEW.md，只用内置评审要求"
           fi
