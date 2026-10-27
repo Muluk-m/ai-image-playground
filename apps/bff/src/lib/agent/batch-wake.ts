@@ -4,7 +4,7 @@ import type {
   AgentBatchWakeReceipt,
   AgentToolArtifact,
 } from '@image-playground/shared'
-import { and, asc, eq, isNull, lte, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, isNull, lt, lte, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
 import type { AgentOwner } from './conversations'
@@ -141,6 +141,31 @@ export async function batchWakeContent(
         .filter((artifact) => artifact.media === 'image')
         .map((artifact) => artifact.artifactId),
     )
+  // 用户确认前在卡片上删掉的项（BUG-39）：不说清楚，复核时会把它当成漏掉的产物。
+  // 只有「这一版就是从草稿第一次确认的那一版」时，和初版的差集才是用户删项：草稿编辑只发生在
+  // 确认之前。重试版只带未完成的项，分析转生成会换一套编号，它们之前都有确认过的版本，不能算删项。
+  const confirmedBefore = await db
+    .select({ version: schema.agent_batch_plans.version })
+    .from(schema.agent_batch_plans)
+    .where(
+      and(
+        eq(schema.agent_batch_plans.batch_id, notice.batchId),
+        lt(schema.agent_batch_plans.version, notice.version),
+        isNotNull(schema.agent_batch_plans.confirmation),
+      ),
+    )
+    .limit(1)
+  const original =
+    notice.version > 1 && !confirmedBefore.length
+      ? await db
+          .select({ key: items.key })
+          .from(items)
+          .where(and(eq(items.batch_id, notice.batchId), eq(items.version, 1)))
+          .orderBy(asc(items.ordinal))
+          .limit(100)
+      : []
+  const kept = new Set(rows.map((row) => row.itemKey))
+  const removed = original.map((row) => row.key).filter((key) => !kept.has(key))
   const hasAnalysis = rows.some((row) => row.kind === 'analysis')
   const hasGeneration = rows.some((row) => row.kind === 'generation')
   const optionalReviewImageIds = generated.slice(0, BATCH_WAKE_REVIEW_IMAGE_MAX)
@@ -161,6 +186,11 @@ export async function batchWakeContent(
       '（系统通知，不是用户说的话）已确认批次的一版执行结果全部确定。汇总下面的执行事实，不要重新提交任务或自动发起付费分析。',
       `批次 ${notice.batchId}，版本 ${notice.version}，共 ${results.length} 项：`,
       JSON.stringify(results),
+      ...(removed.length
+        ? [
+            `用户确认前从计划里移除了这些项，没有提交、也不需要产物：${removed.join('、')}。复核时不要把它们当成漏掉或尚未查看的图。`,
+          ]
+        : []),
       ...guidance,
     ].join('\n'),
     optionalReviewImageIds,
