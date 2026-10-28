@@ -564,7 +564,22 @@
 @media (max-width: 760px) {
   .mkt .dk { display: none; }
   .mkt .links { display: none; }
-  .mkt .nav-pricing { display: inline; }
+  /* 手机「定价」命中区至少 44×44（与触控下限一致）。上下用 padding 撑开、负 margin 抵消，
+     文字仍贴着语言切换一侧，顶栏高度不变；多出的宽度只向左，不压到旁边的语言切换。 */
+  .mkt .nav-pricing {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    box-sizing: border-box;
+    flex-shrink: 0;
+    min-width: 44px;
+    min-height: 44px;
+    /* 不认 lh 的浏览器退回大约半行的固定值，认 lh 的按实际行高抵消。 */
+    padding-block: 12px;
+    margin-block: -12px;
+    padding-block: calc((44px - 1lh) / 2);
+    margin-block: calc((1lh - 44px) / 2);
+  }
   .mkt .nav .cta { padding: 9px 16px; }
   .mkt .wall { width: 320vw; gap: 12px; }
   .mkt .col { width: 36vw; gap: 12px; }
