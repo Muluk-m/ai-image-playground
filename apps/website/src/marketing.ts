@@ -1,3 +1,4 @@
+import { SUPPORT_CONTACT, SUPPORT_X_URL } from '@image-playground/shared/support-contact'
 import type { Locale } from './catalog'
 
 export const ASSET = '/website-assets/v41'
@@ -37,7 +38,14 @@ export interface FeatureCard {
 
 export interface MarketingCopy {
   brand: string
-  nav: { cases: string; features: string; inspiration: string; guide: string; signIn: string }
+  nav: {
+    cases: string
+    features: string
+    inspiration: string
+    guide: string
+    pricing: string
+    signIn: string
+  }
   hero: {
     title: string
     body: string
@@ -95,6 +103,7 @@ const zh: MarketingCopy = {
     features: '功能',
     inspiration: '灵感库',
     guide: '使用指南',
+    pricing: '定价',
     signIn: '登录',
   },
   hero: {
@@ -161,10 +170,10 @@ const zh: MarketingCopy = {
     body: '产品反馈、合作或使用问题，都可以找我们。',
     close: '关闭',
     xTitle: 'X 私信',
-    xDetail: '@Muluk656',
+    xDetail: `@${SUPPORT_CONTACT.xHandle}`,
     xAction: '打开 X',
     mailTitle: '邮件',
-    mail: 'maqiqian0316@gmail.com',
+    mail: SUPPORT_CONTACT.email,
     copy: '复制',
     copied: '已复制',
     copyFailed: '复制失败',
@@ -179,6 +188,7 @@ const en: MarketingCopy = {
     features: 'Features',
     inspiration: 'Inspiration',
     guide: 'Guide',
+    pricing: 'Pricing',
     signIn: 'Sign in',
   },
   hero: {
@@ -268,10 +278,10 @@ const en: MarketingCopy = {
     body: 'Product feedback, partnerships, or questions — reach us here.',
     close: 'Close',
     xTitle: 'Message on X',
-    xDetail: '@Muluk656',
+    xDetail: `@${SUPPORT_CONTACT.xHandle}`,
     xAction: 'Open X',
     mailTitle: 'Email',
-    mail: 'maqiqian0316@gmail.com',
+    mail: SUPPORT_CONTACT.email,
     copy: 'Copy',
     copied: 'Copied',
     copyFailed: 'Couldn’t copy',
@@ -332,5 +342,5 @@ export function featureCards(locale: Locale): FeatureCard[] {
   }))
 }
 
-export const X_URL = 'https://x.com/Muluk656'
-export const CONTACT_EMAIL = 'maqiqian0316@gmail.com'
+export const X_URL = SUPPORT_X_URL
+export const CONTACT_EMAIL = SUPPORT_CONTACT.email

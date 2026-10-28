@@ -10,6 +10,7 @@ import { useStore } from '../../../store'
 import { applyInspiration } from '../lib/applyInspiration'
 import { groupOf } from '../lib/groups'
 import { inspirationImageUrl, ratioForItem, rememberRatio } from '../lib/imageRatio'
+import { inspirationTitle } from '../lib/labels'
 import { plainPrompt } from '../lib/promptArgs'
 import type { InspirationItem } from '../types'
 
@@ -83,7 +84,7 @@ export default function InspirationCard({
         variant="ghost"
         onClick={onClick}
         autoTooltip={false}
-        aria-label={item.title}
+        aria-label={inspirationTitle(item)}
         className="absolute inset-0 z-0 h-auto rounded-2xl p-0 hover:bg-transparent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       />
       <div className="pointer-events-none relative z-[1]">
@@ -147,7 +148,7 @@ export default function InspirationCard({
         </div>
         <div className="flex h-[46px] flex-col justify-center pt-2">
           <div className="truncate text-body-sm font-medium text-foreground transition-colors group-hover:text-primary">
-            {item.title}
+            {inspirationTitle(item)}
           </div>
           <div className="truncate text-label-sm text-muted-foreground">
             {category} · {modelName}

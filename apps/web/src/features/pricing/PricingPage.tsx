@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
+import { compactModelName } from '../../components/ModelIdentity'
 import { Icon } from '../../components/ui/icon'
 import { i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
 import { formatCount, formatNumber } from '../../i18n/format'
@@ -150,7 +151,11 @@ export default function PricingPage({
 
   const unit =
     cycle === 1 ? t('plan.perMonth') : cycle === 3 ? t('plan.perQuarter') : t('plan.perYear')
-  const anchor = catalog?.imageAnchor ?? null
+  const rawAnchor = catalog?.imageAnchor ?? null
+  // 服务端给的是模型 id；页面上显示产品里看到的模型名。
+  const anchor = rawAnchor
+    ? { ...rawAnchor, model: compactModelName(rawAnchor.model, rawAnchor.model) }
+    : null
   const amounts = catalog ? formatAmounts(catalog.recharge.amountsYuan, locale) : ''
   const answerFaq = (id: (typeof FAQ_ITEMS)[number]['a']): string => {
     if (!catalog) return ''
@@ -383,7 +388,10 @@ export default function PricingPage({
                         {(plan) => formatCount(plan.monthlyCredits)}
                       </Row>
                       {anchor ? (
-                        <Row plans={catalog.plans} label={t('compare.images')}>
+                        <Row
+                          plans={catalog.plans}
+                          label={t('compare.images', { model: anchor.model })}
+                        >
                           {(plan) =>
                             t('compare.imagesValue', {
                               n: formatCount(
