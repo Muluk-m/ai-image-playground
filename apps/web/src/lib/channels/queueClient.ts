@@ -38,7 +38,6 @@ const BFF_SUBMIT_ERROR_KEYS = {
   invalid_request: 'queue.bffInvalidRequest',
   object_storage_error: 'queue.bffStorageUnavailable',
   idempotency_key_conflict: 'queue.bffDuplicateSubmit',
-  duplicate_submission: 'queue.bffRepeatedSubmit',
   video_not_supported: 'queue.bffVideoNotSupported',
   video_params_required: 'queue.bffVideoParamsRequired',
   invalid_video_request: 'queue.bffInvalidVideoRequest',
@@ -271,7 +270,21 @@ async function postSubmit(
         throw err
       }
     }
-    const code = ((await coded.json().catch(() => null)) as { error?: string } | null)?.error
+    const rejection = (await coded.json().catch(() => null)) as {
+      error?: string
+      request_id?: unknown
+    } | null
+    const code = rejection?.error
+    // 几秒内同样内容的重复提交，服务端不另建任务，回的是已受理那条的 id：照常轮询它，
+    // 结果照常出来，也不会再扣一次。
+    if (
+      res.status === 409 &&
+      code === 'duplicate_submission' &&
+      typeof rejection?.request_id === 'string' &&
+      rejection.request_id
+    ) {
+      return rejection.request_id
+    }
     // `as const` 不能省：退化成 `string` 就过不了 t() 的字面量 key 检查，
     // 拼错的 key 也就不会在 typecheck 红了。
     const localized =

@@ -291,6 +291,17 @@ async function readRemovedItems(
   })
 }
 
+/** 删掉项在示范答法里的叫法：提示词开头到第一个标点，最多 12 个字，后接「那张」。 */
+function removedName(prompt: string): string {
+  const head =
+    prompt
+      .trim()
+      .split(/[，。,.;；：:\n]/)[0]
+      ?.trim() ?? ''
+  const name = head.length > 12 ? `${head.slice(0, 12)}…` : head
+  return name ? `「${name}」那张` : '那张'
+}
+
 function removedLine(batch: BatchFact): string {
   if (!batch.removed.length || batch.status === 'draft' || batch.status === 'cancelled') return ''
   const listed = batch.removed
@@ -302,11 +313,11 @@ function removedLine(batch: BatchFact): string {
   const done = batch.status === 'closed' && batch.completed === batch.itemCount && !batch.failed
   const example = done
     ? `。例：「这一批 ${batch.itemCount} 张都已完成，没有缺的；${batch.removed
-        .map((item) => item.key)
         .slice(0, 3)
-        .join('、')} 是你确认前删掉的，需要的话可以另外补。」`
+        .map((item) => removedName(item.prompt))
+        .join('、')}是你确认前删掉的，需要的话可以另外补。」`
     : ''
-  return `；用户确认前已从计划里删掉：${listed}${more}。这一批只有 ${batch.itemCount} 项，删掉的是用户自己去掉的，不是漏生成：用户问还缺哪张、还差什么时，按这一批的完成情况回答（全部完成就说这一批不缺），不要回答「还缺」删掉的项；可以顺带问要不要另外补做${example}`
+  return `；用户确认前已从计划里删掉：${listed}${more}。这一批只有 ${batch.itemCount} 项，删掉的是用户自己去掉的，不是漏生成：用户问还缺哪张、还差什么时，按这一批的完成情况回答（全部完成就说这一批不缺），不要回答「还缺」删掉的项；可以顺带问要不要另外补做。提到这些项时用内容称呼，不写 key（BUG-56）${example}`
 }
 
 function batchLine(batch: BatchFact): string {

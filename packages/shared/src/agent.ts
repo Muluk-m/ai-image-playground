@@ -781,6 +781,8 @@ export interface AgentToolResultBlock {
   readonly video?: VideoGenerationRecord
   readonly analysisLimit?: AgentBatchAnalysisLimit
   readonly batchId?: string
+  /** 这次调用写进批次的项 key：只给前端从回复里认出并去掉它们（BUG-56），不显示。 */
+  readonly batchItemKeys?: readonly string[]
   readonly type: 'toolResult'
   readonly toolCallId: string
   readonly toolName: AgentToolName
