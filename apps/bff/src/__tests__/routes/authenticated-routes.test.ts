@@ -514,6 +514,10 @@ describe('BFF optional user auth', () => {
         body: { username: 'valid-user@example.com', password: 'short' },
         error: 'invalid_password',
       },
+      {
+        body: { username: 'valid-user@example.com', password: ' '.repeat(12) },
+        error: 'invalid_password',
+      },
     ]
 
     for (const [index, testCase] of cases.entries()) {

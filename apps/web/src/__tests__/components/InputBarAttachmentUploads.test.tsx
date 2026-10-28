@@ -243,6 +243,23 @@ describe('首页交给智能体的参考图（BUG-27）', () => {
     expect(removes.map((el) => el.className.includes('opacity-0'))).toEqual([true, false, false])
   })
 
+  it('参考区展开时原因句只在参考图上方出现一次，输入框下不再重复', () => {
+    uploads.set(GOOD, { state: 'ready' })
+    uploads.set(BAD, { state: 'failed', error: 'media_unsupported_image' })
+    localStorage.setItem(REFERENCE_DISPLAY_KEY, 'true')
+    mountWith([GOOD, BAD])
+    const visible = [...host.querySelectorAll<HTMLElement>('*')].filter(
+      (el) =>
+        !el.closest('.sr-only') &&
+        [...el.childNodes].some(
+          (node) => node.nodeType === 3 && node.textContent?.includes('格式'),
+        ),
+    )
+    expect(visible).toHaveLength(1)
+    expect(visible[0]?.closest('.creation-reference-status')).not.toBeNull()
+    localStorage.removeItem(REFERENCE_DISPLAY_KEY)
+  })
+
   it('发送的是点击时的草稿', () => {
     uploads.set(GOOD, { state: 'ready' })
     mountWith([GOOD])
