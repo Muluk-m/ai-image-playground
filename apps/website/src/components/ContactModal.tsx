@@ -64,29 +64,35 @@ export function ContactPanel({
       <h3 id="contact-title">{text.title}</h3>
       <p>{text.body}</p>
       <div className="copt">
-        <span className="ci" aria-hidden="true">
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          >
-            <rect x="3" y="5" width="18" height="14" rx="2.5" />
-            <path d="m4 7 8 6 8-6" />
-          </svg>
-        </span>
-        <div className="ct">
-          <b>{text.mailTitle}</b>
-          <span>{text.mail}</span>
+        <div className="cmain">
+          <span className="ci" aria-hidden="true">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+            >
+              <rect x="3" y="5" width="18" height="14" rx="2.5" />
+              <path d="m4 7 8 6 8-6" />
+            </svg>
+          </span>
+          <div className="ct">
+            <b>{text.mailTitle}</b>
+            <span className="cmail" data-slot="contact-email">
+              {text.mail}
+            </span>
+          </div>
         </div>
-        <button type="button" className="cbtn" onClick={() => void copyAddress()}>
-          {copyLabel}
-        </button>
-        <a className="cbtn pri" href={`mailto:${CONTACT_EMAIL}`} autoFocus>
-          {text.send}
-        </a>
+        <div className="cacts">
+          <button type="button" className="cbtn" onClick={() => void copyAddress()}>
+            {copyLabel}
+          </button>
+          <a className="cbtn pri" href={`mailto:${CONTACT_EMAIL}`} autoFocus>
+            {text.send}
+          </a>
+        </div>
       </div>
       {wechat ? (
         <div className="copt" data-contact-channel="wechat">

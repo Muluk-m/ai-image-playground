@@ -56,8 +56,19 @@
 .mkt .links a { padding: 6px 14px; border-radius: 99px; transition: background 0.2s; }
 .mkt .links a:hover { background: rgba(255, 255, 255, 0.1); }
 .mkt .nav-end { display: flex; align-items: center; gap: 12px; }
-.mkt .lang { font-size: 13px; font-weight: 600; opacity: 0.8; }
+.mkt .lang { position: relative; z-index: 1; font-size: 13px; font-weight: 600; opacity: 0.8; }
 .mkt .lang:hover { opacity: 1; }
+/* 文字大小不变。伪元素把可点区域扩到 44×44，不占布局，窄屏顶栏间距保持。
+   左缘最多伸出 7px，停在与「定价」之间的 8px 空隙里，不盖住定价热区。 */
+.mkt .lang::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: max(-7px, calc(100% - 44px));
+  width: 44px;
+  height: 44px;
+  transform: translateY(-50%);
+}
 /* 顶栏文字不许折行。窄宽时由下面的间距去挤，不能把「中文」或按钮拆成两行。 */
 .mkt .brand,
 .mkt .links,
@@ -526,9 +537,20 @@
   place-items: center;
 }
 .cbox .cx:hover { color: #f4f6f1; background: rgba(255, 255, 255, 0.1); }
+/* 关闭钮外观仍是 32px，可点区域扩到 44×44。 */
+.cbox .cx::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
 .cbox .copt {
   margin-top: 14px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 14px;
@@ -536,6 +558,14 @@
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.03);
 }
+.cbox .cmain {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.cbox .cacts { display: flex; flex: none; gap: 12px; align-items: center; }
 .cbox .copt:first-of-type { margin-top: 20px; }
 .cbox .ci {
   width: 38px;
@@ -557,6 +587,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 邮箱放不下时整段换行，不截成省略号。按钮组不缩放，窄时整组换到下一行。 */
+.cbox .ct span.cmail {
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .cbox .cbtn {
   flex: none;
@@ -634,8 +671,9 @@
   .mkt .end { padding: 16vh 0 14vh; }
   .mkt .marq { opacity: 0.22; }
   .cbox .copt { flex-wrap: wrap; }
-  .cbox .copt .cbtn { flex: 1; text-align: center; }
-  .cbox .copt .ct { flex-basis: calc(100% - 50px); }
+  .cbox .cmain { flex-basis: 100%; }
+  .cbox .cacts { flex: 1 1 100%; }
+  .cbox .cacts .cbtn { flex: 1; text-align: center; }
   .mkt .foot .top { flex-direction: column; }
   .mkt .foot .cols { gap: 44px; }
   .mkt .foot .bot { flex-direction: column; gap: 8px; }
