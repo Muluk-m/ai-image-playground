@@ -653,4 +653,23 @@ describe('快速生成的发送按钮', () => {
     act(() => send.click())
     expect(submitTask).not.toHaveBeenCalled()
   })
+
+  it('提示词快到上限时显示字数，超过上限时发不出去', () => {
+    remount('generate')
+    const submitTask = vi.spyOn(storeModule, 'submitTask').mockResolvedValue(undefined)
+    const sendButton = () =>
+      [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+        (one) => one.getAttribute('aria-label') === '生成',
+      )!
+    act(() => useStore.setState({ prompt: '猫'.repeat(100) }))
+    expect(host.textContent).not.toContain('/20,000')
+    act(() => useStore.setState({ prompt: '猫'.repeat(16_000) }))
+    expect(host.textContent).toContain('16,000/20,000')
+    expect(sendButton().disabled).toBe(false)
+    act(() => useStore.setState({ prompt: '猫'.repeat(20_001) }))
+    expect(host.textContent).toContain('20,001/20,000')
+    expect(sendButton().disabled).toBe(true)
+    act(() => sendButton().click())
+    expect(submitTask).not.toHaveBeenCalled()
+  })
 })

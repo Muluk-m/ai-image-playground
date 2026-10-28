@@ -56,7 +56,8 @@
     "noModel": "No model is available right now. Try again later",
     "startCanvas": "Start creating",
     "skillNeedsCanvas": "Skills run in projects. Switch to Smart creation or Canvas to send",
-    "promptRequired": "Enter a prompt to generate"
+    "promptRequired": "Enter a prompt to generate",
+    "promptTooLong": "Prompts can be up to {{max}} characters"
   },
   "search": {
     "favoriteOnly": "Favorites only",
