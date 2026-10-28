@@ -164,6 +164,20 @@ export function stripDisallowedScripts(text: string, userText = ''): string {
   return stripBody(text, compileReplyScripts(userText).extra)
 }
 
+/**
+ * 给用户看的正文。洗完只剩标点或空白、原文里却有字母时，换成和流式收尾同一句兜底。
+ * 原文本来就只有标点时不动。
+ */
+export function presentReplyText(
+  text: string,
+  userText = '',
+  allowance?: ReplyScriptAllowance,
+): string {
+  const stripped = stripBody(text, (allowance ?? compileReplyScripts(userText)).extra)
+  if (!hasPayload(stripped) && hasLetter(text)) return replyFallback(userText)
+  return stripped
+}
+
 export function stripWithReplyScripts(text: string, allowance: ReplyScriptAllowance): string {
   return stripBody(text, allowance.extra)
 }
@@ -273,7 +287,7 @@ export function sanitizeReplyText(text: string, userText = ''): string {
 /**
  * 历史读回时再清一次。允许哪些泄漏文字，看这批消息里的全部用户原文，
  * 和流式闸门的 `collectUserReplyText` 是同一套，避免直播保留、刷新又删。
- * 只删，不换成兜底句。
+ * 洗完只剩标点或空白时，换成和流式收尾同一句兜底。
  */
 export function sanitizeAssistantMessages(
   messages: readonly AgentMessageView[],
@@ -286,7 +300,7 @@ export function sanitizeAssistantMessages(
     let blockChanged = false
     const content = message.content.map((block) => {
       if (block.type !== 'text' || !block.text) return block
-      const text = stripBody(block.text, extra)
+      const text = presentReplyText(block.text, userText, { extra })
       if (text === block.text) return block
       blockChanged = true
       return { ...block, text }

@@ -209,6 +209,21 @@ describe('stripDisallowedScripts', () => {
 })
 
 describe('sanitizeAssistantMessages', () => {
+  it('shows the same fallback as streaming when a stored reply cleans down to punctuation (BUG-80)', () => {
+    const chinese = [message('user', USER_ZH, 't1'), message('assistant', `${LEAK}。`, 't1')]
+    expect(sanitizeAssistantMessages(chinese)[1]?.content[0]).toMatchObject({
+      text: REPLY_SCRIPT_FALLBACK_ZH,
+    })
+    const english = [
+      message('user', USER_EN, 't1'),
+      message('assistant', `${LEAK}.`, 't1', 'assistant-en'),
+    ]
+    expect(sanitizeAssistantMessages(english)[1]?.content[0]).toMatchObject({
+      text: REPLY_SCRIPT_FALLBACK_EN,
+    })
+    expect(sanitizeReplyText(`${LEAK}。`, USER_ZH)).toBe(REPLY_SCRIPT_FALLBACK_ZH)
+  })
+
   it('cleans an old assistant reply using the loaded user text', () => {
     const messages = [message('user', USER_ZH, 't1'), message('assistant', BUG, 't1')]
     const cleaned = sanitizeAssistantMessages(messages)
@@ -227,7 +242,9 @@ describe('sanitizeAssistantMessages', () => {
       message('user', USER_ZH, 't1'),
       message('assistant', `${LEAK}。`, 't1', 'assistant-leak'),
     ]
-    expect(sanitizeAssistantMessages(sameTurn)[1]?.content[0]).toMatchObject({ text: '。' })
+    expect(sanitizeAssistantMessages(sameTurn)[1]?.content[0]).toMatchObject({
+      text: REPLY_SCRIPT_FALLBACK_ZH,
+    })
   })
 
   it('keeps a leak the user wrote in an earlier turn when refreshing a later reply (BUG-75)', () => {
