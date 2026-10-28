@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '../../../web/src/components/ui/button'
 import { Icon } from '../../../web/src/components/ui/icon'
 import { saveSiteDraft } from '../../../web/src/lib/siteDraft'
@@ -15,6 +15,8 @@ import {
   starterPrompts,
 } from '../marketing'
 import { ContactModal } from './ContactModal'
+
+const CONTACT_HASH = '#contact'
 
 const BAND = 'border-t border-dashed border-border px-6 py-14'
 const TAB =
@@ -36,6 +38,21 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
     event.preventDefault()
     setContactOpen(true)
   }
+  const closeContact = () => {
+    setContactOpen(false)
+    if (window.location.hash === CONTACT_HASH)
+      history.replaceState(null, '', window.location.pathname + window.location.search)
+  }
+
+  // 带 #contact 打开（站内外的「联系我们」链接都指向这里）就直接弹出联系方式。
+  useEffect(() => {
+    const syncHash = () => {
+      if (window.location.hash === CONTACT_HASH) setContactOpen(true)
+    }
+    syncHash()
+    window.addEventListener('hashchange', syncHash)
+    return () => window.removeEventListener('hashchange', syncHash)
+  }, [])
 
   return (
     <main className="mkt" data-locale={locale}>
@@ -224,7 +241,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
             <a href="/explore">{text.nav.inspiration}</a>
             <a href="/pricing">{text.nav.pricing}</a>
           </div>
-          <div>
+          <div id="contact">
             <h4>{text.footer.help}</h4>
             <a href={editions[locale].root}>{text.nav.guide}</a>
             <a href="#contact" onClick={openContact}>
@@ -238,7 +255,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
           </div>
         </footer>
       </div>
-      <ContactModal open={contactOpen} locale={locale} onClose={() => setContactOpen(false)} />
+      <ContactModal open={contactOpen} locale={locale} onClose={closeContact} />
     </main>
   )
 }
