@@ -11,7 +11,6 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useWindowVirtualizer } from '../hooks/useWindowVirtualizer'
 import { i18next, useTranslation } from '../i18n'
@@ -146,6 +145,9 @@ function setFallbackName(task: TaskRecord | undefined): string {
  *
  * 首页直接展示视口附近的作品，不沿用资产页的搜索与筛选。
  */
+/** 首页「我的作品」预览的行数。 */
+export const HOME_WORK_ROWS = 2
+
 export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
   const { t } = useTranslation('task')
   const historyReady = useSyncExternalStore(subscribeHistoryReady, isHistoryReady, () => false)
@@ -575,8 +577,9 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
     const chunks: GridItem[][] = []
     for (let index = 0; index < items.length; index += columns)
       chunks.push(items.slice(index, index + columns))
-    return chunks
-  }, [items, columns])
+    // 首页只预览最近两行，完整时间线在资产库。
+    return hero ? chunks.slice(0, HOME_WORK_ROWS) : chunks
+  }, [items, columns, hero])
   const [scrollMargin, setScrollMargin] = useState(0)
   const getItemKey = useCallback(
     (index: number) => itemRows[index]?.map((item) => item.key).join('|') ?? index,
@@ -687,15 +690,13 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
         </div>
       )
     }
-    // 灵感瀑布只在创作页的冷启动露出；资产·作品空了就说空了，别把探索页搬过来。
-    // 首页一次只挂一条无限列表：没作品时是这里的灵感，有作品时仍是下面这条虚拟网格。
-    if (!hero)
-      return (
-        <div className="text-center py-20 text-muted-foreground">
-          <p className="text-sm">{t('grid.empty')}</p>
-        </div>
-      )
-    return <InspirationEmptyHero />
+    // 首页没有作品就不占位，下面的灵感区接着露出；资产·作品空了就说空了。
+    if (hero) return null
+    return (
+      <div className="text-center py-20 text-muted-foreground">
+        <p className="text-sm">{t('grid.empty')}</p>
+      </div>
+    )
   }
 
   return (

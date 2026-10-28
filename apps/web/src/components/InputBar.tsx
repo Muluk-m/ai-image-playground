@@ -64,7 +64,6 @@ import {
   quickGenerateAdmission,
 } from '../lib/batchGenerate'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
-import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { getAttachmentLimits, isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { confirmImageBatch } from '../lib/confirmImageBatch'
 import { getSafeBoundingClientRect } from '../lib/domRect'
@@ -104,11 +103,11 @@ import { BatchModeControls } from './creation/BatchModeControls'
 import {
   CreationBody,
   CreationFrame,
-  CreationModePicker,
   CreationSend,
   CreationToolbar,
 } from './creation/CreationFrame'
 import { CreationReferenceStack } from './creation/CreationReferenceStack'
+import HomeTargetPicker from './creation/HomeTargetPicker'
 import { useReferenceDisplay } from './creation/referenceDisplay'
 import { LookCapsule } from './LookChips'
 import ParamControls from './ParamControls'
@@ -1661,25 +1660,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             </div>
           </CreationBody>
           <CreationToolbar
-            mode={
-              inline ? (
-                <CreationModePicker
-                  value={creationMode}
-                  modes={[
-                    ...(isClientCapabilityEnabled('agent:chat') ? ['agent' as const] : []),
-                    'image',
-                    ...(isVideoModeAvailable() ? ['video' as const] : []),
-                  ]}
-                  onChange={(mode) =>
-                    useStore
-                      .getState()
-                      .setCreateTarget(
-                        mode === 'agent' ? 'chat' : mode === 'video' ? 'video' : 'generate',
-                      )
-                  }
-                />
-              ) : undefined
-            }
+            mode={inline ? <HomeTargetPicker /> : undefined}
             status={
               // 参考区展开时原因句已在参考图上方，输入框下不再重复一遍。
               referenceNotice && !(referencesExpanded && inputImages.length > 0) ? (

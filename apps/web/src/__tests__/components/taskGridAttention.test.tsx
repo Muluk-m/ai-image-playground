@@ -65,7 +65,11 @@ beforeEach(() => {
   window.innerWidth = 1200
   window.innerHeight = 800
   window.matchMedia = ((query: string) => ({
-    matches: reducedMotion && query.includes('prefers-reduced-motion'),
+    // 桌面宽度：首页预览按 3 列排，两行放得下这里的全部卡片。
+    matches: query.includes('prefers-reduced-motion')
+      ? reducedMotion
+      : Number(/min-width: (\d+)px/.exec(query)?.[1] ?? Number.POSITIVE_INFINITY) <=
+        window.innerWidth,
     media: query,
     onchange: null,
     addListener: () => {},
@@ -198,6 +202,19 @@ describe('attention for a user-submitted work card', () => {
     expect(card('fresh').className).toContain('task-submitted-attention')
     expect(card('page-2').className).not.toContain('task-submitted-attention')
     expect(host.querySelectorAll('.task-card-wrapper')).toHaveLength(3)
+  })
+
+  it('previews only the latest two rows of work on the home page', async () => {
+    window.innerWidth = 500
+    await showGrid()
+    await act(async () => {
+      useStore.setState({
+        tasks: [task('first', 30), task('second', 20), task('third', 10, 'done')],
+      })
+    })
+
+    expect(host.querySelectorAll('.task-card-wrapper')).toHaveLength(2)
+    expect(host.querySelector('[data-task-id="third"]')).toBeNull()
   })
 
   it('highlights every card from one send and focuses the first', async () => {

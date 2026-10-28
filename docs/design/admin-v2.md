@@ -108,7 +108,7 @@ pnpm --dir apps/admin dev:server     # API :37378，要 DATABASE_URL 与 BFF_INT
   - **模板（template）**：提示词里带 `{槽位}`，用户填槽位再生成；复用现有槽位语义，不是用户的「模板」（那是个人资产）。
   - **技能示例（skill）**：挂一条部署技能，玩同款进画布并以 `/技能标识` 起手。**技能正文仍是随 BFF 镜像发布的文件，后台只读目录**（ADR 0007 不变）。
 - **发布（publish）**：条目从草稿变成主站可见；主站读到的清单只含已发布条目。下架（archive）不删记录，用户的置顶 id 允许指向已下架条目（前端已容忍缺失）。
-- **推荐位（featured）**：上创作页冷启动的 `InspirationEmptyHero` 与首页 chips 的候选集。
+- **推荐位（featured）**：上创作页首屏的 `HomeInspirationSection` 与首页 chips 的候选集。
 - _Avoid_：案例库、素材（用户自己的图）、模板市场（付费模板抽成是另一条路线图项）。
 
 ### 数据

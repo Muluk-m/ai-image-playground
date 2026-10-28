@@ -20,13 +20,22 @@ interface Props {
   /** 瀑布流算好的图片高度。首页横滑不传，按实测比例撑开。 */
   imageHeight?: number
   onMeasured?: (width: number, height: number) => void
+  /** 固定网格用统一的画幅（CSS aspect-ratio 写法），原图居中裁切。 */
+  aspect?: string
 }
 
 /**
  * 打开案例的是一张铺满卡片的真实按钮，工具条和收藏是它的兄弟节点。
  * 不能把按钮套进 role=button：嵌套交互控件是无效 HTML。
  */
-export default function InspirationCard({ item, pinned, onClick, imageHeight, onMeasured }: Props) {
+export default function InspirationCard({
+  item,
+  pinned,
+  onClick,
+  imageHeight,
+  onMeasured,
+  aspect,
+}: Props) {
   const togglePin = useStore((s) => s.toggleInspirationPin)
   const showToast = useStore((s) => s.showToast)
   const { t } = useTranslation('inspiration')
@@ -37,8 +46,11 @@ export default function InspirationCard({ item, pinned, onClick, imageHeight, on
     modelLabel(item.recommendedModel, item.recommendedProvider),
   )
   const ratio = ratioForItem(item)
-  const imageStyle =
-    imageHeight && imageHeight > 0 ? { height: imageHeight } : { aspectRatio: `1 / ${ratio}` }
+  const imageStyle = aspect
+    ? { aspectRatio: aspect }
+    : imageHeight && imageHeight > 0
+      ? { height: imageHeight }
+      : { aspectRatio: `1 / ${ratio}` }
 
   const stop = (event: MouseEvent) => {
     event.stopPropagation()
