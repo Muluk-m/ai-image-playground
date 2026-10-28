@@ -224,29 +224,31 @@ export function sanitizeReplyText(text: string, userText = ''): string {
 
 /**
  * 历史读回时再清一次。旧回复已经落库的杂字因此不会再显示，也不会被回放给模型照抄。
- * 这批消息里没有用户原文时不动：压缩窗口或单轮读取可能没带上当时的用户消息，
- * 这时删掉整段日文或阿拉伯文会把合法回复毁掉。整段洗完只剩标点时也保留原文，不换成兜底句。
+ * 只认同一轮里的用户原文：压缩窗口没带上那一轮的用户消息时不动，避免把整段日文删掉。
+ * 同一轮对得上时照样删，哪怕删完只剩标点，也不换成兜底句。
  */
 export function sanitizeAssistantMessages(
   messages: readonly AgentMessageView[],
 ): AgentMessageView[] {
-  const userText = messages
-    .flatMap((message) =>
-      message.role === 'user'
-        ? message.content.flatMap((block) => (block.type === 'text' ? [block.text] : []))
-        : [],
-    )
-    .join('\n')
-  if (!userText.trim()) return messages as AgentMessageView[]
+  const userTextByTurn = new Map<string, string>()
+  for (const message of messages) {
+    if (message.role !== 'user') continue
+    const text = message.content
+      .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+      .join('\n')
+    if (!text) continue
+    const previous = userTextByTurn.get(message.turnId)
+    userTextByTurn.set(message.turnId, previous ? `${previous}\n${text}` : text)
+  }
   let changed = false
   const next = messages.map((message) => {
     if (message.role !== 'assistant') return message
+    const userText = userTextByTurn.get(message.turnId)
+    if (!userText?.trim()) return message
     let blockChanged = false
     const content = message.content.map((block) => {
       if (block.type !== 'text' || !block.text) return block
-      const stripped = stripDisallowedScripts(block.text, userText)
-      // 整段都是这批用户原文里没有的文字：留着，避免把旧回复改成空句再喂回模型。
-      const text = !hasPayload(stripped) && hasPayload(block.text) ? block.text : stripped
+      const text = stripDisallowedScripts(block.text, userText)
       if (text === block.text) return block
       blockChanged = true
       return { ...block, text }
