@@ -93,6 +93,14 @@ describe('marketing home', () => {
     }
   })
 
+  it('gives the footer a #contact anchor', () => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      const html = renderToStaticMarkup(createElement(MarketingHome, { locale, start: () => {} }))
+      expect(html).toContain('href="#contact"')
+      expect(html).toContain('id="contact"')
+    }
+  })
+
   it('renders X and email in the contact dialog and leaves WeChat empty', () => {
     const html = renderToStaticMarkup(
       createElement(ContactPanel, { locale: 'zh-CN', onClose: () => {} }),
