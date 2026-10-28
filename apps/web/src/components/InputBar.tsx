@@ -92,6 +92,7 @@ import {
   referenceRefusalMessage,
   referenceTally,
 } from '../lib/referenceDraft'
+import { useUndecodableReferences } from '../lib/undecodableReferences'
 import {
   removeMultipleTasks,
   storeImageFromFile,
@@ -316,23 +317,30 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const { failed: failedUploads, pending: uploadsPending } = referenceUploadGate(uploadReferences)
   const canvasSubmittingRef = useRef(false)
   const uploadsBlocked = uploadsPending > 0 || failedUploads.length > 0
-  // 传失败的那几张（超限的另算）：缩略图上标红、出「!」、× 常显；能重传的再给一个「重试」。
-  const failedIndexes = uploadReferences.flatMap((reference, index) =>
-    !oversizedIndexes.includes(index) && attachmentUploadState(reference) === 'failed'
-      ? [index]
-      : [],
+  // 快速生成不在选图时上传：坏图在本机解一次就判出来，与智能创作上传时报的同一句（BUG-59）。
+  const quickSources = useMemo(
+    () => (toCanvas ? [] : inputImages.map((image) => image.dataUrl)),
+    [toCanvas, inputImages],
   )
+  const undecodableIndexes = useUndecodableReferences(quickSources)
+  // 传失败的那几张（超限的另算）：缩略图上标红、出「!」、× 常显；能重传的再给一个「重试」。
+  const failedIndexes = toCanvas
+    ? uploadReferences.flatMap((reference, index) =>
+        !oversizedIndexes.includes(index) && attachmentUploadState(reference) === 'failed'
+          ? [index]
+          : [],
+      )
+    : undecodableIndexes.filter((index) => !oversizedIndexes.includes(index))
+  const failureCode = (index: number) =>
+    toCanvas ? attachmentUploadError(uploadReferences[index]!) : 'media_unsupported_image'
   const retryableIndexes = failedIndexes.filter((index) =>
-    canRetryAttachmentUpload(attachmentUploadError(uploadReferences[index]!)),
+    canRetryAttachmentUpload(failureCode(index)),
   )
   // 每张失败图的原因都要看得到：超限那句之外，坏图、超时各说一句，标明是第几张（BUG-44）。
   const uploadDetailLines = failedIndexes.map((index) =>
     t('composer:studio.referenceIssue', {
       index: index + 1,
-      reason: attachmentUploadErrorMessage(
-        attachmentUploadError(uploadReferences[index]!),
-        getAttachmentLimits(),
-      ),
+      reason: attachmentUploadErrorMessage(failureCode(index), getAttachmentLimits()),
     }),
   )
   const retryUpload = (index: number) => {
@@ -393,7 +401,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       hasSubmitApiConfig &&
       !submissionGuard.blocked &&
       (lookCheck?.ok ?? true) &&
-      oversizedIndexes.length === 0,
+      oversizedIndexes.length === 0 &&
+      failedIndexes.length === 0,
   )
   const creationMode = toCanvas ? (createTarget === 'video' ? 'video' : 'agent') : 'image'
   const apiReady = toCanvas || hasSubmitApiConfig
