@@ -92,7 +92,7 @@ import {
   referenceRefusalMessage,
   referenceTally,
 } from '../lib/referenceDraft'
-import { useUndecodableReferences } from '../lib/undecodableReferences'
+import { useUnusableReferences } from '../lib/unusableReferences'
 import {
   removeMultipleTasks,
   storeImageFromFile,
@@ -317,12 +317,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const { failed: failedUploads, pending: uploadsPending } = referenceUploadGate(uploadReferences)
   const canvasSubmittingRef = useRef(false)
   const uploadsBlocked = uploadsPending > 0 || failedUploads.length > 0
-  // 快速生成不在选图时上传：坏图在本机解一次就判出来，与智能创作上传时报的同一句（BUG-59）。
-  const quickSources = useMemo(
-    () => (toCanvas ? [] : inputImages.map((image) => image.dataUrl)),
-    [toCanvas, inputImages],
-  )
-  const undecodableIndexes = useUndecodableReferences(quickSources)
+  // 快速生成不在选图时上传：每张图在本机解一次，坏图与智能创作上传时同一套标法（BUG-59）。
+  const quickImages = useMemo(() => (toCanvas ? [] : inputImages), [toCanvas, inputImages])
+  const quickCheck = useUnusableReferences(quickImages)
   // 传失败的那几张（超限的另算）：缩略图上标红、出「!」、× 常显；能重传的再给一个「重试」。
   const failedIndexes = toCanvas
     ? uploadReferences.flatMap((reference, index) =>
@@ -330,9 +327,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           ? [index]
           : [],
       )
-    : undecodableIndexes.filter((index) => !oversizedIndexes.includes(index))
+    : [...quickCheck.failures.keys()].filter((index) => !oversizedIndexes.includes(index))
   const failureCode = (index: number) =>
-    toCanvas ? attachmentUploadError(uploadReferences[index]!) : 'media_unsupported_image'
+    toCanvas ? attachmentUploadError(uploadReferences[index]!) : quickCheck.failures.get(index)
   const retryableIndexes = failedIndexes.filter((index) =>
     canRetryAttachmentUpload(failureCode(index)),
   )
@@ -402,7 +399,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       !submissionGuard.blocked &&
       (lookCheck?.ok ?? true) &&
       oversizedIndexes.length === 0 &&
-      failedIndexes.length === 0,
+      failedIndexes.length === 0 &&
+      quickCheck.pending === 0,
   )
   const creationMode = toCanvas ? (createTarget === 'video' ? 'video' : 'agent') : 'image'
   const apiReady = toCanvas || hasSubmitApiConfig
