@@ -1510,9 +1510,9 @@ function Flow({
       liveCanvas.current = null
     }
   }, [canvas])
-  const placeFiles = (files: File[]) => {
-    const point = placeAt.current
+  const placeFiles = (files: File[], pinned?: { x: number; y: number }) => {
     // 逐张解码要花时间：这期间换了项目或离开画布，就不再弹确认框、不往旧画布里写。
+    // 拖拽落点在松手时钉死；从「上传」进来的不钉，确认时再用当时的放置点。
     const target = canvas
     const here = () => liveCanvas.current === target
     const failed = () => useStore.getState().showToast(t('import.failed'), 'error')
@@ -1553,6 +1553,7 @@ function Flow({
           if (valid.length === 0) return
           confirmImageBatch(valid.length, () => {
             if (!here()) return
+            const point = pinned ?? placeAt.current
             try {
               // 都已经解过：建节点和写图同步完成，中间不让出执行权，不会留下空节点。
               for (const { file, image } of valid) {
@@ -1741,7 +1742,7 @@ function Flow({
         return
       }
       // collectDroppedFiles 必须在这一拍同步调用：await 之后 DataTransfer.items 就空了。
-      void collectDroppedFiles(event.dataTransfer).then(({ files }) => placeFiles(files))
+      void collectDroppedFiles(event.dataTransfer).then(({ files }) => placeFiles(files, point))
     }
     el.addEventListener('dblclick', onDoubleClick, true)
     el.addEventListener('dragenter', onDragEnter)

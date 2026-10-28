@@ -66,6 +66,23 @@ it('compresses one oversized image down to the upload limit and keeps a reasonab
   expect(draw.drawImage).toHaveBeenCalledWith(expect.anything(), 0, 0, 4000, 3000)
 })
 
+it('keeps PNG when a single pixel is transparent, instead of sampling it away', async () => {
+  stubEncoder(2048, 'image/png')
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    drawImage: vi.fn(),
+    getImageData: () => {
+      const data = new Uint8ClampedArray(16)
+      data.fill(255)
+      data[data.length - 1] = 0
+      return { data }
+    },
+  } as unknown as CanvasRenderingContext2D)
+  const huge = image('pinhole.png', UPLOAD_COMPRESSION_THRESHOLD_BYTES + 8)
+  const fitted = await fitUploadImageFile(huge)
+  expect(fitted.compressed).toBe(true)
+  expect(fitted.file.type).toBe('image/png')
+})
+
 it('keeps a transparent image as PNG when that already fits', async () => {
   stubEncoder(2048, 'image/png')
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({

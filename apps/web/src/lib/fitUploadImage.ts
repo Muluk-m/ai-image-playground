@@ -111,25 +111,32 @@ async function decodeImage(blob: Blob): Promise<DecodedImage | undefined> {
   }
 }
 
-/** 在缩小的样张上看透明通道，避免对整幅工作图画一遍 getImageData。 */
-function sampleOpaque(source: CanvasImageSource, width: number, height: number): boolean {
-  const longest = Math.max(width, height, 1)
-  const scale = Math.min(1, 256 / longest)
-  const sampleWidth = Math.max(1, Math.round(width * scale))
-  const sampleHeight = Math.max(1, Math.round(height * scale))
+/** 分块看透明通道：每块最多 512²，细线也不会被缩小采样漏掉。 */
+const ALPHA_TILE = 512
+
+function sourceIsOpaque(source: CanvasImageSource, width: number, height: number): boolean {
   const probe = document.createElement('canvas')
-  probe.width = sampleWidth
-  probe.height = sampleHeight
   const ctx = probe.getContext('2d', { willReadFrequently: true })
   if (!ctx) return false
-  ctx.drawImage(source, 0, 0, sampleWidth, sampleHeight)
-  const { data } = ctx.getImageData(0, 0, sampleWidth, sampleHeight)
-  probe.width = 0
-  probe.height = 0
-  for (let index = 3; index < data.length; index += 4) {
-    if (data[index] !== 255) return false
+  try {
+    for (let y = 0; y < height; y += ALPHA_TILE) {
+      const tileHeight = Math.min(ALPHA_TILE, height - y)
+      for (let x = 0; x < width; x += ALPHA_TILE) {
+        const tileWidth = Math.min(ALPHA_TILE, width - x)
+        probe.width = tileWidth
+        probe.height = tileHeight
+        ctx.drawImage(source, x, y, tileWidth, tileHeight, 0, 0, tileWidth, tileHeight)
+        const { data } = ctx.getImageData(0, 0, tileWidth, tileHeight)
+        for (let index = 3; index < data.length; index += 4) {
+          if (data[index] !== 255) return false
+        }
+      }
+    }
+    return true
+  } finally {
+    probe.width = 0
+    probe.height = 0
   }
-  return true
 }
 
 async function encodeUnderLimit(
@@ -210,7 +217,8 @@ async function compressOverLimit(file: File, limit: number): Promise<FittedUploa
   if (!decoded || !(decoded.width > 0 && decoded.height > 0)) return unchanged
   const canvas = document.createElement('canvas')
   const opaque =
-    /^image\/jpe?g$/i.test(file.type) || sampleOpaque(decoded.source, decoded.width, decoded.height)
+    /^image\/jpe?g$/i.test(file.type) ||
+    sourceIsOpaque(decoded.source, decoded.width, decoded.height)
   try {
     const ctx = canvas.getContext('2d')
     if (!ctx) return unchanged
