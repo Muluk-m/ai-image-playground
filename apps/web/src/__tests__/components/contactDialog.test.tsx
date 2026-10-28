@@ -22,6 +22,10 @@ it('联系弹窗只给邮箱，没有 X 私信', () => {
   expect(document.body.textContent).toContain('写邮件')
   expect(document.body.textContent).not.toContain(SUPPORT_CONTACT.xHandle)
   expect(document.body.textContent).not.toContain('发私信')
+  // 窄屏不能把邮箱截成省略号。
+  const email = document.querySelector('[data-slot="contact-email"]')
+  expect(email?.textContent).toBe(SUPPORT_CONTACT.email)
+  expect(email?.className).not.toContain('truncate')
   act(() => root.unmount())
   host.remove()
 })
