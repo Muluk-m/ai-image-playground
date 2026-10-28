@@ -122,6 +122,8 @@ export interface AgentToolDetails {
   readonly video?: VideoGenerationRecord
   readonly analysisLimit?: AgentBatchAnalysisLimit
   readonly batchId?: string
+  /** 这次调用写进批次的项 key，见 `AgentToolResultBlock.batchItemKeys`。 */
+  readonly batchItemKeys?: readonly string[]
   readonly executedPrompt?: string
   readonly stage?: AgentToolStage
   readonly artifacts?: readonly AgentToolArtifact[]

@@ -133,6 +133,21 @@ it('stops indefinite loading when React never renders', () => {
   vi.advanceTimersByTime(30000)
   expect(document.getElementById('boot')?.dataset.state).toBe('error')
 })
+it('keeps the splash while a slow network is still making progress', () => {
+  vi.advanceTimersByTime(25_000)
+  document.dispatchEvent(new CustomEvent(BOOT_STAGE_EVENT, { detail: 'runtime-config' }))
+  vi.advanceTimersByTime(25_000)
+  expect(errorPanelVisible()).toBe(false)
+  vi.advanceTimersByTime(5_000)
+  expect(document.getElementById('boot')?.dataset.state).toBe('error')
+})
+it('fails a boot that keeps advancing without ever rendering', () => {
+  for (const stage of ['runtime-config', 'modules', 'capabilities', 'account', 'account-data']) {
+    vi.advanceTimersByTime(25_000)
+    document.dispatchEvent(new CustomEvent(BOOT_STAGE_EVENT, { detail: stage }))
+  }
+  expect(errorPanelVisible()).toBe(true)
+})
 it('leaves runtime exceptions before the first render to the app', () => {
   window.dispatchEvent(new ErrorEvent('error', { message: 'Script error.' }))
   window.dispatchEvent(new Event('unhandledrejection'))
