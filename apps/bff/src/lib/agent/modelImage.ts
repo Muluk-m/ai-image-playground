@@ -62,6 +62,48 @@ async function normalizeImage(dataUrl: string): Promise<string> {
 }
 
 /**
+ * 只在服务端解码、不原样进模型请求的源图（缩预览、裁局部、分割、选区绑定、带选区改图）：
+ * 解码上限与上传校验同源（{@link MEDIA_UPLOAD_MAX_PIXELS} + 处理预算），不按
+ * `agent:visual-max-pixels` 拒——那条预算管的是送进模型的图，超大原图只是要先缩。
+ */
+async function sourceMetadata(bytes: Uint8Array): Promise<Metadata> {
+  try {
+    const metadata = await sharp(bytes, { limitInputPixels: MEDIA_UPLOAD_MAX_PIXELS }).metadata()
+    if (!metadata.width || !metadata.height) throw new Error('missing dimensions')
+    assertMediaImageProcessingBudget({ ...metadata, width: metadata.width, height: metadata.height })
+    return metadata
+  } catch {
+    return conversionFailure()
+  }
+}
+
+/**
+ * 原件本身（像素不缩）：格式不在上游白名单里的转 PNG，其余原样。只给服务端处理与带选区的改图用；
+ * 要给对话模型看的一律再经 {@link toModelImageDataUrl} 收进准备预算。
+ */
+async function sourceImage(dataUrl: string): Promise<string> {
+  const bytes = Buffer.byteLength(dataUrl, 'utf8')
+  if (bytes > editSourceByteLimit())
+    throw new AgentToolError(
+      'quota_exceeded',
+      `图片需要 ${bytes} 字节，超过源图上限 ${editSourceByteLimit()}。请重新添加更小的图片。`,
+    )
+  const parsed = parseDataUrl(dataUrl, 'checked')
+  if (!parsed) return conversionFailure()
+  await sourceMetadata(parsed.bytes)
+  if (MODEL_IMAGE_MIMES.has(parsed.mime)) return dataUrl
+  try {
+    const png = await sharp(parsed.bytes, { limitInputPixels: MEDIA_UPLOAD_MAX_PIXELS })
+      .timeout({ seconds: 30 })
+      .png()
+      .toBuffer()
+    return `data:image/png;base64,${png.toString('base64')}`
+  } catch {
+    return conversionFailure()
+  }
+}
+
+/**
  * 预览的规格只写在这里。上传时 `projectMedia` 按它生成 `preview_key` 落库，读时对没有预留
  * 预览的来源（工具产物、素材、本轮附图）按同一条现算——两处各缩各的，模型看到的「预览」
  * 就会随来源而变。
@@ -81,9 +123,11 @@ export const PREVIEW_RESIZE = {
 async function previewImage(dataUrl: string): Promise<string> {
   const parsed = parseDataUrl(dataUrl, true)
   if (!parsed) return conversionFailure()
-  await visualMetadata(parsed.bytes)
+  // 预览恒为 ≤1024 的小图：源图只在服务端解码，不按准备预算拒（8000×4500 也要能缩）。
+  await sourceMetadata(parsed.bytes)
   try {
-    const preview = await sharp(parsed.bytes, { limitInputPixels: visualPixelLimit() })
+    const preview = await sharp(parsed.bytes, { limitInputPixels: MEDIA_UPLOAD_MAX_PIXELS })
+      .timeout({ seconds: 30 })
       .rotate()
       .resize(PREVIEW_RESIZE)
       .webp({ quality: 75 })
@@ -110,11 +154,14 @@ export interface ImageRegion {
  * 裁取失败必须报告，不能静默改为查看整张原件。
  */
 async function regionImage(dataUrl: string, region: ImageRegion): Promise<string> {
-  const parsed = parseDataUrl(dataUrl)
+  const parsed = parseDataUrl(dataUrl, true)
   if (!parsed) return conversionFailure()
-  await visualMetadata(parsed.bytes)
+  // 裁完按预览规格收口，送进请求的只有那一小块；源图不按准备预算拒。
+  await sourceMetadata(parsed.bytes)
   try {
-    const image = sharp(parsed.bytes, { limitInputPixels: visualPixelLimit() }).rotate()
+    const image = sharp(parsed.bytes, { limitInputPixels: MEDIA_UPLOAD_MAX_PIXELS })
+      .timeout({ seconds: 30 })
+      .rotate()
     const { width, height } = await image.metadata()
     if (!width || !height) return conversionFailure()
     const left = Math.min(Math.max(Math.round(region.x * width), 0), width - 1)
@@ -235,8 +282,18 @@ async function editInputImage(dataUrl: string): Promise<string> {
   }
 }
 
+/**
+ * 要整张给对话模型看的图：在准备预算内的照常格式归一、原样送；超出的（8000×4500 之类）按 EXIF
+ * 转正后等比缩进预算再送，不再整轮拒绝。缩放规则与改图输入同一条（{@link editInputImage}）。
+ */
 export const toModelImageDataUrl = (dataUrl: string): Promise<string> =>
+  withVisualPreparation(() => editInputImage(dataUrl))
+/** 按准备预算格式归一、不缩：超预算明确拒绝。给会原样转交上游的原件用（如视频参考图）。 */
+export const toNormalizedImageDataUrl = (dataUrl: string): Promise<string> =>
   withVisualPreparation(() => normalizeImage(dataUrl))
+/** 原件像素不缩，只做格式归一；见 {@link sourceImage}。 */
+export const toSourceImageDataUrl = (dataUrl: string): Promise<string> =>
+  withVisualPreparation(() => sourceImage(dataUrl))
 /** 送进改图的输入（无遮罩）：超大图等比缩小后再送，见 {@link editInputImage}。 */
 export const toEditInputDataUrl = (dataUrl: string): Promise<string> =>
   withVisualPreparation(() => editInputImage(dataUrl))

@@ -256,7 +256,7 @@ it('一次读取四张历史图片时，真实对象读取并发受进程准备�
   expect(store.maximum).toBe(1)
 })
 
-it('原图像素超过运行期预算时本地拒绝，不静默缩小细节或派发', async () => {
+it('原图像素超过运行期预算时不拒绝：模型看到缩进预算的那份，原件不原样派发', async () => {
   config.operator = { ...operator, quotas: { ...operator.quotas, 'agent:visual-max-pixels': 4 } }
   const calls: AgentCall[] = []
   setAgentFetchForTesting(scriptedAgentFetch(calls, [() => completionStream('不应派发')]))
@@ -273,10 +273,12 @@ it('原图像素超过运行期预算时本地拒绝，不静默缩小细节或�
     ],
   })
   const ended = eventsOfType(parseFrames(await response.text()), 'turnEnd')[0]
-  expect(calls).toHaveLength(0)
-  expect(ended).toMatchObject({ stopReason: 'failed' })
-  expect(ended?.failure?.message.includes('像素')).toBe(true)
-  expect(ended?.failure?.message.includes('选择')).toBe(true)
+  expect(ended).toMatchObject({ stopReason: 'completed' })
+  expect(calls).toHaveLength(1)
+  const sent = JSON.stringify(calls[0]!.messages).match(/data:image\/[a-z]+;base64,([A-Za-z0-9+/=]+)/)
+  expect(sent).not.toBeNull()
+  const meta = await sharp(Buffer.from(sent![1]!, 'base64')).metadata()
+  expect(meta.width! * meta.height!).toBeLessThanOrEqual(4)
 })
 
 it('同一步连续图片工具在返回前执行工作集字节准入，未覆盖范围明确交给用户选择', async () => {
@@ -451,7 +453,7 @@ it('活动选区和联合依赖不能释放，替换准入失败不清空旧证�
   expect(observed?.evidence[0]?.bytes).toBeGreaterThan(0)
 })
 
-it('历史原件的存储元数据已经超预算时，不读取对象内容或假称已看过', async () => {
+it('历史原件缩后仍超请求预算时，工具失败、不派发图片也不假称已看过', async () => {
   const store = new InMemoryObjectStore()
   setObjectStoreForTesting(store)
   const calls: AgentCall[] = []
@@ -496,10 +498,10 @@ it('历史原件的存储元数据已经超预算时，不读取对象内容或�
   const frames = parseFrames(await response.text())
   expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({ status: 'failed' })
   expect(calls.map(imageBlocks)).toEqual([0, 0])
+  // 原件尺寸不再决定能不能看（模型看的是缩过的那份），所以会读对象；读后按请求预算拒。
   expect(
-    store.events.some((event) => event.startsWith('read:') || event.startsWith('stream:')),
+    eventsOfType(frames, 'toolEnd').some((event) => event.visualObservations?.length),
   ).toBe(false)
-  expect(store.events.some((event) => event.startsWith('open:'))).toBe(true)
 })
 
 it('同一释放请求重复图片 id 时整组拒绝，后续仍能正常释放并保存观察', async () => {

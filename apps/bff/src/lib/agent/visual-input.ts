@@ -39,6 +39,7 @@ async function prepareEvidence(
     const representations: VisualEvidence['representation'][] = reference.maskDataUrl
       ? ['original', 'selection-location', 'selection-crop']
       : [reference.visualVariant ?? representation]
+    let size: EvidenceListing['size']
     for (const [index, kind] of representations.entries()) {
       const block = prepared.content[index]!
       bytes += Buffer.byteLength(JSON.stringify(block), 'utf8')
@@ -49,12 +50,18 @@ async function prepareEvidence(
         representation: kind,
         selection: Boolean(reference.maskDataUrl),
       })
+      if (index === 0) {
+        const registered = visualEvidenceOf(block)
+        if (registered?.width && registered.height)
+          size = { width: registered.width, height: registered.height }
+      }
       content.push(block)
     }
     listed.push(
       ...prepared.listed.map((entry) => ({
         ...entry,
         representation: reference.visualVariant ?? representation,
+        ...(size ? { size } : {}),
       })),
     )
   }

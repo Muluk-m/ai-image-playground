@@ -2,9 +2,14 @@ import { createHash } from 'node:crypto'
 import type { ImageContent } from '@earendil-works/pi-ai'
 import type { AgentTurnReference } from '@image-playground/shared'
 import sharp from 'sharp'
-import { PREVIEW_RESIZE, toModelImageDataUrl } from './modelImage'
+import {
+  editInputSize,
+  PREVIEW_RESIZE,
+  toModelImageDataUrl,
+  toSourceImageDataUrl,
+} from './modelImage'
 import { selectionSettings as settings } from './selection-settings'
-import { assertVisualBytes, visualMetadata, withVisualPreparation } from './visual-resources'
+import { assertVisualBytes, visualPixelLimit, withVisualPreparation } from './visual-resources'
 
 interface Reference {
   readonly dataUrl: string
@@ -70,24 +75,28 @@ function arrowMarkup(
   return `<line x1="${fromX}" y1="${fromY}" x2="${baseX}" y2="${baseY}" stroke="#159cf6" stroke-width="${radius / 3}" stroke-linecap="round"/><polygon points="${points}" fill="#159cf6"/>`
 }
 
-/** ID 同时绑定图片与 mask 字节，旧选区不能静默套用到同尺寸的新版本。 */
+/**
+ * ID 同时绑定图片与 mask 字节，旧选区不能静默套用到同尺寸的新版本。
+ *
+ * 选区的 ID 与位置按原件像素算；给对话模型看的定位图先缩到预览规格再画，原色裁片超出准备
+ * 预算时等比缩小。原件本身不按 `agent:visual-max-pixels` 拒：8000×4500 的图也能圈、能改。
+ * 只按单通道遮罩逐像素扫，避免在超大原图上同时摊开几份 RGBA 缓冲。
+ */
 async function prepareSelection(
   reference: Reference,
   render = true,
 ): Promise<ImageSelection | undefined> {
   if (!reference.maskDataUrl) return undefined
   try {
-    assertVisualBytes(Buffer.byteLength(reference.dataUrl, 'utf8'))
     const originalMetadata = await sharp(Buffer.from(reference.dataUrl.split(',')[1]!, 'base64'), {
       limitInputPixels: settings.maxPixels,
     }).metadata()
     if ((originalMetadata.orientation ?? 1) !== 1)
       throw new Error('图片方向与选区无法对应，请重新添加图片并圈选')
-    const normalized = await toModelImageDataUrl(reference.dataUrl)
+    const normalized = await toSourceImageDataUrl(reference.dataUrl)
     const raw = Buffer.from(normalized.split(',')[1]!, 'base64')
     assertVisualBytes(Buffer.byteLength(reference.maskDataUrl, 'utf8'))
     const mask = Buffer.from(reference.maskDataUrl.split(',')[1]!, 'base64')
-    await visualMetadata(mask)
     const [target, metadata] = await Promise.all([
       sharp(raw, { limitInputPixels: settings.maxPixels }).metadata(),
       sharp(mask, { limitInputPixels: settings.maxPixels }).metadata(),
@@ -96,79 +105,106 @@ async function prepareSelection(
     if ((target.orientation ?? 1) !== 1 || (metadata.orientation ?? 1) !== 1) {
       throw new Error('图片方向与选区无法对应，请重新添加图片并圈选')
     }
-    const { data, info } = await sharp(mask)
-      .ensureAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true })
-    if (target.width !== info.width || target.height !== info.height) {
+    const width = target.width ?? 0
+    const height = target.height ?? 0
+    if (!width || !height || width !== metadata.width || height !== metadata.height) {
       throw new Error('图片与选区尺寸不一致，请重新圈选')
     }
-    let left = info.width
-    let top = info.height
+    const { data: maskAlpha } = await sharp(mask, { limitInputPixels: settings.maxPixels })
+      .ensureAlpha()
+      .extractChannel(3)
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    if (maskAlpha.length !== width * height) throw new Error('图片与选区尺寸不一致，请重新圈选')
+    let left = width
+    let top = height
     let right = -1
     let bottom = -1
-    const overlay = Buffer.alloc(render ? info.width * info.height * 4 : 0)
-    const selectionAlpha = Buffer.alloc(info.width * info.height)
+    // 遮罩透明处是选区：反过来存成「选中程度」。
+    const selectionAlpha = Buffer.alloc(width * height)
     for (let pixel = 0; pixel < selectionAlpha.length; pixel++) {
-      const alpha = 255 - data[pixel * info.channels + info.channels - 1]!
+      const alpha = 255 - maskAlpha[pixel]!
       selectionAlpha[pixel] = alpha
       if (alpha > 0) {
-        const x = pixel % info.width
-        const y = Math.floor(pixel / info.width)
-        left = Math.min(left, x)
-        top = Math.min(top, y)
-        right = Math.max(right, x)
-        bottom = Math.max(bottom, y)
+        const x = pixel % width
+        const y = Math.floor(pixel / width)
+        if (x < left) left = x
+        if (y < top) top = y
+        if (x > right) right = x
+        if (y > bottom) bottom = y
       }
-      if (render) overlay.set([59, 130, 246, Math.round(alpha * 0.58)], pixel * 4)
     }
     if (right < 0) throw new Error('没有选中任何区域，请重新圈选')
     const bounds = { left, top, width: right - left + 1, height: bottom - top + 1 }
     const id = `selection_${createHash('sha256').update(raw).update(mask).digest('hex')}`
     if (!render)
       return { id, bounds, crop: '', preview: { type: 'image', mimeType: 'image/png', data: '' } }
+
+    // 定位图只给对话模型看「圈在哪」：先缩到预览规格再叠蓝色与编号。原尺寸 PNG 在 4K 原图上
+    // 就有十几 MB，连同原件和裁片一起会超出整轮的图片字节预算，确认卡就提交不了。
+    const base = await sharp(raw, { limitInputPixels: settings.maxPixels })
+      .resize(PREVIEW_RESIZE)
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    const small = base.info
+    const smallAlpha = await sharp(selectionAlpha, { raw: { width, height, channels: 1 } })
+      .resize(small.width, small.height, { fit: 'fill' })
+      // 单通道 raw 缩放后会被当成 sRGB 扩成三通道，只取回第一个。
+      .extractChannel(0)
+      .raw()
+      .toBuffer()
+    const overlay = Buffer.alloc(small.width * small.height * 4)
+    for (let pixel = 0; pixel < smallAlpha.length; pixel++)
+      overlay.set([59, 130, 246, Math.round(smallAlpha[pixel]! * 0.58)], pixel * 4)
+    // 编号圈的大小按原图量、再随定位图等比缩：与先在原图上画再缩的观感一致。
+    const scale = small.width / width
+    const radius = Math.max(8, Math.min(width, height) * 0.014) * scale
     const regionLabels = (reference.regions ?? [])
       .map((region, index) => {
-        const x = region.x * info.width,
-          y = region.y * info.height
-        const radius = Math.max(8, Math.min(info.width, info.height) * 0.014)
-        return `${arrowMarkup(region, info.width, info.height, radius)}<rect x="${x}" y="${y}" width="${region.width * info.width}" height="${region.height * info.height}" fill="none" stroke="#159cf6" stroke-width="${radius / 5}"/><circle cx="${x + radius}" cy="${y + radius}" r="${radius}" fill="#159cf6" stroke="white" stroke-width="${radius / 6}"/><text x="${x + radius}" y="${y + radius * 1.35}" text-anchor="middle" fill="white" font-size="${radius * 1.3}" font-family="sans-serif">${region.number ?? index + 1}</text>`
+        const x = region.x * small.width,
+          y = region.y * small.height
+        return `${arrowMarkup(region, small.width, small.height, radius)}<rect x="${x}" y="${y}" width="${region.width * small.width}" height="${region.height * small.height}" fill="none" stroke="#159cf6" stroke-width="${radius / 5}"/><circle cx="${x + radius}" cy="${y + radius}" r="${radius}" fill="#159cf6" stroke="white" stroke-width="${radius / 6}"/><text x="${x + radius}" y="${y + radius * 1.35}" text-anchor="middle" fill="white" font-size="${radius * 1.3}" font-family="sans-serif">${region.number ?? index + 1}</text>`
       })
       .join('')
-    const composed = await sharp(raw)
+    const preview = await sharp(base.data, { raw: small })
       .composite([
-        { input: overlay, raw: { width: info.width, height: info.height, channels: 4 } },
+        { input: overlay, raw: { width: small.width, height: small.height, channels: 4 } },
         ...(regionLabels
           ? [
               {
                 input: Buffer.from(
-                  `<svg width="${info.width}" height="${info.height}" xmlns="http://www.w3.org/2000/svg">${regionLabels}</svg>`,
+                  `<svg width="${small.width}" height="${small.height}" xmlns="http://www.w3.org/2000/svg">${regionLabels}</svg>`,
                 ),
               },
             ]
           : []),
       ])
-      .raw()
-      .toBuffer({ resolveWithObject: true })
-    // 定位图只给对话模型看「圈在哪」：按预览规格缩小。原尺寸 PNG 在 4K 原图上就有十几 MB，
-    // 连同原件和裁片一起会超出整轮的图片字节预算，确认卡就提交不了。裁片是生图参考，保持原尺寸。
-    const preview = await sharp(composed.data, { raw: composed.info })
-      .resize(PREVIEW_RESIZE)
       .png()
       .toBuffer()
     // 参考裁片只携带原色选区；不把定位用的蓝色或总包围框内的未选对象送入生图参考。
-    const selectedPixels = await sharp(raw).ensureAlpha().raw().toBuffer()
-    for (let pixel = 0; pixel < selectionAlpha.length; pixel++) {
-      selectedPixels[pixel * 4 + 3] = Math.round(
-        (selectedPixels[pixel * 4 + 3]! * selectionAlpha[pixel]!) / 255,
-      )
-    }
-    const crop = await sharp(selectedPixels, {
-      raw: { width: info.width, height: info.height, channels: 4 },
-    })
+    // 只解码包围框那一块；超出准备预算的才等比缩小（与改图输入同一条规则）。
+    const croppedPixels = await sharp(raw, { limitInputPixels: settings.maxPixels })
       .extract(bounds)
-      .png()
+      .ensureAlpha()
+      .raw()
       .toBuffer()
+    for (let row = 0; row < bounds.height; row++)
+      for (let column = 0; column < bounds.width; column++) {
+        const at = (row * bounds.width + column) * 4 + 3
+        croppedPixels[at] = Math.round(
+          (croppedPixels[at]! *
+            selectionAlpha[(bounds.top + row) * width + bounds.left + column]!) /
+            255,
+        )
+      }
+    let cropImage = sharp(croppedPixels, {
+      raw: { width: bounds.width, height: bounds.height, channels: 4 },
+    })
+    if (bounds.width * bounds.height > visualPixelLimit()) {
+      const fitted = editInputSize(bounds.width, bounds.height)
+      cropImage = cropImage.resize(fitted.width, fitted.height, { fit: 'fill' })
+    }
+    const crop = await cropImage.png().toBuffer()
     return {
       id,
       bounds,
@@ -200,7 +236,12 @@ export interface EvidenceListing {
   readonly editAction?: Reference['editAction']
   readonly regions?: Reference['regions']
   readonly selection?: { readonly id: string; readonly bounds: ImageSelection['bounds'] }
+  /** 这一块送给模型的像素尺寸：圈范围、给坐标时按它归一化。 */
+  readonly size?: { readonly width: number; readonly height: number }
 }
+
+const sizeNote = (size: EvidenceListing['size']) =>
+  size ? `（${size.width}×${size.height} 像素）` : ''
 
 /**
  * 清单文本怎么写只写在这里：实发路径代入真的选区 ID 与位置，预扣估算代入等长占位。
@@ -212,7 +253,7 @@ export function evidenceManifest(references: readonly EvidenceListing[]): string
   if (references.length === 0) return ''
   const descriptions: string[] = []
   let blocks = 0
-  for (const { imageId, selection, regions, editAction, representation } of references) {
+  for (const { imageId, selection, regions, editAction, representation, size } of references) {
     const first = blocks + 1
     blocks += evidenceBlocks(1, selection && { preview: 1, crop: 1 }).length
     if (editAction)
@@ -221,8 +262,8 @@ export function evidenceManifest(references: readonly EvidenceListing[]): string
       )
     descriptions.push(
       selection
-        ? `视觉输入 ${first}：图片 ${imageId} 原图；${first + 1}：蓝色定位图；${first + 2}：原色选区裁片。选区 ID ${selection.id}，位置 ${JSON.stringify(selection.bounds)}。蓝色和裁片透明处均为定位信息，不是产品外观。${regions?.length ? `区域编号按以下归一化坐标对应：${regions.map((region, index) => `区域 ${region.number ?? index + 1} ${JSON.stringify(region)}`).join('；')}。编号仅用于定位，以遮罩覆盖像素为准。` : ''}`
-        : `视觉输入 ${first}：图片 ${imageId} ${{ original: '原图', preview: '缩略图', region: '局部' }[representation ?? 'original']}`,
+        ? `视觉输入 ${first}：图片 ${imageId} 原图${sizeNote(size)}；${first + 1}：蓝色定位图；${first + 2}：原色选区裁片。选区 ID ${selection.id}，位置 ${JSON.stringify(selection.bounds)}。蓝色和裁片透明处均为定位信息，不是产品外观。${regions?.length ? `区域编号按以下归一化坐标对应：${regions.map((region, index) => `区域 ${region.number ?? index + 1} ${JSON.stringify(region)}`).join('；')}。编号仅用于定位，以遮罩覆盖像素为准。` : ''}`
+        : `视觉输入 ${first}：图片 ${imageId} ${{ original: '原图', preview: '缩略图', region: '局部' }[representation ?? 'original']}${sizeNote(size)}`,
     )
   }
   return `\n\n视觉证据（这些序号不是用户的 image 编号）：\n${descriptions.join('\n')}`
