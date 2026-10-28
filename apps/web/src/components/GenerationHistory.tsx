@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from 'react'
 import { useLibraryStore } from '../features/library/store'
 import { useCloudGenerations } from '../hooks/useCloudGenerations'
 import { useTranslation } from '../i18n'
@@ -9,42 +8,11 @@ import SearchBar from './SearchBar'
 import TaskGrid from './TaskGrid'
 import { Button } from './ui/button'
 
-/** 本机与平台作品共用时间线；首页按滚动位置续读平台游标。 */
+/** 本机与平台作品共用时间线；首页只预览最近两行，资产库里按需续读平台游标。 */
 export default function GenerationHistory({ userId, hero }: { userId?: string; hero?: boolean }) {
   const { t } = useTranslation(['task', 'errors'])
   const hasWorks = useStore((s) => s.tasks.length > 0 || s.platformGenerations.length > 0)
   const cloud = useCloudGenerations(Boolean(userId) && isClientCapabilityEnabled('accounts:sync'))
-  const endRef = useRef<HTMLDivElement>(null)
-  const [atEnd, setAtEnd] = useState(false)
-  const { hasMore, loading, failed, loadMore } = cloud
-
-  useEffect(() => {
-    const end = endRef.current
-    if (!hero || !end) return
-    const updateEnd = (nearEnd: boolean) => {
-      setAtEnd(nearEnd)
-      if (nearEnd && hasMore && !loading && !failed) loadMore()
-    }
-    if (typeof IntersectionObserver === 'undefined') {
-      const checkEnd = () => updateEnd(end.getBoundingClientRect().top <= window.innerHeight + 240)
-      window.addEventListener('scroll', checkEnd, { passive: true })
-      window.addEventListener('resize', checkEnd)
-      checkEnd()
-      return () => {
-        window.removeEventListener('scroll', checkEnd)
-        window.removeEventListener('resize', checkEnd)
-      }
-    }
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry) updateEnd(entry.isIntersecting)
-      },
-      { rootMargin: '0px 0px 240px 0px' },
-    )
-    observer.observe(end)
-    return () => observer.disconnect()
-  }, [hero, hasMore, loading, failed, loadMore])
-
   const openLibrary = () => {
     // 「我的作品」来的人要找的是生成的图：落到能看到对话 / 画布封面的「项目」，不是空的素材页（BUG-18）。
     useLibraryStore.getState().setTab('projects')
@@ -60,13 +28,7 @@ export default function GenerationHistory({ userId, hero }: { userId?: string; h
           link={{ label: t('grid.openLibrary'), onClick: openLibrary }}
         />
       )}
-      <div className="relative">
-        <TaskGrid hero={hero} />
-        {hero && <div ref={endRef} className="h-px" aria-hidden="true" />}
-        {hero && hasWorks && (!atEnd || hasMore) && (
-          <div className="studio-works-fade" aria-hidden="true" />
-        )}
-      </div>
+      <TaskGrid hero={hero} />
       {cloud.failed && (
         <div className="flex items-center justify-center gap-3 pb-8">
           <p role="alert" className="text-sm text-destructive">
