@@ -28,7 +28,8 @@ export async function confirmedMaskEditCall(
   const answer = maskProposalAnswer(history, references)
   if (answer?.kind !== 'confirmed') return null
   const { proposal } = answer
-  const image = await images.resolve(proposal.imageId, 'original')
+  // 原件按服务端上限取：超出对话模型准备预算的大图也照常拼出改图调用。
+  const image = await images.resolve(proposal.imageId, 'source')
   if (!image?.maskDataUrl) return null
   const selection = await imageSelection(image)
   if (!selection) return null

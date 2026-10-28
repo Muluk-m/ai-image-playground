@@ -76,8 +76,9 @@ async function look(
   context: AgentToolContext,
   { imageIds, detail, region }: ViewParams,
 ): Promise<Looked> {
-  // 取局部要的是原件的像素：从缩略图里裁一块，裁出来还是糊的。
-  const variant = region || detail === 'full' ? 'original' : 'preview'
+  // 取局部要的是原件的像素：从缩略图里裁一块，裁出来还是糊的。原件只在服务端裁、缩，
+  // 送进上下文的是裁片或按准备预算缩过的整图，所以超大原图也看得了。
+  const variant = region || detail === 'full' ? 'source' : 'preview'
   const resolved = await Promise.all(
     imageIds.map(async (id) => {
       const image = await context.images.resolve(id, variant)

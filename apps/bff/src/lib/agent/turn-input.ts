@@ -62,6 +62,8 @@ const PLACEHOLDER_SELECTION = {
   bounds: { left: 0, top: 0, width: 1024, height: 1024 },
 } as const
 
+const PLACEHOLDER_SIZE = { width: 1024, height: 1024 } as const
+
 /** 预扣路径的清单：张数与有没有选区是真的，选区 ID 与位置是占位。 */
 function estimatedListings(references: readonly AgentImageReference[]): EvidenceListing[] {
   return references.map((reference) => ({
@@ -72,6 +74,8 @@ function estimatedListings(references: readonly AgentImageReference[]): Evidence
       ? { editAction: reference.editAction }
       : {}),
     ...(referenceHasMask(reference) ? { selection: PLACEHOLDER_SELECTION } : {}),
+    // 尺寸占位与实发等长量级（4 位 × 4 位）。
+    size: PLACEHOLDER_SIZE,
   }))
 }
 
@@ -612,8 +616,11 @@ export function estimatedTurnInput(input: AgentTurnInput): AgentMessage[] {
             turnPromptBody(input, active) +
             evidenceManifest([
               ...estimatedListings(shown),
-              ...input.reviewImageIds.map((imageId) => ({ imageId })),
-              ...(input.optionalReviewImageIds ?? []).map((imageId) => ({ imageId })),
+              ...input.reviewImageIds.map((imageId) => ({ imageId, size: PLACEHOLDER_SIZE })),
+              ...(input.optionalReviewImageIds ?? []).map((imageId) => ({
+                imageId,
+                size: PLACEHOLDER_SIZE,
+              })),
             ]),
         },
         ...shown.flatMap((reference) =>

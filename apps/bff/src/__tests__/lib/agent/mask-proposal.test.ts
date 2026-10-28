@@ -29,6 +29,7 @@ const {
   maskProposalFailedText,
   maskProposalTool,
   seedPoints,
+  originalPixels,
   uprightOriginal,
 } = await import('../../../lib/agent/mask-proposal')
 const { maskedEditSize } = await import('../../../lib/agent/masked-input')
@@ -344,6 +345,66 @@ describe('proposeEditRegion', () => {
       .toBuffer()
     const result = await imageSelection({ dataUrl: url(source), maskDataUrl: url(mask) }, false)
     expect(result?.bounds).toEqual({ left: 3000, top: 800, width: 400, height: 400 })
+  })
+
+  it('proposes on an 8000×4500 original beyond the agent visual budget, reading the server-side source', async () => {
+    // 3600 万像素，超出 agent:visual-max-pixels（16777216）：模型看缩略图，卡片与改图仍用原件。
+    const flat = await sharp({
+      create: { width: 8000, height: 4500, channels: 3, background: '#808080' },
+    })
+      .png()
+      .toBuffer()
+    const reads: string[] = []
+    const ctx = context({}, url(flat))
+    const images = ctx.images as { resolve: (id: string, variant?: string) => Promise<unknown> }
+    const resolveImage = images.resolve
+    images.resolve = async (id, variant) => {
+      reads.push(variant ?? 'original')
+      return resolveImage(id, variant)
+    }
+    const proposal = maskProposalFromResult(await run(maskProposalTool(ctx), args))!.maskProposal!
+    expect([proposal.width, proposal.height]).toEqual([8000, 4500])
+    expect(proposal.box).toEqual(args.box)
+    expect(reads).toEqual(['source'])
+  })
+
+  it('maps a box measured on the preview to original pixels by width and height separately', () => {
+    // 缩略图 1024×576 上量的框（x 除以宽、y 除以高），等比换回 8000×4500 原图。
+    const onPreview = { x: 397 / 1024, y: 357 / 576, width: 213 / 1024, height: 179 / 576 }
+    expect(originalPixels(onPreview, 8000, 4500)).toEqual({
+      left: 3102,
+      top: 2789,
+      width: 1664,
+      height: 1398,
+    })
+    // 贴边的框不出界。
+    expect(originalPixels({ x: 0.9, y: 0.9, width: 0.1, height: 0.1 }, 8000, 4500)).toEqual({
+      left: 7200,
+      top: 4050,
+      width: 800,
+      height: 450,
+    })
+  })
+
+  it('accepts a selection on an 8000×4500 original: preview within 1024, crop fitted to the budget', async () => {
+    const width = 8000
+    const height = 4500
+    const source = await sharp({ create: { width, height, channels: 3, background: '#808080' } })
+      .png()
+      .toBuffer()
+    // 整张都选上：裁片就是 3600 万像素，必须缩进准备预算。
+    const mask = await sharp({
+      create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+    })
+      .png()
+      .toBuffer()
+    const result = (await imageSelection({ dataUrl: url(source), maskDataUrl: url(mask) }))!
+    expect(result.bounds).toEqual({ left: 0, top: 0, width, height })
+    const preview = await sharp(Buffer.from(result.preview.data, 'base64')).metadata()
+    expect([preview.width, preview.height]).toEqual([1024, 576])
+    const crop = await sharp(Buffer.from(result.crop.split(',')[1]!, 'base64')).metadata()
+    expect(crop.width! * crop.height!).toBeLessThanOrEqual(16_777_216)
+    expect(Math.max(crop.width!, crop.height!)).toBeLessThanOrEqual(4000)
   })
 
   it('tells the user in one sentence why the region could not be proposed', () => {

@@ -13,6 +13,9 @@ const {
   editInputSize,
   toEditInputDataUrl,
   toModelImageDataUrl,
+  toNormalizedImageDataUrl,
+  toPreviewDataUrl,
+  toSourceImageDataUrl,
 } = await import('../../../lib/agent/modelImage')
 
 const decode = (url: string) => Buffer.from(url.split(',')[1]!, 'base64')
@@ -138,7 +141,43 @@ describe('toEditInputDataUrl（BUG-35：超大图等比缩到最长边 4000 再�
     expect(await toEditInputDataUrl(small)).toBe(small)
   })
 
-  it('普通取原件（看图）仍按准备预算拒绝超大图，不静默缩小', async () => {
-    expect(toModelImageDataUrl(await solid(8000, 8000))).rejects.toThrow('像素')
+  it('原样进请求的原件（视频参考）仍按准备预算拒绝超大图，不静默缩小', async () => {
+    expect(toNormalizedImageDataUrl(await solid(8000, 8000))).rejects.toThrow('像素')
+  })
+})
+
+/** 超出对话模型准备预算的大图不拦：模型看缩过的那份，服务端处理与改图仍用原件。 */
+describe('超大原图（8000×4500，超出 agent:visual-max-pixels）', () => {
+  it('送给对话模型的证据等比缩进准备预算，不报错', async () => {
+    const fitted = await sharp(
+      decode(await toModelImageDataUrl(await solid(8000, 4500))),
+    ).metadata()
+    expect(Math.max(fitted.width!, fitted.height!)).toBeLessThanOrEqual(EDIT_INPUT_MAX_EDGE)
+    expect(fitted.width! * fitted.height!).toBeLessThanOrEqual(16_777_216)
+    expect(fitted.width! / fitted.height!).toBeCloseTo(8000 / 4500, 2)
+  })
+
+  it('缩略图长边 ≤1024、比例不变', async () => {
+    const preview = await sharp(decode(await toPreviewDataUrl(await solid(8000, 4500)))).metadata()
+    expect(preview.width).toBe(1024)
+    expect(preview.height).toBe(576)
+  })
+
+  it('服务端取原件逐字节不动、不按准备预算拒', async () => {
+    const original = await solid(8000, 4500)
+    expect(await toSourceImageDataUrl(original)).toBe(original)
+  })
+
+  it('声明十亿像素的小 SVG 不整张光栅化，明确拒绝', async () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32000" height="30000"><rect width="32000" height="30000" fill="red"/></svg>`
+    const dataUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
+    const started = Date.now()
+    await expect(toSourceImageDataUrl(dataUrl)).rejects.toThrow()
+    expect(Date.now() - started).toBeLessThan(2000)
+  })
+
+  it('准备预算以内的图，送给模型的那份与原来一样（不额外缩）', async () => {
+    const small = await solid(1200, 800)
+    expect(await toModelImageDataUrl(small)).toBe(await toNormalizedImageDataUrl(small))
   })
 })
