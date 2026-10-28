@@ -20,7 +20,9 @@
     "confirmBatchMessage": "You're about to import {{count}} images. Continue?",
     "confirmBatchAction": "Import {{count}} images",
     "tooLarge_one": "{{count}} image is over {{max}}MB and was skipped",
-    "tooLarge_other": "{{count}} images are over {{max}}MB and were skipped"
+    "tooLarge_other": "{{count}} images are over {{max}}MB and were skipped",
+    "compressed_one": "Compressed {{count}} oversized image",
+    "compressed_other": "Compressed {{count}} oversized images"
   },
   "imageFetch": {
     "corsHint": " Use the link button to copy the result URL, or turn on “Return base64 image data” to avoid this.",
