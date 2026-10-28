@@ -16,6 +16,7 @@
 .mkt-links a { height: 30px; padding: 0 12px; display: flex; align-items: center; border-radius: 8px; font-size: theme('fontSize.body-sm'); color: hsl(var(--muted-foreground)); transition: color .15s, background .15s; }
 .mkt-links a:hover { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
 /* 窄屏收起中间导航后，右侧还留着一个「定价」。 */
+.mkt-nav-end { display: flex; align-items: center; gap: 8px; }
 .mkt-nav-pricing { display: none; height: 30px; padding: 0 8px; align-items: center; white-space: nowrap; font-size: theme('fontSize.body-sm'); font-weight: 600; color: hsl(var(--muted-foreground)); }
 .mkt-nav-pricing:hover { color: hsl(var(--foreground)); }
 .mkt-hero { padding: 72px 24px 0; text-align: center; }
@@ -149,6 +150,19 @@
 @media (max-width: 760px) {
   .mkt-links { display: none; }
   .mkt-nav-pricing { display: inline-flex; }
+  /* 可见盒子和 56px 顶栏不变。伪元素把定价、语言、登录的命中区补到至少 44×44，居中伸出，不占布局。 */
+  .mkt-nav-end > a,
+  .mkt-nav-end > button { position: relative; }
+  .mkt-nav-end > a::before,
+  .mkt-nav-end > button::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
   .mkt-hero { padding-top: 48px; }
   .mkt-title { font-size: 34px; }
   .mkt-bandhead { flex-direction: column; align-items: flex-start; }
