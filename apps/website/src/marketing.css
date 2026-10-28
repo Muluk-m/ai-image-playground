@@ -10,13 +10,13 @@
   background: hsl(var(--background) / 0.85);
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
 }
-.mkt-brand { display: inline-flex; align-items: center; gap: 8px; font-size: theme('fontSize.title'); font-weight: 600; white-space: nowrap; }
+.mkt-brand { display: inline-flex; align-items: center; gap: 8px; flex: none; min-width: max-content; font-size: theme('fontSize.title'); font-weight: 600; white-space: nowrap; }
 .mkt-brand img { width: 26px; height: 26px; }
 .mkt-links { display: flex; gap: 4px; }
 .mkt-links a { height: 30px; padding: 0 12px; display: flex; align-items: center; border-radius: 8px; font-size: theme('fontSize.body-sm'); color: hsl(var(--muted-foreground)); transition: color .15s, background .15s; }
 .mkt-links a:hover { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
 /* 窄屏收起中间导航后，右侧还留着一个「定价」。 */
-.mkt-nav-end { display: flex; align-items: center; gap: 8px; }
+.mkt-nav-end { display: flex; align-items: center; flex: none; gap: 8px; }
 .mkt-nav-pricing { display: none; height: 30px; padding: 0 8px; align-items: center; white-space: nowrap; font-size: theme('fontSize.body-sm'); font-weight: 600; color: hsl(var(--muted-foreground)); }
 .mkt-nav-pricing:hover { color: hsl(var(--foreground)); }
 .mkt-hero { padding: 72px 24px 0; text-align: center; }
@@ -173,6 +173,9 @@
   .cbox .copt { flex-wrap: wrap; }
   .cbox .copt .cbtn { flex: 1; text-align: center; }
   .cbox .copt .ct { flex-basis: calc(100% - 50px); }
+}
+@media (max-width: 400px) {
+  .mkt-nav { padding-inline: 12px; gap: 8px; }
 }
 @media (max-width: 360px) {
   .mkt-title { font-size: 30px; }
