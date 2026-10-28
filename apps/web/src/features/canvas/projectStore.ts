@@ -57,6 +57,10 @@ interface ProjectState {
   updateListed(project: CanvasProject): void
   markDeleted(ids: readonly string[]): Promise<void>
   remove(id: string): Promise<void>
+  /** 从没上过云端的项目第一次建就被项目数上限拒了：删掉本机那条，目录不列（BUG-54）。 */
+  discardRejected(id: string): Promise<void>
+  /** 被拒的那个再试一次之前，先把它落回本机。 */
+  readmitRejected(id: string): Promise<void>
   recordScene(sceneKey: string, doc: CanvasDoc): Promise<void>
 }
 
@@ -282,7 +286,14 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
   updateListed(project) {
     set((state) => ({
       projects: state.projects.some((one) => one.id === project.id)
-        ? state.projects.map((one) => (one.id === project.id ? project : one))
+        ? state.projects.map((one) =>
+            // 被上限拒掉的那个只有 readmitRejected 能放回目录，别的回写不清这个标记。
+            one.id !== project.id
+              ? one
+              : one.quotaRejected
+                ? { ...project, quotaRejected: true }
+                : project,
+          )
         : [...state.projects, project],
       cloudCatalog: state.cloudCatalog[project.id]
         ? {
@@ -322,6 +333,31 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     set((state) => ({
       projects: state.projects.filter((one) => one.id !== id),
       activeId: state.activeId === id ? null : state.activeId,
+    }))
+  },
+  async discardRejected(id) {
+    const project = get().projects.find((one) => one.id === id)
+    if (!project?.cloud || project.cloud.revision !== 0 || project.quotaRejected) return
+    await projectRepository.remove(id)
+    // 留在内存里：当前页还开着它，提示与「重新读取」都要认得它；目录与刷新后都看不到。
+    set((state) => ({
+      projects: state.projects.map((one) =>
+        one.id === id ? { ...one, quotaRejected: true } : one,
+      ),
+    }))
+    if (safeLocalStorage.getItem(scopedStorageName(CANVAS_PROJECT_KEY)) === id)
+      safeLocalStorage.removeItem(scopedStorageName(CANVAS_PROJECT_KEY))
+    // 地址也不能指着它：刷新时服务器没有这个项目，只会换来一页「找不到项目」。退回 `/`。
+    const route = readProjectRoute()
+    if (route && resolveProjectRoute(route, get().projects) === id)
+      window.history.replaceState(null, '', `/${window.location.search}${window.location.hash}`)
+  },
+  async readmitRejected(id) {
+    const project = get().projects.find((one) => one.id === id)
+    if (!project?.quotaRejected) return
+    const stored = await projectRepository.readd(project)
+    set((state) => ({
+      projects: state.projects.map((one) => (one.id === id ? stored : one)),
     }))
   },
   async recordScene(sceneKey, doc) {

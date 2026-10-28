@@ -1291,6 +1291,17 @@ export class CloudNodeProjectSession {
   }
   private async persistName() {
     this.current()
+    if (this.project.cloud?.revision === 0) {
+      // 服务端还没有这个项目：改名只会换来 404。等第一次建完（建的时候已带上当前名字）；
+      // 建失败（例如项目数已到上限）就不再发。
+      try {
+        await this.loading
+      } catch {
+        return
+      }
+      this.current()
+      if (this.project.cloud?.revision === 0) return
+    }
     if (!this.project.cloud?.nameDirty) return
     const name = this.project.name
     const response = await authenticatedBffFetch(

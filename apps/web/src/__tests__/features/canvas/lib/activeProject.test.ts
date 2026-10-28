@@ -16,7 +16,9 @@ import {
 import { CloudNodeProjectSession } from '../../../../features/canvas/lib/cloudNodeProjects'
 import type { CanvasCommandSummary } from '../../../../features/canvas/lib/nodeCanvasHistory'
 import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
+import { projectCatalog } from '../../../../features/canvas/lib/projectCatalog'
 import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
+import { projectRouteSegment } from '../../../../features/canvas/lib/projectRoute'
 import { canvasSceneKey } from '../../../../features/canvas/lib/workspaceKeys'
 import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../../../lib/authScope'
@@ -474,4 +476,71 @@ it('已记下入口的项目绑定会话时保持原样', async () => {
   expect(
     useCanvasProjectStore.getState().projects.find((one) => one.id === chat.id)?.experience,
   ).toBe('chat')
+})
+
+it('项目数到上限时新建的项目不落本机、不进目录，重新读取再试一次（BUG-54）', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  installCanvasTestSocket()
+  let full = true
+  const writes: string[] = []
+  vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
+    if (url.endsWith('/api/projects'))
+      return Response.json({ projects: [], deletedIds: [], nextCursor: null })
+    if (init?.method === 'PUT') writes.push(url)
+    if (init?.method === 'PUT' && full)
+      return Response.json({ error: 'project_quota_exceeded' }, { status: 413 })
+    const canvas = await canvasProtocolResponse(url, init, async () => emptyCanvasUpdate())
+    if (canvas) return canvas
+    return Response.json({
+      id: projectIdFromUrl(url),
+      name: '未命名画布',
+      revision: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      elementCount: 0,
+      document: { version: 1, elements: [] },
+    })
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  const project = await projectRepository.create('未命名画布', undefined, true, true)
+  keys = [project.sceneKey]
+  useCanvasProjectStore.setState({ projects: [project], activeId: project.id, loaded: true })
+  window.history.replaceState(null, '', `/p/${projectRouteSegment(project.id)}`)
+  openProject(project.id)
+  const workspace = currentCanvasWorkspace()
+  await expect(workspace.ready).rejects.toMatchObject({ code: 'project_quota_exceeded' })
+  expect(workspace.getSnapshot()).toMatchObject({
+    loadFailed: true,
+    loadErrorCode: 'project_quota_exceeded',
+  })
+  // 刷新后不会再有它：本机记录删了，地址也退回 `/`。
+  expect((await projectRepository.list()).map((one) => one.id)).not.toContain(project.id)
+  expect(window.location.pathname).toBe('/')
+  // 当前页还认得它，但目录（侧栏、项目页、快捷切换）不列。
+  const state = useCanvasProjectStore.getState()
+  expect(state.activeId).toBe(project.id)
+  expect(projectCatalog(state.projects, state.cloudCatalog).map((one) => one.id)).not.toContain(
+    project.id,
+  )
+  // 别处的回写不会把它放回目录。
+  state.updateListed({ ...project, name: '第一句话' })
+  expect(
+    projectCatalog(
+      useCanvasProjectStore.getState().projects,
+      useCanvasProjectStore.getState().cloudCatalog,
+    ),
+  ).toEqual([])
+
+  full = false
+  workspace.retryLoad()
+  await workspace.ready
+  expect(writes.filter((url) => url.endsWith(`/api/projects/${project.id}`))).toHaveLength(2)
+  expect((await projectRepository.list()).map((one) => one.id)).toContain(project.id)
+  expect(
+    useCanvasProjectStore.getState().projects.find((one) => one.id === project.id),
+  ).not.toHaveProperty('quotaRejected')
+  showCanvasWorkspace(false)
 })
