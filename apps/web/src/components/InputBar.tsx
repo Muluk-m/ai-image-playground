@@ -1,3 +1,4 @@
+import { isBlankPrompt } from '@image-playground/shared'
 import {
   type ReactNode,
   useCallback,
@@ -386,8 +387,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     [activeLook, inputImages, libraryAssets],
   )
   const lookBody = activeLook?.record?.body ?? activeLook?.skill?.template?.body ?? ''
+  const promptBlank = isBlankPrompt(prompt)
   const canSubmit = Boolean(
-    (prompt.trim() || activeLook) &&
+    (!promptBlank || activeLook) &&
       hasSubmitApiConfig &&
       !submissionGuard.blocked &&
       (lookCheck?.ok ?? true) &&
@@ -403,10 +405,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const submitReady =
     !lookSubmitting &&
     (toCanvas
-      ? Boolean(prompt.trim()) && !oversizedNotice && !uploadsBlocked
+      ? !promptBlank && !oversizedNotice && !uploadsBlocked
       : canSubmit && !skillNeedsCanvas)
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
-  const promptMissing = !prompt.trim() && (toCanvas || !activeLook)
+  const promptMissing = promptBlank && (toCanvas || !activeLook)
   const blockedByReferences = referenceNotice ?? (uploadsBlocked ? uploadProgress : null)
   const submitBlockedTip = blockedByReferences
     ? blockedByReferences
