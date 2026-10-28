@@ -1,7 +1,11 @@
 import { MAX_IMAGE_UPLOAD_BYTES } from '@image-playground/shared'
 import sharp, { type Metadata } from 'sharp'
 import { config } from '../../config'
-import { assertMediaImageProcessingBudget, MEDIA_UPLOAD_MAX_PIXELS } from '../media-image-limits'
+import {
+  assertMediaImageProcessingBudget,
+  MEDIA_IMAGE_MAX_PIXELS,
+  MEDIA_UPLOAD_MAX_PIXELS,
+} from '../media-image-limits'
 import { AgentToolError } from './tools/errors'
 import {
   assertVisualBytes,
@@ -63,13 +67,17 @@ async function normalizeImage(dataUrl: string): Promise<string> {
 
 /**
  * 只在服务端解码、不原样进模型请求的源图（缩预览、裁局部、分割、选区绑定、带选区改图）：
- * 解码上限与上传校验同源（{@link MEDIA_UPLOAD_MAX_PIXELS} + 处理预算），不按
- * `agent:visual-max-pixels` 拒——那条预算管的是送进模型的图，超大原图只是要先缩。
+ * 不按 `agent:visual-max-pixels` 拒——那条预算管的是送进模型的图，超大原图只是要先缩。
+ * 这几条路径要整张解码（转正、裁取、转 PNG），所以上限取媒体图的 {@link SOURCE_MAX_PIXELS}
+ * 加处理预算，而不是只流式出预览的上传上限（十亿像素的 SVG 整张光栅化会撑爆内存）。
  */
+export const SOURCE_MAX_PIXELS = MEDIA_IMAGE_MAX_PIXELS
+
 async function sourceMetadata(bytes: Uint8Array): Promise<Metadata> {
   try {
-    const metadata = await sharp(bytes, { limitInputPixels: MEDIA_UPLOAD_MAX_PIXELS }).metadata()
+    const metadata = await sharp(bytes, { limitInputPixels: SOURCE_MAX_PIXELS }).metadata()
     if (!metadata.width || !metadata.height) throw new Error('missing dimensions')
+    if (metadata.width * metadata.height > SOURCE_MAX_PIXELS) throw new Error('source_pixels')
     assertMediaImageProcessingBudget({
       ...metadata,
       width: metadata.width,
@@ -97,7 +105,7 @@ async function sourceImage(dataUrl: string): Promise<string> {
   await sourceMetadata(parsed.bytes)
   if (MODEL_IMAGE_MIMES.has(parsed.mime)) return dataUrl
   try {
-    const png = await sharp(parsed.bytes, { limitInputPixels: MEDIA_UPLOAD_MAX_PIXELS })
+    const png = await sharp(parsed.bytes, { limitInputPixels: SOURCE_MAX_PIXELS })
       .timeout({ seconds: 30 })
       .png()
       .toBuffer()
@@ -130,7 +138,7 @@ async function previewImage(dataUrl: string): Promise<string> {
   // 预览恒为 ≤1024 的小图：源图只在服务端解码，不按准备预算拒（8000×4500 也要能缩）。
   await sourceMetadata(parsed.bytes)
   try {
-    const preview = await sharp(parsed.bytes, { limitInputPixels: MEDIA_UPLOAD_MAX_PIXELS })
+    const preview = await sharp(parsed.bytes, { limitInputPixels: SOURCE_MAX_PIXELS })
       .timeout({ seconds: 30 })
       .rotate()
       .resize(PREVIEW_RESIZE)
@@ -163,7 +171,7 @@ async function regionImage(dataUrl: string, region: ImageRegion): Promise<string
   // 裁完按预览规格收口，送进请求的只有那一小块；源图不按准备预算拒。
   await sourceMetadata(parsed.bytes)
   try {
-    const image = sharp(parsed.bytes, { limitInputPixels: MEDIA_UPLOAD_MAX_PIXELS })
+    const image = sharp(parsed.bytes, { limitInputPixels: SOURCE_MAX_PIXELS })
       .timeout({ seconds: 30 })
       .rotate()
     const { width, height } = await image.metadata()

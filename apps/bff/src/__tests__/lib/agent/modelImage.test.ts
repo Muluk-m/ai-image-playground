@@ -168,6 +168,14 @@ describe('超大原图（8000×4500，超出 agent:visual-max-pixels）', () => 
     expect(await toSourceImageDataUrl(original)).toBe(original)
   })
 
+  it('声明十亿像素的小 SVG 不整张光栅化，明确拒绝', async () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32000" height="30000"><rect width="32000" height="30000" fill="red"/></svg>`
+    const dataUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
+    const started = Date.now()
+    await expect(toSourceImageDataUrl(dataUrl)).rejects.toThrow()
+    expect(Date.now() - started).toBeLessThan(2000)
+  })
+
   it('准备预算以内的图，送给模型的那份与原来一样（不额外缩）', async () => {
     const small = await solid(1200, 800)
     expect(await toModelImageDataUrl(small)).toBe(await toNormalizedImageDataUrl(small))

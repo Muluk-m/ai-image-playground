@@ -16,11 +16,11 @@ import { Type } from 'typebox'
 import { db, schema } from '../../db/client'
 import { modelLabel, resolveQueueModel, strictMaskModels } from '../channels'
 import { log } from '../logger'
-import { MEDIA_UPLOAD_MAX_PIXELS } from '../media-image-limits'
 import { storeMedia } from '../projectMedia'
 import { WHOLE_IMAGE_EDIT_NUDGE } from './edit-intent'
 import { addConversationMediaClaims, readConversationMedia } from './images'
 import { maskedEditSize } from './masked-input'
+import { SOURCE_MAX_PIXELS } from './modelImage'
 import {
   promptBox,
   type SegmentationMask,
@@ -344,11 +344,11 @@ export function maskProposalFailedText(errorText: string): string {
  * 一律存成无损 PNG（像素与原图转正后逐一相同）。没有方向的原样返回。
  */
 export async function uprightOriginal(bytes: Buffer, dataUrl: string) {
-  // 原件按上传上限读：超出对话模型准备预算的大图（8000×4500）也能圈，模型只看缩略图。
+  // 原件按源图上限读：超出对话模型准备预算的大图（8000×4500）也能圈，模型只看缩略图。
   // 调用方取的是 `source`，解码预算已在那里查过。
-  const metadata = await sharp(bytes, { limitInputPixels: MEDIA_UPLOAD_MAX_PIXELS }).metadata()
+  const metadata = await sharp(bytes, { limitInputPixels: SOURCE_MAX_PIXELS }).metadata()
   if ((metadata.orientation ?? 1) === 1) return { bytes, dataUrl, metadata, rotated: false }
-  const rotated = sharp(bytes, { limitInputPixels: MEDIA_UPLOAD_MAX_PIXELS })
+  const rotated = sharp(bytes, { limitInputPixels: SOURCE_MAX_PIXELS })
     .timeout({ seconds: 30 })
     .rotate()
   // 无损保存转正结果：JPEG 再编码会改动选区外的每个像素，合成时保留的就不是原图了。
