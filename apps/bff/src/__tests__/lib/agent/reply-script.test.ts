@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import type { AgentMessageView } from '@image-playground/shared'
 import {
+  collectUserReplyText,
   createReplyScriptGate,
   REPLY_SCRIPT_FALLBACK_EN,
   REPLY_SCRIPT_FALLBACK_ZH,
@@ -44,8 +45,7 @@ describe('sanitizeReplyText', () => {
       '夜景に変えます。そのまま出ます。',
     )
     expect(sanitizeReplyText('ナイトにします。', 'ナイトにして')).toBe('ナイトにします。')
-    // 用户只用了日文时，韩文仍然是夹带。
-    expect(sanitizeReplyText('夜景に変えます。야경', userJa)).toBe('夜景に変えます。')
+    expect(sanitizeReplyText('夜景に変えます。야경', userJa)).toBe('夜景に変えます。야경')
 
     const userKo = '두 번째 사진을 야경으로 바꿔 주세요'
     const replyKo = '두 번째 사진을 야경 조명으로 바꿨습니다. 나머지는 그대로입니다.'
@@ -53,6 +53,21 @@ describe('sanitizeReplyText', () => {
     expect(sanitizeReplyText(`야경으로 바꿨습니다. ${LEAK} 카드에 나옵니다.`, userKo)).toBe(
       '야경으로 바꿨습니다. 카드에 나옵니다.',
     )
+  })
+
+  it('keeps kana and hangul when a Chinese user asks for that language (BUG-76)', () => {
+    const user = '用日语回答。请用日文写两句。'
+    expect(sanitizeReplyText('ポケモンを見る。', user)).toBe('ポケモンを見る。')
+    expect(sanitizeReplyText('見る', user)).toBe('見る')
+    expect(
+      sanitizeReplyText('昼光を夜の照明に変え、街灯と建物の明かりで夜の雰囲気を出す。', user),
+    ).toBe('昼光を夜の照明に変え、街灯と建物の明かりで夜の雰囲気を出す。')
+    expect(sanitizeReplyText('야경으로 바꿨습니다.', '用中文说明')).toBe('야경으로 바꿨습니다.')
+  })
+
+  it('keeps Greek letters used as symbols (BUG-77)', () => {
+    const text = '保留 α 通道，γ 校正 2.2，μm'
+    expect(sanitizeReplyText(text, USER_ZH)).toBe(text)
   })
 
   it('keeps Chinese, English, model names, numbers, emoji, and image markdown', () => {
@@ -63,10 +78,13 @@ describe('sanitizeReplyText', () => {
     )
   })
 
-  it('drops other writing systems unless the user already used them', () => {
-    for (const word of ['はこちら', '결과', 'परिणाम', 'النتيجة', 'результат', 'ผลลัพธ์']) {
+  it('drops leaked scripts unless the user already used them (BUG-22)', () => {
+    for (const word of ['परिणाम', 'النتيجة', 'результат', 'ผลลัพธ์', 'Հայերեն']) {
       expect(sanitizeReplyText(`结果 ${word} 完`, USER_ZH)).toBe('结果 完')
     }
+    expect(sanitizeReplyText('结果 はこちら 결과 完', USER_ZH)).toBe('结果 はこちら 결과 完')
+    expect(sanitizeReplyText('结果 ߊ 完', USER_ZH)).toBe('结果 完')
+    expect(sanitizeReplyText('结果 ߊ 完', '用户写了 ߊ')).toBe('结果 ߊ 完')
     expect(sanitizeReplyText(`你写的 ${LEAK} 我按原样保留。`, `这句里有 ${LEAK}`)).toBe(
       `你写的 ${LEAK} 我按原样保留。`,
     )
@@ -189,6 +207,28 @@ describe('sanitizeAssistantMessages', () => {
       message('assistant', `${LEAK}。`, 't1', 'assistant-leak'),
     ]
     expect(sanitizeAssistantMessages(sameTurn)[1]?.content[0]).toMatchObject({ text: '。' })
+  })
+
+  it('keeps a leak the user wrote in an earlier turn when refreshing a later reply (BUG-75)', () => {
+    const quoted = `按你写的 ${LEAK} 来。`
+    const japanese = '夜の街灯や建物の明かりで人物をやわらかく照らします。'
+    const messages = [
+      message('user', `这句里有 ${LEAK}`, 't1'),
+      message('assistant', '先记下。', 't1'),
+      message('user', '继续，用日语简单说明你会怎么处理灯光。', 't2'),
+      message('assistant', japanese, 't2', 'assistant-t2'),
+      message('assistant', quoted, 't2', 'assistant-quote'),
+    ]
+    const cleaned = sanitizeAssistantMessages(messages)
+    expect(cleaned[3]?.content[0]).toMatchObject({ text: japanese })
+    expect(cleaned[4]?.content[0]).toMatchObject({ text: quoted })
+    const userText = collectUserReplyText(messages)
+    expect(sanitizeReplyText(quoted, userText)).toBe(quoted)
+    expect(sanitizeReplyText(japanese, userText)).toBe(japanese)
+    // 只看本轮中文时，古吉拉特文仍会删掉；历史读回必须带上前一轮，才和直播一致。
+    expect(sanitizeReplyText(quoted, '继续，用日语简单说明你会怎么处理灯光。')).toBe(
+      '按你写的 来。',
+    )
   })
 
   it('keeps a script any loaded user message used, and strips it when none did', () => {
