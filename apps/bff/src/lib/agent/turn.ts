@@ -56,7 +56,7 @@ import { agentModel, agentStreamFn } from './model'
 import { modelHistoryTransform, saveModelHistoryAfterTurn } from './model-history'
 import { AgentRequestBudgetError } from './outbound-budget'
 import type { ConfiguredAgentRuntime } from './provider-settings'
-import { createReplyScriptGate, type ReplyScriptGate } from './reply-script'
+import { collectUserReplyText, createReplyScriptGate, type ReplyScriptGate } from './reply-script'
 import {
   AgentContextOverflow,
   assertRequestWithinBudget,
@@ -234,15 +234,11 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     text: input.text,
     hasNewReferences: input.references.length > 0,
   })
-  // 唤醒轮的 text 是系统说明，不是用户的话。清洗时认历史里的用户原话和这一轮的用户原话。
-  const replyLanguageSource = [
-    ...history.messages.flatMap((message) =>
-      message.role === 'user'
-        ? message.content.flatMap((block) => (block.type === 'text' ? [block.text] : []))
-        : [],
-    ),
+  // 唤醒轮的 text 是系统说明，不是用户的话。清洗认整段会话的用户原文，再加这一轮的用户原话。
+  const replyLanguageSource = collectUserReplyText(
+    history.messages,
     prepared.wake?.authorizationPrompt || input.text,
-  ].join('\n')
+  )
   // 唤醒轮的 text 是系统说明，不是用户的话；澄清作答连同它答的那句原话一起看。
   const userAsk = [
     ...history.messages

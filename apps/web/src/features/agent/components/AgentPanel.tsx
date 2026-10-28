@@ -83,6 +83,7 @@ function renderMessage(
   message: AgentPanelMessage,
   answerableId: string | null,
   skills: readonly AgentSkillSummary[],
+  replyUserText: string,
   onViewCanvas?: (objectIds?: readonly string[]) => void,
   onPreviewResult?: (messageId: string, objectId?: string, previewSource?: string) => void,
   onPreviewProduction?: (pane?: ProductionPane) => void,
@@ -139,7 +140,7 @@ function renderMessage(
     return <AgentClarification message={message} answered={message.id !== answerableId} />
   }
   if (message.role === 'user') return <AgentUserMessage message={message} skills={skills} />
-  return <AgentReply text={message.text} streaming={message.streaming} />
+  return <AgentReply text={message.text} streaming={message.streaming} userText={replyUserText} />
 }
 
 /** 连续取回的单张网图属于同一批素材，在对话里共用一条缩略图带。 */
@@ -299,6 +300,15 @@ export default function AgentPanel({
   const open = useAgentStore((state) => state.open)
   const tab = useAgentStore((state) => state.tab)
   const messages = useAgentStore((state) => state.messages)
+  const replyUserText = useMemo(
+    () =>
+      messages
+        .flatMap((message) =>
+          message.kind === 'text' && message.role === 'user' ? [message.text] : [],
+        )
+        .join('\n'),
+    [messages],
+  )
   const turns = useAgentStore((state) => state.turns)
   const surface = useActiveAgentSurface()
   const imageSkills = useAgentSkills('image', surface)
@@ -770,6 +780,7 @@ export default function AgentPanel({
                               message,
                               answerableId,
                               skills,
+                              replyUserText,
                               onViewCanvas,
                               onPreviewResult,
                               onPreviewProduction,
