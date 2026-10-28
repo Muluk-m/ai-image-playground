@@ -84,7 +84,7 @@ export default function Overlay({
 
   const surfaceClass =
     `fixed inset-0 ${TIER_CLASS[tier]}` +
-    (layout === 'center' ? ' flex items-center justify-center p-4' : '')
+    (layout === 'center' ? ' overlay-center flex items-center justify-center p-4' : '')
 
   return createPortal(
     <div

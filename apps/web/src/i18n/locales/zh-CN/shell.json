@@ -17,6 +17,15 @@
       "signInUp": "登录 / 注册",
       "help": "帮助与指南",
       "viewPlans": "查看套餐"
+    },
+    "contact": {
+      "menu": "联系我们",
+      "title": "联系我们",
+      "email": "邮箱",
+      "copy": "复制",
+      "copied": "已复制",
+      "copyFailed": "复制失败",
+      "send": "写邮件"
     }
   },
   "brand": {
