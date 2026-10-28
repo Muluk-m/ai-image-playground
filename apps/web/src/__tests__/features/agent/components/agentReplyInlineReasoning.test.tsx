@@ -50,6 +50,14 @@ it('shows the fallback and hides copy when an injected reply cleans down to punc
   expect(host.querySelector('button')).toBeNull()
 })
 
+it('shows the English fallback and hides copy for an English user (BUG-81)', async () => {
+  const host = await render('પરિણામ સારું છે.', false, 'Make the second image a night scene')
+  expect(host.textContent).toContain('That reply came back in an unexpected language. Try again.')
+  expect(host.textContent).not.toContain('回复语言异常')
+  expect(host.textContent).not.toContain('પ')
+  expect(host.querySelector('button')).toBeNull()
+})
+
 it('keeps tags that appear in the middle of the reply', async () => {
   const host = await render('好的。<think>这也是正文</think>后面还在')
   expect(host.textContent).toContain('后面还在')
