@@ -68,7 +68,8 @@
     "invalid_project_document": "This canvas format is not supported. Your current content is kept. Update the page and retry.",
     "recovery_copy_failed": "Could not save a recovery copy. Free browser storage and retry. Your current changes were not replaced.",
     "recovery_changed": "New changes were made while saving the copy. They remain on this canvas. Choose a recovery action again.",
-    "project_deleted": "This project was deleted. Your current edits are preserved and can be saved as a new project."
+    "project_deleted": "This project was deleted. Your current edits are preserved and can be saved as a new project.",
+    "project_quota_exceeded": "The project limit is reached. Delete some projects, then try again."
   },
   "projectRecycle": {
     "fallback": "The recycle bin operation failed. Please retry."
@@ -92,6 +93,7 @@
     "quota_exceeded": "Today's generation quota is used up",
     "authentication_required": "Sign in to generate",
     "invalid_params": "The parameters didn't hold up, so this wasn't submitted",
+    "image_unusable": "That address didn't return a usable image. Try another image URL",
     "source_unavailable": "The source site denied access or couldn't provide the content. Try another public source",
     "source_timeout": "The web source timed out; nothing was read",
     "content_policy": "The prompt didn't pass content review. Try rewording it",

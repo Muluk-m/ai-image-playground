@@ -237,3 +237,27 @@ it('showUploadingStatus=false: no visible upload line while uploading, the error
   render(true)
   expect(host.querySelector('.creation-reference-status')?.textContent).toBe('图片格式不支持')
 })
+
+it('collapsed stack shows the known upload percent instead of only a spinner (BUG-42)', () => {
+  const render = (progress?: number) =>
+    act(() =>
+      root.render(
+        <CreationReferenceStack
+          count={2}
+          previews={[]}
+          add={<Button>添加</Button>}
+          uploading
+          progress={progress}
+          status="上传中 0/2"
+        >
+          <span>图片</span>
+        </CreationReferenceStack>,
+      ),
+    )
+  render(42)
+  expect(host.querySelector('.creation-stack-upload')?.textContent).toBe('42%')
+  render(undefined)
+  const spinner = host.querySelector('.creation-stack-upload')
+  expect(spinner?.textContent).toBe('')
+  expect(spinner?.querySelector('svg, [class*="animate-spin"]')).not.toBeNull()
+})

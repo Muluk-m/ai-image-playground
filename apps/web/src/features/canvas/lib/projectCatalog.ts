@@ -30,7 +30,7 @@ export function projectCatalog(
   cloud: Record<string, CloudProjectSummary>,
 ): CanvasProject[] {
   const available = projects
-    .filter((project) => !project.cloud?.deleted)
+    .filter((project) => !project.cloud?.deleted && !project.quotaRejected)
     .map((project) => {
       const remote = cloud[project.id]
       return remote && !project.cloud?.nameDirty

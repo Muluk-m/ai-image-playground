@@ -55,6 +55,7 @@ import {
   agentToolFailureText,
   runAgentToolFailureAction,
 } from '../lib/toolFailure'
+import { turnImageReceipt } from '../lib/turnCost'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
 import AgentBatchPlanCard from './AgentBatchPlanCard'
@@ -539,18 +540,10 @@ function StandardAgentToolCard({
   const [selectedArtifactId, setSelectedArtifactId] = useState<string>()
   const [imageRatios, setImageRatios] = useState<Record<string, number>>({})
   const [copiedPrompt, setCopiedPrompt] = useState(false)
-  const showReceipt = useAgentStore((state) => {
-    for (let index = state.messages.length - 1; index >= 0; index -= 1) {
-      const one = state.messages[index]
-      if (!one || one.turnId !== message.turnId || one.kind !== 'tool') continue
-      if (
-        (one.toolName === 'generateImage' || one.toolName === 'editImage') &&
-        one.status === 'succeeded' &&
-        one.artifacts?.some((artifact) => artifact.media === 'image')
-      )
-        return one.id === message.id
-    }
-    return false
+  // 这张卡收尾本轮时带出结算行；张数与本轮末尾的页脚同一口径（本轮全部成功出图）。
+  const receiptCount = useAgentStore((state) => {
+    const receipt = turnImageReceipt(state.messages, message.turnId)
+    return receipt?.cardId === message.id ? receipt.outputCount : null
   })
   const turnFooter = useAgentStore((state) => state.turns?.[message.turnId])
   const turnMessages = useAgentStore((state) => state.messages)
@@ -1150,8 +1143,8 @@ function StandardAgentToolCard({
               )}
             </MessageActions>
           )}
-        {showReceipt && turnFooter && (
-          <AgentTurnCost footer={turnFooter} jobs={receiptJobs} outputCount={tiles.length} />
+        {receiptCount !== null && turnFooter && (
+          <AgentTurnCost footer={turnFooter} jobs={receiptJobs} outputCount={receiptCount} />
         )}
         {promptOpen && message.prompt && (
           <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />

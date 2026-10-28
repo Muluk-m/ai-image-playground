@@ -1,5 +1,7 @@
+import { AGENT_USER_MESSAGE_MAX_CHARS } from '@image-playground/shared'
 import { accountRequired, requireAccount } from '../../../auth/loginPrompt'
 import { queuePendingSubmission } from '../../../auth/pendingSubmission'
+import { i18next } from '../../../i18n'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { useStore } from '../../../store'
 import { useVideoStore } from '../../video/store'
@@ -39,6 +41,16 @@ export async function startCanvasFromComposer(
   }
   const submission = draftForSubmit(draft)
   if (!submission.text) return false
+  // 超了字数的这句话服务端一定拒收：在首屏就说，不先建一个空项目再在里面报错。
+  if (submission.text.length > AGENT_USER_MESSAGE_MAX_CHARS) {
+    useStore
+      .getState()
+      .showToast(
+        i18next.t('error.textTooLong', { ns: 'agent', max: AGENT_USER_MESSAGE_MAX_CHARS }),
+        'error',
+      )
+    return false
+  }
   // Do not create and navigate to an empty project before asking the visitor to log in.
   if (agentPanelPresent() && isClientCapabilityEnabled('billing:credits') && accountRequired()) {
     await queuePendingSubmission({ kind: 'heroCanvas', draft, experience, mode, videoDraft })

@@ -414,14 +414,14 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   // 首页停在 `/`，起手工作区不占地址（见 projectStore.activate）。第一句话落下、
   // 或画布上真有了东西，这个工作区才成为一个「项目」，这时补一条 `/p/<项目>` 的历史。
   useEffect(() => {
-    if (showWelcome || !project) return
+    if (showWelcome || !project || project.quotaRejected) return
     publishStartedProjectAddress(project.id)
   }, [showWelcome, project])
   useEffect(() => {
     if (!hasAgent) return
     void useAgentStore.getState().load()
   }, [hasAgent, workspace])
-  const { loading, loadFailed, saveFailed } = useSyncExternalStore(
+  const { loading, loadFailed, loadErrorCode, saveFailed } = useSyncExternalStore(
     workspace.subscribe,
     workspace.getSnapshot,
   )
@@ -949,7 +949,11 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       {loadFailed ? (
         <div role="alert" className="studio-canvas-status">
           <div>
-            <p>{t('loadError.message')}</p>
+            <p>
+              {loadErrorCode === 'project_quota_exceeded'
+                ? t('projectSync.project_quota_exceeded', { ns: 'errors' })
+                : t('loadError.message')}
+            </p>
             <Button
               variant="link"
               size="sm"
