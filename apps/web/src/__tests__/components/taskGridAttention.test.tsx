@@ -206,7 +206,7 @@ describe('attention for a user-submitted work card', () => {
 
   it('previews only the latest two rows of work on the home page', async () => {
     window.innerWidth = 500
-    await showGrid()
+    await act(async () => root.render(<TaskGrid hero preview onShowAll={() => {}} />))
     await act(async () => {
       useStore.setState({
         tasks: [task('first', 30), task('second', 20), task('third', 10, 'done')],
@@ -215,6 +215,7 @@ describe('attention for a user-submitted work card', () => {
 
     expect(host.querySelectorAll('.task-card-wrapper')).toHaveLength(2)
     expect(host.querySelector('[data-task-id="third"]')).toBeNull()
+    expect(host.textContent).toContain('查看全部作品')
   })
 
   it('highlights every card from one send and focuses the first', async () => {
