@@ -221,6 +221,37 @@ describe('callQueueChannelApi submit body', () => {
     expect(result.actualParams).toEqual({ output_format: 'webp' })
   })
 
+  it('同样内容的重复提交被服务端拦下时，接着等已受理的那条任务', async () => {
+    const call = await loadCallQueueChannelApi()
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    fetchSpy.mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify({ error: 'duplicate_submission', request_id: 'rid-first' }), {
+          status: 409,
+        }),
+    )
+    fetchSpy.mockImplementationOnce(
+      async () =>
+        new Response(
+          JSON.stringify({
+            request_id: 'rid-first',
+            status: 'completed',
+            submitted_at: Date.now(),
+            result: { images: [{ index: 0, mime: 'image/png', size_bytes: 2 }] },
+          }),
+          { status: 200 },
+        ),
+    )
+    fetchSpy.mockImplementationOnce(
+      async () => new Response('ok', { status: 200, headers: { 'content-type': 'image/png' } }),
+    )
+
+    const result = await call(mockOpts(), mockProfile(), mockChannel())
+
+    expect(result.images).toHaveLength(1)
+    expect(String(fetchSpy.mock.calls[1]![0])).toContain('rid-first')
+  })
+
   it('reports the durable queue phase while polling', async () => {
     const call = await loadCallQueueChannelApi()
     mockFetchJson(
