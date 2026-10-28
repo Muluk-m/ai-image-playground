@@ -460,7 +460,7 @@ describe('BFF optional user auth', () => {
             'cf-connecting-ip': '10.10.1.3',
           },
           body: JSON.stringify({
-            username: 'session-failure',
+            username: 'session-failure@example.com',
             password: ACCEPTED_PHRASE,
           }),
         }),
@@ -507,7 +507,11 @@ describe('BFF optional user auth', () => {
         error: 'invalid_username',
       },
       {
-        body: { username: 'valid-user', password: 'short' },
+        body: { username: 'plain-name', password: ACCEPTED_PHRASE },
+        error: 'invalid_username',
+      },
+      {
+        body: { username: 'valid-user@example.com', password: 'short' },
         error: 'invalid_password',
       },
     ]
@@ -534,13 +538,13 @@ describe('BFF optional user auth', () => {
           jsonReq(
             'POST',
             '/api/auth/register',
-            { username: 'registration-race', password: ACCEPTED_PHRASE },
+            { username: 'registration-race@example.com', password: ACCEPTED_PHRASE },
             { 'cf-connecting-ip': '10.10.3.1' },
           ),
           jsonReq(
             'POST',
             '/api/auth/register',
-            { username: 'registration-race', password: ACCEPTED_PHRASE },
+            { username: 'registration-race@example.com', password: ACCEPTED_PHRASE },
             { 'cf-connecting-ip': '10.10.3.2' },
           ),
         ]
@@ -552,7 +556,7 @@ describe('BFF optional user auth', () => {
       const users = await db
         .select()
         .from(schema.users)
-        .where(eq(schema.users.username, 'registration-race'))
+        .where(eq(schema.users.username, 'registration-race@example.com'))
       expect(users).toHaveLength(1)
       expect(
         await db
