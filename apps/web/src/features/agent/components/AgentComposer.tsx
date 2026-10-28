@@ -601,17 +601,22 @@ export default function AgentComposer({
       return
     }
     // 附件通道开着时，压不成的原文件仍要留下，走原来的上传失败（红框和超限红字）。
+    const fail = () => useStore.getState().showToast(t('composer.attachmentReadFailed'), 'error')
     if (attachmentUploadsEnabled() && getAttachmentLimits()) {
       void compressUploadFiles(
         files.filter((file) => file.type.startsWith('image/')),
         referenceImageLimit().imageBytes,
-      ).then((images) => admit(images))
+      )
+        .then((images) => admit(images))
+        .catch(fail)
       return
     }
     void prepareAcceptedImageFiles(files, {
       keepOversized: mediaFallbackEnabled(),
       targetBytes: referenceImageLimit().imageBytes,
-    }).then((images) => admit(images))
+    })
+      .then((images) => admit(images))
+      .catch(fail)
   }
   // 圈得多时一张张胶囊铺满输入框没有意义：模型这时也只拿清单（见 AGENT_TURN_ATTACHED_MEDIA_MAX），
   // 收成一条「已选 N 张画布图」。手动附上的照旧逐张显示。

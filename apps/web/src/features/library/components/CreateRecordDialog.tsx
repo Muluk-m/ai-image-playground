@@ -74,9 +74,11 @@ export default function CreateRecordDialog(props: Props) {
    * 文件夹里解出来的图一并收下；名字还空着就用文件夹名。模板只要一张图，不收文件夹。
    * 一次进太多先问一声：按真正会收下的张数问，模板永远只收一张，所以不会被打断。
    */
+  const addBatch = useRef(0)
   const addFiles = (incoming: readonly File[], folder: string | null = null) => {
+    const ticket = ++addBatch.current
     const take = (images: File[]) => {
-      if (images.length === 0) return
+      if (ticket !== addBatch.current || images.length === 0) return
       const accepted = isAsset ? images : images.slice(0, 1)
       confirmImageBatch(accepted.length, () => {
         setFiles((current) => (isAsset ? [...current, ...accepted] : accepted))

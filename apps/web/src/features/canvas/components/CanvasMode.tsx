@@ -208,19 +208,25 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const importFiles = (files: File[]) => {
-    void prepareAcceptedImageFiles(files).then((images) => {
-      if (images.length === 0) return
-      confirmImageBatch(images.length, () => {
-        void importImageFiles(editor, images, {
-          x: editor.getViewportPageBounds().midX,
-          y: editor.getViewportPageBounds().midY,
-        })
-          .then((count) => {
-            if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
+    const target = editor
+    const live = () => currentCanvasWorkspace().editor === target
+    const failed = () => useStore.getState().showToast(t('import.failed'), 'error')
+    void prepareAcceptedImageFiles(files)
+      .then((images) => {
+        if (!live() || images.length === 0) return
+        confirmImageBatch(images.length, () => {
+          if (!live()) return
+          void importImageFiles(target, images, {
+            x: target.getViewportPageBounds().midX,
+            y: target.getViewportPageBounds().midY,
           })
-          .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
+            .then((count) => {
+              if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
+            })
+            .catch(failed)
+        })
       })
-    })
+      .catch(failed)
   }
   const hasAgent = agentPanelPresent()
   useEffect(() => {

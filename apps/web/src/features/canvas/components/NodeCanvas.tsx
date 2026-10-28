@@ -1511,60 +1511,62 @@ function Flow({
     }
   }, [canvas])
   const placeFiles = (files: File[]) => {
-    void prepareAcceptedImageFiles(files).then((candidates) => {
-      if (candidates.length === 0) return
-      const point = placeAt.current
-      // 逐张解码要花时间：这期间换了项目或离开画布，就不再弹确认框、不往旧画布里写。
-      const target = canvas
-      const here = () => liveCanvas.current === target
-      const failed = () => useStore.getState().showToast(t('import.failed'), 'error')
-      const notInvalid = (error: unknown) => {
-        if (error instanceof InvalidImageFileError) return null
-        throw error
-      }
-      void (async () => {
-        // 先确认解得开再问张数、建节点：空文件、伪装成 .png 的文本不该留下一个永远「上传中」的节点，
-        // 也不该算进「确认导入 N 张」里。解好的结果留着，确认后直接用：每张只读、解一次，
-        // 确认的张数就是落到画布上的张数（单张已按大小限额过滤；这些图确认后本来就要写进画布，确认前先留着不多占）。
-        // 同时解几张，不一张接一张等，也不让一大批同时占着解码；结果按拖入顺序排回去。
-        const decoded: (ReadImageFile | null)[] = new Array(candidates.length)
-        let next = 0
-        await Promise.all(
-          Array.from(
-            { length: Math.min(IMPORT_DECODE_CONCURRENCY, candidates.length) },
-            async () => {
-              while (next < candidates.length) {
-                const index = next++
-                decoded[index] = await readImageFile(candidates[index]).catch(notInvalid)
-              }
-            },
-          ),
-        )
-        const invalid: string[] = []
-        const valid: { file: File; image: ReadImageFile }[] = []
-        candidates.forEach((file, index) => {
-          const image = decoded[index]
-          if (image) valid.push({ file, image })
-          else invalid.push(file.name)
-        })
-        if (!here()) return
-        if (invalid.length) showInvalidImages(invalid)
-        if (valid.length === 0) return
-        confirmImageBatch(valid.length, () => {
+    const point = placeAt.current
+    // 逐张解码要花时间：这期间换了项目或离开画布，就不再弹确认框、不往旧画布里写。
+    const target = canvas
+    const here = () => liveCanvas.current === target
+    const failed = () => useStore.getState().showToast(t('import.failed'), 'error')
+    void prepareAcceptedImageFiles(files)
+      .then((candidates) => {
+        if (!here() || candidates.length === 0) return
+        const notInvalid = (error: unknown) => {
+          if (error instanceof InvalidImageFileError) return null
+          throw error
+        }
+        void (async () => {
+          // 先确认解得开再问张数、建节点：空文件、伪装成 .png 的文本不该留下一个永远「上传中」的节点，
+          // 也不该算进「确认导入 N 张」里。解好的结果留着，确认后直接用：每张只读、解一次，
+          // 确认的张数就是落到画布上的张数（单张已按大小限额过滤；这些图确认后本来就要写进画布，确认前先留着不多占）。
+          // 同时解几张，不一张接一张等，也不让一大批同时占着解码；结果按拖入顺序排回去。
+          const decoded: (ReadImageFile | null)[] = new Array(candidates.length)
+          let next = 0
+          await Promise.all(
+            Array.from(
+              { length: Math.min(IMPORT_DECODE_CONCURRENCY, candidates.length) },
+              async () => {
+                while (next < candidates.length) {
+                  const index = next++
+                  decoded[index] = await readImageFile(candidates[index]).catch(notInvalid)
+                }
+              },
+            ),
+          )
+          const invalid: string[] = []
+          const valid: { file: File; image: ReadImageFile }[] = []
+          candidates.forEach((file, index) => {
+            const image = decoded[index]
+            if (image) valid.push({ file, image })
+            else invalid.push(file.name)
+          })
           if (!here()) return
-          try {
-            // 都已经解过：建节点和写图同步完成，中间不让出执行权，不会留下空节点。
-            for (const { file, image } of valid) {
-              const id = createNode(canvas, 'image', point, textFill)
-              placeDecodedImage(editor, canvas.doc, id, image, file.name)
-              selectNode(id)
+          if (invalid.length) showInvalidImages(invalid)
+          if (valid.length === 0) return
+          confirmImageBatch(valid.length, () => {
+            if (!here()) return
+            try {
+              // 都已经解过：建节点和写图同步完成，中间不让出执行权，不会留下空节点。
+              for (const { file, image } of valid) {
+                const id = createNode(canvas, 'image', point, textFill)
+                placeDecodedImage(editor, canvas.doc, id, image, file.name)
+                selectNode(id)
+              }
+            } catch {
+              failed()
             }
-          } catch {
-            failed()
-          }
-        })
-      })().catch(failed)
-    })
+          })
+        })().catch(failed)
+      })
+      .catch(failed)
   }
   const showInvalidImages = (names: readonly string[]) =>
     useStore
@@ -2773,18 +2775,25 @@ function Flow({
                         accept="image/*"
                         multiple
                         hidden
-                        onChange={async (event) => {
+                        onChange={(event) => {
                           const files = [...(event.target.files ?? [])]
                           event.target.value = ''
                           const targetId = uploadReferenceTarget.current
                           uploadReferenceTarget.current = null
-                          if (targetId) {
-                            const { compressUploadFiles } = await import('../../../lib/imageFiles')
-                            const fitted = await compressUploadFiles(
-                              files.filter((file) => file.type.startsWith('image/')),
-                            )
-                            for (const file of fitted) await uploadReference(targetId, file)
-                          }
+                          if (!targetId) return
+                          void (async () => {
+                            try {
+                              const { compressUploadFiles } = await import(
+                                '../../../lib/imageFiles'
+                              )
+                              const fitted = await compressUploadFiles(
+                                files.filter((file) => file.type.startsWith('image/')),
+                              )
+                              for (const file of fitted) await uploadReference(targetId, file)
+                            } catch {
+                              useStore.getState().showToast(t('import.failed'), 'error')
+                            }
+                          })()
                         }}
                       />
                       <input

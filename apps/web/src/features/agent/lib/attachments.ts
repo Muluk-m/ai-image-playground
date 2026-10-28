@@ -128,7 +128,7 @@ export function filesToReferences(
   files: readonly File[],
 ): AgentReference[] | Promise<AgentReference[]> {
   // 没超 50 MB 时保持同步：选中的图要立刻占住名额，不能等读文件。
-  // 超过 50 MB 先压到这一档真能发出去的上限；压不成的原文件继续走原来的拒绝。
+  // 只压超过 50 MB 的；更紧的 targetBytes 只约束这些大图的结果，不重编码更小的原件。
   if (!files.some((file) => file.size > MAX_IMAGE_BYTES)) return referencesFromFiles(files)
   return compressUploadFiles(
     files,

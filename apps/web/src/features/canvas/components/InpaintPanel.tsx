@@ -6,6 +6,7 @@ import { Icon } from '../../../components/ui/icon'
 import { Slider } from '../../../components/ui/slider'
 import { useTranslation } from '../../../i18n'
 import { compressInputImageDataUrls } from '../../../lib/compressInputImage'
+import { useStore } from '../../../store'
 import { MAX_BRUSH_PX, MIN_BRUSH_PX, useInpaintSession } from '../inpaintStore'
 import type { CanvasEditor } from '../lib/editor'
 import { fileToDataUrl } from '../lib/importImages'
@@ -80,13 +81,17 @@ export default function InpaintPanel({
 
   const pickReference = async (file: File | undefined) => {
     if (!file) return
-    const { compressUploadFiles } = await import('../../../lib/imageFiles')
-    const [fitted] = await compressUploadFiles([file])
-    const dataUrl = await fileToDataUrl(fitted ?? file)
-    // 带遮罩的请求在分发层刻意跳过输入图压缩（遮罩要与主图同尺寸），
-    // 所以参考图得自己压一次，别把一张 20MB 的原图整个推上去。
-    const [compressed] = await compressInputImageDataUrls([dataUrl])
-    session.setReference({ dataUrl: compressed ?? dataUrl, name: file.name })
+    try {
+      const { compressUploadFiles } = await import('../../../lib/imageFiles')
+      const [fitted] = await compressUploadFiles([file])
+      const dataUrl = await fileToDataUrl(fitted ?? file)
+      // 带遮罩的请求在分发层刻意跳过输入图压缩（遮罩要与主图同尺寸），
+      // 所以参考图得自己压一次，别把一张 20MB 的原图整个推上去。
+      const [compressed] = await compressInputImageDataUrls([dataUrl])
+      session.setReference({ dataUrl: compressed ?? dataUrl, name: file.name })
+    } catch {
+      useStore.getState().showToast(t('import.failed'), 'error')
+    }
   }
 
   return (

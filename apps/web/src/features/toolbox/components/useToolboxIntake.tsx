@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
+import { i18next } from '../../../i18n'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import {
   acceptImageFiles,
@@ -8,6 +9,7 @@ import {
   filesFromFolderInput,
   imageNeedsUploadCompression,
 } from '../../../lib/imageFiles'
+import { useStore } from '../../../store'
 import { useToolboxStore } from '../store'
 
 /**
@@ -24,16 +26,21 @@ export function useToolboxIntake(disabled = false) {
   const intake = (images: File[]) => {
     if (disabledRef.current || images.length === 0) return
     const run = (files: File[]) => {
-      if (disabledRef.current || files.length === 0) return
-      confirmImageBatch(files.length, () => {
-        if (!disabledRef.current) void add(files)
+      const accepted = acceptImageFiles(files)
+      if (disabledRef.current || accepted.length === 0) return
+      confirmImageBatch(accepted.length, () => {
+        if (!disabledRef.current) void add(accepted)
       })
     }
     if (!images.some(imageNeedsUploadCompression)) {
       run(images)
       return
     }
-    void compressUploadFiles(images).then(run)
+    void compressUploadFiles(images)
+      .then(run)
+      .catch(() =>
+        useStore.getState().showToast(i18next.t('image.transcodeFailed', { ns: 'lib' }), 'error'),
+      )
   }
   const { dragging, dropZoneProps } = useImageDropZone(intake)
   usePasteImageFiles('tools', intake)
