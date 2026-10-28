@@ -38,11 +38,27 @@ type ProgressTask = Pick<
   'id' | 'queuePhase' | 'batchStartedAt' | 'createdAt' | 'platformTask' | 'bffRequestId'
 >
 
+type PhaseTask = ProgressTask & Pick<TaskRecord, 'status' | 'batchQueued'>
+
 const generatingSince = new Map<string, number>()
 
 /** 走平台队列的任务（含旧版没有 queuePhase 的平台任务）：排队时间不能算进进度。 */
 function isQueued(task: ProgressTask): boolean {
   return task.queuePhase != null || Boolean(task.platformTask || task.bffRequestId)
+}
+
+/**
+ * 这一刻算不算出图阶段（只有这时显示估算百分比）。平台队列任务要等服务端回报「生成中」：
+ * 刚提交、阶段还没回来时不算，否则卡片会先闪一下「生成中 0%」再跳回「排队中」。
+ */
+export function inGeneratingPhase(task: PhaseTask): boolean {
+  if (task.status !== 'running' || task.batchQueued) return false
+  return isQueued(task) ? task.queuePhase === 'generating' : true
+}
+
+/** 平台任务提交后、服务端还没回报阶段时，按排队中显示。 */
+export function awaitingQueuePhase(task: PhaseTask): boolean {
+  return task.status === 'running' && !task.batchQueued && isQueued(task) && task.queuePhase == null
 }
 
 /**
