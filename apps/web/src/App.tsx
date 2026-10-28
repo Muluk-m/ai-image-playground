@@ -3,7 +3,6 @@ import { useAuth } from './auth/AuthContext'
 import { resumePendingSubmission } from './auth/resumePendingSubmission'
 import { signalBootReady } from './boot/ready'
 import ConfirmDialog from './components/ConfirmDialog'
-import CreateTargetSwitch from './components/CreateTargetSwitch'
 import DetailModal from './components/DetailModal'
 import GenerationHistory from './components/GenerationHistory'
 import Header from './components/Header'
@@ -19,9 +18,9 @@ import UpdateBanner from './components/UpdateBanner'
 import AgentJobDoneNotice from './features/agent/components/AgentJobDoneNotice'
 import SkillStarterGuide from './features/agent/components/SkillStarterGuide'
 import CanvasMode from './features/canvas/components/CanvasMode'
-import HeroCanvasProjects from './features/canvas/components/HeroCanvasProjects'
 import ImageExportDialog from './features/image-export/ImageExportDialog'
 import ExplorePage from './features/inspiration/components/ExplorePage'
+import HomeInspirationSection from './features/inspiration/components/HomeInspirationSection'
 import InspirationChips from './features/inspiration/components/InspirationChips'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LegalPage from './features/legal/LegalPage'
@@ -35,6 +34,7 @@ import { isPricingPath, isPrivacyPath, isTermsPath } from './lib/appPaths'
 import { dragTargetIsImage } from './lib/dragTarget'
 import { installWorkbenchNavigation } from './lib/navigation/workbenchNavigation'
 import { usePathname } from './lib/pathname'
+import { takeSiteDraft } from './lib/siteDraft'
 import { startSyncEngine } from './lib/sync/engine'
 import { clearUrlSettingParams, hasUrlSettingParams } from './lib/urlSettings'
 import { initStore, useStore } from './store'
@@ -86,6 +86,10 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     }
 
     void initStore().then(() => {
+      // 官网输入框写好的提示词只填进空输入框，不替用户提交。
+      const draft = takeSiteDraft()
+      const store = useStore.getState()
+      if (draft && !store.prompt.trim()) store.setPrompt(draft)
       if (user) return resumePendingSubmission()
     })
     initHashRoute()
@@ -162,14 +166,12 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
           <div className="safe-area-x relative mx-auto max-w-6xl">
             <div className="studio-home-intro text-center">
               <h1 className="text-headline font-semibold leading-tight sm:text-display">
-                {t('hero.titleLead')}
-                <span className="studio-hero-accent">{t('hero.titleAccent')}</span>
+                {t('hero.title')}
               </h1>
               <p className="pt-3 text-sm text-muted-foreground">{t('hero.subtitle')}</p>
             </div>
             {/* 输入框是首屏的主角：跟着 hero 排在流里，不再吸底。 */}
             <div className="studio-home-create">
-              <CreateTargetSwitch />
               <div className="pt-6 md:pt-4">
                 <InputBar inline />
               </div>
@@ -177,11 +179,9 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
             {/* 对话创作页签：场景起手句在上，灵感 chip 下移保留。 */}
             {createTarget === 'chat' ? <SkillStarterGuide /> : null}
             <InspirationChips />
-            {createTarget !== 'generate' ? (
-              <HeroCanvasProjects experience={createTarget === 'video' ? 'canvas' : createTarget} />
-            ) : (
-              <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} hero />
-            )}
+            {/* 对话和画布已在侧栏列出；首页只预览作品，再往下是灵感。 */}
+            <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} hero />
+            <HomeInspirationSection />
           </div>
         </main>
         <TaskBulkActions />

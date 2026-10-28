@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -8,10 +8,10 @@ import { MarketingHome } from '../components/MarketingHome'
 import {
   CONTACT_EMAIL,
   caseHref,
-  libraryRows,
+  featureCards,
   marketingCopy,
   showcaseCases,
-  wallColumns,
+  starterPrompts,
   X_URL,
 } from '../marketing'
 
@@ -20,46 +20,52 @@ const manifest = JSON.parse(
     resolve(import.meta.dirname, '../../../web/public/inspiration-manifest.json'),
     'utf8',
   ),
-) as { items: Array<{ id: string }> }
+) as { items: Array<{ id: string; prompt: string }> }
 const ids = new Set(manifest.items.map((item) => item.id))
 
-describe('marketing v4.1', () => {
-  it('keeps the approved Chinese copy and routes the calls to action', () => {
+const PUBLIC = resolve(import.meta.dirname, '../../../web/public')
+const prompts = new Map(manifest.items.map((item) => [item.id, item.prompt]))
+
+describe('marketing home', () => {
+  it('renders the approved Chinese copy and routes the calls to action', () => {
     const html = renderToStaticMarkup(
       createElement(MarketingHome, { locale: 'zh-CN', start: () => {} }),
     )
     const text = marketingCopy['zh-CN']
-    expect(html).toContain(text.hero.line1)
-    expect(html).toContain(text.hero.line2)
+    expect(html).toContain('说出画面，幕芽成片')
     expect(html).toContain(text.hero.note)
-    expect(html).toContain('免费开始创作')
-    expect(html).toContain('看看能做什么')
-    expect(html).toContain('一句提示词')
+    expect(html).toContain('开始创作')
+    expect(html).toContain('真实案例')
     expect(html).toContain('从想法到成片')
-    expect(html).toContain('不知道写什么？')
     expect(html).toContain('从一句话开始')
+    expect(html).toContain('进入幕芽')
     expect(html).toContain('href="/guide/"')
     expect(html).toContain('href="/terms"')
     expect(html).toContain('href="/privacy"')
     expect(html).toContain('href="/explore"')
-    expect(html).toContain('href="/explore#inspirations/r26-01"')
-    expect(html).toContain('href="/explore#inspirations/r26-10"')
-    expect(html).toContain('href="/explore#inspirations/r26-26"')
-    expect(html).not.toContain('href="/explore#inspirations/"')
+    for (const item of showcaseCases('zh-CN')) {
+      expect(html).toContain(`href="/explore#inspirations/${item.id}"`)
+    }
     expect(html).toContain('src="/brand/muvloom-mark.svg"')
     expect(html).toContain('loading="lazy"')
   })
 
-  it('translates the English page without changing the original prompts', () => {
+  it('never promises sign-up credits and keeps exactly one solid primary button', () => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      const html = renderToStaticMarkup(createElement(MarketingHome, { locale, start: () => {} }))
+      expect(html).not.toMatch(/积分|credits/i)
+      expect(html.match(/bg-primary text-primary-foreground/g)).toHaveLength(1)
+    }
+  })
+
+  it('translates the English page', () => {
     const html = renderToStaticMarkup(
       createElement(MarketingHome, { locale: 'en', start: () => {} }),
     )
-    expect(html).toContain('Muvloom handles the rest')
-    expect(html).toContain('Start creating free')
-    expect(html).toContain('New accounts get 2,000 credits')
+    expect(html).toContain('Describe it. Muvloom makes it.')
+    expect(html).toContain('Start creating')
     expect(html).toContain('href="/guide/en/"')
-    expect(html).toContain(showcaseCases('en')[1]!.prompt)
-    expect(html).not.toContain('免费开始')
+    expect(html).not.toContain('开始创作')
   })
 
   it('links the pricing page from the top nav and the footer', () => {
@@ -71,27 +77,27 @@ describe('marketing v4.1', () => {
     }
   })
 
-  it('links showcase cases only when the inspiration manifest has them', () => {
-    const cases = showcaseCases('zh-CN')
-    expect(caseHref(null)).toBe('/explore')
-    expect(cases[0]?.id).toBeNull()
-    for (const item of cases.slice(1)) {
-      expect(item.id && ids.has(item.id)).toBe(true)
+  it('uses only bundled images from the inspiration manifest', () => {
+    const images = [
+      ...showcaseCases('zh-CN').map((item) => item.image),
+      ...starterPrompts('zh-CN').map((item) => item.image),
+      ...featureCards('zh-CN').map((item) => item.image),
+    ]
+    for (const src of images) expect(existsSync(resolve(PUBLIC, `.${src}`))).toBe(true)
+    for (const item of showcaseCases('zh-CN')) {
+      expect(ids.has(item.id)).toBe(true)
       expect(caseHref(item.id)).toBe(`/explore#inspirations/${item.id}`)
     }
+    expect(caseHref(null)).toBe('/explore')
+    expect(showcaseCases('en').map((item) => item.title)).not.toContain(undefined)
   })
 
-  it('builds the same wall and closing rows the prototype scrolls', () => {
-    const columns = wallColumns()
-    expect(columns).toHaveLength(9)
-    expect(columns[0]?.length).toBeGreaterThan(10)
-    expect(columns[0]?.slice(0, columns[0].length / 2)).toEqual(
-      columns[0]?.slice(columns[0].length / 2),
-    )
-    const rows = libraryRows()
-    expect(rows).toHaveLength(2)
-    expect(rows[0]?.some((file) => file.startsWith('g-'))).toBe(false)
-    expect(rows[0]?.length).toBe(28)
+  it('starter prompts start from the library originals', () => {
+    for (const item of starterPrompts('en')) {
+      const original = prompts.get(item.id)
+      expect(original).toBeDefined()
+      expect(original).toContain(item.prompt.slice(0, 40))
+    }
   })
 
   it('renders X and email in the contact dialog and leaves WeChat empty', () => {
