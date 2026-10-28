@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  awaitingQueuePhase,
   DEFAULT_TYPICAL_MS,
   estimatedProgressPercent,
   forgetGenerating,
+  inGeneratingPhase,
   markGenerating,
   progressStartedAt,
   typicalDurationMs,
@@ -60,5 +62,27 @@ describe('progressStartedAt', () => {
   it('treats legacy platform tasks without a phase as queued', () => {
     const legacy = { id: 'old', createdAt: 1_000, platformTask: true as const }
     expect(progressStartedAt(legacy)).toBeNull()
+  })
+})
+
+describe('inGeneratingPhase', () => {
+  const base = { id: 'p', createdAt: 1_000, status: 'running' as const }
+
+  it('waits for the server to report generating before a platform task shows progress', () => {
+    // 刚提交、服务端还没回报阶段：按排队中显示，不出「生成中 0%」
+    const submitted = { ...base, platformTask: true as const }
+    expect(inGeneratingPhase(submitted)).toBe(false)
+    expect(awaitingQueuePhase(submitted)).toBe(true)
+    expect(inGeneratingPhase({ ...submitted, queuePhase: 'queued' as const })).toBe(false)
+    const generating = { ...submitted, queuePhase: 'generating' as const }
+    expect(inGeneratingPhase(generating)).toBe(true)
+    expect(awaitingQueuePhase(generating)).toBe(false)
+  })
+
+  it('shows progress for local tasks right away, but not for batch items still waiting', () => {
+    expect(inGeneratingPhase(base)).toBe(true)
+    expect(awaitingQueuePhase(base)).toBe(false)
+    expect(inGeneratingPhase({ ...base, batchQueued: true as const })).toBe(false)
+    expect(inGeneratingPhase({ ...base, status: 'done' as const })).toBe(false)
   })
 })
