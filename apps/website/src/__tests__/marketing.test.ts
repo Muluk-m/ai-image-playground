@@ -83,9 +83,16 @@ describe('marketing v4.1', () => {
     }
   })
 
-  it('keeps the English feature frames free of Chinese slugs', () => {
-    for (const feature of marketingCopy.en.features)
-      expect(feature.url).not.toMatch(/[\u4e00-\u9fff]/)
+  it('keeps feature address bars off paths a visitor could try to open', () => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      const urls = marketingCopy[locale].features.map((feature) => feature.url)
+      expect(urls.filter((url) => url === 'muvloom.online')).toHaveLength(3)
+      for (const url of urls) {
+        expect(url).not.toMatch(/\/p\//)
+        expect(url).not.toMatch(/[\u4e00-\u9fff]/)
+        expect(url).not.toMatch(/mug-glaze|serum-short/)
+      }
+    }
   })
 
   it('links showcase cases only when the inspiration manifest has them', () => {
