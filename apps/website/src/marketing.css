@@ -56,6 +56,9 @@
 .mkt .nav-end { display: flex; align-items: center; gap: 12px; }
 .mkt .lang { font-size: 13px; font-weight: 600; opacity: 0.8; }
 .mkt .lang:hover { opacity: 1; }
+/* 窄屏收起了中间的导航，只在右侧留一个「定价」。 */
+.mkt .nav-pricing { display: none; font-size: 13px; font-weight: 600; opacity: 0.8; }
+.mkt .nav-pricing:hover { opacity: 1; }
 .mkt .cta {
   background: var(--g);
   color: #071003;
@@ -561,6 +564,7 @@
 @media (max-width: 760px) {
   .mkt .dk { display: none; }
   .mkt .links { display: none; }
+  .mkt .nav-pricing { display: inline; }
   .mkt .nav .cta { padding: 9px 16px; }
   .mkt .wall { width: 320vw; gap: 12px; }
   .mkt .col { width: 36vw; gap: 12px; }
