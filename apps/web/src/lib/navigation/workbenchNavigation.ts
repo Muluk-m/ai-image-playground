@@ -6,6 +6,8 @@ import {
 } from '../../features/canvas/lib/projectRoute'
 import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { useLibraryStore } from '../../features/library/store'
+import { toolFromPath, toolPath } from '../../features/toolbox/lib/toolRoute'
+import { useToolboxStore } from '../../features/toolbox/store'
 import { i18next } from '../../i18n'
 import { useStore } from '../../store'
 import { LEGACY_PROJECTS_PATH, normalizePath, pathAppMode } from '../appPaths'
@@ -18,6 +20,18 @@ export function installWorkbenchNavigation(): () => void {
     const mode = pathAppMode(pathname) ?? (normalizePath(pathname) === '/' ? 'image' : null)
     if (pathname.replace(/\/+$/, '') === LEGACY_PROJECTS_PATH)
       useLibraryStore.getState().setTab('projects')
+    if (mode === 'tools') {
+      const tool = toolFromPath(pathname)
+      if (useToolboxStore.getState().activeTool !== tool)
+        useToolboxStore.setState({ activeTool: tool })
+      // 认不出的工具名落到目录，地址也改成目录的，不留一个打不开的地址。
+      if (normalizePath(pathname) !== toolPath(tool))
+        window.history.replaceState(
+          null,
+          '',
+          `${toolPath(tool)}${window.location.search}${window.location.hash}`,
+        )
+    }
     // 项目地址由项目导航切回画布。
     if (mode && useStore.getState().appMode !== mode) useStore.getState().setAppMode(mode)
   }
