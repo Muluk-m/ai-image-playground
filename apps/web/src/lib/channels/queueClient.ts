@@ -38,6 +38,7 @@ const BFF_SUBMIT_ERROR_KEYS = {
   invalid_request: 'queue.bffInvalidRequest',
   object_storage_error: 'queue.bffStorageUnavailable',
   idempotency_key_conflict: 'queue.bffDuplicateSubmit',
+  duplicate_submission: 'queue.bffRepeatedSubmit',
   video_not_supported: 'queue.bffVideoNotSupported',
   video_params_required: 'queue.bffVideoParamsRequired',
   invalid_video_request: 'queue.bffInvalidVideoRequest',

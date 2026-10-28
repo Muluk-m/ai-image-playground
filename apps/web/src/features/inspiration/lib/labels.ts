@@ -1,9 +1,11 @@
 import { currentLocale } from '../../../i18n'
+import type { InspirationItem } from '../types'
 import { INSPIRATION_GROUPS, type InspirationGroupId } from './groups'
+import TITLES_EN from './titles-en.json'
 
 /**
  * 灵感库的分类和标签是清单里的中文数据，不随界面语言改写存储值。
- * 英文界面只在展示时查这张表；没有对应译文时原样显示。案例标题保持原文。
+ * 英文界面只在展示时查这张表；没有对应译文时原样显示。案例标题见 {@link inspirationTitle}。
  */
 const EN_FACETS: Record<string, string> = {
   海报与字体: 'Posters & type',
@@ -205,4 +207,16 @@ export function inspirationGroupLabel(value: string, locale = currentLocale()): 
   if (!group) return inspirationFacetLabel(value, locale)
   if (!locale.toLowerCase().startsWith('en')) return group.name
   return EN_GROUPS[group.id]
+}
+
+const titlesEn: Record<string, string[] | undefined> = TITLES_EN
+
+/** 英文界面显示案例的英文标题；后台改过标题、或新案例还没译文时显示原标题。 */
+export function inspirationTitle(
+  item: Pick<InspirationItem, 'id' | 'title'>,
+  locale = currentLocale(),
+): string {
+  if (!locale.toLowerCase().startsWith('en')) return item.title
+  const entry = titlesEn[item.id]
+  return entry?.[0] === item.title && entry[1] ? entry[1] : item.title
 }

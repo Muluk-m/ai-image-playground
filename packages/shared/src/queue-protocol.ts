@@ -75,6 +75,11 @@ export type TaskErrorType =
 /** 一次提交最多带几张参考图。前端的附件上限与 BFF 的请求校验共用这一个数。 */
 export const QUEUE_MAX_INPUT_IMAGES = 16
 
+/** 去掉空白、控制符和零宽/方向符后什么都不剩的提示词，算没写。 */
+export function isBlankPrompt(prompt: string): boolean {
+  return prompt.replace(/[\s\p{Cc}\p{Cf}]/gu, '').length === 0
+}
+
 /** 提示词最长多少字符（OpenAI 图像接口的上限），超了 BFF 直接 400。 */
 export const QUEUE_PROMPT_MAX_CHARS = 32_000
 
