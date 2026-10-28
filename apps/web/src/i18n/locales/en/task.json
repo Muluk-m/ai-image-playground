@@ -30,6 +30,7 @@
   },
   "card": {
     "generating": "Generating...",
+    "progress": "Generating {{percent}}%",
     "batchQueued": "Queued",
     "phase": {
       "queued": "Queued...",
