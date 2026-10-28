@@ -56,6 +56,16 @@
 .mkt .nav-end { display: flex; align-items: center; gap: 12px; }
 .mkt .lang { font-size: 13px; font-weight: 600; opacity: 0.8; }
 .mkt .lang:hover { opacity: 1; }
+/* 顶栏文字不许折行。窄宽时由下面的间距去挤，不能把「中文」或按钮拆成两行。 */
+.mkt .brand,
+.mkt .links,
+.mkt .links a,
+.mkt .nav-end,
+.mkt .lang,
+.mkt .nav .cta {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 /* 窄屏收起了中间的导航，只在右侧留一个「定价」。 */
 .mkt .nav-pricing { display: none; font-size: 13px; font-weight: 600; opacity: 0.8; }
 .mkt .nav-pricing:hover { opacity: 1; }
@@ -572,6 +582,7 @@
     justify-content: flex-end;
     box-sizing: border-box;
     flex-shrink: 0;
+    white-space: nowrap;
     min-width: 44px;
     min-height: 44px;
     /* 不认 lh 的浏览器退回大约半行的固定值，认 lh 的按实际行高抵消。 */
@@ -626,6 +637,19 @@
   .mkt .foot .top { flex-direction: column; }
   .mkt .foot .cols { gap: 44px; }
   .mkt .foot .bot { flex-direction: column; gap: 8px; }
+}
+/* 320 宽的英文品牌、定价和「Start free」挤在一行里。只收横向间距和字号，顶栏仍按按钮高度。 */
+@media (max-width: 360px) {
+  .mkt .nav { padding-inline: 12px; }
+  .mkt .nav-end { gap: 8px; }
+  .mkt .brand { gap: 8px; font-size: 17px; }
+  .mkt .nav .cta { padding-inline: 8px; }
+}
+/* 761–800 刚露出桌面导航时，英文链接条比行宽略长。收边距，不改行高。 */
+@media (min-width: 761px) and (max-width: 800px) {
+  .mkt .nav { padding-inline: 18px; }
+  .mkt .nav-end { gap: 8px; }
+  .mkt .nav .cta { padding-inline: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .mkt .demo { margin-top: 0; height: auto; overflow: visible; padding: 12vh 0 4vh; }
