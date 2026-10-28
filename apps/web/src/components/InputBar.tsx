@@ -94,6 +94,7 @@ import {
   getMentionedImageIndexes,
   getSelectedImageMentionLabel,
   type MentionLabelResolver,
+  replaceImageMentionsForApi,
 } from '../lib/promptImageMentions'
 import { getPromptSlotNames, getSubmissionImageCount } from '../lib/promptSlots'
 import {
@@ -104,7 +105,6 @@ import {
   referenceRefusalMessage,
   referenceTally,
 } from '../lib/referenceDraft'
-import { useUndecodableReferences } from '../lib/undecodableReferences'
 import { cn } from '../lib/utils'
 import {
   removeMultipleTasks,
@@ -434,8 +434,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const promptBlank = isBlankPrompt(prompt)
   // 画布里这句话会作为智能体消息发出，上限更紧；生成档以云端历史能存下的长度为准。快到上限才显示字数。
   const promptMax = toCanvas ? AGENT_USER_MESSAGE_MAX_CHARS : SYNC_PROMPT_MAX_LENGTH
-  const promptTooLong = prompt.length > promptMax
-  const showPromptCount = prompt.length >= promptMax * 0.8
+  // 画布发出去的是图片胶囊换成 `[image N]` 之后的文字，按发送时的样子计数。
+  // 带模板时模板正文要到发送那一刻才组装好，这里只数输入的部分，超长由服务端拒绝。
+  const promptLength = toCanvas
+    ? replaceImageMentionsForApi(prompt, inputImages.length).trim().length
+    : prompt.length
+  const promptTooLong = promptLength > promptMax
+  const showPromptCount = promptLength >= promptMax * 0.8
   const canSubmit = Boolean(
     (!promptBlank || activeLook) &&
       hasSubmitApiConfig &&
@@ -1877,7 +1882,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                         promptTooLong ? 'text-destructive' : 'text-muted-foreground',
                       )}
                     >
-                      {prompt.length.toLocaleString()}/{promptMax.toLocaleString()}
+                      {promptLength.toLocaleString()}/{promptMax.toLocaleString()}
                     </span>
                   )}
                   <SubmissionBillingAction

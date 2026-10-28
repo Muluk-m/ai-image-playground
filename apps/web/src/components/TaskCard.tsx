@@ -5,7 +5,13 @@ import { openImageExport } from '../features/image-export/store'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
 import { modelLabel } from '../lib/channels/publicChannels'
-import { estimatedProgressPercent, typicalDurationMs } from '../lib/generationProgress'
+import {
+  estimatedProgressPercent,
+  forgetGenerating,
+  markGenerating,
+  progressStartedAt,
+  typicalDurationMs,
+} from '../lib/generationProgress'
 import { ActualValueBadge, getParamDisplay, measuredSizeOf } from '../lib/paramDisplay'
 import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
@@ -192,13 +198,18 @@ export default function TaskCard({
   const isSwipeReady = Math.abs(swipeOffset) >= 40
   const showSwipeAction = isSwipeReady || swipeActionActive
   const showRunningTimer = task.status === 'running' && !task.batchQueued
-  // 上游不回报真实进度：只在真正出图阶段按本机同模型的典型耗时估一个百分比，排队、重连、确认时不显示。
-  const progressPercent =
+  // 上游不回报真实进度：只在真正出图阶段按本机同模型的典型耗时估一个百分比，排队、重连、确认时不显示也不计时。
+  const generatingPhase =
     task.status === 'running' &&
     !task.batchQueued &&
     (task.queuePhase == null || task.queuePhase === 'generating')
-      ? estimatedProgressPercent(now - (task.batchStartedAt ?? task.createdAt), typicalMs)
-      : null
+  const progressStart = generatingPhase ? progressStartedAt(task) : null
+  const progressPercent =
+    progressStart != null ? estimatedProgressPercent(now - progressStart, typicalMs) : null
+  useEffect(() => {
+    if (generatingPhase) markGenerating(task, Date.now())
+    else if (task.status !== 'running') forgetGenerating(task.id)
+  }, [generatingPhase, task])
   const runningLabel = task.batchQueued
     ? t('card.batchQueued')
     : progressPercent != null
