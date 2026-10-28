@@ -12,7 +12,6 @@ import {
   marketingCopy,
   showcaseCases,
   wallColumns,
-  X_URL,
 } from '../marketing'
 
 const manifest = JSON.parse(
@@ -83,9 +82,16 @@ describe('marketing v4.1', () => {
     }
   })
 
-  it('keeps the English feature frames free of Chinese slugs', () => {
-    for (const feature of marketingCopy.en.features)
-      expect(feature.url).not.toMatch(/[\u4e00-\u9fff]/)
+  it('keeps feature address bars off paths a visitor could try to open', () => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      const urls = marketingCopy[locale].features.map((feature) => feature.url)
+      expect(urls.filter((url) => url === 'muvloom.online')).toHaveLength(3)
+      for (const url of urls) {
+        expect(url).not.toMatch(/\/p\//)
+        expect(url).not.toMatch(/[\u4e00-\u9fff]/)
+        expect(url).not.toMatch(/mug-glaze|serum-short/)
+      }
+    }
   })
 
   it('links showcase cases only when the inspiration manifest has them', () => {
@@ -111,13 +117,13 @@ describe('marketing v4.1', () => {
     expect(rows[0]?.length).toBe(28)
   })
 
-  it('renders X and email in the contact dialog and leaves WeChat empty', () => {
+  it('renders only email in the contact dialog and leaves WeChat empty', () => {
     const html = renderToStaticMarkup(
       createElement(ContactPanel, { locale: 'zh-CN', onClose: () => {} }),
     )
     expect(html).toContain('联系我们')
-    expect(html).toContain(`href="${X_URL}"`)
-    expect(html).toContain('target="_blank"')
+    expect(html).not.toContain('x.com/')
+    expect(html).not.toContain('@Muluk656')
     expect(html).toContain(CONTACT_EMAIL)
     expect(html).toContain(`href="mailto:${CONTACT_EMAIL}"`)
     expect(html).toContain('复制')
