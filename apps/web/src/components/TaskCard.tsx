@@ -5,9 +5,17 @@ import { openImageExport } from '../features/image-export/store'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
 import { modelLabel } from '../lib/channels/publicChannels'
+import {
+  estimatedProgressPercent,
+  forgetGenerating,
+  markGenerating,
+  progressStartedAt,
+  typicalDurationMs,
+} from '../lib/generationProgress'
 import { ActualValueBadge, getParamDisplay, measuredSizeOf } from '../lib/paramDisplay'
 import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
+import { JobProgress } from './assistant-ui/elements/job-progress'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
 import { compactModelName, ModelLogo } from './ModelIdentity'
 import { Button } from './ui/button'
@@ -58,6 +66,9 @@ export default function TaskCard({
   const [swipeActionActive, setSwipeActionActive] = useState(false)
   const toggleTaskSelection = useStore((s) => s.toggleTaskSelection)
   const settings = useStore((s) => s.settings)
+  const typicalMs = useStore((s) =>
+    task.status === 'running' ? typicalDurationMs(s.tasks, task.apiModel) : 0,
+  )
   const exportLabel = t('download.export')
   const handleExport = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -185,11 +196,25 @@ export default function TaskCard({
   const isSwipeReady = Math.abs(swipeOffset) >= 40
   const showSwipeAction = isSwipeReady || swipeActionActive
   const showRunningTimer = task.status === 'running' && !task.batchQueued
+  // 上游不回报真实进度：只在真正出图阶段按本机同模型的典型耗时估一个百分比，排队、重连、确认时不显示也不计时。
+  const generatingPhase =
+    task.status === 'running' &&
+    !task.batchQueued &&
+    (task.queuePhase == null || task.queuePhase === 'generating')
+  const progressStart = generatingPhase ? progressStartedAt(task) : null
+  const progressPercent =
+    progressStart != null ? estimatedProgressPercent(now - progressStart, typicalMs) : null
+  useEffect(() => {
+    if (generatingPhase) markGenerating(task, Date.now())
+    else if (task.status !== 'running') forgetGenerating(task.id)
+  }, [generatingPhase, task])
   const runningLabel = task.batchQueued
     ? t('card.batchQueued')
-    : task.queuePhase
-      ? t(`card.phase.${task.queuePhase}`)
-      : t('card.generating')
+    : progressPercent != null
+      ? t('card.progress', { percent: progressPercent })
+      : task.queuePhase
+        ? t(`card.phase.${task.queuePhase}`)
+        : t('card.generating')
   const swipeBgClass = showSwipeAction
     ? swipeStartedSelected
       ? 'bg-muted'
@@ -266,12 +291,19 @@ export default function TaskCard({
         <div className="flex h-40">
           {/* 左侧图片区域 */}
           <div className="w-40 min-w-[10rem] h-full bg-muted dark:bg-black/20 relative flex items-center justify-center overflow-hidden flex-shrink-0">
-            {task.status === 'running' && (
-              <div className="flex flex-col items-center gap-2">
-                <Icon name="loading" size="lg" className="animate-spin text-primary" />
-                <span className="text-xs text-muted-foreground">{runningLabel}</span>
-              </div>
-            )}
+            {task.status === 'running' &&
+              (progressPercent != null ? (
+                <JobProgress
+                  label={runningLabel}
+                  progress={progressPercent}
+                  className="w-24 items-center"
+                />
+              ) : (
+                <div className="flex flex-col items-center gap-2">
+                  <Icon name="loading" size="lg" className="animate-spin text-primary" />
+                  <span className="text-xs text-muted-foreground">{runningLabel}</span>
+                </div>
+              ))}
             {task.status === 'error' && task.cancelled && (
               <div className="flex flex-col items-center gap-1 px-2">
                 <Icon name="close" size="lg" className="text-muted-foreground" />
