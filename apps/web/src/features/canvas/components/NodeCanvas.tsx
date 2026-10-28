@@ -68,7 +68,7 @@ import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
 import { Icon, type IconName } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
-import { useTranslation } from '../../../i18n'
+import { i18next, useTranslation } from '../../../i18n'
 import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { getStoredChannels, subscribeChannels } from '../../../lib/channels/channelStore'
 import { videoOutputUrl } from '../../../lib/channels/queueClient'
@@ -77,8 +77,12 @@ import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { downloadBlob } from '../../../lib/downloadImages'
 import { fetchDownloadBlob } from '../../../lib/downloadRequest'
 import { reportDeliveryFailure } from '../../../lib/errorReporting'
-import { collectDroppedFiles, prepareAcceptedImageFiles } from '../../../lib/imageFiles'
-import { MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
+import {
+  collectDroppedFiles,
+  prepareAcceptedImageFiles,
+  UploadImageTooLargeError,
+} from '../../../lib/imageFiles'
+import { MAX_IMAGE_MB, MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
 import { useStore } from '../../../store'
 import { useTheme } from '../../../theme/useTheme'
 import { useActiveLook } from '../../library/lib/activeLook'
@@ -1832,7 +1836,9 @@ function Flow({
         .showToast(
           error instanceof CanvasReferenceLimitError
             ? MAX_INPUT_IMAGES_MESSAGE
-            : t('import.failed'),
+            : error instanceof UploadImageTooLargeError
+              ? i18next.t('image.tooLarge', { ns: 'lib', count: 1, max: MAX_IMAGE_MB })
+              : t('import.failed'),
           'error',
         )
     } finally {
