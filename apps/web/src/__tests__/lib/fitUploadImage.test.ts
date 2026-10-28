@@ -104,6 +104,27 @@ it('does not scan pixels when the PNG header has no alpha channel', async () => 
   expect(fitted.file.type).toBe('image/jpeg')
 })
 
+it('scans pixels when transparency is declared after the first image data chunk', async () => {
+  stubEncoder()
+  const getImageData = vi.fn(() => ({ data: new Uint8ClampedArray([255, 255, 255, 255]) }))
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    drawImage: vi.fn(),
+    getImageData,
+  } as unknown as CanvasRenderingContext2D)
+  const transparency = Uint8Array.from([0, 0, 0, 6, 116, 82, 78, 83, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+  const iend = RGB_PNG.length - 12
+  const bytes = new Uint8Array(RGB_PNG.length + transparency.length)
+  bytes.set(RGB_PNG.subarray(0, iend), 0)
+  bytes.set(transparency, iend)
+  bytes.set(RGB_PNG.subarray(iend), iend + transparency.length)
+  const huge = new File([bytes], 'late-trns.png', { type: 'image/png' })
+  Object.defineProperty(huge, 'size', { value: UPLOAD_COMPRESSION_THRESHOLD_BYTES + 1 })
+  const fitted = await fitUploadImageFile(huge)
+  expect(getImageData).toHaveBeenCalled()
+  expect(fitted.compressed).toBe(true)
+  expect(fitted.file.type).toBe('image/jpeg')
+})
+
 it('keeps a transparent image as PNG when that already fits', async () => {
   stubEncoder(2048, 'image/png')
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({

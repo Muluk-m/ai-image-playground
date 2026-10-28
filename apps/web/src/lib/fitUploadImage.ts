@@ -134,15 +134,19 @@ function containerIsOpaque(bytes: ArrayBuffer): boolean {
     const colorType = fileBytes[25]
     if (colorType !== 0 && colorType !== 2 && colorType !== 3) return false
     const view = new DataView(bytes)
+    let ended = false
     for (let offset = 8; offset + 12 <= fileBytes.length; ) {
       const length = view.getUint32(offset)
       if (offset + length + 12 > fileBytes.length) return false
       const name = chunkName(fileBytes, offset + 4)
       if (name === 'tRNS') return false
-      if (name === 'IDAT') return true
+      if (name === 'IEND') {
+        ended = true
+        break
+      }
       offset += length + 12
     }
-    return false
+    return ended
   }
   if (
     fileBytes.length >= 12 &&
@@ -150,19 +154,21 @@ function containerIsOpaque(bytes: ArrayBuffer): boolean {
     chunkName(fileBytes, 8) === 'WEBP'
   ) {
     const view = new DataView(bytes)
-    let sawLossy = false
+    let opaque = false
     for (let offset = 12; offset + 8 <= fileBytes.length; ) {
       const name = chunkName(fileBytes, offset)
       const length = view.getUint32(offset + 4, true)
       const start = offset + 8
       if (start + length > fileBytes.length) return false
-      if (name === 'ALPH') return false
-      if (name === 'VP8X') return length >= 1 && (fileBytes[start]! & 0x10) === 0
-      if (name === 'VP8L') return false
-      if (name === 'VP8 ') sawLossy = true
+      if (name === 'ALPH' || name === 'VP8L') return false
+      if (name === 'VP8X') {
+        if (length < 1 || (fileBytes[start]! & 0x10) !== 0) return false
+        opaque = true
+      }
+      if (name === 'VP8 ') opaque = true
       offset = start + length + (length % 2)
     }
-    return sawLossy
+    return opaque
   }
   return false
 }
@@ -175,6 +181,7 @@ async function sourceIsOpaque(
   const probe = document.createElement('canvas')
   const ctx = probe.getContext('2d', { willReadFrequently: true })
   if (!ctx) return false
+  let sliceStart = performance.now()
   try {
     for (let y = 0; y < height; y += ALPHA_TILE) {
       const tileHeight = Math.min(ALPHA_TILE, height - y)
@@ -187,8 +194,11 @@ async function sourceIsOpaque(
         for (let index = 3; index < data.length; index += 4) {
           if (data[index] !== 255) return false
         }
-        // 让出主线程：64MP 的图要扫很多块，不能合成一次长任务把页面冻住。
-        await new Promise((resolve) => setTimeout(resolve, 0))
+        // 凑够约一帧再让出，避免每块一个定时器，后台页面被节流到秒级。
+        if (performance.now() - sliceStart >= 16) {
+          await new Promise((resolve) => setTimeout(resolve, 0))
+          sliceStart = performance.now()
+        }
       }
     }
     return true
