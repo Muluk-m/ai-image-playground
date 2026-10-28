@@ -8,6 +8,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { i18next } from '../../i18n'
 import { getCachedGenerations } from '../../lib/db'
+import { awaitingQueuePhase } from '../../lib/generationProgress'
 import {
   cloudReuseSourceFromGeneration,
   loadPlatformGenerations,
@@ -493,4 +494,13 @@ it('云端失败卡保留错误分类，内容审核展示与复制均可识别�
     errorCode: 'content_policy',
     error: i18next.t('detail.contentPolicy', { ns: 'task' }),
   })
+})
+
+it('另一台设备提交、已在执行的任务按生成中显示，不停在排队中', () => {
+  const running = taskFromGeneration({ ...summary, status: 'in_progress', completedAt: null })
+  expect(running).toMatchObject({ status: 'running', queuePhase: 'generating' })
+  expect(awaitingQueuePhase(running)).toBe(false)
+  expect(taskFromGeneration({ ...summary, status: 'queued', completedAt: null }).queuePhase).toBe(
+    undefined,
+  )
 })
