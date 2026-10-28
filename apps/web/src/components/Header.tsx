@@ -16,6 +16,7 @@ import {
 import { useSyncStatus } from '../lib/sync/status'
 import { isWorkbenchMode, useStore } from '../store'
 import BrandAvatar from './BrandAvatar'
+import ContactDialog from './ContactDialog'
 import DisplaySettingsMenuItems from './DisplaySettingsMenuItems'
 import GuestAccountMenu from './GuestAccountMenu'
 import HeaderMembershipChip from './HeaderMembershipChip'
@@ -31,6 +32,7 @@ export default function Header() {
   const workbench = isWorkbenchMode(appMode)
   const [loggingOut, setLoggingOut] = useState(false)
   const [loginMethodsOpen, setLoginMethodsOpen] = useState(false)
+  const [contactOpen, setContactOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const headerActionsRef = useRef<HTMLDivElement>(null)
@@ -145,6 +147,10 @@ export default function Header() {
     setAccountMenuOpen(false)
     setShowSettings(true)
   }
+  const openContact = () => {
+    setAccountMenuOpen(false)
+    setContactOpen(true)
+  }
 
   return (
     <>
@@ -212,6 +218,7 @@ export default function Header() {
                   }}
                   onClose={() => setAccountMenuOpen(false)}
                   onOpenSettings={openSettings}
+                  onOpenContact={openContact}
                 />
               ) : null}
               {accountMenuOpen && auth.user ? (
@@ -243,6 +250,16 @@ export default function Header() {
                         className="ml-auto h-1.5 w-1.5 rounded-full bg-warning"
                       />
                     ) : null}
+                  </Button>
+                  <Button
+                    type="button"
+                    role="menuitem"
+                    onClick={openContact}
+                    variant="ghost"
+                    className="w-full justify-start text-muted-foreground"
+                  >
+                    <Icon name="chat" />
+                    <span>{t('header.contact.menu')}</span>
                   </Button>
                   {auth.enabled && auth.user ? (
                     <>
@@ -283,6 +300,7 @@ export default function Header() {
         </div>
       </div>
       {loginMethodsOpen && <LoginMethodsPanel onClose={() => setLoginMethodsOpen(false)} />}
+      {contactOpen && <ContactDialog onClose={() => setContactOpen(false)} />}
     </>
   )
 }
