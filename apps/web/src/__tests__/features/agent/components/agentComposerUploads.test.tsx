@@ -174,10 +174,20 @@ it.each([
       root.render(<AgentComposer doc={new CanvasDoc()} />)
     })
     const panel = openReferenceStack(host)
+    // 原因只在参考区顶部写一次，标明第几张（BUG-57）；缩略图旁不再重复。
     await vi.waitFor(() =>
-      expect(panel.querySelector('[role="alert"]')?.textContent).toContain(message),
+      expect(panel.querySelector('.creation-reference-status')?.textContent).toMatch(
+        new RegExp(`^第 1 张图片：.*${message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+      ),
     )
-    expect(panel.querySelector('[role="alert"]')?.className).toContain('text-destructive')
+    expect(panel.querySelector('.creation-reference-status')?.getAttribute('data-failed')).toBe(
+      'true',
+    )
+    expect(
+      [...panel.querySelectorAll('span')].filter(
+        (span) => !span.classList.contains('sr-only') && span.textContent?.includes(message),
+      ),
+    ).toEqual([])
     expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')?.disabled).toBe(
       true,
     )

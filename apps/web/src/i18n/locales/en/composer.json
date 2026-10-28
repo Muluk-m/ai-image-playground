@@ -40,7 +40,7 @@
     "attach": "Add reference images (up to {{count}}, ≤{{mb}}MB each)",
     "attachImages": "Add images",
     "attachFolder": "Add a folder",
-    "referenceTooLarge": "Image {{index}} is larger than {{maxSize}}. Please choose a smaller one."
+    "referenceTooLarge": "Image {{index}} is over {{maxSize}}. Remove it or use a smaller one."
   },
   "slot": {
     "heading": "Slot {{slot}}",
