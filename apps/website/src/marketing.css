@@ -19,6 +19,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* space-between 本身不留间距，品牌和右侧挤到一起时至少隔 8px。 */
+  gap: 8px;
   padding: 16px clamp(18px, 4vw, 52px);
   transition: background 0.3s, border-color 0.3s, backdrop-filter 0.3s;
   border-bottom: 1px solid transparent;
@@ -54,8 +56,37 @@
 .mkt .links a { padding: 6px 14px; border-radius: 99px; transition: background 0.2s; }
 .mkt .links a:hover { background: rgba(255, 255, 255, 0.1); }
 .mkt .nav-end { display: flex; align-items: center; gap: 12px; }
-.mkt .lang { font-size: 13px; font-weight: 600; opacity: 0.8; }
+.mkt .lang { position: relative; font-size: 13px; font-weight: 600; opacity: 0.8; }
 .mkt .lang:hover { opacity: 1; }
+/* 文字大小不变，热区不占布局。高度 44。左右只伸进间距，并留下 1px，
+   不和定价、开始按钮交叠。间距 8px 时「EN」大约 18px 宽，热区大约 32px，
+   到不了 40；再加宽就会盖住旁边。 */
+.mkt .lang::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  /* 默认间距 12px，留 1px。 */
+  left: -11px;
+  right: -11px;
+  height: 44px;
+  transform: translateY(-50%);
+}
+@media (max-width: 380px) {
+  .mkt .lang::before { left: -7px; right: -7px; }
+}
+@media (min-width: 761px) and (max-width: 800px) {
+  .mkt .lang::before { left: -7px; right: -7px; }
+}
+/* 顶栏文字不许折行。窄宽时由下面的间距去挤，不能把「中文」或按钮拆成两行。 */
+.mkt .brand,
+.mkt .links,
+.mkt .links a,
+.mkt .nav-end,
+.mkt .lang,
+.mkt .nav .cta {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 /* 窄屏收起了中间的导航，只在右侧留一个「定价」。 */
 .mkt .nav-pricing { display: none; font-size: 13px; font-weight: 600; opacity: 0.8; }
 .mkt .nav-pricing:hover { opacity: 1; }
@@ -514,9 +545,20 @@
   place-items: center;
 }
 .cbox .cx:hover { color: #f4f6f1; background: rgba(255, 255, 255, 0.1); }
+/* 关闭钮外观仍是 32px，可点区域扩到 44×44。 */
+.cbox .cx::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
 .cbox .copt {
   margin-top: 14px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 14px;
@@ -524,6 +566,14 @@
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.03);
 }
+.cbox .cmain {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.cbox .cacts { display: flex; flex: none; gap: 12px; align-items: center; }
 .cbox .copt:first-of-type { margin-top: 20px; }
 .cbox .ci {
   width: 38px;
@@ -546,6 +596,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 邮箱放不下时整段换行，不截成省略号。按钮组不缩放，窄时整组换到下一行。 */
+.cbox .ct span.cmail {
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .cbox .cbtn {
   flex: none;
   font-family: inherit;
@@ -564,7 +621,23 @@
 @media (max-width: 760px) {
   .mkt .dk { display: none; }
   .mkt .links { display: none; }
-  .mkt .nav-pricing { display: inline; }
+  /* 手机「定价」命中区至少 44×44（与触控下限一致）。上下用 padding 撑开、负 margin 抵消，
+     文字仍贴着语言切换一侧，顶栏高度不变；多出的宽度只向左，不压到旁边的语言切换。 */
+  .mkt .nav-pricing {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    box-sizing: border-box;
+    flex-shrink: 0;
+    white-space: nowrap;
+    min-width: 44px;
+    min-height: 44px;
+    /* 不认 lh 的浏览器退回大约半行的固定值，认 lh 的按实际行高抵消。 */
+    padding-block: 12px;
+    margin-block: -12px;
+    padding-block: calc((44px - 1lh) / 2);
+    margin-block: calc((1lh - 44px) / 2);
+  }
   .mkt .nav .cta { padding: 9px 16px; }
   .mkt .wall { width: 320vw; gap: 12px; }
   .mkt .col { width: 36vw; gap: 12px; }
@@ -606,11 +679,43 @@
   .mkt .end { padding: 16vh 0 14vh; }
   .mkt .marq { opacity: 0.22; }
   .cbox .copt { flex-wrap: wrap; }
-  .cbox .copt .cbtn { flex: 1; text-align: center; }
-  .cbox .copt .ct { flex-basis: calc(100% - 50px); }
+  .cbox .cmain { flex-basis: 100%; }
+  .cbox .cacts { flex: 1 1 100%; }
+  .cbox .cacts .cbtn { flex: 1; text-align: center; }
   .mkt .foot .top { flex-direction: column; }
   .mkt .foot .cols { gap: 44px; }
   .mkt .foot .bot { flex-direction: column; gap: 8px; }
+}
+/* 英文品牌、定价和「Start free」按常规间距要 372px 才放得下。只收横向间距和字号，顶栏仍按按钮高度。 */
+@media (max-width: 380px) {
+  .mkt .nav { padding-inline: 12px; }
+  .mkt .nav-end { gap: 8px; }
+  .mkt .brand { gap: 8px; font-size: 17px; }
+  .mkt .nav .cta { padding-inline: 8px; }
+}
+/* 320 以下再收一档：边距、徽标和品牌字号。 */
+@media (max-width: 340px) {
+  .mkt .nav { padding-inline: 8px; }
+  .mkt .brand { gap: 6px; font-size: 16px; }
+  .mkt .brand img { width: 26px; height: 26px; }
+}
+/* 手机首屏标题从顶栏下沿开始居中（顶栏约 68px 高），放不下时贴着顶栏下沿，不钻到顶栏后面。 */
+@media (max-width: 760px) {
+  .mkt .htitle { padding: 68px 24px 16px; justify-content: safe center; }
+}
+/* 320×568、375×667 这类矮屏放不下英文标题和正文：收标题字号和段距，滚动提示让位。 */
+@media (max-width: 760px) and (max-height: 700px) {
+  .mkt .htitle h1 { font-size: min(11.6vw, 6svh); }
+  .mkt .htitle p { margin-top: 14px; }
+  .mkt .htitle .row { margin-top: 18px; }
+  .mkt .hero-note { margin-top: 10px; }
+  .mkt .scrollhint { display: none; }
+}
+/* 761–800 刚露出桌面导航时，英文链接条比行宽略长。收边距，不改行高。 */
+@media (min-width: 761px) and (max-width: 800px) {
+  .mkt .nav { padding-inline: 18px; }
+  .mkt .nav-end { gap: 8px; }
+  .mkt .nav .cta { padding-inline: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .mkt .demo { margin-top: 0; height: auto; overflow: visible; padding: 12vh 0 4vh; }

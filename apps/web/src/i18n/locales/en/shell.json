@@ -17,6 +17,15 @@
       "signInUp": "Sign in / Register",
       "help": "Help & guide",
       "viewPlans": "View plans"
+    },
+    "contact": {
+      "menu": "Contact us",
+      "title": "Contact us",
+      "email": "Email",
+      "copy": "Copy",
+      "copied": "Copied",
+      "copyFailed": "Copy failed",
+      "send": "Send email"
     }
   },
   "brand": {

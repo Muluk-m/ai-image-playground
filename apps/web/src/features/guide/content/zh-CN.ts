@@ -1,8 +1,4 @@
-import {
-  SUPPORT_CONTACT,
-  SUPPORT_MAILTO,
-  SUPPORT_X_URL,
-} from '@image-playground/shared/support-contact'
+import { SUPPORT_CONTACT, SUPPORT_MAILTO } from '@image-playground/shared/support-contact'
 import {
   faq,
   type GuideContent,
@@ -1172,10 +1168,7 @@ export const guideZhCN: GuideContent = {
               title: '联系我们',
               blocks: [
                 p('遇到问题或有建议，可以通过以下方式联系我们：'),
-                list(
-                  `X：[@${SUPPORT_CONTACT.xHandle}](${SUPPORT_X_URL})`,
-                  `邮箱：[${SUPPORT_CONTACT.email}](${SUPPORT_MAILTO})`,
-                ),
+                list(`邮箱：[${SUPPORT_CONTACT.email}](${SUPPORT_MAILTO})`),
                 tip('反馈问题时附上截图和大致时间，便于更快定位。'),
               ],
             },

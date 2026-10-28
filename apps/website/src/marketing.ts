@@ -1,4 +1,4 @@
-import { SUPPORT_CONTACT, SUPPORT_X_URL } from '@image-playground/shared/support-contact'
+import { SUPPORT_CONTACT } from '@image-playground/shared/support-contact'
 import type { Locale } from './catalog'
 
 export const ASSET = '/website-assets/v41'
@@ -213,9 +213,6 @@ export interface MarketingCopy {
     title: string
     body: string
     close: string
-    xTitle: string
-    xDetail: string
-    xAction: string
     mailTitle: string
     mail: string
     copy: string
@@ -225,29 +222,18 @@ export interface MarketingCopy {
   }
 }
 
-// 功能截图上方的地址栏只是展示文字，不是可点的链接；英文版用英文 slug。
-const FEATURE_URLS: Record<Locale, readonly string[]> = {
-  'zh-CN': [
-    'muvloom.online/image',
-    'muvloom.online/image',
-    'muvloom.online/image',
-    'muvloom.online/p/马克杯釉色方案',
-    'muvloom.online/p/马克杯釉色方案',
-    'muvloom.online/p/精华液短片',
-    'muvloom.online/assets',
-    'muvloom.online/explore',
-  ],
-  en: [
-    'muvloom.online/image',
-    'muvloom.online/image',
-    'muvloom.online/image',
-    'muvloom.online/p/mug-glaze-concepts',
-    'muvloom.online/p/mug-glaze-concepts',
-    'muvloom.online/p/serum-short-film',
-    'muvloom.online/assets',
-    'muvloom.online/explore',
-  ],
-}
+// 功能截图上方的地址栏只是展示文字，不是可点的链接。
+// 画布帧只写域名：/p/<项目> 打不开，照着地址栏打开会看到「项目暂时打不开」。
+const FEATURE_URLS = [
+  'muvloom.online/image',
+  'muvloom.online/image',
+  'muvloom.online/image',
+  'muvloom.online',
+  'muvloom.online',
+  'muvloom.online',
+  'muvloom.online/assets',
+  'muvloom.online/explore',
+] as const
 
 const FEATURE_IMAGES = [
   'composer-capsule',
@@ -330,13 +316,10 @@ const enFeatures: Array<Pick<FeatureChapter, 'title' | 'body'>> = [
   },
 ]
 
-function features(
-  locale: Locale,
-  chapters: Array<Pick<FeatureChapter, 'title' | 'body'>>,
-): FeatureChapter[] {
+function features(chapters: Array<Pick<FeatureChapter, 'title' | 'body'>>): FeatureChapter[] {
   return chapters.map((chapter, index) => ({
     ...chapter,
-    url: FEATURE_URLS[locale][index]!,
+    url: FEATURE_URLS[index]!,
     image: FEATURE_IMAGES[index]!,
   }))
 }
@@ -377,7 +360,7 @@ const zh: MarketingCopy = {
   ],
   featuresTitle: '从想法到成片',
   featuresNote: '截图均来自幕芽当前版本。',
-  features: features('zh-CN', zhFeatures),
+  features: features(zhFeatures),
   gallery: {
     line1: '不知道写什么？',
     line2: '先做同款',
@@ -412,9 +395,6 @@ const zh: MarketingCopy = {
     title: '联系我们',
     body: '产品反馈、合作或使用问题，都可以找我们。',
     close: '关闭',
-    xTitle: 'X 私信',
-    xDetail: `@${SUPPORT_CONTACT.xHandle}`,
-    xAction: '打开 X',
     mailTitle: '邮件',
     mail: SUPPORT_CONTACT.email,
     copy: '复制',
@@ -460,7 +440,7 @@ const en: MarketingCopy = {
   ],
   featuresTitle: 'From an idea to a finished piece',
   featuresNote: 'Screenshots are from the current version of Muvloom.',
-  features: features('en', enFeatures),
+  features: features(enFeatures),
   gallery: {
     line1: 'Not sure what to write?',
     line2: 'Start from one you like',
@@ -501,9 +481,6 @@ const en: MarketingCopy = {
     title: 'Contact us',
     body: 'Product feedback, partnerships, or questions — reach us here.',
     close: 'Close',
-    xTitle: 'Message on X',
-    xDetail: `@${SUPPORT_CONTACT.xHandle}`,
-    xAction: 'Open X',
     mailTitle: 'Email',
     mail: SUPPORT_CONTACT.email,
     copy: 'Copy',
@@ -537,5 +514,4 @@ export function showcaseCases(locale: Locale): ShowcaseCase[] {
   }))
 }
 
-export const X_URL = SUPPORT_X_URL
 export const CONTACT_EMAIL = SUPPORT_CONTACT.email
