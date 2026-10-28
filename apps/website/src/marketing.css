@@ -653,6 +653,18 @@
   .mkt .brand { gap: 6px; font-size: 16px; }
   .mkt .brand img { width: 26px; height: 26px; }
 }
+/* 手机首屏标题从顶栏下沿开始居中（顶栏约 68px 高），放不下时贴着顶栏下沿，不钻到顶栏后面。 */
+@media (max-width: 760px) {
+  .mkt .htitle { padding: 68px 24px 16px; justify-content: safe center; }
+}
+/* 320×568、375×667 这类矮屏放不下英文标题和正文：收标题字号和段距，滚动提示让位。 */
+@media (max-width: 760px) and (max-height: 700px) {
+  .mkt .htitle h1 { font-size: min(11.6vw, 6svh); }
+  .mkt .htitle p { margin-top: 14px; }
+  .mkt .htitle .row { margin-top: 18px; }
+  .mkt .hero-note { margin-top: 10px; }
+  .mkt .scrollhint { display: none; }
+}
 /* 761–800 刚露出桌面导航时，英文链接条比行宽略长。收边距，不改行高。 */
 @media (min-width: 761px) and (max-width: 800px) {
   .mkt .nav { padding-inline: 18px; }
