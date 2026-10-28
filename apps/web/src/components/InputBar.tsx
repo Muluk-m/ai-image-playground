@@ -1,3 +1,4 @@
+import { isBlankPrompt } from '@image-playground/shared'
 import {
   type ReactNode,
   useCallback,
@@ -139,7 +140,7 @@ function useIsMobile() {
   return isMobile
 }
 
-/** 逐张生成点发送后按钮转圈的最短时长，之后才清空输入框。 */
+/** 快速生成点发送后按钮转圈并锁住的最短时长，之后才清空输入框、才能再发。 */
 const BATCH_SEND_FEEDBACK_MS = 500
 /** 逐张生成时 @图1 的占位身份：它指「每个任务各自的目标图」，不是哪一张具体的图。 */
 const PER_TASK_TARGET_ID = 'per-task-target'
@@ -418,8 +419,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     [activeLook, inputImages, libraryAssets],
   )
   const lookBody = activeLook?.record?.body ?? activeLook?.skill?.template?.body ?? ''
+  const promptBlank = isBlankPrompt(prompt)
   const canSubmit = Boolean(
-    (prompt.trim() || activeLook) &&
+    (!promptBlank || activeLook) &&
       hasSubmitApiConfig &&
       !submissionGuard.blocked &&
       (lookCheck?.ok ?? true) &&
@@ -435,10 +437,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const submitReady =
     !lookSubmitting &&
     (toCanvas
-      ? Boolean(prompt.trim()) && !oversizedNotice && !uploadsBlocked
+      ? !promptBlank && !oversizedNotice && !uploadsBlocked
       : canSubmit && !skillNeedsCanvas)
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
-  const promptMissing = !prompt.trim() && (toCanvas || !activeLook)
+  const promptMissing = promptBlank && (toCanvas || !activeLook)
   const blockedByReferences = referenceNotice ?? (uploadsBlocked ? uploadProgress : null)
   const submitBlockedTip = blockedByReferences
     ? blockedByReferences
@@ -474,16 +476,19 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         }
       })()
     } else if (activeLook) void submitWithLook(activeLook, lookBody)
-    else if (batchActive) {
-      // 逐张生成一次发很多张，按钮先转一下再清空输入框，让这次点击有回应。
+    else {
+      // 点下去这一刻就锁住按钮：按钮先转一下再清空输入框，让这次点击有回应；
+      // 转圈期间的第二下点击或回车不再发出第二条任务（双击会建两条任务、扣两次费）。
       batchSendingRef.current = true
       setBatchSending(true)
       const hold = new Promise((resolve) => setTimeout(resolve, BATCH_SEND_FEEDBACK_MS))
-      void submitTask({ holdClear: hold }).finally(() => {
-        batchSendingRef.current = false
-        setBatchSending(false)
-      })
-    } else void submitTask()
+      void submitTask({ holdClear: hold })
+        .then(() => hold)
+        .finally(() => {
+          batchSendingRef.current = false
+          setBatchSending(false)
+        })
+    }
   }
   const onSubmitClick = () => {
     if (lookSubmitting) cancelLookSubmission()

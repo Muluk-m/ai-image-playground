@@ -1,3 +1,4 @@
+import { SUPPORT_CONTACT, SUPPORT_X_URL } from '@image-playground/shared'
 import type { Locale } from './catalog'
 
 export const ASSET = '/website-assets/v41'
@@ -82,6 +83,18 @@ export const WALL = [
 export function wallSrc(file: string): string {
   return `${ASSET}/wall/${file}`
 }
+
+/** 墙图另备一份 320 宽：窄列和低像素比屏取小图，慢网首屏少下几 MB。 */
+export function wallSrcSet(file: string): string {
+  return `${ASSET}/wall-320/${file} 320w, ${wallSrc(file)} 640w`
+}
+
+/** 与 marketing.css 里 `.col` 的列宽一致（手机 36vw，桌面 clamp(150px, 15vw, 250px)）。 */
+export const WALL_SIZES =
+  '(max-width: 760px) 36vw, (max-width: 1000px) 150px, (min-width: 1667px) 250px, 15vw'
+
+/** 与 `.mrow figure` 的宽一致（clamp(130px, 13vw, 210px)）。 */
+export const MARQUEE_SIZES = '(max-width: 1000px) 130px, (min-width: 1616px) 210px, 13vw'
 
 /** 9 列循环墙，和原型同一套取图顺序，每列再接一份用来无缝滚动。 */
 export function wallColumns(files: readonly string[] = WALL, columns = 9): string[][] {
@@ -376,10 +389,10 @@ const zh: MarketingCopy = {
     body: '产品反馈、合作或使用问题，都可以找我们。',
     close: '关闭',
     xTitle: 'X 私信',
-    xDetail: '@Muluk656',
+    xDetail: `@${SUPPORT_CONTACT.xHandle}`,
     xAction: '打开 X',
     mailTitle: '邮件',
-    mail: 'maqiqian0316@gmail.com',
+    mail: SUPPORT_CONTACT.email,
     copy: '复制',
     copied: '已复制',
     copyFailed: '复制失败',
@@ -464,10 +477,10 @@ const en: MarketingCopy = {
     body: 'Product feedback, partnerships, or questions — reach us here.',
     close: 'Close',
     xTitle: 'Message on X',
-    xDetail: '@Muluk656',
+    xDetail: `@${SUPPORT_CONTACT.xHandle}`,
     xAction: 'Open X',
     mailTitle: 'Email',
-    mail: 'maqiqian0316@gmail.com',
+    mail: SUPPORT_CONTACT.email,
     copy: 'Copy',
     copied: 'Copied',
     copyFailed: 'Couldn’t copy',
@@ -499,5 +512,5 @@ export function showcaseCases(locale: Locale): ShowcaseCase[] {
   }))
 }
 
-export const X_URL = 'https://x.com/Muluk656'
-export const CONTACT_EMAIL = 'maqiqian0316@gmail.com'
+export const X_URL = SUPPORT_X_URL
+export const CONTACT_EMAIL = SUPPORT_CONTACT.email
