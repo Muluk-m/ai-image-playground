@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_TYPICAL_MS,
   estimatedProgressPercent,
+  progressStartedAt,
   typicalDurationMs,
 } from '../../lib/generationProgress'
 import type { TaskRecord } from '../../types'
@@ -35,5 +36,20 @@ describe('typicalDurationMs', () => {
 
   it('falls back to the default without samples', () => {
     expect(typicalDurationMs([done('other', 10_000)], 'flare')).toBe(DEFAULT_TYPICAL_MS)
+  })
+})
+
+describe('progressStartedAt', () => {
+  it('counts local tasks from their start', () => {
+    expect(progressStartedAt({ id: 'l', createdAt: 1_000, batchStartedAt: 2_000 }, 9_000)).toBe(
+      2_000,
+    )
+    expect(progressStartedAt({ id: 'l2', createdAt: 1_000 }, 9_000)).toBe(1_000)
+  })
+
+  it('counts queued platform tasks from the first time they are seen generating', () => {
+    const task = { id: 'q', createdAt: 1_000, queuePhase: 'generating' as const }
+    expect(progressStartedAt(task, 60_000)).toBe(60_000)
+    expect(progressStartedAt(task, 70_000)).toBe(60_000)
   })
 })
