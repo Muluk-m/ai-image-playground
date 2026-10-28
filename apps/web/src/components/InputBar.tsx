@@ -1839,7 +1839,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               ) : undefined
             }
             status={
-              referenceNotice ? (
+              // 参考区展开时原因句已在参考图上方，输入框下不再重复一遍。
+              referenceNotice && !(referencesExpanded && inputImages.length > 0) ? (
                 <span role="alert" className="text-xs leading-snug text-destructive">
                   {referenceNotice}
                 </span>

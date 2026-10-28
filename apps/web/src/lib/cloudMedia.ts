@@ -49,6 +49,8 @@ const waiting: Waiting[] = []
  */
 /** 还在排队的回源按缓存键记着，后来的 urgent 调用复用同一请求时能把它提到前面。 */
 const queued = new Map<string, Waiting>()
+/** urgent 来时同一请求还在查本机缓存、没进队列：先记下来，入队时就按 urgent 排。 */
+const urgentIntent = new Set<string>()
 
 function enqueue(entry: Waiting): void {
   const firstBackground = entry.urgent ? waiting.findIndex((item) => !item.urgent) : -1
@@ -202,7 +204,10 @@ export async function resolveMediaSource(
   }
   const pending = loading.get(key)
   if (pending) {
-    if (urgent) promote(key)
+    if (urgent) {
+      urgentIntent.add(key)
+      promote(key)
+    }
     return pending
   }
   const operation = (async () => {
@@ -288,7 +293,7 @@ export async function resolveMediaSource(
           clearTimeout(timer)
         }
       },
-      urgent,
+      urgent || urgentIntent.has(key),
       key,
     )
   })()
@@ -297,5 +302,6 @@ export async function resolveMediaSource(
     return await operation
   } finally {
     loading.delete(key)
+    urgentIntent.delete(key)
   }
 }
