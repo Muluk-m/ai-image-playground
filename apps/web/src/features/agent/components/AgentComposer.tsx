@@ -116,6 +116,7 @@ import {
 import {
   attachmentUploadErrorMessage,
   canRetryAttachmentUpload,
+  formatImageLimit,
 } from '../lib/attachmentUploadErrors'
 import {
   attachmentUploadError,
@@ -125,6 +126,8 @@ import {
   attachmentUploadsEnabled,
   mediaFallbackEnabled,
   primeAttachmentUploads,
+  REFERENCE_TOO_LARGE,
+  referenceImageLimit,
   retryAttachmentUploads,
   subscribeAttachmentUploads,
   withKnownAttachmentMedia,
@@ -466,11 +469,25 @@ export default function AgentComposer({
   ).length
   // 收起的那叠也要看得到进度（BUG-42）。
   const stackProgress = useAttachmentStackProgress(draft.references.map(uploadReference))
-  const referenceStatus = failedReference
-    ? attachmentUploadErrorMessage(
-        attachmentUploadError(uploadReference(failedReference)),
-        getAttachmentLimits(),
-      )
+  // 每张传失败的图各一句、标明第几张，与首页输入框同一句式（BUG-57）；缩略图旁不再另写一遍。
+  // 超限的用首页那句「第 N 张超过 50 MB，请移除或换一张更小的图。」（BUG-58）。
+  const failedReferenceLines = draft.references.flatMap((reference, index) => {
+    if (attachmentUploadState(uploadReference(reference)) !== 'failed') return []
+    const error = attachmentUploadError(uploadReference(reference))
+    return [
+      error === REFERENCE_TOO_LARGE
+        ? t('composer:image.referenceTooLarge', {
+            index: index + 1,
+            maxSize: formatImageLimit(referenceImageLimit().imageBytes),
+          })
+        : t('composer:studio.referenceIssue', {
+            index: index + 1,
+            reason: attachmentUploadErrorMessage(error, getAttachmentLimits()),
+          }),
+    ]
+  })
+  const referenceStatus = failedReferenceLines.length
+    ? failedReferenceLines.join('\n')
     : uploadingCount > 0
       ? t('composer:studio.uploadProgress', {
           ready: draft.references.length - uploadingCount,
@@ -1338,18 +1355,10 @@ export default function AgentComposer({
                               </Button>
                             </AttachmentTile>
                           </CreationReferencePreview>
-                          {uploadState && (
-                            <span
-                              role={uploadState === 'failed' ? 'alert' : 'status'}
-                              className={
-                                uploadState === 'failed'
-                                  ? 'max-w-56 self-center text-xs text-destructive'
-                                  : 'sr-only'
-                              }
-                            >
-                              {uploadState === 'failed'
-                                ? `${label}：${attachmentUploadErrorMessage(uploadError, getAttachmentLimits())}`
-                                : t(`composer.upload.${uploadState}`)}
+                          {/* 失败原因只在参考区顶部那一行写（BUG-57），读屏也由那里的 alert 播报。 */}
+                          {uploadState && uploadState !== 'failed' && (
+                            <span role="status" className="sr-only">
+                              {t(`composer.upload.${uploadState}`)}
                             </span>
                           )}
                           {uploadState === 'failed' && canRetryAttachmentUpload(uploadError) && (
@@ -1447,7 +1456,9 @@ export default function AgentComposer({
             // 参考区展开时原因句已在参考图上方，输入框下不再重复一遍。
             referenceStatus &&
             !(referencesExpanded && draft.references.length > 0) && (
-              <span className={failedReference ? 'text-destructive' : 'text-muted-foreground'}>
+              <span
+                className={`whitespace-pre-line ${failedReference ? 'text-destructive' : 'text-muted-foreground'}`}
+              >
                 {referenceStatus}
               </span>
             )
