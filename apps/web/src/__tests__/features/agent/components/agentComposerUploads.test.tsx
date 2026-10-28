@@ -188,6 +188,12 @@ it.each([
         (span) => !span.classList.contains('sr-only') && span.textContent?.includes(message),
       ),
     ).toEqual([])
+    // 读屏仍由参考区的 role=alert 播报一次。
+    expect(
+      [...host.querySelectorAll('[role="alert"]')].filter((node) =>
+        node.textContent?.includes(message),
+      ),
+    ).toHaveLength(1)
     expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')?.disabled).toBe(
       true,
     )
