@@ -12,7 +12,8 @@
     "editOutput": "Inpaint",
     "sendToCanvas": "Add to canvas",
     "sendToCanvasTitle": "Add to canvas",
-    "deleteRecord": "Delete record"
+    "deleteRecord": "Delete record",
+    "more": "More actions"
   },
   "confirm": {
     "deleteMessage": "Delete this record?"
