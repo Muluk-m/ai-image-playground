@@ -66,6 +66,7 @@ import {
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import {
   acceptImageFiles,
+  compressUploadFiles,
   filesFromFolderInput,
   imageNeedsUploadCompression,
   prepareAcceptedImageFiles,
@@ -597,6 +598,14 @@ export default function AgentComposer({
           ? files.filter((file) => file.type.startsWith('image/'))
           : acceptImageFiles(files, { keepOversized: mediaFallbackEnabled() }),
       )
+      return
+    }
+    // 附件通道开着时，压不成的原文件仍要留下，走原来的上传失败（红框和超限红字）。
+    if (attachmentUploadsEnabled() && getAttachmentLimits()) {
+      void compressUploadFiles(
+        files.filter((file) => file.type.startsWith('image/')),
+        referenceImageLimit().imageBytes,
+      ).then((images) => admit(images))
       return
     }
     void prepareAcceptedImageFiles(files, {

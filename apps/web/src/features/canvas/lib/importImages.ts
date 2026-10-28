@@ -17,13 +17,11 @@ import { PLACEMENT_GAP } from './placement'
  */
 const MAX_SIDE = 720
 
-/** File → dataURL。画布导入与局部重绘面板的参考图上传共用，避免两处各写一份 FileReader。 */
-export async function fileToDataUrl(file: File): Promise<string> {
-  const [fitted] = await compressUploadFiles([file])
-  return readFileAsDataUrl(fitted ?? file)
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
+/**
+ * File → dataURL。只读字节，不压缩。
+ * 用户上传的压缩在各入口的 `compressUploadFiles`；切块和队列出图也走这里，不能被转码。
+ */
+export function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(reader.result as string)
@@ -51,7 +49,7 @@ export async function importImageFiles(
   // 逐个容错：一张损坏/解码失败的图不拖垮整批（其余照常导入）
   const results = await Promise.allSettled(
     fitted.map(async (file) => {
-      const dataUrl = await readFileAsDataUrl(file)
+      const dataUrl = await fileToDataUrl(file)
       const { width, height } = await getImageDimensions(dataUrl)
       const scale = Math.min(1, MAX_SIDE / Math.max(width, height))
       return {

@@ -2778,8 +2778,13 @@ function Flow({
                           event.target.value = ''
                           const targetId = uploadReferenceTarget.current
                           uploadReferenceTarget.current = null
-                          if (targetId)
-                            for (const file of files) await uploadReference(targetId, file)
+                          if (targetId) {
+                            const { compressUploadFiles } = await import('../../../lib/imageFiles')
+                            const fitted = await compressUploadFiles(
+                              files.filter((file) => file.type.startsWith('image/')),
+                            )
+                            for (const file of fitted) await uploadReference(targetId, file)
+                          }
                         }}
                       />
                       <input

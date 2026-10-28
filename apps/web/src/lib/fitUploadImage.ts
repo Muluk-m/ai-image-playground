@@ -151,6 +151,13 @@ interface FileBlob {
  * 已知容器坏了、是动图、或像素超出本机解码安全线时不硬解，调用方继续走原来的拒绝。
  * 认不出的格式（BMP、SVG 等）仍交给浏览器试一次，解得开就转码。
  */
+function isGif(type: string, bytes: ArrayBuffer): boolean {
+  if (type === 'image/gif') return true
+  if (bytes.byteLength < 6) return false
+  const sig = String.fromCharCode(...new Uint8Array(bytes, 0, 6))
+  return sig === 'GIF87a' || sig === 'GIF89a'
+}
+
 function admitsDecode(bytes: ArrayBuffer): boolean {
   try {
     const header = inspectImage(bytes)
@@ -183,7 +190,7 @@ async function compressOverLimit(file: File, limit: number): Promise<FittedUploa
   } catch {
     return unchanged
   }
-  if (!admitsDecode(bytes)) return unchanged
+  if (isGif(file.type, bytes) || !admitsDecode(bytes)) return unchanged
   const decoded = await decodeImage(
     new Blob([bytes], { type: file.type || 'application/octet-stream' }),
   )

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { compressUploadFiles } from '../../../lib/imageFiles'
 import { fileToDataUrl } from './importImages'
 
 interface ReferenceDraft {
@@ -26,7 +27,8 @@ function createDraft() {
       if (snapshot.uploading) return
       update({ uploading: true })
       try {
-        const url = await fileToDataUrl(file)
+        const [fitted] = await compressUploadFiles([file])
+        const url = await fileToDataUrl(fitted ?? file)
         const item = { id: crypto.randomUUID(), name: file.name, url }
         update({ items: [...snapshot.items, item] })
         return item
