@@ -149,7 +149,9 @@ describe('toEditInputDataUrl（BUG-35：超大图等比缩到最长边 4000 再�
 /** 超出对话模型准备预算的大图不拦：模型看缩过的那份，服务端处理与改图仍用原件。 */
 describe('超大原图（8000×4500，超出 agent:visual-max-pixels）', () => {
   it('送给对话模型的证据等比缩进准备预算，不报错', async () => {
-    const fitted = await sharp(decode(await toModelImageDataUrl(await solid(8000, 4500)))).metadata()
+    const fitted = await sharp(
+      decode(await toModelImageDataUrl(await solid(8000, 4500))),
+    ).metadata()
     expect(Math.max(fitted.width!, fitted.height!)).toBeLessThanOrEqual(EDIT_INPUT_MAX_EDGE)
     expect(fitted.width! * fitted.height!).toBeLessThanOrEqual(16_777_216)
     expect(fitted.width! / fitted.height!).toBeCloseTo(8000 / 4500, 2)

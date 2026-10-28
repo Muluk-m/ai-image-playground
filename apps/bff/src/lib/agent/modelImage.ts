@@ -70,7 +70,11 @@ async function sourceMetadata(bytes: Uint8Array): Promise<Metadata> {
   try {
     const metadata = await sharp(bytes, { limitInputPixels: MEDIA_UPLOAD_MAX_PIXELS }).metadata()
     if (!metadata.width || !metadata.height) throw new Error('missing dimensions')
-    assertMediaImageProcessingBudget({ ...metadata, width: metadata.width, height: metadata.height })
+    assertMediaImageProcessingBudget({
+      ...metadata,
+      width: metadata.width,
+      height: metadata.height,
+    })
     return metadata
   } catch {
     return conversionFailure()

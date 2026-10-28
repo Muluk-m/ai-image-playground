@@ -275,7 +275,9 @@ it('原图像素超过运行期预算时不拒绝：模型看到缩进预算的�
   const ended = eventsOfType(parseFrames(await response.text()), 'turnEnd')[0]
   expect(ended).toMatchObject({ stopReason: 'completed' })
   expect(calls).toHaveLength(1)
-  const sent = JSON.stringify(calls[0]!.messages).match(/data:image\/[a-z]+;base64,([A-Za-z0-9+/=]+)/)
+  const sent = JSON.stringify(calls[0]!.messages).match(
+    /data:image\/[a-z]+;base64,([A-Za-z0-9+/=]+)/,
+  )
   expect(sent).not.toBeNull()
   const meta = await sharp(Buffer.from(sent![1]!, 'base64')).metadata()
   expect(meta.width! * meta.height!).toBeLessThanOrEqual(4)
@@ -499,9 +501,9 @@ it('历史原件缩后仍超请求预算时，工具失败、不派发图片也�
   expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({ status: 'failed' })
   expect(calls.map(imageBlocks)).toEqual([0, 0])
   // 原件尺寸不再决定能不能看（模型看的是缩过的那份），所以会读对象；读后按请求预算拒。
-  expect(
-    eventsOfType(frames, 'toolEnd').some((event) => event.visualObservations?.length),
-  ).toBe(false)
+  expect(eventsOfType(frames, 'toolEnd').some((event) => event.visualObservations?.length)).toBe(
+    false,
+  )
 })
 
 it('同一释放请求重复图片 id 时整组拒绝，后续仍能正常释放并保存观察', async () => {
