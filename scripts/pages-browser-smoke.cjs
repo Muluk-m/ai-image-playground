@@ -11,6 +11,77 @@ const MIME = {
 const PROJECT_ID = '00000000-0000-4000-8000-000000000001'
 const PATHS = ['/image', `/p/${PROJECT_ID}`]
 
+function measureRotationLayout() {
+  const main = document.querySelector('main')
+  const rect = element => {
+    const { left, top, right, bottom, width, height } = element.getBoundingClientRect()
+    return { left, top, right, bottom, width, height }
+  }
+  const boundary = rect(main)
+  const right = Math.min(innerWidth, boundary.right)
+  const previews = [...main.querySelectorAll('figure')]
+  if (previews.length !== 1) return [{ visible: false, target: 'expected one adjusted preview' }]
+  const targets = [
+    main.querySelector('section'), main.querySelector('aside'), ...previews,
+    main.querySelector('figure canvas'),
+    [...main.querySelectorAll('button')].find(button => button.textContent.trim() === '导出图片'),
+  ]
+  return targets.map(element => {
+    if (!element) return { visible: false, target: 'missing editor element' }
+    const bounds = rect(element)
+    return {
+      target: element.tagName, ...bounds,
+      visible: bounds.width > 0 && bounds.left >= boundary.left - 1 && bounds.right <= right + 1,
+    }
+  })
+}
+
+async function checkRotationEditor(page, outputDir) {
+  const originalViewport = page.viewportSize()
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.getByRole('button', { name: '工具箱', exact: true }).click()
+  await page.getByRole('button', { name: '旋转与镜像 任意角度 · 水平 / 垂直镜像', exact: true }).click()
+  const input = page.locator('main input[type="file"][accept="image/*"]')
+  for (const [width, height] of [[1200, 1200], [2400, 600], [600, 2400]]) {
+    const name = `63_+x+37_+Freestanding+Soaking+Solid+Surface+Bathtub+Stone+Resin+Bath+Tub+with+Overflow,+Pop-up+Drain+for+Bathroom,+Matte+White-${width}x${height}.png`
+    const base64 = await page.evaluate(({ width, height }) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#c1eb94'
+      ctx.fillRect(0, 0, width, height)
+      ctx.fillStyle = '#4678aa'
+      ctx.fillRect(width / 2, height / 2, width / 2, height / 2)
+      return canvas.toDataURL('image/png').split(',')[1]
+    }, { width, height })
+    await input.setInputFiles({ name, mimeType: 'image/png', buffer: Buffer.from(base64, 'base64') })
+    await page.getByRole('button', { name, exact: true }).click()
+    await page.waitForFunction(({ width, height }) => {
+      const canvas = document.querySelector('main canvas[aria-label="调整后"]')
+      return canvas?.width > 0 && Math.abs(canvas.width / canvas.height - width / height) < 0.001
+    }, { width, height })
+    await page.waitForFunction(() => [...document.querySelectorAll('main button')]
+      .find(button => button.textContent.trim() === '导出图片')?.disabled === false)
+    for (const viewport of [{ width: 1280, height: 800 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(viewport)
+      const layout = await page.evaluate(measureRotationLayout)
+      if (layout.some(target => !target.visible))
+        throw new Error(`Rotation editor clips a long filename at ${viewport.width}px: ${JSON.stringify(layout)}`)
+      const download = page.getByRole('button', { name: '导出图片', exact: true })
+      await download.scrollIntoViewIfNeeded()
+      const hit = await download.evaluate(button => {
+        const rect = button.getBoundingClientRect()
+        return document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest('button') === button
+      })
+      if (!hit) throw new Error(`Rotation export is obscured at ${viewport.width}px`)
+      if (outputDir) await page.screenshot({ path: join(outputDir, `rotation-${width}x${height}-${viewport.width}.png`) })
+    }
+  }
+  await page.setViewportSize(originalViewport)
+  console.log('PASS rotation editor: long filenames, square/landscape/portrait previews, visible controls and export on desktop/mobile')
+}
+
 // Serve the built bytes with Pages' explicit route rewrites; missing chunks never become HTML.
 async function serveDist(dist) {
   const root = await realpath(dist)
@@ -61,7 +132,7 @@ async function serveDist(dist) {
   }
 }
 
-async function checkWorkspace(browser, origin, { local = false, nodeCanvas = false, exerciseNodes = false, exerciseCatalog = false, optionalStyles = [], outputDir, timeoutMs = 30000 } = {}) {
+async function checkWorkspace(browser, origin, { local = false, nodeCanvas = false, exerciseNodes = false, exerciseCatalog = false, exerciseRotation = false, optionalStyles = [], outputDir, timeoutMs = 30000 } = {}) {
   for (const [index, path] of PATHS.entries()) {
     // Cold browser storage and module cache on each direct navigation, including the deep link.
     const context = await browser.newContext({ locale: 'zh-CN', serviceWorkers: 'block' })
@@ -454,6 +525,7 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
         await page.screenshot({ path: join(outputDir, `${label}.png`) })
       }
       console.log(`PASS ${path}${nodeCanvas ? ' (node canvas)' : ''}: workspace mounted, boot removed, no JavaScript or asset errors`)
+      if (exerciseRotation && index === 0) await checkRotationEditor(page, outputDir)
     } catch (error) {
       if (outputDir) {
         await mkdir(outputDir, { recursive: true })
@@ -558,7 +630,7 @@ async function main() {
     await checkMarketing(browser, server?.origin || target, {local, outputDir:process.env.PAGES_SMOKE_OUTPUT_DIR})
     if (local) await checkMarketing(browser, server.origin, {local:true,accountsLogin:false})
     await checkWorkspace(browser, server?.origin || target, {
-      local, exerciseCatalog: local, optionalStyles, timeoutMs: local ? 30000 : 60000,
+      local, exerciseCatalog: local, exerciseRotation: local, optionalStyles, timeoutMs: local ? 30000 : 60000,
       outputDir: process.env.PAGES_SMOKE_OUTPUT_DIR,
     })
     if (local) await checkWorkspace(browser, server.origin, {
@@ -571,5 +643,5 @@ async function main() {
   }
 }
 
-module.exports = { serveDist, checkWorkspace, checkMarketing }
+module.exports = { serveDist, checkWorkspace, checkMarketing, measureRotationLayout }
 if (require.main === module) main().catch((error) => { console.error(error); process.exitCode = 1 })
