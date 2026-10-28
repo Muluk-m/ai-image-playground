@@ -30,6 +30,29 @@ describe('sanitizeReplyText', () => {
   it('removes a Gujarati word leaked into a Chinese reply (BUG-22)', () => {
     expect(sanitizeReplyText(BUG, USER_ZH)).toBe(BUG_CLEAN)
     expect(sanitizeReplyText(BUG, USER_ZH)).not.toMatch(/\p{Script=Gujarati}/u)
+    const gate = createReplyScriptGate(USER_ZH)
+    let streamed = ''
+    for (const char of BUG) streamed += gate.push(char)
+    expect(streamed + gate.finish()).toBe(BUG_CLEAN)
+  })
+
+  it('keeps Japanese and Korean when the user wrote in that script', () => {
+    const userJa = '二枚目を夜景にして'
+    const replyJa = '二枚目を夜景の光に変えます。他はそのままです。'
+    expect(sanitizeReplyText(replyJa, userJa)).toBe(replyJa)
+    expect(sanitizeReplyText(`夜景に変えます。${LEAK}そのまま出ます。`, userJa)).toBe(
+      '夜景に変えます。そのまま出ます。',
+    )
+    expect(sanitizeReplyText('ナイトにします。', 'ナイトにして')).toBe('ナイトにします。')
+    // 用户只用了日文时，韩文仍然是夹带。
+    expect(sanitizeReplyText('夜景に変えます。야경', userJa)).toBe('夜景に変えます。')
+
+    const userKo = '두 번째 사진을 야경으로 바꿔 주세요'
+    const replyKo = '두 번째 사진을 야경 조명으로 바꿨습니다. 나머지는 그대로입니다.'
+    expect(sanitizeReplyText(replyKo, userKo)).toBe(replyKo)
+    expect(sanitizeReplyText(`야경으로 바꿨습니다. ${LEAK} 카드에 나옵니다.`, userKo)).toBe(
+      '야경으로 바꿨습니다. 카드에 나옵니다.',
+    )
   })
 
   it('keeps Chinese, English, model names, numbers, emoji, and image markdown', () => {
@@ -124,11 +147,18 @@ describe('sanitizeReplyText', () => {
     expect(stopped.text()).toBe('')
   })
 
-  it('does not break a surrogate pair split across deltas', () => {
-    const raw = '好👍'
-    const gate = createReplyScriptGate(USER_ZH)
-    const mid = raw.indexOf('👍') + 1
-    expect(gate.push(raw.slice(0, mid)) + gate.push(raw.slice(mid)) + gate.finish()).toBe(raw)
+  it('does not garble a character split across stream chunks', () => {
+    // 👍 和扩展区汉字都是两个 UTF-16 码元。分片切在中间时，拼回去必须仍是原来的字。
+    const text = `已提交。${LEAK}会显示。好👍𠀋`
+    const cleaned = sanitizeReplyText(text, USER_ZH)
+    expect(cleaned).toBe('已提交。会显示。好👍𠀋')
+    expect(cleaned).not.toContain('\uFFFD')
+    for (let at = 0; at <= text.length; at += 1) {
+      const gate = createReplyScriptGate(USER_ZH)
+      const streamed = gate.push(text.slice(0, at)) + gate.push(text.slice(at)) + gate.finish()
+      expect(streamed).toBe(cleaned)
+      expect(streamed).not.toContain('\uFFFD')
+    }
   })
 })
 
