@@ -2958,7 +2958,10 @@ export async function storeImageFromFile(
   file: File,
   options: { compress?: boolean } = {},
 ): Promise<{ id: string; dataUrl: string }> {
-  const raw = await fileToDataUrl(file)
+  // 动态引入：imageFiles 会读这个 store，顶层互引会在初始化时拿到半成品。
+  const { compressUploadFiles } = await import('./lib/imageFiles')
+  const [fitted] = await compressUploadFiles([file])
+  const raw = await fileToDataUrl(fitted ?? file)
   const dataUrl = options.compress ? ((await compressInputImageDataUrls([raw]))[0] ?? raw) : raw
   const id = await storeImage(dataUrl, 'upload')
   cacheImage(id, dataUrl)

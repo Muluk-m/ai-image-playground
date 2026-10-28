@@ -278,7 +278,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   },
 
   importAssetFiles: async (files, options = {}) => {
-    const images = files.filter((f) => f.type.startsWith('image/'))
+    const { compressUploadFiles } = await import('../../lib/imageFiles')
+    const images = await compressUploadFiles(files.filter((f) => f.type.startsWith('image/')))
     const stored: string[] = []
     for (const file of images) {
       try {

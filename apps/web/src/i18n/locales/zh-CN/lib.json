@@ -18,7 +18,8 @@
     "confirmBatchTitle": "确认批量导入图片",
     "confirmBatchMessage": "即将导入 {{count}} 张图片，确认继续吗？",
     "confirmBatchAction": "确定导入 {{count}} 张图片",
-    "tooLarge_other": "{{count}} 张图片超过 {{max}}MB，已跳过"
+    "tooLarge_other": "{{count}} 张图片超过 {{max}}MB，已跳过",
+    "compressed_other": "已压缩 {{count}} 张过大的图片"
   },
   "imageFetch": {
     "corsHint": " 可点链接按钮复制结果链接，或尝试开启「返回 Base64 图片数据」避免此问题。",

@@ -5,8 +5,10 @@ import {
 import { i18next } from '../../../i18n'
 import { getAttachmentLimits } from '../../../lib/clientCapabilities'
 import { blobDataUrl } from '../../../lib/cloudMedia'
+import { compressUploadFiles } from '../../../lib/imageFiles'
 import { IMAGE_PREPROCESSING, preprocessImageFile } from '../../../lib/imagePreprocessing'
 import { jpegOrientation } from '../../../lib/imagePreprocessing/orientation'
+import { MAX_IMAGE_BYTES } from '../../../lib/inputImageLimit'
 import { registerLocalAttachmentSource } from '../../../lib/localAttachmentSources'
 import {
   attachReferences as admitReferences,
@@ -14,7 +16,11 @@ import {
 } from '../../../lib/referenceDraft'
 import { useStore } from '../../../store'
 import { assetViewImages, useLibraryStore } from '../../library/store'
-import { attachmentUploadsEnabled, mediaFallbackEnabled } from './attachmentUploads'
+import {
+  attachmentUploadsEnabled,
+  mediaFallbackEnabled,
+  referenceImageLimit,
+} from './attachmentUploads'
 import {
   type AgentDraft,
   type AgentReference,
@@ -83,9 +89,7 @@ function fileStem(name: string): string {
  * 拖进来 / 粘贴 / 选出来的图片文件 → 参考图。id 现造：它不是画布对象也不是素材，
  * 模型改图时靠它指认这一张。先按传输预算预处理；文件、拖拽、粘贴与兼容内联入口共用同一条串行处理链。
  */
-export function filesToReferences(
-  files: readonly File[],
-): AgentReference[] | Promise<AgentReference[]> {
+function referencesFromFiles(files: readonly File[]): AgentReference[] | Promise<AgentReference[]> {
   const limits = getAttachmentLimits()
   if (attachmentUploadsEnabled() && limits) {
     return files.map((file) => ({
@@ -95,7 +99,7 @@ export function filesToReferences(
     }))
   }
   // 附件通道关着、但能按普通云媒体上传：原件原样留着（局部改图要按原图像素出图），
-  // 超过单张上限的在输入框里就标出来、拦住发送，不缩小了再悄悄发。
+  // 超过单张上限、又压不进上限的，在输入框里就标出来、拦住发送。
   const keepOriginal = mediaFallbackEnabled()
   return (async () => {
     const sources: string[] = []
@@ -118,6 +122,18 @@ export function filesToReferences(
       name: fileStem(file.name),
     }))
   })()
+}
+
+export function filesToReferences(
+  files: readonly File[],
+): AgentReference[] | Promise<AgentReference[]> {
+  // 没超 50 MB 时保持同步：选中的图要立刻占住名额，不能等读文件。
+  // 超过 50 MB 先压到这一档真能发出去的上限；压不成的原文件继续走原来的拒绝。
+  if (!files.some((file) => file.size > MAX_IMAGE_BYTES)) return referencesFromFiles(files)
+  return compressUploadFiles(
+    files,
+    Math.min(MAX_IMAGE_BYTES, referenceImageLimit().imageBytes),
+  ).then(referencesFromFiles)
 }
 
 /**

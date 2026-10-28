@@ -9,7 +9,7 @@ import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
-import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
+import { filesFromFolderInput, prepareAcceptedImageFiles } from '../../../lib/imageFiles'
 import { publishStartedProjectAddress } from '../../../lib/navigation/address'
 import { backToCurrentProject } from '../../../lib/navigation/workbenchNavigation'
 import { defaultSidebarExpanded, useStore } from '../../../store'
@@ -208,17 +208,18 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const importFiles = (files: File[]) => {
-    const images = acceptImageFiles(files)
-    if (images.length === 0) return
-    confirmImageBatch(images.length, () => {
-      void importImageFiles(editor, images, {
-        x: editor.getViewportPageBounds().midX,
-        y: editor.getViewportPageBounds().midY,
-      })
-        .then((count) => {
-          if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
+    void prepareAcceptedImageFiles(files).then((images) => {
+      if (images.length === 0) return
+      confirmImageBatch(images.length, () => {
+        void importImageFiles(editor, images, {
+          x: editor.getViewportPageBounds().midX,
+          y: editor.getViewportPageBounds().midY,
         })
-        .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
+          .then((count) => {
+            if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
+          })
+          .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
+      })
     })
   }
   const hasAgent = agentPanelPresent()
