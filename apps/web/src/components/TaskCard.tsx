@@ -450,9 +450,9 @@ export default function TaskCard({
                   </span>
                 )}
               </div>
-              {/* 操作按钮 */}
+              {/* 操作按钮：手机上每个按钮占满一格、点击区 44px 高，负外边距让卡片高度不变。 */}
               <div
-                className="flex w-full items-center justify-between flex-shrink-0 mt-0.5 sm:w-auto sm:justify-end sm:gap-1"
+                className="flex w-full items-center justify-between flex-shrink-0 mt-0.5 max-sm:-my-2 max-sm:[&>button]:h-11 max-sm:[&>button]:flex-1 sm:w-auto sm:justify-end sm:gap-1"
                 onClick={(e) => e.stopPropagation()}
               >
                 {(task.status === 'error' || settings.alwaysShowRetryButton) && (
