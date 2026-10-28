@@ -48,4 +48,9 @@ describe('stripInternalRefs', () => {
     expect(stripInternalRefs(hostile, ['animal-03-rabbit'])).toBe(hostile)
     expect(performance.now() - started).toBeLessThan(1_000)
   })
+
+  it('keeps control characters that were already in the text', () => {
+    expect(stripInternalRefs('a\u0000b', ['cat'])).toBe('a\u0000b')
+    expect(stripInternalRefs('a\u0000b（`cat`）', ['cat'])).toBe('a\u0000b')
+  })
 })
