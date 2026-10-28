@@ -4,7 +4,7 @@ import type {
   AgentBatchWakeReceipt,
   AgentToolArtifact,
 } from '@image-playground/shared'
-import { and, asc, eq, isNull, lte, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, isNull, lt, lte, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
 import type { AgentOwner } from './conversations'
@@ -139,16 +139,50 @@ export async function batchWakeContent(
     .flatMap((row) =>
       (row.artifacts ?? [])
         .filter((artifact) => artifact.media === 'image')
-        .map((artifact) => artifact.artifactId),
+        .map((artifact) => ({
+          id: artifact.artifactId,
+          // 写明实际像素：没有尺寸时模型只能凭看图猜画幅，写出「但画面实际为横版，符合 16:9」这种话（BUG-51）。
+          label:
+            artifact.width && artifact.height
+              ? `${artifact.artifactId}（${artifact.width}×${artifact.height}）`
+              : artifact.artifactId,
+        })),
     )
+  // 用户确认前在卡片上删掉的项（BUG-39）：不说清楚，复核时会把它当成漏掉的产物。
+  // 只有「这一版就是从草稿第一次确认的那一版」时，和初版的差集才是用户删项：草稿编辑只发生在
+  // 确认之前。重试版只带未完成的项，分析转生成会换一套编号，它们之前都有确认过的版本，不能算删项。
+  const confirmedBefore = await db
+    .select({ version: schema.agent_batch_plans.version })
+    .from(schema.agent_batch_plans)
+    .where(
+      and(
+        eq(schema.agent_batch_plans.batch_id, notice.batchId),
+        lt(schema.agent_batch_plans.version, notice.version),
+        isNotNull(schema.agent_batch_plans.confirmation),
+      ),
+    )
+    .limit(1)
+  const original =
+    notice.version > 1 && !confirmedBefore.length
+      ? await db
+          .select({ key: items.key })
+          .from(items)
+          .where(and(eq(items.batch_id, notice.batchId), eq(items.version, 1)))
+          .orderBy(asc(items.ordinal))
+          .limit(100)
+      : []
+  const kept = new Set(rows.map((row) => row.itemKey))
+  const removed = original.map((row) => row.key).filter((key) => !kept.has(key))
   const hasAnalysis = rows.some((row) => row.kind === 'analysis')
   const hasGeneration = rows.some((row) => row.kind === 'generation')
-  const optionalReviewImageIds = generated.slice(0, BATCH_WAKE_REVIEW_IMAGE_MAX)
+  const optionalReviewImageIds = generated
+    .slice(0, BATCH_WAKE_REVIEW_IMAGE_MAX)
+    .map((artifact) => artifact.id)
   const guidance: string[] = []
   if (hasGeneration)
     guidance.push(
       generated.length
-        ? `生成项的产物：${generated.join('、')}。前 ${optionalReviewImageIds.length} 张会尽量作为图片随这一轮附上，实际附上哪些以本轮图片清单为准。对照用户这一批的要求逐张复核附上的图：逐项写出用户要求保留或修改的属性是否做到，不合格的指出是哪一张、哪里不对，只给修改建议，不要自行重新生成。清单里没有的产物如实说明尚未查看，可以用 viewImage 查看。`
+        ? `生成项的产物：${generated.map((artifact) => artifact.label).join('、')}。括号里是实际像素，说画幅时以它为准。前 ${optionalReviewImageIds.length} 张会尽量作为图片随这一轮附上，实际附上哪些以本轮图片清单为准。对照用户这一批的要求逐张复核附上的图：逐项写出用户要求保留或修改的属性是否做到：做到的直接说符合，不要用「但」「实际为」这类转折去写一个符合的属性；不合格的指出是哪一张、哪里不对，只给修改建议，不要自行重新生成。清单里没有的产物如实说明尚未查看，可以用 viewImage 查看。`
         : '生成项没有可复核的产物：说明失败或取消的是哪几项，不要自行重新生成。',
     )
   if (hasAnalysis)
@@ -161,6 +195,11 @@ export async function batchWakeContent(
       '（系统通知，不是用户说的话）已确认批次的一版执行结果全部确定。汇总下面的执行事实，不要重新提交任务或自动发起付费分析。',
       `批次 ${notice.batchId}，版本 ${notice.version}，共 ${results.length} 项：`,
       JSON.stringify(results),
+      ...(removed.length
+        ? [
+            `用户确认前从计划里移除了这些项，没有提交、也不需要产物：${removed.join('、')}。复核时不要把它们当成漏掉或尚未查看的图。`,
+          ]
+        : []),
       ...guidance,
     ].join('\n'),
     optionalReviewImageIds,

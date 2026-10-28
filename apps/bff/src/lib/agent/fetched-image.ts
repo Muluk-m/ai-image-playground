@@ -1,14 +1,15 @@
 import type { AgentFetchedImage } from '@image-playground/shared'
-import sharp from 'sharp'
+import sharp, { type Metadata } from 'sharp'
 import { detectMediaMime } from '../imageArchive'
+import { assertMediaImageProcessingBudget, MEDIA_UPLOAD_MAX_PIXELS } from '../media-image-limits'
 import { MediaError, storeMedia } from '../projectMedia'
-import { safeFetch } from '../safeFetch'
+import { SafeFetchError, safeFetch } from '../safeFetch'
 import { assetImageByteLimit } from '../sync-assets'
 import { addConversationMediaClaims } from './images'
+import { editInputSize } from './modelImage'
 import { AgentToolError } from './tools/errors'
 import { safeFetchToolError } from './tools/webError'
 import {
-  assertVisualBytes,
   visualByteLimit,
   visualMetadata,
   visualPixelLimit,
@@ -33,18 +34,96 @@ const STORABLE_MIMES: Record<string, true | undefined> = {
   'image/webp': true,
 }
 
+/** 不是图片（多半是网页或视频）：模型换个图片地址就行，详情里不提像素预算（BUG-48）。 */
+function notAnImage(): AgentToolError {
+  return new AgentToolError(
+    'invalid_params',
+    '这个地址不是图片（取回来的是网页或其他内容）。换一个能直接取到图片的地址；要读网页内容就用 webFetch。',
+  )
+}
+
+/** 缩也缩不动的图（解码预算之外）：说图本身太大，不说成来源网站的问题（BUG-47）。 */
+function tooLarge(width: number, height: number): AgentToolError {
+  return new AgentToolError(
+    'invalid_params',
+    `这张图 ${width}×${height} 太大，超出能处理的范围，没有取进来。请换一张尺寸小一些的图片地址。`,
+  )
+}
+
+/**
+ * 超出读取预算（像素或字节）的网图按 EXIF 方向摆正后等比缩到最长边 ≤ 4000（BUG-47，与上传
+ * 改图的 BUG-35 同一条规则，Nain 2026-10-28 定：超大图自动缩小，不拒绝）。不透明的存 JPEG，
+ * 带透明的存 PNG（放不下再存 WebP）；动图只取第一帧。
+ */
+async function downscaled(
+  bytes: Uint8Array,
+  metadata: Metadata,
+  width: number,
+  height: number,
+): Promise<{ bytes: Uint8Array; mime: string }> {
+  const target = editInputSize(width, height)
+  try {
+    const resized = sharp(bytes, { limitInputPixels: MEDIA_UPLOAD_MAX_PIXELS })
+      .timeout({ seconds: 30 })
+      .rotate()
+      .resize({ width: target.width, height: target.height, fit: 'fill' })
+    // 送进模型时是 data URL：按 base64 长度加前缀余量判断（与 modelImage 的换算一致）。
+    const fits = (n: number) => 4 * Math.ceil(n / 3) + 32 <= visualByteLimit()
+    if (metadata.hasAlpha) {
+      const png = await resized.clone().png().toBuffer()
+      if (fits(png.byteLength)) return { bytes: png, mime: 'image/png' }
+    }
+    const opaque = metadata.hasAlpha ? resized : resized.flatten({ background: '#ffffff' })
+    // 噪点多的图缩到 4000 也可能仍超读取预算：逐级降质量，直到放得下。
+    for (const quality of [90, 80, 70, 60]) {
+      const encoded = metadata.hasAlpha
+        ? await opaque.clone().webp({ quality }).toBuffer()
+        : await opaque.clone().jpeg({ quality }).toBuffer()
+      if (fits(encoded.byteLength))
+        return { bytes: encoded, mime: metadata.hasAlpha ? 'image/webp' : 'image/jpeg' }
+    }
+  } catch {
+    throw tooLarge(width, height)
+  }
+  throw tooLarge(width, height)
+}
+
 /**
  * 网图什么格式都有：媒体库收得下的按原样存，其余交给 sharp 转成 PNG（AVIF、SVG、TIFF、
  * 动图都从这条路进来）。sharp 都解不开的就不是图片——地址多半指向网页或视频，那是模型
- * 自己能改的事，交回去让它换一个。
+ * 自己能改的事，交回去让它换一个。超出读取预算的先缩小再存，见 {@link downscaled}。
  */
 async function toStorableImage(bytes: Uint8Array): Promise<{ bytes: Uint8Array; mime: string }> {
-  assertVisualBytes(bytes.byteLength)
-  await visualMetadata(bytes).catch((error) => {
-    throw new AgentToolError(
-      'invalid_params',
-      `这个地址取回来的不是图片，或图片超出准备预算。${error instanceof Error ? error.message : '请换一个有效图片地址。'}`,
-    )
+  let metadata: Metadata
+  try {
+    // 只读文件头，不解码：这里不设像素上限，免得超大的真图在这一步被当成「不是图片」。
+    metadata = await sharp(bytes, { limitInputPixels: false }).metadata()
+  } catch {
+    throw notAnImage()
+  }
+  if (!metadata.width || !metadata.height) throw notAnImage()
+  // 动图只解第一帧，解码上限按单帧算。
+  if (metadata.width * metadata.height > MEDIA_UPLOAD_MAX_PIXELS)
+    throw tooLarge(metadata.width, metadata.height)
+  // 方向 5–8 存的是转置后的宽高，按显示方向算长边。
+  const turned = (metadata.orientation ?? 1) >= 5
+  const width = turned ? metadata.height : metadata.width
+  const height = turned ? metadata.width : metadata.height
+  try {
+    assertMediaImageProcessingBudget({
+      ...metadata,
+      width: metadata.width,
+      height: metadata.height,
+    })
+  } catch {
+    throw tooLarge(width, height)
+  }
+  const oversized =
+    width * height * (metadata.pages ?? 1) > visualPixelLimit() ||
+    bytes.byteLength > visualByteLimit()
+  if (oversized) return downscaled(bytes, metadata, width, height)
+  await visualMetadata(bytes).catch(() => {
+    throw notAnImage()
   })
   const sniffed = detectMediaMime(bytes)
   if (sniffed && STORABLE_MIMES[sniffed]) return { bytes, mime: sniffed }
@@ -52,14 +131,11 @@ async function toStorableImage(bytes: Uint8Array): Promise<{ bytes: Uint8Array; 
     const png = await sharp(bytes, { limitInputPixels: visualPixelLimit() }).png().toBuffer()
     return { bytes: png, mime: 'image/png' }
   } catch {
-    throw new AgentToolError(
-      'invalid_params',
-      '这个地址取回来的不是图片。换一个能直接取到图片字节的地址再试。',
-    )
+    throw notAnImage()
   }
 }
 
-/** 落库被拒的那几种结局各归哪一类：太大、超配额是额度问题，其余是这张图本身不成立。 */
+/** 落库被拒的那几种结局各归哪一类：太大是图本身的问题（不说成来源网站拒绝），超配额是额度问题，其余是这张图本身不成立。 */
 function storeFailure(error: MediaError): AgentToolError {
   if (error.message === 'media_too_large')
     return new AgentToolError(
@@ -88,12 +164,18 @@ export interface FetchImageInput {
 /** 取一张网图、存进媒体库、由本会话认领，交回可以直接当图片 id 用的那一条。 */
 async function fetchClaimedImage(input: FetchImageInput): Promise<AgentFetchedImage> {
   const fetched = await safeFetch(input.url, {
-    maxBytes: Math.min(assetImageByteLimit(), visualByteLimit()),
+    // 读取预算以上、媒体库单张上限以内的图先取回来再缩（BUG-47），不在下载这一步就拒。
+    maxBytes: assetImageByteLimit(),
     timeoutMs: FETCH_IMAGE_TIMEOUT_MS,
     accept: 'image/*',
     ...(input.headers ? { headers: input.headers } : {}),
     ...(input.signal ? { signal: input.signal } : {}),
   }).catch((error) => {
+    if (error instanceof SafeFetchError && error.code === 'too_large')
+      throw new AgentToolError(
+        'invalid_params',
+        `这张图超过单张上限（${Math.floor(assetImageByteLimit() / (1024 * 1024))} MB），太大了，没有取进来。请换一张小一些的图片地址。`,
+      )
     throw safeFetchToolError(error)
   })
   // 响应头的 content-type 是对方随口说的，按字节认。

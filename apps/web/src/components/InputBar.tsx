@@ -21,6 +21,7 @@ import {
 } from '../features/agent/lib/attachmentUploadErrors'
 import {
   attachmentUploadError,
+  attachmentUploadProgress,
   attachmentUploadRevision,
   attachmentUploadState,
   primeAttachmentUploads,
@@ -33,6 +34,7 @@ import { agentComposerFillPrompt, useComposerFillTarget } from '../features/agen
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
 import type { AgentDraft } from '../features/agent/lib/references'
 import { useAgentSkills } from '../features/agent/lib/useAgentSkills'
+import { useAttachmentStackProgress } from '../features/agent/lib/useAttachmentStackProgress'
 import CanvasVideoParams from '../features/canvas/components/CanvasVideoParams'
 import { useActiveLook } from '../features/library/lib/activeLook'
 import {
@@ -133,8 +135,8 @@ const BATCH_SEND_FEEDBACK_MS = 500
 
 /** `inline`：首屏那一版——不吸底，跟着 hero 排在流里，卡面换成带发光描边的大卡。 */
 /**
- * 交给智能体的参考图现在能不能发：还在传（pending）、文件本身坏了（fatal）都不能；
- * 网络这类可重试的失败（failed 里非 fatal 的）点发送时先重传。超限图另有提示，这里只记一笔。
+ * 交给智能体的参考图现在能不能发：还在传（pending）、传失败了（failed）都不能。
+ * 网络这类可重试的失败在缩略图上点「重试」重传，传好了才能发；超限图另有提示，这里只记一笔。
  */
 function referenceUploadGate(references: readonly { dataUrl: string }[]) {
   const failed: { dataUrl: string }[] = []
@@ -149,27 +151,11 @@ function referenceUploadGate(references: readonly { dataUrl: string }[]) {
     if (state === 'failed') failed.push({ dataUrl: reference.dataUrl })
     else if (state === 'queued' || state === 'uploading' || state === 'verifying') pending += 1
   }
-  const fatal = failed.find(
-    (reference) => !canRetryAttachmentUpload(attachmentUploadError(reference)),
-  )
-  return { failed, fatal, pending, oversized }
-}
-
-function sameReferences(
-  images: readonly { id: string; dataUrl: string }[],
-  references: readonly { id: string; dataUrl: string }[],
-): boolean {
-  return (
-    images.length === references.length &&
-    images.every(
-      (image, index) =>
-        image.id === references[index]?.id && image.dataUrl === references[index]?.dataUrl,
-    )
-  )
+  return { failed, pending, oversized }
 }
 
 export default function InputBar({ inline = false }: { inline?: boolean } = {}) {
-  const { t, i18n } = useTranslation(['composer', 'common'])
+  const { t, i18n } = useTranslation(['composer', 'common', 'agent'])
   const prompt = useStore((s) => s.prompt)
   const setPrompt = useStore((s) => s.setPrompt)
   const inputImages = useStore((s) => s.inputImages)
@@ -324,46 +310,69 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     [toCanvas, inputImages],
   )
   useEffect(() => primeAttachmentUploads(uploadReferences), [uploadReferences])
-  // 传完才建项目：还在传、或文件本身有问题（格式、损坏、超限）时拦住发送；
-  // 网络这类可重试的失败照样显示原因，但按钮可点，点了先重传，重传成功才建项目。
-  const {
-    failed: failedUploads,
-    fatal: fatalUpload,
-    pending: uploadsPending,
-  } = referenceUploadGate(uploadReferences)
-  const failedUpload = fatalUpload ?? failedUploads[0]
-  const [retryingUploads, setRetryingUploads] = useState(false)
+  // 传完才建项目：还在传、或传失败了（文件本身有问题，或网络超时等可重试的）都拦住发送。
+  // 可重试的那几张在缩略图上点「重试」重传（BUG-41），不再靠点发送去隐式重传。
+  const { failed: failedUploads, pending: uploadsPending } = referenceUploadGate(uploadReferences)
   const canvasSubmittingRef = useRef(false)
-  const uploadsBlocked = retryingUploads || uploadsPending > 0 || fatalUpload !== undefined
-  const uploadDetail = failedUpload
-    ? attachmentUploadErrorMessage(attachmentUploadError(failedUpload), getAttachmentLimits())
-    : null
-  // 文件本身坏了的那几张（不能重传）：缩略图上标红、× 常显；原因仍是原来那一行。
-  const unusableIndexes = uploadReferences.flatMap((reference, index) =>
-    attachmentUploadState(reference) === 'failed' &&
-    !canRetryAttachmentUpload(attachmentUploadError(reference))
+  const uploadsBlocked = uploadsPending > 0 || failedUploads.length > 0
+  // 传失败的那几张（超限的另算）：缩略图上标红、出「!」、× 常显；能重传的再给一个「重试」。
+  const failedIndexes = uploadReferences.flatMap((reference, index) =>
+    !oversizedIndexes.includes(index) && attachmentUploadState(reference) === 'failed'
       ? [index]
       : [],
   )
+  const retryableIndexes = failedIndexes.filter((index) =>
+    canRetryAttachmentUpload(attachmentUploadError(uploadReferences[index]!)),
+  )
+  // 每张失败图的原因都要看得到：超限那句之外，坏图、超时各说一句，标明是第几张（BUG-44）。
+  const uploadDetailLines = failedIndexes.map((index) =>
+    t('composer:studio.referenceIssue', {
+      index: index + 1,
+      reason: attachmentUploadErrorMessage(
+        attachmentUploadError(uploadReferences[index]!),
+        getAttachmentLimits(),
+      ),
+    }),
+  )
+  const retryUpload = (index: number) => {
+    const reference = uploadReferences[index]
+    if (reference) void retryAttachmentUploads(reference).catch(() => {})
+  }
   // 还在传的那几张：像即梦一样只在缩略图上转圈，不另起一行文字。
   const pendingIndexes = uploadReferences.flatMap((reference, index) => {
     const state = attachmentUploadState(reference)
     return state === 'queued' || state === 'uploading' || state === 'verifying' ? [index] : []
   })
-  const uploadNotice = uploadDetail
+  // 收起的那叠和每张缩略图上都显示百分比，与对话页输入框一致；超限的那几张不传，不算进去（BUG-42）。
+  const stackProgress = useAttachmentStackProgress(
+    uploadReferences.filter((_, index) => !oversizedIndexes.includes(index)),
+  )
+  // 用不了的图（超限的、传失败的）一视同仁：× 常显，「移除」一并删掉（BUG-49）。
+  const unusableIndexes = [...new Set([...oversizedIndexes, ...failedIndexes])].sort(
+    (a, b) => a - b,
+  )
   const removeUnusableLabel =
     unusableIndexes.length > 1
       ? t('composer:studio.removeUnusableReferences')
       : unusableIndexes.length === 1
-        ? t('composer:studio.removeReference', { index: unusableIndexes[0] + 1 })
+        ? t('composer:studio.removeReference', { index: unusableIndexes[0]! + 1 })
         : undefined
   // 从后往前删，前面的序号不会跟着挪；提示词里对这几张的 @ 引用由 removeInputImage 一并收拾。
   const removeUnusable = () => {
     for (const index of [...unusableIndexes].reverse()) useStore.getState().removeInputImage(index)
   }
-  const referenceNotice = oversizedNotice ?? uploadNotice
+  // 参考图条顶部和输入框下方用同一句：每张用不了的图都列出来，不另起一行（BUG-44）。
+  // 原因按图片顺序排：超限的那句放在它最靠前那张的位置，不总排第一（第 15 轮）。
+  const referenceNotice =
+    [
+      ...(oversizedNotice ? [{ index: oversizedIndexes[0]!, text: oversizedNotice }] : []),
+      ...failedIndexes.map((index, at) => ({ index, text: uploadDetailLines[at]! })),
+    ]
+      .sort((a, b) => a.index - b.index)
+      .map((line) => line.text)
+      .join('\n') || null
   const uploadProgress =
-    uploadsPending > 0 || retryingUploads
+    uploadsPending > 0
       ? t('composer:studio.uploadProgress', {
           ready: uploadReferences.length - uploadsPending - failedUploads.length,
           total: uploadReferences.length,
@@ -398,8 +407,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       : canSubmit && !skillNeedsCanvas)
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
   const promptMissing = !prompt.trim() && (toCanvas || !activeLook)
-  const blockedByReferences =
-    oversizedNotice ?? (uploadsBlocked ? (uploadProgress ?? uploadNotice) : null)
+  const blockedByReferences = referenceNotice ?? (uploadsBlocked ? uploadProgress : null)
   const submitBlockedTip = blockedByReferences
     ? blockedByReferences
     : skillNeedsCanvas
@@ -419,25 +427,11 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         prompt: draftPrompt,
         references: images.map((image) => ({ id: image.id, dataUrl: image.dataUrl })),
       }
-      const blocked = (gate: ReturnType<typeof referenceUploadGate>) =>
-        gate.oversized || gate.pending > 0 || gate.fatal !== undefined
       const gate = referenceUploadGate(draft.references)
-      if (blocked(gate)) return
+      if (gate.oversized || gate.pending > 0 || gate.failed.length) return
       canvasSubmittingRef.current = true
-      if (gate.failed.length) setRetryingUploads(true)
       void (async () => {
         try {
-          if (gate.failed.length) {
-            // 挂图时那次上传因网络等原因失败：先重传，全部成功才建项目；仍失败就留在首页，原因照旧显示。
-            await Promise.allSettled(
-              gate.failed.map((reference) => retryAttachmentUploads(reference)),
-            )
-            const now = useStore.getState()
-            if (now.prompt !== draft.prompt || !sameReferences(now.inputImages, draft.references))
-              return
-            const after = referenceUploadGate(draft.references)
-            if (blocked(after) || after.failed.length) return
-          }
           await startCanvasFromComposer(
             draft,
             createTarget === 'chat' ? 'chat' : 'canvas',
@@ -445,7 +439,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           )
         } finally {
           canvasSubmittingRef.current = false
-          setRetryingUploads(false)
         }
       })()
     } else if (activeLook) void submitWithLook(activeLook, lookBody)
@@ -1110,9 +1103,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
 
   const renderImageThumb = (img: (typeof inputImages)[number], idx: number) => {
     const isMaskTarget = maskDraft?.targetImageId === img.id
-    // 坏图的 × 常显：不用先悬停才找得到删除入口。
+    // 坏图（超限的、传失败的）× 常显：不用先悬停才找得到删除入口（BUG-49）。
     const isUnusable = unusableIndexes.includes(idx)
+    const canRetry = retryableIndexes.includes(idx)
     const isUploading = pendingIndexes.includes(idx)
+    const uploadReference = uploadReferences[idx]
+    const uploadPercent =
+      isUploading && uploadReference ? attachmentUploadProgress(uploadReference) : undefined
     const canEdit = !maskTargetImage || isMaskTarget
     const imageHintText = isMaskTarget ? t('image.maskFirstHint') : ''
     const displaySrc = isMaskTarget && maskPreviewUrl ? maskPreviewUrl : img.dataUrl
@@ -1326,13 +1323,16 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             {isUploading && (
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-background/55 text-foreground"
+                className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 bg-background/55 text-foreground"
               >
                 <Icon
                   name="loading"
                   size="lg"
                   className="animate-spin motion-reduce:animate-none"
                 />
+                {uploadPercent !== undefined && (
+                  <span className="text-label-sm leading-3 tabular-nums">{uploadPercent}%</span>
+                )}
               </span>
             )}
             {isMaskTarget && (
@@ -1349,9 +1349,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         </Hint>
         {/* 遮罩入口对所有支持 edit（图生图）的模型开放：声明原生 mask 的模型走
               images/edits inpaint；其余模型在 callImageApi 降级为「原图+高亮标注图」软遮罩 */}
-        {canEdit && supportsMask && (
+        {canRetry ? (
+          // 超时、断网这类可重试的失败：同位置换成常显的「重试」，点了只重传这一张（BUG-41）。
           <Hint
-            tooltip={isMaskTarget ? t('mask.title') : t('image.addMask')}
+            tooltip={t('agent:composer.retryUpload')}
             side="bottom"
             disableHoverableContent
             className="creation-reference-action-hint"
@@ -1359,17 +1360,42 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             <Button
               type="button"
               variant="ghost"
-              className="creation-reference-mask absolute bottom-0 right-0 z-20 h-6 w-6 rounded-sm bg-black/55 p-0 opacity-0 transition-opacity hover:bg-black/70 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+              className="creation-reference-retry absolute bottom-0 right-0 z-20 h-6 w-6 rounded-sm bg-black/55 p-0 hover:bg-black/70"
               onClick={(e) => {
                 e.stopPropagation()
-                setMaskEditorImageId(img.id)
+                retryUpload(idx)
               }}
-              title={isMaskTarget ? t('mask.title') : t('image.addMask')}
-              aria-label={isMaskTarget ? t('mask.title') : t('image.addMask')}
+              aria-label={t('agent:composer.retryUploadAria', {
+                label: mentionLabels(idx) ?? String(idx + 1),
+              })}
             >
-              <Icon name="brush" size="xs" className="text-white" />
+              <Icon name="refresh" size="xs" className="text-white" />
             </Button>
           </Hint>
+        ) : (
+          canEdit &&
+          supportsMask && (
+            <Hint
+              tooltip={isMaskTarget ? t('mask.title') : t('image.addMask')}
+              side="bottom"
+              disableHoverableContent
+              className="creation-reference-action-hint"
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                className="creation-reference-mask absolute bottom-0 right-0 z-20 h-6 w-6 rounded-sm bg-black/55 p-0 opacity-0 transition-opacity hover:bg-black/70 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setMaskEditorImageId(img.id)
+                }}
+                title={isMaskTarget ? t('mask.title') : t('image.addMask')}
+                aria-label={isMaskTarget ? t('mask.title') : t('image.addMask')}
+              >
+                <Icon name="brush" size="xs" className="text-white" />
+              </Button>
+            </Hint>
+          )
         )}
         <Hint
           tooltip={t('common:action.remove')}
@@ -1515,7 +1541,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 }
                 failed={Boolean(referenceNotice)}
                 uploading={!referenceNotice && Boolean(uploadProgress)}
-                status={oversizedNotice ?? uploadDetail ?? uploadProgress ?? undefined}
+                progress={stackProgress}
+                status={referenceNotice ?? uploadProgress ?? undefined}
                 onRemoveFailed={removeUnusableLabel ? removeUnusable : undefined}
                 removeFailedLabel={removeUnusableLabel}
                 showUploadingStatus={false}

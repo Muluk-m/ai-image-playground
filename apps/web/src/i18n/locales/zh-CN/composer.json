@@ -36,7 +36,7 @@
     "attach": "添加参考图（最多 {{count}} 张，单张 ≤{{mb}}MB）",
     "attachImages": "添加图片",
     "attachFolder": "添加文件夹",
-    "referenceTooLarge": "第 {{index}} 张图片超过 {{maxSize}}，请换一张更小的图"
+    "referenceTooLarge": "第 {{index}} 张图片超过 {{maxSize}}，请换一张更小的图。"
   },
   "slot": {
     "heading": "槽位 {{slot}}",
@@ -189,6 +189,7 @@
     "newProject": "新建项目",
     "references": "参考素材（{{count}}）",
     "removeReference": "移除第 {{index}} 张图片",
+    "referenceIssue": "第 {{index}} 张图片：{{reason}}",
     "removeUnusableReferences": "移除无法使用的图片",
     "uploadProgress": "上传中 {{ready}}/{{total}}",
     "viewAllReferences": "查看全部",
@@ -207,7 +208,7 @@
     "selected": "已选 {{count}}/{{max}}",
     "full": "已达上限",
     "mergeLimit": "超过 {{max}} 张只能逐张生成",
-    "oversized": "第 {{index}} 张超过 {{mb}} MB，请移除或换一张更小的图",
+    "oversized": "第 {{index}} 张超过 {{mb}} MB，请移除或换一张更小的图。",
     "sendLabel": "逐张生成 {{count}} 张",
     "sendLabelCredits": "逐张生成 {{count}} 张，共 {{credits}} 积分"
   }

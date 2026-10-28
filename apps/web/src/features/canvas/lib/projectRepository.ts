@@ -39,6 +39,11 @@ export interface CanvasProject {
   readonly workspaceOpened?: boolean
   readonly cover?: string
   readonly cloud?: { revision: number; nameDirty?: boolean; deleted?: boolean }
+  /**
+   * 只在内存里：云端第一次建就被项目数上限拒了（BUG-54）。本机那条记录已经删掉，
+   * 目录不再列它；当前页还开着，「重新读取」时才重新落盘再建一次。
+   */
+  readonly quotaRejected?: true
 }
 
 export function projectExperience(project: CanvasProject): 'chat' | 'canvas' {
@@ -431,6 +436,27 @@ export const projectRepository = {
       }
       transaction.oncomplete = () => resolve(projectView(result))
       transaction.onabort = () => reject(transaction.error ?? new Error('Project not found'))
+      transaction.onerror = () => reject(transaction.error)
+    })
+  },
+
+  /** 把内存里那份原样写回（被上限拒掉后再试一次时用）；已经有同 id 的记录就不动它。 */
+  async readd(project: CanvasProject): Promise<CanvasProject> {
+    const { quotaRejected: _rejected, kind, ...rest } = project
+    const stored: StoredProject = { ...rest, ...(kind === 'video' ? { kind } : {}) }
+    const storageKey = key(project.id)
+    const db = await openCanvasDatabase()
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction('scene', 'readwrite')
+      const store = transaction.objectStore('scene')
+      let result = stored
+      const existing = store.get(storageKey)
+      existing.onsuccess = () => {
+        if (existing.result) result = existing.result
+        else store.add(stored, storageKey)
+      }
+      transaction.oncomplete = () => resolve(projectView(result))
+      transaction.onabort = () => reject(transaction.error)
       transaction.onerror = () => reject(transaction.error)
     })
   },

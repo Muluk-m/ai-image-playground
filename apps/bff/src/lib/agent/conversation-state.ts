@@ -9,6 +9,8 @@ const MAX_BATCHES = 5
 const MAX_NODE_RUNS = 8
 const MAX_LISTED_ARTIFACTS = 12
 const MAX_LISTED_NODE_IDS = 6
+const MAX_LISTED_REMOVED = 8
+const REMOVED_PROMPT_CHARS = 24
 
 export interface PendingDraftFact {
   readonly title: string
@@ -27,6 +29,13 @@ export interface BatchFact {
   readonly completed: number
   readonly failed: number
   readonly artifactIds: readonly string[]
+  /** 用户确认前在卡片上删掉的项（BUG-51）：不在这一批里，不算缺。 */
+  readonly removed: readonly RemovedBatchItem[]
+}
+
+export interface RemovedBatchItem {
+  readonly key: string
+  readonly prompt: string
 }
 
 export interface ConversationStateFacts {
@@ -215,6 +224,7 @@ export async function readConversationStateFacts(
         )
         .orderBy(sql`${schema.agent_batch_attempts.submitted_at} ASC`)
     : []
+  const removed = batches.length ? await readRemovedItems(batches.map((batch) => batch.id)) : []
 
   return {
     pendingDrafts,
@@ -233,12 +243,77 @@ export async function readConversationStateFacts(
         completed: done.length,
         failed: mine.filter((outcome) => outcome.status === 'failed').length,
         artifactIds: done.map((outcome) => projectArtifactId(outcome.taskId, 0)),
+        removed: removed
+          .filter((item) => item.batchId === batch.id)
+          .map(({ key, prompt }) => ({ key, prompt })),
       }
     }),
   }
 }
 
+/**
+ * 用户确认前删掉的项 = 初版有、第一次真正提交执行的那一版没有的项（与 batch-wake 同一口径）。
+ * 以 attempts 里最早的版本为准：plans.confirmation 在保存待再次确认的修订提案时就写入，不代表用户已确认。
+ * 草稿编辑只发生在第一次确认之前；之后的重试版只带未完成的项，不能拿来算删项。
+ * 初版的提示词还留在对话历史的 planImageBatch 回执里，不在每轮写明，模型会把删掉的项当成还缺（BUG-51）。
+ */
+async function readRemovedItems(
+  batchIds: readonly string[],
+): Promise<{ batchId: string; key: string; prompt: string }[]> {
+  const rows = (await db.execute(sql`
+    WITH first_confirmed AS (
+      SELECT batch_id, MIN(version) AS version
+      FROM ${schema.agent_batch_attempts}
+      WHERE batch_id IN (${sql.join(
+        batchIds.map((id) => sql`${id}`),
+        sql`, `,
+      )})
+      GROUP BY batch_id
+    )
+    SELECT original.batch_id AS "batchId", original.key, LEFT(original.prompt, ${REMOVED_PROMPT_CHARS}) AS prompt
+    FROM ${schema.agent_batch_items} original
+    JOIN first_confirmed ON first_confirmed.batch_id = original.batch_id AND first_confirmed.version > 1
+    WHERE original.version = 1
+      AND NOT EXISTS (
+        SELECT 1 FROM ${schema.agent_batch_items} kept
+        WHERE kept.batch_id = original.batch_id
+          AND kept.version = first_confirmed.version
+          AND kept.key = original.key
+      )
+    ORDER BY original.batch_id, original.ordinal
+  `)) as unknown
+  // 同 readDraftFacts：逐行核对字段，提示词压成一行再写进系统事实。
+  return (Array.isArray(rows) ? rows : []).flatMap((row) => {
+    const { batchId, key, prompt } = (row ?? {}) as Record<string, unknown>
+    return typeof batchId === 'string' && typeof key === 'string' && typeof prompt === 'string'
+      ? [{ batchId, key, prompt: prompt.replace(/\s+/g, ' ').trim() }]
+      : []
+  })
+}
+
+function removedLine(batch: BatchFact): string {
+  if (!batch.removed.length || batch.status === 'draft' || batch.status === 'cancelled') return ''
+  const listed = batch.removed
+    .slice(0, MAX_LISTED_REMOVED)
+    .map((item) => `${item.key}（${item.prompt}）`)
+    .join('、')
+  const more = batch.removed.length > MAX_LISTED_REMOVED ? ` 等 ${batch.removed.length} 项` : ''
+  // 只给规则时模型仍会按用户最初的要求答「还缺兔子」（BUG-51 test 复测），给一句全部完成时的示范答法。
+  const done = batch.status === 'closed' && batch.completed === batch.itemCount && !batch.failed
+  const example = done
+    ? `。例：「这一批 ${batch.itemCount} 张都已完成，没有缺的；${batch.removed
+        .map((item) => item.key)
+        .slice(0, 3)
+        .join('、')} 是你确认前删掉的，需要的话可以另外补。」`
+    : ''
+  return `；用户确认前已从计划里删掉：${listed}${more}。这一批只有 ${batch.itemCount} 项，删掉的是用户自己去掉的，不是漏生成：用户问还缺哪张、还差什么时，按这一批的完成情况回答（全部完成就说这一批不缺），不要回答「还缺」删掉的项；可以顺带问要不要另外补做${example}`
+}
+
 function batchLine(batch: BatchFact): string {
+  return `${batchStatusLine(batch)}${removedLine(batch)}`
+}
+
+function batchStatusLine(batch: BatchFact): string {
   const head = `批次 ${batch.batchId}「${batch.title}」`
   switch (batch.status) {
     case 'draft':
