@@ -39,11 +39,13 @@ export default function CompareView({
         dragging.current = false
       }}
     >
+      {/* 两侧各裁到自己那半：原图的留白或透明处不能透出处理后的图。 */}
       <img
         src={after}
         alt=""
         draggable={false}
         className="absolute inset-0 h-full w-full object-contain"
+        style={{ clipPath: `inset(0 0 0 ${split}%)` }}
       />
       <img
         src={before}
