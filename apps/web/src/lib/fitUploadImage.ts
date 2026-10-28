@@ -6,7 +6,7 @@ import { IMAGE_PREPROCESSING } from './imagePreprocessing/policy'
 /** 超过这道才在上传前压缩。更小的图保持原件，坏图仍走原来的拒绝。 */
 export const UPLOAD_COMPRESSION_THRESHOLD_BYTES = MAX_IMAGE_UPLOAD_BYTES
 
-const START_EDGE = 8192
+const START_EDGE = 4096
 const MIN_EDGE = 256
 const JPEG_QUALITIES = [0.92, 0.85, 0.75, 0.65] as const
 const WEBP_QUALITIES = [0.9, 0.8] as const
@@ -111,12 +111,25 @@ async function decodeImage(blob: Blob): Promise<DecodedImage | undefined> {
   }
 }
 
-function hasAlpha(ctx: CanvasRenderingContext2D, width: number, height: number): boolean {
-  const { data } = ctx.getImageData(0, 0, width, height)
+/** 在缩小的样张上看透明通道，避免对整幅工作图画一遍 getImageData。 */
+function sampleOpaque(source: CanvasImageSource, width: number, height: number): boolean {
+  const longest = Math.max(width, height, 1)
+  const scale = Math.min(1, 256 / longest)
+  const sampleWidth = Math.max(1, Math.round(width * scale))
+  const sampleHeight = Math.max(1, Math.round(height * scale))
+  const probe = document.createElement('canvas')
+  probe.width = sampleWidth
+  probe.height = sampleHeight
+  const ctx = probe.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return false
+  ctx.drawImage(source, 0, 0, sampleWidth, sampleHeight)
+  const { data } = ctx.getImageData(0, 0, sampleWidth, sampleHeight)
+  probe.width = 0
+  probe.height = 0
   for (let index = 3; index < data.length; index += 4) {
-    if (data[index] !== 255) return true
+    if (data[index] !== 255) return false
   }
-  return false
+  return true
 }
 
 async function encodeUnderLimit(
@@ -196,21 +209,16 @@ async function compressOverLimit(file: File, limit: number): Promise<FittedUploa
   )
   if (!decoded || !(decoded.width > 0 && decoded.height > 0)) return unchanged
   const canvas = document.createElement('canvas')
-  const opaqueMime = /^image\/jpe?g$/i.test(file.type)
-  let opaque = opaqueMime
-  let alphaKnown = opaqueMime
+  const opaque =
+    /^image\/jpe?g$/i.test(file.type) || sampleOpaque(decoded.source, decoded.width, decoded.height)
   try {
-    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    const ctx = canvas.getContext('2d')
     if (!ctx) return unchanged
     for (const edge of edgePlan(decoded.width, decoded.height)) {
       const { width, height } = calculateFitSize(decoded.width, decoded.height, edge)
       canvas.width = width
       canvas.height = height
       ctx.drawImage(decoded.source, 0, 0, width, height)
-      if (!alphaKnown) {
-        opaque = !hasAlpha(ctx, width, height)
-        alphaKnown = true
-      }
       const encoded = await encodeUnderLimit(canvas, opaque, limit)
       if (encoded) return { file: namedFile(file, encoded.blob, encoded.type), compressed: true }
     }
@@ -225,9 +233,8 @@ async function compressOverLimit(file: File, limit: number): Promise<FittedUploa
 }
 
 /**
- * 只处理超过 50 MB 的图片。`targetBytes` 可以更紧（这一档部署的实际上传上限），
- * 用来把结果压到能发出去；不超过 50 MB 的原件原样返回。
- * 解不开、动图、或怎么压都还是超限时交还原文件，调用方走原来的报错。
+ * 只处理超过 50 MB 的图片。`targetBytes` 只把这些大图的结果再收紧，
+ * 不把 50 MB 以下的原件拿去重编码。解不开、动图、或怎么压都还是超限时交还原文件。
  */
 export function fitUploadImageFile(
   file: File,
