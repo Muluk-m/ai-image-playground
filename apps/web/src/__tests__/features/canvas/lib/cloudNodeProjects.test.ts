@@ -2604,3 +2604,21 @@ it('opens a project created on this device by creating it first, without a 404 i
   expect(await vi.mocked(getCloudProject).mock.results[0]!.value).toMatchObject({ revision: 1 })
   record.dispose()
 })
+it('does not send a rename for a project the server refused to create at the quota (BUG-54)', async () => {
+  const project = await projectRepository.create('未命名', undefined, true)
+  const record = await openSceneRecord(project.sceneKey)
+  vi.mocked(authenticatedBffFetch).mockImplementation(async () => Response.json({}))
+  vi.mocked(putCloudProject).mockRejectedValueOnce(
+    new ProjectRequestError(413, 'project_quota_exceeded'),
+  )
+  vi.stubGlobal('WebSocket', Socket)
+  const session = new CloudNodeProjectSession(project, record, () => {})
+  sessions.push(session)
+  const loading = session.load()
+  const renamed = session.rename('第一句话')
+  await expect(loading).rejects.toMatchObject({ status: 413 })
+  await renamed
+  expect(
+    vi.mocked(authenticatedBffFetch).mock.calls.filter(([url]) => url.endsWith('/canvas/name')),
+  ).toEqual([])
+})

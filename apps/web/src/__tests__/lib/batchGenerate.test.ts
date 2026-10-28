@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { i18next } from '../../i18n'
 import {
   batchCredits,
   batchPerImage,
   oversizedReferenceIndexes,
+  oversizedReferenceMessage,
   partitionSharedReferences,
   remapSharedMentions,
   sharedPinBlock,
@@ -73,5 +75,17 @@ describe('逐张生成的共享参考', () => {
     expect(dropped.startsWith(`把 ${m(0)} 换上 `)).toBe(true)
     expect(dropped).not.toContain(m(2))
     expect(dropped).toContain(m(1))
+  })
+})
+
+describe('超限原因句', () => {
+  it('两种语言都以句号收尾，与同一行里的其他原因一致（第 16 轮）', () => {
+    for (const lng of ['zh-CN', 'en']) {
+      for (const key of ['batch.oversized', 'image.referenceTooLarge'] as const) {
+        const text = i18next.t(key, { ns: 'composer', lng, index: 2, mb: 50, maxSize: '50 MB' })
+        expect(text).toMatch(/[。.]$/)
+      }
+    }
+    expect(oversizedReferenceMessage([1, 4])).toMatch(/[。.]$/)
   })
 })
