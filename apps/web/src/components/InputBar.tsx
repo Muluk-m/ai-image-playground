@@ -130,7 +130,7 @@ function useIsMobile() {
   return isMobile
 }
 
-/** 逐张生成点发送后按钮转圈的最短时长，之后才清空输入框。 */
+/** 快速生成点发送后按钮转圈并锁住的最短时长，之后才清空输入框、才能再发。 */
 const BATCH_SEND_FEEDBACK_MS = 500
 
 /** `inline`：首屏那一版——不吸底，跟着 hero 排在流里，卡面换成带发光描边的大卡。 */
@@ -442,16 +442,19 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         }
       })()
     } else if (activeLook) void submitWithLook(activeLook, lookBody)
-    else if (batchActive) {
-      // 逐张生成一次发很多张，按钮先转一下再清空输入框，让这次点击有回应。
+    else {
+      // 点下去这一刻就锁住按钮：按钮先转一下再清空输入框，让这次点击有回应；
+      // 转圈期间的第二下点击或回车不再发出第二条任务（双击会建两条任务、扣两次费）。
       batchSendingRef.current = true
       setBatchSending(true)
       const hold = new Promise((resolve) => setTimeout(resolve, BATCH_SEND_FEEDBACK_MS))
-      void submitTask({ holdClear: hold }).finally(() => {
-        batchSendingRef.current = false
-        setBatchSending(false)
-      })
-    } else void submitTask()
+      void submitTask({ holdClear: hold })
+        .then(() => hold)
+        .finally(() => {
+          batchSendingRef.current = false
+          setBatchSending(false)
+        })
+    }
   }
   const onSubmitClick = () => {
     if (lookSubmitting) cancelLookSubmission()

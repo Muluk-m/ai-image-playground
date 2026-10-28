@@ -61,7 +61,8 @@
     "bffModelUnavailable": "This model is unavailable right now. Pick another model",
     "bffInvalidRequest": "These settings aren't accepted. Adjust them and try again",
     "bffStorageUnavailable": "Reference images can't be read right now. Try again later",
-    "bffDuplicateSubmit": "This conflicts with an earlier request. Submit again"
+    "bffDuplicateSubmit": "This conflicts with an earlier request. Submit again",
+    "bffRepeatedSubmit": "You just submitted the same request, so it wasn't generated twice"
   },
   "dispatch": {
     "channelNotFound": "The selected model wasn't found. Pick another model",
