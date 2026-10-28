@@ -28,6 +28,7 @@ import {
 } from '../../../components/creation/CreationFrame'
 import { CreationReferencePreview } from '../../../components/creation/CreationReferencePreview'
 import { CreationReferenceStack } from '../../../components/creation/CreationReferenceStack'
+import { useReferenceDisplay } from '../../../components/creation/referenceDisplay'
 import MediaImage from '../../../components/MediaImage'
 import PromptEditor, { usePromptEditor } from '../../../components/PromptEditor'
 import ContextMenu, { ContextMenuItem } from '../../../components/patterns/ContextMenu'
@@ -584,6 +585,7 @@ export default function AgentComposer({
   const selected = draft.references.filter((one) => one.origin === 'selection')
   const selectionSummary = selected.length > AGENT_TURN_ATTACHED_MEDIA_MAX ? selected : []
   const referenceNames = referenceDisplayNames(draft.references)
+  const [referencesExpanded] = useReferenceDisplay()
   const { dragging, dropZoneProps } = useImageDropZone(attachFiles)
   // 面板把落在对话记录上的文件递过来。
   useEffect(() => {
@@ -1442,7 +1444,9 @@ export default function AgentComposer({
             />
           }
           status={
-            referenceStatus && (
+            // 参考区展开时原因句已在参考图上方，输入框下不再重复一遍。
+            referenceStatus &&
+            !(referencesExpanded && draft.references.length > 0) && (
               <span className={failedReference ? 'text-destructive' : 'text-muted-foreground'}>
                 {referenceStatus}
               </span>

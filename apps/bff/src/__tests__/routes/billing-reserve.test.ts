@@ -272,6 +272,12 @@ describe('repeated submissions', () => {
     expect(await db.select().from(schema.tasks)).toHaveLength(1)
   })
 
+  it('catches a double click that carries no command id', async () => {
+    expect(await submit('gpt-image-2', { prompt: 'no id', client_request_id: undefined })).toBe(200)
+    expect(await submit('gpt-image-2', { prompt: 'no id', client_request_id: undefined })).toBe(409)
+    expect(reservations).toHaveLength(1)
+  })
+
   it('still lets a different request through right away', async () => {
     expect(await submit('gpt-image-2', { prompt: 'first' })).toBe(200)
     expect(await submit('gpt-image-2', { prompt: 'second' })).toBe(200)
@@ -290,6 +296,34 @@ describe('repeated submissions', () => {
     expect(await submit('gpt-image-2', body)).toBe(200)
     expect(await submit('gpt-image-2', body)).toBe(200)
     expect(reservations).toHaveLength(2)
+  })
+
+  it('leaves other entry points alone: a batch may hold identical items', async () => {
+    const { createQueueTask } = await import('../../lib/taskSubmission')
+    const input = {
+      provider: 'openai-compat' as const,
+      model: 'gpt-image-2',
+      request: { prompt: 'same look twice' },
+      userId: 'billing-user',
+    }
+
+    expect((await createQueueTask(input)).kind).toBe('created')
+    expect((await createQueueTask(input)).kind).toBe('created')
+    expect(reservations).toHaveLength(2)
+  })
+
+  it('refuses a blank prompt on every entry point before reserving', async () => {
+    const { createQueueTask } = await import('../../lib/taskSubmission')
+    const outcome = await createQueueTask({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: '\u200b \u0007' },
+      userId: 'billing-user',
+    })
+
+    expect(outcome.kind).toBe('invalid_prompt')
+    expect(reservations).toHaveLength(0)
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
   })
 
   it('replays the same command id instead of rejecting it', async () => {

@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { inspirationFacetLabel, inspirationTitle } from '../../../features/inspiration/lib/labels'
+import { beforeAll, describe, expect, it } from 'vitest'
+import {
+  inspirationFacetLabel,
+  inspirationTitle,
+  loadInspirationTitles,
+} from '../../../features/inspiration/lib/labels'
+
+beforeAll(() => loadInspirationTitles())
 
 interface ManifestItem {
   id: string

@@ -88,7 +88,7 @@ export const proposeBatchGeneration = defineAgentTool({
           text: '已根据真实分析保存逐项生成提示词和新报价。请用户审查范围、排除项和提示词后确认生成。',
         },
       ],
-      details: { batchId: input.batchId },
+      details: { batchId: input.batchId, batchItemKeys: input.items.map((item) => item.key) },
     }
   },
 })
