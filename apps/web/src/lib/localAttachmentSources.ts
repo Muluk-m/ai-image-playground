@@ -202,9 +202,32 @@ export function registerLocalAttachmentSource(
           : encoded
             ? Math.floor(((source.length - source.indexOf(',') - 1) * 3) / 4)
             : source.length
-      if (typeof source === 'string' && estimatedBytes > maxBytes + (encoded ? 2 : 0))
-        errorCode = 'media_image_too_large'
-      else {
+      if (typeof source === 'string' && estimatedBytes > maxBytes + (encoded ? 2 : 0)) {
+        // 超限的 data URL 先压到上传上限；压不成再按原来的超限失败，不在这里另写一套报错。
+        const { compressUploadFiles } = await import('./imageFiles')
+        const type =
+          source.slice(5, source.indexOf(';')) ||
+          source.slice(5, source.indexOf(',')) ||
+          'image/png'
+        let fitted: File | undefined
+        try {
+          const blob = await (await fetch(source)).blob()
+          const [next] = await compressUploadFiles(
+            [new File([blob], 'image', { type: blob.type || type })],
+            maxBytes,
+          )
+          fitted = next
+        } catch {
+          fitted = undefined
+        }
+        if (fitted && fitted.size <= maxBytes) {
+          data =
+            typeof fitted.arrayBuffer === 'function'
+              ? await fitted.arrayBuffer()
+              : await new Response(fitted).arrayBuffer()
+          contentType = fitted.type || contentType
+        } else errorCode = 'media_image_too_large'
+      } else {
         try {
           if (typeof source === 'string') data = await (await fetch(source)).arrayBuffer()
           else {

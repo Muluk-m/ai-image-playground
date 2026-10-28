@@ -48,7 +48,8 @@ export function useImageDropZone(onFiles: (files: File[], folder: string | null)
         event.stopPropagation()
         stop()
         void collectDroppedFiles(event.dataTransfer).then(({ files, folder }) => {
-          const images = acceptImageFiles(files)
+          // 超限的先留给入口压缩，这里只丢掉非图片。压完仍超限的由入口按原来的规则拒绝。
+          const images = acceptImageFiles(files, { keepOversized: true })
           if (images.length > 0) onFiles(images, folder)
         })
       },
