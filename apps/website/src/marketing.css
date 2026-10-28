@@ -23,13 +23,8 @@
   box-shadow: 0 24px 60px -32px hsl(var(--scrim) / 0.6);
 }
 .mkt-composer:focus-within { border-color: hsl(var(--primary) / 0.45); }
-.mkt-ref {
-  width: 56px; height: 56px; flex: none; display: grid; place-items: center; border-radius: 12px;
-  border: 1px dashed hsl(var(--border)); color: hsl(var(--muted-foreground)); background: transparent; cursor: pointer;
-}
-.mkt-ref:hover { color: hsl(var(--foreground)); border-color: hsl(var(--muted-foreground)); }
 .mkt-input {
-  flex: 1; min-width: 0; resize: none; border: 0; outline: none; background: transparent; color: inherit;
+  display: block; width: 100%; min-width: 0; resize: none; border: 0; outline: none; background: transparent; color: inherit;
   font: inherit; font-size: theme('fontSize.title'); line-height: 1.6; padding: 4px 2px; min-height: 76px;
 }
 .mkt-input::placeholder { color: hsl(var(--muted-foreground)); }
@@ -160,6 +155,9 @@
   .cbox .copt { flex-wrap: wrap; }
   .cbox .copt .cbtn { flex: 1; text-align: center; }
   .cbox .copt .ct { flex-basis: calc(100% - 50px); }
+}
+@media (max-width: 360px) {
+  .mkt-title { font-size: 30px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .mkt-tile img, .mkt-same { transition: none; }
