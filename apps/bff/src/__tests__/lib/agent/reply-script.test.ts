@@ -178,20 +178,24 @@ describe('sanitizeAssistantMessages', () => {
     expect(sanitizeAssistantMessages(cleaned)).toBe(cleaned)
   })
 
-  it('leaves a reply alone when this batch has no user text or the reply is entirely in another script', () => {
+  it('strips a leaked word on the same turn, and leaves another turn alone when its user text is missing', () => {
     const kana = 'そのままです。'
     const onlyAssistant = [message('assistant', kana, 't1')]
     expect(sanitizeAssistantMessages(onlyAssistant)).toBe(onlyAssistant)
-    const withChineseUser = [message('user', USER_ZH, 't2'), message('assistant', kana, 't1')]
-    const cleaned = sanitizeAssistantMessages(withChineseUser)
-    expect(cleaned[1]?.content[0]).toMatchObject({ text: kana })
+    const otherTurn = [message('user', USER_ZH, 't2'), message('assistant', kana, 't1')]
+    expect(sanitizeAssistantMessages(otherTurn)[1]?.content[0]).toMatchObject({ text: kana })
+    const sameTurn = [
+      message('user', USER_ZH, 't1'),
+      message('assistant', `${LEAK}。`, 't1', 'assistant-leak'),
+    ]
+    expect(sanitizeAssistantMessages(sameTurn)[1]?.content[0]).toMatchObject({ text: '。' })
   })
 
   it('keeps a script any loaded user message used, and strips it when none did', () => {
     const quoted = `按你写的 ${LEAK} 来。`
     const kept = sanitizeAssistantMessages([
       message('user', `这句里有 ${LEAK}`, 't1'),
-      message('assistant', quoted, 't2', 'assistant-t2'),
+      message('assistant', quoted, 't1', 'assistant-t1'),
     ])
     expect(kept[1]?.content[0]).toMatchObject({ text: quoted })
     const stripped = sanitizeAssistantMessages([
