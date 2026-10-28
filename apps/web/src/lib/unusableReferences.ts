@@ -40,19 +40,27 @@ function knownHeader(dataUrl: string): boolean {
   }
 }
 
-async function inspect(image: ReferenceImage): Promise<UnusableReferenceCode | null> {
+/** 浏览器解一次的结论；解不出时按文件头分两种原因。 */
+const decode = (image: ReferenceImage): Promise<UnusableReferenceCode | null> =>
+  loadImage(image.dataUrl).then(
+    () => null,
+    () => (knownHeader(image.dataUrl) ? 'media_invalid_image' : 'media_unsupported_image'),
+  )
+
+const TIMED_OUT = Symbol('timed out')
+function withTimeout<T>(work: Promise<T>): Promise<T | typeof TIMED_OUT> {
   let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, DECODE_TIMEOUT_MS)
+  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), DECODE_TIMEOUT_MS)
   })
-  try {
-    await Promise.race([loadImage(image.dataUrl), timeout])
-    return null
-  } catch {
-    return knownHeader(image.dataUrl) ? 'media_invalid_image' : 'media_unsupported_image'
-  } finally {
-    clearTimeout(timer)
-  }
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer))
+}
+
+function record(id: string, dataUrl: string, code: UnusableReferenceCode | null) {
+  verdicts.delete(id)
+  if (verdicts.size >= MAX_VERDICTS) verdicts.delete(verdicts.keys().next().value!)
+  verdicts.set(id, { dataUrl, code })
+  for (const listener of listeners) listener()
 }
 
 /**
@@ -76,14 +84,17 @@ export function useUnusableReferences(images: readonly ReferenceImage[]): {
       if (!isLocal(image) || verdictFor(image) || checking.get(image.id) === image.dataUrl) continue
       const { id, dataUrl } = image
       checking.set(id, dataUrl)
-      void inspect(image).then((code) => {
+      const decoding = decode(image)
+      void withTimeout(decoding).then((code) => {
         // 判的期间这张图又换了内容，就丢掉这次结论，等新那次。
         if (checking.get(id) !== dataUrl) return
         checking.delete(id)
-        verdicts.delete(id)
-        if (verdicts.size >= MAX_VERDICTS) verdicts.delete(verdicts.keys().next().value!)
-        verdicts.set(id, { dataUrl, code })
-        for (const listener of listeners) listener()
+        if (code !== TIMED_OUT) return record(id, dataUrl, code)
+        // 超时先放行，但不当成定论：浏览器之后真回了结果，仍按它改判（解不出就补上标红）。
+        record(id, dataUrl, null)
+        void decoding.then((late) => {
+          if (late && verdictFor(image)?.code === null) record(id, dataUrl, late)
+        })
       })
     }
   }, [images])
