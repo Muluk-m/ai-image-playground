@@ -56,6 +56,7 @@ import { agentModel, agentStreamFn } from './model'
 import { modelHistoryTransform, saveModelHistoryAfterTurn } from './model-history'
 import { AgentRequestBudgetError } from './outbound-budget'
 import type { ConfiguredAgentRuntime } from './provider-settings'
+import { createReplyScriptGate, type ReplyScriptGate } from './reply-script'
 import {
   AgentContextOverflow,
   assertRequestWithinBudget,
@@ -147,6 +148,9 @@ interface OpenAssistantMessage {
   readonly id: string
   text: string
   persisted?: boolean
+  /** 这一条助手正文的文字清洗。增量只往外追加，收尾时才可能补上兜底句。 */
+  readonly script: ReplyScriptGate
+  started: boolean
 }
 
 interface OpenToolCall {
@@ -230,6 +234,15 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     text: input.text,
     hasNewReferences: input.references.length > 0,
   })
+  // 唤醒轮的 text 是系统说明，不是用户的话。清洗时认历史里的用户原话和这一轮的用户原话。
+  const replyLanguageSource = [
+    ...history.messages.flatMap((message) =>
+      message.role === 'user'
+        ? message.content.flatMap((block) => (block.type === 'text' ? [block.text] : []))
+        : [],
+    ),
+    prepared.wake?.authorizationPrompt || input.text,
+  ].join('\n')
   // 唤醒轮的 text 是系统说明，不是用户的话；澄清作答连同它答的那句原话一起看。
   const userAsk = [
     ...history.messages
@@ -505,6 +518,16 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
 
   const closeOpen = async () => {
     const current = open
+    if (current) {
+      // 用户中止时只落已经能确定的正文，不把没露出来的杂字换成兜底句。
+      const piece = current.script.finish(!aborted)
+      if (piece) {
+        if (!current.started) events.emit({ type: 'assistantStart', messageId: current.id })
+        current.started = true
+        current.text = current.script.text()
+        events.emit({ type: 'textDelta', messageId: current.id, delta: piece })
+      }
+    }
     open = null
     if (current) await store(current)
   }
@@ -598,18 +621,28 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     }
     if (event.type === 'message_start' && event.message.role === 'assistant') {
       ignoringTruncatedTools = false
-      open = { id: crypto.randomUUID(), text: '' }
+      open = {
+        id: crypto.randomUUID(),
+        text: '',
+        script: createReplyScriptGate(replyLanguageSource),
+        started: false,
+      }
     }
     if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
       const current = open
       if (!current) return
-      // 上游报错的那条助手消息一个字都没有，不为它开一个空气泡。
-      if (!current.text) events.emit({ type: 'assistantStart', messageId: current.id })
-      current.text += event.assistantMessageEvent.delta
+      const piece = current.script.push(event.assistantMessageEvent.delta)
+      if (!piece) return
+      // 杂字被清掉时先不开气泡；第一段看得见的正文再开。
+      if (!current.started) {
+        events.emit({ type: 'assistantStart', messageId: current.id })
+        current.started = true
+      }
+      current.text = current.script.text()
       events.emit({
         type: 'textDelta',
         messageId: current.id,
-        delta: event.assistantMessageEvent.delta,
+        delta: piece,
       })
     }
     if (event.type === 'message_end' && event.message.role === 'assistant') {
