@@ -83,6 +83,8 @@ describe('sanitizeReplyText', () => {
       expect(sanitizeReplyText(`结果 ${word} 完`, USER_ZH)).toBe('结果 完')
     }
     expect(sanitizeReplyText('结果 はこちら 결과 完', USER_ZH)).toBe('结果 はこちら 결과 完')
+    expect(sanitizeReplyText('结果 ߊ 完', USER_ZH)).toBe('结果 完')
+    expect(sanitizeReplyText('结果 ߊ 完', '用户写了 ߊ')).toBe('结果 ߊ 完')
     expect(sanitizeReplyText(`你写的 ${LEAK} 我按原样保留。`, `这句里有 ${LEAK}`)).toBe(
       `你写的 ${LEAK} 我按原样保留。`,
     )
