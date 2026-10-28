@@ -14,6 +14,7 @@ import { closeTooltips } from '../assistant-ui/elements/tooltip-icon-button'
  *    只提供 DOM 包含关系，不产生布局盒）；边界对所有打开中的 Overlay 共享，见 openBoundaries
  * 3. ESC 栈 —— useCloseOnEscape，一次只关最顶层
  * 4. backdrop 关闭 —— pointerdown-guard：pointerdown 必须落在表面上，click 才关闭（防划词误关）；
+ *    连击的第二下（detail > 1）不关闭，免得双击打开按钮时第二下把刚开的弹层关掉；
  *    backdrop 必须 pointer-events-none，否则它盖在表面之上、命中的是 backdrop 而非表面，永不关闭
  * 5. z 层：modal(50) / raised(100) / alert(110) / artifact(1200)
  * 6. 打开任意 Overlay 时统一收起 Tooltip —— 定位型浮层不得越过模态 backdrop
@@ -98,6 +99,8 @@ export default function Overlay({
         surfaceDownRef.current = e.target === e.currentTarget
       }}
       onClick={(e) => {
+        // 连击的第二下不算关闭：双击打开弹层的按钮时，第二下会落在刚出现的表面上。
+        if (e.detail > 1) return
         if (surfaceDownRef.current && e.target === e.currentTarget) onClose()
       }}
     >

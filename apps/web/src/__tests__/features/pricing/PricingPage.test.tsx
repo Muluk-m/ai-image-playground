@@ -198,6 +198,18 @@ describe('定价页', () => {
     expect(host.textContent ?? '').toContain('825')
   })
 
+  it('折算张数用产品里显示的模型名，单价不写成「参考图片」', async () => {
+    const flare = structuredClone(LIVE_CATALOG)
+    flare.image_anchor.model = 'gpt-image-2.5-flare'
+    installCatalog(flare)
+    await renderPage()
+    const text = host.textContent ?? ''
+    expect(text).toContain('Image 2.5 Flare 折算')
+    expect(text).toContain('Image 2.5 Flare 每张 100 积分')
+    expect(text).not.toContain('gpt-image-2.5-flare')
+    expect(text).not.toContain('参考图片')
+  })
+
   it('切换到年付后，卡片改成一次付清并写出每月折合', async () => {
     await renderPage()
     expect(host.textContent ?? '').not.toContain('折合')

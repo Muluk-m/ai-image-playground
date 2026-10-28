@@ -1,17 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import { editions, type Locale } from '../catalog'
+import { rememberSiteLocale } from '../localeSelection'
 import {
   ASSET,
   caseHref,
   libraryRows,
   MARK,
+  MARQUEE_SIZES,
   marketingCopy,
   showcaseCases,
+  WALL_SIZES,
   wallColumns,
   wallSrc,
+  wallSrcSet,
 } from '../marketing'
 import { type MarketingMotion, startMarketingMotion } from '../marketingMotion'
 import { ContactModal } from './ContactModal'
+
+const CONTACT_HASH = '#contact'
 
 export function MarketingHome({ locale, start }: { locale: Locale; start: () => void }) {
   const text = marketingCopy[locale]
@@ -78,6 +84,21 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
     event.preventDefault()
     setContactOpen(true)
   }
+  const closeContact = () => {
+    setContactOpen(false)
+    if (window.location.hash === CONTACT_HASH)
+      history.replaceState(null, '', window.location.pathname + window.location.search)
+  }
+
+  // 带 #contact 打开（站内外的「联系我们」链接都指向这里）就直接弹出联系方式；后退到别的锚点时跟着关掉。
+  useEffect(() => {
+    const syncHash = () => {
+      setContactOpen(window.location.hash === CONTACT_HASH)
+    }
+    syncHash()
+    window.addEventListener('hashchange', syncHash)
+    return () => window.removeEventListener('hashchange', syncHash)
+  }, [])
 
   return (
     <main className="mkt" ref={rootRef} data-locale={locale}>
@@ -91,12 +112,14 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
           <a href="#feat">{text.nav.features}</a>
           <a href="#gal">{text.nav.inspiration}</a>
           <a href={editions[locale].root}>{text.nav.guide}</a>
+          <a href="/pricing">{text.nav.pricing}</a>
         </div>
         <div className="nav-end">
           <a
             className="lang"
             href={locale === 'en' ? '/' : '/en/'}
             hrefLang={locale === 'en' ? 'zh-CN' : 'en'}
+            onClick={() => rememberSiteLocale(locale === 'en' ? 'zh-CN' : 'en')}
           >
             {locale === 'en' ? '中文' : 'EN'}
           </a>
@@ -114,6 +137,8 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
                 <figure key={`${file}-${imageIndex}`}>
                   <img
                     src={wallSrc(file)}
+                    srcSet={wallSrcSet(file)}
+                    sizes={WALL_SIZES}
                     alt=""
                     decoding="async"
                     fetchPriority={columnIndex === 4 && imageIndex < 2 ? 'high' : 'low'}
@@ -169,8 +194,14 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
               data-category={item.category}
               data-prompt={item.prompt}
             >
-              <img className="bg" src={item.image} alt="" />
-              <img className="fg" src={item.image} alt={`${item.key}`} />
+              <img className="bg" src={item.image} alt="" loading="lazy" decoding="async" />
+              <img
+                className="fg"
+                src={item.image}
+                alt={`${item.key}`}
+                loading="lazy"
+                decoding="async"
+              />
               <span className="cap">
                 {item.key} · {text.demo.caption}
               </span>
@@ -373,7 +404,14 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
             <div className="mrow" key={index}>
               {row.map((file, imageIndex) => (
                 <figure key={`${file}-${imageIndex}`}>
-                  <img src={wallSrc(file)} alt="" loading="lazy" decoding="async" />
+                  <img
+                    src={wallSrc(file)}
+                    srcSet={wallSrcSet(file)}
+                    sizes={MARQUEE_SIZES}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                  />
                 </figure>
               ))}
             </div>
@@ -410,11 +448,12 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
               <a href="#demo">{text.nav.cases}</a>
               <a href="#feat">{text.nav.features}</a>
               <a href="#gal">{text.nav.inspiration}</a>
+              <a href="/pricing">{text.nav.pricing}</a>
             </div>
-            <div>
+            <div id="contact">
               <b>{text.footer.help}</b>
               <a href={editions[locale].root}>{text.nav.guide}</a>
-              <a href="#contact" onClick={openContact}>
+              <a href={`mailto:${text.contact.mail}`} onClick={openContact}>
                 {text.footer.contact}
               </a>
             </div>
@@ -430,7 +469,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
           <span>{text.footer.domain}</span>
         </div>
       </footer>
-      <ContactModal open={contactOpen} locale={locale} onClose={() => setContactOpen(false)} />
+      <ContactModal open={contactOpen} locale={locale} onClose={closeContact} />
     </main>
   )
 }

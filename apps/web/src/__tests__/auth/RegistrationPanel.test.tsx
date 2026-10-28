@@ -99,6 +99,42 @@ describe('RegistrationPanel', () => {
       password: 'fixture-phrase',
     })
   })
+  it('rejects a blank or overlong password instead of trimming it', () => {
+    const onRegister = vi.fn()
+    act(() => {
+      root.render(
+        <RegistrationPanel
+          pending={false}
+          error=""
+          verificationEnabled={false}
+          onBack={vi.fn()}
+          onRequestVerification={vi.fn()}
+          onRegister={onRegister}
+        />,
+      )
+    })
+    const submit = () =>
+      act(() => host.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true })))
+
+    act(() => {
+      setInput(input('username'), 'creator@example.com')
+      setInput(input('password'), '          ')
+      setInput(input('confirmPassword'), '          ')
+    })
+    submit()
+    expect(host.textContent).toContain('密码不能全是空格')
+
+    const long = 'a'.repeat(129)
+    act(() => {
+      setInput(input('password'), long)
+      setInput(input('confirmPassword'), long)
+    })
+    expect(input('password').value).toHaveLength(129)
+    submit()
+    expect(host.textContent).toContain('密码需为 8-128 位')
+    expect(onRegister).not.toHaveBeenCalled()
+  })
+
   it('requests a code before submitting verified registration credentials', async () => {
     const onRequestVerification = vi.fn(async () => ({
       challengeId: 'challenge-1',

@@ -40,7 +40,7 @@
     "attach": "Add reference images (up to {{count}}, ≤{{mb}}MB each)",
     "attachImages": "Add images",
     "attachFolder": "Add a folder",
-    "referenceTooLarge": "Image {{index}} is larger than {{maxSize}}. Please choose a smaller one."
+    "referenceTooLarge": "Image {{index}} is over {{maxSize}}. Remove it or use a smaller one."
   },
   "slot": {
     "heading": "Slot {{slot}}",
@@ -56,7 +56,8 @@
     "noModel": "No model is available right now. Try again later",
     "startCanvas": "Start creating",
     "skillNeedsCanvas": "Skills run in projects. Switch to Smart creation or Canvas to send",
-    "promptRequired": "Enter a prompt to generate"
+    "promptRequired": "Enter a prompt to generate",
+    "promptTooLong": "Prompts can be up to {{max}} characters"
   },
   "search": {
     "favoriteOnly": "Favorites only",

@@ -1,4 +1,9 @@
 import {
+  AGENT_USER_MESSAGE_MAX_CHARS,
+  isBlankPrompt,
+  SYNC_PROMPT_MAX_LENGTH,
+} from '@image-playground/shared'
+import {
   type ReactNode,
   useCallback,
   useEffect,
@@ -81,6 +86,7 @@ import {
   getAtImageQuery,
   getSelectedImageMentionLabel,
   type MentionLabelResolver,
+  replaceImageMentionsForApi,
 } from '../lib/promptImageMentions'
 import { getPromptSlotNames, getSubmissionImageCount } from '../lib/promptSlots'
 import {
@@ -91,6 +97,8 @@ import {
   referenceRefusalMessage,
   referenceTally,
 } from '../lib/referenceDraft'
+import { useUnusableReferences } from '../lib/unusableReferences'
+import { cn } from '../lib/utils'
 import {
   removeMultipleTasks,
   storeImageFromFile,
@@ -130,7 +138,7 @@ function useIsMobile() {
   return isMobile
 }
 
-/** 逐张生成点发送后按钮转圈的最短时长，之后才清空输入框。 */
+/** 快速生成点发送后按钮转圈并锁住的最短时长，之后才清空输入框、才能再发。 */
 const BATCH_SEND_FEEDBACK_MS = 500
 
 /** `inline`：首屏那一版——不吸底，跟着 hero 排在流里，卡面换成带发光描边的大卡。 */
@@ -315,23 +323,27 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const { failed: failedUploads, pending: uploadsPending } = referenceUploadGate(uploadReferences)
   const canvasSubmittingRef = useRef(false)
   const uploadsBlocked = uploadsPending > 0 || failedUploads.length > 0
+  // 快速生成不在选图时上传：每张图在本机解一次，坏图与智能创作上传时同一套标法（BUG-59）。
+  const quickImages = useMemo(() => (toCanvas ? [] : inputImages), [toCanvas, inputImages])
+  const quickCheck = useUnusableReferences(quickImages)
   // 传失败的那几张（超限的另算）：缩略图上标红、出「!」、× 常显；能重传的再给一个「重试」。
-  const failedIndexes = uploadReferences.flatMap((reference, index) =>
-    !oversizedIndexes.includes(index) && attachmentUploadState(reference) === 'failed'
-      ? [index]
-      : [],
-  )
+  const failedIndexes = toCanvas
+    ? uploadReferences.flatMap((reference, index) =>
+        !oversizedIndexes.includes(index) && attachmentUploadState(reference) === 'failed'
+          ? [index]
+          : [],
+      )
+    : [...quickCheck.failures.keys()].filter((index) => !oversizedIndexes.includes(index))
+  const failureCode = (index: number) =>
+    toCanvas ? attachmentUploadError(uploadReferences[index]!) : quickCheck.failures.get(index)
   const retryableIndexes = failedIndexes.filter((index) =>
-    canRetryAttachmentUpload(attachmentUploadError(uploadReferences[index]!)),
+    canRetryAttachmentUpload(failureCode(index)),
   )
   // 每张失败图的原因都要看得到：超限那句之外，坏图、超时各说一句，标明是第几张（BUG-44）。
   const uploadDetailLines = failedIndexes.map((index) =>
     t('composer:studio.referenceIssue', {
       index: index + 1,
-      reason: attachmentUploadErrorMessage(
-        attachmentUploadError(uploadReferences[index]!),
-        getAttachmentLimits(),
-      ),
+      reason: attachmentUploadErrorMessage(failureCode(index), getAttachmentLimits()),
     }),
   )
   const retryUpload = (index: number) => {
@@ -386,12 +398,24 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     [activeLook, inputImages, libraryAssets],
   )
   const lookBody = activeLook?.record?.body ?? activeLook?.skill?.template?.body ?? ''
+  const promptBlank = isBlankPrompt(prompt)
+  // 画布里这句话会作为智能体消息发出，上限更紧；生成档以云端历史能存下的长度为准。快到上限才显示字数。
+  const promptMax = toCanvas ? AGENT_USER_MESSAGE_MAX_CHARS : SYNC_PROMPT_MAX_LENGTH
+  // 画布发出去的是图片胶囊换成 `[image N]` 之后的文字，按发送时的样子计数。
+  // 带模板时模板正文要到发送那一刻才组装好，这里只数输入的部分，超长由服务端拒绝。
+  const promptLength = toCanvas
+    ? replaceImageMentionsForApi(prompt, inputImages.length).trim().length
+    : prompt.length
+  const promptTooLong = promptLength > promptMax
+  const showPromptCount = promptLength >= promptMax * 0.8
   const canSubmit = Boolean(
-    (prompt.trim() || activeLook) &&
+    (!promptBlank || activeLook) &&
       hasSubmitApiConfig &&
       !submissionGuard.blocked &&
       (lookCheck?.ok ?? true) &&
-      oversizedIndexes.length === 0,
+      oversizedIndexes.length === 0 &&
+      failedIndexes.length === 0 &&
+      quickCheck.pending === 0,
   )
   const creationMode = toCanvas ? (createTarget === 'video' ? 'video' : 'agent') : 'image'
   const apiReady = toCanvas || hasSubmitApiConfig
@@ -402,21 +426,24 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   // 模板准备中按钮变成停止：只有点按钮才取消，回车不取消、也不发新的一条。
   const submitReady =
     !lookSubmitting &&
+    !promptTooLong &&
     (toCanvas
-      ? Boolean(prompt.trim()) && !oversizedNotice && !uploadsBlocked
+      ? !promptBlank && !oversizedNotice && !uploadsBlocked
       : canSubmit && !skillNeedsCanvas)
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
-  const promptMissing = !prompt.trim() && (toCanvas || !activeLook)
+  const promptMissing = promptBlank && (toCanvas || !activeLook)
   const blockedByReferences = referenceNotice ?? (uploadsBlocked ? uploadProgress : null)
   const submitBlockedTip = blockedByReferences
     ? blockedByReferences
-    : skillNeedsCanvas
-      ? t('submit.skillNeedsCanvas')
-      : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
-        ? (submissionGuard.disabledReason ?? t('submit.noModel'))
-        : promptMissing
-          ? t('submit.promptRequired')
-          : null
+    : promptTooLong
+      ? t('submit.promptTooLong', { max: promptMax.toLocaleString() })
+      : skillNeedsCanvas
+        ? t('submit.skillNeedsCanvas')
+        : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
+          ? (submissionGuard.disabledReason ?? t('submit.noModel'))
+          : promptMissing
+            ? t('submit.promptRequired')
+            : null
   const submit = () => {
     if (lookSubmitting || batchSendingRef.current) return
     if (toCanvas) {
@@ -442,16 +469,19 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         }
       })()
     } else if (activeLook) void submitWithLook(activeLook, lookBody)
-    else if (batchActive) {
-      // 逐张生成一次发很多张，按钮先转一下再清空输入框，让这次点击有回应。
+    else {
+      // 点下去这一刻就锁住按钮：按钮先转一下再清空输入框，让这次点击有回应；
+      // 转圈期间的第二下点击或回车不再发出第二条任务（双击会建两条任务、扣两次费）。
       batchSendingRef.current = true
       setBatchSending(true)
       const hold = new Promise((resolve) => setTimeout(resolve, BATCH_SEND_FEEDBACK_MS))
-      void submitTask({ holdClear: hold }).finally(() => {
-        batchSendingRef.current = false
-        setBatchSending(false)
-      })
-    } else void submitTask()
+      void submitTask({ holdClear: hold })
+        .then(() => hold)
+        .finally(() => {
+          batchSendingRef.current = false
+          setBatchSending(false)
+        })
+    }
   }
   const onSubmitClick = () => {
     if (lookSubmitting) cancelLookSubmission()
@@ -1687,10 +1717,22 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   {referenceNotice}
                 </span>
               ) : (
-                <SubmissionBillingAction
-                  blockedAction={submissionGuard.blockedAction}
-                  className="text-xs"
-                />
+                <>
+                  {showPromptCount && (
+                    <span
+                      className={cn(
+                        'text-xs tabular-nums',
+                        promptTooLong ? 'text-destructive' : 'text-muted-foreground',
+                      )}
+                    >
+                      {promptLength.toLocaleString()}/{promptMax.toLocaleString()}
+                    </span>
+                  )}
+                  <SubmissionBillingAction
+                    blockedAction={submissionGuard.blockedAction}
+                    className="text-xs"
+                  />
+                </>
               )
             }
             action={
