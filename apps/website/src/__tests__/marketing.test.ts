@@ -116,9 +116,7 @@ describe('marketing home', () => {
 
   it('renders only email in the contact dialog and leaves WeChat empty', () => {
     for (const locale of ['zh-CN', 'en'] as const) {
-      const html = renderToStaticMarkup(
-        createElement(ContactPanel, { locale, onClose: () => {} }),
-      )
+      const html = renderToStaticMarkup(createElement(ContactPanel, { locale, onClose: () => {} }))
       expect(html).toContain(marketingCopy[locale].contact.title)
       expect(html).not.toContain('x.com/')
       expect(html).not.toContain('@Muluk656')
