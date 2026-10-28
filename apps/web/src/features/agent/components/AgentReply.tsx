@@ -1,7 +1,9 @@
 import {
-  stripDisallowedScripts,
+  compileReplyScripts,
+  type ReplyScriptAllowance,
   stripInlineReasoning,
   stripInternalRefs,
+  stripWithReplyScripts,
 } from '@image-playground/shared'
 import { useEffect, useMemo, useState } from 'react'
 import { MessageActions } from '../../../components/assistant-ui/elements/message-actions'
@@ -15,7 +17,9 @@ import { useReplyHiddenKeys } from './AgentReplyImage'
 interface Props {
   text: string
   streaming: boolean
-  /** 整段会话里的用户原文。和 BFF 用同一个函数，拦住接口里直接注入的乱入文字。 */
+  /** 轮初算好的允许文字。流式增量只拿它，不再重扫用户原文。 */
+  allowance?: ReplyScriptAllowance
+  /** 没有 allowance 时用这份原文现算一次。 */
   userText?: string
 }
 
@@ -51,17 +55,18 @@ function CopyReplyButton({ text }: { text: string }) {
 }
 
 /** 助手回复整段展示、按 Markdown 渲染；操作跟在正文下面，不浮在角落。 */
-export default function AgentReply({ text: stored, streaming, userText = '' }: Props) {
+export default function AgentReply({ text: stored, streaming, allowance, userText = '' }: Props) {
   // 服务端已在模型适配层把正文开头的推理拆走；这里只兜修复之前落库的旧回复，流式中不逐段重扫。
   const hiddenKeys = useReplyHiddenKeys()
   const text = useMemo(
     () => (streaming ? stored : stripInlineReasoning(stored)),
     [stored, streaming],
   )
+  const scripts = useMemo(() => allowance ?? compileReplyScripts(userText), [allowance, userText])
   // 显示与复制都去掉产物 id、UUID 与批次项 key（BUG-56），并再挡一层乱入文字。
   const shown = useMemo(
-    () => stripInternalRefs(stripDisallowedScripts(text, userText), hiddenKeys),
-    [text, userText, hiddenKeys],
+    () => stripInternalRefs(stripWithReplyScripts(text, scripts), hiddenKeys),
+    [text, scripts, hiddenKeys],
   )
   if (!shown && !streaming) return null
   return (

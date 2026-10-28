@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import type { AgentMessageView } from '@image-playground/shared'
 import {
   collectUserReplyText,
+  compileReplyScripts,
   createReplyScriptGate,
   REPLY_SCRIPT_FALLBACK_EN,
   REPLY_SCRIPT_FALLBACK_ZH,
@@ -68,6 +69,26 @@ describe('sanitizeReplyText', () => {
   it('keeps Greek letters used as symbols (BUG-77)', () => {
     const text = '保留 α 通道，γ 校正 2.2，μm'
     expect(sanitizeReplyText(text, USER_ZH)).toBe(text)
+  })
+
+  it('keeps a full reply in a script the user has used, and still strips Gujarati (script allow)', () => {
+    const userRu = 'Привет'
+    const replyRu = 'Как дела? Я помогу с ночным светом.'
+    expect(sanitizeReplyText(replyRu, userRu)).toBe(replyRu)
+    const userAr = 'مرحبا'
+    const replyAr = 'كيف حالك؟'
+    expect(sanitizeReplyText(replyAr, userAr)).toBe(replyAr)
+    expect(sanitizeReplyText(`已提交。${LEAK}会显示。`, USER_ZH)).toBe('已提交。会显示。')
+    expect(sanitizeReplyText(`${replyRu} ${LEAK}`, userRu)).toBe(`${replyRu} `)
+  })
+
+  it('reuses the script set from the start of the turn instead of recomputing each chunk', () => {
+    const allowance = compileReplyScripts('Привет')
+    const gate = createReplyScriptGate('用中文', allowance)
+    const reply = 'Как дела'
+    let streamed = ''
+    for (const char of reply) streamed += gate.push(char)
+    expect(streamed + gate.finish()).toBe(reply)
   })
 
   it('keeps Chinese, English, model names, numbers, emoji, and image markdown', () => {
