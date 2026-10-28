@@ -1,7 +1,6 @@
 import { currentLocale } from '../../../i18n'
 import type { InspirationItem } from '../types'
 import { INSPIRATION_GROUPS, type InspirationGroupId } from './groups'
-import TITLES_EN from './titles-en.json'
 
 /**
  * 灵感库的分类和标签是清单里的中文数据，不随界面语言改写存储值。
@@ -209,7 +208,29 @@ export function inspirationGroupLabel(value: string, locale = currentLocale()): 
   return EN_GROUPS[group.id]
 }
 
-const titlesEn: Record<string, string[] | undefined> = TITLES_EN
+// 约 1200 条标题，单独一个异步 chunk：不进首屏 bundle，灵感清单加载时一起取。
+let titlesEn: Record<string, string[] | undefined> = {}
+let titlesLoading: Promise<void> | null = null
+let titlesLoaded = false
+
+/** 取英文标题表。失败时下次再试，标题先显示原文。 */
+export function loadInspirationTitles(): Promise<void> {
+  titlesLoading ??= import('./titles-en.json').then(
+    (module) => {
+      titlesEn = module.default
+      titlesLoaded = true
+    },
+    () => {
+      titlesLoading = null
+    },
+  )
+  return titlesLoading
+}
+
+/** 英文标题表已经到了：再调 `loadInspirationTitles` 不会带来新标题。 */
+export function inspirationTitlesLoaded(): boolean {
+  return titlesLoaded
+}
 
 /** 英文界面显示案例的英文标题；后台改过标题、或新案例还没译文时显示原标题。 */
 export function inspirationTitle(
