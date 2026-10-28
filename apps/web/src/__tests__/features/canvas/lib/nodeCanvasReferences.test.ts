@@ -19,11 +19,17 @@ import {
   canPickCanvasReference,
   uploadCanvasReference,
 } from '../../../../features/canvas/lib/nodeCanvasReferences'
+import { UploadImageTooLargeError } from '../../../../lib/imageFiles'
 import { API_MAX_IMAGES } from '../../../../lib/inputImageLimit'
 
 const mock = vi.hoisted(() => ({ dimensions: vi.fn(async () => ({ width: 640, height: 360 })) }))
+const compressUploadFile = vi.hoisted(() => vi.fn(async (file: File) => file))
+vi.mock('../../../../lib/imageFiles', () => ({
+  compressUploadFile,
+  UploadImageTooLargeError: class UploadImageTooLargeError extends Error {},
+}))
 vi.mock('../../../../features/canvas/lib/importImages', () => ({
-  fileToDataUrl: async () => 'data:image/png;base64,AA==',
+  fileToDataUrl: async (file: File) => `data:${file.type};base64,AA==`,
 }))
 vi.mock('../../../../lib/canvasImage', () => ({ getImageDimensions: mock.dimensions }))
 vi.mock('../../../../lib/authScope', () => ({ accountScope: () => () => true }))
@@ -97,6 +103,7 @@ it('uploads append new linked cards without replacing source pixels and undo rem
 it('does not insert a card if its target disappears while decoding', async () => {
   const { canvas, target } = setup()
   let done!: (size: { width: number; height: number }) => void
+  mock.dimensions.mockClear()
   mock.dimensions.mockImplementationOnce(
     () =>
       new Promise((resolve) => {
@@ -110,7 +117,7 @@ it('does not insert a card if its target disappears while decoding', async () =>
     target,
     new File(['x'], 'new.png', { type: 'image/png' }),
   )
-  await Promise.resolve()
+  await vi.waitFor(() => expect(mock.dimensions).toHaveBeenCalled())
   deleteCanvasNode(canvas.doc, target, canvas.origin)
   done({ width: 640, height: 360 })
   expect(await promise).toBeNull()
@@ -170,6 +177,40 @@ it('counts distinct image files rather than named assets or duplicate cards towa
       new File(['x'], 'new.png', { type: 'image/png' }),
     ),
   ).toBeTruthy()
+  canvas.doc.destroy()
+})
+it('stores the compressed file and does not insert a card when it is still over the cap', async () => {
+  const { canvas, target } = setup()
+  const before = readCanvasDocument(canvas.doc).nodes.length
+  const fitted = new File(['jpeg'], 'frame.jpg', { type: 'image/jpeg' })
+  compressUploadFile.mockResolvedValueOnce(fitted)
+  const editor = { doc: { cacheBitmap: vi.fn(() => 'uploaded-file') } } as unknown as CanvasEditor
+  const id = await uploadCanvasReference(
+    editor,
+    canvas,
+    target,
+    new File(['png'], 'frame.png', { type: 'image/png' }),
+    'first',
+  )
+  expect(compressUploadFile).toHaveBeenCalled()
+  expect(readCanvasDocument(canvas.doc).nodes.find((node) => node.id === id)?.data).toMatchObject({
+    name: 'frame.jpg',
+  })
+  const huge = new File(['png'], 'big.png', { type: 'image/png' })
+  Object.defineProperty(huge, 'size', { value: 60 * 1024 * 1024 })
+  compressUploadFile.mockRejectedValueOnce(new UploadImageTooLargeError('big.png'))
+  const cacheBitmap = vi.fn()
+  await expect(
+    uploadCanvasReference(
+      { doc: { cacheBitmap } } as unknown as CanvasEditor,
+      canvas,
+      target,
+      huge,
+      'last',
+    ),
+  ).rejects.toBeInstanceOf(UploadImageTooLargeError)
+  expect(cacheBitmap).not.toHaveBeenCalled()
+  expect(readCanvasDocument(canvas.doc).nodes).toHaveLength(before + 1)
   canvas.doc.destroy()
 })
 it('reports the image limit without caching pixels or inserting an unlinked card', async () => {
