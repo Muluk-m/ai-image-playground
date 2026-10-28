@@ -56,18 +56,26 @@
 .mkt .links a { padding: 6px 14px; border-radius: 99px; transition: background 0.2s; }
 .mkt .links a:hover { background: rgba(255, 255, 255, 0.1); }
 .mkt .nav-end { display: flex; align-items: center; gap: 12px; }
-.mkt .lang { position: relative; z-index: 1; font-size: 13px; font-weight: 600; opacity: 0.8; }
+.mkt .lang { position: relative; font-size: 13px; font-weight: 600; opacity: 0.8; }
 .mkt .lang:hover { opacity: 1; }
-/* 文字大小不变。伪元素把可点区域扩到 44×44，不占布局，窄屏顶栏间距保持。
-   左缘最多伸出 7px，停在与「定价」之间的 8px 空隙里，不盖住定价热区。 */
+/* 文字大小不变，热区不占布局。高度 44。左右只伸进间距，并留下 1px，
+   不和定价、开始按钮交叠。间距 8px 时「EN」大约 18px 宽，热区大约 32px，
+   到不了 40；再加宽就会盖住旁边。 */
 .mkt .lang::before {
   content: '';
   position: absolute;
   top: 50%;
-  left: max(-7px, calc(100% - 44px));
-  width: 44px;
+  /* 默认间距 12px，留 1px。 */
+  left: -11px;
+  right: -11px;
   height: 44px;
   transform: translateY(-50%);
+}
+@media (max-width: 380px) {
+  .mkt .lang::before { left: -7px; right: -7px; }
+}
+@media (min-width: 761px) and (max-width: 800px) {
+  .mkt .lang::before { left: -7px; right: -7px; }
 }
 /* 顶栏文字不许折行。窄宽时由下面的间距去挤，不能把「中文」或按钮拆成两行。 */
 .mkt .brand,
