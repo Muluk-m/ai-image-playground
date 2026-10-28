@@ -15,7 +15,7 @@ function makeItem(id: string): InspirationItem {
     thumbnailUrl: `https://example.com/${id}.jpg`,
     params: { size: '1024x1024' },
     recommendedModel: 'gpt-image-2',
-    recommendedProvider: 'openai',
+    recommendedProvider: 'openai-compat',
     category: '海报',
   }
 }
