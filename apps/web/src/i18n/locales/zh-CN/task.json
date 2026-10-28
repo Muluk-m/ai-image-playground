@@ -12,7 +12,8 @@
     "editOutput": "局部重绘",
     "sendToCanvas": "放入画布",
     "sendToCanvasTitle": "放入画布",
-    "deleteRecord": "删除记录"
+    "deleteRecord": "删除记录",
+    "more": "更多操作"
   },
   "confirm": {
     "deleteMessage": "确定要删除这条记录吗？"
@@ -30,6 +31,7 @@
   },
   "card": {
     "generating": "生成中...",
+    "progress": "生成中 {{percent}}%",
     "batchQueued": "排队中",
     "phase": {
       "queued": "排队中...",

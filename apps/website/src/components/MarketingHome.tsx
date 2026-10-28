@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '../../../web/src/components/ui/button'
 import { Icon } from '../../../web/src/components/ui/icon'
 import { saveSiteDraft } from '../../../web/src/lib/siteDraft'
 import { editions, type Locale } from '../catalog'
+import { rememberSiteLocale } from '../localeSelection'
 import {
   CASE_GROUPS,
   type CaseGroup,
@@ -19,6 +20,7 @@ const BAND = 'border-t border-dashed border-border px-6 py-14'
 const TAB =
   'h-7 rounded-md px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 const TAB_ON = 'bg-primary/15 text-primary hover:bg-primary/15 hover:text-primary'
+const CONTACT_HASH = '#contact'
 
 export function MarketingHome({ locale, start }: { locale: Locale; start: () => void }) {
   const text = marketingCopy[locale]
@@ -35,6 +37,21 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
     event.preventDefault()
     setContactOpen(true)
   }
+  const closeContact = () => {
+    setContactOpen(false)
+    if (window.location.hash === CONTACT_HASH)
+      history.replaceState(null, '', window.location.pathname + window.location.search)
+  }
+
+  // 带 #contact 打开（站内外的「联系我们」链接都指向这里）就直接弹出联系方式；后退到别的锚点时跟着关掉。
+  useEffect(() => {
+    const syncHash = () => {
+      setContactOpen(window.location.hash === CONTACT_HASH)
+    }
+    syncHash()
+    window.addEventListener('hashchange', syncHash)
+    return () => window.removeEventListener('hashchange', syncHash)
+  }, [])
 
   return (
     <main className="mkt" data-locale={locale}>
@@ -49,10 +66,15 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
             <a href="#features">{text.nav.features}</a>
             <a href="/explore">{text.nav.inspiration}</a>
             <a href={editions[locale].root}>{text.nav.guide}</a>
+            <a href="/pricing">{text.nav.pricing}</a>
           </div>
           <div className="flex items-center gap-2">
             <Button asChild variant="ghost" size="sm">
-              <a href={locale === 'en' ? '/' : '/en/'} hrefLang={locale === 'en' ? 'zh-CN' : 'en'}>
+              <a
+                href={locale === 'en' ? '/' : '/en/'}
+                hrefLang={locale === 'en' ? 'zh-CN' : 'en'}
+                onClick={() => rememberSiteLocale(locale === 'en' ? 'zh-CN' : 'en')}
+              >
                 {locale === 'en' ? '中文' : 'EN'}
               </a>
             </Button>
@@ -216,8 +238,9 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
             <a href="#cases">{text.nav.cases}</a>
             <a href="#features">{text.nav.features}</a>
             <a href="/explore">{text.nav.inspiration}</a>
+            <a href="/pricing">{text.nav.pricing}</a>
           </div>
-          <div>
+          <div id="contact">
             <h4>{text.footer.help}</h4>
             <a href={editions[locale].root}>{text.nav.guide}</a>
             <a href="#contact" onClick={openContact}>
@@ -231,7 +254,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
           </div>
         </footer>
       </div>
-      <ContactModal open={contactOpen} locale={locale} onClose={() => setContactOpen(false)} />
+      <ContactModal open={contactOpen} locale={locale} onClose={closeContact} />
     </main>
   )
 }

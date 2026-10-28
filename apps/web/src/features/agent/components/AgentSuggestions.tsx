@@ -4,6 +4,7 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { modelLabel } from '../../../lib/channels/publicChannels'
+import { inspirationFacetLabel, inspirationTitle } from '../../inspiration/lib/labels'
 import { suggestedInspirations } from '../../inspiration/lib/suggestedInspirations'
 import { useInspirationStore } from '../../inspiration/store'
 import { fillAgentComposer } from '../lib/composerFill'
@@ -42,14 +43,14 @@ export default function AgentSuggestions({ className = '' }: { className?: strin
         {suggestions.map((item) => (
           <article key={item.id} className="agent-inspiration-card">
             <div className="agent-inspiration-cover">
-              <img src={item.thumbnailUrl} alt={item.title} loading="lazy" />
+              <img src={item.thumbnailUrl} alt={inspirationTitle(item)} loading="lazy" />
               <div className="agent-inspiration-caption">
                 <div>
                   <span className="inline-flex items-center gap-1">
                     <ModelLogo model={item.recommendedModel} />
                     {compactModelName(item.recommendedModel, modelLabel(item.recommendedModel))}
                   </span>
-                  <h4>{item.title}</h4>
+                  <h4>{inspirationTitle(item)}</h4>
                 </div>
                 <Button
                   type="button"
@@ -64,7 +65,7 @@ export default function AgentSuggestions({ className = '' }: { className?: strin
               </div>
             </div>
             <p className="agent-inspiration-description">
-              {item.description || item.category || item.title}
+              {item.description || inspirationFacetLabel(item.category) || inspirationTitle(item)}
             </p>
           </article>
         ))}

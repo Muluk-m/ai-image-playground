@@ -60,6 +60,22 @@ describe('marketing home', () => {
     }
   })
 
+  it('links the pricing page from the top nav and the footer', () => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      const html = renderToStaticMarkup(createElement(MarketingHome, { locale, start: () => {} }))
+      const link = `<a href="/pricing">${marketingCopy[locale].nav.pricing}</a>`
+      expect(html.indexOf(link)).toBeLessThan(html.indexOf('<header'))
+      expect(html.lastIndexOf(link)).toBeGreaterThan(html.indexOf('<footer'))
+    }
+  })
+
+  it('gives the footer a #contact anchor', () => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      const html = renderToStaticMarkup(createElement(MarketingHome, { locale, start: () => {} }))
+      expect(html.indexOf('id="contact"')).toBeGreaterThan(html.indexOf('<footer'))
+    }
+  })
+
   it('translates the English page', () => {
     const html = renderToStaticMarkup(
       createElement(MarketingHome, { locale: 'en', start: () => {} }),

@@ -165,6 +165,8 @@ const settle = async (ticks = 3) => {
 }
 /** 删除走确认框：点删除只是开框，真正的删除是框里那个动作。 */
 const confirmDelete = async () => {
+  // 删除收在卡片的更多菜单里：先开菜单再点。
+  await click('更多操作')
   await click('删除记录')
   const dialog = useStore.getState().confirmDialog
   if (!dialog) throw new Error('missing confirm dialog')
@@ -327,7 +329,7 @@ it('平台记录和本机生成用同一张卡：提示词、参数和动作都�
   // 参数也在卡上，说明列表接口带回来的 parameters 真的用上了。
   expect(host.textContent).toContain('1536x1024')
   expect(button('复用配置')).toBeTruthy()
-  expect(button('删除记录')).toBeTruthy()
+  expect(button('更多操作')).toBeTruthy()
   // 没有「此设备 / 云端记录」这种页签：存储位置不是用户要挑的东西。
   expect(host.textContent).not.toContain('此设备')
   expect(host.textContent).not.toContain('云端记录')
