@@ -17,6 +17,8 @@ import {
 import { type MarketingMotion, startMarketingMotion } from '../marketingMotion'
 import { ContactModal } from './ContactModal'
 
+const CONTACT_HASH = '#contact'
+
 export function MarketingHome({ locale, start }: { locale: Locale; start: () => void }) {
   const text = marketingCopy[locale]
   const rootRef = useRef<HTMLElement>(null)
@@ -82,6 +84,21 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
     event.preventDefault()
     setContactOpen(true)
   }
+  const closeContact = () => {
+    setContactOpen(false)
+    if (window.location.hash === CONTACT_HASH)
+      history.replaceState(null, '', window.location.pathname + window.location.search)
+  }
+
+  // 带 #contact 打开（站内外的「联系我们」链接都指向这里）就直接弹出联系方式。
+  useEffect(() => {
+    const syncHash = () => {
+      if (window.location.hash === CONTACT_HASH) setContactOpen(true)
+    }
+    syncHash()
+    window.addEventListener('hashchange', syncHash)
+    return () => window.removeEventListener('hashchange', syncHash)
+  }, [])
 
   return (
     <main className="mkt" ref={rootRef} data-locale={locale}>
@@ -433,7 +450,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
               <a href="#gal">{text.nav.inspiration}</a>
               <a href="/pricing">{text.nav.pricing}</a>
             </div>
-            <div>
+            <div id="contact">
               <b>{text.footer.help}</b>
               <a href={editions[locale].root}>{text.nav.guide}</a>
               <a href={`mailto:${text.contact.mail}`} onClick={openContact}>
@@ -452,7 +469,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
           <span>{text.footer.domain}</span>
         </div>
       </footer>
-      <ContactModal open={contactOpen} locale={locale} onClose={() => setContactOpen(false)} />
+      <ContactModal open={contactOpen} locale={locale} onClose={closeContact} />
     </main>
   )
 }
