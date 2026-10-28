@@ -114,7 +114,64 @@ async function decodeImage(blob: Blob): Promise<DecodedImage | undefined> {
 /** 分块看透明通道：每块最多 512²，细线也不会被缩小采样漏掉。 */
 const ALPHA_TILE = 512
 
-function sourceIsOpaque(source: CanvasImageSource, width: number, height: number): boolean {
+function chunkName(bytes: Uint8Array, at: number): string {
+  return String.fromCharCode(bytes[at]!, bytes[at + 1]!, bytes[at + 2]!, bytes[at + 3]!)
+}
+
+/**
+ * 容器头已经写明没有透明通道时，不必再扫像素。
+ * 看不准（坏头、带 alpha 的 PNG/WebP）返回 false，交给分块扫描。
+ */
+function containerIsOpaque(bytes: ArrayBuffer): boolean {
+  const fileBytes = new Uint8Array(bytes)
+  if (
+    fileBytes.length >= 26 &&
+    fileBytes[0] === 0x89 &&
+    fileBytes[1] === 0x50 &&
+    fileBytes[2] === 0x4e &&
+    fileBytes[3] === 0x47
+  ) {
+    const colorType = fileBytes[25]
+    if (colorType !== 0 && colorType !== 2 && colorType !== 3) return false
+    const view = new DataView(bytes)
+    for (let offset = 8; offset + 12 <= fileBytes.length; ) {
+      const length = view.getUint32(offset)
+      if (offset + length + 12 > fileBytes.length) return false
+      const name = chunkName(fileBytes, offset + 4)
+      if (name === 'tRNS') return false
+      if (name === 'IDAT') return true
+      offset += length + 12
+    }
+    return false
+  }
+  if (
+    fileBytes.length >= 12 &&
+    chunkName(fileBytes, 0) === 'RIFF' &&
+    chunkName(fileBytes, 8) === 'WEBP'
+  ) {
+    const view = new DataView(bytes)
+    let sawLossy = false
+    for (let offset = 12; offset + 8 <= fileBytes.length; ) {
+      const name = chunkName(fileBytes, offset)
+      const length = view.getUint32(offset + 4, true)
+      const start = offset + 8
+      if (start + length > fileBytes.length) return false
+      if (name === 'ALPH') return false
+      if (name === 'VP8X') return length >= 1 && (fileBytes[start]! & 0x10) === 0
+      if (name === 'VP8L') return false
+      if (name === 'VP8 ') sawLossy = true
+      offset = start + length + (length % 2)
+    }
+    return sawLossy
+  }
+  return false
+}
+
+async function sourceIsOpaque(
+  source: CanvasImageSource,
+  width: number,
+  height: number,
+): Promise<boolean> {
   const probe = document.createElement('canvas')
   const ctx = probe.getContext('2d', { willReadFrequently: true })
   if (!ctx) return false
@@ -130,6 +187,8 @@ function sourceIsOpaque(source: CanvasImageSource, width: number, height: number
         for (let index = 3; index < data.length; index += 4) {
           if (data[index] !== 255) return false
         }
+        // 让出主线程：64MP 的图要扫很多块，不能合成一次长任务把页面冻住。
+        await new Promise((resolve) => setTimeout(resolve, 0))
       }
     }
     return true
@@ -218,7 +277,8 @@ async function compressOverLimit(file: File, limit: number): Promise<FittedUploa
   const canvas = document.createElement('canvas')
   const opaque =
     /^image\/jpe?g$/i.test(file.type) ||
-    sourceIsOpaque(decoded.source, decoded.width, decoded.height)
+    containerIsOpaque(bytes) ||
+    (await sourceIsOpaque(decoded.source, decoded.width, decoded.height))
   try {
     const ctx = canvas.getContext('2d')
     if (!ctx) return unchanged

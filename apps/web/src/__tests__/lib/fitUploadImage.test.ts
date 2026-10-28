@@ -83,6 +83,27 @@ it('keeps PNG when a single pixel is transparent, instead of sampling it away', 
   expect(fitted.file.type).toBe('image/png')
 })
 
+const RGB_PNG = Uint8Array.from([
+  137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0,
+  0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 0, 0, 3, 1, 1, 0,
+  201, 254, 146, 239, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+])
+
+it('does not scan pixels when the PNG header has no alpha channel', async () => {
+  stubEncoder()
+  const getImageData = vi.fn(() => ({ data: new Uint8ClampedArray([0, 0, 0, 0]) }))
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    drawImage: vi.fn(),
+    getImageData,
+  } as unknown as CanvasRenderingContext2D)
+  const huge = new File([RGB_PNG], 'solid.png', { type: 'image/png' })
+  Object.defineProperty(huge, 'size', { value: UPLOAD_COMPRESSION_THRESHOLD_BYTES + 1 })
+  const fitted = await fitUploadImageFile(huge)
+  expect(getImageData).not.toHaveBeenCalled()
+  expect(fitted.compressed).toBe(true)
+  expect(fitted.file.type).toBe('image/jpeg')
+})
+
 it('keeps a transparent image as PNG when that already fits', async () => {
   stubEncoder(2048, 'image/png')
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
