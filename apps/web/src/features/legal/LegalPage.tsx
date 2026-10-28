@@ -1,4 +1,4 @@
-import { SUPPORT_CONTACT, SUPPORT_MAILTO, SUPPORT_X_URL } from '@image-playground/shared'
+import { SUPPORT_CONTACT, SUPPORT_MAILTO } from '@image-playground/shared'
 import { type ReactNode, useEffect, useState } from 'react'
 import Dialog from '../../components/patterns/Dialog'
 import { Button } from '../../components/ui/button'
@@ -117,7 +117,7 @@ const textLinkClass =
 
 /**
  * 登录用户打开 `/#contact` 时，营销页在绘制前就被换成 `/image`（见 rootSessionSelection 与
- * SiteAuth），联系弹层不会出现。条款页就地打开同一套公开渠道：邮箱与 X，不含运营主体。
+ * SiteAuth），联系弹层不会出现。条款页就地打开公开邮箱，不含 X，也不含运营主体。
  */
 function ContactSection({ onOpen }: { onOpen: () => void }) {
   const { t } = useTranslation('legal')
@@ -128,7 +128,6 @@ function ContactSection({ onOpen }: { onOpen: () => void }) {
         {linkifyContact(
           t('sections.contact.before', {
             email: SUPPORT_CONTACT.email,
-            x: SUPPORT_CONTACT.xHandle,
           }),
         )}
         <a href="/#contact" className={textLinkClass} onClick={openContactHere(onOpen)}>
@@ -151,9 +150,6 @@ function ContactDialog({ onClose }: { onClose: () => void }) {
         <a href={SUPPORT_MAILTO} className={textLinkClass}>
           {SUPPORT_CONTACT.email}
         </a>
-        <a href={SUPPORT_X_URL} target="_blank" rel="noopener noreferrer" className={textLinkClass}>
-          @{SUPPORT_CONTACT.xHandle}
-        </a>
       </div>
     </Dialog>
   )
@@ -168,25 +164,12 @@ function openContactHere(onOpen: () => void) {
 
 function linkifyContact(text: string): ReactNode[] {
   const email = SUPPORT_CONTACT.email
-  const handle = `@${SUPPORT_CONTACT.xHandle}`
-  const pattern = new RegExp(`(${escapeRegExp(email)}|${escapeRegExp(handle)})`, 'g')
+  const pattern = new RegExp(`(${escapeRegExp(email)})`, 'g')
   return text.split(pattern).map((part, index) => {
     if (part === email)
       return (
         <a key={`${part}-${index}`} href={SUPPORT_MAILTO} className={textLinkClass}>
           {email}
-        </a>
-      )
-    if (part === handle)
-      return (
-        <a
-          key={`${part}-${index}`}
-          href={SUPPORT_X_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={textLinkClass}
-        >
-          {handle}
         </a>
       )
     return part

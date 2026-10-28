@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { SUPPORT_CONTACT, SUPPORT_MAILTO, SUPPORT_X_URL } from '@image-playground/shared'
+import { SUPPORT_CONTACT, SUPPORT_MAILTO } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -42,19 +42,14 @@ function contactLink(): HTMLAnchorElement {
 }
 
 describe('LegalPage contact', () => {
-  it('makes the published email and X handle links and opens contact on the page', () => {
+  it('makes the published email a mailto link and opens an email-only contact dialog', () => {
     render()
     const mail = [...document.querySelectorAll<HTMLAnchorElement>('a')].filter(
       (link) => link.getAttribute('href') === SUPPORT_MAILTO,
     )
     expect(mail.length).toBeGreaterThanOrEqual(2)
     expect(mail.every((link) => link.textContent === SUPPORT_CONTACT.email)).toBe(true)
-    const x = [...document.querySelectorAll<HTMLAnchorElement>('a')].filter(
-      (link) => link.getAttribute('href') === SUPPORT_X_URL,
-    )
-    expect(x.length).toBeGreaterThanOrEqual(2)
-    expect(x.every((link) => link.textContent === `@${SUPPORT_CONTACT.xHandle}`)).toBe(true)
-    expect(x.every((link) => link.target === '_blank')).toBe(true)
+    expect(document.querySelector('a[href*="x.com"]')).toBeNull()
 
     const link = contactLink()
     expect(link.textContent).toBe('联系我们')
@@ -64,8 +59,9 @@ describe('LegalPage contact', () => {
     const dialog = document.querySelector('[role="dialog"]')
     expect(dialog?.textContent).toContain('联系我们')
     expect(dialog?.textContent).toContain(SUPPORT_CONTACT.email)
-    expect(dialog?.textContent).toContain(`@${SUPPORT_CONTACT.xHandle}`)
+    expect(dialog?.textContent).not.toContain(SUPPORT_CONTACT.xHandle)
     expect(dialog?.querySelector(`a[href="${SUPPORT_MAILTO}"]`)).not.toBeNull()
+    expect(dialog?.querySelector('a[href*="x.com"]')).toBeNull()
     expect(dialog?.textContent).not.toContain('运营')
   })
 
@@ -86,9 +82,8 @@ describe('LegalPage contact', () => {
       await i18next.changeLanguage('en')
     })
     expect(contactLink().textContent).toBe('contact us')
-    expect(document.body.textContent).toContain(
-      `email ${SUPPORT_CONTACT.email}, contact @${SUPPORT_CONTACT.xHandle} on X, or contact us.`,
-    )
+    expect(document.body.textContent).toContain(`email ${SUPPORT_CONTACT.email}, or contact us.`)
+    expect(document.querySelector('a[href*="x.com"]')).toBeNull()
     act(() => contactLink().click())
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Contact us')
   })

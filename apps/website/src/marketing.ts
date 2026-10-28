@@ -1,4 +1,4 @@
-import { SUPPORT_CONTACT, SUPPORT_X_URL } from '@image-playground/shared/support-contact'
+import { SUPPORT_CONTACT } from '@image-playground/shared/support-contact'
 import type { Locale } from './catalog'
 
 export const ASSET = '/website-assets/v41'
@@ -213,9 +213,6 @@ export interface MarketingCopy {
     title: string
     body: string
     close: string
-    xTitle: string
-    xDetail: string
-    xAction: string
     mailTitle: string
     mail: string
     copy: string
@@ -398,9 +395,6 @@ const zh: MarketingCopy = {
     title: '联系我们',
     body: '产品反馈、合作或使用问题，都可以找我们。',
     close: '关闭',
-    xTitle: 'X 私信',
-    xDetail: `@${SUPPORT_CONTACT.xHandle}`,
-    xAction: '打开 X',
     mailTitle: '邮件',
     mail: SUPPORT_CONTACT.email,
     copy: '复制',
@@ -487,9 +481,6 @@ const en: MarketingCopy = {
     title: 'Contact us',
     body: 'Product feedback, partnerships, or questions — reach us here.',
     close: 'Close',
-    xTitle: 'Message on X',
-    xDetail: `@${SUPPORT_CONTACT.xHandle}`,
-    xAction: 'Open X',
     mailTitle: 'Email',
     mail: SUPPORT_CONTACT.email,
     copy: 'Copy',
@@ -523,5 +514,4 @@ export function showcaseCases(locale: Locale): ShowcaseCase[] {
   }))
 }
 
-export const X_URL = SUPPORT_X_URL
 export const CONTACT_EMAIL = SUPPORT_CONTACT.email
