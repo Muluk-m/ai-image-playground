@@ -91,6 +91,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
           <a href="#feat">{text.nav.features}</a>
           <a href="#gal">{text.nav.inspiration}</a>
           <a href={editions[locale].root}>{text.nav.guide}</a>
+          <a href="/pricing">{text.nav.pricing}</a>
         </div>
         <div className="nav-end">
           <a
@@ -410,6 +411,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
               <a href="#demo">{text.nav.cases}</a>
               <a href="#feat">{text.nav.features}</a>
               <a href="#gal">{text.nav.inspiration}</a>
+              <a href="/pricing">{text.nav.pricing}</a>
             </div>
             <div>
               <b>{text.footer.help}</b>

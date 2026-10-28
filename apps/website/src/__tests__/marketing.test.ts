@@ -62,6 +62,15 @@ describe('marketing v4.1', () => {
     expect(html).not.toContain('免费开始')
   })
 
+  it('links the pricing page from the top nav and the footer', () => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      const html = renderToStaticMarkup(createElement(MarketingHome, { locale, start: () => {} }))
+      const link = `<a href="/pricing">${marketingCopy[locale].nav.pricing}</a>`
+      expect(html.indexOf(link)).toBeLessThan(html.indexOf('<header'))
+      expect(html.lastIndexOf(link)).toBeGreaterThan(html.indexOf('<footer'))
+    }
+  })
+
   it('links showcase cases only when the inspiration manifest has them', () => {
     const cases = showcaseCases('zh-CN')
     expect(caseHref(null)).toBe('/explore')
