@@ -12,6 +12,7 @@ import { Hint } from './assistant-ui/elements/tooltip-icon-button'
 import { compactModelName, ModelLogo } from './ModelIdentity'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 
 /** task-pop-in 入场动画窗口；超过这个秒数后 mount 的 task 视作历史回放，不再播。 */
 const FRESH_POP_IN_WINDOW_MS = 600
@@ -47,6 +48,7 @@ export default function TaskCard({
         }
       : null
   const [now, setNow] = useState(Date.now())
+  const [moreOpen, setMoreOpen] = useState(false)
   // 仅给「页面运行期间刚提交的卡片」播放一次入场动画。CSS keyframes 本身只在
   // mount 时播放一次，所以 useRef 锁定 mount 时刻的判定即可——不需要 state +
   // timer 去摘除 className（即便保留也只是 DOM 节点上一个无副作用的 class）。
@@ -537,18 +539,39 @@ export default function TaskCard({
                     <Icon name="download" size="xs" />
                   </Button>
                 </Hint>
-                <Hint tooltip={t('action.deleteRecord')}>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={onDelete}
-                    className="text-muted-foreground hover:text-destructive"
-                    aria-label={t('action.deleteRecord')}
+                {/* 删除收进更多菜单：手机上按钮挤在一排，别和导出挨着误点。 */}
+                <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+                  <Hint tooltip={t('action.more')}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        className="text-muted-foreground"
+                        aria-label={t('action.more')}
+                      >
+                        <Icon name="more" size="xs" />
+                      </Button>
+                    </PopoverTrigger>
+                  </Hint>
+                  <PopoverContent
+                    align="end"
+                    collisionPadding={12}
+                    className="w-40 rounded-xl p-1.5"
                   >
-                    <Icon name="delete" size="xs" />
-                  </Button>
-                </Hint>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full justify-start gap-3 px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => {
+                        setMoreOpen(false)
+                        onDelete()
+                      }}
+                    >
+                      <Icon name="delete" /> {t('action.deleteRecord')}
+                    </Button>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
           </div>
