@@ -34,8 +34,11 @@
   .auth-page { display: block; padding: 0; }
   .auth-creator-art { display: none; }
   .auth-page .auth-panel { min-height: 100svh; }
-  .auth-surface .auth-panel-content { padding: 36px 26px; }
-  .auth-page .auth-panel-content { padding-block: 80px; }
+  .auth-surface .auth-panel-content { padding: 24px 20px; }
+  .auth-surface .auth-divider { margin-block: 12px; }
+  .auth-surface .auth-wordmark { margin-bottom: 16px; }
+  .auth-surface .auth-referral { margin-top: 16px; padding-top: 12px; }
+  .auth-page .auth-panel-content { padding-block: 56px; }
 }
 @media (prefers-reduced-motion: reduce) { .auth-surface { animation: none; } }
 :where(.auth-surface) h1 { font-size: theme('fontSize.headline'); font-weight: 500; }
