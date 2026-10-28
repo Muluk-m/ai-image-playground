@@ -84,6 +84,18 @@ export function wallSrc(file: string): string {
   return `${ASSET}/wall/${file}`
 }
 
+/** 墙图另备一份 320 宽：窄列和低像素比屏取小图，慢网首屏少下几 MB。 */
+export function wallSrcSet(file: string): string {
+  return `${ASSET}/wall-320/${file} 320w, ${wallSrc(file)} 640w`
+}
+
+/** 与 marketing.css 里 `.col` 的列宽一致（手机 36vw，桌面 clamp(150px, 15vw, 250px)）。 */
+export const WALL_SIZES =
+  '(max-width: 760px) 36vw, (max-width: 1000px) 150px, (min-width: 1667px) 250px, 15vw'
+
+/** 与 `.mrow figure` 的宽一致（clamp(130px, 13vw, 210px)）。 */
+export const MARQUEE_SIZES = '(max-width: 1000px) 130px, (min-width: 1616px) 210px, 13vw'
+
 /** 9 列循环墙，和原型同一套取图顺序，每列再接一份用来无缝滚动。 */
 export function wallColumns(files: readonly string[] = WALL, columns = 9): string[][] {
   const per = Math.ceil(files.length / columns) + 3
