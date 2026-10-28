@@ -40,7 +40,7 @@
     "attach": "Add reference images (up to {{count}}, ≤{{mb}}MB each)",
     "attachImages": "Add images",
     "attachFolder": "Add a folder",
-    "referenceTooLarge": "Image {{index}} is larger than {{maxSize}}. Please choose a smaller one"
+    "referenceTooLarge": "Image {{index}} is larger than {{maxSize}}. Please choose a smaller one."
   },
   "slot": {
     "heading": "Slot {{slot}}",
@@ -214,7 +214,7 @@
     "selected": "{{count}}/{{max}} selected",
     "full": "Limit reached",
     "mergeLimit": "Over {{max}} images runs per image only",
-    "oversized": "Image {{index}} is over {{mb}} MB. Remove it or use a smaller one",
+    "oversized": "Image {{index}} is over {{mb}} MB. Remove it or use a smaller one.",
     "sendLabel": "Generate {{count}} images, one per reference",
     "sendLabelCredits": "Generate {{count}} images, one per reference, {{credits}} credits",
     "pin": "Share with every image",
