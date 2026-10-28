@@ -298,7 +298,15 @@ function removedLine(batch: BatchFact): string {
     .map((item) => `${item.key}（${item.prompt}）`)
     .join('、')
   const more = batch.removed.length > MAX_LISTED_REMOVED ? ` 等 ${batch.removed.length} 项` : ''
-  return `；用户确认前已从计划里删掉：${listed}${more}。这一批只有 ${batch.itemCount} 项，删掉的是用户自己去掉的，不是漏生成：用户问还缺哪张、还差什么时，按这一批的完成情况回答（全部完成就说这一批不缺），不要回答「还缺」删掉的项；可以顺带问要不要另外补做`
+  // 只给规则时模型仍会按用户最初的要求答「还缺兔子」（BUG-51 test 复测），给一句全部完成时的示范答法。
+  const done = batch.status === 'closed' && batch.completed === batch.itemCount && !batch.failed
+  const example = done
+    ? `。例：「这一批 ${batch.itemCount} 张都已完成，没有缺的；${batch.removed
+        .map((item) => item.key)
+        .slice(0, 3)
+        .join('、')} 是你确认前删掉的，需要的话可以另外补。」`
+    : ''
+  return `；用户确认前已从计划里删掉：${listed}${more}。这一批只有 ${batch.itemCount} 项，删掉的是用户自己去掉的，不是漏生成：用户问还缺哪张、还差什么时，按这一批的完成情况回答（全部完成就说这一批不缺），不要回答「还缺」删掉的项；可以顺带问要不要另外补做${example}`
 }
 
 function batchLine(batch: BatchFact): string {
