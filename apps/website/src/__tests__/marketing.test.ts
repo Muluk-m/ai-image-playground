@@ -66,6 +66,11 @@ describe('marketing home', () => {
       const link = `<a href="/pricing">${marketingCopy[locale].nav.pricing}</a>`
       expect(html.indexOf(link)).toBeLessThan(html.indexOf('<header'))
       expect(html.lastIndexOf(link)).toBeGreaterThan(html.indexOf('<footer'))
+      // 窄屏收起中间导航后，右侧还留着一个「定价」。
+      const nav = html.slice(html.indexOf('class="mkt-nav"'), html.indexOf('<header'))
+      expect(nav).toContain(
+        `<a class="mkt-nav-pricing" href="/pricing">${marketingCopy[locale].nav.pricing}</a>`,
+      )
     }
   })
 
