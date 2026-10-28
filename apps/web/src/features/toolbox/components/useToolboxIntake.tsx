@@ -1,8 +1,15 @@
 import { useRef } from 'react'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
+import { i18next } from '../../../i18n'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
-import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
+import {
+  acceptImageFiles,
+  compressUploadFiles,
+  filesFromFolderInput,
+  imageNeedsUploadCompression,
+} from '../../../lib/imageFiles'
+import { useStore } from '../../../store'
 import { useToolboxStore } from '../store'
 
 /**
@@ -18,9 +25,22 @@ export function useToolboxIntake(disabled = false) {
   /** 四条路都汇到这里：非图片已经筛掉，剩下的一次进太多就先问一声，确认了才解码入列。 */
   const intake = (images: File[]) => {
     if (disabledRef.current || images.length === 0) return
-    confirmImageBatch(images.length, () => {
-      if (!disabledRef.current) void add(images)
-    })
+    const run = (files: File[]) => {
+      const accepted = acceptImageFiles(files)
+      if (disabledRef.current || accepted.length === 0) return
+      confirmImageBatch(accepted.length, () => {
+        if (!disabledRef.current) void add(accepted)
+      })
+    }
+    if (!images.some(imageNeedsUploadCompression)) {
+      run(images)
+      return
+    }
+    void compressUploadFiles(images)
+      .then(run)
+      .catch(() =>
+        useStore.getState().showToast(i18next.t('image.transcodeFailed', { ns: 'lib' }), 'error'),
+      )
   }
   const { dragging, dropZoneProps } = useImageDropZone(intake)
   usePasteImageFiles('tools', intake)
@@ -34,7 +54,7 @@ export function useToolboxIntake(disabled = false) {
         multiple
         hidden
         onChange={(event) => {
-          intake(acceptImageFiles([...(event.target.files ?? [])]))
+          intake(acceptImageFiles([...(event.target.files ?? [])], { keepOversized: true }))
           event.target.value = ''
         }}
       />
@@ -46,7 +66,7 @@ export function useToolboxIntake(disabled = false) {
         {...{ webkitdirectory: '' }}
         onChange={(event) => {
           const { files } = filesFromFolderInput(event.target.files)
-          intake(acceptImageFiles(files))
+          intake(acceptImageFiles(files, { keepOversized: true }))
           event.target.value = ''
         }}
       />

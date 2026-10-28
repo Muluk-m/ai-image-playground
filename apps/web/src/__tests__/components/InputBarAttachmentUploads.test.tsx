@@ -226,6 +226,34 @@ describe('首页交给智能体的参考图（BUG-27）', () => {
     expect(host.querySelector('.creation-stack-upload')).toBeNull()
   })
 
+  it('删掉或换掉超限的图后，输入框下的红字一起消失（BUG-29）', () => {
+    const HUGE = 'data:image/png;base64,SFVHRQ=='
+    oversized.add(HUGE)
+    uploads.set(GOOD, { state: 'ready' })
+    mountWith([GOOD, HUGE])
+    const alert = () =>
+      [...document.querySelectorAll('[role=alert]')]
+        .map((node) => node.textContent ?? '')
+        .find((text) => text.includes('超过'))
+    expect(alert()).toContain('第 2 张')
+    const panel = openReferenceStack(host)
+    const remove = panel.querySelector<HTMLButtonElement>('button[aria-label="移除第 2 张图片"]')
+    act(() => remove?.click())
+    expect(useStore.getState().inputImages.map((image) => image.dataUrl)).toEqual([GOOD])
+    expect(alert()).toBeUndefined()
+
+    useStore.setState({
+      inputImages: [{ id: 'img-huge', dataUrl: HUGE }],
+    })
+    act(() => root.render(<InputBar inline />))
+    expect(alert()).toContain('第 1 张')
+    useStore.setState({
+      inputImages: [{ id: 'img-huge', dataUrl: GOOD }],
+    })
+    act(() => root.render(<InputBar inline />))
+    expect(alert()).toBeUndefined()
+  })
+
   it('超限的图和坏图一样：× 常显、一并移除，两处原因是同一句（BUG-49）', () => {
     const HUGE = 'data:image/png;base64,SFVHRQ=='
     oversized.add(HUGE)

@@ -60,8 +60,10 @@ export default function AssetDetail({
     writing.current = true
     setSaving(true)
     try {
+      const { compressUploadFiles } = await import('../../../lib/imageFiles')
+      const fitted = await compressUploadFiles(images)
       const stored = await Promise.all(
-        images.map((file) => storeImageFromFile(file, { compress: true })),
+        fitted.map((file) => storeImageFromFile(file, { compress: true })),
       )
       const latest = useLibraryStore.getState().assets.find((one) => one.id === asset.id)
       if (!latest) return
