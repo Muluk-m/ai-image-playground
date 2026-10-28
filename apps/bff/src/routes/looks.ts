@@ -1,5 +1,6 @@
 import {
   assembleLookRequest,
+  isBlankPrompt,
   type LookAssemblyAsset,
   SYNC_ID_MAX_LENGTH,
 } from '@image-playground/shared'
@@ -225,6 +226,10 @@ export const lookRoutes = new Elysia()
         if (url) urls.set(imageId, url)
         return url
       }
+
+      // 整批先校验提示词：中途某条被拒时，前面的已经入队预扣，会变成部分成功。
+      if (assembled.some((item) => isBlankPrompt(item.prompt)))
+        return status(400, { error: 'invalid_request', message: '提示词不能为空' })
 
       const inputs: string[][] = []
       for (const item of assembled) {
