@@ -81,6 +81,7 @@ export default function CreateRecordDialog(props: Props) {
       if (ticket !== addBatch.current || images.length === 0) return
       const accepted = isAsset ? images : images.slice(0, 1)
       confirmImageBatch(accepted.length, () => {
+        if (ticket !== addBatch.current) return
         setFiles((current) => (isAsset ? [...current, ...accepted] : accepted))
         if (isAsset && folder) setName((current) => current || folder.slice(0, NAME_MAX))
       })
