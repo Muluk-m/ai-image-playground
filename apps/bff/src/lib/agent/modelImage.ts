@@ -127,6 +127,27 @@ export const PREVIEW_RESIZE = {
   withoutEnlargement: true,
 } as const
 
+/** 预览的短边下限与它放宽后的长边上限：500×4000 缩进 1024 只剩 128 宽，模型在这么细的条上框不准（#1554）。 */
+const PREVIEW_MIN_SHORT_EDGE = 256
+const PREVIEW_MAX_LONG_EDGE = 2048
+
+/**
+ * 按原图比例取预览规格：常规比例就是 `PREVIEW_RESIZE`；超长、超宽图放宽长边，让短边至少 256，
+ * 长边至多 2048。只有长宽比超过 4:1 的图会变大，其余预览不变。
+ */
+export function previewResize(width?: number, height?: number) {
+  if (!width || !height) return PREVIEW_RESIZE
+  const long = Math.max(width, height)
+  const short = Math.min(width, height)
+  const edge = Math.min(
+    PREVIEW_MAX_LONG_EDGE,
+    Math.max(PREVIEW_RESIZE.width, Math.ceil((PREVIEW_MIN_SHORT_EDGE * long) / short)),
+  )
+  return edge === PREVIEW_RESIZE.width
+    ? PREVIEW_RESIZE
+    : { ...PREVIEW_RESIZE, width: edge, height: edge }
+}
+
 /**
  * 把一张图缩成预览。看一眼判断「是不是那张图」用它就够，而原件一次就是几 MB 的 data URL。
  *
@@ -136,12 +157,12 @@ async function previewImage(dataUrl: string): Promise<string> {
   const parsed = parseDataUrl(dataUrl, true)
   if (!parsed) return conversionFailure()
   // 预览恒为 ≤1024 的小图：源图只在服务端解码，不按准备预算拒（8000×4500 也要能缩）。
-  await sourceMetadata(parsed.bytes)
+  const metadata = await sourceMetadata(parsed.bytes)
   try {
     const preview = await sharp(parsed.bytes, { limitInputPixels: SOURCE_MAX_PIXELS })
       .timeout({ seconds: 30 })
       .rotate()
-      .resize(PREVIEW_RESIZE)
+      .resize(previewResize(metadata.width, metadata.height))
       .webp({ quality: 75 })
     return `data:image/webp;base64,${(await preview.toBuffer()).toString('base64')}`
   } catch {
@@ -178,14 +199,11 @@ async function regionImage(dataUrl: string, region: ImageRegion): Promise<string
     if (!width || !height) return conversionFailure()
     const left = Math.min(Math.max(Math.round(region.x * width), 0), width - 1)
     const top = Math.min(Math.max(Math.round(region.y * height), 0), height - 1)
+    const cropWidth = Math.min(Math.max(Math.round(region.width * width), 1), width - left)
+    const cropHeight = Math.min(Math.max(Math.round(region.height * height), 1), height - top)
     const cropped = await image
-      .extract({
-        left,
-        top,
-        width: Math.min(Math.max(Math.round(region.width * width), 1), width - left),
-        height: Math.min(Math.max(Math.round(region.height * height), 1), height - top),
-      })
-      .resize(PREVIEW_RESIZE)
+      .extract({ left, top, width: cropWidth, height: cropHeight })
+      .resize(previewResize(cropWidth, cropHeight))
       .webp({ quality: 80 })
       .toBuffer()
     return `data:image/webp;base64,${cropped.toString('base64')}`
