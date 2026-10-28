@@ -97,6 +97,7 @@ import {
   referenceRefusalMessage,
   referenceTally,
 } from '../lib/referenceDraft'
+import { useUnusableReferences } from '../lib/unusableReferences'
 import { cn } from '../lib/utils'
 import {
   removeMultipleTasks,
@@ -322,23 +323,27 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const { failed: failedUploads, pending: uploadsPending } = referenceUploadGate(uploadReferences)
   const canvasSubmittingRef = useRef(false)
   const uploadsBlocked = uploadsPending > 0 || failedUploads.length > 0
+  // 快速生成不在选图时上传：每张图在本机解一次，坏图与智能创作上传时同一套标法（BUG-59）。
+  const quickImages = useMemo(() => (toCanvas ? [] : inputImages), [toCanvas, inputImages])
+  const quickCheck = useUnusableReferences(quickImages)
   // 传失败的那几张（超限的另算）：缩略图上标红、出「!」、× 常显；能重传的再给一个「重试」。
-  const failedIndexes = uploadReferences.flatMap((reference, index) =>
-    !oversizedIndexes.includes(index) && attachmentUploadState(reference) === 'failed'
-      ? [index]
-      : [],
-  )
+  const failedIndexes = toCanvas
+    ? uploadReferences.flatMap((reference, index) =>
+        !oversizedIndexes.includes(index) && attachmentUploadState(reference) === 'failed'
+          ? [index]
+          : [],
+      )
+    : [...quickCheck.failures.keys()].filter((index) => !oversizedIndexes.includes(index))
+  const failureCode = (index: number) =>
+    toCanvas ? attachmentUploadError(uploadReferences[index]!) : quickCheck.failures.get(index)
   const retryableIndexes = failedIndexes.filter((index) =>
-    canRetryAttachmentUpload(attachmentUploadError(uploadReferences[index]!)),
+    canRetryAttachmentUpload(failureCode(index)),
   )
   // 每张失败图的原因都要看得到：超限那句之外，坏图、超时各说一句，标明是第几张（BUG-44）。
   const uploadDetailLines = failedIndexes.map((index) =>
     t('composer:studio.referenceIssue', {
       index: index + 1,
-      reason: attachmentUploadErrorMessage(
-        attachmentUploadError(uploadReferences[index]!),
-        getAttachmentLimits(),
-      ),
+      reason: attachmentUploadErrorMessage(failureCode(index), getAttachmentLimits()),
     }),
   )
   const retryUpload = (index: number) => {
@@ -408,7 +413,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       hasSubmitApiConfig &&
       !submissionGuard.blocked &&
       (lookCheck?.ok ?? true) &&
-      oversizedIndexes.length === 0,
+      oversizedIndexes.length === 0 &&
+      failedIndexes.length === 0 &&
+      quickCheck.pending === 0,
   )
   const creationMode = toCanvas ? (createTarget === 'video' ? 'video' : 'agent') : 'image'
   const apiReady = toCanvas || hasSubmitApiConfig
