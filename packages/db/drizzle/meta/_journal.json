@@ -540,6 +540,13 @@
       "when": 1792800000000,
       "tag": "0077_model_availability",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1792900000000,
+      "tag": "0078_generation_commands_recent",
+      "breakpoints": true
     }
   ]
 }
