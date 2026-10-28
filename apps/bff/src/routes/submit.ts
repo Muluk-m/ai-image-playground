@@ -207,14 +207,23 @@ export const submitRoutes = new Elysia()
           return status(400, { error: 'invalid_input_image', message: error.message })
         return status(503, { error: 'object_storage_error', message: '读取输入图片失败' })
       }
+      // 登录用户没带命令 id 时由服务端补一个：近期重复检测靠命令回执，不带 id 的连点也要挡得住。
+      const commandRequest =
+        authUser && !rest.client_request_id
+          ? { ...rest, client_request_id: crypto.randomUUID() }
+          : rest
       const outcome = await createQueueTask({
         provider: queueProvider,
         model,
-        request: inputImages ? { ...rest, input_images: inputImages } : rest,
+        request: inputImages ? { ...commandRequest, input_images: inputImages } : commandRequest,
         ...(persistedVideo ? { video: persistedVideo } : {}),
         userId: authUser?.id ?? null,
         ...(stageAuthorization ? { stageAuthorization } : {}),
+        dedupeRepeats: true,
       })
+
+      if (outcome.kind === 'invalid_prompt')
+        return status(400, { error: 'invalid_request', message: '提示词不能为空' })
 
       if (outcome.kind === 'idempotency_mismatch')
         return status(409, { error: 'idempotency_key_conflict' })

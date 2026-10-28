@@ -13,6 +13,7 @@ import type {
 import {
   billedStageQuantity,
   DEFAULT_IMAGE_MODERATION,
+  isBlankPrompt,
   QUEUE_TIMEOUTS,
   stageAuthorizedVideoDuration,
   videoModelSupportOf,
@@ -73,6 +74,11 @@ export interface CreateQueueTaskInput {
    * 它不在项目里、或不是失败占位时照常另找位置。
    */
   readonly projectSlot?: string
+  /**
+   * 创作页 HTTP 直出提交显式打开：同账号几秒内内容一样的提交当作连点挡掉。
+   * 其他入口（批量套用、智能体等）一批里本就可能有内容相同的几条，不开。
+   */
+  readonly dedupeRepeats?: true
   /** Server-only opt-in; legacy HTTP submissions retain their existing lifecycle. */
   readonly reconciliationRequired?: true
   /**
@@ -88,6 +94,7 @@ export type CreateQueueTaskOutcome =
   | { readonly kind: 'idempotency_conflict' }
   | { readonly kind: 'idempotency_mismatch' }
   | { readonly kind: 'duplicate_submission'; readonly taskId: string }
+  | { readonly kind: 'invalid_prompt' }
   | { readonly kind: 'authentication_required' }
   | { readonly kind: 'insufficient_credits'; readonly required: number; readonly available: number }
   | { readonly kind: 'price_unavailable'; readonly model: string }
@@ -167,6 +174,7 @@ function dedupesRecentSubmission(input: CreateQueueTaskInput): input is CreateQu
   userId: string
 } {
   return (
+    !!input.dedupeRepeats &&
     !!input.userId &&
     !input.agent &&
     !input.stageAuthorization &&
@@ -359,6 +367,8 @@ function alignStageSubmission(input: CreateQueueTaskInput): CreateQueueTaskInput
 
 export async function createQueueTask(raw: CreateQueueTaskInput): Promise<CreateQueueTaskOutcome> {
   const input = alignStageSubmission(raw)
+  // 只有空白、控制符或零宽字符的提示词和空的一样：所有入口都不建任务，也就不预扣积分。
+  if (isBlankPrompt(input.request.prompt)) return { kind: 'invalid_prompt' }
   if (input.reconciliationRequired && input.video)
     throw new TypeError('reconciliation_requires_image_task')
   const commandId = input.request.client_request_id
