@@ -335,3 +335,115 @@ describe('masked edits have no size gates', () => {
     }
   })
 })
+
+describe('tall strip when upstream ignores the requested aspect ratio', () => {
+  it('sends at most 2:1 and maps a stretched 1024×1536 reply back onto the selection', async () => {
+    // 线上 500×4000：送 736×2160，上游回 1024×1536，按铺满裁切贴回后选区里内容错位。
+    const width = 500,
+      height = 4000
+    const raw = Buffer.alloc(width * height * 4)
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const offset = (y * width + x) * 4
+        raw[offset] = Math.round((255 * x) / width)
+        raw[offset + 1] = Math.round((255 * (y % 500)) / 500)
+        raw[offset + 2] = 90
+        raw[offset + 3] = 255
+      }
+    const source = await sharp(raw, { raw: { width, height, channels: 4 } })
+      .png()
+      .toBuffer()
+    const rect = { left: 40, top: 1900, right: 320, bottom: 2380 }
+    const prepared = await prepareMaskedInput(
+      'gpt-image-2.5-flare',
+      url(source),
+      url(await selection(width, height, rect)),
+    )
+    expect(prepared.crop?.sendWidth).toBeDefined()
+    const crop = prepared.crop!
+    const sent = await cropMaskedUpstream(
+      { input_images: [prepared.source], mask: prepared.mask },
+      crop,
+      prepared.originalSize,
+    )
+    const sentMeta = await sharp(decode(sent.input_images[0]!)).metadata()
+    expect(Math.max(sentMeta.width! / sentMeta.height!, sentMeta.height! / sentMeta.width!)).toBe(
+      Math.max(crop.sendWidth! / crop.sendHeight!, crop.sendHeight! / crop.sendWidth!),
+    )
+    expect(sentMeta.height! / sentMeta.width!).toBeLessThanOrEqual(2)
+    // 上游把整张送图拉伸进 1024×1536，并把选区（换算到送图坐标）涂成红绿相间的四条竖带：
+    // 按铺满裁切对回去，离选区中心远的分界会横向错开十几像素。
+    const stretched = await sharp(decode(sent.input_images[0]!))
+      .removeAlpha()
+      .resize(1024, 1536, { fit: 'fill' })
+      .raw()
+      .toBuffer()
+    const band = (rect.right - rect.left) / 4
+    /** 原图横坐标落在第几条竖带。 */
+    const stripe = (x: number) => Math.floor((x - rect.left) / band)
+    const sx = 1024 / crop.width,
+      sy = 1536 / crop.height
+    for (let y = Math.ceil((rect.top - crop.top) * sy); y < (rect.bottom - crop.top) * sy; y++)
+      for (
+        let x = Math.ceil((rect.left - crop.left) * sx);
+        x < (rect.right - crop.left) * sx;
+        x++
+      ) {
+        const offset = (y * 1024 + x) * 3
+        const left = stripe(x / sx + crop.left) % 2 === 0
+        stretched[offset] = left ? 255 : 0
+        stretched[offset + 1] = left ? 0 : 255
+        stretched[offset + 2] = 0
+      }
+    const candidate = await sharp(stretched, { raw: { width: 1024, height: 1536, channels: 3 } })
+      .png()
+      .toBuffer()
+    const protect = await protectMaskedOutput(
+      prepared.source,
+      prepared.mask,
+      prepared.originalSize,
+      prepared.crop,
+    )
+    const output = await protect(candidate)
+    expect(output.inspection.fit).toBe(2)
+    expect(output.inspection.fitStretched).toBe(1)
+    const result = await sharp(output.bytes).raw().toBuffer({ resolveWithObject: true })
+    expect(result.info.width).toBe(width)
+    expect(result.info.height).toBe(height)
+    // 选区外（离选区 40px 以外）逐像素与原图相同。
+    let outsideDiff = 0
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        if (
+          x >= rect.left - 40 &&
+          x < rect.right + 40 &&
+          y >= rect.top - 40 &&
+          y < rect.bottom + 40
+        )
+          continue
+        const offset = (y * width + x) * result.info.channels
+        const original = (y * width + x) * 4
+        if (
+          result.data[offset] !== raw[original] ||
+          result.data[offset + 1] !== raw[original + 1] ||
+          result.data[offset + 2] !== raw[original + 2]
+        )
+          outsideDiff++
+      }
+    expect(outsideDiff).toBe(0)
+    // 选区内部（离边、离分界 8px 以内的羽化/取整带除外）红绿竖带都在原位：没有错位。
+    let wrong = 0,
+      total = 0
+    for (let y = rect.top + 8; y < rect.bottom - 8; y++)
+      for (let x = rect.left + 8; x < rect.right - 8; x++) {
+        const into = (x - rect.left) % band
+        if (into < 8 || band - into < 8) continue
+        const offset = (y * width + x) * result.info.channels
+        const red = result.data[offset]!,
+          green = result.data[offset + 1]!
+        total++
+        if (stripe(x) % 2 === 0 ? red < 240 || green > 15 : green < 240 || red > 15) wrong++
+      }
+    expect(wrong / total).toBeLessThan(0.01)
+  })
+})

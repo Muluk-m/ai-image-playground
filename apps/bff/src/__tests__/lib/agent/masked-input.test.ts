@@ -107,19 +107,19 @@ describe('crop around the selection', () => {
   })
 
   it('keeps a long thin selection within the upstream aspect limit', () => {
+    // 上游只稳定按 2:1 以内的长宽比出图（实测 736×2160 有时回 1024×1536），截图补到 2:1 为止。
+    // 3400px 宽的细条补到 2:1 后已和整图差不多大，不划算，走整图（整图 16:9 在上限内）。
     const box = { left: 200, top: 1000, right: 3600, bottom: 1040 }
-    // 3400px 宽的细条：截图按 3:1 补高，仍比整图小（放大倍数从 2.3 降到约 1.7）。
-    const crop = maskedEditCrop(3840, 2160, box)!
-    expect(contains(crop, box)).toBe(true)
-    expect(crop.width / crop.height).toBeLessThanOrEqual(3)
+    expect(maskedEditCrop(3840, 2160, box)).toBeNull()
     const shorter = maskedEditCrop(3840, 2160, {
       left: 1500,
       top: 1000,
       right: 2400,
       bottom: 1010,
     })!
-    expect(shorter.width / shorter.height).toBeLessThanOrEqual(3)
-    expect(shorter.height / shorter.width).toBeLessThanOrEqual(3)
+    expect(contains(shorter, { left: 1500, top: 1000, right: 2400, bottom: 1010 })).toBe(true)
+    expect(shorter.width / shorter.height).toBeLessThanOrEqual(2)
+    expect(shorter.height / shorter.width).toBeLessThanOrEqual(2)
   })
 
   it('does not crop images that already fit the upstream size or selections covering most of it', () => {
