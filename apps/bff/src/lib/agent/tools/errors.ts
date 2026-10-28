@@ -31,6 +31,7 @@ export function queueRefusalCode(kind: CreateQueueTaskOutcome['kind']): AgentToo
     case 'authentication_required':
       return 'authentication_required'
     case 'invalid_input_image':
+    case 'invalid_prompt':
       return 'invalid_params'
     // 没有价格即这个模型不在售：与模型下线同样是「换一个做法」，不是再试一次。
     case 'price_unavailable':
