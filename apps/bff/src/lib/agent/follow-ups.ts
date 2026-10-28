@@ -133,7 +133,9 @@ export function normalizeFollowUpLines(
   for (const item of value.lines) {
     if (typeof item !== 'string') continue
     const line = stripDisallowedScripts(stripInternalRefs(item, hiddenKeys), blocked).trim()
-    if (!line || line === skip || line.length > FOLLOW_UP_MAX_CHARS || seen.has(line)) continue
+    const normalizedSkip = stripDisallowedScripts(skip, blocked).trim()
+    if (!line || line === normalizedSkip || line.length > FOLLOW_UP_MAX_CHARS || seen.has(line))
+      continue
     seen.add(line)
     lines.push(line)
     if (lines.length === FOLLOW_UP_PREDICT_LINES) break

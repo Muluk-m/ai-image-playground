@@ -139,8 +139,52 @@ export function createReplyScriptGate(userText: string): ReplyScriptGate {
   const extra = extraPattern(userText)
   const fallback = replyFallback(userText)
   let raw = ''
+  /** 已经扫过的 UTF-16 下标。尾部单独的高位代理先留着，等下一片把字拼完整。 */
+  let scanned = 0
+  let body = ''
+  let rawHadLetter = false
+  /** 刚删掉的词左边已经有空格：后面的空格即使在下一片才到，也要收掉一个。 */
+  let skipSpaces = false
   let safe = ''
   let sealed = false
+  const consume = (end: number) => {
+    if (end <= scanned) return
+    const chars = [...raw.slice(scanned, end)]
+    let index = 0
+    while (index < chars.length) {
+      const char = chars[index]!
+      if (hasLetter(char)) rawHadLetter = true
+      if (isDropped(char, extra)) {
+        index += 1
+        while (index < chars.length && isDropped(chars[index]!, extra)) {
+          if (hasLetter(chars[index]!)) rawHadLetter = true
+          index += 1
+        }
+        skipSpaces = body.endsWith(' ')
+        if (skipSpaces) {
+          while (index < chars.length && chars[index] === ' ') index += 1
+        }
+        continue
+      }
+      if (skipSpaces && char === ' ') {
+        index += 1
+        continue
+      }
+      skipSpaces = false
+      body += char
+      index += 1
+    }
+    scanned = end
+  }
+  // 只扫新增的完整码位，不把已经扫过的前缀再扫一遍。
+  const scan = (includeTail: boolean) => {
+    let end = raw.length
+    if (!includeTail && end > scanned) {
+      const last = raw.charCodeAt(end - 1)
+      if (last >= 0xd800 && last <= 0xdbff) end -= 1
+    }
+    consume(end)
+  }
   const publish = (next: string): string => {
     // 清洗只在末尾追加：先发出去的字不会被收回。做不到时宁可不再往外补，避免气泡里出现两遍。
     if (!next.startsWith(safe)) return ''
@@ -152,7 +196,7 @@ export function createReplyScriptGate(userText: string): ReplyScriptGate {
     push(delta) {
       if (sealed || !delta) return ''
       raw += delta
-      const body = stripBody(raw, extra)
+      scan(false)
       // 只剩标点时先别开气泡：后面若全是杂字，收尾要换成兜底句，不能把句号先发出去。
       if (!hasPayload(body)) return ''
       return publish(body)
@@ -160,8 +204,8 @@ export function createReplyScriptGate(userText: string): ReplyScriptGate {
     finish(allowFallback = true) {
       if (sealed) return ''
       sealed = true
-      const body = stripBody(raw, extra)
-      const next = allowFallback && !hasPayload(body) && hasLetter(raw) ? fallback : body
+      scan(true)
+      const next = allowFallback && !hasPayload(body) && rawHadLetter ? fallback : body
       return publish(next)
     },
     text() {
@@ -180,7 +224,8 @@ export function sanitizeReplyText(text: string, userText = ''): string {
 
 /**
  * 历史读回时再清一次。旧回复已经落库的杂字因此不会再显示，也不会被回放给模型照抄。
- * 这批消息里任意一条用户原文用过的文字都保留；用户消息不在这批里时，只留中文和英文。
+ * 这批消息里没有用户原文时不动：压缩窗口或单轮读取可能没带上当时的用户消息，
+ * 这时删掉整段日文或阿拉伯文会把合法回复毁掉。整段洗完只剩标点时也保留原文，不换成兜底句。
  */
 export function sanitizeAssistantMessages(
   messages: readonly AgentMessageView[],
@@ -192,13 +237,16 @@ export function sanitizeAssistantMessages(
         : [],
     )
     .join('\n')
+  if (!userText.trim()) return messages as AgentMessageView[]
   let changed = false
   const next = messages.map((message) => {
     if (message.role !== 'assistant') return message
     let blockChanged = false
     const content = message.content.map((block) => {
       if (block.type !== 'text' || !block.text) return block
-      const text = sanitizeReplyText(block.text, userText)
+      const stripped = stripDisallowedScripts(block.text, userText)
+      // 整段都是这批用户原文里没有的文字：留着，避免把旧回复改成空句再喂回模型。
+      const text = !hasPayload(stripped) && hasPayload(block.text) ? block.text : stripped
       if (text === block.text) return block
       blockChanged = true
       return { ...block, text }
