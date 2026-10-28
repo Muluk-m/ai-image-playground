@@ -95,6 +95,8 @@ async function seedBatch(id: string, outcomes: readonly ('completed' | 'failed')
                   taskId,
                   outputIndex: 0,
                   mime: 'image/png',
+                  width: 1536,
+                  height: 1024,
                 },
               ]
             : [],
@@ -208,6 +210,8 @@ it('tells the model which items the user removed before confirming', async () =>
   expect(content!.text).toContain('用户确认前从计划里移除了这些项')
   expect(content!.text).toContain('orange_portrait')
   expect(content!.text).not.toContain('item-0、')
+  // 产物写明实际像素，复核时照它说画幅，不靠看图猜（BUG-51）。
+  expect(content!.text).toMatch(/agent_\S+_0（1536×1024）/)
 
   // 初版已经确认过（之后的是重试版或分析转生成），和初版的差集就不是用户删项。
   await db

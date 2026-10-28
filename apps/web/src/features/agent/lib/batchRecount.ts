@@ -19,26 +19,29 @@ function parseChineseCount(text: string): number | null {
 }
 
 /**
- * 删减处理项后，标题和统一规则里写死的总数跟着改成实际项数（OBS-ACC-1）：
- * 「共 N 张/项/幅」，以及中文数字写的「共三项」和句首的「三张…」。
- * 「第三张」「每组三张」这类序数和局部数量不改：中文数字只认「共」后或句首（文本开头、标点或换行之后，可隔空白）。
+ * 写总数的量词前的数字（阿拉伯或中文）。同一分句里前面有「第」「每」「各」这类词时是序数或局部数量
+ * （「第三张」「每组三张」），不算总数；数字本身也不能是更长数字的后半截（「十三张」「13 张」）。
+ */
+const COUNT_WORD =
+  /(?<!(?:第|每|各|前|后|另|余|剩|再|多|近|约|其中)[^，。；、,.;:：！？!?\n（(「]{0,3})(?<![\d.一二两三四五六七八九十零])(\d{1,3}|[一二两三四五六七八九十]{1,3})(\s*[张项幅])/g
+
+/**
+ * 删减处理项后，标题和统一规则里写死的总数跟着改成实际项数（OBS-ACC-1、BUG-50）：
+ * 「共 N 张/项/幅」「共三项」「三张…」，以及正文里的「保持三张整体…」「这三张…」。
+ * 只改等于原项数的数字；「第三张」「每组三张」这类序数和局部数量不改。
  */
 export function recountBatchText(text: string, from: number, to: number): string {
   if (from === to || to < 1) return text
-  return text
-    .replace(
-      new RegExp(`(共\\s*)${from}(\\s*[张项幅])`, 'g'),
-      (_match, head: string, tail: string) => `${head}${to}${tail}`,
-    )
-    .replace(
-      /((?:^|[，。；、,.;:：！？!?\n（(「]|共)\s*)([一二两三四五六七八九十]{1,3})(\s*[张项幅])/g,
-      (match, lead: string, count: string, tail: string) =>
-        parseChineseCount(count) === from && to < 100 ? `${lead}${chineseCount(to)}${tail}` : match,
-    )
+  return text.replace(COUNT_WORD, (match, count: string, tail: string) => {
+    const digits = /^\d/.test(count)
+    if ((digits ? Number(count) : parseChineseCount(count)) !== from) return match
+    if (digits) return `${to}${tail}`
+    return to < 100 ? `${chineseCount(to)}${tail}` : match
+  })
 }
 
 const LIST_RUN = /[\p{Script=Han}A-Za-z0-9]+(?:、[\p{Script=Han}A-Za-z0-9]+)+/gu
-const LIST_COUNT = /^(\d{1,2}|[一二两三四五六七八九十]{1,3})(\s*[张项幅])/
+const LIST_COUNT = /^(\d{1,3}|[一二两三四五六七八九十]{1,3})(\s*[张项幅])/
 
 /**
  * 提示词里的排除说明（「不出现葡萄、橙子」「避免香蕉」）不算这一项画的东西：
@@ -99,7 +102,7 @@ export function pruneRemovedFromList(
     if (!tail) {
       // 末项保留：它自带的「三张」还挂在末项后面，拆出来以便改数。
       const kept = names[names.length - 1]!
-      const at = kept.search(/(\d{1,2}|[一二两三四五六七八九十]{1,3})\s*[张项幅]$/)
+      const at = kept.search(/(\d{1,3}|[一二两三四五六七八九十]{1,3})\s*[张项幅]$/)
       if (at > 0) {
         tail = kept.slice(at)
         names[names.length - 1] = kept.slice(0, at)
