@@ -3,6 +3,7 @@ import { Button } from '../../../web/src/components/ui/button'
 import { Icon } from '../../../web/src/components/ui/icon'
 import { alternatePage, copy, editions, guidePath, type Locale, type SitePage } from '../catalog'
 import { structuredData } from '../guideData'
+import { rememberSiteLocale } from '../localeSelection'
 import { AuthBoundary } from './AuthBoundary'
 import { Guide, GuideMovedPage } from './Guide'
 import { MarketingHome } from './MarketingHome'
@@ -47,6 +48,7 @@ export function Site({ page }: { page: SitePage }) {
           href={alternatePage(page).path}
           hrefLang={alternatePage(page).locale}
           className="site-language"
+          onClick={() => rememberSiteLocale(alternatePage(page).locale)}
         >
           {page.locale === 'en' ? '中文' : 'EN'}
         </a>
