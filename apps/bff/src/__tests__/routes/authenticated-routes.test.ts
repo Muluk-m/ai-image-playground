@@ -507,6 +507,10 @@ describe('BFF optional user auth', () => {
         error: 'invalid_username',
       },
       {
+        body: { username: 'plain-name', password: ACCEPTED_PHRASE },
+        error: 'invalid_username',
+      },
+      {
         body: { username: 'valid-user@example.com', password: 'short' },
         error: 'invalid_password',
       },
