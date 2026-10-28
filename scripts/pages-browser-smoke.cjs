@@ -40,7 +40,7 @@ async function checkRotationEditor(page, outputDir) {
   const originalViewport = page.viewportSize()
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.getByRole('button', { name: '工具箱', exact: true }).click()
-  await page.getByRole('button', { name: '旋转与镜像 任意角度 · 水平 / 垂直镜像', exact: true }).click()
+  await page.getByRole('button', { name: /^旋转与镜像\s*任意角度/ }).click()
   const input = page.locator('main input[type="file"][accept="image/*"]')
   for (const [width, height] of [[1200, 1200], [2400, 600], [600, 2400]]) {
     const name = `63_+x+37_+Freestanding+Soaking+Solid+Surface+Bathtub+Stone+Resin+Bath+Tub+with+Overflow,+Pop-up+Drain+for+Bathroom,+Matte+White-${width}x${height}.png`
