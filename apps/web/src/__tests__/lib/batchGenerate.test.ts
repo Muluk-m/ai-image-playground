@@ -88,4 +88,25 @@ describe('超限原因句', () => {
     }
     expect(oversizedReferenceMessage([1, 4])).toMatch(/[。.]$/)
   })
+
+  it('快速生成与智能创作两条路径的 50 MB 提示是同一句话（BUG-58）', () => {
+    for (const lng of ['zh-CN', 'en']) {
+      const quick = i18next.t('batch.oversized', { ns: 'composer', lng, index: 3, mb: 50 })
+      const canvas = i18next.t('image.referenceTooLarge', {
+        ns: 'composer',
+        lng,
+        index: 3,
+        maxSize: '50 MB',
+      })
+      expect(canvas).toBe(quick)
+    }
+    expect(
+      i18next.t('image.referenceTooLarge', {
+        ns: 'composer',
+        lng: 'zh-CN',
+        index: 3,
+        maxSize: '50 MB',
+      }),
+    ).toBe('第 3 张超过 50 MB，请移除或换一张更小的图。')
+  })
 })
