@@ -46,7 +46,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
   // 带 #contact 打开（站内外的「联系我们」链接都指向这里）就直接弹出联系方式。
   useEffect(() => {
     const syncHash = () => {
-      if (window.location.hash === CONTACT_HASH) setContactOpen(true)
+      setContactOpen(window.location.hash === CONTACT_HASH)
     }
     syncHash()
     window.addEventListener('hashchange', syncHash)
