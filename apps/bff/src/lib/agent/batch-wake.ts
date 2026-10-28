@@ -201,6 +201,8 @@ export async function batchWakeContent(
           ]
         : []),
       ...guidance,
+      // BUG-55/56：模型照搬回执里的 key 与产物 id，写成「产物：[小猫](agent_…)」相对链接，点开是打不开的页面。
+      '给用户的总结用名称或内容称呼各项，不写 key、批次 ID、任务 ID 或图片 ID；要给用户看某张图就写 `![名称](图片ID)`，不要写成 `[名称](图片ID)` 链接或 ID 清单。',
     ].join('\n'),
     optionalReviewImageIds,
   }
