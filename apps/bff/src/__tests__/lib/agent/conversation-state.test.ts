@@ -591,6 +591,7 @@ describe('renderConversationState', () => {
       '例：「这一批 2 张都已完成，没有缺的；「一只白色兔子」那张是你确认前删掉的',
     )
     // 示范答法不带 key，否则模型照抄给用户（BUG-56）。
-    expect(text.slice(text.indexOf('例：'))).not.toContain('rabbit')
+    const example = text?.slice(text.indexOf('例：')) ?? ''
+    expect(example).not.toContain('rabbit')
   })
 })
