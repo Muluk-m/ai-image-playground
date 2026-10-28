@@ -36,4 +36,16 @@ describe('stripInternalRefs', () => {
     expect(stripInternalRefs('模型 gpt-image-2 很快', ['image-2'])).toBe('模型 gpt-image-2 很快')
     expect(stripInternalRefs('没有内部标识的话', ['x'])).toBe('没有内部标识的话')
   })
+
+  it('leaves whitespace away from removed refs alone (indentation, hard breaks)', () => {
+    const text = '1. 小猫\n   - 细节  \n下一行（`cat`）。'
+    expect(stripInternalRefs(text, ['cat'])).toBe('1. 小猫\n   - 细节  \n下一行。')
+  })
+
+  it('stays linear on long runs of brackets and spaces', () => {
+    const hostile = `${'['.repeat(40_000)}${'[]('.repeat(20_000)}${' '.repeat(40_000)}（`
+    const started = performance.now()
+    expect(stripInternalRefs(hostile, ['animal-03-rabbit'])).toBe(hostile)
+    expect(performance.now() - started).toBeLessThan(1_000)
+  })
 })
