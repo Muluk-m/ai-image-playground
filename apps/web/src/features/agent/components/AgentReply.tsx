@@ -21,7 +21,7 @@ interface Props {
   streaming: boolean
   /** 轮初算好的允许文字。流式增量只拿它，不再重扫用户原文。 */
   allowance?: ReplyScriptAllowance
-  /** 没有 allowance 时用这份原文现算一次。 */
+  /** 用户原文。没有 allowance 时用它现算允许的文字；整段被删光时也用它决定兜底语言。 */
   userText?: string
 }
 

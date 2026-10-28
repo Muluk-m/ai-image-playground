@@ -105,6 +105,7 @@ function renderMessage(
   answerableId: string | null,
   skills: readonly AgentSkillSummary[],
   replyScripts: ReplyScriptAllowance,
+  replyUserText: string,
   onViewCanvas?: (objectIds?: readonly string[]) => void,
   onPreviewResult?: (messageId: string, objectId?: string, previewSource?: string) => void,
   onPreviewProduction?: (pane?: ProductionPane) => void,
@@ -161,7 +162,14 @@ function renderMessage(
     return <AgentClarification message={message} answered={message.id !== answerableId} />
   }
   if (message.role === 'user') return <AgentUserMessage message={message} skills={skills} />
-  return <AgentReply text={message.text} streaming={message.streaming} allowance={replyScripts} />
+  return (
+    <AgentReply
+      text={message.text}
+      streaming={message.streaming}
+      allowance={replyScripts}
+      userText={replyUserText}
+    />
+  )
 }
 
 /** 连续取回的单张网图属于同一批素材，在对话里共用一条缩略图带。 */
@@ -795,6 +803,7 @@ export default function AgentPanel({
                               answerableId,
                               skills,
                               replyScripts,
+                              replyUserText,
                               onViewCanvas,
                               onPreviewResult,
                               onPreviewProduction,
