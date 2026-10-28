@@ -25,8 +25,9 @@ import { findConversationImages } from './conversation-images'
 import {
   editSourceByteLimit,
   toEditInputDataUrl,
-  toModelImageDataUrl,
+  toNormalizedImageDataUrl,
   toPreviewDataUrl,
+  toSourceImageDataUrl,
 } from './modelImage'
 import { InvalidSelectionError, imageSelection } from './selection-preview'
 import { AgentToolError } from './tools/errors'
@@ -58,9 +59,10 @@ export type AgentImageVariant = 'original' | 'preview'
 
 /**
  * 取图时可要的形态：除两种变体外，`edit` 是送进改图的原件——超大图先等比缩到最长边 4000
- * 再送（BUG-35）；带遮罩的仍原样，遮罩绑着原图像素。
+ * 再送（BUG-35）；带遮罩的仍原样，遮罩绑着原图像素。`source` 是服务端自己处理用的原件
+ * （分割、发确认卡）：像素不缩、不按准备预算拒，不原样进对话请求。
  */
-export type AgentImageRead = AgentImageVariant | 'edit'
+export type AgentImageRead = AgentImageVariant | 'edit' | 'source'
 
 /** 模型只会说图片 id，字节从哪来由这里决定。 */
 export interface AgentImageSource {
@@ -229,13 +231,23 @@ async function modelImage(
   // breaks both coordinate validation and the identity used by editImage.
   // 现缩预览时直接从原件缩（预览本身就是 webp，不必先归一化）：原件只是源图、不进请求，
   // 不能先按请求预算卡它——4K 产物原件会在缩之前就被拒。
+  // 带选区的与 `source` 取原件像素，不按准备预算拒（超大原图照样能圈、能改）；它们进模型前
+  // 由视觉证据那一路（`referenceEvidence`）另缩一份，原件本身不原样进对话请求。明确要
+  // `original` 的仍按准备预算（视频参考原样送上游）。
   const dataUrl =
     variant === 'preview' && !reduced && !rest.maskDataUrl
       ? await toPreviewDataUrl(rest.dataUrl)
       : variant === 'edit' && !rest.maskDataUrl
         ? await toEditInputDataUrl(rest.dataUrl)
-        : await toModelImageDataUrl(rest.dataUrl)
+        : sourceRead(variant, Boolean(rest.maskDataUrl))
+          ? await toSourceImageDataUrl(rest.dataUrl)
+          : await toNormalizedImageDataUrl(rest.dataUrl)
   return { ...rest, dataUrl, visualVariant: rest.maskDataUrl ? 'original' : stored(variant) }
+}
+
+/** 原件像素原样取、不按准备预算拒：服务端用的 `source`，以及带选区的预览、改图输入。 */
+function sourceRead(variant: AgentImageRead, masked: boolean): boolean {
+  return variant === 'source' || (masked && variant !== 'original')
 }
 
 /** 存储里取哪一份：改图输入读的是原件。 */
@@ -244,13 +256,14 @@ function stored(variant: AgentImageRead): AgentImageVariant {
 }
 
 /**
- * 读这份字节的上限：只为现缩而读的原件（预览、改图输入）按源图上限，其余按请求预算。
- * 带遮罩的一律按请求预算——遮罩绑着原图像素，不能缩。
+ * 读这份字节的上限：不原样进对话请求的原件（预览、改图输入、`source`、带遮罩的）按源图上限，
+ * 其余按请求预算。带遮罩的原件进模型前由视觉证据另缩一份，改图则由蒙版输入按模型尺寸收口。
+ * 明确要 `original` 的（视频参考会把它原样送上游）不论有没有遮罩都按请求预算。
  */
 function readByteLimit(variant: AgentImageRead, masked = false): number {
-  if (masked) return visualByteLimit()
+  if (sourceRead(variant, masked) || variant === 'edit') return editSourceByteLimit()
   if (variant === 'preview') return previewSourceByteLimit()
-  return variant === 'edit' ? editSourceByteLimit() : visualByteLimit()
+  return visualByteLimit()
 }
 
 async function readTaskOutput(
@@ -800,7 +813,7 @@ export async function validateConversationMediaSelections(
         imageSelection(
           {
             dataUrl: dataUrl(
-              await readObjectWithinLimit(durableMediaStore(), originalKey, visualByteLimit()),
+              await readObjectWithinLimit(durableMediaStore(), originalKey, editSourceByteLimit()),
               original.contentType,
             ),
             maskDataUrl: dataUrl(
@@ -1053,8 +1066,7 @@ export function createAgentImageSource(input: {
                 mask: reference.mask,
               },
               {
-                maxBytes:
-                  variant === 'edit' && !reference.mask ? editSourceByteLimit() : visualByteLimit(),
+                maxBytes: readByteLimit(variant, !!reference.mask),
               },
             )
       return {
@@ -1116,7 +1128,7 @@ export function createAgentImageSource(input: {
       active = added
       for (const reference of added) {
         references.set(reference.imageId, reference)
-        for (const variant of ['original', 'preview', 'edit']) {
+        for (const variant of ['original', 'preview', 'edit', 'source']) {
           resolving.delete(`${variant}\u0000${reference.imageId}`)
         }
       }

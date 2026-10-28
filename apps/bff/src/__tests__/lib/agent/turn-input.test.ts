@@ -220,21 +220,21 @@ describe('estimateTurnInputTokens', () => {
     expect(added(RICH_HISTORY, '再来一张', [])).toBe(46)
   })
 
-  // 1 个图片块（4800 字符 = 1200）+ 提示词里的 `[image 1]` 引用行与整个视觉证据清单（69）。
+  // 1 个图片块（4800 字符 = 1200）+ 提示词里的 `[image 1]` 引用行与整个视觉证据清单（含送给模型的像素尺寸，75）。
   // 清单头现在只有带引用时才拼，所以它整块算进这条增量里；内联图也按缩略图列出。
   it('charges one image block for a plain reference', () => {
-    expect(added([], '换成夜景', [PLAIN])).toBe(1269)
+    expect(added([], '换成夜景', [PLAIN])).toBe(1275)
   })
 
   // 3 个图片块（14400 字符 = 3600）+ 带选区说明的引用行与带选区 ID、bounds 的清单行；
   // 本轮时间上下文改变了整条消息的取整边界。
   it('charges three image blocks for a masked reference', () => {
-    expect(added([], '换成夜景', [MASKED])).toBe(3783)
+    expect(added([], '换成夜景', [MASKED])).toBe(3788)
   })
 
   // 上面两条各自的块与清单行加在一起，清单头只写一次。
   it('adds the blocks of every active reference', () => {
-    expect(added([], '换成夜景', [PLAIN, MASKED])).toBe(5002)
+    expect(added([], '换成夜景', [PLAIN, MASKED])).toBe(5014)
   })
 
   it('does not charge visual input blocks for historical selections', () => {
@@ -438,11 +438,14 @@ describe('estimated and sent turn input', () => {
     const sentLines = evidence.manifest.split('\n')
     const estimatedLines = estimatedManifest.split('\n')
     expect(estimatedLines).toHaveLength(sentLines.length)
-    // 清单头与普通引用那一行不含任何读字节才知道的值，两边逐字相等。
-    expect(estimatedLines.slice(0, 4)).toEqual(sentLines.slice(0, 4))
+    // 清单头与普通引用那一行只有像素尺寸要读字节才知道：预扣写等长量级的占位，其余逐字相等。
+    const dims = /（\d+×\d+ 像素）/g
+    const shape = (lines: string[]) => lines.map((line) => line.replace(dims, '（W×H 像素）'))
+    expect(shape(estimatedLines.slice(0, 4))).toEqual(shape(sentLines.slice(0, 4)))
+    expect(sentLines[3]).toContain('（2×1 像素）')
     // 遮罩那一行只有选区 ID 与 bounds 是占位：占位 ID 与真 sha256 同长，bounds 同为 JSON。
     const masked =
-      /^视觉输入 2：图片 img-2 原图；3：蓝色定位图；4：原色选区裁片。选区 ID selection_[0-9a-f]{64}，位置 \{"left":\d+,"top":\d+,"width":\d+,"height":\d+\}。蓝色和裁片透明处均为定位信息，不是产品外观。$/
+      /^视觉输入 2：图片 img-2 原图（\d+×\d+ 像素）；3：蓝色定位图；4：原色选区裁片。选区 ID selection_[0-9a-f]{64}，位置 \{"left":\d+,"top":\d+,"width":\d+,"height":\d+\}。蓝色和裁片透明处均为定位信息，不是产品外观。$/
     expect(sentLines[4]).toMatch(masked)
     expect(estimatedLines[4]).toMatch(masked)
   })
@@ -454,7 +457,11 @@ describe('estimated and sent turn input', () => {
     const reviewing = input([], '复核', [], { reviewImageIds: [reviewed.imageId] })
     const estimated = estimatedTurnInput(reviewing).at(-1)!
     expect(imageBlocks(estimated)).toBe(evidence.content.length)
-    expect(textOf(estimated)).toBe(turnPromptBody(reviewing) + evidence.manifest)
+    // 复核图的像素尺寸要读字节才知道，预扣写占位；其余逐字相等。
+    const dims = /（\d+×\d+ 像素）/g
+    expect(textOf(estimated).replace(dims, '（W×H 像素）')).toBe(
+      (turnPromptBody(reviewing) + evidence.manifest).replace(dims, '（W×H 像素）'),
+    )
     expect(
       estimateTurnInputTokens(reviewing) - estimateTurnInputTokens(input([], '复核')),
     ).toBeGreaterThanOrEqual(1200)

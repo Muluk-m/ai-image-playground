@@ -15,10 +15,12 @@ import sharp from 'sharp'
 import { Type } from 'typebox'
 import { db, schema } from '../../db/client'
 import { modelLabel, resolveQueueModel, strictMaskModels } from '../channels'
+import { log } from '../logger'
 import { storeMedia } from '../projectMedia'
 import { WHOLE_IMAGE_EDIT_NUDGE } from './edit-intent'
 import { addConversationMediaClaims, readConversationMedia } from './images'
 import { maskedEditSize } from './masked-input'
+import { SOURCE_MAX_PIXELS } from './modelImage'
 import {
   promptBox,
   type SegmentationMask,
@@ -29,7 +31,6 @@ import {
 import { asPiTool, piToolResult } from './tools/adapter'
 import { AgentToolError } from './tools/errors'
 import type { AgentToolContext } from './tools/types'
-import { visualPixelLimit } from './visual-resources'
 
 export const AGENT_MASK_PROPOSAL_TOOL = 'proposeEditRegion'
 
@@ -56,17 +57,17 @@ const unit = (description: string) => Type.Number({ minimum: 0, maximum: 1, desc
 const boxSchema = (description: string) =>
   Type.Object(
     {
-      x: unit('外接框左上角 x，按原图宽度归一化到 0–1'),
-      y: unit('外接框左上角 y，按原图高度归一化到 0–1'),
-      width: unit('外接框宽度，0–1'),
-      height: unit('外接框高度，0–1'),
+      x: unit('外接框左上角 x：像素 x ÷ 你看到的这张图的宽，0–1'),
+      y: unit('外接框左上角 y：像素 y ÷ 你看到的这张图的高（不是除以宽），0–1'),
+      width: unit('外接框宽度 ÷ 图宽，0–1'),
+      height: unit('外接框高度 ÷ 图高，0–1'),
     },
     { description },
   )
 
 const pointSchema = Type.Object({
-  x: unit('点的 x，0–1'),
-  y: unit('点的 y，0–1'),
+  x: unit('点的 x ÷ 图宽，0–1'),
+  y: unit('点的 y ÷ 图高，0–1'),
   // 漏写按落在目标上算：少一个布尔值不值得让整张卡片发不出去。
   include: Type.Optional(
     Type.Boolean({
@@ -100,7 +101,7 @@ const parameters = Type.Object({
   // 列了 instances 时模型常常只给各自的框；缺了就用选中那几个的并集，不因此退回。
   box: Type.Optional(
     boxSchema(
-      '把要改的全部部分框进去的外接框（略宽于对象），坐标按原图归一化，原点在左上。有 instances 时可省略，按选中的那几个算。',
+      '把要改的全部部分框进去的外接框（略宽于对象），原点在左上。坐标按你看到的那张缩略图归一化：x 与宽度除以图宽，y 与高度除以图高；系统按比例换回原图。有 instances 时可省略，按选中的那几个算。',
     ),
   ),
   points: Type.Optional(
@@ -119,7 +120,7 @@ const parameters = Type.Object({
   instances: Type.Optional(
     Type.Array(
       Type.Object({
-        box: boxSchema('这一个对象的外接框，按原图归一化'),
+        box: boxSchema('这一个对象的外接框，x 除以图宽、y 除以图高'),
         label: Type.Optional(
           Type.String({ maxLength: 200, description: '短称呼，例如「左边的杯子」' }),
         ),
@@ -144,6 +145,29 @@ interface MaskProposalDetails {
   readonly clarification: AgentClarificationBlock
 }
 
+const round4 = (value: number) => Math.round(value * 10_000) / 10_000
+const roundBox = (box: AgentNormalizedBox) => ({
+  x: round4(box.x),
+  y: round4(box.y),
+  width: round4(box.width),
+  height: round4(box.height),
+})
+
+/**
+ * 模型在缩略图上给的归一化框换成原图像素：x、宽乘原图宽，y、高乘原图高。等比缩放不改变
+ * 归一化坐标，所以缩略图多大都一样；分割服务与卡片都按这个比例取原图位置。
+ */
+export function originalPixels(box: AgentNormalizedBox, width: number, height: number) {
+  const left = Math.round(box.x * width)
+  const top = Math.round(box.y * height)
+  return {
+    left,
+    top,
+    width: Math.max(1, Math.min(width - left, Math.round(box.width * width))),
+    height: Math.max(1, Math.min(height - top, Math.round(box.height * height))),
+  }
+}
+
 function cleanBox(box: AgentNormalizedBox): AgentNormalizedBox {
   const values = [box.x, box.y, box.width, box.height]
   if (!values.every((value) => Number.isFinite(value)))
@@ -151,7 +175,7 @@ function cleanBox(box: AgentNormalizedBox): AgentNormalizedBox {
   if (box.width < MIN_BOX_SIDE || box.height < MIN_BOX_SIDE)
     throw new AgentToolError(
       'invalid_params',
-      '外接框太小。坐标按原图宽高归一化到 0–1（不是像素），请把要改的部分整个框进去',
+      '外接框太小。坐标按图宽、图高归一化到 0–1（不是像素），请把要改的部分整个框进去',
     )
   if (box.x < 0 || box.y < 0 || box.x + box.width > 1 + EPSILON || box.y + box.height > 1 + EPSILON)
     throw new AgentToolError('invalid_params', '外接框超出了图片范围，坐标要落在 0–1 之内')
@@ -320,9 +344,13 @@ export function maskProposalFailedText(errorText: string): string {
  * 一律存成无损 PNG（像素与原图转正后逐一相同）。没有方向的原样返回。
  */
 export async function uprightOriginal(bytes: Buffer, dataUrl: string) {
-  const metadata = await sharp(bytes, { limitInputPixels: visualPixelLimit() }).metadata()
+  // 原件按源图上限读：超出对话模型准备预算的大图（8000×4500）也能圈，模型只看缩略图。
+  // 调用方取的是 `source`，解码预算已在那里查过。
+  const metadata = await sharp(bytes, { limitInputPixels: SOURCE_MAX_PIXELS }).metadata()
   if ((metadata.orientation ?? 1) === 1) return { bytes, dataUrl, metadata, rotated: false }
-  const rotated = sharp(bytes, { limitInputPixels: visualPixelLimit() }).rotate()
+  const rotated = sharp(bytes, { limitInputPixels: SOURCE_MAX_PIXELS })
+    .timeout({ seconds: 30 })
+    .rotate()
   // 无损保存转正结果：JPEG 再编码会改动选区外的每个像素，合成时保留的就不是原图了。
   const { data, info } = await rotated.png().toBuffer({ resolveWithObject: true })
   return {
@@ -400,14 +428,16 @@ async function propose(
   if (!box)
     throw new AgentToolError(
       'invalid_params',
-      '要给 box：把要改的部分框进去的外接框，坐标按原图归一化到 0–1',
+      '要给 box：把要改的部分框进去的外接框，x 除以图宽、y 除以图高，归一化到 0–1',
     )
   const keep = [...new Set((params.keep ?? []).map((one) => clip(one.trim(), MASK_KEEP_ITEM_MAX)))]
     .filter(Boolean)
     .slice(0, MASK_KEEP_MAX)
 
   const imageId = context.images.identify(params.imageId)
-  const image = await context.images.resolve(imageId, 'original')
+  // 模型是在缩略图（长边 ≤1024）上给的坐标；归一化坐标与缩放无关，直接套到原件上。
+  // 原件只在服务端用（分割、卡片、确认），不进对话请求，所以不受对话模型的像素预算限制。
+  const image = await context.images.resolve(imageId, 'source')
   if (!image) throw new MaskProposalUnavailable(`图片 ${params.imageId} 不可用`)
   const original = await uprightOriginal(
     Buffer.from(image.dataUrl.slice(image.dataUrl.indexOf(',') + 1), 'base64'),
@@ -428,6 +458,20 @@ async function propose(
   const height = metadata.height ?? 0
   if (!width || !height) throw new MaskProposalUnavailable('读不出这张图的尺寸')
 
+  log.info(
+    {
+      event: 'agent.mask_proposal',
+      width,
+      height,
+      rotated: original.rotated,
+      box: roundBox(box),
+      boxPixels: originalPixels(box, width, height),
+      points: points?.length ?? 0,
+      instances: instances?.length ?? 0,
+      invert,
+    },
+    'edit region proposed',
+  )
   const { model, switchedFrom } = chooseMaskModel(context.params?.model)
   const size = maskedEditSize(model.id, width, height)
   if ('problem' in size)
@@ -537,7 +581,7 @@ export function maskProposalTool(context: AgentToolContext): AgentTool {
 }
 
 const MASK_PROPOSAL_DESCRIPTION =
-  '请用户在卡片上确认要改图里的哪一部分。只在两条同时成立时用：用户明确只要改图里的某一部分、其余保持不变；而且你看图后拿不准他指的是哪一部分（比如画面里有三个瓶子，他只说「把瓶子换了」）。目标明确时不要用它，直接调 editImage：画面里只有一个这样的对象，或他用位置、特征点名了是哪一个（「最左边那个瓶子」）。整张图的变化（风格、色调、光线、季节昼夜、构图）也不用它。你给出对象名与外接框，系统据此圈出蒙版，用户在卡片上确认，或者点选增减、调整范围、加标注。把说得通的几个候选用 instances 逐个列出（含不改的），最可能是他要改的标 selected，卡片会按编号显示、他可以改选。只换背景、但拿不准要保留的主体是哪一个时用 invert：框住最可能要保留的主体，系统取反。发出后这一轮结束；确认后用户会带着蒙版作为下一条消息回来，再按选区调 editImage。生成只改蒙版内，蒙版外像素与原图一致。'
+  '请用户在卡片上确认要改图里的哪一部分。只在两条同时成立时用：用户明确只要改图里的某一部分、其余保持不变；而且你看图后拿不准他指的是哪一部分（比如画面里有三个瓶子，他只说「把瓶子换了」）。目标明确时不要用它，直接调 editImage：画面里只有一个这样的对象，或他用位置、特征点名了是哪一个（「最左边那个瓶子」）。整张图的变化（风格、色调、光线、季节昼夜、构图）也不用它。你给出对象名与外接框（在你看到的缩略图上量：x 除以图宽、y 除以图高，原图再大也一样），系统据此圈出蒙版，用户在卡片上确认，或者点选增减、调整范围、加标注。把说得通的几个候选用 instances 逐个列出（含不改的），最可能是他要改的标 selected，卡片会按编号显示、他可以改选。只换背景、但拿不准要保留的主体是哪一个时用 invert：框住最可能要保留的主体，系统取反。发出后这一轮结束；确认后用户会带着蒙版作为下一条消息回来，再按选区调 editImage。生成只改蒙版内，蒙版外像素与原图一致。'
 
 /** 只给预扣估算与清单用的声明；不需要运行期 context。 */
 export const maskProposalDeclaration = {

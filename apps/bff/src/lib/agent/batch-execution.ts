@@ -34,13 +34,13 @@ import { pauseBatchForAnalysisAuthentication, reconcileAgentBatchProgress } from
 import { lockConversation } from './confirmations'
 import { type ResolvedAgentImage, readConversationMedia } from './images'
 import { prepareMaskedEdit } from './masked-edit'
-import { editSourceByteLimit, toEditInputDataUrl } from './modelImage'
+import { editSourceByteLimit, toEditInputDataUrl, toSourceImageDataUrl } from './modelImage'
 import { shapeQueuePrompt } from './prompt-shaping'
 import { imageSelection } from './selection-preview'
 import { AgentToolError } from './tools/errors'
 import { queueParamsFor } from './tools/queueParams'
 import { resolveAgentModel } from './tools/queueTask'
-import { visualByteLimit, visualMetadata, withVisualPreparation } from './visual-resources'
+import { visualByteLimit, withVisualPreparation } from './visual-resources'
 
 export function batchExecutionAvailable(userId: string) {
   return (
@@ -215,30 +215,30 @@ async function prepareItem(
 ): Promise<CreateQueueTaskInput> {
   const images: ResolvedAgentImage[] = []
   let remainingBytes = visualByteLimit()
-  // fit：无选区的输入按改图规则读——超大图等比缩到最长边 4000 再送（BUG-35）；
-  // 选区原图与遮罩绑着原像素，照旧原样并按剩余请求预算卡。
-  const readInput = async (mediaId: string, fit: boolean) => {
+  // 无选区的输入按改图规则读——超大图等比缩到最长边 4000 再送（BUG-35）。选区原图与遮罩
+  // 绑着原像素，原样送（与 editImage 的选区路径同一条规则）：不按对话模型的准备预算拒，
+  // 送进上游前由蒙版输入（masked-input）按模型尺寸收口，所以也不占这份请求预算。
+  const readInput = async (mediaId: string, kind: 'fit' | 'source') => {
     const media = await readConversationMedia(
       mediaId,
       batch.conversation_id!,
       batch.user_id,
       'original',
       false,
-      fit ? Math.floor((editSourceByteLimit() * 3) / 4) : Math.floor((remainingBytes * 3) / 4),
+      Math.floor((editSourceByteLimit() * 3) / 4),
     )
     if (!media) throw new BatchPlanError('invalid_batch_plan', 422)
     const source = `data:${media.contentType};base64,${Buffer.from(media.bytes).toString('base64')}`
-    let dataUrl = source
-    if (fit) dataUrl = await toEditInputDataUrl(source)
-    else await visualMetadata(media.bytes)
+    if (kind === 'source') return toSourceImageDataUrl(source)
+    const dataUrl = await toEditInputDataUrl(source)
     remainingBytes -= Buffer.byteLength(dataUrl, 'utf8')
     if (remainingBytes < 0) throw new BatchPlanError('batch_input_limit', 422)
     return dataUrl
   }
   for (const reference of item.inputs) {
-    const dataUrl = await readInput(reference.mediaId, !reference.maskMediaId)
+    const dataUrl = await readInput(reference.mediaId, reference.maskMediaId ? 'source' : 'fit')
     const maskDataUrl = reference.maskMediaId
-      ? await readInput(reference.maskMediaId, false)
+      ? await readInput(reference.maskMediaId, 'source')
       : undefined
     images.push({
       imageId: reference.imageId,
