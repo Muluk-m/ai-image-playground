@@ -67,7 +67,11 @@ export const planImageBatch = defineAgentTool({
           text: `批次计划已保存，编号 ${batchId}。${superseded.length ? `先前未确认的计划 ${superseded.join('、')} 已作废，不能再确认。` : ''}${context.userId && batchExecutionAvailable(context.userId) ? '等待用户审查完整范围、逐项提示词和报价，再确认执行。' : '当前仅开放草稿审查，执行暂未开放。'}`,
         },
       ],
-      details: { batchId, ...(superseded.length ? { supersededBatchIds: superseded } : {}) },
+      details: {
+        batchId,
+        batchItemKeys: params.items.map((item) => item.key),
+        ...(superseded.length ? { supersededBatchIds: superseded } : {}),
+      },
     }
   },
 })
