@@ -1,6 +1,7 @@
 import { SUPPORT_CONTACT, SUPPORT_MAILTO } from '@image-playground/shared/support-contact'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '../i18n'
+import { copyTextToClipboard } from '../lib/clipboardText'
 import Dialog from './patterns/Dialog'
 import { Button } from './ui/button'
 
@@ -8,14 +9,18 @@ import { Button } from './ui/button'
 export default function ContactDialog({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation('shell')
   const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle')
+  const resetTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(resetTimer.current), [])
   const copyEmail = async () => {
+    let result: 'done' | 'failed' = 'done'
     try {
-      await navigator.clipboard.writeText(SUPPORT_CONTACT.email)
-      setCopied('done')
+      await copyTextToClipboard(SUPPORT_CONTACT.email)
     } catch {
-      setCopied('failed')
+      result = 'failed'
     }
-    window.setTimeout(() => setCopied('idle'), 1600)
+    window.clearTimeout(resetTimer.current)
+    setCopied(result)
+    resetTimer.current = window.setTimeout(() => setCopied('idle'), 1600)
   }
   const copyLabel =
     copied === 'done'
