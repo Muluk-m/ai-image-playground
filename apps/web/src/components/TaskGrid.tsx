@@ -33,6 +33,7 @@ import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } 
 import type { TaskRecord } from '../types'
 import SetHistoryCard, { type BatchItemHandlers } from './SetHistoryCard'
 import TaskCard from './TaskCard'
+import { Button } from './ui/button'
 
 /** 网格列数与 `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` 的断点保持一致。 */
 const COLUMN_QUERIES = [
@@ -148,7 +149,19 @@ function setFallbackName(task: TaskRecord | undefined): string {
 /** 首页「我的作品」预览的行数。 */
 export const HOME_WORK_ROWS = 2
 
-export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
+export default function TaskGrid({
+  hero,
+  preview = false,
+  moreAvailable = false,
+  onShowAll,
+}: {
+  hero?: boolean
+  /** 首页预览：只排最近两行，多出来的由「查看全部作品」展开。 */
+  preview?: boolean
+  /** 平台还有下一页时也露出展开入口。 */
+  moreAvailable?: boolean
+  onShowAll?: () => void
+} = {}) {
   const { t } = useTranslation('task')
   const historyReady = useSyncExternalStore(subscribeHistoryReady, isHistoryReady, () => false)
   const submittedIds = useSyncExternalStore(
@@ -573,13 +586,19 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
 
   // 按当前列数分行，只渲染视口附近的几行。
   const columns = useGridColumns()
-  const itemRows = useMemo(() => {
+  const allRows = useMemo(() => {
     const chunks: GridItem[][] = []
     for (let index = 0; index < items.length; index += columns)
       chunks.push(items.slice(index, index + columns))
-    // 首页只预览最近两行，完整时间线在资产库。
-    return hero ? chunks.slice(0, HOME_WORK_ROWS) : chunks
-  }, [items, columns, hero])
+    return chunks
+  }, [items, columns])
+  // 首页先预览最近两行，展开后才是完整时间线。
+  const itemRows = useMemo(
+    () => (preview ? allRows.slice(0, HOME_WORK_ROWS) : allRows),
+    [allRows, preview],
+  )
+  const canShowAll =
+    preview && Boolean(onShowAll) && (allRows.length > HOME_WORK_ROWS || moreAvailable)
   const [scrollMargin, setScrollMargin] = useState(0)
   const getItemKey = useCallback(
     (index: number) => itemRows[index]?.map((item) => item.key).join('|') ?? index,
@@ -723,6 +742,13 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
           ))}
         </div>
       </div>
+      {canShowAll && (
+        <div className="flex justify-center pb-6">
+          <Button variant="outline" onClick={onShowAll}>
+            {t('grid.showAll')}
+          </Button>
+        </div>
+      )}
       {selectionBox && (
         <div
           className="fixed bg-primary/20 border border-primary/50 pointer-events-none z-[30]"
