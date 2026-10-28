@@ -55,6 +55,8 @@ describe('marketing home', () => {
       const html = renderToStaticMarkup(createElement(MarketingHome, { locale, start: () => {} }))
       expect(html).not.toMatch(/积分|credits/i)
       expect(html.match(/bg-primary text-primary-foreground/g)).toHaveLength(1)
+      // 官网接不住参考图交接，不放一个只会弹登录框的上传入口。
+      expect(html).not.toMatch(/添加参考图|reference image/i)
     }
   })
 

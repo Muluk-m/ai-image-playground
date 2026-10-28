@@ -72,32 +72,22 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
               begin()
             }}
           >
-            <div className="flex items-start gap-3">
-              <button
-                type="button"
-                className="mkt-ref"
-                onClick={begin}
-                aria-label={text.hero.addImage}
-              >
-                <Icon name="imageAdd" size="md" />
-              </button>
-              <textarea
-                className="mkt-input"
-                value={prompt}
-                rows={3}
-                maxLength={4000}
-                placeholder={text.hero.placeholder}
-                aria-label={text.hero.placeholder}
-                onChange={(event) => setPrompt(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                    event.preventDefault()
-                    begin()
-                  }
-                }}
-              />
-            </div>
-            <div className="mt-3 flex items-center gap-2">
+            <textarea
+              className="mkt-input"
+              value={prompt}
+              rows={3}
+              maxLength={4000}
+              placeholder={text.hero.placeholder}
+              aria-label={text.hero.placeholder}
+              onChange={(event) => setPrompt(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault()
+                  begin()
+                }
+              }}
+            />
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <span className="mkt-pill">
                 <Icon name="agentActivity" size="xs" />
                 {text.hero.mode}
