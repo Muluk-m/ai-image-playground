@@ -4,6 +4,7 @@ import { ROOT_LOCALE_SELECTION_SCRIPT } from '../localeSelection'
 
 function select({
   languages = ['en-US'] as string[],
+  language = undefined as string | undefined,
   stored = null as string | null,
   pathname = '/',
   userAgent = 'Mozilla/5.0',
@@ -14,7 +15,7 @@ function select({
   const style = { visibility: hidden ? 'hidden' : '' }
   runInNewContext(ROOT_LOCALE_SELECTION_SCRIPT, {
     document: { documentElement: { style } },
-    navigator: { languages, userAgent },
+    navigator: { languages, language, userAgent },
     localStorage: {
       getItem: () => {
         if (blockedStorage) throw new Error('blocked')
@@ -33,6 +34,7 @@ describe('landing locale selection', () => {
     { languages: ['ja', 'en'] },
     { stored: 'en', languages: ['zh-CN'] },
     { blockedStorage: true },
+    { languages: [], language: 'en-US' },
   ])('sends English visitors to /en/ before paint (%j)', (input) => {
     const { replace, style } = select(input)
     expect(style.visibility).toBe('hidden')
@@ -43,6 +45,7 @@ describe('landing locale selection', () => {
     { languages: ['zh-TW', 'en'] },
     { languages: ['ja'] },
     { languages: [] },
+    { languages: [], language: 'zh-CN' },
     { stored: 'zh-CN' },
     { pathname: '/en/' },
     { pathname: '/pricing' },
