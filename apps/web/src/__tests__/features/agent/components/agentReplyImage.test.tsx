@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import AgentMarkdown from '../../../../features/agent/components/AgentMarkdown'
+import AgentReply from '../../../../features/agent/components/AgentReply'
 import { AgentReplyImagesProvider } from '../../../../features/agent/components/AgentReplyImage'
 import type { AgentPanelMessage } from '../../../../features/agent/types'
 
@@ -37,6 +38,17 @@ const message = {
     { artifactId: second, media: 'image', taskId: 'task', outputIndex: 1, mime: 'image/png' },
   ],
 } as unknown as AgentPanelMessage
+const plan = {
+  kind: 'tool',
+  id: 'plan-message',
+  turnId: 'turn',
+  toolCallId: 'plan-call',
+  toolName: 'planImageBatch',
+  batchId: 'batch',
+  batchItemKeys: ['animal-03-rabbit', 'cat'],
+  title: '计划',
+  status: 'succeeded',
+} as unknown as AgentPanelMessage
 
 let cleanup = () => {}
 afterEach(() => {
@@ -44,15 +56,19 @@ afterEach(() => {
   preview.mockReset()
 })
 
-async function render(text: string, onPreview = vi.fn()) {
+async function render(text: string, onPreview = vi.fn(), reply = false) {
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)
   const draw = (markdown: string) =>
     act(async () =>
       root.render(
-        <AgentReplyImagesProvider messages={[message]} onPreview={onPreview}>
-          <AgentMarkdown text={markdown} />
+        <AgentReplyImagesProvider messages={[message, plan]} onPreview={onPreview}>
+          {reply ? (
+            <AgentReply text={markdown} streaming={false} />
+          ) : (
+            <AgentMarkdown text={markdown} />
+          )}
         </AgentReplyImagesProvider>,
       ),
     )
@@ -113,4 +129,32 @@ it('never shows or previews the previous image while a changed reference loads',
   expect(host.querySelector('img')?.getAttribute('src')).toBe('blob:second')
   await act(async () => host.querySelector<HTMLButtonElement>('button')!.click())
   expect(onPreview).toHaveBeenCalledWith('tool-message', second, 'blob:second')
+})
+
+it('opens conversation images linked by id and never links internal relative addresses', async () => {
+  const onPreview = vi.fn()
+  const host = await render(
+    `产物：\n- [小猫](${generated})\n- [小狗](agent_00000000-0000-0000-0000-000000000000_0)\n- [说明](https://example.com/doc)`,
+    onPreview,
+  )
+  const links = [...host.querySelectorAll('a')]
+  expect(links.map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+    ['说明', 'https://example.com/doc'],
+  ])
+  expect(host.innerHTML).not.toContain('agent_0000')
+  expect(host.textContent).toContain('小狗')
+  await act(async () => host.querySelector<HTMLButtonElement>('button')!.click())
+  expect(onPreview).toHaveBeenCalledWith('tool-message', generated)
+})
+
+it('drops batch item keys and internal ids from the shown and copied reply', async () => {
+  preview.mockResolvedValue({ source: null, onCanvas: false })
+  const host = await render(
+    `还缺兔子图（\`animal-03-rabbit\`），产物 ${generated} 已完成。\n\n![小猫](${generated})`,
+    vi.fn(),
+    true,
+  )
+  expect(host.textContent).toContain('还缺兔子图，产物 已完成。')
+  expect(host.textContent).not.toContain('animal-03-rabbit')
+  expect(host.textContent).not.toContain('agent_1111')
 })
