@@ -12,7 +12,7 @@ export const ROOT_LOCALE_SELECTION_SCRIPT = `(()=>{
   let stored=null;
   try{stored=localStorage.getItem(${JSON.stringify(LOCALE_STORAGE_KEY)})}catch{}
   let target=stored==='en'?'en':stored==='zh-CN'?'zh':null;
-  if(!target){for(const tag of navigator.languages||[]){const primary=String(tag).toLowerCase().split('-')[0];if(primary==='zh'||primary==='en'){target=primary;break}}}
+  if(!target){for(const tag of navigator.languages?.length?navigator.languages:[navigator.language||'']){const primary=String(tag).toLowerCase().split('-')[0];if(primary==='zh'||primary==='en'){target=primary;break}}}
   if(target!=='en')return;
   document.documentElement.style.visibility='hidden';
   location.replace('/en/'+location.search+location.hash);
