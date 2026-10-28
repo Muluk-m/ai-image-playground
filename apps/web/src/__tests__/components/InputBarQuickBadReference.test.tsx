@@ -159,6 +159,29 @@ describe('快速生成的坏参考图（BUG-59）', () => {
     }
   })
 
+  it('超时放行后浏览器才回「解不出」，补上标红、再拦住', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const LATE = 'data:image/jpeg;base64,q83vEjRWeJq83vEjRWeJq83vEjRWeJAA'
+      let fail: () => void = () => {}
+      vi.mocked(loadImage).mockImplementationOnce(
+        () => new Promise<HTMLImageElement>((_, reject) => (fail = () => reject(new Error('x')))),
+      )
+      await mountQuick([LATE])
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000)
+      })
+      expect(send().disabled).toBe(false)
+      await act(async () => fail())
+      expect(host.querySelector('[role=alert]')?.textContent).toBe(
+        '第 1 张图片：请先转换为 PNG、JPEG 或 WebP 格式。',
+      )
+      expect(send().disabled).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('移走坏图后原因消失、可以发送', async () => {
     await mountQuick([PNG, CORRUPT])
     const remove = host.querySelector<HTMLButtonElement>('button[aria-label="移除第 2 张图片"]')
