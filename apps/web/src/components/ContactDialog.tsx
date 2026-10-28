@@ -30,17 +30,22 @@ export default function ContactDialog({ onClose }: { onClose: () => void }) {
         : t('header.contact.copy')
   return (
     <Dialog onClose={onClose} tier="raised" title={t('header.contact.title')}>
-      <div className="flex items-center gap-3 rounded-xl border border-border p-3 text-sm">
-        <div className="min-w-0 flex-1">
+      {/* 窄屏放不下一行时按钮换到下一行，邮箱完整显示、不省略。 */}
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border p-3 text-sm">
+        <div className="min-w-0 flex-[1_1_12rem]">
           <div className="font-medium text-foreground">{t('header.contact.email')}</div>
-          <div className="truncate text-muted-foreground">{SUPPORT_CONTACT.email}</div>
+          <div data-slot="contact-email" className="text-muted-foreground [overflow-wrap:anywhere]">
+            {SUPPORT_CONTACT.email}
+          </div>
         </div>
-        <Button type="button" size="sm" variant="outline" onClick={() => void copyEmail()}>
-          {copyLabel}
-        </Button>
-        <Button asChild size="sm">
-          <a href={SUPPORT_MAILTO}>{t('header.contact.send')}</a>
-        </Button>
+        <div className="flex shrink-0 gap-3">
+          <Button type="button" size="sm" variant="outline" onClick={() => void copyEmail()}>
+            {copyLabel}
+          </Button>
+          <Button asChild size="sm">
+            <a href={SUPPORT_MAILTO}>{t('header.contact.send')}</a>
+          </Button>
+        </div>
       </div>
     </Dialog>
   )

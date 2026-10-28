@@ -19,6 +19,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* space-between 本身不留间距，品牌和右侧挤到一起时至少隔 8px。 */
+  gap: 8px;
   padding: 16px clamp(18px, 4vw, 52px);
   transition: background 0.3s, border-color 0.3s, backdrop-filter 0.3s;
   border-bottom: 1px solid transparent;
@@ -638,12 +640,18 @@
   .mkt .foot .cols { gap: 44px; }
   .mkt .foot .bot { flex-direction: column; gap: 8px; }
 }
-/* 320 宽的英文品牌、定价和「Start free」挤在一行里。只收横向间距和字号，顶栏仍按按钮高度。 */
-@media (max-width: 360px) {
+/* 英文品牌、定价和「Start free」按常规间距要 372px 才放得下。只收横向间距和字号，顶栏仍按按钮高度。 */
+@media (max-width: 380px) {
   .mkt .nav { padding-inline: 12px; }
   .mkt .nav-end { gap: 8px; }
   .mkt .brand { gap: 8px; font-size: 17px; }
   .mkt .nav .cta { padding-inline: 8px; }
+}
+/* 320 以下再收一档：边距、徽标和品牌字号。 */
+@media (max-width: 340px) {
+  .mkt .nav { padding-inline: 8px; }
+  .mkt .brand { gap: 6px; font-size: 16px; }
+  .mkt .brand img { width: 26px; height: 26px; }
 }
 /* 761–800 刚露出桌面导航时，英文链接条比行宽略长。收边距，不改行高。 */
 @media (min-width: 761px) and (max-width: 800px) {
