@@ -32,12 +32,14 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 let host: HTMLDivElement
 let root: Root
-/** 文件头就是 PNG：不用再解。 */
+/** 文件头是 PNG、解得出。 */
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB'
 /** 文件头认不出、浏览器解得出（GIF 之类，发送前会转码）。 */
 const GIF = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACw='
 /** QA 的 corrupt-random.jpg：一堆随机字节，扩展名是 jpg。 */
 const CORRUPT = 'data:image/jpeg;base64,q83vEjRWeJq83vEjRWeJq83vEjRWeJq8'
+/** 文件头是 PNG，后面截断了：浏览器解不出。 */
+const TRUNCATED = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAC'
 
 async function mountQuick(images: string[]) {
   useStore.setState({
@@ -64,6 +66,7 @@ beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
   undecodable.clear()
   undecodable.add(CORRUPT)
+  undecodable.add(TRUNCATED)
   vi.mocked(loadImage).mockClear()
 })
 
@@ -90,14 +93,37 @@ describe('快速生成的坏参考图（BUG-59）', () => {
     expect(submitTask).not.toHaveBeenCalled()
   })
 
-  it('认得出文件头的不再解；GIF 之类解得出就照常能发', async () => {
+  it('GIF 之类文件头认不出、但解得出的照常能发', async () => {
     const submitTask = vi.spyOn(storeModule, 'submitTask').mockResolvedValue(undefined)
     await mountQuick([PNG, GIF])
-    expect(loadImage).not.toHaveBeenCalledWith(PNG)
     expect(host.querySelector('[role=alert]')).toBeNull()
     expect(send().disabled).toBe(false)
     act(() => send().click())
     expect(submitTask).toHaveBeenCalledTimes(1)
+  })
+
+  it('文件头对、内容坏了的也标出来，按「无法解析」说', async () => {
+    await mountQuick([TRUNCATED])
+    expect(host.querySelector('[role=alert]')?.textContent).toContain(
+      '第 1 张图片：无法解析这张图片',
+    )
+    expect(send().disabled).toBe(true)
+  })
+
+  it('还没解完时先拦着，解完才放行', async () => {
+    const submitTask = vi.spyOn(storeModule, 'submitTask').mockResolvedValue(undefined)
+    let finish: () => void = () => {}
+    const SLOW = 'data:image/webp;base64,UklGRiQAAABXRUJQVlA4IBgAAAAw'
+    vi.mocked(loadImage).mockImplementationOnce(async (source) => {
+      if (source === SLOW) await new Promise<void>((resolve) => (finish = resolve))
+      return {} as HTMLImageElement
+    })
+    await mountQuick([SLOW])
+    expect(send().disabled).toBe(true)
+    act(() => send().click())
+    expect(submitTask).not.toHaveBeenCalled()
+    await act(async () => finish())
+    expect(send().disabled).toBe(false)
   })
 
   it('移走坏图后原因消失、可以发送', async () => {
