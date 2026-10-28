@@ -11,8 +11,16 @@ import type { ToolDefinition, ToolGroup } from './tool'
  * 目录页照着这张表长：一件工具就是一个模块，卡片、参数行与处理逻辑都跟着它走，
  * 目录页和工具页都不用改。
  */
+/** 尺寸调整：处理逻辑在导出表单里，工作台只换参数栏。 */
+export const resizeTool: ToolDefinition = {
+  id: 'export',
+  group: 'process',
+  icon: 'resize',
+  kind: 'custom',
+}
+
 export const TOOLS: readonly ToolDefinition[] = [
-  { id: 'export', group: 'process', icon: 'resize', kind: 'custom' },
+  resizeTool,
   compressTool,
   convertTool,
   cropTool,

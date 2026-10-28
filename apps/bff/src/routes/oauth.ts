@@ -120,7 +120,8 @@ function validateReturnTarget(request: Request, requested: unknown): string {
       ? parsed.pathname.slice(0, -1)
       : parsed.pathname
   const isProjectRoute = /^\/p\/[^/]+$/.test(normalizedPath)
-  if (!WORKSPACE_PATHS.has(normalizedPath) && !isProjectRoute) {
+  const isToolRoute = /^\/tools\/[^/]+$/.test(normalizedPath)
+  if (!WORKSPACE_PATHS.has(normalizedPath) && !isProjectRoute && !isToolRoute) {
     return DEFAULT_RETURN_TO
   }
   const target = `${parsed.pathname}${parsed.search}${parsed.hash}`

@@ -1,19 +1,20 @@
 import { useMemo, useState } from 'react'
-import { TooltipIconButton } from '../../components/assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../../components/ui/button'
 import { Icon } from '../../components/ui/icon'
+import { OverflowText } from '../../components/ui/overflowTitle'
 import { useTranslation } from '../../i18n'
-import ToolboxHeader from '../toolbox/components/ToolboxHeader'
-import { useToolboxIntake } from '../toolbox/components/useToolboxIntake'
+import { CHECKERBOARD } from '../toolbox/components/ToolResultCard'
+import ToolShell, { AddTile } from '../toolbox/components/ToolShell'
+import { resizeTool } from '../toolbox/lib/registry'
 import { toolSource, useToolboxStore } from '../toolbox/store'
 import ExportForm from './ExportForm'
 
+/** 尺寸调整：共用工作台，参数栏是导出表单本身（自带导出按钮，所以不显示工作台底栏）。 */
 export default function ExportTool() {
   const { t } = useTranslation('toolbox')
   const items = useToolboxStore((state) => state.items)
   const remove = useToolboxStore((state) => state.remove)
   const [busy, setBusy] = useState(false)
-  const intake = useToolboxIntake(busy)
   const sources = useMemo(
     () =>
       items
@@ -34,71 +35,45 @@ export default function ExportTool() {
     [items],
   )
   return (
-    <main
-      {...intake.dropZoneProps}
-      className={`flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px)-var(--app-inset,0px)*2)] min-h-0 flex-col ${intake.dragging ? 'bg-primary/5' : ''}`}
+    <ToolShell
+      tool={resizeTool}
+      busy={busy}
+      footer={false}
+      panelClassName="lg:w-80"
+      panelBody={<ExportForm sources={sources} onBusyChange={setBusy} />}
     >
-      {intake.inputs}
-      <ToolboxHeader
-        title={
-          <>
-            <Icon name="resize" className="text-primary" />
-            {t('tool.export.name')}
-          </>
-        }
-        back
-        busy={busy}
-        onAddImages={intake.openFiles}
-        onAddFolder={intake.openFolder}
-      />
-      <div className="grid min-h-0 flex-1 overflow-y-auto lg:overflow-hidden lg:grid-cols-[1fr_400px]">
-        <div className="overflow-y-auto p-6">
-          {items.length ? (
-            <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
-              {items.map((item) => (
-                <div
-                  key={item.id}
-                  className="overflow-hidden rounded-xl border border-border bg-card"
+      {({ openFiles }) => (
+        <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 xl:grid-cols-3">
+          {items.map((item) => (
+            <div
+              key={item.id}
+              className="group overflow-hidden rounded-2xl border border-border bg-card"
+            >
+              <div className={`relative aspect-[4/3] ${CHECKERBOARD}`}>
+                <img src={item.url} alt={item.name} className="h-full w-full object-contain" />
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => remove(item.id)}
+                  aria-label={t('result.remove')}
+                  className="absolute right-2 top-2 opacity-0 shadow transition-opacity focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                 >
-                  <img
-                    src={item.url}
-                    alt={item.name}
-                    className="aspect-square w-full object-contain bg-muted/20"
-                  />
-                  <div className="flex items-center gap-2 p-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs">{item.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {item.decodable
-                          ? `${item.width} × ${item.height} px`
-                          : t('export.undecodable')}
-                      </p>
-                    </div>
-                    <TooltipIconButton
-                      disabled={busy}
-                      tooltip={t('intake.clear')}
-                      onClick={() => remove(item.id)}
-                    >
-                      <Icon name="delete" />
-                    </TooltipIconButton>
-                  </div>
+                  <Icon name="close" />
+                </Button>
+              </div>
+              <div className="space-y-0.5 px-3 py-2.5 text-xs">
+                <OverflowText as="div" text={item.name} className="truncate" />
+                <div className="whitespace-nowrap font-mono text-label-sm text-muted-foreground">
+                  {item.decodable ? `${item.width} × ${item.height} px` : t('export.undecodable')}
                 </div>
-              ))}
+              </div>
             </div>
-          ) : (
-            <div className="grid min-h-64 place-content-center gap-4 text-center">
-              <p className="text-sm text-muted-foreground">{t('intake.hint')}</p>
-              <Button onClick={intake.openFiles}>
-                <Icon name="add" />
-                {t('intake.chooseImages')}
-              </Button>
-            </div>
-          )}
+          ))}
+          {!busy && <AddTile onClick={openFiles} />}
         </div>
-        <aside className="flex min-h-0 flex-col border-l border-border bg-card">
-          <ExportForm sources={sources} onBusyChange={setBusy} />
-        </aside>
-      </div>
-    </main>
+      )}
+    </ToolShell>
   )
 }

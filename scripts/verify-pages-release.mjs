@@ -6,12 +6,31 @@ import { setTimeout as delay } from 'node:timers/promises'
 
 const LONG_LIVED = /immutable|(?:s-maxage|max-age)=[1-9]/i
 
-function getter(origin, fetcher, signal) {
+// Per-request budget. An edge can accept a request and never answer it (Cloudflare IAD did this on
+// 2026-10-28 for roughly 1 in 50 cached assets, logged as 499 after the client gave up). One stalled
+// request must not fail the whole pass, and the error must say which URL stalled.
+const REQUEST_TIMEOUT_MS = 15000
+const REQUEST_TRIES = 3
+
+function getter(origin, fetcher, signal, { requestTimeoutMs = REQUEST_TIMEOUT_MS, requestTries = REQUEST_TRIES } = {}) {
   return async (path) => {
-    // Intentionally use the ordinary URL and caching path: cache-busting concealed this incident.
-    signal.throwIfAborted()
-    const response = await fetcher(new URL(path, origin), { signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]), redirect: 'error' })
-    return { response, bytes: Buffer.from(await response.arrayBuffer()) }
+    for (let attempt = 1; ; attempt++) {
+      // Intentionally use the ordinary URL and caching path: cache-busting concealed this incident.
+      signal.throwIfAborted()
+      const timeout = AbortSignal.timeout(requestTimeoutMs)
+      try {
+        const response = await fetcher(new URL(path, origin), { signal: AbortSignal.any([signal, timeout]), redirect: 'error' })
+        return { response, bytes: Buffer.from(await response.arrayBuffer()) }
+      } catch (error) {
+        const stalled = timeout.aborted && !signal.aborted
+        if (stalled && attempt < requestTries) {
+          console.warn(`GET ${path} got no response in ${requestTimeoutMs}ms (try ${attempt}/${requestTries}); retrying`)
+          continue
+        }
+        const reason = stalled ? `no response in ${requestTimeoutMs}ms after ${requestTries} tries` : error.message
+        throw new Error(`GET ${path} failed: ${reason}`, { cause: error })
+      }
+    }
   }
 }
 
@@ -53,8 +72,8 @@ async function verifyMissingAssets(get, directories) {
   }
 }
 
-export async function verifyPagesRelease(origin, dist, fetcher = fetch, signal = AbortSignal.timeout(60000)) {
-  const get = getter(origin, fetcher, signal)
+export async function verifyPagesRelease(origin, dist, fetcher = fetch, signal = AbortSignal.timeout(60000), options = {}) {
+  const get = getter(origin, fetcher, signal, options)
   const localHtml = await readFile(resolve(dist, 'index.html'), 'utf8')
   // The identity is a sha256 of the whole HTML, so a match means this exact entry and startup guard.
   const identity = /<meta name="aip-html-build" content="[a-f0-9]{64}">/.exec(localHtml)?.[0]
@@ -98,8 +117,8 @@ export async function verifyPagesRelease(origin, dist, fetcher = fetch, signal =
 
 // The Admin build has no HTML identity meta; its entry script URL is content-hashed, so a page that
 // references it was built from this release.
-export async function verifyAdminPagesRelease(origin, dist, fetcher = fetch, signal = AbortSignal.timeout(60000)) {
-  const get = getter(origin, fetcher, signal)
+export async function verifyAdminPagesRelease(origin, dist, fetcher = fetch, signal = AbortSignal.timeout(60000), options = {}) {
+  const get = getter(origin, fetcher, signal, options)
   const localHtml = await readFile(resolve(dist, 'index.html'), 'utf8')
   const entry = /<script type="module"[^>]* src="(\/assets\/[^"]+\.js)"/.exec(localHtml)?.[1]
   if (!entry) throw new Error('Build has no hashed entry script')
@@ -130,13 +149,13 @@ export async function verifyAdminPagesRelease(origin, dist, fetcher = fetch, sig
   console.log(`Verified Admin homepage, deep links, ${assetCount} JS/CSS files, and missing-asset 404 at ${origin}`)
 }
 
-export async function verifyPagesReleaseWithRetry(origin, dist, { fetcher = fetch, timeoutMs = 180000, intervalMs = 5000, app = 'web' } = {}) {
+export async function verifyPagesReleaseWithRetry(origin, dist, { fetcher = fetch, timeoutMs = 180000, intervalMs = 5000, app = 'web', requestTimeoutMs, requestTries } = {}) {
   const verify = app === 'admin' ? verifyAdminPagesRelease : verifyPagesRelease
   const signal = AbortSignal.timeout(timeoutMs)
   let attempt = 0
   while (true) {
     try {
-      await verify(origin, dist, fetcher, signal)
+      await verify(origin, dist, fetcher, signal, { requestTimeoutMs, requestTries })
       return
     } catch (error) {
       if (signal.aborted) throw error
