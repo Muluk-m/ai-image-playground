@@ -98,6 +98,9 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
           <a href="/pricing">{text.nav.pricing}</a>
         </div>
         <div className="nav-end">
+          <a className="nav-pricing" href="/pricing">
+            {text.nav.pricing}
+          </a>
           <a
             className="lang"
             href={locale === 'en' ? '/' : '/en/'}
