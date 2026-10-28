@@ -30,6 +30,7 @@
   },
   "card": {
     "generating": "生成中...",
+    "progress": "生成中 {{percent}}%",
     "batchQueued": "排队中",
     "phase": {
       "queued": "排队中...",
