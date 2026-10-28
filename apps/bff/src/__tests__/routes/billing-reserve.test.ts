@@ -272,6 +272,12 @@ describe('repeated submissions', () => {
     expect(await db.select().from(schema.tasks)).toHaveLength(1)
   })
 
+  it('catches a double click that carries no command id', async () => {
+    expect(await submit('gpt-image-2', { prompt: 'no id', client_request_id: undefined })).toBe(200)
+    expect(await submit('gpt-image-2', { prompt: 'no id', client_request_id: undefined })).toBe(409)
+    expect(reservations).toHaveLength(1)
+  })
+
   it('still lets a different request through right away', async () => {
     expect(await submit('gpt-image-2', { prompt: 'first' })).toBe(200)
     expect(await submit('gpt-image-2', { prompt: 'second' })).toBe(200)
