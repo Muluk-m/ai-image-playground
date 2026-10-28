@@ -72,3 +72,23 @@ it('后台已在排队的同一张图，侧栏用 urgent 再要时把它提到�
   await expect(sidebar).resolves.toContain('data:')
   await Promise.all(background)
 })
+
+it('后台那张还在查本机缓存、没进队列时侧栏就要了，入队时也排到背景预览前面', async () => {
+  const background = [31, 32, 34].map((n) => resolveMediaSource(id(n), 'preview'))
+  await vi.waitFor(() => expect(accessed).toHaveLength(2))
+  await new Promise((resolve) => setTimeout(resolve, 20))
+
+  // 同一拍里：后台先要 33，侧栏紧接着 urgent 再要——这时 33 还在 getCachedMedia 里。
+  const late = resolveMediaSource(id(33), 'preview')
+  const sidebar = resolveMediaSource(id(33), 'display', true)
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  release.shift()?.()
+
+  await vi.waitFor(() => expect(accessed).toHaveLength(3))
+  expect(accessed[2]).toContain('00000033')
+
+  holding = false
+  for (const resume of release) resume()
+  await expect(sidebar).resolves.toContain('data:')
+  await Promise.all([...background, late])
+})
