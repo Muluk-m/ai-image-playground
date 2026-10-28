@@ -8,6 +8,16 @@ export const APP_MODE_PATHS = {
 
 export type RoutedAppMode = keyof typeof APP_MODE_PATHS
 
+/** 工具箱里每件工具一个地址：`/tools/<工具>`。目录页仍是 `/tools`。 */
+export const TOOL_ROUTE_PATTERN = '/tools/:tool'
+const TOOL_ROUTE = /^\/tools\/([^/]+)$/
+
+/** `/tools/<工具>` 里的那段工具名；不是工具地址时返回 null。认不认得这件工具由工具箱判断。 */
+export function toolRouteSlug(pathname: string): string | null {
+  const match = TOOL_ROUTE.exec(normalizePath(pathname))
+  return match ? match[1] : null
+}
+
 /** 项目曾经是独立入口 `/projects`；现在它是资产里的一个标签，老地址仍然认，落到资产。 */
 export const LEGACY_PROJECTS_PATH = '/projects'
 
@@ -44,6 +54,7 @@ export function isStandalonePath(pathname: string): boolean {
 export function pathAppMode(pathname: string): RoutedAppMode | null {
   const path = normalizePath(pathname)
   if (path === LEGACY_PROJECTS_PATH) return 'library'
+  if (toolRouteSlug(path) !== null) return 'tools'
   for (const [mode, modePath] of Object.entries(APP_MODE_PATHS))
     if (path === modePath) return mode as RoutedAppMode
   return null

@@ -297,6 +297,7 @@ describe('auth client', () => {
     '/assets?tab=projects#recent',
     '/explore?tag=art#results',
     '/tools?tool=resize#upload',
+    '/tools/resize?from=catalog#upload',
     '/pricing?plan=pro#plans',
     '/terms#agreement',
     '/privacy#cookies',
