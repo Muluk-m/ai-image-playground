@@ -5,13 +5,22 @@ import { openImageExport } from '../features/image-export/store'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
 import { modelLabel } from '../lib/channels/publicChannels'
+import {
+  estimatedProgressPercent,
+  forgetGenerating,
+  markGenerating,
+  progressStartedAt,
+  typicalDurationMs,
+} from '../lib/generationProgress'
 import { ActualValueBadge, getParamDisplay, measuredSizeOf } from '../lib/paramDisplay'
 import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
+import { JobProgress } from './assistant-ui/elements/job-progress'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
 import { compactModelName, ModelLogo } from './ModelIdentity'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 
 /** task-pop-in 入场动画窗口；超过这个秒数后 mount 的 task 视作历史回放，不再播。 */
 const FRESH_POP_IN_WINDOW_MS = 600
@@ -47,6 +56,7 @@ export default function TaskCard({
         }
       : null
   const [now, setNow] = useState(Date.now())
+  const [moreOpen, setMoreOpen] = useState(false)
   // 仅给「页面运行期间刚提交的卡片」播放一次入场动画。CSS keyframes 本身只在
   // mount 时播放一次，所以 useRef 锁定 mount 时刻的判定即可——不需要 state +
   // timer 去摘除 className（即便保留也只是 DOM 节点上一个无副作用的 class）。
@@ -58,6 +68,9 @@ export default function TaskCard({
   const [swipeActionActive, setSwipeActionActive] = useState(false)
   const toggleTaskSelection = useStore((s) => s.toggleTaskSelection)
   const settings = useStore((s) => s.settings)
+  const typicalMs = useStore((s) =>
+    task.status === 'running' ? typicalDurationMs(s.tasks, task.apiModel) : 0,
+  )
   const exportLabel = t('download.export')
   const handleExport = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -185,11 +198,25 @@ export default function TaskCard({
   const isSwipeReady = Math.abs(swipeOffset) >= 40
   const showSwipeAction = isSwipeReady || swipeActionActive
   const showRunningTimer = task.status === 'running' && !task.batchQueued
+  // 上游不回报真实进度：只在真正出图阶段按本机同模型的典型耗时估一个百分比，排队、重连、确认时不显示也不计时。
+  const generatingPhase =
+    task.status === 'running' &&
+    !task.batchQueued &&
+    (task.queuePhase == null || task.queuePhase === 'generating')
+  const progressStart = generatingPhase ? progressStartedAt(task) : null
+  const progressPercent =
+    progressStart != null ? estimatedProgressPercent(now - progressStart, typicalMs) : null
+  useEffect(() => {
+    if (generatingPhase) markGenerating(task, Date.now())
+    else if (task.status !== 'running') forgetGenerating(task.id)
+  }, [generatingPhase, task])
   const runningLabel = task.batchQueued
     ? t('card.batchQueued')
-    : task.queuePhase
-      ? t(`card.phase.${task.queuePhase}`)
-      : t('card.generating')
+    : progressPercent != null
+      ? t('card.progress', { percent: progressPercent })
+      : task.queuePhase
+        ? t(`card.phase.${task.queuePhase}`)
+        : t('card.generating')
   const swipeBgClass = showSwipeAction
     ? swipeStartedSelected
       ? 'bg-muted'
@@ -266,12 +293,19 @@ export default function TaskCard({
         <div className="flex h-40">
           {/* 左侧图片区域 */}
           <div className="w-40 min-w-[10rem] h-full bg-muted dark:bg-black/20 relative flex items-center justify-center overflow-hidden flex-shrink-0">
-            {task.status === 'running' && (
-              <div className="flex flex-col items-center gap-2">
-                <Icon name="loading" size="lg" className="animate-spin text-primary" />
-                <span className="text-xs text-muted-foreground">{runningLabel}</span>
-              </div>
-            )}
+            {task.status === 'running' &&
+              (progressPercent != null ? (
+                <JobProgress
+                  label={runningLabel}
+                  progress={progressPercent}
+                  className="w-24 items-center"
+                />
+              ) : (
+                <div className="flex flex-col items-center gap-2">
+                  <Icon name="loading" size="lg" className="animate-spin text-primary" />
+                  <span className="text-xs text-muted-foreground">{runningLabel}</span>
+                </div>
+              ))}
             {task.status === 'error' && task.cancelled && (
               <div className="flex flex-col items-center gap-1 px-2">
                 <Icon name="close" size="lg" className="text-muted-foreground" />
@@ -537,18 +571,39 @@ export default function TaskCard({
                     <Icon name="download" size="xs" />
                   </Button>
                 </Hint>
-                <Hint tooltip={t('action.deleteRecord')}>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={onDelete}
-                    className="text-muted-foreground hover:text-destructive"
-                    aria-label={t('action.deleteRecord')}
+                {/* 删除收进更多菜单：手机上按钮挤在一排，别和导出挨着误点。 */}
+                <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+                  <Hint tooltip={t('action.more')}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        className="text-muted-foreground"
+                        aria-label={t('action.more')}
+                      >
+                        <Icon name="more" size="xs" />
+                      </Button>
+                    </PopoverTrigger>
+                  </Hint>
+                  <PopoverContent
+                    align="end"
+                    collisionPadding={12}
+                    className="w-40 rounded-xl p-1.5"
                   >
-                    <Icon name="delete" size="xs" />
-                  </Button>
-                </Hint>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full justify-start gap-3 px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => {
+                        setMoreOpen(false)
+                        onDelete()
+                      }}
+                    >
+                      <Icon name="delete" /> {t('action.deleteRecord')}
+                    </Button>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
           </div>
