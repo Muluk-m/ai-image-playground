@@ -1208,7 +1208,11 @@ export const generation_commands = pgTable(
     task_id: text('task_id').notNull(),
     submitted_at: epochMs('submitted_at').notNull(),
   },
-  (t) => [primaryKey({ columns: [t.user_id, t.command_id] })],
+  (t) => [
+    primaryKey({ columns: [t.user_id, t.command_id] }),
+    // 连点防重：同账号、同请求内容、最近几秒。
+    index('idx_generation_commands_recent').on(t.user_id, t.request_hash, t.submitted_at),
+  ],
 )
 
 /**
