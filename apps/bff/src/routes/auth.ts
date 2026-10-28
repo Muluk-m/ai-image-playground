@@ -138,6 +138,10 @@ export const userAuthRoutes = new Elysia()
       if (!isCapabilityEnabled('accounts:self-register')) {
         return capabilityUnavailable('accounts:self-register')
       }
+      // 自助注册只收邮箱；纯用户名只留给管理员建号。格式不对不计入限流失败次数。
+      if (!isValidEmailAddress(body.username)) {
+        return status(400, { error: 'invalid_username' })
+      }
 
       const key = clientAddress(request, server?.requestIP(request)?.address ?? null)
       if (registrationLimiter.isLocked(key) || registrationLimiter.recordFailure(key)) {

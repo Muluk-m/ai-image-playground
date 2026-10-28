@@ -1,3 +1,4 @@
+import { SUPPORT_CONTACT, SUPPORT_X_URL } from '@image-playground/shared/support-contact'
 import type { Locale } from './catalog'
 
 export const ASSET = '/website-assets/v41'
@@ -83,6 +84,18 @@ export function wallSrc(file: string): string {
   return `${ASSET}/wall/${file}`
 }
 
+/** 墙图另备一份 320 宽：窄列和低像素比屏取小图，慢网首屏少下几 MB。 */
+export function wallSrcSet(file: string): string {
+  return `${ASSET}/wall-320/${file} 320w, ${wallSrc(file)} 640w`
+}
+
+/** 与 marketing.css 里 `.col` 的列宽一致（手机 36vw，桌面 clamp(150px, 15vw, 250px)）。 */
+export const WALL_SIZES =
+  '(max-width: 760px) 36vw, (max-width: 1000px) 150px, (min-width: 1667px) 250px, 15vw'
+
+/** 与 `.mrow figure` 的宽一致（clamp(130px, 13vw, 210px)）。 */
+export const MARQUEE_SIZES = '(max-width: 1000px) 130px, (min-width: 1616px) 210px, 13vw'
+
 /** 9 列循环墙，和原型同一套取图顺序，每列再接一份用来无缝滚动。 */
 export function wallColumns(files: readonly string[] = WALL, columns = 9): string[][] {
   const per = Math.ceil(files.length / columns) + 3
@@ -142,7 +155,14 @@ export interface FeatureChapter {
 
 export interface MarketingCopy {
   brand: string
-  nav: { cases: string; features: string; inspiration: string; guide: string; start: string }
+  nav: {
+    cases: string
+    features: string
+    inspiration: string
+    guide: string
+    pricing: string
+    start: string
+  }
   hero: {
     line1: string
     line2: string
@@ -205,16 +225,29 @@ export interface MarketingCopy {
   }
 }
 
-const FEATURE_URLS = [
-  'muvloom.online/image',
-  'muvloom.online/image',
-  'muvloom.online/image',
-  'muvloom.online/p/马克杯釉色方案',
-  'muvloom.online/p/马克杯釉色方案',
-  'muvloom.online/p/精华液短片',
-  'muvloom.online/assets',
-  'muvloom.online/explore',
-] as const
+// 功能截图上方的地址栏只是展示文字，不是可点的链接；英文版用英文 slug。
+const FEATURE_URLS: Record<Locale, readonly string[]> = {
+  'zh-CN': [
+    'muvloom.online/image',
+    'muvloom.online/image',
+    'muvloom.online/image',
+    'muvloom.online/p/马克杯釉色方案',
+    'muvloom.online/p/马克杯釉色方案',
+    'muvloom.online/p/精华液短片',
+    'muvloom.online/assets',
+    'muvloom.online/explore',
+  ],
+  en: [
+    'muvloom.online/image',
+    'muvloom.online/image',
+    'muvloom.online/image',
+    'muvloom.online/p/mug-glaze-concepts',
+    'muvloom.online/p/mug-glaze-concepts',
+    'muvloom.online/p/serum-short-film',
+    'muvloom.online/assets',
+    'muvloom.online/explore',
+  ],
+}
 
 const FEATURE_IMAGES = [
   'composer-capsule',
@@ -297,10 +330,13 @@ const enFeatures: Array<Pick<FeatureChapter, 'title' | 'body'>> = [
   },
 ]
 
-function features(chapters: Array<Pick<FeatureChapter, 'title' | 'body'>>): FeatureChapter[] {
+function features(
+  locale: Locale,
+  chapters: Array<Pick<FeatureChapter, 'title' | 'body'>>,
+): FeatureChapter[] {
   return chapters.map((chapter, index) => ({
     ...chapter,
-    url: FEATURE_URLS[index]!,
+    url: FEATURE_URLS[locale][index]!,
     image: FEATURE_IMAGES[index]!,
   }))
 }
@@ -312,6 +348,7 @@ const zh: MarketingCopy = {
     features: '功能',
     inspiration: '灵感库',
     guide: '使用指南',
+    pricing: '定价',
     start: '免费开始',
   },
   hero: {
@@ -340,7 +377,7 @@ const zh: MarketingCopy = {
   ],
   featuresTitle: '从想法到成片',
   featuresNote: '截图均来自幕芽当前版本。',
-  features: features(zhFeatures),
+  features: features('zh-CN', zhFeatures),
   gallery: {
     line1: '不知道写什么？',
     line2: '先做同款',
@@ -376,10 +413,10 @@ const zh: MarketingCopy = {
     body: '产品反馈、合作或使用问题，都可以找我们。',
     close: '关闭',
     xTitle: 'X 私信',
-    xDetail: '@Muluk656',
+    xDetail: `@${SUPPORT_CONTACT.xHandle}`,
     xAction: '打开 X',
     mailTitle: '邮件',
-    mail: 'maqiqian0316@gmail.com',
+    mail: SUPPORT_CONTACT.email,
     copy: '复制',
     copied: '已复制',
     copyFailed: '复制失败',
@@ -394,6 +431,7 @@ const en: MarketingCopy = {
     features: 'Features',
     inspiration: 'Inspiration',
     guide: 'Guide',
+    pricing: 'Pricing',
     start: 'Start free',
   },
   hero: {
@@ -422,7 +460,7 @@ const en: MarketingCopy = {
   ],
   featuresTitle: 'From an idea to a finished piece',
   featuresNote: 'Screenshots are from the current version of Muvloom.',
-  features: features(enFeatures),
+  features: features('en', enFeatures),
   gallery: {
     line1: 'Not sure what to write?',
     line2: 'Start from one you like',
@@ -464,10 +502,10 @@ const en: MarketingCopy = {
     body: 'Product feedback, partnerships, or questions — reach us here.',
     close: 'Close',
     xTitle: 'Message on X',
-    xDetail: '@Muluk656',
+    xDetail: `@${SUPPORT_CONTACT.xHandle}`,
     xAction: 'Open X',
     mailTitle: 'Email',
-    mail: 'maqiqian0316@gmail.com',
+    mail: SUPPORT_CONTACT.email,
     copy: 'Copy',
     copied: 'Copied',
     copyFailed: 'Couldn’t copy',
@@ -499,5 +537,5 @@ export function showcaseCases(locale: Locale): ShowcaseCase[] {
   }))
 }
 
-export const X_URL = 'https://x.com/Muluk656'
-export const CONTACT_EMAIL = 'maqiqian0316@gmail.com'
+export const X_URL = SUPPORT_X_URL
+export const CONTACT_EMAIL = SUPPORT_CONTACT.email
