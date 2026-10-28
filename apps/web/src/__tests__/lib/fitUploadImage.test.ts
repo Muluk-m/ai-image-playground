@@ -35,6 +35,14 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+it('does not flatten an oversized GIF into a still image', async () => {
+  const bitmap = vi.fn()
+  vi.stubGlobal('createImageBitmap', bitmap)
+  const gif = image('anim.gif', UPLOAD_COMPRESSION_THRESHOLD_BYTES + 1, 'image/gif')
+  await expect(fitUploadImageFile(gif)).resolves.toEqual({ file: gif, compressed: false })
+  expect(bitmap).not.toHaveBeenCalled()
+})
+
 it('leaves an image at or under 50 MB untouched', async () => {
   const file = image('ok.png', UPLOAD_COMPRESSION_THRESHOLD_BYTES)
   const bitmap = vi.fn()
