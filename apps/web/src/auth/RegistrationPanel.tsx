@@ -137,7 +137,7 @@ export function RegistrationPanel({
         type="button"
         variant="ghost"
         size="sm"
-        className="mb-6 text-muted-foreground"
+        className="mb-6 text-muted-foreground max-sm:mb-3"
         onClick={challenge ? returnToDetails : onBack}
         disabled={pending}
       >
@@ -145,15 +145,15 @@ export function RegistrationPanel({
         {challenge ? t('registration.verification.changeEmail') : t('registration.back')}
       </Button>
 
-      <div className="mb-6">
+      <div className="mb-6 max-sm:mb-4">
         <h1 className="text-xl font-semibold text-foreground" tabIndex={-1}>
           {challenge ? t('registration.verification.title') : t('registration.title')}
         </h1>
-        <p className="mt-2 text-body-sm text-muted-foreground">
-          {challenge
-            ? t('registration.verification.subtitle', { email: email.trim() })
-            : t('registration.subtitle')}
-        </p>
+        {challenge && (
+          <p className="mt-2 text-body-sm text-muted-foreground">
+            {t('registration.verification.subtitle', { email: email.trim() })}
+          </p>
+        )}
       </div>
       {challenge ? null : children}
 
