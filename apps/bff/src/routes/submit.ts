@@ -1,6 +1,5 @@
 import type { PersistedVideoRequest, StoredImageRef, VideoRequest } from '@image-playground/shared'
 import {
-  isBlankPrompt,
   QUEUE_MAX_INPUT_IMAGES,
   QUEUE_PROMPT_MAX_CHARS,
   stageAuthorizedVideoDuration,
@@ -144,10 +143,6 @@ export const submitRoutes = new Elysia()
       if (isModelDisabled(model)) {
         return status(400, { error: 'model_unavailable', message: '该模型已下线，请换一个模型' })
       }
-      // 只有空白、控制符或零宽字符的提示词和空的一样：不建任务，也就不预扣积分。
-      if (isBlankPrompt(body.prompt)) {
-        return status(400, { error: 'invalid_request', message: '提示词不能为空' })
-      }
 
       let video = body.video as VideoRequest | undefined
       // 带阶段授权时，时长先收成提案快照用的那一档，再做模型校验。
@@ -219,7 +214,11 @@ export const submitRoutes = new Elysia()
         ...(persistedVideo ? { video: persistedVideo } : {}),
         userId: authUser?.id ?? null,
         ...(stageAuthorization ? { stageAuthorization } : {}),
+        dedupeRepeats: true,
       })
+
+      if (outcome.kind === 'invalid_prompt')
+        return status(400, { error: 'invalid_request', message: '提示词不能为空' })
 
       if (outcome.kind === 'idempotency_mismatch')
         return status(409, { error: 'idempotency_key_conflict' })

@@ -292,6 +292,34 @@ describe('repeated submissions', () => {
     expect(reservations).toHaveLength(2)
   })
 
+  it('leaves other entry points alone: a batch may hold identical items', async () => {
+    const { createQueueTask } = await import('../../lib/taskSubmission')
+    const input = {
+      provider: 'openai-compat' as const,
+      model: 'gpt-image-2',
+      request: { prompt: 'same look twice' },
+      userId: 'billing-user',
+    }
+
+    expect((await createQueueTask(input)).kind).toBe('created')
+    expect((await createQueueTask(input)).kind).toBe('created')
+    expect(reservations).toHaveLength(2)
+  })
+
+  it('refuses a blank prompt on every entry point before reserving', async () => {
+    const { createQueueTask } = await import('../../lib/taskSubmission')
+    const outcome = await createQueueTask({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: '\u200b \u0007' },
+      userId: 'billing-user',
+    })
+
+    expect(outcome.kind).toBe('invalid_prompt')
+    expect(reservations).toHaveLength(0)
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  })
+
   it('replays the same command id instead of rejecting it', async () => {
     const client_request_id = crypto.randomUUID()
     expect(await submit('gpt-image-2', { prompt: 'network retry', client_request_id })).toBe(200)
