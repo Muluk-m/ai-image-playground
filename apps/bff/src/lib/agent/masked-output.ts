@@ -245,26 +245,47 @@ export async function protectMaskedOutput(
           ? { x: focus.x - crop.left, y: focus.y - crop.top }
           : focus,
     )
-    if (fit.fit) {
-      let resized = sharp(generated.data, { raw: generated.info }).resize(
-        fit.coverWidth,
-        fit.coverHeight,
-        { fit: 'fill' },
-      )
-      if (fit.fit === 2) resized = resized.extract({ left: fit.left, top: fit.top, ...upstream })
-      generated = await pixels(await resized.png().toBuffer())
-      ignoreCandidateAlpha(generated)
+    /** 候选统一到工作尺寸：`cover` 按 upstreamFit 铺满后裁切，`fill` 整张拉伸到上游画幅。 */
+    const toWorking = async (mode: 'cover' | 'fill') => {
+      let image: Pixels = { data: Buffer.from(generated.data), info: generated.info }
+      if (fit.fit) {
+        let resized =
+          mode === 'fill'
+            ? sharp(image.data, { raw: image.info }).resize(upstream.width, upstream.height, {
+                fit: 'fill',
+              })
+            : sharp(image.data, { raw: image.info }).resize(fit.coverWidth, fit.coverHeight, {
+                fit: 'fill',
+              })
+        if (mode === 'cover' && fit.fit === 2)
+          resized = resized.extract({ left: fit.left, top: fit.top, ...upstream })
+        image = await pixels(await resized.png().toBuffer())
+        ignoreCandidateAlpha(image)
+      }
+      if (send) {
+        image = await pixels(
+          await sharp(image.data, { raw: image.info })
+            .resize(send.width, send.height, { fit: 'fill' })
+            .png()
+            .toBuffer(),
+        )
+        ignoreCandidateAlpha(image)
+      }
+      return crop ? placeCrop(source, image, crop) : image
     }
-    if (send) {
-      generated = await pixels(
-        await sharp(generated.data, { raw: generated.info })
-          .resize(send.width, send.height, { fit: 'fill' })
-          .png()
-          .toBuffer(),
-      )
-      ignoreCandidateAlpha(generated)
+    // 宽高比对不上（fit 2）时，上游可能是按原比例裁切重构图，也可能把整张拉伸进自己的档位
+    // （实测 736×2160 送上去有时回 1024×1536）。两种对法都试，取保护区底噪更低的那种，
+    // 不再只按铺满裁切猜，免得选区里贴进错位的内容。不额外调用上游。
+    let fitMode: 'cover' | 'fill' = 'cover'
+    let fitted = await toWorking('cover')
+    if (fit.fit === 2) {
+      const stretched = await toWorking('fill')
+      if (noiseFloor(stretched).meanDelta < noiseFloor(fitted).meanDelta) {
+        fitted = stretched
+        fitMode = 'fill'
+      }
     }
-    if (crop) generated = placeCrop(source, generated, crop)
+    generated = fitted
     const alignment = inspectMaskedAlignment(source.data, generated.data, mask.data, width, height)
     const translation = estimateTranslation(source.data, generated.data, mask.data, width, height)
     return {
@@ -275,6 +296,7 @@ export async function protectMaskedOutput(
       candidateWidth,
       candidateHeight,
       translucentPixels,
+      fitMode,
     }
   }
 
@@ -302,7 +324,8 @@ export async function protectMaskedOutput(
   const transform = async (candidate: Uint8Array) => {
     try {
       const fitted = await fitCandidate(candidate)
-      const { generated, alignment, translation, fit, candidateWidth, candidateHeight } = fitted
+      const { generated, alignment, translation, fit, candidateWidth, candidateHeight, fitMode } =
+        fitted
       const regionCheck = inspectRegions(generated)
       const output = Buffer.from(source.data)
       let outsideChangedPixels = 0
@@ -354,6 +377,8 @@ export async function protectMaskedOutput(
           matchedQuadrants: alignment.matchedQuadrants,
           rescaled: Number(fit.fit !== 0),
           fit: fit.fit,
+          // 宽高比对不上时最终采用的对法：0 铺满裁切，1 整张拉伸。
+          fitStretched: Number(fitMode === 'fill'),
           cropLeft: fit.left,
           cropTop: fit.top,
           alignmentAccepted: Number(alignment.accepted),
