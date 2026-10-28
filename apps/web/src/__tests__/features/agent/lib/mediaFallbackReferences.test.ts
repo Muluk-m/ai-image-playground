@@ -155,7 +155,7 @@ it('flags an image over the media limit at attach time and never uploads it', as
   expect(attachmentUploadState(reference)).toBe('failed')
   expect(attachmentUploadError(reference)).toBe(REFERENCE_TOO_LARGE)
   expect(attachmentUploadErrorMessage(REFERENCE_TOO_LARGE)).toBe(
-    '图片超过 3.3 MB，请换一张更小的图。',
+    '图片超过 3.3 MB，请移除或换一张更小的图。',
   )
   await expect(
     prepareAttachmentReferences([{ imageId: 'huge', dataUrl: huge }]),
