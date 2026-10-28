@@ -251,7 +251,9 @@ describe('首页交给智能体的参考图（BUG-27）', () => {
     const visible = [...host.querySelectorAll<HTMLElement>('*')].filter(
       (el) =>
         !el.closest('.sr-only') &&
-        [...el.childNodes].some((node) => node.nodeType === 3 && node.textContent?.includes('格式')),
+        [...el.childNodes].some(
+          (node) => node.nodeType === 3 && node.textContent?.includes('格式'),
+        ),
     )
     expect(visible).toHaveLength(1)
     expect(visible[0]?.closest('.creation-reference-status')).not.toBeNull()
