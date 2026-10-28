@@ -1,7 +1,7 @@
 import type { ComponentProps } from 'react'
 import Markdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { AgentReplyImage } from './AgentReplyImage'
+import { AgentReplyImage, AgentReplyLink } from './AgentReplyImage'
 
 /**
  * 助手回复用的 Markdown 渲染。模型习惯用列表、加粗、代码回答，原样显示星号与短横
@@ -23,14 +23,7 @@ const components: ComponentProps<typeof Markdown>['components'] = {
   h1: ({ node: _node, ...props }) => <h2 className={HEADING} {...props} />,
   h2: ({ node: _node, ...props }) => <h3 className={HEADING} {...props} />,
   h3: ({ node: _node, ...props }) => <h4 className={HEADING} {...props} />,
-  a: ({ node: _node, ...props }) => (
-    <a
-      className="text-primary underline decoration-primary/40 hover:text-primary"
-      target="_blank"
-      rel="noreferrer"
-      {...props}
-    />
-  ),
+  a: ({ node: _node, href, children }) => <AgentReplyLink href={href}>{children}</AgentReplyLink>,
   code: ({ node: _node, className, ...props }) =>
     className ? (
       <code className={`${className} font-mono text-label-sm`} {...props} />

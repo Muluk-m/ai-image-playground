@@ -4,23 +4,23 @@
   "terms": {
     "documentTitle": "Terms of service - Muvloom",
     "title": "Terms of service",
-    "updated": "Last updated: 13 October 2026",
+    "updated": "Last updated: 28 October 2026",
     "intro": "Welcome to Muvloom (the “service”). The service provides AI image and video generation, canvas editing, and related creation tools. By creating an account, signing in, or continuing to use the service, you agree to these terms and the privacy policy. If you use the service for an organization, you confirm that you can bind that organization."
   },
   "privacy": {
     "documentTitle": "Privacy policy - Muvloom",
     "title": "Privacy policy",
-    "updated": "Last updated: 13 October 2026",
+    "updated": "Last updated: 28 October 2026",
     "intro": "This policy describes how Muvloom handles information when you use its AI image and video tools. It applies together with the terms of service. The operator only collects data for capabilities that are actually enabled on this deployment."
   },
   "sections": {
     "accounts": {
       "title": "Accounts",
-      "body": "You create an account with a contact email and a password, or with a third-party sign-in method we offer. Keep your credentials private. Activity under the account is treated as yours.\n\nYou can update sign-in methods in account settings. Tell us through the in-product support entry if you notice unauthorized use. We may suspend or close an account that breaks these terms, poses a security risk, or must be restricted by law."
+      "body": "You create an account with a contact email and a password, or with a third-party sign-in method we offer. Keep your credentials private. Activity under the account is treated as yours.\n\nYou can update sign-in methods in account settings. If you notice unauthorized use, email {{email}} or contact @{{x}} on X. We may suspend or close an account that breaks these terms, poses a security risk, or must be restricted by law."
     },
     "credits": {
       "title": "Credits, payments, and refunds",
-      "body": "Some features are billed in credits. Plan credits are granted on the cycle you buy. Top-up credits remain available after they are added, as described on the purchase screen at the time. If a generation fails for a reason on our side, the credits for that attempt are returned.\n\nPayment is completed by the channel you choose. Unless the purchase screen says otherwise, a plan does not renew automatically when it ends. Unused paid credits may be refunded as required by applicable law and the operator’s published rules. Credits that were already spent, granted as a bonus, or clawed back for a terms violation are generally not refundable. Prices and the credit amounts shown at checkout control."
+      "body": "Some features are billed in credits. Plan credits are granted on the cycle you buy. Top-up credits remain available after they are added, as described on the purchase screen at the time. If a task is cancelled or fails, the credits held for it are returned to your account.\n\nPayment is completed by the channel you choose. Unless the purchase screen says otherwise, a plan does not renew automatically when it ends. Unused paid credits may be refunded as required by applicable law and the operator’s published rules. Credits that were already spent, granted as a bonus, or clawed back for a terms violation are generally not refundable. Prices and the credit amounts shown at checkout control."
     },
     "content": {
       "title": "Your content and license",
@@ -52,7 +52,7 @@
     },
     "contact": {
       "title": "Contact",
-      "body": "For privacy requests, questions about these terms, or refunds, use the support entry in the account menu. Other contact details the operator publishes on the site are also valid.\n\nWe may update these pages as the product or the law changes. The updated text applies when it is published. If a change materially affects your rights, we will give a reasonable notice in the product."
+      "body": "For privacy requests, questions about these terms, or refunds, email {{email}} or contact @{{x}} on X.\n\nWe may update these pages as the product or the law changes. The updated text applies when it is published. If a change materially affects your rights, we will give a reasonable notice in the product."
     }
   }
 }
