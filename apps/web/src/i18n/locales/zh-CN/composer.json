@@ -36,7 +36,7 @@
     "attach": "添加参考图（最多 {{count}} 张，单张 ≤{{mb}}MB）",
     "attachImages": "添加图片",
     "attachFolder": "添加文件夹",
-    "referenceTooLarge": "第 {{index}} 张图片超过 {{maxSize}}，请换一张更小的图。"
+    "referenceTooLarge": "第 {{index}} 张超过 {{maxSize}}，请移除或换一张更小的图。"
   },
   "slot": {
     "heading": "槽位 {{slot}}",
@@ -51,7 +51,8 @@
     "noModel": "暂无可用模型，请稍后再试",
     "startCanvas": "开始创作",
     "skillNeedsCanvas": "技能只能在项目中使用，切到「智能创作」或「画布创作」再发送",
-    "promptRequired": "请输入提示词后再生成"
+    "promptRequired": "请输入提示词后再生成",
+    "promptTooLong": "提示词最多 {{max}} 字，请删减后再生成"
   },
   "search": {
     "favoriteOnly": "只看收藏",

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { editions, type Locale } from '../catalog'
+import { rememberSiteLocale } from '../localeSelection'
 import {
   ASSET,
   caseHref,
@@ -94,12 +95,14 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
           <a href="#feat">{text.nav.features}</a>
           <a href="#gal">{text.nav.inspiration}</a>
           <a href={editions[locale].root}>{text.nav.guide}</a>
+          <a href="/pricing">{text.nav.pricing}</a>
         </div>
         <div className="nav-end">
           <a
             className="lang"
             href={locale === 'en' ? '/' : '/en/'}
             hrefLang={locale === 'en' ? 'zh-CN' : 'en'}
+            onClick={() => rememberSiteLocale(locale === 'en' ? 'zh-CN' : 'en')}
           >
             {locale === 'en' ? '中文' : 'EN'}
           </a>
@@ -428,6 +431,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
               <a href="#demo">{text.nav.cases}</a>
               <a href="#feat">{text.nav.features}</a>
               <a href="#gal">{text.nav.inspiration}</a>
+              <a href="/pricing">{text.nav.pricing}</a>
             </div>
             <div>
               <b>{text.footer.help}</b>
