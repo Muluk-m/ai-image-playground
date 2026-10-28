@@ -1,4 +1,4 @@
-import { SUPPORT_CONTACT, SUPPORT_X_URL } from '@image-playground/shared'
+import { SUPPORT_CONTACT, SUPPORT_X_URL } from '@image-playground/shared/support-contact'
 import type { Locale } from './catalog'
 
 export const ASSET = '/website-assets/v41'
