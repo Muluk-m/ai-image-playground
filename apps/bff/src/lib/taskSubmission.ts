@@ -13,12 +13,13 @@ import type {
 import {
   billedStageQuantity,
   DEFAULT_IMAGE_MODERATION,
+  isBlankPrompt,
   QUEUE_TIMEOUTS,
   stageAuthorizedVideoDuration,
   videoModelSupportOf,
   videoRateMultiplier,
 } from '@image-playground/shared'
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { and, eq, gt, isNull, notInArray, sql } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { publishGenerations } from '../db/generation-events'
@@ -73,6 +74,11 @@ export interface CreateQueueTaskInput {
    * 它不在项目里、或不是失败占位时照常另找位置。
    */
   readonly projectSlot?: string
+  /**
+   * 创作页 HTTP 直出提交显式打开：同账号几秒内内容一样的提交当作连点挡掉。
+   * 其他入口（批量套用、智能体等）一批里本就可能有内容相同的几条，不开。
+   */
+  readonly dedupeRepeats?: true
   /** Server-only opt-in; legacy HTTP submissions retain their existing lifecycle. */
   readonly reconciliationRequired?: true
   /**
@@ -87,6 +93,8 @@ export type CreateQueueTaskOutcome =
   | { readonly kind: 'created'; readonly taskId: string; readonly submittedAt: number }
   | { readonly kind: 'idempotency_conflict' }
   | { readonly kind: 'idempotency_mismatch' }
+  | { readonly kind: 'duplicate_submission'; readonly taskId: string }
+  | { readonly kind: 'invalid_prompt' }
   | { readonly kind: 'authentication_required' }
   | { readonly kind: 'insufficient_credits'; readonly required: number; readonly available: number }
   | { readonly kind: 'price_unavailable'; readonly model: string }
@@ -152,6 +160,52 @@ function commandHash(input: CreateQueueTaskInput) {
     )
     .digest('hex')
 }
+/**
+ * 同一个账号在这段时间里提交了一模一样的请求（命令 id 不同），当作手滑连点挡掉，不另建任务、不再扣费。
+ * 连点两下的间隔远小于它；失败或取消的那条不算，立刻重试仍然放行。
+ */
+export const DUPLICATE_SUBMISSION_WINDOW_MS = 2_000
+
+/**
+ * 只挡创作页直出：画布节点（候选产物）、智能体工具、带授权的阶段提交和外部事务各有自己的批次语义，
+ * 同一批里本就可能有内容相同的几条。免费部署的分发层会把多张拆成内容相同的几条，所以只在计费部署挡。
+ */
+function dedupesRecentSubmission(input: CreateQueueTaskInput): input is CreateQueueTaskInput & {
+  userId: string
+} {
+  return (
+    !!input.dedupeRepeats &&
+    !!input.userId &&
+    !input.agent &&
+    !input.stageAuthorization &&
+    !input.tx &&
+    !input.prepared &&
+    input.request.output_retention !== 'candidate' &&
+    isCapabilityEnabled('billing:credits')
+  )
+}
+
+async function findRecentDuplicate(tx: BffTransaction, userId: string, hash: string) {
+  // 两条并发的连点在这把锁上排队：后到的那条一定看得到先到那条已提交的回执。
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify(['generation-recent', userId, hash])}, 0))`,
+  )
+  const [recent] = await tx
+    .select({ taskId: schema.generation_commands.task_id })
+    .from(schema.generation_commands)
+    .innerJoin(schema.tasks, eq(schema.tasks.id, schema.generation_commands.task_id))
+    .where(
+      and(
+        eq(schema.generation_commands.user_id, userId),
+        eq(schema.generation_commands.request_hash, hash),
+        gt(schema.generation_commands.submitted_at, Date.now() - DUPLICATE_SUBMISSION_WINDOW_MS),
+        notInArray(schema.tasks.status, ['failed', 'cancelled']),
+      ),
+    )
+    .limit(1)
+  return recent
+}
+
 async function replayCommand(
   database: Pick<typeof db, 'select'>,
   userId: string,
@@ -313,6 +367,8 @@ function alignStageSubmission(input: CreateQueueTaskInput): CreateQueueTaskInput
 
 export async function createQueueTask(raw: CreateQueueTaskInput): Promise<CreateQueueTaskOutcome> {
   const input = alignStageSubmission(raw)
+  // 只有空白、控制符或零宽字符的提示词和空的一样：所有入口都不建任务，也就不预扣积分。
+  if (isBlankPrompt(input.request.prompt)) return { kind: 'invalid_prompt' }
   if (input.reconciliationRequired && input.video)
     throw new TypeError('reconciliation_requires_image_task')
   const commandId = input.request.client_request_id
@@ -353,6 +409,10 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
     }
     if (await modelUnavailable(tx, input.model)) {
       return { kind: 'price_unavailable' as const, model: input.model }
+    }
+    if (dedupesRecentSubmission(input)) {
+      const duplicate = await findRecentDuplicate(tx, input.userId, hash)
+      if (duplicate) return { kind: 'duplicate_submission' as const, taskId: duplicate.taskId }
     }
     const inserted = await tx
       .insert(schema.tasks)

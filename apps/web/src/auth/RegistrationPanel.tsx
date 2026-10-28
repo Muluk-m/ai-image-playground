@@ -1,9 +1,9 @@
 import {
   EMAIL_MAX_LENGTH,
   isValidEmailAddress,
-  isValidPassword,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
+  passwordProblem,
 } from '@image-playground/shared'
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react'
 import { Button } from '../components/ui/button'
@@ -16,6 +16,7 @@ import AuthConsent from './AuthConsent'
 type ValidationErrorKey =
   | 'validation.invalidEmail'
   | 'validation.passwordLength'
+  | 'validation.passwordBlank'
   | 'validation.passwordMismatch'
   | 'validation.invalidVerificationCode'
 
@@ -102,8 +103,11 @@ export function RegistrationPanel({
       setValidationErrorKey('validation.invalidEmail')
       return
     }
-    if (!isValidPassword(password)) {
-      setValidationErrorKey('validation.passwordLength')
+    const problem = passwordProblem(password)
+    if (problem) {
+      setValidationErrorKey(
+        problem === 'blank' ? 'validation.passwordBlank' : 'validation.passwordLength',
+      )
       return
     }
     if (password !== confirmPassword) {
@@ -206,7 +210,6 @@ export function RegistrationPanel({
                   className="pr-10"
                   autoComplete="new-password"
                   minLength={PASSWORD_MIN_LENGTH}
-                  maxLength={PASSWORD_MAX_LENGTH}
                   value={password}
                   onChange={(event) => setPassword(event.currentTarget.value)}
                   placeholder={t('registration.passwordPlaceholder', {
@@ -240,7 +243,6 @@ export function RegistrationPanel({
                   className="pr-10"
                   autoComplete="new-password"
                   minLength={PASSWORD_MIN_LENGTH}
-                  maxLength={PASSWORD_MAX_LENGTH}
                   value={confirmPassword}
                   onChange={(event) => setConfirmPassword(event.currentTarget.value)}
                   placeholder={t('registration.confirmationPlaceholder')}

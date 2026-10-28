@@ -1,3 +1,4 @@
+import { SUPPORT_CONTACT } from '@image-playground/shared'
 import { useEffect } from 'react'
 import { Button } from '../../components/ui/button'
 import { i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
@@ -105,5 +106,9 @@ export default function LegalPage() {
 }
 
 function sectionCopy(id: LegalSectionId, part: 'title' | 'body'): string {
-  return i18next.t(`sections.${id}.${part}` as 'sections.accounts.title', { ns: 'legal' })
+  return i18next.t(`sections.${id}.${part}` as 'sections.accounts.title', {
+    ns: 'legal',
+    email: SUPPORT_CONTACT.email,
+    x: SUPPORT_CONTACT.xHandle,
+  })
 }

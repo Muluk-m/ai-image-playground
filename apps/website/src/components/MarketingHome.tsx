@@ -5,10 +5,13 @@ import {
   caseHref,
   libraryRows,
   MARK,
+  MARQUEE_SIZES,
   marketingCopy,
   showcaseCases,
+  WALL_SIZES,
   wallColumns,
   wallSrc,
+  wallSrcSet,
 } from '../marketing'
 import { type MarketingMotion, startMarketingMotion } from '../marketingMotion'
 import { ContactModal } from './ContactModal'
@@ -114,6 +117,8 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
                 <figure key={`${file}-${imageIndex}`}>
                   <img
                     src={wallSrc(file)}
+                    srcSet={wallSrcSet(file)}
+                    sizes={WALL_SIZES}
                     alt=""
                     decoding="async"
                     fetchPriority={columnIndex === 4 && imageIndex < 2 ? 'high' : 'low'}
@@ -169,8 +174,14 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
               data-category={item.category}
               data-prompt={item.prompt}
             >
-              <img className="bg" src={item.image} alt="" />
-              <img className="fg" src={item.image} alt={`${item.key}`} />
+              <img className="bg" src={item.image} alt="" loading="lazy" decoding="async" />
+              <img
+                className="fg"
+                src={item.image}
+                alt={`${item.key}`}
+                loading="lazy"
+                decoding="async"
+              />
               <span className="cap">
                 {item.key} · {text.demo.caption}
               </span>
@@ -373,7 +384,14 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
             <div className="mrow" key={index}>
               {row.map((file, imageIndex) => (
                 <figure key={`${file}-${imageIndex}`}>
-                  <img src={wallSrc(file)} alt="" loading="lazy" decoding="async" />
+                  <img
+                    src={wallSrc(file)}
+                    srcSet={wallSrcSet(file)}
+                    sizes={MARQUEE_SIZES}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                  />
                 </figure>
               ))}
             </div>
@@ -414,7 +432,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
             <div>
               <b>{text.footer.help}</b>
               <a href={editions[locale].root}>{text.nav.guide}</a>
-              <a href="#contact" onClick={openContact}>
+              <a href={`mailto:${text.contact.mail}`} onClick={openContact}>
                 {text.footer.contact}
               </a>
             </div>

@@ -1,7 +1,7 @@
 import type { InspirationProviderFilter } from '../store'
 import type { InspirationItem } from '../types'
 import { groupOf, INSPIRATION_GROUPS, type InspirationGroupId } from './groups'
-import { inspirationFacetLabel } from './labels'
+import { inspirationFacetLabel, inspirationTitle } from './labels'
 
 export function filterItems(
   items: InspirationItem[],
@@ -20,6 +20,7 @@ export function filterItems(
     if (!kw) return true
     const haystack = [
       item.title,
+      inspirationTitle(item, 'en'),
       item.description ?? '',
       item.prompt,
       item.category,
