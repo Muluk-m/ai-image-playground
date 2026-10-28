@@ -414,7 +414,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
             <div>
               <b>{text.footer.help}</b>
               <a href={editions[locale].root}>{text.nav.guide}</a>
-              <a href="#contact" onClick={openContact}>
+              <a href={`mailto:${text.contact.mail}`} onClick={openContact}>
                 {text.footer.contact}
               </a>
             </div>
