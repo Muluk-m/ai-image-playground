@@ -1,4 +1,8 @@
-import { isBlankPrompt } from '@image-playground/shared'
+import {
+  AGENT_USER_MESSAGE_MAX_CHARS,
+  isBlankPrompt,
+  SYNC_PROMPT_MAX_LENGTH,
+} from '@image-playground/shared'
 import {
   type ReactNode,
   useCallback,
@@ -92,6 +96,7 @@ import {
   referenceRefusalMessage,
   referenceTally,
 } from '../lib/referenceDraft'
+import { cn } from '../lib/utils'
 import {
   removeMultipleTasks,
   storeImageFromFile,
@@ -388,6 +393,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   )
   const lookBody = activeLook?.record?.body ?? activeLook?.skill?.template?.body ?? ''
   const promptBlank = isBlankPrompt(prompt)
+  // 画布里这句话会作为智能体消息发出，上限更紧；生成档以云端历史能存下的长度为准。快到上限才显示字数。
+  const promptMax = toCanvas ? AGENT_USER_MESSAGE_MAX_CHARS : SYNC_PROMPT_MAX_LENGTH
+  const promptTooLong = prompt.length > promptMax
+  const showPromptCount = prompt.length >= promptMax * 0.8
   const canSubmit = Boolean(
     (!promptBlank || activeLook) &&
       hasSubmitApiConfig &&
@@ -404,6 +413,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   // 模板准备中按钮变成停止：只有点按钮才取消，回车不取消、也不发新的一条。
   const submitReady =
     !lookSubmitting &&
+    !promptTooLong &&
     (toCanvas
       ? !promptBlank && !oversizedNotice && !uploadsBlocked
       : canSubmit && !skillNeedsCanvas)
@@ -412,13 +422,15 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const blockedByReferences = referenceNotice ?? (uploadsBlocked ? uploadProgress : null)
   const submitBlockedTip = blockedByReferences
     ? blockedByReferences
-    : skillNeedsCanvas
-      ? t('submit.skillNeedsCanvas')
-      : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
-        ? (submissionGuard.disabledReason ?? t('submit.noModel'))
-        : promptMissing
-          ? t('submit.promptRequired')
-          : null
+    : promptTooLong
+      ? t('submit.promptTooLong', { max: promptMax.toLocaleString() })
+      : skillNeedsCanvas
+        ? t('submit.skillNeedsCanvas')
+        : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
+          ? (submissionGuard.disabledReason ?? t('submit.noModel'))
+          : promptMissing
+            ? t('submit.promptRequired')
+            : null
   const submit = () => {
     if (lookSubmitting || batchSendingRef.current) return
     if (toCanvas) {
@@ -1691,10 +1703,22 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   {referenceNotice}
                 </span>
               ) : (
-                <SubmissionBillingAction
-                  blockedAction={submissionGuard.blockedAction}
-                  className="text-xs"
-                />
+                <>
+                  {showPromptCount && (
+                    <span
+                      className={cn(
+                        'text-xs tabular-nums',
+                        promptTooLong ? 'text-destructive' : 'text-muted-foreground',
+                      )}
+                    >
+                      {prompt.length.toLocaleString()}/{promptMax.toLocaleString()}
+                    </span>
+                  )}
+                  <SubmissionBillingAction
+                    blockedAction={submissionGuard.blockedAction}
+                    className="text-xs"
+                  />
+                </>
               )
             }
             action={
