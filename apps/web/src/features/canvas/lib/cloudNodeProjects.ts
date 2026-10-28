@@ -48,6 +48,7 @@ import { writePersistedScene } from './persistence'
 import { getCloudProject, ProjectRequestError, putCloudProject } from './projectClient'
 import {
   archivedProjectKind,
+  canvasUploadRejection,
   type LoadedBindings,
   MEDIA_CONCURRENCY,
   projectDocument,
@@ -63,18 +64,6 @@ const legacyOrigin = canvasOrigin('system', 'legacy-editor')
  * 这几种失败是这份字节本身的问题（0 字节、不是图、损坏、超限），再传多少次都一样。
  * 配额、限流、网络、校验不一致都可能下次就好，不在此列。
  */
-const PERMANENT_MEDIA_REJECTIONS = new Set([
-  'media_invalid_image',
-  'media_unsupported_image',
-  'media_too_large',
-  'media_image_too_large',
-  'media_image_pixels_exceeded',
-])
-const OVERSIZED_MEDIA = new Set([
-  'media_too_large',
-  'media_image_too_large',
-  'media_image_pixels_exceeded',
-])
 type MediaRejection = 'invalid' | 'oversized' | 'missing'
 /**
  * 只在本机、从没到过服务端的节点或候选，原图在本机也找不到、又已经放了这么久（BUG-15）：
@@ -85,13 +74,7 @@ const LOST_MEDIA_AGE_MS = CANVAS_UPLOAD_STALE_MS
 const LOST_MEDIA_SEEN_MS = 60_000
 /** 永久失败分两类提示：坏图（空/损坏/不支持）与超限（图是好的，只是太大），文案不能混。 */
 function permanentMediaRejection(error: unknown): MediaRejection | undefined {
-  if (error instanceof MediaRequestError) {
-    if (!PERMANENT_MEDIA_REJECTIONS.has(error.code)) return undefined
-    return OVERSIZED_MEDIA.has(error.code) ? 'oversized' : 'invalid'
-  }
-  return error instanceof Error && error.message === 'unsupported_local_media'
-    ? 'invalid'
-    : undefined
+  return canvasUploadRejection(error)
 }
 type CommandReadPurpose = 'passive' | 'after-reverse'
 export type CanvasCloudSession = CloudProjectSession | CloudNodeProjectSession
