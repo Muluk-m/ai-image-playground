@@ -200,7 +200,10 @@ export function RegistrationPanel({
               />
             </Label>
 
-            <Label className="mt-4 grid gap-2 first:mt-0" htmlFor="registration-password">
+            <Label
+              className="mt-4 grid gap-2 first:mt-0 max-sm:mt-3"
+              htmlFor="registration-password"
+            >
               <span>{t('registration.passwordLabel')}</span>
               <div className="relative">
                 <Input
@@ -233,7 +236,10 @@ export function RegistrationPanel({
               </div>
             </Label>
 
-            <Label className="mt-4 grid gap-2 first:mt-0" htmlFor="registration-confirm-password">
+            <Label
+              className="mt-4 grid gap-2 first:mt-0 max-sm:mt-3"
+              htmlFor="registration-confirm-password"
+            >
               <span>{t('registration.confirmationLabel')}</span>
               <div className="relative">
                 <Input

@@ -68,7 +68,24 @@ describe('marketing v4.1', () => {
       const link = `<a href="/pricing">${marketingCopy[locale].nav.pricing}</a>`
       expect(html.indexOf(link)).toBeLessThan(html.indexOf('<header'))
       expect(html.lastIndexOf(link)).toBeGreaterThan(html.indexOf('<footer'))
+      // 窄屏收起中间导航后，右侧还留着一个「定价」。
+      const navEnd = html.slice(html.indexOf('class="nav-end"'), html.indexOf('<header'))
+      expect(navEnd).toContain(
+        `<a class="nav-pricing" href="/pricing">${marketingCopy[locale].nav.pricing}</a>`,
+      )
     }
+  })
+
+  it('gives the footer a #contact anchor', () => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      const html = renderToStaticMarkup(createElement(MarketingHome, { locale, start: () => {} }))
+      expect(html.indexOf('id="contact"')).toBeGreaterThan(html.indexOf('<footer'))
+    }
+  })
+
+  it('keeps the English feature frames free of Chinese slugs', () => {
+    for (const feature of marketingCopy.en.features)
+      expect(feature.url).not.toMatch(/[\u4e00-\u9fff]/)
   })
 
   it('links showcase cases only when the inspiration manifest has them', () => {
