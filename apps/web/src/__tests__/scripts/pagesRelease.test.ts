@@ -234,3 +234,33 @@ it('rejects a missing website chunk even when workbench missing assets are corre
     ),
   ).rejects.toThrow('Missing asset')
 })
+
+// An edge that accepts a request and never answers it, until the client aborts.
+const stall = (init?: RequestInit) =>
+  new Promise<Response>((_, reject) =>
+    init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)),
+  )
+it('retries one stalled asset request instead of failing the whole pass', async () => {
+  let stalls = 0
+  await verifyPagesRelease(
+    'https://example.test',
+    dist,
+    (url: URL, init?: RequestInit) =>
+      url.pathname.endsWith('lazy-456.js') && ++stalls === 1 ? stall(init) : good(url),
+    AbortSignal.timeout(5000),
+    { requestTimeoutMs: 20 },
+  )
+  expect(stalls).toBe(2)
+})
+it('names the URL that keeps stalling', async () => {
+  await expect(
+    verifyPagesRelease(
+      'https://example.test',
+      dist,
+      (url: URL, init?: RequestInit) =>
+        url.pathname.endsWith('lazy-456.js') ? stall(init) : good(url),
+      AbortSignal.timeout(5000),
+      { requestTimeoutMs: 20, requestTries: 2 },
+    ),
+  ).rejects.toThrow('GET /assets/lazy-456.js failed: no response in 20ms after 2 tries')
+})
