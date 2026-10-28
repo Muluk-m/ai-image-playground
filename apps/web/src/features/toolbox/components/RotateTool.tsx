@@ -108,7 +108,7 @@ export default function RotateTool() {
   return (
     <ToolShell
       tool={rotateTool}
-      sidebar
+      processing={busy}
       downloadLabel={t('rotation.export')}
       deliverables={
         done && selected
@@ -215,73 +215,78 @@ export default function RotateTool() {
         </div>
       }
     >
-      <section className="flex flex-none flex-col gap-4 p-5 lg:min-h-0 lg:flex-1">
-        <div className="flex items-center justify-between gap-3">
-          <span className="min-w-0 truncate text-sm font-medium">{selected?.name}</span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={t('result.remove')}
-            onClick={() => selected && remove(selected.id)}
-          >
-            <Icon name="close" />
-          </Button>
-        </div>
-        <div className="grid min-h-80 flex-1 grid-cols-1 gap-4 sm:grid-cols-2">
-          {(['original', 'adjusted'] as const).map((view) => (
-            <figure key={view} className="flex min-h-64 min-w-0 flex-col gap-3">
-              <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-[repeating-conic-gradient(hsl(var(--muted)/0.35)_0%_25%,transparent_0%_50%)] bg-[length:16px_16px] p-4">
-                {view === 'original' ? (
-                  <img
-                    src={selected?.url}
-                    alt={t('rotation.original')}
-                    className="h-full w-full object-contain"
-                  />
-                ) : source ? (
-                  <RotationPreview source={source} settings={settings} />
-                ) : (
-                  <div className="grid h-full place-items-center text-sm text-destructive">
-                    {t('result.undecodable')}
-                  </div>
-                )}
-                {view === 'adjusted' && grid && (
-                  <div
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-4 grid grid-cols-3 grid-rows-3"
-                  >
-                    {Array.from({ length: 9 }, (_, index) => (
-                      <div key={index} className="border border-primary/20" />
-                    ))}
-                  </div>
-                )}
-              </div>
-              <figcaption className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span>{t(`rotation.${view}`)}</span>
-                {selected && (
-                  <span className="tabular-nums">
-                    {view === 'original' ? selected.width : size?.width} ×{' '}
-                    {view === 'original' ? selected.height : size?.height}
-                  </span>
-                )}
-              </figcaption>
-            </figure>
-          ))}
-        </div>
-        <div className="flex shrink-0 gap-2 overflow-x-auto py-1" aria-label={t('rotation.images')}>
-          {items.map((item) => (
+      {() => (
+        <section className="flex flex-none flex-col gap-4 lg:min-h-0 lg:flex-1">
+          <div className="flex items-center justify-between gap-3">
+            <span className="min-w-0 truncate text-sm font-medium">{selected?.name}</span>
             <Button
-              key={item.id}
               variant="ghost"
-              aria-label={item.name}
-              aria-pressed={selected?.id === item.id}
-              onClick={() => setSelectedId(item.id)}
-              className="h-16 w-12 shrink-0 overflow-hidden rounded border border-border p-0 aria-pressed:border-primary aria-pressed:ring-1 aria-pressed:ring-primary"
+              size="icon-sm"
+              aria-label={t('result.remove')}
+              onClick={() => selected && remove(selected.id)}
             >
-              <img src={item.url} alt="" className="h-full w-full object-cover" />
+              <Icon name="close" />
             </Button>
-          ))}
-        </div>
-      </section>
+          </div>
+          <div className="grid min-h-80 flex-1 grid-cols-1 gap-4 sm:grid-cols-2">
+            {(['original', 'adjusted'] as const).map((view) => (
+              <figure key={view} className="flex min-h-64 min-w-0 flex-col gap-3">
+                <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-[repeating-conic-gradient(hsl(var(--muted)/0.35)_0%_25%,transparent_0%_50%)] bg-[length:16px_16px] p-4">
+                  {view === 'original' ? (
+                    <img
+                      src={selected?.url}
+                      alt={t('rotation.original')}
+                      className="h-full w-full object-contain"
+                    />
+                  ) : source ? (
+                    <RotationPreview source={source} settings={settings} />
+                  ) : (
+                    <div className="grid h-full place-items-center text-sm text-destructive">
+                      {t('result.undecodable')}
+                    </div>
+                  )}
+                  {view === 'adjusted' && grid && (
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-4 grid grid-cols-3 grid-rows-3"
+                    >
+                      {Array.from({ length: 9 }, (_, index) => (
+                        <div key={index} className="border border-primary/20" />
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <figcaption className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span>{t(`rotation.${view}`)}</span>
+                  {selected && (
+                    <span className="tabular-nums">
+                      {view === 'original' ? selected.width : size?.width} ×{' '}
+                      {view === 'original' ? selected.height : size?.height}
+                    </span>
+                  )}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+          <div
+            className="flex shrink-0 gap-2 overflow-x-auto py-1"
+            aria-label={t('rotation.images')}
+          >
+            {items.map((item) => (
+              <Button
+                key={item.id}
+                variant="ghost"
+                aria-label={item.name}
+                aria-pressed={selected?.id === item.id}
+                onClick={() => setSelectedId(item.id)}
+                className="h-16 w-12 shrink-0 overflow-hidden rounded border border-border p-0 aria-pressed:border-primary aria-pressed:ring-1 aria-pressed:ring-primary"
+              >
+                <img src={item.url} alt="" className="h-full w-full object-cover" />
+              </Button>
+            ))}
+          </div>
+        </section>
+      )}
     </ToolShell>
   )
 }

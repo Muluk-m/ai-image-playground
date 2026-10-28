@@ -11,6 +11,7 @@ import {
   PRICING_PATH,
   PRIVACY_PATH,
   TERMS_PATH,
+  TOOL_ROUTE_PATTERN,
 } from '../../lib/appPaths'
 import { PROJECT_ROUTE_PATTERN, pagesRedirects } from '../../lib/pagesRedirects'
 
@@ -120,6 +121,7 @@ it('generates SPA fallbacks for every app route without a catch-all asset rewrit
     ...Object.values(APP_MODE_PATHS),
     LEGACY_PROJECTS_PATH,
     PROJECT_ROUTE_PATTERN,
+    TOOL_ROUTE_PATTERN,
     PRICING_PATH,
     TERMS_PATH,
     PRIVACY_PATH,
