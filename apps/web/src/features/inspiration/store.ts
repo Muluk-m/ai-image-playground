@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { readCache, writeCache } from './lib/cache'
 import { fetchManifestWithFallback, resolveRemoteManifestUrl } from './lib/fetchManifest'
 import type { InspirationGroupId } from './lib/groups'
+import { loadInspirationTitles } from './lib/labels'
 import type { InspirationItem } from './types'
 
 const REMOTE_TTL_MS = 5 * 60 * 1000
@@ -75,12 +76,14 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
     if (current.status === 'loading-remote') return
     if (current.status === 'ready' && current.items.length > 0) return
 
+    set({ status: 'loading-remote' })
+    // 英文标题表和清单一起到：先显示中文标题再跳成英文会闪一下。
+    await loadInspirationTitles()
     const cached = readCache()
     if (cached && Date.now() - cached.storedAt < REMOTE_TTL_MS) {
       get().setRemoteItems(cached.manifest.items, cached.manifest.categories)
     }
 
-    set({ status: 'loading-remote' })
     try {
       const manifest = await fetchManifestWithFallback(url, signal)
       writeCache(manifest)

@@ -1,5 +1,6 @@
 import type { PersistedVideoRequest, StoredImageRef, VideoRequest } from '@image-playground/shared'
 import {
+  isBlankPrompt,
   QUEUE_MAX_INPUT_IMAGES,
   QUEUE_PROMPT_MAX_CHARS,
   stageAuthorizedVideoDuration,
@@ -142,6 +143,10 @@ export const submitRoutes = new Elysia()
       // 落进通用网关兜底，拼出一条打不到原上游的请求。
       if (isModelDisabled(model)) {
         return status(400, { error: 'model_unavailable', message: '该模型已下线，请换一个模型' })
+      }
+      // 只有空白、控制符或零宽字符的提示词和空的一样：不建任务，也就不预扣积分。
+      if (isBlankPrompt(body.prompt)) {
+        return status(400, { error: 'invalid_request', message: '提示词不能为空' })
       }
 
       let video = body.video as VideoRequest | undefined
