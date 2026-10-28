@@ -142,7 +142,14 @@ export interface FeatureChapter {
 
 export interface MarketingCopy {
   brand: string
-  nav: { cases: string; features: string; inspiration: string; guide: string; start: string }
+  nav: {
+    cases: string
+    features: string
+    inspiration: string
+    guide: string
+    pricing: string
+    start: string
+  }
   hero: {
     line1: string
     line2: string
@@ -312,6 +319,7 @@ const zh: MarketingCopy = {
     features: '功能',
     inspiration: '灵感库',
     guide: '使用指南',
+    pricing: '定价',
     start: '免费开始',
   },
   hero: {
@@ -394,6 +402,7 @@ const en: MarketingCopy = {
     features: 'Features',
     inspiration: 'Inspiration',
     guide: 'Guide',
+    pricing: 'Pricing',
     start: 'Start free',
   },
   hero: {
