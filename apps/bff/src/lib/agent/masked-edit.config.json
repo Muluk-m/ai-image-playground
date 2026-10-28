@@ -1,5 +1,5 @@
 {
-  "output": { "dimensionMultiple": 16, "maxEdge": 3840, "maxAspectRatio": 3, "minPixels": 655360, "maxPixels": 8294400 },
+  "output": { "dimensionMultiple": 16, "maxEdge": 3840, "maxAspectRatio": 2, "minPixels": 655360, "maxPixels": 8294400 },
   "alignment": { "gridSize": 12, "analysisMaxEdge": 128, "minVariance": 25, "minCorrelation": 0.92, "minMatchedFraction": 0.75, "maxFlatDifference": 5 },
   "boundary": { "featherPixels": 4, "minImageEdge": 256 },
   "regions": { "minPixels": 400, "changedDelta": 24, "minChangedFraction": 0.03, "minMeanLift": 3 }
