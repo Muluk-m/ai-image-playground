@@ -4,6 +4,7 @@ import {
   PRICING_PATH,
   PRIVACY_PATH,
   TERMS_PATH,
+  TOOL_ROUTE_PATTERN,
 } from './appPaths'
 
 /** 项目地址 `/p/<项目>` 的 Pages 写法。 */
@@ -25,6 +26,7 @@ export function pagesRedirects(): string {
     ...Object.values(APP_MODE_PATHS),
     LEGACY_PROJECTS_PATH,
     PROJECT_ROUTE_PATTERN,
+    TOOL_ROUTE_PATTERN,
     PRICING_PATH,
     TERMS_PATH,
     PRIVACY_PATH,
