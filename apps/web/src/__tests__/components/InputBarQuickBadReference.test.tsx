@@ -126,6 +126,39 @@ describe('快速生成的坏参考图（BUG-59）', () => {
     expect(send().disabled).toBe(false)
   })
 
+  it('同一张图换了内容会重判，不沿用旧结论', async () => {
+    await mountQuick([PNG])
+    expect(send().disabled).toBe(false)
+    await act(async () => {
+      useStore.setState({ inputImages: [{ id: 'img-0', dataUrl: CORRUPT }] })
+      await Promise.resolve()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(host.querySelector('[role=alert]')?.textContent).toBe(
+      '第 1 张图片：请先转换为 PNG、JPEG 或 WebP 格式。',
+    )
+    expect(send().disabled).toBe(true)
+  })
+
+  it('浏览器一直不回解码结果时，到点放行，不一直拦着', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const HANG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2w'
+      vi.mocked(loadImage).mockImplementationOnce(() => new Promise<HTMLImageElement>(() => {}))
+      await mountQuick([HANG])
+      expect(send().disabled).toBe(true)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000)
+      })
+      expect(host.querySelector('[role=alert]')).toBeNull()
+      expect(send().disabled).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('移走坏图后原因消失、可以发送', async () => {
     await mountQuick([PNG, CORRUPT])
     const remove = host.querySelector<HTMLButtonElement>('button[aria-label="移除第 2 张图片"]')

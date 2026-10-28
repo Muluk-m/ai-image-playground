@@ -11,14 +11,21 @@ import { imageMimeFromBytes } from './imageBytes'
 export type UnusableReferenceCode = 'media_unsupported_image' | 'media_invalid_image'
 export type ReferenceImage = { id: string; dataUrl: string }
 
-/** 结论按「图片 id + 长度 + 末尾一小段」记，不拿整串 data URL 当键，移走的图不会被这里留住。 */
-const verdicts = new Map<string, UnusableReferenceCode | null>()
-const checking = new Set<string>()
+/**
+ * 结论按图片 id 记，连同判它时的那串 data URL：串不同（同一 id 换了内容）就当没判过，重判。
+ * 只留最近 32 条，移走的图留得不多。
+ */
+const verdicts = new Map<string, { dataUrl: string; code: UnusableReferenceCode | null }>()
+const checking = new Map<string, string>()
 const listeners = new Set<() => void>()
-const MAX_VERDICTS = 200
+const MAX_VERDICTS = 32
+// 浏览器迟迟不回解码结果时不一直拦着：到点按能用放行，坏图由服务端兜底（失败退还预扣）。
+const DECODE_TIMEOUT_MS = 15_000
 
-const verdictKey = (image: ReferenceImage) =>
-  `${image.id}:${image.dataUrl.length}:${image.dataUrl.slice(-32)}`
+const verdictFor = (image: ReferenceImage) => {
+  const entry = verdicts.get(image.id)
+  return entry && entry.dataUrl === image.dataUrl ? entry : undefined
+}
 // 云媒体按身份发，字节在服务端，由服务端核。
 const isLocal = (image: ReferenceImage) => image.dataUrl.startsWith('data:')
 
@@ -34,11 +41,17 @@ function knownHeader(dataUrl: string): boolean {
 }
 
 async function inspect(image: ReferenceImage): Promise<UnusableReferenceCode | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, DECODE_TIMEOUT_MS)
+  })
   try {
-    await loadImage(image.dataUrl)
+    await Promise.race([loadImage(image.dataUrl), timeout])
     return null
   } catch {
     return knownHeader(image.dataUrl) ? 'media_invalid_image' : 'media_unsupported_image'
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -60,13 +73,16 @@ export function useUnusableReferences(images: readonly ReferenceImage[]): {
   }, [])
   useEffect(() => {
     for (const image of images) {
-      const key = verdictKey(image)
-      if (!isLocal(image) || verdicts.has(key) || checking.has(key)) continue
-      checking.add(key)
+      if (!isLocal(image) || verdictFor(image) || checking.get(image.id) === image.dataUrl) continue
+      const { id, dataUrl } = image
+      checking.set(id, dataUrl)
       void inspect(image).then((code) => {
-        checking.delete(key)
+        // 判的期间这张图又换了内容，就丢掉这次结论，等新那次。
+        if (checking.get(id) !== dataUrl) return
+        checking.delete(id)
+        verdicts.delete(id)
         if (verdicts.size >= MAX_VERDICTS) verdicts.delete(verdicts.keys().next().value!)
-        verdicts.set(key, code)
+        verdicts.set(id, { dataUrl, code })
         for (const listener of listeners) listener()
       })
     }
@@ -75,12 +91,9 @@ export function useUnusableReferences(images: readonly ReferenceImage[]): {
   let pending = 0
   images.forEach((image, index) => {
     if (!isLocal(image)) return
-    const key = verdictKey(image)
-    if (!verdicts.has(key)) pending += 1
-    else {
-      const code = verdicts.get(key)
-      if (code) failures.set(index, code)
-    }
+    const verdict = verdictFor(image)
+    if (!verdict) pending += 1
+    else if (verdict.code) failures.set(index, verdict.code)
   })
   return { failures, pending }
 }
