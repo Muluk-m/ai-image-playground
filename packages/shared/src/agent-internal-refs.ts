@@ -25,48 +25,47 @@ function compile(keys: readonly string[]) {
   const bare = [AGENT_ARTIFACT_ID, UUID, ...usable.filter(identifierLike).map(escapeRegExp)].join(
     '|',
   )
-  return {
+  const parts = [
     // 「兔子图（`animal-03-rabbit`）」「(agent_…_0)」：连括号一起去掉。
-    wrapped: new RegExp(String.raw`[（(][ \t]*\x60?(?:${ref})\x60?[ \t]*[)）]`, 'gi'),
+    String.raw`[（(][ \t]*\x60?(?:${ref})\x60?[ \t]*[)）]`,
     // 「`animal-03-rabbit`」单独出现。
-    ticked: new RegExp(String.raw`\x60(?:${ref})\x60`, 'gi'),
+    String.raw`\x60(?:${ref})\x60`,
     // 裸写的 id 或像标识的 key；前后不能紧挨着字母数字，免得削掉别的词的一部分。
-    bare: new RegExp(String.raw`(?<![A-Za-z0-9_-])(?:${bare})(?![A-Za-z0-9_-])`, 'gi'),
-  }
+    String.raw`(?<![A-Za-z0-9_-])(?:${bare})(?![A-Za-z0-9_-])`,
+  ]
+  // 同一位置按上面的顺序先试：带括号的整段优先。
+  return new RegExp(parts.join('|'), 'gi')
 }
 
-/** 删掉的位置先记成这个字符，再只在它两侧收拾空格与标点，别处的空白（缩进、硬换行）不动。 */
-const CUT = '\u0000'
 const OPEN = new Set(['（', '('])
 const CLOSE = new Set(['）', ')'])
 const PAUSE = new Set(['，', '、', '；', '：'])
 const PAUSE_OR_STOP = new Set(['，', '、', '；', '：', '。', '！', '？'])
 const WORD = /[A-Za-z0-9]/
+const isBlank = (char: string | undefined) => char === ' ' || char === '\t'
 
-/** 逐字收拾删除点：去掉两侧空格，留下的「（）」与「，，」并成一个。只走一遍，不回溯。 */
-function tidyCuts(text: string): string {
-  if (!text.includes(CUT)) return text
-  const out: string[] = []
-  let index = 0
-  while (index < text.length) {
-    const char = text[index] as string
-    if (char !== CUT) {
-      out.push(char)
-      index += 1
-      continue
-    }
-    let spaced = false
-    while (out.length && (out[out.length - 1] === ' ' || out[out.length - 1] === '\t')) {
+/**
+ * 把删除点两侧拼起来：`pieces` 是删掉内部标识后剩下的各段，删除点就在相邻两段之间。
+ * 只在删除点去掉两侧空格，留下的「（）」与「，，」并成一个；别处的空白（缩进、硬换行）不动。只走一遍。
+ */
+function joinAtCuts(pieces: readonly string[]): string {
+  const out: string[] = [...(pieces[0] ?? '')]
+  let spaced = false
+  for (let at = 1; at < pieces.length; at += 1) {
+    const piece = pieces[at] as string
+    while (isBlank(out[out.length - 1])) {
       out.pop()
       spaced = true
     }
-    index += 1
-    while (index < text.length && /[ \t\u0000]/.test(text[index] as string)) {
-      if (text[index] !== CUT) spaced = true
+    let index = 0
+    while (isBlank(piece[index])) {
       index += 1
+      spaced = true
     }
+    // 两个删除点之间只有空白：留到下一个删除点一起处理。
+    if (index === piece.length && at < pieces.length - 1) continue
     const before = out[out.length - 1] ?? ''
-    const after = text[index] ?? ''
+    const after = piece[index] ?? ''
     if (OPEN.has(before) && CLOSE.has(after)) {
       out.pop()
       index += 1
@@ -81,17 +80,22 @@ function tidyCuts(text: string): string {
       !PAUSE_OR_STOP.has(after)
     )
       out.push(' ')
+    for (; index < piece.length; index += 1) out.push(piece[index] as string)
+    spaced = false
   }
   return out.join('')
 }
 
-function stripSegment(segment: string, patterns: ReturnType<typeof compile>): string {
-  return tidyCuts(
-    segment
-      .replace(patterns.wrapped, CUT)
-      .replace(patterns.ticked, CUT)
-      .replace(patterns.bare, CUT),
-  )
+function stripSegment(segment: string, pattern: RegExp): string {
+  const pieces: string[] = []
+  let last = 0
+  for (const match of segment.matchAll(pattern)) {
+    pieces.push(segment.slice(last, match.index))
+    last = match.index + match[0].length
+  }
+  if (!pieces.length) return segment
+  pieces.push(segment.slice(last))
+  return joinAtCuts(pieces)
 }
 
 /**
@@ -122,17 +126,17 @@ function markdownLinks(line: string): [number, number][] {
 /** 去掉正文里的内部标识，Markdown 图片与链接原样不动。`keys` 是这段对话里批次项的 key。 */
 export function stripInternalRefs(text: string, keys: readonly string[] = []): string {
   if (!text) return text
-  const patterns = compile(keys)
+  const pattern = compile(keys)
   return text
     .split('\n')
     .map((line) => {
       let out = ''
       let last = 0
       for (const [start, end] of markdownLinks(line)) {
-        out += stripSegment(line.slice(last, start), patterns) + line.slice(start, end)
+        out += stripSegment(line.slice(last, start), pattern) + line.slice(start, end)
         last = end
       }
-      return out + stripSegment(line.slice(last), patterns)
+      return out + stripSegment(line.slice(last), pattern)
     })
     .join('\n')
 }
