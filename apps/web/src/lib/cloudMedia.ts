@@ -59,7 +59,10 @@ function enqueue(entry: Waiting): void {
 function promote(key: string): void {
   const entry = queued.get(key)
   if (!entry || entry.urgent) return
-  waiting.splice(waiting.indexOf(entry), 1)
+  const index = waiting.indexOf(entry)
+  // 已出队、正等被唤醒的那一路不在 waiting 里了，不能 splice(-1) 误删队尾别人的请求。
+  if (index < 0) return
+  waiting.splice(index, 1)
   entry.urgent = true
   enqueue(entry)
 }
@@ -67,11 +70,17 @@ function promote(key: string): void {
 async function bounded<T>(work: () => Promise<T>, urgent = false, key?: string): Promise<T> {
   if (active >= 2) {
     await new Promise<void>((resolve) => {
-      const entry: Waiting = { urgent, resume: resolve }
+      const entry: Waiting = {
+        urgent,
+        resume: () => {
+          // 出队即同步摘掉，避免唤醒前的微任务窗口里还能被 promote 找到。
+          if (key && queued.get(key) === entry) queued.delete(key)
+          resolve()
+        },
+      }
       if (key) queued.set(key, entry)
       enqueue(entry)
     })
-    if (key) queued.delete(key)
   } else active++
   try {
     return await work()
