@@ -6,8 +6,10 @@ import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
 import { modelLabel } from '../lib/channels/publicChannels'
 import {
+  awaitingQueuePhase,
   estimatedProgressPercent,
   forgetGenerating,
+  inGeneratingPhase,
   markGenerating,
   progressStartedAt,
   typicalDurationMs,
@@ -199,10 +201,7 @@ export default function TaskCard({
   const showSwipeAction = isSwipeReady || swipeActionActive
   const showRunningTimer = task.status === 'running' && !task.batchQueued
   // 上游不回报真实进度：只在真正出图阶段按本机同模型的典型耗时估一个百分比，排队、重连、确认时不显示也不计时。
-  const generatingPhase =
-    task.status === 'running' &&
-    !task.batchQueued &&
-    (task.queuePhase == null || task.queuePhase === 'generating')
+  const generatingPhase = inGeneratingPhase(task)
   const progressStart = generatingPhase ? progressStartedAt(task) : null
   const progressPercent =
     progressStart != null ? estimatedProgressPercent(now - progressStart, typicalMs) : null
@@ -216,7 +215,9 @@ export default function TaskCard({
       ? t('card.progress', { percent: progressPercent })
       : task.queuePhase
         ? t(`card.phase.${task.queuePhase}`)
-        : t('card.generating')
+        : awaitingQueuePhase(task)
+          ? t('card.phase.queued')
+          : t('card.generating')
   const swipeBgClass = showSwipeAction
     ? swipeStartedSelected
       ? 'bg-muted'
