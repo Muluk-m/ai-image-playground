@@ -1,9 +1,11 @@
 import {
   compileReplyScripts,
+  presentReplyText,
+  REPLY_SCRIPT_FALLBACK_EN,
+  REPLY_SCRIPT_FALLBACK_ZH,
   type ReplyScriptAllowance,
   stripInlineReasoning,
   stripInternalRefs,
-  stripWithReplyScripts,
 } from '@image-playground/shared'
 import { useEffect, useMemo, useState } from 'react'
 import { MessageActions } from '../../../components/assistant-ui/elements/message-actions'
@@ -65,9 +67,10 @@ export default function AgentReply({ text: stored, streaming, allowance, userTex
   const scripts = useMemo(() => allowance ?? compileReplyScripts(userText), [allowance, userText])
   // 显示与复制都去掉产物 id、UUID 与批次项 key（BUG-56），并再挡一层乱入文字。
   const shown = useMemo(
-    () => stripInternalRefs(stripWithReplyScripts(text, scripts), hiddenKeys),
-    [text, scripts, hiddenKeys],
+    () => stripInternalRefs(presentReplyText(text, userText, scripts), hiddenKeys),
+    [text, userText, scripts, hiddenKeys],
   )
+  const fallback = shown === REPLY_SCRIPT_FALLBACK_ZH || shown === REPLY_SCRIPT_FALLBACK_EN
   if (!shown && !streaming) return null
   return (
     <div className="studio-agent-reply-wrap min-w-0 max-w-full self-start">
@@ -78,7 +81,7 @@ export default function AgentReply({ text: stored, streaming, allowance, userTex
         <AgentMarkdown text={shown} />
       </div>
       {/* 流式中原文还在变，说完才给复制。 */}
-      {!streaming && shown && (
+      {!streaming && shown && !fallback && (
         <div className="studio-agent-reply-actions mt-2 flex items-center">
           <CopyReplyButton text={shown} />
         </div>
