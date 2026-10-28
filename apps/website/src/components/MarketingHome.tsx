@@ -68,7 +68,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
             <a href={editions[locale].root}>{text.nav.guide}</a>
             <a href="/pricing">{text.nav.pricing}</a>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="mkt-nav-end">
             <a className="mkt-nav-pricing" href="/pricing">
               {text.nav.pricing}
             </a>
