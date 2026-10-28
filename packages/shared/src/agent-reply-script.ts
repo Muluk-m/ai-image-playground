@@ -6,8 +6,8 @@ import type { AgentMessageView } from './agent'
  *
  * 中文、英文、注音、假名、谚文、希腊字母，以及数字、标点、符号、表情一律保留。
  * 这些和中文常混排，逐字删会把「見る」削成「見」、把「α 通道」削成「通道」。
- * 只删明显乱入的文字：古吉拉特、天城、泰、阿拉伯、西里尔，以及同级的其他泄漏文字。
- * 用户在整段会话里写过的泄漏文字也保留。不额外调用模型。
+ * 其余字母、记号和数字默认删掉（古吉拉特、天城、泰、阿拉伯、西里尔，以及没列入的文字）。
+ * 用户在整段会话里写过的那种文字再放行。不额外调用模型。
  */
 
 /** 整段回复都落在不该出现的文字里时，换成这一句，而不是把气泡留空。 */
@@ -15,10 +15,15 @@ export const REPLY_SCRIPT_FALLBACK_ZH = '回复语言异常，请再试一次。
 export const REPLY_SCRIPT_FALLBACK_EN = 'That reply came back in an unexpected language. Try again.'
 
 /**
- * 只这些文字系统算乱入。假名、谚文、希腊字母不在里面：它们和中文常混排，
- * 中文用户说「用日语回答」时也必须留住。用户原文里出现过的，再从这里放行。
+ * 常驻保留。假名、谚文、希腊字母和中英文一样不删，避免「用日语回答」把「見る」削成「見」。
+ * 不在这里、用户也没写过的字母才删，这样没列进清单的文字系统也不会漏进回复。
  */
-const LEAK_SCRIPTS = [
+const ALWAYS_KEPT =
+  /[\p{Script=Latin}\p{Script=Han}\p{Script=Bopomofo}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Greek}\p{Script=Common}\p{Script=Inherited}]/u
+
+/** 用来认出用户原文里的文字，好让引用原样留下。 */
+const OTHER_SCRIPTS = [
+  'Adlam',
   'Arabic',
   'Armenian',
   'Bengali',
@@ -38,6 +43,7 @@ const LEAK_SCRIPTS = [
   'Malayalam',
   'Mongolian',
   'Myanmar',
+  'Nko',
   'Oriya',
   'Sinhala',
   'Syriac',
@@ -46,25 +52,25 @@ const LEAK_SCRIPTS = [
   'Thaana',
   'Thai',
   'Tibetan',
+  'Vai',
   'Yi',
 ] as const
 
-type LeakScript = (typeof LEAK_SCRIPTS)[number]
+type OtherScript = (typeof OTHER_SCRIPTS)[number]
 
 const DROPPABLE = /[\p{L}\p{M}\p{N}]/u
 const HAN = /\p{Script=Han}/u
 const LATIN = /\p{Script=Latin}/u
-const LEAK = new RegExp(`[${LEAK_SCRIPTS.map((name) => `\\p{Script=${name}}`).join('')}]`, 'u')
 
-const scriptPattern = new Map<LeakScript, RegExp>(
-  LEAK_SCRIPTS.map((name) => [name, new RegExp(`\\p{Script=${name}}`, 'u')]),
+const scriptPattern = new Map<OtherScript, RegExp>(
+  OTHER_SCRIPTS.map((name) => [name, new RegExp(`\\p{Script=${name}}`, 'u')]),
 )
 
 function extraPattern(userText: string): RegExp | null {
-  const names: LeakScript[] = []
+  const names: OtherScript[] = []
   for (const char of userText) {
-    if (!LEAK.test(char) || !DROPPABLE.test(char)) continue
-    const name = LEAK_SCRIPTS.find((script) => scriptPattern.get(script)!.test(char))
+    if (ALWAYS_KEPT.test(char) || !DROPPABLE.test(char)) continue
+    const name = OTHER_SCRIPTS.find((script) => scriptPattern.get(script)!.test(char))
     if (name && !names.includes(name)) names.push(name)
   }
   if (names.length === 0) return null
@@ -72,7 +78,7 @@ function extraPattern(userText: string): RegExp | null {
 }
 
 function isDropped(char: string, extra: RegExp | null): boolean {
-  if (!LEAK.test(char) || extra?.test(char)) return false
+  if (ALWAYS_KEPT.test(char) || extra?.test(char)) return false
   return DROPPABLE.test(char)
 }
 
@@ -134,6 +140,10 @@ function replyFallback(userText: string): string {
 /** 只删除不该出现的文字，不把整段换成兜底句。建议句用这条：整句都是杂字就丢掉。 */
 export function stripDisallowedScripts(text: string, userText = ''): string {
   return stripBody(text, extraPattern(userText))
+}
+
+function stripPrepared(text: string, extra: RegExp | null): string {
+  return stripBody(text, extra)
 }
 
 export interface ReplyScriptGate {
@@ -243,13 +253,14 @@ export function sanitizeAssistantMessages(
   messages: readonly AgentMessageView[],
 ): AgentMessageView[] {
   const userText = collectUserReplyText(messages)
+  const extra = extraPattern(userText)
   let changed = false
   const next = messages.map((message) => {
     if (message.role !== 'assistant') return message
     let blockChanged = false
     const content = message.content.map((block) => {
       if (block.type !== 'text' || !block.text) return block
-      const text = stripDisallowedScripts(block.text, userText)
+      const text = stripPrepared(block.text, extra)
       if (text === block.text) return block
       blockChanged = true
       return { ...block, text }

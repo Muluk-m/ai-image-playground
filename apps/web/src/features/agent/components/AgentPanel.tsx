@@ -300,15 +300,23 @@ export default function AgentPanel({
   const open = useAgentStore((state) => state.open)
   const tab = useAgentStore((state) => state.tab)
   const messages = useAgentStore((state) => state.messages)
-  const replyUserText = useMemo(
-    () =>
-      messages
-        .flatMap((message) =>
-          message.kind === 'text' && message.role === 'user' ? [message.text] : [],
-        )
-        .join('\n'),
-    [messages],
-  )
+  const replyUserCache = useRef({ digest: '', text: '' })
+  // 助手正文每个字都会换一份 messages。用户原文没变时沿用上次拼好的字符串。
+  const replyUserText = useMemo(() => {
+    let digest = ''
+    for (const message of messages) {
+      if (message.kind !== 'text' || message.role !== 'user') continue
+      digest += `${message.id}:${message.text.length}:${message.text.charCodeAt(0)};`
+    }
+    if (digest === replyUserCache.current.digest) return replyUserCache.current.text
+    const text = messages
+      .flatMap((message) =>
+        message.kind === 'text' && message.role === 'user' ? [message.text] : [],
+      )
+      .join('\n')
+    replyUserCache.current = { digest, text }
+    return text
+  }, [messages])
   const turns = useAgentStore((state) => state.turns)
   const surface = useActiveAgentSurface()
   const imageSkills = useAgentSkills('image', surface)
