@@ -4,7 +4,7 @@ import type { AgentTurnReference } from '@image-playground/shared'
 import sharp from 'sharp'
 import {
   editInputSize,
-  PREVIEW_RESIZE,
+  previewResize,
   toModelImageDataUrl,
   toSourceImageDataUrl,
 } from './modelImage'
@@ -143,7 +143,7 @@ async function prepareSelection(
     // 定位图只给对话模型看「圈在哪」：先缩到预览规格再叠蓝色与编号。原尺寸 PNG 在 4K 原图上
     // 就有十几 MB，连同原件和裁片一起会超出整轮的图片字节预算，确认卡就提交不了。
     const base = await sharp(raw, { limitInputPixels: settings.maxPixels })
-      .resize(PREVIEW_RESIZE)
+      .resize(previewResize(width, height))
       .raw()
       .toBuffer({ resolveWithObject: true })
     const small = base.info

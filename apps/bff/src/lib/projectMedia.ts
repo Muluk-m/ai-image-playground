@@ -16,7 +16,7 @@ import type { BunSQLDatabase } from 'drizzle-orm/bun-sql'
 import sharp, { type Metadata } from 'sharp'
 import { config } from '../config'
 import { db, schema } from '../db/client'
-import { PREVIEW_RESIZE } from './agent/modelImage'
+import { previewResize } from './agent/modelImage'
 import { isCapabilityEnabled } from './capabilities'
 import { durableMediaStore } from './durableMediaStore'
 import { log } from './logger'
@@ -533,7 +533,7 @@ async function publishMedia(
         const preview = await image
           .timeout({ seconds: 15 })
           .rotate()
-          .resize(PREVIEW_RESIZE)
+          .resize(previewResize(metadata.width, metadata.height))
           .webp({ quality: 75 })
           .toBuffer()
         if (!metadata.width || !metadata.height || preview.length > PREVIEW_BUDGET)
