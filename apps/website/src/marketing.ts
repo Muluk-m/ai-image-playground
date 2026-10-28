@@ -49,7 +49,6 @@ export interface MarketingCopy {
     title: string
     body: string
     placeholder: string
-    addImage: string
     mode: string
     model: string
     start: string
@@ -111,7 +110,6 @@ const zh: MarketingCopy = {
     body: '智能体写提示词、排生成计划，图片和视频一次出齐；不满意，就在画布上接着改。',
     placeholder:
       '描述主体、场景与光影风格，例如：为青瓷马克杯做一组电商主图，白底、柔和侧光、三个角度',
-    addImage: '添加参考图',
     mode: '智能创作',
     model: 'GPT Image 2.5 Flare',
     start: '开始创作',
@@ -197,7 +195,6 @@ const en: MarketingCopy = {
     body: 'The agent writes the prompt and plans the run, then delivers images and video together. Keep refining on the canvas.',
     placeholder:
       'Describe the subject, scene, and lighting. For example: a set of product shots for a celadon mug, white background, soft side light, three angles',
-    addImage: 'Add a reference image',
     mode: 'Agent',
     model: 'GPT Image 2.5 Flare',
     start: 'Start creating',
