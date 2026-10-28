@@ -21,6 +21,21 @@ const TAB =
   'h-7 rounded-md px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 const TAB_ON = 'bg-primary/15 text-primary hover:bg-primary/15 hover:text-primary'
 const CONTACT_HASH = '#contact'
+const CONTACT_HISTORY_KEY = 'muvloomContact'
+
+function contactHistoryState(open: boolean): Record<string, unknown> {
+  const current = window.history.state
+  const base = current && typeof current === 'object' ? current : {}
+  return { ...base, [CONTACT_HISTORY_KEY]: open }
+}
+
+function contactEntryOpen(): boolean {
+  return window.history.state?.[CONTACT_HISTORY_KEY] === true
+}
+
+function pageUrl(hash: string): string {
+  return window.location.pathname + window.location.search + hash
+}
 
 export function MarketingHome({ locale, start }: { locale: Locale; start: () => void }) {
   const text = marketingCopy[locale]
@@ -35,22 +50,42 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
   }
   const openContact = (event: { preventDefault(): void }) => {
     event.preventDefault()
+    if (contactEntryOpen()) {
+      setContactOpen(true)
+      return
+    }
+    // 压一条历史，浏览器后退先关掉弹窗，而不是离开首页。
+    window.history.pushState(contactHistoryState(true), '', pageUrl(CONTACT_HASH))
     setContactOpen(true)
   }
   const closeContact = () => {
+    if (contactEntryOpen()) {
+      window.history.back()
+      return
+    }
     setContactOpen(false)
-    if (window.location.hash === CONTACT_HASH)
-      history.replaceState(null, '', window.location.pathname + window.location.search)
   }
 
-  // 带 #contact 打开（站内外的「联系我们」链接都指向这里）就直接弹出联系方式；后退到别的锚点时跟着关掉。
+  // 带 #contact 打开就弹出联系方式。落地时先把当前记录改成「关着」，再压一条「开着」，
+  // 这样后退先关弹窗。页内跳到 #contact 时，浏览器已经压过记录，只补上标记。
+  // 关闭按钮走 history.back()，不额外留一条记录。
   useEffect(() => {
-    const syncHash = () => {
-      setContactOpen(window.location.hash === CONTACT_HASH)
+    if (window.location.hash === CONTACT_HASH && !contactEntryOpen()) {
+      window.history.replaceState(contactHistoryState(false), '', pageUrl(''))
+      window.history.pushState(contactHistoryState(true), '', pageUrl(CONTACT_HASH))
     }
-    syncHash()
-    window.addEventListener('hashchange', syncHash)
-    return () => window.removeEventListener('hashchange', syncHash)
+    const sync = () => {
+      if (window.location.hash === CONTACT_HASH && !contactEntryOpen())
+        window.history.replaceState(contactHistoryState(true), '', pageUrl(CONTACT_HASH))
+      setContactOpen(contactEntryOpen())
+    }
+    sync()
+    window.addEventListener('popstate', sync)
+    window.addEventListener('hashchange', sync)
+    return () => {
+      window.removeEventListener('popstate', sync)
+      window.removeEventListener('hashchange', sync)
+    }
   }, [])
 
   return (
@@ -68,7 +103,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
             <a href={editions[locale].root}>{text.nav.guide}</a>
             <a href="/pricing">{text.nav.pricing}</a>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="mkt-nav-end">
             <a className="mkt-nav-pricing" href="/pricing">
               {text.nav.pricing}
             </a>

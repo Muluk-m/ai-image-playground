@@ -12,7 +12,6 @@ import {
   marketingCopy,
   showcaseCases,
   starterPrompts,
-  X_URL,
 } from '../marketing'
 
 const manifest = JSON.parse(
@@ -115,17 +114,19 @@ describe('marketing home', () => {
     }
   })
 
-  it('renders X and email in the contact dialog and leaves WeChat empty', () => {
-    const html = renderToStaticMarkup(
-      createElement(ContactPanel, { locale: 'zh-CN', onClose: () => {} }),
-    )
-    expect(html).toContain('联系我们')
-    expect(html).toContain(`href="${X_URL}"`)
-    expect(html).toContain('target="_blank"')
-    expect(html).toContain(CONTACT_EMAIL)
-    expect(html).toContain(`href="mailto:${CONTACT_EMAIL}"`)
-    expect(html).toContain('复制')
-    expect(html).not.toContain('data-contact-channel="wechat"')
+  it('renders only email in the contact dialog and leaves WeChat empty', () => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      const html = renderToStaticMarkup(createElement(ContactPanel, { locale, onClose: () => {} }))
+      expect(html).toContain(marketingCopy[locale].contact.title)
+      expect(html).not.toContain('x.com/')
+      expect(html).not.toContain('@Muluk656')
+      expect(html).not.toContain('打开 X')
+      expect(html).not.toContain('Open X')
+      expect(html).toContain(CONTACT_EMAIL)
+      expect(html).toContain(`href="mailto:${CONTACT_EMAIL}"`)
+      expect(html).toContain(marketingCopy[locale].contact.copy)
+      expect(html).not.toContain('data-contact-channel="wechat"')
+    }
     const withWechat = renderToStaticMarkup(
       createElement(ContactPanel, {
         locale: 'zh-CN',
