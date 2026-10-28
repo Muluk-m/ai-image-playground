@@ -59,7 +59,8 @@
     "bffModelUnavailable": "该模型暂不可用，请换其他模型",
     "bffInvalidRequest": "参数不符合要求，请调整后重试",
     "bffStorageUnavailable": "参考图暂时读取不了，请稍后重试",
-    "bffDuplicateSubmit": "这次提交和之前的请求冲突，请重新提交"
+    "bffDuplicateSubmit": "这次提交和之前的请求冲突，请重新提交",
+    "bffRepeatedSubmit": "刚刚已经提交过同样的内容，这次没有重复生成"
   },
   "dispatch": {
     "channelNotFound": "找不到所选模型，请换其他模型",

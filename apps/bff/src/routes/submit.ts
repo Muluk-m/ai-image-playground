@@ -219,6 +219,9 @@ export const submitRoutes = new Elysia()
       if (outcome.kind === 'idempotency_mismatch')
         return status(409, { error: 'idempotency_key_conflict' })
 
+      if (outcome.kind === 'duplicate_submission')
+        return status(409, { error: 'duplicate_submission', request_id: outcome.taskId })
+
       if (outcome.kind === 'invalid_input_image') {
         return status(400, { error: 'invalid_input_image', message: outcome.message })
       }
