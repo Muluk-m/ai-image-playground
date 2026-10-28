@@ -1,4 +1,4 @@
-import { stripInlineReasoning } from '@image-playground/shared'
+import { stripInlineReasoning, stripInternalRefs } from '@image-playground/shared'
 import { useEffect, useMemo, useState } from 'react'
 import { MessageActions } from '../../../components/assistant-ui/elements/message-actions'
 import { useTranslation } from '../../../i18n'
@@ -6,6 +6,7 @@ import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/cl
 import { useStore } from '../../../store'
 import { REPLY, REPLY_ACTION } from '../agentStyles'
 import AgentMarkdown from './AgentMarkdown'
+import { useReplyHiddenKeys } from './AgentReplyImage'
 
 interface Props {
   text: string
@@ -46,10 +47,13 @@ function CopyReplyButton({ text }: { text: string }) {
 /** 助手回复整段展示、按 Markdown 渲染；操作跟在正文下面，不浮在角落。 */
 export default function AgentReply({ text: stored, streaming }: Props) {
   // 服务端已在模型适配层把正文开头的推理拆走；这里只兜修复之前落库的旧回复，流式中不逐段重扫。
+  const hiddenKeys = useReplyHiddenKeys()
   const text = useMemo(
     () => (streaming ? stored : stripInlineReasoning(stored)),
     [stored, streaming],
   )
+  // 显示与复制都去掉产物 id、UUID 与批次项 key（BUG-56）。
+  const shown = useMemo(() => stripInternalRefs(text, hiddenKeys), [text, hiddenKeys])
   if (!text && !streaming) return null
   return (
     <div className="studio-agent-reply-wrap min-w-0 max-w-full self-start">
@@ -57,12 +61,12 @@ export default function AgentReply({ text: stored, streaming }: Props) {
         className={`${REPLY} studio-agent-reply break-words`}
         data-streaming={streaming || undefined}
       >
-        <AgentMarkdown text={text} />
+        <AgentMarkdown text={shown} />
       </div>
       {/* 流式中原文还在变，说完才给复制。 */}
-      {!streaming && text && (
+      {!streaming && shown && (
         <div className="studio-agent-reply-actions mt-2 flex items-center">
-          <CopyReplyButton text={text} />
+          <CopyReplyButton text={shown} />
         </div>
       )}
     </div>

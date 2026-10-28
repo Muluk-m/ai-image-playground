@@ -203,6 +203,7 @@ export function toolResultBlock(
     ...head,
     status: 'succeeded',
     ...(details?.batchId ? { batchId: details.batchId } : {}),
+    ...(details?.batchItemKeys?.length ? { batchItemKeys: details.batchItemKeys } : {}),
     ...(details?.analysisLimit ? { analysisLimit: details.analysisLimit } : {}),
     ...(details?.executedPrompt ? { prompt: details.executedPrompt } : {}),
     title: start.title,
