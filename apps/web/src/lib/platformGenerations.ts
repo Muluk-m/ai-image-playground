@@ -305,7 +305,13 @@ function statusPatch(
   return {
     status: statusFromGeneration(item.status),
     cancelled: item.status === 'cancelled' ? true : undefined,
-    queuePhase: item.status === 'reconciling' ? 'reconciling' : undefined,
+    // 记录说已在执行就按生成中显示；否则另一台设备提交的任务在作品列表里会一直停在「排队中」。
+    queuePhase:
+      item.status === 'reconciling'
+        ? 'reconciling'
+        : item.status === 'in_progress'
+          ? 'generating'
+          : undefined,
     error: item.errorType ? taskErrorText(item.errorType) : null,
     errorCode: item.errorType ?? undefined,
     finishedAt: item.completedAt,

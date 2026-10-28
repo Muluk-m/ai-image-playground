@@ -225,16 +225,29 @@ export interface MarketingCopy {
   }
 }
 
-const FEATURE_URLS = [
-  'muvloom.online/image',
-  'muvloom.online/image',
-  'muvloom.online/image',
-  'muvloom.online/p/马克杯釉色方案',
-  'muvloom.online/p/马克杯釉色方案',
-  'muvloom.online/p/精华液短片',
-  'muvloom.online/assets',
-  'muvloom.online/explore',
-] as const
+// 功能截图上方的地址栏只是展示文字，不是可点的链接；英文版用英文 slug。
+const FEATURE_URLS: Record<Locale, readonly string[]> = {
+  'zh-CN': [
+    'muvloom.online/image',
+    'muvloom.online/image',
+    'muvloom.online/image',
+    'muvloom.online/p/马克杯釉色方案',
+    'muvloom.online/p/马克杯釉色方案',
+    'muvloom.online/p/精华液短片',
+    'muvloom.online/assets',
+    'muvloom.online/explore',
+  ],
+  en: [
+    'muvloom.online/image',
+    'muvloom.online/image',
+    'muvloom.online/image',
+    'muvloom.online/p/mug-glaze-concepts',
+    'muvloom.online/p/mug-glaze-concepts',
+    'muvloom.online/p/serum-short-film',
+    'muvloom.online/assets',
+    'muvloom.online/explore',
+  ],
+}
 
 const FEATURE_IMAGES = [
   'composer-capsule',
@@ -317,10 +330,13 @@ const enFeatures: Array<Pick<FeatureChapter, 'title' | 'body'>> = [
   },
 ]
 
-function features(chapters: Array<Pick<FeatureChapter, 'title' | 'body'>>): FeatureChapter[] {
+function features(
+  locale: Locale,
+  chapters: Array<Pick<FeatureChapter, 'title' | 'body'>>,
+): FeatureChapter[] {
   return chapters.map((chapter, index) => ({
     ...chapter,
-    url: FEATURE_URLS[index]!,
+    url: FEATURE_URLS[locale][index]!,
     image: FEATURE_IMAGES[index]!,
   }))
 }
@@ -361,7 +377,7 @@ const zh: MarketingCopy = {
   ],
   featuresTitle: '从想法到成片',
   featuresNote: '截图均来自幕芽当前版本。',
-  features: features(zhFeatures),
+  features: features('zh-CN', zhFeatures),
   gallery: {
     line1: '不知道写什么？',
     line2: '先做同款',
@@ -444,7 +460,7 @@ const en: MarketingCopy = {
   ],
   featuresTitle: 'From an idea to a finished piece',
   featuresNote: 'Screenshots are from the current version of Muvloom.',
-  features: features(enFeatures),
+  features: features('en', enFeatures),
   gallery: {
     line1: 'Not sure what to write?',
     line2: 'Start from one you like',
