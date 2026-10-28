@@ -184,6 +184,5 @@ function sectionCopy(id: LegalSectionId, part: 'title' | 'body'): string {
   return i18next.t(`sections.${id}.${part}` as 'sections.accounts.title', {
     ns: 'legal',
     email: SUPPORT_CONTACT.email,
-    x: SUPPORT_CONTACT.xHandle,
   })
 }
