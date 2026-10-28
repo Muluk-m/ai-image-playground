@@ -56,3 +56,19 @@ it('用户点出来的那张插在正在铺的预览之前', async () => {
   await expect(urgent).resolves.toContain('data:')
   await Promise.all(background)
 })
+
+it('后台已在排队的同一张图，侧栏用 urgent 再要时把它提到队首，不跟着整页预览等', async () => {
+  const background = [11, 12, 13, 14].map((n) => resolveMediaSource(id(n), 'preview'))
+  await vi.waitFor(() => expect(accessed).toHaveLength(2))
+
+  const sidebar = resolveMediaSource(id(14), 'display', true)
+  release.shift()?.()
+
+  await vi.waitFor(() => expect(accessed).toHaveLength(3))
+  expect(accessed[2]).toContain('00000014')
+
+  holding = false
+  for (const resume of release) resume()
+  await expect(sidebar).resolves.toContain('data:')
+  await Promise.all(background)
+})
