@@ -32,3 +32,34 @@ export function typicalDurationMs(tasks: readonly TaskRecord[], model: string | 
   const mid = Math.floor(samples.length / 2)
   return samples.length % 2 ? samples[mid]! : (samples[mid - 1]! + samples[mid]!) / 2
 }
+
+type ProgressTask = Pick<
+  TaskRecord,
+  'id' | 'queuePhase' | 'batchStartedAt' | 'createdAt' | 'platformTask' | 'bffRequestId'
+>
+
+const generatingSince = new Map<string, number>()
+
+/** 走平台队列的任务（含旧版没有 queuePhase 的平台任务）：排队时间不能算进进度。 */
+function isQueued(task: ProgressTask): boolean {
+  return task.queuePhase != null || Boolean(task.platformTask || task.bffRequestId)
+}
+
+/**
+ * 估算的起点。本机直接出图的任务从开始算；平台队列任务从第一次看到「生成中」算，
+ * 还没记下时返回 null（不显示百分比）。记在模块里，卡片重新挂载也不会让进度倒退。
+ */
+export function progressStartedAt(task: ProgressTask): number | null {
+  if (!isQueued(task)) return task.batchStartedAt ?? task.createdAt
+  return generatingSince.get(task.id) ?? null
+}
+
+/** 卡片提交后看到任务进入生成中时记下起点；只记第一次。 */
+export function markGenerating(task: ProgressTask, at: number): void {
+  if (isQueued(task) && !generatingSince.has(task.id)) generatingSince.set(task.id, at)
+}
+
+/** 任务结束后丢掉起点。 */
+export function forgetGenerating(id: string): void {
+  generatingSince.delete(id)
+}
