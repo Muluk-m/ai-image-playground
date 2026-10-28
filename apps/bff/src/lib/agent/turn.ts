@@ -56,7 +56,12 @@ import { agentModel, agentStreamFn } from './model'
 import { modelHistoryTransform, saveModelHistoryAfterTurn } from './model-history'
 import { AgentRequestBudgetError } from './outbound-budget'
 import type { ConfiguredAgentRuntime } from './provider-settings'
-import { collectUserReplyText, createReplyScriptGate, type ReplyScriptGate } from './reply-script'
+import {
+  collectUserReplyText,
+  compileReplyScripts,
+  createReplyScriptGate,
+  type ReplyScriptGate,
+} from './reply-script'
 import {
   AgentContextOverflow,
   assertRequestWithinBudget,
@@ -239,6 +244,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     history.messages,
     prepared.wake?.authorizationPrompt || input.text,
   )
+  // 这一轮允许的文字只算这一次。后面的流式增量只拿这份结果。
+  const replyScripts = compileReplyScripts(replyLanguageSource)
   // 唤醒轮的 text 是系统说明，不是用户的话；澄清作答连同它答的那句原话一起看。
   const userAsk = [
     ...history.messages
@@ -620,7 +627,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       open = {
         id: crypto.randomUUID(),
         text: '',
-        script: createReplyScriptGate(replyLanguageSource),
+        script: createReplyScriptGate(replyLanguageSource, replyScripts),
         started: false,
       }
     }
