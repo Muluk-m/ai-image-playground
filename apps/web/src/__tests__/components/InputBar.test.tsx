@@ -641,4 +641,16 @@ describe('快速生成的发送按钮', () => {
       vi.useRealTimers()
     }
   })
+
+  it('只有空白、控制符或零宽字符时发不出去', () => {
+    remount('generate')
+    const submitTask = vi.spyOn(storeModule, 'submitTask').mockResolvedValue(undefined)
+    act(() => useStore.setState({ prompt: '\u0000\u0007\u202e\u200b \u3000\t' }))
+    const send = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (one) => one.getAttribute('aria-label') === '生成',
+    )!
+    expect(send.disabled).toBe(true)
+    act(() => send.click())
+    expect(submitTask).not.toHaveBeenCalled()
+  })
 })
