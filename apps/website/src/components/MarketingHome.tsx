@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { editions, type Locale } from '../catalog'
+import { rememberSiteLocale } from '../localeSelection'
 import {
   ASSET,
   caseHref,
@@ -100,6 +101,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
             className="lang"
             href={locale === 'en' ? '/' : '/en/'}
             hrefLang={locale === 'en' ? 'zh-CN' : 'en'}
+            onClick={() => rememberSiteLocale(locale === 'en' ? 'zh-CN' : 'en')}
           >
             {locale === 'en' ? '中文' : 'EN'}
           </a>
