@@ -64,7 +64,11 @@ async function render(text: string, onPreview = vi.fn(), reply = false) {
     act(async () =>
       root.render(
         <AgentReplyImagesProvider messages={[message, plan]} onPreview={onPreview}>
-          {reply ? <AgentReply text={markdown} streaming={false} /> : <AgentMarkdown text={markdown} />}
+          {reply ? (
+            <AgentReply text={markdown} streaming={false} />
+          ) : (
+            <AgentMarkdown text={markdown} />
+          )}
         </AgentReplyImagesProvider>,
       ),
     )
