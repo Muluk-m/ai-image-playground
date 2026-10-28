@@ -60,6 +60,8 @@ export interface AgentToolMessage {
   /** 哪个工具。历史里可能有这个前端还不认识的工具名，所以它不参与任何穷尽判断。 */
   readonly toolName?: AgentToolName
   readonly batchId?: string
+  /** 回复里要认出并去掉的批次项 key（BUG-56）。 */
+  readonly batchItemKeys?: readonly string[]
   readonly title: string
   readonly prompt?: string
   readonly status: AgentToolStatus | 'running'
