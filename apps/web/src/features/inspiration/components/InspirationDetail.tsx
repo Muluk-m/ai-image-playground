@@ -16,6 +16,7 @@ import {
   writeInspirationHash,
 } from '../lib/hashRoute'
 import { aspectText, inspirationImageUrl, rememberRatio } from '../lib/imageRatio'
+import { inspirationTitle } from '../lib/labels'
 import { plainPrompt, promptHasArguments, promptSegments } from '../lib/promptArgs'
 import { visibleInspirationItems } from '../lib/visibleItems'
 import { useInspirationStore } from '../store'
@@ -197,7 +198,12 @@ export default function InspirationDetail() {
   }
 
   return (
-    <Overlay onClose={closeDetail} role="none" label={item.title} className="max-md:p-0">
+    <Overlay
+      onClose={closeDetail}
+      role="none"
+      label={inspirationTitle(item)}
+      className="max-md:p-0"
+    >
       <div
         role="dialog"
         aria-modal="true"
@@ -221,7 +227,9 @@ export default function InspirationDetail() {
           >
             <Icon name="back" />
           </Button>
-          <h2 className="min-w-0 flex-1 truncate text-body-sm font-semibold">{item.title}</h2>
+          <h2 className="min-w-0 flex-1 truncate text-body-sm font-semibold">
+            {inspirationTitle(item)}
+          </h2>
           <Button
             type="button"
             onClick={() => void copyLink()}
@@ -251,7 +259,7 @@ export default function InspirationDetail() {
               <figure className="relative flex min-h-0 items-center justify-center">
                 <img
                   src={reference.url}
-                  alt={t('card.beforeAlt', { title: item.title })}
+                  alt={t('card.beforeAlt', { title: inspirationTitle(item) })}
                   className="max-h-full max-w-full rounded-lg object-contain"
                 />
                 <Badge tone="overlay" className="absolute bottom-2 left-2">
@@ -261,7 +269,7 @@ export default function InspirationDetail() {
               <figure className="relative flex min-h-0 items-center justify-center">
                 <img
                   src={outputUrl}
-                  alt={t('card.afterAlt', { title: item.title })}
+                  alt={t('card.afterAlt', { title: inspirationTitle(item) })}
                   className="max-h-full max-w-full rounded-lg object-contain"
                   onLoad={(event) => remember(event.currentTarget)}
                 />
@@ -273,7 +281,7 @@ export default function InspirationDetail() {
           ) : (
             <img
               src={imageSrc || inspirationImageUrl(outputUrl, 480)}
-              alt={item.title}
+              alt={inspirationTitle(item)}
               className="max-h-full max-w-full rounded-lg object-contain"
               onLoad={(event) => remember(event.currentTarget)}
             />
@@ -355,7 +363,7 @@ export default function InspirationDetail() {
                 id="inspiration-detail-title"
                 className="font-display text-title font-semibold leading-snug"
               >
-                {item.title}
+                {inspirationTitle(item)}
               </h2>
               {author || source ? (
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-label-sm text-muted-foreground">

@@ -3,6 +3,7 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { applyInspiration } from '../lib/applyInspiration'
+import { inspirationTitle } from '../lib/labels'
 import { openInspiration } from '../lib/navigate'
 import { useInspirationStore } from '../store'
 
@@ -50,7 +51,7 @@ export default function InspirationChips() {
             loading="lazy"
             className="studio-home-chip-thumb h-7 w-10 rounded-lg object-cover"
           />
-          <span className="max-w-[12rem] truncate">{item.title}</span>
+          <span className="max-w-[12rem] truncate">{inspirationTitle(item)}</span>
         </Button>
       ))}
       <Button
