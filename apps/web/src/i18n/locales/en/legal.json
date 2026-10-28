@@ -16,7 +16,7 @@
   "sections": {
     "accounts": {
       "title": "Accounts",
-      "body": "You create an account with a contact email and a password, or with a third-party sign-in method we offer. Keep your credentials private. Activity under the account is treated as yours.\n\nYou can update sign-in methods in account settings. If you notice unauthorized use, email {{email}} or contact @{{x}} on X. We may suspend or close an account that breaks these terms, poses a security risk, or must be restricted by law."
+      "body": "You create an account with a contact email and a password, or with a third-party sign-in method we offer. Keep your credentials private. Activity under the account is treated as yours.\n\nYou can update sign-in methods in account settings. If you notice unauthorized use, email {{email}}. We may suspend or close an account that breaks these terms, poses a security risk, or must be restricted by law."
     },
     "credits": {
       "title": "Credits, payments, and refunds",

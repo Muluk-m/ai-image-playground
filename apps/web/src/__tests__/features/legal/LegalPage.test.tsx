@@ -50,6 +50,8 @@ describe('LegalPage contact', () => {
     expect(mail.length).toBeGreaterThanOrEqual(2)
     expect(mail.every((link) => link.textContent === SUPPORT_CONTACT.email)).toBe(true)
     expect(document.querySelector('a[href*="x.com"]')).toBeNull()
+    expect(document.body.textContent).not.toContain(SUPPORT_CONTACT.xHandle)
+    expect(document.body.textContent).not.toContain('在 X 上联系')
 
     const link = contactLink()
     expect(link.textContent).toBe('联系我们')
@@ -83,6 +85,8 @@ describe('LegalPage contact', () => {
     })
     expect(contactLink().textContent).toBe('contact us')
     expect(document.body.textContent).toContain(`email ${SUPPORT_CONTACT.email}, or contact us.`)
+    expect(document.body.textContent).toContain(`email ${SUPPORT_CONTACT.email}.`)
+    expect(document.body.textContent).not.toContain('on X')
     expect(document.querySelector('a[href*="x.com"]')).toBeNull()
     act(() => contactLink().click())
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Contact us')
