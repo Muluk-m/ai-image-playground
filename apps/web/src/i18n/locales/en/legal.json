@@ -52,7 +52,11 @@
     },
     "contact": {
       "title": "Contact",
-      "body": "For privacy requests, questions about these terms, or refunds, email {{email}} or contact @{{x}} on X.\n\nWe may update these pages as the product or the law changes. The updated text applies when it is published. If a change materially affects your rights, we will give a reasonable notice in the product."
+      "before": "For privacy requests, questions about these terms, or refunds, email {{email}}, contact @{{x}} on X, or ",
+      "action": "contact us",
+      "after": ".",
+      "updates": "We may update these pages as the product or the law changes. The updated text applies when it is published. If a change materially affects your rights, we will give a reasonable notice in the product.",
+      "dialogTitle": "Contact us"
     }
   }
 }
