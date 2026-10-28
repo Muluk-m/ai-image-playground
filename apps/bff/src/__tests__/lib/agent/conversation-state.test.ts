@@ -587,6 +587,10 @@ describe('renderConversationState', () => {
     expect(text).toContain(
       '批次 b1「小动物」：已执行完毕，完成 2/2；用户确认前已从计划里删掉：rabbit（一只白色兔子，竖版）。这一批只有 2 项，删掉的是用户自己去掉的，不是漏生成',
     )
-    expect(text).toContain('例：「这一批 2 张都已完成，没有缺的；rabbit 是你确认前删掉的')
+    expect(text).toContain(
+      '例：「这一批 2 张都已完成，没有缺的；「一只白色兔子」那张是你确认前删掉的',
+    )
+    // 示范答法不带 key，否则模型照抄给用户（BUG-56）。
+    expect(text.slice(text.indexOf('例：'))).not.toContain('rabbit')
   })
 })
