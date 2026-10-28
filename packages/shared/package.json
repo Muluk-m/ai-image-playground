@@ -7,7 +7,8 @@
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./model-catalog": "./src/model-catalog/index.ts"
+    "./model-catalog": "./src/model-catalog/index.ts",
+    "./support-contact": "./src/support-contact.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
