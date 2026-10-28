@@ -16,69 +16,27 @@ export const REPLY_SCRIPT_FALLBACK_EN = 'That reply came back in an unexpected l
 
 /**
  * 常驻保留。假名、谚文、希腊字母和中英文一样不删，避免「用日语回答」把「見る」削成「見」。
- * 不在这里、用户也没写过的字母才删，这样没列进清单的文字系统也不会漏进回复。
+ * 不在这里的字母默认删。用户原文里出现过的具体字符再放行，不依赖一份会漏脚本的名单。
  */
 const ALWAYS_KEPT =
   /[\p{Script=Latin}\p{Script=Han}\p{Script=Bopomofo}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Greek}\p{Script=Common}\p{Script=Inherited}]/u
-
-/** 用来认出用户原文里的文字，好让引用原样留下。 */
-const OTHER_SCRIPTS = [
-  'Adlam',
-  'Arabic',
-  'Armenian',
-  'Bengali',
-  'Canadian_Aboriginal',
-  'Cherokee',
-  'Coptic',
-  'Cyrillic',
-  'Devanagari',
-  'Ethiopic',
-  'Georgian',
-  'Gujarati',
-  'Gurmukhi',
-  'Hebrew',
-  'Kannada',
-  'Khmer',
-  'Lao',
-  'Malayalam',
-  'Mongolian',
-  'Myanmar',
-  'Nko',
-  'Oriya',
-  'Sinhala',
-  'Syriac',
-  'Tamil',
-  'Telugu',
-  'Thaana',
-  'Thai',
-  'Tibetan',
-  'Vai',
-  'Yi',
-] as const
-
-type OtherScript = (typeof OTHER_SCRIPTS)[number]
 
 const DROPPABLE = /[\p{L}\p{M}\p{N}]/u
 const HAN = /\p{Script=Han}/u
 const LATIN = /\p{Script=Latin}/u
 
-const scriptPattern = new Map<OtherScript, RegExp>(
-  OTHER_SCRIPTS.map((name) => [name, new RegExp(`\\p{Script=${name}}`, 'u')]),
-)
-
-function extraPattern(userText: string): RegExp | null {
-  const names: OtherScript[] = []
+function extraChars(userText: string): Set<string> | null {
+  let extra: Set<string> | null = null
   for (const char of userText) {
     if (ALWAYS_KEPT.test(char) || !DROPPABLE.test(char)) continue
-    const name = OTHER_SCRIPTS.find((script) => scriptPattern.get(script)!.test(char))
-    if (name && !names.includes(name)) names.push(name)
+    extra ??= new Set()
+    extra.add(char)
   }
-  if (names.length === 0) return null
-  return new RegExp(`[${names.map((name) => `\\p{Script=${name}}`).join('')}]`, 'u')
+  return extra
 }
 
-function isDropped(char: string, extra: RegExp | null): boolean {
-  if (ALWAYS_KEPT.test(char) || extra?.test(char)) return false
+function isDropped(char: string, extra: Set<string> | null): boolean {
+  if (ALWAYS_KEPT.test(char) || extra?.has(char)) return false
   return DROPPABLE.test(char)
 }
 
@@ -107,7 +65,7 @@ function hasPayload(text: string): boolean {
   return /[^\p{P}\p{Z}\p{C}]/u.test(text)
 }
 
-function stripBody(text: string, extra: RegExp | null): string {
+function stripBody(text: string, extra: Set<string> | null): string {
   const chars = [...text]
   let out = ''
   let index = 0
@@ -139,10 +97,10 @@ function replyFallback(userText: string): string {
 
 /** 只删除不该出现的文字，不把整段换成兜底句。建议句用这条：整句都是杂字就丢掉。 */
 export function stripDisallowedScripts(text: string, userText = ''): string {
-  return stripBody(text, extraPattern(userText))
+  return stripBody(text, extraChars(userText))
 }
 
-function stripPrepared(text: string, extra: RegExp | null): string {
+function stripPrepared(text: string, extra: Set<string> | null): string {
   return stripBody(text, extra)
 }
 
@@ -158,7 +116,7 @@ export interface ReplyScriptGate {
 }
 
 export function createReplyScriptGate(userText: string): ReplyScriptGate {
-  const extra = extraPattern(userText)
+  const extra = extraChars(userText)
   const fallback = replyFallback(userText)
   let raw = ''
   /** 已经扫过的 UTF-16 下标。尾部单独的高位代理先留着，等下一片把字拼完整。 */
@@ -253,7 +211,7 @@ export function sanitizeAssistantMessages(
   messages: readonly AgentMessageView[],
 ): AgentMessageView[] {
   const userText = collectUserReplyText(messages)
-  const extra = extraPattern(userText)
+  const extra = extraChars(userText)
   let changed = false
   const next = messages.map((message) => {
     if (message.role !== 'assistant') return message
