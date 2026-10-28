@@ -12,6 +12,26 @@ export function imageNeedsUploadCompression(file: File): boolean {
   )
 }
 
+/** 压完仍超过上传上限：调用方不要建节点、不要发出去。 */
+export class UploadImageTooLargeError extends Error {
+  constructor(readonly fileName: string) {
+    super('image_too_large')
+    this.name = 'UploadImageTooLargeError'
+  }
+}
+
+/**
+ * 单个上传入口共用：先压超过 50 MB 的图。压完仍超限就抛出，调用方提示并停在原处。
+ * 不超过 50 MB 的原件原样返回。
+ */
+export async function compressUploadFile(file: File, targetBytes = MAX_IMAGE_BYTES): Promise<File> {
+  const [fitted] = await compressUploadFiles([file], targetBytes)
+  const image = fitted ?? file
+  if (image.type.startsWith('image/') && image.size > MAX_IMAGE_BYTES)
+    throw new UploadImageTooLargeError(image.name)
+  return image
+}
+
 /** 这一批里有图被压过就提示一次。压不成的不在这里报，调用方继续走原来的拒绝。 */
 export async function compressUploadFiles(
   files: readonly File[],
