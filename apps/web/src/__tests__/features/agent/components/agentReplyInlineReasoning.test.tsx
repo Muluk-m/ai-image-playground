@@ -43,6 +43,13 @@ it('keeps a leaked script the user already wrote', async () => {
   expect(host.textContent).toContain('પરિણામ')
 })
 
+it('shows the fallback and hides copy when an injected reply cleans down to punctuation (BUG-80)', async () => {
+  const host = await render('પરિણામ。', false, '把第二张改成夜景')
+  expect(host.textContent).toContain('回复语言异常，请再试一次。')
+  expect(host.textContent).not.toContain('પ')
+  expect(host.querySelector('button')).toBeNull()
+})
+
 it('keeps tags that appear in the middle of the reply', async () => {
   const host = await render('好的。<think>这也是正文</think>后面还在')
   expect(host.textContent).toContain('后面还在')
