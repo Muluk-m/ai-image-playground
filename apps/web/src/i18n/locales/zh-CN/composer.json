@@ -51,7 +51,8 @@
     "noModel": "暂无可用模型，请稍后再试",
     "startCanvas": "开始创作",
     "skillNeedsCanvas": "技能只能在项目中使用，切到「智能创作」或「画布创作」再发送",
-    "promptRequired": "请输入提示词后再生成"
+    "promptRequired": "请输入提示词后再生成",
+    "promptTooLong": "提示词最多 {{max}} 字，请删减后再生成"
   },
   "search": {
     "favoriteOnly": "只看收藏",
