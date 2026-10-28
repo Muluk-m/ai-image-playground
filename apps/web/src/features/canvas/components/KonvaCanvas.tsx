@@ -13,7 +13,7 @@ import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { mediaIdentity } from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
-import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
+import { collectDroppedFiles, prepareAcceptedImageFiles } from '../../../lib/imageFiles'
 import { copySelection, duplicateSelection, pasteClipboard } from '../lib/canvasClipboard'
 import type { ArrowEl, CanvasEl, FreedrawEl, ImageEl, TextEl } from '../lib/canvasDoc'
 import { newElementId, ZOOM_MAX, ZOOM_MIN } from '../lib/canvasDoc'
@@ -309,12 +309,15 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       const t = e.target as HTMLElement | null
       // 输入框里的粘贴（生成条 prompt / 文字编辑）不拦
       if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.isContentEditable) return
-      const files = acceptImageFiles([...(e.clipboardData?.files ?? [])])
-      if (files.length > 0) {
+      const pasted = [...(e.clipboardData?.files ?? [])]
+      if (pasted.some((file) => file.type.startsWith('image/'))) {
         e.preventDefault()
         const vp = editor.getViewportPageBounds()
-        confirmImageBatch(files.length, () => {
-          void importImageFiles(editor, files, { x: vp.midX, y: vp.midY })
+        void prepareAcceptedImageFiles(pasted).then((files) => {
+          if (files.length === 0) return
+          confirmImageBatch(files.length, () => {
+            void importImageFiles(editor, files, { x: vp.midX, y: vp.midY })
+          })
         })
         return
       }
@@ -757,8 +760,8 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
           y: camera.y + (e.clientY - rect.top) / camera.zoom,
         }
         // collectDroppedFiles 必须在这一拍同步调用：await 之后 DataTransfer.items 就空了。
-        void collectDroppedFiles(e.dataTransfer).then(({ files }) => {
-          const images = acceptImageFiles(files)
+        void collectDroppedFiles(e.dataTransfer).then(async ({ files }) => {
+          const images = await prepareAcceptedImageFiles(files)
           if (images.length === 0) return
           confirmImageBatch(images.length, () => {
             void importImageFiles(editor, images, drop)
