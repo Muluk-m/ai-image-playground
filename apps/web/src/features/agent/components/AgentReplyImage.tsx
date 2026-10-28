@@ -19,6 +19,8 @@ interface ReplyImage {
 }
 interface ReplyImages {
   readonly images: ReadonlyMap<string, ReplyImage>
+  /** 本会话批次项的 key：回复正文里出现时去掉，不给用户看（BUG-56）。 */
+  readonly hiddenKeys: readonly string[]
   readonly onPreview?: (messageId: string, objectId?: string, previewSource?: string) => void
 }
 
@@ -57,9 +59,15 @@ export function AgentReplyImagesProvider({
     }
     return found
   }, [messages])
+  const keyList = messages.flatMap((message) =>
+    message.kind === 'tool' ? (message.batchItemKeys ?? []) : [],
+  )
+  // 按内容记忆：消息每次流式更新都会换数组，key 没变就不让回复重新清洗。
+  const keySignature = [...new Set(keyList)].sort().join('\n')
+  const hiddenKeys = useMemo(() => (keySignature ? keySignature.split('\n') : []), [keySignature])
   const value = useMemo(
-    () => ({ images, ...(onPreview ? { onPreview } : {}) }),
-    [images, onPreview],
+    () => ({ images, hiddenKeys, ...(onPreview ? { onPreview } : {}) }),
+    [images, hiddenKeys, onPreview],
   )
   return <ReplyImagesContext.Provider value={value}>{children}</ReplyImagesContext.Provider>
 }
@@ -122,5 +130,49 @@ export function AgentReplyImage({ src, alt }: { src?: string; alt?: string }) {
     >
       {image}
     </Button>
+  )
+}
+
+const NO_KEYS: readonly string[] = []
+
+/** 回复正文要去掉的批次项 key；不在会话面板里（如灵感详情）时是空的。 */
+export function useReplyHiddenKeys(): readonly string[] {
+  return useContext(ReplyImagesContext)?.hiddenKeys ?? NO_KEYS
+}
+
+const EXTERNAL_LINK = /^(?:https?:|mailto:)/i
+
+/**
+ * 回复里的 Markdown 链接。外链照常新标签页打开；指向本会话图片的（模型常把产物 id 写成链接）
+ * 改成点开图片查看；其余相对地址在这里都会解析到 `/p/...`，打不开还露出内部 id，只留文字（BUG-55）。
+ */
+export function AgentReplyLink({ href, children }: { href?: string; children?: ReactNode }) {
+  const { t } = useTranslation('agent')
+  const context = useContext(ReplyImagesContext)
+  if (href && EXTERNAL_LINK.test(href))
+    return (
+      <a
+        className="text-primary underline decoration-primary/40 hover:text-primary"
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+      >
+        {children}
+      </a>
+    )
+  const key = replyImageKey(href)
+  const hit = key ? context?.images.get(key) : undefined
+  const preview = context?.onPreview
+  if (!hit || !preview) return <span>{children}</span>
+  const name = typeof children === 'string' ? children : t('reply.image')
+  return (
+    <button
+      type="button"
+      aria-label={t('reply.openImage', { name })}
+      className="cursor-zoom-in text-primary underline decoration-primary/40 hover:text-primary"
+      onClick={() => preview(hit.messageId, hit.artifact.artifactId)}
+    >
+      {children}
+    </button>
   )
 }
