@@ -166,13 +166,14 @@ export function AgentReplyLink({ href, children }: { href?: string; children?: R
   if (!hit || !preview) return <span>{children}</span>
   const name = typeof children === 'string' ? children : t('reply.image')
   return (
-    <button
+    <Button
       type="button"
+      variant="link"
       aria-label={t('reply.openImage', { name })}
-      className="cursor-zoom-in text-primary underline decoration-primary/40 hover:text-primary"
+      className="inline h-auto cursor-zoom-in whitespace-normal p-0 align-baseline font-[inherit] text-[length:inherit] underline decoration-primary/40"
       onClick={() => preview(hit.messageId, hit.artifact.artifactId)}
     >
       {children}
-    </button>
+    </Button>
   )
 }
