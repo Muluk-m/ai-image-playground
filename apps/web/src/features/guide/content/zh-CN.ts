@@ -1,4 +1,8 @@
-import { SUPPORT_CONTACT, SUPPORT_MAILTO, SUPPORT_X_URL } from '@image-playground/shared'
+import {
+  SUPPORT_CONTACT,
+  SUPPORT_MAILTO,
+  SUPPORT_X_URL,
+} from '@image-playground/shared/support-contact'
 import {
   faq,
   type GuideContent,
