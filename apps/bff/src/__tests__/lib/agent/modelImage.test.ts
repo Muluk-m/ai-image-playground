@@ -163,6 +163,15 @@ describe('超大原图（8000×4500，超出 agent:visual-max-pixels）', () => 
     expect(preview.height).toBe(576)
   })
 
+  it('超长图（500×4000）缩略图短边不低于 256、长边至多 2048，模型才框得准（#1554）', async () => {
+    const tall = await sharp(decode(await toPreviewDataUrl(await solid(500, 4000)))).metadata()
+    expect([tall.width, tall.height]).toEqual([256, 2048])
+    const wide = await sharp(decode(await toPreviewDataUrl(await solid(8000, 500)))).metadata()
+    expect([wide.width, wide.height]).toEqual([2048, 128])
+    const strip = await sharp(decode(await toPreviewDataUrl(await solid(300, 1600)))).metadata()
+    expect(strip.width! >= 256 && strip.height! <= 2048).toBe(true)
+  })
+
   it('服务端取原件逐字节不动、不按准备预算拒', async () => {
     const original = await solid(8000, 4500)
     expect(await toSourceImageDataUrl(original)).toBe(original)
