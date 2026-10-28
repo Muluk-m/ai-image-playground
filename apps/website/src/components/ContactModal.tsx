@@ -2,7 +2,7 @@ import { useState } from 'react'
 import Overlay from '../../../web/src/components/patterns/Overlay'
 import { Icon } from '../../../web/src/components/ui/icon'
 import type { Locale } from '../catalog'
-import { CONTACT_EMAIL, type MarketingCopy, marketingCopy, X_URL } from '../marketing'
+import { CONTACT_EMAIL, type MarketingCopy, marketingCopy } from '../marketing'
 
 /**
  * 联系方式弹层。
@@ -65,20 +65,6 @@ export function ContactPanel({
       <p>{text.body}</p>
       <div className="copt">
         <span className="ci" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-          </svg>
-        </span>
-        <div className="ct">
-          <b>{text.xTitle}</b>
-          <span>{text.xDetail}</span>
-        </div>
-        <a className="cbtn pri" href={X_URL} target="_blank" rel="noopener noreferrer" autoFocus>
-          {text.xAction}
-        </a>
-      </div>
-      <div className="copt">
-        <span className="ci" aria-hidden="true">
           <svg
             width="18"
             height="18"
@@ -98,7 +84,7 @@ export function ContactPanel({
         <button type="button" className="cbtn" onClick={() => void copyAddress()}>
           {copyLabel}
         </button>
-        <a className="cbtn pri" href={`mailto:${CONTACT_EMAIL}`}>
+        <a className="cbtn pri" href={`mailto:${CONTACT_EMAIL}`} autoFocus>
           {text.send}
         </a>
       </div>
