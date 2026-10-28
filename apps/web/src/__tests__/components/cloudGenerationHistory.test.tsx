@@ -183,7 +183,7 @@ const waitCards = async (count: number) => {
   })
 }
 
-it('首页直接展示虚拟作品列表，不再提供展开或加载更多按钮', async () => {
+it('首页先预览最近两行作品，点「查看全部作品」展开完整列表', async () => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async () =>
@@ -191,11 +191,26 @@ it('首页直接展示虚拟作品列表，不再提供展开或加载更多按�
     ),
   )
   await act(async () => root.render(<GenerationHistory userId="owner" hero />))
-  await waitCards(4)
-  expect(findButton('展开全部')).toBe(false)
-  expect(findButton('展开更多作品')).toBe(false)
+  // 测试环境按单列排：两行就是两张。
+  await waitCards(2)
+  await settle()
+  expect(cards()).toHaveLength(2)
   expect(findButton('加载更多')).toBe(false)
   expect(host.querySelector('input[type="search"]')).toBeNull()
+  await click('查看全部作品')
+  await waitCards(4)
+  expect(findButton('查看全部作品')).toBe(false)
+})
+
+it('作品不满两行时不露出展开入口', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => page([item])),
+  )
+  await act(async () => root.render(<GenerationHistory userId="owner" hero />))
+  await waitCards(1)
+  await settle()
+  expect(findButton('查看全部作品')).toBe(false)
 })
 
 it('首页保留去资产库入口', async () => {
@@ -212,20 +227,20 @@ it('首页保留去资产库入口', async () => {
   expect(useLibraryStore.getState().tab).toBe('projects')
 })
 
-it('到达最后一页后移除底部遮罩，最后一张作品可完整查看', async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => page([item])),
-  )
+it('首页预览不随滚动续读；平台还有下一页时露出展开入口', async () => {
+  const fetcher = vi.fn(async (_url: string) => page([item], 'next-page'))
+  vi.stubGlobal('fetch', fetcher)
   await act(async () => root.render(<GenerationHistory userId="owner" hero />))
   await waitCards(1)
   await reachEnd()
-  expect(host.querySelector('.studio-works-fade')).toBeNull()
-  await reachEnd(false)
-  expect(host.querySelector('.studio-works-fade')).not.toBeNull()
+  await settle()
+  expect(
+    fetcher.mock.calls.filter(([url]) => String(url).startsWith('/api/generations')),
+  ).toHaveLength(1)
+  expect(findButton('查看全部作品')).toBe(true)
 })
 
-it('接近列表底部时续读下一页，等待期间不重复请求', async () => {
+it('展开后接近列表底部时续读下一页，等待期间不重复请求', async () => {
   let finishPage: ((response: Response) => void) | undefined
   const nextPage = new Promise<Response>((resolve) => {
     finishPage = resolve
@@ -240,6 +255,7 @@ it('接近列表底部时续读下一页，等待期间不重复请求', async (
     await act(async () => {})
     expect(host.querySelector('[role="status"]')).toBeNull()
   })
+  await click('查看全部作品')
   expect(fetcher.mock.calls.filter(([url]) => url.startsWith('/api/generations'))).toHaveLength(1)
   await reachEnd()
   await reachEnd()
@@ -251,10 +267,9 @@ it('接近列表底部时续读下一页，等待期间不重复请求', async (
   await waitCards(2)
   await reachEnd()
   expect(fetcher.mock.calls.filter(([url]) => url.startsWith('/api/generations'))).toHaveLength(2)
-  expect(host.querySelector('.studio-works-fade')).toBeNull()
 })
 
-it('滚动加载失败时保留已读作品并停止自动重试', async () => {
+it('展开后滚动加载失败时保留已读作品并停止自动重试', async () => {
   const fetcher = vi.fn(async (url: string) => {
     if (url.includes('cursor=next-page')) throw new TypeError('network')
     return page([item], 'next-page')
@@ -266,6 +281,7 @@ it('滚动加载失败时保留已读作品并停止自动重试', async () => {
     await act(async () => {})
     expect(host.querySelector('[role="status"]')).toBeNull()
   })
+  await click('查看全部作品')
   await reachEnd()
   await settle()
   await reachEnd()
@@ -275,7 +291,7 @@ it('滚动加载失败时保留已读作品并停止自动重试', async () => {
   expect(findButton('刷新')).toBe(true)
 })
 
-it('不支持 IntersectionObserver 时仍能通过滚动续页', async () => {
+it('不支持 IntersectionObserver 时展开后仍能通过滚动续页', async () => {
   vi.stubGlobal('IntersectionObserver', undefined)
   let top = 2000
   const bounds = vi
@@ -293,6 +309,7 @@ it('不支持 IntersectionObserver 时仍能通过滚动续页', async () => {
     await act(async () => {})
     expect(host.querySelector('[role="status"]')).toBeNull()
   })
+  await click('查看全部作品')
   top = 100
   await act(async () => window.dispatchEvent(new Event('scroll')))
   await waitCards(2)

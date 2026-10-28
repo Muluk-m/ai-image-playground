@@ -11,7 +11,6 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useWindowVirtualizer } from '../hooks/useWindowVirtualizer'
 import { i18next, useTranslation } from '../i18n'
@@ -34,6 +33,7 @@ import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } 
 import type { TaskRecord } from '../types'
 import SetHistoryCard, { type BatchItemHandlers } from './SetHistoryCard'
 import TaskCard from './TaskCard'
+import { Button } from './ui/button'
 
 /** 网格列数与 `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` 的断点保持一致。 */
 const COLUMN_QUERIES = [
@@ -146,7 +146,22 @@ function setFallbackName(task: TaskRecord | undefined): string {
  *
  * 首页直接展示视口附近的作品，不沿用资产页的搜索与筛选。
  */
-export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
+/** 首页「我的作品」预览的行数。 */
+export const HOME_WORK_ROWS = 2
+
+export default function TaskGrid({
+  hero,
+  preview = false,
+  moreAvailable = false,
+  onShowAll,
+}: {
+  hero?: boolean
+  /** 首页预览：只排最近两行，多出来的由「查看全部作品」展开。 */
+  preview?: boolean
+  /** 平台还有下一页时也露出展开入口。 */
+  moreAvailable?: boolean
+  onShowAll?: () => void
+} = {}) {
   const { t } = useTranslation('task')
   const historyReady = useSyncExternalStore(subscribeHistoryReady, isHistoryReady, () => false)
   const submittedIds = useSyncExternalStore(
@@ -571,12 +586,19 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
 
   // 按当前列数分行，只渲染视口附近的几行。
   const columns = useGridColumns()
-  const itemRows = useMemo(() => {
+  const allRows = useMemo(() => {
     const chunks: GridItem[][] = []
     for (let index = 0; index < items.length; index += columns)
       chunks.push(items.slice(index, index + columns))
     return chunks
   }, [items, columns])
+  // 首页先预览最近两行，展开后才是完整时间线。
+  const itemRows = useMemo(
+    () => (preview ? allRows.slice(0, HOME_WORK_ROWS) : allRows),
+    [allRows, preview],
+  )
+  const canShowAll =
+    preview && Boolean(onShowAll) && (allRows.length > HOME_WORK_ROWS || moreAvailable)
   const [scrollMargin, setScrollMargin] = useState(0)
   const getItemKey = useCallback(
     (index: number) => itemRows[index]?.map((item) => item.key).join('|') ?? index,
@@ -687,15 +709,13 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
         </div>
       )
     }
-    // 灵感瀑布只在创作页的冷启动露出；资产·作品空了就说空了，别把探索页搬过来。
-    // 首页一次只挂一条无限列表：没作品时是这里的灵感，有作品时仍是下面这条虚拟网格。
-    if (!hero)
-      return (
-        <div className="text-center py-20 text-muted-foreground">
-          <p className="text-sm">{t('grid.empty')}</p>
-        </div>
-      )
-    return <InspirationEmptyHero />
+    // 首页没有作品就不占位，下面的灵感区接着露出；资产·作品空了就说空了。
+    if (hero) return null
+    return (
+      <div className="text-center py-20 text-muted-foreground">
+        <p className="text-sm">{t('grid.empty')}</p>
+      </div>
+    )
   }
 
   return (
@@ -722,6 +742,13 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
           ))}
         </div>
       </div>
+      {canShowAll && (
+        <div className="flex justify-center pb-6">
+          <Button variant="outline" onClick={onShowAll}>
+            {t('grid.showAll')}
+          </Button>
+        </div>
+      )}
       {selectionBox && (
         <div
           className="fixed bg-primary/20 border border-primary/50 pointer-events-none z-[30]"

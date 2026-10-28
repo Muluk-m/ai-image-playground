@@ -437,10 +437,6 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   initial-value: 0deg;
 }
 @keyframes studio-home-rim { to { --home-rim-angle: 360deg; } }
-@keyframes studio-hero-shimmer {
-  from { background-position: 100% 0; }
-  to { background-position: -150% 0; }
-}
 @keyframes studio-home-drift {
   0% { transform: translate(-60px, 0) scale(1); opacity: .8; }
   50% { opacity: 1; }
@@ -599,23 +595,6 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   }
 }
 
-/* 标题后半段是品牌芽绿，上面掠过一道很淡的银光。大面积必须仍是芽绿。 */
-.studio-hero-accent {
-  background-image: linear-gradient(
-    100deg,
-    hsl(var(--primary)) 0%,
-    hsl(var(--primary)) 42%,
-    color-mix(in srgb, hsl(var(--primary)) 72%, white 28%) 50%,
-    hsl(var(--primary)) 58%,
-    hsl(var(--primary)) 100%
-  );
-  background-size: 250% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: studio-hero-shimmer 10s linear infinite;
-}
-
 /* 提示卡边上一道很暗的银光，大约 13 秒绕一圈，峰值约 0.16。聚焦时收起。 */
 [data-home-main] .studio-history-composer { animation: studio-home-rim 13s linear infinite; }
 [data-home-main] .studio-history-composer::before {
@@ -683,7 +662,6 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .studio-home-backdrop__hover { display: none; }
-  .studio-hero-accent,
   .studio-home-backdrop__glow,
   [data-home-main] .studio-history-composer { animation: none; }
   [data-home-main] .studio-history-composer::before { opacity: 0; }
@@ -691,21 +669,16 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
     border-color: var(--home-card-border);
     background: hsl(var(--card));
   }
-  .studio-hero-accent {
-    background-image: none;
-    color: hsl(var(--primary));
-    -webkit-text-fill-color: hsl(var(--primary));
-  }
 }
 
 /* 起手 chip 的底保持中性深色，缩略图静止时略降饱和，悬停或按下恢复原色。 */
-[data-home-main] .studio-home-chips button {
+[data-home-main] .studio-home-chips button:not(.studio-home-chips-more) {
   border-color: hsl(var(--border));
   background: hsl(var(--secondary));
   color: hsl(var(--muted-foreground));
 }
-[data-home-main] .studio-home-chips button:hover,
-[data-home-main] .studio-home-chips button:active {
+[data-home-main] .studio-home-chips button:not(.studio-home-chips-more):hover,
+[data-home-main] .studio-home-chips button:not(.studio-home-chips-more):active {
   background: hsl(var(--accent));
   color: hsl(var(--foreground));
 }
@@ -1646,19 +1619,6 @@ body .studio-global-account {
 .studio-node-reference-eligible:hover .studio-node { outline: 2px solid hsl(var(--primary)); outline-offset: 4px; }
 
 html[data-home='true'] .app-inset-panel { overflow: clip; }
-.studio-works-fade {
-  position: sticky;
-  bottom: var(--mobile-nav-height, 0px);
-  z-index: 10;
-  height: 96px;
-  margin-top: -96px;
-  pointer-events: none;
-  background: linear-gradient(to bottom, hsl(var(--background) / 0), hsl(var(--background) / .9));
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  mask-image: linear-gradient(to bottom, transparent, hsl(var(--foreground)));
-  -webkit-mask-image: linear-gradient(to bottom, transparent, hsl(var(--foreground)));
-}
 
 /* 范围确认卡：智能体提议的修改范围，用户确认或在卡内调整。 */
 .studio-mask-proposal { display: flex; width: min(440px, 100%); flex-direction: column; gap: 12px; padding: 16px; border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--card)); }

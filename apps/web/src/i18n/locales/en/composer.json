@@ -205,7 +205,8 @@
     "shortModes": {
       "agent": "Agent",
       "image": "Image",
-      "video": "Video"
+      "video": "Video",
+      "canvas": "Canvas"
     }
   },
   "batch": {

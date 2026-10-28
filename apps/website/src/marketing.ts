@@ -1,155 +1,37 @@
-import { SUPPORT_CONTACT, SUPPORT_X_URL } from '@image-playground/shared/support-contact'
 import type { Locale } from './catalog'
 
 export const ASSET = '/website-assets/v41'
 export const MARK = '/brand/muvloom-mark.svg'
 
-/** 首屏图片墙。文件名以 r26 / i25 / awesome / gpt-image 开头的条目在灵感库清单里。 */
-export const WALL = [
-  'r26-01.webp',
-  'r26-02.webp',
-  'g-abstract-liquid.webp',
-  'awesome-346.webp',
-  'r26-03.webp',
-  'g-anime-city.webp',
-  'r26-04.webp',
-  'r26-06.webp',
-  'g-anime-spirit.webp',
-  'awesome-390.webp',
-  'r26-08.webp',
-  'g-arch-brutal.webp',
-  'r26-10.webp',
-  'r26-11.webp',
-  'g-arch-interior.webp',
-  'gpt-image-2-dumplings-editorial-poster.webp',
-  'r26-14.webp',
-  'g-character-mech.webp',
-  'r26-15.webp',
-  'r26-17.webp',
-  'g-cine-desert.webp',
-  'gpt-image-2-travel-journal-edit.webp',
-  'r26-18.webp',
-  'g-cine-ocean.webp',
-  'r26-22.webp',
-  'r26-25.webp',
-  'g-cine-rain.webp',
-  'i25-01.webp',
-  'r26-26.webp',
-  'g-fashion-neon.webp',
-  'r26-28.webp',
-  'r26-29.webp',
-  'g-fashion-runway.webp',
-  'i25-04.webp',
-  'r26b-01.webp',
-  'g-food-noodle.webp',
-  'r26b-02.webp',
-  'r26b-04.webp',
-  'g-portrait-astronaut.webp',
-  'i25-06.webp',
-  'r26b-06.webp',
-  'g-portrait-elder.webp',
-  'r26b-07.webp',
-  'r26b-08.webp',
-  'g-product-perfume.webp',
-  'i25-07.webp',
-  'r26b-09.webp',
-  'g-product-sneaker.webp',
-  'r26b-15.webp',
-  'r26b-16.webp',
-  'g-product-watch.webp',
-  'i25-08.webp',
-  'r26b-20.webp',
-  'g-surreal-whale.webp',
-  'r26b-21.webp',
-  'r26b-24.webp',
-  'mug-1.webp',
-  'i25-12.webp',
-  'r26b-26.webp',
-  'mug-7.webp',
-  'r26b-27.webp',
-  'r26b-29.webp',
-  'perfume-pedestal-up.webp',
-  'r26b-30.webp',
-  'serum-macro.webp',
-  'r26b-31.webp',
-  'r26b-40.webp',
-  'sneaker-turntable.webp',
-  'r26b-41.webp',
-  'unboxing-apparel.webp',
-  'r26b-42.webp',
-  'r26b-47.webp',
-] as const
-
+/** 官网图片都取自灵感库清单里的原图，打包在 public/website-assets/v41/wall。 */
 export function wallSrc(file: string): string {
   return `${ASSET}/wall/${file}`
 }
-
-/** 墙图另备一份 320 宽：窄列和低像素比屏取小图，慢网首屏少下几 MB。 */
-export function wallSrcSet(file: string): string {
-  return `${ASSET}/wall-320/${file} 320w, ${wallSrc(file)} 640w`
-}
-
-/** 与 marketing.css 里 `.col` 的列宽一致（手机 36vw，桌面 clamp(150px, 15vw, 250px)）。 */
-export const WALL_SIZES =
-  '(max-width: 760px) 36vw, (max-width: 1000px) 150px, (min-width: 1667px) 250px, 15vw'
-
-/** 与 `.mrow figure` 的宽一致（clamp(130px, 13vw, 210px)）。 */
-export const MARQUEE_SIZES = '(max-width: 1000px) 130px, (min-width: 1616px) 210px, 13vw'
-
-/** 9 列循环墙，和原型同一套取图顺序，每列再接一份用来无缝滚动。 */
-export function wallColumns(files: readonly string[] = WALL, columns = 9): string[][] {
-  const per = Math.ceil(files.length / columns) + 3
-  return Array.from({ length: columns }, (_, column) => {
-    const pick = Array.from(
-      { length: per },
-      (_, index) => files[(column * 4 + index * columns) % files.length]!,
-    )
-    return pick.concat(pick)
-  })
-}
-
-export function libraryFiles(files: readonly string[] = WALL): string[] {
-  return files.filter((file) => /^(r26|i25|awesome|gpt-image)/.test(file))
-}
-
-/** 收尾两行，各 14 张灵感库图，再接一份做无限横移。 */
-export function libraryRows(files: readonly string[] = WALL): string[][] {
-  const library = libraryFiles(files)
-  return [0, 1].map((row) => {
-    const pick = library.slice(row * 14, row * 14 + 14)
-    return pick.concat(pick)
-  })
-}
-
-export interface ShowcaseCase {
-  id: string | null
-  key: string
-  image: string
-  fit?: 'cover'
-  model: string
-  category: string
-  prompt: string
-}
-
-const PROMPTS = {
-  whale:
-    'Surreal photoreal image, a giant whale made of moss and flowers floating over a misty mountain valley at sunrise, small hikers watching, dreamlike, epic',
-  portrait:
-    '东京新宿雨夜，一位穿黑色长款风衣的年轻女性站在霓虹招牌下回头看向镜头，湿漉漉的柏油路面倒映着洋红与青色的灯光，85mm 镜头 f/1.4 浅景深，背景光斑柔和，皮肤质感真实，电影感调色，胶片颗粒细腻。街边招牌只出现虚构的日文店名，不出现任何真实品牌。',
-  product:
-    '一双白色与荧光绿配色的跑鞋悬浮在浅灰色无缝背景前，鞋底、中底、鞋面、鞋带等部件以爆炸图方式整齐地分层展开，柔和的棚拍光，干净的投影，工业设计渲染风格，材质细节清晰，适合电商详情页主视觉。',
-  poster:
-    '国潮风新春海报：朱红色背景，中央是一只用剪纸和烫金线条构成的祥龙盘绕着一轮金色满月，四周点缀祥云纹和梅花，顶部书法大字「万事顺遂」，清晰工整，配色红金为主，层次丰富，高级感节日视觉。',
-} as const
 
 export function caseHref(id: string | null): string {
   return id ? `/explore#inspirations/${encodeURIComponent(id)}` : '/explore'
 }
 
-export interface FeatureChapter {
+export type CaseGroup = 'product' | 'poster' | 'portrait' | 'illustration'
+export const CASE_GROUPS: CaseGroup[] = ['product', 'poster', 'portrait', 'illustration']
+
+export interface ShowcaseCase {
+  id: string
+  title: string
+  group: CaseGroup
+  image: string
+}
+
+export interface StarterPrompt {
+  id: string
+  title: string
+  prompt: string
+  image: string
+}
+
+export interface FeatureCard {
   title: string
   body: string
-  url: string
   image: string
 }
 
@@ -161,43 +43,31 @@ export interface MarketingCopy {
     inspiration: string
     guide: string
     pricing: string
-    start: string
+    signIn: string
   }
   hero: {
-    line1: string
-    line2: string
+    title: string
     body: string
+    placeholder: string
+    addImage: string
+    mode: string
+    model: string
     start: string
-    see: string
     note: string
-    scroll: string
   }
-  demo: {
-    eyebrow: string
-    line1: string
-    line2: string
+  cases: {
+    title: string
     lead: string
-    prompt: string
     same: string
-    caption: string
+    all: string
+    groups: Record<CaseGroup, string>
+    titles: Record<string, string>
   }
-  cases: Array<Pick<ShowcaseCase, 'key' | 'category'>>
+  starters: Record<string, string>
   featuresTitle: string
   featuresNote: string
-  features: FeatureChapter[]
-  gallery: {
-    line1: string
-    line2: string
-    lead: string
-    explore: string
-    points: string[]
-    feedAlt: string
-    detailAlt: string
-    feedMobileAlt: string
-    detailMobileAlt: string
-    detailUrl: string
-  }
-  end: { title: string; body: string; start: string; browse: string; note: string }
+  features: Array<Omit<FeatureCard, 'image'>>
+  end: { title: string; body: string; start: string }
   footer: {
     tagline: string
     product: string
@@ -207,7 +77,6 @@ export interface MarketingCopy {
     terms: string
     privacy: string
     copy: string
-    domain: string
   }
   contact: {
     title: string
@@ -225,105 +94,7 @@ export interface MarketingCopy {
   }
 }
 
-const FEATURE_URLS = [
-  'muvloom.online/image',
-  'muvloom.online/image',
-  'muvloom.online/image',
-  'muvloom.online/p/马克杯釉色方案',
-  'muvloom.online/p/马克杯釉色方案',
-  'muvloom.online/p/精华液短片',
-  'muvloom.online/assets',
-  'muvloom.online/explore',
-] as const
-
-const FEATURE_IMAGES = [
-  'composer-capsule',
-  'chat-plan',
-  'chat-batch',
-  'canvas',
-  'edit',
-  'video',
-  'assets',
-  'explore-v2',
-] as const
-
-const zhFeatures: Array<Pick<FeatureChapter, 'title' | 'body'>> = [
-  {
-    title: '一次写清所有要求',
-    body: '比例、数量、画质在输入框里一栏设好，最多带 16\u00a0张参考图。',
-  },
-  {
-    title: '让智能体替你写提示词',
-    body: '说想法就行。它整理好提示词和生成计划，你确认了才开始。',
-  },
-  {
-    title: '一次出一组，挑最好的',
-    body: '结果并排对比；用 {槽位} 组合变量，一次最多 16\u00a0张。',
-  },
-  {
-    title: '在画布上接着改',
-    body: '任选一张做参考继续生成，新版本就排在原图旁边。',
-  },
-  {
-    title: '圈哪里，改哪里',
-    body: '圈出位置写上要求即可。局部重绘、擦除、抠图、扩图、裁剪都在手边。',
-  },
-  {
-    title: '让图片动起来',
-    body: '文生视频或首帧生视频，5–15\u00a0秒，16:9、9:16、1:1，最高 1080p。',
-  },
-  {
-    title: '同一个产品，张张一致',
-    body: '把产品、人物、场景存成素材，生成时直接带上，或用 @ 调用。',
-  },
-  {
-    title: '看到喜欢的，一键做同款',
-    body: '每个案例都附完整提示词。悬停点「做同款」，或在详情里用作参考图。',
-  },
-]
-
-const enFeatures: Array<Pick<FeatureChapter, 'title' | 'body'>> = [
-  {
-    title: 'Set every requirement at once',
-    body: 'Ratio, count, and quality sit in one bar, with up to 16 reference images.',
-  },
-  {
-    title: 'Let the agent write the prompt',
-    body: 'Describe the idea. It drafts the prompt and the plan, and starts only after you confirm.',
-  },
-  {
-    title: 'Generate a set, then pick the best',
-    body: 'Compare results side by side. Combine {slot} variables, up to 16 images at once.',
-  },
-  {
-    title: 'Keep editing on the canvas',
-    body: 'Use any image as a reference and generate again. The new version sits beside the original.',
-  },
-  {
-    title: 'Circle only what should change',
-    body: 'Mark the area and say what you want. Inpaint, erase, cut out, expand, and crop are right there.',
-  },
-  {
-    title: 'Put the still image in motion',
-    body: 'Text-to-video or a first frame, 5–15 seconds, in 16:9, 9:16, or 1:1, up to 1080p.',
-  },
-  {
-    title: 'Keep one product consistent',
-    body: 'Save products, people, and scenes as assets. Attach them when you generate, or call them with @.',
-  },
-  {
-    title: 'Remake anything you like',
-    body: 'Every example includes the full prompt. Hover to remake it, or use it as a reference from the detail view.',
-  },
-]
-
-function features(chapters: Array<Pick<FeatureChapter, 'title' | 'body'>>): FeatureChapter[] {
-  return chapters.map((chapter, index) => ({
-    ...chapter,
-    url: FEATURE_URLS[index]!,
-    image: FEATURE_IMAGES[index]!,
-  }))
-}
+const FEATURE_IMAGES = ['chat-plan', 'chat-batch', 'canvas', 'edit', 'video', 'assets'] as const
 
 const zh: MarketingCopy = {
   brand: '幕芽',
@@ -333,56 +104,60 @@ const zh: MarketingCopy = {
     inspiration: '灵感库',
     guide: '使用指南',
     pricing: '定价',
-    start: '免费开始',
+    signIn: '登录',
   },
   hero: {
-    line1: '说出你的画面设想',
-    line2: '交由幕芽成片',
-    body: '智能体帮你写提示词、排好生成计划，图片和视频一次出齐。不满意，就在画布上接着改。',
-    start: '免费开始创作',
-    see: '看看能做什么',
-    note: '新用户注册即送 2000 积分',
-    scroll: '向下滚动',
+    title: '说出画面，幕芽成片',
+    body: '智能体写提示词、排生成计划，图片和视频一次出齐；不满意，就在画布上接着改。',
+    placeholder:
+      '描述主体、场景与光影风格，例如：为青瓷马克杯做一组电商主图，白底、柔和侧光、三个角度',
+    addImage: '添加参考图',
+    mode: '智能创作',
+    model: 'GPT Image 2.5 Flare',
+    start: '开始创作',
+    note: '打开浏览器即可使用，登录后项目与素材自动同步。',
   },
-  demo: {
-    eyebrow: '真实案例',
-    line1: '一句提示词',
-    line2: '一张成片',
-    lead: '以下都是幕芽生成的原图，配的是生成时用的提示词。看中哪张，点「做同款」直接带走。',
-    prompt: '提示词',
+  cases: {
+    title: '真实案例',
+    lead: '都是幕芽生成的原图，附完整提示词，点开即可做同款。',
     same: '做同款',
-    caption: '幕芽生成原图',
+    all: '全部',
+    groups: { product: '电商主图', poster: '海报', portrait: '人像', illustration: '插画' },
+    titles: {
+      'r26-10': '运动鞋悬浮爆炸图',
+      'r26-25': '爵士音乐节海报',
+      'r26-03': '金色时刻侧脸肖像',
+      'r26-26': '国潮新春海报',
+      'r26-11': '护肤精华 · 水晶质感',
+      'r26-01': '雨夜霓虹街头人像',
+      'r26-18': '森林里的小邮差',
+      'r26b-31': '纸艺草莓蛋糕',
+    },
   },
-  cases: [
-    { key: '超现实风光', category: '风光与场景' },
-    { key: '人像', category: '人物与角色' },
-    { key: '电商主图', category: '产品与电商' },
-    { key: '中文海报', category: '海报与字体' },
-  ],
+  starters: {
+    'r26-14': '日式拉面特写',
+    'r26-28': '3D 迷你城市',
+    'r26b-15': '石榴 · 解剖图鉴',
+    'r26-29': '3D 毛绒角色',
+    'r26-15': '法式甜点下午茶',
+  },
   featuresTitle: '从想法到成片',
   featuresNote: '截图均来自幕芽当前版本。',
-  features: features(zhFeatures),
-  gallery: {
-    line1: '不知道写什么？',
-    line2: '先做同款',
-    lead: '按用途整理的精选案例，每张都附完整提示词。看到喜欢的，悬停点「做同款」，或打开详情用作参考图。',
-    explore: '前往探索页 →',
-    points: ['按用途筛选', '原比例瀑布流', '一键做同款', '用作参考图'],
-    feedAlt: '灵感探索页：按用途筛选的瀑布流',
-    detailAlt: '案例详情：完整提示词、用作参考图和做同款',
-    feedMobileAlt: '灵感探索页（手机）',
-    detailMobileAlt: '案例详情（手机）',
-    detailUrl: '案例详情',
-  },
+  features: [
+    { title: '智能体写提示词', body: '说想法即可，它整理提示词和生成计划，你确认后才开始。' },
+    { title: '一次出一组', body: '结果并排对比，用槽位组合变量，一次最多 16\u00a0张。' },
+    { title: '在画布上接着改', body: '任选一张继续生成，新版本排在原图旁边。' },
+    { title: '圈哪里，改哪里', body: '局部重绘、擦除、抠图、扩图、裁剪都在手边。' },
+    { title: '让图片动起来', body: '文生视频或首帧生视频，5–15\u00a0秒，最高 1080p。' },
+    { title: '产品张张一致', body: '把产品、人物、场景存成素材，生成时直接带上。' },
+  ],
   end: {
     title: '从一句话开始',
-    body: '打开浏览器就能用，登录后项目和素材自动同步。',
-    start: '免费开始创作',
-    browse: '浏览灵感库',
-    note: '新用户注册即送 2000 积分',
+    body: '不用安装，打开浏览器就能用。',
+    start: '进入幕芽',
   },
   footer: {
-    tagline: 'AI 图片与视频创作。智能体、无限画布和主流模型，都在这里。',
+    tagline: 'AI 图片与视频创作：智能体、无限画布和主流模型。',
     product: '产品',
     help: '帮助',
     legal: '条款',
@@ -390,17 +165,16 @@ const zh: MarketingCopy = {
     terms: '服务条款',
     privacy: '隐私政策',
     copy: '© 2026 Muvloom 幕芽',
-    domain: 'muvloom.online',
   },
   contact: {
     title: '联系我们',
     body: '产品反馈、合作或使用问题，都可以找我们。',
     close: '关闭',
     xTitle: 'X 私信',
-    xDetail: `@${SUPPORT_CONTACT.xHandle}`,
+    xDetail: '@Muluk656',
     xAction: '打开 X',
     mailTitle: '邮件',
-    mail: SUPPORT_CONTACT.email,
+    mail: 'maqiqian0316@gmail.com',
     copy: '复制',
     copied: '已复制',
     copyFailed: '复制失败',
@@ -416,62 +190,83 @@ const en: MarketingCopy = {
     inspiration: 'Inspiration',
     guide: 'Guide',
     pricing: 'Pricing',
-    start: 'Start free',
+    signIn: 'Sign in',
   },
   hero: {
-    line1: 'Describe the vision',
-    line2: 'Muvloom handles the rest',
-    body: 'The agent writes the prompt and the generation plan, then delivers images and video together. If it isn’t right, keep editing on the canvas.',
-    start: 'Start creating free',
-    see: 'See what it can do',
-    note: 'New accounts get 2,000 credits',
-    scroll: 'Scroll',
+    title: 'Describe it. Muvloom makes it.',
+    body: 'The agent writes the prompt and plans the run, then delivers images and video together. Keep refining on the canvas.',
+    placeholder:
+      'Describe the subject, scene, and lighting. For example: a set of product shots for a celadon mug, white background, soft side light, three angles',
+    addImage: 'Add a reference image',
+    mode: 'Agent',
+    model: 'GPT Image 2.5 Flare',
+    start: 'Start creating',
+    note: 'Runs in your browser. Projects and assets sync after you sign in.',
   },
-  demo: {
-    eyebrow: 'Real work',
-    line1: 'One prompt',
-    line2: 'One finished image',
-    lead: 'These are original Muvloom images, shown with the prompts that made them. See one you like? Choose Make this to take it with you.',
-    prompt: 'Prompt',
+  cases: {
+    title: 'Real work',
+    lead: 'Original Muvloom images with their full prompts. Open one to remake it.',
     same: 'Make this',
-    caption: 'Original Muvloom image',
+    all: 'All',
+    groups: {
+      product: 'Product',
+      poster: 'Posters',
+      portrait: 'Portraits',
+      illustration: 'Illustration',
+    },
+    titles: {
+      'r26-10': 'Exploded sneaker',
+      'r26-25': 'Jazz festival poster',
+      'r26-03': 'Golden-hour profile',
+      'r26-26': 'Lunar New Year poster',
+      'r26-11': 'Crystal serum',
+      'r26-01': 'Neon rain portrait',
+      'r26-18': 'Little forest courier',
+      'r26b-31': 'Paper strawberry cake',
+    },
   },
-  cases: [
-    { key: 'Surreal landscape', category: 'Places and scenes' },
-    { key: 'Portrait', category: 'People and characters' },
-    { key: 'Product hero', category: 'Product and commerce' },
-    { key: 'Chinese poster', category: 'Posters and type' },
-  ],
+  starters: {
+    'r26-14': 'Ramen close-up',
+    'r26-28': '3D mini city',
+    'r26b-15': 'Pomegranate study',
+    'r26-29': '3D plush character',
+    'r26-15': 'French afternoon tea',
+  },
   featuresTitle: 'From an idea to a finished piece',
   featuresNote: 'Screenshots are from the current version of Muvloom.',
-  features: features(enFeatures),
-  gallery: {
-    line1: 'Not sure what to write?',
-    line2: 'Start from one you like',
-    lead: 'Curated examples by use, each with the full prompt. Hover to remake one, or open the detail and use it as a reference.',
-    explore: 'Go to Explore →',
-    points: [
-      'Filter by use',
-      'Original-ratio masonry',
-      'Remake in one click',
-      'Use as a reference',
-    ],
-    feedAlt: 'Explore: a masonry of examples filtered by use',
-    detailAlt: 'Example detail: the full prompt, use as reference, and remake',
-    feedMobileAlt: 'Explore on a phone',
-    detailMobileAlt: 'Example detail on a phone',
-    detailUrl: 'Example detail',
-  },
+  features: [
+    {
+      title: 'The agent writes the prompt',
+      body: 'Describe the idea. It drafts the prompt and plan, and starts only after you confirm.',
+    },
+    {
+      title: 'Generate a set',
+      body: 'Compare results side by side and combine slot variables, up to 16 images at once.',
+    },
+    {
+      title: 'Keep editing on the canvas',
+      body: 'Pick any image and generate again. The new version sits beside the original.',
+    },
+    {
+      title: 'Mark it, change it',
+      body: 'Inpaint, erase, cut out, expand, and crop are right there.',
+    },
+    {
+      title: 'Put images in motion',
+      body: 'Text-to-video or first-frame video, 5–15 seconds, up to 1080p.',
+    },
+    {
+      title: 'Consistent products',
+      body: 'Save products, people, and scenes as assets and attach them when you generate.',
+    },
+  ],
   end: {
     title: 'Start with one sentence',
-    body: 'Open a browser and start. Projects and assets sync after you sign in.',
-    start: 'Start creating free',
-    browse: 'Browse the library',
-    note: 'New accounts get 2,000 credits',
+    body: 'Nothing to install. Open a browser and start.',
+    start: 'Open Muvloom',
   },
   footer: {
-    tagline:
-      'AI image and video creation. The agent, an infinite canvas, and leading models — all here.',
+    tagline: 'AI image and video creation: the agent, an infinite canvas, and leading models.',
     product: 'Product',
     help: 'Help',
     legal: 'Legal',
@@ -479,17 +274,16 @@ const en: MarketingCopy = {
     terms: 'Terms',
     privacy: 'Privacy',
     copy: '© 2026 Muvloom',
-    domain: 'muvloom.online',
   },
   contact: {
     title: 'Contact us',
     body: 'Product feedback, partnerships, or questions — reach us here.',
     close: 'Close',
     xTitle: 'Message on X',
-    xDetail: `@${SUPPORT_CONTACT.xHandle}`,
+    xDetail: '@Muluk656',
     xAction: 'Open X',
     mailTitle: 'Email',
-    mail: SUPPORT_CONTACT.email,
+    mail: 'maqiqian0316@gmail.com',
     copy: 'Copy',
     copied: 'Copied',
     copyFailed: 'Couldn’t copy',
@@ -499,27 +293,56 @@ const en: MarketingCopy = {
 
 export const marketingCopy: Record<Locale, MarketingCopy> = { 'zh-CN': zh, en }
 
-const CASE_IMAGES = [
-  `${ASSET}/reveal-whale.webp`,
-  `${ASSET}/demo/r26-01.webp`,
-  `${ASSET}/demo/r26-10.webp`,
-  `${ASSET}/demo/r26-26.webp`,
-] as const
-const CASE_IDS = [null, 'r26-01', 'r26-10', 'r26-26'] as const
-const CASE_PROMPTS = [PROMPTS.whale, PROMPTS.portrait, PROMPTS.product, PROMPTS.poster] as const
+const CASES: Array<{ id: string; group: CaseGroup }> = [
+  { id: 'r26-10', group: 'product' },
+  { id: 'r26-25', group: 'poster' },
+  { id: 'r26-03', group: 'portrait' },
+  { id: 'r26-26', group: 'poster' },
+  { id: 'r26-11', group: 'product' },
+  { id: 'r26-01', group: 'portrait' },
+  { id: 'r26-18', group: 'illustration' },
+  { id: 'r26b-31', group: 'illustration' },
+]
 
 export function showcaseCases(locale: Locale): ShowcaseCase[] {
-  const text = marketingCopy[locale]
-  return text.cases.map((item, index) => ({
-    id: CASE_IDS[index] ?? null,
-    key: item.key,
-    category: item.category,
-    image: CASE_IMAGES[index]!,
-    fit: index === 0 ? 'cover' : undefined,
-    model: 'GPT Image 2.5 Flare',
-    prompt: CASE_PROMPTS[index]!,
+  const titles = marketingCopy[locale].cases.titles
+  return CASES.map((item) => ({
+    ...item,
+    title: titles[item.id] ?? item.id,
+    image: wallSrc(`${item.id}.webp`),
   }))
 }
 
-export const X_URL = SUPPORT_X_URL
-export const CONTACT_EMAIL = SUPPORT_CONTACT.email
+/** 示例提示词原样取自灵感库清单，点选只填入输入框，不会提交。 */
+const STARTER_PROMPTS: Record<string, string> = {
+  'r26-14':
+    '一碗豚骨拉面的45度特写：浓白的汤底泛着油光，上面铺着炙烤叉烧、溏心蛋切面流出橙色蛋黄、葱花、海苔和木耳丝，热气缓缓升起，深色木桌与黑色陶碗，侧逆光突出食物质感，美食杂志摄影。',
+  'r26-28':
+    '等距视角 3D 迷你城市模型：一块漂浮的方形地块上有彩色小楼、咖啡馆、公园、电车轨道和小小的行人，柔和的粘土质感与光滑塑料材质，明亮的马卡龙配色，柔和的环境光与软阴影，可爱精致的 C4D 渲染风格。',
+  'r26b-15':
+    '一颗石榴，以博物学家解剖野外珍稀标本的方式呈现：剖开、展开、固定，像博物馆藏品，却用卡拉瓦乔式的光为《国家地理》掌镜。一半保持完整，展示深红带金褐斑的粗糙果皮与顶端的萼冠；另一半剖开至核心，宝石般晶莹的红色籽粒整齐排列在淡黄色的海绵隔膜之间，切面锋利，籽粒内部透光。纯黑丝绒背景，石榴悬浮其中。写实风格，非卡通，材质真实，细节极致。',
+  'r26-29':
+    '一个圆滚滚的毛绒小怪兽 3D 角色，奶黄色毛发蓬松柔软，抱着一颗发光的星星，大眼睛闪着高光，站在淡紫色渐变背景前，皮克斯级别的毛发渲染，柔和的工作室布光，治愈可爱的潮玩手办质感。',
+  'r26-15':
+    '一块覆盆子开心果慕斯蛋糕放在复古描金瓷盘上，表面镜面淋面光可鉴人，点缀新鲜覆盆子和金箔，背景是虚化的蕾丝桌布和一杯红茶，柔和的窗边自然光，粉绿配色，法式甜品店宣传照风格。',
+}
+
+export function starterPrompts(locale: Locale): StarterPrompt[] {
+  const titles = marketingCopy[locale].starters
+  return Object.entries(STARTER_PROMPTS).map(([id, prompt]) => ({
+    id,
+    title: titles[id] ?? id,
+    prompt,
+    image: wallSrc(`${id}.webp`),
+  }))
+}
+
+export function featureCards(locale: Locale): FeatureCard[] {
+  return marketingCopy[locale].features.map((item, index) => ({
+    ...item,
+    image: `${ASSET}/ui/${FEATURE_IMAGES[index]}.webp`,
+  }))
+}
+
+export const X_URL = 'https://x.com/Muluk656'
+export const CONTACT_EMAIL = 'maqiqian0316@gmail.com'

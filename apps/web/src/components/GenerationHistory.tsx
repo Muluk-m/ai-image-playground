@@ -9,20 +9,21 @@ import SearchBar from './SearchBar'
 import TaskGrid from './TaskGrid'
 import { Button } from './ui/button'
 
-/** 本机与平台作品共用时间线；首页按滚动位置续读平台游标。 */
+/** 本机与平台作品共用时间线；首页先预览最近两行，展开后按滚动续读平台游标。 */
 export default function GenerationHistory({ userId, hero }: { userId?: string; hero?: boolean }) {
   const { t } = useTranslation(['task', 'errors'])
   const hasWorks = useStore((s) => s.tasks.length > 0 || s.platformGenerations.length > 0)
   const cloud = useCloudGenerations(Boolean(userId) && isClientCapabilityEnabled('accounts:sync'))
+  // 首页先预览两行；点「查看全部作品」后展开成完整时间线，并按滚动续读平台游标。
+  const [expanded, setExpanded] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
-  const [atEnd, setAtEnd] = useState(false)
   const { hasMore, loading, failed, loadMore } = cloud
+  const paging = Boolean(hero) && expanded
 
   useEffect(() => {
     const end = endRef.current
-    if (!hero || !end) return
+    if (!paging || !end) return
     const updateEnd = (nearEnd: boolean) => {
-      setAtEnd(nearEnd)
       if (nearEnd && hasMore && !loading && !failed) loadMore()
     }
     if (typeof IntersectionObserver === 'undefined') {
@@ -43,7 +44,7 @@ export default function GenerationHistory({ userId, hero }: { userId?: string; h
     )
     observer.observe(end)
     return () => observer.disconnect()
-  }, [hero, hasMore, loading, failed, loadMore])
+  }, [paging, hasMore, loading, failed, loadMore])
 
   const openLibrary = () => {
     // 「我的作品」来的人要找的是生成的图：落到能看到对话 / 画布封面的「项目」，不是空的素材页（BUG-18）。
@@ -60,13 +61,13 @@ export default function GenerationHistory({ userId, hero }: { userId?: string; h
           link={{ label: t('grid.openLibrary'), onClick: openLibrary }}
         />
       )}
-      <div className="relative">
-        <TaskGrid hero={hero} />
-        {hero && <div ref={endRef} className="h-px" aria-hidden="true" />}
-        {hero && hasWorks && (!atEnd || hasMore) && (
-          <div className="studio-works-fade" aria-hidden="true" />
-        )}
-      </div>
+      <TaskGrid
+        hero={hero}
+        preview={Boolean(hero) && !expanded}
+        moreAvailable={hasMore}
+        onShowAll={() => setExpanded(true)}
+      />
+      {paging && <div ref={endRef} className="h-px" aria-hidden="true" />}
       {cloud.failed && (
         <div className="flex items-center justify-center gap-3 pb-8">
           <p role="alert" className="text-sm text-destructive">
