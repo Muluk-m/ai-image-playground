@@ -6,8 +6,9 @@ import type { AgentMessageView } from './agent'
  *
  * 中文、英文、注音、假名、谚文、希腊字母，以及数字、标点、符号、表情一律保留。
  * 这些和中文常混排，逐字删会把「見る」削成「見」、把「α 通道」削成「通道」。
- * 其余字母、记号和数字默认删掉（古吉拉特、天城、泰、阿拉伯、西里尔，以及没列入的文字）。
- * 用户在整段会话里写过的那种文字再放行。不额外调用模型。
+ * 其余字母默认删掉。用户用过某个文字系统里的任意一个字，就保留整个文字系统，
+ * 这样俄文或阿拉伯文回复不会因为缺了几个没打过的字母变成残句。古吉拉特文这类从未出现过的仍删。
+ * 允许的文字系统在每轮开始时算一次，流式增量不再重算。不额外调用模型。
  */
 
 /** 整段回复都落在不该出现的文字里时，换成这一句，而不是把气泡留空。 */
@@ -16,27 +17,90 @@ export const REPLY_SCRIPT_FALLBACK_EN = 'That reply came back in an unexpected l
 
 /**
  * 常驻保留。假名、谚文、希腊字母和中英文一样不删，避免「用日语回答」把「見る」削成「見」。
- * 不在这里的字母默认删。用户原文里出现过的具体字符再放行，不依赖一份会漏脚本的名单。
+ * 不在这里的字母默认删。用户用过的文字系统整表放行，不是只放行打过的那几个字。
  */
 const ALWAYS_KEPT =
   /[\p{Script=Latin}\p{Script=Han}\p{Script=Bopomofo}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Greek}\p{Script=Common}\p{Script=Inherited}]/u
+
+/** 认出用户原文属于哪种文字。常驻保留的不在这里。 */
+const OTHER_SCRIPTS = [
+  'Adlam',
+  'Arabic',
+  'Armenian',
+  'Bengali',
+  'Canadian_Aboriginal',
+  'Cherokee',
+  'Coptic',
+  'Cyrillic',
+  'Deseret',
+  'Devanagari',
+  'Ethiopic',
+  'Georgian',
+  'Gujarati',
+  'Gurmukhi',
+  'Hebrew',
+  'Javanese',
+  'Kannada',
+  'Khmer',
+  'Lao',
+  'Malayalam',
+  'Mongolian',
+  'Myanmar',
+  'Nko',
+  'Oriya',
+  'Sinhala',
+  'Sundanese',
+  'Syriac',
+  'Tamil',
+  'Telugu',
+  'Thaana',
+  'Thai',
+  'Tibetan',
+  'Tifinagh',
+  'Vai',
+  'Yi',
+] as const
+
+type OtherScript = (typeof OTHER_SCRIPTS)[number]
 
 const DROPPABLE = /[\p{L}\p{M}\p{N}]/u
 const HAN = /\p{Script=Han}/u
 const LATIN = /\p{Script=Latin}/u
 
-function extraChars(userText: string): Set<string> | null {
-  let extra: Set<string> | null = null
-  for (const char of userText) {
-    if (ALWAYS_KEPT.test(char) || !DROPPABLE.test(char)) continue
-    extra ??= new Set()
-    extra.add(char)
-  }
-  return extra
+const scriptPattern = new Map<OtherScript, RegExp>(
+  OTHER_SCRIPTS.map((name) => [name, new RegExp(`\\p{Script=${name}}`, 'u')]),
+)
+
+/** 这一轮允许出现的非常驻文字。extra 为 null 表示用户没用过这些文字。 */
+export interface ReplyScriptAllowance {
+  readonly extra: RegExp | null
 }
 
-function isDropped(char: string, extra: Set<string> | null): boolean {
-  if (ALWAYS_KEPT.test(char) || extra?.has(char)) return false
+const NO_EXTRA: ReplyScriptAllowance = { extra: null }
+
+function scriptOf(char: string): OtherScript | null {
+  for (const name of OTHER_SCRIPTS) {
+    if (scriptPattern.get(name)!.test(char)) return name
+  }
+  return null
+}
+
+/** 每轮开始时算一次。流式增量只拿这份结果，不再扫用户原文。 */
+export function compileReplyScripts(userText: string): ReplyScriptAllowance {
+  const names: OtherScript[] = []
+  for (const char of userText) {
+    if (ALWAYS_KEPT.test(char) || !DROPPABLE.test(char)) continue
+    const name = scriptOf(char)
+    if (name && !names.includes(name)) names.push(name)
+  }
+  if (names.length === 0) return NO_EXTRA
+  return {
+    extra: new RegExp(`[${names.map((name) => `\\p{Script=${name}}`).join('')}]`, 'u'),
+  }
+}
+
+function isDropped(char: string, extra: RegExp | null): boolean {
+  if (ALWAYS_KEPT.test(char) || extra?.test(char)) return false
   return DROPPABLE.test(char)
 }
 
@@ -65,7 +129,7 @@ function hasPayload(text: string): boolean {
   return /[^\p{P}\p{Z}\p{C}]/u.test(text)
 }
 
-function stripBody(text: string, extra: Set<string> | null): string {
+function stripBody(text: string, extra: RegExp | null): string {
   const chars = [...text]
   let out = ''
   let index = 0
@@ -97,11 +161,11 @@ function replyFallback(userText: string): string {
 
 /** 只删除不该出现的文字，不把整段换成兜底句。建议句用这条：整句都是杂字就丢掉。 */
 export function stripDisallowedScripts(text: string, userText = ''): string {
-  return stripBody(text, extraChars(userText))
+  return stripBody(text, compileReplyScripts(userText).extra)
 }
 
-function stripPrepared(text: string, extra: Set<string> | null): string {
-  return stripBody(text, extra)
+export function stripWithReplyScripts(text: string, allowance: ReplyScriptAllowance): string {
+  return stripBody(text, allowance.extra)
 }
 
 export interface ReplyScriptGate {
@@ -115,8 +179,12 @@ export interface ReplyScriptGate {
   text(): string
 }
 
-export function createReplyScriptGate(userText: string): ReplyScriptGate {
-  const extra = extraChars(userText)
+export function createReplyScriptGate(
+  userText: string,
+  /** 缺席时现算。一轮里多次开口应传入轮初那一份，避免每个增量重算。 */
+  allowance: ReplyScriptAllowance = compileReplyScripts(userText),
+): ReplyScriptGate {
+  const extra = allowance.extra
   const fallback = replyFallback(userText)
   let raw = ''
   /** 已经扫过的 UTF-16 下标。尾部单独的高位代理先留着，等下一片把字拼完整。 */
@@ -211,14 +279,14 @@ export function sanitizeAssistantMessages(
   messages: readonly AgentMessageView[],
 ): AgentMessageView[] {
   const userText = collectUserReplyText(messages)
-  const extra = extraChars(userText)
+  const extra = compileReplyScripts(userText).extra
   let changed = false
   const next = messages.map((message) => {
     if (message.role !== 'assistant') return message
     let blockChanged = false
     const content = message.content.map((block) => {
       if (block.type !== 'text' || !block.text) return block
-      const text = stripPrepared(block.text, extra)
+      const text = stripBody(block.text, extra)
       if (text === block.text) return block
       blockChanged = true
       return { ...block, text }
