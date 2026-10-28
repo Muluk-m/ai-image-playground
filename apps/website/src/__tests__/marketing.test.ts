@@ -12,7 +12,6 @@ import {
   marketingCopy,
   showcaseCases,
   wallColumns,
-  X_URL,
 } from '../marketing'
 
 const manifest = JSON.parse(
@@ -118,13 +117,13 @@ describe('marketing v4.1', () => {
     expect(rows[0]?.length).toBe(28)
   })
 
-  it('renders X and email in the contact dialog and leaves WeChat empty', () => {
+  it('renders only email in the contact dialog and leaves WeChat empty', () => {
     const html = renderToStaticMarkup(
       createElement(ContactPanel, { locale: 'zh-CN', onClose: () => {} }),
     )
     expect(html).toContain('联系我们')
-    expect(html).toContain(`href="${X_URL}"`)
-    expect(html).toContain('target="_blank"')
+    expect(html).not.toContain('x.com/')
+    expect(html).not.toContain('@Muluk656')
     expect(html).toContain(CONTACT_EMAIL)
     expect(html).toContain(`href="mailto:${CONTACT_EMAIL}"`)
     expect(html).toContain('复制')
