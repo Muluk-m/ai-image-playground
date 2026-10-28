@@ -16,12 +16,11 @@ import {
 } from '../marketing'
 import { ContactModal } from './ContactModal'
 
-const CONTACT_HASH = '#contact'
-
 const BAND = 'border-t border-dashed border-border px-6 py-14'
 const TAB =
   'h-7 rounded-md px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 const TAB_ON = 'bg-primary/15 text-primary hover:bg-primary/15 hover:text-primary'
+const CONTACT_HASH = '#contact'
 
 export function MarketingHome({ locale, start }: { locale: Locale; start: () => void }) {
   const text = marketingCopy[locale]
@@ -70,6 +69,9 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
             <a href="/pricing">{text.nav.pricing}</a>
           </div>
           <div className="flex items-center gap-2">
+            <a className="mkt-nav-pricing" href="/pricing">
+              {text.nav.pricing}
+            </a>
             <Button asChild variant="ghost" size="sm">
               <a
                 href={locale === 'en' ? '/' : '/en/'}

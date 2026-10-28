@@ -60,6 +60,28 @@ describe('marketing home', () => {
     }
   })
 
+  it('links the pricing page from the top nav and the footer', () => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      const html = renderToStaticMarkup(createElement(MarketingHome, { locale, start: () => {} }))
+      const link = `<a href="/pricing">${marketingCopy[locale].nav.pricing}</a>`
+      expect(html.indexOf(link)).toBeLessThan(html.indexOf('<header'))
+      expect(html.lastIndexOf(link)).toBeGreaterThan(html.indexOf('<footer'))
+      // 窄屏收起中间导航后，右侧还留着一个「定价」。
+      const nav = html.slice(html.indexOf('class="mkt-nav"'), html.indexOf('<header'))
+      expect(nav).toContain(
+        `<a class="mkt-nav-pricing" href="/pricing">${marketingCopy[locale].nav.pricing}</a>`,
+      )
+    }
+  })
+
+  it('gives the footer a #contact anchor', () => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      const html = renderToStaticMarkup(createElement(MarketingHome, { locale, start: () => {} }))
+      expect(html).toContain('href="#contact"')
+      expect(html.indexOf('id="contact"')).toBeGreaterThan(html.indexOf('<footer'))
+    }
+  })
+
   it('translates the English page', () => {
     const html = renderToStaticMarkup(
       createElement(MarketingHome, { locale: 'en', start: () => {} }),
@@ -68,15 +90,6 @@ describe('marketing home', () => {
     expect(html).toContain('Start creating')
     expect(html).toContain('href="/guide/en/"')
     expect(html).not.toContain('开始创作')
-  })
-
-  it('links the pricing page from the top nav and the footer', () => {
-    for (const locale of ['zh-CN', 'en'] as const) {
-      const html = renderToStaticMarkup(createElement(MarketingHome, { locale, start: () => {} }))
-      const link = `<a href="/pricing">${marketingCopy[locale].nav.pricing}</a>`
-      expect(html.indexOf(link)).toBeLessThan(html.indexOf('<header'))
-      expect(html.lastIndexOf(link)).toBeGreaterThan(html.indexOf('<footer'))
-    }
   })
 
   it('uses only bundled images from the inspiration manifest', () => {
@@ -99,14 +112,6 @@ describe('marketing home', () => {
       const original = prompts.get(item.id)
       expect(original).toBeDefined()
       expect(original).toContain(item.prompt.slice(0, 40))
-    }
-  })
-
-  it('gives the footer a #contact anchor', () => {
-    for (const locale of ['zh-CN', 'en'] as const) {
-      const html = renderToStaticMarkup(createElement(MarketingHome, { locale, start: () => {} }))
-      expect(html).toContain('href="#contact"')
-      expect(html).toContain('id="contact"')
     }
   })
 
