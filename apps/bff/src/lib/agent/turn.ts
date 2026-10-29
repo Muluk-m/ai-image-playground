@@ -28,6 +28,7 @@ import {
   recordAgentToolCall,
   touchAgentConversation,
 } from './conversations'
+import { directImageCall } from './direct-image'
 import { wholeImageEditIntent } from './edit-intent'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost, type TurnExecution } from './execution'
@@ -350,6 +351,15 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       // 工具失败时下一次调用照常交给模型，它看得到这次调用和失败原因。
       if (!directEditTried) {
         directEditTried = true
+        // 图片生成模式：原话直接进生图工具，不为「抄一遍原话」付一次对话模型（见 `direct-image.ts`）。
+        const direct = directImageCall(input, Boolean(prepared.wake))
+        if (direct) {
+          log.info(
+            { event: 'agent.direct_image', conversationId, turnId },
+            'submitting the image-mode prompt without a model call',
+          )
+          return toolCallStream(model, 'generateImage', direct)
+        }
         const args = prepared.wake
           ? null
           : await confirmedMaskEditCall(history.messages, input.references, images)
