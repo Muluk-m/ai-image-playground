@@ -2579,8 +2579,7 @@ async function deletePlatformCounterpart(task: TaskRecord): Promise<boolean> {
 
 /** 删除多条记录：平台那些先删平台，本机那些连带清掉孤立图片。 */
 export async function removeMultipleTasks(taskIds: string[]) {
-  const { tasks, setTasks, showToast, clearSelection, selectedTaskIds, platformGenerations } =
-    useStore.getState()
+  const { tasks, showToast, platformGenerations } = useStore.getState()
 
   if (!taskIds.length) return
 
@@ -2601,7 +2600,9 @@ export async function removeMultipleTasks(taskIds: string[]) {
     if (await deletePlatformCounterpart(task)) toDelete.add(task.id)
   }
   deleted += toDelete.size
-  const remaining = tasks.filter((t) => !toDelete.has(t.id))
+  // 上面等了网络，期间可能有新任务进来或状态更新：从最新列表里删，别把请求前的快照写回去。
+  const { tasks: latest, setTasks, selectedTaskIds } = useStore.getState()
+  const remaining = latest.filter((t) => !toDelete.has(t.id))
   // 收集所有被删除任务的关联图片
   const deletedImageIds = new Set<string>()
   for (const t of tasks) {
@@ -2663,7 +2664,7 @@ export async function setTaskFavorite(task: TaskRecord, favorite: boolean): Prom
  * 平台删不掉时整件事不做，免得列表和平台各说一套。
  */
 export async function removeTask(task: TaskRecord) {
-  const { tasks, setTasks, showToast } = useStore.getState()
+  const { showToast } = useStore.getState()
   if (task.remoteOnly) {
     if (!(await deleteRemoteGeneration(task.id))) {
       showToast(i18next.t('toast.taskDeleteFailed', { ns: 'store' }), 'error')
@@ -2679,6 +2680,8 @@ export async function removeTask(task: TaskRecord) {
     showToast(i18next.t('toast.taskDeleteFailed', { ns: 'store' }), 'error')
     return
   }
+  // 等过网络，期间可能有新任务进来：从最新列表里删，别把请求前的快照写回去。
+  const { tasks: latest, setTasks: setLatest } = useStore.getState()
 
   // 收集此任务关联的图片
   const taskImageIds = new Set([
@@ -2689,8 +2692,8 @@ export async function removeTask(task: TaskRecord) {
   ])
 
   // 从列表移除
-  const remaining = tasks.filter((t) => t.id !== task.id)
-  setTasks(remaining)
+  const remaining = latest.filter((t) => t.id !== task.id)
+  setLatest(remaining)
   await dbDeleteTask(task.id)
 
   const stillUsed = await imageIdsInUse(remaining)
