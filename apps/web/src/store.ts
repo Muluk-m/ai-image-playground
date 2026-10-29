@@ -2183,19 +2183,28 @@ export async function materializeRemoteTask(task: TaskRecord): Promise<TaskRecor
   const outputs = detail
     ? detail.outputs.map((image) => mediaRef(image.mediaId))
     : task.outputImages
+  const positions = detail
+    ? detail.outputs.map((image) => image.index)
+    : (task.outputPositions ?? task.outputImages.map((_, index) => index))
   const inputs = detail ? detail.inputs.map((image) => mediaRef(image.mediaId)) : task.inputImageIds
   const mask = detail?.mask ? mediaRef(detail.mask.mediaId) : (task.maskImageId ?? null)
-  const [outputImages, inputImageIds, maskImageId] = await Promise.all([
-    localizeRefs(outputs, 'generated'),
+  const [localizedOutputs, inputImageIds, maskImageId] = await Promise.all([
+    Promise.all(outputs.map((ref) => localizeRef(ref, 'generated'))),
     localizeRefs(inputs, 'upload'),
     mask ? localizeRef(mask, 'mask') : Promise.resolve(null),
   ])
+  // 取不到的那张丢掉时，位置号跟着丢，剩下的每张仍对得上平台原位置。
+  const kept = localizedOutputs.flatMap((id, i) =>
+    id === null ? [] : [{ id, position: positions[i] ?? i }],
+  )
+  const outputImages = kept.map((item) => item.id)
   const localized: TaskRecord = {
     ...task,
     // 平台详情里是发给上游的那一句（防改写前缀、构图指令）；本机卡要的是用户原文，
     // 否则重试时 callImageApi 按 no_rewrite 再钉一遍前缀，卡上也重新露出机器指令。
     prompt: detail ? promptFromGeneration(detail) : task.prompt,
     outputImages,
+    outputPositions: kept.map((item) => item.position),
     inputImageIds,
     maskImageId,
     maskTargetImageId: maskImageId ? (inputImageIds[0] ?? null) : null,
@@ -2802,7 +2811,7 @@ export async function removeTaskOutput(task: TaskRecord, imageIndex: number) {
 
   const stillUsed = await imageIdsInUse(useStore.getState().tasks)
   for (const id of [imageId, transparentOriginal]) {
-    if (!id || stillUsed.has(id)) continue
+    if (!id || stillUsed.has(id) || referencedNow(id)) continue
     await deleteImage(id)
     imageCache.delete(id)
     thumbnailCache.delete(id)

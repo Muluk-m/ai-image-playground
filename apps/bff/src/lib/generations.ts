@@ -45,7 +45,14 @@ export async function listGenerations(
   cursor?: GenerationCursor,
 ): Promise<GenerationPage> {
   const rows = await db
-    .select(columns)
+    .select({
+      ...columns,
+      // 主键 (generation_id, role, position) 覆盖这次计数，不回表。
+      outputCount: sql<number>`(
+        SELECT count(*)::int FROM ${schema.generation_images} kept
+        WHERE kept.generation_id = ${table.id} AND kept.role = 'output' AND kept.deleted_at IS NULL
+      )`,
+    })
     .from(table)
     .where(
       and(

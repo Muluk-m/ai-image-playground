@@ -491,6 +491,7 @@ it('多图作品只删一张：列表封面顺延、详情不再返回那张，�
   expect(await outputs()).toEqual([1, 2])
   const [item] = (await (await request('/api/generations', deviceB)).json()).items
   expect(item.cover.index).toBe(1)
+  expect(item.outputCount).toBe(2)
   // 同一张删两次、删不存在的位置都是 404，不会误删别的。
   expect((await remove(`/api/generations/${id}/outputs/0`, deviceA)).status).toBe(404)
   expect((await remove(`/api/generations/${id}/outputs/7`, deviceA)).status).toBe(404)
@@ -500,6 +501,10 @@ it('多图作品只删一张：列表封面顺延、详情不再返回那张，�
   expect(await (await remove(`/api/generations/${id}/outputs/2`, deviceA)).json()).toEqual({
     generationDeleted: false,
   })
+  // 删的不是封面：封面不变，张数变了，别的设备据此丢掉旧详情。
+  const [later] = (await (await request('/api/generations', deviceB)).json()).items
+  expect(later.cover.index).toBe(1)
+  expect(later.outputCount).toBe(1)
   expect(await (await remove(`/api/generations/${id}/outputs/1`, deviceB)).json()).toEqual({
     generationDeleted: true,
   })

@@ -25,6 +25,11 @@ export interface GenerationSummary {
   startedAt: number | null
   completedAt: number | null
   revision: string
+  /**
+   * 还没被单独删掉的产出张数。列表不带整组产出，别的设备缓存着旧详情时靠它认出「删过一张」：
+   * 封面不变（删的不是第一张）也能发现张数对不上，丢掉旧详情重读。旧响应可缺席。
+   */
+  outputCount?: number
   prompt: string
   parameters: GenerationParameters
   actualParameters: Pick<GenerationParameters, 'size' | 'quality' | 'output_format'>
