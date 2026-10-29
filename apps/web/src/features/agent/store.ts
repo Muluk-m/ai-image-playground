@@ -1721,6 +1721,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     if (
       reuseEmpty &&
       current &&
+      // 被上限拒建的那个已经不在本机目录里，不能拿来复用。
+      !current.quotaRejected &&
       projectExperience(current) === experience &&
       !current.conversationId &&
       !current.hasContent &&
