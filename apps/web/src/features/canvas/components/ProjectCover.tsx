@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import MediaImage from '../../../components/MediaImage'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
-import { invalidateMediaPreview, mediaIdentity, resolveMediaSource } from '../../../lib/cloudMedia'
+import { invalidateMediaPreview, mediaIdentity } from '../../../lib/cloudMedia'
+import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useCanvasProjectStore } from '../projectStore'
 
 /** 封面迟迟没出来就先收起转圈、换成图标；之后真加载到了照样换成图片。 */
@@ -39,6 +40,15 @@ function useNearViewport() {
   return [ref, near] as const
 }
 
+/**
+ * 云端视频直接走支持 Range 的 `/api/media/:id/content`，浏览器只按需取元数据和首帧。
+ * 不能走 `resolveMediaSource`：它会把整段视频下载成 data URL 再缓存。
+ */
+export function videoCoverUrl(source: string): string {
+  const id = mediaIdentity(source)
+  return id ? `${bffBaseUrl()}/api/media/${id}/content` : source
+}
+
 /** 只出过视频的对话拿视频首帧当封面：只取元数据和第一帧，不自动播放。 */
 function VideoFrame({
   src,
@@ -51,24 +61,13 @@ function VideoFrame({
   onLoad: () => void
   onError: () => void
 }) {
-  const [resolved, setResolved] = useState<{ src: string; value: string }>()
-  useEffect(() => {
-    let current = true
-    void resolveMediaSource(src, 'preview').then(
-      (value) => current && setResolved({ src, value }),
-      () => current && onError(),
-    )
-    return () => {
-      current = false
-    }
-  }, [src, onError])
-  if (resolved?.src !== src) return null
   return (
     <video
-      src={`${resolved.value}#t=0.1`}
+      src={`${videoCoverUrl(src)}#t=0.1`}
       muted
       playsInline
       preload="metadata"
+      crossOrigin="use-credentials"
       aria-hidden="true"
       onLoadedData={onLoad}
       onError={onError}
