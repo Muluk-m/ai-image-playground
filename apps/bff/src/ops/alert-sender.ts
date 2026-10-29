@@ -74,6 +74,8 @@ interface JsonWebhookOptions {
   deployment: string
   fetchImpl?: typeof fetch
   now?: () => Date
+  /** 报错里第一个地址的编号；按地址拆成多个出口时用来保持「第几个地址」的说法。 */
+  firstIndex?: number
 }
 
 /** 通用 JSON webhook 收到的请求体。字段只增不改，接收方可以放心按名字取。 */
@@ -125,7 +127,8 @@ export function createJsonWebhookSender(options: JsonWebhookOptions): AlertSende
     if (urls.length === 0 || messages.length === 0) return
     const body = JSON.stringify(jsonAlertPayload(messages, options.deployment, now()))
     const results = await Promise.allSettled(
-      urls.map(async (url, index) => {
+      urls.map(async (url, offset) => {
+        const index = (options.firstIndex ?? 1) - 1 + offset
         const response = await fetchImpl(url, {
           method: 'POST',
           headers: { ...headers, 'content-type': 'application/json' },
@@ -217,22 +220,31 @@ export function createAlertSenderFromEnv(options: EnvSenderOptions): AlertSender
   }
   const urls = parseWebhookUrls(env.OPS_ALERT_WEBHOOK_URLS)
   if (urls.length > 0) {
-    let send: AlertSender
+    let headers: Record<string, string> | undefined
+    let configError: Error | undefined
     try {
-      send = createJsonWebhookSender({
-        urls,
-        headers: parseWebhookHeaders(env.OPS_ALERT_WEBHOOK_HEADERS),
-        deployment: options.deployment,
-        fetchImpl: options.fetchImpl,
-      })
+      headers = parseWebhookHeaders(env.OPS_ALERT_WEBHOOK_HEADERS)
     } catch (error) {
-      // 请求头写错了也别连累飞书：这个出口每轮都报同一个配置错误。
-      const configError = error as Error
-      send = async () => {
-        throw configError
-      }
+      // 请求头写错了也别连累飞书：这些出口每轮都报同一个配置错误。
+      configError = error as Error
     }
-    targets.push({ name: 'json', send })
+    // 每个地址单独算一个出口：一个地址挂了不该让已经送到的地址下一轮再收一遍。
+    urls.forEach((url, index) => {
+      targets.push({
+        name: 'json',
+        send: configError
+          ? async () => {
+              throw configError
+            }
+          : createJsonWebhookSender({
+              urls: [url],
+              headers,
+              deployment: options.deployment,
+              fetchImpl: options.fetchImpl,
+              firstIndex: index + 1,
+            }),
+      })
+    })
   }
   const onPartialFailure =
     options.onPartialFailure ??
