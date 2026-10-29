@@ -14,10 +14,12 @@
     "sendToCanvasTitle": "Add to canvas",
     "deleteRecord": "Delete record",
     "more": "More actions",
-    "openProject": "Back to project"
+    "openProject": "Back to project",
+    "deleteImage": "Delete this image"
   },
   "confirm": {
-    "deleteMessage": "Delete this record?"
+    "deleteMessage": "Delete this record?",
+    "deleteImageMessage": "Delete this image? The other {{count}} image(s) in this record stay."
   },
   "prompt": {
     "empty": "(no prompt)"
@@ -123,7 +125,8 @@
     "downloadAll": "Download all",
     "itemList": "Images",
     "sharedReferences": "Shared in every image",
-    "taskReferences": "References: 1 target + {{count}} shared"
+    "taskReferences": "References: 1 target + {{count}} shared",
+    "deleteItem": "Delete image {{index}}"
   },
   "cloudHistory": {
     "refresh": "Refresh",

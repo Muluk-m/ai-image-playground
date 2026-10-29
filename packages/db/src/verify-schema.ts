@@ -216,6 +216,7 @@ export const EXPECTED_COLUMNS = [
   'inspiration_items.thumb_height',
   'tasks.reconcile_started_at',
   'tasks.reconcile_alerted_at',
+  'generation_images.deleted_at',
 ] as const
 
 /** Columns whose type matters as much as their presence: the code reads them as JSON. */

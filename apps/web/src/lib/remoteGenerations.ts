@@ -33,3 +33,26 @@ export async function deleteRemoteGeneration(id: string): Promise<boolean> {
     return false
   }
 }
+
+/**
+ * 删平台记录里的一张产出（位置号是平台上的原始位置，不随删除重排）。
+ * 返回 null 表示没删成；`generationDeleted` 为真说明那是最后一张，整条记录也一并删了。
+ * 404 当成已经删掉（另一台设备先删了），整条是否还在交给下一次列表刷新。
+ */
+export async function deleteRemoteGenerationOutput(
+  id: string,
+  position: number,
+): Promise<{ generationDeleted: boolean } | null> {
+  try {
+    const response = await authenticatedBffFetch(
+      `${bffBaseUrl()}/api/generations/${encodeURIComponent(id)}/outputs/${position}`,
+      { method: 'DELETE' },
+    )
+    if (response.status === 404) return { generationDeleted: false }
+    if (!response.ok) return null
+    const body = (await response.json()) as { generationDeleted?: unknown }
+    return { generationDeleted: body.generationDeleted === true }
+  } catch {
+    return null
+  }
+}
