@@ -161,7 +161,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           WHERE kind = 'queue' AND status = 'failed'
             AND error_type IS DISTINCT FROM 'content_policy'
             AND completed_at >= NOW() - INTERVAL '15 minutes'
-            AND submitted_at >= NOW() - INTERVAL '1 day'
+            AND submitted_at >= NOW() - INTERVAL '7 days'
         `),
             db.execute(sql`
           SELECT COUNT(*) AS count FROM agent_turns
@@ -173,7 +173,8 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
             COUNT(*) AS failures,
             (array_agg(t.error_type ORDER BY t.completed_at DESC))[1] AS error_type,
             (array_agg(t.upstream_status ORDER BY t.completed_at DESC))[1] AS upstream_status,
-            (array_agg(left(COALESCE(t.error_message, ''), 400) ORDER BY t.completed_at DESC))[1] AS message,
+            -- 取完整原文：先截断再脱敏会把截在边界上的半截密钥漏出去。
+            (array_agg(COALESCE(t.error_message, '') ORDER BY t.completed_at DESC))[1] AS message,
             EXTRACT(EPOCH FROM MAX(t.completed_at)) * 1000 AS last_failed_at,
             -- 只算因上游不可用被自动暂停的；运营手动停用会清掉 pause_reason，不算。
             BOOL_OR(m.active = false AND m.pause_reason = 'upstream_unavailable') AS paused
@@ -182,8 +183,9 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           WHERE t.kind = 'queue' AND t.status = 'failed'
             AND t.error_type IS DISTINCT FROM 'content_policy'
             AND t.completed_at >= NOW() - INTERVAL '15 minutes'
-            -- 先用提交时间收窄到近一天（走 idx_tasks_submitted_at），不必为告警再加一条索引和迁移。
-            AND t.submitted_at >= NOW() - INTERVAL '1 day'
+            -- 用提交时间收窄到近 7 天（走 idx_tasks_submitted_at），不必为告警再加索引和迁移。
+            -- 任务从提交到结束远短于 7 天（上游硬超时 15 分钟、结果确认 30 分钟就告警），不会漏算。
+            AND t.submitted_at >= NOW() - INTERVAL '7 days'
           GROUP BY t.model
           ORDER BY failures DESC, last_failed_at DESC
         `),
@@ -193,7 +195,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           FROM tasks
           WHERE kind = 'queue' AND status = 'completed'
             AND completed_at >= NOW() - INTERVAL '24 hours'
-            AND submitted_at >= NOW() - INTERVAL '25 hours'
+            AND submitted_at >= NOW() - INTERVAL '8 days'
           GROUP BY model
         `),
           ])

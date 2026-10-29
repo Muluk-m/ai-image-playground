@@ -100,7 +100,8 @@ await writer.db.insert(writer.schema.tasks).values([
     status: 'failed',
     error_type: 'upstream_error',
     upstream_status: 502,
-    error_message: `Bad gateway from key sk-live-abcdef123456 ${'y'.repeat(400)}`,
+    // 第二个密钥横跨第 400 字：先截断再脱敏会漏出半截 `sk-abc`。
+    error_message: `Bad gateway from key sk-live-abcdef123456 data:image/png;base64,${'A'.repeat(329)} sk-abcdefghijklmnopqrstuvwxyz0123 tail`,
     request_payload: { prompt: 'x' },
     submitted_at: now - minute,
     completed_at: now - minute,
@@ -183,8 +184,8 @@ describe('observeApp', () => {
           failures: 1,
           errorType: 'upstream_error',
           upstreamStatus: 502,
-          // 令牌被抹掉之后再截 200 字。
-          message: `Bad gateway from key [REDACTED] ${'y'.repeat(400)}`.slice(0, 200),
+          // 整段原文先抹掉令牌、密钥和二进制，再截 200 字。
+          message: 'Bad gateway from key [REDACTED] [BINARY REDACTED] [REDACTED] tail',
           lastFailedAt: now - minute,
           paused: false,
         },
