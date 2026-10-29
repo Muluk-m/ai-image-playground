@@ -7,7 +7,11 @@ import type { AssetRecord, LookRecord, TemplateRecord } from '../features/librar
 import { DEFAULT_SETTINGS, normalizeSettings } from '../lib/apiProfiles'
 import { bootstrapClientCapabilities } from '../lib/clientCapabilities'
 import { API_MAX_IMAGES } from '../lib/inputImageLimit'
-import { mergeHistory, type PlatformGenerationRow } from '../lib/platformGenerations'
+import {
+  mergeHistory,
+  type PlatformGenerationRow,
+  receivePlatformPage,
+} from '../lib/platformGenerations'
 import { getSelectedImageMentionLabel } from '../lib/promptImageMentions'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 import { DEFAULT_PARAMS } from '../types'
@@ -3085,6 +3089,41 @@ describe('多图作品只删一张', () => {
     deleteRemoteGeneration.mockResolvedValue(true)
     deleteRemoteGenerationOutput.mockReset()
     deleteRemoteGenerationOutput.mockResolvedValue({ generationDeleted: false })
+  })
+
+  it('删过一张的平台记录搬到本机后，再删按平台原位置号对上', async () => {
+    readRemoteGeneration.mockResolvedValue(null)
+    const [card] = mergeHistory([], [detailRow('gen-9', [1, 2])])
+    expect(card?.outputPositions).toEqual([1, 2])
+    useStore.setState({ tasks: [], platformGenerations: [detailRow('gen-9', [1, 2])] })
+    // 已经是本机 id 时原样保留，位置号跟着带过去。
+    const local = await materializeRemoteTask({
+      ...(card as TaskRecord),
+      outputImages: ['x', 'y'],
+    })
+    expect(local.outputPositions).toEqual([1, 2])
+
+    await removeTaskOutput(local, 1)
+
+    expect(deleteRemoteGenerationOutput).toHaveBeenCalledWith('gen-9', 2)
+    expect(useStore.getState().tasks[0]?.outputImages).toEqual(['x'])
+    expect(useStore.getState().tasks[0]?.outputPositions).toEqual([1])
+  })
+
+  it('别的设备删过一张、封面没变时，列表刷新丢掉旧的整组产出，展开时重读', async () => {
+    const summary = (outputCount: number) => {
+      const { outputs: _outputs, ...rest } = detailRow('gen-r', [0, 1, 2]).record as unknown as {
+        outputs: unknown
+      } & Record<string, unknown>
+      return { ...rest, revision: '2', outputCount } as unknown as Parameters<
+        typeof receivePlatformPage
+      >[0][number]
+    }
+    useStore.setState({ platformGenerations: [detailRow('gen-r', [0, 1, 2])] })
+    await receivePlatformPage([summary(3)])
+    expect(outputsOf('gen-r')).toEqual([0, 1, 2])
+    await receivePlatformPage([summary(2)])
+    expect(outputsOf('gen-r')).toBeNull()
   })
 
   it('本机卡先删平台那张，再从本机去掉；之后的位置号按平台原位置算', async () => {
