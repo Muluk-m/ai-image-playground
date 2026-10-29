@@ -227,7 +227,8 @@ function readings(
   }
 
   if (failures) {
-    const breached = failures.generation_system >= OPS_THRESHOLDS.GENERATION_SYSTEM_FAILURES
+    const overThreshold = failures.generation_system >= OPS_THRESHOLDS.GENERATION_SYSTEM_FAILURES
+    const breached = generationBreached(failures)
     const models = failures.generation_models ?? []
     out.generation = {
       breached,
@@ -235,7 +236,7 @@ function readings(
       recovered: !breached && generationWaiting.length === 0,
       sustainMs: 0,
       firingText: breached
-        ? `近 15 分钟有 ${failures.generation_system} 次非内容策略的生成失败${models.length > 0 ? `\n${models.slice(0, GENERATION_MODELS_IN_TEXT).map(generationModelLine).join('\n')}` : ''}`
+        ? `${overThreshold ? `近 15 分钟有 ${failures.generation_system} 次非内容策略的生成失败` : '上游报模型不可用，模型已自动暂停'}${models.length > 0 ? `\n${models.slice(0, GENERATION_MODELS_IN_TEXT).map(generationModelLine).join('\n')}` : ''}`
         : `生成失败已回到告警线内，但这些模型出事后还没有成功出过图，暂不发恢复：\n${generationWaiting.map(generationModelLine).join('\n')}`,
       resolvedText:
         Object.keys(state.generationWatch ?? {}).length > 0
@@ -333,6 +334,19 @@ function readings(
     }
   }
   return out
+}
+
+/**
+ * 生成告警越线：失败数到线，或者有模型因上游不可用被自动暂停。
+ * 后者单独算，是因为暂停后只会留下一两次失败，到不了线，但模型已经停了、要等人去重新启用。
+ */
+function generationBreached(failures: NonNullable<AlertObservation['failures']>): boolean {
+  return (
+    failures.generation_system >= OPS_THRESHOLDS.GENERATION_SYSTEM_FAILURES ||
+    (failures.generation_models ?? []).some(
+      (model) => model.paused === true && model.errorType === 'model_unavailable',
+    )
+  )
 }
 
 /** 告警正文里最多列几个模型。 */
@@ -597,10 +611,7 @@ export function evaluateAlerts(
 
   const failures = observation.failures
   // 只在生成告警越线或在报时维护名单；平时零星失败不进名单。
-  const watching =
-    failures &&
-    (state.generation?.firing ||
-      failures.generation_system >= OPS_THRESHOLDS.GENERATION_SYSTEM_FAILURES)
+  const watching = failures && (state.generation?.firing || generationBreached(failures))
   const watch = watching ? stepGenerationWatch(failures, state.generationWatch) : {}
   const waiting = Object.values(watch)
 
