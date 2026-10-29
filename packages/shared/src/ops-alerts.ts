@@ -69,7 +69,7 @@ export interface GenerationFailureModel {
   /** 最近一次失败的报错，前 200 个字符。 */
   message: string
   lastFailedAt: number
-  /** 模型在「模型」页上已经被停用（含自动暂停）。 */
+  /** 模型因上游不可用被自动暂停、还没被重新启用。运营手动停用的不算。 */
   paused?: boolean
 }
 

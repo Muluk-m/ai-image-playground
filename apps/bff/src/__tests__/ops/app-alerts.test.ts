@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import type { AlertMessage } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 
 const databaseUrl = await resetTestDatabase('bff_app_alerts')
 process.env.DATABASE_URL = databaseUrl
@@ -189,6 +190,32 @@ describe('observeApp', () => {
       ],
       generation_successes: { 'gpt-image-2': now - 2 * hour },
     })
+  })
+
+  it('marks a failing model paused only when it was auto-paused for upstream unavailability', async () => {
+    const table = writer.schema.model_availability
+    const pausedOf = async () =>
+      (await observeApp({ now })).failures?.generation_models?.find(
+        (model) => model.model === 'gpt-image-2',
+      )?.paused
+    await writer.db.insert(table).values({
+      model: 'gpt-image-2',
+      active: false,
+      pause_reason: null,
+      paused_at: null,
+      updated_at: now,
+    })
+    try {
+      // 运营手动停用：不算自动暂停，不能让告警说「已自动暂停」。
+      expect(await pausedOf()).toBe(false)
+      await writer.db
+        .update(table)
+        .set({ pause_reason: 'upstream_unavailable', paused_at: now })
+        .where(eq(table.model, 'gpt-image-2'))
+      expect(await pausedOf()).toBe(true)
+    } finally {
+      await writer.db.delete(table).where(eq(table.model, 'gpt-image-2'))
+    }
   })
 
   it('leaves out a block it could not read, so that rule is skipped this round', async () => {
