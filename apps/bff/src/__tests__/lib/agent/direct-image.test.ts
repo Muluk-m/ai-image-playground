@@ -43,3 +43,29 @@ it('不是干净的图片生成轮就交给模型', () => {
     directImageCall(imageTurn({ continuation: {} } as unknown as Partial<Input>), false),
   ).toBeNull()
 })
+
+it('澄清作答（点选项交的只是选项文字）交给模型，原话和技能上下文由它拼回去', () => {
+  const history = {
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: '/poster 618 海报' }] },
+      { role: 'assistant', content: [{ type: 'clarification', question: '什么风格？' }] },
+    ],
+    coveredCount: 0,
+  }
+  expect(
+    directImageCall(imageTurn({ text: '质感种草', history } as unknown as Partial<Input>), false),
+  ).toBeNull()
+})
+
+it('上一轮已经出完图（不是澄清）时，新的一句照旧直接出图', () => {
+  const history = {
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: '一只猫' }] },
+      { role: 'assistant', content: [{ type: 'text', text: '好了' }] },
+    ],
+    coveredCount: 0,
+  }
+  expect(
+    directImageCall(imageTurn({ text: '一个牛', history } as unknown as Partial<Input>), false),
+  ).toEqual({ prompt: '一个牛' })
+})
