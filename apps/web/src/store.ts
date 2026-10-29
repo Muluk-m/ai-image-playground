@@ -1238,6 +1238,25 @@ async function resolveImageSizeParamsList(
   )
 }
 
+/**
+ * 孤图判断要异步读库，判断完到真删之间新任务可能已经用上同一张图：真删之前再按此刻的
+ * 任务列表和输入框同步核一遍，被用上的留着。
+ */
+function referencedNow(imageId: string): boolean {
+  const { tasks, inputImages, maskDraft } = useStore.getState()
+  if (inputImages.some((image) => image.id === imageId)) return true
+  if (maskDraft && (maskDraft.targetImageId === imageId || maskDraft.maskImageId === imageId)) {
+    return true
+  }
+  return tasks.some(
+    (task) =>
+      task.inputImageIds?.includes(imageId) ||
+      task.maskImageId === imageId ||
+      task.outputImages?.includes(imageId) ||
+      task.transparentOriginalImages?.includes(imageId),
+  )
+}
+
 async function imageIdsInUse(tasks: readonly TaskRecord[]): Promise<Set<string>> {
   const ids = await getReferencedImageIds(tasks)
   const { inputImages, maskDraft } = useStore.getState()
@@ -2632,7 +2651,7 @@ export async function removeMultipleTasks(taskIds: string[]) {
 
   // 删除孤立图片
   for (const imgId of deletedImageIds) {
-    if (!stillUsed.has(imgId)) {
+    if (!stillUsed.has(imgId) && !referencedNow(imgId)) {
       await deleteImage(imgId)
       imageCache.delete(imgId)
       thumbnailCache.delete(imgId)
@@ -2709,7 +2728,7 @@ export async function removeTask(task: TaskRecord) {
 
   // 删除孤立图片
   for (const imgId of taskImageIds) {
-    if (!stillUsed.has(imgId)) {
+    if (!stillUsed.has(imgId) && !referencedNow(imgId)) {
       await deleteImage(imgId)
       imageCache.delete(imgId)
       thumbnailCache.delete(imgId)
