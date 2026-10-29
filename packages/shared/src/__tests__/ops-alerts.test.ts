@@ -696,6 +696,73 @@ describe('生成失败告警：带模型明细，出图成功才恢复', () => {
     )
   })
 
+  it('自动暂停后失败数到不了线也要报，出图成功后才恢复', () => {
+    const rounds = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 1,
+            agent: 0,
+            generation_models: [flare(1, T0 - minute)],
+            generation_successes: {},
+          },
+        },
+      ],
+      [
+        T0 + 20 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: {},
+          },
+        },
+      ],
+      [
+        T0 + 30 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: { 'gpt-image-2.5-flare': T0 + 29 * minute },
+          },
+        },
+      ],
+    ])
+    expect(rounds.map((round) => round.map((message) => message.kind))).toEqual([
+      ['firing'],
+      [],
+      ['resolved'],
+    ])
+    expect(rounds[0]![0]!.text).toContain('上游报模型不可用，模型已自动暂停')
+    expect(rounds[0]![0]!.text).toContain(
+      'gpt-image-2.5-flare ×1：model_unavailable，HTTP 503，已自动暂停',
+    )
+  })
+
+  it('单次普通失败、或运营手动下架的模型失败，不到线不报', () => {
+    const rounds = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 2,
+            agent: 0,
+            generation_models: [
+              { ...flare(1, T0 - minute), paused: false },
+              { ...flare(1, T0 - minute), model: 'manual-off', errorType: 'upstream_error' },
+            ],
+            generation_successes: {},
+          },
+        },
+      ],
+    ])
+    expect(rounds).toEqual([[]])
+  })
+
   it('出事前的成功不算恢复', () => {
     const rounds = steps([
       [
