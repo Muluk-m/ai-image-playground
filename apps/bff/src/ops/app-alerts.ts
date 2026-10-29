@@ -154,7 +154,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
       attempt(
         'failures',
         async () => {
-          const [generationRaw, agentRaw] = await Promise.all([
+          const [generationRaw, agentRaw, modelsRaw, successesRaw] = await Promise.all([
             db.execute(sql`
           SELECT COUNT(*) AS count FROM tasks
           WHERE kind = 'queue' AND status = 'failed'
@@ -165,12 +165,51 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           SELECT COUNT(*) AS count FROM agent_turns
           WHERE stop_reason = 'failed' AND created_at >= NOW() - INTERVAL '15 minutes'
         `),
+            // 每个模型一行：失败次数，加上最近一次失败的类型、上游状态码和报错前 200 字。
+            db.execute(sql`
+          SELECT t.model,
+            COUNT(*) AS failures,
+            (array_agg(t.error_type ORDER BY t.completed_at DESC))[1] AS error_type,
+            (array_agg(t.upstream_status ORDER BY t.completed_at DESC))[1] AS upstream_status,
+            (array_agg(left(COALESCE(t.error_message, ''), 200) ORDER BY t.completed_at DESC))[1] AS message,
+            EXTRACT(EPOCH FROM MAX(t.completed_at)) * 1000 AS last_failed_at,
+            BOOL_OR(m.active = false) AS paused
+          FROM tasks t
+          LEFT JOIN model_availability m ON m.model = t.model
+          WHERE t.kind = 'queue' AND t.status = 'failed'
+            AND t.error_type IS DISTINCT FROM 'content_policy'
+            AND t.completed_at >= NOW() - INTERVAL '15 minutes'
+          GROUP BY t.model
+          ORDER BY failures DESC, last_failed_at DESC
+        `),
+            // 恢复看的是「出事后这个模型有没有真的出过图」，不是失败数掉没掉。
+            db.execute(sql`
+          SELECT model, EXTRACT(EPOCH FROM MAX(completed_at)) * 1000 AS last_succeeded_at
+          FROM tasks
+          WHERE kind = 'queue' AND status = 'completed'
+            AND completed_at >= NOW() - INTERVAL '24 hours'
+          GROUP BY model
+        `),
           ])
           const generationRows = generationRaw as unknown as Array<Record<string, unknown>>
           const agentRows = agentRaw as unknown as Array<Record<string, unknown>>
+          const modelRows = modelsRaw as unknown as Array<Record<string, unknown>>
+          const successRows = successesRaw as unknown as Array<Record<string, unknown>>
           return {
             generation_system: Number(generationRows[0]?.count ?? 0),
             agent: Number(agentRows[0]?.count ?? 0),
+            generation_models: modelRows.map((row) => ({
+              model: String(row.model ?? 'unknown'),
+              failures: Number(row.failures ?? 0),
+              errorType: String(row.error_type ?? 'unknown'),
+              upstreamStatus: row.upstream_status == null ? null : Number(row.upstream_status),
+              message: String(row.message ?? ''),
+              lastFailedAt: Number(row.last_failed_at ?? 0),
+              paused: row.paused === true,
+            })),
+            generation_successes: Object.fromEntries(
+              successRows.map((row) => [String(row.model), Number(row.last_succeeded_at ?? 0)]),
+            ),
           }
         },
         missed,
