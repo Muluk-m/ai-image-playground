@@ -1,10 +1,13 @@
 import { createHash } from 'node:crypto'
 import {
+  type AgentContentBlock,
   type CloudProjectSummary,
   PROJECT_RECEIPT_COUNT,
+  PROJECT_SUMMARY_MAX_LENGTH,
+  type ProjectPage,
   type ProjectWrite,
 } from '@image-playground/shared'
-import { and, asc, count, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { withAgentLifecycle } from './agent/lifecycle'
@@ -12,17 +15,11 @@ import { runningTurn } from './agent/runningTurns'
 import type { BffTransaction } from './private-overlay'
 
 const table = schema.canvas_projects
-const summaryColumns = {
-  id: table.id,
-  name: table.name,
-  revision: table.revision,
-  createdAt: table.created_at,
-  updatedAt: table.updated_at,
-  elementCount: table.element_count,
-  // 封面取画布上最后一张图；对话项目的结果留在对话里、画布常是空的，就退到这个会话最近一次
-  // 生成的第一张输出图，免得项目列表一排空白卡。
-  coverMediaId: sql<string | null>`COALESCE(${table.cover_media_id}, (
-    SELECT gi.media_id
+
+/** 对话项目的封面候选：同一会话最近一次生成的第一个已就绪输出，图片排在视频前面。 */
+function conversationCover(column: 'id' | 'content_type') {
+  return sql`
+    SELECT ${sql.raw(`m.${column}`)}
     FROM ${schema.generation_records} g
     JOIN ${schema.generation_images} gi ON gi.generation_id = g.id AND gi.role = 'output'
     JOIN ${schema.media_objects} m ON m.id = gi.media_id AND m.user_id = g.user_id
@@ -31,10 +28,22 @@ const summaryColumns = {
       AND g.deleted_at IS NULL
       AND g.source ->> 'conversationId' = "canvas_projects"."conversation_id"
       AND m.status = 'ready'
-      AND m.content_type LIKE 'image/%'
-    ORDER BY g.created_at DESC, gi.position ASC
-    LIMIT 1
-  ))`,
+      AND (m.content_type LIKE 'image/%' OR m.content_type LIKE 'video/%')
+    ORDER BY (m.content_type LIKE 'image/%') DESC, g.created_at DESC, gi.position ASC
+    LIMIT 1`
+}
+const summaryColumns = {
+  id: table.id,
+  name: table.name,
+  revision: table.revision,
+  createdAt: table.created_at,
+  updatedAt: table.updated_at,
+  elementCount: table.element_count,
+  // 封面取画布上最后一张图（视频元素存的也是它的封面帧）；对话项目的结果留在对话里、画布常是空的，
+  // 就退到这个会话最近一次生成的第一个输出。图片优先；只出过视频的对话拿视频本身，由客户端取首帧。
+  coverMediaId: sql<string | null>`COALESCE(${table.cover_media_id}, (${conversationCover('id')}))`,
+  coverIsVideo: sql<boolean>`CASE WHEN ${table.cover_media_id} IS NULL
+    THEN COALESCE((${conversationCover('content_type')}) LIKE 'video/%', false) ELSE false END`,
   conversationId: table.conversation_id,
   experience: sql<'chat' | 'canvas' | null>`${table.document}->>'experience'`,
   sourceProjectId: sql<string | null>`${table.document}->>'sourceProjectId'`,
@@ -58,10 +67,161 @@ export async function listProjects(userId: string, pageSize: number, cursor?: st
     .from(table)
     .where(and(eq(table.user_id, userId), isNotNull(table.deleted_at)))
   return {
-    projects: rows.slice(0, pageSize).filter((row) => !deleted.some((one) => one.id === row.id)),
+    projects: rows
+      .slice(0, pageSize)
+      .filter((row) => !deleted.some((one) => one.id === row.id))
+      .map(summaryView),
     deletedIds: deleted.map((one) => one.id),
     nextCursor: rows.length > pageSize ? rows[pageSize - 1]!.id : null,
   }
+}
+
+const DELETED_REPLAY_MS = 60_000
+
+export type RecentProjectCursor = { updatedAt: number; id: string }
+
+export function encodeRecentProjectCursor(cursor: RecentProjectCursor): string {
+  return Buffer.from(JSON.stringify([cursor.updatedAt, cursor.id])).toString('base64url')
+}
+
+export function decodeRecentProjectCursor(value: string): RecentProjectCursor | null {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'))
+    if (!Array.isArray(parsed) || parsed.length !== 2) return null
+    const [updatedAt, id] = parsed
+    if (!Number.isSafeInteger(updatedAt) || typeof id !== 'string') return null
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null
+    return { updatedAt, id }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 最近更新的排前面：`updated_at desc, id desc` 复合游标。第一页顺带给总数和增量删除。
+ *
+ * 不加索引：项目数受每人上限约束（`sync:projects`），按 owner 索引取出这个用户的全部行再排序，
+ * 量级是几十到一百来行。删除只回 `deletedSince` 之后删的，客户端记住 `deletedThrough` 下次接着问。
+ */
+export async function listRecentProjects(
+  userId: string,
+  pageSize: number,
+  cursor?: RecentProjectCursor,
+  deletedSince?: number,
+): Promise<ProjectPage> {
+  // 往回留一段余量：删除事务先取时间再提交，比这次读晚提交的删除下次仍要回给客户端。重复下发无害。
+  const deletedThrough = Date.now() - DELETED_REPLAY_MS
+  const rows = await db
+    .select(summaryColumns)
+    .from(table)
+    .where(
+      and(
+        eq(table.user_id, userId),
+        isNull(table.deleted_at),
+        cursor
+          ? sql`(${table.updated_at}, ${table.id}) < (${cursor.updatedAt}, ${cursor.id})`
+          : undefined,
+      ),
+    )
+    .orderBy(desc(table.updated_at), desc(table.id))
+    .limit(pageSize + 1)
+  const selected = rows.slice(0, pageSize)
+  const summaries = await withConversationSummaries(userId, selected.map(summaryView))
+  const last = selected.at(-1)
+  const nextCursor =
+    rows.length > pageSize && last
+      ? encodeRecentProjectCursor({ updatedAt: last.updatedAt, id: last.id })
+      : null
+  if (cursor) return { projects: summaries, nextCursor }
+  const [deleted, [totals]] = await Promise.all([
+    db
+      .select({ id: table.id })
+      .from(table)
+      .where(
+        and(
+          eq(table.user_id, userId),
+          isNotNull(table.deleted_at),
+          deletedSince === undefined ? undefined : gte(table.deleted_at, deletedSince),
+        ),
+      ),
+    db
+      .select({
+        all: sql<number>`count(*)::int`,
+        // 与客户端 projectExperience 同一口径：没写入口类型的，挂着会话或画布为空都算对话。
+        chat: sql<number>`(count(*) filter (where ${table.document} ->> 'experience' = 'chat' or (
+          ${table.document} ->> 'experience' is null
+          and (${table.conversation_id} is not null or ${table.element_count} = 0)
+        )))::int`,
+      })
+      .from(table)
+      .where(and(eq(table.user_id, userId), isNull(table.deleted_at))),
+  ])
+  return {
+    projects: summaries,
+    nextCursor,
+    deletedIds: deleted.map((one) => one.id),
+    deletedThrough,
+    totals: { all: totals?.all ?? 0, chat: totals?.chat ?? 0 },
+  }
+}
+
+/** 只在封面是视频时带上标记，旧客户端看到的摘要不变。 */
+function summaryView<T extends { coverIsVideo: boolean }>({
+  coverIsVideo,
+  ...row
+}: T): Omit<T, 'coverIsVideo'> & { coverIsVideo?: true } {
+  return coverIsVideo ? { ...row, coverIsVideo: true } : row
+}
+
+export function messageSummary(content: readonly AgentContentBlock[]): string {
+  const text = content
+    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return text.length > PROJECT_SUMMARY_MAX_LENGTH
+    ? `${text.slice(0, PROJECT_SUMMARY_MAX_LENGTH - 1)}…`
+    : text
+}
+
+/**
+ * 没封面的对话卡显示首条用户消息的摘要，不再是一排图标。只查这一页里没封面的会话，
+ * 走 `idx_agent_messages_conversation_seq`，每个会话取 seq 最小的那条。
+ */
+async function withConversationSummaries(
+  userId: string,
+  projects: CloudProjectSummary[],
+): Promise<CloudProjectSummary[]> {
+  const conversations = projects.flatMap((project) =>
+    !project.coverMediaId && project.conversationId ? [project.conversationId] : [],
+  )
+  if (!conversations.length) return projects
+  const messages = await db
+    .selectDistinctOn([schema.agent_messages.conversation_id], {
+      conversationId: schema.agent_messages.conversation_id,
+      content: schema.agent_messages.content,
+    })
+    .from(schema.agent_messages)
+    .innerJoin(
+      schema.agent_conversations,
+      eq(schema.agent_conversations.id, schema.agent_messages.conversation_id),
+    )
+    .where(
+      and(
+        inArray(schema.agent_messages.conversation_id, conversations),
+        eq(schema.agent_conversations.user_id, userId),
+        eq(schema.agent_messages.role, 'user'),
+        isNull(schema.agent_messages.deleted_at),
+      ),
+    )
+    .orderBy(asc(schema.agent_messages.conversation_id), asc(schema.agent_messages.seq))
+  const summaries = new Map(
+    messages.map((message) => [message.conversationId, messageSummary(message.content)]),
+  )
+  return projects.map((project) => {
+    const summary = project.conversationId ? summaries.get(project.conversationId) : undefined
+    return summary && !project.coverMediaId ? { ...project, summary } : project
+  })
 }
 
 export async function readProject(userId: string, id: string) {
@@ -69,7 +229,7 @@ export async function readProject(userId: string, id: string) {
     .select({ ...summaryColumns, document: table.document, deletedAt: table.deleted_at })
     .from(table)
     .where(and(eq(table.user_id, userId), eq(table.id, id)))
-  return project ?? null
+  return project ? summaryView(project) : null
 }
 
 export async function writeProject(userId: string, id: string, input: ProjectWrite) {
@@ -257,7 +417,7 @@ export async function listRecycledProjects(userId: string, pageSize: number, cur
     .orderBy(asc(table.id))
     .limit(pageSize + 1)
   return {
-    projects: rows.slice(0, pageSize),
+    projects: rows.slice(0, pageSize).map(summaryView),
     nextCursor: rows.length > pageSize ? rows[pageSize - 1]!.id : null,
   }
 }
