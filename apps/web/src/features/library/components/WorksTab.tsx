@@ -302,6 +302,8 @@ const WorkTile = memo(function WorkTile({ task, projectId, selected, onOpen, sty
   const preview = useImagePreview(task.status === 'done' ? task.outputImages?.[0] : undefined)
   const open = (event: ReactMouseEvent) => onOpen(task.id, event)
   const onKeyDown = (event: KeyboardEvent) => {
+    // 卡里的按钮自己处理回车和空格；冒泡上来的不能被卡片截走。
+    if (event.target !== event.currentTarget) return
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault()
     useStore.getState().setDetailTaskId(task.id)
