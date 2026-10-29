@@ -2,7 +2,7 @@ import { afterAll, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { PROJECT_DOCUMENT_MAX_BYTES, PROJECT_ELEMENT_MAX_COUNT } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 
 process.env.PORT = '0'
 process.env.DATABASE_URL = await resetTestDatabase('bff_cloud_projects')
@@ -465,35 +465,42 @@ it('chat projects without a canvas cover fall back to the latest generated image
 })
 
 it('按最近更新翻页：复合游标不重不漏，第一页带总数与增量删除', async () => {
-  const ids = Array.from({ length: 5 }, () => crypto.randomUUID())
-  for (const [n, id] of ids.entries())
-    await request(`/${id}`, deviceA, {
+  // 测试配置每人最多 3 个项目（sync:user-projects），正好建满。
+  const ids = Array.from({ length: 3 }, () => crypto.randomUUID())
+  for (const [n, id] of ids.entries()) {
+    const created = await request(`/${id}`, deviceA, {
       requestId: crypto.randomUUID(),
       baseRevision: 0,
       name: `项目 ${n}`,
       document: n < 2 ? { version: 1, elements: [], experience: 'chat' } : document,
     })
-  // 两两同一时刻：同毫秒的靠 id 倒序分先后，游标落在并列中间也不能丢。
-  const stamps = [1000, 3000, 3000, 2000, 2000]
+    expect(created.status).toBe(200)
+  }
+  // 两个同一时刻：同毫秒的靠 id 倒序分先后，每页一条，游标正好落在并列中间也不能丢。
+  const stamps = [1000, 3000, 3000]
   for (const [n, id] of ids.entries())
     await db
       .update(schema.canvas_projects)
       .set({ updated_at: stamps[n]! })
       .where(eq(schema.canvas_projects.id, id))
+  // 库里也可能有带微秒的时间（别处用 SQL 写的）：同一毫秒内仍按 id 倒序算并列，不被游标跳过。
+  await db.execute(
+    sql`UPDATE canvas_projects SET updated_at = to_timestamp(3.0004) WHERE id = ${ids[2]!}`,
+  )
   const expected = ids
     .map((id, n) => ({ id, updatedAt: stamps[n]! }))
     .sort((a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? 1 : -1))
     .map((one) => one.id)
 
-  const first = await (await request('?order=recent&limit=2', deviceB)).json()
-  expect(first.totals).toEqual({ all: 5, chat: 2 })
+  const first = await (await request('?order=recent&limit=1', deviceB)).json()
+  expect(first.totals).toEqual({ all: 3, chat: 2 })
   expect(first.deletedIds).toEqual([])
   expect(typeof first.deletedThrough).toBe('number')
   const seen = first.projects.map((one: { id: string }) => one.id)
   let cursor = first.nextCursor
   while (cursor) {
     const page = await (
-      await request(`?order=recent&limit=2&cursor=${encodeURIComponent(cursor)}`, deviceB)
+      await request(`?order=recent&limit=1&cursor=${encodeURIComponent(cursor)}`, deviceB)
     ).json()
     expect(page).not.toHaveProperty('totals')
     expect(page).not.toHaveProperty('deletedIds')
@@ -516,7 +523,7 @@ it('按最近更新翻页：复合游标不重不漏，第一页带总数与增�
   expect((await remove(ids[0]!)).status).toBe(200)
   const all = await (await request('?order=recent', deviceB)).json()
   expect(all.deletedIds).toEqual([ids[0]])
-  expect(all.totals).toEqual({ all: 4, chat: 1 })
+  expect(all.totals).toEqual({ all: 2, chat: 1 })
   // 截止时间往回留了余量；把这条删除挪到余量之前，模拟「上次已经下发过」。
   await db
     .update(schema.canvas_projects)
