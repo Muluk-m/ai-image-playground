@@ -1,6 +1,6 @@
 import { hostname } from 'node:os'
 import type { PersistedSubmitRequest, QueueProvider } from '@image-playground/shared'
-import { and, eq, isNull, lte, or, type SQL, sql } from 'drizzle-orm'
+import { and, eq, isNull, lte, or, type SQL, type SQLWrapper, sql } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { publishGenerations } from '../db/generation-events'
@@ -350,6 +350,54 @@ class TaskExecutionHandle implements TaskExecution {
 }
 
 /**
+ * 正在等重试的任务替自己留着那个并发位的最长等待（BUG-84）。上游重试退避最长 60s
+ * （RETRY_BACKOFF_MS），多出的余量给时钟和调度抖动；超过这个时长的等待（如存档重试、
+ * 运维手动推迟）不再占位，免得一条长等待把账号卡死。
+ */
+export const RETRY_SLOT_HOLD_MS = 90_000
+
+/**
+ * 这一行是否是「刚失败、等着按退避重试」的任务：它让出 in_progress 只是为了等时间，
+ * 账号并发位应当还算它的（BUG-84：370b97db 进入 10s 重试等待后 0.5s，同账号排队的
+ * 915fad3f 抢走了位置，370b97db 等了四分多钟）。只认上游重试（attempt_count > 0、
+ * 没有存档载荷），等待时长在 {@link RETRY_SLOT_HOLD_MS} 以内。
+ *
+ * 写成可复用的 SQL 条件：之后统一调度层接管计数时，只需把这一类行算进它的占位。
+ */
+export function retryHoldsSlot(alias: string, now: number): SQL {
+  const t = sql.identifier(alias)
+  return sql`(${t}.status = 'queued'
+    and ${t}.attempt_count > 0
+    and ${t}.archive_payload is null
+    and ${t}.next_retry_at > to_timestamp(${now} / 1000.0)
+    and ${t}.next_retry_at <= to_timestamp(${now + RETRY_SLOT_HOLD_MS} / 1000.0))`
+}
+
+/**
+ * 智能体同一轮提交的同模型任务一次只跑一条（2026-10-29：一轮 5 单 Flash Lite 同时起跑，
+ * 在同一个按模型限速的配额上互相挤出 429）。条件写成 SQL 片段，认领事务（用户行锁下，
+ * 不会两条同时认领）和挑选候选的查询共用，后者只是少挑注定认领不到的那条。
+ * 不是智能体提交的任务（没有 agent_jobs 行）不受影响。
+ */
+export function turnSiblingInProgress(
+  taskId: SQLWrapper,
+  model: SQLWrapper,
+  now = Date.now(),
+): SQL {
+  return sql`exists (
+    select 1 from ${schema.agent_jobs} as turn_mine
+    join ${schema.agent_jobs} as turn_sibling
+      on turn_sibling.conversation_id = turn_mine.conversation_id
+      and turn_sibling.turn_id = turn_mine.turn_id
+      and turn_sibling.task_id <> turn_mine.task_id
+    join ${schema.tasks} as turn_sibling_task on turn_sibling_task.id = turn_sibling.task_id
+    where turn_mine.task_id = ${taskId}
+      and (turn_sibling_task.status = 'in_progress' or ${retryHoldsSlot('turn_sibling_task', now)})
+      and turn_sibling_task.model = ${model}
+  )`
+}
+
+/**
  * 认领一条排着的任务。只有 `status='queued'` 且 `next_retry_at` 已到才认领得到，
  * 认领与令牌、租约同一次写入：滚动发布时两个实例抢同一行，只有一个拿得到句柄。
  */
@@ -391,6 +439,12 @@ export async function claimTaskExecution(
         .from(schema.users)
         .where(eq(schema.users.id, candidate.userId))
         .for('no key update')
+      const [sibling] = await tx
+        .select({
+          running: turnSiblingInProgress(sql`${id}`, sql`${candidate.model}`, claimedAt),
+        })
+        .from(sql`(select 1) as one`)
+      if (sibling?.running) return null
       if (serializeProviderClaims) await lockIdleSlotClaims(tx, candidate.provider)
       const limits = await accountGenerationLimits(
         tx,
@@ -398,18 +452,18 @@ export async function claimTaskExecution(
         candidate.provider,
         claimedAt,
       )
+      // 在跑的，加上同账号正在等重试、替自己留着位置的（BUG-84）；候选自己不算。
       const [active] = await tx
         .select({
           total: sql<number>`count(*)::int`,
           provider: sql<number>`count(*) filter (where ${schema.tasks.provider} = ${candidate.provider})::int`,
         })
-        .from(schema.tasks)
+        .from(sql`${schema.tasks} as account_task`)
         .where(
-          and(
-            eq(schema.tasks.user_id, candidate.userId),
-            eq(schema.tasks.kind, 'queue'),
-            eq(schema.tasks.status, 'in_progress'),
-          ),
+          sql`account_task.user_id = ${candidate.userId}
+            and account_task.kind = 'queue'
+            and account_task.id <> ${id}
+            and (account_task.status = 'in_progress' or ${retryHoldsSlot('account_task', claimedAt)})`,
         )
       const activeTotal = Number(active?.total ?? 0)
       if (Number(active?.provider ?? 0) >= limits.provider) return null

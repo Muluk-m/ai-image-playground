@@ -55,6 +55,8 @@ export interface StoredImageRef {
  *   出路：原样重试稳定复现，只有改提示词才有意义。
  * - `model_unavailable`: 上游表示这个模型当前没有可用的账号或渠道（如 Grok 账号池耗尽），
  *   换模型才有出路
+ * - `rate_limited`: 上游 429 限流，请求内退避和回落模型都用完仍未成功。只用于统计和告警，
+ *   用户看到的仍是通用的上游失败文案（不加限流或排队提示）
  * - `upstream_no_image`: 上游 HTTP 200 但解析不出图，且不是内容安全拒绝
  * - `interrupted`: BFF 重启时被打断（startup recovery 标记）
  * - `object_storage_error`: object storage read/write failed, or archiving could not fetch the
@@ -67,6 +69,7 @@ export type TaskErrorType =
   | 'upstream_error'
   | 'content_policy'
   | 'model_unavailable'
+  | 'rate_limited'
   | 'upstream_no_image'
   | 'interrupted'
   | 'object_storage_error'
