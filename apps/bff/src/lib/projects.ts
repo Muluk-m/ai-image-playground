@@ -98,6 +98,12 @@ export function decodeRecentProjectCursor(value: string): RecentProjectCursor | 
 }
 
 /**
+ * 游标只带到毫秒（`epochMs` 读出来就是毫秒），比较和排序也截到毫秒；
+ * 否则库里带微秒的行会和游标对不齐，同一毫秒的并列行被跳过。参数按 timestamptz 传，不能拿数字直接比。
+ */
+const updatedAtMs = sql`date_trunc('milliseconds', ${table.updated_at})`
+
+/**
  * 最近更新的排前面：`updated_at desc, id desc` 复合游标。第一页顺带给总数和增量删除。
  *
  * 不加索引：项目数受每人上限约束（`sync:projects`），按 owner 索引取出这个用户的全部行再排序，
@@ -119,11 +125,11 @@ export async function listRecentProjects(
         eq(table.user_id, userId),
         isNull(table.deleted_at),
         cursor
-          ? sql`(${table.updated_at}, ${table.id}) < (${cursor.updatedAt}, ${cursor.id})`
+          ? sql`(${updatedAtMs}, ${table.id}) < (${new Date(cursor.updatedAt).toISOString()}::timestamptz, ${cursor.id})`
           : undefined,
       ),
     )
-    .orderBy(desc(table.updated_at), desc(table.id))
+    .orderBy(desc(updatedAtMs), desc(table.id))
     .limit(pageSize + 1)
   const selected = rows.slice(0, pageSize)
   const summaries = await withConversationSummaries(userId, selected.map(summaryView))

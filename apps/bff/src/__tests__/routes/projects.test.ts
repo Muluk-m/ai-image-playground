@@ -2,7 +2,7 @@ import { afterAll, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { PROJECT_DOCUMENT_MAX_BYTES, PROJECT_ELEMENT_MAX_COUNT } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 
 process.env.PORT = '0'
 process.env.DATABASE_URL = await resetTestDatabase('bff_cloud_projects')
@@ -483,6 +483,10 @@ it('按最近更新翻页：复合游标不重不漏，第一页带总数与增�
       .update(schema.canvas_projects)
       .set({ updated_at: stamps[n]! })
       .where(eq(schema.canvas_projects.id, id))
+  // 库里也可能有带微秒的时间（别处用 SQL 写的）：同一毫秒内仍按 id 倒序算并列，不被游标跳过。
+  await db.execute(
+    sql`UPDATE canvas_projects SET updated_at = to_timestamp(3.0004) WHERE id = ${ids[2]!}`,
+  )
   const expected = ids
     .map((id, n) => ({ id, updatedAt: stamps[n]! }))
     .sort((a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? 1 : -1))
