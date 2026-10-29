@@ -50,3 +50,69 @@ describe('resolveAgentModel', () => {
     expect(resolveAgentModel('image')?.model).toBe('agnes-image-2.5-flash')
   })
 })
+
+describe('resolveAgentModel skips models paused on the admin model page', () => {
+  const channels = () =>
+    _setChannelsForTesting([
+      imageChannel('openai-images', 'gpt-image-2.5-flare'),
+      imageChannel('agnes-images', 'agnes-image-2.5-flash'),
+      imageChannel('vertex-images', 'gemini-nano-banana-2.1'),
+      imageChannel('vertex-pro', 'gemini-3-pro-image'),
+    ])
+
+  it('falls back to gemini-nano-banana-2.1 when the configured model is paused', () => {
+    channels()
+    expect(resolveAgentModel('image', undefined, new Set(['agnes-image-2.5-flash']))?.model).toBe(
+      'gemini-nano-banana-2.1',
+    )
+  })
+
+  it('also skips a paused model the user picked this turn', () => {
+    channels()
+    const paused = new Set(['gpt-image-2.5-flare'])
+    expect(resolveAgentModel('image', 'gpt-image-2.5-flare', paused)?.model).toBe(
+      'agnes-image-2.5-flash',
+    )
+    expect(
+      resolveAgentModel(
+        'image',
+        'gpt-image-2.5-flare',
+        new Set([...paused, 'agnes-image-2.5-flash']),
+      )?.model,
+    ).toBe('gemini-nano-banana-2.1')
+  })
+
+  it('takes the first live model when the preferred fallback is paused too', () => {
+    channels()
+    expect(
+      resolveAgentModel(
+        'image',
+        undefined,
+        new Set(['agnes-image-2.5-flash', 'gemini-nano-banana-2.1', 'gpt-image-2.5-flare']),
+      )?.model,
+    ).toBe('gemini-3-pro-image')
+  })
+
+  it('gives up when every image model is paused', () => {
+    channels()
+    expect(
+      resolveAgentModel(
+        'image',
+        undefined,
+        new Set([
+          'agnes-image-2.5-flash',
+          'gemini-nano-banana-2.1',
+          'gpt-image-2.5-flare',
+          'gemini-3-pro-image',
+        ]),
+      ),
+    ).toBeUndefined()
+  })
+
+  it('leaves a live user choice alone', () => {
+    channels()
+    expect(resolveAgentModel('image', 'gpt-image-2.5-flare', new Set())?.model).toBe(
+      'gpt-image-2.5-flare',
+    )
+  })
+})
