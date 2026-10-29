@@ -26,6 +26,7 @@ import { conversationStarted } from '../../agent/lib/panelMessages'
 import { agentPanelPresent } from '../../agent/panelLayout'
 import { useAgentStore } from '../../agent/store'
 import type { AgentToolMessage } from '../../agent/types'
+import { useLibraryStore } from '../../library/store'
 import ProductionWorkspace from '../../production/components/ProductionWorkspace'
 import { openProductionContent, type ProductionPane } from '../../production/lib/productionContext'
 import {
@@ -961,15 +962,22 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 ? t('projectSync.project_quota_exceeded', { ns: 'errors' })
                 : t('loadError.message')}
             </p>
-            <Button
-              variant="link"
-              size="sm"
-              type="button"
-              className="mt-2"
-              onClick={workspace.retryLoad}
-            >
-              {t('loadError.retry')}
-            </Button>
+            <div className="mt-2 flex items-center justify-center gap-4">
+              {/* 上限只拦新建：已有项目照常打开、删掉一些之后回来重新读取（BUG-54 之后的死路）。 */}
+              {loadErrorCode === 'project_quota_exceeded' ? (
+                <Button
+                  variant="link"
+                  size="sm"
+                  type="button"
+                  onClick={() => useLibraryStore.getState().openProjects()}
+                >
+                  {t('welcome.allProjects')}
+                </Button>
+              ) : null}
+              <Button variant="link" size="sm" type="button" onClick={workspace.retryLoad}>
+                {t('loadError.retry')}
+              </Button>
+            </div>
           </div>
         </div>
       ) : null}
