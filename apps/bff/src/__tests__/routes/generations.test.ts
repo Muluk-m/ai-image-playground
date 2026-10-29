@@ -396,6 +396,8 @@ it('历史按有界页遍历，页面之间新提交不会造成重复或漏掉�
   }
   const first = await (await request('/api/generations?limit=2', deviceB)).json()
   expect(first.items).toHaveLength(2)
+  // 总数只在第一页给：资产页的计数照它显示，不用把整段历史拉下来数。
+  expect(first.totals).toEqual({ all: 5, studio: 5, agent: 0 })
   await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
     ...input,
     client_request_id: 'pagination-new-command',
@@ -405,6 +407,7 @@ it('历史按有界页遍历，页面之间新提交不会造成重复或漏掉�
   while (cursor) {
     const page = await (await request(`/api/generations?limit=2&cursor=${cursor}`, deviceB)).json()
     expect(page.items.length).toBeLessThanOrEqual(2)
+    expect(page).not.toHaveProperty('totals')
     seen.push(...page.items.map((item: { id: string }) => item.id))
     cursor = page.nextCursor
   }
