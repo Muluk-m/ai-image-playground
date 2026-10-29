@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import {
   deleteGeneration,
+  deleteGenerationOutput,
   type GenerationCursor,
   listGenerations,
   readGeneration,
@@ -64,4 +65,19 @@ export const generationRoutes = new Elysia()
         : status(404, { error: 'generation_not_found' })
     },
     { params: t.Object({ id: t.String({ format: 'uuid' }) }) },
+  )
+  .delete(
+    '/api/generations/:id/outputs/:position',
+    async ({ authUser, params, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const result = await deleteGenerationOutput(authUser.id, params.id, params.position)
+      if (result === 'not_found') return status(404, { error: 'generation_output_not_found' })
+      return { generationDeleted: result === 'generation_deleted' }
+    },
+    {
+      params: t.Object({
+        id: t.String({ format: 'uuid' }),
+        position: t.Numeric({ minimum: 0, maximum: 1000, multipleOf: 1 }),
+      }),
+    },
   )

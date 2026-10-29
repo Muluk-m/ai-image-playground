@@ -20,6 +20,7 @@ import { workProjectId } from '../lib/works'
 import {
   editOutputImage,
   removeTask,
+  removeTaskOutput,
   retryTask,
   reuseConfig,
   sendTaskToCanvas,
@@ -248,12 +249,23 @@ export default function DetailModal() {
     setDetailTaskId(null)
   }
 
+  // 多图记录看着哪张就删哪张（同即梦），其余几张留在这条记录里；只剩一张时就是删整条。
+  const deletesOneImage = outputLen > 1
+  const deleteLabel = deletesOneImage ? t('action.deleteImage') : t('action.deleteRecord')
   const handleDelete = () => {
+    const index = imageIndex
     setDetailTaskId(null)
     setConfirmDialog({
-      title: t('action.deleteRecord'),
-      message: t('confirm.deleteMessage'),
-      action: () => removeTask(task),
+      title: deleteLabel,
+      message: deletesOneImage
+        ? t('confirm.deleteImageMessage', { count: outputLen - 1 })
+        : t('confirm.deleteMessage'),
+      action: deletesOneImage
+        ? () => {
+            // 删完回到这条记录的详情，接着看剩下的几张。
+            void removeTaskOutput(task, index).then(() => setDetailTaskId(task.id))
+          }
+        : () => removeTask(task),
     })
   }
 
@@ -837,8 +849,8 @@ export default function DetailModal() {
                 size="icon"
                 onClick={handleDelete}
                 className={`${projectId ? 'col-span-1' : 'col-span-2'} w-full text-muted-foreground hover:text-destructive sm:w-9`}
-                title={t('action.deleteRecord')}
-                aria-label={t('action.deleteRecord')}
+                title={deleteLabel}
+                aria-label={deleteLabel}
               >
                 <Icon name="delete" />
               </Button>

@@ -38,6 +38,8 @@ export interface BatchItemHandlers {
   reuse(task: TaskRecord): void
   edit(task: TaskRecord): void
   send(task: TaskRecord): void
+  /** 删掉这一张（逐张生成里每张是独立一条记录，先删平台再删本机）。 */
+  remove(task: TaskRecord): void
 }
 
 /** 第几张：与失败清单同一个序号（参考图在条上的顺序）。 */
@@ -177,6 +179,12 @@ function BatchItem({
       icon: 'download',
       label: t('set.downloadItem', { index }),
       run: () => openImageExport(taskExportSources([task])),
+    },
+    {
+      key: 'delete',
+      icon: 'delete',
+      label: t('set.deleteItem', { index }),
+      run: () => handlers.remove(task),
     },
   ] as const
   return (

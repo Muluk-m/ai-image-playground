@@ -81,6 +81,7 @@ import { placeCloudGeneration } from './lib/placeCloudGeneration'
 import {
   cloudReuseSourceFromGeneration,
   dropPlatformGeneration,
+  dropPlatformGenerationOutput,
   isPlatformGeneration,
   loadPlatformGenerations,
   type PlatformGenerationRow,
@@ -107,7 +108,12 @@ import {
   removeReference,
   replaceReferences,
 } from './lib/referenceDraft'
-import { deleteRemoteGeneration, mediaRef, readRemoteGeneration } from './lib/remoteGenerations'
+import {
+  deleteRemoteGeneration,
+  deleteRemoteGenerationOutput,
+  mediaRef,
+  readRemoteGeneration,
+} from './lib/remoteGenerations'
 import { cloudReuseSourceFromTask, reuseCloudGeneration } from './lib/reuseCloudGeneration'
 import { batchAttempts } from './lib/setHistory'
 import { watchSubmissionContext } from './lib/submissionContext'
@@ -2345,19 +2351,28 @@ export async function materializeRemoteTask(task: TaskRecord): Promise<TaskRecor
   const outputs = detail
     ? detail.outputs.map((image) => mediaRef(image.mediaId))
     : task.outputImages
+  const positions = detail
+    ? detail.outputs.map((image) => image.index)
+    : (task.outputPositions ?? task.outputImages.map((_, index) => index))
   const inputs = detail ? detail.inputs.map((image) => mediaRef(image.mediaId)) : task.inputImageIds
   const mask = detail?.mask ? mediaRef(detail.mask.mediaId) : (task.maskImageId ?? null)
-  const [outputImages, inputImageIds, maskImageId] = await Promise.all([
-    localizeRefs(outputs, 'generated'),
+  const [localizedOutputs, inputImageIds, maskImageId] = await Promise.all([
+    Promise.all(outputs.map((ref) => localizeRef(ref, 'generated'))),
     localizeRefs(inputs, 'upload'),
     mask ? localizeRef(mask, 'mask') : Promise.resolve(null),
   ])
+  // 取不到的那张丢掉时，位置号跟着丢，剩下的每张仍对得上平台原位置。
+  const kept = localizedOutputs.flatMap((id, i) =>
+    id === null ? [] : [{ id, position: positions[i] ?? i }],
+  )
+  const outputImages = kept.map((item) => item.id)
   const localized: TaskRecord = {
     ...task,
     // 平台详情里是发给上游的那一句（防改写前缀、构图指令）；本机卡要的是用户原文，
     // 否则重试时 callImageApi 按 no_rewrite 再钉一遍前缀，卡上也重新露出机器指令。
     prompt: detail ? promptFromGeneration(detail) : task.prompt,
     outputImages,
+    outputPositions: kept.map((item) => item.position),
     inputImageIds,
     maskImageId,
     maskTargetImageId: maskImageId ? (inputImageIds[0] ?? null) : null,
@@ -2898,6 +2913,78 @@ export async function removeTask(task: TaskRecord) {
   }
 
   showToast(i18next.t('toast.taskDeleted', { ns: 'store' }), 'success')
+}
+
+/**
+ * 多图作品只删一张（「我的作品」详情里看着哪张删哪张）。只剩一张时等于删整条记录。
+ * 和整条删除一样先删平台那张：本机丢掉不算删，刷新时平台列表会把它带回来。
+ * 平台位置号不重排，本机按 `outputPositions` 记住剩下每张对应平台上的哪一张。
+ */
+export async function removeTaskOutput(task: TaskRecord, imageIndex: number) {
+  const { showToast, platformGenerations } = useStore.getState()
+  const imageId = task.outputImages[imageIndex]
+  if (imageId === undefined) return
+  if (task.outputImages.length <= 1) return removeTask(task)
+
+  const remoteId = task.bffRequestId ?? task.id
+  const row = platformGenerations.find((item) => item.id === remoteId)
+  const positions = task.outputPositions ?? task.outputImages.map((_, index) => index)
+  // 平台卡的产出是 `aip-media:` 引用，按媒体认位置；本机卡按记下的对应关系。
+  const remoteOutput =
+    task.remoteOnly && row && 'outputs' in row.record
+      ? row.record.outputs.find((image) => mediaRef(image.mediaId) === imageId)
+      : undefined
+  const position = task.remoteOnly ? remoteOutput?.index : positions[imageIndex]
+  const onPlatform = task.remoteOnly || Boolean(row) || Boolean(task.bffRequestId)
+  if (onPlatform) {
+    const result =
+      position === undefined ? null : await deleteRemoteGenerationOutput(remoteId, position)
+    if (!result) {
+      showToast(i18next.t('toast.imageDeleteFailed', { ns: 'store' }), 'error')
+      return
+    }
+    if (result.generationDeleted) {
+      if (row) await dropPlatformGeneration(remoteId)
+      if (!task.remoteOnly) await removeTask(task)
+      else showToast(i18next.t('toast.imageDeleted', { ns: 'store' }), 'success')
+      return
+    }
+    if (row && position !== undefined) await dropPlatformGenerationOutput(remoteId, position)
+  }
+  if (task.remoteOnly) {
+    showToast(i18next.t('toast.imageDeleted', { ns: 'store' }), 'success')
+    return
+  }
+
+  // 等过网络，从最新的那条记录上删，别把请求前的快照写回去。
+  const latest = useStore.getState().tasks.find((item) => item.id === task.id)
+  if (!latest) return
+  const index = latest.outputImages.indexOf(imageId)
+  if (index < 0) return
+  const latestPositions = latest.outputPositions ?? latest.outputImages.map((_, i) => i)
+  const without = <T>(list: readonly T[] | undefined) =>
+    list ? list.filter((_, i) => i !== index) : undefined
+  const transparentOriginal = latest.transparentOriginalImages?.[index]
+  const { [imageId]: _params, ...actualParamsByImage } = latest.actualParamsByImage ?? {}
+  const { [imageId]: _prompt, ...revisedPromptByImage } = latest.revisedPromptByImage ?? {}
+  updateTaskInStore(latest.id, {
+    outputImages: without(latest.outputImages) ?? [],
+    outputPositions: without(latestPositions),
+    ...(latest.transparentOriginalImages
+      ? { transparentOriginalImages: without(latest.transparentOriginalImages) }
+      : {}),
+    ...(latest.actualParamsByImage ? { actualParamsByImage } : {}),
+    ...(latest.revisedPromptByImage ? { revisedPromptByImage } : {}),
+  })
+
+  const stillUsed = await imageIdsInUse(useStore.getState().tasks)
+  for (const id of [imageId, transparentOriginal]) {
+    if (!id || stillUsed.has(id) || referencedNow(id)) continue
+    await deleteImage(id)
+    imageCache.delete(id)
+    thumbnailCache.delete(id)
+  }
+  showToast(i18next.t('toast.imageDeleted', { ns: 'store' }), 'success')
 }
 
 /** 清空数据选项 */
