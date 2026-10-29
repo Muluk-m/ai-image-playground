@@ -2601,7 +2601,7 @@ export async function removeMultipleTasks(taskIds: string[]) {
   }
   deleted += toDelete.size
   // 上面等了网络，期间可能有新任务进来或状态更新：从最新列表里删，别把请求前的快照写回去。
-  const { tasks: latest, setTasks, selectedTaskIds } = useStore.getState()
+  const { tasks: latest, setTasks } = useStore.getState()
   const remaining = latest.filter((t) => !toDelete.has(t.id))
   // 收集所有被删除任务的关联图片
   const deletedImageIds = new Set<string>()
@@ -2621,7 +2621,8 @@ export async function removeMultipleTasks(taskIds: string[]) {
     await dbDeleteTask(id)
   }
 
-  const stillUsed = await imageIdsInUse(remaining)
+  // 删库也要等：引用按此刻的最新列表算，期间新进来的任务用到的图不能被当成孤图删掉。
+  const stillUsed = await imageIdsInUse(useStore.getState().tasks)
 
   // 删除孤立图片
   for (const imgId of deletedImageIds) {
@@ -2634,6 +2635,7 @@ export async function removeMultipleTasks(taskIds: string[]) {
 
   // 如果删除的任务在选中列表中，则移除
   const removed = new Set([...toDelete, ...platformIds])
+  const { selectedTaskIds } = useStore.getState()
   const newSelection = selectedTaskIds.filter((id) => !removed.has(id))
   if (newSelection.length !== selectedTaskIds.length) {
     useStore.getState().setSelectedTaskIds(newSelection)
@@ -2696,7 +2698,8 @@ export async function removeTask(task: TaskRecord) {
   setLatest(remaining)
   await dbDeleteTask(task.id)
 
-  const stillUsed = await imageIdsInUse(remaining)
+  // 删库也要等：引用按此刻的最新列表算，期间新进来的任务用到的图不能被当成孤图删掉。
+  const stillUsed = await imageIdsInUse(useStore.getState().tasks)
 
   // 删除孤立图片
   for (const imgId of taskImageIds) {
