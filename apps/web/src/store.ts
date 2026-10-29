@@ -2563,6 +2563,20 @@ async function placeRemoteOutputOnCanvas(task: TaskRecord, imageId?: string) {
   }
 }
 
+/**
+ * 本机跑的平台任务在平台上也有一条（`bffRequestId` 指向它，或 id 相同）。作品页对这两条只显示本机卡
+ * （`mergeHistory`），本机卡一删，平台那条就露出来——刷新后「删掉的图又回来了」。所以先删平台那条。
+ * 平台缓存里有它却删不掉时返回 false，整件事不做；缓存里还没有（没翻到那一页）就尽力删，失败不拦本机删除。
+ */
+async function deletePlatformCounterpart(task: TaskRecord): Promise<boolean> {
+  const id = task.bffRequestId ?? task.id
+  const cached = isPlatformGeneration(id)
+  if (!cached && !task.bffRequestId) return true
+  const ok = await deleteRemoteGeneration(id)
+  if (ok && cached) await dropPlatformGeneration(id)
+  return ok || !cached
+}
+
 /** 删除多条记录：平台那些先删平台，本机那些连带清掉孤立图片。 */
 export async function removeMultipleTasks(taskIds: string[]) {
   const { tasks, setTasks, showToast, clearSelection, selectedTaskIds, platformGenerations } =
@@ -2581,7 +2595,11 @@ export async function removeMultipleTasks(taskIds: string[]) {
     deleted += 1
   }
 
-  const toDelete = new Set(taskIds.filter((id) => owned.has(id)))
+  const toDelete = new Set<string>()
+  for (const task of tasks) {
+    if (!taskIds.includes(task.id)) continue
+    if (await deletePlatformCounterpart(task)) toDelete.add(task.id)
+  }
   deleted += toDelete.size
   const remaining = tasks.filter((t) => !toDelete.has(t.id))
   // 收集所有被删除任务的关联图片
@@ -2653,6 +2671,12 @@ export async function removeTask(task: TaskRecord) {
     }
     await dropPlatformGeneration(task.id)
     showToast(i18next.t('toast.taskDeleted', { ns: 'store' }), 'success')
+    return
+  }
+
+  // 本机跑的平台任务在平台上也有一条：只删本机，刷新时平台列表又把它带回来。
+  if (!(await deletePlatformCounterpart(task))) {
+    showToast(i18next.t('toast.taskDeleteFailed', { ns: 'store' }), 'error')
     return
   }
 
