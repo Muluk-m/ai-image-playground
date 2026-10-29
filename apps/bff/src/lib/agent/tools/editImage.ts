@@ -5,6 +5,7 @@ import { prepareMaskedEdit } from '../masked-edit'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
 import {
+  agentModelImageCount,
   aspectRatioParameter,
   imageCountParameter,
   requestedImageCount,
@@ -114,7 +115,11 @@ export const editImage = defineAgentTool({
         : written?.trim()
           ? agentTitleLine(written, TITLE_MAX_CHARS)
           : '改图',
-      outputCount: requestedImageCount(n, turn?.n),
+      // 与 draftQueueTask 的收口一致，否则占位框比实际出图多。
+      outputCount: agentModelImageCount(
+        resolveAgentModel('image', turn?.model)?.model,
+        requestedImageCount(n, turn?.n),
+      ),
       ...(typeof first === 'string' && first ? { anchor: first } : {}),
       ...(written ? { prompt: written } : {}),
       ...(Array.isArray(imageIds)

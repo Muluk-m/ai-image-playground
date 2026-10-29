@@ -133,6 +133,129 @@ describe('认领', () => {
     other?.release()
   })
 
+  it('runs one task at a time per model within an agent turn, without holding back other turns or models', async () => {
+    const now = Date.now()
+    await db.insert(schema.users).values({
+      id: 'turn-user',
+      username: 'turn-user',
+      password_hash: 'test',
+      created_at: now,
+      updated_at: now,
+    })
+    await db.insert(schema.agent_conversations).values({
+      id: 'turn-conv',
+      user_id: 'turn-user',
+      title: 't',
+      created_at: now,
+      updated_at: now,
+    })
+    const lite = {
+      user_id: 'turn-user',
+      provider: 'gemini' as const,
+      model: 'gemini-3.1-flash-lite-image',
+    }
+    await insertQueuedTask('turn-a', lite)
+    await insertQueuedTask('turn-b', lite)
+    await insertQueuedTask('turn-other-model', { ...lite, model: 'gemini-nano-banana-2.1' })
+    await insertQueuedTask('turn-next-turn', lite)
+    const job = (taskId: string, turnId = 'turn-1') => ({
+      task_id: taskId,
+      conversation_id: 'turn-conv',
+      turn_id: turnId,
+      tool_call_id: taskId,
+      submitted_at: now,
+    })
+    await db
+      .insert(schema.agent_jobs)
+      .values([
+        job('turn-a'),
+        job('turn-b'),
+        job('turn-other-model'),
+        job('turn-next-turn', 'turn-2'),
+      ])
+    billing.concurrencyLimit = 10
+
+    const [a, b] = await Promise.all([claimTaskExecution('turn-a'), claimTaskExecution('turn-b')])
+    // 同一轮同模型：两条同时认领也只放行一条（用户行锁下判定）。
+    expect([a, b].filter(Boolean)).toHaveLength(1)
+    const blocked = a ? 'turn-b' : 'turn-a'
+    const { selectRunnableTasks } = await import('../../workers/runnable-tasks')
+    const runnable = (await selectRunnableTasks('gemini', 10, Date.now())).map((task) => task.id)
+    // 挑候选时也跳过注定认领不到的那条，不让它占掉这一轮的空位。
+    expect(runnable).not.toContain(blocked)
+    expect(runnable).toContain('turn-next-turn')
+    const others = await Promise.all(
+      ['turn-other-model', 'turn-next-turn'].map((id) => claimTaskExecution(id)),
+    )
+    expect(others.every(Boolean)).toBe(true)
+
+    // 前一条收尾后，同一轮的下一条就认领得到。
+    const running = (a ?? b)!
+    expect(await running.finish({ status: 'completed', completedAt: Date.now() })).toBeTruthy()
+    running.release()
+    const next = await claimTaskExecution(blocked)
+    expect(next).not.toBeNull()
+    next?.release()
+    for (const other of others) other?.release()
+  })
+
+  it('keeps the slot of a task waiting out its retry backoff from the same account (BUG-84)', async () => {
+    const now = Date.now()
+    await db.insert(schema.users).values({
+      id: 'retry-user',
+      username: 'retry-user',
+      password_hash: 'test',
+      created_at: now,
+      updated_at: now,
+    })
+    billing.concurrencyLimit = 1
+    await insertQueuedTask('retry-waiting', {
+      user_id: 'retry-user',
+      attempt_count: 1,
+      next_retry_at: now + 10_000,
+    })
+    await insertQueuedTask('retry-queued', { user_id: 'retry-user', submitted_at: 2 })
+
+    // 重试等待中：同账号排队的那条不能趁机占走唯一的位置。
+    expect(await claimTaskExecution('retry-queued', now)).toBeNull()
+    const { selectRunnableTasks } = await import('../../workers/runnable-tasks')
+    expect((await selectRunnableTasks('openai-compat', 10, now)).map((t) => t.id)).toEqual([])
+
+    // 退避到点：等重试的那条拿回位置，排队的继续等。
+    const resumed = await claimTaskExecution('retry-waiting', now + 10_001)
+    expect(resumed).not.toBeNull()
+    expect(await claimTaskExecution('retry-queued', now + 10_001)).toBeNull()
+    resumed?.release()
+  })
+
+  it('does not hold a slot for long waits or storage retries', async () => {
+    const now = Date.now()
+    await db.insert(schema.users).values({
+      id: 'hold-user',
+      username: 'hold-user',
+      password_hash: 'test',
+      created_at: now,
+      updated_at: now,
+    })
+    billing.concurrencyLimit = 1
+    await insertQueuedTask('hold-long-wait', {
+      user_id: 'hold-user',
+      attempt_count: 1,
+      next_retry_at: now + 10 * 60_000,
+    })
+    await insertQueuedTask('hold-archive', {
+      user_id: 'hold-user',
+      attempt_count: 1,
+      next_retry_at: now + 10_000,
+      archive_payload: { outputs: [] },
+    })
+    await insertQueuedTask('hold-queued', { user_id: 'hold-user', submitted_at: 2 })
+
+    const claimed = await claimTaskExecution('hold-queued', now)
+    expect(claimed).not.toBeNull()
+    claimed?.release()
+  })
+
   it('同账号任务认领和另一任务终态事件并发时不因外键锁发生死锁', async () => {
     const userId = 'claim-event-lock-owner'
     const now = Date.now()

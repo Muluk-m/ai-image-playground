@@ -3,6 +3,7 @@ import { Type } from 'typebox'
 import { designPrompt } from '../design-intent'
 import { defineAgentTool } from './adapter'
 import {
+  agentModelImageCount,
   aspectRatioParameter,
   imageCountParameter,
   requestedImageCount,
@@ -64,7 +65,11 @@ export const generateImage = defineAgentTool({
     const finalPrompt = written ? designPrompt(written, designIntent) : undefined
     return {
       title: written?.trim() ? agentTitleLine(written, TITLE_MAX_CHARS) : '生图',
-      outputCount: requestedImageCount(n, turn?.n),
+      // 与 draftQueueTask 的收口一致，否则占位框比实际出图多。
+      outputCount: agentModelImageCount(
+        resolveAgentModel('image', turn?.model)?.model,
+        requestedImageCount(n, turn?.n),
+      ),
       ...(finalPrompt ? { prompt: finalPrompt } : {}),
     }
   },
