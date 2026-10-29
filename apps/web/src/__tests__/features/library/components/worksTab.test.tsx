@@ -209,3 +209,22 @@ it('筛选「对话产出」时只数服务端记录，本机任务不进来', a
   await act(async () => agentTab!.click())
   expect(cards()).toHaveLength(0)
 })
+
+it('键盘：卡片自身回车打开详情，卡里按钮的回车留给按钮自己', async () => {
+  useStore.setState({ detailTaskId: null })
+  await act(async () => root.render(<WorksTab search="" />))
+  const card = cards()[0]!
+  const button = card.querySelector('button')!
+  const fromButton = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+  act(() => {
+    button.dispatchEvent(fromButton)
+  })
+  expect(fromButton.defaultPrevented).toBe(false)
+  expect(useStore.getState().detailTaskId).toBeNull()
+  act(() => {
+    card.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    )
+  })
+  expect(useStore.getState().detailTaskId).toBe('task-0')
+})
