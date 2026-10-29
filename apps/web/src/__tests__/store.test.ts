@@ -163,9 +163,11 @@ vi.mock('../lib/canvasImage', async (importOriginal) => ({
 }))
 
 const readRemoteGeneration = vi.hoisted(() => vi.fn())
+const deleteRemoteGeneration = vi.hoisted(() => vi.fn())
 vi.mock('../lib/remoteGenerations', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/remoteGenerations')>()),
   readRemoteGeneration,
+  deleteRemoteGeneration,
 }))
 
 import { IDBFactory } from 'fake-indexeddb'
@@ -199,6 +201,8 @@ import {
   initStore,
   markInterruptedOpenAIRunningTasks,
   materializeRemoteTask,
+  removeMultipleTasks,
+  removeTask,
   retryTask,
   reuseConfig,
   submitPrepared,
@@ -2996,5 +3000,147 @@ describe('confirmDialogAsync', () => {
     expect(await replaced).toBe(false)
     expect(useStore.getState().confirmDialog).toBe(other)
     useStore.getState().setConfirmDialog(null)
+  })
+})
+
+describe('删除本机跑的平台任务', () => {
+  const row = (id: string): PlatformGenerationRow => ({
+    id,
+    record: {
+      id,
+      provider: 'openai-compat',
+      model: 'gpt-image-2.5-flare',
+      status: 'completed',
+      archiveStatus: 'ready',
+      errorType: null,
+      cover: null,
+      createdAt: 1_000,
+      startedAt: 2_000,
+      completedAt: 62_000,
+      revision: '1',
+      prompt: '一只猫',
+      parameters: {},
+      actualParameters: {},
+      inputs: [],
+      mask: null,
+    } as unknown as PlatformGenerationRow['record'],
+    fetchedAt: 0,
+  })
+  const shown = () =>
+    mergeHistory(useStore.getState().tasks, useStore.getState().platformGenerations).map(
+      (card) => card.id,
+    )
+
+  beforeEach(() => {
+    deleteRemoteGeneration.mockReset()
+    deleteRemoteGeneration.mockResolvedValue(true)
+  })
+
+  it('单条删除连平台那条一起删，作品页不会把平台那条露出来', async () => {
+    useStore.setState({
+      tasks: [task({ id: 'local-1', bffRequestId: 'gen-1' })],
+      platformGenerations: [row('gen-1')],
+    })
+    expect(shown()).toEqual(['local-1'])
+
+    await removeTask(useStore.getState().tasks[0] as TaskRecord)
+
+    expect(deleteRemoteGeneration).toHaveBeenCalledWith('gen-1')
+    expect(shown()).toEqual([])
+  })
+
+  it('平台那条删不掉就整件事不做', async () => {
+    deleteRemoteGeneration.mockResolvedValue(false)
+    useStore.setState({
+      tasks: [task({ id: 'local-1', bffRequestId: 'gen-1' })],
+      platformGenerations: [row('gen-1')],
+    })
+
+    await removeTask(useStore.getState().tasks[0] as TaskRecord)
+
+    expect(shown()).toEqual(['local-1'])
+  })
+
+  it('等平台删除期间新进来的任务不会被请求前的快照覆盖掉', async () => {
+    const arrive = () =>
+      useStore.setState({ tasks: [...useStore.getState().tasks, task({ id: 'new-1' })] })
+    deleteRemoteGeneration.mockImplementation(async () => {
+      arrive()
+      return true
+    })
+    useStore.setState({
+      tasks: [task({ id: 'local-1', bffRequestId: 'gen-1' })],
+      platformGenerations: [row('gen-1')],
+    })
+    await removeTask(useStore.getState().tasks[0] as TaskRecord)
+    expect(useStore.getState().tasks.map((t) => t.id)).toEqual(['new-1'])
+
+    useStore.setState({
+      tasks: [task({ id: 'local-2', bffRequestId: 'gen-2' })],
+      platformGenerations: [row('gen-2')],
+    })
+    await removeMultipleTasks(['local-2'])
+    expect(useStore.getState().tasks.map((t) => t.id)).toEqual(['new-1'])
+  })
+
+  it('删库期间新进来的任务用到的图，不会被当成孤图删掉', async () => {
+    const removeImage = vi.spyOn(database, 'deleteImage')
+    const referenced = vi
+      .spyOn(database, 'getReferencedImageIds')
+      .mockImplementation(
+        async (tasks: readonly TaskRecord[]) =>
+          new Set(tasks.flatMap((t) => [...t.inputImageIds, ...t.outputImages])),
+      )
+    vi.spyOn(database, 'deleteTask').mockImplementationOnce(async () => {
+      useStore.setState({
+        tasks: [...useStore.getState().tasks, task({ id: 'new-1', inputImageIds: ['shared'] })],
+      })
+    })
+    useStore.setState({
+      tasks: [task({ id: 'local-1', bffRequestId: 'gen-1', outputImages: ['shared'] })],
+      platformGenerations: [row('gen-1')],
+    })
+    await removeTask(useStore.getState().tasks[0] as TaskRecord)
+    expect(useStore.getState().tasks.map((t) => t.id)).toEqual(['new-1'])
+    expect(removeImage).not.toHaveBeenCalledWith('shared')
+    removeImage.mockRestore()
+    referenced.mockRestore()
+  })
+
+  it('孤图判断读库期间新进来的任务用到的图，真删之前会再核一遍', async () => {
+    const removeImage = vi.spyOn(database, 'deleteImage')
+    const referenced = vi
+      .spyOn(database, 'getReferencedImageIds')
+      .mockImplementation(async (tasks: readonly TaskRecord[]) => {
+        const ids = new Set(tasks.flatMap((t) => [...t.inputImageIds, ...t.outputImages]))
+        // 判断用的是进来前的快照；判断途中新任务进了 store。
+        useStore.setState({
+          tasks: [...useStore.getState().tasks, task({ id: 'new-2', inputImageIds: ['shared'] })],
+        })
+        return ids
+      })
+    useStore.setState({
+      tasks: [task({ id: 'local-1', bffRequestId: 'gen-1', outputImages: ['shared'] })],
+      platformGenerations: [row('gen-1')],
+    })
+    await removeTask(useStore.getState().tasks[0] as TaskRecord)
+    expect(useStore.getState().tasks.map((t) => t.id)).toEqual(['new-2'])
+    expect(removeImage).not.toHaveBeenCalledWith('shared')
+    removeImage.mockRestore()
+    referenced.mockRestore()
+  })
+
+  it('批量删除也删平台那条；纯本机记录不碰平台', async () => {
+    useStore.setState({
+      tasks: [task({ id: 'local-1', bffRequestId: 'gen-1' }), task({ id: 'byok-1' })],
+      platformGenerations: [row('gen-1')],
+      selectedTaskIds: [],
+    })
+
+    await removeMultipleTasks(['local-1', 'byok-1'])
+
+    expect(deleteRemoteGeneration).toHaveBeenCalledTimes(1)
+    expect(deleteRemoteGeneration).toHaveBeenCalledWith('gen-1')
+    expect(shown()).toEqual([])
   })
 })
