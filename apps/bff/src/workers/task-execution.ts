@@ -390,6 +390,8 @@ export function turnSiblingInProgress(
       on turn_sibling.conversation_id = turn_mine.conversation_id
       and turn_sibling.turn_id = turn_mine.turn_id
       and turn_sibling.task_id <> turn_mine.task_id
+      -- 在跑的、等重试的都还没结束，不会已投递；带上它才用得上 idx_agent_jobs_undelivered。
+      and turn_sibling.delivered_at is null
     join ${schema.tasks} as turn_sibling_task on turn_sibling_task.id = turn_sibling.task_id
     where turn_mine.task_id = ${taskId}
       and (turn_sibling_task.status = 'in_progress' or ${retryHoldsSlot('turn_sibling_task', now)})
@@ -456,7 +458,7 @@ export async function claimTaskExecution(
       const [active] = await tx
         .select({
           total: sql<number>`count(*)::int`,
-          provider: sql<number>`count(*) filter (where ${schema.tasks.provider} = ${candidate.provider})::int`,
+          provider: sql<number>`count(*) filter (where account_task.provider = ${candidate.provider})::int`,
         })
         .from(sql`${schema.tasks} as account_task`)
         .where(
