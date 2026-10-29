@@ -171,10 +171,16 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
             db.execute(sql`
           SELECT t.model,
             COUNT(*) AS failures,
-            (array_agg(t.error_type ORDER BY t.completed_at DESC))[1] AS error_type,
-            (array_agg(t.upstream_status ORDER BY t.completed_at DESC))[1] AS upstream_status,
-            -- 取完整原文：先截断再脱敏会把截在边界上的半截密钥漏出去。
-            (array_agg(COALESCE(t.error_message, '') ORDER BY t.completed_at DESC))[1] AS message,
+            (array_agg(t.error_type ORDER BY t.completed_at DESC, t.id DESC))[1] AS error_type,
+            (array_agg(t.upstream_status ORDER BY t.completed_at DESC, t.id DESC))[1] AS upstream_status,
+            -- 只读最近一条失败的完整原文（先截断再脱敏会把截在边界上的半截密钥漏出去），
+            -- 不把窗口内每条失败的原文都聚合出来。
+            (SELECT COALESCE(l.error_message, '') FROM tasks l
+              WHERE l.model = t.model AND l.kind = 'queue' AND l.status = 'failed'
+                AND l.error_type IS DISTINCT FROM 'content_policy'
+                AND l.completed_at >= NOW() - INTERVAL '15 minutes'
+                AND l.submitted_at >= NOW() - INTERVAL '7 days'
+              ORDER BY l.completed_at DESC, l.id DESC LIMIT 1) AS message,
             EXTRACT(EPOCH FROM MAX(t.completed_at)) * 1000 AS last_failed_at,
             -- 只算因上游不可用被自动暂停的；运营手动停用会清掉 pause_reason，不算。
             BOOL_OR(m.active = false AND m.pause_reason = 'upstream_unavailable') AS paused
