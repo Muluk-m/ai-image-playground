@@ -14,6 +14,7 @@ import {
   readBackups as readBackupsFromStore,
   readRestoreDrill as readRestoreDrillFromStore,
 } from '../lib/ops-backups'
+import { redactLogText } from '../lib/server-log-buffer'
 import { selectRunnableTasks } from '../workers/runnable-tasks'
 import type { AlertSender } from './alert-sender'
 
@@ -171,7 +172,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
             COUNT(*) AS failures,
             (array_agg(t.error_type ORDER BY t.completed_at DESC))[1] AS error_type,
             (array_agg(t.upstream_status ORDER BY t.completed_at DESC))[1] AS upstream_status,
-            (array_agg(left(COALESCE(t.error_message, ''), 200) ORDER BY t.completed_at DESC))[1] AS message,
+            (array_agg(left(COALESCE(t.error_message, ''), 400) ORDER BY t.completed_at DESC))[1] AS message,
             EXTRACT(EPOCH FROM MAX(t.completed_at)) * 1000 AS last_failed_at,
             -- 只算因上游不可用被自动暂停的；运营手动停用会清掉 pause_reason，不算。
             BOOL_OR(m.active = false AND m.pause_reason = 'upstream_unavailable') AS paused
@@ -180,6 +181,8 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           WHERE t.kind = 'queue' AND t.status = 'failed'
             AND t.error_type IS DISTINCT FROM 'content_policy'
             AND t.completed_at >= NOW() - INTERVAL '15 minutes'
+            -- 先用提交时间收窄到近一天（走 idx_tasks_submitted_at），不必为告警再加一条索引和迁移。
+            AND t.submitted_at >= NOW() - INTERVAL '1 day'
           GROUP BY t.model
           ORDER BY failures DESC, last_failed_at DESC
         `),
@@ -189,6 +192,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           FROM tasks
           WHERE kind = 'queue' AND status = 'completed'
             AND completed_at >= NOW() - INTERVAL '24 hours'
+            AND submitted_at >= NOW() - INTERVAL '25 hours'
           GROUP BY model
         `),
           ])
@@ -204,7 +208,8 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
               failures: Number(row.failures ?? 0),
               errorType: String(row.error_type ?? 'unknown'),
               upstreamStatus: row.upstream_status == null ? null : Number(row.upstream_status),
-              message: String(row.message ?? ''),
+              // 报错原文会外发到值班 webhook：先按服务端日志的规则抹掉令牌、密钥和带账号的地址，再截 200 字。
+              message: redactLogText(String(row.message ?? '')).slice(0, 200),
               lastFailedAt: Number(row.last_failed_at ?? 0),
               paused: row.paused === true,
             })),
