@@ -60,6 +60,57 @@ run_if_stale() {
   "$5" || echo "pg-backup: catch-up: $5 failed"
 }
 
+# Exits 0 when the drill verdict at $1 is a failure: "ok":false, or anything that is not a pass,
+# the same way the worker's alert reads it. Fails when the download fails, so "unknown" never
+# triggers a drill.
+drill_failed() {
+  verdict=$(aws --endpoint-url "$S3_ENDPOINT" s3 cp --only-show-errors "s3://$S3_BUCKET/$1" -) ||
+    return 2
+  case "$verdict" in
+    *'"ok":true'*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# Runs the drill when its verdict is missing, older than $1 seconds, or a failure at least
+# $2 seconds old. A failed verdict otherwise stays until next Sunday and keeps the alert firing
+# after the cause is fixed. The cooldown keeps a drill that still fails from running on every
+# redeploy: its fresh verdict is younger than the cooldown, so each one retries at most once.
+catch_up_drill() {
+  dir="${prefix}pg/drill/"
+  if ! found=$(newest_object "$dir" latest.json); then
+    echo "pg-backup: catch-up: could not list $dir; leaving the drill to cron"
+    return 0
+  fi
+  if [ -n "$found" ]; then
+    age=$(($(date -u +%s) - ${found#* }))
+    if [ "$age" -ge 0 ] && [ "$age" -le "$1" ]; then
+      # entrypoint.sh runs catch_up under set -e, so the status is caught instead of tested bare.
+      verdict_status=0
+      drill_failed "${found%% *}" || verdict_status=$?
+      case $verdict_status in
+        1)
+          echo "pg-backup: catch-up: latest drill is ${age}s old, nothing to do"
+          return 0
+          ;;
+        2)
+          echo "pg-backup: catch-up: could not read the latest drill verdict; leaving the drill to cron"
+          return 0
+          ;;
+      esac
+      if [ "$age" -lt "$2" ]; then
+        echo "pg-backup: catch-up: latest drill failed ${age}s ago; retrying after ${2}s"
+        return 0
+      fi
+      echo "pg-backup: catch-up: latest drill failed ${age}s ago, running restore-drill.sh"
+      restore-drill.sh || echo "pg-backup: catch-up: restore-drill.sh failed"
+      return 0
+    fi
+  fi
+  echo "pg-backup: catch-up: drill is missing or overdue, running restore-drill.sh"
+  restore-drill.sh || echo "pg-backup: catch-up: restore-drill.sh failed"
+}
+
 # Container start. crond does not run jobs it missed while the host was down, and redeploys restart
 # this container often, so only an overdue job is run. Backup first: the drill restores the newest dump.
 catch_up() {
@@ -73,5 +124,8 @@ catch_up() {
   # Hourly cloud backups; no periodic replication or restore to the standby database.
   run_if_stale backup "${prefix}pg/" .dump.sha256 3600 backup.sh
   # The drill is due weekly; eight days leaves room for a Sunday run that is still in flight.
-  run_if_stale drill "${prefix}pg/drill/" latest.json 691200 restore-drill.sh
+  # A failed one is retried once it is PG_DRILL_RETRY_AFTER_SECONDS old (default 6 hours).
+  retry_after=${PG_DRILL_RETRY_AFTER_SECONDS:-21600}
+  case "$retry_after" in '' | *[!0-9]*) retry_after=21600 ;; esac
+  catch_up_drill 691200 "$retry_after"
 }

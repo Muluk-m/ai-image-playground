@@ -31,6 +31,9 @@ beforeEach(() => {
       'echo "aws $*" >> "$CALL_LOG"',
       'if [ -n "${FAKE_LIST_FAILS:-}" ]; then echo "Could not connect to the endpoint URL" >&2; exit 255; fi',
       'case "$*" in',
+      '  *"s3 cp"*"s3://bucket/app/pg/drill/latest.json -"*)',
+      '    if [ -n "${FAKE_VERDICT_FAILS:-}" ]; then echo "download failed: 403" >&2; exit 1; fi',
+      '    printf "%s\\n" "$FAKE_VERDICT" ;;',
       '  *"--prefix app/pg/drill/"*) printf "%s\\n" "$FAKE_DRILL" ;;',
       '  *"--prefix app/pg/"*) printf "%s\\n" "$FAKE_DUMP" ;;',
       '  *) exit 1 ;;',
@@ -50,8 +53,21 @@ function modifiedAgo(ms: number): string {
   return `${new Date(Date.now() - ms).toISOString().slice(0, 19)}+00:00`
 }
 
-function catchUp(listing: { dump: string; drill: string; listFails?: boolean }) {
-  const result = spawnSync('sh', ['-c', '. "$0"; catch_up', lib], {
+const passedVerdict =
+  '{"ok":true,"finished_at":"2026-10-25T19:00:11Z","dump_key":"pg/x.dump","tables":3,"rows":9}'
+const failedVerdict =
+  '{"ok":false,"finished_at":"2026-10-25T19:00:11Z","dump_key":"","tables":0,"rows":0,"error":"no completed dump under pg/"}'
+
+function catchUp(listing: {
+  dump: string
+  drill: string
+  listFails?: boolean
+  verdict?: string
+  verdictFails?: boolean
+  retryAfterSeconds?: string
+}) {
+  // entrypoint.sh 在 set -eu 下跑 catch_up，这里同样开着，返回非零的分支一旦没接住就会在测试里暴露。
+  const result = spawnSync('sh', ['-c', 'set -eu; . "$0"; catch_up', lib], {
     encoding: 'utf8',
     timeout: 10000,
     env: {
@@ -66,6 +82,11 @@ function catchUp(listing: { dump: string; drill: string; listFails?: boolean }) 
       FAKE_DUMP: listing.dump,
       FAKE_DRILL: listing.drill,
       FAKE_LIST_FAILS: listing.listFails ? '1' : '',
+      FAKE_VERDICT: listing.verdict ?? passedVerdict,
+      FAKE_VERDICT_FAILS: listing.verdictFails ? '1' : '',
+      ...(listing.retryAfterSeconds === undefined
+        ? {}
+        : { PG_DRILL_RETRY_AFTER_SECONDS: listing.retryAfterSeconds }),
     },
   })
   const log = existsSync(calls) ? readFileSync(calls, 'utf8') : ''
@@ -178,6 +199,69 @@ describe('容器启动时补跑恢复演练', () => {
   it('备份与演练都欠着：先备份，再拿这份新备份演练', () => {
     const run = catchUp({ dump: 'None', drill: 'None' })
     expect(run.scripts).toEqual(['backup.sh', 'restore-drill.sh'])
+  })
+})
+
+describe('上一次演练失败：冷却过后容器启动时补跑一次', () => {
+  // 2026-10-26 03:00 的周日演练还在用没修过的 newest_object，写下 ok:false「no completed dump under pg/」。
+  // 脚本修好后补跑只看年龄（不到 8 天），失败结果一直留到下个周日，告警每小时、每次发版都再报一遍。
+  const drillAgo = (ms: number) => `${modifiedAgo(ms)}\tapp/pg/drill/latest.json`
+
+  it('3 天前的演练失败了：补跑一次', () => {
+    const run = catchUp({ dump: freshDump, drill: drillAgo(3 * day), verdict: failedVerdict })
+    expect(run.status).toBe(0)
+    expect(run.scripts).toEqual(['restore-drill.sh'])
+    expect(run.output).toContain('latest drill failed')
+  })
+
+  it('失败才 1 小时（刚补跑过又失败）：冷却期内不再跑，下一次发版也不会连着跑', () => {
+    const run = catchUp({ dump: freshDump, drill: drillAgo(hour), verdict: failedVerdict })
+    expect(run.status).toBe(0)
+    expect(run.scripts).toEqual([])
+    expect(run.output).toContain('retrying after 21600s')
+  })
+
+  it('冷却时间可配置：设成 30 分钟后，1 小时前的失败会补跑', () => {
+    const run = catchUp({
+      dump: freshDump,
+      drill: drillAgo(hour),
+      verdict: failedVerdict,
+      retryAfterSeconds: '1800',
+    })
+    expect(run.scripts).toEqual(['restore-drill.sh'])
+  })
+
+  it('冷却时间配错（不是数字）：按默认 6 小时处理', () => {
+    const run = catchUp({
+      dump: freshDump,
+      drill: drillAgo(hour),
+      verdict: failedVerdict,
+      retryAfterSeconds: '6h',
+    })
+    expect(run.status).toBe(0)
+    expect(run.scripts).toEqual([])
+  })
+
+  it('结果文件读不懂：和 worker 告警一样当失败，冷却过后补跑', () => {
+    const run = catchUp({ dump: freshDump, drill: drillAgo(7 * hour), verdict: 'garbage' })
+    expect(run.scripts).toEqual(['restore-drill.sh'])
+  })
+
+  it('上一次演练通过：不管多久（8 天内）都不补跑', () => {
+    const run = catchUp({ dump: freshDump, drill: drillAgo(7 * day), verdict: passedVerdict })
+    expect(run.scripts).toEqual([])
+  })
+
+  it('结果文件下载失败：不知道成败就不跑，留一行日志交给 cron', () => {
+    const run = catchUp({
+      dump: freshDump,
+      drill: drillAgo(3 * day),
+      verdict: failedVerdict,
+      verdictFails: true,
+    })
+    expect(run.status).toBe(0)
+    expect(run.scripts).toEqual([])
+    expect(run.output).toContain('could not read the latest drill verdict')
   })
 })
 
