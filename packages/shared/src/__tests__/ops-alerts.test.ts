@@ -564,3 +564,163 @@ describe('告警读数失明', () => {
     ).toEqual([[], [], ['firing:blind'], ['resolved:blind']])
   })
 })
+
+describe('生成失败告警：带模型明细，出图成功才恢复', () => {
+  const flare = (failures: number, lastFailedAt: number) => ({
+    model: 'gpt-image-2.5-flare',
+    failures,
+    errorType: 'model_unavailable',
+    upstreamStatus: 503,
+    message: `No available compatible accounts ${'x'.repeat(300)}`,
+    lastFailedAt,
+    paused: true,
+  })
+
+  function steps(list: Array<[number, AlertObservation]>) {
+    let state: AlertState = {}
+    return list.map(([at, observation]) => {
+      const result = evaluateAlerts(observation, state, at)
+      state = result.state
+      return result.messages.filter((message) => message.rule === 'generation')
+    })
+  }
+
+  it('告警正文写明模型、errorType、上游状态码和报错前 200 字', () => {
+    const [round] = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 7,
+            agent: 0,
+            generation_models: [flare(7, T0 - minute)],
+            generation_successes: {},
+          },
+        },
+      ],
+    ])
+    expect(round).toHaveLength(1)
+    const text = round![0]!.text
+    expect(text).toContain('近 15 分钟有 7 次非内容策略的生成失败')
+    expect(text).toContain(
+      'gpt-image-2.5-flare ×7：model_unavailable，HTTP 503，已自动暂停；最近一次：No available compatible accounts',
+    )
+    const message = text.split('最近一次：')[1]!
+    expect(message.length).toBe(200)
+    expect(round![0]!.detail).toMatchObject({
+      window_failures: 7,
+      models: [
+        {
+          model: 'gpt-image-2.5-flare',
+          error_type: 'model_unavailable',
+          upstream_status: 503,
+          paused: true,
+        },
+      ],
+    })
+  })
+
+  it('失败数回落不发恢复；那个模型真的成功出图后才发', () => {
+    const failedAt = T0 - minute
+    const rounds = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 7,
+            agent: 0,
+            generation_models: [flare(7, failedAt)],
+            generation_successes: {},
+          },
+        },
+      ],
+      // 15 分钟窗口过去，失败数归零，但 flare 被暂停了，一张图都没出。
+      [
+        T0 + 20 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: {},
+          },
+        },
+      ],
+      // 一小时后再提醒，说明在等出图。
+      [
+        T0 + 61 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: {},
+          },
+        },
+      ],
+      // 别的模型成功不算数。
+      [
+        T0 + 70 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: { 'gemini-nano-banana-2.1': T0 + 69 * minute },
+          },
+        },
+      ],
+      [
+        T0 + 80 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: { 'gpt-image-2.5-flare': T0 + 79 * minute },
+          },
+        },
+      ],
+    ])
+    expect(rounds.map((round) => round.map((message) => message.kind))).toEqual([
+      ['firing'],
+      [],
+      ['firing'],
+      [],
+      ['resolved'],
+    ])
+    expect(rounds[2]![0]!.text).toContain('还没有成功出过图')
+    expect(rounds[2]![0]!.text).toContain('gpt-image-2.5-flare')
+    expect(rounds[4]![0]!.text).toBe(
+      '已恢复：gpt-image-2.5-flare 已重新成功出图，生成失败回到告警线内',
+    )
+  })
+
+  it('出事前的成功不算恢复', () => {
+    const rounds = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 3,
+            agent: 0,
+            generation_models: [flare(3, T0 - minute)],
+            generation_successes: { 'gpt-image-2.5-flare': T0 - 10 * minute },
+          },
+        },
+      ],
+      [
+        T0 + 20 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: { 'gpt-image-2.5-flare': T0 - 10 * minute },
+          },
+        },
+      ],
+    ])
+    expect(rounds.map((round) => round.map((message) => message.kind))).toEqual([['firing'], []])
+  })
+})

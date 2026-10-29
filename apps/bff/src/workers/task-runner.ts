@@ -404,7 +404,9 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         attemptJustFailed,
         // 上游明说这个模型没有可用账号：原样重试还是这句，每次让用户多等几十秒（10-29 flare 事故一单等了约 50 秒），
         // 直接失败、下架模型、退积分。
-        errorType !== 'model_unavailable' && !(cloudArchive && receivedImages) && isRetryableError(err),
+        errorType !== 'model_unavailable' &&
+          !(cloudArchive && receivedImages) &&
+          isRetryableError(err),
         message,
       ))
     ) {
