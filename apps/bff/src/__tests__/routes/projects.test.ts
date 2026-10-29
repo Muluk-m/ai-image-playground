@@ -463,3 +463,198 @@ it('chat projects without a canvas cover fall back to the latest generated image
     'newer-output',
   )
 })
+
+it('按最近更新翻页：复合游标不重不漏，第一页带总数与增量删除', async () => {
+  const ids = Array.from({ length: 5 }, () => crypto.randomUUID())
+  for (const [n, id] of ids.entries())
+    await request(`/${id}`, deviceA, {
+      requestId: crypto.randomUUID(),
+      baseRevision: 0,
+      name: `项目 ${n}`,
+      document: n < 2 ? { version: 1, elements: [], experience: 'chat' } : document,
+    })
+  // 两两同一时刻：同毫秒的靠 id 倒序分先后，游标落在并列中间也不能丢。
+  const stamps = [1000, 3000, 3000, 2000, 2000]
+  for (const [n, id] of ids.entries())
+    await db
+      .update(schema.canvas_projects)
+      .set({ updated_at: stamps[n]! })
+      .where(eq(schema.canvas_projects.id, id))
+  const expected = ids
+    .map((id, n) => ({ id, updatedAt: stamps[n]! }))
+    .sort((a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? 1 : -1))
+    .map((one) => one.id)
+
+  const first = await (await request('?order=recent&limit=2', deviceB)).json()
+  expect(first.totals).toEqual({ all: 5, chat: 2 })
+  expect(first.deletedIds).toEqual([])
+  expect(typeof first.deletedThrough).toBe('number')
+  const seen = first.projects.map((one: { id: string }) => one.id)
+  let cursor = first.nextCursor
+  while (cursor) {
+    const page = await (
+      await request(`?order=recent&limit=2&cursor=${encodeURIComponent(cursor)}`, deviceB)
+    ).json()
+    expect(page).not.toHaveProperty('totals')
+    expect(page).not.toHaveProperty('deletedIds')
+    seen.push(...page.projects.map((one: { id: string }) => one.id))
+    cursor = page.nextCursor
+  }
+  expect(seen).toEqual(expected)
+
+  for (const bad of ['bad', 'W10', Buffer.from('[1,"x"]').toString('base64url')])
+    expect((await request(`?order=recent&cursor=${bad}`, deviceB)).status).toBe(400)
+  expect((await request('?order=oldest', deviceB)).status).toBe(400)
+
+  const remove = (id: string) =>
+    app.handle(
+      new Request(`http://localhost/api/projects/${id}`, {
+        method: 'DELETE',
+        headers: { cookie: deviceA },
+      }),
+    )
+  expect((await remove(ids[0]!)).status).toBe(200)
+  const all = await (await request('?order=recent', deviceB)).json()
+  expect(all.deletedIds).toEqual([ids[0]])
+  expect(all.totals).toEqual({ all: 4, chat: 1 })
+  // 截止时间往回留了余量；把这条删除挪到余量之前，模拟「上次已经下发过」。
+  await db
+    .update(schema.canvas_projects)
+    .set({ deleted_at: all.deletedThrough - 1 })
+    .where(eq(schema.canvas_projects.id, ids[0]!))
+  // 只回上次截止之后删的：先前那条不再重复下发。
+  const quiet = await (
+    await request(`?order=recent&deletedSince=${all.deletedThrough}`, deviceB)
+  ).json()
+  expect(quiet.deletedIds).toEqual([])
+  expect((await remove(ids[1]!)).status).toBe(200)
+  const next = await (
+    await request(`?order=recent&deletedSince=${all.deletedThrough}`, deviceB)
+  ).json()
+  expect(next.deletedIds).toEqual([ids[1]])
+  expect(next.projects.map((one: { id: string }) => one.id)).not.toContain(ids[1])
+  // 旧客户端不带 order 的格式不变：每页都给全部墓碑，游标仍是 id。
+  const legacy = await (await request('', deviceB)).json()
+  expect(new Set(legacy.deletedIds)).toEqual(new Set([ids[0], ids[1]]))
+  expect(legacy).not.toHaveProperty('totals')
+})
+
+it('没出图的对话卡带首条消息摘要；只出过视频的对话拿视频当封面', async () => {
+  const now = Date.now()
+  const chat = async (name: string) => {
+    const id = crypto.randomUUID()
+    const conversationId = crypto.randomUUID()
+    await request(`/${id}`, deviceA, {
+      requestId: crypto.randomUUID(),
+      baseRevision: 0,
+      name,
+      document: { version: 1, elements: [], experience: 'chat' },
+    })
+    await db.insert(schema.agent_conversations).values({
+      id: conversationId,
+      user_id: 'project-owner',
+      title: name,
+      created_at: now,
+      updated_at: now,
+    })
+    await db
+      .update(schema.canvas_projects)
+      .set({ conversation_id: conversationId })
+      .where(eq(schema.canvas_projects.id, id))
+    return { id, conversationId }
+  }
+  const text = await chat('text-only')
+  const video = await chat('video-only')
+  const mixed = await chat('mixed')
+  const long = '做一个 6 秒、16:9 的无对白写实短片'.repeat(10)
+  await db.insert(schema.agent_messages).values([
+    {
+      conversation_id: text.conversationId,
+      id: 'm2',
+      turn_id: 't2',
+      seq: 2,
+      role: 'user',
+      content: [{ type: 'text', text: '第二条' }],
+      created_at: now,
+    },
+    {
+      conversation_id: text.conversationId,
+      id: 'm0',
+      turn_id: 't1',
+      seq: 0,
+      role: 'assistant',
+      content: [{ type: 'text', text: '助手' }],
+      created_at: now,
+    },
+    {
+      conversation_id: text.conversationId,
+      id: 'm1',
+      turn_id: 't1',
+      seq: 1,
+      role: 'user',
+      content: [{ type: 'text', text: `  ${long}\n` }],
+      created_at: now,
+    },
+    {
+      conversation_id: video.conversationId,
+      id: 'v1',
+      turn_id: 't1',
+      seq: 0,
+      role: 'user',
+      content: [{ type: 'text', text: '出一段视频' }],
+      created_at: now,
+    },
+  ])
+  const media = (mediaId: string, contentType: string) => ({
+    id: mediaId,
+    user_id: 'project-owner',
+    sha256: mediaId,
+    bytes: 1,
+    content_type: contentType,
+    status: 'ready' as const,
+    reserved_bytes: 1,
+    staging_key: `staging/${mediaId}`,
+    expires_at: now + 60_000,
+    created_at: now,
+    updated_at: now,
+  })
+  await db
+    .insert(schema.media_objects)
+    .values([
+      media('clip', 'video/mp4'),
+      media('mixed-image', 'image/png'),
+      media('mixed-clip', 'video/mp4'),
+    ])
+  const record = (recordId: string, conversationId: string, projectId: string, at: number) => ({
+    id: recordId,
+    user_id: 'project-owner',
+    provider: 'openai',
+    model: 'video',
+    status: 'completed' as const,
+    prompt: 'clip',
+    created_at: at,
+    revision: 1n,
+    source: { kind: 'agent' as const, conversationId, turnId: 'turn', projectId },
+  })
+  await db
+    .insert(schema.generation_records)
+    .values([
+      record('gen-clip', video.conversationId, video.id, now),
+      record('gen-mixed-image', mixed.conversationId, mixed.id, now - 1),
+      record('gen-mixed-clip', mixed.conversationId, mixed.id, now),
+    ])
+  await db.insert(schema.generation_images).values([
+    { generation_id: 'gen-clip', role: 'output', position: 0, media_id: 'clip' },
+    { generation_id: 'gen-mixed-image', role: 'output', position: 0, media_id: 'mixed-image' },
+    { generation_id: 'gen-mixed-clip', role: 'output', position: 0, media_id: 'mixed-clip' },
+  ])
+
+  const page = await (await request('?order=recent', deviceB)).json()
+  const find = (id: string) => page.projects.find((one: { id: string }) => one.id === id)
+  expect(find(text.id).coverMediaId).toBeNull()
+  expect(find(text.id).summary).toBe(`${long.slice(0, 79)}…`)
+  expect(find(video.id)).toMatchObject({ coverMediaId: 'clip', coverIsVideo: true })
+  expect(find(video.id)).not.toHaveProperty('summary')
+  expect(find(mixed.id).coverMediaId).toBe('mixed-image')
+  expect(find(mixed.id)).not.toHaveProperty('coverIsVideo')
+})

@@ -57,7 +57,16 @@ export interface GenerationDetail extends GenerationSummary {
   outputs: readonly GenerationImage[]
 }
 
+/** 平台上这个账号还在的生成记录条数；`studio` / `agent` 按来源分，历史上没记来源的只算进 `all`。 */
+export interface GenerationTotals {
+  all: number
+  studio: number
+  agent: number
+}
+
 export interface GenerationPage {
   items: GenerationSummary[]
   nextCursor: string | null
+  /** 只在第一页（不带游标）给：作品页签的数字以它为准，不按已经翻到的条数数。 */
+  totals?: GenerationTotals
 }
