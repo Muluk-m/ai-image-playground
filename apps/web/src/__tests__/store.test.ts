@@ -3110,6 +3110,15 @@ describe('多图作品只删一张', () => {
     expect(useStore.getState().tasks[0]?.outputPositions).toEqual([1])
   })
 
+  it('本机没出图、补用平台产出时，位置号跟平台剩下的对上', () => {
+    const [card] = mergeHistory(
+      [task({ id: 'local-m', bffRequestId: 'gen-m', status: 'error', outputImages: [] })],
+      [detailRow('gen-m', [0, 2, 3])],
+    )
+    expect(card?.outputImages).toHaveLength(3)
+    expect(card?.outputPositions).toEqual([0, 2, 3])
+  })
+
   it('别的设备删过一张、封面没变时，列表刷新丢掉旧的整组产出，展开时重读', async () => {
     const summary = (outputCount: number) => {
       const { outputs: _outputs, ...rest } = detailRow('gen-r', [0, 1, 2]).record as unknown as {

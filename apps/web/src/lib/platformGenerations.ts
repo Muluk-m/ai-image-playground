@@ -263,6 +263,9 @@ export function mergeHistory(
       finishedAt: settled.finishedAt,
       elapsed: settled.elapsed,
       outputImages: adoptRemoteOutputs ? settled.outputImages : task.outputImages,
+      // 平台位置号跟着产出一起接：别的设备删过一张时剩下的是 [0, 2, 3]，不带上就退回 [0, 1, 2]，
+      // 再删一张会删错平台上的那张。
+      outputPositions: adoptRemoteOutputs ? settled.outputPositions : task.outputPositions,
     }
   })
   const projected = rows
