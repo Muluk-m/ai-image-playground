@@ -154,6 +154,7 @@ describe('observeApp', () => {
         finished_at: now - 2 * hour,
         error: 'pg_restore: bad input',
       }),
+      watchingModels: ['gpt-image-2'],
     })
 
     // 对话轮、保存重试、未到期重试和账号限流不占实际排队；已到期重试从到期时算。
@@ -192,6 +193,9 @@ describe('observeApp', () => {
       ],
       generation_successes: { 'gpt-image-2': now - 2 * hour },
     })
+
+    // 没在等哪个模型恢复时，不去查成功记录。
+    expect((await observeApp({ now })).failures?.generation_successes).toEqual({})
   })
 
   it('marks a failing model paused only when it was auto-paused for upstream unavailability', async () => {
