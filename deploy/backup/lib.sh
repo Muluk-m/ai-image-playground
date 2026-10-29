@@ -26,18 +26,21 @@ s3_time_to_epoch() {
 
 # Prints "<key> <epoch>" for the newest object under $1 whose key ends with $2, nothing when there
 # is none. Fails when the listing itself fails, so a network error never reads as "no backup".
+# aws-cli paginates (1000 keys per page) and applies --query to each page separately, so a
+# sort_by(...)[-1] query yields one line per page. Print every match as "<LastModified> <Key>" and
+# pick the newest across all pages here. S3/R2 timestamps share one ISO-8601 format, so they sort
+# as text. Pages without a match print "None".
 newest_object() {
   listed=$(aws --endpoint-url "$S3_ENDPOINT" s3api list-objects-v2 \
     --bucket "$S3_BUCKET" --prefix "$1" --output text \
-    --query "sort_by(Contents[?ends_with(Key, '$2')] || \`[]\`, &LastModified)[-1].[Key, LastModified]") ||
+    --query "Contents[?ends_with(Key, '$2')].[LastModified, Key]") ||
     return 1
-  [ -n "$listed" ] && [ "$listed" != None ] || return 0
-  # shellcheck disable=SC2086 # key and timestamp are tab separated and contain no blanks
-  set -- $listed
-  # aws --output text may render [null, null] as two None columns, not one.
-  [ "$#" -eq 2 ] && [ "$1" != None ] && [ "$2" != None ] || return 0
-  epoch=$(s3_time_to_epoch "$2") || return 1
-  printf '%s %s\n' "$1" "$epoch"
+  newest=$(printf '%s\n' "$listed" | awk 'NF == 2 && $1 != "None" && $2 != "None"' | sort | tail -n 1)
+  [ -n "$newest" ] || return 0
+  # shellcheck disable=SC2086 # timestamp and key are tab separated and contain no blanks
+  set -- $newest
+  epoch=$(s3_time_to_epoch "$1") || return 1
+  printf '%s %s\n' "$2" "$epoch"
 }
 
 # Runs $5 when the newest object under $2 ending in $3 is missing or older than $4 seconds.
