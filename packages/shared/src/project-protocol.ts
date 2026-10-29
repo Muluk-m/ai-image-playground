@@ -212,6 +212,10 @@ export interface CloudProjectSummary {
   conversationId?: string | null
   experience?: 'chat' | 'canvas' | null
   sourceProjectId?: string | null
+  /** 封面是对话里的视频本身（没有出过图），客户端取首帧显示。 */
+  coverIsVideo?: true
+  /** 没有封面的对话：首条用户消息的摘要。 */
+  summary?: string
 }
 export interface RecycledProject extends CloudProjectSummary {
   deletedAt: number
@@ -234,7 +238,13 @@ export interface ProjectPage {
   deletedIds?: string[]
   projects: CloudProjectSummary[]
   nextCursor: string | null
+  /** 按最近更新分页时第一页才有：本次删除名单截止的服务端时间，下次带回来当 `deletedSince`。 */
+  deletedThrough?: number
+  /** 按最近更新分页时第一页才有：没删的项目总数与其中对话项目数。 */
+  totals?: { all: number; chat: number }
 }
+/** 对话卡摘要的长度上限（字符）。 */
+export const PROJECT_SUMMARY_MAX_LENGTH = 80
 export interface ProjectReceipt {
   requestId: string
   digest: string
