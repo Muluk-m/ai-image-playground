@@ -1252,6 +1252,7 @@ function referencedNow(imageId: string): boolean {
     (task) =>
       task.inputImageIds?.includes(imageId) ||
       task.maskImageId === imageId ||
+      task.maskTargetImageId === imageId ||
       task.outputImages?.includes(imageId) ||
       task.transparentOriginalImages?.includes(imageId),
   )
