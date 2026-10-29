@@ -13,6 +13,14 @@ set -u
 . /usr/local/lib/pg-backup/lib.sh
 pg_backup_env
 
+# Cron and the container start-up catch-up can both start a drill. Both would restore and upload the
+# same pg/drill/latest.json, so the second one to arrive steps aside instead of racing the first.
+exec 9>/tmp/pg-drill.lock
+if ! flock -n 9; then
+  echo "pg-drill: another drill is already running, skipping this one"
+  exit 0
+fi
+
 work=$(mktemp -d /tmp/pg-drill.XXXXXX)
 data=$work/data
 dump=$work/latest.dump
