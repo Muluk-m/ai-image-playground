@@ -98,9 +98,21 @@ await writer.db.insert(writer.schema.tasks).values([
     model: 'gpt-image-2',
     status: 'failed',
     error_type: 'upstream_error',
+    upstream_status: 502,
+    error_message: `Bad gateway ${'y'.repeat(400)}`,
     request_payload: { prompt: 'x' },
     submitted_at: now - minute,
     completed_at: now - minute,
+  },
+  {
+    id: 'earlier-success',
+    user_id: 'full-alert-account',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'completed',
+    request_payload: { prompt: 'x' },
+    submitted_at: now - 2 * hour,
+    completed_at: now - 2 * hour,
   },
   {
     id: 'policy-rejection',
@@ -161,7 +173,22 @@ describe('observeApp', () => {
       successes_by_minute: { [Math.floor((now - minute) / minute) * minute]: 20 },
       error_routes: {},
     })
-    expect(observation.failures).toEqual({ generation_system: 1, agent: 0 })
+    expect(observation.failures).toEqual({
+      generation_system: 1,
+      agent: 0,
+      generation_models: [
+        {
+          model: 'gpt-image-2',
+          failures: 1,
+          errorType: 'upstream_error',
+          upstreamStatus: 502,
+          message: `Bad gateway ${'y'.repeat(188)}`,
+          lastFailedAt: now - minute,
+          paused: false,
+        },
+      ],
+      generation_successes: { 'gpt-image-2': now - 2 * hour },
+    })
   })
 
   it('leaves out a block it could not read, so that rule is skipped this round', async () => {
