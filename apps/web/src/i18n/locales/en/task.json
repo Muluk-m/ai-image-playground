@@ -13,7 +13,8 @@
     "sendToCanvas": "Add to canvas",
     "sendToCanvasTitle": "Add to canvas",
     "deleteRecord": "Delete record",
-    "more": "More actions"
+    "more": "More actions",
+    "openProject": "Back to project"
   },
   "confirm": {
     "deleteMessage": "Delete this record?"

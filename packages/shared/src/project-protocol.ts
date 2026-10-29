@@ -241,9 +241,15 @@ export interface ProjectPage {
   /** 按最近更新分页时第一页才有：本次删除名单截止的服务端时间，下次带回来当 `deletedSince`。 */
   deletedThrough?: number
   /** 按最近更新分页时第一页才有：没删的项目总数与其中对话项目数。 */
-  totals?: { all: number; chat: number }
+  totals?: ProjectTotals
 }
 /** 对话卡摘要的长度上限（字符）。 */
+/** 账号下还在的项目数；`chat` 是对话项目，其余是画布。 */
+export interface ProjectTotals {
+  all: number
+  chat: number
+}
+
 export const PROJECT_SUMMARY_MAX_LENGTH = 80
 export interface ProjectReceipt {
   requestId: string
