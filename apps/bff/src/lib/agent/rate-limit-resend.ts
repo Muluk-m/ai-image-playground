@@ -20,11 +20,11 @@ export async function recentlyRateLimited(input: {
   const since = (input.now ?? Date.now()) - RATE_LIMIT_RESEND_WINDOW_MS
   const [hit] = await db
     .select({ id: schema.tasks.id })
-    .from(schema.agent_jobs)
-    .innerJoin(schema.tasks, eq(schema.tasks.id, schema.agent_jobs.task_id))
+    .from(schema.tasks)
     .where(
       and(
-        eq(schema.agent_jobs.conversation_id, input.conversationId),
+        // 走 idx_tasks_agent_turn（会话打头）；agent_jobs 只有「未投递」的部分索引，失败的早已投递。
+        eq(schema.tasks.agent_conversation_id, input.conversationId),
         eq(schema.tasks.model, input.model),
         eq(schema.tasks.status, 'failed'),
         eq(schema.tasks.error_type, 'rate_limited'),
