@@ -5,6 +5,7 @@ import {
   QUEUE_TIMEOUTS,
   type TaskErrorType,
 } from '@image-playground/shared'
+import { config } from '../config'
 import { cropMaskedUpstream } from '../lib/agent/masked-input'
 import { MaskedOutputError, protectMaskedOutput } from '../lib/agent/masked-output'
 import { isCapabilityEnabled } from '../lib/capabilities'
@@ -24,6 +25,7 @@ import {
   ObjectStorageError,
 } from '../lib/imageArchive'
 import { log } from '../lib/logger'
+import { knownInactiveModels, refreshInactiveModels } from '../lib/model-availability'
 import { isAbortError } from '../lib/queueProvider'
 import { isRetryableError, planNextAttempt, shouldRetryEmptyResult } from '../lib/retry'
 import {
@@ -226,6 +228,9 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         : hydratedRequest,
       signal,
       resume,
+      ...(task.provider === 'gemini'
+        ? { rateLimitFallbackModel: await rateLimitFallbackModel(task.model) }
+        : {}),
       onUpstreamTaskIds: (taskIds) =>
         execution.recordUpstreamTaskIds(taskIds, resume !== undefined),
       onRequestDispatched: (dispatchId) => execution.recordDispatchStarted(dispatchId),
@@ -394,7 +399,9 @@ async function executeTask(execution: TaskExecution): Promise<void> {
           ? 'content_policy'
           : isModelUnavailableRejection({ message, payload: upstreamFailure.body })
             ? 'model_unavailable'
-            : 'upstream_error'
+            : upstreamFailure.status === 429
+              ? 'rate_limited'
+              : 'upstream_error'
 
     const attemptJustFailed = task.attempt_count + 1
     if (
@@ -446,4 +453,16 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       )
     }
   }
+}
+
+/**
+ * Vertex 429 回落到哪个模型：运营配置的（默认 gemini-nano-banana-2.1），`off` 关掉；
+ * 和原模型相同、或在「模型」页停用的都不回落。停用清单在 worker 进程里没有别处刷新，这里顺手查一次
+ * （同时刻的查询共用一次，失败沿用上次结果）。
+ */
+async function rateLimitFallbackModel(model: string): Promise<string | undefined> {
+  const fallback = config.upstream.vertexRateLimitFallbackModel
+  if (!fallback || fallback === 'off' || fallback === model) return undefined
+  await refreshInactiveModels()
+  return knownInactiveModels().has(fallback) ? undefined : fallback
 }
