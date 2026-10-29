@@ -3012,6 +3012,29 @@ describe('删除本机跑的平台任务', () => {
     referenced.mockRestore()
   })
 
+  it('孤图判断读库期间新进来的任务用到的图，真删之前会再核一遍', async () => {
+    const removeImage = vi.spyOn(database, 'deleteImage')
+    const referenced = vi
+      .spyOn(database, 'getReferencedImageIds')
+      .mockImplementation(async (tasks: readonly TaskRecord[]) => {
+        const ids = new Set(tasks.flatMap((t) => [...t.inputImageIds, ...t.outputImages]))
+        // 判断用的是进来前的快照；判断途中新任务进了 store。
+        useStore.setState({
+          tasks: [...useStore.getState().tasks, task({ id: 'new-2', inputImageIds: ['shared'] })],
+        })
+        return ids
+      })
+    useStore.setState({
+      tasks: [task({ id: 'local-1', bffRequestId: 'gen-1', outputImages: ['shared'] })],
+      platformGenerations: [row('gen-1')],
+    })
+    await removeTask(useStore.getState().tasks[0] as TaskRecord)
+    expect(useStore.getState().tasks.map((t) => t.id)).toEqual(['new-2'])
+    expect(removeImage).not.toHaveBeenCalledWith('shared')
+    removeImage.mockRestore()
+    referenced.mockRestore()
+  })
+
   it('批量删除也删平台那条；纯本机记录不碰平台', async () => {
     useStore.setState({
       tasks: [task({ id: 'local-1', bffRequestId: 'gen-1' }), task({ id: 'byok-1' })],
