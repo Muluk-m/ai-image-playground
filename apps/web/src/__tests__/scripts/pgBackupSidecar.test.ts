@@ -130,7 +130,8 @@ describe('桶里超过 1000 个对象，aws-cli 分页返回', () => {
   ].join('\n')
 
   it('newest_object 跨页取最新的一份，忽略没有匹配的页', () => {
-    const result = spawnSync('sh', ['-c', '. "$0"; pg_backup_env; newest_object app/pg/ .dump.sha256', lib], {
+    const script = '. "$0"; pg_backup_env; newest_object app/pg/ .dump.sha256'
+    const result = spawnSync('sh', ['-c', script, lib], {
       encoding: 'utf8',
       timeout: 10000,
       env: {
