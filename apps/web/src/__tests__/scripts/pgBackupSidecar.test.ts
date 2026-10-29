@@ -76,13 +76,14 @@ function catchUp(listing: { dump: string; drill: string; listFails?: boolean }) 
   }
 }
 
-const freshDrill = `app/pg/drill/latest.json\t${modifiedAgo(day)}`
-const freshDump = `app/pg/2026-09-18.dump.sha256\t${modifiedAgo(hour / 3)}`
+/** 每页一行一个对象：`<LastModified>\t<Key>`，和真实 `--query ...[LastModified, Key]` 的输出一致。 */
+const freshDrill = `${modifiedAgo(day)}\tapp/pg/drill/latest.json`
+const freshDump = `${modifiedAgo(hour / 3)}\tapp/pg/2026-09-18.dump.sha256`
 
 describe('容器启动时补跑备份', () => {
   it('最新一份 dump 已经 30 小时了：补跑一次备份', () => {
     const run = catchUp({
-      dump: `app/pg/2026-09-16.dump\t${modifiedAgo(30 * hour)}`,
+      dump: `${modifiedAgo(30 * hour)}\tapp/pg/2026-09-16.dump`,
       drill: freshDrill,
     })
     expect(run.status).toBe(0)
@@ -119,6 +120,41 @@ describe('容器启动时补跑备份', () => {
   })
 })
 
+describe('桶里超过 1000 个对象，aws-cli 分页返回', () => {
+  // aws-cli 对每一页单独套 --query；以前 sort_by(...)[-1] 每页出一行，多行被当成「没有备份」，
+  // 测试站 pg/ 下 1483 个对象时演练报 no completed dump、每次部署都误补一次备份。
+  const pages = [
+    `${modifiedAgo(2 * hour)}\tapp/pg/old-a.dump.sha256\n${modifiedAgo(hour / 4)}\tapp/pg/newest.dump.sha256`,
+    'None',
+    `${modifiedAgo(5 * hour)}\tapp/pg/old-b.dump.sha256\n${modifiedAgo(hour)}\tapp/pg/old-c.dump.sha256`,
+  ].join('\n')
+
+  it('newest_object 跨页取最新的一份，忽略没有匹配的页', () => {
+    const result = spawnSync('sh', ['-c', '. "$0"; pg_backup_env; newest_object app/pg/ .dump.sha256', lib], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: {
+        PATH: `${root}:${process.env.PATH}`,
+        CALL_LOG: calls,
+        S3_ENDPOINT: 'https://r2.example',
+        S3_BUCKET: 'bucket',
+        FAKE_DUMP: pages,
+      },
+    })
+    expect(result.status).toBe(0)
+    const [key, epoch] = result.stdout.trim().split(' ')
+    expect(key).toBe('app/pg/newest.dump.sha256')
+    expect(Number(epoch)).toBeGreaterThan(Date.now() / 1000 - hour / 1000 / 2)
+  })
+
+  it('最新 dump 在第一页、才 15 分钟：重新部署不误补备份', () => {
+    const run = catchUp({ dump: pages, drill: freshDrill })
+    expect(run.status).toBe(0)
+    expect(run.scripts).toEqual([])
+    expect(existsSync(join(root, 'last-success'))).toBe(true)
+  })
+})
+
 describe('容器启动时补跑恢复演练', () => {
   it('还从来没演练过：新部署立刻演练一次', () => {
     const run = catchUp({ dump: freshDump, drill: 'None' })
@@ -128,7 +164,7 @@ describe('容器启动时补跑恢复演练', () => {
   it('上一次演练是 9 天前（错过了一个周日）：补跑', () => {
     const run = catchUp({
       dump: freshDump,
-      drill: `app/pg/drill/latest.json\t${modifiedAgo(9 * day)}`,
+      drill: `${modifiedAgo(9 * day)}\tapp/pg/drill/latest.json`,
     })
     expect(run.scripts).toEqual(['restore-drill.sh'])
   })
