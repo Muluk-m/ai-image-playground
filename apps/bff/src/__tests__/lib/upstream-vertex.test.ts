@@ -13,6 +13,7 @@ const { extractMeta, resolveImageBytesRef } = await import('../../lib/extractIma
 const {
   VERTEX_MAX_INPUT_IMAGES,
   VERTEX_RATE_LIMIT_BACKOFF_MS,
+  parseVertexRateLimitBackoff,
   setVertexRateLimitBackoffForTesting,
 } = await import('../../lib/upstream/vertex')
 const { channelSlotStateForTesting } = await import('../../lib/upstream/concurrency')
@@ -414,7 +415,7 @@ describe('callUpstream Vertex AI direct channel', () => {
       expect(extractMeta('gemini', result.payload).images).toHaveLength(2)
     })
 
-    it('gives up after the backoff with a retryable, plainly worded 429', async () => {
+    it('gives up after the backoff with a plainly worded 429 the task retry does not rerun', async () => {
       useStatuses([429, 429, 429, 429, 429])
       const failure = (await callUpstream({
         provider: 'gemini',
@@ -423,6 +424,8 @@ describe('callUpstream Vertex AI direct channel', () => {
       }).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
       expect(attempts).toHaveLength(1 + VERTEX_RATE_LIMIT_BACKOFF_MS.length)
       expect(failure.upstreamStatus).toBe(429)
+      // 整单重跑只会把同样的 n 条请求再撞一遍同一个按模型的限流（2026-10-29 Lite 事故）。
+      expect(isRetryableError(failure)).toBe(false)
       expect(failure.message).toContain('上游限流')
       expect(failure.message).not.toContain('check quota')
       expect(extractUpstreamFailure(failure)).toEqual({
@@ -452,7 +455,7 @@ describe('callUpstream Vertex AI direct channel', () => {
       expect(channelSlotStateForTesting(PRO_GATE)).toEqual({ active: 0, waiting: 0 })
     })
 
-    it('leaves the task retry in charge when no image of the group came back', async () => {
+    it('does not hand an order whose every image was throttled back to the task retry', async () => {
       useStatuses(Array.from({ length: 2 * (1 + VERTEX_RATE_LIMIT_BACKOFF_MS.length) }, () => 429))
       const failure = (await callUpstream({
         provider: 'gemini',
@@ -460,8 +463,141 @@ describe('callUpstream Vertex AI direct channel', () => {
         request: { prompt: 'a cup', n: 2 },
       }).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
       expect(failure.upstreamStatus).toBe(429)
-      expect(isRetryableError(failure)).toBe(true)
+      expect(isRetryableError(failure)).toBe(false)
       expect(failure.message).not.toContain('不再自动重跑')
+    })
+
+    describe('falling back to another Vertex model', () => {
+      const LITE = 'gemini-3.1-flash-lite-image'
+      const FALLBACK = 'gemini-nano-banana-2.1'
+
+      /** 原模型一律 429；回落模型按顺序回放状态码，放完一律 200。 */
+      let bodies: string[] = []
+      function throttle(model: string, fallbackStatuses: number[] = []) {
+        attempts = []
+        bodies = []
+        const queue = [...fallbackStatuses]
+        setUpstreamFetchForTesting((async (
+          input: Parameters<TestFetch>[0],
+          init: Parameters<TestFetch>[1],
+        ) => {
+          const url = String(input)
+          attempts.push(url)
+          bodies.push(String(init?.body ?? ''))
+          const status = url.includes(`/models/${model}:`) ? 429 : (queue.shift() ?? 200)
+          if (status === 200)
+            return new Response(JSON.stringify(vertexResponse()), {
+              status,
+              headers: { 'content-type': 'application/json' },
+            })
+          return new Response(
+            JSON.stringify({
+              error: { code: status, message: 'Resource exhausted.', status: 'RESOURCE_EXHAUSTED' },
+            }),
+            { status, headers: { 'content-type': 'application/json' } },
+          )
+        }) as unknown as TestFetch)
+      }
+      const onModel = (model: string) =>
+        attempts.filter((url) => url.includes(`/models/${model}:`)).length
+
+      it('fills every throttled image of an 8-image order from the fallback model', async () => {
+        throttle(LITE)
+        const result = await callUpstream({
+          provider: 'gemini',
+          model: LITE,
+          request: { prompt: 'a cup', n: 8 },
+          rateLimitFallbackModel: FALLBACK,
+        })
+        expect(extractMeta('gemini', result.payload).images).toHaveLength(8)
+        expect(onModel(LITE)).toBe(8 * (1 + VERTEX_RATE_LIMIT_BACKOFF_MS.length))
+        expect(onModel(FALLBACK)).toBe(8)
+        expect((result.payload as Record<string, unknown>).model_fallback).toEqual({
+          requested_model: LITE,
+          model: FALLBACK,
+          images: 8,
+        })
+        expect(channelSlotStateForTesting(`vertex-images/${LITE}`)).toEqual({
+          active: 0,
+          waiting: 0,
+        })
+        expect(channelSlotStateForTesting(`vertex-images/${FALLBACK}`)).toEqual({
+          active: 0,
+          waiting: 0,
+        })
+      })
+
+      it('records the fallback on a single-image order too', async () => {
+        throttle(LITE)
+        const result = await callUpstream({
+          provider: 'gemini',
+          model: LITE,
+          request: { prompt: 'a cup' },
+          rateLimitFallbackModel: FALLBACK,
+        })
+        expect(extractMeta('gemini', result.payload).images).toHaveLength(1)
+        expect((result.payload as Record<string, unknown>).model_fallback).toEqual({
+          requested_model: LITE,
+          model: FALLBACK,
+          images: 1,
+        })
+      })
+
+      it('sends the fallback with sizes the fallback model accepts', async () => {
+        throttle(FALLBACK)
+        await callUpstream({
+          provider: 'gemini',
+          model: FALLBACK,
+          request: { prompt: 'a cup', image_size: '2K' },
+          rateLimitFallbackModel: LITE,
+        })
+        // Lite 只声明了 1K：回落请求按 Lite 自己的档位收口，原模型的请求仍是 2K。
+        expect(attempts.at(-1)).toContain(`/models/${LITE}:`)
+        expect(bodies[0]).toContain('"imageSize":"2K"')
+        expect(bodies.at(-1)).toContain('"imageSize":"1K"')
+      })
+
+      it('fails without a task retry when the fallback is throttled as well', async () => {
+        throttle(
+          LITE,
+          Array.from({ length: 1 + VERTEX_RATE_LIMIT_BACKOFF_MS.length }, () => 429),
+        )
+        const failure = (await callUpstream({
+          provider: 'gemini',
+          model: LITE,
+          request: { prompt: 'a cup' },
+          rateLimitFallbackModel: FALLBACK,
+        }).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
+        expect(failure.upstreamStatus).toBe(429)
+        expect(isRetryableError(failure)).toBe(false)
+        expect(onModel(FALLBACK)).toBe(1 + VERTEX_RATE_LIMIT_BACKOFF_MS.length)
+      })
+
+      it('does not fall back on errors other than 429', async () => {
+        useStatuses([400])
+        const failure = (await callUpstream({
+          provider: 'gemini',
+          model: LITE,
+          request: { prompt: 'a cup' },
+          rateLimitFallbackModel: FALLBACK,
+        }).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
+        expect(failure.upstreamStatus).toBe(400)
+        expect(attempts).toHaveLength(1)
+      })
+
+      it('ignores a fallback that is the same model or not on the Vertex channel', async () => {
+        for (const fallback of [LITE, 'gemini-3.1-flash-image', 'missing-model']) {
+          throttle(LITE)
+          const failure = (await callUpstream({
+            provider: 'gemini',
+            model: LITE,
+            request: { prompt: 'a cup' },
+            rateLimitFallbackModel: fallback,
+          }).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
+          expect(failure.upstreamStatus).toBe(429)
+          expect(attempts.every((url) => url.includes(`/models/${LITE}:`))).toBe(true)
+        }
+      })
     })
 
     it('does not resend other upstream errors', async () => {
@@ -543,5 +679,18 @@ describe('Vertex AI size declarations', () => {
         'gemini-3.1-flash-lite-image': ['1K'],
       },
     )
+  })
+})
+
+describe('VERTEX_RATE_LIMIT_BACKOFF_MS 配置', () => {
+  it('defaults to minute-level steps and accepts a comma-separated override', () => {
+    expect(parseVertexRateLimitBackoff(undefined)).toEqual([30_000, 60_000, 120_000])
+    expect(parseVertexRateLimitBackoff(' ')).toEqual(VERTEX_RATE_LIMIT_BACKOFF_MS)
+    expect(parseVertexRateLimitBackoff('20000, 45000,90000')).toEqual([20_000, 45_000, 90_000])
+  })
+
+  it('rejects malformed values instead of silently falling back', () => {
+    for (const raw of ['abc', '1000,,2000', '-5', '0', '1.5', '700000'])
+      expect(() => parseVertexRateLimitBackoff(raw)).toThrow(/VERTEX_RATE_LIMIT_BACKOFF_MS/)
   })
 })
