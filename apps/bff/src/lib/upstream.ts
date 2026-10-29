@@ -784,10 +784,6 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * 部分请求成功、部分失败时换一个错误抛（返回 undefined 则照原样抛第一条失败）。给了它就要等同批
- * 请求全部落定才知道成没成，所以只有需要区分「有图已出」的上游（Vertex 的 429）才传。
- */
-/**
  * Vertex 429 回落的目标：只回落到同一个 Vertex 直连上（同一个 key、同一个 baseUrl）的另一个模型，
  * 换到别的上游就要换协议和凭据，不在这次止损的范围里。回落模型不认的分辨率按它自己的声明收口。
  * 找不到、或配成原模型本身时不回落。
@@ -818,6 +814,10 @@ function resolveVertexFallback(
   }
 }
 
+/**
+ * 部分请求成功、部分失败时换一个错误抛（返回 undefined 则照原样抛第一条失败）。给了它就要等同批
+ * 请求全部落定才知道成没成，所以只有需要区分「有图已出」的上游（Vertex 的 429）才传。
+ */
 type FanOutPartialFailure = (reason: unknown, delivered: number, requested: number) => unknown
 
 async function fanOutRequests(
