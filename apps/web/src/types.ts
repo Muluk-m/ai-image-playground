@@ -177,6 +177,11 @@ export interface TaskRecord {
   maskImageId?: string | null
   /** 输出图片的 image store id 列表 */
   outputImages: string[]
+  /**
+   * 每张输出在平台记录里的位置号（与 `outputImages` 一一对应）。缺席时就是 0、1、2……；
+   * 只删一张之后平台位置号不重排，本机数组却少了一项，所以从那时起把对应关系记下来。
+   */
+  outputPositions?: number[]
   /** API 返回的原始图片 HTTP URL（非 base64 时记录） */
   rawImageUrls?: string[]
   /** 发生解析错误时的原始响应 JSON */

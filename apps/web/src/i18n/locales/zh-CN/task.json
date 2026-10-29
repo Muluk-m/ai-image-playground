@@ -13,10 +13,12 @@
     "sendToCanvas": "放入画布",
     "sendToCanvasTitle": "放入画布",
     "deleteRecord": "删除记录",
-    "more": "更多操作"
+    "more": "更多操作",
+    "deleteImage": "删除这张图片"
   },
   "confirm": {
-    "deleteMessage": "确定要删除这条记录吗？"
+    "deleteMessage": "确定要删除这条记录吗？",
+    "deleteImageMessage": "确定删除这张图片吗？这条记录里的其他 {{count}} 张会保留。"
   },
   "prompt": {
     "empty": "(无提示词)"
@@ -119,7 +121,8 @@
     "itemDetail": "第 {{index}} 张详情",
     "downloadItem": "下载第 {{index}} 张",
     "downloadAll": "全部下载",
-    "itemList": "逐张结果"
+    "itemList": "逐张结果",
+    "deleteItem": "删除第 {{index}} 张"
   },
   "cloudHistory": {
     "refresh": "刷新",

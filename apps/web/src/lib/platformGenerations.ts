@@ -185,6 +185,27 @@ export async function dropPlatformGeneration(id: string): Promise<void> {
   )
 }
 
+/** 平台删掉一张产出之后，缓存行里也去掉那张；封面顺延到剩下的第一张。 */
+export async function dropPlatformGenerationOutput(id: string, position: number): Promise<void> {
+  const rows = useStore.getState().platformGenerations
+  const existing = rows.find((row) => row.id === id)
+  if (!existing) return
+  const record = existing.record
+  const outputs =
+    'outputs' in record ? record.outputs.filter((image) => image.index !== position) : null
+  const cover =
+    outputs !== null ? (outputs[0] ?? null) : record.cover?.index === position ? null : record.cover
+  const next: PlatformGenerationRow = {
+    ...existing,
+    record: { ...record, cover, ...(outputs ? { outputs } : {}) },
+  }
+  await commit(
+    rows.map((row) => (row.id === id ? next : row)),
+    [next],
+    [],
+  )
+}
+
 export function isPlatformGeneration(id: string): boolean {
   return useStore.getState().platformGenerations.some((row) => row.id === id)
 }
