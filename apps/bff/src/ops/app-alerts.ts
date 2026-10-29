@@ -161,6 +161,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           WHERE kind = 'queue' AND status = 'failed'
             AND error_type IS DISTINCT FROM 'content_policy'
             AND completed_at >= NOW() - INTERVAL '15 minutes'
+            AND submitted_at >= NOW() - INTERVAL '1 day'
         `),
             db.execute(sql`
           SELECT COUNT(*) AS count FROM agent_turns
