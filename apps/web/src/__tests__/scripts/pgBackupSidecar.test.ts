@@ -31,9 +31,12 @@ beforeEach(() => {
       'echo "aws $*" >> "$CALL_LOG"',
       'if [ -n "${FAKE_LIST_FAILS:-}" ]; then echo "Could not connect to the endpoint URL" >&2; exit 255; fi',
       'case "$*" in',
-      '  *"s3 cp"*"s3://bucket/app/pg/drill/latest.json -"*)',
+      // 像真的 get-object --range bytes=0-4095 一样：最多写 4096 字节到最后一个参数指定的文件。
+      '  *"get-object"*"--key app/pg/drill/latest.json"*"--range bytes=0-4095"*)',
       '    if [ -n "${FAKE_VERDICT_FAILS:-}" ]; then echo "download failed: 403" >&2; exit 1; fi',
-      '    printf "%s\\n" "$FAKE_VERDICT" ;;',
+      '    for out; do :; done',
+      '    printf "%s\\n" "$FAKE_VERDICT" | head -c 4096 > "$out"',
+      '    echo "{}" ;;',
       '  *"--prefix app/pg/drill/"*) printf "%s\\n" "$FAKE_DRILL" ;;',
       '  *"--prefix app/pg/"*) printf "%s\\n" "$FAKE_DUMP" ;;',
       '  *) exit 1 ;;',
@@ -245,6 +248,36 @@ describe('上一次演练失败：冷却过后容器启动时补跑一次', () =
   it('结果文件读不懂：和 worker 告警一样当失败，冷却过后补跑', () => {
     const run = catchUp({ dump: freshDump, drill: drillAgo(7 * hour), verdict: 'garbage' })
     expect(run.scripts).toEqual(['restore-drill.sh'])
+  })
+
+  it('合法 JSON 带空格的通过结果 {"ok": true}：也算通过，不补跑', () => {
+    const run = catchUp({
+      dump: freshDump,
+      drill: drillAgo(3 * day),
+      verdict: '{ "ok" : true, "finished_at": "2026-10-25T19:00:11Z", "tables": 3, "rows": 9 }',
+    })
+    expect(run.scripts).toEqual([])
+    expect(run.output).toContain('nothing to do')
+  })
+
+  it('只认开头的 ok 字段：失败结果里别处出现 "ok":true 也不当通过', () => {
+    const run = catchUp({
+      dump: freshDump,
+      drill: drillAgo(3 * day),
+      verdict: '{"ok":false,"error":"x","detail":{"ok":true}}',
+    })
+    expect(run.scripts).toEqual(['restore-drill.sh'])
+  })
+
+  it('结果文件异常地大（≥4 KB）：只读前 4 KB，不当结果，不跑，交给 cron', () => {
+    const run = catchUp({
+      dump: freshDump,
+      drill: drillAgo(3 * day),
+      verdict: `{"ok":false,"error":"${'x'.repeat(5000)}"}`,
+    })
+    expect(run.status).toBe(0)
+    expect(run.scripts).toEqual([])
+    expect(run.output).toContain('not a verdict')
   })
 
   it('上一次演练通过：不管多久（8 天内）都不补跑', () => {

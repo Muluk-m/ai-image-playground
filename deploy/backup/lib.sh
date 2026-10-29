@@ -61,15 +61,32 @@ run_if_stale() {
 }
 
 # Exits 0 when the drill verdict at $1 is a failure: "ok":false, or anything that is not a pass,
-# the same way the worker's alert reads it. Fails when the download fails, so "unknown" never
-# triggers a drill.
+# the same way the worker's alert reads it. Returns 2 when the download fails or the object is not
+# a small verdict, so "unknown" never triggers a drill. restore-drill.sh writes one short JSON line
+# with "ok" as the first field; only that leading field counts, whatever the rest of the line says.
+# The read is capped with a range request, so an oversized object never fills memory or disk.
 drill_failed() {
-  verdict=$(aws --endpoint-url "$S3_ENDPOINT" s3 cp --only-show-errors "s3://$S3_BUCKET/$1" -) ||
+  verdict_file=$(mktemp) || return 2
+  if ! aws --endpoint-url "$S3_ENDPOINT" s3api get-object --bucket "$S3_BUCKET" --key "$1" \
+    --range bytes=0-4095 "$verdict_file" >/dev/null; then
+    rm -f "$verdict_file"
     return 2
-  case "$verdict" in
-    *'"ok":true'*) return 1 ;;
-    *) return 0 ;;
-  esac
+  fi
+  size=$(wc -c <"$verdict_file" | tr -d ' ')
+  if [ "$size" -ge 4096 ]; then
+    echo "pg-backup: catch-up: drill verdict is at least ${size} bytes, not a verdict"
+    rm -f "$verdict_file"
+    return 2
+  fi
+  # A pass returns 1, anything else 0. Tested inside if, so set -e in the caller never trips.
+  if head -n 1 "$verdict_file" |
+    grep -Eq '^[[:space:]]*\{[[:space:]]*"ok"[[:space:]]*:[[:space:]]*true[[:space:]]*[,}]'; then
+    verdict_rc=1
+  else
+    verdict_rc=0
+  fi
+  rm -f "$verdict_file"
+  return "$verdict_rc"
 }
 
 # Runs the drill when its verdict is missing, older than $1 seconds, or a failure at least
