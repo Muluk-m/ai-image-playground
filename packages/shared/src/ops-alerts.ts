@@ -129,6 +129,8 @@ export interface AlertMessage {
   rule: AlertRule
   kind: 'firing' | 'resolved'
   text: string
+  /** 给 JSON webhook 的结构化字段；飞书只发 text。 */
+  detail?: Record<string, unknown>
 }
 
 /** 同一条规则还没好的话，多久再提醒一次。 */
