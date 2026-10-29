@@ -173,7 +173,8 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
             (array_agg(t.upstream_status ORDER BY t.completed_at DESC))[1] AS upstream_status,
             (array_agg(left(COALESCE(t.error_message, ''), 200) ORDER BY t.completed_at DESC))[1] AS message,
             EXTRACT(EPOCH FROM MAX(t.completed_at)) * 1000 AS last_failed_at,
-            BOOL_OR(m.active = false) AS paused
+            -- 只算因上游不可用被自动暂停的；运营手动停用会清掉 pause_reason，不算。
+            BOOL_OR(m.active = false AND m.pause_reason = 'upstream_unavailable') AS paused
           FROM tasks t
           LEFT JOIN model_availability m ON m.model = t.model
           WHERE t.kind = 'queue' AND t.status = 'failed'
