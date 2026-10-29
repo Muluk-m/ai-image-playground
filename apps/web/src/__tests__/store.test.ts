@@ -2963,6 +2963,28 @@ describe('删除本机跑的平台任务', () => {
     expect(shown()).toEqual(['local-1'])
   })
 
+  it('等平台删除期间新进来的任务不会被请求前的快照覆盖掉', async () => {
+    const arrive = () =>
+      useStore.setState({ tasks: [...useStore.getState().tasks, task({ id: 'new-1' })] })
+    deleteRemoteGeneration.mockImplementation(async () => {
+      arrive()
+      return true
+    })
+    useStore.setState({
+      tasks: [task({ id: 'local-1', bffRequestId: 'gen-1' })],
+      platformGenerations: [row('gen-1')],
+    })
+    await removeTask(useStore.getState().tasks[0] as TaskRecord)
+    expect(useStore.getState().tasks.map((t) => t.id)).toEqual(['new-1'])
+
+    useStore.setState({
+      tasks: [task({ id: 'local-2', bffRequestId: 'gen-2' })],
+      platformGenerations: [row('gen-2')],
+    })
+    await removeMultipleTasks(['local-2'])
+    expect(useStore.getState().tasks.map((t) => t.id)).toEqual(['new-1'])
+  })
+
   it('批量删除也删平台那条；纯本机记录不碰平台', async () => {
     useStore.setState({
       tasks: [task({ id: 'local-1', bffRequestId: 'gen-1' }), task({ id: 'byok-1' })],
