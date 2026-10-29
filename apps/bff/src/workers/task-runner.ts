@@ -457,7 +457,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
 
 /** 停用清单最多这么久查一次：每单都查会让批量任务一直打 model_availability。 */
 const INACTIVE_REFRESH_MS = 30_000
-let inactiveCheckedAt = 0
+let inactiveRefresh: { at: number; done: Promise<unknown> } | undefined
 
 /**
  * Vertex 429 回落到哪个模型：运营配置的（默认 gemini-nano-banana-2.1），`off` 关掉；
@@ -468,9 +468,9 @@ async function rateLimitFallbackModel(model: string): Promise<string | undefined
   const fallback = config.upstream.vertexRateLimitFallbackModel
   if (!fallback || fallback === 'off' || fallback === model) return undefined
   const now = Date.now()
-  if (now - inactiveCheckedAt >= INACTIVE_REFRESH_MS) {
-    inactiveCheckedAt = now
-    await refreshInactiveModels()
-  }
+  if (!inactiveRefresh || now - inactiveRefresh.at >= INACTIVE_REFRESH_MS)
+    inactiveRefresh = { at: now, done: refreshInactiveModels() }
+  // 并发进来的都等同一次刷新，不会在刷新完成前拿旧清单（进程刚起时清单是空的）。
+  await inactiveRefresh.done
   return knownInactiveModels().has(fallback) ? undefined : fallback
 }
