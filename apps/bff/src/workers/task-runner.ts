@@ -459,14 +459,22 @@ async function executeTask(execution: TaskExecution): Promise<void> {
   }
 }
 
+/** 停用清单最多这么久查一次：每单都查会让批量任务一直打 model_availability。 */
+const INACTIVE_REFRESH_MS = 30_000
+let inactiveCheckedAt = 0
+
 /**
  * Vertex 429 回落到哪个模型：运营配置的（默认 gemini-nano-banana-2.1），`off` 关掉；
  * 和原模型相同、或在「模型」页停用的都不回落。停用清单在 worker 进程里没有别处刷新，这里顺手查一次
- * （同时刻的查询共用一次，失败沿用上次结果）。
+ * （最多 30 秒查一次，失败沿用上次结果）。
  */
 async function rateLimitFallbackModel(model: string): Promise<string | undefined> {
   const fallback = config.upstream.vertexRateLimitFallbackModel
   if (!fallback || fallback === 'off' || fallback === model) return undefined
-  await refreshInactiveModels()
+  const now = Date.now()
+  if (now - inactiveCheckedAt >= INACTIVE_REFRESH_MS) {
+    inactiveCheckedAt = now
+    await refreshInactiveModels()
+  }
   return knownInactiveModels().has(fallback) ? undefined : fallback
 }
