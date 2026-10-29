@@ -100,7 +100,7 @@ await writer.db.insert(writer.schema.tasks).values([
     status: 'failed',
     error_type: 'upstream_error',
     upstream_status: 502,
-    error_message: `Bad gateway ${'y'.repeat(400)}`,
+    error_message: `Bad gateway from key sk-live-abcdef123456 ${'y'.repeat(400)}`,
     request_payload: { prompt: 'x' },
     submitted_at: now - minute,
     completed_at: now - minute,
@@ -183,7 +183,8 @@ describe('observeApp', () => {
           failures: 1,
           errorType: 'upstream_error',
           upstreamStatus: 502,
-          message: `Bad gateway ${'y'.repeat(188)}`,
+          // 令牌被抹掉之后再截 200 字。
+          message: `Bad gateway from key [REDACTED] ${'y'.repeat(400)}`.slice(0, 200),
           lastFailedAt: now - minute,
           paused: false,
         },
