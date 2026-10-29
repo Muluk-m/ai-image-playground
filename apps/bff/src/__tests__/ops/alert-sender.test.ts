@@ -209,6 +209,30 @@ describe('createAlertSenderFromEnv', () => {
     expect(alertTargetsConfigured(env)).toBe(true)
   })
 
+  it('treats each JSON address as its own target, so a dead one does not fail the round', async () => {
+    const { urls, fetchImpl } = capture((url) => url.includes('dead'))
+    const partial: Error[] = []
+    const send = createAlertSenderFromEnv({
+      deployment: 'paid',
+      env: { OPS_ALERT_WEBHOOK_URLS: 'https://ok.test/hook, https://dead.test/hook' },
+      fetchImpl,
+      onPartialFailure: (error) => partial.push(error),
+    })
+    await send([firing])
+    expect(urls.sort()).toEqual(['https://dead.test/hook', 'https://ok.test/hook'])
+    expect(partial.map((error) => error.message)).toEqual([
+      'json: json alert webhook #2 answered 502',
+    ])
+    expect(partial[0]!.message).not.toContain('dead.test')
+
+    const allDead = createAlertSenderFromEnv({
+      deployment: 'paid',
+      env: { OPS_ALERT_WEBHOOK_URLS: 'https://dead.test/a https://dead.test/b' },
+      fetchImpl,
+    })
+    await expect(allDead([firing])).rejects.toThrow('json alert webhook #1 answered 502')
+  })
+
   it('sends to both targets, and one failing target neither blocks nor repeats the other', async () => {
     const { urls, fetchImpl } = capture((url) => url.includes('json'))
     const partial: Error[] = []
