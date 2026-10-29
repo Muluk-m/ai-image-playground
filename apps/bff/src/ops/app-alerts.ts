@@ -31,6 +31,11 @@ interface ObserveOptions {
   onMissed?: (block: string) => void
   readBackups?: () => Promise<OpsBackups>
   readRestoreDrill?: () => Promise<OpsRestoreDrill | null>
+  /**
+   * 还在等它重新出图的模型（告警状态里的等待名单）。名单空着就不查成功记录：没出事时每轮只多一条
+   * 与原来失败计数同条件的查询。
+   */
+  watchingModels?: readonly string[]
 }
 
 async function attempt<T>(
@@ -155,19 +160,14 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
       attempt(
         'failures',
         async () => {
-          const [generationRaw, agentRaw, modelsRaw, successesRaw] = await Promise.all([
-            db.execute(sql`
-          SELECT COUNT(*) AS count FROM tasks
-          WHERE kind = 'queue' AND status = 'failed'
-            AND error_type IS DISTINCT FROM 'content_policy'
-            AND completed_at >= NOW() - INTERVAL '15 minutes'
-            AND submitted_at >= NOW() - INTERVAL '7 days'
-        `),
+          const watching = [...new Set(options.watchingModels ?? [])]
+          const [agentRaw, modelsRaw, successesRaw] = await Promise.all([
             db.execute(sql`
           SELECT COUNT(*) AS count FROM agent_turns
           WHERE stop_reason = 'failed' AND created_at >= NOW() - INTERVAL '15 minutes'
         `),
             // 每个模型一行：失败次数，加上最近一次失败的类型、上游状态码和报错前 200 字。
+            // 系统失败总数就是各行之和，不再单独查一遍。
             db.execute(sql`
           WITH failed AS (
             SELECT t.id, t.model, t.error_type, t.upstream_status, t.completed_at
@@ -205,22 +205,28 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           LEFT JOIN model_availability m ON m.model = c.model
           ORDER BY failures DESC, last_failed_at DESC
         `),
-            // 恢复看的是「出事后这个模型有没有真的出过图」，不是失败数掉没掉。
-            db.execute(sql`
+            // 恢复看的是「出事后这个模型有没有真的出过图」，不是失败数掉没掉。只查等待名单里的模型；
+            // 窗口相对现在：名单每轮都对一遍，成功一发生就在窗口里，多晚恢复都看得见。
+            watching.length === 0
+              ? Promise.resolve([])
+              : db.execute(sql`
           SELECT model, EXTRACT(EPOCH FROM MAX(completed_at)) * 1000 AS last_succeeded_at
           FROM tasks
           WHERE kind = 'queue' AND status = 'completed'
+            AND model IN (${sql.join(
+              watching.map((model) => sql`${model}`),
+              sql`, `,
+            )})
             AND completed_at >= NOW() - INTERVAL '24 hours'
             AND submitted_at >= NOW() - INTERVAL '8 days'
           GROUP BY model
         `),
           ])
-          const generationRows = generationRaw as unknown as Array<Record<string, unknown>>
           const agentRows = agentRaw as unknown as Array<Record<string, unknown>>
           const modelRows = modelsRaw as unknown as Array<Record<string, unknown>>
           const successRows = successesRaw as unknown as Array<Record<string, unknown>>
           return {
-            generation_system: Number(generationRows[0]?.count ?? 0),
+            generation_system: modelRows.reduce((sum, row) => sum + Number(row.failures ?? 0), 0),
             agent: Number(agentRows[0]?.count ?? 0),
             generation_models: modelRows.map((row) => ({
               model: String(row.model ?? 'unknown'),
@@ -298,6 +304,7 @@ export function createAppAlerting(options: AppAlertingOptions): (now?: number) =
         now,
         readBackups: options.readBackups,
         readRestoreDrill: options.readRestoreDrill,
+        watchingModels: Object.keys(state.generationWatch ?? {}),
         onMissed: (block) => missed.add(block),
       })
       for (const block of blindRounds.keys()) if (!missed.has(block)) blindRounds.delete(block)
