@@ -35,6 +35,7 @@ import {
   showCanvasWorkspace,
   subscribeCanvasWorkspace,
 } from '../lib/activeProject'
+import { useCanvasAssetsEntry } from '../lib/assetsEntry'
 import { clearProjectView, setProjectView as setShownProjectView } from '../lib/canvasView'
 import type { CanvasEditor } from '../lib/editor'
 import { importImageFiles } from '../lib/importImages'
@@ -415,6 +416,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     // 只撤下自己写的那份，换项目时不抹掉新工作区已经写入的视图。
     return () => clearProjectView(projectId, shownView)
   }, [project?.id, shownView])
+  // 画布「资产」弹窗只属于画布视图：切回对话视图时一并收起，免得挂在藏起来的画布上。
+  useEffect(() => {
+    if (shownView !== 'canvas') useCanvasAssetsEntry.getState().setOpen(false)
+  }, [shownView])
   // 敲下回车就切到工作区：消息先上屏、状态行亮「发送中」，不等服务端回 turnStart。
   const started = useAgentStore((state) => conversationStarted(state.messages))
   const showWelcome =
