@@ -13,7 +13,8 @@
     "sendToCanvas": "放入画布",
     "sendToCanvasTitle": "放入画布",
     "deleteRecord": "删除记录",
-    "more": "更多操作"
+    "more": "更多操作",
+    "openProject": "回到项目"
   },
   "confirm": {
     "deleteMessage": "确定要删除这条记录吗？"
