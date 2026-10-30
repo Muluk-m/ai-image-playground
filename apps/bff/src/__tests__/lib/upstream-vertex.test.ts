@@ -476,7 +476,36 @@ describe('callUpstream Vertex AI direct channel', () => {
         request: { prompt: 'a cup', n: 2 },
       }).catch((error: unknown) => error)
       expect(failure).toBeInstanceOf(UpstreamResultUnknownError)
+      // task-runner 只认这个标记才把任务交给核查，不走失败退款。
+      expect(
+        (failure as InstanceType<typeof UpstreamResultUnknownError>).requiresReconciliation,
+      ).toBe(true)
       expect(attempts).toHaveLength(2)
+      expect(channelSlotStateForTesting(PRO_GATE)).toEqual({ active: 0, waiting: 0 })
+    })
+
+    it('rethrows a cancelled order as is instead of turning it into a reconciliation', async () => {
+      const controller = new AbortController()
+      let call = 0
+      setUpstreamFetchForTesting((async () => {
+        if (call++ === 1) {
+          setTimeout(() => controller.abort(), 1)
+          throw new TypeError('socket hang up')
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        return new Response(JSON.stringify(vertexResponse()), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }) as unknown as TestFetch)
+      const failure = (await callUpstream({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        request: { prompt: 'a cup', n: 2 },
+        signal: controller.signal,
+      }).catch((error: unknown) => error)) as { requiresReconciliation?: boolean }
+      expect(failure).toBeDefined()
+      expect(failure.requiresReconciliation).not.toBe(true)
       expect(channelSlotStateForTesting(PRO_GATE)).toEqual({ active: 0, waiting: 0 })
     })
 
