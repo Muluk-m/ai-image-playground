@@ -207,6 +207,7 @@ it('多张生成排成同尺寸图块：各自显示状态与已用时间，久�
                 taskId: 'tile-task-0',
                 status: 'completed',
                 attempt: 1,
+                actualCredits: 100,
                 artifacts: [
                   {
                     artifactId: 'tile-artifact-0',
@@ -226,6 +227,7 @@ it('多张生成排成同尺寸图块：各自显示状态与已用时间，久�
                 taskId: 'tile-task-1',
                 status: 'in_progress',
                 attempt: 1,
+                actualCredits: null,
                 startedAt: now - 42_000,
               },
             },
@@ -237,6 +239,7 @@ it('多张生成排成同尺寸图块：各自显示状态与已用时间，久�
                 taskId: 'tile-task-2',
                 status: 'in_progress',
                 attempt: 1,
+                actualCredits: null,
                 startedAt: now - BATCH_TILE_SLOW_AFTER_MS - 5_000,
               },
             },
