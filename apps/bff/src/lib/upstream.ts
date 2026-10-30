@@ -373,8 +373,11 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       if (lease) outstandingLeases.add(lease)
     }
     let sent = false
+    // 记账回调开始前都确定没发出；回调里失败时不知道它是否已提交，按原样当「结果未知」。
+    let committing = false
     try {
       if (deadline.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
+      committing = true
       const dispatchId = counted ? await beforeRequest?.() : undefined
       sent = true
       dispatchedAny = true
@@ -414,7 +417,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     } catch (err) {
       // 记账回调之前就失败：这次没发出去，张数退回。
       if (lease) await releaseLease(lease, !sent)
-      if (deadline.timedOut) throw new UpstreamTimeoutError()
+      // 拿到名额时恰好到硬截止：还没进记账，同样是确定未执行。
+      if (deadline.timedOut) throw committing ? new UpstreamTimeoutError() : queueTimeoutError()
       if (externalSignal?.aborted) throw err
       const detail = err instanceof Error ? err.message : String(err)
       throw new UpstreamResultUnknownError(`上游连接中断，执行结果未知：${detail}`, {
