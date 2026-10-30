@@ -18,6 +18,21 @@ function card(n: unknown, toolName = 'editImage'): AgentToolMessage {
 }
 
 describe('agentDraftOutputCount', () => {
+  it('Lite 一单最多 4 张：本轮选了 8 张，卡片和画布只占 4 个位（BUG-91）', () => {
+    expect(
+      agentDraftOutputCount({
+        ...card(undefined, 'generateImage'),
+        snapshot: { args: {}, params: { model: 'gemini-3.1-flash-lite-image', n: 8 } },
+      } as unknown as AgentToolMessage),
+    ).toBe(4)
+    expect(
+      agentDraftOutputCount({
+        ...card(undefined, 'generateImage'),
+        snapshot: { args: {}, params: { model: 'gemini-nano-banana-2.1', n: 8 } },
+      } as unknown as AgentToolMessage),
+    ).toBe(8)
+  })
+
   it('把模型写成字符串的张数按数字读，不当成一张', () => {
     expect(agentDraftOutputCount(card('3'))).toBe(3)
   })
