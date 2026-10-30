@@ -73,8 +73,12 @@ import { getAttachmentLimits, isClientCapabilityEnabled } from '../lib/clientCap
 import { confirmImageBatch } from '../lib/confirmImageBatch'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
-import { filesFromFolderInput } from '../lib/imageFiles'
-import { MAX_IMAGE_MB } from '../lib/inputImageLimit'
+import {
+  compressUploadFiles,
+  filesFromFolderInput,
+  imageNeedsUploadCompression,
+} from '../lib/imageFiles'
+import { MAX_IMAGE_BYTES, MAX_IMAGE_MB } from '../lib/inputImageLimit'
 import { createLongPress } from '../lib/longPress'
 import { getChangedParams, normalizeParamsForSettings } from '../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../lib/privateOverlay'
@@ -561,8 +565,12 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     refusalMessage: referenceRefusalMessage,
     fromAsset: (image) => image,
     fromFiles: async (files) => {
+      const fitted = await compressUploadFiles(
+        files,
+        toCanvas ? referenceImageLimit().imageBytes : MAX_IMAGE_BYTES,
+      )
       const images: InputImage[] = []
-      for (const file of files) images.push(await storeImageFromFile(file))
+      for (const file of fitted) images.push(await storeImageFromFile(file))
       return images
     },
     imageName: (image) => assetNames[image.id],
@@ -897,8 +905,16 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     const importAll = async () => {
       if (revision !== attachmentRevision.current) return
       try {
+        // 普通图不先等压缩：这次读取要在同一次点击里开始，灵感填充清掉草稿时才能作废。
+        const fitted = accepted.some(imageNeedsUploadCompression)
+          ? await compressUploadFiles(
+              accepted,
+              toCanvas ? referenceImageLimit().imageBytes : MAX_IMAGE_BYTES,
+            )
+          : accepted
+        if (revision !== attachmentRevision.current) return
         const images: InputImage[] = []
-        for (const file of accepted) images.push(await storeImageFromFile(file))
+        for (const file of fitted) images.push(await storeImageFromFile(file))
         if (revision !== attachmentRevision.current) return
         useStore.getState().attachInputImages(images, admission)
       } catch (err) {

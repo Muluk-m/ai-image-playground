@@ -64,7 +64,13 @@ import {
   resolveMediaSource,
 } from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
-import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
+import {
+  acceptImageFiles,
+  compressUploadFiles,
+  filesFromFolderInput,
+  imageNeedsUploadCompression,
+  prepareAcceptedImageFiles,
+} from '../../../lib/imageFiles'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import {
   localAttachmentFailure,
@@ -531,61 +537,86 @@ export default function AgentComposer({
       useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
       return
     }
-    const images =
-      attachmentUploadsEnabled() && getAttachmentLimits()
-        ? files.filter((file) => file.type.startsWith('image/'))
-        : acceptImageFiles(files, { keepOversized: mediaFallbackEnabled() })
-    if (images.length === 0) return
-    const limits = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
-    if (
-      limits &&
-      session.getSnapshot().draft.references.length + images.length > limits.logicalReferences
-    ) {
-      useStore
-        .getState()
-        .showToast(t('composer.tooManyReferences', { count: limits.logicalReferences }), 'error')
-      return
-    }
-    const currentAccount = accountScope()
-    confirmImageBatch(images.length, () => {
-      if (!currentAccount() || revision !== attachmentRevision.current) return
-      const currentLimits = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
+    const admit = (images: File[]) => {
+      if (revision !== attachmentRevision.current || images.length === 0) return
+      const limits = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
       if (
         limits &&
-        (!currentLimits ||
-          session.getSnapshot().draft.references.length + images.length >
-            currentLimits.logicalReferences)
+        session.getSnapshot().draft.references.length + images.length > limits.logicalReferences
       ) {
-        useStore.getState().showToast(
-          t('composer.tooManyReferences', {
-            count: currentLimits?.logicalReferences ?? limits.logicalReferences,
-          }),
-          'error',
-        )
+        useStore
+          .getState()
+          .showToast(t('composer.tooManyReferences', { count: limits.logicalReferences }), 'error')
         return
       }
-      const added = filesToReferences(images)
-      if (Array.isArray(added)) {
-        setDraft((current) => attachReferences(current, added, transportRef.current))
-      } else {
-        void added
-          .then((references) => {
-            if (!currentAccount() || revision !== attachmentRevision.current) return
-            setDraft((current) => attachReferences(current, references, transportRef.current))
-          })
-          .catch((error: unknown) =>
-            useStore
-              .getState()
-              .showToast(
-                attachmentUploadErrorMessage(
-                  error instanceof Error ? error.message : undefined,
-                  getAttachmentLimits(),
-                ),
-                'error',
-              ),
+      const currentAccount = accountScope()
+      confirmImageBatch(images.length, () => {
+        if (!currentAccount() || revision !== attachmentRevision.current) return
+        const currentLimits = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
+        if (
+          limits &&
+          (!currentLimits ||
+            session.getSnapshot().draft.references.length + images.length >
+              currentLimits.logicalReferences)
+        ) {
+          useStore.getState().showToast(
+            t('composer.tooManyReferences', {
+              count: currentLimits?.logicalReferences ?? limits.logicalReferences,
+            }),
+            'error',
           )
-      }
+          return
+        }
+        const added = filesToReferences(images)
+        const land = (references: Awaited<typeof added>) => {
+          if (!currentAccount() || revision !== attachmentRevision.current) return
+          setDraft((current) => attachReferences(current, references, transportRef.current))
+        }
+        if (Array.isArray(added)) land(added)
+        else
+          void added
+            .catch((error: unknown) =>
+              useStore
+                .getState()
+                .showToast(
+                  attachmentUploadErrorMessage(
+                    error instanceof Error ? error.message : undefined,
+                    getAttachmentLimits(),
+                  ),
+                  'error',
+                ),
+            )
+            .then((references) => {
+              if (references) land(references)
+            })
+      })
+    }
+    // 没超过 50 MB 时当场收下，确认框和名额都还在这次点击里。超限的先压，压完再走同一条。
+    if (!files.some(imageNeedsUploadCompression)) {
+      admit(
+        attachmentUploadsEnabled() && getAttachmentLimits()
+          ? files.filter((file) => file.type.startsWith('image/'))
+          : acceptImageFiles(files, { keepOversized: mediaFallbackEnabled() }),
+      )
+      return
+    }
+    // 附件通道开着时，压不成的原文件仍要留下，走原来的上传失败（红框和超限红字）。
+    const fail = () => useStore.getState().showToast(t('composer.attachmentReadFailed'), 'error')
+    if (attachmentUploadsEnabled() && getAttachmentLimits()) {
+      void compressUploadFiles(
+        files.filter((file) => file.type.startsWith('image/')),
+        referenceImageLimit().imageBytes,
+      )
+        .then((images) => admit(images))
+        .catch(fail)
+      return
+    }
+    void prepareAcceptedImageFiles(files, {
+      keepOversized: mediaFallbackEnabled(),
+      targetBytes: referenceImageLimit().imageBytes,
     })
+      .then((images) => admit(images))
+      .catch(fail)
   }
   // 圈得多时一张张胶囊铺满输入框没有意义：模型这时也只拿清单（见 AGENT_TURN_ATTACHED_MEDIA_MAX），
   // 收成一条「已选 N 张画布图」。手动附上的照旧逐张显示。
@@ -1347,7 +1378,14 @@ export default function AgentComposer({
                                     ? ''
                                     : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100'
                                 }`}
-                                onClick={() => setDraft(removeReference(draft, index))}
+                                onClick={() =>
+                                  setDraft((current) => {
+                                    const at = current.references.findIndex(
+                                      (one) => one.id === reference.id,
+                                    )
+                                    return at < 0 ? current : removeReference(current, at)
+                                  })
+                                }
                               >
                                 <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
                                   <Icon name="close" />
