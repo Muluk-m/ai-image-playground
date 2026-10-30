@@ -136,6 +136,14 @@ export const config = {
     asyncImageTasks: booleanEnv('UPSTREAM_ASYNC_IMAGE_TASKS', false),
     /** GPT Image 2 的 Responses 主模型；留空保留网关原生 Images 协议。 */
     imageResponsesModel: env('UPSTREAM_IMAGE_RESPONSES_MODEL', ''),
+    /**
+     * Vertex 某张图退避用完仍 429 时改用哪个 Vertex 模型补这一张；设成 `off` 即不回落。
+     * 只对同在 Vertex 渠道、当前上架的模型生效，按原单价结算，用户不多付（2026-10-29 Lite 429 事故）。
+     */
+    vertexRateLimitFallbackModel: env(
+      'VERTEX_RATE_LIMIT_FALLBACK_MODEL',
+      'gemini-nano-banana-2.1',
+    ).trim(),
   },
   agent: {
     /** 智能体的对话模型。没有默认值：`agent:chat` 要求运营显式配一个能跑工具循环的模型。 */
