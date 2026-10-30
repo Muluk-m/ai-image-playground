@@ -29,6 +29,7 @@ import {
   extractErrorMessage,
   stringifyUpstreamPayload,
   UpstreamPartialResultError,
+  UpstreamQueueTimeoutError,
   UpstreamResultUnknownError,
   UpstreamTimeoutError,
 } from './upstream/errors'
@@ -342,6 +343,10 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
    * 轮询次数与计费无关，混进去会让 upstream_invocation_count 失去意义。
    */
   const dispatchIdentities = new WeakMap<UpstreamResponse, string>()
+  // 这次调用是否已有请求过了记账点（可能已到上游）。排队超时时据此区分「确定没发」和「结果未知」。
+  let dispatchedAny = false
+  const queueTimeoutError = () =>
+    dispatchedAny ? new UpstreamTimeoutError() : new UpstreamQueueTimeoutError()
   // 跨 worker 配额：每条计数的上游请求先占额度再发，响应读完（parseResponse）才还在途名额。
   // 原生 n 一条请求出 n 张，按 n 张扣；fan-out 每条按 1 张扣。
   const imagesPerDispatch = useNativeN ? requestedImageCount : 1
@@ -361,17 +366,21 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       try {
         lease = await waitForSchedulerSlots(schedulerBuckets, imagesPerDispatch, deadline.signal)
       } catch (err) {
-        // 排队时就超时或被取消：请求根本没发出去，不是「结果未知」。
-        if (deadline.timedOut) throw new UpstreamTimeoutError()
+        // 排队时就超时：这条请求没发出去；整次调用都没发过就是确定未执行，不是「结果未知」。
+        if (deadline.timedOut) throw queueTimeoutError()
         throw err
       }
       if (lease) outstandingLeases.add(lease)
     }
     let sent = false
+    // 记账回调开始前都确定没发出；回调里失败时不知道它是否已提交，按原样当「结果未知」。
+    let committing = false
     try {
       if (deadline.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
+      committing = true
       const dispatchId = counted ? await beforeRequest?.() : undefined
       sent = true
+      dispatchedAny = true
 
       // The accounting callback is the dispatch commit point. Start the transport with a fresh
       // signal before relaying cancellation so a cancellation that loses the database race cannot
@@ -408,7 +417,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     } catch (err) {
       // 记账回调之前就失败：这次没发出去，张数退回。
       if (lease) await releaseLease(lease, !sent)
-      if (deadline.timedOut) throw new UpstreamTimeoutError()
+      // 拿到名额时恰好到硬截止：还没进记账，同样是确定未执行。
+      if (deadline.timedOut) throw committing ? new UpstreamTimeoutError() : queueTimeoutError()
       if (externalSignal?.aborted) throw err
       const detail = err instanceof Error ? err.message : String(err)
       throw new UpstreamResultUnknownError(`上游连接中断，执行结果未知：${detail}`, {
@@ -724,8 +734,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
               target.concurrency.limit,
               deadline.signal,
             ).catch((error: unknown) => {
-              // 排队时就超时：请求根本没发出去，按普通超时报，不是「结果未知」。
-              if (deadline.timedOut) throw new UpstreamTimeoutError()
+              // 排队时就超时：这条请求没发出去；整次调用都没发过就是确定未执行，不是「结果未知」。
+              if (deadline.timedOut) throw queueTimeoutError()
               throw error
             })
           : undefined
@@ -1003,6 +1013,7 @@ async function parseUpstreamResponse(res: UpstreamResponse): Promise<UpstreamCal
 export {
   extractUpstreamFailure,
   UpstreamPartialResultError,
+  UpstreamQueueTimeoutError,
   UpstreamResultUnknownError,
   UpstreamTimeoutError,
 } from './upstream/errors'
