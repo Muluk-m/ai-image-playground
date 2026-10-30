@@ -19,6 +19,7 @@ const {
 const { channelSlotStateForTesting } = await import('../../lib/upstream/concurrency')
 const { extractUpstreamFailure } = await import('../../lib/upstream/errors')
 const { isRetryableError } = await import('../../lib/retry')
+const { partialFailureOf } = await import('../../lib/upstream/partial')
 const { defaultChannelsPath } = await import('../../lib/channels')
 type InternalChannel = import('../../lib/channels').InternalChannel
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
@@ -434,23 +435,20 @@ describe('callUpstream Vertex AI direct channel', () => {
       })
     })
 
-    it('does not let the task retry regenerate a group whose other images already came back', async () => {
-      // 一条出图，另一条首发 + 3 次退避全是 429。
+    it('delivers the images that came back and records the throttled rest', async () => {
+      // 一条出图，另一条首发 + 3 次退避全是 429：交付那一张，缺口记在结果里供按张结算。
       useStatuses([200, 429, 429, 429, 429])
-      const failure = (await callUpstream({
+      const result = await callUpstream({
         provider: 'gemini',
         model: 'gemini-3-pro-image',
         request: { prompt: 'a cup', n: 2 },
-      }).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
+      })
       expect(attempts).toHaveLength(2 + VERTEX_RATE_LIMIT_BACKOFF_MS.length)
-      expect(failure.upstreamStatus).toBe(429)
-      expect(isRetryableError(failure)).toBe(false)
-      expect(failure.message).toContain('上游限流')
-      expect(failure.message).toContain('不再自动重跑')
-      expect(failure.message).not.toContain('Nano Banana')
-      expect(extractUpstreamFailure(failure)).toEqual({
-        status: 429,
-        body: expect.stringContaining('RESOURCE_EXHAUSTED'),
+      expect(extractMeta('gemini', result.payload).images).toHaveLength(1)
+      expect(partialFailureOf(result.payload)).toEqual({
+        requested: 2,
+        failed: 1,
+        type: 'rate_limited',
       })
       expect(channelSlotStateForTesting(PRO_GATE)).toEqual({ active: 0, waiting: 0 })
     })
@@ -464,7 +462,6 @@ describe('callUpstream Vertex AI direct channel', () => {
       }).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
       expect(failure.upstreamStatus).toBe(429)
       expect(isRetryableError(failure)).toBe(false)
-      expect(failure.message).not.toContain('不再自动重跑')
     })
 
     describe('falling back to another Vertex model', () => {
