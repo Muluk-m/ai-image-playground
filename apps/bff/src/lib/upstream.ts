@@ -51,13 +51,13 @@ import {
   withoutImageCount,
   withoutModeration,
 } from './upstream/openai'
+import { withPartialFailure } from './upstream/partial'
 import {
   gptSchedulerBuckets,
   type SchedulerBucket,
   type SchedulerLease,
   waitForSchedulerSlots,
 } from './upstream/scheduler'
-import { withPartialFailure } from './upstream/partial'
 import { type ChannelRouteStyle, clientError, type UpstreamCallResult } from './upstream/shared'
 import {
   buildVertexBody,
@@ -352,10 +352,9 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
    * 轮询次数与计费无关，混进去会让 upstream_invocation_count 失去意义。
    */
   const dispatchIdentities = new WeakMap<UpstreamResponse, string>()
-  // 这次调用是否已有请求过了记账点（可能已到上游）。排队超时时据此区分「确定没发」和「结果未知」。
-  let dispatchedAny = false
-  const queueTimeoutError = () =>
-    dispatchedAny ? new UpstreamTimeoutError() : new UpstreamQueueTimeoutError()
+  // 排队时到硬超时：这一条请求确定没发出。同一次调用里别的请求（fan-out 的其它张）即使已发、
+  // 结果未知，也由 fanOutRequests 按「有结果未知就整组待核查」汇总，这一条不必跟着改口径。
+  const queueTimeoutError = () => new UpstreamQueueTimeoutError()
   // 跨 worker 配额：每条计数的上游请求先占额度再发，响应读完（parseResponse）才还在途名额。
   // 原生 n 一条请求出 n 张，按 n 张扣；fan-out 每条按 1 张扣。
   const imagesPerDispatch = useNativeN ? requestedImageCount : 1
@@ -375,7 +374,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       try {
         lease = await waitForSchedulerSlots(schedulerBuckets, imagesPerDispatch, deadline.signal)
       } catch (err) {
-        // 排队时就超时：这条请求没发出去；整次调用都没发过就是确定未执行，不是「结果未知」。
+        // 排队时就超时：这条请求没发出去，确定未执行，不是「结果未知」。
         if (deadline.timedOut) throw queueTimeoutError()
         throw err
       }
@@ -389,7 +388,6 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       committing = true
       const dispatchId = counted ? await beforeRequest?.() : undefined
       sent = true
-      dispatchedAny = true
 
       // The accounting callback is the dispatch commit point. Start the transport with a fresh
       // signal before relaying cancellation so a cancellation that loses the database race cannot
@@ -756,7 +754,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
               target.concurrency.limit,
               queueSignal,
             ).catch((error: unknown) => {
-              // 排队时就超时：这条请求没发出去；整次调用都没发过就是确定未执行，不是「结果未知」。
+              // 排队时就超时：这条请求没发出去，确定未执行，不是「结果未知」。
               if (deadline.timedOut) throw queueTimeoutError()
               if (capAt !== undefined && !deadline.signal.aborted && Date.now() >= capAt)
                 throw new VertexTimeCapError()
@@ -901,7 +899,8 @@ function resolveVertexFallback(
  * 一次逻辑调用拆成 count 条单张请求再合并。部分出图时不让整单失败：交付已出的那几张，结果里
  * 记下缺口（{@link withPartialFailure}），task-runner 按交付张数结算、其余退回。一张都没出照原样
  * 抛第一条失败；被取消（用户取消、租约丢了）照原样抛，不交付。
- * 结果待核查的线路（`reconciliationRequired`）保留整组语义：哪条算没算钱要人核对，不能先交付。
+ * 结果待核查的线路（`reconciliationRequired`）保留整组语义：哪条算没算钱要人核对，不能先交付；
+ * 其它线路只要有一条结果未知（可能已出图），也照这个口径整组待核查，不按部分交付退款。
  */
 async function fanOutRequests(
   requestedCount: number | undefined,
@@ -918,7 +917,17 @@ async function fanOutRequests(
   const delivered = settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : []))
   const failures = settled.flatMap((one) => (one.status === 'rejected' ? [one.reason] : []))
   if (failures.length === 0) return merge(delivered)
-  if (delivered.length === 0 || cancelled()) throw failures[0]
+  // 结果未知的那条可能已经出了图、上游也可能已经计费：不能当“没出图”退钱再交付，
+  // 照结果待核查线路的口径整组交给核查，免得错退积分、重试时重复出图。
+  const unknown = failures.find((reason) => reason instanceof UpstreamResultUnknownError)
+  // 显式要求核查：task-runner 只在任务已标记或错误带 requiresReconciliation 时才进核查。
+  // 被取消时照原样抛，不改成核查。
+  if (unknown && delivered.length > 0 && !cancelled())
+    throw new UpstreamResultUnknownError('部分请求已完成，整组结果和结算待核查。', {
+      cause: unknown,
+      requiresReconciliation: true,
+    })
+  if (delivered.length === 0 || cancelled()) throw unknown ?? failures[0]
   return withPartialFailure(merge(delivered), count, failures)
 }
 

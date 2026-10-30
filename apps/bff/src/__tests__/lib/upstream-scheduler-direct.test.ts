@@ -45,13 +45,31 @@ let maxInFlight = 0
 let status = 200
 
 function stubUpstream(latencyMs: number): void {
-  setUpstreamFetchForTesting((async (_input: unknown, init?: { body?: unknown }) => {
+  setUpstreamFetchForTesting((async (
+    _input: unknown,
+    init?: { body?: unknown; signal?: AbortSignal },
+  ) => {
     const { model } = JSON.parse(String(init?.body)) as { model: string }
     sent.push({ model, at: stubClock() })
+    if (recordGrants) await recordModelGrants(model)
     inFlight += 1
     maxInFlight = Math.max(maxInFlight, inFlight)
-    await Bun.sleep(latencyMs)
-    inFlight -= 1
+    try {
+      // 跟真实 fetch 一样：请求被叫停时立刻以 AbortError 结束，不等上游回包。
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, latencyMs)
+        init?.signal?.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(timer)
+            reject(new DOMException('aborted', 'AbortError'))
+          },
+          { once: true },
+        )
+      })
+    } finally {
+      inFlight -= 1
+    }
     return status === 200
       ? new Response(JSON.stringify({ data: [{ b64_json: 'ok' }] }), {
           status: 200,
@@ -90,11 +108,30 @@ async function virtualSleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * 某模型每张图的发送时刻。时钟只在没有在途租约时前进，拿到额度到真正发出之间时钟不动，
- * 所以这就是调度器算窗口用的拿额度时刻。
+ * 调度器给每张图记下的拿额度时刻（租约的 acquired_at，就是滑动窗口计数用的那个时刻），按 attempt 去重。
+ * 每条请求发出时它自己的租约一定还没还，所以在桩里读一遍未还的租约就不会漏；不拿桩被调用时的时钟，
+ * 因为别的等待者可能恰在拿额度和发出之间把受控时钟往前拨。
  */
-const sendTimes = (model: string): number[] =>
-  sent.filter((entry) => entry.model === model).map((entry) => entry.at)
+let recordGrants = false
+const grants = new Map<string, Map<string, number>>()
+async function recordModelGrants(model: string): Promise<void> {
+  const rows = await db
+    .select({
+      attemptId: schema.scheduler_leases.attempt_id,
+      acquiredAt: schema.scheduler_leases.acquired_at,
+    })
+    .from(schema.scheduler_leases)
+    .where(
+      and(
+        eq(schema.scheduler_leases.bucket_key, `direct-test:openai:direct:model:${model}`),
+        isNull(schema.scheduler_leases.released_at),
+      ),
+    )
+  const seen = grants.get(model) ?? new Map<string, number>()
+  for (const row of rows) seen.set(row.attemptId, row.acquiredAt)
+  grants.set(model, seen)
+}
+const grantTimes = (model: string): number[] => [...(grants.get(model)?.values() ?? [])]
 
 /** 任意 60 秒窗口内拿到的最多张数。 */
 function maxPerWindow(times: number[]): number {
@@ -125,6 +162,8 @@ afterEach(() => {
   _setSchedulerClockForTesting()
   _setSchedulerSleepForTesting()
   stubClock = simNow
+  recordGrants = false
+  grants.clear()
 })
 
 it('holds two models to 16 images a minute each and 8 requests in flight across concurrent tasks', async () => {
@@ -132,6 +171,7 @@ it('holds two models to 16 images a minute each and 8 requests in flight across 
   _setSchedulerClockForTesting(() => virtualNow)
   _setSchedulerSleepForTesting(virtualSleep)
   stubClock = () => virtualNow
+  recordGrants = true
   stubUpstream(50)
   // 6 个任务（相当于几个 worker 同时在跑），两个模型共 60 张，全部 fan-out 成单张请求。
   const tasks = [
@@ -149,12 +189,12 @@ it('holds two models to 16 images a minute each and 8 requests in flight across 
   expect(sent).toHaveLength(60)
   expect(maxInFlight).toBeLessThanOrEqual(8)
   for (const model of ['gpt-image-2', 'gpt-image-1.5']) {
-    const grants = sendTimes(model)
-    expect(grants).toHaveLength(30)
+    const times = grantTimes(model)
+    expect(times).toHaveLength(30)
     // 第一分钟正好放满 16 张，之后任何 60 秒窗口都不超过 16 张。
-    expect(maxPerWindow(grants)).toBe(16)
+    expect(maxPerWindow(times)).toBe(16)
     // 第 17 张要等第 1 张出窗口：30 张至少跨一整分钟。
-    expect(Math.max(...grants) - Math.min(...grants)).toBeGreaterThanOrEqual(SCHEDULER_WINDOW_MS)
+    expect(Math.max(...times) - Math.min(...times)).toBeGreaterThanOrEqual(SCHEDULER_WINDOW_MS)
   }
   expect((await schedulerBucketUsage('openai:direct:inflight')).inFlight).toBe(0)
 }, 30_000)
@@ -232,8 +272,30 @@ it('reports a hard timeout spent entirely in the queue as not executed, so the t
   expect(sent).toHaveLength(0)
 })
 
-it('keeps the result-unknown timeout once any request of the call has been sent', async () => {
+it('delivers the image already out and refunds the one still queued at the hard timeout', async () => {
+  // 一分钟额度只剩 1 张：fan-out 的第一张发出去并很快出图，第二张一直排队到硬超时。
+  // 第二张确定没发出，按部分交付：交第一张、记一张缺口，task-runner 只结算交付的那张。
+  stubUpstream(5)
+  await acquireSchedulerSlots(
+    'prefill',
+    [{ key: 'openai:direct:model:gpt-image-2', imagesPerMinute: 16 }],
+    15,
+  )
+  const result = await callUpstream({
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    request: { prompt: 'x', n: 2 },
+    resume: expiringIn(400),
+  })
+  expect(sent).toHaveLength(1)
+  const payload = result.payload as { data: unknown[]; partial_failure: unknown }
+  expect(payload.data).toHaveLength(1)
+  expect(payload.partial_failure).toEqual({ requested: 2, failed: 1, type: 'upstream_error' })
+})
+
+it('keeps the result-unknown timeout when a sent request is still out at the hard timeout', async () => {
   // 一分钟额度只剩 1 张：fan-out 的第一张发出去（上游迟迟不回），第二张一直排队到硬超时。
+  // 第二张确定没发，但第一张结果未知：整组按结果未知报，不能当没执行退款。
   stubUpstream(2_000)
   await acquireSchedulerSlots(
     'prefill',

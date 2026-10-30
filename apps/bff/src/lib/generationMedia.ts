@@ -20,6 +20,7 @@ import { type ObjectStore, objectStore } from './objectStore'
 import type { BffTransaction } from './private-overlay'
 import { lockMediaOwner, MediaError, storeMedia } from './projectMedia'
 import { UpstreamResultUnknownError } from './upstream'
+import { partialFailureField } from './upstream/partial'
 
 let transfers = 0
 const waiting: (() => void)[] = []
@@ -169,8 +170,8 @@ export function generationSourceCheckpoint(id: string, provider: QueueProvider, 
   })
   if (!refs.length) return null
   // 部分出图记下的缺口（upstream/partial.ts）跟着检查点走：归档重试后仍按交付张数结算。
-  const partial = (payload as { partial_failure?: unknown } | null)?.partial_failure
-  const carried = partial ? { partial_failure: partial } : {}
+  // 只带校验过的记录：上游 JSON 里同名的顶层字段不能原样混进结算。
+  const carried = partialFailureField(payload)
   if (provider === 'openai-compat')
     return {
       ...meta.actual_params,
