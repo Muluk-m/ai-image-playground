@@ -26,6 +26,7 @@ import {
 } from '../lib/imageArchive'
 import { log } from '../lib/logger'
 import { knownInactiveModels, refreshInactiveModels } from '../lib/model-availability'
+import type { TaskUsage } from '../lib/private-overlay'
 import { isAbortError } from '../lib/queueProvider'
 import { isRetryableError, planNextAttempt, shouldRetryEmptyResult } from '../lib/retry'
 import {
@@ -36,6 +37,7 @@ import {
   UpstreamResultUnknownError,
   UpstreamTimeoutError,
 } from '../lib/upstream'
+import { partialFailureOf } from '../lib/upstream/partial'
 import { claimTaskExecution, type TaskExecution } from './task-execution'
 
 const ARCHIVE_RETRY_BUDGET_MS = 60 * 60_000
@@ -141,6 +143,10 @@ async function executeTask(execution: TaskExecution): Promise<void> {
   let archivePayload = task.archive_payload
   let receivedImages = false
   let protectOutput: Awaited<ReturnType<typeof protectMaskedOutput>> | undefined
+  let fallbackModel: string | undefined
+  const fallbackAt = task.submitted_at + config.upstream.vertexFallbackAfterMs
+  // 过了原模型总时限，没出的几张已经交给回落模型试过，失败就是终态，不再整单重跑。
+  const pastFallbackCap = () => fallbackModel !== undefined && Date.now() >= fallbackAt
   const stopExpiredArchive = async (cause?: unknown): Promise<boolean> => {
     if (!archivePayload) return false
     const startedAt = task.archive_retry_started_at ?? claimedAt
@@ -199,6 +205,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       )
       await execution.finish({
         status: missing.size ? 'failed' : 'completed',
+        ...(missing.size ? {} : deliveredUsage(archivePayload)),
         ...(missing.size
           ? {
               errorType: 'upstream_result_unknown' as const,
@@ -211,6 +218,9 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       })
       return
     }
+    // 原模型的总时限从提交算起（含排队与之前的重试），到点没出的几张改用回落模型。
+    fallbackModel =
+      task.provider === 'gemini' ? await rateLimitFallbackModel(task.model) : undefined
     const upstreamCall: UpstreamCallParams = {
       reconciliationRequired: task.reconciliation_required,
       provider: task.provider,
@@ -228,8 +238,8 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         : hydratedRequest,
       signal,
       resume,
-      ...(task.provider === 'gemini'
-        ? { rateLimitFallbackModel: await rateLimitFallbackModel(task.model) }
+      ...(fallbackModel
+        ? { rateLimitFallbackModel: fallbackModel, rateLimitFallbackAt: fallbackAt }
         : {}),
       onUpstreamTaskIds: (taskIds) =>
         execution.recordUpstreamTaskIds(taskIds, resume !== undefined),
@@ -276,7 +286,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         (await tryScheduleRetry(
           execution,
           attemptJustFailed,
-          !blocked && shouldRetryEmptyResult(task.provider, payload),
+          !blocked && !pastFallbackCap() && shouldRetryEmptyResult(task.provider, payload),
           `no_image: ${message}`,
         ))
       ) {
@@ -334,6 +344,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       : undefined
     await execution.finish({
       status: 'completed',
+      ...deliveredUsage(archivedPayload),
       media,
       resultPayload: archivedPayload,
       completedAt: now(),
@@ -343,6 +354,9 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         event: 'task.completed',
         taskId: id,
         imageCount: meta.images.length,
+        ...(partialFailureOf(archivedPayload)
+          ? { partialFailure: partialFailureOf(archivedPayload) }
+          : {}),
         idleSlot: execution.idleSlot,
         elapsedMs: now() - claimedAt,
       },
@@ -409,7 +423,12 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       (await tryScheduleRetry(
         execution,
         attemptJustFailed,
-        !(cloudArchive && receivedImages) && isRetryableError(err),
+        // 上游明说这个模型没有可用账号：原样重试还是这句，每次让用户多等几十秒（10-29 flare 事故一单等了约 50 秒），
+        // 直接失败、下架模型、退积分。
+        errorType !== 'model_unavailable' &&
+          !(cloudArchive && receivedImages) &&
+          !pastFallbackCap() &&
+          isRetryableError(err),
         message,
       ))
     ) {
@@ -452,6 +471,18 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         'task failed',
       )
     }
+  }
+}
+
+/**
+ * 部分出图（结果里有 `partial_failure`）只按交付张数结算：冻结的是要的张数，没出的那几张随结算退回。
+ * 整单都出了图不带用量，结算照旧按冻结额。
+ */
+function deliveredUsage(payload: unknown): { actualUsage?: TaskUsage } {
+  const partial = partialFailureOf(payload)
+  if (!partial) return {}
+  return {
+    actualUsage: { quantity: Math.max(0, partial.requested - partial.failed), unitMultiplier: 1 },
   }
 }
 

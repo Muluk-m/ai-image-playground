@@ -10,6 +10,7 @@ import { type GenerationMediaLink, publishGenerationImages } from '../lib/genera
 import { pauseUnavailableModel } from '../lib/model-availability'
 import { type BffTransaction, loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
 import { publishProjectOutputs } from '../lib/projectArchive'
+import { partialFailureOf } from '../lib/upstream/partial'
 import { db, schema } from './client'
 import { publishGenerations } from './generation-events'
 
@@ -248,7 +249,10 @@ export async function finishTask(
         finished.userId,
         id,
         update.media ?? [],
-        update.status === 'failed' ? taskFailureCode(update.errorType) : undefined,
+        update.status === 'failed'
+          ? taskFailureCode(update.errorType)
+          : // 部分出图：没出的那几个预留位置留成失败占位，不悄悄收掉。
+            partialFailureCode(update.resultPayload),
       )
     await taskHooks.finalizeTask({
       tx,
@@ -318,4 +322,9 @@ export async function cancelTasks(
     return rows
   }
   return options.tx ? cancel(options.tx) : db.transaction(cancel)
+}
+
+function partialFailureCode(payload: unknown) {
+  const partial = partialFailureOf(payload)
+  return partial ? taskFailureCode(partial.type) : undefined
 }

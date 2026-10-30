@@ -104,22 +104,39 @@ export async function withVertexRateLimitRetry<T>(
   send: () => Promise<T>,
   signal: AbortSignal,
   isTimeout: () => boolean,
+  /** 原模型的总时限（epoch 毫秒）：下一次退避会越过它就不等了，按限流失败交给回落。 */
+  capAt?: number,
 ): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await send()
     } catch (error) {
       if (!isRateLimited(error)) throw error
-      const delay = rateLimitBackoffMs[attempt]
-      if (delay === undefined) throw rateLimitedError(error)
+      const step = rateLimitBackoffMs[attempt]
+      if (step === undefined) throw rateLimitedError(error)
+      const delay = step * (0.75 + Math.random() * 0.5)
+      if (capAt !== undefined && Date.now() + delay >= capAt) throw rateLimitedError(error)
       try {
-        await sleep(delay * (0.75 + Math.random() * 0.5), signal)
+        await sleep(delay, signal)
       } catch (abort) {
         // 到点：这条请求上游没受理过，按限流失败报，别冒充「结果未知」。用户取消照旧往外抛。
         if (isTimeout()) throw rateLimitedError(error)
         throw abort
       }
+      // 定时器可能晚醒：睡过了总时限就不再发原模型，同样交给回落。
+      if (capAt !== undefined && Date.now() >= capAt) throw rateLimitedError(error)
     }
+  }
+}
+
+/**
+ * 原模型到了总时限（`rateLimitFallbackAt`）还没轮到发：请求没发出去，这一张交给回落模型。
+ * 只在有回落模型时抛，调用方接住；不会作为任务失败往外冒。
+ */
+export class VertexTimeCapError extends Error {
+  constructor() {
+    super('原模型等待超过总时限，改用回落模型')
+    this.name = 'VertexTimeCapError'
   }
 }
 
@@ -133,8 +150,8 @@ const RATE_LIMITED_MESSAGE = '该模型当前请求太多（上游限流），�
  * （10s / 30s 后整单再跑）只会把同一单的 n 条请求再撞一遍限流，一单拖到 10 分钟以上，
  * 还会和排队的单子抢配额。回落模型在单张层面已经试过了，这里直接失败、整笔退回积分。
  */
-function rateLimitedError(cause: unknown, message = RATE_LIMITED_MESSAGE): Error {
-  const err = new Error(message, { cause }) as Error & {
+function rateLimitedError(cause: unknown): Error {
+  const err = new Error(RATE_LIMITED_MESSAGE, { cause }) as Error & {
     upstreamStatus: number
     upstreamPayload?: unknown
     retryable: boolean
@@ -143,27 +160,6 @@ function rateLimitedError(cause: unknown, message = RATE_LIMITED_MESSAGE): Error
   err.retryable = false
   const payload = (cause as { upstreamPayload?: unknown } | null)?.upstreamPayload
   if (payload !== undefined) err.upstreamPayload = payload
-  return err
-}
-
-/**
- * 一单多张拆成的请求里，有的已经出图、有的退避用完（含回落模型）仍 429 时的收口
- * （`fanOutRequests` 的 `onPartialFailure`）。任务级重试会把整组 n 张重新生成，已出的图要再付
- * 一遍上游费用，还会接着撞同一个限流，所以这种情况标成不可重试：任务失败，冻结的积分按现有
- * 结算整笔退回（只有任务完成才扣费）。已出的图暂不交付：按实交张数结算的部分交付在后续 PR 里做。
- * 不是 429 的失败（含用户取消）返回 undefined，照原样往外抛。
- */
-export function vertexPartialRateLimitFailure(
-  reason: unknown,
-  delivered: number,
-  requested: number,
-): Error | undefined {
-  if (!isRateLimited(reason)) return undefined
-  const err = rateLimitedError(
-    reason,
-    `该模型当前请求太多（上游限流）：本单 ${requested} 张里有 ${requested - delivered} 张自动重试仍未成功。为免整单重复生成，本单不再自动重跑，请稍后再试`,
-  ) as Error & { retryable: boolean }
-  err.retryable = false
   return err
 }
 
