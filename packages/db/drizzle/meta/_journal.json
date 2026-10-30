@@ -554,6 +554,13 @@
       "when": 1793000000000,
       "tag": "0079_generation_images_soft_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1793100000000,
+      "tag": "0080_upstream_scheduler",
+      "breakpoints": true
     }
   ]
 }

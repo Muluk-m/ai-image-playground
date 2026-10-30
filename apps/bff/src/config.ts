@@ -18,6 +18,14 @@ const positiveIntEnv = (key: string, fallback: number): number => {
   }
   return value
 }
+/** 0 表示关闭；只接受非负整数。 */
+const nonNegativeIntEnv = (key: string, fallback: number): number => {
+  const value = Number(env(key, String(fallback)))
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${key} must be a non-negative integer`)
+  }
+  return value
+}
 const booleanEnv = (key: string, fallback: boolean): boolean => {
   const value = env(key, String(fallback)).toLowerCase()
   if (value !== 'true' && value !== 'false') throw new Error(`${key} must be true or false`)
@@ -144,6 +152,30 @@ export const config = {
       'VERTEX_RATE_LIMIT_FALLBACK_MODEL',
       'gemini-nano-banana-2.1',
     ).trim(),
+  },
+  /**
+   * 跨 worker 的上游调度配额（公开库 scheduler_buckets / scheduler_leases，按行锁抢）。每个环境各算各的。
+   * 目前只管 GPT Image 走通用网关的请求：UPSTREAM_BASE_URL 指向 api.openai.com 时按「直连」限，
+   * 否则按「sub2api」限。见 lib/upstream/scheduler.ts。
+   */
+  scheduler: {
+    /** 桶名前缀；几个环境共用一个库时用它隔开。 */
+    namespace: env('SCHEDULER_NAMESPACE', 'default'),
+    /** 心跳停了多久的租约算死掉、额度收回。 */
+    leaseTtlMs: positiveIntEnv('SCHEDULER_LEASE_TTL_MS', 60_000),
+    heartbeatMs: positiveIntEnv('SCHEDULER_HEARTBEAT_MS', 15_000),
+    /** 上游回 429 后这个模型的桶停发多久。 */
+    rateLimitCooldownMs: positiveIntEnv('SCHEDULER_RATE_LIMIT_COOLDOWN_MS', 60_000),
+    gpt: {
+      /** 直连每个模型每分钟最多发出的张数（Phase 0 实测 45 张/分钟未见 429，留余量取 16）。 */
+      directImagesPerMinute: positiveIntEnv('GPT_DIRECT_IPM', 16),
+      /** 直连同时在途的请求数，所有 GPT 模型合计。 */
+      directConcurrency: positiveIntEnv('GPT_DIRECT_CONCURRENCY', 8),
+      /** 直连整个组织每分钟张数，所有模型合计；0 = 不设这一层。 */
+      directOrgImagesPerMinute: nonNegativeIntEnv('GPT_DIRECT_ORG_IPM', 0),
+      /** 经 sub2api 同时在途的 GPT 请求数，本环境合计；0 = 不限（与上线前一致）。 */
+      sub2apiConcurrency: nonNegativeIntEnv('GPT_SUB2API_CONCURRENCY', 0),
+    },
   },
   agent: {
     /** 智能体的对话模型。没有默认值：`agent:chat` 要求运营显式配一个能跑工具循环的模型。 */
