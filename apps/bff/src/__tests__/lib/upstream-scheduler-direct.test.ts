@@ -8,9 +8,16 @@ process.env.UPSTREAM_API_KEY = 'test-key'
 process.env.SCHEDULER_NAMESPACE = 'direct-test'
 process.env.PORT = '0'
 
-const { callUpstream, setUpstreamFetchForTesting } = await import('../../lib/upstream')
+const {
+  callUpstream,
+  setUpstreamFetchForTesting,
+  UpstreamQueueTimeoutError,
+  UpstreamResultUnknownError,
+} = await import('../../lib/upstream')
+const { QUEUE_TIMEOUTS } = await import('@image-playground/shared')
 const {
   _setSchedulerClockForTesting,
+  acquireSchedulerSlots,
   coolDownSchedulerBuckets,
   SCHEDULER_WINDOW_MS,
   schedulerBucketUsage,
@@ -167,4 +174,43 @@ it('times out while queueing as a plain timeout, without holding a slot', async 
   await expect(pending).rejects.toBeDefined()
   expect(sent).toHaveLength(0)
   expect((await schedulerBucketUsage('openai:direct:inflight')).inFlight).toBe(0)
+})
+
+/** 让硬超时在 ms 毫秒后到：resume 不带上游任务号时只用来算截止时间，不改变发送路径。 */
+function expiringIn(ms: number) {
+  return { taskIds: [], submittedAt: Date.now() - QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS + ms }
+}
+
+it('reports a hard timeout spent entirely in the queue as not executed, so the task fails and refunds', async () => {
+  stubUpstream(5)
+  await coolDownSchedulerBuckets(['openai:direct:model:gpt-image-2'], 3_600_000)
+  const error = await callUpstream({
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    request: { prompt: 'x' },
+    resume: expiringIn(300),
+  }).catch((err: unknown) => err)
+  expect(error).toBeInstanceOf(UpstreamQueueTimeoutError)
+  // 不是「结果未知」：task-runner 不会把它送去对账（未派发的任务对账不了，会卡在 in_progress）。
+  expect(error).not.toBeInstanceOf(UpstreamResultUnknownError)
+  expect(sent).toHaveLength(0)
+})
+
+it('keeps the result-unknown timeout once any request of the call has been sent', async () => {
+  // 一分钟额度只剩 1 张：fan-out 的第一张发出去（上游迟迟不回），第二张一直排队到硬超时。
+  stubUpstream(2_000)
+  await acquireSchedulerSlots(
+    'prefill',
+    [{ key: 'openai:direct:model:gpt-image-2', imagesPerMinute: 16 }],
+    15,
+  )
+  const error = await callUpstream({
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    request: { prompt: 'x', n: 2 },
+    resume: expiringIn(400),
+  }).catch((err: unknown) => err)
+  expect(sent).toHaveLength(1)
+  expect(error).toBeInstanceOf(UpstreamResultUnknownError)
+  expect(error).not.toBeInstanceOf(UpstreamQueueTimeoutError)
 })
