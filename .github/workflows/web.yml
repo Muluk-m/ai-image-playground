@@ -7,9 +7,11 @@ on:
     branches: [main, test]
 permissions:
   contents: read
+# PR 上新的推送取消同一 PR 的旧运行（pull_request 的 ref 是 refs/pull/N/merge，按 PR 分组）。
+# main/test 的 push 不取消：main 的结果要交给 deploy.yml，正在跑的不打断，只让最新的一个排队。
 concurrency:
   group: web-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   # 合并到 main 的提交若与它的 PR 最后一次通过的 Web checks 是同一棵树，下面四个 job 已经在
   # 那次跑过，main 上不再重跑，直接交给部署。PR 落后于 main（合并后树不同）、来自 fork、或找不到
@@ -102,11 +104,24 @@ jobs:
           label: startup-public
           test-runner: 'true'
       - run: pnpm --dir apps/admin build
+  # 带数据库的测试拆成两台机器：bff 的 Bun 套件（最长，约 3 分钟）单独一台，其余包（shared、db、
+  # node-kit、admin、website，合计约 1.5 分钟）另一台。不在同一台机器上叠并发：shared 里有按耗时
+  # 断言的用例，和别的包抢 CPU 会超时（PR #1458 第一轮 --concurrency=3 就这样挂过）。
+  # 本机的 `pnpm test` 仍是一次一个包（package.json 不变）。
   bff:
     needs: prior
     if: needs.prior.outputs.verified != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        part:
+          - name: bff
+            filter: "--filter=@image-playground/bff"
+          - name: packages
+            filter: "--filter=!@image-playground/web --filter=!@image-playground/bff"
+    name: bff (${{ matrix.part.name }})
     services:
       postgres:
         image: postgres:17-alpine
@@ -132,13 +147,19 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
       # typecheck 在 web job 里跑过，这里不重复；web 的 vitest 在 web-test job 并行跑。
-      - run: pnpm test --concurrency=1 --env-mode=loose --filter='!@image-playground/web'
+      - run: pnpm test --concurrency=1 --env-mode=loose ${{ matrix.part.filter }}
   # apps/web 的 vitest 不需要数据库，也是最长的一段；独立出来与 bff job 并行，不再串在它后面。
+  # 409 个文件约 3-4 分钟，按 vitest --shard 分到两台机器。
   web-test:
     needs: prior
     if: needs.prior.outputs.verified != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    name: web-test (${{ matrix.shard }}/2)
     env:
       # Its own 4-vCPU runner, so two workers; the bff job keeps 1 beside its Bun suites.
       VITEST_MAX_WORKERS: 2
@@ -147,7 +168,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
-      - run: pnpm test --env-mode=loose --filter=@image-playground/web
+      - run: pnpm test --env-mode=loose --filter=@image-playground/web -- --shard=${{ matrix.shard }}/2
   # 收费版是公开 main 最重要的消费者，这一步给它投票权：候选公开树 + `private.lock` 钉住的
   # overlay 一起 lint / typecheck / build，并跑 overlay 自己的测试。它执行的是「先扩后缩」——公开树只能删掉钉住的
   # overlay 已经不再引用的宿主面成员；反向 boundary 检查则确保
