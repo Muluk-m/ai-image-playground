@@ -1,16 +1,11 @@
-/* 官网首页：安静的工具页（mock-v3 site-b2）。跟随工作台主题：根元素带 .dark 时换成暗色变量；作用域只在 .mkt。 */
+/* 官网首页：白底、安静的工具页（mock-v3 site-b2）。颜色固定为白底，不跟随工作台主题；作用域只在 .mkt。 */
 .mkt {
   --mkt-bg: #ffffff;
   --mkt-ink: #16191b;
   --mkt-muted: #6e7377;
   --mkt-line: #e7e8ea;
   --mkt-soft: #f4f5f6;
-  --mkt-card: #ffffff;
-  --mkt-ph: #e6e7e8;
-  --mkt-shot-line: var(--mkt-line);
   --mkt-green: #3d6b50;
-  /* 文字链接与焦点框；暗色下实心绿太暗，换浅一档。 */
-  --mkt-accent: var(--mkt-green);
   min-height: 100vh;
   overflow-x: clip;
   background: var(--mkt-bg);
@@ -20,19 +15,6 @@
   font-size: 15px;
   line-height: 1.7;
   -webkit-font-smoothing: antialiased;
-}
-/* 暗色取工作台暗色的底色、文字与边线：底 #111311，灰带用卡片色，绿色按钮不变。 */
-.dark .mkt {
-  --mkt-bg: #111311;
-  --mkt-ink: #f4f5f2;
-  --mkt-muted: #a1a69e;
-  --mkt-line: #262a26;
-  --mkt-soft: #171a17;
-  --mkt-card: #1d201d;
-  --mkt-ph: #222522;
-  --mkt-shot-line: #363a36;
-  --mkt-accent: #93c4a2;
-  color-scheme: dark;
 }
 /* 重置只用 :where，零特异性，不压过下面的组件样式。 */
 :where(.mkt) img { display: block; }
@@ -47,14 +29,8 @@
 .mkt-nav-end { margin-left: auto; display: flex; align-items: center; flex: none; gap: 22px; font-size: 14px; color: var(--mkt-muted); white-space: nowrap; }
 /* 窄屏收起中间导航后，右侧还留着一个「定价」。 */
 .mkt-nav-pricing { display: none; }
-.mkt-theme { display: inline-flex; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
-.mkt-theme:hover { color: var(--mkt-ink); }
-.mkt-theme svg { width: 16px; height: 16px; }
-/* 两个图标都在静态页里，按根元素的 .dark 只显示一个，首帧就对，不等脚本。 */
-.mkt-theme .moon, .dark .mkt-theme .sun { display: none; }
-.dark .mkt-theme .moon { display: block; }
 .mkt-signin { padding: 0; border: 0; background: none; font: inherit; color: var(--mkt-ink); cursor: pointer; }
-.mkt a:focus-visible, .mkt button:focus-visible { outline: 2px solid var(--mkt-accent); outline-offset: 3px; border-radius: 4px; }
+.mkt a:focus-visible, .mkt button:focus-visible { outline: 2px solid var(--mkt-green); outline-offset: 3px; border-radius: 4px; }
 .mkt-hero { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 52px; align-items: center; padding: 64px 0 80px; }
 .mkt-title { font-size: 32px; line-height: 1.42; font-weight: 600; }
 .mkt-lead { margin-top: 18px; font-size: 16px; color: var(--mkt-muted); }
@@ -67,7 +43,7 @@
 /* 截图从内容区一直延伸到视口右边缘。 */
 .mkt-shot {
   margin-right: calc(-1 * max(48px, (100vw - 1200px) / 2 + 48px));
-  overflow: hidden; border: 1px solid var(--mkt-shot-line); border-right: 0; border-radius: 10px 0 0 10px; background: #111;
+  overflow: hidden; border: 1px solid var(--mkt-line); border-right: 0; border-radius: 10px 0 0 10px; background: #111;
 }
 .mkt-shot img { width: 100%; height: auto; }
 .mkt-band { background: var(--mkt-soft); border-top: 1px solid var(--mkt-line); border-bottom: 1px solid var(--mkt-line); }
@@ -78,13 +54,13 @@
 .mkt-task.flip .mkt-text { order: -1; }
 .mkt-task:last-child { border-bottom: 0; padding-bottom: 88px; }
 .mkt-task h3 { font-size: 22px; font-weight: 600; line-height: 1.4; }
-.mkt-said { margin-top: 20px; padding: 14px 16px; border: 1px solid var(--mkt-line); border-radius: 8px; background: var(--mkt-card); font-size: 14px; line-height: 1.75; }
+.mkt-said { margin-top: 20px; padding: 14px 16px; border: 1px solid var(--mkt-line); border-radius: 8px; background: #fff; font-size: 14px; line-height: 1.75; }
 .mkt-said-k { display: block; margin-bottom: 4px; font-size: 12px; color: var(--mkt-muted); }
 .mkt-nw { white-space: nowrap; }
 .mkt-imgs { display: grid; gap: 10px; }
 .mkt-imgs.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .mkt-imgs.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.mkt-imgs img { width: 100%; height: auto; border-radius: 4px; background: var(--mkt-ph); }
+.mkt-imgs img { width: 100%; height: auto; border-radius: 4px; background: #e6e7e8; }
 .mkt figcaption { margin-top: 8px; font-size: 12.5px; color: var(--mkt-muted); }
 .mkt-facts { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 56px; padding: 88px 0; }
 .mkt-facts dl > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); border-top: 1px solid var(--mkt-line); }
@@ -92,7 +68,7 @@
 .mkt-facts dt { font-size: 14px; color: var(--mkt-muted); }
 .mkt-end { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 56px 0 64px; border-top: 1px solid var(--mkt-line); }
 .mkt-end p { font-size: 16px; }
-.mkt-end a { font-size: 14px; color: var(--mkt-accent); }
+.mkt-end a { font-size: 14px; color: var(--mkt-green); }
 .mkt-end a:hover { text-decoration: underline; }
 .mkt-foot { padding: 40px 0 48px; border-top: 1px solid var(--mkt-line); background: var(--mkt-soft); font-size: 13px; color: var(--mkt-muted); }
 .mkt-fgrid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 32px; }

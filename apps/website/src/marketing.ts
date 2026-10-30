@@ -40,7 +40,6 @@ export interface MarketingCopy {
     guide: string
     pricing: string
     signIn: string
-    theme: string
   }
   hero: {
     /** 两行标题，按数组分行。 */
@@ -89,10 +88,9 @@ const zh: MarketingCopy = {
     guide: '使用指南',
     pricing: '定价',
     signIn: '登录',
-    theme: '切换亮色或暗色',
   },
   hero: {
-    title: ['幕芽：图片和视频的', '在线创作工具'],
+    title: ['写一段中文描述，', '生成和修改图片、视频。'],
     body: '可以附上参考图，结果直接显示在对话里。',
     start: '开始使用',
     guide: '使用指南',
@@ -171,10 +169,9 @@ const en: MarketingCopy = {
     guide: 'Guide',
     pricing: 'Pricing',
     signIn: 'Sign in',
-    theme: 'Switch light or dark theme',
   },
   hero: {
-    title: ['Muvloom: online creation', 'tool for images and video'],
+    title: ['Write a description', 'to generate and edit images and videos.'],
     body: 'You can attach reference images. Results appear right in the chat.',
     start: 'Get started',
     guide: 'Guide',

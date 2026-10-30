@@ -21,16 +21,10 @@ function visibleText(html: string): string {
 }
 
 describe('marketing home', () => {
-  it('follows the workbench theme and offers a light or dark switch', () => {
-    const html = render('zh-CN')
-    expect(html).toContain('class="mkt-theme" aria-label="切换亮色或暗色"')
-    const css = readFileSync(resolve(import.meta.dirname, '../marketing.css'), 'utf8')
-    expect(css).toMatch(/\.dark \.mkt \{[^}]*--mkt-bg: #111311;[^}]*color-scheme: dark;/)
-  })
   it('renders the approved Chinese copy', () => {
     const html = render('zh-CN')
     const text = visibleText(html)
-    expect(html).toContain('<h1 class="mkt-title">幕芽：图片和视频的<br/>在线创作工具</h1>')
+    expect(html).toContain('<h1 class="mkt-title">写一段中文描述，<br/>生成和修改图片、视频。</h1>')
     expect(text).toContain('可以附上参考图，结果直接显示在对话里。')
     for (const label of ['案例', '功能', '灵感库', '使用指南', '定价', 'EN', '登录', '开始使用'])
       expect(text).toContain(label)
@@ -109,7 +103,7 @@ describe('marketing home', () => {
     const html = render('en')
     const text = visibleText(html)
     expect(html).toContain(
-      '<h1 class="mkt-title">Muvloom: online creation<br/>tool for images and video</h1>',
+      '<h1 class="mkt-title">Write a description<br/>to generate and edit images and videos.</h1>',
     )
     expect(text).toContain('Get started')
     expect(text).toContain('Up to 16 images at a time')
