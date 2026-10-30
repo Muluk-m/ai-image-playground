@@ -15,6 +15,7 @@ const {
   VERTEX_RATE_LIMIT_BACKOFF_MS,
   parseVertexRateLimitBackoff,
   setVertexRateLimitBackoffForTesting,
+  withVertexRateLimitRetry,
 } = await import('../../lib/upstream/vertex')
 const { acquireChannelSlot, channelSlotStateForTesting } = await import(
   '../../lib/upstream/concurrency'
@@ -619,6 +620,27 @@ describe('callUpstream Vertex AI direct channel', () => {
           expect(extractMeta('gemini', result.payload).images).toHaveLength(1)
           expect(onModel(LITE)).toBe(1)
           expect(onModel(FALLBACK)).toBe(1)
+        })
+
+        it('does not resend to the original model when the backoff wakes up past the cap', async () => {
+          setVertexRateLimitBackoffForTesting([20])
+          const capAt = Date.now() + 50
+          let sends = 0
+          const failure = (await withVertexRateLimitRetry(
+            async () => {
+              sends += 1
+              // 退避期间事件循环被占住，定时器醒来时已过总时限。
+              setTimeout(() => {
+                while (Date.now() < capAt + 5) {}
+              }, 1)
+              throw Object.assign(new Error('throttled'), { upstreamStatus: 429 })
+            },
+            new AbortController().signal,
+            () => false,
+            capAt,
+          ).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
+          expect(failure.upstreamStatus).toBe(429)
+          expect(sends).toBe(1)
         })
 
         it('stops queueing for the original model when the cap arrives', async () => {

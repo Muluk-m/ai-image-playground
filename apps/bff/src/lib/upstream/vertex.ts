@@ -123,6 +123,8 @@ export async function withVertexRateLimitRetry<T>(
         if (isTimeout()) throw rateLimitedError(error)
         throw abort
       }
+      // 定时器可能晚醒：睡过了总时限就不再发原模型，同样交给回落。
+      if (capAt !== undefined && Date.now() >= capAt) throw rateLimitedError(error)
     }
   }
 }
