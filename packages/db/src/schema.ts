@@ -235,6 +235,7 @@ export const cli_connections = pgTable(
     client_id: text('client_id')
       .notNull()
       .references(() => oauth_clients.id, { onDelete: 'cascade' }),
+    family_id: text('family_id').notNull(),
     access_token_hash: text('access_token_hash').notNull(),
     refresh_token_hash: text('refresh_token_hash').notNull(),
     access_expires_at: epochMs('access_expires_at').notNull(),
