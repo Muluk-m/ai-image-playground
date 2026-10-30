@@ -1315,6 +1315,53 @@ describe('the persisted app mode', () => {
   })
 })
 
+describe('the persisted creation mode of each conversation', () => {
+  function merge(persisted: Record<string, unknown>) {
+    return useStore.persist
+      .getOptions()
+      .merge?.({ settings: { ...DEFAULT_SETTINGS }, ...persisted }, useStore.getState()) as {
+      projectCreationTargets: Record<string, string>
+    }
+  }
+
+  beforeEach(() => {
+    useStore.setState({ projectCreationTargets: {} })
+  })
+
+  it('keeps 图片生成 across a reload', () => {
+    useStore.setState({ projectCreationTargets: { 'draft:a': 'generate', 'draft:b': 'chat' } })
+    const saved = getPersistedState(useStore.getState()).projectCreationTargets
+    useStore.setState({ projectCreationTargets: {} })
+
+    expect(merge({ projectCreationTargets: saved }).projectCreationTargets).toEqual({
+      'draft:a': 'generate',
+      'draft:b': 'chat',
+    })
+  })
+
+  it('lets a mode chosen before hydration win and drops unknown values', () => {
+    useStore.setState({ projectCreationTargets: { 'draft:a': 'chat' } })
+
+    expect(
+      merge({
+        projectCreationTargets: { 'draft:a': 'generate', 'draft:c': 'canvas', 'draft:d': 'video' },
+      }).projectCreationTargets,
+    ).toEqual({ 'draft:a': 'chat', 'draft:d': 'video' })
+  })
+
+  it('only keeps the most recently chosen conversations', () => {
+    const many = Object.fromEntries(
+      Array.from({ length: 250 }, (_, i) => [`draft:${i}`, 'generate' as const]),
+    )
+    useStore.setState({ projectCreationTargets: many })
+    const saved = getPersistedState(useStore.getState()).projectCreationTargets
+
+    expect(Object.keys(saved)).toHaveLength(200)
+    expect(saved).toHaveProperty('draft:249')
+    expect(saved).not.toHaveProperty('draft:0')
+  })
+})
+
 describe('input persistence setting', () => {
   beforeEach(() => {
     useStore.setState({
