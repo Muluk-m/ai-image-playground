@@ -318,18 +318,53 @@ func putURL(ctx context.Context, hc *http.Client, target string, body []byte, co
 	return nil
 }
 
+func (a *App) refresh(ctx context.Context, creds *auth.Credentials) (string, error) {
+	if creds.RefreshToken == "" {
+		return "", errors.New("no refresh token")
+	}
+	var refreshed struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+	}
+	if err := postForm(ctx, a.BaseURL+"/oauth/token", a.HTTP, map[string]string{"grant_type": "refresh_token", "refresh_token": creds.RefreshToken, "client_id": "muvloom-cli"}, &refreshed); err != nil {
+		return "", err
+	}
+	if refreshed.AccessToken == "" {
+		return "", errors.New("refresh returned no access token")
+	}
+	creds.AccessToken = refreshed.AccessToken
+	if refreshed.RefreshToken != "" {
+		creds.RefreshToken = refreshed.RefreshToken
+	}
+	if refreshed.ExpiresIn > 0 {
+		creds.ExpiresAt = time.Now().Add(time.Duration(refreshed.ExpiresIn) * time.Second)
+	}
+	if err := a.Store.Save(*creds); err != nil {
+		return "", err
+	}
+	return creds.AccessToken, nil
+}
+
 func (a *App) auth(args []string, creds auth.Credentials, credErr error) int {
 	if (len(args) == 1 && args[0] == "status") || (len(args) == 2 && args[0] == "status" && args[1] == "--json") {
-		data := map[string]any{"authenticated": false}
+		data := map[string]any{"authenticated": false, "skills": []any{}}
 		if installed, installErr := skill.Installed("", ""); installErr == nil {
 			data["skills"] = installed
 		}
-		if credErr == nil && creds.AccessToken != "" {
-			data["authenticated"] = true
-			if !creds.ExpiresAt.IsZero() {
-				data["expires_at"] = creds.ExpiresAt.UTC().Format(time.RFC3339)
-			}
+		if credErr != nil || creds.AccessToken == "" {
+			return a.fail(3, "AUTH_REQUIRED", "Authentication is required")
 		}
+		c := client.New(a.BaseURL, a.HTTP)
+		c.AccessToken = creds.AccessToken
+		c.RefreshToken = func(ctx context.Context) (string, error) { return a.refresh(ctx, &creds) }
+		var account any
+		if err := c.Do(context.Background(), http.MethodGet, "/v1/me", nil, &account); err != nil {
+			return a.apiFail(err)
+		}
+		data["authenticated"] = true
+		data["account"] = account
+		data["cli_version"] = Version
 		return a.success(data)
 	}
 	if len(args) == 2 && args[0] == "login" && args[1] == "--start" {
@@ -465,29 +500,65 @@ func postForm(ctx context.Context, endpoint string, hc *http.Client, values map[
 
 func (a *App) jobs(c *client.HTTPClient, args []string) int {
 	if len(args) == 0 {
-		return a.fail(2, "INVALID_REQUEST", "Usage: jobs get <job_id> | jobs list")
+		return a.fail(2, "INVALID_REQUEST", "Usage: jobs get|list|wait|cancel")
 	}
 	switch args[0] {
 	case "get":
 		if len(args) != 2 || args[1] == "" {
 			return a.fail(2, "INVALID_REQUEST", "Usage: jobs get <job_id>")
 		}
-		var data any
-		if err := c.Do(context.Background(), http.MethodGet, "/v1/jobs/"+urlPath(args[1]), nil, &data); err != nil {
-			return a.apiFail(err)
-		}
-		return a.success(data)
+		return a.jobRequest(c, http.MethodGet, "/v1/jobs/"+urlPath(args[1]))
 	case "list":
 		if len(args) != 1 {
 			return a.fail(2, "INVALID_REQUEST", "Usage: jobs list")
 		}
-		var data any
-		if err := c.Do(context.Background(), http.MethodGet, "/v1/jobs", nil, &data); err != nil {
-			return a.apiFail(err)
+		return a.jobRequest(c, http.MethodGet, "/v1/jobs")
+	case "wait":
+		if len(args) < 2 || len(args) > 4 || args[1] == "" {
+			return a.fail(2, "INVALID_REQUEST", "Usage: jobs wait <job_id> [--timeout <seconds>]")
 		}
-		return a.success(data)
+		if len(args) == 2 {
+			return a.jobWait(c, args[1], 30)
+		}
+		if len(args) != 4 || args[2] != "--timeout" {
+			return a.fail(2, "INVALID_REQUEST", "Usage: jobs wait <job_id> [--timeout <seconds>]")
+		}
+		seconds, err := strconv.Atoi(args[3])
+		if err != nil || seconds < 1 || seconds > 3600 {
+			return a.fail(2, "INVALID_REQUEST", "timeout must be between 1 and 3600 seconds")
+		}
+		return a.jobWait(c, args[1], seconds)
+	case "cancel":
+		if len(args) != 2 || args[1] == "" {
+			return a.fail(2, "INVALID_REQUEST", "Usage: jobs cancel <job_id>")
+		}
+		return a.jobRequest(c, http.MethodPost, "/v1/jobs/"+urlPath(args[1])+"/cancel")
 	default:
 		return a.fail(2, "INVALID_REQUEST", "Unknown jobs command")
+	}
+}
+
+func (a *App) jobRequest(c *client.HTTPClient, method, path string) int {
+	var data any
+	if err := c.Do(context.Background(), method, path, nil, &data); err != nil {
+		return a.apiFail(err)
+	}
+	return a.success(data)
+}
+
+func (a *App) jobWait(c *client.HTTPClient, jobID string, seconds int) int {
+	deadline := time.Now().Add(time.Duration(seconds) * time.Second)
+	for {
+		var data struct {
+			Terminal bool `json:"terminal"`
+		}
+		if err := c.Do(context.Background(), http.MethodGet, "/v1/jobs/"+urlPath(jobID), nil, &data); err != nil {
+			return a.apiFail(err)
+		}
+		if data.Terminal || time.Now().After(deadline) {
+			return a.jobRequest(c, http.MethodGet, "/v1/jobs/"+urlPath(jobID))
+		}
+		time.Sleep(time.Second)
 	}
 }
 
@@ -511,7 +582,7 @@ func (a *App) images(c *client.HTTPClient, args []string) int {
 	if *idem != "" {
 		body["idempotency_key"] = *idem
 	}
-	if *maxCredits > 0 {
+	if supplied := flagWasSet(fs, "max-credits"); supplied {
 		body["max_credits"] = *maxCredits
 	}
 	path := "/v1/image-jobs"
@@ -523,6 +594,16 @@ func (a *App) images(c *client.HTTPClient, args []string) int {
 		return a.apiFail(err)
 	}
 	return a.success(data)
+}
+
+func flagWasSet(fs *flag.FlagSet, name string) bool {
+	found := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
 }
 
 func urlPath(s string) string {
