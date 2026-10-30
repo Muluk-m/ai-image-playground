@@ -42,6 +42,15 @@ export function _setSchedulerClockForTesting(clock?: () => number, speed = 1): v
   clockSpeed = clock ? speed : 1
 }
 
+let sleep = abortableSleep
+
+/** 测试用：换掉等额度时的睡眠（配合假时钟，让时间只在睡眠时前进）。不传恢复真实睡眠。 */
+export function _setSchedulerSleepForTesting(
+  fake?: (ms: number, signal?: AbortSignal) => Promise<void>,
+): void {
+  sleep = fake ?? abortableSleep
+}
+
 const namespaced = (key: string): string => `${config.scheduler.namespace}:${key}`
 
 /**
@@ -321,7 +330,7 @@ export async function waitForSchedulerSlots(
     }
     if (result.granted) break
     const sleepMs = Math.min(result.retryAfterMs, MAX_RETRY_MS) / clockSpeed
-    await abortableSleep(Math.max(sleepMs, 50), signal)
+    await sleep(Math.max(sleepMs, 50), signal)
   }
   const waitedMs = now() - started
   if (attempts > 1) {
