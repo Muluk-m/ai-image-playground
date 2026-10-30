@@ -125,7 +125,7 @@ jobs:
             filter: "--filter=!@image-playground/web --filter=!@image-playground/bff"
     services:
       postgres:
-        image: postgres:17
+        image: postgres:17-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -216,7 +216,7 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:17
+        image: postgres:17-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_HOST_AUTH_METHOD: trust
