@@ -1,7 +1,8 @@
-import { afterAll, describe, expect, it } from 'bun:test'
+import { afterAll, describe, expect, it, spyOn } from 'bun:test'
 import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import type { AlertMessage } from '@image-playground/shared'
+import { OpsStorageError } from '../../lib/ops-storage-error'
 
 const databaseUrl = await resetTestDatabase('bff_app_alerts')
 process.env.DATABASE_URL = databaseUrl
@@ -371,5 +372,61 @@ it('aggregates error minute counts across instances without counting client erro
       await writer.db
         .delete(writer.schema.api_minutes)
         .where(eq(writer.schema.api_minutes.instance, instance))
+  }
+})
+
+it('logs safe storage diagnostics and preserves three-round blindness and recovery', async () => {
+  const { log } = await import('../../lib/logger')
+  const warn = spyOn(log, 'warn').mockImplementation(() => {})
+  const sent: AlertMessage[] = []
+  let failed = true
+  const secret = 'fixture-signature-never-log'
+  const error = new OpsStorageError(
+    'read',
+    Object.assign(new Error(`https://store.invalid/?X-Amz-Signature=${secret}`), {
+      code: 'InternalError',
+      status: 503,
+      cause: Object.assign(new Error(secret), { code: 'ECONNRESET' }),
+    }),
+  )
+  const check = createAppAlerting({
+    send: async (messages) => {
+      sent.push(...messages)
+    },
+    readBackups: async () => ({ latest: null, previous: null }),
+    readRestoreDrill: async () => {
+      if (failed) throw error
+      return null
+    },
+  })
+  const blind = () => sent.filter((message) => message.rule === 'blind')
+  try {
+    await check(now)
+    await check(now + minute)
+    expect(blind()).toEqual([])
+    await check(now + 2 * minute)
+    expect(blind().map((message) => message.kind)).toEqual(['firing'])
+    expect(warn.mock.calls[0]?.[0]).toEqual({
+      event: 'ops.alert_observe_failed',
+      block: 'restoreDrill',
+      stage: 'read',
+      err: 'Object storage observation failed (read)',
+      storage_error: {
+        code: 'InternalError',
+        status: 503,
+        reason: 'details_omitted',
+        cause: { code: 'ECONNRESET', reason: 'details_omitted' },
+      },
+    })
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(secret)
+    failed = false
+    await check(now + 3 * minute)
+    expect(blind().map((message) => message.kind)).toEqual(['firing', 'resolved'])
+    failed = true
+    await check(now + 4 * minute)
+    await check(now + 5 * minute)
+    expect(blind()).toHaveLength(2)
+  } finally {
+    warn.mockRestore()
   }
 })
