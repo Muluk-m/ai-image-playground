@@ -10,6 +10,7 @@ import type {
 import { AGENT_AUTO_SUBMIT_MAX_PER_TURN } from '@image-playground/shared'
 import { createQueueTask } from '../taskSubmission'
 import { shapeQueuePrompt } from './prompt-shaping'
+import { recentlyRateLimited } from './rate-limit-resend'
 import { queueRefusalCode } from './tools/errors'
 import { agentVideoRequestError } from './video-models'
 
@@ -86,6 +87,16 @@ export async function submitAgentGeneration(input: AutoSubmitInput): Promise<Aut
           ...(input.request.size ? { size: input.request.size } : {}),
         })
       : input.request.prompt
+  // 同一会话里同模型、同提示词刚因限流失败过：不自动重发，退回待确认的稿让用户决定。
+  if (
+    input.media === 'image' &&
+    (await recentlyRateLimited({
+      conversationId: input.conversationId,
+      model: input.model,
+      prompt,
+    }))
+  )
+    return { kind: 'refused', code: 'upstream_error' }
   const submitted = await createQueueTask({
     provider: input.provider,
     model: input.model,

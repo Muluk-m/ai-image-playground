@@ -18,7 +18,12 @@ import { saveGenerationDraft } from '../confirmations'
 import type { MaskedEditContent, MaskedOperation, MaskedSubmission } from '../masked-plan'
 import { bindProductionGeneration } from '../production-generation-binding'
 import { AgentToolError } from './errors'
-import { queueParamsFor, requestedImageCount, withAspectRatio } from './queueParams'
+import {
+  agentModelImageCount,
+  queueParamsFor,
+  requestedImageCount,
+  withAspectRatio,
+} from './queueParams'
 import type { AgentToolContext, AgentToolDetails } from './types'
 
 interface MediaWords {
@@ -234,7 +239,10 @@ export async function draftQueueTask(
 
   if (signal?.aborted) throw new AgentToolError('cancelled', '这一轮被中止了')
   await context.assertExecution?.()
-  const count = input.media === 'image' ? requestedImageCount(input.n, context.params?.n) : 1
+  const asked = input.media === 'image' ? requestedImageCount(input.n, context.params?.n) : 1
+  const count = input.media === 'image' ? agentModelImageCount(target.model, asked) : 1
+  // 模型单笔上限收紧了张数（AGENT_MODEL_IMAGE_MAX_N）：回执照实说，智能体才不会对用户说出错的张数。
+  const capNote = count < asked ? `这个模型一次最多出 ${count} 张，已按 ${count} 张处理。` : ''
   // 计划随材料一起冻结：用户几分钟后才确认，那时这一轮的内存早已不在，唤醒轮要接的是提交那一刻的计划。
   const plan = context.maskedEditPlan?.carryAfter(submission)
   const bound = await bindProductionGeneration(context, input)
@@ -293,7 +301,7 @@ export async function draftQueueTask(
       context.maskedEditPlan?.submitted(submission)
       if (input.media === 'image') context.imageCombinations?.submitted(input.referenceIds ?? [])
       return {
-        content: [{ type: 'text', text: submittedText(words, count, imageSize) }],
+        content: [{ type: 'text', text: submittedText(words, count, imageSize) + capNote }],
         details: {
           executedPrompt: input.prompt,
           job: submitted.job,
@@ -322,7 +330,8 @@ export async function draftQueueTask(
   // 草稿真的落下了才登记：同一轮里模型不能为同一件事拟第二次稿，确认与否由用户决定。
   context.maskedEditPlan?.submitted(submission)
   if (input.media === 'image') context.imageCombinations?.submitted(input.referenceIds ?? [])
-  const receipt = held ? submittedText(words, count, imageSize) : draftText(words, count, imageSize)
+  const receipt =
+    (held ? submittedText(words, count, imageSize) : draftText(words, count, imageSize)) + capNote
   return {
     content: [{ type: 'text', text: receipt }],
     details: {
