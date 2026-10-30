@@ -46,7 +46,7 @@ import AgentBatchItemResult, {
   AgentBatchAnalysisEvidence,
   AgentBatchItemStatus,
 } from './AgentBatchItemResult'
-import AgentBatchResultGallery from './AgentBatchResultGallery'
+import AgentBatchResultGallery, { AgentBatchTileStrip } from './AgentBatchResultGallery'
 
 function statusIcon(status: BatchDisplayStatus) {
   if (status === 'in_flight' || status === 'in_progress') return 'loading'
@@ -151,6 +151,8 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const [groupOverride, setGroupOverride] = useState<Record<string, boolean>>({})
   const [groupPage, setGroupPage] = useState<Record<string, number>>({})
   const [openItems, setOpenItems] = useState<ReadonlySet<string>>(() => new Set())
+  // 计划名、规则与逐项提示词默认收起；有可重试项时自动展开，好让用户勾选。用户点过就听用户的。
+  const [detailsOverride, setDetailsOpen] = useState<boolean | null>(null)
   const [exportProgress, setExportProgress] = useState<{ done: number; total: number } | null>(null)
   const exporting = useRef(false)
   const seenStatus = useRef(new Map<string, string>())
@@ -800,14 +802,18 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       </div>
     </details>
   )
+  const detailsOpen = detailsOverride ?? page.items.some(retryEligible)
 
   const displayError = restorationFailed ? 'storage_restore_failed' : error
   const targetIcon = page.batch.experience === 'canvas' ? 'canvas' : 'chat'
   return (
     <section ref={card} id={domId} tabIndex={-1} className={CARD}>
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>{t('batch.scope', { count: page.batch.itemCount })}</span>
-        <span className="flex items-center gap-2">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-sm font-medium text-foreground">{page.batch.title}</span>
+          <span className="shrink-0">{t('batch.scope', { count: page.batch.itemCount })}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
           {resultFiles.length > 0 && (
             <Button
               size="sm"
@@ -846,8 +852,25 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           </span>
         )}
       </div>
-      {resultFiles.length > 0 && (
-        <AgentBatchResultGallery artifacts={resultFiles.map((file) => file.artifact)} />
+      {hasGeneration ? (
+        <AgentBatchTileStrip
+          tiles={page.items.flatMap((item, index) =>
+            item.kind === 'generation'
+              ? [
+                  {
+                    key: item.key,
+                    position: index + 1,
+                    progress: item.progress,
+                    execution: item.execution,
+                  },
+                ]
+              : [],
+          )}
+        />
+      ) : (
+        resultFiles.length > 0 && (
+          <AgentBatchResultGallery artifacts={resultFiles.map((file) => file.artifact)} />
+        )
       )}
       {page.analysisSummary && (
         <AgentBatchAnalysisSummary summary={page.analysisSummary} items={page.items} />
@@ -889,182 +912,214 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           )}
         </div>
       )}
-      <label className="grid gap-1 text-xs">
-        {t('batch.title')}
-        <Input
-          className={`${CARD_CONTROL} w-full`}
-          value={page.batch.title}
-          disabled={!editable}
-          maxLength={120}
-          onChange={(event) => {
-            setPage({ ...page, batch: { ...page.batch, title: event.target.value } })
-            markDirty()
-          }}
-        />
-      </label>
-      <label className="grid gap-1 text-xs">
-        {t('batch.rule')}
-        <Textarea
-          className={`${CARD_TEXT} max-h-24`}
-          rows={3}
-          value={page.batch.rule}
-          disabled={!editable}
-          maxLength={4000}
-          onChange={(event) => {
-            setPage({ ...page, batch: { ...page.batch, rule: event.target.value } })
-            markDirty()
-          }}
-        />
-      </label>
-      {grouped ? (
-        <div className="max-h-64 overflow-y-auto" role="group" aria-label={t('batch.statusBoard')}>
-          {groups.flatMap((group, groupAt) => {
-            const containsRetry = group.items.some((item) => retryMarked.has(item.key))
-            const pinned = group.items.some((item) => openItems.has(item.key))
-            const open =
-              groupOverride[group.status] ??
-              (pinned ||
-                batchGroupStartsOpen(
-                  group.status,
-                  group.items.length,
-                  groups.length,
-                  containsRetry,
-                ))
-            const groupPageCount = Math.max(1, Math.ceil(group.items.length / BATCH_ITEM_PAGE_SIZE))
-            const groupIndex = Math.min(groupPageCount - 1, groupPage[group.status] ?? 0)
-            const start = groupIndex * BATCH_ITEM_PAGE_SIZE
-            const pageItems = group.items.slice(start, start + BATCH_ITEM_PAGE_SIZE)
-            const visible = [
-              ...pageItems,
-              ...group.items.filter(
-                (item, index) =>
-                  openItems.has(item.key) &&
-                  (index < start || index >= start + BATCH_ITEM_PAGE_SIZE),
-              ),
-            ]
-            const showPager = open && groupPageCount > 1
-            const icon = statusIcon(group.status)
-            const live = group.status === 'in_flight' || group.status === 'in_progress'
-            const urgent =
-              group.status === 'failed' ||
-              group.status === 'blocked' ||
-              group.status === 'reconciling'
-            const header = (
-              <div
-                key={`group:${group.status}`}
-                data-batch-group={group.status}
-                className={`${groupAt === 0 ? '' : 'mt-1'} overflow-hidden border border-border bg-background ${open ? 'rounded-t-lg border-b-0' : 'rounded-lg'}`}
-              >
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className="w-full justify-start text-left"
-                  aria-expanded={open}
-                  onClick={() =>
-                    setGroupOverride((current) => ({ ...current, [group.status]: !open }))
-                  }
-                >
-                  <Icon
-                    name="chevronRight"
-                    className={` text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
-                  />
-                  <Icon
-                    name={icon}
-                    className={`${live ? 'animate-spin text-foreground' : urgent ? 'text-destructive' : 'text-muted-foreground'}`}
-                  />
-                  <span>{t(`batch.itemStatus.${group.status}`)}</span>
-                  <span className="ml-auto tabular-nums text-muted-foreground">
-                    {group.items.length}
-                  </span>
-                </Button>
-              </div>
-            )
-            if (!open) return [header]
-            const rows = visible.map((item, index) =>
-              itemRow(
-                item,
-                page.items.findIndex((entry) => entry.key === item.key) + 1,
-                false,
-                `border-x border-t border-border bg-background ${index === visible.length - 1 && !showPager ? 'rounded-b-lg border-b' : ''}`,
-              ),
-            )
-            if (!showPager) return [header, ...rows]
-            return [
-              header,
-              ...rows,
-              <nav
-                key={`pages:${group.status}`}
-                aria-label={t('batch.pagination')}
-                className="flex items-center justify-between gap-2 rounded-b-lg border border-t-0 border-border bg-background px-2 py-1 text-xs"
-              >
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={groupIndex === 0}
-                  onClick={() =>
-                    setGroupPage((current) => ({
-                      ...current,
-                      [group.status]: groupIndex - 1,
-                    }))
-                  }
-                >
-                  {t('batch.previousPage')}
-                </Button>
-                <span className="tabular-nums">
-                  {t('batch.pagePosition', {
-                    current: groupIndex + 1,
-                    total: groupPageCount,
-                  })}
-                </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={groupIndex + 1 === groupPageCount}
-                  onClick={() =>
-                    setGroupPage((current) => ({
-                      ...current,
-                      [group.status]: groupIndex + 1,
-                    }))
-                  }
-                >
-                  {t('batch.nextPage')}
-                </Button>
-              </nav>,
-            ]
-          })}
-        </div>
-      ) : (
-        <div className="max-h-64 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-background">
-          {visibleItems.map((item, index) => itemRow(item, firstItem + index + 1, true))}
-        </div>
-      )}
-      {!grouped && pageCount > 1 && (
-        <nav
-          aria-label={t('batch.pagination')}
-          className="flex items-center justify-between gap-2 text-xs"
+      <div className="rounded-lg border border-border bg-background text-xs">
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="w-full justify-start text-left text-muted-foreground"
+          aria-expanded={detailsOpen}
+          aria-controls={`${domId}-details`}
+          onClick={() => setDetailsOpen(!detailsOpen)}
         >
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={pageIndex === 0}
-            onClick={() => showPage(pageIndex - 1)}
-          >
-            {t('batch.previousPage')}
-          </Button>
-          <span className="tabular-nums">
-            {t('batch.pagePosition', { current: pageIndex + 1, total: pageCount })}
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={pageIndex + 1 === pageCount}
-            onClick={() => showPage(pageIndex + 1)}
-          >
-            {t('batch.nextPage')}
-          </Button>
-        </nav>
-      )}
+          <Icon
+            name="chevronRight"
+            className={`transition-transform ${detailsOpen ? 'rotate-90' : ''}`}
+          />
+          {t('batch.details')}
+        </Button>
+        <div
+          id={`${domId}-details`}
+          data-batch-details
+          hidden={!detailsOpen}
+          // `grid` 会盖掉浏览器对 [hidden] 的 display:none，收起时不能带它。
+          className={detailsOpen ? 'grid gap-3 border-t border-border p-2' : undefined}
+        >
+          <label className="grid gap-1 text-xs">
+            {t('batch.title')}
+            <Input
+              className={`${CARD_CONTROL} w-full`}
+              value={page.batch.title}
+              disabled={!editable}
+              maxLength={120}
+              onChange={(event) => {
+                setPage({ ...page, batch: { ...page.batch, title: event.target.value } })
+                markDirty()
+              }}
+            />
+          </label>
+          <label className="grid gap-1 text-xs">
+            {t('batch.rule')}
+            <Textarea
+              className={`${CARD_TEXT} max-h-24`}
+              rows={3}
+              value={page.batch.rule}
+              disabled={!editable}
+              maxLength={4000}
+              onChange={(event) => {
+                setPage({ ...page, batch: { ...page.batch, rule: event.target.value } })
+                markDirty()
+              }}
+            />
+          </label>
+          {grouped ? (
+            <div
+              className="max-h-64 overflow-y-auto"
+              role="group"
+              aria-label={t('batch.statusBoard')}
+            >
+              {groups.flatMap((group, groupAt) => {
+                const containsRetry = group.items.some((item) => retryMarked.has(item.key))
+                const pinned = group.items.some((item) => openItems.has(item.key))
+                const open =
+                  groupOverride[group.status] ??
+                  (pinned ||
+                    batchGroupStartsOpen(
+                      group.status,
+                      group.items.length,
+                      groups.length,
+                      containsRetry,
+                    ))
+                const groupPageCount = Math.max(
+                  1,
+                  Math.ceil(group.items.length / BATCH_ITEM_PAGE_SIZE),
+                )
+                const groupIndex = Math.min(groupPageCount - 1, groupPage[group.status] ?? 0)
+                const start = groupIndex * BATCH_ITEM_PAGE_SIZE
+                const pageItems = group.items.slice(start, start + BATCH_ITEM_PAGE_SIZE)
+                const visible = [
+                  ...pageItems,
+                  ...group.items.filter(
+                    (item, index) =>
+                      openItems.has(item.key) &&
+                      (index < start || index >= start + BATCH_ITEM_PAGE_SIZE),
+                  ),
+                ]
+                const showPager = open && groupPageCount > 1
+                const icon = statusIcon(group.status)
+                const live = group.status === 'in_flight' || group.status === 'in_progress'
+                const urgent =
+                  group.status === 'failed' ||
+                  group.status === 'blocked' ||
+                  group.status === 'reconciling'
+                const header = (
+                  <div
+                    key={`group:${group.status}`}
+                    data-batch-group={group.status}
+                    className={`${groupAt === 0 ? '' : 'mt-1'} overflow-hidden border border-border bg-background ${open ? 'rounded-t-lg border-b-0' : 'rounded-lg'}`}
+                  >
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      className="w-full justify-start text-left"
+                      aria-expanded={open}
+                      onClick={() =>
+                        setGroupOverride((current) => ({ ...current, [group.status]: !open }))
+                      }
+                    >
+                      <Icon
+                        name="chevronRight"
+                        className={` text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
+                      />
+                      <Icon
+                        name={icon}
+                        className={`${live ? 'animate-spin text-foreground' : urgent ? 'text-destructive' : 'text-muted-foreground'}`}
+                      />
+                      <span>{t(`batch.itemStatus.${group.status}`)}</span>
+                      <span className="ml-auto tabular-nums text-muted-foreground">
+                        {group.items.length}
+                      </span>
+                    </Button>
+                  </div>
+                )
+                if (!open) return [header]
+                const rows = visible.map((item, index) =>
+                  itemRow(
+                    item,
+                    page.items.findIndex((entry) => entry.key === item.key) + 1,
+                    false,
+                    `border-x border-t border-border bg-background ${index === visible.length - 1 && !showPager ? 'rounded-b-lg border-b' : ''}`,
+                  ),
+                )
+                if (!showPager) return [header, ...rows]
+                return [
+                  header,
+                  ...rows,
+                  <nav
+                    key={`pages:${group.status}`}
+                    aria-label={t('batch.pagination')}
+                    className="flex items-center justify-between gap-2 rounded-b-lg border border-t-0 border-border bg-background px-2 py-1 text-xs"
+                  >
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={groupIndex === 0}
+                      onClick={() =>
+                        setGroupPage((current) => ({
+                          ...current,
+                          [group.status]: groupIndex - 1,
+                        }))
+                      }
+                    >
+                      {t('batch.previousPage')}
+                    </Button>
+                    <span className="tabular-nums">
+                      {t('batch.pagePosition', {
+                        current: groupIndex + 1,
+                        total: groupPageCount,
+                      })}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={groupIndex + 1 === groupPageCount}
+                      onClick={() =>
+                        setGroupPage((current) => ({
+                          ...current,
+                          [group.status]: groupIndex + 1,
+                        }))
+                      }
+                    >
+                      {t('batch.nextPage')}
+                    </Button>
+                  </nav>,
+                ]
+              })}
+            </div>
+          ) : (
+            <div className="max-h-64 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-background">
+              {visibleItems.map((item, index) => itemRow(item, firstItem + index + 1, true))}
+            </div>
+          )}
+          {!grouped && pageCount > 1 && (
+            <nav
+              aria-label={t('batch.pagination')}
+              className="flex items-center justify-between gap-2 text-xs"
+            >
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pageIndex === 0}
+                onClick={() => showPage(pageIndex - 1)}
+              >
+                {t('batch.previousPage')}
+              </Button>
+              <span className="tabular-nums">
+                {t('batch.pagePosition', { current: pageIndex + 1, total: pageCount })}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pageIndex + 1 === pageCount}
+                onClick={() => showPage(pageIndex + 1)}
+              >
+                {t('batch.nextPage')}
+              </Button>
+            </nav>
+          )}
+        </div>
+      </div>
       <div className="grid gap-1 text-xs text-muted-foreground">
         {(!confirmationKeys?.length || hasAnalysis) && (
           <div className="flex justify-between">
