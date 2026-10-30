@@ -9,8 +9,12 @@ process.env.SCHEDULER_NAMESPACE = 'direct-test'
 process.env.PORT = '0'
 
 const { callUpstream, setUpstreamFetchForTesting } = await import('../../lib/upstream')
-const { _setSchedulerClockForTesting, coolDownSchedulerBuckets, schedulerBucketUsage } =
-  await import('../../lib/upstream/scheduler')
+const {
+  _setSchedulerClockForTesting,
+  coolDownSchedulerBuckets,
+  SCHEDULER_WINDOW_MS,
+  schedulerBucketUsage,
+} = await import('../../lib/upstream/scheduler')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { db, schema } = await import('../../db/client')
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
@@ -50,14 +54,22 @@ function stubUpstream(latencyMs: number): void {
  * 任意 60 秒（模拟时钟）内同一模型发出的最多张数。额度按拿到时计，桩记的是之后真正调 fetch 的时刻，
  * 中间隔着几毫秒事件循环；时钟放大 60 倍后这点抖动够把下一分钟的第一张挤进上一分钟，按 30ms 真实时间扣掉。
  */
+const JITTER_MS = 30 * SPEED
+
 function maxImagesPerMinute(model: string): number {
   const times = sent.filter((entry) => entry.model === model).map((entry) => entry.at)
-  const window = 60_000 - 30 * SPEED
+  const window = SCHEDULER_WINDOW_MS - JITTER_MS
   let best = 0
   for (const start of times) {
     best = Math.max(best, times.filter((at) => at >= start && at < start + window).length)
   }
   return best
+}
+
+/** 同一模型第一张到最后一张发出的模拟时长。 */
+function sendSpan(model: string): number {
+  const times = sent.filter((entry) => entry.model === model).map((entry) => entry.at)
+  return Math.max(...times) - Math.min(...times)
 }
 
 beforeEach(async () => {
@@ -94,8 +106,13 @@ it('holds two models to 16 images a minute each and 8 requests in flight across 
   }
   expect(sent).toHaveLength(60)
   expect(maxInFlight).toBeLessThanOrEqual(8)
-  expect(maxImagesPerMinute('gpt-image-2')).toBe(16)
-  expect(maxImagesPerMinute('gpt-image-1.5')).toBe(16)
+  for (const model of ['gpt-image-2', 'gpt-image-1.5']) {
+    // 上限只断言「不超过」：CI 机器慢、并行跑测试时一分钟内可能根本发不满 16 张，断言「恰好 16」会随负载抖动。
+    expect(maxImagesPerMinute(model)).toBeLessThanOrEqual(16)
+    // 限速确实生效：每个模型 30 张，每分钟最多 16 张，第 17 张最早在第一张之后一分钟才能拿到额度。
+    // 不限速时 8 路并发、40ms 延迟，30 张在模拟时钟上不到 20 秒就发完。
+    expect(sendSpan(model)).toBeGreaterThanOrEqual(SCHEDULER_WINDOW_MS - JITTER_MS)
+  }
   expect((await schedulerBucketUsage('openai:direct:inflight')).inFlight).toBe(0)
 }, 30_000)
 
