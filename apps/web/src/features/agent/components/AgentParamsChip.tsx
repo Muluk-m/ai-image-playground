@@ -1,3 +1,4 @@
+import { agentModelImageMax } from '@image-playground/shared'
 import { useMemo, useState } from 'react'
 import { ReasoningEffort } from '../../../components/assistant-ui/elements/reasoning-effort'
 import {
@@ -22,7 +23,7 @@ import { getParamCapabilities } from '../../../lib/paramCompatibility'
 import { readSizeSelection, sizeFor } from '../../../lib/size'
 import { useStore } from '../../../store'
 import { DEFAULT_PARAMS } from '../../../types'
-import { IMAGE_COUNT_CHOICES, snapImageCount } from '../lib/turnParams'
+import { imageCountChoices, snapImageCount } from '../lib/turnParams'
 import { useAgentStore } from '../store'
 import { ThinkingDepthMark } from './ThinkingDepthMark'
 
@@ -115,7 +116,7 @@ function useComposerRatio() {
 
 /**
  * 模型、画幅、思考深度和张数收进同一颗胶囊。
- * 智能体模式不选张数；图片生成模式才给出 1/2/3/4/6/8。
+ * 智能体模式不选张数；图片生成模式才给出 1/2/3/4/6/8，超过所选模型单笔上限的档不出现。
  * 制作模式只留思考深度。
  */
 export default function AgentParamsChip({
@@ -135,13 +136,16 @@ export default function AgentParamsChip({
   const setModelAuto = useAgentStore((state) => state.setModelAuto)
   const { options, currentValue, current, pick } = useModelChoices()
   const { ratio, setRatio } = useComposerRatio()
-  const count = snapImageCount(useStore((state) => state.params.n))
+  const storedCount = useStore((state) => state.params.n)
   const [modelsOpen, setModelsOpen] = useState(false)
   const labels = {
     fast: t('params.thinkingFast'),
     medium: t('params.thinkingMedium'),
     deep: t('params.thinkingDeep'),
   }
+  const countModel = imageMode ? current?.model : undefined
+  const count = snapImageCount(storedCount, countModel)
+  const countChoices = imageCountChoices(countModel)
   const showThinking = thinkingControls && !imageMode
   const showAutoModel = !imageMode && modelAuto
   const modelLabel = showAutoModel
@@ -280,6 +284,11 @@ export default function AgentParamsChip({
                   else {
                     setModelAuto(false)
                     pick(value)
+                    // 切到单笔上限更低的模型（Lite 一单 4 张）：已选的 6、8 张随之落到能出的那一档。
+                    const model = options.find((option) => option.value === value)?.model
+                    const chosen = useStore.getState().params.n
+                    if (imageMode && chosen > agentModelImageMax(model))
+                      useStore.getState().setParams({ n: snapImageCount(chosen, model) })
                   }
                   setModelsOpen(false)
                 }}
@@ -302,7 +311,7 @@ export default function AgentParamsChip({
             <SettingsSection title={t('params.outputCount')}>
               <SettingsSegmented
                 label={t('params.outputCount')}
-                options={IMAGE_COUNT_CHOICES.map((value) => ({
+                options={countChoices.map((value) => ({
                   value,
                   label: String(value),
                 }))}
