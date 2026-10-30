@@ -58,3 +58,12 @@ export function useShownAgentSurface(
     () => 'agent',
   )
 }
+
+/** 屏幕上此刻是不是画布视图。对话视图里画布还挂着（只是藏起来），不能只看画布有没有挂载。 */
+export function useCanvasViewShown(): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => shown?.view === 'canvas',
+    () => false,
+  )
+}
