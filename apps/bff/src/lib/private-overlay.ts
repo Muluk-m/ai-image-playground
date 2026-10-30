@@ -93,6 +93,11 @@ export interface PrivateTaskHooks {
   }): Promise<void>
   /** 单价表里没登记这个对话模型时返回 null；起轮会在预扣那一步被拒。 */
   chatPricing(model: string): Promise<ChatPricing | null>
+  /** Account balance and current subscription status for external connection status. */
+  accountSummary?(input: {
+    userId: string
+    now: number
+  }): Promise<{ credits: number; isMember: boolean }>
   /**
    * 已结算任务实扣的积分，按任务 id；查不到的任务不出现在结果里。
    * 积分只有私有账本算得出，公开树一律问它，绝不自己按单价折算。

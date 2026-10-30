@@ -84,11 +84,17 @@ async function currentUser(request: Request): Promise<CliAccount> {
   return resolveCliBearerToken(tokenFromRequest(request))
 }
 
-function accountData(user: CliAccount) {
+async function accountData(user: CliAccount) {
+  const summary = user
+    ? await (await loadPrivateBffOverlay()).taskHooks.accountSummary?.({
+        userId: user.id,
+        now: Date.now(),
+      })
+    : null
   return {
     account: user,
-    credits: null,
-    member: null,
+    credits: summary?.credits ?? null,
+    member: summary?.isMember ?? false,
     min_cli_version: '0.1.0',
   }
 }
@@ -161,7 +167,7 @@ export const cliImageRoutes = new Elysia({ name: 'cli-image-routes' })
     set.status = 500
     return cliError('INTERNAL_ERROR', 'The request could not be completed')
   })
-  .get('/v1/me', ({ cliUser }) => cliSuccess(accountData(cliUser)))
+  .get('/v1/me', async ({ cliUser }) => cliSuccess(await accountData(cliUser)))
   .get('/v1/capabilities', async ({ cliUser }) => cliSuccess(await capabilityData(cliUser)))
   .post(
     '/v1/image-jobs/validate',
