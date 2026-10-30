@@ -762,3 +762,58 @@ describe('后台任务的进度与取消', () => {
     expect(finalized).toEqual([])
   })
 })
+
+describe('Lite 限流止损（2026-10-29）', () => {
+  const LITE = 'gemini-3.1-flash-lite-image'
+  const withLite = () =>
+    _setChannelsForTesting([
+      {
+        ...TEST_IMAGE_CHANNEL,
+        models: [
+          ...TEST_IMAGE_CHANNEL.models,
+          { id: LITE, label: 'Lite', capabilities: ['generate' as const] },
+        ],
+      },
+    ])
+
+  it('caps a Lite order at four images and says so in the receipt', async () => {
+    withLite()
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [() => generateCall(8), () => completionStream('四张在跑了')]),
+    )
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '画八张橘猫', { autoSubmit: true, model: LITE })
+
+    const task = await onlyTask()
+    expect(task.model).toBe(LITE)
+    expect(task.request_payload.n).toBe(4)
+    expect(eventsOfType(frames, 'toolEnd')[0]?.status).toBe('submitted')
+    const receipt = JSON.stringify(calls[1]?.messages.at(-1)?.content)
+    expect(receipt).toContain('这个模型一次最多出 4 张，已按 4 张处理。')
+  })
+
+  it('does not auto-resend a prompt that just failed on a rate limit; the user decides', async () => {
+    withLite()
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [() => generateCall(2), () => completionStream('在跑了')]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画两张橘猫', { autoSubmit: true, model: LITE })
+    const first = await onlyTask()
+    await workerSettles(first.id, {
+      status: 'failed',
+      errorMessage: '上游限流',
+      errorType: 'rate_limited',
+    })
+
+    setAgentFetchForTesting(scriptedAgentFetch(calls, [() => generateCall(2)]))
+    const frames = await runTurn(conversationId, '再来一次', { autoSubmit: true, model: LITE })
+
+    // 同会话、同模型、同提示词 10 分钟内撞过 429：不建新任务，退回待确认的稿。
+    expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toHaveLength(1)
+    expect(eventsOfType(frames, 'toolEnd')[0]?.status).toBe('awaiting_confirmation')
+  })
+})

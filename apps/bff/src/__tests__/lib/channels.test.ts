@@ -822,7 +822,7 @@ describe('shipped channels.json', () => {
         capabilities: ['generate', 'edit', 'size'],
         badges: ['latest'],
         tier: 'fast',
-        // 10 月 24 日实测：Lite 约 3 秒、2.1 约 14 秒、Pro 约 24 秒。
+        // 10 月 24 日实测：2.1 约 14 秒、Pro 约 24 秒（Lite 见下）。
         etaSeconds: 14,
         logo: 'nano-banana',
         imageSizes: ['1K', '2K'],
@@ -841,7 +841,10 @@ describe('shipped channels.json', () => {
         label: 'Nano Banana 2 Lite',
         capabilities: ['generate', 'edit', 'size'],
         tier: 'fast',
-        etaSeconds: 3,
+        // 不排队时单张约 4 秒，但它和 2.1 共用 Vertex 共享池：10-29 事故时段只放行约 0.8–1.5 张/分钟，
+        // 一单（上限 4 张）实际要几十秒到几分钟，所以按范围 30–240 秒标。
+        etaSeconds: 30,
+        etaMaxSeconds: 240,
         logo: 'nano-banana',
         imageSizes: ['1K'],
       },

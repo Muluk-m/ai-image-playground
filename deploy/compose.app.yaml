@@ -281,6 +281,8 @@ services:
       # Disk and memory alerts go out from here, not through the BFF: a full disk is exactly when
       # the BFF and the database stop answering.
       OPS_ALERT_WEBHOOK_URL: ${OPS_ALERT_WEBHOOK_URL:-}
+      OPS_ALERT_WEBHOOK_URLS: ${OPS_ALERT_WEBHOOK_URLS:-}
+      OPS_ALERT_WEBHOOK_HEADERS: ${OPS_ALERT_WEBHOOK_HEADERS:-}
       OPS_HOST_ALERTS: ${OPS_HOST_ALERTS:-true}
       OPS_DEPLOYMENT_NAME: ${OPS_DEPLOYMENT_NAME:-${COMPOSE_PROJECT_NAME:-deployment}}
     command:
