@@ -70,6 +70,7 @@
     "source": "来源",
     "createdAt": "创建于 {{time}}",
     "elapsed": "耗时 {{duration}}",
+    "partialFailure_other": "另有 {{count}} 张没生成，不扣这几张的积分：{{reason}}",
     "copyAll": "全部复制",
     "dialog": "作品详情",
     "networkFailed": "网络中断，这一张没能完成，请重试。"
