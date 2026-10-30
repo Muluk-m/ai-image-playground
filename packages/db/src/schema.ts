@@ -187,6 +187,71 @@ export const user_identities = pgTable(
   ],
 )
 
+export type DeviceAuthorizationStatus = 'pending' | 'approved' | 'denied' | 'expired'
+
+/** Public OAuth clients and RFC 8628 device authorizations for CLI access. */
+export const oauth_clients = pgTable('oauth_clients', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  created_at: epochMs('created_at').notNull(),
+})
+
+export const device_authorizations = pgTable(
+  'device_authorizations',
+  {
+    id: text('id').primaryKey(),
+    client_id: text('client_id')
+      .notNull()
+      .references(() => oauth_clients.id, { onDelete: 'cascade' }),
+    device_code_hash: text('device_code_hash').notNull(),
+    user_code_hash: text('user_code_hash').notNull(),
+    status: text('status').$type<DeviceAuthorizationStatus>().notNull().default('pending'),
+    user_id: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    expires_at: epochMs('expires_at').notNull(),
+    interval_seconds: integer('interval_seconds').notNull().default(5),
+    last_polled_at: epochMs('last_polled_at'),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_device_authorizations_device_code_hash').on(t.device_code_hash),
+    uniqueIndex('idx_device_authorizations_user_code_hash').on(t.user_code_hash),
+    index('idx_device_authorizations_expires_at').on(t.expires_at),
+    index('idx_device_authorizations_user_id').on(t.user_id),
+    check(
+      'device_authorizations_status_check',
+      sql`${t.status} IN ('pending', 'approved', 'denied', 'expired')`,
+    ),
+  ],
+)
+
+/** One row per CLI token generation. Raw access/refresh values are never persisted. */
+export const cli_connections = pgTable(
+  'cli_connections',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    client_id: text('client_id')
+      .notNull()
+      .references(() => oauth_clients.id, { onDelete: 'cascade' }),
+    family_id: text('family_id').notNull(),
+    access_token_hash: text('access_token_hash').notNull(),
+    refresh_token_hash: text('refresh_token_hash').notNull(),
+    access_expires_at: epochMs('access_expires_at').notNull(),
+    refresh_expires_at: epochMs('refresh_expires_at').notNull(),
+    created_at: epochMs('created_at').notNull(),
+    last_used_at: epochMs('last_used_at'),
+    revoked_at: epochMs('revoked_at'),
+  },
+  (t) => [
+    uniqueIndex('idx_cli_connections_access_token_hash').on(t.access_token_hash),
+    uniqueIndex('idx_cli_connections_refresh_token_hash').on(t.refresh_token_hash),
+    index('idx_cli_connections_user_id').on(t.user_id),
+    index('idx_cli_connections_family_id').on(t.family_id),
+  ],
+)
+
 export const agent_model_settings = pgTable('agent_model_settings', {
   id: text('id').primaryKey(),
   revision: integer('revision').notNull(),
