@@ -120,3 +120,27 @@ it('shrinks a real 4K PNG larger than the request budget before preparing review
   expect(metadata.width).toBe(1024)
   expect(metadata.height).toBe(576)
 })
+
+it('几张复核图并行读取，预算仍按原顺序记，结果顺序不变', async () => {
+  setLimit(1000)
+  let inFlight = 0
+  let peak = 0
+  const slow: Source = {
+    async resolve(imageId) {
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      // 倒序完成：先发出的读得最慢，检验结果不按完成顺序排。
+      await Bun.sleep(imageId === 'a' ? 60 : imageId === 'b' ? 40 : 20)
+      inFlight -= 1
+      return { imageId, dataUrl: 'x'.repeat(400), visualVariant: 'preview' }
+    },
+  }
+  const started = performance.now()
+  const { reviewed, omitted } = await prepareReviewImages(slow, [], ['a', 'b', 'c'], ['d', 'e'])
+  const elapsed = performance.now() - started
+  expect(peak).toBeGreaterThan(1)
+  // 串行要 60+40+20+20+20 = 160ms；并行只等最慢的一组。
+  expect(elapsed).toBeLessThan(140)
+  expect(reviewed.map((image) => image.imageId)).toEqual(['a', 'b'])
+  expect(omitted).toEqual(['c'])
+})
