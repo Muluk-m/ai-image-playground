@@ -21,6 +21,10 @@ import { cancelRoutes } from './routes/cancel'
 import { canvasSyncRoutes } from './routes/canvasSync'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
+import { cliAuthRoutes } from './routes/cli-auth'
+import { cliImageRoutes } from './routes/cli-image'
+import { cliJobsRoutes } from './routes/cli-jobs'
+import { cliMediaRoutes } from './routes/cli-media'
 import { clientErrorRoutes } from './routes/client-errors'
 import { generationRoutes } from './routes/generations'
 import { internalInspirationRoutes, publicInspirationRoutes } from './routes/inspirations'
@@ -255,6 +259,10 @@ export const app = new Elysia()
   .use(userAuthRoutes)
   .use(accountRoutes)
   .use(oauthRoutes)
+  .use(cliAuthRoutes)
+  .use(cliImageRoutes)
+  .use(cliJobsRoutes)
+  .use(cliMediaRoutes)
   .use(capabilitiesRoutes)
   .use(channelsRoutes)
   .use(submitRoutes)

@@ -73,7 +73,7 @@ type LinkErrorCode =
   | 'unauthenticated'
 
 /** Origin the provider redirects back to. Proxy headers only matter when the env is unset. */
-function bffOrigin(request: Request): string {
+export function bffOrigin(request: Request): string {
   if (config.auth.publicOrigin) return config.auth.publicOrigin
   const host = (request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? '')
     .split(',')[0]

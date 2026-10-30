@@ -79,6 +79,8 @@ export interface CreateQueueTaskInput {
    * 其他入口（批量套用、智能体等）一批里本就可能有内容相同的几条，不开。
    */
   readonly dedupeRepeats?: true
+  /** Caller-side hard ceiling; reservation is rejected before any hold when quote exceeds it. */
+  readonly maxCredits?: number
   /** Server-only opt-in; legacy HTTP submissions retain their existing lifecycle. */
   readonly reconciliationRequired?: true
   /**
@@ -96,7 +98,13 @@ export type CreateQueueTaskOutcome =
   | { readonly kind: 'duplicate_submission'; readonly taskId: string }
   | { readonly kind: 'invalid_prompt' }
   | { readonly kind: 'authentication_required' }
+  | { readonly kind: 'private_billing_denied' }
   | { readonly kind: 'insufficient_credits'; readonly required: number; readonly available: number }
+  | {
+      readonly kind: 'max_credits_exceeded'
+      readonly required: number
+      readonly maxCredits: number
+    }
   | { readonly kind: 'price_unavailable'; readonly model: string }
   | { readonly kind: 'quota_exceeded'; readonly quota: QuotaConsumeResult }
   | { readonly kind: 'invalid_input_image'; readonly message: string }
@@ -141,6 +149,7 @@ function commandHash(input: CreateQueueTaskInput) {
             : {}),
         },
         video: input.video,
+        ...(input.maxCredits !== undefined ? { maxCredits: input.maxCredits } : {}),
         ...(input.reconciliationRequired ? { reconciliationRequired: true } : {}),
         // 唤醒选择不是请求的一部分：同一条命令换个选择重放，仍是同一个任务。
         agent: input.agent && {
@@ -409,6 +418,33 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
     }
     if (await modelUnavailable(tx, input.model)) {
       return { kind: 'price_unavailable' as const, model: input.model }
+    }
+    if (input.maxCredits !== undefined && input.maxCredits >= 0) {
+      const quote = await taskHooks.quoteTask?.({
+        tx,
+        userId: input.userId ?? '',
+        model: input.model,
+        quantity: pricing.quantity,
+        unitMultiplier: pricing.unitMultiplier,
+      })
+      if (!quote) return { kind: 'price_unavailable' as const, model: input.model }
+      if (quote.estimatedCredits > input.maxCredits)
+        return {
+          kind: 'max_credits_exceeded',
+          required: quote.estimatedCredits,
+          maxCredits: input.maxCredits,
+        }
+    }
+    if (input.request.image_size === '4K') {
+      if (!input.userId) return { kind: 'authentication_required' as const }
+      const allowed =
+        (await taskHooks.canSubmitTask?.({
+          tx,
+          userId: input.userId,
+          model: input.model,
+          request: { image_size: input.request.image_size },
+        })) ?? false
+      if (!allowed) return { kind: 'private_billing_denied' as const }
     }
     if (dedupesRecentSubmission(input)) {
       const duplicate = await findRecentDuplicate(tx, input.userId, hash)
