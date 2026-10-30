@@ -246,6 +246,9 @@ export const submitRoutes = new Elysia()
       if (outcome.kind === 'authentication_required') {
         return status(401, { error: 'unauthorized' })
       }
+      if (outcome.kind === 'private_billing_denied') {
+        return status(403, { error: 'private_billing_denied' })
+      }
       if (outcome.kind === 'quota_exceeded') {
         const quota = outcome.quota
         return status(429, {
@@ -253,6 +256,13 @@ export const submitRoutes = new Elysia()
           quota: quota.quota,
           used: quota.count,
           reset_at: quota.reset_at,
+        })
+      }
+      if (outcome.kind === 'max_credits_exceeded') {
+        return status(402, {
+          error: 'max_credits_exceeded',
+          required: outcome.required,
+          max_credits: outcome.maxCredits,
         })
       }
 
@@ -268,6 +278,10 @@ export const submitRoutes = new Elysia()
           }
         }
         return status(409, { error: 'idempotency_key_conflict' })
+      }
+
+      if (outcome.kind !== 'created') {
+        return status(400, { error: 'invalid_request' })
       }
 
       return {

@@ -47,6 +47,13 @@ export interface ChatPricing {
 }
 
 export interface PrivateTaskHooks {
+  /** Submission authorization for premium (4K) generations. Missing means deny. */
+  canSubmitTask?(input: {
+    tx: BffTransaction
+    userId: string
+    model: string
+    request: { image_size?: string }
+  }): Promise<boolean>
   /** Immutable token quote under the caller's price lock; absent in older overlays. */
   quoteTokenTask?(input: {
     tx: BffTransaction
@@ -143,6 +150,9 @@ export interface PrivateBffOverlay {
 }
 
 const EMPTY_TASK_HOOKS: PrivateTaskHooks = Object.freeze({
+  async canSubmitTask() {
+    return false
+  },
   async reserveTask() {
     return { kind: 'reserved' as const, credits: 0 }
   },
