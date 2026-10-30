@@ -1,6 +1,6 @@
 import type { AgentImageSource, ResolvedAgentImage } from './images'
 import { AgentToolError } from './tools/errors'
-import { assertVisualBytes, visualByteLimit } from './visual-resources'
+import { assertVisualBytes, visualByteLimit, withVisualPreparation } from './visual-resources'
 
 /** 复核这一轮实际随输入附上的产物，以及因图片预算没能附上的那几张。 */
 export interface PreparedReviewImages {
@@ -29,10 +29,17 @@ export async function prepareReviewImages(
   // 本轮附图是用户的请求本身，装不下时照旧明确报告。
   assertVisualBytes(preparedBytes)
   const byteLimit = visualByteLimit()
+  // 几张预览并行读，再按原顺序记预算：串行时批次唤醒的复核一张约 0.9s，5 张要等 4–5s 才开始调模型
+  //（2026-10-30 线上 agent.visual_input 时间线）。整批只占一个图片准备名额，里面的读取不再逐张排队，
+  // 读的都是长边 ≤1024 的预览，同时在内存里的量有 REVIEW_READ_PARALLELISM 兜底。
+  const [requiredImages, optionalImages] = await withVisualPreparation(async () => [
+    await mapBounded(required, (id) => images.resolve(id, 'preview')),
+    await mapBounded(optional, (id) => images.resolve(id, 'preview').catch(() => null)),
+  ])
   const reviewed: ResolvedAgentImage[] = []
   const omitted: string[] = []
-  for (const id of required) {
-    const image = await images.resolve(id, 'preview')
+  for (const [index, id] of required.entries()) {
+    const image = requiredImages[index]
     if (!image)
       throw new AgentToolError(
         'invalid_params',
@@ -47,13 +54,29 @@ export async function prepareReviewImages(
   }
   // 批次唤醒的复核图尽力附带：旧产物可能已删、几批同时完成可能超预算，跳过即可，
   // 唤醒说明让模型以图片清单为准，没附上的如实说未查看。
-  for (const id of optional) {
-    const image = await images.resolve(id, 'preview').catch(() => null)
+  for (const image of optionalImages) {
     if (!image || preparedBytes + imageBytes(image) > byteLimit) continue
     preparedBytes += imageBytes(image)
     reviewed.push(image)
   }
   return { reviewed, omitted }
+}
+
+/** 复核图同时读取的上限。 */
+export const REVIEW_READ_PARALLELISM = 4
+
+/** 按顺序返回结果的有界并发 map：同时最多 {@link REVIEW_READ_PARALLELISM} 个在读。 */
+async function mapBounded<T, R>(items: readonly T[], work: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  const lane = async () => {
+    while (next < items.length) {
+      const index = next++
+      results[index] = await work(items[index]!)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(REVIEW_READ_PARALLELISM, items.length) }, lane))
+  return results
 }
 
 /** 必需复核图没附上时追加给模型的说明；都附上了就是空串。 */
