@@ -1,16 +1,14 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
-import {
-  _setPrivateBffOverlayForTesting,
-  EMPTY_PRIVATE_BFF_OVERLAY,
-} from '../../lib/private-overlay'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
+import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
 process.env.DATABASE_URL = await resetTestDatabase('bff_task_runner_rate_limit')
-_setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
+// 部分出图按交付张数结算：记下结算时带给账本的实际用量。
+const hooks = installRecordingTaskHooks()
 process.env.PORT = '0'
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
@@ -47,13 +45,13 @@ const vertexChannel: InternalChannel = {
 }
 
 let calls: string[] = []
-/** 列在 `throttled` 里的模型一律 429，其余一律出图。 */
-function vertex(throttled: readonly string[]) {
+/** 列在 `throttled` 里的模型一律 429，其余一律出图；`spare` 条请求不管模型先放行。 */
+function vertex(throttled: readonly string[], spare = 0) {
   calls = []
   setUpstreamFetchForTesting((async (input: Parameters<TestFetch>[0]) => {
     const url = String(input)
     calls.push(url)
-    if (throttled.some((model) => url.includes(`/models/${model}:`)))
+    if (calls.length > spare && throttled.some((model) => url.includes(`/models/${model}:`)))
       return Response.json(
         { error: { code: 429, message: 'Resource exhausted.', status: 'RESOURCE_EXHAUSTED' } },
         { status: 429 },
@@ -77,6 +75,7 @@ beforeEach(async () => {
   _setChannelsForTesting([vertexChannel])
   setVertexRateLimitBackoffForTesting([1, 1, 1])
   await db.delete(schema.tasks)
+  hooks.reset()
 })
 
 afterEach(() => {
@@ -140,5 +139,29 @@ describe('Lite 限流（2026-10-29）', () => {
     // 整单不再重跑：每张原模型 4 次、回落 4 次，之后就停，不会再来一整轮。
     expect(task.upstream_invocation_count).toBe(2 * 8)
     expect(calls).toHaveLength(2 * 8)
+  })
+
+  it('delivers the images that came back and settles only for those', async () => {
+    // 第一条请求出图，其余（含回落）一律 429：3 张里交付 1 张，不整单失败。
+    vertex([LITE, FALLBACK], 1)
+    await insertLiteTask('lite-partial', 3)
+
+    await runTask('lite-partial')
+
+    const task = await readTask('lite-partial')
+    expect(task.status).toBe('completed')
+    expect(task.error_type).toBeNull()
+    expect((task.result_payload as Record<string, unknown>).partial_failure).toEqual({
+      requested: 3,
+      failed: 2,
+      type: 'rate_limited',
+    })
+    expect(hooks.settlements).toEqual([
+      expect.objectContaining({
+        taskId: 'lite-partial',
+        outcome: 'completed',
+        actualUsage: { quantity: 1, unitMultiplier: 1 },
+      }),
+    ])
   })
 })
