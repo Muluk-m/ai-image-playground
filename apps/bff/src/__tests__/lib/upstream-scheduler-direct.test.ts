@@ -17,6 +17,7 @@ const {
 const { QUEUE_TIMEOUTS } = await import('@image-playground/shared')
 const {
   _setSchedulerClockForTesting,
+  _setSchedulerSleepForTesting,
   acquireSchedulerSlots,
   coolDownSchedulerBuckets,
   SCHEDULER_WINDOW_MS,
@@ -24,6 +25,7 @@ const {
 } = await import('../../lib/upstream/scheduler')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { db, schema } = await import('../../db/client')
+const { and, eq, isNull } = await import('drizzle-orm')
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
 
 /** 测试时钟跑得比真实时间快 60 倍：真实 1 秒 = 模拟 1 分钟。 */
@@ -36,6 +38,8 @@ interface Sent {
   at: number
 }
 let sent: Sent[] = []
+/** 桩记录发送时刻用的时钟。 */
+let stubClock = simNow
 let inFlight = 0
 let maxInFlight = 0
 let status = 200
@@ -43,7 +47,7 @@ let status = 200
 function stubUpstream(latencyMs: number): void {
   setUpstreamFetchForTesting((async (_input: unknown, init?: { body?: unknown }) => {
     const { model } = JSON.parse(String(init?.body)) as { model: string }
-    sent.push({ model, at: simNow() })
+    sent.push({ model, at: stubClock() })
     inFlight += 1
     maxInFlight = Math.max(maxInFlight, inFlight)
     await Bun.sleep(latencyMs)
@@ -58,25 +62,50 @@ function stubUpstream(latencyMs: number): void {
 }
 
 /**
- * 任意 60 秒（模拟时钟）内同一模型发出的最多张数。额度按拿到时计，桩记的是之后真正调 fetch 的时刻，
- * 中间隔着几毫秒事件循环；时钟放大 60 倍后这点抖动够把下一分钟的第一张挤进上一分钟，按 30ms 真实时间扣掉。
+ * 受控时钟：只在调度器「等额度」睡眠时前进，并且要等所有在途租约都还掉才前进，
+ * 在途请求的心跳不会被跳过。真实耗时、CI 负载都不影响结果。
  */
-const JITTER_MS = 30 * SPEED
-
-function maxImagesPerMinute(model: string): number {
-  const times = sent.filter((entry) => entry.model === model).map((entry) => entry.at)
-  const window = SCHEDULER_WINDOW_MS - JITTER_MS
-  let best = 0
-  for (const start of times) {
-    best = Math.max(best, times.filter((at) => at >= start && at < start + window).length)
+let virtualNow = 0
+async function openLeases(): Promise<number> {
+  const rows = await db
+    .select({ key: schema.scheduler_leases.bucket_key })
+    .from(schema.scheduler_leases)
+    .where(
+      and(
+        eq(schema.scheduler_leases.bucket_key, 'direct-test:openai:direct:inflight'),
+        isNull(schema.scheduler_leases.released_at),
+      ),
+    )
+  return rows.length
+}
+async function virtualSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  const wakeAt = virtualNow + ms
+  while ((await openLeases()) > 0) {
+    if (signal?.aborted) throw signal.reason
+    await Bun.sleep(2)
   }
-  return best
+  virtualNow = Math.max(virtualNow, wakeAt)
+  await Bun.sleep(0)
+  if (signal?.aborted) throw signal.reason
 }
 
-/** 同一模型第一张到最后一张发出的模拟时长。 */
-function sendSpan(model: string): number {
-  const times = sent.filter((entry) => entry.model === model).map((entry) => entry.at)
-  return Math.max(...times) - Math.min(...times)
+/**
+ * 某模型每张图的发送时刻。时钟只在没有在途租约时前进，拿到额度到真正发出之间时钟不动，
+ * 所以这就是调度器算窗口用的拿额度时刻。
+ */
+const sendTimes = (model: string): number[] =>
+  sent.filter((entry) => entry.model === model).map((entry) => entry.at)
+
+/** 任意 60 秒窗口内拿到的最多张数。 */
+function maxPerWindow(times: number[]): number {
+  let best = 0
+  for (const start of times) {
+    best = Math.max(
+      best,
+      times.filter((at) => at >= start && at < start + SCHEDULER_WINDOW_MS).length,
+    )
+  }
+  return best
 }
 
 beforeEach(async () => {
@@ -94,10 +123,16 @@ beforeEach(async () => {
 afterEach(() => {
   setUpstreamFetchForTesting()
   _setSchedulerClockForTesting()
+  _setSchedulerSleepForTesting()
+  stubClock = simNow
 })
 
 it('holds two models to 16 images a minute each and 8 requests in flight across concurrent tasks', async () => {
-  stubUpstream(40)
+  virtualNow = 1_000_000
+  _setSchedulerClockForTesting(() => virtualNow)
+  _setSchedulerSleepForTesting(virtualSleep)
+  stubClock = () => virtualNow
+  stubUpstream(50)
   // 6 个任务（相当于几个 worker 同时在跑），两个模型共 60 张，全部 fan-out 成单张请求。
   const tasks = [
     ...Array.from({ length: 3 }, () => ({ model: 'gpt-image-2', n: 10 })),
@@ -114,11 +149,12 @@ it('holds two models to 16 images a minute each and 8 requests in flight across 
   expect(sent).toHaveLength(60)
   expect(maxInFlight).toBeLessThanOrEqual(8)
   for (const model of ['gpt-image-2', 'gpt-image-1.5']) {
-    // 上限只断言「不超过」：CI 机器慢、并行跑测试时一分钟内可能根本发不满 16 张，断言「恰好 16」会随负载抖动。
-    expect(maxImagesPerMinute(model)).toBeLessThanOrEqual(16)
-    // 限速确实生效：每个模型 30 张，每分钟最多 16 张，第 17 张最早在第一张之后一分钟才能拿到额度。
-    // 不限速时 8 路并发、40ms 延迟，30 张在模拟时钟上不到 20 秒就发完。
-    expect(sendSpan(model)).toBeGreaterThanOrEqual(SCHEDULER_WINDOW_MS - JITTER_MS)
+    const grants = sendTimes(model)
+    expect(grants).toHaveLength(30)
+    // 第一分钟正好放满 16 张，之后任何 60 秒窗口都不超过 16 张。
+    expect(maxPerWindow(grants)).toBe(16)
+    // 第 17 张要等第 1 张出窗口：30 张至少跨一整分钟。
+    expect(Math.max(...grants) - Math.min(...grants)).toBeGreaterThanOrEqual(SCHEDULER_WINDOW_MS)
   }
   expect((await schedulerBucketUsage('openai:direct:inflight')).inFlight).toBe(0)
 }, 30_000)
@@ -213,4 +249,17 @@ it('keeps the result-unknown timeout once any request of the call has been sent'
   expect(sent).toHaveLength(1)
   expect(error).toBeInstanceOf(UpstreamResultUnknownError)
   expect(error).not.toBeInstanceOf(UpstreamQueueTimeoutError)
+})
+
+it('treats a deadline that lands just as the slot is granted as not executed', async () => {
+  // 截止时间在拿名额的同时到：名额拿到了，但记账回调之前就停下，请求同样没发出。
+  stubUpstream(5)
+  const error = await callUpstream({
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    request: { prompt: 'x' },
+    resume: expiringIn(0),
+  }).catch((err: unknown) => err)
+  expect(error).toBeInstanceOf(UpstreamQueueTimeoutError)
+  expect(sent).toHaveLength(0)
 })
