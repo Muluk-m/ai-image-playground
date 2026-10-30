@@ -138,6 +138,20 @@ describe('CreateRecordDialog', () => {
     expect(document.querySelectorAll('img')).toHaveLength(4)
   })
 
+  it('后一次选择作废还没确认的上一批', () => {
+    act(() =>
+      root.render(
+        <CreateRecordDialog kind="asset" agentReady onClose={vi.fn()} onSave={vi.fn()} />,
+      ),
+    )
+    pickImages(4)
+    const confirm = vi.mocked(useStore.getState().setConfirmDialog).mock.calls[0]?.[0]
+    pickImages(1)
+    expect(document.querySelectorAll('img')).toHaveLength(1)
+    act(() => confirm?.action())
+    expect(document.querySelectorAll('img')).toHaveLength(1)
+  })
+
   it('素材三张不打断，直接进预览', () => {
     act(() =>
       root.render(

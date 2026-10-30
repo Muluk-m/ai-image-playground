@@ -1,6 +1,7 @@
-import { type AppSettings, DEFAULT_PARAMS, type TaskParams } from '../types'
+import { nearestImageSize } from '@image-playground/shared'
+import { type AppSettings, DEFAULT_PARAMS, type GeminiImageSize, type TaskParams } from '../types'
 import { clientProfileToApiProfile, getActiveApiProfile } from './apiProfiles'
-import { getModelCapabilities } from './channels/profileSelectors'
+import { getModelCapabilities, getModelImageSizes } from './channels/profileSelectors'
 import { getPublicChannels } from './channels/publicChannels'
 import type { ClientProfile } from './channels/types'
 import { normalizeImageSize } from './size'
@@ -21,6 +22,8 @@ export interface ParamCapabilities {
    * 比例不在此列：走 gemini 协议时它顶的是尺寸控件的位置，任何模型都得有一个。
    */
   geminiImageTuning: boolean
+  /** 分辨率面板列的档位：渠道给模型声明了 `imageSizes` 就只有这几档。 */
+  geminiImageSizes: readonly GeminiImageSize[]
 }
 
 /**
@@ -47,6 +50,7 @@ export function getParamCapabilities(
     transparentOutput: view.provider !== 'gemini' && outputFormat === 'png',
     compression: outputFormat !== 'png',
     geminiImageTuning: view.provider === 'gemini' && isGeminiSeriesModel(view.model),
+    geminiImageSizes: getModelImageSizes(profile, getPublicChannels()),
   }
 }
 
@@ -65,6 +69,14 @@ export function normalizeParamsForSettings(
   }
 
   const caps = getParamCapabilities(activeProfile, nextParams.output_format)
+  // 切到不认这一档的模型（如从 2.1 的 2K 切到 Lite、本地存着旧的 512）：换成最近一档，
+  // 面板、摘要和提交看到的是同一个值，和 BFF 兜底的换法一致。
+  if (nextParams.gemini_image_size) {
+    nextParams.gemini_image_size = nearestImageSize(
+      nextParams.gemini_image_size,
+      caps.geminiImageSizes,
+    )
+  }
   if (!caps.compression) {
     nextParams.output_compression = DEFAULT_PARAMS.output_compression
   }

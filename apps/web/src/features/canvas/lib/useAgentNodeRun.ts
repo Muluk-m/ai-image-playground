@@ -1,17 +1,11 @@
-import type { StageAuthorizationSubmission, StageRunReason } from '@image-playground/shared'
-import {
-  type AgentCanvasRunProposal,
-  readCanvasDocument,
-  stageExecutionSpecsMatch,
-} from '@image-playground/shared'
+import { type AgentCanvasRunProposal, readCanvasDocument } from '@image-playground/shared'
 import { useEffect, useSyncExternalStore } from 'react'
 import { getStoredChannels, subscribeChannels } from '../../../lib/channels/channelStore'
 import { useStore } from '../../../store'
 import { registerAgentNodeRun } from '../../agent/lib/nodeRunBridge'
-import { stageAuthorizationClient } from '../../agent/lib/stageAuthorizationClient'
 import { useVideoStore } from '../../video/store'
 import type { CanvasEditor } from './editor'
-import { billedNodeQuantity, currentNodeBatch, NodeBatchFailure, runNodeBatch } from './nodeBatch'
+import { currentNodeBatch, runNodeBatch } from './nodeBatch'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
 
 export function useAgentNodeRun({
@@ -21,6 +15,7 @@ export function useAgentNodeRun({
   active,
   revision,
   files,
+  syncResults,
 }: {
   canvas: NodeCanvasDocument
   editor: CanvasEditor
@@ -28,6 +23,7 @@ export function useAgentNodeRun({
   active: boolean
   revision: unknown
   files: unknown
+  syncResults?: () => Promise<void>
 }) {
   const settings = useStore((state) => state.settings)
   const params = useStore((state) => state.params)
@@ -35,7 +31,7 @@ export function useAgentNodeRun({
   // 模型清单刷新后重新登记：卡片与直接出图按新清单报价（视频模型被停用或恢复）。
   const channels = useSyncExternalStore(subscribeChannels, getStoredChannels)
   useEffect(() => {
-    if (!active || !projectId) return
+    if (!active || !projectId || !syncResults) return
     const quote = (proposal: AgentCanvasRunProposal) => {
       if (proposal.projectId !== projectId) return null
       const graph = readCanvasDocument(canvas.doc)
@@ -44,114 +40,35 @@ export function useAgentNodeRun({
         ...(graph.groups ?? []).map((group) => group.id),
       ])
       if (!proposal.nodeIds.length || proposal.nodeIds.some((id) => !existing.has(id))) return null
-      const plan = currentNodeBatch(canvas.doc, editor, proposal.nodeIds)
-      // 临时上传不在服务端快照里。确认前就停住并提示，不能拖到提交才因张数对不上失败。
-      if (plan.jobs.some((job) => Object.keys(job.temporary).length > 0))
-        return { ...plan, error: 'local' as const }
-      if (!proposal.specs?.length || plan.error) return plan
-      const live = plan.jobs.map((job) => ({
-        nodeId: job.id,
-        model: job.model,
-        quantity: billedNodeQuantity(job),
-        unitMultiplier: job.unitMultiplier ?? 1,
-      }))
-      return stageExecutionSpecsMatch(live, proposal.specs)
-        ? plan
-        : { ...plan, error: 'stale' as const }
+      return currentNodeBatch(canvas.doc, editor, proposal.nodeIds)
     }
     return registerAgentNodeRun({
       projectId,
+      syncResults,
       quote,
-      run: async (proposal, signature, signal, progress, executionToken, record) => {
-        const plan = quote(proposal)
-        if (!plan || plan.signature !== signature || plan.error || plan.blocked)
-          throw new NodeBatchFailure(plan?.error ?? 'changed')
-        if (!proposal.authorizationId) throw new NodeBatchFailure('authorization')
-        const authorizationId = proposal.authorizationId
-        const authorizations: Record<string, StageAuthorizationSubmission> = {}
-        for (const job of plan.jobs) {
-          if (signal.aborted) throw new NodeBatchFailure('cancelled')
-          const attemptId = crypto.randomUUID()
-          await stageAuthorizationClient.preflight(authorizationId, {
-            executionToken,
-            attemptId,
-            nodeId: job.id,
-            model: job.model,
-            quantity: billedNodeQuantity(job),
-            unitMultiplier: job.unitMultiplier ?? 1,
-          })
-          authorizations[job.id] = {
-            authorizationId,
-            nodeId: job.id,
-            attemptId,
-            executionToken,
-          }
-        }
-        if (signal.aborted) throw new NodeBatchFailure('cancelled')
-        const retried = new Set<string>()
-        await runNodeBatch(
+      run: (proposal, plan, execution) =>
+        runNodeBatch(
           canvas.doc,
           editor,
           proposal.nodeIds,
           plan,
-          signal,
-          progress,
-          authorizations,
-          {
-            // 授权内同一节点至多自动重试一次；重试另开一次预检，花费计入授权已用额度。
-            recover: async (job, error) => {
-              if (!(error instanceof NodeBatchFailure) || error.code !== 'failed') throw error
-              const failed = (reason: StageRunReason) => {
-                record?.({
-                  nodeId: job.id,
-                  outcome: 'failed',
-                  reason,
-                  ...(retried.has(job.id) ? { retried: true } : {}),
-                })
-                return 'skip' as const
-              }
-              if (retried.has(job.id)) return failed('generation_failed')
-              if (signal.aborted) throw new NodeBatchFailure('cancelled')
-              const attemptId = crypto.randomUUID()
-              try {
-                await stageAuthorizationClient.preflight(authorizationId, {
-                  executionToken,
-                  attemptId,
-                  nodeId: job.id,
-                  model: job.model,
-                  quantity: billedNodeQuantity(job),
-                  unitMultiplier: job.unitMultiplier ?? 1,
-                })
-              } catch (rejected) {
-                const code = rejected instanceof Error ? rejected.message : ''
-                return failed(
-                  code === 'stage_authorization_budget'
-                    ? 'budget_exceeded'
-                    : code === 'stage_authorization_retry_limit'
-                      ? 'retry_limit'
-                      : 'generation_failed',
-                )
-              }
-              authorizations[job.id] = {
-                authorizationId,
-                nodeId: job.id,
-                attemptId,
-                executionToken,
-              }
-              retried.add(job.id)
-              return 'retry'
-            },
-            completed: (job) =>
-              record?.({
-                nodeId: job.id,
-                outcome: 'completed',
-                ...(retried.has(job.id) ? { retried: true } : {}),
-              }),
-            skipped: (job) =>
-              record?.({ nodeId: job.id, outcome: 'skipped', reason: 'upstream_failed' }),
-          },
-        )
-      },
+          execution.signal,
+          execution.progress,
+          execution.authorizations,
+          execution.hooks,
+        ),
     })
-  }, [active, projectId, canvas, editor, revision, files, settings, params, draft, channels])
+  }, [
+    active,
+    projectId,
+    canvas,
+    editor,
+    revision,
+    files,
+    settings,
+    params,
+    draft,
+    channels,
+    syncResults,
+  ])
 }

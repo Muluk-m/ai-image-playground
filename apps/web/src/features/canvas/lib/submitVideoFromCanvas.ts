@@ -4,7 +4,7 @@ import {
   videoPromptRejection,
   videoRateMultiplier,
 } from '@image-playground/shared'
-import { i18next } from '../../../i18n'
+import { describeError, i18next, UserFacingError } from '../../../i18n'
 import { getStoredChannel } from '../../../lib/channels/channelStore'
 import { awaitQueueOutputs, submitVideoRequest } from '../../../lib/channels/queueClient'
 import { videoModelOptions } from '../../../lib/channels/videoChannels'
@@ -25,7 +25,6 @@ import { type CanvasVideoRefusal, planVideoFrames } from './canvasVideoPlan'
 import type { CanvasEditor, PlaceholderView } from './editor'
 import { Box } from './geometry'
 import {
-  errorMessage,
   markPlaceholderStatus,
   placeImagesIntoTargets,
   targetFromShape,
@@ -84,7 +83,7 @@ export function canvasVideoRequest(
   if (generation.derivedFrom) {
     const source = editor.getElement(generation.derivedFrom.id)
     if (source?.type !== 'image' || !source.video)
-      throw new Error(i18next.t('videoToolbar.sourceGone', { ns: 'canvas' }))
+      throw new UserFacingError(i18next.t('videoToolbar.sourceGone', { ns: 'canvas' }))
     return {
       ...base,
       mode: generation.derivedFrom.mode,
@@ -330,7 +329,7 @@ export function launchCanvasVideo(editor: CanvasEditor, launch: CanvasVideoLaunc
   retainCanvasInputs(taskId, { inputImageDataUrls: launch.frames })
   return superviseGeneration(placeholderId, videoPlaceholderReport(editor), async () => {
     const channel = getStoredChannel(launch.channelId)
-    if (!channel) throw new Error(i18next.t('error.noModel', { ns: 'video' }))
+    if (!channel) throw new UserFacingError(i18next.t('error.noModel', { ns: 'video' }))
     const requestId = await submitVideoRequest({
       channel,
       model: launch.generation.model,
@@ -422,7 +421,7 @@ export function retryCanvasVideo(editor: CanvasEditor, placeholder: PlaceholderV
   try {
     canvasVideoRequest(editor, meta.video.generation)
   } catch (err) {
-    toast(errorMessage(err))
+    toast(describeError(err))
     return
   }
   if (!guardAllows(meta.video.generation)) return

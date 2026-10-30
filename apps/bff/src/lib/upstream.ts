@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { QUEUE_TIMEOUTS, type QueueProvider } from '@image-playground/shared'
 import { config } from '../config'
-import { disabledModelChannel, getRoutableChannels } from './channels'
+import { disabledModelChannel, getRoutableChannels, type InternalChannel } from './channels'
 import type { HydratedSubmitRequest } from './imageArchive'
 import { log } from './logger'
 import {
@@ -51,7 +51,11 @@ import {
   withoutModeration,
 } from './upstream/openai'
 import { type ChannelRouteStyle, clientError, type UpstreamCallResult } from './upstream/shared'
-import { buildVertexBody } from './upstream/vertex'
+import {
+  buildVertexBody,
+  vertexPartialRateLimitFailure,
+  withVertexRateLimitRetry,
+} from './upstream/vertex'
 import { VIDEO_MIME, VIDEO_STYLE_SPECS } from './upstream/video'
 
 /*
@@ -89,8 +93,73 @@ interface UpstreamRoute {
   asyncTasks: boolean
   /** 上游原生支持 n；一条请求即可返回多张图，不应在 BFF 内 fan-out。 */
   supportsNativeN: boolean
-  /** 渠道声明了同时在途上限（`maxConcurrency`）时，按渠道排队的键与上限。 */
+  /**
+   * 声明了同时在途上限时排队的键与上限：模型级（`models[].maxConcurrency`）按「渠道/模型」
+   * 排，否则渠道级（`maxConcurrency`）按渠道排。
+   */
   concurrency?: { channelId: string; limit: number }
+  /** 模型声明支持的分辨率档位（`ChannelModel.imageSizes`）；Vertex 分支把其它档位换成最近一档。 */
+  imageSizes?: readonly string[]
+}
+
+/** 模型级上限优先，按「渠道/模型」各排各的队；没有再看渠道级上限。 */
+function concurrencyFor(
+  channel: InternalChannel,
+  modelId: string,
+): Pick<UpstreamRoute, 'concurrency'> {
+  const perModel = channel.modelMaxConcurrency
+  if (perModel && Object.hasOwn(perModel, modelId))
+    return { concurrency: { channelId: `${channel.id}/${modelId}`, limit: perModel[modelId]! } }
+  return channel.maxConcurrency
+    ? { concurrency: { channelId: channel.id, limit: channel.maxConcurrency } }
+    : {}
+}
+
+/**
+ * 这个模型在 BFF 里受哪个同时在途上限管（`models[].maxConcurrency` 或渠道级 `maxConcurrency`），
+ * 以及同一个上限下有哪些模型。没有声明上限时给 undefined。调度器的空闲并发判定用它，
+ * 确保弹性名额不会让同一个上限下正在跑的任务数超过上限（例如 Vertex 每个模型 2）。
+ */
+export function taskConcurrencyScope(
+  provider: QueueProvider,
+  model: string,
+): { models: string[]; limit: number } | undefined {
+  const kind = provider === 'gemini' ? 'gemini-queue' : 'openai-queue'
+  for (const channel of getRoutableChannels()) {
+    if (!channelRouteStyle(channel.id) || channel.kind !== kind) continue
+    const declared = declaredChannelModel(channel, model)
+    if (!declared) continue
+    const perModel = channel.modelMaxConcurrency
+    if (perModel && Object.hasOwn(perModel, declared.id))
+      return { models: withLegacyAliases(channel, [declared.id]), limit: perModel[declared.id]! }
+    if (!channel.maxConcurrency) return undefined
+    const shared = channel.models
+      .map((m) => m.id)
+      .filter((id) => !(perModel && Object.hasOwn(perModel, id)))
+    return { models: withLegacyAliases(channel, shared), limit: channel.maxConcurrency }
+  }
+  return undefined
+}
+
+/** 从发现清单退役、旧队列任务仍落到原渠道某个声明模型上的模型名：渠道 → 旧名 → 声明模型。 */
+const LEGACY_MODEL_ALIASES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  'grok-video': { 'grok-imagine-video': 'grok-imagine-video-1.5-lite' },
+}
+
+/** 渠道里承接这个模型名的声明模型；退役旧名按 LEGACY_MODEL_ALIASES 落到原线路。 */
+function declaredChannelModel(channel: InternalChannel, model: string) {
+  const exact = channel.models.find((m) => m.id === model)
+  if (exact) return exact
+  const target = LEGACY_MODEL_ALIASES[channel.id]?.[model]
+  return target ? channel.models.find((m) => m.id === target) : undefined
+}
+
+/** 同一上限下的模型清单补上落到这些模型的退役旧名，在途计数才算得到旧队列任务。 */
+function withLegacyAliases(channel: InternalChannel, ids: string[]): string[] {
+  const aliases = Object.entries(LEGACY_MODEL_ALIASES[channel.id] ?? {})
+    .filter(([legacy, target]) => ids.includes(target) && !ids.includes(legacy))
+    .map(([legacy]) => legacy)
+  return aliases.length ? [...ids, ...aliases] : ids
 }
 
 /**
@@ -106,11 +175,7 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
     const style = channelRouteStyle(channel.id)
     if (!style || channel.kind !== kind) continue
     // 从发现清单退役后，旧队列任务仍要在原 Grok 线路提交或续轮询。
-    const declared =
-      channel.models.find((m) => m.id === model) ??
-      (channel.id === 'grok-video' && model === 'grok-imagine-video'
-        ? channel.models.find((m) => m.id === 'grok-imagine-video-1.5-lite')
-        : undefined)
+    const declared = declaredChannelModel(channel, model)
     if (!declared) continue
     return {
       baseUrl: channel.baseUrl,
@@ -120,9 +185,8 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
       supportsModeration: declared.capabilities.includes('moderation'),
       asyncTasks: provider === 'openai-compat' && channel.defaults.asyncTasks === true,
       supportsNativeN: provider === 'openai-compat' && declared.capabilities.includes('n'),
-      ...(channel.maxConcurrency
-        ? { concurrency: { channelId: channel.id, limit: channel.maxConcurrency } }
-        : {}),
+      ...concurrencyFor(channel, declared.id),
+      ...(declared.imageSizes ? { imageSizes: declared.imageSizes } : {}),
     }
   }
   // 下线的直连模型找不到原 channel（env 缺失）时明确失败：通用网关不是它的上游，兜底过去
@@ -202,9 +266,9 @@ export function setUpstreamFetchForTesting(fetchImpl?: UpstreamFetch): void {
 }
 
 /**
- * Bun fetch 的 client timeout 无法可靠覆盖，改用 Undici Agent 的公开配置项。
- * transport headers/body 都比应用硬超时长 1min，确保正常终止统一由下方
- * AbortController 决定；不再依赖 undocumented idleTimeout 或强制 Connection: close。
+ * 正常终止统一由下方的 deadline 决定。Bun 自带的 300 秒 fetch 超时在 transport 那一层关掉
+ * （`timeoutFetch.ts` 的 withoutRuntimeTimeout）；Agent 的 headers/body 超时比应用硬超时长 1min，
+ * 只在 Node 下生效，作兜底。
  */
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const {
@@ -224,6 +288,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     asyncTasks,
     supportsNativeN,
     concurrency,
+    imageSizes,
   } = resolveUpstream(provider, model)
   let request = params.request
   // 原生 n 只适用于无参考图的 Images generations；Responses 图片工具不接受 tools[].n。
@@ -591,13 +656,13 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         ...(key ? { [vertex ? 'x-goog-api-key' : 'x-api-key']: key } : {}),
       }
       const body = JSON.stringify(
-        vertex ? buildVertexBody(model, request) : buildGeminiBody(request),
+        vertex ? buildVertexBody(request, imageSizes) : buildGeminiBody(request),
       )
 
       // Gemini image generation 不支持 candidateCount>1（"Only one candidate is
       // supported for audio or image response"），n>1 时本层 fan-out 成 N 条单张请求
-      // 并把 candidates 合并到一个 payload，对 task-runner / 前端透明。渠道声明了
-      // maxConcurrency（Vertex 同时超过 2 条就 429）时，每条请求先排渠道级的队再发。
+      // 并把 candidates 合并到一个 payload，对 task-runner / 前端透明。声明了 maxConcurrency
+      // （Vertex 按模型各配 2）时，每条请求先排「渠道/模型」或渠道级的队再发。
       return await fanOutRequests(
         request.n,
         async () => {
@@ -612,15 +677,21 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
                 throw error
               })
             : undefined
+          const send = async () =>
+            await parseResponse(await performFetch(url, { method: 'POST', headers, body }))
           try {
-            const res = await performFetch(url, { method: 'POST', headers, body })
-            return await parseResponse(res)
+            // Vertex 的 429 是按模型的到达速率限流：先在这条请求里退避重发，一单多张里已出的图不必重来。
+            return vertex
+              ? await withVertexRateLimitRetry(send, deadline.signal, () => deadline.timedOut)
+              : await send()
           } finally {
             release?.()
           }
         },
         mergeGeminiCandidateResults,
         params.reconciliationRequired,
+        // 有图已出、另一条退避用完仍 429：不让任务级重试把整组重新生成（见 vertexPartialRateLimitFailure）。
+        vertex ? vertexPartialRateLimitFailure : undefined,
       )
     }
     throw new Error(`Unsupported provider: ${provider satisfies never}`)
@@ -662,16 +733,27 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
+/**
+ * 部分请求成功、部分失败时换一个错误抛（返回 undefined 则照原样抛第一条失败）。给了它就要等同批
+ * 请求全部落定才知道成没成，所以只有需要区分「有图已出」的上游（Vertex 的 429）才传。
+ */
+type FanOutPartialFailure = (reason: unknown, delivered: number, requested: number) => unknown
+
 async function fanOutRequests(
   requestedCount: number | undefined,
   run: () => Promise<UpstreamCallResult>,
   merge: (results: UpstreamCallResult[]) => UpstreamCallResult,
   reconciliationRequired = false,
+  onPartialFailure?: FanOutPartialFailure,
 ): Promise<UpstreamCallResult> {
   const count = Math.max(1, requestedCount ?? 1)
   if (count === 1) return run()
   return merge(
-    await collectFanOutResults(Array.from({ length: count }, run), reconciliationRequired),
+    await collectFanOutResults(
+      Array.from({ length: count }, run),
+      reconciliationRequired,
+      onPartialFailure,
+    ),
   )
 }
 
@@ -687,10 +769,19 @@ function fanOutFailure<T>(settled: PromiseSettledResult<T>[], preserveUnknown = 
 async function collectFanOutResults<T>(
   requests: Promise<T>[],
   preserveUnknown = false,
+  onPartialFailure?: FanOutPartialFailure,
 ): Promise<T[]> {
-  if (!preserveUnknown) return Promise.all(requests)
+  if (!preserveUnknown && !onPartialFailure) return Promise.all(requests)
   const settled = await Promise.allSettled(requests)
-  const failure = fanOutFailure(settled, true)
+  const failure = fanOutFailure(settled, preserveUnknown)
+  if (!preserveUnknown) {
+    if (!failure) return settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : []))
+    const delivered = settled.filter((one) => one.status === 'fulfilled').length
+    throw (
+      (delivered > 0 ? onPartialFailure?.(failure.reason, delivered, settled.length) : undefined) ??
+      failure.reason
+    )
+  }
   if (failure && settled.some((one) => one.status === 'fulfilled')) {
     throw new UpstreamResultUnknownError('部分请求已完成，整组结果和结算待核查。', {
       cause: failure.reason,
@@ -698,6 +789,53 @@ async function collectFanOutResults<T>(
   }
   if (failure) throw failure.reason
   return settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : []))
+}
+
+/** 一次上游取消尝试的结果，只进日志，不影响我们这边的取消与退款。 */
+export type UpstreamCancelOutcome =
+  | { readonly taskId: string; readonly outcome: 'cancelled'; readonly status: number }
+  | { readonly taskId: string; readonly outcome: 'rejected'; readonly status: number }
+  | { readonly taskId: string; readonly outcome: 'error'; readonly error: string }
+
+const UPSTREAM_CANCEL_TIMEOUT_MS = 10_000
+
+/**
+ * 用户取消任务后尽力叫停上游已经建起来的异步任务（BUG-32）。只对有取消接口的线路发请求，其余
+ * 返回 null：同步线路靠断开连接收手，异步线路（sub2api、xAI、Veo）没有取消接口，只能停止轮询。
+ * 失败只返回结果、从不抛出——退款早已在取消事务里落定，与这里无关。
+ */
+export async function cancelUpstreamTasks(
+  provider: QueueProvider,
+  model: string,
+  taskIds: readonly string[],
+): Promise<UpstreamCancelOutcome[] | null> {
+  let route: UpstreamRoute
+  try {
+    route = resolveUpstream(provider, model)
+  } catch {
+    return null
+  }
+  const cancelUrl = VIDEO_STYLE_SPECS[route.style]?.cancelUrl
+  if (!cancelUrl || taskIds.length === 0) return null
+  const headers = upstreamAuthHeader(route.style, route.key)
+  return Promise.all(
+    taskIds.map(async (taskId): Promise<UpstreamCancelOutcome> => {
+      try {
+        const res = await upstreamTransport.current(cancelUrl(route.baseUrl, taskId), {
+          method: 'DELETE',
+          headers,
+          signal: AbortSignal.timeout(UPSTREAM_CANCEL_TIMEOUT_MS),
+          dispatcher: upstreamDispatcher,
+        })
+        await res.text().catch(() => '')
+        return res.ok
+          ? { taskId, outcome: 'cancelled', status: res.status }
+          : { taskId, outcome: 'rejected', status: res.status }
+      } catch (err) {
+        return { taskId, outcome: 'error', error: err instanceof Error ? err.message : String(err) }
+      }
+    }),
+  )
 }
 
 /** Google 直连认自己的 key 头；其余上游都是 Bearer。 */

@@ -100,6 +100,87 @@ describe('下一句的句子', () => {
     expect(normalizeFollowUpLines('不是对象')).toEqual([])
   })
 
+  it('建议句与喂给模型的回复都不带批次项 key 和产物 id（BUG-56）', async () => {
+    const prompts: string[] = []
+    setChatFetchForTesting(async (_url, init) => {
+      prompts.push(String(init?.body))
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: 'stop',
+              message: { content: '{"lines":["补做兔子图（animal-03-rabbit）"]}' },
+            },
+          ],
+        }),
+      )
+    })
+    const lines = await suggestFollowUps({
+      userText: '还缺哪张？',
+      assistantText:
+        '还缺兔子图（`animal-03-rabbit`），小猫 agent_a174c2bd-5f3b-4b50-889e-acc7f8bb69af_0 已完成。',
+      hiddenKeys: ['animal-03-rabbit'],
+    })
+    expect(lines).toEqual(['补做兔子图'])
+    expect(prompts.join('')).not.toContain('animal-03-rabbit')
+    expect(prompts.join('')).not.toContain('agent_a174c2bd')
+    expect(normalizeFollowUpLines({ lines: ['补做 `cat`'] }, '', ['cat'])).toEqual(['补做'])
+  })
+
+  it('模型明确没有下一句时正常结束，不把空建议当作故障重试', async () => {
+    for (const lines of [[], [''], ['  ', '\n']]) {
+      let requests = 0
+      setChatFetchForTesting(async () => {
+        requests += 1
+        return new Response(
+          JSON.stringify({
+            choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ lines }) } }],
+          }),
+        )
+      })
+      expect(
+        await suggestFollowUps({
+          userText: '验收完成，请一句话确认并结束。',
+          assistantText: '验收已完成。',
+          recentContext: '用户：验收完成，请一句话确认并结束。',
+        }),
+      ).toEqual([])
+      expect(requests).toBe(1)
+    }
+  })
+
+  it('坏格式、超长或重复的建议仍会重试，不能伪装成没有下一句', async () => {
+    const userText = '画一张秋日海报'
+    for (const invalid of [
+      {},
+      { lines: null },
+      { lines: '换成暖光。' },
+      { lines: [null, ''] },
+      { lines: ['字'.repeat(81)] },
+      { lines: [userText] },
+    ]) {
+      let requests = 0
+      setChatFetchForTesting(async () => {
+        requests += 1
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify(requests === 1 ? invalid : { lines: ['换成暖光。'] }),
+                },
+              },
+            ],
+          }),
+        )
+      })
+      expect(await suggestFollowUps({ userText, assistantText: '已完成。' })).toEqual([
+        '换成暖光。',
+      ])
+      expect(requests).toBe(2)
+    }
+  })
+
   it('取这一轮最后一句用户的话和最后一段助手文字', () => {
     expect(
       followUpSource([

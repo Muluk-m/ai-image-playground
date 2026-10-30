@@ -1,3 +1,4 @@
+import type { ManagedModelKind } from '@image-playground/shared'
 import { useQuery } from '@tanstack/react-query'
 import { notFound, useLocation } from '@tanstack/react-router'
 import type { ComponentType, ReactNode } from 'react'
@@ -28,6 +29,8 @@ export interface PrivateAdminOverlay {
   OverviewPanel: ComponentType
   SettingsPanel: ComponentType
   OrdersPanel?: ComponentType
+  /** 「模型」页每一行的单价编辑；上下架归公开侧，这里只管价格。缺席即不收费。 */
+  ModelPricing?: ComponentType<{ model: string; kind: ManagedModelKind }>
   UserDetailPanel: ComponentType<{ userId: string; username: string; children?: ReactNode }>
 }
 
@@ -170,4 +173,11 @@ export function PrivateAdminOrdersPanel() {
       <Component />
     </Page>
   )
+}
+
+export function PrivateAdminModelPricing(props: { model: string; kind: ManagedModelKind }) {
+  const enabled = usePrivateAdminOverlayEnabled()
+  const Component = overlay.ModelPricing
+  if (!enabled || !Component) return null
+  return <Component {...props} />
 }

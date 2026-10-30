@@ -6,7 +6,7 @@ import {
   projectKind,
 } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
-import { mediaIdentity } from '../../../lib/cloudMedia'
+import { MediaRequestError, mediaIdentity } from '../../../lib/cloudMedia'
 import { uploadMediaSource } from '../../../lib/mediaUpload'
 import type { CanvasDoc, CanvasEl } from './canvasDoc'
 import type { CloudSceneCheckpoint } from './persistence'
@@ -99,7 +99,38 @@ export function projectDocument(
   return isProjectDocument(document) ? document : null
 }
 
-const MEDIA_CONCURRENCY = 4
+/** 一次补传几张原图；节点画布与旧画布共用，与 mediaUpload 的上传并发位一致。 */
+export const MEDIA_CONCURRENCY = 4
+
+const PERMANENT_MEDIA_REJECTIONS = new Set([
+  'media_invalid_image',
+  'media_unsupported_image',
+  'media_too_large',
+  'media_image_too_large',
+  'media_image_pixels_exceeded',
+])
+const OVERSIZED_MEDIA = new Set([
+  'media_too_large',
+  'media_image_too_large',
+  'media_image_pixels_exceeded',
+])
+
+/**
+ * 上传失败时怎么处理这张图。413 一律当超限：网关和存储经常不带业务错误码，
+ * 不认的话节点会留着坏图，界面也不提示。
+ */
+export function canvasUploadRejection(
+  error: unknown,
+): 'invalid' | 'oversized' | 'missing' | undefined {
+  if (error instanceof MediaRequestError && error.status === 413) return 'oversized'
+  if (error instanceof MediaRequestError) {
+    if (!PERMANENT_MEDIA_REJECTIONS.has(error.code)) return undefined
+    return OVERSIZED_MEDIA.has(error.code) ? 'oversized' : 'invalid'
+  }
+  return error instanceof Error && error.message === 'unsupported_local_media'
+    ? 'invalid'
+    : undefined
+}
 
 export async function prepareProjectMedia(
   doc: CanvasDoc,

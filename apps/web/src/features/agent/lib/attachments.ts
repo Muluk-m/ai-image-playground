@@ -5,7 +5,10 @@ import {
 import { i18next } from '../../../i18n'
 import { getAttachmentLimits } from '../../../lib/clientCapabilities'
 import { blobDataUrl } from '../../../lib/cloudMedia'
-import { preprocessImageFile } from '../../../lib/imagePreprocessing'
+import { compressUploadFiles } from '../../../lib/imageFiles'
+import { IMAGE_PREPROCESSING, preprocessImageFile } from '../../../lib/imagePreprocessing'
+import { jpegOrientation } from '../../../lib/imagePreprocessing/orientation'
+import { MAX_IMAGE_BYTES } from '../../../lib/inputImageLimit'
 import { registerLocalAttachmentSource } from '../../../lib/localAttachmentSources'
 import {
   attachReferences as admitReferences,
@@ -13,7 +16,11 @@ import {
 } from '../../../lib/referenceDraft'
 import { useStore } from '../../../store'
 import { assetViewImages, useLibraryStore } from '../../library/store'
-import { attachmentUploadsEnabled } from './attachmentUploads'
+import {
+  attachmentUploadsEnabled,
+  mediaFallbackEnabled,
+  referenceImageLimit,
+} from './attachmentUploads'
 import {
   type AgentDraft,
   type AgentReference,
@@ -46,6 +53,33 @@ export function referenceLimitMessage(
       })
 }
 
+const ORIGINAL_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
+
+/**
+ * 带 EXIF 方向（手机竖拍）的 JPEG 原件：浏览器按方向转正了显示、选区也画在转正后的图上，
+ * 原字节却还是没转的——服务端会拒收这种图的选区。这里按原尺寸转正后重新编码，不缩小。
+ */
+async function uprightOriginal(file: File): Promise<Blob> {
+  if (file.type !== 'image/jpeg') return file
+  if (jpegOrientation(await file.arrayBuffer()) === 1) return file
+  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('media_unsupported_image')
+    context.drawImage(bitmap, 0, 0)
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.95),
+    )
+    if (!blob) throw new Error('media_unsupported_image')
+    return blob
+  } finally {
+    bitmap.close()
+  }
+}
+
 function fileStem(name: string): string {
   const stem = name.replace(/\.[^.]+$/, '').trim()
   return (stem || name).slice(0, 60)
@@ -55,9 +89,7 @@ function fileStem(name: string): string {
  * 拖进来 / 粘贴 / 选出来的图片文件 → 参考图。id 现造：它不是画布对象也不是素材，
  * 模型改图时靠它指认这一张。先按传输预算预处理；文件、拖拽、粘贴与兼容内联入口共用同一条串行处理链。
  */
-export function filesToReferences(
-  files: readonly File[],
-): AgentReference[] | Promise<AgentReference[]> {
+function referencesFromFiles(files: readonly File[]): AgentReference[] | Promise<AgentReference[]> {
   const limits = getAttachmentLimits()
   if (attachmentUploadsEnabled() && limits) {
     return files.map((file) => ({
@@ -66,9 +98,21 @@ export function filesToReferences(
       name: fileStem(file.name),
     }))
   }
+  // 附件通道关着、但能按普通云媒体上传：原件原样留着（局部改图要按原图像素出图），
+  // 超过单张上限、又压不进上限的，在输入框里就标出来、拦住发送。
+  const keepOriginal = mediaFallbackEnabled()
   return (async () => {
     const sources: string[] = []
     for (const file of files) {
+      if (keepOriginal && ORIGINAL_TYPES.has(file.type)) {
+        if (file.size > IMAGE_PREPROCESSING.maxInputBytes)
+          throw new Error('attachment_input_too_large')
+        const upright = await uprightOriginal(file)
+        if (upright.size > IMAGE_PREPROCESSING.maxInputBytes)
+          throw new Error('attachment_input_too_large')
+        sources.push(await blobDataUrl(upright))
+        continue
+      }
       const image = await preprocessImageFile(file)
       sources.push(await blobDataUrl(new Blob([image.data], { type: image.contentType })))
     }
@@ -78,6 +122,18 @@ export function filesToReferences(
       name: fileStem(file.name),
     }))
   })()
+}
+
+export function filesToReferences(
+  files: readonly File[],
+): AgentReference[] | Promise<AgentReference[]> {
+  // 没超 50 MB 时保持同步：选中的图要立刻占住名额，不能等读文件。
+  // 只压超过 50 MB 的；更紧的 targetBytes 只约束这些大图的结果，不重编码更小的原件。
+  if (!files.some((file) => file.size > MAX_IMAGE_BYTES)) return referencesFromFiles(files)
+  return compressUploadFiles(
+    files,
+    Math.min(MAX_IMAGE_BYTES, referenceImageLimit().imageBytes),
+  ).then(referencesFromFiles)
 }
 
 /**

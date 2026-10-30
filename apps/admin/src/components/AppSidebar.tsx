@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import {
   Activity,
   BookOpen,
-  Bot,
+  Boxes,
   Bug,
   ClipboardList,
   HeartPulse,
@@ -52,7 +52,7 @@ export type NavTo =
   | '/errors'
   | '/logs'
   | '/audit'
-  | '/agent-models'
+  | '/models'
 
 export interface NavEntry {
   to: NavTo
@@ -107,7 +107,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     label: '设置',
     entries: [
-      { to: '/agent-models', icon: Bot, label: 'Agent 模型' },
+      { to: '/models', icon: Boxes, label: '模型' },
       { to: '/audit', icon: BookOpen, label: '审计' },
     ],
   },

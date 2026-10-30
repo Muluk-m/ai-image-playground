@@ -2,6 +2,7 @@ import { GUIDE_PATHS } from '../features/guide/paths'
 import { openPricingSheet } from '../features/pricing/pricingSheetState'
 import { useTranslation } from '../i18n'
 import { useLocalePicker } from '../i18n/useLocalePicker'
+import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import DisplaySettingsFields from './DisplaySettingsFields'
 import { Button } from './ui/button'
 import { Icon, type IconName } from './ui/icon'
@@ -16,14 +17,17 @@ export default function GuestAccountMenu({
   onLogin,
   onClose,
   onOpenSettings,
+  onOpenContact,
 }: {
   authEnabled: boolean
   onLogin: () => void
   onClose: () => void
   onOpenSettings: () => void
+  onOpenContact: () => void
 }) {
   const { t } = useTranslation('shell')
   const { locale } = useLocalePicker()
+  const billing = isClientCapabilityEnabled('billing:credits')
 
   return (
     <div
@@ -31,15 +35,19 @@ export default function GuestAccountMenu({
       aria-label={t('header.appMenu')}
       className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card p-3 text-sm shadow-popover"
     >
-      <div className="flex items-center gap-2.5 px-1 pb-3">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-          <Icon name="user" className="size-5" />
-        </span>
-        <span className="min-w-0">
-          <span className="block font-medium text-foreground">{t('header.guest.signedOut')}</span>
-          <span className="block text-xs text-muted-foreground">{t('header.guest.syncHint')}</span>
-        </span>
-      </div>
+      {authEnabled ? (
+        <div className="flex items-center gap-2.5 px-1 pb-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+            <Icon name="user" className="size-5" />
+          </span>
+          <span className="min-w-0">
+            <span className="block font-medium text-foreground">{t('header.guest.signedOut')}</span>
+            <span className="block text-xs text-muted-foreground">
+              {t('header.guest.syncHint')}
+            </span>
+          </span>
+        </div>
+      ) : null}
       {authEnabled ? (
         <div className="rounded-xl border border-primary/30 bg-primary/10 p-3">
           <div className="flex items-center gap-1.5 font-medium text-primary">
@@ -54,22 +62,25 @@ export default function GuestAccountMenu({
           </Button>
         </div>
       ) : null}
-      <div className="flex flex-col pt-2">
-        <MenuRow
-          icon="membershipFree"
-          label={t('nav.plans')}
-          trailing={t('header.guest.viewPlans')}
-          onClick={() => {
-            onClose()
-            openPricingSheet()
-          }}
-        />
+      <div className={authEnabled ? 'flex flex-col pt-2' : 'flex flex-col'}>
+        {billing ? (
+          <MenuRow
+            icon="membershipFree"
+            label={t('nav.plans')}
+            trailing={t('header.guest.viewPlans')}
+            onClick={() => {
+              onClose()
+              openPricingSheet()
+            }}
+          />
+        ) : null}
         <MenuLink
           icon="help"
           label={t('header.guest.help')}
           href={GUIDE_PATHS[locale]}
           onClick={onClose}
         />
+        <MenuRow icon="chat" label={t('header.contact.menu')} onClick={onOpenContact} />
       </div>
       <div className="mt-1 flex flex-col border-t border-border pt-2">
         <DisplaySettingsFields

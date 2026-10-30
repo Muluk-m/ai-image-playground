@@ -5,6 +5,8 @@ import type {
   AgentReturnedQueuedMessage,
 } from '@image-playground/shared'
 import { bffDrain } from '../drain'
+import { log } from '../logger'
+import { cancelStoppedTurnJobs } from './background-jobs'
 import { notifyConversation } from './events'
 import type { EnqueueUserMessage, InboxEntry } from './inbox'
 import {
@@ -126,6 +128,15 @@ export function announceQueuedMessage(
 ): void {
   if (runningTurn(conversationId)) notifyQueued(conversationId, queued)
   else kickConversationInbox(conversationId)
+}
+
+/**
+ * 用户确认完确认门拦下的卡，那一轮的续跑已经排进收件箱（见 `tool-gate.ts`）：当场开轮，界面跟进它的流。
+ * 本实例正在下线就不接，留给新版本的巡查（见 `inbox-pickup`）。
+ */
+export function pickUpGateContinuation(conversationId: string): void {
+  if (bffDrain.status().draining) return
+  kickConversationInbox(conversationId)
 }
 
 /**
@@ -265,7 +276,12 @@ export async function promoteToInterjection(
 
 /** 停止之后交还给客户端的那几条排队消息；没有这一轮可停时是 `no_such_turn`。 */
 export type InboxStopResult =
-  | { readonly kind: 'stopped'; readonly returned: AgentReturnedQueuedMessage[] }
+  | {
+      readonly kind: 'stopped'
+      readonly returned: AgentReturnedQueuedMessage[]
+      /** 随这次停止一并取消（并退回积分）的、这一轮自己提交的出图任务；没有就不带这个字段。 */
+      readonly cancelledTaskIds?: string[]
+    }
   | { readonly kind: 'no_such_turn' }
 
 /**
@@ -288,6 +304,17 @@ export async function stopConversationTurn(
   const { returned, fresh } = await returnAgentMessages(conversationId, turnId)
   for (const queueId of fresh)
     notifyConversation(conversationId, { type: 'queuedMessageWithdrawn', queueId })
-  active.abort()
-  return { kind: 'stopped', returned }
+  active.abort('user_stop')
+  // 这一轮自己提交、还没出结果的出图任务一并取消退款（BUG-32）。中止之后才晚落库的那几条由轮收尾
+  // 再扫一遍（见 `turn.ts`）。取消失败不拦停止：轮已经停了，任务照常跑完、照常结算。
+  const cancelledTaskIds = await cancelStoppedTurnJobs(conversationId, turnId).catch((err) => {
+    log.error(
+      { event: 'agent.stop_cancel_failed', conversationId, turnId, err },
+      'stopping the turn could not cancel its jobs',
+    )
+    return []
+  })
+  return cancelledTaskIds.length > 0
+    ? { kind: 'stopped', returned, cancelledTaskIds }
+    : { kind: 'stopped', returned }
 }

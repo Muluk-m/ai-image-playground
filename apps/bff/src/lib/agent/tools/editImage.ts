@@ -128,7 +128,11 @@ export const editImage = defineAgentTool({
       const snapshot = context.authorization?.()
       // 只有明确的参数关卡（图片 id、选区绑定、授权原文）拦下的才算参数不成立；读库、读对象存储、
       // 解码出的错不是模型的参数问题，照旧落进未分类。
-      const images = await requireAgentImages(context.images, params.imageIds)
+      // 改图输入：超大图先等比缩到最长边 4000 再送（带选区的原样，遮罩绑着原图像素）。
+      const images = await requireAgentImages(
+        context.images,
+        params.imageIds.map((imageId) => ({ imageId, variant: 'edit' as const })),
+      )
       if (
         (context.maskedEditPlan?.protected || context.images.masked) &&
         !images.some((image) => image.maskDataUrl)
@@ -138,6 +142,11 @@ export const editImage = defineAgentTool({
           '本轮存在用户选区，不能静默改成无选区编辑；请核对目标和参考，或先请用户取消选区',
         )
       }
+      if (context.maskProposals?.has(images[0]!.imageId) && !images[0]!.maskDataUrl)
+        throw new AgentToolError(
+          'invalid_params',
+          '这张图的修改范围正在等用户确认，确认后会带着蒙版回来；这一轮不要先改它。',
+        )
       const prepared = await prepareMaskedEdit(
         images,
         params.selectionBindings,

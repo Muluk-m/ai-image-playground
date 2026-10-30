@@ -493,9 +493,12 @@ export interface ListAuditsResult {
 
 /** 浏览器上报的错误。kind 的含义见 packages/shared/src/client-errors.ts。 */
 export type ClientErrorKind = 'boot' | 'error' | 'rejection' | 'react'
+export type ClientErrorSource = 'local' | 'automation' | 'marked_test' | 'unclassified'
 
 /** 同一指纹在时间窗内聚成的一个问题；kind 以下几项取自最近一次。 */
 export interface ClientErrorGroup {
+  sources: Record<ClientErrorSource, number>
+  recovered: number
   fingerprint: string
   kind: ClientErrorKind
   name: string | null
@@ -525,6 +528,8 @@ export interface ClientErrorsResult {
 }
 
 export interface ClientErrorEvent {
+  source: ClientErrorSource
+  recovered_at: number | null
   id: string
   received_at: number
   kind: ClientErrorKind
@@ -726,6 +731,10 @@ export interface AgentPromptItem {
   media: string
   model: string
   taskId: string | null
+  /** Stable instruction identity; tasks from one tool call share it. */
+  groupId?: string | null
+  /** All queue tasks emitted by the same tool instruction, including taskId. */
+  taskIds?: string[]
   userText: string | null
   chatModel: string | null
   inputTokens: number

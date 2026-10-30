@@ -1,4 +1,9 @@
 {
+  "common": {
+    "storageFull": "浏览器存储空间不足，请清理后重试",
+    "network": "网络连接失败，请检查网络后重试",
+    "fallback": "操作没有完成，请重试"
+  },
   "agentQueue": {
     "stop_failed": "中止未成功，请点击中止重试。",
     "fallback": "消息恢复失败，请重试。",
@@ -31,7 +36,7 @@
     "fallback": "暂时无法创建账户，请检查网络后重试"
   },
   "link": {
-    "identity_taken": "该第三方账号已绑定到其他账户",
+    "identity_taken": "该第三方账号已绑定到其他账户。请退出当前账户，直接使用 Google 登录原账户。",
     "unauthenticated": "登录状态已失效，请重新登录后再绑定",
     "access_denied": "你取消了第三方授权",
     "fallback": "绑定失败，请稍后重试"
@@ -49,7 +54,6 @@
     "fallback": "暂时无法解绑，请稍后重试"
   },
   "generations": {
-    "grok_channel_unavailable": "Grok 模型渠道暂不可用，请稍后再试",
     "fallback": "暂时无法加载记录，请刷新重试。"
   },
   "projectSync": {
@@ -64,7 +68,8 @@
     "invalid_project_document": "画布格式不受支持，当前内容已保留，请更新页面后重试。",
     "recovery_copy_failed": "无法保存恢复副本。请释放浏览器存储空间后重试，当前修改未被替换。",
     "recovery_changed": "保存副本期间有了新修改，已保留在当前画布。请再次选择处理方式。",
-    "project_deleted": "这个项目已被删除。当前编辑仍保留，可另存为新项目。"
+    "project_deleted": "这个项目已被删除。当前编辑仍保留，可另存为新项目。",
+    "project_quota_exceeded": "项目数量已到上限，删除一些项目后重试。"
   },
   "projectRecycle": {
     "fallback": "回收站操作失败，请重试。"
@@ -76,21 +81,24 @@
     "unauthorized": "登录已过期，请重新登录后再复制。",
     "canvas_sync_unavailable": "当前环境不能复制项目。",
     "account_changed": "账号已经切换，请重新打开后再复制。",
+    "canvas_media_pending": "还有图片在上传，传完后再复制。",
     "fallback": "复制项目失败，请重试。"
   },
   "agentTool": {
-    "upstream_error": "生成服务出错了，这次没有出来",
-    "timeout": "生成超时，这次没有出来",
+    "upstream_error": "生成服务异常，本次未能完成",
+    "timeout": "生成超时，本次未能完成",
     "no_output": "生成完成了，但没有拿到结果",
     "result_unknown": "这次的结果没能确认，可能已经生成；请先看看画布与历史",
     "insufficient_credits": "积分不够，这次没有生成",
     "quota_exceeded": "今天的生成额度已经用完",
     "authentication_required": "需要先登录才能生成",
     "invalid_params": "这次的参数不成立，没有提交",
+    "image_unusable": "这个地址取回来的不是可用的图片，请换一个图片地址",
     "source_unavailable": "来源网站拒绝或无法提供内容，请换个公开来源",
-    "content_policy": "这次的提示词没通过内容审核，上游拒绝了生成",
-    "model_unavailable": "要用的模型暂时不可用",
-    "service_unavailable": "批次执行还没开放。可以让助手按已有的逐图结果另拟计划",
+    "source_timeout": "联网读取超时，没拿到内容",
+    "content_policy": "这次的提示词没通过内容审核，请换个说法",
+    "model_unavailable": "该模型暂不可用，请换其他模型",
+    "service_unavailable": "批次执行还没开放。可以让智能体按已有的逐图结果另拟计划",
     "cancelled": "已中止",
     "fallback": "没有完成"
   },
@@ -135,6 +143,7 @@
     "attachment_animated_image": "暂不支持动态图片，请导出静态 PNG、JPG 或 WebP 后重新选择。",
     "attachment_quality_limit": "无法在保持 90% 编码质量时满足上传限制，请裁剪图片后重新选择。",
     "attachment_compression_failed": "图片预处理失败，请重新导出为 PNG、JPG 或 WebP 后选择。",
-    "attachment_compression_timeout": "图片处理超时，请重新选择；仍失败请缩小图片后再试。"
+    "attachment_compression_timeout": "图片处理超时，请重新选择；仍失败请缩小图片后再试。",
+    "reference_too_large": "图片超过 {{maxSize}}，请移除或换一张更小的图。"
   }
 }

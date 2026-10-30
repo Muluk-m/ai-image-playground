@@ -173,7 +173,7 @@ describe('首屏的生成设置', () => {
   it('对话创作与画布创作都走 Agent 输入，但保留各自入口', () => {
     remount('chat')
     expect(openSettings()('张数')).toBeNull()
-    expect(editor().getAttribute('data-placeholder')).toContain('梳理思路')
+    expect(editor().getAttribute('data-placeholder')).toContain('描述你想做的画面或短片')
     expect(useStore.getState().createTarget).toBe('chat')
   })
 
@@ -562,7 +562,7 @@ it('removes a masked reference from the expanded stack', () => {
   )
   const panel = openReferenceStack(host)
   expect(panel.querySelector('.creation-reference-heading')?.textContent).toContain('清空参考素材')
-  const remove = panel.querySelector<HTMLButtonElement>('button[aria-label="移除"]')!
+  const remove = panel.querySelector<HTMLButtonElement>('button[aria-label="移除第 1 张图片"]')!
   expect(remove.className).toContain('creation-reference-remove')
   expect(remove.className).not.toContain('bg-destructive')
   act(() => remove.click())
@@ -608,4 +608,68 @@ it('clears references and their masks while preserving prompt text', () => {
   expect(useStore.getState().inputImages).toEqual([])
   expect(useStore.getState().maskDraft).toBeNull()
   expect(useStore.getState().prompt).toBe('保留这段文字')
+})
+
+describe('快速生成的发送按钮', () => {
+  it('双击或连按回车只发出一条任务：点下去就锁住，转完圈才能再发', async () => {
+    vi.useFakeTimers()
+    try {
+      remount('generate')
+      const submitTask = vi.spyOn(storeModule, 'submitTask').mockResolvedValue(undefined)
+      act(() => useStore.setState({ prompt: '一只橘猫' }))
+      act(() => useStore.getState().setSettings({ enterSubmit: true }))
+      const send = () =>
+        [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+          (one) => one.getAttribute('aria-label') === '生成',
+        )!
+      act(() => {
+        send().click()
+        send().click()
+        editor().dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+        )
+      })
+      expect(submitTask).toHaveBeenCalledTimes(1)
+      expect(send().disabled).toBe(true)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600)
+      })
+      expect(send().disabled).toBe(false)
+      act(() => send().click())
+      expect(submitTask).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('只有空白、控制符或零宽字符时发不出去', () => {
+    remount('generate')
+    const submitTask = vi.spyOn(storeModule, 'submitTask').mockResolvedValue(undefined)
+    act(() => useStore.setState({ prompt: '\u0000\u0007\u202e\u200b \u3000\t' }))
+    const send = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (one) => one.getAttribute('aria-label') === '生成',
+    )!
+    expect(send.disabled).toBe(true)
+    act(() => send.click())
+    expect(submitTask).not.toHaveBeenCalled()
+  })
+
+  it('提示词快到上限时显示字数，超过上限时发不出去', () => {
+    remount('generate')
+    const submitTask = vi.spyOn(storeModule, 'submitTask').mockResolvedValue(undefined)
+    const sendButton = () =>
+      [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+        (one) => one.getAttribute('aria-label') === '生成',
+      )!
+    act(() => useStore.setState({ prompt: '猫'.repeat(100) }))
+    expect(host.textContent).not.toContain('/20,000')
+    act(() => useStore.setState({ prompt: '猫'.repeat(16_000) }))
+    expect(host.textContent).toContain('16,000/20,000')
+    expect(sendButton().disabled).toBe(false)
+    act(() => useStore.setState({ prompt: '猫'.repeat(20_001) }))
+    expect(host.textContent).toContain('20,001/20,000')
+    expect(sendButton().disabled).toBe(true)
+    act(() => sendButton().click())
+    expect(submitTask).not.toHaveBeenCalled()
+  })
 })

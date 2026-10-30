@@ -29,9 +29,10 @@ import {
   submittedTaskSnapshot,
   subscribeSubmittedTasks,
 } from '../lib/submittedTaskAttention'
+import { taskMatchesStatusFilter } from '../lib/taskStatusFilter'
 import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } from '../store'
 import type { TaskRecord } from '../types'
-import SetHistoryCard from './SetHistoryCard'
+import SetHistoryCard, { type BatchItemHandlers } from './SetHistoryCard'
 import TaskCard from './TaskCard'
 
 /** 网格列数与 `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` 的断点保持一致。 */
@@ -66,6 +67,8 @@ function useGridColumns(): number {
 interface GridItem {
   readonly key: string
   readonly taskId?: string
+  /** 一套折起来的卡里装着的任务，新发送的一批要滚到这张卡上。 */
+  readonly taskIds?: readonly string[]
   readonly node: ReactNode
 }
 
@@ -194,8 +197,7 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
 
     return sorted.filter((t) => {
       if (filterFavorite && !t.isFavorite) return false
-      const matchStatus = filterStatus === 'all' || t.status === filterStatus
-      if (!matchStatus) return false
+      if (!taskMatchesStatusFilter(t, filterStatus)) return false
 
       if (!q) return true
       const prompt = (t.prompt || '').toLowerCase()
@@ -478,6 +480,17 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
     }),
     [],
   )
+  // 逐张卡里「第 N 张详情」打开这一张的作品详情；格子不显示选中态，所以不走 Ctrl/⌘ 多选那一套。
+  const batchHandlers = useMemo<BatchItemHandlers>(
+    () => ({
+      ...handlers,
+      open: (task) => {
+        if (useStore.getState().selectedTaskIds.length > 0) clearSelection()
+        setDetailTaskId(task.id)
+      },
+    }),
+    [handlers, clearSelection, setDetailTaskId],
+  )
   const selectedSet = useMemo(() => new Set(selectedTaskIds), [selectedTaskIds])
   // 列表只在任务、展开状态或选中态变化时重建；纯滚动的更新只处理可见行。
   const items = useMemo(() => {
@@ -499,7 +512,9 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
     const rows: { at: number; nodes: GridItem[] }[] = historyItems.map((item) => {
       if (item.kind === 'task') return { at: item.task.createdAt, nodes: [renderTask(item.task)] }
       const expanded = expandedSetIds.includes(item.setId)
-      const title = storyboardTitles.get(item.setId)
+      // 逐张生成的一组以那句提示词为名，标一个「逐张生成」。
+      const batch = item.tasks[0]?.origin?.kind === 'batch'
+      const title = batch ? item.tasks[0]?.prompt : storyboardTitles.get(item.setId)
       const job = title ? undefined : productShotJobs.find((e) => e.id === item.setId)
       return {
         at: item.tasks.reduce(
@@ -509,12 +524,16 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
         nodes: [
           {
             key: `set-${item.setId}`,
+            taskIds: item.tasks.map((task) => task.id),
             node: (
               <SetHistoryCard
                 key={`set-${item.setId}`}
                 name={title ?? job?.name ?? setFallbackName(item.tasks[0])}
-                actions={legacyActionLabels(job)}
+                actions={batch ? [t('set.batchTag')] : legacyActionLabels(job)}
                 tasks={item.tasks}
+                batch={batch}
+                itemHandlers={batch ? batchHandlers : undefined}
+                attended={batch && item.tasks.some((task) => submittedIds.includes(task.id))}
                 expanded={expanded}
                 onToggle={() =>
                   setExpandedSetIds((ids) =>
@@ -526,7 +545,13 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
               />
             ),
           },
-          ...(expanded ? item.tasks.map(renderTask) : []),
+          // 逐张生成的一组：出了图的在卡里逐张列出（见 SetHistoryCard），失败/取消的那几张仍展开成作品卡，
+          // 好打开详情看原因、复制诊断或删除；其余的套整套展开成单张作品卡。
+          ...(expanded
+            ? (batch ? item.tasks.filter((task) => task.status === 'error') : item.tasks).map(
+                renderTask,
+              )
+            : []),
         ],
       }
     })
@@ -541,6 +566,7 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
     submittedIds,
     selectedSet,
     handlers,
+    batchHandlers,
   ])
 
   // 按当前列数分行，只渲染视口附近的几行。
@@ -612,6 +638,10 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
         node,
       ]),
     )
+    // 逐张生成的一批折在一张卡里，卡上记着它装的任务 id。
+    for (const node of root.querySelectorAll<HTMLElement>('[data-set-task-ids]'))
+      for (const id of node.dataset.setTaskIds?.split(' ') ?? [])
+        if (!byId.has(id)) byId.set(id, node)
     for (const id of pending) {
       const card = byId.get(id)
       if (!card) continue
@@ -622,7 +652,13 @@ export default function TaskGrid({ hero }: { hero?: boolean } = {}) {
     if (!primary) {
       // 新作品排在最前；列表已往下滚、首行没挂载时先回到网格顶部，挂上后再高亮。
       // 只为确实在列表里的新作品回滚；被筛掉或收在套里的不去打断用户滚动。
-      if (items.some((item) => item.taskId && pending.includes(item.taskId)))
+      if (
+        items.some(
+          (item) =>
+            (item.taskId && pending.includes(item.taskId)) ||
+            item.taskIds?.some((id) => pending.includes(id)),
+        )
+      )
         window.scrollTo({ top: Math.max(0, scrollMargin - 96) })
       return
     }

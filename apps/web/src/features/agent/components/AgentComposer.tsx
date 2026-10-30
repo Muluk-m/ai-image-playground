@@ -28,6 +28,7 @@ import {
 } from '../../../components/creation/CreationFrame'
 import { CreationReferencePreview } from '../../../components/creation/CreationReferencePreview'
 import { CreationReferenceStack } from '../../../components/creation/CreationReferenceStack'
+import { useReferenceDisplay } from '../../../components/creation/referenceDisplay'
 import MediaImage from '../../../components/MediaImage'
 import PromptEditor, { usePromptEditor } from '../../../components/PromptEditor'
 import ContextMenu, { ContextMenuItem } from '../../../components/patterns/ContextMenu'
@@ -63,7 +64,13 @@ import {
   resolveMediaSource,
 } from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
-import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
+import {
+  acceptImageFiles,
+  compressUploadFiles,
+  filesFromFolderInput,
+  imageNeedsUploadCompression,
+  prepareAcceptedImageFiles,
+} from '../../../lib/imageFiles'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import {
   localAttachmentFailure,
@@ -115,13 +122,18 @@ import {
 import {
   attachmentUploadErrorMessage,
   canRetryAttachmentUpload,
+  formatImageLimit,
 } from '../lib/attachmentUploadErrors'
 import {
   attachmentUploadError,
+  attachmentUploadProgress,
   attachmentUploadRevision,
   attachmentUploadState,
   attachmentUploadsEnabled,
+  mediaFallbackEnabled,
   primeAttachmentUploads,
+  REFERENCE_TOO_LARGE,
+  referenceImageLimit,
   retryAttachmentUploads,
   subscribeAttachmentUploads,
   withKnownAttachmentMedia,
@@ -158,6 +170,7 @@ import {
 } from '../lib/references'
 import { createSelectionReferences } from '../lib/selectionReferences'
 import { useAgentSkills } from '../lib/useAgentSkills'
+import { useAttachmentStackProgress } from '../lib/useAttachmentStackProgress'
 import { useAgentStore } from '../store'
 import AgentConfirmationGate, { scrollToAgentMessage } from './AgentConfirmationGate'
 import AgentParamsChip, { AgentExecutionSettings } from './AgentParamsChip'
@@ -175,6 +188,7 @@ function ComposerAttachmentThumb({
   frameClassName = '',
   alt = '',
   uploading = false,
+  progress,
   failed = false,
   retryPreview = false,
 }: {
@@ -183,6 +197,8 @@ function ComposerAttachmentThumb({
   frameClassName?: string
   alt?: string
   uploading?: boolean
+  /** 直传百分比；有就在转圈下面显示数字，代替「上传中」。 */
+  progress?: number
   failed?: boolean
   retryPreview?: boolean
 }) {
@@ -242,7 +258,13 @@ function ComposerAttachmentThumb({
       {(pending || uploading) && (
         <AttachmentLoading
           uploading={uploading}
-          label={uploading ? t('composer.upload.uploading') : undefined}
+          label={
+            uploading
+              ? progress === undefined
+                ? t('composer.upload.uploading')
+                : `${progress}%`
+              : undefined
+          }
         />
       )}
       {previewFailed &&
@@ -283,6 +305,11 @@ function ComposerAttachmentThumb({
 
 /** 附件菜单贴在回形针上方：两条目加内边距的实测高度，越界的那点由 ContextMenu 夹回视口。 */
 const ATTACH_MENU_HEIGHT = 96
+/**
+ * 发出去之后这颗按钮在原位变成中止。双击发送的第二下、焦点停在按钮上连按的第二次回车，
+ * 都会落在它身上，把服务端还没收下的那一轮当场停掉。发出后先按住这么久，再变成可点的中止。
+ */
+const STOP_ARM_DELAY_MS = 800
 
 /** `@` 与 `/` 两个弹层共用一个菜单，所以候选身份要能分得出是哪一支。 */
 type ComposerSuggestion = AgentMentionValue | { readonly type: 'skill'; readonly name: string }
@@ -446,11 +473,27 @@ export default function AgentComposer({
       attachmentUploadState(uploadReference(reference)) ?? '',
     ),
   ).length
-  const referenceStatus = failedReference
-    ? attachmentUploadErrorMessage(
-        attachmentUploadError(uploadReference(failedReference)),
-        getAttachmentLimits(),
-      )
+  // 收起的那叠也要看得到进度（BUG-42）。
+  const stackProgress = useAttachmentStackProgress(draft.references.map(uploadReference))
+  // 每张传失败的图各一句、标明第几张，与首页输入框同一句式（BUG-57）；缩略图旁不再另写一遍。
+  // 超限的用首页那句「第 N 张超过 50 MB，请移除或换一张更小的图。」（BUG-58）。
+  const failedReferenceLines = draft.references.flatMap((reference, index) => {
+    if (attachmentUploadState(uploadReference(reference)) !== 'failed') return []
+    const error = attachmentUploadError(uploadReference(reference))
+    return [
+      error === REFERENCE_TOO_LARGE
+        ? t('composer:image.referenceTooLarge', {
+            index: index + 1,
+            maxSize: formatImageLimit(referenceImageLimit().imageBytes),
+          })
+        : t('composer:studio.referenceIssue', {
+            index: index + 1,
+            reason: attachmentUploadErrorMessage(error, getAttachmentLimits()),
+          }),
+    ]
+  })
+  const referenceStatus = failedReferenceLines.length
+    ? failedReferenceLines.join('\n')
     : uploadingCount > 0
       ? t('composer:studio.uploadProgress', {
           ready: draft.references.length - uploadingCount,
@@ -494,61 +537,86 @@ export default function AgentComposer({
       useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
       return
     }
-    const images =
-      attachmentUploadsEnabled() && getAttachmentLimits()
-        ? files.filter((file) => file.type.startsWith('image/'))
-        : acceptImageFiles(files)
-    if (images.length === 0) return
-    const limits = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
-    if (
-      limits &&
-      session.getSnapshot().draft.references.length + images.length > limits.logicalReferences
-    ) {
-      useStore
-        .getState()
-        .showToast(t('composer.tooManyReferences', { count: limits.logicalReferences }), 'error')
-      return
-    }
-    const currentAccount = accountScope()
-    confirmImageBatch(images.length, () => {
-      if (!currentAccount() || revision !== attachmentRevision.current) return
-      const currentLimits = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
+    const admit = (images: File[]) => {
+      if (revision !== attachmentRevision.current || images.length === 0) return
+      const limits = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
       if (
         limits &&
-        (!currentLimits ||
-          session.getSnapshot().draft.references.length + images.length >
-            currentLimits.logicalReferences)
+        session.getSnapshot().draft.references.length + images.length > limits.logicalReferences
       ) {
-        useStore.getState().showToast(
-          t('composer.tooManyReferences', {
-            count: currentLimits?.logicalReferences ?? limits.logicalReferences,
-          }),
-          'error',
-        )
+        useStore
+          .getState()
+          .showToast(t('composer.tooManyReferences', { count: limits.logicalReferences }), 'error')
         return
       }
-      const added = filesToReferences(images)
-      if (Array.isArray(added)) {
-        setDraft((current) => attachReferences(current, added, transportRef.current))
-      } else {
-        void added
-          .then((references) => {
-            if (!currentAccount() || revision !== attachmentRevision.current) return
-            setDraft((current) => attachReferences(current, references, transportRef.current))
-          })
-          .catch((error: unknown) =>
-            useStore
-              .getState()
-              .showToast(
-                attachmentUploadErrorMessage(
-                  error instanceof Error ? error.message : undefined,
-                  getAttachmentLimits(),
-                ),
-                'error',
-              ),
+      const currentAccount = accountScope()
+      confirmImageBatch(images.length, () => {
+        if (!currentAccount() || revision !== attachmentRevision.current) return
+        const currentLimits = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
+        if (
+          limits &&
+          (!currentLimits ||
+            session.getSnapshot().draft.references.length + images.length >
+              currentLimits.logicalReferences)
+        ) {
+          useStore.getState().showToast(
+            t('composer.tooManyReferences', {
+              count: currentLimits?.logicalReferences ?? limits.logicalReferences,
+            }),
+            'error',
           )
-      }
+          return
+        }
+        const added = filesToReferences(images)
+        const land = (references: Awaited<typeof added>) => {
+          if (!currentAccount() || revision !== attachmentRevision.current) return
+          setDraft((current) => attachReferences(current, references, transportRef.current))
+        }
+        if (Array.isArray(added)) land(added)
+        else
+          void added
+            .catch((error: unknown) =>
+              useStore
+                .getState()
+                .showToast(
+                  attachmentUploadErrorMessage(
+                    error instanceof Error ? error.message : undefined,
+                    getAttachmentLimits(),
+                  ),
+                  'error',
+                ),
+            )
+            .then((references) => {
+              if (references) land(references)
+            })
+      })
+    }
+    // 没超过 50 MB 时当场收下，确认框和名额都还在这次点击里。超限的先压，压完再走同一条。
+    if (!files.some(imageNeedsUploadCompression)) {
+      admit(
+        attachmentUploadsEnabled() && getAttachmentLimits()
+          ? files.filter((file) => file.type.startsWith('image/'))
+          : acceptImageFiles(files, { keepOversized: mediaFallbackEnabled() }),
+      )
+      return
+    }
+    // 附件通道开着时，压不成的原文件仍要留下，走原来的上传失败（红框和超限红字）。
+    const fail = () => useStore.getState().showToast(t('composer.attachmentReadFailed'), 'error')
+    if (attachmentUploadsEnabled() && getAttachmentLimits()) {
+      void compressUploadFiles(
+        files.filter((file) => file.type.startsWith('image/')),
+        referenceImageLimit().imageBytes,
+      )
+        .then((images) => admit(images))
+        .catch(fail)
+      return
+    }
+    void prepareAcceptedImageFiles(files, {
+      keepOversized: mediaFallbackEnabled(),
+      targetBytes: referenceImageLimit().imageBytes,
     })
+      .then((images) => admit(images))
+      .catch(fail)
   }
   // 圈得多时一张张胶囊铺满输入框没有意义：模型这时也只拿清单（见 AGENT_TURN_ATTACHED_MEDIA_MAX），
   // 收成一条「已选 N 张画布图」。手动附上的照旧逐张显示。
@@ -565,6 +633,7 @@ export default function AgentComposer({
   const selected = draft.references.filter((one) => one.origin === 'selection')
   const selectionSummary = selected.length > AGENT_TURN_ATTACHED_MEDIA_MAX ? selected : []
   const referenceNames = referenceDisplayNames(draft.references)
+  const [referencesExpanded] = useReferenceDisplay()
   const { dragging, dropZoneProps } = useImageDropZone(attachFiles)
   // 面板把落在对话记录上的文件递过来。
   useEffect(() => {
@@ -936,7 +1005,15 @@ export default function AgentComposer({
    * 点下去这颗按钮当场变回发送，不再有「正在中止…」的禁用态：跟服务端交涉的那几百毫秒里
    * 用户照常打字、照常发，`send` 会静默等中止落定再起新轮。
    */
-  const stopMode = running && !stopping && !draft.prompt.trim()
+  const [stopHeld, setStopHeld] = useState(false)
+  const stopHoldTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const holdStop = () => {
+    clearTimeout(stopHoldTimer.current)
+    setStopHeld(true)
+    stopHoldTimer.current = setTimeout(() => setStopHeld(false), STOP_ARM_DELAY_MS)
+  }
+  useEffect(() => () => clearTimeout(stopHoldTimer.current), [])
+  const stopMode = running && !stopping && !draft.prompt.trim() && !stopHeld
   const bypassConfirmation = useRef(false)
   const [confirmationHeld, setConfirmationHeld] = useState(false)
   useEffect(() => {
@@ -954,6 +1031,7 @@ export default function AgentComposer({
     }
     bypassConfirmation.current = false
     setConfirmationHeld(false)
+    if (draft.prompt.trim()) holdStop()
     void useAgentStore.getState().submitDraft({
       session,
       snapshot: draft,
@@ -1160,6 +1238,7 @@ export default function AgentComposer({
                 }
                 failed={Boolean(failedReference)}
                 uploading={uploadingCount > 0}
+                progress={stackProgress}
                 status={referenceStatus}
                 previews={draft.references.slice(-3).map((reference, offset) => {
                   const index =
@@ -1252,6 +1331,7 @@ export default function AgentComposer({
                               <ComposerAttachmentThumb
                                 src={reference.dataUrl}
                                 uploading={isUploading}
+                                progress={attachmentUploadProgress(uploadReference(reference))}
                                 failed={uploadState === 'failed'}
                                 frameClassName="h-full w-full"
                                 className={`h-full w-full object-contain ${masked ? 'ring-1 ring-ring/70' : ''}`}
@@ -1287,13 +1367,25 @@ export default function AgentComposer({
                                   <Icon name="brush" />
                                 </span>
                               </Button>
+                              {/* 传失败的图 × 常显，与首页输入框一致（BUG-49）。 */}
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="icon"
                                 aria-label={t('composer.removeReferenceAria', { label })}
-                                className="absolute right-0 top-0 z-20 h-11 w-11 rounded-none bg-transparent text-foreground opacity-0 hover:bg-transparent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
-                                onClick={() => setDraft(removeReference(draft, index))}
+                                className={`absolute right-0 top-0 z-20 h-11 w-11 rounded-none bg-transparent text-foreground hover:bg-transparent ${
+                                  uploadState === 'failed'
+                                    ? ''
+                                    : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100'
+                                }`}
+                                onClick={() =>
+                                  setDraft((current) => {
+                                    const at = current.references.findIndex(
+                                      (one) => one.id === reference.id,
+                                    )
+                                    return at < 0 ? current : removeReference(current, at)
+                                  })
+                                }
                               >
                                 <span className="grid h-6 w-6 place-items-center rounded-full border border-border/70 bg-background/90 shadow-sm">
                                   <Icon name="close" />
@@ -1301,18 +1393,10 @@ export default function AgentComposer({
                               </Button>
                             </AttachmentTile>
                           </CreationReferencePreview>
-                          {uploadState && (
-                            <span
-                              role={uploadState === 'failed' ? 'alert' : 'status'}
-                              className={
-                                uploadState === 'failed'
-                                  ? 'max-w-56 self-center text-xs text-destructive'
-                                  : 'sr-only'
-                              }
-                            >
-                              {uploadState === 'failed'
-                                ? `${label}：${attachmentUploadErrorMessage(uploadError, getAttachmentLimits())}`
-                                : t(`composer.upload.${uploadState}`)}
+                          {/* 失败原因只在参考区顶部那一行写（BUG-57），读屏也由那里的 alert 播报。 */}
+                          {uploadState && uploadState !== 'failed' && (
+                            <span role="status" className="sr-only">
+                              {t(`composer.upload.${uploadState}`)}
                             </span>
                           )}
                           {uploadState === 'failed' && canRetryAttachmentUpload(uploadError) && (
@@ -1407,8 +1491,12 @@ export default function AgentComposer({
             />
           }
           status={
-            referenceStatus && (
-              <span className={failedReference ? 'text-destructive' : 'text-muted-foreground'}>
+            // 参考区展开时原因句已在参考图上方，输入框下不再重复一遍。
+            referenceStatus &&
+            !(referencesExpanded && draft.references.length > 0) && (
+              <span
+                className={`whitespace-pre-line ${failedReference ? 'text-destructive' : 'text-muted-foreground'}`}
+              >
                 {referenceStatus}
               </span>
             )

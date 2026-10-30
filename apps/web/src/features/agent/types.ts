@@ -50,6 +50,8 @@ export interface AgentToolMessage {
   readonly canvasRun?: import('@image-playground/shared').AgentCanvasRunProposal
   readonly canvasRead?: readonly { id: string; name: string }[]
   readonly productionDraftRevision?: number
+  /** 确认门拦下的稿（`AgentToolResultBlock.gated`）：作废时卡上要说清是因为发了新消息。 */
+  readonly gated?: true
   readonly video?: import('@image-playground/shared').VideoGenerationRecord
   readonly kind: 'tool'
   readonly id: string
@@ -58,6 +60,8 @@ export interface AgentToolMessage {
   /** 哪个工具。历史里可能有这个前端还不认识的工具名，所以它不参与任何穷尽判断。 */
   readonly toolName?: AgentToolName
   readonly batchId?: string
+  /** 回复里要认出并去掉的批次项 key（BUG-56）。 */
+  readonly batchItemKeys?: readonly string[]
   readonly title: string
   readonly prompt?: string
   readonly status: AgentToolStatus | 'running'
@@ -100,6 +104,8 @@ export interface AgentClarificationMessage {
   readonly turnId: string
   readonly question: string
   readonly options: readonly string[]
+  /** 范围确认卡：智能体提议的修改范围，用户确认或调整后带着蒙版回答。 */
+  readonly maskProposal?: import('@image-playground/shared').AgentMaskProposal
 }
 
 /** 对话里对一张已有图做的本地步骤，例如去背景。不进服务端事件流。 */

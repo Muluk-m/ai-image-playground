@@ -22,10 +22,20 @@ import { asQueueProvider } from '../queueProvider'
 import { readAssetImage } from '../sync-assets'
 import { taskAccessWhere } from '../task-access'
 import { findConversationImages } from './conversation-images'
-import { toModelImageDataUrl, toPreviewDataUrl } from './modelImage'
+import {
+  editSourceByteLimit,
+  toEditInputDataUrl,
+  toModelImageDataUrl,
+  toPreviewDataUrl,
+} from './modelImage'
 import { InvalidSelectionError, imageSelection } from './selection-preview'
 import { AgentToolError } from './tools/errors'
-import { assertVisualBytes, visualByteLimit, withVisualPreparation } from './visual-resources'
+import {
+  assertVisualBytes,
+  previewSourceByteLimit,
+  visualByteLimit,
+  withVisualPreparation,
+} from './visual-resources'
 
 export type AgentImageReference = AgentTurnReference | AgentStoredReference
 
@@ -46,6 +56,12 @@ export interface ResolvedAgentImage {
  */
 export type AgentImageVariant = 'original' | 'preview'
 
+/**
+ * 取图时可要的形态：除两种变体外，`edit` 是送进改图的原件——超大图先等比缩到最长边 4000
+ * 再送（BUG-35）；带遮罩的仍原样，遮罩绑着原图像素。
+ */
+export type AgentImageRead = AgentImageVariant | 'edit'
+
 /** 模型只会说图片 id，字节从哪来由这里决定。 */
 export interface AgentImageSource {
   readonly references: readonly AgentImageReference[]
@@ -60,7 +76,7 @@ export interface AgentImageSource {
    */
   attach(references: readonly AgentTurnReference[]): void
   identify(imageId: string): string
-  resolve(imageId: string, variant?: AgentImageVariant): Promise<ResolvedAgentImage | null>
+  resolve(imageId: string, variant?: AgentImageRead): Promise<ResolvedAgentImage | null>
   /** Freeze original identities without fetching pixels; null entries are not durable inputs. */
   resolveMediaReferences(
     imageIds: readonly string[],
@@ -75,7 +91,7 @@ export interface AgentImageSource {
  */
 export type AgentImageRequest =
   | string
-  | { readonly imageId: string; readonly variant: AgentImageVariant }
+  | { readonly imageId: string; readonly variant: AgentImageRead }
 
 /** 按 id 取图，取不到就抛。工具共用这一句：模型换个 id 重试是它唯一的出路。 */
 export async function requireAgentImages(
@@ -119,15 +135,18 @@ export function shownTurnReferences<T extends AgentImageReference>(
 }
 
 /**
- * 这一轮要给模型看的那几张，连同各自该取哪一份字节。按 id 附的取预览：判断「是不是那张图」
- * 预览就够，原件一次就是几 MB。内联的本来只有一份，照常给原件——遮罩也只对得上原件的尺寸。
+ * 这一轮要给模型看的那几张，连同各自该取哪一份字节。都取预览：判断「是不是那张图」、
+ * 框出要改的对象，预览就够，原件一次就是几 MB。内联上传的也一样（附件上传没开时用户的
+ * 图就是这么来的），工具要原件时另按 `original` 去取。带遮罩的由 `modelImage` 保留原件，
+ * 遮罩只对得上原件的尺寸。
  */
 export function shownImageRequests(
   references: readonly AgentImageReference[],
 ): AgentImageRequest[] {
-  return shownTurnReferences(references).map((one) =>
-    'mediaId' in one ? { imageId: one.imageId, variant: 'preview' as const } : one.imageId,
-  )
+  return shownTurnReferences(references).map((one) => ({
+    imageId: one.imageId,
+    variant: 'preview' as const,
+  }))
 }
 
 /**
@@ -146,13 +165,19 @@ export async function resolveTurnReferences(
   const resolved: ResolvedAgentImage[] = []
   for (const reference of shownTurnReferences(references)) {
     if (!('mediaId' in reference)) {
-      resolved.push({
-        imageId: reference.imageId,
-        dataUrl: reference.dataUrl,
-        ...(reference.maskDataUrl ? { maskDataUrl: reference.maskDataUrl } : {}),
-        ...(reference.regions ? { regions: reference.regions } : {}),
-        ...(reference.editAction ? { editAction: reference.editAction } : {}),
-      })
+      const image = await withVisualPreparation(() =>
+        modelImage(
+          {
+            imageId: reference.imageId,
+            dataUrl: reference.dataUrl,
+            ...(reference.maskDataUrl ? { maskDataUrl: reference.maskDataUrl } : {}),
+            ...(reference.regions ? { regions: reference.regions } : {}),
+            ...(reference.editAction ? { editAction: reference.editAction } : {}),
+          },
+          'preview',
+        ),
+      )
+      if (image) resolved.push(image)
       continue
     }
     const image = await withVisualPreparation(async () => {
@@ -196,23 +221,42 @@ function dataUrl(bytes: Uint8Array, mime: string): string {
  */
 async function modelImage(
   image: (ReadImage & { readonly imageId: string }) | null,
-  variant: AgentImageVariant,
+  variant: AgentImageRead,
 ): Promise<ResolvedAgentImage | null> {
   if (!image) return image
   const { reduced, ...rest } = image
-  const normalized = await toModelImageDataUrl(rest.dataUrl)
   // A selection ID binds the original pixels and mask. Resizing only the image
   // breaks both coordinate validation and the identity used by editImage.
+  // 现缩预览时直接从原件缩（预览本身就是 webp，不必先归一化）：原件只是源图、不进请求，
+  // 不能先按请求预算卡它——4K 产物原件会在缩之前就被拒。
   const dataUrl =
     variant === 'preview' && !reduced && !rest.maskDataUrl
-      ? await toPreviewDataUrl(normalized)
-      : normalized
-  return { ...rest, dataUrl, visualVariant: rest.maskDataUrl ? 'original' : variant }
+      ? await toPreviewDataUrl(rest.dataUrl)
+      : variant === 'edit' && !rest.maskDataUrl
+        ? await toEditInputDataUrl(rest.dataUrl)
+        : await toModelImageDataUrl(rest.dataUrl)
+  return { ...rest, dataUrl, visualVariant: rest.maskDataUrl ? 'original' : stored(variant) }
+}
+
+/** 存储里取哪一份：改图输入读的是原件。 */
+function stored(variant: AgentImageRead): AgentImageVariant {
+  return variant === 'preview' ? 'preview' : 'original'
+}
+
+/**
+ * 读这份字节的上限：只为现缩而读的原件（预览、改图输入）按源图上限，其余按请求预算。
+ * 带遮罩的一律按请求预算——遮罩绑着原图像素，不能缩。
+ */
+function readByteLimit(variant: AgentImageRead, masked = false): number {
+  if (masked) return visualByteLimit()
+  if (variant === 'preview') return previewSourceByteLimit()
+  return variant === 'edit' ? editSourceByteLimit() : visualByteLimit()
 }
 
 async function readTaskOutput(
   output: TaskOutput,
   userId: string | null,
+  maxBytes = visualByteLimit(),
 ): Promise<Omit<ResolvedAgentImage, 'imageId'> | null> {
   const g = schema.generation_records
   const gi = schema.generation_images
@@ -274,12 +318,12 @@ async function readTaskOutput(
         await readObjectWithinLimit(
           ref.store === 'durable' ? durableMediaStore() : objectStore(),
           ref.data,
-          visualByteLimit(),
+          maxBytes,
         ),
         ref.mime,
       ),
     }
-  const upstream = await fetchSourceImage(ref.data, { maxBytes: visualByteLimit() }).catch(() => {
+  const upstream = await fetchSourceImage(ref.data, { maxBytes }).catch(() => {
     throw new AgentToolError(
       'upstream_error',
       '结果图片未能在当前读取预算内取得，未送入模型，复核尚未完成。请重新添加有效图片或选择必要区域。',
@@ -302,6 +346,7 @@ async function readFoldedOutput(
   imageId: string,
   conversationId: string,
   userId: string | null,
+  maxBytes = visualByteLimit(),
 ): Promise<Omit<ResolvedAgentImage, 'imageId'> | null> {
   const parsed = parseProjectArtifactId(imageId)
   if (!parsed) return null
@@ -316,7 +361,11 @@ async function readFoldedOutput(
     )
     .limit(1)
   if (!owned) return null
-  return readTaskOutput({ taskId: parsed.generationId, outputIndex: parsed.position }, userId)
+  return readTaskOutput(
+    { taskId: parsed.generationId, outputIndex: parsed.position },
+    userId,
+    maxBytes,
+  )
 }
 
 /** `aip-media:<uuid>` 是画布里存图片来源的写法，模型多半照抄过来，这里一并认。 */
@@ -430,7 +479,7 @@ async function readMediaReference(
   reference: import('@image-playground/shared').AgentMediaReference,
   conversationId: string,
   userId: string | null,
-  variant: AgentImageVariant,
+  variant: AgentImageRead,
   allowUnclaimed = false,
 ): Promise<(ResolvedAgentImage & { readonly reduced?: boolean }) | null> {
   return withVisualPreparation(async () => {
@@ -438,9 +487,9 @@ async function readMediaReference(
       reference.mediaId,
       conversationId,
       userId,
-      reference.maskMediaId ? 'original' : variant,
+      reference.maskMediaId ? 'original' : stored(variant),
       allowUnclaimed,
-      visualByteLimit(),
+      readByteLimit(variant, !!reference.maskMediaId),
     )
     if (!original) return null
     const mask = reference.maskMediaId
@@ -475,7 +524,7 @@ async function readCanvasMedia(
   imageId: string,
   conversationId: string,
   userId: string | null,
-  variant: AgentImageVariant,
+  variant: AgentImageRead,
   canvasMediaIds?: ReadonlySet<string>,
 ): Promise<ReadImage | null> {
   const mediaId = imageId.match(CANVAS_MEDIA_ID)?.[1]?.toLowerCase()
@@ -484,16 +533,13 @@ async function readCanvasMedia(
     mediaId,
     conversationId,
     userId,
-    variant,
+    stored(variant),
     canvasMediaIds?.has(mediaId) ?? false,
-    visualByteLimit(),
+    readByteLimit(variant),
   )
   if (!media) return null
-  // 预留的预览已经是这条规格缩过的，别再缩第二次。
-  return {
-    reduced: media.reduced,
-    dataUrl: await toModelImageDataUrl(dataUrl(media.bytes, media.contentType)),
-  }
+  // 预留的预览已经是这条规格缩过的，别再缩第二次。格式归一在出解析链时统一做（`modelImage`）。
+  return { reduced: media.reduced, dataUrl: dataUrl(media.bytes, media.contentType) }
 }
 
 /** 历史工具结果提供本轮产物身份；旧产物仍以任务和下标读取。 */
@@ -989,7 +1035,7 @@ export function createAgentImageSource(input: {
 
   const read = async (
     imageId: string,
-    variant: AgentImageVariant,
+    variant: AgentImageRead,
   ): Promise<ResolvedAgentImage | null> => {
     const reference = references.get(imageId)
     if (reference) {
@@ -1006,7 +1052,10 @@ export function createAgentImageSource(input: {
                 input_images: [reference.image],
                 mask: reference.mask,
               },
-              { maxBytes: visualByteLimit() },
+              {
+                maxBytes:
+                  variant === 'edit' && !reference.mask ? editSourceByteLimit() : visualByteLimit(),
+              },
             )
       return {
         imageId,
@@ -1022,10 +1071,15 @@ export function createAgentImageSource(input: {
     if (durable) return readMediaReference(durable, input.conversationId, userId, variant, true)
     const output = outputs.get(imageId)
     if (output) {
-      const image = await readTaskOutput(output, userId)
+      const image = await readTaskOutput(output, userId, readByteLimit(variant))
       return image ? { imageId, ...image } : null
     }
-    const folded = await readFoldedOutput(imageId, input.conversationId, userId)
+    const folded = await readFoldedOutput(
+      imageId,
+      input.conversationId,
+      userId,
+      readByteLimit(variant),
+    )
     if (folded) return { imageId, ...folded }
     const canvas = await readCanvasMedia(
       imageId,
@@ -1036,7 +1090,7 @@ export function createAgentImageSource(input: {
     )
     if (canvas) return { imageId, ...canvas }
     if (!userId) return null
-    const asset = await readAssetImage(userId, imageId, visualByteLimit())
+    const asset = await readAssetImage(userId, imageId, readByteLimit(variant))
     return asset ? { imageId, dataUrl: dataUrl(asset.bytes, asset.contentType) } : null
   }
 
@@ -1062,7 +1116,7 @@ export function createAgentImageSource(input: {
       active = added
       for (const reference of added) {
         references.set(reference.imageId, reference)
-        for (const variant of ['original', 'preview']) {
+        for (const variant of ['original', 'preview', 'edit']) {
           resolving.delete(`${variant}\u0000${reference.imageId}`)
         }
       }

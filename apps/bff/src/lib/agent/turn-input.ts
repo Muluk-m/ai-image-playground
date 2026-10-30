@@ -66,7 +66,7 @@ const PLACEHOLDER_SELECTION = {
 function estimatedListings(references: readonly AgentImageReference[]): EvidenceListing[] {
   return references.map((reference) => ({
     imageId: reference.imageId,
-    representation: 'mediaId' in reference && !referenceHasMask(reference) ? 'preview' : 'original',
+    representation: referenceHasMask(reference) ? 'original' : 'preview',
     ...('regions' in reference && reference.regions ? { regions: reference.regions } : {}),
     ...('editAction' in reference && reference.editAction
       ? { editAction: reference.editAction }
@@ -127,12 +127,12 @@ function skillsBlock(skills: readonly AgentSkill[]): string[] {
  */
 const SUBMIT_LINE: Readonly<Record<'draft' | 'auto', string>> = {
   draft:
-    '生图、生视频与改图工具先拟定完整提示词，返回「等待确认」时没有提交生成任务。用户在卡片中编辑提示词并点击「确认生成」后才提交，不用聊天中的一句同意代替按钮；拟稿时不得声称已经开始或完成生成。确认后的任务在后台执行，结果显示在对话的产物卡片中；失败时系统唤醒你说明情况，成功时按复核要求唤醒。复核后若需要新的生成，仍先拟稿并等待新的确认，不自行付费重试。',
-  auto: '这一轮是出图模式：生图、生视频与改图工具拟好提示词就当场提交并计费，用户不再逐张确认，所以一次调用就是一次真实花费——想清楚再调，不要试探性地多调。任务在后台执行，结果显示在对话的产物卡片中；失败时系统唤醒你说明情况，成功时按复核要求唤醒。工具回执会说清这一次到底提交了没有：说「等待确认」就是没提交（额度用完或余额不足退回了待确认），这时照对话模式的规矩说话，不要声称已经在生成。复核后若需要新的生成，重新调用一次即可，但不自行付费重试同一件事。',
+    '生图、生视频与改图工具先拟定完整提示词，返回「等待确认」时没有提交生成任务。用户在卡片中编辑提示词并点击「确认生成」后才提交，不用聊天中的一句同意代替按钮；拟稿时不得声称已经开始或完成生成。确认后的任务在后台执行，结果显示在对话的产物卡片中；失败时系统唤醒你说明情况，成功时按复核要求唤醒。复核后若需要新的生成，仍先拟稿并等待新的确认，不自行付费重试；用户明确要求再次生成不算重试，照常调用工具拟稿。',
+  auto: '这一轮是出图模式：生图、生视频与改图工具拟好提示词就当场提交并计费，用户不再逐张确认，所以一次调用就是一次真实花费——想清楚再调，不要试探性地多调。任务在后台执行，结果显示在对话的产物卡片中；失败时系统唤醒你说明情况，成功时按复核要求唤醒。工具回执会说清这一次到底提交了没有：说「等待确认」就是没提交（额度用完或余额不足退回了待确认），这时照对话模式的规矩说话，不要声称已经在生成。复核后若需要新的生成，重新调用一次即可，但不自行付费重试同一件事；用户明确要求再次生成不算重试，照常调用工具。',
 }
 
 export const NODE_CANVAS_GENERATION_LINE =
-  '当前是节点画布：为画布节点生成图片或视频，包括批量生成，先用 createNodes 或 updateNodes 准备目标节点与提示词，再用 runNodes 指定节点或分组。已有素材节点就在原节点上生成，不另建图片节点；全部候选和首个主结果留在目标节点。不要用 planImageBatch 或生图工具代替，它们的结果不会写回节点。用户在对话里附的图用 createNodes 的 imageId 建成素材节点再连线，不得以“请把图放进画布并选中”作为前置条件。用户指定已有画布图片时用 importCanvasImage 收进素材，不重新生成。分镜表流程先素材、后首帧：分镜表引用的人物、地点素材还没有图时，先用 runNodes（stage 写「素材」）给这些素材节点出图，素材批跑完被唤醒后再用 runStoryboardFrames 出首帧。分镜表出首帧只用 runStoryboardFrames，首帧节点由它自己铺，不要用 createNodes 手工搭首帧节点；默认宫格，单镜重出时 shotIds 传分镜表镜头 id，不是首帧节点 id；它拦下时照回执在同一轮接着做，不要停下来只向用户转述；确认首帧阶段授权即为分镜表定稿。修改提示词、保存节点或发起运行都不等于图片已生成或已挂到节点；只有 readCanvas 读到真实结果或收图工具成功时才能说已完成，否则照回执说待确认、已开跑、已提交或失败。回复用节点名称，不用内部 ID。'
+  '当前是节点画布：为画布节点生成图片或视频，包括批量生成，先用 createNodes 或 updateNodes 准备目标节点与提示词，再用 runNodes 指定节点或分组。已有素材节点就在原节点上生成，不另建图片节点；全部候选和首个主结果留在目标节点。不要用 planImageBatch 或生图工具代替，它们的结果不会写回节点。用户在对话里附的图用 createNodes 的 imageId 建成素材节点再连线，不得以“请把图放进画布并选中”作为前置条件。用户指定已有画布图片时用 importCanvasImage 收进素材，不重新生成。分镜表流程先素材、后首帧：分镜表引用的人物、地点素材还没有图时，先用 runNodes（stage 写「素材」）给这些素材节点出图，素材批跑完被唤醒后再用 runStoryboardFrames 出首帧。分镜表出首帧只用 runStoryboardFrames，首帧节点由它自己铺，不要用 createNodes 手工搭首帧节点；默认宫格，单镜重出时 shotIds 传分镜表镜头 id，不是首帧节点 id；它拦下时照回执在同一轮接着做，不要停下来只向用户转述；确认首帧阶段授权即为分镜表定稿。修改提示词、保存节点或发起运行都不等于图片已生成或已挂到节点；只有 readCanvas 读到真实结果或收图工具成功时才能说已完成，否则照回执说待确认、已开跑、已提交或失败。'
 
 const NODE_CANVAS_DIRECT_LINE =
   '节点画布这一轮是直接出图：runNodes 登记阶段授权后由原标签页立即开跑，不弹确认卡，也不等待撤销。不使用出图模式每轮自动提交额度。不要说待确认。只有查到实际任务记录才能称已提交，真实结果才能称已完成；范围外或预算不足须重新提案。用户偏好由本轮请求决定，不要自己声称已经关掉或打开直接出图。'
@@ -142,6 +142,10 @@ const NODE_CANVAS_CONFIRM_LINE =
 
 const DIRECT_IMAGE_LINE =
   '这一轮是图片生成：不要追问、不要改写成另一套方案，用用户原话调用一次生图工具，张数用本轮参数里的 n。工具会当场提交。'
+
+/** 对话模式：批次项 key、图片 ID 等标识只在工具调用里用（BUG-55/56）。 */
+const CHAT_INTERNAL_REFS_LINE =
+  '面向用户的正文和建议只用名称或内容描述称呼图片与批次项（如「兔子图」），不写批次项 key、图片 ID、任务或批次 ID，也不把 ID 写成链接；这些标识只用于工具调用。工具回执和历史回复中的 key 与 ID 不照搬给用户。'
 
 export function systemPrompt(
   mode: AgentMode,
@@ -160,6 +164,11 @@ export function systemPrompt(
     '设计请求先抓住用户想表达的意思，再决定观众第一眼看到什么、视线如何移动；构图、光线、色彩与材质都服务于这个表达。用户说过的要求和你自行补的设计选择要分清；只靠“高级感”“氛围感”等空词不能算完成设计。',
     // 通用批次与生图工具不知道结果属于哪个节点，节点就不会进入生成状态，结果也不会落回节点。
     ...(audience.experience === 'canvas' ? [NODE_CANVAS_GENERATION_LINE] : []),
+    ...(audience.experience === 'canvas'
+      ? [
+          '面向用户的正文、表格与代码块只写作品、镜头或节点名称、进度和下一步，不展示节点、分组、镜头、任务等内部 ID，也不列名称与 ID 的对照表；这些标识只用于工具调用。无名称或同名时用内容描述、镜头序号或位置区分，不用 ID 充当名称。工具回执和历史回复中的 ID 不照搬给用户。',
+        ]
+      : [CHAT_INTERNAL_REFS_LINE]),
     // 逐工具那几句跟着清单走：关掉的工具连同它的用法一起消失，否则模型会承诺它调不了的事。
     ...agentToolGuidance(mode, audience),
     // 用户自建的模板对他自己就是技能，与内置的排在同一份清单里（见 CONTEXT.md「模板」）。
@@ -185,7 +194,7 @@ export function systemPrompt(
     '改图提示词只写用户明确要求、参考图中可直接确认的属性和实现该动作必需的适配。不要把模型对参考图颜色、材质、款式或场景的猜测写成用户要求；未指定的产品属性保持目标或参考图原样。无法确认且会明显影响结果时先澄清。',
     '问不问只看你对意图的掌握程度，不看这一次花多少钱。先结合本轮用户附上的参考图和对话上下文理解意图：对象、用途、风格方向都拿得准（用户给了，或从上下文与本轮参考图能确定），或者用户已明说由你决定，就直接做，并在回复里说明你替他定了什么。本轮用户只给了文字、描述里主体又明确时，直接按文字拟稿：不得反问他要不要参考图，也不得把上一轮的图当成本轮意图。拿不准时——存在两种以上合理解读、且不同解读会产出明显不同的结果（主体、风格方向、用途、改哪张图、出图还是出视频）——先调澄清工具，给 2-4 个具体的方向选项让他选，不要问开放式问题。贵和难返工（视频、多张批量、整套设计）只是拿不准时更偏向问的次要理由，本身不构成先问的条件。',
     '澄清不是让用户填表：每轮只问最关键的一个问题，不要用文字连环追问，也不要问开放式问题。选项由你替他想好，每项是一个可以直接照做的具体方案，写清它会产出什么；你有倾向时把推荐项放第一个。界面会自动附上「其他」让用户自己写，不要再占一个选项去写「其他」或「都不是」。其余细节仅在授权范围内补全。用户回答后继续拟稿，不要让他重复引用已有的图。',
-    '回复里要指给用户看本会话已生成的某张图时，写 `![简短说明](图片ID)`，图片ID 照抄工具结果或会话图片查询返回的真实 ID；不要编造网址、文件名或 ID，没有 ID 就只用文字描述。',
+    '回复里要指给用户看本会话已生成的某张图时，写 `![简短说明](图片ID)`，图片ID 照抄工具结果或会话图片查询返回的真实 ID；不要编造网址、文件名或 ID，没有 ID 就只用文字描述。图片ID 只放在这种写法里，不写成 `[文字](图片ID)` 链接，也不在正文里单独写出。',
     '只能使用清单中的工具；交互设计图不等于可运行网页或交互代码，不要把前者说成后者。',
   ].join('\n')
 }
@@ -269,16 +278,80 @@ function withSkillTexts(
   return bodies.length ? [text, ...bodies].join('\n\n') : text
 }
 
+/**
+ * 确认门续跑：被拦下的那一轮里那几次调用，连同用户确认后它们的回执（见 `tool-gate.ts`）。
+ * 回放时它们不再作为卡片摘要出现，而是作为一对真正的工具调用与工具结果接在历史末尾，
+ * `Agent.continue()` 从这里接着往下走——智能体看到的就是调了工具、拿到了回执。
+ */
+export interface AgentTurnContinuation {
+  /** 被拦下、要接着跑的那一轮：只有它里面的卡改由末尾那一对呈现，别的轮同名的调用 id 不受影响。 */
+  readonly turnId: string
+  readonly calls: readonly {
+    readonly toolCallId: string
+    readonly toolName: string
+    readonly args: Readonly<Record<string, unknown>>
+    /** 给模型的回执：与当场提交时同一种说法，提示词是用户确认的那一份。 */
+    readonly result: string
+  }[]
+}
+
+/** 续跑接在末尾的那一对：一条只有工具调用的助手消息，后面跟着每次调用的结果。 */
+function continuationMessages(continuation: AgentTurnContinuation, at: number): AgentMessage[] {
+  const model = agentModel()
+  return [
+    {
+      role: 'assistant',
+      content: continuation.calls.map((call) => ({
+        type: 'toolCall' as const,
+        id: call.toolCallId,
+        name: call.toolName,
+        arguments: { ...call.args },
+      })),
+      api: model.api,
+      provider: model.provider,
+      model: model.id,
+      usage: EMPTY_USAGE,
+      stopReason: 'toolUse',
+      timestamp: at,
+    },
+    ...continuation.calls.map(
+      (call): AgentMessage => ({
+        role: 'toolResult',
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        content: [{ type: 'text', text: call.result }],
+        isError: false,
+        timestamp: at,
+      }),
+    ),
+  ]
+}
+
 /** 历史消息回放成 pi 的形状；助手消息的用量与停因是回放占位，不进任何计费。 */
 function replayed(
   history: readonly AgentMessageView[],
   selectionHistoryStart = history.length,
   skillTexts: ReadonlyMap<string, string> = NO_SKILL_TEXTS,
   canvasTools = true,
+  continuation?: AgentTurnContinuation,
 ): AgentMessage[] {
   const model = agentModel()
   const messages: AgentMessage[] = []
-  for (const [index, message] of history.entries()) {
+  const continued = new Set(continuation?.calls.map((call) => call.toolCallId))
+  for (const [index, original] of history.entries()) {
+    // 续跑的那几次调用改由末尾那一对工具调用与结果呈现，卡片摘要不再重复一遍。调用 id 只在一轮里
+    // 唯一，只认被拦下的那一轮。
+    const message =
+      continued.size && original.turnId === continuation?.turnId
+        ? {
+            ...original,
+            content: original.content.filter(
+              (block) => block.type !== 'toolResult' || !continued.has(block.toolCallId),
+            ),
+          }
+        : original
+    // 那条消息只装着续跑的卡：整条不回放，不留一条空的助手消息。
+    if (message.content.length === 0) continue
     const text = withSkillTexts(
       replayTurnText(
         message,
@@ -305,6 +378,9 @@ function replayed(
           },
     )
   }
+  if (continuation?.calls.length)
+    // 接在回放的最后一条之后；窗口里一条都没有时按此刻算，不退回 0。
+    messages.push(...continuationMessages(continuation, history.at(-1)?.createdAt ?? Date.now()))
   return messages
 }
 
@@ -321,13 +397,20 @@ export function turnInitialState(
   audience: AgentTurnAudience = ANONYMOUS_AUDIENCE,
   skillTexts: ReadonlyMap<string, string> = NO_SKILL_TEXTS,
   directImage = false,
+  continuation?: AgentTurnContinuation,
 ): {
   readonly systemPrompt: string
   readonly messages: AgentMessage[]
 } {
   return {
     systemPrompt: systemPrompt(mode, autoSubmit, audience, directImage),
-    messages: replayed(history, selectionHistoryStart, skillTexts, audience.experience !== 'chat'),
+    messages: replayed(
+      history,
+      selectionHistoryStart,
+      skillTexts,
+      audience.experience !== 'chat',
+      continuation,
+    ),
   }
 }
 
@@ -424,6 +507,13 @@ export interface AgentTurnInput {
   readonly conversationState?: string
   /** 出图模式：系统提示词里生成流程那一句换成另一份，长度不同。 */
   readonly autoSubmit: boolean
+  /**
+   * 智能体模式关掉了直接出图：生成调用由确认门拦下（见 `tool-gate.ts`）。智能体不知道有这道门，
+   * 系统提示词与出图模式逐字相同（`promptAutoSubmit`）；`autoSubmit` 仍为假，这一轮不领自动提交额度。
+   */
+  readonly toolGate?: true
+  /** 确认门续跑：没有新的用户话，历史末尾接上那几次调用与回执，`Agent.continue()` 接着走。 */
+  readonly continuation?: AgentTurnContinuation
   /** 图片生成：系统提示词改成原话出图，缓存键因此和对话模式分开。 */
   readonly directImage?: boolean
   /** 选区继承起点：澄清链推导，或改图计划保护时的 0。 */
@@ -444,13 +534,19 @@ export function turnInitialStateOf(input: AgentTurnInput): {
   const state = turnInitialState(
     input.history.messages,
     input.mode,
-    input.autoSubmit,
+    promptAutoSubmit(input),
     input.selectionHistoryStart,
     input.audience,
     input.skillTexts,
     input.directImage === true,
+    input.continuation,
   )
   return { ...state, messages: input.modelHistory?.messages ?? state.messages }
+}
+
+/** 系统提示词按出图模式写：真开了出图模式，或者有确认门（智能体不该看出两者的差别）。 */
+export function promptAutoSubmit(input: Pick<AgentTurnInput, 'autoSubmit' | 'toolGate'>): boolean {
+  return input.autoSubmit || input.toolGate === true
 }
 
 /**

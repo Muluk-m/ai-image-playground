@@ -4,12 +4,21 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Sidebar from '../../components/Sidebar'
+import { useAgentJobActivity } from '../../features/agent/lib/jobActivity'
 import { type CanvasProject, projectRepository } from '../../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { useLibraryStore } from '../../features/library/store'
 import { installWorkbenchNavigation } from '../../lib/navigation/workbenchNavigation'
 import { useStore } from '../../store'
 
+const media = vi.hoisted(() => ({
+  resolve: vi.fn<typeof import('../../lib/cloudMedia').resolveMediaSource>(),
+}))
+vi.mock('../../lib/cloudMedia', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/cloudMedia')>()
+  media.resolve.mockImplementation(actual.resolveMediaSource)
+  return { ...actual, resolveMediaSource: media.resolve }
+})
 vi.mock('../../lib/channels/videoChannels', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/channels/videoChannels')>()),
   isVideoModeAvailable: () => true,
@@ -164,6 +173,42 @@ it('对话和画布同时列出，每区最多五条，空项目用图标缩略�
   expect(host.querySelectorAll('[data-project-thumb="canvas"]')).toHaveLength(3)
 })
 
+it('对话里还有图在出时转圈，出完了没回去看就留一个点（BUG-16）', () => {
+  const [running, done, idle] = seed('chat', 3).map((project, index) => ({
+    ...project,
+    conversationId: `conv-${index}`,
+    cover: 'https://example.com/cover.jpg',
+  }))
+  act(() => {
+    useCanvasProjectStore.setState({
+      projects: [running!, done!, idle!],
+      cloudCatalog: {},
+      loaded: true,
+    })
+    useAgentJobActivity.setState({
+      activity: {
+        'conv-0': { running: 2 },
+        'conv-1': {
+          running: 0,
+          done: { conversationId: 'conv-1', images: 3, videos: 0, failed: 0, at: 1 },
+        },
+      },
+    })
+  })
+  const row = (name: string) =>
+    [...host.querySelectorAll('span.truncate')]
+      .find((el) => el.textContent === name)!
+      .closest('button')!
+  expect(row(running!.name).querySelector('[data-project-activity="running"]')).not.toBeNull()
+  expect(row(running!.name).querySelector('[data-project-thumb="loading"]')).not.toBeNull()
+  expect(row(running!.name).textContent).toContain('正在生成')
+  expect(row(done!.name).querySelector('[data-project-activity="done"]')).not.toBeNull()
+  expect(row(done!.name).querySelector('[aria-label="有新生成的图"]')).not.toBeNull()
+  expect(row(idle!.name).querySelector('[data-project-activity]')).toBeNull()
+  expect(row(idle!.name).querySelector('[data-project-thumb="cover"]')).not.toBeNull()
+  act(() => useAgentJobActivity.setState({ activity: {} }))
+})
+
 it('有封面的项目用封面图', () => {
   act(() =>
     useCanvasProjectStore.setState({
@@ -174,6 +219,37 @@ it('有封面的项目用封面图', () => {
   )
   const thumb = host.querySelector('[data-project-thumb="cover"] img')
   expect(thumb?.getAttribute('src')).toBe('https://example.com/cover.jpg')
+})
+
+it('云端封面排队时先露出对话图标并插队取图，取不到就一直是图标，不留空方块', async () => {
+  let reject!: (error: Error) => void
+  media.resolve.mockImplementationOnce(
+    () =>
+      new Promise((_, fail) => {
+        reject = fail
+      }),
+  )
+  act(() =>
+    useCanvasProjectStore.setState({
+      projects: [
+        { ...seed('chat', 1)[0]!, cover: 'aip-media:11000000-0000-4000-8000-000000000009' },
+      ],
+      cloudCatalog: {},
+      loaded: true,
+    }),
+  )
+  const thumb = () => host.querySelector('[data-project-thumb]')!
+  expect(thumb().getAttribute('data-project-thumb')).toBe('cover')
+  expect(thumb().querySelector('svg')).not.toBeNull()
+  expect(media.resolve).toHaveBeenLastCalledWith(
+    'aip-media:11000000-0000-4000-8000-000000000009',
+    'display',
+    true,
+  )
+  await act(async () => reject(new Error('media_download_failed')))
+  expect(thumb().getAttribute('data-project-thumb')).toBe('chat')
+  expect(thumb().querySelector('img')).toBeNull()
+  expect(thumb().querySelector('svg')).not.toBeNull()
 })
 
 it('进入画布后，当前项目在对应一行高亮', () => {

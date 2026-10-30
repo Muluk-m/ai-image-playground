@@ -120,6 +120,28 @@ describe('Overlay', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('ignores the second click of a double-click that opened it', () => {
+    const onClose = vi.fn()
+    render(
+      <Overlay onClose={onClose}>
+        <div>content</div>
+      </Overlay>,
+    )
+    const overlay = overlayRoot()
+    // 双击打开按钮：第一下打开弹层，第二下（detail=2）落在刚出现的表面上
+    act(() => {
+      overlay.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+      overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 }))
+    })
+    expect(onClose).not.toHaveBeenCalled()
+
+    act(() => {
+      overlay.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+      overlay.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   // 上一条用例只能在表面上直接派发事件；真实浏览器里 backdrop 盖住整个表面，
   // 若它可命中则 e.target 永远是 backdrop、pointerdown-guard 永不放行。
   // jsdom 无布局、做不了 hit-test，故在此锁住让命中落到表面的那条属性。

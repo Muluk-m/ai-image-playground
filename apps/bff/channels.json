@@ -15,13 +15,14 @@
           "id": "gpt-image-2.5-flare",
           "label": "GPT Image 2.5 Flare",
           "capabilities": ["generate", "edit", "mask", "quality", "n", "moderation"],
-          "badges": ["recommended"],
+          "tier": "quality",
           "etaSeconds": 40
         },
         {
           "id": "gpt-image-2.5-sunburst",
           "label": "GPT Image 2.5 Sunburst",
           "capabilities": ["generate", "edit", "mask", "quality", "n", "moderation"],
+          "tier": "quality",
           "etaSeconds": 40
         }
       ],
@@ -83,7 +84,7 @@
     {
       "id": "grok-images",
       "kind": "openai-queue",
-      "label": "Grok Imagine Image",
+      "label": "Grok",
       "baseUrlRef": "GROK_BASE_URL",
       "requiresSecret": true,
       "auth": {
@@ -95,6 +96,7 @@
           "id": "grok-imagine-image-2.0",
           "label": "Grok Imagine Image 2.0",
           "capabilities": ["generate", "edit", "n", "quality"],
+          "tier": "quality",
           "etaSeconds": 40,
           "etaMaxSeconds": 100
         }
@@ -228,9 +230,8 @@
     {
       "id": "vertex-images",
       "kind": "gemini-queue",
-      "label": "Vertex AI",
+      "label": "Gemini",
       "baseUrlRef": "VERTEX_BASE_URL",
-      "maxConcurrency": 2,
       "requiresSecret": true,
       "auth": {
         "type": "bearer",
@@ -242,23 +243,30 @@
           "label": "Nano Banana 2.1",
           "capabilities": ["generate", "edit", "size"],
           "badges": ["latest"],
-          "etaSeconds": 25,
+          "tier": "fast",
+          "etaSeconds": 14,
+          "imageSizes": ["1K", "2K"],
+          "maxConcurrency": 2,
           "logo": "nano-banana"
         },
         {
           "id": "gemini-3-pro-image",
           "label": "Nano Banana Pro",
           "capabilities": ["generate", "edit", "size"],
-          "badges": ["quality"],
-          "etaSeconds": 80,
+          "tier": "quality",
+          "etaSeconds": 24,
+          "imageSizes": ["1K", "2K"],
+          "maxConcurrency": 2,
           "logo": "nano-banana"
         },
         {
           "id": "gemini-3.1-flash-lite-image",
           "label": "Nano Banana 2 Lite",
           "capabilities": ["generate", "edit", "size"],
-          "badges": ["fast", "value"],
+          "tier": "fast",
           "etaSeconds": 3,
+          "imageSizes": ["1K"],
+          "maxConcurrency": 2,
           "logo": "nano-banana"
         }
       ],

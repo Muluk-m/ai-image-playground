@@ -1,4 +1,5 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
+import { MODEL_CATALOG } from '@image-playground/shared/model-catalog'
 import { config } from './config'
 import { close as closeDb, db, schema } from './db/client'
 import { purgeOldTasks, purgeOrphanedAssetObjects, runPrivateMaintenance } from './db/maintenance'
@@ -48,6 +49,9 @@ log.info(
 const accountsLoginEnabled = isCapabilityEnabled('accounts:login')
 const syncEnabled = isCapabilityEnabled('accounts:sync')
 const agentEnabled = isCapabilityEnabled('agent:chat')
+
+// 能力目录在导入时按 schema 校验，不合法会在这里之前就抛错，进程起不来。
+log.info({ event: 'model_catalog.loaded', count: MODEL_CATALOG.length }, 'model catalog validated')
 
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {

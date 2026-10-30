@@ -53,6 +53,8 @@ export interface StoredImageRef {
  * - `content_policy`: 上游内容安全判定拒绝了这次请求（OpenAI safety system、Grok 网关内容
  *   策略、Gemini 的 blockReason/SAFETY 类 finishReason）。它与 `upstream_error` 的区别是
  *   出路：原样重试稳定复现，只有改提示词才有意义。
+ * - `model_unavailable`: 上游表示这个模型当前没有可用的账号或渠道（如 Grok 账号池耗尽），
+ *   换模型才有出路
  * - `upstream_no_image`: 上游 HTTP 200 但解析不出图，且不是内容安全拒绝
  * - `interrupted`: BFF 重启时被打断（startup recovery 标记）
  * - `object_storage_error`: object storage read/write failed, or archiving could not fetch the
@@ -64,6 +66,7 @@ export type TaskErrorType =
   | 'upstream_result_unknown'
   | 'upstream_error'
   | 'content_policy'
+  | 'model_unavailable'
   | 'upstream_no_image'
   | 'interrupted'
   | 'object_storage_error'
@@ -71,6 +74,11 @@ export type TaskErrorType =
 
 /** 一次提交最多带几张参考图。前端的附件上限与 BFF 的请求校验共用这一个数。 */
 export const QUEUE_MAX_INPUT_IMAGES = 16
+
+/** 去掉空白、控制符和零宽/方向符后什么都不剩的提示词，算没写。 */
+export function isBlankPrompt(prompt: string): boolean {
+  return prompt.replace(/[\s\p{Cc}\p{Cf}]/gu, '').length === 0
+}
 
 /** 提示词最长多少字符（OpenAI 图像接口的上限），超了 BFF 直接 400。 */
 export const QUEUE_PROMPT_MAX_CHARS = 32_000
@@ -137,6 +145,11 @@ export type PersistedSubmitRequest = Omit<SubmitRequest, 'input_images' | 'mask'
   /** 服务端按请求里有没有选区单方面设置；不接受模型或客户端决定是否保护选区外像素。 */
   preserve_outside_mask?: true
   masked_original_size?: { width: number; height: number }
+  /**
+   * 选区只占大图一小块时，送上游的是围着选区截下的这一块（原图坐标）；落库的仍是整张原图与
+   * 选区，交付时把生成结果贴回这个位置再合成。没有这一项就是整图送上游。
+   */
+  masked_crop?: { left: number; top: number; width: number; height: number }
   input_images?: StoredImageRef[]
   mask?: StoredImageRef
   video?: PersistedVideoRequest

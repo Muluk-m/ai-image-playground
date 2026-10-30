@@ -1,20 +1,24 @@
 import {
   isContentPolicyEmptyResult,
   isContentPolicyRejection,
+  isModelUnavailableRejection,
   QUEUE_TIMEOUTS,
   type TaskErrorType,
 } from '@image-playground/shared'
+import { cropMaskedUpstream } from '../lib/agent/masked-input'
 import { MaskedOutputError, protectMaskedOutput } from '../lib/agent/masked-output'
 import { isCapabilityEnabled } from '../lib/capabilities'
-import { describeEmptyResult, extractMeta } from '../lib/extractImages'
+import { describeEmptyResult, extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import {
   archiveGenerationOutputs,
   generationSourceCheckpoint,
+  KnownMediaBytes,
   missingGenerationOutputs,
   spoolGenerationOutputs,
 } from '../lib/generationMedia'
 import {
   archiveOutputImages,
+  fetchSourceImage,
   hydrateInputImages,
   MaskedOutputArchiveError,
   ObjectStorageError,
@@ -107,7 +111,14 @@ async function executeTask(execution: TaskExecution): Promise<void> {
   let request = task.request_payload
 
   log.info(
-    { event: 'task.started', taskId: id, provider: task.provider, model: task.model },
+    {
+      event: 'task.started',
+      taskId: id,
+      userId: task.user_id,
+      provider: task.provider,
+      model: task.model,
+      idleSlot: execution.idleSlot,
+    },
     'task started',
   )
 
@@ -153,13 +164,16 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       if (!preserved) return
       request = preserved
     }
-    const hydratedRequest = await hydrateInputImages(request)
+    // 入库时直接用手里这份字节，不再回对象存储读：输入刚读来送上游，结果下面刚写进去。
+    const known = new KnownMediaBytes()
+    const hydratedRequest = await hydrateInputImages(request, { onObjectRead: known.rememberRead })
     // 老任务只有 preserve_outside_mask、没有 masked_original_size：那时不补边，交付时也不裁边。
     protectOutput = request.preserve_outside_mask
       ? await protectMaskedOutput(
           hydratedRequest.input_images?.[0] ?? '',
           hydratedRequest.mask ?? '',
           request.masked_original_size,
+          request.masked_crop,
         )
       : undefined
     if (archivePayload) {
@@ -169,6 +183,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         archivePayload,
         protectOutput,
         signal,
+        known,
       )
       if (!(await execution.saveCheckpoint(archivePayload))) return
       const missing = await missingGenerationOutputs(id, task.provider, archivePayload)
@@ -178,6 +193,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         archivePayload,
         request,
         missing,
+        known,
       )
       await execution.finish({
         status: missing.size ? 'failed' : 'completed',
@@ -197,7 +213,17 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       reconciliationRequired: task.reconciliation_required,
       provider: task.provider,
       model: task.model,
-      request: hydratedRequest,
+      // 截图模式：落库的是整张原图与选区，送上游的只是选区周围那一块。
+      request: request.masked_crop
+        ? {
+            ...hydratedRequest,
+            ...(await cropMaskedUpstream(
+              hydratedRequest,
+              request.masked_crop,
+              request.masked_original_size,
+            )),
+          }
+        : hydratedRequest,
       signal,
       resume,
       onUpstreamTaskIds: (taskIds) =>
@@ -285,14 +311,21 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       }
     }
     const archivedPayload = cloudArchive
-      ? await spoolGenerationOutputs(id, task.provider, payload, protectOutput, signal)
+      ? await spoolGenerationOutputs(id, task.provider, payload, protectOutput, signal, known)
       : await archiveOutputImages(id, task.provider, payload, protectOutput)
     if (cloudArchive) {
       archivePayload = archivedPayload
       if (!(await execution.saveCheckpoint(archivePayload))) return
     }
     const media = cloudArchive
-      ? await archiveGenerationOutputs(task.user_id!, task.provider, archivedPayload, request)
+      ? await archiveGenerationOutputs(
+          task.user_id!,
+          task.provider,
+          archivedPayload,
+          request,
+          undefined,
+          known,
+        )
       : undefined
     await execution.finish({
       status: 'completed',
@@ -301,7 +334,13 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       completedAt: now(),
     })
     log.info(
-      { event: 'task.completed', taskId: id, imageCount: meta.images.length },
+      {
+        event: 'task.completed',
+        taskId: id,
+        imageCount: meta.images.length,
+        idleSlot: execution.idleSlot,
+        elapsedMs: now() - claimedAt,
+      },
       'task completed',
     )
   } catch (err) {
@@ -353,7 +392,9 @@ async function executeTask(execution: TaskExecution): Promise<void> {
               payload: upstreamFailure.body,
             })
           ? 'content_policy'
-          : 'upstream_error'
+          : isModelUnavailableRejection({ message, payload: upstreamFailure.body })
+            ? 'model_unavailable'
+            : 'upstream_error'
 
     const attemptJustFailed = task.attempt_count + 1
     if (
@@ -395,6 +436,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         {
           event: 'task.failed',
           taskId: id,
+          idleSlot: execution.idleSlot,
           errorType,
           attempt: attemptJustFailed,
           upstreamStatus: upstreamFailure.status,

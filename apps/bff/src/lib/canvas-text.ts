@@ -18,6 +18,7 @@ import {
 } from './agent/provider-settings'
 import { assertRequestWithinBudget, requestInputTokens } from './agent/request-budget'
 import { bffDrain } from './drain'
+import { modelUnavailable } from './model-availability'
 import { loadPrivateBffOverlay, type TaskReservationFailure } from './private-overlay'
 import { reservedTokenUsage, settledTokenUsage, type TokenUsage } from './token-pricing'
 
@@ -126,6 +127,8 @@ export async function generateCanvasText(
     const now = Date.now()
     signal.throwIfAborted()
     const failure = await db.transaction(async (tx): Promise<TaskReservationFailure | null> => {
+      if (await modelUnavailable(tx, model.id))
+        return { kind: 'price_unavailable', model: model.id }
       await tx.insert(schema.tasks).values({
         id,
         kind: 'chat',

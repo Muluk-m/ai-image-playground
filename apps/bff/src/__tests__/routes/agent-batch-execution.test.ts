@@ -670,6 +670,120 @@ it('重复确认两图计划只提交两项，重读后 worker 从队列执行�
   expect(billing.reservations.filter((one) => one.model !== 'fixture-agent-model')).toHaveLength(2)
 })
 
+it('纯文字需求也能保存批次计划，编辑、报价、确认后按文生图提交且不带输入图（BUG-25）', async () => {
+  billing.answer = { kind: 'reserved', credits: 7 }
+  billing.settledCredits = 7
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'batch-text-only',
+            name: 'planImageBatch',
+            args: {
+              title: '水果静物系列',
+              rule: '同一画风的水果静物',
+              items: [
+                { key: 'banana', imageIds: [], prompt: '香蕉静物，方形构图', dependencies: [] },
+                {
+                  key: 'grape',
+                  imageIds: [],
+                  prompt: '葡萄静物，横版构图',
+                  dependencies: [],
+                  aspectRatio: '16:9',
+                },
+              ],
+            },
+          }),
+        () => completionStream('请确认计划'),
+      ],
+    ),
+  )
+  const turn = await request(`agent/conversations/${conversation.id}/turns`, {
+    deviceId: DEVICE,
+    text: '做一个 2 张的水果静物系列，先出计划卡让我确认',
+  })
+  expect(turn.status).toBe(200)
+  await turn.text()
+  const { batches } = await (await request(`agent/conversations/${conversation.id}/batches`)).json()
+  expect(batches).toHaveLength(1)
+  const path = `agent/batches/${batches[0].id}`
+  const draft = await (await request(path)).json()
+  expect(draft.items).toMatchObject([
+    { key: 'banana', kind: 'generation', inputs: [] },
+    { key: 'grape', kind: 'generation', inputs: [], params: { size: '1280x720' } },
+  ])
+  expect(draft.batch.estimate.generation).toMatchObject({ estimatedChargeCredits: 14 })
+  // 用户在卡上改提示词：零输入的生成项也要能通过修订校验。
+  const editedResponse = await request(
+    path,
+    {
+      expectedVersion: draft.batch.version,
+      title: draft.batch.title,
+      rule: draft.batch.rule,
+      items: draft.items.map((item: { key: string; prompt: string }) => ({
+        ...item,
+        prompt: item.key === 'banana' ? '香蕉静物，浅色背景' : item.prompt,
+      })),
+    },
+    'PATCH',
+  )
+  expect(editedResponse.status).toBe(200)
+  const edited = await editedResponse.json()
+  expect(edited.batch.version).toBe(draft.batch.version + 1)
+  expect(edited.items[0]).toMatchObject({ prompt: '香蕉静物，浅色背景', inputs: [] })
+  const confirm = {
+    commandId: 'confirm-text-only',
+    expectedVersion: edited.batch.version,
+    expectedDigest: edited.batch.digest,
+    deviceId: DEVICE,
+  }
+  expect((await request(`${path}/confirm`, confirm)).status).toBe(200)
+  const running = await (await request(path)).json()
+  expect(running.batch).toMatchObject({ status: 'running', submittedCount: 2 })
+  const taskIds: string[] = running.items.map(
+    (item: { execution: { taskId: string } }) => item.execution.taskId,
+  )
+  const result = await sharp({
+    create: { width: 8, height: 6, channels: 4, background: '#eeeeee' },
+  })
+    .png()
+    .toBuffer()
+  const calls: { url: string; multipart: boolean; body: string }[] = []
+  setUpstreamFetchForTesting(async (url, init) => {
+    const body = init?.body
+    calls.push({
+      url: String(url),
+      multipart: body instanceof FormData,
+      body: body instanceof FormData ? String(body.get('prompt')) : String(body),
+    })
+    return Response.json({ data: [{ b64_json: result.toString('base64') }] })
+  })
+  for (const taskId of taskIds) await runTask(taskId)
+  const completed = await (await request(path)).json()
+  expect(completed.batch).toMatchObject({ status: 'closed', submittedCount: 2, actualCredits: 14 })
+  expect(calls).toHaveLength(2)
+  for (const call of calls) {
+    expect(call.multipart).toBe(false)
+    expect(call.url).not.toContain('/edits')
+  }
+  expect(calls[0]!.body).toContain('香蕉静物，浅色背景')
+  expect(calls[1]!.body).toContain('葡萄静物')
+  expect(billing.reservations.filter((one) => one.model !== 'fixture-agent-model')).toHaveLength(2)
+  const references = await db
+    .select()
+    .from(schema.media_references)
+    .where(
+      and(
+        eq(schema.media_references.owner_kind, 'batch'),
+        eq(schema.media_references.owner_id, batches[0].id),
+      ),
+    )
+  expect(references).toHaveLength(0)
+})
+
 it('暂停与第二项准备竞态后不再提交，已入队项继续完成，恢复只提交剩余项', async () => {
   billing.reset()
   billing.answer = { kind: 'reserved', credits: 7 }
@@ -1184,7 +1298,8 @@ it('原件超过准备字节预算时在流读取前暂停，刷新可见原因�
   const path = `agent/batches/${batches[0].id}`
   const draft = await (await request(path)).json()
   // The storage boundary advertises a large object without allocating its body in the fixture.
-  storage.advertisedSize = 32 * 1024 * 1024
+  // 无选区输入会先缩到最长边 4000 再送（BUG-35），源图按上传上限读；超过上传上限的仍在读取前暂停。
+  storage.advertisedSize = 64 * 1024 * 1024
   const start = storage.events.length
   try {
     const response = await request(`${path}/confirm`, {
@@ -2237,4 +2352,89 @@ it('confirms one independently priced analysis after its origin turn settled and
     _setPrivateBffOverlayForTesting(currentOverlay)
     setChatFetchForTesting()
   }
+})
+
+it('对话里出了新计划，先前轮次删过项的旧计划作废，确认被拒且不扣费（BUG-39）', async () => {
+  billing.reset()
+  billing.answer = { kind: 'reserved', credits: 7 }
+  billing.settledCredits = 7
+  const fruit = (key: string) => ({ key, imageIds: [], prompt: `${key} 静物`, dependencies: [] })
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  const turn = async (id: string, args: Record<string, unknown>, text: string) => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () => toolCallCompletion({ id, name: 'planImageBatch', args }),
+          () => completionStream('请确认计划'),
+        ],
+      ),
+    )
+    await (
+      await request(`agent/conversations/${conversation.id}/turns`, { deviceId: DEVICE, text })
+    ).text()
+    const [row] = await db
+      .select({ id: schema.agent_batches.id })
+      .from(schema.agent_batches)
+      .where(eq(schema.agent_batches.tool_call_id, id))
+    return `agent/batches/${row!.id}`
+  }
+  const fruits = await turn(
+    'fruit-plan',
+    { title: '水果静物', rule: '写实', items: [fruit('banana'), fruit('grape'), fruit('orange')] },
+    '香蕉、葡萄、橙子各一张，先出计划卡',
+  )
+  const draft = await (await request(fruits)).json()
+  const trimmed = await request(
+    fruits,
+    {
+      expectedVersion: 1,
+      title: draft.batch.title,
+      rule: draft.batch.rule,
+      items: draft.items
+        .filter((item: { key: string }) => item.key !== 'orange')
+        .map((item: Record<string, unknown>, ordinal: number) => ({
+          key: item.key,
+          ordinal,
+          kind: item.kind,
+          inputs: item.inputs,
+          prompt: item.prompt,
+          dependencies: item.dependencies,
+          params: item.params,
+        })),
+    },
+    'PATCH',
+  )
+  expect(trimmed.status).toBe(200)
+  const saved = await trimmed.json()
+  expect(saved.batch).toMatchObject({ status: 'draft', version: 2, itemCount: 2 })
+
+  const apple = await turn(
+    'apple-plan',
+    { title: '红苹果', rule: '写实', items: [fruit('apple')] },
+    '换个方案，不要水果了，只做 1 张红苹果',
+  )
+  expect((await (await request(fruits)).json()).batch.status).toBe('cancelled')
+  expect((await (await request(apple)).json()).batch.status).toBe('draft')
+  const stale = await request(`${fruits}/confirm`, {
+    commandId: 'confirm-superseded',
+    expectedVersion: 2,
+    expectedDigest: saved.batch.digest,
+    deviceId: DEVICE,
+  })
+  expect(stale.status).toBe(409)
+  expect(billing.reservations.filter((one) => one.model !== 'fixture-agent-model')).toHaveLength(0)
+  expect((await (await request(fruits)).json()).batch).toMatchObject({
+    status: 'cancelled',
+    submittedCount: 0,
+  })
+
+  // 用户明确要另做一份时保留先前计划。
+  const pear = await turn(
+    'pear-plan',
+    { title: '梨', rule: '写实', items: [fruit('pear')], keepEarlierPlans: true },
+    '苹果那张留着，另外再做一张梨',
+  )
+  expect((await (await request(apple)).json()).batch.status).toBe('draft')
+  expect((await (await request(pear)).json()).batch.status).toBe('draft')
 })
