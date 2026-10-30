@@ -763,6 +763,37 @@ describe('AgentPanel', () => {
     expect(texts('button')).not.toContain('有新消息')
   })
 
+  it('英文用户的整段乱码回复显示英文兜底，并且没有复制按钮 (BUG-81)', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-en',
+          turnId: 't-en',
+          role: 'user',
+          text: 'Make the second image a night scene',
+          streaming: false,
+        },
+        {
+          kind: 'text',
+          id: 'reply-en',
+          turnId: 't-en',
+          role: 'assistant',
+          text: 'પરિણામ સારું છે.',
+          streaming: false,
+        },
+      ],
+    })
+    render()
+    const reply = host.querySelector('.studio-agent-reply-wrap')!
+    expect(reply.textContent).toContain(
+      'That reply came back in an unexpected language. Try again.',
+    )
+    expect(reply.textContent).not.toContain('回复语言异常')
+    expect(reply.textContent).not.toContain('પ')
+    expect(reply.querySelector('button')).toBeNull()
+  })
+
   it('回复带复制按钮，复制的是原文并提示已复制；流式中不出', async () => {
     const writeText = vi.fn(async () => {})
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
