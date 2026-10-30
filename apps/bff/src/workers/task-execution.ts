@@ -75,6 +75,7 @@ export type ClaimedTask = Pick<
   | 'upstream_task_ids'
   | 'upstream_submitted_at'
   | 'upstream_invocation_count'
+  | 'submitted_at'
 >
 
 /** 已提交的上游异步任务：回读只为补提交缺口，已落库的 id 一律只轮不重提。 */
@@ -558,6 +559,7 @@ export async function claimTaskExecution(
         upstream_task_ids: schema.tasks.upstream_task_ids,
         upstream_submitted_at: schema.tasks.upstream_submitted_at,
         upstream_invocation_count: schema.tasks.upstream_invocation_count,
+        submitted_at: schema.tasks.submitted_at,
       })
     if (row) await publishGenerations(tx, [id])
     return row

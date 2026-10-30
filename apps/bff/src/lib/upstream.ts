@@ -56,6 +56,7 @@ import {
   buildVertexBody,
   isRateLimited,
   modelFallbackRecord,
+  VertexTimeCapError,
   withVertexRateLimitRetry,
 } from './upstream/vertex'
 import { VIDEO_MIME, VIDEO_STYLE_SPECS } from './upstream/video'
@@ -233,6 +234,12 @@ export interface UpstreamCallParams {
    * 只在它同走 Vertex 直连时生效，见 {@link resolveVertexFallback}。
    */
   rateLimitFallbackModel?: string
+  /**
+   * 原模型的总时限（epoch 毫秒，调用方从任务提交时刻算起，含排队）。到点还在排原模型的队、
+   * 或下一次退避会越过它，这一张直接改用回落模型；已发出的请求不掐断（上游可能已经在出图）。
+   * 没有回落模型时不生效。
+   */
+  rateLimitFallbackAt?: number
 }
 
 export interface UpstreamResume {
@@ -674,19 +681,30 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // supported for audio or image response"），n>1 时本层 fan-out 成 N 条单张请求
       // 并把 candidates 合并到一个 payload，对 task-runner / 前端透明。声明了 maxConcurrency
       // （Vertex 按模型各配 2）时，每条请求先排「渠道/模型」或渠道级的队再发。
-      const sendVia = async (target: {
-        url: string
-        body: string
-        concurrency: UpstreamRoute['concurrency']
-      }) => {
+      const sendVia = async (
+        target: {
+          url: string
+          body: string
+          concurrency: UpstreamRoute['concurrency']
+        },
+        /** 原模型的总时限：到点不再排队、不再退避，抛 {@link VertexTimeCapError} 交给回落。 */
+        capAt?: number,
+      ) => {
+        if (capAt !== undefined && Date.now() >= capAt) throw new VertexTimeCapError()
+        const queueSignal =
+          capAt === undefined
+            ? deadline.signal
+            : AbortSignal.any([deadline.signal, AbortSignal.timeout(capAt - Date.now())])
         const release = target.concurrency
           ? await acquireChannelSlot(
               target.concurrency.channelId,
               target.concurrency.limit,
-              deadline.signal,
+              queueSignal,
             ).catch((error: unknown) => {
               // 排队时就超时：请求根本没发出去，按普通超时报，不是「结果未知」。
               if (deadline.timedOut) throw new UpstreamTimeoutError()
+              if (capAt !== undefined && !deadline.signal.aborted && Date.now() >= capAt)
+                throw new VertexTimeCapError()
               throw error
             })
           : undefined
@@ -697,7 +715,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         try {
           // Vertex 的 429 是按模型的到达速率限流：先在这条请求里退避重发，一单多张里已出的图不必重来。
           return vertex
-            ? await withVertexRateLimitRetry(send, deadline.signal, () => deadline.timedOut)
+            ? await withVertexRateLimitRetry(send, deadline.signal, () => deadline.timedOut, capAt)
             : await send()
         } finally {
           release?.()
@@ -707,6 +725,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       const fallback = vertex
         ? resolveVertexFallback(model, params.rateLimitFallbackModel, request, base, key)
         : undefined
+      const capAt = fallback ? params.rateLimitFallbackAt : undefined
       let fallbackImages = 0
       const merge = (results: UpstreamCallResult[]) => {
         const merged = mergeGeminiCandidateResults(results)
@@ -722,15 +741,19 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         request.n,
         async () => {
           try {
-            return await sendVia(primary)
+            return await sendVia(primary, capAt)
           } catch (error) {
-            // 退避用完仍 429：这一张换回落模型补上（它有自己的排队位与退避）；别的错误照原样抛。
-            if (!fallback || !isRateLimited(error) || deadline.signal.aborted) throw error
+            // 退避用完仍 429、或原模型到了总时限：这一张换回落模型补上（它有自己的排队位与退避）；
+            // 别的错误照原样抛。
+            const capped = error instanceof VertexTimeCapError
+            if (!fallback || !(capped || isRateLimited(error)) || deadline.signal.aborted)
+              throw error
             log.warn(
               {
                 event: 'upstream.vertex_rate_limit_fallback',
                 requestedModel: model,
                 fallbackModel: fallback.model,
+                reason: capped ? 'time_cap' : 'rate_limited',
               },
               'vertex rate limit exhausted, falling back',
             )

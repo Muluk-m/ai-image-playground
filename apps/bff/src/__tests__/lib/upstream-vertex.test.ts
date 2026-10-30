@@ -16,7 +16,9 @@ const {
   parseVertexRateLimitBackoff,
   setVertexRateLimitBackoffForTesting,
 } = await import('../../lib/upstream/vertex')
-const { channelSlotStateForTesting } = await import('../../lib/upstream/concurrency')
+const { acquireChannelSlot, channelSlotStateForTesting } = await import(
+  '../../lib/upstream/concurrency'
+)
 const { extractUpstreamFailure } = await import('../../lib/upstream/errors')
 const { isRetryableError } = await import('../../lib/retry')
 const { partialFailureOf } = await import('../../lib/upstream/partial')
@@ -580,6 +582,97 @@ describe('callUpstream Vertex AI direct channel', () => {
         }).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
         expect(failure.upstreamStatus).toBe(400)
         expect(attempts).toHaveLength(1)
+      })
+
+      describe('total duration cap from submission', () => {
+        it('sends straight to the fallback once the order is already past the cap', async () => {
+          throttle(LITE)
+          const result = await callUpstream({
+            provider: 'gemini',
+            model: LITE,
+            request: { prompt: 'a cup', n: 2 },
+            rateLimitFallbackModel: FALLBACK,
+            rateLimitFallbackAt: Date.now() - 1,
+          })
+          expect(extractMeta('gemini', result.payload).images).toHaveLength(2)
+          expect(onModel(LITE)).toBe(0)
+          expect(onModel(FALLBACK)).toBe(2)
+          expect((result.payload as Record<string, unknown>).model_fallback).toEqual({
+            requested_model: LITE,
+            model: FALLBACK,
+            images: 2,
+          })
+        })
+
+        it('skips a backoff wait that would run past the cap', async () => {
+          setVertexRateLimitBackoffForTesting([60_000, 60_000, 60_000])
+          throttle(LITE)
+          const started = Date.now()
+          const result = await callUpstream({
+            provider: 'gemini',
+            model: LITE,
+            request: { prompt: 'a cup' },
+            rateLimitFallbackModel: FALLBACK,
+            rateLimitFallbackAt: Date.now() + 1_000,
+          })
+          expect(Date.now() - started).toBeLessThan(30_000)
+          expect(extractMeta('gemini', result.payload).images).toHaveLength(1)
+          expect(onModel(LITE)).toBe(1)
+          expect(onModel(FALLBACK)).toBe(1)
+        })
+
+        it('stops queueing for the original model when the cap arrives', async () => {
+          throttle(LITE)
+          // 原模型的两个排队位都被别的任务占着，这一张只能排队等。
+          const held = [
+            await acquireChannelSlot(`vertex-images/${LITE}`, 2),
+            await acquireChannelSlot(`vertex-images/${LITE}`, 2),
+          ]
+          try {
+            const result = await callUpstream({
+              provider: 'gemini',
+              model: LITE,
+              request: { prompt: 'a cup' },
+              rateLimitFallbackModel: FALLBACK,
+              rateLimitFallbackAt: Date.now() + 50,
+            })
+            expect(extractMeta('gemini', result.payload).images).toHaveLength(1)
+            expect(onModel(LITE)).toBe(0)
+            expect(onModel(FALLBACK)).toBe(1)
+            expect(channelSlotStateForTesting(`vertex-images/${LITE}`)).toEqual({
+              active: 2,
+              waiting: 0,
+            })
+          } finally {
+            for (const release of held) release()
+          }
+        })
+
+        it('fails the image when the fallback fails after the cap', async () => {
+          throttle(LITE, [400])
+          const failure = (await callUpstream({
+            provider: 'gemini',
+            model: LITE,
+            request: { prompt: 'a cup' },
+            rateLimitFallbackModel: FALLBACK,
+            rateLimitFallbackAt: Date.now() - 1,
+          }).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
+          expect(failure.upstreamStatus).toBe(400)
+          expect(onModel(LITE)).toBe(0)
+          expect(onModel(FALLBACK)).toBe(1)
+        })
+
+        it('leaves the original model alone when there is no fallback', async () => {
+          useStatuses([])
+          const result = await callUpstream({
+            provider: 'gemini',
+            model: 'gemini-3-pro-image',
+            request: { prompt: 'a cup' },
+            rateLimitFallbackAt: Date.now() - 1,
+          })
+          expect(extractMeta('gemini', result.payload).images).toHaveLength(1)
+          expect(attempts).toHaveLength(1)
+        })
       })
 
       it('ignores a fallback that is the same model or not on the Vertex channel', async () => {
