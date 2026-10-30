@@ -5,7 +5,10 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { subscribeLoginPrompt } from '../../../../auth/loginPrompt'
 import AgentArtifactPane from '../../../../features/agent/components/AgentArtifactPane'
-import AgentToolCard, { AgentImageRun } from '../../../../features/agent/components/AgentToolCard'
+import AgentToolCard, {
+  AgentImageRun,
+  regenerateText,
+} from '../../../../features/agent/components/AgentToolCard'
 import {
   setAgentComposerAttach,
   setAgentComposerReferences,
@@ -1637,5 +1640,33 @@ describe('生成结果的单层费用明细', () => {
       act(() => root.unmount())
       setAgentCanvasSink(null)
     }
+  })
+})
+
+describe('再次生成发出去的那一句', () => {
+  const request = (prompt: string) => `请基于这组提示词再次生成图片：${prompt}`
+  const card = {
+    toolName: 'generateImage' as const,
+    title: '浴缸',
+    prompt: '白色独立浴缸，晨光，极简浴室',
+  }
+
+  afterEach(() => useStore.setState({ createTarget: 'generate' }))
+
+  it('图片生成模式下没用参考图的文生图，原提示词直出，不套请求句', () => {
+    useStore.setState({ createTarget: 'generate' })
+    expect(regenerateText(card, request)).toBe('白色独立浴缸，晨光，极简浴室')
+  })
+
+  it('Agent 模式下照旧请智能体按原提示词再来一次', () => {
+    useStore.setState({ createTarget: 'chat' })
+    expect(regenerateText(card, request)).toBe(request('白色独立浴缸，晨光，极简浴室'))
+  })
+
+  it('用了参考图或改图的卡，图片生成模式下也交给智能体带上原图', () => {
+    useStore.setState({ createTarget: 'generate' })
+    const snapshot = { mode: 'image' as const, args: {}, imageIds: ['img-1'] }
+    expect(regenerateText({ ...card, snapshot }, request)).toBe(request(card.prompt))
+    expect(regenerateText({ ...card, toolName: 'editImage' }, request)).toBe(request(card.prompt))
   })
 })
