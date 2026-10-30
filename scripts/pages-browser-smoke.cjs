@@ -584,7 +584,7 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
       await page.getByRole('navigation').getByRole('button',{name:'登录',exact:true}).click()
       await page.getByRole('dialog',{name:'登录',exact:true}).waitFor()
       await page.getByRole('button',{name:'关闭登录框',exact:true}).click()
-      if (!(await page.title()).includes('AI 图片、视频与画布创作平台')) throw new Error('Auth changed the marketing title')
+      if (!(await page.title()).includes('幕芽 Muvloom：图片和视频的在线创作工具')) throw new Error('Auth changed the marketing title')
     } else {
       await page.waitForURL(origin + '/image')
     }
