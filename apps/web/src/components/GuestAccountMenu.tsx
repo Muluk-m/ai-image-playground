@@ -17,11 +17,13 @@ export default function GuestAccountMenu({
   onLogin,
   onClose,
   onOpenSettings,
+  onOpenContact,
 }: {
   authEnabled: boolean
   onLogin: () => void
   onClose: () => void
   onOpenSettings: () => void
+  onOpenContact: () => void
 }) {
   const { t } = useTranslation('shell')
   const { locale } = useLocalePicker()
@@ -78,6 +80,7 @@ export default function GuestAccountMenu({
           href={GUIDE_PATHS[locale]}
           onClick={onClose}
         />
+        <MenuRow icon="chat" label={t('header.contact.menu')} onClick={onOpenContact} />
       </div>
       <div className="mt-1 flex flex-col border-t border-border pt-2">
         <DisplaySettingsFields

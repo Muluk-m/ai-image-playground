@@ -114,6 +114,17 @@ describe('marketing home', () => {
     }
   })
 
+  it('keeps the contact email wrappable and the close hit target at 44px', () => {
+    const css = readFileSync(resolve(import.meta.dirname, '../marketing.css'), 'utf8')
+    const mail = css.slice(css.indexOf('.cbox .ct span.cmail'))
+    expect(mail.startsWith('.cbox .ct span.cmail')).toBe(true)
+    expect(mail.slice(0, mail.indexOf('}'))).toContain('overflow-wrap: anywhere')
+    expect(mail.slice(0, mail.indexOf('}'))).not.toContain('ellipsis')
+    const close = css.slice(css.indexOf('.cbox .cx::before'), css.indexOf('.cbox .copt {'))
+    expect(close).toContain('width: 44px')
+    expect(close).toContain('height: 44px')
+  })
+
   it('renders only email in the contact dialog and leaves WeChat empty', () => {
     for (const locale of ['zh-CN', 'en'] as const) {
       const html = renderToStaticMarkup(createElement(ContactPanel, { locale, onClose: () => {} }))
@@ -125,6 +136,9 @@ describe('marketing home', () => {
       expect(html).toContain(CONTACT_EMAIL)
       expect(html).toContain(`href="mailto:${CONTACT_EMAIL}"`)
       expect(html).toContain(marketingCopy[locale].contact.copy)
+      expect(html).toContain('data-slot="contact-email"')
+      expect(html).toContain('class="cmail"')
+      expect(html).toContain('class="cacts"')
       expect(html).not.toContain('data-contact-channel="wechat"')
     }
     const withWechat = renderToStaticMarkup(

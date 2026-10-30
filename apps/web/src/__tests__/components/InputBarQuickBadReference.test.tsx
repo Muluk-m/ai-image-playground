@@ -6,8 +6,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /** 浏览器解不出来的那几张：键是 dataUrl。jsdom 不真解图，按这张表答。 */
 const undecodable = new Set<string>()
+const oversizedUrls = new Set<string>()
 
 vi.mock('../../features/agent/lib/useAgentSkills', () => ({ useAgentSkills: () => [] }))
+vi.mock('../../lib/batchGenerate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/batchGenerate')>()
+  return {
+    ...actual,
+    oversizedReferenceIndexes: (
+      images: Parameters<typeof actual.oversizedReferenceIndexes>[0],
+      limit?: number,
+    ) => {
+      const flagged = images.flatMap((image, index) =>
+        oversizedUrls.has(image.dataUrl) ? [index] : [],
+      )
+      return flagged.length > 0 ? flagged : actual.oversizedReferenceIndexes(images, limit)
+    },
+  }
+})
 vi.mock('../../lib/canvasImage', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/canvasImage')>()
   return {
@@ -65,6 +81,7 @@ const send = () =>
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
   undecodable.clear()
+  oversizedUrls.clear()
   undecodable.add(CORRUPT)
   undecodable.add(TRUNCATED)
   vi.mocked(loadImage).mockClear()
@@ -180,6 +197,33 @@ describe('快速生成的坏参考图（BUG-59）', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('删掉或换掉超限的图后，50 MB 红字消失（BUG-29）', async () => {
+    oversizedUrls.add(PNG)
+    await mountQuick([GIF, PNG])
+    const alert = () =>
+      [...document.querySelectorAll('[role=alert]')]
+        .map((node) => node.textContent ?? '')
+        .find((text) => text.includes('超过'))
+    expect(alert()).toContain('第 2 张')
+    const remove = host.querySelector<HTMLButtonElement>('button[aria-label="移除第 2 张图片"]')
+    act(() => remove?.click())
+    expect(useStore.getState().inputImages.map((image) => image.dataUrl)).toEqual([GIF])
+    expect(alert()).toBeUndefined()
+    expect(send().disabled).toBe(false)
+
+    oversizedUrls.add(PNG)
+    await act(async () => {
+      useStore.setState({ inputImages: [{ id: 'img-0', dataUrl: PNG }] })
+    })
+    expect(alert()).toContain('第 1 张')
+    oversizedUrls.delete(PNG)
+    await act(async () => {
+      useStore.setState({ inputImages: [{ id: 'img-0', dataUrl: GIF }] })
+    })
+    expect(alert()).toBeUndefined()
+    expect(send().disabled).toBe(false)
   })
 
   it('移走坏图后原因消失、可以发送', async () => {
