@@ -33,6 +33,20 @@ describe('agentDraftOutputCount', () => {
     ).toBe(8)
   })
 
+  it('所选模型停用后回退到别的模型：按实际出图的 target 收口，不按所选模型', () => {
+    const draft = (selected: string, target: string) =>
+      agentDraftOutputCount({
+        ...card(undefined, 'generateImage'),
+        snapshot: {
+          args: {},
+          params: { model: selected, n: 8 },
+          target: { provider: 'gemini', model: target },
+        },
+      } as unknown as AgentToolMessage)
+    expect(draft('gemini-3.1-flash-lite-image', 'gemini-nano-banana-2.1')).toBe(8)
+    expect(draft('gemini-nano-banana-2.1', 'gemini-3.1-flash-lite-image')).toBe(4)
+  })
+
   it('把模型写成字符串的张数按数字读，不当成一张', () => {
     expect(agentDraftOutputCount(card('3'))).toBe(3)
   })
