@@ -42,7 +42,14 @@ export interface AlertObservation {
     successes_by_minute: Record<string, number>
     error_routes: Record<string, number>
   }
-  failures?: { generation_system: number; agent: number }
+  failures?: {
+    generation_system: number
+    agent: number
+    /** 近 15 分钟每个模型的生成失败，按失败次数从多到少。没取到明细时不给。 */
+    generation_models?: readonly GenerationFailureModel[]
+    /** 每个模型最近一次成功出图的时间（近 24 小时）。恢复以它为准，不只看失败数。 */
+    generation_successes?: Readonly<Record<string, number>>
+  }
   /**
    * 近 6 小时每一类 Agent 轮次失败（模型、错误码、上游状态码各算一类）。
    * 没有失败时为 null 或空数组。整块没取到就不要给这个字段。
@@ -50,6 +57,31 @@ export interface AlertObservation {
   agentFailurePatterns?: readonly AgentFailurePattern[] | null
   /** 连续若干轮取不到读数的块，由调用方按轮次累计。 */
   blindBlocks?: ReadonlyArray<{ block: string; rounds: number }>
+}
+
+export interface GenerationFailureModel {
+  model: string
+  failures: number
+  /** 最近一次失败的 error_type。 */
+  errorType: string
+  /** 最近一次失败的上游 HTTP 状态码；没有就是 null。 */
+  upstreamStatus: number | null
+  /** 最近一次失败的报错，前 200 个字符。 */
+  message: string
+  lastFailedAt: number
+  /** 模型因上游不可用被自动暂停、还没被重新启用。运营手动停用的不算。 */
+  paused?: boolean
+}
+
+/** 生成告警还没收口时，盯着的那些模型：要等它们各自再成功出一张图，才发已恢复。 */
+export interface GenerationWatchEntry {
+  model: string
+  failures: number
+  errorType: string
+  upstreamStatus: number | null
+  message: string
+  lastFailedAt: number
+  paused?: boolean
 }
 
 export interface AgentFailurePattern {
@@ -123,12 +155,15 @@ export interface AgentPatternGroupState extends RuleState {
 export type AlertState = Partial<Record<Exclude<AlertRule, 'api'>, RuleState>> & {
   api?: ApiRuleState
   agentPatterns?: Record<string, AgentPatternGroupState>
+  generationWatch?: Record<string, GenerationWatchEntry>
 }
 
 export interface AlertMessage {
   rule: AlertRule
   kind: 'firing' | 'resolved'
   text: string
+  /** 给 JSON webhook 的结构化字段；飞书只发 text。 */
+  detail?: Record<string, unknown>
 }
 
 /** 同一条规则还没好的话，多久再提醒一次。 */
@@ -174,6 +209,7 @@ function readings(
   observation: AlertObservation,
   state: AlertState,
   now: number,
+  generationWaiting: readonly GenerationWatchEntry[] = [],
 ): Partial<Record<AlertRule, Reading>> {
   const out: Partial<Record<AlertRule, Reading>> = {}
   const { host, queue, backup, restoreDrill, heartbeats, failures } = observation
@@ -191,11 +227,21 @@ function readings(
   }
 
   if (failures) {
+    const overThreshold = failures.generation_system >= OPS_THRESHOLDS.GENERATION_SYSTEM_FAILURES
+    const breached = generationBreached(failures)
+    const models = failures.generation_models ?? []
     out.generation = {
-      breached: failures.generation_system >= OPS_THRESHOLDS.GENERATION_SYSTEM_FAILURES,
+      breached,
+      // 失败数回到线内还不够：报过的模型得各自真的再出一张图，才算好了。
+      recovered: !breached && generationWaiting.length === 0,
       sustainMs: 0,
-      firingText: `近 15 分钟有 ${failures.generation_system} 次非内容策略的生成失败`,
-      resolvedText: '已恢复：生成系统失败回到告警线内',
+      firingText: breached
+        ? `${overThreshold ? `近 15 分钟有 ${failures.generation_system} 次非内容策略的生成失败` : '上游报模型不可用，模型已自动暂停'}${models.length > 0 ? `\n${models.slice(0, GENERATION_MODELS_IN_TEXT).map(generationModelLine).join('\n')}` : ''}`
+        : `生成失败已回到告警线内，但这些模型出事后还没有成功出过图，暂不发恢复：\n${generationWaiting.map(generationModelLine).join('\n')}`,
+      resolvedText:
+        Object.keys(state.generationWatch ?? {}).length > 0
+          ? `已恢复：${Object.keys(state.generationWatch ?? {}).join('、')} 已重新成功出图，生成失败回到告警线内`
+          : '已恢复：生成系统失败回到告警线内',
     }
     out.agent = {
       breached: failures.agent >= OPS_THRESHOLDS.AGENT_TURN_FAILURES,
@@ -288,6 +334,80 @@ function readings(
     }
   }
   return out
+}
+
+/**
+ * 生成告警越线：失败数到线，或者有模型因上游不可用被自动暂停。
+ * 后者单独算，是因为暂停后只会留下一两次失败，到不了线，但模型已经停了、要等人去重新启用。
+ */
+function generationBreached(failures: NonNullable<AlertObservation['failures']>): boolean {
+  return (
+    failures.generation_system >= OPS_THRESHOLDS.GENERATION_SYSTEM_FAILURES ||
+    (failures.generation_models ?? []).some(
+      (model) => model.paused === true && model.errorType === 'model_unavailable',
+    )
+  )
+}
+
+/** 告警正文里最多列几个模型。 */
+const GENERATION_MODELS_IN_TEXT = 5
+
+function generationModelLine(model: GenerationFailureModel | GenerationWatchEntry): string {
+  const status = model.upstreamStatus ? `，HTTP ${model.upstreamStatus}` : ''
+  const paused = model.paused ? '，已自动暂停' : ''
+  return `· ${model.model} ×${model.failures}：${model.errorType}${status}${paused}；最近一次：${model.message.slice(0, 200)}`
+}
+
+/**
+ * 更新「等它出图」的名单：新失败的模型加进来（记下最近一次的明细），之后成功出过图的划掉。
+ * 失败明细这一块没取到时原样留着，不能因为看不见就当它好了。
+ */
+function stepGenerationWatch(
+  failures: NonNullable<AlertObservation['failures']>,
+  previous: Record<string, GenerationWatchEntry> | undefined,
+): Record<string, GenerationWatchEntry> {
+  const watch: Record<string, GenerationWatchEntry> = { ...previous }
+  for (const model of failures.generation_models ?? []) {
+    const prior = watch[model.model]
+    if (prior && prior.lastFailedAt > model.lastFailedAt) continue
+    watch[model.model] = {
+      model: model.model,
+      failures: Math.max(model.failures, prior?.failures ?? 0),
+      errorType: model.errorType,
+      upstreamStatus: model.upstreamStatus,
+      message: model.message.slice(0, 200),
+      lastFailedAt: model.lastFailedAt,
+      ...(model.paused !== undefined ? { paused: model.paused } : {}),
+    }
+  }
+  const successes = failures.generation_successes
+  if (successes) {
+    for (const [model, entry] of Object.entries(watch)) {
+      if ((successes[model] ?? 0) > entry.lastFailedAt) delete watch[model]
+    }
+  }
+  return watch
+}
+
+function generationDetail(
+  failures: NonNullable<AlertObservation['failures']>,
+  waiting: readonly GenerationWatchEntry[],
+): Record<string, unknown> {
+  const toJson = (model: GenerationFailureModel | GenerationWatchEntry) => ({
+    model: model.model,
+    failures: model.failures,
+    error_type: model.errorType,
+    upstream_status: model.upstreamStatus,
+    message: model.message.slice(0, 200),
+    last_failed_at: new Date(model.lastFailedAt).toISOString(),
+    paused: model.paused ?? null,
+  })
+  return {
+    window_failures: failures.generation_system,
+    threshold: OPS_THRESHOLDS.GENERATION_SYSTEM_FAILURES,
+    models: (failures.generation_models ?? []).map(toJson),
+    waiting_for_success: waiting.map(toJson),
+  }
 }
 
 function patternKey(
@@ -489,11 +609,33 @@ export function evaluateAlerts(
     messages.push(...patterns.messages)
   }
 
-  for (const [rule, reading] of Object.entries(readings(observation, state, now)) as Array<
-    [Exclude<AlertRule, 'api'>, Reading]
-  >) {
+  const failures = observation.failures
+  // 只在生成告警越线或在报时维护名单；平时零星失败不进名单。
+  const watching = failures && (state.generation?.firing || generationBreached(failures))
+  const watch = watching ? stepGenerationWatch(failures, state.generationWatch) : {}
+  const waiting = Object.values(watch)
+
+  for (const [rule, reading] of Object.entries(
+    readings(
+      observation,
+      { ...state, generationWatch: state.generationWatch ?? watch },
+      now,
+      waiting,
+    ),
+  ) as Array<[Exclude<AlertRule, 'api'>, Reading]>) {
     const stepped = stepRule(rule, reading, state[rule], now)
-    messages.push(...stepped.messages)
+    if (rule === 'generation' && failures) {
+      for (const message of stepped.messages)
+        messages.push(
+          message.kind === 'firing'
+            ? { ...message, detail: generationDetail(failures, waiting) }
+            : message,
+        )
+      if (stepped.state.firing || stepped.state.breachedSince !== null) next.generationWatch = watch
+      else delete next.generationWatch
+    } else {
+      messages.push(...stepped.messages)
+    }
     next[rule] = stepped.state
   }
 
