@@ -1480,12 +1480,11 @@ export default function AgentComposer({
               }
               onChange={(next) => {
                 const target = next === 'agent' ? 'chat' : next === 'video' ? 'video' : 'generate'
-                useStore.setState((state) => ({
-                  projectCreationTargets: {
-                    ...state.projectCreationTargets,
-                    [session.key]: target,
-                  },
-                }))
+                // 刚选的排到最后：持久化只留最近的一批，按先后让位。
+                useStore.setState((state) => {
+                  const { [session.key]: _previous, ...others } = state.projectCreationTargets
+                  return { projectCreationTargets: { ...others, [session.key]: target } }
+                })
                 useStore.getState().setCreateTarget(target)
               }}
             />

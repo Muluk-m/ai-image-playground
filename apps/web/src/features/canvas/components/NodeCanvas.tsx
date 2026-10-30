@@ -1344,14 +1344,16 @@ function Flow({
         }) ?? { x: 0, y: 0 })
       : { x: 0, y: 0 }
   }
-  // 「资产」入口在全局顶栏：画布挂着才出现，开关状态放在共享 store 里。
+  // 「资产」入口在全局顶栏：画布正在显示才出现，开关状态放在共享 store 里。
+  // 对话视图里画布仍挂着但不活跃，那里已有自己的「资产库」，顶栏不能再出一个。
   const assetsPanelOpen = useCanvasAssetsEntry((s) => s.open)
   const setAssetsPanelOpen = useCanvasAssetsEntry((s) => s.setOpen)
   useEffect(() => {
+    if (!active) return
     const entry = useCanvasAssetsEntry.getState()
     entry.setAvailable(true)
     return () => entry.setAvailable(false)
-  }, [])
+  }, [active])
   const canvasResultItems = useCanvasResultAssets(editor, canvas, projectName, assetsPanelOpen)
   // 资产弹窗里点一件或「应用到画布」：在当前画面中间建节点并选中，不挪视口；成功后弹窗自己关掉。
   const placeAssets = async (items: readonly CanvasAssetItem[]) => {

@@ -13,9 +13,10 @@ const UNAVAILABLE_ERROR_CODES: Record<string, true> = {
 
 const UNAVAILABLE_MESSAGE_PATTERNS = [
   /no eligible .*accounts?/i,
-  /no available (accounts?|channels?)/i,
+  // sub2api 账号池耗尽时说 `No available compatible accounts`（2026-10-29 flare 事故），中间可以夹一两个修饰词。
+  /no available (?:[a-z-]+ ){0,2}(?:accounts?|channels?)\b/i,
   /does not exist or you do not have access/i,
-  /无可用渠道/,
+  /(?:无|没有)可用(?:的)?(?:渠道|账号|账户)/,
 ]
 
 function matchesPattern(text: string | null | undefined): boolean {

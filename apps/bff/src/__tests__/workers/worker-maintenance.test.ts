@@ -25,7 +25,7 @@ mock.module(path('lib/channels.ts'), () => ({ initChannels: () => ({ warnings: [
 mock.module(path('lib/heartbeat.ts'), () => ({ purgeStaleHeartbeats: done, startHeartbeat: () => noop }));
 mock.module(path('lib/logger.ts'), () => ({ log: { warn: noop, error: noop, info: noop, flush: noop } }));
 mock.module(path('lib/server-logs.ts'), () => ({ startServerLogs: () => done }));
-mock.module(path('ops/alert-sender.ts'), () => ({ createAlertSender: () => done }));
+mock.module(path('ops/alert-sender.ts'), () => ({ createAlertSender: () => done, createAlertSenderFromEnv: () => done, alertTargetsConfigured: () => false }));
 mock.module(path('ops/app-alerts.ts'), () => ({ createAppAlerting: () => done }));
 mock.module(path('workers/analysis-runner.ts'), () => ({ abortAllRunningAnalysisTasks: noop, runningAnalysisTaskIds: () => [] }));
 mock.module(path('workers/task-execution.ts'), () => ({ abortAllRunningTasks: noop, runningTaskIds: () => [] }));

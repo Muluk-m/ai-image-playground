@@ -625,15 +625,20 @@ export function modelLabel(model: string): string {
   return model
 }
 
-/** 给了 id 就按 id 找，没给就取该介质的默认模型——channels 数组顺序是产品契约。 */
+/**
+ * 给了 id 就按 id 找，没给就取该介质的默认模型——channels 数组顺序是产品契约。
+ * `skip` 里的模型当作不存在（智能体挑模型时传「模型」页停用的那些）。
+ */
 export function resolveQueueModel(
   media: ChannelMedia,
   modelId?: string,
+  skip?: ReadonlySet<string>,
 ): { provider: QueueProvider; model: string } | undefined {
   for (const channel of loaded) {
     for (const model of channel.models) {
       if ((model.media ?? 'image') !== media) continue
       if (modelId && model.id !== modelId) continue
+      if (skip?.has(model.id)) continue
       return { provider: queueProviderOf(channel.kind), model: model.id }
     }
   }
