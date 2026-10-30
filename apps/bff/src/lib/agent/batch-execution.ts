@@ -10,6 +10,7 @@ import {
 import { and, asc, eq, gt, inArray, isNotNull, isNull, or } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
+import { cancelTasks } from '../../db/task-transitions'
 import {
   type PreparedAnalysisTask,
   prepareAnalysisTask,
@@ -27,6 +28,7 @@ import {
   type PreparedQueueTask,
   prepareQueueTask,
 } from '../taskSubmission'
+import { cancelUpstreamOfCancelledTasks } from '../upstream-cancel'
 import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
 import { batchItem, batchItemValues } from './batch-items'
 import { BatchPlanError, batchPlansAvailable, quoteBatchPlan } from './batch-plans'
@@ -857,6 +859,57 @@ export async function repriceAgentBatch(
 }
 
 /** A retry authorizes new attempt numbers; every earlier task and bill remains immutable. */
+/**
+ * 取消批次里某一项正在跑的那次生成（排队或执行中）。走与单任务取消同一条 cancelTasks：
+ * 预扣的结算由私有 task hook 在同一事务里完成，这里不碰计费。取消后的那一项按已有规则记为
+ * 「已取消」，依赖它的项随之取消，其余项照常执行。任务锁之后不能再拿批次锁，所以先查归属、
+ * 再单独取消、最后再对账进度。没有在跑的那次就什么都不做（重复点、两台设备同时点都安全）。
+ */
+export async function cancelAgentBatchItem(
+  userId: string,
+  id: string,
+  itemKey: string,
+): Promise<boolean> {
+  const running = await db
+    .select({ taskId: schema.agent_batch_attempts.task_id })
+    .from(schema.agent_batch_attempts)
+    .innerJoin(
+      schema.agent_batches,
+      eq(schema.agent_batches.id, schema.agent_batch_attempts.batch_id),
+    )
+    .innerJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
+    .where(
+      and(
+        eq(schema.agent_batch_attempts.batch_id, id),
+        eq(schema.agent_batch_attempts.item_key, itemKey),
+        eq(schema.agent_batches.user_id, userId),
+        eq(schema.tasks.kind, 'queue'),
+        inArray(schema.tasks.status, ['queued', 'in_progress']),
+      ),
+    )
+  if (!running.length) {
+    const [owned] = await db
+      .select({ id: schema.agent_batches.id })
+      .from(schema.agent_batches)
+      .where(and(eq(schema.agent_batches.id, id), eq(schema.agent_batches.user_id, userId)))
+    if (!owned) throw new BatchPlanError('batch_not_found', 404)
+    return false
+  }
+  const cancelled = await cancelTasks(
+    and(
+      inArray(
+        schema.tasks.id,
+        running.map((one) => one.taskId),
+      ),
+      eq(schema.tasks.user_id, userId),
+      eq(schema.tasks.kind, 'queue'),
+    )!,
+  )
+  void cancelUpstreamOfCancelledTasks(cancelled.map((row) => row.id))
+  await reconcileAgentBatchProgress(id)
+  return cancelled.length > 0
+}
+
 export async function quoteAgentBatchRetry(
   userId: string,
   id: string,
