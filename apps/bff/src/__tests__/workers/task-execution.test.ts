@@ -199,6 +199,51 @@ describe('认领', () => {
     for (const other of others) other?.release()
   })
 
+  it('serializes same-model tasks within an anonymous agent turn too', async () => {
+    const now = Date.now()
+    await db.insert(schema.agent_conversations).values({
+      id: 'anon-turn-conv',
+      user_id: null,
+      device_id: 'anon-device',
+      title: 't',
+      created_at: now,
+      updated_at: now,
+    })
+    const lite = { provider: 'gemini' as const, model: 'gemini-3.1-flash-lite-image' }
+    for (const id of ['anon-a', 'anon-b', 'anon-c']) await insertQueuedTask(id, lite)
+    await db.insert(schema.agent_jobs).values(
+      ['anon-a', 'anon-b', 'anon-c'].map((taskId) => ({
+        task_id: taskId,
+        conversation_id: 'anon-turn-conv',
+        turn_id: 'anon-turn',
+        tool_call_id: taskId,
+        submitted_at: now,
+      })),
+    )
+    await insertQueuedTask('anon-plain', lite)
+    await insertQueuedTask('anon-plain-2', lite)
+
+    // 没有用户行可锁：三条同轮同模型并发认领，也只放行一条。
+    const claims = await Promise.all(
+      ['anon-a', 'anon-b', 'anon-c'].map((id) => claimTaskExecution(id)),
+    )
+    const won = claims.filter(Boolean)
+    expect(won).toHaveLength(1)
+    // 不是智能体提交的匿名任务不受影响。
+    const plain = await Promise.all(
+      ['anon-plain', 'anon-plain-2'].map((id) => claimTaskExecution(id)),
+    )
+    expect(plain.every(Boolean)).toBe(true)
+
+    const running = won[0]!
+    expect(await running.finish({ status: 'completed', completedAt: Date.now() })).toBeTruthy()
+    running.release()
+    const blocked = ['anon-a', 'anon-b', 'anon-c'].filter((_, index) => !claims[index])
+    const next = await Promise.all(blocked.map((id) => claimTaskExecution(id)))
+    expect(next.filter(Boolean)).toHaveLength(1)
+    for (const handle of [...next, ...plain]) handle?.release()
+  })
+
   it('keeps the slot of a task waiting out its retry backoff from the same account (BUG-84)', async () => {
     const now = Date.now()
     await db.insert(schema.users).values({
