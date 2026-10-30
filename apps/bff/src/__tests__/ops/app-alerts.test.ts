@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import type { AlertMessage } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 
 const databaseUrl = await resetTestDatabase('bff_app_alerts')
 process.env.DATABASE_URL = databaseUrl
@@ -98,9 +99,22 @@ await writer.db.insert(writer.schema.tasks).values([
     model: 'gpt-image-2',
     status: 'failed',
     error_type: 'upstream_error',
+    upstream_status: 502,
+    // 第二个密钥横跨第 400 字：先截断再脱敏会漏出半截 `sk-abc`。
+    error_message: `Bad gateway from key sk-live-abcdef123456 data:image/png;base64,${'A'.repeat(329)} sk-abcdefghijklmnopqrstuvwxyz0123 tail`,
     request_payload: { prompt: 'x' },
     submitted_at: now - minute,
     completed_at: now - minute,
+  },
+  {
+    id: 'earlier-success',
+    user_id: 'full-alert-account',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'completed',
+    request_payload: { prompt: 'x' },
+    submitted_at: now - 2 * hour,
+    completed_at: now - 2 * hour,
   },
   {
     id: 'policy-rejection',
@@ -140,6 +154,7 @@ describe('observeApp', () => {
         finished_at: now - 2 * hour,
         error: 'pg_restore: bad input',
       }),
+      watchingModels: ['gpt-image-2'],
     })
 
     // 对话轮、保存重试、未到期重试和账号限流不占实际排队；已到期重试从到期时算。
@@ -161,7 +176,52 @@ describe('observeApp', () => {
       successes_by_minute: { [Math.floor((now - minute) / minute) * minute]: 20 },
       error_routes: {},
     })
-    expect(observation.failures).toEqual({ generation_system: 1, agent: 0 })
+    expect(observation.failures).toEqual({
+      generation_system: 1,
+      agent: 0,
+      generation_models: [
+        {
+          model: 'gpt-image-2',
+          failures: 1,
+          errorType: 'upstream_error',
+          upstreamStatus: 502,
+          // 整段原文先抹掉令牌、密钥和二进制，再截 200 字。
+          message: 'Bad gateway from key [REDACTED] [BINARY REDACTED] [REDACTED] tail',
+          lastFailedAt: now - minute,
+          paused: false,
+        },
+      ],
+      generation_successes: { 'gpt-image-2': now - 2 * hour },
+    })
+
+    // 没在等哪个模型恢复时，不去查成功记录。
+    expect((await observeApp({ now })).failures?.generation_successes).toEqual({})
+  })
+
+  it('marks a failing model paused only when it was auto-paused for upstream unavailability', async () => {
+    const table = writer.schema.model_availability
+    const pausedOf = async () =>
+      (await observeApp({ now })).failures?.generation_models?.find(
+        (model) => model.model === 'gpt-image-2',
+      )?.paused
+    await writer.db.insert(table).values({
+      model: 'gpt-image-2',
+      active: false,
+      pause_reason: null,
+      paused_at: null,
+      updated_at: now,
+    })
+    try {
+      // 运营手动停用：不算自动暂停，不能让告警说「已自动暂停」。
+      expect(await pausedOf()).toBe(false)
+      await writer.db
+        .update(table)
+        .set({ pause_reason: 'upstream_unavailable', paused_at: now })
+        .where(eq(table.model, 'gpt-image-2'))
+      expect(await pausedOf()).toBe(true)
+    } finally {
+      await writer.db.delete(table).where(eq(table.model, 'gpt-image-2'))
+    }
   })
 
   it('leaves out a block it could not read, so that rule is skipped this round', async () => {
