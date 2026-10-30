@@ -133,8 +133,8 @@ const RATE_LIMITED_MESSAGE = '该模型当前请求太多（上游限流），�
  * （10s / 30s 后整单再跑）只会把同一单的 n 条请求再撞一遍限流，一单拖到 10 分钟以上，
  * 还会和排队的单子抢配额。回落模型在单张层面已经试过了，这里直接失败、整笔退回积分。
  */
-function rateLimitedError(cause: unknown, message = RATE_LIMITED_MESSAGE): Error {
-  const err = new Error(message, { cause }) as Error & {
+function rateLimitedError(cause: unknown): Error {
+  const err = new Error(RATE_LIMITED_MESSAGE, { cause }) as Error & {
     upstreamStatus: number
     upstreamPayload?: unknown
     retryable: boolean
@@ -143,27 +143,6 @@ function rateLimitedError(cause: unknown, message = RATE_LIMITED_MESSAGE): Error
   err.retryable = false
   const payload = (cause as { upstreamPayload?: unknown } | null)?.upstreamPayload
   if (payload !== undefined) err.upstreamPayload = payload
-  return err
-}
-
-/**
- * 一单多张拆成的请求里，有的已经出图、有的退避用完（含回落模型）仍 429 时的收口
- * （`fanOutRequests` 的 `onPartialFailure`）。任务级重试会把整组 n 张重新生成，已出的图要再付
- * 一遍上游费用，还会接着撞同一个限流，所以这种情况标成不可重试：任务失败，冻结的积分按现有
- * 结算整笔退回（只有任务完成才扣费）。已出的图暂不交付：按实交张数结算的部分交付在后续 PR 里做。
- * 不是 429 的失败（含用户取消）返回 undefined，照原样往外抛。
- */
-export function vertexPartialRateLimitFailure(
-  reason: unknown,
-  delivered: number,
-  requested: number,
-): Error | undefined {
-  if (!isRateLimited(reason)) return undefined
-  const err = rateLimitedError(
-    reason,
-    `该模型当前请求太多（上游限流）：本单 ${requested} 张里有 ${requested - delivered} 张自动重试仍未成功。为免整单重复生成，本单不再自动重跑，请稍后再试`,
-  ) as Error & { retryable: boolean }
-  err.retryable = false
   return err
 }
 

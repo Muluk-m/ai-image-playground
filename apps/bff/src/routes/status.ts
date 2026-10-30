@@ -7,6 +7,7 @@ import { publicTaskErrorMessage } from '../lib/public-task-error'
 import { asQueueProvider } from '../lib/queueProvider'
 import { taskAccessWhere } from '../lib/task-access'
 import { taskProgressPhase } from '../lib/task-progress'
+import { partialFailureField } from '../lib/upstream/partial'
 import { requireUserOrService } from '../lib/user-auth'
 
 /**
@@ -87,6 +88,7 @@ export const statusRoutes = new Elysia().use(requireUserOrService).get(
           images: meta.images,
           ...(meta.actual_params ? { actual_params: meta.actual_params } : {}),
           ...(meta.raw_image_urls ? { raw_image_urls: meta.raw_image_urls } : {}),
+          ...partialFailureField(task.result_payload),
         }
       }
     }
