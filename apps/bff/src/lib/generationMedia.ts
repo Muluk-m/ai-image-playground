@@ -168,9 +168,13 @@ export function generationSourceCheckpoint(id: string, provider: QueueProvider, 
     return { ...ref, index: image.index }
   })
   if (!refs.length) return null
+  // 部分出图记下的缺口（upstream/partial.ts）跟着检查点走：归档重试后仍按交付张数结算。
+  const partial = (payload as { partial_failure?: unknown } | null)?.partial_failure
+  const carried = partial ? { partial_failure: partial } : {}
   if (provider === 'openai-compat')
     return {
       ...meta.actual_params,
+      ...carried,
       archive_store: 'durable',
       data: refs.map((ref) => ({
         ...(ref.kind === 'url' ? { url: ref.data } : { object: `${id}/out/${ref.index}` }),
@@ -191,6 +195,7 @@ export function generationSourceCheckpoint(id: string, provider: QueueProvider, 
       },
     ],
     ...(fallback ? { model_fallback: fallback } : {}),
+    ...carried,
   }
 }
 

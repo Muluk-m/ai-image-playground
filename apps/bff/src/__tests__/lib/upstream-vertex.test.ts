@@ -15,10 +15,14 @@ const {
   VERTEX_RATE_LIMIT_BACKOFF_MS,
   parseVertexRateLimitBackoff,
   setVertexRateLimitBackoffForTesting,
+  withVertexRateLimitRetry,
 } = await import('../../lib/upstream/vertex')
-const { channelSlotStateForTesting } = await import('../../lib/upstream/concurrency')
+const { acquireChannelSlot, channelSlotStateForTesting } = await import(
+  '../../lib/upstream/concurrency'
+)
 const { extractUpstreamFailure } = await import('../../lib/upstream/errors')
 const { isRetryableError } = await import('../../lib/retry')
+const { partialFailureOf } = await import('../../lib/upstream/partial')
 const { defaultChannelsPath } = await import('../../lib/channels')
 type InternalChannel = import('../../lib/channels').InternalChannel
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
@@ -434,23 +438,20 @@ describe('callUpstream Vertex AI direct channel', () => {
       })
     })
 
-    it('does not let the task retry regenerate a group whose other images already came back', async () => {
-      // 一条出图，另一条首发 + 3 次退避全是 429。
+    it('delivers the images that came back and records the throttled rest', async () => {
+      // 一条出图，另一条首发 + 3 次退避全是 429：交付那一张，缺口记在结果里供按张结算。
       useStatuses([200, 429, 429, 429, 429])
-      const failure = (await callUpstream({
+      const result = await callUpstream({
         provider: 'gemini',
         model: 'gemini-3-pro-image',
         request: { prompt: 'a cup', n: 2 },
-      }).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
+      })
       expect(attempts).toHaveLength(2 + VERTEX_RATE_LIMIT_BACKOFF_MS.length)
-      expect(failure.upstreamStatus).toBe(429)
-      expect(isRetryableError(failure)).toBe(false)
-      expect(failure.message).toContain('上游限流')
-      expect(failure.message).toContain('不再自动重跑')
-      expect(failure.message).not.toContain('Nano Banana')
-      expect(extractUpstreamFailure(failure)).toEqual({
-        status: 429,
-        body: expect.stringContaining('RESOURCE_EXHAUSTED'),
+      expect(extractMeta('gemini', result.payload).images).toHaveLength(1)
+      expect(partialFailureOf(result.payload)).toEqual({
+        requested: 2,
+        failed: 1,
+        type: 'rate_limited',
       })
       expect(channelSlotStateForTesting(PRO_GATE)).toEqual({ active: 0, waiting: 0 })
     })
@@ -464,7 +465,6 @@ describe('callUpstream Vertex AI direct channel', () => {
       }).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
       expect(failure.upstreamStatus).toBe(429)
       expect(isRetryableError(failure)).toBe(false)
-      expect(failure.message).not.toContain('不再自动重跑')
     })
 
     describe('falling back to another Vertex model', () => {
@@ -583,6 +583,118 @@ describe('callUpstream Vertex AI direct channel', () => {
         }).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
         expect(failure.upstreamStatus).toBe(400)
         expect(attempts).toHaveLength(1)
+      })
+
+      describe('total duration cap from submission', () => {
+        it('sends straight to the fallback once the order is already past the cap', async () => {
+          throttle(LITE)
+          const result = await callUpstream({
+            provider: 'gemini',
+            model: LITE,
+            request: { prompt: 'a cup', n: 2 },
+            rateLimitFallbackModel: FALLBACK,
+            rateLimitFallbackAt: Date.now() - 1,
+          })
+          expect(extractMeta('gemini', result.payload).images).toHaveLength(2)
+          expect(onModel(LITE)).toBe(0)
+          expect(onModel(FALLBACK)).toBe(2)
+          expect((result.payload as Record<string, unknown>).model_fallback).toEqual({
+            requested_model: LITE,
+            model: FALLBACK,
+            images: 2,
+          })
+        })
+
+        it('skips a backoff wait that would run past the cap', async () => {
+          setVertexRateLimitBackoffForTesting([60_000, 60_000, 60_000])
+          throttle(LITE)
+          const started = Date.now()
+          const result = await callUpstream({
+            provider: 'gemini',
+            model: LITE,
+            request: { prompt: 'a cup' },
+            rateLimitFallbackModel: FALLBACK,
+            rateLimitFallbackAt: Date.now() + 1_000,
+          })
+          expect(Date.now() - started).toBeLessThan(30_000)
+          expect(extractMeta('gemini', result.payload).images).toHaveLength(1)
+          expect(onModel(LITE)).toBe(1)
+          expect(onModel(FALLBACK)).toBe(1)
+        })
+
+        it('does not resend to the original model when the backoff wakes up past the cap', async () => {
+          setVertexRateLimitBackoffForTesting([20])
+          const capAt = Date.now() + 50
+          let sends = 0
+          const failure = (await withVertexRateLimitRetry(
+            async () => {
+              sends += 1
+              // 退避期间事件循环被占住，定时器醒来时已过总时限。
+              setTimeout(() => {
+                while (Date.now() < capAt + 5) {}
+              }, 1)
+              throw Object.assign(new Error('throttled'), { upstreamStatus: 429 })
+            },
+            new AbortController().signal,
+            () => false,
+            capAt,
+          ).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
+          expect(failure.upstreamStatus).toBe(429)
+          expect(sends).toBe(1)
+        })
+
+        it('stops queueing for the original model when the cap arrives', async () => {
+          throttle(LITE)
+          // 原模型的两个排队位都被别的任务占着，这一张只能排队等。
+          const held = [
+            await acquireChannelSlot(`vertex-images/${LITE}`, 2),
+            await acquireChannelSlot(`vertex-images/${LITE}`, 2),
+          ]
+          try {
+            const result = await callUpstream({
+              provider: 'gemini',
+              model: LITE,
+              request: { prompt: 'a cup' },
+              rateLimitFallbackModel: FALLBACK,
+              rateLimitFallbackAt: Date.now() + 50,
+            })
+            expect(extractMeta('gemini', result.payload).images).toHaveLength(1)
+            expect(onModel(LITE)).toBe(0)
+            expect(onModel(FALLBACK)).toBe(1)
+            expect(channelSlotStateForTesting(`vertex-images/${LITE}`)).toEqual({
+              active: 2,
+              waiting: 0,
+            })
+          } finally {
+            for (const release of held) release()
+          }
+        })
+
+        it('fails the image when the fallback fails after the cap', async () => {
+          throttle(LITE, [400])
+          const failure = (await callUpstream({
+            provider: 'gemini',
+            model: LITE,
+            request: { prompt: 'a cup' },
+            rateLimitFallbackModel: FALLBACK,
+            rateLimitFallbackAt: Date.now() - 1,
+          }).catch((error: unknown) => error)) as Error & { upstreamStatus?: number }
+          expect(failure.upstreamStatus).toBe(400)
+          expect(onModel(LITE)).toBe(0)
+          expect(onModel(FALLBACK)).toBe(1)
+        })
+
+        it('leaves the original model alone when there is no fallback', async () => {
+          useStatuses([])
+          const result = await callUpstream({
+            provider: 'gemini',
+            model: 'gemini-3-pro-image',
+            request: { prompt: 'a cup' },
+            rateLimitFallbackAt: Date.now() - 1,
+          })
+          expect(extractMeta('gemini', result.payload).images).toHaveLength(1)
+          expect(attempts).toHaveLength(1)
+        })
       })
 
       it('ignores a fallback that is the same model or not on the Vertex channel', async () => {

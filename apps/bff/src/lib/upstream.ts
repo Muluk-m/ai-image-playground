@@ -50,12 +50,13 @@ import {
   withoutImageCount,
   withoutModeration,
 } from './upstream/openai'
+import { withPartialFailure } from './upstream/partial'
 import { type ChannelRouteStyle, clientError, type UpstreamCallResult } from './upstream/shared'
 import {
   buildVertexBody,
   isRateLimited,
   modelFallbackRecord,
-  vertexPartialRateLimitFailure,
+  VertexTimeCapError,
   withVertexRateLimitRetry,
 } from './upstream/vertex'
 import { VIDEO_MIME, VIDEO_STYLE_SPECS } from './upstream/video'
@@ -233,6 +234,12 @@ export interface UpstreamCallParams {
    * 只在它同走 Vertex 直连时生效，见 {@link resolveVertexFallback}。
    */
   rateLimitFallbackModel?: string
+  /**
+   * 原模型的总时限（epoch 毫秒，调用方从任务提交时刻算起，含排队）。到点还在排原模型的队、
+   * 或下一次退避会越过它，这一张直接改用回落模型；已发出的请求不掐断（上游可能已经在出图）。
+   * 没有回落模型时不生效。
+   */
+  rateLimitFallbackAt?: number
 }
 
 export interface UpstreamResume {
@@ -318,6 +325,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   // read-only final lookup a bounded transport window, never a new generation budget.
   const finalLookup = Boolean(resume?.taskIds.length) && Date.now() >= deadlineAt
   const deadline = startDeadline(finalLookup ? 20_000 : deadlineAt - Date.now(), externalSignal)
+  /** 调用方叫停了（用户取消、租约丢了）：fan-out 的部分结果不交付，照原样抛。 */
+  const cancelled = () => externalSignal?.aborted === true
 
   const fetchInit = (init: UpstreamFetchInit): UpstreamFetchInit => ({
     ...init,
@@ -514,6 +523,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
             async () => parseResponse(await performFetch(url, makeInit())),
             merge,
             params.reconciliationRequired,
+            cancelled,
           )
         }
         const protocol = imageTaskProtocol(base, url)
@@ -582,6 +592,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
             ),
           mergeOpenAIImageResults,
           params.reconciliationRequired,
+          cancelled,
         )
       }
 
@@ -670,19 +681,32 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // supported for audio or image response"），n>1 时本层 fan-out 成 N 条单张请求
       // 并把 candidates 合并到一个 payload，对 task-runner / 前端透明。声明了 maxConcurrency
       // （Vertex 按模型各配 2）时，每条请求先排「渠道/模型」或渠道级的队再发。
-      const sendVia = async (target: {
-        url: string
-        body: string
-        concurrency: UpstreamRoute['concurrency']
-      }) => {
+      const sendVia = async (
+        target: {
+          url: string
+          body: string
+          concurrency: UpstreamRoute['concurrency']
+        },
+        /** 原模型的总时限：到点不再排队、不再退避，抛 {@link VertexTimeCapError} 交给回落。 */
+        capAt?: number,
+      ) => {
+        // 剩余时间只读一次：检查和建定时器之间跨过时限也不会给 AbortSignal.timeout 传负数。
+        const capLeftMs = capAt === undefined ? undefined : capAt - Date.now()
+        if (capLeftMs !== undefined && capLeftMs <= 0) throw new VertexTimeCapError()
+        const queueSignal =
+          capLeftMs === undefined
+            ? deadline.signal
+            : AbortSignal.any([deadline.signal, AbortSignal.timeout(capLeftMs)])
         const release = target.concurrency
           ? await acquireChannelSlot(
               target.concurrency.channelId,
               target.concurrency.limit,
-              deadline.signal,
+              queueSignal,
             ).catch((error: unknown) => {
               // 排队时就超时：请求根本没发出去，按普通超时报，不是「结果未知」。
               if (deadline.timedOut) throw new UpstreamTimeoutError()
+              if (capAt !== undefined && !deadline.signal.aborted && Date.now() >= capAt)
+                throw new VertexTimeCapError()
               throw error
             })
           : undefined
@@ -693,7 +717,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         try {
           // Vertex 的 429 是按模型的到达速率限流：先在这条请求里退避重发，一单多张里已出的图不必重来。
           return vertex
-            ? await withVertexRateLimitRetry(send, deadline.signal, () => deadline.timedOut)
+            ? await withVertexRateLimitRetry(send, deadline.signal, () => deadline.timedOut, capAt)
             : await send()
         } finally {
           release?.()
@@ -703,6 +727,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       const fallback = vertex
         ? resolveVertexFallback(model, params.rateLimitFallbackModel, request, base, key)
         : undefined
+      const capAt = fallback ? params.rateLimitFallbackAt : undefined
       let fallbackImages = 0
       const merge = (results: UpstreamCallResult[]) => {
         const merged = mergeGeminiCandidateResults(results)
@@ -718,15 +743,19 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         request.n,
         async () => {
           try {
-            return await sendVia(primary)
+            return await sendVia(primary, capAt)
           } catch (error) {
-            // 退避用完仍 429：这一张换回落模型补上（它有自己的排队位与退避）；别的错误照原样抛。
-            if (!fallback || !isRateLimited(error) || deadline.signal.aborted) throw error
+            // 退避用完仍 429、或原模型到了总时限：这一张换回落模型补上（它有自己的排队位与退避）；
+            // 别的错误照原样抛。
+            const capped = error instanceof VertexTimeCapError
+            if (!fallback || !(capped || isRateLimited(error)) || deadline.signal.aborted)
+              throw error
             log.warn(
               {
                 event: 'upstream.vertex_rate_limit_fallback',
                 requestedModel: model,
                 fallbackModel: fallback.model,
+                reason: capped ? 'time_cap' : 'rate_limited',
               },
               'vertex rate limit exhausted, falling back',
             )
@@ -737,8 +766,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         },
         (results) => merge(results),
         params.reconciliationRequired,
-        // 有图已出、另一条（含回落）仍 429：不让任务级重试把整组重新生成（见 vertexPartialRateLimitFailure）。
-        vertex ? vertexPartialRateLimitFailure : undefined,
+        cancelled,
       ).then((result) =>
         // 单张请求（n=1）不经过 merge：回落出的那张也要记下实际模型。
         (request.n ?? 1) <= 1 && fallback && fallbackImages > 0 ? merge([result]) : result,
@@ -815,27 +843,28 @@ function resolveVertexFallback(
 }
 
 /**
- * 部分请求成功、部分失败时换一个错误抛（返回 undefined 则照原样抛第一条失败）。给了它就要等同批
- * 请求全部落定才知道成没成，所以只有需要区分「有图已出」的上游（Vertex 的 429）才传。
+ * 一次逻辑调用拆成 count 条单张请求再合并。部分出图时不让整单失败：交付已出的那几张，结果里
+ * 记下缺口（{@link withPartialFailure}），task-runner 按交付张数结算、其余退回。一张都没出照原样
+ * 抛第一条失败；被取消（用户取消、租约丢了）照原样抛，不交付。
+ * 结果待核查的线路（`reconciliationRequired`）保留整组语义：哪条算没算钱要人核对，不能先交付。
  */
-type FanOutPartialFailure = (reason: unknown, delivered: number, requested: number) => unknown
-
 async function fanOutRequests(
   requestedCount: number | undefined,
   run: () => Promise<UpstreamCallResult>,
   merge: (results: UpstreamCallResult[]) => UpstreamCallResult,
   reconciliationRequired = false,
-  onPartialFailure?: FanOutPartialFailure,
+  cancelled: () => boolean = () => false,
 ): Promise<UpstreamCallResult> {
   const count = Math.max(1, requestedCount ?? 1)
   if (count === 1) return run()
-  return merge(
-    await collectFanOutResults(
-      Array.from({ length: count }, run),
-      reconciliationRequired,
-      onPartialFailure,
-    ),
-  )
+  if (reconciliationRequired)
+    return merge(await collectFanOutResults(Array.from({ length: count }, run), true))
+  const settled = await Promise.allSettled(Array.from({ length: count }, run))
+  const delivered = settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : []))
+  const failures = settled.flatMap((one) => (one.status === 'rejected' ? [one.reason] : []))
+  if (failures.length === 0) return merge(delivered)
+  if (delivered.length === 0 || cancelled()) throw failures[0]
+  return withPartialFailure(merge(delivered), count, failures)
 }
 
 function fanOutFailure<T>(settled: PromiseSettledResult<T>[], preserveUnknown = false) {
@@ -850,19 +879,10 @@ function fanOutFailure<T>(settled: PromiseSettledResult<T>[], preserveUnknown = 
 async function collectFanOutResults<T>(
   requests: Promise<T>[],
   preserveUnknown = false,
-  onPartialFailure?: FanOutPartialFailure,
 ): Promise<T[]> {
-  if (!preserveUnknown && !onPartialFailure) return Promise.all(requests)
+  if (!preserveUnknown) return Promise.all(requests)
   const settled = await Promise.allSettled(requests)
   const failure = fanOutFailure(settled, preserveUnknown)
-  if (!preserveUnknown) {
-    if (!failure) return settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : []))
-    const delivered = settled.filter((one) => one.status === 'fulfilled').length
-    throw (
-      (delivered > 0 ? onPartialFailure?.(failure.reason, delivered, settled.length) : undefined) ??
-      failure.reason
-    )
-  }
   if (failure && settled.some((one) => one.status === 'fulfilled')) {
     throw new UpstreamResultUnknownError('部分请求已完成，整组结果和结算待核查。', {
       cause: failure.reason,

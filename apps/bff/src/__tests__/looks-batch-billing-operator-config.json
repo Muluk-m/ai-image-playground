@@ -1,0 +1,12 @@
+{
+  "capabilities": {
+    "accounts:login": true,
+    "accounts:self-register": false,
+    "accounts:sync": true,
+    "billing:credits": true,
+    "quota:daily": false
+  },
+  "quotas": {
+    "generation:daily-images": 0
+  }
+}

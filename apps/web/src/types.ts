@@ -1,4 +1,8 @@
-import type { TaskErrorType, TaskProgressPhase } from '@image-playground/shared'
+import type {
+  PartialImageFailure,
+  TaskErrorType,
+  TaskProgressPhase,
+} from '@image-playground/shared'
 import {
   DEFAULT_IMAGE_MODERATION,
   GEMINI_ASPECT_RATIOS,
@@ -188,6 +192,8 @@ export interface TaskRecord {
    * 旧记录与认不出分类的失败都缺席，那些照旧显示 `error` 原文。
    */
   errorCode?: TaskErrorType
+  /** 完成了但一单多张里有几张没出来：那几张不扣积分，详情里说一句。 */
+  partialFailure?: PartialImageFailure
   createdAt: number
   finishedAt: number | null
   /** 总耗时毫秒 */
