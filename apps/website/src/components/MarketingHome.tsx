@@ -1,25 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Button } from '../../../web/src/components/ui/button'
-import { Icon } from '../../../web/src/components/ui/icon'
-import { saveSiteDraft } from '../../../web/src/lib/siteDraft'
 import { editions, type Locale } from '../catalog'
 import { rememberSiteLocale } from '../localeSelection'
-import {
-  CASE_GROUPS,
-  type CaseGroup,
-  caseHref,
-  featureCards,
-  MARK,
-  marketingCopy,
-  showcaseCases,
-  starterPrompts,
-} from '../marketing'
+import { caseRows, HOME_IMAGES, MARK, marketingCopy } from '../marketing'
 import { ContactModal } from './ContactModal'
 
-const BAND = 'border-t border-dashed border-border px-6 py-14'
-const TAB =
-  'h-7 rounded-md px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-const TAB_ON = 'bg-primary/15 text-primary hover:bg-primary/15 hover:text-primary'
 const CONTACT_HASH = '#contact'
 const CONTACT_HISTORY_KEY = 'muvloomContact'
 
@@ -39,15 +23,9 @@ function pageUrl(hash: string): string {
 
 export function MarketingHome({ locale, start }: { locale: Locale; start: () => void }) {
   const text = marketingCopy[locale]
-  const [prompt, setPrompt] = useState('')
-  const [group, setGroup] = useState<CaseGroup | null>(null)
   const [contactOpen, setContactOpen] = useState(false)
   const home = locale === 'en' ? '/en/' : '/'
-  const cases = showcaseCases(locale).filter((item) => !group || item.group === group)
-  const begin = () => {
-    saveSiteDraft(prompt)
-    start()
-  }
+  const guide = editions[locale].root
   const openContact = (event: { preventDefault(): void }) => {
     event.preventDefault()
     if (contactEntryOpen()) {
@@ -90,208 +68,143 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
 
   return (
     <main className="mkt" data-locale={locale}>
-      <div className="mkt-frame">
+      <div className="mkt-wrap">
         <nav className="mkt-nav">
           <a className="mkt-brand" href={home}>
-            <img src={MARK} width={26} height={26} alt="" />
+            <img src={MARK} width={24} height={24} alt="" />
             {text.brand}
           </a>
           <div className="mkt-links">
             <a href="#cases">{text.nav.cases}</a>
             <a href="#features">{text.nav.features}</a>
             <a href="/explore">{text.nav.inspiration}</a>
-            <a href={editions[locale].root}>{text.nav.guide}</a>
+            <a href={guide}>{text.nav.guide}</a>
             <a href="/pricing">{text.nav.pricing}</a>
           </div>
           <div className="mkt-nav-end">
             <a className="mkt-nav-pricing" href="/pricing">
               {text.nav.pricing}
             </a>
-            <Button asChild variant="ghost" size="sm">
-              <a
-                href={locale === 'en' ? '/' : '/en/'}
-                hrefLang={locale === 'en' ? 'zh-CN' : 'en'}
-                onClick={() => rememberSiteLocale(locale === 'en' ? 'zh-CN' : 'en')}
-              >
-                {locale === 'en' ? '中文' : 'EN'}
-              </a>
-            </Button>
-            <Button variant="outline" size="sm" onClick={start}>
+            <a
+              href={locale === 'en' ? '/' : '/en/'}
+              hrefLang={locale === 'en' ? 'zh-CN' : 'en'}
+              onClick={() => rememberSiteLocale(locale === 'en' ? 'zh-CN' : 'en')}
+            >
+              {locale === 'en' ? '中文' : 'EN'}
+            </a>
+            <button type="button" className="mkt-signin" onClick={start}>
               {text.nav.signIn}
-            </Button>
+            </button>
           </div>
         </nav>
 
         <header className="mkt-hero">
-          <h1 className="mkt-title">{text.hero.title}</h1>
-          <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">{text.hero.body}</p>
-          <form
-            className="mkt-composer"
-            onSubmit={(event) => {
-              event.preventDefault()
-              begin()
-            }}
-          >
-            <textarea
-              className="mkt-input"
-              value={prompt}
-              rows={3}
-              maxLength={4000}
-              placeholder={text.hero.placeholder}
-              aria-label={text.hero.placeholder}
-              onChange={(event) => setPrompt(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                  event.preventDefault()
-                  begin()
-                }
-              }}
-            />
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="mkt-pill">
-                <Icon name="agentActivity" size="xs" />
-                {text.hero.mode}
-              </span>
-              <span className="mkt-pill">
-                <Icon name="model" size="xs" />
-                {text.hero.model}
-              </span>
-              <Button type="submit" className="ml-auto rounded-lg font-semibold">
+          <div>
+            <h1 className="mkt-title">
+              {text.hero.title[0]}
+              <br />
+              {text.hero.title[1]}
+            </h1>
+            <p className="mkt-lead">{text.hero.body}</p>
+            <div className="mkt-cta">
+              <button type="button" className="mkt-btn-primary" onClick={start}>
                 {text.hero.start}
-                <Icon name="arrowRight" size="xs" />
-              </Button>
-            </div>
-          </form>
-          <div className="mx-auto mt-4 flex mkt-chips flex-wrap justify-center gap-2">
-            {starterPrompts(locale).map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className="mkt-chip"
-                aria-pressed={prompt === item.prompt}
-                onClick={() => setPrompt(item.prompt)}
-              >
-                <img src={item.image} alt="" width={24} height={24} loading="lazy" />
-                {item.title}
               </button>
-            ))}
-          </div>
-          <p className="mt-3.5 text-xs text-muted-foreground">{text.hero.note}</p>
-        </header>
-
-        <section className={`${BAND} mt-14`} id="cases">
-          <div className="mkt-bandhead">
-            <div>
-              <h2 className="text-headline font-semibold">{text.cases.title}</h2>
-              <p className="mt-1.5 text-sm text-muted-foreground">{text.cases.lead}</p>
-            </div>
-            <div className="flex flex-wrap gap-1">
-              <button
-                type="button"
-                className={`${TAB} ${group === null ? TAB_ON : ''}`}
-                aria-pressed={group === null}
-                onClick={() => setGroup(null)}
-              >
-                {text.cases.all}
-              </button>
-              {CASE_GROUPS.map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  className={`${TAB} ${group === id ? TAB_ON : ''}`}
-                  aria-pressed={group === id}
-                  onClick={() => setGroup(id)}
-                >
-                  {text.cases.groups[id]}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="mkt-grid4">
-            {cases.map((item) => (
-              <a key={item.id} className="mkt-case" href={caseHref(item.id)}>
-                <span className="mkt-tile">
-                  <img src={item.image} alt={item.title} loading="lazy" decoding="async" />
-                  <span className="mkt-same">
-                    <Icon name="reuse" size="xs" />
-                    {text.cases.same}
-                  </span>
-                </span>
-                <span className="mt-2 flex justify-between gap-2 px-0.5">
-                  <b className="truncate text-body-sm font-medium">{item.title}</b>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {text.cases.groups[item.group]}
-                  </span>
-                </span>
+              <a className="mkt-sec" href={guide}>
+                {text.hero.guide}
               </a>
-            ))}
-          </div>
-        </section>
-
-        <section className={BAND} id="features">
-          <div className="mkt-bandhead">
-            <div>
-              <h2 className="text-headline font-semibold">{text.featuresTitle}</h2>
-              <p className="mt-1.5 text-sm text-muted-foreground">{text.featuresNote}</p>
             </div>
           </div>
-          <div className="mkt-grid3">
-            {featureCards(locale).map((item, index) => (
-              <article key={item.image} className="mkt-feat">
-                <div className="mkt-shot">
-                  <img src={item.image} alt={item.title} loading="lazy" decoding="async" />
-                </div>
-                <div className="px-4 pb-4 pt-3.5">
-                  <h3 className="text-title font-medium">
-                    <span className="mkt-num">{String(index + 1).padStart(2, '0')}</span>
-                    {item.title}
-                  </h3>
-                  <p className="mt-1 text-body-sm text-muted-foreground">{item.body}</p>
-                </div>
-              </article>
-            ))}
+          <div className="mkt-shot">
+            <img src={HOME_IMAGES.hero} width={1560} height={1200} alt={text.hero.shotAlt} />
           </div>
-        </section>
+        </header>
+      </div>
 
-        <section className={`${BAND} text-center`}>
-          <h2 className="text-headline font-semibold">{text.end.title}</h2>
-          <p className="mt-2 text-sm text-muted-foreground">{text.end.body}</p>
-          <Button variant="outline" size="lg" className="mt-5 px-5" onClick={start}>
-            {text.end.start}
-            <Icon name="arrowRight" size="xs" />
-          </Button>
-        </section>
+      <section className="mkt-band" id="cases">
+        <div className="mkt-wrap">
+          <div className="mkt-intro">
+            <h2>{text.cases.title}</h2>
+          </div>
+          {caseRows(locale).map((row, index) => (
+            <article key={row.id} className={`mkt-task${index % 2 === 1 ? ' flip' : ''}`}>
+              <div className={`mkt-imgs ${row.figures.length === 4 ? 'four' : 'two'}`}>
+                {row.figures.map((figure) => (
+                  <figure key={figure.src}>
+                    <img
+                      src={figure.src}
+                      alt={figure.alt}
+                      loading="lazy"
+                      decoding="async"
+                      width={row.figures.length === 4 ? 420 : 640}
+                      height={row.figures.length === 4 ? 420 : 853}
+                    />
+                    <figcaption>{figure.caption}</figcaption>
+                  </figure>
+                ))}
+              </div>
+              <div className="mkt-text">
+                <h3>{row.title}</h3>
+                <p className="mkt-said">
+                  <span className="mkt-said-k">{text.cases.input}</span>
+                  {row.prompt}
+                  {row.tail ? <span className="mkt-nw">{row.tail}</span> : null}
+                </p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
 
-        <footer className="mkt-foot">
+      <div className="mkt-wrap">
+        <section className="mkt-facts" id="features">
+          <h2>{text.features.title}</h2>
+          <dl>
+            {text.features.rows.map(([term, detail]) => (
+              <div key={term}>
+                <dt>{term}</dt>
+                <dd>{detail}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+        <div className="mkt-end">
+          <p>{text.pricing.line}</p>
+          <a href="/pricing">{text.pricing.link} →</a>
+        </div>
+      </div>
+
+      <footer className="mkt-foot">
+        <div className="mkt-wrap mkt-fgrid">
           <div>
             <a className="mkt-brand" href={home}>
-              <img src={MARK} width={26} height={26} alt="" />
+              <img src={MARK} width={24} height={24} alt="" />
               {text.brand}
             </a>
-            <p className="mt-2.5 text-xs text-muted-foreground">{text.footer.tagline}</p>
-            <p className="mt-6 text-xs text-muted-foreground">{text.footer.copy}</p>
+            <p className="mkt-tag">{text.footer.tagline}</p>
+            <p className="mkt-copy">{text.footer.copy}</p>
           </div>
-          <div>
+          <div className="mkt-col">
             <h4>{text.footer.product}</h4>
             <a href="#cases">{text.nav.cases}</a>
             <a href="#features">{text.nav.features}</a>
             <a href="/explore">{text.nav.inspiration}</a>
             <a href="/pricing">{text.nav.pricing}</a>
           </div>
-          <div id="contact">
+          <div className="mkt-col" id="contact">
             <h4>{text.footer.help}</h4>
-            <a href={editions[locale].root}>{text.nav.guide}</a>
+            <a href={guide}>{text.nav.guide}</a>
             <a href="#contact" onClick={openContact}>
               {text.footer.contact}
             </a>
           </div>
-          <div>
+          <div className="mkt-col">
             <h4>{text.footer.legal}</h4>
             <a href="/terms">{text.footer.terms}</a>
             <a href="/privacy">{text.footer.privacy}</a>
           </div>
-        </footer>
-      </div>
+        </div>
+      </footer>
       <ContactModal open={contactOpen} locale={locale} onClose={closeContact} />
     </main>
   )
