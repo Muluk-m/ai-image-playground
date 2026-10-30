@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 process.env.DATABASE_URL ||= 'postgresql://unused:unused@127.0.0.1:5432/unused'
 process.env.PORT ||= '0'
 
-const { durableGenerationInputs } = await import('../../lib/generationMedia')
+const { durableGenerationInputs, generationSourceCheckpoint } = await import(
+  '../../lib/generationMedia'
+)
 const { InputPreservationError } = await import('../../lib/imageArchive')
 const { isRetryableError } = await import('../../lib/retry')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
@@ -55,5 +57,51 @@ describe('durableGenerationInputs', () => {
 
     expect(error).toBeInstanceOf(InputPreservationError)
     expect(isRetryableError(error)).toBe(false)
+  })
+})
+
+describe('generationSourceCheckpoint', () => {
+  const B64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII='
+
+  it('只带校验过的缺口记录，不把上游同名字段原样带进检查点', () => {
+    for (const forged of [
+      { requested: 2, failed: 1, type: 'rate_limited', note: 'x' },
+      { requested: 2, failed: 5, type: 'rate_limited' },
+      { requested: '2', failed: 1, type: 'rate_limited' },
+      { requested: 2, failed: 1, type: 'model_unavailable' },
+      'oops',
+    ]) {
+      const checkpoint = generationSourceCheckpoint('task', 'openai-compat', {
+        data: [{ b64_json: B64 }],
+        partial_failure: forged,
+      }) as Record<string, unknown>
+      const carried = checkpoint.partial_failure
+      if (carried !== undefined)
+        expect(carried).toEqual({ requested: 2, failed: 1, type: 'rate_limited' })
+    }
+  })
+
+  it('不合格的缺口记录不进检查点（两条线路都一样）', () => {
+    const forged = { requested: 2, failed: 5, type: 'rate_limited' }
+    const openai = generationSourceCheckpoint('task', 'openai-compat', {
+      data: [{ b64_json: B64 }],
+      partial_failure: forged,
+    }) as Record<string, unknown>
+    expect(openai).not.toHaveProperty('partial_failure')
+    const gemini = generationSourceCheckpoint('task', 'gemini', {
+      candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: B64 } }] } }],
+      partial_failure: forged,
+    }) as Record<string, unknown>
+    expect(gemini).not.toHaveProperty('partial_failure')
+  })
+
+  it('合格的缺口记录照原样带上', () => {
+    const record = { requested: 3, failed: 1, type: 'upstream_timeout' }
+    const checkpoint = generationSourceCheckpoint('task', 'openai-compat', {
+      data: [{ b64_json: B64 }],
+      partial_failure: record,
+    }) as Record<string, unknown>
+    expect(checkpoint.partial_failure).toEqual(record)
   })
 })
