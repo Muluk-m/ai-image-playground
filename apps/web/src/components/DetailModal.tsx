@@ -15,7 +15,7 @@ import {
 } from '../lib/clipboard'
 import { loadImageOriginal } from '../lib/imageSource'
 import { ActualValueBadge, DetailParamValue, measuredSizeOf } from '../lib/paramDisplay'
-import { taskRecordErrorText } from '../lib/taskError'
+import { taskErrorText, taskRecordErrorText } from '../lib/taskError'
 import { workProjectId } from '../lib/works'
 import {
   editOutputImage,
@@ -797,6 +797,14 @@ export default function DetailModal() {
                   <span> · {t('detail.elapsed', { duration: formatDuration() })}</span>
                 )}
               </div>
+              {task.partialFailure && (
+                <p className="text-xs text-destructive mb-4">
+                  {t('detail.partialFailure', {
+                    count: task.partialFailure.failed,
+                    reason: taskErrorText(task.partialFailure.type),
+                  })}
+                </p>
+              )}
             </div>
 
             {/* 操作按钮：三个主操作带文字均分；删除 / 收藏为图标小方钮，避免一行挤爆 */}
