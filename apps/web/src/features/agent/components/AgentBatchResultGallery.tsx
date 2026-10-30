@@ -1,6 +1,9 @@
 import type { AgentBatchItemExecution, AgentToolArtifact } from '@image-playground/shared'
-import { useEffect, useRef, useState } from 'react'
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react'
+import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
+import { TooltipIconButton } from '../../../components/assistant-ui/elements/tooltip-icon-button'
 import { ImagePreview } from '../../../components/Lightbox'
+import { ModelLogo } from '../../../components/ModelIdentity'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
@@ -162,13 +165,33 @@ function useNow(active: boolean): number {
   return now
 }
 
-const TILE = 'relative aspect-square w-24 shrink-0 overflow-hidden rounded-md sm:w-28'
+export interface AgentBatchRunMeta {
+  readonly model?: { readonly id: string; readonly name: string }
+  /** 尺寸、比例等，按出现顺序用分隔点排开。 */
+  readonly tags: readonly string[]
+}
 
 /**
- * 多张生成排成一横排同尺寸的占位图块：每块各自显示排队、生成中（含已用时间）、失败，
- * 出图后原位换成缩略图。取代原来逐项展开的表单式列表，计划细节收进卡片下方的折叠区。
+ * 确认之后对话里那一排生成卡：每张一个同尺寸的格子，各自显示排队、生成中（含已用时间）、
+ * 比平时慢、失败、已取消，出图后原位换成图。外观与单次生图的结果行同一套（`studio-agent-inline-*`），
+ * 计划卡只留确认前查看、修改提示词。生成中的格子悬停时中间的进度换成取消键（只撤这一张），
+ * 触屏没有悬停，右上角常驻一个小取消键。
  */
-export function AgentBatchTileStrip({ tiles }: { tiles: readonly AgentBatchTile[] }) {
+export function AgentBatchRunRow({
+  tiles,
+  meta,
+  cancelling,
+  cancelFailed,
+  onCancel,
+  actions,
+}: {
+  tiles: readonly AgentBatchTile[]
+  meta: AgentBatchRunMeta
+  cancelling: ReadonlySet<string>
+  cancelFailed?: boolean
+  onCancel?: (key: string) => void
+  actions?: ReactNode
+}) {
   const { t } = useTranslation(['agent', 'errors'])
   const { preview, setPreview, failed, open } = useArtifactPreview()
   const running = tiles.some(
@@ -176,82 +199,144 @@ export function AgentBatchTileStrip({ tiles }: { tiles: readonly AgentBatchTile[
   )
   const now = useNow(running)
   if (tiles.length === 0) return null
+  const done = tiles.filter((tile) => batchItemStatus(tile) === 'completed').length
+  const cells = tiles.flatMap((tile) => {
+    const status = batchItemStatus(tile)
+    const images =
+      status === 'completed'
+        ? (tile.execution?.artifacts ?? []).filter((artifact) => artifact.media !== 'video')
+        : []
+    if (images.length > 0)
+      return images.map((artifact, index) => (
+        <div
+          key={`${tile.key}:${artifact.artifactId}`}
+          className="studio-agent-inline-tile-wrap"
+          data-batch-tile={tile.key}
+          data-batch-status={status}
+        >
+          <ResultThumbnail
+            artifact={artifact}
+            index={tile.position - 1 + index}
+            onOpen={(one) => void open(one)}
+            className="studio-agent-inline-tile h-auto border-0 p-0"
+          />
+        </div>
+      ))
+    const live = status === 'in_progress' || status === 'in_flight'
+    const startedAt = live ? tile.execution?.startedAt : undefined
+    const elapsed = typeof startedAt === 'number' ? now - startedAt : null
+    const slow = elapsed !== null && elapsed >= BATCH_TILE_SLOW_AFTER_MS
+    const urgent = status === 'failed' || status === 'blocked' || status === 'reconciling'
+    const label = live
+      ? tile.execution?.status === 'queued'
+        ? t('job.phase.queued')
+        : t('batch.itemStatus.in_progress')
+      : t(`batch.itemStatus.${status}`)
+    const stopping = cancelling.has(tile.key)
+    return [
+      <div
+        key={tile.key}
+        className="studio-agent-inline-tile-wrap"
+        data-batch-tile={tile.key}
+        data-batch-status={status}
+      >
+        <div
+          className="studio-agent-inline-tile"
+          data-pending="true"
+          role="img"
+          aria-label={t('batch.tileLabel', { index: tile.position, status: label })}
+        >
+          {live && (
+            <ImageGeneration
+              generating
+              className="pointer-events-none absolute inset-0 aspect-auto h-full w-full rounded-none"
+            />
+          )}
+          <span className="absolute left-2 top-2 z-[1] rounded-sm bg-black/55 px-1 font-mono text-label-sm text-white">
+            {tile.position}
+          </span>
+          <div className="studio-agent-tile-face">
+            <Icon
+              name={tileIcon(status)}
+              className={
+                live
+                  ? 'animate-spin text-muted-foreground motion-reduce:animate-none'
+                  : urgent
+                    ? 'text-destructive'
+                    : 'text-muted-foreground'
+              }
+            />
+            <span className={`studio-agent-tile-caption${urgent ? ' text-destructive' : ''}`}>
+              {label}
+            </span>
+            {elapsed !== null && (
+              <span className="font-mono text-label-sm tabular-nums text-muted-foreground">
+                {formatElapsed(elapsed)}
+              </span>
+            )}
+            {slow && (
+              <span role="status" className="px-1 text-center text-label-sm text-warning">
+                {t('batch.tileSlow')}
+              </span>
+            )}
+          </div>
+          {live && onCancel && (
+            <TooltipIconButton
+              tooltip={
+                stopping ? t('job.cancelling') : t('batch.cancelTile', { index: tile.position })
+              }
+              disabled={stopping}
+              className="studio-agent-tile-cancel"
+              data-batch-cancel={tile.key}
+              onClick={() => onCancel(tile.key)}
+            >
+              <Icon
+                name={stopping ? 'loading' : 'close'}
+                className={stopping ? 'animate-spin motion-reduce:animate-none' : undefined}
+              />
+            </TooltipIconButton>
+          )}
+        </div>
+      </div>,
+    ]
+  })
   return (
-    <div className="grid gap-1">
-      <ul
-        className="flex gap-2 overflow-x-auto pb-1"
+    <div
+      className="studio-agent-inline-result studio-agent-inline-result--generated studio-agent-inline-result--batch"
+      data-batch-run={tiles.length}
+      style={{ '--batch-count': String(cells.length) } as CSSProperties}
+    >
+      <div className="studio-agent-batch-meta">
+        {meta.model && (
+          <span className="inline-flex items-center gap-1">
+            <ModelLogo model={meta.model.id} />
+            <span>{meta.model.name}</span>
+          </span>
+        )}
+        {meta.tags.map((tag) => (
+          <span key={tag}>{tag}</span>
+        ))}
+        <span>{t('job.doneCount', { done, total: tiles.length })}</span>
+      </div>
+      <div
+        className="studio-agent-inline-gallery"
+        data-count={cells.length}
         aria-label={t('batch.tiles')}
         data-batch-tiles={tiles.length}
       >
-        {tiles.flatMap((tile) => {
-          const status = batchItemStatus(tile)
-          const images =
-            status === 'completed'
-              ? (tile.execution?.artifacts ?? []).filter((artifact) => artifact.media !== 'video')
-              : []
-          if (images.length > 0)
-            return images.map((artifact, index) => (
-              <li
-                key={`${tile.key}:${artifact.artifactId}`}
-                className="shrink-0"
-                data-batch-tile={tile.key}
-                data-batch-status={status}
-              >
-                <ResultThumbnail
-                  artifact={artifact}
-                  index={tile.position - 1 + index}
-                  onOpen={(one) => void open(one)}
-                  className={`${TILE} h-auto bg-muted p-0`}
-                />
-              </li>
-            ))
-          const live = status === 'in_progress' || status === 'in_flight'
-          const startedAt = live ? tile.execution?.startedAt : undefined
-          const elapsed = typeof startedAt === 'number' ? now - startedAt : null
-          const slow = elapsed !== null && elapsed >= BATCH_TILE_SLOW_AFTER_MS
-          const urgent = status === 'failed' || status === 'blocked' || status === 'reconciling'
-          const label = t(`batch.itemStatus.${status}`)
-          return [
-            <li
-              key={tile.key}
-              data-batch-tile={tile.key}
-              data-batch-status={status}
-              aria-label={t('batch.tileLabel', { index: tile.position, status: label })}
-              className={`${TILE} flex flex-col items-center justify-center gap-1 border border-border bg-muted text-xs ${live ? 'animate-pulse motion-reduce:animate-none' : ''}`}
-            >
-              <span className="absolute left-1 top-1 rounded-sm bg-black/55 px-1 font-mono text-label-sm text-white">
-                {tile.position}
-              </span>
-              <Icon
-                name={tileIcon(status)}
-                className={
-                  live
-                    ? 'animate-spin text-foreground motion-reduce:animate-none'
-                    : urgent
-                      ? 'text-destructive'
-                      : 'text-muted-foreground'
-                }
-              />
-              <span className={urgent ? 'text-destructive' : 'text-muted-foreground'}>{label}</span>
-              {elapsed !== null && (
-                <span className="font-mono text-label-sm tabular-nums text-muted-foreground">
-                  {formatElapsed(elapsed)}
-                </span>
-              )}
-              {slow && (
-                <span role="status" className="px-1 text-center text-label-sm text-warning">
-                  {t('batch.tileSlow')}
-                </span>
-              )}
-            </li>,
-          ]
-        })}
-      </ul>
+        {cells}
+      </div>
+      {cancelFailed && (
+        <p role="alert" className="text-xs text-destructive">
+          {t('job.cancelFailed')}
+        </p>
+      )}
       {failed && (
         <p role="alert" className="text-xs text-destructive">
           {t('errors:agentBatch.output_unavailable')}
         </p>
       )}
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       {preview && <ImagePreview src={preview} onClose={() => setPreview(null)} />}
     </div>
   )
