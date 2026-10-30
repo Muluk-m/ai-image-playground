@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { initTheme, setThemeChoice } from '../../../web/src/theme'
 import { editions, type Locale } from '../catalog'
 import { rememberSiteLocale } from '../localeSelection'
 import { caseRows, HOME_IMAGES, MARK, marketingCopy } from '../marketing'
@@ -22,18 +21,11 @@ function pageUrl(hash: string): string {
   return window.location.pathname + window.location.search + hash
 }
 
-// 和工作台同一份主题设置（aip.theme）。官网只给亮、暗两档，跟随系统仍可在工作台里选。
-function toggleTheme() {
-  setThemeChoice(document.documentElement.classList.contains('dark') ? 'light' : 'dark')
-}
-
 export function MarketingHome({ locale, start }: { locale: Locale; start: () => void }) {
   const text = marketingCopy[locale]
   const [contactOpen, setContactOpen] = useState(false)
   const home = locale === 'en' ? '/en/' : '/'
   const guide = editions[locale].root
-  // 选了「跟随系统」的人，系统切换明暗时页面也跟着换。
-  useEffect(() => initTheme(), [])
   const openContact = (event: { preventDefault(): void }) => {
     event.preventDefault()
     if (contactEntryOpen()) {
@@ -90,38 +82,6 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
             <a href="/pricing">{text.nav.pricing}</a>
           </div>
           <div className="mkt-nav-end">
-            <button
-              type="button"
-              className="mkt-theme"
-              aria-label={text.nav.theme}
-              title={text.nav.theme}
-              onClick={toggleTheme}
-            >
-              <svg
-                className="sun"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                aria-hidden="true"
-              >
-                <circle cx="12" cy="12" r="4" />
-                <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-              </svg>
-              <svg
-                className="moon"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" />
-              </svg>
-            </button>
             <a className="mkt-nav-pricing" href="/pricing">
               {text.nav.pricing}
             </a>
