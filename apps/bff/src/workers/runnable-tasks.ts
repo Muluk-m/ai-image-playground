@@ -88,7 +88,7 @@ export async function selectRunnableTasks(
               )
             : undefined,
           selectedTaskIds.size ? notInArray(schema.tasks.id, [...selectedTaskIds]) : undefined,
-          not(turnSiblingsAtLimit(schema.tasks.id, schema.tasks.model, now)),
+          not(turnSiblingsAtLimit(schema.tasks.id, schema.tasks.provider, schema.tasks.model, now)),
           afterCursor,
         ),
       )

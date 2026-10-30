@@ -29,13 +29,31 @@ export async function prepareReviewImages(
   // 本轮附图是用户的请求本身，装不下时照旧明确报告。
   assertVisualBytes(preparedBytes)
   const byteLimit = visualByteLimit()
-  // 几张预览并行读，再按原顺序记预算：串行时批次唤醒的复核一张约 0.9s，5 张要等 4–5s 才开始调模型
-  //（2026-10-30 线上 agent.visual_input 时间线）。整批只占一个图片准备名额，里面的读取不再逐张排队，
-  // 读的都是长边 ≤1024 的预览，同时在内存里的量有 REVIEW_READ_PARALLELISM 兜底。
-  const [requiredImages, optionalImages] = await withVisualPreparation(async () => [
-    await mapBounded(required, (id) => images.resolve(id, 'preview')),
-    await mapBounded(optional, (id) => images.resolve(id, 'preview').catch(() => null)),
-  ])
+  // 几张预览并行读，再按原顺序记预算：整批只占一个图片准备名额，且所有读取共享同一个有界调度器。
+  const reads = [
+    ...required.map((id, index) => ({
+      kind: 'required' as const,
+      index,
+      work: () => images.resolve(id, 'preview'),
+    })),
+    ...optional.map((id, index) => ({
+      kind: 'optional' as const,
+      index,
+      work: () => images.resolve(id, 'preview').catch(() => null),
+    })),
+  ]
+  const results = await withVisualPreparation(() => mapSettledBounded(reads, (read) => read.work()))
+  const requiredImages: Array<ResolvedAgentImage | null> = new Array(required.length).fill(null)
+  const optionalImages: Array<ResolvedAgentImage | null> = new Array(optional.length).fill(null)
+  for (const [index, read] of reads.entries()) {
+    const result = results[index]!
+    if (result.status === 'rejected') {
+      if (read.kind === 'required') throw result.reason
+      continue
+    }
+    if (read.kind === 'required') requiredImages[read.index] = result.value
+    else optionalImages[read.index] = result.value
+  }
   const reviewed: ResolvedAgentImage[] = []
   const omitted: string[] = []
   for (const [index, id] of required.entries()) {
@@ -65,14 +83,22 @@ export async function prepareReviewImages(
 /** 复核图同时读取的上限。 */
 export const REVIEW_READ_PARALLELISM = 4
 
-/** 按顺序返回结果的有界并发 map：同时最多 {@link REVIEW_READ_PARALLELISM} 个在读。 */
-async function mapBounded<T, R>(items: readonly T[], work: (item: T) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length)
+/** 按顺序返回 settled 结果的有界并发 map；失败也要等其它已启动读取结束后才向外抛。 */
+async function mapSettledBounded<T, R>(
+  items: readonly T[],
+  work: (item: T) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results = new Array<PromiseSettledResult<R>>(items.length)
   let next = 0
   const lane = async () => {
     while (next < items.length) {
       const index = next++
-      results[index] = await work(items[index]!)
+      results[index] = await Promise.resolve()
+        .then(() => work(items[index]!))
+        .then(
+          (value) => ({ status: 'fulfilled' as const, value }),
+          (reason) => ({ status: 'rejected' as const, reason }),
+        )
     }
   }
   await Promise.all(Array.from({ length: Math.min(REVIEW_READ_PARALLELISM, items.length) }, lane))
