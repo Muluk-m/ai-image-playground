@@ -2012,6 +2012,7 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
           outputImages: outputIds,
           transparentOriginalImages: transparentOriginalImageIds,
           rawImageUrls: result.rawImageUrls?.length ? result.rawImageUrls : undefined,
+          partialFailure: result.partialFailure,
           actualParams,
           actualParamsByImage,
           revisedPromptByImage:
@@ -2026,6 +2027,15 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
 
         // 逐张生成整组收尾时才报一次；单条任务照旧报这一条出了几张。
         if (task.origin?.kind === 'batch') announceBatchSettled(task.origin.setId)
+        else if (result.partialFailure)
+          useStore.getState().showToast(
+            i18next.t('toast.generateDonePartial', {
+              ns: 'store',
+              done: outputIds.length,
+              total: result.partialFailure.requested,
+            }),
+            'info',
+          )
         else
           useStore
             .getState()

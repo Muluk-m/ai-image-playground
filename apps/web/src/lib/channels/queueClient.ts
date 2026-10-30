@@ -156,6 +156,7 @@ async function pollAndFetch(
       actualParams,
       actualParamsList: meta.images.map(() => actualParams),
       ...(meta.raw_image_urls?.length ? { rawImageUrls: meta.raw_image_urls } : {}),
+      ...(meta.partial_failure ? { partialFailure: meta.partial_failure } : {}),
     }
   } finally {
     clearTimeout(timer)
