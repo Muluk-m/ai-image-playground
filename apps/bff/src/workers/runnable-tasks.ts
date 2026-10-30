@@ -1,8 +1,21 @@
 import type { QueueProvider } from '@image-playground/shared'
-import { and, asc, eq, gt, inArray, isNull, lte, notInArray, or, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  eq,
+  getTableName,
+  gt,
+  inArray,
+  isNull,
+  lte,
+  not,
+  notInArray,
+  or,
+  sql,
+} from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { checkIdleSlot } from './idle-concurrency'
-import { accountGenerationLimits } from './task-execution'
+import { accountGenerationLimits, retryHoldsSlot, turnSiblingInProgress } from './task-execution'
 
 /**
  * Read the oldest tasks that can actually claim an account slot. A cursor and the partial
@@ -75,6 +88,7 @@ export async function selectRunnableTasks(
               )
             : undefined,
           selectedTaskIds.size ? notInArray(schema.tasks.id, [...selectedTaskIds]) : undefined,
+          not(turnSiblingInProgress(schema.tasks.id, schema.tasks.model, now)),
           afterCursor,
         ),
       )
@@ -110,7 +124,11 @@ export async function selectRunnableTasks(
               and(
                 inArray(schema.tasks.user_id, userIds),
                 eq(schema.tasks.kind, 'queue'),
-                eq(schema.tasks.status, 'in_progress'),
+                // 与认领同口径：等重试的任务替自己留着位置（BUG-84）。
+                or(
+                  eq(schema.tasks.status, 'in_progress'),
+                  retryHoldsSlot(getTableName(schema.tasks), now),
+                ),
               ),
             )
             .groupBy(schema.tasks.user_id, schema.tasks.provider)
