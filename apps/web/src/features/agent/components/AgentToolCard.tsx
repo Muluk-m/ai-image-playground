@@ -342,6 +342,24 @@ function FetchedImages({
  * 本该由重试收场、这次生成却重出不了时（局部或连锁改图、模型已下线），改由智能体重新处理——
  * 否则这张卡上一个按钮都没有。
  */
+/**
+ * 「再次生成」这一句发什么。图片生成模式下，一张没用参考图的文生图原样再出一次：发原提示词本身，
+ * 走提示词直出，不套「请基于这组提示词再次生成…」那句请求——那句是说给智能体听的，直出时会被当成提示词。
+ * 其他情况（Agent 模式、带参考图或改图）照旧请智能体按原提示词再来一次。
+ */
+export function regenerateText(
+  message: Pick<AgentToolMessage, 'toolName' | 'prompt' | 'title' | 'snapshot'>,
+  request: (prompt: string) => string,
+): string {
+  const prompt = message.prompt?.trim()
+  const direct =
+    useStore.getState().createTarget === 'generate' &&
+    message.toolName === 'generateImage' &&
+    !message.snapshot?.imageIds?.length
+  if (direct && prompt) return prompt
+  return request(message.prompt || message.title)
+}
+
 function FailureAction({ message }: { message: AgentToolMessage }) {
   useTranslation('agent')
   const code = message.errorCode
@@ -1066,14 +1084,12 @@ function StandardAgentToolCard({
                   : undefined
               }
               onRegenerate={() =>
-                void useAgentStore
-                  .getState()
-                  .send(
-                    t('tool.regenerateRequest', { prompt: message.prompt || message.title }),
-                    [],
-                    undefined,
-                    'image',
-                  )
+                void useAgentStore.getState().send(
+                  regenerateText(message, (prompt) => t('tool.regenerateRequest', { prompt })),
+                  [],
+                  undefined,
+                  'image',
+                )
               }
             >
               <Button
@@ -1443,14 +1459,12 @@ export function AgentImageRun({
               : undefined
           }
           onRegenerate={() =>
-            void useAgentStore
-              .getState()
-              .send(
-                t('tool.regenerateRequest', { prompt: lead.prompt || lead.title }),
-                [],
-                undefined,
-                'image',
-              )
+            void useAgentStore.getState().send(
+              regenerateText(lead, (prompt) => t('tool.regenerateRequest', { prompt })),
+              [],
+              undefined,
+              'image',
+            )
           }
         >
           <Button
