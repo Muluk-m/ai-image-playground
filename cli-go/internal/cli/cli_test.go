@@ -14,13 +14,20 @@ import (
 
 func TestAuthStatusAndCapabilities(t *testing.T) {
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/capabilities" {
+		if r.URL.Path != "/v1/me" && r.URL.Path != "/v1/capabilities" {
 			t.Fatalf("path %s", r.URL.Path)
+		}
+		if r.URL.Path == "/v1/me" {
+			_, _ = w.Write([]byte(`{"schema_version":1,"ok":true,"data":{"account":{"id":"u"},"credits":4,"member":false,"min_cli_version":"0.1.0"}}`))
+			return
 		}
 		_, _ = w.Write([]byte(`{"schema_version":1,"ok":true,"data":{"images":true}}`))
 	}))
 	defer s.Close()
 	store := auth.New(filepath.Join(t.TempDir(), "credentials.json"))
+	if err := store.Save(auth.Credentials{AccessToken: "access"}); err != nil {
+		t.Fatal(err)
+	}
 	var out bytes.Buffer
 	a := New(s.URL, store, &out, &bytes.Buffer{})
 	if code := a.Run([]string{"auth", "status"}); code != 0 {
