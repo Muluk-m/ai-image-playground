@@ -80,7 +80,7 @@ export async function modelUnavailable(tx: BffTransaction, model: string): Promi
 }
 
 /**
- * 上游明确说这个模型没有可用账号（重试用完之后才会落成 model_unavailable）：先下架，后面的提交直接被拒，
+ * 上游明确说这个模型没有可用账号（这类失败不重试，第一次就落成 model_unavailable）：先下架，后面的提交直接被拒，
  * 不再让用户排队等几十秒再退积分。运营在后台补上容量后手动恢复。
  * 只动还上架着的：运营手动下架的不改写成自动暂停。和这次结算同一事务，回滚就一起回滚。
  */
