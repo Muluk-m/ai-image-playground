@@ -89,14 +89,14 @@ afterAll(async () => {
   await closeDb()
 })
 
-async function insertLiteTask(id: string, n: number) {
+async function insertLiteTask(id: string, n: number, submittedAt = Date.now()) {
   await db.insert(schema.tasks).values({
     id,
     provider: 'gemini',
     model: LITE,
     status: 'queued',
     request_payload: { prompt: id, n },
-    submitted_at: 1,
+    submitted_at: submittedAt,
   })
 }
 
@@ -163,5 +163,47 @@ describe('Lite 限流（2026-10-29）', () => {
         actualUsage: { quantity: 1, unitMultiplier: 1 },
       }),
     ])
+  })
+
+  describe('原模型总时限（从提交算起，含排队）', () => {
+    const PAST_CAP = () => Date.now() - 60 * 60 * 1000
+
+    it('sends an order already past the cap straight to the fallback model', async () => {
+      vertex([LITE])
+      await insertLiteTask('lite-capped', 2, PAST_CAP())
+
+      await runTask('lite-capped')
+
+      const task = await readTask('lite-capped')
+      expect(task.status).toBe('completed')
+      expect(calls.every((url) => url.includes(`/models/${FALLBACK}:`))).toBe(true)
+      expect(calls).toHaveLength(2)
+      expect((task.result_payload as Record<string, unknown>).model_fallback).toEqual({
+        requested_model: LITE,
+        model: FALLBACK,
+        images: 2,
+      })
+    })
+
+    it('fails the order without a rerun when the fallback errors after the cap', async () => {
+      calls = []
+      setUpstreamFetchForTesting((async (input: Parameters<TestFetch>[0]) => {
+        calls.push(String(input))
+        return Response.json(
+          { error: { code: 503, message: 'Service unavailable.', status: 'UNAVAILABLE' } },
+          { status: 503 },
+        )
+      }) as unknown as TestFetch)
+      await insertLiteTask('lite-capped-fail', 1, PAST_CAP())
+
+      await runTask('lite-capped-fail')
+
+      const task = await readTask('lite-capped-fail')
+      // 503 平时会排一次任务级重试；过了总时限就是终态。
+      expect(task.status).toBe('failed')
+      expect(task.next_retry_at).toBeNull()
+      expect(calls).toHaveLength(1)
+      expect(calls[0]).toContain(`/models/${FALLBACK}:`)
+    })
   })
 })
