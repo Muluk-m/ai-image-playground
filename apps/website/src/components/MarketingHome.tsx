@@ -1,503 +1,251 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { initTheme, setThemeChoice } from '../../../web/src/theme'
 import { editions, type Locale } from '../catalog'
 import { rememberSiteLocale } from '../localeSelection'
-import {
-  ASSET,
-  caseHref,
-  libraryRows,
-  MARK,
-  MARQUEE_SIZES,
-  marketingCopy,
-  showcaseCases,
-  WALL_SIZES,
-  wallColumns,
-  wallSrc,
-  wallSrcSet,
-} from '../marketing'
-import { type MarketingMotion, startMarketingMotion } from '../marketingMotion'
+import { caseRows, HOME_IMAGES, MARK, marketingCopy } from '../marketing'
 import { ContactModal } from './ContactModal'
 
 const CONTACT_HASH = '#contact'
+const CONTACT_HISTORY_KEY = 'muvloomContact'
+
+function contactHistoryState(open: boolean): Record<string, unknown> {
+  const current = window.history.state
+  const base = current && typeof current === 'object' ? current : {}
+  return { ...base, [CONTACT_HISTORY_KEY]: open }
+}
+
+function contactEntryOpen(): boolean {
+  return window.history.state?.[CONTACT_HISTORY_KEY] === true
+}
+
+function pageUrl(hash: string): string {
+  return window.location.pathname + window.location.search + hash
+}
+
+// 和工作台同一份主题设置（aip.theme）。官网只给亮、暗两档，跟随系统仍可在工作台里选。
+function toggleTheme() {
+  setThemeChoice(document.documentElement.classList.contains('dark') ? 'light' : 'dark')
+}
 
 export function MarketingHome({ locale, start }: { locale: Locale; start: () => void }) {
   const text = marketingCopy[locale]
-  const rootRef = useRef<HTMLElement>(null)
-  const motionRef = useRef<MarketingMotion | null>(null)
-  const contactOpenRef = useRef(false)
   const [contactOpen, setContactOpen] = useState(false)
-  const cases = showcaseCases(locale)
   const home = locale === 'en' ? '/en/' : '/'
-  const columns = wallColumns()
-  const rows = libraryRows()
-  contactOpenRef.current = contactOpen
-
-  useEffect(() => {
-    const nav = rootRef.current?.querySelector('.nav')
-    if (!nav) return
-    const mark = () => nav.classList.toggle('solid', window.scrollY > window.innerHeight * 0.5)
-    mark()
-    window.addEventListener('scroll', mark, { passive: true })
-    return () => window.removeEventListener('scroll', mark)
-  }, [])
-
-  useEffect(() => {
-    const root = rootRef.current
-    if (!root) return
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const narrow = window.matchMedia('(max-width: 760px)')
-    let cancelled = false
-    let generation = 0
-    const boot = () => {
-      const ticket = ++generation
-      motionRef.current?.destroy()
-      motionRef.current = null
-      root.classList.toggle('mkt-static', reduced.matches)
-      if (reduced.matches) return
-      void startMarketingMotion(root, narrow.matches).then((motion) => {
-        if (cancelled || ticket !== generation || reduced.matches) {
-          motion.destroy()
-          return
-        }
-        motionRef.current = motion
-        if (contactOpenRef.current) motion.stop()
-      })
-    }
-    boot()
-    reduced.addEventListener('change', boot)
-    narrow.addEventListener('change', boot)
-    return () => {
-      cancelled = true
-      generation += 1
-      reduced.removeEventListener('change', boot)
-      narrow.removeEventListener('change', boot)
-      motionRef.current?.destroy()
-      motionRef.current = null
-    }
-  }, [])
-
-  useEffect(() => {
-    if (contactOpen) motionRef.current?.stop()
-    else motionRef.current?.start()
-  }, [contactOpen])
-
+  const guide = editions[locale].root
+  // 选了「跟随系统」的人，系统切换明暗时页面也跟着换。
+  useEffect(() => initTheme(), [])
   const openContact = (event: { preventDefault(): void }) => {
     event.preventDefault()
+    if (contactEntryOpen()) {
+      setContactOpen(true)
+      return
+    }
+    // 压一条历史，浏览器后退先关掉弹窗，而不是离开首页。
+    window.history.pushState(contactHistoryState(true), '', pageUrl(CONTACT_HASH))
     setContactOpen(true)
   }
   const closeContact = () => {
+    if (contactEntryOpen()) {
+      window.history.back()
+      return
+    }
     setContactOpen(false)
-    if (window.location.hash === CONTACT_HASH)
-      history.replaceState(null, '', window.location.pathname + window.location.search)
   }
 
-  // 带 #contact 打开（站内外的「联系我们」链接都指向这里）就直接弹出联系方式；后退到别的锚点时跟着关掉。
+  // 带 #contact 打开就弹出联系方式。落地时先把当前记录改成「关着」，再压一条「开着」，
+  // 这样后退先关弹窗。页内跳到 #contact 时，浏览器已经压过记录，只补上标记。
+  // 关闭按钮走 history.back()，不额外留一条记录。
   useEffect(() => {
-    const syncHash = () => {
-      setContactOpen(window.location.hash === CONTACT_HASH)
+    if (window.location.hash === CONTACT_HASH && !contactEntryOpen()) {
+      window.history.replaceState(contactHistoryState(false), '', pageUrl(''))
+      window.history.pushState(contactHistoryState(true), '', pageUrl(CONTACT_HASH))
     }
-    syncHash()
-    window.addEventListener('hashchange', syncHash)
-    return () => window.removeEventListener('hashchange', syncHash)
+    const sync = () => {
+      if (window.location.hash === CONTACT_HASH && !contactEntryOpen())
+        window.history.replaceState(contactHistoryState(true), '', pageUrl(CONTACT_HASH))
+      setContactOpen(contactEntryOpen())
+    }
+    sync()
+    window.addEventListener('popstate', sync)
+    window.addEventListener('hashchange', sync)
+    return () => {
+      window.removeEventListener('popstate', sync)
+      window.removeEventListener('hashchange', sync)
+    }
   }, [])
 
   return (
-    <main className="mkt" ref={rootRef} data-locale={locale}>
-      <nav className="nav" id="nav">
-        <a className="brand" href={home}>
-          <img src={MARK} width={30} height={30} alt="" />
-          {text.brand}
-        </a>
-        <div className="links">
-          <a href="#demo">{text.nav.cases}</a>
-          <a href="#feat">{text.nav.features}</a>
-          <a href="#gal">{text.nav.inspiration}</a>
-          <a href={editions[locale].root}>{text.nav.guide}</a>
-          <a href="/pricing">{text.nav.pricing}</a>
-        </div>
-        <div className="nav-end">
-          <a className="nav-pricing" href="/pricing">
-            {text.nav.pricing}
+    <main className="mkt" data-locale={locale}>
+      <div className="mkt-wrap">
+        <nav className="mkt-nav">
+          <a className="mkt-brand" href={home}>
+            <img src={MARK} width={24} height={24} alt="" />
+            {text.brand}
           </a>
-          <a
-            className="lang"
-            href={locale === 'en' ? '/' : '/en/'}
-            hrefLang={locale === 'en' ? 'zh-CN' : 'en'}
-            onClick={() => rememberSiteLocale(locale === 'en' ? 'zh-CN' : 'en')}
-          >
-            {locale === 'en' ? '中文' : 'EN'}
-          </a>
-          <button type="button" className="cta" onClick={start}>
-            {text.nav.start}
-          </button>
-        </div>
-      </nav>
-
-      <header className="hero" id="hero">
-        <div className="wall" id="wall">
-          {columns.map((column, columnIndex) => (
-            <div className="col" key={columnIndex}>
-              {column.map((file, imageIndex) => (
-                <figure key={`${file}-${imageIndex}`}>
-                  <img
-                    src={wallSrc(file)}
-                    srcSet={wallSrcSet(file)}
-                    sizes={WALL_SIZES}
-                    alt=""
-                    decoding="async"
-                    fetchPriority={columnIndex === 4 && imageIndex < 2 ? 'high' : 'low'}
-                  />
-                </figure>
-              ))}
-            </div>
-          ))}
-        </div>
-        <div className="vign" id="vign" />
-        <div className="zoomer" id="zoomer">
-          <img src={`${ASSET}/reveal-whale.webp`} alt="" />
-        </div>
-        <div className="htitle" id="htitle">
-          <h1 className="disp">
-            {text.hero.line1}
-            <br />
-            <span className="o">{text.hero.line2}</span>
-          </h1>
-          <p>
-            <HeroBody body={text.hero.body} />
-          </p>
-          <div className="row">
-            <button type="button" className="cta" onClick={start}>
-              {text.hero.start}
-            </button>
-            <a className="ghost" href="#demo">
-              {text.hero.see}
-            </a>
+          <div className="mkt-links">
+            <a href="#cases">{text.nav.cases}</a>
+            <a href="#features">{text.nav.features}</a>
+            <a href="/explore">{text.nav.inspiration}</a>
+            <a href={guide}>{text.nav.guide}</a>
+            <a href="/pricing">{text.nav.pricing}</a>
           </div>
-          <div className="hero-note">{text.hero.note}</div>
-        </div>
-        <div className="scrollhint" id="hint">
-          {text.hero.scroll}
-        </div>
-      </header>
-
-      <section className="demo" id="demo">
-        <div className="dimg" id="dimg">
-          {cases.map((item, index) => (
-            <figure
-              key={item.key}
-              className={
-                item.fit === 'cover'
-                  ? `cover${index === 0 ? ' on' : ''}`
-                  : index === 0
-                    ? 'on'
-                    : undefined
-              }
-              data-id={item.id ?? ''}
-              data-key={item.key}
-              data-model={item.model}
-              data-category={item.category}
-              data-prompt={item.prompt}
+          <div className="mkt-nav-end">
+            <button
+              type="button"
+              className="mkt-theme"
+              aria-label={text.nav.theme}
+              title={text.nav.theme}
+              onClick={toggleTheme}
             >
-              <img className="bg" src={item.image} alt="" loading="lazy" decoding="async" />
-              <img
-                className="fg"
-                src={item.image}
-                alt={`${item.key}`}
-                loading="lazy"
-                decoding="async"
-              />
-              <span className="cap">
-                {item.key} · {text.demo.caption}
-              </span>
-            </figure>
-          ))}
-        </div>
-        <div className="dcopy" id="dcopy">
-          <div className="eyebrow">
-            {text.demo.eyebrow} · <span id="dnum">01</span> / 04
+              <svg
+                className="sun"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+              </svg>
+              <svg
+                className="moon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" />
+              </svg>
+            </button>
+            <a className="mkt-nav-pricing" href="/pricing">
+              {text.nav.pricing}
+            </a>
+            <a
+              href={locale === 'en' ? '/' : '/en/'}
+              hrefLang={locale === 'en' ? 'zh-CN' : 'en'}
+              onClick={() => rememberSiteLocale(locale === 'en' ? 'zh-CN' : 'en')}
+            >
+              {locale === 'en' ? '中文' : 'EN'}
+            </a>
+            <button type="button" className="mkt-signin" onClick={start}>
+              {text.nav.signIn}
+            </button>
           </div>
-          <h2 className="disp">
-            {text.demo.line1}
-            <br />
-            <span className="o">{text.demo.line2}</span>
-          </h2>
-          <p className="dlead">{text.demo.lead}</p>
-          <div className="pcard">
-            <div className="lab">{text.demo.prompt}</div>
-            <div className="ptext" id="dprompt">
-              {cases[0]?.prompt}
-            </div>
-            <div className="pmeta">
-              <span className="chip" id="dmodel">
-                {cases[0]?.model}
-              </span>
-              <span className="chip" id="dcat">
-                {cases[0]?.category}
-              </span>
-              <a className="cta" id="dsame" href={caseHref(cases[0]?.id ?? null)}>
-                {text.demo.same}
+        </nav>
+
+        <header className="mkt-hero">
+          <div>
+            <h1 className="mkt-title">
+              {text.hero.title[0]}
+              <br />
+              {text.hero.title[1]}
+            </h1>
+            <p className="mkt-lead">{text.hero.body}</p>
+            <div className="mkt-cta">
+              <button type="button" className="mkt-btn-primary" onClick={start}>
+                {text.hero.start}
+              </button>
+              <a className="mkt-sec" href={guide}>
+                {text.hero.guide}
               </a>
             </div>
           </div>
-          <ol className="dtabs" id="dtabs">
-            {cases.map((item, index) => (
-              <li key={item.key} className={index === 0 ? 'on' : undefined}>
-                {item.key}
-              </li>
-            ))}
-          </ol>
-        </div>
-        <div className="dmob" id="dmob">
-          <div className="hd">
-            <div className="eyebrow">{text.demo.eyebrow}</div>
-            <h2 className="disp">
-              {text.demo.line1}
-              <br />
-              <span className="o">{text.demo.line2}</span>
-            </h2>
-            <p className="dlead">{text.demo.lead}</p>
+          <div className="mkt-shot">
+            <img src={HOME_IMAGES.hero} width={1560} height={1200} alt={text.hero.shotAlt} />
           </div>
-          {cases.map((item) => (
-            <article key={item.key}>
-              <figure>
-                <img src={item.image} alt={`${item.key}`} loading="lazy" decoding="async" />
-              </figure>
-              <div className="pcard">
-                <div className="lab">{text.demo.prompt}</div>
-                <div className="ptext">{item.prompt}</div>
-                <div className="pmeta">
-                  <span className="chip">{item.model}</span>
-                  <span className="chip">{item.category}</span>
-                  <a className="cta" href={caseHref(item.id)}>
-                    {text.demo.same}
-                  </a>
-                </div>
+        </header>
+      </div>
+
+      <section className="mkt-band" id="cases">
+        <div className="mkt-wrap">
+          <div className="mkt-intro">
+            <h2>{text.cases.title}</h2>
+          </div>
+          {caseRows(locale).map((row, index) => (
+            <article key={row.id} className={`mkt-task${index % 2 === 1 ? ' flip' : ''}`}>
+              <div className={`mkt-imgs ${row.figures.length === 4 ? 'four' : 'two'}`}>
+                {row.figures.map((figure) => (
+                  <figure key={figure.src}>
+                    <img
+                      src={figure.src}
+                      alt={figure.alt}
+                      loading="lazy"
+                      decoding="async"
+                      width={row.figures.length === 4 ? 420 : 640}
+                      height={row.figures.length === 4 ? 420 : 853}
+                    />
+                    <figcaption>{figure.caption}</figcaption>
+                  </figure>
+                ))}
+              </div>
+              <div className="mkt-text">
+                <h3>{row.title}</h3>
+                <p className="mkt-said">
+                  <span className="mkt-said-k">{text.cases.input}</span>
+                  {row.prompt}
+                  {row.tail ? <span className="mkt-nw">{row.tail}</span> : null}
+                </p>
               </div>
             </article>
           ))}
         </div>
       </section>
 
-      <section className="feat" id="feat">
-        <div className="fhead">
-          <h2 className="disp">{text.featuresTitle}</h2>
-          <p>{text.featuresNote}</p>
-        </div>
-        <div className="fpin" id="fpin">
-          <ol className="flist" id="flist">
-            {text.features.map((feature, index) => (
-              <li key={feature.title} className={index === 0 ? 'on' : undefined}>
-                <i />
-                <b>
-                  <em>0{index + 1}</em>
-                  {feature.title}
-                </b>
-                <p>{feature.body}</p>
-              </li>
-            ))}
-          </ol>
-          <div className="fstage" id="fstage">
-            {text.features.map((feature, index) => (
-              <div className={`bf${index === 0 ? ' on' : ''}`} key={feature.image}>
-                <Frame url={feature.url} />
-                <img
-                  src={`${ASSET}/ui/${feature.image}.webp`}
-                  width={1440}
-                  height={900}
-                  alt={`${feature.title}`}
-                  loading="lazy"
-                  decoding="async"
-                />
+      <div className="mkt-wrap">
+        <section className="mkt-facts" id="features">
+          <h2>{text.features.title}</h2>
+          <dl>
+            {text.features.rows.map(([term, detail]) => (
+              <div key={term}>
+                <dt>{term}</dt>
+                <dd>{detail}</dd>
               </div>
             ))}
-          </div>
+          </dl>
+        </section>
+        <div className="mkt-end">
+          <p>{text.pricing.line}</p>
+          <a href="/pricing">{text.pricing.link} →</a>
         </div>
-        <div className="fmob" id="fmob">
-          {text.features.map((feature, index) => (
-            <article key={feature.title}>
-              <em>0{index + 1}</em>
-              <h3>{feature.title}</h3>
-              <p>{feature.body}</p>
-              <div className="bf">
-                <Frame url={feature.url} />
-                <img
-                  src={`${ASSET}/ui/${feature.image}.webp`}
-                  width={1440}
-                  height={900}
-                  alt={`${feature.title}`}
-                  loading="lazy"
-                  decoding="async"
-                />
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+      </div>
 
-      <section className="gal" id="gal">
-        <div className="head">
+      <footer className="mkt-foot">
+        <div className="mkt-wrap mkt-fgrid">
           <div>
-            <h2 className="disp">
-              {text.gallery.line1}
-              <br />
-              <span className="o">{text.gallery.line2}</span>
-            </h2>
-          </div>
-          <div>
-            <p>
-              {text.gallery.lead} <a href="/explore">{text.gallery.explore}</a>
-            </p>
-            <ul className="gpts">
-              {text.gallery.points.map((point) => (
-                <li key={point}>{point}</li>
-              ))}
-            </ul>
-          </div>
-        </div>
-        <div className="gstage" id="gstage">
-          <div className="bf main" id="gmain">
-            <Frame url="muvloom.online/explore" />
-            <img
-              src={`${ASSET}/ui/explore-v2.webp`}
-              width={1440}
-              height={900}
-              alt={text.gallery.feedAlt}
-              loading="lazy"
-              decoding="async"
-            />
-          </div>
-          <div className="bf det" id="gdet">
-            <Frame url={text.gallery.detailUrl} />
-            <img
-              src={`${ASSET}/ui/explore-detail.webp`}
-              width={1280}
-              height={836}
-              alt={text.gallery.detailAlt}
-              loading="lazy"
-              decoding="async"
-            />
-          </div>
-        </div>
-        <div className="gmob">
-          <figure>
-            <img
-              src={`${ASSET}/ui/explore-mobile-feed.webp`}
-              width={390}
-              height={844}
-              alt={text.gallery.feedMobileAlt}
-              loading="lazy"
-              decoding="async"
-            />
-          </figure>
-          <figure>
-            <img
-              src={`${ASSET}/ui/explore-mobile-detail.webp`}
-              width={390}
-              height={844}
-              alt={text.gallery.detailMobileAlt}
-              loading="lazy"
-              decoding="async"
-            />
-          </figure>
-        </div>
-      </section>
-
-      <section className="end" id="end">
-        <div className="marq" id="marq">
-          {rows.map((row, index) => (
-            <div className="mrow" key={index}>
-              {row.map((file, imageIndex) => (
-                <figure key={`${file}-${imageIndex}`}>
-                  <img
-                    src={wallSrc(file)}
-                    srcSet={wallSrcSet(file)}
-                    sizes={MARQUEE_SIZES}
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                  />
-                </figure>
-              ))}
-            </div>
-          ))}
-        </div>
-        <div className="in">
-          <img className="mk" src={MARK} width={44} height={44} alt="" />
-          <h2 className="disp">{text.end.title}</h2>
-          <p>{text.end.body}</p>
-          <div className="row">
-            <button type="button" className="cta" onClick={start}>
-              {text.end.start}
-            </button>
-            <a className="ghost" href="/explore">
-              {text.end.browse}
-            </a>
-          </div>
-          <div className="note">{text.end.note}</div>
-        </div>
-      </section>
-
-      <footer className="foot">
-        <div className="top">
-          <div>
-            <a className="bd" href={home}>
-              <img src={MARK} width={26} height={26} alt="" />
+            <a className="mkt-brand" href={home}>
+              <img src={MARK} width={24} height={24} alt="" />
               {text.brand}
             </a>
-            <p className="tag">{text.footer.tagline}</p>
+            <p className="mkt-tag">{text.footer.tagline}</p>
+            <p className="mkt-copy">{text.footer.copy}</p>
           </div>
-          <div className="cols">
-            <div>
-              <b>{text.footer.product}</b>
-              <a href="#demo">{text.nav.cases}</a>
-              <a href="#feat">{text.nav.features}</a>
-              <a href="#gal">{text.nav.inspiration}</a>
-              <a href="/pricing">{text.nav.pricing}</a>
-            </div>
-            <div id="contact">
-              <b>{text.footer.help}</b>
-              <a href={editions[locale].root}>{text.nav.guide}</a>
-              <a href={`mailto:${text.contact.mail}`} onClick={openContact}>
-                {text.footer.contact}
-              </a>
-            </div>
-            <div>
-              <b>{text.footer.legal}</b>
-              <a href="/terms">{text.footer.terms}</a>
-              <a href="/privacy">{text.footer.privacy}</a>
-            </div>
+          <div className="mkt-col">
+            <h4>{text.footer.product}</h4>
+            <a href="#cases">{text.nav.cases}</a>
+            <a href="#features">{text.nav.features}</a>
+            <a href="/explore">{text.nav.inspiration}</a>
+            <a href="/pricing">{text.nav.pricing}</a>
           </div>
-        </div>
-        <div className="bot">
-          <span>{text.footer.copy}</span>
-          <span>{text.footer.domain}</span>
+          <div className="mkt-col" id="contact">
+            <h4>{text.footer.help}</h4>
+            <a href={guide}>{text.nav.guide}</a>
+            <a href="#contact" onClick={openContact}>
+              {text.footer.contact}
+            </a>
+          </div>
+          <div className="mkt-col">
+            <h4>{text.footer.legal}</h4>
+            <a href="/terms">{text.footer.terms}</a>
+            <a href="/privacy">{text.footer.privacy}</a>
+          </div>
         </div>
       </footer>
       <ContactModal open={contactOpen} locale={locale} onClose={closeContact} />
     </main>
-  )
-}
-
-function HeroBody({ body }: { body: string }) {
-  const chinese = body.indexOf('。')
-  const english = body.indexOf('. ')
-  const end = chinese >= 0 ? chinese + 1 : english >= 0 ? english + 1 : -1
-  if (end < 0) return body
-  return (
-    <>
-      {body.slice(0, end)}
-      <br className="dk" />
-      {body.slice(end)}
-    </>
-  )
-}
-
-function Frame({ url }: { url: string }) {
-  return (
-    <div className="bar">
-      <s />
-      <s />
-      <s />
-      <u>{url}</u>
-    </div>
   )
 }

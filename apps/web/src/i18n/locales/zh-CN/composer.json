@@ -199,7 +199,8 @@
     "shortModes": {
       "agent": "智能",
       "image": "图片",
-      "video": "视频"
+      "video": "视频",
+      "canvas": "画布"
     }
   },
   "batch": {
