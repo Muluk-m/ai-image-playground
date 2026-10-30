@@ -75,6 +75,7 @@ export type ClaimedTask = Pick<
   | 'upstream_task_ids'
   | 'upstream_submitted_at'
   | 'upstream_invocation_count'
+  | 'submitted_at'
 >
 
 /** 已提交的上游异步任务：回读只为补提交缺口，已落库的 id 一律只轮不重提。 */
@@ -400,6 +401,31 @@ export function turnSiblingInProgress(
 }
 
 /**
+ * 匿名智能体任务（`user_id` 为空）的同轮串行：没有用户行可锁，改拿这一轮的事务级咨询锁，
+ * 再查 {@link turnSiblingInProgress}。同一轮的两条并发认领因此一前一后，后一条看得见前一条
+ * 刚提交的 in_progress。不是智能体提交的任务没有 agent_jobs 行，不拿锁，也不受影响。
+ * 锁顺序「轮锁 → provider 锁」，匿名认领不碰用户行，不会与登录用户的认领成环。
+ */
+async function anonymousTurnSiblingRunning(
+  tx: BffTransaction,
+  taskId: string,
+  model: string,
+  now: number,
+): Promise<boolean> {
+  const locked = await tx
+    .select({
+      turn: sql`pg_advisory_xact_lock(hashtextextended('agent-turn-claim:' || ${schema.agent_jobs.conversation_id} || ':' || ${schema.agent_jobs.turn_id}, 0))`,
+    })
+    .from(schema.agent_jobs)
+    .where(eq(schema.agent_jobs.task_id, taskId))
+  if (locked.length === 0) return false
+  const [sibling] = await tx
+    .select({ running: turnSiblingInProgress(sql`${taskId}`, sql`${model}`, now) })
+    .from(sql`(select 1) as one`)
+  return Boolean(sibling?.running)
+}
+
+/**
  * 认领一条排着的任务。只有 `status='queued'` 且 `next_retry_at` 已到才认领得到，
  * 认领与令牌、租约同一次写入：滚动发布时两个实例抢同一行，只有一个拿得到句柄。
  */
@@ -501,8 +527,9 @@ export async function claimTaskExecution(
           runningInScope: decision.runningInScope,
         }
       }
-    } else if (serializeProviderClaims) {
-      await lockIdleSlotClaims(tx, candidate.provider)
+    } else {
+      if (await anonymousTurnSiblingRunning(tx, id, candidate.model, claimedAt)) return null
+      if (serializeProviderClaims) await lockIdleSlotClaims(tx, candidate.provider)
     }
     const [row] = await tx
       .update(schema.tasks)
@@ -532,6 +559,7 @@ export async function claimTaskExecution(
         upstream_task_ids: schema.tasks.upstream_task_ids,
         upstream_submitted_at: schema.tasks.upstream_submitted_at,
         upstream_invocation_count: schema.tasks.upstream_invocation_count,
+        submitted_at: schema.tasks.submitted_at,
       })
     if (row) await publishGenerations(tx, [id])
     return row
