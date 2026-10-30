@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
 import { db, schema } from '../db/client'
+import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import {
   approveDeviceAuthorization,
   CLI_CLIENT_ID,
@@ -24,6 +25,9 @@ function oauthError(error: string, status = 400): Response {
 }
 
 export const cliAuthRoutes = new Elysia()
+  .onBeforeHandle({ as: 'scoped' }, () => {
+    if (!isCapabilityEnabled('cli:api')) return capabilityUnavailable('cli:api')
+  })
   .post('/oauth/device_authorization', async ({ request }) => {
     const body = await formBody(request)
     const clientId = body.get('client_id') ?? ''
