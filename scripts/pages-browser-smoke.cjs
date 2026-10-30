@@ -534,7 +534,7 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
       if (await page.locator('html').getAttribute('lang') !== lang) throw new Error(`Wrong locale: ${path}`)
       if (path === '/en/') {
         await page.getByRole('heading',{level:1,name:/^Muvloom: online creation\s*tool for images and video$/}).waitFor()
-        if (!(await page.title()).includes('AI Image, Video and Canvas Creation')) throw new Error('English marketing title drifted')
+        if (!(await page.title()).includes('Muvloom: online creation tool for images and video')) throw new Error('English marketing title drifted')
       }
       if (path === '/login/') await page.getByRole('form',{name:'用户登录'}).waitFor()
     }
