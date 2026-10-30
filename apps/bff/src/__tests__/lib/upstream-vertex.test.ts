@@ -20,7 +20,9 @@ const {
 const { acquireChannelSlot, channelSlotStateForTesting } = await import(
   '../../lib/upstream/concurrency'
 )
-const { extractUpstreamFailure } = await import('../../lib/upstream/errors')
+const { extractUpstreamFailure, UpstreamResultUnknownError } = await import(
+  '../../lib/upstream/errors'
+)
 const { isRetryableError } = await import('../../lib/retry')
 const { partialFailureOf } = await import('../../lib/upstream/partial')
 const { defaultChannelsPath } = await import('../../lib/channels')
@@ -453,6 +455,28 @@ describe('callUpstream Vertex AI direct channel', () => {
         failed: 1,
         type: 'rate_limited',
       })
+      expect(channelSlotStateForTesting(PRO_GATE)).toEqual({ active: 0, waiting: 0 })
+    })
+
+    it('keeps the whole order for reconciliation when one fan-out request has an unknown result', async () => {
+      // 一条出图，另一条连接中途断开：那条可能已经出图计费，不能按“没出图”部分交付再退钱。
+      attempts = []
+      let call = 0
+      setUpstreamFetchForTesting((async (input: Parameters<TestFetch>[0]) => {
+        attempts.push(String(input))
+        if (call++ === 1) throw new TypeError('socket hang up')
+        return new Response(JSON.stringify(vertexResponse()), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }) as unknown as TestFetch)
+      const failure = await callUpstream({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        request: { prompt: 'a cup', n: 2 },
+      }).catch((error: unknown) => error)
+      expect(failure).toBeInstanceOf(UpstreamResultUnknownError)
+      expect(attempts).toHaveLength(2)
       expect(channelSlotStateForTesting(PRO_GATE)).toEqual({ active: 0, waiting: 0 })
     })
 
