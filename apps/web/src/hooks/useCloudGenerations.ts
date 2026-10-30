@@ -124,10 +124,13 @@ export function useCloudGenerations(enabled: boolean): CloudGenerations {
  * 游标是上一页最后一条的位置，也是这一页覆盖的时间上界。第一页没有上界；认不出来的游标
  * 按「窗口为空」处理——宁可留着一条已经删掉的卡，也不能因为看不懂边界就把没读到的记录抹掉。
  */
-function cursorCreatedAt(cursor: string | null): number {
+export function cursorCreatedAt(cursor: string | null): number {
   if (!cursor) return Number.POSITIVE_INFINITY
   try {
-    const decoded: unknown = JSON.parse(atob(cursor.replace(/-/g, '+').replace(/_/g, '/')))
+    const normalized = cursor.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
+    const decoded: unknown = JSON.parse(atob(padded))
+    if (Array.isArray(decoded) && typeof decoded[0] === 'number') return decoded[0]
     if (decoded && typeof decoded === 'object' && 'createdAt' in decoded) {
       const createdAt = decoded.createdAt
       if (typeof createdAt === 'number') return createdAt
