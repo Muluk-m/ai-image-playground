@@ -1,8 +1,12 @@
 import {
+  GEMINI_IMAGE_SIZES,
+  type GeminiImageSize,
   isModelEtaSeconds,
   MODEL_BADGES,
+  MODEL_TIERS,
   type ModelBadge,
   type ModelLogoId,
+  type ModelTier,
 } from '@image-playground/shared'
 import { i18next } from '../../i18n'
 import { knownModelLogo } from './publicChannels'
@@ -20,6 +24,24 @@ export function getModelCapabilities(
   const model =
     channel?.models.find((item) => item.id === profile.selectedModelId) ?? channel?.models[0]
   return model ? new Set(model.capabilities) : null
+}
+
+/**
+ * 当前选中模型可选的 Gemini 分辨率档位：渠道声明了 `imageSizes` 就只给这几档（按共享顺序、
+ * 只认共享档位里有的），没声明、或清单还没到就给共享档位全集。浏览器不校验发现清单，
+ * 过滤完一档不剩也退回全集，免得面板没得选。
+ */
+export function getModelImageSizes(
+  profile: ClientProfile,
+  publicChannels: PublicChannel[],
+): readonly GeminiImageSize[] {
+  const channel = publicChannels.find((item) => item.id === profile.channelId)
+  const model =
+    channel?.models.find((item) => item.id === profile.selectedModelId) ?? channel?.models[0]
+  const declared: unknown = model?.imageSizes
+  if (!Array.isArray(declared)) return GEMINI_IMAGE_SIZES
+  const sizes = GEMINI_IMAGE_SIZES.filter((size) => declared.includes(size))
+  return sizes.length ? sizes : GEMINI_IMAGE_SIZES
 }
 
 /**
@@ -99,6 +121,11 @@ export function knownModelBadges(value: unknown): ModelBadge[] {
   return known
 }
 
+/** 选择器分组：清单不经浏览器校验，认不出的值按「不分组」处理。 */
+export function knownModelTier(value: unknown): ModelTier | undefined {
+  return MODEL_TIERS.includes(value as ModelTier) ? (value as ModelTier) : undefined
+}
+
 /** 返回该 profile 的模型展示项（id + 人类可读 label）。 */
 export function getProfileModelOptions(
   profile: ClientProfile,
@@ -107,6 +134,7 @@ export function getProfileModelOptions(
   id: string
   label: string
   badges?: ModelBadge[]
+  tier?: ModelTier
   etaSeconds?: number
   etaMaxSeconds?: number
   logo?: ModelLogoId
@@ -118,10 +146,12 @@ export function getProfileModelOptions(
         const etaMaxSeconds = usableEtaMaxSeconds(model.etaMaxSeconds, etaSeconds)
         const badges = knownModelBadges(model.badges)
         const logo = knownModelLogo(model.logo)
+        const tier = knownModelTier(model.tier)
         return {
           id: model.id,
           label: model.label ?? model.id,
           ...(badges.length ? { badges } : {}),
+          ...(tier ? { tier } : {}),
           ...(etaSeconds !== undefined ? { etaSeconds } : {}),
           ...(etaMaxSeconds !== undefined ? { etaMaxSeconds } : {}),
           ...(logo ? { logo } : {}),

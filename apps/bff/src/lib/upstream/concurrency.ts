@@ -1,15 +1,17 @@
 /*
- * 按渠道限制同时在途的上游请求数（`channels.json` 的 `maxConcurrency`）。
+ * 按渠道或「渠道/模型」限制同时在途的上游请求数（`channels.json` 的 `maxConcurrency` /
+ * `models[].maxConcurrency`，键由 upstream.ts 的 concurrencyFor 决定）。
  *
- * Vertex AI 直连实测：同一 key 同时超过 2 个 generateContent 就回 429。一单多张在 BFF 里拆成 N 条
- * 请求，多个任务也会同时出图，所以排队必须放在渠道这一层，而不是单个任务里。
+ * Vertex AI 直连实测（2026-10-22）：限流按模型各算各的，每个模型连着只放过 2–3 条，之后大约每
+ * 40–50 秒放一条，所以每个模型配 2。一单多张在 BFF 里拆成 N 条请求，多个任务也会同时出图，排队必须
+ * 放在任务之上。上限只管同时在途，挡不住持续超速；超出的 429 由 upstream/vertex.ts 在请求内退避重发。
  *
  * 计数在进程内，这对现在的部署就是全局的：
  * - generateContent 只由 worker 发出。BFF 进程里唯一调 callUpstream 的是任务核查：它只对有上游
  *   任务 id 的任务查结果（Gemini 同步请求没有），而且 `beforeRequest` 会在发出前拒绝任何新请求。
  * - deploy/compose.app.yaml 只跑一个 worker 副本。
  * 唯一的例外是发版交接：旧 worker 排空（WORKER_DRAIN_TIMEOUT_MS，默认 55 秒）期间新旧两个进程各有
- * 2 个位，最多 4 条。那段时间多出来的 429 走现有重试策略（retry.ts 把 429 当可重试）。
+ * 一份位，同一模型最多 4 条。那段时间多出来的 429 走现有重试策略（retry.ts 把 429 当可重试）。
  * 要扩成多个 worker 副本时，这里得换成跨进程的租约（例如数据库里带过期时间的槽位表）。
  */
 

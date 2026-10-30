@@ -4,11 +4,19 @@ import {
   bootstrapClientCapabilities,
   getClientCapabilityManifest,
   isClientCapabilityEnabled,
+  supportsCanvasPendingMedia,
   supportsProjectDocumentIdentity,
 } from '../../lib/clientCapabilities'
 import { allCapabilitiesOff } from '../fixtures/capabilities'
 
+const yjsSelfCheck = vi.hoisted(() => ({ ok: true }))
+vi.mock('@image-playground/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@image-playground/shared')>()),
+  canvasUploadConflictsSupported: () => yjsSelfCheck.ok,
+}))
+
 afterEach(async () => {
+  yjsSelfCheck.ok = true
   vi.unstubAllGlobals()
   await bootstrapClientCapabilities(false, '')
 })
@@ -22,6 +30,7 @@ describe('client capability bootstrap', () => {
         'accounts:self-register': true,
         'accounts:sync': true,
         projectDocumentIdentity: true,
+        canvasPendingMedia: true,
       }),
     )
     vi.stubGlobal('fetch', fetchSpy)
@@ -33,6 +42,46 @@ describe('client capability bootstrap', () => {
     expect(getClientCapabilityManifest()).not.toHaveProperty('generation:byok')
     expect(getClientCapabilityManifest()).not.toHaveProperty('operator:console')
     expect(supportsProjectDocumentIdentity()).toBe(true)
+    expect(supportsCanvasPendingMedia()).toBe(true)
+  })
+
+  it('keeps pending canvas media off while the server advertises it as false', async () => {
+    // 分阶段上线的第一阶段：服务端带着这个键但值为 false，客户端照旧等图片上云再同步。
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          ...allCapabilitiesOff(),
+          projectDocumentIdentity: true,
+          canvasPendingMedia: false,
+        }),
+      ),
+    )
+
+    await bootstrapClientCapabilities(true, 'https://bff.example.com')
+
+    expect(supportsProjectDocumentIdentity()).toBe(true)
+    expect(supportsCanvasPendingMedia()).toBe(false)
+  })
+
+  it('keeps pending canvas media off when the installed yjs fails the conflict self-check', async () => {
+    // 服务端开了开关，但 yjs 内部结构变了、并发覆盖补不回来：不冒险先发文档。
+    yjsSelfCheck.ok = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          ...allCapabilitiesOff(),
+          projectDocumentIdentity: true,
+          canvasPendingMedia: true,
+        }),
+      ),
+    )
+
+    await bootstrapClientCapabilities(true, 'https://bff.example.com')
+
+    expect(supportsProjectDocumentIdentity()).toBe(true)
+    expect(supportsCanvasPendingMedia()).toBe(false)
   })
 
   it('keeps known capabilities enabled when an older server omits newer keys', async () => {
@@ -53,6 +102,7 @@ describe('client capability bootstrap', () => {
     expect(isClientCapabilityEnabled('billing:credits')).toBe(true)
     expect(isClientCapabilityEnabled('agent:chat')).toBe(false)
     expect(supportsProjectDocumentIdentity()).toBe(false)
+    expect(supportsCanvasPendingMedia()).toBe(false)
   })
 
   it('fails closed for a disabled backend or a malformed capability value', async () => {
@@ -105,7 +155,7 @@ describe('client capability bootstrap', () => {
     }
   })
 
-  it('retries with longer timeouts before failing startup', async () => {
+  it('starts bounded fallback requests while earlier requests remain pending', async () => {
     vi.useFakeTimers()
     try {
       const fetchMock = vi
@@ -119,7 +169,7 @@ describe('client capability bootstrap', () => {
       void boot.then(settled, settled)
       await vi.advanceTimersByTimeAsync(5000)
       expect(fetchMock).toHaveBeenCalledTimes(2)
-      // The second attempt waits 10s, not another 5s.
+      // Wait another 10s before the final fallback, without discarding earlier responses.
       await vi.advanceTimersByTimeAsync(9000)
       expect(fetchMock).toHaveBeenCalledTimes(2)
       await vi.advanceTimersByTimeAsync(1000)

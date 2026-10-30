@@ -211,6 +211,22 @@ export const operator_audits = pgTable(
   ],
 )
 
+/** 系统替运营下架模型的原因；运营手动下架不写原因。 */
+export type ModelPauseReason = 'upstream_unavailable'
+
+/**
+ * 运营停用的模型。没有行即上架：新接入的模型不用先登记一行才能用。
+ * 页面的模型列表、智能体可用的模型与提交前的拦截都只认这一张表；单价归收费模块，不在这里。
+ */
+export const model_availability = pgTable('model_availability', {
+  model: text('model').primaryKey(),
+  active: boolean('active').notNull(),
+  /** 有值即系统自动暂停（上游没有可用账号），等运营补上容量后手动恢复。 */
+  pause_reason: text('pause_reason').$type<ModelPauseReason>(),
+  paused_at: epochMs('paused_at'),
+  updated_at: epochMs('updated_at').notNull(),
+})
+
 export type InspirationKind = 'showcase' | 'template' | 'skill'
 export type InspirationStatus = 'draft' | 'published' | 'archived'
 export interface InspirationParams {
@@ -546,6 +562,12 @@ export const agent_messages = pgTable(
     primaryKey({ columns: [t.conversation_id, t.id] }),
     uniqueIndex('idx_agent_messages_conversation_seq').on(t.conversation_id, t.seq),
     index('idx_agent_messages_turn').on(t.conversation_id, t.turn_id),
+    // 确认门还等着确认的卡（见 BFF `tool-gate-records.ts`）：发新消息时在会话锁里找它们。
+    index('idx_agent_messages_pending_gate')
+      .on(t.conversation_id)
+      .where(
+        sql`${t.deleted_at} IS NULL AND ${t.content} @> '[{"type":"toolResult","status":"awaiting_confirmation","gated":true}]'::jsonb`,
+      ),
     check('agent_messages_role_check', sql`${t.role} IN ('user', 'assistant')`),
   ],
 )
@@ -630,6 +652,11 @@ export interface AgentInboxResumePayload {
   readonly wake?: Pick<AgentInboxTaskResultPayload, 'turnId' | 'taskIds' | 'batch' | 'stageRun'>
   /** 被打断那一轮发话时的画布。续跑仍认它，不退回当时还没同步完的服务端文档。 */
   readonly canvas?: AgentCanvasSnapshot
+  /**
+   * 不是被打断，而是被确认门拦下（`interruptedTurnId` 即被拦下的那一轮）：用户把那一轮拦下的卡
+   * 都确认了，续跑接着那几次工具调用往下走，不给模型额外的说明（见 BFF `tool-gate.ts`）。
+   */
+  readonly gate?: true
 }
 
 export type AgentInboxPayload =
@@ -1181,7 +1208,11 @@ export const generation_commands = pgTable(
     task_id: text('task_id').notNull(),
     submitted_at: epochMs('submitted_at').notNull(),
   },
-  (t) => [primaryKey({ columns: [t.user_id, t.command_id] })],
+  (t) => [
+    primaryKey({ columns: [t.user_id, t.command_id] }),
+    // 连点防重：同账号、同请求内容、最近几秒。
+    index('idx_generation_commands_recent').on(t.user_id, t.request_hash, t.submitted_at),
+  ],
 )
 
 /**

@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-router'
 import { THEME_BOOT_SCRIPT } from '../../../web/src/theme/bootScript'
 import { copy, findPage } from '../catalog'
+import { ROOT_LOCALE_SELECTION_SCRIPT } from '../localeSelection'
 import { ROOT_SESSION_SELECTION_SCRIPT } from '../rootSessionSelection'
 import cssUrl from '../site.css?url'
 
@@ -20,7 +21,11 @@ export const Route = createRootRoute({
       { rel: 'stylesheet', href: cssUrl },
       { rel: 'icon', href: '/brand/muvloom-icon.svg' },
     ],
-    scripts: [{ children: THEME_BOOT_SCRIPT }, { children: ROOT_SESSION_SELECTION_SCRIPT }],
+    scripts: [
+      { children: THEME_BOOT_SCRIPT },
+      { children: ROOT_SESSION_SELECTION_SCRIPT },
+      { children: ROOT_LOCALE_SELECTION_SCRIPT },
+    ],
   }),
   component: Document,
   notFoundComponent: () => (

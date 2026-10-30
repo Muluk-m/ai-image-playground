@@ -5,13 +5,24 @@ import { openImageExport } from '../features/image-export/store'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
 import { modelLabel } from '../lib/channels/publicChannels'
-import { ActualValueBadge, getParamDisplay } from '../lib/paramDisplay'
+import {
+  awaitingQueuePhase,
+  estimatedProgressPercent,
+  forgetGenerating,
+  inGeneratingPhase,
+  markGenerating,
+  progressStartedAt,
+  typicalDurationMs,
+} from '../lib/generationProgress'
+import { ActualValueBadge, getParamDisplay, measuredSizeOf } from '../lib/paramDisplay'
 import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
+import { JobProgress } from './assistant-ui/elements/job-progress'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
 import { compactModelName, ModelLogo } from './ModelIdentity'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 
 /** task-pop-in 入场动画窗口；超过这个秒数后 mount 的 task 视作历史回放，不再播。 */
 const FRESH_POP_IN_WINDOW_MS = 600
@@ -47,6 +58,7 @@ export default function TaskCard({
         }
       : null
   const [now, setNow] = useState(Date.now())
+  const [moreOpen, setMoreOpen] = useState(false)
   // 仅给「页面运行期间刚提交的卡片」播放一次入场动画。CSS keyframes 本身只在
   // mount 时播放一次，所以 useRef 锁定 mount 时刻的判定即可——不需要 state +
   // timer 去摘除 className（即便保留也只是 DOM 节点上一个无副作用的 class）。
@@ -58,6 +70,9 @@ export default function TaskCard({
   const [swipeActionActive, setSwipeActionActive] = useState(false)
   const toggleTaskSelection = useStore((s) => s.toggleTaskSelection)
   const settings = useStore((s) => s.settings)
+  const typicalMs = useStore((s) =>
+    task.status === 'running' ? typicalDurationMs(s.tasks, task.apiModel) : 0,
+  )
   const exportLabel = t('download.export')
   const handleExport = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -171,7 +186,7 @@ export default function TaskCard({
   const duration = (() => {
     let seconds: number
     if (task.status === 'running') {
-      seconds = Math.floor((now - task.createdAt) / 1000)
+      seconds = Math.floor((now - (task.batchStartedAt ?? task.createdAt)) / 1000)
     } else if (task.elapsed != null) {
       seconds = Math.floor(task.elapsed / 1000)
     } else {
@@ -184,8 +199,25 @@ export default function TaskCard({
   })()
   const isSwipeReady = Math.abs(swipeOffset) >= 40
   const showSwipeAction = isSwipeReady || swipeActionActive
-  const showRunningTimer = task.status === 'running'
-  const runningLabel = task.queuePhase ? t(`card.phase.${task.queuePhase}`) : t('card.generating')
+  const showRunningTimer = task.status === 'running' && !task.batchQueued
+  // 上游不回报真实进度：只在真正出图阶段按本机同模型的典型耗时估一个百分比，排队、重连、确认时不显示也不计时。
+  const generatingPhase = inGeneratingPhase(task)
+  const progressStart = generatingPhase ? progressStartedAt(task) : null
+  const progressPercent =
+    progressStart != null ? estimatedProgressPercent(now - progressStart, typicalMs) : null
+  useEffect(() => {
+    if (generatingPhase) markGenerating(task, Date.now())
+    else if (task.status !== 'running') forgetGenerating(task.id)
+  }, [generatingPhase, task])
+  const runningLabel = task.batchQueued
+    ? t('card.batchQueued')
+    : progressPercent != null
+      ? t('card.progress', { percent: progressPercent })
+      : task.queuePhase
+        ? t(`card.phase.${task.queuePhase}`)
+        : awaitingQueuePhase(task)
+          ? t('card.phase.queued')
+          : t('card.generating')
   const swipeBgClass = showSwipeAction
     ? swipeStartedSelected
       ? 'bg-muted'
@@ -195,8 +227,9 @@ export default function TaskCard({
   const qualityDisplay = getParamDisplay(task, 'quality')
   const showQuality = task.params.quality !== 'auto' || qualityDisplay.isMismatch
 
-  const sizeDisplay = getParamDisplay(task, 'size')
-  const showSize = task.params.size !== 'auto' || sizeDisplay.isMismatch
+  // 尺寸以产出原图的真实像素为准（和左上角角标同一个来源），请求值只是没有像素时的兜底。
+  const sizeDisplay = getParamDisplay(task, 'size', task.actualParams, measuredSizeOf(preview))
+  const showSize = sizeDisplay.requestedValue !== 'auto' || sizeDisplay.hasActualValue
 
   const formatDisplay = getParamDisplay(task, 'output_format')
   const showFormat = task.params.output_format !== 'png' || formatDisplay.isMismatch
@@ -207,6 +240,7 @@ export default function TaskCard({
   const showTransparentOutput = Boolean(task.transparentOutput || task.params.transparent_output)
   const model = task.apiModel ?? ''
   const showModel = Boolean(model)
+  const modelName = showModel ? compactModelName(model, modelLabel(model, task.apiProfileId)) : ''
 
   return (
     <div className="relative rounded-xl">
@@ -257,16 +291,32 @@ export default function TaskCard({
             <Icon name="check" size="xs" className="text-primary-foreground" />
           </div>
         )}
-        <div className="flex h-40">
+        {/* 手机上改成网格：操作按钮单独占卡片底部一整行，每个按钮的点击区不小于 44px。 */}
+        <div className="flex h-40 max-sm:grid max-sm:h-auto max-sm:grid-cols-[10rem_minmax(0,1fr)] max-sm:grid-rows-[minmax(0,1fr)_auto_auto]">
           {/* 左侧图片区域 */}
-          <div className="w-40 min-w-[10rem] h-full bg-muted dark:bg-black/20 relative flex items-center justify-center overflow-hidden flex-shrink-0">
-            {task.status === 'running' && (
-              <div className="flex flex-col items-center gap-2">
-                <Icon name="loading" size="lg" className="animate-spin text-primary" />
-                <span className="text-xs text-muted-foreground">{runningLabel}</span>
+          <div className="w-40 min-w-[10rem] h-full max-sm:h-40 max-sm:row-span-2 bg-muted dark:bg-black/20 relative flex items-center justify-center overflow-hidden flex-shrink-0">
+            {task.status === 'running' &&
+              (progressPercent != null ? (
+                <JobProgress
+                  label={runningLabel}
+                  progress={progressPercent}
+                  className="w-24 items-center"
+                />
+              ) : (
+                <div className="flex flex-col items-center gap-2">
+                  <Icon name="loading" size="lg" className="animate-spin text-primary" />
+                  <span className="text-xs text-muted-foreground">{runningLabel}</span>
+                </div>
+              ))}
+            {task.status === 'error' && task.cancelled && (
+              <div className="flex flex-col items-center gap-1 px-2">
+                <Icon name="close" size="lg" className="text-muted-foreground" />
+                <span className="text-xs text-muted-foreground text-center leading-tight">
+                  {t('common:state.cancelled')}
+                </span>
               </div>
             )}
-            {task.status === 'error' && (
+            {task.status === 'error' && !task.cancelled && (
               <div className="flex flex-col items-center gap-1 px-2">
                 <Icon name="error" size="lg" className="text-destructive" />
                 <span className="text-xs text-destructive text-center leading-tight">
@@ -316,17 +366,17 @@ export default function TaskCard({
           </div>
 
           {/* 右侧信息区域 */}
-          <div className="flex-1 p-3 flex flex-col min-w-0">
-            <div className="flex-1 min-h-0 mb-2 overflow-hidden">
+          <div className="flex-1 p-3 flex flex-col min-w-0 max-sm:contents">
+            <div className="flex-1 min-h-0 mb-2 overflow-hidden max-sm:m-0 max-sm:px-3 max-sm:pt-3 max-sm:pb-2">
               <p className="text-sm text-foreground leading-relaxed line-clamp-3">
                 {task.prompt || t('prompt.empty')}
               </p>
             </div>
-            <div className="mt-auto flex flex-col gap-1.5">
+            <div className="mt-auto flex flex-col gap-1.5 max-sm:contents">
               {/* 参数与信息：横向滚动 */}
               <div
                 data-tag-scroll-area
-                className="flex flex-wrap pt-0.5 gap-1.5 min-w-0"
+                className="flex flex-wrap pt-0.5 gap-1.5 min-w-0 max-sm:px-3 max-sm:pb-3"
                 onTouchStart={(e) => e.stopPropagation()}
                 onTouchMove={(e) => e.stopPropagation()}
                 onTouchEnd={(e) => e.stopPropagation()}
@@ -334,77 +384,111 @@ export default function TaskCard({
               >
                 {/* Model */}
                 {showModel && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-xs flex-shrink-0">
+                  <span
+                    title={modelName}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-xs min-w-0 max-w-full"
+                  >
                     <ModelLogo model={model} />
-                    <span>{compactModelName(model, modelLabel(model, task.apiProfileId))}</span>
+                    <span className="min-w-0 truncate">{modelName}</span>
                   </span>
                 )}
                 {/* Mask */}
                 {task.maskImageId && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-xs flex-shrink-0">
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-xs min-w-0 max-w-full">
                     <Icon name="brush" size="xs" />
-                    {t('card.inpaint')}
+                    <span className="min-w-0 truncate" title={t('card.inpaint')}>
+                      {t('card.inpaint')}
+                    </span>
                   </span>
                 )}
                 {showTransparentOutput && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-success/10 dark:bg-success/10 text-success dark:text-success text-xs flex-shrink-0">
-                    {t('card.transparentBackground')}
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-success/10 dark:bg-success/10 text-success dark:text-success text-xs min-w-0 max-w-full">
+                    <span className="min-w-0 truncate" title={t('card.transparentBackground')}>
+                      {t('card.transparentBackground')}
+                    </span>
                   </span>
                 )}
                 {/* Params: only show if not default or mismatch */}
                 {showQuality && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
-                    <span className="text-muted-foreground">{t('param.quality')}</span>
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs min-w-0 max-w-full">
+                    <span className="shrink-0 text-muted-foreground">{t('param.quality')}</span>
                     {qualityDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={qualityDisplay.displayValue}
-                        className="px-1 rounded-sm"
+                        className="min-w-0 max-w-full px-1 rounded-sm"
+                        truncate
                       />
                     ) : (
-                      <span className="text-muted-foreground">{qualityDisplay.displayValue}</span>
+                      <span
+                        className="min-w-0 truncate text-muted-foreground"
+                        title={qualityDisplay.displayValue}
+                      >
+                        {qualityDisplay.displayValue}
+                      </span>
                     )}
                   </span>
                 )}
                 {showSize && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
-                    <span className="text-muted-foreground">{t('param.size')}</span>
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs min-w-0 max-w-full">
+                    <span className="shrink-0 text-muted-foreground">{t('param.size')}</span>
                     {sizeDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={sizeDisplay.displayValue}
-                        className="px-1 rounded-sm"
+                        className="min-w-0 max-w-full px-1 rounded-sm"
+                        truncate
                       />
                     ) : (
-                      <span className="text-muted-foreground">{sizeDisplay.displayValue}</span>
+                      <span
+                        className="min-w-0 truncate text-muted-foreground"
+                        title={sizeDisplay.displayValue}
+                      >
+                        {sizeDisplay.displayValue}
+                      </span>
                     )}
                   </span>
                 )}
                 {showFormat && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
-                    <span className="text-muted-foreground">{t('param.format')}</span>
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs min-w-0 max-w-full">
+                    <span className="shrink-0 text-muted-foreground">{t('param.format')}</span>
                     {formatDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={formatDisplay.displayValue}
-                        className="px-1 rounded-sm"
+                        className="min-w-0 max-w-full px-1 rounded-sm"
+                        truncate
                       />
                     ) : (
-                      <span className="text-muted-foreground">{formatDisplay.displayValue}</span>
+                      <span
+                        className="min-w-0 truncate text-muted-foreground"
+                        title={formatDisplay.displayValue}
+                      >
+                        {formatDisplay.displayValue}
+                      </span>
                     )}
                   </span>
                 )}
                 {showN && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
-                    <span className="text-muted-foreground">{t('param.count')}</span>
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs min-w-0 max-w-full">
+                    <span className="shrink-0 text-muted-foreground">{t('param.count')}</span>
                     {nDisplay.isMismatch ? (
-                      <ActualValueBadge value={nDisplay.displayValue} className="px-1 rounded-sm" />
+                      <ActualValueBadge
+                        value={nDisplay.displayValue}
+                        className="min-w-0 max-w-full px-1 rounded-sm"
+                        truncate
+                      />
                     ) : (
-                      <span className="text-muted-foreground">{nDisplay.displayValue}</span>
+                      <span
+                        className="min-w-0 truncate text-muted-foreground"
+                        title={nDisplay.displayValue}
+                      >
+                        {nDisplay.displayValue}
+                      </span>
                     )}
                   </span>
                 )}
               </div>
-              {/* 操作按钮 */}
+              {/* 操作按钮：手机上占满卡片底部一行，按钮均分宽度、高 44px。 */}
               <div
-                className="flex w-full items-center justify-between flex-shrink-0 mt-0.5 sm:w-auto sm:justify-end sm:gap-1"
+                className="flex w-full items-center justify-between flex-shrink-0 mt-0.5 max-sm:col-span-2 max-sm:m-0 max-sm:border-t max-sm:[&>button]:h-11 max-sm:[&>button]:flex-1 sm:w-auto sm:justify-end sm:gap-1"
                 onClick={(e) => e.stopPropagation()}
               >
                 {(task.status === 'error' || settings.alwaysShowRetryButton) && (
@@ -489,18 +573,39 @@ export default function TaskCard({
                     <Icon name="download" size="xs" />
                   </Button>
                 </Hint>
-                <Hint tooltip={t('action.deleteRecord')}>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={onDelete}
-                    className="text-muted-foreground hover:text-destructive"
-                    aria-label={t('action.deleteRecord')}
+                {/* 删除收进更多菜单：手机上按钮挤在一排，别和导出挨着误点。 */}
+                <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+                  <Hint tooltip={t('action.more')}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        className="text-muted-foreground"
+                        aria-label={t('action.more')}
+                      >
+                        <Icon name="more" size="xs" />
+                      </Button>
+                    </PopoverTrigger>
+                  </Hint>
+                  <PopoverContent
+                    align="end"
+                    collisionPadding={12}
+                    className="w-40 rounded-xl p-1.5"
                   >
-                    <Icon name="delete" size="xs" />
-                  </Button>
-                </Hint>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full justify-start gap-3 px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => {
+                        setMoreOpen(false)
+                        onDelete()
+                      }}
+                    >
+                      <Icon name="delete" /> {t('action.deleteRecord')}
+                    </Button>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
           </div>

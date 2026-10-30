@@ -32,16 +32,21 @@ import type {
   ChannelMedia,
   ChannelModel,
   DiscoveredChannel,
+  GeminiImageSize,
   ModelBadge,
   ModelLogoId,
+  ModelTier,
   QueueProvider,
 } from '@image-playground/shared'
 import {
   CHANNEL_CAPABILITIES,
+  GEMINI_IMAGE_SIZES,
   isModelEtaSeconds,
   MODEL_BADGES,
   MODEL_LOGOS,
+  MODEL_TIERS,
 } from '@image-playground/shared'
+import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -70,6 +75,11 @@ export interface InternalChannel {
    * 目前只有 gemini-queue 的 generateContent 同步请求认它，其余 kind 写了会在加载时报错。
    */
   maxConcurrency?: number
+  /**
+   * 按模型的同时在途上限（`models[].maxConcurrency`），写了就压过渠道级的 `maxConcurrency`、按
+   * 「渠道 + 模型」单独排队。同样 BFF 私有、只允许 gemini-queue。Vertex 实测限流按模型各算各的。
+   */
+  modelMaxConcurrency?: Readonly<Record<string, number>>
 }
 
 /** parseChannel 的产物：baseUrl 尚未解析，只有 `baseUrl` / `baseUrlRef` 二选一。 */
@@ -153,6 +163,15 @@ function parseBadges(v: unknown, ctx: string): ModelBadge[] | undefined {
   })
 }
 
+function parseTier(v: unknown, ctx: string): ModelTier | undefined {
+  if (v === undefined) return undefined
+  if (typeof v !== 'string' || !MODEL_TIERS.includes(v as ModelTier))
+    throw new ChannelsLoadError(
+      `${ctx}: invalid tier '${String(v)}' (allowed: ${MODEL_TIERS.join(', ')})`,
+    )
+  return v as ModelTier
+}
+
 function parseEtaSeconds(v: unknown, ctx: string): number | undefined {
   if (v === undefined) return undefined
   if (!isModelEtaSeconds(v))
@@ -183,6 +202,23 @@ function parseLogo(v: unknown, ctx: string): ModelLogoId | undefined {
   return v as ModelLogoId
 }
 
+/** 分辨率档位：`GEMINI_IMAGE_SIZES` 的非空子集，不重复。 */
+function parseImageSizes(v: unknown, ctx: string): GeminiImageSize[] | undefined {
+  if (v === undefined) return undefined
+  if (!Array.isArray(v) || v.length === 0)
+    throw new ChannelsLoadError(`${ctx}.imageSizes must be a non-empty array`)
+  const seen = new Set<string>()
+  return v.map((size) => {
+    if (typeof size !== 'string' || !GEMINI_IMAGE_SIZES.includes(size as GeminiImageSize))
+      throw new ChannelsLoadError(
+        `${ctx}: invalid imageSize '${String(size)}' (allowed: ${GEMINI_IMAGE_SIZES.join(', ')})`,
+      )
+    if (seen.has(size)) throw new ChannelsLoadError(`${ctx}: duplicate imageSize '${size}'`)
+    seen.add(size)
+    return size as GeminiImageSize
+  })
+}
+
 function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
   if (!Array.isArray(v) || v.length === 0)
     throw new ChannelsLoadError(`${channelCtx}: models must be a non-empty array`)
@@ -191,18 +227,22 @@ function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
     if (!isObject(raw)) throw new ChannelsLoadError(`${ctx} must be an object`)
     const media = parseMedia(raw.media, ctx)
     const badges = parseBadges(raw.badges, ctx)
+    const tier = parseTier(raw.tier, ctx)
     const etaSeconds = parseEtaSeconds(raw.etaSeconds, ctx)
     const etaMaxSeconds = parseEtaMaxSeconds(raw.etaMaxSeconds, etaSeconds, ctx)
     const logo = parseLogo(raw.logo, ctx)
+    const imageSizes = parseImageSizes(raw.imageSizes, ctx)
     return {
       id: requireNonEmptyString(raw.id, `${ctx}.id`),
       label: requireNonEmptyString(raw.label, `${ctx}.label`),
       capabilities: parseCapabilities(raw.capabilities, ctx),
       ...(media ? { media } : {}),
       ...(badges ? { badges } : {}),
+      ...(tier ? { tier } : {}),
       ...(etaSeconds !== undefined ? { etaSeconds } : {}),
       ...(etaMaxSeconds !== undefined ? { etaMaxSeconds } : {}),
       ...(logo ? { logo } : {}),
+      ...(imageSizes ? { imageSizes } : {}),
     }
   })
 }
@@ -322,6 +362,16 @@ function parseChannel(raw: unknown, idx: number): ParsedChannel {
     throw new ChannelsLoadError(`${ctx}.allowedPaths must be a non-empty string[]`)
 
   const maxConcurrency = parseMaxConcurrency(raw.maxConcurrency, raw.kind as ChannelKind, ctx)
+  const models = parseModels(raw.models, ctx)
+  const modelMaxConcurrency: Record<string, number> = {}
+  ;(raw.models as unknown[]).forEach((model, index) => {
+    const limit = parseMaxConcurrency(
+      (model as { maxConcurrency?: unknown }).maxConcurrency,
+      raw.kind as ChannelKind,
+      `${ctx}.models[${index}]`,
+    )
+    if (limit !== undefined) modelMaxConcurrency[models[index]!.id] = limit
+  })
   return {
     id: raw.id,
     kind: raw.kind as ChannelKind,
@@ -331,9 +381,10 @@ function parseChannel(raw: unknown, idx: number): ParsedChannel {
     disabled: parseOptionalFlag(raw.disabled, `${ctx}.disabled`),
     auth: parseAuth(raw.auth, ctx),
     allowedPaths: raw.allowedPaths,
-    models: parseModels(raw.models, ctx),
+    models,
     defaults: parseDefaults(raw.defaults, ctx),
     ...(maxConcurrency !== undefined ? { maxConcurrency } : {}),
+    ...(Object.keys(modelMaxConcurrency).length ? { modelMaxConcurrency } : {}),
   }
 }
 
@@ -548,6 +599,32 @@ export function modelCapabilities(model: string): readonly ChannelCapability[] |
   return undefined
 }
 
+/** 严格局部编辑（圈外逐像素不变）只交给这一族：声明了 `mask` 且服务端合成认得它的尺寸规则。 */
+export const STRICT_MASK_MODEL = /^gpt-image-2\.5(?:[.-]|$)/
+
+/** 能按蒙版严格局部编辑的图片模型，按 channels 顺序。 */
+export function strictMaskModels(): { provider: QueueProvider; model: string; label: string }[] {
+  const found: { provider: QueueProvider; model: string; label: string }[] = []
+  for (const channel of loaded)
+    for (const model of channel.models)
+      if (
+        (model.media ?? 'image') === 'image' &&
+        model.capabilities.includes('mask') &&
+        STRICT_MASK_MODEL.test(model.id)
+      )
+        found.push({ provider: queueProviderOf(channel.kind), model: model.id, label: model.label })
+  return found
+}
+
+/** 渠道里登记的模型名；不认识的模型就用 id。 */
+export function modelLabel(model: string): string {
+  for (const channel of loaded) {
+    const declared = channel.models.find((m) => m.id === model)
+    if (declared) return declared.label
+  }
+  return model
+}
+
 /** 给了 id 就按 id 找，没给就取该介质的默认模型——channels 数组顺序是产品契约。 */
 export function resolveQueueModel(
   media: ChannelMedia,
@@ -587,9 +664,19 @@ function sanitizeChannel(c: InternalChannel): DiscoveredChannel {
     id: c.id,
     kind: c.kind,
     label: c.label,
-    models: c.models,
+    models: c.models.map(withCatalogCapabilities),
     defaults: c.defaults,
   }
+}
+
+/**
+ * 图片模型附上能力目录里的 family 与 image（ADR 0027，只增不删）：现有字段原样保留，
+ * 目录里没有的模型、视频模型都不加，前端旧代码不读这两个字段，行为不变。
+ */
+function withCatalogCapabilities(model: ChannelModel): ChannelModel {
+  if ((model.media ?? 'image') !== 'image') return model
+  const spec = findCatalogModel(model.id)
+  return spec ? { ...model, ...publishModelCapabilities(spec) } : model
 }
 
 /** 仅供测试：直接塞入解析好的 channels，绕过文件系统。 */

@@ -78,6 +78,13 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
       (element) => element.textContent?.includes('重试'),
     )
     expect(retry).toBeDefined()
+    // 传失败的图 × 常显，不用悬停才找得到（BUG-49）。
+    const remove = () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label^="移除参考图"]') ??
+      document.querySelector<HTMLButtonElement>(
+        '.creation-reference-panel button[aria-label^="移除参考图"]',
+      )
+    expect(remove()?.className).not.toContain('opacity-0')
     fail = false
     await act(async () => {
       retry!.click()
@@ -92,6 +99,7 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
       await confirmation
     })
     await vi.waitFor(() => expect(button.disabled).toBe(false))
+    expect(remove()?.className).toContain('opacity-0')
     expect(button.className).not.toContain('bg-secondary')
     expect(button.getAttribute('aria-busy')).toBeNull()
     expect(host.querySelector('.creation-reference-status[aria-busy="true"]')).toBeNull()
@@ -166,10 +174,26 @@ it.each([
       root.render(<AgentComposer doc={new CanvasDoc()} />)
     })
     const panel = openReferenceStack(host)
+    // 原因只在参考区顶部写一次，标明第几张（BUG-57）；缩略图旁不再重复。
     await vi.waitFor(() =>
-      expect(panel.querySelector('[role="alert"]')?.textContent).toContain(message),
+      expect(panel.querySelector('.creation-reference-status')?.textContent).toMatch(
+        new RegExp(`^第 1 张图片：.*${message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+      ),
     )
-    expect(panel.querySelector('[role="alert"]')?.className).toContain('text-destructive')
+    expect(panel.querySelector('.creation-reference-status')?.getAttribute('data-failed')).toBe(
+      'true',
+    )
+    expect(
+      [...panel.querySelectorAll('span')].filter(
+        (span) => !span.classList.contains('sr-only') && span.textContent?.includes(message),
+      ),
+    ).toEqual([])
+    // 读屏仍由参考区的 role=alert 播报一次。
+    expect(
+      [...host.querySelectorAll('[role="alert"]')].filter((node) =>
+        node.textContent?.includes(message),
+      ),
+    ).toHaveLength(1)
     expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')?.disabled).toBe(
       true,
     )

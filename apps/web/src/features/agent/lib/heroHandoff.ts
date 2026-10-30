@@ -1,5 +1,7 @@
+import { AGENT_USER_MESSAGE_MAX_CHARS } from '@image-playground/shared'
 import { accountRequired, requireAccount } from '../../../auth/loginPrompt'
 import { queuePendingSubmission } from '../../../auth/pendingSubmission'
+import { i18next } from '../../../i18n'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { useStore } from '../../../store'
 import { useVideoStore } from '../../video/store'
@@ -7,6 +9,7 @@ import type { VideoDraft } from '../../video/types'
 import { agentPanelPresent } from '../panelLayout'
 import { useAgentStore } from '../store'
 import { fillAgentComposer } from './composerFill'
+import { currentProjectDraft } from './projectLifecycle'
 import { type AgentDraft, draftForSubmit } from './references'
 
 /** 画布的生成栏要等切过去挂上才能接话；挂载在下一帧到几帧之间，最多等这么久。 */
@@ -38,6 +41,16 @@ export async function startCanvasFromComposer(
   }
   const submission = draftForSubmit(draft)
   if (!submission.text) return false
+  // 超了字数的这句话服务端一定拒收：在首屏就说，不先建一个空项目再在里面报错。
+  if (submission.text.length > AGENT_USER_MESSAGE_MAX_CHARS) {
+    useStore
+      .getState()
+      .showToast(
+        i18next.t('error.textTooLong', { ns: 'agent', max: AGENT_USER_MESSAGE_MAX_CHARS }),
+        'error',
+      )
+    return false
+  }
   // Do not create and navigate to an empty project before asking the visitor to log in.
   if (agentPanelPresent() && isClientCapabilityEnabled('billing:credits') && accountRequired()) {
     await queuePendingSubmission({ kind: 'heroCanvas', draft, experience, mode, videoDraft })
@@ -56,10 +69,16 @@ export async function startCanvasFromComposer(
     return true
   }
   useAgentStore.getState().setMode(mode)
+  // 新项目的对话输入框：服务端没收下（图太大、选区无效、网络断了…）时这句话连同参考图放回这里，
+  // 与对话输入框里发失败同一个收场——错误卡说原因，草稿留着改完再发，不会凭空没了。
+  const projectDraft = currentProjectDraft(useAgentStore.getState().conversationId)
+  let returnedId: string | undefined
   const result = await useAgentStore.getState().send(
     submission.text,
     submission.references,
     () => {
+      // 卡片上点「重试」发出去了：放回输入框的那份就不要再留着，免得再发一遍。
+      if (returnedId) void projectDraft.acceptSubmission(returnedId)
       const store = useStore.getState()
       if (store.prompt === draft.prompt) {
         store.setPrompt('')
@@ -67,6 +86,14 @@ export async function startCanvasFromComposer(
       }
     },
     mode,
+    undefined,
+    undefined,
+    undefined,
+    async (unsent) => {
+      await projectDraft.ready
+      returnedId = unsent.id
+      return projectDraft.returnUnsent({ ...draft, submission: unsent })
+    },
   )
   return result !== 'cancelled'
 }

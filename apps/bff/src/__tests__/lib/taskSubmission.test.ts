@@ -127,6 +127,8 @@ it('pads a masked image submission to the model grid and keeps it lossless', asy
   // 保护选区外像素要逐像素比对，有损格式与压缩会把它毁掉。
   expect(payload.output_format).toBe('png')
   expect(payload).not.toHaveProperty('output_compression')
+  // 带透明度的结果合成不回原图，局部编辑一律要不透明背景。
+  expect(payload.extra?.background).toBe('opaque')
 })
 
 it('pads a masked image submission that no agent sent on the same terms', async () => {

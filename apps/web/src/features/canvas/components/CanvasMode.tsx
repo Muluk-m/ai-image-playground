@@ -9,7 +9,7 @@ import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
-import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
+import { filesFromFolderInput, prepareAcceptedImageFiles } from '../../../lib/imageFiles'
 import { publishStartedProjectAddress } from '../../../lib/navigation/address'
 import { backToCurrentProject } from '../../../lib/navigation/workbenchNavigation'
 import { defaultSidebarExpanded, useStore } from '../../../store'
@@ -208,18 +208,25 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const importFiles = (files: File[]) => {
-    const images = acceptImageFiles(files)
-    if (images.length === 0) return
-    confirmImageBatch(images.length, () => {
-      void importImageFiles(editor, images, {
-        x: editor.getViewportPageBounds().midX,
-        y: editor.getViewportPageBounds().midY,
-      })
-        .then((count) => {
-          if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
+    const target = editor
+    const live = () => currentCanvasWorkspace().editor === target
+    const failed = () => useStore.getState().showToast(t('import.failed'), 'error')
+    void prepareAcceptedImageFiles(files)
+      .then((images) => {
+        if (!live() || images.length === 0) return
+        confirmImageBatch(images.length, () => {
+          if (!live()) return
+          void importImageFiles(target, images, {
+            x: target.getViewportPageBounds().midX,
+            y: target.getViewportPageBounds().midY,
+          })
+            .then((count) => {
+              if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
+            })
+            .catch(failed)
         })
-        .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
-    })
+      })
+      .catch(failed)
   }
   const hasAgent = agentPanelPresent()
   useEffect(() => {
@@ -414,14 +421,14 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   // 首页停在 `/`，起手工作区不占地址（见 projectStore.activate）。第一句话落下、
   // 或画布上真有了东西，这个工作区才成为一个「项目」，这时补一条 `/p/<项目>` 的历史。
   useEffect(() => {
-    if (showWelcome || !project) return
+    if (showWelcome || !project || project.quotaRejected) return
     publishStartedProjectAddress(project.id)
   }, [showWelcome, project])
   useEffect(() => {
     if (!hasAgent) return
     void useAgentStore.getState().load()
   }, [hasAgent, workspace])
-  const { loading, loadFailed, saveFailed } = useSyncExternalStore(
+  const { loading, loadFailed, loadErrorCode, saveFailed } = useSyncExternalStore(
     workspace.subscribe,
     workspace.getSnapshot,
   )
@@ -531,12 +538,14 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     variant="ghost"
                     size="icon"
                     type="button"
-                    className="studio-assets-trigger"
+                    className="studio-assets-trigger studio-assets-trigger--labeled"
                     aria-label={t('workspace.assets')}
-                    title={t('workspace.assets')}
+                    autoTooltip={false}
                     onClick={() => setAssetDrawerOpen(true)}
                   >
                     <Icon name="folder" />
+                    {/* 只放图标时没人认得出这是看图的地方（BUG-18）。窄屏收回成图标，靠 aria-label。 */}
+                    <span className="studio-assets-trigger-label">{t('workspace.assets')}</span>
                   </Button>
                 </>
               )}
@@ -947,7 +956,11 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       {loadFailed ? (
         <div role="alert" className="studio-canvas-status">
           <div>
-            <p>{t('loadError.message')}</p>
+            <p>
+              {loadErrorCode === 'project_quota_exceeded'
+                ? t('projectSync.project_quota_exceeded', { ns: 'errors' })
+                : t('loadError.message')}
+            </p>
             <Button
               variant="link"
               size="sm"

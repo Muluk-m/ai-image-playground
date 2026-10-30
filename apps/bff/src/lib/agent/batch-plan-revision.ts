@@ -4,7 +4,12 @@ import { and, eq, inArray, or } from 'drizzle-orm'
 import { schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 import { batchItemValues } from './batch-items'
-import { BatchPlanError, quoteBatchPlan } from './batch-plans'
+import {
+  BatchPlanError,
+  insertBatchMediaReferences,
+  quoteBatchPlan,
+  readyBatchMedia,
+} from './batch-plans'
 
 /** Both paid phases commit their quote, immutable scope and confirmation barrier in one transaction. */
 export async function saveBatchRevision(
@@ -82,16 +87,7 @@ export async function saveBatchRevision(
       ),
     ),
   ]
-  const ready = await tx
-    .select({ id: schema.media_objects.id })
-    .from(schema.media_objects)
-    .where(
-      and(
-        eq(schema.media_objects.user_id, userId),
-        eq(schema.media_objects.status, 'ready'),
-        inArray(schema.media_objects.id, mediaIds),
-      ),
-    )
+  const ready = await readyBatchMedia(tx, userId, mediaIds)
   if (ready.length !== mediaIds.length) throw new BatchPlanError('invalid_batch_plan', 422)
   const now = Date.now()
   const version = plan.version + 1
@@ -122,18 +118,7 @@ export async function saveBatchRevision(
   await tx
     .insert(schema.agent_batch_items)
     .values(items.map((item) => ({ ...batchItemValues(item), batch_id: id, version })))
-  await tx
-    .insert(schema.media_references)
-    .values(
-      mediaIds.map((mediaId) => ({
-        user_id: userId,
-        media_id: mediaId,
-        owner_kind: 'batch' as const,
-        owner_id: id,
-        created_at: now,
-      })),
-    )
-    .onConflictDoNothing()
+  await insertBatchMediaReferences(tx, userId, id, mediaIds, now)
   await tx
     .update(schema.agent_batches)
     .set({

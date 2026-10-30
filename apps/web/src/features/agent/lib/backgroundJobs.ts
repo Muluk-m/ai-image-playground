@@ -6,6 +6,7 @@ import type {
   StageRunWakeReceipt,
 } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
+import { reportClientError } from '../../../lib/errorReporting'
 import { notifyPrivateSubmissionSettled } from '../../../lib/privateOverlay'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import type { AgentPanelMessage, AgentToolMessage } from '../types'
@@ -48,6 +49,8 @@ const REAL_TIMING: AgentJobTiming = { pollIntervalMs: 3_000, wakePickupDelayMs: 
 
 /** 找唤醒轮最多看这么多次。 */
 const WAKE_PICKUP_ATTEMPTS = 8
+/** 确认门续跑最多跟几趟 {@link WAKE_PICKUP_ATTEMPTS}：每趟约 30 秒，合起来覆盖到两分钟左右。 */
+const CONTINUATION_FOLLOW_ROUNDS = 4
 
 /**
  * 交出一张卡时，它的产出落在画布哪里。三种交接点各说一种，交出之后占位就归这个模块，
@@ -121,6 +124,11 @@ export interface AgentBackgroundJobs {
   /** 画布节点运行的回报同样走持久的唤醒：每条授权只接一次。 */
   followStageRun(conversationId: string, authorizationId: string): void
   /**
+   * 确认门拦下的卡确认完了：服务端接着被拦下的那一轮起了续跑，面板空着就跟进那一轮的流，
+   * 续跑的回复接在原来那段回复后面。
+   */
+  followContinuation(conversationId: string): void
+  /**
    * 单独取消这张结果卡提交的任务；服务端按原桶退回，卡随即换成取消后的结局。还在重试队列里
    * 排着的重试记录也走这里：撤回它，失败占位保持原来那次失败。
    */
@@ -177,6 +185,8 @@ export function createAgentBackgroundJobs({
   let watch: { readonly conversationId: string } | null = null
   /** 正在找唤醒轮的那一次。 */
   let wakeWatch: { readonly conversationId: string; result: Promise<boolean> } | null = null
+  /** 正在跟进确认门续跑的会话：每个会话从找轮到接上流整段只跑一份，确认响应与同步读回同时来也不会接两次。 */
+  const continuationFollows = new Set<string>()
   interface BatchWake {
     readonly conversationId: string
     /** 这条唤醒走到了哪一步：批次版本或运行回报各有自己的回执。 */
@@ -582,6 +592,31 @@ export function createAgentBackgroundJobs({
       followWake(conversationId, JSON.stringify([conversationId, batchId, version]), () =>
         fetchBatchWakeReceipt(batchId, version),
       )
+    },
+
+    followContinuation(conversationId) {
+      if (continuationFollows.has(conversationId)) return
+      continuationFollows.add(conversationId)
+      const sameAccount = accountScope()
+      const backend = bffBaseUrl()
+      // 续跑在确认那一刻就排上并当场开轮，一般第一趟就接上。这一轮之后没有别的事件会再来叫它
+      // （不像后台任务，下一个结束的任务还会再找一次），所以一趟没看到就再跟几趟；只在面板还停在
+      // 这个会话、空着时接着跟，开了别的轮或切走了就作罢。几趟都没看到（服务在下线、巡查才接手），
+      // 回到这个会话读回快照时照样补齐。
+      const follow = async (): Promise<void> => {
+        for (let round = 0; round < CONTINUATION_FOLLOW_ROUNDS; round += 1) {
+          if (await followWakeTurn(conversationId)) return
+          if (!sameAccount() || bffBaseUrl() !== backend || !session.isIdle(conversationId)) return
+        }
+      }
+      follow()
+        .catch((error) => {
+          // 卡已提交、续跑在服务端照常跑：这里接不上只是面板没跟上，下次读回快照会补齐。
+          reportClientError('error', error, { operation: 'agent.followContinuation' })
+        })
+        .finally(() => {
+          continuationFollows.delete(conversationId)
+        })
     },
 
     followStageRun(conversationId, authorizationId) {

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, expect, it, vi } from 'vitest'
+import { DraftSession } from '../../../features/agent/lib/drafts'
 import { useAgentStore } from '../../../features/agent/store'
 import {
   currentCanvasWorkspace,
@@ -380,4 +381,71 @@ it('目录接收删除墓碑后隐藏云端项目，仍保留本机内容，恢�
   await useCanvasProjectStore.getState().refreshCloud()
   state = useCanvasProjectStore.getState()
   expect(projectCatalog(state.projects, state.cloudCatalog)).toMatchObject([{ id: summary.id }])
+})
+
+it('项目数已到上限时首页发送干净收手：不挂失败卡、不改名、不再发别的请求（BUG-54）', async () => {
+  history.replaceState(null, '', '/')
+  setClientStorageScope(crypto.randomUUID())
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  const calls: string[] = []
+  installCanvasTestSocket()
+  vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
+    const url = String(input)
+    const method = init?.method ?? 'GET'
+    calls.push(`${method} ${url}`)
+    if (url.endsWith('/capabilities'))
+      return Response.json({ 'accounts:sync': true, 'agent:chat': true })
+    if (url.endsWith('/projects')) return Response.json({ projects: [], nextCursor: null })
+    if (url.includes('/projects/') && method === 'PUT')
+      return Response.json({ error: 'project_quota_exceeded' }, { status: 413 })
+    return Response.json({ error: 'unexpected' }, { status: 500 })
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  useCanvasProjectStore.setState({
+    projects: [],
+    activeId: null,
+    loaded: false,
+    error: null,
+    cloudLoading: false,
+    cloudCatalog: {},
+  })
+  await openCanvas()
+  useAgentStore.setState({
+    loaded: true,
+    conversationId: null,
+    messages: [],
+    turns: {},
+    turn: 'idle',
+    stopping: false,
+    activeTurn: null,
+    error: null,
+    historyFailed: false,
+    historyLoading: false,
+  })
+  const session = new DraftSession(`quota-home:${crypto.randomUUID()}`)
+  await session.ready
+  session.update({ prompt: '第一句话', references: [] })
+  const notices: string[] = []
+  const sentBefore = calls.length
+  await useAgentStore.getState().submitDraft({
+    session,
+    snapshot: session.getSnapshot().draft,
+    mode: 'image',
+    onConsumed: () => {},
+    onNotice: (notice) => notices.push(notice),
+  })
+
+  const state = useAgentStore.getState()
+  expect(state.error).toBeNull()
+  expect(state.turn).toBe('idle')
+  expect(state.messages).toEqual([])
+  // 草稿放回输入框，但不另弹「没发出去」或「已中止」：上限提示已经在画布上。
+  expect(notices).toEqual([])
+  expect(session.getSnapshot().draft).toMatchObject({
+    prompt: '第一句话',
+    submission: expect.objectContaining({ text: '第一句话' }),
+  })
+  const after = calls.slice(sentBefore)
+  expect(after.filter((call) => call.includes('/canvas/name'))).toEqual([])
+  expect(after.filter((call) => /conversation|turns|submissions/.test(call))).toEqual([])
 })

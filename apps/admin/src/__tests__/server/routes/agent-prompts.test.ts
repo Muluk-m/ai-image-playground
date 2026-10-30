@@ -123,13 +123,23 @@ await writer.db.insert(writer.schema.tasks).values({
   agent_conversation_id: 'owned',
   agent_turn_id: 'wake',
 })
-await writer.db.insert(writer.schema.agent_jobs).values({
-  task_id: 'direct',
-  conversation_id: 'conversation',
-  turn_id: 'turn',
-  tool_call_id: 'direct-edit',
-  submitted_at: now,
-})
+await writer.db.insert(writer.schema.agent_jobs).values([
+  {
+    task_id: 'direct',
+    conversation_id: 'conversation',
+    turn_id: 'turn',
+    tool_call_id: 'direct-edit',
+    submitted_at: now,
+  },
+  {
+    task_id: 'direct-2',
+    conversation_id: 'conversation',
+    turn_id: 'turn',
+    tool_call_id: 'direct-edit',
+    submitted_at: now,
+  },
+])
+await writer.db.insert(writer.schema.tasks).values({ ...task('direct-2'), agent_turn_id: 'turn' })
 await writer.db.insert(writer.schema.agent_tool_calls).values({
   conversation_id: 'conversation',
   message_id: 'edit-call',
@@ -177,6 +187,12 @@ async function result(query = ''): Promise<AgentPromptsResult> {
 describe('GET /api/agent-prompts', () => {
   it('requires admin authentication', async () => {
     expect((await app.handle(new Request('http://localhost/api/agent-prompts'))).status).toBe(401)
+  })
+  it('groups fan-out tasks from one tool instruction into one log entry', async () => {
+    const body = await result('deviceId=device')
+    const grouped = body.items.find((row) => row.taskIds?.includes('direct-2'))!
+    expect(grouped).toMatchObject({ taskId: 'direct', groupId: 'direct-edit', tool: 'editImage' })
+    expect(grouped.taskIds).toEqual(['direct', 'direct-2'])
   })
   it('unions drafts and direct tasks without double counting; retains originals and aggregates turn usage', async () => {
     const body = await result('deviceId=device')

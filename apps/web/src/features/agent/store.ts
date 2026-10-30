@@ -44,7 +44,11 @@ import {
   openProject,
   selectCanvasWorkspace,
 } from '../canvas/lib/activeProject'
-import { cloudProjectsEnabled, getCloudProject } from '../canvas/lib/projectClient'
+import {
+  cloudProjectsEnabled,
+  getCloudProject,
+  ProjectRequestError,
+} from '../canvas/lib/projectClient'
 import {
   type CanvasProject,
   projectExperience,
@@ -66,7 +70,7 @@ import {
   AgentTransportError,
   type AgentTurnSource,
   abortTurn,
-  confirmToolPrompt,
+  confirmToolCard,
   fetchConversations,
   fetchMessages,
   fetchSubmissionReceipt,
@@ -91,6 +95,7 @@ import { type AgentJobSession, createAgentBackgroundJobs } from './lib/backgroun
 import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
 import { conversationCache } from './lib/conversationCache'
 import { browserConversationPrefetch } from './lib/conversationPrefetch'
+import { agentDraftStillDrafting } from './lib/draftingTurn'
 import {
   type DraftSubmissionDispatch,
   type DraftSubmissionInput,
@@ -98,6 +103,11 @@ import {
 } from './lib/draftSubmission'
 import { agentDraft, bindNewAgentDraft, DraftSession } from './lib/drafts'
 import { pollFollowUps, shouldPollFollowUps } from './lib/followUps'
+import {
+  configureAgentJobActivity,
+  markAgentConversationSeen,
+  reportAgentPanel,
+} from './lib/jobActivity'
 import { agentJobUnsettled } from './lib/jobProgress'
 import {
   addQueuedMessage,
@@ -137,6 +147,7 @@ import {
 } from './lib/projectLifecycle'
 import { isProductionDraft } from './lib/promptDraft'
 import { type AgentRetryRefusal, agentRetryRemaining, agentRetrySlotTasks } from './lib/retry'
+import { describeSendFailure } from './lib/sendFailure'
 import { agentToolFailureText, promptAgentRecharge } from './lib/toolFailure'
 import { toAgentTurnParams } from './lib/turnParams'
 import {
@@ -187,13 +198,14 @@ function readModelAuto(): boolean {
  * - `refused`：服务端拒了这次提交（积分不够、没登录、参数不成立……），码即出路。
  * - `gone`：这条消息不在了（换了账号、会话已删）。
  * - `notConfirmable`：它已经不是待确认的草稿（别处确认过、草稿过期）。
+ * - `drafting`：拟它的那一轮还在跑（计划还没拟完），这时不交确认；那一轮结束后再点即可。
  * - `failed`：请求本身没成（断网、超时、服务端出错），原样再点一次即可。
  */
 export type AgentPromptConfirmResult =
   | { readonly ok: true }
   | {
       readonly ok: false
-      readonly reason: 'refused' | 'gone' | 'notConfirmable' | 'failed'
+      readonly reason: 'refused' | 'gone' | 'notConfirmable' | 'drafting' | 'failed'
       readonly code?: AgentToolErrorCode
     }
 
@@ -302,6 +314,11 @@ export interface AgentState {
     replay?: TurnSubmissionReplay,
     /** 快捷编辑在校验遮罩能力时固定的模型，避免上传期间切换模型造成校验与起轮不一致。 */
     modelOverride?: string,
+    /**
+     * 服务端没收下（拒收、断网、撤回）时把这句话交还给发送方自己的草稿；返回是否已落盘。
+     * 首屏交接用它把话放回新项目的输入框，而不是只留在补发日志里、输入框却空着。
+     */
+    onUnsent?: (submission: UnsentTurnSubmission, quiet?: boolean) => Promise<boolean>,
   ): Promise<void | 'cancelled'>
   submitDraft(input: DraftSubmissionInput): Promise<void>
   abort(): Promise<void>
@@ -341,7 +358,8 @@ export interface AgentState {
    * 确认一张草稿卡：把这份提示词原样交给服务端提交生成任务，面板换上提交之后的那张卡，
    * 并接着等任务结果。重复点击、多标签页同时确认都只会有一个任务。
    */
-  acceptGenerationReceipt(conversationId: string, view: AgentMessageView): void
+  /** `continued`：服务端接着确认门拦下的那一轮起了续跑，面板跟进那一轮的流。 */
+  acceptGenerationReceipt(conversationId: string, view: AgentMessageView, continued?: boolean): void
   confirmPrompt(messageId: string, prompt: string): Promise<AgentPromptConfirmResult>
   /**
    * 按面板上的先后逐张确认所有待确认草稿。一张被拒（余额不够、没登录）就停下，
@@ -418,6 +436,22 @@ const failPatch = (
 })
 
 const REFERENCES_NOT_UPLOADED = () => i18next.t('error.referencesNotUploaded', { ns: 'agent' })
+
+/**
+ * 最近一次没能发出去（服务端还没收下）的那条话，卡片上的「重试」按原样再发一次。
+ * 只在错误卡还显示着同一句话时有效；别处改了 `error` 就自然失效。
+ */
+let unsentRetry: { error: string; run: () => Promise<unknown> } | null = null
+
+export function unsentRetryAvailable(error: string | null): boolean {
+  return Boolean(error && unsentRetry?.error === error)
+}
+
+export function retryUnsent(): void {
+  const pending = unsentRetry
+  unsentRetry = null
+  if (pending && useAgentStore.getState().error === pending.error) void pending.run()
+}
 
 let pendingSeq = 0
 const PENDING_PREFIX = 'pending_'
@@ -527,6 +561,48 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       state.conversationId,
     )
   })
+  // 对话外也要知道生成出完了（BUG-16）：开着的对话每次变化报给 jobActivity，切走时还没出完的交给它。
+  configureAgentJobActivity({
+    viewing: (conversationId) =>
+      useStore.getState().appMode === 'canvas' &&
+      store.getState().conversationId === conversationId &&
+      (typeof document === 'undefined' || document.visibilityState !== 'hidden'),
+    refreshCovers: () => {
+      // 目录正在拉（启动/手动刷新）时 refreshCloud 会直接跳过：等这次拉完再补一次，免得封面没换上。
+      const projects = useCanvasProjectStore
+      if (!projects.getState().cloudLoading) {
+        void projects.getState().refreshCloud()
+        return
+      }
+      const stop = projects.subscribe((state) => {
+        if (state.cloudLoading) return
+        stop()
+        void projects.getState().refreshCloud()
+      })
+      // 订阅前那次拉取可能已经结束：再看一眼，免得补刷永远等不到。
+      if (!projects.getState().cloudLoading) {
+        stop()
+        void projects.getState().refreshCloud()
+      }
+    },
+  })
+  store.subscribe((state, previous) => {
+    if (state.conversationId !== previous.conversationId || state.messages !== previous.messages)
+      reportAgentPanel(state.conversationId, state.messages, previous)
+  })
+  const seeCurrent = () => {
+    const conversationId = store.getState().conversationId
+    if (
+      conversationId &&
+      useStore.getState().appMode === 'canvas' &&
+      (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+    )
+      markAgentConversationSeen(conversationId)
+  }
+  useStore.subscribe((state, previous) => {
+    if (state.appMode !== previous.appMode) seeCurrent()
+  })
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', seeCurrent)
   let cache: ReturnType<typeof conversationCache> | null = null
   let pendingCacheWrite: (() => void) | undefined
   let cacheTimer: ReturnType<typeof setTimeout> | undefined
@@ -640,7 +716,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         message.canvasRun?.authorizationId &&
         message.canvasRun.status === 'pending'
       )
-        registerAgentNodeRunOrigin(message.id, stageRunOrigin(conversationId))
+        registerAgentNodeRunOrigin(message.id, stageRunOrigin(conversationId), message.canvasRun)
   }
 
   /**
@@ -723,7 +799,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       // Origin rights are memory-only. History, reconnects and other devices never auto-start.
       // 本标签页自己发出的轮，以及本标签页开跑的那批运行回报唤醒、由本标签页接上的那一轮，才带运行权。
       if (sent && card.kind === 'tool' && card.canvasRun)
-        registerAgentNodeRunOrigin(card.id, stageRunOrigin(conversationId))
+        registerAgentNodeRunOrigin(card.id, stageRunOrigin(conversationId), card.canvasRun)
       if (card.kind !== 'tool') turnDelivery.discard(event.messageId)
       // 后台任务：占的位不随这一轮收掉，交给任务，等它结束再落。
       else if (event.status === 'submitted')
@@ -1583,11 +1659,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         error:
           code === 'queue_full'
             ? i18next.t('error.queueFull', { ns: 'agent', count: AGENT_QUEUE_MAX_PENDING })
-            : code === 'invalid_selection'
-              ? i18next.t('error.invalidSelection', { ns: 'agent' })
-              : code === 'invalid_reference'
-                ? i18next.t('error.invalidReference', { ns: 'agent' })
-                : i18next.t('error.queueFailed', { ns: 'agent' }),
+            : (describeSendFailure(thrown)?.message ??
+              i18next.t('error.queueFailed', { ns: 'agent' })),
       })
       return false
     }
@@ -1976,6 +2049,21 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     ) {
       // 这一轮可能在画布上发起运行：原标签页报价前把模型清单刷新一下（有节流，失败保留原清单）。
       void refreshChannels()
+      // 重试沿用这一次已经定下的消息 id：服务端可能其实收下了，同一个 id 才认得出是同一条、不会再排一次。
+      // 参数、画布与是否回答澄清也沿用这一次定下的：同一个 id 只能代表同一个请求，用户中途改了
+      // 设置或画布，重试的仍是没发出去的那一条。
+      let retryMessageId = clientMessageId
+      let retryReplay = replay
+      const resend = () =>
+        get().send(text, references, onAccepted, mode, retryMessageId, retryReplay, modelOverride)
+      /** 服务端收下之前就失败：说清原因与下一步，能重试的给卡片挂上「重试」。 */
+      const failUnsent = (fallback: string | undefined, thrown?: unknown) => {
+        const described = describeSendFailure(thrown)
+        fail(described?.message ?? fallback, thrown)
+        const shown = get().error
+        unsentRetry =
+          shown && (described ? described.retryable : true) ? { error: shown, run: resend } : null
+      }
       const sameAccount = accountScope()
       const turnParams = replay?.params ?? {
         ...currentTurnParams(mode),
@@ -2038,6 +2126,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const clarificationAnswer =
         replay?.clarificationAnswer ?? answerableClarificationId(get().messages) !== null
       const messageId = clientMessageId ?? crypto.randomUUID()
+      retryMessageId = messageId
+      const { references: _captured, ...unsentSnapshot } = captured.snapshot
+      retryReplay = { ...unsentSnapshot, clarificationAnswer }
       // 交出去之前先落本机，并且等它写完：这句话与服务端之间隔着几秒网络，刷新、断网都在
       // 这段里，只在内存里就等于没发过。写完才发，回来时照样看得到，也能拿同一个 id 重发。
       const journaled = sourceProject ? { projectId: sourceProject.id, id: messageId } : null
@@ -2080,6 +2171,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const settleJournal = async () => {
         if (journaled && sameAccount()) await forgetOutgoing(journaled.projectId, journaled.id)
       }
+      let quietUnsent = false
       const returnUnsent = async (withdrawn = false) => {
         if (!onUnsent && !withdrawn) return
         // 已撤回的 id 是服务端终态，再用它只会再次得到 cancelled。只有用户从草稿再发才开新 id。
@@ -2091,7 +2183,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           clarificationAnswer,
         }
         let returned: boolean
-        if (onUnsent) returned = await onUnsent(unsent)
+        if (onUnsent) returned = await onUnsent(unsent, quietUnsent)
         else {
           // 刷新补发时输入框可能尚未挂载，恢复仍归属原项目，不能把终态日志直接丢掉。
           const draft = agentDraft(conversationId, sourceProject?.id)
@@ -2234,7 +2326,19 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             }
           }
         } catch (thrown) {
-          if (turnDelivery.isCurrent()) fail(undefined, thrown)
+          // 项目数已到上限，项目本身没建成：画布那边已经亮出上限提示，这里干净收手——
+          // 撤下刚上屏的消息、草稿原样放回，不挂「这一轮没有跑完」，也不另弹提示（BUG-54）。
+          if (thrown instanceof ProjectRequestError && thrown.code === 'project_quota_exceeded') {
+            quietUnsent = true
+            return await cancelUnsent()
+          }
+          // 建会话这一步只在本机报「这一轮没有跑完」，服务端看不到：把真实原因记下来（BUG-45）。
+          if (!conversationId)
+            reportClientError('error', thrown, {
+              operation: 'agent.conversation.create',
+              stage: target ? 'bind' : 'create',
+            })
+          if (turnDelivery.isCurrent()) failUnsent(undefined, thrown)
           await turnDelivery.settled()
           return
         }
@@ -2244,7 +2348,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           prepared = await prepare()
         } catch (thrown) {
           if (submission.cancelled) return await cancelUnsent()
-          if (turnDelivery.isCurrent()) fail(REFERENCES_NOT_UPLOADED(), thrown)
+          if (turnDelivery.isCurrent()) failUnsent(REFERENCES_NOT_UPLOADED(), thrown)
           await turnDelivery.settled()
           return
         }
@@ -2309,14 +2413,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           if (submission.cancelled && !(thrown instanceof AgentRequestError))
             return await cancelUnsent()
           if (turnDelivery.isCurrent())
-            fail(
+            failUnsent(
               thrown instanceof AgentRequestError && thrown.status === 429
                 ? TURN_RATE_LIMITED()
-                : thrown instanceof AgentRequestError && thrown.code === 'invalid_selection'
-                  ? i18next.t('error.invalidSelection', { ns: 'agent' })
-                  : thrown instanceof AgentRequestError && thrown.code === 'invalid_reference'
-                    ? i18next.t('error.invalidReference', { ns: 'agent' })
-                    : undefined,
+                : undefined,
               thrown,
             )
           await turnDelivery.settled()
@@ -2618,11 +2718,18 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       set((state) => ({ promptDrafts: { ...state.promptDrafts, [messageId]: prompt } }))
     },
 
-    acceptGenerationReceipt(conversationId, view) {
+    acceptGenerationReceipt(conversationId, view, continued = false) {
       if (get().conversationId !== conversationId) return
       const incoming = panelMessage(view.id, view.turnId, view.role, view.content)
-      if (incoming.kind !== 'tool') return
       const shown = get().messages.find((one) => one.id === incoming.id)
+      // 续跑跟进放在最前：卡片本身是否需要改写，都不影响那一轮已经在服务端起跑。确认的响应丢了、
+      // 由同步读回时没有 `continued`：读回来的确认门卡已提交、任务还没出结果，就去跟进一次。不看
+      // 面板上原来那张卡的状态——别的标签页或快照可能先把它改成了已提交。跟进按会话去重，那一轮
+      // 没在跑时是空操作。
+      const gateSettled =
+        incoming.kind === 'tool' && incoming.gated === true && agentJobUnsettled(incoming)
+      if (continued || gateSettled) jobs.followContinuation(conversationId)
+      if (incoming.kind !== 'tool') return
       if (
         shown?.kind === 'tool' &&
         agentJobUnsettled(incoming) &&
@@ -2653,15 +2760,23 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const text = prompt.trim()
       // 空提示词提交不了；界面按住了按钮，这里守住第二道。
       if (!conversationId || draft?.kind !== 'tool' || !text) return { ok: false, reason: 'failed' }
+      // 确认门拦下的稿：用户已经发出新消息、新的一轮正在起（`turn` 在消息上屏那一刻就是 running），
+      // 服务端起轮时会把它作废。这时的确认与新轮抢跑，不交出去；起轮失败回到空闲后仍可确认。
+      // 拟它的那一轮自己还在跑（计划没拟完）：说明还在拟，不说成已失效。
+      if (agentDraftStillDrafting(get(), draft)) return { ok: false, reason: 'drafting' }
+      if (draft.gated && get().turn === 'running') return { ok: false, reason: 'notConfirmable' }
       let view: AgentMessageView
+      let continued = false
       try {
-        view = await confirmToolPrompt(
+        const confirmed = await confirmToolCard(
           conversationId,
           messageId,
           text,
           undefined,
           draft.productionDraftRevision,
         )
+        view = confirmed.message
+        continued = confirmed.continued === true
       } catch (thrown) {
         if (!(thrown instanceof AgentRequestError)) return { ok: false, reason: 'failed' }
         if (thrown.status === 404) return { ok: false, reason: 'gone' }
@@ -2698,6 +2813,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         }
       })
       jobs.track(conversationId, card, { kind: 'reserve' })
+      // 确认门拦下的那一轮卡都确认完了，服务端接着它起了续跑：跟进去，回复接在原来那段后面。
+      if (continued) jobs.followContinuation(conversationId)
       return { ok: true }
     },
 
@@ -2719,8 +2836,17 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
   }
   return {
     ...initial,
-    send: (text, references, onAccepted, mode, clientMessageId, replay, modelOverride) =>
-      initial.send(text, references, onAccepted, mode, clientMessageId, replay, modelOverride),
+    send: (text, references, onAccepted, mode, clientMessageId, replay, modelOverride, onUnsent) =>
+      initial.send(
+        text,
+        references,
+        onAccepted,
+        mode,
+        clientMessageId,
+        replay,
+        modelOverride,
+        onUnsent,
+      ),
     submitDraft: (input) => submitDraft(input, initial.send),
   }
 })

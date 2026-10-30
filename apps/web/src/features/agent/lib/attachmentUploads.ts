@@ -1,10 +1,19 @@
-import type { AgentTurnReference } from '@image-playground/shared'
+import {
+  type AgentTurnReference,
+  IMAGE_DATA_URL_MAX_CHARS,
+  type MediaLimits,
+} from '@image-playground/shared'
 import { isUserStorageScope, scopedStorageName } from '../../../lib/authScope'
-import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
-import { mediaIdentity } from '../../../lib/cloudMedia'
+import {
+  getAttachmentLimits,
+  getMediaLimits,
+  isClientCapabilityEnabled,
+} from '../../../lib/clientCapabilities'
+import { MediaRequestError, mediaIdentity, resolveMediaSource } from '../../../lib/cloudMedia'
 import { BASE_DB_NAME } from '../../../lib/db'
 import {
   hasLocalAttachmentSources,
+  localAttachmentBytes,
   localAttachmentFailure,
   localAttachmentIdentity,
   onLocalAttachmentReleased,
@@ -29,6 +38,8 @@ interface Entry {
   state: MediaUploadState
   result?: MediaUploadResult
   errorCode?: string
+  /** 直传进度，整数百分比；只在 uploading 时有意义。 */
+  progress?: number
   promise: Promise<MediaUploadResult>
   controller: AbortController
 }
@@ -150,6 +161,73 @@ export function attachmentUploadsEnabled(): boolean {
   )
 }
 
+/**
+ * 对话附件那条通道没开（测试环境就是这样），但已登录、开着云同步：内联有 4,000,000 字符的
+ * 请求体上限，大图和遮罩改按普通云媒体上传、按 id 发——与画布云项目的原图同一条通道，
+ * 原件字节不缩、不重编码。
+ */
+export function mediaFallbackEnabled(): boolean {
+  return (
+    !attachmentUploadsEnabled() &&
+    getRuntimeConfig().bff.enabled &&
+    isUserStorageScope() &&
+    getMediaLimits() !== undefined
+  )
+}
+
+/** 选图时就要拦的那道单张上限；数值都来自服务端下发的配置，不在前端写死。 */
+export interface ReferenceImageLimit {
+  readonly imageBytes: number
+  /** true：超过内联上限也能按 id 发；false：只能内联，上限就是请求体那道。 */
+  readonly byId: boolean
+}
+
+/**
+ * 按 id 发的那一档单张上限。附件通道开着、但没开批量附件时服务端不下发 attachmentLimits，
+ * 附件预留按普通云媒体上限收（`reserveMedia`），这里同源回退，不落到内联请求体那道（BUG-37）。
+ */
+export function referenceMediaLimits():
+  | Pick<MediaLimits, 'imageBytes' | 'imagePixels'>
+  | undefined {
+  if (attachmentUploadsEnabled()) return getAttachmentLimits() ?? getMediaLimits()
+  return mediaFallbackEnabled() ? getMediaLimits() : undefined
+}
+
+export function referenceImageLimit(): ReferenceImageLimit {
+  const limits = referenceMediaLimits()
+  if (limits) return { imageBytes: limits.imageBytes, byId: true }
+  return { imageBytes: Math.floor((IMAGE_DATA_URL_MAX_CHARS - 64) / 4) * 3, byId: false }
+}
+
+/** data URL 解出来的字节数；不是 data URL（云媒体、本机句柄）返回 undefined。 */
+export function dataUrlBytes(source: string): number | undefined {
+  if (!source.startsWith('data:')) return undefined
+  const comma = source.indexOf(',')
+  if (comma < 0) return undefined
+  const body = source.length - comma - 1
+  if (!source.slice(0, comma).endsWith(';base64')) return body
+  const padding = source.endsWith('==') ? 2 : source.endsWith('=') ? 1 : 0
+  return Math.floor((body * 3) / 4) - padding
+}
+
+export const REFERENCE_TOO_LARGE = 'reference_too_large'
+
+/**
+ * 这张图发不出去：附件通道之外，按 id 发时超过云媒体单张上限，只能内联时超过请求体上限。
+ * 附件通道开着时由那条上传流水线自己报失败，这里不重复判断。
+ */
+export function oversizedReferenceSource(source: string): boolean {
+  return !attachmentUploadsEnabled() && referenceSourceTooLarge(source)
+}
+
+/** 不论走哪条通道，这份 data URL 都超过了这一档部署的单张上限。首屏输入框按它在选图时就拦。 */
+export function referenceSourceTooLarge(source: string): boolean {
+  const bytes = dataUrlBytes(source)
+  if (bytes === undefined) return false
+  const limit = referenceImageLimit()
+  return limit.byId ? bytes > limit.imageBytes : source.length > IMAGE_DATA_URL_MAX_CHARS
+}
+
 function localAttachmentsEnabled(): boolean {
   return attachmentUploadsEnabled() && isClientCapabilityEnabled('agent:bulk-attachments')
 }
@@ -178,6 +256,7 @@ function sourcesToUpload(reference: Uploadable): string[] {
 
 export function attachmentUploadState(reference: Uploadable): MediaUploadState | undefined {
   if (blockedLocalAttachments(reference)) return 'failed'
+  if (oversizedReferenceSource(reference.dataUrl)) return 'failed'
   const sources = sourcesToUpload(reference)
   if (!sources.length) return undefined
   const states = sources.map((source) => currentEntries().get(source)?.state ?? 'queued')
@@ -186,8 +265,68 @@ export function attachmentUploadState(reference: Uploadable): MediaUploadState |
   )
 }
 
+/**
+ * 正在直传时已发出的百分比；带遮罩时取较慢的那张。字节交完、等服务端确认（verifying）时停在 99%，
+ * 确认了才算传完。还没开始发或不在直传时为空。
+ */
+export function attachmentUploadProgress(reference: Uploadable): number | undefined {
+  const state = attachmentUploadState(reference)
+  if (state !== 'uploading' && state !== 'verifying') return undefined
+  const known = sourcesToUpload(reference).map((source) => {
+    const entry = currentEntries().get(source)
+    if (entry?.state === 'ready') return 100
+    if (entry?.state === 'verifying') return 99
+    return entry?.state === 'uploading' ? entry.progress : 0
+  })
+  if (known.some((value) => value === undefined)) return undefined
+  return Math.min(...(known as number[]))
+}
+
+/** 这张参考图按多少字节算进总进度：data URL 直接量，本机原图按选图时的大小；量不出来为空。 */
+function referenceBytes(reference: Uploadable): number | undefined {
+  let total = 0
+  for (const source of sourcesToUpload(reference)) {
+    const bytes = dataUrlBytes(source) ?? localAttachmentBytes(source)
+    if (bytes === undefined) return undefined
+    total += bytes
+  }
+  return total
+}
+
+/**
+ * 收起的那叠参考图的总进度，按字节加权：排队的算 0，在传的按已发出的比例，`batch` 里已经传完的算 100，
+ * 传失败的不计（BUG-53：只平均在传的几张，传完一张总数就往回跳）。不在 `batch` 里的已就绪图是之前那批的，不算。
+ * 没有在传的、或有一张在传却不知道进度（浏览器不报字节数）时为空，只转圈（BUG-42）。
+ */
+export function attachmentStackProgress(
+  references: readonly Uploadable[],
+  batch: ReadonlySet<string> = new Set(),
+): number | undefined {
+  const items = references.flatMap((reference) => {
+    const state = attachmentUploadState(reference)
+    if (state === 'queued') return [{ reference, progress: 0 }]
+    if (state === 'uploading' || state === 'verifying')
+      return [{ reference, progress: attachmentUploadProgress(reference) }]
+    return state === 'ready' && batch.has(reference.dataUrl) ? [{ reference, progress: 100 }] : []
+  })
+  if (items.every((item) => item.progress === 100)) return undefined
+  if (items.some((item) => item.progress === undefined)) return undefined
+  const sizes = items.map((item) => referenceBytes(item.reference))
+  const known = sizes.filter((size): size is number => size !== undefined && size > 0)
+  const fallback = known.length ? known.reduce((sum, size) => sum + size, 0) / known.length : 1
+  const weights = sizes.map((size) => (size !== undefined && size > 0 ? size : fallback))
+  const total = weights.reduce((sum, weight) => sum + weight, 0)
+  const sent = items.reduce(
+    (sum, item, index) => sum + (item.progress as number) * weights[index]!,
+    0,
+  )
+  // 还有没传完的就不报 100%。
+  return Math.min(99, Math.floor(sent / total))
+}
+
 export function attachmentUploadError(reference: Uploadable): string | undefined {
   if (blockedLocalAttachments(reference)) return 'attachment_capability_unavailable'
+  if (oversizedReferenceSource(reference.dataUrl)) return REFERENCE_TOO_LARGE
   return sourcesToUpload(reference)
     .map((source) => currentEntries().get(source)?.errorCode)
     .find(Boolean)
@@ -246,6 +385,16 @@ function start(source: string, retry = false): Promise<MediaUploadResult> {
       onState(state) {
         if (state === 'ready' || state === 'failed') return
         entry.state = state
+        entry.progress = undefined
+        changed()
+      },
+      onProgress(fraction) {
+        // 浏览器报的是交给网络栈的字节数，不是对端收到的：小文件一下就「发完」，
+        // 实际还要等十几秒才传完。所以封顶 99%，交完之后停在 99% 等服务端确认，
+        // 既不在真正传完之前显示 100%，也不把百分比收掉只剩转圈（BUG-42）。
+        const progress = Math.min(99, Math.floor(fraction * 100))
+        if (entry.state !== 'uploading' || progress === entry.progress) return
+        entry.progress = progress
         changed()
       },
     })
@@ -348,6 +497,7 @@ export async function prepareAttachmentReferences(
   references: readonly AgentTurnReference[],
 ): Promise<AgentTurnReference[]> {
   if (blockedLocalAttachments(references)) throw new Error('attachment_capability_unavailable')
+  if (mediaFallbackEnabled()) return await Promise.all(references.map(sendableById))
   const release = primeAttachmentUploads(references.filter((reference) => 'dataUrl' in reference))
   try {
     const prepared = await Promise.allSettled(
@@ -369,4 +519,40 @@ export async function prepareAttachmentReferences(
   } finally {
     release()
   }
+}
+
+/**
+ * 附件通道关着时的一张参考图：放得进内联的照旧内联；放不进的（大图、或原件已在云端而遮罩是新画的）
+ * 把还不在云端的那几份按普通云媒体上传，整条按 id 发。原件不缩、不重编码。
+ */
+async function sendableById(reference: AgentTurnReference): Promise<AgentTurnReference> {
+  if (!('dataUrl' in reference)) return reference
+  const sourceId = mediaIdentity(reference.dataUrl)
+  const maskId = reference.maskDataUrl ? mediaIdentity(reference.maskDataUrl) : undefined
+  const original = sourceId ? undefined : await resolveMediaSource(reference.dataUrl)
+  const mask =
+    reference.maskDataUrl && !maskId ? await resolveMediaSource(reference.maskDataUrl) : undefined
+  const tooLong = (source: string | undefined) => (source?.length ?? 0) > IMAGE_DATA_URL_MAX_CHARS
+  const byId =
+    Boolean(sourceId && reference.maskDataUrl) ||
+    Boolean(maskId) ||
+    tooLong(original) ||
+    tooLong(mask)
+  if (!byId) return reference
+  const limit = getMediaLimits()
+  const signal = AbortSignal.timeout(180_000)
+  const upload = async (source: string) => {
+    const bytes = dataUrlBytes(source)
+    if (limit && bytes !== undefined && bytes > limit.imageBytes)
+      throw new MediaRequestError(413, 'media_too_large')
+    const result = await uploadMediaSource(source, { signal })
+    if (!result) throw new MediaRequestError(500, 'media_upload_failed')
+    return result.id
+  }
+  const [mediaId, maskMediaId] = await Promise.all([
+    sourceId ?? upload(original!),
+    maskId ?? (mask ? upload(mask) : undefined),
+  ])
+  const { dataUrl: _source, maskDataUrl: _mask, ...rest } = reference
+  return { ...rest, mediaId, ...(maskMediaId ? { maskMediaId } : {}) }
 }

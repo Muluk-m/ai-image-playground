@@ -9,6 +9,7 @@ import type {
   AgentConfirmationResponse,
   AgentConversationView,
   AgentFrame,
+  AgentMaskPromptPoint,
   AgentMessageQueuedBody,
   AgentMessageView,
   AgentMode,
@@ -721,14 +722,15 @@ export async function retryToolCall(
  * 确认一张草稿卡：把用户核对过（可能改过）的提示词原样交给服务端，它照这份字提交生成任务，
  * 不再经模型改写。服务端就地改写同一条消息，返回提交之后它的样子。
  * 重复确认是幂等的：已经提交过的那条原样返回，不会出第二个任务。
+ * 确认门拦下的卡确认完之后服务端会接着那一轮起续跑（`continued`），调用方要跟进那一轮的流。
  */
-export async function confirmToolPrompt(
+export async function confirmToolCard(
   conversationId: string,
   messageId: string,
   prompt: string,
   fetcher: Fetcher = authenticatedBffFetch,
   draftRevision?: number,
-): Promise<AgentMessageView> {
+): Promise<AgentConfirmationResponse> {
   const response = await fetcher(url(`/conversations/${conversationId}/confirmations`), {
     ...jsonInit({
       deviceId: getDeviceId(),
@@ -740,8 +742,7 @@ export async function confirmToolPrompt(
   })
   if (!response.ok) throw await requestError(response)
   // 端点的响应形状由协议定死，与这个文件里其它端点一样按它读。
-  const body = (await response.json()) as AgentConfirmationResponse
-  return body.message
+  return (await response.json()) as AgentConfirmationResponse
 }
 
 /**
@@ -766,6 +767,41 @@ export async function postSave(
   if (!response.ok) throw await requestError(response)
   const body = (await response.json()) as AgentSaveResponse
   return body.message
+}
+
+export interface EditRegionRefinement {
+  /** 编辑格式的 PNG data URL（不透明保留、透明重绘），与原图同尺寸。 */
+  readonly mask: string
+  readonly provider: string
+  readonly elapsedMs: number
+}
+
+/**
+ * 范围确认卡上点一下：服务端在提议的那个区域上叠加这些点重新分割。没有分割服务时 503，
+ * 分割失败或超时 502；调用方保留当前范围，提示用户改用画笔。
+ */
+export async function refineEditRegion(
+  conversationId: string,
+  proposalId: string,
+  input: {
+    readonly region?: number
+    /** 在所有区域之外另加一块：服务端只按这些点分割，不借提议的框。 */
+    readonly area?: 'added'
+    readonly points: readonly AgentMaskPromptPoint[]
+  },
+  signal?: AbortSignal,
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<EditRegionRefinement> {
+  const timeout = AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS)
+  const response = await fetcher(
+    url(`/conversations/${conversationId}/edit-region/${encodeURIComponent(proposalId)}/segment`),
+    {
+      ...jsonInit({ deviceId: getDeviceId(), ...input }),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as EditRegionRefinement
 }
 
 /** 中止一条还在跑的重试，按原桶退回。 */

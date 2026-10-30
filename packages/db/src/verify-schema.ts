@@ -43,6 +43,7 @@ export const EXPECTED_TABLES = [
   'api_minutes',
   'client_errors',
   'client_error_recoveries',
+  'model_availability',
   'server_logs',
   'container_samples',
   'host_samples',
@@ -122,6 +123,7 @@ export const EXPECTED_INDEXES = [
   'idx_agent_inbox_client_message',
   'idx_agent_inbox_pending',
   'idx_agent_inbox_consumed_turn',
+  'idx_agent_messages_pending_gate',
   'agent_jobs_pkey',
   'idx_agent_jobs_undelivered',
   'agent_generation_drafts_pkey',
@@ -196,6 +198,7 @@ export const EXPECTED_INDEXES = [
   'user_looks_user_id_id_pk',
   'user_templates_user_id_id_pk',
   'users_pkey',
+  'model_availability_pkey',
 ] as const
 
 export const EXPECTED_COLUMNS = [

@@ -1,3 +1,4 @@
+import type { TaskErrorType } from '@image-playground/shared'
 import { type CSSProperties, useEffect, useState, useSyncExternalStore } from 'react'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
 import { ShimmerLabel } from '../../../components/assistant-ui/elements/surfaces'
@@ -6,6 +7,7 @@ import { Button } from '../../../components/ui/button'
 import { i18next, useTranslation } from '../../../i18n'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
+import { taskErrorText } from '../../../lib/taskError'
 import { useStore } from '../../../store'
 import {
   useAgentJobProgressText,
@@ -201,7 +203,13 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
           p.status === 'error' && !agentNote && p.meta.errorCode !== 'content_policy'
             ? p.message
             : ''
-        const note = agentNote ?? (rawFailure ? t('placeholder.failedHint') : p.message)
+        const note =
+          agentNote ??
+          (rawFailure
+            ? p.meta.errorCode
+              ? taskErrorText(p.meta.errorCode as TaskErrorType)
+              : t('placeholder.failedHint')
+            : p.message)
         // 失败占位留得比会话久（切会话、刷新后还在）：不是当前打开的那个会话就不给这个出路，
         // 否则这句话会落进一个毫不相干的会话。
         const ownConversation =

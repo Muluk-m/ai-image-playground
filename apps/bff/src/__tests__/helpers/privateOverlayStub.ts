@@ -24,6 +24,8 @@ export interface RecordedTaskHooks {
   /** 其余任务的实扣积分；工具提交的任务 id 测试事先不知道。 */
   creditsPerTask: number
   concurrencyLimit: number
+  /** 按账号给保证并发与空闲并发；返回 undefined 时两者都等于 {@link concurrencyLimit}。 */
+  entitlementFor: ((userId: string) => { guaranteed: number; idle: number } | undefined) | null
   reset(): void
 }
 
@@ -42,6 +44,7 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
     settledCredits: 0,
     creditsPerTask: 0,
     concurrencyLimit: 3,
+    entitlementFor: null,
     reset() {
       recorded.reservations.length = 0
       recorded.settlements.length = 0
@@ -52,6 +55,7 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
       recorded.settledCredits = 0
       recorded.creditsPerTask = 0
       recorded.concurrencyLimit = 3
+      recorded.entitlementFor = null
     },
   }
   _setPrivateBffOverlayForTesting(
@@ -84,6 +88,16 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
         },
         async accountConcurrencyLimit() {
           return recorded.concurrencyLimit
+        },
+        async accountConcurrencyEntitlement({
+          userId,
+        }: Parameters<NonNullable<PrivateTaskHooks['accountConcurrencyEntitlement']>>[0]) {
+          return (
+            recorded.entitlementFor?.(userId) ?? {
+              guaranteed: recorded.concurrencyLimit,
+              idle: recorded.concurrencyLimit,
+            }
+          )
         },
       },
     }),

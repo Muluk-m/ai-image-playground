@@ -20,7 +20,8 @@ export interface ObjectEntry {
 
 export interface ObjectStore {
   write(key: string, bytes: Uint8Array, contentType: string, signal?: AbortSignal): Promise<void>
-  read(key: string): Promise<Uint8Array<ArrayBuffer>>
+  /** 给了 `signal` 就必须可取消：对象存储卡住时调用方靠它把等待限定在自己的期限内。 */
+  read(key: string, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>>
   /** 视频这类大对象走这条；小对象整份 `read` 更省一次元信息往返。 */
   open(key: string, signal?: AbortSignal): Promise<ObjectRangeReader>
   listPrefix(prefix: string): Promise<string[]>
@@ -41,6 +42,42 @@ export async function readObjectWithinLimit(
     throw new SafeFetchError('too_large', `内容超过 ${maxBytes} 字节上限`)
   if (object.size === 0) return new Uint8Array(0)
   return readCapped(new Response(object.stream(0, object.size - 1)), maxBytes)
+}
+
+/** 对象存储按 HTTP 状态拒绝了请求；`status` 用来区分可重试的 5xx 和不必再试的 4xx。 */
+/**
+ * Bun 的 fetch 传输层错误把完整预签名地址放在可枚举的 `path` 上，消息里也可能带着它。
+ * 原样交给日志，签名会先进 Docker/Fluent Bit 原始记录，那时下游的脱敏还没来得及处理。
+ * 这里只留名字、错误码和去掉地址的消息。
+ */
+export function withoutSignedUrl(error: unknown, url: string): unknown {
+  if (error instanceof ObjectStoreHttpError || error instanceof DOMException) return error
+  const source = error as {
+    name?: unknown
+    message?: unknown
+    code?: unknown
+    cause?: unknown
+  } | null
+  const message = String(source?.message ?? error)
+    .split(url)
+    .join('<signed-url>')
+    .replace(/https?:\/\/\S*X-Amz-\S*/gi, '<signed-url>')
+  const clean = new Error(message)
+  if (typeof source?.name === 'string') clean.name = source.name
+  // 网络错误码可能挂在 cause 上（ECONNRESET 之类）；cause 本身可能带地址，只取码。
+  const code = source?.code ?? (source?.cause as { code?: unknown } | null | undefined)?.code
+  if (typeof code === 'string' || typeof code === 'number') Object.assign(clean, { code })
+  return clean
+}
+
+export class ObjectStoreHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'ObjectStoreHttpError'
+  }
 }
 
 export type S3ClientLike = Pick<Bun.S3Client, 'write' | 'file' | 'list' | 'delete'>
@@ -104,8 +141,47 @@ export class S3ObjectStore implements ObjectStore {
     if (!response.ok) throw new Error(`Object upload failed (${response.status})`)
   }
 
-  async read(key: string): Promise<Uint8Array<ArrayBuffer>> {
-    return new Uint8Array(await this.client.file(this.keyPrefix + key).arrayBuffer())
+  async read(key: string, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
+    const file = this.client.file(this.keyPrefix + key)
+    if (!signal) return new Uint8Array(await file.arrayBuffer())
+    // Bun 的 S3File.arrayBuffer 没有超时也不收取消信号：对端接了连接却不回包时会一直挂着。
+    signal.throwIfAborted()
+    const url = file.presign({ method: 'GET', expiresIn: 60 })
+    try {
+      const response = await fetch(url, { signal })
+      if (!response.ok) {
+        await response.body?.cancel()
+        throw new ObjectStoreHttpError(response.status, `Object read failed (${response.status})`)
+      }
+      return new Uint8Array(await response.arrayBuffer())
+    } catch (error) {
+      // 只有确实是取消原因本身才原样抛；传输错误和取消撞在一起时仍要脱敏。
+      if (signal.aborted && error === signal.reason) throw error
+      throw withoutSignedUrl(error, url)
+    }
+  }
+
+  /**
+   * 一次 Range GET 读回对象开头至多 maxBytes 字节，不先发 HEAD 查大小。读多读少由调用方按返回长度判断：
+   * 想核对「恰好 n 字节」就传 n + 1，内存上界仍是 n + 1。
+   */
+  async readUpTo(key: string, maxBytes: number): Promise<Uint8Array<ArrayBuffer>> {
+    const file = this.client.file(this.keyPrefix + key)
+    try {
+      // S3File.slice 的 end 是开区间，.stream() 翻译成上游的 Range 请求。
+      return await collectUpTo(file.slice(0, maxBytes).stream(), maxBytes)
+    } catch (error) {
+      // 零字节对象上的 bytes=0-n 是不可满足的范围（416，Bun 抛 code 为 InvalidRange 的 S3Error），
+      // 不是存储故障：查一次大小，确认为空就按读到 0 字节返回，让调用方判成大小不符。
+      // 其他错误（网络、权限、上游 5xx）一律原样抛出，不能被当成空对象吞掉。
+      if ((error as { code?: unknown } | null)?.code !== 'InvalidRange') throw error
+      const size = await file.stat().then(
+        (stat) => stat.size,
+        () => undefined,
+      )
+      if (size === 0) return new Uint8Array(0)
+      throw error
+    }
   }
 
   async open(key: string, signal?: AbortSignal): Promise<ObjectRangeReader> {
@@ -166,6 +242,29 @@ export class S3ObjectStore implements ObjectStore {
     } while (continuationToken)
     return entries
   }
+}
+
+/** 把流收进至多 maxBytes 的缓冲；上游多给也只留前 maxBytes 字节并停止读取。 */
+export async function collectUpTo(
+  stream: ReadableStream<Uint8Array>,
+  maxBytes: number,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const buffer = new Uint8Array(maxBytes)
+  let offset = 0
+  const reader = stream.getReader()
+  try {
+    while (offset < maxBytes) {
+      const part = await reader.read()
+      if (part.done) break
+      const take = Math.min(part.value.length, maxBytes - offset)
+      buffer.set(part.value.subarray(0, take), offset)
+      offset += take
+    }
+  } finally {
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
+  return buffer.subarray(0, offset)
 }
 
 function signedRange(

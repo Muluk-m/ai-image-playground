@@ -11,7 +11,7 @@ import {
   type TaskErrorType,
   type VideoRequest,
 } from '@image-playground/shared'
-import { describeError, i18next } from '../../i18n'
+import { i18next, UserFacingError } from '../../i18n'
 import type { TaskParams } from '../../types'
 import { normalizeApiTimeout } from '../apiProfiles'
 import { authenticatedBffFetch } from '../authClient'
@@ -26,7 +26,7 @@ import {
 } from '../imageApiShared'
 import { bffBaseUrl } from '../runtimeConfig'
 import { nearestAspectRatio } from '../size'
-import { taskFailure } from '../taskError'
+import { taskCancelled, taskFailure } from '../taskError'
 import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
 
 /**
@@ -34,14 +34,34 @@ import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
  * 按码取译文。这里只收会带中文 message 的那几个；其余码（配额、鉴权等）各有自己的分支。
  */
 const BFF_SUBMIT_ERROR_KEYS = {
+  model_unavailable: 'queue.bffModelUnavailable',
+  invalid_request: 'queue.bffInvalidRequest',
+  object_storage_error: 'queue.bffStorageUnavailable',
+  idempotency_key_conflict: 'queue.bffDuplicateSubmit',
   video_not_supported: 'queue.bffVideoNotSupported',
   video_params_required: 'queue.bffVideoParamsRequired',
   invalid_video_request: 'queue.bffInvalidVideoRequest',
   invalid_video_source: 'queue.bffInvalidVideoSource',
   invalid_input_image: 'queue.bffInvalidInputImage',
+  stage_authorization_scope: 'queue.bffStageScope',
+  stage_authorization_budget: 'queue.bffStageBudget',
+  stage_authorization_inactive: 'queue.bffStageInactive',
+  stage_authorization_not_found: 'queue.bffStageInactive',
+  stage_authorization_attempt_conflict: 'queue.bffStageAttemptConflict',
 } as const
 
+/**
+ * 提交被 BFF 拒绝时带上的稳定错误码（`{ error }`）。文案给人看，这个码给调用方分支：
+ * 阶段授权按它判断要不要重试、该向智能体报哪个原因。
+ */
+export function submitErrorCodeOf(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('submitErrorCode' in error)) return undefined
+  const code = (error as { submitErrorCode: unknown }).submitErrorCode
+  return typeof code === 'string' ? code : undefined
+}
+
 const { POLL_BACKOFF_MS, POLL_MAX_MS, POLL_MAX_CONSECUTIVE_FAILURES } = QUEUE_TIMEOUTS
+const CONFIRMING_POLL_MS = 1000
 
 /** 队列产出的字节地址。留在传输层，避免认证启动时提前加载用户 store。 */
 export function queueOutputUrl(taskId: string, outputIndex: number): string {
@@ -69,7 +89,7 @@ export async function callQueueChannelApi(
 ): Promise<CallApiResult> {
   const provider = toQueueProvider(channel.kind)
   if (!provider) {
-    throw new Error(i18next.t('queue.unsupportedKindCall', { ns: 'lib', kind: channel.kind }))
+    throw new UserFacingError(i18next.t('dispatch.unsupportedModel', { ns: 'lib' }))
   }
   assertImageInputPayloadSize(
     opts.inputImageDataUrls.reduce((sum, url) => sum + getDataUrlEncodedByteSize(url), 0),
@@ -96,7 +116,7 @@ export async function resumeQueueChannelApi(
   // 校验 kind 合法但 resume 本身只用 channel + requestId — provider/opts/profile
   // 仅为跟 callQueueChannelApi 保持调用签名一致，恢复路径不需要重新构造请求。
   if (!toQueueProvider(channel.kind)) {
-    throw new Error(i18next.t('queue.unsupportedKindResume', { ns: 'lib', kind: channel.kind }))
+    throw new UserFacingError(i18next.t('dispatch.unsupportedModel', { ns: 'lib' }))
   }
   return await pollAndFetch(channel, bffBaseUrl(), requestId, opts.onQueueStatus)
 }
@@ -112,7 +132,7 @@ async function pollAndFetch(
   const inlined = await poll(base, requestId, onStatus)
   const meta = inlined ?? (await fetchResultMeta(base, requestId))
   if (!meta.images?.length) {
-    throw new Error(i18next.t('queue.completedWithoutImages', { ns: 'lib' }))
+    throw new UserFacingError(i18next.t('queue.noOutput', { ns: 'lib' }))
   }
 
   // 并发拉所有图片二进制，转 data URL 给上游既有存储路径用。
@@ -210,7 +230,9 @@ async function postSubmit(
       available?: number
     } | null
     if (json?.error === 'insufficient_credits') {
-      const err = new Error(i18next.t('queue.insufficientCredits', { ns: 'lib' })) as Error & {
+      const err = new UserFacingError(
+        i18next.t('queue.insufficientCredits', { ns: 'lib' }),
+      ) as Error & {
         insufficientCredits: true
         required?: number
         available?: number
@@ -237,7 +259,7 @@ async function postSubmit(
           typeof json.quota === 'number' && Number.isSafeInteger(json.quota) && json.quota >= 0
             ? i18next.t('queue.dailyQuotaUsed', { ns: 'lib', quota: json.quota })
             : i18next.t('queue.dailyQuotaExhausted', { ns: 'lib' })
-        const err = new Error(
+        const err = new UserFacingError(
           i18next.t('queue.quotaResetHint', { ns: 'lib', exhausted }),
         ) as Error & {
           quotaExceeded: boolean
@@ -248,7 +270,21 @@ async function postSubmit(
         throw err
       }
     }
-    const code = ((await coded.json().catch(() => null)) as { error?: string } | null)?.error
+    const rejection = (await coded.json().catch(() => null)) as {
+      error?: string
+      request_id?: unknown
+    } | null
+    const code = rejection?.error
+    // 几秒内同样内容的重复提交，服务端不另建任务，回的是已受理那条的 id：照常轮询它，
+    // 结果照常出来，也不会再扣一次。
+    if (
+      res.status === 409 &&
+      code === 'duplicate_submission' &&
+      typeof rejection?.request_id === 'string' &&
+      rejection.request_id
+    ) {
+      return rejection.request_id
+    }
     // `as const` 不能省：退化成 `string` 就过不了 t() 的字面量 key 检查，
     // 拼错的 key 也就不会在 typecheck 红了。
     const localized =
@@ -256,10 +292,17 @@ async function postSubmit(
         ? BFF_SUBMIT_ERROR_KEYS[code as keyof typeof BFF_SUBMIT_ERROR_KEYS]
         : undefined
     const reason = localized ? i18next.t(localized, { ns: 'lib' }) : await getApiErrorMessage(res)
-    throw new Error(i18next.t('queue.submitFailed', { ns: 'lib', reason }))
+    const err = new UserFacingError(
+      i18next.t('queue.submitFailed', { ns: 'lib', reason }),
+    ) as Error & {
+      submitErrorCode?: string
+    }
+    if (code) err.submitErrorCode = code
+    throw err
   }
   const json = (await res.json()) as SubmitResponse
-  if (!json.request_id) throw new Error(i18next.t('queue.submitMissingRequestId', { ns: 'lib' }))
+  if (!json.request_id)
+    throw new UserFacingError(i18next.t('queue.submitMissingRequestId', { ns: 'lib' }))
   return json.request_id
 }
 
@@ -277,7 +320,7 @@ export interface VideoSubmitInput {
 export async function submitVideoRequest(input: VideoSubmitInput): Promise<string> {
   const provider = toQueueProvider(input.channel.kind)
   if (!provider) {
-    throw new Error(
+    throw new UserFacingError(
       i18next.t('queue.unsupportedKindVideo', { ns: 'lib', kind: input.channel.kind }),
     )
   }
@@ -304,7 +347,7 @@ export async function awaitQueueOutputs(requestId: string): Promise<ResultImageM
   const inlined = await poll(base, requestId)
   const meta = inlined ?? (await fetchResultMeta(base, requestId))
   if (!meta.images?.length) {
-    throw new Error(i18next.t('queue.completedWithoutOutputs', { ns: 'lib' }))
+    throw new UserFacingError(i18next.t('queue.noOutput', { ns: 'lib' }))
   }
   return meta.images
 }
@@ -358,8 +401,11 @@ async function poll(
   let consecutiveFailures = 0
   let lastTransientError: unknown = null
 
+  let phase: StatusResponse['phase'] | undefined
   for (let attempt = 0; Date.now() < deadline; attempt++) {
-    await sleep(POLL_BACKOFF_MS[Math.min(attempt, POLL_BACKOFF_MS.length - 1)]!)
+    const backoff = POLL_BACKOFF_MS[Math.min(attempt, POLL_BACKOFF_MS.length - 1)]!
+    // 「结果确认中」只剩入库几秒：退避已涨到 5 s 的话，图早好了还要干等一轮，这一段按 1 s 看。
+    await sleep(phase === 'confirming' ? Math.min(backoff, CONFIRMING_POLL_MS) : backoff)
     const outcome = await classifyPollResponse(url)
 
     switch (outcome.kind) {
@@ -368,25 +414,28 @@ async function poll(
       case 'failed':
         throw taskFailure(outcome.message, outcome.errorType)
       case 'cancelled':
-        throw new Error(i18next.t('queue.cancelled', { ns: 'lib' }))
+        throw taskCancelled(i18next.t('queue.cancelled', { ns: 'lib' }))
       case 'fatal':
-        throw new Error(i18next.t('queue.statusFailed', { ns: 'lib', reason: outcome.message }))
+        throw Object.assign(new UserFacingError(i18next.t('queue.statusFailed', { ns: 'lib' })), {
+          cause: outcome.message,
+        })
       case 'transient': {
+        // 1 s 只给拿到「确认中」之后的那一下；连不上时照常退避，别把重启/断网的容忍时长压没了。
+        phase = undefined
         consecutiveFailures++
         lastTransientError = outcome.error
         if (consecutiveFailures >= POLL_MAX_CONSECUTIVE_FAILURES) {
-          const msg = outcome.error instanceof Error ? outcome.error.message : String(outcome.error)
-          throw new Error(
-            i18next.t('queue.consecutiveFailures', {
-              ns: 'lib',
-              attempts: POLL_MAX_CONSECUTIVE_FAILURES,
-              reason: msg,
-            }),
+          throw Object.assign(
+            new UserFacingError(i18next.t('queue.consecutiveFailures', { ns: 'lib' })),
+            {
+              cause: outcome.error,
+            },
           )
         }
         break
       }
       case 'pending':
+        phase = outcome.phase
         if (outcome.phase) onStatus?.(outcome.phase)
         consecutiveFailures = 0
         lastTransientError = null
@@ -394,28 +443,26 @@ async function poll(
     }
   }
 
-  const trailing = lastTransientError
-    ? i18next.t('queue.pollLastError', { ns: 'lib', reason: describeError(lastTransientError) })
-    : ''
-  throw new Error(
-    i18next.t('queue.pollTimeout', { ns: 'lib', seconds: POLL_MAX_MS / 1000, trailing }),
-  )
+  throw Object.assign(new UserFacingError(i18next.t('queue.pollTimeout', { ns: 'lib' })), {
+    cause: lastTransientError ?? undefined,
+  })
 }
 
 async function fetchResultMeta(base: string, requestId: string): Promise<ResultResponse> {
   const url = `${base}/v1/queue/requests/${requestId}`
   const res = await authenticatedBffFetch(url)
   if (!res.ok) {
-    throw new Error(
-      i18next.t('queue.resultMetaFailed', { ns: 'lib', reason: await getApiErrorMessage(res) }),
-    )
+    throw new UserFacingError(i18next.t('queue.resultMetaFailed', { ns: 'lib' }))
   }
   const json = (await res.json()) as ResultResponse
   if (json.status === 'failed') {
-    throw new Error(json.error?.message ?? i18next.t('queue.taskFailed', { ns: 'lib' }))
+    throw taskFailure(
+      json.error?.message ?? i18next.t('queue.taskFailed', { ns: 'lib' }),
+      json.error?.type,
+    )
   }
   if (json.status !== 'completed') {
-    throw new Error(i18next.t('queue.notCompleted', { ns: 'lib', status: json.status }))
+    throw new UserFacingError(i18next.t('queue.notCompleted', { ns: 'lib', status: json.status }))
   }
   return json
 }
@@ -430,13 +477,7 @@ export async function fetchImageDataUrl(
   const url = `${base}/v1/queue/requests/${requestId}/image/${index}`
   const res = await authenticatedBffFetch(url, { signal })
   if (!res.ok) {
-    throw new Error(
-      i18next.t('queue.imageFetchFailed', {
-        ns: 'lib',
-        index,
-        reason: await getApiErrorMessage(res),
-      }),
-    )
+    throw new UserFacingError(i18next.t('queue.imageFetchFailed', { ns: 'lib' }))
   }
   const mime = res.headers.get('content-type') ?? fallbackMime
   return bytesToDataUrl(await res.arrayBuffer(), mime)

@@ -1,12 +1,78 @@
 import { i18next } from '../i18n'
 import { useStore } from '../store'
+import { fitUploadImageFile } from './fitUploadImage'
+import { IMAGE_PREPROCESSING } from './imagePreprocessing/policy'
 import { MAX_IMAGE_BYTES, MAX_IMAGE_MB } from './inputImageLimit'
+
+export function imageNeedsUploadCompression(file: File): boolean {
+  return (
+    file.type.startsWith('image/') &&
+    file.size > MAX_IMAGE_BYTES &&
+    file.size <= IMAGE_PREPROCESSING.maxInputBytes
+  )
+}
+
+/** 压完仍超过上传上限：调用方不要建节点、不要发出去。 */
+export class UploadImageTooLargeError extends Error {
+  constructor(readonly fileName: string) {
+    super('image_too_large')
+    this.name = 'UploadImageTooLargeError'
+  }
+}
+
+/**
+ * 单个上传入口共用：先压超过 50 MB 的图。压完仍超限就抛出，调用方提示并停在原处。
+ * 不超过 50 MB 的原件原样返回。
+ */
+export async function compressUploadFile(file: File, targetBytes = MAX_IMAGE_BYTES): Promise<File> {
+  const [fitted] = await compressUploadFiles([file], targetBytes)
+  const image = fitted ?? file
+  if (image.type.startsWith('image/') && image.size > MAX_IMAGE_BYTES)
+    throw new UploadImageTooLargeError(image.name)
+  return image
+}
+
+/** 这一批里有图被压过就提示一次。压不成的不在这里报，调用方继续走原来的拒绝。 */
+export async function compressUploadFiles(
+  files: readonly File[],
+  targetBytes = MAX_IMAGE_BYTES,
+): Promise<File[]> {
+  const fitted: File[] = []
+  let compressed = 0
+  for (const file of files) {
+    const result = await fitUploadImageFile(file, targetBytes)
+    if (result.compressed) compressed += 1
+    fitted.push(result.file)
+  }
+  if (compressed > 0) {
+    useStore
+      .getState()
+      .showToast(i18next.t('image.compressed', { ns: 'lib', count: compressed }), 'info')
+  }
+  return fitted
+}
+
+/**
+ * 选图、拖拽、粘贴进画布前的同一道门：先压超过 50 MB 的图，压完仍超限的按原来的规则丢掉或留下。
+ */
+export async function prepareAcceptedImageFiles(
+  files: readonly File[],
+  options: { keepOversized?: boolean; targetBytes?: number } = {},
+): Promise<File[]> {
+  return acceptImageFiles(
+    await compressUploadFiles(files, options.targetBytes ?? MAX_IMAGE_BYTES),
+    options,
+  )
+}
 
 /**
  * 拖入、粘贴或从文件夹选进来的一堆文件里只留图片，太大的也丢掉；丢掉的那些各提示一次。
  * 一张图都没剩就说「只支持图片」；剩下了就说跳过了几个，免得用户以为整个文件夹都没进来。
  */
-export function acceptImageFiles(files: readonly File[]): File[] {
+export function acceptImageFiles(
+  files: readonly File[],
+  options: { keepOversized?: boolean } = {},
+): File[] {
   const images = files.filter((file) => file.type.startsWith('image/'))
   const skipped = files.length - images.length
   if (skipped > 0) {
@@ -19,6 +85,9 @@ export function acceptImageFiles(files: readonly File[]): File[] {
         'error',
       )
   }
+  // keepOversized：调用方会把超限的图留在输入框里、就地标红并拦住发送（按服务端下发的单张上限判断），
+  // 这里不再先丢掉——丢掉只弹一条一闪而过的提示，用户接着发出去的是一条没有图的消息。
+  if (options.keepOversized) return images
   const sized = images.filter((file) => file.size <= MAX_IMAGE_BYTES)
   if (sized.length < images.length) {
     useStore.getState().showToast(

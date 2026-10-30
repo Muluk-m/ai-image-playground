@@ -4,6 +4,7 @@ import type {
   AgentBatchPage,
   AgentBatchUpdate,
 } from '@image-playground/shared'
+import { agentImageShape } from '@image-playground/shared'
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
 import MediaImage from '../../../components/MediaImage'
@@ -29,6 +30,7 @@ import {
 } from '../lib/agentClient'
 import { batchCommands } from '../lib/batchCommands'
 import { noteBatchAwaitingConfirmation } from '../lib/batchDrafts'
+import { pruneRemovedFromList, recountBatchText } from '../lib/batchRecount'
 import { batchResultFiles, exportBatchResults } from '../lib/batchResultExport'
 import {
   BATCH_ITEM_PAGE_SIZE,
@@ -44,6 +46,7 @@ import AgentBatchItemResult, {
   AgentBatchAnalysisEvidence,
   AgentBatchItemStatus,
 } from './AgentBatchItemResult'
+import AgentBatchResultGallery from './AgentBatchResultGallery'
 
 function statusIcon(status: BatchDisplayStatus) {
   if (status === 'in_flight' || status === 'in_progress') return 'loading'
@@ -108,7 +111,8 @@ function OutputParameters({ params }: { params: AgentBatchGenerationItem['params
   }
   const rows: readonly (readonly [string, string | undefined])[] = [
     [t('batch.quality'), params.quality ? level(params.quality) : undefined],
-    [t('batch.aspectRatio'), params.gemini_aspect_ratio],
+    // 写上游实际按的比例：openai 系看 size，gemini 看自己的比例档，不显示另一家的字段（BUG-30）。
+    [t('batch.aspectRatio'), agentImageShape(params.provider, params).aspectRatio],
     [
       t('batch.thinking'),
       params.gemini_thinking_level ? level(params.gemini_thinking_level) : undefined,
@@ -187,12 +191,13 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     let active = true
     setRestored(false)
     setRestorationFailed(false)
+    const operation = operations.current
     void fetchBatchPlan(batchId)
       .then((result) => {
-        if (active && commands.current()) setPage(result)
+        if (active && commands.current() && operation === operations.current) setPage(result)
       })
       .catch(() => {
-        if (active && commands.current()) setError('fallback')
+        if (active && commands.current() && operation === operations.current) setError('fallback')
       })
     void commands
       .read()
@@ -269,6 +274,32 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     )
       useAgentStore.getState().followBatchWake(completedConversation, batchId, completedVersion)
   }, [completedConversation, completedVersion, activeConversation, activeTurn, batchId, commands])
+  // 后建的计划（同一轮或之后的轮次）会让先前未确认的草稿作废（BUG-39）。轮次结束时草稿卡重读一次，换成作废后的状态；
+  // 轮次结束时草稿还没读到，就等读到后再重读。
+  const pageStatus = page?.batch.status
+  const draftConversation = pageStatus === 'draft' ? page?.batch.conversationId : null
+  const turnWasRunning = useRef(false)
+  const refreshAfterTurn = useRef(false)
+  useEffect(() => {
+    const running = activeTurn === 'running'
+    if (turnWasRunning.current && !running) refreshAfterTurn.current = true
+    if (running) refreshAfterTurn.current = false
+    turnWasRunning.current = running
+    if (!refreshAfterTurn.current || !pageStatus) return
+    if (!draftConversation || draftConversation !== activeConversation) {
+      refreshAfterTurn.current = false
+      return
+    }
+    if (dirty || working.current || !commands.current()) return
+    refreshAfterTurn.current = false
+    // 递增序号：在途的初次读取或轮询晚到时不会盖掉这次读到的作废状态。
+    const operation = ++operations.current
+    void fetchBatchPlan(batchId)
+      .then((result) => {
+        if (commands.current() && operation === operations.current) setPage(result)
+      })
+      .catch(() => {})
+  }, [activeTurn, activeConversation, pageStatus, draftConversation, dirty, batchId, commands])
   const watch = hasActiveWork(page)
   useEffect(() => {
     if (!watch || dirty) return
@@ -340,8 +371,8 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     apply(() =>
       updateBatchPlan(batchId, {
         expectedVersion: page.batch.version,
-        title: page.batch.title,
-        rule: page.batch.rule,
+        title: recountBatchText(page.batch.title, page.batch.itemCount, page.items.length),
+        rule: recountBatchText(page.batch.rule, page.batch.itemCount, page.items.length),
         items: page.items.map((item): AgentBatchUpdate['items'][number] => {
           const base = {
             key: item.key,
@@ -558,6 +589,12 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
               {t('batch.retryItem')}
             </span>
           )}
+          {item.kind === 'generation' && item.inputs.length === 0 && (
+            <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5">
+              <Icon name="text" size="xs" />
+              {t('batch.textOnlyInput')}
+            </span>
+          )}
           {item.inputs.map((input, inputIndex) => {
             const name = input.name ?? t('batch.inputImage', { index: inputIndex + 1 })
             return (
@@ -742,11 +779,18 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
             page.items.some((entry) => entry.dependencies.includes(item.key))
           }
           onClick={() => {
+            const items = page.items
+              .filter((entry) => entry.key !== item.key)
+              .map((entry, ordinal) => ({ ...entry, ordinal }))
+            const kept = items.map((entry) => entry.prompt)
             setPage({
               ...page,
-              items: page.items
-                .filter((entry) => entry.key !== item.key)
-                .map((entry, ordinal) => ({ ...entry, ordinal })),
+              batch: {
+                ...page.batch,
+                title: pruneRemovedFromList(page.batch.title, item.prompt, kept),
+                rule: pruneRemovedFromList(page.batch.rule, item.prompt, kept),
+              },
+              items,
             })
             markDirty()
           }}
@@ -802,6 +846,9 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           </span>
         )}
       </div>
+      {resultFiles.length > 0 && (
+        <AgentBatchResultGallery artifacts={resultFiles.map((file) => file.artifact)} />
+      )}
       {page.analysisSummary && (
         <AgentBatchAnalysisSummary summary={page.analysisSummary} items={page.items} />
       )}

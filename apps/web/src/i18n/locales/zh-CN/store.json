@@ -10,19 +10,17 @@
     "interrupted": "请求中断",
     "byokUnrecoverable": "这条自带密钥的任务无法再恢复，请重新生成",
     "timeout": "请求超时：超过 {{timeoutSeconds}} 秒仍未完成，请稍后重试或提高超时时间。",
-    "profileMissing": "找不到此任务所使用的 API 配置。",
+    "profileMissing": "找不到这次生成所用的模型，请换个模型重试",
     "inputImageMissing": "输入图片已不存在",
     "maskImageMissing": "遮罩图片已不存在"
   },
   "networkHint": {
-    "reverseProxy60s": "提示：请求等待约 60 秒后被断开，这通常是 Nginx 等反向代理的默认超时，而非接口本身报错。可调大代理的超时时间（如 proxy_read_timeout），或降低图片尺寸/质量后重试。",
-    "cdn120s": "提示：请求等待约 120 秒后被断开，这通常是 Cloudflare 等 CDN/网关的超时限制，而非接口本身报错。如果使用 Cloudflare，可考虑升级套餐或使用不经过 CDN 的直连地址。",
-    "generic": "提示：请求等待较长时间后被断开，通常是反向代理或网关的超时限制，而非接口本身报错。可检查代理超时设置，或降低图片尺寸/质量后重试。"
+    "generic": "提示：连接等待太久被中断了，可以稍后重试，或降低图片尺寸、质量后再试。"
   },
   "submit": {
     "modelUnavailable": "所选模型或配置已不可用，请重新选择",
     "noChannel": "当前没有可用的平台模型",
-    "invalidProfile": "请先完善请求 API 配置：{{reason}}",
+    "invalidProfile": "当前模型暂不可用，请换其他模型",
     "promptRequired": "请输入提示词",
     "blocked": "当前无法生成",
     "slotUnfilled": "槽位 {{slot}} 未填值",
@@ -40,9 +38,10 @@
   },
   "toast": {
     "generateDone_other": "生成完成，共 {{count}} 张图片",
+    "generateDonePartial": "已生成 {{done}}/{{total}} 张，其余失败",
     "configReused": "已复用配置到输入框",
     "imageMissingForEdit": "图片已不存在，无法编辑",
-    "imageMissingForCanvas": "图片已不存在，无法送入画布",
+    "imageMissingForCanvas": "图片已不存在，无法放入画布",
     "tasksDeleted_other": "已删除 {{count}} 条记录",
     "taskDeleted": "记录已删除",
     "configReuseFailed": "复用失败，稍后再试",

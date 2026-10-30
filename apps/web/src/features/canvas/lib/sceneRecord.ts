@@ -13,11 +13,14 @@ import {
   readPersistedScene,
   writePersistedScene,
 } from './persistence'
+import { ProjectRequestError } from './projectClient'
 
 /** 读不到存档必须拦住编辑与保存（ADR-0005）；写不进去只提示重试。 */
 export interface SceneRecordStatus {
   readonly loading: boolean
   readonly loadFailed: boolean
+  /** 打开失败时服务端给的错误码；项目数到上限要说清楚，不能当成读取失败（BUG-52）。 */
+  readonly loadErrorCode?: string
   readonly saveFailed: boolean
 }
 
@@ -109,7 +112,7 @@ export class SceneRecord {
   }
 
   private async reopen(attach?: (hasLocal: boolean) => Promise<void>): Promise<void> {
-    this.update({ loading: true, loadFailed: false })
+    this.update({ loading: true, loadFailed: false, loadErrorCode: undefined })
     try {
       // 读过的不再读第二遍：重开只为补上失败的那一步，不能拿磁盘那份盖掉内存里更新的文档。
       if (!this.read) {
@@ -123,7 +126,11 @@ export class SceneRecord {
       this.track()
       this.update({ loading: false })
     } catch (error) {
-      this.update({ loading: false, loadFailed: true })
+      this.update({
+        loading: false,
+        loadFailed: true,
+        loadErrorCode: error instanceof ProjectRequestError ? error.code : undefined,
+      })
       throw error
     }
   }

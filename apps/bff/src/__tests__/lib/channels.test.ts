@@ -452,8 +452,10 @@ describe('parseChannelsConfig', () => {
                 label: 'B',
                 capabilities: ['generate'],
                 badges: ['fast', 'value'],
+                tier: 'fast',
                 etaSeconds: 3,
                 logo: 'nano-banana',
+                imageSizes: ['1K', '2K'],
               },
               {
                 id: 'ranged',
@@ -471,18 +473,28 @@ describe('parseChannelsConfig', () => {
     )
     _setChannelsForTesting(result.channels)
     const [tagged, ranged, plain] = getDiscoveredChannels()[0]!.models
-    expect(tagged).toMatchObject({ badges: ['fast', 'value'], etaSeconds: 3, logo: 'nano-banana' })
+    expect(tagged).toMatchObject({
+      badges: ['fast', 'value'],
+      tier: 'fast',
+      etaSeconds: 3,
+      logo: 'nano-banana',
+      imageSizes: ['1K', '2K'],
+    })
     expect(tagged).not.toHaveProperty('etaMaxSeconds')
     expect(ranged).toMatchObject({ etaSeconds: 40, etaMaxSeconds: 100 })
     expect(plain).not.toHaveProperty('badges')
+    expect(plain).not.toHaveProperty('tier')
     expect(plain).not.toHaveProperty('etaSeconds')
     expect(plain).not.toHaveProperty('logo')
+    expect(plain).not.toHaveProperty('imageSizes')
   })
 
   it.each([
     [{ badges: 'fast' }, /badges must be an array/],
     [{ badges: ['newest'] }, /invalid badge 'newest'/],
     [{ badges: ['fast', 'fast'] }, /duplicate badge 'fast'/],
+    [{ tier: 'slow' }, /invalid tier 'slow'/],
+    [{ tier: 1 }, /invalid tier '1'/],
     [{ etaSeconds: 0 }, /etaSeconds/],
     [{ etaSeconds: 2.5 }, /etaSeconds/],
     [{ etaSeconds: '14' }, /etaSeconds/],
@@ -491,6 +503,10 @@ describe('parseChannelsConfig', () => {
     [{ etaMaxSeconds: 100 }, /etaMaxSeconds must come with a smaller etaSeconds/],
     [{ etaSeconds: 40, etaMaxSeconds: 40 }, /etaMaxSeconds must come with a smaller etaSeconds/],
     [{ logo: 'banana' }, /invalid logo 'banana'/],
+    [{ imageSizes: [] }, /imageSizes must be a non-empty array/],
+    [{ imageSizes: '1K' }, /imageSizes must be a non-empty array/],
+    [{ imageSizes: ['4K'] }, /invalid imageSize '4K'/],
+    [{ imageSizes: ['1K', '1K'] }, /duplicate imageSize '1K'/],
     [{ logo: ['nano-banana'] }, /invalid logo/],
   ])('rejects malformed selector metadata %j', (extra, error) => {
     expect(() =>
@@ -516,6 +532,42 @@ describe('parseChannelsConfig', () => {
     expect(result.channels[0]!.maxConcurrency).toBe(2)
     _setChannelsForTesting(result.channels)
     expect(getDiscoveredChannels()[0]).not.toHaveProperty('maxConcurrency')
+  })
+
+  it('keeps per-model maxConcurrency internal and out of discovery', () => {
+    const result = parseChannelsConfig(
+      {
+        channels: [
+          {
+            ...SAMPLE_GEMINI,
+            models: [
+              { id: 'gemini-a', label: 'A', capabilities: ['generate'], maxConcurrency: 1 },
+              { id: 'gemini-b', label: 'B', capabilities: ['generate'] },
+            ],
+          },
+        ],
+      },
+      ENV_WITH_SECRETS,
+    )
+    expect(result.channels[0]!.modelMaxConcurrency).toEqual({ 'gemini-a': 1 })
+    expect(result.channels[0]!.models[0]).not.toHaveProperty('maxConcurrency')
+    _setChannelsForTesting(result.channels)
+    const discovered = getDiscoveredChannels()[0]!
+    expect(discovered).not.toHaveProperty('modelMaxConcurrency')
+    expect(discovered.models[0]).not.toHaveProperty('maxConcurrency')
+  })
+
+  it.each([
+    [
+      { ...SAMPLE_GEMINI, models: [{ ...SAMPLE_GEMINI.models[0], maxConcurrency: 0 }] },
+      /models\[0\]\.maxConcurrency must be an integer between 1 and 64/,
+    ],
+    [
+      { ...SAMPLE_CHANNEL, models: [{ ...SAMPLE_CHANNEL.models[0], maxConcurrency: 2 }] },
+      /models\[0\]\.maxConcurrency is only supported on gemini-queue/,
+    ],
+  ])('rejects an unusable per-model maxConcurrency %#', (channel, error) => {
+    expect(() => parseChannelsConfig({ channels: [channel] }, ENV_WITH_SECRETS)).toThrow(error)
   })
 
   it.each([
@@ -586,7 +638,7 @@ describe('shipped channels.json', () => {
         id: 'gpt-image-2.5-flare',
         label: 'GPT Image 2.5 Flare',
         capabilities,
-        badges: ['recommended'],
+        tier: 'quality',
         // 线上实测单张约 39–45 秒，四个质量档像素一样、耗时也接近。
         etaSeconds: 40,
       },
@@ -594,9 +646,30 @@ describe('shipped channels.json', () => {
         id: 'gpt-image-2.5-sunburst',
         label: 'GPT Image 2.5 Sunburst',
         capabilities,
+        tier: 'quality',
         etaSeconds: 40,
       },
     ])
+  })
+
+  it('labels image channels with the provider brand users recognize', () => {
+    const result = parseChannelsConfig(
+      shipped,
+      (key) =>
+        ({
+          OPENAI_API_KEY: 'openai-key',
+          GROK_BASE_URL: 'https://api.x.ai/v1',
+          GROK_API_KEY: 'grok-key',
+          VERTEX_BASE_URL:
+            'https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/google',
+          VERTEX_API_KEY: 'vertex-key',
+        })[key],
+    )
+    // 模型选择器右侧直接显示渠道 label：用户认的是厂商品牌，不是接入方式或产品线名。
+    const labels = Object.fromEntries(result.channels.map((c) => [c.id, c.label]))
+    expect(labels['openai-images']).toBe('OpenAI')
+    expect(labels['grok-images']).toBe('Grok')
+    expect(labels['vertex-images']).toBe('Gemini')
   })
 
   it('advertises only Grok Image 2.0 on the grok-images channel', () => {
@@ -610,6 +683,7 @@ describe('shipped channels.json', () => {
         id: 'grok-imagine-image-2.0',
         label: 'Grok Imagine Image 2.0',
         capabilities: ['generate', 'edit', 'n', 'quality'],
+        tier: 'quality',
         // 线上实测：低档约 40 秒、中档约 70 秒、高档（2K）约 100 秒，选择器显示成范围。
         etaSeconds: 40,
         etaMaxSeconds: 100,
@@ -733,33 +807,43 @@ describe('shipped channels.json', () => {
       kind: 'gemini-queue',
       baseUrl: 'https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/google',
       auth: { secretRef: 'VERTEX_API_KEY', secret: 'vertex-key' },
-      // 实测同一 key 同时超过 2 条 generateContent 就 429。
-      maxConcurrency: 2,
+      // 10 月 22 日实测：限流按模型各算各的，每个模型连着只放过 2–3 条。
+      modelMaxConcurrency: {
+        'gemini-nano-banana-2.1': 2,
+        'gemini-3-pro-image': 2,
+        'gemini-3.1-flash-lite-image': 2,
+      },
     })
+    expect(vertex).not.toHaveProperty('maxConcurrency')
     expect(vertex.models).toEqual([
       {
         id: 'gemini-nano-banana-2.1',
         label: 'Nano Banana 2.1',
         capabilities: ['generate', 'edit', 'size'],
         badges: ['latest'],
-        etaSeconds: 25,
+        tier: 'fast',
+        // 10 月 24 日实测：Lite 约 3 秒、2.1 约 14 秒、Pro 约 24 秒。
+        etaSeconds: 14,
         logo: 'nano-banana',
+        imageSizes: ['1K', '2K'],
       },
       {
         id: 'gemini-3-pro-image',
         label: 'Nano Banana Pro',
         capabilities: ['generate', 'edit', 'size'],
-        badges: ['quality'],
-        etaSeconds: 80,
+        tier: 'quality',
+        etaSeconds: 24,
         logo: 'nano-banana',
+        imageSizes: ['1K', '2K'],
       },
       {
         id: 'gemini-3.1-flash-lite-image',
         label: 'Nano Banana 2 Lite',
         capabilities: ['generate', 'edit', 'size'],
-        badges: ['fast', 'value'],
+        tier: 'fast',
         etaSeconds: 3,
         logo: 'nano-banana',
+        imageSizes: ['1K'],
       },
     ])
     _setChannelsForTesting(result.channels)

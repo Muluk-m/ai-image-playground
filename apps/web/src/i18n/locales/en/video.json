@@ -1,6 +1,6 @@
 {
   "landing": {
-    "title": "Give your imagination a shot.",
+    "title": "Give your imagination a shot",
     "subtitle": "Describe the frame, the motion and the camera. The result opens on the canvas.",
     "cases": "Examples",
     "casesHint": "Tap one to fill the prompt above",
@@ -50,7 +50,7 @@
     "edit": "Edit"
   },
   "download": {
-    "fetchFailed": "Could not fetch the video: {{status}}"
+    "fetchFailed": "Couldn't download the video. Try again"
   },
   "store": {
     "emptyPrompt": "Write a description first"

@@ -9,10 +9,11 @@
     "favorite": "Add to favorites",
     "unfavorite": "Remove from favorites",
     "reuse": "Reuse config",
-    "editOutput": "Edit output",
-    "sendToCanvas": "Send to canvas",
-    "sendToCanvasTitle": "Send to canvas",
-    "deleteRecord": "Delete record"
+    "editOutput": "Inpaint",
+    "sendToCanvas": "Add to canvas",
+    "sendToCanvasTitle": "Add to canvas",
+    "deleteRecord": "Delete record",
+    "more": "More actions"
   },
   "confirm": {
     "deleteMessage": "Delete this record?"
@@ -30,6 +31,8 @@
   },
   "card": {
     "generating": "Generating...",
+    "progress": "Generating {{percent}}%",
+    "batchQueued": "Queued",
     "phase": {
       "queued": "Queued...",
       "generating": "Generating...",
@@ -41,8 +44,9 @@
     "transparentBackground": "Transparent"
   },
   "detail": {
-    "generateFailed": "Generation failed",
-    "contentPolicy": "This prompt didn't pass the provider's content review, so the generation was rejected. Reword it and try again — resubmitting the same prompt lands the same way.",
+    "errorUnavailable": "No specific failure reason was recorded. Copy the diagnostics to help investigate.",
+    "copyDiagnostics": "Copy diagnostics",
+    "contentPolicy": "The prompt didn't pass content review. Reword it and try again — the same prompt will get the same result.",
     "rewritePrompt": "Edit the prompt",
     "errorCopied": "Full error copied",
     "copyErrorFailed": "Could not copy the error",
@@ -67,7 +71,8 @@
     "createdAt": "Created {{time}}",
     "elapsed": "Took {{duration}}",
     "copyAll": "Copy all",
-    "dialog": "Work details"
+    "dialog": "Work details",
+    "networkFailed": "The connection dropped and this one didn't finish. Please retry."
   },
   "rawUrls": {
     "title": "Raw image links ({{n}})",
@@ -101,9 +106,20 @@
     "storyboardFallback": "Storyboard",
     "productShotFallback": "Product shot task",
     "doneCount": "Done {{done}}/{{total}}",
+    "cancelledCount": "{{cancelled}} cancelled",
     "failedCount": "{{failed}} failed",
     "expandToView": "Expand",
-    "resultAlt": "{{name}} result"
+    "resultAlt": "{{name}} result",
+    "batchTag": "Per image",
+    "runningCount": "{{running}} running",
+    "queuedCount": "{{queued}} queued",
+    "failedList": "Failed images",
+    "failedItem": "Image {{index}}",
+    "openItem": "Enlarge image {{index}}",
+    "itemDetail": "Details of image {{index}}",
+    "downloadItem": "Download image {{index}}",
+    "downloadAll": "Download all",
+    "itemList": "Images"
   },
   "cloudHistory": {
     "refresh": "Refresh",

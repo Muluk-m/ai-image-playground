@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { turnCostWithJobs } from '../../../../features/agent/lib/turnCost'
-import type { AgentToolMessage } from '../../../../features/agent/types'
+import { turnCostWithJobs, turnImageReceipt } from '../../../../features/agent/lib/turnCost'
+import type { AgentPanelMessage, AgentToolMessage } from '../../../../features/agent/types'
 
 const job = (id: string, charge?: number): AgentToolMessage => ({
   kind: 'tool',
@@ -29,5 +29,66 @@ describe('turnCostWithJobs', () => {
     expect(turnCostWithJobs(cost, [job('first', 100), job('second', 50), job('third')]).image).toBe(
       150,
     )
+  })
+})
+
+describe('turnImageReceipt', () => {
+  const image = (id: string, status: AgentToolMessage['status']): AgentToolMessage => ({
+    kind: 'tool',
+    id,
+    turnId: 'turn-1',
+    toolCallId: id,
+    toolName: 'generateImage',
+    title: id,
+    status,
+    ...(status === 'succeeded'
+      ? {
+          artifacts: [
+            {
+              artifactId: `${id}-a`,
+              media: 'image',
+              taskId: id,
+              outputIndex: 0,
+              mime: 'image/png',
+            },
+          ],
+        }
+      : {}),
+  })
+  const text = (id: string): AgentPanelMessage => ({
+    kind: 'text',
+    id,
+    turnId: 'turn-1',
+    role: 'assistant',
+    text: '已停止',
+    streaming: false,
+  })
+
+  it('lets the result card carry the receipt when it closes the turn', () => {
+    expect(turnImageReceipt([image('done', 'succeeded')], 'turn-1')).toEqual({
+      cardId: 'done',
+      outputCount: 1,
+    })
+  })
+
+  it('moves the receipt to the end of the turn when cancelled cards or text follow the result', () => {
+    const messages = [image('done', 'succeeded'), image('stopped', 'failed'), text('tail')]
+    expect(turnImageReceipt(messages, 'turn-1')).toEqual({ cardId: undefined, outputCount: 1 })
+  })
+
+  it('counts every image of the turn and ignores non-image outputs when the footer closes the turn', () => {
+    const video: AgentToolMessage = {
+      ...image('mixed', 'succeeded'),
+      artifacts: [
+        { artifactId: 'v', media: 'video', taskId: 'mixed', outputIndex: 0, mime: 'video/mp4' },
+        { artifactId: 'i', media: 'image', taskId: 'mixed', outputIndex: 1, mime: 'image/png' },
+      ],
+    }
+    const messages = [image('first', 'succeeded'), video, image('stopped', 'failed')]
+    expect(turnImageReceipt(messages, 'turn-1')).toEqual({ cardId: undefined, outputCount: 2 })
+  })
+
+  it('has no image receipt when every image was cancelled', () => {
+    expect(turnImageReceipt([image('stopped', 'failed'), text('tail')], 'turn-1')).toBeNull()
   })
 })

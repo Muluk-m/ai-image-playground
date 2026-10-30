@@ -1,4 +1,9 @@
-import type { AgentToolArtifact } from '@image-playground/shared'
+import {
+  type AgentToolArtifact,
+  agentImageShape,
+  presetAspectRatio,
+  withAspectRatio,
+} from '@image-playground/shared'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { ImageGallery } from '../../../components/assistant-ui/elements/image-gallery'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
@@ -40,14 +45,17 @@ import {
 } from '../lib/artifactPreview'
 import { artifactReferenceSource, previewArtifactBitmap } from '../lib/artifactSource'
 import { agentCanvasSink } from '../lib/canvasSink'
+import { agentToolProgress } from '../lib/jobProgress'
 import { agentDraftOutputCount } from '../lib/promptDraft'
 import { agentRerunBlock, agentRetryRemaining, agentRetrySlotTasks } from '../lib/retry'
+import { tileFit } from '../lib/tileFit'
 import {
   agentToolFailureAction,
   agentToolFailureActionLabel,
   agentToolFailureText,
   runAgentToolFailureAction,
 } from '../lib/toolFailure'
+import { turnImageReceipt } from '../lib/turnCost'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
 import AgentBatchPlanCard from './AgentBatchPlanCard'
@@ -55,6 +63,8 @@ import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentIconButton from './AgentIconButton'
 import AgentJobProgress, {
   AgentJobCancel,
+  AgentJobQueueNote,
+  agentJobPhaseLabel,
   useAgentJobProgressText,
   useAgentToolProgress,
 } from './AgentJobProgress'
@@ -81,6 +91,15 @@ function useStatusNote(
   if (message.status === 'submitted') return t('tool.background')
   // 重试队列里排着：前一条重试结束后才提交，还没扣费。
   if (message.status === 'queued') return t('retry.queued')
+  // 确认门拦下的稿没确认就发了新消息：没提交、没扣费。排在重试撤回前面：卡带不带 `retryOf`，
+  // 作废的都是确认门这张稿。
+  if (
+    message.status === 'failed' &&
+    message.errorCode === 'cancelled' &&
+    message.gated &&
+    !message.job
+  )
+    return t('tool.gateVoided')
   // 排着时就撤回的重试：从没提交过，也就没有要退的钱。
   if (
     message.status === 'failed' &&
@@ -96,7 +115,11 @@ function useStatusNote(
       : t('job.cancelled')
   // 有错误码就只认码（ADR 0006）；旧记录没有码，照旧显示当时存下的那句话。
   if (message.status === 'failed')
-    return agentToolFailureText(message.errorCode) ?? message.message ?? t('tool.notFinished')
+    return (
+      agentToolFailureText(message.errorCode, message.toolName) ??
+      message.message ??
+      t('tool.notFinished')
+    )
   if (message.delivery === 'pending') return t('tool.delivering')
   // 失败要说清为什么没写入；其余只说画布上现在有没有它（切过画布、或用户删掉了）。
   if (message.delivery === 'failed') return t('tool.deliveryFailed')
@@ -451,28 +474,6 @@ function RetryRecord({ message }: { message: AgentToolMessage }) {
   )
 }
 
-function gcd(left: number, right: number): number {
-  let a = Math.abs(left)
-  let b = Math.abs(right)
-  while (b) {
-    const next = a % b
-    a = b
-    b = next
-  }
-  return a || 1
-}
-
-function ratioTag(size: string | undefined, aspect: string | undefined): string | undefined {
-  if (aspect) return aspect
-  if (!size || size === 'auto') return undefined
-  const match = /^(\d+)x(\d+)$/.exec(size)
-  if (!match) return undefined
-  const width = Number(match[1])
-  const height = Number(match[2])
-  const divisor = gcd(width, height)
-  return `${width / divisor}:${height / divisor}`
-}
-
 function GeneratingTile({
   message,
   index,
@@ -495,7 +496,12 @@ function GeneratingTile({
       <div className="studio-agent-tile-face">
         <Icon name={queued ? 'clock' : 'image'} className="text-muted-foreground" />
         {queued || !progress ? (
-          <span className="studio-agent-tile-caption">{t('job.phase.queued')}</span>
+          <span className="studio-agent-tile-caption">
+            {/* 批量出图看的就是这些图块：前面还有几张直接写在块上（BUG-17）。 */}
+            {index === 0 && progress?.phase === 'queued' && progress.queue
+              ? agentJobPhaseLabel(progress)
+              : t('job.phase.queued')}
+          </span>
         ) : (
           <JobProgress
             label={text ?? t(`job.phase.${progress.phase}`)}
@@ -534,18 +540,10 @@ function StandardAgentToolCard({
   const [selectedArtifactId, setSelectedArtifactId] = useState<string>()
   const [imageRatios, setImageRatios] = useState<Record<string, number>>({})
   const [copiedPrompt, setCopiedPrompt] = useState(false)
-  const showReceipt = useAgentStore((state) => {
-    for (let index = state.messages.length - 1; index >= 0; index -= 1) {
-      const one = state.messages[index]
-      if (!one || one.turnId !== message.turnId || one.kind !== 'tool') continue
-      if (
-        (one.toolName === 'generateImage' || one.toolName === 'editImage') &&
-        one.status === 'succeeded' &&
-        one.artifacts?.some((artifact) => artifact.media === 'image')
-      )
-        return one.id === message.id
-    }
-    return false
+  // 这张卡收尾本轮时带出结算行；张数与本轮末尾的页脚同一口径（本轮全部成功出图）。
+  const receiptCount = useAgentStore((state) => {
+    const receipt = turnImageReceipt(state.messages, message.turnId)
+    return receipt?.cardId === message.id ? receipt.outputCount : null
   })
   const turnFooter = useAgentStore((state) => state.turns?.[message.turnId])
   const turnMessages = useAgentStore((state) => state.messages)
@@ -796,8 +794,11 @@ function StandardAgentToolCard({
             <p className={CARD_NOTE}>
               {t('tool.canvasReadNodes', {
                 nodes:
-                  message.canvasRead.map((node) => `${node.name} (${node.id})`).join('、') ||
-                  t('tool.canvasReadNone'),
+                  message.canvasRead
+                    .map((node) =>
+                      node.name && node.name !== node.id ? node.name : t('tool.canvasReadUnnamed'),
+                    )
+                    .join('、') || t('tool.canvasReadNone'),
               })}
             </p>
           )}
@@ -878,8 +879,10 @@ function StandardAgentToolCard({
       imageRatios[tile.id] ?? ('ratio' in tile ? tile.ratio : undefined)
     const groupRatio = tiles.map(tileRatio).find((ratio) => ratio !== undefined && ratio > 0) ?? 1
     const batch = generatedImage && tiles.length >= 2
+    const tileAspect = (tile: (typeof tiles)[number]) =>
+      generatedImage ? (batch || embed ? 1 : groupRatio) : tileRatio(tile)
     const tileStyle = (tile: (typeof tiles)[number]): CSSProperties => ({
-      aspectRatio: generatedImage ? (batch || embed ? 1 : groupRatio) : tileRatio(tile),
+      aspectRatio: tileAspect(tile),
       ...(generatedImage &&
         !batch &&
         !embed && { width: `${IMAGE_PREVIEW_MAX_EDGE * Math.min(groupRatio, 1)}px` }),
@@ -917,6 +920,7 @@ function StandardAgentToolCard({
                 <img
                   src={tile.source}
                   alt={t('tool.resultNumber', { number: index + 1 })}
+                  data-fit={tileFit(tileRatio(tile), tileAspect(tile)) ?? undefined}
                   loading="lazy"
                   onLoad={(event) => {
                     const { naturalWidth, naturalHeight } = event.currentTarget
@@ -940,11 +944,15 @@ function StandardAgentToolCard({
     const modelName = model
       ? compactModelName(model, modelLabel(model, message.snapshot?.target?.provider))
       : null
+    // 头部写这次实际提交的画幅：工具参数里的比例覆盖输入框，且只取该供应商认的字段（BUG-20）。
+    const shape = agentImageShape(
+      message.snapshot?.target?.provider,
+      withAspectRatio(params, presetAspectRatio(message.snapshot?.args.aspectRatio)),
+    )
     const tags = generatedImage
       ? [
-          params?.gemini_image_size ||
-            (params?.size && params.size !== 'auto' ? params.size : undefined),
-          ratioTag(params?.size, params?.gemini_aspect_ratio),
+          shape.imageSize ?? shape.size,
+          shape.aspectRatio,
           t('tool.batchCount', { count: tiles.length }),
           message.title,
         ].filter((tag): tag is string => Boolean(tag))
@@ -1135,8 +1143,8 @@ function StandardAgentToolCard({
               )}
             </MessageActions>
           )}
-        {showReceipt && turnFooter && (
-          <AgentTurnCost footer={turnFooter} jobs={receiptJobs} outputCount={tiles.length} />
+        {receiptCount !== null && turnFooter && (
+          <AgentTurnCost footer={turnFooter} jobs={receiptJobs} outputCount={receiptCount} />
         )}
         {promptOpen && message.prompt && (
           <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
@@ -1380,6 +1388,14 @@ export function AgentImageRun({
     0,
   )
   const lead = messages.find((message) => message.prompt) ?? messages[0]
+  // 有图在按套餐并发排队：整组只说一次为什么排、怎么更快（BUG-17）。
+  const queueLimit = useAgentStore((state) => {
+    for (const message of messages) {
+      const queue = agentToolProgress(message, state.jobProgress[message.id])?.queue
+      if (queue) return queue.limit
+    }
+    return undefined
+  })
   return (
     <div
       className="studio-agent-inline-result studio-agent-inline-result--generated studio-agent-inline-result--batch"
@@ -1392,6 +1408,7 @@ export function AgentImageRun({
           <span>{t('job.doneCount', { done, total })}</span>
         </div>
       )}
+      {done < total && queueLimit !== undefined && <AgentJobQueueNote limit={queueLimit} />}
       <div className="studio-agent-inline-gallery" data-count={total}>
         {messages.map((message) => (
           <AgentToolCard

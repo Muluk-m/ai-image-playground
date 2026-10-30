@@ -14,6 +14,12 @@ export const CAPABILITIES = {
   'agent:batch-plans': { defaultValue: false, clientExposed: true },
   'agent:attachments': { defaultValue: false, clientExposed: true },
   'agent:bulk-attachments': { defaultValue: false, clientExposed: true },
+  /**
+   * 智能体先提议修改范围（`proposeEditRegion` 范围确认卡）再按蒙版局部编辑。2026-10-27 线上
+   * 屡次报「原图尺寸超出模型支持的局部编辑范围」后整轮无图，按 Nain 要求下线：默认关，
+   * 关着时智能体不再收到这个工具、也不再把单对象修改退回去要求先圈范围，改图回到整图编辑。
+   */
+  'agent:edit-region': { defaultValue: false, clientExposed: false },
   'billing:credits': { defaultValue: false, clientExposed: true },
   /**
    * 对话限时免费的运营期。开着时对话轮**真的不计费**：BFF 既不预扣也不结算
@@ -66,6 +72,15 @@ export type ClientCapabilityKey = {
 export type CapabilityValues = { readonly [Key in CapabilityKey]: boolean }
 export type ClientCapabilityManifest = { readonly [Key in ClientCapabilityKey]: boolean } & {
   readonly attachmentLimits?: AttachmentLimits
+  readonly mediaLimits?: MediaLimits
+}
+/**
+ * 普通云媒体（画布原图、按 id 引用的参考图）单张上限，与服务端预约上传时用的是同一份配置。
+ * 对话附件那条通道关着时，大图按这一档上传后按 id 发，客户端在选图时就按它拦。
+ */
+export interface MediaLimits {
+  readonly imageBytes: number
+  readonly imagePixels: number
 }
 /** Limits apply to immutable uploaded originals, independently of model preview budgets. */
 export interface AttachmentLimits {

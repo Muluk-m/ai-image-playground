@@ -23,6 +23,7 @@ const { app } = await import('../../app')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
+const { setMediaInputReadTimeoutForTesting } = await import('../../lib/mediaInputs')
 const { isCapabilityEnabled } = await import('../../lib/capabilities')
 const { _setChannelsForTesting, parseChannelsConfig } = await import('../../lib/channels')
 let storage: InMemoryObjectStore
@@ -459,7 +460,7 @@ describe('BFF optional user auth', () => {
             'cf-connecting-ip': '10.10.1.3',
           },
           body: JSON.stringify({
-            username: 'session-failure',
+            username: 'session-failure@example.com',
             password: ACCEPTED_PHRASE,
           }),
         }),
@@ -506,7 +507,15 @@ describe('BFF optional user auth', () => {
         error: 'invalid_username',
       },
       {
-        body: { username: 'valid-user', password: 'short' },
+        body: { username: 'plain-name', password: ACCEPTED_PHRASE },
+        error: 'invalid_username',
+      },
+      {
+        body: { username: 'valid-user@example.com', password: 'short' },
+        error: 'invalid_password',
+      },
+      {
+        body: { username: 'valid-user@example.com', password: ' '.repeat(12) },
         error: 'invalid_password',
       },
     ]
@@ -533,13 +542,13 @@ describe('BFF optional user auth', () => {
           jsonReq(
             'POST',
             '/api/auth/register',
-            { username: 'registration-race', password: ACCEPTED_PHRASE },
+            { username: 'registration-race@example.com', password: ACCEPTED_PHRASE },
             { 'cf-connecting-ip': '10.10.3.1' },
           ),
           jsonReq(
             'POST',
             '/api/auth/register',
-            { username: 'registration-race', password: ACCEPTED_PHRASE },
+            { username: 'registration-race@example.com', password: ACCEPTED_PHRASE },
             { 'cf-connecting-ip': '10.10.3.2' },
           ),
         ]
@@ -551,7 +560,7 @@ describe('BFF optional user auth', () => {
       const users = await db
         .select()
         .from(schema.users)
-        .where(eq(schema.users.username, 'registration-race'))
+        .where(eq(schema.users.username, 'registration-race@example.com'))
       expect(users).toHaveLength(1)
       expect(
         await db
@@ -709,6 +718,84 @@ describe('BFF optional user auth', () => {
     )
     expect(foreign.status).toBe(400)
     expect(foreign.json).toMatchObject({ error: 'invalid_input_image' })
+  })
+
+  it('对象存储读输入图卡住或回 5xx 时，提交有期限：重试一次，仍不行就明确回 503', async () => {
+    const alice = await createTestUser('alice', ACCEPTED_PHRASE)
+    const cookie = await loginTestUser('alice', ACCEPTED_PHRASE, '10.10.1.3')
+    const mediaId = '7a2d3c66-1b54-4d2c-8e5f-3f4e0d2e8b21'
+    const now = Date.now()
+    await db.insert(schema.media_objects).values({
+      id: mediaId,
+      user_id: alice.id,
+      sha256: 'stalled-media',
+      bytes: TEST_IMAGE.png.length,
+      content_type: 'image/png',
+      status: 'ready',
+      reserved_bytes: TEST_IMAGE.png.length,
+      staging_key: 'staging/stalled-media',
+      object_key: 'media/stalled-media',
+      expires_at: now + 60_000,
+      created_at: now,
+      updated_at: now,
+    })
+    await durable.write('media/stalled-media', new Uint8Array(TEST_IMAGE.png), 'image/png')
+    const submit = () =>
+      jsonReq(
+        'POST',
+        '/v1/queue/openai-compat/gpt-image-2/submit',
+        submitBody({ input_images: [`aip-media:${mediaId}`] }),
+        { cookie },
+      )
+
+    // 2026-10-23 test：R2 内部错误期间 Bun 的 S3 读取既不超时也不重试，提交被挂住 5～8 分钟。
+    setMediaInputReadTimeoutForTesting(50)
+    const read = durable.read.bind(durable)
+    let reads = 0
+    durable.read = () => {
+      reads++
+      return new Promise<never>(() => {})
+    }
+    try {
+      const started = performance.now()
+      const stalled = await submit()
+      expect(stalled.status).toBe(503)
+      expect(stalled.json).toMatchObject({ error: 'object_storage_error' })
+      expect(reads).toBe(2)
+      expect(performance.now() - started).toBeLessThan(2_000)
+
+      // 一次 5xx 之后重试成功，用户不该看到「读取输入图片失败」。
+      reads = 0
+      durable.read = (key: string) => {
+        reads++
+        if (reads === 1)
+          return Promise.reject(
+            Object.assign(new Error('We encountered an internal error. Please try again.'), {
+              code: 'InternalError',
+            }),
+          )
+        return read(key)
+      }
+      const recovered = await submit()
+      expect(recovered.status).toBe(200)
+      expect(reads).toBe(2)
+
+      // 永久故障（证书/配置错误）重试也没用，不该再拖一轮。
+      reads = 0
+      durable.read = () => {
+        reads++
+        return Promise.reject(
+          Object.assign(new Error('unable to verify the first certificate'), {
+            code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+          }),
+        )
+      }
+      const permanent = await submit()
+      expect(permanent.status).toBe(503)
+      expect(reads).toBe(1)
+    } finally {
+      setMediaInputReadTimeoutForTesting()
+    }
   })
 
   it('invalidates disabled accounts and logout revokes the stored session', async () => {

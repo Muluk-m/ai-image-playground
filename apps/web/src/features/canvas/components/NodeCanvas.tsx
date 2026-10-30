@@ -9,6 +9,8 @@ import {
   canvasOrigin,
   canvasResults,
   canvasText,
+  canvasUploadClaimNextChange,
+  canvasUploadingElsewhere,
   connectCanvasNodes,
   createCanvasGroup,
   disconnectCanvasNodes,
@@ -66,16 +68,21 @@ import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
 import { Icon, type IconName } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
-import { useTranslation } from '../../../i18n'
+import { i18next, useTranslation } from '../../../i18n'
 import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { getStoredChannels, subscribeChannels } from '../../../lib/channels/channelStore'
 import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { downloadBlob } from '../../../lib/downloadImages'
+import { fetchDownloadBlob } from '../../../lib/downloadRequest'
 import { reportDeliveryFailure } from '../../../lib/errorReporting'
-import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
-import { MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
+import {
+  collectDroppedFiles,
+  prepareAcceptedImageFiles,
+  UploadImageTooLargeError,
+} from '../../../lib/imageFiles'
+import { MAX_IMAGE_MB, MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
 import { useStore } from '../../../store'
 import { useTheme } from '../../../theme/useTheme'
 import { useActiveLook } from '../../library/lib/activeLook'
@@ -83,15 +90,20 @@ import { useLibraryStore } from '../../library/store'
 import type { AssetRecord } from '../../library/types'
 import PlayBadge from '../../video/components/PlayBadge'
 import { arrangementKey, arrangeNodes, type CanvasPlacement } from '../lib/arrangeNodes'
+import { useCanvasAssetsEntry } from '../lib/assetsEntry'
+import type { CanvasAssetItem } from '../lib/canvasAssets'
 import { newElementId } from '../lib/canvasDoc'
+import { useCanvasResultAssets } from '../lib/canvasResultAssets'
 import {
   type CanvasViewportBox,
   planCanvasViewport,
   withLivePositions,
 } from '../lib/canvasViewport'
 import type { CanvasEditor } from '../lib/editor'
+import { canvasExportEntries } from '../lib/exportImages'
 import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
 import { openLocalNodeCanvas } from '../lib/localNodeCanvas'
+import { transferMedia } from '../lib/mediaTransfer'
 import { assetNodeContext } from '../lib/nodeAssetGeneration'
 import { ASSET_DRAG_TYPE, insertAssetNode, saveNodeAsAsset } from '../lib/nodeAssets'
 import {
@@ -111,7 +123,15 @@ import {
   referenceFileIds,
 } from '../lib/nodeCanvasFlow'
 import { type NodeCanvasFocus, registerNodeCanvasFocus } from '../lib/nodeCanvasFocus'
-import { fillImageNode, resumeNodeGenerations, submitNodeImage } from '../lib/nodeCanvasGenerate'
+import {
+  fillImageNode,
+  InvalidImageFileError,
+  placeDecodedImage,
+  type ReadImageFile,
+  readImageFile,
+  resumeNodeGenerations,
+  submitNodeImage,
+} from '../lib/nodeCanvasGenerate'
 import {
   addCanvasReference,
   CanvasReferenceLimitError,
@@ -119,13 +139,14 @@ import {
   type ReferenceSlot,
   uploadCanvasReference,
 } from '../lib/nodeCanvasReferences'
-import { spreadNodeResults } from '../lib/nodeCanvasResults'
+import { insertResultNodes, spreadNodeResults } from '../lib/nodeCanvasResults'
 import { clearNodeCanvasSelection, setNodeCanvasSelection } from '../lib/nodeCanvasSelection'
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
 import { createImagePresetNode } from '../lib/nodeImagePreset'
 import { submitNodeWithLook } from '../lib/nodeLookSubmit'
 import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
 import { generateTextNode } from '../lib/textGeneration'
+import { useCanvasUploaderId } from '../lib/uploadSession'
 import { useAgentNodeRun } from '../lib/useAgentNodeRun'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
@@ -133,8 +154,10 @@ import { CanvasLodProvider, CanvasOverview, NodeLodCard, useCanvasLod } from './
 import CanvasVideoPlayer from './CanvasVideoPlayer'
 import FilmExportStatus from './FilmExportStatus'
 import ImageNodeComposer from './ImageNodeComposer'
+import MediaTransferCard from './MediaTransferCard'
 import NodeAddMenu from './NodeAddMenu'
 import NodeAssetPicker from './NodeAssetPicker'
+import NodeAssetsPanel from './NodeAssetsPanel'
 import NodeAssetTools from './NodeAssetTools'
 import NodeBatchDialog from './NodeBatchDialog'
 import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
@@ -155,6 +178,8 @@ import TextNodeComposer from './TextNodeComposer'
 import TimelineEditorHost from './TimelineEditor'
 import VideoNodeComposer from './VideoNodeComposer'
 
+/** 批量导入时同时解码的张数。 */
+const IMPORT_DECODE_CONCURRENCY = 4
 const NodeImageEditor = lazy(() => import('./NodeImageEditor'))
 
 type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation; group?: CanvasGroup }>
@@ -368,8 +393,9 @@ function PendingConnectionOverlay({
   )
 }
 
-function Pending({ pending }: { pending: PendingGeneration }) {
-  const { t } = useTranslation('canvas')
+function Pending({ pending, nodeId }: { pending: PendingGeneration; nodeId: string }) {
+  const run = useContext(NodeStoryboardContext)?.onRun
+  const { t } = useTranslation(['canvas', 'common'])
   const status =
     pending.type === 'generation' ? (pending.errorCode ? 'error' : 'loading') : pending.status
   const label =
@@ -380,16 +406,73 @@ function Pending({ pending }: { pending: PendingGeneration }) {
         : t('placeholder.generating')
   return (
     <div className="studio-node-pending text-sm" data-failed={status !== 'loading' || undefined}>
-      {label}
+      <div className="flex flex-col items-center gap-3">
+        <span>{label}</span>
+        {status !== 'loading' && run && (
+          <Button
+            size="sm"
+            className="nodrag nopan"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation()
+              run([nodeId])
+            }}
+          >
+            <Icon name="refresh" />
+            {t('common:action.retry')}
+          </Button>
+        )}
+      </div>
     </div>
   )
 }
 
-function Picture({ fileId, rotation }: { fileId?: string; rotation?: number }) {
+type UploadClaimData = Parameters<typeof canvasUploadingElsewhere>[0]
+
+/**
+ * 别的设备声明在传、还没过期（canvasUploadingElsewhere）。声明到点过期时没有别的改动会触发重渲染，
+ * 所以按 canvasUploadClaimNextChange 定一个时钟，到点自己再算一次。
+ */
+export function useUploadingElsewhere(data: UploadClaimData): boolean {
+  const [tick, setTick] = useState(0)
+  const device = useCanvasUploaderId()
+  const now = Date.now()
+  const next = canvasUploadClaimNextChange(data, device, now)
+  useEffect(() => {
+    if (next === undefined) return
+    // setTimeout 的延迟超过 2^31-1 毫秒会立刻触发，分段等：没到点的那次重渲染带着新的 tick 再定一次。
+    const timer = setTimeout(
+      () => setTick((tick) => tick + 1),
+      Math.min(Math.max(next - Date.now(), 0) + 1, 2 ** 31 - 1),
+    )
+    return () => clearTimeout(timer)
+  }, [next, tick])
+  return canvasUploadingElsewhere(data, device, now)
+}
+
+function Picture({
+  fileId,
+  rotation,
+  upload,
+}: {
+  fileId?: string
+  rotation?: number
+  /** 节点 data，用来判断是不是别的设备在传（useUploadingElsewhere）。 */
+  upload: UploadClaimData
+}) {
   const { t } = useTranslation('canvas')
+  const uploadingElsewhere = useUploadingElsewhere(upload)
   const files = useContext(FilesContext)
   const source = useNodeMedia(fileId ? files[fileId] : undefined)
-  if (!source) return <div className="studio-node-missing text-sm">{t('nodes.mediaMissing')}</div>
+  if (!source)
+    return (
+      <div className="studio-node-missing text-sm">
+        {/* 别的设备还在上传的图片：文档里先到的只有它的本机 fileId，原图要等那边传完。 */}
+        {fileId && uploadingElsewhere && !files[fileId]
+          ? t('nodes.mediaUploading')
+          : t('nodes.mediaMissing')}
+      </div>
+    )
   return (
     <img
       src={source}
@@ -458,9 +541,9 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
           </span>
         )}
         {fileId ? (
-          <Picture fileId={fileId} rotation={rotation} />
+          <Picture fileId={fileId} rotation={rotation} upload={node.data} />
         ) : pending ? (
-          <Pending pending={pending} />
+          <Pending pending={pending} nodeId={node.id} />
         ) : (
           <div className="studio-node-empty">
             <Icon name={nodeIconName(node)} size="lg" />
@@ -476,7 +559,7 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
         )}
         {fileId && pending && (
           <div className="absolute inset-x-0 bottom-0 bg-background/80 py-2">
-            <Pending pending={pending} />
+            <Pending pending={pending} nodeId={node.id} />
           </div>
         )}
       </div>
@@ -502,7 +585,7 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
         <NodeCaption node={node} />
         <div className="studio-node studio-node--video">
           {pending ? (
-            <Pending pending={pending} />
+            <Pending pending={pending} nodeId={node.id} />
           ) : (
             <div className="studio-node-empty">
               <Icon name="video" size="lg" />
@@ -542,7 +625,7 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
       <NodeCaption node={node} />
       <div className="studio-node studio-node--video" data-rotated={rotation ? true : undefined}>
         {fileId ? (
-          <Picture fileId={fileId} rotation={rotation} />
+          <Picture fileId={fileId} rotation={rotation} upload={node.data} />
         ) : (
           <div className="studio-node-empty">
             <Icon name="video" size="lg" />
@@ -837,8 +920,10 @@ function Flow({
   active,
   onChat,
   viewKey,
+  syncResults,
 }: {
   viewKey: string
+  syncResults?: () => Promise<void>
   onChat?: () => void
   canvas: NodeCanvasDocument
   container: RefObject<HTMLDivElement | null>
@@ -853,6 +938,11 @@ function Flow({
         (project) => project.sceneKey === viewKey && project.cloud && !project.cloud.deleted,
       )?.id,
   )
+  const project = useCanvasProjectStore((state) =>
+    state.projects.find((one) => one.sceneKey === viewKey),
+  )
+  const projectName = project?.name ?? ''
+  const projectConversationId = project?.conversationId ?? null
   const flowStore = useStoreApi()
   const snapshot = useDocumentSnapshot(canvas)
   useStoryboardGridSplitting(canvas, editor)
@@ -1216,7 +1306,7 @@ function Flow({
       setAddingAsset(false)
     }
   }
-  const selectCreatedBatch = (ids: string[]) => {
+  const selectCreatedBatch = (ids: string[], reveal = true) => {
     const chosen = new Set(ids)
     const created = readCanvasDocument(canvas.doc).nodes.filter((node) => chosen.has(node.id))
     selectNode(null)
@@ -1229,6 +1319,7 @@ function Flow({
         .map((node) => ({ ...node, selected: false })),
       ...created.map((node) => toFlowNode(node, true)),
     ])
+    if (!reveal) return
     const bounds = contentBounds({ nodes: created, edges: [], annotations: [] })
     const viewport =
       bounds &&
@@ -1242,6 +1333,7 @@ function Flow({
     active,
     revision: snapshot,
     files,
+    syncResults,
   })
   const center = () => {
     const rect = container.current?.getBoundingClientRect()
@@ -1251,6 +1343,41 @@ function Flow({
           y: rect.top + rect.height / 2,
         }) ?? { x: 0, y: 0 })
       : { x: 0, y: 0 }
+  }
+  // 「资产」入口在全局顶栏：画布挂着才出现，开关状态放在共享 store 里。
+  const assetsPanelOpen = useCanvasAssetsEntry((s) => s.open)
+  const setAssetsPanelOpen = useCanvasAssetsEntry((s) => s.setOpen)
+  useEffect(() => {
+    const entry = useCanvasAssetsEntry.getState()
+    entry.setAvailable(true)
+    return () => entry.setAvailable(false)
+  }, [])
+  const canvasResultItems = useCanvasResultAssets(editor, canvas, projectName, assetsPanelOpen)
+  // 资产弹窗里点一件或「应用到画布」：在当前画面中间建节点并选中，不挪视口；成功后弹窗自己关掉。
+  const placeAssets = async (items: readonly CanvasAssetItem[]) => {
+    try {
+      const ids = await insertResultNodes(
+        editor,
+        canvas,
+        items.map((item) => item.insert),
+        center(),
+      )
+      if (!ids.length) throw new Error('nothing placed')
+      selectCreatedBatch(ids, false)
+      return true
+    } catch {
+      useStore.getState().showToast(t('import.failed'), 'error')
+      return false
+    }
+  }
+  const downloadSelection = () => {
+    const ids = [...selectedIds.current]
+    const entries = canvasExportEntries(editor.doc, ids)
+    if (!entries.length) {
+      useStore.getState().showToast(t('batch.exportFailed'), 'error')
+      return
+    }
+    void transferMedia(entries, projectName)
   }
   const fit = () => {
     showFrame(undefined, 0.25, 0.05, 8, 250)
@@ -1379,20 +1506,80 @@ function Flow({
     setScriptPoint(null)
     selectNode(id)
   }
-  const placeFiles = (files: File[]) => {
-    const images = acceptImageFiles(files)
-    if (images.length === 0) return
-    const point = placeAt.current
-    confirmImageBatch(images.length, () => {
-      void (async () => {
-        for (const file of images) {
-          const id = createNode(canvas, 'image', point, textFill)
-          await fillImageNode(editor, canvas.doc, id, file)
-          selectNode(id)
+  // 当前挂着的画布；卸载或换了画布就变，进行中的导入据此放弃。
+  const liveCanvas = useRef<typeof canvas | null>(canvas)
+  useEffect(() => {
+    liveCanvas.current = canvas
+    return () => {
+      liveCanvas.current = null
+    }
+  }, [canvas])
+  const placeFiles = (files: File[], pinned?: { x: number; y: number }) => {
+    // 逐张解码要花时间：这期间换了项目或离开画布，就不再弹确认框、不往旧画布里写。
+    // 拖拽落点在松手时钉死；从「上传」进来的不钉，确认时再用当时的放置点。
+    const target = canvas
+    const here = () => liveCanvas.current === target
+    const failed = () => useStore.getState().showToast(t('import.failed'), 'error')
+    void prepareAcceptedImageFiles(files)
+      .then((candidates) => {
+        if (!here() || candidates.length === 0) return
+        const notInvalid = (error: unknown) => {
+          if (error instanceof InvalidImageFileError) return null
+          throw error
         }
-      })().catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
-    })
+        void (async () => {
+          // 先确认解得开再问张数、建节点：空文件、伪装成 .png 的文本不该留下一个永远「上传中」的节点，
+          // 也不该算进「确认导入 N 张」里。解好的结果留着，确认后直接用：每张只读、解一次，
+          // 确认的张数就是落到画布上的张数（单张已按大小限额过滤；这些图确认后本来就要写进画布，确认前先留着不多占）。
+          // 同时解几张，不一张接一张等，也不让一大批同时占着解码；结果按拖入顺序排回去。
+          const decoded: (ReadImageFile | null)[] = new Array(candidates.length)
+          let next = 0
+          await Promise.all(
+            Array.from(
+              { length: Math.min(IMPORT_DECODE_CONCURRENCY, candidates.length) },
+              async () => {
+                while (next < candidates.length) {
+                  const index = next++
+                  decoded[index] = await readImageFile(candidates[index]).catch(notInvalid)
+                }
+              },
+            ),
+          )
+          const invalid: string[] = []
+          const valid: { file: File; image: ReadImageFile }[] = []
+          candidates.forEach((file, index) => {
+            const image = decoded[index]
+            if (image) valid.push({ file, image })
+            else invalid.push(file.name)
+          })
+          if (!here()) return
+          if (invalid.length) showInvalidImages(invalid)
+          if (valid.length === 0) return
+          confirmImageBatch(valid.length, () => {
+            if (!here()) return
+            const point = pinned ?? placeAt.current
+            try {
+              // 都已经解过：建节点和写图同步完成，中间不让出执行权，不会留下空节点。
+              for (const { file, image } of valid) {
+                const id = createNode(canvas, 'image', point, textFill)
+                placeDecodedImage(editor, canvas.doc, id, image, file.name)
+                selectNode(id)
+              }
+            } catch {
+              failed()
+            }
+          })
+        })().catch(failed)
+      })
+      .catch(failed)
   }
+  const showInvalidImages = (names: readonly string[]) =>
+    useStore
+      .getState()
+      .showToast(
+        t('import.invalidFiles', { count: names.length, names: names.join('、') }),
+        'error',
+      )
   useEffect(() => {
     setNodes((current) => {
       const previous = new Map(current.map((one) => [one.id, one]))
@@ -1559,7 +1746,7 @@ function Flow({
         return
       }
       // collectDroppedFiles 必须在这一拍同步调用：await 之后 DataTransfer.items 就空了。
-      void collectDroppedFiles(event.dataTransfer).then(({ files }) => placeFiles(files))
+      void collectDroppedFiles(event.dataTransfer).then(({ files }) => placeFiles(files, point))
     }
     el.addEventListener('dblclick', onDoubleClick, true)
     el.addEventListener('dragenter', onDragEnter)
@@ -1649,7 +1836,9 @@ function Flow({
         .showToast(
           error instanceof CanvasReferenceLimitError
             ? MAX_INPUT_IMAGES_MESSAGE
-            : t('import.failed'),
+            : error instanceof UploadImageTooLargeError
+              ? i18next.t('image.tooLarge', { ns: 'lib', count: 1, max: MAX_IMAGE_MB })
+              : t('import.failed'),
           'error',
         )
     } finally {
@@ -1766,8 +1955,10 @@ function Flow({
     }
   }
   const uploadInto = (id: string, file: File) => {
-    void fillImageNode(editor, canvas.doc, id, file).catch(() =>
-      useStore.getState().showToast(t('import.failed'), 'error'),
+    void fillImageNode(editor, canvas.doc, id, file).catch((error: unknown) =>
+      error instanceof InvalidImageFileError
+        ? showInvalidImages([error.fileName])
+        : useStore.getState().showToast(t('import.failed'), 'error'),
     )
   }
   const spawnBeside = (nodeId: string, side: 'left' | 'right') => {
@@ -2328,9 +2519,31 @@ function Flow({
                             label={t('nodes.duplicate')}
                             onClick={duplicate}
                           />
+                          <span className="studio-node-tool-divider" />
+                          <NodeTool
+                            icon="download"
+                            label={common('action.download')}
+                            onClick={downloadSelection}
+                          />
                           <NodeTool icon="delete" label={t('nodes.delete')} onClick={remove} />
                         </div>
                       )}
+                      {assetsPanelOpen && (
+                        <NodeAssetsPanel
+                          conversationId={projectConversationId}
+                          canvasItems={canvasResultItems}
+                          onClose={() => setAssetsPanelOpen(false)}
+                          onPlace={placeAssets}
+                          onDownload={(items) =>
+                            void transferMedia(
+                              items.map((item) => item.download),
+                              projectName,
+                            )
+                          }
+                        />
+                      )}
+                      {/* 资产弹窗开着时传输卡由弹窗那一层渲染，免得被遮罩挡住 */}
+                      {!assetsPanelOpen && <MediaTransferCard />}
                       {scriptPoint && (
                         <ScriptBriefDialog
                           onClose={() => setScriptPoint(null)}
@@ -2488,14 +2701,12 @@ function Flow({
                                 if (source) {
                                   let stage: 'original' | 'fetch' | 'blob' | 'trigger' = 'original'
                                   void resolveMediaSource(source, 'original', true)
-                                    .then((url) => {
-                                      stage = 'fetch'
-                                      return fetch(url, { credentials: 'include' })
-                                    })
-                                    .then(async (response) => {
-                                      if (!response.ok) throw new Error('download failed')
-                                      stage = 'blob'
-                                      const blob = await response.blob()
+                                    .then((url) =>
+                                      fetchDownloadBlob(url, { credentials: 'include' }, (next) => {
+                                        stage = next
+                                      }),
+                                    )
+                                    .then((blob) => {
                                       const extension =
                                         blob.type.split('/')[1]?.split(';')[0] ||
                                         (composerNode.type === 'video' ? 'mp4' : 'png')
@@ -2571,13 +2782,25 @@ function Flow({
                         accept="image/*"
                         multiple
                         hidden
-                        onChange={async (event) => {
+                        onChange={(event) => {
                           const files = [...(event.target.files ?? [])]
                           event.target.value = ''
                           const targetId = uploadReferenceTarget.current
                           uploadReferenceTarget.current = null
-                          if (targetId)
-                            for (const file of files) await uploadReference(targetId, file)
+                          if (!targetId) return
+                          void (async () => {
+                            try {
+                              const { compressUploadFiles } = await import(
+                                '../../../lib/imageFiles'
+                              )
+                              const fitted = await compressUploadFiles(
+                                files.filter((file) => file.type.startsWith('image/')),
+                              )
+                              for (const file of fitted) await uploadReference(targetId, file)
+                            } catch {
+                              useStore.getState().showToast(t('import.failed'), 'error')
+                            }
+                          })()
                         }}
                       />
                       <input
@@ -2927,10 +3150,11 @@ export default function NodeCanvas({
             active={active}
             onChat={onChat}
             viewKey={workspace.record.key}
+            syncResults={workspace.cloud?.sync}
           />
         </ReactFlowProvider>
       ),
-    [canvas, active, workspace.editor, onChat],
+    [canvas, active, workspace.editor, workspace.cloud, onChat],
   )
   if (failed)
     return (

@@ -11,6 +11,16 @@ const MIME = {
 const PROJECT_ID = '00000000-0000-4000-8000-000000000001'
 const PATHS = ['/image', `/p/${PROJECT_ID}`]
 
+// 工具箱改版后：侧栏进 /tools 目录，点卡片进 /tools/rotate 工作台，各有自己的地址。
+// 单图预览的布局检查留在旋转编辑器分支；这里只钉目录和工作台地址。
+async function checkToolboxRoutes(page) {
+  await page.getByRole('button', { name: '工具箱', exact: true }).click()
+  await page.waitForURL((url) => url.pathname === '/tools')
+  await page.getByRole('button', { name: /^旋转与镜像\s*任意角度/ }).click()
+  await page.waitForURL((url) => url.pathname === '/tools/rotate')
+  console.log('PASS toolbox routes: /tools then /tools/rotate')
+}
+
 // Serve the built bytes with Pages' explicit route rewrites; missing chunks never become HTML.
 async function serveDist(dist) {
   const root = await realpath(dist)
@@ -61,7 +71,7 @@ async function serveDist(dist) {
   }
 }
 
-async function checkWorkspace(browser, origin, { local = false, nodeCanvas = false, exerciseNodes = false, exerciseCatalog = false, optionalStyles = [], outputDir, timeoutMs = 30000 } = {}) {
+async function checkWorkspace(browser, origin, { local = false, nodeCanvas = false, exerciseNodes = false, exerciseCatalog = false, exerciseToolbox = false, optionalStyles = [], outputDir, timeoutMs = 30000 } = {}) {
   for (const [index, path] of PATHS.entries()) {
     // Cold browser storage and module cache on each direct navigation, including the deep link.
     const context = await browser.newContext({ locale: 'zh-CN', serviceWorkers: 'block' })
@@ -454,6 +464,7 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
         await page.screenshot({ path: join(outputDir, `${label}.png`) })
       }
       console.log(`PASS ${path}${nodeCanvas ? ' (node canvas)' : ''}: workspace mounted, boot removed, no JavaScript or asset errors`)
+      if (exerciseToolbox && index === 0) await checkToolboxRoutes(page)
     } catch (error) {
       if (outputDir) {
         await mkdir(outputDir, { recursive: true })
@@ -505,7 +516,7 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
     await page.goto(origin + '/', {waitUntil:'networkidle'})
     if (!observedCapabilities) throw new Error('Marketing entry did not load capabilities')
     if (loginEnabled) {
-      await page.getByRole('heading',{name:/说出你要的画面\s*剩下的交给幕芽/}).waitFor()
+      await page.getByRole('heading',{name:/说出你的画面设想\s*交由幕芽成片/}).waitFor()
       await page.locator('.nav').getByRole('button',{name:'免费开始',exact:true}).click()
       await page.getByRole('dialog',{name:'登录',exact:true}).waitFor()
       await page.getByRole('button',{name:'关闭登录框',exact:true}).click()
@@ -522,7 +533,7 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
       if (new URL(page.url()).pathname !== path) throw new Error(`Hydration changed the static URL: ${path}`)
       if (await page.locator('html').getAttribute('lang') !== lang) throw new Error(`Wrong locale: ${path}`)
       if (path === '/en/') {
-        await page.getByRole('heading',{name:/Say the picture you want\s*Muvloom handles the rest/}).waitFor()
+        await page.getByRole('heading',{name:/Describe the vision\s*Muvloom handles the rest/}).waitFor()
         if (!(await page.title()).includes('AI Image, Video and Canvas Creation')) throw new Error('English marketing title drifted')
       }
       if (path === '/login/') await page.getByRole('form',{name:'用户登录'}).waitFor()
@@ -558,7 +569,7 @@ async function main() {
     await checkMarketing(browser, server?.origin || target, {local, outputDir:process.env.PAGES_SMOKE_OUTPUT_DIR})
     if (local) await checkMarketing(browser, server.origin, {local:true,accountsLogin:false})
     await checkWorkspace(browser, server?.origin || target, {
-      local, exerciseCatalog: local, optionalStyles, timeoutMs: local ? 30000 : 60000,
+      local, exerciseCatalog: local, exerciseToolbox: local, optionalStyles, timeoutMs: local ? 30000 : 60000,
       outputDir: process.env.PAGES_SMOKE_OUTPUT_DIR,
     })
     if (local) await checkWorkspace(browser, server.origin, {

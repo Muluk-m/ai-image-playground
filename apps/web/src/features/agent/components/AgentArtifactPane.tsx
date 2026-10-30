@@ -5,7 +5,7 @@ import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { OverflowText } from '../../../components/ui/overflowTitle'
-import { useTranslation } from '../../../i18n'
+import { describeError, useTranslation } from '../../../i18n'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
@@ -232,9 +232,7 @@ export default function AgentArtifactPane({
         } else useStore.getState().showToast(t('tool.agentUnavailable'), 'error')
       })
       .catch((error) => {
-        useStore
-          .getState()
-          .showToast(error instanceof Error ? error.message : String(error), 'error')
+        useStore.getState().showToast(describeError(error), 'error')
       })
       .finally(() => setEditBusy(false))
   }

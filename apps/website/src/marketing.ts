@@ -1,3 +1,4 @@
+import { SUPPORT_CONTACT } from '@image-playground/shared/support-contact'
 import type { Locale } from './catalog'
 
 export const ASSET = '/website-assets/v41'
@@ -83,6 +84,18 @@ export function wallSrc(file: string): string {
   return `${ASSET}/wall/${file}`
 }
 
+/** 墙图另备一份 320 宽：窄列和低像素比屏取小图，慢网首屏少下几 MB。 */
+export function wallSrcSet(file: string): string {
+  return `${ASSET}/wall-320/${file} 320w, ${wallSrc(file)} 640w`
+}
+
+/** 与 marketing.css 里 `.col` 的列宽一致（手机 36vw，桌面 clamp(150px, 15vw, 250px)）。 */
+export const WALL_SIZES =
+  '(max-width: 760px) 36vw, (max-width: 1000px) 150px, (min-width: 1667px) 250px, 15vw'
+
+/** 与 `.mrow figure` 的宽一致（clamp(130px, 13vw, 210px)）。 */
+export const MARQUEE_SIZES = '(max-width: 1000px) 130px, (min-width: 1616px) 210px, 13vw'
+
 /** 9 列循环墙，和原型同一套取图顺序，每列再接一份用来无缝滚动。 */
 export function wallColumns(files: readonly string[] = WALL, columns = 9): string[][] {
   const per = Math.ceil(files.length / columns) + 3
@@ -142,7 +155,14 @@ export interface FeatureChapter {
 
 export interface MarketingCopy {
   brand: string
-  nav: { cases: string; features: string; inspiration: string; guide: string; start: string }
+  nav: {
+    cases: string
+    features: string
+    inspiration: string
+    guide: string
+    pricing: string
+    start: string
+  }
   hero: {
     line1: string
     line2: string
@@ -193,9 +213,6 @@ export interface MarketingCopy {
     title: string
     body: string
     close: string
-    xTitle: string
-    xDetail: string
-    xAction: string
     mailTitle: string
     mail: string
     copy: string
@@ -205,13 +222,15 @@ export interface MarketingCopy {
   }
 }
 
+// 功能截图上方的地址栏只是展示文字，不是可点的链接。
+// 画布帧只写域名：/p/<项目> 打不开，照着地址栏打开会看到「项目暂时打不开」。
 const FEATURE_URLS = [
   'muvloom.online/image',
   'muvloom.online/image',
   'muvloom.online/image',
-  'muvloom.online/p/马克杯釉色方案',
-  'muvloom.online/p/马克杯釉色方案',
-  'muvloom.online/p/精华液短片',
+  'muvloom.online',
+  'muvloom.online',
+  'muvloom.online',
   'muvloom.online/assets',
   'muvloom.online/explore',
 ] as const
@@ -246,7 +265,7 @@ const zhFeatures: Array<Pick<FeatureChapter, 'title' | 'body'>> = [
   },
   {
     title: '圈哪里，改哪里',
-    body: '圈出位置写上要求即可。局部重绘、擦除、抠图、扩图、裁切都在手边。',
+    body: '圈出位置写上要求即可。局部重绘、擦除、抠图、扩图、裁剪都在手边。',
   },
   {
     title: '让图片动起来',
@@ -312,11 +331,12 @@ const zh: MarketingCopy = {
     features: '功能',
     inspiration: '灵感库',
     guide: '使用指南',
+    pricing: '定价',
     start: '免费开始',
   },
   hero: {
-    line1: '说出你要的画面',
-    line2: '剩下的交给幕芽',
+    line1: '说出你的画面设想',
+    line2: '交由幕芽成片',
     body: '智能体帮你写提示词、排好生成计划，图片和视频一次出齐。不满意，就在画布上接着改。',
     start: '免费开始创作',
     see: '看看能做什么',
@@ -375,11 +395,8 @@ const zh: MarketingCopy = {
     title: '联系我们',
     body: '产品反馈、合作或使用问题，都可以找我们。',
     close: '关闭',
-    xTitle: 'X 私信',
-    xDetail: '@Muluk656',
-    xAction: '打开 X',
     mailTitle: '邮件',
-    mail: 'maqiqian0316@gmail.com',
+    mail: SUPPORT_CONTACT.email,
     copy: '复制',
     copied: '已复制',
     copyFailed: '复制失败',
@@ -394,10 +411,11 @@ const en: MarketingCopy = {
     features: 'Features',
     inspiration: 'Inspiration',
     guide: 'Guide',
+    pricing: 'Pricing',
     start: 'Start free',
   },
   hero: {
-    line1: 'Say the picture you want',
+    line1: 'Describe the vision',
     line2: 'Muvloom handles the rest',
     body: 'The agent writes the prompt and the generation plan, then delivers images and video together. If it isn’t right, keep editing on the canvas.',
     start: 'Start creating free',
@@ -463,11 +481,8 @@ const en: MarketingCopy = {
     title: 'Contact us',
     body: 'Product feedback, partnerships, or questions — reach us here.',
     close: 'Close',
-    xTitle: 'Message on X',
-    xDetail: '@Muluk656',
-    xAction: 'Open X',
     mailTitle: 'Email',
-    mail: 'maqiqian0316@gmail.com',
+    mail: SUPPORT_CONTACT.email,
     copy: 'Copy',
     copied: 'Copied',
     copyFailed: 'Couldn’t copy',
@@ -499,5 +514,4 @@ export function showcaseCases(locale: Locale): ShowcaseCase[] {
   }))
 }
 
-export const X_URL = 'https://x.com/Muluk656'
-export const CONTACT_EMAIL = 'maqiqian0316@gmail.com'
+export const CONTACT_EMAIL = SUPPORT_CONTACT.email

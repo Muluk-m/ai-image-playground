@@ -249,7 +249,16 @@ export interface AgentMarkedRegion {
   readonly y: number
   readonly width: number
   readonly height: number
+  /**
+   * 用户在范围确认卡上写的标注文字。只进定位图旁的文字清单与改图说明，不画进原图像素。
+   */
+  readonly note?: string
+  /** 箭头标注的尾端（归一化坐标）；箭头指向这个区域的中心。只画在定位图上。 */
+  readonly arrow?: { readonly x: number; readonly y: number }
 }
+
+/** 标注文字的上限：一句话说清楚这里要怎样。 */
+export const AGENT_REGION_NOTE_MAX_CHARS = 120
 
 export interface AgentInlineReference {
   /** 画布对象 id 或素材的图片 id；模型改图时用它指认要改哪一张。 */
@@ -517,6 +526,8 @@ export function taskFailureCode(errorType: TaskErrorType | null | undefined): Ag
       return 'timeout'
     case 'content_policy':
       return 'content_policy'
+    case 'model_unavailable':
+      return 'model_unavailable'
     case 'upstream_no_image':
       return 'no_output'
     // 执行者丢了（ADR 0009）或上游的结局查不到：上游可能已经出图、已经计费，原样再跑一次
@@ -770,6 +781,8 @@ export interface AgentToolResultBlock {
   readonly video?: VideoGenerationRecord
   readonly analysisLimit?: AgentBatchAnalysisLimit
   readonly batchId?: string
+  /** 这次调用写进批次的项 key：只给前端从回复里认出并去掉它们（BUG-56），不显示。 */
+  readonly batchItemKeys?: readonly string[]
   readonly type: 'toolResult'
   readonly toolCallId: string
   readonly toolName: AgentToolName
@@ -789,6 +802,17 @@ export interface AgentToolResultBlock {
   readonly errorCode?: AgentToolErrorCode
   /** 起跑时的参数快照；只有提交生成任务的工具有。旧记录缺席。 */
   readonly snapshot?: AgentToolCallSnapshot
+  /**
+   * 这张卡是智能体模式「直接出图」关掉时被确认门拦下的调用（见 BFF `tool-gate.ts`）。智能体不知道
+   * 停过：用户确认后同一轮接着跑；没确认就发了新消息，这张卡作废（`failed` + `cancelled`）。
+   * 普通拟稿与旧记录缺席。
+   */
+  readonly gated?: true
+  /**
+   * 确认门拦下那一刻交给模型的回执原文（版本数、尺寸都在里面）。续跑把它原样接回历史，
+   * 模型在确认前后看到的是同一句话。只有确认门的卡有；旧记录缺席。
+   */
+  readonly gateReceipt?: string
   /** 这次调用提交的后台任务；任务结束后仍保留，标明这张卡的结局来自后台任务。 */
   readonly job?: AgentBackgroundJob
   /** 这张卡是一条重试记录：用户在哪张失败卡的哪个失败占位上点了重试。普通调用缺席。 */
@@ -932,6 +956,11 @@ export const AGENT_CONFIRMATION_PROMPT_MAX_CHARS = 8_000
  */
 export interface AgentConfirmationResponse {
   readonly message: AgentMessageView
+  /**
+   * 确认门拦下的那一轮会接着跑（这一轮被拦下的卡都确认完了）：界面去跟进那一轮的流，
+   * 它接在原来那段回复后面。缺席即这张卡不是确认门的卡，或同一轮还有没确认的卡。
+   */
+  readonly continued?: true
 }
 
 /** 确认没能提交（积分不够、模型下线、提示词为空或过长……）；界面只按 `code` 给出路。 */
@@ -967,6 +996,17 @@ export interface AgentBackgroundJobProgress {
    * 其他阶段缺席，已用时间仍从 `submittedAt` 算。
    */
   readonly phaseSince?: number
+  /**
+   * 还在排队时它在本账号队列里的位置。账号同时生成的张数由套餐定（没订阅是 1），
+   * 超出的按提交先后排队：`ahead` 是排在它前面、还没出完的张数（在生成的加上更早提交的），
+   * `limit` 是此刻这个账号能同时生成几张。旧服务端缺席，界面只说「排队中」。
+   */
+  readonly queue?: AgentJobQueuePosition
+}
+
+export interface AgentJobQueuePosition {
+  readonly ahead: number
+  readonly limit: number
 }
 
 export interface AgentBackgroundJobsResponse {
@@ -998,11 +1038,85 @@ export interface AgentSkillOutcome {
   readonly file?: string
 }
 
+/** 归一化到原图宽高的矩形：0–1，原点在左上。 */
+export interface AgentNormalizedBox {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+/** 分割提示点：`include` 为真是落在目标上的点，为假是明确不改的点。 */
+export interface AgentMaskPromptPoint {
+  readonly x: number
+  readonly y: number
+  readonly include: boolean
+}
+
+/**
+ * 建议蒙版由谁给：服务端分割模型（`server`，带 `maskMediaId`）、浏览器里的分割模型（`browser`，
+ * 旧提议才有，卡片已不再在浏览器里分割），或者只按框栅格化的粗略范围（`box`）。
+ */
+type AgentMaskSegmentation = 'server' | 'browser' | 'box'
+
+/**
+ * 画面里有几个相似对象时（例如两只杯子）逐个列出的区域，卡片上按编号显示，用户点编号增减。
+ * `selected` 是智能体判断的要改的那几个；生效的仍是用户确认带回来的那份蒙版。
+ */
+export interface AgentMaskRegion {
+  /** 从 1 开始的显示编号，按从左到右、从上到下排。 */
+  readonly number: number
+  readonly label?: string
+  readonly box: AgentNormalizedBox
+  readonly points?: readonly AgentMaskPromptPoint[]
+  readonly selected: boolean
+  /** 服务端分割出的这个区域的蒙版（编辑格式，与原图同尺寸）；分割失败时缺席，卡片按框画。 */
+  readonly maskMediaId?: string
+}
+
+/**
+ * 智能体提议的修改范围（`proposeEditRegion` 签发）。模型只给对象名、外接框与提示点；
+ * 生效的蒙版永远是用户在卡片上确认、随下一条用户消息带回来的那一份。
+ */
+export interface AgentMaskProposal {
+  readonly id: string
+  /** 要改的那张图在会话里的 id；确认后的参考图沿用它。 */
+  readonly imageId: string
+  /** 原图像素所在的媒体对象；卡片按它取原件，回答也按它引用，不经任何缩放。 */
+  readonly mediaId: string
+  readonly width: number
+  readonly height: number
+  /** 要改的对象，名词短语，例如「杯身和把手」。 */
+  readonly target: string
+  /** 要改成什么，取自用户原话。 */
+  readonly change: string
+  /** 明确不动的东西。 */
+  readonly keep: readonly string[]
+  readonly box: AgentNormalizedBox
+  readonly points?: readonly AgentMaskPromptPoint[]
+  readonly segmentation: AgentMaskSegmentation
+  /** 服务端分割出的建议蒙版（不透明保留、透明重绘，与原图同尺寸）。有 `regions` 时由各区域合成。 */
+  readonly maskMediaId?: string
+  /** 相似对象逐个编号；缺席表示只有一个目标（`box` / `points` / `maskMediaId` 就是它）。 */
+  readonly regions?: readonly AgentMaskRegion[]
+  /**
+   * 要改的是选中对象以外的部分（通常是换背景）。蒙版仍是要保留的主体；卡片显示与确认时
+   * 取反，并往主体边缘里收一圈，让发丝、肩线这一圈也由模型对着新背景重画。
+   */
+  readonly invert?: boolean
+  /** 这次局部编辑会用的模型；只会是支持蒙版的 GPT Image 系列。 */
+  readonly model: { readonly id: string; readonly label: string }
+  /** 用户选的模型不支持蒙版时记下原来那个；确认即同意改用 `model`。 */
+  readonly switchedFrom?: { readonly id: string; readonly label: string }
+}
+
 /** 一次澄清提问。落在助手消息里，所以重新打开会话还能看见、还能作答。 */
 export interface AgentClarificationBlock {
   readonly type: 'clarification'
   readonly question: string
   readonly options: readonly string[]
+  /** 服务端签发的修改范围；有它时卡片换成蒙版确认，回答要带回确认后的蒙版。 */
+  readonly maskProposal?: AgentMaskProposal
   /** 服务端核对图片组合的选项；普通模型澄清不能签发这份映射。 */
   readonly imageCombination?: {
     readonly targetImageId: string
@@ -1241,6 +1355,12 @@ export interface AgentReturnedQueuedMessage {
 export interface AgentTurnAbortedBody {
   readonly aborted: true
   readonly returned?: readonly AgentReturnedQueuedMessage[]
+  /**
+   * 随这次停止一并取消、积分已退回的出图任务（这一轮自己提交、还没出结果的）。已完成的照常扣费，
+   * 不在其中；中止之后才落库的那几条由轮收尾再取消，也不在其中——任务卡照常轮询到「已取消」。
+   * 老服务端没有这一项。
+   */
+  readonly cancelledTaskIds?: readonly string[]
 }
 
 /** 满额时的 409 响应体。 */
@@ -1498,6 +1618,11 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
 
 /** 澄清回放给模型的形状：用户的下一条消息就是他选的那一项。 */
 export function agentClarificationSummary(block: AgentClarificationBlock): string {
+  const proposal = block.maskProposal
+  if (proposal)
+    return `请用户确认修改范围：图片 ${proposal.imageId} 的「${proposal.target}」，${proposal.change}${
+      proposal.keep.length ? `；不动：${proposal.keep.join('、')}` : ''
+    }（按蒙版生成，模型 ${proposal.model.label}）`
   return `向用户提问：${block.question}（选项：${block.options.join(' / ')}）`
 }
 

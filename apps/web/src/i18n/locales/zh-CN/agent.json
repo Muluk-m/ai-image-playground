@@ -5,7 +5,7 @@
     "more_other": "再看 {{count}} 组",
     "collapse": "收起",
     "expand": "展开",
-    "place": "加入画布",
+    "place": "放入画布",
     "locate": "定位"
   },
   "label": {
@@ -27,7 +27,7 @@
     "expand": "展开对话",
     "aria": "创作对话",
     "logAria": "对话记录",
-    "emptyTitle": "今天，想创作什么？",
+    "emptyTitle": "今天想创作什么？",
     "jumpToLatest": "有新消息",
     "search": "搜索当前对话",
     "closeSearch": "关闭搜索",
@@ -56,10 +56,12 @@
   },
   "tool": {
     "canvasReadNodes": "已读取节点：{{nodes}}",
+    "canvasReadUnnamed": "未命名节点",
     "canvasReadNone": "无",
     "background": "正在后台生成，完成后会在这里显示",
     "preparing": "准备中",
     "notFinished": "没有完成",
+    "gateVoided": "没有确认就发了新消息，这次没有提交，也没有扣费",
     "delivering": "产物已生成，正在载入…",
     "offCanvas": "产物不在当前画布上，可以再放入。",
     "deliveryFailed": "产物已生成，但载入失败，可以重试。",
@@ -99,11 +101,11 @@
     "zoomOut": "缩小",
     "markHint": "蓝色区域为重绘区；圈选会填满内部，笔刷只涂经过的区域。",
     "cropHint": "拖动图片，框选要保留的区域",
-    "outpaintHint": "透明边缘会交给 Agent 自然补全",
+    "outpaintHint": "透明边缘会交给智能体自然补全",
     "extendBy": "四周扩展",
     "generateEdit": "生成",
     "submittingEdit": "正在提交…",
-    "agentUnavailable": "Agent 暂时不可用，请稍后重试",
+    "agentUnavailable": "智能体暂时不可用，请稍后重试",
     "openResultNumber": "查看第 {{number}} 个产物",
     "resultNumber": "第 {{number}} 个产物",
     "previousResult": "上一个产物",
@@ -149,15 +151,15 @@
     "retryFailed": "重试未成功，请稍后再试。"
   },
   "confirm": {
-    "pending": "核对下面这段提示词（可以直接改），然后点「确认生成」。",
+    "pending": "可直接在下方修改提示词，确认后开始生成。",
     "fieldAria": "待确认的提示词",
     "submit": "确认生成",
     "submitting": "提交中…",
     "empty": "提示词不能为空",
     "outputsImage_other": "确认后生成 {{count}} 张",
     "outputsVideo_other": "确认后生成 {{count}} 段视频",
-    "gone": "这张草稿卡已经不在了，让助手重新拟一份吧。",
-    "notConfirmable": "这份草稿已失效（可能在别处确认过），让助手重新拟一份吧。",
+    "gone": "草稿已失效，请让智能体重新生成方案。",
+    "notConfirmable": "草稿已失效，请让智能体重新生成方案。",
     "failed": "没能提交，改过的提示词已保留，请重试。",
     "allPending_other": "{{count}} 张稿等你确认",
     "allSubmit_other": "全部确认（{{count}}）",
@@ -168,7 +170,8 @@
     "gateJump": "跳到卡片",
     "gateSend": "仍然发送这句话",
     "gateRunNodes": "确认运行节点（{{count}}）",
-    "nodeRunMissed": "有 {{count}} 组没能开始。请打开对应画布后，在卡片上确认。"
+    "nodeRunMissed": "有 {{count}} 组没能开始。请打开对应画布后，在卡片上确认。",
+    "drafting": "正在生成草稿，完成后即可确认。"
   },
   "plan": {
     "title": "生成计划",
@@ -179,13 +182,16 @@
     "cancel": "取消",
     "restore": "继续确认",
     "dismissed": "未生成",
-    "promptAria": "修改提示词"
+    "insufficient": "可用 {{available}} 积分，不够合计约 {{credits}} 积分。取消勾选几张，或先充值。",
+    "stoppedAfter_other": "已提交 {{count}} 张，「{{title}}」未提交：{{reason}}",
+    "promptAria": "修改提示词",
+    "drafting": "正在生成计划，完成后即可确认。"
   },
   "toolFailure": {
     "recharge": "去充值",
     "login": "去登录",
-    "reprocess": "让助手重新处理",
-    "rewrite": "让助手改写提示词",
+    "reprocess": "让智能体重新处理",
+    "rewrite": "让智能体改写提示词",
     "reprocessMessage": "「{{title}}」没有完成：{{reason}}。请换个做法重新处理。",
     "rewriteMessage": "「{{title}}」没有完成：{{reason}}。请帮我把提示词改写成能过审的说法，保留原本想要的画面，改完先说你改了什么再提交。",
     "blocked": {
@@ -224,9 +230,9 @@
     "continuePrompt": "继续"
   },
   "imageAction": {
-    "removeBackground": "去背景",
-    "running": "正在去背景…",
-    "failed": "去背景没有完成",
+    "removeBackground": "抠图",
+    "running": "正在抠图…",
+    "failed": "抠图未完成",
     "dismiss": "移除这一步"
   },
   "composer": {
@@ -259,7 +265,7 @@
     "attachFolder": "选择文件夹",
     "sending": "发送中…",
     "sendAndCreate": "发送并拟提示词",
-    "sendAndCreateTitle": "发送：助手先拟好提示词，你确认后才开始生成",
+    "sendAndCreateTitle": "发送：智能体先拟好提示词，你确认后才开始生成",
     "tooManyReferences_other": "一轮最多带 {{count}} 张参考图",
     "tooManyUploads_other": "上传的图、素材一轮最多带 {{count}} 张",
     "abortedToast": "已中止，草稿已放回输入框。",
@@ -305,7 +311,7 @@
     "thinkingLegend": "思考深度",
     "thinkingSummary": "思考：{{label}}",
     "autoSubmitLabel": "直接出图",
-    "autoSubmitHint": "默认开启。拟好提示词就直接生成并扣费。关掉后才逐张等你确认。"
+    "autoSubmitHint": "拟好提示词后直接生成；关闭则先确认再出图。"
   },
   "mentions": {
     "headingResults": "会话图片",
@@ -332,6 +338,61 @@
     "other": "其他…",
     "otherAria": "其他回答",
     "otherPlaceholder": "说说你想要的"
+  },
+  "maskProposal": {
+    "title": "确认修改范围",
+    "change": "修改",
+    "keep": "不动",
+    "lock": "只重绘选中区域，区域外的像素与原图完全一致",
+    "edgeHint": "边缘、影子和倒影如果也要跟着变，请一并选进来",
+    "invert": "反选",
+    "invertHint": "已反选：改的是主体以外的部分，边缘会往主体里多收一圈让发丝重画。点选和画笔仍然调整主体。",
+    "invertTitle": "改选中范围以外的部分，例如换背景",
+    "model": "按 {{model}} 蒙版生成",
+    "switched": "{{from}} 不支持按蒙版生成，这次改用 {{model}}",
+    "confirm": "确认并生成 {{count}} 张",
+    "adjust": "更多工具",
+    "other": "其他…",
+    "cancelAdjust": "收起工具",
+    "stateSuggested": "AI 建议",
+    "stateEdited": "已调整",
+    "stateConfirmed": "已确认",
+    "refining": "正在更新范围…",
+    "rough": "粗略范围，请检查边缘",
+    "loadFailed": "原图加载失败，请稍后重试",
+    "empty": "范围是空的，请圈出要改的部分",
+    "toolPoint": "点选",
+    "pointInclude": "添加",
+    "pointExclude": "排除",
+    "pointHint": "点击添加区域，按住 Alt（⌥）点击排除",
+    "pointUnavailable": "智能点选暂不可用，请用画笔调整",
+    "regions": "画面里有 {{count}} 个相似对象，点编号选择要改的",
+    "region": "对象 {{number}}",
+    "toolLasso": "套索",
+    "toolBox": "框选",
+    "toolBrush": "画笔",
+    "toolEraser": "橡皮",
+    "brushTitle": "把漏选的部分涂进范围",
+    "eraserTitle": "把多选的部分擦出范围",
+    "brushHint": "画笔涂进要改的部分，橡皮擦掉不该改的部分；确认时按你调整后的范围生成",
+    "toolArrow": "箭头标注",
+    "toolText": "文字标注",
+    "undo": "撤销",
+    "redo": "重做",
+    "reset": "恢复 AI 建议",
+    "resetTitle": "放弃所有调整，回到 AI 给出的范围",
+    "brushSize": "笔刷",
+    "annotationPlaceholder": "这里要怎样",
+    "removeAnnotation": "删除标注 {{number}}",
+    "annotationHint": "标注只用来说明，不会画进原图",
+    "answered": "已确认范围：{{target}}",
+    "answeredOther": "已回答 · 确认修改范围",
+    "answerConfirmed": "按确认的范围修改",
+    "answerKeep": "不动：",
+    "answerAnnotation": "标注",
+    "answerArrow": "箭头",
+    "preparing": "正在准备蒙版…",
+    "prepareFailed": "蒙版没能准备好，请重试"
   },
   "connection": {
     "reconnecting": "连接中断，正在重新连接…"
@@ -369,7 +430,16 @@
     "toolFailed": "工具执行失败，请查看失败卡片。",
     "copyLog": "复制原始日志",
     "copied": "已复制",
-    "copyFailed": "复制失败，请重试"
+    "copyFailed": "复制失败，请重试",
+    "textTooLong": "消息太长，这条没有发出去。最多 {{max}} 字，请删减后再发。",
+    "imageTooLarge": "图片太大，这条没有发出去。单张最多 {{maxSize}}，请换一张更小的图再发。",
+    "uploadFailed": "参考图没能上传，这条没有发出去：{{reason}}",
+    "signedOut": "登录已失效，这条没有发出去。请重新登录后再发。",
+    "serverUnavailable": "服务暂时不可用，这条没有发出去，可以点重试。",
+    "requestRejected": "服务器没有收下这条消息。请修改后再发；一直出现请把错误详情发给我们。",
+    "network": "网络中断，这条没有发出去，可以点重试。",
+    "retry": "重试",
+    "details": "错误详情"
   },
   "project": {
     "createFailed": "项目创建失败，当前内容已保留，请重试。",
@@ -498,8 +568,8 @@
     "cancelled": "已取消",
     "cancelledRefunded": "已取消，积分已退回",
     "wakeSkipped": {
-      "insufficient_credits": "积分不足，助手未查看结果",
-      "wake_limit": "助手已连续自动查看 3 次，等你发话后再继续"
+      "insufficient_credits": "积分不足，智能体未查看结果",
+      "wake_limit": "智能体已连续自动查看 3 次，等你发话后再继续"
     },
     "inbox": {
       "title": "生成任务",
@@ -513,8 +583,29 @@
       "summaryFailed": "{{running}} 个进行中 · {{completed}} 个已完成 · {{failed}} 个没有完成",
       "count": "{{done}}/{{total}}",
       "locate": "在画布上定位",
+      "locateMessage": "定位到消息",
       "succeeded": "已完成",
       "failed": "没有完成"
+    },
+    "queue": {
+      "ahead_other": "排队中 · 前面还有 {{count}} 张",
+      "next": "排队中 · 下一张就轮到",
+      "reason_other": "当前套餐可同时生成 {{count}} 张，其余按提交顺序排队，多开对话也不会更快。",
+      "upgrade": "升级套餐"
+    },
+    "done": {
+      "title": "生成完成",
+      "body": "「{{name}}」{{ready}}已生成",
+      "bodyAllFailed_other": "「{{name}}」生成结束：{{count}} 项没有完成",
+      "bodyFailed_other": "「{{name}}」生成结束：{{ready}}已生成，{{count}} 项没有完成",
+      "images_other": "{{count}} 张图",
+      "videos_other": "{{count}} 个视频",
+      "mixed": "{{images}}、{{videos}}",
+      "untitled": "新对话",
+      "view": "查看",
+      "dismiss": "关闭提示",
+      "running": "正在生成",
+      "unseen": "有新生成的图"
     }
   },
   "save": {
@@ -530,7 +621,7 @@
     "savedAsset": "已存为素材：{{name}}",
     "savedLook": "已存为模板：{{name}}",
     "failed": "没能保存，请重试",
-    "imageGone": "有图片已经取不到了，让助手重新出一版",
+    "imageGone": "有图片已经取不到了，请让智能体重新生成",
     "assetMeta": "{{kind}} · {{background}}",
     "lookMeta": "{{purpose}} · {{size}} · {{slots}} 个素材位",
     "kind": {
@@ -639,6 +730,7 @@
     "outputFormat": "输出格式",
     "compression": "压缩质量",
     "inputImage": "输入图 {{index}}",
+    "textOnlyInput": "纯文字生图",
     "valueAuto": "自动",
     "valueHigh": "高",
     "valueMedium": "中",
@@ -748,6 +840,12 @@
     "partial": "{{count}} 个节点没有出结果，已完成的结果会保留。",
     "reported": "已把这批结果交给智能体，它会接着说明。",
     "reportFailed": "没能把结果交给智能体，可以在对话里直接问它。",
+    "rejected": {
+      "specChanged": "有节点的提交内容和你确认时不一致，没有提交，也没有扣费。可以让智能体重新发起授权。",
+      "authorization": "授权已结束或失效，有节点没有提交，也没有扣费。",
+      "budget": "有节点超出了这次授权的预算，没有提交。",
+      "retryLimit": "有节点已经自动重试过，仍然失败。"
+    },
     "storyboard": {
       "summary": "镜头表：{{count}} 镜，共 {{seconds}} 秒",
       "shot": "第 {{index}} 镜 · {{seconds}} 秒 · {{line}}",

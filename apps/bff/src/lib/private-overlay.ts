@@ -97,6 +97,16 @@ export interface PrivateTaskHooks {
     userId: string
     now: number
   }): Promise<number>
+  /**
+   * 套餐的保证并发与空闲时可用并发（弹性名额）。保证并发永远放行；空闲并发只在服务器有余量、
+   * 没有别人排队时才放行，见 workers/idle-concurrency.ts。无订阅账号两者相等。
+   * 可选（先扩后缩）：缺席时退回 `accountConcurrencyLimit`，空闲并发等于保证并发。
+   */
+  accountConcurrencyEntitlement?(input: {
+    tx: BffTransaction
+    userId: string
+    now: number
+  }): Promise<{ guaranteed: number; idle: number }>
   onUserCreated(input: {
     tx: BffTransaction
     userId: string
@@ -112,11 +122,8 @@ export interface PrivateTaskHooks {
   /** Worker-only integrations; absent in older overlays. */
   runWorkerMaintenance?(now: number): Promise<void>
   /**
-   * 运营停用的模型：它们不出现在 `/api/channels`，页面上就没有入口。提交那一侧不靠它——
-   * 停用模型的预扣本来就回 `price_unavailable`，没刷新的老页面照样被拒，不会打到上游。
-   *
-   * 可选成员（「先扩后缩」）：钉住的 overlay 还没有这一项时加载照常，缺席即全部上架。
-   * 每次页面启动都会问一次，实现方自己决定缓存，别让它在热路径上每次查库。
+   * 旧版收费模块记在自己单价表里的停用模型。上下架已归公开库的 `model_availability`，这一项只在迁移完成前
+   * 补进同一份清单；可选成员，缺席即没有遗留停用。
    */
   inactiveModels?(): Promise<ReadonlySet<string>>
 }
