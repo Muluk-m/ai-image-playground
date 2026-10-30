@@ -36,7 +36,7 @@ export class UpstreamTimeoutError extends UpstreamResultUnknownError {
 }
 
 /**
- * 在 BFF 自己的排队里（跨 worker 配额、Vertex 渠道并发闸门）等到硬超时，而且这次调用一条请求都还没发出去。
+ * 在 BFF 自己的排队里（跨 worker 配额、Vertex 渠道并发闸门）等到硬超时，这一条请求还没发出去。
  * 结果是确定的「没执行」，不继承 UpstreamResultUnknownError：task-runner 按普通失败退款，
  * 不走对账（对账要求 upstream_invocation_count > 0，未派发的任务会一直卡在 in_progress）。
  * 排队等满整个硬超时说明额度长时间打满，不自动重试，免得重试再排一轮。
