@@ -688,6 +688,8 @@
     "tiles": "生成进度",
     "tileLabel": "第 {{index}} 张：{{status}}",
     "tileSlow": "比平时慢",
+    "cancelTile": "取消第 {{index}} 张",
+    "editPlan": "查看计划",
     "itemStatus": {
       "pending": "待处理",
       "queued": "排队中",

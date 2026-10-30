@@ -24,6 +24,7 @@ import { CARD, CARD_CONTROL, CARD_NOTE, CARD_TEXT } from '../agentStyles'
 import {
   type AgentBatchCommand,
   AgentRequestError,
+  cancelBatchItem,
   cancelBatchPlan,
   fetchBatchPlan,
   updateBatchPlan,
@@ -46,7 +47,7 @@ import AgentBatchItemResult, {
   AgentBatchAnalysisEvidence,
   AgentBatchItemStatus,
 } from './AgentBatchItemResult'
-import AgentBatchResultGallery, { AgentBatchTileStrip } from './AgentBatchResultGallery'
+import AgentBatchResultGallery, { AgentBatchRunRow } from './AgentBatchResultGallery'
 
 function statusIcon(status: BatchDisplayStatus) {
   if (status === 'in_flight' || status === 'in_progress') return 'loading'
@@ -163,6 +164,9 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const working = useRef(false)
   const operations = useRef(0)
   const card = useRef<HTMLElement>(null)
+  const runRow = useRef<HTMLDivElement>(null)
+  const [cancellingItems, setCancellingItems] = useState<ReadonlySet<string>>(() => new Set())
+  const [cancelItemFailed, setCancelItemFailed] = useState(false)
   if (card.current) {
     const active = document.activeElement
     const row = active instanceof Element ? active.closest('details[data-item-key]') : null
@@ -340,14 +344,18 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       timer = undefined
       schedule()
     }
+    // 确认后进度在计划卡下方那一排图块里：计划卡滚出视口、图块还看得见时也要接着轮询。
+    const seen = new Map<Element, boolean>()
     const observer =
       typeof IntersectionObserver === 'undefined'
         ? null
         : new IntersectionObserver((entries) => {
-            visible = entries.some((entry) => entry.isIntersecting)
+            for (const entry of entries) seen.set(entry.target, entry.isIntersecting)
+            visible = [...seen.values()].some(Boolean)
             visibility()
           })
     if (card.current) observer?.observe(card.current)
+    if (runRow.current) observer?.observe(runRow.current)
     document.addEventListener('visibilitychange', visibility)
     schedule()
     return () => {
@@ -358,6 +366,25 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     }
   }, [watch, batchId, commands, dirty])
   const refresh = () => apply(() => fetchBatchPlan(batchId), true)
+  // 只撤一张：不走 apply 的整卡忙碌锁，别的图块和计划卡照常可点；计费由后端取消任务的既有结算处理。
+  const cancelItem = async (key: string) => {
+    if (cancellingItems.has(key) || !commands.current()) return
+    setCancellingItems((current) => new Set(current).add(key))
+    setCancelItemFailed(false)
+    const operation = ++operations.current
+    try {
+      const result = await cancelBatchItem(batchId, key)
+      if (commands.current() && operation === operations.current) setPage(result)
+    } catch {
+      if (commands.current()) setCancelItemFailed(true)
+    } finally {
+      setCancellingItems((current) => {
+        const next = new Set(current)
+        next.delete(key)
+        return next
+      })
+    }
+  }
   if (!page)
     return (
       <div className={CARD} role="status">
@@ -806,7 +833,40 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
 
   const displayError = restorationFailed ? 'storage_restore_failed' : error
   const targetIcon = page.batch.experience === 'canvas' ? 'canvas' : 'chat'
-  return (
+  const runTiles = page.items.flatMap((item, index) =>
+    item.kind === 'generation'
+      ? [{ key: item.key, position: index + 1, progress: item.progress, execution: item.execution }]
+      : [],
+  )
+  const showRun =
+    runTiles.length > 0 &&
+    (page.batch.status === 'running' ||
+      page.batch.status === 'paused' ||
+      page.batch.status === 'closed')
+  const runParams = page.items.find((item) => item.kind === 'generation')?.params
+  const runShape = runParams ? agentImageShape(runParams.provider, runParams) : {}
+  const runMeta = {
+    ...(runParams?.model
+      ? {
+          model: {
+            id: runParams.model,
+            name: compactModelName(
+              runParams.model,
+              modelLabel(runParams.model, runParams.provider),
+            ),
+          },
+        }
+      : {}),
+    tags: [runShape.imageSize ?? runShape.size, runShape.aspectRatio].filter((tag): tag is string =>
+      Boolean(tag),
+    ),
+  }
+  const openPlan = () => {
+    setDetailsOpen(true)
+    card.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+    card.current?.focus({ preventScroll: true })
+  }
+  const plan = (
     <section ref={card} id={domId} tabIndex={-1} className={CARD}>
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span className="flex min-w-0 items-center gap-2">
@@ -814,7 +874,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           <span className="shrink-0">{t('batch.scope', { count: page.batch.itemCount })}</span>
         </span>
         <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-          {resultFiles.length > 0 && (
+          {resultFiles.length > 0 && !showRun && (
             <Button
               size="sm"
               variant="outline"
@@ -852,25 +912,8 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           </span>
         )}
       </div>
-      {hasGeneration ? (
-        <AgentBatchTileStrip
-          tiles={page.items.flatMap((item, index) =>
-            item.kind === 'generation'
-              ? [
-                  {
-                    key: item.key,
-                    position: index + 1,
-                    progress: item.progress,
-                    execution: item.execution,
-                  },
-                ]
-              : [],
-          )}
-        />
-      ) : (
-        resultFiles.length > 0 && (
-          <AgentBatchResultGallery artifacts={resultFiles.map((file) => file.artifact)} />
-        )
+      {!hasGeneration && resultFiles.length > 0 && (
+        <AgentBatchResultGallery artifacts={resultFiles.map((file) => file.artifact)} />
       )}
       {page.analysisSummary && (
         <AgentBatchAnalysisSummary summary={page.analysisSummary} items={page.items} />
@@ -1273,5 +1316,46 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         </div>
       ) : null}
     </section>
+  )
+  if (!showRun) return plan
+  // 确认之后：计划卡只留查看与修改，生成进度挪到对话里卡片下方那一排图块（与单次生图的结果行一样）。
+  return (
+    <div className="grid min-w-0 gap-3">
+      {plan}
+      <div ref={runRow} className="min-w-0">
+        <AgentBatchRunRow
+          tiles={runTiles}
+          meta={runMeta}
+          cancelling={cancellingItems}
+          cancelFailed={cancelItemFailed}
+          onCancel={(key) => void cancelItem(key)}
+          actions={
+            <>
+              <Button size="sm" variant="outline" className="text-foreground" onClick={openPlan}>
+                <Icon name="edit" />
+                {t('batch.editPlan')}
+              </Button>
+              {resultFiles.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-foreground"
+                  disabled={exportProgress !== null}
+                  onClick={() => void runExport()}
+                >
+                  <Icon name="download" />
+                  {exportProgress
+                    ? t('batch.exporting', {
+                        done: exportProgress.done,
+                        total: exportProgress.total,
+                      })
+                    : t('batch.exportResults', { count: resultFiles.length })}
+                </Button>
+              )}
+            </>
+          }
+        />
+      </div>
+    </div>
   )
 }

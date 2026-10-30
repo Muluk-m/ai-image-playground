@@ -726,6 +726,8 @@
     "tiles": "Generation progress",
     "tileLabel": "Image {{index}}: {{status}}",
     "tileSlow": "Slower than usual",
+    "cancelTile": "Cancel image {{index}}",
+    "editPlan": "View plan",
     "itemStatus": {
       "pending": "Pending",
       "queued": "Queued",
