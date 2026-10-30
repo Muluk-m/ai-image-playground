@@ -62,6 +62,12 @@ function normalize(body: ImageJobBody): NormalizedImageJob | { error: string; de
       error: 'unsupported image_size',
       details: { available: image.tiers.map((entry: { id: string }) => entry.id) },
     }
+  if (
+    body.quality &&
+    image.quality?.values &&
+    !image.quality.values.includes(body.quality as never)
+  )
+    return { error: 'unsupported quality', details: { available: image.quality.values } }
   if (body.input_images && body.input_images.length > (catalog.image.references.max ?? 0))
     return { error: 'too many reference images' }
   if (body.input_images?.length && !image.operations.includes('edit'))
@@ -297,7 +303,14 @@ export const cliImageRoutes = new Elysia({ name: 'cli-image-routes' })
         )
       if (outcome.kind === 'object_storage_error')
         return cliError('INTERNAL_ERROR', 'The request could not be completed', undefined, 503)
-      if (outcome.kind === 'price_unavailable' || outcome.kind === 'private_billing_denied')
+      if (outcome.kind === 'private_billing_denied')
+        return cliError(
+          'PLAN_REQUIRED',
+          'An active subscription is required for this image size',
+          undefined,
+          403,
+        )
+      if (outcome.kind === 'price_unavailable')
         return cliError('CAPABILITY_UNAVAILABLE', 'The CLI API is unavailable')
       if (outcome.kind === 'authentication_required')
         return cliError('UNAUTHENTICATED', 'Authentication is required')
