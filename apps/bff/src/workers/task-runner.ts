@@ -143,6 +143,10 @@ async function executeTask(execution: TaskExecution): Promise<void> {
   let archivePayload = task.archive_payload
   let receivedImages = false
   let protectOutput: Awaited<ReturnType<typeof protectMaskedOutput>> | undefined
+  let fallbackModel: string | undefined
+  const fallbackAt = task.submitted_at + config.upstream.vertexFallbackAfterMs
+  // 过了原模型总时限，没出的几张已经交给回落模型试过，失败就是终态，不再整单重跑。
+  const pastFallbackCap = () => fallbackModel !== undefined && Date.now() >= fallbackAt
   const stopExpiredArchive = async (cause?: unknown): Promise<boolean> => {
     if (!archivePayload) return false
     const startedAt = task.archive_retry_started_at ?? claimedAt
@@ -214,6 +218,9 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       })
       return
     }
+    // 原模型的总时限从提交算起（含排队与之前的重试），到点没出的几张改用回落模型。
+    fallbackModel =
+      task.provider === 'gemini' ? await rateLimitFallbackModel(task.model) : undefined
     const upstreamCall: UpstreamCallParams = {
       reconciliationRequired: task.reconciliation_required,
       provider: task.provider,
@@ -231,8 +238,8 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         : hydratedRequest,
       signal,
       resume,
-      ...(task.provider === 'gemini'
-        ? { rateLimitFallbackModel: await rateLimitFallbackModel(task.model) }
+      ...(fallbackModel
+        ? { rateLimitFallbackModel: fallbackModel, rateLimitFallbackAt: fallbackAt }
         : {}),
       onUpstreamTaskIds: (taskIds) =>
         execution.recordUpstreamTaskIds(taskIds, resume !== undefined),
@@ -279,7 +286,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         (await tryScheduleRetry(
           execution,
           attemptJustFailed,
-          !blocked && shouldRetryEmptyResult(task.provider, payload),
+          !blocked && !pastFallbackCap() && shouldRetryEmptyResult(task.provider, payload),
           `no_image: ${message}`,
         ))
       ) {
@@ -416,7 +423,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       (await tryScheduleRetry(
         execution,
         attemptJustFailed,
-        !(cloudArchive && receivedImages) && isRetryableError(err),
+        !(cloudArchive && receivedImages) && !pastFallbackCap() && isRetryableError(err),
         message,
       ))
     ) {
