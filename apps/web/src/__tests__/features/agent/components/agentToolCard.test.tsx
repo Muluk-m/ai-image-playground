@@ -7,7 +7,7 @@ import { subscribeLoginPrompt } from '../../../../auth/loginPrompt'
 import AgentArtifactPane from '../../../../features/agent/components/AgentArtifactPane'
 import AgentToolCard, {
   AgentImageRun,
-  regenerateText,
+  regenerateFromCard,
 } from '../../../../features/agent/components/AgentToolCard'
 import {
   setAgentComposerAttach,
@@ -23,6 +23,7 @@ import { useStore } from '../../../../store'
 
 const store = vi.hoisted(() => ({
   send: vi.fn(),
+  sendThroughAgent: vi.fn(),
   placeOnCanvas: vi.fn(),
   messages: [] as AgentToolMessage[],
   turns: {} as Record<string, AgentTurnFooter>,
@@ -1650,23 +1651,35 @@ describe('再次生成发出去的那一句', () => {
     title: '浴缸',
     prompt: '白色独立浴缸，晨光，极简浴室',
   }
+  const sendThroughAgent = store.sendThroughAgent
+
+  beforeEach(() => {
+    send.mockClear()
+    sendThroughAgent.mockClear()
+  })
 
   afterEach(() => useStore.setState({ createTarget: 'generate' }))
 
-  it('图片生成模式下没用参考图的文生图，原提示词直出，不套请求句', () => {
+  it('图片生成模式下没用参考图的文生图，原提示词直出，不套请求句', async () => {
     useStore.setState({ createTarget: 'generate' })
-    expect(regenerateText(card, request)).toBe('白色独立浴缸，晨光，极简浴室')
+    await regenerateFromCard(card, request)
+    expect(send).toHaveBeenCalledWith('白色独立浴缸，晨光，极简浴室', [], undefined, 'image')
+    expect(sendThroughAgent).not.toHaveBeenCalled()
   })
 
-  it('Agent 模式下照旧请智能体按原提示词再来一次', () => {
+  it('Agent 模式下照旧请智能体按原提示词再来一次', async () => {
     useStore.setState({ createTarget: 'chat' })
-    expect(regenerateText(card, request)).toBe(request('白色独立浴缸，晨光，极简浴室'))
+    await regenerateFromCard(card, request)
+    expect(sendThroughAgent).toHaveBeenCalledWith(request(card.prompt), 'image')
+    expect(send).not.toHaveBeenCalled()
   })
 
-  it('用了参考图或改图的卡，图片生成模式下也交给智能体带上原图', () => {
+  it('用了参考图或改图的卡，图片生成模式下也明确交给智能体，请求句不会被当成提示词直出', async () => {
     useStore.setState({ createTarget: 'generate' })
     const snapshot = { mode: 'image' as const, args: {}, imageIds: ['img-1'] }
-    expect(regenerateText({ ...card, snapshot }, request)).toBe(request(card.prompt))
-    expect(regenerateText({ ...card, toolName: 'editImage' }, request)).toBe(request(card.prompt))
+    await regenerateFromCard({ ...card, snapshot }, request)
+    await regenerateFromCard({ ...card, toolName: 'editImage' }, request)
+    expect(sendThroughAgent).toHaveBeenCalledTimes(2)
+    expect(send).not.toHaveBeenCalled()
   })
 })
