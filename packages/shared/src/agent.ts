@@ -437,13 +437,19 @@ export const AGENT_MODEL_IMAGE_MAX_N: Readonly<Record<string, number>> = {
   'gemini-3.1-flash-lite-image': 4,
 }
 
-/** 把张数收口到这个模型的单笔上限（{@link AGENT_MODEL_IMAGE_MAX_N}）。 */
+/**
+ * 这个模型智能体一单最多几张（{@link AGENT_MODEL_IMAGE_MAX_N}，没列出的照 `AGENT_IMAGE_MAX_N`）。
+ * 服务端收口与前端「图片生成」张数档共用这一份，两边才不会一个能选 8 张、一个只出 4 张（BUG-91）。
+ */
+export function agentModelImageMax(model: string | undefined): number {
+  return model && Object.prototype.hasOwnProperty.call(AGENT_MODEL_IMAGE_MAX_N, model)
+    ? AGENT_MODEL_IMAGE_MAX_N[model]!
+    : AGENT_IMAGE_MAX_N
+}
+
+/** 把张数收口到这个模型的单笔上限（{@link agentModelImageMax}）。 */
 export function agentModelImageCount(model: string | undefined, count: number): number {
-  const cap =
-    model && Object.prototype.hasOwnProperty.call(AGENT_MODEL_IMAGE_MAX_N, model)
-      ? AGENT_MODEL_IMAGE_MAX_N[model]!
-      : undefined
-  return cap === undefined ? count : Math.min(count, cap)
+  return Math.min(count, agentModelImageMax(model))
 }
 
 /**
