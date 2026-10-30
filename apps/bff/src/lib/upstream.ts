@@ -50,6 +50,12 @@ import {
   withoutImageCount,
   withoutModeration,
 } from './upstream/openai'
+import {
+  gptSchedulerBuckets,
+  type SchedulerBucket,
+  type SchedulerLease,
+  waitForSchedulerSlots,
+} from './upstream/scheduler'
 import { type ChannelRouteStyle, clientError, type UpstreamCallResult } from './upstream/shared'
 import {
   buildVertexBody,
@@ -102,6 +108,8 @@ interface UpstreamRoute {
   concurrency?: { channelId: string; limit: number }
   /** 模型声明支持的分辨率档位（`ChannelModel.imageSizes`）；Vertex 分支把其它档位换成最近一档。 */
   imageSizes?: readonly string[]
+  /** 每条上游请求发出前要在跨 worker 配额上占的桶（见 upstream/scheduler.ts）；空即不限。 */
+  schedulerBuckets?: readonly SchedulerBucket[]
 }
 
 /** 模型级上限优先，按「渠道/模型」各排各的队；没有再看渠道级上限。 */
@@ -209,6 +217,9 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
     asyncTasks: provider === 'openai-compat' && config.upstream.asyncImageTasks,
     // 通用网关未声明原生多图能力；模型名不能证明当前上游会兑现 n。
     supportsNativeN: false,
+    ...(provider === 'openai-compat' && isGptImageModel(model)
+      ? { schedulerBuckets: gptSchedulerBuckets(model, config.upstream.baseUrl) }
+      : {}),
   }
 }
 
@@ -296,6 +307,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     supportsNativeN,
     concurrency,
     imageSizes,
+    schedulerBuckets = [],
   } = resolveUpstream(provider, model)
   let request = params.request
   // 原生 n 只适用于无参考图的 Images generations；Responses 图片工具不接受 tools[].n。
@@ -330,14 +342,36 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
    * 轮询次数与计费无关，混进去会让 upstream_invocation_count 失去意义。
    */
   const dispatchIdentities = new WeakMap<UpstreamResponse, string>()
+  // 跨 worker 配额：每条计数的上游请求先占额度再发，响应读完（parseResponse）才还在途名额。
+  // 原生 n 一条请求出 n 张，按 n 张扣；fan-out 每条按 1 张扣。
+  const imagesPerDispatch = useNativeN ? requestedImageCount : 1
+  const schedulerLeases = new WeakMap<UpstreamResponse, SchedulerLease>()
+  const outstandingLeases = new Set<SchedulerLease>()
+  const releaseLease = async (lease: SchedulerLease, refund = false) => {
+    outstandingLeases.delete(lease)
+    await lease.release({ refund })
+  }
   const performFetch = async (
     url: string,
     init: UpstreamFetchInit,
     counted = true,
   ): Promise<UpstreamResponse> => {
+    let lease: SchedulerLease | undefined
+    if (counted && schedulerBuckets.length > 0) {
+      try {
+        lease = await waitForSchedulerSlots(schedulerBuckets, imagesPerDispatch, deadline.signal)
+      } catch (err) {
+        // 排队时就超时或被取消：请求根本没发出去，不是「结果未知」。
+        if (deadline.timedOut) throw new UpstreamTimeoutError()
+        throw err
+      }
+      if (lease) outstandingLeases.add(lease)
+    }
+    let sent = false
     try {
       if (deadline.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
       const dispatchId = counted ? await beforeRequest?.() : undefined
+      sent = true
 
       // The accounting callback is the dispatch commit point. Start the transport with a fresh
       // signal before relaying cancellation so a cancellation that loses the database race cannot
@@ -360,6 +394,10 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           throw error
         }
         if (dispatchId) dispatchIdentities.set(response, dispatchId)
+        if (lease) {
+          schedulerLeases.set(response, lease)
+          if (response.status === 429) await lease.rateLimited()
+        }
         const requestId =
           response.headers?.get('x-request-id') ?? response.headers?.get('request-id')
         if (dispatchId && requestId) await params.onRequestId?.(dispatchId, requestId)
@@ -368,6 +406,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         deadline.signal.removeEventListener('abort', relayAbort)
       }
     } catch (err) {
+      // 记账回调之前就失败：这次没发出去，张数退回。
+      if (lease) await releaseLease(lease, !sent)
       if (deadline.timedOut) throw new UpstreamTimeoutError()
       if (externalSignal?.aborted) throw err
       const detail = err instanceof Error ? err.message : String(err)
@@ -394,6 +434,9 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       throw new UpstreamResultUnknownError(`上游响应中断，执行结果未知：${detail}`, {
         cause: err,
       })
+    } finally {
+      const lease = schedulerLeases.get(res)
+      if (lease) await releaseLease(lease)
     }
   }
 
@@ -751,6 +794,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     throw err
   } finally {
     deadline.release()
+    // 没走到 parseResponse 的响应（同批别的请求先失败等）也要还在途名额，不能等心跳过期。
+    await Promise.all([...outstandingLeases].map((lease) => releaseLease(lease)))
   }
 }
 
