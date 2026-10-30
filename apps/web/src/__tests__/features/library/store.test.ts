@@ -51,8 +51,8 @@ afterEach(() => {
 })
 
 describe('opening the panel', () => {
-  it('lands on 项目 by default, not the empty 素材 tab that holds no generated images (BUG-18)', () => {
-    expect(useLibraryStore.getInitialState().tab).toBe('projects')
+  it('lands on 作品 by default, not the empty 素材 tab that holds no generated images (BUG-18)', () => {
+    expect(useLibraryStore.getInitialState().tab).toBe('works')
   })
 
   it('records the first open so the coach card stops showing', () => {

@@ -72,3 +72,22 @@ it('「失败」筛选下全选只选网格里看得见的失败卡，不带上�
   })
   expect(useStore.getState().selectedTaskIds).toEqual(['failed'])
 })
+
+it('作品页签传入自己的可见列表：全选按它来，不看创作页的筛选', () => {
+  useStore.setState({
+    tasks: [task('a', { status: 'done' }), task('b', { status: 'done' }), task('c')],
+    platformGenerations: [],
+    searchQuery: '',
+    filterStatus: 'error',
+    filterFavorite: false,
+    selectedTaskIds: ['a'],
+  })
+  act(() => root.render(<TaskBulkActions visibleTaskIds={['a', 'b']} placement="page" />))
+
+  expect(host.querySelector('[aria-label="取消全选"]')).toBeNull()
+  act(() => {
+    host.querySelector<HTMLButtonElement>('[aria-label="全选当前可见"]')?.click()
+  })
+  expect(useStore.getState().selectedTaskIds.sort()).toEqual(['a', 'b'])
+  expect(host.querySelector('[aria-label="取消全选"]')).not.toBeNull()
+})

@@ -3,6 +3,7 @@ import MediaImage from '../../../components/MediaImage'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { invalidateMediaPreview, mediaIdentity } from '../../../lib/cloudMedia'
+import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useCanvasProjectStore } from '../projectStore'
 
 /** 封面迟迟没出来就先收起转圈、换成图标；之后真加载到了照样换成图片。 */
@@ -39,16 +40,58 @@ function useNearViewport() {
   return [ref, near] as const
 }
 
+/**
+ * 云端视频直接走支持 Range 的 `/api/media/:id/content`，浏览器只按需取元数据和首帧。
+ * 不能走 `resolveMediaSource`：它会把整段视频下载成 data URL 再缓存。
+ */
+export function videoCoverUrl(source: string): string {
+  const id = mediaIdentity(source)
+  return id ? `${bffBaseUrl()}/api/media/${id}/content` : source
+}
+
+/** 只出过视频的对话拿视频首帧当封面：只取元数据和第一帧，不自动播放。 */
+function VideoFrame({
+  src,
+  className,
+  onLoad,
+  onError,
+}: {
+  src: string
+  className: string
+  onLoad: () => void
+  onError: () => void
+}) {
+  return (
+    <video
+      src={`${videoCoverUrl(src)}#t=0.1`}
+      muted
+      playsInline
+      preload="metadata"
+      crossOrigin="use-credentials"
+      aria-hidden="true"
+      onLoadedData={onLoad}
+      onError={onError}
+      className={className}
+    />
+  )
+}
+
 export default function ProjectCover({
   source,
   chat,
   pending = false,
   fit = 'contain',
+  video = false,
+  summary,
 }: {
   source?: string
   chat: boolean
   pending?: boolean
   fit?: 'contain' | 'cover'
+  /** `source` 是视频：显示首帧。 */
+  video?: boolean
+  /** 没有封面的对话卡显示这段文字（首条消息摘要），不再只剩一个图标。 */
+  summary?: string
 }) {
   const { t } = useTranslation('canvas')
   const retryRound = useCanvasProjectStore((state) => state.coverRetryRound)
@@ -64,6 +107,7 @@ export default function ProjectCover({
   const retries = autoRetry.base === base ? autoRetry.count : 0
   const key = `${base}#${retries}`
   const onResolveError = useCallback(() => setSettled({ key, failed: true }), [key])
+  const onLoaded = useCallback(() => setSettled({ key, failed: false }), [key])
   const onImageError = useCallback(() => {
     const fail = () => setSettled({ key, failed: true })
     if (!source || !mediaIdentity(source)) return fail()
@@ -96,7 +140,7 @@ export default function ProjectCover({
       <span ref={sentinel} aria-hidden="true" className="pointer-events-none absolute inset-0" />
       {showImage && source && (
         <>
-          {fit === 'contain' && (
+          {fit === 'contain' && !video && (
             <MediaImage
               key={`blur-${key}`}
               src={source}
@@ -106,17 +150,27 @@ export default function ProjectCover({
               className={`absolute inset-0 h-full w-full scale-125 object-cover blur-2xl saturate-150 ${loaded ? 'opacity-50' : 'opacity-0'}`}
             />
           )}
-          <MediaImage
-            key={key}
-            src={source}
-            alt=""
-            loading="lazy"
-            data-project-cover-state={loaded ? 'loaded' : failed ? 'failed' : 'loading'}
-            onLoad={() => setSettled({ key, failed: false })}
-            onError={onImageError}
-            onResolveError={onResolveError}
-            className={`relative h-full w-full ${fit === 'cover' ? 'object-cover' : 'object-contain'} ${loaded ? '' : 'opacity-0'}`}
-          />
+          {video ? (
+            <VideoFrame
+              key={key}
+              src={source}
+              onLoad={onLoaded}
+              onError={onResolveError}
+              className={`relative h-full w-full ${fit === 'cover' ? 'object-cover' : 'object-contain'} ${loaded ? '' : 'opacity-0'}`}
+            />
+          ) : (
+            <MediaImage
+              key={key}
+              src={source}
+              alt=""
+              loading="lazy"
+              data-project-cover-state={loaded ? 'loaded' : failed ? 'failed' : 'loading'}
+              onLoad={onLoaded}
+              onError={onImageError}
+              onResolveError={onResolveError}
+              className={`relative h-full w-full ${fit === 'cover' ? 'object-cover' : 'object-contain'} ${loaded ? '' : 'opacity-0'}`}
+            />
+          )}
         </>
       )}
       {loading ? (
@@ -132,9 +186,14 @@ export default function ProjectCover({
           />
         </span>
       ) : (
-        !loaded && (
+        !loaded &&
+        (chat && summary ? (
+          <span className="line-clamp-4 w-full self-start px-4 pt-4 text-left text-sm leading-relaxed text-muted-foreground">
+            {summary}
+          </span>
+        ) : (
           <Icon name={chat ? 'chat' : 'image'} size="lg" className="text-muted-foreground" />
-        )
+        ))
       )}
     </>
   )
