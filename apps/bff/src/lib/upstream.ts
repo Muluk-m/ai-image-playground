@@ -690,11 +690,13 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         /** 原模型的总时限：到点不再排队、不再退避，抛 {@link VertexTimeCapError} 交给回落。 */
         capAt?: number,
       ) => {
-        if (capAt !== undefined && Date.now() >= capAt) throw new VertexTimeCapError()
+        // 剩余时间只读一次：检查和建定时器之间跨过时限也不会给 AbortSignal.timeout 传负数。
+        const capLeftMs = capAt === undefined ? undefined : capAt - Date.now()
+        if (capLeftMs !== undefined && capLeftMs <= 0) throw new VertexTimeCapError()
         const queueSignal =
-          capAt === undefined
+          capLeftMs === undefined
             ? deadline.signal
-            : AbortSignal.any([deadline.signal, AbortSignal.timeout(capAt - Date.now())])
+            : AbortSignal.any([deadline.signal, AbortSignal.timeout(capLeftMs)])
         const release = target.concurrency
           ? await acquireChannelSlot(
               target.concurrency.channelId,
