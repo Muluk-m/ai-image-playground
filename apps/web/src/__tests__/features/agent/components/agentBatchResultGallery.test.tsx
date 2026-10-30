@@ -4,7 +4,10 @@ import type { AgentBatchPage, AgentToolArtifact } from '@image-playground/shared
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
-import AgentBatchResultGallery from '../../../../features/agent/components/AgentBatchResultGallery'
+import AgentBatchResultGallery, {
+  AgentBatchTileStrip,
+  BATCH_TILE_SLOW_AFTER_MS,
+} from '../../../../features/agent/components/AgentBatchResultGallery'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
 import { panelMessage } from '../../../../features/agent/lib/panelMessages'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
@@ -180,6 +183,87 @@ it('does not fetch shown thumbnails again when a poll brings the same outputs as
       await act(async () => root.render(<AgentBatchResultGallery artifacts={artifacts()} />))
     expect(host.querySelectorAll('img')).toHaveLength(2)
     expect(displayReads.sort()).toEqual(['poll-artifact-0', 'poll-artifact-1'])
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+  }
+})
+
+it('多张生成排成同尺寸图块：各自显示状态与已用时间，久跑提示比平时慢，出图后原位换缩略图', async () => {
+  const now = Date.now()
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentBatchTileStrip
+          tiles={[
+            {
+              key: 'done',
+              position: 1,
+              progress: 'completed',
+              execution: {
+                taskId: 'tile-task-0',
+                status: 'completed',
+                attempt: 1,
+                artifacts: [
+                  {
+                    artifactId: 'tile-artifact-0',
+                    media: 'image',
+                    taskId: 'tile-task-0',
+                    outputIndex: 0,
+                    mime: 'image/png',
+                  },
+                ],
+              },
+            },
+            {
+              key: 'running',
+              position: 2,
+              progress: 'in_flight',
+              execution: {
+                taskId: 'tile-task-1',
+                status: 'in_progress',
+                attempt: 1,
+                startedAt: now - 42_000,
+              },
+            },
+            {
+              key: 'stuck',
+              position: 3,
+              progress: 'in_flight',
+              execution: {
+                taskId: 'tile-task-2',
+                status: 'in_progress',
+                attempt: 1,
+                startedAt: now - BATCH_TILE_SLOW_AFTER_MS - 5_000,
+              },
+            },
+            { key: 'waiting', position: 4, progress: 'ready' },
+          ]}
+        />,
+      ),
+    )
+    const tiles = [...host.querySelectorAll<HTMLElement>('[data-batch-tile]')]
+    expect(tiles.map((tile) => tile.dataset.batchStatus)).toEqual([
+      'completed',
+      'in_flight',
+      'in_flight',
+      'ready',
+    ])
+    await vi.waitFor(() =>
+      expect(host.querySelector<HTMLImageElement>('[data-batch-tile="done"] img')?.src).toContain(
+        'display-tile-task-0',
+      ),
+    )
+    const running = host.querySelector('[data-batch-tile="running"]')!
+    expect(running.textContent).toMatch(/执行中0:4\d/)
+    expect(running.textContent).not.toContain('比平时慢')
+    expect(host.querySelector('[data-batch-tile="stuck"]')!.textContent).toContain('比平时慢')
+    const waiting = host.querySelector('[data-batch-tile="waiting"]')!
+    expect(waiting.textContent).toContain('待派发')
+    expect(waiting.textContent).not.toMatch(/\d:\d\d/)
   } finally {
     act(() => root.unmount())
     host.remove()
