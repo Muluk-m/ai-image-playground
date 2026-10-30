@@ -48,7 +48,10 @@ _setChannelsForTesting([
     baseUrl: 'https://openai.invalid/v1',
     auth: { type: 'bearer', secretRef: 'UPSTREAM_API_KEY', secret: 'openai-test-key' },
     allowedPaths: [],
-    models: [{ id: 'gpt-image-2.5-flare', label: 'flare', capabilities: ['generate'] }],
+    models: [
+      { id: 'gpt-image-2.5-flare', label: 'flare', capabilities: ['generate'] },
+      { id: 'gemini-3.1-flash-lite-image', label: 'same id', capabilities: ['generate'] },
+    ],
     defaults: { apiMode: 'images', timeout: 600 },
   },
 ] as unknown as InternalChannel[])
@@ -250,6 +253,8 @@ describe('认领', () => {
     )
     // gpt-image-2.5-flare 的渠道没有并发上限，Vertex 的 Flash Lite 有。
     expect(turnSerializedModels()).toContain('gemini-3.1-flash-lite-image')
+    expect(turnSerializedModels('gemini')).toContain('gemini-3.1-flash-lite-image')
+    expect(turnSerializedModels('openai-compat')).not.toContain('gemini-3.1-flash-lite-image')
     expect(turnSerializedModels()).not.toContain('gpt-image-2.5-flare')
     const flare = {
       user_id: 'flare-user',

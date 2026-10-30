@@ -5,7 +5,7 @@ import type {
   AgentBatchUpdate,
 } from '@image-playground/shared'
 import { agentImageShape } from '@image-playground/shared'
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
 import MediaImage from '../../../components/MediaImage'
 import { compactModelName, ModelLogo } from '../../../components/ModelIdentity'
@@ -165,6 +165,14 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const operations = useRef(0)
   const card = useRef<HTMLElement>(null)
   const runRow = useRef<HTMLDivElement>(null)
+  const [runRowMounted, setRunRowMounted] = useState(false)
+  const setRunRowRef = useCallback((node: HTMLDivElement | null) => {
+    runRow.current = node
+    setRunRowMounted((current) => {
+      const next = Boolean(node)
+      return current === next ? current : next
+    })
+  }, [])
   const [cancellingItems, setCancellingItems] = useState<ReadonlySet<string>>(() => new Set())
   const [cancelItemFailed, setCancelItemFailed] = useState(false)
   if (card.current) {
@@ -364,7 +372,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       observer?.disconnect()
       document.removeEventListener('visibilitychange', visibility)
     }
-  }, [watch, batchId, commands, dirty])
+  }, [watch, batchId, commands, dirty, runRowMounted])
   const refresh = () => apply(() => fetchBatchPlan(batchId), true)
   // 只撤一张：不走 apply 的整卡忙碌锁，别的图块和计划卡照常可点；计费由后端取消任务的既有结算处理。
   const cancelItem = async (key: string) => {
@@ -374,7 +382,10 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     const operation = ++operations.current
     try {
       const result = await cancelBatchItem(batchId, key)
-      if (commands.current() && operation === operations.current) setPage(result)
+      if (commands.current() && operation === operations.current) {
+        operations.current++
+        setPage(result)
+      }
     } catch {
       if (commands.current()) setCancelItemFailed(true)
     } finally {
@@ -1322,7 +1333,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   return (
     <div className="grid min-w-0 gap-3">
       {plan}
-      <div ref={runRow} className="min-w-0">
+      <div ref={setRunRowRef} className="min-w-0">
         <AgentBatchRunRow
           tiles={runTiles}
           meta={runMeta}

@@ -385,52 +385,63 @@ export function retryHoldsSlot(alias: string, now: number): SQL {
  */
 export const TURN_SIBLING_PARALLELISM = 3
 
-/** 声明了并发上限的队列模型名（含退役旧名）；同轮同模型的任务对它们仍一次一条。 */
-export function turnSerializedModels(): string[] {
+/** 返回指定 provider 下声明了并发上限的模型名；不传 provider 时仅供诊断测试读取全部模型。 */
+export function turnSerializedModels(provider?: QueueProvider): string[] {
   const models = new Set<string>()
   for (const channel of getRoutableChannels()) {
-    const provider =
+    const channelProvider =
       channel.kind === 'gemini-queue'
         ? ('gemini' as const)
         : channel.kind === 'openai-queue'
           ? ('openai-compat' as const)
           : null
-    if (!provider) continue
+    if (!channelProvider || (provider && channelProvider !== provider)) continue
     for (const model of channel.models)
-      for (const id of taskConcurrencyScope(provider, model.id)?.models ?? []) models.add(id)
+      for (const id of taskConcurrencyScope(channelProvider, model.id)?.models ?? []) models.add(id)
   }
   return [...models].sort()
 }
 
-/** 这个模型同轮同时能跑几条，写成 SQL 表达式：认领（模型是字面量）和挑候选（模型是列）共用一份规则。 */
-function turnSiblingLimit(model: SQLWrapper): SQL {
-  const serialized = turnSerializedModels()
-  if (serialized.length === 0) return sql`${TURN_SIBLING_PARALLELISM}`
-  return sql`(case when ${model} in (${sql.join(
-    serialized.map((id) => sql`${id}`),
-    sql`, `,
-  )}) then 1 else ${TURN_SIBLING_PARALLELISM} end)`
+/** 这个 provider + model 同轮同时能跑几条，写成 SQL 表达式。 */
+function turnSiblingLimit(provider: SQLWrapper, model: SQLWrapper): SQL {
+  const scopes: SQL[] = []
+  for (const [scopeProvider, models] of [
+    ['gemini' as const, turnSerializedModels('gemini')],
+    ['openai-compat' as const, turnSerializedModels('openai-compat')],
+  ] as const) {
+    if (models.length)
+      scopes.push(
+        sql`when ${provider} = ${scopeProvider} and ${model} in (${sql.join(
+          models.map((id) => sql`${id}`),
+          sql`, `,
+        )}) then 1`,
+      )
+  }
+  return scopes.length
+    ? sql`case ${sql.join(scopes, sql` `)} else ${TURN_SIBLING_PARALLELISM} end`
+    : sql`${TURN_SIBLING_PARALLELISM}`
 }
 
-/**
- * 同一轮同模型、还在跑或等重试的兄弟任务是否已经占满 {@link turnSiblingLimit}。条件写成 SQL 片段，
- * 认领事务（用户行锁下，不会两条同时认领）和挑选候选的查询共用，后者只是少挑注定认领不到的那条。
- * 不是智能体提交的任务（没有 agent_jobs 行）不受影响。
- */
-export function turnSiblingsAtLimit(taskId: SQLWrapper, model: SQLWrapper, now = Date.now()): SQL {
+/** 同一轮同模型、还在跑或等重试的兄弟任务是否已经占满上限。 */
+export function turnSiblingsAtLimit(
+  taskId: SQLWrapper,
+  provider: SQLWrapper,
+  model: SQLWrapper,
+  now = Date.now(),
+): SQL {
   return sql`((
     select count(*) from ${schema.agent_jobs} as turn_mine
     join ${schema.agent_jobs} as turn_sibling
       on turn_sibling.conversation_id = turn_mine.conversation_id
       and turn_sibling.turn_id = turn_mine.turn_id
       and turn_sibling.task_id <> turn_mine.task_id
-      -- 在跑的、等重试的都还没结束，不会已投递；带上它才用得上 idx_agent_jobs_undelivered。
       and turn_sibling.delivered_at is null
     join ${schema.tasks} as turn_sibling_task on turn_sibling_task.id = turn_sibling.task_id
     where turn_mine.task_id = ${taskId}
       and (turn_sibling_task.status = 'in_progress' or ${retryHoldsSlot('turn_sibling_task', now)})
+      and turn_sibling_task.provider = ${provider}
       and turn_sibling_task.model = ${model}
-  ) >= ${turnSiblingLimit(model)})`
+  ) >= ${turnSiblingLimit(provider, model)})`
 }
 
 /**
@@ -442,6 +453,7 @@ export function turnSiblingsAtLimit(taskId: SQLWrapper, model: SQLWrapper, now =
 async function anonymousTurnSiblingRunning(
   tx: BffTransaction,
   taskId: string,
+  provider: string,
   model: string,
   now: number,
 ): Promise<boolean> {
@@ -453,7 +465,9 @@ async function anonymousTurnSiblingRunning(
     .where(eq(schema.agent_jobs.task_id, taskId))
   if (locked.length === 0) return false
   const [sibling] = await tx
-    .select({ running: turnSiblingsAtLimit(sql`${taskId}`, sql`${model}`, now) })
+    .select({
+      running: turnSiblingsAtLimit(sql`${taskId}`, sql`${provider}`, sql`${model}`, now),
+    })
     .from(sql`(select 1) as one`)
   return Boolean(sibling?.running)
 }
@@ -502,7 +516,12 @@ export async function claimTaskExecution(
         .for('no key update')
       const [sibling] = await tx
         .select({
-          running: turnSiblingsAtLimit(sql`${id}`, sql`${candidate.model}`, claimedAt),
+          running: turnSiblingsAtLimit(
+            sql`${id}`,
+            sql`${candidate.provider}`,
+            sql`${candidate.model}`,
+            claimedAt,
+          ),
         })
         .from(sql`(select 1) as one`)
       if (sibling?.running) return null
@@ -561,7 +580,8 @@ export async function claimTaskExecution(
         }
       }
     } else {
-      if (await anonymousTurnSiblingRunning(tx, id, candidate.model, claimedAt)) return null
+      if (await anonymousTurnSiblingRunning(tx, id, candidate.provider, candidate.model, claimedAt))
+        return null
       if (serializeProviderClaims) await lockIdleSlotClaims(tx, candidate.provider)
     }
     const [row] = await tx
