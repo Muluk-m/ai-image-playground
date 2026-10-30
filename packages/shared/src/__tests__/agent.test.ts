@@ -6,6 +6,8 @@ import {
   agentConversationTitle,
   agentHeartbeatFrame,
   agentMessageText,
+  agentModelImageCount,
+  agentModelImageMax,
   agentToolResultSummary,
   agentTurnCostTotal,
   canvasStageRunsDirectly,
@@ -193,5 +195,15 @@ describe('agentTurnCostTotal', () => {
 
   it('counts a chat-only turn', () => {
     expect(agentTurnCostTotal({ chat: 60, image: 0, video: 0 })).toBe(60)
+  })
+})
+
+describe('agentModelImageMax', () => {
+  it('Lite 单笔上限 4 张，没列出的模型照智能体总上限', () => {
+    expect(agentModelImageMax('gemini-3.1-flash-lite-image')).toBe(4)
+    expect(agentModelImageMax('gemini-nano-banana-2.1')).toBe(10)
+    expect(agentModelImageMax(undefined)).toBe(10)
+    expect(agentModelImageCount('gemini-3.1-flash-lite-image', 8)).toBe(4)
+    expect(agentModelImageCount('gemini-nano-banana-2.1', 8)).toBe(8)
   })
 })

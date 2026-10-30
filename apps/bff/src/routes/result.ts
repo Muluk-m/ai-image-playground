@@ -12,6 +12,7 @@ import { publicTaskErrorMessage } from '../lib/public-task-error'
 import { asQueueProvider } from '../lib/queueProvider'
 import { parseByteRange, rangeStreamResponse } from '../lib/rangeResponse'
 import { taskAccessWhere } from '../lib/task-access'
+import { partialFailureField } from '../lib/upstream/partial'
 import { requireUserOrService } from '../lib/user-auth'
 
 const outputRouteOptions = {
@@ -61,6 +62,7 @@ export const resultRoutes = new Elysia()
           images: meta.images,
           ...(meta.actual_params ? { actual_params: meta.actual_params } : {}),
           ...(meta.raw_image_urls ? { raw_image_urls: meta.raw_image_urls } : {}),
+          ...partialFailureField(task.result_payload),
         }
         return jsonResponse(body, request)
       }

@@ -14,6 +14,7 @@ import {
   readBackups as readBackupsFromStore,
   readRestoreDrill as readRestoreDrillFromStore,
 } from '../lib/ops-backups'
+import { redactLogText } from '../lib/server-log-buffer'
 import { selectRunnableTasks } from '../workers/runnable-tasks'
 import type { AlertSender } from './alert-sender'
 
@@ -30,6 +31,11 @@ interface ObserveOptions {
   onMissed?: (block: string) => void
   readBackups?: () => Promise<OpsBackups>
   readRestoreDrill?: () => Promise<OpsRestoreDrill | null>
+  /**
+   * 还在等它重新出图的模型（告警状态里的等待名单）。名单空着就不查成功记录：没出事时每轮只多一条
+   * 与原来失败计数同条件的查询。
+   */
+  watchingModels?: readonly string[]
 }
 
 async function attempt<T>(
@@ -154,23 +160,87 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
       attempt(
         'failures',
         async () => {
-          const [generationRaw, agentRaw] = await Promise.all([
-            db.execute(sql`
-          SELECT COUNT(*) AS count FROM tasks
-          WHERE kind = 'queue' AND status = 'failed'
-            AND error_type IS DISTINCT FROM 'content_policy'
-            AND completed_at >= NOW() - INTERVAL '15 minutes'
-        `),
+          const watching = [...new Set(options.watchingModels ?? [])]
+          const [agentRaw, modelsRaw, successesRaw] = await Promise.all([
             db.execute(sql`
           SELECT COUNT(*) AS count FROM agent_turns
           WHERE stop_reason = 'failed' AND created_at >= NOW() - INTERVAL '15 minutes'
         `),
+            // 每个模型一行：失败次数，加上最近一次失败的类型、上游状态码和报错前 200 字。
+            // 系统失败总数就是各行之和，不再单独查一遍。
+            db.execute(sql`
+          WITH failed AS (
+            SELECT t.id, t.model, t.error_type, t.upstream_status, t.completed_at
+            FROM tasks t
+            WHERE t.kind = 'queue' AND t.status = 'failed'
+              AND t.error_type IS DISTINCT FROM 'content_policy'
+              AND t.completed_at >= NOW() - INTERVAL '15 minutes'
+              -- 用提交时间收窄到近 7 天（走 idx_tasks_submitted_at），不必为告警再加索引和迁移。
+              -- 任务从提交到结束远短于 7 天（上游硬超时 15 分钟、结果确认 30 分钟就告警），不会漏算。
+              AND t.submitted_at >= NOW() - INTERVAL '7 days'
+          ),
+          -- 每个模型最近一条失败，只扫一遍窗口；原文按主键回表只读这一条的完整文本
+          -- （先截断再脱敏会把截在边界上的半截密钥漏出去），不把窗口内每条原文都聚合出来。
+          latest AS (
+            SELECT DISTINCT ON (f.model) f.model, f.id, f.error_type, f.upstream_status
+            FROM failed f
+            ORDER BY f.model, f.completed_at DESC, f.id DESC
+          ),
+          counts AS (
+            SELECT f.model, COUNT(*) AS failures, MAX(f.completed_at) AS last_failed
+            FROM failed f
+            GROUP BY f.model
+          )
+          SELECT c.model,
+            c.failures,
+            l.error_type,
+            l.upstream_status,
+            COALESCE(lt.error_message, '') AS message,
+            EXTRACT(EPOCH FROM c.last_failed) * 1000 AS last_failed_at,
+            -- 只算因上游不可用被自动暂停的；运营手动停用会清掉 pause_reason，不算。
+            COALESCE(m.active = false AND m.pause_reason = 'upstream_unavailable', false) AS paused
+          FROM counts c
+          JOIN latest l ON l.model = c.model
+          JOIN tasks lt ON lt.id = l.id
+          LEFT JOIN model_availability m ON m.model = c.model
+          ORDER BY failures DESC, last_failed_at DESC
+        `),
+            // 恢复看的是「出事后这个模型有没有真的出过图」，不是失败数掉没掉。只查等待名单里的模型；
+            // 窗口相对现在：名单每轮都对一遍，成功一发生就在窗口里，多晚恢复都看得见。
+            watching.length === 0
+              ? Promise.resolve([])
+              : db.execute(sql`
+          SELECT model, EXTRACT(EPOCH FROM MAX(completed_at)) * 1000 AS last_succeeded_at
+          FROM tasks
+          WHERE kind = 'queue' AND status = 'completed'
+            AND model IN (${sql.join(
+              watching.map((model) => sql`${model}`),
+              sql`, `,
+            )})
+            AND completed_at >= NOW() - INTERVAL '24 hours'
+            AND submitted_at >= NOW() - INTERVAL '8 days'
+          GROUP BY model
+        `),
           ])
-          const generationRows = generationRaw as unknown as Array<Record<string, unknown>>
           const agentRows = agentRaw as unknown as Array<Record<string, unknown>>
+          const modelRows = modelsRaw as unknown as Array<Record<string, unknown>>
+          const successRows = successesRaw as unknown as Array<Record<string, unknown>>
           return {
-            generation_system: Number(generationRows[0]?.count ?? 0),
+            generation_system: modelRows.reduce((sum, row) => sum + Number(row.failures ?? 0), 0),
             agent: Number(agentRows[0]?.count ?? 0),
+            generation_models: modelRows.map((row) => ({
+              model: String(row.model ?? 'unknown'),
+              failures: Number(row.failures ?? 0),
+              errorType: String(row.error_type ?? 'unknown'),
+              upstreamStatus: row.upstream_status == null ? null : Number(row.upstream_status),
+              // 报错原文会外发到值班 webhook：先按服务端日志的规则抹掉令牌、密钥和带账号的地址，再截 200 字。
+              message: redactLogText(String(row.message ?? '')).slice(0, 200),
+              lastFailedAt: Number(row.last_failed_at ?? 0),
+              paused: row.paused === true,
+            })),
+            generation_successes: Object.fromEntries(
+              successRows.map((row) => [String(row.model), Number(row.last_succeeded_at ?? 0)]),
+            ),
           }
         },
         missed,
@@ -234,6 +304,7 @@ export function createAppAlerting(options: AppAlertingOptions): (now?: number) =
         now,
         readBackups: options.readBackups,
         readRestoreDrill: options.readRestoreDrill,
+        watchingModels: Object.keys(state.generationWatch ?? {}),
         onMissed: (block) => missed.add(block),
       })
       for (const block of blindRounds.keys()) if (!missed.has(block)) blindRounds.delete(block)
