@@ -867,9 +867,12 @@ async function fanOutRequests(
   // 结果未知的那条可能已经出了图、上游也可能已经计费：不能当“没出图”退钱再交付，
   // 照结果待核查线路的口径整组交给核查，免得错退积分、重试时重复出图。
   const unknown = failures.find((reason) => reason instanceof UpstreamResultUnknownError)
-  if (unknown && delivered.length > 0)
+  // 显式要求核查：task-runner 只在任务已标记或错误带 requiresReconciliation 时才进核查。
+  // 被取消时照原样抛，不改成核查。
+  if (unknown && delivered.length > 0 && !cancelled())
     throw new UpstreamResultUnknownError('部分请求已完成，整组结果和结算待核查。', {
       cause: unknown,
+      requiresReconciliation: true,
     })
   if (delivered.length === 0 || cancelled()) throw unknown ?? failures[0]
   return withPartialFailure(merge(delivered), count, failures)
