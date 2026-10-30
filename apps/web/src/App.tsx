@@ -34,7 +34,6 @@ import { isPricingPath, isPrivacyPath, isTermsPath } from './lib/appPaths'
 import { dragTargetIsImage } from './lib/dragTarget'
 import { installWorkbenchNavigation } from './lib/navigation/workbenchNavigation'
 import { usePathname } from './lib/pathname'
-import { takeSiteDraft } from './lib/siteDraft'
 import { startSyncEngine } from './lib/sync/engine'
 import { clearUrlSettingParams, hasUrlSettingParams } from './lib/urlSettings'
 import { initStore, useStore } from './store'
@@ -86,10 +85,6 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     }
 
     void initStore().then(() => {
-      // 官网输入框写好的提示词只填进空输入框，不替用户提交。
-      const draft = takeSiteDraft()
-      const store = useStore.getState()
-      if (draft && !store.prompt.trim()) store.setPrompt(draft)
       if (user) return resumePendingSubmission()
     })
     initHashRoute()
