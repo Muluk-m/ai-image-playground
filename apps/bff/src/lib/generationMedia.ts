@@ -177,6 +177,8 @@ export function generationSourceCheckpoint(id: string, provider: QueueProvider, 
         mime: ref.mime,
       })),
     }
+  // Vertex 429 回落记下的实际模型（upstream.ts）要跟着检查点走，归档重试后结果里还看得到。
+  const fallback = (payload as { model_fallback?: unknown } | null)?.model_fallback
   return {
     archive_store: 'durable',
     candidates: [
@@ -188,6 +190,7 @@ export function generationSourceCheckpoint(id: string, provider: QueueProvider, 
         },
       },
     ],
+    ...(fallback ? { model_fallback: fallback } : {}),
   }
 }
 

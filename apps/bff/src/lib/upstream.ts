@@ -53,6 +53,8 @@ import {
 import { type ChannelRouteStyle, clientError, type UpstreamCallResult } from './upstream/shared'
 import {
   buildVertexBody,
+  isRateLimited,
+  modelFallbackRecord,
   vertexPartialRateLimitFailure,
   withVertexRateLimitRetry,
 } from './upstream/vertex'
@@ -226,6 +228,11 @@ export interface UpstreamCallParams {
   onUpstreamTaskIds?: (taskIds: readonly string[]) => Promise<void>
   /** 本任务已提交过的上游异步任务：这些 id 只轮询，永不重提。 */
   resume?: UpstreamResume
+  /**
+   * Vertex 单张退避用完仍 429 时补这一张的模型（调用方已排除停用的与原模型本身）。
+   * 只在它同走 Vertex 直连时生效，见 {@link resolveVertexFallback}。
+   */
+  rateLimitFallbackModel?: string
 }
 
 export interface UpstreamResume {
@@ -663,35 +670,78 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // supported for audio or image response"），n>1 时本层 fan-out 成 N 条单张请求
       // 并把 candidates 合并到一个 payload，对 task-runner / 前端透明。声明了 maxConcurrency
       // （Vertex 按模型各配 2）时，每条请求先排「渠道/模型」或渠道级的队再发。
+      const sendVia = async (target: {
+        url: string
+        body: string
+        concurrency: UpstreamRoute['concurrency']
+      }) => {
+        const release = target.concurrency
+          ? await acquireChannelSlot(
+              target.concurrency.channelId,
+              target.concurrency.limit,
+              deadline.signal,
+            ).catch((error: unknown) => {
+              // 排队时就超时：请求根本没发出去，按普通超时报，不是「结果未知」。
+              if (deadline.timedOut) throw new UpstreamTimeoutError()
+              throw error
+            })
+          : undefined
+        const send = async () =>
+          await parseResponse(
+            await performFetch(target.url, { method: 'POST', headers, body: target.body }),
+          )
+        try {
+          // Vertex 的 429 是按模型的到达速率限流：先在这条请求里退避重发，一单多张里已出的图不必重来。
+          return vertex
+            ? await withVertexRateLimitRetry(send, deadline.signal, () => deadline.timedOut)
+            : await send()
+        } finally {
+          release?.()
+        }
+      }
+      const primary = { url, body, concurrency }
+      const fallback = vertex
+        ? resolveVertexFallback(model, params.rateLimitFallbackModel, request, base, key)
+        : undefined
+      let fallbackImages = 0
+      const merge = (results: UpstreamCallResult[]) => {
+        const merged = mergeGeminiCandidateResults(results)
+        if (!fallback || fallbackImages === 0) return merged
+        return {
+          payload: {
+            ...(merged.payload as Record<string, unknown>),
+            model_fallback: modelFallbackRecord(model, fallback.model, fallbackImages),
+          },
+        }
+      }
       return await fanOutRequests(
         request.n,
         async () => {
-          const release = concurrency
-            ? await acquireChannelSlot(
-                concurrency.channelId,
-                concurrency.limit,
-                deadline.signal,
-              ).catch((error: unknown) => {
-                // 排队时就超时：请求根本没发出去，按普通超时报，不是「结果未知」。
-                if (deadline.timedOut) throw new UpstreamTimeoutError()
-                throw error
-              })
-            : undefined
-          const send = async () =>
-            await parseResponse(await performFetch(url, { method: 'POST', headers, body }))
           try {
-            // Vertex 的 429 是按模型的到达速率限流：先在这条请求里退避重发，一单多张里已出的图不必重来。
-            return vertex
-              ? await withVertexRateLimitRetry(send, deadline.signal, () => deadline.timedOut)
-              : await send()
-          } finally {
-            release?.()
+            return await sendVia(primary)
+          } catch (error) {
+            // 退避用完仍 429：这一张换回落模型补上（它有自己的排队位与退避）；别的错误照原样抛。
+            if (!fallback || !isRateLimited(error) || deadline.signal.aborted) throw error
+            log.warn(
+              {
+                event: 'upstream.vertex_rate_limit_fallback',
+                requestedModel: model,
+                fallbackModel: fallback.model,
+              },
+              'vertex rate limit exhausted, falling back',
+            )
+            const result = await sendVia(fallback)
+            fallbackImages += 1
+            return result
           }
         },
-        mergeGeminiCandidateResults,
+        (results) => merge(results),
         params.reconciliationRequired,
-        // 有图已出、另一条退避用完仍 429：不让任务级重试把整组重新生成（见 vertexPartialRateLimitFailure）。
+        // 有图已出、另一条（含回落）仍 429：不让任务级重试把整组重新生成（见 vertexPartialRateLimitFailure）。
         vertex ? vertexPartialRateLimitFailure : undefined,
+      ).then((result) =>
+        // 单张请求（n=1）不经过 merge：回落出的那张也要记下实际模型。
+        (request.n ?? 1) <= 1 && fallback && fallbackImages > 0 ? merge([result]) : result,
       )
     }
     throw new Error(`Unsupported provider: ${provider satisfies never}`)
@@ -731,6 +781,37 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
     }
     signal.addEventListener('abort', onAbort, { once: true })
   })
+}
+
+/**
+ * Vertex 429 回落的目标：只回落到同一个 Vertex 直连上（同一个 key、同一个 baseUrl）的另一个模型，
+ * 换到别的上游就要换协议和凭据，不在这次止损的范围里。回落模型不认的分辨率按它自己的声明收口。
+ * 找不到、或配成原模型本身时不回落。
+ */
+function resolveVertexFallback(
+  model: string,
+  fallbackModel: string | undefined,
+  request: HydratedSubmitRequest,
+  base: string,
+  key: string,
+):
+  | { model: string; url: string; body: string; concurrency: UpstreamRoute['concurrency'] }
+  | undefined {
+  if (!fallbackModel || fallbackModel === model) return undefined
+  let route: UpstreamRoute
+  try {
+    route = resolveUpstream('gemini', fallbackModel)
+  } catch {
+    return undefined
+  }
+  if (route.style !== 'vertex-generate-content' || route.baseUrl !== base || route.key !== key)
+    return undefined
+  return {
+    model: fallbackModel,
+    url: `${base}/models/${encodeURIComponent(fallbackModel)}:generateContent`,
+    body: JSON.stringify(buildVertexBody(request, route.imageSizes)),
+    concurrency: route.concurrency,
+  }
 }
 
 /**
