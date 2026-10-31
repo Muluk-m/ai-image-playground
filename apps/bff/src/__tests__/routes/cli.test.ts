@@ -14,15 +14,7 @@ process.env.CORS_ALLOWED_ORIGINS = 'https://studio.test'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../cli-operator-config.json')
 process.env.CLIENT_IP_SOURCE = 'cf-connecting-ip'
 
-const { config } = await import('../../config')
-const { app } = await import('../../app')
-const { close: closeDb, db, schema } = await import('../../db/client')
-const { setObjectStoreForTesting } = await import('../../lib/objectStore')
-const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
-const { _setChannelsForTesting, parseChannelsConfig } = await import('../../lib/channels')
-const { _resetInactiveModelsForTesting } = await import('../../lib/model-availability')
-const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
-const { hashCliSecret } = await import('../../lib/cli/auth')
+// 计费能力要求 overlay 在场：替身必须在 app 求值之前装好。
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
@@ -60,6 +52,16 @@ _setPrivateBffOverlayForTesting(
     },
   }),
 )
+
+const { config } = await import('../../config')
+const { app } = await import('../../app')
+const { close: closeDb, db, schema } = await import('../../db/client')
+const { setObjectStoreForTesting } = await import('../../lib/objectStore')
+const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
+const { _setChannelsForTesting, parseChannelsConfig } = await import('../../lib/channels')
+const { _resetInactiveModelsForTesting } = await import('../../lib/model-availability')
+const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+const { hashCliSecret } = await import('../../lib/cli/auth')
 
 const CHANNELS = parseChannelsConfig(
   {
