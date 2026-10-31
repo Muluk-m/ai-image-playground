@@ -88,9 +88,11 @@
     "modelEtaRange": "~{{min}}–{{max}}s",
     "modelEtaRangeMinutes": "~{{min}}–{{max}} min",
     "modelNew": "New",
-    "modelTier": {
-      "fast": "Fast",
-      "quality": "High quality"
+    "modelFamily": {
+      "gpt": "GPT",
+      "gemini": "Banana",
+      "grok": "Grok",
+      "agnes": "Agnes"
     }
   },
   "size": {
