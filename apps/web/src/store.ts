@@ -1258,6 +1258,26 @@ async function resolveImageSizeParamsList(
   )
 }
 
+/**
+ * 孤图判断要异步读库，判断完到真删之间新任务可能已经用上同一张图：真删之前再按此刻的
+ * 任务列表和输入框同步核一遍，被用上的留着。
+ */
+function referencedNow(imageId: string): boolean {
+  const { tasks, inputImages, maskDraft } = useStore.getState()
+  if (inputImages.some((image) => image.id === imageId)) return true
+  if (maskDraft && (maskDraft.targetImageId === imageId || maskDraft.maskImageId === imageId)) {
+    return true
+  }
+  return tasks.some(
+    (task) =>
+      task.inputImageIds?.includes(imageId) ||
+      task.maskImageId === imageId ||
+      task.maskTargetImageId === imageId ||
+      task.outputImages?.includes(imageId) ||
+      task.transparentOriginalImages?.includes(imageId),
+  )
+}
+
 async function imageIdsInUse(tasks: readonly TaskRecord[]): Promise<Set<string>> {
   const ids = await getReferencedImageIds(tasks)
   const { inputImages, maskDraft } = useStore.getState()
@@ -2599,10 +2619,24 @@ async function placeRemoteOutputOnCanvas(task: TaskRecord, imageId?: string) {
   }
 }
 
+/**
+ * 本机跑的平台任务在平台上也有一条（`bffRequestId` 指向它，或 id 相同）。作品页对这两条只显示本机卡
+ * （`mergeHistory`），本机卡一删，平台那条就露出来——刷新后「删掉的图又回来了」。所以先删平台那条。
+ * 平台缓存里有它却删不掉时返回 false，整件事不做；缓存里还没有（没翻到那一页）就尽力删，失败不拦本机删除。
+ */
+async function deletePlatformCounterpart(task: TaskRecord): Promise<boolean> {
+  const id = task.bffRequestId ?? task.id
+  const cached = isPlatformGeneration(id)
+  if (!cached && !task.bffRequestId) return true
+  const ok = await deleteRemoteGeneration(id)
+  // 请求期间平台列表可能刚刷新进这一条：按此刻的缓存清，不用请求前的快照。
+  if (ok && isPlatformGeneration(id)) await dropPlatformGeneration(id)
+  return ok || !cached
+}
+
 /** 删除多条记录：平台那些先删平台，本机那些连带清掉孤立图片。 */
 export async function removeMultipleTasks(taskIds: string[]) {
-  const { tasks, setTasks, showToast, clearSelection, selectedTaskIds, platformGenerations } =
-    useStore.getState()
+  const { tasks, showToast, platformGenerations } = useStore.getState()
 
   if (!taskIds.length) return
 
@@ -2617,9 +2651,15 @@ export async function removeMultipleTasks(taskIds: string[]) {
     deleted += 1
   }
 
-  const toDelete = new Set(taskIds.filter((id) => owned.has(id)))
+  const toDelete = new Set<string>()
+  for (const task of tasks) {
+    if (!taskIds.includes(task.id)) continue
+    if (await deletePlatformCounterpart(task)) toDelete.add(task.id)
+  }
   deleted += toDelete.size
-  const remaining = tasks.filter((t) => !toDelete.has(t.id))
+  // 上面等了网络，期间可能有新任务进来或状态更新：从最新列表里删，别把请求前的快照写回去。
+  const { tasks: latest, setTasks } = useStore.getState()
+  const remaining = latest.filter((t) => !toDelete.has(t.id))
   // 收集所有被删除任务的关联图片
   const deletedImageIds = new Set<string>()
   for (const t of tasks) {
@@ -2638,11 +2678,12 @@ export async function removeMultipleTasks(taskIds: string[]) {
     await dbDeleteTask(id)
   }
 
-  const stillUsed = await imageIdsInUse(remaining)
+  // 删库也要等：引用按此刻的最新列表算，期间新进来的任务用到的图不能被当成孤图删掉。
+  const stillUsed = await imageIdsInUse(useStore.getState().tasks)
 
   // 删除孤立图片
   for (const imgId of deletedImageIds) {
-    if (!stillUsed.has(imgId)) {
+    if (!stillUsed.has(imgId) && !referencedNow(imgId)) {
       await deleteImage(imgId)
       imageCache.delete(imgId)
       thumbnailCache.delete(imgId)
@@ -2651,6 +2692,7 @@ export async function removeMultipleTasks(taskIds: string[]) {
 
   // 如果删除的任务在选中列表中，则移除
   const removed = new Set([...toDelete, ...platformIds])
+  const { selectedTaskIds } = useStore.getState()
   const newSelection = selectedTaskIds.filter((id) => !removed.has(id))
   if (newSelection.length !== selectedTaskIds.length) {
     useStore.getState().setSelectedTaskIds(newSelection)
@@ -2681,7 +2723,7 @@ export async function setTaskFavorite(task: TaskRecord, favorite: boolean): Prom
  * 平台删不掉时整件事不做，免得列表和平台各说一套。
  */
 export async function removeTask(task: TaskRecord) {
-  const { tasks, setTasks, showToast } = useStore.getState()
+  const { showToast } = useStore.getState()
   if (task.remoteOnly) {
     if (!(await deleteRemoteGeneration(task.id))) {
       showToast(i18next.t('toast.taskDeleteFailed', { ns: 'store' }), 'error')
@@ -2692,6 +2734,14 @@ export async function removeTask(task: TaskRecord) {
     return
   }
 
+  // 本机跑的平台任务在平台上也有一条：只删本机，刷新时平台列表又把它带回来。
+  if (!(await deletePlatformCounterpart(task))) {
+    showToast(i18next.t('toast.taskDeleteFailed', { ns: 'store' }), 'error')
+    return
+  }
+  // 等过网络，期间可能有新任务进来：从最新列表里删，别把请求前的快照写回去。
+  const { tasks: latest, setTasks: setLatest } = useStore.getState()
+
   // 收集此任务关联的图片
   const taskImageIds = new Set([
     ...(task.inputImageIds || []),
@@ -2701,15 +2751,16 @@ export async function removeTask(task: TaskRecord) {
   ])
 
   // 从列表移除
-  const remaining = tasks.filter((t) => t.id !== task.id)
-  setTasks(remaining)
+  const remaining = latest.filter((t) => t.id !== task.id)
+  setLatest(remaining)
   await dbDeleteTask(task.id)
 
-  const stillUsed = await imageIdsInUse(remaining)
+  // 删库也要等：引用按此刻的最新列表算，期间新进来的任务用到的图不能被当成孤图删掉。
+  const stillUsed = await imageIdsInUse(useStore.getState().tasks)
 
   // 删除孤立图片
   for (const imgId of taskImageIds) {
-    if (!stillUsed.has(imgId)) {
+    if (!stillUsed.has(imgId) && !referencedNow(imgId)) {
       await deleteImage(imgId)
       imageCache.delete(imgId)
       thumbnailCache.delete(imgId)
