@@ -47,6 +47,13 @@ export interface ChatPricing {
 }
 
 export interface PrivateTaskHooks {
+  /** Submission authorization for premium (4K) generations. Missing means deny. */
+  canSubmitTask?(input: {
+    tx: BffTransaction
+    userId: string
+    model: string
+    request: { image_size?: string }
+  }): Promise<boolean>
   /** Immutable token quote under the caller's price lock; absent in older overlays. */
   quoteTokenTask?(input: {
     tx: BffTransaction
@@ -86,6 +93,11 @@ export interface PrivateTaskHooks {
   }): Promise<void>
   /** 单价表里没登记这个对话模型时返回 null；起轮会在预扣那一步被拒。 */
   chatPricing(model: string): Promise<ChatPricing | null>
+  /** Account balance and current subscription status for external connection status. */
+  accountSummary?(input: {
+    userId: string
+    now: number
+  }): Promise<{ credits: number; isMember: boolean }>
   /**
    * 已结算任务实扣的积分，按任务 id；查不到的任务不出现在结果里。
    * 积分只有私有账本算得出，公开树一律问它，绝不自己按单价折算。
@@ -143,6 +155,9 @@ export interface PrivateBffOverlay {
 }
 
 const EMPTY_TASK_HOOKS: PrivateTaskHooks = Object.freeze({
+  async canSubmitTask() {
+    return false
+  },
   async reserveTask() {
     return { kind: 'reserved' as const, credits: 0 }
   },

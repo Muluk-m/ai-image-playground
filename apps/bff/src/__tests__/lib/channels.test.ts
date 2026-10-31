@@ -841,10 +841,6 @@ describe('shipped channels.json', () => {
         label: 'Nano Banana 2 Lite',
         capabilities: ['generate', 'edit', 'size'],
         tier: 'fast',
-        // 不排队时单张约 4 秒，但它和 2.1 共用 Vertex 共享池：10-29 事故时段只放行约 0.8–1.5 张/分钟，
-        // 一单（上限 4 张）实际要几十秒到几分钟，所以按范围 30–240 秒标。
-        etaSeconds: 30,
-        etaMaxSeconds: 240,
         logo: 'nano-banana',
         imageSizes: ['1K'],
       },

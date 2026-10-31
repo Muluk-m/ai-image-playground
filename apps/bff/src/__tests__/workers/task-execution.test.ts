@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { eq, sql } from 'drizzle-orm'
+import type { InternalChannel } from '../../lib/channels'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 import { forbidGlobalFetch, waitFor } from '../helpers/upstreamStubs'
@@ -22,6 +23,38 @@ const {
 } = await import('../../workers/task-execution')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
+const { _setChannelsForTesting } = await import('../../lib/channels')
+// 同轮并发上限按渠道声明的模型并发判定：Vertex 的模型有上限，OpenAI 兼容图片渠道没有。
+_setChannelsForTesting([
+  {
+    id: 'vertex-images',
+    kind: 'gemini-queue',
+    label: 'Vertex AI',
+    baseUrl: 'https://vertex.invalid/v1',
+    auth: { type: 'bearer', secretRef: 'VERTEX_API_KEY', secret: 'vertex-test-key' },
+    allowedPaths: [],
+    models: ['gemini-3.1-flash-lite-image', 'gemini-nano-banana-2.1'].map((id) => ({
+      id,
+      label: id,
+      capabilities: ['generate'],
+    })),
+    defaults: { apiMode: 'images', timeout: 600 },
+    modelMaxConcurrency: { 'gemini-3.1-flash-lite-image': 2, 'gemini-nano-banana-2.1': 2 },
+  },
+  {
+    id: 'openai-images',
+    kind: 'openai-queue',
+    label: 'OpenAI',
+    baseUrl: 'https://openai.invalid/v1',
+    auth: { type: 'bearer', secretRef: 'UPSTREAM_API_KEY', secret: 'openai-test-key' },
+    allowedPaths: [],
+    models: [
+      { id: 'gpt-image-2.5-flare', label: 'flare', capabilities: ['generate'] },
+      { id: 'gemini-3.1-flash-lite-image', label: 'same id', capabilities: ['generate'] },
+    ],
+    defaults: { apiMode: 'images', timeout: 600 },
+  },
+] as unknown as InternalChannel[])
 
 type DurableFixture = InMemoryObjectStore & { sign: (key: string) => string }
 
@@ -133,7 +166,7 @@ describe('认领', () => {
     other?.release()
   })
 
-  it('runs one task at a time per model within an agent turn, without holding back other turns or models', async () => {
+  it('runs one task at a time per rate-limited model within an agent turn, without holding back other turns or models', async () => {
     const now = Date.now()
     await db.insert(schema.users).values({
       id: 'turn-user',
@@ -197,6 +230,67 @@ describe('认领', () => {
     expect(next).not.toBeNull()
     next?.release()
     for (const other of others) other?.release()
+  })
+
+  it('runs up to TURN_SIBLING_PARALLELISM same-turn tasks of a model without a declared concurrency limit', async () => {
+    const now = Date.now()
+    await db.insert(schema.users).values({
+      id: 'flare-user',
+      username: 'flare-user',
+      password_hash: 'test',
+      created_at: now,
+      updated_at: now,
+    })
+    await db.insert(schema.agent_conversations).values({
+      id: 'flare-conv',
+      user_id: 'flare-user',
+      title: 't',
+      created_at: now,
+      updated_at: now,
+    })
+    const { TURN_SIBLING_PARALLELISM, turnSerializedModels } = await import(
+      '../../workers/task-execution'
+    )
+    // gpt-image-2.5-flare 的渠道没有并发上限，Vertex 的 Flash Lite 有。
+    expect(turnSerializedModels()).toContain('gemini-3.1-flash-lite-image')
+    expect(turnSerializedModels('gemini')).toContain('gemini-3.1-flash-lite-image')
+    expect(turnSerializedModels('openai-compat')).not.toContain('gemini-3.1-flash-lite-image')
+    expect(turnSerializedModels()).not.toContain('gpt-image-2.5-flare')
+    const flare = {
+      user_id: 'flare-user',
+      provider: 'openai-compat' as const,
+      model: 'gpt-image-2.5-flare',
+    }
+    const ids = Array.from({ length: TURN_SIBLING_PARALLELISM + 2 }, (_, i) => `flare-${i}`)
+    for (const id of ids) await insertQueuedTask(id, flare)
+    await db.insert(schema.agent_jobs).values(
+      ids.map((taskId) => ({
+        task_id: taskId,
+        conversation_id: 'flare-conv',
+        turn_id: 'flare-turn',
+        tool_call_id: taskId,
+        submitted_at: now,
+      })),
+    )
+    billing.concurrencyLimit = 10
+
+    const claims = await Promise.all(ids.map((id) => claimTaskExecution(id)))
+    // 一批 5 张不再一张接一张：同轮同模型放行到上限，多出的等前面的收尾。
+    const won = claims.filter((claim) => claim !== null)
+    expect(won).toHaveLength(TURN_SIBLING_PARALLELISM)
+    const blocked = ids.filter((_, index) => !claims[index])
+    const { selectRunnableTasks } = await import('../../workers/runnable-tasks')
+    const runnable = (await selectRunnableTasks('openai-compat', 10, Date.now())).map(
+      (task) => task.id,
+    )
+    for (const id of blocked) expect(runnable).not.toContain(id)
+
+    const first = won[0]!
+    expect(await first.finish({ status: 'completed', completedAt: Date.now() })).toBeTruthy()
+    first.release()
+    const next = await Promise.all(blocked.map((id) => claimTaskExecution(id)))
+    expect(next.filter(Boolean)).toHaveLength(1)
+    for (const handle of [...won.slice(1), ...next]) handle?.release()
   })
 
   it('serializes same-model tasks within an anonymous agent turn too', async () => {

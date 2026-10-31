@@ -547,6 +547,13 @@
       "when": 1792900000000,
       "tag": "0078_generation_commands_recent",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1793100000000,
+      "tag": "0080_cli_scopes",
+      "breakpoints": true
     }
   ]
 }
