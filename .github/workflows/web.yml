@@ -199,8 +199,8 @@ jobs:
         shard: [1, 2, 3]
     name: web-test (${{ matrix.shard }}/3)
     env:
-      # Its own 4-vCPU runner, so two workers; the bff job keeps 1 beside its Bun suites.
-      VITEST_MAX_WORKERS: 2
+      # Its own 4-vCPU runner, so one worker per core; the bff job keeps 1 beside its Bun suites.
+      VITEST_MAX_WORKERS: 4
       # Node 24.18 exposes an unconfigured global localStorage; jsdom owns browser storage here.
       NODE_OPTIONS: --no-experimental-webstorage
     steps:
