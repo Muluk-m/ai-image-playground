@@ -44,7 +44,7 @@ export class UpstreamTimeoutError extends UpstreamResultUnknownError {
 export class UpstreamQueueTimeoutError extends Error {
   readonly retryable = false
 
-  constructor(message = '上游排队超时：等待额度超过时限，请求未发出，未扣费') {
+  constructor(message = '上游排队超时：等待额度超过时限，请求未发出，积分已退回') {
     super(message)
     this.name = 'UpstreamQueueTimeoutError'
   }
