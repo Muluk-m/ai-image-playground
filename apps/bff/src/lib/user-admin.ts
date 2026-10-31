@@ -60,7 +60,7 @@ function operatorAudit(action: string, targetId: string, details: Record<string,
 }
 
 // Bun's SQL driver reports the PostgreSQL SQLSTATE in `errno`; `code` holds its own transport code.
-function isUniqueViolation(error: unknown): boolean {
+export function isUniqueViolation(error: unknown): boolean {
   const databaseError =
     error !== null && typeof error === 'object' && 'cause' in error ? error.cause : error
   if (databaseError === null || typeof databaseError !== 'object') return false

@@ -187,6 +187,119 @@ export const user_identities = pgTable(
   ],
 )
 
+export type DeviceAuthorizationStatus = 'pending' | 'approved' | 'denied' | 'consumed'
+
+/** Public OAuth clients allowed to start a device authorization (seeded by migration). */
+export const oauth_clients = pgTable('oauth_clients', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  created_at: epochMs('created_at').notNull(),
+})
+
+/** RFC 8628 device authorizations. Only hashes of the device and user codes are stored. */
+export const device_authorizations = pgTable(
+  'device_authorizations',
+  {
+    id: text('id').primaryKey(),
+    client_id: text('client_id')
+      .notNull()
+      .references(() => oauth_clients.id, { onDelete: 'cascade' }),
+    device_code_hash: text('device_code_hash').notNull(),
+    user_code_hash: text('user_code_hash').notNull(),
+    status: text('status').$type<DeviceAuthorizationStatus>().notNull().default('pending'),
+    scopes: text('scopes').notNull(),
+    user_id: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    expires_at: epochMs('expires_at').notNull(),
+    interval_seconds: integer('interval_seconds').notNull(),
+    last_polled_at: epochMs('last_polled_at'),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_device_authorizations_device_code_hash').on(t.device_code_hash),
+    uniqueIndex('idx_device_authorizations_user_code_hash').on(t.user_code_hash),
+    index('idx_device_authorizations_expires_at').on(t.expires_at),
+    check(
+      'device_authorizations_status_check',
+      sql`${t.status} IN ('pending', 'approved', 'denied', 'consumed')`,
+    ),
+  ],
+)
+
+/**
+ * One row per CLI connection (a token family). Refreshing rotates the hashes in place; the
+ * retired refresh hashes live in `cli_retired_refresh_tokens` so a replay revokes the row.
+ */
+export const cli_connections = pgTable(
+  'cli_connections',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    client_id: text('client_id')
+      .notNull()
+      .references(() => oauth_clients.id, { onDelete: 'cascade' }),
+    scopes: text('scopes').notNull(),
+    access_token_hash: text('access_token_hash').notNull(),
+    access_expires_at: epochMs('access_expires_at').notNull(),
+    refresh_token_hash: text('refresh_token_hash').notNull(),
+    refresh_expires_at: epochMs('refresh_expires_at').notNull(),
+    created_at: epochMs('created_at').notNull(),
+    last_used_at: epochMs('last_used_at'),
+    revoked_at: epochMs('revoked_at'),
+  },
+  (t) => [
+    uniqueIndex('idx_cli_connections_access_token_hash').on(t.access_token_hash),
+    uniqueIndex('idx_cli_connections_refresh_token_hash').on(t.refresh_token_hash),
+    index('idx_cli_connections_user_id').on(t.user_id),
+  ],
+)
+
+export const cli_retired_refresh_tokens = pgTable(
+  'cli_retired_refresh_tokens',
+  {
+    token_hash: text('token_hash').primaryKey(),
+    connection_id: text('connection_id')
+      .notNull()
+      .references(() => cli_connections.id, { onDelete: 'cascade' }),
+    retired_at: epochMs('retired_at').notNull(),
+  },
+  (t) => [index('idx_cli_retired_refresh_tokens_connection').on(t.connection_id)],
+)
+
+/** Queue tasks submitted through the CLI API, for source attribution and reliability metrics. */
+export const cli_jobs = pgTable(
+  'cli_jobs',
+  {
+    task_id: text('task_id')
+      .primaryKey()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    connection_id: text('connection_id').references(() => cli_connections.id, {
+      onDelete: 'set null',
+    }),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [index('idx_cli_jobs_user_created').on(t.user_id, t.created_at)],
+)
+
+/** Media uploaded through the CLI as reference input; listing reference media reads this table. */
+export const cli_reference_media = pgTable(
+  'cli_reference_media',
+  {
+    media_id: text('media_id')
+      .primaryKey()
+      .references(() => media_objects.id, { onDelete: 'cascade' }),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [index('idx_cli_reference_media_user_created').on(t.user_id, t.created_at)],
+)
+
 export const agent_model_settings = pgTable('agent_model_settings', {
   id: text('id').primaryKey(),
   revision: integer('revision').notNull(),
@@ -1573,7 +1686,9 @@ export const agent_batch_commands = pgTable(
 export const analysis_tasks = pgTable(
   'analysis_tasks',
   {
-    task_id: text('task_id').primaryKey(),
+    task_id: text('task_id')
+      .primaryKey()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
     user_id: text('user_id').notNull(),
     device_id: text('device_id').notNull(),
     batch_id: text('batch_id').notNull(),

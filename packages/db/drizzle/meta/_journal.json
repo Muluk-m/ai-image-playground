@@ -547,6 +547,13 @@
       "when": 1792900000000,
       "tag": "0078_generation_commands_recent",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1793200000000,
+      "tag": "0081_cli_device_oauth",
+      "breakpoints": true
     }
   ]
 }
