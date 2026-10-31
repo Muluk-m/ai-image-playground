@@ -164,6 +164,8 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const [busy, setBusy] = useState(false)
   const working = useRef(false)
   const operations = useRef(0)
+  // 每张图块最近一次取消请求的序号：各张的取消互不相干，失败只按同一张判断是否过期。
+  const itemCancels = useRef(new Map<string, number>())
   const card = useRef<HTMLElement>(null)
   const runRow = useRef<HTMLDivElement>(null)
   const [runRowMounted, setRunRowMounted] = useState(false)
@@ -381,6 +383,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     setCancellingItems((current) => new Set(current).add(key))
     setCancelItemFailed(false)
     const operation = ++operations.current
+    itemCancels.current.set(key, operation)
     try {
       const result = await cancelBatchItem(batchId, key)
       if (commands.current() && operation === operations.current) {
@@ -388,8 +391,9 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         setPage(result)
       }
     } catch {
-      // 只认最新一次操作：先发的取消晚失败时，别把后发请求已经刷新好的结果标成失败。
-      if (commands.current() && operation === operations.current) setCancelItemFailed(true)
+      // 取消别的图块不让这一张的失败失效：只有同一张后来又发了取消，旧的失败才算过期。
+      if (commands.current() && itemCancels.current.get(key) === operation)
+        setCancelItemFailed(true)
     } finally {
       setCancellingItems((current) => {
         const next = new Set(current)
