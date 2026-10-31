@@ -41,6 +41,12 @@ describe('阈值两侧', () => {
     ['排队超过 10 分钟报', { queue: { oldest_queued_wait_ms: 10 * minute + 1 } }, ['firing:queue']],
     ['备份 2 小时整不报', { backup: { latest_modified_at: T0 - 2 * hour } }, []],
     ['备份超过 2 小时报', { backup: { latest_modified_at: T0 - 2 * hour - 1 } }, ['firing:backup']],
+    ['日志 10 分钟整不报', { serverLogs: { latest_at: T0 - 10 * minute } }, []],
+    [
+      '日志超过 10 分钟没有新行报',
+      { serverLogs: { latest_at: T0 - 10 * minute - 1 } },
+      ['firing:server-logs'],
+    ],
     ['心跳 2 分钟整不报', { heartbeats: { bff: T0 - 2 * minute } }, []],
     [
       '心跳断了超过 2 分钟报',
@@ -49,6 +55,33 @@ describe('阈值两侧', () => {
     ],
   ] as Array<[string, AlertObservation, string[]]>)('%s', (_name, observation, expected) => {
     expect(run([[T0, observation]])[0]).toEqual(expected)
+  })
+})
+
+describe('服务端日志静默', () => {
+  it('新部署表里还没有日志时不报', () => {
+    expect(run([[T0, { serverLogs: { latest_at: null } }]])).toEqual([[]])
+  })
+
+  it('恢复写入后发已恢复，期间不重复报', () => {
+    expect(
+      run([
+        [T0, { serverLogs: { latest_at: T0 - 11 * minute } }],
+        [T0 + minute, { serverLogs: { latest_at: T0 - 11 * minute } }],
+        [T0 + 2 * minute, { serverLogs: { latest_at: T0 + 2 * minute } }],
+      ]),
+    ).toEqual([['firing:server-logs'], [], ['resolved:server-logs']])
+  })
+
+  it('报过之后表被清空不算恢复，读数缺失也不算恢复', () => {
+    expect(
+      run([
+        [T0, { serverLogs: { latest_at: T0 - 11 * minute } }],
+        [T0 + minute, { serverLogs: { latest_at: null } }],
+        [T0 + 2 * minute, {}],
+        [T0 + 3 * minute, { serverLogs: { latest_at: T0 + 3 * minute } }],
+      ]),
+    ).toEqual([['firing:server-logs'], [], [], ['resolved:server-logs']])
   })
 })
 
