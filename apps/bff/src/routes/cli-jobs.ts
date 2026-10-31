@@ -1,10 +1,9 @@
 import { projectArtifactId } from '@image-playground/shared'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { cancelTasks } from '../db/task-transitions'
 import { cliApiRoutes, cliError, cliSuccess } from '../lib/cli-api'
-import { resolveCliBearerToken } from '../lib/cli-auth'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { publicTaskErrorMessage } from '../lib/public-task-error'
 import { cancelUpstreamOfCancelledTasks } from '../lib/upstream-cancel'
@@ -32,11 +31,6 @@ type CliJob = {
   error?: { code: string; message: string }
 }
 
-function tokenFromRequest(request: Request): string {
-  const header = request.headers.get('authorization') ?? ''
-  return /^Bearer\s+/i.test(header) ? header.slice(header.indexOf(' ') + 1).trim() : ''
-}
-
 function statusOf(task: { status: string; archive_payload: unknown }): CliJobStatus {
   if (task.archive_payload && (task.status === 'queued' || task.status === 'in_progress'))
     return 'persisting'
@@ -48,13 +42,25 @@ function statusOf(task: { status: string; archive_payload: unknown }): CliJobSta
   return 'failed'
 }
 
-async function currentUser(request: Request) {
-  return resolveCliBearerToken(tokenFromRequest(request))
+type CliTaskRow = {
+  id: string
+  status: string
+  archive_payload: unknown
+  submitted_at: number
+  started_at: number | null
+  completed_at: number | null
+  error_message: string | null
+  error_type: string | null
 }
 
-async function artifactsOf(taskId: string, userId: string) {
+type CliArtifact = NonNullable<CliJob['artifacts']>[number]
+
+async function artifactsOf(taskIds: string[], userId: string) {
+  const byTask = new Map<string, CliArtifact[]>()
+  if (!taskIds.length) return byTask
   const rows = await db
     .select({
+      taskId: schema.generation_images.generation_id,
       mediaId: schema.media_objects.id,
       mime: schema.media_objects.content_type,
       index: schema.generation_images.position,
@@ -63,65 +69,73 @@ async function artifactsOf(taskId: string, userId: string) {
     .innerJoin(schema.media_objects, eq(schema.generation_images.media_id, schema.media_objects.id))
     .where(
       and(
-        eq(schema.generation_images.generation_id, taskId),
+        inArray(schema.generation_images.generation_id, taskIds),
         eq(schema.generation_images.role, 'output'),
         eq(schema.media_objects.user_id, userId),
       ),
     )
     .orderBy(schema.generation_images.position)
-  return rows.map((row) => ({
-    artifact_id: projectArtifactId(taskId, row.index),
-    media_id: row.mediaId,
-    output_index: row.index,
-    mime: row.mime,
-  }))
+  for (const row of rows) {
+    const list = byTask.get(row.taskId) ?? []
+    list.push({
+      artifact_id: projectArtifactId(row.taskId, row.index),
+      media_id: row.mediaId,
+      output_index: row.index,
+      mime: row.mime,
+    })
+    byTask.set(row.taskId, list)
+  }
+  return byTask
 }
 
-async function toJob(
-  task: {
-    id: string
-    status: string
-    archive_payload: unknown
-    submitted_at: number
-    started_at: number | null
-    completed_at: number | null
-    error_message: string | null
-    error_type: string | null
-  },
-  userId: string,
-): Promise<CliJob> {
-  const status = statusOf(task)
-  const terminal = status === 'succeeded' || status === 'failed' || status === 'canceled'
-  const job: CliJob = {
-    job_id: task.id,
-    status,
-    terminal,
-    submitted_at: task.submitted_at,
-    ...(task.started_at == null ? {} : { started_at: task.started_at }),
-    ...(task.completed_at == null ? {} : { completed_at: task.completed_at }),
-    ...(terminal ? {} : { poll_after_seconds: POLL_AFTER_SECONDS }),
-  }
-
-  if (terminal) {
+/** Maps task rows to external jobs with one credits lookup and one artifacts query per call. */
+async function toJobs(tasks: CliTaskRow[], userId: string): Promise<CliJob[]> {
+  const jobs = tasks.map((task): CliJob => {
+    const status = statusOf(task)
+    const terminal = status === 'succeeded' || status === 'failed' || status === 'canceled'
+    return {
+      job_id: task.id,
+      status,
+      terminal,
+      submitted_at: task.submitted_at,
+      ...(task.started_at == null ? {} : { started_at: task.started_at }),
+      ...(task.completed_at == null ? {} : { completed_at: task.completed_at }),
+      ...(terminal ? {} : { poll_after_seconds: POLL_AFTER_SECONDS }),
+      ...(status === 'failed'
+        ? {
+            error: {
+              code: task.error_type ?? 'unknown',
+              message: publicTaskErrorMessage(task.error_message ?? '任务失败'),
+            },
+          }
+        : {}),
+    }
+  })
+  const terminalIds = jobs.filter((job) => job.terminal).map((job) => job.job_id)
+  let credits: Readonly<Record<string, number>> | null = null
+  if (terminalIds.length) {
     try {
-      const credits = await (await loadPrivateBffOverlay()).taskHooks.taskCredits({
-        taskIds: [task.id],
+      credits = await (await loadPrivateBffOverlay()).taskHooks.taskCredits({
+        taskIds: terminalIds,
       })
-      job.actual_credits = credits[task.id] ?? null
     } catch {
-      job.actual_credits = null
+      credits = null
     }
   }
-  if (status === 'succeeded') {
-    job.artifacts = await artifactsOf(task.id, userId)
+  const artifacts = await artifactsOf(
+    jobs.filter((job) => job.status === 'succeeded').map((job) => job.job_id),
+    userId,
+  )
+  for (const job of jobs) {
+    if (job.terminal) job.actual_credits = credits?.[job.job_id] ?? null
+    if (job.status === 'succeeded') job.artifacts = artifacts.get(job.job_id) ?? []
   }
-  if (status === 'failed') {
-    job.error = {
-      code: task.error_type ?? 'unknown',
-      message: publicTaskErrorMessage(task.error_message ?? '任务失败'),
-    }
-  }
-  return job
+  return jobs
+}
+
+async function toJob(task: CliTaskRow, userId: string): Promise<CliJob> {
+  const [job] = await toJobs([task], userId)
+  return job!
 }
 
 const taskSelect = {
@@ -136,16 +150,7 @@ const taskSelect = {
 } as const
 
 export const cliJobsRoutes = new Elysia({ name: 'cli-jobs-routes' })
-  .use(cliApiRoutes({ authenticate: async (token) => Boolean(await resolveCliBearerToken(token)) }))
-  .derive({ as: 'scoped' }, async ({ request }) => ({ cliUser: await currentUser(request) }))
-  .onError({ as: 'scoped' }, ({ code, set }) => {
-    if (code === 'VALIDATION') {
-      set.status = 400
-      return cliError('INVALID_REQUEST', 'The request is invalid')
-    }
-    set.status = 500
-    return cliError('INTERNAL_ERROR', 'The request could not be completed')
-  })
+  .use(cliApiRoutes())
   .get(
     '/v1/jobs/:id',
     async ({ params, cliUser }) => {
@@ -155,13 +160,13 @@ export const cliJobsRoutes = new Elysia({ name: 'cli-jobs-routes' })
         .where(
           and(
             eq(schema.tasks.id, params.id),
-            eq(schema.tasks.user_id, cliUser!.id),
+            eq(schema.tasks.user_id, cliUser.id),
             eq(schema.tasks.kind, 'queue'),
           ),
         )
         .limit(1)
-      if (!task) return cliError('NOT_FOUND', 'The requested resource was not found')
-      return cliSuccess(await toJob(task, cliUser!.id))
+      if (!task) return cliError('NOT_FOUND')
+      return cliSuccess(await toJob(task, cliUser.id))
     },
     { params: t.Object({ id: t.String({ minLength: 1 }) }) },
   )
@@ -169,17 +174,17 @@ export const cliJobsRoutes = new Elysia({ name: 'cli-jobs-routes' })
     const tasks = await db
       .select(taskSelect)
       .from(schema.tasks)
-      .where(and(eq(schema.tasks.user_id, cliUser!.id), eq(schema.tasks.kind, 'queue')))
+      .where(and(eq(schema.tasks.user_id, cliUser.id), eq(schema.tasks.kind, 'queue')))
       .orderBy(desc(schema.tasks.submitted_at), desc(schema.tasks.id))
       .limit(LIST_LIMIT)
-    return cliSuccess({ jobs: await Promise.all(tasks.map((task) => toJob(task, cliUser!.id))) })
+    return cliSuccess({ jobs: await toJobs(tasks, cliUser.id) })
   })
   .post(
     '/v1/jobs/:id/cancel',
     async ({ params, cliUser }) => {
       const access = and(
         eq(schema.tasks.id, params.id),
-        eq(schema.tasks.user_id, cliUser!.id),
+        eq(schema.tasks.user_id, cliUser.id),
         eq(schema.tasks.kind, 'queue'),
       )!
       const [existing] = await db
@@ -187,15 +192,15 @@ export const cliJobsRoutes = new Elysia({ name: 'cli-jobs-routes' })
         .from(schema.tasks)
         .where(access)
         .limit(1)
-      if (!existing) return cliError('NOT_FOUND', 'The requested resource was not found')
+      if (!existing) return cliError('NOT_FOUND')
       if (existing.archive_payload || existing.status === 'reconciling')
-        return cliError('JOB_NOT_CANCELLABLE', 'The job cannot be canceled in its current state')
+        return cliError('JOB_NOT_CANCELLABLE')
 
       const cancelled = await cancelTasks(access)
       if (cancelled.length) void cancelUpstreamOfCancelledTasks(cancelled.map((row) => row.id))
       const [task] = await db.select(taskSelect).from(schema.tasks).where(access).limit(1)
-      if (!task) return cliError('NOT_FOUND', 'The requested resource was not found')
-      return cliSuccess(await toJob(task, cliUser!.id))
+      if (!task) return cliError('NOT_FOUND')
+      return cliSuccess(await toJob(task, cliUser.id))
     },
     { params: t.Object({ id: t.String({ minLength: 1 }) }) },
   )

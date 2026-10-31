@@ -2,19 +2,9 @@ import { parseProjectArtifactId, projectArtifactId } from '@image-playground/sha
 import { and, desc, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
-import { cliApiRoutes, cliError, cliSuccess } from '../lib/cli-api'
-import { resolveCliBearerToken } from '../lib/cli-auth'
+import { cliApiRoutes, cliSuccess } from '../lib/cli-api'
 import { durableMediaStore } from '../lib/durableMediaStore'
 import { accessMedia, completeMedia, MediaError, reserveMedia } from '../lib/projectMedia'
-
-function tokenFromRequest(request: Request): string {
-  const value = request.headers.get('authorization') ?? ''
-  return value.replace(/^Bearer\s+/i, '').trim()
-}
-
-async function currentUser(request: Request) {
-  return resolveCliBearerToken(tokenFromRequest(request))
-}
 
 type CliMediaAccess = {
   media_id: string
@@ -82,6 +72,7 @@ async function artifactAccess(userId: string, artifactId: string) {
         eq(schema.media_objects.status, 'ready'),
       ),
     )
+    .limit(1)
   if (!row?.objectKey) throw new MediaError(404, 'artifact_not_found')
   return {
     artifact_id: projectArtifactId(parsed.generationId, parsed.position),
@@ -95,38 +86,14 @@ async function artifactAccess(userId: string, artifactId: string) {
   }
 }
 
-const mediaParams = t.Object({ id: t.String({ minLength: 1, maxLength: 256 }) })
-const artifactParams = t.Object({ id: t.String({ minLength: 1, maxLength: 256 }) })
+const idParams = t.Object({ id: t.String({ minLength: 1, maxLength: 256 }) })
 
 /** External CLI reference-media and generated-artifact access routes. */
 export const cliMediaRoutes = new Elysia({ name: 'cli-media-routes' })
-  .use(cliApiRoutes({ authenticate: async (token) => Boolean(await resolveCliBearerToken(token)) }))
-  .derive({ as: 'scoped' }, async ({ request }) => ({ cliUser: await currentUser(request) }))
-  .onError({ as: 'scoped' }, ({ code, error, set }) => {
-    if (code === 'VALIDATION') {
-      set.status = 400
-      return cliError('INVALID_REQUEST', 'The request is invalid')
-    }
-    if (error instanceof MediaError) {
-      const apiCode =
-        error.status === 404
-          ? 'NOT_FOUND'
-          : error.status === 409
-            ? 'CONFLICT'
-            : error.status === 413
-              ? 'REQUEST_TOO_LARGE'
-              : error.status === 422
-                ? 'INVALID_REQUEST'
-                : 'INTERNAL_ERROR'
-      return cliError(apiCode, 'The media request could not be completed', undefined, error.status)
-    }
-    set.status = 500
-    return cliError('INTERNAL_ERROR', 'The request could not be completed')
-  })
+  .use(cliApiRoutes())
   .post(
     '/v1/media',
-    async ({ request, body, cliUser }) => {
-      if (!cliUser) return cliError('UNAUTHENTICATED', 'Authentication is required')
+    async ({ body, cliUser }) => {
       const reserved = await reserveMedia(cliUser.id, {
         sha256: body.sha256,
         bytes: body.bytes,
@@ -160,20 +127,26 @@ export const cliMediaRoutes = new Elysia({ name: 'cli-media-routes' })
   )
   .post(
     '/v1/media/:id/complete',
-    async ({ request, params, cliUser }) => {
-      if (!cliUser) return cliError('UNAUTHENTICATED', 'Authentication is required')
+    async ({ params, cliUser }) => {
       const value = await completeMedia(cliUser.id, params.id)
       return cliSuccess({ media_id: value.id, ...value })
     },
-    { params: mediaParams },
+    { params: idParams },
   )
   .get(
     '/v1/media',
-    async ({ request, query, cliUser }) => {
-      if (!cliUser) return cliError('UNAUTHENTICATED', 'Authentication is required')
+    async ({ query, cliUser }) => {
       const limit = query.limit ?? 50
       const rows = await db
-        .select()
+        .select({
+          id: schema.media_objects.id,
+          status: schema.media_objects.status,
+          bytes: schema.media_objects.bytes,
+          content_type: schema.media_objects.content_type,
+          width: schema.media_objects.width,
+          height: schema.media_objects.height,
+          created_at: schema.media_objects.created_at,
+        })
         .from(schema.media_objects)
         .where(
           and(
@@ -199,16 +172,14 @@ export const cliMediaRoutes = new Elysia({ name: 'cli-media-routes' })
   )
   .get(
     '/v1/media/:id',
-    async ({ request, params, cliUser }) => {
-      if (!cliUser) return cliError('UNAUTHENTICATED', 'Authentication is required')
+    async ({ params, cliUser }) => {
       return cliSuccess(mapMediaAccess(await accessMedia(cliUser.id, params.id)))
     },
-    { params: mediaParams },
+    { params: idParams },
   )
   .get(
     '/v1/media/:id/download',
-    async ({ request, params, cliUser }) => {
-      if (!cliUser) return cliError('UNAUTHENTICATED', 'Authentication is required')
+    async ({ params, cliUser }) => {
       const value = mapMediaAccess(await accessMedia(cliUser.id, params.id))
       return cliSuccess({
         media_id: value.media_id,
@@ -218,22 +189,19 @@ export const cliMediaRoutes = new Elysia({ name: 'cli-media-routes' })
         expires_at: value.expires_at,
       })
     },
-    { params: mediaParams },
+    { params: idParams },
   )
   .get(
     '/v1/artifacts/:id',
-    async ({ request, params, cliUser }) => {
-      if (!cliUser) return cliError('UNAUTHENTICATED', 'Authentication is required')
+    async ({ params, cliUser }) => {
       return cliSuccess(await artifactAccess(cliUser.id, params.id))
     },
-    { params: artifactParams },
+    { params: idParams },
   )
   .get(
     '/v1/artifacts/:id/download',
-    async ({ request, params, cliUser }) => {
-      if (!cliUser) return cliError('UNAUTHENTICATED', 'Authentication is required')
-      const value = await artifactAccess(cliUser.id, params.id)
-      return cliSuccess(value)
+    async ({ params, cliUser }) => {
+      return cliSuccess(await artifactAccess(cliUser.id, params.id))
     },
-    { params: artifactParams },
+    { params: idParams },
   )

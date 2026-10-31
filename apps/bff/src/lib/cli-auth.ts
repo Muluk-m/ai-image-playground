@@ -1,7 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import type { AuthUserView } from '@image-playground/shared'
 import { and, eq, gt, isNull, or } from 'drizzle-orm'
-import { Elysia } from 'elysia'
 import { db, schema } from '../db/client'
 import { accountProfileView } from './account-profile-view'
 
@@ -28,12 +27,13 @@ async function auditCli(
   targetId: string,
   operatorId: string,
   details: Record<string, unknown> = {},
+  targetType: 'cli_connection' | 'cli_device_authorization' = 'cli_connection',
 ) {
   await database.insert(schema.operator_audits).values({
     id: randomUUID(),
     operator_id: operatorId || 'cli',
     action: `cli.${action}`,
-    target_type: 'cli_connection',
+    target_type: targetType,
     target_id: targetId,
     details,
     created_at: Date.now(),
@@ -63,8 +63,9 @@ export async function createDeviceAuthorization(
   const userCode =
     `${secret(5).replace(/[-_]/g, '').slice(0, 4)}-${secret(5).replace(/[-_]/g, '').slice(0, 4)}`.toUpperCase()
   const now = Date.now()
+  const id = randomUUID()
   await db.insert(schema.device_authorizations).values({
-    id: randomUUID(),
+    id,
     client_id: clientId,
     device_code_hash: hashCliToken(deviceCode),
     user_code_hash: hashCliToken(userCode),
@@ -76,6 +77,14 @@ export async function createDeviceAuthorization(
     last_polled_at: null,
     created_at: now,
   })
+  await auditCli(
+    db,
+    'device_authorization.created',
+    id,
+    'cli',
+    { client_id: clientId },
+    'cli_device_authorization',
+  )
   return {
     device_code: deviceCode,
     user_code: userCode,
@@ -86,14 +95,16 @@ export async function createDeviceAuthorization(
   }
 }
 
-export async function approveDeviceAuthorization(
+/** Records the signed-in user's decision on a pending, unexpired device code. */
+export async function setDeviceDecision(
   userCode: string,
   userId: string,
+  decision: 'approved' | 'denied',
 ): Promise<boolean> {
   const now = Date.now()
   const changed = await db
     .update(schema.device_authorizations)
-    .set({ status: 'approved', user_id: userId })
+    .set({ status: decision, user_id: userId })
     .where(
       and(
         eq(schema.device_authorizations.user_code_hash, hashCliToken(userCode)),
@@ -102,22 +113,61 @@ export async function approveDeviceAuthorization(
       ),
     )
     .returning({ id: schema.device_authorizations.id })
-  return changed.length > 0
+  if (!changed.length) return false
+  await auditCli(
+    db,
+    `device_authorization.${decision}`,
+    hashCliToken(userCode),
+    userId,
+    { client_id: CLI_CLIENT_ID },
+    'cli_device_authorization',
+  )
+  return true
 }
-export async function denyDeviceAuthorization(userCode: string, userId: string): Promise<boolean> {
-  const now = Date.now()
-  const changed = await db
-    .update(schema.device_authorizations)
-    .set({ status: 'denied', user_id: userId })
-    .where(
-      and(
-        eq(schema.device_authorizations.user_code_hash, hashCliToken(userCode)),
-        eq(schema.device_authorizations.status, 'pending'),
-        gt(schema.device_authorizations.expires_at, now),
-      ),
-    )
-    .returning({ id: schema.device_authorizations.id })
-  return changed.length > 0
+
+type CliTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+/** Inserts a fresh access/refresh pair for a connection family and returns the token response. */
+async function issueConnection(
+  tx: CliTransaction,
+  input: {
+    userId: string
+    clientId: string
+    familyId: string
+    scopes: string
+    refreshExpiresAt: number
+    now: number
+    action: 'token.issued' | 'token.rotated'
+  },
+): Promise<Record<string, unknown>> {
+  const access = secret()
+  const refresh = secret()
+  const connectionId = randomUUID()
+  await tx.insert(schema.cli_connections).values({
+    id: connectionId,
+    user_id: input.userId,
+    client_id: input.clientId,
+    family_id: input.familyId,
+    scopes: input.scopes,
+    access_token_hash: hashCliToken(access),
+    refresh_token_hash: hashCliToken(refresh),
+    access_expires_at: input.now + ACCESS_TOKEN_TTL_MS,
+    refresh_expires_at: input.refreshExpiresAt,
+    created_at: input.now,
+    last_used_at: input.now,
+    revoked_at: null,
+  })
+  await auditCli(tx, input.action, connectionId, input.userId, {
+    client_id: input.clientId,
+    scopes: input.scopes,
+  })
+  return {
+    access_token: access,
+    refresh_token: refresh,
+    token_type: 'Bearer',
+    expires_in: ACCESS_TOKEN_TTL_MS / 1000,
+    refresh_token_expires_in: Math.max(0, Math.floor((input.refreshExpiresAt - input.now) / 1000)),
+  }
 }
 
 export async function exchangeDeviceCode(
@@ -166,36 +216,17 @@ export async function exchangeDeviceCode(
       .update(schema.device_authorizations)
       .set({ status: 'expired', last_polled_at: now })
       .where(eq(schema.device_authorizations.id, row.id))
-    const access = secret()
-    const refresh = secret()
-    const connectionId = randomUUID()
-    await tx.insert(schema.cli_connections).values({
-      id: connectionId,
-      user_id: row.user_id,
-      client_id: row.client_id,
-      family_id: randomUUID(),
-      scopes: row.scopes,
-      access_token_hash: hashCliToken(access),
-      refresh_token_hash: hashCliToken(refresh),
-      access_expires_at: now + ACCESS_TOKEN_TTL_MS,
-      refresh_expires_at: now + REFRESH_TOKEN_TTL_MS,
-      created_at: now,
-      last_used_at: now,
-      revoked_at: null,
-    })
-    await auditCli(tx, 'token.issued', connectionId, row.user_id, {
-      client_id: row.client_id,
-      scopes: row.scopes,
-    })
     return {
       ok: true,
-      tokens: {
-        access_token: access,
-        refresh_token: refresh,
-        token_type: 'Bearer',
-        expires_in: ACCESS_TOKEN_TTL_MS / 1000,
-        refresh_token_expires_in: REFRESH_TOKEN_TTL_MS / 1000,
-      },
+      tokens: await issueConnection(tx, {
+        userId: row.user_id,
+        clientId: row.client_id,
+        familyId: randomUUID(),
+        scopes: row.scopes,
+        refreshExpiresAt: now + REFRESH_TOKEN_TTL_MS,
+        now,
+        action: 'token.issued',
+      }),
     }
   })
 }
@@ -226,40 +257,21 @@ export async function rotateRefreshToken(
       return { ok: false, error: 'invalid_grant' }
     }
     if (row.refresh_expires_at <= now) return { ok: false, error: 'invalid_grant' }
-    const access = secret()
-    const refresh = secret()
     await tx
       .update(schema.cli_connections)
       .set({ revoked_at: now, last_used_at: now })
       .where(eq(schema.cli_connections.id, row.id))
-    const connectionId = randomUUID()
-    await tx.insert(schema.cli_connections).values({
-      id: connectionId,
-      user_id: row.user_id,
-      client_id: row.client_id,
-      family_id: row.family_id,
-      scopes: row.scopes,
-      access_token_hash: hashCliToken(access),
-      refresh_token_hash: hashCliToken(refresh),
-      access_expires_at: now + ACCESS_TOKEN_TTL_MS,
-      refresh_expires_at: row.refresh_expires_at,
-      created_at: now,
-      last_used_at: now,
-      revoked_at: null,
-    })
-    await auditCli(tx, 'token.rotated', connectionId, row.user_id, {
-      client_id: row.client_id,
-      scopes: row.scopes,
-    })
     return {
       ok: true,
-      tokens: {
-        access_token: access,
-        refresh_token: refresh,
-        token_type: 'Bearer',
-        expires_in: ACCESS_TOKEN_TTL_MS / 1000,
-        refresh_token_expires_in: Math.max(0, Math.floor((row.refresh_expires_at - now) / 1000)),
-      },
+      tokens: await issueConnection(tx, {
+        userId: row.user_id,
+        clientId: row.client_id,
+        familyId: row.family_id,
+        scopes: row.scopes,
+        refreshExpiresAt: row.refresh_expires_at,
+        now,
+        action: 'token.rotated',
+      }),
     }
   })
 }
@@ -293,11 +305,21 @@ export async function revokeCliToken(token: string, clientId: string): Promise<v
   })
 }
 
-export async function resolveCliBearerToken(token: string): Promise<AuthUserView | null> {
+export interface CliConnection {
+  readonly user: AuthUserView
+  readonly scopes: readonly string[]
+}
+
+/** One lookup per request: the active connection's owner and granted scopes. */
+export async function resolveCliConnection(token: string): Promise<CliConnection | null> {
   if (!token) return null
   const now = Date.now()
   const [row] = await db
-    .select({ connection: schema.cli_connections, user: schema.users })
+    .select({
+      id: schema.cli_connections.id,
+      scopes: schema.cli_connections.scopes,
+      user: schema.users,
+    })
     .from(schema.cli_connections)
     .innerJoin(schema.users, eq(schema.users.id, schema.cli_connections.user_id))
     .where(
@@ -312,33 +334,6 @@ export async function resolveCliBearerToken(token: string): Promise<AuthUserView
   void db
     .update(schema.cli_connections)
     .set({ last_used_at: now })
-    .where(eq(schema.cli_connections.id, row.connection.id))
-  return accountProfileView(row.user)
-}
-
-export const requireCliBearer = new Elysia({ name: 'require-cli-bearer' })
-  .derive({ as: 'scoped' }, async ({ request }) => {
-    const header = request.headers.get('authorization') ?? ''
-    const token = header.startsWith('Bearer ') ? header.slice(7).trim() : ''
-    return { cliAuthUser: await resolveCliBearerToken(token) }
-  })
-  .onBeforeHandle({ as: 'scoped' }, ({ cliAuthUser, status }) =>
-    cliAuthUser ? undefined : status(401, { error: 'unauthorized' }),
-  )
-
-export async function resolveCliScopes(token: string): Promise<readonly string[]> {
-  if (!token) return []
-  const now = Date.now()
-  const [row] = await db
-    .select({ scopes: schema.cli_connections.scopes })
-    .from(schema.cli_connections)
-    .where(
-      and(
-        eq(schema.cli_connections.access_token_hash, hashCliToken(token)),
-        isNull(schema.cli_connections.revoked_at),
-        gt(schema.cli_connections.access_expires_at, now),
-      ),
-    )
-    .limit(1)
-  return row?.scopes.split(' ').filter(Boolean) ?? []
+    .where(eq(schema.cli_connections.id, row.id))
+  return { user: accountProfileView(row.user), scopes: row.scopes.split(' ').filter(Boolean) }
 }

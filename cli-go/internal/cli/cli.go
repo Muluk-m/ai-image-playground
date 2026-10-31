@@ -23,6 +23,8 @@ import (
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/skill"
 )
 
+const oauthClientID = "muvloom-cli"
+
 const schemaVersion = 1
 
 const Version = "0.1.0"
@@ -64,33 +66,7 @@ func (a *App) Run(args []string) int {
 	c := client.New(a.BaseURL, a.HTTP)
 	if credErr == nil {
 		c.AccessToken = creds.AccessToken
-		c.RefreshToken = func(ctx context.Context) (string, error) {
-			if creds.RefreshToken == "" {
-				return "", errors.New("no refresh token")
-			}
-			var refreshed struct {
-				AccessToken  string `json:"access_token"`
-				ExpiresIn    int    `json:"expires_in"`
-				RefreshToken string `json:"refresh_token"`
-			}
-			if err := postForm(ctx, a.BaseURL+"/oauth/token", a.HTTP, map[string]string{"grant_type": "refresh_token", "refresh_token": creds.RefreshToken, "client_id": "muvloom-cli"}, &refreshed); err != nil {
-				return "", err
-			}
-			if refreshed.AccessToken == "" {
-				return "", errors.New("refresh returned no access token")
-			}
-			creds.AccessToken = refreshed.AccessToken
-			if refreshed.RefreshToken != "" {
-				creds.RefreshToken = refreshed.RefreshToken
-			}
-			if refreshed.ExpiresIn > 0 {
-				creds.ExpiresAt = time.Now().Add(time.Duration(refreshed.ExpiresIn) * time.Second)
-			}
-			if err := a.Store.Save(creds); err != nil {
-				return "", err
-			}
-			return creds.AccessToken, nil
-		}
+		c.RefreshToken = func(ctx context.Context) (string, error) { return a.refresh(ctx, &creds) }
 	}
 	cmd := args[0]
 	switch cmd {
@@ -327,7 +303,7 @@ func (a *App) refresh(ctx context.Context, creds *auth.Credentials) (string, err
 		RefreshToken string `json:"refresh_token"`
 		ExpiresIn    int    `json:"expires_in"`
 	}
-	if err := postForm(ctx, a.BaseURL+"/oauth/token", a.HTTP, map[string]string{"grant_type": "refresh_token", "refresh_token": creds.RefreshToken, "client_id": "muvloom-cli"}, &refreshed); err != nil {
+	if err := postForm(ctx, a.BaseURL+"/oauth/token", a.HTTP, map[string]string{"grant_type": "refresh_token", "refresh_token": creds.RefreshToken, "client_id": oauthClientID}, &refreshed); err != nil {
 		return "", err
 	}
 	if refreshed.AccessToken == "" {
@@ -348,12 +324,12 @@ func (a *App) refresh(ctx context.Context, creds *auth.Credentials) (string, err
 
 func (a *App) auth(args []string, creds auth.Credentials, credErr error) int {
 	if (len(args) == 1 && args[0] == "status") || (len(args) == 2 && args[0] == "status" && args[1] == "--json") {
+		if credErr != nil || creds.AccessToken == "" {
+			return a.fail(3, "AUTH_REQUIRED", "Authentication is required")
+		}
 		data := map[string]any{"authenticated": false, "skills": []any{}}
 		if installed, installErr := skill.Installed("", ""); installErr == nil {
 			data["skills"] = installed
-		}
-		if credErr != nil || creds.AccessToken == "" {
-			return a.fail(3, "AUTH_REQUIRED", "Authentication is required")
 		}
 		c := client.New(a.BaseURL, a.HTTP)
 		c.AccessToken = creds.AccessToken
@@ -387,7 +363,7 @@ func (a *App) loginStart() int {
 		ExpiresIn       int    `json:"expires_in"`
 		Interval        int    `json:"interval"`
 	}
-	if err := postForm(context.Background(), a.BaseURL+"/oauth/device_authorization", a.HTTP, map[string]string{"client_id": "muvloom-cli"}, &result); err != nil {
+	if err := postForm(context.Background(), a.BaseURL+"/oauth/device_authorization", a.HTTP, map[string]string{"client_id": oauthClientID}, &result); err != nil {
 		return a.apiFail(err)
 	}
 	interval := time.Duration(result.Interval) * time.Second
@@ -421,7 +397,7 @@ func (a *App) loginResume(creds auth.Credentials, credErr error) int {
 			RefreshToken string `json:"refresh_token"`
 			ExpiresIn    int    `json:"expires_in"`
 		}
-		err := postForm(ctx, a.BaseURL+"/oauth/token", a.HTTP, map[string]string{"grant_type": "urn:ietf:params:oauth:grant-type:device_code", "device_code": creds.DeviceCode, "client_id": "muvloom-cli"}, &tok)
+		err := postForm(ctx, a.BaseURL+"/oauth/token", a.HTTP, map[string]string{"grant_type": "urn:ietf:params:oauth:grant-type:device_code", "device_code": creds.DeviceCode, "client_id": oauthClientID}, &tok)
 		if err == nil {
 			if tok.AccessToken == "" {
 				return a.fail(1, "INVALID_RESPONSE", "Authentication response was invalid")
@@ -452,7 +428,7 @@ func (a *App) loginResume(creds auth.Credentials, credErr error) int {
 
 func (a *App) logout(creds auth.Credentials, credErr error) int {
 	if credErr == nil && creds.RefreshToken != "" {
-		_ = postForm(context.Background(), a.BaseURL+"/oauth/revoke", a.HTTP, map[string]string{"token": creds.RefreshToken, "client_id": "muvloom-cli"}, nil)
+		_ = postForm(context.Background(), a.BaseURL+"/oauth/revoke", a.HTTP, map[string]string{"token": creds.RefreshToken, "client_id": oauthClientID}, nil)
 	}
 	if err := a.Store.Clear(); err != nil {
 		return a.fail(1, "INTERNAL_ERROR", "Could not clear credentials")
@@ -549,16 +525,22 @@ func (a *App) jobRequest(c *client.HTTPClient, method, path string) int {
 func (a *App) jobWait(c *client.HTTPClient, jobID string, seconds int) int {
 	deadline := time.Now().Add(time.Duration(seconds) * time.Second)
 	for {
-		var data struct {
-			Terminal bool `json:"terminal"`
-		}
-		if err := c.Do(context.Background(), http.MethodGet, "/v1/jobs/"+urlPath(jobID), nil, &data); err != nil {
+		var raw json.RawMessage
+		if err := c.Do(context.Background(), http.MethodGet, "/v1/jobs/"+urlPath(jobID), nil, &raw); err != nil {
 			return a.apiFail(err)
 		}
-		if data.Terminal || time.Now().After(deadline) {
-			return a.jobRequest(c, http.MethodGet, "/v1/jobs/"+urlPath(jobID))
+		var job struct {
+			Terminal         bool `json:"terminal"`
+			PollAfterSeconds int  `json:"poll_after_seconds"`
 		}
-		time.Sleep(time.Second)
+		if err := json.Unmarshal(raw, &job); err != nil {
+			return a.fail(1, "INTERNAL_ERROR", "Invalid job response")
+		}
+		if job.Terminal || time.Now().After(deadline) {
+			return a.success(raw)
+		}
+		wait := time.Duration(max(job.PollAfterSeconds, 1)) * time.Second
+		time.Sleep(min(wait, max(time.Until(deadline), 0)+time.Millisecond))
 	}
 }
 
@@ -656,4 +638,3 @@ func ParseBaseURL() string {
 	return "https://api.muvloom.com"
 }
 func ParseStore() auth.Store { return auth.New(os.Getenv("MUVLOOM_CREDENTIALS_FILE")) }
-func ParseInt(s string) int  { n, _ := strconv.Atoi(s); return n }
