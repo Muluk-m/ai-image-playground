@@ -340,6 +340,60 @@ export const model_availability = pgTable('model_availability', {
   updated_at: epochMs('updated_at').notNull(),
 })
 
+/**
+ * 上游调度桶的状态。上限（每分钟张数、同时在途数）来自本环境配置，不存表；这一行是 worker 们抢额度时
+ * 加 FOR UPDATE 的锁点，另外记着遇到 429 后的冷却截止时间。没有行即从未用过，首次抢额度时补上。
+ */
+export const scheduler_buckets = pgTable('scheduler_buckets', {
+  key: text('key').primaryKey(),
+  cooldown_until: epochMs('cooldown_until'),
+  updated_at: epochMs('updated_at').notNull(),
+})
+
+/**
+ * 一次上游请求在一个桶上占的额度。同一请求可能同时占几个桶（每模型张数 + 同时在途数），
+ * 在同一事务里一起拿到。`released_at` 为空即仍在途；心跳停了的租约由下一次抢额度时回收。
+ * 按 `acquired_at` 落在最近一分钟内的行计算每分钟张数，所以释放后的行留到滑出窗口才删。
+ */
+export const scheduler_leases = pgTable(
+  'scheduler_leases',
+  {
+    attempt_id: text('attempt_id').notNull(),
+    bucket_key: text('bucket_key').notNull(),
+    images: integer('images').notNull(),
+    worker_id: text('worker_id').notNull(),
+    acquired_at: epochMs('acquired_at').notNull(),
+    heartbeat_at: epochMs('heartbeat_at').notNull(),
+    released_at: epochMs('released_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.attempt_id, t.bucket_key] }),
+    index('idx_scheduler_leases_bucket_acquired').on(t.bucket_key, t.acquired_at),
+  ],
+)
+
+/**
+ * OpenAI 直连每条请求的成本，按月累计做预算封顶（apps/bff/src/lib/upstream/gpt-budget.ts）。
+ * 上游回了 usage 按 token 折算；没回（中断、超时）按档位估算并标 `estimated`。
+ */
+export const gpt_direct_usage = pgTable(
+  'gpt_direct_usage',
+  {
+    id: text('id').primaryKey(),
+    task_id: text('task_id'),
+    model: text('model').notNull(),
+    size: text('size'),
+    quality: text('quality'),
+    images: integer('images').notNull(),
+    input_tokens: integer('input_tokens'),
+    output_tokens: integer('output_tokens'),
+    cost_micro_usd: bigint('cost_micro_usd', { mode: 'number' }).notNull(),
+    estimated: boolean('estimated').notNull(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [index('idx_gpt_direct_usage_created').on(t.created_at)],
+)
+
 export type InspirationKind = 'showcase' | 'template' | 'skill'
 export type InspirationStatus = 'draft' | 'published' | 'archived'
 export interface InspirationParams {
@@ -1083,6 +1137,8 @@ export const tasks = pgTable(
     upstream_task_ids: bunJsonb('upstream_task_ids').$type<string[]>(),
     /** Anchor for the polling deadline, so a restart cannot grant a fresh timeout budget. */
     upstream_submitted_at: epochMs('upstream_submitted_at'),
+    /** GPT Image 这一单最后走的通道；会员高档参数落到 sub2api 时结算按基础档（task-transitions finishTask）。 */
+    gpt_route: text('gpt_route').$type<'direct' | 'sub2api'>(),
     execution_token: text('execution_token'),
     lease_expires_at: epochMs('lease_expires_at'),
     submitted_at: epochMs('submitted_at').notNull(),

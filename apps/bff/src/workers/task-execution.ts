@@ -98,6 +98,8 @@ export interface TaskExecution {
   readonly signal: AbortSignal
   /** 主动停掉这次执行的上游请求；扇出的兄弟请求共用这个信号，一并停。 */
   abort(): void
+  /** GPT Image 这一单正要走的通道（换路时覆盖成后一条）；结算按它判断是否降了档。 */
+  recordGptRoute(route: 'direct' | 'sub2api'): Promise<void>
   /** 记账：上游真的被调用过。返回 false 表示这一行已经不归本次执行。 */
   recordUpstreamInvocation(count?: number): Promise<boolean>
   recordDispatchIntent(): Promise<string | null>
@@ -189,6 +191,10 @@ class TaskExecutionHandle implements TaskExecution {
 
   abort(): void {
     this.#controller.abort()
+  }
+
+  async recordGptRoute(route: 'direct' | 'sub2api'): Promise<void> {
+    await db.update(schema.tasks).set({ gpt_route: route }).where(this.#own())
   }
 
   async recordUpstreamInvocation(count = 1): Promise<boolean> {
