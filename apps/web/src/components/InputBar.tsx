@@ -298,9 +298,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     getParamCapabilities(activeProfile, params.output_format).size,
   )
   const unitMultiplier =
-    toCanvas || premium.locked
-      ? 1
-      : gptImageRateMultiplier(activeView.model, params.size, params.quality)
+    toCanvas || premium.locked ? 1 : gptImageRateMultiplier(activeView.model, params)
   const submissionGuard = usePrivateSubmissionGuard({
     model: activeView.model,
     quantity: batchActive ? batchImageCount : submitImageCount,

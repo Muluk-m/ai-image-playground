@@ -124,12 +124,8 @@ function pricingOf(input: CreateQueueTaskInput) {
   if (!input.video)
     return {
       quantity: n,
-      // GPT 直连模型按档位与画质加倍率；其它图片模型恒为 1。
-      unitMultiplier: gptImageRateMultiplier(
-        input.model,
-        input.request.size,
-        input.request.quality,
-      ),
+      // GPT 直连模型按档位与画质加倍率（带遮罩的只看画质）；其它图片模型恒为 1。
+      unitMultiplier: gptImageRateMultiplier(input.model, input.request),
       quotaUnits: n,
     }
   return {
