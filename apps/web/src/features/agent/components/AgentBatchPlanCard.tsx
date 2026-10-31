@@ -388,7 +388,8 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         setPage(result)
       }
     } catch {
-      if (commands.current()) setCancelItemFailed(true)
+      // 只认最新一次操作：先发的取消晚失败时，别把后发请求已经刷新好的结果标成失败。
+      if (commands.current() && operation === operations.current) setCancelItemFailed(true)
     } finally {
       setCancellingItems((current) => {
         const next = new Set(current)

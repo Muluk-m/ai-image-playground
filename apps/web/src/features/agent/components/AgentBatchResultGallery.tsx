@@ -243,7 +243,8 @@ export function AgentBatchRunRow({
         <div
           className="studio-agent-inline-tile"
           data-pending="true"
-          role="img"
+          // group 而不是 img：img 会把后代当成图像内容，读屏发现不了里面的取消按钮。
+          role="group"
           aria-label={t('batch.tileLabel', { index: tile.position, status: label })}
         >
           {live && (
