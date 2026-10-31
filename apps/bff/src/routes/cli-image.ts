@@ -2,7 +2,7 @@ import type { AuthUserView } from '@image-playground/shared'
 import { findCatalogModel } from '@image-playground/shared/model-catalog'
 import { Elysia, t } from 'elysia'
 import { db } from '../db/client'
-import { getChannels, resolveQueueModel } from '../lib/channels'
+import { getChannels, isModelDisabled, resolveQueueModel } from '../lib/channels'
 import { cliApiRoutes, cliError, cliSuccess } from '../lib/cli-api'
 import { resolveCliBearerToken } from '../lib/cli-auth'
 import { MEDIA_INPUT_PATTERN, MediaInputError, resolveMediaInputs } from '../lib/mediaInputs'
@@ -118,7 +118,7 @@ async function capabilityData(user: CliAccount) {
   const models = await Promise.all(
     getChannels().flatMap((channel) =>
       channel.models
-        .filter((model) => (model.media ?? 'image') === 'image')
+        .filter((model) => (model.media ?? 'image') === 'image' && !isModelDisabled(model.id))
         .map(async (model) => {
           const catalog = findCatalogModel(model.id)
           const supports4k = Boolean(
