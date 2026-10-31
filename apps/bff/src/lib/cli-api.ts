@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import { Elysia } from 'elysia'
 import { isCapabilityEnabled } from './capabilities'
-
+import { resolveCliScopes } from './cli-auth'
 /** Versioned response shape consumed by native CLI clients. */
 export const CLI_API_SCHEMA_VERSION = 1 as const
 
@@ -158,6 +158,8 @@ export function createCliTokenRateLimiter(options: {
 export interface CliApiOptions {
   readonly token?: string
   readonly authenticate?: (token: string) => boolean | Promise<boolean>
+  readonly scopePolicy?: (request: Request) => string | undefined
+  readonly requiredScope?: string
   readonly capabilityCheck?: () => boolean
   readonly maxRequests?: number
   readonly windowMs?: number
@@ -168,6 +170,19 @@ export interface CliApiOptions {
  * Route boundary for externally-consumed CLI endpoints. It deliberately does not expose website
  * queue handlers: callers compose their own `/v1/*` routes after this authentication/gate plugin.
  */
+function defaultScopePolicy(request: Request): string | undefined {
+  const url = new URL(request.url)
+  if (url.pathname === '/v1/image-jobs' || url.pathname === '/v1/image-jobs/validate')
+    return 'images:write'
+  if (url.pathname.startsWith('/v1/jobs/') && url.pathname.endsWith('/cancel'))
+    return 'images:write'
+  if (url.pathname.startsWith('/v1/media') && request.method !== 'GET') return 'media:write'
+  if (url.pathname.startsWith('/v1/artifacts') || url.pathname.startsWith('/v1/media'))
+    return 'media:read'
+  if (url.pathname.startsWith('/v1/jobs')) return 'images:read'
+  return undefined
+}
+
 export function cliApiRoutes(options: CliApiOptions = {}) {
   const limiter =
     options.limiter ??
@@ -186,8 +201,12 @@ export function cliApiRoutes(options: CliApiOptions = {}) {
         : options.token
           ? safeEqual(supplied, options.token)
           : true
-      if (!authenticated) return cliError('UNAUTHENTICATED', 'Authentication is required')
+      const requiredScope =
+        options.scopePolicy?.(request) ?? defaultScopePolicy(request) ?? options.requiredScope
+      if (requiredScope && !(await resolveCliScopes(supplied)).includes(requiredScope))
+        return cliError('FORBIDDEN', 'The request is not allowed')
       const result = limiter.check(supplied)
+
       if (!result.allowed)
         return new Response(JSON.stringify(cliErrorBody('RATE_LIMITED', 'Too many requests')), {
           status: 429,
