@@ -16,8 +16,8 @@ pg_backup_env
 # Cron and the container start-up catch-up can both start a drill. Both would restore and upload the
 # same pg/drill/latest.json, so the second one to arrive steps aside instead of racing the first.
 # This is also the backup lock: retention must not delete the dump while the drill is reading it.
-# flock is busybox's in postgres:*-alpine. Only status 1 means "held"; anything else (missing command,
-# bad fd) runs the drill unlocked, so a broken lock never silently disables every drill.
+# flock is busybox's in postgres:*-alpine. A held lock skips; any other lock error exits,
+# so a broken lock never allows the drill to race backup retention.
 exec 9>/tmp/pg-backup.lock
 lock_status=0
 flock -n 9 || lock_status=$?
