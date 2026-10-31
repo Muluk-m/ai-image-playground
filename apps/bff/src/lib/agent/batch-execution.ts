@@ -914,7 +914,6 @@ export async function cancelAgentBatchItem(
 }
 
 /** A retry authorizes new attempt numbers; every earlier task and bill remains immutable. */
-
 export async function quoteAgentBatchRetry(
   userId: string,
   id: string,
