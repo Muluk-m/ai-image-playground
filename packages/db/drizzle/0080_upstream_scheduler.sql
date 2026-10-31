@@ -18,3 +18,20 @@ CREATE TABLE IF NOT EXISTS "scheduler_leases" (
 );
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_scheduler_leases_bucket_acquired" ON "scheduler_leases" USING btree ("bucket_key","acquired_at");
+--> statement-breakpoint
+-- OpenAI 直连每次请求的成本（按上游回报的 token 折算，拿不到用量时按档位估算），用来按月预算封顶。
+CREATE TABLE IF NOT EXISTS "gpt_direct_usage" (
+	"id" text PRIMARY KEY NOT NULL,
+	"task_id" text,
+	"model" text NOT NULL,
+	"size" text,
+	"quality" text,
+	"images" integer NOT NULL,
+	"input_tokens" integer,
+	"output_tokens" integer,
+	"cost_micro_usd" bigint NOT NULL,
+	"estimated" boolean NOT NULL,
+	"created_at" timestamp with time zone NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_gpt_direct_usage_created" ON "gpt_direct_usage" USING btree ("created_at");

@@ -259,6 +259,28 @@ export const scheduler_leases = pgTable(
   ],
 )
 
+/**
+ * OpenAI 直连每条请求的成本，按月累计做预算封顶（apps/bff/src/lib/upstream/gpt-budget.ts）。
+ * 上游回了 usage 按 token 折算；没回（中断、超时）按档位估算并标 `estimated`。
+ */
+export const gpt_direct_usage = pgTable(
+  'gpt_direct_usage',
+  {
+    id: text('id').primaryKey(),
+    task_id: text('task_id'),
+    model: text('model').notNull(),
+    size: text('size'),
+    quality: text('quality'),
+    images: integer('images').notNull(),
+    input_tokens: integer('input_tokens'),
+    output_tokens: integer('output_tokens'),
+    cost_micro_usd: bigint('cost_micro_usd', { mode: 'number' }).notNull(),
+    estimated: boolean('estimated').notNull(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [index('idx_gpt_direct_usage_created').on(t.created_at)],
+)
+
 export type InspirationKind = 'showcase' | 'template' | 'skill'
 export type InspirationStatus = 'draft' | 'published' | 'archived'
 export interface InspirationParams {
