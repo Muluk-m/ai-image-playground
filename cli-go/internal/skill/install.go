@@ -18,7 +18,7 @@ import (
 // the executable on the same version so hosts can report what was installed.
 const BundleVersion = "0.1.0"
 
-//go:embed assets/SKILL.md assets/references/*.md
+//go:embed assets
 var bundled embed.FS
 
 type InstallOptions struct {
