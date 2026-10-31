@@ -33,12 +33,8 @@ func Installed(home, cwd string) ([]Installation, error) {
 	if err != nil {
 		return nil, err
 	}
-	locations := []struct {
-		root  string
-		scope string
-	}{
-		{home, "user"},
-	}
+	type location struct{ root, scope string }
+	locations := []location{{home, "user"}}
 	if cwd == "" {
 		cwd, err = os.Getwd()
 		if err != nil {
@@ -46,14 +42,11 @@ func Installed(home, cwd string) ([]Installation, error) {
 		}
 	}
 	if project, projectErr := findProjectRoot(cwd); projectErr == nil && project != home {
-		locations = append(locations, struct {
-			root  string
-			scope string
-		}{project, "project"})
+		locations = append(locations, location{project, "project"})
 	}
 	result := make([]Installation, 0)
 	for _, location := range locations {
-		for _, host := range []struct{ name, dir string }{{"claude-code", ".claude"}, {"codex", ".agents"}} {
+		for _, host := range hosts {
 			path := filepath.Join(location.root, host.dir, "skills", "muvloom")
 			data, readErr := os.ReadFile(filepath.Join(path, ".muvloom-skill.json"))
 			if errors.Is(readErr, os.ErrNotExist) {

@@ -1,7 +1,10 @@
-import { timingSafeEqual } from 'node:crypto'
+import type { AuthUserView } from '@image-playground/shared'
 import { Elysia } from 'elysia'
 import { isCapabilityEnabled } from './capabilities'
-import { resolveCliScopes } from './cli-auth'
+import { type CliConnection, resolveCliConnection } from './cli-auth'
+import { MediaInputError } from './mediaInputs'
+import { MediaError } from './projectMedia'
+
 /** Versioned response shape consumed by native CLI clients. */
 export const CLI_API_SCHEMA_VERSION = 1 as const
 
@@ -27,16 +30,60 @@ export function cliSuccess<T>(data: T): CliSuccess<T> {
   return { schema_version: CLI_API_SCHEMA_VERSION, ok: true, data }
 }
 
+/** Stable external codes; unknown upper-case codes fall back to 400 and a generic message. */
+const CLI_ERRORS: Record<string, { status: number; message: string }> = {
+  UNAUTHENTICATED: { status: 401, message: 'Authentication is required' },
+  FORBIDDEN: { status: 403, message: 'The request is not allowed' },
+  INVALID_REQUEST: { status: 400, message: 'The request is invalid' },
+  CAPABILITY_UNAVAILABLE: { status: 404, message: 'The CLI API is unavailable' },
+  NOT_FOUND: { status: 404, message: 'The requested resource was not found' },
+  CONFLICT: { status: 409, message: 'The request conflicts with existing state' },
+  JOB_NOT_CANCELLABLE: {
+    status: 409,
+    message: 'The job cannot be canceled in its current state',
+  },
+  REQUEST_TOO_LARGE: { status: 413, message: 'The request is too large' },
+  RATE_LIMITED: { status: 429, message: 'Too many requests' },
+  INTERNAL_ERROR: { status: 500, message: 'The request could not be completed' },
+}
+const FALLBACK_ERROR = { status: 400, message: 'The request could not be completed' }
+
+/** Internal/public error names that map onto a stable CLI code. */
+const INTERNAL_ERROR_ALIASES: Record<string, string> = {
+  unauthorized: 'UNAUTHENTICATED',
+  invalid_token: 'UNAUTHENTICATED',
+  forbidden: 'FORBIDDEN',
+  insufficient_scope: 'FORBIDDEN',
+  invalid_request: 'INVALID_REQUEST',
+  capability_unavailable: 'CAPABILITY_UNAVAILABLE',
+  rate_limited: 'RATE_LIMITED',
+  not_found: 'NOT_FOUND',
+  conflict: 'CONFLICT',
+  job_not_cancellable: 'JOB_NOT_CANCELLABLE',
+  internal_error: 'INTERNAL_ERROR',
+}
+
+const MEDIA_STATUS_CODES: Record<number, string> = {
+  404: 'NOT_FOUND',
+  409: 'CONFLICT',
+  413: 'REQUEST_TOO_LARGE',
+  422: 'INVALID_REQUEST',
+}
+
 export function cliError(
   code: string,
-  message: string,
+  message = (CLI_ERRORS[code] ?? FALLBACK_ERROR).message,
   details?: unknown,
-  httpStatus = cliHttpStatus(code),
+  httpStatus = (CLI_ERRORS[code] ?? FALLBACK_ERROR).status,
+  headers: Record<string, string> = {},
 ): Response {
   const error: CliError['error'] = { code, message, ...(details === undefined ? {} : { details }) }
   return Response.json(
     { schema_version: CLI_API_SCHEMA_VERSION, ok: false, error } satisfies CliError,
-    { status: httpStatus, headers: { 'content-type': 'application/json; charset=utf-8' } },
+    {
+      status: httpStatus,
+      headers: { 'content-type': 'application/json; charset=utf-8', ...headers },
+    },
   )
 }
 
@@ -53,66 +100,15 @@ export function translateCliError(error: unknown): {
     if (typeof value === 'string') source = value
   }
   const code = source ?? 'internal_error'
-  const translated: Record<string, string> = {
-    unauthorized: 'UNAUTHENTICATED',
-    invalid_token: 'UNAUTHENTICATED',
-    forbidden: 'FORBIDDEN',
-    insufficient_scope: 'FORBIDDEN',
-    invalid_request: 'INVALID_REQUEST',
-    capability_unavailable: 'CAPABILITY_UNAVAILABLE',
-    rate_limited: 'RATE_LIMITED',
-    not_found: 'NOT_FOUND',
-    conflict: 'CONFLICT',
-    job_not_cancellable: 'JOB_NOT_CANCELLABLE',
-    internal_error: 'INTERNAL_ERROR',
-  }
-  const canonical = translated[code] ?? (code === code.toUpperCase() ? code : 'REQUEST_REJECTED')
-  return { code: canonical, message: cliErrorMessage(canonical), status: cliHttpStatus(canonical) }
+  const canonical =
+    INTERNAL_ERROR_ALIASES[code] ?? (code === code.toUpperCase() ? code : 'REQUEST_REJECTED')
+  return { code: canonical, ...(CLI_ERRORS[canonical] ?? FALLBACK_ERROR) }
 }
 
-function cliErrorMessage(code: string): string {
-  switch (code) {
-    case 'UNAUTHENTICATED':
-      return 'Authentication is required'
-    case 'FORBIDDEN':
-      return 'The request is not allowed'
-    case 'INVALID_REQUEST':
-      return 'The request is invalid'
-    case 'CAPABILITY_UNAVAILABLE':
-      return 'The CLI API is unavailable'
-    case 'RATE_LIMITED':
-      return 'Too many requests'
-    case 'NOT_FOUND':
-      return 'The requested resource was not found'
-    case 'JOB_NOT_CANCELLABLE':
-      return 'The job cannot be canceled in its current state'
-    case 'CONFLICT':
-      return 'The request conflicts with existing state'
-    default:
-      return 'The request could not be completed'
-  }
-}
-
-function cliHttpStatus(code: string): number {
-  switch (code) {
-    case 'UNAUTHENTICATED':
-      return 401
-    case 'FORBIDDEN':
-      return 403
-    case 'INVALID_REQUEST':
-      return 400
-    case 'CAPABILITY_UNAVAILABLE':
-    case 'NOT_FOUND':
-      return 404
-    case 'CONFLICT':
-    case 'JOB_NOT_CANCELLABLE':
-      return 409
-    case 'RATE_LIMITED':
-      return 429
-    case 'INTERNAL_ERROR':
-      return 500
-    default:
-      return 400
+/** Thrown from the boundary or handlers to answer with a CLI error envelope. */
+export class CliRequestError extends Error {
+  constructor(readonly code: string) {
+    super(code)
   }
 }
 
@@ -155,87 +151,69 @@ export function createCliTokenRateLimiter(options: {
   }
 }
 
+/** One budget per token across every CLI resource group. */
+const sharedLimiter = createCliTokenRateLimiter({ maxRequests: 60, windowMs: 60_000 })
+
 export interface CliApiOptions {
-  readonly token?: string
-  readonly authenticate?: (token: string) => boolean | Promise<boolean>
-  readonly scopePolicy?: (request: Request) => string | undefined
-  readonly requiredScope?: string
+  readonly resolveConnection?: (token: string) => Promise<CliConnection | null>
   readonly capabilityCheck?: () => boolean
-  readonly maxRequests?: number
-  readonly windowMs?: number
   readonly limiter?: CliTokenRateLimiter
 }
 
-/**
- * Route boundary for externally-consumed CLI endpoints. It deliberately does not expose website
- * queue handlers: callers compose their own `/v1/*` routes after this authentication/gate plugin.
- */
-function defaultScopePolicy(request: Request): string | undefined {
-  const url = new URL(request.url)
-  if (url.pathname === '/v1/image-jobs' || url.pathname === '/v1/image-jobs/validate')
-    return 'images:write'
-  if (url.pathname.startsWith('/v1/jobs/') && url.pathname.endsWith('/cancel'))
-    return 'images:write'
-  if (url.pathname.startsWith('/v1/media') && request.method !== 'GET') return 'media:write'
-  if (url.pathname.startsWith('/v1/artifacts') || url.pathname.startsWith('/v1/media'))
-    return 'media:read'
-  if (url.pathname.startsWith('/v1/jobs')) return 'images:read'
+function requiredScope(request: Request): string | undefined {
+  const { pathname } = new URL(request.url)
+  if (pathname === '/v1/image-jobs' || pathname === '/v1/image-jobs/validate') return 'images:write'
+  if (pathname.startsWith('/v1/jobs/') && pathname.endsWith('/cancel')) return 'images:write'
+  if (pathname.startsWith('/v1/media') && request.method !== 'GET') return 'media:write'
+  if (pathname.startsWith('/v1/artifacts') || pathname.startsWith('/v1/media')) return 'media:read'
+  if (pathname.startsWith('/v1/jobs')) return 'images:read'
   return undefined
 }
 
+/**
+ * Route boundary for externally-consumed CLI endpoints: capability gate, per-token rate limit,
+ * a single connection lookup and scope check. Handlers receive a non-null `cliUser`.
+ */
 export function cliApiRoutes(options: CliApiOptions = {}) {
-  const limiter =
-    options.limiter ??
-    createCliTokenRateLimiter({
-      maxRequests: options.maxRequests ?? 60,
-      windowMs: options.windowMs ?? 60_000,
-    })
+  const limiter = options.limiter ?? sharedLimiter
+  const capabilityCheck = options.capabilityCheck ?? (() => isCapabilityEnabled('cli:api'))
+  const resolveConnection = options.resolveConnection ?? resolveCliConnection
   return new Elysia({ name: 'cli-api-boundary' })
-    .onBeforeHandle({ as: 'scoped' }, async ({ request }) => {
-      if (!(options.capabilityCheck ?? (() => isCapabilityEnabled('cli:api')))())
-        return cliError('CAPABILITY_UNAVAILABLE', 'The CLI API is unavailable')
+    .onBeforeHandle({ as: 'scoped' }, ({ request }) => {
+      if (!capabilityCheck()) return cliError('CAPABILITY_UNAVAILABLE')
       const supplied = bearerToken(request)
-      if (!supplied) return cliError('UNAUTHENTICATED', 'Authentication is required')
-      const authenticated = options.authenticate
-        ? await options.authenticate(supplied)
-        : options.token
-          ? safeEqual(supplied, options.token)
-          : true
-      const requiredScope =
-        options.scopePolicy?.(request) ?? defaultScopePolicy(request) ?? options.requiredScope
-      if (requiredScope && !(await resolveCliScopes(supplied)).includes(requiredScope))
-        return cliError('FORBIDDEN', 'The request is not allowed')
+      if (!supplied) return cliError('UNAUTHENTICATED')
       const result = limiter.check(supplied)
-
       if (!result.allowed)
-        return new Response(JSON.stringify(cliErrorBody('RATE_LIMITED', 'Too many requests')), {
-          status: 429,
-          headers: {
-            'content-type': 'application/json; charset=utf-8',
-            'retry-after': String(result.retryAfterSeconds),
-          },
+        return cliError('RATE_LIMITED', undefined, undefined, undefined, {
+          'retry-after': String(result.retryAfterSeconds),
         })
     })
-    .onError({ as: 'scoped' }, ({ error, set }) => {
-      const translated = translateCliError(error)
-      set.status = translated.status
-      return cliErrorBody(translated.code, translated.message)
+    .resolve({ as: 'scoped' }, async ({ request }): Promise<{ cliUser: AuthUserView }> => {
+      const connection = await resolveConnection(bearerToken(request) ?? '')
+      if (!connection) throw new CliRequestError('UNAUTHENTICATED')
+      const scope = requiredScope(request)
+      if (scope && !connection.scopes.includes(scope)) throw new CliRequestError('FORBIDDEN')
+      return { cliUser: connection.user }
+    })
+    .onError({ as: 'scoped' }, ({ code, error }) => {
+      if (code === 'VALIDATION') return cliError('INVALID_REQUEST')
+      if (error instanceof CliRequestError) return cliError(error.code)
+      if (error instanceof MediaInputError) return cliError('INVALID_REQUEST', error.message)
+      if (error instanceof MediaError)
+        return cliError(
+          MEDIA_STATUS_CODES[error.status] ?? 'INTERNAL_ERROR',
+          'The media request could not be completed',
+          undefined,
+          error.status,
+        )
+      return cliError('INTERNAL_ERROR')
     })
 }
 
-function cliErrorBody(code: string, message: string): CliError {
-  return { schema_version: CLI_API_SCHEMA_VERSION, ok: false, error: { code, message } }
-}
-
-function bearerToken(request: Request): string | null {
+export function bearerToken(request: Request): string | null {
   const value = request.headers.get('authorization')
   if (!value || !/^Bearer\s+/i.test(value)) return null
   const token = value.slice(value.indexOf(' ') + 1).trim()
   return token || null
-}
-
-function safeEqual(left: string, right: string): boolean {
-  const a = Buffer.from(left)
-  const b = Buffer.from(right)
-  return a.length === b.length && timingSafeEqual(a, b)
 }

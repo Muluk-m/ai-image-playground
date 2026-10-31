@@ -1,26 +1,34 @@
-import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import {
-  approveDeviceAuthorization,
   CLI_CLIENT_ID,
   CLI_CLIENT_NAME,
   CLI_DEFAULT_SCOPES,
   createDeviceAuthorization,
-  denyDeviceAuthorization,
   exchangeDeviceCode,
   hashCliToken,
   revokeCliToken,
   rotateRefreshToken,
+  setDeviceDecision,
 } from '../lib/cli-auth'
 import { resolveAuthUser } from '../lib/user-auth'
 import { bffOrigin } from './oauth'
 
 function formBody(request: Request): Promise<URLSearchParams> {
   return request.text().then((text) => new URLSearchParams(text))
+}
+
+/** Unauthenticated confirmation goes through website login and comes back to the same code. */
+function loginRedirect(request: Request, code: string): Response {
+  const returnTo = `/oauth/device?user_code=${encodeURIComponent(code)}`
+  const frontend = config.auth.frontendOrigin || new URL(request.url).origin
+  return new Response(null, {
+    status: 302,
+    headers: { location: `${frontend}/login?return_to=${encodeURIComponent(returnTo)}` },
+  })
 }
 
 function oauthError(error: string, status = 400): Response {
@@ -37,21 +45,6 @@ export const cliAuthRoutes = new Elysia()
     if (clientId !== CLI_CLIENT_ID) return oauthError('invalid_client')
     const result = await createDeviceAuthorization(clientId, `${bffOrigin(request)}/oauth/device`)
     if (!result) return oauthError('invalid_client', 400)
-    const [row] = await db
-      .select({ id: schema.device_authorizations.id })
-      .from(schema.device_authorizations)
-      .where(eq(schema.device_authorizations.device_code_hash, hashCliToken(result.device_code)))
-      .limit(1)
-    if (row)
-      await db.insert(schema.operator_audits).values({
-        id: randomUUID(),
-        operator_id: 'cli',
-        action: 'cli.device_authorization.created',
-        target_type: 'cli_device_authorization',
-        target_id: row.id,
-        details: { client_id: clientId },
-        created_at: Date.now(),
-      })
     return Response.json(result, { headers: { 'cache-control': 'no-store' } })
   })
   .post('/oauth/token', async ({ request }) => {
@@ -89,14 +82,7 @@ export const cliAuthRoutes = new Elysia()
       )
       .where(eq(schema.device_authorizations.user_code_hash, hashCliToken(code)))
       .limit(1)
-    if (!authUser) {
-      const returnTo = `/oauth/device?user_code=${encodeURIComponent(code)}`
-      const frontend = config.auth.frontendOrigin || new URL(request.url).origin
-      return new Response(null, {
-        status: 302,
-        headers: { location: `${frontend}/login?return_to=${encodeURIComponent(returnTo)}` },
-      })
-    }
+    if (!authUser) return loginRedirect(request, code)
     const escaped = code.replace(/[<>&]/g, '')
     const clientName = (authorization?.clientName ?? CLI_CLIENT_NAME).replace(/[<>&]/g, '')
     const scopes = (authorization?.scopes ?? CLI_DEFAULT_SCOPES).replace(/[<>&]/g, '')
@@ -111,28 +97,10 @@ export const cliAuthRoutes = new Elysia()
       return new Response('Invalid origin', { status: 403 })
     const body = await formBody(request)
     const code = body.get('user_code') ?? ''
-    if (!authUser) {
-      const frontend = config.auth.frontendOrigin || new URL(request.url).origin
-      const returnTo = `/oauth/device?user_code=${encodeURIComponent(code)}`
-      return new Response(null, {
-        status: 302,
-        headers: { location: `${frontend}/login?return_to=${encodeURIComponent(returnTo)}` },
-      })
-    }
+    if (!authUser) return loginRedirect(request, code)
     const approved = body.get('decision') === 'approve'
-    const changed = approved
-      ? await approveDeviceAuthorization(code, authUser.id)
-      : await denyDeviceAuthorization(code, authUser.id)
+    const changed = await setDeviceDecision(code, authUser.id, approved ? 'approved' : 'denied')
     if (!changed) return new Response('Invalid or expired code', { status: 400 })
-    await db.insert(schema.operator_audits).values({
-      id: randomUUID(),
-      operator_id: authUser.id,
-      action: approved ? 'cli.device_authorization.approved' : 'cli.device_authorization.denied',
-      target_type: 'cli_device_authorization',
-      target_id: hashCliToken(code),
-      details: { client_id: CLI_CLIENT_ID },
-      created_at: Date.now(),
-    })
     return new Response(
       approved
         ? 'CLI connection approved. You may return to your terminal.'

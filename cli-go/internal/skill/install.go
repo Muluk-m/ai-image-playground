@@ -45,8 +45,21 @@ type metadata struct {
 	FileHash string `json:"file_hash"`
 }
 
+// hosts lists each supported agent host, in display order, with the directory holding its skills.
+var hosts = []struct{ name, dir string }{{"claude-code", ".claude"}, {"codex", ".agents"}}
+
+func hostDir(name string) (string, bool) {
+	for _, host := range hosts {
+		if host.name == name {
+			return host.dir, true
+		}
+	}
+	return "", false
+}
+
 func Install(opts InstallOptions) (Result, error) {
-	if opts.Host != "claude-code" && opts.Host != "codex" {
+	dir, ok := hostDir(opts.Host)
+	if !ok {
 		return Result{}, fmt.Errorf("unsupported host %q", opts.Host)
 	}
 	if opts.Scope != "user" && opts.Scope != "project" {
@@ -80,11 +93,7 @@ func Install(opts InstallOptions) (Result, error) {
 		}
 		root = projectDir
 	}
-	dirName := ".claude"
-	if opts.Host == "codex" {
-		dirName = ".agents"
-	}
-	destination := filepath.Join(root, dirName, "skills", "muvloom")
+	destination := filepath.Join(root, dir, "skills", "muvloom")
 	files, hash, err := bundleFiles()
 	if err != nil {
 		return Result{}, err

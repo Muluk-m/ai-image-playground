@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import type { AuthUserView } from '@image-playground/shared'
 import { Elysia } from 'elysia'
 
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? 'postgres://localhost:5432/test'
@@ -31,11 +32,22 @@ describe('CLI API envelope', () => {
 })
 
 describe('CLI API boundary', () => {
+  const user = { id: 'user-1' } as AuthUserView
+  const resolveConnection = async (token: string) =>
+    token === 'secret' ? { user, scopes: [] } : null
   const endpoint = (options: Parameters<typeof cliApiRoutes>[0]) =>
-    new Elysia().use(cliApiRoutes(options)).get('/v1/me', () => cliSuccess({ ready: true }))
+    new Elysia()
+      .use(
+        cliApiRoutes({
+          resolveConnection,
+          limiter: createCliTokenRateLimiter({ maxRequests: 0, windowMs: 1 }),
+          ...options,
+        }),
+      )
+      .get('/v1/me', ({ cliUser }) => cliSuccess({ ready: true, user: cliUser.id }))
 
   it('is unavailable when the capability is disabled', async () => {
-    const response = await endpoint({ capabilityCheck: () => false, token: 'secret' }).handle(
+    const response = await endpoint({ capabilityCheck: () => false }).handle(
       new Request('http://localhost/v1/me', { headers: { authorization: 'Bearer secret' } }),
     )
     expect(response.status).toBe(404)
@@ -47,7 +59,7 @@ describe('CLI API boundary', () => {
   })
 
   it('requires a bearer token and preserves the JSON envelope', async () => {
-    const response = await endpoint({ capabilityCheck: () => true, token: 'secret' }).handle(
+    const response = await endpoint({ capabilityCheck: () => true }).handle(
       new Request('http://localhost/v1/me'),
     )
     expect(response.status).toBe(401)
@@ -57,9 +69,7 @@ describe('CLI API boundary', () => {
   it('limits each token and returns Retry-After', async () => {
     const app = endpoint({
       capabilityCheck: () => true,
-      token: 'secret',
-      maxRequests: 1,
-      windowMs: 10_000,
+      limiter: createCliTokenRateLimiter({ maxRequests: 1, windowMs: 10_000 }),
     })
     const request = () =>
       app.handle(
@@ -70,6 +80,25 @@ describe('CLI API boundary', () => {
     expect(limited.status).toBe(429)
     expect(limited.headers.get('retry-after')).toBe('10')
     expect((await limited.json()).error.code).toBe('RATE_LIMITED')
+  })
+
+  it('rejects an unknown token before any handler runs', async () => {
+    const response = await endpoint({ capabilityCheck: () => true }).handle(
+      new Request('http://localhost/v1/me', { headers: { authorization: 'Bearer other' } }),
+    )
+    expect(response.status).toBe(401)
+    expect((await response.json()).error.code).toBe('UNAUTHENTICATED')
+  })
+
+  it('enforces the scope a path requires', async () => {
+    const app = new Elysia()
+      .use(cliApiRoutes({ resolveConnection, capabilityCheck: () => true }))
+      .get('/v1/jobs', () => cliSuccess({ jobs: [] }))
+    const response = await app.handle(
+      new Request('http://localhost/v1/jobs', { headers: { authorization: 'Bearer secret' } }),
+    )
+    expect(response.status).toBe(403)
+    expect((await response.json()).error.code).toBe('FORBIDDEN')
   })
 })
 
