@@ -2,59 +2,47 @@ package client
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-func TestDoRefreshesAfterUnauthorized(t *testing.T) {
+func TestRetriesOnceAfterRefresh(t *testing.T) {
 	calls := 0
-	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
-		if r.URL.Path == "/v1/auth/token/refresh" {
-			_, _ = w.Write([]byte(`{"schema_version":1,"ok":true,"data":{"access_token":"new"}}`))
-			return
-		}
-		if r.Header.Get("Authorization") != "Bearer new" {
+		if r.Header.Get("Authorization") != "Bearer fresh" {
 			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"schema_version":1,"ok":false,"error":{"code":"UNAUTHENTICATED","message":"Authentication is required"}}`))
+			_, _ = w.Write([]byte(`{"schema_version":1,"ok":false,"error":{"code":"UNAUTHENTICATED","message":"no"}}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"schema_version":1,"ok":true,"data":{"ok":true}}`))
+		_, _ = w.Write([]byte(`{"schema_version":1,"ok":true,"data":{"ready":true}}`))
 	}))
-	defer s.Close()
-	c := New(s.URL, s.Client())
-	c.AccessToken = "old"
-	c.RefreshToken = func(ctx context.Context) (string, error) {
-		var result struct {
-			AccessToken string `json:"access_token"`
-		}
-		if err := c.DoWithoutRefresh(ctx, http.MethodPost, "/v1/auth/token/refresh", nil, &result); err != nil {
-			return "", err
-		}
-		return result.AccessToken, nil
+	defer server.Close()
+	c := New(server.URL, nil)
+	c.AccessToken = "stale"
+	c.Refresh = func(context.Context, string) (string, error) { return "fresh", nil }
+	var out struct{ Ready bool }
+	if err := c.Do(context.Background(), http.MethodGet, "/v1/me", nil, &out); err != nil || !out.Ready {
+		t.Fatalf("Do = %v, %+v", err, out)
 	}
-	var out map[string]bool
-	if err := c.Do(context.Background(), http.MethodGet, "/v1/test", nil, &out); err != nil {
-		t.Fatal(err)
-	}
-	if !out["ok"] || calls != 3 {
-		t.Fatalf("out=%v calls=%d", out, calls)
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
 	}
 }
 
-func TestEnvelopeError(t *testing.T) {
-	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(409)
-		_, _ = w.Write([]byte(`{"schema_version":1,"ok":false,"error":{"code":"CONFLICT","message":"conflict"}}`))
+func TestReportsEnvelopeErrorsAndTransportFailures(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPaymentRequired)
+		_, _ = w.Write([]byte(`{"schema_version":1,"ok":false,"error":{"code":"MAX_CREDITS_EXCEEDED","message":"too much","details":{"required":10}}}`))
 	}))
-	defer s.Close()
-	c := New(s.URL, s.Client())
-	err := c.Do(context.Background(), http.MethodGet, "/x", nil, nil)
-	apiErr, ok := err.(*APIError)
-	if !ok || apiErr.Code != "CONFLICT" {
-		t.Fatalf("%v", err)
+	c := New(server.URL, nil)
+	err := c.Do(context.Background(), http.MethodPost, "/v1/image-jobs", map[string]any{}, nil)
+	if !IsCode(err, "MAX_CREDITS_EXCEEDED") {
+		t.Fatalf("err = %v", err)
 	}
-	_ = json.Valid
+	server.Close()
+	if err := c.Do(context.Background(), http.MethodGet, "/v1/me", nil, nil); !IsCode(err, "NETWORK_ERROR") {
+		t.Fatalf("closed server err = %v", err)
+	}
 }
