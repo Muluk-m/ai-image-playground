@@ -1,3 +1,6 @@
+-- 原编号 0081 已在测试库执行，但时间戳早于 main 上的 0082，生产会跳过它，所以按「已应用的迁移不改号、新加一条」
+-- 换成本条。全部语句幂等：测试库已有这些表，重复执行不改变结构。
+
 CREATE TABLE IF NOT EXISTS "oauth_clients" (
   "id" text PRIMARY KEY NOT NULL,
   "name" text NOT NULL,

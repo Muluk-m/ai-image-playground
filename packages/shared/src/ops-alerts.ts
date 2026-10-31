@@ -12,6 +12,7 @@ export type AlertRule =
   | 'memory'
   | 'queue'
   | 'backup'
+  | 'server-logs'
   | 'restore'
   | 'heartbeat:bff'
   | 'api'
@@ -20,6 +21,7 @@ export type AlertRule =
   | 'agent-pattern'
   | 'blind'
   | 'reconciling'
+  | 'gpt-budget'
 
 /**
  * 这一轮看到的现状。某一块没取到就别给它：缺失既不触发，也不会被当成已恢复。
@@ -33,6 +35,8 @@ export interface AlertObservation {
   host?: HostSample
   queue?: { oldest_queued_wait_ms: number | null }
   backup?: { latest_modified_at: number | null }
+  /** server_logs 里最新一条的时间。null 表示表里还没有任何日志（新部署），不告警。 */
+  serverLogs?: { latest_at: number | null }
   restoreDrill?: OpsRestoreDrill | null
   heartbeats?: { bff?: number | null }
   api?: {
@@ -55,6 +59,8 @@ export interface AlertObservation {
    * 没有失败时为 null 或空数组。整块没取到就不要给这个字段。
    */
   agentFailurePatterns?: readonly AgentFailurePattern[] | null
+  /** OpenAI 直连本月已花与封顶（微美元）。没开直连时不给。 */
+  gptDirectBudget?: { spent_micro_usd: number; cap_micro_usd: number }
   /** 连续若干轮取不到读数的块，由调用方按轮次累计。 */
   blindBlocks?: ReadonlyArray<{ block: string; rounds: number }>
 }
@@ -212,7 +218,7 @@ function readings(
   generationWaiting: readonly GenerationWatchEntry[] = [],
 ): Partial<Record<AlertRule, Reading>> {
   const out: Partial<Record<AlertRule, Reading>> = {}
-  const { host, queue, backup, restoreDrill, heartbeats, failures } = observation
+  const { host, queue, backup, restoreDrill, heartbeats, failures, serverLogs } = observation
 
   if (observation.blindBlocks) {
     const blind = observation.blindBlocks.filter(
@@ -276,6 +282,18 @@ function readings(
     }
   }
 
+  const budget = observation.gptDirectBudget
+  if (budget && budget.cap_micro_usd > 0) {
+    const used = budget.spent_micro_usd / budget.cap_micro_usd
+    const usd = (micro: number) => `$${(micro / 1_000_000).toFixed(2)}`
+    out['gpt-budget'] = {
+      breached: used >= OPS_THRESHOLDS.GPT_DIRECT_BUDGET_ALERT_RATIO,
+      sustainMs: 0,
+      firingText: `OpenAI 直连本月已花 ${usd(budget.spent_micro_usd)}，是封顶 ${usd(budget.cap_micro_usd)} 的 ${percent(used)}${used >= 1 ? '，已停用直连，会员全部走 sub2api' : ''}（告警线 ${percent(OPS_THRESHOLDS.GPT_DIRECT_BUDGET_ALERT_RATIO)}）`,
+      resolvedText: '已恢复：OpenAI 直连预算回到告警线内（新的一个月）',
+    }
+  }
+
   if (queue) {
     const wait = queue.oldest_queued_wait_ms
     out.queue = {
@@ -300,6 +318,24 @@ function readings(
       sustainMs: 0,
       firingText: '备份前缀下已经找不到任何数据库备份',
       resolvedText: '已恢复：有了新的数据库备份',
+    }
+  }
+
+  if (serverLogs && serverLogs.latest_at !== null) {
+    const age = now - serverLogs.latest_at
+    out['server-logs'] = {
+      breached: age > OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS,
+      sustainMs: 0,
+      firingText: `服务端日志已经 ${span(age)}没有新记录了（告警线 ${span(OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS)}），日志采集管道可能断了`,
+      resolvedText: '已恢复：服务端日志有新记录了',
+    }
+  } else if (serverLogs && state['server-logs']?.firing) {
+    // 正在报的时候表被清空：还没好，不是「从来没有过」。
+    out['server-logs'] = {
+      breached: true,
+      sustainMs: 0,
+      firingText: '服务端日志表里已经没有任何记录，日志采集管道可能断了',
+      resolvedText: '已恢复：服务端日志有新记录了',
     }
   }
 

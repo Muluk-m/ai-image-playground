@@ -8,6 +8,7 @@ import {
   type OpsRestoreDrill,
 } from '@image-playground/shared'
 import { and, desc, eq, sql } from 'drizzle-orm'
+import { config } from '../config'
 import { db, schema } from '../db/client'
 import { log } from '../lib/logger'
 import {
@@ -15,6 +16,7 @@ import {
   readRestoreDrill as readRestoreDrillFromStore,
 } from '../lib/ops-backups'
 import { redactLogText } from '../lib/server-log-buffer'
+import { directBudgetCapMicroUsd, directSpentThisMonth } from '../lib/upstream/gpt-budget'
 import { selectRunnableTasks } from '../workers/runnable-tasks'
 import type { AlertSender } from './alert-sender'
 
@@ -64,7 +66,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
   const readBackups = options.readBackups ?? readBackupsFromStore
   const readRestoreDrill = options.readRestoreDrill ?? readRestoreDrillFromStore
   const missed = options.onMissed
-  const [queue, backup, restoreDrill, heartbeats, api, failures, agentFailurePatterns] =
+  const [queue, backup, restoreDrill, heartbeats, api, failures, agentFailurePatterns, serverLogs] =
     await Promise.all([
       attempt(
         'queue',
@@ -246,8 +248,43 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
         missed,
       ),
       attempt('agentFailurePatterns', readAgentFailurePatterns, missed),
+      attempt(
+        'serverLogs',
+        async () => {
+          const rows = (await db.execute(sql`
+            SELECT EXTRACT(EPOCH FROM at) * 1000 AS latest_at
+            FROM server_logs
+            ORDER BY at DESC, id DESC
+            LIMIT 1
+          `)) as unknown as Array<{ latest_at: string | number | null }>
+          const latest = rows[0]?.latest_at
+          return { latest_at: latest == null ? null : Number(latest) }
+        },
+        missed,
+      ),
     ])
-  return { queue, backup, restoreDrill, heartbeats, api, failures, agentFailurePatterns }
+  // 没开直连就不给这一块：没有预算可言，缺失也不会被当成已恢复。
+  const gptDirectBudget = config.gptDirect.enabled
+    ? await attempt(
+        'gptDirectBudget',
+        async () => ({
+          spent_micro_usd: await directSpentThisMonth(options.now),
+          cap_micro_usd: directBudgetCapMicroUsd(),
+        }),
+        missed,
+      )
+    : undefined
+  return {
+    queue,
+    backup,
+    restoreDrill,
+    heartbeats,
+    api,
+    failures,
+    agentFailurePatterns,
+    serverLogs,
+    ...(gptDirectBudget ? { gptDirectBudget } : {}),
+  }
 }
 
 /** 近 6 小时每一类失败：同一模型、错误码与上游状态码各算一类，互不挤掉。 */

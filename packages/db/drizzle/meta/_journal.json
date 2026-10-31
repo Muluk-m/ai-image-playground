@@ -549,10 +549,17 @@
       "breakpoints": true
     },
     {
-      "idx": 81,
+      "idx": 82,
       "version": "7",
-      "when": 1793200000000,
-      "tag": "0081_cli_device_oauth",
+      "when": 1793300000000,
+      "tag": "0082_upstream_scheduler",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1793400000000,
+      "tag": "0083_cli_device_oauth",
       "breakpoints": true
     }
   ]
