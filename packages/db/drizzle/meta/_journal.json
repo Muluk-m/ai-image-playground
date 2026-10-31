@@ -561,6 +561,13 @@
       "when": 1793300000000,
       "tag": "0082_upstream_scheduler",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1793400000000,
+      "tag": "0083_cli_device_oauth",
+      "breakpoints": true
     }
   ]
 }

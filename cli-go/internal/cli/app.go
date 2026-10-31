@@ -1,6 +1,8 @@
 // Package cli implements the muvloom command line. stdout carries exactly one JSON
-// envelope per invocation; progress and diagnostics go to stderr. Credential values,
-// device codes and signed URLs for uploads never reach either stream.
+// envelope per invocation; progress and diagnostics go to stderr. Access and refresh
+// tokens, the secret device_code and signed upload URLs never reach either stream. The
+// user_code and its verification link are shown on purpose (RFC 8628 §3.3): approving
+// them only links a session to the account of whoever approves it.
 package cli
 
 import (
@@ -10,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime"
 	"strings"
@@ -61,6 +64,8 @@ var exitByCode = map[string]int{
 	"MEDIA_NOT_READY":         ExitRejected,
 	"REQUEST_TOO_LARGE":       ExitRejected,
 	"FILE_EXISTS":             ExitRejected,
+	"JOB_FAILED":              ExitRejected,
+	"JOB_CANCELED":            ExitRejected,
 	"INSUFFICIENT_CREDITS":    ExitCredits,
 	"MAX_CREDITS_EXCEEDED":    ExitCredits,
 	"NETWORK_ERROR":           ExitTemporary,
@@ -103,9 +108,24 @@ func New(out, errOut io.Writer) *App {
 		Store:  auth.Default(),
 		Out:    out,
 		Err:    errOut,
-		HTTP:   &http.Client{Timeout: 60 * time.Second},
+		HTTP:   &http.Client{Timeout: 60 * time.Second, CheckRedirect: client.NoRedirects},
 		Sleep:  sleepContext,
 	}
+}
+
+// validateAPIURL keeps credentials off plaintext connections: only https, except a
+// local development server.
+func validateAPIURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return fail("USAGE", "MUVLOOM_API_URL %q is not a URL", raw)
+	}
+	host := parsed.Hostname()
+	local := host == "localhost" || host == "127.0.0.1" || host == "::1"
+	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && local) {
+		return fail("USAGE", "MUVLOOM_API_URL must use https (http is only allowed for localhost)")
+	}
+	return nil
 }
 
 func envOr(key, fallback string) string {
@@ -204,6 +224,9 @@ func (a *App) Run(args []string) int {
 		}
 		rest = rest[1:]
 	}
+	if err := validateAPIURL(a.APIURL); err != nil {
+		return a.render(nil, err)
+	}
 	data, err := cmd.run(ctx, a, rest)
 	return a.render(data, err)
 }
@@ -222,20 +245,26 @@ type output struct {
 }
 
 func (a *App) render(data any, err error) int {
-	if err == nil {
-		a.write(output{SchemaVersion: schemaVersion, OK: true, Data: data})
-		return ExitOK
+	code := ExitOK
+	envelope := output{SchemaVersion: schemaVersion, OK: true, Data: data}
+	if err != nil {
+		failure := asFailure(err)
+		envelope = output{
+			SchemaVersion: schemaVersion,
+			OK:            false,
+			Error:         &outputError{Code: failure.Code, Message: failure.Message, Details: failure.Details},
+		}
+		code = ExitInternal
+		if mapped, ok := exitByCode[failure.Code]; ok {
+			code = mapped
+		}
 	}
-	failure := asFailure(err)
-	a.write(output{
-		SchemaVersion: schemaVersion,
-		OK:            false,
-		Error:         &outputError{Code: failure.Code, Message: failure.Message, Details: failure.Details},
-	})
-	if code, ok := exitByCode[failure.Code]; ok {
-		return code
+	// A caller that never received the envelope must not see success.
+	if writeErr := a.write(envelope); writeErr != nil {
+		fmt.Fprintf(a.Err, "muvloom: could not write output: %v\n", writeErr)
+		return ExitInternal
 	}
-	return ExitInternal
+	return code
 }
 
 func asFailure(err error) *Failure {
@@ -254,10 +283,10 @@ func asFailure(err error) *Failure {
 	return &Failure{Code: "INTERNAL_ERROR", Message: err.Error()}
 }
 
-func (a *App) write(v any) {
+func (a *App) write(v any) error {
 	encoder := json.NewEncoder(a.Out)
 	encoder.SetEscapeHTML(false)
-	_ = encoder.Encode(v)
+	return encoder.Encode(v)
 }
 
 // progress writes a human-readable line to stderr; stdout stays machine-readable.

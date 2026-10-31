@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { config } from '../config'
 import {
   CLI_CLIENT_ID,
   createDeviceAuthorization,
@@ -137,8 +138,14 @@ export const cliOAuthRoutes = new Elysia()
   )
   .post(
     '/v1/oauth/revoke',
-    async ({ body }) => {
+    async ({ body, request, server }) => {
       if (!cliApiEnabled()) return oauthUnavailable()
+      const blocked = limited(
+        tokenEndpointLimiter,
+        request,
+        server?.requestIP(request)?.address ?? null,
+      )
+      if (blocked) return blocked
       if (body.client_id !== CLI_CLIENT_ID) return oauthJson({ error: 'invalid_client' }, 401)
       await revokeCliToken(body.token, CLI_CLIENT_ID)
       return oauthJson({})
@@ -150,6 +157,18 @@ export const cliOAuthRoutes = new Elysia()
       }),
     },
   )
+
+/**
+ * 确认请求只接受本站前端发出的：显式配置的前端与 CORS 来源，或（同源部署没有配置时）
+ * BFF 自己的来源。跨站伪造要靠受害者的浏览器发请求，而浏览器既不让页面改 Origin，
+ * 也不会跨站带上自定义的转发头，所以这个回退不给攻击者留口子。
+ */
+function trustedOrigin(request: Request): boolean {
+  const origin = request.headers.get('origin')
+  if (!origin) return false
+  const configured = [config.auth.frontendOrigin, ...config.corsOriginList].filter(Boolean)
+  return configured.length ? configured.includes(origin) : origin === frontendOrigin(request)
+}
 
 const userCodeQuery = t.Object({ user_code: t.String({ minLength: 1, maxLength: 32 }) })
 
@@ -168,9 +187,11 @@ export const cliAccountRoutes = new Elysia()
   )
   .post(
     '/api/cli/device',
-    async ({ authUser, body, status }) => {
+    async ({ authUser, body, request, status }) => {
       if (!cliApiEnabled()) return status(404, { error: 'capability_unavailable' })
       if (!authUser) return status(401, { error: 'unauthorized' })
+      // 授权一条 CLI 连接只接受来自本站前端的请求；Cookie 的 SameSite 之外再核一次来源。
+      if (!trustedOrigin(request)) return status(403, { error: 'forbidden_origin' })
       const changed = await decideDeviceAuthorization(
         body.user_code,
         authUser.id,
@@ -302,7 +323,7 @@ export const cliApiRoutes = new Elysia()
         case 'invalid_prompt':
           throw new CliRequestError('INVALID_REQUEST', { message: 'prompt is required' })
         case 'invalid_input_image':
-          throw new CliRequestError('INVALID_REQUEST', { message: outcome.message })
+          throw new CliRequestError('INVALID_REQUEST', { message: 'a reference image is invalid' })
         case 'authentication_required':
           throw new CliRequestError('UNAUTHENTICATED')
         case 'private_billing_denied':

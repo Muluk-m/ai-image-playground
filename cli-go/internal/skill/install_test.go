@@ -59,7 +59,11 @@ func TestInstallProjectFindsRootAndReplacesDeterministically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(project, ".agents", "skills", "muvloom")
+	realProject, err := filepath.EvalSymlinks(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(realProject, ".agents", "skills", "muvloom")
 	if first.Path != want || second.Path != want || first.FileHash != second.FileHash {
 		t.Fatalf("unexpected project result: %+v %+v", first, second)
 	}
@@ -98,5 +102,45 @@ func TestInstalledReportsUserAndProjectMetadata(t *testing.T) {
 	}
 	if installed[0].Version != BundleVersion || installed[1].Version != BundleVersion {
 		t.Fatalf("unexpected versions: %+v", installed)
+	}
+}
+
+func TestProjectInstallRefusesSymlinkedSkillDirectories(t *testing.T) {
+	home := t.TempDir()
+	project := filepath.Join(home, "repo")
+	outside := t.TempDir()
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte("module example\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(project, ".agents")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := Install(InstallOptions{Host: "codex", Scope: "project", Home: home, CWD: project}); err == nil {
+		t.Fatal("install followed a symlinked .agents directory")
+	}
+	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+		t.Fatalf("wrote outside the project: %v", entries)
+	}
+}
+
+func TestStatusDetectsEditedInstall(t *testing.T) {
+	home := t.TempDir()
+	result, err := Install(InstallOptions{Host: "claude-code", Scope: "user", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := Installed(home, t.TempDir())
+	if err != nil || len(installed) != 1 || !installed[0].Intact || !installed[0].Current {
+		t.Fatalf("fresh install = %+v, %v", installed, err)
+	}
+	if err := os.WriteFile(filepath.Join(result.Path, "SKILL.md"), []byte("edited"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	installed, _ = Installed(home, t.TempDir())
+	if installed[0].Intact || installed[0].Current {
+		t.Fatalf("edited install reported intact: %+v", installed[0])
 	}
 }
