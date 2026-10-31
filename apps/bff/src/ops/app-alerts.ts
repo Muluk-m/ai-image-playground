@@ -64,7 +64,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
   const readBackups = options.readBackups ?? readBackupsFromStore
   const readRestoreDrill = options.readRestoreDrill ?? readRestoreDrillFromStore
   const missed = options.onMissed
-  const [queue, backup, restoreDrill, heartbeats, api, failures, agentFailurePatterns] =
+  const [queue, backup, restoreDrill, heartbeats, api, failures, agentFailurePatterns, serverLogs] =
     await Promise.all([
       attempt(
         'queue',
@@ -246,8 +246,31 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
         missed,
       ),
       attempt('agentFailurePatterns', readAgentFailurePatterns, missed),
+      attempt(
+        'serverLogs',
+        async () => {
+          const rows = (await db.execute(sql`
+            SELECT EXTRACT(EPOCH FROM at) * 1000 AS latest_at
+            FROM server_logs
+            ORDER BY at DESC, id DESC
+            LIMIT 1
+          `)) as unknown as Array<{ latest_at: string | number | null }>
+          const latest = rows[0]?.latest_at
+          return { latest_at: latest == null ? null : Number(latest) }
+        },
+        missed,
+      ),
     ])
-  return { queue, backup, restoreDrill, heartbeats, api, failures, agentFailurePatterns }
+  return {
+    queue,
+    backup,
+    restoreDrill,
+    heartbeats,
+    api,
+    failures,
+    agentFailurePatterns,
+    serverLogs,
+  }
 }
 
 /** 近 6 小时每一类失败：同一模型、错误码与上游状态码各算一类，互不挤掉。 */
