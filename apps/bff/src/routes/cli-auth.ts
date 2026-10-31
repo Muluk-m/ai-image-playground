@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
@@ -6,6 +7,8 @@ import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import {
   approveDeviceAuthorization,
   CLI_CLIENT_ID,
+  CLI_CLIENT_NAME,
+  CLI_DEFAULT_SCOPES,
   createDeviceAuthorization,
   denyDeviceAuthorization,
   exchangeDeviceCode,
@@ -34,6 +37,21 @@ export const cliAuthRoutes = new Elysia()
     if (clientId !== CLI_CLIENT_ID) return oauthError('invalid_client')
     const result = await createDeviceAuthorization(clientId, `${bffOrigin(request)}/oauth/device`)
     if (!result) return oauthError('invalid_client', 400)
+    const [row] = await db
+      .select({ id: schema.device_authorizations.id })
+      .from(schema.device_authorizations)
+      .where(eq(schema.device_authorizations.device_code_hash, hashCliToken(result.device_code)))
+      .limit(1)
+    if (row)
+      await db.insert(schema.operator_audits).values({
+        id: randomUUID(),
+        operator_id: 'cli',
+        action: 'cli.device_authorization.created',
+        target_type: 'cli_device_authorization',
+        target_id: row.id,
+        details: { client_id: clientId },
+        created_at: Date.now(),
+      })
     return Response.json(result, { headers: { 'cache-control': 'no-store' } })
   })
   .post('/oauth/token', async ({ request }) => {
@@ -59,6 +77,18 @@ export const cliAuthRoutes = new Elysia()
   .use(resolveAuthUser)
   .get('/oauth/device', async ({ authUser, query, request }) => {
     const code = typeof query.user_code === 'string' ? query.user_code : ''
+    const [authorization] = await db
+      .select({
+        clientName: schema.oauth_clients.name,
+        scopes: schema.device_authorizations.scopes,
+      })
+      .from(schema.device_authorizations)
+      .innerJoin(
+        schema.oauth_clients,
+        eq(schema.oauth_clients.id, schema.device_authorizations.client_id),
+      )
+      .where(eq(schema.device_authorizations.user_code_hash, hashCliToken(code)))
+      .limit(1)
     if (!authUser) {
       const returnTo = `/oauth/device?user_code=${encodeURIComponent(code)}`
       const frontend = config.auth.frontendOrigin || new URL(request.url).origin
@@ -68,12 +98,17 @@ export const cliAuthRoutes = new Elysia()
       })
     }
     const escaped = code.replace(/[<>&]/g, '')
+    const clientName = (authorization?.clientName ?? CLI_CLIENT_NAME).replace(/[<>&]/g, '')
+    const scopes = (authorization?.scopes ?? CLI_DEFAULT_SCOPES).replace(/[<>&]/g, '')
     return new Response(
-      `<html><body><h1>Authorize Muvloom CLI</h1><p>Code: ${escaped}</p><form method="post" action="/oauth/device"><input type="hidden" name="user_code" value="${escaped.replace(/"/g, '')}"><button name="decision" value="approve">Approve</button><button name="decision" value="deny">Deny</button></form></body></html>`,
+      `<html><body><h1>Authorize ${clientName}</h1><p>Code: ${escaped}</p><p>Permissions: ${scopes}</p><form method="post" action="/oauth/device"><input type="hidden" name="user_code" value="${escaped.replace(/"/g, '')}"><button name="decision" value="approve">Approve</button><button name="decision" value="deny">Deny</button></form></body></html>`,
       { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } },
     )
   })
   .post('/oauth/device', async ({ authUser, request }) => {
+    const origin = request.headers.get('origin')
+    if (origin && origin !== bffOrigin(request))
+      return new Response('Invalid origin', { status: 403 })
     const body = await formBody(request)
     const code = body.get('user_code') ?? ''
     if (!authUser) {
