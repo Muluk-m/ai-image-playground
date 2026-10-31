@@ -74,7 +74,7 @@ describe('model catalog config', () => {
     )
     lite.image.ratios = lite.image.ratios.filter((ratio: string) => ratio !== '21:9')
     const gpt = config.models.find((one: { id: string }) => one.id === 'gpt-image-2.5-flare')
-    gpt.image.tiers.push({ id: '2K', pixels: {} })
+    gpt.image.wire = { kind: 'fixed', note: 'single output size' }
     const problems = modelCatalogProblems(config).join('\n')
     expect(problems).toContain('surfaces.direct offers ratio 21:9')
     expect(problems).toContain('fixed wire means exactly one tier')
@@ -113,13 +113,13 @@ describe('model catalog config', () => {
     expect(findCatalogModel('gemini-3.1-flash-lite-image')?.pricing.tierMultiplier).toBeUndefined()
   })
 
-  it('GPT has a single measured tier, prompt-injected ratio and no tier pricing', () => {
+  it('GPT sends native pixel sizes in 1K / 2K / 4K, priced by gptImageRateMultiplier instead of tier pricing', () => {
+    // 直连认原生 size；sub2api 那一侧的构图句由 BFF 发送前补（upstream.ts adaptGptRequest）。
+    // 价格同时取决于档位与画质，只按档位的 tierMultiplier 表达不了，见 gpt-direct.ts。
     for (const id of ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst']) {
-      expect(caps(id).ratioVia).toEqual(['prompt'])
-      expect(caps(id).wire.kind).toBe('fixed')
-      expect(caps(id).tiers).toEqual([
-        { id: '1K', pixels: { '1:1': '1254x1254', '16:9': '1672x941' } },
-      ])
+      expect(caps(id).ratioVia).toEqual(['param'])
+      expect(caps(id).wire).toMatchObject({ kind: 'pixels', maxEdge: 3840, maxAspect: 3 })
+      expect(caps(id).tiers.map((tier) => tier.id)).toEqual(['1K', '2K', '4K'])
       expect(findCatalogModel(id)?.pricing.tierMultiplier).toBeUndefined()
     }
   })
@@ -149,11 +149,14 @@ describe('resolveImageRequest', () => {
   })
 
   it('falls back to the highest tier at or below the request', () => {
-    const result = resolveImageRequest(caps('gpt-image-2.5-flare'), { tier: '4K', ratio: '1:1' })
+    const result = resolveImageRequest(caps('gemini-3.1-flash-lite-image'), {
+      tier: '4K',
+      ratio: '1:1',
+    })
     expect(result).toMatchObject({
       ok: true,
       tier: '1K',
-      pixels: '1254x1254',
+      pixels: '1024x1024',
       adjustments: [{ field: 'tier', from: '4K', to: '1K' }],
     })
   })

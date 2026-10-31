@@ -172,18 +172,19 @@ it('holds two models to 16 images a minute each and 8 requests in flight across 
   stubClock = () => virtualNow
   recordGrants = true
   stubUpstream(50)
-  // 6 个任务（相当于几个 worker 同时在跑），两个模型共 60 张，全部 fan-out 成单张请求。
+  // 60 条单张请求同时到（相当于几个 worker 一起跑），两个模型各 30 张。直连用原生 n，
+  // 一单多张只发一条请求，这里按单张发才能看清每张的拿额度时刻。
   const tasks = [
-    ...Array.from({ length: 3 }, () => ({ model: 'gpt-image-2', n: 10 })),
-    ...Array.from({ length: 3 }, () => ({ model: 'gpt-image-1.5', n: 10 })),
+    ...Array.from({ length: 30 }, () => 'gpt-image-2'),
+    ...Array.from({ length: 30 }, () => 'gpt-image-1.5'),
   ]
   const results = await Promise.all(
-    tasks.map(({ model, n }) =>
-      callUpstream({ provider: 'openai-compat', model, request: { prompt: 'a cat', n } }),
+    tasks.map((model) =>
+      callUpstream({ provider: 'openai-compat', model, request: { prompt: 'a cat' } }),
     ),
   )
   for (const result of results) {
-    expect((result.payload as { data: unknown[] }).data).toHaveLength(10)
+    expect((result.payload as { data: unknown[] }).data).toHaveLength(1)
   }
   expect(sent).toHaveLength(60)
   expect(maxInFlight).toBeLessThanOrEqual(8)
@@ -251,6 +252,9 @@ it('times out while queueing as a plain timeout, without holding a slot', async 
   expect((await schedulerBucketUsage('openai:direct:inflight')).inFlight).toBe(0)
 })
 
+/** 逐张 fan-out（直连图生图的发法）：一单两张发两条请求。 */
+const FAN_OUT = { nativeN: false }
+
 /** 让硬超时在 ms 毫秒后到：resume 不带上游任务号时只用来算截止时间，不改变发送路径。 */
 function expiringIn(ms: number) {
   return { taskIds: [], submittedAt: Date.now() - QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS + ms }
@@ -280,12 +284,15 @@ it('delivers the image already out and refunds the one still queued at the hard 
     [{ key: 'openai:direct:model:gpt-image-2', imagesPerMinute: 16 }],
     15,
   )
-  const result = await callUpstream({
-    provider: 'openai-compat',
-    model: 'gpt-image-2',
-    request: { prompt: 'x', n: 2 },
-    resume: expiringIn(400),
-  })
+  const result = await callUpstream(
+    {
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'x', n: 2 },
+      resume: expiringIn(400),
+    },
+    FAN_OUT,
+  )
   expect(sent).toHaveLength(1)
   const payload = result.payload as { data: unknown[]; partial_failure: unknown }
   expect(payload.data).toHaveLength(1)
@@ -301,12 +308,15 @@ it('keeps the result-unknown timeout when a sent request is still out at the har
     [{ key: 'openai:direct:model:gpt-image-2', imagesPerMinute: 16 }],
     15,
   )
-  const error = await callUpstream({
-    provider: 'openai-compat',
-    model: 'gpt-image-2',
-    request: { prompt: 'x', n: 2 },
-    resume: expiringIn(400),
-  }).catch((err: unknown) => err)
+  const error = await callUpstream(
+    {
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'x', n: 2 },
+      resume: expiringIn(400),
+    },
+    FAN_OUT,
+  ).catch((err: unknown) => err)
   expect(sent).toHaveLength(1)
   expect(error).toBeInstanceOf(UpstreamResultUnknownError)
   expect(error).not.toBeInstanceOf(UpstreamQueueTimeoutError)
