@@ -684,6 +684,12 @@
     "exportDone_other": "已导出 {{count}} 项",
     "exportPartial": "已导出 {{count}} 项，{{failed}} 项取不到",
     "exportFailed": "导出失败，结果都没能取到",
+    "details": "计划详情：名称、规则与逐项提示词",
+    "tiles": "生成进度",
+    "tileLabel": "第 {{index}} 张：{{status}}",
+    "tileSlow": "比平时慢",
+    "cancelTile": "取消第 {{index}} 张",
+    "editPlan": "查看计划",
     "itemStatus": {
       "pending": "待处理",
       "queued": "排队中",
