@@ -211,12 +211,13 @@ export function ModelList({
   const listId = useId()
   const needle = query.trim().toLocaleLowerCase()
   const visible = needle
-    ? options.filter((option) =>
-        [option.label, option.model, option.description ?? '', option.family ?? '']
+    ? options.filter((option) => {
+        const familyLabel = option.family ? t(FAMILY_LABEL_KEY[option.family]) : ''
+        return [option.label, option.model, option.description ?? '', familyLabel]
           .join(' ')
           .toLocaleLowerCase()
-          .includes(needle),
-      )
+          .includes(needle)
+      })
     : options
   const groups = groupByFamily(visible)
   const firstShown = groups[0]?.options[0]
