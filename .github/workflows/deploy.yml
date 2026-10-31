@@ -180,10 +180,11 @@ jobs:
   pages-paid:
     name: Pages (paid)
     needs: [target, release, backend]
-    # always(): without it GitHub adds an implicit success(), which is false once backend is skipped
-    # (a web-only change), so the paid site would never ship.
+    # !cancelled(): without a status function GitHub adds an implicit success(), which is false once
+    # backend is skipped (a web-only change), so the paid site would never ship. Unlike always(), a
+    # cancelled release still stops here.
     if: >-
-      always() &&
+      !cancelled() &&
       needs.target.outputs.deploy_web == 'true' &&
       needs.release.result == 'success' &&
       (needs.backend.result == 'success' || needs.backend.result == 'skipped')
