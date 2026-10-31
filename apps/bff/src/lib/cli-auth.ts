@@ -6,6 +6,8 @@ import { db, schema } from '../db/client'
 import { accountProfileView } from './account-profile-view'
 
 export const CLI_CLIENT_ID = 'muvloom-cli'
+export const CLI_DEFAULT_SCOPES = 'images:read images:write media:read media:write'
+export const CLI_CLIENT_NAME = 'Muvloom CLI'
 export const DEVICE_CODE_TTL_MS = 10 * 60 * 1000
 export const DEVICE_POLL_INTERVAL_SECONDS = 5
 export const ACCESS_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
@@ -16,6 +18,26 @@ export function hashCliToken(value: string): string {
 }
 function secret(bytes = 32): string {
   return randomBytes(bytes).toString('base64url')
+}
+
+type CliAuditDatabase = Pick<typeof db, 'insert'>
+
+async function auditCli(
+  database: CliAuditDatabase,
+  action: string,
+  targetId: string,
+  operatorId: string,
+  details: Record<string, unknown> = {},
+) {
+  await database.insert(schema.operator_audits).values({
+    id: randomUUID(),
+    operator_id: operatorId || 'cli',
+    action: `cli.${action}`,
+    target_type: 'cli_connection',
+    target_id: targetId,
+    details,
+    created_at: Date.now(),
+  })
 }
 
 export interface DeviceAuthorizationResult {
@@ -47,6 +69,7 @@ export async function createDeviceAuthorization(
     device_code_hash: hashCliToken(deviceCode),
     user_code_hash: hashCliToken(userCode),
     status: 'pending',
+    scopes: CLI_DEFAULT_SCOPES,
     user_id: null,
     expires_at: now + DEVICE_CODE_TTL_MS,
     interval_seconds: DEVICE_POLL_INTERVAL_SECONDS,
@@ -150,6 +173,7 @@ export async function exchangeDeviceCode(
       user_id: row.user_id,
       client_id: row.client_id,
       family_id: randomUUID(),
+      scopes: row.scopes,
       access_token_hash: hashCliToken(access),
       refresh_token_hash: hashCliToken(refresh),
       access_expires_at: now + ACCESS_TOKEN_TTL_MS,
@@ -208,6 +232,7 @@ export async function rotateRefreshToken(
       user_id: row.user_id,
       client_id: row.client_id,
       family_id: row.family_id,
+      scopes: row.scopes,
       access_token_hash: hashCliToken(access),
       refresh_token_hash: hashCliToken(refresh),
       access_expires_at: now + ACCESS_TOKEN_TTL_MS,
@@ -285,3 +310,20 @@ export const requireCliBearer = new Elysia({ name: 'require-cli-bearer' })
   .onBeforeHandle({ as: 'scoped' }, ({ cliAuthUser, status }) =>
     cliAuthUser ? undefined : status(401, { error: 'unauthorized' }),
   )
+
+export async function resolveCliScopes(token: string): Promise<readonly string[]> {
+  if (!token) return []
+  const now = Date.now()
+  const [row] = await db
+    .select({ scopes: schema.cli_connections.scopes })
+    .from(schema.cli_connections)
+    .where(
+      and(
+        eq(schema.cli_connections.access_token_hash, hashCliToken(token)),
+        isNull(schema.cli_connections.revoked_at),
+        gt(schema.cli_connections.access_expires_at, now),
+      ),
+    )
+    .limit(1)
+  return row?.scopes.split(' ').filter(Boolean) ?? []
+}

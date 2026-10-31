@@ -206,6 +206,7 @@ export const device_authorizations = pgTable(
     device_code_hash: text('device_code_hash').notNull(),
     user_code_hash: text('user_code_hash').notNull(),
     status: text('status').$type<DeviceAuthorizationStatus>().notNull().default('pending'),
+    scopes: text('scopes').notNull().default('images:read images:write media:read media:write'),
     user_id: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
     expires_at: epochMs('expires_at').notNull(),
     interval_seconds: integer('interval_seconds').notNull().default(5),
@@ -236,6 +237,7 @@ export const cli_connections = pgTable(
       .notNull()
       .references(() => oauth_clients.id, { onDelete: 'cascade' }),
     family_id: text('family_id').notNull(),
+    scopes: text('scopes').notNull().default('images:read images:write media:read media:write'),
     access_token_hash: text('access_token_hash').notNull(),
     refresh_token_hash: text('refresh_token_hash').notNull(),
     access_expires_at: epochMs('access_expires_at').notNull(),
