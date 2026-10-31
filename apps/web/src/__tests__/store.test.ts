@@ -2951,6 +2951,21 @@ describe('删除本机跑的平台任务', () => {
     expect(shown()).toEqual([])
   })
 
+  it('删除请求期间平台列表刷新进来的那条也一并清掉', async () => {
+    deleteRemoteGeneration.mockImplementation(async () => {
+      useStore.setState({ platformGenerations: [row('gen-1')] })
+      return true
+    })
+    useStore.setState({
+      tasks: [task({ id: 'local-1', bffRequestId: 'gen-1' })],
+      platformGenerations: [],
+    })
+
+    await removeTask(useStore.getState().tasks[0] as TaskRecord)
+
+    expect(shown()).toEqual([])
+  })
+
   it('平台那条删不掉就整件事不做', async () => {
     deleteRemoteGeneration.mockResolvedValue(false)
     useStore.setState({
