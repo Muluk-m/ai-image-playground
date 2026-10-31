@@ -168,8 +168,9 @@ export async function exchangeDeviceCode(
       .where(eq(schema.device_authorizations.id, row.id))
     const access = secret()
     const refresh = secret()
+    const connectionId = randomUUID()
     await tx.insert(schema.cli_connections).values({
-      id: randomUUID(),
+      id: connectionId,
       user_id: row.user_id,
       client_id: row.client_id,
       family_id: randomUUID(),
@@ -181,6 +182,10 @@ export async function exchangeDeviceCode(
       created_at: now,
       last_used_at: now,
       revoked_at: null,
+    })
+    await auditCli(tx, 'token.issued', connectionId, row.user_id, {
+      client_id: row.client_id,
+      scopes: row.scopes,
     })
     return {
       ok: true,
@@ -227,8 +232,9 @@ export async function rotateRefreshToken(
       .update(schema.cli_connections)
       .set({ revoked_at: now, last_used_at: now })
       .where(eq(schema.cli_connections.id, row.id))
+    const connectionId = randomUUID()
     await tx.insert(schema.cli_connections).values({
-      id: randomUUID(),
+      id: connectionId,
       user_id: row.user_id,
       client_id: row.client_id,
       family_id: row.family_id,
@@ -240,6 +246,10 @@ export async function rotateRefreshToken(
       created_at: now,
       last_used_at: now,
       revoked_at: null,
+    })
+    await auditCli(tx, 'token.rotated', connectionId, row.user_id, {
+      client_id: row.client_id,
+      scopes: row.scopes,
     })
     return {
       ok: true,
@@ -258,7 +268,10 @@ export async function revokeCliToken(token: string, clientId: string): Promise<v
   const hash = hashCliToken(token)
   await db.transaction(async (tx) => {
     const [row] = await tx
-      .select({ family_id: schema.cli_connections.family_id })
+      .select({
+        family_id: schema.cli_connections.family_id,
+        user_id: schema.cli_connections.user_id,
+      })
       .from(schema.cli_connections)
       .where(
         and(
@@ -270,11 +283,13 @@ export async function revokeCliToken(token: string, clientId: string): Promise<v
         ),
       )
       .limit(1)
-    if (row)
+    if (row) {
       await tx
         .update(schema.cli_connections)
         .set({ revoked_at: Date.now() })
         .where(eq(schema.cli_connections.family_id, row.family_id))
+      await auditCli(tx, 'token.revoked', row.family_id, row.user_id, { client_id: clientId })
+    }
   })
 }
 

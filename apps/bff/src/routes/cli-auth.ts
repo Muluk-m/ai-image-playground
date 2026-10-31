@@ -124,6 +124,15 @@ export const cliAuthRoutes = new Elysia()
       ? await approveDeviceAuthorization(code, authUser.id)
       : await denyDeviceAuthorization(code, authUser.id)
     if (!changed) return new Response('Invalid or expired code', { status: 400 })
+    await db.insert(schema.operator_audits).values({
+      id: randomUUID(),
+      operator_id: authUser.id,
+      action: approved ? 'cli.device_authorization.approved' : 'cli.device_authorization.denied',
+      target_type: 'cli_device_authorization',
+      target_id: hashCliToken(code),
+      details: { client_id: CLI_CLIENT_ID },
+      created_at: Date.now(),
+    })
     return new Response(
       approved
         ? 'CLI connection approved. You may return to your terminal.'
