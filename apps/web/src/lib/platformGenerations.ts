@@ -43,7 +43,7 @@ export interface PlatformGenerationRow {
   fetchedAt: number
 }
 
-/** 缓存只为渲染最近这一段时间线，不做无限增长的本机副本。 */
+/** 落盘只为下次打开时第一帧有东西看，不做无限增长的本机副本；内存里不设上限。 */
 const MAX_CACHED = 500
 
 /** 平台记录 → 作品卡。像素留在平台，用 `aip-media:<id>` 引用（和云端画布同一个原语）。 */
@@ -104,11 +104,12 @@ export async function loadPlatformGenerations(): Promise<void> {
  * `until` 是这一页覆盖的时间上界（第一页没有上界）；`hasMore` 说明这一页下面还有没有更早的记录。
  * 平台在这一页真正覆盖的窗口里是权威：窗口内缓存有、这一页没有的记录就是**平台上已经没有了**，
  * 直接丢掉。删除因此不需要墓碑，也不需要拿 404 去试探。窗口之外一律不动——翻页不等于「没有了」。
+ * 返回这次按窗口丢掉的 id，作品页签据此修正计数（它们不在服务端总数里）。
  */
 export async function receivePlatformPage(
   items: readonly GenerationSummary[],
   { until = Number.POSITIVE_INFINITY, hasMore = false } = {},
-): Promise<void> {
+): Promise<{ dropped: string[] }> {
   const returned = new Map(items.map((item) => [item.id, item]))
   // 这一页读满了、后面还有，就只能替换到最后一条为止；读到底了，下界就是时间线的开头。
   const since = hasMore
@@ -119,7 +120,9 @@ export async function receivePlatformPage(
   const dropped: string[] = []
   for (const row of previous) {
     if (returned.has(row.id)) continue
-    const inWindow = row.record.createdAt >= since && row.record.createdAt <= until
+    // 两端都不含：上界是上一页最后一条（游标按 createdAt + id 严格往后），下界同一毫秒的
+    // 可能还在下一页。边界上认不准就留着，宁可多留一张已删的卡，也不能每 50 条吞掉一张。
+    const inWindow = row.record.createdAt > since && row.record.createdAt < until
     if (inWindow) dropped.push(row.id)
     else kept.push(row)
   }
@@ -138,11 +141,18 @@ export async function receivePlatformPage(
     return { id: item.id, record, fetchedAt: now, ...(prior?.favorite ? { favorite: true } : {}) }
   })
   const rows = sortRows([...kept, ...received])
-  const pruned = rows.slice(MAX_CACHED)
-  await commit(rows.slice(0, MAX_CACHED), received, [...dropped, ...pruned.map((row) => row.id)])
+  // 内存里留着这次会话翻到的全部记录（作品页要一直往下翻）；落盘只留最近一段，供下次第一帧。
+  const persisted = new Set(rows.slice(0, MAX_CACHED).map((row) => row.id))
+  const unpersisted = rows.slice(MAX_CACHED).map((row) => row.id)
+  await commit(
+    rows,
+    received.filter((row) => persisted.has(row.id)),
+    [...dropped, ...unpersisted],
+  )
   for (const item of items) {
     if (statusFromGeneration(item.status) === 'running') watchPlatformGeneration(item.id)
   }
+  return { dropped }
 }
 
 /** 详情读到的比列表全（产出是整组），照单更新这条缓存。 */
