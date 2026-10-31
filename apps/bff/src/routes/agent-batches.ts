@@ -4,6 +4,7 @@ import { db, schema } from '../db/client'
 import { proposeBatchAnalysis } from '../lib/agent/batch-analysis-proposal'
 import {
   batchExecutionAvailable,
+  cancelAgentBatchItem,
   confirmAgentBatch,
   controlAgentBatch,
   quoteAgentBatchRetry,
@@ -249,6 +250,24 @@ export const agentBatchRoutes = new Elysia({ name: 'agent-batches' })
     {
       params: t.Object({ id: t.String() }),
       body: t.Object({ expectedVersion: t.Integer({ minimum: 1 }) }),
+    },
+  )
+
+  .post(
+    // 单独取消批次里正在生成的一张；其余照常。已经结束的项原样返回，不报错。
+    '/api/agent/batches/:id/items/:key/cancel',
+    async ({ params, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      if (!isCapabilityEnabled('agent:batch-item-cancel'))
+        return capabilityUnavailable('agent:batch-item-cancel')
+      await cancelAgentBatchItem(authUser.id, params.id, params.key)
+      return await readAgentBatchPlan(authUser.id, params.id)
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+        key: t.String({ minLength: 1, maxLength: 128 }),
+      }),
     },
   )
 
