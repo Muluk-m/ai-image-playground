@@ -24,6 +24,7 @@ import { channelsRoutes } from './routes/channels'
 import { cliAccountRoutes, cliApiRoutes, cliOAuthRoutes } from './routes/cli'
 import { clientErrorRoutes } from './routes/client-errors'
 import { generationRoutes } from './routes/generations'
+import { gptPremiumRoutes } from './routes/gpt-premium'
 import { internalInspirationRoutes, publicInspirationRoutes } from './routes/inspirations'
 import { internalAgentModelRoutes } from './routes/internal-agent-models'
 import { internalDrainRoutes } from './routes/internal-drain'
@@ -263,6 +264,7 @@ export const app = new Elysia()
   .use(channelsRoutes)
   .use(submitRoutes)
   .use(statusRoutes)
+  .use(gptPremiumRoutes)
   .use(resultRoutes)
   .use(cancelRoutes)
   .use(agentRoutes)
