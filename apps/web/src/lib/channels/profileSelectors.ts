@@ -8,6 +8,7 @@ import {
   type ModelLogoId,
   type ModelTier,
 } from '@image-playground/shared'
+
 import { i18next } from '../../i18n'
 import { knownModelLogo } from './publicChannels'
 import type { ChannelCapability, ClientProfile, PublicChannel } from './types'
@@ -121,7 +122,7 @@ export function knownModelBadges(value: unknown): ModelBadge[] {
   return known
 }
 
-/** 选择器分组：清单不经浏览器校验，认不出的值按「不分组」处理。 */
+/** 选择器分组兼容字段：旧调用方仍可读取，模型选择器不再按它展示。 */
 export function knownModelTier(value: unknown): ModelTier | undefined {
   return MODEL_TIERS.includes(value as ModelTier) ? (value as ModelTier) : undefined
 }
@@ -133,8 +134,9 @@ export function getProfileModelOptions(
 ): Array<{
   id: string
   label: string
-  badges?: ModelBadge[]
+  family?: NonNullable<PublicChannel['models'][number]['family']>
   tier?: ModelTier
+  badges?: ModelBadge[]
   etaSeconds?: number
   etaMaxSeconds?: number
   logo?: ModelLogoId
@@ -142,16 +144,21 @@ export function getProfileModelOptions(
   const channel = publicChannels.find((item) => item.id === profile.channelId)
   return channel
     ? channel.models.map((model) => {
-        const etaSeconds = usableEtaSeconds(model.etaSeconds)
+        const etaSeconds =
+          model.id === 'gemini-3.1-flash-lite-image'
+            ? undefined
+            : usableEtaSeconds(model.etaSeconds)
         const etaMaxSeconds = usableEtaMaxSeconds(model.etaMaxSeconds, etaSeconds)
         const badges = knownModelBadges(model.badges)
         const logo = knownModelLogo(model.logo)
+        const family = model.family
         const tier = knownModelTier(model.tier)
         return {
           id: model.id,
           label: model.label ?? model.id,
-          ...(badges.length ? { badges } : {}),
+          ...(family ? { family } : {}),
           ...(tier ? { tier } : {}),
+          ...(badges.length ? { badges } : {}),
           ...(etaSeconds !== undefined ? { etaSeconds } : {}),
           ...(etaMaxSeconds !== undefined ? { etaMaxSeconds } : {}),
           ...(logo ? { logo } : {}),

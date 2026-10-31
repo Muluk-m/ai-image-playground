@@ -28,6 +28,7 @@ const lite: ModelChoice = {
   profileId: 'vertex',
   label: 'Nano Banana 2 Lite',
   description: 'Vertex AI',
+  family: 'gemini',
   tier: 'fast',
   etaSeconds: 3,
 }
@@ -79,12 +80,13 @@ it('marks only a latest model with a small New badge and ignores the other tag t
   expect(optionNamed('Image 2.5 Flare').textContent).toBe('Image 2.5 FlareOpenAI')
 })
 
-it('groups models under 快速 and 高质量 headers, fastest first inside a group', () => {
+it('groups models under GPT and Banana headers, with GPT first and declaration order preserved', () => {
   const nb21: ModelChoice = {
     ...lite,
     value: 'vertex::nb21',
     model: 'gemini-nano-banana-2.1',
     label: 'Nano Banana 2.1',
+    family: 'gemini',
     etaSeconds: 14,
   }
   const pro: ModelChoice = {
@@ -92,53 +94,52 @@ it('groups models under 快速 and 高质量 headers, fastest first inside a gro
     value: 'vertex::pro',
     model: 'gemini-3-pro-image',
     label: 'Nano Banana Pro',
-    tier: 'quality',
+    family: 'gemini',
     etaSeconds: 24,
   }
-  const gpt: ModelChoice = { ...plain, tier: 'quality', etaSeconds: 40 }
+  const gpt: ModelChoice = { ...plain, family: 'gpt', etaSeconds: 40 }
   const untiered: ModelChoice = { ...plain, value: 'x::other', model: 'other', label: 'Other' }
   act(() =>
     root.render(
-      <ModelList options={[gpt, nb21, untiered, pro, lite]} value="" onPick={() => {}} />,
+      <ModelList options={[nb21, gpt, untiered, pro, lite]} value="" onPick={() => {}} />,
     ),
   )
   const groups = [...host.querySelectorAll('[role="group"]')]
   expect(groups.map((group) => group.getAttribute('aria-labelledby'))).toHaveLength(2)
   const heading = (group: Element) =>
     document.getElementById(group.getAttribute('aria-labelledby') ?? '')?.textContent
-  expect(groups.map(heading)).toEqual(['快速', '高质量'])
-  // 组头配一个小图标，不带别的说明文字。
+  expect(groups.map(heading)).toEqual(['GPT 系列', 'Banana 系列'])
   expect(groups.every((group) => group.querySelector('svg'))).toBe(true)
   const labelsIn = (group: Element) =>
     [...group.querySelectorAll('[role="option"]')].map(
       (one) => one.getAttribute('aria-label')?.split(' · ')[0],
     )
-  expect(labelsIn(groups[0])).toEqual(['Nano Banana 2 Lite', 'Nano Banana 2.1'])
-  expect(labelsIn(groups[1])).toEqual(['Nano Banana Pro', 'Image 2.5 Flare'])
-  // 没分组的模型排在最后，不出组头；键盘顺序跟着显示顺序。
+  expect(labelsIn(groups[0])).toEqual(['Image 2.5 Flare'])
+  expect(labelsIn(groups[1])).toEqual(['Nano Banana 2.1', 'Nano Banana Pro', 'Nano Banana 2 Lite'])
   const all = [...host.querySelectorAll('[role="option"]')].map(
     (one) => one.getAttribute('aria-label')?.split(' · ')[0],
   )
   expect(all).toEqual([
-    'Nano Banana 2 Lite',
+    'Image 2.5 Flare',
     'Nano Banana 2.1',
     'Nano Banana Pro',
-    'Image 2.5 Flare',
+    'Nano Banana 2 Lite',
     'Other',
   ])
-  expect(host.querySelector('[role="option"][tabindex="0"]')?.textContent).toContain(
-    'Nano Banana 2 Lite',
-  )
 })
 
 it('keeps a flat list without headers when no model declares a group', () => {
   act(() =>
     root.render(
-      <ModelList options={[{ ...lite, tier: undefined }, plain]} value="" onPick={() => {}} />,
+      <ModelList
+        options={[{ ...lite, family: undefined, tier: undefined }, plain]}
+        value=""
+        onPick={() => {}}
+      />,
     ),
   )
   expect(host.querySelectorAll('[role="group"]')).toHaveLength(0)
-  expect(host.textContent).not.toMatch(/快速|高质量/)
+  expect(host.textContent).not.toMatch(/GPT 系列|Banana 系列/)
 })
 
 it('states a duration of a minute or more in minutes', () => {
@@ -221,7 +222,7 @@ it('finds a model by its group name in the search field', async () => {
   const search = host.querySelector('input') as HTMLInputElement
   const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
   await act(async () => {
-    setValue.call(search, '快速')
+    setValue.call(search, 'Banana')
     search.dispatchEvent(new Event('input', { bubbles: true }))
   })
   const options = [...host.querySelectorAll('[role="option"]')]
