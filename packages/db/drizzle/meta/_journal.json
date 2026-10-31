@@ -549,10 +549,10 @@
       "breakpoints": true
     },
     {
-      "idx": 80,
+      "idx": 81,
       "version": "7",
-      "when": 1793100000000,
-      "tag": "0080_cli_scopes",
+      "when": 1793200000000,
+      "tag": "0081_cli_device_oauth",
       "breakpoints": true
     }
   ]

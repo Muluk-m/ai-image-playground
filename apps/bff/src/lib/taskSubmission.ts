@@ -13,6 +13,7 @@ import type {
 import {
   billedStageQuantity,
   DEFAULT_IMAGE_MODERATION,
+  imageSizeTier,
   isBlankPrompt,
   QUEUE_TIMEOUTS,
   stageAuthorizedVideoDuration,
@@ -79,7 +80,10 @@ export interface CreateQueueTaskInput {
    * 其他入口（批量套用、智能体等）一批里本就可能有内容相同的几条，不开。
    */
   readonly dedupeRepeats?: true
-  /** Caller-side hard ceiling; reservation is rejected before any hold when quote exceeds it. */
+  /**
+   * 调用方给的积分上限（CLI 的 `max_credits`）。只在积分计费开着时生效，在建任务和预扣之前
+   * 按同一事务里的报价判断。它是提交的前置条件、不是请求内容，不进命令哈希。
+   */
   readonly maxCredits?: number
   /** Server-only opt-in; legacy HTTP submissions retain their existing lifecycle. */
   readonly reconciliationRequired?: true
@@ -149,7 +153,6 @@ function commandHash(input: CreateQueueTaskInput) {
             : {}),
         },
         video: input.video,
-        ...(input.maxCredits !== undefined ? { maxCredits: input.maxCredits } : {}),
         ...(input.reconciliationRequired ? { reconciliationRequired: true } : {}),
         // 唤醒选择不是请求的一部分：同一条命令换个选择重放，仍是同一个任务。
         agent: input.agent && {
@@ -374,6 +377,29 @@ function alignStageSubmission(input: CreateQueueTaskInput): CreateQueueTaskInput
   return { ...input, video: { ...input.video, duration_seconds } }
 }
 
+/** 这次请求落在 4K 档：Gemini 看 `image_size`，OpenAI 兼容的按 `size` 的像素数折算。 */
+export function premiumTierRequested(
+  provider: QueueProvider,
+  request: Pick<SubmitRequest, 'image_size' | 'size'>,
+): boolean {
+  if (request.image_size === '4K') return true
+  return provider === 'openai-compat' && !!request.size && imageSizeTier(request.size) === '4K'
+}
+
+/**
+ * 4K 是会员权益，网站与 CLI 共用这一道。没带私有 overlay 的部署一律拒绝（空钩子返回 false）；
+ * 还没实现这个钩子的旧 overlay 维持原状放行，overlay 发布后门禁随 `private.lock` 生效。
+ */
+export async function premiumRequestAllowed(
+  tx: BffTransaction,
+  userId: string,
+  model: string,
+): Promise<boolean> {
+  const { canSubmitTask } = (await loadPrivateBffOverlay()).taskHooks
+  if (!canSubmitTask) return true
+  return canSubmitTask({ tx, userId, model, request: { image_size: '4K' } })
+}
+
 export async function createQueueTask(raw: CreateQueueTaskInput): Promise<CreateQueueTaskOutcome> {
   const input = alignStageSubmission(raw)
   // 只有空白、控制符或零宽字符的提示词和空的一样：所有入口都不建任务，也就不预扣积分。
@@ -419,7 +445,12 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
     if (await modelUnavailable(tx, input.model)) {
       return { kind: 'price_unavailable' as const, model: input.model }
     }
-    if (input.maxCredits !== undefined && input.maxCredits >= 0) {
+    if (premiumTierRequested(input.provider, input.request)) {
+      if (!input.userId) return { kind: 'authentication_required' as const }
+      if (!(await premiumRequestAllowed(tx, input.userId, input.model)))
+        return { kind: 'private_billing_denied' as const }
+    }
+    if (input.maxCredits !== undefined && isCapabilityEnabled('billing:credits')) {
       const quote = await taskHooks.quoteTask?.({
         tx,
         userId: input.userId ?? '',
@@ -434,17 +465,6 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
           required: quote.estimatedCredits,
           maxCredits: input.maxCredits,
         }
-    }
-    if (input.request.image_size === '4K') {
-      if (!input.userId) return { kind: 'authentication_required' as const }
-      const allowed =
-        (await taskHooks.canSubmitTask?.({
-          tx,
-          userId: input.userId,
-          model: input.model,
-          request: { image_size: input.request.image_size },
-        })) ?? false
-      if (!allowed) return { kind: 'private_billing_denied' as const }
     }
     if (dedupesRecentSubmission(input)) {
       const duplicate = await findRecentDuplicate(tx, input.userId, hash)
