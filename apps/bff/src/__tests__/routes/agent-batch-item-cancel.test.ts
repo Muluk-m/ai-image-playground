@@ -273,6 +273,19 @@ it('排队中单独取消一张：只撤这一张、走原有取消结算，其�
   expect((await request(`${path}/items/missing/cancel`, {})).status).toBe(200)
   expect(billing.settlements).toHaveLength(1)
 
+  // 重新入队但已调用过上游的不撤：结果或上游任务还在，撤了会丢。
+  await db
+    .update(schema.tasks)
+    .set({ upstream_invocation_count: 1 })
+    .where(eq(schema.tasks.id, taskOf.get('item-2')!))
+  expect((await request(`${path}/items/item-2/cancel`, {})).status).toBe(200)
+  const [requeued] = await db
+    .select({ status: schema.tasks.status })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, taskOf.get('item-2')!))
+  expect(requeued?.status).toBe('queued')
+  expect(billing.settlements).toHaveLength(1)
+
   // 已经认领开跑的不撤：可能已发给上游，撤了也照样出图计费。
   await db
     .update(schema.tasks)

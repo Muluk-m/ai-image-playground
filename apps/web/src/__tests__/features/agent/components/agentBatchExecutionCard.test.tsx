@@ -1401,3 +1401,48 @@ it('先撤的一张成功但被后发的取消盖过、后发的又失败时，�
     itemCancel.enabled = false
   }
 })
+
+it('服务端没撤成（刚被认领或已调用过上游）时提示没能取消', async () => {
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  itemCancel.enabled = true
+  const initial = initialPage()
+  const saved: AgentBatchPage = {
+    ...initial,
+    batch: { ...initial.batch, status: 'running', submittedCount: 2 },
+    items: initial.items.map((item, ordinal) => ({
+      ...item,
+      progress: 'in_flight' as const,
+      execution: {
+        taskId: `kept-task-${ordinal}`,
+        status: 'queued' as const,
+        attempt: 1,
+        actualCredits: null,
+      },
+    })),
+  }
+  // 取消接口照常 200，但这一张原样返回：服务端没有撤它。
+  vi.stubGlobal('fetch', async () => Response.json(saved))
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(<AgentBatchPlanCard batchId={saved.batch.id} domId="kept-row" />),
+    )
+    await vi.waitFor(() =>
+      expect(host.querySelector('[data-batch-cancel="item-0"]')).not.toBeNull(),
+    )
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[data-batch-cancel="item-0"]')!.click(),
+    )
+    await vi.waitFor(() => expect(host.textContent).toContain('没能取消，请稍后再试'))
+    expect(host.querySelector<HTMLElement>('[data-batch-tile="item-0"]')!.dataset.batchStatus).toBe(
+      'in_flight',
+    )
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    vi.unstubAllGlobals()
+    itemCancel.enabled = false
+  }
+})
