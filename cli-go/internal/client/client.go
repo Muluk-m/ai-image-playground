@@ -59,8 +59,12 @@ func NoRedirects(*http.Request, []*http.Request) error { return http.ErrUseLastR
 
 func New(baseURL string, hc *http.Client) *HTTPClient {
 	if hc == nil {
-		hc = &http.Client{Timeout: 60 * time.Second, CheckRedirect: NoRedirects}
+		hc = &http.Client{Timeout: 60 * time.Second}
 	}
+	// Copy rather than mutate the caller's client, and always refuse redirects.
+	copied := *hc
+	copied.CheckRedirect = NoRedirects
+	hc = &copied
 	return &HTTPClient{BaseURL: strings.TrimRight(baseURL, "/"), HTTP: hc}
 }
 

@@ -34,9 +34,19 @@ if [ -n "${MUVLOOM_VERSION:-}" ]; then
 else
   # Highest stable cli-vX.Y.Z by version, not API order; prerelease tags carry a suffix
   # and never match. Releases are only published for exact cli-vX.Y.Z tags.
-  version="$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=100" |
-    grep -o '"tag_name": *"cli-v[0-9]*\.[0-9]*\.[0-9]*"' | sed 's/.*"cli-v\([^"]*\)"/\1/' |
-    sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)"
+  tags=""
+  page=1
+  while [ "$page" -le 20 ]; do
+    body="$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=100&page=$page")" ||
+      fail "could not list releases"
+    found="$(printf '%s' "$body" | grep -o '"tag_name": *"[^"]*"' || true)"
+    [ -n "$found" ] || break
+    tags="$tags
+$found"
+    page=$((page + 1))
+  done
+  version="$(printf '%s\n' "$tags" | grep -o '"cli-v[0-9]*\.[0-9]*\.[0-9]*"' |
+    sed 's/"cli-v\([^"]*\)"/\1/' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)"
   [ -n "$version" ] || fail "could not find a muvloom release"
   tag="cli-v$version"
 fi

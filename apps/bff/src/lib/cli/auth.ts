@@ -385,6 +385,16 @@ export async function refreshCliToken(
     await tx
       .insert(schema.cli_retired_refresh_tokens)
       .values({ token_hash: hash, connection_id: row.id, retired_at: now })
+    // 刷新令牌自身 30 天就过期：比这更老的作废令牌即使被盗也换不到东西，不需要再为它做
+    // 重放检测。按连接清理，活跃连接的记录数也有界。
+    await tx
+      .delete(schema.cli_retired_refresh_tokens)
+      .where(
+        and(
+          eq(schema.cli_retired_refresh_tokens.connection_id, row.id),
+          lt(schema.cli_retired_refresh_tokens.retired_at, now - REFRESH_TOKEN_TTL_MS),
+        ),
+      )
 
     await tx
       .update(schema.cli_connections)

@@ -125,7 +125,7 @@ func (s Store) Save(creds Credentials) error {
 	// a retired refresh token. This also covers MUVLOOM_CREDENTIALS_STORE=file.
 	if s.UseKeyring || s.ClearKeyring {
 		if err := keyring.Delete(keyringService, keyringUser); err != nil && !errors.Is(err, keyring.ErrNotFound) {
-			if _, getErr := keyring.Get(keyringService, keyringUser); getErr == nil && s.UseKeyring {
+			if _, getErr := keyring.Get(keyringService, keyringUser); getErr == nil {
 				return fmt.Errorf("the system keychain still holds older credentials: %w", err)
 			}
 		}

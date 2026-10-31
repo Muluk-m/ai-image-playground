@@ -158,12 +158,16 @@ export const cliOAuthRoutes = new Elysia()
     },
   )
 
-/** 只认显式配置的前端来源，不从转发头推导：那些头在直连 BFF 时可以伪造。 */
+/**
+ * 确认请求只接受本站前端发出的：显式配置的前端与 CORS 来源，或（同源部署没有配置时）
+ * BFF 自己的来源。跨站伪造要靠受害者的浏览器发请求，而浏览器既不让页面改 Origin，
+ * 也不会跨站带上自定义的转发头，所以这个回退不给攻击者留口子。
+ */
 function trustedOrigin(request: Request): boolean {
   const origin = request.headers.get('origin')
   if (!origin) return false
   const configured = [config.auth.frontendOrigin, ...config.corsOriginList].filter(Boolean)
-  return configured.includes(origin)
+  return configured.length ? configured.includes(origin) : origin === frontendOrigin(request)
 }
 
 const userCodeQuery = t.Object({ user_code: t.String({ minLength: 1, maxLength: 32 }) })

@@ -48,7 +48,17 @@ func Installed(home, cwd string) ([]Installation, error) {
 			return nil, err
 		}
 	}
-	if project, projectErr := findProjectRoot(cwd); projectErr == nil && project != home {
+	realHome := home
+	if resolved, err := filepath.EvalSymlinks(home); err == nil {
+		realHome = resolved
+	}
+	project, projectErr := findProjectRoot(cwd)
+	if projectErr == nil {
+		if resolved, err := filepath.EvalSymlinks(project); err == nil {
+			project = resolved
+		}
+	}
+	if projectErr == nil && project != realHome {
 		locations = append(locations, location{project, "project"})
 	}
 	result := make([]Installation, 0)
