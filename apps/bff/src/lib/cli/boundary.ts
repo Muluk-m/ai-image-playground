@@ -95,17 +95,24 @@ export function cliBoundary(options: CliBoundaryOptions = {}) {
       if (!cli) throw new CliRequestError('UNAUTHENTICATED')
       return { cli }
     })
-    .onError({ as: 'scoped' }, ({ code, error }) => {
-      if (code === 'VALIDATION') return cliError('INVALID_REQUEST')
-      if (code === 'NOT_FOUND') return cliError('NOT_FOUND')
-      if (error instanceof CliRequestError) return cliError(error.code, error.options)
-      if (error instanceof MediaInputError)
-        return cliError('INVALID_REQUEST', { message: error.message })
-      if (error instanceof MediaError)
-        return cliError(MEDIA_ERROR_CODES[error.status] ?? 'INTERNAL_ERROR')
-      log.error({ event: 'cli.unhandled_error', err: error }, 'unhandled CLI API error')
-      return cliError('INTERNAL_ERROR')
+    .onError({ as: 'scoped' }, ({ code, error, set }) => {
+      const response = errorResponse(code, error)
+      // 访问日志按 set.status 记账，不同步的话显式拒绝会被记成 500。
+      set.status = response.status
+      return response
     })
+}
+
+function errorResponse(code: string | number, error: unknown): Response {
+  if (error instanceof CliRequestError) return cliError(error.cliCode, error.options)
+  if (code === 'VALIDATION') return cliError('INVALID_REQUEST')
+  if (code === 'NOT_FOUND') return cliError('NOT_FOUND')
+  if (error instanceof MediaInputError)
+    return cliError('INVALID_REQUEST', { message: error.message })
+  if (error instanceof MediaError)
+    return cliError(MEDIA_ERROR_CODES[error.status] ?? 'INTERNAL_ERROR')
+  log.error({ event: 'cli.unhandled_error', err: error }, 'unhandled CLI API error')
+  return cliError('INTERNAL_ERROR')
 }
 
 export function requireScope(cli: CliConnection, scope: CliScope): void {
