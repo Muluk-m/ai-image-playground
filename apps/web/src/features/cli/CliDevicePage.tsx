@@ -21,8 +21,6 @@ type Phase =
   | { kind: 'denied' }
   | { kind: 'failed' }
 
-const KNOWN_SCOPES = ['images:read', 'images:write', 'media:read', 'media:write'] as const
-
 function codeFromAddress(): string {
   if (typeof window === 'undefined') return ''
   return new URL(window.location.href).searchParams.get('user_code') ?? ''
@@ -38,6 +36,12 @@ export default function CliDevicePage() {
   const [code, setCode] = useState(codeFromAddress)
   const [draft, setDraft] = useState(code)
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
+  const scopeLabels: Record<string, string> = {
+    'images:read': t('cliDevice.scopes.imagesRead'),
+    'images:write': t('cliDevice.scopes.imagesWrite'),
+    'media:read': t('cliDevice.scopes.mediaRead'),
+    'media:write': t('cliDevice.scopes.mediaWrite'),
+  }
 
   useEffect(() => {
     setDocumentTitleOverride(() => i18next.t('cliDevice.documentTitle', { ns: 'auth' }))
@@ -124,11 +128,7 @@ export default function CliDevicePage() {
               <p className="text-title-md">{phase.authorization.client_name}</p>
               <ul className="space-y-1 text-body-sm text-muted-foreground">
                 {phase.authorization.scopes.map((scope) => (
-                  <li key={scope}>
-                    {KNOWN_SCOPES.includes(scope as (typeof KNOWN_SCOPES)[number])
-                      ? t(`cliDevice.scopes.${scope as (typeof KNOWN_SCOPES)[number]}`)
-                      : scope}
-                  </li>
+                  <li key={scope}>{scopeLabels[scope] ?? scope}</li>
                 ))}
               </ul>
             </div>
