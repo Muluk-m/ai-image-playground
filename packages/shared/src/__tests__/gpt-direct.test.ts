@@ -26,16 +26,32 @@ describe('gpt direct models', () => {
 
 describe('gptImageRateMultiplier', () => {
   it('prices by tier and quality, with 1K medium as one', () => {
-    expect(gptImageRateMultiplier(FLARE, '1024x1024', 'medium')).toBe(1)
-    expect(gptImageRateMultiplier(FLARE, '1024x1024', 'low')).toBe(1)
-    expect(gptImageRateMultiplier(FLARE, undefined, 'auto')).toBe(1)
-    expect(gptImageRateMultiplier(FLARE, '1024x1024', 'high')).toBe(4)
-    expect(gptImageRateMultiplier(FLARE, '2048x2048', 'medium')).toBe(2)
-    expect(gptImageRateMultiplier(FLARE, '3840x2160', 'high')).toBe(8)
+    expect(gptImageRateMultiplier(FLARE, { size: '1024x1024', quality: 'medium' })).toBe(1)
+    expect(gptImageRateMultiplier(FLARE, { size: '1024x1024', quality: 'low' })).toBe(1)
+    expect(gptImageRateMultiplier(FLARE, { size: undefined, quality: 'auto' })).toBe(1)
+    expect(gptImageRateMultiplier(FLARE, { size: '1024x1024', quality: 'high' })).toBe(4)
+    expect(gptImageRateMultiplier(FLARE, { size: '2048x2048', quality: 'medium' })).toBe(2)
+    expect(gptImageRateMultiplier(FLARE, { size: '3840x2160', quality: 'high' })).toBe(8)
+  })
+
+  it('prices a masked edit by quality alone, since its size follows the source image', () => {
+    expect(gptImageRateMultiplier(FLARE, { size: '1920x1088', quality: 'medium', mask: 'm' })).toBe(
+      1,
+    )
+    expect(gptImageRateMultiplier(FLARE, { size: '1920x1088', quality: 'high', mask: 'm' })).toBe(4)
+    expect(isGptBasicRequest({ size: '1920x1088', mask: 'm' })).toBe(true)
+    // 尺寸不动（要和遮罩对齐），只把高画质收回 medium。
+    expect(clampGptBasicRequest(FLARE, { size: '1920x1088', quality: 'high', mask: 'm' })).toEqual({
+      size: '1920x1088',
+      quality: 'medium',
+      mask: 'm',
+    })
   })
 
   it('leaves every other model at one', () => {
-    expect(gptImageRateMultiplier('gemini-3-pro-image', '3840x2160', 'high')).toBe(1)
+    expect(
+      gptImageRateMultiplier('gemini-3-pro-image', { size: '3840x2160', quality: 'high' }),
+    ).toBe(1)
   })
 })
 
