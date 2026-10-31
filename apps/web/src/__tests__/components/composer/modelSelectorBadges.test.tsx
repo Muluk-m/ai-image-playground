@@ -222,7 +222,7 @@ it('finds a model by its group name in the search field', async () => {
   const search = host.querySelector('input') as HTMLInputElement
   const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
   await act(async () => {
-    setValue.call(search, 'Banana')
+    setValue.call(search, 'Banana 系列')
     search.dispatchEvent(new Event('input', { bubbles: true }))
   })
   const options = [...host.querySelectorAll('[role="option"]')]
