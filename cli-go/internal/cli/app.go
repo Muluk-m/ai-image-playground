@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime"
 	"strings"
@@ -108,6 +109,21 @@ func New(out, errOut io.Writer) *App {
 	}
 }
 
+// validateAPIURL keeps credentials off plaintext connections: only https, except a
+// local development server.
+func validateAPIURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return fail("USAGE", "MUVLOOM_API_URL %q is not a URL", raw)
+	}
+	host := parsed.Hostname()
+	local := host == "localhost" || host == "127.0.0.1" || host == "::1"
+	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && local) {
+		return fail("USAGE", "MUVLOOM_API_URL must use https (http is only allowed for localhost)")
+	}
+	return nil
+}
+
 func envOr(key, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 		return strings.TrimRight(value, "/")
@@ -204,6 +220,9 @@ func (a *App) Run(args []string) int {
 		}
 		rest = rest[1:]
 	}
+	if err := validateAPIURL(a.APIURL); err != nil {
+		return a.render(nil, err)
+	}
 	data, err := cmd.run(ctx, a, rest)
 	return a.render(data, err)
 }
@@ -222,20 +241,26 @@ type output struct {
 }
 
 func (a *App) render(data any, err error) int {
-	if err == nil {
-		a.write(output{SchemaVersion: schemaVersion, OK: true, Data: data})
-		return ExitOK
+	code := ExitOK
+	envelope := output{SchemaVersion: schemaVersion, OK: true, Data: data}
+	if err != nil {
+		failure := asFailure(err)
+		envelope = output{
+			SchemaVersion: schemaVersion,
+			OK:            false,
+			Error:         &outputError{Code: failure.Code, Message: failure.Message, Details: failure.Details},
+		}
+		code = ExitInternal
+		if mapped, ok := exitByCode[failure.Code]; ok {
+			code = mapped
+		}
 	}
-	failure := asFailure(err)
-	a.write(output{
-		SchemaVersion: schemaVersion,
-		OK:            false,
-		Error:         &outputError{Code: failure.Code, Message: failure.Message, Details: failure.Details},
-	})
-	if code, ok := exitByCode[failure.Code]; ok {
-		return code
+	// A caller that never received the envelope must not see success.
+	if writeErr := a.write(envelope); writeErr != nil {
+		fmt.Fprintf(a.Err, "muvloom: could not write output: %v\n", writeErr)
+		return ExitInternal
 	}
-	return ExitInternal
+	return code
 }
 
 func asFailure(err error) *Failure {
@@ -254,10 +279,10 @@ func asFailure(err error) *Failure {
 	return &Failure{Code: "INTERNAL_ERROR", Message: err.Error()}
 }
 
-func (a *App) write(v any) {
+func (a *App) write(v any) error {
 	encoder := json.NewEncoder(a.Out)
 	encoder.SetEscapeHTML(false)
-	_ = encoder.Encode(v)
+	return encoder.Encode(v)
 }
 
 // progress writes a human-readable line to stderr; stdout stays machine-readable.

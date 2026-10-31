@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { config } from '../config'
 import {
   CLI_CLIENT_ID,
   createDeviceAuthorization,
@@ -157,6 +158,12 @@ export const cliOAuthRoutes = new Elysia()
     },
   )
 
+function trustedOrigin(request: Request): boolean {
+  const origin = request.headers.get('origin')
+  if (!origin) return false
+  return origin === frontendOrigin(request) || config.corsOriginList.includes(origin)
+}
+
 const userCodeQuery = t.Object({ user_code: t.String({ minLength: 1, maxLength: 32 }) })
 
 /** 网站确认页与账号设置用：走网站登录态，不认 CLI 令牌。 */
@@ -174,9 +181,11 @@ export const cliAccountRoutes = new Elysia()
   )
   .post(
     '/api/cli/device',
-    async ({ authUser, body, status }) => {
+    async ({ authUser, body, request, status }) => {
       if (!cliApiEnabled()) return status(404, { error: 'capability_unavailable' })
       if (!authUser) return status(401, { error: 'unauthorized' })
+      // 授权一条 CLI 连接只接受来自本站前端的请求；Cookie 的 SameSite 之外再核一次来源。
+      if (!trustedOrigin(request)) return status(403, { error: 'forbidden_origin' })
       const changed = await decideDeviceAuthorization(
         body.user_code,
         authUser.id,
@@ -308,7 +317,7 @@ export const cliApiRoutes = new Elysia()
         case 'invalid_prompt':
           throw new CliRequestError('INVALID_REQUEST', { message: 'prompt is required' })
         case 'invalid_input_image':
-          throw new CliRequestError('INVALID_REQUEST', { message: outcome.message })
+          throw new CliRequestError('INVALID_REQUEST', { message: 'a reference image is invalid' })
         case 'authentication_required':
           throw new CliRequestError('UNAUTHENTICATED')
         case 'private_billing_denied':

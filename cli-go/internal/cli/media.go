@@ -267,10 +267,12 @@ func writeNew(target string, body io.Reader) (int64, error) {
 		return 0, err
 	}
 	defer src.Close()
-	if _, err := io.Copy(out, src); err != nil {
-		out.Close()
+	_, copyErr := io.Copy(out, src)
+	closeErr := out.Close()
+	if err := errors.Join(copyErr, closeErr); err != nil {
+		// A partial file would make the retry fail with FILE_EXISTS.
 		os.Remove(target)
 		return 0, fail("INTERNAL_ERROR", "Cannot write %s: %v", target, err)
 	}
-	return size, out.Close()
+	return size, nil
 }

@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { promptLogin } from '../../auth/loginPrompt'
 import { Button } from '../../components/ui/button'
@@ -36,6 +36,7 @@ export default function CliDevicePage() {
   const [code, setCode] = useState(codeFromAddress)
   const [draft, setDraft] = useState(code)
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
+  const deciding = useRef(false)
   const scopeLabels: Record<string, string> = {
     'images:read': t('cliDevice.scopes.imagesRead'),
     'images:write': t('cliDevice.scopes.imagesWrite'),
@@ -52,11 +53,14 @@ export default function CliDevicePage() {
     if (!user || !code) return
     const controller = new AbortController()
     setPhase({ kind: 'loading' })
+    // 换了授权码时旧请求可能已在路上：只让这一次的结果写状态，免得页面显示别的客户端权限。
     authenticatedBffFetch(`${bffBaseUrl()}/api/cli/device?user_code=${encodeURIComponent(code)}`, {
       signal: controller.signal,
     })
       .then(async (res) => {
-        if (res.ok) setPhase({ kind: 'pending', authorization: await res.json() })
+        const authorization: PendingAuthorization | null = res.ok ? await res.json() : null
+        if (controller.signal.aborted) return
+        if (authorization) setPhase({ kind: 'pending', authorization })
         else setPhase({ kind: res.status === 404 ? 'invalid' : 'failed' })
       })
       .catch(() => {
@@ -66,6 +70,9 @@ export default function CliDevicePage() {
   }, [user, code])
 
   async function decide(decision: 'approve' | 'deny') {
+    // 同一帧里的连点读到的都是 pending，用 ref 保证只发出第一个决定。
+    if (deciding.current || phase.kind !== 'pending') return
+    deciding.current = true
     setPhase({ kind: 'loading' })
     try {
       const res = await authenticatedBffFetch(`${bffBaseUrl()}/api/cli/device`, {

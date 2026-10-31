@@ -45,6 +45,10 @@ type Store struct {
 	Dir string
 	// UseKeyring stores credentials in the platform credential store when it works.
 	UseKeyring bool
+	// ClearKeyring makes Clear remove the keychain entry even when this process stores to
+	// a file, so switching MUVLOOM_CREDENTIALS_STORE cannot leave a login behind. Tests that
+	// build a Store directly leave it off and never touch the real keychain.
+	ClearKeyring bool
 }
 
 // ConfigDir is $MUVLOOM_CONFIG_DIR, or <user config dir>/muvloom.
@@ -63,7 +67,11 @@ func ConfigDir() string {
 
 // Default uses the keyring unless MUVLOOM_CREDENTIALS_STORE=file.
 func Default() Store {
-	return Store{Dir: ConfigDir(), UseKeyring: os.Getenv("MUVLOOM_CREDENTIALS_STORE") != "file"}
+	return Store{
+		Dir:          ConfigDir(),
+		UseKeyring:   os.Getenv("MUVLOOM_CREDENTIALS_STORE") != "file",
+		ClearKeyring: true,
+	}
 }
 
 func (s Store) credentialsFile() string { return filepath.Join(s.Dir, "credentials.json") }
@@ -107,16 +115,31 @@ func (s Store) Save(creds Credentials) error {
 			_ = removeIfExists(s.credentialsFile())
 			return nil
 		}
+		// Load prefers the keyring: an older entry left there would shadow the file we are
+		// about to write and replay a retired refresh token.
+		if err := keyring.Delete(keyringService, keyringUser); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+			if _, getErr := keyring.Get(keyringService, keyringUser); getErr == nil {
+				return fmt.Errorf("the system keychain rejected the new credentials and still holds old ones: %w", err)
+			}
+		}
 	}
 	return WriteFileAtomic(s.credentialsFile(), data)
 }
 
+// Clear removes credentials from every backend, whichever one this process is using,
+// so switching MUVLOOM_CREDENTIALS_STORE cannot leave a login behind.
 func (s Store) Clear() error {
-	if s.UseKeyring {
-		// Missing or unavailable keyring entries are fine; the file copy is removed regardless.
-		_ = keyring.Delete(keyringService, keyringUser)
+	var keyringErr error
+	if !s.UseKeyring && !s.ClearKeyring {
+		return errors.Join(removeIfExists(s.credentialsFile()), removeIfExists(s.pendingFile()))
 	}
-	return errors.Join(removeIfExists(s.credentialsFile()), removeIfExists(s.pendingFile()))
+	if err := keyring.Delete(keyringService, keyringUser); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+		// An unavailable keychain is only a problem if it still holds our entry.
+		if _, getErr := keyring.Get(keyringService, keyringUser); getErr == nil {
+			keyringErr = fmt.Errorf("could not remove credentials from the system keychain: %w", err)
+		}
+	}
+	return errors.Join(keyringErr, removeIfExists(s.credentialsFile()), removeIfExists(s.pendingFile()))
 }
 
 func (s Store) LoadPending() (PendingLogin, error) {
@@ -185,25 +208,39 @@ func WriteFileAtomic(path string, data []byte) error {
 	return os.Rename(name, path)
 }
 
+// lockStaleAfter must exceed the longest refresh (request timeout plus saving), so a
+// live holder is never treated as crashed.
+const lockStaleAfter = 5 * time.Minute
+
 // Lock serializes credential refresh across concurrent CLI processes, so two processes
-// never present the same refresh token (a replay would revoke the connection).
+// never present the same refresh token (a replay would revoke the connection). The lock
+// file records its owner, and unlock only removes a lock it still owns.
 func (s Store) Lock(timeout time.Duration) (func(), error) {
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return nil, err
 	}
 	path := filepath.Join(s.Dir, "credentials.lock")
+	owner := fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
 	deadline := time.Now().Add(timeout)
 	for {
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if err == nil {
-			file.Close()
-			return func() { _ = os.Remove(path) }, nil
+			_, writeErr := file.WriteString(owner)
+			closeErr := file.Close()
+			if err := errors.Join(writeErr, closeErr); err != nil {
+				_ = os.Remove(path)
+				return nil, err
+			}
+			return func() {
+				if held, err := os.ReadFile(path); err == nil && string(held) == owner {
+					_ = os.Remove(path)
+				}
+			}, nil
 		}
 		if !errors.Is(err, os.ErrExist) {
 			return nil, err
 		}
-		// A crashed holder leaves the file behind; a refresh never takes this long.
-		if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > time.Minute {
+		if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > lockStaleAfter {
 			_ = os.Remove(path)
 			continue
 		}

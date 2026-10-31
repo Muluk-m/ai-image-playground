@@ -55,7 +55,7 @@ export interface PrivateTaskHooks {
     tx: BffTransaction
     userId: string
     model: string
-    request: { image_size?: string }
+    request: { image_size?: string; size?: string }
   }): Promise<boolean>
   /** Immutable token quote under the caller's price lock; absent in older overlays. */
   quoteTokenTask?(input: {

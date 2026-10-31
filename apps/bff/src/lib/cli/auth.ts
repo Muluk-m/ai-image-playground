@@ -369,6 +369,15 @@ export async function refreshCliToken(
     await tx
       .insert(schema.cli_retired_refresh_tokens)
       .values({ token_hash: hash, connection_id: row.id, retired_at: now })
+    // 比刷新有效期还老的作废令牌本来就换不到新令牌，留着只会让表随轮换次数无界增长。
+    await tx
+      .delete(schema.cli_retired_refresh_tokens)
+      .where(
+        and(
+          eq(schema.cli_retired_refresh_tokens.connection_id, row.id),
+          lt(schema.cli_retired_refresh_tokens.retired_at, now - REFRESH_TOKEN_TTL_MS),
+        ),
+      )
     await tx
       .update(schema.cli_connections)
       .set({ ...issued.columns, last_used_at: now })

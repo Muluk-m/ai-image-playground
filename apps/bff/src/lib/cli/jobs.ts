@@ -3,12 +3,28 @@ import { and, desc, eq, inArray, isNull, lt, or, type SQL } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelTasks } from '../../db/task-transitions'
 import { loadPrivateBffOverlay } from '../private-overlay'
-import { publicTaskErrorMessage } from '../public-task-error'
 import { taskProgressPhase } from '../task-progress'
 import { cancelUpstreamOfCancelledTasks } from '../upstream-cancel'
 import { CliRequestError } from './envelope'
 
 const POLL_AFTER_SECONDS = 2
+
+/**
+ * 失败原因只按分类给固定文案：`error_message` 里是上游与内部的原始报错，留在服务端排查，
+ * 不进对外接口和 Agent 的上下文。
+ */
+const FAILURE_MESSAGES: Readonly<Record<string, string>> = {
+  upstream_timeout: 'The model did not respond in time; credits were refunded',
+  upstream_result_unknown: 'The result could not be confirmed; credits were refunded',
+  upstream_error: 'The model failed to generate this image; credits were refunded',
+  content_policy: 'The request was blocked by the content policy',
+  model_unavailable: 'The model is not available right now; try another model',
+  rate_limited: 'The model is busy; try again later',
+  upstream_no_image: 'The model returned no image; credits were refunded',
+  interrupted: 'The job was interrupted; credits were refunded',
+  object_storage_error: 'The result could not be saved; credits were refunded',
+  unknown: 'The job failed; credits were refunded',
+}
 export const JOB_LIST_MAX = 50
 
 export type CliJobStatus = 'queued' | 'running' | 'persisting' | 'succeeded' | 'failed' | 'canceled'
@@ -158,8 +174,8 @@ async function toJobs(rows: readonly JobRow[], userId: string): Promise<CliJob[]
       ...(status === 'failed'
         ? {
             error: {
-              code: row.error_type ?? 'generation_failed',
-              message: publicTaskErrorMessage(row.error_message ?? '任务失败'),
+              code: row.error_type ?? 'unknown',
+              message: FAILURE_MESSAGES[row.error_type ?? 'unknown'] ?? FAILURE_MESSAGES.unknown!,
             },
           }
         : {}),

@@ -122,7 +122,11 @@ async function call(
 ) {
   // 每次换一个来源 IP：令牌端点按 IP 限流，整个文件共用一个进程内限流器。
   const ip = `198.51.100.${Math.floor(Math.random() * 250) + 1}`
-  const headers: Record<string, string> = { 'cf-connecting-ip': ip, ...options.headers }
+  const headers: Record<string, string> = {
+    'cf-connecting-ip': ip,
+    origin: 'https://studio.test',
+    ...options.headers,
+  }
   let body: string | undefined
   if (options.form) {
     headers['content-type'] = 'application/x-www-form-urlencoded'
@@ -264,6 +268,11 @@ describe('device authorization', () => {
       body: { user_code: device.user_code, decision: 'approve' },
     })
     expect(anonymous.status).toBe(401)
+    const crossSite = await call('POST', '/api/cli/device', {
+      body: { user_code: device.user_code, decision: 'approve' },
+      headers: { cookie: user.cookie, origin: 'https://evil.example' },
+    })
+    expect(crossSite.status).toBe(403)
     await call('POST', '/api/cli/device', {
       body: { user_code: device.user_code, decision: 'deny' },
       headers: { cookie: user.cookie },
@@ -600,6 +609,11 @@ describe('jobs', () => {
       headers: bearer(ownerTokens.access_token),
     })
     expect(asMedia.status).toBe(404)
+    const asReference = await call('POST', '/v1/image-jobs/validate', {
+      body: imageJob({ reference_media_ids: [mediaId] }),
+      headers: bearer(ownerTokens.access_token),
+    })
+    expect(asReference.status).toBe(404)
 
     await db
       .update(schema.generation_records)

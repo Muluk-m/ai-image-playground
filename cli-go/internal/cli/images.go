@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -132,17 +133,24 @@ type submission struct {
 func (a *App) saveSubmission(record submission) {
 	data, err := json.Marshal(record)
 	if err == nil {
-		path := filepath.Join(a.Store.Dir, "submissions", record.IdempotencyKey+".json")
+		// The key was validated, but a colon is not a valid file name character on Windows.
+		name := strings.ReplaceAll(record.IdempotencyKey, ":", "_")
+		path := filepath.Join(a.Store.Dir, "submissions", name+".json")
 		if err := auth.WriteFileAtomic(path, data); err != nil {
 			a.progress("Could not record the submission locally: %v", err)
 		}
 	}
 }
 
-func newIdempotencyKey() string {
+// idempotencyKeyPattern matches the server's rule and keeps the key safe as a file name.
+var idempotencyKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]{8,64}$`)
+
+func newIdempotencyKey() (string, error) {
 	buf := make([]byte, 16)
-	_, _ = rand.Read(buf)
-	return "cli-" + hex.EncodeToString(buf)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fail("INTERNAL_ERROR", "Could not generate an idempotency key: %v", err)
+	}
+	return "cli-" + hex.EncodeToString(buf), nil
 }
 
 type createResult struct {
@@ -158,7 +166,7 @@ func cmdImagesCreate(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("images create")
 	flags := bindImageFlags(fs)
 	key := fs.String("idempotency-key", "", "reuse a key to retry the same request safely (default: generated)")
-	wait := fs.Int("wait", 0, "wait up to SECONDS for the job to finish")
+	wait := fs.Int("wait", 0, "wait up to SECONDS (max 3600) for the job to finish")
 	downloadDir := fs.String("download", "", "after a successful wait, save artifacts into DIR")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
@@ -172,7 +180,11 @@ func cmdImagesCreate(ctx context.Context, a *App, args []string) (any, error) {
 		return nil, err
 	}
 	if *key == "" {
-		*key = newIdempotencyKey()
+		if *key, err = newIdempotencyKey(); err != nil {
+			return nil, err
+		}
+	} else if !idempotencyKeyPattern.MatchString(*key) || strings.Contains(*key, "..") {
+		return nil, fail("USAGE", "--idempotency-key must be 8-64 characters of letters, digits, _ . : -")
 	}
 	body["idempotency_key"] = *key
 	record := submission{IdempotencyKey: *key, Request: body, CreatedAt: time.Now()}
@@ -203,7 +215,7 @@ func cmdImagesCreate(ctx context.Context, a *App, args []string) (any, error) {
 	if *wait <= 0 {
 		return result, nil
 	}
-	final, timedOut, err := a.waitJob(ctx, c, result.Job.JobID, time.Duration(*wait)*time.Second)
+	final, timedOut, err := a.waitJob(ctx, c, result.Job.JobID, seconds(*wait, 0, 3600))
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +282,7 @@ func (a *App) waitJob(ctx context.Context, c *client.HTTPClient, id string, budg
 		if remaining <= 0 {
 			return current, true, nil
 		}
-		interval := time.Duration(max(current.NextPollAfterSeconds, 1)) * time.Second
+		interval := seconds(current.NextPollAfterSeconds, 1, 10)
 		a.progress("Job %s is %s", id, current.Status)
 		if err := a.Sleep(ctx, min(interval, maxPollInterval, remaining)); err != nil {
 			return job{}, false, err
@@ -333,7 +345,7 @@ func cmdJobsWait(ctx context.Context, a *App, args []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	final, timedOut, err := a.waitJob(ctx, c, rest[0], time.Duration(*timeout)*time.Second)
+	final, timedOut, err := a.waitJob(ctx, c, rest[0], seconds(*timeout, 0, 3600))
 	if err != nil {
 		return nil, err
 	}

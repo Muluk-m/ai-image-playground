@@ -97,6 +97,14 @@ func Install(opts InstallOptions) (Result, error) {
 		root = projectDir
 	}
 	destination := filepath.Join(root, dir, "skills", "muvloom")
+	// A project can ship `.claude` or `.agents/skills` as a symlink pointing anywhere;
+	// following it would write (and replace) a directory outside the project. A user's own
+	// home directory may symlink these on purpose (dotfiles), so only projects are checked.
+	if opts.Scope == "project" {
+		if err := refuseSymlinks(root, destination); err != nil {
+			return Result{}, err
+		}
+	}
 	files, hash, err := bundleFiles()
 	if err != nil {
 		return Result{}, err
@@ -164,6 +172,11 @@ func bundleFiles() ([]bundleFile, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("read bundled Skill: %w", err)
 	}
+	return files, hashFiles(files), nil
+}
+
+// hashFiles is the bundle identity recorded at install time and checked by status.
+func hashFiles(files []bundleFile) string {
 	sort.Slice(files, func(i, j int) bool { return files[i].path < files[j].path })
 	h := sha256.New()
 	for _, file := range files {
@@ -172,7 +185,7 @@ func bundleFiles() ([]bundleFile, string, error) {
 		fmt.Fprintf(h, "%s\x00%d\x00", file.path, len(file.data))
 		h.Write(file.data)
 	}
-	return files, hex.EncodeToString(h.Sum(nil)), nil
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func installTree(destination string, files []bundleFile, meta metadata) error {
@@ -207,12 +220,47 @@ func installTree(destination string, files []bundleFile, meta metadata) error {
 	if err := os.WriteFile(filepath.Join(tmp, ".muvloom-skill.json"), metaBytes, 0o644); err != nil {
 		return fmt.Errorf("write Skill metadata: %w", err)
 	}
-	if err := os.RemoveAll(destination); err != nil {
-		return fmt.Errorf("replace existing Skill: %w", err)
+	// Move the old install aside first and put it back if the swap fails, so a failed
+	// upgrade never leaves the host without a working Skill.
+	backup := ""
+	if _, err := os.Lstat(destination); err == nil {
+		backup = destination + ".previous-" + filepath.Base(tmp)
+		if err := os.Rename(destination, backup); err != nil {
+			return fmt.Errorf("move existing Skill aside: %w", err)
+		}
 	}
 	if err := os.Rename(tmp, destination); err != nil {
+		if backup != "" {
+			_ = os.Rename(backup, destination)
+		}
 		return fmt.Errorf("install Skill: %w", err)
 	}
 	keep = true
+	if backup != "" {
+		_ = os.RemoveAll(backup)
+	}
+	return nil
+}
+
+// refuseSymlinks rejects any existing symlink between root (exclusive) and destination.
+func refuseSymlinks(root, destination string) error {
+	rel, err := filepath.Rel(root, destination)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return fmt.Errorf("Skill path %s is outside %s", destination, root)
+	}
+	current := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("inspect %s: %w", current, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to install through the symlink %s", current)
+		}
+	}
 	return nil
 }
