@@ -71,7 +71,11 @@ export function cliError(
 
 /** 处理器里抛出它，由边界插件的 onError 转成信封，免得每层都要把 Response 往上传。 */
 export class CliRequestError extends Error {
-  // 不叫 `code`：Elysia 把抛出对象的 `code` 当成它自己的错误类别（NOT_FOUND、VALIDATION 等）。
+  /**
+   * Elysia 把抛出对象的 `code` 当成错误类别。固定成一个非 UNKNOWN 的值，全局的
+   * apiErrorHandler 才不会抢先把它改写成 500，留给 CLI 边界转成信封。
+   */
+  readonly code = 'CLI_REQUEST'
   constructor(
     readonly cliCode: CliErrorCode,
     readonly options: { message?: string; details?: unknown } = {},
