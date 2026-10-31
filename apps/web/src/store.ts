@@ -2593,7 +2593,8 @@ async function deletePlatformCounterpart(task: TaskRecord): Promise<boolean> {
   const cached = isPlatformGeneration(id)
   if (!cached && !task.bffRequestId) return true
   const ok = await deleteRemoteGeneration(id)
-  if (ok && cached) await dropPlatformGeneration(id)
+  // 请求期间平台列表可能刚刷新进这一条：按此刻的缓存清，不用请求前的快照。
+  if (ok && isPlatformGeneration(id)) await dropPlatformGeneration(id)
   return ok || !cached
 }
 
