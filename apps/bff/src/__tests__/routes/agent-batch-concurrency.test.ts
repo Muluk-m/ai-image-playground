@@ -302,6 +302,7 @@ it('跨批入队窗口与实际运行并发分别受限，同账号两批不会�
       .where(and(eq(schema.tasks.kind, 'queue'), eq(schema.tasks.status, 'in_progress')))
   try {
     worker.start()
+    let startedSeen = 0
     await waitFor(() => calls.length === 3, 10000)
     const initial = await running()
     expect(initial).toHaveLength(3)
@@ -311,7 +312,14 @@ it('跨批入队窗口与实际运行并发分别受限，同账号两批不会�
     for (const batch of batches) {
       const read = await (await request(batch.path, undefined, 'GET', batch.requestCookie)).json()
       expect(read.batch.submittedCount).toBe(3)
+      // 生成中的项带上本次认领时刻，卡片据此显示已用时间与「比平时慢」。
+      const live = read.items.filter(
+        (item: { execution?: { status: string } }) => item.execution?.status === 'in_progress',
+      )
+      for (const item of live) expect(typeof item.execution.startedAt).toBe('number')
+      startedSeen += live.length
     }
+    expect(startedSeen).toBe(3)
     releases.get(calls[0]!)!()
     await waitFor(() => calls.length === 4, 10000)
     const afterOne = await running()
