@@ -3,6 +3,7 @@ import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
 import { MediaInputError } from '../mediaInputs'
 import { MediaError } from '../projectMedia'
+import { sessionClientFromRequest } from '../user-session'
 import { type CliConnection, type CliScope, hashCliSecret, resolveCliConnection } from './auth'
 import { type CliErrorCode, CliRequestError, cliError } from './envelope'
 
@@ -50,6 +51,8 @@ export function createCliRateLimiter(options: {
 
 /** 一个连接令牌在所有 /v1 资源上共用一份额度。 */
 const tokenLimiter = createCliRateLimiter({ maxRequests: 120, windowMs: 60_000 })
+/** 按来源 IP 再兜一层：每次换一个随机令牌就能落进新桶，查库的成本由它封顶。 */
+const addressLimiter = createCliRateLimiter({ maxRequests: 600, windowMs: 60_000 })
 
 export function bearerToken(request: Request): string | null {
   const match = /^Bearer\s+(\S+)\s*$/i.exec(request.headers.get('authorization') ?? '')
@@ -68,6 +71,7 @@ export interface CliBoundaryOptions {
   readonly resolveConnection?: (token: string) => Promise<CliConnection | null>
   readonly enabled?: () => boolean
   readonly limiter?: CliRateLimiter
+  readonly addressLimiter?: CliRateLimiter
 }
 
 /**
@@ -79,11 +83,20 @@ export function cliBoundary(options: CliBoundaryOptions = {}) {
   const resolveConnection = options.resolveConnection ?? resolveCliConnection
   const enabled = options.enabled ?? cliApiEnabled
   const limiter = options.limiter ?? tokenLimiter
+  const perAddress = options.addressLimiter ?? addressLimiter
   return new Elysia({ name: 'cli-boundary', seed: options })
-    .onBeforeHandle({ as: 'scoped' }, ({ request }) => {
+    .onBeforeHandle({ as: 'scoped' }, ({ request, server }) => {
       if (!enabled()) return cliError('CAPABILITY_UNAVAILABLE')
       const supplied = bearerToken(request)
       if (!supplied) return cliError('UNAUTHENTICATED')
+      const address =
+        sessionClientFromRequest(request, server?.requestIP(request)?.address ?? null).ip ??
+        'unknown'
+      const byAddress = perAddress.check(address)
+      if (!byAddress.allowed)
+        return cliError('RATE_LIMITED', {
+          headers: { 'retry-after': String(byAddress.retryAfterSeconds) },
+        })
       const result = limiter.check(hashCliSecret(supplied))
       if (!result.allowed)
         return cliError('RATE_LIMITED', {

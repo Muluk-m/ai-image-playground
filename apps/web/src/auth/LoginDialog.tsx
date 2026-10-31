@@ -17,7 +17,6 @@ import {
 } from '../lib/authClient'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { PrivateWebSupportsReferrals } from '../lib/privateOverlay'
-import { bffBaseUrl } from '../lib/runtimeConfig'
 import AuthConsent from './AuthConsent'
 import type { LoginPromptReason } from './loginPrompt'
 import { preservePendingSubmissionForLogin } from './pendingSubmission'
@@ -90,19 +89,6 @@ function oauthErrorKey(code: string): LoginErrorKey {
   if (code === 'account_disabled') return 'oauth.account_disabled'
   if (code === 'access_denied') return 'oauth.access_denied'
   return 'oauth.fallback'
-}
-
-function cliConfirmationReturnUrl(): string | null {
-  if (typeof window === 'undefined') return null
-  const target = new URL(window.location.href).searchParams.get('return_to')
-  if (
-    !target ||
-    !/^\/oauth\/device(?:\?|$)/.test(target) ||
-    target.startsWith('//') ||
-    /[\u0000-\u001f\u007f\\]/.test(target)
-  )
-    return null
-  return `${bffBaseUrl()}${target}`
 }
 
 function registrationErrorKey(error: unknown): LoginErrorKey {
@@ -212,9 +198,7 @@ export function LoginDialog({
     try {
       await loginUser(username, password)
       preservePendingSubmissionForLogin()
-      const confirmationUrl = cliConfirmationReturnUrl()
-      if (confirmationUrl) window.location.assign(confirmationUrl)
-      else if (onAuthenticated) onAuthenticated()
+      if (onAuthenticated) onAuthenticated()
       else window.location.reload()
     } catch (err) {
       setErrorKey(loginErrorKey(err))
@@ -248,9 +232,7 @@ export function LoginDialog({
         verification: credentials.verification,
       })
       preservePendingSubmissionForLogin()
-      const confirmationUrl = cliConfirmationReturnUrl()
-      if (confirmationUrl) window.location.assign(confirmationUrl)
-      else if (onAuthenticated) onAuthenticated()
+      if (onAuthenticated) onAuthenticated()
       else window.location.reload()
     } catch (err) {
       setErrorKey(registrationErrorKey(err))

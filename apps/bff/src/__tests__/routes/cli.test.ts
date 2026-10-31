@@ -595,6 +595,20 @@ describe('jobs', () => {
     })
     expect(foreign.status).toBe(404)
     expect(await db.select().from(schema.cli_reference_media)).toHaveLength(0)
+    // 生成原件不是 CLI 参考图：media 接口不发它的下载链接，只能走 artifacts。
+    const asMedia = await call('GET', `/v1/media/${mediaId}/download`, {
+      headers: bearer(ownerTokens.access_token),
+    })
+    expect(asMedia.status).toBe(404)
+
+    await db
+      .update(schema.generation_records)
+      .set({ deleted_at: Date.now() })
+      .where(eq(schema.generation_records.id, jobId))
+    const afterDelete = await call('GET', `/v1/jobs/${jobId}`, {
+      headers: bearer(ownerTokens.access_token),
+    })
+    expect(afterDelete.json.data.artifacts).toEqual([])
   })
 })
 

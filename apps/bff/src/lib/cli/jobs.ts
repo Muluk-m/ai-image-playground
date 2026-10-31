@@ -104,6 +104,10 @@ async function toJobs(rows: readonly JobRow[], userId: string): Promise<CliJob[]
           })
           .from(schema.generation_images)
           .innerJoin(
+            schema.generation_records,
+            eq(schema.generation_records.id, schema.generation_images.generation_id),
+          )
+          .innerJoin(
             schema.media_objects,
             eq(schema.media_objects.id, schema.generation_images.media_id),
           )
@@ -111,6 +115,8 @@ async function toJobs(rows: readonly JobRow[], userId: string): Promise<CliJob[]
             and(
               inArray(schema.generation_images.generation_id, succeeded),
               eq(schema.generation_images.role, 'output'),
+              // 网站上删掉的生成：产物不再列出，与 artifacts 接口的 404 保持一致。
+              isNull(schema.generation_records.deleted_at),
               eq(schema.media_objects.user_id, userId),
             ),
           )

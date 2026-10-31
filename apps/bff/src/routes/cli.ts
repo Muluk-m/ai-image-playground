@@ -137,8 +137,14 @@ export const cliOAuthRoutes = new Elysia()
   )
   .post(
     '/v1/oauth/revoke',
-    async ({ body }) => {
+    async ({ body, request, server }) => {
       if (!cliApiEnabled()) return oauthUnavailable()
+      const blocked = limited(
+        tokenEndpointLimiter,
+        request,
+        server?.requestIP(request)?.address ?? null,
+      )
+      if (blocked) return blocked
       if (body.client_id !== CLI_CLIENT_ID) return oauthJson({ error: 'invalid_client' }, 401)
       await revokeCliToken(body.token, CLI_CLIENT_ID)
       return oauthJson({})
