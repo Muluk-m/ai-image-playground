@@ -223,6 +223,7 @@ export const EXPECTED_COLUMNS = [
   'inspiration_items.thumb_width',
   'inspiration_items.thumb_height',
   'tasks.reconcile_started_at',
+  'tasks.gpt_route',
   'tasks.reconcile_alerted_at',
 ] as const
 

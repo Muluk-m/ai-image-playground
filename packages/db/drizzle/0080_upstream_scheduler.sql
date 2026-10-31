@@ -35,3 +35,6 @@ CREATE TABLE IF NOT EXISTS "gpt_direct_usage" (
 );
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_gpt_direct_usage_created" ON "gpt_direct_usage" USING btree ("created_at");
+--> statement-breakpoint
+-- GPT Image 这一单最后走的通道（direct / sub2api）。会员的高档参数落到 sub2api 只出基础档，结算据此按实际档位。
+ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS "gpt_route" text;

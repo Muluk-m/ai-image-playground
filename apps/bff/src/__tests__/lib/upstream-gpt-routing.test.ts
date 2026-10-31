@@ -76,6 +76,8 @@ function stub(): void {
   }) as unknown as TestFetch)
 }
 
+/** 每条路开跑前记下的通道（task-runner 据此写任务行，结算按最后一条判断降档）。 */
+let routes: string[] = []
 const call = (request: Record<string, unknown>, member: boolean) =>
   callUpstream({
     provider: 'openai-compat',
@@ -83,15 +85,17 @@ const call = (request: Record<string, unknown>, member: boolean) =>
     taskId: 'task-1',
     gptMember: member,
     request: { prompt: 'a cat', ...request },
+    onGptRoute: async (route) => {
+      routes.push(route)
+    },
   })
-
-const routeOf = (payload: unknown) => (payload as { gpt_route?: unknown }).gpt_route
 
 beforeEach(async () => {
   _setChannelsForTesting([])
   _resetSub2apiBreakerForTesting()
   _resetDirectBudgetCacheForTesting()
   sent = []
+  routes = []
   behaviour = { direct: { status: 200, latencyMs: 5 }, sub2api: { status: 200, latencyMs: 5 } }
   stub()
   await db.delete(schema.scheduler_leases)
@@ -104,7 +108,7 @@ afterEach(() => setUpstreamFetchForTesting())
 describe('route choice', () => {
   it('sends members to OpenAI direct with native parameters and records the cost from usage', async () => {
     const guarded = `${PROMPT_REWRITE_GUARD_PREFIX}\na cat\n\nComposition: a wide 16:9 landscape frame, horizontal orientation.`
-    const result = await call({ prompt: guarded, size: '2560x1440', quality: 'auto' }, true)
+    await call({ prompt: guarded, size: '2560x1440', quality: 'auto' }, true)
 
     expect(sent.map((one) => one.route)).toEqual(['direct'])
     // 直连认原生参数：剥掉提交时钉上的机器指令，auto 改发 medium。
@@ -118,7 +122,7 @@ describe('route choice', () => {
       authorization: 'Bearer direct-key',
       'openai-organization': 'org-test',
     })
-    expect(routeOf(result.payload)).toEqual({ route: 'direct', degraded: false })
+    expect(routes.at(-1)).toBe('direct')
 
     const [usage] = await db.select().from(schema.gpt_direct_usage)
     // 17 × $5/M + 439 × $30/M = 85 + 13170 微美元。
@@ -133,20 +137,20 @@ describe('route choice', () => {
   })
 
   it('sends non-members to sub2api with the ratio written into the prompt', async () => {
-    const result = await call({ size: '1280x720' }, false)
+    await call({ size: '1280x720' }, false)
     expect(sent.map((one) => one.route)).toEqual(['sub2api'])
     expect(sent[0]!.body.prompt).toBe(
       'a cat\n\nComposition: a wide 16:9 landscape frame, horizontal orientation.',
     )
-    expect(routeOf(result.payload)).toEqual({ route: 'sub2api', degraded: false })
+    expect(routes.at(-1)).toBe('sub2api')
     expect(await db.select().from(schema.gpt_direct_usage)).toHaveLength(0)
   })
 
-  it('moves a member to sub2api at once when direct is cooling down, and marks premium output degraded', async () => {
+  it('moves a member to sub2api at once when direct is cooling down, and records sub2api as the route', async () => {
     await coolDownSchedulerBuckets([`openai:direct:model:${MODEL}`], 3_600_000)
-    const result = await call({ size: '2048x2048', quality: 'high' }, true)
+    await call({ size: '2048x2048', quality: 'high' }, true)
     expect(sent.map((one) => one.route)).toEqual(['sub2api'])
-    expect(routeOf(result.payload)).toEqual({ route: 'sub2api', degraded: true })
+    expect(routes.at(-1)).toBe('sub2api')
   })
 
   it('moves a member to sub2api when this month would go over the direct budget', async () => {
@@ -166,26 +170,27 @@ describe('route choice', () => {
 describe('failover', () => {
   it('retries a member on sub2api once when direct answers 5xx, without recording direct cost', async () => {
     behaviour.direct.status = 503
-    const result = await call({}, true)
+    await call({}, true)
     expect(sent.map((one) => one.route)).toEqual(['direct', 'sub2api'])
-    expect(routeOf(result.payload)).toEqual({ route: 'sub2api', degraded: false })
+    expect(routes).toEqual(['direct', 'sub2api'])
+    expect(routes.at(-1)).toBe('sub2api')
     expect(await db.select().from(schema.gpt_direct_usage)).toHaveLength(0)
   })
 
   it('switches to sub2api when direct runs past the attempt timeout, and charges the platform an estimate', async () => {
     behaviour.direct.latencyMs = 5_000
-    const result = await call({}, true)
+    await call({}, true)
     expect(sent.map((one) => one.route)).toEqual(['direct', 'sub2api'])
-    expect(routeOf(result.payload)).toEqual({ route: 'sub2api', degraded: false })
+    expect(routes.at(-1)).toBe('sub2api')
     const [usage] = await db.select().from(schema.gpt_direct_usage)
     expect(usage).toMatchObject({ estimated: true, output_tokens: null })
   })
 
   it('lets a non-member borrow direct when sub2api runs past the attempt timeout', async () => {
     behaviour.sub2api.latencyMs = 5_000
-    const result = await call({}, false)
+    await call({}, false)
     expect(sent.map((one) => one.route)).toEqual(['sub2api', 'direct'])
-    expect(routeOf(result.payload)).toEqual({ route: 'direct', degraded: false })
+    expect(routes.at(-1)).toBe('direct')
   })
 
   it('does not move a non-member off a failing sub2api, but opens the breaker so the next order borrows direct', async () => {
@@ -196,14 +201,30 @@ describe('failover', () => {
     expect(sub2apiBreakerOpen()).toBe(true)
 
     sent = []
-    const result = await call({}, false)
+    await call({}, false)
     expect(sent.map((one) => one.route)).toEqual(['direct'])
-    expect(routeOf(result.payload)).toEqual({ route: 'direct', degraded: false })
+    expect(routes.at(-1)).toBe('direct')
   })
 
   it('does not switch on a client error', async () => {
     behaviour.direct.status = 400
     await expect(call({}, true)).rejects.toBeDefined()
     expect(sent.map((one) => one.route)).toEqual(['direct'])
+  })
+})
+
+describe('fan-out usage', () => {
+  it('adds up usage from every single-image response so the direct cost covers the whole order', async () => {
+    // 直连图生图不接受 n，逐张发；两张各回一份 usage，成本按两份之和记。
+    const { _callUpstreamDirectForTesting } = await import('../../lib/upstream')
+    const result = await _callUpstreamDirectForTesting(
+      { provider: 'openai-compat', model: MODEL, request: { prompt: 'a cat', n: 2 } },
+      { nativeN: false },
+    )
+    expect((result.payload as { usage?: unknown }).usage).toEqual({
+      input_tokens: 34,
+      output_tokens: 878,
+      input_tokens_details: { image_tokens: 0, text_tokens: 34 },
+    })
   })
 })
