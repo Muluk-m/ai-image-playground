@@ -358,7 +358,8 @@ describe('单副本备份保留', () => {
     )
     const script = readFileSync(backup, 'utf8')
       .replace('/usr/local/lib/pg-backup/lib.sh', lib)
-      .replaceAll('/var/lib/pg-backup', join(root, 'state'))
+      .split('/var/lib/pg-backup')
+      .join(join(root, 'state'))
     writeFileSync(join(root, 'backup-under-test.sh'), script)
   })
 

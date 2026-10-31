@@ -11,21 +11,28 @@ set -eu
 . /usr/local/lib/pg-backup/lib.sh
 pg_backup_env
 
-# Cron and start-up catch-up may overlap. With destructive retention they must not run unlocked.
-exec 9>/tmp/pg-backup.lock
-lock_status=0
-flock -n 9 || lock_status=$?
-case $lock_status in
+# Cron and start-up catch-up may overlap. Serialize backup jobs separately, then take the
+# shared lock that prevents restore-drill from reading a dump while retention deletes it.
+exec 8>/tmp/pg-backup-run.lock
+run_lock_status=0
+flock -n 8 || run_lock_status=$?
+case $run_lock_status in
   0) ;;
   1)
     echo "pg-backup: another backup is already running, skipping this one"
     exit 0
     ;;
   *)
-    echo "pg-backup: could not take the backup lock (status $lock_status)" >&2
-    exit "$lock_status"
+    echo "pg-backup: could not take the backup run lock (status $run_lock_status)" >&2
+    exit "$run_lock_status"
     ;;
 esac
+
+exec 9>/tmp/pg-backup.lock
+if ! flock 9; then
+  echo "pg-backup: could not take the shared backup lock" >&2
+  exit 1
+fi
 
 umask 077
 stamp=$(date -u +%Y-%m-%dT%H-%M-%SZ)-$(cat /proc/sys/kernel/random/uuid)
