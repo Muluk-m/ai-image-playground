@@ -158,7 +158,7 @@ async function upload(background: string | Buffer, requestCookie = cookie) {
   return media.id as string
 }
 
-it('生成中单独取消一张：只撤这一张、走原有取消结算，其余照常，重复点与越权都安全', async () => {
+it('排队中单独取消一张：只撤这一张、走原有取消结算，其余照常，重复点与越权都安全', async () => {
   billing.answer = { kind: 'reserved', credits: 7 }
   const mediaId = await upload('#123456')
   const { conversation } = await (
@@ -271,6 +271,19 @@ it('生成中单独取消一张：只撤这一张、走原有取消结算，其�
   // 重复点、已结束的项：不报错，也不会再结算一次。
   expect((await request(`${path}/items/item-1/cancel`, {})).status).toBe(200)
   expect((await request(`${path}/items/missing/cancel`, {})).status).toBe(200)
+  expect(billing.settlements).toHaveLength(1)
+
+  // 已经认领开跑的不撤：可能已发给上游，撤了也照样出图计费。
+  await db
+    .update(schema.tasks)
+    .set({ status: 'in_progress', started_at: Date.now() })
+    .where(eq(schema.tasks.id, taskOf.get('item-0')!))
+  expect((await request(`${path}/items/item-0/cancel`, {})).status).toBe(200)
+  const [started] = await db
+    .select({ status: schema.tasks.status })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, taskOf.get('item-0')!))
+  expect(started?.status).toBe('in_progress')
   expect(billing.settlements).toHaveLength(1)
   config.operator = operator
 }, 60000)

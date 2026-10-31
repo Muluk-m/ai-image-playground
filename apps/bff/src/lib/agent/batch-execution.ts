@@ -859,7 +859,7 @@ export async function repriceAgentBatch(
 }
 
 /**
- * 取消批次里某一项当前这次生成（排队或执行中）。走与单任务取消同一条 cancelTasks：
+ * 取消批次里某一项当前这次还在排队的生成；已经开始执行的不撤。走与单任务取消同一条 cancelTasks：
  * 预扣的结算由私有 task hook 在同一事务里完成，这里不碰计费。取消后的那一项按已有规则记为
  * 「已取消」，依赖它的项随之取消，其余项照常执行。
  *
@@ -898,11 +898,13 @@ export async function cancelAgentBatchItem(
         ),
       )
     if (!current) return []
+    // 只撤还在排队的：已经认领的可能已发给上游，撤了也照样出图计费（2026-10-31 测试环境实测）。
     return cancelTasks(
       and(
         eq(schema.tasks.id, current.taskId),
         eq(schema.tasks.user_id, userId),
         eq(schema.tasks.kind, 'queue'),
+        eq(schema.tasks.status, 'queued'),
       )!,
       { tx },
     )

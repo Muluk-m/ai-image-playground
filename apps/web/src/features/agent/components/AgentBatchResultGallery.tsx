@@ -233,6 +233,9 @@ export function AgentBatchRunRow({
         : t('batch.itemStatus.in_progress')
       : t(`batch.itemStatus.${status}`)
     const stopping = cancelling.has(tile.key)
+    // 只有还在排队、没发给上游的那张能真正撤回并全额退回；已经在生成的撤不下来，
+    // 上游照样出图计费，不给一个看起来能省钱的按钮。
+    const cancellable = (live && tile.execution?.status === 'queued') || stopping
     return [
       <div
         key={tile.key}
@@ -281,7 +284,7 @@ export function AgentBatchRunRow({
               </span>
             )}
           </div>
-          {live && onCancel && (
+          {cancellable && onCancel && (
             <TooltipIconButton
               tooltip={
                 stopping ? t('job.cancelling') : t('batch.cancelTile', { index: tile.position })
