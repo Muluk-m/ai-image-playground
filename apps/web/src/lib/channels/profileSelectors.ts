@@ -127,6 +127,15 @@ export function knownModelTier(value: unknown): ModelTier | undefined {
   return MODEL_TIERS.includes(value as ModelTier) ? (value as ModelTier) : undefined
 }
 
+/** 只把当前选择器认识的系列交给分组；未知系列按未分组处理，避免新清单让模型消失。 */
+export function knownModelFamily(
+  value: unknown,
+): NonNullable<PublicChannel['models'][number]['family']> | undefined {
+  return value === 'gpt' || value === 'gemini' || value === 'grok' || value === 'agnes'
+    ? value
+    : undefined
+}
+
 /** 返回该 profile 的模型展示项（id + 人类可读 label）。 */
 export function getProfileModelOptions(
   profile: ClientProfile,
@@ -151,7 +160,7 @@ export function getProfileModelOptions(
         const etaMaxSeconds = usableEtaMaxSeconds(model.etaMaxSeconds, etaSeconds)
         const badges = knownModelBadges(model.badges)
         const logo = knownModelLogo(model.logo)
-        const family = model.family
+        const family = knownModelFamily(model.family)
         const tier = knownModelTier(model.tier)
         return {
           id: model.id,
