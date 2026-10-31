@@ -43,11 +43,24 @@ export function useGptPremiumLocked(
     setPremium(false)
     if (!gpt || !directOn || !userId) return
     let active = true
-    void fetchPremium(userId).then((value) => {
-      if (active) setPremium(value)
-    })
+    const refresh = () => {
+      void fetchPremium(userId).then((value) => {
+        if (active) setPremium(value)
+      })
+    }
+    refresh()
+    // 页面一直开着时也要跟上开通或到期：回到页面时、以及每过一个缓存期重问一次（缓存未过期时不发请求）。
+    const timer = setInterval(refresh, PREMIUM_CACHE_MS)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       active = false
+      clearInterval(timer)
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [gpt, directOn, userId])
   // 只有「开通会员就能用」时才提示会员专享；直连没开时会员也用不了，不拿会员说事。
