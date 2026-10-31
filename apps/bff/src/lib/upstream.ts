@@ -377,11 +377,15 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   return callGptDualRoute(params, route)
 }
 
-/** 测试用：跳过选路，直接走 OpenAI 直连这一条（调度器配额、429 冷却照常生效）。 */
+/**
+ * 测试用：跳过选路，直接走 OpenAI 直连这一条（调度器配额、429 冷却照常生效）。
+ * `nativeN: false` 模拟逐张 fan-out 的路径（直连的图生图不接受 n，就是这样发的）。
+ */
 export function _callUpstreamDirectForTesting(
   params: UpstreamCallParams,
+  { nativeN = true }: { nativeN?: boolean } = {},
 ): Promise<UpstreamCallResult> {
-  return callUpstreamVia(params, directRoute(params.model))
+  return callUpstreamVia(params, { ...directRoute(params.model), supportsNativeN: nativeN })
 }
 
 function gptRouteFor(kind: GptRoute, model: string, sub2api: UpstreamRoute): UpstreamRoute {

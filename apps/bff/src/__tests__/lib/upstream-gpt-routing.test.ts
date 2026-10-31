@@ -46,7 +46,7 @@ function stub(): void {
     input: unknown,
     init?: { body?: unknown; headers?: Record<string, string>; signal?: AbortSignal },
   ) => {
-    const route = String(input).startsWith('https://api.openai.com') ? 'direct' : 'sub2api'
+    const route = new URL(String(input)).hostname === 'api.openai.com' ? 'direct' : 'sub2api'
     sent.push({
       route,
       body: JSON.parse(String(init?.body)) as Record<string, unknown>,
