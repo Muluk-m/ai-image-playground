@@ -58,7 +58,10 @@ jobs:
           }
           check || { verified=false; echo "::warning::Could not read the pull request history; running every check."; }
           echo "verified=$verified" >> "$GITHUB_OUTPUT"
-  web:
+  # 原来的 web job 把 lint、typecheck、web 构建 + 浏览器冒烟、admin 构建串在一台机器上（中位 211 秒），
+  # 现在拆成三台并行：lint（含脚本自测与 Docker web 阶段）、typecheck（含 admin 构建，复用 tsc -b 的增量）、
+  # build（web 构建 + 浏览器冒烟）。检查项一条不少，只是不再排队。
+  lint:
     needs: prior
     if: needs.prior.outputs.verified != 'true'
     runs-on: ubuntu-latest
@@ -66,10 +69,13 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          # 下面的 Docker 变更检测要 diff 到 base，需要完整历史；blobless 只拉提交与树，
+          # 文件内容按需取，比完整克隆快。
           fetch-depth: 0
+          filter: blob:none
       - uses: ./.github/actions/setup
       - run: python3 scripts/test-cloud-test.py
-      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs
+      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs scripts/__tests__/test-shard.test.mjs
       - run: pnpm lint
       # The production Dockerfile rebuilds the web package from an allowlisted context.
       # Run the same web stage when build inputs change, so missing .dockerignore entries
@@ -94,7 +100,25 @@ jobs:
         run: docker buildx build --progress=plain --target web-build --build-arg TARGETARCH=amd64 --build-arg PRIVATE_OVERLAY_PRESENT=false .
       # Deploy and backup scripts; shellcheck ships on the hosted runner.
       - run: pnpm lint:sh
+  typecheck:
+    needs: prior
+    if: needs.prior.outputs.verified != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/setup
       - run: pnpm typecheck
+      # admin 的 build 也是 tsc -b，紧跟 typecheck 跑能直接用它留下的 tsbuildinfo。
+      - run: pnpm --dir apps/admin build
+  build:
+    needs: prior
+    if: needs.prior.outputs.verified != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/setup
       - run: pnpm --dir apps/web build:static-host
         env:
           BFF_ENABLED: 'true'
@@ -103,9 +127,9 @@ jobs:
         with:
           label: startup-public
           test-runner: 'true'
-      - run: pnpm --dir apps/admin build
-  # 带数据库的测试拆成两台机器：bff 的 Bun 套件（最长，约 3 分钟）单独一台，其余包（shared、db、
-  # node-kit、admin、website，合计约 1.5 分钟）另一台。不在同一台机器上叠并发：shared 里有按耗时
+  # 带数据库的测试分到四台机器：bff 的 Bun 套件（单台约 3.5 分钟，原来的最长一段）按文件轮转分成三片
+  # （run-bun-tests-isolated.ts --shard，三片合起来每个文件恰好跑一次），其余包（shared、db、
+  # node-kit、admin、website，合计约 1.5 分钟）另一台。不在同一台机器上叠包并发：shared 里有按耗时
   # 断言的用例，和别的包抢 CPU 会超时（PR #1458 第一轮 --concurrency=3 就这样挂过）。
   # 本机的 `pnpm test` 仍是一次一个包（package.json 不变）。
   bff:
@@ -117,10 +141,14 @@ jobs:
       fail-fast: false
       matrix:
         part:
-          - name: bff
-            filter: "--filter=@image-playground/bff"
+          - name: bff 1/3
+            args: "--filter=@image-playground/bff -- --shard=1/3"
+          - name: bff 2/3
+            args: "--filter=@image-playground/bff -- --shard=2/3"
+          - name: bff 3/3
+            args: "--filter=@image-playground/bff -- --shard=3/3"
           - name: packages
-            filter: "--filter=!@image-playground/web --filter=!@image-playground/bff"
+            args: "--filter=!@image-playground/web --filter=!@image-playground/bff"
     name: bff (${{ matrix.part.name }})
     services:
       postgres:
@@ -147,9 +175,9 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
       # typecheck 在 web job 里跑过，这里不重复；web 的 vitest 在 web-test job 并行跑。
-      - run: pnpm test --concurrency=1 --env-mode=loose ${{ matrix.part.filter }}
+      - run: pnpm test --concurrency=1 --env-mode=loose ${{ matrix.part.args }}
   # apps/web 的 vitest 不需要数据库，也是最长的一段；独立出来与 bff job 并行，不再串在它后面。
-  # 409 个文件约 3-4 分钟，按 vitest --shard 分到两台机器。
+  # 460 多个文件单台约 4.5 分钟，按 vitest --shard 分到三台机器。
   web-test:
     needs: prior
     if: needs.prior.outputs.verified != 'true'
@@ -158,8 +186,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
-    name: web-test (${{ matrix.shard }}/2)
+        shard: [1, 2, 3]
+    name: web-test (${{ matrix.shard }}/3)
     env:
       # Its own 4-vCPU runner, so two workers; the bff job keeps 1 beside its Bun suites.
       VITEST_MAX_WORKERS: 2
@@ -168,7 +196,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
-      - run: pnpm test --env-mode=loose --filter=@image-playground/web -- --shard=${{ matrix.shard }}/2
+      - run: pnpm test --env-mode=loose --filter=@image-playground/web -- --shard=${{ matrix.shard }}/3
   # 收费版是公开 main 最重要的消费者，这一步给它投票权：候选公开树 + `private.lock` 钉住的
   # overlay 一起 lint / typecheck / build，并跑 overlay 自己的测试。它执行的是「先扩后缩」——公开树只能删掉钉住的
   # overlay 已经不再引用的宿主面成员；反向 boundary 检查则确保
@@ -234,6 +262,54 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm lint
       - run: pnpm typecheck
+      - run: pnpm --dir apps/admin build
+      # 计费钩子的测试在 overlay 里。公开 PR 改了钩子而私有测试红，原本要等合并后 overlay CI
+      # 才发现（verified 指针停住）；这里在合并前就拦下。
+      # 逐包串行，每包内由 BUN_TEST_JOBS 并发，避免进程数叠乘。
+      - run: pnpm --filter './private/apps/*' --workspace-concurrency=1 test
+  # 收费版的 web 构建 + 浏览器冒烟另起一台，与上面的 lint / typecheck / 私有测试并行（原来串在一台上中位 242 秒）。
+  # 不连数据库，所以没有 postgres 服务；overlay 检出与上面同一套。
+  with-overlay-build:
+    needs: prior
+    if: >-
+      needs.prior.outputs.verified != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # `actions/checkout` 的 `repository` 要 `owner/repo` 形式，不是 SSH URL。
+      PRIVATE_OVERLAY_REPO: Muluk-m/ai-image-playground-private
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # 先自己报一句：`ssh-key` 为空时 checkout 会退回 token 认证，私有仓返回的是
+      # 「Repository not found」，看不出真因是密钥没配。
+      - name: Require the overlay key
+        env:
+          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+        run: |
+          [ -n "$PRIVATE_OVERLAY_SSH_KEY" ] || { echo "::error::PRIVATE_OVERLAY_SSH_KEY is missing."; exit 1; }
+      # 与 `deploy.yml` 同一条路子：`actions/checkout` 把 github.com 的 host key 硬编码在
+      # 源码里，这一步不碰任何网络接口。别改回手搓 `git clone` + 匿名调
+      # `api.github.com/meta` 取 known_hosts——那个接口限额 60 次/小时且按发起 IP 计，而
+      # runner 出口 IP 是共享的，2026-09-22 生产部署就是这么被一个 403 整条挂掉的。
+      # 调研见 `docs/research/deploy-known-hosts-and-overlay-coupling.md`。
+      - name: Read the pinned overlay commit
+        id: lock
+        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
+      - name: Check out the private overlay at the pinned commit
+        id: overlay
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
+          ref: ${{ steps.lock.outputs.sha }}
+          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          path: private
+          persist-credentials: false
+      - name: Record the overlay commit
+        run: echo "overlay=${{ steps.overlay.outputs.commit }}" >> "$GITHUB_STEP_SUMMARY"
+      - uses: ./.github/actions/setup
       - run: pnpm --dir apps/web build:static-host
         env:
           BFF_ENABLED: 'true'
@@ -241,8 +317,3 @@ jobs:
       - uses: ./.github/actions/pages-browser
         with:
           label: startup-paid
-      - run: pnpm --dir apps/admin build
-      # 计费钩子的测试在 overlay 里。公开 PR 改了钩子而私有测试红，原本要等合并后 overlay CI
-      # 才发现（verified 指针停住）；这里在合并前就拦下。
-      # 逐包串行，每包内由 BUN_TEST_JOBS 并发，避免进程数叠乘。
-      - run: pnpm --filter './private/apps/*' --workspace-concurrency=1 test
