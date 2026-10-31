@@ -61,6 +61,7 @@
     "bffStageInactive": "This approval has ended or expired; ask the agent to request approval again",
     "bffStageAttemptConflict": "This submission no longer matches the approved run (model or count changed); run it again",
     "bffModelUnavailable": "This model is unavailable right now. Pick another model",
+    "bffPlanRequired": "4K requires an active membership",
     "bffInvalidRequest": "These settings aren't accepted. Adjust them and try again",
     "bffStorageUnavailable": "Reference images can't be read right now. Try again later",
     "bffDuplicateSubmit": "This conflicts with an earlier request. Submit again"

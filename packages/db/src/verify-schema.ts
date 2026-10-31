@@ -2,6 +2,12 @@ import { SQL } from 'bun'
 import journal from '../drizzle/meta/_journal.json'
 
 export const EXPECTED_TABLES = [
+  'cli_connections',
+  'cli_jobs',
+  'cli_reference_media',
+  'cli_retired_refresh_tokens',
+  'device_authorizations',
+  'oauth_clients',
   'agent_model_settings',
   'agent_stage_authorizations',
   'analysis_tasks',
@@ -66,6 +72,21 @@ export const EXPECTED_TABLES = [
 ] as const
 
 export const EXPECTED_INDEXES = [
+  'cli_connections_pkey',
+  'device_authorizations_pkey',
+  'oauth_clients_pkey',
+  'idx_cli_connections_access_token_hash',
+  'idx_cli_connections_refresh_token_hash',
+  'idx_cli_connections_user_id',
+  'cli_retired_refresh_tokens_pkey',
+  'idx_cli_retired_refresh_tokens_connection',
+  'cli_jobs_pkey',
+  'idx_cli_jobs_user_created',
+  'cli_reference_media_pkey',
+  'idx_cli_reference_media_user_created',
+  'idx_device_authorizations_device_code_hash',
+  'idx_device_authorizations_user_code_hash',
+  'idx_device_authorizations_expires_at',
   'agent_model_settings_pkey',
   'agent_stage_authorizations_pkey',
   'idx_agent_stage_proposal',
