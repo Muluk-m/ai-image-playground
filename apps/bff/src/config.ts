@@ -162,9 +162,33 @@ export const config = {
     vertexFallbackAfterMs: positiveIntEnv('VERTEX_FALLBACK_AFTER_MS', 5 * 60 * 1000),
   },
   /**
+   * GPT Image 的 OpenAI 直连通道（另一条是 UPSTREAM_BASE_URL 的 sub2api）。会员默认走直连，满了或不可用
+   * 立刻切 sub2api；非会员走 sub2api，sub2api 熔断才借直连。见 lib/upstream/gpt-routing.ts。
+   * 密钥沿用 channels.json 里 openai-images 的 OPENAI_API_KEY；没打开或没配密钥时一律走 sub2api。
+   */
+  gptDirect: {
+    enabled: booleanEnv('GPT_DIRECT_ENABLED', false),
+    baseUrl: env('GPT_DIRECT_BASE_URL', 'https://api.openai.com/v1').replace(/\/+$/, ''),
+    apiKey: env('OPENAI_API_KEY', ''),
+    /** 可选：OpenAI-Organization 请求头。 */
+    organization: env('OPENAI_ORG_ID', ''),
+    /** 直连每月预算（美元）与封顶比例（%）。月按台北时间的自然月算。 */
+    monthlyBudgetUsd: positiveIntEnv('GPT_DIRECT_MONTHLY_BUDGET_USD', 200),
+    budgetPercent: positiveIntEnv('GPT_DIRECT_BUDGET_PERCENT', 100),
+    /** 每百万 token 的美元价（输入文字、输入图片、输出图片），按上游回报的 usage 折算成本。 */
+    priceInputTextPerMillion: positiveIntEnv('GPT_DIRECT_PRICE_INPUT_TEXT', 5),
+    priceInputImagePerMillion: positiveIntEnv('GPT_DIRECT_PRICE_INPUT_IMAGE', 8),
+    priceOutputPerMillion: positiveIntEnv('GPT_DIRECT_PRICE_OUTPUT', 30),
+    /** 一条路发出请求后多久没结果就换另一条路重试一次（只换一次，总时限仍是硬超时）。 */
+    attemptTimeoutMs: positiveIntEnv('GPT_DIRECT_ATTEMPT_TIMEOUT_MS', 150_000),
+    sub2apiAttemptTimeoutMs: positiveIntEnv('GPT_SUB2API_ATTEMPT_TIMEOUT_MS', 240_000),
+    /** sub2api 连续失败几次熔断、熔断多久后放一条试探。 */
+    sub2apiBreakerFailures: positiveIntEnv('GPT_SUB2API_BREAKER_FAILURES', 5),
+    sub2apiBreakerCooldownMs: positiveIntEnv('GPT_SUB2API_BREAKER_COOLDOWN_MS', 60_000),
+  },
+  /**
    * 跨 worker 的上游调度配额（公开库 scheduler_buckets / scheduler_leases，按行锁抢）。每个环境各算各的。
-   * 目前只管 GPT Image 走通用网关的请求：UPSTREAM_BASE_URL 指向 api.openai.com 时按「直连」限，
-   * 否则按「sub2api」限。见 lib/upstream/scheduler.ts。
+   * 目前只管 GPT Image：OpenAI 直连与 sub2api 两条通道各有各的桶。见 lib/upstream/scheduler.ts。
    */
   scheduler: {
     /** 桶名前缀；几个环境共用一个库时用它隔开。 */
@@ -181,8 +205,8 @@ export const config = {
       directConcurrency: positiveIntEnv('GPT_DIRECT_CONCURRENCY', 8),
       /** 直连整个组织每分钟张数，所有模型合计；0 = 不设这一层。 */
       directOrgImagesPerMinute: nonNegativeIntEnv('GPT_DIRECT_ORG_IPM', 0),
-      /** 经 sub2api 同时在途的 GPT 请求数，本环境合计；0 = 不限（与上线前一致）。 */
-      sub2apiConcurrency: nonNegativeIntEnv('GPT_SUB2API_CONCURRENCY', 0),
+      /** 经 sub2api 同时在途的 GPT 请求数，本环境合计；0 = 不限。上游全局上限是 8。 */
+      sub2apiConcurrency: nonNegativeIntEnv('GPT_SUB2API_CONCURRENCY', 8),
     },
   },
   agent: {

@@ -141,8 +141,8 @@ it('keeps namespaces apart', async () => {
   expect(row?.key).toBe('unit:inflight')
 })
 
-it('maps GPT routes to buckets: direct gets per-model, in-flight and optional org; sub2api is off by default', () => {
-  expect(gptSchedulerBuckets('gpt-image-2', 'https://api.openai.com')).toEqual([
+it('maps GPT routes to buckets: direct gets per-model, in-flight and optional org; sub2api caps in flight', () => {
+  expect(gptSchedulerBuckets('gpt-image-2', 'direct')).toEqual([
     {
       key: 'openai:direct:model:gpt-image-2',
       imagesPerMinute: 16,
@@ -150,5 +150,7 @@ it('maps GPT routes to buckets: direct gets per-model, in-flight and optional or
     },
     { key: 'openai:direct:inflight', concurrency: 8 },
   ])
-  expect(gptSchedulerBuckets('gpt-image-2', 'https://sub2api.example.com')).toEqual([])
+  expect(gptSchedulerBuckets('gpt-image-2', 'sub2api')).toEqual([
+    { key: 'openai:sub2api:inflight', concurrency: 8 },
+  ])
 })
