@@ -12,7 +12,9 @@ import type {
 } from '@image-playground/shared'
 import {
   billedStageQuantity,
+  clampGptBasicRequest,
   DEFAULT_IMAGE_MODERATION,
+  gptImageRateMultiplier,
   imageSizeTier,
   isBlankPrompt,
   QUEUE_TIMEOUTS,
@@ -29,6 +31,7 @@ import { consumeStageAuthorization } from './agent/stage-authorizations'
 import { canonicalJson } from './canonicalJson'
 import { isCapabilityEnabled } from './capabilities'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
+import { alignGptRequestToMembership } from './gpt-membership'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
 import { modelUnavailable } from './model-availability'
 import { objectStore } from './objectStore'
@@ -130,7 +133,13 @@ export async function findTaskByIdempotencyKey(clientRequestId: string, userId: 
  */
 function pricingOf(input: CreateQueueTaskInput) {
   const n = input.request.n ?? 1
-  if (!input.video) return { quantity: n, unitMultiplier: 1, quotaUnits: n }
+  if (!input.video)
+    return {
+      quantity: n,
+      // GPT 直连模型按档位与画质加倍率（带遮罩的只看画质）；其它图片模型恒为 1。
+      unitMultiplier: gptImageRateMultiplier(input.model, input.request),
+      quotaUnits: n,
+    }
   return {
     quantity: billedStageQuantity(input.video.duration_seconds),
     unitMultiplier: videoRateMultiplier(input.model, input.video.resolution),
@@ -329,8 +338,15 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
   }
 }
 
-/** Read, transform and archive image bytes before acquiring caller transaction locks. */
-export async function prepareQueueTask(input: CreateQueueTaskInput) {
+/**
+ * Read, transform and archive image bytes before acquiring caller transaction locks.
+ * 预先准备的入口（批量执行、自动提交、灵感套用）一律按基础档计价执行，见 {@link alignGptSubmission}。
+ */
+export function prepareQueueTask(input: CreateQueueTaskInput) {
+  return prepareAlignedQueueTask(basicGptInput(input))
+}
+
+async function prepareAlignedQueueTask(input: CreateQueueTaskInput) {
   const id = crypto.randomUUID()
   let requestPayload: PersistedSubmitRequest
   try {
@@ -400,8 +416,28 @@ export async function premiumRequestAllowed(
   return canSubmitTask({ tx, userId, model, request: { image_size: '4K' } })
 }
 
+/** GPT 直连模型收到基础档（1K、非高画质）；收法是确定的，重复收结果不变，准备时与提交时的哈希一致。 */
+function basicGptInput(input: CreateQueueTaskInput): CreateQueueTaskInput {
+  if (input.video) return input
+  const request = clampGptBasicRequest(input.model, input.request)
+  return request === input.request ? input : { ...input, request }
+}
+
+/**
+ * GPT 直连模型的 2K/4K/高画质只在创作页直接提交时开给会员（见 gpt-membership.ts），非会员静默收到基础档。
+ * 智能体、阶段授权、调用方自带事务与预先准备的提交一律收到基础档：授权与报价按倍率 1 冻结，
+ * 事务里也不该再去连接池查会员。
+ */
+async function alignGptSubmission(input: CreateQueueTaskInput): Promise<CreateQueueTaskInput> {
+  if (input.video) return input
+  if (input.prepared || input.tx || input.agent || input.stageAuthorization)
+    return basicGptInput(input)
+  const request = await alignGptRequestToMembership(input.model, input.request, input.userId)
+  return request === input.request ? input : { ...input, request }
+}
+
 export async function createQueueTask(raw: CreateQueueTaskInput): Promise<CreateQueueTaskOutcome> {
-  const input = alignStageSubmission(raw)
+  const input = await alignGptSubmission(alignStageSubmission(raw))
   // 只有空白、控制符或零宽字符的提示词和空的一样：所有入口都不建任务，也就不预扣积分。
   if (isBlankPrompt(input.request.prompt)) return { kind: 'invalid_prompt' }
   if (input.reconciliationRequired && input.video)
@@ -420,7 +456,7 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
   }
   const preparation = input.prepared
     ? { kind: 'prepared' as const, prepared: input.prepared }
-    : await prepareQueueTask(input)
+    : await prepareAlignedQueueTask(input)
   if (preparation.kind !== 'prepared') return preparation
   const { taskId: id, requestPayload, requestHash } = preparation.prepared
   if (requestHash !== hash) throw new TypeError('prepared_queue_request_mismatch')

@@ -1,4 +1,4 @@
-import { agentModelImageMax } from '@image-playground/shared'
+import { agentModelImageMax, isGptDirectModel } from '@image-playground/shared'
 import { useMemo, useState } from 'react'
 import { ReasoningEffort } from '../../../components/assistant-ui/elements/reasoning-effort'
 import {
@@ -85,7 +85,11 @@ function useComposerRatio() {
   const view = clientProfileToApiProfile(active)
   const isGemini = view.provider === 'gemini'
   const capabilities = getParamCapabilities(active, params.output_format)
-  const rules = { ratioOnly: !capabilities.size, limitTo1K: view.codexCli }
+  // 智能体提交的 GPT 直连模型一律按 1K 出图（授权与报价按基础档冻结），比例换算也收在 1K。
+  const rules = {
+    ratioOnly: !capabilities.size,
+    limitTo1K: view.codexCli || isGptDirectModel(view.model),
+  }
   const selection = useMemo(
     () => readSizeSelection(params.size, rules),
     [params.size, rules.ratioOnly, rules.limitTo1K],
