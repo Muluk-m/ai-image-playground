@@ -389,9 +389,19 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       if (commands.current() && operation === operations.current) {
         operations.current++
         setPage(result)
+      } else if (commands.current()) {
+        // 这一张撤成功了，但期间有更新的操作：这份快照可能比界面旧，不写回，改为再读一次最新计划，
+        // 免得后发的那个操作失败时界面一直停在撤之前。
+        const reread = ++operations.current
+        const latest = await fetchBatchPlan(batchId).catch(() => null)
+        if (latest && commands.current() && reread === operations.current) {
+          operations.current++
+          setPage(latest)
+        }
       }
     } catch {
-      // 取消别的图块不让这一张的失败失效：只有同一张后来又发了取消，旧的失败才算过期。
+      // 失败说明这一张确实没撤掉，与页面别处是否刷新过无关；取消别的图块也不让它失效。
+      // 只有同一张后来又发了取消，旧的失败才算过期。
       if (commands.current() && itemCancels.current.get(key) === operation)
         setCancelItemFailed(true)
     } finally {
