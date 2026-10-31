@@ -43,9 +43,12 @@ export function useGptPremiumLocked(
     setPremium(false)
     if (!gpt || !directOn || !userId) return
     let active = true
+    let latest = 0
     const refresh = () => {
+      // 只认最后一次发出的查询：慢的旧请求晚到时不能把新结果改回去。
+      const request = ++latest
       void fetchPremium(userId).then((value) => {
-        if (active) setPremium(value)
+        if (active && request === latest) setPremium(value)
       })
     }
     refresh()
