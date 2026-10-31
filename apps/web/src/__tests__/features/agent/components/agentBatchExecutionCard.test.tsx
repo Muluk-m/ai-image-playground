@@ -1347,8 +1347,15 @@ it('先撤的一张成功但被后发的取消盖过、后发的又失败时，�
     ),
   }
   let saved = running
-  const first = Promise.withResolvers<void>()
-  const second = Promise.withResolvers<void>()
+  const gate = () => {
+    let resolve!: () => void
+    const promise = new Promise<void>((done) => {
+      resolve = done
+    })
+    return { promise, resolve }
+  }
+  const first = gate()
+  const second = gate()
   vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
     if (init?.method === 'POST' && url.endsWith('/items/item-0/cancel')) {
