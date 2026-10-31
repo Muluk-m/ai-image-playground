@@ -44,6 +44,9 @@ export const EXPECTED_TABLES = [
   'client_errors',
   'client_error_recoveries',
   'model_availability',
+  'scheduler_buckets',
+  'scheduler_leases',
+  'gpt_direct_usage',
   'server_logs',
   'container_samples',
   'host_samples',
@@ -199,6 +202,11 @@ export const EXPECTED_INDEXES = [
   'user_templates_user_id_id_pk',
   'users_pkey',
   'model_availability_pkey',
+  'scheduler_buckets_pkey',
+  'scheduler_leases_attempt_id_bucket_key_pk',
+  'idx_scheduler_leases_bucket_acquired',
+  'gpt_direct_usage_pkey',
+  'idx_gpt_direct_usage_created',
 ] as const
 
 export const EXPECTED_COLUMNS = [
@@ -215,6 +223,7 @@ export const EXPECTED_COLUMNS = [
   'inspiration_items.thumb_width',
   'inspiration_items.thumb_height',
   'tasks.reconcile_started_at',
+  'tasks.gpt_route',
   'tasks.reconcile_alerted_at',
 ] as const
 
