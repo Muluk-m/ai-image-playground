@@ -219,11 +219,13 @@ describe('runMigrations', () => {
     try {
       await expect(runMigrations(databaseUrl)).rejects.toThrow(middle.tag)
     } finally {
+      // The documented recovery: record the missing migration with its hash and journal stamp.
       await connection.client.unsafe(
-        `INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ('${row!.hash}', ${row!.created_at})`,
+        `INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ('${await migrationFileHash(middle.tag)}', ${middle.when})`,
       )
     }
     await runMigrations(databaseUrl)
+    expect(row?.created_at).toBeDefined()
   })
 
   it('backfills turn footers from turn-end events still inside the event window', async () => {
