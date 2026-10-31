@@ -72,12 +72,13 @@ const CHANNELS = parseChannelsConfig(
         label: 'Gemini',
         baseUrl: 'https://gemini.example.com/v1',
         auth: { type: 'bearer', secretRef: 'GEMINI_TEST_KEY' },
+        defaults: { apiMode: 'images', timeout: 600 },
+        allowedPaths: ['models/gemini-3-pro-image:generateContent'],
         models: [
           {
             id: 'gemini-3-pro-image',
             label: 'Nano Banana Pro',
             capabilities: ['generate', 'edit', 'size'],
-            imageSizes: ['1K', '2K', '4K'],
           },
         ],
       },
