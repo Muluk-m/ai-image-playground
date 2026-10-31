@@ -264,8 +264,6 @@
           "label": "Nano Banana 2 Lite",
           "capabilities": ["generate", "edit", "size"],
           "tier": "fast",
-          "etaSeconds": 30,
-          "etaMaxSeconds": 240,
           "imageSizes": ["1K"],
           "maxConcurrency": 2,
           "logo": "nano-banana"
