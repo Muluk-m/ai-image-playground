@@ -4,7 +4,10 @@ import type { AgentBatchPage, AgentToolArtifact } from '@image-playground/shared
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
-import AgentBatchResultGallery from '../../../../features/agent/components/AgentBatchResultGallery'
+import AgentBatchResultGallery, {
+  AgentBatchRunRow,
+  BATCH_TILE_SLOW_AFTER_MS,
+} from '../../../../features/agent/components/AgentBatchResultGallery'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
 import { panelMessage } from '../../../../features/agent/lib/panelMessages'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
@@ -180,6 +183,110 @@ it('does not fetch shown thumbnails again when a poll brings the same outputs as
       await act(async () => root.render(<AgentBatchResultGallery artifacts={artifacts()} />))
     expect(host.querySelectorAll('img')).toHaveLength(2)
     expect(displayReads.sort()).toEqual(['poll-artifact-0', 'poll-artifact-1'])
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+  }
+})
+
+it('确认后对话里一排同尺寸生成卡：各自显示状态与已用时间，久跑提示比平时慢，出图后原位换图，生成中的卡可单独取消', async () => {
+  const now = Date.now()
+  const cancelled: string[] = []
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentBatchRunRow
+          meta={{ model: { id: 'image-model', name: 'Image Model' }, tags: ['2K', '1:1'] }}
+          cancelling={new Set(['stuck'])}
+          onCancel={(key) => cancelled.push(key)}
+          tiles={[
+            {
+              key: 'done',
+              position: 1,
+              progress: 'completed',
+              execution: {
+                taskId: 'tile-task-0',
+                status: 'completed',
+                attempt: 1,
+                actualCredits: 100,
+                artifacts: [
+                  {
+                    artifactId: 'tile-artifact-0',
+                    media: 'image',
+                    taskId: 'tile-task-0',
+                    outputIndex: 0,
+                    mime: 'image/png',
+                  },
+                ],
+              },
+            },
+            {
+              key: 'running',
+              position: 2,
+              progress: 'in_flight',
+              execution: {
+                taskId: 'tile-task-1',
+                status: 'in_progress',
+                attempt: 1,
+                actualCredits: null,
+                startedAt: now - 42_000,
+              },
+            },
+            {
+              key: 'stuck',
+              position: 3,
+              progress: 'in_flight',
+              execution: {
+                taskId: 'tile-task-2',
+                status: 'in_progress',
+                attempt: 1,
+                actualCredits: null,
+                startedAt: now - BATCH_TILE_SLOW_AFTER_MS - 5_000,
+              },
+            },
+            { key: 'waiting', position: 4, progress: 'ready' },
+          ]}
+        />,
+      ),
+    )
+    const tiles = [...host.querySelectorAll<HTMLElement>('[data-batch-tile]')]
+    expect(tiles.map((tile) => tile.dataset.batchStatus)).toEqual([
+      'completed',
+      'in_flight',
+      'in_flight',
+      'ready',
+    ])
+    await vi.waitFor(() =>
+      expect(host.querySelector<HTMLImageElement>('[data-batch-tile="done"] img')?.src).toContain(
+        'display-tile-task-0',
+      ),
+    )
+    const running = host.querySelector('[data-batch-tile="running"]')!
+    expect(running.textContent).toMatch(/生成中0:4\d/)
+    expect(running.textContent).not.toContain('比平时慢')
+    expect(host.querySelector('[data-batch-tile="stuck"]')!.textContent).toContain('比平时慢')
+    const waiting = host.querySelector('[data-batch-tile="waiting"]')!
+    expect(waiting.textContent).toContain('待派发')
+    expect(waiting.textContent).not.toMatch(/\d:\d\d/)
+    // 头部与单次生图结果行同一套：模型 · 尺寸 · 比例 · 完成数。
+    expect(host.querySelector('.studio-agent-batch-meta')!.textContent).toBe(
+      'Image Model2K1:11/4 完成',
+    )
+    // 只有生成中的卡有取消键；已出图、待派发的没有。正在撤的那张按钮转圈并禁用。
+    expect(
+      [...host.querySelectorAll<HTMLElement>('[data-batch-cancel]')].map(
+        (button) => button.dataset.batchCancel,
+      ),
+    ).toEqual(['running', 'stuck'])
+    const stuckCancel = host.querySelector<HTMLButtonElement>('[data-batch-cancel="stuck"]')!
+    expect(stuckCancel.disabled).toBe(true)
+    const cancel = host.querySelector<HTMLButtonElement>('[data-batch-cancel="running"]')!
+    expect(cancel.getAttribute('aria-label')).toBe('取消第 2 张')
+    await act(async () => cancel.click())
+    expect(cancelled).toEqual(['running'])
   } finally {
     act(() => root.unmount())
     host.remove()

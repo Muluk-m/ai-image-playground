@@ -14,9 +14,11 @@ import {
   type TerminalTaskUpdate,
 } from '../db/task-transitions'
 import { accountConcurrencyLimit } from '../lib/account-concurrency'
+import { getRoutableChannels } from '../lib/channels'
 import { durableGenerationInputs } from '../lib/generationMedia'
 import { log } from '../lib/logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../lib/private-overlay'
+import { taskConcurrencyScope } from '../lib/upstream'
 import { cancelLateUpstreamTasks } from '../lib/upstream-cancel'
 import { checkIdleSlot, lockIdleSlotClaims, providerConcurrencyLimit } from './idle-concurrency'
 
@@ -381,40 +383,86 @@ export function retryHoldsSlot(alias: string, now: number): SQL {
 }
 
 /**
- * 智能体同一轮提交的同模型任务一次只跑一条（2026-10-29：一轮 5 单 Flash Lite 同时起跑，
- * 在同一个按模型限速的配额上互相挤出 429）。条件写成 SQL 片段，认领事务（用户行锁下，
- * 不会两条同时认领）和挑选候选的查询共用，后者只是少挑注定认领不到的那条。
- * 不是智能体提交的任务（没有 agent_jobs 行）不受影响。
+ * 智能体同一轮里，同模型最多同时跑几条。原先一律一条（2026-10-29：一轮 5 单 Flash Lite 同时起跑，
+ * 在同一个按模型限速的配额上互相挤出 429），连没有限速的模型也被串行：2026-10-30 线上一轮 5 张
+ * gpt-image-2.5-flare 每张约 34s，一张接一张跑了近 3 分钟，worker 还空着 3 个位。
+ * 在 channels.json 声明了并发上限的模型（共享一份按模型限速的配额，如 Vertex）始终一次一条；
+ * 其他模型同轮最多 {@link turnSiblingParallelism} 条，账号并发和 worker 并发照旧在后面把关。
  */
-export function turnSiblingInProgress(
+export function turnSiblingParallelism(): number {
+  // 运营配置 `agent:turn-model-parallelism`，默认 1 即原来的一律串行；按环境逐步放开，0 也按 1 算。
+  return Math.max(1, config.operator.quotas['agent:turn-model-parallelism'])
+}
+
+/** 返回指定 provider 下声明了并发上限的模型名；不传 provider 时仅供诊断测试读取全部模型。 */
+export function turnSerializedModels(provider?: QueueProvider): string[] {
+  const models = new Set<string>()
+  for (const channel of getRoutableChannels()) {
+    const channelProvider =
+      channel.kind === 'gemini-queue'
+        ? ('gemini' as const)
+        : channel.kind === 'openai-queue'
+          ? ('openai-compat' as const)
+          : null
+    if (!channelProvider || (provider && channelProvider !== provider)) continue
+    for (const model of channel.models)
+      for (const id of taskConcurrencyScope(channelProvider, model.id)?.models ?? []) models.add(id)
+  }
+  return [...models].sort()
+}
+
+/** 这个 provider + model 同轮同时能跑几条，写成 SQL 表达式。 */
+function turnSiblingLimit(provider: SQLWrapper, model: SQLWrapper): SQL {
+  const scopes: SQL[] = []
+  for (const [scopeProvider, models] of [
+    ['gemini' as const, turnSerializedModels('gemini')],
+    ['openai-compat' as const, turnSerializedModels('openai-compat')],
+  ] as const) {
+    if (models.length)
+      scopes.push(
+        sql`when ${provider} = ${scopeProvider} and ${model} in (${sql.join(
+          models.map((id) => sql`${id}`),
+          sql`, `,
+        )}) then 1`,
+      )
+  }
+  return scopes.length
+    ? sql`case ${sql.join(scopes, sql` `)} else ${turnSiblingParallelism()} end`
+    : sql`${turnSiblingParallelism()}`
+}
+
+/** 同一轮同模型、还在跑或等重试的兄弟任务是否已经占满上限。 */
+export function turnSiblingsAtLimit(
   taskId: SQLWrapper,
+  provider: SQLWrapper,
   model: SQLWrapper,
   now = Date.now(),
 ): SQL {
-  return sql`exists (
-    select 1 from ${schema.agent_jobs} as turn_mine
+  return sql`((
+    select count(*) from ${schema.agent_jobs} as turn_mine
     join ${schema.agent_jobs} as turn_sibling
       on turn_sibling.conversation_id = turn_mine.conversation_id
       and turn_sibling.turn_id = turn_mine.turn_id
       and turn_sibling.task_id <> turn_mine.task_id
-      -- 在跑的、等重试的都还没结束，不会已投递；带上它才用得上 idx_agent_jobs_undelivered。
       and turn_sibling.delivered_at is null
     join ${schema.tasks} as turn_sibling_task on turn_sibling_task.id = turn_sibling.task_id
     where turn_mine.task_id = ${taskId}
       and (turn_sibling_task.status = 'in_progress' or ${retryHoldsSlot('turn_sibling_task', now)})
+      and turn_sibling_task.provider = ${provider}
       and turn_sibling_task.model = ${model}
-  )`
+  ) >= ${turnSiblingLimit(provider, model)})`
 }
 
 /**
  * 匿名智能体任务（`user_id` 为空）的同轮串行：没有用户行可锁，改拿这一轮的事务级咨询锁，
- * 再查 {@link turnSiblingInProgress}。同一轮的两条并发认领因此一前一后，后一条看得见前一条
+ * 再查 {@link turnSiblingsAtLimit}。同一轮的两条并发认领因此一前一后，后一条看得见前一条
  * 刚提交的 in_progress。不是智能体提交的任务没有 agent_jobs 行，不拿锁，也不受影响。
  * 锁顺序「轮锁 → provider 锁」，匿名认领不碰用户行，不会与登录用户的认领成环。
  */
 async function anonymousTurnSiblingRunning(
   tx: BffTransaction,
   taskId: string,
+  provider: string,
   model: string,
   now: number,
 ): Promise<boolean> {
@@ -426,7 +474,9 @@ async function anonymousTurnSiblingRunning(
     .where(eq(schema.agent_jobs.task_id, taskId))
   if (locked.length === 0) return false
   const [sibling] = await tx
-    .select({ running: turnSiblingInProgress(sql`${taskId}`, sql`${model}`, now) })
+    .select({
+      running: turnSiblingsAtLimit(sql`${taskId}`, sql`${provider}`, sql`${model}`, now),
+    })
     .from(sql`(select 1) as one`)
   return Boolean(sibling?.running)
 }
@@ -475,7 +525,12 @@ export async function claimTaskExecution(
         .for('no key update')
       const [sibling] = await tx
         .select({
-          running: turnSiblingInProgress(sql`${id}`, sql`${candidate.model}`, claimedAt),
+          running: turnSiblingsAtLimit(
+            sql`${id}`,
+            sql`${candidate.provider}`,
+            sql`${candidate.model}`,
+            claimedAt,
+          ),
         })
         .from(sql`(select 1) as one`)
       if (sibling?.running) return null
@@ -534,7 +589,8 @@ export async function claimTaskExecution(
         }
       }
     } else {
-      if (await anonymousTurnSiblingRunning(tx, id, candidate.model, claimedAt)) return null
+      if (await anonymousTurnSiblingRunning(tx, id, candidate.provider, candidate.model, claimedAt))
+        return null
       if (serializeProviderClaims) await lockIdleSlotClaims(tx, candidate.provider)
     }
     const [row] = await tx

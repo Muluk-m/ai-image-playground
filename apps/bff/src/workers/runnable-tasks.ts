@@ -15,7 +15,7 @@ import {
 } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { checkIdleSlot } from './idle-concurrency'
-import { accountGenerationLimits, retryHoldsSlot, turnSiblingInProgress } from './task-execution'
+import { accountGenerationLimits, retryHoldsSlot, turnSiblingsAtLimit } from './task-execution'
 
 /**
  * Read the oldest tasks that can actually claim an account slot. A cursor and the partial
@@ -88,7 +88,7 @@ export async function selectRunnableTasks(
               )
             : undefined,
           selectedTaskIds.size ? notInArray(schema.tasks.id, [...selectedTaskIds]) : undefined,
-          not(turnSiblingInProgress(schema.tasks.id, schema.tasks.model, now)),
+          not(turnSiblingsAtLimit(schema.tasks.id, schema.tasks.provider, schema.tasks.model, now)),
           afterCursor,
         ),
       )
