@@ -71,7 +71,7 @@ export interface PrivateTaskHooks {
     model: string
     /** 计价单位数：图片任务是张数，视频任务是秒数。 */
     quantity: number
-    /** 单位倍率；图片恒为 1，视频取清晰度倍率。 */
+    /** 单位倍率：视频取清晰度倍率；GPT 直连模型的图片按档位与画质取 gptImageRateMultiplier，其它图片为 1。 */
     unitMultiplier: number
   }): Promise<TaskReservationResult>
   finalizeTask(input: {
