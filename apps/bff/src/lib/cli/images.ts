@@ -23,7 +23,8 @@ interface CliImageModel {
   readonly id: string
   readonly label: string
   readonly provider: QueueProvider
-  readonly spec: ModelSpec
+  /** 能力目录的图片能力，档位再按渠道声明的 `imageSizes` 收窄，与网站可选的档位一致。 */
+  readonly image: ModelSpec['image']
   readonly etaSeconds?: number
 }
 
@@ -39,12 +40,24 @@ export async function availableImageModels(): Promise<CliImageModel[]> {
       const spec = findCatalogModel(model.id)
       const queue = resolveQueueModel('image', model.id)
       if (!spec || !queue) return []
+      const declared: readonly string[] | undefined = model.imageSizes
+      const tiers = declared
+        ? spec.image.tiers.filter((tier) => declared.includes(tier.id))
+        : spec.image.tiers
+      if (!tiers.length) return []
+      const image = {
+        ...spec.image,
+        tiers,
+        defaultTier: tiers.some((tier) => tier.id === spec.image.defaultTier)
+          ? spec.image.defaultTier
+          : tiers[0]!.id,
+      }
       return [
         {
           id: model.id,
           label: model.label,
           provider: queue.provider,
-          spec,
+          image,
           ...(model.etaSeconds === undefined ? {} : { etaSeconds: model.etaSeconds }),
         },
       ]
@@ -93,7 +106,7 @@ export function normalizeImageRequest(
       details: { available: models.map((one) => one.id) },
     })
   const references = [...new Set(body.reference_media_ids ?? [])]
-  const caps = model.spec.image
+  const caps = model.image
   if (references.length && !caps.operations.includes('edit'))
     throw new CliRequestError('INVALID_REQUEST', {
       message: 'model does not accept reference images',
@@ -137,7 +150,7 @@ export function normalizeImageRequest(
 export function toSubmitRequest(prepared: PreparedImageRequest): SubmitRequest {
   const { normalized, model } = prepared
   const ratio = normalized.aspect_ratio
-  const tier = model.spec.image.tiers.find((one) => one.id === normalized.image_size)
+  const tier = model.image.tiers.find((one) => one.id === normalized.image_size)
   const pixels = ratio === 'auto' ? undefined : tier?.pixels[ratio as keyof typeof tier.pixels]
   const request: SubmitRequest = {
     prompt: shapeQueuePrompt({
@@ -236,12 +249,12 @@ export async function imageCapabilities(userId: string) {
   const models = await availableImageModels()
   const hooks = (await loadPrivateBffOverlay()).taskHooks
   return db.transaction(async (tx) => {
-    const premium = models.some((model) => model.spec.image.tiers.some((t) => t.id === '4K'))
+    const premium = models.some((model) => model.image.tiers.some((t) => t.id === '4K'))
       ? await premiumRequestAllowed(tx, userId, models[0]!.id)
       : false
     const listed: CliModelCapability[] = []
     for (const [index, model] of models.entries()) {
-      const caps = model.spec.image
+      const caps = model.image
       const quote = await hooks.quoteTask?.({
         tx,
         userId,
