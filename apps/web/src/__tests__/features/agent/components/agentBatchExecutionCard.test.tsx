@@ -1225,7 +1225,7 @@ it('plan card ratio row shows the ratio each item is submitted with, not the oth
   }
 })
 
-it('确认后生成进度排在计划卡下方的对话图块里，生成中的一张可单独取消', async () => {
+it('确认后生成进度排在计划卡下方的对话图块里，排队中的一张可单独取消', async () => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   const initial = initialPage()
   let saved: AgentBatchPage = {
@@ -1236,10 +1236,9 @@ it('确认后生成进度排在计划卡下方的对话图块里，生成中的�
       progress: 'in_flight' as const,
       execution: {
         taskId: `run-task-${ordinal}`,
-        status: 'in_progress' as const,
+        status: 'queued' as const,
         attempt: 1,
         actualCredits: null,
-        startedAt: Date.now() - 5_000,
       },
     })),
   }
@@ -1327,10 +1326,9 @@ it('先撤的一张成功但被后发的取消盖过、后发的又失败时，�
       progress: 'in_flight' as const,
       execution: {
         taskId: `race-task-${ordinal}`,
-        status: 'in_progress' as const,
+        status: 'queued' as const,
         attempt: 1,
         actualCredits: null,
-        startedAt: Date.now() - 5_000,
       },
     })),
   }
