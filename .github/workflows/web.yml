@@ -59,7 +59,7 @@ jobs:
           check || { verified=false; echo "::warning::Could not read the pull request history; running every check."; }
           echo "verified=$verified" >> "$GITHUB_OUTPUT"
   # 原来的 web job 把 lint、typecheck、web 构建 + 浏览器冒烟、admin 构建串在一台机器上（中位 211 秒），
-  # 现在拆成三台并行：lint（含脚本自测与 Docker web 阶段）、typecheck（含 admin 构建，复用 tsc -b 的增量）、
+  # 现在拆成三台并行：lint（含脚本自测；Docker web 阶段另见 docker-web）、typecheck（含 admin 构建，复用 tsc -b 的增量）、
   # build（web 构建 + 浏览器冒烟）。检查项一条不少，只是不再排队。
   lint:
     needs: prior
@@ -69,14 +69,26 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          # 下面的 Docker 变更检测要 diff 到 base，需要完整历史；blobless 只拉提交与树，
-          # 文件内容按需取，比完整克隆快。
-          fetch-depth: 0
-          filter: blob:none
+          persist-credentials: false
       - uses: ./.github/actions/setup
       - run: python3 scripts/test-cloud-test.py
       - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs scripts/__tests__/test-shard.test.mjs
       - run: pnpm lint
+      # Deploy and backup scripts; shellcheck ships on the hosted runner.
+      - run: pnpm lint:sh
+  # Docker web 阶段只在构建输入变化时跑（中位 0，触发时约 95 秒），不需要 pnpm 安装，单独一台，不再拖慢 lint。
+  docker-web:
+    needs: prior
+    if: needs.prior.outputs.verified != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # 变更检测要 diff 到 base，需要完整历史；blobless 只拉提交与树，文件内容按需取，比完整克隆快。
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
       # The production Dockerfile rebuilds the web package from an allowlisted context.
       # Run the same web stage when build inputs change, so missing .dockerignore entries
       # fail in CI instead of blocking a later production deployment.
@@ -98,8 +110,6 @@ jobs:
       - name: Build Docker web stage
         if: steps.docker-web-context.outputs.required == 'true'
         run: docker buildx build --progress=plain --target web-build --build-arg TARGETARCH=amd64 --build-arg PRIVATE_OVERLAY_PRESENT=false .
-      # Deploy and backup scripts; shellcheck ships on the hosted runner.
-      - run: pnpm lint:sh
   typecheck:
     needs: prior
     if: needs.prior.outputs.verified != 'true'
@@ -261,15 +271,18 @@ jobs:
         run: echo "overlay=${{ steps.overlay.outputs.commit }}" >> "$GITHUB_STEP_SUMMARY"
       - uses: ./.github/actions/setup
       - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm --dir apps/admin build
       # 计费钩子的测试在 overlay 里。公开 PR 改了钩子而私有测试红，原本要等合并后 overlay CI
       # 才发现（verified 指针停住）；这里在合并前就拦下。
       # 逐包串行，每包内由 BUN_TEST_JOBS 并发，避免进程数叠乘。
       - run: pnpm --filter './private/apps/*' --workspace-concurrency=1 test
-  # 收费版的 web 构建 + 浏览器冒烟另起一台，与上面的 lint / typecheck / 私有测试并行（原来串在一台上中位 242 秒）。
-  # 不连数据库，所以没有 postgres 服务；overlay 检出与上面同一套。
-  with-overlay-build:
+  # 不连数据库的 overlay 检查各占一台，与上面的 lint / 私有测试并行（原来串在一台上中位 242 秒）：
+  # build = 收费版 web 构建 + 浏览器冒烟，typecheck = 全仓 typecheck + admin 构建。overlay 检出与上面同一套。
+  with-overlay-nodb:
+    name: with-overlay (${{ matrix.task }})
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [build, typecheck]
     needs: prior
     if: >-
       needs.prior.outputs.verified != 'true' &&
@@ -310,10 +323,16 @@ jobs:
       - name: Record the overlay commit
         run: echo "overlay=${{ steps.overlay.outputs.commit }}" >> "$GITHUB_STEP_SUMMARY"
       - uses: ./.github/actions/setup
-      - run: pnpm --dir apps/web build:static-host
+      - if: matrix.task == 'typecheck'
+        run: pnpm typecheck
+      - if: matrix.task == 'typecheck'
+        run: pnpm --dir apps/admin build
+      - if: matrix.task == 'build'
+        run: pnpm --dir apps/web build:static-host
         env:
           BFF_ENABLED: 'true'
           BFF_BASE_URL: https://startup-api.invalid
-      - uses: ./.github/actions/pages-browser
+      - if: matrix.task == 'build'
+        uses: ./.github/actions/pages-browser
         with:
           label: startup-paid
