@@ -209,6 +209,23 @@ describe('runMigrations', () => {
     expect(rows).toHaveLength(journal.entries.length)
   })
 
+  it('refuses to migrate when an older journal entry was never applied', async () => {
+    await runMigrations(databaseUrl)
+    // Two PRs merged out of order look like this: a newer stamp applied, an older one missing.
+    const middle = journal.entries.at(-2)!
+    const [row] = await connection.client.unsafe<{ hash: string; created_at: string }[]>(
+      `DELETE FROM drizzle.__drizzle_migrations WHERE created_at = ${middle.when} RETURNING hash, created_at`,
+    )
+    try {
+      await expect(runMigrations(databaseUrl)).rejects.toThrow(middle.tag)
+    } finally {
+      await connection.client.unsafe(
+        `INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ('${row!.hash}', ${row!.created_at})`,
+      )
+    }
+    await runMigrations(databaseUrl)
+  })
+
   it('backfills turn footers from turn-end events still inside the event window', async () => {
     // 直接跑迁移文件里的回填语句：钉的是真正会在部署上跑的那段 SQL。
     const migration = await Bun.file(
