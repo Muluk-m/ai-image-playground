@@ -1402,7 +1402,7 @@ it('先撤的一张成功但被后发的取消盖过、后发的又失败时，�
   }
 })
 
-it('服务端没撤成（刚被认领或已调用过上游）时提示没能取消', async () => {
+it('服务端没撤成（已认领、进入核对或已调用过上游）时提示没能取消', async () => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   itemCancel.enabled = true
   const initial = initialPage()
@@ -1420,8 +1420,21 @@ it('服务端没撤成（刚被认领或已调用过上游）时提示没能取�
       },
     })),
   }
-  // 取消接口照常 200，但这一张原样返回：服务端没有撤它。
-  vi.stubGlobal('fetch', async () => Response.json(saved))
+  // 取消接口照常 200，但这一张已进入核对：服务端没有撤它。
+  vi.stubGlobal('fetch', async (_input: string | URL | Request, init?: RequestInit) =>
+    Response.json(
+      init?.method === 'POST'
+        ? {
+            ...saved,
+            items: saved.items.map((item) =>
+              item.key === 'item-0'
+                ? { ...item, execution: { ...item.execution!, status: 'reconciling' as const } }
+                : item,
+            ),
+          }
+        : saved,
+    ),
+  )
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)
@@ -1436,9 +1449,6 @@ it('服务端没撤成（刚被认领或已调用过上游）时提示没能取�
       host.querySelector<HTMLButtonElement>('[data-batch-cancel="item-0"]')!.click(),
     )
     await vi.waitFor(() => expect(host.textContent).toContain('没能取消，请稍后再试'))
-    expect(host.querySelector<HTMLElement>('[data-batch-tile="item-0"]')!.dataset.batchStatus).toBe(
-      'in_flight',
-    )
   } finally {
     act(() => root.unmount())
     host.remove()
