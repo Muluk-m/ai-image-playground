@@ -189,7 +189,7 @@ it('does not fetch shown thumbnails again when a poll brings the same outputs as
   }
 })
 
-it('确认后对话里一排同尺寸生成卡：各自显示状态与已用时间，久跑提示比平时慢，出图后原位换图，生成中的卡可单独取消', async () => {
+it('确认后对话里一排同尺寸生成卡：各自显示状态与已用时间，久跑提示比平时慢，出图后原位换图，排队中的卡可单独取消', async () => {
   const now = Date.now()
   const cancelled: string[] = []
   const host = document.createElement('div')
@@ -248,6 +248,17 @@ it('确认后对话里一排同尺寸生成卡：各自显示状态与已用时�
               },
             },
             { key: 'waiting', position: 4, progress: 'ready' },
+            {
+              key: 'queued',
+              position: 5,
+              progress: 'in_flight',
+              execution: {
+                taskId: 'tile-task-4',
+                status: 'queued',
+                attempt: 1,
+                actualCredits: null,
+              },
+            },
           ]}
         />,
       ),
@@ -258,6 +269,7 @@ it('确认后对话里一排同尺寸生成卡：各自显示状态与已用时�
       'in_flight',
       'in_flight',
       'ready',
+      'in_flight',
     ])
     await vi.waitFor(() =>
       expect(host.querySelector<HTMLImageElement>('[data-batch-tile="done"] img')?.src).toContain(
@@ -273,20 +285,20 @@ it('确认后对话里一排同尺寸生成卡：各自显示状态与已用时�
     expect(waiting.textContent).not.toMatch(/\d:\d\d/)
     // 头部与单次生图结果行同一套：模型 · 尺寸 · 比例 · 完成数。
     expect(host.querySelector('.studio-agent-batch-meta')!.textContent).toBe(
-      'Image Model2K1:11/4 完成',
+      'Image Model2K1:11/5 完成',
     )
-    // 只有生成中的卡有取消键；已出图、待派发的没有。正在撤的那张按钮转圈并禁用。
+    // 只有排队中的卡有取消键：已在生成的撤不下来，已出图、待派发的也没有。正在撤的那张按钮转圈并禁用。
     expect(
       [...host.querySelectorAll<HTMLElement>('[data-batch-cancel]')].map(
         (button) => button.dataset.batchCancel,
       ),
-    ).toEqual(['running', 'stuck'])
+    ).toEqual(['stuck', 'queued'])
     const stuckCancel = host.querySelector<HTMLButtonElement>('[data-batch-cancel="stuck"]')!
     expect(stuckCancel.disabled).toBe(true)
-    const cancel = host.querySelector<HTMLButtonElement>('[data-batch-cancel="running"]')!
-    expect(cancel.getAttribute('aria-label')).toBe('取消第 2 张')
+    const cancel = host.querySelector<HTMLButtonElement>('[data-batch-cancel="queued"]')!
+    expect(cancel.getAttribute('aria-label')).toBe('取消第 5 张')
     await act(async () => cancel.click())
-    expect(cancelled).toEqual(['running'])
+    expect(cancelled).toEqual(['queued'])
   } finally {
     act(() => root.unmount())
     host.remove()
