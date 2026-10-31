@@ -91,6 +91,9 @@ func Install(opts InstallOptions) (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
+		if projectDir == home {
+			return Result{}, errors.New("the project root resolved to the home directory; use --scope user instead")
+		}
 		root = projectDir
 	}
 	destination := filepath.Join(root, dir, "skills", "muvloom")
@@ -120,7 +123,8 @@ func findProjectRoot(start string) (string, error) {
 		}
 		parent := filepath.Dir(path)
 		if parent == path {
-			return path, nil
+			// Never fall back to the filesystem root: installing would replace /.claude/skills.
+			return "", errors.New("no project root found (looked for .git, go.mod or package.json); run from inside a project or use --scope user")
 		}
 		path = parent
 	}
