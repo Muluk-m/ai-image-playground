@@ -1,5 +1,6 @@
 import {
   AGENT_USER_MESSAGE_MAX_CHARS,
+  gptImageRateMultiplier,
   isBlankPrompt,
   SYNC_PROMPT_MAX_LENGTH,
 } from '@image-playground/shared'
@@ -74,6 +75,7 @@ import { getAttachmentLimits, isClientCapabilityEnabled } from '../lib/clientCap
 import { confirmImageBatch } from '../lib/confirmImageBatch'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
+import { useGptPremiumLocked } from '../lib/gptPremium'
 import {
   compressUploadFiles,
   filesFromFolderInput,
@@ -81,7 +83,11 @@ import {
 } from '../lib/imageFiles'
 import { MAX_IMAGE_BYTES, MAX_IMAGE_MB } from '../lib/inputImageLimit'
 import { createLongPress } from '../lib/longPress'
-import { getChangedParams, normalizeParamsForSettings } from '../lib/paramCompatibility'
+import {
+  getChangedParams,
+  getParamCapabilities,
+  normalizeParamsForSettings,
+} from '../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../lib/privateOverlay'
 import { syncMentionTagSelection } from '../lib/promptEditorDom'
 import { computePromptHeight } from '../lib/promptHeight'
@@ -286,12 +292,26 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const batchImageCount = batchActive
     ? inputImages.length * getSubmissionImageCount(prompt, slotValues, 1)
     : 0
+  // GPT 直连模型的会员档位按倍率计价；非会员（含交给智能体的）服务端收回基础档，倍率是 1。
+  const premium = useGptPremiumLocked(
+    activeView.model,
+    getParamCapabilities(activeProfile, params.output_format).size,
+  )
+  const unitMultiplier =
+    toCanvas || premium.locked
+      ? 1
+      : gptImageRateMultiplier(activeView.model, params.size, params.quality)
   const submissionGuard = usePrivateSubmissionGuard({
     model: activeView.model,
     quantity: batchActive ? batchImageCount : submitImageCount,
+    unitMultiplier,
   })
   // 按钮上的积分按单张报价 × 张数算，与逐张扣费同一口径。
-  const perImageGuard = usePrivateSubmissionGuard({ model: activeView.model, quantity: 1 })
+  const perImageGuard = usePrivateSubmissionGuard({
+    model: activeView.model,
+    quantity: 1,
+    unitMultiplier,
+  })
   const batchTotalCredits = batchActive
     ? batchCredits(batchImageCount, perImageGuard.estimatedCredits)
     : undefined
