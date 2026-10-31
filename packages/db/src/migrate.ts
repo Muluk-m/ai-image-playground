@@ -45,6 +45,7 @@ async function assertNoSkippedMigrations(client: SQL): Promise<void> {
   if (skipped.length)
     throw new Error(
       `Migrations ${skipped.join(', ')} are older than the newest applied one (${newest}) and would be skipped. ` +
-        'Re-add them as a new migration stamped after it; do not renumber migrations already applied anywhere.',
+        'Check the schema, apply each listed .sql by hand, then record it in drizzle.__drizzle_migrations ' +
+        '(its sha256 hash and journal `when` as created_at) so the release can continue.',
     )
 }
