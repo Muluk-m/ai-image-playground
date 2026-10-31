@@ -15,23 +15,28 @@ pg_backup_env
 
 # Cron and the container start-up catch-up can both start a drill. Both would restore and upload the
 # same pg/drill/latest.json, so the second one to arrive steps aside instead of racing the first.
-# This is also the backup lock: retention must not delete the dump while the drill is reading it.
-# flock is busybox's in postgres:*-alpine. A held lock skips; any other lock error exits,
-# so a broken lock never allows the drill to race backup retention.
+# The drill has its own non-blocking lock, then waits for the backup lock: retention must not delete
+# the dump while the drill is reading it.
 exec 9>/tmp/pg-backup.lock
-lock_status=0
-flock -n 9 || lock_status=$?
-case $lock_status in
+exec 8>/tmp/pg-drill.lock
+drill_lock_status=0
+flock -n 8 || drill_lock_status=$?
+case $drill_lock_status in
   0) ;;
   1)
     echo "pg-drill: another drill is already running, skipping this one"
     exit 0
     ;;
   *)
-    echo "pg-drill: could not take the shared backup lock (status $lock_status)" >&2
-    exit "$lock_status"
+    echo "pg-drill: could not take the drill lock (status $drill_lock_status)" >&2
+    exit "$drill_lock_status"
     ;;
 esac
+
+if ! flock 9; then
+  echo "pg-drill: could not take the shared backup lock" >&2
+  exit 1
+fi
 
 work=$(mktemp -d /tmp/pg-drill.XXXXXX)
 data=$work/data

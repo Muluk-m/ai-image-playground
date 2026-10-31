@@ -45,7 +45,7 @@ aws --endpoint-url "$S3_ENDPOINT" s3 cp "$dump.sha256" "$target.sha256"
 # Keep one complete backup. Delete only dump objects: pg/drill/latest.json must survive retention.
 listed=$(aws --endpoint-url "$S3_ENDPOINT" s3api list-objects-v2 \
   --bucket "$S3_BUCKET" --prefix "${prefix}pg/" --output text \
-  --query "Contents[?ends_with(Key, '.dump') || ends_with(Key, '.dump.sha256')].Key")
+  --query "Contents[?ends_with(Key, '.dump') || ends_with(Key, '.dump.sha256')].[Key]")
 printf '%s\n' "$listed" | while IFS= read -r key; do
   case $key in
     ''|None|"$target_key"|"$target_key.sha256") ;;

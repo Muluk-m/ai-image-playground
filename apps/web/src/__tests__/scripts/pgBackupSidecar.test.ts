@@ -349,7 +349,8 @@ describe('单副本备份保留', () => {
       [
         'echo "aws $*" >> "$CALL_LOG"',
         'case "$*" in',
-        '  *" list-objects-v2 "*) printf "%s\\n" "$FAKE_BACKUP_KEYS" ;;',
+        '  *".[Key]"*) printf "%s\\n" "$FAKE_BACKUP_KEYS" ;;',
+        '  *" list-objects-v2 "*) printf "%s" "$FAKE_BACKUP_KEYS" | tr "\\n" "\\t" ;;',
         '  *" s3 cp "*|*" s3 rm "*) ;;',
         '  *) exit 1 ;;',
         'esac',
