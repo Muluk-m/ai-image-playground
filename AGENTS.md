@@ -68,7 +68,7 @@
 
 CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）把 `pnpm lint`、`pnpm typecheck`、`apps/web` 构建 + 浏览器冒烟拆成并行 job；
 公开 workspace 的完整 `pnpm test` 也并行分片：web 的 vitest 分 3 片，bff 的 Bun 数据库测试按文件分 3 片（`--shard=i/n`），其余包一个 job，都带 PostgreSQL（Bun 数据库测试 4 路并发）；
-`with-overlay` / `with-overlay-build` 再用 `private.lock` 钉住的 overlay 分别跑 lint / typecheck / 私有包测试与 build + 冒烟。
+`with-overlay` / `with-overlay (typecheck)` / `with-overlay (build)` 再用 `private.lock` 钉住的 overlay 分别跑 lint + 私有包测试、typecheck + admin 构建、build + 冒烟。
 本地可选 `pnpm hooks:install` 启用 `.githooks/pre-push`：推送前只对改动文件跑 biome 和受影响包的 typecheck（`AIP_PRE_PUSH=lint` 只跑 lint，`skip` 跳过）。
 
 **默认交付到生产。** 代码修改通过检查后，继续创建 PR、等 CI、合并 `main`；合并后由部署 workflow 自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为。修 bug 的 PR 检查齐了直接完成整条链路，无需再次询问是否部署；功能或行为变更、带迁移的 PR 合并前要 Nain 确认（见[发布手册](docs/agents/release.md)）。用户明确要求仅本地修改或暂不合并时照办。
