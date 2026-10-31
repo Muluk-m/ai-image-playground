@@ -174,7 +174,7 @@ describe('ci-deploy-target.sh', () => {
     serveSides({ api: previous, web: previous, admin: previous })
     const { decision, log } = decide(tip)
     expect(decision).toBe(result(true, false, false))
-    expect(log).toContain(`web bundle (internal and paid sites) unchanged since ${previous}`)
+    expect(log).toContain(`paid web bundle unchanged since ${previous}`)
   })
 
   it('ships the API when only the segmenter deploy script changes, since the release carries it', () => {
@@ -213,7 +213,7 @@ describe('ci-deploy-target.sh', () => {
     serveSides({ api: before, web, admin: before })
     const { decision, log } = decide(tip)
     expect(decision).toBe(result(true, false, true))
-    expect(log).toContain(`web bundle (internal and paid sites) unchanged since ${web}`)
+    expect(log).toContain(`paid web bundle unchanged since ${web}`)
   })
 
   it('still ships the user-facing sites when an earlier run left them behind', () => {
