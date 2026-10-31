@@ -115,6 +115,22 @@ function errorResponse(code: string | number, error: unknown): Response {
   return cliError('INTERNAL_ERROR')
 }
 
+/**
+ * 媒体层抛的是网站用的 MediaError / MediaInputError，它们到不了 CLI 边界的 onError
+ * （全局处理器先接走）。在调用处换成 CLI 错误。
+ */
+export async function withMediaErrors<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work()
+  } catch (error) {
+    if (error instanceof MediaInputError)
+      throw new CliRequestError('INVALID_REQUEST', { message: error.message })
+    if (error instanceof MediaError)
+      throw new CliRequestError(MEDIA_ERROR_CODES[error.status] ?? 'INTERNAL_ERROR')
+    throw error
+  }
+}
+
 export function requireScope(cli: CliConnection, scope: CliScope): void {
   if (!cli.scopes.includes(scope)) throw new CliRequestError('FORBIDDEN')
 }

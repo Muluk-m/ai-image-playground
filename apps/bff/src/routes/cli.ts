@@ -261,10 +261,12 @@ export const cliApiRoutes = new Elysia()
       const prepared = normalizeImageRequest(body, await availableImageModels())
       await assertReferenceMedia(cli.user.id, prepared.normalized.reference_media_ids)
       const submit = toSubmitRequest(prepared)
-      const inputImages = await resolveMediaInputs(cli.user.id, submit.input_images, {
-        masked: false,
-        signal: request.signal,
-      })
+      const inputImages = await withMediaErrors(() =>
+        resolveMediaInputs(cli.user.id, submit.input_images, {
+          masked: false,
+          signal: request.signal,
+        }),
+      )
       const outcome = await createQueueTask({
         provider: prepared.model.provider,
         model: prepared.model.id,
@@ -369,7 +371,7 @@ export const cliApiRoutes = new Elysia()
     '/v1/media',
     async ({ cli, body }) => {
       requireScope(cli, 'media:write')
-      return cliSuccess(await reserveReferenceMedia(cli.user.id, body))
+      return cliSuccess(await withMediaErrors(() => reserveReferenceMedia(cli.user.id, body)))
     },
     {
       body: t.Object(
@@ -390,7 +392,7 @@ export const cliApiRoutes = new Elysia()
     '/v1/media/:id/complete',
     async ({ cli, params }) => {
       requireScope(cli, 'media:write')
-      return cliSuccess(await completeReferenceMedia(cli.user.id, params.id))
+      return cliSuccess(await withMediaErrors(() => completeReferenceMedia(cli.user.id, params.id)))
     },
     { params: idParams },
   )
@@ -411,7 +413,7 @@ export const cliApiRoutes = new Elysia()
     '/v1/media/:id',
     async ({ cli, params }) => {
       requireScope(cli, 'media:read')
-      return cliSuccess(await getMedia(cli.user.id, params.id))
+      return cliSuccess(await withMediaErrors(() => getMedia(cli.user.id, params.id)))
     },
     { params: idParams },
   )
@@ -419,7 +421,7 @@ export const cliApiRoutes = new Elysia()
     '/v1/media/:id/download',
     async ({ cli, params }) => {
       requireScope(cli, 'media:read')
-      return cliSuccess(await mediaDownload(cli.user.id, params.id))
+      return cliSuccess(await withMediaErrors(() => mediaDownload(cli.user.id, params.id)))
     },
     { params: idParams },
   )
