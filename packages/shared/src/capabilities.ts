@@ -104,6 +104,8 @@ export const QUOTAS = {
   /** Application resource guard, not a provider throughput guarantee. */
   'agent:visual-prepare-concurrency': { defaultValue: 1 },
   'agent:visual-prepare-queue': { defaultValue: 100 },
+  /** 智能体同一轮里、未声明并发上限的同模型任务最多同时跑几条；1 即一律串行。 */
+  'agent:turn-model-parallelism': { defaultValue: 1 },
   'agent:visual-max-pixels': { defaultValue: 16_777_216 },
   /** Zero keeps bulk intake closed until operators validate and configure resource budgets. */
   'agent:attachment-logical-references': { defaultValue: 0 },
