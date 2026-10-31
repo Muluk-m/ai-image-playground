@@ -46,6 +46,7 @@ export const EXPECTED_TABLES = [
   'model_availability',
   'scheduler_buckets',
   'scheduler_leases',
+  'gpt_direct_usage',
   'server_logs',
   'container_samples',
   'host_samples',
@@ -204,6 +205,8 @@ export const EXPECTED_INDEXES = [
   'scheduler_buckets_pkey',
   'scheduler_leases_attempt_id_bucket_key_pk',
   'idx_scheduler_leases_bucket_acquired',
+  'gpt_direct_usage_pkey',
+  'idx_gpt_direct_usage_created',
 ] as const
 
 export const EXPECTED_COLUMNS = [
