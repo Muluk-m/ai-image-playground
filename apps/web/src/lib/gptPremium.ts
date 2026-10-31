@@ -2,8 +2,9 @@ import { isGptDirectModel } from '@image-playground/shared'
 import { PrivateWebMembership } from './privateOverlay'
 
 /** overlay 是否在场是构建期常量，挑一个固定的 hook 实现，不违反 hook 调用顺序。 */
-const useSubscribed: () => boolean = PrivateWebMembership
-  ? () => PrivateWebMembership.useMembership().subscribed
+const membership = PrivateWebMembership
+const useSubscribed: () => boolean = membership
+  ? () => membership.useMembership().subscribed
   : () => false
 
 /**
