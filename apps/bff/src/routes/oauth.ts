@@ -73,7 +73,7 @@ type LinkErrorCode =
   | 'unauthenticated'
 
 /** Origin the provider redirects back to. Proxy headers only matter when the env is unset. */
-export function bffOrigin(request: Request): string {
+function bffOrigin(request: Request): string {
   if (config.auth.publicOrigin) return config.auth.publicOrigin
   const host = (request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? '')
     .split(',')[0]
@@ -83,7 +83,7 @@ export function bffOrigin(request: Request): string {
   return `${proto || new URL(request.url).protocol.replace(':', '')}://${host}`
 }
 
-function frontendOrigin(request: Request): string {
+export function frontendOrigin(request: Request): string {
   if (config.auth.frontendOrigin) return config.auth.frontendOrigin
   // A wildcard CORS deployment serves the SPA from the BFF itself.
   return (config.corsOriginList[0] ?? bffOrigin(request)).replace(/\/+$/, '')
