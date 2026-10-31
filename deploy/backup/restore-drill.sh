@@ -13,6 +13,22 @@ set -u
 . /usr/local/lib/pg-backup/lib.sh
 pg_backup_env
 
+# Cron and the container start-up catch-up can both start a drill. Both would restore and upload the
+# same pg/drill/latest.json, so the second one to arrive steps aside instead of racing the first.
+# flock is busybox's in postgres:*-alpine. Only status 1 means "held"; anything else (missing command,
+# bad fd) runs the drill unlocked, so a broken lock never silently disables every drill.
+exec 9>/tmp/pg-drill.lock
+lock_status=0
+flock -n 9 || lock_status=$?
+case $lock_status in
+  0) ;;
+  1)
+    echo "pg-drill: another drill is already running, skipping this one"
+    exit 0
+    ;;
+  *) echo "pg-drill: could not take the drill lock (status $lock_status); running unlocked" ;;
+esac
+
 work=$(mktemp -d /tmp/pg-drill.XXXXXX)
 data=$work/data
 dump=$work/latest.dump
