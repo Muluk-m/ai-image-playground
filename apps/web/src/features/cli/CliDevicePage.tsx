@@ -150,7 +150,7 @@ export default function CliDevicePage() {
 
         {phase.kind === 'loading' ? (
           <p className="text-body-sm text-muted-foreground" aria-live="polite">
-            {t('status.preparing')}
+            {t('cliDevice.working')}
           </p>
         ) : null}
         {phase.kind === 'approved' ? (

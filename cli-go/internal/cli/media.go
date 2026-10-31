@@ -244,6 +244,8 @@ func writeNew(target string, body io.Reader) (int64, error) {
 	if err != nil {
 		return 0, fail("NETWORK_ERROR", "Download interrupted: %v", err)
 	}
+	// CreateTemp makes the file 0600; a downloaded image is ordinary user content.
+	_ = os.Chmod(tmp.Name(), 0o644)
 	linkErr := os.Link(tmp.Name(), target)
 	if linkErr == nil {
 		return size, nil
