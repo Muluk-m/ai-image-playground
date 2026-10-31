@@ -175,3 +175,31 @@ it('必需复核图失败时等待其它读取结束后再释放准备流程', a
   await expect(pending).rejects.toThrow('broken')
   expect(finished).toBe(true)
 })
+
+it('批内并行读取仍各自受全局图片准备名额约束，不会绕过 agent:visual-prepare-concurrency', async () => {
+  const { withVisualPreparation } = await import('../../../lib/agent/visual-resources')
+  config.operator = {
+    ...operator,
+    quotas: {
+      ...operator.quotas,
+      'agent:request-max-bytes': 1000,
+      'agent:visual-prepare-concurrency': 1,
+    },
+  }
+  let inFlight = 0
+  let peak = 0
+  const source: Source = {
+    // 真实图源每次读取都在自己的准备名额里进行。
+    resolve: (imageId) =>
+      withVisualPreparation(async () => {
+        inFlight += 1
+        peak = Math.max(peak, inFlight)
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        inFlight -= 1
+        return { imageId, dataUrl: 'x'.repeat(100), visualVariant: 'preview' as const }
+      }),
+  }
+  const result = await prepareReviewImages(source, [], ['a', 'b'], ['c', 'd'])
+  expect(peak).toBe(1)
+  expect(result.reviewed.map((image) => image.imageId)).toEqual(['a', 'b', 'c', 'd'])
+})
