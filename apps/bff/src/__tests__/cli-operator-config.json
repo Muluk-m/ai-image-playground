@@ -1,0 +1,9 @@
+{
+  "capabilities": {
+    "accounts:login": true,
+    "accounts:self-register": false,
+    "accounts:sync": true,
+    "billing:credits": true,
+    "cli:api": true
+  }
+}

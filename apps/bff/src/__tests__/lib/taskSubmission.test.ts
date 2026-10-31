@@ -45,9 +45,61 @@ beforeEach(async () => {
   store = new InMemoryObjectStore()
   setObjectStoreForTesting(store)
   await db.delete(schema.tasks)
+  _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 })
 afterEach(() => {
   setObjectStoreForTesting()
+})
+
+const BILLING_USER = '4k-billing-user'
+async function ensureBillingUser() {
+  await db
+    .insert(schema.users)
+    .values({
+      id: BILLING_USER,
+      username: BILLING_USER,
+      password_hash: 'fixture',
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    })
+    .onConflictDoNothing()
+}
+
+async function submit4k(userId: string | null = BILLING_USER) {
+  return createQueueTask({
+    provider: 'openai-compat',
+    model: 'gpt-image-2.5-flare',
+    request: request({ image_size: '4K', input_images: undefined }),
+    userId,
+  })
+}
+
+it('accepts 4K with a current active private billing subscription', async () => {
+  await ensureBillingUser()
+  _setPrivateBffOverlayForTesting({
+    ...EMPTY_PRIVATE_BFF_OVERLAY,
+    present: true,
+    taskHooks: { ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks, canSubmitTask: async () => true },
+  })
+  expect((await submit4k()).kind).toBe('created')
+})
+
+it('denies ended subscriptions before creating a task or hold', async () => {
+  await ensureBillingUser()
+  _setPrivateBffOverlayForTesting({
+    ...EMPTY_PRIVATE_BFF_OVERLAY,
+    present: true,
+    taskHooks: { ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks, canSubmitTask: async () => false },
+  })
+  expect((await submit4k()).kind).toBe('private_billing_denied')
+  expect(await db.select().from(schema.tasks)).toHaveLength(0)
+})
+
+it('denies 4K by default when the private billing hook is missing', async () => {
+  await ensureBillingUser()
+  _setPrivateBffOverlayForTesting({ ...EMPTY_PRIVATE_BFF_OVERLAY, present: true })
+  expect((await submit4k()).kind).toBe('private_billing_denied')
+  expect(await db.select().from(schema.tasks)).toHaveLength(0)
 })
 afterAll(close)
 
