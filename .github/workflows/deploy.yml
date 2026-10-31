@@ -278,7 +278,7 @@ jobs:
     name: Pages (admin)
     needs: [target, release, backend, pages-paid]
     if: >-
-      always() &&
+      !cancelled() &&
       needs.target.outputs.deploy_admin == 'true' &&
       needs.release.result == 'success' &&
       (needs.backend.result == 'success' || needs.backend.result == 'skipped') &&
