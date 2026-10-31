@@ -57,9 +57,11 @@ BFF 拆成多个单图任务。OpenAI 组织是 Tier 1（每模型 20 张/分钟
 
 ## 迁移
 
-预算表 `gpt_direct_usage` 并进 #1604 尚未在任何库执行过的 `0080_upstream_scheduler`（测试库与生产库都只到
-0078），不另起编号。CLI 分支也占了 0080（`0080_cli_scopes`，且丢了 `0079_cli_device_oauth` 的 journal
-条目），谁后合谁改号。
+`0082_upstream_scheduler`（`when` 1793300000000）：调度器两张表、`gpt_direct_usage`、`tasks.gpt_route`。
+2026-10-31 查测试库 `drizzle.__drizzle_migrations` 已应用到 1793200000000（#1599 的 0079、CLI 分支的
+0080/0081 都在测试库跑过），生产库到 0078；本迁移原占 0080，没有在任何库执行过，改号排到所有已占用的
+编号与时间戳之后。CLI 分支（`0081_cli_device_oauth`，`when` 1793200000000）若在本 PR 之后合进 main，
+时间戳早于本迁移会被 drizzle 跳过，须按「后合改号」改到 0083 之后。
 
 ## 开关关闭时的既有行为变化
 
