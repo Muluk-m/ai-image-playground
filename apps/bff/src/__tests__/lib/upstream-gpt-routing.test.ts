@@ -15,7 +15,9 @@ process.env.GPT_DIRECT_MONTHLY_BUDGET_USD = '1'
 process.env.SCHEDULER_NAMESPACE = 'routing-test'
 process.env.PORT = '0'
 
-const { callUpstream, setUpstreamFetchForTesting } = await import('../../lib/upstream')
+const { callUpstream, setUpstreamFetchForTesting, UpstreamResultUnknownError } = await import(
+  '../../lib/upstream'
+)
 const { PROMPT_REWRITE_GUARD_PREFIX } = await import('@image-playground/shared')
 const { coolDownSchedulerBuckets } = await import('../../lib/upstream/scheduler')
 const { _resetSub2apiBreakerForTesting, sub2apiBreakerOpen } = await import(
@@ -204,6 +206,35 @@ describe('failover', () => {
     await call({}, false)
     expect(sent.map((one) => one.route)).toEqual(['direct'])
     expect(routes.at(-1)).toBe('direct')
+  })
+
+  it('keeps a fan-out that already delivered an image instead of switching at the attempt timeout', async () => {
+    // 第一张很快出，第二张卡住：不能掐掉整单重出，丢掉已出、已计费的那张。
+    const { setUpstreamFetchForTesting: setFetch } = await import('../../lib/upstream')
+    let count = 0
+    setFetch((async (_input: unknown, init?: { signal?: AbortSignal }) => {
+      count += 1
+      const latency = count === 1 ? 5 : 900
+      sent.push({ route: 'sub2api', body: {}, headers: {} })
+      await new Promise((resolve) => setTimeout(resolve, latency))
+      if (init?.signal?.aborted) throw new DOMException('aborted', 'AbortError')
+      return new Response(JSON.stringify({ data: [{ b64_json: `ok-${count}` }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as never)
+    const result = await call({ n: 2 }, false)
+    expect((result.payload as { data: unknown[] }).data).toHaveLength(2)
+    expect(routes).toEqual(['sub2api'])
+  })
+
+  it('reports an unknown result, not a retryable error, when the first route timed out and the second fails', async () => {
+    behaviour.direct.latencyMs = 5_000
+    behaviour.sub2api.status = 503
+    const error = await call({}, true).catch((err: unknown) => err)
+    expect(sent.map((one) => one.route)).toEqual(['direct', 'sub2api'])
+    expect(error).toBeInstanceOf(UpstreamResultUnknownError)
+    expect((error as { upstreamStatus?: number }).upstreamStatus).toBeUndefined()
   })
 
   it('does not switch on a client error', async () => {

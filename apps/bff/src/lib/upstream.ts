@@ -440,6 +440,8 @@ async function callGptDualRoute(
     const state = {
       dispatched: false,
       asyncAccepted: false,
+      /** fan-out 里已经有一张完整返回：再掐断换路会丢掉已出、已计费的图。 */
+      responded: false,
       timedOut: false,
       reason: 'attempt_timeout' as 'attempt_timeout' | 'direct_queue_full',
     }
@@ -449,7 +451,7 @@ async function callGptDualRoute(
     /** 到点且换得过去才叫停这一路；换不过去就让它继续跑到硬截止，别白白掐掉一条可能快出图的请求。 */
     const switchWhenPossible = (reason: typeof state.reason) => {
       void canSwitch().then((ok) => {
-        if (!ok || state.asyncAccepted || controller.signal.aborted) return
+        if (!ok || state.asyncAccepted || state.responded || controller.signal.aborted) return
         state.timedOut = true
         state.reason = reason
         controller.abort()
@@ -482,6 +484,9 @@ async function callGptDualRoute(
         signal: controller.signal,
         deadlineAt,
         onDispatched,
+        onResponse: () => {
+          state.responded = true
+        },
       })
       return { ok: true as const, result, state }
     } catch (error) {
@@ -546,6 +551,19 @@ async function callGptDualRoute(
   const secondOutcome = await run(other)
   await settle(other, secondOutcome)
   if (secondOutcome.ok) return secondOutcome.result
+  // 第一条路已发出、结果未知（被单路时限掐断或连接中断）时，两路都没成也不能当确定失败：
+  // 否则任务级重试会再派发一整单。保留结果未知，交给对账或按未知失败处理。
+  const firstUnknown =
+    state.dispatched && (state.timedOut || error instanceof UpstreamResultUnknownError)
+  if (firstUnknown && !(secondOutcome.error instanceof UpstreamResultUnknownError)) {
+    const detail =
+      secondOutcome.error instanceof Error ? secondOutcome.error.message.slice(0, 200) : '失败'
+    // 不挂 cause：错误会继承 cause 的上游状态码，429/5xx 会被 task-runner 当成可重试。
+    throw new UpstreamResultUnknownError(
+      `换路后仍失败（${detail}）；先发出的那一路结果未知，未重复生成`,
+      { requiresReconciliation: params.reconciliationRequired === true },
+    )
+  }
   throw secondOutcome.error
 }
 
@@ -556,6 +574,8 @@ interface AttemptOptions {
   deadlineAt?: number
   /** 每条计数请求通过记账、确实发出时调用。 */
   onDispatched?: () => void
+  /** 某条请求的响应完整读到（成功出图）时调用；fan-out 里已有成品就不该再整单换路。 */
+  onResponse?: () => void
 }
 
 async function callUpstreamVia(
@@ -707,9 +727,12 @@ async function callUpstreamVia(
     imageResponses = false,
   ): Promise<UpstreamCallResult> => {
     try {
-      return imageResponses && res.ok
-        ? { payload: await readImageResponses(res.body, deadline.signal) }
-        : await parseUpstreamResponse(res)
+      const result =
+        imageResponses && res.ok
+          ? { payload: await readImageResponses(res.body, deadline.signal) }
+          : await parseUpstreamResponse(res)
+      attempt.onResponse?.()
+      return result
     } catch (err) {
       if (deadline.timedOut) throw new UpstreamTimeoutError()
       if (externalSignal?.aborted) throw err
