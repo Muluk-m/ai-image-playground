@@ -1,0 +1,47 @@
+name: CLI release
+
+# 打 `cli-vX.Y.Z` 标签时发布原生 muvloom CLI：先跑 Go 测试，再交叉编译五个平台，
+# 连同 checksums.txt 与安装脚本一起上传到 GitHub Release。安装脚本按 cli-v* 前缀找最新版本。
+on:
+  push:
+    tags: ['cli-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: cli-go
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: cli-go/go.mod
+          cache-dependency-path: cli-go/go.sum
+      - name: Test
+        run: |
+          go vet ./...
+          go test ./...
+      - name: Build
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          version="${GITHUB_REF_NAME#cli-v}"
+          mkdir -p dist
+          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do
+            os="${target%/*}"; arch="${target#*/}"; ext=""
+            [ "$os" = windows ] && ext=".exe"
+            GOOS="$os" GOARCH="$arch" go build -trimpath \
+              -ldflags "-s -w -X github.com/Muluk-m/ai-image-playground/cli-go/internal/cli.Version=$version" \
+              -o "dist/muvloom_${os}_${arch}${ext}" ./cmd/muvloom
+          done
+          cp install/install.sh install/install.ps1 dist/
+          (cd dist && sha256sum muvloom_* > checksums.txt)
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "muvloom ${GITHUB_REF_NAME#cli-v}" --notes "Native muvloom CLI ${GITHUB_REF_NAME#cli-v}. Install with cli-go/install/install.sh or install.ps1."
