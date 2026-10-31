@@ -386,6 +386,14 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     itemCancels.current.set(key, operation)
     try {
       const result = await cancelBatchItem(batchId, key)
+      // 服务端只撤还没发给上游的那张；刚被认领或已调用过上游的会原样返回，告诉用户没撤成。
+      const left = result.items.find((item) => item.key === key)?.execution?.status
+      if (
+        commands.current() &&
+        itemCancels.current.get(key) === operation &&
+        (left === 'queued' || left === 'in_progress')
+      )
+        setCancelItemFailed(true)
       if (commands.current() && operation === operations.current) {
         operations.current++
         setPage(result)

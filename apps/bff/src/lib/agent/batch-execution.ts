@@ -898,13 +898,16 @@ export async function cancelAgentBatchItem(
         ),
       )
     if (!current) return []
-    // 只撤还在排队的：已经认领的可能已发给上游，撤了也照样出图计费（2026-10-31 测试环境实测）。
+    // 只撤还在排队、且从没调用过上游的：已经认领的可能已发给上游，撤了也照样出图计费
+    //（2026-10-31 测试环境实测）；保存失败或执行器恢复后重新入队的 queued 任务已有结果或上游任务，
+    // 直接撤会丢掉结果。
     return cancelTasks(
       and(
         eq(schema.tasks.id, current.taskId),
         eq(schema.tasks.user_id, userId),
         eq(schema.tasks.kind, 'queue'),
         eq(schema.tasks.status, 'queued'),
+        eq(schema.tasks.upstream_invocation_count, 0),
       )!,
       { tx },
     )
