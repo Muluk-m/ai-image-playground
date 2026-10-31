@@ -1,4 +1,5 @@
 import {
+  type GptTierInput,
   gptImageRateMultiplier,
   isContentPolicyEmptyResult,
   isContentPolicyRejection,
@@ -231,6 +232,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       ...(gptDirectConfigured(task.model)
         ? { gptMember: !isGptBasicRequest(request) || (await isActiveMember(task.user_id)) }
         : {}),
+      onGptRoute: (route) => execution.recordGptRoute(route),
       provider: task.provider,
       model: task.model,
       // 截图模式：落库的是整张原图与选区，送上游的只是选区周围那一块。
@@ -484,30 +486,21 @@ async function executeTask(execution: TaskExecution): Promise<void> {
 
 /**
  * 部分出图（结果里有 `partial_failure`）只按交付张数结算：冻结的是要的张数，没出的那几张随结算退回。
- * GPT 会员的高档参数落到 sub2api（`gpt_route.degraded`）只出了基础档，倍率按 1 结算，差额退回。
- * 整单按要的参数出了图不带用量，结算照旧按冻结额。
+ * 倍率沿用提交时的口径（GPT 直连模型按档位与画质）；高档单落到 sub2api 的降档由 finishTask 按任务行
+ * 上记的通道统一改判，这里不看。整单都出了图不带用量，结算照旧按冻结额。
  */
 function deliveredUsage(
   payload: unknown,
-  task: { model: string; request: { n?: number; size?: string; quality?: string } },
+  task: { model: string; request: GptTierInput },
 ): { actualUsage?: TaskUsage } {
   const partial = partialFailureOf(payload)
-  const degraded = gptRouteDegraded(payload)
-  if (!partial && !degraded) return {}
-  const requested = partial?.requested ?? Math.max(1, task.request.n ?? 1)
+  if (!partial) return {}
   return {
     actualUsage: {
-      quantity: Math.max(0, requested - (partial?.failed ?? 0)),
-      unitMultiplier: degraded
-        ? 1
-        : gptImageRateMultiplier(task.model, task.request.size, task.request.quality),
+      quantity: Math.max(0, partial.requested - partial.failed),
+      unitMultiplier: gptImageRateMultiplier(task.model, task.request),
     },
   }
-}
-
-function gptRouteDegraded(payload: unknown): boolean {
-  const route = (payload as { gpt_route?: { degraded?: unknown } } | null)?.gpt_route
-  return route?.degraded === true
 }
 
 /** 停用清单最多这么久查一次：每单都查会让批量任务一直打 model_availability。 */

@@ -1,7 +1,6 @@
 import { Buffer } from 'node:buffer'
 import {
   buildAspectInstruction,
-  isGptBasicRequest,
   isGptDirectModel,
   QUEUE_TIMEOUTS,
   type QueueProvider,
@@ -293,6 +292,8 @@ export interface UpstreamCallParams {
   taskId?: string
   /** 账号是会员：GPT Image 默认走 OpenAI 直连（见 upstream/gpt-routing.ts）。 */
   gptMember?: boolean
+  /** GPT Image 每条路开跑前调用（换路时再调一次）；调用方据此记下最后走的通道，结算用。 */
+  onGptRoute?: (route: GptRoute) => Promise<void>
   provider: QueueProvider
   model: string
   request: HydratedSubmitRequest
@@ -363,6 +364,8 @@ export function setUpstreamFetchForTesting(fetchImpl?: UpstreamFetch): void {
  */
 /** 换路前至少要剩这么多时间，否则换过去也来不及出图。 */
 const GPT_FAILOVER_MIN_REMAINING_MS = 60_000
+/** 会员选了直连、却在直连额度上排了这么久还没发出，就改走 sub2api。 */
+const GPT_DIRECT_QUEUE_WAIT_MS = 5_000
 
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const route = resolveUpstream(params.provider, params.model)
@@ -372,8 +375,12 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     params.resume ||
     params.request.video ||
     !gptDirectConfigured(params.model)
-  )
+  ) {
+    // 提交时直连还开着、执行时已关：高档单也只能走 sub2api，照样记下通道，结算才会按基础档。
+    if (route.gptRoute === 'sub2api' && !params.resume && isGptDirectModel(params.model))
+      await params.onGptRoute?.('sub2api')
     return callUpstreamVia(params, route)
+  }
   return callGptDualRoute(params, route)
 }
 
@@ -430,21 +437,37 @@ async function callGptDualRoute(
   }
 
   const run = async (kind: GptRoute, timeoutMs?: number) => {
-    const state = { dispatched: false, asyncAccepted: false, timedOut: false }
+    const state = {
+      dispatched: false,
+      asyncAccepted: false,
+      timedOut: false,
+      reason: 'attempt_timeout' as 'attempt_timeout' | 'direct_queue_full',
+    }
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
+    let queueTimer: ReturnType<typeof setTimeout> | undefined
+    /** 到点且换得过去才叫停这一路；换不过去就让它继续跑到硬截止，别白白掐掉一条可能快出图的请求。 */
+    const switchWhenPossible = (reason: typeof state.reason) => {
+      void canSwitch().then((ok) => {
+        if (!ok || state.asyncAccepted || controller.signal.aborted) return
+        state.timedOut = true
+        state.reason = reason
+        controller.abort()
+      })
+    }
     const onDispatched = () => {
       state.dispatched = true
+      if (queueTimer) clearTimeout(queueTimer)
       if (timeoutMs === undefined || timer) return
-      timer = setTimeout(() => {
-        void canSwitch().then((ok) => {
-          // 换不过去就让这一路继续跑到硬截止，别白白掐掉一条可能快出图的请求。
-          if (!ok || state.asyncAccepted || controller.signal.aborted) return
-          state.timedOut = true
-          controller.abort()
-        })
-      }, timeoutMs)
+      timer = setTimeout(() => switchWhenPossible('attempt_timeout'), timeoutMs)
       timer.unref?.()
+    }
+    // 直连额度是选路时探的，真发时可能刚被别的 worker 抢走：在直连桶上排久了也换路，不排到硬截止。
+    if (kind === 'direct' && timeoutMs !== undefined) {
+      queueTimer = setTimeout(() => {
+        if (!state.dispatched) switchWhenPossible('direct_queue_full')
+      }, GPT_DIRECT_QUEUE_WAIT_MS)
+      queueTimer.unref?.()
     }
     const attemptParams: UpstreamCallParams = {
       ...params,
@@ -454,6 +477,7 @@ async function callGptDualRoute(
       },
     }
     try {
+      await params.onGptRoute?.(kind)
       const result = await callUpstreamVia(attemptParams, gptRouteFor(kind, model, sub2api), {
         signal: controller.signal,
         deadlineAt,
@@ -464,6 +488,7 @@ async function callGptDualRoute(
       return { ok: false as const, error, state }
     } finally {
       if (timer) clearTimeout(timer)
+      if (queueTimer) clearTimeout(queueTimer)
     }
   }
 
@@ -490,21 +515,14 @@ async function callGptDualRoute(
     })
   }
 
-  const deliver = (kind: GptRoute, result: UpstreamCallResult): UpstreamCallResult => {
-    const payload = result.payload
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return result
-    // 会员的高档参数落到 sub2api 只出得了基础档：标出来，结算按实际档位（task-runner deliveredUsage）。
-    const degraded = kind === 'sub2api' && !isGptBasicRequest(request)
-    return { payload: { ...payload, gpt_route: { route: kind, degraded } } }
-  }
-
+  // 直连原生 n 一条请求出 n 张，张数越多越慢：每多一张多给 30 秒。sub2api 逐张并发，不放大。
   const timeoutMs =
     first === 'direct'
-      ? config.gptDirect.attemptTimeoutMs
+      ? config.gptDirect.attemptTimeoutMs + (Math.max(1, request.n ?? 1) - 1) * 30_000
       : config.gptDirect.sub2apiAttemptTimeoutMs
   const firstOutcome = await run(first, timeoutMs)
   await settle(first, firstOutcome)
-  if (firstOutcome.ok) return deliver(first, firstOutcome.result)
+  if (firstOutcome.ok) return firstOutcome.result
 
   const { error, state } = firstOutcome
   // 非会员只在 sub2api 超时时借直连；sub2api 报错计入熔断，熔断后的新任务才整单走直连。
@@ -520,14 +538,14 @@ async function callGptDualRoute(
       model,
       from: first,
       to: other,
-      reason: state.timedOut ? 'attempt_timeout' : 'route_failure',
+      reason: state.timedOut ? state.reason : 'route_failure',
       upstreamStatus: upstreamStatusOf(error),
     },
     'gpt route failover',
   )
   const secondOutcome = await run(other)
   await settle(other, secondOutcome)
-  if (secondOutcome.ok) return deliver(other, secondOutcome.result)
+  if (secondOutcome.ok) return secondOutcome.result
   throw secondOutcome.error
 }
 

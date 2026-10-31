@@ -1024,6 +1024,8 @@ export const tasks = pgTable(
     upstream_task_ids: bunJsonb('upstream_task_ids').$type<string[]>(),
     /** Anchor for the polling deadline, so a restart cannot grant a fresh timeout budget. */
     upstream_submitted_at: epochMs('upstream_submitted_at'),
+    /** GPT Image 这一单最后走的通道；会员高档参数落到 sub2api 时结算按基础档（task-transitions finishTask）。 */
+    gpt_route: text('gpt_route').$type<'direct' | 'sub2api'>(),
     execution_token: text('execution_token'),
     lease_expires_at: epochMs('lease_expires_at'),
     submitted_at: epochMs('submitted_at').notNull(),
