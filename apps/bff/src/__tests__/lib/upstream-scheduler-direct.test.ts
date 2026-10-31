@@ -1,15 +1,14 @@
 import { afterEach, beforeEach, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 
-// 模拟上游压测：GPT 走直连（UPSTREAM_BASE_URL 指向 api.openai.com），fetch 换成本地桩，不打真实上游。
+// 模拟上游压测：GPT 走 OpenAI 直连这一条（跳过选路），fetch 换成本地桩，不打真实上游。
 process.env.DATABASE_URL = await resetTestDatabase('bff_upstream_scheduler_direct')
-process.env.UPSTREAM_BASE_URL = 'https://api.openai.com'
-process.env.UPSTREAM_API_KEY = 'test-key'
+process.env.OPENAI_API_KEY = 'test-key'
 process.env.SCHEDULER_NAMESPACE = 'direct-test'
 process.env.PORT = '0'
 
 const {
-  callUpstream,
+  _callUpstreamDirectForTesting: callUpstream,
   setUpstreamFetchForTesting,
   UpstreamQueueTimeoutError,
   UpstreamResultUnknownError,

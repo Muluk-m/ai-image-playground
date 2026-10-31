@@ -1,6 +1,8 @@
 import {
+  gptImageRateMultiplier,
   isContentPolicyEmptyResult,
   isContentPolicyRejection,
+  isGptBasicRequest,
   isModelUnavailableRejection,
   QUEUE_TIMEOUTS,
   type TaskErrorType,
@@ -17,6 +19,7 @@ import {
   missingGenerationOutputs,
   spoolGenerationOutputs,
 } from '../lib/generationMedia'
+import { isActiveMember } from '../lib/gpt-membership'
 import {
   archiveOutputImages,
   fetchSourceImage,
@@ -37,6 +40,7 @@ import {
   UpstreamResultUnknownError,
   UpstreamTimeoutError,
 } from '../lib/upstream'
+import { gptDirectConfigured } from '../lib/upstream/gpt-routing'
 import { partialFailureOf } from '../lib/upstream/partial'
 import { claimTaskExecution, type TaskExecution } from './task-execution'
 
@@ -205,7 +209,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       )
       await execution.finish({
         status: missing.size ? 'failed' : 'completed',
-        ...(missing.size ? {} : deliveredUsage(archivePayload)),
+        ...(missing.size ? {} : deliveredUsage(archivePayload, { model: task.model, request })),
         ...(missing.size
           ? {
               errorType: 'upstream_result_unknown' as const,
@@ -223,6 +227,10 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       task.provider === 'gemini' ? await rateLimitFallbackModel(task.model) : undefined
     const upstreamCall: UpstreamCallParams = {
       reconciliationRequired: task.reconciliation_required,
+      taskId: id,
+      ...(gptDirectConfigured(task.model)
+        ? { gptMember: !isGptBasicRequest(request) || (await isActiveMember(task.user_id)) }
+        : {}),
       provider: task.provider,
       model: task.model,
       // 截图模式：落库的是整张原图与选区，送上游的只是选区周围那一块。
@@ -344,7 +352,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       : undefined
     await execution.finish({
       status: 'completed',
-      ...deliveredUsage(archivedPayload),
+      ...deliveredUsage(archivedPayload, { model: task.model, request }),
       media,
       resultPayload: archivedPayload,
       completedAt: now(),
@@ -476,14 +484,30 @@ async function executeTask(execution: TaskExecution): Promise<void> {
 
 /**
  * 部分出图（结果里有 `partial_failure`）只按交付张数结算：冻结的是要的张数，没出的那几张随结算退回。
- * 整单都出了图不带用量，结算照旧按冻结额。
+ * GPT 会员的高档参数落到 sub2api（`gpt_route.degraded`）只出了基础档，倍率按 1 结算，差额退回。
+ * 整单按要的参数出了图不带用量，结算照旧按冻结额。
  */
-function deliveredUsage(payload: unknown): { actualUsage?: TaskUsage } {
+function deliveredUsage(
+  payload: unknown,
+  task: { model: string; request: { n?: number; size?: string; quality?: string } },
+): { actualUsage?: TaskUsage } {
   const partial = partialFailureOf(payload)
-  if (!partial) return {}
+  const degraded = gptRouteDegraded(payload)
+  if (!partial && !degraded) return {}
+  const requested = partial?.requested ?? Math.max(1, task.request.n ?? 1)
   return {
-    actualUsage: { quantity: Math.max(0, partial.requested - partial.failed), unitMultiplier: 1 },
+    actualUsage: {
+      quantity: Math.max(0, requested - (partial?.failed ?? 0)),
+      unitMultiplier: degraded
+        ? 1
+        : gptImageRateMultiplier(task.model, task.request.size, task.request.quality),
+    },
   }
+}
+
+function gptRouteDegraded(payload: unknown): boolean {
+  const route = (payload as { gpt_route?: { degraded?: unknown } } | null)?.gpt_route
+  return route?.degraded === true
 }
 
 /** 停用清单最多这么久查一次：每单都查会让批量任务一直打 model_availability。 */

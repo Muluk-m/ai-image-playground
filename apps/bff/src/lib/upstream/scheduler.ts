@@ -339,6 +339,14 @@ export async function waitForSchedulerSlots(
       'waited for upstream quota',
     )
   }
+  return grantedLease(attemptId, buckets, waitedMs)
+}
+
+function grantedLease(
+  attemptId: string,
+  buckets: readonly SchedulerBucket[],
+  waitedMs: number,
+): SchedulerLease {
   active.add(attemptId)
   syncHeartbeat()
   let released = false
@@ -374,19 +382,34 @@ export async function waitForSchedulerSlots(
 }
 
 /**
- * GPT Image 走通用网关时要占哪些桶。UPSTREAM_BASE_URL 指向 api.openai.com 即直连：每模型每分钟张数、
- * 直连合计在途数，以及（配了的话）整个组织每分钟张数；否则是 sub2api，只限本环境合计在途数，
- * 没配（0）就不限。
+ * 只试一次：拿得到就占上并返回租约，拿不到（额度满、冷却中）返回 null，什么都不占。
+ * 会员选直连用它：直连满了立刻改走 sub2api，不排队。数据库出错时返回 null（让调用方走另一条路）。
  */
-export function gptSchedulerBuckets(model: string, baseUrl: string): SchedulerBucket[] {
-  const gpt = config.scheduler.gpt
-  let host = ''
+export async function tryAcquireSchedulerSlots(
+  buckets: readonly SchedulerBucket[],
+  images: number,
+): Promise<SchedulerLease | null> {
+  if (buckets.length === 0) return null
+  const attemptId = crypto.randomUUID()
   try {
-    host = new URL(baseUrl).hostname
-  } catch {
-    host = ''
+    const result = await acquireSchedulerSlots(attemptId, buckets, images)
+    return result.granted ? grantedLease(attemptId, buckets, 0) : null
+  } catch (err) {
+    log.warn(
+      { event: 'upstream.scheduler_try_failed', err, buckets: buckets.map((b) => b.key) },
+      'scheduler try-acquire failed',
+    )
+    return null
   }
-  if (host === 'api.openai.com') {
+}
+
+/**
+ * GPT Image 每条请求要占哪些桶。直连：每模型每分钟张数（429 时冷却）、直连合计在途数，以及（配了的话）
+ * 整个组织每分钟张数。sub2api：只限本环境合计在途数，0 = 不限。
+ */
+export function gptSchedulerBuckets(model: string, route: 'direct' | 'sub2api'): SchedulerBucket[] {
+  const gpt = config.scheduler.gpt
+  if (route === 'direct') {
     const buckets: SchedulerBucket[] = [
       {
         key: `openai:direct:model:${model}`,

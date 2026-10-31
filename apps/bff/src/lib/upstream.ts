@@ -1,5 +1,12 @@
 import { Buffer } from 'node:buffer'
-import { QUEUE_TIMEOUTS, type QueueProvider } from '@image-playground/shared'
+import {
+  buildAspectInstruction,
+  isGptBasicRequest,
+  isGptDirectModel,
+  QUEUE_TIMEOUTS,
+  type QueueProvider,
+  unshapeQueuePrompt,
+} from '@image-playground/shared'
 import { config } from '../config'
 import { disabledModelChannel, getRoutableChannels, type InternalChannel } from './channels'
 import type { HydratedSubmitRequest } from './imageArchive'
@@ -34,6 +41,15 @@ import {
   UpstreamTimeoutError,
 } from './upstream/errors'
 import { buildGeminiBody, mergeGeminiCandidateResults } from './upstream/gemini'
+import { recordDirectUsage } from './upstream/gpt-budget'
+import {
+  directAvailableNow,
+  firstGptRoute,
+  type GptRoute,
+  gptDirectConfigured,
+  recordSub2apiOutcome,
+  sub2apiBreakerOpen,
+} from './upstream/gpt-routing'
 import {
   buildGrokEditBody,
   buildGrokImagine2Body,
@@ -112,6 +128,10 @@ interface UpstreamRoute {
   imageSizes?: readonly string[]
   /** 每条上游请求发出前要在跨 worker 配额上占的桶（见 upstream/scheduler.ts）；空即不限。 */
   schedulerBuckets?: readonly SchedulerBucket[]
+  /** GPT Image 走的是哪条通道；决定发送前的参数适配（见 {@link adaptGptRequest}）。 */
+  gptRoute?: GptRoute
+  /** 直连可选的 OpenAI-Organization 头。 */
+  organization?: string
 }
 
 /** 模型级上限优先，按「渠道/模型」各排各的队；没有再看渠道级上限。 */
@@ -220,14 +240,59 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
     // 通用网关未声明原生多图能力；模型名不能证明当前上游会兑现 n。
     supportsNativeN: false,
     ...(provider === 'openai-compat' && isGptImageModel(model)
-      ? { schedulerBuckets: gptSchedulerBuckets(model, config.upstream.baseUrl) }
+      ? { schedulerBuckets: gptSchedulerBuckets(model, 'sub2api'), gptRoute: 'sub2api' as const }
       : {}),
   }
+}
+
+/** GPT Image 的 OpenAI 直连：原生 size / quality / n，同步返回，不走异步任务与 Responses。 */
+function directRoute(model: string): UpstreamRoute {
+  return {
+    baseUrl: config.gptDirect.baseUrl,
+    key: config.gptDirect.apiKey,
+    style: 'openai-images',
+    forceB64Json: false,
+    supportsModeration: true,
+    asyncTasks: false,
+    supportsNativeN: true,
+    schedulerBuckets: gptSchedulerBuckets(model, 'direct'),
+    gptRoute: 'direct',
+    ...(config.gptDirect.organization ? { organization: config.gptDirect.organization } : {}),
+  }
+}
+
+/**
+ * 同一单按通道改参数。sub2api（Codex 图片路径）丢弃 size 与 quality，只认提示词里写明的构图，
+ * 所以补上构图句；直连认原生参数，把提交时钉上的机器指令（防改写前缀、构图句）剥掉，auto 画质
+ * 改发 medium（auto 可能出高画质，成本没有上限，计价也按 medium）。
+ */
+function adaptGptRequest(
+  route: GptRoute,
+  model: string,
+  request: HydratedSubmitRequest,
+): HydratedSubmitRequest {
+  if (!isGptDirectModel(model)) return request
+  if (route === 'direct') {
+    const prompt = unshapeQueuePrompt({
+      provider: 'openai-compat',
+      prompt: request.prompt,
+      ...(request.size ? { size: request.size } : {}),
+    })
+    const quality = !request.quality || request.quality === 'auto' ? 'medium' : request.quality
+    return { ...request, prompt, quality }
+  }
+  const instruction = request.size ? buildAspectInstruction(request.size) : null
+  if (!instruction || request.prompt.endsWith(instruction)) return request
+  return { ...request, prompt: `${request.prompt}\n\n${instruction}` }
 }
 
 export interface UpstreamCallParams {
   /** New producers must preserve any unknown branch, irrespective of rejection order. */
   reconciliationRequired?: boolean
+  /** 任务 id，只用于 OpenAI 直连的成本记账。 */
+  taskId?: string
+  /** 账号是会员：GPT Image 默认走 OpenAI 直连（见 upstream/gpt-routing.ts）。 */
+  gptMember?: boolean
   provider: QueueProvider
   model: string
   request: HydratedSubmitRequest
@@ -296,15 +361,191 @@ export function setUpstreamFetchForTesting(fetchImpl?: UpstreamFetch): void {
  * （`timeoutFetch.ts` 的 withoutRuntimeTimeout）；Agent 的 headers/body 超时比应用硬超时长 1min，
  * 只在 Node 下生效，作兜底。
  */
+/** 换路前至少要剩这么多时间，否则换过去也来不及出图。 */
+const GPT_FAILOVER_MIN_REMAINING_MS = 60_000
+
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
-  const {
-    provider,
-    model,
-    signal: externalSignal,
-    beforeRequest,
-    onUpstreamTaskIds,
-    resume,
-  } = params
+  const route = resolveUpstream(params.provider, params.model)
+  // 已提交过的任务只在原路续轮询；只有走通用网关的 GPT 直连模型才有两条路可选。
+  if (
+    route.gptRoute !== 'sub2api' ||
+    params.resume ||
+    params.request.video ||
+    !gptDirectConfigured(params.model)
+  )
+    return callUpstreamVia(params, route)
+  return callGptDualRoute(params, route)
+}
+
+/** 测试用：跳过选路，直接走 OpenAI 直连这一条（调度器配额、429 冷却照常生效）。 */
+export function _callUpstreamDirectForTesting(
+  params: UpstreamCallParams,
+): Promise<UpstreamCallResult> {
+  return callUpstreamVia(params, directRoute(params.model))
+}
+
+function gptRouteFor(kind: GptRoute, model: string, sub2api: UpstreamRoute): UpstreamRoute {
+  return kind === 'direct' ? directRoute(model) : sub2api
+}
+
+function upstreamStatusOf(error: unknown): number | undefined {
+  const status = (error as { upstreamStatus?: unknown } | null)?.upstreamStatus
+  return typeof status === 'number' ? status : undefined
+}
+
+/** 服务端问题（换一条路可能就好）：429、5xx、连接或响应中断。参数错、审核拒绝之类换路也没用。 */
+function isRouteFailure(error: unknown): boolean {
+  if (error instanceof UpstreamPartialResultError || error instanceof UpstreamQueueTimeoutError)
+    return false
+  const status = upstreamStatusOf(error)
+  if (status !== undefined) return status === 429 || status >= 500
+  return error instanceof UpstreamResultUnknownError && !(error instanceof UpstreamTimeoutError)
+}
+
+/**
+ * GPT Image 两条通道（见 upstream/gpt-routing.ts）：按会员身份选第一条；第一条发出后超过单路时限没结果，
+ * 或明确不可用（429、5xx、连接中断），换另一条重试一次，两路共用同一个硬截止。sub2api 异步任务一旦受理
+ * 就不换路：结果交给轮询与对账，换过去可能重复出图。用户取消、部分出图、参数错不换路。
+ */
+async function callGptDualRoute(
+  params: UpstreamCallParams,
+  sub2api: UpstreamRoute,
+): Promise<UpstreamCallResult> {
+  const { model, request } = params
+  const member = params.gptMember === true
+  const deadlineAt = Date.now() + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
+  const first = await firstGptRoute({ model, member, request })
+  const other: GptRoute = first === 'direct' ? 'sub2api' : 'direct'
+
+  /** 换到 other 这条路此刻是否可行：时间够、对方没熔断、直连有额度与预算。 */
+  const canSwitch = async (): Promise<boolean> => {
+    if (params.signal?.aborted) return false
+    if (deadlineAt - Date.now() < GPT_FAILOVER_MIN_REMAINING_MS) return false
+    if (other === 'sub2api') return !sub2apiBreakerOpen()
+    return directAvailableNow(model, request)
+  }
+
+  const run = async (kind: GptRoute, timeoutMs?: number) => {
+    const state = { dispatched: false, asyncAccepted: false, timedOut: false }
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const onDispatched = () => {
+      state.dispatched = true
+      if (timeoutMs === undefined || timer) return
+      timer = setTimeout(() => {
+        void canSwitch().then((ok) => {
+          // 换不过去就让这一路继续跑到硬截止，别白白掐掉一条可能快出图的请求。
+          if (!ok || state.asyncAccepted || controller.signal.aborted) return
+          state.timedOut = true
+          controller.abort()
+        })
+      }, timeoutMs)
+      timer.unref?.()
+    }
+    const attemptParams: UpstreamCallParams = {
+      ...params,
+      onUpstreamTaskIds: async (taskIds) => {
+        state.asyncAccepted = true
+        await params.onUpstreamTaskIds?.(taskIds)
+      },
+    }
+    try {
+      const result = await callUpstreamVia(attemptParams, gptRouteFor(kind, model, sub2api), {
+        signal: controller.signal,
+        deadlineAt,
+        onDispatched,
+      })
+      return { ok: true as const, result, state }
+    } catch (error) {
+      return { ok: false as const, error, state }
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+
+  const settle = async (
+    kind: GptRoute,
+    outcome: Awaited<ReturnType<typeof run>>,
+  ): Promise<void> => {
+    if (kind === 'sub2api') {
+      if (outcome.ok) recordSub2apiOutcome(true)
+      else if (outcome.state.timedOut || isRouteFailure(outcome.error)) recordSub2apiOutcome(false)
+      return
+    }
+    // 直连按张计费：出了图按回报的 usage 记；发出后结果未知（超时、中断）按档位估算，平台承担。
+    // 明确的 HTTP 错误上游不计费，不记。
+    if (!outcome.state.dispatched) return
+    if (!outcome.ok && upstreamStatusOf(outcome.error) !== undefined) return
+    await recordDirectUsage({
+      ...(params.taskId ? { taskId: params.taskId } : {}),
+      model,
+      ...(request.size ? { size: request.size } : {}),
+      ...(request.quality ? { quality: request.quality } : {}),
+      images: Math.max(1, request.n ?? 1),
+      ...(outcome.ok ? { payload: outcome.result.payload } : {}),
+    })
+  }
+
+  const deliver = (kind: GptRoute, result: UpstreamCallResult): UpstreamCallResult => {
+    const payload = result.payload
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return result
+    // 会员的高档参数落到 sub2api 只出得了基础档：标出来，结算按实际档位（task-runner deliveredUsage）。
+    const degraded = kind === 'sub2api' && !isGptBasicRequest(request)
+    return { payload: { ...payload, gpt_route: { route: kind, degraded } } }
+  }
+
+  const timeoutMs =
+    first === 'direct'
+      ? config.gptDirect.attemptTimeoutMs
+      : config.gptDirect.sub2apiAttemptTimeoutMs
+  const firstOutcome = await run(first, timeoutMs)
+  await settle(first, firstOutcome)
+  if (firstOutcome.ok) return deliver(first, firstOutcome.result)
+
+  const { error, state } = firstOutcome
+  // 非会员只在 sub2api 超时时借直连；sub2api 报错计入熔断，熔断后的新任务才整单走直连。
+  const eligible =
+    !params.signal?.aborted &&
+    !state.asyncAccepted &&
+    (state.timedOut || (isRouteFailure(error) && (first === 'direct' || member)))
+  if (!eligible || (!state.timedOut && !(await canSwitch()))) throw error
+
+  log.warn(
+    {
+      event: 'gpt.route_failover',
+      model,
+      from: first,
+      to: other,
+      reason: state.timedOut ? 'attempt_timeout' : 'route_failure',
+      upstreamStatus: upstreamStatusOf(error),
+    },
+    'gpt route failover',
+  )
+  const secondOutcome = await run(other)
+  await settle(other, secondOutcome)
+  if (secondOutcome.ok) return deliver(other, secondOutcome.result)
+  throw secondOutcome.error
+}
+
+interface AttemptOptions {
+  /** 这一路被换路逻辑叫停（与调用方的 signal 合并：被叫停时按取消原样抛出，由外层改判）。 */
+  signal?: AbortSignal
+  /** 两路共用的硬截止（epoch 毫秒）；缺席按提交时刻 + 硬超时。 */
+  deadlineAt?: number
+  /** 每条计数请求通过记账、确实发出时调用。 */
+  onDispatched?: () => void
+}
+
+async function callUpstreamVia(
+  params: UpstreamCallParams,
+  route: UpstreamRoute,
+  attempt: AttemptOptions = {},
+): Promise<UpstreamCallResult> {
+  const { provider, model, signal: callerSignal, beforeRequest, onUpstreamTaskIds, resume } = params
+  const externalSignal =
+    attempt.signal && callerSignal
+      ? AbortSignal.any([callerSignal, attempt.signal])
+      : (attempt.signal ?? callerSignal)
   const {
     baseUrl: base,
     key,
@@ -316,8 +557,10 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     concurrency,
     imageSizes,
     schedulerBuckets = [],
-  } = resolveUpstream(provider, model)
-  let request = params.request
+    gptRoute,
+    organization,
+  } = route
+  let request = gptRoute ? adaptGptRequest(gptRoute, model, params.request) : params.request
   // 原生 n 只适用于无参考图的 Images generations；Responses 图片工具不接受 tools[].n。
   const requestedImageCount = Math.max(1, request.n ?? 1)
   const useNativeN =
@@ -333,7 +576,9 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   }
   if (!supportsModeration) request = withoutModeration(request)
 
-  const deadlineAt = (resume?.submittedAt ?? Date.now()) + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
+  const deadlineAt =
+    attempt.deadlineAt ??
+    (resume?.submittedAt ?? Date.now()) + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
   // A resumed task may have completed while its worker was unavailable. Give the
   // read-only final lookup a bounded transport window, never a new generation budget.
   const finalLookup = Boolean(resume?.taskIds.length) && Date.now() >= deadlineAt
@@ -388,6 +633,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       committing = true
       const dispatchId = counted ? await beforeRequest?.() : undefined
       sent = true
+      if (counted) attempt.onDispatched?.()
 
       // The accounting callback is the dispatch commit point. Start the transport with a fresh
       // signal before relaying cancellation so a cancellation that loses the database race cannot
@@ -461,7 +707,10 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   // finally 立刻跑，请求还在飞的时候就 release 掉 deadline —— 取消与硬超时都会静默失效。
   try {
     if (provider === 'openai-compat') {
-      const authHeader = upstreamAuthHeader(style, key)
+      const authHeader = {
+        ...upstreamAuthHeader(style, key),
+        ...(organization ? { 'openai-organization': organization } : {}),
+      }
       const resumeIds = resume?.taskIds ?? []
       const useAsyncTasks = asyncTasks || resumeIds.length > 0
 
@@ -622,6 +871,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       if (
         !useNativeN &&
         style === 'openai-images' &&
+        gptRoute !== 'direct' &&
         isGptImageModel(model) &&
         config.upstream.imageResponsesModel &&
         resumeIds.length === 0
