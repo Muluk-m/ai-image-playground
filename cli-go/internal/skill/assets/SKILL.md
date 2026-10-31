@@ -20,7 +20,7 @@ Carry the user's original request through every step; setup must not lose it.
 2. **Read capabilities**: `muvloom capabilities`. Pick the model, aspect ratio and image size the user asked for from this list; otherwise leave them out and the server defaults apply. 4K only appears when the account may use it.
 3. **Quote**: `muvloom images validate --prompt "…" [flags]`. Tell the user `quote.estimated_credits` and any `adjustments` (the server snapped a value to the nearest supported one). Ask before spending unless the user already approved a budget.
 4. **Create**: `muvloom images create --prompt "…" [flags] --max-credits N --wait 300 --download ./muvloom-output`. Use the approved amount as `--max-credits`. Keep `data.idempotency_key` from the output.
-5. **Report**: on `job.status: succeeded`, give the saved file paths from `downloads`. If `wait_timed_out` is true the job is still running on the server — say so and check later with `muvloom jobs wait <job_id>`.
+5. **Report**: on `job.status: succeeded`, give the saved file paths from `downloads`. On `JOB_FAILED`, report `error.details.job.error.message`. If `wait_timed_out` is true the job is still running on the server — say so and check later with `muvloom jobs wait <job_id>`.
 
 Flags shared by `validate` and `create`: `--model`, `--aspect-ratio`, `--image-size`, `--quality`, `--ref <file-or-media_id>` (repeatable; local files upload automatically), `--prompt-file`.
 

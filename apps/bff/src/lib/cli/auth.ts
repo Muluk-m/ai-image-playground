@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto'
 import type { AccountProfileView } from '@image-playground/shared'
-import { and, eq, gt, isNull, lt, or } from 'drizzle-orm'
+import { and, eq, gt, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { accountProfileView } from '../account-profile-view'
 import { log } from '../logger'
@@ -91,6 +91,22 @@ export async function createDeviceAuthorization(
   await db
     .delete(schema.device_authorizations)
     .where(lt(schema.device_authorizations.expires_at, now - DEVICE_ROW_RETENTION_MS))
+  // 作废的刷新令牌要留到连接失效为止，重放检测才覆盖连接的整个生命周期；连接吊销或过期后
+  // 就没有可吊销的东西了，此时连同记录一起清掉。挂在新登录上顺手做，表不会无界增长。
+  await db.delete(schema.cli_retired_refresh_tokens).where(
+    inArray(
+      schema.cli_retired_refresh_tokens.connection_id,
+      db
+        .select({ id: schema.cli_connections.id })
+        .from(schema.cli_connections)
+        .where(
+          or(
+            isNotNull(schema.cli_connections.revoked_at),
+            lt(schema.cli_connections.refresh_expires_at, now - DEVICE_ROW_RETENTION_MS),
+          ),
+        ),
+    ),
+  )
   const deviceCode = token()
   // 8 位、20 个字母约 2.6e10 种组合，撞上未过期的码概率极低；撞了就换一个重试。
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -369,6 +385,17 @@ export async function refreshCliToken(
     await tx
       .insert(schema.cli_retired_refresh_tokens)
       .values({ token_hash: hash, connection_id: row.id, retired_at: now })
+    // 刷新令牌自身 30 天就过期：比这更老的作废令牌即使被盗也换不到东西，不需要再为它做
+    // 重放检测。按连接清理，活跃连接的记录数也有界。
+    await tx
+      .delete(schema.cli_retired_refresh_tokens)
+      .where(
+        and(
+          eq(schema.cli_retired_refresh_tokens.connection_id, row.id),
+          lt(schema.cli_retired_refresh_tokens.retired_at, now - REFRESH_TOKEN_TTL_MS),
+        ),
+      )
+
     await tx
       .update(schema.cli_connections)
       .set({ ...issued.columns, last_used_at: now })

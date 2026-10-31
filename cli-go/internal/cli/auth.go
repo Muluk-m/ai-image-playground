@@ -23,13 +23,19 @@ type tokenResponse struct {
 	RefreshTokenExpiresIn int    `json:"refresh_token_expires_in"`
 }
 
+// seconds converts a server- or user-supplied count to a Duration, clamped so a hostile
+// or corrupt value cannot overflow into a negative interval.
+func seconds(n, lo, hi int) time.Duration {
+	return time.Duration(min(max(n, lo), hi)) * time.Second
+}
+
 func (a *App) credentialsFrom(tokens tokenResponse) auth.Credentials {
 	now := time.Now()
 	return auth.Credentials{
 		AccessToken:      tokens.AccessToken,
 		RefreshToken:     tokens.RefreshToken,
-		AccessExpiresAt:  now.Add(time.Duration(tokens.ExpiresIn) * time.Second),
-		RefreshExpiresAt: now.Add(time.Duration(tokens.RefreshTokenExpiresIn) * time.Second),
+		AccessExpiresAt:  now.Add(seconds(tokens.ExpiresIn, 0, 24*3600)),
+		RefreshExpiresAt: now.Add(seconds(tokens.RefreshTokenExpiresIn, 0, 400*24*3600)),
 		BaseURL:          a.APIURL,
 	}
 }
@@ -65,7 +71,7 @@ func (a *App) apiClient() (*client.HTTPClient, error) {
 // rotated it, the stored access token differs from the rejected one and is reused, so
 // the old refresh token is never presented twice (a replay revokes the connection).
 func (a *App) refresh(ctx context.Context, rejected string) (string, error) {
-	unlock, err := a.Store.Lock(30 * time.Second)
+	unlock, err := a.Store.Lock(45 * time.Second)
 	if err != nil {
 		return "", err
 	}
@@ -77,8 +83,10 @@ func (a *App) refresh(ctx context.Context, rejected string) (string, error) {
 	if creds.AccessToken != rejected && time.Now().Before(creds.AccessExpiresAt) {
 		return creds.AccessToken, nil
 	}
+	refreshCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	var tokens tokenResponse
-	err = a.anonymousClient().PostForm(ctx, "/v1/oauth/token", url.Values{
+	err = a.anonymousClient().PostForm(refreshCtx, "/v1/oauth/token", url.Values{
 		"client_id":     {oauthClientID},
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {creds.RefreshToken},
@@ -195,8 +203,8 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 			DeviceCode:              device.DeviceCode,
 			UserCode:                device.UserCode,
 			VerificationURIComplete: device.VerificationURIComplete,
-			ExpiresAt:               time.Now().Add(time.Duration(device.ExpiresIn) * time.Second),
-			IntervalSeconds:         max(device.Interval, 1),
+			ExpiresAt:               time.Now().Add(seconds(device.ExpiresIn, 0, 3600)),
+			IntervalSeconds:         min(max(device.Interval, 1), 60),
 			BaseURL:                 a.APIURL,
 		}
 		if err := a.Store.SavePending(pending); err != nil {
@@ -213,8 +221,8 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	if *noWait {
 		return prompt, nil
 	}
-	deadline := time.Now().Add(time.Duration(*timeout) * time.Second)
-	interval := time.Duration(pending.IntervalSeconds) * time.Second
+	deadline := time.Now().Add(seconds(*timeout, 0, 3600))
+	interval := seconds(pending.IntervalSeconds, 1, 60)
 	for {
 		var tokens tokenResponse
 		err := a.anonymousClient().PostForm(ctx, "/v1/oauth/token", url.Values{
@@ -239,7 +247,7 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 			switch oauthErr.Code {
 			case "authorization_pending":
 			case "slow_down":
-				interval += 5 * time.Second
+				interval = min(interval+5*time.Second, time.Minute)
 			case "access_denied":
 				_ = a.Store.ClearPending()
 				return nil, fail("AUTH_DENIED", "The connection was denied in the browser")
@@ -283,9 +291,12 @@ func cmdAuthLogout(ctx context.Context, a *App, args []string) (any, error) {
 	}
 	creds, err := a.Store.Load()
 	revoked := false
-	if err == nil && creds.RefreshToken != "" {
-		// Revoking any token of the connection revokes all of it; failure is not fatal.
-		revoked = a.anonymousClient().PostForm(ctx, "/v1/oauth/revoke", url.Values{
+	if err == nil && creds.RefreshToken != "" && validateAPIURL(creds.BaseURL) == nil {
+		// Revoke on the server that issued the token, never on whatever MUVLOOM_API_URL says
+		// now; revoking any token of the connection revokes all of it; failure is not fatal.
+		issuer := client.New(creds.BaseURL, a.HTTP)
+		issuer.UserAgent = a.userAgent()
+		revoked = issuer.PostForm(ctx, "/v1/oauth/revoke", url.Values{
 			"client_id": {oauthClientID},
 			"token":     {creds.RefreshToken},
 		}, nil) == nil

@@ -129,12 +129,13 @@ export function normalizeImageRequest(
       message: 'unsupported quality',
       details: { available: qualities },
     })
+  const quality = alignResolutionQuality(caps, resolved.tier, body.quality)
   const normalized: NormalizedImageRequest = {
     prompt,
     model: model.id,
     aspect_ratio: resolved.ratio,
     image_size: resolved.tier,
-    ...(body.quality && body.quality !== 'auto' ? { quality: body.quality } : {}),
+    ...(quality && quality !== 'auto' ? { quality } : {}),
     reference_media_ids: references,
     count: 1,
   }
@@ -144,6 +145,27 @@ export function normalizeImageRequest(
     adjustments: resolved.adjustments,
     model,
   }
+}
+
+/**
+ * 上游按 quality 决定分辨率的模型（Grok：`high` 才是 2K，见 `upstream/grok.ts`）：档位与 quality
+ * 必须一致，否则预检确认的档位到上游会被悄悄换掉。2K 自动带上 high；明确冲突的组合直接拒绝。
+ */
+function alignResolutionQuality(
+  caps: ModelSpec['image'],
+  tier: string,
+  quality: string | undefined,
+): string | undefined {
+  if (caps.wire.kind !== 'tier-token' || caps.wire.param !== 'resolution') return quality
+  const wantsHigh = tier === '2K'
+  if (!quality || quality === 'auto') return wantsHigh ? 'high' : quality
+  if ((quality === 'high') !== wantsHigh)
+    throw new CliRequestError('INVALID_REQUEST', {
+      message: wantsHigh
+        ? 'image_size 2K requires quality high on this model'
+        : 'quality high produces 2K on this model; set image_size 2K',
+    })
+  return quality
 }
 
 /** 规整后的请求 → 队列请求字段，与网站 `queueClient.submit` 的分支保持同一套写法。 */
@@ -173,12 +195,19 @@ export function toSubmitRequest(prepared: PreparedImageRequest): SubmitRequest {
   return request
 }
 
-/** 参考媒体只做确权，不读字节：预检要便宜，读图留给真正提交。 */
+/** 参考媒体只做确权、不读字节（预检要便宜）；只认经 CLI 上传的参考图。 */
 export async function assertReferenceMedia(userId: string, ids: readonly string[]): Promise<void> {
   if (!ids.length) return
   const rows = await db
     .select({ id: schema.media_objects.id })
     .from(schema.media_objects)
+    .innerJoin(
+      schema.cli_reference_media,
+      and(
+        eq(schema.cli_reference_media.media_id, schema.media_objects.id),
+        eq(schema.cli_reference_media.user_id, userId),
+      ),
+    )
     .where(
       and(
         inArray(schema.media_objects.id, [...ids]),
@@ -215,7 +244,7 @@ export async function previewImageRequest(
   return db.transaction(async (tx) => {
     const planRequired =
       premiumTierRequested(prepared.model.provider, request) &&
-      !(await premiumRequestAllowed(tx, userId, prepared.model.id))
+      !(await premiumRequestAllowed(tx, userId, prepared.model.id, request))
     const quote = await hooks.quoteTask?.({
       tx,
       userId,
@@ -249,12 +278,13 @@ export async function imageCapabilities(userId: string) {
   const models = await availableImageModels()
   const hooks = (await loadPrivateBffOverlay()).taskHooks
   return db.transaction(async (tx) => {
-    const premium = models.some((model) => model.image.tiers.some((t) => t.id === '4K'))
-      ? await premiumRequestAllowed(tx, userId, models[0]!.id)
-      : false
     const listed: CliModelCapability[] = []
     for (const [index, model] of models.entries()) {
       const caps = model.image
+      const premium =
+        caps.tiers.some((tier) => tier.id === '4K') &&
+        (await premiumRequestAllowed(tx, userId, model.id, { image_size: '4K' }))
+      const tiers = caps.tiers.map((tier) => tier.id).filter((id) => id !== '4K' || premium)
       const quote = await hooks.quoteTask?.({
         tx,
         userId,
@@ -268,8 +298,8 @@ export async function imageCapabilities(userId: string) {
         default: index === 0,
         operations: caps.operations.filter((op) => op !== 'mask_edit'),
         aspect_ratios: [...(caps.autoRatio ? ['auto'] : []), ...caps.surfaces.direct.ratios],
-        image_sizes: caps.tiers.map((tier) => tier.id).filter((id) => id !== '4K' || premium),
-        default_image_size: caps.defaultTier,
+        image_sizes: tiers,
+        default_image_size: tiers.includes(caps.defaultTier) ? caps.defaultTier : tiers[0]!,
         qualities: caps.quality?.values ?? [],
         max_reference_images: caps.references.max,
         price: quote ? { estimated_credits: quote.estimatedCredits } : null,
@@ -284,7 +314,6 @@ export async function imageCapabilities(userId: string) {
         concurrent_jobs: await accountConcurrencyLimit(tx, userId, Date.now()),
         prompt_max_chars: CLI_PROMPT_MAX_CHARS,
       },
-      membership_required_for: premium ? [] : ['4K'],
     }
   })
 }

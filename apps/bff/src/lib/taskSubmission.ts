@@ -393,6 +393,15 @@ function alignStageSubmission(input: CreateQueueTaskInput): CreateQueueTaskInput
   return { ...input, video: { ...input.video, duration_seconds } }
 }
 
+class MaxCreditsExceeded extends Error {
+  constructor(
+    readonly required: number,
+    readonly maxCredits: number,
+  ) {
+    super('max_credits_exceeded')
+  }
+}
+
 /** 这次请求落在 4K 档：Gemini 看 `image_size`，OpenAI 兼容的按 `size` 的像素数折算。 */
 export function premiumTierRequested(
   provider: QueueProvider,
@@ -410,10 +419,17 @@ export async function premiumRequestAllowed(
   tx: BffTransaction,
   userId: string,
   model: string,
+  request: Pick<SubmitRequest, 'image_size' | 'size'>,
 ): Promise<boolean> {
   const { canSubmitTask } = (await loadPrivateBffOverlay()).taskHooks
   if (!canSubmitTask) return true
-  return canSubmitTask({ tx, userId, model, request: { image_size: '4K' } })
+  // image_size 归一成档位：OpenAI 兼容模型只有像素 size，钩子仍按同一个「4K」判断。
+  return canSubmitTask({
+    tx,
+    userId,
+    model,
+    request: { image_size: '4K', ...(request.size ? { size: request.size } : {}) },
+  })
 }
 
 /** GPT 直连模型收到基础档（1K、非高画质）；收法是确定的，重复收结果不变，准备时与提交时的哈希一致。 */
@@ -438,6 +454,11 @@ async function alignGptSubmission(input: CreateQueueTaskInput): Promise<CreateQu
 
 export async function createQueueTask(raw: CreateQueueTaskInput): Promise<CreateQueueTaskOutcome> {
   const input = await alignGptSubmission(alignStageSubmission(raw))
+  if (
+    input.maxCredits !== undefined &&
+    (!Number.isFinite(input.maxCredits) || input.maxCredits < 0)
+  )
+    throw new TypeError('maxCredits must be a finite, non-negative number')
   // 只有空白、控制符或零宽字符的提示词和空的一样：所有入口都不建任务，也就不预扣积分。
   if (isBlankPrompt(input.request.prompt)) return { kind: 'invalid_prompt' }
   if (input.reconciliationRequired && input.video)
@@ -483,7 +504,7 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
     }
     if (premiumTierRequested(input.provider, input.request)) {
       if (!input.userId) return { kind: 'authentication_required' as const }
-      if (!(await premiumRequestAllowed(tx, input.userId, input.model)))
+      if (!(await premiumRequestAllowed(tx, input.userId, input.model, input.request)))
         return { kind: 'private_billing_denied' as const }
     }
     if (input.maxCredits !== undefined && isCapabilityEnabled('billing:credits')) {
@@ -545,6 +566,11 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
         return reservation
       }
       reservedCredits = reservation.credits
+      // 报价与预扣同在这个事务里，正常应一致；预扣按自己的规则算出更多时以它为准，
+      // 抛出去让整个事务回滚，任务与预扣一起撤销。
+      // 抛出去让事务回滚；外部事务由调用方持有时异常照样冒泡，由它回滚自己的事务。
+      if (input.maxCredits !== undefined && reservedCredits > input.maxCredits)
+        throw new MaxCreditsExceeded(reservedCredits, input.maxCredits)
     } else if (dailyQuotaEnabled) {
       const quota = await tryConsumeQuotaInTransaction(
         tx,
@@ -632,6 +658,12 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
     outcome = input.tx ? await submit(input.tx) : await db.transaction(submit)
   } catch (error) {
     if (!input.prepared) await discardArchivedInputs(id)
+    if (error instanceof MaxCreditsExceeded && !input.tx)
+      return {
+        kind: 'max_credits_exceeded',
+        required: error.required,
+        maxCredits: error.maxCredits,
+      }
     throw error
   }
 

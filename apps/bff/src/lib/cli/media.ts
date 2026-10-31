@@ -55,6 +55,7 @@ export async function reserveReferenceMedia(
 }
 
 export async function completeReferenceMedia(userId: string, mediaId: string): Promise<CliMedia> {
+  await assertReferenceMedia(userId, mediaId)
   return toCliMedia(await completeMedia(userId, mediaId))
 }
 
@@ -107,12 +108,32 @@ export async function listReferenceMedia(
   }
 }
 
+/**
+ * `media:read` 只覆盖经 CLI 上传的参考图：账号里的画布上传、对话附件不因为知道 id 就能取到。
+ * 生成结果走 artifacts 接口。
+ */
+async function assertReferenceMedia(userId: string, mediaId: string): Promise<void> {
+  const [row] = await db
+    .select({ id: schema.cli_reference_media.media_id })
+    .from(schema.cli_reference_media)
+    .where(
+      and(
+        eq(schema.cli_reference_media.media_id, mediaId),
+        eq(schema.cli_reference_media.user_id, userId),
+      ),
+    )
+    .limit(1)
+  if (!row) throw new CliRequestError('NOT_FOUND')
+}
+
 /** 元数据不带下载地址：签名链接只在明确要下载时才发，免得写进 Agent 的上下文。 */
 export async function getMedia(userId: string, mediaId: string): Promise<CliMedia> {
+  await assertReferenceMedia(userId, mediaId)
   return toCliMedia(await accessMedia(userId, mediaId))
 }
 
 export async function mediaDownload(userId: string, mediaId: string) {
+  await assertReferenceMedia(userId, mediaId)
   const access = await accessMedia(userId, mediaId)
   return {
     media_id: access.id,

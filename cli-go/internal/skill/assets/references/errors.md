@@ -12,6 +12,8 @@
 | `INVALID_REQUEST` | Bad prompt, model, ratio, size, quality or reference | Read `message`/`details.available`, fix, retry |
 | `MODEL_UNAVAILABLE` | Model temporarily switched off | Pick another model from `capabilities` |
 | `NOT_FOUND` | Unknown or another account's id | Check the id |
+| `JOB_FAILED` | The waited job ended without an image; `details.job.error` says why, credits were refunded | Report the reason; retry only if the user wants, with a new idempotency key |
+| `JOB_CANCELED` | The waited job was canceled | Report it |
 | `FILE_EXISTS` | Download target exists | Choose another `--output`; never delete user files to make room |
 | `RATE_LIMITED`, `NETWORK_ERROR`, `TEMPORARILY_UNAVAILABLE`, `INTERNAL_ERROR` | Temporary | Wait, then retry with the same idempotency key |
 | `CAPABILITY_UNAVAILABLE` | CLI access is not enabled on this server | Report it |

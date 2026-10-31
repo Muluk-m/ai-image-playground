@@ -63,6 +63,9 @@ func (a *App) uploadMedia(ctx context.Context, c *client.HTTPClient, path string
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return media{}, err
 	}
+	if err := a.checkStorageURL(reserved.UploadURL); err != nil {
+		return media{}, err
+	}
 	a.progress("Uploading %s (%d bytes)", filepath.Base(path), size)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, reserved.UploadURL, file)
 	if err != nil {
@@ -186,6 +189,9 @@ func (a *App) downloadTo(ctx context.Context, c *client.HTTPClient, path, target
 			target += preferredExt(signed.ContentType, exts)
 		}
 	}
+	if err := a.checkStorageURL(signed.DownloadURL); err != nil {
+		return download{}, err
+	}
 	if _, err := os.Stat(target); err == nil {
 		return download{}, &Failure{Code: "FILE_EXISTS", Message: target + " already exists; choose another --output", Details: map[string]string{"path": target}}
 	}
@@ -207,6 +213,23 @@ func (a *App) downloadTo(ctx context.Context, c *client.HTTPClient, path, target
 	}
 	absolute, _ := filepath.Abs(target)
 	return download{Path: absolute, Bytes: size, ContentType: signed.ContentType}, nil
+}
+
+// checkStorageURL only lets local image bytes (or a download) go over https; a plain
+// http URL is accepted only when the API itself is a local development server.
+func (a *App) checkStorageURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return fail("INVALID_RESPONSE", "The server returned an invalid storage URL")
+	}
+	if parsed.Scheme == "https" {
+		return nil
+	}
+	api, _ := url.Parse(a.APIURL)
+	if parsed.Scheme == "http" && api != nil && api.Scheme == "http" {
+		return nil // validateAPIURL only allows http for localhost
+	}
+	return fail("INVALID_RESPONSE", "Refusing to transfer files over a non-https storage URL")
 }
 
 func preferredExt(contentType string, exts []string) string {
@@ -244,6 +267,8 @@ func writeNew(target string, body io.Reader) (int64, error) {
 	if err != nil {
 		return 0, fail("NETWORK_ERROR", "Download interrupted: %v", err)
 	}
+	// CreateTemp makes the file 0600; a downloaded image is ordinary user content.
+	_ = os.Chmod(tmp.Name(), 0o644)
 	linkErr := os.Link(tmp.Name(), target)
 	if linkErr == nil {
 		return size, nil
@@ -265,10 +290,12 @@ func writeNew(target string, body io.Reader) (int64, error) {
 		return 0, err
 	}
 	defer src.Close()
-	if _, err := io.Copy(out, src); err != nil {
-		out.Close()
+	_, copyErr := io.Copy(out, src)
+	closeErr := out.Close()
+	if err := errors.Join(copyErr, closeErr); err != nil {
+		// A partial file would make the retry fail with FILE_EXISTS.
 		os.Remove(target)
 		return 0, fail("INTERNAL_ERROR", "Cannot write %s: %v", target, err)
 	}
-	return size, out.Close()
+	return size, nil
 }

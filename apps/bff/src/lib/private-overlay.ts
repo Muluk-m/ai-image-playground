@@ -55,7 +55,7 @@ export interface PrivateTaskHooks {
     tx: BffTransaction
     userId: string
     model: string
-    request: { image_size?: string }
+    request: { image_size?: string; size?: string }
   }): Promise<boolean>
   /** Immutable token quote under the caller's price lock; absent in older overlays. */
   quoteTokenTask?(input: {
@@ -101,11 +101,6 @@ export interface PrivateTaskHooks {
     userId: string
     now: number
   }): Promise<{ credits: number; isMember: boolean }>
-  /**
-   * 账号此刻有没有生效的订阅（会员）。GPT 直连选路与 2K/4K/高画质档位按它判断。
-   * 可选（先扩后缩）：钉住的 overlay 还没有这一项时一律按非会员。
-   */
-  isActiveMember?(input: { userId: string; now: number }): Promise<boolean>
   /**
    * 账号此刻有没有生效的订阅（会员）。GPT 直连选路与 2K/4K/高画质档位按它判断。
    * 可选（先扩后缩）：钉住的 overlay 还没有这一项时一律按非会员。

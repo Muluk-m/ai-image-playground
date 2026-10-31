@@ -12,8 +12,17 @@ $installDir = if ($env:MUVLOOM_INSTALL_DIR) { $env:MUVLOOM_INSTALL_DIR } else { 
 if ($env:MUVLOOM_VERSION) {
   $tag = "cli-v" + $env:MUVLOOM_VERSION.TrimStart("v")
 } else {
-  $releases = Invoke-RestMethod "https://api.github.com/repos/$repo/releases?per_page=50"
-  $tag = ($releases | Where-Object { $_.tag_name -like "cli-v*" } | Select-Object -First 1).tag_name
+  # Highest stable cli-vX.Y.Z by version, not API order.
+  $releases = @()
+  for ($page = 1; $page -le 20; $page++) {
+    $batch = @(Invoke-RestMethod "https://api.github.com/repos/$repo/releases?per_page=100&page=$page")
+    if ($batch.Count -eq 0) { break }
+    $releases += $batch
+  }
+  $tag = ($releases |
+    Where-Object { -not $_.prerelease -and $_.tag_name -match '^cli-v\d+\.\d+\.\d+$' } |
+    Sort-Object { [version]($_.tag_name -replace '^cli-v', '') } -Descending |
+    Select-Object -First 1).tag_name
   if (-not $tag) { throw "muvloom install: could not find a muvloom release" }
 }
 

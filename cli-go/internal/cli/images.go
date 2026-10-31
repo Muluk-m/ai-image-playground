@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -10,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -132,17 +134,24 @@ type submission struct {
 func (a *App) saveSubmission(record submission) {
 	data, err := json.Marshal(record)
 	if err == nil {
-		path := filepath.Join(a.Store.Dir, "submissions", record.IdempotencyKey+".json")
+		// Hash the key: every allowed key maps to a distinct, portable file name.
+		sum := sha256.Sum256([]byte(record.IdempotencyKey))
+		path := filepath.Join(a.Store.Dir, "submissions", hex.EncodeToString(sum[:])+".json")
 		if err := auth.WriteFileAtomic(path, data); err != nil {
 			a.progress("Could not record the submission locally: %v", err)
 		}
 	}
 }
 
-func newIdempotencyKey() string {
+// idempotencyKeyPattern matches the server's rule and keeps the key safe as a file name.
+var idempotencyKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]{8,64}$`)
+
+func newIdempotencyKey() (string, error) {
 	buf := make([]byte, 16)
-	_, _ = rand.Read(buf)
-	return "cli-" + hex.EncodeToString(buf)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fail("INTERNAL_ERROR", "Could not generate an idempotency key: %v", err)
+	}
+	return "cli-" + hex.EncodeToString(buf), nil
 }
 
 type createResult struct {
@@ -158,7 +167,7 @@ func cmdImagesCreate(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("images create")
 	flags := bindImageFlags(fs)
 	key := fs.String("idempotency-key", "", "reuse a key to retry the same request safely (default: generated)")
-	wait := fs.Int("wait", 0, "wait up to SECONDS for the job to finish")
+	wait := fs.Int("wait", 0, "wait up to SECONDS (max 3600) for the job to finish")
 	downloadDir := fs.String("download", "", "after a successful wait, save artifacts into DIR")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
@@ -172,7 +181,11 @@ func cmdImagesCreate(ctx context.Context, a *App, args []string) (any, error) {
 		return nil, err
 	}
 	if *key == "" {
-		*key = newIdempotencyKey()
+		if *key, err = newIdempotencyKey(); err != nil {
+			return nil, err
+		}
+	} else if !idempotencyKeyPattern.MatchString(*key) {
+		return nil, fail("USAGE", "--idempotency-key must be 8-64 characters of letters, digits, _ . : -")
 	}
 	body["idempotency_key"] = *key
 	record := submission{IdempotencyKey: *key, Request: body, CreatedAt: time.Now()}
@@ -203,11 +216,14 @@ func cmdImagesCreate(ctx context.Context, a *App, args []string) (any, error) {
 	if *wait <= 0 {
 		return result, nil
 	}
-	final, timedOut, err := a.waitJob(ctx, c, result.Job.JobID, time.Duration(*wait)*time.Second)
+	final, timedOut, err := a.waitJob(ctx, c, result.Job.JobID, seconds(*wait, 0, 3600))
 	if err != nil {
 		return nil, err
 	}
 	result.Job, result.WaitTimedOut = final, timedOut
+	if err := jobOutcome(final, result); err != nil {
+		return nil, err
+	}
 	if *downloadDir != "" && final.Status == "succeeded" {
 		for _, artifact := range final.Artifacts {
 			saved, err := a.downloadTo(ctx, c, "/v1/artifacts/"+url.PathEscape(artifact.ArtifactID)+"/download",
@@ -270,7 +286,7 @@ func (a *App) waitJob(ctx context.Context, c *client.HTTPClient, id string, budg
 		if remaining <= 0 {
 			return current, true, nil
 		}
-		interval := time.Duration(max(current.NextPollAfterSeconds, 1)) * time.Second
+		interval := seconds(current.NextPollAfterSeconds, 1, 10)
 		a.progress("Job %s is %s", id, current.Status)
 		if err := a.Sleep(ctx, min(interval, maxPollInterval, remaining)); err != nil {
 			return job{}, false, err
@@ -333,11 +349,27 @@ func cmdJobsWait(ctx context.Context, a *App, args []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	final, timedOut, err := a.waitJob(ctx, c, rest[0], time.Duration(*timeout)*time.Second)
+	final, timedOut, err := a.waitJob(ctx, c, rest[0], seconds(*timeout, 0, 3600))
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"job": final, "wait_timed_out": timedOut}, nil
+	data := map[string]any{"job": final, "wait_timed_out": timedOut}
+	if err := jobOutcome(final, data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// jobOutcome turns a job that ended without an image into a non-zero exit, keeping the
+// job in details so the caller still sees its status and error.
+func jobOutcome(final job, data any) error {
+	switch final.Status {
+	case "failed":
+		return &Failure{Code: "JOB_FAILED", Message: "The job failed; see details.job.error", Details: data}
+	case "canceled":
+		return &Failure{Code: "JOB_CANCELED", Message: "The job was canceled", Details: data}
+	}
+	return nil
 }
 
 func cmdJobsCancel(ctx context.Context, a *App, args []string) (any, error) {
