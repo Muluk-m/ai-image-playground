@@ -3,12 +3,14 @@
     "rename": "Rename"
   },
   "tab": {
+    "works": "Works",
     "projects": "Projects",
     "assets": "Assets",
     "prompts": "Prompts",
     "looks": "Templates"
   },
   "panel": {
+    "searchWorks": "Search prompts",
     "searchProjects": "Search project names",
     "searchAssets": "Search asset names",
     "searchTemplates": "Search prompt names",
@@ -182,5 +184,17 @@
     "alreadyInReferences": "Already in the references",
     "addedToReferences": "Added to the references",
     "imageAddFailed": "Could not add the image: {{reason}}"
+  },
+  "works": {
+    "filterAria": "Work source",
+    "all": "All",
+    "studio": "Quick generate",
+    "agent": "From chats",
+    "continue": "Generate more",
+    "openProject": "Back to project",
+    "untitled": "Work",
+    "empty": "No works yet",
+    "noMatch": "No matching works",
+    "retry": "Reload"
   }
 }

@@ -11,6 +11,7 @@ import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, type SQL, sql 
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 import { settleAgentJobs } from './background-jobs'
+import { sanitizeAssistantMessages } from './reply-script'
 
 /** 归属互斥由 `agent_conversations_owner_check` 兜底，这里用联合类型让调用方无从写出两者并存。 */
 export type AgentOwner =
@@ -369,7 +370,7 @@ async function readAgentMessages(
       ),
     ),
   ]
-  if (!taskIds.length) return messages
+  if (!taskIds.length) return sanitizeAssistantMessages(messages)
   // 只认挂在这个已经确权的会话下的任务：产物 id 本身证明不了归属。
   const tasks = await db
     .select({ id: schema.tasks.id, request: schema.tasks.request_payload })
@@ -381,16 +382,18 @@ async function readAgentMessages(
       ),
     )
   const prompts = new Map(tasks.map((task) => [task.id, task.request.prompt]))
-  return messages.map((message) => ({
-    ...message,
-    content: message.content.map((block) => {
-      if (block.type !== 'toolResult' || block.prompt) return block
-      const prompt = (block.artifacts ?? [])
-        .map((artifact) => prompts.get(artifact.taskId))
-        .find(Boolean)
-      return prompt ? { ...block, prompt } : block
-    }),
-  }))
+  return sanitizeAssistantMessages(
+    messages.map((message) => ({
+      ...message,
+      content: message.content.map((block) => {
+        if (block.type !== 'toolResult' || block.prompt) return block
+        const prompt = (block.artifacts ?? [])
+          .map((artifact) => prompts.get(artifact.taskId))
+          .find(Boolean)
+        return prompt ? { ...block, prompt } : block
+      }),
+    })),
+  )
 }
 
 /** 面板要的是整段历史：会话快照与任务列表里翻得到的每一条都得在，这里不按压缩收窄。 */
