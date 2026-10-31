@@ -87,6 +87,11 @@ export interface PrivateTaskHooks {
   /** 单价表里没登记这个对话模型时返回 null；起轮会在预扣那一步被拒。 */
   chatPricing(model: string): Promise<ChatPricing | null>
   /**
+   * 账号此刻有没有生效的订阅（会员）。GPT 直连选路与 2K/4K/高画质档位按它判断。
+   * 可选（先扩后缩）：钉住的 overlay 还没有这一项时一律按非会员。
+   */
+  isActiveMember?(input: { userId: string; now: number }): Promise<boolean>
+  /**
    * 已结算任务实扣的积分，按任务 id；查不到的任务不出现在结果里。
    * 积分只有私有账本算得出，公开树一律问它，绝不自己按单价折算。
    */
