@@ -14,6 +14,8 @@ export const CAPABILITIES = {
   'agent:batch-plans': { defaultValue: false, clientExposed: true },
   'agent:attachments': { defaultValue: false, clientExposed: true },
   'agent:bulk-attachments': { defaultValue: false, clientExposed: true },
+  /** 批次里单独取消正在生成的一张（取消接口与卡片上的取消按钮）。默认关，按环境逐步放开。 */
+  'agent:batch-item-cancel': { defaultValue: false, clientExposed: true },
   /**
    * 智能体先提议修改范围（`proposeEditRegion` 范围确认卡）再按蒙版局部编辑。2026-10-27 线上
    * 屡次报「原图尺寸超出模型支持的局部编辑范围」后整轮无图，按 Nain 要求下线：默认关，
