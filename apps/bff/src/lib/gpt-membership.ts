@@ -4,15 +4,15 @@ import { loadPrivateBffOverlay } from './private-overlay'
 import { gptDirectConfigured } from './upstream/gpt-routing'
 
 /**
- * 账号此刻是否会员。私有 overlay 缺席、没实现 accountSummary 或查询失败都按非会员：
+ * 账号此刻是否会员。私有 overlay 缺席、没实现 isActiveMember 或查询失败都按非会员：
  * 非会员只会被收到基础档、走 sub2api，不会多扣钱。
  */
 export async function isActiveMember(userId: string | null | undefined): Promise<boolean> {
   if (!userId) return false
   try {
     const { taskHooks } = await loadPrivateBffOverlay()
-    if (!taskHooks.accountSummary) return false
-    return (await taskHooks.accountSummary({ userId, now: Date.now() })).isMember
+    if (!taskHooks.isActiveMember) return false
+    return await taskHooks.isActiveMember({ userId, now: Date.now() })
   } catch (err) {
     log.warn({ event: 'gpt.membership_lookup_failed', err }, 'membership lookup failed')
     return false
