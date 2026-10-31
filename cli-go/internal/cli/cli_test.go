@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +31,7 @@ type fakeServer struct {
 	jobPolls     int
 	submissions  map[string]string // idempotency key -> request body
 	failSubmits  int
+	failJob      bool
 }
 
 const secretDeviceCode = "device-secret-value"
@@ -115,6 +118,10 @@ func newFakeServer(t *testing.T) *fakeServer {
 		f.mu.Unlock()
 		if !done {
 			envelope(w, 200, map[string]any{"job_id": "job-1", "status": "running", "terminal": false, "next_poll_after_seconds": 2}, "")
+			return
+		}
+		if f.failJob {
+			envelope(w, 200, map[string]any{"job_id": "job-1", "status": "failed", "terminal": true, "error": map[string]any{"code": "upstream_error", "message": "The model failed"}}, "")
 			return
 		}
 		envelope(w, 200, map[string]any{"job_id": "job-1", "status": "succeeded", "terminal": true, "artifacts": []any{map[string]any{"artifact_id": "art_job-1_0", "media_id": "m1", "content_type": "image/png"}}}, "")
@@ -276,7 +283,8 @@ func TestCreatePersistsTheKeyAndRetriesWithTheSameKey(t *testing.T) {
 		t.Fatalf("retries used different keys: %v", f.submissions)
 	}
 	var record submission
-	raw, err := os.ReadFile(filepath.Join(dir, "submissions", key+".json"))
+	sum := sha256.Sum256([]byte(key))
+	raw, err := os.ReadFile(filepath.Join(dir, "submissions", hex.EncodeToString(sum[:])+".json"))
 	if err != nil || json.Unmarshal(raw, &record) != nil || record.JobID != "job-1" {
 		t.Fatalf("local record = %s, %v", raw, err)
 	}
@@ -326,6 +334,20 @@ func TestWaitReturnsAtTheDeadlineWithoutFailing(t *testing.T) {
 	data := r.out["data"].(map[string]any)
 	if r.code != ExitOK || data["wait_timed_out"] != true {
 		t.Fatalf("bounded wait = %d %s", r.code, r.stdout)
+	}
+}
+
+func TestWaitingOnAFailedJobExitsNonZeroWithTheJob(t *testing.T) {
+	f := newFakeServer(t)
+	f.failJob = true
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	r := execute(t, app, "jobs", "wait", "job-1", "--timeout", "60")
+	if r.code != ExitRejected || r.out["error"].(map[string]any)["code"] != "JOB_FAILED" {
+		t.Fatalf("failed job = %d %s", r.code, r.stdout)
+	}
+	if !strings.Contains(r.stdout, `"status":"failed"`) {
+		t.Fatalf("job details missing: %s", r.stdout)
 	}
 }
 

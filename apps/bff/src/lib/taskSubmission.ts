@@ -527,7 +527,8 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
       reservedCredits = reservation.credits
       // 报价与预扣同在这个事务里，正常应一致；预扣按自己的规则算出更多时以它为准，
       // 抛出去让整个事务回滚，任务与预扣一起撤销。
-      if (input.maxCredits !== undefined && reservedCredits > input.maxCredits)
+      // 外部事务由调用方提交，这里不能替它回滚；目前只有 CLI 传 maxCredits，且不带外部事务。
+      if (input.maxCredits !== undefined && !input.tx && reservedCredits > input.maxCredits)
         throw new MaxCreditsExceeded(reservedCredits, input.maxCredits)
     } else if (dailyQuotaEnabled) {
       const quota = await tryConsumeQuotaInTransaction(

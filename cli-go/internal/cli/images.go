@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -133,9 +134,9 @@ type submission struct {
 func (a *App) saveSubmission(record submission) {
 	data, err := json.Marshal(record)
 	if err == nil {
-		// The key was validated, but a colon is not a valid file name character on Windows.
-		name := strings.ReplaceAll(record.IdempotencyKey, ":", "_")
-		path := filepath.Join(a.Store.Dir, "submissions", name+".json")
+		// Hash the key: every allowed key maps to a distinct, portable file name.
+		sum := sha256.Sum256([]byte(record.IdempotencyKey))
+		path := filepath.Join(a.Store.Dir, "submissions", hex.EncodeToString(sum[:])+".json")
 		if err := auth.WriteFileAtomic(path, data); err != nil {
 			a.progress("Could not record the submission locally: %v", err)
 		}
@@ -183,7 +184,7 @@ func cmdImagesCreate(ctx context.Context, a *App, args []string) (any, error) {
 		if *key, err = newIdempotencyKey(); err != nil {
 			return nil, err
 		}
-	} else if !idempotencyKeyPattern.MatchString(*key) || strings.Contains(*key, "..") {
+	} else if !idempotencyKeyPattern.MatchString(*key) {
 		return nil, fail("USAGE", "--idempotency-key must be 8-64 characters of letters, digits, _ . : -")
 	}
 	body["idempotency_key"] = *key
@@ -220,6 +221,9 @@ func cmdImagesCreate(ctx context.Context, a *App, args []string) (any, error) {
 		return nil, err
 	}
 	result.Job, result.WaitTimedOut = final, timedOut
+	if err := jobOutcome(final, result); err != nil {
+		return nil, err
+	}
 	if *downloadDir != "" && final.Status == "succeeded" {
 		for _, artifact := range final.Artifacts {
 			saved, err := a.downloadTo(ctx, c, "/v1/artifacts/"+url.PathEscape(artifact.ArtifactID)+"/download",
@@ -349,7 +353,23 @@ func cmdJobsWait(ctx context.Context, a *App, args []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"job": final, "wait_timed_out": timedOut}, nil
+	data := map[string]any{"job": final, "wait_timed_out": timedOut}
+	if err := jobOutcome(final, data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// jobOutcome turns a job that ended without an image into a non-zero exit, keeping the
+// job in details so the caller still sees its status and error.
+func jobOutcome(final job, data any) error {
+	switch final.Status {
+	case "failed":
+		return &Failure{Code: "JOB_FAILED", Message: "The job failed; see details.job.error", Details: data}
+	case "canceled":
+		return &Failure{Code: "JOB_CANCELED", Message: "The job was canceled", Details: data}
+	}
+	return nil
 }
 
 func cmdJobsCancel(ctx context.Context, a *App, args []string) (any, error) {

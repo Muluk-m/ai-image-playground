@@ -26,7 +26,7 @@ IDs: `job_id` is a generation task, `artifact_id` a generated image, `media_id` 
 | 0 | Success | Read `data` |
 | 2 | Invalid command or request | Fix the flags or ask the user for the missing input |
 | 3 | Not signed in / login pending, denied or expired | Run the login flow |
-| 4 | Rejected (membership, not found, conflict, model unavailable, file exists) | Explain to the user; see errors.md |
+| 4 | Rejected (membership, not found, conflict, model unavailable, file exists) or the waited job failed / was canceled | Explain to the user; see errors.md |
 | 5 | Credits (insufficient, or above `--max-credits`) | Tell the user the required amount; do not raise the limit on your own |
 | 6 | Temporary (network, rate limit, server busy) | Retry later with the same idempotency key |
 | 7 | CLI too old | Upgrade with install.md |

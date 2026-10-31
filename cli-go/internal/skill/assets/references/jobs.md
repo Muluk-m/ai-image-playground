@@ -1,7 +1,7 @@
 # Jobs
 
 - Statuses: `queued` → `running` → `persisting` (result saved, finishing up) → `succeeded`, or `failed` / `canceled`. `terminal: true` means it will not change again.
-- `muvloom jobs wait JOB_ID --timeout 300` polls at the server's pace and returns when the job ends or the timeout passes. A timeout is not a failure (`wait_timed_out: true`); the job keeps running and can be checked again later.
+- `muvloom jobs wait JOB_ID --timeout 300` polls at the server's pace and returns when the job ends or the timeout passes. A timeout is not a failure (`wait_timed_out: true`); the job keeps running and can be checked again later. A job that ends as `failed` or `canceled` exits with code 4 (`JOB_FAILED` / `JOB_CANCELED`) and the job is in `error.details.job`.
 - A succeeded job lists `artifacts`; download each with `muvloom artifacts download ARTIFACT_ID --output PATH`. Download links are short-lived and fetched fresh each time; a failed download does not affect the job.
 - `actual_credits` on a finished job is what was charged. Failed and canceled jobs are refunded automatically.
 

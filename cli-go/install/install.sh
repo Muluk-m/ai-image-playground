@@ -32,9 +32,13 @@ fi
 if [ -n "${MUVLOOM_VERSION:-}" ]; then
   tag="cli-v${MUVLOOM_VERSION#v}"
 else
-  tag="$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=50" |
-    grep -o '"tag_name": *"cli-v[^"]*"' | head -n 1 | sed 's/.*"\(cli-v[^"]*\)"/\1/')"
-  [ -n "$tag" ] || fail "could not find a muvloom release"
+  # Highest stable cli-vX.Y.Z by version, not API order; prerelease tags carry a suffix
+  # and never match. Releases are only published for exact cli-vX.Y.Z tags.
+  version="$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=100" |
+    grep -o '"tag_name": *"cli-v[0-9]*\.[0-9]*\.[0-9]*"' | sed 's/.*"cli-v\([^"]*\)"/\1/' |
+    sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)"
+  [ -n "$version" ] || fail "could not find a muvloom release"
+  tag="cli-v$version"
 fi
 
 asset="muvloom_${os}_${arch}"

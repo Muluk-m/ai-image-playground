@@ -37,6 +37,7 @@ export default function CliDevicePage() {
   const [draft, setDraft] = useState(code)
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   const deciding = useRef(false)
+  const [attempt, setAttempt] = useState(0)
   const scopeLabels: Record<string, string> = {
     'images:read': t('cliDevice.scopes.imagesRead'),
     'images:write': t('cliDevice.scopes.imagesWrite'),
@@ -52,6 +53,7 @@ export default function CliDevicePage() {
   useEffect(() => {
     if (!user || !code) return
     const controller = new AbortController()
+    deciding.current = false
     setPhase({ kind: 'loading' })
     // 换了授权码时旧请求可能已在路上：只让这一次的结果写状态，免得页面显示别的客户端权限。
     authenticatedBffFetch(`${bffBaseUrl()}/api/cli/device?user_code=${encodeURIComponent(code)}`, {
@@ -67,7 +69,7 @@ export default function CliDevicePage() {
         if (!controller.signal.aborted) setPhase({ kind: 'failed' })
       })
     return () => controller.abort()
-  }, [user, code])
+  }, [user, code, attempt])
 
   async function decide(decision: 'approve' | 'deny') {
     // 同一帧里的连点读到的都是 pending，用 ref 保证只发出第一个决定。
@@ -84,6 +86,9 @@ export default function CliDevicePage() {
       else setPhase({ kind: res.status === 404 ? 'invalid' : 'failed' })
     } catch {
       setPhase({ kind: 'failed' })
+    } finally {
+      // 失败后可以重试；成功后页面已经没有可点的按钮。
+      deciding.current = false
     }
   }
 
@@ -174,6 +179,16 @@ export default function CliDevicePage() {
           <p className="text-body-sm text-destructive" role="alert">
             {t(phase.kind === 'invalid' ? 'cliDevice.invalid' : 'cliDevice.failed')}
           </p>
+        ) : null}
+        {phase.kind === 'failed' && user ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            onClick={() => setAttempt((n) => n + 1)}
+          >
+            {t('cliDevice.retry')}
+          </Button>
         ) : null}
       </section>
     </main>

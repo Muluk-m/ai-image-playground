@@ -115,15 +115,22 @@ func (s Store) Save(creds Credentials) error {
 			_ = removeIfExists(s.credentialsFile())
 			return nil
 		}
-		// Load prefers the keyring: an older entry left there would shadow the file we are
-		// about to write and replay a retired refresh token.
+	}
+	// Write the file before touching the keychain: if the write fails, the previous
+	// credentials must still be somewhere.
+	if err := WriteFileAtomic(s.credentialsFile(), data); err != nil {
+		return err
+	}
+	// Load prefers the keychain, so an older entry there would shadow the file and replay
+	// a retired refresh token. This also covers MUVLOOM_CREDENTIALS_STORE=file.
+	if s.UseKeyring || s.ClearKeyring {
 		if err := keyring.Delete(keyringService, keyringUser); err != nil && !errors.Is(err, keyring.ErrNotFound) {
-			if _, getErr := keyring.Get(keyringService, keyringUser); getErr == nil {
-				return fmt.Errorf("the system keychain rejected the new credentials and still holds old ones: %w", err)
+			if _, getErr := keyring.Get(keyringService, keyringUser); getErr == nil && s.UseKeyring {
+				return fmt.Errorf("the system keychain still holds older credentials: %w", err)
 			}
 		}
 	}
-	return WriteFileAtomic(s.credentialsFile(), data)
+	return nil
 }
 
 // Clear removes credentials from every backend, whichever one this process is using,

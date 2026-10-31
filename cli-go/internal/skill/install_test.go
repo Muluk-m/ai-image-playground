@@ -59,7 +59,11 @@ func TestInstallProjectFindsRootAndReplacesDeterministically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(project, ".agents", "skills", "muvloom")
+	realProject, err := filepath.EvalSymlinks(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(realProject, ".agents", "skills", "muvloom")
 	if first.Path != want || second.Path != want || first.FileHash != second.FileHash {
 		t.Fatalf("unexpected project result: %+v %+v", first, second)
 	}

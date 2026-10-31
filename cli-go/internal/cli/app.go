@@ -1,6 +1,8 @@
 // Package cli implements the muvloom command line. stdout carries exactly one JSON
-// envelope per invocation; progress and diagnostics go to stderr. Credential values,
-// device codes and signed URLs for uploads never reach either stream.
+// envelope per invocation; progress and diagnostics go to stderr. Access and refresh
+// tokens, the secret device_code and signed upload URLs never reach either stream. The
+// user_code and its verification link are shown on purpose (RFC 8628 §3.3): approving
+// them only links a session to the account of whoever approves it.
 package cli
 
 import (
@@ -62,6 +64,8 @@ var exitByCode = map[string]int{
 	"MEDIA_NOT_READY":         ExitRejected,
 	"REQUEST_TOO_LARGE":       ExitRejected,
 	"FILE_EXISTS":             ExitRejected,
+	"JOB_FAILED":              ExitRejected,
+	"JOB_CANCELED":            ExitRejected,
 	"INSUFFICIENT_CREDITS":    ExitCredits,
 	"MAX_CREDITS_EXCEEDED":    ExitCredits,
 	"NETWORK_ERROR":           ExitTemporary,
@@ -104,7 +108,7 @@ func New(out, errOut io.Writer) *App {
 		Store:  auth.Default(),
 		Out:    out,
 		Err:    errOut,
-		HTTP:   &http.Client{Timeout: 60 * time.Second},
+		HTTP:   &http.Client{Timeout: 60 * time.Second, CheckRedirect: client.NoRedirects},
 		Sleep:  sleepContext,
 	}
 }

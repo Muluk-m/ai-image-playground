@@ -158,10 +158,12 @@ export const cliOAuthRoutes = new Elysia()
     },
   )
 
+/** 只认显式配置的前端来源，不从转发头推导：那些头在直连 BFF 时可以伪造。 */
 function trustedOrigin(request: Request): boolean {
   const origin = request.headers.get('origin')
   if (!origin) return false
-  return origin === frontendOrigin(request) || config.corsOriginList.includes(origin)
+  const configured = [config.auth.frontendOrigin, ...config.corsOriginList].filter(Boolean)
+  return configured.includes(origin)
 }
 
 const userCodeQuery = t.Object({ user_code: t.String({ minLength: 1, maxLength: 32 }) })

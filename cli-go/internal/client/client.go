@@ -53,9 +53,13 @@ type HTTPClient struct {
 	UserAgent   string
 }
 
+// NoRedirects stops a client from following redirects: a redirect could carry a bearer
+// token, a refresh token form body or a local file to a host nobody chose.
+func NoRedirects(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
 func New(baseURL string, hc *http.Client) *HTTPClient {
 	if hc == nil {
-		hc = &http.Client{Timeout: 60 * time.Second}
+		hc = &http.Client{Timeout: 60 * time.Second, CheckRedirect: NoRedirects}
 	}
 	return &HTTPClient{BaseURL: strings.TrimRight(baseURL, "/"), HTTP: hc}
 }

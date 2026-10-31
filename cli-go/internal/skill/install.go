@@ -91,7 +91,12 @@ func Install(opts InstallOptions) (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
-		if projectDir == home {
+		// Compare real paths: a symlinked working directory must not turn a project
+		// install into a write into the home directory (or wherever the link points).
+		if projectDir, err = filepath.EvalSymlinks(projectDir); err != nil {
+			return Result{}, fmt.Errorf("resolve project directory: %w", err)
+		}
+		if realHome, err := filepath.EvalSymlinks(home); err == nil && projectDir == realHome {
 			return Result{}, errors.New("the project root resolved to the home directory; use --scope user instead")
 		}
 		root = projectDir
@@ -104,6 +109,9 @@ func Install(opts InstallOptions) (Result, error) {
 		if err := refuseSymlinks(root, destination); err != nil {
 			return Result{}, err
 		}
+	} else if info, err := os.Lstat(destination); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		// Replacing the link would silently detach a dotfiles-managed Skill.
+		return Result{}, fmt.Errorf("%s is a symlink; update the Skill at its target instead", destination)
 	}
 	files, hash, err := bundleFiles()
 	if err != nil {
@@ -231,7 +239,9 @@ func installTree(destination string, files []bundleFile, meta metadata) error {
 	}
 	if err := os.Rename(tmp, destination); err != nil {
 		if backup != "" {
-			_ = os.Rename(backup, destination)
+			if restoreErr := os.Rename(backup, destination); restoreErr != nil {
+				return fmt.Errorf("install Skill: %w; the previous Skill is kept at %s (restore failed: %v)", err, backup, restoreErr)
+			}
 		}
 		return fmt.Errorf("install Skill: %w", err)
 	}

@@ -3,6 +3,7 @@ package skill
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -94,6 +95,10 @@ func treeHash(root string) (string, error) {
 		}
 		if entry.IsDir() || entry.Name() == ".muvloom-skill.json" {
 			return nil
+		}
+		if !entry.Type().IsRegular() {
+			// Never follow a link (or block on a FIFO); an installed Skill only has files.
+			return fmt.Errorf("%s is not a regular file", path)
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
