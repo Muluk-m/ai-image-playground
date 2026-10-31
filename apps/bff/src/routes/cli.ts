@@ -10,7 +10,13 @@ import {
   revokeCliConnection,
   revokeCliToken,
 } from '../lib/cli/auth'
-import { cliApiEnabled, cliBoundary, createCliRateLimiter, requireScope } from '../lib/cli/boundary'
+import {
+  cliApiEnabled,
+  cliBoundary,
+  createCliRateLimiter,
+  requireScope,
+  withMediaErrors,
+} from '../lib/cli/boundary'
 import { CliRequestError, cliSuccess } from '../lib/cli/envelope'
 import {
   assertReferenceMedia,
