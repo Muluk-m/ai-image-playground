@@ -198,6 +198,26 @@ describe('observeApp', () => {
     expect((await observeApp({ now })).failures?.generation_successes).toEqual({})
   })
 
+  it('reads the newest server_logs row, or null while the table is empty', async () => {
+    expect((await observeApp({ now })).serverLogs).toEqual({ latest_at: null })
+
+    const row = (id: string, at: number) => ({
+      id,
+      at,
+      service: 'bff' as const,
+      instance: 'i',
+      version: 'v',
+      level: 'info' as const,
+      group_key: 'g',
+      message: id,
+      fields: {},
+    })
+    await writer.db
+      .insert(writer.schema.server_logs)
+      .values([row('log-old', now - 2 * hour), row('log-new', now - minute)])
+    expect((await observeApp({ now })).serverLogs).toEqual({ latest_at: now - minute })
+  })
+
   it('marks a failing model paused only when it was auto-paused for upstream unavailability', async () => {
     const table = writer.schema.model_availability
     const pausedOf = async () =>
@@ -251,7 +271,19 @@ describe('observeApp', () => {
 })
 
 describe('createAppAlerting', () => {
-  it('fires the four rules once, then stays quiet, then reports the recovery', async () => {
+  it('fires the rules once, then stays quiet, then reports the recovery', async () => {
+    // 自己控制日志新鲜度：这一行让 server-logs 规则起初安静，静默超线后也要走 firing → resolved。
+    await writer.db.insert(writer.schema.server_logs).values({
+      id: 'alert-flow-log',
+      at: now,
+      service: 'bff',
+      instance: 'i',
+      version: 'v',
+      level: 'info',
+      group_key: 'g',
+      message: 'alert-flow',
+      fields: {},
+    })
     const sent: AlertMessage[] = []
     let backupAt = now - 30 * hour
     let drillOk = false
@@ -289,8 +321,28 @@ describe('createAppAlerting', () => {
       'resolved:backup',
       'resolved:restore',
     ])
-  })
 
+    sent.length = 0
+    await check(now + 16 * minute)
+    expect(sent.map((message) => `${message.kind}:${message.rule}`)).toEqual(['firing:server-logs'])
+
+    await writer.db.insert(writer.schema.server_logs).values({
+      id: 'alert-flow-log-recovered',
+      at: now + 16 * minute,
+      service: 'bff',
+      instance: 'i',
+      version: 'v',
+      level: 'info',
+      group_key: 'g',
+      message: 'alert-flow-recovered',
+      fields: {},
+    })
+    sent.length = 0
+    await check(now + 17 * minute)
+    expect(sent.map((message) => `${message.kind}:${message.rule}`)).toEqual([
+      'resolved:server-logs',
+    ])
+  })
   it('never lets a failed send escape into the maintenance loop, and retries next round', async () => {
     let attempts = 0
     const check = createAppAlerting({
