@@ -24,4 +24,3 @@ export function meteringDecisionOrDenied(value: unknown): MeteringDecision | und
     return { kind: 'denied', reason: 'invalid_metering_decision' }
   }
 }
-

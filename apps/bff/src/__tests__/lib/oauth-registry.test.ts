@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import { getOAuthProviderDefinition, registerOAuthProviders } from '../../lib/oauth/registry'
 import type { OAuthProviderDefinition } from '../../lib/oauth/provider'
+import { getOAuthProviderDefinition, registerOAuthProviders } from '../../lib/oauth/registry'
 
 function definition(id: string): OAuthProviderDefinition {
   return {
@@ -15,9 +15,9 @@ function definition(id: string): OAuthProviderDefinition {
 
 describe('OAuth provider registry', () => {
   it('validates a complete batch before registering any definition', () => {
-    expect(() => registerOAuthProviders([definition('registry-alpha'), { ...definition('bad id') }])).toThrow(
-      'invalid OAuth provider id',
-    )
+    expect(() =>
+      registerOAuthProviders([definition('registry-alpha'), { ...definition('bad id') }]),
+    ).toThrow('invalid OAuth provider id')
     expect(getOAuthProviderDefinition('registry-alpha')).toBeUndefined()
     expect(() =>
       registerOAuthProviders([{ ...definition('registry-malformed'), label: '' }]),

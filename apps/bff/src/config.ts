@@ -83,7 +83,8 @@ export const config = {
         .map((origin) => origin.trim())
         .filter(Boolean)
         .map((origin) => bareOrigin('AUTH_FRONTEND_ORIGINS', origin))
-      const values = configured.length > 0 ? configured : [config.auth.frontendOrigin, ...config.corsOriginList]
+      const values =
+        configured.length > 0 ? configured : [config.auth.frontendOrigin, ...config.corsOriginList]
       return [...new Set(values.filter((origin) => origin && origin !== '*'))]
     },
   },

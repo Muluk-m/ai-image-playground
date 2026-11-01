@@ -6,7 +6,7 @@ import {
 import { and, eq, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { finishTask, heldBy } from '../db/task-transitions'
-import { chatTaskPricing, chatTurnsBilled, type ChatTaskPricing } from './agent/chat-task'
+import { type ChatTaskPricing, chatTaskPricing, chatTurnsBilled } from './agent/chat-task'
 import { compactionSettings } from './agent/compaction-settings'
 import { agentStreamFn } from './agent/model'
 import { readAgentModelSettings } from './agent/model-settings-store'
@@ -18,8 +18,8 @@ import {
 } from './agent/provider-settings'
 import { assertRequestWithinBudget, requestInputTokens } from './agent/request-budget'
 import { bffDrain } from './drain'
-import { modelUnavailable } from './model-availability'
 import { meteringDecisionOrDenied } from './metering-decision'
+import { modelUnavailable } from './model-availability'
 import { loadPrivateBffOverlay, type TaskReservationFailure } from './private-overlay'
 import { reservedTokenUsage, settledTokenUsage, type TokenUsage } from './token-pricing'
 
@@ -130,15 +130,17 @@ export async function generateCanvasText(
       if (await modelUnavailable(tx, model.id))
         return { kind: 'price_unavailable', model: model.id }
       if (userId) {
-        const decision = meteringDecisionOrDenied(await hooks.meteringDecision?.({
-          tx,
-          userId,
-          model: model.id,
-          kind: 'chat',
-          quantity: 1,
-          unitMultiplier: 1,
-          inputEstimateTokens: requestInputTokens(context),
-        }))
+        const decision = meteringDecisionOrDenied(
+          await hooks.meteringDecision?.({
+            tx,
+            userId,
+            model: model.id,
+            kind: 'chat',
+            quantity: 1,
+            unitMultiplier: 1,
+            inputEstimateTokens: requestInputTokens(context),
+          }),
+        )
         if (decision?.kind === 'denied') return { kind: 'access_denied', reason: decision.reason }
         unmetered = decision?.kind === 'unmetered'
         meteringMode = unmetered || !billed ? 'none' : 'credits'

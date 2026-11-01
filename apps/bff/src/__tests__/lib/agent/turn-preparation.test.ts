@@ -543,8 +543,7 @@ describe('开不了轮', () => {
     )
 
     expect(prepared).toEqual({ kind: 'price_unavailable', model: 'fixture-agent-model' })
-
-})
+  })
 
   it('收件箱那一条已经被别处取走：什么都不落', async () => {
     const conversation = await createAgentConversation(USER, '你好')

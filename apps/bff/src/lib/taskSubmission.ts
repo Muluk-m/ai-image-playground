@@ -30,9 +30,9 @@ import { canonicalJson } from './canonicalJson'
 import { isCapabilityEnabled } from './capabilities'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
+import { meteringDecisionOrDenied } from './metering-decision'
 import { modelUnavailable } from './model-availability'
 import { objectStore } from './objectStore'
-import { meteringDecisionOrDenied } from './metering-decision'
 import { type BffTransaction, loadPrivateBffOverlay } from './private-overlay'
 import { reserveProjectOutputs } from './projectArchive'
 import { lockMediaOwner } from './projectMedia'
@@ -448,7 +448,11 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
         metering = { ...metering, mode: 'none' }
       }
       if (decision?.kind === 'metered' && isCapabilityEnabled('billing:credits'))
-        metering = { ...metering, mode: 'credits', ...(decision.pricing ? { pricing: decision.pricing } : {}) }
+        metering = {
+          ...metering,
+          mode: 'credits',
+          ...(decision.pricing ? { pricing: decision.pricing } : {}),
+        }
     }
     const inserted = await tx
       .insert(schema.tasks)

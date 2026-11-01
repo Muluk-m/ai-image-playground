@@ -17,6 +17,7 @@ import { withVisualPreparation } from './agent/visual-resources'
 import { analysisComparison } from './analysis-comparison'
 import { isCapabilityEnabled } from './capabilities'
 import { type ChatAttempt, extractJson } from './chatCompletion'
+import { meteringDecisionOrDenied } from './metering-decision'
 import { modelUnavailable } from './model-availability'
 import {
   type BffTransaction,
@@ -25,7 +26,6 @@ import {
   type PrivateTaskHooks,
   type TaskReservationResult,
 } from './private-overlay'
-import { meteringDecisionOrDenied } from './metering-decision'
 import { lockMediaOwner } from './projectMedia'
 import { reservedTokenUsage, settledTokenUsage } from './token-pricing'
 import { isObject } from './type-guards'

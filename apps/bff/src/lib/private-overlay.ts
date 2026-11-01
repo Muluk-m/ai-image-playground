@@ -1,8 +1,8 @@
 import type { AgentBatchPriceSnapshot, TaskErrorType } from '@image-playground/shared'
 import { type AnyElysia, Elysia, status } from 'elysia'
 import type { db as bffDb } from '../db/client'
-import { registerOAuthProviders } from './oauth/registry'
 import type { OAuthProviderDefinition } from './oauth/provider'
+import { registerOAuthProviders } from './oauth/registry'
 
 export type BffTransaction = Parameters<Parameters<typeof bffDb.transaction>[0]>[0]
 
@@ -73,8 +73,16 @@ export interface MeteringDecisionInput {
 }
 
 export type MeteringDecision =
-  | { readonly kind: 'metered'; readonly metering: 'credits'; readonly pricing?: AgentBatchPriceSnapshot }
-  | { readonly kind: 'unmetered'; readonly metering: 'none'; readonly pricing?: AgentBatchPriceSnapshot }
+  | {
+      readonly kind: 'metered'
+      readonly metering: 'credits'
+      readonly pricing?: AgentBatchPriceSnapshot
+    }
+  | {
+      readonly kind: 'unmetered'
+      readonly metering: 'none'
+      readonly pricing?: AgentBatchPriceSnapshot
+    }
   | { readonly kind: 'denied'; readonly reason: string }
 
 export function nonBillingPriceSnapshot(input: {
@@ -140,7 +148,12 @@ export interface PrivateTaskHooks {
   /** Atomically consume the unmetered account quota after the decision is known. */
   consumeUnmeteredQuota?(input: MeteringDecisionInput): Promise<
     | { readonly kind: 'consumed' }
-    | { readonly kind: 'quota_exceeded'; readonly quota: number; readonly used: number; readonly resetAt: string }
+    | {
+        readonly kind: 'quota_exceeded'
+        readonly quota: number
+        readonly used: number
+        readonly resetAt: string
+      }
   >
   reserveTask(input: {
     tx: BffTransaction
@@ -250,7 +263,8 @@ let overlayPromise: Promise<PrivateBffOverlay> | null = null
 async function loadOverlay(entryUrl: URL): Promise<PrivateBffOverlay> {
   if (!(await Bun.file(entryUrl).exists())) return EMPTY_PRIVATE_BFF_OVERLAY
   const privateModule: PrivateBffModule = await import(entryUrl.href)
-  if (privateModule.privateOAuthProviders) registerOAuthProviders(privateModule.privateOAuthProviders)
+  if (privateModule.privateOAuthProviders)
+    registerOAuthProviders(privateModule.privateOAuthProviders)
 
   if (!(privateModule.privateBffRoutes instanceof Elysia)) {
     throw new Error('private/apps/bff/index.ts must export privateBffRoutes as an Elysia plugin')

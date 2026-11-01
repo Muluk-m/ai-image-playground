@@ -12,7 +12,12 @@ export type RecordedReservation = Omit<Parameters<PrivateTaskHooks['reserveTask'
 export type RecordedSettlement = Omit<Parameters<PrivateTaskHooks['finalizeTask']>[0], 'tx'>
 type RecordedQuota =
   | { readonly kind: 'consumed' }
-  | { readonly kind: 'quota_exceeded'; readonly quota: number; readonly used: number; readonly resetAt: string }
+  | {
+      readonly kind: 'quota_exceeded'
+      readonly quota: number
+      readonly used: number
+      readonly resetAt: string
+    }
 
 export interface RecordedTaskHooks {
   readonly reservations: RecordedReservation[]
@@ -36,7 +41,12 @@ export interface RecordedTaskHooks {
   meteringCalls: Array<Omit<MeteringDecisionInput, 'tx'>>
   unmeteredQuota:
     | { readonly kind: 'consumed' }
-    | { readonly kind: 'quota_exceeded'; readonly quota: number; readonly used: number; readonly resetAt: string }
+    | {
+        readonly kind: 'quota_exceeded'
+        readonly quota: number
+        readonly used: number
+        readonly resetAt: string
+      }
   quotaCalls: Array<Omit<MeteringDecisionInput, 'tx'>>
   consumeQuota: ((input: MeteringDecisionInput) => Promise<RecordedQuota>) | null
   reset(): void

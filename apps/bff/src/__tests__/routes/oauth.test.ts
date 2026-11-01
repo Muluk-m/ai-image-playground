@@ -220,7 +220,6 @@ describe('oauth start', () => {
     )
     expect(location.searchParams.get('response_type')).toBe('code')
     expect(location.searchParams.get('scope')).toBe('openid email profile')
-
   })
   it('returns a completed login to an explicitly supplied allowlisted frontend origin', async () => {
     enableGoogle()
@@ -344,7 +343,9 @@ describe('oauth callback', () => {
     const state = new URL(start.headers.get('location') ?? '').searchParams.get('state') ?? ''
     const stateCookie = readCookie(start, 'image_playground_oauth_state')
     if (!stateCookie) throw new Error('start did not issue OAuth state cookie')
-    expect((await callback('google', { code: 'cross-provider', state }, stateCookie)).status).toBe(403)
+    expect((await callback('google', { code: 'cross-provider', state }, stateCookie)).status).toBe(
+      403,
+    )
   })
 
   it('returns a successful login to the requested workspace route with query and hash', async () => {
