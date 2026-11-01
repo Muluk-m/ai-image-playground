@@ -24,6 +24,7 @@ import {
   loadPrivateBffOverlay,
   nonBillingPriceSnapshot,
 } from '../private-overlay'
+import { SafeFetchError } from '../safeFetch'
 import {
   type CreateQueueTaskInput,
   createQueueTask,
