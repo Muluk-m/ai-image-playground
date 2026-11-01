@@ -301,6 +301,7 @@ export function objectStore(): ObjectStore {
     new Bun.S3Client({
       endpoint: config.objectStore.endpoint,
       bucket: config.objectStore.bucket,
+      region: 'auto',
       accessKeyId: config.objectStore.accessKeyId,
       secretAccessKey: config.objectStore.secretAccessKey,
     }),
