@@ -33,19 +33,22 @@ function reserveFreePort(): number {
 }
 
 const port = reserveFreePort()
-const server = Bun.spawn([process.execPath, '--no-env-file', resolve(import.meta.dir, '../../index.ts')], {
-  cwd: resolve(import.meta.dir, '../../..'),
-  env: {
-    ...process.env,
-    PORT: String(port),
-    DATABASE_URL: TEST_DB,
-    UPSTREAM_BASE_URL: 'http://localhost:9999',
-    UPSTREAM_API_KEY: 'test',
-    CORS_ALLOWED_ORIGINS: '*',
+const server = Bun.spawn(
+  [process.execPath, '--no-env-file', resolve(import.meta.dir, '../../index.ts')],
+  {
+    cwd: resolve(import.meta.dir, '../../..'),
+    env: {
+      ...process.env,
+      PORT: String(port),
+      DATABASE_URL: TEST_DB,
+      UPSTREAM_BASE_URL: 'http://localhost:9999',
+      UPSTREAM_API_KEY: 'test',
+      CORS_ALLOWED_ORIGINS: '*',
+    },
+    stdout: 'ignore',
+    stderr: 'ignore',
   },
-  stdout: 'ignore',
-  stderr: 'ignore',
-})
+)
 
 afterAll(() => {
   server.kill()
