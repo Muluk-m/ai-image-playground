@@ -19,7 +19,11 @@ import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { quoteAnalysisTask } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
-import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
+import {
+  nonBillingPriceSnapshot,
+  type BffTransaction,
+  loadPrivateBffOverlay,
+} from '../private-overlay'
 import { queueTaskOutcome } from '../taskSubmission'
 import { prepareBatchAnalysis } from './batch-analysis-preparation'
 import { readBatchAnalysisSummary, readBatchSourceSummary } from './batch-analysis-summary'
@@ -1136,12 +1140,38 @@ export async function quoteBatchPlan(
     Awaited<ReturnType<NonNullable<typeof hooks.quoteTask>>> | undefined
   >()
   const generationQuote = async (model: string) => {
-    if (!generationQuotes.has(model))
-      generationQuotes.set(
-        model,
-        await hooks.quoteTask?.({ tx, userId, model, quantity: 1, unitMultiplier: 1 }),
-      )
-    return generationQuotes.get(model)
+    if (generationQuotes.has(model)) return generationQuotes.get(model)
+    const decision = await hooks.meteringDecision?.({
+      tx,
+      userId,
+      model,
+      kind: 'image',
+      quantity: 1,
+      unitMultiplier: 1,
+    })
+    if (decision?.kind === 'denied') {
+      generationQuotes.set(model, undefined)
+      return undefined
+    }
+    if (decision?.kind === 'unmetered') {
+      const quote = {
+        estimatedCredits: 0,
+        pricing: nonBillingPriceSnapshot({ model, kind: 'image', quantity: 1, unitMultiplier: 1 }),
+      }
+      generationQuotes.set(model, quote)
+      return quote
+    }
+    if (!isCapabilityEnabled('billing:credits')) {
+      const quote = {
+        estimatedCredits: 0,
+        pricing: nonBillingPriceSnapshot({ model, kind: 'image', quantity: 1, unitMultiplier: 1 }),
+      }
+      generationQuotes.set(model, quote)
+      return quote
+    }
+    const quote = await hooks.quoteTask?.({ tx, userId, model, quantity: 1, unitMultiplier: 1 })
+    generationQuotes.set(model, quote)
+    return quote
   }
   const quoteKind = async (kind: AgentBatchItem['kind']) => {
     const selected = items.filter((item) => item.kind === kind)
@@ -1150,7 +1180,6 @@ export async function quoteBatchPlan(
     let estimatedCredits = 0
     let estimatedChargeCredits = 0
     for (const item of selected) {
-      if (item.kind === 'generation' && !isCapabilityEnabled('billing:credits')) continue
       const quote =
         item.kind === 'analysis'
           ? await quoteAnalysisTask(

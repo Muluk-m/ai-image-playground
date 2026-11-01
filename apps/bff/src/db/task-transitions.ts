@@ -237,6 +237,7 @@ export async function finishTask(
         id: schema.tasks.id,
         userId: schema.tasks.user_id,
         model: schema.tasks.model,
+        metering: schema.tasks.metering,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
       })
     if (!finished) return false
@@ -254,15 +255,16 @@ export async function finishTask(
           : // 部分出图：没出的那几个预留位置留成失败占位，不悄悄收掉。
             partialFailureCode(update.resultPayload),
       )
-    await taskHooks.finalizeTask({
-      tx,
-      taskId: finished.id,
-      outcome: update.status,
-      upstreamInvocationCount: finished.upstreamInvocationCount,
-      errorType: update.errorType,
-      upstreamStatus: update.upstreamStatus ?? null,
-      actualUsage: update.actualUsage,
-    })
+    if (finished.metering?.mode !== 'none')
+      await taskHooks.finalizeTask({
+        tx,
+        taskId: finished.id,
+        outcome: update.status,
+        upstreamInvocationCount: finished.upstreamInvocationCount,
+        errorType: update.errorType,
+        upstreamStatus: update.upstreamStatus ?? null,
+        actualUsage: update.actualUsage,
+      })
     if (update.status === 'failed' && update.errorType === 'model_unavailable') {
       await pauseUnavailableModel(tx, finished.model, update.completedAt)
     }
@@ -299,16 +301,18 @@ export async function cancelTasks(
       .returning({
         id: schema.tasks.id,
         userId: schema.tasks.user_id,
+        metering: schema.tasks.metering,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
       })
     for (const row of rows) {
       if (row.userId) await publishProjectOutputs(tx, row.userId, row.id, [], options.failedAs)
-      await taskHooks.finalizeTask({
-        tx,
-        taskId: row.id,
-        outcome: 'cancelled',
-        upstreamInvocationCount: row.upstreamInvocationCount,
-      })
+      if (row.metering?.mode !== 'none')
+        await taskHooks.finalizeTask({
+          tx,
+          taskId: row.id,
+          outcome: 'cancelled',
+          upstreamInvocationCount: row.upstreamInvocationCount,
+        })
     }
     // 取消的后台任务不唤醒，但它结束了：同一批里其余的可能正等着它。
     await agentJobsEnded(

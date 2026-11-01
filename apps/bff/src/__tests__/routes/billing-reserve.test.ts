@@ -10,6 +10,7 @@ import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 const TEST_DB = await resetTestDatabase('bff_billing_reserve')
 
+const quotaState = { used: 0, quota: 1, mode: 'credits' as 'credits' | 'none' }
 type Reservation = Omit<Parameters<PrivateTaskHooks['reserveTask']>[0], 'tx'>
 const reservations: Reservation[] = []
 
@@ -30,6 +31,22 @@ _setPrivateBffOverlayForTesting(
     present: true,
     taskHooks: {
       ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
+      async meteringDecision() {
+        return quotaState.mode === 'none'
+          ? ({ kind: 'unmetered', metering: 'none' } as const)
+          : ({ kind: 'metered', metering: 'credits' } as const)
+      },
+      async consumeUnmeteredQuota() {
+        if (quotaState.used >= quotaState.quota)
+          return {
+            kind: 'quota_exceeded' as const,
+            quota: quotaState.quota,
+            used: quotaState.used,
+            resetAt: '2099-01-01T00:00:00.000Z',
+          }
+        quotaState.used += 1
+        return { kind: 'consumed' as const }
+      },
       async reserveTask({ tx: _tx, ...rest }: Parameters<PrivateTaskHooks['reserveTask']>[0]) {
         reservations.push(rest)
         return { kind: 'reserved' as const, credits: 0 }
@@ -95,6 +112,8 @@ const channels: InternalChannel[] = [
 
 beforeEach(async () => {
   reservations.length = 0
+  quotaState.used = 0
+  quotaState.mode = 'credits'
   setObjectStoreForTesting(new InMemoryObjectStore())
   _setChannelsForTesting(channels)
   await db.delete(schema.tasks)
@@ -124,12 +143,17 @@ afterAll(async () => {
   await closeDb()
 })
 
-async function submit(model: string, body: Record<string, unknown>): Promise<number> {
-  const response = await app.handle(
+async function submitResponse(
+  model: string,
+  body: Record<string, unknown>,
+  origin = 'https://app.example.test',
+): Promise<Response> {
+  return app.handle(
     new Request(`http://localhost/v1/queue/openai-compat/${model}/submit`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
+        origin,
         cookie: `${USER_SESSION_COOKIE}=${SESSION_TOKEN}`,
       },
       body: JSON.stringify({
@@ -140,7 +164,10 @@ async function submit(model: string, body: Record<string, unknown>): Promise<num
       }),
     }),
   )
-  return response.status
+}
+
+async function submit(model: string, body: Record<string, unknown>): Promise<number> {
+  return (await submitResponse(model, body)).status
 }
 
 describe('billing reservation units', () => {
@@ -331,5 +358,63 @@ describe('repeated submissions', () => {
     expect(await submit('gpt-image-2', { prompt: 'network retry', client_request_id })).toBe(200)
     expect(await submit('gpt-image-2', { prompt: 'network retry', client_request_id })).toBe(200)
     expect(reservations).toHaveLength(1)
+  })
+})
+
+describe('HTTP metering decisions and quota consumption', () => {
+  it('runs an unmetered image request across an allowed Origin and persists the task snapshot', async () => {
+    quotaState.mode = 'none'
+    const response = await submitResponse('gpt-image-2', {
+      client_request_id: 'unmetered-image-cross-origin',
+    })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('access-control-allow-origin')).toBe('https://app.example.test')
+    const [task] = await db.select().from(schema.tasks)
+    expect(task).toMatchObject({ user_id: 'billing-user', client_request_id: 'unmetered-image-cross-origin' })
+    expect(task?.metering).toMatchObject({ mode: 'none' })
+    expect(reservations).toHaveLength(0)
+    expect(quotaState.used).toBe(1)
+  })
+
+  it('applies the same unmetered quota path to video from another Origin', async () => {
+    quotaState.mode = 'none'
+    const response = await submitResponse(
+      'grok-imagine-video',
+      { video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' } },
+      'https://studio.example.test',
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get('access-control-allow-origin')).toBe('https://studio.example.test')
+    const [task] = await db.select().from(schema.tasks)
+    expect(task?.metering).toMatchObject({ mode: 'none' })
+    expect(quotaState.used).toBe(1)
+  })
+
+  it('returns quota_exceeded over HTTP without leaving a task behind', async () => {
+    quotaState.mode = 'none'
+    quotaState.used = quotaState.quota
+    const response = await submitResponse('gpt-image-2', { client_request_id: 'quota-refused' })
+    expect(response.status).toBe(429)
+    expect(await response.json()).toMatchObject({ error: 'daily_quota_exceeded', quota: 1, used: 1 })
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  })
+
+  it('does not consume quota twice when the same client request is replayed', async () => {
+    quotaState.mode = 'none'
+    const body = { client_request_id: 'same-unmetered-request' }
+    expect((await submitResponse('gpt-image-2', body)).status).toBe(200)
+    expect((await submitResponse('gpt-image-2', body)).status).toBe(200)
+    expect(quotaState.used).toBe(1)
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+  })
+  it('rejects a concurrent quota loser without leaving its task behind', async () => {
+    quotaState.mode = 'none'
+    const responses = await Promise.all([
+      submitResponse('gpt-image-2', { client_request_id: 'concurrent-quota-a' }),
+      submitResponse('gpt-image-2', { client_request_id: 'concurrent-quota-b' }),
+    ])
+    expect(responses.map((one) => one.status).sort()).toEqual([200, 429])
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(quotaState.used).toBe(1)
   })
 })

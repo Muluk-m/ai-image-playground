@@ -309,6 +309,7 @@ export async function loginWithOAuthIdentity(
           userId: created.id,
           source: 'self-registration',
           referralCode: options.referralCode,
+          oauthProvider: identity.provider,
         })
         return {
           user: created,

@@ -21,6 +21,7 @@ import { modelUnavailable } from './model-availability'
 import {
   type BffTransaction,
   loadPrivateBffOverlay,
+  nonBillingPriceSnapshot,
   type PrivateTaskHooks,
   type TaskReservationResult,
 } from './private-overlay'
@@ -114,34 +115,62 @@ export interface ReserveAnalysisTaskInput {
 }
 
 export async function quoteAnalysisTask(
-  input: { tx: BffTransaction; userId: string; model: string; estimatedInputTokens: number },
+  input: {
+    tx: BffTransaction
+    userId: string
+    model: string
+    estimatedInputTokens: number
+  },
   hooks?: PrivateTaskHooks,
 ) {
+  const activeHooks = hooks ?? (await loadPrivateBffOverlay()).taskHooks
+  const decision = await activeHooks.meteringDecision?.({
+    tx: input.tx,
+    userId: input.userId,
+    model: input.model,
+    kind: 'analysis',
+    quantity: 1,
+    unitMultiplier: 1,
+    inputEstimateTokens: input.estimatedInputTokens,
+  })
+  if (decision?.kind === 'denied') return null
+  if (decision?.kind === 'unmetered')
+    return {
+      estimatedCredits: 0,
+      pricing: nonBillingPriceSnapshot({
+        model: input.model,
+        kind: 'analysis',
+        quantity: 1,
+        unitMultiplier: 1,
+        inputEstimateTokens: input.estimatedInputTokens,
+        outputReserveTokens: config.agent.maxTokens,
+      }),
+    }
   if (!isCapabilityEnabled('billing:credits'))
     return {
       estimatedCredits: 0,
-      pricing: {
+      pricing: nonBillingPriceSnapshot({
         model: input.model,
-        unit: 'kilo_token' as const,
+        kind: 'analysis',
         quantity: 1,
         unitMultiplier: 0,
-        pricingVersion: `non-billing:${input.model}:${config.agent.maxTokens}`,
-        quotedAt: Date.now(),
-        validUntil: null,
-        baseUnitCredits: 0,
-        outputPriceRatio: 1,
-        cachedInputPriceRatio: 0,
         inputEstimateTokens: input.estimatedInputTokens,
         outputReserveTokens: config.agent.maxTokens,
-        exemption: 'non-billing' as const,
-      },
+      }),
     }
-  return (hooks ?? (await loadPrivateBffOverlay()).taskHooks).quoteTokenTask?.(input) ?? null
+  return activeHooks.quoteTokenTask?.(input) ?? null
 }
+
+export type AnalysisReservationResult =
+  | TaskReservationResult
+  | {
+      readonly kind: 'quota_exceeded'
+      readonly quota: { readonly quota: number; readonly used: number; readonly resetAt: string }
+    }
 
 export async function reserveAnalysisTask(
   input: ReserveAnalysisTaskInput,
-): Promise<TaskReservationResult> {
+): Promise<AnalysisReservationResult> {
   const { tx, taskHooks, prepared, pricing } = input
   if (
     pricing.model !== prepared.model ||
@@ -184,6 +213,7 @@ export async function reserveAnalysisTask(
     return { kind: 'price_unavailable' as const, model: prepared.model }
   }
   const now = Date.now()
+  const unmetered = pricing.exemption === 'non-billing'
   await tx.insert(schema.tasks).values({
     id: input.taskId,
     kind: 'analysis',
@@ -192,11 +222,36 @@ export async function reserveAnalysisTask(
     status: 'queued',
     reconciliation_required: true,
     request_payload: { prompt: '', device_id: input.deviceId },
+    metering: {
+      mode: unmetered ? 'none' : 'credits',
+      model: prepared.model,
+      quantity: pricing.quantity,
+      unitMultiplier: pricing.unitMultiplier,
+      ...(unmetered ? {} : { pricing }),
+    },
     user_id: input.userId,
     agent_conversation_id: input.originConversationId,
     agent_turn_id: null,
     submitted_at: now,
   })
+  if (unmetered && taskHooks.consumeUnmeteredQuota) {
+    const quota = await taskHooks.consumeUnmeteredQuota({
+      tx,
+      userId: input.userId,
+      model: prepared.model,
+      kind: 'analysis',
+      quantity: pricing.quantity,
+      unitMultiplier: pricing.unitMultiplier,
+      inputEstimateTokens: prepared.estimatedInputTokens,
+    })
+    if (quota.kind === 'quota_exceeded') {
+      await tx.delete(schema.tasks).where(eq(schema.tasks.id, input.taskId))
+      return {
+        kind: 'quota_exceeded' as const,
+        quota: { quota: quota.quota, used: quota.used, resetAt: quota.resetAt },
+      }
+    }
+  }
   const reserved =
     pricing.exemption === 'none'
       ? await taskHooks.reserveTask({
