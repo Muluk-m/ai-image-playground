@@ -326,7 +326,9 @@ export async function setOperatorConfig(input: {
     })
     return { revision }
   })
-  await refreshOperatorConfig()
+  const committedRevision = result.revision
+  while ((await operatorConfigRevision()) < committedRevision) await Bun.sleep(1)
+  await refreshOperatorConfigUnlocked()
   return rowView(
     config.operator,
     baselineOperatorConfig(),
@@ -398,7 +400,7 @@ export async function clearOperatorConfig(input: {
       created_at: now,
     })
   })
-  await refreshOperatorConfig()
+  await refreshOperatorConfigUnlocked()
 }
 
 async function refreshOperatorConfigUnlocked(): Promise<number> {
