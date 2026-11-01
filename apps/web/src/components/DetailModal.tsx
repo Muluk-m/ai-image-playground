@@ -34,6 +34,20 @@ import { Button } from './ui/button'
 import { Icon } from './ui/icon'
 import { OverflowText } from './ui/overflowTitle'
 
+/**
+ * 单张删除后「回到这条记录的详情」的凭证：发起删除时领一个号，之后打开任何详情、切换页面或前进后退
+ * 都会作废它，迟到的删除结果就不会把用户拉回已经离开的记录。
+ */
+let reopenTicket = 0
+useStore.subscribe((state, previous) => {
+  if (
+    (state.detailTaskId !== previous.detailTaskId && state.detailTaskId !== null) ||
+    state.appMode !== previous.appMode
+  )
+    reopenTicket++
+})
+if (typeof window !== 'undefined') window.addEventListener('popstate', () => reopenTicket++)
+
 export default function DetailModal() {
   const { t } = useTranslation(['task', 'common'])
   const tasks = useHistoryTasks()
@@ -262,17 +276,25 @@ export default function DetailModal() {
         : t('confirm.deleteMessage'),
       action: deletesOneImage
         ? () => {
+            const ticket = ++reopenTicket
             const path = window.location.pathname
-            void removeTaskOutput(task, index).then((outcome) => {
-              // 删完回到这条记录的详情接着看剩下的几张；但删除要等网络，期间用户打开了别的详情
-              // 或换了页面就不抢回来，没删成或整条没了也不回。
-              if (
-                outcome === 'kept' &&
-                useStore.getState().detailTaskId === null &&
-                window.location.pathname === path
+            void removeTaskOutput(task, index)
+              .then((outcome) => {
+                // 删完回到这条记录的详情接着看剩下的几张；但删除要等网络，期间用户打开过别的详情
+                // 或换过页面（凭证作废）就不抢回来，没删成或整条没了也不回。
+                if (
+                  outcome === 'kept' &&
+                  ticket === reopenTicket &&
+                  useStore.getState().detailTaskId === null &&
+                  window.location.pathname === path
+                )
+                  setDetailTaskId(task.id)
+              })
+              .catch(() =>
+                useStore
+                  .getState()
+                  .showToast(t('toast.imageDeleteFailed', { ns: 'store' }), 'error'),
               )
-                setDetailTaskId(task.id)
-            })
           }
         : () => removeTask(task),
     })

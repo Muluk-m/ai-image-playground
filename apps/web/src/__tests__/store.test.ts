@@ -3247,6 +3247,43 @@ describe('多图作品只删一张', () => {
     expect(local.outputPositions).toEqual([2])
   })
 
+  it('只剩一张时整条删除失败，结果是 failed，本机记录还在', async () => {
+    deleteRemoteGeneration.mockResolvedValue(false)
+    useStore.setState({
+      tasks: [task({ id: 'local-1x', bffRequestId: 'gen-1x', outputImages: ['a'] })],
+      platformGenerations: [detailRow('gen-1x', [0])],
+    })
+
+    const outcome = await removeTaskOutput(useStore.getState().tasks[0] as TaskRecord, 0)
+
+    expect(outcome).toBe('failed')
+    expect(useStore.getState().tasks.map((t) => t.id)).toEqual(['local-1x'])
+  })
+
+  it('等待期间记录被别处改过、位置号对不上时停下，不按 id 删到另一张', async () => {
+    const snapshot = task({
+      id: 'local-m2',
+      bffRequestId: 'gen-m2',
+      outputImages: ['a', 'a', 'b'],
+      outputPositions: [0, 1, 2],
+    })
+    useStore.setState({ tasks: [snapshot], platformGenerations: [detailRow('gen-m2', [0, 1, 2])] })
+    deleteRemoteGenerationOutput.mockImplementation(async () => {
+      // 请求期间另一处已经把位置 1 那张去掉了。
+      useStore.setState({
+        tasks: [{ ...snapshot, outputImages: ['a', 'b'], outputPositions: [0, 2] }],
+      })
+      return { generationDeleted: false }
+    })
+
+    const outcome = await removeTaskOutput(snapshot, 1)
+
+    expect(outcome).toBe('kept')
+    const local = useStore.getState().tasks[0] as TaskRecord
+    expect(local.outputImages).toEqual(['a', 'b'])
+    expect(local.outputPositions).toEqual([0, 2])
+  })
+
   it('平台那张删不掉就本机也不动', async () => {
     deleteRemoteGenerationOutput.mockResolvedValue(null)
     useStore.setState({

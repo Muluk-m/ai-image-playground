@@ -2737,22 +2737,22 @@ export async function setTaskFavorite(task: TaskRecord, favorite: boolean): Prom
  * 删除单条记录。平台那条先删平台：本机丢掉不算删，刷新就回来了——删除的权威在平台。
  * 平台删不掉时整件事不做，免得列表和平台各说一套。
  */
-export async function removeTask(task: TaskRecord) {
+export async function removeTask(task: TaskRecord): Promise<boolean> {
   const { showToast } = useStore.getState()
   if (task.remoteOnly) {
     if (!(await deleteRemoteGeneration(task.id))) {
       showToast(i18next.t('toast.taskDeleteFailed', { ns: 'store' }), 'error')
-      return
+      return false
     }
     await dropPlatformGeneration(task.id)
     showToast(i18next.t('toast.taskDeleted', { ns: 'store' }), 'success')
-    return
+    return true
   }
 
   // 本机跑的平台任务在平台上也有一条：只删本机，刷新时平台列表又把它带回来。
   if (!(await deletePlatformCounterpart(task))) {
     showToast(i18next.t('toast.taskDeleteFailed', { ns: 'store' }), 'error')
-    return
+    return false
   }
   // 等过网络，期间可能有新任务进来：从最新列表里删，别把请求前的快照写回去。
   const { tasks: latest, setTasks: setLatest } = useStore.getState()
@@ -2783,6 +2783,7 @@ export async function removeTask(task: TaskRecord) {
   }
 
   showToast(i18next.t('toast.taskDeleted', { ns: 'store' }), 'success')
+  return true
 }
 
 /**
@@ -2813,10 +2814,7 @@ async function removeTaskOutputNow(
   const { showToast, platformGenerations } = useStore.getState()
   const imageId = task.outputImages[imageIndex]
   if (imageId === undefined) return 'failed'
-  if (task.outputImages.length <= 1) {
-    await removeTask(task)
-    return 'gone'
-  }
+  if (task.outputImages.length <= 1) return (await removeTask(task)) ? 'gone' : 'failed'
 
   const remoteId = task.bffRequestId ?? task.id
   const row = platformGenerations.find((item) => item.id === remoteId)
@@ -2837,8 +2835,8 @@ async function removeTaskOutputNow(
     }
     if (result.generationDeleted) {
       if (row) await dropPlatformGeneration(remoteId)
-      if (!task.remoteOnly) await removeTask(task)
-      else showToast(i18next.t('toast.imageDeleted', { ns: 'store' }), 'success')
+      if (!task.remoteOnly) return (await removeTask(task)) ? 'gone' : 'failed'
+      showToast(i18next.t('toast.imageDeleted', { ns: 'store' }), 'success')
       return 'gone'
     }
     if (row && position !== undefined) await dropPlatformGenerationOutput(remoteId, position)
@@ -2853,11 +2851,14 @@ async function removeTaskOutputNow(
   const latest = useStore.getState().tasks.find((item) => item.id === task.id)
   if (!latest) return 'gone'
   const latestPositions = latest.outputPositions ?? latest.outputImages.map((_, i) => i)
+  // 位置号已知却对不上，说明这条记录在等待期间被别处改过，停下不删，免得删到同 id 的另一张。
   const byPosition = position === undefined ? -1 : latestPositions.indexOf(position)
   const index =
-    byPosition >= 0 && latest.outputImages[byPosition] === imageId
-      ? byPosition
-      : latest.outputImages.indexOf(imageId)
+    position === undefined
+      ? latest.outputImages.indexOf(imageId)
+      : byPosition >= 0 && latest.outputImages[byPosition] === imageId
+        ? byPosition
+        : -1
   if (index < 0) return 'kept'
   const without = <T>(list: readonly T[] | undefined) =>
     list ? list.filter((_, i) => i !== index) : undefined
