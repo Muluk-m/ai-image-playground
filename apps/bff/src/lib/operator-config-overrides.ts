@@ -16,6 +16,7 @@ import { type ResolvedOperatorConfig, validateOperatorConfigValues } from './ope
 export type OperatorOverrideValue = boolean | number
 const invalidOverrideReasons = new Map<string, string>()
 let lastLoadedRevision = -1
+let refreshInFlight: Promise<number> | undefined
 export interface OperatorOverrideView {
   readonly key: string
   readonly kind?: 'capability' | 'quota'
@@ -395,7 +396,7 @@ export async function clearOperatorConfig(input: {
   await refreshOperatorConfig()
 }
 
-export async function refreshOperatorConfig(): Promise<number> {
+async function refreshOperatorConfigUnlocked(): Promise<number> {
   invalidOverrideReasons.clear()
   const base = baselineOperatorConfig()
   const allRows = await rows()
@@ -454,6 +455,13 @@ export async function refreshOperatorConfig(): Promise<number> {
   }
   lastLoadedRevision = revision
   return revision
+}
+export function refreshOperatorConfig(): Promise<number> {
+  if (refreshInFlight) return refreshInFlight
+  refreshInFlight = refreshOperatorConfigUnlocked().finally(() => {
+    refreshInFlight = undefined
+  })
+  return refreshInFlight
 }
 
 export async function refreshOperatorConfigIfChanged(): Promise<number | null> {
