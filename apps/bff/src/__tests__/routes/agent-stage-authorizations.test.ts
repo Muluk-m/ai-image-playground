@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
@@ -29,11 +29,31 @@ initChannels(resolve(import.meta.dir, '../../../channels.json'))
 let actualCredits = 6
 let creditsPerUnit = 6
 let quoteAvailable = true
+let meteringMode: 'credits' | 'none' = 'credits'
+let unmeteredQuotaUsed = 0
+let reserveCalls = 0
+const unmeteredQuota = 1
 _setPrivateBffOverlayForTesting({
   ...EMPTY_PRIVATE_BFF_OVERLAY,
   present: true,
   taskHooks: {
     ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
+    async meteringDecision() {
+      return meteringMode === 'none'
+        ? ({ kind: 'unmetered', metering: 'none' } as const)
+        : ({ kind: 'metered', metering: 'credits' } as const)
+    },
+    async consumeUnmeteredQuota() {
+      if (unmeteredQuotaUsed >= unmeteredQuota)
+        return {
+          kind: 'quota_exceeded' as const,
+          quota: unmeteredQuota,
+          used: unmeteredQuotaUsed,
+          resetAt: '2099-01-01T00:00:00.000Z',
+        }
+      unmeteredQuotaUsed += 1
+      return { kind: 'consumed' as const }
+    },
     async quoteTask({ model, quantity, unitMultiplier }) {
       if (!quoteAvailable) return null
       return {
@@ -56,6 +76,7 @@ _setPrivateBffOverlayForTesting({
       }
     },
     async reserveTask() {
+      reserveCalls += 1
       return { kind: 'reserved', credits: actualCredits }
     },
   },
@@ -91,6 +112,14 @@ beforeAll(async () => {
     updated_at: Date.now(),
   })
   cookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('stage-owner', tx))}`
+})
+beforeEach(() => {
+  actualCredits = 6
+  creditsPerUnit = 6
+  quoteAvailable = true
+  meteringMode = 'credits'
+  unmeteredQuotaUsed = 0
+  reserveCalls = 0
 })
 afterAll(close)
 async function fixture(
@@ -268,6 +297,103 @@ it('preflights only active authorized nodes, replaces an unsubmitted attempt and
     ).status,
   ).toBe(409)
 })
+it('authorizes an unmetered stage without a price and consumes quota only on submission', async () => {
+  meteringMode = 'none'
+  quoteAvailable = false
+  const proposal = await fixture()
+  expect(proposal).toMatchObject({ estimatedCredits: 0, budgetCap: 0 })
+  expect(proposal.charges[0]).toMatchObject({ nodeId: 'a', credits: 0 })
+  expect(unmeteredQuotaUsed).toBe(0)
+  const { executionToken } = await (await request(proposal.authorizationId, '/confirm', {})).json()
+  expect(
+    (
+      await request(proposal.authorizationId, '/preflight', {
+        nodeId: 'a',
+        model: 'gpt-image-2.5-flare',
+        quantity: 1,
+        unitMultiplier: 1,
+        executionToken,
+        attemptId: 'unmetered-attempt',
+      })
+    ).status,
+  ).toBe(200)
+  expect(unmeteredQuotaUsed).toBe(0)
+  const clientRequestId = crypto.randomUUID()
+  const response = await app.handle(
+    new Request('http://localhost/v1/queue/openai-compat/gpt-image-2.5-flare/submit', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        prompt: '嫩芽',
+        device_id: 'stage-test-device',
+        client_request_id: clientRequestId,
+        stage_authorization: {
+          authorizationId: proposal.authorizationId,
+          executionToken,
+          attemptId: 'unmetered-attempt',
+          nodeId: 'a',
+        },
+      }),
+    }),
+  )
+  expect(response.status).toBe(200)
+  expect(unmeteredQuotaUsed).toBe(1)
+  expect(reserveCalls).toBe(0)
+  const [task] = await db
+    .select()
+    .from(schema.tasks)
+    .where(eq(schema.tasks.client_request_id, clientRequestId))
+  expect(task?.metering).toMatchObject({ mode: 'none', model: 'gpt-image-2.5-flare' })
+  expect(await (await request(proposal.authorizationId)).json()).toMatchObject({
+    budgetCap: 0,
+    spentCredits: 0,
+    status: 'active',
+  })
+})
+
+it('rejects an unmetered submission after real quota exhaustion without leaving a task or spend', async () => {
+  meteringMode = 'none'
+  unmeteredQuotaUsed = unmeteredQuota
+  const proposal = await fixture()
+  const { executionToken } = await (await request(proposal.authorizationId, '/confirm', {})).json()
+  await request(proposal.authorizationId, '/preflight', {
+    nodeId: 'a',
+    model: 'gpt-image-2.5-flare',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken,
+    attemptId: 'quota-exhausted',
+  })
+  const clientRequestId = crypto.randomUUID()
+  const response = await app.handle(
+    new Request('http://localhost/v1/queue/openai-compat/gpt-image-2.5-flare/submit', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        prompt: '嫩芽',
+        device_id: 'stage-test-device',
+        client_request_id: clientRequestId,
+        stage_authorization: {
+          authorizationId: proposal.authorizationId,
+          executionToken,
+          attemptId: 'quota-exhausted',
+          nodeId: 'a',
+        },
+      }),
+    }),
+  )
+  expect(response.status).toBe(429)
+  expect(await response.json()).toMatchObject({ error: 'daily_quota_exceeded', quota: 1, used: 1 })
+  expect(
+    await db.select().from(schema.tasks).where(eq(schema.tasks.client_request_id, clientRequestId)),
+  ).toHaveLength(0)
+  expect(await (await request(proposal.authorizationId)).json()).toMatchObject({
+    budgetCap: 0,
+    spentCredits: 0,
+  })
+  expect(reserveCalls).toBe(0)
+})
+
 
 it('prices the stage on the server when the model omits or understates the estimate', async () => {
   const omitted = await fixture()
