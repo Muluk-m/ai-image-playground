@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer'
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
@@ -24,8 +23,35 @@ process.env.AUTH_PUBLIC_ORIGIN = 'https://api.example.com'
 
 const { app } = await import('../../app')
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { setOAuthFetchForTesting } = await import('../../lib/oauth')
+const { registerOAuthProviders, setOAuthFetchForTesting } = await import('../../lib/oauth')
 const { USER_SESSION_COOKIE } = await import('../../lib/user-session')
+
+const PRIVATE_PROVIDER_ID = 'starlight'
+const PRIVATE_CLIENT_ID_ENV = 'OAUTH_STARLIGHT_CLIENT_ID'
+const PRIVATE_CLIENT_SECRET_ENV = 'OAUTH_STARLIGHT_CLIENT_SECRET'
+registerOAuthProviders([
+  {
+    id: PRIVATE_PROVIDER_ID,
+    label: 'Starlight',
+    credentialEnv: { clientId: PRIVATE_CLIENT_ID_ENV, clientSecret: PRIVATE_CLIENT_SECRET_ENV },
+    defaultScope: 'openid profile email',
+    authorizeUrl({ credentials, redirectUri, state, scope }) {
+      const url = new URL('https://starlight.example/authorize')
+      url.searchParams.set('client_id', credentials.clientId)
+      url.searchParams.set('redirect_uri', redirectUri)
+      url.searchParams.set('state', state)
+      url.searchParams.set('scope', scope)
+      return url.toString()
+    },
+    async resolveIdentity({ code }) {
+      return {
+        subject: `starlight-${code}`,
+        email: `${code}@starlight.example`,
+        displayName: `Starlight ${code}`,
+      }
+    },
+  },
+])
 
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token'
 const GOOGLE_USERINFO_ENDPOINT = 'https://openidconnect.googleapis.com/v1/userinfo'
@@ -106,9 +132,16 @@ function enableGoogle(): void {
   process.env.OAUTH_GOOGLE_CLIENT_SECRET = 'google-secret-fixture'
 }
 
+function enableStarlight(): void {
+  process.env.OAUTH_STARLIGHT_CLIENT_ID = 'starlight-client-fixture'
+  process.env.OAUTH_STARLIGHT_CLIENT_SECRET = 'starlight-secret-fixture'
+}
+
 function disableAllProviders(): void {
   process.env.OAUTH_GOOGLE_CLIENT_ID = ''
   process.env.OAUTH_GOOGLE_CLIENT_SECRET = ''
+  process.env.OAUTH_STARLIGHT_CLIENT_ID = ''
+  process.env.OAUTH_STARLIGHT_CLIENT_SECRET = ''
 }
 
 let createdUserIds: string[]
@@ -158,6 +191,12 @@ describe('oauth provider discovery', () => {
     expect(body.providers).toEqual([{ id: 'google', label: 'Google' }])
     expect(JSON.stringify(body)).not.toContain('secret')
   })
+  it('discovers a fully configured private provider', async () => {
+    enableStarlight()
+    const response = await request('/api/auth/oauth/providers')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ providers: [{ id: 'starlight', label: 'Starlight' }] })
+  })
 })
 
 describe('oauth start', () => {
@@ -166,7 +205,7 @@ describe('oauth start', () => {
     expect((await request('/api/auth/oauth/myspace/start')).status).toBe(404)
   })
 
-  it('redirects to Google with a state cookie bound to the provider', async () => {
+  it('redirects to Google with a provider-bound OAuth state', async () => {
     enableGoogle()
     const response = await request('/api/auth/oauth/google/start')
     expect(response.status).toBe(302)
@@ -182,19 +221,36 @@ describe('oauth start', () => {
     expect(location.searchParams.get('response_type')).toBe('code')
     expect(location.searchParams.get('scope')).toBe('openid email profile')
 
-    const cookie = readCookie(response, 'image_playground_oauth_state')
-    expect(cookie).toBe(`google:login:${location.searchParams.get('state')}`)
   })
-  it('uses an explicitly supplied allowlisted frontend origin without Origin header', async () => {
+  it('returns a completed login to an explicitly supplied allowlisted frontend origin', async () => {
     enableGoogle()
+    stubUpstream(
+      googleRoutes({
+        sub: 'google-explicit-origin',
+        email: 'explicit-origin@example.com',
+        email_verified: true,
+        name: 'Explicit Origin',
+      }),
+    )
     const response = await request(
       `/api/auth/oauth/google/start?frontend_origin=${encodeURIComponent('https://other.example.com')}`,
     )
     expect(response.status).toBe(302)
     const location = new URL(response.headers.get('location') ?? '')
-    const metadata = readCookie(response, 'image_playground_oauth_return_to')
-    expect(metadata).toContain(Buffer.from('https://other.example.com').toString('base64url'))
-    expect(location.searchParams.get('state')).toBeTruthy()
+    const state = location.searchParams.get('state') ?? ''
+    const stateCookie = readCookie(response, 'image_playground_oauth_state')
+    const returnToCookie = readCookie(response, 'image_playground_oauth_return_to')
+    if (!stateCookie || !returnToCookie) throw new Error('start did not issue OAuth cookies')
+
+    const callbackResponse = await callback(
+      'google',
+      { code: 'explicit-origin-code', state },
+      stateCookie,
+      returnToCookie,
+    )
+    expect(callbackResponse.headers.get('location')).toBe(
+      'https://other.example.com/image?auth_session=1',
+    )
   })
 })
 
@@ -222,6 +278,73 @@ describe('oauth callback', () => {
     expect(response.headers.get('location')).toBe(
       'https://app.example.com/image?auth_error=access_denied&login=1',
     )
+  })
+  it('logs in through a private provider and returns to a second allowlisted origin on success', async () => {
+    enableStarlight()
+    const response = await request(
+      `/api/auth/oauth/starlight/start?frontend_origin=${encodeURIComponent('https://other.example.com')}&return_to=${encodeURIComponent('/assets?from=starlight')}`,
+    )
+    expect(response.status).toBe(302)
+    const location = new URL(response.headers.get('location') ?? '')
+    expect(location.origin).toBe('https://starlight.example')
+    const state = location.searchParams.get('state') ?? ''
+    const stateCookie = readCookie(response, 'image_playground_oauth_state')
+    const returnToCookie = readCookie(response, 'image_playground_oauth_return_to')
+    if (!stateCookie || !returnToCookie) throw new Error('start did not issue OAuth cookies')
+
+    const callbackResponse = await callback(
+      'starlight',
+      { code: 'private-success', state },
+      stateCookie,
+      returnToCookie,
+    )
+    expect(callbackResponse.headers.get('location')).toBe(
+      'https://other.example.com/assets?from=starlight&auth_session=1',
+    )
+    expect(readCookie(callbackResponse, USER_SESSION_COOKIE)).toBeTruthy()
+
+    const [identity] = await db
+      .select()
+      .from(schema.user_identities)
+      .where(
+        and(
+          eq(schema.user_identities.provider, 'starlight'),
+          eq(schema.user_identities.subject, 'starlight-private-success'),
+        ),
+      )
+    expect(identity?.email).toBe('private-success@starlight.example')
+  })
+
+  it('returns a private provider denial to the second allowlisted origin', async () => {
+    enableStarlight()
+    const response = await request(
+      `/api/auth/oauth/starlight/start?frontend_origin=${encodeURIComponent('https://other.example.com')}&return_to=${encodeURIComponent('/explore')}`,
+    )
+    const location = new URL(response.headers.get('location') ?? '')
+    const state = location.searchParams.get('state') ?? ''
+    const stateCookie = readCookie(response, 'image_playground_oauth_state')
+    const returnToCookie = readCookie(response, 'image_playground_oauth_return_to')
+    if (!stateCookie || !returnToCookie) throw new Error('start did not issue OAuth cookies')
+
+    const callbackResponse = await callback(
+      'starlight',
+      { error: 'access_denied', state },
+      stateCookie,
+      returnToCookie,
+    )
+    expect(callbackResponse.headers.get('location')).toBe(
+      'https://other.example.com/explore?auth_error=access_denied&login=1',
+    )
+  })
+
+  it('rejects a state issued for the private provider when callback uses Google', async () => {
+    enableStarlight()
+    enableGoogle()
+    const start = await request('/api/auth/oauth/starlight/start')
+    const state = new URL(start.headers.get('location') ?? '').searchParams.get('state') ?? ''
+    const stateCookie = readCookie(start, 'image_playground_oauth_state')
+    if (!stateCookie) throw new Error('start did not issue OAuth state cookie')
+    expect((await callback('google', { code: 'cross-provider', state }, stateCookie)).status).toBe(403)
   })
 
   it('returns a successful login to the requested workspace route with query and hash', async () => {

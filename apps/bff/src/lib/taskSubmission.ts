@@ -444,7 +444,7 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
         unmeteredByDecision = true
         metering = { ...metering, mode: 'none' }
       }
-      if (decision?.kind === 'metered')
+      if (decision?.kind === 'metered' && isCapabilityEnabled('billing:credits'))
         metering = { ...metering, mode: 'credits', ...(decision.pricing ? { pricing: decision.pricing } : {}) }
     }
     const inserted = await tx
