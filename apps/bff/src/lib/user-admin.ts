@@ -448,7 +448,11 @@ export async function unlinkOAuthIdentity(
     if (!user) throw new UserOperationError('user_not_found')
 
     const identities = await tx
-      .select({ id: schema.user_identities.id, provider: schema.user_identities.provider, subject: schema.user_identities.subject })
+      .select({
+        id: schema.user_identities.id,
+        provider: schema.user_identities.provider,
+        subject: schema.user_identities.subject,
+      })
       .from(schema.user_identities)
       .where(eq(schema.user_identities.user_id, userId))
     const target = identities.find((row) => row.provider === provider)
