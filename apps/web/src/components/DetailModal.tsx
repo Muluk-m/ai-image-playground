@@ -262,8 +262,17 @@ export default function DetailModal() {
         : t('confirm.deleteMessage'),
       action: deletesOneImage
         ? () => {
-            // 删完回到这条记录的详情，接着看剩下的几张。
-            void removeTaskOutput(task, index).then(() => setDetailTaskId(task.id))
+            const path = window.location.pathname
+            void removeTaskOutput(task, index).then((outcome) => {
+              // 删完回到这条记录的详情接着看剩下的几张；但删除要等网络，期间用户打开了别的详情
+              // 或换了页面就不抢回来，没删成或整条没了也不回。
+              if (
+                outcome === 'kept' &&
+                useStore.getState().detailTaskId === null &&
+                window.location.pathname === path
+              )
+                setDetailTaskId(task.id)
+            })
           }
         : () => removeTask(task),
     })

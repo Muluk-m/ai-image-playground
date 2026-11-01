@@ -3217,6 +3217,36 @@ describe('多图作品只删一张', () => {
     expect(local.outputPositions).toEqual([0])
   })
 
+  it('同一条记录里两张一样的图，删第二张按位置号去掉第二张', async () => {
+    useStore.setState({
+      tasks: [task({ id: 'local-d', bffRequestId: 'gen-d', outputImages: ['a', 'a', 'b'] })],
+      platformGenerations: [detailRow('gen-d', [0, 1, 2])],
+    })
+
+    await removeTaskOutput(useStore.getState().tasks[0] as TaskRecord, 1)
+
+    expect(deleteRemoteGenerationOutput).toHaveBeenLastCalledWith('gen-d', 1)
+    const local = useStore.getState().tasks[0] as TaskRecord
+    expect(local.outputImages).toEqual(['a', 'b'])
+    expect(local.outputPositions).toEqual([0, 2])
+  })
+
+  it('同时删两张时一张接一张做，平台缓存不会把先删的那张写回来', async () => {
+    useStore.setState({
+      tasks: [task({ id: 'local-c', bffRequestId: 'gen-c', outputImages: ['a', 'b', 'c'] })],
+      platformGenerations: [detailRow('gen-c', [0, 1, 2])],
+    })
+    const snapshot = useStore.getState().tasks[0] as TaskRecord
+
+    await Promise.all([removeTaskOutput(snapshot, 0), removeTaskOutput(snapshot, 1)])
+
+    expect(deleteRemoteGenerationOutput.mock.calls.map((call) => call[1])).toEqual([0, 1])
+    expect(outputsOf('gen-c')).toEqual([2])
+    const local = useStore.getState().tasks[0] as TaskRecord
+    expect(local.outputImages).toEqual(['c'])
+    expect(local.outputPositions).toEqual([2])
+  })
+
   it('平台那张删不掉就本机也不动', async () => {
     deleteRemoteGenerationOutput.mockResolvedValue(null)
     useStore.setState({
