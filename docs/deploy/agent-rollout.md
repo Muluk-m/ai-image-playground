@@ -200,9 +200,12 @@ cd <checkout> && ./scripts/app-compose.sh up <project>
 文件改了容器里看得到，但 BFF 只在启动时读一次。这时要让新配置生效：
 
 - 改了 `app.env`：只能等下一次带新镜像的发布。env 是创建执行器时用 `--env-file` 注入的，重启现有容器仍是旧值。
-- 只改了 `operator-config.json`：可以等下一次发布；也可以先确认没有在途任务（`tasks` 里没有 `queued` /
-  `in_progress`），再 `docker restart` 当前的 `<project>-r…-bff` 和 `<project>-r…-worker`，重启后会重新读挂载的文件。
-  生产上重启容器要 Nain 批准（见[发布手册](../agents/release.md)）。
+- 只改了 `operator-config.json`：优先等下一次发布，发布会按排空协议换执行器。确实要立刻生效时，重启当前的
+  `<project>-r…-bff` 和 `<project>-r…-worker` 会重新读挂载的文件，但必须先按发布用的排空协议让它们停接新活并空闲：
+  对两个执行器各 `POST /internal/deployment/drain`，再轮询 `GET /internal/deployment/drain`，直到
+  `draining`、`active == 0`、`safeToStop` 都满足（`scripts/rollout-runtime.sh` 里的 `control` 就是这么做的）。
+  只查 `tasks` 表不够：免费对话不一定有任务行，却仍占着执行器。排空到重启完成之间没有执行器接请求，
+  只在能接受短暂中断的环境这样做；生产上重启容器要 Nain 批准（见[发布手册](../agents/release.md)）。
 
 改完用下面的 `/api/capabilities` 核对是否真的生效，不要只看命令退出码。
 
