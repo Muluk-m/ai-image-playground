@@ -39,8 +39,12 @@ describe('阈值两侧', () => {
     ['磁盘 85% 报', { host: host(7.5) }, ['firing:disk']],
     ['排队 10 分钟整不报', { queue: { oldest_queued_wait_ms: 10 * minute } }, []],
     ['排队超过 10 分钟报', { queue: { oldest_queued_wait_ms: 10 * minute + 1 } }, ['firing:queue']],
-    ['备份 2 小时整不报', { backup: { latest_modified_at: T0 - 2 * hour } }, []],
-    ['备份超过 2 小时报', { backup: { latest_modified_at: T0 - 2 * hour - 1 } }, ['firing:backup']],
+    ['备份 2.5 小时整不报', { backup: { latest_modified_at: T0 - 2.5 * hour } }, []],
+    [
+      '备份超过 2.5 小时报',
+      { backup: { latest_modified_at: T0 - 2.5 * hour - 1 } },
+      ['firing:backup'],
+    ],
     ['日志 10 分钟整不报', { serverLogs: { latest_at: T0 - 10 * minute } }, []],
     [
       '日志超过 10 分钟没有新行报',
@@ -55,6 +59,22 @@ describe('阈值两侧', () => {
     ],
   ] as Array<[string, AlertObservation, string[]]>)('%s', (_name, observation, expected) => {
     expect(run([[T0, observation]])[0]).toEqual(expected)
+  })
+
+  // 告警线不是整小时时，文案必须原样写出来；否则 2.5 小时的线和「2 小时」的假告警长得一模一样。
+  it('备份越线时写明真实的告警线', () => {
+    const { messages } = evaluateAlerts(
+      { backup: { latest_modified_at: T0 - 2 * hour - 31 * minute } },
+      {},
+      T0,
+    )
+    expect(messages).toEqual([
+      {
+        rule: 'backup',
+        kind: 'firing',
+        text: '最新的数据库备份是 2 小时 31 分钟前的（告警线 2 小时 30 分钟）',
+      },
+    ])
   })
 })
 
