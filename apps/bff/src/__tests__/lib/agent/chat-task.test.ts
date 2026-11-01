@@ -82,6 +82,7 @@ async function settleTurn(
   return { cost, settlement: last }
 }
 
+
 const VIDEO_PAYLOAD = {
   prompt: '海浪拍打礁石',
   device_id: DEVICE,
