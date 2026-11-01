@@ -396,7 +396,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       }
       let chosen = withNote
       if (!unmetered && billChat && userId) {
-        pricing = await chatTaskPricing(overlay.taskHooks, selectedModel)
+        pricing = await chatTaskPricing(overlay.taskHooks, selectedModel, tx)
         const chatTask = {
           tx,
           taskHooks: overlay.taskHooks,
@@ -422,7 +422,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         reserved = reservation
       } else if (!unmetered && waiveChat && userId) {
         try {
-          pricing = await chatTaskPricing(overlay.taskHooks, selectedModel)
+          pricing = await chatTaskPricing(overlay.taskHooks, selectedModel, tx)
         } catch (err) {
           log.warn(
             { event: 'agent.chat_waiver_pricing_failed', turnId, err },

@@ -148,7 +148,7 @@ export async function generateCanvasText(
         meteringMode = unmetered || !billed ? 'none' : 'credits'
       }
       if (billed && !unmetered) {
-        pricing = await chatTaskPricing(hooks, model.id)
+        pricing = await chatTaskPricing(hooks, model.id, tx)
         maxTokens = Math.min(model.maxTokens, pricing.outputReserveTokens)
       } else {
         maxTokens = model.maxTokens

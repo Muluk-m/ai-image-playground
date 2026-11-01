@@ -175,8 +175,8 @@ export interface PrivateTaskHooks {
     /** 上游返回的实际用量；缺席即按预留额全额结算。 */
     actualUsage?: TaskUsage
   }): Promise<void>
-  /** 单价表里没登记这个对话模型时返回 null；起轮会在预扣那一步被拒。 */
-  chatPricing(model: string): Promise<ChatPricing | null>
+  /** 单价表里没登记这个对话模型时返回 null；起轮会在预扣那一步被拒。旧 overlay 可忽略第二参数。 */
+  chatPricing(model: string, tx?: BffTransaction): Promise<ChatPricing | null>
   /**
    * 已结算任务实扣的积分，按任务 id；查不到的任务不出现在结果里。
    * 积分只有私有账本算得出，公开树一律问它，绝不自己按单价折算。
@@ -205,6 +205,12 @@ export interface PrivateTaskHooks {
     referralCode?: string
     oauthProvider?: string
   }): Promise<void>
+  canUnlinkOAuthIdentity?(input: {
+    tx: BffTransaction
+    userId: string
+    provider: string
+    subject: string
+  }): Promise<{ allowed: boolean; reason?: string }>
   /**
    * 用户注销、公开库还没删 users 行时调用。私有账本如果外键指着这个用户，要在这里删掉。
    * 可选（先扩后缩）：钉住的 overlay 还没有这一项时，公开库照常注销。

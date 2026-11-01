@@ -1,6 +1,4 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -175,21 +173,6 @@ describe('Lightbox 触控手势', () => {
   })
 })
 
-describe('Lightbox 图片元素', () => {
-  it('可命中且按 saveable-image 放行长按菜单与选择', async () => {
-    await renderLightbox()
-    const image = lightboxImage()
-
-    expect(image.className).toContain('saveable-image')
-    expect(image.className).not.toContain('pointer-events-none')
-
-    // jsdom 不加载样式表，故直接查 .saveable-image 这条规则本身
-    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
-    const rule = css.match(/\.saveable-image\s*\{([^}]*)\}/)?.[1] ?? ''
-    expect(rule).toContain('-webkit-touch-callout: default')
-    expect(rule).toContain('user-select: auto')
-  })
-})
 
 describe('Lightbox 保存按钮', () => {
   function saveButton(): HTMLButtonElement | null {

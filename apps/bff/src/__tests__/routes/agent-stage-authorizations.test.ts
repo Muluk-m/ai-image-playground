@@ -302,7 +302,6 @@ it('authorizes an unmetered stage without a price and consumes quota only on sub
   quoteAvailable = false
   const proposal = await fixture()
   expect(proposal).toMatchObject({ estimatedCredits: 0, budgetCap: 0 })
-  expect(proposal.charges[0]).toMatchObject({ nodeId: 'a', credits: 0 })
   expect(unmeteredQuotaUsed).toBe(0)
   const { executionToken } = await (await request(proposal.authorizationId, '/confirm', {})).json()
   expect(

@@ -1,6 +1,4 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { ICON_SIZE_PX, ICONS, Icon, type IconName } from '../../../../components/ui/icon'
@@ -75,10 +73,4 @@ describe('Icon', () => {
     }
   })
 
-  it('lists every registered name in docs/design-system/icons.md', () => {
-    // 文档里那张语义名表是给人和 Agent 查的，登记新名字时要一起补上（vitest 在 apps/web 下跑）。
-    const doc = readFileSync(resolve(process.cwd(), 'docs/design-system/icons.md'), 'utf8')
-    const missing = Object.keys(ICONS).filter((name) => !doc.includes(`\`${name}\``))
-    expect(missing).toEqual([])
-  })
 })

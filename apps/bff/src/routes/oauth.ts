@@ -83,12 +83,17 @@ function bffOrigin(request: Request): string {
   return `${proto || new URL(request.url).protocol.replace(':', '')}://${host}`
 }
 
+function allowedFrontendOrigins(request: Request): string[] {
+  const origins = new Set(config.auth.frontendOrigins)
+  if (config.corsOrigins === '*') origins.add(bffOrigin(request).replace(/\/+$/, ''))
+  return [...origins]
+}
+
 function frontendOrigin(request: Request, requested?: unknown): string {
-  const allowed = config.auth.frontendOrigins
+  const allowed = allowedFrontendOrigins(request)
   if (typeof requested === 'string' && allowed.includes(requested.trim())) return requested.trim()
   const header = request.headers.get('origin')?.trim()
   if (header && allowed.includes(header)) return header
-  // A wildcard CORS deployment serves the SPA from the BFF itself.
   return (allowed[0] ?? bffOrigin(request)).replace(/\/+$/, '')
 }
 
@@ -152,7 +157,9 @@ function redirectTo(target: string): Response {
 }
 
 function redirectOrigin(request: Request, origin?: string): string {
-  return origin && config.auth.frontendOrigins.includes(origin) ? origin : frontendOrigin(request)
+  return origin && allowedFrontendOrigins(request).includes(origin)
+    ? origin
+    : frontendOrigin(request)
 }
 
 function successRedirect(request: Request, target: string, origin?: string): Response {
@@ -246,7 +253,7 @@ function returnTargetFromMetadata(
     if (encoded.length !== 2) return fallback
     const origin = Buffer.from(encoded[0] ?? '', 'base64url').toString('utf8')
     const target = Buffer.from(encoded[1] ?? '', 'base64url').toString('utf8')
-    if (!config.auth.frontendOrigins.includes(origin)) return fallback
+    if (!allowedFrontendOrigins(request).includes(origin)) return fallback
     return { target: validateReturnTarget(request, target, origin), origin }
   } catch {
     return fallback

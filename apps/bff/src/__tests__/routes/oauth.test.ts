@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { DEFAULT_AVATAR_PATH } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
+import { config } from '../../config'
 import {
   _setPrivateBffOverlayForTesting,
   EMPTY_PRIVATE_BFF_OVERLAY,
@@ -664,5 +665,50 @@ describe('oauth callback', () => {
       'https://app.example.com/image?auth_error=account_disabled&login=1',
     )
     expect(readCookie(response, USER_SESSION_COOKIE)).toBeNull()
+  })
+  it('preserves same-origin BFF return targets with wildcard CORS', async () => {
+    const previousCors = config.corsOrigins
+    config.corsOrigins = '*'
+    try {
+      enableGoogle()
+      const start = await request(
+        `/api/auth/oauth/google/start?frontend_origin=${encodeURIComponent('https://api.example.com')}&return_to=${encodeURIComponent('/assets')}`,
+      )
+      const location = new URL(start.headers.get('location') ?? '')
+      const state = location.searchParams.get('state') ?? ''
+      const stateCookie = readCookie(start, 'image_playground_oauth_state')
+      const returnToCookie = readCookie(start, 'image_playground_oauth_return_to')
+      if (!stateCookie || !returnToCookie) throw new Error('start did not issue OAuth cookies')
+      const response = await callback(
+        'google',
+        { error: 'access_denied', state },
+        stateCookie,
+        returnToCookie,
+      )
+      expect(response.headers.get('location')).toBe(
+        'https://api.example.com/assets?auth_error=access_denied&login=1',
+      )
+
+      const externalStart = await request(
+        `/api/auth/oauth/google/start?frontend_origin=${encodeURIComponent('https://evil.example.com')}&return_to=${encodeURIComponent('/assets')}`,
+      )
+      const externalLocation = new URL(externalStart.headers.get('location') ?? '')
+      const externalState = externalLocation.searchParams.get('state') ?? ''
+      const externalStateCookie = readCookie(externalStart, 'image_playground_oauth_state')
+      const externalReturnToCookie = readCookie(externalStart, 'image_playground_oauth_return_to')
+      if (!externalStateCookie || !externalReturnToCookie)
+        throw new Error('external start did not issue OAuth cookies')
+      const externalResponse = await callback(
+        'google',
+        { error: 'access_denied', state: externalState },
+        externalStateCookie,
+        externalReturnToCookie,
+      )
+      expect(externalResponse.headers.get('location')).toBe(
+        'https://api.example.com/assets?auth_error=access_denied&login=1',
+      )
+    } finally {
+      config.corsOrigins = previousCors
+    }
   })
 })

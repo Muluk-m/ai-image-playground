@@ -423,6 +423,8 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
       const replay = await replayCommand(tx, input.userId, commandId, hash)
       if (replay) return replay
     }
+    if (input.userId && taskHooks.canSubmitTask && !(await taskHooks.canSubmitTask({ tx, userId: input.userId, request: { image_size: input.request.image_size } })))
+      return { kind: 'metering_denied' as const, reason: '4k_subscription_required' }
     if (await modelUnavailable(tx, input.model)) {
       return { kind: 'price_unavailable' as const, model: input.model }
     }
