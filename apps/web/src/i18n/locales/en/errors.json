@@ -109,6 +109,7 @@
     "fallback": "Could not update the plan. Your changes are preserved. Try again.",
     "batch_version_conflict": "This plan has a newer version. Refresh before editing.",
     "insufficient_credits": "Insufficient credits. The batch is paused.",
+    "quota_exceeded": "Daily quota exceeded. The batch is paused.",
     "input_limit": "Inputs exceed the current limit. The batch is paused.",
     "upstream_auth": "Generation service authentication failed. The batch is paused.",
     "model_unavailable": "The selected model or channel is unavailable. The batch is paused."

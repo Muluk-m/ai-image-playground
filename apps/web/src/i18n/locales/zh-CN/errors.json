@@ -109,6 +109,7 @@
     "fallback": "计划操作失败，当前内容已保留，请重试。",
     "batch_version_conflict": "计划已有新版本，请刷新后再修改。",
     "insufficient_credits": "积分不足，批次已暂停。",
+    "quota_exceeded": "每日额度已用尽，批次已暂停。",
     "input_limit": "输入超过当前限制，批次已暂停。",
     "upstream_auth": "生成服务认证失效，批次已暂停。",
     "model_unavailable": "所选模型或通道暂不可用，批次已暂停。"

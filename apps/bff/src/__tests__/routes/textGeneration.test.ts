@@ -94,6 +94,10 @@ it('generates with the selected chat model, full source text and one billed task
 it('uses account unmetered metering before pricing and does not reserve or settle credits', async () => {
   billing.meteringDecision = async () => ({ kind: 'unmetered', metering: 'none' })
   billing.pricingError = new Error('pricing must not be loaded for unmetered text')
+  setAgentFetchForTesting(async (_url, init) => {
+    calls.push(JSON.parse(String(init?.body)))
+    return completionStream('青禾推开山门，云海中传来钟声。')
+  })
   const response = await submit()
   expect(response.status).toBe(200)
   expect(await response.json()).toEqual({ text: '青禾推开山门，云海中传来钟声。' })
@@ -106,6 +110,10 @@ it('uses account unmetered metering before pricing and does not reserve or settl
     model: 'fixture-agent-model',
     quantity: 1,
     unitMultiplier: 1,
+  })
+  expect(task?.result_payload).toMatchObject({
+    text: '青禾推开山门，云海中传来钟声。',
+    usage: { inputTokens: 12, outputTokens: 4 },
   })
 })
 

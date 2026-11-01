@@ -158,6 +158,7 @@ export interface AgentBatchView {
   readonly pauseReason?:
     | 'price_changed'
     | 'insufficient_credits'
+    | 'quota_exceeded'
     | 'input_limit'
     | 'upstream_auth'
     | 'model_unavailable'

@@ -79,6 +79,7 @@ export async function generateCanvasText(
   let unmetered = false
   let token = ''
   let settled = false
+  let usage: TokenUsage | null = null
   try {
     const current = await readAgentModelSettings()
     if (current.validationError) throw new AgentSettingsError(current.validationError, 503)
@@ -140,6 +141,7 @@ export async function generateCanvasText(
             unitMultiplier: 1,
             inputEstimateTokens: requestInputTokens(context),
           }),
+          hooks.consumeUnmeteredQuota,
         )
         if (decision?.kind === 'denied') return { kind: 'access_denied', reason: decision.reason }
         unmetered = decision?.kind === 'unmetered'
@@ -207,7 +209,6 @@ export async function generateCanvasText(
     if (failure) return { failure }
     taskId = id
     let dispatches = 0
-    let usage: TokenUsage | null = null
     const recordUsage = (message: AssistantMessage) => {
       const reported = message.usage
       if (!reported.input && !reported.output && !reported.cacheRead && !reported.cacheWrite) return
@@ -256,6 +257,7 @@ export async function generateCanvasText(
         completedAt: Date.now(),
         upstreamInvocationCount: dispatches,
         ...(pricing ? { actualUsage: settledTokenUsage(usage, pricing) } : {}),
+        ...(unmetered ? { resultPayload: { text, usage } } : {}),
       },
       heldBy(token),
     )
@@ -266,7 +268,11 @@ export async function generateCanvasText(
       if (taskId && !settled) {
         const finished = await finishTask(
           taskId,
-          { status: 'failed', completedAt: Date.now() },
+          {
+            status: 'failed',
+            completedAt: Date.now(),
+            ...(unmetered && usage ? { resultPayload: { usage } } : {}),
+          },
           heldBy(token),
         )
         if (!finished) bffDrain.failed()

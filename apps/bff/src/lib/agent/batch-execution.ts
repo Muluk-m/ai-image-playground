@@ -299,6 +299,7 @@ async function quoteGenerationTask(tx: BffTransaction, userId: string, model: st
       quantity: 1,
       unitMultiplier: 1,
     }),
+    hooks.consumeUnmeteredQuota,
   )
   if (decision?.kind === 'denied') return null
   if (decision?.kind === 'unmetered' || !isCapabilityEnabled('billing:credits'))
@@ -565,7 +566,7 @@ async function dispatchPreparedBatch(
           if (reservation.kind === 'insufficient_credits')
             throw new BatchPlanError('batch_insufficient_credits', 422)
           if (reservation.kind === 'quota_exceeded')
-            throw new BatchPlanError('batch_submission_refused', 422)
+            throw new BatchPlanError('quota_exceeded', 429)
           if (reservation.kind !== 'reserved')
             throw new BatchPlanError('batch_submission_refused', 422)
           reservedCredits = reservation.credits
@@ -574,6 +575,8 @@ async function dispatchPreparedBatch(
           const submitted = await createQueueTask({ ...input, prepared, tx })
           if (submitted.kind === 'insufficient_credits')
             throw new BatchPlanError('batch_insufficient_credits', 422)
+          if (submitted.kind === 'quota_exceeded')
+            throw new BatchPlanError('quota_exceeded', 429)
           if (submitted.kind !== 'created')
             throw new BatchPlanError('batch_submission_refused', 422)
           taskId = submitted.taskId
@@ -600,13 +603,15 @@ async function dispatchPreparedBatch(
         (error instanceof BatchPlanError && error.code === 'batch_input_limit')
       const pauseReason = inputLimit
         ? 'input_limit'
-        : error instanceof BatchPlanError && error.code === 'batch_price_changed'
-          ? 'price_changed'
-          : error instanceof BatchPlanError && error.code === 'batch_insufficient_credits'
-            ? 'insufficient_credits'
-            : error instanceof BatchPlanError && error.code === 'batch_execution_unavailable'
-              ? 'model_unavailable'
-              : null
+        : error instanceof BatchPlanError && error.code === 'quota_exceeded'
+          ? 'quota_exceeded'
+          : error instanceof BatchPlanError && error.code === 'batch_price_changed'
+            ? 'price_changed'
+            : error instanceof BatchPlanError && error.code === 'batch_insufficient_credits'
+              ? 'insufficient_credits'
+              : error instanceof BatchPlanError && error.code === 'batch_execution_unavailable'
+                ? 'model_unavailable'
+                : null
       if (!pauseReason) throw error
       await db.transaction(async (tx) => {
         const current = await lockOwnedBatch(tx, userId, id)

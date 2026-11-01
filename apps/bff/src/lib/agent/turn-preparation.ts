@@ -376,6 +376,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
             unitMultiplier: 1,
             inputEstimateTokens: withNote.estimatedInputTokens,
           }),
+          overlay.taskHooks.consumeUnmeteredQuota,
         )
         if (decision?.kind === 'denied')
           throw new TurnStartRollback({ kind: 'access_denied', reason: decision.reason })

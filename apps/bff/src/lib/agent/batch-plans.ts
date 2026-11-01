@@ -458,9 +458,9 @@ export class BatchPlanError extends Error {
       | 'batch_source_version_conflict'
       | 'batch_price_changed'
       | 'batch_submission_refused'
+      | 'quota_exceeded'
       | 'batch_input_limit'
       | 'batch_insufficient_credits'
-      | 'batch_version_conflict'
       | 'invalid_batch_plan'
       | 'invalid_batch_cursor'
       | 'batch_not_found',
@@ -1150,6 +1150,7 @@ export async function quoteBatchPlan(
         quantity: 1,
         unitMultiplier: 1,
       }),
+      hooks.consumeUnmeteredQuota,
     )
     if (decision?.kind === 'denied') {
       generationQuotes.set(model, undefined)
