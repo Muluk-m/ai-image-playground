@@ -118,7 +118,7 @@ const staleScanTimer = setInterval(() => {
         'abandoned in-progress scan failed',
       )
     })
-}, 15_000)
+}, 10_000)
 const workerHealthServer = startWorkerHealthServer({
   port: config.worker.healthPort,
   drain: () => scheduler.drain(),
