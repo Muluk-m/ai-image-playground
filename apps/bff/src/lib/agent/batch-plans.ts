@@ -24,7 +24,7 @@ import {
   type BffTransaction,
   loadPrivateBffOverlay,
 } from '../private-overlay'
-import { queueTaskOutcome } from '../taskSubmission'
+import { meteringDecisionOrDenied } from '../metering-decision'
 import { prepareBatchAnalysis } from './batch-analysis-preparation'
 import { readBatchAnalysisSummary, readBatchSourceSummary } from './batch-analysis-summary'
 import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
@@ -1141,14 +1141,16 @@ export async function quoteBatchPlan(
   >()
   const generationQuote = async (model: string) => {
     if (generationQuotes.has(model)) return generationQuotes.get(model)
-    const decision = await hooks.meteringDecision?.({
-      tx,
-      userId,
-      model,
-      kind: 'image',
-      quantity: 1,
-      unitMultiplier: 1,
-    })
+    const decision = meteringDecisionOrDenied(
+      await hooks.meteringDecision?.({
+        tx,
+        userId,
+        model,
+        kind: 'image',
+        quantity: 1,
+        unitMultiplier: 1,
+      }),
+    )
     if (decision?.kind === 'denied') {
       generationQuotes.set(model, undefined)
       return undefined

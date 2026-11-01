@@ -6,7 +6,7 @@ import {
 import { and, eq, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { finishTask, heldBy } from '../db/task-transitions'
-import { chatTaskPricing, chatTurnsBilled } from './agent/chat-task'
+import { chatTaskPricing, chatTurnsBilled, type ChatTaskPricing } from './agent/chat-task'
 import { compactionSettings } from './agent/compaction-settings'
 import { agentStreamFn } from './agent/model'
 import { readAgentModelSettings } from './agent/model-settings-store'
@@ -19,6 +19,7 @@ import {
 import { assertRequestWithinBudget, requestInputTokens } from './agent/request-budget'
 import { bffDrain } from './drain'
 import { modelUnavailable } from './model-availability'
+import { meteringDecisionOrDenied } from './metering-decision'
 import { loadPrivateBffOverlay, type TaskReservationFailure } from './private-overlay'
 import { reservedTokenUsage, settledTokenUsage, type TokenUsage } from './token-pricing'
 
@@ -72,6 +73,10 @@ export async function generateCanvasText(
   const release = bffDrain.enter()
   if (!release) throw new CanvasTextError('instance_draining', 503)
   let taskId: string | undefined
+  let pricing: ChatTaskPricing | null = null
+  let maxTokens = 0
+  let meteringMode: 'credits' | 'none' = 'none'
+  let unmetered = false
   let token = ''
   let settled = false
   try {
@@ -117,11 +122,6 @@ export async function generateCanvasText(
     const hooks = (await loadPrivateBffOverlay()).taskHooks
     const billed = chatTurnsBilled()
     if (billed && !userId) throw new CanvasTextError('unauthorized', 401)
-    const pricing = await chatTaskPricing(hooks, model.id)
-    const maxTokens = billed
-      ? Math.min(model.maxTokens, pricing.outputReserveTokens)
-      : model.maxTokens
-    assertRequestWithinBudget(context, compactionSettings({ ...runtime.model, maxTokens }))
     const id = crypto.randomUUID()
     token = crypto.randomUUID()
     const now = Date.now()
@@ -129,6 +129,27 @@ export async function generateCanvasText(
     const failure = await db.transaction(async (tx): Promise<TaskReservationFailure | null> => {
       if (await modelUnavailable(tx, model.id))
         return { kind: 'price_unavailable', model: model.id }
+      if (userId) {
+        const decision = meteringDecisionOrDenied(await hooks.meteringDecision?.({
+          tx,
+          userId,
+          model: model.id,
+          kind: 'chat',
+          quantity: 1,
+          unitMultiplier: 1,
+          inputEstimateTokens: requestInputTokens(context),
+        }))
+        if (decision?.kind === 'denied') return { kind: 'access_denied', reason: decision.reason }
+        unmetered = decision?.kind === 'unmetered'
+        meteringMode = unmetered || !billed ? 'none' : 'credits'
+      }
+      if (billed && !unmetered) {
+        pricing = await chatTaskPricing(hooks, model.id)
+        maxTokens = Math.min(model.maxTokens, pricing.outputReserveTokens)
+      } else {
+        maxTokens = model.maxTokens
+      }
+      assertRequestWithinBudget(context, compactionSettings({ ...runtime.model, maxTokens }))
       await tx.insert(schema.tasks).values({
         id,
         kind: 'chat',
@@ -137,19 +158,40 @@ export async function generateCanvasText(
         status: 'in_progress',
         user_id: userId,
         request_payload: { prompt: '', device_id: input.deviceId },
+        metering: { mode: meteringMode, model: model.id, quantity: 1, unitMultiplier: 1 },
         submitted_at: now,
         started_at: now,
         execution_token: token,
         lease_expires_at: now + 120_000,
       })
-      if (billed && userId) {
+      if (unmetered && userId && hooks.consumeUnmeteredQuota) {
+        const quota = await hooks.consumeUnmeteredQuota({
+          tx,
+          userId,
+          model: model.id,
+          kind: 'chat',
+          quantity: 1,
+          unitMultiplier: 1,
+          inputEstimateTokens: requestInputTokens(context),
+        })
+        if (quota.kind === 'quota_exceeded') {
+          await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
+          return {
+            kind: 'quota_exceeded',
+            quota: quota.quota,
+            used: quota.used,
+            resetAt: quota.resetAt,
+          }
+        }
+      }
+      if (billed && userId && !unmetered) {
         const reservation = await hooks.reserveTask({
           tx,
           taskId: id,
           userId,
           model: model.id,
           ...reservedTokenUsage(requestInputTokens(context), {
-            ...pricing,
+            ...pricing!,
             outputReserveTokens: maxTokens,
           }),
         })
@@ -211,7 +253,7 @@ export async function generateCanvasText(
         status: 'completed',
         completedAt: Date.now(),
         upstreamInvocationCount: dispatches,
-        actualUsage: settledTokenUsage(usage, pricing),
+        ...(pricing ? { actualUsage: settledTokenUsage(usage, pricing) } : {}),
       },
       heldBy(token),
     )

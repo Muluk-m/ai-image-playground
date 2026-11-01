@@ -23,7 +23,7 @@ import {
   type BffTransaction,
   loadPrivateBffOverlay,
 } from '../private-overlay'
-import { SafeFetchError } from '../safeFetch'
+import { meteringDecisionOrDenied } from '../metering-decision'
 import {
   type CreateQueueTaskInput,
   createQueueTask,
@@ -294,14 +294,16 @@ async function quoteGenerationTask(
   model: string,
 ) {
   const hooks = (await loadPrivateBffOverlay()).taskHooks
-  const decision = await hooks.meteringDecision?.({
-    tx,
-    userId,
-    model,
-    kind: 'image',
-    quantity: 1,
-    unitMultiplier: 1,
-  })
+  const decision = meteringDecisionOrDenied(
+    await hooks.meteringDecision?.({
+      tx,
+      userId,
+      model,
+      kind: 'image',
+      quantity: 1,
+      unitMultiplier: 1,
+    }),
+  )
   if (decision?.kind === 'denied') return null
   if (decision?.kind === 'unmetered' || !isCapabilityEnabled('billing:credits'))
     return {

@@ -173,7 +173,7 @@ function NodeRunCard({ runKey, proposal, wakeSkipped }: AgentNodeRunCardProps) {
           {t(key)}
         </p>
       ))}
-      {(skippedReason === 'insufficient_credits' || skippedReason === 'wake_limit') && (
+      {skippedReason && (
         <p role="status" className={CARD_NOTE}>
           {t(`job.wakeSkipped.${skippedReason}`)}
         </p>

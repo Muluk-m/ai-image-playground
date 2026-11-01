@@ -32,7 +32,7 @@ import { describeEmptyResult, type ExtractedResult, extractMeta } from './extrac
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
 import { modelUnavailable } from './model-availability'
 import { objectStore } from './objectStore'
-import { type BffTransaction, loadPrivateBffOverlay } from './private-overlay'
+import { meteringDecisionOrDenied } from './metering-decision'
 import { reserveProjectOutputs } from './projectArchive'
 import { lockMediaOwner } from './projectMedia'
 import { publicTaskErrorMessage } from './public-task-error'
@@ -430,14 +430,16 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
       if (duplicate) return { kind: 'duplicate_submission' as const, taskId: duplicate.taskId }
     }
     if (input.userId) {
-      const decision = await taskHooks.meteringDecision?.({
-        tx,
-        userId: input.userId,
-        model: input.model,
-        kind: input.video ? 'video' : 'image',
-        quantity: pricing.quantity,
-        unitMultiplier: pricing.unitMultiplier,
-      })
+      const decision = meteringDecisionOrDenied(
+        await taskHooks.meteringDecision?.({
+          tx,
+          userId: input.userId,
+          model: input.model,
+          kind: input.video ? 'video' : 'image',
+          quantity: pricing.quantity,
+          unitMultiplier: pricing.unitMultiplier,
+        }),
+      )
       if (decision?.kind === 'denied')
         return { kind: 'metering_denied' as const, reason: decision.reason }
       if (decision?.kind === 'unmetered') {

@@ -389,9 +389,7 @@ function WakeSkippedNote({ message }: { message: AgentToolMessage }) {
   if (!message.wakeSkipped) return null
   return (
     <p className={CARD_NOTE}>
-      {message.wakeSkipped === 'insufficient_credits'
-        ? t('job.wakeSkipped.insufficient_credits')
-        : t('job.wakeSkipped.wake_limit')}
+      {t(`job.wakeSkipped.${message.wakeSkipped}`)}
     </p>
   )
 }
