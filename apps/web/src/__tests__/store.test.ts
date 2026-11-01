@@ -3260,7 +3260,7 @@ describe('多图作品只删一张', () => {
     expect(useStore.getState().tasks.map((t) => t.id)).toEqual(['local-1x'])
   })
 
-  it('等待期间记录被别处改过、位置号对不上时停下，不按 id 删到另一张', async () => {
+  it('等待期间别处已经去掉了这个位置，本机不再动，也不按 id 删到另一张', async () => {
     const snapshot = task({
       id: 'local-m2',
       bffRequestId: 'gen-m2',
@@ -3282,6 +3282,22 @@ describe('多图作品只删一张', () => {
     const local = useStore.getState().tasks[0] as TaskRecord
     expect(local.outputImages).toEqual(['a', 'b'])
     expect(local.outputPositions).toEqual([0, 2])
+  })
+
+  it('平台卡上两张同媒体的产出，删第二张按记下的位置号删平台位置 1', async () => {
+    const row = detailRow('gen-p', [0, 1, 2])
+    const record = row.record as unknown as { outputs: { index: number; mediaId: string }[] }
+    record.outputs = record.outputs.map((image) => ({
+      ...image,
+      mediaId: image.index === 2 ? 'm-b' : 'm-a',
+    }))
+    useStore.setState({ tasks: [], platformGenerations: [row] })
+    const [card] = mergeHistory([], [row])
+
+    await removeTaskOutput(card as TaskRecord, 1)
+
+    expect(deleteRemoteGenerationOutput).toHaveBeenLastCalledWith('gen-p', 1)
+    expect(outputsOf('gen-p')).toEqual([0, 2])
   })
 
   it('平台那张删不掉就本机也不动', async () => {
