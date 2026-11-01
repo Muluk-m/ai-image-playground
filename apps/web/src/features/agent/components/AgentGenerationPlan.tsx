@@ -51,12 +51,14 @@ export default function AgentGenerationPlan({
   // 这里只取账户总余额（availableCredits 与传入的模型、数量无关，hook 签名需要才传首张的）；
   // 整组需求是上面按每张稿各自模型与产出数逐张估价求和的 credits，两者相比。
   // 这个 hook 也让余额变化（充值、别处扣费）时卡片跟着重算。
-  const available = usePrivateSubmissionGuard({
+  const guard = usePrivateSubmissionGuard({
     model: messages[0]?.snapshot?.target?.model ?? '',
     quantity: 1,
-  }).availableCredits
+  })
+  const metering = guard.metering
+  const available = guard.availableCredits
   // 估价与余额都读得到时才判；读不到就交给服务端把关，不凭空挡住用户。
-  const short = credits !== undefined && available !== undefined && credits > available
+  const short = metering !== 'none' && credits !== undefined && available !== undefined && credits > available
   // 拟这段计划的那一轮还在跑：后面的稿可能还没出来，服务端此时也不收确认。按住按钮并说明。
   const drafting = useAgentStore((state) =>
     messages.some((message) => agentDraftStillDrafting(state, message)),
@@ -139,7 +141,7 @@ export default function AgentGenerationPlan({
         <Icon name="image" />
         <h3>{t('plan.title')}</h3>
         <span>
-          {credits === undefined
+          {metering === 'none' || credits === undefined
             ? t('plan.summary', { count })
             : t('plan.summaryCredits', { count, credits })}
         </span>

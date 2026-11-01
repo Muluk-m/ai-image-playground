@@ -18,6 +18,8 @@ export interface PrivateSubmissionGuard {
   blocked: boolean
   disabledReason?: string
   blockedAction?: PrivateSubmissionBlockedAction
+  /** Account metering mode; omitted by public/legacy overlays and treated as credits. */
+  metering?: 'credits' | 'none'
   /** 本次要扣的积分；overlay 缺席或没有计价目录时 undefined，界面上就不写积分。 */
   estimatedCredits?: number
   /** 可用于本次确认的总余额；整组执行按逐任务取整后的总价检查。 */

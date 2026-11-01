@@ -334,6 +334,7 @@ export const oauthRoutes = new Elysia()
       if (!authUser) return status(401, { error: 'unauthorized' })
 
       const outcome = await unlinkOAuthIdentity(authUser.id, params.provider)
+      if (outcome === 'not_linked') return status(404, { error: 'not_linked' })
       if (outcome === 'protected_identity') return status(409, { error: 'protected_identity' })
       if (outcome === 'last_login_method') return status(409, { error: 'last_login_method' })
       return { ok: true }
