@@ -85,9 +85,9 @@ function rowView(
       kind: metadata.kind,
       metadata,
       baseline,
-      effective: row.value as OperatorOverrideValue,
+      effective: baseline,
       override: rowOverride(row),
-      valid: true,
+      valid: false,
       invalidReason: 'baseline_changed',
     }
   }
@@ -270,10 +270,11 @@ export async function setOperatorConfig(input: {
     throw new OperatorConfigError(400, 'revision_required')
   const reason = normalizeReason(input.reason)
   if (!isValue(metadata, input.value)) throw new OperatorConfigError(400, 'value_out_of_range')
+  const overrideValue = input.value as OperatorOverrideValue
   const now = Date.now()
   const result = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('operator_config_overrides'))`)
-    derive(config.operator, input.key, input.value)
+    derive(config.operator, input.key, overrideValue)
     const [state] = await tx
       .select({ revision: schema.operator_config_state.revision })
       .from(schema.operator_config_state)
@@ -405,6 +406,14 @@ export async function refreshOperatorConfig(): Promise<number> {
       log.error(
         { event: 'operator_config.invalid_override', key: row.key, revision: row.revision },
         'ignoring invalid operator override',
+      )
+      return false
+    }
+    if (!sameValue(row.baseline_value, valueFor(base, row.key))) {
+      invalidOverrideReasons.set(row.key, 'baseline_changed')
+      log.warn(
+        { event: 'operator_config.baseline_changed', key: row.key, revision: row.revision },
+        'ignoring override from an older baseline',
       )
       return false
     }
