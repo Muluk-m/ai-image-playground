@@ -291,7 +291,10 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         legacyPricing = await chatTaskPricing(overlay.taskHooks, selectedModel)
       } catch (err) {
         if (billChat) throw err
-        log.warn({ event: 'agent.chat_waiver_pricing_failed', turnId, err }, 'chat waiver pricing unavailable')
+        log.warn(
+          { event: 'agent.chat_waiver_pricing_failed', turnId, err },
+          'chat waiver pricing unavailable',
+        )
       }
     }
     // 一份轮输入，两个读者：按它估算的这一笔预扣，与 `startAgentTurn` 发出去的那一份。估算在
@@ -407,7 +410,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       }
       let chosen = withNote
       if (!unmetered && billChat && userId) {
-        pricing = legacyPricing ?? await chatTaskPricing(overlay.taskHooks, selectedModel, tx)
+        pricing = legacyPricing ?? (await chatTaskPricing(overlay.taskHooks, selectedModel, tx))
         const chatTask = {
           tx,
           taskHooks: overlay.taskHooks,

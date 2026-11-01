@@ -123,9 +123,8 @@ export async function generateCanvasText(
     const hooks = (await loadPrivateBffOverlay()).taskHooks
     const billed = chatTurnsBilled()
     if (billed && !userId) throw new CanvasTextError('unauthorized', 401)
-    const legacyPricing = billed && !hooks.meteringDecision
-      ? await chatTaskPricing(hooks, model.id)
-      : null
+    const legacyPricing =
+      billed && !hooks.meteringDecision ? await chatTaskPricing(hooks, model.id) : null
     const id = crypto.randomUUID()
     token = crypto.randomUUID()
     const now = Date.now()
@@ -151,7 +150,7 @@ export async function generateCanvasText(
         meteringMode = unmetered || !billed ? 'none' : 'credits'
       }
       if (billed && !unmetered) {
-        pricing = legacyPricing ?? await chatTaskPricing(hooks, model.id, tx)
+        pricing = legacyPricing ?? (await chatTaskPricing(hooks, model.id, tx))
         maxTokens = Math.min(model.maxTokens, pricing.outputReserveTokens)
       } else {
         maxTokens = model.maxTokens
