@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
@@ -183,6 +184,17 @@ describe('oauth start', () => {
 
     const cookie = readCookie(response, 'image_playground_oauth_state')
     expect(cookie).toBe(`google:login:${location.searchParams.get('state')}`)
+  })
+  it('uses an explicitly supplied allowlisted frontend origin without Origin header', async () => {
+    enableGoogle()
+    const response = await request(
+      `/api/auth/oauth/google/start?frontend_origin=${encodeURIComponent('https://other.example.com')}`,
+    )
+    expect(response.status).toBe(302)
+    const location = new URL(response.headers.get('location') ?? '')
+    const metadata = readCookie(response, 'image_playground_oauth_return_to')
+    expect(metadata).toContain(Buffer.from('https://other.example.com').toString('base64url'))
+    expect(location.searchParams.get('state')).toBeTruthy()
   })
 })
 

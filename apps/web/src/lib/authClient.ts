@@ -128,10 +128,10 @@ export async function fetchOAuthProviders(): Promise<OAuthProviderView[]> {
   }
 }
 
-/** Keep OAuth on the current workspace, never on the marketing or login entry. */
-function oauthReturnTo(): string {
-  if (typeof window === 'undefined') return APP_MODE_PATHS.image
-  const { pathname, search, hash } = window.location
+/** Keep OAuth on the current workspace, with an explicit origin for browser navigations. */
+function oauthReturnTo(): { target: string; origin: string } {
+  if (typeof window === 'undefined') return { target: APP_MODE_PATHS.image, origin: '' }
+  const { pathname, search, hash, origin } = window.location
   const path = normalizePath(pathname)
   const workspace =
     Object.values(APP_MODE_PATHS).some((entry) => entry === path) ||
@@ -139,16 +139,27 @@ function oauthReturnTo(): string {
     readProjectRoute(pathname) !== null ||
     toolRouteSlug(pathname) !== null
   const target = `${pathname}${search}${hash}`
-  return workspace && target.length <= 2048 && !/[\\\u0000-\u001f\u007f]/.test(target)
-    ? target
-    : APP_MODE_PATHS.image
+  return {
+    target:
+      workspace && target.length <= 2048 && !/[\\\u0000-\u001f\u007f]/.test(target)
+        ? target
+        : APP_MODE_PATHS.image,
+    origin,
+  }
+}
+
+function oauthQuery(): string {
+  const { target, origin } = oauthReturnTo()
+  const params = new URLSearchParams({ return_to: target })
+  if (origin) params.set('frontend_origin', origin)
+  return params.toString()
 }
 
 export function oauthStartUrl(provider: string, referralCode?: string): string {
+  const params = new URLSearchParams(oauthQuery())
   const code = referralCode?.trim()
-  return bffUrl(
-    `/api/auth/oauth/${provider}/start?return_to=${encodeURIComponent(oauthReturnTo())}${code ? `&ref=${encodeURIComponent(code)}` : ''}`,
-  )
+  if (code) params.set('ref', code)
+  return bffUrl(`/api/auth/oauth/${provider}/start?${params.toString()}`)
 }
 
 export async function logoutUser(): Promise<void> {
@@ -175,7 +186,7 @@ export async function updateOwnPassword(input: {
 }
 
 export function oauthLinkUrl(provider: string): string {
-  return bffUrl(`/api/auth/oauth/${provider}/link?return_to=${encodeURIComponent(oauthReturnTo())}`)
+  return bffUrl(`/api/auth/oauth/${provider}/link?${oauthQuery()}`)
 }
 
 export async function unlinkOAuthProvider(provider: string): Promise<void> {
