@@ -5,6 +5,7 @@ import { FuzzyTime } from '@/components/FuzzyTime'
 import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
 import { ShortId } from '@/components/ShortId'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -59,8 +60,12 @@ function actionTitle(action: string): string {
 
 function AuditPage() {
   const [action, setAction] = useState(ALL_ACTIONS)
+  const [settingKey, setSettingKey] = useState('')
   const isMobile = useIsMobile()
-  const query = useAudits({ action: action === ALL_ACTIONS ? undefined : action })
+  const query = useAudits({
+    action: action === ALL_ACTIONS ? undefined : action,
+    settingKey: settingKey.trim() || undefined,
+  })
   const audits = query.data?.pages.flatMap((page) => page.audits) ?? []
 
   return (
@@ -68,21 +73,30 @@ function AuditPage() {
       crumbs={[{ label: '审计' }]}
       description="运营者执行过的写操作，只读"
       actions={
-        <Select value={action} onValueChange={setAction}>
-          <SelectTrigger className="h-8 w-[180px] text-xs" aria-label="按动作筛选">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_ACTIONS} className="text-xs">
-              全部动作
-            </SelectItem>
-            {Object.entries(ACTION_LABEL).map(([value, label]) => (
-              <SelectItem key={value} value={value} className="text-xs">
-                {label}
+        <div className="flex items-center gap-2">
+          <Input
+            value={settingKey}
+            onChange={(event) => setSettingKey(event.target.value)}
+            className="h-8 w-[180px] text-xs"
+            placeholder="配置键"
+            aria-label="按配置键筛选"
+          />
+          <Select value={action} onValueChange={setAction}>
+            <SelectTrigger className="h-8 w-[180px] text-xs" aria-label="按动作筛选">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_ACTIONS} className="text-xs">
+                全部动作
               </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+              {Object.entries(ACTION_LABEL).map(([value, label]) => (
+                <SelectItem key={value} value={value} className="text-xs">
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       }
     >
       {query.isPending ? (
