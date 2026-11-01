@@ -3,7 +3,6 @@ import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { DEFAULT_AVATAR_PATH } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
-import { config } from '../../config'
 import {
   _setPrivateBffOverlayForTesting,
   EMPTY_PRIVATE_BFF_OVERLAY,
@@ -22,6 +21,7 @@ process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../authenticated-operator-config.json')
 process.env.AUTH_PUBLIC_ORIGIN = 'https://api.example.com'
 
+const { config } = await import('../../config')
 const { app } = await import('../../app')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { registerOAuthProviders, setOAuthFetchForTesting } = await import('../../lib/oauth')

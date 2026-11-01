@@ -393,7 +393,6 @@ it('rejects an unmetered submission after real quota exhaustion without leaving 
   expect(reserveCalls).toBe(0)
 })
 
-
 it('prices the stage on the server when the model omits or understates the estimate', async () => {
   const omitted = await fixture()
   expect(omitted.budgetCap).toBe(6)

@@ -173,7 +173,6 @@ describe('Lightbox 触控手势', () => {
   })
 })
 
-
 describe('Lightbox 保存按钮', () => {
   function saveButton(): HTMLButtonElement | null {
     return lightboxRoot().querySelector<HTMLButtonElement>('button[data-save-image]')

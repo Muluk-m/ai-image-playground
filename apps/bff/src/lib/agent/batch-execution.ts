@@ -566,8 +566,7 @@ async function dispatchPreparedBatch(
           })
           if (reservation.kind === 'insufficient_credits')
             throw new BatchPlanError('batch_insufficient_credits', 422)
-          if (reservation.kind === 'quota_exceeded')
-            throw new BatchPlanError('quota_exceeded', 429)
+          if (reservation.kind === 'quota_exceeded') throw new BatchPlanError('quota_exceeded', 429)
           if (reservation.kind !== 'reserved')
             throw new BatchPlanError('batch_submission_refused', 422)
           reservedCredits = reservation.credits
@@ -576,8 +575,7 @@ async function dispatchPreparedBatch(
           const submitted = await createQueueTask({ ...input, prepared, tx })
           if (submitted.kind === 'insufficient_credits')
             throw new BatchPlanError('batch_insufficient_credits', 422)
-          if (submitted.kind === 'quota_exceeded')
-            throw new BatchPlanError('quota_exceeded', 429)
+          if (submitted.kind === 'quota_exceeded') throw new BatchPlanError('quota_exceeded', 429)
           if (submitted.kind !== 'created')
             throw new BatchPlanError('batch_submission_refused', 422)
           taskId = submitted.taskId
