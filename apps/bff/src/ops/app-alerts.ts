@@ -14,6 +14,7 @@ import {
   readBackups as readBackupsFromStore,
   readRestoreDrill as readRestoreDrillFromStore,
 } from '../lib/ops-backups'
+import { OpsStorageError } from '../lib/ops-storage-error'
 import { redactLogText } from '../lib/server-log-buffer'
 import { selectRunnableTasks } from '../workers/runnable-tasks'
 import type { AlertSender } from './alert-sender'
@@ -51,7 +52,10 @@ async function attempt<T>(
       {
         event: 'ops.alert_observe_failed',
         block,
-        err: error instanceof Error ? error.message : String(error),
+        ...(error instanceof OpsStorageError
+          ? { stage: error.stage, storage_error: error.storageError }
+          : {}),
+        err: error instanceof Error ? redactLogText(error.message) : String(error),
       },
       'could not read a block for alerting; its rule is skipped this round',
     )
