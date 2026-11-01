@@ -17,8 +17,40 @@
           {
             "id": "1K",
             "pixels": {
-              "1:1": "1254x1254",
-              "16:9": "1672x941"
+              "1:1": "1024x1024",
+              "3:4": "768x1024",
+              "9:16": "720x1280",
+              "4:3": "1024x768",
+              "16:9": "1280x720",
+              "2:3": "1024x1536",
+              "3:2": "1536x1024",
+              "21:9": "1280x544"
+            }
+          },
+          {
+            "id": "2K",
+            "pixels": {
+              "1:1": "2048x2048",
+              "3:4": "1536x2048",
+              "9:16": "1440x2560",
+              "4:3": "2048x1536",
+              "16:9": "2560x1440",
+              "2:3": "1440x2160",
+              "3:2": "2160x1440",
+              "21:9": "2560x1088"
+            }
+          },
+          {
+            "id": "4K",
+            "pixels": {
+              "1:1": "2880x2880",
+              "3:4": "2400x3200",
+              "9:16": "2160x3840",
+              "4:3": "3200x2400",
+              "16:9": "3840x2160",
+              "2:3": "2304x3456",
+              "3:2": "3456x2304",
+              "21:9": "3840x1600"
             }
           }
         ],
@@ -58,13 +90,17 @@
           }
         },
         "ratioVia": [
-          "prompt"
+          "param"
         ],
         "autoRatio": true,
         "defaultTier": "1K",
         "wire": {
-          "kind": "fixed",
-          "note": "sub2api 的 Codex 图片路径忽略 size 与 quality（Wei-Shaw/sub2api#3302、openai/codex#28723）：线上实测 low/medium/high/auto 四档质量、两种比例，输出都是约 1.57MP 一档"
+          "kind": "pixels",
+          "multiple": 16,
+          "maxEdge": 3840,
+          "minPixels": 655360,
+          "maxPixels": 8294400,
+          "maxAspect": 3
         },
         "count": {
           "max": 10,
@@ -82,7 +118,9 @@
           ]
         },
         "etaSeconds": {
-          "1K": 42
+          "1K": 20,
+          "2K": 20,
+          "4K": 25
         }
       },
       "pricing": {
@@ -91,12 +129,12 @@
       "evidence": {
         "tiers": {
           "source": "probe",
-          "at": "2026-10-22",
-          "note": "muvloom.online 快速生成实测：Flare 低/中/高/自动 1:1 均 1254x1254、16:9 均 1672x941；Sunburst 高 1:1 1254x1254。其他比例像素未测"
+          "at": "2026-10-31",
+          "note": "OpenAI 直连实测：宽高须为 16 的倍数、最长边 ≤3840、长宽比 ≤3:1、像素 655360–8294400；1024x1024、2048x2048、3840x2160、2160x3840 均按请求尺寸出图。2K/4K 与高画质只开给会员走直连，sub2api 仍出约 1.57MP 一档（服务端按实际档位结算）"
         },
         "ratios": {
           "source": "code",
-          "note": "比例写进提示词（apps/web/src/lib/api.ts、apps/bff/src/lib/agent/prompt-shaping.ts buildAspectInstruction）；直出界面 PRESET_RATIOS 8 档 + 自定义，Agent 菜单 5 档"
+          "note": "直连发原生 size；sub2api 丢 size，由 BFF 在发送前把构图句写进提示词（apps/bff/src/lib/upstream.ts adaptGptRequest）"
         },
         "count": {
           "source": "code",
@@ -108,18 +146,17 @@
         },
         "quality": {
           "source": "probe",
-          "at": "2026-10-22",
-          "note": "前端→BFF→上游都如实传 quality；上游回报的 quality 与所选不同（选高回报 low/medium），像素不变，属上游改写"
+          "at": "2026-10-31",
+          "note": "直连如实兑现 low/medium/high（输出 token 1K 196/439/1756），auto 由 BFF 改发 medium"
         },
         "etaSeconds": {
           "source": "probe",
-          "at": "2026-10-22",
-          "note": "线上单张 39–45 秒"
+          "at": "2026-10-31",
+          "note": "直连单张 9–33 秒（高画质偏慢）；走 sub2api 时约 40 秒"
         }
       },
       "todo": [
-        "待实测：参考图上限",
-        "quality 在 Codex 路径不生效：PR-3 决定界面是否继续展示质量选项"
+        "待实测：参考图上限"
       ]
     },
     {
@@ -137,8 +174,40 @@
           {
             "id": "1K",
             "pixels": {
-              "1:1": "1254x1254",
-              "16:9": "1672x941"
+              "1:1": "1024x1024",
+              "3:4": "768x1024",
+              "9:16": "720x1280",
+              "4:3": "1024x768",
+              "16:9": "1280x720",
+              "2:3": "1024x1536",
+              "3:2": "1536x1024",
+              "21:9": "1280x544"
+            }
+          },
+          {
+            "id": "2K",
+            "pixels": {
+              "1:1": "2048x2048",
+              "3:4": "1536x2048",
+              "9:16": "1440x2560",
+              "4:3": "2048x1536",
+              "16:9": "2560x1440",
+              "2:3": "1440x2160",
+              "3:2": "2160x1440",
+              "21:9": "2560x1088"
+            }
+          },
+          {
+            "id": "4K",
+            "pixels": {
+              "1:1": "2880x2880",
+              "3:4": "2400x3200",
+              "9:16": "2160x3840",
+              "4:3": "3200x2400",
+              "16:9": "3840x2160",
+              "2:3": "2304x3456",
+              "3:2": "3456x2304",
+              "21:9": "3840x1600"
             }
           }
         ],
@@ -178,13 +247,17 @@
           }
         },
         "ratioVia": [
-          "prompt"
+          "param"
         ],
         "autoRatio": true,
         "defaultTier": "1K",
         "wire": {
-          "kind": "fixed",
-          "note": "sub2api 的 Codex 图片路径忽略 size 与 quality（Wei-Shaw/sub2api#3302、openai/codex#28723）：线上实测 low/medium/high/auto 四档质量、两种比例，输出都是约 1.57MP 一档"
+          "kind": "pixels",
+          "multiple": 16,
+          "maxEdge": 3840,
+          "minPixels": 655360,
+          "maxPixels": 8294400,
+          "maxAspect": 3
         },
         "count": {
           "max": 10,
@@ -202,7 +275,9 @@
           ]
         },
         "etaSeconds": {
-          "1K": 42
+          "1K": 20,
+          "2K": 20,
+          "4K": 25
         }
       },
       "pricing": {
@@ -211,12 +286,12 @@
       "evidence": {
         "tiers": {
           "source": "probe",
-          "at": "2026-10-22",
-          "note": "muvloom.online 快速生成实测：Flare 低/中/高/自动 1:1 均 1254x1254、16:9 均 1672x941；Sunburst 高 1:1 1254x1254。其他比例像素未测"
+          "at": "2026-10-31",
+          "note": "OpenAI 直连实测：宽高须为 16 的倍数、最长边 ≤3840、长宽比 ≤3:1、像素 655360–8294400；1024x1024、2048x2048、3840x2160、2160x3840 均按请求尺寸出图。2K/4K 与高画质只开给会员走直连，sub2api 仍出约 1.57MP 一档（服务端按实际档位结算）"
         },
         "ratios": {
           "source": "code",
-          "note": "比例写进提示词（apps/web/src/lib/api.ts、apps/bff/src/lib/agent/prompt-shaping.ts buildAspectInstruction）；直出界面 PRESET_RATIOS 8 档 + 自定义，Agent 菜单 5 档"
+          "note": "直连发原生 size；sub2api 丢 size，由 BFF 在发送前把构图句写进提示词（apps/bff/src/lib/upstream.ts adaptGptRequest）"
         },
         "count": {
           "source": "code",
@@ -228,18 +303,17 @@
         },
         "quality": {
           "source": "probe",
-          "at": "2026-10-22",
-          "note": "前端→BFF→上游都如实传 quality；上游回报的 quality 与所选不同（选高回报 low/medium），像素不变，属上游改写"
+          "at": "2026-10-31",
+          "note": "直连如实兑现 low/medium/high（输出 token 1K 196/439/1756），auto 由 BFF 改发 medium"
         },
         "etaSeconds": {
           "source": "probe",
-          "at": "2026-10-22",
-          "note": "线上单张 39–45 秒"
+          "at": "2026-10-31",
+          "note": "直连单张 9–33 秒（高画质偏慢）；走 sub2api 时约 40 秒"
         }
       },
       "todo": [
-        "待实测：参考图上限",
-        "quality 在 Codex 路径不生效：PR-3 决定界面是否继续展示质量选项"
+        "待实测：参考图上限"
       ]
     },
     {

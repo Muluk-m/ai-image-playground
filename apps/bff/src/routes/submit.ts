@@ -248,6 +248,9 @@ export const submitRoutes = new Elysia()
       if (outcome.kind === 'authentication_required') {
         return status(401, { error: 'unauthorized' })
       }
+      if (outcome.kind === 'private_billing_denied') {
+        return status(403, { error: 'plan_required', message: '4K 需要有效会员' })
+      }
       if (outcome.kind === 'quota_exceeded') {
         const quota = outcome.quota
         return status(429, {
@@ -255,6 +258,13 @@ export const submitRoutes = new Elysia()
           quota: quota.quota,
           used: quota.count,
           reset_at: quota.reset_at,
+        })
+      }
+      if (outcome.kind === 'max_credits_exceeded') {
+        return status(402, {
+          error: 'max_credits_exceeded',
+          required: outcome.required,
+          max_credits: outcome.maxCredits,
         })
       }
 

@@ -4,6 +4,7 @@ import {
   billedStageQuantity,
   buildAspectInstruction,
   canvasOrigin,
+  isGptDirectModel,
   type QueueProvider,
   readCanvasDocument,
   STAGE_RUN_MAX_RETRIES,
@@ -876,8 +877,11 @@ function dispatchedPromptVariants(prompt: string, shaping: StagePromptShaping): 
   const provider = resolveQueueModel('image', shaping.model)?.provider ?? shaping.provider
   const guarded = provider === 'gemini' ? [prompt] : [prompt, applyPromptRewriteGuard(prompt)]
   const capabilities = modelCapabilities(shaping.model)
+  // GPT 直连模型的 size 随直连开关声明或收回：开关切换后还开着旧页面的前端仍会钉构图句，照样认。
   const instruction =
-    shaping.size && capabilities && !capabilities.includes('size')
+    shaping.size &&
+    capabilities &&
+    (!capabilities.includes('size') || isGptDirectModel(shaping.model))
       ? buildAspectInstruction(shaping.size)
       : null
   return instruction ? [...guarded, ...guarded.map((item) => `${item}\n\n${instruction}`)] : guarded

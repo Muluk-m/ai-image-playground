@@ -423,6 +423,28 @@ describe('oauth callback', () => {
     )
   })
 
+  it('returns to the CLI device confirmation page with its user code', async () => {
+    enableGoogle()
+    const start = await request(
+      `/api/auth/oauth/google/start?return_to=${encodeURIComponent('/device?user_code=BCDF-GHJK')}`,
+    )
+    const location = new URL(start.headers.get('location') ?? '')
+    const state = location.searchParams.get('state') ?? ''
+    const stateCookie = readCookie(start, 'image_playground_oauth_state')
+    const returnToCookie = readCookie(start, 'image_playground_oauth_return_to')
+    if (!stateCookie || !returnToCookie) throw new Error('start did not issue OAuth cookies')
+
+    const response = await callback(
+      'google',
+      { error: 'access_denied', state },
+      stateCookie,
+      returnToCookie,
+    )
+    expect(response.headers.get('location')).toBe(
+      'https://app.example.com/device?user_code=BCDF-GHJK&auth_error=access_denied&login=1',
+    )
+  })
+
   it('defaults malicious return targets and mismatched metadata to the image workspace', async () => {
     enableGoogle()
     for (const requested of ['https://evil.example/steal', '//evil.example/steal', '/']) {

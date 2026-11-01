@@ -264,9 +264,9 @@ describe('callUpstream OpenAI route', () => {
       expect(form.get('n')).toBeNull()
       expect(form.get('strength')).toBe('0.5')
     }
-    expect(result.payload).toMatchObject({
-      data: [{ b64_json: 'ok-1' }, { b64_json: 'ok-2' }, { b64_json: 'ok-3' }],
-    })
+    // 三条并发请求先过 sub2api 在途配额再发，桩记的序号与合并顺序不必一致，只看三张都在。
+    const data = (result.payload as { data: { b64_json: string }[] }).data
+    expect(data.map((item) => item.b64_json).sort()).toEqual(['ok-1', 'ok-2', 'ok-3'])
   })
 
   it('with mask: appends mask Blob alongside image[] in FormData', async () => {
