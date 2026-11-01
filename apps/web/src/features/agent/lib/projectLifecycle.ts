@@ -54,6 +54,13 @@ export async function saveCurrentProject(
   if (!workspace) return { ok: true }
   // 读失败的画布 flush() 一定是 false，等 ready 只是为了不抢在首次读取前写。
   await workspace.ready.catch(() => {})
+  // 项目数到上限时被服务端拒建的那个空项目（BUG-54）从没存在过，读失败后编辑也一直拦着，
+  // 没有任何东西要保存。把它当保存失败会让切换、新建、删除全部卡死在这一页。
+  if (
+    currentCanvasProject()?.quotaRejected &&
+    workspace.getSnapshot().loadErrorCode === 'project_quota_exceeded'
+  )
+    return { ok: true }
   // 画布的 flush 反过来：不抛，直接返回成败。
   if (!(await workspace.flush())) return { ok: false, reason: 'save_failed' }
   return { ok: true }

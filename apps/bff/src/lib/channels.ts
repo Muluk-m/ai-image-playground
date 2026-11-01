@@ -41,6 +41,7 @@ import type {
 import {
   CHANNEL_CAPABILITIES,
   GEMINI_IMAGE_SIZES,
+  isGptDirectModel,
   isModelEtaSeconds,
   MODEL_BADGES,
   MODEL_LOGOS,
@@ -625,15 +626,20 @@ export function modelLabel(model: string): string {
   return model
 }
 
-/** 给了 id 就按 id 找，没给就取该介质的默认模型——channels 数组顺序是产品契约。 */
+/**
+ * 给了 id 就按 id 找，没给就取该介质的默认模型——channels 数组顺序是产品契约。
+ * `skip` 里的模型当作不存在（智能体挑模型时传「模型」页停用的那些）。
+ */
 export function resolveQueueModel(
   media: ChannelMedia,
   modelId?: string,
+  skip?: ReadonlySet<string>,
 ): { provider: QueueProvider; model: string } | undefined {
   for (const channel of loaded) {
     for (const model of channel.models) {
       if ((model.media ?? 'image') !== media) continue
       if (modelId && model.id !== modelId) continue
+      if (skip?.has(model.id)) continue
       return { provider: queueProviderOf(channel.kind), model: model.id }
     }
   }
@@ -644,13 +650,33 @@ function queueProviderOf(kind: ChannelKind): QueueProvider {
   return kind === 'gemini-queue' ? 'gemini' : 'openai-compat'
 }
 
+/**
+ * GPT 直连模型的 `size` 只有 OpenAI 直连兑现得了（sub2api 丢弃 size）。直连没开（口径同 config.gptDirect：
+ * GPT_DIRECT_ENABLED 且有 OPENAI_API_KEY）时不声明它：前端退回只选比例、构图写进提示词，与直连上线前一致。
+ */
+function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
+  const directOn =
+    process.env.GPT_DIRECT_ENABLED?.trim().toLowerCase() === 'true' &&
+    Boolean(process.env.OPENAI_API_KEY?.trim())
+  if (directOn || !channel.models.some((model) => isGptDirectModel(model.id))) return channel
+  return {
+    ...channel,
+    models: channel.models.map((model) =>
+      isGptDirectModel(model.id)
+        ? { ...model, capabilities: model.capabilities.filter((cap) => cap !== 'size') }
+        : model,
+    ),
+  }
+}
+
 function setLoaded(
-  channels: InternalChannel[],
+  rawChannels: InternalChannel[],
   disabled: InternalChannel[] = [],
   disabledIds: Readonly<Record<string, string>> = Object.fromEntries(
     disabled.flatMap((c) => c.models.map((m) => [m.id, c.id])),
   ),
 ): void {
+  const channels = rawChannels.map(withDeliverableGptSize)
   loaded = channels
   retired = disabled
   // 同一个模型还挂在某条在用的 channel 上，就照常收。

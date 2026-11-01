@@ -1,6 +1,6 @@
 import { hostname } from 'node:os'
 import type { PersistedSubmitRequest, QueueProvider } from '@image-playground/shared'
-import { and, eq, isNull, lte, or, type SQL, sql } from 'drizzle-orm'
+import { and, eq, isNull, lte, or, type SQL, type SQLWrapper, sql } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { publishGenerations } from '../db/generation-events'
@@ -14,9 +14,11 @@ import {
   type TerminalTaskUpdate,
 } from '../db/task-transitions'
 import { accountConcurrencyLimit } from '../lib/account-concurrency'
+import { getRoutableChannels } from '../lib/channels'
 import { durableGenerationInputs } from '../lib/generationMedia'
 import { log } from '../lib/logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../lib/private-overlay'
+import { taskConcurrencyScope } from '../lib/upstream'
 import { cancelLateUpstreamTasks } from '../lib/upstream-cancel'
 import { checkIdleSlot, lockIdleSlotClaims, providerConcurrencyLimit } from './idle-concurrency'
 
@@ -75,6 +77,7 @@ export type ClaimedTask = Pick<
   | 'upstream_task_ids'
   | 'upstream_submitted_at'
   | 'upstream_invocation_count'
+  | 'submitted_at'
 >
 
 /** 已提交的上游异步任务：回读只为补提交缺口，已落库的 id 一律只轮不重提。 */
@@ -95,6 +98,8 @@ export interface TaskExecution {
   readonly signal: AbortSignal
   /** 主动停掉这次执行的上游请求；扇出的兄弟请求共用这个信号，一并停。 */
   abort(): void
+  /** GPT Image 这一单正要走的通道（换路时覆盖成后一条）；结算按它判断是否降了档。 */
+  recordGptRoute(route: 'direct' | 'sub2api'): Promise<void>
   /** 记账：上游真的被调用过。返回 false 表示这一行已经不归本次执行。 */
   recordUpstreamInvocation(count?: number): Promise<boolean>
   recordDispatchIntent(): Promise<string | null>
@@ -186,6 +191,10 @@ class TaskExecutionHandle implements TaskExecution {
 
   abort(): void {
     this.#controller.abort()
+  }
+
+  async recordGptRoute(route: 'direct' | 'sub2api'): Promise<void> {
+    await db.update(schema.tasks).set({ gpt_route: route }).where(this.#own())
   }
 
   async recordUpstreamInvocation(count = 1): Promise<boolean> {
@@ -350,6 +359,129 @@ class TaskExecutionHandle implements TaskExecution {
 }
 
 /**
+ * 正在等重试的任务替自己留着那个并发位的最长等待（BUG-84）。上游重试退避最长 60s
+ * （RETRY_BACKOFF_MS），多出的余量给时钟和调度抖动；超过这个时长的等待（如存档重试、
+ * 运维手动推迟）不再占位，免得一条长等待把账号卡死。
+ */
+export const RETRY_SLOT_HOLD_MS = 90_000
+
+/**
+ * 这一行是否是「刚失败、等着按退避重试」的任务：它让出 in_progress 只是为了等时间，
+ * 账号并发位应当还算它的（BUG-84：370b97db 进入 10s 重试等待后 0.5s，同账号排队的
+ * 915fad3f 抢走了位置，370b97db 等了四分多钟）。只认上游重试（attempt_count > 0、
+ * 没有存档载荷），等待时长在 {@link RETRY_SLOT_HOLD_MS} 以内。
+ *
+ * 写成可复用的 SQL 条件：之后统一调度层接管计数时，只需把这一类行算进它的占位。
+ */
+export function retryHoldsSlot(alias: string, now: number): SQL {
+  const t = sql.identifier(alias)
+  return sql`(${t}.status = 'queued'
+    and ${t}.attempt_count > 0
+    and ${t}.archive_payload is null
+    and ${t}.next_retry_at > to_timestamp(${now} / 1000.0)
+    and ${t}.next_retry_at <= to_timestamp(${now + RETRY_SLOT_HOLD_MS} / 1000.0))`
+}
+
+/**
+ * 智能体同一轮里，同模型最多同时跑几条。原先一律一条（2026-10-29：一轮 5 单 Flash Lite 同时起跑，
+ * 在同一个按模型限速的配额上互相挤出 429），连没有限速的模型也被串行：2026-10-30 线上一轮 5 张
+ * gpt-image-2.5-flare 每张约 34s，一张接一张跑了近 3 分钟，worker 还空着 3 个位。
+ * 在 channels.json 声明了并发上限的模型（共享一份按模型限速的配额，如 Vertex）始终一次一条；
+ * 其他模型同轮最多 {@link turnSiblingParallelism} 条，账号并发和 worker 并发照旧在后面把关。
+ */
+export function turnSiblingParallelism(): number {
+  // 运营配置 `agent:turn-model-parallelism`，默认 1 即原来的一律串行；按环境逐步放开，0 也按 1 算。
+  return Math.max(1, config.operator.quotas['agent:turn-model-parallelism'])
+}
+
+/** 返回指定 provider 下声明了并发上限的模型名；不传 provider 时仅供诊断测试读取全部模型。 */
+export function turnSerializedModels(provider?: QueueProvider): string[] {
+  const models = new Set<string>()
+  for (const channel of getRoutableChannels()) {
+    const channelProvider =
+      channel.kind === 'gemini-queue'
+        ? ('gemini' as const)
+        : channel.kind === 'openai-queue'
+          ? ('openai-compat' as const)
+          : null
+    if (!channelProvider || (provider && channelProvider !== provider)) continue
+    for (const model of channel.models)
+      for (const id of taskConcurrencyScope(channelProvider, model.id)?.models ?? []) models.add(id)
+  }
+  return [...models].sort()
+}
+
+/** 这个 provider + model 同轮同时能跑几条，写成 SQL 表达式。 */
+function turnSiblingLimit(provider: SQLWrapper, model: SQLWrapper): SQL {
+  const scopes: SQL[] = []
+  for (const [scopeProvider, models] of [
+    ['gemini' as const, turnSerializedModels('gemini')],
+    ['openai-compat' as const, turnSerializedModels('openai-compat')],
+  ] as const) {
+    if (models.length)
+      scopes.push(
+        sql`when ${provider} = ${scopeProvider} and ${model} in (${sql.join(
+          models.map((id) => sql`${id}`),
+          sql`, `,
+        )}) then 1`,
+      )
+  }
+  return scopes.length
+    ? sql`case ${sql.join(scopes, sql` `)} else ${turnSiblingParallelism()} end`
+    : sql`${turnSiblingParallelism()}`
+}
+
+/** 同一轮同模型、还在跑或等重试的兄弟任务是否已经占满上限。 */
+export function turnSiblingsAtLimit(
+  taskId: SQLWrapper,
+  provider: SQLWrapper,
+  model: SQLWrapper,
+  now = Date.now(),
+): SQL {
+  return sql`((
+    select count(*) from ${schema.agent_jobs} as turn_mine
+    join ${schema.agent_jobs} as turn_sibling
+      on turn_sibling.conversation_id = turn_mine.conversation_id
+      and turn_sibling.turn_id = turn_mine.turn_id
+      and turn_sibling.task_id <> turn_mine.task_id
+      and turn_sibling.delivered_at is null
+    join ${schema.tasks} as turn_sibling_task on turn_sibling_task.id = turn_sibling.task_id
+    where turn_mine.task_id = ${taskId}
+      and (turn_sibling_task.status = 'in_progress' or ${retryHoldsSlot('turn_sibling_task', now)})
+      and turn_sibling_task.provider = ${provider}
+      and turn_sibling_task.model = ${model}
+  ) >= ${turnSiblingLimit(provider, model)})`
+}
+
+/**
+ * 匿名智能体任务（`user_id` 为空）的同轮串行：没有用户行可锁，改拿这一轮的事务级咨询锁，
+ * 再查 {@link turnSiblingsAtLimit}。同一轮的两条并发认领因此一前一后，后一条看得见前一条
+ * 刚提交的 in_progress。不是智能体提交的任务没有 agent_jobs 行，不拿锁，也不受影响。
+ * 锁顺序「轮锁 → provider 锁」，匿名认领不碰用户行，不会与登录用户的认领成环。
+ */
+async function anonymousTurnSiblingRunning(
+  tx: BffTransaction,
+  taskId: string,
+  provider: string,
+  model: string,
+  now: number,
+): Promise<boolean> {
+  const locked = await tx
+    .select({
+      turn: sql`pg_advisory_xact_lock(hashtextextended('agent-turn-claim:' || ${schema.agent_jobs.conversation_id} || ':' || ${schema.agent_jobs.turn_id}, 0))`,
+    })
+    .from(schema.agent_jobs)
+    .where(eq(schema.agent_jobs.task_id, taskId))
+  if (locked.length === 0) return false
+  const [sibling] = await tx
+    .select({
+      running: turnSiblingsAtLimit(sql`${taskId}`, sql`${provider}`, sql`${model}`, now),
+    })
+    .from(sql`(select 1) as one`)
+  return Boolean(sibling?.running)
+}
+
+/**
  * 认领一条排着的任务。只有 `status='queued'` 且 `next_retry_at` 已到才认领得到，
  * 认领与令牌、租约同一次写入：滚动发布时两个实例抢同一行，只有一个拿得到句柄。
  */
@@ -391,6 +523,17 @@ export async function claimTaskExecution(
         .from(schema.users)
         .where(eq(schema.users.id, candidate.userId))
         .for('no key update')
+      const [sibling] = await tx
+        .select({
+          running: turnSiblingsAtLimit(
+            sql`${id}`,
+            sql`${candidate.provider}`,
+            sql`${candidate.model}`,
+            claimedAt,
+          ),
+        })
+        .from(sql`(select 1) as one`)
+      if (sibling?.running) return null
       if (serializeProviderClaims) await lockIdleSlotClaims(tx, candidate.provider)
       const limits = await accountGenerationLimits(
         tx,
@@ -398,18 +541,18 @@ export async function claimTaskExecution(
         candidate.provider,
         claimedAt,
       )
+      // 在跑的，加上同账号正在等重试、替自己留着位置的（BUG-84）；候选自己不算。
       const [active] = await tx
         .select({
           total: sql<number>`count(*)::int`,
-          provider: sql<number>`count(*) filter (where ${schema.tasks.provider} = ${candidate.provider})::int`,
+          provider: sql<number>`count(*) filter (where account_task.provider = ${candidate.provider})::int`,
         })
-        .from(schema.tasks)
+        .from(sql`${schema.tasks} as account_task`)
         .where(
-          and(
-            eq(schema.tasks.user_id, candidate.userId),
-            eq(schema.tasks.kind, 'queue'),
-            eq(schema.tasks.status, 'in_progress'),
-          ),
+          sql`account_task.user_id = ${candidate.userId}
+            and account_task.kind = 'queue'
+            and account_task.id <> ${id}
+            and (account_task.status = 'in_progress' or ${retryHoldsSlot('account_task', claimedAt)})`,
         )
       const activeTotal = Number(active?.total ?? 0)
       if (Number(active?.provider ?? 0) >= limits.provider) return null
@@ -445,8 +588,10 @@ export async function claimTaskExecution(
           runningInScope: decision.runningInScope,
         }
       }
-    } else if (serializeProviderClaims) {
-      await lockIdleSlotClaims(tx, candidate.provider)
+    } else {
+      if (await anonymousTurnSiblingRunning(tx, id, candidate.provider, candidate.model, claimedAt))
+        return null
+      if (serializeProviderClaims) await lockIdleSlotClaims(tx, candidate.provider)
     }
     const [row] = await tx
       .update(schema.tasks)
@@ -476,6 +621,7 @@ export async function claimTaskExecution(
         upstream_task_ids: schema.tasks.upstream_task_ids,
         upstream_submitted_at: schema.tasks.upstream_submitted_at,
         upstream_invocation_count: schema.tasks.upstream_invocation_count,
+        submitted_at: schema.tasks.submitted_at,
       })
     if (row) await publishGenerations(tx, [id])
     return row

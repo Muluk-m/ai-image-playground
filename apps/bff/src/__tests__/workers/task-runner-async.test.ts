@@ -46,6 +46,7 @@ function submitThenComplete(url: string): Response {
 beforeEach(async () => {
   setObjectStoreForTesting(new InMemoryObjectStore())
   await db.delete(schema.tasks)
+  await db.delete(schema.model_availability)
   upstream = recordingUpstreamFetch()
   upstream.handler = submitThenComplete
   setUpstreamFetchForTesting(upstream.fetch)
@@ -207,6 +208,25 @@ describe('async submit phase', () => {
       status: 'failed',
       errorType: 'model_unavailable',
     })
+  })
+
+  it('账号池耗尽的 503 不重试，第一次就失败并下架模型（10-29 flare 事故）', async () => {
+    upstream.handler = () =>
+      json({ error: { message: 'No available compatible accounts', type: 'api_error' } }, 503)
+    await insertTask('async-no-compatible', { model: 'gpt-image-2.5-flare' })
+
+    await runTask('async-no-compatible')
+
+    expect(await readTask('async-no-compatible')).toMatchObject({
+      status: 'failed',
+      errorType: 'model_unavailable',
+    })
+    expect(upstream.calls.filter((url) => url.endsWith('/async'))).toHaveLength(1)
+    const [availability] = await db
+      .select()
+      .from(schema.model_availability)
+      .where(eq(schema.model_availability.model, 'gpt-image-2.5-flare'))
+    expect(availability).toMatchObject({ active: false, pause_reason: 'upstream_unavailable' })
   })
 
   it('keeps the stored id when a retryable failure sends the task back to the queue', async () => {

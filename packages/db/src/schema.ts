@@ -187,6 +187,119 @@ export const user_identities = pgTable(
   ],
 )
 
+export type DeviceAuthorizationStatus = 'pending' | 'approved' | 'denied' | 'consumed'
+
+/** Public OAuth clients allowed to start a device authorization (seeded by migration). */
+export const oauth_clients = pgTable('oauth_clients', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  created_at: epochMs('created_at').notNull(),
+})
+
+/** RFC 8628 device authorizations. Only hashes of the device and user codes are stored. */
+export const device_authorizations = pgTable(
+  'device_authorizations',
+  {
+    id: text('id').primaryKey(),
+    client_id: text('client_id')
+      .notNull()
+      .references(() => oauth_clients.id, { onDelete: 'cascade' }),
+    device_code_hash: text('device_code_hash').notNull(),
+    user_code_hash: text('user_code_hash').notNull(),
+    status: text('status').$type<DeviceAuthorizationStatus>().notNull().default('pending'),
+    scopes: text('scopes').notNull(),
+    user_id: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    expires_at: epochMs('expires_at').notNull(),
+    interval_seconds: integer('interval_seconds').notNull(),
+    last_polled_at: epochMs('last_polled_at'),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_device_authorizations_device_code_hash').on(t.device_code_hash),
+    uniqueIndex('idx_device_authorizations_user_code_hash').on(t.user_code_hash),
+    index('idx_device_authorizations_expires_at').on(t.expires_at),
+    check(
+      'device_authorizations_status_check',
+      sql`${t.status} IN ('pending', 'approved', 'denied', 'consumed')`,
+    ),
+  ],
+)
+
+/**
+ * One row per CLI connection (a token family). Refreshing rotates the hashes in place; the
+ * retired refresh hashes live in `cli_retired_refresh_tokens` so a replay revokes the row.
+ */
+export const cli_connections = pgTable(
+  'cli_connections',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    client_id: text('client_id')
+      .notNull()
+      .references(() => oauth_clients.id, { onDelete: 'cascade' }),
+    scopes: text('scopes').notNull(),
+    access_token_hash: text('access_token_hash').notNull(),
+    access_expires_at: epochMs('access_expires_at').notNull(),
+    refresh_token_hash: text('refresh_token_hash').notNull(),
+    refresh_expires_at: epochMs('refresh_expires_at').notNull(),
+    created_at: epochMs('created_at').notNull(),
+    last_used_at: epochMs('last_used_at'),
+    revoked_at: epochMs('revoked_at'),
+  },
+  (t) => [
+    uniqueIndex('idx_cli_connections_access_token_hash').on(t.access_token_hash),
+    uniqueIndex('idx_cli_connections_refresh_token_hash').on(t.refresh_token_hash),
+    index('idx_cli_connections_user_id').on(t.user_id),
+  ],
+)
+
+export const cli_retired_refresh_tokens = pgTable(
+  'cli_retired_refresh_tokens',
+  {
+    token_hash: text('token_hash').primaryKey(),
+    connection_id: text('connection_id')
+      .notNull()
+      .references(() => cli_connections.id, { onDelete: 'cascade' }),
+    retired_at: epochMs('retired_at').notNull(),
+  },
+  (t) => [index('idx_cli_retired_refresh_tokens_connection').on(t.connection_id)],
+)
+
+/** Queue tasks submitted through the CLI API, for source attribution and reliability metrics. */
+export const cli_jobs = pgTable(
+  'cli_jobs',
+  {
+    task_id: text('task_id')
+      .primaryKey()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    connection_id: text('connection_id').references(() => cli_connections.id, {
+      onDelete: 'set null',
+    }),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [index('idx_cli_jobs_user_created').on(t.user_id, t.created_at)],
+)
+
+/** Media uploaded through the CLI as reference input; listing reference media reads this table. */
+export const cli_reference_media = pgTable(
+  'cli_reference_media',
+  {
+    media_id: text('media_id')
+      .primaryKey()
+      .references(() => media_objects.id, { onDelete: 'cascade' }),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [index('idx_cli_reference_media_user_created').on(t.user_id, t.created_at)],
+)
+
 export const agent_model_settings = pgTable('agent_model_settings', {
   id: text('id').primaryKey(),
   revision: integer('revision').notNull(),
@@ -226,6 +339,60 @@ export const model_availability = pgTable('model_availability', {
   paused_at: epochMs('paused_at'),
   updated_at: epochMs('updated_at').notNull(),
 })
+
+/**
+ * 上游调度桶的状态。上限（每分钟张数、同时在途数）来自本环境配置，不存表；这一行是 worker 们抢额度时
+ * 加 FOR UPDATE 的锁点，另外记着遇到 429 后的冷却截止时间。没有行即从未用过，首次抢额度时补上。
+ */
+export const scheduler_buckets = pgTable('scheduler_buckets', {
+  key: text('key').primaryKey(),
+  cooldown_until: epochMs('cooldown_until'),
+  updated_at: epochMs('updated_at').notNull(),
+})
+
+/**
+ * 一次上游请求在一个桶上占的额度。同一请求可能同时占几个桶（每模型张数 + 同时在途数），
+ * 在同一事务里一起拿到。`released_at` 为空即仍在途；心跳停了的租约由下一次抢额度时回收。
+ * 按 `acquired_at` 落在最近一分钟内的行计算每分钟张数，所以释放后的行留到滑出窗口才删。
+ */
+export const scheduler_leases = pgTable(
+  'scheduler_leases',
+  {
+    attempt_id: text('attempt_id').notNull(),
+    bucket_key: text('bucket_key').notNull(),
+    images: integer('images').notNull(),
+    worker_id: text('worker_id').notNull(),
+    acquired_at: epochMs('acquired_at').notNull(),
+    heartbeat_at: epochMs('heartbeat_at').notNull(),
+    released_at: epochMs('released_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.attempt_id, t.bucket_key] }),
+    index('idx_scheduler_leases_bucket_acquired').on(t.bucket_key, t.acquired_at),
+  ],
+)
+
+/**
+ * OpenAI 直连每条请求的成本，按月累计做预算封顶（apps/bff/src/lib/upstream/gpt-budget.ts）。
+ * 上游回了 usage 按 token 折算；没回（中断、超时）按档位估算并标 `estimated`。
+ */
+export const gpt_direct_usage = pgTable(
+  'gpt_direct_usage',
+  {
+    id: text('id').primaryKey(),
+    task_id: text('task_id'),
+    model: text('model').notNull(),
+    size: text('size'),
+    quality: text('quality'),
+    images: integer('images').notNull(),
+    input_tokens: integer('input_tokens'),
+    output_tokens: integer('output_tokens'),
+    cost_micro_usd: bigint('cost_micro_usd', { mode: 'number' }).notNull(),
+    estimated: boolean('estimated').notNull(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [index('idx_gpt_direct_usage_created').on(t.created_at)],
+)
 
 export type InspirationKind = 'showcase' | 'template' | 'skill'
 export type InspirationStatus = 'draft' | 'published' | 'archived'
@@ -970,6 +1137,8 @@ export const tasks = pgTable(
     upstream_task_ids: bunJsonb('upstream_task_ids').$type<string[]>(),
     /** Anchor for the polling deadline, so a restart cannot grant a fresh timeout budget. */
     upstream_submitted_at: epochMs('upstream_submitted_at'),
+    /** GPT Image 这一单最后走的通道；会员高档参数落到 sub2api 时结算按基础档（task-transitions finishTask）。 */
+    gpt_route: text('gpt_route').$type<'direct' | 'sub2api'>(),
     execution_token: text('execution_token'),
     lease_expires_at: epochMs('lease_expires_at'),
     submitted_at: epochMs('submitted_at').notNull(),
@@ -1067,6 +1236,7 @@ const {
   lease_expires_at: _leaseExpiresAt,
   reconcile_started_at: _reconcileStartedAt,
   reconcile_alerted_at: _reconcileAlertedAt,
+  gpt_route: _gptRoute,
   ...queueTaskColumns
 } = getTableColumns(tasks)
 export const queue_tasks = pgView('queue_tasks').as((qb) =>

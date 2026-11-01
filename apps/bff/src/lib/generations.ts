@@ -129,6 +129,7 @@ export async function listGenerations(
   const last = items.at(-1)
   return {
     items,
+    ...(cursor ? {} : { totals: await countGenerations(userId) }),
     nextCursor:
       rows.length > limit && last
         ? Buffer.from(JSON.stringify({ createdAt: last.createdAt, id: last.id })).toString(
@@ -137,6 +138,22 @@ export async function listGenerations(
         : null,
   }
 }
+/**
+ * 作品页签上的数字。只在第一页数一次：走 `idx_generation_records_owner_time` 按用户取一段，
+ * 量级是这个用户自己的记录数（目前最多千余条），不扫全表。
+ */
+export async function countGenerations(userId: string) {
+  const [row] = await db
+    .select({
+      all: sql<number>`count(*)::int`,
+      studio: sql<number>`(count(*) filter (where ${table.source} ->> 'kind' = 'studio'))::int`,
+      agent: sql<number>`(count(*) filter (where ${table.source} ->> 'kind' = 'agent'))::int`,
+    })
+    .from(table)
+    .where(and(eq(table.user_id, userId), isNull(table.deleted_at)))
+  return { all: row?.all ?? 0, studio: row?.studio ?? 0, agent: row?.agent ?? 0 }
+}
+
 export async function readGeneration(
   userId: string,
   id: string,

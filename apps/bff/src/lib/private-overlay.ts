@@ -47,6 +47,16 @@ export interface ChatPricing {
 }
 
 export interface PrivateTaskHooks {
+  /**
+   * 会员档（4K）提交授权：有效订阅才放行。旧 overlay 缺这个钩子时公开树维持原状放行，
+   * 没有 overlay 的部署由空钩子一律拒绝。
+   */
+  canSubmitTask?(input: {
+    tx: BffTransaction
+    userId: string
+    model: string
+    request: { image_size?: string; size?: string }
+  }): Promise<boolean>
   /** Immutable token quote under the caller's price lock; absent in older overlays. */
   quoteTokenTask?(input: {
     tx: BffTransaction
@@ -71,7 +81,7 @@ export interface PrivateTaskHooks {
     model: string
     /** 计价单位数：图片任务是张数，视频任务是秒数。 */
     quantity: number
-    /** 单位倍率；图片恒为 1，视频取清晰度倍率。 */
+    /** 单位倍率：视频取清晰度倍率；GPT 直连模型的图片按档位与画质取 gptImageRateMultiplier，其它图片为 1。 */
     unitMultiplier: number
   }): Promise<TaskReservationResult>
   finalizeTask(input: {
@@ -86,6 +96,16 @@ export interface PrivateTaskHooks {
   }): Promise<void>
   /** 单价表里没登记这个对话模型时返回 null；起轮会在预扣那一步被拒。 */
   chatPricing(model: string): Promise<ChatPricing | null>
+  /** CLI `/v1/me` 用：账户余额与是否有效会员。旧 overlay 缺席时两项都不展示。 */
+  accountSummary?(input: {
+    userId: string
+    now: number
+  }): Promise<{ credits: number; isMember: boolean }>
+  /**
+   * 账号此刻有没有生效的订阅（会员）。GPT 直连选路与 2K/4K/高画质档位按它判断。
+   * 可选（先扩后缩）：钉住的 overlay 还没有这一项时一律按非会员。
+   */
+  isActiveMember?(input: { userId: string; now: number }): Promise<boolean>
   /**
    * 已结算任务实扣的积分，按任务 id；查不到的任务不出现在结果里。
    * 积分只有私有账本算得出，公开树一律问它，绝不自己按单价折算。
@@ -143,6 +163,9 @@ export interface PrivateBffOverlay {
 }
 
 const EMPTY_TASK_HOOKS: PrivateTaskHooks = Object.freeze({
+  async canSubmitTask() {
+    return false
+  },
   async reserveTask() {
     return { kind: 'reserved' as const, credits: 0 }
   },

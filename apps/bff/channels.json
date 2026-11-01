@@ -14,14 +14,16 @@
         {
           "id": "gpt-image-2.5-flare",
           "label": "GPT Image 2.5 Flare",
-          "capabilities": ["generate", "edit", "mask", "quality", "n", "moderation"],
+          "capabilities": ["generate", "edit", "mask", "quality",
+                                                       "size", "n", "moderation"],
           "tier": "quality",
           "etaSeconds": 40
         },
         {
           "id": "gpt-image-2.5-sunburst",
           "label": "GPT Image 2.5 Sunburst",
-          "capabilities": ["generate", "edit", "mask", "quality", "n", "moderation"],
+          "capabilities": ["generate", "edit", "mask", "quality",
+                                                       "size", "n", "moderation"],
           "tier": "quality",
           "etaSeconds": 40
         }
@@ -264,7 +266,6 @@
           "label": "Nano Banana 2 Lite",
           "capabilities": ["generate", "edit", "size"],
           "tier": "fast",
-          "etaSeconds": 3,
           "imageSizes": ["1K"],
           "maxConcurrency": 2,
           "logo": "nano-banana"

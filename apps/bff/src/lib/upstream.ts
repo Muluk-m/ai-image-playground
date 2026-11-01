@@ -1,5 +1,11 @@
 import { Buffer } from 'node:buffer'
-import { QUEUE_TIMEOUTS, type QueueProvider } from '@image-playground/shared'
+import {
+  buildAspectInstruction,
+  isGptDirectModel,
+  QUEUE_TIMEOUTS,
+  type QueueProvider,
+  unshapeQueuePrompt,
+} from '@image-playground/shared'
 import { config } from '../config'
 import { disabledModelChannel, getRoutableChannels, type InternalChannel } from './channels'
 import type { HydratedSubmitRequest } from './imageArchive'
@@ -29,10 +35,20 @@ import {
   extractErrorMessage,
   stringifyUpstreamPayload,
   UpstreamPartialResultError,
+  UpstreamQueueTimeoutError,
   UpstreamResultUnknownError,
   UpstreamTimeoutError,
 } from './upstream/errors'
 import { buildGeminiBody, mergeGeminiCandidateResults } from './upstream/gemini'
+import { recordDirectUsage } from './upstream/gpt-budget'
+import {
+  directAvailableNow,
+  firstGptRoute,
+  type GptRoute,
+  gptDirectConfigured,
+  recordSub2apiOutcome,
+  sub2apiBreakerOpen,
+} from './upstream/gpt-routing'
 import {
   buildGrokEditBody,
   buildGrokImagine2Body,
@@ -50,10 +66,19 @@ import {
   withoutImageCount,
   withoutModeration,
 } from './upstream/openai'
+import { withPartialFailure } from './upstream/partial'
+import {
+  gptSchedulerBuckets,
+  type SchedulerBucket,
+  type SchedulerLease,
+  waitForSchedulerSlots,
+} from './upstream/scheduler'
 import { type ChannelRouteStyle, clientError, type UpstreamCallResult } from './upstream/shared'
 import {
   buildVertexBody,
-  vertexPartialRateLimitFailure,
+  isRateLimited,
+  modelFallbackRecord,
+  VertexTimeCapError,
   withVertexRateLimitRetry,
 } from './upstream/vertex'
 import { VIDEO_MIME, VIDEO_STYLE_SPECS } from './upstream/video'
@@ -100,6 +125,12 @@ interface UpstreamRoute {
   concurrency?: { channelId: string; limit: number }
   /** 模型声明支持的分辨率档位（`ChannelModel.imageSizes`）；Vertex 分支把其它档位换成最近一档。 */
   imageSizes?: readonly string[]
+  /** 每条上游请求发出前要在跨 worker 配额上占的桶（见 upstream/scheduler.ts）；空即不限。 */
+  schedulerBuckets?: readonly SchedulerBucket[]
+  /** GPT Image 走的是哪条通道；决定发送前的参数适配（见 {@link adaptGptRequest}）。 */
+  gptRoute?: GptRoute
+  /** 直连可选的 OpenAI-Organization 头。 */
+  organization?: string
 }
 
 /** 模型级上限优先，按「渠道/模型」各排各的队；没有再看渠道级上限。 */
@@ -207,12 +238,62 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
     asyncTasks: provider === 'openai-compat' && config.upstream.asyncImageTasks,
     // 通用网关未声明原生多图能力；模型名不能证明当前上游会兑现 n。
     supportsNativeN: false,
+    ...(provider === 'openai-compat' && isGptImageModel(model)
+      ? { schedulerBuckets: gptSchedulerBuckets(model, 'sub2api'), gptRoute: 'sub2api' as const }
+      : {}),
   }
+}
+
+/** GPT Image 的 OpenAI 直连：原生 size / quality / n，同步返回，不走异步任务与 Responses。 */
+function directRoute(model: string): UpstreamRoute {
+  return {
+    baseUrl: config.gptDirect.baseUrl,
+    key: config.gptDirect.apiKey,
+    style: 'openai-images',
+    forceB64Json: false,
+    supportsModeration: true,
+    asyncTasks: false,
+    supportsNativeN: true,
+    schedulerBuckets: gptSchedulerBuckets(model, 'direct'),
+    gptRoute: 'direct',
+    ...(config.gptDirect.organization ? { organization: config.gptDirect.organization } : {}),
+  }
+}
+
+/**
+ * 同一单按通道改参数。sub2api（Codex 图片路径）丢弃 size 与 quality，只认提示词里写明的构图，
+ * 所以补上构图句；直连认原生参数，把提交时钉上的机器指令（防改写前缀、构图句）剥掉，auto 画质
+ * 改发 medium（auto 可能出高画质，成本没有上限，计价也按 medium）。
+ */
+function adaptGptRequest(
+  route: GptRoute,
+  model: string,
+  request: HydratedSubmitRequest,
+): HydratedSubmitRequest {
+  if (!isGptDirectModel(model)) return request
+  if (route === 'direct') {
+    const prompt = unshapeQueuePrompt({
+      provider: 'openai-compat',
+      prompt: request.prompt,
+      ...(request.size ? { size: request.size } : {}),
+    })
+    const quality = !request.quality || request.quality === 'auto' ? 'medium' : request.quality
+    return { ...request, prompt, quality }
+  }
+  const instruction = request.size ? buildAspectInstruction(request.size) : null
+  if (!instruction || request.prompt.endsWith(instruction)) return request
+  return { ...request, prompt: `${request.prompt}\n\n${instruction}` }
 }
 
 export interface UpstreamCallParams {
   /** New producers must preserve any unknown branch, irrespective of rejection order. */
   reconciliationRequired?: boolean
+  /** 任务 id，只用于 OpenAI 直连的成本记账。 */
+  taskId?: string
+  /** 账号是会员：GPT Image 默认走 OpenAI 直连（见 upstream/gpt-routing.ts）。 */
+  gptMember?: boolean
+  /** GPT Image 每条路开跑前调用（换路时再调一次）；调用方据此记下最后走的通道，结算用。 */
+  onGptRoute?: (route: GptRoute) => Promise<void>
   provider: QueueProvider
   model: string
   request: HydratedSubmitRequest
@@ -226,6 +307,17 @@ export interface UpstreamCallParams {
   onUpstreamTaskIds?: (taskIds: readonly string[]) => Promise<void>
   /** 本任务已提交过的上游异步任务：这些 id 只轮询，永不重提。 */
   resume?: UpstreamResume
+  /**
+   * Vertex 单张退避用完仍 429 时补这一张的模型（调用方已排除停用的与原模型本身）。
+   * 只在它同走 Vertex 直连时生效，见 {@link resolveVertexFallback}。
+   */
+  rateLimitFallbackModel?: string
+  /**
+   * 原模型的总时限（epoch 毫秒，调用方从任务提交时刻算起，含排队）。到点还在排原模型的队、
+   * 或下一次退避会越过它，这一张直接改用回落模型；已发出的请求不掐断（上游可能已经在出图）。
+   * 没有回落模型时不生效。
+   */
+  rateLimitFallbackAt?: number
 }
 
 export interface UpstreamResume {
@@ -270,15 +362,232 @@ export function setUpstreamFetchForTesting(fetchImpl?: UpstreamFetch): void {
  * （`timeoutFetch.ts` 的 withoutRuntimeTimeout）；Agent 的 headers/body 超时比应用硬超时长 1min，
  * 只在 Node 下生效，作兜底。
  */
+/** 换路前至少要剩这么多时间，否则换过去也来不及出图。 */
+const GPT_FAILOVER_MIN_REMAINING_MS = 60_000
+/** 会员选了直连、却在直连额度上排了这么久还没发出，就改走 sub2api。 */
+const GPT_DIRECT_QUEUE_WAIT_MS = 5_000
+
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
-  const {
-    provider,
-    model,
-    signal: externalSignal,
-    beforeRequest,
-    onUpstreamTaskIds,
-    resume,
-  } = params
+  const route = resolveUpstream(params.provider, params.model)
+  // 已提交过的任务只在原路续轮询；只有走通用网关的 GPT 直连模型才有两条路可选。
+  if (
+    route.gptRoute !== 'sub2api' ||
+    params.resume ||
+    params.request.video ||
+    !gptDirectConfigured(params.model)
+  ) {
+    // 提交时直连还开着、执行时已关：高档单也只能走 sub2api，照样记下通道，结算才会按基础档。
+    if (route.gptRoute === 'sub2api' && !params.resume && isGptDirectModel(params.model))
+      await params.onGptRoute?.('sub2api')
+    return callUpstreamVia(params, route)
+  }
+  return callGptDualRoute(params, route)
+}
+
+/**
+ * 测试用：跳过选路，直接走 OpenAI 直连这一条（调度器配额、429 冷却照常生效）。
+ * `nativeN: false` 模拟逐张 fan-out 的路径（直连的图生图不接受 n，就是这样发的）。
+ */
+export function _callUpstreamDirectForTesting(
+  params: UpstreamCallParams,
+  { nativeN = true }: { nativeN?: boolean } = {},
+): Promise<UpstreamCallResult> {
+  return callUpstreamVia(params, { ...directRoute(params.model), supportsNativeN: nativeN })
+}
+
+function gptRouteFor(kind: GptRoute, model: string, sub2api: UpstreamRoute): UpstreamRoute {
+  return kind === 'direct' ? directRoute(model) : sub2api
+}
+
+function upstreamStatusOf(error: unknown): number | undefined {
+  const status = (error as { upstreamStatus?: unknown } | null)?.upstreamStatus
+  return typeof status === 'number' ? status : undefined
+}
+
+/** 服务端问题（换一条路可能就好）：429、5xx、连接或响应中断。参数错、审核拒绝之类换路也没用。 */
+function isRouteFailure(error: unknown): boolean {
+  if (error instanceof UpstreamPartialResultError || error instanceof UpstreamQueueTimeoutError)
+    return false
+  const status = upstreamStatusOf(error)
+  if (status !== undefined) return status === 429 || status >= 500
+  return error instanceof UpstreamResultUnknownError && !(error instanceof UpstreamTimeoutError)
+}
+
+/**
+ * GPT Image 两条通道（见 upstream/gpt-routing.ts）：按会员身份选第一条；第一条发出后超过单路时限没结果，
+ * 或明确不可用（429、5xx、连接中断），换另一条重试一次，两路共用同一个硬截止。sub2api 异步任务一旦受理
+ * 就不换路：结果交给轮询与对账，换过去可能重复出图。用户取消、部分出图、参数错不换路。
+ */
+async function callGptDualRoute(
+  params: UpstreamCallParams,
+  sub2api: UpstreamRoute,
+): Promise<UpstreamCallResult> {
+  const { model, request } = params
+  const member = params.gptMember === true
+  const deadlineAt = Date.now() + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
+  const first = await firstGptRoute({ model, member, request })
+  const other: GptRoute = first === 'direct' ? 'sub2api' : 'direct'
+
+  /** 换到 other 这条路此刻是否可行：时间够、对方没熔断、直连有额度与预算。 */
+  const canSwitch = async (): Promise<boolean> => {
+    if (params.signal?.aborted) return false
+    if (deadlineAt - Date.now() < GPT_FAILOVER_MIN_REMAINING_MS) return false
+    if (other === 'sub2api') return !sub2apiBreakerOpen()
+    return directAvailableNow(model, request)
+  }
+
+  const run = async (kind: GptRoute, timeoutMs?: number) => {
+    const state = {
+      dispatched: false,
+      asyncAccepted: false,
+      /** fan-out 里已经有一张完整返回：再掐断换路会丢掉已出、已计费的图。 */
+      responded: false,
+      timedOut: false,
+      reason: 'attempt_timeout' as 'attempt_timeout' | 'direct_queue_full',
+    }
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let queueTimer: ReturnType<typeof setTimeout> | undefined
+    /** 到点且换得过去才叫停这一路；换不过去就让它继续跑到硬截止，别白白掐掉一条可能快出图的请求。 */
+    const switchWhenPossible = (reason: typeof state.reason) => {
+      void canSwitch().then((ok) => {
+        if (!ok || state.asyncAccepted || state.responded || controller.signal.aborted) return
+        state.timedOut = true
+        state.reason = reason
+        controller.abort()
+      })
+    }
+    const onDispatched = () => {
+      state.dispatched = true
+      if (queueTimer) clearTimeout(queueTimer)
+      if (timeoutMs === undefined || timer) return
+      timer = setTimeout(() => switchWhenPossible('attempt_timeout'), timeoutMs)
+      timer.unref?.()
+    }
+    // 直连额度是选路时探的，真发时可能刚被别的 worker 抢走：在直连桶上排久了也换路，不排到硬截止。
+    if (kind === 'direct' && timeoutMs !== undefined) {
+      queueTimer = setTimeout(() => {
+        if (!state.dispatched) switchWhenPossible('direct_queue_full')
+      }, GPT_DIRECT_QUEUE_WAIT_MS)
+      queueTimer.unref?.()
+    }
+    const attemptParams: UpstreamCallParams = {
+      ...params,
+      onUpstreamTaskIds: async (taskIds) => {
+        state.asyncAccepted = true
+        await params.onUpstreamTaskIds?.(taskIds)
+      },
+    }
+    try {
+      await params.onGptRoute?.(kind)
+      const result = await callUpstreamVia(attemptParams, gptRouteFor(kind, model, sub2api), {
+        signal: controller.signal,
+        deadlineAt,
+        onDispatched,
+        onResponse: () => {
+          state.responded = true
+        },
+      })
+      return { ok: true as const, result, state }
+    } catch (error) {
+      return { ok: false as const, error, state }
+    } finally {
+      if (timer) clearTimeout(timer)
+      if (queueTimer) clearTimeout(queueTimer)
+    }
+  }
+
+  const settle = async (
+    kind: GptRoute,
+    outcome: Awaited<ReturnType<typeof run>>,
+  ): Promise<void> => {
+    if (kind === 'sub2api') {
+      if (outcome.ok) recordSub2apiOutcome(true)
+      else if (outcome.state.timedOut || isRouteFailure(outcome.error)) recordSub2apiOutcome(false)
+      return
+    }
+    // 直连按张计费：出了图按回报的 usage 记；发出后结果未知（超时、中断）按档位估算，平台承担。
+    // 明确的 HTTP 错误上游不计费，不记。
+    if (!outcome.state.dispatched) return
+    if (!outcome.ok && upstreamStatusOf(outcome.error) !== undefined) return
+    await recordDirectUsage({
+      ...(params.taskId ? { taskId: params.taskId } : {}),
+      model,
+      ...(request.size ? { size: request.size } : {}),
+      ...(request.quality ? { quality: request.quality } : {}),
+      images: Math.max(1, request.n ?? 1),
+      ...(outcome.ok ? { payload: outcome.result.payload } : {}),
+    })
+  }
+
+  // 直连原生 n 一条请求出 n 张，张数越多越慢：每多一张多给 30 秒。sub2api 逐张并发，不放大。
+  const timeoutMs =
+    first === 'direct'
+      ? config.gptDirect.attemptTimeoutMs + (Math.max(1, request.n ?? 1) - 1) * 30_000
+      : config.gptDirect.sub2apiAttemptTimeoutMs
+  const firstOutcome = await run(first, timeoutMs)
+  await settle(first, firstOutcome)
+  if (firstOutcome.ok) return firstOutcome.result
+
+  const { error, state } = firstOutcome
+  // 非会员只在 sub2api 超时时借直连；sub2api 报错计入熔断，熔断后的新任务才整单走直连。
+  const eligible =
+    !params.signal?.aborted &&
+    !state.asyncAccepted &&
+    (state.timedOut || (isRouteFailure(error) && (first === 'direct' || member)))
+  if (!eligible || (!state.timedOut && !(await canSwitch()))) throw error
+
+  log.warn(
+    {
+      event: 'gpt.route_failover',
+      model,
+      from: first,
+      to: other,
+      reason: state.timedOut ? state.reason : 'route_failure',
+      upstreamStatus: upstreamStatusOf(error),
+    },
+    'gpt route failover',
+  )
+  const secondOutcome = await run(other)
+  await settle(other, secondOutcome)
+  if (secondOutcome.ok) return secondOutcome.result
+  // 第一条路已发出、结果未知（被单路时限掐断或连接中断）时，两路都没成也不能当确定失败：
+  // 否则任务级重试会再派发一整单。保留结果未知，交给对账或按未知失败处理。
+  const firstUnknown =
+    state.dispatched && (state.timedOut || error instanceof UpstreamResultUnknownError)
+  if (firstUnknown && !(secondOutcome.error instanceof UpstreamResultUnknownError)) {
+    const detail =
+      secondOutcome.error instanceof Error ? secondOutcome.error.message.slice(0, 200) : '失败'
+    // 不挂 cause：错误会继承 cause 的上游状态码，429/5xx 会被 task-runner 当成可重试。
+    throw new UpstreamResultUnknownError(
+      `换路后仍失败（${detail}）；先发出的那一路结果未知，未重复生成`,
+      { requiresReconciliation: params.reconciliationRequired === true },
+    )
+  }
+  throw secondOutcome.error
+}
+
+interface AttemptOptions {
+  /** 这一路被换路逻辑叫停（与调用方的 signal 合并：被叫停时按取消原样抛出，由外层改判）。 */
+  signal?: AbortSignal
+  /** 两路共用的硬截止（epoch 毫秒）；缺席按提交时刻 + 硬超时。 */
+  deadlineAt?: number
+  /** 每条计数请求通过记账、确实发出时调用。 */
+  onDispatched?: () => void
+  /** 某条请求的响应完整读到（成功出图）时调用；fan-out 里已有成品就不该再整单换路。 */
+  onResponse?: () => void
+}
+
+async function callUpstreamVia(
+  params: UpstreamCallParams,
+  route: UpstreamRoute,
+  attempt: AttemptOptions = {},
+): Promise<UpstreamCallResult> {
+  const { provider, model, signal: callerSignal, beforeRequest, onUpstreamTaskIds, resume } = params
+  const externalSignal =
+    attempt.signal && callerSignal
+      ? AbortSignal.any([callerSignal, attempt.signal])
+      : (attempt.signal ?? callerSignal)
   const {
     baseUrl: base,
     key,
@@ -289,8 +598,11 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     supportsNativeN,
     concurrency,
     imageSizes,
-  } = resolveUpstream(provider, model)
-  let request = params.request
+    schedulerBuckets = [],
+    gptRoute,
+    organization,
+  } = route
+  let request = gptRoute ? adaptGptRequest(gptRoute, model, params.request) : params.request
   // 原生 n 只适用于无参考图的 Images generations；Responses 图片工具不接受 tools[].n。
   const requestedImageCount = Math.max(1, request.n ?? 1)
   const useNativeN =
@@ -306,11 +618,15 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   }
   if (!supportsModeration) request = withoutModeration(request)
 
-  const deadlineAt = (resume?.submittedAt ?? Date.now()) + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
+  const deadlineAt =
+    attempt.deadlineAt ??
+    (resume?.submittedAt ?? Date.now()) + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
   // A resumed task may have completed while its worker was unavailable. Give the
   // read-only final lookup a bounded transport window, never a new generation budget.
   const finalLookup = Boolean(resume?.taskIds.length) && Date.now() >= deadlineAt
   const deadline = startDeadline(finalLookup ? 20_000 : deadlineAt - Date.now(), externalSignal)
+  /** 调用方叫停了（用户取消、租约丢了）：fan-out 的部分结果不交付，照原样抛。 */
+  const cancelled = () => externalSignal?.aborted === true
 
   const fetchInit = (init: UpstreamFetchInit): UpstreamFetchInit => ({
     ...init,
@@ -323,14 +639,43 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
    * 轮询次数与计费无关，混进去会让 upstream_invocation_count 失去意义。
    */
   const dispatchIdentities = new WeakMap<UpstreamResponse, string>()
+  // 排队时到硬超时：这一条请求确定没发出。同一次调用里别的请求（fan-out 的其它张）即使已发、
+  // 结果未知，也由 fanOutRequests 按「有结果未知就整组待核查」汇总，这一条不必跟着改口径。
+  const queueTimeoutError = () => new UpstreamQueueTimeoutError()
+  // 跨 worker 配额：每条计数的上游请求先占额度再发，响应读完（parseResponse）才还在途名额。
+  // 原生 n 一条请求出 n 张，按 n 张扣；fan-out 每条按 1 张扣。
+  const imagesPerDispatch = useNativeN ? requestedImageCount : 1
+  const schedulerLeases = new WeakMap<UpstreamResponse, SchedulerLease>()
+  const outstandingLeases = new Set<SchedulerLease>()
+  const releaseLease = async (lease: SchedulerLease, refund = false) => {
+    outstandingLeases.delete(lease)
+    await lease.release({ refund })
+  }
   const performFetch = async (
     url: string,
     init: UpstreamFetchInit,
     counted = true,
   ): Promise<UpstreamResponse> => {
+    let lease: SchedulerLease | undefined
+    if (counted && schedulerBuckets.length > 0) {
+      try {
+        lease = await waitForSchedulerSlots(schedulerBuckets, imagesPerDispatch, deadline.signal)
+      } catch (err) {
+        // 排队时就超时：这条请求没发出去，确定未执行，不是「结果未知」。
+        if (deadline.timedOut) throw queueTimeoutError()
+        throw err
+      }
+      if (lease) outstandingLeases.add(lease)
+    }
+    let sent = false
+    // 记账回调开始前都确定没发出；回调里失败时不知道它是否已提交，按原样当「结果未知」。
+    let committing = false
     try {
       if (deadline.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
+      committing = true
       const dispatchId = counted ? await beforeRequest?.() : undefined
+      sent = true
+      if (counted) attempt.onDispatched?.()
 
       // The accounting callback is the dispatch commit point. Start the transport with a fresh
       // signal before relaying cancellation so a cancellation that loses the database race cannot
@@ -353,6 +698,10 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           throw error
         }
         if (dispatchId) dispatchIdentities.set(response, dispatchId)
+        if (lease) {
+          schedulerLeases.set(response, lease)
+          if (response.status === 429) await lease.rateLimited()
+        }
         const requestId =
           response.headers?.get('x-request-id') ?? response.headers?.get('request-id')
         if (dispatchId && requestId) await params.onRequestId?.(dispatchId, requestId)
@@ -361,7 +710,10 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         deadline.signal.removeEventListener('abort', relayAbort)
       }
     } catch (err) {
-      if (deadline.timedOut) throw new UpstreamTimeoutError()
+      // 记账回调之前就失败：这次没发出去，张数退回。
+      if (lease) await releaseLease(lease, !sent)
+      // 拿到名额时恰好到硬截止：还没进记账，同样是确定未执行。
+      if (deadline.timedOut) throw committing ? new UpstreamTimeoutError() : queueTimeoutError()
       if (externalSignal?.aborted) throw err
       const detail = err instanceof Error ? err.message : String(err)
       throw new UpstreamResultUnknownError(`上游连接中断，执行结果未知：${detail}`, {
@@ -375,9 +727,12 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     imageResponses = false,
   ): Promise<UpstreamCallResult> => {
     try {
-      return imageResponses && res.ok
-        ? { payload: await readImageResponses(res.body, deadline.signal) }
-        : await parseUpstreamResponse(res)
+      const result =
+        imageResponses && res.ok
+          ? { payload: await readImageResponses(res.body, deadline.signal) }
+          : await parseUpstreamResponse(res)
+      attempt.onResponse?.()
+      return result
     } catch (err) {
       if (deadline.timedOut) throw new UpstreamTimeoutError()
       if (externalSignal?.aborted) throw err
@@ -387,6 +742,9 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       throw new UpstreamResultUnknownError(`上游响应中断，执行结果未知：${detail}`, {
         cause: err,
       })
+    } finally {
+      const lease = schedulerLeases.get(res)
+      if (lease) await releaseLease(lease)
     }
   }
 
@@ -394,7 +752,10 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   // finally 立刻跑，请求还在飞的时候就 release 掉 deadline —— 取消与硬超时都会静默失效。
   try {
     if (provider === 'openai-compat') {
-      const authHeader = upstreamAuthHeader(style, key)
+      const authHeader = {
+        ...upstreamAuthHeader(style, key),
+        ...(organization ? { 'openai-organization': organization } : {}),
+      }
       const resumeIds = resume?.taskIds ?? []
       const useAsyncTasks = asyncTasks || resumeIds.length > 0
 
@@ -507,6 +868,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
             async () => parseResponse(await performFetch(url, makeInit())),
             merge,
             params.reconciliationRequired,
+            cancelled,
           )
         }
         const protocol = imageTaskProtocol(base, url)
@@ -554,6 +916,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       if (
         !useNativeN &&
         style === 'openai-images' &&
+        gptRoute !== 'direct' &&
         isGptImageModel(model) &&
         config.upstream.imageResponsesModel &&
         resumeIds.length === 0
@@ -575,6 +938,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
             ),
           mergeOpenAIImageResults,
           params.reconciliationRequired,
+          cancelled,
         )
       }
 
@@ -663,35 +1027,95 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // supported for audio or image response"），n>1 时本层 fan-out 成 N 条单张请求
       // 并把 candidates 合并到一个 payload，对 task-runner / 前端透明。声明了 maxConcurrency
       // （Vertex 按模型各配 2）时，每条请求先排「渠道/模型」或渠道级的队再发。
+      const sendVia = async (
+        target: {
+          url: string
+          body: string
+          concurrency: UpstreamRoute['concurrency']
+        },
+        /** 原模型的总时限：到点不再排队、不再退避，抛 {@link VertexTimeCapError} 交给回落。 */
+        capAt?: number,
+      ) => {
+        // 剩余时间只读一次：检查和建定时器之间跨过时限也不会给 AbortSignal.timeout 传负数。
+        const capLeftMs = capAt === undefined ? undefined : capAt - Date.now()
+        if (capLeftMs !== undefined && capLeftMs <= 0) throw new VertexTimeCapError()
+        const queueSignal =
+          capLeftMs === undefined
+            ? deadline.signal
+            : AbortSignal.any([deadline.signal, AbortSignal.timeout(capLeftMs)])
+        const release = target.concurrency
+          ? await acquireChannelSlot(
+              target.concurrency.channelId,
+              target.concurrency.limit,
+              queueSignal,
+            ).catch((error: unknown) => {
+              // 排队时就超时：这条请求没发出去，确定未执行，不是「结果未知」。
+              if (deadline.timedOut) throw queueTimeoutError()
+              if (capAt !== undefined && !deadline.signal.aborted && Date.now() >= capAt)
+                throw new VertexTimeCapError()
+              throw error
+            })
+          : undefined
+        const send = async () =>
+          await parseResponse(
+            await performFetch(target.url, { method: 'POST', headers, body: target.body }),
+          )
+        try {
+          // Vertex 的 429 是按模型的到达速率限流：先在这条请求里退避重发，一单多张里已出的图不必重来。
+          return vertex
+            ? await withVertexRateLimitRetry(send, deadline.signal, () => deadline.timedOut, capAt)
+            : await send()
+        } finally {
+          release?.()
+        }
+      }
+      const primary = { url, body, concurrency }
+      const fallback = vertex
+        ? resolveVertexFallback(model, params.rateLimitFallbackModel, request, base, key)
+        : undefined
+      const capAt = fallback ? params.rateLimitFallbackAt : undefined
+      let fallbackImages = 0
+      const merge = (results: UpstreamCallResult[]) => {
+        const merged = mergeGeminiCandidateResults(results)
+        if (!fallback || fallbackImages === 0) return merged
+        return {
+          payload: {
+            ...(merged.payload as Record<string, unknown>),
+            model_fallback: modelFallbackRecord(model, fallback.model, fallbackImages),
+          },
+        }
+      }
       return await fanOutRequests(
         request.n,
         async () => {
-          const release = concurrency
-            ? await acquireChannelSlot(
-                concurrency.channelId,
-                concurrency.limit,
-                deadline.signal,
-              ).catch((error: unknown) => {
-                // 排队时就超时：请求根本没发出去，按普通超时报，不是「结果未知」。
-                if (deadline.timedOut) throw new UpstreamTimeoutError()
-                throw error
-              })
-            : undefined
-          const send = async () =>
-            await parseResponse(await performFetch(url, { method: 'POST', headers, body }))
           try {
-            // Vertex 的 429 是按模型的到达速率限流：先在这条请求里退避重发，一单多张里已出的图不必重来。
-            return vertex
-              ? await withVertexRateLimitRetry(send, deadline.signal, () => deadline.timedOut)
-              : await send()
-          } finally {
-            release?.()
+            return await sendVia(primary, capAt)
+          } catch (error) {
+            // 退避用完仍 429、或原模型到了总时限：这一张换回落模型补上（它有自己的排队位与退避）；
+            // 别的错误照原样抛。
+            const capped = error instanceof VertexTimeCapError
+            if (!fallback || !(capped || isRateLimited(error)) || deadline.signal.aborted)
+              throw error
+            log.warn(
+              {
+                event: 'upstream.vertex_rate_limit_fallback',
+                requestedModel: model,
+                fallbackModel: fallback.model,
+                reason: capped ? 'time_cap' : 'rate_limited',
+              },
+              'vertex rate limit exhausted, falling back',
+            )
+            const result = await sendVia(fallback)
+            fallbackImages += 1
+            return result
           }
         },
-        mergeGeminiCandidateResults,
+        (results) => merge(results),
         params.reconciliationRequired,
-        // 有图已出、另一条退避用完仍 429：不让任务级重试把整组重新生成（见 vertexPartialRateLimitFailure）。
-        vertex ? vertexPartialRateLimitFailure : undefined,
+        cancelled,
+      ).then((result) =>
+        // 单张请求（n=1）不经过 merge：回落出的那张也要记下实际模型。
+        (request.n ?? 1) <= 1 && fallback && fallbackImages > 0 ? merge([result]) : result,
       )
     }
     throw new Error(`Unsupported provider: ${provider satisfies never}`)
@@ -701,6 +1125,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     throw err
   } finally {
     deadline.release()
+    // 没走到 parseResponse 的响应（同批别的请求先失败等）也要还在途名额，不能等心跳过期。
+    await Promise.all([...outstandingLeases].map((lease) => releaseLease(lease)))
   }
 }
 
@@ -734,27 +1160,70 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * 部分请求成功、部分失败时换一个错误抛（返回 undefined 则照原样抛第一条失败）。给了它就要等同批
- * 请求全部落定才知道成没成，所以只有需要区分「有图已出」的上游（Vertex 的 429）才传。
+ * Vertex 429 回落的目标：只回落到同一个 Vertex 直连上（同一个 key、同一个 baseUrl）的另一个模型，
+ * 换到别的上游就要换协议和凭据，不在这次止损的范围里。回落模型不认的分辨率按它自己的声明收口。
+ * 找不到、或配成原模型本身时不回落。
  */
-type FanOutPartialFailure = (reason: unknown, delivered: number, requested: number) => unknown
+function resolveVertexFallback(
+  model: string,
+  fallbackModel: string | undefined,
+  request: HydratedSubmitRequest,
+  base: string,
+  key: string,
+):
+  | { model: string; url: string; body: string; concurrency: UpstreamRoute['concurrency'] }
+  | undefined {
+  if (!fallbackModel || fallbackModel === model) return undefined
+  let route: UpstreamRoute
+  try {
+    route = resolveUpstream('gemini', fallbackModel)
+  } catch {
+    return undefined
+  }
+  if (route.style !== 'vertex-generate-content' || route.baseUrl !== base || route.key !== key)
+    return undefined
+  return {
+    model: fallbackModel,
+    url: `${base}/models/${encodeURIComponent(fallbackModel)}:generateContent`,
+    body: JSON.stringify(buildVertexBody(request, route.imageSizes)),
+    concurrency: route.concurrency,
+  }
+}
 
+/**
+ * 一次逻辑调用拆成 count 条单张请求再合并。部分出图时不让整单失败：交付已出的那几张，结果里
+ * 记下缺口（{@link withPartialFailure}），task-runner 按交付张数结算、其余退回。一张都没出照原样
+ * 抛第一条失败；被取消（用户取消、租约丢了）照原样抛，不交付。
+ * 结果待核查的线路（`reconciliationRequired`）保留整组语义：哪条算没算钱要人核对，不能先交付；
+ * 其它线路只要有一条结果未知（可能已出图），也照这个口径整组待核查，不按部分交付退款。
+ */
 async function fanOutRequests(
   requestedCount: number | undefined,
   run: () => Promise<UpstreamCallResult>,
   merge: (results: UpstreamCallResult[]) => UpstreamCallResult,
   reconciliationRequired = false,
-  onPartialFailure?: FanOutPartialFailure,
+  cancelled: () => boolean = () => false,
 ): Promise<UpstreamCallResult> {
   const count = Math.max(1, requestedCount ?? 1)
   if (count === 1) return run()
-  return merge(
-    await collectFanOutResults(
-      Array.from({ length: count }, run),
-      reconciliationRequired,
-      onPartialFailure,
-    ),
-  )
+  if (reconciliationRequired)
+    return merge(await collectFanOutResults(Array.from({ length: count }, run), true))
+  const settled = await Promise.allSettled(Array.from({ length: count }, run))
+  const delivered = settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : []))
+  const failures = settled.flatMap((one) => (one.status === 'rejected' ? [one.reason] : []))
+  if (failures.length === 0) return merge(delivered)
+  // 结果未知的那条可能已经出了图、上游也可能已经计费：不能当“没出图”退钱再交付，
+  // 照结果待核查线路的口径整组交给核查，免得错退积分、重试时重复出图。
+  const unknown = failures.find((reason) => reason instanceof UpstreamResultUnknownError)
+  // 显式要求核查：task-runner 只在任务已标记或错误带 requiresReconciliation 时才进核查。
+  // 被取消时照原样抛，不改成核查。
+  if (unknown && delivered.length > 0 && !cancelled())
+    throw new UpstreamResultUnknownError('部分请求已完成，整组结果和结算待核查。', {
+      cause: unknown,
+      requiresReconciliation: true,
+    })
+  if (delivered.length === 0 || cancelled()) throw unknown ?? failures[0]
+  return withPartialFailure(merge(delivered), count, failures)
 }
 
 function fanOutFailure<T>(settled: PromiseSettledResult<T>[], preserveUnknown = false) {
@@ -769,19 +1238,10 @@ function fanOutFailure<T>(settled: PromiseSettledResult<T>[], preserveUnknown = 
 async function collectFanOutResults<T>(
   requests: Promise<T>[],
   preserveUnknown = false,
-  onPartialFailure?: FanOutPartialFailure,
 ): Promise<T[]> {
-  if (!preserveUnknown && !onPartialFailure) return Promise.all(requests)
+  if (!preserveUnknown) return Promise.all(requests)
   const settled = await Promise.allSettled(requests)
   const failure = fanOutFailure(settled, preserveUnknown)
-  if (!preserveUnknown) {
-    if (!failure) return settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : []))
-    const delivered = settled.filter((one) => one.status === 'fulfilled').length
-    throw (
-      (delivered > 0 ? onPartialFailure?.(failure.reason, delivered, settled.length) : undefined) ??
-      failure.reason
-    )
-  }
   if (failure && settled.some((one) => one.status === 'fulfilled')) {
     throw new UpstreamResultUnknownError('部分请求已完成，整组结果和结算待核查。', {
       cause: failure.reason,
@@ -877,6 +1337,7 @@ async function parseUpstreamResponse(res: UpstreamResponse): Promise<UpstreamCal
 export {
   extractUpstreamFailure,
   UpstreamPartialResultError,
+  UpstreamQueueTimeoutError,
   UpstreamResultUnknownError,
   UpstreamTimeoutError,
 } from './upstream/errors'

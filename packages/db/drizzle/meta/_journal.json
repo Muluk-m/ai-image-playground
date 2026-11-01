@@ -549,10 +549,24 @@
       "breakpoints": true
     },
     {
-      "idx": 79,
+      "idx": 82,
       "version": "7",
-      "when": 1793000000000,
-      "tag": "0079_generation_images_soft_delete",
+      "when": 1793300000000,
+      "tag": "0082_upstream_scheduler",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1793400000000,
+      "tag": "0083_cli_device_oauth",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1793500000000,
+      "tag": "0084_generation_images_soft_delete",
       "breakpoints": true
     }
   ]

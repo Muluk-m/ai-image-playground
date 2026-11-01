@@ -1,5 +1,6 @@
 import { formatImageRatio, parseImageSize } from '@image-playground/shared'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { openWorkProject } from '../features/library/lib/openWorkProject'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
@@ -14,7 +15,8 @@ import {
 } from '../lib/clipboard'
 import { loadImageOriginal } from '../lib/imageSource'
 import { ActualValueBadge, DetailParamValue, measuredSizeOf } from '../lib/paramDisplay'
-import { taskRecordErrorText } from '../lib/taskError'
+import { taskErrorText, taskRecordErrorText } from '../lib/taskError'
+import { workProjectId } from '../lib/works'
 import {
   editOutputImage,
   removeTask,
@@ -41,6 +43,7 @@ export default function DetailModal() {
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const showToast = useStore((s) => s.showToast)
   const settings = useStore((s) => s.settings)
+  const platformGenerations = useStore((s) => s.platformGenerations)
 
   const [imageIndex, setImageIndex] = useState(0)
   const [imageSrcs, setImageSrcs] = useState<Record<string, string>>({})
@@ -65,6 +68,13 @@ export default function DetailModal() {
   const task = useMemo(
     () => tasks.find((t) => t.id === detailTaskId) ?? null,
     [tasks, detailTaskId],
+  )
+
+  // 对话里出的图能回到那个项目；快速生成的没有。
+  const projectId = useMemo(
+    () =>
+      task ? workProjectId(task, new Map(platformGenerations.map((row) => [row.id, row]))) : null,
+    [task, platformGenerations],
   )
 
   // Reset index when task changes
@@ -787,6 +797,14 @@ export default function DetailModal() {
                   <span> · {t('detail.elapsed', { duration: formatDuration() })}</span>
                 )}
               </div>
+              {task.partialFailure && (
+                <p className="text-xs text-destructive mb-4">
+                  {t('detail.partialFailure', {
+                    count: task.partialFailure.failed,
+                    reason: taskErrorText(task.partialFailure.type),
+                  })}
+                </p>
+              )}
             </div>
 
             {/* 操作按钮：三个主操作带文字均分；删除 / 收藏为图标小方钮，避免一行挤爆 */}
@@ -820,12 +838,26 @@ export default function DetailModal() {
                 <Icon name="sendToCanvas" />
                 {t('action.sendToCanvas')}
               </Button>
+              {projectId && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => void openWorkProject(projectId)}
+                  className="col-span-2 w-full text-muted-foreground hover:text-foreground sm:w-9"
+                  title={t('action.openProject')}
+                  aria-label={t('action.openProject')}
+                >
+                  <Icon name="chat" />
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
                 onClick={handleDelete}
-                className="col-span-2 w-full text-muted-foreground hover:text-destructive sm:w-9"
+                className={`${projectId ? 'col-span-1' : 'col-span-2'} w-full text-muted-foreground hover:text-destructive sm:w-9`}
+                title={deleteLabel}
                 aria-label={deleteLabel}
               >
                 <Icon name="delete" />
@@ -836,7 +868,7 @@ export default function DetailModal() {
                 size="icon"
                 onClick={handleToggleFavorite}
                 aria-pressed={task.isFavorite}
-                className={`col-span-2 w-full sm:w-9 ${task.isFavorite ? 'text-warning hover:text-warning' : 'text-muted-foreground hover:text-warning'}`}
+                className={`${projectId ? 'col-span-1' : 'col-span-2'} w-full sm:w-9 ${task.isFavorite ? 'text-warning hover:text-warning' : 'text-muted-foreground hover:text-warning'}`}
                 title={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
                 aria-label={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
               >

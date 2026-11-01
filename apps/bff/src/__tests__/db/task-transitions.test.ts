@@ -13,7 +13,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../quota-operator-c
 
 const { app } = await import('../../app')
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { finishTask, heldBy } = await import('../../db/task-transitions')
+const { finishTask, gptSettledUsage, heldBy } = await import('../../db/task-transitions')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
@@ -183,5 +183,44 @@ describe('task settlement hook', () => {
         actualUsage: { quantity: 1, unitMultiplier: 3.5 },
       },
     ])
+  })
+})
+
+describe('gptSettledUsage', () => {
+  const premium = { size: '2048x2048', quality: 'high', n: 2 }
+  const completed = { status: 'completed' as const, completedAt: 0 }
+
+  it('settles a premium GPT order that ran on sub2api at the basic rate', () => {
+    expect(
+      gptSettledUsage(completed, {
+        model: 'gpt-image-2.5-flare',
+        request: premium,
+        gptRoute: 'sub2api',
+      }),
+    ).toEqual({ quantity: 2, unitMultiplier: 1 })
+    // 部分出图已经按交付张数给了用量：张数沿用，只把倍率改回 1。
+    expect(
+      gptSettledUsage(
+        { ...completed, actualUsage: { quantity: 1, unitMultiplier: 8 } },
+        { model: 'gpt-image-2.5-flare', request: premium, gptRoute: 'sub2api' },
+      ),
+    ).toEqual({ quantity: 1, unitMultiplier: 1 })
+  })
+
+  it('keeps the frozen settlement when the order ran direct, was basic, failed or is another model', () => {
+    const usage = { quantity: 1, unitMultiplier: 8 }
+    const update = { ...completed, actualUsage: usage }
+    const flare = { model: 'gpt-image-2.5-flare', request: premium }
+    expect(gptSettledUsage(update, { ...flare, gptRoute: 'direct' })).toBe(usage)
+    expect(gptSettledUsage(update, { ...flare, gptRoute: null })).toBe(usage)
+    expect(
+      gptSettledUsage(update, { ...flare, request: { size: '1024x1024' }, gptRoute: 'sub2api' }),
+    ).toBe(usage)
+    expect(
+      gptSettledUsage({ ...update, status: 'failed' }, { ...flare, gptRoute: 'sub2api' }),
+    ).toBe(usage)
+    expect(
+      gptSettledUsage(update, { ...flare, model: 'gemini-3-pro-image', gptRoute: 'sub2api' }),
+    ).toBe(usage)
   })
 })

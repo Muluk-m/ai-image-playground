@@ -3,12 +3,14 @@
     "rename": "重命名"
   },
   "tab": {
+    "works": "作品",
     "projects": "项目",
     "assets": "素材",
     "prompts": "提示词",
     "looks": "模板"
   },
   "panel": {
+    "searchWorks": "搜索提示词",
     "searchProjects": "搜索项目名",
     "searchAssets": "搜索素材名",
     "searchTemplates": "搜索提示词名",
@@ -177,5 +179,17 @@
     "alreadyInReferences": "已在参考图中",
     "addedToReferences": "已加入参考图",
     "imageAddFailed": "图片添加失败：{{reason}}"
+  },
+  "works": {
+    "filterAria": "作品来源",
+    "all": "全部",
+    "studio": "快速生成",
+    "agent": "对话产出",
+    "continue": "接着生成",
+    "openProject": "回到项目",
+    "untitled": "作品",
+    "empty": "还没有作品",
+    "noMatch": "没有匹配的作品",
+    "retry": "重新加载"
   }
 }

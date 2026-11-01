@@ -13,6 +13,31 @@ set -u
 . /usr/local/lib/pg-backup/lib.sh
 pg_backup_env
 
+# Cron and the container start-up catch-up can both start a drill. Both would restore and upload the
+# same pg/drill/latest.json, so the second one to arrive steps aside instead of racing the first.
+# The drill has its own non-blocking lock, then waits for the backup lock: retention must not delete
+# the dump while the drill is reading it.
+exec 9>/tmp/pg-backup.lock
+exec 8>/tmp/pg-drill.lock
+drill_lock_status=0
+flock -n 8 || drill_lock_status=$?
+case $drill_lock_status in
+  0) ;;
+  1)
+    echo "pg-drill: another drill is already running, skipping this one"
+    exit 0
+    ;;
+  *)
+    echo "pg-drill: could not take the drill lock (status $drill_lock_status)" >&2
+    exit "$drill_lock_status"
+    ;;
+esac
+
+if ! flock 9; then
+  echo "pg-drill: could not take the shared backup lock" >&2
+  exit 1
+fi
+
 work=$(mktemp -d /tmp/pg-drill.XXXXXX)
 data=$work/data
 dump=$work/latest.dump

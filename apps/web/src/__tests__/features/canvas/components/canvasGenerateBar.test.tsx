@@ -35,6 +35,7 @@ vi.mock('../../../../lib/privateOverlay', () => ({
   notifyPrivateSubmissionAccepted: vi.fn(),
   notifyPrivateSubmissionError: vi.fn(),
   notifyPrivateSubmissionSettled: vi.fn(),
+  PrivateWebMembership: null,
 }))
 
 const { default: CanvasGenerateBar } = await import(

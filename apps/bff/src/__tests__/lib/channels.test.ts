@@ -630,6 +630,8 @@ describe('shipped channels.json', () => {
       'edit',
       'mask',
       'quality',
+      // 只有 OpenAI 直连开着时才对前端声明，见 channels.ts withDeliverableGptSize。
+      'size',
       'n',
       'moderation',
     ]
@@ -822,7 +824,7 @@ describe('shipped channels.json', () => {
         capabilities: ['generate', 'edit', 'size'],
         badges: ['latest'],
         tier: 'fast',
-        // 10 月 24 日实测：Lite 约 3 秒、2.1 约 14 秒、Pro 约 24 秒。
+        // 10 月 24 日实测：2.1 约 14 秒、Pro 约 24 秒（Lite 见下）。
         etaSeconds: 14,
         logo: 'nano-banana',
         imageSizes: ['1K', '2K'],
@@ -841,7 +843,6 @@ describe('shipped channels.json', () => {
         label: 'Nano Banana 2 Lite',
         capabilities: ['generate', 'edit', 'size'],
         tier: 'fast',
-        etaSeconds: 3,
         logo: 'nano-banana',
         imageSizes: ['1K'],
       },

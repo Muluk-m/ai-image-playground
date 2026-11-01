@@ -10,6 +10,7 @@ import { askChatModel, ChatTimeoutError, isTransientChatError } from '../chatCom
 import { log } from '../logger'
 import { isObject } from '../type-guards'
 import { trackAgentBackgroundWork } from './background-work'
+import { stripDisallowedScripts } from './reply-script'
 
 /**
  * 中文一句加上 Haiku 的思考会顶满旧的 180：线上 claude-haiku-5-5 以
@@ -102,7 +103,7 @@ export function followUpPrompt(source: FollowUpSource): string {
     '- 只写一句，就是用户最可能打的那一句。',
     '- 如果对话已明确结束，或没有合理的下一句，输出 {"lines":[]}，不要硬凑建议。',
     '- 用用户的口吻、第一人称，写成可以直接发出去的话。',
-    '- 用用户上一条消息的语言写。',
+    '- 用用户上一条消息的语言写，不要夹杂其他文字。',
     '- 短。中文尽量不超过 40 个字；任何语言都不要超过 80 个字符。',
     '- 助手如果在问参数、选择或确认，就用合理的具体取值直接回答，不要反问。',
     '- 下一步很明显时，写成那条指令。',
@@ -126,12 +127,12 @@ export function normalizeFollowUpLines(
   hiddenKeys: readonly string[] = [],
 ): readonly string[] {
   if (!isObject(value) || !Array.isArray(value.lines)) return []
-  const skip = blocked.trim()
+  const skip = stripDisallowedScripts(blocked.trim(), blocked).trim()
   const seen = new Set<string>()
   const lines: string[] = []
   for (const item of value.lines) {
     if (typeof item !== 'string') continue
-    const line = stripInternalRefs(item, hiddenKeys).trim()
+    const line = stripDisallowedScripts(stripInternalRefs(item, hiddenKeys), blocked).trim()
     if (!line || line === skip || line.length > FOLLOW_UP_MAX_CHARS || seen.has(line)) continue
     seen.add(line)
     lines.push(line)
@@ -223,11 +224,15 @@ export async function suggestFollowUps(
   const userText = clip(source.userText)
   if (!userText) return []
   // 喂给小模型之前先去掉内部标识：它看不到 key，就不会照抄进建议句。
-  const assistantText = clip(stripInternalRefs(source.assistantText, keys)) || EMPTY_ASSISTANT
+  const assistantText =
+    clip(stripDisallowedScripts(stripInternalRefs(source.assistantText, keys), userText)) ||
+    EMPTY_ASSISTANT
   const prompt = followUpPrompt({
     userText,
     assistantText,
-    recentContext: tailClip(stripInternalRefs(source.recentContext ?? '', keys)),
+    recentContext: tailClip(
+      stripDisallowedScripts(stripInternalRefs(source.recentContext ?? '', keys), userText),
+    ),
   })
   try {
     const value = await askFollowUps(
