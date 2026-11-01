@@ -328,6 +328,8 @@ export const cliApiRoutes = new Elysia()
           throw new CliRequestError('UNAUTHENTICATED')
         case 'private_billing_denied':
           throw new CliRequestError('PLAN_REQUIRED')
+        case 'metering_denied':
+          throw new CliRequestError(outcome.reason === '4k_subscription_required' ? 'PLAN_REQUIRED' : 'FORBIDDEN')
         case 'insufficient_credits':
           throw new CliRequestError('INSUFFICIENT_CREDITS', {
             details: { required: outcome.required, available: outcome.available },
