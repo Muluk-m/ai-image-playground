@@ -1755,7 +1755,9 @@ export const agent_batch_commands = pgTable(
 export const analysis_tasks = pgTable(
   'analysis_tasks',
   {
-    task_id: text('task_id').primaryKey(),
+    task_id: text('task_id')
+      .primaryKey()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
     user_id: text('user_id').notNull(),
     device_id: text('device_id').notNull(),
     batch_id: text('batch_id').notNull(),

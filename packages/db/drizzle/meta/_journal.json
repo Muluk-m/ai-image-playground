@@ -556,6 +556,13 @@
       "breakpoints": true
     },
     {
+      "idx": 81,
+      "version": "7",
+      "when": 1793200000000,
+      "tag": "0081_cli_device_oauth",
+      "breakpoints": true
+    },
+    {
       "idx": 82,
       "version": "7",
       "when": 1793300000000,
