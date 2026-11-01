@@ -945,6 +945,14 @@ export const tasks = pgTable(
     status: text('status').$type<TaskStatus>().notNull(),
     reconciliation_required: boolean('reconciliation_required').notNull().default(false),
     request_payload: bunJsonb('request_payload').$type<PersistedSubmitRequest>().notNull(),
+    /** Submission-time billing mode and pricing inputs; terminal paths reuse this immutable snapshot. */
+    metering: bunJsonb('metering').$type<{
+      mode: 'credits' | 'none'
+      model: string
+      quantity: number
+      unitMultiplier: number
+      pricing?: AgentBatchPriceSnapshot
+    } | null>(),
     result_payload: bunJsonb('result_payload'),
     /** Recoverable source URLs or spooled object references; never inline original bytes. */
     archive_payload: bunJsonb('archive_payload'),

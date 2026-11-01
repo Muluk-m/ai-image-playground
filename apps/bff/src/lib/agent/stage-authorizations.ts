@@ -220,6 +220,17 @@ async function quote(
 ) {
   if (!isCapabilityEnabled('billing:credits')) return 0
   const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const decision = await hooks.meteringDecision?.({
+    tx,
+    userId,
+    model: input.model,
+    kind: 'video',
+    quantity: input.quantity,
+    unitMultiplier: input.unitMultiplier,
+  })
+  if (decision?.kind === 'denied')
+    throw new StageAuthorizationError('stage_authorization_price_unavailable', 422)
+  if (decision?.kind === 'unmetered') return 0
   const result = await hooks.quoteTask?.({
     tx,
     userId,

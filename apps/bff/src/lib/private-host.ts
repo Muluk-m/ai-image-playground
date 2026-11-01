@@ -9,4 +9,10 @@ export { capabilityUnavailable, isCapabilityEnabled } from './capabilities'
 export { getChannels } from './channels'
 export { reservedTokenUsage } from './token-pricing'
 export { UserOperationError } from './user-admin'
+export {
+  OAuthExchangeError,
+  optionalString,
+  requireString,
+  type OAuthProviderDefinition,
+} from './oauth/provider'
 export { requireInternalService, requireUser } from './user-auth'

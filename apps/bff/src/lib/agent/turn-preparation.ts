@@ -208,6 +208,7 @@ interface CommittedTurnStart {
   readonly input: AgentTurnInput
   readonly estimatedInputTokens: number
   readonly waiverPricing?: ChatTaskPricing | null
+  readonly unmetered: boolean
 }
 
 /** 一份候选的轮输入与按它算出的估算：预扣按估算，实发按输入，两边同源。 */
@@ -281,20 +282,6 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     const selectedModel = model.id
     const billChat = chatTurnsBilled()
     const waiveChat = isCapabilityEnabled('billing:chat-free')
-    let pricing: ChatTaskPricing | null = null
-    if (billChat && userId) {
-      pricing = await chatTaskPricing(overlay.taskHooks, selectedModel)
-    } else if (waiveChat && userId) {
-      try {
-        pricing = await chatTaskPricing(overlay.taskHooks, selectedModel)
-      } catch (err) {
-        log.warn(
-          { event: 'agent.chat_waiver_pricing_failed', turnId, err },
-          'chat waiver pricing unavailable',
-        )
-      }
-    }
-
     // 一份轮输入，两个读者：按它估算的这一笔预扣，与 `startAgentTurn` 发出去的那一份。估算在
     // 事务之外算完，取件与预扣那一笔才只有数据库往返。
     // 历史里读过的技能正文随回放带回去；估算照同一份算，预扣才对得上实发。
@@ -357,18 +344,6 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     const withoutNote = content.wakes?.note
       ? estimated({ ...content, wakes: { ids: content.wakes.ids } })
       : null
-    const chatTask =
-      billChat && pricing && userId
-        ? {
-            taskHooks: overlay.taskHooks,
-            conversationId,
-            turnId,
-            userId,
-            deviceId: content.deviceId,
-            model: selectedModel,
-            pricing,
-          }
-        : null
 
     committed = await execution.write(async (tx) => {
       // 运营停用的对话模型不起轮；不计费的部署没有预扣那一道，这里是唯一的关。
@@ -387,26 +362,66 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       )
         throw new TurnStartRollback({ kind: 'withdrawn' })
       let reserved: ChatTaskReserved | undefined
-      // 这一轮最终按哪一份走；退到 `withoutNote` 就是说明没进这一轮。
-      let chosen = withNote
-      if (chatTask) {
-        let reservation = await reserveChatTask({
+      let unmetered = false
+      let pricing: ChatTaskPricing | null = null
+      if (userId) {
+        const decision = await overlay.taskHooks.meteringDecision?.({
           tx,
+          userId,
+          model: selectedModel,
+          kind: 'chat',
+          quantity: 1,
+          unitMultiplier: 1,
+          inputEstimateTokens: withNote.estimatedInputTokens,
+        })
+        if (decision?.kind === 'denied')
+          throw new TurnStartRollback({ kind: 'access_denied', reason: decision.reason })
+        unmetered = decision?.kind === 'unmetered'
+        if (unmetered && overlay.taskHooks.consumeUnmeteredQuota) {
+          const quota = await overlay.taskHooks.consumeUnmeteredQuota({
+            tx,
+            userId,
+            model: selectedModel,
+            kind: 'chat',
+            quantity: 1,
+            unitMultiplier: 1,
+            inputEstimateTokens: withNote.estimatedInputTokens,
+          })
+          if (quota.kind === 'quota_exceeded') throw new TurnStartRollback(quota)
+        }
+      }
+      let chosen = withNote
+      if (!unmetered && billChat && userId) {
+        pricing = await chatTaskPricing(overlay.taskHooks, selectedModel)
+        const chatTask = {
+          tx,
+          taskHooks: overlay.taskHooks,
+          conversationId,
+          turnId,
+          userId,
+          deviceId: content.deviceId,
+          model: selectedModel,
+          pricing,
+        }
+        let reservation = await reserveChatTask({
           ...chatTask,
           estimatedInputTokens: chosen.estimatedInputTokens,
         })
-        // 带上唤醒的说明预扣不下，就只为用户这条消息预扣：唤醒的费用不能挡住用户的话。被拒的
-        // 预扣不留痕迹，同一事务里可以再来一次。
         if (reservation.kind === 'insufficient_credits' && withoutNote) {
           chosen = withoutNote
           reservation = await reserveChatTask({
-            tx,
             ...chatTask,
             estimatedInputTokens: chosen.estimatedInputTokens,
           })
         }
         if (reservation.kind !== 'reserved') throw new TurnStartRollback(reservation)
         reserved = reservation
+      } else if (!unmetered && waiveChat && userId) {
+        try {
+          pricing = await chatTaskPricing(overlay.taskHooks, selectedModel)
+        } catch (err) {
+          log.warn({ event: 'agent.chat_waiver_pricing_failed', turnId, err }, 'chat waiver pricing unavailable')
+        }
       }
       // 说明进了这一轮（或本来就没有说明）才取走那几条唤醒；被丢掉时它们留在收件箱里，
       // 之后走自己的路。
@@ -423,9 +438,10 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       return {
         storedUserMessage,
         reserved,
+        unmetered,
         input: chosen.input,
         estimatedInputTokens: chosen.estimatedInputTokens,
-        ...(waiveChat ? { waiverPricing: pricing } : {}),
+        ...(!unmetered && waiveChat ? { waiverPricing: pricing } : {}),
       }
     })
   } catch (error) {
@@ -457,17 +473,19 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       ...(turnContent.canvas ? { canvas: turnContent.canvas } : {}),
       ...(content.wake ? { wake: content.wake } : {}),
       reservedCredits: committed.reserved?.reservedCredits,
-      settle: chatTurnSettle(
-        conversationId,
-        turnId,
-        committed.reserved,
-        committed.waiverPricing !== undefined
-          ? {
-              pricing: committed.waiverPricing,
-              estimatedInputTokens: committed.estimatedInputTokens,
-            }
-          : undefined,
-      ),
+      settle: committed.unmetered
+        ? undefined
+        : chatTurnSettle(
+            conversationId,
+            turnId,
+            committed.reserved,
+            committed.waiverPricing !== undefined
+              ? {
+                  pricing: committed.waiverPricing,
+                  estimatedInputTokens: committed.estimatedInputTokens,
+                }
+              : undefined,
+          ),
     },
   }
 }
