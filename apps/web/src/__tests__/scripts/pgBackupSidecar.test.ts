@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { OPS_THRESHOLDS } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 /**
@@ -11,7 +12,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
  */
 const lib = resolve(__dirname, '../../../../../deploy/backup/lib.sh')
 
-const hour = 60 * 60 * 1000
+const minute = 60 * 1000
+const hour = 60 * minute
 const day = 24 * hour
 
 let root: string
@@ -133,6 +135,17 @@ describe('容器启动时补跑备份', () => {
     expect(run.scripts).toEqual([])
     const saved = Number(readFileSync(join(root, 'last-success'), 'utf8'))
     expect(saved).toBeLessThan(Date.now() / 1000 - 1000)
+  })
+
+  // 2026-11-01：06:00 那轮备份被 06:02 的发布重建容器杀掉，当时最新一份已经 59 分钟；
+  // 按整小时判断就「没有过期」，于是空窗顶到两小时，告警先红后绿。现在半小时就算过期。
+  it('上一轮被发布杀掉、最新一份已经 58 分钟：重启时补跑一次备份', () => {
+    const run = catchUp({
+      dump: `${modifiedAgo(58 * minute)}\tapp/pg/2026-11-01T05-00-00Z.dump.sha256`,
+      drill: freshDrill,
+    })
+    expect(run.status).toBe(0)
+    expect(run.scripts).toEqual(['backup.sh'])
   })
 
   it('列举失败（网络不通）：什么都不跑，留一行日志，交给 cron', () => {
@@ -305,16 +318,18 @@ describe('backup health never comes from container start time', () => {
       env: { ...process.env, BACKUP_HEALTH_FILE: join(root, 'last-success') },
     }).status
   it('rejects missing, invalid, stale and future upload times', () => {
+    // 两侧都从 OPS_THRESHOLDS 算出来：探针和告警线任何一边单独漂移，这里都会红。
+    const lineSeconds = OPS_THRESHOLDS.BACKUP_MAX_AGE_MS / 1000
+    const ago = (seconds: number) => `${Math.floor(Date.now() / 1000) - seconds}`
     expect(check()).toBe(1)
-    for (const value of [
-      'garbage',
-      `${Math.floor(Date.now() / 1000) - 7300}`,
-      `${Math.floor(Date.now() / 1000) + 60}`,
-    ]) {
+    for (const value of ['garbage', ago(lineSeconds + 120), ago(-60)]) {
       writeFileSync(join(root, 'last-success'), value)
       expect(check()).toBe(1)
     }
-    writeFileSync(join(root, 'last-success'), `${Math.floor(Date.now() / 1000) - 1200}`)
+    // 漏跑一轮后最新一份是两小时多一点：还没到告警线，健康；真断了两轮才失败。
+    writeFileSync(join(root, 'last-success'), ago(lineSeconds - 60))
+    expect(check()).toBe(0)
+    writeFileSync(join(root, 'last-success'), ago(1200))
     expect(check()).toBe(0)
   })
 })
