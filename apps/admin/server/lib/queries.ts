@@ -1047,7 +1047,8 @@ export async function listOperatorAudits(
     : sql``
   const actionFilter = options.action ? sql`AND a.action = ${options.action}` : sql``
   const settingKeyFilter = options.settingKey
-    ? sql`AND (a.target_id = ${options.settingKey} OR a.details->>'settingKey' = ${options.settingKey})`
+    ? sql`AND a.target_type = 'operator_config'
+        AND (a.target_id = ${options.settingKey} OR a.details->>'settingKey' = ${options.settingKey})`
     : sql``
   const targetFilter = options.targetId ? sql`AND a.target_id = ${options.targetId}` : sql``
 
