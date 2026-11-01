@@ -246,6 +246,7 @@ export const EXPECTED_COLUMNS = [
   'tasks.reconcile_started_at',
   'tasks.gpt_route',
   'tasks.reconcile_alerted_at',
+  'generation_images.deleted_at',
 ] as const
 
 /** Columns whose type matters as much as their presence: the code reads them as JSON. */

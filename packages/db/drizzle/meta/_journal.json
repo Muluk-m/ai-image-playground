@@ -561,6 +561,13 @@
       "when": 1793400000000,
       "tag": "0083_cli_device_oauth",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1793500000000,
+      "tag": "0084_generation_images_soft_delete",
+      "breakpoints": true
     }
   ]
 }
