@@ -33,10 +33,12 @@ function reserveFreePort(): number {
 }
 
 const port = reserveFreePort()
+/** apps/bff：子进程按这里解析入口和配置，跟测试从哪个目录启动无关（Cloud tests 在空的临时目录里跑）。 */
+const BFF_ROOT = resolve(import.meta.dir, '../../..')
 const server = Bun.spawn(
-  [process.execPath, '--no-env-file', resolve(import.meta.dir, '../../index.ts')],
+  [process.execPath, '--no-env-file', 'run', resolve(BFF_ROOT, 'src/index.ts')],
   {
-    cwd: resolve(import.meta.dir, '../../..'),
+    cwd: BFF_ROOT,
     env: {
       ...process.env,
       PORT: String(port),
@@ -46,12 +48,14 @@ const server = Bun.spawn(
       CORS_ALLOWED_ORIGINS: '*',
     },
     stdout: 'ignore',
-    stderr: 'ignore',
+    stderr: 'pipe',
   },
 )
 
-afterAll(() => {
-  server.kill()
+afterAll(async () => {
+  // SIGKILL：bff 收到 SIGTERM 会走优雅退出，测试进程先结束时它就成了孤儿，一直占着数据库连接。
+  server.kill('SIGKILL')
+  await server.exited
 })
 
 async function waitForHealth(): Promise<void> {
@@ -65,6 +69,11 @@ async function waitForHealth(): Promise<void> {
       }
     } catch {
       // 进程还没 listen，退避重试
+    }
+    if (server.exitCode !== null) {
+      // 子进程已经退出就不用再等：把它的报错带出来，CI 上才看得出为什么起不来。
+      const stderr = (await new Response(server.stderr).text()).slice(-2_000)
+      throw new Error(`bff exited with code ${server.exitCode} before becoming healthy:\n${stderr}`)
     }
     await Bun.sleep(200)
   }

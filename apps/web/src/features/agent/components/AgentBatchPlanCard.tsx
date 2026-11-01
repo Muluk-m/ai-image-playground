@@ -5,7 +5,7 @@ import type {
   AgentBatchUpdate,
 } from '@image-playground/shared'
 import { agentImageShape } from '@image-playground/shared'
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
 import MediaImage from '../../../components/MediaImage'
 import { compactModelName, ModelLogo } from '../../../components/ModelIdentity'
@@ -17,6 +17,7 @@ import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
 import { modelLabel } from '../../../lib/channels/publicChannels'
+import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { getDeviceId } from '../../../lib/deviceId'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
@@ -25,6 +26,7 @@ import { CARD, CARD_CONTROL, CARD_NOTE, CARD_TEXT } from '../agentStyles'
 import {
   type AgentBatchCommand,
   AgentRequestError,
+  cancelBatchItem,
   cancelBatchPlan,
   fetchBatchPlan,
   updateBatchPlan,
@@ -47,7 +49,7 @@ import AgentBatchItemResult, {
   AgentBatchAnalysisEvidence,
   AgentBatchItemStatus,
 } from './AgentBatchItemResult'
-import AgentBatchResultGallery from './AgentBatchResultGallery'
+import AgentBatchResultGallery, { AgentBatchRunRow } from './AgentBatchResultGallery'
 
 function statusIcon(status: BatchDisplayStatus) {
   if (status === 'in_flight' || status === 'in_progress') return 'loading'
@@ -161,6 +163,8 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const [groupOverride, setGroupOverride] = useState<Record<string, boolean>>({})
   const [groupPage, setGroupPage] = useState<Record<string, number>>({})
   const [openItems, setOpenItems] = useState<ReadonlySet<string>>(() => new Set())
+  // 计划名、规则与逐项提示词默认收起；有可重试项时自动展开，好让用户勾选。用户点过就听用户的。
+  const [detailsOverride, setDetailsOpen] = useState<boolean | null>(null)
   const [exportProgress, setExportProgress] = useState<{ done: number; total: number } | null>(null)
   const exporting = useRef(false)
   const seenStatus = useRef(new Map<string, string>())
@@ -170,7 +174,20 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const [busy, setBusy] = useState(false)
   const working = useRef(false)
   const operations = useRef(0)
+  // 每张图块最近一次取消请求的序号：各张的取消互不相干，失败只按同一张判断是否过期。
+  const itemCancels = useRef(new Map<string, number>())
   const card = useRef<HTMLElement>(null)
+  const runRow = useRef<HTMLDivElement>(null)
+  const [runRowMounted, setRunRowMounted] = useState(false)
+  const setRunRowRef = useCallback((node: HTMLDivElement | null) => {
+    runRow.current = node
+    setRunRowMounted((current) => {
+      const next = Boolean(node)
+      return current === next ? current : next
+    })
+  }, [])
+  const [cancellingItems, setCancellingItems] = useState<ReadonlySet<string>>(() => new Set())
+  const [cancelItemFailed, setCancelItemFailed] = useState(false)
   if (card.current) {
     const active = document.activeElement
     const row = active instanceof Element ? active.closest('details[data-item-key]') : null
@@ -348,14 +365,18 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       timer = undefined
       schedule()
     }
+    // 确认后进度在计划卡下方那一排图块里：计划卡滚出视口、图块还看得见时也要接着轮询。
+    const seen = new Map<Element, boolean>()
     const observer =
       typeof IntersectionObserver === 'undefined'
         ? null
         : new IntersectionObserver((entries) => {
-            visible = entries.some((entry) => entry.isIntersecting)
+            for (const entry of entries) seen.set(entry.target, entry.isIntersecting)
+            visible = [...seen.values()].some(Boolean)
             visibility()
           })
     if (card.current) observer?.observe(card.current)
+    if (runRow.current) observer?.observe(runRow.current)
     document.addEventListener('visibilitychange', visibility)
     schedule()
     return () => {
@@ -364,8 +385,53 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       observer?.disconnect()
       document.removeEventListener('visibilitychange', visibility)
     }
-  }, [watch, batchId, commands, dirty])
+  }, [watch, batchId, commands, dirty, runRowMounted])
   const refresh = () => apply(() => fetchBatchPlan(batchId), true)
+  // 只撤一张：不走 apply 的整卡忙碌锁，别的图块和计划卡照常可点；计费由后端取消任务的既有结算处理。
+  const cancelItem = async (key: string) => {
+    if (cancellingItems.has(key) || !commands.current()) return
+    setCancellingItems((current) => new Set(current).add(key))
+    setCancelItemFailed(false)
+    const operation = ++operations.current
+    itemCancels.current.set(key, operation)
+    try {
+      const result = await cancelBatchItem(batchId, key)
+      // 服务端只撤还没发给上游的那张；刚被认领、进入核对或已出图的会原样返回。
+      // 只要这一张没变成已取消，就告诉用户没撤成。
+      const left = result.items.find((item) => item.key === key)?.execution?.status
+      if (
+        commands.current() &&
+        itemCancels.current.get(key) === operation &&
+        left !== undefined &&
+        left !== 'cancelled'
+      )
+        setCancelItemFailed(true)
+      if (commands.current() && operation === operations.current) {
+        operations.current++
+        setPage(result)
+      } else if (commands.current()) {
+        // 这一张撤成功了，但期间有更新的操作：这份快照可能比界面旧，不写回，改为再读一次最新计划，
+        // 免得后发的那个操作失败时界面一直停在撤之前。
+        const reread = ++operations.current
+        const latest = await fetchBatchPlan(batchId).catch(() => null)
+        if (latest && commands.current() && reread === operations.current) {
+          operations.current++
+          setPage(latest)
+        }
+      }
+    } catch {
+      // 失败说明这一张确实没撤掉，与页面别处是否刷新过无关；取消别的图块也不让它失效。
+      // 只有同一张后来又发了取消，旧的失败才算过期。
+      if (commands.current() && itemCancels.current.get(key) === operation)
+        setCancelItemFailed(true)
+    } finally {
+      setCancellingItems((current) => {
+        const next = new Set(current)
+        next.delete(key)
+        return next
+      })
+    }
+  }
   if (!page)
     return (
       <div className={CARD} role="status">
@@ -818,15 +884,52 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       </div>
     </details>
   )
+  const detailsOpen = detailsOverride ?? page.items.some(retryEligible)
 
   const displayError = restorationFailed ? 'storage_restore_failed' : error
   const targetIcon = page.batch.experience === 'canvas' ? 'canvas' : 'chat'
-  return (
+  const runTiles = page.items.flatMap((item, index) =>
+    item.kind === 'generation'
+      ? [{ key: item.key, position: index + 1, progress: item.progress, execution: item.execution }]
+      : [],
+  )
+  const showRun =
+    runTiles.length > 0 &&
+    (page.batch.status === 'running' ||
+      page.batch.status === 'paused' ||
+      page.batch.status === 'closed')
+  const runParams = page.items.find((item) => item.kind === 'generation')?.params
+  const runShape = runParams ? agentImageShape(runParams.provider, runParams) : {}
+  const runMeta = {
+    ...(runParams?.model
+      ? {
+          model: {
+            id: runParams.model,
+            name: compactModelName(
+              runParams.model,
+              modelLabel(runParams.model, runParams.provider),
+            ),
+          },
+        }
+      : {}),
+    tags: [runShape.imageSize ?? runShape.size, runShape.aspectRatio].filter((tag): tag is string =>
+      Boolean(tag),
+    ),
+  }
+  const openPlan = () => {
+    setDetailsOpen(true)
+    card.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+    card.current?.focus({ preventScroll: true })
+  }
+  const plan = (
     <section ref={card} id={domId} tabIndex={-1} className={CARD}>
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>{t('batch.scope', { count: page.batch.itemCount })}</span>
-        <span className="flex items-center gap-2">
-          {resultFiles.length > 0 && (
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-sm font-medium text-foreground">{page.batch.title}</span>
+          <span className="shrink-0">{t('batch.scope', { count: page.batch.itemCount })}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+          {resultFiles.length > 0 && !showRun && (
             <Button
               size="sm"
               variant="outline"
@@ -864,7 +967,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           </span>
         )}
       </div>
-      {resultFiles.length > 0 && (
+      {!hasGeneration && resultFiles.length > 0 && (
         <AgentBatchResultGallery artifacts={resultFiles.map((file) => file.artifact)} />
       )}
       {page.analysisSummary && (
@@ -907,182 +1010,214 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           )}
         </div>
       )}
-      <label className="grid gap-1 text-xs">
-        {t('batch.title')}
-        <Input
-          className={`${CARD_CONTROL} w-full`}
-          value={page.batch.title}
-          disabled={!editable}
-          maxLength={120}
-          onChange={(event) => {
-            setPage({ ...page, batch: { ...page.batch, title: event.target.value } })
-            markDirty()
-          }}
-        />
-      </label>
-      <label className="grid gap-1 text-xs">
-        {t('batch.rule')}
-        <Textarea
-          className={`${CARD_TEXT} max-h-24`}
-          rows={3}
-          value={page.batch.rule}
-          disabled={!editable}
-          maxLength={4000}
-          onChange={(event) => {
-            setPage({ ...page, batch: { ...page.batch, rule: event.target.value } })
-            markDirty()
-          }}
-        />
-      </label>
-      {grouped ? (
-        <div className="max-h-64 overflow-y-auto" role="group" aria-label={t('batch.statusBoard')}>
-          {groups.flatMap((group, groupAt) => {
-            const containsRetry = group.items.some((item) => retryMarked.has(item.key))
-            const pinned = group.items.some((item) => openItems.has(item.key))
-            const open =
-              groupOverride[group.status] ??
-              (pinned ||
-                batchGroupStartsOpen(
-                  group.status,
-                  group.items.length,
-                  groups.length,
-                  containsRetry,
-                ))
-            const groupPageCount = Math.max(1, Math.ceil(group.items.length / BATCH_ITEM_PAGE_SIZE))
-            const groupIndex = Math.min(groupPageCount - 1, groupPage[group.status] ?? 0)
-            const start = groupIndex * BATCH_ITEM_PAGE_SIZE
-            const pageItems = group.items.slice(start, start + BATCH_ITEM_PAGE_SIZE)
-            const visible = [
-              ...pageItems,
-              ...group.items.filter(
-                (item, index) =>
-                  openItems.has(item.key) &&
-                  (index < start || index >= start + BATCH_ITEM_PAGE_SIZE),
-              ),
-            ]
-            const showPager = open && groupPageCount > 1
-            const icon = statusIcon(group.status)
-            const live = group.status === 'in_flight' || group.status === 'in_progress'
-            const urgent =
-              group.status === 'failed' ||
-              group.status === 'blocked' ||
-              group.status === 'reconciling'
-            const header = (
-              <div
-                key={`group:${group.status}`}
-                data-batch-group={group.status}
-                className={`${groupAt === 0 ? '' : 'mt-1'} overflow-hidden border border-border bg-background ${open ? 'rounded-t-lg border-b-0' : 'rounded-lg'}`}
-              >
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className="w-full justify-start text-left"
-                  aria-expanded={open}
-                  onClick={() =>
-                    setGroupOverride((current) => ({ ...current, [group.status]: !open }))
-                  }
-                >
-                  <Icon
-                    name="chevronRight"
-                    className={` text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
-                  />
-                  <Icon
-                    name={icon}
-                    className={`${live ? 'animate-spin text-foreground' : urgent ? 'text-destructive' : 'text-muted-foreground'}`}
-                  />
-                  <span>{t(`batch.itemStatus.${group.status}`)}</span>
-                  <span className="ml-auto tabular-nums text-muted-foreground">
-                    {group.items.length}
-                  </span>
-                </Button>
-              </div>
-            )
-            if (!open) return [header]
-            const rows = visible.map((item, index) =>
-              itemRow(
-                item,
-                page.items.findIndex((entry) => entry.key === item.key) + 1,
-                false,
-                `border-x border-t border-border bg-background ${index === visible.length - 1 && !showPager ? 'rounded-b-lg border-b' : ''}`,
-              ),
-            )
-            if (!showPager) return [header, ...rows]
-            return [
-              header,
-              ...rows,
-              <nav
-                key={`pages:${group.status}`}
-                aria-label={t('batch.pagination')}
-                className="flex items-center justify-between gap-2 rounded-b-lg border border-t-0 border-border bg-background px-2 py-1 text-xs"
-              >
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={groupIndex === 0}
-                  onClick={() =>
-                    setGroupPage((current) => ({
-                      ...current,
-                      [group.status]: groupIndex - 1,
-                    }))
-                  }
-                >
-                  {t('batch.previousPage')}
-                </Button>
-                <span className="tabular-nums">
-                  {t('batch.pagePosition', {
-                    current: groupIndex + 1,
-                    total: groupPageCount,
-                  })}
-                </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={groupIndex + 1 === groupPageCount}
-                  onClick={() =>
-                    setGroupPage((current) => ({
-                      ...current,
-                      [group.status]: groupIndex + 1,
-                    }))
-                  }
-                >
-                  {t('batch.nextPage')}
-                </Button>
-              </nav>,
-            ]
-          })}
-        </div>
-      ) : (
-        <div className="max-h-64 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-background">
-          {visibleItems.map((item, index) => itemRow(item, firstItem + index + 1, true))}
-        </div>
-      )}
-      {!grouped && pageCount > 1 && (
-        <nav
-          aria-label={t('batch.pagination')}
-          className="flex items-center justify-between gap-2 text-xs"
+      <div className="rounded-lg border border-border bg-background text-xs">
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="w-full justify-start text-left text-muted-foreground"
+          aria-expanded={detailsOpen}
+          aria-controls={`${domId}-details`}
+          onClick={() => setDetailsOpen(!detailsOpen)}
         >
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={pageIndex === 0}
-            onClick={() => showPage(pageIndex - 1)}
-          >
-            {t('batch.previousPage')}
-          </Button>
-          <span className="tabular-nums">
-            {t('batch.pagePosition', { current: pageIndex + 1, total: pageCount })}
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={pageIndex + 1 === pageCount}
-            onClick={() => showPage(pageIndex + 1)}
-          >
-            {t('batch.nextPage')}
-          </Button>
-        </nav>
-      )}
+          <Icon
+            name="chevronRight"
+            className={`transition-transform ${detailsOpen ? 'rotate-90' : ''}`}
+          />
+          {t('batch.details')}
+        </Button>
+        <div
+          id={`${domId}-details`}
+          data-batch-details
+          hidden={!detailsOpen}
+          // `grid` 会盖掉浏览器对 [hidden] 的 display:none，收起时不能带它。
+          className={detailsOpen ? 'grid gap-3 border-t border-border p-2' : undefined}
+        >
+          <label className="grid gap-1 text-xs">
+            {t('batch.title')}
+            <Input
+              className={`${CARD_CONTROL} w-full`}
+              value={page.batch.title}
+              disabled={!editable}
+              maxLength={120}
+              onChange={(event) => {
+                setPage({ ...page, batch: { ...page.batch, title: event.target.value } })
+                markDirty()
+              }}
+            />
+          </label>
+          <label className="grid gap-1 text-xs">
+            {t('batch.rule')}
+            <Textarea
+              className={`${CARD_TEXT} max-h-24`}
+              rows={3}
+              value={page.batch.rule}
+              disabled={!editable}
+              maxLength={4000}
+              onChange={(event) => {
+                setPage({ ...page, batch: { ...page.batch, rule: event.target.value } })
+                markDirty()
+              }}
+            />
+          </label>
+          {grouped ? (
+            <div
+              className="max-h-64 overflow-y-auto"
+              role="group"
+              aria-label={t('batch.statusBoard')}
+            >
+              {groups.flatMap((group, groupAt) => {
+                const containsRetry = group.items.some((item) => retryMarked.has(item.key))
+                const pinned = group.items.some((item) => openItems.has(item.key))
+                const open =
+                  groupOverride[group.status] ??
+                  (pinned ||
+                    batchGroupStartsOpen(
+                      group.status,
+                      group.items.length,
+                      groups.length,
+                      containsRetry,
+                    ))
+                const groupPageCount = Math.max(
+                  1,
+                  Math.ceil(group.items.length / BATCH_ITEM_PAGE_SIZE),
+                )
+                const groupIndex = Math.min(groupPageCount - 1, groupPage[group.status] ?? 0)
+                const start = groupIndex * BATCH_ITEM_PAGE_SIZE
+                const pageItems = group.items.slice(start, start + BATCH_ITEM_PAGE_SIZE)
+                const visible = [
+                  ...pageItems,
+                  ...group.items.filter(
+                    (item, index) =>
+                      openItems.has(item.key) &&
+                      (index < start || index >= start + BATCH_ITEM_PAGE_SIZE),
+                  ),
+                ]
+                const showPager = open && groupPageCount > 1
+                const icon = statusIcon(group.status)
+                const live = group.status === 'in_flight' || group.status === 'in_progress'
+                const urgent =
+                  group.status === 'failed' ||
+                  group.status === 'blocked' ||
+                  group.status === 'reconciling'
+                const header = (
+                  <div
+                    key={`group:${group.status}`}
+                    data-batch-group={group.status}
+                    className={`${groupAt === 0 ? '' : 'mt-1'} overflow-hidden border border-border bg-background ${open ? 'rounded-t-lg border-b-0' : 'rounded-lg'}`}
+                  >
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      className="w-full justify-start text-left"
+                      aria-expanded={open}
+                      onClick={() =>
+                        setGroupOverride((current) => ({ ...current, [group.status]: !open }))
+                      }
+                    >
+                      <Icon
+                        name="chevronRight"
+                        className={` text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
+                      />
+                      <Icon
+                        name={icon}
+                        className={`${live ? 'animate-spin text-foreground' : urgent ? 'text-destructive' : 'text-muted-foreground'}`}
+                      />
+                      <span>{t(`batch.itemStatus.${group.status}`)}</span>
+                      <span className="ml-auto tabular-nums text-muted-foreground">
+                        {group.items.length}
+                      </span>
+                    </Button>
+                  </div>
+                )
+                if (!open) return [header]
+                const rows = visible.map((item, index) =>
+                  itemRow(
+                    item,
+                    page.items.findIndex((entry) => entry.key === item.key) + 1,
+                    false,
+                    `border-x border-t border-border bg-background ${index === visible.length - 1 && !showPager ? 'rounded-b-lg border-b' : ''}`,
+                  ),
+                )
+                if (!showPager) return [header, ...rows]
+                return [
+                  header,
+                  ...rows,
+                  <nav
+                    key={`pages:${group.status}`}
+                    aria-label={t('batch.pagination')}
+                    className="flex items-center justify-between gap-2 rounded-b-lg border border-t-0 border-border bg-background px-2 py-1 text-xs"
+                  >
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={groupIndex === 0}
+                      onClick={() =>
+                        setGroupPage((current) => ({
+                          ...current,
+                          [group.status]: groupIndex - 1,
+                        }))
+                      }
+                    >
+                      {t('batch.previousPage')}
+                    </Button>
+                    <span className="tabular-nums">
+                      {t('batch.pagePosition', {
+                        current: groupIndex + 1,
+                        total: groupPageCount,
+                      })}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={groupIndex + 1 === groupPageCount}
+                      onClick={() =>
+                        setGroupPage((current) => ({
+                          ...current,
+                          [group.status]: groupIndex + 1,
+                        }))
+                      }
+                    >
+                      {t('batch.nextPage')}
+                    </Button>
+                  </nav>,
+                ]
+              })}
+            </div>
+          ) : (
+            <div className="max-h-64 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-background">
+              {visibleItems.map((item, index) => itemRow(item, firstItem + index + 1, true))}
+            </div>
+          )}
+          {!grouped && pageCount > 1 && (
+            <nav
+              aria-label={t('batch.pagination')}
+              className="flex items-center justify-between gap-2 text-xs"
+            >
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pageIndex === 0}
+                onClick={() => showPage(pageIndex - 1)}
+              >
+                {t('batch.previousPage')}
+              </Button>
+              <span className="tabular-nums">
+                {t('batch.pagePosition', { current: pageIndex + 1, total: pageCount })}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pageIndex + 1 === pageCount}
+                onClick={() => showPage(pageIndex + 1)}
+              >
+                {t('batch.nextPage')}
+              </Button>
+            </nav>
+          )}
+        </div>
+      </div>
       <div className="grid gap-1 text-xs text-muted-foreground">
         {(metering !== 'none' || page.batch.estimate.analysis.status !== 'available') &&
           (!confirmationKeys?.length || hasAnalysis) && (
@@ -1242,5 +1377,51 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         </div>
       ) : null}
     </section>
+  )
+  if (!showRun) return plan
+  // 确认之后：计划卡只留查看与修改，生成进度挪到对话里卡片下方那一排图块（与单次生图的结果行一样）。
+  return (
+    <div className="grid min-w-0 gap-3">
+      {plan}
+      <div ref={setRunRowRef} className="min-w-0">
+        <AgentBatchRunRow
+          tiles={runTiles}
+          meta={runMeta}
+          cancelling={cancellingItems}
+          cancelFailed={cancelItemFailed}
+          // 单张取消按部署能力逐步放开，关着时图块不出取消按钮。
+          onCancel={
+            isClientCapabilityEnabled('agent:batch-item-cancel')
+              ? (key) => void cancelItem(key)
+              : undefined
+          }
+          actions={
+            <>
+              <Button size="sm" variant="outline" className="text-foreground" onClick={openPlan}>
+                <Icon name="edit" />
+                {t('batch.editPlan')}
+              </Button>
+              {resultFiles.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-foreground"
+                  disabled={exportProgress !== null}
+                  onClick={() => void runExport()}
+                >
+                  <Icon name="download" />
+                  {exportProgress
+                    ? t('batch.exporting', {
+                        done: exportProgress.done,
+                        total: exportProgress.total,
+                      })
+                    : t('batch.exportResults', { count: resultFiles.length })}
+                </Button>
+              )}
+            </>
+          }
+        />
+      </div>
+    </div>
   )
 }

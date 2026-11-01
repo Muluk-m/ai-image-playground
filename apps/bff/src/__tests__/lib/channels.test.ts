@@ -630,6 +630,8 @@ describe('shipped channels.json', () => {
       'edit',
       'mask',
       'quality',
+      // 只有 OpenAI 直连开着时才对前端声明，见 channels.ts withDeliverableGptSize。
+      'size',
       'n',
       'moderation',
     ]

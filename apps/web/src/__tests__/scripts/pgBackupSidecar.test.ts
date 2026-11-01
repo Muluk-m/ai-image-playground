@@ -318,3 +318,101 @@ describe('backup health never comes from container start time', () => {
     expect(check()).toBe(0)
   })
 })
+
+describe('单副本备份保留', () => {
+  const backup = resolve(__dirname, '../../../../../deploy/backup/backup.sh')
+
+  beforeEach(() => {
+    const fake = (name: string, body: string) => {
+      writeFileSync(join(root, name), `#!/bin/sh\n${body}\n`)
+      chmodSync(join(root, name), 0o755)
+    }
+    fake(
+      'pg_dump',
+      [
+        'echo pg_dump >> "$CALL_LOG"',
+        'while [ "$#" -gt 0 ]; do',
+        '  if [ "$1" = --file ]; then printf dump > "$2"; shift; fi',
+        '  shift',
+        'done',
+      ].join('\n'),
+    )
+    fake('pg_restore', 'exit 0')
+    fake('sha256sum', 'printf "test-checksum  %s\\n" "$1"')
+    fake(
+      'cat',
+      'if [ "$1" = /proc/sys/kernel/random/uuid ]; then echo test-uuid; else /bin/cat "$@"; fi',
+    )
+    fake('flock', 'exit "${FAKE_LOCK_STATUS:-0}"')
+    fake(
+      'aws',
+      [
+        'echo "aws $*" >> "$CALL_LOG"',
+        'case "$*" in',
+        '  *".[Key]"*) printf "%s\\n" "$FAKE_BACKUP_KEYS" ;;',
+        '  *" list-objects-v2 "*) printf "%s" "$FAKE_BACKUP_KEYS" | tr "\\n" "\\t" ;;',
+        '  *" s3 cp "*|*" s3 rm "*) ;;',
+        '  *) exit 1 ;;',
+        'esac',
+      ].join('\n'),
+    )
+    const script = readFileSync(backup, 'utf8')
+      .replace('/usr/local/lib/pg-backup/lib.sh', lib)
+      .split('/var/lib/pg-backup')
+      .join(join(root, 'state'))
+    writeFileSync(join(root, 'backup-under-test.sh'), script)
+  })
+
+  function runBackup(lockStatus = '0') {
+    const result = spawnSync('sh', [join(root, 'backup-under-test.sh')], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: {
+        PATH: `${root}:${process.env.PATH}`,
+        CALL_LOG: calls,
+        ADMIN_DATABASE_URL: 'postgres://example',
+        S3_ENDPOINT: 'https://r2.example',
+        S3_BUCKET: 'bucket',
+        S3_KEY_PREFIX: 'app/',
+        S3_ACCESS_KEY_ID: 'id',
+        S3_SECRET_ACCESS_KEY: 'secret',
+        FAKE_LOCK_STATUS: lockStatus,
+        FAKE_BACKUP_KEYS: [
+          'app/pg/old.dump',
+          'app/pg/old.dump.sha256',
+          'app/pg/incomplete.dump',
+          'app/pg/drill/latest.json',
+        ].join('\n'),
+      },
+    })
+    return {
+      status: result.status,
+      output: result.stdout + result.stderr,
+      log: existsSync(calls) ? readFileSync(calls, 'utf8') : '',
+    }
+  }
+
+  it('新备份完成后删除旧 dump 和 checksum，但保留恢复演练结果', () => {
+    const run = runBackup()
+    expect(run.status, run.output).toBe(0)
+    expect(run.log).toContain('s3 rm s3://bucket/app/pg/old.dump')
+    expect(run.log).toContain('s3 rm s3://bucket/app/pg/old.dump.sha256')
+    expect(run.log).toContain('s3 rm s3://bucket/app/pg/incomplete.dump')
+    expect(run.log).not.toContain('drill/latest.json')
+    const lines = run.log.trim().split('\n')
+    const checksumUpload = lines.findIndex(
+      (line) => line.includes(' s3 cp ') && line.endsWith('.dump.sha256'),
+    )
+    const firstDelete = lines.findIndex((line) => line.includes(' s3 rm '))
+    expect(checksumUpload).toBeGreaterThanOrEqual(0)
+    expect(firstDelete).toBeGreaterThan(checksumUpload)
+  })
+
+  it('启动补跑与 cron 重叠时，后到的备份直接退出，不互相删除', () => {
+    const run = runBackup('1')
+    expect(run.status, run.output).toBe(0)
+    expect(run.output).toContain('another backup is already running')
+    expect(run.log).not.toContain('pg_dump')
+    expect(run.log).not.toContain(' s3 rm ')
+  })
+})

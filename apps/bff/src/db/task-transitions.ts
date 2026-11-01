@@ -1,5 +1,8 @@
 import {
   type AgentToolErrorCode,
+  type GptTierInput,
+  isGptBasicRequest,
+  isGptDirectModel,
   QUEUE_TIMEOUTS,
   type TaskErrorType,
   taskFailureCode,
@@ -198,6 +201,27 @@ export type TerminalTaskUpdate = {
 }
 
 /**
+ * GPT 会员的 2K/4K/高画质落到 sub2api 只出得了基础档：按任务行记的通道把倍率改回 1，差额随结算退回。
+ * 执行、归档重试、对账三条完成路径都经这里，不靠上游 payload 里的标记（会丢，也可能被伪造）。
+ */
+export function gptSettledUsage(
+  update: TerminalTaskUpdate,
+  task: { model: string; request: GptTierInput & { n?: number }; gptRoute: string | null },
+): TaskUsage | undefined {
+  if (
+    update.status !== 'completed' ||
+    task.gptRoute !== 'sub2api' ||
+    !isGptDirectModel(task.model) ||
+    isGptBasicRequest(task.request)
+  )
+    return update.actualUsage
+  return {
+    quantity: update.actualUsage?.quantity ?? Math.max(1, task.request.n ?? 1),
+    unitMultiplier: 1,
+  }
+}
+
+/**
  * 写终态并触发私有 overlay 的结算 / 退回。返回是否真的改到了行。
  * worker 一律经执行句柄（`workers/task-execution`）调它；回收扫描与对话轮结算自己给 fence。
  */
@@ -239,6 +263,8 @@ export async function finishTask(
         model: schema.tasks.model,
         metering: schema.tasks.metering,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
+        request: schema.tasks.request_payload,
+        gptRoute: schema.tasks.gpt_route,
       })
     if (!finished) return false
     if (finished.userId && update.media) {
@@ -263,7 +289,7 @@ export async function finishTask(
         upstreamInvocationCount: finished.upstreamInvocationCount,
         errorType: update.errorType,
         upstreamStatus: update.upstreamStatus ?? null,
-        actualUsage: update.actualUsage,
+        actualUsage: gptSettledUsage(update, finished),
       })
     if (update.status === 'failed' && update.errorType === 'model_unavailable') {
       await pauseUnavailableModel(tx, finished.model, update.completedAt)

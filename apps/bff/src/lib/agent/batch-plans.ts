@@ -632,6 +632,7 @@ export async function readAgentBatchPlan(
           errorMessage: schema.tasks.error_message,
           errorType: schema.tasks.error_type,
           snapshot: schema.agent_batch_attempts.terminal_snapshot,
+          startedAt: schema.tasks.started_at,
         })
         .from(schema.agent_batch_attempts)
         .leftJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
@@ -689,6 +690,9 @@ export async function readAgentBatchPlan(
           taskId: one.taskId,
           status: one.status,
           attempt: one.attempt,
+          ...(one.status === 'in_progress' && one.startedAt != null
+            ? { startedAt: Number(one.startedAt) }
+            : {}),
           actualCredits: analysis
             ? analysis.actual_credits
             : terminal.includes(one)

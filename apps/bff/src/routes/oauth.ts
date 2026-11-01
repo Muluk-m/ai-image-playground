@@ -46,6 +46,7 @@ const WORKSPACE_PATHS = new Set([
   '/pricing',
   '/terms',
   '/privacy',
+  '/device',
 ])
 
 const STATE_COOKIE_OPTIONS = {
@@ -89,7 +90,7 @@ function allowedFrontendOrigins(request: Request): string[] {
   return [...origins]
 }
 
-function frontendOrigin(request: Request, requested?: unknown): string {
+export function frontendOrigin(request: Request, requested?: unknown): string {
   const allowed = allowedFrontendOrigins(request)
   if (typeof requested === 'string' && allowed.includes(requested.trim())) return requested.trim()
   const header = request.headers.get('origin')?.trim()
