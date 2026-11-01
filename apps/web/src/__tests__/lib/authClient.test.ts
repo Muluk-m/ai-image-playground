@@ -285,11 +285,13 @@ describe('auth client', () => {
     expect(shouldProbeSession()).toBe(false)
   })
 
-  it('points the OAuth start route at the configured BFF origin', () => {
+  it('points the OAuth start route at the configured BFF origin and page origin', () => {
     vi.stubGlobal('window', { location: new URL('https://app.example.com/') })
-    expect(oauthStartUrl('google')).toBe(
-      'https://bff.example.com/api/auth/oauth/google/start?return_to=%2Fimage',
-    )
+    const url = new URL(oauthStartUrl('google'))
+    expect(url.origin).toBe('https://bff.example.com')
+    expect(url.pathname).toBe('/api/auth/oauth/google/start')
+    expect(url.searchParams.get('return_to')).toBe('/image')
+    expect(url.searchParams.get('frontend_origin')).toBe('https://app.example.com')
   })
 
   it.each([
@@ -310,10 +312,12 @@ describe('auth client', () => {
     expect(start.origin).toBe('https://bff.example.com')
     expect(start.pathname).toBe('/api/auth/oauth/google/start')
     expect(start.searchParams.get('return_to')).toBe(target)
+    expect(start.searchParams.get('frontend_origin')).toBe('https://app.example.com')
     expect(start.searchParams.get('ref')).toBe('invite +&/#?')
     expect(link.origin).toBe('https://bff.example.com')
     expect(link.pathname).toBe('/api/auth/oauth/google/link')
     expect(link.searchParams.get('return_to')).toBe(target)
+    expect(link.searchParams.get('frontend_origin')).toBe('https://app.example.com')
     expect(link.searchParams.has('ref')).toBe(false)
   })
 

@@ -1,19 +1,19 @@
-import {
-  isOAuthProviderId,
-  OAUTH_PROVIDER_IDS,
-  type OAuthProviderId,
-  type OAuthProviderView,
-} from '@image-playground/shared'
+import { type OAuthProviderView } from '@image-playground/shared'
 import { config } from '../../config'
 import { googleProvider } from './google'
+import {
+  getOAuthProviderDefinition,
+  listOAuthProviderDefinitions,
+  registerOAuthProviders,
+} from './registry'
 import type { OAuthCredentials, OAuthProviderDefinition } from './provider'
 
 export type { OAuthIdentity } from './provider'
 export { OAuthExchangeError } from './provider'
+export type { OAuthProviderDefinition } from './provider'
+export { registerOAuthProviders } from './registry'
 
-const DEFINITIONS: Readonly<Record<OAuthProviderId, OAuthProviderDefinition>> = {
-  google: googleProvider,
-}
+registerOAuthProviders([googleProvider])
 
 export interface EnabledOAuthProvider {
   readonly definition: OAuthProviderDefinition
@@ -22,8 +22,8 @@ export interface EnabledOAuthProvider {
 }
 
 export function resolveOAuthProvider(provider: string): EnabledOAuthProvider | null {
-  if (!isOAuthProviderId(provider)) return null
-  const definition = DEFINITIONS[provider]
+  const definition = getOAuthProviderDefinition(provider)
+  if (!definition) return null
   const credentials = {
     clientId: config.oauth.secret(definition.credentialEnv.clientId),
     clientSecret: config.oauth.secret(definition.credentialEnv.clientSecret),
@@ -33,11 +33,11 @@ export function resolveOAuthProvider(provider: string): EnabledOAuthProvider | n
 }
 
 export function enabledOAuthProviders(): OAuthProviderView[] {
-  return OAUTH_PROVIDER_IDS.filter((id) => resolveOAuthProvider(id) !== null).map((id) => ({
-    id,
-    label: DEFINITIONS[id].label,
-  }))
+  return listOAuthProviderDefinitions()
+    .filter((definition) => resolveOAuthProvider(definition.id) !== null)
+    .map((definition) => ({ id: definition.id, label: definition.label }))
 }
+
 
 let fetchImpl: typeof fetch = globalThis.fetch
 

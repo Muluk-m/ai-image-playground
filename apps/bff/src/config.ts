@@ -37,11 +37,10 @@ const workerHealthStaleAfterMs = positiveIntEnv(
   'WORKER_HEALTH_STALE_AFTER_MS',
   Math.max(10_000, workerPollIntervalMs * 5),
 )
-const executionOrigin = (key: string): string => {
-  const origin = env(key, '')
-  if (!origin) return ''
+const bareOrigin = (key: string, value: string): string => {
+  if (!value) return ''
   try {
-    const url = new URL(origin)
+    const url = new URL(value)
     if (
       (url.protocol !== 'http:' && url.protocol !== 'https:') ||
       url.pathname !== '/' ||
@@ -57,6 +56,8 @@ const executionOrigin = (key: string): string => {
     throw new Error(`${key} must be a bare http(s) origin`)
   }
 }
+
+const executionOrigin = (key: string): string => bareOrigin(key, env(key, ''))
 const executorOrigin = executionOrigin('EXECUTOR_ORIGIN')
 const legacyExecutorOrigin = executionOrigin('LEGACY_EXECUTOR_ORIGIN')
 const workerStartsPaused = booleanEnv('WORKER_START_PAUSED', false)
@@ -69,11 +70,21 @@ export const config = {
     },
     /** Origin the OAuth provider redirects back to. Empty means derive it from the request. */
     get publicOrigin(): string {
-      return env('AUTH_PUBLIC_ORIGIN', '').replace(/\/+$/, '')
+      return bareOrigin('AUTH_PUBLIC_ORIGIN', env('AUTH_PUBLIC_ORIGIN', ''))
     },
-    /** Origin the OAuth callback finally lands on. Empty falls back to the first CORS origin. */
+    /** Primary frontend origin kept for backwards compatibility. */
     get frontendOrigin(): string {
-      return env('AUTH_FRONTEND_ORIGIN', '').replace(/\/+$/, '')
+      return bareOrigin('AUTH_FRONTEND_ORIGIN', env('AUTH_FRONTEND_ORIGIN', ''))
+    },
+    /** Exact OAuth redirect origins; defaults to AUTH_FRONTEND_ORIGIN then CORS origins. */
+    get frontendOrigins(): string[] {
+      const configured = env('AUTH_FRONTEND_ORIGINS', '')
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean)
+        .map((origin) => bareOrigin('AUTH_FRONTEND_ORIGINS', origin))
+      const values = configured.length > 0 ? configured : [config.auth.frontendOrigin, ...config.corsOriginList]
+      return [...new Set(values.filter((origin) => origin && origin !== '*'))]
     },
   },
   oauth: {
@@ -210,6 +221,7 @@ export const config = {
       .split(',')
       .map((origin) => origin.trim())
       .filter((origin) => origin && origin !== '*')
+      .map((origin) => bareOrigin('CORS_ALLOWED_ORIGINS', origin))
   },
   staticDir: env('STATIC_DIR', '') || null,
   network: {
