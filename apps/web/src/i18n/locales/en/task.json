@@ -14,7 +14,8 @@
     "sendToCanvasTitle": "Add to canvas",
     "deleteRecord": "Delete record",
     "more": "More actions",
-    "deleteImage": "Delete this image"
+    "deleteImage": "Delete this image",
+    "openProject": "Back to project"
   },
   "confirm": {
     "deleteMessage": "Delete this record?",
@@ -72,6 +73,8 @@
     "source": "Source",
     "createdAt": "Created {{time}}",
     "elapsed": "Took {{duration}}",
+    "partialFailure_one": "{{count}} image was not generated and is not charged: {{reason}}",
+    "partialFailure_other": "{{count}} images were not generated and are not charged: {{reason}}",
     "copyAll": "Copy all",
     "dialog": "Work details",
     "networkFailed": "The connection dropped and this one didn't finish. Please retry."

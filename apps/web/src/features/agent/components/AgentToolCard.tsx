@@ -342,6 +342,25 @@ function FetchedImages({
  * 本该由重试收场、这次生成却重出不了时（局部或连锁改图、模型已下线），改由智能体重新处理——
  * 否则这张卡上一个按钮都没有。
  */
+/**
+ * 「再次生成」。图片生成模式下，一张没用参考图的文生图原样再出一次：发原提示词本身，走提示词直出，
+ * 不套「请基于这组提示词再次生成…」那句请求。其他情况（Agent 模式、带参考图或改图）请智能体按原提示词
+ * 再来一次；那句请求是说给智能体听的，所以明确走智能体，免得在直出模式下被当成提示词。
+ */
+export function regenerateFromCard(
+  message: Pick<AgentToolMessage, 'toolName' | 'prompt' | 'title' | 'snapshot'>,
+  request: (prompt: string) => string,
+): Promise<void | 'cancelled'> {
+  const prompt = message.prompt?.trim()
+  const direct =
+    useStore.getState().createTarget === 'generate' &&
+    message.toolName === 'generateImage' &&
+    !message.snapshot?.imageIds?.length
+  const agent = useAgentStore.getState()
+  if (direct && prompt) return agent.send(prompt, [], undefined, 'image')
+  return agent.sendThroughAgent(request(message.prompt || message.title), 'image')
+}
+
 function FailureAction({ message }: { message: AgentToolMessage }) {
   useTranslation('agent')
   const code = message.errorCode
@@ -1066,14 +1085,9 @@ function StandardAgentToolCard({
                   : undefined
               }
               onRegenerate={() =>
-                void useAgentStore
-                  .getState()
-                  .send(
-                    t('tool.regenerateRequest', { prompt: message.prompt || message.title }),
-                    [],
-                    undefined,
-                    'image',
-                  )
+                void regenerateFromCard(message, (prompt) =>
+                  t('tool.regenerateRequest', { prompt }),
+                )
               }
             >
               <Button
@@ -1443,14 +1457,7 @@ export function AgentImageRun({
               : undefined
           }
           onRegenerate={() =>
-            void useAgentStore
-              .getState()
-              .send(
-                t('tool.regenerateRequest', { prompt: lead.prompt || lead.title }),
-                [],
-                undefined,
-                'image',
-              )
+            void regenerateFromCard(lead, (prompt) => t('tool.regenerateRequest', { prompt }))
           }
         >
           <Button

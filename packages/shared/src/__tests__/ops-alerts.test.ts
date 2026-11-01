@@ -41,6 +41,12 @@ describe('阈值两侧', () => {
     ['排队超过 10 分钟报', { queue: { oldest_queued_wait_ms: 10 * minute + 1 } }, ['firing:queue']],
     ['备份 2 小时整不报', { backup: { latest_modified_at: T0 - 2 * hour } }, []],
     ['备份超过 2 小时报', { backup: { latest_modified_at: T0 - 2 * hour - 1 } }, ['firing:backup']],
+    ['日志 10 分钟整不报', { serverLogs: { latest_at: T0 - 10 * minute } }, []],
+    [
+      '日志超过 10 分钟没有新行报',
+      { serverLogs: { latest_at: T0 - 10 * minute - 1 } },
+      ['firing:server-logs'],
+    ],
     ['心跳 2 分钟整不报', { heartbeats: { bff: T0 - 2 * minute } }, []],
     [
       '心跳断了超过 2 分钟报',
@@ -49,6 +55,33 @@ describe('阈值两侧', () => {
     ],
   ] as Array<[string, AlertObservation, string[]]>)('%s', (_name, observation, expected) => {
     expect(run([[T0, observation]])[0]).toEqual(expected)
+  })
+})
+
+describe('服务端日志静默', () => {
+  it('新部署表里还没有日志时不报', () => {
+    expect(run([[T0, { serverLogs: { latest_at: null } }]])).toEqual([[]])
+  })
+
+  it('恢复写入后发已恢复，期间不重复报', () => {
+    expect(
+      run([
+        [T0, { serverLogs: { latest_at: T0 - 11 * minute } }],
+        [T0 + minute, { serverLogs: { latest_at: T0 - 11 * minute } }],
+        [T0 + 2 * minute, { serverLogs: { latest_at: T0 + 2 * minute } }],
+      ]),
+    ).toEqual([['firing:server-logs'], [], ['resolved:server-logs']])
+  })
+
+  it('报过之后表被清空不算恢复，读数缺失也不算恢复', () => {
+    expect(
+      run([
+        [T0, { serverLogs: { latest_at: T0 - 11 * minute } }],
+        [T0 + minute, { serverLogs: { latest_at: null } }],
+        [T0 + 2 * minute, {}],
+        [T0 + 3 * minute, { serverLogs: { latest_at: T0 + 3 * minute } }],
+      ]),
+    ).toEqual([['firing:server-logs'], [], [], ['resolved:server-logs']])
   })
 })
 
@@ -562,5 +595,232 @@ describe('告警读数失明', () => {
         [T0 + 3 * minute, blind(0)],
       ]),
     ).toEqual([[], [], ['firing:blind'], ['resolved:blind']])
+  })
+})
+
+describe('生成失败告警：带模型明细，出图成功才恢复', () => {
+  const flare = (failures: number, lastFailedAt: number) => ({
+    model: 'gpt-image-2.5-flare',
+    failures,
+    errorType: 'model_unavailable',
+    upstreamStatus: 503,
+    message: `No available compatible accounts ${'x'.repeat(300)}`,
+    lastFailedAt,
+    paused: true,
+  })
+
+  function steps(list: Array<[number, AlertObservation]>) {
+    let state: AlertState = {}
+    return list.map(([at, observation]) => {
+      const result = evaluateAlerts(observation, state, at)
+      state = result.state
+      return result.messages.filter((message) => message.rule === 'generation')
+    })
+  }
+
+  it('告警正文写明模型、errorType、上游状态码和报错前 200 字', () => {
+    const [round] = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 7,
+            agent: 0,
+            generation_models: [flare(7, T0 - minute)],
+            generation_successes: {},
+          },
+        },
+      ],
+    ])
+    expect(round).toHaveLength(1)
+    const text = round![0]!.text
+    expect(text).toContain('近 15 分钟有 7 次非内容策略的生成失败')
+    expect(text).toContain(
+      'gpt-image-2.5-flare ×7：model_unavailable，HTTP 503，已自动暂停；最近一次：No available compatible accounts',
+    )
+    const message = text.split('最近一次：')[1]!
+    expect(message.length).toBe(200)
+    expect(round![0]!.detail).toMatchObject({
+      window_failures: 7,
+      models: [
+        {
+          model: 'gpt-image-2.5-flare',
+          error_type: 'model_unavailable',
+          upstream_status: 503,
+          paused: true,
+        },
+      ],
+    })
+  })
+
+  it('失败数回落不发恢复；那个模型真的成功出图后才发', () => {
+    const failedAt = T0 - minute
+    const rounds = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 7,
+            agent: 0,
+            generation_models: [flare(7, failedAt)],
+            generation_successes: {},
+          },
+        },
+      ],
+      // 15 分钟窗口过去，失败数归零，但 flare 被暂停了，一张图都没出。
+      [
+        T0 + 20 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: {},
+          },
+        },
+      ],
+      // 一小时后再提醒，说明在等出图。
+      [
+        T0 + 61 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: {},
+          },
+        },
+      ],
+      // 别的模型成功不算数。
+      [
+        T0 + 70 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: { 'gemini-nano-banana-2.1': T0 + 69 * minute },
+          },
+        },
+      ],
+      [
+        T0 + 80 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: { 'gpt-image-2.5-flare': T0 + 79 * minute },
+          },
+        },
+      ],
+    ])
+    expect(rounds.map((round) => round.map((message) => message.kind))).toEqual([
+      ['firing'],
+      [],
+      ['firing'],
+      [],
+      ['resolved'],
+    ])
+    expect(rounds[2]![0]!.text).toContain('还没有成功出过图')
+    expect(rounds[2]![0]!.text).toContain('gpt-image-2.5-flare')
+    expect(rounds[4]![0]!.text).toBe(
+      '已恢复：gpt-image-2.5-flare 已重新成功出图，生成失败回到告警线内',
+    )
+  })
+
+  it('自动暂停后失败数到不了线也要报，出图成功后才恢复', () => {
+    const rounds = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 1,
+            agent: 0,
+            generation_models: [flare(1, T0 - minute)],
+            generation_successes: {},
+          },
+        },
+      ],
+      [
+        T0 + 20 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: {},
+          },
+        },
+      ],
+      [
+        T0 + 30 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: { 'gpt-image-2.5-flare': T0 + 29 * minute },
+          },
+        },
+      ],
+    ])
+    expect(rounds.map((round) => round.map((message) => message.kind))).toEqual([
+      ['firing'],
+      [],
+      ['resolved'],
+    ])
+    expect(rounds[0]![0]!.text).toContain('上游报模型不可用，模型已自动暂停')
+    expect(rounds[0]![0]!.text).toContain(
+      'gpt-image-2.5-flare ×1：model_unavailable，HTTP 503，已自动暂停',
+    )
+  })
+
+  it('单次普通失败、或运营手动下架的模型失败，不到线不报', () => {
+    const rounds = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 2,
+            agent: 0,
+            generation_models: [
+              { ...flare(1, T0 - minute), paused: false },
+              { ...flare(1, T0 - minute), model: 'manual-off', errorType: 'upstream_error' },
+            ],
+            generation_successes: {},
+          },
+        },
+      ],
+    ])
+    expect(rounds).toEqual([[]])
+  })
+
+  it('出事前的成功不算恢复', () => {
+    const rounds = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 3,
+            agent: 0,
+            generation_models: [flare(3, T0 - minute)],
+            generation_successes: { 'gpt-image-2.5-flare': T0 - 10 * minute },
+          },
+        },
+      ],
+      [
+        T0 + 20 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: { 'gpt-image-2.5-flare': T0 - 10 * minute },
+          },
+        },
+      ],
+    ])
+    expect(rounds.map((round) => round.map((message) => message.kind))).toEqual([['firing'], []])
   })
 })

@@ -505,7 +505,28 @@ export function getPersistedState(state: AppState) {
     libraryPanelOpened: state.libraryPanelOpened,
     assetHintShown: state.assetHintShown,
     pinnedInspirationIds: state.pinnedInspirationIds,
+    projectCreationTargets: recentCreationTargets(state.projectCreationTargets),
   }
+}
+
+type ProjectCreationTarget = 'generate' | 'chat' | 'video'
+
+/** 记住的会话创作模式上限：只留最近选过的这些，旧的让位，本地存储不随会话数增长。 */
+const CREATION_TARGETS_KEPT = 200
+
+/**
+ * 每个会话选的创作模式（Agent／图片生成／视频生成）要跨刷新、跨进出会话留住；
+ * 不然一刷新就回到 Agent，用户以为在图片生成里，发出去却走了智能体。
+ */
+function recentCreationTargets(
+  targets: Readonly<Record<string, unknown>> | undefined,
+): Record<string, ProjectCreationTarget> {
+  if (!targets || typeof targets !== 'object') return {}
+  const valid = Object.entries(targets).filter(
+    (entry): entry is [string, ProjectCreationTarget] =>
+      entry[1] === 'generate' || entry[1] === 'chat' || entry[1] === 'video',
+  )
+  return Object.fromEntries(valid.slice(-CREATION_TARGETS_KEPT))
 }
 
 /** 只有落进 IndexedDB 的遮罩才写进 localStorage，本体留空，启动时按 id 读回。 */
@@ -572,6 +593,11 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     pinnedInspirationIds: Array.isArray(persisted.pinnedInspirationIds)
       ? persisted.pinnedInspirationIds.filter((x): x is string => typeof x === 'string')
       : [],
+    // 水合前这一次会话里已经选过的模式优先，盘上的只补没选过的会话。
+    projectCreationTargets: {
+      ...recentCreationTargets(persisted.projectCreationTargets),
+      ...currentState.projectCreationTargets,
+    },
     // Navigation belongs to this session, not saved settings or another device.
     appMode: currentState.appMode,
     prompt:
@@ -1845,6 +1871,7 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
           outputImages: outputIds,
           transparentOriginalImages: transparentOriginalImageIds,
           rawImageUrls: result.rawImageUrls?.length ? result.rawImageUrls : undefined,
+          partialFailure: result.partialFailure,
           actualParams,
           actualParamsByImage,
           revisedPromptByImage:
@@ -1859,6 +1886,15 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
 
         // 逐张生成整组收尾时才报一次；单条任务照旧报这一条出了几张。
         if (task.origin?.kind === 'batch') announceBatchSettled(task.origin.setId)
+        else if (result.partialFailure)
+          useStore.getState().showToast(
+            i18next.t('toast.generateDonePartial', {
+              ns: 'store',
+              done: outputIds.length,
+              total: result.partialFailure.requested,
+            }),
+            'info',
+          )
         else
           useStore
             .getState()
@@ -2608,7 +2644,8 @@ async function deletePlatformCounterpart(task: TaskRecord): Promise<boolean> {
   const cached = isPlatformGeneration(id)
   if (!cached && !task.bffRequestId) return true
   const ok = await deleteRemoteGeneration(id)
-  if (ok && cached) await dropPlatformGeneration(id)
+  // 请求期间平台列表可能刚刷新进这一条：按此刻的缓存清，不用请求前的快照。
+  if (ok && isPlatformGeneration(id)) await dropPlatformGeneration(id)
   return ok || !cached
 }
 
