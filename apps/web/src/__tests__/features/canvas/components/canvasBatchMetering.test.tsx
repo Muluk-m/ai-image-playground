@@ -19,12 +19,23 @@ it('keeps confirmation scope and authorization while hiding only unmetered price
   document.body.append(host)
   const root = createRoot(host)
   let confirmed = 0
-  const render = async () => act(async () => root.render(
-    <CanvasBatchConfirmDialog title="确认批量生成" note="选中的两张图" count={2}
-      onConfirm={async () => { confirmed++ }} onClose={() => {}} />,
-  ))
+  const render = async () =>
+    act(async () =>
+      root.render(
+        <CanvasBatchConfirmDialog
+          title="确认批量生成"
+          note="选中的两张图"
+          count={2}
+          onConfirm={async () => {
+            confirmed++
+          }}
+          onClose={() => {}}
+        />,
+      ),
+    )
   const dialog = () => document.querySelector('[role="dialog"]')!
-  const confirm = () => [...dialog().querySelectorAll('button')].find(b => b.textContent?.includes('确认生成'))!
+  const confirm = () =>
+    [...dialog().querySelectorAll('button')].find((b) => b.textContent?.includes('确认生成'))!
   try {
     await render()
     expect(dialog().textContent).toContain('200')
