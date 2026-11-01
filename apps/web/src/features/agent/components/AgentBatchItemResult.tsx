@@ -75,9 +75,11 @@ export function AgentBatchItemStatus({
 export default function AgentBatchItemResult({
   execution,
   inputs = [],
+  metering,
 }: {
   execution?: AgentBatchItemExecution
   inputs?: readonly AgentMediaReference[]
+  metering?: 'credits' | 'none'
 }) {
   const { t } = useTranslation(['agent', 'errors'])
   const [preview, setPreview] = useState<string | null>(null)
@@ -104,14 +106,16 @@ export default function AgentBatchItemResult({
   }
   return (
     <div className="grid gap-2 text-xs">
-      <div className="flex flex-wrap items-center gap-2">
-        <span>{t('batch.actualCost')}</span>
-        {execution.actualCredits === null ? (
-          <span>{t('batch.chargeUnknown')}</span>
-        ) : (
-          <Credits credits={execution.actualCredits} />
-        )}
-      </div>
+      {metering !== 'none' && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span>{t('batch.actualCost')}</span>
+          {execution.actualCredits === null ? (
+            <span>{t('batch.chargeUnknown')}</span>
+          ) : (
+            <Credits credits={execution.actualCredits} />
+          )}
+        </div>
+      )}
       {execution.analysis && (
         <div className="grid gap-2">
           {execution.analysis.coverage && (

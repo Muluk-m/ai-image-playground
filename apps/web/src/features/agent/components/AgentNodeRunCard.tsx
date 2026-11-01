@@ -49,7 +49,7 @@ function NodeRunCard({ runKey, proposal, wakeSkipped }: AgentNodeRunCardProps) {
   } = useSyncExternalStore(view.subscribe, view.getSnapshot)
   const jobs = run?.jobs ?? plan?.jobs
   const credits = run?.credits ?? plan?.credits ?? proposal.estimatedCredits
-  usePrivateSubmissionGuard({ model: jobs?.[0]?.model ?? '', quantity: 1 })
+  const metering = usePrivateSubmissionGuard({ model: jobs?.[0]?.model ?? '', quantity: 1 }).metering
   const submitted = authorization?.attempts.some((attempt) => attempt.taskIds.length > 0)
   const status = authorization?.status ?? proposal.status
   const statusLabels: Record<StageAuthorization['status'], string> = {
@@ -188,14 +188,16 @@ function NodeRunCard({ runKey, proposal, wakeSkipped }: AgentNodeRunCardProps) {
           {t('nodeRun.reportFailed')}
         </p>
       )}
-      <p className="flex flex-wrap items-center justify-between gap-2 text-xs">
-        <span>{t('canvas:nodes.estimatedCost')}</span>
-        {credits === undefined ? (
-          <span>{t('nodeRun.unpriced')}</span>
-        ) : (
-          <Credits credits={credits} />
-        )}
-      </p>
+      {metering !== 'none' && (
+        <p className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <span>{t('canvas:nodes.estimatedCost')}</span>
+          {credits === undefined ? (
+            <span>{t('nodeRun.unpriced')}</span>
+          ) : (
+            <Credits credits={credits} />
+          )}
+        </p>
+      )}
       {readFailed && (
         <p role="status" className={CARD_NOTE}>
           {t('nodeRun.readFailed')}{' '}
