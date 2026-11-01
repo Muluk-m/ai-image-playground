@@ -50,6 +50,7 @@
   },
   "unlink": {
     "last_login_method": "Unlinking would leave you unable to sign in, set a password first",
+    "protected_identity": "This sign-in method is required by your account policy and cannot be unlinked",
     "not_linked": "That account is not linked",
     "fallback": "Cannot unlink right now, please try again later"
   },

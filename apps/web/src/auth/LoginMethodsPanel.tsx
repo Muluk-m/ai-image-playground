@@ -37,6 +37,7 @@ type PanelErrorKey =
   | 'errors:password.rate_limited'
   | 'errors:password.fallback'
   | 'errors:unlink.last_login_method'
+  | 'errors:unlink.protected_identity'
   | 'errors:unlink.not_linked'
   | 'errors:unlink.fallback'
   | 'auth:validation.passwordBlank'
@@ -65,6 +66,7 @@ function passwordErrorKey(error: unknown): PanelErrorKey {
 function unlinkErrorKey(error: unknown): PanelErrorKey {
   if (error instanceof AuthRequestError) {
     if (error.code === 'last_login_method') return 'errors:unlink.last_login_method'
+    if (error.code === 'protected_identity') return 'errors:unlink.protected_identity'
     if (error.code === 'not_linked') return 'errors:unlink.not_linked'
   }
   return 'errors:unlink.fallback'

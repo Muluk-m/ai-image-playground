@@ -437,7 +437,7 @@ export async function linkOAuthIdentity(
 export async function unlinkOAuthIdentity(
   userId: string,
   provider: string,
-): Promise<'unlinked' | 'not_linked' | 'last_login_method'> {
+): Promise<'unlinked' | 'not_linked' | 'last_login_method' | 'protected_identity'> {
   return db.transaction(async (tx) => {
     // 锁 users 行让并发解绑串行化，否则两个 provider 可以各自看到「还有另一个」而全被解掉。
     const [user] = await tx
@@ -448,11 +448,16 @@ export async function unlinkOAuthIdentity(
     if (!user) throw new UserOperationError('user_not_found')
 
     const identities = await tx
-      .select({ id: schema.user_identities.id, provider: schema.user_identities.provider })
+      .select({ id: schema.user_identities.id, provider: schema.user_identities.provider, subject: schema.user_identities.subject })
       .from(schema.user_identities)
       .where(eq(schema.user_identities.user_id, userId))
     const target = identities.find((row) => row.provider === provider)
     if (!target) return 'not_linked'
+    const unlinkPolicy = (await loadPrivateBffOverlay()).taskHooks.canUnlinkOAuthIdentity
+    if (unlinkPolicy) {
+      const decision = await unlinkPolicy({ tx, userId, provider, subject: target.subject })
+      if (!decision.allowed) return 'protected_identity'
+    }
     if (user.password_hash === OAUTH_ONLY_PASSWORD_HASH && identities.length === 1) {
       return 'last_login_method'
     }
