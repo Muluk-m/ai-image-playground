@@ -573,6 +573,7 @@
       "insufficient_credits": "积分不足，智能体未查看结果",
       "quota_exceeded": "今日额度已用完，智能体未查看结果",
       "access_denied": "当前账号无权限，智能体未查看结果",
+      "conversation_deleted": "会话已删除，智能体未查看结果",
       "wake_limit": "智能体已连续自动查看 3 次，等你发话后再继续"
     },
     "inbox": {

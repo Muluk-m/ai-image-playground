@@ -26,6 +26,7 @@ import {
   type TaskReservationResult,
 } from './private-overlay'
 import { meteringDecisionOrDenied } from './metering-decision'
+import { lockMediaOwner } from './projectMedia'
 import { reservedTokenUsage, settledTokenUsage } from './token-pricing'
 import { isObject } from './type-guards'
 

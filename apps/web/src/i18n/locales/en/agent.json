@@ -602,6 +602,7 @@
       "insufficient_credits": "Not enough credits, the agent didn't review this result",
       "quota_exceeded": "Daily quota exceeded, the agent didn't review this result",
       "access_denied": "Access denied, the agent didn't review this result",
+      "conversation_deleted": "Conversation deleted, the agent didn't review this result",
       "wake_limit": "The agent has checked back 3 times in a row and will wait for you before continuing"
     },
     "inbox": {

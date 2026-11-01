@@ -1075,6 +1075,7 @@ const {
   lease_expires_at: _leaseExpiresAt,
   reconcile_started_at: _reconcileStartedAt,
   reconcile_alerted_at: _reconcileAlertedAt,
+  metering: _metering,
   ...queueTaskColumns
 } = getTableColumns(tasks)
 export const queue_tasks = pgView('queue_tasks').as((qb) =>
