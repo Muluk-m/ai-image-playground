@@ -91,20 +91,23 @@ jobs:
         with:
           name: formatting-patches
           path: ${{ runner.temp }}/*-format.patch
-      - name: Verify candidate lint, types and builds
+      - name: Verify candidate lint
         if: inputs.target == 'verify'
-        run: |
-          pnpm lint
-          pnpm typecheck
-          pnpm build --force
+        run: pnpm lint
+      - name: Verify candidate types
+        if: always() && inputs.target == 'verify'
+        run: pnpm typecheck
+      - name: Build candidate
+        if: always() && inputs.target == 'verify'
+        run: pnpm build --force
       - name: Exercise candidate billing and OAuth
-        if: inputs.target == 'verify' && inputs.overlay_sha != ''
+        if: always() && inputs.target == 'verify' && inputs.overlay_sha != ''
         env:
           TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_cloud_test
           BUN_TEST_JOBS: 2
         run: pnpm --filter './private/apps/*' --workspace-concurrency=1 test
       - name: Complete workspace suite
-        if: inputs.target == 'verify' && inputs.full_suite
+        if: always() && inputs.target == 'verify' && inputs.full_suite
         env:
           TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_cloud_test
           BUN_TEST_JOBS: 4
