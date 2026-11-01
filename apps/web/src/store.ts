@@ -2824,7 +2824,10 @@ async function removeTaskOutputNow(
     task.remoteOnly && row && 'outputs' in row.record
       ? row.record.outputs.find((image) => mediaRef(image.mediaId) === imageId)
       : undefined
-  const position = task.remoteOnly ? remoteOutput?.index : positions[imageIndex]
+  // 已记下的位置号优先：两张字节相同的产出共用一个媒体，按媒体只能找到第一张。
+  const position = task.remoteOnly
+    ? (task.outputPositions?.[imageIndex] ?? remoteOutput?.index)
+    : positions[imageIndex]
   const onPlatform = task.remoteOnly || Boolean(row) || Boolean(task.bffRequestId)
   if (onPlatform) {
     const result =
@@ -2851,14 +2854,12 @@ async function removeTaskOutputNow(
   const latest = useStore.getState().tasks.find((item) => item.id === task.id)
   if (!latest) return 'gone'
   const latestPositions = latest.outputPositions ?? latest.outputImages.map((_, i) => i)
-  // 位置号已知却对不上，说明这条记录在等待期间被别处改过，停下不删，免得删到同 id 的另一张。
-  const byPosition = position === undefined ? -1 : latestPositions.indexOf(position)
+  // 平台已经删掉了这个位置，本机就按位置号去掉同一张；本机已经没有这个位置（别处先删了）就不用再动。
+  // 只有没记位置号的旧数据才按 id 找，免得删到同 id 的另一张。
   const index =
     position === undefined
       ? latest.outputImages.indexOf(imageId)
-      : byPosition >= 0 && latest.outputImages[byPosition] === imageId
-        ? byPosition
-        : -1
+      : latestPositions.indexOf(position)
   if (index < 0) return 'kept'
   const without = <T>(list: readonly T[] | undefined) =>
     list ? list.filter((_, i) => i !== index) : undefined
