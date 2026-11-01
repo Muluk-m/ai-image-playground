@@ -283,6 +283,17 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     const selectedModel = model.id
     const billChat = chatTurnsBilled()
     const waiveChat = isCapabilityEnabled('billing:chat-free')
+    // Older pinned overlays have no account policy and query prices outside the supplied transaction.
+    // Resolve their price before holding a connection; account-aware overlays price only after authorization.
+    let legacyPricing: ChatTaskPricing | null = null
+    if (!overlay.taskHooks.meteringDecision && userId && (billChat || waiveChat)) {
+      try {
+        legacyPricing = await chatTaskPricing(overlay.taskHooks, selectedModel)
+      } catch (err) {
+        if (billChat) throw err
+        log.warn({ event: 'agent.chat_waiver_pricing_failed', turnId, err }, 'chat waiver pricing unavailable')
+      }
+    }
     // 一份轮输入，两个读者：按它估算的这一笔预扣，与 `startAgentTurn` 发出去的那一份。估算在
     // 事务之外算完，取件与预扣那一笔才只有数据库往返。
     // 历史里读过的技能正文随回放带回去；估算照同一份算，预扣才对得上实发。
@@ -396,7 +407,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       }
       let chosen = withNote
       if (!unmetered && billChat && userId) {
-        pricing = await chatTaskPricing(overlay.taskHooks, selectedModel, tx)
+        pricing = legacyPricing ?? await chatTaskPricing(overlay.taskHooks, selectedModel, tx)
         const chatTask = {
           tx,
           taskHooks: overlay.taskHooks,
@@ -422,7 +433,9 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         reserved = reservation
       } else if (!unmetered && waiveChat && userId) {
         try {
-          pricing = await chatTaskPricing(overlay.taskHooks, selectedModel, tx)
+          pricing = overlay.taskHooks.meteringDecision
+            ? await chatTaskPricing(overlay.taskHooks, selectedModel, tx)
+            : legacyPricing
         } catch (err) {
           log.warn(
             { event: 'agent.chat_waiver_pricing_failed', turnId, err },
