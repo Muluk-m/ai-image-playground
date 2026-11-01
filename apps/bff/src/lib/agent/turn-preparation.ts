@@ -18,6 +18,7 @@ import { isCapabilityEnabled } from '../capabilities'
 import { askChatModel } from '../chatCompletion'
 import { log } from '../logger'
 import { modelUnavailable, refreshInactiveModels } from '../model-availability'
+import { meteringDecisionOrDenied } from '../metering-decision'
 import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { isObject } from '../type-guards'
@@ -365,7 +366,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       let unmetered = false
       let pricing: ChatTaskPricing | null = null
       if (userId) {
-        const decision = await overlay.taskHooks.meteringDecision?.({
+        const decision = meteringDecisionOrDenied(await overlay.taskHooks.meteringDecision?.({
           tx,
           userId,
           model: selectedModel,
@@ -373,7 +374,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
           quantity: 1,
           unitMultiplier: 1,
           inputEstimateTokens: withNote.estimatedInputTokens,
-        })
+        }))
         if (decision?.kind === 'denied')
           throw new TurnStartRollback({ kind: 'access_denied', reason: decision.reason })
         unmetered = decision?.kind === 'unmetered'

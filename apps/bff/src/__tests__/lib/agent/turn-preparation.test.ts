@@ -48,6 +48,38 @@ const { _setPrivateBffOverlayForTesting, loadPrivateBffOverlay } = await import(
 )
 const { setObjectStoreForTesting } = await import('../../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../../db/client')
+const baselineOverlay = await loadPrivateBffOverlay()
+const chatQuota = { mode: 'credits' as 'credits' | 'none', used: 0, quota: 1 }
+
+async function useChatQuota(mode: 'credits' | 'none', quota = 1) {
+  chatQuota.mode = mode
+  chatQuota.used = 0
+  chatQuota.quota = quota
+  const meteringDecision = async () =>
+    mode === 'none'
+      ? ({ kind: 'unmetered', metering: 'none' } as const)
+      : ({ kind: 'metered', metering: 'credits' } as const)
+  _setPrivateBffOverlayForTesting(
+    Object.freeze({
+      ...baselineOverlay,
+      taskHooks: {
+        ...baselineOverlay.taskHooks,
+        meteringDecision,
+        consumeUnmeteredQuota: async () => {
+          if (chatQuota.used >= chatQuota.quota)
+            return {
+              kind: 'quota_exceeded' as const,
+              quota: chatQuota.quota,
+              used: chatQuota.used,
+              resetAt: '2099-01-01T00:00:00.000Z',
+            }
+          chatQuota.used += 1
+          return { kind: 'consumed' as const }
+        },
+      },
+    }),
+  )
+}
 
 type AgentOwner = import('../../../lib/agent/conversations').AgentOwner
 type AgentTurnSource = import('../../../lib/agent/turn-preparation').AgentTurnSource
@@ -274,6 +306,7 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  _setPrivateBffOverlayForTesting(baselineOverlay)
   setAgentFetchForTesting()
   setObjectStoreForTesting()
 })
@@ -510,7 +543,8 @@ describe('开不了轮', () => {
     )
 
     expect(prepared).toEqual({ kind: 'price_unavailable', model: 'fixture-agent-model' })
-  })
+
+})
 
   it('收件箱那一条已经被别处取走：什么都不落', async () => {
     const conversation = await createAgentConversation(USER, '你好')
@@ -565,6 +599,35 @@ describe('开不了轮', () => {
 
     expect(prepared).toEqual({ kind: 'wake_limit' })
     expect(billing.reservations).toHaveLength(0)
+  })
+})
+describe('unmetered chat preparation', () => {
+  it('consumes the message without pricing or creating a chat task', async () => {
+    await useChatQuota('none')
+    const conversation = await createAgentConversation(USER, '你好')
+  it('consumes the message without pricing or creating a chat task', async () => {
+    billing.pricingError = new Error('pricing must not be consulted')
+    await useChatQuota('none')
+
+    expect(prepared.kind).toBe('prepared')
+    expect(preparedTurn(prepared).settle).toBeUndefined()
+    expect(chatQuota.used).toBe(1)
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await db.select().from(schema.agent_messages)).toHaveLength(1)
+  })
+
+  it('leaves the message queued and does not consume quota when quota is denied', async () => {
+    await useChatQuota('none', 0)
+    const conversation = await createAgentConversation(USER, '你好')
+    const source = await queuedMessage(conversation.id, '额度不足时保留')
+
+    const { prepared } = await prepare(conversation.id, source)
+
+    expect(prepared).toMatchObject({ kind: 'quota_exceeded' })
+    expect(chatQuota.used).toBe(0)
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await db.select().from(schema.agent_messages)).toHaveLength(0)
+    expect(await nextAgentInboxEntry(conversation.id)).toMatchObject({ kind: 'user_message' })
   })
 })
 

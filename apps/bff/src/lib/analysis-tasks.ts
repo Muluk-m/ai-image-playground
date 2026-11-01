@@ -25,7 +25,7 @@ import {
   type PrivateTaskHooks,
   type TaskReservationResult,
 } from './private-overlay'
-import { lockMediaOwner } from './projectMedia'
+import { meteringDecisionOrDenied } from './metering-decision'
 import { reservedTokenUsage, settledTokenUsage } from './token-pricing'
 import { isObject } from './type-guards'
 
@@ -124,15 +124,17 @@ export async function quoteAnalysisTask(
   hooks?: PrivateTaskHooks,
 ) {
   const activeHooks = hooks ?? (await loadPrivateBffOverlay()).taskHooks
-  const decision = await activeHooks.meteringDecision?.({
-    tx: input.tx,
-    userId: input.userId,
-    model: input.model,
-    kind: 'analysis',
-    quantity: 1,
-    unitMultiplier: 1,
-    inputEstimateTokens: input.estimatedInputTokens,
-  })
+  const decision = meteringDecisionOrDenied(
+    await activeHooks.meteringDecision?.({
+      tx: input.tx,
+      userId: input.userId,
+      model: input.model,
+      kind: 'analysis',
+      quantity: 1,
+      unitMultiplier: 1,
+      inputEstimateTokens: input.estimatedInputTokens,
+    }),
+  )
   if (decision?.kind === 'denied') return null
   if (decision?.kind === 'unmetered')
     return {

@@ -866,7 +866,11 @@ export interface AgentToolResultBlock {
  * 没有唤醒智能体的原因：积分不足以再起一轮；用户没说话时已经连续自动唤醒了
  * {@link AGENT_MAX_CONSECUTIVE_WAKES} 次。
  */
-export type AgentWakeSkipReason = 'insufficient_credits' | 'wake_limit'
+export type AgentWakeSkipReason =
+  | 'insufficient_credits'
+  | 'quota_exceeded'
+  | 'access_denied'
+  | 'wake_limit'
 
 /** 用户没说话时最多连续自动唤醒这么多次，之后停下等用户；用户一说话就重新计数。 */
 export const AGENT_MAX_CONSECUTIVE_WAKES = 3
@@ -1328,9 +1332,11 @@ export interface AgentQueuedMessageView {
   readonly clarificationAnswer?: true
 }
 
-/** 排队消息轮到时开不了轮的原因：余额不足、模型没有定价、需要登录。 */
+/** 排队消息轮到时开不了轮的原因：余额不足、额度用完、访问被拒、模型没有定价、需要登录。 */
 export type AgentQueuedMessageFailure =
   | 'insufficient_credits'
+  | 'quota_exceeded'
+  | 'access_denied'
   | 'model_price_unavailable'
   | 'unauthorized'
 

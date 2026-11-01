@@ -10,6 +10,9 @@ import {
 
 export type RecordedReservation = Omit<Parameters<PrivateTaskHooks['reserveTask']>[0], 'tx'>
 export type RecordedSettlement = Omit<Parameters<PrivateTaskHooks['finalizeTask']>[0], 'tx'>
+type RecordedQuota =
+  | { readonly kind: 'consumed' }
+  | { readonly kind: 'quota_exceeded'; readonly quota: number; readonly used: number; readonly resetAt: string }
 
 export interface RecordedTaskHooks {
   readonly reservations: RecordedReservation[]
@@ -31,6 +34,11 @@ export interface RecordedTaskHooks {
   /** Direct-generation metering answer; absent preserves paid behavior. */
   meteringDecision: ((input: MeteringDecisionInput) => Promise<MeteringDecision>) | null
   meteringCalls: Array<Omit<MeteringDecisionInput, 'tx'>>
+  unmeteredQuota:
+    | { readonly kind: 'consumed' }
+    | { readonly kind: 'quota_exceeded'; readonly quota: number; readonly used: number; readonly resetAt: string }
+  quotaCalls: Array<Omit<MeteringDecisionInput, 'tx'>>
+  consumeQuota: ((input: MeteringDecisionInput) => Promise<RecordedQuota>) | null
   reset(): void
 }
 
@@ -52,10 +60,14 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
     entitlementFor: null,
     meteringDecision: null,
     meteringCalls: [],
+    unmeteredQuota: { kind: 'consumed' },
+    quotaCalls: [],
+    consumeQuota: null,
     reset() {
       recorded.reservations.length = 0
       recorded.settlements.length = 0
       recorded.meteringCalls.length = 0
+      recorded.quotaCalls.length = 0
       recorded.answer = { kind: 'reserved', credits: 0 }
       recorded.decide = null
       recorded.pricing = null
@@ -65,6 +77,8 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
       recorded.concurrencyLimit = 3
       recorded.entitlementFor = null
       recorded.meteringDecision = null
+      recorded.unmeteredQuota = { kind: 'consumed' }
+      recorded.consumeQuota = null
     },
   }
   _setPrivateBffOverlayForTesting(
@@ -84,6 +98,11 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
             recorded.meteringDecision?.(input) ??
             ({ kind: 'metered', metering: 'credits' } satisfies MeteringDecision)
           )
+        },
+        async consumeUnmeteredQuota(input: MeteringDecisionInput): Promise<RecordedQuota> {
+          const { tx: _tx, ...rest } = input
+          recorded.quotaCalls.push(rest)
+          return recorded.consumeQuota?.(input) ?? recorded.unmeteredQuota
         },
         async finalizeTask({ tx: _tx, ...rest }: Parameters<PrivateTaskHooks['finalizeTask']>[0]) {
           recorded.settlements.push(rest)

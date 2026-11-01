@@ -79,7 +79,10 @@ function toolCard(block: AgentToolResultBlock, id: string, turnId: string): Agen
     ...(block.sources ? { sources: block.sources } : {}),
     ...(block.fetchedImages ? { fetchedImages: block.fetchedImages } : {}),
     // 认不出的原因（更新的服务端）不说：没有对应的文案。
-    ...(block.wakeSkipped === 'insufficient_credits' || block.wakeSkipped === 'wake_limit'
+    ...(block.wakeSkipped === 'insufficient_credits' ||
+    block.wakeSkipped === 'quota_exceeded' ||
+    block.wakeSkipped === 'access_denied' ||
+    block.wakeSkipped === 'wake_limit'
       ? { wakeSkipped: block.wakeSkipped }
       : {}),
   }

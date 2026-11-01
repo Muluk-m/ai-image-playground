@@ -292,6 +292,8 @@
     "dismissAria": "移除这条没能处理的消息：{{text}}",
     "failure": {
       "insufficient_credits": "余额不足，未处理",
+      "quota_exceeded": "今日额度已用完，未处理",
+      "access_denied": "当前账号无权限，未处理",
       "model_price_unavailable": "模型暂不可用，未处理",
       "unauthorized": "需要登录，未处理"
     },
@@ -569,6 +571,8 @@
     "cancelledRefunded": "已取消，积分已退回",
     "wakeSkipped": {
       "insufficient_credits": "积分不足，智能体未查看结果",
+      "quota_exceeded": "今日额度已用完，智能体未查看结果",
+      "access_denied": "当前账号无权限，智能体未查看结果",
       "wake_limit": "智能体已连续自动查看 3 次，等你发话后再继续"
     },
     "inbox": {

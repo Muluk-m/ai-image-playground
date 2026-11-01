@@ -91,6 +91,43 @@ it('generates with the selected chat model, full source text and one billed task
     agent_turn_id: null,
   })
 })
+it('uses account unmetered metering before pricing and does not reserve or settle credits', async () => {
+  billing.meteringDecision = async () => ({ kind: 'unmetered', metering: 'none' })
+  billing.pricingError = new Error('pricing must not be loaded for unmetered text')
+  const response = await submit()
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual({ text: '青禾推开山门，云海中传来钟声。' })
+  expect(billing.reservations).toEqual([])
+  expect(billing.settlements).toEqual([])
+  expect(billing.quotaCalls).toHaveLength(1)
+  const [task] = await db.select().from(schema.tasks)
+  expect(task?.metering).toMatchObject({
+    mode: 'none',
+    model: 'fixture-agent-model',
+    quantity: 1,
+    unitMultiplier: 1,
+  })
+})
+
+it('returns account quota exhaustion before dispatch and leaves no canvas text task', async () => {
+  billing.meteringDecision = async () => ({ kind: 'unmetered', metering: 'none' })
+  billing.unmeteredQuota = {
+    kind: 'quota_exceeded',
+    quota: 1,
+    used: 1,
+    resetAt: '2099-01-01T00:00:00.000Z',
+  }
+  const response = await submit()
+  expect(response.status).toBe(429)
+  expect(await response.json()).toEqual({
+    error: 'daily_quota_exceeded',
+    quota: 1,
+    used: 1,
+    reset_at: '2099-01-01T00:00:00.000Z',
+  })
+  expect(calls).toEqual([])
+  expect(await db.select().from(schema.tasks)).toEqual([])
+})
 
 it('rejects unauthenticated and unlisted models before charging or dispatching', async () => {
   expect((await submit(input, false)).status).toBe(401)

@@ -53,12 +53,18 @@ function trackingOverlay(): PrivateBffOverlay {
   })
 }
 
-async function insertTask(id: string, status: TaskStatus, upstreamInvocationCount = 0) {
+async function insertTask(
+  id: string,
+  status: TaskStatus,
+  upstreamInvocationCount = 0,
+  meteringMode: 'none' | 'credits' | null = null,
+) {
   await db.insert(schema.tasks).values({
     id,
     provider: 'openai-compat',
     model: 'gpt-image-2',
     status,
+    ...(meteringMode ? { metering: { mode: meteringMode, model: 'gpt-image-2' } } : {}),
     ...(status === 'in_progress'
       ? { execution_token: SETTLEMENT_TOKEN, lease_expires_at: Date.now() + 60_000 }
       : {}),
@@ -183,5 +189,100 @@ describe('task settlement hook', () => {
         actualUsage: { quantity: 1, unitMultiplier: 3.5 },
       },
     ])
+  })
+})
+
+describe('metering snapshot terminal behavior', () => {
+  it('keeps an unmetered task completed without calling financial settlement', async () => {
+    await insertTask('none-completed', 'in_progress', 1, 'none')
+    expect(
+      await finishTask(
+        'none-completed',
+        {
+          status: 'completed',
+          resultPayload: { data: [{ url: 'https://example.invalid/free.png' }] },
+          completedAt: 1234,
+        },
+        heldBy(SETTLEMENT_TOKEN),
+      ),
+    ).toBe(true)
+    const [task] = await db.select().from(schema.tasks)
+    expect(task).toMatchObject({ id: 'none-completed', status: 'completed', metering: { mode: 'none' } })
+    expect(task?.result_payload).toEqual({ data: [{ url: 'https://example.invalid/free.png' }] })
+    expect(task?.completed_at).toBe(1234)
+    expect(settlements).toHaveLength(0)
+  })
+
+  it('keeps an unmetered failed task terminal without calling financial settlement', async () => {
+    await insertTask('none-failed', 'in_progress', 1, 'none')
+    expect(
+      await finishTask(
+        'none-failed',
+        {
+          status: 'failed',
+          errorMessage: 'free upstream failure',
+          errorType: 'upstream_error',
+          completedAt: 2345,
+        },
+        heldBy(SETTLEMENT_TOKEN),
+      ),
+    ).toBe(true)
+    const [task] = await db.select().from(schema.tasks)
+    expect(task).toMatchObject({ id: 'none-failed', status: 'failed', metering: { mode: 'none' } })
+    expect(task?.error_message).toBe('free upstream failure')
+    expect(task?.completed_at).toBe(2345)
+    expect(settlements).toHaveLength(0)
+  })
+
+  it('keeps an unmetered cancelled task terminal without calling financial settlement', async () => {
+    await insertTask('none-cancelled', 'in_progress', 1, 'none')
+    const response = await app.handle(
+      new Request('http://localhost/v1/queue/requests/none-cancelled/cancel', { method: 'PUT' }),
+    )
+    expect(response.status).toBe(200)
+    const [task] = await db.select().from(schema.tasks)
+    expect(task).toMatchObject({ id: 'none-cancelled', status: 'cancelled', metering: { mode: 'none' } })
+    expect(task?.completed_at).toEqual(expect.any(Number))
+    expect(settlements).toHaveLength(0)
+  })
+
+  it('settles both explicit credits and legacy null metering snapshots', async () => {
+    await insertTask('credits-terminal', 'in_progress', 1, 'credits')
+    await insertTask('legacy-terminal', 'in_progress', 1)
+    expect(
+      await finishTask(
+        'credits-terminal',
+        { status: 'completed', resultPayload: { data: [] }, completedAt: 3456 },
+        heldBy(SETTLEMENT_TOKEN),
+      ),
+    ).toBe(true)
+    expect(
+      await finishTask(
+        'legacy-terminal',
+        { status: 'failed', errorMessage: 'legacy failure', completedAt: 4567 },
+        heldBy(SETTLEMENT_TOKEN),
+      ),
+    ).toBe(true)
+    expect(settlements.map(({ taskId, outcome }) => ({ taskId, outcome }))).toEqual([
+      { taskId: 'credits-terminal', outcome: 'completed' },
+      { taskId: 'legacy-terminal', outcome: 'failed' },
+    ])
+    const rows = await db.select().from(schema.tasks)
+    expect(rows.find((row) => row.id === 'credits-terminal')).toMatchObject({ status: 'completed' })
+    expect(rows.find((row) => row.id === 'legacy-terminal')).toMatchObject({ status: 'failed' })
+  })
+
+  it('does not settle a terminal task twice', async () => {
+    await insertTask('terminal-once', 'in_progress', 1, 'credits')
+    const update = {
+      status: 'completed' as const,
+      resultPayload: { data: [] },
+      completedAt: 5678,
+    }
+    expect(await finishTask('terminal-once', update, heldBy(SETTLEMENT_TOKEN))).toBe(true)
+    expect(await finishTask('terminal-once', update, heldBy(SETTLEMENT_TOKEN))).toBe(false)
+    const [task] = await db.select().from(schema.tasks)
+    expect(task).toMatchObject({ id: 'terminal-once', status: 'completed' })
+    expect(settlements).toHaveLength(1)
   })
 })
