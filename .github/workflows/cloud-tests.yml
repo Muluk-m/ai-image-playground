@@ -100,6 +100,38 @@ jobs:
       - name: Build candidate
         if: always() && inputs.target == 'verify'
         run: pnpm build --force
+      - name: Smoke real BFF HTTP process
+        if: always() && inputs.target == 'verify' && inputs.overlay_sha == ''
+        env:
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_cloud_test
+          OPERATOR_CONFIG_FILE: /tmp/missing-smoke-operator.json
+          PORT: '37377'
+        run: |
+          bun run apps/bff/src/db/migrate.ts
+          python3 - <<'PY'
+          import json, os, subprocess, time, urllib.request
+          proc = subprocess.Popen(['bun', '--no-env-file', 'apps/bff/src/index.ts'])
+          try:
+              for attempt in range(100):
+                  if proc.poll() is not None:
+                      raise RuntimeError('BFF exited before accepting HTTP')
+                  try:
+                      with urllib.request.urlopen('http://127.0.0.1:37377/health', timeout=2) as res:
+                          health = json.load(res)
+                      assert health['ok'] is True, health
+                      break
+                  except OSError:
+                      time.sleep(0.2)
+              else:
+                  raise RuntimeError('BFF health deadline exceeded')
+              with urllib.request.urlopen('http://127.0.0.1:37377/api/channels', timeout=5) as res:
+                  assert res.status == 200
+                  json.load(res)
+              print('SMOKE PASS: real BFF /health and /api/channels')
+          finally:
+              proc.terminate()
+              proc.wait(timeout=20)
+          PY
       - name: Exercise candidate billing and OAuth
         if: always() && inputs.target == 'verify' && inputs.overlay_sha != ''
         env:
