@@ -1580,6 +1580,8 @@ export const generation_images = pgTable(
     media_id: text('media_id')
       .notNull()
       .references(() => media_objects.id, { onDelete: 'restrict' }),
+    /** 单张产出软删（「我的作品」只删一张）。作品列表与详情按它过滤；原件不动。 */
+    deleted_at: epochMs('deleted_at'),
   },
   (t) => [
     primaryKey({ columns: [t.generation_id, t.role, t.position] }),
