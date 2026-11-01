@@ -410,8 +410,8 @@ describe('HTTP metering decisions and quota consumption', () => {
   it('rejects a concurrent quota loser without leaving its task behind', async () => {
     quotaState.mode = 'none'
     const responses = await Promise.all([
-      submitResponse('gpt-image-2', { client_request_id: 'concurrent-quota-a' }),
-      submitResponse('gpt-image-2', { client_request_id: 'concurrent-quota-b' }),
+      submitResponse('gpt-image-2', { client_request_id: 'concurrent-quota-a', prompt: 'a red bird' }),
+      submitResponse('gpt-image-2', { client_request_id: 'concurrent-quota-b', prompt: 'a blue bird' }),
     ])
     expect(responses.map((one) => one.status).sort()).toEqual([200, 429])
     expect(await db.select().from(schema.tasks)).toHaveLength(1)
