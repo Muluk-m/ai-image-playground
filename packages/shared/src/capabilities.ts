@@ -31,6 +31,7 @@ export const CAPABILITIES = {
   'billing:chat-free': { defaultValue: false, clientExposed: true },
   'cli:api': { defaultValue: false, clientExposed: false },
   'generation:video': { defaultValue: false, clientExposed: true },
+  'cli:api': { defaultValue: false, clientExposed: false },
   'operator:console': { defaultValue: false, clientExposed: false },
   'quota:daily': { defaultValue: false, clientExposed: true },
 } as const satisfies Record<`${string}:${string}`, CapabilityDefinition>
@@ -141,6 +142,175 @@ export const QUOTAS = {
 
 export interface QuotaDefinition {
   readonly defaultValue: number
+}
+
+export type OperatorValueKind = 'capability' | 'quota'
+export type OperatorEditability = 'hot' | 'boot' | 'read-only'
+
+export interface OperatorRegistryEntry {
+  readonly key: string
+  readonly kind: OperatorValueKind
+  readonly name: string
+  readonly description: string
+  readonly group: string
+  readonly editability: OperatorEditability
+  readonly risk: 'low' | 'medium' | 'high'
+  readonly unit?: string
+  readonly min?: number
+  readonly max?: number
+  readonly dependencies: readonly string[]
+  readonly derived?: boolean
+}
+
+const OPERATOR_METADATA: Readonly<Record<string, Partial<OperatorRegistryEntry>>> = {
+  'accounts:login': { name: '账号登录', description: '允许用户登录账号', group: 'accounts' },
+  'accounts:self-register': {
+    name: '自助注册',
+    description: '允许用户自行注册账号',
+    group: 'accounts',
+  },
+  'accounts:sync': { name: '账号同步', description: '允许账号同步项目与素材', group: 'accounts' },
+  'agent:chat': { name: '智能体对话', description: '允许使用智能体对话', group: 'agent' },
+  'agent:analysis-concurrency': {
+    name: '分析并发',
+    description: '分析任务同时执行数',
+    group: 'agent',
+    unit: 'count',
+    max: 64,
+  },
+  'billing:chat-free': { name: '免费对话', description: '免除对话轮次积分消耗', group: 'billing' },
+  'generation:daily-images': {
+    name: '每日生图上限',
+    description: '每个设备每日可生成的图片数',
+    group: 'generation',
+    unit: 'count',
+    max: 1_000_000,
+  },
+  'sync:user-media-bytes': {
+    name: '用户媒体容量',
+    description: '单个用户可占用的媒体容量',
+    group: 'sync',
+    unit: 'bytes',
+    max: 1024 ** 4,
+  },
+  'sync:attachment-lease-seconds': {
+    name: '附件租约时长',
+    description: '附件上传租约有效时间',
+    group: 'sync',
+    unit: 'seconds',
+    max: 86_400,
+  },
+  'sync:asset-image-bytes': {
+    name: '图片大小上限',
+    description: '单张图片原图大小上限',
+    group: 'sync',
+    unit: 'bytes',
+    max: 1024 ** 3,
+  },
+  'sync:asset-video-bytes': {
+    name: '视频大小上限',
+    description: '单个视频大小上限',
+    group: 'sync',
+    unit: 'bytes',
+    max: 10 * 1024 ** 3,
+  },
+  'agent:compaction-buffer-tokens': {
+    name: '压缩缓冲 tokens',
+    description: '上下文压缩预留缓冲',
+    group: 'agent',
+    unit: 'tokens',
+  },
+  'agent:compaction-keep-tokens': {
+    name: '保留 tokens',
+    description: '上下文压缩保留的近期原文',
+    group: 'agent',
+    unit: 'tokens',
+  },
+  'agent:compaction-output-reserve-tokens': {
+    name: '输出预留 tokens',
+    description: '上下文压缩输出预留',
+    group: 'agent',
+    unit: 'tokens',
+  },
+  'agent:turns-per-device-minute': {
+    name: '设备每分钟轮次',
+    description: '单设备每分钟允许的智能体轮次',
+    group: 'agent',
+    unit: 'count',
+  },
+  'agent:turns-per-ip-hour': {
+    name: 'IP 每小时轮次',
+    description: '单 IP 每小时允许的智能体轮次',
+    group: 'agent',
+    unit: 'count',
+  },
+  'agent:request-max-bytes': {
+    name: '请求大小上限',
+    description: '智能体请求体大小上限',
+    group: 'agent',
+    unit: 'bytes',
+    max: 256 * 1024 ** 2,
+  },
+  'quota:daily': { name: '每日额度', description: '启用每日生成额度', group: 'generation' },
+}
+
+const registryEntry = (
+  key: string,
+  kind: OperatorValueKind,
+  _defaultValue: boolean | number,
+): OperatorRegistryEntry => {
+  const extra = OPERATOR_METADATA[key] ?? {}
+  const editability: OperatorEditability =
+    key === 'operator:console'
+      ? 'read-only'
+      : ['billing:credits', 'accounts:login', 'accounts:sync', 'agent:chat'].includes(key)
+        ? 'boot'
+        : 'hot'
+  const dependencies =
+    key === 'accounts:self-register'
+      ? ['accounts:login']
+      : key === 'accounts:email-verification'
+        ? ['accounts:self-register']
+        : key === 'cli:api'
+          ? ['accounts:sync']
+          : []
+  return {
+    key,
+    kind,
+    name: extra.name ?? key,
+    description: extra.description ?? `运营配置：${key}`,
+    group: extra.group ?? key.split(':', 1)[0] ?? 'other',
+    editability,
+    risk: extra.risk ?? (kind === 'capability' || key.includes('daily') ? 'high' : 'low'),
+    ...(kind === 'quota'
+      ? {
+          unit: extra.unit ?? 'count',
+          min: extra.min ?? 0,
+          max: extra.max ?? Number.MAX_SAFE_INTEGER,
+        }
+      : {}),
+    dependencies: extra.dependencies ?? dependencies,
+  }
+}
+
+/** Single source of truth for operator-facing metadata; keys are exhaustive by construction. */
+export const OPERATOR_REGISTRY: Readonly<Record<string, OperatorRegistryEntry>> = Object.freeze({
+  ...Object.fromEntries(
+    Object.entries(CAPABILITIES).map(([key, value]) => [
+      key,
+      registryEntry(key, 'capability', value.defaultValue),
+    ]),
+  ),
+  ...Object.fromEntries(
+    Object.entries(QUOTAS).map(([key, value]) => [
+      key,
+      registryEntry(key, 'quota', value.defaultValue),
+    ]),
+  ),
+})
+
+export function operatorRegistryEntry(key: string): OperatorRegistryEntry | undefined {
+  return OPERATOR_REGISTRY[key]
 }
 
 export type QuotaKey = keyof typeof QUOTAS

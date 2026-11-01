@@ -782,3 +782,35 @@ export function parseAgentPromptFilters(
   if (result.userId && result.deviceId) return null
   return result
 }
+// ---- 能力与配额（运营覆盖） ----
+export type OperatorSettingKind = 'capability' | 'quota'
+export type OperatorSettingEditability = 'hot' | 'boot-time' | 'read-only'
+export type OperatorSettingUnit = 'boolean' | 'bytes' | 'seconds' | 'minutes' | 'count' | 'tokens'
+
+export interface OperatorSettingRow {
+  key: string
+  kind: OperatorSettingKind
+  name: string
+  description: string
+  domain: string
+  editability: OperatorSettingEditability
+  risk?: boolean
+  baseline: boolean | number
+  override: boolean | number | null
+  effective: boolean | number
+  reason: string | null
+  revision: number
+  updatedAt?: number | null
+  unit?: OperatorSettingUnit
+  min?: number
+  max?: number
+  dependencies?: string[]
+  baselineChanged?: boolean
+  invalid?: boolean
+  invalidReason?: string | null
+}
+
+export interface OperatorSettingsResult {
+  revision: number
+  settings: OperatorSettingRow[]
+}

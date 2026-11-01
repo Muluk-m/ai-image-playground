@@ -304,6 +304,24 @@ export function loadOperatorConfig(file: string | null): ResolvedOperatorConfig 
   }
 }
 
+/** Validate a complete effective snapshot using startup dependency and derived rules. */
+export function validateOperatorConfigValues(
+  base: ResolvedOperatorConfig,
+  capabilities: CapabilityValues,
+  quotas: QuotaValues,
+): ResolvedOperatorConfig {
+  return resolveParsedConfig(
+    {
+      capabilities,
+      quotas,
+      capabilityUsers: base.capabilityUsers,
+      channelsFile: base.channelsFile,
+      presets: {},
+    },
+    base.file ?? '',
+  )
+}
+
 export function evaluateCapability(config: ResolvedOperatorConfig, key: string): boolean {
   return Object.hasOwn(CAPABILITIES, key) ? config.capabilities[key as CapabilityKey] : false
 }

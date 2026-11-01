@@ -39,7 +39,14 @@ if (
 ) {
   throw new Error('CLIENT_IP_SOURCE must be peer, x-forwarded-for, or cf-connecting-ip')
 }
-const operator = loadOperatorConfig(env('OPERATOR_CONFIG_FILE', '') || null)
+let baselineOperator = loadOperatorConfig(env('OPERATOR_CONFIG_FILE', '') || null)
+let effectiveOperator = baselineOperator
+export function setEffectiveOperatorConfig(value: typeof baselineOperator): void {
+  effectiveOperator = value
+}
+export function baselineOperatorConfig(): typeof baselineOperator {
+  return baselineOperator
+}
 const workerPollIntervalMs = positiveIntEnv('WORKER_POLL_INTERVAL_MS', 1_000)
 const workerHealthStaleAfterMs = positiveIntEnv(
   'WORKER_HEALTH_STALE_AFTER_MS',
@@ -71,6 +78,13 @@ const workerStartsPaused = booleanEnv('WORKER_START_PAUSED', false)
 
 export const config = {
   port: Number(env('PORT', '37377')),
+  get operator() {
+    return effectiveOperator
+  },
+  set operator(value: typeof baselineOperator) {
+    baselineOperator = value
+    effectiveOperator = value
+  },
   auth: {
     get internalApiToken(): string {
       return env('INTERNAL_API_TOKEN', '')
@@ -272,8 +286,7 @@ export const config = {
     clientIpSource,
   },
   /** 可选 channels.json 路径覆盖；缺省走 lib/channels.ts 的 defaultChannelsPath()。 */
-  channelsFile: operator.channelsFile ?? (env('CHANNELS_FILE', '') || null),
-  operator,
+  channelsFile: effectiveOperator.channelsFile ?? (env('CHANNELS_FILE', '') || null),
   objectStore: {
     get endpoint(): string {
       return env('S3_ENDPOINT')
