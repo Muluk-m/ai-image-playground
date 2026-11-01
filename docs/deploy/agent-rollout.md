@@ -197,11 +197,12 @@ cd <checkout> && ./scripts/app-compose.sh up <project>
 **镜像没变时 `up` 不会重建 bff / worker。** 按发布目录管理的部署（`releases/current` 存在）走 `rollout-runtime.sh`，
 发现新旧都是同一个镜像就只输出 `Already serving …`，核对附属服务后返回，执行器照旧在跑，**改过的
 `app.env` / `operator-config.json` 都没被读进去**（2026-10-31 测试环境实测）。`operator-config.json` 是目录挂载，
-文件改了容器里看得到，但 BFF 只在启动时读一次。这时要让新配置生效，二选一：
+文件改了容器里看得到，但 BFF 只在启动时读一次。这时要让新配置生效：
 
-- 等下一次带新镜像的发布，新执行器启动时读到；
-- 先确认没有在途任务（`tasks` 里没有 `queued` / `in_progress`），再 `docker restart` 当前的 `<project>-r…-bff` 和
-  `<project>-r…-worker`。生产上重启容器要 Nain 批准（见[发布手册](../agents/release.md)）。
+- 改了 `app.env`：只能等下一次带新镜像的发布。env 是创建执行器时用 `--env-file` 注入的，重启现有容器仍是旧值。
+- 只改了 `operator-config.json`：可以等下一次发布；也可以先确认没有在途任务（`tasks` 里没有 `queued` /
+  `in_progress`），再 `docker restart` 当前的 `<project>-r…-bff` 和 `<project>-r…-worker`，重启后会重新读挂载的文件。
+  生产上重启容器要 Nain 批准（见[发布手册](../agents/release.md)）。
 
 改完用下面的 `/api/capabilities` 核对是否真的生效，不要只看命令退出码。
 
