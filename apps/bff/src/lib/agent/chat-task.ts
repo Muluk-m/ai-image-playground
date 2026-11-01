@@ -148,6 +148,7 @@ async function insertChatTask(
       unitMultiplier: 1,
     },
     submitted_at: now,
+    started_at: now,
     user_id: input.userId,
     agent_conversation_id: input.conversationId,
     agent_turn_id: input.taskId,
