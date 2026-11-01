@@ -2440,26 +2440,62 @@ it('对话里出了新计划，先前轮次删过项的旧计划作废，确认�
 })
 it('account-unmetered batch generation skips quote pricing and credit billing', async () => {
   const previousOperator = config.operator
-  config.operator = { ...previousOperator, capabilities: { ...previousOperator.capabilities, 'billing:credits': false } }
+  config.operator = {
+    ...previousOperator,
+    capabilities: { ...previousOperator.capabilities, 'billing:credits': false },
+  }
   billing.reset()
   billing.meteringDecision = async () => ({ kind: 'unmetered', metering: 'none' })
   billing.pricingError = new Error('quote must not be loaded')
   billing.unmeteredQuota = { kind: 'consumed' }
   const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
-  setAgentFetchForTesting(scriptedAgentFetch([], [
-    () => toolCallCompletion({ id: 'unmetered-plan', name: 'planImageBatch', args: {
-      title: '免费批次', rule: '生成一张图', items: [{ key: 'one', imageIds: [], prompt: '一只猫', dependencies: [] }],
-    }}),
-    () => completionStream('请确认'),
-  ]))
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'unmetered-plan',
+            name: 'planImageBatch',
+            args: {
+              title: '免费批次',
+              rule: '生成一张图',
+              items: [{ key: 'one', imageIds: [], prompt: '一只猫', dependencies: [] }],
+            },
+          }),
+        () => completionStream('请确认'),
+      ],
+    ),
+  )
   try {
-    await (await request(`agent/conversations/${conversation.id}/turns`, { deviceId: DEVICE, text: '生成一张图，先拟计划' })).text()
-    const { batches } = await (await request(`agent/conversations/${conversation.id}/batches`)).json()
+    await (
+      await request(`agent/conversations/${conversation.id}/turns`, {
+        deviceId: DEVICE,
+        text: '生成一张图，先拟计划',
+      })
+    ).text()
+    const { batches } = await (
+      await request(`agent/conversations/${conversation.id}/batches`)
+    ).json()
     const path = `agent/batches/${batches[0].id}`
     const draft = await (await request(path)).json()
-    expect(draft.batch.estimate.generation).toMatchObject({ estimatedCredits: 0, estimatedChargeCredits: 0 })
-    expect((await request(`${path}/confirm`, { commandId: 'confirm-free', expectedVersion: draft.batch.version, expectedDigest: draft.batch.digest, deviceId: DEVICE })).status).toBe(200)
-    expect(billing.reservations.filter((one) => one.model !== 'fixture-agent-model')).toHaveLength(0)
+    expect(draft.batch.estimate.generation).toMatchObject({
+      estimatedCredits: 0,
+      estimatedChargeCredits: 0,
+    })
+    expect(
+      (
+        await request(`${path}/confirm`, {
+          commandId: 'confirm-free',
+          expectedVersion: draft.batch.version,
+          expectedDigest: draft.batch.digest,
+          deviceId: DEVICE,
+        })
+      ).status,
+    ).toBe(200)
+    expect(billing.reservations.filter((one) => one.model !== 'fixture-agent-model')).toHaveLength(
+      0,
+    )
     expect(billing.quotaCalls.filter((one) => one.kind === 'image')).toHaveLength(1)
   } finally {
     config.operator = previousOperator
@@ -2471,13 +2507,33 @@ it('finite unmetered quota exhaustion rejects batch confirmation atomically', as
   billing.meteringDecision = async () => ({ kind: 'unmetered', metering: 'none' })
   billing.unmeteredQuota = { kind: 'consumed' }
   const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
-  setAgentFetchForTesting(scriptedAgentFetch([], [
-    () => toolCallCompletion({ id: 'quota-plan', name: 'planImageBatch', args: { title: '超额', rule: '两张', items: [
-      { key: 'one', imageIds: [], prompt: '猫', dependencies: [] }, { key: 'two', imageIds: [], prompt: '狗', dependencies: [] },
-    ] }}),
-    () => completionStream('请确认'),
-  ]))
-  await (await request(`agent/conversations/${conversation.id}/turns`, { deviceId: DEVICE, text: '生成两张图，先拟计划' })).text()
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'quota-plan',
+            name: 'planImageBatch',
+            args: {
+              title: '超额',
+              rule: '两张',
+              items: [
+                { key: 'one', imageIds: [], prompt: '猫', dependencies: [] },
+                { key: 'two', imageIds: [], prompt: '狗', dependencies: [] },
+              ],
+            },
+          }),
+        () => completionStream('请确认'),
+      ],
+    ),
+  )
+  await (
+    await request(`agent/conversations/${conversation.id}/turns`, {
+      deviceId: DEVICE,
+      text: '生成两张图，先拟计划',
+    })
+  ).text()
   const { batches } = await (await request(`agent/conversations/${conversation.id}/batches`)).json()
   const path = `agent/batches/${batches[0].id}`
   const draft = await (await request(path)).json()
@@ -2486,9 +2542,18 @@ it('finite unmetered quota exhaustion rejects batch confirmation atomically', as
     kind === 'image'
       ? { kind: 'quota_exceeded', quota: 1, used: 1, resetAt: '2099-01-01T00:00:00.000Z' }
       : { kind: 'consumed' }
-  const confirmed = await request(`${path}/confirm`, { commandId: 'confirm-quota', expectedVersion: draft.batch.version, expectedDigest: draft.batch.digest, deviceId: DEVICE })
+  const confirmed = await request(`${path}/confirm`, {
+    commandId: 'confirm-quota',
+    expectedVersion: draft.batch.version,
+    expectedDigest: draft.batch.digest,
+    deviceId: DEVICE,
+  })
   expect(confirmed.status).toBe(200)
-  expect((await (await request(path)).json()).batch).toMatchObject({ status: 'paused', pauseReason: 'quota_exceeded', submittedCount: 0 })
+  expect((await (await request(path)).json()).batch).toMatchObject({
+    status: 'paused',
+    pauseReason: 'quota_exceeded',
+    submittedCount: 0,
+  })
   expect(billing.reservations.filter((one) => one.model !== 'fixture-agent-model')).toHaveLength(0)
   expect(billing.quotaCalls.filter((one) => one.kind === 'image')).toHaveLength(1)
 })
@@ -2498,15 +2563,41 @@ it('terminal unmetered cancellation retains none metering and no settlement', as
   billing.meteringDecision = async () => ({ kind: 'unmetered', metering: 'none' })
   billing.unmeteredQuota = { kind: 'consumed' }
   const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
-  setAgentFetchForTesting(scriptedAgentFetch([], [
-    () => toolCallCompletion({ id: 'cancel-plan', name: 'planImageBatch', args: { title: '取消', rule: '一张', items: [{ key: 'one', imageIds: [], prompt: '猫', dependencies: [] }] } }),
-    () => completionStream('请确认'),
-  ]))
-  await (await request(`agent/conversations/${conversation.id}/turns`, { deviceId: DEVICE, text: '生成一张图，先拟计划' })).text()
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'cancel-plan',
+            name: 'planImageBatch',
+            args: {
+              title: '取消',
+              rule: '一张',
+              items: [{ key: 'one', imageIds: [], prompt: '猫', dependencies: [] }],
+            },
+          }),
+        () => completionStream('请确认'),
+      ],
+    ),
+  )
+  await (
+    await request(`agent/conversations/${conversation.id}/turns`, {
+      deviceId: DEVICE,
+      text: '生成一张图，先拟计划',
+    })
+  ).text()
   const { batches } = await (await request(`agent/conversations/${conversation.id}/batches`)).json()
   const path = `agent/batches/${batches[0].id}`
   const draft = await (await request(path)).json()
-  const accepted = await (await request(`${path}/confirm`, { commandId: 'confirm-cancel', expectedVersion: draft.batch.version, expectedDigest: draft.batch.digest, deviceId: DEVICE })).json()
+  const accepted = await (
+    await request(`${path}/confirm`, {
+      commandId: 'confirm-cancel',
+      expectedVersion: draft.batch.version,
+      expectedDigest: draft.batch.digest,
+      deviceId: DEVICE,
+    })
+  ).json()
   const taskId = accepted.items[0].execution.taskId
   expect((await request(`v1/queue/requests/${taskId}/cancel`, {}, 'PUT')).status).toBe(200)
   const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId))
@@ -2517,32 +2608,103 @@ it('terminal unmetered cancellation retains none metering and no settlement', as
 it('deployment-free analysis with metered decision does not consume overlay quota', async () => {
   const previousOperator = config.operator
   const previousOverlay = await loadPrivateBffOverlay()
-  config.operator = { ...previousOperator, capabilities: { ...previousOperator.capabilities, 'agent:batch-analysis': true, 'billing:credits': false } }
-  _setPrivateBffOverlayForTesting({ ...previousOverlay, taskHooks: { ...previousOverlay.taskHooks,
-    async meteringDecision() { return { kind: 'metered', metering: 'credits' } },
-    async consumeUnmeteredQuota() { throw new Error('quota must not be consumed') },
-    async quoteTokenTask() { throw new Error('deployment-free analysis must not price') },
-  } })
+  config.operator = {
+    ...previousOperator,
+    capabilities: {
+      ...previousOperator.capabilities,
+      'agent:batch-analysis': true,
+      'billing:credits': false,
+    },
+  }
+  _setPrivateBffOverlayForTesting({
+    ...previousOverlay,
+    taskHooks: {
+      ...previousOverlay.taskHooks,
+      async meteringDecision() {
+        return { kind: 'metered', metering: 'credits' }
+      },
+      async consumeUnmeteredQuota() {
+        throw new Error('quota must not be consumed')
+      },
+      async quoteTokenTask() {
+        throw new Error('deployment-free analysis must not price')
+      },
+    },
+  })
   try {
     const mediaId = await upload('#aabbcc')
-    const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
-    setAgentFetchForTesting(scriptedAgentFetch([], [
-      () => toolCallCompletion({ id: 'analysis-free-plan', name: 'planImageBatch', args: { title: '分析', rule: '检查', items: [{ key: 'inspect', kind: 'analysis', imageIds: ['original'], prompt: '检查颜色', dependencies: [] }] } }),
-      () => completionStream('请确认'),
-    ]))
-    await (await request(`agent/conversations/${conversation.id}/turns`, { deviceId: DEVICE, text: '检查图片，先拟计划', references: [{ imageId: 'original', mediaId }] })).text()
-    const { batches } = await (await request(`agent/conversations/${conversation.id}/batches`)).json()
+    const { conversation } = await (
+      await request('agent/conversations', { deviceId: DEVICE })
+    ).json()
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'analysis-free-plan',
+              name: 'planImageBatch',
+              args: {
+                title: '分析',
+                rule: '检查',
+                items: [
+                  {
+                    key: 'inspect',
+                    kind: 'analysis',
+                    imageIds: ['original'],
+                    prompt: '检查颜色',
+                    dependencies: [],
+                  },
+                ],
+              },
+            }),
+          () => completionStream('请确认'),
+        ],
+      ),
+    )
+    await (
+      await request(`agent/conversations/${conversation.id}/turns`, {
+        deviceId: DEVICE,
+        text: '检查图片，先拟计划',
+        references: [{ imageId: 'original', mediaId }],
+      })
+    ).text()
+    const { batches } = await (
+      await request(`agent/conversations/${conversation.id}/batches`)
+    ).json()
     const path = `agent/batches/${batches[0].id}`
     const page = await (await request(path)).json()
-    expect(page.batch.estimate.analysis).toMatchObject({ estimatedCredits: 0, estimatedChargeCredits: 0 })
-    const confirmed = await request(`${path}/confirm`, { commandId: 'confirm-analysis-free', expectedVersion: page.batch.version, expectedDigest: page.batch.digest, deviceId: DEVICE })
+    expect(page.batch.estimate.analysis).toMatchObject({
+      estimatedCredits: 0,
+      estimatedChargeCredits: 0,
+    })
+    const confirmed = await request(`${path}/confirm`, {
+      commandId: 'confirm-analysis-free',
+      expectedVersion: page.batch.version,
+      expectedDigest: page.batch.digest,
+      deviceId: DEVICE,
+    })
     expect(confirmed.status).toBe(200)
     const taskId = (await confirmed.json()).items[0].execution.taskId
     const { setChatFetchForTesting } = await import('../../lib/chatCompletion')
     const { runAnalysisTask } = await import('../../workers/analysis-runner')
-    setChatFetchForTesting(async () => Response.json({ choices: [{ message: { content: JSON.stringify({ findings: [{ imageId: 'original', text: '颜色均匀' }] }) } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }))
+    setChatFetchForTesting(async () =>
+      Response.json({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({ findings: [{ imageId: 'original', text: '颜色均匀' }] }),
+            },
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+    )
     await runAnalysisTask(taskId)
-    expect((await (await request(path)).json()).items[0].execution).toMatchObject({ status: 'completed', actualCredits: 0 })
+    expect((await (await request(path)).json()).items[0].execution).toMatchObject({
+      status: 'completed',
+      actualCredits: 0,
+    })
     expect(billing.quotaCalls.filter((one) => one.kind === 'analysis')).toHaveLength(0)
   } finally {
     config.operator = previousOperator

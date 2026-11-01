@@ -58,7 +58,8 @@ export default function AgentGenerationPlan({
   const metering = guard.metering
   const available = guard.availableCredits
   // 估价与余额都读得到时才判；读不到就交给服务端把关，不凭空挡住用户。
-  const short = metering !== 'none' && credits !== undefined && available !== undefined && credits > available
+  const short =
+    metering !== 'none' && credits !== undefined && available !== undefined && credits > available
   // 拟这段计划的那一轮还在跑：后面的稿可能还没出来，服务端此时也不收确认。按住按钮并说明。
   const drafting = useAgentStore((state) =>
     messages.some((message) => agentDraftStillDrafting(state, message)),
