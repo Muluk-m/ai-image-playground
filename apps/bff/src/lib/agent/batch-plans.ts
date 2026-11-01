@@ -19,12 +19,12 @@ import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { quoteAnalysisTask } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
+import { meteringDecisionOrDenied } from '../metering-decision'
 import {
-  nonBillingPriceSnapshot,
   type BffTransaction,
   loadPrivateBffOverlay,
+  nonBillingPriceSnapshot,
 } from '../private-overlay'
-import { meteringDecisionOrDenied } from '../metering-decision'
 import { prepareBatchAnalysis } from './batch-analysis-preparation'
 import { readBatchAnalysisSummary, readBatchSourceSummary } from './batch-analysis-summary'
 import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'

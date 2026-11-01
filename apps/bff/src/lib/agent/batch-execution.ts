@@ -18,12 +18,12 @@ import {
 } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
+import { meteringDecisionOrDenied } from '../metering-decision'
 import {
-  nonBillingPriceSnapshot,
   type BffTransaction,
   loadPrivateBffOverlay,
+  nonBillingPriceSnapshot,
 } from '../private-overlay'
-import { meteringDecisionOrDenied } from '../metering-decision'
 import {
   type CreateQueueTaskInput,
   createQueueTask,
@@ -288,11 +288,7 @@ async function prepareItem(
     agent: { conversationId: batch.conversation_id!, turnId: batch.origin_turn_id },
   }
 }
-async function quoteGenerationTask(
-  tx: BffTransaction,
-  userId: string,
-  model: string,
-) {
+async function quoteGenerationTask(tx: BffTransaction, userId: string, model: string) {
   const hooks = (await loadPrivateBffOverlay()).taskHooks
   const decision = meteringDecisionOrDenied(
     await hooks.meteringDecision?.({
@@ -349,7 +345,8 @@ async function currentQuote(
     !quote ||
     !expected ||
     quote.pricing.pricingVersion !== expected.pricingVersion ||
-    quote.estimatedCredits > Math.ceil(expected.baseUnitCredits * expected.quantity * expected.unitMultiplier)
+    quote.estimatedCredits >
+      Math.ceil(expected.baseUnitCredits * expected.quantity * expected.unitMultiplier)
   )
     throw new BatchPlanError('batch_price_changed', 409)
   return { pricing: { ...quote.pricing, itemKey: item.key }, credits: quote.estimatedCredits }

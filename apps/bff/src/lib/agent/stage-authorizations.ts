@@ -27,8 +27,8 @@ import { accessCanvasDocument, CanvasSyncError } from '../canvasSyncStore'
 import { isCapabilityEnabled } from '../capabilities'
 import { modelCapabilities, resolveQueueModel } from '../channels'
 import { log } from '../logger'
-import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
 import { meteringDecisionOrDenied } from '../metering-decision'
+import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
 export class StageAuthorizationError extends Error {
   constructor(
     readonly code: string,

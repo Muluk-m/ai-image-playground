@@ -370,7 +370,10 @@ describe('HTTP metering decisions and quota consumption', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('access-control-allow-origin')).toBe('https://app.example.test')
     const [task] = await db.select().from(schema.tasks)
-    expect(task).toMatchObject({ user_id: 'billing-user', client_request_id: 'unmetered-image-cross-origin' })
+    expect(task).toMatchObject({
+      user_id: 'billing-user',
+      client_request_id: 'unmetered-image-cross-origin',
+    })
     expect(task?.metering).toMatchObject({ mode: 'none' })
     expect(reservations).toHaveLength(0)
     expect(quotaState.used).toBe(1)
@@ -395,7 +398,11 @@ describe('HTTP metering decisions and quota consumption', () => {
     quotaState.used = quotaState.quota
     const response = await submitResponse('gpt-image-2', { client_request_id: 'quota-refused' })
     expect(response.status).toBe(429)
-    expect(await response.json()).toMatchObject({ error: 'daily_quota_exceeded', quota: 1, used: 1 })
+    expect(await response.json()).toMatchObject({
+      error: 'daily_quota_exceeded',
+      quota: 1,
+      used: 1,
+    })
     expect(await db.select().from(schema.tasks)).toHaveLength(0)
   })
 
@@ -410,8 +417,14 @@ describe('HTTP metering decisions and quota consumption', () => {
   it('rejects a concurrent quota loser without leaving its task behind', async () => {
     quotaState.mode = 'none'
     const responses = await Promise.all([
-      submitResponse('gpt-image-2', { client_request_id: 'concurrent-quota-a', prompt: 'a red bird' }),
-      submitResponse('gpt-image-2', { client_request_id: 'concurrent-quota-b', prompt: 'a blue bird' }),
+      submitResponse('gpt-image-2', {
+        client_request_id: 'concurrent-quota-a',
+        prompt: 'a red bird',
+      }),
+      submitResponse('gpt-image-2', {
+        client_request_id: 'concurrent-quota-b',
+        prompt: 'a blue bird',
+      }),
     ])
     expect(responses.map((one) => one.status).sort()).toEqual([200, 429])
     expect(await db.select().from(schema.tasks)).toHaveLength(1)

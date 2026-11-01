@@ -207,7 +207,11 @@ describe('metering snapshot terminal behavior', () => {
       ),
     ).toBe(true)
     const [task] = await db.select().from(schema.tasks)
-    expect(task).toMatchObject({ id: 'none-completed', status: 'completed', metering: { mode: 'none' } })
+    expect(task).toMatchObject({
+      id: 'none-completed',
+      status: 'completed',
+      metering: { mode: 'none' },
+    })
     expect(task?.result_payload).toEqual({ data: [{ url: 'https://example.invalid/free.png' }] })
     expect(task?.completed_at).toBe(1234)
     expect(settlements).toHaveLength(0)
@@ -241,7 +245,11 @@ describe('metering snapshot terminal behavior', () => {
     )
     expect(response.status).toBe(200)
     const [task] = await db.select().from(schema.tasks)
-    expect(task).toMatchObject({ id: 'none-cancelled', status: 'cancelled', metering: { mode: 'none' } })
+    expect(task).toMatchObject({
+      id: 'none-cancelled',
+      status: 'cancelled',
+      metering: { mode: 'none' },
+    })
     expect(task?.completed_at).toEqual(expect.any(Number))
     expect(settlements).toHaveLength(0)
   })

@@ -92,7 +92,11 @@ function frontendOrigin(request: Request, requested?: unknown): string {
   return (allowed[0] ?? bffOrigin(request)).replace(/\/+$/, '')
 }
 
-function validateReturnTarget(request: Request, requested: unknown, baseOrigin = frontendOrigin(request)): string {
+function validateReturnTarget(
+  request: Request,
+  requested: unknown,
+  baseOrigin = frontendOrigin(request),
+): string {
   if (
     typeof requested !== 'string' ||
     requested.length === 0 ||
@@ -130,7 +134,12 @@ function validateReturnTarget(request: Request, requested: unknown, baseOrigin =
   return target.length <= RETURN_TO_MAX_LENGTH ? target : DEFAULT_RETURN_TO
 }
 
-function encodeReturnMetadata(provider: string, state: string, target: string, origin: string): string {
+function encodeReturnMetadata(
+  provider: string,
+  state: string,
+  target: string,
+  origin: string,
+): string {
   return `${provider}:${state}:${Buffer.from(origin, 'utf8').toString('base64url')}:${Buffer.from(target, 'utf8').toString('base64url')}`
 }
 
@@ -141,7 +150,6 @@ function redirectUri(request: Request, provider: string): string {
 function redirectTo(target: string): Response {
   return new Response(null, { status: 302, headers: { location: target } })
 }
-
 
 function redirectOrigin(request: Request, origin?: string): string {
   return origin && config.auth.frontendOrigins.includes(origin) ? origin : frontendOrigin(request)
@@ -415,7 +423,13 @@ export const oauthRoutes = new Elysia()
         throw error
       }
       if ('registrationClosed' in result) {
-        return failureRedirect(request, returnTarget, 'registration_closed', referralCode, returnOrigin)
+        return failureRedirect(
+          request,
+          returnTarget,
+          'registration_closed',
+          referralCode,
+          returnOrigin,
+        )
       }
 
       await reclaimSwitchedAccount(cookie[USER_SESSION_COOKIE]?.value, result.user.id)

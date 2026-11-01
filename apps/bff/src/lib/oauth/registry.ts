@@ -27,7 +27,10 @@ function validateDefinition(definition: OAuthProviderDefinition): void {
   if (typeof definition.defaultScope !== 'string' || !definition.defaultScope.trim()) {
     throw new Error(`invalid OAuth provider scope: ${definition.id}`)
   }
-  if (typeof definition.authorizeUrl !== 'function' || typeof definition.resolveIdentity !== 'function') {
+  if (
+    typeof definition.authorizeUrl !== 'function' ||
+    typeof definition.resolveIdentity !== 'function'
+  ) {
     throw new Error(`invalid OAuth provider implementation: ${definition.id}`)
   }
 }

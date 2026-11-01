@@ -1,16 +1,15 @@
 import { type OAuthProviderView } from '@image-playground/shared'
 import { config } from '../../config'
 import { googleProvider } from './google'
+import type { OAuthCredentials, OAuthProviderDefinition } from './provider'
 import {
   getOAuthProviderDefinition,
   listOAuthProviderDefinitions,
   registerOAuthProviders,
 } from './registry'
-import type { OAuthCredentials, OAuthProviderDefinition } from './provider'
 
-export type { OAuthIdentity } from './provider'
+export type { OAuthIdentity, OAuthProviderDefinition } from './provider'
 export { OAuthExchangeError } from './provider'
-export type { OAuthProviderDefinition } from './provider'
 export { registerOAuthProviders } from './registry'
 
 registerOAuthProviders([googleProvider])
@@ -37,7 +36,6 @@ export function enabledOAuthProviders(): OAuthProviderView[] {
     .filter((definition) => resolveOAuthProvider(definition.id) !== null)
     .map((definition) => ({ id: definition.id, label: definition.label }))
 }
-
 
 let fetchImpl: typeof fetch = globalThis.fetch
 

@@ -17,8 +17,8 @@ import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { askChatModel } from '../chatCompletion'
 import { log } from '../logger'
-import { modelUnavailable, refreshInactiveModels } from '../model-availability'
 import { meteringDecisionOrDenied } from '../metering-decision'
+import { modelUnavailable, refreshInactiveModels } from '../model-availability'
 import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { isObject } from '../type-guards'
@@ -366,15 +366,17 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       let unmetered = false
       let pricing: ChatTaskPricing | null = null
       if (userId) {
-        const decision = meteringDecisionOrDenied(await overlay.taskHooks.meteringDecision?.({
-          tx,
-          userId,
-          model: selectedModel,
-          kind: 'chat',
-          quantity: 1,
-          unitMultiplier: 1,
-          inputEstimateTokens: withNote.estimatedInputTokens,
-        }))
+        const decision = meteringDecisionOrDenied(
+          await overlay.taskHooks.meteringDecision?.({
+            tx,
+            userId,
+            model: selectedModel,
+            kind: 'chat',
+            quantity: 1,
+            unitMultiplier: 1,
+            inputEstimateTokens: withNote.estimatedInputTokens,
+          }),
+        )
         if (decision?.kind === 'denied')
           throw new TurnStartRollback({ kind: 'access_denied', reason: decision.reason })
         unmetered = decision?.kind === 'unmetered'
@@ -421,7 +423,10 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         try {
           pricing = await chatTaskPricing(overlay.taskHooks, selectedModel)
         } catch (err) {
-          log.warn({ event: 'agent.chat_waiver_pricing_failed', turnId, err }, 'chat waiver pricing unavailable')
+          log.warn(
+            { event: 'agent.chat_waiver_pricing_failed', turnId, err },
+            'chat waiver pricing unavailable',
+          )
         }
       }
       // 说明进了这一轮（或本来就没有说明）才取走那几条唤醒；被丢掉时它们留在收件箱里，
