@@ -49,7 +49,10 @@ function NodeRunCard({ runKey, proposal, wakeSkipped }: AgentNodeRunCardProps) {
   } = useSyncExternalStore(view.subscribe, view.getSnapshot)
   const jobs = run?.jobs ?? plan?.jobs
   const credits = run?.credits ?? plan?.credits ?? proposal.estimatedCredits
-  const metering = usePrivateSubmissionGuard({ model: jobs?.[0]?.model ?? '', quantity: 1 }).metering
+  const metering = usePrivateSubmissionGuard({
+    model: jobs?.[0]?.model ?? '',
+    quantity: 1,
+  }).metering
   const submitted = authorization?.attempts.some((attempt) => attempt.taskIds.length > 0)
   const status = authorization?.status ?? proposal.status
   const statusLabels: Record<StageAuthorization['status'], string> = {
