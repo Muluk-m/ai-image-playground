@@ -33,6 +33,7 @@ import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './im
 import { modelUnavailable } from './model-availability'
 import { objectStore } from './objectStore'
 import { meteringDecisionOrDenied } from './metering-decision'
+import { type BffTransaction, loadPrivateBffOverlay } from './private-overlay'
 import { reserveProjectOutputs } from './projectArchive'
 import { lockMediaOwner } from './projectMedia'
 import { publicTaskErrorMessage } from './public-task-error'
