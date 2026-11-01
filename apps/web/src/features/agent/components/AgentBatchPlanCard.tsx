@@ -18,8 +18,8 @@ import { useTranslation } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
 import { modelLabel } from '../../../lib/channels/publicChannels'
 import { getDeviceId } from '../../../lib/deviceId'
-import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
+import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
 import { CARD, CARD_CONTROL, CARD_NOTE, CARD_TEXT } from '../agentStyles'
 import {
@@ -78,10 +78,18 @@ function hasActiveWork(page: AgentBatchPage | null): boolean {
   )
 }
 
-function Estimate({ value, metering }: { value: AgentBatchEstimate; metering?: 'credits' | 'none' }) {
+function Estimate({
+  value,
+  metering,
+}: {
+  value: AgentBatchEstimate
+  metering?: 'credits' | 'none'
+}) {
   const { t } = useTranslation('agent')
   return value.status === 'available' ? (
-    metering === 'none' ? null : <Credits credits={value.estimatedChargeCredits} />
+    metering === 'none' ? null : (
+      <Credits credits={value.estimatedChargeCredits} />
+    )
   ) : (
     <span>{t('batch.unavailable')}</span>
   )
@@ -645,7 +653,11 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           <div className="grid gap-1">
             <span>{t('batch.attempt', { number: item.execution.attempt })}</span>
             <AgentBatchItemStatus execution={item.execution} />
-            <AgentBatchItemResult execution={item.execution} inputs={item.inputs} metering={metering} />
+            <AgentBatchItemResult
+              execution={item.execution}
+              inputs={item.inputs}
+              metering={metering}
+            />
           </div>
         )}
         {item.attempts?.some((attempt) => attempt.attempt !== item.execution?.attempt) ? (
@@ -658,7 +670,11 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                   <div key={attempt.attempt} className="grid gap-1">
                     <span>{t('batch.attempt', { number: attempt.attempt })}</span>
                     <AgentBatchItemStatus execution={attempt} />
-                    <AgentBatchItemResult execution={attempt} inputs={item.inputs} metering={metering} />
+                    <AgentBatchItemResult
+                      execution={attempt}
+                      inputs={item.inputs}
+                      metering={metering}
+                    />
                   </div>
                 ))}
             </div>
@@ -1070,23 +1086,26 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       <div className="grid gap-1 text-xs text-muted-foreground">
         {(metering !== 'none' || page.batch.estimate.analysis.status !== 'available') &&
           (!confirmationKeys?.length || hasAnalysis) && (
-          <div className="flex justify-between">
-            <span>
-              {page.batch.retryItemKeys?.length
-                ? t('batch.analysisRetryCost')
-                : t('batch.analysisCost')}
-            </span>
-            <Estimate value={page.batch.estimate.analysis} metering={metering} />
-          </div>
-        )}
-        {(metering !== 'none' || page.batch.estimate.generation.status !== 'available') && hasGeneration && (
-          <div className="flex justify-between">
-            <span>
-              {page.batch.retryItemKeys?.length ? t('batch.retryCost') : t('batch.generationCost')}
-            </span>
-            <Estimate value={page.batch.estimate.generation} metering={metering} />
-          </div>
-        )}
+            <div className="flex justify-between">
+              <span>
+                {page.batch.retryItemKeys?.length
+                  ? t('batch.analysisRetryCost')
+                  : t('batch.analysisCost')}
+              </span>
+              <Estimate value={page.batch.estimate.analysis} metering={metering} />
+            </div>
+          )}
+        {(metering !== 'none' || page.batch.estimate.generation.status !== 'available') &&
+          hasGeneration && (
+            <div className="flex justify-between">
+              <span>
+                {page.batch.retryItemKeys?.length
+                  ? t('batch.retryCost')
+                  : t('batch.generationCost')}
+              </span>
+              <Estimate value={page.batch.estimate.generation} metering={metering} />
+            </div>
+          )}
         {metering !== 'none' &&
           typeof page.batch.actualCredits === 'number' &&
           page.batch.status !== 'draft' && (
