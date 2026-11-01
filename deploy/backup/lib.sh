@@ -138,8 +138,10 @@ catch_up() {
     mkdir -p "$(dirname "$marker")"
     printf '%s\n' "${latest#* }" >"$marker"
   fi
-  # Hourly cloud backups; no periodic replication or restore to the standby database.
-  run_if_stale backup "${prefix}pg/" .dump.sha256 3600 backup.sh
+  # Hourly cloud backups; no periodic replication or restore to the standby database. The threshold
+  # is half the interval on purpose: a deploy that replaces this container between :00 and the end of
+  # a run kills that run, and waiting the full hour would leave the newest dump two hours old.
+  run_if_stale backup "${prefix}pg/" .dump.sha256 1800 backup.sh
   # The drill is due weekly; eight days leaves room for a Sunday run that is still in flight.
   # A failed one is retried once it is PG_DRILL_RETRY_AFTER_SECONDS old (default 6 hours).
   retry_after=${PG_DRILL_RETRY_AFTER_SECONDS:-21600}

@@ -529,7 +529,7 @@ describe('运维看板', () => {
     expect(within(backup).queryByRole('list', { name: '需要处理' })).toBeNull()
   })
 
-  it('超过 2 小时没有新备份就报警', () => {
+  it('超过告警线没有新备份就报警', () => {
     render(
       <OpsBoard
         snapshot={snapshot({
