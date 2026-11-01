@@ -457,6 +457,7 @@ export class BatchPlanError extends Error {
       | 'batch_size_exceeded'
       | 'batch_source_limit_exceeded'
       | 'batch_source_version_conflict'
+      | 'batch_version_conflict'
       | 'batch_price_changed'
       | 'batch_submission_refused'
       | 'quota_exceeded'
@@ -465,7 +466,7 @@ export class BatchPlanError extends Error {
       | 'invalid_batch_plan'
       | 'invalid_batch_cursor'
       | 'batch_not_found',
-    readonly status: 400 | 404 | 409 | 422,
+    readonly status: 400 | 404 | 409 | 422 | 429,
   ) {
     super(code === 'batch_execution_unavailable' ? BATCH_EXECUTION_UNAVAILABLE_MESSAGE : code)
   }

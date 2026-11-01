@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from 'bun:test'
+import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { SERVER_IDLE_TIMEOUT_SEC } from '@image-playground/shared'
 
@@ -32,7 +33,8 @@ function reserveFreePort(): number {
 }
 
 const port = reserveFreePort()
-const server = Bun.spawn(['bun', 'run', 'src/index.ts'], {
+const server = Bun.spawn([process.execPath, '--no-env-file', resolve(import.meta.dir, '../../index.ts')], {
+  cwd: resolve(import.meta.dir, '../../..'),
   env: {
     ...process.env,
     PORT: String(port),

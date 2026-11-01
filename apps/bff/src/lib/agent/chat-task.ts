@@ -58,8 +58,9 @@ export interface ReserveChatTaskInput {
 export async function chatTaskPricing(
   taskHooks: PrivateTaskHooks,
   model: string,
+  tx?: BffTransaction,
 ): Promise<ChatTaskPricing> {
-  return (await taskHooks.chatPricing(model)) ?? FALLBACK_CHAT_PRICING
+  return (await taskHooks.chatPricing(model, tx)) ?? FALLBACK_CHAT_PRICING
 }
 
 /**

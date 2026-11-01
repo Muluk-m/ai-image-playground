@@ -444,7 +444,7 @@ describe('生成改为后台任务', () => {
     expect((await readJobs(conversationId))[0]!.result.status).toBe('submitted')
   })
 
-  it('stopping a turn cancels and refunds the jobs it submitted, once, and keeps finished ones charged', async () => {
+  it('stopping a turn cancels its unmetered jobs without financial settlement and keeps finished jobs', async () => {
     const calls: AgentCall[] = []
     const reply = controlledCompletion()
     let at = 0
@@ -476,7 +476,7 @@ describe('生成改为后台任务', () => {
     expect(tasks).toHaveLength(2)
     const done = tasks.find((task) => task.client_request_id?.endsWith(':call-1'))
     const running = tasks.find((task) => task.client_request_id?.endsWith(':call-2'))
-    // 第一张在中止前已经出完：照常扣费，不退。
+    // 已完成的任务不受中止影响；当前部署不计费。
     await finishTask(done!.id, 'completed')
     await finishTask(running!.id, 'in_progress')
     // 别的会话里不相干的任务不受影响。
@@ -512,8 +512,7 @@ describe('生成改为后台任务', () => {
     expect(await status(done!.id)).toBe('completed')
     expect(await status(running!.id)).toBe('cancelled')
     expect(await status(other!.id)).toBe('queued')
-    // 退款只发生一次：停止接口取消一次，轮收尾再扫一遍是空操作。
-    expect(finalized).toEqual([{ taskId: running!.id, outcome: 'cancelled' }])
+    expect(finalized).toEqual([])
     const jobs = await readJobs(conversationId)
     // 任务卡读到的就是「已取消」（failed + cancelled），与单独取消一条任务同一份结果。
     expect(jobs.find((job) => job.result.job?.taskId === running!.id)?.result).toMatchObject({
@@ -521,12 +520,12 @@ describe('生成改为后台任务', () => {
       errorCode: 'cancelled',
     })
 
-    // 重发停止（上一次的响应丢了）：不会再取消、再退一次。
+    // 重发停止不会产生账务操作。
     await request(`/api/agent/conversations/${conversationId}/turns/${turnId}/abort`, {
       method: 'POST',
       body: { deviceId: DEVICE },
     })
-    expect(finalized).toHaveLength(1)
+    expect(finalized).toEqual([])
   })
 
   it('a turn aborted for any reason other than the user stop (e.g. lost lease) leaves its jobs running and charged', async () => {
@@ -687,7 +686,7 @@ describe('后台任务的进度与取消', () => {
     expect(eventsOfType(replay, 'toolStart')[0]!.startedAt).toBe(start!.startedAt)
   })
 
-  it('cancels one job on request, refunds it and shows the cancelled outcome everywhere', async () => {
+  it('cancels an unmetered job without financial settlement and shows the outcome everywhere', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch([], [() => generateCall(), () => completionStream('已开始')]),
     )
@@ -709,7 +708,7 @@ describe('后台任务的进度与取消', () => {
 
     const [after] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, task.id))
     expect(after!.status).toBe('cancelled')
-    expect(finalized).toEqual([{ taskId: task.id, outcome: 'cancelled' }])
+    expect(finalized).toEqual([])
 
     // 换一台设备、刷新之后读到的是同一个结局。
     const [listed] = await readJobs(conversationId)
@@ -717,13 +716,13 @@ describe('后台任务的进度与取消', () => {
     const snapshot = await readMessages(conversationId)
     expect(snapshot.find((message) => message.id === end!.messageId)?.content).toEqual([job.result])
 
-    // 再点一次（或另一台设备同时点）不会再退一次。
+    // 再点一次也不会产生账务操作。
     const again = await cancelJob(conversationId, task.id)
     expect(again.status).toBe(200)
     expect(((await again.json()) as AgentBackgroundJobCancelResponse).job.result).toEqual(
       job.result,
     )
-    expect(finalized).toHaveLength(1)
+    expect(finalized).toEqual([])
   })
 
   it('leaves a finished job alone when cancelled late', async () => {
@@ -740,8 +739,8 @@ describe('后台任务的进度与取消', () => {
     expect(response.status).toBe(200)
     const { job } = (await response.json()) as AgentBackgroundJobCancelResponse
     expect(job.result.status).toBe('succeeded')
-    // 收尾早已由 worker 结算过一次；晚到的取消不再结算，也不把它改成取消。
-    expect(finalized).toEqual([{ taskId: task.id, outcome: 'completed' }])
+    // 免费部署没有预扣，完成和晚到的取消都不触发账务结算。
+    expect(finalized).toEqual([])
   })
 
   it('refuses to cancel tasks that are not a job of this conversation', async () => {

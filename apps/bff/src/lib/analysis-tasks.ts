@@ -141,6 +141,7 @@ export async function quoteAnalysisTask(
   if (decision?.kind === 'unmetered')
     return {
       estimatedCredits: 0,
+      accountUnmetered: true,
       pricing: nonBillingPriceSnapshot({
         model: input.model,
         kind: 'analysis',
@@ -153,6 +154,7 @@ export async function quoteAnalysisTask(
   if (!isCapabilityEnabled('billing:credits'))
     return {
       estimatedCredits: 0,
+      accountUnmetered: false,
       pricing: nonBillingPriceSnapshot({
         model: input.model,
         kind: 'analysis',
@@ -162,7 +164,8 @@ export async function quoteAnalysisTask(
         outputReserveTokens: config.agent.maxTokens,
       }),
     }
-  return activeHooks.quoteTokenTask?.(input) ?? null
+  const quote = await activeHooks.quoteTokenTask?.(input)
+  return quote ? { ...quote, accountUnmetered: false } : null
 }
 
 export type AnalysisReservationResult =
@@ -193,6 +196,9 @@ export async function reserveAnalysisTask(
   )
   if (!current || current.pricing.pricingVersion !== pricing.pricingVersion)
     throw new Error('analysis_quote_changed')
+  const accountUnmetered = current.accountUnmetered === true
+  const deploymentFree = pricing.exemption === 'non-billing'
+  const noCredits = accountUnmetered || deploymentFree
   await lockMediaOwner(tx, input.userId)
   const mediaIds = [
     ...new Set(
@@ -217,7 +223,6 @@ export async function reserveAnalysisTask(
     return { kind: 'price_unavailable' as const, model: prepared.model }
   }
   const now = Date.now()
-  const unmetered = pricing.exemption === 'non-billing'
   await tx.insert(schema.tasks).values({
     id: input.taskId,
     kind: 'analysis',
@@ -227,18 +232,18 @@ export async function reserveAnalysisTask(
     reconciliation_required: true,
     request_payload: { prompt: '', device_id: input.deviceId },
     metering: {
-      mode: unmetered ? 'none' : 'credits',
+      mode: noCredits ? 'none' : 'credits',
       model: prepared.model,
       quantity: pricing.quantity,
       unitMultiplier: pricing.unitMultiplier,
-      ...(unmetered ? {} : { pricing }),
+      ...(noCredits ? {} : { pricing }),
     },
     user_id: input.userId,
     agent_conversation_id: input.originConversationId,
     agent_turn_id: null,
     submitted_at: now,
   })
-  if (unmetered && taskHooks.consumeUnmeteredQuota) {
+  if (accountUnmetered && taskHooks.consumeUnmeteredQuota) {
     const quota = await taskHooks.consumeUnmeteredQuota({
       tx,
       userId: input.userId,

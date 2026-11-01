@@ -64,7 +64,9 @@ async function insertTask(
     provider: 'openai-compat',
     model: 'gpt-image-2',
     status,
-    ...(meteringMode ? { metering: { mode: meteringMode, model: 'gpt-image-2' } } : {}),
+    ...(meteringMode
+      ? { metering: { mode: meteringMode, model: 'gpt-image-2', quantity: 1, unitMultiplier: 1 } }
+      : {}),
     ...(status === 'in_progress'
       ? { execution_token: SETTLEMENT_TOKEN, lease_expires_at: Date.now() + 60_000 }
       : {}),
