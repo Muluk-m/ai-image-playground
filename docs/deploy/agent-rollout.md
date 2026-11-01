@@ -148,6 +148,8 @@ channels.json 声明了并发上限的模型（如 Vertex 的三个）不受它�
 并发照旧在后面把关。按测试环境 → 内部站 → 收费站逐个放开，例如 `"agent:turn-model-parallelism": 3`；
 放开后看上游 429 与重试有没有变多，出问题改回 1 再 `app-compose.sh up` 即可，不用回滚发版。
 旧版本不认识这个键会拒绝启动，**只能在包含它的版本上线之后再写进配置**。
+它管不到账号并发：没有订阅的账号并发上限是 1（套餐的 `max_concurrent_tasks`），同一时间只跑一张，
+配多大都看不到并行；只有套餐并发上限大于 1 的会员才会受益。在测试环境验证并行时，要用有这类套餐的账号。
 
 ### 联网工具没有开关
 
@@ -191,6 +193,17 @@ cd <checkout> && ./scripts/app-compose.sh up <project>
 ```
 
 这只是带着新 env 重建容器，**不换镜像**。想连代码一起升级才用 `scripts/vps-deploy.sh`。
+
+**镜像没变时 `up` 不会重建 bff / worker。** 按发布目录管理的部署（`releases/current` 存在）走 `rollout-runtime.sh`，
+发现新旧都是同一个镜像就只输出 `Already serving …`，核对附属服务后返回，执行器照旧在跑，**改过的
+`app.env` / `operator-config.json` 都没被读进去**（2026-10-31 测试环境实测）。`operator-config.json` 是目录挂载，
+文件改了容器里看得到，但 BFF 只在启动时读一次。这时要让新配置生效，二选一：
+
+- 等下一次带新镜像的发布，新执行器启动时读到；
+- 先确认没有在途任务（`tasks` 里没有 `queued` / `in_progress`），再 `docker restart` 当前的 `<project>-r…-bff` 和
+  `<project>-r…-worker`。生产上重启容器要 Nain 批准（见[发布手册](../agents/release.md)）。
+
+改完用下面的 `/api/capabilities` 核对是否真的生效，不要只看命令退出码。
 
 `app.env` 是 compose 的 `env_file`，整份注入容器；改完必须重建，`restart` 不重读。
 
