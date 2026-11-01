@@ -135,6 +135,7 @@ export async function quoteAnalysisTask(
       unitMultiplier: 1,
       inputEstimateTokens: input.estimatedInputTokens,
     }),
+    activeHooks.consumeUnmeteredQuota,
   )
   if (decision?.kind === 'denied') return null
   if (decision?.kind === 'unmetered')

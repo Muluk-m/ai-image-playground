@@ -440,6 +440,7 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
           quantity: pricing.quantity,
           unitMultiplier: pricing.unitMultiplier,
         }),
+        taskHooks.consumeUnmeteredQuota,
       )
       if (decision?.kind === 'denied')
         return { kind: 'metering_denied' as const, reason: decision.reason }

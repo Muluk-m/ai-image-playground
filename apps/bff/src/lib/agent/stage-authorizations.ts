@@ -229,6 +229,7 @@ async function quote(
       quantity: input.quantity,
       unitMultiplier: input.unitMultiplier,
     }),
+    hooks.consumeUnmeteredQuota,
   )
   if (decision?.kind === 'denied')
     throw new StageAuthorizationError('stage_authorization_price_unavailable', 422)

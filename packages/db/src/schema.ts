@@ -1449,6 +1449,7 @@ export const agent_batches = pgTable(
     pause_reason: text('pause_reason').$type<
       | 'price_changed'
       | 'insufficient_credits'
+      | 'quota_exceeded'
       | 'input_limit'
       | 'upstream_auth'
       | 'model_unavailable'
