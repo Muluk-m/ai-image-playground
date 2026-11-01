@@ -603,11 +603,12 @@ describe('开不了轮', () => {
 })
 describe('unmetered chat preparation', () => {
   it('consumes the message without pricing or creating a chat task', async () => {
-    await useChatQuota('none')
-    const conversation = await createAgentConversation(USER, '你好')
-  it('consumes the message without pricing or creating a chat task', async () => {
     billing.pricingError = new Error('pricing must not be consulted')
     await useChatQuota('none')
+    const conversation = await createAgentConversation(USER, '你好')
+    const source = await queuedMessage(conversation.id, '免费聊一句')
+
+    const { prepared } = await prepare(conversation.id, source)
 
     expect(prepared.kind).toBe('prepared')
     expect(preparedTurn(prepared).settle).toBeUndefined()
