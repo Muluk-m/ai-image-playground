@@ -270,7 +270,12 @@ export async function setOperatorConfig(input: {
   if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0)
     throw new OperatorConfigError(400, 'revision_required')
   const reason = normalizeReason(input.reason)
-  if (!isValue(metadata, input.value)) throw new OperatorConfigError(400, 'value_out_of_range')
+  if (!isValue(metadata, input.value)) {
+    throw new OperatorConfigError(400, 'value_out_of_range', {
+      min: metadata.min ?? 0,
+      max: metadata.max ?? Number.MAX_SAFE_INTEGER,
+    })
+  }
   const overrideValue = input.value as OperatorOverrideValue
   const now = Date.now()
   const result = await db.transaction(async (tx) => {
@@ -433,7 +438,20 @@ async function refreshOperatorConfigUnlocked(): Promise<number> {
       else quotas[row.key as QuotaKey] = row.value as number
     }
     try {
-      setEffectiveOperatorConfig(validateOperatorConfigValues(base, capabilities, quotas))
+      const effective = validateOperatorConfigValues(base, capabilities, quotas)
+      const forcedOff = [...accepted.values()].find(
+        (row) => valueFor(effective, row.key) !== row.value,
+      )
+      if (forcedOff) {
+        accepted.delete(forcedOff.key)
+        invalidOverrideReasons.set(forcedOff.key, 'invalid_combination')
+        log.error(
+          { event: 'operator_config.invalid_override', key: forcedOff.key },
+          'ignoring operator override forced off by derived configuration',
+        )
+        continue
+      }
+      setEffectiveOperatorConfig(effective)
       break
     } catch (error) {
       const invalid = accepted.keys().next().value as string | undefined
