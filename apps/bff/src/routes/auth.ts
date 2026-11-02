@@ -101,7 +101,8 @@ export const userAuthRoutes = new Elysia()
   .post(
     '/api/auth/register/verification',
     async ({ body, request, server, status }) => {
-      if (!registrationEntryAllowed(request)) return status(403, { error: 'login_method_unavailable' })
+      if (!registrationEntryAllowed(request))
+        return status(403, { error: 'login_method_unavailable' })
       if (
         !isCapabilityEnabled('accounts:self-register') ||
         !isCapabilityEnabled('accounts:email-verification')
@@ -140,7 +141,8 @@ export const userAuthRoutes = new Elysia()
       if (!isCapabilityEnabled('accounts:self-register')) {
         return capabilityUnavailable('accounts:self-register')
       }
-      if (!registrationEntryAllowed(request)) return status(403, { error: 'login_method_unavailable' })
+      if (!registrationEntryAllowed(request))
+        return status(403, { error: 'login_method_unavailable' })
       // 自助注册只收邮箱；纯用户名只留给管理员建号。格式不对不计入限流失败次数。
       if (!isValidEmailAddress(body.username)) {
         return status(400, { error: 'invalid_username' })

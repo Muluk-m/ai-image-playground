@@ -4,8 +4,8 @@ import { setSignedIn } from '../../auth/loginPrompt'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
   authenticatedBffFetch,
-  fetchOAuthProviders,
   fetchLoginOptions,
+  fetchOAuthProviders,
   getCurrentUser,
   loginUser,
   logoutUser,
@@ -375,11 +375,22 @@ describe('auth client', () => {
 
   it('preserves provider-only policy and rejects absent policy instead of enabling forms', async () => {
     vi.stubGlobal('window', { location: { origin: 'https://studio.example.com' } })
-    const options = { providers: [{ id: 'enterprise', label: 'Enterprise' }], loginMethods: { password: false, registration: false } }
-    vi.stubGlobal('fetch', vi.fn(async () => Response.json(options)))
+    const options = {
+      providers: [{ id: 'enterprise', label: 'Enterprise' }],
+      loginMethods: { password: false, registration: false },
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(options)),
+    )
     await expect(fetchLoginOptions()).resolves.toEqual(options)
-    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toContain('frontend_origin=https%3A%2F%2Fstudio.example.com')
-    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ providers: [] })))
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toContain(
+      'frontend_origin=https%3A%2F%2Fstudio.example.com',
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ providers: [] })),
+    )
     await expect(fetchLoginOptions()).rejects.toThrow('invalid_login_options')
   })
 
