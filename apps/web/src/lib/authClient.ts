@@ -218,8 +218,10 @@ export interface CliConnectionSummary {
 export async function fetchCliConnections(signal?: AbortSignal): Promise<CliConnectionSummary[]> {
   const res = await authenticatedBffFetch(bffUrl('/api/me/cli-connections'), { signal })
   if (!res.ok) throw await parseError(res)
-  const body: { connections: CliConnectionSummary[] } = await res.json()
-  return body.connections
+  const body = (await res.json()) as { connections?: unknown } | null
+  // 响应体不是数组时按加载失败处理，避免账户页读取 .length 时整页白屏。
+  if (!Array.isArray(body?.connections)) throw new AuthRequestError(res.status, 'invalid_response')
+  return body.connections as CliConnectionSummary[]
 }
 
 export async function revokeCliConnection(id: string, signal?: AbortSignal): Promise<void> {
