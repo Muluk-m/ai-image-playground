@@ -103,7 +103,9 @@ it('denies 4K by default when the private billing hook is missing', async () => 
 })
 it('ignores a strict flag supplied inside a website request body', async () => {
   const outcome = await createQueueTask({
-    provider: 'openai-compat', model: 'gpt-image-2.5-flare', userId: null,
+    provider: 'openai-compat',
+    model: 'gpt-image-2.5-flare',
+    userId: null,
     request: { ...request({ input_images: undefined }), ...{ strict_image_request: true } },
   })
   expect(outcome.kind).toBe('created')

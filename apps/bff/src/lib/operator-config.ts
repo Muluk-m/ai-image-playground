@@ -324,9 +324,7 @@ export function assertOperatorRuntimePrerequisites(
   }
   if (capabilities['accounts:email-verification']) {
     if (!capabilities['accounts:self-register']) {
-      throw new Error(
-        'accounts:email-verification requires the accounts:self-register capability',
-      )
+      throw new Error('accounts:email-verification requires the accounts:self-register capability')
     }
     if (!runtime.email.resendApiKey) throw new Error('Missing env: RESEND_API_KEY')
     if (!runtime.email.from) throw new Error('Missing env: EMAIL_FROM')

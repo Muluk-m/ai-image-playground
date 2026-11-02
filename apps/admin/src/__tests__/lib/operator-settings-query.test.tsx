@@ -11,14 +11,17 @@ it('keeps a saved operator revision when an older refresh arrives later', async 
   let finishRefresh = false
   let refreshStarted = false
   let requests = 0
-  vi.stubGlobal('fetch', vi.fn(async () => {
-    requests++
-    if (requests > 1) {
-      refreshStarted = true
-      await waitFor(() => expect(finishRefresh).toBe(true))
-    }
-    return Response.json({ revision: 3, settings: [] })
-  }))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      requests++
+      if (requests > 1) {
+        refreshStarted = true
+        await waitFor(() => expect(finishRefresh).toBe(true))
+      }
+      return Response.json({ revision: 3, settings: [] })
+    }),
+  )
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const { result, unmount } = renderHook(() => useOperatorSettings(), {
     wrapper: ({ children }: { children: ReactNode }) => (
@@ -28,7 +31,9 @@ it('keeps a saved operator revision when an older refresh arrives later', async 
   try {
     await waitFor(() => expect(result.current.data?.revision).toBe(3))
     let refresh: Promise<unknown> | undefined
-    act(() => { refresh = result.current.refetch() })
+    act(() => {
+      refresh = result.current.refetch()
+    })
     await waitFor(() => expect(refreshStarted).toBe(true))
     act(() => client.setQueryData(operatorSettingsQueryKey, { revision: 4, settings: [] }))
     await act(async () => {

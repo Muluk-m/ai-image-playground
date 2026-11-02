@@ -35,9 +35,13 @@ afterEach(() => {
 })
 
 it('strips strict execution metadata instead of sending it to an upstream', async () => {
-  expect(await hydrateInputImages({
-    prompt: 'premium image', size: '2048x2048', strict_image_request: true,
-  })).toEqual({ prompt: 'premium image', size: '2048x2048' })
+  expect(
+    await hydrateInputImages({
+      prompt: 'premium image',
+      size: '2048x2048',
+      strict_image_request: true,
+    }),
+  ).toEqual({ prompt: 'premium image', size: '2048x2048' })
 })
 
 describe('archiveInputImages', () => {

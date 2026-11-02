@@ -59,12 +59,18 @@ function sameValue(a: unknown, b: unknown): boolean {
 type OverrideRow = typeof schema.operator_config_overrides.$inferSelect
 
 async function readSnapshot() {
-  return db.transaction(async (tx) => {
-    const [state] = await tx.select().from(schema.operator_config_state)
-      .where(eq(schema.operator_config_state.id, 1)).limit(1)
-    const rows = await tx.select().from(schema.operator_config_overrides)
-    return { rows, revision: state?.revision ?? 0 }
-  }, { isolationLevel: 'repeatable read', accessMode: 'read only' })
+  return db.transaction(
+    async (tx) => {
+      const [state] = await tx
+        .select()
+        .from(schema.operator_config_state)
+        .where(eq(schema.operator_config_state.id, 1))
+        .limit(1)
+      const rows = await tx.select().from(schema.operator_config_overrides)
+      return { rows, revision: state?.revision ?? 0 }
+    },
+    { isolationLevel: 'repeatable read', accessMode: 'read only' },
+  )
 }
 
 function rowView(
@@ -189,7 +195,8 @@ export async function listOperatorConfig(): Promise<OperatorSettingsResult> {
     rowView(effectiveBase, baselineBase, byKey.get(key), key),
   )
   for (const row of allRows) {
-    if (!Object.hasOwn(OPERATOR_REGISTRY, row.key)) views.push(rowView(effectiveBase, baselineBase, row, row.key))
+    if (!Object.hasOwn(OPERATOR_REGISTRY, row.key))
+      views.push(rowView(effectiveBase, baselineBase, row, row.key))
   }
   const globalRevision = lastLoadedRevision
   return {
@@ -239,7 +246,8 @@ function derive(base: ResolvedOperatorConfig, key: string, value: OperatorOverri
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new OperatorConfigError(409, 'dependency_or_derived_rejected', {
-      rule: message, message,
+      rule: message,
+      message,
     })
   }
 }
@@ -249,13 +257,22 @@ function derive(base: ResolvedOperatorConfig, key: string, value: OperatorOverri
 function resolveRows(base: ResolvedOperatorConfig, rows: OverrideRow[]) {
   let effective = base
   const invalid = new Map<string, string>()
-  let pending = rows.filter((row) => {
-    const entry = Object.hasOwn(OPERATOR_REGISTRY, row.key) ? OPERATOR_REGISTRY[row.key] : undefined
-    const reason = !entry ? 'unknown_key' : entry.editability !== 'hot' ? 'not_hot' :
-      !isValue(entry, row.value) ? 'invalid_value' : undefined
-    if (reason) invalid.set(row.key, reason)
-    return !reason
-  }).sort((a, b) => a.revision - b.revision || a.key.localeCompare(b.key))
+  let pending = rows
+    .filter((row) => {
+      const entry = Object.hasOwn(OPERATOR_REGISTRY, row.key)
+        ? OPERATOR_REGISTRY[row.key]
+        : undefined
+      const reason = !entry
+        ? 'unknown_key'
+        : entry.editability !== 'hot'
+          ? 'not_hot'
+          : !isValue(entry, row.value)
+            ? 'invalid_value'
+            : undefined
+      if (reason) invalid.set(row.key, reason)
+      return !reason
+    })
+    .sort((a, b) => a.revision - b.revision || a.key.localeCompare(b.key))
   while (pending.length) {
     const rejected: OverrideRow[] = []
     for (const row of pending) {
@@ -282,7 +299,9 @@ export async function setOperatorConfig(input: {
   operatorId: string
   reason: unknown
 }): Promise<OperatorOverrideView> {
-  const metadata = Object.hasOwn(OPERATOR_REGISTRY, input.key) ? OPERATOR_REGISTRY[input.key] : undefined
+  const metadata = Object.hasOwn(OPERATOR_REGISTRY, input.key)
+    ? OPERATOR_REGISTRY[input.key]
+    : undefined
   if (!metadata) throw new OperatorConfigError(404, 'unknown_key')
   if (metadata.editability !== 'hot')
     throw new OperatorConfigError(
@@ -370,7 +389,9 @@ export async function clearOperatorConfig(input: {
   operatorId: string
   reason: unknown
 }): Promise<void> {
-  const metadata = Object.hasOwn(OPERATOR_REGISTRY, input.key) ? OPERATOR_REGISTRY[input.key] : undefined
+  const metadata = Object.hasOwn(OPERATOR_REGISTRY, input.key)
+    ? OPERATOR_REGISTRY[input.key]
+    : undefined
   if (!metadata) throw new OperatorConfigError(404, 'unknown_key')
   if (metadata.editability !== 'hot')
     throw new OperatorConfigError(
@@ -446,16 +467,24 @@ async function refreshOperatorConfigUnlocked(): Promise<number> {
   lastLoadedRevision = snapshot.revision
   for (const [key, reason] of invalid) {
     if (reason === 'unknown_key' || previous.get(key) === reason) continue
-    log.error({ event: 'operator_config.invalid_override', key, reason, revision: snapshot.revision },
-      'ignoring invalid operator override; using baseline')
+    log.error(
+      { event: 'operator_config.invalid_override', key, reason, revision: snapshot.revision },
+      'ignoring invalid operator override; using baseline',
+    )
     try {
-      await alertSender([{
-        rule: 'operator-config', kind: 'firing',
-        text: `运营覆盖 ${key} 无效（${reason}），已退回基线配置`,
-        detail: { key, reason, revision: snapshot.revision },
-      }])
+      await alertSender([
+        {
+          rule: 'operator-config',
+          kind: 'firing',
+          text: `运营覆盖 ${key} 无效（${reason}），已退回基线配置`,
+          detail: { key, reason, revision: snapshot.revision },
+        },
+      ])
     } catch (error) {
-      log.error({ event: 'operator_config.alert_failed', err: error }, 'operator config alert failed')
+      log.error(
+        { event: 'operator_config.alert_failed', err: error },
+        'operator config alert failed',
+      )
     }
   }
   return snapshot.revision
@@ -463,12 +492,15 @@ async function refreshOperatorConfigUnlocked(): Promise<number> {
 
 export function refreshOperatorConfig(): Promise<number> {
   // Queue explicit reloads: a writer must not join a refresh begun before its commit.
-  const next = (refreshInFlight ?? Promise.resolve(0)).catch(() => 0)
+  const next = (refreshInFlight ?? Promise.resolve(0))
+    .catch(() => 0)
     .then(refreshOperatorConfigUnlocked)
   refreshInFlight = next
-  void next.finally(() => {
-    if (refreshInFlight === next) refreshInFlight = undefined
-  }).catch(() => {})
+  void next
+    .finally(() => {
+      if (refreshInFlight === next) refreshInFlight = undefined
+    })
+    .catch(() => {})
   return next
 }
 
