@@ -77,14 +77,17 @@ export const useToolboxStore = create<ToolboxState>()((set, get) => ({
       const base = {
         id,
         name: file.name,
-        url: '',
+        url: URL.createObjectURL(file),
         type: file.type,
         size: file.size,
       }
       let item: ToolboxItem
       try {
         const { bitmap, preview } = await decodeToolboxImage(file)
-        base.url = URL.createObjectURL(preview)
+        if (preview !== file) {
+          URL.revokeObjectURL(base.url)
+          base.url = URL.createObjectURL(preview)
+        }
         bitmaps.set(id, bitmap)
         originals.set(id, file)
         item = { ...base, width: bitmap.width, height: bitmap.height, decodable: true }
