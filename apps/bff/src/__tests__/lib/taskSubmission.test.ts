@@ -101,6 +101,17 @@ it('denies 4K by default when the private billing hook is missing', async () => 
   expect((await submit4k()).kind).toBe('private_billing_denied')
   expect(await db.select().from(schema.tasks)).toHaveLength(0)
 })
+it('ignores a strict flag supplied inside a website request body', async () => {
+  const outcome = await createQueueTask({
+    provider: 'openai-compat', model: 'gpt-image-2.5-flare', userId: null,
+    request: { ...request({ input_images: undefined }), ...{ strict_image_request: true } },
+  })
+  expect(outcome.kind).toBe('created')
+  if (outcome.kind !== 'created') throw new Error('expected a website task')
+  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, outcome.taskId))
+  expect(task!.request_payload).not.toHaveProperty('strict_image_request')
+})
+
 afterAll(close)
 
 const AGENT = { conversationId: 'conversation-1', turnId: 'turn-1' } as const

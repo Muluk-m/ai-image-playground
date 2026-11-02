@@ -18,6 +18,7 @@ const FAILURE_MESSAGES: Readonly<Record<string, string>> = {
   upstream_result_unknown: 'The result could not be confirmed; credits were refunded',
   upstream_error: 'The model failed to generate this image; credits were refunded',
   content_policy: 'The request was blocked by the content policy',
+  plan_required: 'The requested image tier is unavailable; credits were refunded',
   model_unavailable: 'The model is not available right now; try another model',
   rate_limited: 'The model is busy; try again later',
   upstream_no_image: 'The model returned no image; credits were refunded',
@@ -174,7 +175,7 @@ async function toJobs(rows: readonly JobRow[], userId: string): Promise<CliJob[]
       ...(status === 'failed'
         ? {
             error: {
-              code: row.error_type ?? 'unknown',
+              code: row.error_type === 'plan_required' ? 'PLAN_REQUIRED' : row.error_type ?? 'unknown',
               message: FAILURE_MESSAGES[row.error_type ?? 'unknown'] ?? FAILURE_MESSAGES.unknown!,
             },
           }

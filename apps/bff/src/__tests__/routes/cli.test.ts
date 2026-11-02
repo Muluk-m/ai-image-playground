@@ -82,6 +82,10 @@ const { _setChannelsForTesting, parseChannelsConfig } = await import('../../lib/
 const { _resetInactiveModelsForTesting } = await import('../../lib/model-availability')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { hashCliSecret } = await import('../../lib/cli/auth')
+// These modules must load after the test database, environment and billing overlay are installed.
+const { runTask } = await import('../../workers/task-runner')
+const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
+const { _resetDirectBudgetCacheForTesting } = await import('../../lib/upstream/gpt-budget')
 
 const CHANNELS = parseChannelsConfig(
   {
@@ -141,9 +145,13 @@ beforeEach(async () => {
   billing.quote = 10
   billing.reservePrice = undefined
   Object.assign(config.gptDirect, { enabled: true })
+  _resetDirectBudgetCacheForTesting()
   billing.reservations.length = 0
   billing.settlements.length = 0
   await db.execute(sql`TRUNCATE cli_test_holds`)
+  await db.delete(schema.scheduler_leases)
+  await db.delete(schema.scheduler_buckets)
+  await db.delete(schema.gpt_direct_usage)
   await db.execute(
     sql`TRUNCATE cli_jobs, cli_reference_media, cli_retired_refresh_tokens, cli_connections, device_authorizations, generation_images, generation_records, generation_commands, tasks, media_objects, user_sessions, operator_audits, users CASCADE`,
   )
@@ -153,6 +161,7 @@ afterEach(() => {
   setObjectStoreForTesting()
   setDurableMediaStoreForTesting()
   _setChannelsForTesting([])
+  setUpstreamFetchForTesting()
 })
 
 afterAll(async () => {
@@ -557,13 +566,43 @@ describe('CLI GPT image pricing', () => {
     expect(created.json.data.request_hash).toBe(preview.json.data.request_hash)
     expect(created.json.data.adjustments).toEqual(preview.json.data.adjustments)
     const [task] = await db.select().from(schema.tasks)
-    expect(task?.request_payload).toMatchObject({ size, quality })
+    expect(task?.request_payload).toMatchObject({ size, quality, strict_image_request: true })
     expect(task?.request_payload.n).toBe(1)
     expect(task?.request_payload.image_size).toBeUndefined()
     expect(billing.reservations).toEqual([
       { taskId: task!.id, model: 'gpt-image-2.5-flare', credits, unitMultiplier: multiplier },
     ])
     expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits }])
+  })
+
+  it.each(['disabled', '503'] as const)('keeps premium CLI intent through worker execution when direct is %s', async (failure) => {
+    const user = await createUser(`gpt-executor-${failure}`)
+    billing.members.add(user.id)
+    const { access_token } = await connect(user)
+    const created = await call('POST', '/v1/image-jobs', {
+      body: imageJob({ model: 'gpt-image-2.5-flare', image_size: '2K' }),
+      headers: bearer(access_token),
+    })
+    expect(created.status).toBe(200)
+    const jobId = created.json.data.job.job_id as string
+    const requests: string[] = []
+    setUpstreamFetchForTesting(async (url) => {
+      requests.push(String(url))
+      return new Response(JSON.stringify({ error: { message: 'unavailable' } }), { status: 503 })
+    })
+    if (failure === 'disabled') Object.assign(config.gptDirect, { enabled: false })
+
+    await runTask(jobId)
+
+    const job = await call('GET', `/v1/jobs/${jobId}`, { headers: bearer(access_token) })
+    expect(job.json.data).toMatchObject({
+      status: 'failed', terminal: true, error: { code: 'PLAN_REQUIRED' },
+    })
+    expect(billing.settlements).toEqual([{ taskId: jobId, outcome: 'failed' }])
+    expect(requests).toHaveLength(failure === 'disabled' ? 0 : 1)
+    expect(requests.every((url) => new URL(url).hostname === 'api.openai.com')).toBe(true)
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, jobId))
+    expect(task).toMatchObject({ error_type: 'plan_required', next_retry_at: null })
   })
 
   it('rejects a zero budget and leaves the denied idempotency key reusable', async () => {
