@@ -2,8 +2,8 @@ import {
   type AuthUserView,
   type LoginMethodsView,
   OAUTH_SESSION_QUERY_PARAM,
-  type OAuthProviderView,
   type OAuthProvidersResponse,
+  type OAuthProviderView,
   USER_SESSION_HINT_COOKIE,
 } from '@image-playground/shared'
 import { accountRequired, isSignedIn } from '../auth/loginPrompt'
