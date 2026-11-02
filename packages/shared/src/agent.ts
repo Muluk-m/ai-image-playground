@@ -429,6 +429,30 @@ export function requestedImageCount(toolCount: unknown, turnCount: unknown): num
 }
 
 /**
+ * 智能体一单最多出几张，按模型收紧（没列出的模型照 `AGENT_IMAGE_MAX_N`）。
+ * Gemini 3.1 Flash Lite Image 在 Vertex 上按「项目 × 基础模型」限到达速率（约每分钟 2 条），
+ * 一单 8 张会在同一个模型上排出 8 条请求，2026-10-29 整单撞 429 失败；先压到 4 张止损。
+ */
+export const AGENT_MODEL_IMAGE_MAX_N: Readonly<Record<string, number>> = {
+  'gemini-3.1-flash-lite-image': 4,
+}
+
+/**
+ * 这个模型智能体一单最多几张（{@link AGENT_MODEL_IMAGE_MAX_N}，没列出的照 `AGENT_IMAGE_MAX_N`）。
+ * 服务端收口与前端「图片生成」张数档共用这一份，两边才不会一个能选 8 张、一个只出 4 张（BUG-91）。
+ */
+export function agentModelImageMax(model: string | undefined): number {
+  return model && Object.prototype.hasOwnProperty.call(AGENT_MODEL_IMAGE_MAX_N, model)
+    ? AGENT_MODEL_IMAGE_MAX_N[model]!
+    : AGENT_IMAGE_MAX_N
+}
+
+/** 把张数收口到这个模型的单笔上限（{@link agentModelImageMax}）。 */
+export function agentModelImageCount(model: string | undefined, count: number): number {
+  return Math.min(count, agentModelImageMax(model))
+}
+
+/**
  * 一轮最多带多少张参考图。多数是画布上圈选的图：它们按 id 发（`AgentMediaReference`），
  * 字节不进请求体；超过 {@link AGENT_TURN_ATTACHED_MEDIA_MAX} 张时模型只拿到清单，
  * 要看内容自己调 viewImage——所以张数不再撑大请求与上下文。与画布批量操作对齐。

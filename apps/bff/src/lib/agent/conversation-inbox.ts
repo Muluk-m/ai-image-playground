@@ -175,7 +175,20 @@ export async function sendToConversationInbox(
     notifyQueued(conversationId, entry.view)
     return { kind: 'queued', entry, runningTurnId: local.turnId }
   }
-  const drained = await drainConversationInbox(conversationId, { quietFor: entry.view.id })
+  let drained: Awaited<ReturnType<typeof drainConversationInbox>>
+  try {
+    drained = await drainConversationInbox(conversationId, { quietFor: entry.view.id })
+  } catch (error) {
+    // 开轮半路抛错（比如保存的模型配置失效）：发送报错，这一条就不该留在队里等一个开不了的轮。
+    // 已被这一轮取走的那条撤不下，撤回只认还排着的；撤回本身失败也不盖住原来的错。
+    await withdrawAgentMessage(conversationId, entry.view.id).catch((withdrawError: unknown) =>
+      log.warn(
+        { err: withdrawError, conversationId, queueId: entry.view.id },
+        'agent.inbox_send_withdraw_failed',
+      ),
+    )
+    throw error
+  }
   if (drained.kind === 'started' && drained.queueId === entry.view.id)
     return { kind: 'started', turn: drained.turn }
   if (drained.kind !== 'not_started' || drained.queueId !== entry.view.id) {

@@ -4,6 +4,7 @@ import { openImageExport } from '../features/image-export/store'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useTranslation } from '../i18n'
 import { taskMatchesStatusFilter } from '../lib/taskStatusFilter'
+import { cn } from '../lib/utils'
 import { removeMultipleTasks, setTaskFavorite, useStore } from '../store'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
 import { Button } from './ui/button'
@@ -13,7 +14,15 @@ import { Icon } from './ui/icon'
  * 选中任务后的批量操作条。生成记录能在生图与作品两个入口里框选，所以它不能挂在输入框上，
  * 那样只有带输入框的那一页才有批量。
  */
-export default function TaskBulkActions() {
+export default function TaskBulkActions({
+  visibleTaskIds,
+  placement = 'composer',
+}: {
+  /** 调用方自己筛过的可见卡片；不给就按创作页的搜索与筛选算。 */
+  visibleTaskIds?: readonly string[]
+  /** 创作页让开底部输入框；资产页没有输入框，贴底显示。 */
+  placement?: 'composer' | 'page'
+} = {}) {
   const { t } = useTranslation('composer')
   const tasks = useHistoryTasks()
   const searchQuery = useStore((s) => s.searchQuery)
@@ -25,7 +34,8 @@ export default function TaskBulkActions() {
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const showToast = useStore((s) => s.showToast)
 
-  const filteredTasks = useMemo(() => {
+  const storeFilteredTasks = useMemo(() => {
+    if (visibleTaskIds) return []
     const sorted = [...tasks].sort((a, b) => b.createdAt - a.createdAt)
     const q = searchQuery.trim().toLowerCase()
     return sorted.filter((task) => {
@@ -34,19 +44,23 @@ export default function TaskBulkActions() {
       if (!q) return true
       return task.prompt.toLowerCase().includes(q)
     })
-  }, [tasks, searchQuery, filterStatus, filterFavorite])
+  }, [tasks, searchQuery, filterStatus, filterFavorite, visibleTaskIds])
+  const visibleIds = useMemo(
+    () => visibleTaskIds ?? storeFilteredTasks.map((task) => task.id),
+    [visibleTaskIds, storeFilteredTasks],
+  )
 
   // 按可见卡片逐一比对：切了筛选后留下的隐藏选中不能凑数成「全选」。
   const allSelected = useMemo(() => {
-    if (!filteredTasks.length) return false
+    if (!visibleIds.length) return false
     const selected = new Set(selectedTaskIds)
-    return filteredTasks.every((task) => selected.has(task.id))
-  }, [filteredTasks, selectedTaskIds])
+    return visibleIds.every((id) => selected.has(id))
+  }, [visibleIds, selectedTaskIds])
 
   const handleSelectAllToggle = useCallback(() => {
     if (allSelected) clearSelection()
-    else setSelectedTaskIds(filteredTasks.map((task) => task.id))
-  }, [allSelected, filteredTasks, clearSelection, setSelectedTaskIds])
+    else setSelectedTaskIds([...visibleIds])
+  }, [allSelected, visibleIds, clearSelection, setSelectedTaskIds])
 
   const handleToggleFavorite = useCallback(() => {
     const selected = tasks.filter((task) => selectedTaskIds.includes(task.id))
@@ -90,7 +104,10 @@ export default function TaskBulkActions() {
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-36 z-30 flex justify-center px-4"
+      className={cn(
+        'pointer-events-none fixed inset-x-0 z-30 flex justify-center px-4',
+        placement === 'page' ? 'bottom-[calc(var(--mobile-nav-height,0px)+1.5rem)]' : 'bottom-36',
+      )}
       style={{ paddingLeft: 'var(--app-sidebar-width)' }}
     >
       <div className="pointer-events-auto flex items-center rounded-full border border-border/50 bg-card/90 p-1 shadow-popover backdrop-blur">

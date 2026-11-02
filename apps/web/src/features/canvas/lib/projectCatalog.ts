@@ -1,4 +1,4 @@
-import type { CloudProjectSummary } from '@image-playground/shared'
+import type { CloudProjectSummary, ProjectTotals } from '@image-playground/shared'
 import { type CanvasProject, projectExperience } from './projectRepository'
 
 /** 旧会话场景保留作本机存档；已有云端对话项目时，目录只显示云端入口。 */
@@ -67,4 +67,47 @@ export function projectsByExperience(
   const groups: Record<'chat' | 'canvas', CanvasProject[]> = { chat: [], canvas: [] }
   for (const project of projects) groups[projectExperience(project)].push(project)
   return groups
+}
+
+/** 服务端已经数进总数的项目：上过云、没删、没被上限拒。没上过云的另算。 */
+function countedByServer(project: CanvasProject | undefined): boolean {
+  return Boolean(
+    project?.cloud &&
+      project.cloud.revision > 0 &&
+      !project.cloud.deleted &&
+      !project.quotaRejected,
+  )
+}
+
+/** 本机删掉、恢复或首次上云的那一项，让服务端总数跟着变，不必再拉一遍第一页。 */
+export function adjustProjectTotals(
+  totals: ProjectTotals,
+  before: CanvasProject | undefined,
+  after: CanvasProject,
+): ProjectTotals {
+  const delta = (project: CanvasProject | undefined, sign: number) =>
+    countedByServer(project) && project
+      ? { all: sign, chat: projectExperience(project) === 'chat' ? sign : 0 }
+      : { all: 0, chat: 0 }
+  const removed = delta(before, -1)
+  const added = delta(after, 1)
+  return {
+    all: Math.max(0, totals.all + removed.all + added.all),
+    chat: Math.max(0, totals.chat + removed.chat + added.chat),
+  }
+}
+
+/**
+ * 页签上的数字。云端只拉了前几页，按服务端总数显示，再加上本机还没上云的；
+ * 搜索时只能数已经拉下来的。
+ */
+export function projectCounts(
+  scoped: readonly CanvasProject[],
+  totals: ProjectTotals | null,
+): Record<'all' | 'chat' | 'canvas', number> {
+  const counted = totals ? scoped.filter((project) => !countedByServer(project)) : scoped
+  const all = (totals?.all ?? 0) + counted.length
+  const chat =
+    (totals?.chat ?? 0) + counted.filter((project) => projectExperience(project) === 'chat').length
+  return { all, chat, canvas: Math.max(0, all - chat) }
 }

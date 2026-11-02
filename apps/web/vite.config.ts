@@ -6,6 +6,7 @@ import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 import { parseCLI } from 'vitest/node'
 import { vitestGuard } from '../../scripts/test-guard'
+import { appPreloadPlugin } from './src/boot/appPreload'
 import { startupGuardPlugin } from './src/boot/vitePlugin'
 import { chunkCycleGuardPlugin, vendorChunk } from './src/lib/buildChunks'
 import { pagesRedirectsPlugin } from './src/lib/pagesRedirects'
@@ -55,6 +56,7 @@ export default defineConfig(() => {
   return {
     plugins: [
       optionalFontsPlugin(),
+      appPreloadPlugin(),
       startupGuardPlugin(),
       react(),
       themeBootPlugin(),

@@ -12,7 +12,10 @@ import type {
 } from '@image-playground/shared'
 import {
   billedStageQuantity,
+  clampGptBasicRequest,
   DEFAULT_IMAGE_MODERATION,
+  gptImageRateMultiplier,
+  imageSizeTier,
   isBlankPrompt,
   QUEUE_TIMEOUTS,
   stageAuthorizedVideoDuration,
@@ -28,6 +31,7 @@ import { consumeStageAuthorization } from './agent/stage-authorizations'
 import { canonicalJson } from './canonicalJson'
 import { isCapabilityEnabled } from './capabilities'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
+import { alignGptRequestToMembership } from './gpt-membership'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
 import { modelUnavailable } from './model-availability'
 import { objectStore } from './objectStore'
@@ -79,6 +83,11 @@ export interface CreateQueueTaskInput {
    * 其他入口（批量套用、智能体等）一批里本就可能有内容相同的几条，不开。
    */
   readonly dedupeRepeats?: true
+  /**
+   * 调用方给的积分上限（CLI 的 `max_credits`）。只在积分计费开着时生效，在建任务和预扣之前
+   * 按同一事务里的报价判断。它是提交的前置条件、不是请求内容，不进命令哈希。
+   */
+  readonly maxCredits?: number
   /** Server-only opt-in; legacy HTTP submissions retain their existing lifecycle. */
   readonly reconciliationRequired?: true
   /**
@@ -96,7 +105,13 @@ export type CreateQueueTaskOutcome =
   | { readonly kind: 'duplicate_submission'; readonly taskId: string }
   | { readonly kind: 'invalid_prompt' }
   | { readonly kind: 'authentication_required' }
+  | { readonly kind: 'private_billing_denied' }
   | { readonly kind: 'insufficient_credits'; readonly required: number; readonly available: number }
+  | {
+      readonly kind: 'max_credits_exceeded'
+      readonly required: number
+      readonly maxCredits: number
+    }
   | { readonly kind: 'price_unavailable'; readonly model: string }
   | { readonly kind: 'quota_exceeded'; readonly quota: QuotaConsumeResult }
   | { readonly kind: 'invalid_input_image'; readonly message: string }
@@ -118,7 +133,13 @@ export async function findTaskByIdempotencyKey(clientRequestId: string, userId: 
  */
 function pricingOf(input: CreateQueueTaskInput) {
   const n = input.request.n ?? 1
-  if (!input.video) return { quantity: n, unitMultiplier: 1, quotaUnits: n }
+  if (!input.video)
+    return {
+      quantity: n,
+      // GPT 直连模型按档位与画质加倍率（带遮罩的只看画质）；其它图片模型恒为 1。
+      unitMultiplier: gptImageRateMultiplier(input.model, input.request),
+      quotaUnits: n,
+    }
   return {
     quantity: billedStageQuantity(input.video.duration_seconds),
     unitMultiplier: videoRateMultiplier(input.model, input.video.resolution),
@@ -317,8 +338,15 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
   }
 }
 
-/** Read, transform and archive image bytes before acquiring caller transaction locks. */
-export async function prepareQueueTask(input: CreateQueueTaskInput) {
+/**
+ * Read, transform and archive image bytes before acquiring caller transaction locks.
+ * 预先准备的入口（批量执行、自动提交、灵感套用）一律按基础档计价执行，见 {@link alignGptSubmission}。
+ */
+export function prepareQueueTask(input: CreateQueueTaskInput) {
+  return prepareAlignedQueueTask(basicGptInput(input))
+}
+
+async function prepareAlignedQueueTask(input: CreateQueueTaskInput) {
   const id = crypto.randomUUID()
   let requestPayload: PersistedSubmitRequest
   try {
@@ -365,8 +393,72 @@ function alignStageSubmission(input: CreateQueueTaskInput): CreateQueueTaskInput
   return { ...input, video: { ...input.video, duration_seconds } }
 }
 
+class MaxCreditsExceeded extends Error {
+  constructor(
+    readonly required: number,
+    readonly maxCredits: number,
+  ) {
+    super('max_credits_exceeded')
+  }
+}
+
+/** 这次请求落在 4K 档：Gemini 看 `image_size`，OpenAI 兼容的按 `size` 的像素数折算。 */
+export function premiumTierRequested(
+  provider: QueueProvider,
+  request: Pick<SubmitRequest, 'image_size' | 'size'>,
+): boolean {
+  if (request.image_size === '4K') return true
+  return provider === 'openai-compat' && !!request.size && imageSizeTier(request.size) === '4K'
+}
+
+/**
+ * 4K 是会员权益，网站与 CLI 共用这一道。没带私有 overlay 的部署一律拒绝（空钩子返回 false）；
+ * 还没实现这个钩子的旧 overlay 维持原状放行，overlay 发布后门禁随 `private.lock` 生效。
+ */
+export async function premiumRequestAllowed(
+  tx: BffTransaction,
+  userId: string,
+  model: string,
+  request: Pick<SubmitRequest, 'image_size' | 'size'>,
+): Promise<boolean> {
+  const { canSubmitTask } = (await loadPrivateBffOverlay()).taskHooks
+  if (!canSubmitTask) return true
+  // image_size 归一成档位：OpenAI 兼容模型只有像素 size，钩子仍按同一个「4K」判断。
+  return canSubmitTask({
+    tx,
+    userId,
+    model,
+    request: { image_size: '4K', ...(request.size ? { size: request.size } : {}) },
+  })
+}
+
+/** GPT 直连模型收到基础档（1K、非高画质）；收法是确定的，重复收结果不变，准备时与提交时的哈希一致。 */
+function basicGptInput(input: CreateQueueTaskInput): CreateQueueTaskInput {
+  if (input.video) return input
+  const request = clampGptBasicRequest(input.model, input.request)
+  return request === input.request ? input : { ...input, request }
+}
+
+/**
+ * GPT 直连模型的 2K/4K/高画质只在创作页直接提交时开给会员（见 gpt-membership.ts），非会员静默收到基础档。
+ * 智能体、阶段授权、调用方自带事务与预先准备的提交一律收到基础档：授权与报价按倍率 1 冻结，
+ * 事务里也不该再去连接池查会员。
+ */
+async function alignGptSubmission(input: CreateQueueTaskInput): Promise<CreateQueueTaskInput> {
+  if (input.video) return input
+  if (input.prepared || input.tx || input.agent || input.stageAuthorization)
+    return basicGptInput(input)
+  const request = await alignGptRequestToMembership(input.model, input.request, input.userId)
+  return request === input.request ? input : { ...input, request }
+}
+
 export async function createQueueTask(raw: CreateQueueTaskInput): Promise<CreateQueueTaskOutcome> {
-  const input = alignStageSubmission(raw)
+  const input = await alignGptSubmission(alignStageSubmission(raw))
+  if (
+    input.maxCredits !== undefined &&
+    (!Number.isFinite(input.maxCredits) || input.maxCredits < 0)
+  )
+    throw new TypeError('maxCredits must be a finite, non-negative number')
   // 只有空白、控制符或零宽字符的提示词和空的一样：所有入口都不建任务，也就不预扣积分。
   if (isBlankPrompt(input.request.prompt)) return { kind: 'invalid_prompt' }
   if (input.reconciliationRequired && input.video)
@@ -385,7 +477,7 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
   }
   const preparation = input.prepared
     ? { kind: 'prepared' as const, prepared: input.prepared }
-    : await prepareQueueTask(input)
+    : await prepareAlignedQueueTask(input)
   if (preparation.kind !== 'prepared') return preparation
   const { taskId: id, requestPayload, requestHash } = preparation.prepared
   if (requestHash !== hash) throw new TypeError('prepared_queue_request_mismatch')
@@ -409,6 +501,27 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
     }
     if (await modelUnavailable(tx, input.model)) {
       return { kind: 'price_unavailable' as const, model: input.model }
+    }
+    if (premiumTierRequested(input.provider, input.request)) {
+      if (!input.userId) return { kind: 'authentication_required' as const }
+      if (!(await premiumRequestAllowed(tx, input.userId, input.model, input.request)))
+        return { kind: 'private_billing_denied' as const }
+    }
+    if (input.maxCredits !== undefined && isCapabilityEnabled('billing:credits')) {
+      const quote = await taskHooks.quoteTask?.({
+        tx,
+        userId: input.userId ?? '',
+        model: input.model,
+        quantity: pricing.quantity,
+        unitMultiplier: pricing.unitMultiplier,
+      })
+      if (!quote) return { kind: 'price_unavailable' as const, model: input.model }
+      if (quote.estimatedCredits > input.maxCredits)
+        return {
+          kind: 'max_credits_exceeded',
+          required: quote.estimatedCredits,
+          maxCredits: input.maxCredits,
+        }
     }
     if (dedupesRecentSubmission(input)) {
       const duplicate = await findRecentDuplicate(tx, input.userId, hash)
@@ -453,6 +566,11 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
         return reservation
       }
       reservedCredits = reservation.credits
+      // 报价与预扣同在这个事务里，正常应一致；预扣按自己的规则算出更多时以它为准，
+      // 抛出去让整个事务回滚，任务与预扣一起撤销。
+      // 抛出去让事务回滚；外部事务由调用方持有时异常照样冒泡，由它回滚自己的事务。
+      if (input.maxCredits !== undefined && reservedCredits > input.maxCredits)
+        throw new MaxCreditsExceeded(reservedCredits, input.maxCredits)
     } else if (dailyQuotaEnabled) {
       const quota = await tryConsumeQuotaInTransaction(
         tx,
@@ -540,6 +658,12 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
     outcome = input.tx ? await submit(input.tx) : await db.transaction(submit)
   } catch (error) {
     if (!input.prepared) await discardArchivedInputs(id)
+    if (error instanceof MaxCreditsExceeded && !input.tx)
+      return {
+        kind: 'max_credits_exceeded',
+        required: error.required,
+        maxCredits: error.maxCredits,
+      }
     throw error
   }
 

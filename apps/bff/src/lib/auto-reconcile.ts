@@ -1,24 +1,24 @@
 import { type AlertMessage, QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { and, asc, eq, isNull, lte, or } from 'drizzle-orm'
 import { db, schema } from '../db/client'
-import { type AlertSender, createAlertSender } from '../ops/alert-sender'
+import { type AlertSender, createAlertSenderFromEnv } from '../ops/alert-sender'
 import { log } from './logger'
 import { nextAutoReconcileAt, reconcilingDue, shouldConfirmNoResult } from './reconcile-timing'
 import { reconcileTask } from './task-reconciliation'
 
-let sender: AlertSender = createAlertSender({
-  webhookUrl: process.env.OPS_ALERT_WEBHOOK_URL,
-  deployment: process.env.OPS_DEPLOYMENT_NAME?.trim() || 'deployment',
-})
+function envAlertSender(): AlertSender {
+  return createAlertSenderFromEnv({
+    deployment: process.env.OPS_DEPLOYMENT_NAME?.trim() || 'deployment',
+    onPartialFailure: (error) =>
+      log.warn({ event: 'ops.alert_target_failed', err: error.message }, 'an alert target failed'),
+  })
+}
+
+let sender: AlertSender = envAlertSender()
 
 /** 测试替换告警出口；不传则恢复读环境变量的那个。 */
 export function setAutoReconcileAlertSenderForTesting(next?: AlertSender): void {
-  sender =
-    next ??
-    createAlertSender({
-      webhookUrl: process.env.OPS_ALERT_WEBHOOK_URL,
-      deployment: process.env.OPS_DEPLOYMENT_NAME?.trim() || 'deployment',
-    })
+  sender = next ?? envAlertSender()
 }
 
 /**

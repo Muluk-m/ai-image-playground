@@ -120,3 +120,86 @@ it('shrinks a real 4K PNG larger than the request budget before preparing review
   expect(metadata.width).toBe(1024)
   expect(metadata.height).toBe(576)
 })
+
+it('几张复核图共享读取并发上限，required 与 optional 会同时启动', async () => {
+  setLimit(1000)
+  let inFlight = 0
+  let peak = 0
+  let requiredFinished = false
+  let optionalStartedBeforeRequiredFinished = false
+  const source: Source = {
+    async resolve(imageId) {
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      if (imageId === 'd') optionalStartedBeforeRequiredFinished = !requiredFinished
+      await Promise.resolve()
+      if (imageId === 'a') requiredFinished = true
+      inFlight -= 1
+      return { imageId, dataUrl: 'x'.repeat(100), visualVariant: 'preview' }
+    },
+  }
+  const result = await prepareReviewImages(source, [], ['a', 'b', 'c'], ['d', 'e'])
+  expect(optionalStartedBeforeRequiredFinished).toBe(true)
+  expect(peak).toBeLessThanOrEqual(4)
+  expect(result.reviewed.map((image) => image.imageId)).toEqual(['a', 'b', 'c', 'd', 'e'])
+})
+
+it('必需复核图失败时等待其它读取结束后再释放准备流程', async () => {
+  setLimit(1000)
+  let finished = false
+  const otherGate = Promise.withResolvers<void>()
+  const otherStarted = Promise.withResolvers<void>()
+  const source: Source = {
+    async resolve(imageId) {
+      if (imageId === 'a') throw new Error('broken')
+      otherStarted.resolve()
+      await otherGate.promise
+      finished = true
+      return { imageId, dataUrl: 'x'.repeat(100), visualVariant: 'preview' }
+    },
+  }
+  const pending = prepareReviewImages(source, [], ['a', 'b'])
+  let settled = false
+  void pending.then(
+    () => {
+      settled = true
+    },
+    () => {
+      settled = true
+    },
+  )
+  await otherStarted.promise
+  await Promise.resolve()
+  expect(settled).toBe(false)
+  otherGate.resolve()
+  await expect(pending).rejects.toThrow('broken')
+  expect(finished).toBe(true)
+})
+
+it('批内并行读取仍各自受全局图片准备名额约束，不会绕过 agent:visual-prepare-concurrency', async () => {
+  const { withVisualPreparation } = await import('../../../lib/agent/visual-resources')
+  config.operator = {
+    ...operator,
+    quotas: {
+      ...operator.quotas,
+      'agent:request-max-bytes': 1000,
+      'agent:visual-prepare-concurrency': 1,
+    },
+  }
+  let inFlight = 0
+  let peak = 0
+  const source: Source = {
+    // 真实图源每次读取都在自己的准备名额里进行。
+    resolve: (imageId) =>
+      withVisualPreparation(async () => {
+        inFlight += 1
+        peak = Math.max(peak, inFlight)
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        inFlight -= 1
+        return { imageId, dataUrl: 'x'.repeat(100), visualVariant: 'preview' as const }
+      }),
+  }
+  const result = await prepareReviewImages(source, [], ['a', 'b'], ['c', 'd'])
+  expect(peak).toBe(1)
+  expect(result.reviewed.map((image) => image.imageId)).toEqual(['a', 'b', 'c', 'd'])
+})

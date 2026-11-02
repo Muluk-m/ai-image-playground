@@ -1,4 +1,5 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
+import { compileReplyScripts, type ReplyScriptAllowance } from '@image-playground/shared'
 import {
   Fragment,
   type PointerEvent as ReactPointerEvent,
@@ -79,10 +80,32 @@ function CollapsedButton({ onOpen }: { onOpen: () => void }) {
   )
 }
 
+/** 用户原文的字符串引用没变时，沿用上次拼好的结果，流式增量不再重拼。 */
+let cachedUserParts: readonly string[] = []
+let cachedUserText = ''
+
+function stableUserReplyText(messages: readonly AgentPanelMessage[]): string {
+  const parts: string[] = []
+  for (const message of messages) {
+    if (message.kind === 'text' && message.role === 'user') parts.push(message.text)
+  }
+  if (
+    parts.length === cachedUserParts.length &&
+    parts.every((part, index) => part === cachedUserParts[index])
+  ) {
+    return cachedUserText
+  }
+  cachedUserParts = parts
+  cachedUserText = parts.join('\n')
+  return cachedUserText
+}
+
 function renderMessage(
   message: AgentPanelMessage,
   answerableId: string | null,
   skills: readonly AgentSkillSummary[],
+  replyScripts: ReplyScriptAllowance,
+  replyUserText: string,
   onViewCanvas?: (objectIds?: readonly string[]) => void,
   onPreviewResult?: (messageId: string, objectId?: string, previewSource?: string) => void,
   onPreviewProduction?: (pane?: ProductionPane) => void,
@@ -139,7 +162,14 @@ function renderMessage(
     return <AgentClarification message={message} answered={message.id !== answerableId} />
   }
   if (message.role === 'user') return <AgentUserMessage message={message} skills={skills} />
-  return <AgentReply text={message.text} streaming={message.streaming} />
+  return (
+    <AgentReply
+      text={message.text}
+      streaming={message.streaming}
+      allowance={replyScripts}
+      userText={replyUserText}
+    />
+  )
 }
 
 /** 连续取回的单张网图属于同一批素材，在对话里共用一条缩略图带。 */
@@ -299,6 +329,8 @@ export default function AgentPanel({
   const open = useAgentStore((state) => state.open)
   const tab = useAgentStore((state) => state.tab)
   const messages = useAgentStore((state) => state.messages)
+  const replyUserText = stableUserReplyText(messages)
+  const replyScripts = useMemo(() => compileReplyScripts(replyUserText), [replyUserText])
   const turns = useAgentStore((state) => state.turns)
   const surface = useActiveAgentSurface()
   const imageSkills = useAgentSkills('image', surface)
@@ -770,6 +802,8 @@ export default function AgentPanel({
                               message,
                               answerableId,
                               skills,
+                              replyScripts,
+                              replyUserText,
                               onViewCanvas,
                               onPreviewResult,
                               onPreviewProduction,

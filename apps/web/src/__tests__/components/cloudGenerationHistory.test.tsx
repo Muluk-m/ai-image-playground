@@ -218,13 +218,13 @@ it('首页保留去资产库入口', async () => {
     'fetch',
     vi.fn(async () => page([item])),
   )
-  // 之前停在空的素材页；「我的作品」来的人要看生成的图，得落到「项目」（BUG-18）。
+  // 之前停在空的素材页；「我的作品」来的人要看生成的图，得落到「作品」（BUG-18）。
   useLibraryStore.setState({ tab: 'assets' })
   await act(async () => root.render(<GenerationHistory userId="owner" hero />))
   await waitCards(1)
   await click('去资产库')
   expect(useStore.getState().appMode).toBe('library')
-  expect(useLibraryStore.getState().tab).toBe('projects')
+  expect(useLibraryStore.getState().tab).toBe('works')
 })
 
 it('首页预览不随滚动续读；平台还有下一页时露出展开入口', async () => {

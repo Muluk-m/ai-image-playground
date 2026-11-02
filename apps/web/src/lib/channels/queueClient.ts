@@ -35,6 +35,7 @@ import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
  */
 const BFF_SUBMIT_ERROR_KEYS = {
   model_unavailable: 'queue.bffModelUnavailable',
+  plan_required: 'queue.bffPlanRequired',
   invalid_request: 'queue.bffInvalidRequest',
   object_storage_error: 'queue.bffStorageUnavailable',
   idempotency_key_conflict: 'queue.bffDuplicateSubmit',
@@ -156,6 +157,7 @@ async function pollAndFetch(
       actualParams,
       actualParamsList: meta.images.map(() => actualParams),
       ...(meta.raw_image_urls?.length ? { rawImageUrls: meta.raw_image_urls } : {}),
+      ...(meta.partial_failure ? { partialFailure: meta.partial_failure } : {}),
     }
   } finally {
     clearTimeout(timer)

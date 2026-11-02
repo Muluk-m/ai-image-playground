@@ -130,3 +130,27 @@ it('封面迟迟取不到就停止转圈，失败后自动重试一次，「刷�
     vi.useRealTimers()
   }
 })
+
+it('视频封面直接用可按 Range 读取的媒体地址，不先把整段视频下载下来', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  const fetchSpy = vi.fn(async () => Response.json({}))
+  vi.stubGlobal('fetch', fetchSpy)
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const id = '11111111-2222-4333-8444-555555555555'
+  try {
+    await act(async () =>
+      root.render(<ProjectCover source={`aip-media:${id}`} chat video fit="cover" />),
+    )
+    const video = host.querySelector('video')!
+    expect(video.getAttribute('src')).toMatch(new RegExp(`/api/media/${id}/content#t=0\\.1$`))
+    expect(video.getAttribute('preload')).toBe('metadata')
+    expect(video.getAttribute('crossorigin')).toBe('use-credentials')
+    expect(fetchSpy).not.toHaveBeenCalled()
+    await act(async () => video.dispatchEvent(new Event('loadeddata')))
+    expect(host.querySelector('[role=status]')).toBeNull()
+  } finally {
+    await act(async () => root.unmount())
+    vi.unstubAllGlobals()
+  }
+})

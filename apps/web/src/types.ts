@@ -1,4 +1,8 @@
-import type { TaskErrorType, TaskProgressPhase } from '@image-playground/shared'
+import type {
+  PartialImageFailure,
+  TaskErrorType,
+  TaskProgressPhase,
+} from '@image-playground/shared'
 import {
   DEFAULT_IMAGE_MODERATION,
   GEMINI_ASPECT_RATIOS,
@@ -177,6 +181,11 @@ export interface TaskRecord {
   maskImageId?: string | null
   /** 输出图片的 image store id 列表 */
   outputImages: string[]
+  /**
+   * 每张输出在平台记录里的位置号（与 `outputImages` 一一对应）。缺席时就是 0、1、2……；
+   * 只删一张之后平台位置号不重排，本机数组却少了一项，所以从那时起把对应关系记下来。
+   */
+  outputPositions?: number[]
   /** API 返回的原始图片 HTTP URL（非 base64 时记录） */
   rawImageUrls?: string[]
   /** 发生解析错误时的原始响应 JSON */
@@ -188,6 +197,8 @@ export interface TaskRecord {
    * 旧记录与认不出分类的失败都缺席，那些照旧显示 `error` 原文。
    */
   errorCode?: TaskErrorType
+  /** 完成了但一单多张里有几张没出来：那几张不扣积分，详情里说一句。 */
+  partialFailure?: PartialImageFailure
   createdAt: number
   finishedAt: number | null
   /** 总耗时毫秒 */

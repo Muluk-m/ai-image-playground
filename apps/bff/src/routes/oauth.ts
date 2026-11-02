@@ -46,6 +46,7 @@ const WORKSPACE_PATHS = new Set([
   '/pricing',
   '/terms',
   '/privacy',
+  '/device',
 ])
 
 const STATE_COOKIE_OPTIONS = {
@@ -83,7 +84,7 @@ function bffOrigin(request: Request): string {
   return `${proto || new URL(request.url).protocol.replace(':', '')}://${host}`
 }
 
-function frontendOrigin(request: Request): string {
+export function frontendOrigin(request: Request): string {
   if (config.auth.frontendOrigin) return config.auth.frontendOrigin
   // A wildcard CORS deployment serves the SPA from the BFF itself.
   return (config.corsOriginList[0] ?? bffOrigin(request)).replace(/\/+$/, '')

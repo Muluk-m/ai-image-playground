@@ -44,7 +44,7 @@ export const reviewParameter = Type.Optional(
  * 这次图片工具调用出几张。`toolStart` 早于 pi 的参数校验，所以走 shared 里与
  * `Value.Convert` 同语义的那一份——画布占位与队列请求共用它，两处才不会各算各的。
  */
-export { agentImageCount } from '@image-playground/shared'
+export { agentImageCount, agentModelImageCount } from '@image-playground/shared'
 
 /**
  * 轮上的生成参数 → 队列请求字段。

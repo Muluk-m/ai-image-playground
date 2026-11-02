@@ -649,6 +649,17 @@ it('keeps the materials picker and moves the assets entry out of the left toolba
   root = createRoot(host)
 })
 
+it('hides the top-bar assets entry while the canvas sits behind the chat view', async () => {
+  // 对话视图里画布照样挂着，但对话页已有自己的「资产库」，顶栏不能再出一个「资产」。
+  await render(false)
+  expect(useCanvasAssetsEntry.getState().available).toBe(false)
+  await render(true)
+  expect(useCanvasAssetsEntry.getState().available).toBe(true)
+  await act(async () => useCanvasAssetsEntry.getState().setOpen(true))
+  await render(false)
+  expect(useCanvasAssetsEntry.getState()).toMatchObject({ available: false, open: false })
+})
+
 it('opens an add menu on a double-click of the empty canvas', async () => {
   await render()
   const surface = host.querySelector('.studio-node-canvas')!

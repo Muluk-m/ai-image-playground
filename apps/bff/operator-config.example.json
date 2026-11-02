@@ -15,6 +15,7 @@
     "agent:attachments": false,
     "billing:credits": false,
     "billing:chat-free": false,
+    "cli:api": false,
     "generation:byok": false,
     "generation:video": false,
     "operator:console": false,

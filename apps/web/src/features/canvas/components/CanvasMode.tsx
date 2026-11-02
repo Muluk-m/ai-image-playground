@@ -26,6 +26,7 @@ import { conversationStarted } from '../../agent/lib/panelMessages'
 import { agentPanelPresent } from '../../agent/panelLayout'
 import { useAgentStore } from '../../agent/store'
 import type { AgentToolMessage } from '../../agent/types'
+import { useLibraryStore } from '../../library/store'
 import ProductionWorkspace from '../../production/components/ProductionWorkspace'
 import { openProductionContent, type ProductionPane } from '../../production/lib/productionContext'
 import {
@@ -34,6 +35,7 @@ import {
   showCanvasWorkspace,
   subscribeCanvasWorkspace,
 } from '../lib/activeProject'
+import { useCanvasAssetsEntry } from '../lib/assetsEntry'
 import { clearProjectView, setProjectView as setShownProjectView } from '../lib/canvasView'
 import type { CanvasEditor } from '../lib/editor'
 import { importImageFiles } from '../lib/importImages'
@@ -414,6 +416,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     // 只撤下自己写的那份，换项目时不抹掉新工作区已经写入的视图。
     return () => clearProjectView(projectId, shownView)
   }, [project?.id, shownView])
+  // 画布「资产」弹窗只属于画布视图：切回对话视图时一并收起，免得挂在藏起来的画布上。
+  useEffect(() => {
+    if (shownView !== 'canvas') useCanvasAssetsEntry.getState().setOpen(false)
+  }, [shownView])
   // 敲下回车就切到工作区：消息先上屏、状态行亮「发送中」，不等服务端回 turnStart。
   const started = useAgentStore((state) => conversationStarted(state.messages))
   const showWelcome =
@@ -961,15 +967,22 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 ? t('projectSync.project_quota_exceeded', { ns: 'errors' })
                 : t('loadError.message')}
             </p>
-            <Button
-              variant="link"
-              size="sm"
-              type="button"
-              className="mt-2"
-              onClick={workspace.retryLoad}
-            >
-              {t('loadError.retry')}
-            </Button>
+            <div className="mt-2 flex items-center justify-center gap-4">
+              {/* 上限只拦新建：已有项目照常打开、删掉一些之后回来重新读取（BUG-54 之后的死路）。 */}
+              {loadErrorCode === 'project_quota_exceeded' ? (
+                <Button
+                  variant="link"
+                  size="sm"
+                  type="button"
+                  onClick={() => useLibraryStore.getState().openProjects()}
+                >
+                  {t('welcome.allProjects')}
+                </Button>
+              ) : null}
+              <Button variant="link" size="sm" type="button" onClick={workspace.retryLoad}>
+                {t('loadError.retry')}
+              </Button>
+            </div>
           </div>
         </div>
       ) : null}
