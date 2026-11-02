@@ -1,5 +1,5 @@
 import './appearance.css'
-import { OAUTH_ERROR_QUERY_PARAM, type OAuthProviderView } from '@image-playground/shared'
+import { OAUTH_ERROR_QUERY_PARAM } from '@image-playground/shared'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import Overlay from '../components/patterns/Overlay'
 import { Button } from '../components/ui/button'
@@ -9,7 +9,8 @@ import { Label } from '../components/ui/label'
 import { useTranslation } from '../i18n'
 import {
   AuthRequestError,
-  fetchOAuthProviders,
+  fetchLoginOptions,
+  type LoginOptions,
   loginUser,
   oauthStartUrl,
   registerUser,
@@ -22,11 +23,8 @@ import AuthConsent from './AuthConsent'
 import type { LoginPromptReason } from './loginPrompt'
 import { preservePendingSubmissionForLogin } from './pendingSubmission'
 import { type RegistrationCredentials, RegistrationPanel } from './RegistrationPanel'
+import { OAuthProviderMark } from './OAuthProviderMark'
 
-function ProviderMark({ provider }: { provider: OAuthProviderView }) {
-  if (provider.id === 'google') return <span className="auth-provider-google">G</span>
-  return <span className="auth-provider-generic">{provider.label.slice(0, 1)}</span>
-}
 
 function AuthBrand() {
   const { t } = useTranslation('auth')
@@ -154,7 +152,11 @@ export function LoginDialog({
 }: LoginDialogProps) {
   const { t } = useTranslation('auth')
   const { t: tError } = useTranslation('errors')
-  const registrationEnabled = isClientCapabilityEnabled('accounts:self-register')
+  const [options, setOptions] = useState<LoginOptions | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const passwordEnabled = options?.loginMethods.password === true
+  const registrationEnabled = options?.loginMethods.registration === true &&
+    isClientCapabilityEnabled('accounts:self-register')
   const emailVerificationEnabled = isClientCapabilityEnabled('accounts:email-verification')
   const referralEnabled =
     PrivateWebSupportsReferrals &&
@@ -170,9 +172,7 @@ export function LoginDialog({
   const [showPassword, setShowPassword] = useState(false)
   const [pending, setPending] = useState(false)
   const [errorKey, setErrorKey] = useState<LoginErrorKey | null>(null)
-  const [view, setView] = useState<'login' | 'registration'>(
-    referralEnabled && referralCode ? 'registration' : 'login',
-  )
+  const [view, setView] = useState<'login' | 'registration'>('login')
   const panelRef = useRef<HTMLDivElement>(null)
   const previousView = useRef(view)
   useEffect(() => {
@@ -181,13 +181,22 @@ export function LoginDialog({
       previousView.current = view
     }
   }, [view])
-  const [providers, setProviders] = useState<OAuthProviderView[]>([])
+  const providers = options?.providers ?? []
   const error = errorKey ? tError(errorKey) : null
 
   useEffect(() => {
     let cancelled = false
-    void fetchOAuthProviders().then((available) => {
-      if (!cancelled) setProviders(available)
+    void fetchLoginOptions().then((available) => {
+      if (cancelled) return
+      setOptions(available)
+      if (available.loginMethods.registration &&
+          isClientCapabilityEnabled('accounts:self-register') &&
+          PrivateWebSupportsReferrals && isClientCapabilityEnabled('billing:credits') &&
+          new URLSearchParams(window.location.search).get('ref')) {
+        setView('registration')
+      }
+    }, () => {
+      if (!cancelled) setLoadFailed(true)
     })
     return () => {
       cancelled = true
@@ -206,7 +215,7 @@ export function LoginDialog({
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
-    if (!username.trim() || !password || pending) return
+    if (!passwordEnabled || !username.trim() || !password || pending) return
     setPending(true)
     setErrorKey(null)
     try {
@@ -225,7 +234,7 @@ export function LoginDialog({
   async function requestVerification(
     email: string,
   ): Promise<{ challengeId: string; expiresInSeconds: number } | null> {
-    if (pending) return null
+    if (!registrationEnabled || pending) return null
     setPending(true)
     setErrorKey(null)
     try {
@@ -239,7 +248,7 @@ export function LoginDialog({
   }
 
   async function submitRegistration(credentials: RegistrationCredentials): Promise<void> {
-    if (pending) return
+    if (!registrationEnabled || pending) return
     setPending(true)
     setErrorKey(null)
     try {
@@ -297,16 +306,18 @@ export function LoginDialog({
                 )
               }}
             >
-              <ProviderMark provider={provider} />
+              <OAuthProviderMark provider={provider} />
               <span>{provider.label}</span>
             </Button>
           ))}
         </div>
+        {passwordEnabled || (view === 'registration' && registrationEnabled) ? (
         <div className="auth-divider">
           <span>
             {view === 'registration' ? t('login.dividerRegister') : t('login.dividerLogin')}
           </span>
         </div>
+        ) : null}
       </>
     ) : null
 
@@ -333,7 +344,7 @@ export function LoginDialog({
       <section className="auth-panel">
         <div className="auth-panel-content" ref={panelRef}>
           <AuthBrand />
-          {view === 'registration' ? (
+          {view === 'registration' && registrationEnabled ? (
             <RegistrationPanel
               plansHref={plansHref}
               pending={pending}
@@ -364,6 +375,13 @@ export function LoginDialog({
 
               {providerButtons}
 
+              {!options ? (
+                <p role={loadFailed ? 'alert' : 'status'} className="text-sm text-muted-foreground">
+                  {t(loadFailed ? 'methods.loadFailed' : 'methods.loading')}
+                </p>
+              ) : null}
+              {!passwordEnabled && error ? <p role="alert" className="auth-error">{error}</p> : null}
+              {passwordEnabled ? (
               <form
                 className="auth-form"
                 onSubmit={(event) => void submit(event)}
@@ -435,7 +453,9 @@ export function LoginDialog({
                   )}
                 </Button>
               </form>
+              ) : null}
 
+              {passwordEnabled || registrationEnabled ? (
               <p className="mt-6 flex flex-wrap items-center justify-center gap-1 text-xs text-muted-foreground">
                 {t('login.noAccount')}
                 {registrationEnabled ? (
@@ -454,6 +474,7 @@ export function LoginDialog({
                   <span>{t('login.registrationClosed')}</span>
                 )}
               </p>
+              ) : null}
               <AuthConsent plansHref={plansHref} kind="login" />
             </div>
           )}
