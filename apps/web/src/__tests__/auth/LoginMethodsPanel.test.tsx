@@ -347,7 +347,7 @@ it('hides password setup and nonallowed providers under provider-only policy', a
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string) => {
-      if (input.includes('/api/me/cli-connections')) return Response.json({ connections: [] })
+      if (input.endsWith('/api/me/cli-connections')) return Response.json({ connections: [] })
       return Response.json(
         input.includes('/api/auth/oauth/providers')
           ? {
