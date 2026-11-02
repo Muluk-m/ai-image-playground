@@ -1,3 +1,4 @@
+import { SUPPORT_CONTACT, SUPPORT_MAILTO } from '@image-playground/shared/support-contact'
 import {
   faq,
   type GuideContent,
@@ -1002,7 +1003,7 @@ export const guideZhCN: GuideContent = {
           meta: {
             title: '工具箱：尺寸调整、压缩、裁剪与拼图 - 幕芽 Muvloom 使用指南',
             description:
-              '幕芽工具箱：批量调整尺寸、压缩、转格式、按电商与社媒尺寸裁剪、旋转翻转，以及拼图、长图拼接与九宫格切图。',
+              '幕芽工具箱：批量调整尺寸、压缩、转格式、按电商与社媒尺寸裁剪、任意角度旋转与镜像，以及拼图、长图拼接与九宫格切图。',
           },
           updated,
           sections: [
@@ -1017,7 +1018,7 @@ export const guideZhCN: GuideContent = {
                     { x: 8.4, y: 65.9 },
                   ]),
                   '点击 [[添加图片]] 或 [[文件夹]] 导入图片。',
-                  '**单张 / 批量处理**：尺寸调整、压缩、转格式、裁剪、旋转翻转。',
+                  '**单张 / 批量处理**：尺寸调整、压缩、转格式、裁剪、旋转与镜像。',
                   '**多图合成**：拼图、长图拼接、九宫格切图。',
                 ),
               ],
@@ -1167,10 +1168,7 @@ export const guideZhCN: GuideContent = {
               title: '联系我们',
               blocks: [
                 p('遇到问题或有建议，可以通过以下方式联系我们：'),
-                list(
-                  'X：[@Muluk656](https://x.com/Muluk656)',
-                  '邮箱：[maqiqian0316@gmail.com](mailto:maqiqian0316@gmail.com)',
-                ),
+                list(`邮箱：[${SUPPORT_CONTACT.email}](${SUPPORT_MAILTO})`),
                 tip('反馈问题时附上截图和大致时间，便于更快定位。'),
               ],
             },

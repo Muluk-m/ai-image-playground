@@ -21,12 +21,15 @@ import { cancelRoutes } from './routes/cancel'
 import { canvasSyncRoutes } from './routes/canvasSync'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
+import { cliAccountRoutes, cliApiRoutes, cliOAuthRoutes } from './routes/cli'
 import { clientErrorRoutes } from './routes/client-errors'
 import { generationRoutes } from './routes/generations'
+import { gptPremiumRoutes } from './routes/gpt-premium'
 import { internalInspirationRoutes, publicInspirationRoutes } from './routes/inspirations'
 import { internalAgentModelRoutes } from './routes/internal-agent-models'
 import { internalDrainRoutes } from './routes/internal-drain'
 import { internalLogRoutes } from './routes/internal-logs'
+import { internalModelRoutes } from './routes/internal-models'
 import { internalOpsRoutes } from './routes/internal-ops'
 import { internalTaskReconciliationRoutes } from './routes/internal-task-reconciliation'
 import { internalUserRoutes } from './routes/internal-users'
@@ -254,10 +257,14 @@ export const app = new Elysia()
   .use(userAuthRoutes)
   .use(accountRoutes)
   .use(oauthRoutes)
+  .use(cliOAuthRoutes)
+  .use(cliAccountRoutes)
+  .use(cliApiRoutes)
   .use(capabilitiesRoutes)
   .use(channelsRoutes)
   .use(submitRoutes)
   .use(statusRoutes)
+  .use(gptPremiumRoutes)
   .use(resultRoutes)
   .use(cancelRoutes)
   .use(agentRoutes)
@@ -273,6 +280,7 @@ export const app = new Elysia()
   .use(clientErrorRoutes)
   .use(generationRoutes)
   .use(internalAgentModelRoutes)
+  .use(internalModelRoutes)
   .use(internalUserRoutes)
   .use(internalTaskReconciliationRoutes)
   .use(internalOpsRoutes)
@@ -294,7 +302,7 @@ export const app = new Elysia()
     const url = new URL(request.url)
     if (isApiPath(url.pathname)) return
     if (
-      /^\/(?:image|explore|assets|tools|projects|pricing|terms|privacy|p\/[^/]+)\/?$/.test(
+      /^\/(?:image|explore|assets|tools|projects|pricing|terms|privacy|device|p\/[^/]+|tools\/[^/]+)\/?$/.test(
         url.pathname,
       )
     ) {

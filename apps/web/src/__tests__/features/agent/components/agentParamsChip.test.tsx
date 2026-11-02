@@ -397,6 +397,54 @@ it('图片生成模式在胶囊里写张数，面板只有 1、2、3、4、6、8
   expect(trigger().getAttribute('aria-label')).toContain('6 张')
 })
 
+it('图片生成模式选 Lite：只给 1、2、3、4，已选的 8 张落到 4 张（BUG-91）', () => {
+  setChannels([
+    {
+      id: 'vx',
+      kind: 'gemini-queue',
+      label: 'Vertex',
+      models: [
+        { id: 'gemini-nano-banana-2.1', label: 'Nano Banana 2', capabilities: ['generate'] },
+        {
+          id: 'gemini-3.1-flash-lite-image',
+          label: 'Nano Banana 2 Lite',
+          capabilities: ['generate'],
+        },
+      ],
+      defaults: { apiMode: 'images', timeout: 600 },
+    },
+  ])
+  useStore.setState({
+    params: { ...DEFAULT_PARAMS, n: 8 },
+    settings: {
+      ...useStore.getState().settings,
+      activeProfileId: 'vx-profile',
+      profiles: [
+        {
+          id: 'vx-profile',
+          source: 'builtin-edge',
+          channelId: 'vx',
+          selectedModelId: 'gemini-nano-banana-2.1',
+        },
+      ],
+    },
+  })
+  act(() => root.render(<AgentParamsChip imageMode />))
+  expect(trigger().getAttribute('aria-label')).toContain('8 张')
+  toggle()
+  act(() => modelField().click())
+  const lite = [...document.body.querySelectorAll('[role="option"]')].find((node) =>
+    node.textContent?.includes('Lite'),
+  ) as HTMLElement
+  act(() => lite.click())
+  const counts = [...(group('张数')?.querySelectorAll('button') ?? [])].map(
+    (node) => node.textContent,
+  )
+  expect(counts).toEqual(['1', '2', '3', '4'])
+  expect(useStore.getState().params.n).toBe(4)
+  expect(trigger().getAttribute('aria-label')).toContain('4 张')
+})
+
 it('模型列表可用方向键在选项间移动焦点', () => {
   setChannels([
     {

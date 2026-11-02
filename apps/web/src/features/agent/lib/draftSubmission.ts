@@ -26,7 +26,8 @@ export type DraftSubmissionDispatch = (
   clientMessageId?: string,
   replay?: TurnSubmissionReplay,
   modelOverride?: string,
-  onUnsent?: (submission: UnsentTurnSubmission) => Promise<boolean>,
+  /** `quiet`：界面别处已经说清了原因（例如项目数已到上限），放回草稿时不再弹提示。 */
+  onUnsent?: (submission: UnsentTurnSubmission, quiet?: boolean) => Promise<boolean>,
   localPersistence?: {
     stage(submission: UnsentTurnSubmission): Promise<void>
     committed(id: string): void
@@ -80,9 +81,9 @@ export function submitDraft(
       snapshot.submission?.id,
       snapshot.submission,
       undefined,
-      async (retry) => {
+      async (retry, quiet) => {
         returnedToDraft = true
-        onNotice('failed')
+        if (!quiet) onNotice('failed')
         return session.returnUnsent({ ...snapshot, submission: retry })
       },
       handoff

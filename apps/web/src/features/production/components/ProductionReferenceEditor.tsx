@@ -4,6 +4,7 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { imageMimeFromBytes } from '../../../lib/imageBytes'
+import { compressUploadFiles } from '../../../lib/imageFiles'
 import { MAX_IMAGE_BYTES } from '../../../lib/inputImageLimit'
 import { getAssetImage } from '../../../lib/sync/syncClient'
 import { uploadMediaBytes } from '../../../lib/uploadMedia'
@@ -48,8 +49,10 @@ export default function ProductionReferenceEditor({
     setUploading(true)
     setFailed(false)
     try {
-      if (file.size > MAX_IMAGE_BYTES) throw new Error('image_too_large')
-      const bytes = await file.arrayBuffer()
+      const [fitted] = await compressUploadFiles([file])
+      const source = fitted ?? file
+      if (source.size > MAX_IMAGE_BYTES) throw new Error('image_too_large')
+      const bytes = await source.arrayBuffer()
       const contentType = imageMimeFromBytes(bytes)
       if (!contentType) throw new Error('unsupported_image')
       const hash = Array.from(
@@ -58,7 +61,7 @@ export default function ProductionReferenceEditor({
       ).join('')
       const mediaId = await uploadMediaBytes(bytes, contentType, hash, lifetime.current.signal)
       if (lifetime.current.signal.aborted) return
-      setLocalPreview({ key: `media:${mediaId}`, url: URL.createObjectURL(file) })
+      setLocalPreview({ key: `media:${mediaId}`, url: URL.createObjectURL(source) })
       change.current({ kind: 'media', mediaId })
     } catch {
       if (!lifetime.current.signal.aborted) setFailed(true)

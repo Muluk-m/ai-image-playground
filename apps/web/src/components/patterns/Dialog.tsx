@@ -41,7 +41,8 @@ export function DialogSurface({ title, onClose, children, footer, className }: D
           variant="ghost"
           size="icon-sm"
           aria-label={t('action.close')}
-          className="text-muted-foreground"
+          // 图标按钮保持 32px，伪元素把可点区域扩到 44×44。
+          className="relative text-muted-foreground after:absolute after:-inset-1.5 after:content-['']"
           onClick={onClose}
         >
           <Icon name="close" />

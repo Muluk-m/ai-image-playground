@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { batchCredits, batchPerImage, oversizedReferenceIndexes } from '../../lib/batchGenerate'
+import { i18next } from '../../i18n'
+import {
+  batchCredits,
+  batchPerImage,
+  oversizedReferenceIndexes,
+  oversizedReferenceMessage,
+} from '../../lib/batchGenerate'
 
 describe('per-image batch generation', () => {
   it('needs at least two images and runs per image once over the merge limit', () => {
@@ -20,5 +26,38 @@ describe('per-image batch generation', () => {
   it('prices the batch as images × the single-image price', () => {
     expect(batchCredits(3, 100)).toBe(300)
     expect(batchCredits(3, undefined)).toBeUndefined()
+  })
+})
+
+describe('超限原因句', () => {
+  it('两种语言都以句号收尾，与同一行里的其他原因一致（第 16 轮）', () => {
+    for (const lng of ['zh-CN', 'en']) {
+      for (const key of ['batch.oversized', 'image.referenceTooLarge'] as const) {
+        const text = i18next.t(key, { ns: 'composer', lng, index: 2, mb: 50, maxSize: '50 MB' })
+        expect(text).toMatch(/[。.]$/)
+      }
+    }
+    expect(oversizedReferenceMessage([1, 4])).toMatch(/[。.]$/)
+  })
+
+  it('快速生成与智能创作两条路径的 50 MB 提示是同一句话（BUG-58）', () => {
+    for (const lng of ['zh-CN', 'en']) {
+      const quick = i18next.t('batch.oversized', { ns: 'composer', lng, index: 3, mb: 50 })
+      const canvas = i18next.t('image.referenceTooLarge', {
+        ns: 'composer',
+        lng,
+        index: 3,
+        maxSize: '50 MB',
+      })
+      expect(canvas).toBe(quick)
+    }
+    expect(
+      i18next.t('image.referenceTooLarge', {
+        ns: 'composer',
+        lng: 'zh-CN',
+        index: 3,
+        maxSize: '50 MB',
+      }),
+    ).toBe('第 3 张超过 50 MB，请移除或换一张更小的图。')
   })
 })

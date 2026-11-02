@@ -8,7 +8,12 @@ import { Textarea } from '../../../components/ui/textarea'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
-import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
+import {
+  acceptImageFiles,
+  filesFromFolderInput,
+  imageNeedsUploadCompression,
+  prepareAcceptedImageFiles,
+} from '../../../lib/imageFiles'
 import { useStore } from '../../../store'
 import type { AssetKind, LookPurpose } from '../types'
 
@@ -69,14 +74,23 @@ export default function CreateRecordDialog(props: Props) {
    * 文件夹里解出来的图一并收下；名字还空着就用文件夹名。模板只要一张图，不收文件夹。
    * 一次进太多先问一声：按真正会收下的张数问，模板永远只收一张，所以不会被打断。
    */
+  const addBatch = useRef(0)
   const addFiles = (incoming: readonly File[], folder: string | null = null) => {
-    const images = acceptImageFiles(incoming)
-    if (images.length === 0) return
-    const accepted = isAsset ? images : images.slice(0, 1)
-    confirmImageBatch(accepted.length, () => {
-      setFiles((current) => (isAsset ? [...current, ...accepted] : accepted))
-      if (isAsset && folder) setName((current) => current || folder.slice(0, NAME_MAX))
-    })
+    const ticket = ++addBatch.current
+    const take = (images: File[]) => {
+      if (ticket !== addBatch.current || images.length === 0) return
+      const accepted = isAsset ? images : images.slice(0, 1)
+      confirmImageBatch(accepted.length, () => {
+        if (ticket !== addBatch.current) return
+        setFiles((current) => (isAsset ? [...current, ...accepted] : accepted))
+        if (isAsset && folder) setName((current) => current || folder.slice(0, NAME_MAX))
+      })
+    }
+    if (!incoming.some(imageNeedsUploadCompression)) {
+      take(acceptImageFiles(incoming))
+      return
+    }
+    void prepareAcceptedImageFiles(incoming).then(take)
   }
 
   const { dragging, dropZoneProps } = useImageDropZone(addFiles)

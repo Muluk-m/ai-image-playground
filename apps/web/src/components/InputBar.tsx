@@ -1,4 +1,18 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  AGENT_USER_MESSAGE_MAX_CHARS,
+  gptImageRateMultiplier,
+  isBlankPrompt,
+  SYNC_PROMPT_MAX_LENGTH,
+} from '@image-playground/shared'
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { createPortal } from 'react-dom'
 import AgentParamsChip, {
   AgentExecutionSettings,
@@ -6,14 +20,27 @@ import AgentParamsChip, {
 import AgentSkillBadge from '../features/agent/components/AgentSkillBadge'
 import { useAssetSlots } from '../features/agent/components/useAssetSlots'
 import { getLeadingAgentSkill } from '../features/agent/lib/agentSkillMentions'
-import { formatImageLimit } from '../features/agent/lib/attachmentUploadErrors'
 import {
+  attachmentUploadErrorMessage,
+  canRetryAttachmentUpload,
+  formatImageLimit,
+} from '../features/agent/lib/attachmentUploadErrors'
+import {
+  attachmentUploadError,
+  attachmentUploadProgress,
+  attachmentUploadRevision,
+  attachmentUploadState,
+  primeAttachmentUploads,
   referenceImageLimit,
   referenceSourceTooLarge,
+  retryAttachmentUploads,
+  subscribeAttachmentUploads,
 } from '../features/agent/lib/attachmentUploads'
 import { agentComposerFillPrompt, useComposerFillTarget } from '../features/agent/lib/composerFill'
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
+import type { AgentDraft } from '../features/agent/lib/references'
 import { useAgentSkills } from '../features/agent/lib/useAgentSkills'
+import { useAttachmentStackProgress } from '../features/agent/lib/useAttachmentStackProgress'
 import CanvasVideoParams from '../features/canvas/components/CanvasVideoParams'
 import { useActiveLook } from '../features/library/lib/activeLook'
 import {
@@ -44,14 +71,23 @@ import {
 } from '../lib/batchGenerate'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { isVideoModeAvailable } from '../lib/channels/videoChannels'
-import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
+import { getAttachmentLimits, isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { confirmImageBatch } from '../lib/confirmImageBatch'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
-import { filesFromFolderInput } from '../lib/imageFiles'
-import { MAX_IMAGE_MB } from '../lib/inputImageLimit'
+import { useGptPremiumLocked } from '../lib/gptPremium'
+import {
+  compressUploadFiles,
+  filesFromFolderInput,
+  imageNeedsUploadCompression,
+} from '../lib/imageFiles'
+import { MAX_IMAGE_BYTES, MAX_IMAGE_MB } from '../lib/inputImageLimit'
 import { createLongPress } from '../lib/longPress'
-import { getChangedParams, normalizeParamsForSettings } from '../lib/paramCompatibility'
+import {
+  getChangedParams,
+  getParamCapabilities,
+  normalizeParamsForSettings,
+} from '../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../lib/privateOverlay'
 import { syncMentionTagSelection } from '../lib/promptEditorDom'
 import { computePromptHeight } from '../lib/promptHeight'
@@ -60,6 +96,7 @@ import {
   getAtImageQuery,
   getSelectedImageMentionLabel,
   type MentionLabelResolver,
+  replaceImageMentionsForApi,
 } from '../lib/promptImageMentions'
 import { getPromptSlotNames, getSubmissionImageCount } from '../lib/promptSlots'
 import {
@@ -70,6 +107,8 @@ import {
   referenceRefusalMessage,
   referenceTally,
 } from '../lib/referenceDraft'
+import { useUnusableReferences } from '../lib/unusableReferences'
+import { cn } from '../lib/utils'
 import {
   removeMultipleTasks,
   storeImageFromFile,
@@ -109,12 +148,32 @@ function useIsMobile() {
   return isMobile
 }
 
-/** 逐张生成点发送后按钮转圈的最短时长，之后才清空输入框。 */
+/** 快速生成点发送后按钮转圈并锁住的最短时长，之后才清空输入框、才能再发。 */
 const BATCH_SEND_FEEDBACK_MS = 500
 
 /** `inline`：首屏那一版——不吸底，跟着 hero 排在流里，卡面换成带发光描边的大卡。 */
+/**
+ * 交给智能体的参考图现在能不能发：还在传（pending）、传失败了（failed）都不能。
+ * 网络这类可重试的失败在缩略图上点「重试」重传，传好了才能发；超限图另有提示，这里只记一笔。
+ */
+function referenceUploadGate(references: readonly { dataUrl: string }[]) {
+  const failed: { dataUrl: string }[] = []
+  let pending = 0
+  let oversized = false
+  for (const reference of references) {
+    if (referenceSourceTooLarge(reference.dataUrl)) {
+      oversized = true
+      continue
+    }
+    const state = attachmentUploadState(reference)
+    if (state === 'failed') failed.push({ dataUrl: reference.dataUrl })
+    else if (state === 'queued' || state === 'uploading' || state === 'verifying') pending += 1
+  }
+  return { failed, pending, oversized }
+}
+
 export default function InputBar({ inline = false }: { inline?: boolean } = {}) {
-  const { t, i18n } = useTranslation(['composer', 'common'])
+  const { t, i18n } = useTranslation(['composer', 'common', 'agent'])
   const prompt = useStore((s) => s.prompt)
   const setPrompt = useStore((s) => s.setPrompt)
   const inputImages = useStore((s) => s.inputImages)
@@ -233,12 +292,24 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const batchImageCount = batchActive
     ? inputImages.length * getSubmissionImageCount(prompt, slotValues, 1)
     : 0
+  // GPT 直连模型的会员档位按倍率计价；非会员（含交给智能体的）服务端收回基础档，倍率是 1。
+  const premium = useGptPremiumLocked(
+    activeView.model,
+    getParamCapabilities(activeProfile, params.output_format).size,
+  )
+  const unitMultiplier =
+    toCanvas || premium.locked ? 1 : gptImageRateMultiplier(activeView.model, params)
   const submissionGuard = usePrivateSubmissionGuard({
     model: activeView.model,
     quantity: batchActive ? batchImageCount : submitImageCount,
+    unitMultiplier,
   })
   // 按钮上的积分按单张报价 × 张数算，与逐张扣费同一口径。
-  const perImageGuard = usePrivateSubmissionGuard({ model: activeView.model, quantity: 1 })
+  const perImageGuard = usePrivateSubmissionGuard({
+    model: activeView.model,
+    quantity: 1,
+    unitMultiplier,
+  })
   const batchTotalCredits = batchActive
     ? batchCredits(batchImageCount, perImageGuard.estimatedCredits)
     : undefined
@@ -261,6 +332,86 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           maxSize: formatImageLimit(referenceImageLimit().imageBytes),
         })
       : oversizedReferenceMessage(oversizedIndexes)
+  // 交给智能体的参考图与对话页输入框同一套上传：挂上就开始传、传失败就地标出并拦住发送。
+  // 否则坏图要等点了发送、新项目已经建好才报错，留下一个空对话（BUG-27）。
+  useSyncExternalStore(subscribeAttachmentUploads, attachmentUploadRevision)
+  const uploadReferences = useMemo(
+    () => (toCanvas ? inputImages.map((image) => ({ dataUrl: image.dataUrl })) : []),
+    [toCanvas, inputImages],
+  )
+  useEffect(() => primeAttachmentUploads(uploadReferences), [uploadReferences])
+  // 传完才建项目：还在传、或传失败了（文件本身有问题，或网络超时等可重试的）都拦住发送。
+  // 可重试的那几张在缩略图上点「重试」重传（BUG-41），不再靠点发送去隐式重传。
+  const { failed: failedUploads, pending: uploadsPending } = referenceUploadGate(uploadReferences)
+  const canvasSubmittingRef = useRef(false)
+  const uploadsBlocked = uploadsPending > 0 || failedUploads.length > 0
+  // 快速生成不在选图时上传：每张图在本机解一次，坏图与智能创作上传时同一套标法（BUG-59）。
+  const quickImages = useMemo(() => (toCanvas ? [] : inputImages), [toCanvas, inputImages])
+  const quickCheck = useUnusableReferences(quickImages)
+  // 传失败的那几张（超限的另算）：缩略图上标红、出「!」、× 常显；能重传的再给一个「重试」。
+  const failedIndexes = toCanvas
+    ? uploadReferences.flatMap((reference, index) =>
+        !oversizedIndexes.includes(index) && attachmentUploadState(reference) === 'failed'
+          ? [index]
+          : [],
+      )
+    : [...quickCheck.failures.keys()].filter((index) => !oversizedIndexes.includes(index))
+  const failureCode = (index: number) =>
+    toCanvas ? attachmentUploadError(uploadReferences[index]!) : quickCheck.failures.get(index)
+  const retryableIndexes = failedIndexes.filter((index) =>
+    canRetryAttachmentUpload(failureCode(index)),
+  )
+  // 每张失败图的原因都要看得到：超限那句之外，坏图、超时各说一句，标明是第几张（BUG-44）。
+  const uploadDetailLines = failedIndexes.map((index) =>
+    t('composer:studio.referenceIssue', {
+      index: index + 1,
+      reason: attachmentUploadErrorMessage(failureCode(index), getAttachmentLimits()),
+    }),
+  )
+  const retryUpload = (index: number) => {
+    const reference = uploadReferences[index]
+    if (reference) void retryAttachmentUploads(reference).catch(() => {})
+  }
+  // 还在传的那几张：像即梦一样只在缩略图上转圈，不另起一行文字。
+  const pendingIndexes = uploadReferences.flatMap((reference, index) => {
+    const state = attachmentUploadState(reference)
+    return state === 'queued' || state === 'uploading' || state === 'verifying' ? [index] : []
+  })
+  // 收起的那叠和每张缩略图上都显示百分比，与对话页输入框一致；超限的那几张不传，不算进去（BUG-42）。
+  const stackProgress = useAttachmentStackProgress(
+    uploadReferences.filter((_, index) => !oversizedIndexes.includes(index)),
+  )
+  // 用不了的图（超限的、传失败的）一视同仁：× 常显，「移除」一并删掉（BUG-49）。
+  const unusableIndexes = [...new Set([...oversizedIndexes, ...failedIndexes])].sort(
+    (a, b) => a - b,
+  )
+  const removeUnusableLabel =
+    unusableIndexes.length > 1
+      ? t('composer:studio.removeUnusableReferences')
+      : unusableIndexes.length === 1
+        ? t('composer:studio.removeReference', { index: unusableIndexes[0]! + 1 })
+        : undefined
+  // 从后往前删，前面的序号不会跟着挪；提示词里对这几张的 @ 引用由 removeInputImage 一并收拾。
+  const removeUnusable = () => {
+    for (const index of [...unusableIndexes].reverse()) useStore.getState().removeInputImage(index)
+  }
+  // 参考图条顶部和输入框下方用同一句：每张用不了的图都列出来，不另起一行（BUG-44）。
+  // 原因按图片顺序排：超限的那句放在它最靠前那张的位置，不总排第一（第 15 轮）。
+  const referenceNotice =
+    [
+      ...(oversizedNotice ? [{ index: oversizedIndexes[0]!, text: oversizedNotice }] : []),
+      ...failedIndexes.map((index, at) => ({ index, text: uploadDetailLines[at]! })),
+    ]
+      .sort((a, b) => a.index - b.index)
+      .map((line) => line.text)
+      .join('\n') || null
+  const uploadProgress =
+    uploadsPending > 0
+      ? t('composer:studio.uploadProgress', {
+          ready: uploadReferences.length - uploadsPending - failedUploads.length,
+          total: uploadReferences.length,
+        })
+      : null
   // 生成模式挂着模板胶囊时：素材条数要与素材位对上。画布档不管它（那是智能体的事）。
   const lookSubmitting = useLookSubmission((s) => s.submitting)
   const libraryAssets = useLibraryStore((s) => s.assets)
@@ -269,12 +420,24 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     [activeLook, inputImages, libraryAssets],
   )
   const lookBody = activeLook?.record?.body ?? activeLook?.skill?.template?.body ?? ''
+  const promptBlank = isBlankPrompt(prompt)
+  // 画布里这句话会作为智能体消息发出，上限更紧；生成档以云端历史能存下的长度为准。快到上限才显示字数。
+  const promptMax = toCanvas ? AGENT_USER_MESSAGE_MAX_CHARS : SYNC_PROMPT_MAX_LENGTH
+  // 画布发出去的是图片胶囊换成 `[image N]` 之后的文字，按发送时的样子计数。
+  // 带模板时模板正文要到发送那一刻才组装好，这里只数输入的部分，超长由服务端拒绝。
+  const promptLength = toCanvas
+    ? replaceImageMentionsForApi(prompt, inputImages.length).trim().length
+    : prompt.length
+  const promptTooLong = promptLength > promptMax
+  const showPromptCount = promptLength >= promptMax * 0.8
   const canSubmit = Boolean(
-    (prompt.trim() || activeLook) &&
+    (!promptBlank || activeLook) &&
       hasSubmitApiConfig &&
       !submissionGuard.blocked &&
       (lookCheck?.ok ?? true) &&
-      oversizedIndexes.length === 0,
+      oversizedIndexes.length === 0 &&
+      failedIndexes.length === 0 &&
+      quickCheck.pending === 0,
   )
   const creationMode = toCanvas ? (createTarget === 'video' ? 'video' : 'agent') : 'image'
   const apiReady = toCanvas || hasSubmitApiConfig
@@ -285,39 +448,62 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   // 模板准备中按钮变成停止：只有点按钮才取消，回车不取消、也不发新的一条。
   const submitReady =
     !lookSubmitting &&
+    !promptTooLong &&
     (toCanvas
-      ? Boolean(prompt.trim()) && oversizedIndexes.length === 0
+      ? !promptBlank && !oversizedNotice && !uploadsBlocked
       : canSubmit && !skillNeedsCanvas)
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
-  const promptMissing = !prompt.trim() && (toCanvas || !activeLook)
-  const submitBlockedTip = oversizedNotice
-    ? oversizedNotice
-    : skillNeedsCanvas
-      ? t('submit.skillNeedsCanvas')
-      : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
-        ? (submissionGuard.disabledReason ?? t('submit.noModel'))
-        : promptMissing
-          ? t('submit.promptRequired')
-          : null
+  const promptMissing = promptBlank && (toCanvas || !activeLook)
+  const blockedByReferences = referenceNotice ?? (uploadsBlocked ? uploadProgress : null)
+  const submitBlockedTip = blockedByReferences
+    ? blockedByReferences
+    : promptTooLong
+      ? t('submit.promptTooLong', { max: promptMax.toLocaleString() })
+      : skillNeedsCanvas
+        ? t('submit.skillNeedsCanvas')
+        : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
+          ? (submissionGuard.disabledReason ?? t('submit.noModel'))
+          : promptMissing
+            ? t('submit.promptRequired')
+            : null
   const submit = () => {
     if (lookSubmitting || batchSendingRef.current) return
-    if (toCanvas)
-      void startCanvasFromComposer(
-        undefined,
-        createTarget === 'chat' ? 'chat' : 'canvas',
-        creationMode === 'video' ? 'video' : 'image',
-      )
-    else if (activeLook) void submitWithLook(activeLook, lookBody)
-    else if (batchActive) {
-      // 逐张生成一次发很多张，按钮先转一下再清空输入框，让这次点击有回应。
+    if (toCanvas) {
+      if (canvasSubmittingRef.current) return
+      // 发的就是点击这一刻的草稿：重传期间用户再改文字或附件，这次就作罢，由他重新发送。
+      const { prompt: draftPrompt, inputImages: images } = useStore.getState()
+      const draft: AgentDraft = {
+        prompt: draftPrompt,
+        references: images.map((image) => ({ id: image.id, dataUrl: image.dataUrl })),
+      }
+      const gate = referenceUploadGate(draft.references)
+      if (gate.oversized || gate.pending > 0 || gate.failed.length) return
+      canvasSubmittingRef.current = true
+      void (async () => {
+        try {
+          await startCanvasFromComposer(
+            draft,
+            createTarget === 'chat' ? 'chat' : 'canvas',
+            creationMode === 'video' ? 'video' : 'image',
+          )
+        } finally {
+          canvasSubmittingRef.current = false
+        }
+      })()
+    } else if (activeLook) void submitWithLook(activeLook, lookBody)
+    else {
+      // 点下去这一刻就锁住按钮：按钮先转一下再清空输入框，让这次点击有回应；
+      // 转圈期间的第二下点击或回车不再发出第二条任务（双击会建两条任务、扣两次费）。
       batchSendingRef.current = true
       setBatchSending(true)
       const hold = new Promise((resolve) => setTimeout(resolve, BATCH_SEND_FEEDBACK_MS))
-      void submitTask({ holdClear: hold }).finally(() => {
-        batchSendingRef.current = false
-        setBatchSending(false)
-      })
-    } else void submitTask()
+      void submitTask({ holdClear: hold })
+        .then(() => hold)
+        .finally(() => {
+          batchSendingRef.current = false
+          setBatchSending(false)
+        })
+    }
   }
   const onSubmitClick = () => {
     if (lookSubmitting) cancelLookSubmission()
@@ -398,8 +584,12 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     refusalMessage: referenceRefusalMessage,
     fromAsset: (image) => image,
     fromFiles: async (files) => {
+      const fitted = await compressUploadFiles(
+        files,
+        toCanvas ? referenceImageLimit().imageBytes : MAX_IMAGE_BYTES,
+      )
       const images: InputImage[] = []
-      for (const file of files) images.push(await storeImageFromFile(file))
+      for (const file of fitted) images.push(await storeImageFromFile(file))
       return images
     },
     imageName: (image) => assetNames[image.id],
@@ -734,8 +924,16 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     const importAll = async () => {
       if (revision !== attachmentRevision.current) return
       try {
+        // 普通图不先等压缩：这次读取要在同一次点击里开始，灵感填充清掉草稿时才能作废。
+        const fitted = accepted.some(imageNeedsUploadCompression)
+          ? await compressUploadFiles(
+              accepted,
+              toCanvas ? referenceImageLimit().imageBytes : MAX_IMAGE_BYTES,
+            )
+          : accepted
+        if (revision !== attachmentRevision.current) return
         const images: InputImage[] = []
-        for (const file of accepted) images.push(await storeImageFromFile(file))
+        for (const file of fitted) images.push(await storeImageFromFile(file))
         if (revision !== attachmentRevision.current) return
         useStore.getState().attachInputImages(images, admission)
       } catch (err) {
@@ -969,6 +1167,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
 
   const renderImageThumb = (img: (typeof inputImages)[number], idx: number) => {
     const isMaskTarget = maskDraft?.targetImageId === img.id
+    // 坏图（超限的、传失败的）× 常显：不用先悬停才找得到删除入口（BUG-49）。
+    const isUnusable = unusableIndexes.includes(idx)
+    const canRetry = retryableIndexes.includes(idx)
+    const isUploading = pendingIndexes.includes(idx)
+    const uploadReference = uploadReferences[idx]
+    const uploadPercent =
+      isUploading && uploadReference ? attachmentUploadProgress(uploadReference) : undefined
     const canEdit = !maskTargetImage || isMaskTarget
     const imageHintText = isMaskTarget ? t('image.maskFirstHint') : ''
     const displaySrc = isMaskTarget && maskPreviewUrl ? maskPreviewUrl : img.dataUrl
@@ -1131,7 +1336,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         >
           <div
             className={`creation-reference-frame relative w-[72px] h-[72px] rounded-xl overflow-hidden shadow-sm cursor-grab active:cursor-grabbing select-none ${
-              oversizedIndexes.includes(idx)
+              oversizedIndexes.includes(idx) || isUnusable
                 ? 'border-2 border-destructive'
                 : isMaskTarget
                   ? 'border-2 border-primary'
@@ -1171,12 +1376,27 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 />
               </div>
             )}
-            {oversizedIndexes.includes(idx) && (
+            {(oversizedIndexes.includes(idx) || isUnusable) && (
               <span
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-background/55 text-destructive"
               >
                 <Icon name="error" size="lg" />
+              </span>
+            )}
+            {isUploading && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 bg-background/55 text-foreground"
+              >
+                <Icon
+                  name="loading"
+                  size="lg"
+                  className="animate-spin motion-reduce:animate-none"
+                />
+                {uploadPercent !== undefined && (
+                  <span className="text-label-sm leading-3 tabular-nums">{uploadPercent}%</span>
+                )}
               </span>
             )}
             {isMaskTarget && (
@@ -1193,9 +1413,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         </Hint>
         {/* 遮罩入口对所有支持 edit（图生图）的模型开放：声明原生 mask 的模型走
               images/edits inpaint；其余模型在 callImageApi 降级为「原图+高亮标注图」软遮罩 */}
-        {canEdit && supportsMask && (
+        {canRetry ? (
+          // 超时、断网这类可重试的失败：同位置换成常显的「重试」，点了只重传这一张（BUG-41）。
           <Hint
-            tooltip={isMaskTarget ? t('mask.title') : t('image.addMask')}
+            tooltip={t('agent:composer.retryUpload')}
             side="bottom"
             disableHoverableContent
             className="creation-reference-action-hint"
@@ -1203,17 +1424,42 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             <Button
               type="button"
               variant="ghost"
-              className="creation-reference-mask absolute bottom-0 right-0 z-20 h-6 w-6 rounded-sm bg-black/55 p-0 opacity-0 transition-opacity hover:bg-black/70 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+              className="creation-reference-retry absolute bottom-0 right-0 z-20 h-6 w-6 rounded-sm bg-black/55 p-0 hover:bg-black/70"
               onClick={(e) => {
                 e.stopPropagation()
-                setMaskEditorImageId(img.id)
+                retryUpload(idx)
               }}
-              title={isMaskTarget ? t('mask.title') : t('image.addMask')}
-              aria-label={isMaskTarget ? t('mask.title') : t('image.addMask')}
+              aria-label={t('agent:composer.retryUploadAria', {
+                label: mentionLabels(idx) ?? String(idx + 1),
+              })}
             >
-              <Icon name="brush" size="xs" className="text-white" />
+              <Icon name="refresh" size="xs" className="text-white" />
             </Button>
           </Hint>
+        ) : (
+          canEdit &&
+          supportsMask && (
+            <Hint
+              tooltip={isMaskTarget ? t('mask.title') : t('image.addMask')}
+              side="bottom"
+              disableHoverableContent
+              className="creation-reference-action-hint"
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                className="creation-reference-mask absolute bottom-0 right-0 z-20 h-6 w-6 rounded-sm bg-black/55 p-0 opacity-0 transition-opacity hover:bg-black/70 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setMaskEditorImageId(img.id)
+                }}
+                title={isMaskTarget ? t('mask.title') : t('image.addMask')}
+                aria-label={isMaskTarget ? t('mask.title') : t('image.addMask')}
+              >
+                <Icon name="brush" size="xs" className="text-white" />
+              </Button>
+            </Hint>
+          )
         )}
         <Hint
           tooltip={t('common:action.remove')}
@@ -1224,8 +1470,12 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           <Button
             type="button"
             variant="ghost"
-            aria-label={t('common:action.remove')}
-            className="creation-reference-remove opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+            aria-label={t('composer:studio.removeReference', { index: idx + 1 })}
+            className={`creation-reference-remove transition-opacity ${
+              isUnusable
+                ? ''
+                : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100'
+            }`}
             onClick={(e) => {
               e.stopPropagation()
               removeInputImage(idx)
@@ -1353,8 +1603,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     />
                   )
                 }
-                failed={oversizedIndexes.length > 0}
-                status={oversizedNotice ?? undefined}
+                failed={Boolean(referenceNotice)}
+                uploading={!referenceNotice && Boolean(uploadProgress)}
+                progress={stackProgress}
+                status={referenceNotice ?? uploadProgress ?? undefined}
+                onRemoveFailed={removeUnusableLabel ? removeUnusable : undefined}
+                removeFailedLabel={removeUnusableLabel}
+                showUploadingStatus={false}
                 onClear={() => useStore.getState().clearInputImages()}
                 previews={inputImages
                   .slice(-3)
@@ -1490,15 +1745,28 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               ) : undefined
             }
             status={
-              oversizedNotice ? (
+              // 参考区展开时原因句已在参考图上方，输入框下不再重复一遍。
+              referenceNotice && !(referencesExpanded && inputImages.length > 0) ? (
                 <span role="alert" className="text-xs leading-snug text-destructive">
-                  {oversizedNotice}
+                  {referenceNotice}
                 </span>
               ) : (
-                <SubmissionBillingAction
-                  blockedAction={submissionGuard.blockedAction}
-                  className="text-xs"
-                />
+                <>
+                  {showPromptCount && (
+                    <span
+                      className={cn(
+                        'text-xs tabular-nums',
+                        promptTooLong ? 'text-destructive' : 'text-muted-foreground',
+                      )}
+                    >
+                      {promptLength.toLocaleString()}/{promptMax.toLocaleString()}
+                    </span>
+                  )}
+                  <SubmissionBillingAction
+                    blockedAction={submissionGuard.blockedAction}
+                    className="text-xs"
+                  />
+                </>
               )
             }
             action={

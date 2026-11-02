@@ -7,6 +7,7 @@ import SegmentedTabs from '../../../components/patterns/SegmentedTabs'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
+import { useNearEnd } from '../../../hooks/useNearEnd'
 import { useTranslation } from '../../../i18n'
 import { formatDate } from '../../../i18n/format'
 import { useStore } from '../../../store'
@@ -14,7 +15,12 @@ import { useAgentStore } from '../../agent/store'
 import NamingDialog from '../../library/components/NamingDialog'
 import { useLibraryStore } from '../../library/store'
 import { copyCloudCanvasProject, renameProject } from '../lib/activeProject'
-import { catalogProjectId, projectCatalog, RECENT_PROJECT_COUNT } from '../lib/projectCatalog'
+import {
+  catalogProjectId,
+  projectCatalog,
+  projectCounts,
+  RECENT_PROJECT_COUNT,
+} from '../lib/projectCatalog'
 import { cloudProjectsEnabled } from '../lib/projectClient'
 import { copyProjectErrorMessage } from '../lib/projectCopyError'
 import {
@@ -53,6 +59,7 @@ export default function ProjectGrid({
   const cloudLoading = useCanvasProjectStore((state) => state.cloudLoading)
   const cloudCursor = useCanvasProjectStore((state) => state.cloudCursor)
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
+  const cloudTotals = useCanvasProjectStore((state) => state.cloudTotals)
   const selectedId = catalogProjectId(
     projects.find((project) => project.id === activeId),
     projects,
@@ -69,15 +76,25 @@ export default function ProjectGrid({
       (!recent || project.hasContent || project.workspaceOpened) &&
       (!experience || projectExperience(project) === experience),
   )
-  const counts = {
-    all: scoped.length,
-    chat: scoped.filter((project) => projectExperience(project) === 'chat').length,
-    canvas: 0,
-  }
-  counts.canvas = counts.all - counts.chat
+  // 搜索时只能数拉下来的；否则以服务端总数为准，不按已经翻到的页数数。
+  const counts = projectCounts(scoped, search.trim() ? null : cloudTotals)
   const visible = scoped
     .filter((project) => !showFilter || filter === 'all' || projectExperience(project) === filter)
     .slice(0, recent ? RECENT_PROJECT_COUNT : undefined)
+  // 云端封面是视频时按视频取首帧；本机封面（较新的那张）一定是图。
+  const coverIsVideo = (project: CanvasProject) => {
+    const remote = cloudCatalog[project.id]
+    return Boolean(
+      remote?.coverIsVideo &&
+        remote.coverMediaId &&
+        project.cover === `aip-media:${remote.coverMediaId}`,
+    )
+  }
+  // 没出过图的对话用首条消息当封面；连一条消息都没有就用卡名，不留一张只有图标的卡。
+  const chatSummary = (project: CanvasProject) =>
+    projectExperience(project) === 'chat'
+      ? cloudCatalog[project.id]?.summary || projectEntryName(project)
+      : undefined
   const enter = async (project?: CanvasProject, entry: 'chat' | 'canvas' = 'canvas') => {
     if (busy) return
     setBusy(true)
@@ -94,6 +111,11 @@ export default function ProjectGrid({
       setBusy(false)
     }
   }
+  const canLoadMore = showFilter && cloudProjectsEnabled() && Boolean(cloudCursor)
+  const endRef = useNearEnd<HTMLDivElement>(
+    () => void useCanvasProjectStore.getState().refreshCloud(true),
+    canLoadMore && !cloudLoading && !cloudError && !trash,
+  )
   if (trash) return <ProjectTrash onBack={() => setTrash(false)} onOpen={enter} />
   return (
     <>
@@ -190,6 +212,8 @@ export default function ProjectGrid({
                     fit="cover"
                     source={project.cover}
                     chat={projectExperience(project) === 'chat'}
+                    video={coverIsVideo(project)}
+                    summary={chatSummary(project)}
                     // 读取项目列表只在「刷新项目」按钮上转圈；卡片只为正在出图的对话转圈。
                     pending={
                       Boolean(project.conversationId) &&
@@ -283,19 +307,7 @@ export default function ProjectGrid({
           )
         })}
       </div>
-      {showFilter && cloudProjectsEnabled() && cloudCursor && (
-        <div className="mt-8 flex justify-center">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={cloudLoading}
-            onClick={() => void useCanvasProjectStore.getState().refreshCloud(true)}
-          >
-            {t('grid.loadMore')}
-          </Button>
-        </div>
-      )}
+      {canLoadMore && <div ref={endRef} className="h-px" aria-hidden="true" />}
       {search && !visible.length && <EmptyState title={t('grid.noMatch')} />}
       {renaming && (
         <NamingDialog

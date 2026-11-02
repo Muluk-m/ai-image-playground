@@ -47,6 +47,16 @@ export interface ChatPricing {
 }
 
 export interface PrivateTaskHooks {
+  /**
+   * 会员档（4K）提交授权：有效订阅才放行。旧 overlay 缺这个钩子时公开树维持原状放行，
+   * 没有 overlay 的部署由空钩子一律拒绝。
+   */
+  canSubmitTask?(input: {
+    tx: BffTransaction
+    userId: string
+    model: string
+    request: { image_size?: string; size?: string }
+  }): Promise<boolean>
   /** Immutable token quote under the caller's price lock; absent in older overlays. */
   quoteTokenTask?(input: {
     tx: BffTransaction
@@ -71,7 +81,7 @@ export interface PrivateTaskHooks {
     model: string
     /** 计价单位数：图片任务是张数，视频任务是秒数。 */
     quantity: number
-    /** 单位倍率；图片恒为 1，视频取清晰度倍率。 */
+    /** 单位倍率：视频取清晰度倍率；GPT 直连模型的图片按档位与画质取 gptImageRateMultiplier，其它图片为 1。 */
     unitMultiplier: number
   }): Promise<TaskReservationResult>
   finalizeTask(input: {
@@ -86,6 +96,16 @@ export interface PrivateTaskHooks {
   }): Promise<void>
   /** 单价表里没登记这个对话模型时返回 null；起轮会在预扣那一步被拒。 */
   chatPricing(model: string): Promise<ChatPricing | null>
+  /** CLI `/v1/me` 用：账户余额与是否有效会员。旧 overlay 缺席时两项都不展示。 */
+  accountSummary?(input: {
+    userId: string
+    now: number
+  }): Promise<{ credits: number; isMember: boolean }>
+  /**
+   * 账号此刻有没有生效的订阅（会员）。GPT 直连选路与 2K/4K/高画质档位按它判断。
+   * 可选（先扩后缩）：钉住的 overlay 还没有这一项时一律按非会员。
+   */
+  isActiveMember?(input: { userId: string; now: number }): Promise<boolean>
   /**
    * 已结算任务实扣的积分，按任务 id；查不到的任务不出现在结果里。
    * 积分只有私有账本算得出，公开树一律问它，绝不自己按单价折算。
@@ -97,6 +117,16 @@ export interface PrivateTaskHooks {
     userId: string
     now: number
   }): Promise<number>
+  /**
+   * 套餐的保证并发与空闲时可用并发（弹性名额）。保证并发永远放行；空闲并发只在服务器有余量、
+   * 没有别人排队时才放行，见 workers/idle-concurrency.ts。无订阅账号两者相等。
+   * 可选（先扩后缩）：缺席时退回 `accountConcurrencyLimit`，空闲并发等于保证并发。
+   */
+  accountConcurrencyEntitlement?(input: {
+    tx: BffTransaction
+    userId: string
+    now: number
+  }): Promise<{ guaranteed: number; idle: number }>
   onUserCreated(input: {
     tx: BffTransaction
     userId: string
@@ -112,11 +142,8 @@ export interface PrivateTaskHooks {
   /** Worker-only integrations; absent in older overlays. */
   runWorkerMaintenance?(now: number): Promise<void>
   /**
-   * 运营停用的模型：它们不出现在 `/api/channels`，页面上就没有入口。提交那一侧不靠它——
-   * 停用模型的预扣本来就回 `price_unavailable`，没刷新的老页面照样被拒，不会打到上游。
-   *
-   * 可选成员（「先扩后缩」）：钉住的 overlay 还没有这一项时加载照常，缺席即全部上架。
-   * 每次页面启动都会问一次，实现方自己决定缓存，别让它在热路径上每次查库。
+   * 旧版收费模块记在自己单价表里的停用模型。上下架已归公开库的 `model_availability`，这一项只在迁移完成前
+   * 补进同一份清单；可选成员，缺席即没有遗留停用。
    */
   inactiveModels?(): Promise<ReadonlySet<string>>
 }
@@ -136,6 +163,9 @@ export interface PrivateBffOverlay {
 }
 
 const EMPTY_TASK_HOOKS: PrivateTaskHooks = Object.freeze({
+  async canSubmitTask() {
+    return false
+  },
   async reserveTask() {
     return { kind: 'reserved' as const, credits: 0 }
   },

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   BOOT_READY_EVENT,
   BOOT_STAGE_EVENT,
+  BUILD_META_NAME,
   PRELOAD_RELOAD_STORAGE_KEY,
   PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY,
   RELOAD_QUERY_PARAM,
@@ -132,6 +133,21 @@ it('stops indefinite loading when React never renders', () => {
   vi.advanceTimersByTime(30000)
   expect(document.getElementById('boot')?.dataset.state).toBe('error')
 })
+it('keeps the splash while a slow network is still making progress', () => {
+  vi.advanceTimersByTime(25_000)
+  document.dispatchEvent(new CustomEvent(BOOT_STAGE_EVENT, { detail: 'runtime-config' }))
+  vi.advanceTimersByTime(25_000)
+  expect(errorPanelVisible()).toBe(false)
+  vi.advanceTimersByTime(5_000)
+  expect(document.getElementById('boot')?.dataset.state).toBe('error')
+})
+it('fails a boot that keeps advancing without ever rendering', () => {
+  for (const stage of ['runtime-config', 'modules', 'capabilities', 'account', 'account-data']) {
+    vi.advanceTimersByTime(25_000)
+    document.dispatchEvent(new CustomEvent(BOOT_STAGE_EVENT, { detail: stage }))
+  }
+  expect(errorPanelVisible()).toBe(true)
+})
 it('leaves runtime exceptions before the first render to the app', () => {
   window.dispatchEvent(new ErrorEvent('error', { message: 'Script error.' }))
   window.dispatchEvent(new Event('unhandledrejection'))
@@ -164,7 +180,7 @@ it('reloads once when stale HTML references a deleted chunk, then asks instead o
   sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
   const first = preloadError()
   expect(first.defaultPrevented).toBe(false)
-  expect(Number(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY))).toBeGreaterThan(0)
+  expect(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY)).not.toBeNull()
   finishReveal()
   expect(document.getElementById('boot')).toBeNull()
 
@@ -178,6 +194,31 @@ it('keeps a spent automatic reload budget until the user explicitly retries', ()
   sessionStorage.setItem(PRELOAD_RELOAD_STORAGE_KEY, String(Date.now() - 120000))
   expect(preloadError().defaultPrevented).toBe(false)
   expect(errorPanelVisible()).toBe(true)
+})
+
+it('reloads once more when a later release deletes a chunk this long-lived tab still references', () => {
+  const meta = document.createElement('meta')
+  meta.name = BUILD_META_NAME
+  meta.content = 'release-b'
+  document.head.append(meta)
+  try {
+    // An earlier release already spent this tab's budget.
+    sessionStorage.setItem(PRELOAD_RELOAD_STORAGE_KEY, `${Date.now() - 86_400_000}|release-a`)
+    installGuard()
+    ready()
+    preloadError()
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY)).toMatch(/\|release-b$/)
+
+    // The same build failing again asks instead of looping.
+    document.body.innerHTML = bodyHtml
+    installGuard()
+    expect(preloadError().defaultPrevented).toBe(false)
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(errorPanelVisible()).toBe(true)
+  } finally {
+    meta.remove()
+  }
 })
 
 it('unregisters legacy workers without depending on the app module or deleting user storage', async () => {
