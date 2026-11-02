@@ -202,6 +202,8 @@ describe('LoginDialog registration entry', () => {
       'fetch',
       vi.fn(async () =>
         Response.json({
+          providers: [],
+          loginMethods: { password: true, registration: true },
           ...allCapabilitiesOff(),
           'accounts:login': true,
           'accounts:self-register': true,
@@ -210,7 +212,7 @@ describe('LoginDialog registration entry', () => {
       ),
     )
     await bootstrapClientCapabilities(true, '')
-    act(() => root.render(<LoginDialog onClose={() => {}} />))
+    await act(async () => root.render(<LoginDialog onClose={() => {}} />))
 
     const dialog = document.body.querySelector('.auth-dialog')
     expect(dialog).not.toBeNull()

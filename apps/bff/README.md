@@ -167,10 +167,24 @@ Biome 禁止其它公开代码静态或动态引用 `private/`。
 | `AUTH_PUBLIC_ORIGIN` | `(空)` | OAuth provider 注册的 BFF 回调 origin；配置后必须是 bare `http(s)` origin，回调为 `<origin>/api/auth/oauth/{provider}/callback` |
 | `AUTH_FRONTEND_ORIGIN` | `(空)` | OAuth 登录完成后的默认前端 origin；必须是 bare `http(s)` origin |
 | `AUTH_FRONTEND_ORIGINS` | `(空)` | OAuth 登录回跳的精确 allowlist，逗号分隔的 bare `http(s)` origins；浏览器 start/link URL 显式携带当前 origin，Origin header 缺失时仍安全回跳 |
+| `AUTH_LOGIN_METHODS_BY_ORIGIN` | `{}` | 按精确前端 origin 配置登录入口：`{"https://workspace.example.com":{"password":false,"registration":false,"providers":["company-sso"]}}`。键必须是 frontend allowlist 中的标准 bare origin，值必须包含 boolean `password`、boolean `registration` 和 provider ID 数组；未知字段或无效值拒绝启动 |
 | `STATIC_DIR` | `(空)` | 设为 `apps/web/dist` 让 BFF 同进程托管前端 |
 | `CHANNELS_FILE` | `(空)` | 覆盖 `apps/bff/channels.json` 路径 |
 | `OPERATOR_CONFIG_FILE` | `(空)` | 仓库外 operator JSON；缺失使用关闭默认值，存在但无效则拒绝启动 |
 | `<channel secretRef>` | — | 见 channels.json 里各 channel `auth.secretRef` 字段引用的 env 名 |
+
+登录入口配置只决定该站点提供哪些登录方式，不决定用户计量、授权或已登录 session 的权限。
+未配置的 allowlisted origin 保留原有密码、邮箱注册与已启用 OAuth provider；显式 `providers: []`
+禁用该入口的所有 OAuth provider。`registration` 指邮箱/密码自助注册，不关闭已允许 OAuth
+provider 的首次登录建号；邮箱注册还要求 `password: true` 与 `accounts:self-register` 能力。
+
+`GET /api/auth/oauth/providers?frontend_origin=<origin>` 返回过滤后的 `providers` 与
+`loginMethods: { password, registration }`。浏览器 `Origin` header 优先于发现接口的 query；
+密码登录、注册、验证码及设置密码的 POST 只读 `Origin`，缺失时使用请求本身的 API origin，
+从不使用 query 选择较宽松的策略。同源反代部署应为其 API origin 配置对应入口策略。
+配置策略后，未知/畸形来源会被拒绝；OAuth 导航 start/link 仍可通过 allowlisted
+`frontend_origin` 选择入口，回调核对与 provider/state 绑定的返回 origin，并重新核对 provider
+是否允许。CLI device/token 接口及已有 session 不受此入口策略影响；用户仍可从其它允许的站点登录。
 
 ## 本地开发
 

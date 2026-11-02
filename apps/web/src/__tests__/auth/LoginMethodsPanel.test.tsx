@@ -12,10 +12,19 @@ declare global {
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
+vi.mock('../../lib/privateOverlay', () => ({
+  PrivateWebOAuthProviderMarks: {
+    enterprise: () => <img src="/official-provider.png" alt="" aria-hidden="true" />,
+  },
+}))
+
 let host: HTMLDivElement
 let root: Root
 
-const GOOGLE_PROVIDER = { providers: [{ id: 'google', label: 'Google' }] }
+const GOOGLE_PROVIDER = {
+  providers: [{ id: 'google', label: 'Google' }],
+  loginMethods: { password: true, registration: true },
+}
 
 function stubBff(methods: LoginMethodsView, mutation?: () => Response): void {
   vi.stubGlobal(
@@ -166,4 +175,29 @@ describe('LoginMethodsPanel', () => {
     expect(document.body.textContent).toContain('已绑定 Google')
     expect(window.location.search).toBe('')
   })
+})
+
+it('hides password setup and nonallowed providers under provider-only policy', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) =>
+      Response.json(
+        input.includes('/api/auth/oauth/providers')
+          ? {
+              providers: [{ id: 'enterprise', label: 'Enterprise' }],
+              loginMethods: { password: false, registration: false },
+            }
+          : {
+              password: true,
+              identities: [{ provider: 'enterprise', email: 'person@example.com', linked_at: 1 }],
+            },
+      ),
+    ),
+  )
+  await render()
+  expect(document.querySelector('form')).toBeNull()
+  expect(document.querySelector('input')).toBeNull()
+  expect(document.body.textContent).not.toContain('Google')
+  expect(document.body.textContent).toContain('person@example.com')
+  expect(document.querySelector('img[src="/official-provider.png"]')).not.toBeNull()
 })

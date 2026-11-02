@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { databasePoolFromEnv } from '@image-playground/db'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
+import { type LoginOriginPolicy, parseLoginMethodsByOrigin } from './lib/auth-origin-config'
 import { normalizeKeyPrefix } from './lib/objectKeyPrefix'
 import { hasCapability, loadOperatorConfig } from './lib/operator-config'
 
@@ -69,6 +70,8 @@ const executionOrigin = (key: string): string => bareOrigin(key, env(key, ''))
 const executorOrigin = executionOrigin('EXECUTOR_ORIGIN')
 const legacyExecutorOrigin = executionOrigin('LEGACY_EXECUTOR_ORIGIN')
 const workerStartsPaused = booleanEnv('WORKER_START_PAUSED', false)
+let loginMethodsSource: string | undefined
+let loginMethodsPolicies: readonly LoginOriginPolicy[] = []
 
 export const config = {
   port: Number(env('PORT', '37377')),
@@ -95,6 +98,24 @@ export const config = {
         configured.length > 0 ? configured : [config.auth.frontendOrigin, ...config.corsOriginList]
       return [...new Set(values.filter((origin) => origin && origin !== '*'))]
     },
+    get loginMethodsByOrigin(): readonly LoginOriginPolicy[] {
+      const source = env('AUTH_LOGIN_METHODS_BY_ORIGIN', '{}')
+      if (source !== loginMethodsSource) {
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(source)
+        } catch {
+          throw new Error('AUTH_LOGIN_METHODS_BY_ORIGIN must be valid JSON')
+        }
+        loginMethodsPolicies = parseLoginMethodsByOrigin(parsed)
+        loginMethodsSource = source
+      }
+      const allowed = config.auth.frontendOrigins
+      if (loginMethodsPolicies.some((policy) => !allowed.includes(policy.origin))) {
+        throw new Error('AUTH_LOGIN_METHODS_BY_ORIGIN keys must be allowed frontend origins')
+      }
+      return loginMethodsPolicies
+    },
   },
   oauth: {
     /** Provider secrets are read lazily so an operator can rotate them with a restart. */
@@ -108,6 +129,7 @@ export const config = {
     codeSecret: env('EMAIL_CODE_SECRET', ''),
   },
   assertValid(): void {
+    void config.auth.loginMethodsByOrigin
     if (hasCapability(config.operator, 'accounts:login') && !config.auth.internalApiToken) {
       throw new Error('Missing env: INTERNAL_API_TOKEN')
     }

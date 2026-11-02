@@ -10,6 +10,10 @@ export interface OAuthProviderView {
 
 export interface OAuthProvidersResponse {
   readonly providers: readonly OAuthProviderView[]
+  readonly loginMethods: {
+    readonly password: boolean
+    readonly registration: boolean
+  }
 }
 
 /** Callback failures redirect to the frontend carrying this query parameter. */
