@@ -1,9 +1,25 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ErrorState, Page, PendingState } from '@/components/Page'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { ApiError } from '@/lib/api-client'
 import {
   clearOperatorSetting,
   operatorSettingsQueryKey,
@@ -31,28 +47,61 @@ export function formatSettingValue(value: boolean | number, unit?: OperatorSetti
   if (unit === 'bytes') {
     if (value % 1024 ** 3 === 0) return `${value / 1024 ** 3} GB`
     if (value % 1024 ** 2 === 0) return `${value / 1024 ** 2} MB`
+    return `${value} bytes`
   }
   if (unit === 'seconds' && value % 60 === 0) return `${value / 60} 分钟`
-  return `${value}${unit === 'seconds' ? ' 秒' : unit === 'minutes' ? ' 分钟' : unit === 'tokens' ? ' tokens' : ''}`
+  return `${value}${unit === 'seconds' ? ' 秒' : unit === 'minutes' ? ' 分钟' : unit === 'tokens' ? ' tokens' : unit === 'count' ? ' 条' : unit === 'pixels' ? ' px' : unit === 'days' ? ' 天' : ''}`
 }
 
+/** Parse display units without rounding or accepting a unit from another quota. */
 export function parseSettingInput(value: string, unit?: OperatorSettingUnit): number {
-  const match = value.trim().match(/^([0-9]+(?:\.[0-9]+)?)\s*(gb|mb|分钟|分|秒|s|m)?$/i)
+  const match = value.trim().match(/^([0-9]+(?:\.[0-9]+)?)\s*(gb|mb|bytes|分钟|分|秒|s|m|天|d|px|像素|tokens|条)?$/i)
   if (!match) return Number.NaN
-  const amount = Number(match[1])
-  const suffix = match[2]?.toLowerCase()
-  if (unit === 'bytes' && suffix === 'gb') return Math.round(amount * 1024 ** 3)
-  if (unit === 'bytes' && suffix === 'mb') return Math.round(amount * 1024 ** 2)
-  if (unit === 'seconds' && (suffix === 'm' || suffix === '分钟' || suffix === '分'))
-    return Math.round(amount * 60)
-  return Math.round(amount)
+  const suffix = match[2]?.toLowerCase() ?? ''
+  const multipliers: Record<string, number> = { '': 1 }
+  if (unit === 'bytes') Object.assign(multipliers, { bytes: 1, mb: 1024 ** 2, gb: 1024 ** 3 })
+  if (unit === 'seconds') Object.assign(multipliers, { s: 1, 秒: 1, m: 60, 分: 60, 分钟: 60 })
+  if (unit === 'minutes') Object.assign(multipliers, { m: 1, 分: 1, 分钟: 1 })
+  if (unit === 'days') Object.assign(multipliers, { d: 1, 天: 1 })
+  if (unit === 'pixels') Object.assign(multipliers, { px: 1, 像素: 1 })
+  if (unit === 'tokens') multipliers.tokens = 1
+  if (unit === 'count') multipliers.条 = 1
+  if (!Object.hasOwn(multipliers, suffix)) return Number.NaN
+  const result = Number(match[1]) * multipliers[suffix]!
+  return Number.isSafeInteger(result) ? result : Number.NaN
 }
 
-function OperatorSettingsPage() {
+function mutationError(cause: unknown): { message: string; stale: boolean } {
+  if (!(cause instanceof ApiError)) {
+    return { message: '操作失败，请稍后重试', stale: false }
+  }
+  const body = cause.body as {
+    error?: string
+    details?: { rule?: string; min?: number; max?: number; currentRevision?: number }
+  } | null
+  if (body?.error === 'stale_revision') {
+    return { message: '配置已被其他操作更新，请刷新后重试。', stale: true }
+  }
+  if (body?.error === 'dependency_or_derived_rejected') {
+    return { message: `保存会违反规则：${body.details?.rule ?? '依赖或派生校验'}`, stale: false }
+  }
+  if (body?.error === 'value_out_of_range') {
+    const { min, max } = body.details ?? {}
+    return { message: `数值超出允许范围（${min ?? '—'} 至 ${max ?? '—'}）`, stale: false }
+  }
+  if (body?.error === 'boot_time_only' || body?.error === 'read_only') {
+    return { message: '该配置只能通过发布或只读查看，不能在线修改。', stale: false }
+  }
+  return { message: '操作失败，请稍后重试', stale: false }
+}
+
+export function OperatorSettingsPage() {
   const query = useOperatorSettings()
   const client = useQueryClient()
   const [search, setSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [stale, setStale] = useState(false)
+  const [pendingKey, setPendingKey] = useState<string | null>(null)
   const settings = query.data?.settings ?? []
   const grouped = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -67,29 +116,44 @@ function OperatorSettingsPage() {
 
   async function save(row: OperatorSettingRow, value: boolean | number, reason: string) {
     setError(null)
+    setStale(false)
+    setPendingKey(row.key)
     try {
-      const result = await saveOperatorSetting(row.key, {
-        value,
-        reason,
-        expectedRevision: row.revision,
-      })
-      client.setQueryData(operatorSettingsQueryKey, result)
+      client.setQueryData(
+        operatorSettingsQueryKey,
+        await saveOperatorSetting(row.key, { value, reason, expectedRevision: row.revision }),
+      )
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '保存失败，配置版本可能已变化，请刷新')
+      const result = mutationError(cause)
+      setError(result.message)
+      setStale(result.stale)
+    } finally {
+      setPendingKey(null)
     }
   }
 
   async function clear(row: OperatorSettingRow, reason: string) {
     setError(null)
+    setStale(false)
+    setPendingKey(row.key)
     try {
-      const result = await clearOperatorSetting(row.key, {
-        reason,
-        expectedRevision: row.revision,
-      })
-      client.setQueryData(operatorSettingsQueryKey, result)
+      client.setQueryData(
+        operatorSettingsQueryKey,
+        await clearOperatorSetting(row.key, { reason, expectedRevision: row.revision }),
+      )
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '清除失败，配置版本可能已变化，请刷新')
+      const result = mutationError(cause)
+      setError(result.message)
+      setStale(result.stale)
+    } finally {
+      setPendingKey(null)
     }
+  }
+
+  async function refresh() {
+    setError(null)
+    setStale(false)
+    await query.refetch()
   }
 
   return (
@@ -102,12 +166,17 @@ function OperatorSettingsPage() {
           aria-label="搜索能力与配额"
         />
         {error ? (
-          <p
+          <div
             role="alert"
-            className="rounded-md border border-destructive p-3 text-sm text-destructive"
+            className="flex items-center justify-between gap-3 rounded-md border border-destructive p-3 text-sm text-destructive"
           >
-            {error}
-          </p>
+            <span>{error}</span>
+            {stale ? (
+              <Button size="sm" variant="outline" onClick={() => void refresh()}>
+                刷新配置
+              </Button>
+            ) : null}
+          </div>
         ) : null}
         {query.isPending ? <PendingState label="加载能力与配额" /> : null}
         {query.isError ? <ErrorState label="加载能力与配额失败" error={query.error} /> : null}
@@ -129,7 +198,13 @@ function OperatorSettingsPage() {
                 </thead>
                 <tbody>
                   {rows.map((row) => (
-                    <SettingRowView key={row.key} row={row} onSave={save} onClear={clear} />
+                    <SettingRowView
+                      key={row.key}
+                      row={row}
+                      onSave={save}
+                      onClear={clear}
+                      pending={pendingKey === row.key}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -145,17 +220,51 @@ function SettingRowView({
   row,
   onSave,
   onClear,
+  pending,
 }: {
   row: OperatorSettingRow
   onSave: (row: OperatorSettingRow, value: boolean | number, reason: string) => Promise<void>
   onClear: (row: OperatorSettingRow, reason: string) => Promise<void>
+  pending: boolean
 }) {
   const [value, setValue] = useState(String(row.override ?? row.effective))
   const [reason, setReason] = useState('')
-  const [confirm, setConfirm] = useState(false)
+  const [reasonOpen, setReasonOpen] = useState(false)
+  const [impactOpen, setImpactOpen] = useState(false)
+  const [action, setAction] = useState<'save' | 'clear' | null>(null)
   const readOnly = row.editability !== 'hot'
   const parsed = row.kind === 'capability' ? value === 'true' : parseSettingInput(value, row.unit)
+
+  useEffect(() => {
+    setValue(String(row.override ?? row.effective))
+    setReason('')
+    setReasonOpen(false)
+    setImpactOpen(false)
+    setAction(null)
+  }, [row.revision, row.override, row.effective])
+
+  const submit = () => {
+    const trimmed = reason.trim()
+    setReasonOpen(false)
+    if (row.risk) {
+      setImpactOpen(true)
+      return
+    }
+    if (action === 'save') void onSave(row, parsed, trimmed)
+    if (action === 'clear') void onClear(row, trimmed)
+  }
+  const confirmImpact = () => {
+    setImpactOpen(false)
+    if (action === 'save') void onSave(row, parsed, reason.trim())
+    if (action === 'clear') void onClear(row, reason.trim())
+  }
+  const openReason = (next: 'save' | 'clear') => {
+    setAction(next)
+    setReason('')
+    setReasonOpen(true)
+  }
   const impact = `这会改变「${row.name}」的生效值，可能影响线上流量或成本。`
+
   return (
     <tr className="border-b align-top last:border-0">
       <td className="p-3">
@@ -163,7 +272,7 @@ function SettingRowView({
         <code className="mt-1 block text-xs text-muted-foreground">{row.key}</code>
         <span className="mt-1 block text-xs text-muted-foreground">{row.description}</span>
         {row.baselineChanged ? (
-          <span className="mt-1 block text-xs text-warning">基线已变</span>
+          <span className="mt-1 block text-xs text-warning">基线已变（覆盖仍生效）</span>
         ) : null}
         {row.invalid ? (
           <span className="mt-1 block text-xs text-destructive">
@@ -185,70 +294,95 @@ function SettingRowView({
         ) : (
           <>
             {row.kind === 'capability' ? (
-              <select
-                aria-label={`${row.name}值`}
-                value={value}
-                onChange={(event) => setValue(event.target.value)}
-                className="h-9 w-full rounded-md border bg-transparent px-2"
-              >
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
+              <Select value={value} onValueChange={setValue} disabled={pending}>
+                <SelectTrigger aria-label={`${row.name}值`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="true">开启</SelectItem>
+                  <SelectItem value="false">关闭</SelectItem>
+                </SelectContent>
+              </Select>
             ) : (
               <Input
                 aria-label={`${row.name}值`}
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
+                disabled={pending}
               />
             )}
-            <Input
-              aria-label={`${row.name}修改原因`}
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              placeholder="修改原因（必填）"
-            />
             <div className="flex gap-2">
               <Button
                 size="sm"
-                disabled={
-                  !reason.trim() || (typeof parsed === 'number' && !Number.isFinite(parsed))
-                }
-                onClick={() => {
-                  if (row.risk && !confirm) {
-                    setConfirm(true)
-                    return
-                  }
-                  void onSave(row, parsed, reason.trim())
-                }}
+                disabled={pending || (typeof parsed === 'number' && !Number.isFinite(parsed))}
+                onClick={() => openReason('save')}
               >
-                {row.risk && !confirm ? '确认影响后保存' : '保存'}
+                保存
               </Button>
               {row.override !== null ? (
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={!reason.trim()}
-                  onClick={() => void onClear(row, reason.trim())}
+                  disabled={pending}
+                  onClick={() => openReason('clear')}
                 >
                   清除覆盖
                 </Button>
               ) : null}
             </div>
-            {row.risk && confirm ? (
-              <div role="alertdialog" className="rounded-md border border-warning p-2 text-xs">
-                <p>{impact}</p>
-                <Button
-                  size="sm"
-                  className="mt-2"
-                  onClick={() => {
-                    setConfirm(false)
-                    void onSave(row, parsed, reason.trim())
-                  }}
-                >
-                  确认保存
-                </Button>
-              </div>
-            ) : null}
+            <Dialog
+              open={reasonOpen}
+              onOpenChange={(open) => {
+                if (!pending) setReasonOpen(open)
+              }}
+            >
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{action === 'clear' ? '清除覆盖' : '保存覆盖'}</DialogTitle>
+                  <DialogDescription>请填写本次配置变更的原因。</DialogDescription>
+                </DialogHeader>
+                <Input
+                  autoFocus
+                  aria-label="修改原因"
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                  placeholder="修改原因（必填）"
+                />
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setReasonOpen(false)} disabled={pending}>
+                    取消
+                  </Button>
+                  <Button onClick={submit} disabled={pending || !reason.trim()}>
+                    继续
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            <Dialog
+              open={impactOpen}
+              onOpenChange={(open) => {
+                if (!pending) setImpactOpen(open)
+              }}
+            >
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>确认成本与流量影响</DialogTitle>
+                  <DialogDescription>{impact}</DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setImpactOpen(false)}
+                    disabled={pending}
+                  >
+                    取消
+                  </Button>
+                  <Button onClick={confirmImpact} disabled={pending}>
+                    {action === 'clear' ? '确认清除' : '确认保存'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </>
         )}
       </td>

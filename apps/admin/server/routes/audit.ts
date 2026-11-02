@@ -12,6 +12,7 @@ export const auditRoutes = new Elysia({ prefix: '/api' }).use(requireAuth).get(
       limit: query.limit,
       action: query.action || undefined,
       settingKey: query.settingKey || undefined,
+      targetId: query.targetId || undefined,
     }),
   {
     query: t.Object({
@@ -19,6 +20,7 @@ export const auditRoutes = new Elysia({ prefix: '/api' }).use(requireAuth).get(
       limit: t.Optional(t.Numeric({ minimum: 1, maximum: 100, multipleOf: 1 })),
       action: t.Optional(t.String({ maxLength: 64 })),
       settingKey: t.Optional(t.String({ maxLength: 128 })),
+      targetId: t.Optional(t.String({ maxLength: 256 })),
     }),
   },
 )

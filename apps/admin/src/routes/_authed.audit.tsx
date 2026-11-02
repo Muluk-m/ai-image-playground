@@ -50,6 +50,8 @@ const ACTION_LABEL: Record<string, string> = {
   'inspiration.category.create': '新建灵感分类',
   'inspiration.category.update': '编辑灵感分类',
   'inspiration.category.delete': '删除灵感分类',
+  'operator_config.set': '设置运营覆盖',
+  'operator_config.clear': '清除运营覆盖',
 }
 
 const ALL_ACTIONS = 'all'
@@ -58,13 +60,15 @@ function actionTitle(action: string): string {
   return ACTION_LABEL[action] ?? action
 }
 
-function AuditPage() {
+export function AuditPage() {
   const [action, setAction] = useState(ALL_ACTIONS)
   const [settingKey, setSettingKey] = useState('')
+  const [targetId, setTargetId] = useState('')
   const isMobile = useIsMobile()
   const query = useAudits({
     action: action === ALL_ACTIONS ? undefined : action,
     settingKey: settingKey.trim() || undefined,
+    targetId: targetId.trim() || undefined,
   })
   const audits = query.data?.pages.flatMap((page) => page.audits) ?? []
 
@@ -80,6 +84,13 @@ function AuditPage() {
             className="h-8 w-[180px] text-xs"
             placeholder="配置键"
             aria-label="按配置键筛选"
+          />
+          <Input
+            value={targetId}
+            onChange={(event) => setTargetId(event.target.value)}
+            className="h-8 w-[180px] text-xs"
+            placeholder="对象 ID"
+            aria-label="按对象 ID 筛选"
           />
           <Select value={action} onValueChange={setAction}>
             <SelectTrigger className="h-8 w-[180px] text-xs" aria-label="按动作筛选">

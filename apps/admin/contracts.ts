@@ -785,7 +785,15 @@ export function parseAgentPromptFilters(
 // ---- 能力与配额（运营覆盖） ----
 export type OperatorSettingKind = 'capability' | 'quota'
 export type OperatorSettingEditability = 'hot' | 'boot-time' | 'read-only'
-export type OperatorSettingUnit = 'boolean' | 'bytes' | 'seconds' | 'minutes' | 'count' | 'tokens'
+export type OperatorSettingUnit =
+  | 'boolean'
+  | 'bytes'
+  | 'seconds'
+  | 'minutes'
+  | 'count'
+  | 'tokens'
+  | 'pixels'
+  | 'days'
 
 export interface OperatorSettingRow {
   key: string
