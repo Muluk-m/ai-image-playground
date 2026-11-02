@@ -58,8 +58,13 @@ export const OPS_THRESHOLDS = {
    * 没有这道余量就会每分钟交替发「告警」与「已恢复」。
    */
   HOST_RECOVERY_MARGIN_RATIO: 0.02,
-  /** Hourly cloud backup; tolerate one delayed run, matching the sidecar health probe. */
-  BACKUP_MAX_AGE_MS: 2 * 60 * 60 * 1000,
+  /**
+   * Hourly cloud backup, matching the sidecar health probe. The line has to clear one lost run plus
+   * the run itself: a dump takes a couple of minutes, so after a missed hour the newest file is
+   * already past 2 h by the time the next one lands, and a 2 h line fires and then resolves on its
+   * own (2026-11-01, a deploy replaced pg-backup mid-run). Two consecutive misses still cross it.
+   */
+  BACKUP_MAX_AGE_MS: 2.5 * 60 * 60 * 1000,
   /**
    * 备份恢复演练每周一次；超过这个时长没有新结果就是断了。比一周多留一天，
    * 给周日那一轮失手后容器重启时的补跑留出余地。
