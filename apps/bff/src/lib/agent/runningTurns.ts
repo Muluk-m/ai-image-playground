@@ -31,7 +31,11 @@ export interface RunningTurn {
     references?: readonly AgentTurnReference[],
     options?: AgentInterjectOptions,
   ): Promise<string | null>
-  abort(): void
+  /**
+   * 中止这一轮。`user_stop` 只由用户点「中止」的停止接口传：只有它会连带取消本轮的出图任务并退款
+   * （BUG-32）；租约丢失、停机清场等其余中止只停下对话，任务照常跑完、照常结算。
+   */
+  abort(reason?: 'user_stop'): void
 }
 
 const running = new Map<string, RunningTurn>()
@@ -46,4 +50,14 @@ export function registerRunningTurn(turn: RunningTurn): () => void {
   return () => {
     if (running.get(turn.conversationId) === turn) running.delete(turn.conversationId)
   }
+}
+
+/** 本进程里此刻在跑的轮。测试等它们落定时用。 */
+export function runningTurnsForTesting(): RunningTurn[] {
+  return [...running.values()]
+}
+
+/** 测试之间的清场：上一个用例留下还在跑的轮一律中止，否则它会写向下一个用例刚清掉的数据。 */
+export function abortRunningTurnsForTesting(): void {
+  for (const turn of running.values()) turn.abort()
 }

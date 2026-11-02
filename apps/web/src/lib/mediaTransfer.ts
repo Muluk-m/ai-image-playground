@@ -1,5 +1,7 @@
 import { accountScope, scopedStorageName } from './authScope'
 import { MediaRequestError, mediaJson } from './cloudMedia'
+import { reportDeliveryFailure } from './errorReporting'
+import { putMedia } from './mediaPut'
 import { bffBaseUrl } from './runtimeConfig'
 
 interface Upload {
@@ -20,7 +22,9 @@ async function retry<T>(work: () => Promise<T>, signal: AbortSignal, current: ()
         error instanceof MediaRequestError
           ? [408, 429, 500, 502, 503, 504].includes(error.status)
           : error instanceof TypeError ||
-            (error instanceof DOMException && error.name === 'TimeoutError')
+            // current() above rejects caller cancellation and account/backend changes first.
+            (error instanceof DOMException &&
+              (error.name === 'TimeoutError' || error.name === 'AbortError'))
       if (!transient || attempt >= 3) throw error
       await new Promise<void>((resolve, reject) => {
         const abort = () => {
@@ -53,6 +57,8 @@ function confirmMedia(
   id: string,
   signal: AbortSignal,
   schedule?: (work: () => Promise<Upload>) => Promise<Upload>,
+  /** 同一张图已有进行中的确认、这次只是跟着等时回调（不会走 schedule）。 */
+  onJoined?: () => void,
 ): Promise<Upload> {
   signal.throwIfAborted()
   const backend = bffBaseUrl()
@@ -86,13 +92,24 @@ function confirmMedia(
       waiters: 0,
       promise: Promise.resolve()
         .then(() => (schedule ? schedule(work) : work()))
+        .then((ready) => {
+          current()
+          if (ready.status !== 'ready' || ready.id !== id)
+            throw new Error('invalid_media_confirmation')
+          return ready
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted && sameAccount() && backend === bffBaseUrl())
+            reportDeliveryFailure({ operation: 'media.upload', stage: 'complete' }, error)
+          throw error
+        })
         .finally(() => {
           if (confirmations.get(key) === created) confirmations.delete(key)
         }),
     }
     entry = created
     confirmations.set(key, entry)
-  }
+  } else onJoined?.()
   const shared = entry
   shared.waiters++
   return new Promise((resolve, reject) => {
@@ -132,12 +149,21 @@ export async function transferMedia(
     current: () => void
     purpose?: 'conversation-attachment'
     onVerifying?: () => void
+    /** 每进入一段（含重试）回调一次，供上传分段计时；confirm_shared 表示跟着别处进行中的确认等。 */
+    onPhase?: (phase: 'reserve' | 'put' | 'confirm_shared') => void
+    /** 登记拿到媒体 id 时回调，失败日志也能和服务端记录对上。 */
+    onReserved?: (id: string) => void
     confirm?: (work: () => Promise<Upload>) => Promise<Upload>
+    /** 直传已发出的比例，0–1；重试时从头再报。 */
+    onProgress?: (fraction: number) => void
   },
 ): Promise<Upload> {
   const { signal, current } = options
-  const reserve = () =>
-    mediaJson<Upload>('/uploads', {
+  const sameAccount = accountScope()
+  const backend = bffBaseUrl()
+  const reserve = async () => {
+    options.onPhase?.('reserve')
+    const reserved = await mediaJson<Upload>('/uploads', {
       method: 'POST',
       signal,
       headers: { 'content-type': 'application/json' },
@@ -148,50 +174,69 @@ export async function transferMedia(
         ...(options.purpose ? { purpose: options.purpose } : {}),
       }),
     })
-  let upload = await retry(reserve, signal, current)
-  current()
-  if (upload.status === 'ready') return upload
-  let refresh = false
-  upload = await retry(
-    async () => {
-      if (refresh) {
-        upload = await reserve()
+    options.onReserved?.(reserved.id)
+    return reserved
+  }
+  let stage: 'reserve' | 'put' = 'reserve'
+  let upload: Upload
+  try {
+    upload = await retry(reserve, signal, current)
+    current()
+    if (upload.status === 'ready') return upload
+    let refresh = false
+    upload = await retry(
+      async () => {
+        if (refresh) {
+          stage = 'reserve'
+          upload = await reserve()
+          current()
+          refresh = false
+        }
+        if (upload.status === 'ready') return upload
+        stage = 'put'
+        if (!upload.uploadUrl) throw new Error('invalid_media_upload')
+        options.onPhase?.('put')
+        let sent: { ok: boolean; status: number }
+        try {
+          // 不再设整段超时：大图慢网也一直在走；连续 60 秒没进度才算卡住，按超时重试。
+          sent = await putMedia(upload.uploadUrl, body, contentType, {
+            signal,
+            onProgress: options.onProgress,
+          })
+        } catch (error) {
+          // Expired signatures can surface as CORS network errors in a browser.
+          refresh = true
+          throw error
+        }
         current()
-        refresh = false
-      }
-      if (upload.status === 'ready') return upload
-      if (!upload.uploadUrl) throw new Error('invalid_media_upload')
-      let sent: Response
+        if (sent.status === 403) {
+          // Refresh an expired signed URL without allocating a new media identity.
+          refresh = true
+          throw new MediaRequestError(503, 'media_upload_failed')
+        }
+        if (!sent.ok) throw new MediaRequestError(sent.status, 'media_upload_failed')
+        return upload
+      },
+      signal,
+      current,
+    )
+  } catch (error) {
+    let active = !signal.aborted && sameAccount() && backend === bffBaseUrl()
+    if (active) {
       try {
-        sent = await fetch(upload.uploadUrl, {
-          method: 'PUT',
-          credentials: 'omit',
-          signal: AbortSignal.any([signal, AbortSignal.timeout(300_000)]),
-          headers: { 'content-type': contentType },
-          body,
-        })
-      } catch (error) {
-        // Expired signatures can surface as CORS network errors in a browser.
-        refresh = true
-        throw error
+        current()
+      } catch {
+        active = false
       }
-      current()
-      if (sent.status === 403) {
-        // Refresh an expired signed URL without allocating a new media identity.
-        refresh = true
-        throw new MediaRequestError(503, 'media_upload_failed')
-      }
-      if (!sent.ok) throw new MediaRequestError(sent.status, 'media_upload_failed')
-      return upload
-    },
-    signal,
-    current,
-  )
+    }
+    if (active) reportDeliveryFailure({ operation: 'media.upload', stage }, error)
+    throw error
+  }
   if (upload.status === 'ready') return upload
   options.onVerifying?.()
-  const ready = await confirmMedia(upload.id, signal, options.confirm)
+  const ready = await confirmMedia(upload.id, signal, options.confirm, () =>
+    options.onPhase?.('confirm_shared'),
+  )
   current()
-  if (ready.status !== 'ready' || ready.id !== upload.id)
-    throw new Error('invalid_media_confirmation')
   return { ...ready, leaseExpiresAt: ready.leaseExpiresAt ?? upload.leaseExpiresAt }
 }

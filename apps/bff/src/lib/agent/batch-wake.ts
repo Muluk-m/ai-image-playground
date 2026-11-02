@@ -1,9 +1,25 @@
 import type { AgentInboxTaskResultPayload } from '@image-playground/db'
-import type { AgentBatchAttemptSnapshot, AgentBatchWakeReceipt } from '@image-playground/shared'
-import { and, asc, eq, isNull, lte, sql } from 'drizzle-orm'
+import type {
+  AgentBatchAttemptSnapshot,
+  AgentBatchWakeReceipt,
+  AgentToolArtifact,
+} from '@image-playground/shared'
+import { and, asc, eq, isNotNull, isNull, lt, lte, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
 import type { AgentOwner } from './conversations'
+
+/** 生成批次唤醒时随这一轮附上的产物上限：与单张复核同样是视觉输入，张数多了只看前几张。 */
+export const BATCH_WAKE_REVIEW_IMAGE_MAX = 6
+
+export interface BatchWakeContent {
+  readonly text: string
+  /**
+   * 生成项里已完成的产物，按批次顺序，最多 {@link BATCH_WAKE_REVIEW_IMAGE_MAX} 张。尽力附带：
+   * 读不到或超出图片预算的会被跳过，不让整轮失败。
+   */
+  readonly optionalReviewImageIds: readonly string[]
+}
 
 /** Read only the confirmed version's durable outcomes, never prompts or image bytes. */
 export async function batchWakeSummary(
@@ -11,6 +27,14 @@ export async function batchWakeSummary(
   owner: AgentOwner,
   notice: NonNullable<AgentInboxTaskResultPayload['batch']>,
 ): Promise<string | null> {
+  return (await batchWakeContent(conversationId, owner, notice))?.text ?? null
+}
+
+export async function batchWakeContent(
+  conversationId: string,
+  owner: AgentOwner,
+  notice: NonNullable<AgentInboxTaskResultPayload['batch']>,
+): Promise<BatchWakeContent | null> {
   if (owner.kind !== 'user' || notice.eventVersion !== 1) return null
   const [plan] = await db
     .select({
@@ -39,9 +63,11 @@ export async function batchWakeSummary(
   const rows = await db
     .select({
       itemKey: items.key,
+      kind: items.kind,
       dependencies: items.dependencies,
       taskId: attempts.task_id,
       archived: sql<boolean>`${attempts.terminal_snapshot} IS NOT NULL`,
+      artifacts: sql<AgentToolArtifact[] | null>`${attempts.terminal_snapshot} -> 'artifacts'`,
       attempt: attempts.attempt,
       status: sql<
         AgentBatchAttemptSnapshot['status'] | null
@@ -89,7 +115,14 @@ export async function batchWakeSummary(
     ...sourceTargets,
   ])
   const results = rows.map(
-    ({ dependencies: _dependencies, taskId: _taskId, archived: _archived, ...row }) =>
+    ({
+      dependencies: _dependencies,
+      taskId: _taskId,
+      archived: _archived,
+      kind: _kind,
+      artifacts: _artifacts,
+      ...row
+    }) =>
       cancelled.has(row.itemKey) ? { ...row, status: 'cancelled' as const, actualCredits: 0 } : row,
   )
   if (
@@ -98,13 +131,82 @@ export async function batchWakeSummary(
     results.some((result) => !result.status || !notice.itemKeys.includes(result.itemKey))
   )
     return null
+  const generated = rows
+    .filter(
+      (row) =>
+        row.kind === 'generation' && row.status === 'completed' && !cancelled.has(row.itemKey),
+    )
+    .flatMap((row) =>
+      (row.artifacts ?? [])
+        .filter((artifact) => artifact.media === 'image')
+        .map((artifact) => ({
+          id: artifact.artifactId,
+          // 写明实际像素：没有尺寸时模型只能凭看图猜画幅，写出「但画面实际为横版，符合 16:9」这种话（BUG-51）。
+          label:
+            artifact.width && artifact.height
+              ? `${artifact.artifactId}（${artifact.width}×${artifact.height}）`
+              : artifact.artifactId,
+        })),
+    )
+  // 用户确认前在卡片上删掉的项（BUG-39）：不说清楚，复核时会把它当成漏掉的产物。
+  // 只有「这一版就是从草稿第一次确认的那一版」时，和初版的差集才是用户删项：草稿编辑只发生在
+  // 确认之前。重试版只带未完成的项，分析转生成会换一套编号，它们之前都有确认过的版本，不能算删项。
+  const confirmedBefore = await db
+    .select({ version: schema.agent_batch_plans.version })
+    .from(schema.agent_batch_plans)
+    .where(
+      and(
+        eq(schema.agent_batch_plans.batch_id, notice.batchId),
+        lt(schema.agent_batch_plans.version, notice.version),
+        isNotNull(schema.agent_batch_plans.confirmation),
+      ),
+    )
+    .limit(1)
+  const original =
+    notice.version > 1 && !confirmedBefore.length
+      ? await db
+          .select({ key: items.key })
+          .from(items)
+          .where(and(eq(items.batch_id, notice.batchId), eq(items.version, 1)))
+          .orderBy(asc(items.ordinal))
+          .limit(100)
+      : []
+  const kept = new Set(rows.map((row) => row.itemKey))
+  const removed = original.map((row) => row.key).filter((key) => !kept.has(key))
+  const hasAnalysis = rows.some((row) => row.kind === 'analysis')
+  const hasGeneration = rows.some((row) => row.kind === 'generation')
+  const optionalReviewImageIds = generated
+    .slice(0, BATCH_WAKE_REVIEW_IMAGE_MAX)
+    .map((artifact) => artifact.id)
+  const guidance: string[] = []
+  if (hasGeneration)
+    guidance.push(
+      generated.length
+        ? `生成项的产物：${generated.map((artifact) => artifact.label).join('、')}。括号里是实际像素，说画幅时以它为准。前 ${optionalReviewImageIds.length} 张会尽量作为图片随这一轮附上，实际附上哪些以本轮图片清单为准。对照用户这一批的要求逐张复核附上的图：逐项写出用户要求保留或修改的属性是否做到：做到的直接说符合，不要用「但」「实际为」这类转折去写一个符合的属性；不合格的指出是哪一张、哪里不对，只给修改建议，不要自行重新生成。清单里没有的产物如实说明尚未查看，可以用 viewImage 查看。`
+        : '生成项没有可复核的产物：说明失败或取消的是哪几项，不要自行重新生成。',
+    )
+  if (hasAnalysis)
+    guidance.push(
+      '分析项只提供任务状态和账单，没有检查产物像素，不能把状态当成视觉结论。调用 readBatchAnalysis，传入上述 batchId 和 version 分页读取已完成的真实发现，再汇总；读取已有结果不产生新分析费用。需要补看时调用 proposeBatchAnalysis 保存明确范围的新报价，等待用户确认；需要生成时先读完有关发现再调用 proposeBatchGeneration，等待用户确认生成。',
+    )
   // Plan and key cardinalities are already bounded. No unbounded upstream text enters this note.
-  return [
-    '（系统通知，不是用户说的话）已确认批次的一版执行结果全部确定。只需简短汇总下面的执行事实，不要重新提交任务或自动发起付费复核。',
-    `批次 ${notice.batchId}，版本 ${notice.version}，共 ${results.length} 项：`,
-    JSON.stringify(results),
-    '这里只提供任务状态和账单，没有检查产物像素，不能声称已逐图检查视觉质量。分析批次应调用 readBatchAnalysis，传入上述 batchId 和 version 分页读取已完成的真实发现，再汇总；不得把状态当成视觉结论。读取已有结果不产生新分析费用。需要补看时调用 proposeBatchAnalysis 保存明确范围的新报价，等待用户确认；需要生成时先读完有关发现再调用 proposeBatchGeneration，等待用户确认生成。',
-  ].join('\n')
+  return {
+    text: [
+      '（系统通知，不是用户说的话）已确认批次的一版执行结果全部确定。汇总下面的执行事实，不要重新提交任务或自动发起付费分析。',
+      `批次 ${notice.batchId}，版本 ${notice.version}，共 ${results.length} 项：`,
+      JSON.stringify(results),
+      ...(removed.length
+        ? [
+            `用户确认前从计划里移除了这些项，没有提交、也不需要产物：${removed.join('、')}。复核时不要把它们当成漏掉或尚未查看的图。`,
+          ]
+        : []),
+      ...guidance,
+      // BUG-55/56：模型照搬回执里的 key 与产物 id，写成「产物：[小猫](agent_…)」相对链接，点开是打不开的页面。
+      // 批次产物不在会话工具消息里，回复里的 `![](图片ID)` 也认不出，只会剩「[小猫]」占位，所以不贴图。
+      '给用户的总结用名称或内容称呼各项，不写 key、批次 ID、任务 ID 或图片 ID；成图已经显示在批次卡里，总结里不要再贴图片，也不要写 `[名称](图片ID)` 链接或 ID 清单。',
+    ].join('\n'),
+    optionalReviewImageIds,
+  }
 }
 
 /** A receipt belongs to one immutable version, even when other batches share its conversation. */

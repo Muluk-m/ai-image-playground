@@ -1,114 +1,63 @@
 import { useMemo } from 'react'
-import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
-import { inspirationFacetLabel } from '../lib/labels'
-import { type InspirationProviderFilter, useInspirationStore } from '../store'
-import type { InspirationItem } from '../types'
-import InspirationCard from './InspirationCard'
+import { visibleInspirationItems } from '../lib/visibleItems'
+import { useInspirationStore } from '../store'
+import InspirationEmpty from './InspirationEmpty'
+import InspirationMasonry from './InspirationMasonry'
+import InspirationSkeleton from './InspirationSkeleton'
 
-export default function InspirationGrid() {
+export { filterItems, sortPinnedFirst } from '../lib/visibleItems'
+
+interface Props {
+  scroller: HTMLElement | null
+}
+
+export default function InspirationGrid({ scroller }: Props) {
   const items = useInspirationStore((s) => s.items)
+  const status = useInspirationStore((s) => s.status)
   const selectedProvider = useInspirationStore((s) => s.selectedProvider)
   const selectedCategory = useInspirationStore((s) => s.selectedCategory)
+  const selectedGroup = useInspirationStore((s) => s.selectedGroup)
   const onlyImageEdits = useInspirationStore((s) => s.onlyImageEdits)
   const searchKeyword = useInspirationStore((s) => s.searchKeyword)
-  const setProvider = useInspirationStore((s) => s.setProvider)
-  const setCategory = useInspirationStore((s) => s.setCategory)
-  const setOnlyImageEdits = useInspirationStore((s) => s.setOnlyImageEdits)
-  const setSearch = useInspirationStore((s) => s.setSearch)
-  const showDetail = useInspirationStore((s) => s.showDetail)
   const pinnedIds = useStore((s) => s.pinnedInspirationIds)
   const { t } = useTranslation('inspiration')
 
   const ordered = useMemo(
     () =>
-      sortPinnedFirst(
-        filterItems(items, selectedProvider, selectedCategory, onlyImageEdits, searchKeyword),
+      visibleInspirationItems({
+        items,
+        provider: selectedProvider,
+        category: selectedCategory,
+        group: selectedGroup,
+        onlyImageEdits,
+        keyword: searchKeyword,
         pinnedIds,
-      ),
-    [items, selectedProvider, selectedCategory, onlyImageEdits, searchKeyword, pinnedIds],
+      }),
+    [
+      items,
+      selectedProvider,
+      selectedCategory,
+      selectedGroup,
+      onlyImageEdits,
+      searchKeyword,
+      pinnedIds,
+    ],
   )
-  const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds])
+  const resetKey = `${selectedProvider}|${selectedGroup ?? ''}|${selectedCategory ?? ''}|${searchKeyword}|${onlyImageEdits}`
 
-  if (ordered.length === 0) {
+  if (items.length === 0 && status !== 'ready' && status !== 'error') {
+    return <InspirationSkeleton label={t('list.loading')} />
+  }
+  if (items.length === 0) {
     return (
-      <div className="flex h-64 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
-        <p>{items.length === 0 ? t('list.loading') : t('list.empty')}</p>
-        {items.length > 0 ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="max-md:h-11"
-            onClick={() => {
-              setProvider('all')
-              setCategory(null)
-              setOnlyImageEdits(false)
-              setSearch('')
-            }}
-          >
-            {t('list.resetFilters')}
-          </Button>
-        ) : null}
-      </div>
+      <p className="py-16 text-center text-body-sm text-muted-foreground">
+        {status === 'error' ? t('manifest.invalid') : t('list.empty')}
+      </p>
     )
   }
+  if (ordered.length === 0) return <InspirationEmpty />
 
-  return (
-    <ul className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-      {ordered.map((item) => (
-        <li key={item.id} className={item.referenceImages?.length ? 'col-span-2' : ''}>
-          <InspirationCard
-            item={item}
-            pinned={pinnedSet.has(item.id)}
-            onClick={() => showDetail(item.id)}
-          />
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-function filterItems(
-  items: InspirationItem[],
-  provider: InspirationProviderFilter,
-  category: string | null,
-  onlyImageEdits: boolean,
-  keyword: string,
-) {
-  const kw = keyword.trim().toLowerCase()
-  return items.filter((item) => {
-    if (provider !== 'all' && item.recommendedProvider !== provider) return false
-    if (category && item.category !== category) return false
-    if (onlyImageEdits && !item.referenceImages?.length) return false
-    if (!kw) return true
-    const haystack = [
-      item.title,
-      item.description ?? '',
-      item.prompt,
-      item.category,
-      inspirationFacetLabel(item.category),
-      ...(item.tags ?? []),
-      ...(item.tags ?? []).map((tag) => inspirationFacetLabel(tag)),
-    ]
-      .join(' ')
-      .toLowerCase()
-    return haystack.includes(kw)
-  })
-}
-
-/**
- * pinnedIds 顺序 = 用户置顶顺序（最近 pin 的在前）；未匹配到当前 filtered 的 id 跳过。
- */
-function sortPinnedFirst(items: InspirationItem[], pinnedIds: string[]): InspirationItem[] {
-  if (pinnedIds.length === 0) return items
-  const pinnedSet = new Set(pinnedIds)
-  const byId = new Map(items.map((it) => [it.id, it] as const))
-  const pinned: InspirationItem[] = []
-  for (const id of pinnedIds) {
-    const hit = byId.get(id)
-    if (hit) pinned.push(hit)
-  }
-  const rest = items.filter((it) => !pinnedSet.has(it.id))
-  return [...pinned, ...rest]
+  return <InspirationMasonry items={ordered} scroller={scroller} resetKey={resetKey} />
 }

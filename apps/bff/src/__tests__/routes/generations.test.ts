@@ -396,6 +396,8 @@ it('历史按有界页遍历，页面之间新提交不会造成重复或漏掉�
   }
   const first = await (await request('/api/generations?limit=2', deviceB)).json()
   expect(first.items).toHaveLength(2)
+  // 总数只在第一页给：资产页的计数照它显示，不用把整段历史拉下来数。
+  expect(first.totals).toEqual({ all: 5, studio: 5, agent: 0 })
   await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
     ...input,
     client_request_id: 'pagination-new-command',
@@ -405,6 +407,7 @@ it('历史按有界页遍历，页面之间新提交不会造成重复或漏掉�
   while (cursor) {
     const page = await (await request(`/api/generations?limit=2&cursor=${cursor}`, deviceB)).json()
     expect(page.items.length).toBeLessThanOrEqual(2)
+    expect(page).not.toHaveProperty('totals')
     seen.push(...page.items.map((item: { id: string }) => item.id))
     cursor = page.nextCursor
   }
@@ -461,6 +464,55 @@ it('别人的作品删不掉，没有登录也删不掉', async () => {
   expect((await remove(`/api/generations/${id}`, stranger)).status).toBe(404)
   expect((await remove(`/api/generations/${id}`, '')).status).toBe(401)
   expect((await (await request('/api/generations', deviceB)).json()).items).toHaveLength(1)
+})
+
+it('多图作品只删一张：列表封面顺延、详情不再返回那张，删到最后一张整条消失', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#33aa77' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({
+      data: [0, 1, 2].map(() => ({ b64_json: png.toString('base64') })),
+    })) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  await runTask(id)
+  const outputs = async () =>
+    (
+      (await (await request(`/api/generations/${id}`, deviceB)).json()).outputs as {
+        index: number
+      }[]
+    ).map((image) => image.index)
+  expect(await outputs()).toEqual([0, 1, 2])
+
+  expect((await remove(`/api/generations/${id}/outputs/0`, stranger)).status).toBe(404)
+  expect((await remove(`/api/generations/${id}/outputs/0`, '')).status).toBe(401)
+  const first = await remove(`/api/generations/${id}/outputs/0`, deviceA)
+  expect(first.status).toBe(200)
+  expect(await first.json()).toEqual({ generationDeleted: false })
+  expect(await outputs()).toEqual([1, 2])
+  const [item] = (await (await request('/api/generations', deviceB)).json()).items
+  expect(item.cover.index).toBe(1)
+  expect(item.outputCount).toBe(2)
+  // 同一张删两次、删不存在的位置都是 404，不会误删别的。
+  expect((await remove(`/api/generations/${id}/outputs/0`, deviceA)).status).toBe(404)
+  expect((await remove(`/api/generations/${id}/outputs/7`, deviceA)).status).toBe(404)
+  // 原图地址按原位置号仍可读（画布、对话可能还在引用）。
+  expect((await request(`/v1/queue/requests/${id}/output/2`, deviceA)).status).toBe(200)
+
+  expect(await (await remove(`/api/generations/${id}/outputs/2`, deviceA)).json()).toEqual({
+    generationDeleted: false,
+  })
+  // 删的不是封面：封面不变，张数变了，别的设备据此丢掉旧详情。
+  const [later] = (await (await request('/api/generations', deviceB)).json()).items
+  expect(later.cover.index).toBe(1)
+  expect(later.outputCount).toBe(1)
+  expect(await (await remove(`/api/generations/${id}/outputs/1`, deviceB)).json()).toEqual({
+    generationDeleted: true,
+  })
+  expect((await (await request('/api/generations', deviceA)).json()).items).toEqual([])
+  expect((await request(`/api/generations/${id}`, deviceA)).status).toBe(404)
 })
 
 it('没有项目的生成原件在临时任务清理后仍可跨设备读取', async () => {
@@ -794,6 +846,19 @@ it('归档读取先检查对象长度，拒绝超限原件时不整份缓冲且�
   const { request_id: id } = await (
     await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
   ).json()
+  // 同一次执行里归档直接用内存里的字节，不回读暂存；只有重启后接着归档才会读暂存对象，
+  // 所以先让 worker 在暂存写完后停掉，再在恢复的那次执行里给出超限的对象长度。
+  const { abortRunningTask } = await import('../../workers/task-execution')
+  durable.afterWrite = (key) => {
+    if (key === `${id}/out/0`) {
+      abortRunningTask(id)
+      throw new DOMException('Worker stopped after object write', 'AbortError')
+    }
+  }
+  await runTask(id)
+  durable.afterWrite = undefined
+  const { recoverTasksByIds } = await import('../../db/maintenance')
+  await recoverTasksByIds([id])
   durable.oversizedSpool = true
   await runTask(id)
   expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('queued')
@@ -1115,7 +1180,7 @@ it('keeps Grok account-pool details out of queue and agent responses while retai
     const response = await request(`/v1/queue/requests/${id}${suffix}`, deviceB)
     const body = await response.json()
     expect(body.error.message).toBe(
-      'Grok model channel is temporarily unavailable. Please try again later.',
+      'This model is temporarily unavailable. Please choose another model.',
     )
     expect(body.error.type).toBe('upstream_error')
   }
@@ -1124,7 +1189,7 @@ it('keeps Grok account-pool details out of queue and agent responses while retai
   const { queueTaskOutcome } = await import('../../lib/taskSubmission')
   expect(queueTaskOutcome(stored!)).toMatchObject({
     kind: 'failed',
-    reason: 'Grok model channel is temporarily unavailable. Please try again later.',
+    reason: 'This model is temporarily unavailable. Please choose another model.',
   })
 })
 
@@ -1206,4 +1271,52 @@ it('cleans more than one candidate batch while retaining a failed prefix for the
   }
   expect(await purgeOldTasks()).toBe(1)
   expect(await db.select().from(schema.tasks)).toEqual([])
+})
+
+it('实际尺寸取落库原件的真实像素：Gemini 不回报 size，OpenAI 回报值与原图不符时也以原图为准', async () => {
+  const png = await sharp({ create: { width: 16, height: 9, channels: 3, background: '#335577' } })
+    .png()
+    .toBuffer()
+  const b64 = png.toString('base64')
+  const cases = [
+    {
+      provider: 'gemini',
+      model: 'gemini-3-pro-image-preview',
+      // 前端把参数面板里的 OpenAI 尺寸也一并带上；Gemini 只按比例与档位出图。
+      body: { size: '1024x1024', aspect_ratio: '16:9', image_size: '2K' },
+      response: {
+        candidates: [
+          { content: { parts: [{ inlineData: { mimeType: 'image/png', data: b64 } }] } },
+        ],
+      },
+    },
+    {
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      body: { size: '1024x1024' },
+      response: { size: '1024x1024', data: [{ b64_json: b64 }] },
+    },
+  ] as const
+  for (const [index, item] of cases.entries()) {
+    setUpstreamFetchForTesting((async () => Response.json(item.response)) as NonNullable<
+      Parameters<typeof setUpstreamFetchForTesting>[0]
+    >)
+    const { request_id: id } = await (
+      await request(`/v1/queue/${item.provider}/${item.model}/submit`, deviceA, {
+        ...input,
+        ...item.body,
+        client_request_id: `measured-size-${index}`,
+      })
+    ).json()
+    await runTask(id)
+    const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+    expect(detail.status).toBe('completed')
+    expect(detail.parameters.size).toBe('1024x1024')
+    expect(detail.actualParameters.size).toBe('16x9')
+    const listed = (await (await request('/api/generations', deviceB)).json()).items.find(
+      (entry: { id: string }) => entry.id === id,
+    )
+    expect(listed.actualParameters.size).toBe('16x9')
+    expect(listed.cover).toMatchObject({ width: 16, height: 9 })
+  }
 })

@@ -24,3 +24,12 @@ SOFTWARE.
 
 Agnes brand icon: https://agnes-ai.com/images/biglogo.png
 Resized to 64 pixels for the model picker. Agnes trademarks belong to their owner.
+
+Nano Banana icon: https://fonts.gstatic.com/s/e/notoemoji/latest/1f34c/emoji.svg
+Google's Noto Color Emoji banana (U+1F34C), the same file as
+https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f34c.svg.
+Google uses the banana emoji as the Nano Banana mark in its own products (the "🍌 Create images" chip in
+the Gemini app, see https://blog.google/products-and-platforms/products/gemini/how-nano-banana-got-its-name/).
+Copied unchanged. Copyright 2013 Google LLC, licensed under the Apache License, Version 2.0
+(https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/LICENSE,
+https://www.apache.org/licenses/LICENSE-2.0). Nano Banana and Gemini trademarks belong to Google LLC.

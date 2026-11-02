@@ -1,5 +1,12 @@
 import type { AgentTurnParams, QueueProvider, SubmitRequest } from '@image-playground/shared'
-import { AGENT_IMAGE_MAX_N, nearestAspectRatio } from '@image-playground/shared'
+import {
+  AGENT_IMAGE_MAX_N,
+  IMAGE_PRESET_RATIOS,
+  type ImagePresetRatio,
+  nearestAspectRatio,
+  requestedImageCount,
+  withAspectRatio,
+} from '@image-playground/shared'
 import { Type } from 'typebox'
 
 export const imageCountParameter = Type.Optional(
@@ -7,9 +14,23 @@ export const imageCountParameter = Type.Optional(
     minimum: 1,
     maximum: AGENT_IMAGE_MAX_N,
     description:
-      '同一提示词生成的张数或版本数。按用户需求选择；未要求多张时默认 1。不同画面或修改方案请分别调用。',
+      '同一提示词生成的张数或版本数。只有用户在这句话里明确说了张数才填；省略时沿用用户在输入框选择的张数。不同画面或修改方案请分别调用。',
   }),
 )
+
+export const aspectRatioParameter = Type.Optional(
+  Type.Union(
+    IMAGE_PRESET_RATIOS.map((ratio) => Type.Literal(ratio)),
+    {
+      description:
+        '画面比例。只有用户这次明确说了比例或用途（如 16:9、横版、竖版海报、手机竖屏、方图）才填；省略时沿用用户在输入框选择的尺寸。清晰度档位保持用户的选择。工具回执会写明实际尺寸，向用户说比例时以回执为准。',
+    },
+  ),
+)
+
+/** 比例覆盖与展示共用一份，放在 shared（`agent-image-shape.ts`）。 */
+/** 工具显式张数优先，否则沿用用户本轮选择的张数。 */
+export { requestedImageCount, withAspectRatio }
 
 /** 提交生成任务的工具共用：成功后要不要被唤醒回来复核。失败一律唤醒，不归它管。 */
 export const reviewParameter = Type.Optional(
@@ -23,7 +44,7 @@ export const reviewParameter = Type.Optional(
  * 这次图片工具调用出几张。`toolStart` 早于 pi 的参数校验，所以走 shared 里与
  * `Value.Convert` 同语义的那一份——画布占位与队列请求共用它，两处才不会各算各的。
  */
-export { agentImageCount } from '@image-playground/shared'
+export { agentImageCount, agentModelImageCount } from '@image-playground/shared'
 
 /**
  * 轮上的生成参数 → 队列请求字段。

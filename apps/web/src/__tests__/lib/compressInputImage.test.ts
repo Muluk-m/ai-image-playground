@@ -58,3 +58,8 @@ it('reencodes a mislabeled image and keeps transparent pixels', async () => {
   expect(await compressInputImageDataUrls([mislabeled])).toEqual([PNG_URL])
   expect(encode).toHaveBeenCalledWith('image/png')
 })
+
+it('leaves cloud media identities for the server to compress', async () => {
+  const media = 'aip-media:6f1c2c55-0a43-4c1b-9d4f-2f3e9c1d7a10'
+  expect(await compressInputImageDataUrls([media, PNG_URL])).toEqual([media, PNG_URL])
+})

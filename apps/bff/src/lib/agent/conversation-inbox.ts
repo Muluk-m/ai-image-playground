@@ -5,6 +5,8 @@ import type {
   AgentReturnedQueuedMessage,
 } from '@image-playground/shared'
 import { bffDrain } from '../drain'
+import { log } from '../logger'
+import { cancelStoppedTurnJobs } from './background-jobs'
 import { notifyConversation } from './events'
 import type { EnqueueUserMessage, InboxEntry } from './inbox'
 import {
@@ -22,7 +24,11 @@ import {
 import type { RunningTurn } from './runningTurns'
 import { runningTurn } from './runningTurns'
 import type { TurnNotStarted } from './start-turn'
-import { drainConversationInbox, kickConversationInbox } from './start-turn'
+import {
+  awaitConversationHandoff,
+  drainConversationInbox,
+  kickConversationInbox,
+} from './start-turn'
 
 /**
  * 排队消息的规则。`inbox.ts` 是收件箱里的一行行记录，这里是围着它的那几件事：发送、撤回、
@@ -125,6 +131,15 @@ export function announceQueuedMessage(
 }
 
 /**
+ * 用户确认完确认门拦下的卡，那一轮的续跑已经排进收件箱（见 `tool-gate.ts`）：当场开轮，界面跟进它的流。
+ * 本实例正在下线就不接，留给新版本的巡查（见 `inbox-pickup`）。
+ */
+export function pickUpGateContinuation(conversationId: string): void {
+  if (bffDrain.status().draining) return
+  kickConversationInbox(conversationId)
+}
+
+/**
  * 快照读到这个会话没人在跑：队里还有人等着（排着的消息或唤醒）就接着开轮。收尾的那个实例
  * 下线了或半路没了时由它兜住，不必等定时巡查；本实例正在下线就不接，留给新版本（见
  * `inbox-pickup`）。轮到时没能开轮的那几条不算在等：它们等的是用户撤掉，不是有人来取。
@@ -146,6 +161,9 @@ export async function sendToConversationInbox(
   conversationId: string,
   message: EnqueueUserMessage,
 ): Promise<InboxSendResult> {
+  // 上一轮的终帧已经发出、租约还没放：等它交接完再进收件箱，这一条才能自己开轮、拿到自己的流。
+  // 等待有上限，收尾卡住时照常入队、退回排队回执（见 `awaitConversationHandoff`）。
+  await awaitConversationHandoff(conversationId)
   const enqueued = await enqueueAgentUserMessage(conversationId, message)
   if (enqueued.kind === 'full') return { kind: 'full' }
   const { entry } = enqueued
@@ -157,7 +175,20 @@ export async function sendToConversationInbox(
     notifyQueued(conversationId, entry.view)
     return { kind: 'queued', entry, runningTurnId: local.turnId }
   }
-  const drained = await drainConversationInbox(conversationId, { quietFor: entry.view.id })
+  let drained: Awaited<ReturnType<typeof drainConversationInbox>>
+  try {
+    drained = await drainConversationInbox(conversationId, { quietFor: entry.view.id })
+  } catch (error) {
+    // 开轮半路抛错（比如保存的模型配置失效）：发送报错，这一条就不该留在队里等一个开不了的轮。
+    // 已被这一轮取走的那条撤不下，撤回只认还排着的；撤回本身失败也不盖住原来的错。
+    await withdrawAgentMessage(conversationId, entry.view.id).catch((withdrawError: unknown) =>
+      log.warn(
+        { err: withdrawError, conversationId, queueId: entry.view.id },
+        'agent.inbox_send_withdraw_failed',
+      ),
+    )
+    throw error
+  }
   if (drained.kind === 'started' && drained.queueId === entry.view.id)
     return { kind: 'started', turn: drained.turn }
   if (drained.kind !== 'not_started' || drained.queueId !== entry.view.id) {
@@ -258,7 +289,12 @@ export async function promoteToInterjection(
 
 /** 停止之后交还给客户端的那几条排队消息；没有这一轮可停时是 `no_such_turn`。 */
 export type InboxStopResult =
-  | { readonly kind: 'stopped'; readonly returned: AgentReturnedQueuedMessage[] }
+  | {
+      readonly kind: 'stopped'
+      readonly returned: AgentReturnedQueuedMessage[]
+      /** 随这次停止一并取消（并退回积分）的、这一轮自己提交的出图任务；没有就不带这个字段。 */
+      readonly cancelledTaskIds?: string[]
+    }
   | { readonly kind: 'no_such_turn' }
 
 /**
@@ -281,6 +317,17 @@ export async function stopConversationTurn(
   const { returned, fresh } = await returnAgentMessages(conversationId, turnId)
   for (const queueId of fresh)
     notifyConversation(conversationId, { type: 'queuedMessageWithdrawn', queueId })
-  active.abort()
-  return { kind: 'stopped', returned }
+  active.abort('user_stop')
+  // 这一轮自己提交、还没出结果的出图任务一并取消退款（BUG-32）。中止之后才晚落库的那几条由轮收尾
+  // 再扫一遍（见 `turn.ts`）。取消失败不拦停止：轮已经停了，任务照常跑完、照常结算。
+  const cancelledTaskIds = await cancelStoppedTurnJobs(conversationId, turnId).catch((err) => {
+    log.error(
+      { event: 'agent.stop_cancel_failed', conversationId, turnId, err },
+      'stopping the turn could not cancel its jobs',
+    )
+    return []
+  })
+  return cancelledTaskIds.length > 0
+    ? { kind: 'stopped', returned, cancelledTaskIds }
+    : { kind: 'stopped', returned }
 }

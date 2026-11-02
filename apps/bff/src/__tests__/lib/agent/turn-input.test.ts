@@ -24,6 +24,8 @@ const {
   estimateTurnInputTokens,
   estimatedTurnInput,
   expandSkillInvocation,
+  NODE_CANVAS_GENERATION_LINE,
+  systemPrompt,
   turnInitialState,
   turnInitialStateOf,
   turnModelPrompt,
@@ -171,6 +173,16 @@ function unfolded(messages: readonly AgentMessageView[]) {
   }
 }
 
+describe('reply language', () => {
+  it('tells the model to follow the user message and not mix in other writing systems', () => {
+    const prompt = systemPrompt('image', false, ANONYMOUS_AUDIENCE)
+    expect(prompt).toContain('中文问就用中文，英文问就用英文')
+    expect(prompt).toContain('不要夹杂用户没用过的其他文字')
+    expect(prompt).toContain('专有名词、模型名、数字和代码保持原样')
+    expect(prompt).not.toContain('用中文回答')
+  })
+})
+
 describe('skill bodies in the replay', () => {
   it('appends the body of a skill read in an earlier turn after its one-line summary', () => {
     const history = [
@@ -219,10 +231,10 @@ describe('estimateTurnInputTokens', () => {
     expect(added(RICH_HISTORY, '再来一张', [])).toBe(46)
   })
 
-  // 1 个图片块（4800 字符 = 1200）+ 提示词里的 `[image 1]` 引用行与整个视觉证据清单（68）。
-  // 清单头现在只有带引用时才拼，所以它整块算进这条增量里。
+  // 1 个图片块（4800 字符 = 1200）+ 提示词里的 `[image 1]` 引用行与整个视觉证据清单（69）。
+  // 清单头现在只有带引用时才拼，所以它整块算进这条增量里；内联图也按缩略图列出。
   it('charges one image block for a plain reference', () => {
-    expect(added([], '换成夜景', [PLAIN])).toBe(1268)
+    expect(added([], '换成夜景', [PLAIN])).toBe(1269)
   })
 
   // 3 个图片块（14400 字符 = 3600）+ 带选区说明的引用行与带选区 ID、bounds 的清单行；
@@ -286,10 +298,7 @@ describe('tool declarations in the estimate', () => {
       'viewImage',
       'viewVideo',
       'readLibrary',
-      'readCanvas',
-      'arrangeTimeline',
-      'editCanvasObject',
-      'arrangeCanvas',
+      // 没声明模式按 Agent 模式算，画布工具不在清单里。
       // 联网工具没有开关，所以它们在任何部署里都随清单发出去；取图那两个要登录，这里没有。
       'webSearch',
       'webFetch',
@@ -425,7 +434,11 @@ describe('estimated and sent turn input', () => {
    * 所以行数与结构必须一致，普通引用那一行还应逐字相等。
    */
   it('writes the same visual evidence manifest on both paths', async () => {
-    const evidence = await turnVisualEvidence([REAL_PLAIN, REAL_MASKED])
+    // 没有选区的那张按 `shownImageRequests` 取的是缩略图（内联上传的也一样），清单写「缩略图」。
+    const evidence = await turnVisualEvidence([
+      { ...REAL_PLAIN, visualVariant: 'preview' as const },
+      REAL_MASKED,
+    ])
     const promptText = turnPromptBody(input([], '换成夜景', [PLAIN, MASKED]))
     const sent = turnModelPrompt(promptText, evidence)
     const estimatedText = textOf(estimatedTurnInput(input([], '换成夜景', [PLAIN, MASKED])).at(-1)!)
@@ -528,8 +541,39 @@ describe('这一轮的观众', () => {
     )
   })
 
+  it('节点画布把节点生成指向 runNodes，其它画面不出现这句', () => {
+    const canvas = { ...audience, experience: 'canvas' as const }
+    expect(turnInitialState([], 'image', false, 0, canvas).systemPrompt).toContain(
+      NODE_CANVAS_GENERATION_LINE,
+    )
+    expect(
+      turnInitialState([], 'image', false, 0, { ...audience, experience: 'chat' }).systemPrompt,
+    ).not.toContain(NODE_CANVAS_GENERATION_LINE)
+  })
+
+  it('runs canvas nodes immediately when direct generation is on, and asks for a card only when it is off', () => {
+    const canvas = { ...audience, experience: 'canvas' as const }
+    const direct = turnInitialState([], 'image', true, 0, canvas).systemPrompt
+    expect(direct).toContain('直接出图')
+    expect(direct).toContain('不弹确认卡')
+    expect(direct).toContain('只有查到实际任务记录才能称已提交')
+    expect(direct).not.toContain('这一轮是出图模式')
+    expect(direct).not.toContain('拟好提示词就当场提交并计费')
+    const manual = turnInitialState([], 'image', false, 0, canvas).systemPrompt
+    expect(manual).toContain('关掉了直接出图')
+    expect(manual).toContain('待确认提案')
+    expect(manual).not.toContain('不弹确认卡')
+  })
+
   it('没有观众的那一轮一条模板都不露', () => {
     expect(turnInitialState([], 'image').systemPrompt).not.toContain('look-l1')
+  })
+
+  it('图片生成模式要求用原话出图，不再走逐张确认', () => {
+    const prompt = turnInitialState([], 'image', true, 0, audience, new Map(), true).systemPrompt
+    expect(prompt).toContain('这一轮是图片生成')
+    expect(prompt).toContain('用用户原话调用一次生图工具')
+    expect(prompt).not.toContain('用户在卡片中编辑提示词并点击「确认生成」')
   })
 
   it('旧视频轮也可按需读取图片模板', () => {
@@ -592,5 +636,33 @@ describe('clarification visual continuity', () => {
     const pending = input(history, '原场景', [], { selectionHistoryStart: 0 })
     expect(imageBlocks(estimatedTurnInput(pending).at(-1)!)).toBe(2)
     expect(turnPromptBody(pending)).not.toContain('不代表本轮意图')
+  })
+})
+
+describe('product history replay', () => {
+  it('drops a leading reasoning tag stored before the model adapter split it, keeps the rest', () => {
+    const history: AgentMessageView[] = [
+      {
+        id: 'u',
+        turnId: 't',
+        role: 'user',
+        content: [{ type: 'text', text: '<think>用户原话</think>' }],
+        createdAt: 1,
+      },
+      {
+        id: 'a',
+        turnId: 't',
+        role: 'assistant',
+        content: [
+          { type: 'text', text: '<thinking>Reading canvas</thinking>\n好的，<think>正文</think>' },
+        ],
+        createdAt: 2,
+      },
+    ]
+    const replayed = turnInitialState(history, 'image').messages
+    expect(JSON.stringify(replayed[0])).toContain('<think>用户原话</think>')
+    expect(replayed[1]).toMatchObject({
+      content: [{ type: 'text', text: '好的，<think>正文</think>' }],
+    })
   })
 })

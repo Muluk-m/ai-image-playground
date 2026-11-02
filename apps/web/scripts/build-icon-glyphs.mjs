@@ -25,6 +25,7 @@ const GLYPHS = {
   sidebar: ['solar', 'sidebar'],
   light: ['solar', 'sun'],
   dark: ['solar', 'moon'],
+  system: ['lucide', 'monitor'],
   language: ['solar', 'global'],
   // 会员等级
   membershipFree: ['lucide', 'sprout'],
@@ -50,6 +51,7 @@ const GLYPHS = {
   back: ['solar', 'arrow-left'],
   upscale: ['solar', 'maximize-square'],
   removeBg: ['solar', 'scissors'],
+  cut: ['solar', 'scissors'],
   brush: ['solar', 'paint-brush'],
   crop: ['solar', 'crop'],
   outpaint: ['solar', 'maximize-square-2'],
@@ -188,6 +190,36 @@ const GLYPHS = {
   clock: ['solar', 'clock-circle'],
 }
 
+/**
+ * lucide `gauge` 的指针从圆心指向右上。思考深度三档保留同一条表盘弧，
+ * 只把指针改成向左 / 向上 / 向右（快速 / 中等 / 深度）。
+ */
+const GAUGE_NEEDLE = {
+  gaugeLow: [-1, 0],
+  gaugeMid: [0, -1],
+  gaugeHigh: [1, 0],
+}
+
+function formatCoord(value) {
+  const rounded = Math.round(value * 100) / 100
+  return Object.is(rounded, -0) ? '0' : String(rounded)
+}
+
+/** 表盘路径原样保留，针长与 lucide 原针相同。 */
+function gaugeWithNeedle(body, [dx, dy]) {
+  const normalized = body.replace(/stroke-width="[\d.]+"/g, 'stroke-width="1.5"')
+  return normalized.replace(/d="([^"]+)"/, (_, d) => {
+    const match = /^m(-?[\d.]+) (-?[\d.]+)l(-?[\d.]+)(-?[\d.]+)(.*)$/.exec(d)
+    if (!match) throw new Error(`unexpected gauge path: ${d}`)
+    const [, x, y, ndx, ndy, rest] = match
+    const length = Math.hypot(Number(ndx), Number(ndy))
+    const nx = formatCoord(dx * length)
+    const ny = formatCoord(dy * length)
+    const needle = ny.startsWith('-') ? `l${nx}${ny}` : `l${nx} ${ny}`
+    return `d="m${x} ${y}${needle}${rest}"`
+  })
+}
+
 async function fetchSet(prefix, names) {
   const url = `https://api.iconify.design/${prefix}.json?icons=${[...new Set(names)].join(',')}`
   const response = await fetch(url, { headers: { 'User-Agent': 'muvloom-icon-build/1.0' } })
@@ -201,9 +233,12 @@ async function fetchSet(prefix, names) {
 const solarNames = Object.values(GLYPHS)
   .filter(([source]) => source === 'solar')
   .flatMap(([, name]) => [`${name}-linear`, `${name}-bold-duotone`])
-const lucideNames = Object.values(GLYPHS)
-  .filter(([source]) => source === 'lucide')
-  .map(([, name]) => name)
+const lucideNames = [
+  ...Object.values(GLYPHS)
+    .filter(([source]) => source === 'lucide')
+    .map(([, name]) => name),
+  'gauge',
+]
 const [solar, lucide] = await Promise.all([
   fetchSet('solar', solarNames),
   fetchSet('lucide', lucideNames),
@@ -221,6 +256,13 @@ for (const [id, [source, name]] of Object.entries(GLYPHS)) {
     const line = lucide(name)?.replace(/stroke-width="[\d.]+"/g, 'stroke-width="1.5"')
     if (!line) missing.push(`${id} (${name})`)
     out[id] = { line }
+  }
+}
+const gauge = lucide('gauge')
+if (!gauge) missing.push('gauge')
+else {
+  for (const [id, direction] of Object.entries(GAUGE_NEEDLE)) {
+    out[id] = { line: gaugeWithNeedle(gauge, direction) }
   }
 }
 if (missing.length) throw new Error(`missing glyphs: ${missing.join(', ')}`)

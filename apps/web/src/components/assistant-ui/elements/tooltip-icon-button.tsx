@@ -11,15 +11,15 @@ import { Hint, type Side } from '../../ui/tooltip'
 export { closeTooltips, Hint } from '../../ui/tooltip'
 
 export type TooltipIconButtonProps = ComponentPropsWithoutRef<typeof Button> & {
-  /** 提示文字，同时作为按钮的可访问名称。 */
+  /** 动作名称，同时作为按钮的可访问名称；常见图标不重复显示提示。 */
   tooltip: string
   side?: Side
 }
 
-/** 只有图标的按钮：悬停或聚焦显示提示，读屏读到同一段文字。 */
+/** 只有图标的按钮：始终保留读屏名称，仅为不直观的图标显示动作提示。 */
 export const TooltipIconButton = forwardRef<HTMLButtonElement, TooltipIconButtonProps>(
   ({ children, tooltip, side = 'bottom', className, ...rest }, ref) => (
-    <Hint tooltip={tooltip} side={side}>
+    <Hint tooltip={rest['aria-description'] ?? tooltip} side={side}>
       <Button
         type="button"
         variant="ghost"

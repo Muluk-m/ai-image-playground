@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
+import { canvasOrigin, importLegacyElements, insertCanvasNode } from '@image-playground/shared'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import * as Y from 'yjs'
 import { agentCanvasSink } from '../../../../features/agent/lib/canvasSink'
+import { saveCurrentProject } from '../../../../features/agent/lib/projectLifecycle'
 import {
   bindNewCanvasWorkspace,
   conversationSceneKey,
@@ -11,13 +14,23 @@ import {
   selectCanvasWorkspace,
   showCanvasWorkspace,
 } from '../../../../features/canvas/lib/activeProject'
+import { CloudNodeProjectSession } from '../../../../features/canvas/lib/cloudNodeProjects'
+import type { CanvasCommandSummary } from '../../../../features/canvas/lib/nodeCanvasHistory'
 import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
+import { projectCatalog } from '../../../../features/canvas/lib/projectCatalog'
 import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
+import { projectRouteSegment } from '../../../../features/canvas/lib/projectRoute'
 import { canvasSceneKey } from '../../../../features/canvas/lib/workspaceKeys'
 import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../../../lib/authScope'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+import {
+  canvasProtocolResponse,
+  emptyCanvasUpdate,
+  installCanvasTestSocket,
+  projectIdFromUrl,
+} from '../../../helpers/cloudNodeProtocol'
 import { saveSceneRecord } from '../../../helpers/sceneRecord'
 
 vi.mock('../../../../features/canvas/lib/recoverCanvasTasks', () => ({
@@ -142,54 +155,56 @@ it('持续前台的当前项目定期发现远端变更，隐藏后停止检查'
   const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
   let reads = 0
   let finishRead: (() => void) | undefined
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
-      if (url.endsWith('/api/projects'))
-        return Response.json({ projects: [], deletedIds: [], nextCursor: null })
-      if (init?.method === 'PUT')
-        return Response.json({
-          id: project.id,
-          name: project.name,
-          revision: 1,
-          createdAt: 1,
-          updatedAt: 2,
-          elementCount: 0,
-        })
+  const opened = new Set<string>()
+  const remoteUpdate = () => {
+    const doc = new Y.Doc()
+    importLegacyElements(
+      doc,
+      [
+        {
+          id: 'remote',
+          type: 'text',
+          text: '另一台设备的新稿',
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 30,
+          fontSize: 24,
+          fill: '#000',
+        },
+      ],
+      canvasOrigin('user', 'remote'),
+    )
+    return new Uint8Array(Y.encodeStateAsUpdate(doc)).buffer
+  }
+  installCanvasTestSocket()
+  vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
+    if (url.endsWith('/api/projects'))
+      return Response.json({ projects: [], deletedIds: [], nextCursor: null })
+    const canvas = await canvasProtocolResponse(url, init, async () => {
+      const id = projectIdFromUrl(url)
+      if (!opened.has(id)) {
+        opened.add(id)
+        return emptyCanvasUpdate()
+      }
       reads++
-      // `Promise.withResolvers` 还不在本工程的 TS lib 目标里，这里保留 executor 形式。
-      return new Promise<Response>((resolve) => {
-        finishRead = () =>
-          resolve(
-            Response.json({
-              id: project.id,
-              name: project.name,
-              revision: 2,
-              createdAt: 1,
-              updatedAt: 3,
-              elementCount: 1,
-              document: {
-                version: 1,
-                elements: [
-                  {
-                    id: 'remote',
-                    type: 'text',
-                    text: '另一台设备的新稿',
-                    x: 0,
-                    y: 0,
-                    width: 100,
-                    height: 30,
-                    fontSize: 24,
-                    fill: '#000',
-                  },
-                ],
-              },
-            }),
-          )
+      return new Promise<ArrayBuffer>((resolve) => {
+        finishRead = () => resolve(remoteUpdate())
       })
-    }),
-  )
+    })
+    if (canvas) return canvas
+    return Response.json({
+      id: projectIdFromUrl(url) || project.id,
+      name: project.name,
+      revision: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      elementCount: 0,
+      document: { version: 1, elements: [] },
+    })
+  })
   await bootstrapClientCapabilities(true, 'http://bff.test')
   let project = await projectRepository.create('持续前台', undefined, true)
   useCanvasProjectStore.setState({ projects: [project], activeId: project.id })
@@ -197,32 +212,32 @@ it('持续前台的当前项目定期发现远端变更，隐藏后停止检查'
   openProject(project.id)
   const workspace = currentCanvasWorkspace()
   await workspace.ready
+  await vi.waitFor(() => expect(workspace.cloud?.getSnapshot().status).toBe('saved'))
   showCanvasWorkspace(false)
   vi.useFakeTimers({
     toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
   })
   try {
     showCanvasWorkspace(true)
-    await workspace.ready
-    await vi.advanceTimersByTimeAsync(15000)
     await vi.waitFor(() => expect(reads).toBe(1))
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(reads).toBe(1)
     expect(workspace.getSnapshot().loading).toBe(false)
     finishRead!()
     await vi.waitFor(() =>
       expect(workspace.doc.elements[0]).toMatchObject({ text: '另一台设备的新稿' }),
     )
     expect(reads).toBe(1)
-    await workspace.ready
     setClientStorageScope(crypto.randomUUID())
     project = await projectRepository.create('切账号后仍检查', undefined, true)
     useCanvasProjectStore.setState({ projects: [project], activeId: project.id })
     const next = currentCanvasWorkspace()
     await next.ready
-    await vi.advanceTimersByTimeAsync(15000)
     await vi.waitFor(() => expect(reads).toBe(2))
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(reads).toBe(2)
     finishRead!()
-    await next.ready
-    expect(next.doc.elements[0]).toMatchObject({ text: '另一台设备的新稿' })
+    await vi.waitFor(() => expect(next.doc.elements[0]).toMatchObject({ text: '另一台设备的新稿' }))
     visibility.mockReturnValue('hidden')
     document.dispatchEvent(new Event('visibilitychange'))
     await vi.advanceTimersByTimeAsync(60000)
@@ -237,6 +252,201 @@ it('持续前台的当前项目定期发现远端变更，隐藏后停止检查'
     _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
     await bootstrapClientCapabilities(false, '')
     vi.unstubAllGlobals()
+  }
+})
+
+it('restores usable command history through visibility, cached project selection, and canvas display', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+  const documents = new Map<string, Y.Doc>()
+  const histories = new Map<string, CanvasCommandSummary>()
+  const historyReads: string[] = []
+  const reversed: { projectId: string; body: unknown }[] = []
+  let nextCanvas: Promise<ArrayBuffer> | undefined
+  let delayedReads = 0
+  installCanvasTestSocket()
+  vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
+    if (url.endsWith('/api/projects'))
+      return Response.json({ projects: [], deletedIds: [], nextCursor: null })
+    const projectId = projectIdFromUrl(url)
+    const doc = documents.get(projectId)
+    const command = histories.get(projectId)
+    if (!doc || !command) throw new Error(`Unexpected project request: ${url}`)
+    if (url.endsWith('/canvas/commands')) {
+      historyReads.push(projectId)
+      return Response.json([command])
+    }
+    if (url.endsWith('/reverse')) {
+      reversed.push({ projectId, body: JSON.parse(String(init?.body)) })
+      histories.set(projectId, {
+        ...command,
+        revision: command.revision + 1,
+        reversed: !command.reversed,
+        updatedAt: command.updatedAt + 1,
+      })
+      return new Response(new Uint8Array(Y.encodeStateAsUpdate(doc)).buffer)
+    }
+    const canvas = await canvasProtocolResponse(url, init, async () => {
+      if (nextCanvas) {
+        const pending = nextCanvas
+        nextCanvas = undefined
+        delayedReads++
+        return pending
+      }
+      return new Uint8Array(Y.encodeStateAsUpdate(doc)).buffer
+    })
+    if (canvas) return canvas
+    return Response.json({
+      id: projectId,
+      name: projectId,
+      revision: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      elementCount: 0,
+      document: { version: 1, elements: [] },
+    })
+  })
+  let releaseSnapshot: (() => void) | undefined
+  try {
+    await bootstrapClientCapabilities(true, 'http://bff.test')
+    const first = await projectRepository.create('First history', undefined, true)
+    const second = await projectRepository.create('Second history', undefined, true)
+    keys = [first.sceneKey, second.sceneKey]
+    for (const [project, revision] of [
+      [first, 1],
+      [second, 7],
+    ] satisfies [typeof first, number][]) {
+      documents.set(project.id, new Y.Doc())
+      histories.set(project.id, {
+        id: `${project.id}-command`,
+        label: project.name,
+        revision,
+        reversed: false,
+        createdAt: 1,
+        updatedAt: revision,
+      })
+    }
+    useCanvasProjectStore.setState({ projects: [first, second], activeId: first.id, loaded: true })
+    const firstWorkspace = currentCanvasWorkspace()
+    showCanvasWorkspace(true)
+    await firstWorkspace.ready
+    await vi.waitFor(() => expect(firstWorkspace.cloud?.getSnapshot().status).toBe('saved'))
+    const firstCloud = firstWorkspace.cloud
+    if (!(firstCloud instanceof CloudNodeProjectSession) || !firstCloud.canvas)
+      throw new Error('Expected the first cloud node canvas')
+    const firstHistory = firstCloud.canvas.undo
+    expect(historyReads).toEqual([])
+    expect(firstHistory.undoStack).toHaveLength(0)
+
+    visibility.mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await firstWorkspace.ready
+    expect(firstHistory.undoStack).toHaveLength(1)
+    expect(historyReads).toEqual([first.id])
+    firstHistory.undo()
+    await vi.waitFor(() => expect(firstHistory.redoStack).toHaveLength(1))
+    expect(reversed).toEqual([{ projectId: first.id, body: { revision: 1 } }])
+
+    visibility.mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    const command = histories.get(first.id)!
+    histories.set(first.id, { ...command, revision: 3, reversed: false, updatedAt: 3 })
+    const readsBeforeSecond = [...historyReads]
+    openProject(second.id)
+    const secondWorkspace = currentCanvasWorkspace()
+    await secondWorkspace.ready
+    await vi.waitFor(() => expect(secondWorkspace.cloud?.getSnapshot().status).toBe('saved'))
+    const secondCloud = secondWorkspace.cloud
+    if (!(secondCloud instanceof CloudNodeProjectSession) || !secondCloud.canvas)
+      throw new Error('Expected the second cloud node canvas')
+    const secondHistory = secondCloud.canvas.undo
+    expect(historyReads).toEqual(readsBeforeSecond)
+    expect(secondHistory.undoStack).toHaveLength(0)
+
+    insertCanvasNode(
+      documents.get(first.id)!,
+      {
+        id: 'hidden-agent-result',
+        type: 'image',
+        x: 40,
+        y: 50,
+        width: 100,
+        height: 100,
+        data: { mediaId: '11111111-1111-4111-8111-111111111111' },
+      },
+      canvasOrigin('agent', 'hidden-result'),
+    )
+    expect(
+      await firstWorkspace.sink.syncArtifacts!([
+        {
+          artifactId: 'hidden-agent-result',
+          taskId: 'hidden-task',
+          media: 'image',
+          outputIndex: 0,
+          mime: 'image/png',
+        },
+      ]),
+    ).toBe('placed')
+    expect(firstWorkspace.editor.getElement('hidden-agent-result')).toMatchObject({ type: 'image' })
+    expect(secondWorkspace.editor.getElement('hidden-agent-result')).toBeUndefined()
+    expect(historyReads).toEqual(readsBeforeSecond)
+
+    visibility.mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await secondWorkspace.ready
+    expect(secondHistory.undoStack).toHaveLength(1)
+    expect(historyReads).toEqual([...readsBeforeSecond, second.id])
+    secondHistory.undo()
+    await vi.waitFor(() => expect(secondHistory.redoStack).toHaveLength(1))
+    expect(reversed[1]).toEqual({ projectId: second.id, body: { revision: 7 } })
+
+    openProject(first.id)
+    expect(currentCanvasWorkspace()).toBe(firstWorkspace)
+    await firstWorkspace.ready
+    expect(firstHistory.undoStack).toHaveLength(1)
+    expect(firstHistory.redoStack).toHaveLength(0)
+    firstHistory.undo()
+    await vi.waitFor(() => expect(firstHistory.redoStack).toHaveLength(1))
+    expect(reversed[2]).toEqual({ projectId: first.id, body: { revision: 3 } })
+
+    showCanvasWorkspace(false)
+    histories.set(first.id, { ...command, revision: 5, reversed: false, updatedAt: 5 })
+    showCanvasWorkspace(true)
+    await firstWorkspace.ready
+    expect(firstHistory.undoStack).toHaveLength(1)
+    firstHistory.undo()
+    await vi.waitFor(() => expect(firstHistory.redoStack).toHaveLength(1))
+    expect(reversed[3]).toEqual({ projectId: first.id, body: { revision: 5 } })
+
+    nextCanvas = new Promise<ArrayBuffer>((resolve) => {
+      releaseSnapshot = () =>
+        resolve(new Uint8Array(Y.encodeStateAsUpdate(documents.get(first.id)!)).buffer)
+    })
+    firstWorkspace.refreshCloud()
+    await vi.waitFor(() => expect(delayedReads).toBe(1))
+    visibility.mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    histories.set(first.id, { ...command, revision: 7, reversed: false, updatedAt: 7 })
+    visibility.mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    releaseSnapshot!()
+    await firstWorkspace.ready
+    expect(firstHistory.undoStack).toHaveLength(1)
+    firstHistory.undo()
+    await vi.waitFor(() => expect(firstHistory.redoStack).toHaveLength(1))
+    expect(reversed[4]).toEqual({ projectId: first.id, body: { revision: 7 } })
+    expect(delayedReads).toBe(1)
+  } finally {
+    releaseSnapshot?.()
+    showCanvasWorkspace(false)
+    for (const key of keys) forgetCanvasWorkspace(key)
+    _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
+    await bootstrapClientCapabilities(false, '')
+    vi.unstubAllGlobals()
+    for (const doc of documents.values()) doc.destroy()
   }
 })
 
@@ -267,4 +477,73 @@ it('已记下入口的项目绑定会话时保持原样', async () => {
   expect(
     useCanvasProjectStore.getState().projects.find((one) => one.id === chat.id)?.experience,
   ).toBe('chat')
+})
+
+it('项目数到上限时新建的项目不落本机、不进目录，重新读取再试一次（BUG-54）', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  installCanvasTestSocket()
+  let full = true
+  const writes: string[] = []
+  vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
+    if (url.endsWith('/api/projects'))
+      return Response.json({ projects: [], deletedIds: [], nextCursor: null })
+    if (init?.method === 'PUT') writes.push(url)
+    if (init?.method === 'PUT' && full)
+      return Response.json({ error: 'project_quota_exceeded' }, { status: 413 })
+    const canvas = await canvasProtocolResponse(url, init, async () => emptyCanvasUpdate())
+    if (canvas) return canvas
+    return Response.json({
+      id: projectIdFromUrl(url),
+      name: '未命名画布',
+      revision: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      elementCount: 0,
+      document: { version: 1, elements: [] },
+    })
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  const project = await projectRepository.create('未命名画布', undefined, true, true)
+  keys = [project.sceneKey]
+  useCanvasProjectStore.setState({ projects: [project], activeId: project.id, loaded: true })
+  window.history.replaceState(null, '', `/p/${projectRouteSegment(project.id)}`)
+  openProject(project.id)
+  const workspace = currentCanvasWorkspace()
+  await expect(workspace.ready).rejects.toMatchObject({ code: 'project_quota_exceeded' })
+  expect(workspace.getSnapshot()).toMatchObject({
+    loadFailed: true,
+    loadErrorCode: 'project_quota_exceeded',
+  })
+  // 刷新后不会再有它：本机记录删了，地址也退回 `/`。
+  expect((await projectRepository.list()).map((one) => one.id)).not.toContain(project.id)
+  expect(window.location.pathname).toBe('/')
+  // 当前页还认得它，但目录（侧栏、项目页、快捷切换）不列。
+  const state = useCanvasProjectStore.getState()
+  expect(state.activeId).toBe(project.id)
+  expect(projectCatalog(state.projects, state.cloudCatalog).map((one) => one.id)).not.toContain(
+    project.id,
+  )
+  // 别处的回写不会把它放回目录。
+  state.updateListed({ ...project, name: '第一句话' })
+  expect(
+    projectCatalog(
+      useCanvasProjectStore.getState().projects,
+      useCanvasProjectStore.getState().cloudCatalog,
+    ),
+  ).toEqual([])
+  // 被拒建的空项目没有东西要保存：切换、新建、删除不能被「当前项目未能保存」挡住。
+  expect(await saveCurrentProject(null)).toEqual({ ok: true })
+
+  full = false
+  workspace.retryLoad()
+  await workspace.ready
+  expect(writes.filter((url) => url.endsWith(`/api/projects/${project.id}`))).toHaveLength(2)
+  expect((await projectRepository.list()).map((one) => one.id)).toContain(project.id)
+  expect(
+    useCanvasProjectStore.getState().projects.find((one) => one.id === project.id),
+  ).not.toHaveProperty('quotaRejected')
+  showCanvasWorkspace(false)
 })

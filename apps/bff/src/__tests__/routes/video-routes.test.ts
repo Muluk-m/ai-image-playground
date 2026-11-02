@@ -371,6 +371,16 @@ describe('video submit validation', () => {
     expect(String(json.message)).toContain('不支持续写')
   })
 
+  it('rejects a prompt made only of whitespace, control or zero-width characters', async () => {
+    const { status, json } = await submit('gpt-image-2', {
+      prompt: '\u0000\u0007\u202e\u200b \u3000\t',
+    })
+
+    expect(status).toBe(400)
+    expect(json.error).toBe('invalid_request')
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  })
+
   it('rejects video parameters sent to an image model', async () => {
     const { status, json } = await submit('gpt-image-2', {
       video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' },
@@ -378,6 +388,36 @@ describe('video submit validation', () => {
 
     expect(status).toBe(400)
     expect(json.error).toBe('video_not_supported')
+  })
+
+  it('refuses a model whose channel is disabled instead of falling through to the gateway', async () => {
+    _setChannelsForTesting(channels, [
+      {
+        id: 'agnes-video',
+        kind: 'openai-queue',
+        label: 'Agnes AI Video',
+        baseUrl: 'https://agnes.example/v1',
+        auth: { type: 'bearer', secretRef: 'AGNES_API_KEY', secret: 'k' },
+        allowedPaths: ['videos'],
+        models: [
+          {
+            id: 'agnes-video-2.5-flash',
+            label: 'Agnes Video 2.5 Flash',
+            media: 'video',
+            capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
+          },
+        ],
+        defaults: { asyncTasks: true },
+      },
+    ])
+    const { status, json } = await submit('agnes-video-2.5-flash', {
+      video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' },
+    })
+
+    expect(status).toBe(400)
+    expect(json.error).toBe('model_unavailable')
+    const rows = await db.select({ id: schema.tasks.id }).from(schema.tasks)
+    expect(rows).toEqual([])
   })
 
   it('rejects a video model submitted without video parameters', async () => {

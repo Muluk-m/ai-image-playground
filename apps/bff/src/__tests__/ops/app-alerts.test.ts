@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import type { AlertMessage } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 
 const databaseUrl = await resetTestDatabase('bff_app_alerts')
 process.env.DATABASE_URL = databaseUrl
@@ -98,9 +99,22 @@ await writer.db.insert(writer.schema.tasks).values([
     model: 'gpt-image-2',
     status: 'failed',
     error_type: 'upstream_error',
+    upstream_status: 502,
+    // 第二个密钥横跨第 400 字：先截断再脱敏会漏出半截 `sk-abc`。
+    error_message: `Bad gateway from key sk-live-abcdef123456 data:image/png;base64,${'A'.repeat(329)} sk-abcdefghijklmnopqrstuvwxyz0123 tail`,
     request_payload: { prompt: 'x' },
     submitted_at: now - minute,
     completed_at: now - minute,
+  },
+  {
+    id: 'earlier-success',
+    user_id: 'full-alert-account',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'completed',
+    request_payload: { prompt: 'x' },
+    submitted_at: now - 2 * hour,
+    completed_at: now - 2 * hour,
   },
   {
     id: 'policy-rejection',
@@ -140,6 +154,7 @@ describe('observeApp', () => {
         finished_at: now - 2 * hour,
         error: 'pg_restore: bad input',
       }),
+      watchingModels: ['gpt-image-2'],
     })
 
     // 对话轮、保存重试、未到期重试和账号限流不占实际排队；已到期重试从到期时算。
@@ -161,7 +176,72 @@ describe('observeApp', () => {
       successes_by_minute: { [Math.floor((now - minute) / minute) * minute]: 20 },
       error_routes: {},
     })
-    expect(observation.failures).toEqual({ generation_system: 1, agent: 0 })
+    expect(observation.failures).toEqual({
+      generation_system: 1,
+      agent: 0,
+      generation_models: [
+        {
+          model: 'gpt-image-2',
+          failures: 1,
+          errorType: 'upstream_error',
+          upstreamStatus: 502,
+          // 整段原文先抹掉令牌、密钥和二进制，再截 200 字。
+          message: 'Bad gateway from key [REDACTED] [BINARY REDACTED] [REDACTED] tail',
+          lastFailedAt: now - minute,
+          paused: false,
+        },
+      ],
+      generation_successes: { 'gpt-image-2': now - 2 * hour },
+    })
+
+    // 没在等哪个模型恢复时，不去查成功记录。
+    expect((await observeApp({ now })).failures?.generation_successes).toEqual({})
+  })
+
+  it('reads the newest server_logs row, or null while the table is empty', async () => {
+    expect((await observeApp({ now })).serverLogs).toEqual({ latest_at: null })
+
+    const row = (id: string, at: number) => ({
+      id,
+      at,
+      service: 'bff' as const,
+      instance: 'i',
+      version: 'v',
+      level: 'info' as const,
+      group_key: 'g',
+      message: id,
+      fields: {},
+    })
+    await writer.db
+      .insert(writer.schema.server_logs)
+      .values([row('log-old', now - 2 * hour), row('log-new', now - minute)])
+    expect((await observeApp({ now })).serverLogs).toEqual({ latest_at: now - minute })
+  })
+
+  it('marks a failing model paused only when it was auto-paused for upstream unavailability', async () => {
+    const table = writer.schema.model_availability
+    const pausedOf = async () =>
+      (await observeApp({ now })).failures?.generation_models?.find(
+        (model) => model.model === 'gpt-image-2',
+      )?.paused
+    await writer.db.insert(table).values({
+      model: 'gpt-image-2',
+      active: false,
+      pause_reason: null,
+      paused_at: null,
+      updated_at: now,
+    })
+    try {
+      // 运营手动停用：不算自动暂停，不能让告警说「已自动暂停」。
+      expect(await pausedOf()).toBe(false)
+      await writer.db
+        .update(table)
+        .set({ pause_reason: 'upstream_unavailable', paused_at: now })
+        .where(eq(table.model, 'gpt-image-2'))
+      expect(await pausedOf()).toBe(true)
+    } finally {
+      await writer.db.delete(table).where(eq(table.model, 'gpt-image-2'))
+    }
   })
 
   it('leaves out a block it could not read, so that rule is skipped this round', async () => {
@@ -191,7 +271,19 @@ describe('observeApp', () => {
 })
 
 describe('createAppAlerting', () => {
-  it('fires the four rules once, then stays quiet, then reports the recovery', async () => {
+  it('fires the rules once, then stays quiet, then reports the recovery', async () => {
+    // 自己控制日志新鲜度：这一行让 server-logs 规则起初安静，静默超线后也要走 firing → resolved。
+    await writer.db.insert(writer.schema.server_logs).values({
+      id: 'alert-flow-log',
+      at: now,
+      service: 'bff',
+      instance: 'i',
+      version: 'v',
+      level: 'info',
+      group_key: 'g',
+      message: 'alert-flow',
+      fields: {},
+    })
     const sent: AlertMessage[] = []
     let backupAt = now - 30 * hour
     let drillOk = false
@@ -229,8 +321,28 @@ describe('createAppAlerting', () => {
       'resolved:backup',
       'resolved:restore',
     ])
-  })
 
+    sent.length = 0
+    await check(now + 16 * minute)
+    expect(sent.map((message) => `${message.kind}:${message.rule}`)).toEqual(['firing:server-logs'])
+
+    await writer.db.insert(writer.schema.server_logs).values({
+      id: 'alert-flow-log-recovered',
+      at: now + 16 * minute,
+      service: 'bff',
+      instance: 'i',
+      version: 'v',
+      level: 'info',
+      group_key: 'g',
+      message: 'alert-flow-recovered',
+      fields: {},
+    })
+    sent.length = 0
+    await check(now + 17 * minute)
+    expect(sent.map((message) => `${message.kind}:${message.rule}`)).toEqual([
+      'resolved:server-logs',
+    ])
+  })
   it('never lets a failed send escape into the maintenance loop, and retries next round', async () => {
     let attempts = 0
     const check = createAppAlerting({
@@ -245,6 +357,83 @@ describe('createAppAlerting', () => {
     await check(now + 5 * minute)
     expect(attempts).toBe(2)
   })
+})
+
+it('keeps a smaller configuration failure visible beside a larger overload class', async () => {
+  const { eq } = await import('drizzle-orm')
+  const conversationId = 'alert-pattern-conversation'
+  try {
+    await writer.db.insert(writer.schema.agent_conversations).values({
+      id: conversationId,
+      device_id: 'alert-pattern-device',
+      title: 'patterns',
+      created_at: now,
+      updated_at: now,
+    })
+    const failure = (message: string) => ({
+      code: 'agent_upstream_error' as const,
+      message,
+      model: 'gpt-6-luna',
+      occurredAt: new Date(now).toISOString(),
+    })
+    await writer.db.insert(writer.schema.agent_turns).values([
+      ...[1, 2, 3].map((index) => ({
+        conversation_id: conversationId,
+        turn_id: `overload-${index}`,
+        duration_ms: 1,
+        stop_reason: 'failed' as const,
+        failure: failure('Our servers are currently overloaded.'),
+        created_at: now - minute,
+      })),
+      {
+        conversation_id: conversationId,
+        turn_id: 'config-1',
+        duration_ms: 1,
+        stop_reason: 'failed' as const,
+        failure: failure(
+          '400: {"message":"Invalid value: \'off\'.","type":"invalid_request_error"}',
+        ),
+        created_at: now - minute,
+      },
+      {
+        conversation_id: conversationId,
+        turn_id: 'auth-1',
+        duration_ms: 1,
+        stop_reason: 'failed' as const,
+        failure: failure('Chat upstream returned 401: invalid api key'),
+        created_at: now - minute,
+      },
+      {
+        conversation_id: conversationId,
+        turn_id: 'missing-model-1',
+        duration_ms: 1,
+        stop_reason: 'failed' as const,
+        failure: failure('Upstream HTTP 404'),
+        created_at: now - minute,
+      },
+    ])
+    const observation = await observeApp({
+      now,
+      readBackups: async () => ({ latest: null, previous: null }),
+      readRestoreDrill: async () => null,
+    })
+    const patterns = observation.agentFailurePatterns ?? []
+    expect(patterns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ turns: 3, upstreamStatus: null, code: 'agent_upstream_error' }),
+        expect.objectContaining({ turns: 1, upstreamStatus: 400, code: 'agent_upstream_error' }),
+        expect.objectContaining({ turns: 1, upstreamStatus: 401, code: 'agent_upstream_error' }),
+        expect.objectContaining({ turns: 1, upstreamStatus: 404, code: 'agent_upstream_error' }),
+      ]),
+    )
+  } finally {
+    await writer.db
+      .delete(writer.schema.agent_turns)
+      .where(eq(writer.schema.agent_turns.conversation_id, conversationId))
+    await writer.db
+      .delete(writer.schema.agent_conversations)
+      .where(eq(writer.schema.agent_conversations.id, conversationId))
+  }
 })
 
 it('aggregates error minute counts across instances without counting client errors as successes', async () => {

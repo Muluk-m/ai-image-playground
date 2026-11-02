@@ -1,13 +1,19 @@
 import {
   type AgentToolErrorCode,
+  type GptTierInput,
+  isGptBasicRequest,
+  isGptDirectModel,
+  QUEUE_TIMEOUTS,
   type TaskErrorType,
   taskFailureCode,
 } from '@image-playground/shared'
 import { and, eq, gt, inArray, type SQL, sql } from 'drizzle-orm'
 import { agentJobsEnded } from '../lib/agent/wake'
 import { type GenerationMediaLink, publishGenerationImages } from '../lib/generationMedia'
+import { pauseUnavailableModel } from '../lib/model-availability'
 import { type BffTransaction, loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
 import { publishProjectOutputs } from '../lib/projectArchive'
+import { partialFailureOf } from '../lib/upstream/partial'
 import { db, schema } from './client'
 import { publishGenerations } from './generation-events'
 
@@ -145,6 +151,7 @@ export async function reconcileTasks(
   executor?: BffTransaction,
 ): Promise<string[]> {
   const reconcile = async (tx: BffTransaction) => {
+    const enteredAt = Date.now()
     const rows = await tx
       .update(schema.tasks)
       .set({
@@ -153,7 +160,11 @@ export async function reconcileTasks(
         error_message: reason,
         execution_token: null,
         lease_expires_at: null,
-        next_retry_at: null,
+        // 进入时刻单独记下，给 30 分钟告警和卡片用。next_retry_at 只表示下次核对，
+        // 认领队列只看 status=queued，这里把它拨到 5 分钟后，核对失败再继续往后推。
+        reconcile_started_at: enteredAt,
+        reconcile_alerted_at: null,
+        next_retry_at: enteredAt + QUEUE_TIMEOUTS.AUTO_RECONCILE_AFTER_MS,
         completed_at: null,
       })
       .where(
@@ -187,6 +198,27 @@ export type TerminalTaskUpdate = {
   media?: GenerationMediaLink[]
   /** Keep the generated source for operator recovery after archive retries expire. */
   preserveArchive?: boolean
+}
+
+/**
+ * GPT 会员的 2K/4K/高画质落到 sub2api 只出得了基础档：按任务行记的通道把倍率改回 1，差额随结算退回。
+ * 执行、归档重试、对账三条完成路径都经这里，不靠上游 payload 里的标记（会丢，也可能被伪造）。
+ */
+export function gptSettledUsage(
+  update: TerminalTaskUpdate,
+  task: { model: string; request: GptTierInput & { n?: number }; gptRoute: string | null },
+): TaskUsage | undefined {
+  if (
+    update.status !== 'completed' ||
+    task.gptRoute !== 'sub2api' ||
+    !isGptDirectModel(task.model) ||
+    isGptBasicRequest(task.request)
+  )
+    return update.actualUsage
+  return {
+    quantity: update.actualUsage?.quantity ?? Math.max(1, task.request.n ?? 1),
+    unitMultiplier: 1,
+  }
 }
 
 /**
@@ -228,7 +260,10 @@ export async function finishTask(
       .returning({
         id: schema.tasks.id,
         userId: schema.tasks.user_id,
+        model: schema.tasks.model,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
+        request: schema.tasks.request_payload,
+        gptRoute: schema.tasks.gpt_route,
       })
     if (!finished) return false
     if (finished.userId && update.media) {
@@ -240,7 +275,10 @@ export async function finishTask(
         finished.userId,
         id,
         update.media ?? [],
-        update.status === 'failed' ? taskFailureCode(update.errorType) : undefined,
+        update.status === 'failed'
+          ? taskFailureCode(update.errorType)
+          : // 部分出图：没出的那几个预留位置留成失败占位，不悄悄收掉。
+            partialFailureCode(update.resultPayload),
       )
     await taskHooks.finalizeTask({
       tx,
@@ -249,8 +287,11 @@ export async function finishTask(
       upstreamInvocationCount: finished.upstreamInvocationCount,
       errorType: update.errorType,
       upstreamStatus: update.upstreamStatus ?? null,
-      actualUsage: update.actualUsage,
+      actualUsage: gptSettledUsage(update, finished),
     })
+    if (update.status === 'failed' && update.errorType === 'model_unavailable') {
+      await pauseUnavailableModel(tx, finished.model, update.completedAt)
+    }
     // 智能体的后台任务：同一个事务里判断要不要唤醒它，终态与唤醒要么一起落、要么都不落。
     await agentJobsEnded(tx, [finished.id], update.completedAt)
     await publishGenerations(tx, [finished.id])
@@ -307,4 +348,9 @@ export async function cancelTasks(
     return rows
   }
   return options.tx ? cancel(options.tx) : db.transaction(cancel)
+}
+
+function partialFailureCode(payload: unknown) {
+  const partial = partialFailureOf(payload)
+  return partial ? taskFailureCode(partial.type) : undefined
 }

@@ -403,6 +403,67 @@ export function videoRateMultiplier(modelId: string, resolution: VideoResolution
   return ownVideoModelSupport(modelId)?.resolutionMultipliers[resolution] ?? 1
 }
 
+export type VideoNodeMode = 'text' | 'first' | 'frames' | 'reference'
+
+/** 与画布节点的视频模式列表相同：文生、首帧、首尾帧、参考图。 */
+export function videoNodeModes(support: VideoModelSupport): VideoNodeMode[] {
+  return [
+    'text',
+    ...(support.firstFrame ? (['first'] as const) : []),
+    ...(support.firstFrame && support.lastFrame ? (['frames'] as const) : []),
+    ...(support.referenceImages ? (['reference'] as const) : []),
+  ]
+}
+
+/** 没写模式时的退档与画布一致：有参考图就用参考图，否则能接首帧就用首帧。 */
+export function effectiveVideoNodeMode(
+  support: VideoModelSupport,
+  requested?: string,
+): VideoNodeMode {
+  const modes = videoNodeModes(support)
+  return modes.includes(requested as VideoNodeMode)
+    ? (requested as VideoNodeMode)
+    : support.referenceImages
+      ? 'reference'
+      : support.firstFrame
+        ? 'first'
+        : 'text'
+}
+
+/** 参考图、首尾帧或预设声音会把清晰度封在模型声明的上限里。 */
+export function narrowVideoModelSupport(
+  support: VideoModelSupport,
+  mode: VideoNodeMode,
+  hasVoices = false,
+): VideoModelSupport {
+  const caps = [
+    mode === 'reference' ? asVideoResolution(support.referenceImages?.maxResolution) : undefined,
+    mode === 'frames' || hasVoices ? asVideoResolution(support.guideMaxResolution) : undefined,
+  ].filter((value): value is VideoResolution => value !== undefined)
+  if (!caps.length) return support
+  const max = Math.min(...caps.map((value) => VIDEO_RESOLUTIONS.indexOf(value)))
+  return {
+    ...support,
+    resolutions: support.resolutions.filter((value) => VIDEO_RESOLUTIONS.indexOf(value) <= max),
+  }
+}
+
+function asVideoResolution(value: string | undefined): VideoResolution | undefined {
+  return value !== undefined && (VIDEO_RESOLUTIONS as readonly string[]).includes(value)
+    ? (value as VideoResolution)
+    : undefined
+}
+
+function asVideoAspectRatio(value: string | undefined): VideoAspectRatio | undefined {
+  return value !== undefined && (VIDEO_ASPECT_RATIOS as readonly string[]).includes(value)
+    ? (value as VideoAspectRatio)
+    : undefined
+}
+
+export function videoModelSupportOf(modelId: string): VideoModelSupport | undefined {
+  return ownVideoModelSupport(modelId)
+}
+
 export function videoDurationsForResolution(
   support: VideoModelSupport,
   resolution: VideoResolution,

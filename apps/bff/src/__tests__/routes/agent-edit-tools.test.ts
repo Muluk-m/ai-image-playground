@@ -261,6 +261,7 @@ async function giveAsset(userId: string, name: string, imageId: string): Promise
 }
 
 beforeEach(async () => {
+  await db.delete(schema.agent_model_settings)
   storage = new InMemoryObjectStore()
   setObjectStoreForTesting(storage)
   _setChannelsForTesting([TEST_IMAGE_CHANNEL])
@@ -564,11 +565,12 @@ describe('智能体改图工具', () => {
       const frames = await runTurn(conversationId, '[image 1] 设计新界面', {
         references: [{ imageId: 'canvas-original', dataUrl: PIXEL }],
       })
+      // 内联附图给模型看的是缩略图，不是原件那份字节。
       expect(calls[0]!.messages.at(-1)!.content).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             type: 'image_url',
-            image_url: expect.objectContaining({ url: PIXEL }),
+            image_url: expect.objectContaining({ url: expect.stringMatching(/^data:image\//) }),
           }),
         ]),
       )
@@ -628,9 +630,10 @@ describe('智能体改图工具', () => {
           image_url?: { url: string }
         }[]
         const image = content.find((block) => block.type === 'image_url')!.image_url!.url
-        expect(image).toStartWith('data:image/png;base64,')
+        // SVG 先栅格化，模型看的是它的缩略图（位图，尺寸不变）。
+        expect(image).toStartWith('data:image/webp;base64,')
         expect(await sharp(Buffer.from(image.split(',')[1]!, 'base64')).metadata()).toMatchObject({
-          format: 'png',
+          format: 'webp',
           width: 24,
           height: 16,
         })
@@ -905,6 +908,49 @@ describe('智能体改图工具', () => {
     ])
   })
 
+  it('scales an oversized reference to a 4000px long edge before submitting the edit', async () => {
+    // BUG-35：最长边超过 4000 的图先等比缩小再改，不再整轮拒绝。
+    const large = `data:image/jpeg;base64,${(
+      await sharp({ create: { width: 5000, height: 3000, channels: 3, background: '#3366cc' } })
+        .jpeg()
+        .toBuffer()
+    ).toString('base64')}`
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'call-large',
+              name: 'editImage',
+              args: { prompt: '把背景换成浅木色', imageIds: ['canvas-large'] },
+            }),
+          () => completionStream('改好了'),
+        ],
+      ),
+    )
+    const stop = settleSubmittedTasks('completed')
+    const conversationId = await startConversation()
+    const frames = await runTurn(conversationId, '把 [image 1] 的背景换成浅木色', {
+      references: [{ imageId: 'canvas-large', dataUrl: large }],
+    })
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({ status: 'awaiting_confirmation' })
+    await confirmDrafts(conversationId)
+    await settledResults(conversationId)
+    stop()
+    const [task] = await db.select().from(schema.tasks)
+    const [input] = task!.request_payload.input_images! as unknown as {
+      mime: string
+      object: string
+    }[]
+    expect(input!.mime).toBe('image/jpeg')
+    const archived = storage.objects.get(input!.object)!
+    expect(await sharp(Buffer.from(archived.bytes)).metadata()).toMatchObject({
+      width: 4000,
+      height: 2400,
+    })
+  })
+
   it('passes the mask the user drew on that reference', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(
@@ -1173,6 +1219,22 @@ for (const [depth, model, effort, contextWindow, credential] of [
     expect(agentModel(depth).contextWindow).toBe(contextWindow)
   })
 }
+
+it('applies the saved product-depth model and its separate reasoning effort to a real turn', async () => {
+  const { defaultAgentModelSettings } = await import('../../lib/agent/provider-settings')
+  const { saveAgentModelSettings } = await import('../../lib/agent/model-settings-store')
+  const settings = defaultAgentModelSettings()
+  settings.providers[0]!.secretRef = 'UPSTREAM_API_KEY'
+  settings.profiles.deep = { ...settings.profiles.fast, reasoning: 'high' }
+  await saveAgentModelSettings({ revision: 0, settings }, 'test')
+  const calls: AgentCall[] = []
+  setAgentFetchForTesting(scriptedAgentFetch(calls, [() => completionStream('configured')]))
+  const id = await startConversation()
+  await runTurn(id, 'hello', { params: { thinkingDepth: 'deep' } })
+  expect(calls[0]?.model).toBe('gpt-6-luna')
+  expect(calls[0]?.reasoning_effort).toBe('high')
+  expect(calls[0]?.authorization).toBe('Bearer fixture-upstream-key')
+})
 
 it('rejects an empty selection before storing a message or submitting a task', async () => {
   const conversationId = await startConversation()

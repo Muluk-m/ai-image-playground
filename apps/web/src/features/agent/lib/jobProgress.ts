@@ -1,4 +1,8 @@
-import type { AgentBackgroundJobProgress, AgentToolName } from '@image-playground/shared'
+import type {
+  AgentBackgroundJobProgress,
+  AgentJobQueuePosition,
+  AgentToolName,
+} from '@image-playground/shared'
 import type { AgentPanelMessage, AgentToolMessage } from '../types'
 
 /**
@@ -41,6 +45,10 @@ export interface AgentToolProgress {
   readonly phase: AgentJobPhase
   /** 已用时间的起点（epoch 毫秒）。后台任务取服务端受理时刻；缺席即不知道何时开始。 */
   readonly since?: number
+  /** 当前阶段的起点。结果确认用它判断是否超过 30 分钟；其它阶段缺席。 */
+  readonly phaseSince?: number
+  /** 还在排队时它在本账号队列里的位置；服务端没给就缺席，只说「排队中」。 */
+  readonly queue?: AgentJobQueuePosition
 }
 
 /**
@@ -59,8 +67,14 @@ export function agentToolProgress(
   startedAt?: number,
 ): AgentToolProgress | null {
   const since = job?.submittedAt ?? startedAt
-  const at = (phase: AgentJobPhase): AgentToolProgress =>
-    since === undefined ? { phase } : { phase, since }
+  const at = (phase: AgentJobPhase): AgentToolProgress => {
+    const phaseSince = phase === 'reconciling' ? job?.phaseSince : undefined
+    return {
+      phase,
+      ...(since === undefined ? {} : { since }),
+      ...(phaseSince === undefined ? {} : { phaseSince }),
+    }
+  }
   if (message.status === 'running') {
     // 查素材库这类不出图的调用没有这几个阶段。
     if (!message.toolName || !GENERATION_TOOLS.has(message.toolName)) return null
@@ -69,8 +83,9 @@ export function agentToolProgress(
   }
   if (message.status === 'submitted') {
     if (!job) return at('submitted')
-    if (job.phase) return at(job.phase)
-    return at(job.stage === 'running' ? 'generating' : 'queued')
+    const phase = job.phase ?? (job.stage === 'running' ? 'generating' : 'queued')
+    const progress = at(phase)
+    return phase === 'queued' && job.queue ? { ...progress, queue: job.queue } : progress
   }
   if (message.status === 'succeeded' && message.delivery === 'pending') return at('delivering')
   return null

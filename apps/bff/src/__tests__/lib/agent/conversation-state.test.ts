@@ -1,0 +1,597 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { resetTestDatabase } from '@image-playground/db/testing'
+
+process.env.DATABASE_URL = await resetTestDatabase('bff_agent_conversation_state')
+
+const { close, db, schema } = await import('../../../db/client')
+const { CONVERSATION_STATE_WINDOW_MS, readConversationStateFacts, renderConversationState } =
+  await import('../../../lib/agent/conversation-state')
+afterAll(close)
+
+const NOW = Date.UTC(2026, 9, 20, 6, 0, 0)
+const estimate = {
+  status: 'available' as const,
+  estimatedCredits: 0,
+  estimatedChargeCredits: 0,
+  snapshots: [],
+}
+
+async function conversation(id: string): Promise<void> {
+  await db.insert(schema.agent_conversations).values({
+    id,
+    user_id: 'owner',
+    title: id,
+    created_at: NOW,
+    updated_at: NOW,
+  })
+}
+
+async function draft(
+  conversationId: string,
+  id: string,
+  prompt: string,
+  at = NOW,
+  taskId?: string,
+) {
+  await db.insert(schema.agent_generation_drafts).values({
+    id,
+    conversation_id: conversationId,
+    turn_id: 'turn',
+    tool_call_id: id,
+    tool_name: 'editImage',
+    media: 'image',
+    provider: 'openai-compat',
+    model: 'fixture',
+    prompt,
+    request: { prompt, device_id: 'device', n: 1 },
+    submission: { review: false },
+    created_at: at,
+    ...(taskId ? { task_id: taskId, confirmed_at: at } : {}),
+  })
+}
+
+async function batch(
+  conversationId: string,
+  id: string,
+  status: 'draft' | 'running' | 'closed',
+  tasks: readonly ('completed' | 'failed' | 'in_progress')[],
+  itemCount = tasks.length || 2,
+  at = NOW,
+) {
+  await db.insert(schema.agent_batches).values({
+    id,
+    user_id: 'owner',
+    conversation_id: conversationId,
+    origin_turn_id: 'origin',
+    tool_call_id: id,
+    experience: 'chat',
+    status,
+    current_version: 1,
+    ...(status === 'draft' ? {} : { confirmed_version: 1 }),
+    created_at: at,
+    updated_at: at,
+  })
+  await db.insert(schema.agent_batch_plans).values({
+    batch_id: id,
+    version: 1,
+    title: `计划 ${id}`,
+    rule: 'rule',
+    digest: 'a'.repeat(64),
+    item_count: itemCount,
+    estimate_snapshot: { analysis: estimate, generation: estimate },
+    created_at: at,
+  })
+  for (const [index, taskStatus] of tasks.entries()) {
+    const key = `item-${index}`
+    const taskId = `${id}-task-${index}`
+    await db.insert(schema.agent_batch_items).values({
+      batch_id: id,
+      version: 1,
+      key,
+      ordinal: index,
+      kind: 'generation',
+      inputs: [],
+      prompt: 'prompt',
+      params: { model: 'fixture', provider: 'openai-compat' as const },
+      dependencies: [],
+    })
+    await db.insert(schema.tasks).values({
+      id: taskId,
+      user_id: 'owner',
+      provider: 'openai-compat',
+      model: 'fixture',
+      status: taskStatus,
+      request_payload: { device_id: 'device', prompt: 'prompt', n: 1 },
+      submitted_at: at + index,
+    })
+    await db.insert(schema.agent_batch_attempts).values({
+      batch_id: id,
+      version: 1,
+      item_key: key,
+      attempt: 1,
+      task_id: taskId,
+      reserved_credits: 100,
+      submitted_at: at + index,
+    })
+  }
+}
+
+beforeAll(async () => {
+  await db.insert(schema.users).values({
+    id: 'owner',
+    username: 'owner',
+    password_hash: 'fixture',
+    status: 'active',
+    created_at: NOW,
+    updated_at: NOW,
+  })
+})
+
+describe('readConversationStateFacts', () => {
+  it('lists unconfirmed drafts and recent batches with completed artifacts', async () => {
+    await conversation('busy')
+    await draft('busy', 'pending-1', '把浴缸换成图2的款式')
+    await draft('busy', 'confirmed', '已经确认的那张', NOW, 'confirmed-task')
+    await draft('busy', 'stale', '一天以前的稿', NOW - CONVERSATION_STATE_WINDOW_MS - 1)
+    await batch('busy', 'done', 'closed', ['completed', 'completed', 'failed'])
+    await batch('busy', 'waiting', 'draft', [], 4)
+
+    await db.insert(schema.agent_messages).values([
+      {
+        conversation_id: 'busy',
+        id: 'run-manual',
+        turn_id: 'turn',
+        seq: 1,
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolResult',
+            toolCallId: 'call-run',
+            toolName: 'runNodes',
+            status: 'succeeded',
+            title: '建议运行节点',
+            canvasRun: { projectId: 'project', nodeIds: ['tub', 'scene'] },
+          },
+        ],
+        created_at: NOW,
+      },
+      {
+        conversation_id: 'busy',
+        id: 'run-auto',
+        turn_id: 'turn',
+        seq: 2,
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolResult',
+            toolCallId: 'call-auto',
+            toolName: 'runNodes',
+            status: 'succeeded',
+            title: '直接运行',
+            canvasRun: { projectId: 'project', nodeIds: ['auto'], autoRun: true },
+          },
+        ],
+        created_at: NOW,
+      },
+      {
+        conversation_id: 'busy',
+        id: 'run-direct',
+        turn_id: 'turn',
+        seq: 3,
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolResult',
+            toolCallId: 'call-direct',
+            toolName: 'runNodes',
+            status: 'succeeded',
+            title: '直接出图',
+            canvasRun: { projectId: 'project', nodeIds: ['direct'], direct: true },
+          },
+        ],
+        created_at: NOW,
+      },
+    ])
+
+    const facts = await readConversationStateFacts('busy', NOW)
+    expect(facts.pendingDrafts).toEqual([{ title: '把浴缸换成图2的款式' }])
+    expect(facts.pendingNodeRuns).toEqual([{ title: '建议运行节点', nodeIds: ['tub', 'scene'] }])
+    const done = facts.batches.find((one) => one.batchId === 'done')
+    expect(done).toMatchObject({ status: 'closed', itemCount: 3, completed: 2, failed: 1 })
+    expect(done?.artifactIds).toEqual(['agent_done-task-0_0', 'agent_done-task-1_0'])
+    expect(facts.batches.find((one) => one.batchId === 'waiting')).toMatchObject({
+      status: 'draft',
+      itemCount: 4,
+      completed: 0,
+    })
+  })
+
+  it('ignores other conversations and batches outside the window', async () => {
+    await conversation('quiet')
+    await batch('quiet', 'old', 'closed', ['completed'], 1, NOW - CONVERSATION_STATE_WINDOW_MS - 1)
+    const facts = await readConversationStateFacts('quiet', NOW)
+    expect(facts).toEqual({ pendingDrafts: [], voidedDrafts: [], pendingNodeRuns: [], batches: [] })
+    expect(renderConversationState(facts)).toBeUndefined()
+  })
+
+  // 2026-10-23 会话 8038e50b：确认门的卡作废后草稿行的 task_id 还是空的，下一轮系统事实仍写
+  // 「待用户在卡片上确认的生成 1 张」，智能体就照着说「还在卡片上等你确认」。
+  it('按卡认草稿：作废的单列，确认门还拦着的不列，普通待确认卡照旧', async () => {
+    await conversation('gate')
+    await draft('gate', 'voided-call', '一根黄色香蕉')
+    await draft('gate', 'gated-call', '一只橘猫')
+    await draft('gate', 'manual-call', '一棵松树')
+    const card = (toolCallId: string, extra: Record<string, unknown>) => ({
+      type: 'toolResult' as const,
+      toolCallId,
+      toolName: 'generateImage',
+      title: toolCallId,
+      ...extra,
+    })
+    await db.insert(schema.agent_messages).values([
+      {
+        conversation_id: 'gate',
+        id: 'card-voided',
+        turn_id: 'turn',
+        seq: 1,
+        role: 'assistant',
+        content: [
+          card('voided-call', {
+            status: 'failed',
+            errorCode: 'cancelled',
+            gated: true,
+            message: '用户没有确认就发了新消息，这次生成已作废，没有提交任务，也没有扣费',
+          }),
+        ],
+        created_at: NOW,
+      },
+      {
+        conversation_id: 'gate',
+        id: 'card-gated',
+        turn_id: 'turn',
+        seq: 2,
+        role: 'assistant',
+        content: [card('gated-call', { status: 'awaiting_confirmation', gated: true })],
+        created_at: NOW,
+      },
+      {
+        conversation_id: 'gate',
+        id: 'card-manual',
+        turn_id: 'turn',
+        seq: 3,
+        role: 'assistant',
+        content: [card('manual-call', { status: 'awaiting_confirmation' })],
+        created_at: NOW,
+      },
+    ] as (typeof schema.agent_messages.$inferInsert)[])
+
+    const facts = await readConversationStateFacts('gate', NOW)
+    expect(facts.pendingDrafts).toEqual([{ title: '一棵松树' }])
+    expect(facts.voidedDrafts).toEqual([{ title: '一根黄色香蕉' }])
+    const text = renderConversationState(facts)!
+    expect(text).toContain('待用户在卡片上确认的生成 1 张（尚未提交，未扣费）：「一棵松树」')
+    expect(text).toContain('已作废的生成 1 张（没有提交任务，也没有扣费')
+    expect(text).toContain('「一根黄色香蕉」')
+    // 确认门本身对智能体不可见：还拦着的那张不进系统事实。
+    expect(text).not.toContain('一只橘猫')
+  })
+
+  // Codex 审查：先截条数再分类，较新的作废稿会占满名额，把更早还在等的普通卡挤掉；超过一页也一样。
+  it('较新的作废稿占不掉更早还在等确认的卡', async () => {
+    await conversation('crowded')
+    await draft('crowded', 'old-manual', '一座灯塔', NOW - 60_000)
+    const voided = Array.from({ length: 120 }, (_, index) => `voided-${index}`)
+    for (const [index, id] of voided.entries())
+      await draft('crowded', id, `作废 ${index}`, NOW - index)
+    await db.insert(schema.agent_messages).values([
+      {
+        conversation_id: 'crowded',
+        id: 'crowded-cards',
+        turn_id: 'turn',
+        seq: 1,
+        role: 'assistant',
+        content: [
+          ...voided.map((toolCallId) => ({
+            type: 'toolResult' as const,
+            toolCallId,
+            toolName: 'generateImage',
+            title: toolCallId,
+            status: 'failed',
+            errorCode: 'cancelled',
+            gated: true,
+          })),
+          {
+            type: 'toolResult' as const,
+            toolCallId: 'old-manual',
+            toolName: 'generateImage',
+            title: 'old-manual',
+            status: 'awaiting_confirmation',
+          },
+        ],
+        created_at: NOW,
+      },
+    ] as (typeof schema.agent_messages.$inferInsert)[])
+
+    const facts = await readConversationStateFacts('crowded', NOW)
+    expect(facts.pendingDrafts).toEqual([{ title: '一座灯塔' }])
+    expect(facts.voidedDrafts).toHaveLength(10)
+  })
+
+  // 同一张卡出现在多条消息里时，以 seq 更大的为准，不看数据库返回顺序和时间戳。
+  it('同一张卡有多条记录时按后写的认', async () => {
+    await conversation('replayed')
+    await draft('replayed', 'banana', '一根黄色香蕉')
+    const card = (status: string, extra: Record<string, unknown> = {}) => ({
+      type: 'toolResult' as const,
+      toolCallId: 'banana',
+      toolName: 'generateImage',
+      title: 'banana',
+      gated: true,
+      status,
+      ...extra,
+    })
+    // 先插后写的那条，库里自然顺序、时间戳都和写入先后相反。
+    await db.insert(schema.agent_messages).values([
+      {
+        conversation_id: 'replayed',
+        id: 'later',
+        turn_id: 'turn',
+        seq: 2,
+        role: 'assistant',
+        content: [card('failed', { errorCode: 'cancelled' })],
+        // 恢复链路可能带着更早的时间戳写入：以会话内 seq 为准，不看 created_at。
+        created_at: NOW - 1000,
+      },
+      {
+        conversation_id: 'replayed',
+        id: 'earlier',
+        turn_id: 'turn',
+        seq: 1,
+        role: 'assistant',
+        content: [card('awaiting_confirmation')],
+        created_at: NOW,
+      },
+    ] as (typeof schema.agent_messages.$inferInsert)[])
+
+    const facts = await readConversationStateFacts('replayed', NOW)
+    expect(facts.voidedDrafts).toEqual([{ title: '一根黄色香蕉' }])
+  })
+
+  it('同一条消息里同一张卡出现两次时按后面那块认', async () => {
+    await conversation('twice')
+    await draft('twice', 'banana-twice', '一根黄色香蕉')
+    const card = (status: string, extra: Record<string, unknown> = {}) => ({
+      type: 'toolResult' as const,
+      toolCallId: 'banana-twice',
+      toolName: 'generateImage',
+      title: 'banana-twice',
+      gated: true,
+      status,
+      ...extra,
+    })
+    await db.insert(schema.agent_messages).values([
+      {
+        conversation_id: 'twice',
+        id: 'both',
+        turn_id: 'turn',
+        seq: 1,
+        role: 'assistant',
+        content: [card('awaiting_confirmation'), card('failed', { errorCode: 'cancelled' })],
+        created_at: NOW,
+      },
+    ] as (typeof schema.agent_messages.$inferInsert)[])
+
+    const facts = await readConversationStateFacts('twice', NOW)
+    expect(facts.voidedDrafts).toEqual([{ title: '一根黄色香蕉' }])
+  })
+})
+
+describe('removed batch items (BUG-51)', () => {
+  const item = (batchId: string, version: number, key: string, ordinal: number) => ({
+    batch_id: batchId,
+    version,
+    key,
+    ordinal,
+    kind: 'generation' as const,
+    inputs: [],
+    prompt: `一只${key}\n竖版`,
+    params: { model: 'fixture', provider: 'openai-compat' as const },
+    dependencies: [],
+  })
+  const plan = (batchId: string, version: number, count: number, confirmed: boolean) => ({
+    batch_id: batchId,
+    version,
+    title: '小动物',
+    rule: 'rule',
+    digest: 'a'.repeat(64),
+    item_count: count,
+    estimate_snapshot: { analysis: estimate, generation: estimate },
+    created_at: NOW,
+    ...(confirmed
+      ? { confirmation: { commandId: `c-${batchId}-${version}`, confirmedAt: NOW } as never }
+      : {}),
+  })
+
+  // 真正提交过的版本以 attempts 为准：plans.confirmation 在修订提案时就会写入。
+  const submit = async (batchId: string, version: number, key: string, attempt = 1) => {
+    const taskId = `${batchId}-${version}-${key}-${attempt}`
+    await db.insert(schema.tasks).values({
+      id: taskId,
+      user_id: 'owner',
+      provider: 'openai-compat',
+      model: 'fixture',
+      status: 'completed',
+      request_payload: { device_id: 'device', prompt: 'prompt', n: 1 },
+      submitted_at: NOW,
+    })
+    await db.insert(schema.agent_batch_attempts).values({
+      batch_id: batchId,
+      version,
+      item_key: key,
+      attempt,
+      task_id: taskId,
+      reserved_credits: 100,
+      submitted_at: NOW,
+    })
+  }
+
+  it('lists v1 items missing from the first confirmed version, not from later retries', async () => {
+    await conversation('trimmed')
+    await db.insert(schema.agent_batches).values({
+      id: 'zoo',
+      user_id: 'owner',
+      conversation_id: 'trimmed',
+      origin_turn_id: 'origin',
+      tool_call_id: 'zoo',
+      experience: 'chat',
+      status: 'closed',
+      current_version: 3,
+      confirmed_version: 3,
+      created_at: NOW,
+      updated_at: NOW,
+    })
+    await db
+      .insert(schema.agent_batch_plans)
+      .values([plan('zoo', 1, 3, false), plan('zoo', 2, 2, true), plan('zoo', 3, 1, true)])
+    await db
+      .insert(schema.agent_batch_items)
+      .values([
+        item('zoo', 1, 'cat', 0),
+        item('zoo', 1, 'dog', 1),
+        item('zoo', 1, 'rabbit', 2),
+        item('zoo', 2, 'cat', 0),
+        item('zoo', 2, 'dog', 1),
+        item('zoo', 3, 'dog', 0),
+      ])
+    await submit('zoo', 2, 'cat')
+    await submit('zoo', 2, 'dog')
+    await submit('zoo', 3, 'dog', 2)
+
+    const facts = await readConversationStateFacts('trimmed', NOW)
+    expect(facts.batches[0]!.removed).toEqual([{ key: 'rabbit', prompt: '一只rabbit 竖版' }])
+  })
+
+  it('reports nothing removed when the first version was confirmed as is', async () => {
+    await conversation('intact')
+    await db.insert(schema.agent_batches).values({
+      id: 'farm',
+      user_id: 'owner',
+      conversation_id: 'intact',
+      origin_turn_id: 'origin',
+      tool_call_id: 'farm',
+      experience: 'chat',
+      status: 'closed',
+      current_version: 2,
+      confirmed_version: 2,
+      created_at: NOW,
+      updated_at: NOW,
+    })
+    await db
+      .insert(schema.agent_batch_plans)
+      .values([plan('farm', 1, 2, true), plan('farm', 2, 1, true)])
+    await db
+      .insert(schema.agent_batch_items)
+      .values([item('farm', 1, 'cow', 0), item('farm', 1, 'pig', 1), item('farm', 2, 'pig', 0)])
+    await submit('farm', 1, 'cow')
+    await submit('farm', 1, 'pig')
+    await submit('farm', 2, 'pig', 2)
+
+    const facts = await readConversationStateFacts('intact', NOW)
+    expect(facts.batches[0]!.removed).toEqual([])
+  })
+
+  it('ignores a revision proposal that carries confirmation but was never submitted', async () => {
+    await conversation('proposed')
+    await db.insert(schema.agent_batches).values({
+      id: 'pond',
+      user_id: 'owner',
+      conversation_id: 'proposed',
+      origin_turn_id: 'origin',
+      tool_call_id: 'pond',
+      experience: 'chat',
+      status: 'paused',
+      current_version: 2,
+      created_at: NOW,
+      updated_at: NOW,
+    })
+    await db
+      .insert(schema.agent_batch_plans)
+      .values([plan('pond', 1, 2, false), plan('pond', 2, 1, true)])
+    await db
+      .insert(schema.agent_batch_items)
+      .values([item('pond', 1, 'duck', 0), item('pond', 1, 'frog', 1), item('pond', 2, 'frog', 0)])
+
+    const facts = await readConversationStateFacts('proposed', NOW)
+    expect(facts.batches[0]!.removed).toEqual([])
+  })
+})
+
+describe('renderConversationState', () => {
+  it('tells the model a confirmation phrase must not resubmit finished work', () => {
+    const text = renderConversationState({
+      pendingDrafts: [{ title: '正面近景' }, { title: '俯视近景' }],
+      voidedDrafts: [],
+      pendingNodeRuns: [{ title: '建议运行节点', nodeIds: ['tub'] }],
+      batches: [
+        {
+          batchId: 'b1',
+          title: '六角度',
+          status: 'closed',
+          itemCount: 6,
+          completed: 6,
+          failed: 0,
+          artifactIds: ['agent_t1_0'],
+          removed: [],
+        },
+        {
+          batchId: 'b2',
+          title: '修正',
+          status: 'running',
+          itemCount: 3,
+          completed: 1,
+          failed: 0,
+          artifactIds: [],
+          removed: [],
+        },
+      ],
+    })
+    expect(text).toContain('待用户在卡片上确认的生成 2 张')
+    expect(text).toContain('待用户在卡片上确认的节点运行 1 组')
+    expect(text).toContain('节点 tub')
+    expect(text).toContain('不要再催确认')
+    expect(text).toContain('「正面近景」、「俯视近景」')
+    expect(text).toContain('批次 b1「六角度」：已执行完毕，完成 6/6；产物：agent_t1_0')
+    expect(text).toContain('批次 b2「修正」：执行中，已完成 1/3')
+    expect(text).toContain('不要为这类话重新调用生成工具')
+    expect(text).not.toContain('删掉')
+  })
+
+  it('names items the user removed before confirming so they are not reported missing', () => {
+    const text = renderConversationState({
+      pendingDrafts: [],
+      voidedDrafts: [],
+      pendingNodeRuns: [],
+      batches: [
+        {
+          batchId: 'b1',
+          title: '小动物',
+          status: 'closed',
+          itemCount: 2,
+          completed: 2,
+          failed: 0,
+          artifactIds: [],
+          removed: [{ key: 'rabbit', prompt: '一只白色兔子，竖版' }],
+        },
+      ],
+    })
+    expect(text).toContain(
+      '批次 b1「小动物」：已执行完毕，完成 2/2；用户确认前已从计划里删掉：rabbit（一只白色兔子，竖版）。这一批只有 2 项，删掉的是用户自己去掉的，不是漏生成',
+    )
+    expect(text).toContain(
+      '例：「这一批 2 张都已完成，没有缺的；「一只白色兔子」那张是你确认前删掉的',
+    )
+    // 示范答法不带 key，否则模型照抄给用户（BUG-56）。
+    const example = text?.slice(text.indexOf('例：')) ?? ''
+    expect(example).not.toContain('rabbit')
+  })
+})

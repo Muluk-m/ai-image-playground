@@ -56,6 +56,7 @@ import { Icon } from '@/components/ui/icon'
 | `sidebar` | 收起 / 展开侧栏 | sidebar |
 | `light` | 浅色主题 | sun |
 | `dark` | 深色主题 | moon |
+| `system` | 跟随系统外观 | monitor（lucide） |
 | `language` | 界面语言 | global |
 
 **会员等级**
@@ -85,10 +86,14 @@ import { Icon } from '@/components/ui/icon'
 | `stop` | 停止生成 | stop |
 | `refresh` | 重试、重新生成 | refresh |
 | `speed` | 速度 | bolt |
+| `gaugeLow` | 思考深度·快速 | gauge（lucide，指针向左） |
+| `gaugeMid` | 思考深度·中等 | gauge（lucide，指针向上） |
+| `gaugeHigh` | 思考深度·深度 | gauge（lucide，指针向右） |
 | `security` | 安全保障 | shield-check |
 | `back` | 返回 | arrow-left |
 | `upscale` | 高清放大 | maximize-square |
 | `removeBg` | 抠图 | scissors |
+| `cut` | 剪断连线 | scissors |
 | `brush` | 遮罩、局部重绘 | paint-brush |
 | `crop` | 裁剪 | crop |
 | `outpaint` | 扩图 | maximize-square-2 |

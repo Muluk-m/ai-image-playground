@@ -21,13 +21,25 @@ import {
 import { isoTime } from '@/lib/format'
 import { useClientErrorEvents, useClientErrors } from '@/lib/queries'
 import { parseOverviewSearch, RANGE_LABEL, type Range } from '@/lib/search-params'
-import type { ClientErrorEvent, ClientErrorGroup, ClientErrorKind } from '@/lib/types'
+import type {
+  ClientErrorEvent,
+  ClientErrorGroup,
+  ClientErrorKind,
+  ClientErrorSource,
+} from '@/lib/types'
 import { useRangeSearch } from '@/lib/useRangeSearch'
 
 export const Route = createFileRoute('/_authed/errors')({
   validateSearch: parseOverviewSearch,
   component: ClientErrorsPage,
 })
+
+const SOURCE_LABEL: Record<ClientErrorSource, string> = {
+  local: '本地预览',
+  automation: '自动化浏览器',
+  marked_test: '含测试标记',
+  unclassified: '其他来源',
+}
 
 const KIND_LABEL: Record<ClientErrorKind, string> = {
   boot: '启动失败',
@@ -77,7 +89,7 @@ function ClientErrorsPage() {
   return (
     <Page
       crumbs={[{ label: '前端错误' }]}
-      description="浏览器上报的启动失败与运行期异常，按指纹聚合，保留 30 天；每分钟刷新"
+      description="浏览器上报的启动失败与运行期异常，包含本地与自动化上报，按指纹聚合，保留 30 天；每分钟刷新"
       actions={<RangeToggle value={range} onChange={setRange} />}
     >
       {query.isPending ? (
@@ -151,6 +163,17 @@ function ClientErrorsPage() {
                         >
                           {title(group)}
                         </button>
+                        <p className="text-xs text-muted-foreground">
+                          {group.sources &&
+                            Object.entries(group.sources)
+                              .filter(([, count]) => count > 0)
+                              .map(
+                                ([source, count]) =>
+                                  `${SOURCE_LABEL[source as ClientErrorSource]} ${count}`,
+                              )
+                              .join(' · ')}
+                          {group.recovered > 0 ? ` · 已恢复 ${group.recovered}/${group.count}` : ''}
+                        </p>
                         {group.last_url ? (
                           <p className="truncate text-xs text-muted-foreground">{group.last_url}</p>
                         ) : null}
@@ -210,7 +233,7 @@ function GroupDetail({ group, range }: { group: ClientErrorGroup; range: Range }
       ) : (
         <div className="space-y-3">
           <p className="text-xs text-muted-foreground">
-            最近 {query.data.events.length} 次上报（最多 50 次）
+            最近 {query.data.events.length} 次上报（最多 50 次）；来源标记不代表已排除故障
           </p>
           {query.data.events.map((event) => (
             <EventCard key={event.id} event={event} />
@@ -225,6 +248,12 @@ function EventCard({ event }: { event: ClientErrorEvent }) {
   const context = event.context && Object.keys(event.context).length > 0 ? event.context : null
   return (
     <div className="space-y-2 rounded-md border p-3 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="secondary">{SOURCE_LABEL[event.source] ?? '其他来源'}</Badge>
+        <Badge variant={event.recovered_at != null ? 'success' : 'outline'}>
+          {event.recovered_at != null ? `已恢复 · ${isoTime(event.recovered_at)}` : '恢复未确认'}
+        </Badge>
+      </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
         <span className="font-mono">{isoTime(event.received_at)}</span>
         {event.release ? <span className="font-mono">版本 {event.release}</span> : null}

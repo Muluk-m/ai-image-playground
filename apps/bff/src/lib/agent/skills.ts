@@ -11,6 +11,7 @@ import {
   type AgentSkillSummary,
   type AgentSkillTemplate,
   DEFAULT_AGENT_SKILL_ICON,
+  imagePreset,
   LOOK_PURPOSES,
   LOOK_SKILL_NAME_PREFIX,
   type LookPurpose,
@@ -419,11 +420,25 @@ export function agentSkillFileUrl(name: string, file: string): string {
  *
  * 项目不限制媒体类型；一轮可先出图再生视频，模板也共享同一份按需加载清单。
  */
+/** 只在节点画布里用得上的技能：正文就是画布工具的用法，Agent 模式这一轮不列出、读不到，也不回放。 */
+const CANVAS_ONLY_SKILLS = new Set(['script-briefs'])
+
+export function isCanvasOnlySkill(name: string | undefined): boolean {
+  return name !== undefined && CANVAS_ONLY_SKILLS.has(name)
+}
+
 export function visibleAgentSkills(
   mode: AgentMode,
   audience: AgentTurnAudience,
 ): readonly AgentSkill[] {
-  return [...agentSkills(mode), ...audience.looks]
+  const skills = agentSkills(mode)
+  return [
+    // 没说是画布的一律按 Agent 模式：旧客户端与不带模式的清单请求都看不到画布技能。
+    ...(audience.experience === 'canvas'
+      ? skills
+      : skills.filter((skill) => !CANVAS_ONLY_SKILLS.has(skill.name))),
+    ...audience.looks,
+  ]
 }
 
 /**
@@ -434,9 +449,10 @@ export async function listAgentSkillSummaries(
   mode: AgentMode,
   userId: string | null,
   imageModel: string | undefined,
+  experience: 'chat' | 'canvas' = 'chat',
 ): Promise<AgentSkillSummary[]> {
   const looks = await userLookSkills(userId)
-  return visibleAgentSkills(mode, { userId, looks }).map((skill) =>
+  return visibleAgentSkills(mode, { userId, looks, experience }).map((skill) =>
     agentSkillSummary(skill, imageModel),
   )
 }
@@ -446,7 +462,6 @@ export async function listAgentSkillSummaries(
  * 起轮前取一次，本轮之后处处按这一份算——`<available_skills>` 与 `/look-<id>` 才不会各说各的。
  */
 export interface AgentTurnAudience {
-  readonly nodeCanvas?: boolean
   readonly experience?: 'chat' | 'canvas'
   /** 登录用户；device-only 用户为 null。 */
   readonly userId: string | null
@@ -618,12 +633,17 @@ export function setAgentSkillsRootForTesting(next: string | null): void {
  * 技能全文进上下文的那一段。复用框架的格式，但位置换成虚拟路径。
  * `extra` 是用户在 `/skill-name` 后面跟着写的其余文字。
  */
+function imagePresetSkillContent(name: string, content: string): string {
+  const preset = imagePreset(name)
+  return preset ? content + '\n\n## 默认出图约束\n\n' + preset.instruction : content
+}
+
 export function agentSkillInvocation(skill: AgentSkill, extra?: string): string {
   return formatSkillInvocation(
     {
       name: skill.name,
       description: skill.description,
-      content: skill.content,
+      content: imagePresetSkillContent(skill.name, skill.content),
       filePath: agentSkillLocation(skill),
     },
     extra?.trim() || undefined,
@@ -680,7 +700,13 @@ export async function readAgentSkillFile(
   try {
     const handle = Bun.file(located.path)
     if (handle.size > AGENT_SKILL_FILE_MAX_BYTES) return { kind: 'too-large' }
-    return { kind: 'ok', text: await handle.text() }
+    const content = await handle.text()
+    const directory = findAgentSkill(mode, name)?.directory
+    const main = directory ? await realpath(join(directory, 'SKILL.md')) : undefined
+    return {
+      kind: 'ok',
+      text: located.path === main ? imagePresetSkillContent(name, content) : content,
+    }
   } catch {
     return { kind: 'unreadable' }
   }

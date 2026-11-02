@@ -1,20 +1,30 @@
-import type { AgentToolArtifact } from '@image-playground/shared'
-import { useEffect, useRef, useState } from 'react'
+import {
+  type AgentToolArtifact,
+  agentImageShape,
+  presetAspectRatio,
+  withAspectRatio,
+} from '@image-playground/shared'
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { ImageGallery } from '../../../components/assistant-ui/elements/image-gallery'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
+import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
 import { MessageActions } from '../../../components/assistant-ui/elements/message-actions'
 import { StoppedRun } from '../../../components/assistant-ui/elements/stopped-run'
 import { ToolCall } from '../../../components/assistant-ui/elements/tool-call'
 import { ToolError } from '../../../components/assistant-ui/elements/tool-error'
 import { ToolStatus } from '../../../components/assistant-ui/elements/tool-status'
+import { compactModelName, ModelLogo } from '../../../components/ModelIdentity'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { OverflowText } from '../../../components/ui/overflowTitle'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useTranslation } from '../../../i18n'
+import { modelLabel } from '../../../lib/channels/publicChannels'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
+import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { parseRatio } from '../../../lib/size'
+import { useStore } from '../../../store'
 import type { ProductionPane } from '../../production/lib/productionContext'
 import PlayBadge from '../../video/components/PlayBadge'
 import {
@@ -33,36 +43,41 @@ import {
   fetchedImagePreview,
   INLINE_RESULT_THUMBNAIL_SCALE,
 } from '../lib/artifactPreview'
-import { previewArtifactBitmap } from '../lib/artifactSource'
+import { artifactReferenceSource, previewArtifactBitmap } from '../lib/artifactSource'
 import { agentCanvasSink } from '../lib/canvasSink'
+import { agentToolProgress } from '../lib/jobProgress'
 import { agentDraftOutputCount } from '../lib/promptDraft'
 import { agentRerunBlock, agentRetryRemaining, agentRetrySlotTasks } from '../lib/retry'
+import { tileFit } from '../lib/tileFit'
 import {
   agentToolFailureAction,
   agentToolFailureActionLabel,
   agentToolFailureText,
   runAgentToolFailureAction,
 } from '../lib/toolFailure'
+import { turnImageReceipt } from '../lib/turnCost'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
 import AgentBatchPlanCard from './AgentBatchPlanCard'
 import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentIconButton from './AgentIconButton'
-import AgentJobProgress, { AgentJobCancel, useAgentToolProgress } from './AgentJobProgress'
+import AgentJobProgress, {
+  AgentJobCancel,
+  AgentJobQueueNote,
+  agentJobPhaseLabel,
+  useAgentJobProgressText,
+  useAgentToolProgress,
+} from './AgentJobProgress'
 import AgentNodeRunCard from './AgentNodeRunCard'
 import AgentPromptDialog from './AgentPromptDialog'
 import AgentPromptDraft from './AgentPromptDraft'
+import AgentTurnCost from './AgentTurnCost'
 import AgentVideoToolCard from './AgentVideoToolCard'
 
 const NO_ARTIFACTS: readonly AgentToolArtifact[] = []
 const IMAGE_PREVIEW_MAX_EDGE = 240
-/** 压掉 Button 默认的高度、内边距和悬停底色。结果卡里的实际尺寸由样式表的子选择器决定。 */
 const THUMB_BUTTON = `${THUMBNAIL} p-0 font-normal hover:bg-transparent`
-/** 字号、内边距和悬停色由 .studio-agent-result-actions button 决定。 */
 const RESULT_ACTION = 'h-auto bg-transparent font-normal hover:bg-transparent'
-/** 34px 热区和悬停底色由 .studio-agent-inline-actions button 决定。 */
-const INLINE_ACTION =
-  'h-auto w-auto bg-transparent p-0 font-normal text-inherit hover:bg-transparent hover:text-inherit'
 
 function useStatusNote(
   message: AgentToolMessage,
@@ -76,6 +91,15 @@ function useStatusNote(
   if (message.status === 'submitted') return t('tool.background')
   // 重试队列里排着：前一条重试结束后才提交，还没扣费。
   if (message.status === 'queued') return t('retry.queued')
+  // 确认门拦下的稿没确认就发了新消息：没提交、没扣费。排在重试撤回前面：卡带不带 `retryOf`，
+  // 作废的都是确认门这张稿。
+  if (
+    message.status === 'failed' &&
+    message.errorCode === 'cancelled' &&
+    message.gated &&
+    !message.job
+  )
+    return t('tool.gateVoided')
   // 排着时就撤回的重试：从没提交过，也就没有要退的钱。
   if (
     message.status === 'failed' &&
@@ -91,7 +115,11 @@ function useStatusNote(
       : t('job.cancelled')
   // 有错误码就只认码（ADR 0006）；旧记录没有码，照旧显示当时存下的那句话。
   if (message.status === 'failed')
-    return agentToolFailureText(message.errorCode) ?? message.message ?? t('tool.notFinished')
+    return (
+      agentToolFailureText(message.errorCode, message.toolName) ??
+      message.message ??
+      t('tool.notFinished')
+    )
   if (message.delivery === 'pending') return t('tool.delivering')
   // 失败要说清为什么没写入；其余只说画布上现在有没有它（切过画布、或用户删掉了）。
   if (message.delivery === 'failed') return t('tool.deliveryFailed')
@@ -105,14 +133,20 @@ function previewable(message: AgentToolMessage): readonly AgentToolArtifact[] {
   return message.artifacts ?? NO_ARTIFACTS
 }
 
+// 缓存快照换成服务端记录时卡会重新挂载；先摆上一次的预览，别闪回加载态。
+const lastPreviews = new Map<string, readonly AgentArtifactPreview[]>()
+const LAST_PREVIEWS_LIMIT = 60
+
 function useArtifactPreviews(
   message: AgentToolMessage,
   inline: boolean,
 ): readonly AgentArtifactPreview[] {
-  const [previews, setPreviews] = useState<readonly AgentArtifactPreview[]>([])
   const artifacts = previewable(message)
   // 交付状态变了就重问一遍；卡重新挂载（折叠面板、切页签）也重问，所以画布上删掉的图能被发现。
   const key = `${inline}:${message.delivery}:${artifacts.map((one) => one.artifactId).join(' ')}`
+  const [previews, setPreviews] = useState<readonly AgentArtifactPreview[]>(
+    () => lastPreviews.get(key) ?? [],
+  )
 
   useEffect(() => {
     let alive = true
@@ -125,6 +159,10 @@ function useArtifactPreviews(
         artifactPreview(artifact, inline ? INLINE_RESULT_THUMBNAIL_SCALE : undefined),
       ),
     ).then((next) => {
+      lastPreviews.delete(key)
+      lastPreviews.set(key, next)
+      if (lastPreviews.size > LAST_PREVIEWS_LIMIT)
+        lastPreviews.delete(lastPreviews.keys().next().value as string)
       if (alive) setPreviews(next)
     })
     return () => {
@@ -304,6 +342,25 @@ function FetchedImages({
  * 本该由重试收场、这次生成却重出不了时（局部或连锁改图、模型已下线），改由智能体重新处理——
  * 否则这张卡上一个按钮都没有。
  */
+/**
+ * 「再次生成」。图片生成模式下，一张没用参考图的文生图原样再出一次：发原提示词本身，走提示词直出，
+ * 不套「请基于这组提示词再次生成…」那句请求。其他情况（Agent 模式、带参考图或改图）请智能体按原提示词
+ * 再来一次；那句请求是说给智能体听的，所以明确走智能体，免得在直出模式下被当成提示词。
+ */
+export function regenerateFromCard(
+  message: Pick<AgentToolMessage, 'toolName' | 'prompt' | 'title' | 'snapshot'>,
+  request: (prompt: string) => string,
+): Promise<void | 'cancelled'> {
+  const prompt = message.prompt?.trim()
+  const direct =
+    useStore.getState().createTarget === 'generate' &&
+    message.toolName === 'generateImage' &&
+    !message.snapshot?.imageIds?.length
+  const agent = useAgentStore.getState()
+  if (direct && prompt) return agent.send(prompt, [], undefined, 'image')
+  return agent.sendThroughAgent(request(message.prompt || message.title), 'image')
+}
+
 function FailureAction({ message }: { message: AgentToolMessage }) {
   useTranslation('agent')
   const code = message.errorCode
@@ -385,6 +442,7 @@ export function AgentRetryWithdraw({
  */
 function RetryRemaining({ message }: { message: AgentToolMessage }) {
   const { t } = useTranslation('agent')
+  const { t: common } = useTranslation('common')
   const messages = useAgentStore((state) => state.messages)
   const refusals = useAgentStore((state) => state.retryRefusals)
   const [pending, setPending] = useState(false)
@@ -401,7 +459,8 @@ function RetryRemaining({ message }: { message: AgentToolMessage }) {
       icon="refresh"
       busy={pending}
       disabled={pending}
-      label={t('retry.retryRemaining', { count: remaining.length })}
+      label={common('action.retry')}
+      aria-description={t('retry.retryRemaining', { count: remaining.length })}
       onClick={() => {
         setPending(true)
         void useAgentStore
@@ -434,18 +493,61 @@ function RetryRecord({ message }: { message: AgentToolMessage }) {
   )
 }
 
+function GeneratingTile({
+  message,
+  index,
+  progress,
+}: {
+  message: AgentToolMessage
+  index: number
+  progress: ReturnType<typeof useAgentToolProgress>
+}) {
+  const { t } = useTranslation('agent')
+  const text = useAgentJobProgressText(progress)
+  // 进度还没回来时也先占位，别让一行提示词文字顶上来再被图块替换。
+  const queued = !progress || progress.phase === 'queued' || index > 0
+  return (
+    <div className="studio-agent-inline-tile" data-pending="true">
+      <ImageGeneration
+        generating={progress?.phase !== 'delivering'}
+        className="pointer-events-none absolute inset-0 aspect-auto h-full w-full rounded-none"
+      />
+      <div className="studio-agent-tile-face">
+        <Icon name={queued ? 'clock' : 'image'} className="text-muted-foreground" />
+        {queued || !progress ? (
+          <span className="studio-agent-tile-caption">
+            {/* 批量出图看的就是这些图块：前面还有几张直接写在块上（BUG-17）。 */}
+            {index === 0 && progress?.phase === 'queued' && progress.queue
+              ? agentJobPhaseLabel(progress)
+              : t('job.phase.queued')}
+          </span>
+        ) : (
+          <JobProgress
+            label={text ?? t(`job.phase.${progress.phase}`)}
+            className="studio-agent-tile-progress w-full"
+          />
+        )}
+      </div>
+      <AgentJobCancel message={message} icon="close" className="studio-agent-tile-cancel" />
+    </div>
+  )
+}
+
 function StandardAgentToolCard({
   message,
   onViewCanvas,
   onPreviewResult,
   compactFetched = false,
   onPreviewProduction,
+  embed = false,
 }: {
   message: AgentToolMessage
   onViewCanvas?: (objectIds?: readonly string[]) => void
   onPreviewResult?: (messageId: string, objectId?: string, previewSource?: string) => void
   compactFetched?: boolean
   onPreviewProduction?: (pane?: ProductionPane) => void
+  /** 只交出图块，由同一行的生成计划把多条任务拼在一起。 */
+  embed?: boolean
 }) {
   const { t } = useTranslation(['agent', 'common'])
   const generatedImage = message.toolName === 'generateImage' || message.toolName === 'editImage'
@@ -456,6 +558,22 @@ function StandardAgentToolCard({
   const [downloadFailed, setDownloadFailed] = useState(false)
   const [selectedArtifactId, setSelectedArtifactId] = useState<string>()
   const [imageRatios, setImageRatios] = useState<Record<string, number>>({})
+  const [copiedPrompt, setCopiedPrompt] = useState(false)
+  // 这张卡收尾本轮时带出结算行；张数与本轮末尾的页脚同一口径（本轮全部成功出图）。
+  const receiptCount = useAgentStore((state) => {
+    const receipt = turnImageReceipt(state.messages, message.turnId)
+    return receipt?.cardId === message.id ? receipt.outputCount : null
+  })
+  const turnFooter = useAgentStore((state) => state.turns?.[message.turnId])
+  const turnMessages = useAgentStore((state) => state.messages)
+  const receiptJobs = useMemo(
+    () =>
+      turnMessages.filter(
+        (one): one is AgentToolMessage =>
+          one.kind === 'tool' && one.turnId === message.turnId && one.job !== undefined,
+      ),
+    [message.turnId, turnMessages],
+  )
   const downloadTile = async (tile: { id: string; original: () => Promise<string | null> }) => {
     if (downloadingRef.current.has(tile.id)) return
     downloadingRef.current.add(tile.id)
@@ -507,10 +625,20 @@ function StandardAgentToolCard({
     fetched.some((preview) => !preview.onCanvas && preview.source)
   const progress = useAgentToolProgress(message)
   const note = useStatusNote(message, onPreviewResult ? false : offCanvas, progress !== null)
+  // 产物已有、预览还在路上：按最终的图块位置先摆加载态，不露提示词卡。
+  const previewsLoading =
+    generatedImage &&
+    message.status === 'succeeded' &&
+    previews.length === 0 &&
+    Boolean(message.artifacts?.length) &&
+    !message.fetchedImages?.length
   const imageGenerating =
-    progress !== null &&
-    (message.toolName === 'generateImage' || message.toolName === 'editImage') &&
-    previews.length === 0
+    generatedImage &&
+    previews.length === 0 &&
+    (progress !== null ||
+      message.status === 'running' ||
+      message.status === 'submitted' ||
+      message.status === 'queued')
   const status =
     message.status === 'failed' || message.delivery === 'failed'
       ? 'failed'
@@ -540,12 +668,17 @@ function StandardAgentToolCard({
     if (onViewCanvas) onViewCanvas(canvasIds)
     else agentCanvasSink()?.focus(canvasIds)
   }
-  if (message.canvasRun)
+  if (message.canvasRun) {
     return (
       <div id={agentToolCardDomId(message.id)} tabIndex={-1}>
-        <AgentNodeRunCard proposal={message.canvasRun} />
+        <AgentNodeRunCard
+          runKey={message.id}
+          proposal={message.canvasRun}
+          {...(message.wakeSkipped ? { wakeSkipped: message.wakeSkipped } : {})}
+        />
       </div>
     )
+  }
   if (message.status === 'awaiting_confirmation') {
     return (
       <div id={agentToolCardDomId(message.id)} tabIndex={-1}>
@@ -623,6 +756,35 @@ function StandardAgentToolCard({
       </ToolError>
     )
   }
+  if (imageGenerating) {
+    const count = agentDraftOutputCount(message)
+    const slots = Array.from({ length: count }, (_, index) => (
+      <GeneratingTile key={index} message={message} index={index} progress={progress} />
+    ))
+    if (embed) return <>{slots}</>
+    return (
+      <div
+        id={agentToolCardDomId(message.id)}
+        tabIndex={-1}
+        className="studio-agent-inline-result studio-agent-inline-result--generated studio-agent-inline-result--batch"
+        data-batch-count={count}
+        style={{ '--batch-count': String(count) } as CSSProperties}
+      >
+        {count > 1 && (
+          <div className="studio-agent-batch-meta">
+            <span>{t('job.doneCount', { done: 0, total: count })}</span>
+          </div>
+        )}
+        <div className="studio-agent-inline-gallery" data-count={count}>
+          {slots}
+        </div>
+        <RetryRecord message={message} />
+        {promptOpen && message.prompt && (
+          <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
+        )}
+      </div>
+    )
+  }
   if (
     !progress &&
     !message.artifacts?.length &&
@@ -651,8 +813,11 @@ function StandardAgentToolCard({
             <p className={CARD_NOTE}>
               {t('tool.canvasReadNodes', {
                 nodes:
-                  message.canvasRead.map((node) => `${node.name} (${node.id})`).join('、') ||
-                  t('tool.canvasReadNone'),
+                  message.canvasRead
+                    .map((node) =>
+                      node.name && node.name !== node.id ? node.name : t('tool.canvasReadUnnamed'),
+                    )
+                    .join('、') || t('tool.canvasReadNone'),
               })}
             </p>
           )}
@@ -688,68 +853,14 @@ function StandardAgentToolCard({
       </ToolCall>
     )
   }
-  if (imageGenerating && progress) {
-    const count = agentDraftOutputCount(message)
-    const params = message.snapshot?.params
-    const provider = message.snapshot?.target?.provider
-    const dimensions =
-      provider && provider !== 'gemini'
-        ? parseRatio(params?.size ?? '')
-        : (parseRatio(params?.gemini_aspect_ratio ?? '') ?? parseRatio(params?.size ?? ''))
-    const ratio = dimensions ? dimensions.width / dimensions.height : 1
-    const width = IMAGE_PREVIEW_MAX_EDGE * Math.min(ratio, 1)
-    return (
-      <div
-        id={agentToolCardDomId(message.id)}
-        tabIndex={-1}
-        className="studio-agent-generation-card"
-        // Gallery gaps plus the body's horizontal padding and card borders.
-        style={{ width: count * width + (count - 1) * 5 + 34 }}
-      >
-        <div className="studio-agent-generation-body">
-          <div className="flex min-w-0 items-center gap-2">
-            <OverflowText
-              as="p"
-              text={message.title}
-              className="studio-agent-generation-title flex-1"
-            />
-            {message.prompt && (
-              <AgentIconButton
-                label={t('tool.viewPrompt')}
-                icon="prompt"
-                onClick={() => setPromptOpen(true)}
-              />
-            )}
-            <AgentJobCancel message={message} />
-          </div>
-          <AgentJobProgress progress={progress} />
-          <div className="studio-agent-generation-gallery" aria-hidden="true">
-            {Array.from({ length: count }, (_, index) => (
-              <ImageGeneration
-                key={index}
-                generating={progress.phase !== 'delivering'}
-                className="shrink-0"
-                style={{ width, aspectRatio: ratio }}
-              />
-            ))}
-          </div>
-          <RetryRecord message={message} />
-        </div>
-        {promptOpen && message.prompt && (
-          <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
-        )}
-      </div>
-    )
-  }
   if (
     status === 'succeeded' &&
     (previews.length > 0 ||
+      previewsLoading ||
       fetched.length > 0 ||
       (compactFetched && message.fetchedImages?.length)) &&
     (onPreviewResult || generatedImage)
   ) {
-    const selectedPreview =
-      previews.find((preview) => preview.artifact.artifactId === selectedArtifactId) ?? previews[0]
     const fetchedTiles = fetched.length
       ? fetched.map((preview) => ({
           id: preview.objectId,
@@ -757,6 +868,7 @@ function StandardAgentToolCard({
           media: 'image' as const,
           original: () =>
             resolveMediaSource(`aip-media:${preview.image.imageId}`, 'original', true),
+          reference: async () => `aip-media:${preview.image.imageId}`,
         }))
       : compactFetched
         ? (message.fetchedImages ?? []).map((image, index) => ({
@@ -764,118 +876,143 @@ function StandardAgentToolCard({
             source: null,
             media: 'image' as const,
             original: () => resolveMediaSource(`aip-media:${image.imageId}`, 'original', true),
+            reference: async () => `aip-media:${image.imageId}`,
           }))
         : []
+    const artifactTiles = previewsLoading
+      ? (message.artifacts ?? []).map((artifact) => ({ artifact, source: null, loading: true }))
+      : previews.map((preview) => ({ ...preview, loading: false }))
     const tiles = [
-      ...previews.map((preview) => ({
-        id: preview.artifact.artifactId,
-        source: preview.source,
-        media: preview.artifact.media,
-        ratio:
-          preview.artifact.width && preview.artifact.height
-            ? preview.artifact.width / preview.artifact.height
-            : undefined,
-        original: () => previewArtifactBitmap(preview.artifact),
+      ...artifactTiles.map(({ artifact, source, loading }) => ({
+        id: artifact.artifactId,
+        source,
+        loading,
+        media: artifact.media,
+        ratio: artifact.width && artifact.height ? artifact.width / artifact.height : undefined,
+        original: () => previewArtifactBitmap(artifact),
+        reference: () => artifactReferenceSource(artifact),
       })),
       ...fetchedTiles,
     ]
     const tileRatio = (tile: (typeof tiles)[number]) =>
       imageRatios[tile.id] ?? ('ratio' in tile ? tile.ratio : undefined)
     const groupRatio = tiles.map(tileRatio).find((ratio) => ratio !== undefined && ratio > 0) ?? 1
-    const renderTile = (tile: (typeof tiles)[number], index: number) => (
-      <div
-        className="studio-agent-inline-tile"
-        key={tile.id}
-        style={{
-          aspectRatio: generatedImage ? groupRatio : tileRatio(tile),
-          ...(generatedImage && { width: `${IMAGE_PREVIEW_MAX_EDGE * Math.min(groupRatio, 1)}px` }),
-        }}
-      >
-        <Button
-          type="button"
-          variant="ghost"
-          className="studio-agent-inline-open h-auto bg-transparent p-0 font-normal hover:bg-transparent hover:text-inherit disabled:opacity-100"
-          aria-label={
-            onPreviewResult
-              ? t('tool.openResultNumber', { number: index + 1 })
-              : t('tool.openCanvas')
-          }
-          disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
-          onClick={() => openPreviewResult(tile.id)}
-        >
-          {tile.source ? (
-            <img
-              src={tile.source}
-              alt={t('tool.resultNumber', { number: index + 1 })}
-              loading="lazy"
-              onLoad={(event) => {
-                const { naturalWidth, naturalHeight } = event.currentTarget
-                if (naturalWidth && naturalHeight)
-                  setImageRatios((ratios) => ({
-                    ...ratios,
-                    [tile.id]: naturalWidth / naturalHeight,
-                  }))
-              }}
+    const batch = generatedImage && tiles.length >= 2
+    const tileAspect = (tile: (typeof tiles)[number]) =>
+      generatedImage ? (batch || embed ? 1 : groupRatio) : tileRatio(tile)
+    const tileStyle = (tile: (typeof tiles)[number]): CSSProperties => ({
+      aspectRatio: tileAspect(tile),
+      ...(generatedImage &&
+        !batch &&
+        !embed && { width: `${IMAGE_PREVIEW_MAX_EDGE * Math.min(groupRatio, 1)}px` }),
+    })
+    const renderTile = (tile: (typeof tiles)[number], index: number) =>
+      'loading' in tile && tile.loading ? (
+        <div className="studio-agent-inline-tile-wrap" key={tile.id}>
+          <div className="studio-agent-inline-tile" data-pending="true" style={tileStyle(tile)}>
+            <ImageGeneration
+              generating
+              className="pointer-events-none absolute inset-0 aspect-auto h-full w-full rounded-none"
             />
-          ) : (
-            <span>{t('tool.previewUnavailable')}</span>
-          )}
-          {tile.media === 'video' && <PlayBadge />}
-        </Button>
-        <div className="studio-agent-inline-actions">
-          <Button
-            type="button"
-            variant="ghost"
-            className={INLINE_ACTION}
-            title={onPreviewResult ? t('tool.previewResult') : t('tool.openCanvas')}
-            aria-label={
-              onPreviewResult
-                ? t('tool.openResultNumber', { number: index + 1 })
-                : t('tool.openCanvas')
-            }
-            disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
-            onClick={() => openPreviewResult(tile.id)}
-          >
-            <Icon name="fullscreen" />
-          </Button>
-          {tile.media !== 'video' && (
-            <Button
-              type="button"
-              variant="ghost"
-              className={INLINE_ACTION}
-              title={t('tool.downloadResult')}
-              aria-label={t('tool.downloadResult')}
-              disabled={downloading.has(tile.id)}
-              onClick={() => void downloadTile(tile)}
-            >
-              <Icon name="download" />
-            </Button>
-          )}
-          {tile.media !== 'video' && onViewCanvas && (
-            <Button
-              type="button"
-              variant="ghost"
-              className={INLINE_ACTION}
-              title={t('tool.editOnCanvas')}
-              aria-label={t('tool.editOnCanvas')}
-              onClick={() => onViewCanvas([tile.id])}
-            >
-              <Icon name="images" />
-            </Button>
-          )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="studio-agent-inline-tile-wrap" key={tile.id}>
+          <div className="studio-agent-inline-tile" style={tileStyle(tile)}>
+            <Button
+              type="button"
+              variant="ghost"
+              className="studio-agent-inline-open h-auto bg-transparent p-0 font-normal hover:bg-transparent hover:text-inherit disabled:opacity-100"
+              aria-label={
+                onPreviewResult
+                  ? t('tool.openResultNumber', { number: index + 1 })
+                  : t('tool.openCanvas')
+              }
+              autoTooltip={false}
+              disabled={!onPreviewResult && !canvasIds.includes(tile.id)}
+              onClick={() => {
+                if (onViewCanvas && canvasIds.includes(tile.id)) onViewCanvas([tile.id])
+                else openPreviewResult(tile.id)
+              }}
+            >
+              {tile.source ? (
+                <img
+                  src={tile.source}
+                  alt={t('tool.resultNumber', { number: index + 1 })}
+                  data-fit={tileFit(tileRatio(tile), tileAspect(tile)) ?? undefined}
+                  loading="lazy"
+                  onLoad={(event) => {
+                    const { naturalWidth, naturalHeight } = event.currentTarget
+                    if (naturalWidth && naturalHeight)
+                      setImageRatios((ratios) => ({
+                        ...ratios,
+                        [tile.id]: naturalWidth / naturalHeight,
+                      }))
+                  }}
+                />
+              ) : (
+                <span>{t('tool.previewUnavailable')}</span>
+              )}
+              {tile.media === 'video' && <PlayBadge />}
+            </Button>
+          </div>
+        </div>
+      )
+    const params = message.snapshot?.params
+    const model = message.snapshot?.target?.model ?? params?.model
+    const modelName = model
+      ? compactModelName(model, modelLabel(model, message.snapshot?.target?.provider))
+      : null
+    // 头部写这次实际提交的画幅：工具参数里的比例覆盖输入框，且只取该供应商认的字段（BUG-20）。
+    const shape = agentImageShape(
+      message.snapshot?.target?.provider,
+      withAspectRatio(params, presetAspectRatio(message.snapshot?.args.aspectRatio)),
     )
+    const tags = generatedImage
+      ? [
+          shape.imageSize ?? shape.size,
+          shape.aspectRatio,
+          t('tool.batchCount', { count: tiles.length }),
+          message.title,
+        ].filter((tag): tag is string => Boolean(tag))
+      : []
+    if (embed && generatedImage) {
+      return (
+        <>
+          {tiles.map(renderTile)}
+          {promptOpen && message.prompt && (
+            <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
+          )}
+        </>
+      )
+    }
     return (
       <div
         id={agentToolCardDomId(message.id)}
         tabIndex={-1}
-        className={`studio-agent-inline-result${compactFetched ? ' studio-agent-inline-result--fetched' : ''}${generatedImage ? ' studio-agent-inline-result--generated' : ''}`}
+        className={`studio-agent-inline-result${compactFetched ? ' studio-agent-inline-result--fetched' : ''}${generatedImage ? ' studio-agent-inline-result--generated' : ''}${batch ? ' studio-agent-inline-result--batch' : ''}`}
+        data-batch-count={generatedImage ? tiles.length : undefined}
+        data-batch-wide={generatedImage && tiles.length >= 4 ? 'true' : undefined}
+        style={batch ? ({ '--batch-count': String(tiles.length) } as CSSProperties) : undefined}
       >
-        <div className="studio-agent-inline-meta">
-          <ToolStatus label={statusLabel} status={status} />
-          <OverflowText text={message.title} />
-        </div>
+        {generatedImage ? (
+          <div className="studio-agent-batch-meta">
+            {model && modelName && (
+              <span className="inline-flex items-center gap-1">
+                <ModelLogo model={model} />
+                <span>{modelName}</span>
+              </span>
+            )}
+            {tags.map((tag) => (
+              <span key={tag}>{tag}</span>
+            ))}
+          </div>
+        ) : (
+          <div className="studio-agent-inline-meta">
+            <ToolStatus label={statusLabel} status={status} />
+            <OverflowText text={message.title} />
+          </div>
+        )}
         {generatedImage ? (
           <ImageGallery
             items={tiles}
@@ -909,7 +1046,7 @@ function StandardAgentToolCard({
         )}
         {message.prompt &&
           !(
-            previews.some((preview) => preview.artifact.media === 'image') &&
+            artifactTiles.some((tile) => tile.artifact.media === 'image') &&
             (message.toolName === 'generateImage' || message.toolName === 'editImage')
           ) && (
             <Button
@@ -921,28 +1058,53 @@ function StandardAgentToolCard({
               {t('tool.viewPrompt')}
             </Button>
           )}
-        {previews.some((preview) => preview.artifact.media === 'image') &&
+        {artifactTiles.some((tile) => tile.artifact.media === 'image') &&
           (message.toolName === 'generateImage' || message.toolName === 'editImage') && (
             <MessageActions
               className="mt-3"
-              editLabel={t('tool.editResult')}
+              copied={copiedPrompt}
+              copyLabel={t('tool.copyPrompt')}
               regenerateLabel={t('tool.regenerate')}
-              onEdit={
-                onPreviewResult || selectedPreview?.onCanvas
-                  ? () => openPreviewResult(selectedPreview?.artifact.artifactId)
+              onCopy={
+                message.prompt
+                  ? () => {
+                      void copyTextToClipboard(message.prompt ?? '').then(
+                        () => {
+                          setCopiedPrompt(true)
+                          window.setTimeout(() => setCopiedPrompt(false), 1500)
+                        },
+                        (error) =>
+                          useStore
+                            .getState()
+                            .showToast(
+                              getClipboardFailureMessage(t('promptDialog.copyFailed'), error),
+                              'error',
+                            ),
+                      )
+                    }
                   : undefined
               }
               onRegenerate={() =>
-                void useAgentStore
-                  .getState()
-                  .send(
-                    t('tool.regenerateRequest', { prompt: message.prompt || message.title }),
-                    [],
-                    undefined,
-                    'image',
-                  )
+                void regenerateFromCard(message, (prompt) =>
+                  t('tool.regenerateRequest', { prompt }),
+                )
               }
             >
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="size-8 rounded-xl"
+                aria-label={t('tool.downloadAll')}
+                onClick={() => {
+                  for (const tile of tiles) {
+                    if (tile.media === 'video') continue
+                    void downloadTile(tile)
+                  }
+                }}
+              >
+                <Icon name="download" />
+              </Button>
               {offCanvas && !onPreviewResult && (
                 <AgentIconButton icon="images" label={t('tool.place')} onClick={placeOnCanvas} />
               )}
@@ -995,6 +1157,9 @@ function StandardAgentToolCard({
               )}
             </MessageActions>
           )}
+        {receiptCount !== null && turnFooter && (
+          <AgentTurnCost footer={turnFooter} jobs={receiptJobs} outputCount={receiptCount} />
+        )}
         {promptOpen && message.prompt && (
           <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
         )}
@@ -1198,7 +1363,10 @@ function StandardAgentToolCard({
   )
 }
 
-export default function AgentToolCard(props: Parameters<typeof StandardAgentToolCard>[0]) {
+export default function AgentToolCard({
+  embed,
+  ...props
+}: Parameters<typeof StandardAgentToolCard>[0]) {
   return props.message.batchId ? (
     <AgentBatchPlanCard
       key={props.message.batchId}
@@ -1208,6 +1376,115 @@ export default function AgentToolCard(props: Parameters<typeof StandardAgentTool
   ) : props.message.toolName === 'generateVideo' ? (
     <AgentVideoToolCard key={props.message.id} {...props} />
   ) : (
-    <StandardAgentToolCard {...props} />
+    <StandardAgentToolCard embed={embed} {...props} />
+  )
+}
+
+/** 同一轮里连续的生图任务：完成、生成中、排队的图块排成一行。 */
+export function AgentImageRun({
+  messages,
+  onViewCanvas,
+  onPreviewResult,
+  onPreviewProduction,
+}: {
+  messages: readonly AgentToolMessage[]
+  onViewCanvas?: (objectIds?: readonly string[]) => void
+  onPreviewResult?: (messageId: string, objectId?: string, previewSource?: string) => void
+  onPreviewProduction?: (pane?: ProductionPane) => void
+}) {
+  const { t } = useTranslation('agent')
+  const total = messages.reduce((sum, message) => {
+    const finished = message.artifacts?.length ?? 0
+    return sum + Math.max(finished, agentDraftOutputCount(message), 1)
+  }, 0)
+  const done = messages.reduce(
+    (sum, message) => sum + (message.status === 'succeeded' ? (message.artifacts?.length ?? 0) : 0),
+    0,
+  )
+  const lead = messages.find((message) => message.prompt) ?? messages[0]
+  // 有图在按套餐并发排队：整组只说一次为什么排、怎么更快（BUG-17）。
+  const queueLimit = useAgentStore((state) => {
+    for (const message of messages) {
+      const queue = agentToolProgress(message, state.jobProgress[message.id])?.queue
+      if (queue) return queue.limit
+    }
+    return undefined
+  })
+  return (
+    <div
+      className="studio-agent-inline-result studio-agent-inline-result--generated studio-agent-inline-result--batch"
+      data-batch-count={total}
+      data-batch-wide={total >= 4 ? 'true' : undefined}
+      style={{ '--batch-count': String(total) } as CSSProperties}
+    >
+      {done < total && (
+        <div className="studio-agent-batch-meta">
+          <span>{t('job.doneCount', { done, total })}</span>
+        </div>
+      )}
+      {done < total && queueLimit !== undefined && <AgentJobQueueNote limit={queueLimit} />}
+      <div className="studio-agent-inline-gallery" data-count={total}>
+        {messages.map((message) => (
+          <AgentToolCard
+            key={message.id}
+            embed
+            message={message}
+            onViewCanvas={onViewCanvas}
+            onPreviewResult={onPreviewResult}
+            onPreviewProduction={onPreviewProduction}
+          />
+        ))}
+      </div>
+      {lead && (
+        <MessageActions
+          className="mt-3"
+          copyLabel={t('tool.copyPrompt')}
+          regenerateLabel={t('tool.regenerate')}
+          onCopy={
+            lead.prompt
+              ? () => {
+                  void copyTextToClipboard(lead.prompt ?? '').then(
+                    () => useStore.getState().showToast(t('promptDialog.copied'), 'success'),
+                    (error) =>
+                      useStore
+                        .getState()
+                        .showToast(
+                          getClipboardFailureMessage(t('promptDialog.copyFailed'), error),
+                          'error',
+                        ),
+                  )
+                }
+              : undefined
+          }
+          onRegenerate={() =>
+            void regenerateFromCard(lead, (prompt) => t('tool.regenerateRequest', { prompt }))
+          }
+        >
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="size-8 rounded-xl"
+            aria-label={t('tool.downloadAll')}
+            onClick={() => {
+              for (const message of messages) {
+                for (const artifact of message.artifacts ?? []) {
+                  if (artifact.media === 'video') continue
+                  void previewArtifactBitmap(artifact).then((source) => {
+                    if (!source) return
+                    const link = document.createElement('a')
+                    link.href = source
+                    link.download = `muvloom-${artifact.artifactId}.png`
+                    link.click()
+                  })
+                }
+              }
+            }}
+          >
+            <Icon name="download" />
+          </Button>
+        </MessageActions>
+      )}
+    </div>
   )
 }

@@ -20,7 +20,8 @@ export function usePasteImageFiles(scope: ImageInputScope, onFiles: (files: File
     const onPaste = (event: ClipboardEvent) => {
       const files = clipboardFiles(event.clipboardData)
       if (files.length === 0) return
-      const images = acceptImageFiles(files)
+      // 超限的留给入口压缩。preventDefault 必须在这次粘贴事件里同步发生。
+      const images = acceptImageFiles(files, { keepOversized: true })
       if (images.length === 0) return
       event.preventDefault()
       // 画布模式的粘贴挂在 window 上，不停传播会把同一张图收两遍。

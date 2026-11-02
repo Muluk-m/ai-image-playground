@@ -8,8 +8,11 @@ import type {
   AgentToolResultBlock,
   AgentTurnParams,
 } from '@image-playground/shared'
+import { isCapabilityEnabled } from '../../capabilities'
+import { log } from '../../logger'
 import { clarificationTool } from '../clarification'
 import type { AgentImageSource } from '../images'
+import { MASK_PROPOSAL_GUIDANCE, maskProposalDeclaration, maskProposalTool } from '../mask-proposal'
 import {
   type AgentToolOutcome,
   type AgentToolStart,
@@ -20,7 +23,7 @@ import { arrangeCanvas } from './arrangeCanvas'
 import { arrangeTimeline } from './arrangeTimeline'
 import { editCanvasObject } from './editCanvasObject'
 import { editImage } from './editImage'
-import type { ToolFailureLog } from './errors'
+import { AgentToolError, type ToolFailureLog } from './errors'
 import { fetchImage } from './fetchImage'
 import { fetchListingImages } from './fetchListingImages'
 import { generateImage } from './generateImage'
@@ -32,7 +35,9 @@ import {
   connectNodes,
   createNodes,
   deleteNodes,
+  importCanvasImage,
   runNodes,
+  runStoryboardFrames,
   updateNodes,
 } from './nodeCanvas'
 import { planImageBatch } from './planImageBatch'
@@ -96,7 +101,9 @@ const TOOLS: readonly AgentToolSpec[] = [
   deleteNodes,
   arrangeNodes,
   runNodes,
+  runStoryboardFrames,
   applyScriptPlan,
+  importCanvasImage,
   generateVideo,
   arrangeTimeline,
   editCanvasObject,
@@ -126,18 +133,37 @@ const CANVAS_TOOLS = new Set<AgentToolName>([
   'deleteNodes',
   'arrangeNodes',
   'runNodes',
+  'runStoryboardFrames',
   'applyScriptPlan',
+  'importCanvasImage',
   'editCanvasObject',
   'arrangeCanvas',
   'arrangeTimeline',
 ])
 
+/** 只在画布模式里出现的工具。Agent 模式回放历史时它们的结果也不带给模型。 */
+export function isCanvasToolName(name: string): boolean {
+  return CANVAS_TOOLS.has(name as AgentToolName)
+}
+
 function present(mode: AgentMode, audience?: AgentToolAudience): AgentToolSpec[] {
   return TOOLS.filter(
     (tool) =>
-      (audience?.experience !== 'chat' || !CANVAS_TOOLS.has(tool.name)) &&
-      (!audience?.nodeCanvas ||
-        !['editCanvasObject', 'arrangeCanvas', 'arrangeTimeline'].includes(tool.name)) &&
+      // 节点画布工具只在明确的画布模式里出现；没声明模式（旧客户端、起轮前估算）按 Agent 模式算。
+      (audience?.experience === 'canvas' || !CANVAS_TOOLS.has(tool.name)) &&
+      // 节点画布的生成只走阶段授权，结果必须落在节点上，无主生图不进清单。
+      // 批次计划的生成项必然被拒，分析另有 proposeBatchAnalysis，因此 planImageBatch 也不进清单。
+      (audience?.experience !== 'canvas' ||
+        ![
+          'editCanvasObject',
+          'arrangeCanvas',
+          'arrangeTimeline',
+          'generateImage',
+          'editImage',
+          'generateVideo',
+          'proposeBatchGeneration',
+          'planImageBatch',
+        ].includes(tool.name)) &&
       (tool.available?.(mode, audience) ?? true),
   )
 }
@@ -152,12 +178,39 @@ export function resolveAgentMode(mode: AgentMode): AgentMode {
  * 这一轮注册给模型的整份工具清单：注册表里此刻可用的那些，加上澄清工具——它不出工具卡，
  * 所以不在注册表里（`isAgentToolName` 认不出它），但模型每次请求都收到它的声明。
  */
+/** 同一工具以同一错误码连续失败到这个次数，下一次调用不再执行。 */
+export const AGENT_TOOL_FAILURE_STREAK_LIMIT = 3
+
+/**
+ * 一轮内的重复失败熔断：模型拿着同一个错参数反复重试只会烧调用次数（2026-10-18 会话 d61eb8fc
+ * 一轮 22 次模型调用、16 次相同报错）。成功一次即清零。
+ */
+function createFailureStreaks() {
+  const streaks = new Map<string, { code: string; count: number }>()
+  return {
+    tripped(toolName: string): boolean {
+      return (streaks.get(toolName)?.count ?? 0) >= AGENT_TOOL_FAILURE_STREAK_LIMIT
+    },
+    failed(toolName: string, thrown: unknown) {
+      const code = thrown instanceof AgentToolError ? thrown.code : 'unknown'
+      const streak = streaks.get(toolName)
+      streaks.set(toolName, {
+        code,
+        count: streak?.code === code ? streak.count + 1 : 1,
+      })
+    },
+    succeeded(toolName: string) {
+      streaks.delete(toolName)
+    },
+  }
+}
+
 export function agentTurnTools(context: AgentToolContext, failures?: ToolFailureLog): AgentTool[] {
+  const streaks = createFailureStreaks()
   return [
     ...present(context.mode, {
       userId: context.userId,
       experience: context.experience,
-      nodeCanvas: context.canvas?.selectedNodeIds !== undefined,
     }).map((spec) => {
       const tool = spec.create(context)
       const execute = tool.execute
@@ -166,21 +219,57 @@ export function agentTurnTools(context: AgentToolContext, failures?: ToolFailure
         execute: async (...args: Parameters<typeof execute>) => {
           const [toolCallId, params, signal] = args
           failures?.started(toolCallId)
+          if (streaks.tripped(spec.name)) {
+            log.warn(
+              {
+                event: 'agent.tool_retry_circuit_open',
+                conversationId: context.conversationId,
+                turnId: context.turnId,
+                tool: spec.name,
+              },
+              'agent tool kept failing with the same error',
+            )
+            const stopped = new AgentToolError(
+              'invalid_params',
+              `${spec.name} 在这一轮已连续 ${AGENT_TOOL_FAILURE_STREAK_LIMIT} 次以同样的错误失败，已停止重试。不要再调用它，向用户说明遇到的问题和已完成的部分。`,
+            )
+            failures?.failed(toolCallId, stopped, false)
+            throw stopped
+          }
           try {
             await context.assertExecution?.()
             const replayed = context.replay && replayedJob(spec, context, params)
             if (replayed) return replayed
-            return await execute(...args)
+            const result = await execute(...args)
+            streaks.succeeded(spec.name)
+            return result
           } catch (thrown) {
             // pi 只留下错误的文字，分类在这里记下，轮收尾时来取。
             failures?.failed(toolCallId, thrown, signal?.aborted ?? false)
+            if (!signal?.aborted) streaks.failed(spec.name, thrown)
             throw thrown
           }
         },
       }
     }),
     clarificationTool,
+    ...(offersMaskProposal(context.mode, context) ? [maskProposalTool(context)] : []),
   ]
+}
+
+/**
+ * 范围确认卡默认下线（`agent:edit-region`），开着时也只在 chat 里给登录用户：它要引用存好的原件，画布上用户本来就能直接圈选。
+ * 与改图工具同进同出——这一轮改不了图，就没有范围可确认。卡片的原图和蒙版走 `/api/media`，
+ * 没开 accounts:sync 时那里一律拒绝，卡片打不开，也就不发。
+ */
+function offersMaskProposal(mode: AgentMode, audience?: AgentToolAudience): boolean {
+  return (
+    audience?.experience === 'chat' &&
+    Boolean(audience.userId) &&
+    isCapabilityEnabled('agent:edit-region') &&
+    isCapabilityEnabled('accounts:sync') &&
+    present(mode, audience).some((tool) => tool.name === 'editImage')
+  )
 }
 
 /**
@@ -267,12 +356,16 @@ export function agentToolDeclarations(
   return [
     ...present(mode, audience).map((tool) => tool.declaration()),
     toolDeclaration(clarificationTool),
+    ...(offersMaskProposal(mode, audience) ? [maskProposalDeclaration] : []),
   ]
 }
 
 /** 系统提示词里逐工具的那几句。与模型收到的清单同一份过滤，两边不会各说各的。 */
 export function agentToolGuidance(mode: AgentMode, audience?: AgentToolAudience): string[] {
-  return present(mode, audience).map((tool) => tool.guidance())
+  return [
+    ...present(mode, audience).map((tool) => tool.guidance()),
+    ...(offersMaskProposal(mode, audience) ? [MASK_PROPOSAL_GUIDANCE] : []),
+  ]
 }
 
 export function isAgentToolName(name: string): name is AgentToolName {
@@ -293,7 +386,7 @@ export function agentToolStart(
   params?: AgentTurnParams,
 ): AgentToolStart {
   const spec = find(toolName)
-  const call = spec?.call(args, mode)
+  const call = spec?.call(args, mode, params)
   const anchorObjectId = call?.anchor ? images.identify(call.anchor) : undefined
   const snapshot = spec?.snapshot?.(args, mode, params)
   const imageIds = call?.references?.map((reference) => images.identify(reference))
@@ -318,7 +411,7 @@ export function agentToolStartFromSnapshot(
   toolCallId: string,
   snapshot: AgentToolCallSnapshot,
 ): AgentToolStart {
-  const call = find(toolName)?.call(snapshot.args, snapshot.mode)
+  const call = find(toolName)?.call(snapshot.args, snapshot.mode, snapshot.params)
   return {
     toolCallId,
     toolName,

@@ -3,6 +3,7 @@ import type {
   AgentToolArtifact,
   AgentToolName,
   ChannelMedia,
+  ImagePresetRatio,
   PersistedVideoRequest,
   QueueProvider,
   VideoGenerationRecord,
@@ -11,12 +12,18 @@ import { productionClipVideo, projectArtifactId } from '@image-playground/shared
 import { config } from '../../../config'
 import { resolveQueueModel } from '../../channels'
 import type { ExtractedResult } from '../../extractImages'
+import { knownInactiveModels } from '../../model-availability'
 import { submitAgentGeneration } from '../auto-submit'
 import { saveGenerationDraft } from '../confirmations'
 import type { MaskedEditContent, MaskedOperation, MaskedSubmission } from '../masked-plan'
 import { bindProductionGeneration } from '../production-generation-binding'
 import { AgentToolError } from './errors'
-import { agentImageCount, queueParamsFor } from './queueParams'
+import {
+  agentModelImageCount,
+  queueParamsFor,
+  requestedImageCount,
+  withAspectRatio,
+} from './queueParams'
 import type { AgentToolContext, AgentToolDetails } from './types'
 
 interface MediaWords {
@@ -44,8 +51,10 @@ export interface QueueTaskInput {
   /** 已经解析好的模型；缺席就按介质现解析。 */
   readonly target?: QueueTarget
   readonly prompt: string
-  /** 图片工具选择的产出张数；与轮上的用户偏好无关。 */
+  /** 图片工具选择的产出张数。缺席时 {@link draftQueueTask} 沿用用户本轮选择的张数。 */
   readonly n?: number
+  /** 模型按用户原话指定的比例；缺席即沿用轮参数里的尺寸。 */
+  readonly aspectRatio?: ImagePresetRatio
   readonly referenceIds?: readonly string[]
   readonly inputImages?: readonly string[]
   readonly mask?: string
@@ -66,32 +75,69 @@ export interface QueueTaskInput {
  * 拟好稿之后给模型的那句话。它不会在这一轮回到模型手里（拟稿即收尾，见 `turn.ts`），
  * 但会作为历史进下一轮：那时模型要知道的是「这次没有提交，也没有花钱，等用户确认」。
  */
-function draftText(words: MediaWords, count: number): string {
-  return `已按用户要求拟好${words.verb}提示词（${count} ${words.unit}），提示词已原样展示给用户，等他确认。这次调用没有提交任何任务，也没有产生任何费用。用户可以直接修改提示词再点「确认生成」，届时系统按他确认的那一份原样提交。不要说已经在生成或已经生成好，也不要描述成品的样子；不要为同一件事再拟一次稿。`
+/** 回执写明实际尺寸：模型只能照它说比例，不能凭用户原话断言。视频没有这一项。 */
+function sizeText(size: string | undefined): string {
+  if (size === undefined) return ''
+  return size === 'auto' ? '，尺寸由模型自动决定' : `，尺寸 ${size}`
+}
+
+function draftText(words: MediaWords, count: number, size?: string): string {
+  return `已按用户要求拟好${words.verb}提示词（${count} ${words.unit}${sizeText(size)}），提示词已原样展示给用户，等他确认。这次调用没有提交任何任务，也没有产生任何费用。用户可以直接修改提示词再点「确认生成」，届时系统按他确认的那一份原样提交。不要说已经在生成或已经生成好，也不要描述成品的样子；不要为同一件事再拟一次稿。`
 }
 
 /**
  * 出图模式下提交完给模型的那句话。这一轮不会因此收尾，模型接着往下做，所以措辞要让它
  * 明白「这一张已经在跑、已经计费」，别再为同一件事提交第二次。
  */
-function submittedText(words: MediaWords, count: number): string {
-  return `已按用户要求提交${words.verb}任务（${count} ${words.unit}），这次调用已经提交并计费，结果会显示在对话的产物卡片中。不要描述成品的样子，也不要为同一件事再提交一次；结果由系统在任务结束时告诉你。`
+function submittedText(words: MediaWords, count: number, size?: string): string {
+  return `已按用户要求提交${words.verb}任务（${count} ${words.unit}${sizeText(size)}），这次调用已经提交并计费，结果会显示在对话的产物卡片中。不要描述成品的样子，也不要为同一件事再提交一次；结果由系统在任务结束时告诉你。`
 }
 
 /**
+ * 确认门续跑时接在历史末尾的回执（见 `tool-gate.ts`）：拦下那一刻交给模型的那一句原样接回
+ * （版本数、尺寸都在里面），只在末尾补上用户确认的提示词——他可能在卡上改过。
+ * 没留原文的旧卡退回不带数量与尺寸的同一种说法。
+ */
+export function confirmedSubmissionText(
+  media: ChannelMedia,
+  prompt: string | undefined,
+  receipt?: string,
+): string {
+  const executed = prompt ? `执行提示词：${prompt}。` : ''
+  if (receipt) return `${receipt}${executed}`
+  const words = WORDS[media]
+  return `已按用户要求提交${words.verb}任务，这次调用已经提交并计费，结果会显示在对话的产物卡片中。${executed}不要描述成品的样子，也不要为同一件事再提交一次；结果由系统在任务结束时告诉你。`
+}
+
+/**
+ * 上游出事、运营配置的生图模型被暂停时优先换到的那一个：走 Vertex，和 sub2api 的账号池互不相干
+ * （2026-10-29 flare 事故）。没加载这个模型的部署照常落到第一个可用的。
+ */
+export const AGENT_IMAGE_FALLBACK_MODEL = 'gemini-nano-banana-2.1'
+
+/**
  * 该介质的模型。优先用这一轮里用户选的，解析不出来（模型下线、介质不符）就退回运营配置的，
- * 再没有就取内置 channel 里这一介质的第一个。用户选错模型不该让整轮失败。
+ * 再没有就取内置 channel 里这一介质的第一个。用户选错模型不该让整轮失败；运营配置的
+ * 那个被下线（channels.json `disabled`）也一样，照样落到第一个可用的。
+ *
+ * 「模型」页停用的（含上游无可用账号时的自动暂停）一律跳过：生图先换到
+ * {@link AGENT_IMAGE_FALLBACK_MODEL}，再没有才取第一个没停用的。全都停用时返回空，
+ * 工具按「暂时没有可用模型」处理，不再把任务交给一个注定被拒的模型。
  */
 export function resolveAgentModel(
   media: ChannelMedia,
   preferred?: string,
+  inactive: ReadonlySet<string> = knownInactiveModels(),
 ): QueueTarget | undefined {
-  if (preferred) {
-    const chosen = resolveQueueModel(media, preferred)
-    if (chosen) return chosen
-  }
+  const live = (id: string | undefined) =>
+    id && !inactive.has(id) ? resolveQueueModel(media, id) : undefined
   const configured = media === 'video' ? config.agent.videoModel : config.agent.imageModel
-  return resolveQueueModel(media, configured || undefined)
+  return (
+    live(preferred) ??
+    live(configured) ??
+    (media === 'image' ? live(AGENT_IMAGE_FALLBACK_MODEL) : undefined) ??
+    resolveQueueModel(media, undefined, inactive)
+  )
 }
 
 /** 一条跑完的队列任务落成的产物。同步等结果与后台任务结算走同一个算式。 */
@@ -135,6 +181,11 @@ export async function draftQueueTask(
   input: QueueTaskInput,
   signal: AbortSignal | undefined,
 ): Promise<AgentToolResult<AgentToolDetails>> {
+  if (context.experience === 'canvas')
+    throw new AgentToolError(
+      'invalid_params',
+      '画布生成必须属于目标节点。请先用 createNodes 或 updateNodes 准备节点，再用 runNodes 发起运行；结果将保留在该节点，不会创建无主图片。',
+    )
   const clarification =
     input.media === 'image'
       ? context.imageCombinations?.inspect(input.referenceIds ?? [], input.n ?? 1)
@@ -188,7 +239,10 @@ export async function draftQueueTask(
 
   if (signal?.aborted) throw new AgentToolError('cancelled', '这一轮被中止了')
   await context.assertExecution?.()
-  const count = input.media === 'image' ? agentImageCount(input) : 1
+  const asked = input.media === 'image' ? requestedImageCount(input.n, context.params?.n) : 1
+  const count = input.media === 'image' ? agentModelImageCount(target.model, asked) : 1
+  // 模型单笔上限收紧了张数（AGENT_MODEL_IMAGE_MAX_N）：回执照实说，智能体才不会对用户说出错的张数。
+  const capNote = count < asked ? `这个模型一次最多出 ${count} 张，已按 ${count} 张处理。` : ''
   // 计划随材料一起冻结：用户几分钟后才确认，那时这一轮的内存早已不在，唤醒轮要接的是提交那一刻的计划。
   const plan = context.maskedEditPlan?.carryAfter(submission)
   const bound = await bindProductionGeneration(context, input)
@@ -207,11 +261,14 @@ export async function draftQueueTask(
     prompt: input.prompt,
     device_id: context.deviceId,
     // 视频档位由 input.video 自己带，图片参数对它没有意义。
-    ...(input.media === 'image' ? queueParamsFor(target.provider, context.params) : {}),
+    ...(input.media === 'image'
+      ? queueParamsFor(target.provider, withAspectRatio(context.params, input.aspectRatio))
+      : {}),
     n: count,
     ...(inputImages?.length ? { input_images: [...inputImages] } : {}),
     ...(input.mask ? { mask: input.mask } : {}),
   }
+  const imageSize = input.media === 'image' ? (request.size ?? 'auto') : undefined
   const draftSubmission = {
     ...(bound
       ? {
@@ -244,7 +301,7 @@ export async function draftQueueTask(
       context.maskedEditPlan?.submitted(submission)
       if (input.media === 'image') context.imageCombinations?.submitted(input.referenceIds ?? [])
       return {
-        content: [{ type: 'text', text: submittedText(words, count) }],
+        content: [{ type: 'text', text: submittedText(words, count, imageSize) + capNote }],
         details: {
           executedPrompt: input.prompt,
           job: submitted.job,
@@ -254,6 +311,9 @@ export async function draftQueueTask(
     }
   }
 
+  // 确认门拦下的调用：材料照样存成待确认的稿，但给模型的回执与当场提交时逐字相同——智能体不知道
+  // 停过，这一轮在这次调用之后停住，用户确认后接着跑（见 `tool-gate.ts`）。
+  const held = !bound && context.gate?.holds(input.toolCallId ?? '') === true
   await saveGenerationDraft({
     conversationId: context.conversationId,
     turnId: context.turnId,
@@ -270,11 +330,14 @@ export async function draftQueueTask(
   // 草稿真的落下了才登记：同一轮里模型不能为同一件事拟第二次稿，确认与否由用户决定。
   context.maskedEditPlan?.submitted(submission)
   if (input.media === 'image') context.imageCombinations?.submitted(input.referenceIds ?? [])
+  const receipt =
+    (held ? submittedText(words, count, imageSize) : draftText(words, count, imageSize)) + capNote
   return {
-    content: [{ type: 'text', text: draftText(words, count) }],
+    content: [{ type: 'text', text: receipt }],
     details: {
       executedPrompt: input.prompt,
       awaitingConfirmation: true as const,
+      ...(held ? { gated: true as const, gateReceipt: receipt } : {}),
       ...(bound ? { productionDraftRevision: 1 } : {}),
       ...(input.videoRecord ? { video: input.videoRecord } : {}),
       ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),

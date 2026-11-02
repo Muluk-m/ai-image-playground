@@ -1,5 +1,6 @@
-/** 面板默认宽度，也是能拖到的最窄。 */
-export const PANEL_WIDTH = 340
+/** 桌面默认留出足够的对话和输入空间；拖拽仍可缩窄。 */
+export const PANEL_DEFAULT_WIDTH = 460
+export const PANEL_MIN_WIDTH = 340
 /** 最宽拖到视口的六成：再宽画布就没地方了。 */
 export const PANEL_MAX_WIDTH_RATIO = 0.6
 
@@ -7,8 +8,8 @@ export function clampPanelWidth(
   width: number,
   viewportWidth: number = globalThis.innerWidth || Number.POSITIVE_INFINITY,
 ): number {
-  const max = Math.max(PANEL_WIDTH, Math.floor(viewportWidth * PANEL_MAX_WIDTH_RATIO))
-  return Math.min(max, Math.max(PANEL_WIDTH, Math.round(width)))
+  const max = Math.max(PANEL_MIN_WIDTH, Math.floor(viewportWidth * PANEL_MAX_WIDTH_RATIO))
+  return Math.min(max, Math.max(PANEL_MIN_WIDTH, Math.round(width)))
 }
 
 export const PANEL_SURFACE = 'border border-border bg-sidebar'
@@ -27,9 +28,9 @@ export const USER_BUBBLE = `max-w-[86%] self-end rounded-xl bg-muted px-2.5 py-1
 
 export const REPLY = 'max-w-full text-xs leading-relaxed text-foreground'
 
-/** 回复下方的操作键：悬停或键盘聚焦时才出现；没有悬停的触屏上常驻。 */
+/** 回复下方的操作键尺寸与文字样式；显隐由回复容器的 hover/focus-within 控制。 */
 export const REPLY_ACTION =
-  'inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-label-sm text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100'
+  'inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-label-sm text-muted-foreground'
 
 /** 离开底部时浮在对话记录下沿的「有新消息」。 */
 export const JUMP_TO_LATEST =

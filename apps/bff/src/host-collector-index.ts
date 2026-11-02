@@ -1,4 +1,4 @@
-import { createAlertSender } from './ops/alert-sender'
+import { alertTargetsConfigured, createAlertSenderFromEnv } from './ops/alert-sender'
 import { createHostAlerting, createReporter, runCollector } from './ops/host-collector'
 import { createHostReader } from './ops/host-readings'
 
@@ -29,12 +29,19 @@ if (!bffUrl || !token) {
 // 同一台宿主机上的每套部署各跑一个采集容器、读到同一块盘。宿主机告警只该由其中一套发，
 // 其余的把 OPS_HOST_ALERTS 设成 false；它们自己的应用告警（队列、备份、心跳）不受影响。
 const hostAlertsEnabled = process.env.OPS_HOST_ALERTS?.trim().toLowerCase() !== 'false'
-const webhookUrl = hostAlertsEnabled ? process.env.OPS_ALERT_WEBHOOK_URL?.trim() : undefined
 const deployment = process.env.OPS_DEPLOYMENT_NAME?.trim() || 'deployment'
 
 const stop = runCollector({
   intervalMs,
-  onSample: createHostAlerting(createAlertSender({ webhookUrl, deployment })),
+  onSample: createHostAlerting(
+    hostAlertsEnabled
+      ? createAlertSenderFromEnv({
+          deployment,
+          onPartialFailure: (error) =>
+            say('warn', 'collector.alert_target_failed', { err: error.message }),
+        })
+      : async () => {},
+  ),
   read: createHostReader(paths),
   report: bffUrl && token ? createReporter(bffUrl, token) : async () => {},
 })
@@ -44,7 +51,7 @@ say('info', 'collector.started', {
   intervalMs,
   reporting: Boolean(bffUrl && token),
   // 只说配没配，地址本身等同于密钥，不进日志。
-  alerting: Boolean(webhookUrl),
+  alerting: hostAlertsEnabled && alertTargetsConfigured(),
 })
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {

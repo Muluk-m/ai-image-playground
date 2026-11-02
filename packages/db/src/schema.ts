@@ -10,6 +10,7 @@ import type {
   AgentContentBlock,
   AgentMessageRole,
   AgentMode,
+  AgentModelSettings,
   AgentQueuedMessageFailure,
   AgentQueuedMessageState,
   AgentToolCallSnapshot,
@@ -36,6 +37,7 @@ import type {
   ProjectDocument,
   ProjectReceipt,
   QueueProvider,
+  StageAuthorization,
   TaskErrorType,
   TaskKind,
   TaskStatus,
@@ -56,6 +58,7 @@ import {
   pgView,
   primaryKey,
   text,
+  unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
@@ -184,6 +187,126 @@ export const user_identities = pgTable(
   ],
 )
 
+export type DeviceAuthorizationStatus = 'pending' | 'approved' | 'denied' | 'consumed'
+
+/** Public OAuth clients allowed to start a device authorization (seeded by migration). */
+export const oauth_clients = pgTable('oauth_clients', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  created_at: epochMs('created_at').notNull(),
+})
+
+/** RFC 8628 device authorizations. Only hashes of the device and user codes are stored. */
+export const device_authorizations = pgTable(
+  'device_authorizations',
+  {
+    id: text('id').primaryKey(),
+    client_id: text('client_id')
+      .notNull()
+      .references(() => oauth_clients.id, { onDelete: 'cascade' }),
+    device_code_hash: text('device_code_hash').notNull(),
+    user_code_hash: text('user_code_hash').notNull(),
+    status: text('status').$type<DeviceAuthorizationStatus>().notNull().default('pending'),
+    scopes: text('scopes').notNull(),
+    user_id: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    expires_at: epochMs('expires_at').notNull(),
+    interval_seconds: integer('interval_seconds').notNull(),
+    last_polled_at: epochMs('last_polled_at'),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_device_authorizations_device_code_hash').on(t.device_code_hash),
+    uniqueIndex('idx_device_authorizations_user_code_hash').on(t.user_code_hash),
+    index('idx_device_authorizations_expires_at').on(t.expires_at),
+    check(
+      'device_authorizations_status_check',
+      sql`${t.status} IN ('pending', 'approved', 'denied', 'consumed')`,
+    ),
+  ],
+)
+
+/**
+ * One row per CLI connection (a token family). Refreshing rotates the hashes in place; the
+ * retired refresh hashes live in `cli_retired_refresh_tokens` so a replay revokes the row.
+ */
+export const cli_connections = pgTable(
+  'cli_connections',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    client_id: text('client_id')
+      .notNull()
+      .references(() => oauth_clients.id, { onDelete: 'cascade' }),
+    scopes: text('scopes').notNull(),
+    access_token_hash: text('access_token_hash').notNull(),
+    access_expires_at: epochMs('access_expires_at').notNull(),
+    refresh_token_hash: text('refresh_token_hash').notNull(),
+    refresh_expires_at: epochMs('refresh_expires_at').notNull(),
+    created_at: epochMs('created_at').notNull(),
+    last_used_at: epochMs('last_used_at'),
+    revoked_at: epochMs('revoked_at'),
+  },
+  (t) => [
+    uniqueIndex('idx_cli_connections_access_token_hash').on(t.access_token_hash),
+    uniqueIndex('idx_cli_connections_refresh_token_hash').on(t.refresh_token_hash),
+    index('idx_cli_connections_user_id').on(t.user_id),
+  ],
+)
+
+export const cli_retired_refresh_tokens = pgTable(
+  'cli_retired_refresh_tokens',
+  {
+    token_hash: text('token_hash').primaryKey(),
+    connection_id: text('connection_id')
+      .notNull()
+      .references(() => cli_connections.id, { onDelete: 'cascade' }),
+    retired_at: epochMs('retired_at').notNull(),
+  },
+  (t) => [index('idx_cli_retired_refresh_tokens_connection').on(t.connection_id)],
+)
+
+/** Queue tasks submitted through the CLI API, for source attribution and reliability metrics. */
+export const cli_jobs = pgTable(
+  'cli_jobs',
+  {
+    task_id: text('task_id')
+      .primaryKey()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    connection_id: text('connection_id').references(() => cli_connections.id, {
+      onDelete: 'set null',
+    }),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [index('idx_cli_jobs_user_created').on(t.user_id, t.created_at)],
+)
+
+/** Media uploaded through the CLI as reference input; listing reference media reads this table. */
+export const cli_reference_media = pgTable(
+  'cli_reference_media',
+  {
+    media_id: text('media_id')
+      .primaryKey()
+      .references(() => media_objects.id, { onDelete: 'cascade' }),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [index('idx_cli_reference_media_user_created').on(t.user_id, t.created_at)],
+)
+
+export const agent_model_settings = pgTable('agent_model_settings', {
+  id: text('id').primaryKey(),
+  revision: integer('revision').notNull(),
+  settings: bunJsonb('settings').$type<AgentModelSettings>().notNull(),
+  updated_at: epochMs('updated_at').notNull(),
+})
+
 export const operator_audits = pgTable(
   'operator_audits',
   {
@@ -199,6 +322,76 @@ export const operator_audits = pgTable(
     index('idx_operator_audits_target').on(t.target_type, t.target_id, t.created_at.desc()),
     index('idx_operator_audits_created_at').on(t.created_at.desc()),
   ],
+)
+
+/** 系统替运营下架模型的原因；运营手动下架不写原因。 */
+export type ModelPauseReason = 'upstream_unavailable'
+
+/**
+ * 运营停用的模型。没有行即上架：新接入的模型不用先登记一行才能用。
+ * 页面的模型列表、智能体可用的模型与提交前的拦截都只认这一张表；单价归收费模块，不在这里。
+ */
+export const model_availability = pgTable('model_availability', {
+  model: text('model').primaryKey(),
+  active: boolean('active').notNull(),
+  /** 有值即系统自动暂停（上游没有可用账号），等运营补上容量后手动恢复。 */
+  pause_reason: text('pause_reason').$type<ModelPauseReason>(),
+  paused_at: epochMs('paused_at'),
+  updated_at: epochMs('updated_at').notNull(),
+})
+
+/**
+ * 上游调度桶的状态。上限（每分钟张数、同时在途数）来自本环境配置，不存表；这一行是 worker 们抢额度时
+ * 加 FOR UPDATE 的锁点，另外记着遇到 429 后的冷却截止时间。没有行即从未用过，首次抢额度时补上。
+ */
+export const scheduler_buckets = pgTable('scheduler_buckets', {
+  key: text('key').primaryKey(),
+  cooldown_until: epochMs('cooldown_until'),
+  updated_at: epochMs('updated_at').notNull(),
+})
+
+/**
+ * 一次上游请求在一个桶上占的额度。同一请求可能同时占几个桶（每模型张数 + 同时在途数），
+ * 在同一事务里一起拿到。`released_at` 为空即仍在途；心跳停了的租约由下一次抢额度时回收。
+ * 按 `acquired_at` 落在最近一分钟内的行计算每分钟张数，所以释放后的行留到滑出窗口才删。
+ */
+export const scheduler_leases = pgTable(
+  'scheduler_leases',
+  {
+    attempt_id: text('attempt_id').notNull(),
+    bucket_key: text('bucket_key').notNull(),
+    images: integer('images').notNull(),
+    worker_id: text('worker_id').notNull(),
+    acquired_at: epochMs('acquired_at').notNull(),
+    heartbeat_at: epochMs('heartbeat_at').notNull(),
+    released_at: epochMs('released_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.attempt_id, t.bucket_key] }),
+    index('idx_scheduler_leases_bucket_acquired').on(t.bucket_key, t.acquired_at),
+  ],
+)
+
+/**
+ * OpenAI 直连每条请求的成本，按月累计做预算封顶（apps/bff/src/lib/upstream/gpt-budget.ts）。
+ * 上游回了 usage 按 token 折算；没回（中断、超时）按档位估算并标 `estimated`。
+ */
+export const gpt_direct_usage = pgTable(
+  'gpt_direct_usage',
+  {
+    id: text('id').primaryKey(),
+    task_id: text('task_id'),
+    model: text('model').notNull(),
+    size: text('size'),
+    quality: text('quality'),
+    images: integer('images').notNull(),
+    input_tokens: integer('input_tokens'),
+    output_tokens: integer('output_tokens'),
+    cost_micro_usd: bigint('cost_micro_usd', { mode: 'number' }).notNull(),
+    estimated: boolean('estimated').notNull(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [index('idx_gpt_direct_usage_created').on(t.created_at)],
 )
 
 export type InspirationKind = 'showcase' | 'template' | 'skill'
@@ -247,6 +440,8 @@ export const inspiration_items = pgTable(
     skill_name: text('skill_name'),
     source_url: text('source_url'),
     author: text('author'),
+    thumb_width: integer('thumb_width'),
+    thumb_height: integer('thumb_height'),
     sort: integer('sort').notNull().default(0),
     created_at: epochMs('created_at').notNull(),
     updated_at: epochMs('updated_at').notNull(),
@@ -424,6 +619,7 @@ export const canvas_projects = pgTable(
   (t) => [
     index('idx_canvas_projects_owner_id').on(t.user_id, t.id),
     uniqueIndex('idx_canvas_projects_conversation').on(t.conversation_id),
+    unique('canvas_projects_owner_id_key').on(t.user_id, t.id),
   ],
 )
 
@@ -507,6 +703,7 @@ export const agent_conversations = pgTable(
     index('idx_agent_conversations_device_time')
       .on(t.device_id, t.updated_at.desc())
       .where(sql`${t.device_id} IS NOT NULL`),
+    unique('agent_conversations_owner_id_key').on(t.user_id, t.id),
   ],
 )
 
@@ -532,6 +729,12 @@ export const agent_messages = pgTable(
     primaryKey({ columns: [t.conversation_id, t.id] }),
     uniqueIndex('idx_agent_messages_conversation_seq').on(t.conversation_id, t.seq),
     index('idx_agent_messages_turn').on(t.conversation_id, t.turn_id),
+    // 确认门还等着确认的卡（见 BFF `tool-gate-records.ts`）：发新消息时在会话锁里找它们。
+    index('idx_agent_messages_pending_gate')
+      .on(t.conversation_id)
+      .where(
+        sql`${t.deleted_at} IS NULL AND ${t.content} @> '[{"type":"toolResult","status":"awaiting_confirmation","gated":true}]'::jsonb`,
+      ),
     check('agent_messages_role_check', sql`${t.role} IN ('user', 'assistant')`),
   ],
 )
@@ -573,6 +776,8 @@ export interface AgentInboxUserMessagePayload {
   readonly canvas?: AgentCanvasSnapshot
   /** 发话时客户端看到的入口。项目文档记下入口之前，起轮按它判定，缺席才看有没有带画布。 */
   readonly experience?: 'chat' | 'canvas'
+  /** 发话时的模式（Agent 或画布），决定这一轮的工具；缺席按 Agent 模式。 */
+  readonly surface?: 'agent' | 'canvas'
 }
 
 /**
@@ -591,6 +796,11 @@ export interface AgentInboxTaskResultPayload {
     readonly eventVersion: 1
     readonly itemKeys: readonly string[]
   }
+  /** 一批阶段授权运行的回报（画布节点运行）；摘要从授权上的回报读，不在这里。 */
+  readonly stageRun?: {
+    readonly authorizationId: string
+    readonly eventVersion: 1
+  }
 }
 
 /**
@@ -606,9 +816,14 @@ export interface AgentInboxResumePayload {
    * 被打断的是一轮唤醒：它当时要处理的那一批（提交它们的轮与任务）。续跑照这一批接着处理，
    * 授权原文、改图计划与要复核的产物都沿用提交那一轮的，不把用户更早的请求重做一遍。
    */
-  readonly wake?: Pick<AgentInboxTaskResultPayload, 'turnId' | 'taskIds' | 'batch'>
+  readonly wake?: Pick<AgentInboxTaskResultPayload, 'turnId' | 'taskIds' | 'batch' | 'stageRun'>
   /** 被打断那一轮发话时的画布。续跑仍认它，不退回当时还没同步完的服务端文档。 */
   readonly canvas?: AgentCanvasSnapshot
+  /**
+   * 不是被打断，而是被确认门拦下（`interruptedTurnId` 即被拦下的那一轮）：用户把那一轮拦下的卡
+   * 都确认了，续跑接着那几次工具调用往下走，不给模型额外的说明（见 BFF `tool-gate.ts`）。
+   */
+  readonly gate?: true
 }
 
 export type AgentInboxPayload =
@@ -651,6 +866,10 @@ export const agent_inbox = pgTable(
     index('idx_agent_inbox_pending')
       .on(t.conversation_id, t.seq)
       .where(sql`${t.status} = 'pending'`),
+    // 唤醒与续跑按消费轮次往回追发起消息（见 `lib/agent/experience.ts`）。
+    index('idx_agent_inbox_consumed_turn')
+      .on(t.conversation_id, t.consumed_turn_id)
+      .where(sql`${t.status} = 'consumed'`),
     check(
       'agent_inbox_kind_check',
       sql`${t.kind} IN ('user_message', 'clarification_answer', 'task_result', 'system_event')`,
@@ -745,6 +964,7 @@ export const agent_generation_drafts = pgTable(
     model: text('model').notNull(),
     /** 拟好的提示词；确认时由用户改过的那一份覆盖，两份都要能看见提交的是哪一句。 */
     prompt: text('prompt').notNull(),
+    drafted_prompt: text('drafted_prompt'),
     /** 除提示词以外的整份请求，输入图与遮罩已归档成对象引用，绝不在库里留 base64。 */
     request: bunJsonb('request').$type<PersistedSubmitRequest>().notNull(),
     submission: bunJsonb('submission').$type<AgentDraftSubmission>().notNull(),
@@ -754,6 +974,9 @@ export const agent_generation_drafts = pgTable(
     confirmed_at: epochMs('confirmed_at'),
   },
   (t) => [
+    index('idx_agent_generation_drafts_created').on(t.created_at.desc(), t.id.desc()),
+    // Admin 按任务反查草稿、提示词列表排除已有草稿的任务都按 task_id 查；只有确认过的草稿才有它。
+    index('idx_agent_generation_drafts_task').on(t.task_id).where(sql`${t.task_id} IS NOT NULL`),
     uniqueIndex('idx_agent_generation_drafts_call').on(
       t.conversation_id,
       t.turn_id,
@@ -914,6 +1137,8 @@ export const tasks = pgTable(
     upstream_task_ids: bunJsonb('upstream_task_ids').$type<string[]>(),
     /** Anchor for the polling deadline, so a restart cannot grant a fresh timeout budget. */
     upstream_submitted_at: epochMs('upstream_submitted_at'),
+    /** GPT Image 这一单最后走的通道；会员高档参数落到 sub2api 时结算按基础档（task-transitions finishTask）。 */
+    gpt_route: text('gpt_route').$type<'direct' | 'sub2api'>(),
     execution_token: text('execution_token'),
     lease_expires_at: epochMs('lease_expires_at'),
     submitted_at: epochMs('submitted_at').notNull(),
@@ -924,6 +1149,13 @@ export const tasks = pgTable(
     attempt_count: integer('attempt_count').notNull().default(0),
     upstream_invocation_count: integer('upstream_invocation_count').notNull().default(0),
     next_retry_at: epochMs('next_retry_at'),
+    /**
+     * 进入结果确认的时刻。30 分钟告警和卡片上的「确认中」用它。
+     * 下次核对的时刻仍写在 next_retry_at，两者不能混用，否则退避会把告警时钟拨回去。
+     */
+    reconcile_started_at: epochMs('reconcile_started_at'),
+    /** 结果确认超过 30 分钟的告警已经发出的时刻。重启和多 worker 都靠它去重。 */
+    reconcile_alerted_at: epochMs('reconcile_alerted_at'),
     device_id: text('device_id').generatedAlwaysAs(sql`request_payload ->> 'device_id'`),
     /** 智能体工具提交的任务带上会话与轮；用户自己提交的任务两列都是 null。 */
     agent_conversation_id: text('agent_conversation_id'),
@@ -963,6 +1195,9 @@ export const tasks = pgTable(
     index('idx_tasks_user_status_time')
       .on(t.user_id, t.status, t.submitted_at.desc(), t.id.desc())
       .where(sql`${t.user_id} IS NOT NULL`),
+    index('idx_tasks_agent_submitted')
+      .on(t.submitted_at.desc(), t.id.desc())
+      .where(sql`${t.agent_conversation_id} IS NOT NULL`),
     index('idx_tasks_agent_turn')
       .on(t.agent_conversation_id, t.agent_turn_id)
       .where(sql`${t.agent_turn_id} IS NOT NULL`),
@@ -999,6 +1234,9 @@ const {
   archive_retry_started_at: _archiveRetryStartedAt,
   execution_token: _executionToken,
   lease_expires_at: _leaseExpiresAt,
+  reconcile_started_at: _reconcileStartedAt,
+  reconcile_alerted_at: _reconcileAlertedAt,
+  gpt_route: _gptRoute,
   ...queueTaskColumns
 } = getTableColumns(tasks)
 export const queue_tasks = pgView('queue_tasks').as((qb) =>
@@ -1140,7 +1378,11 @@ export const generation_commands = pgTable(
     task_id: text('task_id').notNull(),
     submitted_at: epochMs('submitted_at').notNull(),
   },
-  (t) => [primaryKey({ columns: [t.user_id, t.command_id] })],
+  (t) => [
+    primaryKey({ columns: [t.user_id, t.command_id] }),
+    // 连点防重：同账号、同请求内容、最近几秒。
+    index('idx_generation_commands_recent').on(t.user_id, t.request_hash, t.submitted_at),
+  ],
 )
 
 /**
@@ -1252,6 +1494,23 @@ export const client_errors = pgTable(
   ],
 )
 
+/** Success evidence is separate from error counts and may arrive before the failure beacon. */
+export const client_error_recoveries = pgTable(
+  'client_error_recoveries',
+  {
+    id: text('id').primaryKey(),
+    incident_id: text('incident_id').notNull(),
+    operation: text('operation').notNull(),
+    received_at: epochMs('received_at').notNull(),
+    device_id: text('device_id').notNull(),
+    user_id: text('user_id'),
+  },
+  (t) => [
+    index('idx_client_error_recoveries_incident').on(t.incident_id, t.device_id),
+    index('idx_client_error_recoveries_received').on(t.received_at),
+  ],
+)
+
 export const media_objects = pgTable(
   'media_objects',
   {
@@ -1321,6 +1580,8 @@ export const generation_images = pgTable(
     media_id: text('media_id')
       .notNull()
       .references(() => media_objects.id, { onDelete: 'restrict' }),
+    /** 单张产出软删（「我的作品」只删一张）。作品列表与详情按它过滤；原件不动。 */
+    deleted_at: epochMs('deleted_at'),
   },
   (t) => [
     primaryKey({ columns: [t.generation_id, t.role, t.position] }),
@@ -1581,5 +1842,41 @@ export const server_logs = pgTable(
       'server_logs_level_check',
       sql`${t.level} IN ('trace', 'debug', 'info', 'warn', 'error', 'fatal')`,
     ),
+  ],
+)
+
+/** Scope, activation and the append-only spend trail share one row lock. */
+export const agent_stage_authorizations = pgTable(
+  'agent_stage_authorizations',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    conversation_id: text('conversation_id')
+      .notNull()
+      .references(() => agent_conversations.id, { onDelete: 'cascade' }),
+    project_id: text('project_id')
+      .notNull()
+      .references(() => canvas_projects.id, { onDelete: 'cascade' }),
+    proposal_key: text('proposal_key').notNull(),
+    execution_token_hash: text('execution_token_hash'),
+    state: bunJsonb('state').$type<StageAuthorization>().notNull(),
+    created_at: epochMs('created_at').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_agent_stage_proposal').on(t.conversation_id, t.proposal_key),
+    index('idx_agent_stage_owner').on(t.user_id, t.conversation_id),
+    foreignKey({
+      columns: [t.user_id, t.conversation_id],
+      foreignColumns: [agent_conversations.user_id, agent_conversations.id],
+      name: 'agent_stage_authorizations_owner_conversation_fk',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.user_id, t.project_id],
+      foreignColumns: [canvas_projects.user_id, canvas_projects.id],
+      name: 'agent_stage_authorizations_owner_project_fk',
+    }).onDelete('cascade'),
   ],
 )

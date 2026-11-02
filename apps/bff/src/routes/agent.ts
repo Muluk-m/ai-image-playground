@@ -16,11 +16,14 @@ import type {
   AuthUserView,
 } from '@image-playground/shared'
 import {
+  AGENT_IMAGE_MAX_N,
   AGENT_QUEUE_MAX_PENDING,
+  AGENT_REGION_NOTE_MAX_CHARS,
   AGENT_TURN_MAX_INLINE_REFERENCES,
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
   DEVICE_ID_HEADER,
+  isAgentSurface,
   parseAgentCanvasSnapshot,
   SYNC_NAME_MAX_LENGTH,
 } from '@image-playground/shared'
@@ -43,6 +46,7 @@ import {
 } from '../lib/agent/confirmations'
 import {
   announceQueuedMessage,
+  pickUpGateContinuation,
   pickUpIdleConversation,
   promoteToInterjection,
   sendToConversationInbox,
@@ -80,6 +84,7 @@ import {
   reserveAgentSubmissionCancellation,
 } from '../lib/agent/inbox'
 import { withAgentLifecycle } from '../lib/agent/lifecycle'
+import { MASK_PROMPT_POINTS_MAX, refineEditRegion } from '../lib/agent/mask-proposal'
 import {
   advanceAgentRetryQueueSafely,
   cancelAgentRetry,
@@ -87,6 +92,8 @@ import {
 } from '../lib/agent/retry'
 import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { markAgentSaveCardSaved } from '../lib/agent/saves'
+import { segmentRateLimiter } from '../lib/agent/segment-rate-limit'
+import { segmenterStatus } from '../lib/agent/segmentation'
 import {
   InvalidSelectionError,
   selectionPreview,
@@ -217,8 +224,16 @@ const paramsSchema = t.Optional(
     ),
     thinkingDepth: t.Optional(t.Union([t.Literal('fast'), t.Literal('medium'), t.Literal('deep')])),
     model: t.Optional(t.String({ maxLength: 128 })),
-    /** 出图模式：只认显式 true，缺席即对话模式（拟稿等确认）。 */
-    autoSubmit: t.Optional(t.Literal(true)),
+    /** 原标签页工作台的出图模型。只用于阶段授权报价，不改变对话模型。 */
+    canvasImageModel: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+    /** 原标签页工作台的出图张数。只用于阶段授权报价，不改变对话生图张数。 */
+    canvasImageCount: t.Optional(t.Integer({ minimum: 1, maximum: AGENT_IMAGE_MAX_N })),
+    /**
+     * 直接出图偏好。对话生图只认 true。画布 runNodes 缺席按默认开，只有 false 弹确认卡。
+     */
+    autoSubmit: t.Optional(t.Boolean()),
+    /** 图片生成：原话出图，不改写。只认显式 true。 */
+    directImage: t.Optional(t.Literal(true)),
     size: t.Optional(t.String({ maxLength: 32 })),
     quality: t.Optional(t.String({ maxLength: 16 })),
     output_format: t.Optional(t.String({ maxLength: 16 })),
@@ -226,6 +241,7 @@ const paramsSchema = t.Optional(
     gemini_aspect_ratio: t.Optional(t.String({ maxLength: 16 })),
     gemini_image_size: t.Optional(t.String({ maxLength: 16 })),
     gemini_thinking_level: t.Optional(t.String({ maxLength: 16 })),
+    n: t.Optional(t.Integer({ minimum: 1, maximum: AGENT_IMAGE_MAX_N })),
   }),
 )
 
@@ -255,6 +271,13 @@ const referencesSchema = t.Optional(
             y: t.Number({ minimum: 0, maximum: 1 }),
             width: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
             height: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
+            note: t.Optional(t.String({ minLength: 1, maxLength: AGENT_REGION_NOTE_MAX_CHARS })),
+            arrow: t.Optional(
+              t.Object({
+                x: t.Number({ minimum: 0, maximum: 1 }),
+                y: t.Number({ minimum: 0, maximum: 1 }),
+              }),
+            ),
           }),
           { maxItems: 32 },
         ),
@@ -429,6 +452,67 @@ export const agentRoutes = new Elysia()
       return snapshot
     },
     { params: t.Object({ id: t.String() }), headers: deviceIdHeaderSchema() },
+  )
+  // 自建分割服务的状态（部署后核对用）；`?probe=1` 再量一次真实往返，至多每 30 秒一次。
+  .get(
+    '/api/agent/edit-region/segmenter',
+    async ({ query, set }) => {
+      set.headers['cache-control'] = 'no-store'
+      return segmenterStatus(query.probe === '1')
+    },
+    { query: t.Object({ probe: t.Optional(t.String({ maxLength: 1 })) }) },
+  )
+  // 范围确认卡上点一下（包含 / 排除）：在提议的区域上重新分割，回一张编辑格式的 PNG 蒙版。
+  // 只给登录用户：原图按会话认领读，提议必须是这个会话里的那一张。
+  .post(
+    '/api/agent/conversations/:id/edit-region/:proposalId/segment',
+    async ({ params, body, authUser, status, request, set }) => {
+      if (!authUser) return status(404, NOT_FOUND)
+      const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
+      if (!conversation) return status(404, NOT_FOUND)
+      // 分割服务由各部署共用、单并发：每个用户限次数，且同时只跑一个。
+      const release = segmentRateLimiter.begin(authUser.id)
+      if (!release) return status(429, { error: 'segmentation_rate_limited' })
+      let result: Awaited<ReturnType<typeof refineEditRegion>>
+      try {
+        result = await refineEditRegion({
+          conversationId: conversation.id,
+          userId: authUser.id,
+          proposalId: params.proposalId,
+          ...(body.region === undefined ? {} : { region: body.region }),
+          ...(body.area ? { area: body.area } : {}),
+          points: body.points,
+          signal: request.signal,
+        })
+      } finally {
+        release()
+      }
+      if (result.kind === 'not_found') return status(404, NOT_FOUND)
+      if (result.kind === 'unavailable') return status(503, { error: 'segmentation_unavailable' })
+      if (result.kind === 'failed') return status(502, { error: 'segmentation_failed' })
+      set.headers['cache-control'] = 'no-store'
+      return {
+        mask: `data:image/png;base64,${result.mask.toString('base64')}`,
+        provider: result.provider,
+        elapsedMs: result.elapsedMs,
+      }
+    },
+    {
+      params: t.Object({ id: t.String(), proposalId: t.String({ maxLength: 64 }) }),
+      body: t.Object({
+        deviceId: deviceIdSchema(),
+        region: t.Optional(t.Integer({ minimum: 1, maximum: 99 })),
+        area: t.Optional(t.Literal('added')),
+        points: t.Array(
+          t.Object({
+            x: t.Number({ minimum: 0, maximum: 1 }),
+            y: t.Number({ minimum: 0, maximum: 1 }),
+            include: t.Boolean(),
+          }),
+          { minItems: 1, maxItems: MASK_PROMPT_POINTS_MAX },
+        ),
+      }),
+    },
   )
   .get(
     '/api/agent/conversations/:id/follow-ups/:turnId',
@@ -645,7 +729,12 @@ export const agentRoutes = new Elysia()
         }
         return status(409, refused)
       }
-      const response: AgentConfirmationResponse = { message: outcome.message }
+      // 确认门拦下的那一轮排上了续跑：这里就去开轮，界面拿到 `continued` 后跟进那一轮的流。
+      if ('continued' in outcome && outcome.continued) pickUpGateContinuation(conversation.id)
+      const response: AgentConfirmationResponse = {
+        message: outcome.message,
+        ...('continued' in outcome && outcome.continued ? { continued: true as const } : {}),
+      }
       return response
     },
     {
@@ -768,6 +857,7 @@ export const agentRoutes = new Elysia()
             ...(body.experience === 'chat' || body.experience === 'canvas'
               ? { experience: body.experience }
               : {}),
+            ...(isAgentSurface(body.surface) ? { surface: body.surface } : {}),
           })
         } catch (error) {
           if (error instanceof MediaError) return status(error.status, { error: error.message })
@@ -803,6 +893,8 @@ export const agentRoutes = new Elysia()
         canvas: t.Optional(t.Any()),
         /** 发话时客户端看到的入口；只在项目还没记下入口时参考，不认识的值当没带。 */
         experience: t.Optional(t.Any()),
+        /** 这一轮的模式：agent（只生图改图）或 canvas（画布节点）。不认识的值当没带，按 agent 算。 */
+        surface: t.Optional(t.Any()),
       }),
     },
   )
@@ -944,10 +1036,12 @@ export const agentRoutes = new Elysia()
           resolveAgentMode(query.mode ?? 'image'),
           authUser?.id ?? null,
           resolveAgentModel('image')?.model,
+          // 画布技能只进画布视图的 `/` 菜单；不带 surface 的旧客户端按 Agent 模式。
+          query.surface === 'canvas' ? 'canvas' : 'chat',
         ),
       }
     },
-    { query: t.Object({ mode: modeSchema }) },
+    { query: t.Object({ mode: modeSchema, surface: t.Optional(t.String()) }) },
   )
   .get(
     // 预置模板的封面与参考图。图片随技能目录发布，所以取法也跟着技能走：认技能名与文件名，
@@ -1089,7 +1183,11 @@ export const agentRoutes = new Elysia()
       if (forwarded) return forwarded
       const stopped = await stopConversationTurn(conversation.id, params.turnId)
       if (stopped.kind === 'no_such_turn') return status(404, TURN_NOT_FOUND)
-      const aborted: AgentTurnAbortedBody = { aborted: true, returned: stopped.returned }
+      const aborted: AgentTurnAbortedBody = {
+        aborted: true,
+        returned: stopped.returned,
+        ...(stopped.cancelledTaskIds ? { cancelledTaskIds: stopped.cancelledTaskIds } : {}),
+      }
       return aborted
     },
     { params: turnParams, body: turnBody },

@@ -53,6 +53,10 @@ export interface StoredImageRef {
  * - `content_policy`: 上游内容安全判定拒绝了这次请求（OpenAI safety system、Grok 网关内容
  *   策略、Gemini 的 blockReason/SAFETY 类 finishReason）。它与 `upstream_error` 的区别是
  *   出路：原样重试稳定复现，只有改提示词才有意义。
+ * - `model_unavailable`: 上游表示这个模型当前没有可用的账号或渠道（如 Grok 账号池耗尽），
+ *   换模型才有出路
+ * - `rate_limited`: 上游 429 限流，请求内退避和回落模型都用完仍未成功。只用于统计和告警，
+ *   用户看到的仍是通用的上游失败文案（不加限流或排队提示）
  * - `upstream_no_image`: 上游 HTTP 200 但解析不出图，且不是内容安全拒绝
  * - `interrupted`: BFF 重启时被打断（startup recovery 标记）
  * - `object_storage_error`: object storage read/write failed, or archiving could not fetch the
@@ -64,6 +68,8 @@ export type TaskErrorType =
   | 'upstream_result_unknown'
   | 'upstream_error'
   | 'content_policy'
+  | 'model_unavailable'
+  | 'rate_limited'
   | 'upstream_no_image'
   | 'interrupted'
   | 'object_storage_error'
@@ -71,6 +77,11 @@ export type TaskErrorType =
 
 /** 一次提交最多带几张参考图。前端的附件上限与 BFF 的请求校验共用这一个数。 */
 export const QUEUE_MAX_INPUT_IMAGES = 16
+
+/** 去掉空白、控制符和零宽/方向符后什么都不剩的提示词，算没写。 */
+export function isBlankPrompt(prompt: string): boolean {
+  return prompt.replace(/[\s\p{Cc}\p{Cf}]/gu, '').length === 0
+}
 
 /** 提示词最长多少字符（OpenAI 图像接口的上限），超了 BFF 直接 400。 */
 export const QUEUE_PROMPT_MAX_CHARS = 32_000
@@ -137,6 +148,11 @@ export type PersistedSubmitRequest = Omit<SubmitRequest, 'input_images' | 'mask'
   /** 服务端按请求里有没有选区单方面设置；不接受模型或客户端决定是否保护选区外像素。 */
   preserve_outside_mask?: true
   masked_original_size?: { width: number; height: number }
+  /**
+   * 选区只占大图一小块时，送上游的是围着选区截下的这一块（原图坐标）；落库的仍是整张原图与
+   * 选区，交付时把生成结果贴回这个位置再合成。没有这一项就是整图送上游。
+   */
+  masked_crop?: { left: number; top: number; width: number; height: number }
   input_images?: StoredImageRef[]
   mask?: StoredImageRef
   video?: PersistedVideoRequest
@@ -157,6 +173,8 @@ export interface StatusResultMeta {
   images: ResultImageMeta[]
   actual_params?: { size?: string; quality?: string; output_format?: string }
   raw_image_urls?: string[]
+  /** 同 {@link ResultResponse.partial_failure} */
+  partial_failure?: PartialImageFailure
 }
 
 export interface StatusResponse {
@@ -211,6 +229,21 @@ export interface ResultResponse {
   /** OpenAI 的 response_format=url 时上游直接给的 http URL 列表 */
   raw_image_urls?: string[]
   error?: { message: string; type: TaskErrorType }
+  /** 一单多张里有几张没出来：任务照样 completed，`images` 是交付的那几张。 */
+  partial_failure?: PartialImageFailure
+}
+
+/**
+ * 一单多张、部分出图时记在结果里的缺口。已出的图照常交付，只按交付张数结算，没出的退回；
+ * 整单不因为其中几张失败而失败。落在 `tasks.result_payload.partial_failure`，结果接口原样带出。
+ */
+export interface PartialImageFailure {
+  /** 这一单要的张数 */
+  requested: number
+  /** 没出来的张数 */
+  failed: number
+  /** 没出来那几张的失败分类（取第一条），界面按它出文案 */
+  type: TaskErrorType
 }
 
 /**
@@ -263,6 +296,10 @@ export const QUEUE_TIMEOUTS = {
    * 前提是单 worker 进程；要跑多副本得改成 row lease（locked_by + heartbeat_at）。
    */
   STALE_IN_PROGRESS_MS: 16 * 60 * 1000,
+  /** 进入结果确认后，隔这么久再向上游核对一次。 */
+  AUTO_RECONCILE_AFTER_MS: 5 * 60 * 1000,
+  /** 结果确认超过这么久仍未结束，通知运维，卡片改口说可以先重新生成。 */
+  RECONCILE_ALERT_AFTER_MS: 30 * 60 * 1000,
   /** worker 扫描无主 in_progress 的间隔。 */
   STALE_SCAN_INTERVAL_MS: 5 * 60 * 1000,
   /** 后台清理过期任务的轮询间隔。 */

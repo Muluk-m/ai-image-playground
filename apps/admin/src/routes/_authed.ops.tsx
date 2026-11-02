@@ -36,8 +36,8 @@ function OpsPage() {
       crumbs={[{ label: '运维看板' }]}
       description={
         query.data
-          ? `这套部署现在有没有出事 · 快照取于 ${new Date(query.data.generated_at).toLocaleTimeString('zh-CN', { hour12: false })}，每 30 秒刷新`
-          : '这套部署现在有没有出事'
+          ? `服务健康、容器状态与宿主机指标 · 快照取于 ${new Date(query.data.generated_at).toLocaleTimeString('zh-CN', { hour12: false })}，每 30 秒刷新`
+          : '服务健康、容器状态与宿主机指标'
       }
       actions={
         <SegmentedControl

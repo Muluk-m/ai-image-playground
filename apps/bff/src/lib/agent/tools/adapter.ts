@@ -84,7 +84,7 @@ export function defineAgentTool<P extends TSchema>(
     declaration,
     ...(definition.available ? { available: definition.available } : {}),
     // 起跑这一刻按静态 schema 宽松换算就够：`currentParameters()` 只改说明，不改形状。
-    call: (args, mode) => definition.call(leniently(definition.parameters, args), mode),
+    call: (args, mode, turn) => definition.call(leniently(definition.parameters, args), mode, turn),
     ...(definition.target
       ? {
           snapshot: (args: unknown, mode: AgentMode, params: AgentTurnParams | undefined) => {
@@ -137,7 +137,7 @@ export function agentToolStage(partialResult: unknown): AgentToolStage | undefin
 }
 
 /** pi 把工具抛出的错误写成结果的文字块。 */
-function toolErrorText(result: unknown): string {
+export function toolErrorText(result: unknown): string {
   return agentTextFromBlocks(piToolResult(result).content ?? []) || '工具执行失败'
 }
 
@@ -184,6 +184,8 @@ export function toolResultBlock(
       ...(details.executedPrompt ? { prompt: details.executedPrompt } : {}),
       title: start.title,
       ...(details.anchorObjectId ? { anchorObjectId: details.anchorObjectId } : {}),
+      ...(details.gated ? { gated: true as const } : {}),
+      ...(details.gateReceipt ? { gateReceipt: details.gateReceipt } : {}),
     }
   }
   if (details?.job) {
@@ -201,6 +203,7 @@ export function toolResultBlock(
     ...head,
     status: 'succeeded',
     ...(details?.batchId ? { batchId: details.batchId } : {}),
+    ...(details?.batchItemKeys?.length ? { batchItemKeys: details.batchItemKeys } : {}),
     ...(details?.analysisLimit ? { analysisLimit: details.analysisLimit } : {}),
     ...(details?.executedPrompt ? { prompt: details.executedPrompt } : {}),
     title: start.title,

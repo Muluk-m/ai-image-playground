@@ -470,6 +470,104 @@
       "when": 1790853000019,
       "tag": "0067_account_profile",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1790853000020,
+      "tag": "0068_client_error_recoveries",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1790853000021,
+      "tag": "0069_agent_model_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1792212583628,
+      "tag": "0070_agent_draft_drafted_prompt",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1792232000000,
+      "tag": "0071_agent_draft_task_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1792300000000,
+      "tag": "0072_inspiration_thumb_dimensions",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1792400000000,
+      "tag": "0073_reconcile_schedule",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1792500000000,
+      "tag": "0074_agent_stage_authorizations",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1792600000000,
+      "tag": "0075_agent_inbox_consumed_turn",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1792700000000,
+      "tag": "0076_agent_messages_pending_gate",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1792800000000,
+      "tag": "0077_model_availability",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1792900000000,
+      "tag": "0078_generation_commands_recent",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1793300000000,
+      "tag": "0082_upstream_scheduler",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1793400000000,
+      "tag": "0083_cli_device_oauth",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1793500000000,
+      "tag": "0084_generation_images_soft_delete",
+      "breakpoints": true
     }
   ]
 }

@@ -90,3 +90,18 @@ describe('the naming dialog', () => {
     expect(onSave).not.toHaveBeenCalled()
   })
 })
+
+it('names the dialog, focuses the input, and keeps the save button associated with the form', () => {
+  const save = vi.fn()
+  renderDialog(save, '白底图')
+  const dialog = document.querySelector('[role="dialog"]')!
+  const title = document.getElementById(dialog.getAttribute('aria-labelledby') ?? '')
+  expect(title?.textContent).toBe('存为素材')
+  expect(document.activeElement).toBe(input())
+  const button = [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(
+    (one) => one.textContent === '保存',
+  )!
+  expect(button.form).toBe(document.querySelector('form'))
+  act(() => button.click())
+  expect(save).toHaveBeenCalledWith('白底图')
+})

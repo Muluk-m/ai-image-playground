@@ -56,6 +56,13 @@ export type ProjectSyncStatus =
   | 'quota-error'
   | 'format-error'
 
+/** 画布同步状态。`upload` 只有节点画布在把本机图片收成云媒体时才带：这一批已传完几张、共几张。 */
+export interface ProjectSyncSnapshot {
+  status: ProjectSyncStatus
+  message: SyncMessage | null
+  upload?: { done: number; total: number }
+}
+
 type SyncMessage =
   | 'errors:projectSync.project_deleted'
   | 'errors:projectSync.recovery_changed'
@@ -64,6 +71,7 @@ type SyncMessage =
   | 'errors:projectSync.unauthorized'
   | 'errors:projectSync.project_not_found'
   | 'errors:projectSync.project_document_too_large'
+  | 'errors:projectSync.project_quota_exceeded'
   | 'errors:projectSync.invalid_project_document'
   | 'errors:projectSync.project_conflict'
   | 'errors:projectSync.media_local'
@@ -81,6 +89,8 @@ function classifyFailure(error: unknown): { status: ProjectSyncStatus; message: 
   if (status === 401) return { status: 'auth-error', message: 'errors:projectSync.unauthorized' }
   if (status === 403 || status === 404)
     return { status: 'permission-error', message: 'errors:projectSync.project_not_found' }
+  if (error instanceof ProjectRequestError && error.code === 'project_quota_exceeded')
+    return { status: 'quota-error', message: 'errors:projectSync.project_quota_exceeded' }
   if (status === 413 || status === 507)
     return { status: 'quota-error', message: 'errors:projectSync.project_document_too_large' }
   if (error instanceof ProjectRequestError && status === 409)
@@ -141,7 +151,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
   private queue: Promise<unknown> = Promise.resolve()
   private readonly sameAccount = accountScope()
   private readonly controller = new AbortController()
-  private state: { status: ProjectSyncStatus; message: SyncMessage | null } = {
+  private state: ProjectSyncSnapshot = {
     status: 'loading',
     message: null,
   }

@@ -1,4 +1,5 @@
 import { calculateFitSize, loadImage } from './canvasImage'
+import { mediaIdentity } from './cloudMedia'
 import { getDataUrlDecodedByteSize } from './imageApiShared'
 
 const MAX_EDGE = 2048
@@ -38,6 +39,8 @@ function hasAlphaPixels(ctx: CanvasRenderingContext2D, width: number, height: nu
 
 /** 压缩失败一律回退原图，不因此拦掉一次提交。 */
 async function compressOne(dataUrl: string): Promise<string> {
+  // 按云媒体身份提交的图由服务端压缩。
+  if (mediaIdentity(dataUrl)) return dataUrl
   const originalBytes = getDataUrlDecodedByteSize(dataUrl)
   const foreign = !UPSTREAM_MIME.test(dataUrl) || !hasMatchingImageSignature(dataUrl)
   if (originalBytes <= PASSTHROUGH_BYTES && !foreign) return dataUrl

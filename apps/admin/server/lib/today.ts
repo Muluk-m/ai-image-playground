@@ -1,3 +1,4 @@
+import { CLIENT_ERROR_RECOVERY_OPERATIONS } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
 import {
   type ErrorRecoveryState,
@@ -151,6 +152,11 @@ function logText(fields: unknown, key: string): string | null {
 function logReason(fields: unknown): string | null {
   if (!fields || typeof fields !== 'object') return null
   const value = fields as Record<string, unknown>
+  if (value.operation === 'project.catalog' && Array.isArray(value.causes)) {
+    const cause = value.causes.at(-1)
+    const message = logText(cause, 'message')
+    if (message) return [logText(cause, 'name'), message].filter(Boolean).join(': ')
+  }
   return (
     logText(fields, 'reason') ??
     logText(fields, 'err') ??
@@ -167,28 +173,43 @@ export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResul
   const rows = (await getDbHandle().db.execute(sql`
     WITH ${tunnelRecoveryEvents(scanFrom, now)}, errors AS (
       SELECT 'server' AS source, id, at, service, instance, event, message, task_id, request_id, group_key AS "group",
-        COALESCE(fields->>'stack', fields->'err'->>'stack') AS stack, fields
+        COALESCE(fields->>'stack', fields->'err'->>'stack') AS stack, fields, NULL::text AS device_id, NULL::text AS user_id
       FROM server_logs
       WHERE at >= ${scanFrom} AND at <= ${new Date(now)}
         AND ${effectiveLogLevel} IN ('error', 'fatal')
       UNION ALL
       SELECT 'client' AS source, id, received_at AS at, '前端' AS service, NULL::text AS instance, NULL::text AS event,
         CASE WHEN name IS NULL THEN message ELSE name || ': ' || message END AS message,
-        NULL::text AS task_id, NULL::text AS request_id, fingerprint AS "group", stack, '{}'::jsonb AS fields
+        NULL::text AS task_id, NULL::text AS request_id, fingerprint AS "group", stack, COALESCE(context, '{}'::jsonb) AS fields, device_id, user_id
       FROM client_errors
       WHERE received_at >= ${scanFrom} AND received_at <= ${new Date(now)}
     ), classified AS (
       SELECT errors.*,
-        CASE WHEN reconnected.at IS NOT NULL OR task.status = 'completed' THEN 'recovered'
+        CASE WHEN client_recovered.at IS NOT NULL OR reconnected.at IS NOT NULL OR task.status = 'completed' THEN 'recovered'
           WHEN task.status = 'failed' THEN 'unresolved' ELSE 'unknown' END AS recovery_state,
-        CASE WHEN reconnected.at IS NOT NULL THEN '同一隧道连接已重新注册成功'
+        CASE WHEN client_recovered.at IS NOT NULL THEN '同一页面、账号的同一操作重试已成功（浏览器上报）'
+          WHEN reconnected.at IS NOT NULL THEN '同一隧道连接已重新注册成功'
           WHEN task.status = 'completed' THEN '关联任务已完成'
           WHEN task.status = 'failed' THEN '关联任务仍为失败状态'
           WHEN errors.service = 'cloudflared' THEN '尚无可准确关联的重连成功记录'
+          WHEN errors.source = 'client' AND errors.fields->>'incidentId' IS NULL THEN '此条前端错误未记录恢复标识，无法自动确认'
           ELSE '暂无可关联的恢复证据' END AS recovery_reason,
-        COALESCE(reconnected.at, CASE WHEN task.status = 'completed' THEN task.completed_at END) AS recovered_at
+        COALESCE(CASE WHEN client_recovered.at IS NOT NULL THEN GREATEST(client_recovered.at, errors.at) END, reconnected.at, CASE WHEN task.status = 'completed' THEN task.completed_at END) AS recovered_at
       FROM errors
       ${errorRecoveryJoins(now)}
+      LEFT JOIN LATERAL (
+        SELECT MIN(recovery.received_at) AS at FROM client_error_recoveries recovery
+        WHERE errors.source = 'client'
+          AND recovery.incident_id = errors.fields->>'incidentId'
+          AND recovery.operation IN (${sql.join(
+            CLIENT_ERROR_RECOVERY_OPERATIONS.map((operation) => sql`${operation}`),
+            sql`, `,
+          )})
+          AND errors.fields->>'operation' = recovery.operation
+          AND recovery.device_id = errors.device_id
+          AND recovery.user_id IS NOT DISTINCT FROM errors.user_id
+          AND recovery.received_at <= ${new Date(now)}
+      ) client_recovered ON true
     ), ranked AS (
       SELECT *, COUNT(*) FILTER (WHERE at >= ${new Date(window.from)}) OVER() AS total,
         COUNT(*) FILTER (WHERE at >= ${new Date(recentWindow.from)}) OVER() AS recent_total,
@@ -280,6 +301,12 @@ export async function getGenerationTasks(
     conditions.push(sql`t.user_id IS NULL AND t.device_id = ${filters.deviceId}`)
   if (filters.unassigned) conditions.push(sql`t.user_id IS NULL AND t.device_id IS NULL`)
   if (filters.status) conditions.push(sql`t.status = ${filters.status}`)
+  if (filters.source)
+    conditions.push(
+      filters.source === 'chat'
+        ? sql`t.agent_conversation_id IS NOT NULL`
+        : sql`t.agent_conversation_id IS NULL`,
+    )
   if (filters.model) conditions.push(sql`t.model = ${filters.model}`)
   if (cursor) {
     const separator = cursor.indexOf('_')
@@ -305,7 +332,7 @@ export async function getGenerationTasks(
           WITH ORDINALITY AS texts(part, position)
         WHERE jsonb_typeof(part) = 'string' AND part #>> '{}' <> ''
       ), '') AS prompt,
-      t.user_id, t.device_id, u.username
+      t.user_id, t.device_id, t.agent_conversation_id, u.username
     FROM queue_tasks t LEFT JOIN users u ON u.id = t.user_id
     WHERE ${sql.join(conditions, sql` AND `)}
     ORDER BY t.submitted_at DESC, t.id DESC LIMIT ${PAGE_SIZE + 1}

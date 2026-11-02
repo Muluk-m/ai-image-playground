@@ -2,14 +2,18 @@ import type { PersistedVideoRequest, StoredImageRef, VideoRequest } from '@image
 import {
   QUEUE_MAX_INPUT_IMAGES,
   QUEUE_PROMPT_MAX_CHARS,
+  stageAuthorizedVideoDuration,
+  videoModelSupportOf,
   videoPromptRejection,
   videoRequestRejection,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
-import { resolveModelMedia } from '../lib/channels'
+import { StageAuthorizationError } from '../lib/agent/stage-authorizations'
+import { isModelDisabled, resolveModelMedia } from '../lib/channels'
 import { resolveImageBytesRef } from '../lib/extractImages'
 import { deviceIdSchema, validationMessage } from '../lib/http'
+import { MEDIA_INPUT_PATTERN, MediaInputError, resolveMediaInputs } from '../lib/mediaInputs'
 import { reservationFailureResponse } from '../lib/private-overlay'
 import { asQueueProvider } from '../lib/queueProvider'
 import { taskAccessWhere } from '../lib/task-access'
@@ -22,6 +26,14 @@ const DATA_URL_PATTERN = '^data:[^;,]+;base64,'
 const submitBodySchema = t.Object({
   prompt: t.String({ minLength: 1, maxLength: QUEUE_PROMPT_MAX_CHARS }),
   output_retention: t.Optional(t.Literal('candidate')),
+  stage_authorization: t.Optional(
+    t.Object({
+      authorizationId: t.String({ minLength: 1, maxLength: 128 }),
+      nodeId: t.String({ minLength: 1, maxLength: 128 }),
+      attemptId: t.String({ minLength: 1, maxLength: 128 }),
+      executionToken: t.String({ minLength: 1, maxLength: 128 }),
+    }),
+  ),
   size: t.Optional(t.String()),
   quality: t.Optional(t.String()),
   output_format: t.Optional(t.String()),
@@ -33,8 +45,11 @@ const submitBodySchema = t.Object({
   n: t.Optional(t.Number({ minimum: 1, maximum: 16, multipleOf: 1 })),
   // 单张不按前端的 10MB 卡：画布上的大图拿去再编辑时本来就可能超过它。MIME 不限 image/*：
   // 空类型的 Blob 会编成 octet-stream，真实格式由归档时嗅探字节决定。
+  // 已在云媒体里的图按身份给（`aip-media:<id>`），服务端自己读字节，浏览器不必下载再上传一遍。
   input_images: t.Optional(
-    t.Array(t.String({ pattern: DATA_URL_PATTERN }), { maxItems: QUEUE_MAX_INPUT_IMAGES }),
+    t.Array(t.String({ pattern: `${DATA_URL_PATTERN}|${MEDIA_INPUT_PATTERN}` }), {
+      maxItems: QUEUE_MAX_INPUT_IMAGES,
+    }),
   ),
   mask: t.Optional(t.String({ pattern: DATA_URL_PATTERN })),
   /** 档位合法性由 shared 的 videoRequestRejection 兜底，这里只做形状白名单。 */
@@ -106,6 +121,10 @@ export const submitRoutes = new Elysia()
   .use(requireUser)
   // Elysia 默认对 body schema 校验失败返 422；规范要求 400，统一在路由作用域拦截。
   .onError({ as: 'scoped' }, ({ code, error, set }) => {
+    if (error instanceof StageAuthorizationError) {
+      set.status = error.status
+      return { error: error.code }
+    }
     if (code === 'VALIDATION') {
       set.status = 400
       return { error: 'invalid_request', message: validationMessage(error) }
@@ -113,14 +132,31 @@ export const submitRoutes = new Elysia()
   })
   .post(
     '/v1/queue/:provider/:model/submit',
-    async ({ params, body, status, authUser }) => {
+    async ({ params, body, status, authUser, request }) => {
       const { provider, model } = params
       const queueProvider = asQueueProvider(provider)
       if (!queueProvider) {
         return status(400, { error: `unsupported provider: ${provider}` })
       }
+      // 运营下线的模型（channels.json `disabled`）不收新任务：它不在 channel 里，放过去会
+      // 落进通用网关兜底，拼出一条打不到原上游的请求。
+      if (isModelDisabled(model)) {
+        return status(400, { error: 'model_unavailable', message: '该模型已下线，请换一个模型' })
+      }
 
-      const video = body.video as VideoRequest | undefined
+      let video = body.video as VideoRequest | undefined
+      // 带阶段授权时，时长先收成提案快照用的那一档，再做模型校验。
+      // 不带授权的 1.9 秒仍然是非法档位，原样拒绝。
+      if (video && body.stage_authorization) {
+        video = {
+          ...video,
+          duration_seconds: stageAuthorizedVideoDuration(
+            video.duration_seconds,
+            videoModelSupportOf(model),
+            video.resolution,
+          ),
+        }
+      }
       const media = resolveModelMedia(model)
       if (video && media !== 'video') {
         return status(400, { error: 'video_not_supported', message: '该模型不支持视频生成' })
@@ -159,17 +195,41 @@ export const submitRoutes = new Elysia()
         }
       }
 
-      const { video: _rawVideo, ...rest } = body
+      const { video: _rawVideo, stage_authorization: stageAuthorization, ...rest } = body
+      let inputImages: string[] | undefined
+      try {
+        inputImages = await resolveMediaInputs(authUser?.id ?? null, rest.input_images, {
+          masked: Boolean(rest.mask),
+          signal: request.signal,
+        })
+      } catch (error) {
+        if (error instanceof MediaInputError)
+          return status(400, { error: 'invalid_input_image', message: error.message })
+        return status(503, { error: 'object_storage_error', message: '读取输入图片失败' })
+      }
+      // 登录用户没带命令 id 时由服务端补一个：近期重复检测靠命令回执，不带 id 的连点也要挡得住。
+      const commandRequest =
+        authUser && !rest.client_request_id
+          ? { ...rest, client_request_id: crypto.randomUUID() }
+          : rest
       const outcome = await createQueueTask({
         provider: queueProvider,
         model,
-        request: rest,
+        request: inputImages ? { ...commandRequest, input_images: inputImages } : commandRequest,
         ...(persistedVideo ? { video: persistedVideo } : {}),
         userId: authUser?.id ?? null,
+        ...(stageAuthorization ? { stageAuthorization } : {}),
+        dedupeRepeats: true,
       })
+
+      if (outcome.kind === 'invalid_prompt')
+        return status(400, { error: 'invalid_request', message: '提示词不能为空' })
 
       if (outcome.kind === 'idempotency_mismatch')
         return status(409, { error: 'idempotency_key_conflict' })
+
+      if (outcome.kind === 'duplicate_submission')
+        return status(409, { error: 'duplicate_submission', request_id: outcome.taskId })
 
       if (outcome.kind === 'invalid_input_image') {
         return status(400, { error: 'invalid_input_image', message: outcome.message })
@@ -186,6 +246,9 @@ export const submitRoutes = new Elysia()
       if (outcome.kind === 'authentication_required') {
         return status(401, { error: 'unauthorized' })
       }
+      if (outcome.kind === 'private_billing_denied') {
+        return status(403, { error: 'plan_required', message: '4K 需要有效会员' })
+      }
       if (outcome.kind === 'quota_exceeded') {
         const quota = outcome.quota
         return status(429, {
@@ -193,6 +256,13 @@ export const submitRoutes = new Elysia()
           quota: quota.quota,
           used: quota.count,
           reset_at: quota.reset_at,
+        })
+      }
+      if (outcome.kind === 'max_credits_exceeded') {
+        return status(402, {
+          error: 'max_credits_exceeded',
+          required: outcome.required,
+          max_credits: outcome.maxCredits,
         })
       }
 

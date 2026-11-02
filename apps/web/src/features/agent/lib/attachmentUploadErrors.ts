@@ -1,5 +1,11 @@
 import type { AttachmentLimits } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
+import { REFERENCE_TOO_LARGE, referenceImageLimit, referenceMediaLimits } from './attachmentUploads'
+
+/** 上限按 MB 说给用户听：10485760 → 「10 MB」。 */
+export function formatImageLimit(bytes: number): string {
+  return `${Math.round((bytes / 1024 / 1024) * 10) / 10} MB`
+}
 
 const messages = {
   attachment_input_too_large: 'attachment.attachment_input_too_large',
@@ -33,8 +39,17 @@ const messages = {
   attachment_read_failed: 'attachment.attachment_read_failed',
 } as const
 
-export function attachmentUploadErrorMessage(code: string | undefined, limits?: AttachmentLimits) {
+export function attachmentUploadErrorMessage(
+  code: string | undefined,
+  limits?: Pick<AttachmentLimits, 'imageBytes' | 'imagePixels'>,
+) {
   const t = i18next.getFixedT(null, 'errors')
+  if (code === REFERENCE_TOO_LARGE)
+    return t('attachment.reference_too_large', {
+      maxSize: formatImageLimit(referenceImageLimit().imageBytes),
+    })
+  // 没有附件专用上限时，图走普通云媒体那一档；上限按那一档说。
+  limits ??= referenceMediaLimits()
   if (
     !limits &&
     ['media_image_pixels_exceeded', 'media_image_too_large', 'media_too_large'].includes(code ?? '')
@@ -64,6 +79,7 @@ export function canRetryAttachmentUpload(code: string | undefined) {
     'attachment_uploads_unavailable',
     'media_image_too_large',
     'media_too_large',
+    REFERENCE_TOO_LARGE,
     'media_image_pixels_exceeded',
     'media_image_processing_limit',
     'media_unsupported_image',

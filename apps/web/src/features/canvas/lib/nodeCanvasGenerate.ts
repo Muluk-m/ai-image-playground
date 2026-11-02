@@ -1,3 +1,4 @@
+import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import {
   type CanvasOrigin,
   canvasInputFingerprint,
@@ -11,7 +12,7 @@ import {
   updateCanvasNode,
 } from '@image-playground/shared'
 import type * as Y from 'yjs'
-import { i18next } from '../../../i18n'
+import { i18next, UserFacingError } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { getImageDimensions } from '../../../lib/canvasImage'
 import { type GenerationSink, resumeGeneration, startGeneration } from '../../../lib/generationJob'
@@ -22,10 +23,9 @@ import type { CanvasEditor } from './editor'
 import { fileToDataUrl } from './importImages'
 import { saveAssetNodeResult } from './nodeAssetGeneration'
 import { adoptNodeResult, recordNodeOutput, selectNodeResult } from './nodeCanvasResults'
+import { noteNodeJobFailure } from './nodeJobFailures'
 import { persistLocalNodeResults } from './nodeResultPersistence'
 
-/** 与拖进画布的图同一上限：卡片不要铺得比导入的图还大。 */
-const MAX_SIDE = 720
 const generationOrigin: CanvasOrigin = canvasOrigin('system', 'node-generation')
 const resumedDocs = new WeakMap<Y.Doc, Set<string>>()
 function claimResume(doc: Y.Doc, nodeId: string, requestId: string): boolean {
@@ -90,35 +90,22 @@ function generationMeta(pending: PendingGeneration | undefined): NodeGenerationM
 }
 
 /** 把一张位图写进这个节点。已有旧元素就换图，否则用同一个 id 放进旧存档，同步会填上 fileId。 */
-async function putBitmapOnNode(
+function putBitmapOnNode(
   editor: CanvasEditor,
   doc: Y.Doc,
   nodeId: string,
-  dataUrl: string,
+  image: ReadImageFile,
   name?: string,
   onlyIfEmpty = false,
-): Promise<boolean> {
+): boolean {
   const node = imageNode(doc, nodeId)
   if (!node) return false
-  let width = node.width
-  let height = node.height
-  let naturalWidth: number | undefined
-  let naturalHeight: number | undefined
-  try {
-    const dims = await getImageDimensions(dataUrl)
-    naturalWidth = dims.width
-    naturalHeight = dims.height
-    const scale = Math.min(1, MAX_SIDE / Math.max(dims.width, dims.height, 1))
-    width = Math.max(1, Math.round(dims.width * scale))
-    height = Math.max(1, Math.round(dims.height * scale))
-  } catch {
-    // 量不出尺寸就维持卡片现在的大小。
-  }
+  const { dataUrl, width: naturalWidth, height: naturalHeight } = image
   const current = imageNode(doc, nodeId)
   if (!current || (onlyIfEmpty && (current.data.fileId || current.data.mediaId))) return false
   const patch = {
-    width,
-    height,
+    width: current.width,
+    height: current.height,
     ...(name ? { name } : {}),
     ...(naturalWidth ? { naturalWidth, naturalHeight } : {}),
   }
@@ -129,24 +116,22 @@ async function putBitmapOnNode(
       {
         id: nodeId,
         dataUrl,
-        x: node.x,
-        y: node.y,
-        width,
-        height,
+        x: current.x,
+        y: current.y,
+        width: current.width,
+        height: current.height,
         ...(name ? { name } : {}),
         ...(naturalWidth ? { naturalWidth, naturalHeight } : {}),
       },
     ])
   }
-  // 空卡第一次落图时，同步会保住原来的几何，这里再把显示尺寸改成图的比例。
+  // Preserve the empty card's metadata when the legacy bitmap bridge fills it.
   const settled = imageNode(doc, nodeId)
   if (settled)
     updateCanvasNode(
       doc,
       nodeId,
       {
-        width,
-        height,
         data: { ...settled.data, meta: { ...node.data.meta, ...settled.data.meta } },
       },
       generationOrigin,
@@ -217,7 +202,8 @@ function nodeGenerationSink(
     progress() {},
     async delivered(handle, result) {
       const images = result.images.filter((item): item is string => Boolean(item))
-      if (!images.length) throw new Error(i18next.t('placeholder.failed', { ns: 'canvas' }))
+      if (!images.length)
+        throw new UserFacingError(i18next.t('placeholder.failed', { ns: 'canvas' }))
       const taskId = handle.requestId ?? handle.clientRequestId ?? handle.jobId
       const history = {
         id: `canvas:${taskId}`,
@@ -270,6 +256,7 @@ function nodeGenerationSink(
       finishCanvasNodeJob(doc, handle.jobId, generationOrigin)
     },
     failed(handle, failure) {
+      noteNodeJobFailure(handle.jobId, failure.error)
       const job = canvasNodeJobs(doc).find((job) => job.id === handle.jobId)
       if (job)
         setCanvasNodeJob(doc, { ...job, status: 'error', message: failure.text }, generationOrigin)
@@ -290,7 +277,11 @@ export function submitNodeImage(
   inputImageDataUrls: string[],
   edit?: { maskDataUrl?: string },
   assetViewLabel?: 'sheet',
-  configuration?: { settings: AppSettings; params: TaskParams },
+  configuration?: {
+    settings: AppSettings
+    params: TaskParams
+    stageAuthorization?: StageAuthorizationSubmission
+  },
 ): boolean {
   const node = imageNode(doc, nodeId)
   if (!node || loading(node.data.pending)) return false
@@ -312,6 +303,7 @@ export function submitNodeImage(
     {
       settings,
       outputRetention: 'candidate',
+      stageAuthorization: configuration?.stageAuthorization,
       profile,
       params,
       variants: [
@@ -339,15 +331,93 @@ export function submitNodeImage(
 }
 
 /** 上传的文件填进这张卡，不另起一个节点。 */
+/** 选进来的文件不是浏览器解得开的图片：空文件、改了扩展名的文本、损坏的图。 */
+export class InvalidImageFileError extends Error {
+  constructor(readonly fileName: string) {
+    super('invalid_image_file')
+    this.name = 'InvalidImageFileError'
+  }
+}
+
+export interface ReadImageFile {
+  dataUrl: string
+  width: number
+  height: number
+}
+
+/**
+ * 把文件读成 data URL，并确认浏览器真能把它解成一张有尺寸的图。
+ * MIME 只是浏览器按扩展名猜的：0 字节的 zero.png、内容是文本的 fake.png 都报 image/png。
+ * 不先解码就建节点，节点会带着一个解不开的位图写进协同文档，上传那边认不出它是图、
+ * 也就从不发请求，节点在别的会话里永远停在「图片上传中」。
+ */
+export async function readImageFile(file: File): Promise<ReadImageFile> {
+  if (!file.type.startsWith('image/') || file.size === 0) throw new InvalidImageFileError(file.name)
+  let dataUrl
+  let size
+  try {
+    // 读不出来（文件被删、被锁）也按这一张不可用处理，不拖垮整批。
+    // 超过 50 MB 先压；调用方已经整批压过的，这里是空操作。
+    const { compressUploadFiles } = await import('../../../lib/imageFiles')
+    const [fitted] = await compressUploadFiles([file])
+    dataUrl = await fileToDataUrl(fitted ?? file)
+    size = await getImageDimensions(dataUrl)
+  } catch {
+    throw new InvalidImageFileError(file.name)
+  }
+  if (!(size.width > 0 && size.height > 0)) throw new InvalidImageFileError(file.name)
+  return { dataUrl, width: size.width, height: size.height }
+}
+
+/** 按结构判别：别的 window / iframe 传进来的 File 过不了本窗口的 `instanceof File`。 */
+function isReadImageFile(value: File | ReadImageFile): value is ReadImageFile {
+  return typeof (value as ReadImageFile).dataUrl === 'string'
+}
+
+/**
+ * 导出的入口可能收到不是 readImageFile 产出的对象：空 data URL、缺尺寸的、
+ * 前缀像图其实解不开的，一律不写进画布。字符串和数字看着对不算，得真解一次。
+ */
+async function checkedReadImage(image: ReadImageFile, name?: string): Promise<ReadImageFile> {
+  const invalid = () => new InvalidImageFileError(name ?? 'image')
+  const shaped =
+    image.dataUrl.startsWith('data:image/') &&
+    Number.isFinite(image.width) &&
+    Number.isFinite(image.height) &&
+    image.width > 0 &&
+    image.height > 0
+  if (!shaped) throw invalid()
+  const size = await getImageDimensions(image.dataUrl).catch(() => null)
+  if (!size || !(size.width > 0 && size.height > 0)) throw invalid()
+  return image
+}
+
 export async function fillImageNode(
   editor: CanvasEditor,
   doc: Y.Doc,
   nodeId: string,
-  file: File,
+  file: File | ReadImageFile,
+  name = isReadImageFile(file) ? undefined : file.name,
 ): Promise<void> {
-  if (!file.type.startsWith('image/')) return
-  const dataUrl = await fileToDataUrl(file)
-  await putBitmapOnNode(editor, doc, nodeId, dataUrl, file.name)
+  const image = isReadImageFile(file)
+    ? await checkedReadImage(file, name)
+    : await readImageFile(file)
+  putBitmapOnNode(editor, doc, nodeId, image, name)
+}
+
+/**
+ * 把刚由 `readImageFile` 解出来的图同步写进节点，不再解码、不让出执行权。
+ * 批量导入建完节点紧接着调用：建节点和写图之间没有 await，就不会在中途换了画布还往旧画布写，
+ * 也不会因为第二次解码失败留下一个空节点、拖垮后面的整批。
+ */
+export function placeDecodedImage(
+  editor: CanvasEditor,
+  doc: Y.Doc,
+  nodeId: string,
+  image: ReadImageFile,
+  name?: string,
+): void {
+  putBitmapOnNode(editor, doc, nodeId, image, name)
 }
 
 /**

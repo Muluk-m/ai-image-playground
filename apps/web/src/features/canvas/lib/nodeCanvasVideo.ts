@@ -1,3 +1,4 @@
+import type { StageAuthorizationSubmission } from '@image-playground/shared'
 import {
   canvasInputFingerprint,
   canvasMainResult,
@@ -9,7 +10,7 @@ import {
   type VideoGenerationRecord,
 } from '@image-playground/shared'
 import type * as Y from 'yjs'
-import { i18next } from '../../../i18n'
+import { i18next, UserFacingError } from '../../../i18n'
 import { getStoredChannel } from '../../../lib/channels/channelStore'
 import { awaitQueueOutputs, submitVideoRequest } from '../../../lib/channels/queueClient'
 import { videoModelOptions } from '../../../lib/channels/videoChannels'
@@ -23,6 +24,7 @@ import type { VideoDraft } from '../../video/types'
 import type { CanvasEditor } from './editor'
 import type { NodeReference } from './nodeCanvasFlow'
 import { adoptNodeResult, recordNodeOutput, selectNodeResult } from './nodeCanvasResults'
+import { noteNodeJobFailure } from './nodeJobFailures'
 import { canvasVideoPromptRefusal, guardAllows } from './submitVideoFromCanvas'
 import { generationInputIds, inputIndices } from './videoInputs'
 import { videoOptionRejection } from './videoRejection'
@@ -55,7 +57,8 @@ async function settle(
   initialResultId?: string,
 ): Promise<void> {
   const outputs = await awaitQueueOutputs(requestId)
-  if (!outputs.length) throw new Error(i18next.t('nodes.generationFailed', { ns: 'canvas' }))
+  if (!outputs.length)
+    throw new UserFacingError(i18next.t('nodes.generationFailed', { ns: 'canvas' }))
   const results = await Promise.all(
     outputs.map((output) =>
       recordNodeOutput(doc, {
@@ -89,6 +92,7 @@ export function submitNodeVideo(
   roles: Record<string, string>,
   files: Readonly<Record<string, string>>,
   nodeDraft?: VideoDraft,
+  stageAuthorization?: StageAuthorizationSubmission,
 ): boolean {
   const node = mediaNode(doc, id)
   if (!node) return false
@@ -158,6 +162,7 @@ export function submitNodeVideo(
     {
       delivered() {},
       failed(_nodeId, failure) {
+        noteNodeJobFailure(jobId, failure.error)
         const job = canvasNodeJobs(doc).find((job) => job.id === jobId)
         if (job) setCanvasNodeJob(doc, { ...job, status: 'error', message: failure.text }, origin)
         useStore.getState().showToast(failure.text, 'error')
@@ -165,7 +170,7 @@ export function submitNodeVideo(
     },
     async () => {
       const channel = getStoredChannel(option.channelId)
-      if (!channel) throw new Error(i18next.t('nodes.noVideoModel', { ns: 'canvas' }))
+      if (!channel) throw new UserFacingError(i18next.t('nodes.noVideoModel', { ns: 'canvas' }))
       const requestId = await submitVideoRequest({
         channel,
         model: option.modelId,
@@ -175,6 +180,7 @@ export function submitNodeVideo(
           (inputs as string[]).map((source) => resolveMediaSource(source, 'original', true)),
         ),
         clientRequestId: meta.clientRequestId,
+        stageAuthorization,
       })
       claimResume(doc, id, requestId)
       const job = canvasNodeJobs(doc).find((job) => job.id === jobId)

@@ -5,11 +5,15 @@ import {
   _setChannelsForTesting,
   ChannelsLoadError,
   defaultChannelsPath,
+  disabledModelChannel,
   getChannels,
   getDiscoveredChannels,
+  getRoutableChannels,
+  isModelDisabled,
   loadChannelsFromFile,
   parseChannelsConfig,
   resolveModelMedia,
+  resolveQueueModel,
 } from '../../lib/channels'
 
 const SAMPLE_CHANNEL = {
@@ -94,6 +98,71 @@ describe('parseChannelsConfig', () => {
     )
     expect(result.channels).toHaveLength(1)
     expect(result.warnings).toEqual([])
+  })
+
+  it('keeps a disabled channel out of the list but routable for tasks already submitted', () => {
+    const result = parseChannelsConfig(
+      { channels: [{ ...SAMPLE_CHANNEL, requiresSecret: true, disabled: true }, SAMPLE_GEMINI] },
+      ENV_WITH_SECRETS,
+    )
+    expect(result.channels.map((c) => c.id)).toEqual(['sample-gemini'])
+    expect(result.disabled.map((c) => c.id)).toEqual(['sample-openai'])
+    expect(result.disabled[0]).not.toHaveProperty('disabled')
+    expect(result.disabled[0].auth.secret).toBe('sk-test-1')
+    expect({ ...result.disabledModels }).toEqual({ 'gpt-image-2': 'sample-openai' })
+    expect(result.warnings).toEqual([
+      "channel 'sample-openai': disabled in channels.json; the channel will not be advertised or offered for new tasks",
+    ])
+  })
+
+  it('still names the models of a disabled channel whose env is missing', () => {
+    const result = parseChannelsConfig(
+      { channels: [{ ...SAMPLE_CHANNEL, requiresSecret: true, disabled: true }] },
+      ENV_EMPTY,
+    )
+    expect(result.channels).toEqual([])
+    expect(result.disabled).toEqual([])
+    expect({ ...result.disabledModels }).toEqual({ 'gpt-image-2': 'sample-openai' })
+    expect(result.warnings).toHaveLength(1)
+    expect(result.warnings[0]).toContain('disabled in channels.json')
+    expect(result.warnings[0]).toContain('cannot be routed')
+    expect(result.warnings[0]).toContain('SAMPLE_OPENAI_KEY')
+  })
+
+  it('records disabled model ids that collide with Object.prototype keys', () => {
+    const result = parseChannelsConfig(
+      {
+        channels: [
+          {
+            ...SAMPLE_CHANNEL,
+            disabled: true,
+            models: [{ id: 'constructor', label: 'Odd', capabilities: ['generate'] }],
+          },
+        ],
+      },
+      ENV_WITH_SECRETS,
+    )
+    expect(Object.hasOwn(result.disabledModels, 'constructor')).toBe(true)
+    _setChannelsForTesting([], result.disabled)
+    expect(isModelDisabled('constructor')).toBe(true)
+    expect(isModelDisabled('toString')).toBe(false)
+    _setChannelsForTesting([])
+  })
+
+  it('treats disabled: false like an absent flag', () => {
+    const result = parseChannelsConfig(
+      { channels: [{ ...SAMPLE_CHANNEL, disabled: false }] },
+      ENV_WITH_SECRETS,
+    )
+    expect(result.channels.map((c) => c.id)).toEqual(['sample-openai'])
+    expect(result.disabled).toEqual([])
+    expect({ ...result.disabledModels }).toEqual({})
+  })
+
+  it('rejects a non-boolean disabled', () => {
+    expect(() =>
+      parseChannelsConfig({ channels: [{ ...SAMPLE_CHANNEL, disabled: 'yes' }] }, ENV_WITH_SECRETS),
+    ).toThrow(/channels\[0\]\.disabled must be boolean/)
   })
 
   it('rejects a non-boolean requiresSecret', () => {
@@ -371,6 +440,145 @@ describe('parseChannelsConfig', () => {
     ).toThrow(/media/)
   })
 
+  it('keeps selector badges and eta on the discovered model, omitting them when absent', () => {
+    const result = parseChannelsConfig(
+      {
+        channels: [
+          {
+            ...SAMPLE_CHANNEL,
+            models: [
+              {
+                id: 'b',
+                label: 'B',
+                capabilities: ['generate'],
+                badges: ['fast', 'value'],
+                tier: 'fast',
+                etaSeconds: 3,
+                logo: 'nano-banana',
+                imageSizes: ['1K', '2K'],
+              },
+              {
+                id: 'ranged',
+                label: 'Ranged',
+                capabilities: ['generate'],
+                etaSeconds: 40,
+                etaMaxSeconds: 100,
+              },
+              { id: 'plain', label: 'Plain', capabilities: ['generate'] },
+            ],
+          },
+        ],
+      },
+      ENV_WITH_SECRETS,
+    )
+    _setChannelsForTesting(result.channels)
+    const [tagged, ranged, plain] = getDiscoveredChannels()[0]!.models
+    expect(tagged).toMatchObject({
+      badges: ['fast', 'value'],
+      tier: 'fast',
+      etaSeconds: 3,
+      logo: 'nano-banana',
+      imageSizes: ['1K', '2K'],
+    })
+    expect(tagged).not.toHaveProperty('etaMaxSeconds')
+    expect(ranged).toMatchObject({ etaSeconds: 40, etaMaxSeconds: 100 })
+    expect(plain).not.toHaveProperty('badges')
+    expect(plain).not.toHaveProperty('tier')
+    expect(plain).not.toHaveProperty('etaSeconds')
+    expect(plain).not.toHaveProperty('logo')
+    expect(plain).not.toHaveProperty('imageSizes')
+  })
+
+  it.each([
+    [{ badges: 'fast' }, /badges must be an array/],
+    [{ badges: ['newest'] }, /invalid badge 'newest'/],
+    [{ badges: ['fast', 'fast'] }, /duplicate badge 'fast'/],
+    [{ tier: 'slow' }, /invalid tier 'slow'/],
+    [{ tier: 1 }, /invalid tier '1'/],
+    [{ etaSeconds: 0 }, /etaSeconds/],
+    [{ etaSeconds: 2.5 }, /etaSeconds/],
+    [{ etaSeconds: '14' }, /etaSeconds/],
+    [{ etaSeconds: 40, etaMaxSeconds: 3601 }, /etaMaxSeconds must be an integer/],
+    [{ etaSeconds: 40, etaMaxSeconds: 60.5 }, /etaMaxSeconds must be an integer/],
+    [{ etaMaxSeconds: 100 }, /etaMaxSeconds must come with a smaller etaSeconds/],
+    [{ etaSeconds: 40, etaMaxSeconds: 40 }, /etaMaxSeconds must come with a smaller etaSeconds/],
+    [{ logo: 'banana' }, /invalid logo 'banana'/],
+    [{ imageSizes: [] }, /imageSizes must be a non-empty array/],
+    [{ imageSizes: '1K' }, /imageSizes must be a non-empty array/],
+    [{ imageSizes: ['4K'] }, /invalid imageSize '4K'/],
+    [{ imageSizes: ['1K', '1K'] }, /duplicate imageSize '1K'/],
+    [{ logo: ['nano-banana'] }, /invalid logo/],
+  ])('rejects malformed selector metadata %j', (extra, error) => {
+    expect(() =>
+      parseChannelsConfig(
+        {
+          channels: [
+            {
+              ...SAMPLE_CHANNEL,
+              models: [{ id: 'm', label: 'M', capabilities: ['generate'], ...extra }],
+            },
+          ],
+        },
+        ENV_WITH_SECRETS,
+      ),
+    ).toThrow(error)
+  })
+
+  it('keeps maxConcurrency on the internal gemini channel and out of discovery', () => {
+    const result = parseChannelsConfig(
+      { channels: [{ ...SAMPLE_GEMINI, maxConcurrency: 2 }] },
+      ENV_WITH_SECRETS,
+    )
+    expect(result.channels[0]!.maxConcurrency).toBe(2)
+    _setChannelsForTesting(result.channels)
+    expect(getDiscoveredChannels()[0]).not.toHaveProperty('maxConcurrency')
+  })
+
+  it('keeps per-model maxConcurrency internal and out of discovery', () => {
+    const result = parseChannelsConfig(
+      {
+        channels: [
+          {
+            ...SAMPLE_GEMINI,
+            models: [
+              { id: 'gemini-a', label: 'A', capabilities: ['generate'], maxConcurrency: 1 },
+              { id: 'gemini-b', label: 'B', capabilities: ['generate'] },
+            ],
+          },
+        ],
+      },
+      ENV_WITH_SECRETS,
+    )
+    expect(result.channels[0]!.modelMaxConcurrency).toEqual({ 'gemini-a': 1 })
+    expect(result.channels[0]!.models[0]).not.toHaveProperty('maxConcurrency')
+    _setChannelsForTesting(result.channels)
+    const discovered = getDiscoveredChannels()[0]!
+    expect(discovered).not.toHaveProperty('modelMaxConcurrency')
+    expect(discovered.models[0]).not.toHaveProperty('maxConcurrency')
+  })
+
+  it.each([
+    [
+      { ...SAMPLE_GEMINI, models: [{ ...SAMPLE_GEMINI.models[0], maxConcurrency: 0 }] },
+      /models\[0\]\.maxConcurrency must be an integer between 1 and 64/,
+    ],
+    [
+      { ...SAMPLE_CHANNEL, models: [{ ...SAMPLE_CHANNEL.models[0], maxConcurrency: 2 }] },
+      /models\[0\]\.maxConcurrency is only supported on gemini-queue/,
+    ],
+  ])('rejects an unusable per-model maxConcurrency %#', (channel, error) => {
+    expect(() => parseChannelsConfig({ channels: [channel] }, ENV_WITH_SECRETS)).toThrow(error)
+  })
+
+  it.each([
+    [{ ...SAMPLE_GEMINI, maxConcurrency: 0 }, /maxConcurrency must be an integer between 1 and 64/],
+    [{ ...SAMPLE_GEMINI, maxConcurrency: 1.5 }, /maxConcurrency must be an integer/],
+    [{ ...SAMPLE_GEMINI, maxConcurrency: '2' }, /maxConcurrency must be an integer/],
+    [{ ...SAMPLE_CHANNEL, maxConcurrency: 2 }, /only supported on gemini-queue/],
+  ])('rejects an unusable maxConcurrency %#', (channel, error) => {
+    expect(() => parseChannelsConfig({ channels: [channel] }, ENV_WITH_SECRETS)).toThrow(error)
+  })
+
   it('rejects empty models array', () => {
     expect(() =>
       parseChannelsConfig({ channels: [{ ...SAMPLE_CHANNEL, models: [] }] }, ENV_WITH_SECRETS),
@@ -422,13 +630,48 @@ describe('shipped channels.json', () => {
       'edit',
       'mask',
       'quality',
+      // 只有 OpenAI 直连开着时才对前端声明，见 channels.ts withDeliverableGptSize。
+      'size',
       'n',
       'moderation',
     ]
     expect(result.channels.find((c) => c.id === 'openai-images')?.models).toEqual([
-      { id: 'gpt-image-2.5-flare', label: 'GPT Image 2.5 Flare', capabilities },
-      { id: 'gpt-image-2.5-sunburst', label: 'GPT Image 2.5 Sunburst', capabilities },
+      {
+        id: 'gpt-image-2.5-flare',
+        label: 'GPT Image 2.5 Flare',
+        capabilities,
+        tier: 'quality',
+        // 线上实测单张约 39–45 秒，四个质量档像素一样、耗时也接近。
+        etaSeconds: 40,
+      },
+      {
+        id: 'gpt-image-2.5-sunburst',
+        label: 'GPT Image 2.5 Sunburst',
+        capabilities,
+        tier: 'quality',
+        etaSeconds: 40,
+      },
     ])
+  })
+
+  it('labels image channels with the provider brand users recognize', () => {
+    const result = parseChannelsConfig(
+      shipped,
+      (key) =>
+        ({
+          OPENAI_API_KEY: 'openai-key',
+          GROK_BASE_URL: 'https://api.x.ai/v1',
+          GROK_API_KEY: 'grok-key',
+          VERTEX_BASE_URL:
+            'https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/google',
+          VERTEX_API_KEY: 'vertex-key',
+        })[key],
+    )
+    // 模型选择器右侧直接显示渠道 label：用户认的是厂商品牌，不是接入方式或产品线名。
+    const labels = Object.fromEntries(result.channels.map((c) => [c.id, c.label]))
+    expect(labels['openai-images']).toBe('OpenAI')
+    expect(labels['grok-images']).toBe('Grok')
+    expect(labels['vertex-images']).toBe('Gemini')
   })
 
   it('advertises only Grok Image 2.0 on the grok-images channel', () => {
@@ -442,8 +685,44 @@ describe('shipped channels.json', () => {
         id: 'grok-imagine-image-2.0',
         label: 'Grok Imagine Image 2.0',
         capabilities: ['generate', 'edit', 'n', 'quality'],
+        tier: 'quality',
+        // 线上实测：低档约 40 秒、中档约 70 秒、高档（2K）约 100 秒，选择器显示成范围。
+        etaSeconds: 40,
+        etaMaxSeconds: 100,
       },
     ])
+  })
+
+  it('hides Agnes and Gemini even with every secret set, keeping only GPT, Grok, Seedance and Veo', () => {
+    const env: Record<string, string> = {
+      OPENAI_API_KEY: 'openai-key',
+      GEMINI_API_KEY: 'gemini-key',
+      AGNES_API_KEY: 'agnes-key',
+      GROK_API_KEY: 'grok-key',
+      GROK_BASE_URL: 'https://api.x.ai/v1',
+      ARK_API_KEY: 'ark-key',
+      ARK_BASE_URL: 'https://ark.cn-beijing.volces.com/api/v3',
+      VEO_API_KEY: 'veo-key',
+    }
+    const result = parseChannelsConfig(shipped, (key) => env[key])
+
+    expect(result.channels.map((c) => c.id)).toEqual([
+      'openai-images',
+      'grok-images',
+      'grok-video',
+      'ark-video',
+      'veo-video',
+    ])
+    expect(result.disabled.map((c) => c.id)).toEqual([
+      'gemini-flash-image',
+      'agnes-images',
+      'agnes-video',
+    ])
+    expect({ ...result.disabledModels }).toEqual({
+      'gemini-3.1-flash-image': 'gemini-flash-image',
+      'agnes-image-2.5-flash': 'agnes-images',
+      'agnes-video-2.5-flash': 'agnes-video',
+    })
   })
 
   it('drops the Seedance channel when ARK_BASE_URL is unset', () => {
@@ -500,6 +779,84 @@ describe('shipped channels.json', () => {
       },
     ])
   })
+
+  const VERTEX_ENV: Record<string, string> = {
+    VERTEX_API_KEY: 'vertex-key',
+    VERTEX_BASE_URL:
+      'https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/google/',
+  }
+
+  it.each([
+    ['VERTEX_API_KEY', 'VERTEX_API_KEY'],
+    ['VERTEX_BASE_URL', 'VERTEX_BASE_URL'],
+  ])('keeps the Vertex channel hidden while %s is unset', (missing, named) => {
+    const env: Record<string, string | undefined> = { ...VERTEX_ENV, OPENAI_API_KEY: 'openai-key' }
+    delete env[missing]
+    const result = parseChannelsConfig(shipped, (key) => env[key])
+
+    expect(result.channels.map((c) => c.id)).not.toContain('vertex-images')
+    expect(result.warnings.find((w) => w.includes("channel 'vertex-images'"))).toContain(named)
+  })
+
+  it('advertises the three Vertex image models last, so they never become the default', () => {
+    const result = parseChannelsConfig(shipped, (key) =>
+      key === 'OPENAI_API_KEY' ? 'openai-key' : VERTEX_ENV[key],
+    )
+
+    expect(result.channels.map((c) => c.id)).toEqual(['openai-images', 'vertex-images'])
+    const vertex = result.channels.at(-1)!
+    expect(vertex).toMatchObject({
+      kind: 'gemini-queue',
+      baseUrl: 'https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/google',
+      auth: { secretRef: 'VERTEX_API_KEY', secret: 'vertex-key' },
+      // 10 月 22 日实测：限流按模型各算各的，每个模型连着只放过 2–3 条。
+      modelMaxConcurrency: {
+        'gemini-nano-banana-2.1': 2,
+        'gemini-3-pro-image': 2,
+        'gemini-3.1-flash-lite-image': 2,
+      },
+    })
+    expect(vertex).not.toHaveProperty('maxConcurrency')
+    expect(vertex.models).toEqual([
+      {
+        id: 'gemini-nano-banana-2.1',
+        label: 'Nano Banana 2.1',
+        capabilities: ['generate', 'edit', 'size'],
+        badges: ['latest'],
+        tier: 'fast',
+        // 10 月 24 日实测：2.1 约 14 秒、Pro 约 24 秒（Lite 见下）。
+        etaSeconds: 14,
+        logo: 'nano-banana',
+        imageSizes: ['1K', '2K'],
+      },
+      {
+        id: 'gemini-3-pro-image',
+        label: 'Nano Banana Pro',
+        capabilities: ['generate', 'edit', 'size'],
+        tier: 'quality',
+        etaSeconds: 24,
+        logo: 'nano-banana',
+        imageSizes: ['1K', '2K'],
+      },
+      {
+        id: 'gemini-3.1-flash-lite-image',
+        label: 'Nano Banana 2 Lite',
+        capabilities: ['generate', 'edit', 'size'],
+        tier: 'fast',
+        logo: 'nano-banana',
+        imageSizes: ['1K'],
+      },
+    ])
+    _setChannelsForTesting(result.channels)
+    expect(resolveQueueModel('image')).toEqual({
+      provider: 'openai-compat',
+      model: 'gpt-image-2.5-flare',
+    })
+    expect(resolveQueueModel('image', 'gemini-3-pro-image')).toEqual({
+      provider: 'gemini',
+      model: 'gemini-3-pro-image',
+    })
+  })
 })
 
 describe('loadChannelsFromFile', () => {
@@ -534,5 +891,38 @@ describe('module state (getChannels / getDiscoveredChannels)', () => {
       expect(ch).toHaveProperty('defaults')
     }
     _setChannelsForTesting([])
+  })
+})
+
+describe('module state for disabled channels', () => {
+  it('routes disabled channels last and refuses only models no live channel declares', () => {
+    const live = parseChannelsConfig({ channels: [SAMPLE_GEMINI] }, ENV_WITH_SECRETS).channels
+    const off = parseChannelsConfig(
+      {
+        channels: [
+          SAMPLE_CHANNEL,
+          { ...SAMPLE_GEMINI, id: 'sample-gemini-old', models: SAMPLE_GEMINI.models },
+        ],
+      },
+      ENV_WITH_SECRETS,
+    ).channels
+    _setChannelsForTesting(live, off)
+
+    expect(getChannels().map((c) => c.id)).toEqual(['sample-gemini'])
+    expect(getDiscoveredChannels().map((c) => c.id)).toEqual(['sample-gemini'])
+    expect(getRoutableChannels().map((c) => c.id)).toEqual([
+      'sample-gemini',
+      'sample-openai',
+      'sample-gemini-old',
+    ])
+    expect(isModelDisabled('gpt-image-2')).toBe(true)
+    expect(disabledModelChannel('gpt-image-2')).toBe('sample-openai')
+    // 还挂在在用 channel 上的同名模型照常收。
+    expect(isModelDisabled('gemini-3.1-flash')).toBe(false)
+    expect(resolveModelMedia('gpt-image-2')).toBeUndefined()
+
+    _setChannelsForTesting([])
+    expect(isModelDisabled('gpt-image-2')).toBe(false)
+    expect(getRoutableChannels()).toEqual([])
   })
 })

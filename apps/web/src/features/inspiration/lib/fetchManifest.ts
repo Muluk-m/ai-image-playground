@@ -1,5 +1,5 @@
 import { INSPIRATION_KINDS, type InspirationKind } from '@image-playground/shared'
-import { i18next } from '../../../i18n'
+import { i18next, UserFacingError } from '../../../i18n'
 import { getApiErrorMessage } from '../../../lib/imageApiShared'
 import { bffBaseUrl, getRuntimeConfig } from '../../../lib/runtimeConfig'
 import type { InspirationManifest } from '../types'
@@ -36,7 +36,7 @@ export async function fetchRemoteManifest(
     signal: signal ?? AbortSignal.timeout(10_000),
   })
   if (!response.ok) {
-    throw new Error(
+    throw new UserFacingError(
       i18next.t('manifest.loadFailed', {
         ns: 'inspiration',
         reason: await getApiErrorMessage(response),
@@ -47,11 +47,11 @@ export async function fetchRemoteManifest(
   try {
     payload = await response.json()
   } catch {
-    throw new Error(i18next.t('manifest.notJson', { ns: 'inspiration' }))
+    throw new UserFacingError(i18next.t('manifest.loadFailed', { ns: 'inspiration' }))
   }
   const manifest = validateManifest(payload)
   if (!manifest) {
-    throw new Error(i18next.t('manifest.invalid', { ns: 'inspiration' }))
+    throw new UserFacingError(i18next.t('manifest.invalid', { ns: 'inspiration' }))
   }
   return manifest
 }
@@ -66,6 +66,10 @@ export async function fetchManifestWithFallback(
     if (url === DEFAULT_REMOTE_MANIFEST_URL || signal?.aborted) throw error
     return fetchRemoteManifest(DEFAULT_REMOTE_MANIFEST_URL, signal)
   }
+}
+
+function positiveDimension(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
 }
 
 function validateManifest(payload: unknown): InspirationManifest | null {
@@ -116,7 +120,18 @@ function validateManifest(payload: unknown): InspirationManifest | null {
           }
         })
       : []
-    return [{ ...(entry as InspirationManifest['items'][number]), kind, referenceImages }]
+    const base = { ...(entry as InspirationManifest['items'][number]), kind, referenceImages }
+    const thumbWidth = positiveDimension(r.thumbWidth) ?? positiveDimension(r.width)
+    const thumbHeight = positiveDimension(r.thumbHeight) ?? positiveDimension(r.height)
+    delete base.thumbWidth
+    delete base.thumbHeight
+    delete base.width
+    delete base.height
+    if (thumbWidth && thumbHeight) {
+      base.thumbWidth = thumbWidth
+      base.thumbHeight = thumbHeight
+    }
+    return [base]
   })
   if (items.length === 0) return null
 

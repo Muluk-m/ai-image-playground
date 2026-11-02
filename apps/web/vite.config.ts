@@ -4,10 +4,12 @@ import { readFileSync, writeFileSync } from 'fs'
 import { resolve } from 'path'
 import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
+import { parseCLI } from 'vitest/node'
+import { vitestGuard } from '../../scripts/test-guard'
+import { appPreloadPlugin } from './src/boot/appPreload'
 import { startupGuardPlugin } from './src/boot/vitePlugin'
 import { chunkCycleGuardPlugin, vendorChunk } from './src/lib/buildChunks'
 import { pagesRedirectsPlugin } from './src/lib/pagesRedirects'
-import { guideHtmlEntries, seoPlugin } from './src/seo/vitePlugin'
 import { optionalFontsPlugin } from './src/styles/fontPlugin'
 import { themeBootPlugin } from './src/theme/vitePlugin'
 
@@ -54,10 +56,10 @@ export default defineConfig(() => {
   return {
     plugins: [
       optionalFontsPlugin(),
+      appPreloadPlugin(),
       startupGuardPlugin(),
       react(),
       themeBootPlugin(),
-      seoPlugin({ publicDir: resolve(__dirname, 'public') }),
       pagesRedirectsPlugin(),
       injectSwBuildVersion(),
       chunkCycleGuardPlugin(),
@@ -81,9 +83,10 @@ export default defineConfig(() => {
     optimizeDeps: { exclude: ['@jsquash/webp', '@jsquash/avif', '@jsquash/oxipng'] },
     worker: { format: 'es' as const },
     test: {
+      ...vitestGuard('apps/web', parseCLI),
       // i18n 初始化跟着 locale 走，测试里必须钉死，否则 jsdom 的 en-US 会把
-      // 所有断言中文文案的历史用例打红。
-      setupFiles: ['./src/__tests__/setup/i18n.ts'],
+      // 所有断言中文文案的历史用例打红。直传 PUT 在用例里改回 fetch，见 setup/mediaPut.ts。
+      setupFiles: ['./src/__tests__/setup/i18n.ts', './src/__tests__/setup/mediaPut.ts'],
     },
     build: {
       // Windows 上大量用户用 360/QQ/搜狗等国产浏览器，内核常停在 Chromium 80 多版本；
@@ -93,7 +96,6 @@ export default defineConfig(() => {
       rollupOptions: {
         input: {
           main: resolve(__dirname, 'index.html'),
-          ...guideHtmlEntries(__dirname),
         },
         output: {
           // 拆出第三方依赖，缓解 500KB chunk warning + 让缓存复用率更高（首屏 vendor

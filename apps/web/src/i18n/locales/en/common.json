@@ -3,7 +3,8 @@
   "theme": {
     "label": "Theme",
     "light": "Light",
-    "dark": "Dark"
+    "dark": "Dark",
+    "system": "System"
   },
   "locale": {
     "label": "Language",
@@ -28,7 +29,8 @@
   },
   "state": {
     "generating": "Generating",
-    "failed": "Failed"
+    "failed": "Failed",
+    "cancelled": "Canceled"
   },
   "toast": {
     "copySucceeded": "Copied",

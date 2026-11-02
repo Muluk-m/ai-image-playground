@@ -6,6 +6,26 @@ vi.mock('../../../../lib/imagePreprocessing', async () => ({
 }))
 
 import 'fake-indexeddb/auto'
+
+/** 计划卡的余额判断读 overlay 门禁；只有设了 guard 的用例才替换，其余照旧走真实实现。 */
+const overlayGuard = vi.hoisted(() => ({
+  current: null as null | { estimatedCredits?: number; availableCredits?: number },
+}))
+vi.mock('../../../../lib/privateOverlay', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../lib/privateOverlay')>()
+  return {
+    ...actual,
+    usePrivateSubmissionGuard: (input: Parameters<typeof actual.usePrivateSubmissionGuard>[0]) => {
+      const real = actual.usePrivateSubmissionGuard(input)
+      return overlayGuard.current ? { blocked: false, ...overlayGuard.current } : real
+    },
+    getPrivateSubmissionGuard: (input: Parameters<typeof actual.getPrivateSubmissionGuard>[0]) =>
+      overlayGuard.current
+        ? { blocked: false, ...overlayGuard.current }
+        : actual.getPrivateSubmissionGuard(input),
+  }
+})
+
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -23,8 +43,10 @@ import type { AgentDeliveryStatus, AgentToolMessage } from '../../../../features
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { useLibraryStore } from '../../../../features/library/store'
+import { ensureLocaleLoaded, i18next } from '../../../../i18n'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+import { useStore } from '../../../../store'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -71,11 +93,11 @@ async function enableChatFree(): Promise<void> {
   vi.unstubAllGlobals()
 }
 
-function render(): void {
+function render(dock: 'left' | 'right' = 'left'): void {
   act(() => {
     // 面板只把 editor 转交给创作记录页签；这些用例不点创作记录，给个空壳就够。
     const editor = { scrollToElements: () => {} } as unknown as CanvasEditor
-    root.render(<AgentPanel doc={new CanvasDoc()} editor={editor} />)
+    root.render(<AgentPanel doc={new CanvasDoc()} editor={editor} dock={dock} />)
   })
 }
 
@@ -161,6 +183,72 @@ afterEach(() => {
 })
 
 describe('AgentPanel', () => {
+  it('保留对话搜索的自动聚焦、匹配、消息定位和关闭', async () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'search-cat',
+          turnId: 'search-turn',
+          role: 'user',
+          text: 'Orange CAT',
+          streaming: false,
+        },
+        {
+          kind: 'text',
+          id: 'search-dog',
+          turnId: 'other-turn',
+          role: 'user',
+          text: 'Dog',
+          streaming: false,
+        },
+      ],
+    })
+    const close = vi.fn()
+    const editor = { scrollToElements: () => {} } as unknown as CanvasEditor
+    await act(async () =>
+      root.render(
+        <AgentPanel
+          doc={new CanvasDoc()}
+          editor={editor}
+          presentation="page"
+          searchOpen
+          onCloseSearch={close}
+        />,
+      ),
+    )
+    const field = host.querySelector<HTMLInputElement>('.studio-conversation-search input')!
+    expect(document.activeElement).toBe(field)
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    const search = async (value: string) =>
+      act(async () => {
+        setValue.call(field, value)
+        field.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    await search('  cat  ')
+    const results = () => [
+      ...host.querySelectorAll<HTMLButtonElement>('.studio-conversation-search-results button'),
+    ]
+    expect(results().map((button) => button.textContent)).toEqual(['Orange CAT'])
+    const target = host.querySelector<HTMLElement>('[data-agent-message-id="search-cat"]')!
+    const scroll = vi.fn()
+    target.scrollIntoView = scroll
+    await act(async () => {
+      results()[0]!.click()
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+    expect(scroll).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' })
+    await search('unmatched')
+    expect(results()).toHaveLength(0)
+    expect(host.querySelector('.studio-conversation-search-results')?.textContent).toContain('没有')
+    await search('')
+    expect(host.querySelector('.studio-conversation-search-results')).toBeNull()
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('.studio-conversation-search > button')!.click(),
+    )
+    expect(close).toHaveBeenCalledOnce()
+  })
+
   it('把同一轮连续获取的网图收进一条缩略图带，保留预览和来源', async () => {
     const onPreviewResult = vi.fn()
     const image = (id: string, turnId = 'turn-1'): AgentToolMessage => ({
@@ -457,7 +545,9 @@ describe('AgentPanel', () => {
     expect(host.querySelector('#agent-tool-card-tool-skill')?.getAttribute('data-slot')).toBe(
       'tool-call',
     )
-    expect(host.querySelector('#agent-tool-card-tool-image')?.textContent).toContain('一只橘猫')
+    const image = host.querySelector('#agent-tool-card-tool-image')
+    expect(image?.querySelector('.studio-agent-inline-tile[data-pending="true"]')).not.toBeNull()
+    expect(image?.textContent).not.toContain('一只橘猫')
   })
 
   it('没读到的那次不显示成读到了', () => {
@@ -671,6 +761,37 @@ describe('AgentPanel', () => {
     )
     expect(log.scrollTop).toBe(1400)
     expect(texts('button')).not.toContain('有新消息')
+  })
+
+  it('英文用户的整段乱码回复显示英文兜底，并且没有复制按钮 (BUG-81)', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-en',
+          turnId: 't-en',
+          role: 'user',
+          text: 'Make the second image a night scene',
+          streaming: false,
+        },
+        {
+          kind: 'text',
+          id: 'reply-en',
+          turnId: 't-en',
+          role: 'assistant',
+          text: 'પરિણામ સારું છે.',
+          streaming: false,
+        },
+      ],
+    })
+    render()
+    const reply = host.querySelector('.studio-agent-reply-wrap')!
+    expect(reply.textContent).toContain(
+      'That reply came back in an unexpected language. Try again.',
+    )
+    expect(reply.textContent).not.toContain('回复语言异常')
+    expect(reply.textContent).not.toContain('પ')
+    expect(reply.querySelector('button')).toBeNull()
   })
 
   it('回复带复制按钮，复制的是原文并提示已复制；流式中不出', async () => {
@@ -1137,14 +1258,73 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent).toContain('本轮耗时 1m 10s')
-    const toggle = [...host.querySelectorAll('button')].find((button) =>
-      button.textContent?.startsWith('消耗'),
-    )!
-    expect(toggle.textContent).toBe('消耗 127')
+    expect(host.querySelector('[aria-label="本轮耗时 1m 10s"]')?.textContent).toBe('1m 10s')
+    expect(host.textContent).toContain('127 积分')
+    const toggle = host.querySelector('button[aria-label="查看本轮积分明细"]') as HTMLButtonElement
+    expect(toggle.textContent).toBe('明细')
 
     act(() => toggle.click())
     expect(host.textContent).toContain('对话 42 · 生图 85')
+  })
+
+  it('刷新后，没有消息的失败轮（如结果复核）仍在原位置显示失败页脚', () => {
+    const text = (id: string, turnId: string, role: 'user' | 'assistant', body: string) =>
+      ({ kind: 'text', id, turnId, role, text: body, streaming: false }) as const
+    useAgentStore.setState({
+      messages: [
+        text('user-1', 'turn-1', 'user', '把椅子换成红色'),
+        text('reply-1', 'turn-1', 'assistant', '好的，已经改好'),
+        text('user-3', 'turn-3', 'user', '再亮一点'),
+      ],
+      turns: {
+        'turn-1': { turnId: 'turn-1', stopReason: 'completed' },
+        'turn-2': {
+          turnId: 'turn-2',
+          stopReason: 'failed',
+          error: 'agent_request_budget_exceeded',
+        },
+        'turn-restart': {
+          turnId: 'turn-restart',
+          stopReason: 'failed',
+          error: 'agent_turn_interrupted',
+        },
+        'turn-3': { turnId: 'turn-3', stopReason: 'completed' },
+      },
+    })
+    render()
+
+    const failed = host.querySelector('[data-agent-turn-id="turn-2"]')
+    expect(failed?.textContent).toContain('请求未发送')
+    const order = [...host.querySelectorAll('[data-agent-message-id], [data-agent-turn-id]')].map(
+      (node) =>
+        node.getAttribute('data-agent-message-id') ?? node.getAttribute('data-agent-turn-id'),
+    )
+    expect(order).toEqual(['user-1', 'reply-1', 'turn-2', 'user-3'])
+    expect(host.querySelector('[data-agent-turn-id="turn-restart"]')).toBeNull()
+  })
+
+  it('正在错误横幅里显示的失败轮不再重复一条页脚', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画',
+          streaming: false,
+        },
+      ],
+      turns: {
+        'turn-1': { turnId: 'turn-1', stopReason: 'completed' },
+        'turn-2': { turnId: 'turn-2', stopReason: 'failed', error: 'agent_run_failed' },
+      },
+      error: '这一轮没有跑完',
+      errorDiagnostic: { turnId: 'turn-2' },
+    })
+    render()
+
+    expect(host.querySelector('[data-agent-turn-id="turn-2"]')).toBeNull()
   })
 
   it('对话限时免费且没有实扣时，只保留耗时', async () => {
@@ -1202,8 +1382,8 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).not.toBeNull()
-    expect(host.querySelector('del')?.textContent).toBe('20')
+    expect(host.textContent).toContain('100 积分')
+    expect(host.querySelector('del')).toBeNull()
     expect(host.textContent).not.toContain('本轮免费，未扣积分')
     const toggle = host.querySelector('button[aria-label="查看本轮积分明细"]') as HTMLButtonElement
     act(() => toggle.click())
@@ -1231,7 +1411,7 @@ describe('AgentPanel', () => {
     }
     useAgentStore.setState({ messages: [job], turns: { 'turn-1': footer } })
     render()
-    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).toBeNull()
+    expect(host.textContent).not.toContain('100 积分')
     expect(host.querySelector('button[aria-label="查看本轮积分明细"]')).toBeNull()
 
     act(() =>
@@ -1239,7 +1419,7 @@ describe('AgentPanel', () => {
         messages: [{ ...job, status: 'succeeded', job: { ...job.job!, chargedCredits: 100 } }],
       }),
     )
-    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).not.toBeNull()
+    expect(host.textContent).toContain('100 积分')
     const toggle = host.querySelector('button[aria-label="查看本轮积分明细"]') as HTMLButtonElement
     act(() => toggle.click())
     expect(host.textContent).toContain('原价120')
@@ -1258,7 +1438,8 @@ describe('AgentPanel', () => {
         turns: { 'turn-1': footer },
       }),
     )
-    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).not.toBeNull()
+    expect(host.textContent).toContain('100 积分')
+    expect(host.querySelector('button[aria-label="查看本轮积分明细"]')).not.toBeNull()
   })
 
   it('限免开启后翻旧的收费轮，不把已经实扣的对话积分划掉', async () => {
@@ -1285,11 +1466,11 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent).toContain('消耗 127')
+    expect(host.textContent).toContain('127 积分')
     expect(host.querySelector('del')).toBeNull()
   })
 
-  it('限免关闭后，已记录减免的历史轮仍显示划掉的原价', () => {
+  it('限免关闭后，已记录减免的历史轮展开后仍显示原价与减免', () => {
     useAgentStore.setState({
       messages: [
         {
@@ -1312,8 +1493,13 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.querySelector('del')?.textContent).toBe('20')
-    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).not.toBeNull()
+    expect(host.textContent).toContain('100 积分')
+    expect(host.querySelector('del')).toBeNull()
+    const toggle = host.querySelector('button[aria-label="查看本轮积分明细"]') as HTMLButtonElement
+    act(() => toggle.click())
+    expect(host.textContent).toContain('原价120')
+    expect(host.textContent).toContain('对话减免−20')
+    expect(host.textContent).toContain('实扣100')
   })
 
   it('当前限免开关不把没有减免记录的旧零费用轮误标为对话减免', async () => {
@@ -1341,7 +1527,7 @@ describe('AgentPanel', () => {
     render()
 
     expect(host.querySelector('button[aria-label="查看本轮积分明细"]')).toBeNull()
-    expect(host.textContent).toContain('本轮耗时 24s')
+    expect(host.querySelector('[aria-label="本轮耗时 24s"]')?.textContent).toBe('24s')
     expect(host.textContent).not.toContain('本轮免费，未扣积分')
   })
 
@@ -1408,8 +1594,8 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent?.match(/本轮耗时 12s/g)).toHaveLength(1)
-    expect(host.textContent?.indexOf('本轮耗时')).toBeGreaterThan(host.textContent!.indexOf('好的'))
+    expect(host.querySelectorAll('[aria-label="本轮耗时 12s"]')).toHaveLength(1)
+    expect(host.textContent?.indexOf('12s')).toBeGreaterThan(host.textContent!.indexOf('好的'))
   })
 
   it('进行中的轮不写预扣，末尾亮状态行', () => {
@@ -1497,6 +1683,31 @@ describe('AgentPanel', () => {
     expect(host.querySelector('[aria-label="拖动调整面板宽度"]')).not.toBeNull()
   })
 
+  it('右侧面板可从默认宽度继续拉宽并保存，最多占可用画布区六成', () => {
+    vi.stubGlobal('innerWidth', 1260)
+    host.className = 'studio-layout'
+    Object.defineProperty(host, 'clientWidth', { value: 980 })
+    useAgentStore.setState({ panelWidth: 460 })
+    render('right')
+
+    const handle = host.querySelector('[role="separator"]') as HTMLElement
+    const panel = handle.parentElement as HTMLElement
+    handle.setPointerCapture = vi.fn()
+    act(() => {
+      handle.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 800 }))
+      handle.dispatchEvent(new MouseEvent('pointermove', { clientX: 760 }))
+    })
+    expect(panel.style.width).toBe('500px')
+    expect(localStorage.getItem('image-playground.agent_panel_width')).toBe('500')
+
+    act(() => {
+      handle.dispatchEvent(new MouseEvent('pointermove', { clientX: 600 }))
+      handle.dispatchEvent(new MouseEvent('pointerup'))
+    })
+    expect(panel.style.width).toBe('588px')
+    expect(localStorage.getItem('image-playground.agent_panel_width')).toBe('588')
+  })
+
   it('失败且没有扣费的轮只标失败与耗时', () => {
     useAgentStore.setState({
       messages: [
@@ -1521,7 +1732,7 @@ describe('AgentPanel', () => {
     render()
 
     expect(host.textContent).toContain('本轮失败')
-    expect(host.textContent).toContain('本轮耗时 12s')
+    expect(host.querySelector('[aria-label="本轮耗时 12s"]')?.textContent).toBe('12s')
     expect(host.textContent).not.toContain('未扣积分')
     expect(host.textContent).not.toContain('本轮免费')
   })
@@ -1643,7 +1854,8 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent).toContain('本轮耗时 12s')
+    expect(host.querySelector('[aria-label="本轮耗时 12s"]')?.textContent).toBe('12s')
+    expect(host.textContent).not.toContain('积分')
     expect(host.textContent).not.toContain('消耗')
     expect(host.textContent).not.toContain('已用')
   })
@@ -1798,6 +2010,652 @@ describe('AgentPanel', () => {
       expect(host.querySelector('button[aria-label^="现在插话"]')).toBeNull()
     })
   })
+
+  it('把去背景画成原图缩略、结果和费用，移除后从对话里消失', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'imageAction',
+          id: 'step-1',
+          turnId: 'turn-1',
+          sourceMessageId: 'tool-1',
+          artifactId: 'agent_image_1',
+          action: 'removeBackground',
+          status: 'succeeded',
+          thumbnail: CANVAS_THUMBNAIL,
+          resultSource: SERVER_IMAGE,
+          durationMs: 3000,
+          credits: 2,
+        },
+      ],
+    })
+    render()
+
+    const step = host.querySelector('section[aria-label="抠图"]')!
+    expect(step).not.toBeNull()
+    expect(step.querySelector('img')?.getAttribute('src')).toBe(CANVAS_THUMBNAIL)
+    expect(step.querySelector('img[alt="抠图"]')?.getAttribute('src')).toBe(SERVER_IMAGE)
+    expect(step.textContent).toContain('3s')
+    expect(step.querySelector('[role="img"]')?.getAttribute('aria-label')).toContain('2')
+
+    act(() => {
+      step.querySelector<HTMLButtonElement>('button[aria-label="移除这一步"]')!.click()
+    })
+    expect(host.querySelector('section[aria-label="抠图"]')).toBeNull()
+    expect(useAgentStore.getState().messages).toEqual([])
+  })
+
+  it('智能体模式没有张数步进器，图片生成模式才在胶囊里选张数', () => {
+    render()
+    expect(host.querySelector('[aria-label="生成张数"]')).toBeNull()
+    const capsule = host.querySelector<HTMLButtonElement>('button[aria-label^="生成设置: "]')!
+    act(() => capsule.click())
+    expect(document.body.textContent).not.toContain('张数由 Agent 按需求决定')
+    expect(document.body.querySelector('[aria-label="张数"]')).toBeNull()
+    expect(document.body.querySelector('[aria-label="画幅"]')).not.toBeNull()
+
+    act(() => {
+      useStore.setState({ createTarget: 'generate' })
+    })
+    const imageCapsule = host.querySelector<HTMLButtonElement>('button[aria-label^="生成设置: "]')!
+    if (imageCapsule.getAttribute('aria-expanded') !== 'true') act(() => imageCapsule.click())
+    const counts = [
+      ...(document.body.querySelector('[aria-label="张数"]')?.querySelectorAll('button') ?? []),
+    ].map((node) => node.textContent)
+    expect(counts).toEqual(['1', '2', '3', '4', '6', '8'])
+    expect(host.querySelector('[aria-label="生成张数"]')).toBeNull()
+    act(() => {
+      useStore.setState({ createTarget: 'chat' })
+    })
+  })
+
+  it('同一轮待确认的生图收成一张计划，取消勾选改张数，取消不请求接口', () => {
+    const fetchMock = vi.fn(async () => Response.json({}))
+    vi.stubGlobal('fetch', fetchMock)
+    const draft = (id: string, title: string, n: number): AgentToolMessage => ({
+      kind: 'tool',
+      id,
+      turnId: 'turn-plan',
+      toolCallId: id,
+      toolName: 'generateImage',
+      title,
+      prompt: `${title}的提示词`,
+      status: 'awaiting_confirmation',
+      snapshot: { mode: 'image', args: { n } },
+    })
+    useAgentStore.setState({
+      conversationId: 'conversation-plan',
+      messages: [draft('a', '主宣传', 1), draft('b', '卖点', 2)],
+    })
+    render()
+
+    expect(host.querySelectorAll('[aria-label="生成计划"]')).toHaveLength(1)
+    expect(host.textContent).toContain('全部生成（3）')
+    expect(host.textContent).not.toContain('确认生成')
+    act(() => {
+      host.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="卖点"]')?.click()
+    })
+    expect(host.textContent).toContain('全部生成（1）')
+    act(() => {
+      ;[...host.querySelectorAll('button')].find((button) => button.textContent === '取消')?.click()
+    })
+    expect(host.textContent).toContain('未生成')
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('/confirmations')
+  })
+
+  const planDraft = (id: string, title: string): AgentToolMessage => ({
+    kind: 'tool',
+    id,
+    turnId: 'turn-plan',
+    toolCallId: id,
+    toolName: 'generateImage',
+    title,
+    prompt: `${title}的提示词`,
+    status: 'awaiting_confirmation',
+    snapshot: { mode: 'image', args: { n: 1 }, target: { provider: 'muvloom', model: 'flare' } },
+  })
+
+  it('余额不够计划合计时，确认前就在卡上说明并按住「全部生成」', () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    overlayGuard.current = { estimatedCredits: 100, availableCredits: 320 }
+    try {
+      useAgentStore.setState({
+        conversationId: 'conversation-plan',
+        messages: ['a', 'b', 'c', 'd'].map((id) => planDraft(id, `猫${id}`)),
+      })
+      render()
+      const generate = () =>
+        [...host.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+          button.textContent?.startsWith('全部生成'),
+        )!
+      expect(host.textContent).toContain('合计约 400 积分')
+      expect(host.querySelector('[data-plan-short]')?.textContent).toContain(
+        '可用 320 积分，不够合计约 400 积分',
+      )
+      expect(generate().disabled).toBe(true)
+      // 少勾一张就够了：提示消失，按钮放开。
+      act(() => {
+        host.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="猫d"]')?.click()
+      })
+      expect(host.querySelector('[data-plan-short]')).toBeNull()
+      expect(generate().disabled).toBe(false)
+    } finally {
+      overlayGuard.current = null
+    }
+  })
+
+  it('逐张确认中途被拒（积分不足）时，被拒那一行就地标出原因，不随计划卡重挂而丢失', async () => {
+    const original = useAgentStore.getState().confirmPrompt
+    const confirmPrompt = vi.fn(async (id: string) => {
+      if (id === 'd')
+        return {
+          ok: false as const,
+          reason: 'refused' as const,
+          code: 'insufficient_credits' as const,
+        }
+      // 成交的那张就地换成已提交：计划从下一张起算。
+      useAgentStore.setState((state) => ({
+        messages: state.messages.map((one) =>
+          one.id === id && one.kind === 'tool' ? { ...one, status: 'submitted' as const } : one,
+        ),
+      }))
+      return { ok: true as const }
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      confirmPrompt,
+      conversationId: 'conversation-plan',
+      messages: ['a', 'b', 'c', 'd'].map((id) => planDraft(id, `猫${id}`)),
+    })
+    try {
+      render()
+      await act(async () => {
+        ;[...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '全部生成（4）')
+          ?.click()
+        await vi.waitFor(() => expect(confirmPrompt).toHaveBeenCalledTimes(4))
+      })
+      // 等逐张确认走完、结局横幅渲染出来，不赌一次定时器就够。
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[role="alert"]')?.textContent).toContain('已提交 3 张')
+      })
+      expect(confirmPrompt.mock.calls.map(([id]) => id)).toEqual(['a', 'b', 'c', 'd'])
+      expect(host.textContent).toContain('全部生成（1）')
+      expect(
+        host.querySelector('[data-plan-refused="insufficient_credits"]')?.textContent,
+      ).toContain('积分不够，这次没有生成')
+      expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+        '已提交 3 张，「猫d」未提交：积分不够，这次没有生成',
+      )
+    } finally {
+      useAgentStore.setState({ confirmPrompt: original })
+    }
+  })
+
+  it('同一轮前一段计划消失时，后一段计划不重挂；已提交张数按产出数计', async () => {
+    const original = useAgentStore.getState().confirmPrompt
+    const confirmPrompt = vi.fn(async (id: string) => {
+      if (id === 'd')
+        return {
+          ok: false as const,
+          reason: 'refused' as const,
+          code: 'insufficient_credits' as const,
+        }
+      // a 成交的同时，前一段计划里的 x 也在别处被确认：前一段整段消失。
+      useAgentStore.setState((state) => ({
+        messages: state.messages.map((one) =>
+          (one.id === id || one.id === 'x') && one.kind === 'tool'
+            ? { ...one, status: 'submitted' as const }
+            : one,
+        ),
+      }))
+      return { ok: true as const }
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      confirmPrompt,
+      conversationId: 'conversation-plan',
+      messages: [
+        planDraft('x', '猫x'),
+        {
+          kind: 'text',
+          id: 'between',
+          turnId: 'turn-plan',
+          role: 'assistant',
+          text: '再来两张',
+          streaming: false,
+        },
+        {
+          ...planDraft('a', '猫a'),
+          snapshot: {
+            mode: 'image',
+            args: { n: 2 },
+            target: { provider: 'muvloom', model: 'flare' },
+          },
+        },
+        planDraft('d', '猫d'),
+      ],
+    })
+    try {
+      render()
+      expect(host.querySelectorAll('[aria-label="生成计划"]')).toHaveLength(2)
+      await act(async () => {
+        ;[...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '全部生成（3）')
+          ?.click()
+        await vi.waitFor(() => expect(confirmPrompt).toHaveBeenCalledTimes(2))
+      })
+      // 等逐张确认走完、结局横幅渲染出来，不赌一次定时器就够。
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[role="alert"]')?.textContent).toContain('已提交 2 张')
+      })
+      expect(confirmPrompt.mock.calls.map(([id]) => id)).toEqual(['a', 'd'])
+      expect(host.querySelectorAll('[aria-label="生成计划"]')).toHaveLength(1)
+      expect(
+        host.querySelector('[data-plan-refused="insufficient_credits"]')?.textContent,
+      ).toContain('积分不够，这次没有生成')
+      expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+        '已提交 2 张，「猫d」未提交',
+      )
+    } finally {
+      useAgentStore.setState({ confirmPrompt: original })
+    }
+  })
+
+  it('取消勾选的稿在计划随提交拆段、重挂后仍不勾选，不会被下一次「全部生成」带上', async () => {
+    const original = useAgentStore.getState().confirmPrompt
+    const confirmPrompt = vi.fn(async (id: string) => {
+      if (id === 'd')
+        return {
+          ok: false as const,
+          reason: 'refused' as const,
+          code: 'insufficient_credits' as const,
+        }
+      useAgentStore.setState((state) => ({
+        messages: state.messages.map((one) =>
+          one.id === id && one.kind === 'tool' ? { ...one, status: 'submitted' as const } : one,
+        ),
+      }))
+      return { ok: true as const }
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      confirmPrompt,
+      conversationId: 'conversation-plan',
+      messages: ['a', 'b', 'c', 'd'].map((id) => planDraft(id, `猫${id}`)),
+    })
+    try {
+      render()
+      act(() => {
+        host.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="猫a"]')?.click()
+      })
+      await act(async () => {
+        ;[...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '全部生成（3）')
+          ?.click()
+        await vi.waitFor(() => expect(confirmPrompt).toHaveBeenCalledTimes(3))
+      })
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[role="alert"]')?.textContent).toContain('已提交 2 张')
+      })
+      // b、c 成交后 a 与 d 分成两段计划，a 那段换了 key 重挂：仍是跳过的。
+      expect(host.querySelectorAll('[aria-label="生成计划"]')).toHaveLength(2)
+      expect(
+        host.querySelector('[role="checkbox"][aria-label="猫a"]')?.getAttribute('aria-checked'),
+      ).toBe('false')
+      expect(confirmPrompt.mock.calls.map(([id]) => id)).toEqual(['b', 'c', 'd'])
+    } finally {
+      useAgentStore.setState({ confirmPrompt: original })
+    }
+  })
+
+  it('确认途中计划最后一张在别处成交、计划换 key 重挂时，后面被拒的那张照样标出来', async () => {
+    const original = useAgentStore.getState().confirmPrompt
+    const confirmPrompt = vi.fn(async (id: string) => {
+      if (id === 'b')
+        return {
+          ok: false as const,
+          reason: 'refused' as const,
+          code: 'insufficient_credits' as const,
+        }
+      // a 成交的同时，计划最后一张 c 在另一个标签页里被确认：计划从 a,b,c 变成只剩 b。
+      useAgentStore.setState((state) => ({
+        messages: state.messages.map((one) =>
+          (one.id === id || one.id === 'c') && one.kind === 'tool'
+            ? { ...one, status: 'submitted' as const }
+            : one,
+        ),
+      }))
+      return { ok: true as const }
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      confirmPrompt,
+      conversationId: 'conversation-plan',
+      messages: ['a', 'b', 'c'].map((id) => planDraft(id, `猫${id}`)),
+    })
+    try {
+      render()
+      await act(async () => {
+        ;[...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '全部生成（3）')
+          ?.click()
+        await vi.waitFor(() => expect(confirmPrompt).toHaveBeenCalledTimes(2))
+      })
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[role="alert"]')?.textContent).toContain('已提交 1 张')
+      })
+      expect(confirmPrompt.mock.calls.map(([id]) => id)).toEqual(['a', 'b'])
+      expect(
+        host.querySelector('[data-plan-refused="insufficient_credits"]')?.textContent,
+      ).toContain('积分不够，这次没有生成')
+      expect(host.textContent).toContain('全部生成（1）')
+    } finally {
+      useAgentStore.setState({ confirmPrompt: original })
+    }
+  })
+
+  it('计划卡的跳过勾选按会话隔离、随稿移除丢弃：同一个 id 的新稿默认勾选', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      conversationId: 'conversation-one',
+      messages: ['a', 'b'].map((id) => planDraft(id, `猫${id}`)),
+    })
+    render()
+    const checked = (title: string) =>
+      host.querySelector(`[role="checkbox"][aria-label="${title}"]`)?.getAttribute('aria-checked')
+    act(() => {
+      host.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="猫a"]')?.click()
+    })
+    expect(checked('猫a')).toBe('false')
+    // 换到另一个会话，后端恰好复用了 id「a」：不能继承上个会话的跳过。
+    await act(async () => {
+      useAgentStore.setState({
+        conversationId: 'conversation-two',
+        messages: ['a', 'b'].map((id) => planDraft(id, `狗${id}`)),
+      })
+      await settle()
+    })
+    expect(checked('狗a')).toBe('true')
+    expect(host.textContent).toContain('全部生成（2）')
+    // 同一会话里稿被移除后再出现同 id 的新稿：同样不带旧状态。
+    act(() => {
+      host.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="狗a"]')?.click()
+    })
+    expect(checked('狗a')).toBe('false')
+    await act(async () => {
+      useAgentStore.setState({ messages: [planDraft('b', '狗b')] })
+      await settle()
+    })
+    await act(async () => {
+      useAgentStore.setState({ messages: ['a', 'b'].map((id) => planDraft(id, `鸟${id}`)) })
+      await settle()
+    })
+    expect(checked('鸟a')).toBe('true')
+  })
+
+  it('计划还在拟（拟它的那一轮在跑）时按住「全部生成」并说明；那一轮结束后才可确认', async () => {
+    const original = useAgentStore.getState().confirmPrompt
+    const confirmPrompt = vi.fn(async () => ({ ok: true as const }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      confirmPrompt,
+      conversationId: 'conversation-plan',
+      turn: 'running',
+      activeTurn: { turnId: 'turn-plan' },
+      messages: ['a', 'b'].map((id) => ({ ...planDraft(id, `猫${id}`), gated: true as const })),
+    })
+    const button = () =>
+      [...host.querySelectorAll<HTMLButtonElement>('button')].find((one) =>
+        one.textContent?.startsWith('全部生成'),
+      )
+    try {
+      render()
+      expect(button()?.disabled).toBe(true)
+      expect(host.querySelector('[aria-label="生成计划"]')?.textContent).toContain('正在生成计划')
+      await act(async () => {
+        button()?.click()
+      })
+      expect(confirmPrompt).not.toHaveBeenCalled()
+      expect(host.textContent).not.toContain('已失效')
+      await act(async () => {
+        useAgentStore.setState({ turn: 'idle', activeTurn: null })
+      })
+      expect(button()?.disabled).toBe(false)
+      expect(host.textContent).not.toContain('正在生成计划')
+    } finally {
+      useAgentStore.setState({ confirmPrompt: original, turn: 'idle', activeTurn: null })
+    }
+  })
+
+  it('计划还在拟时按了「取消」，后面再追加稿（卡片换 key 重挂）也不会自己弹回来', async () => {
+    useAgentStore.setState({
+      conversationId: 'conversation-plan',
+      turn: 'running',
+      activeTurn: { turnId: 'turn-plan' },
+      messages: ['a', 'b'].map((id) => ({ ...planDraft(id, `猫${id}`), gated: true as const })),
+    })
+    const plan = () => host.querySelector('[aria-label="生成计划"]')
+    const button = (label: string) =>
+      [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+        (one) => one.textContent === label,
+      )
+    try {
+      render()
+      await act(async () => {
+        button('取消')?.click()
+      })
+      expect(plan()?.textContent).toContain('未生成')
+      await act(async () => {
+        useAgentStore.setState((state) => ({
+          messages: [...state.messages, { ...planDraft('c', '猫c'), gated: true as const }],
+        }))
+      })
+      expect(plan()?.textContent).toContain('未生成')
+      expect(button('继续确认')).toBeTruthy()
+      await act(async () => {
+        button('继续确认')?.click()
+      })
+      expect(plan()?.textContent).not.toContain('未生成')
+      expect(plan()?.querySelectorAll('li')).toHaveLength(3)
+    } finally {
+      useAgentStore.setState({ turn: 'idle', activeTurn: null })
+    }
+  })
+
+  it('计划还在拟时正在改某张的提示词，后面再追加稿：输入框不重挂，焦点和光标都在', async () => {
+    useAgentStore.setState({
+      conversationId: 'conversation-plan',
+      turn: 'running',
+      activeTurn: { turnId: 'turn-plan' },
+      messages: ['a', 'b'].map((id) => ({ ...planDraft(id, `猫${id}`), gated: true as const })),
+    })
+    try {
+      render()
+      const row = [...host.querySelectorAll<HTMLButtonElement>('button')].find((one) =>
+        one.textContent?.startsWith('猫a'),
+      )
+      await act(async () => row?.click())
+      const editor = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="修改提示词"]')!
+      editor.focus()
+      editor.setSelectionRange(2, 2)
+      await act(async () => {
+        useAgentStore.setState((state) => ({
+          messages: [...state.messages, { ...planDraft('c', '猫c'), gated: true as const }],
+        }))
+      })
+      expect(host.querySelector('[aria-label="生成计划"]')?.querySelectorAll('li')).toHaveLength(3)
+      expect(editor.isConnected).toBe(true)
+      expect(document.activeElement).toBe(editor)
+      expect(editor.selectionStart).toBe(2)
+    } finally {
+      useAgentStore.setState({ turn: 'idle', activeTurn: null })
+    }
+  })
+
+  it('上次停在某张、取消它再生成剩下的：新一次停下的那张标出来，不再显示上次的停因', async () => {
+    const original = useAgentStore.getState().confirmPrompt
+    const refused = new Set(['b', 'd'])
+    const confirmPrompt = vi.fn(async (id: string) => {
+      if (refused.has(id))
+        return {
+          ok: false as const,
+          reason: 'refused' as const,
+          code: 'insufficient_credits' as const,
+        }
+      useAgentStore.setState((state) => ({
+        messages: state.messages.map((one) =>
+          one.id === id && one.kind === 'tool' ? { ...one, status: 'submitted' as const } : one,
+        ),
+      }))
+      return { ok: true as const }
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      confirmPrompt,
+      conversationId: 'conversation-plan',
+      messages: ['b', 'c', 'd'].map((id) => planDraft(id, `猫${id}`)),
+    })
+    const click = (label: string) =>
+      [...host.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent === label)
+        ?.click()
+    try {
+      render()
+      await act(async () => {
+        click('全部生成（3）')
+        await vi.waitFor(() => expect(confirmPrompt).toHaveBeenCalledTimes(1))
+      })
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[data-plan-refused]')).not.toBeNull()
+      })
+      // 取消停下的 b，生成剩下两张：c 成交，d 被拒。
+      await act(async () => {
+        host.querySelector<HTMLButtonElement>('[role="checkbox"][aria-label="猫b"]')?.click()
+      })
+      await act(async () => {
+        click('全部生成（2）')
+        await vi.waitFor(() => expect(confirmPrompt).toHaveBeenCalledTimes(3))
+      })
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[role="alert"]')?.textContent).toContain('「猫d」未提交')
+      })
+      expect(host.querySelectorAll('[data-plan-refused]')).toHaveLength(1)
+    } finally {
+      useAgentStore.setState({ confirmPrompt: original })
+    }
+  })
+
+  it('中途被拒的提示在渲染时翻译：切换语言后跟着变', async () => {
+    const original = useAgentStore.getState().confirmPrompt
+    const confirmPrompt = vi.fn(async (id: string) => {
+      if (id === 'b')
+        return {
+          ok: false as const,
+          reason: 'refused' as const,
+          code: 'insufficient_credits' as const,
+        }
+      useAgentStore.setState((state) => ({
+        messages: state.messages.map((one) =>
+          one.id === id && one.kind === 'tool' ? { ...one, status: 'submitted' as const } : one,
+        ),
+      }))
+      return { ok: true as const }
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    useAgentStore.setState({
+      confirmPrompt,
+      conversationId: 'conversation-plan',
+      messages: ['a', 'b'].map((id) => planDraft(id, `猫${id}`)),
+    })
+    const language = i18next.language
+    try {
+      render()
+      await act(async () => {
+        ;[...host.querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent === '全部生成（2）')
+          ?.click()
+        await vi.waitFor(() => expect(confirmPrompt).toHaveBeenCalledTimes(2))
+      })
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[role="alert"]')?.textContent).toContain('已提交 1 张')
+      })
+      await ensureLocaleLoaded('en')
+      await act(async () => {
+        await i18next.changeLanguage('en')
+      })
+      await vi.waitFor(async () => {
+        await settle()
+        expect(host.querySelector('[role="alert"]')?.textContent).toBe(
+          'Submitted 1 image; "猫b" was not submitted: Not enough credits, so this wasn\'t submitted',
+        )
+      })
+    } finally {
+      await act(async () => {
+        await i18next.changeLanguage(language)
+      })
+      useAgentStore.setState({ confirmPrompt: original })
+    }
+  })
+})
+
+it('shows a cached image result as its tile while syncing instead of a prompt card', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ skills: [] })),
+  )
+  useAgentStore.setState({
+    conversationId: 'cached-conversation',
+    historyCached: true,
+    historyLoading: true,
+    messages: [
+      {
+        ...toolMessage('placed'),
+        id: 'cached-image',
+        toolName: 'generateImage',
+        prompt: '缓存里的完整提示词',
+      },
+    ],
+  })
+  render()
+  await settle()
+  const block = host.querySelector('[data-agent-message-id="cached-image"]')!
+  expect(block.querySelector('.studio-agent-inline-tile')).not.toBeNull()
+  expect(block.textContent).not.toContain('缓存里的完整提示词')
 })
 
 it('shows cached messages while syncing without mounting batch recovery effects', async () => {

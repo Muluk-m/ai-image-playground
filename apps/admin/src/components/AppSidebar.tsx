@@ -3,11 +3,14 @@ import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import {
   Activity,
   BookOpen,
+  Boxes,
   Bug,
   ClipboardList,
   HeartPulse,
   LogOut,
   type LucideIcon,
+  MessageSquareText,
+  MonitorSmartphone,
   ReceiptText,
   RefreshCw,
   ScrollText,
@@ -39,6 +42,7 @@ import { ADMIN_REFRESH_EVENT } from '@/lib/queries'
 export type NavTo =
   | '/overview'
   | '/tasks'
+  | '/prompts'
   | '/users'
   | '/devices'
   | '/inspirations'
@@ -48,6 +52,7 @@ export type NavTo =
   | '/errors'
   | '/logs'
   | '/audit'
+  | '/models'
 
 export interface NavEntry {
   to: NavTo
@@ -79,7 +84,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { to: '/overview', icon: Activity, label: '概览' },
       { to: '/users', icon: Users, label: '用户', gated: true },
       { to: '/tasks', icon: ClipboardList, label: '生成任务' },
-      { to: '/devices', icon: ClipboardList, label: '设备' },
+      { to: '/prompts', icon: MessageSquareText, label: '提示词' },
+      { to: '/devices', icon: MonitorSmartphone, label: '设备' },
     ],
   },
   {
@@ -100,7 +106,10 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   },
   {
     label: '设置',
-    entries: [{ to: '/audit', icon: BookOpen, label: '审计' }],
+    entries: [
+      { to: '/models', icon: Boxes, label: '模型' },
+      { to: '/audit', icon: BookOpen, label: '审计' },
+    ],
   },
 ]
 
@@ -257,7 +266,7 @@ export function AppSidebar() {
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton tooltip="刷新" onClick={refresh}>
+            <SidebarMenuButton aria-label="刷新" onClick={refresh}>
               <RefreshCw />
               <span>刷新</span>
             </SidebarMenuButton>

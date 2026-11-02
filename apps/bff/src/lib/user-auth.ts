@@ -3,7 +3,28 @@ import type { AuthUserView } from '@image-playground/shared'
 import { Elysia } from 'elysia'
 import { config } from '../config'
 import { isCapabilityEnabled } from './capabilities'
-import { resolveUserSession, sessionClientFromRequest, USER_SESSION_COOKIE } from './user-session'
+import {
+  resolveUserSession,
+  sessionClientFromRequest,
+  USER_LOGOUT_PATH,
+  USER_SESSION_COOKIE,
+} from './user-session'
+
+/**
+ * 本次请求解析出的登录用户 id，只给访问日志用：全局的 onAfterResponse 拿不到各路由插件
+ * derive 出来的 authUser。按 Request 弱引用，请求结束随之回收。
+ */
+const requestUsers = new WeakMap<Request, string>()
+function rememberUser(request: Request, user: AuthUserView | null): AuthUserView | null {
+  // 同一个请求可能经过多次认证 derive，以最后一次结果为准：这次没解析出用户就清掉旧记录，
+  // 免得把未认证的拒绝记到别人头上。
+  if (user) requestUsers.set(request, user.id)
+  else requestUsers.delete(request)
+  return user
+}
+export function requestAuthUserId(request: Request): string | undefined {
+  return requestUsers.get(request)
+}
 
 /** Resolve a valid cookie independently from whether new logins are enabled. */
 export const resolveAuthUser = new Elysia({ name: 'resolve-auth-user' }).derive(
@@ -12,7 +33,14 @@ export const resolveAuthUser = new Elysia({ name: 'resolve-auth-user' }).derive(
     const raw = cookie[USER_SESSION_COOKIE]?.value
     const token = typeof raw === 'string' ? raw : ''
     const client = sessionClientFromRequest(request, server?.requestIP(request)?.address ?? null)
-    return { authUser: await resolveUserSession(token, client) }
+    // 登出要先按会话主人收回阶段授权。derive 不能先删掉禁用账号的会话。
+    const keepDisabledSession = new URL(request.url).pathname === USER_LOGOUT_PATH
+    return {
+      authUser: rememberUser(
+        request,
+        await resolveUserSession(token, client, { keepDisabledSession }),
+      ),
+    }
   },
 )
 
@@ -47,7 +75,7 @@ export const requireUserOrService = new Elysia({ name: 'require-user-or-service'
     const token = typeof raw === 'string' ? raw : ''
     const client = sessionClientFromRequest(request, server?.requestIP(request)?.address ?? null)
     return {
-      authUser: await resolveUserSession(token, client),
+      authUser: rememberUser(request, await resolveUserSession(token, client)),
       serviceIdentity: false,
     }
   })
@@ -63,7 +91,7 @@ export const requireUser = new Elysia({ name: 'require-user' })
     const raw = cookie[USER_SESSION_COOKIE]?.value
     const token = typeof raw === 'string' ? raw : ''
     const client = sessionClientFromRequest(request, server?.requestIP(request)?.address ?? null)
-    return { authUser: await resolveUserSession(token, client) }
+    return { authUser: rememberUser(request, await resolveUserSession(token, client)) }
   })
   .onBeforeHandle({ as: 'scoped' }, ({ authUser, status }) => {
     if (isCapabilityEnabled('accounts:login') && !authUser) {

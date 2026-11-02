@@ -6,7 +6,9 @@ import {
   canvasOrigin,
   canvasResultIsStale,
   chooseCanvasResult,
+  patchStoryboardMedia,
   readCanvasDocument,
+  STORYBOARD_GRID_MAX,
   storyboardFingerprint,
 } from '@image-playground/shared'
 import { useEffect } from 'react'
@@ -18,7 +20,6 @@ import { useStore } from '../../../store'
 import type { CanvasEditor } from './editor'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
 import { recordNodeOutput } from './nodeCanvasResults'
-import { patchStoryboardMedia, STORYBOARD_GRID_MAX } from './nodeStoryboardFlow'
 
 const origin = canvasOrigin('system', 'storyboard-grid')
 export function storyboardTiles(
@@ -200,14 +201,12 @@ export async function splitStoryboardGrid(
         result.id,
         {
           data: { fileId, naturalWidth: tile.width, naturalHeight: tile.height },
-          width: 360,
-          height: (360 * tile.height) / tile.width,
         },
         origin,
       )
     }
     patchStoryboardMedia(
-      canvas,
+      canvas.doc,
       id,
       {
         meta: {

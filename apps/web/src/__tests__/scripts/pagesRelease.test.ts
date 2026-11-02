@@ -1,19 +1,23 @@
 // @vitest-environment node
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import {
   APP_MODE_PATHS,
+  CLI_DEVICE_PATH,
   LEGACY_PROJECTS_PATH,
   PRICING_PATH,
   PRIVACY_PATH,
   TERMS_PATH,
+  TOOL_ROUTE_PATTERN,
 } from '../../lib/appPaths'
 import { PROJECT_ROUTE_PATTERN, pagesRedirects } from '../../lib/pagesRedirects'
 
 const root = resolve(__dirname, '../../../../..')
+const { serveDist } = createRequire(import.meta.url)(join(root, 'scripts/pages-browser-smoke.cjs'))
 const { verifyPagesRelease, verifyPagesReleaseWithRetry } = await import(
   pathToFileURL(join(root, 'scripts/verify-pages-release.mjs')).href
 )
@@ -23,6 +27,7 @@ beforeEach(async () => {
   dist = await mkdtemp(join(tmpdir(), 'pages-release-'))
   await mkdir(join(dist, 'assets'))
   await writeFile(join(dist, 'index.html'), html)
+  await writeFile(join(dist, 'workbench.html'), html)
   await writeFile(join(dist, '_redirects'), pagesRedirects())
   await writeFile(join(dist, 'assets/main-123.js'), 'export {}')
   await writeFile(join(dist, 'assets/lazy-456.js'), 'export default 1')
@@ -45,6 +50,32 @@ const good = async (url: URL) => {
 }
 it('verifies deployed bytes and real missing-resource behavior', async () => {
   await verifyPagesRelease('https://example.test', dist, good)
+})
+it('keeps deep links on their incoming URLs under Pages clean-HTML routing', async () => {
+  const server = await serveDist(dist)
+  try {
+    for (const path of ['/image', '/p/example', '/pricing']) {
+      const response = await fetch(server.origin + path, { redirect: 'manual' })
+      expect(response.status).toBe(200)
+      expect(response.headers.get('location')).toBeNull()
+      expect(await response.text()).toBe(html)
+    }
+    await verifyPagesRelease(server.origin, dist)
+  } finally {
+    await server.close()
+  }
+})
+it('catches the production incident: an html rewrite target redirects the deep link', async () => {
+  await writeFile(join(dist, '_redirects'), '/image /workbench.html 200\n')
+  const server = await serveDist(dist)
+  try {
+    const response = await fetch(`${server.origin}/image`, { redirect: 'manual' })
+    expect(response.status).toBe(308)
+    expect(response.headers.get('location')).toBe('/workbench')
+    await expect(verifyPagesRelease(server.origin, dist)).rejects.toThrow('fetch failed')
+  } finally {
+    await server.close()
+  }
 })
 it('rejects the incident: HTML cached under a successful JS URL', async () => {
   await expect(
@@ -91,17 +122,19 @@ it('generates SPA fallbacks for every app route without a catch-all asset rewrit
     ...Object.values(APP_MODE_PATHS),
     LEGACY_PROJECTS_PATH,
     PROJECT_ROUTE_PATTERN,
+    TOOL_ROUTE_PATTERN,
     PRICING_PATH,
     TERMS_PATH,
     PRIVACY_PATH,
+    CLI_DEVICE_PATH,
   ]) {
-    expect(rules).toContain(`${path} / 200\n`)
-    if (path !== '/assets') expect(rules).toContain(`${path}/ / 200\n`)
+    expect(rules).toContain(`${path} /workbench 200\n`)
+    if (path !== '/assets') expect(rules).toContain(`${path}/ /workbench 200\n`)
   }
-  expect(rules).toContain('/assets / 200\n')
+  expect(rules).toContain('/assets /workbench 200\n')
   // `/assets/` 落在 `_headers` 的一年 immutable 规则里：不能在那里下发 HTML。
   expect(rules).toContain('/assets/ /assets 301\n')
-  expect(rules).not.toContain('/assets/ / 200')
+  expect(rules).not.toContain('/assets/ /workbench 200')
   expect(rules).not.toMatch(/^\/assets\/\*/m)
   expect(rules).not.toMatch(/^\/\*/m)
   expect(await readFile(join(root, 'apps/web/public/404.html'), 'utf8')).toContain('Page not found')
@@ -175,4 +208,61 @@ it('stops retrying a persistently broken release at the deadline', async () => {
       fetcher: () => Promise.resolve(new Response('Old version', { status: 503 })),
     }),
   ).rejects.toThrow()
+})
+
+it.each(['/', '/guide/'])('rejects long-lived static HTML at %s', async (path) => {
+  await mkdir(join(dist, 'guide'))
+  await writeFile(join(dist, 'guide/index.html'), html)
+  await writeFile(
+    join(dist, 'site-pages.json'),
+    JSON.stringify([{ path: '/' }, { path: '/guide/' }]),
+  )
+  await expect(
+    verifyPagesRelease('https://example.test', dist, async (url: URL) =>
+      url.pathname === path
+        ? new Response(html, {
+            headers: { 'content-type': 'text/html', 'cache-control': 'public, max-age=3600' },
+          })
+        : good(url),
+    ),
+  ).rejects.toThrow('cached long-lived')
+})
+it('rejects a missing website chunk even when workbench missing assets are correct', async () => {
+  await expect(
+    verifyPagesRelease('https://example.test', dist, async (url: URL) =>
+      url.pathname.startsWith('/website-assets/release-check-missing-')
+        ? new Response(html)
+        : good(url),
+    ),
+  ).rejects.toThrow('Missing asset')
+})
+
+// An edge that accepts a request and never answers it, until the client aborts.
+const stall = (init?: RequestInit) =>
+  new Promise<Response>((_, reject) =>
+    init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)),
+  )
+it('retries one stalled asset request instead of failing the whole pass', async () => {
+  let stalls = 0
+  await verifyPagesRelease(
+    'https://example.test',
+    dist,
+    (url: URL, init?: RequestInit) =>
+      url.pathname.endsWith('lazy-456.js') && ++stalls === 1 ? stall(init) : good(url),
+    AbortSignal.timeout(5000),
+    { requestTimeoutMs: 20 },
+  )
+  expect(stalls).toBe(2)
+})
+it('names the URL that keeps stalling', async () => {
+  await expect(
+    verifyPagesRelease(
+      'https://example.test',
+      dist,
+      (url: URL, init?: RequestInit) =>
+        url.pathname.endsWith('lazy-456.js') ? stall(init) : good(url),
+      AbortSignal.timeout(5000),
+      { requestTimeoutMs: 20, requestTries: 2 },
+    ),
+  ).rejects.toThrow('GET /assets/lazy-456.js failed: no response in 20ms after 2 tries')
 })

@@ -45,6 +45,11 @@ import {
 import { bootstrapClientCapabilities } from '../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
+import {
+  canvasProtocolResponse,
+  installCanvasTestSocket,
+  tolerateCrossRealmDigest,
+} from '../../helpers/cloudNodeProtocol'
 
 const CONVERSATION = 'conversation-1'
 const PROJECT = 'project-1'
@@ -230,6 +235,40 @@ it('重发仍使用发话时保存的画布目录', async () => {
   await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
 })
 
+it('画布轮不送对话张数，但把工作台张数单独送给阶段授权报价', async () => {
+  const original = useStore.getState()
+  // 画布页：不是图片生成目标，智能体自己决定对话张数；原标签页按工作台 4 张提交节点。
+  useStore.setState({ createTarget: 'canvas', params: { ...original.params, n: 4 } })
+  useAgentStore.setState({ autoSubmit: true })
+  turnResponse = () => Response.json({ error: 'invalid_selection' }, { status: 400 })
+  await useAgentStore.getState().send('跑这两个素材', [], undefined, 'image')
+  const sent = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
+  const body = JSON.parse(String(sent?.[1]?.body))
+  expect(body.params.n).toBeUndefined()
+  expect(body.params).toMatchObject({ autoSubmit: true, canvasImageCount: 4 })
+  useStore.setState({ createTarget: original.createTarget, params: original.params })
+})
+
+it('图片生成模式按直出发；明确交给智能体的那一句不带直出标记', async () => {
+  const original = useStore.getState()
+  useStore.setState({ createTarget: 'generate' })
+  turnResponse = () => Response.json({ error: 'invalid_selection' }, { status: 400 })
+  const turnBodies = () =>
+    fetchMock.mock.calls
+      .filter(([url]) => String(url).includes('/turns'))
+      .map(([, init]) => JSON.parse(String(init?.body)))
+  fetchMock.mockClear()
+  await useAgentStore.getState().send('白色浴缸', [], undefined, 'image')
+  expect(turnBodies().slice(-1)[0]?.params.directImage).toBe(true)
+  fetchMock.mockClear()
+  await useAgentStore.getState().sendThroughAgent('请基于这组提示词再次生成图片：白色浴缸', 'image')
+  expect(turnBodies().slice(-1)[0]?.params.directImage).toBeUndefined()
+  fetchMock.mockClear()
+  await useAgentStore.getState().send('再来一张', [], undefined, 'image')
+  expect(turnBodies().slice(-1)[0]?.params.directImage).toBe(true)
+  useStore.setState({ createTarget: original.createTarget })
+})
+
 it('发送失败后换了设置，刷新重发仍沿用原轮的完整参数', async () => {
   const original = useStore.getState().params
   useStore.setState({ params: { ...original, size: '1536x1024', quality: 'high' } })
@@ -270,6 +309,7 @@ it.each([
 ])('等待原图同步后，引用与发话时画布一致且不带入后续编辑（排队=%s）', async (queued) => {
   openProject(CONVERSATION, 'canvas')
   vi.stubGlobal('crypto', webcrypto)
+  tolerateCrossRealmDigest()
   setClientStorageScope(crypto.randomUUID())
   const source = 'data:image/png;base64,AQID'
   const marked = 'data:image/png;base64,BAUG'
@@ -291,6 +331,7 @@ it.each([
     activeId: project.id,
     loaded: true,
   })
+  installCanvasTestSocket()
   vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
@@ -305,6 +346,8 @@ it.each([
         releaseUpload = resolve
       })
     }
+    const canvas = await canvasProtocolResponse(url, init)
+    if (canvas) return canvas
     if (url.includes('/api/projects/') && init?.method === 'PUT') {
       const body = JSON.parse(String(init.body))
       return Response.json({
@@ -313,9 +356,20 @@ it.each([
         revision: body.baseRevision + 1,
         createdAt: 1,
         updatedAt: 2,
-        elementCount: body.document.elements.length,
+        elementCount: body.document?.elements?.length ?? 0,
+        document: body.document,
       })
     }
+    if (url.includes('/api/projects/'))
+      return Response.json({
+        id: project.id,
+        name: project.name,
+        revision: 1,
+        createdAt: 1,
+        updatedAt: 2,
+        elementCount: 0,
+        document: { version: 1, elements: [] },
+      })
     return fetchMock(input, init)
   })
   await bootstrapClientCapabilities(true, 'http://bff.test')

@@ -7,6 +7,7 @@ import {
   type ClientCapabilityKey,
   type ClientCapabilityManifest,
   MAX_IMAGE_UPLOAD_BYTES,
+  type MediaLimits,
   QUOTAS,
   type QuotaKey,
   type QuotaValues,
@@ -21,6 +22,7 @@ export type OperatorValueSource = 'default' | 'file' | `preset:${string}`
 export interface ResolvedOperatorConfig {
   readonly capabilities: CapabilityValues
   readonly capabilitySources: Readonly<Record<CapabilityKey, OperatorValueSource>>
+  readonly capabilityUsers: Readonly<Record<string, readonly CapabilityKey[]>>
   readonly quotas: QuotaValues
   readonly quotaSources: Readonly<Record<QuotaKey, OperatorValueSource>>
   readonly channelsFile: string | null
@@ -39,6 +41,7 @@ interface ParsedOperatorConfig {
   readonly preset?: string
   readonly presets: Readonly<Record<string, ParsedPreset>>
   readonly capabilities: ParsedCapabilityValues
+  readonly capabilityUsers: Readonly<Record<string, readonly CapabilityKey[]>>
   readonly quotas: ParsedQuotaValues
   readonly channelsFile: string | null
 }
@@ -91,6 +94,28 @@ function parseQuotas(value: unknown): ParsedQuotaValues {
   return parsed
 }
 
+function parseCapabilityUsers(value: unknown): Readonly<Record<string, readonly CapabilityKey[]>> {
+  if (value === undefined) return {}
+  if (!isObject(value)) throw new Error('operator config capabilityUsers must be an object')
+  const users: Record<string, CapabilityKey[]> = {}
+  for (const [userId, granted] of Object.entries(value)) {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(userId)) {
+      throw new Error(`operator config capabilityUsers has an invalid user id: ${userId}`)
+    }
+    if (!Array.isArray(granted)) {
+      throw new Error(`operator config capabilityUsers.${userId} must be an array`)
+    }
+    for (const key of granted) {
+      if (typeof key !== 'string' || RETIRED_CAPABILITIES.includes(key)) continue
+      throw new Error(
+        `operator config capabilityUsers.${userId} contains an unsupported capability`,
+      )
+    }
+    users[userId] = []
+  }
+  return users
+}
+
 function parsePresets(value: unknown): Readonly<Record<string, ParsedPreset>> {
   if (value === undefined) return {}
   if (!isObject(value)) throw new Error('operator config presets must be an object')
@@ -114,7 +139,7 @@ function parseOperatorConfig(value: unknown): ParsedOperatorConfig {
   if (!isObject(value)) throw new Error('operator config must be a JSON object')
   assertOnlyKeys(
     value,
-    ['preset', 'presets', 'capabilities', 'quotas', 'channelsFile'],
+    ['preset', 'presets', 'capabilities', 'capabilityUsers', 'quotas', 'channelsFile'],
     'operator config',
   )
 
@@ -138,6 +163,7 @@ function parseOperatorConfig(value: unknown): ParsedOperatorConfig {
     preset,
     presets,
     capabilities: parseCapabilities(value.capabilities, 'operator config capabilities'),
+    capabilityUsers: parseCapabilityUsers(value.capabilityUsers),
     quotas: parseQuotas(value.quotas),
     channelsFile: typeof value.channelsFile === 'string' ? value.channelsFile.trim() : null,
   }
@@ -161,6 +187,7 @@ function defaults(file: string | null = null): ResolvedOperatorConfig {
   return {
     capabilities,
     capabilitySources,
+    capabilityUsers: {},
     quotas,
     quotaSources,
     channelsFile: null,
@@ -242,6 +269,7 @@ function resolveParsedConfig(parsed: ParsedOperatorConfig, file: string): Resolv
   return {
     capabilities,
     capabilitySources,
+    capabilityUsers: parsed.capabilityUsers,
     quotas,
     quotaSources,
     channelsFile: parsed.channelsFile,
@@ -300,9 +328,34 @@ export function attachmentLimits(config: ResolvedOperatorConfig): AttachmentLimi
   }
 }
 
-export function clientCapabilityManifest(config: ResolvedOperatorConfig): ClientCapabilityManifest {
+/** 普通云媒体的单张上限：与 `reserveMedia` 不带用途时、`completeMedia` 的像素上限同源。 */
+export function mediaLimits(config: ResolvedOperatorConfig): MediaLimits | undefined {
+  if (!config.capabilities['accounts:sync']) return undefined
+  return {
+    imageBytes: Math.min(config.quotas['sync:asset-image-bytes'], MAX_IMAGE_UPLOAD_BYTES),
+    imagePixels: MEDIA_UPLOAD_MAX_PIXELS,
+  }
+}
+
+const LEGACY_CANVAS_CAPABILITIES = {
+  'canvas:nodes': true,
+  'canvas:blank-generate': true,
+  'canvas:node-run': true,
+  'canvas:script': true,
+} as const
+
+export function clientCapabilityManifest(
+  config: ResolvedOperatorConfig,
+): ClientCapabilityManifest & typeof LEGACY_CANVAS_CAPABILITIES {
   const manifest = {} as Record<ClientCapabilityKey, boolean>
   for (const key of clientCapabilityKeys) manifest[key] = config.capabilities[key]
   const limits = attachmentLimits(config)
-  return { ...manifest, ...(limits ? { attachmentLimits: limits } : {}) }
+  const media = mediaLimits(config)
+  // 旧前端仍用这四个字段决定画布和子功能是否出现。新前端不再读取，响应里固定为开。
+  return {
+    ...manifest,
+    ...(limits ? { attachmentLimits: limits } : {}),
+    ...(media ? { mediaLimits: media } : {}),
+    ...LEGACY_CANVAS_CAPABILITIES,
+  }
 }

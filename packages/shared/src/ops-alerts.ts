@@ -12,11 +12,16 @@ export type AlertRule =
   | 'memory'
   | 'queue'
   | 'backup'
+  | 'server-logs'
   | 'restore'
   | 'heartbeat:bff'
   | 'api'
   | 'generation'
   | 'agent'
+  | 'agent-pattern'
+  | 'blind'
+  | 'reconciling'
+  | 'gpt-budget'
 
 /**
  * 这一轮看到的现状。某一块没取到就别给它：缺失既不触发，也不会被当成已恢复。
@@ -30,6 +35,8 @@ export interface AlertObservation {
   host?: HostSample
   queue?: { oldest_queued_wait_ms: number | null }
   backup?: { latest_modified_at: number | null }
+  /** server_logs 里最新一条的时间。null 表示表里还没有任何日志（新部署），不告警。 */
+  serverLogs?: { latest_at: number | null }
   restoreDrill?: OpsRestoreDrill | null
   heartbeats?: { bff?: number | null }
   api?: {
@@ -39,7 +46,95 @@ export interface AlertObservation {
     successes_by_minute: Record<string, number>
     error_routes: Record<string, number>
   }
-  failures?: { generation_system: number; agent: number }
+  failures?: {
+    generation_system: number
+    agent: number
+    /** 近 15 分钟每个模型的生成失败，按失败次数从多到少。没取到明细时不给。 */
+    generation_models?: readonly GenerationFailureModel[]
+    /** 每个模型最近一次成功出图的时间（近 24 小时）。恢复以它为准，不只看失败数。 */
+    generation_successes?: Readonly<Record<string, number>>
+  }
+  /**
+   * 近 6 小时每一类 Agent 轮次失败（模型、错误码、上游状态码各算一类）。
+   * 没有失败时为 null 或空数组。整块没取到就不要给这个字段。
+   */
+  agentFailurePatterns?: readonly AgentFailurePattern[] | null
+  /** OpenAI 直连本月已花与封顶（微美元）。没开直连时不给。 */
+  gptDirectBudget?: { spent_micro_usd: number; cap_micro_usd: number }
+  /** 连续若干轮取不到读数的块，由调用方按轮次累计。 */
+  blindBlocks?: ReadonlyArray<{ block: string; rounds: number }>
+}
+
+export interface GenerationFailureModel {
+  model: string
+  failures: number
+  /** 最近一次失败的 error_type。 */
+  errorType: string
+  /** 最近一次失败的上游 HTTP 状态码；没有就是 null。 */
+  upstreamStatus: number | null
+  /** 最近一次失败的报错，前 200 个字符。 */
+  message: string
+  lastFailedAt: number
+  /** 模型因上游不可用被自动暂停、还没被重新启用。运营手动停用的不算。 */
+  paused?: boolean
+}
+
+/** 生成告警还没收口时，盯着的那些模型：要等它们各自再成功出一张图，才发已恢复。 */
+export interface GenerationWatchEntry {
+  model: string
+  failures: number
+  errorType: string
+  upstreamStatus: number | null
+  message: string
+  lastFailedAt: number
+  paused?: boolean
+}
+
+export interface AgentFailurePattern {
+  model: string
+  code: string
+  /** 上游 HTTP 状态码；报错里认不出时为 null。 */
+  upstreamStatus: number | null
+  turns: number
+  lastAt: number
+  /** 最近一次的报错，已截断。 */
+  message: string
+}
+
+/**
+ * 用户自己的输入问题：上下文过长、请求体过大、图片不合法。
+ * 改模型配置不会让它消失，不能当成「配置被上游拒绝」。
+ * 文案取自请求预算、出站字节闸和上游图片拒绝里已经出现的写法。
+ */
+const USER_INPUT_MESSAGE =
+  /input tokens, over the|缩小共同查看范围|UTF-8 bytes|the local limit is|invalid[_ ]image|unsupported image|could not be processed|不是图片|context[_ ]length|maximum context length|prompt too long/i
+
+/** 部署把限额配坏、请求体无法计量：正文要求联系运营，不是用户那张图的问题。 */
+const OPERATOR_BUDGET_MESSAGE =
+  /contact the operator|byte limit is invalid|cannot be measured safely/i
+
+/** 参数或鉴权类的上游拒绝。裸的 400/404/`unsupported` 不够，用户输入也常带着这些字。 */
+const CONFIG_MESSAGE =
+  /invalid_request_error|invalid value|model_not_found|unsupported (?:value|parameter|model|field)|unknown parameter|invalid api key|incorrect api key/i
+
+export function isUserInputFailure(pattern: AgentFailurePattern): boolean {
+  if (pattern.code === 'agent_context_overflow') return true
+  if (pattern.code === 'agent_request_budget_exceeded')
+    return !OPERATOR_BUDGET_MESSAGE.test(pattern.message)
+  return USER_INPUT_MESSAGE.test(pattern.message)
+}
+
+/** 参数或鉴权类的上游拒绝：重试不会自己好，只能改配置，出现一次就报。 */
+export function isConfigurationFailure(pattern: AgentFailurePattern): boolean {
+  if (isContentPolicyFailure(pattern) || isUserInputFailure(pattern)) return false
+  if (pattern.upstreamStatus === 401 || pattern.upstreamStatus === 403) return true
+  if (OPERATOR_BUDGET_MESSAGE.test(pattern.message)) return true
+  return CONFIG_MESSAGE.test(pattern.message)
+}
+
+/** 内容策略拒绝是用户那条提示词的问题，不是服务事故。 */
+export function isContentPolicyFailure(pattern: AgentFailurePattern): boolean {
+  return /content_policy/i.test(pattern.code) || /content_policy/i.test(pattern.message)
 }
 
 interface RuleState {
@@ -56,14 +151,25 @@ interface ApiRuleState extends RuleState {
   successesAtTrigger: Record<string, number>
 }
 
+/** 一类失败自己的状态。键是模型、错误码和上游状态码，互不覆盖。 */
+export interface AgentPatternGroupState extends RuleState {
+  model: string
+  code: string
+  upstreamStatus: number | null
+}
+
 export type AlertState = Partial<Record<Exclude<AlertRule, 'api'>, RuleState>> & {
   api?: ApiRuleState
+  agentPatterns?: Record<string, AgentPatternGroupState>
+  generationWatch?: Record<string, GenerationWatchEntry>
 }
 
 export interface AlertMessage {
   rule: AlertRule
   kind: 'firing' | 'resolved'
   text: string
+  /** 给 JSON webhook 的结构化字段；飞书只发 text。 */
+  detail?: Record<string, unknown>
 }
 
 /** 同一条规则还没好的话，多久再提醒一次。 */
@@ -87,12 +193,14 @@ function percent(ratio: number): string {
   return `${Math.round(ratio * 100)}%`
 }
 
+/** 一段时长的口语写法，和看板的 `elapsed()` 一致："12 分钟" / "2 小时 30 分钟" / "3 天"。 */
 function span(ms: number): string {
   const minutes = Math.floor(ms / 60_000)
   if (minutes < 60) return `${minutes} 分钟`
   const hours = Math.floor(minutes / 60)
-  if (hours < 48) return `${hours} 小时`
-  return `${Math.floor(hours / 24)} 天`
+  if (hours < 48) return minutes % 60 === 0 ? `${hours} 小时` : `${hours} 小时 ${minutes % 60} 分钟`
+  const days = Math.floor(hours / 24)
+  return hours % 24 === 0 ? `${days} 天` : `${days} 天 ${hours % 24} 小时`
 }
 
 function heartbeatReading(label: string, lastSeenAt: number, now: number): Reading {
@@ -109,16 +217,39 @@ function readings(
   observation: AlertObservation,
   state: AlertState,
   now: number,
+  generationWaiting: readonly GenerationWatchEntry[] = [],
 ): Partial<Record<AlertRule, Reading>> {
   const out: Partial<Record<AlertRule, Reading>> = {}
-  const { host, queue, backup, restoreDrill, heartbeats, failures } = observation
+  const { host, queue, backup, restoreDrill, heartbeats, failures, serverLogs } = observation
+
+  if (observation.blindBlocks) {
+    const blind = observation.blindBlocks.filter(
+      (one) => one.rounds >= OPS_THRESHOLDS.ALERT_BLIND_ROUNDS,
+    )
+    out.blind = {
+      breached: blind.length > 0,
+      sustainMs: 0,
+      firingText: `告警读数连续取不到，对应规则暂时失效：${blind.map((one) => `${one.block}（${one.rounds} 轮）`).join('、')}`,
+      resolvedText: '已恢复：告警读数恢复正常',
+    }
+  }
 
   if (failures) {
+    const overThreshold = failures.generation_system >= OPS_THRESHOLDS.GENERATION_SYSTEM_FAILURES
+    const breached = generationBreached(failures)
+    const models = failures.generation_models ?? []
     out.generation = {
-      breached: failures.generation_system >= OPS_THRESHOLDS.GENERATION_SYSTEM_FAILURES,
+      breached,
+      // 失败数回到线内还不够：报过的模型得各自真的再出一张图，才算好了。
+      recovered: !breached && generationWaiting.length === 0,
       sustainMs: 0,
-      firingText: `近 15 分钟有 ${failures.generation_system} 次非内容策略的生成失败`,
-      resolvedText: '已恢复：生成系统失败回到告警线内',
+      firingText: breached
+        ? `${overThreshold ? `近 15 分钟有 ${failures.generation_system} 次非内容策略的生成失败` : '上游报模型不可用，模型已自动暂停'}${models.length > 0 ? `\n${models.slice(0, GENERATION_MODELS_IN_TEXT).map(generationModelLine).join('\n')}` : ''}`
+        : `生成失败已回到告警线内，但这些模型出事后还没有成功出过图，暂不发恢复：\n${generationWaiting.map(generationModelLine).join('\n')}`,
+      resolvedText:
+        Object.keys(state.generationWatch ?? {}).length > 0
+          ? `已恢复：${Object.keys(state.generationWatch ?? {}).join('、')} 已重新成功出图，生成失败回到告警线内`
+          : '已恢复：生成系统失败回到告警线内',
     }
     out.agent = {
       breached: failures.agent >= OPS_THRESHOLDS.AGENT_TURN_FAILURES,
@@ -153,6 +284,18 @@ function readings(
     }
   }
 
+  const budget = observation.gptDirectBudget
+  if (budget && budget.cap_micro_usd > 0) {
+    const used = budget.spent_micro_usd / budget.cap_micro_usd
+    const usd = (micro: number) => `$${(micro / 1_000_000).toFixed(2)}`
+    out['gpt-budget'] = {
+      breached: used >= OPS_THRESHOLDS.GPT_DIRECT_BUDGET_ALERT_RATIO,
+      sustainMs: 0,
+      firingText: `OpenAI 直连本月已花 ${usd(budget.spent_micro_usd)}，是封顶 ${usd(budget.cap_micro_usd)} 的 ${percent(used)}${used >= 1 ? '，已停用直连，会员全部走 sub2api' : ''}（告警线 ${percent(OPS_THRESHOLDS.GPT_DIRECT_BUDGET_ALERT_RATIO)}）`,
+      resolvedText: '已恢复：OpenAI 直连预算回到告警线内（新的一个月）',
+    }
+  }
+
   if (queue) {
     const wait = queue.oldest_queued_wait_ms
     out.queue = {
@@ -177,6 +320,24 @@ function readings(
       sustainMs: 0,
       firingText: '备份前缀下已经找不到任何数据库备份',
       resolvedText: '已恢复：有了新的数据库备份',
+    }
+  }
+
+  if (serverLogs && serverLogs.latest_at !== null) {
+    const age = now - serverLogs.latest_at
+    out['server-logs'] = {
+      breached: age > OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS,
+      sustainMs: 0,
+      firingText: `服务端日志已经 ${span(age)}没有新记录了（告警线 ${span(OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS)}），日志采集管道可能断了`,
+      resolvedText: '已恢复：服务端日志有新记录了',
+    }
+  } else if (serverLogs && state['server-logs']?.firing) {
+    // 正在报的时候表被清空：还没好，不是「从来没有过」。
+    out['server-logs'] = {
+      breached: true,
+      sustainMs: 0,
+      firingText: '服务端日志表里已经没有任何记录，日志采集管道可能断了',
+      resolvedText: '已恢复：服务端日志有新记录了',
     }
   }
 
@@ -211,6 +372,168 @@ function readings(
     }
   }
   return out
+}
+
+/**
+ * 生成告警越线：失败数到线，或者有模型因上游不可用被自动暂停。
+ * 后者单独算，是因为暂停后只会留下一两次失败，到不了线，但模型已经停了、要等人去重新启用。
+ */
+function generationBreached(failures: NonNullable<AlertObservation['failures']>): boolean {
+  return (
+    failures.generation_system >= OPS_THRESHOLDS.GENERATION_SYSTEM_FAILURES ||
+    (failures.generation_models ?? []).some(
+      (model) => model.paused === true && model.errorType === 'model_unavailable',
+    )
+  )
+}
+
+/** 告警正文里最多列几个模型。 */
+const GENERATION_MODELS_IN_TEXT = 5
+
+function generationModelLine(model: GenerationFailureModel | GenerationWatchEntry): string {
+  const status = model.upstreamStatus ? `，HTTP ${model.upstreamStatus}` : ''
+  const paused = model.paused ? '，已自动暂停' : ''
+  return `· ${model.model} ×${model.failures}：${model.errorType}${status}${paused}；最近一次：${model.message.slice(0, 200)}`
+}
+
+/**
+ * 更新「等它出图」的名单：新失败的模型加进来（记下最近一次的明细），之后成功出过图的划掉。
+ * 失败明细这一块没取到时原样留着，不能因为看不见就当它好了。
+ */
+function stepGenerationWatch(
+  failures: NonNullable<AlertObservation['failures']>,
+  previous: Record<string, GenerationWatchEntry> | undefined,
+): Record<string, GenerationWatchEntry> {
+  const watch: Record<string, GenerationWatchEntry> = { ...previous }
+  for (const model of failures.generation_models ?? []) {
+    const prior = watch[model.model]
+    if (prior && prior.lastFailedAt > model.lastFailedAt) continue
+    watch[model.model] = {
+      model: model.model,
+      failures: Math.max(model.failures, prior?.failures ?? 0),
+      errorType: model.errorType,
+      upstreamStatus: model.upstreamStatus,
+      message: model.message.slice(0, 200),
+      lastFailedAt: model.lastFailedAt,
+      ...(model.paused !== undefined ? { paused: model.paused } : {}),
+    }
+  }
+  const successes = failures.generation_successes
+  if (successes) {
+    for (const [model, entry] of Object.entries(watch)) {
+      if ((successes[model] ?? 0) > entry.lastFailedAt) delete watch[model]
+    }
+  }
+  return watch
+}
+
+function generationDetail(
+  failures: NonNullable<AlertObservation['failures']>,
+  waiting: readonly GenerationWatchEntry[],
+): Record<string, unknown> {
+  const toJson = (model: GenerationFailureModel | GenerationWatchEntry) => ({
+    model: model.model,
+    failures: model.failures,
+    error_type: model.errorType,
+    upstream_status: model.upstreamStatus,
+    message: model.message.slice(0, 200),
+    last_failed_at: new Date(model.lastFailedAt).toISOString(),
+    paused: model.paused ?? null,
+  })
+  return {
+    window_failures: failures.generation_system,
+    threshold: OPS_THRESHOLDS.GENERATION_SYSTEM_FAILURES,
+    models: (failures.generation_models ?? []).map(toJson),
+    waiting_for_success: waiting.map(toJson),
+  }
+}
+
+function patternKey(
+  pattern: Pick<AgentFailurePattern, 'model' | 'code' | 'upstreamStatus'>,
+): string {
+  return `${pattern.model}\u0000${pattern.code}\u0000${pattern.upstreamStatus ?? ''}`
+}
+
+function patternText(pattern: AgentFailurePattern, configuration: boolean): string {
+  return `${configuration ? 'Agent 模型配置被上游拒绝' : '同一类 Agent 失败反复出现'}：${pattern.model} 近 ${span(OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_WINDOW_MS)}有 ${pattern.turns} 轮以 ${pattern.code}${pattern.upstreamStatus ? `（HTTP ${pattern.upstreamStatus}）` : ''} 失败；最近一次：${pattern.message}`
+}
+
+function stepRule(
+  rule: AlertRule,
+  reading: Reading,
+  previous: RuleState | undefined,
+  now: number,
+): { state: RuleState; messages: AlertMessage[] } {
+  const prior = previous ?? { breachedSince: null, firing: false, lastSentAt: null }
+  // 报过的规则停在告警线与恢复线之间时，按「还没好」处理：不发已恢复，到点照常再提醒。
+  const breached = reading.breached || (prior.firing && !(reading.recovered ?? !reading.breached))
+  if (!breached) {
+    return {
+      state: { breachedSince: null, firing: false, lastSentAt: null },
+      messages: prior.firing ? [{ rule, kind: 'resolved', text: reading.resolvedText }] : [],
+    }
+  }
+  const breachedSince = prior.breachedSince ?? now
+  const due =
+    now - breachedSince >= reading.sustainMs &&
+    (!prior.firing || prior.lastSentAt === null || now - prior.lastSentAt >= REMIND_AFTER_MS)
+  return {
+    state: {
+      breachedSince,
+      firing: prior.firing || due,
+      lastSentAt: due ? now : prior.lastSentAt,
+    },
+    messages: due ? [{ rule, kind: 'firing', text: reading.firingText }] : [],
+  }
+}
+
+/** 每一类失败单独记状态。读数整块缺失时原样留下，不把还在报的类说成已恢复。 */
+function evaluateAgentPatterns(
+  patterns: readonly AgentFailurePattern[] | null | undefined,
+  previous: Record<string, AgentPatternGroupState> | undefined,
+  now: number,
+): { state: Record<string, AgentPatternGroupState>; messages: AlertMessage[] } {
+  if (patterns === undefined) return { state: previous ?? {}, messages: [] }
+  const active = new Map<string, AgentFailurePattern>()
+  for (const pattern of patterns ?? []) {
+    if (isContentPolicyFailure(pattern)) continue
+    if (now - pattern.lastAt > OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_QUIET_MS) continue
+    active.set(patternKey(pattern), pattern)
+  }
+  const state: Record<string, AgentPatternGroupState> = {}
+  const messages: AlertMessage[] = []
+  for (const key of new Set([...Object.keys(previous ?? {}), ...active.keys()])) {
+    const pattern = active.get(key) ?? null
+    const prior = previous?.[key]
+    const configuration = pattern !== null && isConfigurationFailure(pattern)
+    const identity = pattern ?? prior
+    if (!identity) continue
+    const stepped = stepRule(
+      'agent-pattern',
+      {
+        breached:
+          pattern !== null &&
+          (configuration || pattern.turns >= OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_TURNS),
+        // 静默窗口内这组还在，轮次暂时跌破阈值也不算恢复。组从窗口里消失才发已恢复。
+        recovered: pattern === null,
+        sustainMs: 0,
+        firingText: pattern ? patternText(pattern, configuration) : '',
+        resolvedText: `已恢复：${identity.model} 的同类 Agent 失败（${identity.code}）${span(OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_QUIET_MS)}内没有再出现`,
+      },
+      prior,
+      now,
+    )
+    messages.push(...stepped.messages)
+    if (stepped.state.firing || stepped.state.breachedSince !== null) {
+      state[key] = {
+        ...stepped.state,
+        model: identity.model,
+        code: identity.code,
+        upstreamStatus: identity.upstreamStatus,
+      }
+    }
+  }
+  return { state, messages }
 }
 
 function evaluateApi(
@@ -314,33 +637,44 @@ export function evaluateAlerts(
     next.api = { ...state.api, recoverySince: null }
   }
 
-  for (const [rule, reading] of Object.entries(readings(observation, state, now)) as Array<
-    [Exclude<AlertRule, 'api'>, Reading]
-  >) {
-    const previous = state[rule] ?? { breachedSince: null, firing: false, lastSentAt: null }
+  if (observation.agentFailurePatterns !== undefined) {
+    const patterns = evaluateAgentPatterns(
+      observation.agentFailurePatterns,
+      state.agentPatterns,
+      now,
+    )
+    next.agentPatterns = patterns.state
+    messages.push(...patterns.messages)
+  }
 
-    // 报过的规则停在告警线与恢复线之间时，按「还没好」处理：不发已恢复，到点照常再提醒。
-    const breached =
-      reading.breached || (previous.firing && !(reading.recovered ?? !reading.breached))
-    if (!breached) {
-      if (previous.firing) messages.push({ rule, kind: 'resolved', text: reading.resolvedText })
-      next[rule] = { breachedSince: null, firing: false, lastSentAt: null }
-      continue
-    }
+  const failures = observation.failures
+  // 只在生成告警越线或在报时维护名单；平时零星失败不进名单。
+  const watching = failures && (state.generation?.firing || generationBreached(failures))
+  const watch = watching ? stepGenerationWatch(failures, state.generationWatch) : {}
+  const waiting = Object.values(watch)
 
-    const breachedSince = previous.breachedSince ?? now
-    const sustained = now - breachedSince >= reading.sustainMs
-    const due =
-      sustained &&
-      (!previous.firing ||
-        previous.lastSentAt === null ||
-        now - previous.lastSentAt >= REMIND_AFTER_MS)
-    if (due) messages.push({ rule, kind: 'firing', text: reading.firingText })
-    next[rule] = {
-      breachedSince,
-      firing: previous.firing || due,
-      lastSentAt: due ? now : previous.lastSentAt,
+  for (const [rule, reading] of Object.entries(
+    readings(
+      observation,
+      { ...state, generationWatch: state.generationWatch ?? watch },
+      now,
+      waiting,
+    ),
+  ) as Array<[Exclude<AlertRule, 'api'>, Reading]>) {
+    const stepped = stepRule(rule, reading, state[rule], now)
+    if (rule === 'generation' && failures) {
+      for (const message of stepped.messages)
+        messages.push(
+          message.kind === 'firing'
+            ? { ...message, detail: generationDetail(failures, waiting) }
+            : message,
+        )
+      if (stepped.state.firing || stepped.state.breachedSince !== null) next.generationWatch = watch
+      else delete next.generationWatch
+    } else {
+      messages.push(...stepped.messages)
     }
+    next[rule] = stepped.state
   }
 
   return { messages, state: next }

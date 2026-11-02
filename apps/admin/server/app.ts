@@ -3,6 +3,8 @@ import { cors } from '@elysiajs/cors'
 import { Elysia } from 'elysia'
 import { config, getAdminCapabilities } from './config'
 import { appRelease, appVersion } from './lib/app-version'
+import { agentModelRoutes } from './routes/agent-models'
+import { agentPromptsRoutes } from './routes/agent-prompts'
 import { auditRoutes } from './routes/audit'
 import { authRoutes } from './routes/auth'
 import { clientErrorsRoutes } from './routes/client-errors'
@@ -10,6 +12,7 @@ import { devicesRoutes } from './routes/devices'
 import { googleAuthRoutes } from './routes/google-auth'
 import { imagesRoutes } from './routes/images'
 import { inspirationsRoutes } from './routes/inspirations'
+import { modelRoutes } from './routes/models'
 import { opsRoutes } from './routes/ops'
 import { overviewRoutes } from './routes/overview'
 import { extensionRoutes, privateRoutes } from './routes/private'
@@ -36,6 +39,9 @@ const apiApp = new Elysia()
   .use(devicesRoutes)
   .use(overviewRoutes)
   .use(opsRoutes)
+  .use(agentModelRoutes)
+  .use(modelRoutes)
+  .use(agentPromptsRoutes)
   .use(auditRoutes)
   .use(clientErrorsRoutes)
   .use(tasksRoutes)

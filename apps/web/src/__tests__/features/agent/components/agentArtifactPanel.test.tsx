@@ -14,7 +14,7 @@ vi.mock('../../../../lib/authClient', () => ({
 }))
 vi.mock('../../../../lib/runtimeConfig', () => ({ bffBaseUrl: () => 'http://test.local' }))
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
-it('embeds the real preview and editor in the production panel and navigates only on explicit canvas action', async () => {
+it('embeds the real preview and editor in the production panel without leaving for the canvas', async () => {
   stubPointerApis()
   const host = document.createElement('div')
   document.body.append(host)
@@ -74,10 +74,8 @@ it('embeds the real preview and editor in the production panel and navigates onl
     expect(pane!.querySelector('.studio-artifact-edit-dialog')).toBeNull()
     expect(onClose).not.toHaveBeenCalled()
     expect(host.querySelector('input')?.value).toBe('继续这个角色')
-    await act(async () =>
-      pane!.querySelector<HTMLButtonElement>('.studio-artifact-pane-edit')!.click(),
-    )
-    expect(onViewCanvas).toHaveBeenCalledExactlyOnceWith(['panel-image'])
+    expect(pane!.querySelector('.studio-artifact-pane-edit')).toBeNull()
+    expect(onViewCanvas).not.toHaveBeenCalled()
   } finally {
     await act(async () => root.unmount())
     host.remove()

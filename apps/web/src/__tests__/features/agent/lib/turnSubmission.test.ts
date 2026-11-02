@@ -1,7 +1,15 @@
 // @vitest-environment jsdom
+import {
+  canvasOrigin,
+  createCanvasGroup,
+  deleteCanvasNode,
+  insertCanvasNode,
+} from '@image-playground/shared'
 import { expect, it, vi } from 'vitest'
+import * as Y from 'yjs'
 import { captureTurnSubmission } from '../../../../features/agent/lib/turnSubmission'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
+import { setProjectView } from '../../../../features/canvas/lib/canvasView'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCanvasDocument'
 import {
@@ -100,7 +108,25 @@ it('keeps the experience a replayed message was originally sent from', () => {
 it('freezes the node selection for a turn and waits for its cloud sync', async () => {
   const editor = new CanvasEditor(new CanvasDoc())
   workspace.editor = editor
-  const canvas = {} as NodeCanvasDocument
+  const doc = new Y.Doc()
+  const origin = canvasOrigin('user', 'reference-test')
+  const canvas = { doc } as NodeCanvasDocument
+  for (const id of ['node', 'other']) {
+    insertCanvasNode(
+      doc,
+      {
+        id,
+        type: 'text',
+        x: 0,
+        y: 0,
+        width: 300,
+        height: 200,
+        data: { text: id, fontSize: 16, fill: '#fff' },
+      },
+      origin,
+    )
+  }
+  createCanvasGroup(doc, 'group', ['node'], 'Scene', origin)
   const sync = vi.fn(async () => {})
   workspace.cloud = { canvas: {}, sync }
   setNodeCanvasSelection(editor, canvas, ['group', 'node'])
@@ -116,8 +142,47 @@ it('freezes the node selection for a turn and waits for its cloud sync', async (
     expect(sync).toHaveBeenCalledOnce()
     sync.mockRejectedValueOnce(new Error('offline'))
     await expect(captured.prepare()).rejects.toThrow('offline')
+    deleteCanvasNode(doc, 'other', origin)
+    const next = captureTurnSubmission({
+      project: { ...project, experience: 'canvas' },
+      conversationId: 'conversation',
+      references: [],
+      params: {},
+    })
+    expect(next.snapshot.canvas?.selectedNodeIds).toEqual([])
+    expect(captured.snapshot.canvas?.selectedNodeIds).toEqual(['group', 'node'])
   } finally {
     clearNodeCanvasSelection(editor, canvas)
+    doc.destroy()
     workspace.cloud = undefined
+  }
+})
+
+it('declares the mode of the view each message was sent from', () => {
+  const capture = (experience: 'chat' | 'canvas', replay?: { surface: 'agent' | 'canvas' }) =>
+    captureTurnSubmission({
+      project: { ...project, experience },
+      conversationId: 'conversation',
+      references: [],
+      params: {},
+      ...(replay ? { replay } : {}),
+    }).snapshot.surface
+  try {
+    // 对话入口的项目只有 Agent 模式。
+    expect(capture('chat')).toBe('agent')
+    // 画布入口：视图还没挂上时按默认的画布视图算；切到对话视图就是 Agent 模式，切回来又是画布模式。
+    expect(capture('canvas')).toBe('canvas')
+    setProjectView('project', 'chat')
+    expect(capture('canvas')).toBe('agent')
+    setProjectView('project', 'canvas')
+    expect(capture('canvas')).toBe('canvas')
+    // 别的项目的视图不影响这个项目。
+    setProjectView('other', 'chat')
+    expect(capture('canvas')).toBe('canvas')
+    // 重发沿用原消息发出时的模式。
+    setProjectView('project', 'canvas')
+    expect(capture('canvas', { surface: 'agent' })).toBe('agent')
+  } finally {
+    setProjectView(null)
   }
 })

@@ -1,5 +1,7 @@
 import { create } from 'zustand'
+import { pathAppMode } from '../../lib/appPaths'
 import type { ToolId, ToolSource } from './lib/tool'
+import { toolFromPath, toolPath } from './lib/toolRoute'
 
 /**
  * 工具箱导进来的一张图。**只活在内存里**：刷新就没了，中间产物也不写 IndexedDB
@@ -35,7 +37,7 @@ export function toolSource(item: ToolboxItem): ToolSource | null {
 
 interface ToolboxState {
   items: ToolboxItem[]
-  /** 打开的工具；为 null 时主区是目录页。 */
+  /** 打开的工具；为 null 时主区是目录页。与地址 `/tools/<工具>` 同步。 */
   activeTool: ToolId | null
   add: (files: readonly File[]) => Promise<void>
   remove: (id: string) => void
@@ -44,6 +46,15 @@ interface ToolboxState {
   clear: () => void
   openTool: (id: ToolId) => void
   closeTool: () => void
+}
+
+/** 在工具箱的地址上切工具就记一笔历史：每件工具有自己的地址，浏览器后退回到上一件。 */
+function writeToolAddress(tool: ToolId | null): void {
+  const location = globalThis.location
+  if (!location || pathAppMode(location.pathname) !== 'tools') return
+  const target = toolPath(tool)
+  if (location.pathname !== target)
+    globalThis.history.pushState(null, '', `${target}${location.search}${location.hash}`)
 }
 
 function releaseItem(item: ToolboxItem): void {
@@ -55,7 +66,7 @@ function releaseItem(item: ToolboxItem): void {
 
 export const useToolboxStore = create<ToolboxState>()((set, get) => ({
   items: [],
-  activeTool: null,
+  activeTool: toolFromPath(globalThis.location?.pathname ?? '/'),
   // 逐张解码：一次 Promise.all 几十张 4000px 的图会把内存峰值顶上去。
   // `createImageBitmap` 默认按 EXIF 摆正，后面的工具拿到的都是已经正过来的像素。
   add: async (files) => {
@@ -107,6 +118,12 @@ export const useToolboxStore = create<ToolboxState>()((set, get) => ({
     for (const item of get().items) releaseItem(item)
     set({ items: [] })
   },
-  openTool: (id) => set({ activeTool: id }),
-  closeTool: () => set({ activeTool: null }),
+  openTool: (id) => {
+    set({ activeTool: id })
+    writeToolAddress(id)
+  },
+  closeTool: () => {
+    set({ activeTool: null })
+    writeToolAddress(null)
+  },
 }))

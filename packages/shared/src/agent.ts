@@ -1,6 +1,7 @@
 /** 智能体对话协议（`/api/agent/*`）。一轮的事件流走 `text/event-stream`。 */
 
 import type { AgentBatchAnalysisLimit } from './agent-batch'
+import type { StoryboardStageSummary } from './canvas-storyboard'
 import type { ChannelMedia } from './channel-discovery'
 import type { StoredImageRef, TaskErrorType, TaskProgressPhase } from './queue-protocol'
 import type {
@@ -72,6 +73,8 @@ export type AgentToolName =
   | 'arrangeNodes'
   | 'runNodes'
   | 'applyScriptPlan'
+  | 'importCanvasImage'
+  | 'runStoryboardFrames'
   | 'generateVideo'
   | 'loadSkill'
   | 'arrangeTimeline'
@@ -246,7 +249,16 @@ export interface AgentMarkedRegion {
   readonly y: number
   readonly width: number
   readonly height: number
+  /**
+   * 用户在范围确认卡上写的标注文字。只进定位图旁的文字清单与改图说明，不画进原图像素。
+   */
+  readonly note?: string
+  /** 箭头标注的尾端（归一化坐标）；箭头指向这个区域的中心。只画在定位图上。 */
+  readonly arrow?: { readonly x: number; readonly y: number }
 }
+
+/** 标注文字的上限：一句话说清楚这里要怎样。 */
+export const AGENT_REGION_NOTE_MAX_CHARS = 120
 
 export interface AgentInlineReference {
   /** 画布对象 id 或素材的图片 id；模型改图时用它指认要改哪一张。 */
@@ -313,12 +325,29 @@ export interface AgentTurnParams {
   /** 生成模型。解析不出来（模型下线、介质不符）就退回部署配置的那一个。 */
   readonly model?: string
   /**
-   * 出图模式：生成工具拟好稿就当场提交，不再停在「等待确认」等用户逐张点。
+   * 原标签页工作台当前的出图模型。只给阶段授权报价，让提案和预检用同一条模型；
+   * 不改变这一轮对话要调用的生成模型。
+   */
+  readonly canvasImageModel?: string
+  /**
+   * 原标签页工作台当前的出图张数。同 canvasImageModel，只给阶段授权报价；
+   * 画布轮不送 `n`（对话生图张数由工具决定），缺了它报价会按 1 张算，和画布实际提交对不上。
+   */
+  readonly canvasImageCount?: number
+  /**
+   * 直接出图：用户在参数里打开时，生成工具拟好稿就当场提交，不再逐张等确认。
    *
-   * 它换掉的是用户那道花钱闸门，所以只认显式的 `true`：缺席、`false` 都是对话模式。
+   * 对话里的生图工具只认显式 `true`；缺席和 `false` 都是拟稿等确认。
+   * 节点画布的 `runNodes` 相反：缺席按默认打开，只有显式 `false` 才弹阶段授权卡。
+   * 这个值只来自本轮请求里的用户偏好，模型不能在工具参数里改口。
    * 一轮最多自动提交 {@link AGENT_AUTO_SUBMIT_MAX_PER_TURN} 次，超出的照常退回等待确认。
    */
-  readonly autoSubmit?: true
+  readonly autoSubmit?: boolean
+  /**
+   * 图片生成模式：用用户原话调用一次生图工具，不追问、不改写成另一套方案，张数用本轮 `n`。
+   * 只认显式 `true`，并且要和 `autoSubmit` 一起送，工具才会当场提交。
+   */
+  readonly directImage?: true
   readonly size?: string
   readonly quality?: string
   readonly output_format?: string
@@ -326,6 +355,11 @@ export interface AgentTurnParams {
   readonly gemini_aspect_ratio?: string
   readonly gemini_image_size?: string
   readonly gemini_thinking_level?: string
+  /**
+   * 用户在输入框选择的出图张数。工具参数里没写 `n` 时用它；工具写了就以工具为准。
+   * 缺席与 1 等价。
+   */
+  readonly n?: number
 }
 
 /**
@@ -340,6 +374,37 @@ export interface AgentTurnParams {
  */
 export const AGENT_AUTO_SUBMIT_MAX_PER_TURN = 50
 
+/**
+ * 这一轮用户在哪种模式里说话，决定模型拿到哪套工具与提示。
+ *
+ * - `agent`：Agent 模式（对话视图里的输入框）。不论项目入口是对话还是画布，只用直接生图、改图等工具，
+ *   结果落在对话的产物卡里；拿不到任何画布节点工具，系统提示里也没有画布指引。
+ * - `canvas`：画布模式（项目停在画布视图时说的话）。生成都落进节点（#1364、#1377）。
+ *
+ * 由客户端每一轮显式声明；项目文档里记的入口（`experience`）只管项目归在哪个分组，不再决定工具。
+ */
+export type AgentSurface = 'agent' | 'canvas'
+
+/**
+ * 客户端没声明模式时按 Agent 模式算：判成画布会让普通改图被拆成节点阶段授权（2026-10-22 线上用户
+ * 改浴缸颗粒感一例），判成 Agent 最多是画布里说的话产物落在对话卡上，不会多建节点或多扣费。
+ */
+export const DEFAULT_AGENT_SURFACE: AgentSurface = 'agent'
+
+export function isAgentSurface(value: unknown): value is AgentSurface {
+  return value === 'agent' || value === 'canvas'
+}
+
+/**
+ * 节点画布这一轮要不要直接跑 `runNodes`。
+ * 只看本轮请求上的用户偏好：没带偏好时默认开，只有显式 `false` 才走确认卡。
+ */
+export function canvasStageRunsDirectly(
+  params: { readonly autoSubmit?: boolean } | null | undefined,
+): boolean {
+  return params?.autoSubmit !== false
+}
+
 /** 图片工具单次调用的产出上限；模型参数与画布占位共用。 */
 export const AGENT_IMAGE_MAX_N = 10
 
@@ -352,6 +417,39 @@ export function agentImageCount(args: { readonly n?: unknown } | null | undefine
   const raw = typeof args?.n === 'string' ? Number(args.n) : args?.n
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return 1
   return Math.min(AGENT_IMAGE_MAX_N, Math.max(1, Math.trunc(raw)))
+}
+
+/**
+ * 这次图片工具调用出几张。工具显式写了张数就用它；没写就用用户在这一轮选择的张数。
+ * 画布占位与队列请求共用这一个算式。
+ */
+export function requestedImageCount(toolCount: unknown, turnCount: unknown): number {
+  const chosen = toolCount == null || toolCount === '' ? turnCount : toolCount
+  return agentImageCount({ n: chosen })
+}
+
+/**
+ * 智能体一单最多出几张，按模型收紧（没列出的模型照 `AGENT_IMAGE_MAX_N`）。
+ * Gemini 3.1 Flash Lite Image 在 Vertex 上按「项目 × 基础模型」限到达速率（约每分钟 2 条），
+ * 一单 8 张会在同一个模型上排出 8 条请求，2026-10-29 整单撞 429 失败；先压到 4 张止损。
+ */
+export const AGENT_MODEL_IMAGE_MAX_N: Readonly<Record<string, number>> = {
+  'gemini-3.1-flash-lite-image': 4,
+}
+
+/**
+ * 这个模型智能体一单最多几张（{@link AGENT_MODEL_IMAGE_MAX_N}，没列出的照 `AGENT_IMAGE_MAX_N`）。
+ * 服务端收口与前端「图片生成」张数档共用这一份，两边才不会一个能选 8 张、一个只出 4 张（BUG-91）。
+ */
+export function agentModelImageMax(model: string | undefined): number {
+  return model && Object.prototype.hasOwnProperty.call(AGENT_MODEL_IMAGE_MAX_N, model)
+    ? AGENT_MODEL_IMAGE_MAX_N[model]!
+    : AGENT_IMAGE_MAX_N
+}
+
+/** 把张数收口到这个模型的单笔上限（{@link agentModelImageMax}）。 */
+export function agentModelImageCount(model: string | undefined, count: number): number {
+  return Math.min(count, agentModelImageMax(model))
 }
 
 /**
@@ -399,6 +497,7 @@ export type AgentToolStatus =
  * - `content_policy`：上游按内容安全策略拒绝了这次生成。原样重试稳定复现，出路是改提示词，
  *   在智能体这一侧就是让它改写后再提交。
  * - `model_unavailable`：当时要用的模型已下线或没有可用模型，同样交给智能体。
+ * - `service_unavailable`：批次执行开关关着。重试同一个工具不会自己恢复，交给智能体换路径。
  * - `cancelled`：用户中止了这一轮，不需要出路。
  * - `unknown`：归不进上面任何一类。
  *
@@ -416,6 +515,7 @@ export type AgentToolErrorCode =
   | 'source_unavailable'
   | 'content_policy'
   | 'model_unavailable'
+  | 'service_unavailable'
   | 'cancelled'
   | 'unknown'
 
@@ -431,6 +531,7 @@ export const AGENT_TOOL_ERROR_CODES: readonly AgentToolErrorCode[] = [
   'source_unavailable',
   'content_policy',
   'model_unavailable',
+  'service_unavailable',
   'cancelled',
   'unknown',
 ]
@@ -449,6 +550,8 @@ export function taskFailureCode(errorType: TaskErrorType | null | undefined): Ag
       return 'timeout'
     case 'content_policy':
       return 'content_policy'
+    case 'model_unavailable':
+      return 'model_unavailable'
     case 'upstream_no_image':
       return 'no_output'
     // 执行者丢了（ADR 0009）或上游的结局查不到：上游可能已经出图、已经计费，原样再跑一次
@@ -490,6 +593,11 @@ export interface AgentToolArtifact {
   readonly mime: string
   readonly width?: number
   readonly height?: number
+  /**
+   * 图片产物归档成的云媒体（`media_objects.id`）。面板读历史时补上；有它就按媒体身份取图、
+   * 当参考图按 id 发，不再经队列端点下载原图或重新上传。实时流里的结果卡还没有。
+   */
+  readonly mediaId?: string
   /** 视频产物实际提交的参数。早于它的记录没有；图片产物永远没有。 */
   readonly video?: VideoGenerationRecord
 }
@@ -656,10 +764,37 @@ export interface AgentVisualObservation {
   readonly evidence: readonly AgentVisualEvidence[]
 }
 
-/** A proposal only. The client must review the live estimate and confirm the batch before submission. */
+/**
+ * Persisted canvas run card. Stage fields are present on authorization proposals.
+ * Older cards only have a project, node ids, and sometimes `autoRun`; that flag never grants execution.
+ * Execution credentials are never part of conversation history.
+ */
 export interface AgentCanvasRunProposal {
   readonly projectId: string
   readonly nodeIds: readonly string[]
+  readonly nodeNames?: readonly string[]
+  readonly authorizationId?: string
+  readonly stage?: string
+  readonly estimatedCredits?: number
+  readonly budgetCap?: number
+  readonly status?: 'pending' | 'active' | 'exhausted' | 'ended' | 'expired'
+  /**
+   * 服务端按本轮用户偏好写下的直接出图标记。为真时原标签页立即开跑，不弹确认卡。
+   * 历史卡片没有这个字段，不能据此开跑。
+   */
+  readonly direct?: boolean
+  readonly autoRun?: boolean
+  /** 首帧阶段的镜头表摘要。确认这条授权即把该分镜表定稿。 */
+  readonly storyboard?: StoryboardStageSummary
+  /**
+   * 提案时冻结的执行规格。确认和预检必须与它一致；工作台之后改了模型或数量，要重新提案。
+   */
+  readonly specs?: readonly {
+    readonly nodeId: string
+    readonly model: string
+    readonly quantity: number
+    readonly unitMultiplier: number
+  }[]
 }
 
 export interface AgentToolResultBlock {
@@ -670,6 +805,8 @@ export interface AgentToolResultBlock {
   readonly video?: VideoGenerationRecord
   readonly analysisLimit?: AgentBatchAnalysisLimit
   readonly batchId?: string
+  /** 这次调用写进批次的项 key：只给前端从回复里认出并去掉它们（BUG-56），不显示。 */
+  readonly batchItemKeys?: readonly string[]
   readonly type: 'toolResult'
   readonly toolCallId: string
   readonly toolName: AgentToolName
@@ -689,6 +826,17 @@ export interface AgentToolResultBlock {
   readonly errorCode?: AgentToolErrorCode
   /** 起跑时的参数快照；只有提交生成任务的工具有。旧记录缺席。 */
   readonly snapshot?: AgentToolCallSnapshot
+  /**
+   * 这张卡是智能体模式「直接出图」关掉时被确认门拦下的调用（见 BFF `tool-gate.ts`）。智能体不知道
+   * 停过：用户确认后同一轮接着跑；没确认就发了新消息，这张卡作废（`failed` + `cancelled`）。
+   * 普通拟稿与旧记录缺席。
+   */
+  readonly gated?: true
+  /**
+   * 确认门拦下那一刻交给模型的回执原文（版本数、尺寸都在里面）。续跑把它原样接回历史，
+   * 模型在确认前后看到的是同一句话。只有确认门的卡有；旧记录缺席。
+   */
+  readonly gateReceipt?: string
   /** 这次调用提交的后台任务；任务结束后仍保留，标明这张卡的结局来自后台任务。 */
   readonly job?: AgentBackgroundJob
   /** 这张卡是一条重试记录：用户在哪张失败卡的哪个失败占位上点了重试。普通调用缺席。 */
@@ -832,6 +980,11 @@ export const AGENT_CONFIRMATION_PROMPT_MAX_CHARS = 8_000
  */
 export interface AgentConfirmationResponse {
   readonly message: AgentMessageView
+  /**
+   * 确认门拦下的那一轮会接着跑（这一轮被拦下的卡都确认完了）：界面去跟进那一轮的流，
+   * 它接在原来那段回复后面。缺席即这张卡不是确认门的卡，或同一轮还有没确认的卡。
+   */
+  readonly continued?: true
 }
 
 /** 确认没能提交（积分不够、模型下线、提示词为空或过长……）；界面只按 `code` 给出路。 */
@@ -862,6 +1015,22 @@ export interface AgentBackgroundJobProgress {
    * 结果已归档、正在确认时是 `confirming`。旧服务端缺席，这时按 `stage` 读。
    */
   readonly phase?: TaskProgressPhase
+  /**
+   * 当前阶段开始的时刻。结果确认用它判断是否已经超过 30 分钟；
+   * 其他阶段缺席，已用时间仍从 `submittedAt` 算。
+   */
+  readonly phaseSince?: number
+  /**
+   * 还在排队时它在本账号队列里的位置。账号同时生成的张数由套餐定（没订阅是 1），
+   * 超出的按提交先后排队：`ahead` 是排在它前面、还没出完的张数（在生成的加上更早提交的），
+   * `limit` 是此刻这个账号能同时生成几张。旧服务端缺席，界面只说「排队中」。
+   */
+  readonly queue?: AgentJobQueuePosition
+}
+
+export interface AgentJobQueuePosition {
+  readonly ahead: number
+  readonly limit: number
 }
 
 export interface AgentBackgroundJobsResponse {
@@ -893,11 +1062,85 @@ export interface AgentSkillOutcome {
   readonly file?: string
 }
 
+/** 归一化到原图宽高的矩形：0–1，原点在左上。 */
+export interface AgentNormalizedBox {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+/** 分割提示点：`include` 为真是落在目标上的点，为假是明确不改的点。 */
+export interface AgentMaskPromptPoint {
+  readonly x: number
+  readonly y: number
+  readonly include: boolean
+}
+
+/**
+ * 建议蒙版由谁给：服务端分割模型（`server`，带 `maskMediaId`）、浏览器里的分割模型（`browser`，
+ * 旧提议才有，卡片已不再在浏览器里分割），或者只按框栅格化的粗略范围（`box`）。
+ */
+type AgentMaskSegmentation = 'server' | 'browser' | 'box'
+
+/**
+ * 画面里有几个相似对象时（例如两只杯子）逐个列出的区域，卡片上按编号显示，用户点编号增减。
+ * `selected` 是智能体判断的要改的那几个；生效的仍是用户确认带回来的那份蒙版。
+ */
+export interface AgentMaskRegion {
+  /** 从 1 开始的显示编号，按从左到右、从上到下排。 */
+  readonly number: number
+  readonly label?: string
+  readonly box: AgentNormalizedBox
+  readonly points?: readonly AgentMaskPromptPoint[]
+  readonly selected: boolean
+  /** 服务端分割出的这个区域的蒙版（编辑格式，与原图同尺寸）；分割失败时缺席，卡片按框画。 */
+  readonly maskMediaId?: string
+}
+
+/**
+ * 智能体提议的修改范围（`proposeEditRegion` 签发）。模型只给对象名、外接框与提示点；
+ * 生效的蒙版永远是用户在卡片上确认、随下一条用户消息带回来的那一份。
+ */
+export interface AgentMaskProposal {
+  readonly id: string
+  /** 要改的那张图在会话里的 id；确认后的参考图沿用它。 */
+  readonly imageId: string
+  /** 原图像素所在的媒体对象；卡片按它取原件，回答也按它引用，不经任何缩放。 */
+  readonly mediaId: string
+  readonly width: number
+  readonly height: number
+  /** 要改的对象，名词短语，例如「杯身和把手」。 */
+  readonly target: string
+  /** 要改成什么，取自用户原话。 */
+  readonly change: string
+  /** 明确不动的东西。 */
+  readonly keep: readonly string[]
+  readonly box: AgentNormalizedBox
+  readonly points?: readonly AgentMaskPromptPoint[]
+  readonly segmentation: AgentMaskSegmentation
+  /** 服务端分割出的建议蒙版（不透明保留、透明重绘，与原图同尺寸）。有 `regions` 时由各区域合成。 */
+  readonly maskMediaId?: string
+  /** 相似对象逐个编号；缺席表示只有一个目标（`box` / `points` / `maskMediaId` 就是它）。 */
+  readonly regions?: readonly AgentMaskRegion[]
+  /**
+   * 要改的是选中对象以外的部分（通常是换背景）。蒙版仍是要保留的主体；卡片显示与确认时
+   * 取反，并往主体边缘里收一圈，让发丝、肩线这一圈也由模型对着新背景重画。
+   */
+  readonly invert?: boolean
+  /** 这次局部编辑会用的模型；只会是支持蒙版的 GPT Image 系列。 */
+  readonly model: { readonly id: string; readonly label: string }
+  /** 用户选的模型不支持蒙版时记下原来那个；确认即同意改用 `model`。 */
+  readonly switchedFrom?: { readonly id: string; readonly label: string }
+}
+
 /** 一次澄清提问。落在助手消息里，所以重新打开会话还能看见、还能作答。 */
 export interface AgentClarificationBlock {
   readonly type: 'clarification'
   readonly question: string
   readonly options: readonly string[]
+  /** 服务端签发的修改范围；有它时卡片换成蒙版确认，回答要带回确认后的蒙版。 */
+  readonly maskProposal?: AgentMaskProposal
   /** 服务端核对图片组合的选项；普通模型澄清不能签发这份映射。 */
   readonly imageCombination?: {
     readonly targetImageId: string
@@ -1136,6 +1379,12 @@ export interface AgentReturnedQueuedMessage {
 export interface AgentTurnAbortedBody {
   readonly aborted: true
   readonly returned?: readonly AgentReturnedQueuedMessage[]
+  /**
+   * 随这次停止一并取消、积分已退回的出图任务（这一轮自己提交、还没出结果的）。已完成的照常扣费，
+   * 不在其中；中止之后才落库的那几条由轮收尾再取消，也不在其中——任务卡照常轮询到「已取消」。
+   * 老服务端没有这一项。
+   */
+  readonly cancelledTaskIds?: readonly string[]
 }
 
 /** 满额时的 409 响应体。 */
@@ -1339,8 +1588,27 @@ export const AGENT_ARTIFACT_NOUN: Record<ChannelMedia, string> = { image: '图�
 export function agentToolResultSummary(block: AgentToolResultBlock): string {
   // 重试是用户自己点的：模型据此知道那张失败的图已经补上（或又失败了），不必再提议重做。
   const title = block.retryOf ? `用户重试了「${block.title}」` : block.title
-  if (block.canvasRun)
-    return `${title}：仅建议运行节点 ${block.canvasRun.nodeIds.join('、')}；工具没有提交任务或扣费。用户可在画布检查预估并二次确认，实际执行情况需重新读取节点。`
+  if (block.canvasRun) {
+    const proposal = block.canvasRun
+    if (
+      !proposal.authorizationId ||
+      !Array.isArray(proposal.nodeNames) ||
+      proposal.stage === undefined ||
+      proposal.budgetCap === undefined
+    )
+      return `${title}：旧运行建议仅供查看，没有阶段授权执行凭证；如需运行，先读取当前画布并重新提出阶段授权。历史 autoRun 标记不授予执行权限。`
+    const lookup = JSON.stringify({
+      authorizationId: proposal.authorizationId,
+      nodeIds: proposal.nodeIds,
+    })
+    const finalize = proposal.storyboard
+      ? `首帧阶段：确认这条授权即把分镜表（${proposal.storyboard.shotCount} 镜，共 ${proposal.storyboard.totalSeconds} 秒）定稿；确认前镜头表被改过则授权失效，需要重新提案。`
+      : ''
+    const stance = proposal.direct
+      ? '这一轮用户开了直接出图：授权已登记，原标签页会立即开跑，没有确认卡，也不等待撤销。不要说待确认。'
+      : '此记录是当时待确认的提案。'
+    return `${title}：阶段「${proposal.stage}」，范围 ${proposal.nodeNames.join('、')}，预算上限 ${proposal.budgetCap} 积分。${finalize}${stance}当前状态必须查询 runNodes(${lookup})；只有真实 taskIds 才能说「已提交」，读取真实结果后才能说「已完成」。查询参数中的 ID 仅供工具使用，对用户以节点名称说明。`
+  }
   if (block.status === 'awaiting_confirmation')
     return `${title}：提示词待用户确认，尚未提交生成任务`
   const executed =
@@ -1374,6 +1642,11 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
 
 /** 澄清回放给模型的形状：用户的下一条消息就是他选的那一项。 */
 export function agentClarificationSummary(block: AgentClarificationBlock): string {
+  const proposal = block.maskProposal
+  if (proposal)
+    return `请用户确认修改范围：图片 ${proposal.imageId} 的「${proposal.target}」，${proposal.change}${
+      proposal.keep.length ? `；不动：${proposal.keep.join('、')}` : ''
+    }（按蒙版生成，模型 ${proposal.model.label}）`
   return `向用户提问：${block.question}（选项：${block.options.join(' / ')}）`
 }
 

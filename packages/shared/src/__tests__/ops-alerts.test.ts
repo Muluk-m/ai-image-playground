@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'bun:test'
-import { type AlertObservation, type AlertState, evaluateAlerts } from '../ops-alerts'
+import {
+  type AgentFailurePattern,
+  type AlertObservation,
+  type AlertState,
+  evaluateAlerts,
+  isConfigurationFailure,
+  isUserInputFailure,
+} from '../ops-alerts'
 
 const minute = 60_000
 const hour = 60 * minute
@@ -32,8 +39,18 @@ describe('阈值两侧', () => {
     ['磁盘 85% 报', { host: host(7.5) }, ['firing:disk']],
     ['排队 10 分钟整不报', { queue: { oldest_queued_wait_ms: 10 * minute } }, []],
     ['排队超过 10 分钟报', { queue: { oldest_queued_wait_ms: 10 * minute + 1 } }, ['firing:queue']],
-    ['备份 2 小时整不报', { backup: { latest_modified_at: T0 - 2 * hour } }, []],
-    ['备份超过 2 小时报', { backup: { latest_modified_at: T0 - 2 * hour - 1 } }, ['firing:backup']],
+    ['备份 2.5 小时整不报', { backup: { latest_modified_at: T0 - 2.5 * hour } }, []],
+    [
+      '备份超过 2.5 小时报',
+      { backup: { latest_modified_at: T0 - 2.5 * hour - 1 } },
+      ['firing:backup'],
+    ],
+    ['日志 10 分钟整不报', { serverLogs: { latest_at: T0 - 10 * minute } }, []],
+    [
+      '日志超过 10 分钟没有新行报',
+      { serverLogs: { latest_at: T0 - 10 * minute - 1 } },
+      ['firing:server-logs'],
+    ],
     ['心跳 2 分钟整不报', { heartbeats: { bff: T0 - 2 * minute } }, []],
     [
       '心跳断了超过 2 分钟报',
@@ -42,6 +59,49 @@ describe('阈值两侧', () => {
     ],
   ] as Array<[string, AlertObservation, string[]]>)('%s', (_name, observation, expected) => {
     expect(run([[T0, observation]])[0]).toEqual(expected)
+  })
+
+  // 告警线不是整小时时，文案必须原样写出来；否则 2.5 小时的线和「2 小时」的假告警长得一模一样。
+  it('备份越线时写明真实的告警线', () => {
+    const { messages } = evaluateAlerts(
+      { backup: { latest_modified_at: T0 - 2 * hour - 31 * minute } },
+      {},
+      T0,
+    )
+    expect(messages).toEqual([
+      {
+        rule: 'backup',
+        kind: 'firing',
+        text: '最新的数据库备份是 2 小时 31 分钟前的（告警线 2 小时 30 分钟）',
+      },
+    ])
+  })
+})
+
+describe('服务端日志静默', () => {
+  it('新部署表里还没有日志时不报', () => {
+    expect(run([[T0, { serverLogs: { latest_at: null } }]])).toEqual([[]])
+  })
+
+  it('恢复写入后发已恢复，期间不重复报', () => {
+    expect(
+      run([
+        [T0, { serverLogs: { latest_at: T0 - 11 * minute } }],
+        [T0 + minute, { serverLogs: { latest_at: T0 - 11 * minute } }],
+        [T0 + 2 * minute, { serverLogs: { latest_at: T0 + 2 * minute } }],
+      ]),
+    ).toEqual([['firing:server-logs'], [], ['resolved:server-logs']])
+  })
+
+  it('报过之后表被清空不算恢复，读数缺失也不算恢复', () => {
+    expect(
+      run([
+        [T0, { serverLogs: { latest_at: T0 - 11 * minute } }],
+        [T0 + minute, { serverLogs: { latest_at: null } }],
+        [T0 + 2 * minute, {}],
+        [T0 + 3 * minute, { serverLogs: { latest_at: T0 + 3 * minute } }],
+      ]),
+    ).toEqual([['firing:server-logs'], [], [], ['resolved:server-logs']])
   })
 })
 
@@ -404,5 +464,383 @@ describe('消息写明当前值与阈值', () => {
     const fired = evaluateAlerts({ host: host(2) }, {}, T0)
     const { messages } = evaluateAlerts({ host: host(30) }, fired.state, T0 + minute)
     expect(messages[0]?.text).toBe('已恢复：磁盘已用 40%')
+  })
+})
+
+describe('同类 Agent 失败', () => {
+  const one = (
+    turns: number,
+    lastAt: number,
+    message = 'Our servers are currently overloaded.',
+    extra: Partial<AgentFailurePattern> = {},
+  ): AgentFailurePattern => ({
+    model: 'gpt-6-luna',
+    code: 'agent_upstream_error',
+    upstreamStatus: message.startsWith('400') ? 400 : null,
+    turns,
+    lastAt,
+    message,
+    ...extra,
+  })
+  const pattern = (
+    turns: number,
+    lastAt: number,
+    message = 'Our servers are currently overloaded.',
+  ): AlertObservation => ({
+    agentFailurePatterns: [one(turns, lastAt, message)],
+  })
+
+  it('低流量下分散的失败：6 小时内两轮同类失败就报，30 分钟没再出现算恢复', () => {
+    expect(
+      run([
+        [T0, pattern(1, T0)],
+        [T0 + 40 * minute, pattern(2, T0 + 40 * minute)],
+        [T0 + 50 * minute, pattern(2, T0 + 40 * minute)],
+        [T0 + 80 * minute, pattern(2, T0 + 40 * minute)],
+      ]),
+    ).toEqual([[], ['firing:agent-pattern'], [], ['resolved:agent-pattern']])
+  })
+
+  it('配置类 4xx 出现一次就报，正文带模型与上游报错', () => {
+    const message = '400: {"message":"Invalid value: \'off\'.","type":"invalid_request_error"}'
+    const result = evaluateAlerts(pattern(1, T0, message), {}, T0)
+    expect(result.messages).toHaveLength(1)
+    expect(result.messages[0]?.text).toContain('Agent 模型配置被上游拒绝：gpt-6-luna')
+    expect(result.messages[0]?.text).toContain('HTTP 400')
+  })
+
+  it('过载告警还开着时，新的配置类 400 单独触发', () => {
+    const overload = one(4, T0)
+    const opened = evaluateAlerts({ agentFailurePatterns: [overload] }, {}, T0)
+    expect(opened.messages.map((message) => message.kind)).toEqual(['firing'])
+    const config = one(
+      1,
+      T0 + minute,
+      '400: {"message":"Invalid value: \'off\'.","type":"invalid_request_error"}',
+    )
+    const next = evaluateAlerts(
+      { agentFailurePatterns: [overload, config] },
+      opened.state,
+      T0 + minute,
+    )
+    expect(next.messages).toHaveLength(1)
+    expect(next.messages[0]?.text).toContain('Agent 模型配置被上游拒绝')
+    expect(next.messages[0]?.text).toContain('HTTP 400')
+  })
+
+  it('上下文过长、无效图片和裸的 unsupported 不是模型配置错误', () => {
+    const context = one(
+      1,
+      T0,
+      'agent request needs ~120000 input tokens, over the 80000 budget。请选择缩小共同查看范围或指定必要区域；逐图摘要不能代替完整联合比较。',
+      { code: 'agent_context_overflow', upstreamStatus: null },
+    )
+    const image = one(1, T0, '400: {"message":"Invalid image","code":"invalid_image"}')
+    const unsupportedImage = one(1, T0, '400: unsupported image input')
+    const bare = one(1, T0, '400 unsupported')
+    expect(isUserInputFailure(context)).toBe(true)
+    expect(isUserInputFailure(image)).toBe(true)
+    expect(isConfigurationFailure(context)).toBe(false)
+    expect(isConfigurationFailure(image)).toBe(false)
+    expect(isConfigurationFailure(unsupportedImage)).toBe(false)
+    expect(isConfigurationFailure(bare)).toBe(false)
+    expect(
+      evaluateAlerts({ agentFailurePatterns: [context, image, unsupportedImage, bare] }, {}, T0)
+        .messages,
+    ).toEqual([])
+  })
+
+  it('字节限额配坏仍按配置错误，出现一次就报', () => {
+    const message =
+      'Model request byte limit is invalid and the request was not sent. Contact the operator.'
+    const pattern = one(1, T0, message, {
+      code: 'agent_request_budget_exceeded',
+      upstreamStatus: null,
+    })
+    expect(isConfigurationFailure(pattern)).toBe(true)
+    expect(evaluateAlerts({ agentFailurePatterns: [pattern] }, {}, T0).messages[0]?.text).toContain(
+      'Agent 模型配置被上游拒绝',
+    )
+  })
+
+  it('轮次跌破阈值但静默窗口内还有失败时不报恢复', () => {
+    const opened = evaluateAlerts(pattern(2, T0), {}, T0)
+    expect(opened.messages.map((message) => message.kind)).toEqual(['firing'])
+    const dipped = evaluateAlerts(pattern(1, T0 + 10 * minute), opened.state, T0 + 10 * minute)
+    expect(dipped.messages).toEqual([])
+    const quiet = evaluateAlerts({ agentFailurePatterns: [] }, dipped.state, T0 + 41 * minute)
+    expect(quiet.messages.map((message) => message.kind)).toEqual(['resolved'])
+  })
+
+  it('没有失败时不报', () => {
+    expect(run([[T0, { agentFailurePatterns: null }]])).toEqual([[]])
+  })
+
+  it('同一轮里的重复不算，一轮失败不报', () => {
+    expect(evaluateAlerts(pattern(1, T0), {}, T0).messages).toEqual([])
+  })
+
+  it('内容策略拒绝不计入，即使它看起来像配置 4xx', () => {
+    expect(
+      evaluateAlerts(
+        {
+          agentFailurePatterns: [
+            {
+              model: 'gpt-6-luna',
+              code: 'content_policy',
+              upstreamStatus: 400,
+              turns: 4,
+              lastAt: T0,
+              message: 'content_policy: rejected',
+            },
+          ],
+        },
+        {},
+        T0,
+      ).messages,
+    ).toEqual([])
+  })
+})
+
+describe('告警读数失明', () => {
+  it('同一块连续 3 轮取不到才报，恢复后发已恢复', () => {
+    const blind = (rounds: number) => ({
+      blindBlocks: rounds ? [{ block: 'failures', rounds }] : [],
+    })
+    expect(
+      run([
+        [T0, blind(1)],
+        [T0 + minute, blind(2)],
+        [T0 + 2 * minute, blind(3)],
+        [T0 + 3 * minute, blind(0)],
+      ]),
+    ).toEqual([[], [], ['firing:blind'], ['resolved:blind']])
+  })
+})
+
+describe('生成失败告警：带模型明细，出图成功才恢复', () => {
+  const flare = (failures: number, lastFailedAt: number) => ({
+    model: 'gpt-image-2.5-flare',
+    failures,
+    errorType: 'model_unavailable',
+    upstreamStatus: 503,
+    message: `No available compatible accounts ${'x'.repeat(300)}`,
+    lastFailedAt,
+    paused: true,
+  })
+
+  function steps(list: Array<[number, AlertObservation]>) {
+    let state: AlertState = {}
+    return list.map(([at, observation]) => {
+      const result = evaluateAlerts(observation, state, at)
+      state = result.state
+      return result.messages.filter((message) => message.rule === 'generation')
+    })
+  }
+
+  it('告警正文写明模型、errorType、上游状态码和报错前 200 字', () => {
+    const [round] = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 7,
+            agent: 0,
+            generation_models: [flare(7, T0 - minute)],
+            generation_successes: {},
+          },
+        },
+      ],
+    ])
+    expect(round).toHaveLength(1)
+    const text = round![0]!.text
+    expect(text).toContain('近 15 分钟有 7 次非内容策略的生成失败')
+    expect(text).toContain(
+      'gpt-image-2.5-flare ×7：model_unavailable，HTTP 503，已自动暂停；最近一次：No available compatible accounts',
+    )
+    const message = text.split('最近一次：')[1]!
+    expect(message.length).toBe(200)
+    expect(round![0]!.detail).toMatchObject({
+      window_failures: 7,
+      models: [
+        {
+          model: 'gpt-image-2.5-flare',
+          error_type: 'model_unavailable',
+          upstream_status: 503,
+          paused: true,
+        },
+      ],
+    })
+  })
+
+  it('失败数回落不发恢复；那个模型真的成功出图后才发', () => {
+    const failedAt = T0 - minute
+    const rounds = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 7,
+            agent: 0,
+            generation_models: [flare(7, failedAt)],
+            generation_successes: {},
+          },
+        },
+      ],
+      // 15 分钟窗口过去，失败数归零，但 flare 被暂停了，一张图都没出。
+      [
+        T0 + 20 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: {},
+          },
+        },
+      ],
+      // 一小时后再提醒，说明在等出图。
+      [
+        T0 + 61 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: {},
+          },
+        },
+      ],
+      // 别的模型成功不算数。
+      [
+        T0 + 70 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: { 'gemini-nano-banana-2.1': T0 + 69 * minute },
+          },
+        },
+      ],
+      [
+        T0 + 80 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: { 'gpt-image-2.5-flare': T0 + 79 * minute },
+          },
+        },
+      ],
+    ])
+    expect(rounds.map((round) => round.map((message) => message.kind))).toEqual([
+      ['firing'],
+      [],
+      ['firing'],
+      [],
+      ['resolved'],
+    ])
+    expect(rounds[2]![0]!.text).toContain('还没有成功出过图')
+    expect(rounds[2]![0]!.text).toContain('gpt-image-2.5-flare')
+    expect(rounds[4]![0]!.text).toBe(
+      '已恢复：gpt-image-2.5-flare 已重新成功出图，生成失败回到告警线内',
+    )
+  })
+
+  it('自动暂停后失败数到不了线也要报，出图成功后才恢复', () => {
+    const rounds = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 1,
+            agent: 0,
+            generation_models: [flare(1, T0 - minute)],
+            generation_successes: {},
+          },
+        },
+      ],
+      [
+        T0 + 20 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: {},
+          },
+        },
+      ],
+      [
+        T0 + 30 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: { 'gpt-image-2.5-flare': T0 + 29 * minute },
+          },
+        },
+      ],
+    ])
+    expect(rounds.map((round) => round.map((message) => message.kind))).toEqual([
+      ['firing'],
+      [],
+      ['resolved'],
+    ])
+    expect(rounds[0]![0]!.text).toContain('上游报模型不可用，模型已自动暂停')
+    expect(rounds[0]![0]!.text).toContain(
+      'gpt-image-2.5-flare ×1：model_unavailable，HTTP 503，已自动暂停',
+    )
+  })
+
+  it('单次普通失败、或运营手动下架的模型失败，不到线不报', () => {
+    const rounds = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 2,
+            agent: 0,
+            generation_models: [
+              { ...flare(1, T0 - minute), paused: false },
+              { ...flare(1, T0 - minute), model: 'manual-off', errorType: 'upstream_error' },
+            ],
+            generation_successes: {},
+          },
+        },
+      ],
+    ])
+    expect(rounds).toEqual([[]])
+  })
+
+  it('出事前的成功不算恢复', () => {
+    const rounds = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 3,
+            agent: 0,
+            generation_models: [flare(3, T0 - minute)],
+            generation_successes: { 'gpt-image-2.5-flare': T0 - 10 * minute },
+          },
+        },
+      ],
+      [
+        T0 + 20 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: { 'gpt-image-2.5-flare': T0 - 10 * minute },
+          },
+        },
+      ],
+    ])
+    expect(rounds.map((round) => round.map((message) => message.kind))).toEqual([['firing'], []])
   })
 })
