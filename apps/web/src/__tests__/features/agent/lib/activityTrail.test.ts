@@ -117,3 +117,57 @@ describe('groupPanelMessages', () => {
     expect([...absorbed]).toEqual([0, 1])
   })
 })
+
+describe('recovered failures (BUG-46)', () => {
+  const failedPlan = (id: string, turnId = 'turn-1') =>
+    tool({ id, turnId, toolName: 'planImageBatch', status: 'failed', errorCode: 'invalid_params' })
+
+  it('hides a parameter failure once the same tool succeeded later in the turn', () => {
+    const messages = [
+      failedPlan('bad'),
+      tool({ id: 'good', toolName: 'planImageBatch' }),
+      reply('r'),
+    ]
+    const grouping = groupPanelMessages(messages)
+    expect(grouping.absorbed.has(0)).toBe(true)
+    expect(grouping.absorbed.has(1)).toBe(false)
+    expect(grouping.trails.size).toBe(0)
+  })
+
+  it('keeps the failure when nothing recovered it', () => {
+    expect(groupPanelMessages([failedPlan('bad'), reply('r')]).absorbed.has(0)).toBe(false)
+    // 后一轮才成功不算本轮已纠正：那一轮的失败用户是看见过的。
+    const later = groupPanelMessages([
+      failedPlan('bad'),
+      tool({ id: 'good', turnId: 'turn-2', toolName: 'planImageBatch' }),
+    ])
+    expect(later.absorbed.has(0)).toBe(false)
+    // 换了别的工具成功也不算。
+    const other = groupPanelMessages([
+      failedPlan('bad'),
+      tool({ id: 'g', toolName: 'generateImage' }),
+    ])
+    expect(other.absorbed.has(0)).toBe(false)
+  })
+
+  it('keeps generation failures that the user may need to act on', () => {
+    const messages = [
+      tool({ id: 'up', toolName: 'generateImage', status: 'failed', errorCode: 'upstream_error' }),
+      tool({ id: 'ok', toolName: 'generateImage' }),
+    ]
+    expect(groupPanelMessages(messages).absorbed.has(0)).toBe(false)
+  })
+
+  it('drops a recovered web read from the trail without splitting it', () => {
+    const messages = [
+      tool({ id: 'a', toolName: 'readCanvas' }),
+      tool({ id: 'b', toolName: 'webFetch', status: 'failed', errorCode: 'source_unavailable' }),
+      tool({ id: 'c', toolName: 'webFetch' }),
+      reply('r'),
+    ]
+    const grouping = groupPanelMessages(messages)
+    expect(grouping.trails.get(0)?.steps.map((one) => one.id)).toEqual(['a', 'c'])
+    expect(grouping.trails.get(0)?.spent).toBe(true)
+    expect([0, 1, 2].every((index) => grouping.absorbed.has(index))).toBe(true)
+  })
+})

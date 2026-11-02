@@ -1,16 +1,34 @@
-import { AGENT_IMAGE_MAX_N, type AgentTurnParams } from '@image-playground/shared'
+import {
+  AGENT_IMAGE_MAX_N,
+  type AgentTurnParams,
+  agentModelImageMax,
+} from '@image-playground/shared'
 import type { TaskParams } from '../../../types'
 import { DEFAULT_PARAMS } from '../../../types'
 
 /** 图片生成模式的张数档。智能体模式不把张数交给用户。 */
 export const IMAGE_COUNT_CHOICES = [1, 2, 3, 4, 6, 8] as const
 
-/** 旧步进器留下的 5、7、9、10 收到最近的一档；距离相同取较小的那档。 */
-export function snapImageCount(n: number): number {
+/**
+ * 这个模型在图片生成模式下能选的张数档：超过它单笔上限的档不出现，选了也只会出上限那么多。
+ * 上限与服务端收口同一份（`agentModelImageMax`）。
+ */
+export function imageCountChoices(model: string | undefined): readonly number[] {
+  const max = agentModelImageMax(model)
+  const allowed = IMAGE_COUNT_CHOICES.filter((choice) => choice <= max)
+  return allowed.length > 0 ? allowed : [IMAGE_COUNT_CHOICES[0]]
+}
+
+/**
+ * 收到这个模型可选的最近一档：旧步进器留下的 5、7、9、10，或切到上限更低的模型（Lite 上的 6、8）。
+ * 超过上限的落到最高一档；距离相同取较小的那档。
+ */
+export function snapImageCount(n: number, model?: string): number {
+  const choices = imageCountChoices(model)
   const value = Math.trunc(n)
-  if (!Number.isFinite(value)) return 1
-  let best: number = IMAGE_COUNT_CHOICES[0]
-  for (const choice of IMAGE_COUNT_CHOICES) {
+  if (!Number.isFinite(value)) return choices[0]!
+  let best: number = choices[0]!
+  for (const choice of choices) {
     const distance = Math.abs(choice - value)
     const bestDistance = Math.abs(best - value)
     if (distance < bestDistance || (distance === bestDistance && choice < best)) best = choice
@@ -58,7 +76,7 @@ export function toAgentTurnParams(
   if (params.gemini_image_size) next.gemini_image_size = params.gemini_image_size
   if (params.gemini_thinking_level) next.gemini_thinking_level = params.gemini_thinking_level
   if (options?.includeCount) {
-    const count = snapImageCount(params.n)
+    const count = snapImageCount(params.n, model)
     if (count >= 1 && count <= AGENT_IMAGE_MAX_N && count !== DEFAULT_PARAMS.n) next.n = count
   }
 

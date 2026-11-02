@@ -7,7 +7,7 @@ import {
 } from '@image-playground/shared'
 import { accountRequired, isSignedIn } from '../auth/loginPrompt'
 import { readProjectRoute } from '../features/canvas/lib/projectRoute'
-import { APP_MODE_PATHS, isStandalonePath, normalizePath } from './appPaths'
+import { APP_MODE_PATHS, isStandalonePath, normalizePath, toolRouteSlug } from './appPaths'
 import { isClientCapabilityEnabled } from './clientCapabilities'
 import { hasRememberedSignedInUser, rememberStorageUser } from './localRecovery'
 import { bffBaseUrl } from './runtimeConfig'
@@ -136,7 +136,8 @@ function oauthReturnTo(): string {
   const workspace =
     Object.values(APP_MODE_PATHS).some((entry) => entry === path) ||
     isStandalonePath(path) ||
-    readProjectRoute(pathname) !== null
+    readProjectRoute(pathname) !== null ||
+    toolRouteSlug(pathname) !== null
   const target = `${pathname}${search}${hash}`
   return workspace && target.length <= 2048 && !/[\\\u0000-\u001f\u007f]/.test(target)
     ? target

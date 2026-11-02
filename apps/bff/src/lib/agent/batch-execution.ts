@@ -10,6 +10,7 @@ import {
 import { and, asc, eq, gt, inArray, isNotNull, isNull, or } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
+import { cancelTasks } from '../../db/task-transitions'
 import {
   type PreparedAnalysisTask,
   prepareAnalysisTask,
@@ -27,6 +28,7 @@ import {
   type PreparedQueueTask,
   prepareQueueTask,
 } from '../taskSubmission'
+import { cancelUpstreamOfCancelledTasks } from '../upstream-cancel'
 import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
 import { batchItem, batchItemValues } from './batch-items'
 import { BatchPlanError, batchPlansAvailable, quoteBatchPlan } from './batch-plans'
@@ -34,6 +36,7 @@ import { pauseBatchForAnalysisAuthentication, reconcileAgentBatchProgress } from
 import { lockConversation } from './confirmations'
 import { type ResolvedAgentImage, readConversationMedia } from './images'
 import { prepareMaskedEdit } from './masked-edit'
+import { editSourceByteLimit, toEditInputDataUrl } from './modelImage'
 import { shapeQueuePrompt } from './prompt-shaping'
 import { imageSelection } from './selection-preview'
 import { AgentToolError } from './tools/errors'
@@ -214,25 +217,31 @@ async function prepareItem(
 ): Promise<CreateQueueTaskInput> {
   const images: ResolvedAgentImage[] = []
   let remainingBytes = visualByteLimit()
-  const readInput = async (mediaId: string) => {
+  // fit：无选区的输入按改图规则读——超大图等比缩到最长边 4000 再送（BUG-35）；
+  // 选区原图与遮罩绑着原像素，照旧原样并按剩余请求预算卡。
+  const readInput = async (mediaId: string, fit: boolean) => {
     const media = await readConversationMedia(
       mediaId,
       batch.conversation_id!,
       batch.user_id,
       'original',
       false,
-      Math.floor((remainingBytes * 3) / 4),
+      fit ? Math.floor((editSourceByteLimit() * 3) / 4) : Math.floor((remainingBytes * 3) / 4),
     )
     if (!media) throw new BatchPlanError('invalid_batch_plan', 422)
-    await visualMetadata(media.bytes)
-    const dataUrl = `data:${media.contentType};base64,${Buffer.from(media.bytes).toString('base64')}`
+    const source = `data:${media.contentType};base64,${Buffer.from(media.bytes).toString('base64')}`
+    let dataUrl = source
+    if (fit) dataUrl = await toEditInputDataUrl(source)
+    else await visualMetadata(media.bytes)
     remainingBytes -= Buffer.byteLength(dataUrl, 'utf8')
     if (remainingBytes < 0) throw new BatchPlanError('batch_input_limit', 422)
     return dataUrl
   }
   for (const reference of item.inputs) {
-    const dataUrl = await readInput(reference.mediaId)
-    const maskDataUrl = reference.maskMediaId ? await readInput(reference.maskMediaId) : undefined
+    const dataUrl = await readInput(reference.mediaId, !reference.maskMediaId)
+    const maskDataUrl = reference.maskMediaId
+      ? await readInput(reference.maskMediaId, false)
+      : undefined
     images.push({
       imageId: reference.imageId,
       dataUrl,
@@ -268,7 +277,8 @@ async function prepareItem(
         prompt: masked?.prompt ?? item.prompt,
         size: params.size,
       }),
-      input_images: inputImages,
+      // 纯文字生图项（BUG-25）不带 input_images，与单张 generateImage 的请求一致。
+      ...(inputImages.length ? { input_images: inputImages } : {}),
       ...(masked?.mask ? { mask: masked.mask } : {}),
       device_id: batch.device_id!,
       client_request_id: `batch:${batch.id}:${batch.confirmed_version}:${item.key}:${attempt}`,
@@ -846,6 +856,66 @@ export async function repriceAgentBatch(
       created_at: now,
     })
   })
+}
+
+/**
+ * 取消批次里某一项当前这次还在排队的生成；已经开始执行的不撤。走与单任务取消同一条 cancelTasks：
+ * 预扣的结算由私有 task hook 在同一事务里完成，这里不碰计费。取消后的那一项按已有规则记为
+ * 「已取消」，依赖它的项随之取消，其余项照常执行。
+ *
+ * 查目标和取消放在同一个事务里、先拿批次锁：调度器也在这把锁下派发，取消因此不会和派发、
+ * 重试交错，只命中已确认版本 `attempt_targets` 指向的那一次，早先的 attempt 一律不动。
+ * 锁顺序「会话 → 批次 → 任务」与删除会话时取消任务一致；任务结算事务从不拿会话锁或批次锁。
+ * 没有在跑的那次就什么都不做（重复点、两台设备同时点都安全）。
+ */
+export async function cancelAgentBatchItem(
+  userId: string,
+  id: string,
+  itemKey: string,
+): Promise<boolean> {
+  const cancelled = await db.transaction(async (tx) => {
+    const batch = await lockOwnedBatch(tx, userId, id)
+    if (!batch.confirmed_version) return []
+    const [plan] = await tx
+      .select({ targets: schema.agent_batch_plans.attempt_targets })
+      .from(schema.agent_batch_plans)
+      .where(
+        and(
+          eq(schema.agent_batch_plans.batch_id, id),
+          eq(schema.agent_batch_plans.version, batch.confirmed_version),
+        ),
+      )
+    if (!plan) return []
+    const target = Object.hasOwn(plan.targets, itemKey) ? plan.targets[itemKey]! : 1
+    const [current] = await tx
+      .select({ taskId: schema.agent_batch_attempts.task_id })
+      .from(schema.agent_batch_attempts)
+      .where(
+        and(
+          eq(schema.agent_batch_attempts.batch_id, id),
+          eq(schema.agent_batch_attempts.item_key, itemKey),
+          eq(schema.agent_batch_attempts.attempt, target),
+        ),
+      )
+    if (!current) return []
+    // 只撤还在排队、且从没调用过上游的：已经认领的可能已发给上游，撤了也照样出图计费
+    //（2026-10-31 测试环境实测）；保存失败或执行器恢复后重新入队的 queued 任务已有结果或上游任务，
+    // 直接撤会丢掉结果。
+    return cancelTasks(
+      and(
+        eq(schema.tasks.id, current.taskId),
+        eq(schema.tasks.user_id, userId),
+        eq(schema.tasks.kind, 'queue'),
+        eq(schema.tasks.status, 'queued'),
+        eq(schema.tasks.upstream_invocation_count, 0),
+      )!,
+      { tx },
+    )
+  })
+  if (!cancelled.length) return false
+  void cancelUpstreamOfCancelledTasks(cancelled.map((row) => row.id))
+  await reconcileAgentBatchProgress(id)
+  return true
 }
 
 /** A retry authorizes new attempt numbers; every earlier task and bill remains immutable. */

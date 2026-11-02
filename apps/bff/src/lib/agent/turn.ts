@@ -17,6 +17,7 @@ import { bffDrain } from '../drain'
 import { log } from '../logger'
 import type { BffTransaction, TaskOutcome } from '../private-overlay'
 import { createAutoSubmitBudget } from './auto-submit'
+import { cancelStoppedTurnJobs } from './background-jobs'
 import { AGENT_CLARIFICATION_TOOL, clarificationFromResult } from './clarification'
 import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
@@ -27,7 +28,8 @@ import {
   recordAgentToolCall,
   touchAgentConversation,
 } from './conversations'
-import { singleObjectEditIntent, wholeImageEditIntent } from './edit-intent'
+import { directImageCall } from './direct-image'
+import { wholeImageEditIntent } from './edit-intent'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost, type TurnExecution } from './execution'
 import { scheduleAgentFollowUps } from './follow-ups'
@@ -48,12 +50,19 @@ import {
   maskProposalFailedText,
   maskProposalFromResult,
   maskProposalGuidance,
+  maskProposalRetryable,
 } from './mask-proposal'
 import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
 import { modelHistoryTransform, saveModelHistoryAfterTurn } from './model-history'
 import { AgentRequestBudgetError } from './outbound-budget'
 import type { ConfiguredAgentRuntime } from './provider-settings'
+import {
+  collectUserReplyText,
+  compileReplyScripts,
+  createReplyScriptGate,
+  type ReplyScriptGate,
+} from './reply-script'
 import {
   AgentContextOverflow,
   assertRequestWithinBudget,
@@ -145,6 +154,9 @@ interface OpenAssistantMessage {
   readonly id: string
   text: string
   persisted?: boolean
+  /** 这一条助手正文的文字清洗。增量只往外追加，收尾时才可能补上兜底句。 */
+  readonly script: ReplyScriptGate
+  started: boolean
 }
 
 interface OpenToolCall {
@@ -228,6 +240,13 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     text: input.text,
     hasNewReferences: input.references.length > 0,
   })
+  // 唤醒轮的 text 是系统说明，不是用户的话。清洗认整段会话的用户原文，再加这一轮的用户原话。
+  const replyLanguageSource = collectUserReplyText(
+    history.messages,
+    prepared.wake?.authorizationPrompt || input.text,
+  )
+  // 这一轮允许的文字只算这一次。后面的流式增量只拿这份结果。
+  const replyScripts = compileReplyScripts(replyLanguageSource)
   // 唤醒轮的 text 是系统说明，不是用户的话；澄清作答连同它答的那句原话一起看。
   const userAsk = [
     ...history.messages
@@ -253,9 +272,6 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       visualWorkset,
       imageCombinations,
       maskProposals: new Set<string>(),
-      ...(!prepared.wake && singleObjectEditIntent(userAsk)
-        ? { singleObjectEdit: { nudged: false } }
-        : {}),
       ...(!prepared.wake && wholeImageEditIntent(userAsk)
         ? { wholeImageEdit: { nudged: false } }
         : {}),
@@ -313,6 +329,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   let failure: AgentTurnFailure | undefined
   let error: AgentTurnErrorCode | undefined
   let aborted = false
+  // 只有用户点「中止」才连带取消本轮任务；租约丢失等中止不能把还在正常跑的出图当退款处理。
+  let userStopped = false
   /** 本轮已经为长度截断续写过一次。再截断就失败，避免无限续。 */
   let lengthContinuations = 0
   /** 截断消息里的工具参数不完整，那些 start/end 不能变成用户看得见的工具卡。 */
@@ -333,6 +351,15 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       // 工具失败时下一次调用照常交给模型，它看得到这次调用和失败原因。
       if (!directEditTried) {
         directEditTried = true
+        // 图片生成模式：原话直接进生图工具，不为「抄一遍原话」付一次对话模型（见 `direct-image.ts`）。
+        const direct = directImageCall(input, Boolean(prepared.wake))
+        if (direct) {
+          log.info(
+            { event: 'agent.direct_image', conversationId, turnId },
+            'submitting the image-mode prompt without a model call',
+          )
+          return toolCallStream(model, 'generateImage', direct)
+        }
         const args = prepared.wake
           ? null
           : await confirmedMaskEditCall(history.messages, input.references, images)
@@ -479,8 +506,10 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     return writes
   }
 
-  // 范围确认失败：记一条日志，给用户一句话并收尾。模型再试一次也只会拿到同样的失败，
-  // 或者改去整图编辑、叫用户手画，三种都不是用户要的。
+  // 范围确认失败：记一条日志，给用户一句话并收尾。暂不可用、分割出错这类失败，模型再试
+  // 一次也只会拿到同样的结果，或者改去整图编辑、叫用户手画，都不是用户要的。
+  // 参数写错（外接框越界、实例没标 selected）例外：交回模型改参数重试一次，再错才收尾。
+  let maskProposalRetried = false
   const maskProposalFailed = async (reason: string) => {
     log.warn(
       {
@@ -502,6 +531,16 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
 
   const closeOpen = async () => {
     const current = open
+    if (current) {
+      // 用户中止时只落已经能确定的正文，不把没露出来的杂字换成兜底句。
+      const piece = current.script.finish(!aborted)
+      if (piece) {
+        if (!current.started) events.emit({ type: 'assistantStart', messageId: current.id })
+        current.started = true
+        current.text = current.script.text()
+        events.emit({ type: 'textDelta', messageId: current.id, delta: piece })
+      }
+    }
     open = null
     if (current) await store(current)
   }
@@ -595,18 +634,28 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     }
     if (event.type === 'message_start' && event.message.role === 'assistant') {
       ignoringTruncatedTools = false
-      open = { id: crypto.randomUUID(), text: '' }
+      open = {
+        id: crypto.randomUUID(),
+        text: '',
+        script: createReplyScriptGate(replyLanguageSource, replyScripts),
+        started: false,
+      }
     }
     if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
       const current = open
       if (!current) return
-      // 上游报错的那条助手消息一个字都没有，不为它开一个空气泡。
-      if (!current.text) events.emit({ type: 'assistantStart', messageId: current.id })
-      current.text += event.assistantMessageEvent.delta
+      const piece = current.script.push(event.assistantMessageEvent.delta)
+      if (!piece) return
+      // 杂字被清掉时先不开气泡；第一段看得见的正文再开。
+      if (!current.started) {
+        events.emit({ type: 'assistantStart', messageId: current.id })
+        current.started = true
+      }
+      current.text = current.script.text()
       events.emit({
         type: 'textDelta',
         messageId: current.id,
-        delta: event.assistantMessageEvent.delta,
+        delta: piece,
       })
     }
     if (event.type === 'message_end' && event.message.role === 'assistant') {
@@ -717,7 +766,22 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         // 提醒类的退回（整图要求、已有选区）照常交回模型，让它改调 editImage；其余才收尾。
         if (event.isError && event.toolName === AGENT_MASK_PROPOSAL_TOOL && !aborted) {
           const reason = toolErrorText(event.result)
-          if (!maskProposalGuidance(reason)) await maskProposalFailed(reason)
+          if (maskProposalGuidance(reason)) return
+          if (!maskProposalRetried && maskProposalRetryable(reason)) {
+            maskProposalRetried = true
+            log.info(
+              {
+                event: 'agent.tool_retry',
+                conversationId,
+                turnId,
+                tool: AGENT_MASK_PROPOSAL_TOOL,
+                reason,
+              },
+              'mask proposal params rejected, model may retry once',
+            )
+            return
+          }
+          await maskProposalFailed(reason)
         }
         return
       }
@@ -889,8 +953,9 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       })
       return messageId
     },
-    abort() {
+    abort(reason?: 'user_stop') {
       aborted = true
+      if (reason === 'user_stop') userStopped = true
       agent.abort()
     },
   }
@@ -952,6 +1017,15 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       await closeOpen()
       flushQueued()
       await writes
+      // 用户中止：停止接口已经取消过这一轮的出图任务，这里在工具全部落定之后再扫一遍，接住中止那一刻
+      // 还在提交路上、之后才落库的任务（BUG-32）。重复取消是空操作。
+      if (userStopped)
+        await cancelStoppedTurnJobs(conversationId, turnId).catch((err) => {
+          log.error(
+            { event: 'agent.stop_cancel_failed', conversationId, turnId, err },
+            'stopped turn could not cancel its late jobs',
+          )
+        })
 
       const { usage, upstreamInvocationCount } = ledger.settlement()
       const outcome: TaskOutcome = error ? 'failed' : aborted ? 'cancelled' : 'completed'

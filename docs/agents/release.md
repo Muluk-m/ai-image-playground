@@ -31,7 +31,7 @@ Agent 从 PR 到上线的完整链路，以及每一步谁能拍板。命令与�
 2. 按 AGENTS.md「完成任务的硬性检查清单」跑格式化、lint、typecheck 与测试；重任务交给云端或 CI。
 3. 开 PR，按 [PR 模板](../../.github/pull_request_template.md) 填写。改到关键流程要附证据（AGENTS.md「关键流程证据」）；涉及成本要在「成本与影响」写清改了什么、对成本的影响（AGENTS.md「成本与影响说明」）。
 4. 合并前三项缺一不可：
-   - **CI 全绿**：`Web checks` 等 PR 上的检查都通过（`Cost impact` 只打标签提示，不拦合并）。
+   - **CI 全绿**：`Web checks` 等 PR 上的检查都通过（`Cost impact` 只打标签提示，不拦合并）。main 没有分支保护和必需检查（2026-10-27 已定先不加：`overlay-bump.yml` 直接往 main 推 overlay 指针，必需检查会把它拦下），所以这条只靠流程守，紧急修复也要等 CI 全绿。
    - **`/review`**：在 PR 评论 `/review` 触发 AI Code Review（`.github/workflows/ai-review.yml`，不阻断合并），处理其中的有效意见。
    - **`@codex review`**：在 PR 评论 `@codex review`，处理有效意见。评论后 30 分钟仍没有回复就继续，并在 PR 里注明「Codex 30 分钟未回复」。
 5. 用 squash merge 合并，合并说明用中文。修 bug 的 PR 检查齐了即可合并；功能或行为变更、带迁移的 PR 要先等 Nain 批准（见上表）。
@@ -61,9 +61,12 @@ git push origin HEAD:test
 合并 `main` 就是发生产，不需要也不应该再手动发布：
 
 1. `main` 上的 `Web checks` 通过后，`.github/workflows/deploy.yml`（Deploy production）经 `workflow_run` 自动开始，同一时间只跑一单（并发组 `production-deploy`）。
-2. `target` 判定哪些部分要发（API、内部站、收费站、Admin），已在跑后代提交的部分不回退；`release` 打 `vMAJOR.MINOR.PATCH` 标签。
-3. `backend` 在 Actions 构建镜像，经 GHCR 和 SSH 受限命令送到 VPS，`rollout-runtime.sh` 先跑兼容迁移（`bun run /app/apps/bff/src/db/migrate.ts`），再做新旧两代排空切换。
-4. `pages` 等对应 API 的 `/health` 报出新版本后发布内部站与收费站并跑 Chromium 验收，最后由 `admin-pages` 发后台前端。
+2. `target` 判定哪些部分要发（paid API、paid Pages、Admin）；已在跑后代提交的部分不回退；`release` 打 `vMAJOR.MINOR.PATCH` 标签。
+3. **生产只发布 paid。** `backend` 在 Actions 构建公开树加私有 overlay 的发布镜像，经 SSH 受限命令执行 `deploy <id> paid <run>`；`rollout-runtime.sh` 先跑兼容迁移，再做新旧两代排空切换。旧 internal 版保持现状，不再参与发布或验收。
+4. `pages-paid` 等 paid API 的 `/health` 报出新版本，发收费站并跑 Chromium 验收；随后 `admin-pages` 发后台前端。paid 发布不依赖 internal API、internal Pages 或 `INTERNAL_CLOUDFLARE_API_TOKEN`。
+   - 只改前端时，`pages-paid` 直接发布，不等待 internal gate。
+   - 只改后端时，backend 直接发布 paid API。
+   - 失败后的重跑：同一发布 ID 已接收后只能按失败 job 重跑，不能重跑整单，避免同一发布目录冲突。重跑本身需 Nain 批准。
 
 Agent 合并后只跟进这个 workflow 的结果，失败就看日志处理，不手动补发。手动重跑 Deploy production 或走应急手动发布要 Nain 批准。
 
@@ -95,12 +98,33 @@ curl -fsS https://test.muvloom.online/version.json
 
 ## 五、回滚（需 Nain 批准）
 
-先报告现象、影响范围和建议回滚到的提交或镜像，Nain 批准后再动手：
+先报告现象、影响范围和建议回滚到的提交或镜像，Nain 批准后再动手。
+
+**先止血，再回滚。** 出问题的是单个功能或单个模型时，先关掉它，往往比回滚整个版本更快、波及更小。止血同样要 Nain 批准：
+
+- **关能力开关**：能力在服务器上的 `operator-config.json` 的 `capabilities` 里（求值见 `apps/bff/src/lib/capabilities.ts`），一律 deny by default。把出问题的能力改成 `false`，按[智能体上线手册「十、回滚」](../deploy/agent-rollout.md)的方式先备份再 `scripts/app-compose.sh up <project>`。配置写坏服务会拒绝启动而不是降级（[ADR 0001](../adr/0001-capability-config-fails-closed.md)），改完先校验 JSON。
+- **下架模型**：在 Admin 的「模型」页把出问题的模型切到下架，写进公开库 `model_availability`（`apps/bff/src/lib/model-availability.ts`），页面和服务端都不再提供它，不用重新发布。
+- 止血之后照样按下面的方式回滚或修复，并在汇报里写明止血做了什么、什么时候恢复。
 
 - **常规**：开一个 revert PR，走正常检查和合并，由 Deploy production 发出。它是新提交，不会被「不回退」规则跳过。
 - **后端紧急回滚**：在 VPS 上用当前发布目录执行 `scripts/app-compose.sh rollback <project> <旧镜像>`。禁止用 `compose up --force-recreate`、`compose down` 或强停脚本绕过排空。数据库不会跟着回滚，迁移本来就要兼容新旧版本。见[部署手册「回滚与失败处理」](../deploy/image-release.md#回滚与失败处理)。
 - **前端回滚**：在独立检出恢复上一个已验证的公开/私有提交，用同样的生产配置重跑对应的 `scripts/pages-release.sh`，再按「上线核对」验收。
 - **segmenter 回滚**：`scripts/segmenter-deploy.sh rollback`，只能手动跑，会切所有部署，见下文。
+
+每一次回滚（revert PR 或紧急回滚）都要在 [review-evals](review-evals.md) 加一条：原 PR、从哪个提交到哪个提交、评审本该看出什么，供以后改 ocr 模型或提示词前回放。
+
+### 事故复盘模板
+
+回滚或止血之后，在 revert PR 描述（没有 PR 的写进给 Nain 的汇报）里补一段：
+
+```md
+## 事故复盘
+
+- 现象：用户看到了什么、从什么时候开始（时间写 UTC+8）、怎么发现的。
+- 影响：影响了哪些用户、页面、接口或数据，持续多久，有没有数据要修。
+- 哪一层本该拦住：自证（作者自测与子 Agent 复查）/ ocr / Codex / CI / 测试环境验收 / 发布核对，选一层或几层，说明为什么没拦住。
+- 补在哪：为了下次拦住，改了哪份文档、哪条检查或哪个测试（附 PR 链接）；还没补的写清楚由谁什么时候补。
+```
 
 ## 六、服务器上的配置与共享组件
 

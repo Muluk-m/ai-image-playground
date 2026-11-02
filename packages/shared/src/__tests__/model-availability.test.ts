@@ -24,11 +24,30 @@ describe('isModelUnavailableRejection', () => {
     ).toBe(true)
   })
 
+  it('认得 sub2api 的无兼容账号（10-29 flare 事故原文）', () => {
+    expect(isModelUnavailableRejection({ message: 'No available compatible accounts' })).toBe(true)
+    expect(
+      isModelUnavailableRejection({
+        message: 'upstream returned 503',
+        payload: { error: { type: 'api_error', message: 'No available compatible accounts' } },
+      }),
+    ).toBe(true)
+    expect(
+      isModelUnavailableRejection({ payload: '{"error":"No available compatible accounts"}' }),
+    ).toBe(true)
+    expect(isModelUnavailableRejection({ message: 'No available OpenAI accounts' })).toBe(true)
+    expect(isModelUnavailableRejection({ message: '当前分组没有可用账号' })).toBe(true)
+  })
+
   it('普通上游故障不算', () => {
     expect(isModelUnavailableRejection({ message: 'upstream returned 502: Bad Gateway' })).toBe(
       false,
     )
     expect(isModelUnavailableRejection({ message: 'rate limit exceeded' })).toBe(false)
+    expect(isModelUnavailableRejection({ message: 'No available capacity, try again later' })).toBe(
+      false,
+    )
+    expect(isModelUnavailableRejection({ message: 'service temporarily unavailable' })).toBe(false)
   })
 
   it('归入智能体的模型不可用', () => {
