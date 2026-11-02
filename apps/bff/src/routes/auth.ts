@@ -11,6 +11,7 @@ import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { accountProfileView } from '../lib/account-profile-view'
 import { endStageAuthorizationsForUser } from '../lib/agent/stage-authorizations'
+import { passwordEntryAllowed, registrationEntryAllowed } from '../lib/auth-origin-policy'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { clientAddress } from '../lib/http'
 import { log } from '../lib/logger'
@@ -100,6 +101,7 @@ export const userAuthRoutes = new Elysia()
   .post(
     '/api/auth/register/verification',
     async ({ body, request, server, status }) => {
+      if (!registrationEntryAllowed(request)) return status(403, { error: 'login_method_unavailable' })
       if (
         !isCapabilityEnabled('accounts:self-register') ||
         !isCapabilityEnabled('accounts:email-verification')
@@ -138,6 +140,7 @@ export const userAuthRoutes = new Elysia()
       if (!isCapabilityEnabled('accounts:self-register')) {
         return capabilityUnavailable('accounts:self-register')
       }
+      if (!registrationEntryAllowed(request)) return status(403, { error: 'login_method_unavailable' })
       // 自助注册只收邮箱；纯用户名只留给管理员建号。格式不对不计入限流失败次数。
       if (!isValidEmailAddress(body.username)) {
         return status(400, { error: 'invalid_username' })
@@ -205,6 +208,7 @@ export const userAuthRoutes = new Elysia()
     '/api/auth/login',
     async ({ body, cookie, request, server, status }) => {
       if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
+      if (!passwordEntryAllowed(request)) return status(403, { error: 'login_method_unavailable' })
 
       const peer = server?.requestIP(request)?.address ?? null
       const key = clientAddress(request, peer)
@@ -316,8 +320,9 @@ export const userAuthRoutes = new Elysia()
   })
   .post(
     '/api/auth/password',
-    async ({ authUser, body, cookie, status }) => {
+    async ({ authUser, body, cookie, request, status }) => {
       if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
+      if (!passwordEntryAllowed(request)) return status(403, { error: 'login_method_unavailable' })
       if (!authUser) return status(401, { error: 'unauthorized' })
       if (passwordChangeLimiter.isLocked(authUser.id)) return status(429, { error: 'rate_limited' })
 
