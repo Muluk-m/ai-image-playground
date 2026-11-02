@@ -35,7 +35,10 @@ function dialogText(): string {
 }
 
 /** Answers the providers endpoint and lets every other request fail closed. */
-function stubProviders(body: { providers: unknown[]; loginMethods?: { password: boolean; registration: boolean } }): void {
+function stubProviders(body: {
+  providers: unknown[]
+  loginMethods?: { password: boolean; registration: boolean }
+}): void {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string) =>
@@ -145,8 +148,14 @@ it('always shows the optional invitation input without a disclosure when enabled
 })
 
 it('never flashes local forms while policy loads or when discovery fails', async () => {
-  const { promise, reject } = Promise.withResolvers<Response>()
-  vi.stubGlobal('fetch', vi.fn(() => promise))
+  let reject!: (error: Error) => void
+  const promise = new Promise<Response>((_resolve, rejectPromise) => {
+    reject = rejectPromise
+  })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => promise),
+  )
   await render()
   expect(document.querySelector('form')).toBeNull()
   expect(document.querySelector('.auth-divider')).toBeNull()
@@ -156,9 +165,16 @@ it('never flashes local forms while policy loads or when discovery fails', async
 })
 
 it('renders only the allowed provider and private mark even with a referral', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => Response.json({
-    ...allCapabilitiesOff(), 'accounts:self-register': true, 'billing:credits': true,
-  })))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      Response.json({
+        ...allCapabilitiesOff(),
+        'accounts:self-register': true,
+        'billing:credits': true,
+      }),
+    ),
+  )
   await bootstrapClientCapabilities(true, 'https://api.example.com')
   window.history.replaceState(null, '', '/?ref=invite&auth_error=access_denied')
   stubProviders({
@@ -167,7 +183,9 @@ it('renders only the allowed provider and private mark even with a referral', as
   })
   await render()
   expect(providerButtons().map((button) => button.textContent)).toEqual(['Enterprise'])
-  expect(providerButtons()[0]?.querySelector('img')?.getAttribute('src')).toBe('/official-provider.png')
+  expect(providerButtons()[0]?.querySelector('img')?.getAttribute('src')).toBe(
+    '/official-provider.png',
+  )
   expect(document.querySelector('form')).toBeNull()
   expect(document.querySelector('input')).toBeNull()
   expect(document.querySelector('.auth-divider')).toBeNull()

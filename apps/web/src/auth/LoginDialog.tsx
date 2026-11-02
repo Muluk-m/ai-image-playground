@@ -21,10 +21,9 @@ import { PrivateWebSupportsReferrals } from '../lib/privateOverlay'
 import { bffBaseUrl } from '../lib/runtimeConfig'
 import AuthConsent from './AuthConsent'
 import type { LoginPromptReason } from './loginPrompt'
+import { OAuthProviderMark } from './OAuthProviderMark'
 import { preservePendingSubmissionForLogin } from './pendingSubmission'
 import { type RegistrationCredentials, RegistrationPanel } from './RegistrationPanel'
-import { OAuthProviderMark } from './OAuthProviderMark'
-
 
 function AuthBrand() {
   const { t } = useTranslation('auth')
@@ -155,7 +154,8 @@ export function LoginDialog({
   const [options, setOptions] = useState<LoginOptions | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const passwordEnabled = options?.loginMethods.password === true
-  const registrationEnabled = options?.loginMethods.registration === true &&
+  const registrationEnabled =
+    options?.loginMethods.registration === true &&
     isClientCapabilityEnabled('accounts:self-register')
   const emailVerificationEnabled = isClientCapabilityEnabled('accounts:email-verification')
   const referralEnabled =
@@ -186,18 +186,24 @@ export function LoginDialog({
 
   useEffect(() => {
     let cancelled = false
-    void fetchLoginOptions().then((available) => {
-      if (cancelled) return
-      setOptions(available)
-      if (available.loginMethods.registration &&
+    void fetchLoginOptions().then(
+      (available) => {
+        if (cancelled) return
+        setOptions(available)
+        if (
+          available.loginMethods.registration &&
           isClientCapabilityEnabled('accounts:self-register') &&
-          PrivateWebSupportsReferrals && isClientCapabilityEnabled('billing:credits') &&
-          new URLSearchParams(window.location.search).get('ref')) {
-        setView('registration')
-      }
-    }, () => {
-      if (!cancelled) setLoadFailed(true)
-    })
+          PrivateWebSupportsReferrals &&
+          isClientCapabilityEnabled('billing:credits') &&
+          new URLSearchParams(window.location.search).get('ref')
+        ) {
+          setView('registration')
+        }
+      },
+      () => {
+        if (!cancelled) setLoadFailed(true)
+      },
+    )
     return () => {
       cancelled = true
     }
@@ -312,11 +318,11 @@ export function LoginDialog({
           ))}
         </div>
         {passwordEnabled || (view === 'registration' && registrationEnabled) ? (
-        <div className="auth-divider">
-          <span>
-            {view === 'registration' ? t('login.dividerRegister') : t('login.dividerLogin')}
-          </span>
-        </div>
+          <div className="auth-divider">
+            <span>
+              {view === 'registration' ? t('login.dividerRegister') : t('login.dividerLogin')}
+            </span>
+          </div>
         ) : null}
       </>
     ) : null
@@ -380,100 +386,104 @@ export function LoginDialog({
                   {t(loadFailed ? 'methods.loadFailed' : 'methods.loading')}
                 </p>
               ) : null}
-              {!passwordEnabled && error ? <p role="alert" className="auth-error">{error}</p> : null}
+              {!passwordEnabled && error ? (
+                <p role="alert" className="auth-error">
+                  {error}
+                </p>
+              ) : null}
               {passwordEnabled ? (
-              <form
-                className="auth-form"
-                onSubmit={(event) => void submit(event)}
-                aria-label={t('login.formLabel')}
-              >
-                <Label className="mt-4 grid gap-2 first:mt-0">
-                  <span>{t('login.emailLabel')}</span>
-                  <Input
-                    name="username"
-                    type="text"
-                    inputMode="email"
-                    value={username}
-                    onChange={(event) => setUsername(event.currentTarget.value)}
-                    autoComplete="username"
-                    autoCapitalize="none"
-                    spellCheck={false}
-                    disabled={pending}
-                    placeholder={t('login.emailPlaceholder')}
-                  />
-                </Label>
-
-                <Label className="mt-4 grid gap-2 first:mt-0">
-                  <span>{t('login.passwordLabel')}</span>
-                  <div className="relative">
-                    <Input
-                      name="password"
-                      type={showPassword ? 'text' : 'password'}
-                      className="pr-10"
-                      value={password}
-                      onChange={(event) => setPassword(event.currentTarget.value)}
-                      autoComplete="current-password"
-                      disabled={pending}
-                      placeholder={t('login.passwordPlaceholder')}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="absolute right-0.5 top-0.5 text-muted-foreground"
-                      onClick={() => setShowPassword((value) => !value)}
-                      disabled={pending}
-                      aria-label={showPassword ? t('password.hide') : t('password.show')}
-                    >
-                      <Icon name={showPassword ? 'hidden' : 'visible'} />
-                    </Button>
-                  </div>
-                </Label>
-
-                <div className="auth-message-slot" aria-live="polite">
-                  {error ? (
-                    <p role="alert" className="auth-error">
-                      {error}
-                    </p>
-                  ) : null}
-                </div>
-
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={pending || !username.trim() || !password}
+                <form
+                  className="auth-form"
+                  onSubmit={(event) => void submit(event)}
+                  aria-label={t('login.formLabel')}
                 >
-                  {pending ? (
-                    <>
-                      <Icon name="loading" className="animate-spin" />
-                      {t('login.submitting')}
-                    </>
-                  ) : (
-                    t('login.submit')
-                  )}
-                </Button>
-              </form>
+                  <Label className="mt-4 grid gap-2 first:mt-0">
+                    <span>{t('login.emailLabel')}</span>
+                    <Input
+                      name="username"
+                      type="text"
+                      inputMode="email"
+                      value={username}
+                      onChange={(event) => setUsername(event.currentTarget.value)}
+                      autoComplete="username"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      disabled={pending}
+                      placeholder={t('login.emailPlaceholder')}
+                    />
+                  </Label>
+
+                  <Label className="mt-4 grid gap-2 first:mt-0">
+                    <span>{t('login.passwordLabel')}</span>
+                    <div className="relative">
+                      <Input
+                        name="password"
+                        type={showPassword ? 'text' : 'password'}
+                        className="pr-10"
+                        value={password}
+                        onChange={(event) => setPassword(event.currentTarget.value)}
+                        autoComplete="current-password"
+                        disabled={pending}
+                        placeholder={t('login.passwordPlaceholder')}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="absolute right-0.5 top-0.5 text-muted-foreground"
+                        onClick={() => setShowPassword((value) => !value)}
+                        disabled={pending}
+                        aria-label={showPassword ? t('password.hide') : t('password.show')}
+                      >
+                        <Icon name={showPassword ? 'hidden' : 'visible'} />
+                      </Button>
+                    </div>
+                  </Label>
+
+                  <div className="auth-message-slot" aria-live="polite">
+                    {error ? (
+                      <p role="alert" className="auth-error">
+                        {error}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={pending || !username.trim() || !password}
+                  >
+                    {pending ? (
+                      <>
+                        <Icon name="loading" className="animate-spin" />
+                        {t('login.submitting')}
+                      </>
+                    ) : (
+                      t('login.submit')
+                    )}
+                  </Button>
+                </form>
               ) : null}
 
               {passwordEnabled || registrationEnabled ? (
-              <p className="mt-6 flex flex-wrap items-center justify-center gap-1 text-xs text-muted-foreground">
-                {t('login.noAccount')}
-                {registrationEnabled ? (
-                  <Button
-                    type="button"
-                    variant="link"
-                    size="xs"
-                    onClick={() => {
-                      setErrorKey(null)
-                      setView('registration')
-                    }}
-                  >
-                    {t('login.registerLink')}
-                  </Button>
-                ) : (
-                  <span>{t('login.registrationClosed')}</span>
-                )}
-              </p>
+                <p className="mt-6 flex flex-wrap items-center justify-center gap-1 text-xs text-muted-foreground">
+                  {t('login.noAccount')}
+                  {registrationEnabled ? (
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="xs"
+                      onClick={() => {
+                        setErrorKey(null)
+                        setView('registration')
+                      }}
+                    >
+                      {t('login.registerLink')}
+                    </Button>
+                  ) : (
+                    <span>{t('login.registrationClosed')}</span>
+                  )}
+                </p>
               ) : null}
               <AuthConsent plansHref={plansHref} kind="login" />
             </div>

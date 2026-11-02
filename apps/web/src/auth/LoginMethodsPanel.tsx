@@ -22,7 +22,6 @@ import {
   updateOwnPassword,
 } from '../lib/authClient'
 
-import { OAuthProviderMark } from './OAuthProviderMark'
 /**
  * 错误一律以 key 的形式在 state 里流转，渲染时才翻译：切语言后已经显示的报错会跟着变，
  * 且 `errors:<flow>.<code>` 的叶子名与 BFF 返回的 `error.code` 同名，对不上时一眼可见。
@@ -204,68 +203,68 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
       ) : (
         <>
           {passwordEnabled ? (
-          <section className="mb-6">
-            <h4 className="mb-1 text-sm font-medium text-foreground">
-              {methods.password ? t('methods.changePassword') : t('methods.setPassword')}
-            </h4>
-            <p className="mb-3 text-xs text-muted-foreground">
-              {methods.password ? t('methods.changePasswordHint') : t('methods.setPasswordHint')}
-            </p>
-            <form className="space-y-4" onSubmit={(event) => void submitPassword(event)}>
-              {methods.password ? (
+            <section className="mb-6">
+              <h4 className="mb-1 text-sm font-medium text-foreground">
+                {methods.password ? t('methods.changePassword') : t('methods.setPassword')}
+              </h4>
+              <p className="mb-3 text-xs text-muted-foreground">
+                {methods.password ? t('methods.changePasswordHint') : t('methods.setPasswordHint')}
+              </p>
+              <form className="space-y-4" onSubmit={(event) => void submitPassword(event)}>
+                {methods.password ? (
+                  <div className="grid gap-2">
+                    <Label htmlFor="login-methods-current-password">
+                      {t('methods.currentPassword')}
+                    </Label>
+                    <Input
+                      id="login-methods-current-password"
+                      name="current-password"
+                      type="password"
+                      autoComplete="current-password"
+                      placeholder={t('methods.currentPassword')}
+                      aria-label={t('methods.currentPassword')}
+                      maxLength={PASSWORD_MAX_LENGTH}
+                      value={currentPassword}
+                      onChange={(event) => setCurrentPassword(event.currentTarget.value)}
+                      disabled={pending}
+                    />
+                  </div>
+                ) : null}
                 <div className="grid gap-2">
-                  <Label htmlFor="login-methods-current-password">
-                    {t('methods.currentPassword')}
-                  </Label>
+                  <Label htmlFor="login-methods-new-password">{t('methods.newPassword')}</Label>
                   <Input
-                    id="login-methods-current-password"
-                    name="current-password"
+                    id="login-methods-new-password"
+                    name="new-password"
                     type="password"
-                    autoComplete="current-password"
-                    placeholder={t('methods.currentPassword')}
-                    aria-label={t('methods.currentPassword')}
-                    maxLength={PASSWORD_MAX_LENGTH}
-                    value={currentPassword}
-                    onChange={(event) => setCurrentPassword(event.currentTarget.value)}
+                    autoComplete="new-password"
+                    placeholder={t('methods.newPassword')}
+                    aria-label={t('methods.newPassword')}
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.currentTarget.value)}
                     disabled={pending}
                   />
                 </div>
-              ) : null}
-              <div className="grid gap-2">
-                <Label htmlFor="login-methods-new-password">{t('methods.newPassword')}</Label>
-                <Input
-                  id="login-methods-new-password"
-                  name="new-password"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder={t('methods.newPassword')}
-                  aria-label={t('methods.newPassword')}
-                  value={newPassword}
-                  onChange={(event) => setNewPassword(event.currentTarget.value)}
-                  disabled={pending}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="login-methods-confirm-password">
-                  {t('methods.confirmNewPassword')}
-                </Label>
-                <Input
-                  id="login-methods-confirm-password"
-                  name="confirm-password"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder={t('methods.confirmNewPassword')}
-                  aria-label={t('methods.confirmNewPassword')}
-                  value={confirmation}
-                  onChange={(event) => setConfirmation(event.currentTarget.value)}
-                  disabled={pending}
-                />
-              </div>
-              <Button type="submit" disabled={pending} className="w-full">
-                {methods.password ? t('methods.updatePassword') : t('methods.setPassword')}
-              </Button>
-            </form>
-          </section>
+                <div className="grid gap-2">
+                  <Label htmlFor="login-methods-confirm-password">
+                    {t('methods.confirmNewPassword')}
+                  </Label>
+                  <Input
+                    id="login-methods-confirm-password"
+                    name="confirm-password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder={t('methods.confirmNewPassword')}
+                    aria-label={t('methods.confirmNewPassword')}
+                    value={confirmation}
+                    onChange={(event) => setConfirmation(event.currentTarget.value)}
+                    disabled={pending}
+                  />
+                </div>
+                <Button type="submit" disabled={pending} className="w-full">
+                  {methods.password ? t('methods.updatePassword') : t('methods.setPassword')}
+                </Button>
+              </form>
+            </section>
           ) : null}
 
           {providers.length > 0 ? (
@@ -284,10 +283,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                       className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2"
                     >
                       <span className="min-w-0">
-                        <span className="flex items-center gap-2 text-sm text-foreground">
-                          <OAuthProviderMark provider={provider} />
-                          {provider.label}
-                        </span>
+                        <span className="block text-sm text-foreground">{provider.label}</span>
                         <span className="block truncate text-xs text-muted-foreground">
                           {identity
                             ? (identity.email ?? t('methods.linked'))

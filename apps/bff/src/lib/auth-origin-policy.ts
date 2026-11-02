@@ -7,12 +7,14 @@ export type ResolvedLoginPolicy = Omit<LoginOriginPolicy, 'providers'> & {
 }
 
 export function loginPolicyForOrigin(origin: string): ResolvedLoginPolicy {
-  return config.auth.loginMethodsByOrigin.find((entry) => entry.origin === origin) ?? {
-    origin,
-    password: true,
-    registration: true,
-    providers: null,
-  }
+  return (
+    config.auth.loginMethodsByOrigin.find((entry) => entry.origin === origin) ?? {
+      origin,
+      password: true,
+      registration: true,
+      providers: null,
+    }
+  )
 }
 
 /**

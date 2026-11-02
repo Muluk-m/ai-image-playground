@@ -21,7 +21,11 @@ export function parseLoginMethodsByOrigin(value: unknown): readonly LoginOriginP
     }
     if (
       (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
-      parsed.pathname !== '/' || parsed.search || parsed.hash || parsed.username || parsed.password ||
+      parsed.pathname !== '/' ||
+      parsed.search ||
+      parsed.hash ||
+      parsed.username ||
+      parsed.password ||
       parsed.origin !== origin
     ) {
       throw new Error('AUTH_LOGIN_METHODS_BY_ORIGIN keys must be bare http(s) origins')
@@ -30,15 +34,22 @@ export function parseLoginMethodsByOrigin(value: unknown): readonly LoginOriginP
       throw new Error(`AUTH_LOGIN_METHODS_BY_ORIGIN[${origin}] must be an object`)
     }
     const record = raw as Record<string, unknown>
-    if (Object.keys(record).some((key) => !['password', 'registration', 'providers'].includes(key))) {
+    if (
+      Object.keys(record).some((key) => !['password', 'registration', 'providers'].includes(key))
+    ) {
       throw new Error(`AUTH_LOGIN_METHODS_BY_ORIGIN[${origin}] contains an unknown key`)
     }
     if (typeof record.password !== 'boolean' || typeof record.registration !== 'boolean') {
-      throw new Error(`AUTH_LOGIN_METHODS_BY_ORIGIN[${origin}] password and registration must be booleans`)
+      throw new Error(
+        `AUTH_LOGIN_METHODS_BY_ORIGIN[${origin}] password and registration must be booleans`,
+      )
     }
-    if (!Array.isArray(record.providers) || record.providers.some((provider) =>
-      typeof provider !== 'string' || !isOAuthProviderId(provider)
-    )) {
+    if (
+      !Array.isArray(record.providers) ||
+      record.providers.some(
+        (provider) => typeof provider !== 'string' || !isOAuthProviderId(provider),
+      )
+    ) {
       throw new Error(`AUTH_LOGIN_METHODS_BY_ORIGIN[${origin}].providers must be provider ids`)
     }
     entries.push({

@@ -4,9 +4,9 @@ import {
   ADMIN_USER_NOTE_MAX_LENGTH,
   isValidPassword,
   isValidUsername,
-  nicknameError,
-  NICKNAME_MAX_LENGTH,
   type LoginMethodsView,
+  NICKNAME_MAX_LENGTH,
+  nicknameError,
   normalizeUsername,
 } from '@image-playground/shared'
 import { and, asc, eq, inArray, ne } from 'drizzle-orm'
@@ -238,11 +238,13 @@ async function loginExistingIdentity(
         email: identity.email ? normalizeUsername(identity.email) : null,
         display_name: identity.displayName,
       })
-      .where(and(
-        eq(schema.user_identities.provider, identity.provider),
-        eq(schema.user_identities.subject, identity.subject),
-        eq(schema.user_identities.user_id, current.id),
-      ))
+      .where(
+        and(
+          eq(schema.user_identities.provider, identity.provider),
+          eq(schema.user_identities.subject, identity.subject),
+          eq(schema.user_identities.user_id, current.id),
+        ),
+      )
     await tx
       .update(schema.users)
       .set({
@@ -294,10 +296,12 @@ export async function loginWithOAuthIdentity(
   if (!options.allowRegistration) return { registrationClosed: true }
 
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-  const candidates = await firstFreeUsernames(oauthUsernameCandidates({
-    ...identity,
-    email: identity.emailVerified === true ? email : null,
-  }))
+  const candidates = await firstFreeUsernames(
+    oauthUsernameCandidates({
+      ...identity,
+      email: identity.emailVerified === true ? email : null,
+    }),
+  )
   for (const username of candidates) {
     const now = Date.now()
     const userId = randomUUID()

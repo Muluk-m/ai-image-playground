@@ -255,9 +255,10 @@ function returnTargetFromMetadata(
   providerId: string,
   issued: ParsedState | null,
 ): { readonly target: string; readonly origin: string } | null {
-  const fallback = config.auth.loginMethodsByOrigin.length > 0
-    ? null
-    : { target: DEFAULT_RETURN_TO, origin: frontendOrigin(request) }
+  const fallback =
+    config.auth.loginMethodsByOrigin.length > 0
+      ? null
+      : { target: DEFAULT_RETURN_TO, origin: frontendOrigin(request) }
   if (typeof metadata !== 'string' || !issued) return fallback
   const prefix = `${providerId}:${issued.state}:`
   if (!metadata.startsWith(prefix)) return fallback
@@ -275,18 +276,25 @@ function returnTargetFromMetadata(
 
 export const oauthRoutes = new Elysia()
   .use(resolveAuthUser)
-  .get('/api/auth/oauth/providers', ({ query, request, status }) => {
-    if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
-    const policy = loginOriginPolicy(request, query.frontend_origin)
-    if (!policy) return status(403, { error: 'forbidden_origin' })
-    return status(200, {
-      providers: enabledOAuthProviders().filter((provider) => providerAllowed(policy, provider.id)),
-      loginMethods: {
-        password: policy.password,
-        registration: policy.password && policy.registration && isCapabilityEnabled('accounts:self-register'),
-      },
-    } satisfies OAuthProvidersResponse)
-  }, { query: t.Object({ frontend_origin: t.Optional(t.String()) }) })
+  .get(
+    '/api/auth/oauth/providers',
+    ({ query, request, status }) => {
+      if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
+      const policy = loginOriginPolicy(request, query.frontend_origin)
+      if (!policy) return status(403, { error: 'forbidden_origin' })
+      return status(200, {
+        providers: enabledOAuthProviders().filter((provider) =>
+          providerAllowed(policy, provider.id),
+        ),
+        loginMethods: {
+          password: policy.password,
+          registration:
+            policy.password && policy.registration && isCapabilityEnabled('accounts:self-register'),
+        },
+      } satisfies OAuthProvidersResponse)
+    },
+    { query: t.Object({ frontend_origin: t.Optional(t.String()) }) },
+  )
   .get(
     '/api/auth/oauth/:provider/start',
     ({ cookie, params, query, request, status }) => {
