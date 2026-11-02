@@ -355,6 +355,7 @@ function SettingRowView({
                 <Input
                   autoFocus
                   aria-label="修改原因"
+                  maxLength={1000}
                   value={reason}
                   onChange={(event) => setReason(event.target.value)}
                   placeholder="修改原因（必填）"

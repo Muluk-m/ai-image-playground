@@ -518,7 +518,8 @@ export function refreshOperatorConfig(): Promise<number> {
 
 export async function refreshOperatorConfigIfChanged(): Promise<number | null> {
   const revision = await operatorConfigRevision()
-  if (revision === lastLoadedRevision && !alertRetryPending) return null
+  // 告警重试只在没有刷新在跑时追加，避免 webhook 持续超时时刷新任务越排越长。
+  if (revision === lastLoadedRevision && (!alertRetryPending || refreshInFlight)) return null
   return refreshOperatorConfig()
 }
 
