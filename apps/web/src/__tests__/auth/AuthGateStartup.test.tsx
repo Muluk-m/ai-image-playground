@@ -38,7 +38,10 @@ beforeEach(() => {
         case '/api/auth/me':
           return Response.json({ user: { id: 'alice', username: 'alice', status: 'active' } })
         case '/api/auth/oauth/providers':
-          return Response.json({ providers: [], loginMethods: { password: true, registration: false } })
+          return Response.json({
+            providers: [],
+            loginMethods: { password: true, registration: false },
+          })
         case '/api/channels':
           return Response.json({ channels: [] })
         default:
