@@ -14,10 +14,12 @@
     "sendToCanvasTitle": "Add to canvas",
     "deleteRecord": "Delete record",
     "more": "More actions",
+    "deleteImage": "Delete this image",
     "openProject": "Back to project"
   },
   "confirm": {
-    "deleteMessage": "Delete this record?"
+    "deleteMessage": "Delete this record?",
+    "deleteImageMessage": "Delete this image? The other {{count}} image(s) in this record stay."
   },
   "prompt": {
     "empty": "(no prompt)"
@@ -122,7 +124,8 @@
     "itemDetail": "Details of image {{index}}",
     "downloadItem": "Download image {{index}}",
     "downloadAll": "Download all",
-    "itemList": "Images"
+    "itemList": "Images",
+    "deleteItem": "Delete image {{index}}"
   },
   "cloudHistory": {
     "refresh": "Refresh",
