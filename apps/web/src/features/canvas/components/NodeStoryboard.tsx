@@ -393,7 +393,7 @@ function StoryboardEditor({
         >
           <p className="text-sm">{t('storyboard.batch', { count: shots.length })}</p>
           <p className="mt-2 text-sm text-muted-foreground">{model}</p>
-          {guard.estimatedCredits !== undefined && (
+          {guard.metering !== 'none' && guard.estimatedCredits !== undefined && (
             <p className="mt-3 flex gap-2 text-sm">
               {t('nodes.estimatedCost')}
               <Credits credits={guard.estimatedCredits} />

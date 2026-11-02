@@ -19,6 +19,7 @@ import { scopedStorageName } from '../../../lib/authScope'
 import { modelLabel } from '../../../lib/channels/publicChannels'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { getDeviceId } from '../../../lib/deviceId'
+import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
 import { CARD, CARD_CONTROL, CARD_NOTE, CARD_TEXT } from '../agentStyles'
@@ -79,10 +80,18 @@ function hasActiveWork(page: AgentBatchPage | null): boolean {
   )
 }
 
-function Estimate({ value }: { value: AgentBatchEstimate }) {
+function Estimate({
+  value,
+  metering,
+}: {
+  value: AgentBatchEstimate
+  metering?: 'credits' | 'none'
+}) {
   const { t } = useTranslation('agent')
   return value.status === 'available' ? (
-    <Credits credits={value.estimatedChargeCredits} />
+    metering === 'none' ? null : (
+      <Credits credits={value.estimatedChargeCredits} />
+    )
   ) : (
     <span>{t('batch.unavailable')}</span>
   )
@@ -146,6 +155,7 @@ function OutputParameters({ params }: { params: AgentBatchGenerationItem['params
 
 export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string; domId: string }) {
   const { t } = useTranslation(['agent', 'errors'])
+  const metering = usePrivateSubmissionGuard({ model: '', quantity: 1 }).metering
   const [page, setPage] = useState<AgentBatchPage | null>(null)
   const [dirty, setDirty] = useState(false)
   const [selectedRetries, setSelectedRetries] = useState<readonly string[]>([])
@@ -709,7 +719,11 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           <div className="grid gap-1">
             <span>{t('batch.attempt', { number: item.execution.attempt })}</span>
             <AgentBatchItemStatus execution={item.execution} />
-            <AgentBatchItemResult execution={item.execution} inputs={item.inputs} />
+            <AgentBatchItemResult
+              execution={item.execution}
+              inputs={item.inputs}
+              metering={metering}
+            />
           </div>
         )}
         {item.attempts?.some((attempt) => attempt.attempt !== item.execution?.attempt) ? (
@@ -722,7 +736,11 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                   <div key={attempt.attempt} className="grid gap-1">
                     <span>{t('batch.attempt', { number: attempt.attempt })}</span>
                     <AgentBatchItemStatus execution={attempt} />
-                    <AgentBatchItemResult execution={attempt} inputs={item.inputs} />
+                    <AgentBatchItemResult
+                      execution={attempt}
+                      inputs={item.inputs}
+                      metering={metering}
+                    />
                   </div>
                 ))}
             </div>
@@ -1201,30 +1219,36 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         </div>
       </div>
       <div className="grid gap-1 text-xs text-muted-foreground">
-        {(!confirmationKeys?.length || hasAnalysis) && (
-          <div className="flex justify-between">
-            <span>
-              {page.batch.retryItemKeys?.length
-                ? t('batch.analysisRetryCost')
-                : t('batch.analysisCost')}
-            </span>
-            <Estimate value={page.batch.estimate.analysis} />
-          </div>
-        )}
-        {hasGeneration && (
-          <div className="flex justify-between">
-            <span>
-              {page.batch.retryItemKeys?.length ? t('batch.retryCost') : t('batch.generationCost')}
-            </span>
-            <Estimate value={page.batch.estimate.generation} />
-          </div>
-        )}
-        {typeof page.batch.actualCredits === 'number' && page.batch.status !== 'draft' && (
-          <div className="flex justify-between">
-            <span>{t('batch.actualCost')}</span>
-            <Credits credits={page.batch.actualCredits} />
-          </div>
-        )}
+        {(metering !== 'none' || page.batch.estimate.analysis.status !== 'available') &&
+          (!confirmationKeys?.length || hasAnalysis) && (
+            <div className="flex justify-between">
+              <span>
+                {page.batch.retryItemKeys?.length
+                  ? t('batch.analysisRetryCost')
+                  : t('batch.analysisCost')}
+              </span>
+              <Estimate value={page.batch.estimate.analysis} metering={metering} />
+            </div>
+          )}
+        {(metering !== 'none' || page.batch.estimate.generation.status !== 'available') &&
+          hasGeneration && (
+            <div className="flex justify-between">
+              <span>
+                {page.batch.retryItemKeys?.length
+                  ? t('batch.retryCost')
+                  : t('batch.generationCost')}
+              </span>
+              <Estimate value={page.batch.estimate.generation} metering={metering} />
+            </div>
+          )}
+        {metering !== 'none' &&
+          typeof page.batch.actualCredits === 'number' &&
+          page.batch.status !== 'draft' && (
+            <div className="flex justify-between">
+              <span>{t('batch.actualCost')}</span>
+              <Credits credits={page.batch.actualCredits} />
+            </div>
+          )}
         {dirty && <p>{t('batch.staleQuote')}</p>}
         {priceChanged && <p role="status">{t('errors:agentBatch.batch_price_changed')}</p>}
         {page.batch.status === 'paused' &&

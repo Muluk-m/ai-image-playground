@@ -7,6 +7,12 @@ export { config } from '../config'
 export { db, schema } from '../db/client'
 export { capabilityUnavailable, isCapabilityEnabled } from './capabilities'
 export { getChannels } from './channels'
+export {
+  OAuthExchangeError,
+  type OAuthProviderDefinition,
+  optionalString,
+  requireString,
+} from './oauth/provider'
 export { reservedTokenUsage } from './token-pricing'
 export { UserOperationError } from './user-admin'
 export { requireInternalService, requireUser } from './user-auth'
