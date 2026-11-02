@@ -74,15 +74,17 @@ type LinkErrorCode =
   | 'identity_taken'
   | 'unauthenticated'
 
-/** Origin the provider redirects back to. Proxy headers only matter when the env is unset. */
+/** Only explicitly trusted API hosts may override the primary callback origin. */
 function bffOrigin(request: Request): string {
-  if (config.auth.publicOrigin) return config.auth.publicOrigin
   const host = (request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? '')
     .split(',')[0]
     ?.trim()
-  if (!host) return new URL(request.url).origin
   const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
-  return `${proto || new URL(request.url).protocol.replace(':', '')}://${host}`
+  const origin = host
+    ? `${proto || new URL(request.url).protocol.replace(':', '')}://${host}`
+    : new URL(request.url).origin
+  if (config.auth.publicOrigins.includes(origin)) return origin
+  return config.auth.publicOrigin || origin
 }
 
 function allowedFrontendOrigins(request: Request): string[] {
