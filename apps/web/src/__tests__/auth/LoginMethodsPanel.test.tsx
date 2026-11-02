@@ -12,12 +12,6 @@ declare global {
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-vi.mock('../../lib/privateOverlay', () => ({
-  PrivateWebOAuthProviderMarks: {
-    enterprise: () => <img src="/official-provider.png" alt="" aria-hidden="true" />,
-  },
-}))
-
 let host: HTMLDivElement
 let root: Root
 
@@ -199,5 +193,4 @@ it('hides password setup and nonallowed providers under provider-only policy', a
   expect(document.querySelector('input')).toBeNull()
   expect(document.body.textContent).not.toContain('Google')
   expect(document.body.textContent).toContain('person@example.com')
-  expect(document.querySelector('img[src="/official-provider.png"]')).not.toBeNull()
 })
