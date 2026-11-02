@@ -62,3 +62,18 @@ jobs:
           TARGET: ${{ inputs.target || 'db' }}
           TEST_FILTER: ${{ inputs.filter }}
           CLOUD_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_cloud_test
+      - name: Verify HEIC branch before PR
+        if: inputs.target == 'check'
+        run: |
+          pnpm exec biome check --write .
+          pnpm lint
+          pnpm typecheck
+          pnpm --dir apps/web build
+      - name: Save formatter changes
+        if: always() && inputs.target == 'check'
+        run: git diff > /tmp/heic-format.patch
+      - uses: actions/upload-artifact@v4
+        if: always() && inputs.target == 'check'
+        with:
+          name: heic-format
+          path: /tmp/heic-format.patch

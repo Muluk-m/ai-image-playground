@@ -26,7 +26,7 @@ export function useToolboxIntake(disabled = false) {
   const intake = (images: File[]) => {
     if (disabledRef.current || images.length === 0) return
     const run = (files: File[]) => {
-      const accepted = acceptImageFiles(files)
+      const accepted = acceptImageFiles(files, { allowHeic: true })
       if (disabledRef.current || accepted.length === 0) return
       confirmImageBatch(accepted.length, () => {
         if (!disabledRef.current) void add(accepted)
@@ -42,19 +42,24 @@ export function useToolboxIntake(disabled = false) {
         useStore.getState().showToast(i18next.t('image.transcodeFailed', { ns: 'lib' }), 'error'),
       )
   }
-  const { dragging, dropZoneProps } = useImageDropZone(intake)
-  usePasteImageFiles('tools', intake)
+  const { dragging, dropZoneProps } = useImageDropZone(intake, { allowHeic: true })
+  usePasteImageFiles('tools', intake, { allowHeic: true })
 
   const inputs = (
     <>
       <input
         ref={fileInput}
         type="file"
-        accept="image/*"
+        accept="image/*,.heic,.heif"
         multiple
         hidden
         onChange={(event) => {
-          intake(acceptImageFiles([...(event.target.files ?? [])], { keepOversized: true }))
+          intake(
+            acceptImageFiles([...(event.target.files ?? [])], {
+              keepOversized: true,
+              allowHeic: true,
+            }),
+          )
           event.target.value = ''
         }}
       />
@@ -66,7 +71,7 @@ export function useToolboxIntake(disabled = false) {
         {...{ webkitdirectory: '' }}
         onChange={(event) => {
           const { files } = filesFromFolderInput(event.target.files)
-          intake(acceptImageFiles(files, { keepOversized: true }))
+          intake(acceptImageFiles(files, { keepOversized: true, allowHeic: true }))
           event.target.value = ''
         }}
       />

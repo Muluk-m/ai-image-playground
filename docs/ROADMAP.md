@@ -195,7 +195,7 @@
   - 入口：一级页面 `/tools`，侧栏第四项。
   - 首期范围：压缩（质量与目标体积两种）、格式转换、改尺寸、裁剪、旋转 / 翻转；拼图、长图拼接、九宫格切图。水印、隐私清理、转 PDF、GIF 不在首期。
   - 编码：Canvas 原生出 JPG / PNG 与浏览器支持时的 WebP；Safari 的 WebP 与全平台的 AVIF 由 `@jsquash/*` 单线程 wasm 按需懒加载。不上 `wasm-vips`：它要整站开 COOP / COEP。
-  - HEIC：只靠 Safari 17+ 原生解码，其余浏览器报不支持；不引入 LGPL 的 libheif。
+  - HEIC（2026-11-02 Nain 更新裁决）：工具箱支持 HEIC / HEIF 手机照片，原生解码不可用时按需加载 `heic-to` 的 CSP 解码器，在独立 Worker 内本地处理，不上传、不扣费。随站分发 LGPL / GPL 许可、对应源码位置与重建说明（`/third-party-notices.txt`）。
   - 有损 PNG 量化首期不做：libimagequant 是 GPL-3.0 或商业许可。
   - 门禁：全免费、免登录，免费版与收费版都有，不设能力位。
 - 进度：交互原型选定 A「工具目录」，规格 [#805](https://github.com/Muluk-m/ai-image-playground/issues/805)，实现票 #806–#812 汇入 [PR #815](https://github.com/Muluk-m/ai-image-playground/pull/815)；上线核验后勾目标。
