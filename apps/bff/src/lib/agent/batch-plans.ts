@@ -19,7 +19,12 @@ import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { quoteAnalysisTask } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
-import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
+import { meteringDecisionOrDenied } from '../metering-decision'
+import {
+  type BffTransaction,
+  loadPrivateBffOverlay,
+  nonBillingPriceSnapshot,
+} from '../private-overlay'
 import { queueTaskOutcome } from '../taskSubmission'
 import { prepareBatchAnalysis } from './batch-analysis-preparation'
 import { readBatchAnalysisSummary, readBatchSourceSummary } from './batch-analysis-summary'
@@ -452,15 +457,16 @@ export class BatchPlanError extends Error {
       | 'batch_size_exceeded'
       | 'batch_source_limit_exceeded'
       | 'batch_source_version_conflict'
+      | 'batch_version_conflict'
       | 'batch_price_changed'
       | 'batch_submission_refused'
+      | 'quota_exceeded'
       | 'batch_input_limit'
       | 'batch_insufficient_credits'
-      | 'batch_version_conflict'
       | 'invalid_batch_plan'
       | 'invalid_batch_cursor'
       | 'batch_not_found',
-    readonly status: 400 | 404 | 409 | 422,
+    readonly status: 400 | 404 | 409 | 422 | 429,
   ) {
     super(code === 'batch_execution_unavailable' ? BATCH_EXECUTION_UNAVAILABLE_MESSAGE : code)
   }
@@ -1140,12 +1146,41 @@ export async function quoteBatchPlan(
     Awaited<ReturnType<NonNullable<typeof hooks.quoteTask>>> | undefined
   >()
   const generationQuote = async (model: string) => {
-    if (!generationQuotes.has(model))
-      generationQuotes.set(
+    if (generationQuotes.has(model)) return generationQuotes.get(model)
+    const decision = meteringDecisionOrDenied(
+      await hooks.meteringDecision?.({
+        tx,
+        userId,
         model,
-        await hooks.quoteTask?.({ tx, userId, model, quantity: 1, unitMultiplier: 1 }),
-      )
-    return generationQuotes.get(model)
+        kind: 'image',
+        quantity: 1,
+        unitMultiplier: 1,
+      }),
+      hooks.consumeUnmeteredQuota,
+    )
+    if (decision?.kind === 'denied') {
+      generationQuotes.set(model, undefined)
+      return undefined
+    }
+    if (decision?.kind === 'unmetered') {
+      const quote = {
+        estimatedCredits: 0,
+        pricing: nonBillingPriceSnapshot({ model, kind: 'image', quantity: 1, unitMultiplier: 1 }),
+      }
+      generationQuotes.set(model, quote)
+      return quote
+    }
+    if (!isCapabilityEnabled('billing:credits')) {
+      const quote = {
+        estimatedCredits: 0,
+        pricing: nonBillingPriceSnapshot({ model, kind: 'image', quantity: 1, unitMultiplier: 1 }),
+      }
+      generationQuotes.set(model, quote)
+      return quote
+    }
+    const quote = await hooks.quoteTask?.({ tx, userId, model, quantity: 1, unitMultiplier: 1 })
+    generationQuotes.set(model, quote)
+    return quote
   }
   const quoteKind = async (kind: AgentBatchItem['kind']) => {
     const selected = items.filter((item) => item.kind === kind)
@@ -1154,7 +1189,6 @@ export async function quoteBatchPlan(
     let estimatedCredits = 0
     let estimatedChargeCredits = 0
     for (const item of selected) {
-      if (item.kind === 'generation' && !isCapabilityEnabled('billing:credits')) continue
       const quote =
         item.kind === 'analysis'
           ? await quoteAnalysisTask(

@@ -28,6 +28,14 @@ BFF 同时托管 `apps/web/dist` 静态产物（`STATIC_DIR` 指向 dist 即可�
   请求的用户身份推导，因此关闭账号能力不会公开已有的用户任务。
 - **能力配置 deny by default**。`OPERATOR_CONFIG_FILE` 不存在时全部能力关闭；文件存在但
   JSON 或 schema 无效时拒绝启动。预设只在解析时展开，运行时只保留求值结果与来源。
+- **账号计量与部署能力分离**。`billing:credits` 表示部署具备积分模块；私有 overlay 可在任务事务内
+  返回账号级 metered / unmetered / denied 决策。未提供策略时保留部署原有行为；无效策略拒绝提交。
+  图片、视频、分析和文本任务保存 `metering` 快照，完成与取消按该快照决定是否结算，已有空快照
+  沿用旧结算路径。不计量任务不预扣、不结算，账号配额由独立事务 hook 消费，幂等回放不重复消费。
+  Agent 对话的不计量路径不创建用于账务的聊天任务，但保留对话轮和模型用量。
+  部署关闭计费与账号明确不计量分开处理：只有后者消费账号额度。聊天价格 hook 可接收当前事务，
+  overlay 应复用该连接，避免小连接池里嵌套获取连接。身份解绑可由私有账号策略拒绝，返回
+  `409 protected_identity`，不会删除登录身份或改变其账号归属。
 
 ## 端点
 
@@ -155,11 +163,28 @@ Biome 禁止其它公开代码静态或动态引用 `private/`。
 | `S3_ACCESS_KEY_ID` | — | Object storage access key; keep the real value outside git |
 | `S3_SECRET_ACCESS_KEY` | — | Object storage secret key; keep the real value outside git |
 | `S3_KEY_PREFIX` | `(空)` | 对象 key 前缀；bucket 与其他业务共用时用它隔离，DB 里存的 ref 不含前缀 |
-| `CORS_ALLOWED_ORIGINS` | `*` | CORS 允许的浏览器 origin，多个用逗号分隔；生产请收紧 |
+| `CORS_ALLOWED_ORIGINS` | `*` | CORS 允许的浏览器 origin，多个用逗号分隔；生产请收紧。作为 OAuth 前端 allowlist 的回退时，每项必须是 bare `http(s)` origin |
+| `AUTH_PUBLIC_ORIGIN` | `(空)` | OAuth provider 注册的 BFF 回调 origin；配置后必须是 bare `http(s)` origin，回调为 `<origin>/api/auth/oauth/{provider}/callback` |
+| `AUTH_FRONTEND_ORIGIN` | `(空)` | OAuth 登录完成后的默认前端 origin；必须是 bare `http(s)` origin |
+| `AUTH_FRONTEND_ORIGINS` | `(空)` | OAuth 登录回跳的精确 allowlist，逗号分隔的 bare `http(s)` origins；浏览器 start/link URL 显式携带当前 origin，Origin header 缺失时仍安全回跳 |
+| `AUTH_LOGIN_METHODS_BY_ORIGIN` | `{}` | 按精确前端 origin 配置登录入口：`{"https://workspace.example.com":{"password":false,"registration":false,"providers":["company-sso"]}}`。键必须是 frontend allowlist 中的标准 bare origin，值必须包含 boolean `password`、boolean `registration` 和 provider ID 数组；未知字段或无效值拒绝启动 |
 | `STATIC_DIR` | `(空)` | 设为 `apps/web/dist` 让 BFF 同进程托管前端 |
 | `CHANNELS_FILE` | `(空)` | 覆盖 `apps/bff/channels.json` 路径 |
 | `OPERATOR_CONFIG_FILE` | `(空)` | 仓库外 operator JSON；缺失使用关闭默认值，存在但无效则拒绝启动 |
 | `<channel secretRef>` | — | 见 channels.json 里各 channel `auth.secretRef` 字段引用的 env 名 |
+
+登录入口配置只决定该站点提供哪些登录方式，不决定用户计量、授权或已登录 session 的权限。
+未配置的 allowlisted origin 保留原有密码、邮箱注册与已启用 OAuth provider；显式 `providers: []`
+禁用该入口的所有 OAuth provider。`registration` 指邮箱/密码自助注册，不关闭已允许 OAuth
+provider 的首次登录建号；邮箱注册还要求 `password: true` 与 `accounts:self-register` 能力。
+
+`GET /api/auth/oauth/providers?frontend_origin=<origin>` 返回过滤后的 `providers` 与
+`loginMethods: { password, registration }`。浏览器 `Origin` header 优先于发现接口的 query；
+密码登录、注册、验证码及设置密码的 POST 只读 `Origin`，缺失时使用请求本身的 API origin，
+从不使用 query 选择较宽松的策略。同源反代部署应为其 API origin 配置对应入口策略。
+配置策略后，未知/畸形来源会被拒绝；OAuth 导航 start/link 仍可通过 allowlisted
+`frontend_origin` 选择入口，回调核对与 provider/state 绑定的返回 origin，并重新核对 provider
+是否允许。CLI device/token 接口及已有 session 不受此入口策略影响；用户仍可从其它允许的站点登录。
 
 ## 本地开发
 

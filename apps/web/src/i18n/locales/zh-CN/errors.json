@@ -50,6 +50,7 @@
   },
   "unlink": {
     "last_login_method": "解绑后将无法登录，请先设置密码",
+    "protected_identity": "账号策略要求保留此登录方式，无法解绑",
     "not_linked": "该账号尚未绑定",
     "fallback": "暂时无法解绑，请稍后重试"
   },
@@ -109,6 +110,7 @@
     "fallback": "计划操作失败，当前内容已保留，请重试。",
     "batch_version_conflict": "计划已有新版本，请刷新后再修改。",
     "insufficient_credits": "积分不足，批次已暂停。",
+    "quota_exceeded": "每日额度已用尽，批次已暂停。",
     "input_limit": "输入超过当前限制，批次已暂停。",
     "upstream_auth": "生成服务认证失效，批次已暂停。",
     "model_unavailable": "所选模型或通道暂不可用，批次已暂停。"
