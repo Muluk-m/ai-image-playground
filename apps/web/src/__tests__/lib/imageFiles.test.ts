@@ -44,6 +44,22 @@ it('有图留下时，非图片按个数提示跳过了几个', () => {
   expect(useStore.getState().showToast).toHaveBeenCalledWith('已跳过 2 个非图片文件', 'error')
 })
 
+it.each(['', 'application/octet-stream'])('工具箱接收 MIME 为 %s 的手机照片，不放过明确的非图片', (type) => {
+  const heic = new File(['heic'], 'PHOTO.HEIC', { type })
+  const heif = new File(['heif'], 'photo.heif', { type })
+  const text = new File(['text'], 'fake.heic', { type: 'text/plain' })
+  const unknown = new File(['binary'], 'unknown.bin', { type })
+  expect(acceptImageFiles([heic, heif, text, unknown], { allowHeic: true })).toEqual([heic, heif])
+})
+
+it('HEIC 扩展名补全只在支持解码的入口启用，大小限制不变', () => {
+  const heic = new File(['heic'], 'photo.heic')
+  expect(acceptImageFiles([heic])).toEqual([])
+  Object.defineProperty(heic, 'size', { value: MAX_IMAGE_BYTES + 1 })
+  expect(acceptImageFiles([heic], { allowHeic: true })).toEqual([])
+  expect(acceptImageFiles([heic], { allowHeic: true, keepOversized: true })).toEqual([heic])
+})
+
 /** 最小的 FileSystemEntry 替身：目录的 readEntries 按批返回，最后一批是空的。 */
 function fileEntry(file: File): FileSystemEntry {
   return {
