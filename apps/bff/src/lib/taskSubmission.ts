@@ -168,7 +168,7 @@ function commandHash(input: CreateQueueTaskInput) {
         },
         video: input.video,
         ...(input.reconciliationRequired ? { reconciliationRequired: true } : {}),
-        ...(input.strictImageRequest ? { strictImageRequest: true } : {}),
+        // Strict execution is server policy, not request identity; keep existing CLI receipts replayable.
         // 唤醒选择不是请求的一部分：同一条命令换个选择重放，仍是同一个任务。
         agent: input.agent && {
           conversationId: input.agent.conversationId,
