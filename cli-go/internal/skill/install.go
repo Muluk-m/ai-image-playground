@@ -18,7 +18,7 @@ import (
 // the executable on the same version so hosts can report what was installed.
 const BundleVersion = "0.1.0"
 
-//go:embed assets/SKILL.md assets/references/*.md
+//go:embed assets
 var bundled embed.FS
 
 type InstallOptions struct {
@@ -45,8 +45,21 @@ type metadata struct {
 	FileHash string `json:"file_hash"`
 }
 
+// hosts lists each supported agent host, in display order, with the directory holding its skills.
+var hosts = []struct{ name, dir string }{{"claude-code", ".claude"}, {"codex", ".agents"}}
+
+func hostDir(name string) (string, bool) {
+	for _, host := range hosts {
+		if host.name == name {
+			return host.dir, true
+		}
+	}
+	return "", false
+}
+
 func Install(opts InstallOptions) (Result, error) {
-	if opts.Host != "claude-code" && opts.Host != "codex" {
+	dir, ok := hostDir(opts.Host)
+	if !ok {
 		return Result{}, fmt.Errorf("unsupported host %q", opts.Host)
 	}
 	if opts.Scope != "user" && opts.Scope != "project" {
@@ -78,13 +91,28 @@ func Install(opts InstallOptions) (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
+		// Compare real paths: a symlinked working directory must not turn a project
+		// install into a write into the home directory (or wherever the link points).
+		if projectDir, err = filepath.EvalSymlinks(projectDir); err != nil {
+			return Result{}, fmt.Errorf("resolve project directory: %w", err)
+		}
+		if realHome, err := filepath.EvalSymlinks(home); err == nil && projectDir == realHome {
+			return Result{}, errors.New("the project root resolved to the home directory; use --scope user instead")
+		}
 		root = projectDir
 	}
-	dirName := ".claude"
-	if opts.Host == "codex" {
-		dirName = ".agents"
+	destination := filepath.Join(root, dir, "skills", "muvloom")
+	// A project can ship `.claude` or `.agents/skills` as a symlink pointing anywhere;
+	// following it would write (and replace) a directory outside the project. A user's own
+	// home directory may symlink these on purpose (dotfiles), so only projects are checked.
+	if opts.Scope == "project" {
+		if err := refuseSymlinks(root, destination); err != nil {
+			return Result{}, err
+		}
+	} else if info, err := os.Lstat(destination); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		// Replacing the link would silently detach a dotfiles-managed Skill.
+		return Result{}, fmt.Errorf("%s is a symlink; update the Skill at its target instead", destination)
 	}
-	destination := filepath.Join(root, dirName, "skills", "muvloom")
 	files, hash, err := bundleFiles()
 	if err != nil {
 		return Result{}, err
@@ -111,7 +139,8 @@ func findProjectRoot(start string) (string, error) {
 		}
 		parent := filepath.Dir(path)
 		if parent == path {
-			return path, nil
+			// Never fall back to the filesystem root: installing would replace /.claude/skills.
+			return "", errors.New("no project root found (looked for .git, go.mod or package.json); run from inside a project or use --scope user")
 		}
 		path = parent
 	}
@@ -151,6 +180,11 @@ func bundleFiles() ([]bundleFile, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("read bundled Skill: %w", err)
 	}
+	return files, hashFiles(files), nil
+}
+
+// hashFiles is the bundle identity recorded at install time and checked by status.
+func hashFiles(files []bundleFile) string {
 	sort.Slice(files, func(i, j int) bool { return files[i].path < files[j].path })
 	h := sha256.New()
 	for _, file := range files {
@@ -159,7 +193,7 @@ func bundleFiles() ([]bundleFile, string, error) {
 		fmt.Fprintf(h, "%s\x00%d\x00", file.path, len(file.data))
 		h.Write(file.data)
 	}
-	return files, hex.EncodeToString(h.Sum(nil)), nil
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func installTree(destination string, files []bundleFile, meta metadata) error {
@@ -194,12 +228,49 @@ func installTree(destination string, files []bundleFile, meta metadata) error {
 	if err := os.WriteFile(filepath.Join(tmp, ".muvloom-skill.json"), metaBytes, 0o644); err != nil {
 		return fmt.Errorf("write Skill metadata: %w", err)
 	}
-	if err := os.RemoveAll(destination); err != nil {
-		return fmt.Errorf("replace existing Skill: %w", err)
+	// Move the old install aside first and put it back if the swap fails, so a failed
+	// upgrade never leaves the host without a working Skill.
+	backup := ""
+	if _, err := os.Lstat(destination); err == nil {
+		backup = destination + ".previous-" + filepath.Base(tmp)
+		if err := os.Rename(destination, backup); err != nil {
+			return fmt.Errorf("move existing Skill aside: %w", err)
+		}
 	}
 	if err := os.Rename(tmp, destination); err != nil {
+		if backup != "" {
+			if restoreErr := os.Rename(backup, destination); restoreErr != nil {
+				return fmt.Errorf("install Skill: %w; the previous Skill is kept at %s (restore failed: %v)", err, backup, restoreErr)
+			}
+		}
 		return fmt.Errorf("install Skill: %w", err)
 	}
 	keep = true
+	if backup != "" {
+		_ = os.RemoveAll(backup)
+	}
+	return nil
+}
+
+// refuseSymlinks rejects any existing symlink between root (exclusive) and destination.
+func refuseSymlinks(root, destination string) error {
+	rel, err := filepath.Rel(root, destination)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return fmt.Errorf("Skill path %s is outside %s", destination, root)
+	}
+	current := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("inspect %s: %w", current, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to install through the symlink %s", current)
+		}
+	}
 	return nil
 }

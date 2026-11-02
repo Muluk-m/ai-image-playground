@@ -4,6 +4,7 @@ import { canvasOrigin, importLegacyElements, insertCanvasNode } from '@image-pla
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import { agentCanvasSink } from '../../../../features/agent/lib/canvasSink'
+import { saveCurrentProject } from '../../../../features/agent/lib/projectLifecycle'
 import {
   bindNewCanvasWorkspace,
   conversationSceneKey,
@@ -533,6 +534,8 @@ it('项目数到上限时新建的项目不落本机、不进目录，重新读�
       useCanvasProjectStore.getState().cloudCatalog,
     ),
   ).toEqual([])
+  // 被拒建的空项目没有东西要保存：切换、新建、删除不能被「当前项目未能保存」挡住。
+  expect(await saveCurrentProject(null)).toEqual({ ok: true })
 
   full = false
   workspace.retryLoad()

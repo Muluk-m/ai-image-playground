@@ -1,6 +1,6 @@
 import type { AgentImageSource, ResolvedAgentImage } from './images'
 import { AgentToolError } from './tools/errors'
-import { assertVisualBytes, visualByteLimit, withVisualPreparation } from './visual-resources'
+import { assertVisualBytes, visualByteLimit } from './visual-resources'
 
 /** 复核这一轮实际随输入附上的产物，以及因图片预算没能附上的那几张。 */
 export interface PreparedReviewImages {
@@ -29,7 +29,8 @@ export async function prepareReviewImages(
   // 本轮附图是用户的请求本身，装不下时照旧明确报告。
   assertVisualBytes(preparedBytes)
   const byteLimit = visualByteLimit()
-  // 几张预览并行读，再按原顺序记预算：整批只占一个图片准备名额，且所有读取共享同一个有界调度器。
+  // 几张预览并行读，再按原顺序记预算。每次读取各自去拿 `agent:visual-prepare-concurrency` 名额
+  //（图源内部拿），这里不把整批包进一个名额，否则批内的读取会绕过全局的内存保护。
   const reads = [
     ...required.map((id, index) => ({
       kind: 'required' as const,
@@ -42,7 +43,7 @@ export async function prepareReviewImages(
       work: () => images.resolve(id, 'preview').catch(() => null),
     })),
   ]
-  const results = await withVisualPreparation(() => mapSettledBounded(reads, (read) => read.work()))
+  const results = await mapSettledBounded(reads, (read) => read.work())
   const requiredImages: Array<ResolvedAgentImage | null> = new Array(required.length).fill(null)
   const optionalImages: Array<ResolvedAgentImage | null> = new Array(optional.length).fill(null)
   for (const [index, read] of reads.entries()) {

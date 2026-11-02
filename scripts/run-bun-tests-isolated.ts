@@ -4,11 +4,13 @@
  * Database-backed suites pin module singletons (DATABASE_URL, operator config, the Elysia app) to
  * the first database they see, so two files must never share a process.
  *
- *   bun run scripts/run-bun-tests-isolated.ts [--jobs N] [--filter SUBSTRING] <root>...
+ *   bun run scripts/run-bun-tests-isolated.ts [--jobs N] [--filter SUBSTRING] [--shard I/N] <root>...
  *
  * --jobs (or BUN_TEST_JOBS) runs N files at once; the default is 1 so a local `pnpm test` stays
  * single-worker. Every suite gets its own database, so parallel runs do not share data.
  * --filter keeps only files whose path contains the substring.
+ * --shard I/N runs only the I-th of N round-robin slices of the sorted file list, so CI can spread one
+ * package's suite over N machines; the N shards together run every file exactly once.
  *
  * All files run even after a failure; the summary at the end lists every failed file.
  */
@@ -16,15 +18,19 @@ import { closeSync, mkdtempSync, openSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, relative } from 'node:path'
 import { acquireTestLock, isConstrainedHost, refuseFullSuite } from './test-guard'
+import { parseShard, type Shard, selectShard } from './test-shard'
 
 const roots: string[] = []
 let jobs = Number(process.env.BUN_TEST_JOBS ?? 1)
 let filter: string | undefined
+let shard: Shard | undefined
 const args = process.argv.slice(2)
 for (let index = 0; index < args.length; index++) {
   const arg = args[index]
   if (arg === '--jobs' || arg === '-j') jobs = Number(args[++index])
   else if (arg === '--filter') filter = args[++index]
+  else if (arg === '--shard') shard = parseShard(args[++index] ?? '')
+  else if (arg.startsWith('--shard=')) shard = parseShard(arg.slice('--shard='.length))
   else if (arg !== '--') roots.push(arg)
 }
 if (roots.length === 0) throw new Error('Pass at least one test root')
@@ -44,13 +50,18 @@ for (const root of roots) {
   }
 }
 // Overlapping roots must not run a file twice: both copies would reset the same suite database.
-const testFiles = [...found].sort()
+const testFiles = selectShard([...found].sort(), shard)
 
 if (testFiles.length === 0) {
   throw new Error(
-    `No Bun test files found under: ${roots.join(', ')}${filter ? ` matching "${filter}"` : ''}`,
+    `No Bun test files found under: ${roots.join(', ')}${filter ? ` matching "${filter}"` : ''}` +
+      (shard ? ` in shard ${shard.index}/${shard.total} of ${found.size} file(s)` : ''),
   )
 }
+if (shard)
+  console.log(
+    `Shard ${shard.index}/${shard.total}: ${testFiles.length} of ${found.size} test files.`,
+  )
 
 const logDirectory = mkdtempSync(join(tmpdir(), 'bun-tests-isolated-'))
 

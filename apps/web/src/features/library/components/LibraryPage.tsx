@@ -32,10 +32,12 @@ import LookDetail from './LookDetail'
 import NewTile from './NewTile'
 import TemplateCard from './TemplateCard'
 import TemplateDetail from './TemplateDetail'
+import WorksTab from './WorksTab'
 
-const TABS: readonly LibraryTab[] = ['projects', 'assets', 'prompts', 'looks']
+const TABS: readonly LibraryTab[] = ['works', 'projects', 'assets', 'prompts', 'looks']
 
 const SEARCH_PLACEHOLDER = {
+  works: 'panel.searchWorks',
   projects: 'panel.searchProjects',
   assets: 'panel.searchAssets',
   prompts: 'panel.searchTemplates',
@@ -43,8 +45,9 @@ const SEARCH_PLACEHOLDER = {
 } as const satisfies Record<LibraryTab, string>
 
 /**
- * 「资产」入口：自己攒下的料——**项目**（画布）、**素材**（产品 / 人物的一组视角）、
- * **提示词**（存起来的一段提示词，原「模板」）与**模板**（调好的出图效果）。作品在创作页，灵感在「探索」。
+ * 「资产」入口：自己攒下的料——**作品**（快速生成与对话产出的图）、**项目**（对话 / 画布）、
+ * **素材**（产品 / 人物的一组视角）、**提示词**（存起来的一段提示词，原「模板」）与
+ * **模板**（调好的出图效果）。灵感在「探索」。
  */
 export default function LibraryPage() {
   const { t } = useTranslation('library')
@@ -142,7 +145,9 @@ export default function LibraryPage() {
         )}
       </PageHeader>
 
-      {tab === 'projects' ? (
+      {tab === 'works' ? (
+        <WorksTab search={searchKeyword} />
+      ) : tab === 'projects' ? (
         <ProjectsTab search={searchKeyword} />
       ) : tab === 'prompts' ? (
         <div className="min-h-0 flex-1 p-6">

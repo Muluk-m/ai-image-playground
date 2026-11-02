@@ -35,6 +35,7 @@ import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
  */
 const BFF_SUBMIT_ERROR_KEYS = {
   model_unavailable: 'queue.bffModelUnavailable',
+  plan_required: 'queue.bffPlanRequired',
   invalid_request: 'queue.bffInvalidRequest',
   object_storage_error: 'queue.bffStorageUnavailable',
   idempotency_key_conflict: 'queue.bffDuplicateSubmit',

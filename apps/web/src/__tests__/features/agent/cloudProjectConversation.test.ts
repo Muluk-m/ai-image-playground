@@ -42,7 +42,8 @@ it('云端项目首次发送先保存项目并使用服务端绑定的会话，�
       return Response.json({ 'accounts:sync': true, 'agent:chat': true })
     const canvas = await canvasProtocolResponse(url, init)
     if (canvas) return canvas
-    if (url.endsWith('/projects')) return Response.json({ projects: [], nextCursor: null })
+    if (new URL(url).pathname.endsWith('/projects'))
+      return Response.json({ projects: [], nextCursor: null })
     if (url.endsWith('/conversation')) {
       expect(saved).toBe(true)
       return Response.json({
@@ -152,7 +153,8 @@ it('重新打开项目读取另一设备绑定的会话，历史加载失败重�
       return Response.json({ 'accounts:sync': true, 'agent:chat': true })
     const canvas = await canvasProtocolResponse(url, init)
     if (canvas) return canvas
-    if (url.endsWith('/projects')) return Response.json({ projects: [project], nextCursor: null })
+    if (new URL(url).pathname.endsWith('/projects'))
+      return Response.json({ projects: [project], nextCursor: null })
     if (url.includes('/projects/'))
       return Response.json({ ...project, conversationId, document: { version: 1, elements: [] } })
     if (url.endsWith('/messages')) {
@@ -227,7 +229,8 @@ it('云端详情半天不回也立刻打开项目：本机那份就够开', asyn
       return Response.json({ 'accounts:sync': true, 'agent:chat': true })
     const canvas = await canvasProtocolResponse(url, init)
     if (canvas) return canvas
-    if (url.endsWith('/projects')) return Response.json({ projects: [project], nextCursor: null })
+    if (new URL(url).pathname.endsWith('/projects'))
+      return Response.json({ projects: [project], nextCursor: null })
     // 这个项目的详情永不回。这正是生产上那 1.5s 的极端形态：它不该挡住切换。
     // 首页新建的项目仍要能落成空画布，挂住它测的就不是这件事了。
     if (url.includes('/projects/')) {
@@ -395,7 +398,8 @@ it('项目数已到上限时首页发送干净收手：不挂失败卡、不改�
     calls.push(`${method} ${url}`)
     if (url.endsWith('/capabilities'))
       return Response.json({ 'accounts:sync': true, 'agent:chat': true })
-    if (url.endsWith('/projects')) return Response.json({ projects: [], nextCursor: null })
+    if (new URL(url).pathname.endsWith('/projects'))
+      return Response.json({ projects: [], nextCursor: null })
     if (url.includes('/projects/') && method === 'PUT')
       return Response.json({ error: 'project_quota_exceeded' }, { status: 413 })
     return Response.json({ error: 'unexpected' }, { status: 500 })

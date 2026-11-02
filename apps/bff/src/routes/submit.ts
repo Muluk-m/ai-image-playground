@@ -247,7 +247,7 @@ export const submitRoutes = new Elysia()
         return status(401, { error: 'unauthorized' })
       }
       if (outcome.kind === 'private_billing_denied') {
-        return status(403, { error: 'private_billing_denied' })
+        return status(403, { error: 'plan_required', message: '4K 需要有效会员' })
       }
       if (outcome.kind === 'quota_exceeded') {
         const quota = outcome.quota
@@ -278,10 +278,6 @@ export const submitRoutes = new Elysia()
           }
         }
         return status(409, { error: 'idempotency_key_conflict' })
-      }
-
-      if (outcome.kind !== 'created') {
-        return status(400, { error: 'invalid_request' })
       }
 
       return {

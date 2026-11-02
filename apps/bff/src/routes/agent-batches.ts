@@ -258,6 +258,8 @@ export const agentBatchRoutes = new Elysia({ name: 'agent-batches' })
     '/api/agent/batches/:id/items/:key/cancel',
     async ({ params, authUser, status }) => {
       if (!authUser) return status(401, { error: 'unauthorized' })
+      if (!isCapabilityEnabled('agent:batch-item-cancel'))
+        return capabilityUnavailable('agent:batch-item-cancel')
       await cancelAgentBatchItem(authUser.id, params.id, params.key)
       return await readAgentBatchPlan(authUser.id, params.id)
     },

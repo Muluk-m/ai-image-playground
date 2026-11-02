@@ -1,6 +1,5 @@
-# Production deployment: every commit on main that passes "Web checks" goes out. The internal
-# edition goes first (backend, then its Pages site, checked in Chromium); the paid edition is
-# shipped only after that acceptance passed. Order and the gate: docs/agents/release.md 「三」.
+# Production deployment: paid backend and Pages continue to release from main.
+# The existing internal edition is frozen and is not touched by this workflow.
 # Runbook, secrets and break-glass manual release: docs/deploy/image-release.md.
 name: Deploy production
 on:
@@ -64,8 +63,8 @@ jobs:
           printf '%s\n' "$PAGES_ENV" > "$RUNNER_TEMP/pages.env"
           # shellcheck source=/dev/null
           . "$RUNNER_TEMP/pages.env"
-          WEB_ORIGINS="$INTERNAL_PUBLIC_ORIGIN $PAID_PUBLIC_ORIGIN" ADMIN_ORIGIN="${ADMIN_PUBLIC_ORIGIN:-}" \
-            scripts/ci-deploy-target.sh "$SHA" "$EVENT" "$INTERNAL_BFF_BASE_URL" "$PAID_BFF_BASE_URL"
+          WEB_ORIGINS="$PAID_PUBLIC_ORIGIN" ADMIN_ORIGIN="${ADMIN_PUBLIC_ORIGIN:-}" \
+            scripts/ci-deploy-target.sh "$SHA" "$EVENT" "$PAID_BFF_BASE_URL"
 
   release:
     name: Tag the release
@@ -91,8 +90,9 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "Tagged v${version}"
 
+
   backend:
-    name: Backend images and VPS rollout (internal)
+    name: Backend images and VPS rollout (paid)
     needs: [target, release]
     if: needs.target.outputs.deploy_api == 'true' && needs.release.result == 'success'
     runs-on: ubuntu-latest
@@ -121,17 +121,6 @@ jobs:
         with:
           ref: ${{ needs.target.outputs.sha }}
           persist-credentials: false
-      # 取 `private.lock` 钉住的那个 overlay 提交，而不是活动指针：这一版公开树和哪一份 overlay
-      # 一起发布，写在公开提交里，可复现、可回滚，也不再取决于部署那一刻指针指到哪
-      # （2026-09-22 就发生过：部署比 overlay CI 早 2 分钟取到 `verified`，生产差了一档）。
-      # lock 只会指向 overlay CI 全绿过的提交——由 `.github/workflows/overlay-bump.yml` 从 `verified`
-      # 抬升并先把这对组合构建一遍。
-      #
-      # 用 `actions/checkout` 而不是手搓 `git clone`：它把 github.com 的 host key 硬编码在
-      # 源码里，这一步因此不碰任何网络接口。原先那版每次都匿名调 `api.github.com/meta` 取
-      # known_hosts——那个接口限额 60 次/小时且按发起 IP 计，而 runner 的出口 IP 是共享的，
-      # 2026-09-22 就因为它回 403 把整条部署挂掉。调研见
-      # `docs/research/deploy-known-hosts-and-overlay-coupling.md`。
       - name: Read the pinned overlay commit
         id: lock
         run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
@@ -159,19 +148,16 @@ jobs:
           release_id="aip-$(printf %.12s "$PUBLIC_SHA")-$(printf %.12s "$PRIVATE_SHA")"
           ./scripts/build-vps-release.sh all "$RUNNER_TEMP/$release_id"
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
-      # 同一份发布目录（脚本、compose、镜像 digest，不含镜像和密钥）留给 backend-paid 用，
-      # 付费版不重新构建，发的就是内部站验收过的那一批镜像。
       - name: Keep the release for the paid rollout
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: vps-release
           path: ${{ runner.temp }}/${{ steps.build.outputs.release_id }}
-          # 重跑 backend 时同名 artifact 已存在；发布 ID 由两个 SHA 决定，内容相同，直接覆盖。
           overwrite: true
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 1
-      - name: Ship the internal release to the VPS and roll it out
+      - name: Ship the paid release to the VPS and roll it out
         env:
           RELEASE_ID: ${{ steps.build.outputs.release_id }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
@@ -182,216 +168,6 @@ jobs:
           umask 077
           printf '%s\n' "$VPS_SSH_KEY" > "$RUNNER_TEMP/vps-key"
           printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/vps-known-hosts"
-          # The key is bound to scripts/ci-receive.sh on the VPS; the command below is all it accepts.
-          tar -C "$RUNNER_TEMP/$RELEASE_ID" -czf - . |
-            ssh -i "$RUNNER_TEMP/vps-key" -o IdentitiesOnly=yes -o BatchMode=yes \
-              -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/vps-known-hosts" \
-              -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
-              "$VPS_SSH_USER@$VPS_SSH_HOST" "deploy $RELEASE_ID internal $GITHUB_RUN_ID"
-      - name: Remove the SSH key
-        if: always()
-        run: rm -f "$RUNNER_TEMP/vps-key"
-
-  # 先内部、后付费。内部站的验收：内部 API 的 /health 报这次的提交，且（这次发前端时）
-  # pages-internal 在 Chromium 里验收通过。任何一项不过，付费版后端和前端都不动，停在上一版。
-  pages-internal:
-    name: Pages (${{ matrix.edition }})
-    needs: [target, release, backend]
-    if: >-
-      always() &&
-      needs.target.outputs.deploy_web == 'true' &&
-      needs.release.result == 'success' &&
-      (needs.backend.result == 'success' || needs.backend.result == 'skipped')
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      matrix:
-        edition: [internal]
-    env:
-      EDITION: ${{ matrix.edition }}
-    steps: &pages-steps
-      - name: Require secrets
-        env:
-          PAGES_ENV: ${{ secrets.PAGES_ENV }}
-          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-          INTERNAL_CLOUDFLARE_API_TOKEN: ${{ secrets.INTERNAL_CLOUDFLARE_API_TOKEN }}
-          PAID_CLOUDFLARE_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
-        run: |
-          missing=
-          for name in PAGES_ENV PRIVATE_OVERLAY_SSH_KEY INTERNAL_CLOUDFLARE_API_TOKEN PAID_CLOUDFLARE_API_TOKEN; do
-            [ -n "$(printenv "$name")" ] || missing="$missing $name"
-          done
-          [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          ref: ${{ needs.target.outputs.sha }}
-          persist-credentials: false
-      - name: Write pages.env with CI token files and assets
-        env:
-          PAGES_ENV: ${{ secrets.PAGES_ENV }}
-          INTERNAL_CLOUDFLARE_API_TOKEN: ${{ secrets.INTERNAL_CLOUDFLARE_API_TOKEN }}
-          PAID_CLOUDFLARE_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
-        run: |
-          umask 077
-          for edition in INTERNAL PAID; do
-            token=$(printenv "${edition}_CLOUDFLARE_API_TOKEN")
-            # pages-release.sh sources the token file, so only inert token characters are allowed.
-            printf '%s\n' "$token" | grep -Eqx '[A-Za-z0-9_-]+' ||
-              { echo "::error::${edition}_CLOUDFLARE_API_TOKEN has unexpected characters."; exit 1; }
-            printf 'CLOUDFLARE_API_TOKEN=%s\n' "$token" > "$RUNNER_TEMP/$edition-cloudflare.env"
-          done
-          # Later assignments win when the file is sourced: they replace workstation paths.
-          {
-            printf '%s\n' "$PAGES_ENV"
-            echo "INTERNAL_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/INTERNAL-cloudflare.env"
-            echo "PAID_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/PAID-cloudflare.env"
-            echo "ADMIN_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/PAID-cloudflare.env"
-            echo "PAID_EXTRA_ASSETS_DIR=$GITHUB_WORKSPACE/private/pages-assets"
-          } > "$RUNNER_TEMP/pages.env"
-          echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
-      - name: Wait for the API this site talks to
-        if: needs.target.outputs.deploy_api == 'true'
-        env:
-          PUBLIC_SHA: ${{ needs.target.outputs.sha }}
-          PRIVATE_SHA: ${{ needs.backend.outputs.private_sha }}
-        run: |
-          # shellcheck source=/dev/null
-          . "$PAGES_ENV_FILE"
-          check() {
-            deadline=$(( $(date +%s) + 300 ))
-            while :; do
-              version=$(curl -fsS --max-time 10 "${1%/}/health" 2>/dev/null |
-                sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)
-              [ "$version" = "$2" ] && { echo "$1 serves $version"; return 0; }
-              [ "$(date +%s)" -lt "$deadline" ] ||
-                { echo "::error::$1/health reports '${version}', expected $2"; return 1; }
-              sleep 10
-            done
-          }
-          if [ "$EDITION" = internal ]; then
-            check "$INTERNAL_BFF_BASE_URL" "$PUBLIC_SHA"
-          else
-            check "$PAID_BFF_BASE_URL" "$PUBLIC_SHA+$PRIVATE_SHA"
-          fi
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 24
-          cache: pnpm
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      # 与 backend 同一份 overlay。API 被跳过时 backend 没有输出，改读这次提交里的 private.lock。
-      - name: Read the pinned overlay commit
-        if: matrix.edition == 'paid'
-        id: lock
-        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
-      - name: Check out the private overlay at the backend's commit
-        if: matrix.edition == 'paid'
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
-          ref: ${{ needs.backend.outputs.private_sha || steps.lock.outputs.sha }}
-          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-          path: private
-          persist-credentials: false
-      - name: Require the paid site assets
-        if: matrix.edition == 'paid'
-        run: |
-          [ -d private/pages-assets ] ||
-            { echo "::error::private/pages-assets is missing; the paid site publishes its QR codes from there."; exit 1; }
-      # The paid build installs the overlay packages too; they are workspace members.
-      - run: pnpm install --frozen-lockfile
-      - name: Release the ${{ matrix.edition }} site
-        env:
-          PAGES_SMOKE_OUTPUT_DIR: ${{ runner.temp }}/pages-${{ matrix.edition }}-build
-          APP_RELEASE: ${{ needs.release.outputs.version }}
-        run: ./scripts/pages-release.sh "$EDITION"
-      - name: Verify the ${{ matrix.edition }} workspace in Chromium
-        run: |
-          # shellcheck source=/dev/null
-          source "$PAGES_ENV_FILE"
-          if [ "$EDITION" = internal ]; then origin=$INTERNAL_PUBLIC_ORIGIN; else origin=$PAID_PUBLIC_ORIGIN; fi
-          PAGES_SMOKE_OUTPUT_DIR="$RUNNER_TEMP/pages-$EDITION-live" sh scripts/pages-browser-smoke.sh "$origin"
-      - name: Save browser evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: production-pages-${{ matrix.edition }}
-          path: |
-            ${{ runner.temp }}/pages-*-build
-            ${{ runner.temp }}/pages-*-live
-          retention-days: 7
-      - name: Remove secrets from the runner
-        if: always()
-        run: rm -f "$RUNNER_TEMP"/*-cloudflare.env "$RUNNER_TEMP/pages.env"
-
-  backend-paid:
-    name: Backend VPS rollout (paid)
-    needs: [target, release, backend, pages-internal]
-    if: >-
-      always() &&
-      needs.backend.result == 'success' &&
-      (needs.pages-internal.result == 'success' || needs.pages-internal.result == 'skipped')
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Require secrets
-        env:
-          PAGES_ENV: ${{ secrets.PAGES_ENV }}
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
-          VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
-          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
-        run: |
-          missing=
-          for name in PAGES_ENV VPS_SSH_KEY VPS_SSH_KNOWN_HOSTS VPS_SSH_HOST VPS_SSH_USER; do
-            [ -n "$(printenv "$name")" ] || missing="$missing $name"
-          done
-          [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
-      # 这次没发前端时 pages-internal 被跳过，闸门只剩这一项；发了前端时它在 pages-internal 里
-      # 已经过了一次，这里再确认一次内部 API 仍是这一版（中间没人回滚）。
-      - name: Require the internal API to serve this commit
-        env:
-          PAGES_ENV: ${{ secrets.PAGES_ENV }}
-          PUBLIC_SHA: ${{ needs.target.outputs.sha }}
-        run: |
-          printf '%s\n' "$PAGES_ENV" > "$RUNNER_TEMP/pages.env"
-          # shellcheck source=/dev/null
-          . "$RUNNER_TEMP/pages.env"
-          rm -f "$RUNNER_TEMP/pages.env"
-          deadline=$(( $(date +%s) + 300 ))
-          while :; do
-            version=$(curl -fsS --max-time 10 "${INTERNAL_BFF_BASE_URL%/}/health" 2>/dev/null |
-              sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)
-            [ "$version" = "$PUBLIC_SHA" ] && { echo "internal API serves $version"; break; }
-            [ "$(date +%s)" -lt "$deadline" ] ||
-              { echo "::error::internal /health reports '${version}', expected $PUBLIC_SHA; paid stays on the previous release."; exit 1; }
-            sleep 10
-          done
-      - name: Fetch the release the internal edition passed with
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: vps-release
-          path: ${{ runner.temp }}/${{ needs.backend.outputs.release_id }}
-      # artifact 不保留可执行位；scripts/ 下的 .sh 在源码里都是 755，按原样恢复（lib/ 只被 source）。
-      - name: Restore the script modes
-        env:
-          RELEASE_ID: ${{ needs.backend.outputs.release_id }}
-        run: chmod 755 "$RUNNER_TEMP/$RELEASE_ID"/scripts/*.sh
-      # 同一个 run 里第二次 receive：~/releases/<id> 已被内部那次占用，ci-receive.sh 会改用
-      # <id>.run-<run_id>。所以这个 run 失败后只能「Re-run failed jobs」，不能「Re-run all jobs」
-      # （那样内部那次会撞上两个目录都已存在）。见 docs/agents/release.md「三」。
-      - name: Ship the paid release to the VPS and roll it out
-        env:
-          RELEASE_ID: ${{ needs.backend.outputs.release_id }}
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
-          VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
-          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
-        run: |
-          umask 077
-          printf '%s\n' "$VPS_SSH_KEY" > "$RUNNER_TEMP/vps-key"
-          printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/vps-known-hosts"
-          # The key is bound to scripts/ci-receive.sh on the VPS; the command below is all it accepts.
           tar -C "$RUNNER_TEMP/$RELEASE_ID" -czf - . |
             ssh -i "$RUNNER_TEMP/vps-key" -o IdentitiesOnly=yes -o BatchMode=yes \
               -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/vps-known-hosts" \
@@ -402,34 +178,110 @@ jobs:
         run: rm -f "$RUNNER_TEMP/vps-key"
 
   pages-paid:
-    name: Pages (${{ matrix.edition }})
-    needs: [target, release, backend, pages-internal, backend-paid]
+    name: Pages (paid)
+    needs: [target, release, backend]
+    # !cancelled(): without a status function GitHub adds an implicit success(), which is false once
+    # backend is skipped (a web-only change), so the paid site would never ship. Unlike always(), a
+    # cancelled release still stops here.
     if: >-
-      always() &&
+      !cancelled() &&
       needs.target.outputs.deploy_web == 'true' &&
       needs.release.result == 'success' &&
-      needs.pages-internal.result == 'success' &&
-      (needs.backend-paid.result == 'success' || needs.backend-paid.result == 'skipped') &&
       (needs.backend.result == 'success' || needs.backend.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    strategy:
-      matrix:
-        edition: [paid]
     env:
-      EDITION: ${{ matrix.edition }}
-    # 与 pages-internal 同一组步骤（YAML 锚点），只是 edition 不同。
-    steps: *pages-steps
+      EDITION: paid
+    steps:
+      - name: Require secrets
+        env:
+          PAGES_ENV: ${{ secrets.PAGES_ENV }}
+          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          PAID_CLOUDFLARE_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
+        run: |
+          missing=
+          for name in PAGES_ENV PRIVATE_OVERLAY_SSH_KEY PAID_CLOUDFLARE_API_TOKEN; do
+            [ -n "$(printenv "$name")" ] || missing="$missing $name"
+          done
+          [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+          persist-credentials: false
+      - name: Write pages.env with the paid token file
+        env:
+          PAGES_ENV: ${{ secrets.PAGES_ENV }}
+          PAID_CLOUDFLARE_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
+        run: |
+          umask 077
+          printf '%s\n' "$PAID_CLOUDFLARE_API_TOKEN" | grep -Eqx '[A-Za-z0-9_-]+' ||
+            { echo "::error::PAID_CLOUDFLARE_API_TOKEN has unexpected characters."; exit 1; }
+          printf 'CLOUDFLARE_API_TOKEN=%s\n' "$PAID_CLOUDFLARE_API_TOKEN" > "$RUNNER_TEMP/PAID-cloudflare.env"
+          {
+            printf '%s\n' "$PAGES_ENV"
+            echo "PAID_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/PAID-cloudflare.env"
+            echo "ADMIN_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/PAID-cloudflare.env"
+            echo "PAID_EXTRA_ASSETS_DIR=$GITHUB_WORKSPACE/private/pages-assets"
+          } > "$RUNNER_TEMP/pages.env"
+          echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
+      - name: Wait for the paid API
+        if: needs.target.outputs.deploy_api == 'true'
+        env:
+          PUBLIC_SHA: ${{ needs.target.outputs.sha }}
+          PRIVATE_SHA: ${{ needs.backend.outputs.private_sha }}
+        run: |
+          # shellcheck source=/dev/null
+          . "$PAGES_ENV_FILE"
+          deadline=$(( $(date +%s) + 300 ))
+          while :; do
+            version=$(curl -fsS --max-time 10 "${PAID_BFF_BASE_URL%/}/health" 2>/dev/null |
+              sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)
+            [ "$version" = "$PUBLIC_SHA+$PRIVATE_SHA" ] && break
+            [ "$(date +%s)" -lt "$deadline" ] || { echo "::error::paid API reports '$version'"; exit 1; }
+            sleep 10
+          done
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: oven-sh/setup-bun@ecf28ddc73e819eb6fa29df6b34ef8921c743461 # v2.1.3
+      - name: Read the pinned overlay commit
+        id: lock
+        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
+      - name: Check out the private overlay at the backend's commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
+          ref: ${{ needs.backend.outputs.private_sha || steps.lock.outputs.sha }}
+          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          path: private
+          persist-credentials: false
+      - name: Require the paid site assets
+        run: test -d private/pages-assets
+      - run: pnpm install --frozen-lockfile
+      - name: Release the paid site
+        env:
+          PAGES_SMOKE_OUTPUT_DIR: ${{ runner.temp }}/pages-paid-build
+          APP_RELEASE: ${{ needs.release.outputs.version }}
+        run: ./scripts/pages-release.sh paid
+      - name: Verify the paid workspace in Chromium
+        run: |
+          # shellcheck source=/dev/null
+          . "$PAGES_ENV_FILE"
+          PAGES_SMOKE_OUTPUT_DIR="$RUNNER_TEMP/pages-paid-live" sh scripts/pages-browser-smoke.sh "$PAID_PUBLIC_ORIGIN"
+      - name: Remove secrets from the runner
+        if: always()
+        run: rm -f "$RUNNER_TEMP"/*-cloudflare.env "$RUNNER_TEMP/pages.env"
 
   admin-pages:
     name: Pages (admin)
-    needs: [target, release, backend, backend-paid, pages-paid]
+    needs: [target, release, backend, pages-paid]
     if: >-
-      always() &&
+      !cancelled() &&
       needs.target.outputs.deploy_admin == 'true' &&
       needs.release.result == 'success' &&
       (needs.backend.result == 'success' || needs.backend.result == 'skipped') &&
-      (needs.backend-paid.result == 'success' || needs.backend-paid.result == 'skipped') &&
       (needs.pages-paid.result == 'success' || needs.pages-paid.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -502,7 +354,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - uses: oven-sh/setup-bun@ecf28ddc73e819eb6fa29df6b34ef8921c743461 # v2.1.3
         if: steps.cutover.outputs.enabled == 'true'
       - name: Read the pinned overlay commit
         if: steps.cutover.outputs.enabled == 'true'

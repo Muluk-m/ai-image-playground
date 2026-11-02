@@ -97,6 +97,8 @@
     "width": "宽度 (Width)",
     "height": "高度 (Height)",
     "limitedTierHint": "当前模型不支持 1K 以上的分辨率",
+    "memberTierHint": "2K、4K 为会员专享",
+    "memberQualityHint": "高画质为会员专享",
     "clampedHint": "由于模型限制，原始分辨率已被自动规整"
   },
   "mask": {

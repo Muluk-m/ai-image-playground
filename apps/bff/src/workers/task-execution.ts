@@ -98,6 +98,8 @@ export interface TaskExecution {
   readonly signal: AbortSignal
   /** 主动停掉这次执行的上游请求；扇出的兄弟请求共用这个信号，一并停。 */
   abort(): void
+  /** GPT Image 这一单正要走的通道（换路时覆盖成后一条）；结算按它判断是否降了档。 */
+  recordGptRoute(route: 'direct' | 'sub2api'): Promise<void>
   /** 记账：上游真的被调用过。返回 false 表示这一行已经不归本次执行。 */
   recordUpstreamInvocation(count?: number): Promise<boolean>
   recordDispatchIntent(): Promise<string | null>
@@ -189,6 +191,10 @@ class TaskExecutionHandle implements TaskExecution {
 
   abort(): void {
     this.#controller.abort()
+  }
+
+  async recordGptRoute(route: 'direct' | 'sub2api'): Promise<void> {
+    await db.update(schema.tasks).set({ gpt_route: route }).where(this.#own())
   }
 
   async recordUpstreamInvocation(count = 1): Promise<boolean> {
@@ -380,10 +386,13 @@ export function retryHoldsSlot(alias: string, now: number): SQL {
  * 智能体同一轮里，同模型最多同时跑几条。原先一律一条（2026-10-29：一轮 5 单 Flash Lite 同时起跑，
  * 在同一个按模型限速的配额上互相挤出 429），连没有限速的模型也被串行：2026-10-30 线上一轮 5 张
  * gpt-image-2.5-flare 每张约 34s，一张接一张跑了近 3 分钟，worker 还空着 3 个位。
- * 现在只有在 channels.json 声明了并发上限的模型（共享一份按模型限速的配额，如 Vertex）还一次一条；
- * 其他模型同轮最多 {@link TURN_SIBLING_PARALLELISM} 条，账号并发和 worker 并发照旧在后面把关。
+ * 在 channels.json 声明了并发上限的模型（共享一份按模型限速的配额，如 Vertex）始终一次一条；
+ * 其他模型同轮最多 {@link turnSiblingParallelism} 条，账号并发和 worker 并发照旧在后面把关。
  */
-export const TURN_SIBLING_PARALLELISM = 3
+export function turnSiblingParallelism(): number {
+  // 运营配置 `agent:turn-model-parallelism`，默认 1 即原来的一律串行；按环境逐步放开，0 也按 1 算。
+  return Math.max(1, config.operator.quotas['agent:turn-model-parallelism'])
+}
 
 /** 返回指定 provider 下声明了并发上限的模型名；不传 provider 时仅供诊断测试读取全部模型。 */
 export function turnSerializedModels(provider?: QueueProvider): string[] {
@@ -418,8 +427,8 @@ function turnSiblingLimit(provider: SQLWrapper, model: SQLWrapper): SQL {
       )
   }
   return scopes.length
-    ? sql`case ${sql.join(scopes, sql` `)} else ${TURN_SIBLING_PARALLELISM} end`
-    : sql`${TURN_SIBLING_PARALLELISM}`
+    ? sql`case ${sql.join(scopes, sql` `)} else ${turnSiblingParallelism()} end`
+    : sql`${turnSiblingParallelism()}`
 }
 
 /** 同一轮同模型、还在跑或等重试的兄弟任务是否已经占满上限。 */

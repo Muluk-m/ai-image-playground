@@ -2,6 +2,7 @@ import {
   type CloudProjectSummary,
   PROJECT_NAME_MAX_LENGTH,
   type ProjectKind,
+  type ProjectTotals,
 } from '@image-playground/shared'
 import { create } from 'zustand'
 import { accountRequired, promptLogin } from '../../auth/loginPrompt'
@@ -18,6 +19,7 @@ import { reportRecoverableClientError } from '../../lib/errorReporting'
 import { projectActivated } from '../../lib/navigation/address'
 import type { CanvasDoc } from './lib/canvasDoc'
 import { getLoadedImage } from './lib/imageCache'
+import { adjustProjectTotals } from './lib/projectCatalog'
 import {
   cloudProjectsEnabled,
   ensureCloudProjectConversation,
@@ -41,6 +43,8 @@ interface ProjectState {
   coverRetryRound: number
   retryProjectCovers(): void
   cloudCursor: string | null
+  /** 服务端数的项目总数（第一页带回）；页签上的数字照它，不照本机已经拉下来的那几页。 */
+  cloudTotals: ProjectTotals | null
   cloudCatalog: Record<string, CloudProjectSummary>
   refreshCloud(more?: boolean): Promise<void>
   load(): Promise<void>
@@ -54,7 +58,7 @@ interface ProjectState {
   resolve(id: string): Promise<CanvasProject>
   update(id: string, patch: Parameters<typeof projectRepository.update>[1]): Promise<void>
   /** 目录里这一项换成新的（没有就补进去），云端摘要的名字与时间跟着走。 */
-  updateListed(project: CanvasProject): void
+  updateListed(project: CanvasProject, options?: { fromServerList?: boolean }): void
   markDeleted(ids: readonly string[]): Promise<void>
   remove(id: string): Promise<void>
   /** 从没上过云端的项目第一次建就被项目数上限拒了：删掉本机那条，目录不列（BUG-54）。 */
@@ -65,6 +69,13 @@ interface ProjectState {
 }
 
 let loading: Promise<void> | undefined
+
+/** 上次拿到的删除截止时间：下次第一页只要这之后删的，换设备没有它就全要一遍。 */
+const DELETED_THROUGH_KEY = 'image-playground.projects_deleted_through'
+function readDeletedThrough(): number | undefined {
+  const value = Number(safeLocalStorage.getItem(scopedStorageName(DELETED_THROUGH_KEY)))
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined
+}
 const catalogFailures: { isCurrent: () => boolean; recovered: () => void }[] = []
 
 /**
@@ -105,16 +116,27 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     set((state) => ({ coverRetryRound: state.coverRetryRound + 1 }))
   },
   cloudCursor: null,
+  cloudTotals: null,
   cloudCatalog: {},
   async refreshCloud(more = false) {
     if (!cloudProjectsEnabled() || get().cloudLoading) return
     const isCurrent = accountScope()
     set({ cloudLoading: true, cloudError: null })
     try {
-      const page = await listCloudProjects(more ? (get().cloudCursor ?? undefined) : undefined)
+      const cursor = more ? get().cloudCursor : null
+      // 翻页时游标没了就是已经到底：不能退回去重拉第一页。
+      if (more && !cursor) return
+      const page = await listCloudProjects(
+        cursor ? { cursor } : { deletedSince: readDeletedThrough() },
+      )
       if (!isCurrent()) return
       await get().markDeleted(page.deletedIds ?? [])
       if (!isCurrent()) return
+      if (page.deletedThrough !== undefined)
+        safeLocalStorage.setItem(
+          scopedStorageName(DELETED_THROUGH_KEY),
+          String(page.deletedThrough),
+        )
       set((state) => ({
         cloudCatalog: {
           ...state.cloudCatalog,
@@ -124,9 +146,11 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       for (const summary of page.projects) {
         const project = await restoreCloudProject(summary)
         if (!isCurrent()) return
-        get().updateListed(project)
+        // 列表里读到的本来就在服务端总数里：翻页落下来的不能再加一遍。
+        get().updateListed(project, { fromServerList: true })
       }
-      set({ cloudCursor: page.nextCursor })
+      // 总数最后落：上面删除、恢复回写时的增减已经包含在服务端这次的数里。
+      set({ cloudCursor: page.nextCursor, ...(page.totals ? { cloudTotals: page.totals } : {}) })
     } catch {
       if (isCurrent()) set({ cloudError: i18next.t('project.cloudListFailed', { ns: 'canvas' }) })
     } finally {
@@ -283,8 +307,16 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       }),
     )
   },
-  updateListed(project) {
+  updateListed(project, options) {
     set((state) => ({
+      cloudTotals:
+        state.cloudTotals && !options?.fromServerList
+          ? adjustProjectTotals(
+              state.cloudTotals,
+              state.projects.find((one) => one.id === project.id),
+              project,
+            )
+          : state.cloudTotals,
       projects: state.projects.some((one) => one.id === project.id)
         ? state.projects.map((one) =>
             // 被上限拒掉的那个只有 readmitRejected 能放回目录，别的回写不清这个标记。

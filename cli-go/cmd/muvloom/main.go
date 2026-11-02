@@ -7,6 +7,5 @@ import (
 )
 
 func main() {
-	app := cli.New(cli.ParseBaseURL(), cli.ParseStore(), os.Stdout, os.Stderr)
-	os.Exit(app.Run(os.Args[1:]))
+	os.Exit(cli.New(os.Stdout, os.Stderr).Run(os.Args[1:]))
 }
