@@ -170,7 +170,33 @@ class InstallTests(unittest.TestCase):
 
     def test_latest_release_discovery(self):
         result = self.install(pin=False)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        diagnostics = "\nrequests: " + repr([path for path, _ in self.server.requests])
+        if result.returncode != 0 and self.windows:
+            probe = subprocess.run(
+                ["pwsh", "-NoProfile", "-NonInteractive", "-Command", r'''
+$ErrorActionPreference = "Stop"
+$api = "$env:MUVLOOM_DISTRIBUTION_URL/releases"
+$releases = @()
+for ($page = 1; $page -le 20; $page++) {
+  $url = "${api}?per_page=100&page=$page"
+  $batch = @(Invoke-RestMethod $url -MaximumRedirection 0)
+  Write-Output ("page={0} url={1} batchType={2} count={3}" -f $page, $url, $batch.GetType().FullName, $batch.Count)
+  foreach ($item in $batch) {
+    Write-Output ("itemType={0} tags={1} prerelease={2}" -f $item.GetType().FullName, ($item.tag_name | ConvertTo-Json -Compress), ($item.prerelease | ConvertTo-Json -Compress))
+  }
+  if ($batch.Count -eq 0) { break }
+  $releases += $batch
+}
+$tag = ($releases |
+  Where-Object { -not $_.prerelease -and $_.tag_name -match '^cli-v\d+\.\d+\.\d+$' } |
+  Sort-Object { [version]($_.tag_name -replace '^cli-v', '') } -Descending |
+  Select-Object -First 1).tag_name
+Write-Output ("candidate=" + ($tag | ConvertTo-Json -Compress))
+'''],
+                cwd=self.project, env=self.env, text=True, capture_output=True, timeout=60,
+            )
+            diagnostics += "\nPowerShell discovery probe:\n" + probe.stdout + probe.stderr
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + diagnostics)
         self.assertEqual(self.cli("version")["data"]["version"], VERSION)
         self.assertTrue(any("page=2" in path for path, _ in self.server.requests))
 
