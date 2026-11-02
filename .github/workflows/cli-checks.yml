@@ -1,0 +1,77 @@
+name: CLI checks
+
+# PRs and approved releases consume the same builder, artifacts and smoke suite.
+# This workflow only uploads Actions artifacts; it cannot publish a GitHub Release.
+on:
+  workflow_call:
+    inputs:
+      release-tag:
+        type: string
+        default: cli-v0.1.0
+
+permissions:
+  contents: read
+
+jobs:
+  distribution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: cli-go/go.mod
+          cache-dependency-path: cli-go/go.sum
+      - name: Vet native CLI
+        working-directory: cli-go
+        run: go vet ./...
+      - name: Build release-shaped distribution
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: python3 cli-go/install/build-dist.py --version "${RELEASE_TAG#cli-v}" --output cli-go/dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: muvloom-dist
+          path: cli-go/dist/
+          if-no-files-found: error
+
+  native-install:
+    needs: distribution
+    name: Native tests and install (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-15, macos-15-intel, windows-latest]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: cli-go/go.mod
+          cache-dependency-path: cli-go/go.sum
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Test native CLI
+        working-directory: cli-go
+        run: go test ./...
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: muvloom-dist
+          path: cli-go/dist
+      - name: Install upstream Agent Skills reference validator
+        # Official agentskills/agentskills skills-ref 0.1.0, source pinned rather
+        # than trusting a similarly named PyPI package or a moving branch.
+        run: python -m pip install 'skills-ref @ git+https://github.com/agentskills/agentskills.git@69ef37e9424c0a7ea9dd2293b559e43ec8176379#subdirectory=skills-ref'
+      - name: Exercise installers and validate installed Skills
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: python cli-go/install/test-install.py --dist cli-go/dist --version "${RELEASE_TAG#cli-v}"
