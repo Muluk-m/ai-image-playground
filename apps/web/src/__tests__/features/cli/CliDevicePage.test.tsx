@@ -42,7 +42,9 @@ async function render(user: AuthUserView | null = USER) {
 }
 
 function button(label: string): HTMLButtonElement {
-  const target = Array.from(host.querySelectorAll('button')).find((item) => item.textContent === label)
+  const target = Array.from(host.querySelectorAll('button')).find(
+    (item) => item.textContent === label,
+  )
   if (!target) throw new Error(`Missing button: ${label}`)
   return target
 }
@@ -75,10 +77,14 @@ describe('CliDevicePage', () => {
     expect(host.textContent).toContain('Muvloom CLI')
     expect(host.textContent).toContain('提交与取消生成任务（会消耗积分）')
     await act(async () => button(label).click())
-    expect(fetcher).toHaveBeenLastCalledWith('https://api.example.com/api/cli/device', expect.objectContaining({
-      method: 'POST', credentials: 'include',
-      body: JSON.stringify({ user_code: 'BCDF-GHJK', decision }),
-    }))
+    expect(fetcher).toHaveBeenLastCalledWith(
+      'https://api.example.com/api/cli/device',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({ user_code: 'BCDF-GHJK', decision }),
+      }),
+    )
     expect(host.querySelector('[role="status"]')?.textContent).toBe(outcome)
   })
 
@@ -91,7 +97,11 @@ describe('CliDevicePage', () => {
     await render()
     const approve = button('授权')
     const deny = button('拒绝')
-    await act(async () => { approve.click(); approve.click(); deny.click() })
+    await act(async () => {
+      approve.click()
+      approve.click()
+      deny.click()
+    })
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
     await act(async () => pending.resolve(Response.json({ ok: true })))
     expect(host.textContent).toContain('已授权，回到终端继续。')
@@ -105,40 +115,62 @@ describe('CliDevicePage', () => {
     const input = host.querySelector('input')
     if (!input) throw new Error('Missing code input')
     await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'BCDF-GHJK')
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        input,
+        'BCDF-GHJK',
+      )
       input.dispatchEvent(new Event('input', { bubbles: true }))
     })
     await act(async () => button('继续').click())
     await act(async () => button('登录后继续').click())
     expect(promptLogin).toHaveBeenCalledWith('gated-action')
     expect(fetcher).not.toHaveBeenCalled()
-    expect(new URL(oauthStartUrl('google')).searchParams.get('return_to')).toBe('/device?keep=1&user_code=BCDF-GHJK#approval')
+    expect(new URL(oauthStartUrl('google')).searchParams.get('return_to')).toBe(
+      '/device?keep=1&user_code=BCDF-GHJK#approval',
+    )
     await render(USER)
-    expect(fetcher).toHaveBeenCalledWith(expect.stringContaining('user_code=BCDF-GHJK'), expect.anything())
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.stringContaining('user_code=BCDF-GHJK'),
+      expect.anything(),
+    )
     expect(host.textContent).toContain('Muvloom CLI')
   })
 
-  it.each(['lookup', 'decision'])('shows expired codes during %s without offering another decision', async (stage) => {
-    vi.stubGlobal('fetch', vi.fn(async (_input: string, init?: RequestInit) =>
-      stage === 'lookup' || init?.method === 'POST'
-        ? Response.json({ error: 'invalid_code' }, { status: 404 })
-        : Response.json(AUTHORIZATION),
-    ))
+  it.each([
+    'lookup',
+    'decision',
+  ])('shows expired codes during %s without offering another decision', async (stage) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: string, init?: RequestInit) =>
+        stage === 'lookup' || init?.method === 'POST'
+          ? Response.json({ error: 'invalid_code' }, { status: 404 })
+          : Response.json(AUTHORIZATION),
+      ),
+    )
     await render()
     if (stage === 'decision') await act(async () => button('授权').click())
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('已过期')
-    expect(Array.from(host.querySelectorAll('button')).some((item) => item.textContent === '授权')).toBe(false)
+    expect(
+      Array.from(host.querySelectorAll('button')).some((item) => item.textContent === '授权'),
+    ).toBe(false)
   })
 
-  it.each(['lookup', 'decision'])('retries a failed %s by reloading authorization before allowing another decision', async (stage) => {
+  it.each([
+    'lookup',
+    'decision',
+  ])('retries a failed %s by reloading authorization before allowing another decision', async (stage) => {
     let failed = false
-    vi.stubGlobal('fetch', vi.fn(async (_input: string, init?: RequestInit) => {
-      if (!failed && (stage === 'lookup' || init?.method === 'POST')) {
-        failed = true
-        throw new TypeError('Network unavailable')
-      }
-      return Response.json(init?.method === 'POST' ? { ok: true } : AUTHORIZATION)
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: string, init?: RequestInit) => {
+        if (!failed && (stage === 'lookup' || init?.method === 'POST')) {
+          failed = true
+          throw new TypeError('Network unavailable')
+        }
+        return Response.json(init?.method === 'POST' ? { ok: true } : AUTHORIZATION)
+      }),
+    )
     await render()
     if (stage === 'decision') await act(async () => button('授权').click())
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('暂时无法完成')
@@ -148,13 +180,20 @@ describe('CliDevicePage', () => {
     expect(host.textContent).toContain('已拒绝这次连接。')
   })
 
-  it.each(['lookup', 'decision'])('ignores a stale %s response after navigation to a different code', async (stage) => {
+  it.each([
+    'lookup',
+    'decision',
+  ])('ignores a stale %s response after navigation to a different code', async (stage) => {
     const old = deferred()
-    vi.stubGlobal('fetch', vi.fn((input: string, init?: RequestInit) => {
-      if (input.includes('NEWC-ODE2')) return Promise.resolve(Response.json({ ...AUTHORIZATION, client_name: 'New CLI' }))
-      if (stage === 'lookup' || init?.method === 'POST') return old.promise
-      return Promise.resolve(Response.json(AUTHORIZATION))
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string, init?: RequestInit) => {
+        if (input.includes('NEWC-ODE2'))
+          return Promise.resolve(Response.json({ ...AUTHORIZATION, client_name: 'New CLI' }))
+        if (stage === 'lookup' || init?.method === 'POST') return old.promise
+        return Promise.resolve(Response.json(AUTHORIZATION))
+      }),
+    )
     await render()
     if (stage === 'decision') await act(async () => button('授权').click())
     await act(async () => {
@@ -162,7 +201,9 @@ describe('CliDevicePage', () => {
       window.dispatchEvent(new PopStateEvent('popstate'))
     })
     expect(host.textContent).toContain('New CLI')
-    await act(async () => old.resolve(Response.json(stage === 'lookup' ? AUTHORIZATION : { ok: true })))
+    await act(async () =>
+      old.resolve(Response.json(stage === 'lookup' ? AUTHORIZATION : { ok: true })),
+    )
     expect(host.textContent).toContain('New CLI')
     expect(host.textContent).not.toContain('已授权，回到终端继续。')
     expect(button('授权')).toBeDefined()
@@ -170,9 +211,12 @@ describe('CliDevicePage', () => {
 
   it('clears pending permissions on logout and ignores the old account decision', async () => {
     const old = deferred()
-    vi.stubGlobal('fetch', vi.fn((_input: string, init?: RequestInit) =>
-      init?.method === 'POST' ? old.promise : Promise.resolve(Response.json(AUTHORIZATION)),
-    ))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: string, init?: RequestInit) =>
+        init?.method === 'POST' ? old.promise : Promise.resolve(Response.json(AUTHORIZATION)),
+      ),
+    )
     await render()
     await act(async () => button('授权').click())
     await render(null)
