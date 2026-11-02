@@ -102,6 +102,14 @@ export const config = {
     get publicOrigin(): string {
       return bareOrigin('AUTH_PUBLIC_ORIGIN', env('AUTH_PUBLIC_ORIGIN', ''))
     },
+    /** Additional first-party API origins allowed to receive OAuth callback cookies. */
+    get publicOrigins(): string[] {
+      return env('AUTH_PUBLIC_ORIGINS', '')
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean)
+        .map((origin) => bareOrigin('AUTH_PUBLIC_ORIGINS', origin))
+    },
     /** Primary frontend origin kept for backwards compatibility. */
     get frontendOrigin(): string {
       return bareOrigin('AUTH_FRONTEND_ORIGIN', env('AUTH_FRONTEND_ORIGIN', ''))
@@ -149,6 +157,7 @@ export const config = {
   },
   assertValid(): void {
     void config.auth.loginMethodsByOrigin
+    void config.auth.publicOrigins
     assertOperatorRuntimePrerequisites(config.operator.capabilities, config)
     if (config.worker.healthStaleAfterMs < config.worker.pollIntervalMs * 3) {
       throw new Error('WORKER_HEALTH_STALE_AFTER_MS must be at least three poll intervals')

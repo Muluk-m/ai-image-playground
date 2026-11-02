@@ -163,6 +163,7 @@ function trackingOverlay(): PrivateBffOverlay {
 
 beforeEach(async () => {
   delete process.env.AUTH_LOGIN_METHODS_BY_ORIGIN
+  delete process.env.AUTH_PUBLIC_ORIGINS
   createdUserIds = []
   _setPrivateBffOverlayForTesting(trackingOverlay())
   disableAllProviders()
@@ -231,6 +232,46 @@ describe('oauth start', () => {
     expect(location.searchParams.get('response_type')).toBe('code')
     expect(location.searchParams.get('scope')).toBe('openid email profile')
   })
+
+  it('keeps callback cookies on an explicitly trusted API host but ignores arbitrary forwarded hosts', async () => {
+    enableGoogle()
+    process.env.AUTH_PUBLIC_ORIGINS = 'https://enterprise-api.example.net'
+    const start = await request('/api/auth/oauth/google/start', {
+      'x-forwarded-host': 'enterprise-api.example.net',
+      'x-forwarded-proto': 'https',
+    })
+    const authorization = new URL(start.headers.get('location') ?? '')
+    const expectedRedirect = 'https://enterprise-api.example.net/api/auth/oauth/google/callback'
+    expect(authorization.searchParams.get('redirect_uri')).toBe(expectedRedirect)
+    const calls = stubUpstream(
+      googleRoutes({
+        sub: 'trusted-api-user',
+        email: 'trusted@example.com',
+        email_verified: true,
+        name: 'Trusted',
+      }),
+    )
+    const cookies = ['image_playground_oauth_state', 'image_playground_oauth_return_to']
+      .map((name) => `${name}=${encodeURIComponent(readCookie(start, name) ?? '')}`)
+      .join('; ')
+    const response = await request(
+      `/api/auth/oauth/google/callback?code=trusted-code&state=${authorization.searchParams.get('state')}`,
+      {
+        cookie: cookies,
+        'x-forwarded-host': 'enterprise-api.example.net',
+        'x-forwarded-proto': 'https',
+      },
+    )
+    expect(response.status).toBe(302)
+    expect(new URLSearchParams(calls[0]?.body ?? '').get('redirect_uri')).toBe(expectedRedirect)
+    const forged = await request('/api/auth/oauth/google/start', {
+      'x-forwarded-host': 'evil.example.net',
+      'x-forwarded-proto': 'https',
+    })
+    expect(new URL(forged.headers.get('location') ?? '').searchParams.get('redirect_uri')).toBe(
+      'https://api.example.com/api/auth/oauth/google/callback',
+    )
+  })
   it('returns a completed login to an explicitly supplied allowlisted frontend origin', async () => {
     enableGoogle()
     stubUpstream(
@@ -250,7 +291,6 @@ describe('oauth start', () => {
     const stateCookie = readCookie(response, 'image_playground_oauth_state')
     const returnToCookie = readCookie(response, 'image_playground_oauth_return_to')
     if (!stateCookie || !returnToCookie) throw new Error('start did not issue OAuth cookies')
-
     const callbackResponse = await callback(
       'google',
       { code: 'explicit-origin-code', state },
