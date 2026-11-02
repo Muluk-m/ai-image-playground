@@ -4,8 +4,8 @@ import { setSignedIn } from '../../auth/loginPrompt'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
   authenticatedBffFetch,
-  fetchLoginOptions,
   fetchCliConnections,
+  fetchLoginOptions,
   fetchOAuthProviders,
   getCurrentUser,
   loginUser,
