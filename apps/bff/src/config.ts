@@ -83,6 +83,14 @@ export const config = {
     get publicOrigin(): string {
       return bareOrigin('AUTH_PUBLIC_ORIGIN', env('AUTH_PUBLIC_ORIGIN', ''))
     },
+    /** Additional first-party API origins allowed to receive OAuth callback cookies. */
+    get publicOrigins(): string[] {
+      return env('AUTH_PUBLIC_ORIGINS', '')
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean)
+        .map((origin) => bareOrigin('AUTH_PUBLIC_ORIGINS', origin))
+    },
     /** Primary frontend origin kept for backwards compatibility. */
     get frontendOrigin(): string {
       return bareOrigin('AUTH_FRONTEND_ORIGIN', env('AUTH_FRONTEND_ORIGIN', ''))
@@ -130,6 +138,7 @@ export const config = {
   },
   assertValid(): void {
     void config.auth.loginMethodsByOrigin
+    void config.auth.publicOrigins
     if (hasCapability(config.operator, 'accounts:login') && !config.auth.internalApiToken) {
       throw new Error('Missing env: INTERNAL_API_TOKEN')
     }
