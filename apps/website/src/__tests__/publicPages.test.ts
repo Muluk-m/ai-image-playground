@@ -29,16 +29,14 @@ describe('public page contract', () => {
     expect(findPage('/guide/missing/')).toBeUndefined()
     expect(findPage('/p/private-project')).toBeUndefined()
   })
-  it('names the marketing home after the v4.1 hero', () => {
+  it('names the marketing home after its headline', () => {
     const zh = pageMeta(findPage('/')!)
-    expect(zh.title).toContain('说出你的画面设想')
-    expect(zh.title).toContain('交由幕芽成片')
-    expect(zh.title).toContain('AI 图片、视频与画布创作平台')
-    expect(zh.title).not.toContain('故事，由你发生')
+    expect(zh.title).toBe('幕芽 Muvloom：图片和视频的在线创作工具')
+    expect(zh.description).toContain('幕芽：图片和视频的在线创作工具')
+    expect(zh.title + zh.description).not.toContain('说出你的画面设想')
     const en = pageMeta(findPage('/en/')!)
-    expect(en.title).toContain('Describe the vision')
-    expect(en.title).toContain('AI Image, Video and Canvas Creation')
-    expect(en.title).not.toContain('Your story starts here')
+    expect(en.title).toBe('Muvloom: online creation tool for images and video')
+    expect(en.title + en.description).not.toContain('Describe the vision')
   })
   it('does not publish login, workbench or private project URLs in the sitemap', () => {
     const files = seoFiles('https://example.com', true)

@@ -79,11 +79,11 @@ export default function InspirationChips() {
       <Button
         type="button"
         onClick={openInspiration}
-        variant="outline"
+        variant="ghost"
         size="lg"
-        className="group shrink-0 px-3 text-body-sm text-muted-foreground"
+        className="studio-home-chips-more group shrink-0 px-3 text-body-sm text-muted-foreground"
       >
-        {t('hero.viewAll')}
+        {t('chips.more')}
         <Icon name="arrowRight" className="transition-transform group-hover:translate-x-0.5" />
       </Button>
     </div>
