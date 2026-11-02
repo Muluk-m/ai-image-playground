@@ -82,9 +82,9 @@ describe('discovered channels carry catalog capabilities', () => {
   })
 
   it('publishes the measured tiers and the per-surface ratios', () => {
-    expect(modelOf('gpt-image-2.5-flare').image?.tiers).toEqual([
-      { id: '1K', pixels: { '1:1': '1254x1254', '16:9': '1672x941' } },
-    ])
+    const flare = modelOf('gpt-image-2.5-flare').image!
+    expect(flare.tiers.map((tier) => tier.id)).toEqual(['1K', '2K', '4K'])
+    expect(flare.tiers[2]?.pixels['16:9']).toBe('3840x2160')
     const pro = modelOf('gemini-3-pro-image').image!
     expect(pro.tiers.map((tier) => tier.id)).toEqual(['1K', '2K', '4K'])
     expect(pro.surfaces.agent.ratios).toEqual(['1:1', '3:4', '9:16', '4:3', '16:9'])
@@ -112,6 +112,61 @@ describe('discovered channels carry catalog capabilities', () => {
 
   it('hands out copies, so a caller cannot edit the catalog through the response', () => {
     modelOf('gpt-image-2.5-flare').image!.tiers[0]!.pixels['1:1'] = '1x1'
-    expect(findCatalogModel('gpt-image-2.5-flare')!.image.tiers[0]!.pixels['1:1']).toBe('1254x1254')
+    expect(findCatalogModel('gpt-image-2.5-flare')!.image.tiers[0]!.pixels['1:1']).toBe('1024x1024')
+  })
+})
+
+describe('GPT size follows the OpenAI direct switch', () => {
+  const saved = { enabled: process.env.GPT_DIRECT_ENABLED, key: process.env.OPENAI_API_KEY }
+  afterEach(() => {
+    process.env.GPT_DIRECT_ENABLED = saved.enabled
+    process.env.OPENAI_API_KEY = saved.key
+    if (saved.enabled === undefined) delete process.env.GPT_DIRECT_ENABLED
+    if (saved.key === undefined) delete process.env.OPENAI_API_KEY
+    _setChannelsForTesting([])
+  })
+
+  function flareCapabilities() {
+    const { channels } = parseChannelsConfig(
+      {
+        channels: [
+          {
+            id: 'gpt',
+            kind: 'openai-queue',
+            label: 'OpenAI',
+            baseUrl: 'https://upstream-secret.example.com/v1',
+            auth: { type: 'bearer', secretRef: 'TEST_KEY' },
+            models: [
+              {
+                id: 'gpt-image-2.5-flare',
+                label: 'Flare',
+                capabilities: ['generate', 'quality', 'size', 'n'],
+              },
+              { id: 'gpt-image-2', label: 'Other', capabilities: ['generate', 'size'] },
+            ],
+            defaults: { apiMode: 'images' },
+            allowedPaths: ['images/generations'],
+          },
+        ],
+      },
+      ENV,
+    )
+    _setChannelsForTesting(channels)
+    const models = getDiscoveredChannels()[0]!.models
+    return Object.fromEntries(models.map((model) => [model.id, model.capabilities]))
+  }
+
+  it('hides size while direct is off, since sub2api drops it', () => {
+    delete process.env.GPT_DIRECT_ENABLED
+    process.env.OPENAI_API_KEY = 'sk-real'
+    const caps = flareCapabilities()
+    expect(caps['gpt-image-2.5-flare']).toEqual(['generate', 'quality', 'n'])
+    expect(caps['gpt-image-2']).toEqual(['generate', 'size'])
+  })
+
+  it('declares size once direct is on with a key', () => {
+    process.env.GPT_DIRECT_ENABLED = 'true'
+    process.env.OPENAI_API_KEY = 'sk-real'
+    expect(flareCapabilities()['gpt-image-2.5-flare']).toEqual(['generate', 'quality', 'size', 'n'])
   })
 })

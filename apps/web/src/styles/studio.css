@@ -923,6 +923,19 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 .studio-agent-inline-tile:hover .studio-agent-tile-cancel,
 .studio-agent-inline-tile:focus-within .studio-agent-tile-cancel,
 .studio-agent-tile-cancel:disabled { opacity: 1; }
+/* 能悬停的设备：指到生成中的图块上，中间的「生成中」/转圈换成取消键，点了只撤这一张。 */
+@media (hover: hover) {
+  /* 选择器多一层压过按钮自带的 size-8；居中用独立的 translate，不与 active:scale-95 的 transform 互相覆盖，
+     否则按下那一刻按钮跳开、松手落在别处，点了不生效。 */
+  .studio-agent-inline-tile .studio-agent-tile-cancel {
+    top: 50%; left: 50%; right: auto; width: 44px; height: 44px; translate: -50% -50%;
+  }
+  .studio-agent-tile-face { transition: opacity .15s ease; }
+  .studio-agent-inline-tile:has(.studio-agent-tile-cancel):hover .studio-agent-tile-face,
+  .studio-agent-inline-tile:has(.studio-agent-tile-cancel):focus-within .studio-agent-tile-face,
+  .studio-agent-inline-tile:has(.studio-agent-tile-cancel:disabled) .studio-agent-tile-face { opacity: 0; }
+}
+/* 触屏没有悬停：右上角常驻一个小取消键，不挡进度。 */
 @media (hover: none) { .studio-agent-tile-cancel { opacity: 1; } }
 .studio-agent-tile-progress { align-items: center; }
 .studio-agent-tile-progress > span { text-align: center; overflow-wrap: anywhere; }

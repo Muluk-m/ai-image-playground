@@ -9,7 +9,9 @@ import { config } from '../config'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { ensureProjectConversation } from '../lib/projectConversations'
 import {
+  decodeRecentProjectCursor,
   listProjects,
+  listRecentProjects,
   listRecycledProjects,
   readProject,
   recycleProject,
@@ -18,6 +20,7 @@ import {
 import { resolveAuthUser } from '../lib/user-auth'
 
 const id = t.String({ format: 'uuid' })
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 async function readWrite(request: Request): Promise<unknown> {
   const budget =
@@ -63,12 +66,24 @@ export const projectRoutes = new Elysia()
     '/api/projects',
     async ({ authUser, query, status }) => {
       if (!authUser) return status(401, { error: 'unauthorized' })
-      return listProjects(authUser.id, query.limit ?? PROJECT_PAGE_SIZE, query.cursor)
+      const limit = query.limit ?? PROJECT_PAGE_SIZE
+      // 旧客户端不带 order，仍按 id 翻页；新客户端按最近更新翻，游标是不透明串。
+      if (query.order !== 'recent') {
+        if (query.cursor !== undefined && !UUID.test(query.cursor))
+          return status(400, { error: 'invalid_project_request' })
+        return listProjects(authUser.id, limit, query.cursor)
+      }
+      const cursor =
+        query.cursor === undefined ? undefined : decodeRecentProjectCursor(query.cursor)
+      if (cursor === null) return status(400, { error: 'invalid_project_request' })
+      return listRecentProjects(authUser.id, limit, cursor, query.deletedSince)
     },
     {
       query: t.Object({
         limit: t.Optional(t.Numeric({ minimum: 1, maximum: PROJECT_PAGE_MAX_SIZE, multipleOf: 1 })),
-        cursor: t.Optional(id),
+        cursor: t.Optional(t.String({ minLength: 1, maxLength: 200 })),
+        order: t.Optional(t.Literal('recent')),
+        deletedSince: t.Optional(t.Numeric({ minimum: 0, multipleOf: 1 })),
       }),
     },
   )

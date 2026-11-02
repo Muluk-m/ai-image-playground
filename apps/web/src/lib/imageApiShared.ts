@@ -1,4 +1,4 @@
-import type { StageAuthorizationSubmission } from '@image-playground/shared'
+import type { PartialImageFailure, StageAuthorizationSubmission } from '@image-playground/shared'
 import { isContentPolicyRejection, type TaskProgressPhase } from '@image-playground/shared'
 import { i18next, UserFacingError } from '../i18n'
 import type { AppSettings, TaskParams } from '../types'
@@ -44,6 +44,8 @@ export interface CallApiResult {
   revisedPrompts?: Array<string | undefined>
   /** API 返回的原始图片 HTTP URL（非 base64 时记录） */
   rawImageUrls?: string[]
+  /** 一单多张里有几张没出来；`images` 是交付的那几张 */
+  partialFailure?: PartialImageFailure
 }
 
 export function isHttpUrl(value: unknown): value is string {

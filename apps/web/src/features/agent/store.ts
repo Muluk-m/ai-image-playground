@@ -320,6 +320,11 @@ export interface AgentState {
      */
     onUnsent?: (submission: UnsentTurnSubmission, quiet?: boolean) => Promise<boolean>,
   ): Promise<void | 'cancelled'>
+  /**
+   * 不管输入框此刻是不是「图片生成」，这一句都交给智能体：给智能体听的请求句（如改图卡的「再次生成」）
+   * 在直出模式下会被原样当成提示词。其余同 `send`。
+   */
+  sendThroughAgent(text: string, mode?: AgentMode): Promise<void | 'cancelled'>
   submitDraft(input: DraftSubmissionInput): Promise<void>
   abort(): Promise<void>
   retryReturnedMessages(): Promise<void>
@@ -454,6 +459,9 @@ export function retryUnsent(): void {
 }
 
 let pendingSeq = 0
+
+/** `sendThroughAgent` 起轮期间为真：这一轮不按「图片生成」直出。 */
+let agentOnlyTurn = false
 const PENDING_PREFIX = 'pending_'
 
 const PANEL_WIDTH_KEY = 'image-playground.agent_panel_width'
@@ -1473,7 +1481,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
   /** 起轮这一刻的参数快照：轮跑到一半用户改了 chip，改的是下一轮，不该追改这一轮。 */
   const currentTurnParams = (mode: AgentMode) => {
     const { params, settings, createTarget } = useStore.getState()
-    const imageDirect = createTarget === 'generate' && mode !== 'video'
+    const imageDirect = createTarget === 'generate' && mode !== 'video' && !agentOnlyTurn
     const selected = clientProfileToApiProfile(getActiveApiProfile(settings)).model
     const model = imageDirect || !get().modelAuto ? selected : undefined
     return {
@@ -1721,6 +1729,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     if (
       reuseEmpty &&
       current &&
+      // 被上限拒建的那个已经不在本机目录里，不能拿来复用。
+      !current.quotaRejected &&
       projectExperience(current) === experience &&
       !current.conversationId &&
       !current.hasContent &&
@@ -2036,6 +2046,15 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       })
     },
 
+    sendThroughAgent(text, mode) {
+      // send 在第一个 await 之前就定下本轮参数，所以开关只需罩住这一次同步调用。
+      agentOnlyTurn = true
+      try {
+        return get().send(text, [], undefined, mode)
+      } finally {
+        agentOnlyTurn = false
+      }
+    },
     async send(
       text,
       references = [],
