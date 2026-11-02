@@ -288,13 +288,16 @@ describe('auth client', () => {
   })
 
   it('loads connected CLIs with the browser session and cancellation signal', async () => {
-    const connections = [{ id: 'connection-1', client_name: 'Muvloom CLI', created_at: 1, last_used_at: null }]
+    const connections = [
+      { id: 'connection-1', client_name: 'Muvloom CLI', created_at: 1, last_used_at: null },
+    ]
     const fetcher = vi.fn(async () => Response.json({ connections }))
     vi.stubGlobal('fetch', fetcher)
     const controller = new AbortController()
     await expect(fetchCliConnections(controller.signal)).resolves.toEqual(connections)
     expect(fetcher).toHaveBeenCalledWith('https://bff.example.com/api/me/cli-connections', {
-      credentials: 'include', signal: controller.signal,
+      credentials: 'include',
+      signal: controller.signal,
     })
   })
 
@@ -302,15 +305,29 @@ describe('auth client', () => {
     const fetcher = vi.fn(async () => Response.json({ ok: true }))
     vi.stubGlobal('fetch', fetcher)
     await expect(revokeCliConnection('connection/one')).resolves.toBeUndefined()
-    expect(fetcher).toHaveBeenCalledWith('https://bff.example.com/api/me/cli-connections/connection%2Fone', {
-      credentials: 'include', method: 'DELETE', signal: undefined,
-    })
+    expect(fetcher).toHaveBeenCalledWith(
+      'https://bff.example.com/api/me/cli-connections/connection%2Fone',
+      {
+        credentials: 'include',
+        method: 'DELETE',
+        signal: undefined,
+      },
+    )
   })
 
   it('preserves connection API errors for the account UI', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: 'capability_unavailable' }, { status: 404 })))
-    await expect(fetchCliConnections()).rejects.toMatchObject({ status: 404, code: 'capability_unavailable' })
-    await expect(revokeCliConnection('connection-1')).rejects.toMatchObject({ status: 404, code: 'capability_unavailable' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ error: 'capability_unavailable' }, { status: 404 })),
+    )
+    await expect(fetchCliConnections()).rejects.toMatchObject({
+      status: 404,
+      code: 'capability_unavailable',
+    })
+    await expect(revokeCliConnection('connection-1')).rejects.toMatchObject({
+      status: 404,
+      code: 'capability_unavailable',
+    })
   })
 
   it('points the OAuth start route at the configured BFF origin', () => {

@@ -107,7 +107,11 @@ export default function CliConnectionsSection() {
                   disabled={revoking !== null}
                   onClick={() => void revoke(connection.id)}
                 >
-                  {t(revoking === connection.id ? 'cliConnections.revoking' : 'cliConnections.revoke')}
+                  {t(
+                    revoking === connection.id
+                      ? 'cliConnections.revoking'
+                      : 'cliConnections.revoke',
+                  )}
                 </Button>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">

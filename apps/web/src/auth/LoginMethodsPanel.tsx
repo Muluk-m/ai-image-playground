@@ -22,6 +22,7 @@ import {
   unlinkOAuthProvider,
   updateOwnPassword,
 } from '../lib/authClient'
+import { useAuth } from './AuthContext'
 
 /**
  * 错误一律以 key 的形式在 state 里流转，渲染时才翻译：切语言后已经显示的报错会跟着变，
@@ -77,6 +78,7 @@ type PanelNotice = { readonly key: PanelNoticeKey } | { readonly linkedProvider:
 
 export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation(['auth', 'errors'])
+  const user = useAuth().user
   const [methods, setMethods] = useState<LoginMethodsView | null>(null)
   const [providers, setProviders] = useState<OAuthProviderView[]>([])
   const [loadFailed, setLoadFailed] = useState(false)
@@ -318,7 +320,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
           ) : null}
         </>
       )}
-      <CliConnectionsSection />
+      {user ? <CliConnectionsSection key={user.id} /> : null}
     </Dialog>
   )
 }
