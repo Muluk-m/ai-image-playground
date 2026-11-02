@@ -29,6 +29,7 @@ export const CAPABILITIES = {
    * 各自独立计费，不受影响。前端据此在轮页脚标明这一轮的对话没收钱。
    */
   'billing:chat-free': { defaultValue: false, clientExposed: true },
+  'cli:api': { defaultValue: false, clientExposed: false },
   'generation:video': { defaultValue: false, clientExposed: true },
   'operator:console': { defaultValue: false, clientExposed: false },
   'quota:daily': { defaultValue: false, clientExposed: true },

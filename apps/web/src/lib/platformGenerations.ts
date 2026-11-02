@@ -54,6 +54,8 @@ export function taskFromGeneration(
   const cover = item.cover ? [mediaRef(item.cover.mediaId)] : []
   // 列表只给封面，详情给整组产出；读到哪一份就用哪一份。
   const outputs = 'outputs' in item ? item.outputs.map((image) => mediaRef(image.mediaId)) : []
+  // 删过一张之后平台位置号不连续；搬到本机或再删一张都要按原位置号对上平台那张。
+  const outputPositions = 'outputs' in item ? item.outputs.map((image) => image.index) : []
   const inputs = item.inputs.map((image) => mediaRef(image.mediaId))
   const mask = item.mask ? mediaRef(item.mask.mediaId) : null
   return {
@@ -70,6 +72,11 @@ export function taskFromGeneration(
     maskImageId: mask,
     maskTargetImageId: mask ? (inputs[0] ?? null) : null,
     outputImages: outputs.length > 0 ? outputs : cover,
+    ...(outputs.length > 0
+      ? { outputPositions }
+      : item.cover
+        ? { outputPositions: [item.cover.index] }
+        : {}),
     ...statusPatch(item),
     createdAt: item.createdAt,
     remoteOnly: true,
@@ -136,7 +143,9 @@ export async function receivePlatformPage(
       detailed &&
       detailed.status === 'completed' &&
       item.status === 'completed' &&
-      item.cover?.mediaId === detailed.cover?.mediaId
+      item.cover?.mediaId === detailed.cover?.mediaId &&
+      // 别的设备删过一张、封面没变时，张数对不上：丢掉旧的整组产出，展开时重读。
+      (item.outputCount === undefined || item.outputCount === detailed.outputs.length)
     const record = sameOutputs ? { ...item, outputs: detailed.outputs } : item
     return { id: item.id, record, fetchedAt: now, ...(prior?.favorite ? { favorite: true } : {}) }
   })
@@ -195,6 +204,27 @@ export async function dropPlatformGeneration(id: string): Promise<void> {
   )
 }
 
+/** 平台删掉一张产出之后，缓存行里也去掉那张；封面顺延到剩下的第一张。 */
+export async function dropPlatformGenerationOutput(id: string, position: number): Promise<void> {
+  const rows = useStore.getState().platformGenerations
+  const existing = rows.find((row) => row.id === id)
+  if (!existing) return
+  const record = existing.record
+  const outputs =
+    'outputs' in record ? record.outputs.filter((image) => image.index !== position) : null
+  const cover =
+    outputs !== null ? (outputs[0] ?? null) : record.cover?.index === position ? null : record.cover
+  const next: PlatformGenerationRow = {
+    ...existing,
+    record: { ...record, cover, ...(outputs ? { outputs } : {}) },
+  }
+  await commit(
+    rows.map((row) => (row.id === id ? next : row)),
+    [next],
+    [],
+  )
+}
+
 export function isPlatformGeneration(id: string): boolean {
   return useStore.getState().platformGenerations.some((row) => row.id === id)
 }
@@ -243,6 +273,9 @@ export function mergeHistory(
       finishedAt: settled.finishedAt,
       elapsed: settled.elapsed,
       outputImages: adoptRemoteOutputs ? settled.outputImages : task.outputImages,
+      // 平台位置号跟着产出一起接：别的设备删过一张时剩下的是 [0, 2, 3]，不带上就退回 [0, 1, 2]，
+      // 再删一张会删错平台上的那张。
+      outputPositions: adoptRemoteOutputs ? settled.outputPositions : task.outputPositions,
     }
   })
   const projected = rows

@@ -193,12 +193,14 @@ function percent(ratio: number): string {
   return `${Math.round(ratio * 100)}%`
 }
 
+/** 一段时长的口语写法，和看板的 `elapsed()` 一致："12 分钟" / "2 小时 30 分钟" / "3 天"。 */
 function span(ms: number): string {
   const minutes = Math.floor(ms / 60_000)
   if (minutes < 60) return `${minutes} 分钟`
   const hours = Math.floor(minutes / 60)
-  if (hours < 48) return `${hours} 小时`
-  return `${Math.floor(hours / 24)} 天`
+  if (hours < 48) return minutes % 60 === 0 ? `${hours} 小时` : `${hours} 小时 ${minutes % 60} 分钟`
+  const days = Math.floor(hours / 24)
+  return hours % 24 === 0 ? `${days} 天` : `${days} 天 ${hours % 24} 小时`
 }
 
 function heartbeatReading(label: string, lastSeenAt: number, now: number): Reading {

@@ -148,6 +148,9 @@ channels.json 声明了并发上限的模型（如 Vertex 的三个）不受它�
 并发照旧在后面把关。按测试环境 → 内部站 → 收费站逐个放开，例如 `"agent:turn-model-parallelism": 3`；
 放开后看上游 429 与重试有没有变多，出问题改回 1 再 `app-compose.sh up` 即可，不用回滚发版。
 旧版本不认识这个键会拒绝启动，**只能在包含它的版本上线之后再写进配置**。
+它管不到账号并发。收费版（加载私有计费层）里，账号并发取套餐的 `max_concurrent_tasks`，没有订阅时是 1，
+同一时间只跑一张，配多大都看不到并行，只有套餐并发上限大于 1 的会员才会受益；在测试环境验证并行时要用这类账号。
+免费部署没有计费层，账号并发按默认值 3，不受订阅影响。
 
 ### 联网工具没有开关
 
@@ -191,6 +194,21 @@ cd <checkout> && ./scripts/app-compose.sh up <project>
 ```
 
 这只是带着新 env 重建容器，**不换镜像**。想连代码一起升级才用 `scripts/vps-deploy.sh`。
+
+**镜像没变时 `up` 不会重建 bff / worker。** 按发布目录管理的部署（`releases/current` 存在）走 `rollout-runtime.sh`，
+发现新旧都是同一个镜像就只输出 `Already serving …`，核对附属服务后返回，执行器照旧在跑，**改过的
+`app.env` / `operator-config.json` 都没被读进去**（2026-10-31 测试环境实测）。`operator-config.json` 是目录挂载，
+文件改了容器里看得到，但 BFF 只在启动时读一次。这时要让新配置生效：
+
+- 改了 `app.env`：只能等下一次带新镜像的发布。env 是创建执行器时用 `--env-file` 注入的，重启现有容器仍是旧值。
+- 只改了 `operator-config.json`：优先等下一次发布，发布会按排空协议换执行器。确实要立刻生效时，重启当前的
+  `<project>-r…-bff` 和 `<project>-r…-worker` 会重新读挂载的文件，但必须先按发布用的排空协议让它们停接新活并空闲：
+  对两个执行器各 `POST /internal/deployment/drain`，再轮询 `GET /internal/deployment/drain`，直到
+  `draining`、`active == 0`、`safeToStop` 都满足（`scripts/rollout-runtime.sh` 里的 `control` 就是这么做的）。
+  只查 `tasks` 表不够：免费对话不一定有任务行，却仍占着执行器。排空到重启完成之间没有执行器接请求，
+  只在能接受短暂中断的环境这样做；生产上重启容器要 Nain 批准（见[发布手册](../agents/release.md)）。
+
+改完用下面的 `/api/capabilities` 核对是否真的生效，不要只看命令退出码。
 
 `app.env` 是 compose 的 `env_file`，整份注入容器；改完必须重建，`restart` 不重读。
 

@@ -1,0 +1,5 @@
+interface:
+  display_name: Muvloom
+  short_description: Generate images with Muvloom from the terminal
+policy:
+  allow_implicit_invocation: true

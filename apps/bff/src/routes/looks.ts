@@ -367,6 +367,9 @@ export const lookRoutes = new Elysia()
         if (outcome.kind === 'object_storage_error') {
           return status(503, { error: 'object_storage_error', message: outcome.message })
         }
+        if (outcome.kind === 'private_billing_denied') {
+          return status(403, { error: 'plan_required', message: '4K 需要有效会员' })
+        }
         return status(401, { error: 'unauthorized' })
       }
 

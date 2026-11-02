@@ -44,8 +44,8 @@ BFF 拆成多个单图任务。OpenAI 组织是 Tier 1（每模型 20 张/分钟
   在途 8（默认值从 0 改为 8）。
 - **会员判断**：公开树新增可选钩子 `PrivateTaskHooks.isActiveMember`（先扩后缩），私有 overlay 另提 PR
   实现。钉住的 overlay 没有这一项时一律按非会员：只走 sub2api（熔断或超时才借直连），2K/4K/高画质锁住。
-  前端会员态取 overlay 的 `membership` 槽；没有 overlay 的内部站同样永远锁在基础档，会员档位只能在
-  收费版或测试环境验收。
+  前端会员态问服务端 `GET /api/gpt/premium`（直连开着且是会员），不依赖 overlay 的前端 `membership` 槽
+  （收费版 overlay 没挂这个槽，挂上会多出页头徽标）。没有 overlay 的内部站同样永远锁在基础档。
 - **密钥**：直连用 channels.json 里 openai-images 的 `OPENAI_API_KEY`，另加开关 `GPT_DIRECT_ENABLED`
   （正式站这把 key 曾是占位值，没有开关就分不出来）与可选 `OPENAI_ORG_ID`。sub2api 仍用 `UPSTREAM_*`，
   Vertex 用自己的。直连没开时服务端不对外声明这两个模型的 `size` 能力、一律收基础档，行为与直连上线前一致。
