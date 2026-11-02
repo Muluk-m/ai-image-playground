@@ -288,6 +288,17 @@ function Patterns() {
           { value: 'video', label: '视频' },
         ]}
       />
+      <SegmentedTabs
+        fullWidth
+        label="等宽类型"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { value: 'all', label: '全部' },
+          { value: 'image', label: '图片' },
+          { value: 'video', label: '视频' },
+        ]}
+      />
       <div className="flex flex-wrap gap-2">
         {(['neutral', 'overlay', 'primary', 'success', 'warning', 'info'] as const).map((tone) => (
           <Badge key={tone} tone={tone}>

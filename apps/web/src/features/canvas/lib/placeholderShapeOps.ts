@@ -3,6 +3,7 @@ import { getImageDimensions } from '../../../lib/canvasImage'
 import type { CallApiResult } from '../../../lib/imageApiShared'
 import type { CanvasEditor, CanvasTaskStatus, PlacedImage, PlaceholderView } from './editor'
 import { Box } from './geometry'
+import { revealNodeCanvas } from './nodeCanvasFocus'
 import { fitToTarget, type PlacementTarget, spreadTargets } from './placement'
 
 /** 要放的一项。`id` 与 `video` 只属于这一项，`opts.meta` 是整批共用的溯源。 */
@@ -10,11 +11,6 @@ export type PlaceItem = Pick<
   PlacedImage,
   'dataUrl' | 'id' | 'video' | 'name' | 'groupId' | 'createdAt'
 >
-
-/** 统一的错误消息提取（画布任务终局共用）。 */
-export function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
-}
 
 /** 从占位框自身几何取放置目标（恢复 / 重试无内存运行态时的兜底）。 */
 export function targetFromShape(view: PlaceholderView): PlacementTarget {
@@ -133,8 +129,8 @@ export async function placeImagesIntoTargets(
   if (ids.length === 0) return
   if (opts.select !== false) editor.setSelectedElements(ids)
 
-  // 镜头反馈：结果完全在视口外（用户平移去了别处 / 恢复场景）时把镜头带过去，
-  // 否则生成完了用户根本不知道图落在哪。视口内可见则不动。
+  // React Flow owns its visible area; the legacy viewport is only meaningful for Konva.
+  if (revealNodeCanvas(editor, ids)) return
   const placed = Box.Common(items.map((it) => new Box(it.x, it.y, it.width, it.height)))
   if (!editor.getViewportPageBounds().collides(placed)) {
     editor.scrollToElements(ids)

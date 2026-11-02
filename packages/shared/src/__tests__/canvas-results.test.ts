@@ -20,6 +20,8 @@ import {
   canvasResultIsStale,
   canvasResults,
   chooseCanvasResult,
+  dropCanvasNodeFile,
+  dropCanvasResultFile,
   promoteCanvasResultMedia,
   promoteCanvasVideoMedia,
   recordCanvasResult,
@@ -27,6 +29,40 @@ import {
 } from '../canvas-results'
 
 const origin = canvasOrigin('user', 'results')
+it('marks preset output stale when its preset or supplemental requirement changes', () => {
+  const doc = fixture()
+  try {
+    updateCanvasNode(
+      doc,
+      'image',
+      {
+        data: { meta: { nodeImagePreset: 'character-sheet', nodePrompt: 'green coat' } },
+      },
+      origin,
+    )
+    const fingerprint = canvasInputFingerprint(doc, 'image')
+    updateCanvasNode(
+      doc,
+      'image',
+      {
+        data: { meta: { nodeImagePreset: 'character-sheet', nodePrompt: 'blue coat' } },
+      },
+      origin,
+    )
+    expect(canvasInputFingerprint(doc, 'image')).not.toBe(fingerprint)
+    updateCanvasNode(
+      doc,
+      'image',
+      {
+        data: { meta: { nodeImagePreset: '', nodePrompt: 'green coat' } },
+      },
+      origin,
+    )
+    expect(canvasInputFingerprint(doc, 'image')).not.toBe(fingerprint)
+  } finally {
+    doc.destroy()
+  }
+})
 function fixture() {
   const doc = new Y.Doc()
   insertCanvasNode(
@@ -393,4 +429,60 @@ it('binds storyboard output to its reviewed revision without changing ordinary n
     origin,
   )
   expect(canvasResultIsStale(doc, 'image')).toBe(true)
+})
+
+it('turns a node with an unusable local image into an empty card the server accepts (BUG-10)', () => {
+  const doc = new Y.Doc()
+  insertCanvasNode(
+    doc,
+    {
+      id: 'zero',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: {
+        fileId: 'zero',
+        name: 'zero.png',
+        naturalWidth: 1,
+        naturalHeight: 1,
+        meta: { contentIdentity: 'zero', kept: 'yes', uploadDevice: 'me', uploadStartedAt: '1' },
+      },
+    },
+    origin,
+  )
+  insertCanvasNode(
+    doc,
+    { id: 'other', type: 'image', x: 0, y: 0, width: 50, height: 50, data: { fileId: 'replaced' } },
+    origin,
+  )
+  recordCanvasResult(
+    doc,
+    {
+      id: 'file',
+      nodeId: 'zero',
+      kind: 'image',
+      source: { type: 'file', fileId: 'zero' },
+      createdAt: 1,
+    },
+    origin,
+  )
+  chooseCanvasResult(doc, 'zero', 'file', { data: { fileId: 'zero' } }, origin)
+  expect(() => validateCloudCanvas(doc, { version: 1, elements: [] })).toThrow()
+  expect(dropCanvasResultFile(doc, 'zero', origin)).toBe(1)
+  expect(dropCanvasNodeFile(doc, 'zero', 'zero', origin)).toBe(true)
+  // 期间换了图的节点不动。
+  expect(dropCanvasNodeFile(doc, 'other', 'zero', origin)).toBe(false)
+  const nodes = readCanvasDocument(doc).nodes
+  // 内容身份跟着坏图一起去掉，下游指纹不会再当它还在；上传声明也去掉。
+  expect(nodes.find((n) => n.id === 'zero')?.data).toEqual({
+    name: 'zero.png',
+    meta: { kept: 'yes' },
+  })
+  expect(nodes.find((n) => n.id === 'other')?.data).toEqual({ fileId: 'replaced' })
+  expect(canvasResults(doc)).toEqual([])
+  expect(canvasMainResult(doc, 'zero')).toBeUndefined()
+  deleteCanvasNode(doc, 'other', origin)
+  expect(() => validateCloudCanvas(doc, { version: 1, elements: [] })).not.toThrow()
 })

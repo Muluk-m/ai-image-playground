@@ -5,7 +5,7 @@ import {
 import { Icon, type IconName } from '../../../components/ui/icon'
 import { cn } from '../../../lib/utils'
 
-/** Agent 卡片里的单动作按钮：图标加悬停提示，提示文字也是按钮的可访问名称。 */
+/** Agent 卡片里的单动作按钮：始终保留可访问名称，不直观的图标才显示动作提示。 */
 export default function AgentIconButton({
   label,
   icon,

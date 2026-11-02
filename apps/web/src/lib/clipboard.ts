@@ -1,20 +1,6 @@
-import { i18next } from '../i18n'
-export async function copyTextToClipboard(text: string) {
-  let asyncClipboardError: unknown = null
+import { i18next, UserFacingError } from '../i18n'
 
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text)
-      return
-    } catch (err) {
-      asyncClipboardError = err
-    }
-  }
-
-  if (copyTextWithExecCommand(text)) return
-
-  throw asyncClipboardError ?? new Error('Clipboard API is not available')
-}
+export { copyTextToClipboard } from './clipboardText'
 
 export async function copyBlobToClipboard(blob: Blob) {
   if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
@@ -37,12 +23,14 @@ async function transcodeImageBlobToPng(blob: Blob): Promise<Blob> {
     canvas.width = bitmap.width
     canvas.height = bitmap.height
     const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
+    if (!ctx) throw new UserFacingError(i18next.t('canvas.unsupported', { ns: 'lib' }))
     ctx.drawImage(bitmap, 0, 0)
     return await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
         (png) =>
-          png ? resolve(png) : reject(new Error(i18next.t('image.transcodeFailed', { ns: 'lib' }))),
+          png
+            ? resolve(png)
+            : reject(new UserFacingError(i18next.t('image.transcodeFailed', { ns: 'lib' }))),
         'image/png',
       )
     })
@@ -57,27 +45,6 @@ export function getClipboardFailureMessage(fallback: string, err: unknown) {
   }
 
   return fallback
-}
-
-function copyTextWithExecCommand(text: string) {
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.setAttribute('readonly', '')
-  textarea.style.position = 'fixed'
-  textarea.style.left = '-9999px'
-  textarea.style.top = '0'
-
-  document.body.appendChild(textarea)
-  textarea.select()
-  textarea.setSelectionRange(0, textarea.value.length)
-
-  try {
-    return document.execCommand('copy')
-  } catch {
-    return false
-  } finally {
-    document.body.removeChild(textarea)
-  }
 }
 
 function isEmbeddedPage() {

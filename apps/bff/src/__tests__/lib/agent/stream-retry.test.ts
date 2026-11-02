@@ -62,6 +62,86 @@ it('does not copy already recorded usage into a cancelled attempt during backoff
   expect(message.usage.cost.total).toBe(0)
 })
 
+function failed(message: AssistantMessage) {
+  const result = createAssistantMessageEventStream()
+  result.push({ type: 'error', reason: 'error', error: message })
+  result.end(message)
+  return result
+}
+
+function stopped(id: string): AssistantMessage {
+  return { ...rejected, model: id, stopReason: 'stop', errorMessage: undefined }
+}
+
+it('switches once to the fallback model and retries that model with its own effort', async () => {
+  const fallbackModel = { ...model, id: 'fallback-model' }
+  const seen: { id: string; reasoning?: string }[] = []
+  const next: string[] = []
+  let fallbackCalls = 0
+  const stream = await retryOverloadedStream(
+    (active, _context, options) => {
+      seen.push({ id: active.id, reasoning: options?.reasoning })
+      return failed({ ...rejected, model: active.id })
+    },
+    () => true,
+    async (_message, nextModelId) => {
+      next.push(nextModelId)
+    },
+    0,
+    {
+      model: fallbackModel,
+      reasoning: 'low',
+      stream: (active, _context, options) => {
+        fallbackCalls += 1
+        seen.push({ id: active.id, reasoning: options?.reasoning })
+        if (fallbackCalls === 1) return failed({ ...rejected, model: active.id })
+        const done = stopped(active.id)
+        const result = createAssistantMessageEventStream()
+        result.end(done)
+        return result
+      },
+    },
+  )(model, context, { reasoning: 'high' })
+  const message = await stream.result()
+  expect(seen).toEqual([
+    { id: 'test-model', reasoning: 'high' },
+    { id: 'fallback-model', reasoning: 'low' },
+    { id: 'fallback-model', reasoning: 'low' },
+  ])
+  expect(next).toEqual(['fallback-model', 'fallback-model'])
+  expect(message.stopReason).toBe('stop')
+  expect(message.model).toBe('fallback-model')
+})
+
+it('keeps retrying the primary model when the request does not fit the fallback window', async () => {
+  const fallbackModel = { ...model, id: 'fallback-model' }
+  const seen: string[] = []
+  let fallbackCalls = 0
+  const stream = await retryOverloadedStream(
+    (active) => {
+      seen.push(active.id)
+      return failed(rejected)
+    },
+    () => true,
+    async () => {},
+    0,
+    {
+      model: fallbackModel,
+      reasoning: 'low',
+      fits: () => false,
+      stream: () => {
+        fallbackCalls += 1
+        return failed(rejected)
+      },
+    },
+  )(model, context, { reasoning: 'high' })
+  const message = await stream.result()
+  expect(seen).toEqual(['test-model', 'test-model', 'test-model'])
+  expect(fallbackCalls).toBe(0)
+  expect(message.stopReason).toBe('error')
+  expect(message.model).toBe('test-model')
+})
+
 it('does not reuse settled usage when recording the next attempt fails', async () => {
   const stream = await retryOverloadedStream(
     () => {

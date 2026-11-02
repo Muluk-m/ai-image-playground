@@ -3,7 +3,7 @@ import { SettingsSegmented } from '../../../components/composer/SettingsPanel'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Textarea } from '../../../components/ui/textarea'
-import { useTranslation } from '../../../i18n'
+import { describeError, useTranslation } from '../../../i18n'
 import { loadImage } from '../../../lib/canvasImage'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { calculateMaskWorkingSize } from '../../../lib/maskPreprocess'
@@ -203,9 +203,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         }
         setNaturalSize({ source, ...size })
       } catch (error) {
-        useStore
-          .getState()
-          .showToast(error instanceof Error ? error.message : String(error), 'error')
+        useStore.getState().showToast(describeError(error), 'error')
         return
       } finally {
         setBusy(false)

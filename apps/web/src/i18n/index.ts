@@ -167,16 +167,18 @@ export async function bootstrapLocale(): Promise<void> {
   applyDocumentLocale(locale)
 }
 
-/** Translate known operational failures; unknown messages remain interpolation values. */
+/** 我们自己写好、可以直接给用户看的失败提示。其余异常的原文只进错误上报，不上界面。 */
+export class UserFacingError extends Error {}
+
+/** 失败 → 给用户看的一句话。已算好的文字原样返回；浏览器与第三方异常换成人话。 */
 export function describeError(error: unknown): string {
-  const message = error instanceof Error && error.message ? error.message : String(error)
-  if (
-    message === 'No eligible Grok media accounts' ||
-    message === 'Grok model channel is temporarily unavailable. Please try again later.'
-  ) {
-    return i18next.t('generations.grok_channel_unavailable', { ns: 'errors' })
-  }
-  return message
+  if (typeof error === 'string') return error
+  if (error instanceof UserFacingError && error.message) return error.message
+  if (error instanceof DOMException && error.name === 'QuotaExceededError')
+    return i18next.t('common.storageFull', { ns: 'errors' })
+  if (error instanceof TypeError && /fetch|network|load failed/i.test(error.message))
+    return i18next.t('common.network', { ns: 'errors' })
+  return i18next.t('common.fallback', { ns: 'errors' })
 }
 
 // 导入本模块即完成初始化：组件只从这里取 useTranslation，就不会出现「先渲染后初始化」。

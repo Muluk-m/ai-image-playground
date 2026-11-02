@@ -1,11 +1,14 @@
 import type {
   GenerationDetail,
+  GenerationImage,
   GenerationSummary,
   TaskStatus as QueueStatus,
-  TaskErrorType,
 } from '@image-playground/shared'
-import { QUEUE_TIMEOUTS } from '@image-playground/shared'
-import { i18next } from '../i18n'
+import {
+  PROMPT_REWRITE_GUARD_PREFIX,
+  QUEUE_TIMEOUTS,
+  unshapeQueuePrompt,
+} from '@image-playground/shared'
 import { useStore } from '../store'
 import {
   DEFAULT_PARAMS,
@@ -16,9 +19,12 @@ import {
   type TaskRecord,
   type TaskStatus,
 } from '../types'
+import { getPublicChannels } from './channels/publicChannels'
 import { deleteCachedGeneration, getCachedGenerations, putCachedGeneration } from './db'
 import { mediaRef, readRemoteGeneration } from './remoteGenerations'
 import type { CloudReuseSource } from './reuseCloudGeneration'
+import { measuredSizeOf } from './size'
+import { taskErrorText } from './taskError'
 
 /**
  * 平台记录的本机缓存。
@@ -37,7 +43,7 @@ export interface PlatformGenerationRow {
   fetchedAt: number
 }
 
-/** 缓存只为渲染最近这一段时间线，不做无限增长的本机副本。 */
+/** 落盘只为下次打开时第一帧有东西看，不做无限增长的本机副本；内存里不设上限。 */
 const MAX_CACHED = 500
 
 /** 平台记录 → 作品卡。像素留在平台，用 `aip-media:<id>` 引用（和云端画布同一个原语）。 */
@@ -48,21 +54,29 @@ export function taskFromGeneration(
   const cover = item.cover ? [mediaRef(item.cover.mediaId)] : []
   // 列表只给封面，详情给整组产出；读到哪一份就用哪一份。
   const outputs = 'outputs' in item ? item.outputs.map((image) => mediaRef(image.mediaId)) : []
+  // 删过一张之后平台位置号不连续；搬到本机或再删一张都要按原位置号对上平台那张。
+  const outputPositions = 'outputs' in item ? item.outputs.map((image) => image.index) : []
   const inputs = item.inputs.map((image) => mediaRef(image.mediaId))
   const mask = item.mask ? mediaRef(item.mask.mediaId) : null
   return {
     id: item.id,
     bffRequestId: item.id,
-    prompt: item.prompt,
+    prompt: promptFromGeneration(item),
     params: paramsFromGeneration(item),
     actualParams: pickActual(item),
     apiModel: item.model,
     // 复用要认回内置 channel，认的是 provider + model 这一对，所以 provider 也得留在卡上。
     cloudProvider: item.provider,
+    ...measuredSizePatch('outputs' in item ? (item.outputs[0] ?? item.cover) : item.cover),
     inputImageIds: inputs,
     maskImageId: mask,
     maskTargetImageId: mask ? (inputs[0] ?? null) : null,
     outputImages: outputs.length > 0 ? outputs : cover,
+    ...(outputs.length > 0
+      ? { outputPositions }
+      : item.cover
+        ? { outputPositions: [item.cover.index] }
+        : {}),
     ...statusPatch(item),
     createdAt: item.createdAt,
     remoteOnly: true,
@@ -75,7 +89,7 @@ export function cloudReuseSourceFromGeneration(item: GenerationSummary): CloudRe
   return {
     provider: item.provider,
     model: item.model,
-    prompt: item.prompt,
+    prompt: promptFromGeneration(item),
     params: paramsFromGeneration(item),
     inputs: item.inputs.map((image) => mediaRef(image.mediaId)),
     mask: item.mask ? mediaRef(item.mask.mediaId) : null,
@@ -97,11 +111,12 @@ export async function loadPlatformGenerations(): Promise<void> {
  * `until` 是这一页覆盖的时间上界（第一页没有上界）；`hasMore` 说明这一页下面还有没有更早的记录。
  * 平台在这一页真正覆盖的窗口里是权威：窗口内缓存有、这一页没有的记录就是**平台上已经没有了**，
  * 直接丢掉。删除因此不需要墓碑，也不需要拿 404 去试探。窗口之外一律不动——翻页不等于「没有了」。
+ * 返回这次按窗口丢掉的 id，作品页签据此修正计数（它们不在服务端总数里）。
  */
 export async function receivePlatformPage(
   items: readonly GenerationSummary[],
   { until = Number.POSITIVE_INFINITY, hasMore = false } = {},
-): Promise<void> {
+): Promise<{ dropped: string[] }> {
   const returned = new Map(items.map((item) => [item.id, item]))
   // 这一页读满了、后面还有，就只能替换到最后一条为止；读到底了，下界就是时间线的开头。
   const since = hasMore
@@ -112,7 +127,9 @@ export async function receivePlatformPage(
   const dropped: string[] = []
   for (const row of previous) {
     if (returned.has(row.id)) continue
-    const inWindow = row.record.createdAt >= since && row.record.createdAt <= until
+    // 两端都不含：上界是上一页最后一条（游标按 createdAt + id 严格往后），下界同一毫秒的
+    // 可能还在下一页。边界上认不准就留着，宁可多留一张已删的卡，也不能每 50 条吞掉一张。
+    const inWindow = row.record.createdAt > since && row.record.createdAt < until
     if (inWindow) dropped.push(row.id)
     else kept.push(row)
   }
@@ -126,16 +143,25 @@ export async function receivePlatformPage(
       detailed &&
       detailed.status === 'completed' &&
       item.status === 'completed' &&
-      item.cover?.mediaId === detailed.cover?.mediaId
+      item.cover?.mediaId === detailed.cover?.mediaId &&
+      // 别的设备删过一张、封面没变时，张数对不上：丢掉旧的整组产出，展开时重读。
+      (item.outputCount === undefined || item.outputCount === detailed.outputs.length)
     const record = sameOutputs ? { ...item, outputs: detailed.outputs } : item
     return { id: item.id, record, fetchedAt: now, ...(prior?.favorite ? { favorite: true } : {}) }
   })
   const rows = sortRows([...kept, ...received])
-  const pruned = rows.slice(MAX_CACHED)
-  await commit(rows.slice(0, MAX_CACHED), received, [...dropped, ...pruned.map((row) => row.id)])
+  // 内存里留着这次会话翻到的全部记录（作品页要一直往下翻）；落盘只留最近一段，供下次第一帧。
+  const persisted = new Set(rows.slice(0, MAX_CACHED).map((row) => row.id))
+  const unpersisted = rows.slice(MAX_CACHED).map((row) => row.id)
+  await commit(
+    rows,
+    received.filter((row) => persisted.has(row.id)),
+    [...dropped, ...unpersisted],
+  )
   for (const item of items) {
     if (statusFromGeneration(item.status) === 'running') watchPlatformGeneration(item.id)
   }
+  return { dropped }
 }
 
 /** 详情读到的比列表全（产出是整组），照单更新这条缓存。 */
@@ -178,6 +204,27 @@ export async function dropPlatformGeneration(id: string): Promise<void> {
   )
 }
 
+/** 平台删掉一张产出之后，缓存行里也去掉那张；封面顺延到剩下的第一张。 */
+export async function dropPlatformGenerationOutput(id: string, position: number): Promise<void> {
+  const rows = useStore.getState().platformGenerations
+  const existing = rows.find((row) => row.id === id)
+  if (!existing) return
+  const record = existing.record
+  const outputs =
+    'outputs' in record ? record.outputs.filter((image) => image.index !== position) : null
+  const cover =
+    outputs !== null ? (outputs[0] ?? null) : record.cover?.index === position ? null : record.cover
+  const next: PlatformGenerationRow = {
+    ...existing,
+    record: { ...record, cover, ...(outputs ? { outputs } : {}) },
+  }
+  await commit(
+    rows.map((row) => (row.id === id ? next : row)),
+    [next],
+    [],
+  )
+}
+
 export function isPlatformGeneration(id: string): boolean {
   return useStore.getState().platformGenerations.some((row) => row.id === id)
 }
@@ -212,15 +259,23 @@ export function mergeHistory(
       remote.record.errorType != null &&
       task.errorCode === remote.record.errorType &&
       task.error
+    const adoptRemoteOutputs = !task.outputImages.length
     return {
       ...task,
+      // 接过平台的出图时一并接过它的实测像素：平台出图是 aip-media 引用，预览拿不到宽高，
+      // 不带上这份尺寸，卡片就退回请求档位（Gemini 直接显示 auto）。
+      ...(adoptRemoteOutputs && settled.measuredSize ? { measuredSize: settled.measuredSize } : {}),
       status: settled.status,
+      cancelled: settled.cancelled,
       queuePhase: settled.queuePhase,
       error: sameFailure || settled.error,
       errorCode: settled.status === 'error' ? (remote.record.errorType ?? undefined) : undefined,
       finishedAt: settled.finishedAt,
       elapsed: settled.elapsed,
-      outputImages: task.outputImages.length ? task.outputImages : settled.outputImages,
+      outputImages: adoptRemoteOutputs ? settled.outputImages : task.outputImages,
+      // 平台位置号跟着产出一起接：别的设备删过一张时剩下的是 [0, 2, 3]，不带上就退回 [0, 1, 2]，
+      // 再删一张会删错平台上的那张。
+      outputPositions: adoptRemoteOutputs ? settled.outputPositions : task.outputPositions,
     }
   })
   const projected = rows
@@ -286,30 +341,25 @@ function sortRows(rows: readonly PlatformGenerationRow[]): PlatformGenerationRow
  */
 function statusPatch(
   item: GenerationSummary,
-): Pick<TaskRecord, 'status' | 'error' | 'finishedAt' | 'elapsed' | 'queuePhase'> {
+): Pick<
+  TaskRecord,
+  'status' | 'cancelled' | 'error' | 'errorCode' | 'finishedAt' | 'elapsed' | 'queuePhase'
+> {
   return {
     status: statusFromGeneration(item.status),
-    queuePhase: item.status === 'reconciling' ? 'reconciling' : undefined,
-    error: item.errorType ? generationErrorText(item.errorType) : null,
+    cancelled: item.status === 'cancelled' ? true : undefined,
+    // 记录说已在执行就按生成中显示；否则另一台设备提交的任务在作品列表里会一直停在「排队中」。
+    queuePhase:
+      item.status === 'reconciling'
+        ? 'reconciling'
+        : item.status === 'in_progress'
+          ? 'generating'
+          : undefined,
+    error: item.errorType ? taskErrorText(item.errorType) : null,
+    errorCode: item.errorType ?? undefined,
     finishedAt: item.completedAt,
     elapsed: item.completedAt && item.startedAt ? item.completedAt - item.startedAt : null,
   }
-}
-
-function generationErrorText(code: TaskErrorType): string {
-  const key = (
-    {
-      upstream_timeout: 'agentTool.timeout',
-      upstream_result_unknown: 'agentTool.result_unknown',
-      upstream_error: 'agentTool.upstream_error',
-      content_policy: 'agentTool.content_policy',
-      upstream_no_image: 'agentTool.no_output',
-      interrupted: 'agentTool.cancelled',
-      object_storage_error: 'agentTool.upstream_error',
-      unknown: 'agentTool.fallback',
-    } as const
-  )[code]
-  return i18next.t(key, { ns: 'errors' })
 }
 
 function statusFromGeneration(status: QueueStatus): TaskStatus {
@@ -322,11 +372,35 @@ function statusFromGeneration(status: QueueStatus): TaskStatus {
  * 平台记录的参数投影。Gemini 那三项也照抄：这份参数同时是卡面显示和「复用配置」的来源，
  * 漏掉它们，复用一条 Gemini 生成就会悄悄换掉画面比例、分辨率档位和思考级别。
  */
+/**
+ * 平台记下的是发给上游的那一句：创作页开着「防改写」时钉了 guard 前缀，模型不认 `size` 时还缀了构图指令。
+ * 作品卡和复用要的是用户写的原文，机器指令剥掉；防改写这一项改由参数 `no_rewrite` 带着。
+ *
+ * 构图指令跟提交侧（`callImageApi`）用同一个判据：模型声明了 `size` 能力就没缀过。平台记录只有
+ * provider/model、不知道走的哪条渠道，同一个模型 id 又可能挂在能力不同的几条渠道上：只有挂着它的
+ * 每一条渠道都声明了 `size`（提交时不可能缀过）才原样保留——用户自己写在结尾的同一句话、Gemini 都不剥；
+ * 有任何一条可能缀过、或清单还没到 / 模型已下架认不出，就只剥逐字一致的那一句（前面还得是提交侧拼上的空行），
+ * 这是机器生成的英文，用户原句恰好这样结尾的概率可以忽略。
+ */
+export function promptFromGeneration(item: GenerationSummary): string {
+  const models = getPublicChannels()
+    .flatMap((channel) => channel.models)
+    .filter((model) => model.id === item.model)
+  const sized = models.length > 0 && models.every((model) => model.capabilities.includes('size'))
+  return unshapeQueuePrompt({
+    provider: item.provider === 'gemini' ? 'gemini' : 'openai-compat',
+    prompt: item.prompt,
+    size: sized ? undefined : item.parameters.size,
+  })
+}
+
 function paramsFromGeneration(item: GenerationSummary): TaskParams {
   const { size, quality, output_format, output_compression, n } = item.parameters
   const { aspect_ratio, image_size, thinking_level } = item.parameters
   return {
     ...DEFAULT_PARAMS,
+    no_rewrite:
+      item.provider !== 'gemini' && item.prompt.startsWith(`${PROMPT_REWRITE_GUARD_PREFIX}\n`),
     ...(size ? { size } : {}),
     ...(quality ? { quality: quality as TaskParams['quality'] } : {}),
     ...(output_format ? { output_format: output_format as TaskParams['output_format'] } : {}),
@@ -336,6 +410,11 @@ function paramsFromGeneration(item: GenerationSummary): TaskParams {
     gemini_image_size: GEMINI_IMAGE_SIZES.find((value) => value === image_size),
     gemini_thinking_level: GEMINI_THINKING_LEVELS.find((value) => value === thinking_level),
   }
+}
+
+function measuredSizePatch(image: GenerationImage | null): Pick<TaskRecord, 'measuredSize'> {
+  const measuredSize = measuredSizeOf(image)
+  return measuredSize ? { measuredSize } : {}
 }
 
 function pickActual(item: GenerationSummary): Partial<TaskParams> | undefined {

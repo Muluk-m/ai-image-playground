@@ -3,13 +3,14 @@ import { config } from './config'
 import { close as closeDb } from './db/client'
 import { purgeOldHostSamples, recoverAbandonedTasks, recoverTasksByIds } from './db/maintenance'
 import { recoverAnalysisTasks } from './lib/analysis-tasks'
+import { autoReconcileTasks } from './lib/auto-reconcile'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
 import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { startServerLogs } from './lib/server-logs'
-import { createAlertSender } from './ops/alert-sender'
+import { alertTargetsConfigured, createAlertSenderFromEnv } from './ops/alert-sender'
 import { createAppAlerting } from './ops/app-alerts'
 import { abortAllRunningAnalysisTasks, runningAnalysisTaskIds } from './workers/analysis-runner'
 import { abortAllRunningTasks, runningTaskIds } from './workers/task-execution'
@@ -50,14 +51,15 @@ const stopHeartbeat = startHeartbeat({
   service: 'worker',
   detail: () => ({
     last_successful_poll_at: scheduler.lastSuccessfulPollAt(),
-    alerts_configured: Boolean(process.env.OPS_ALERT_WEBHOOK_URL?.trim()),
+    alerts_configured: alertTargetsConfigured(),
   }),
 })
 // 队列积压、备份断了、后端心跳断了：每次维护循环看一眼，该发就发。没配地址就安静跳过。
 const checkAppAlerts = createAppAlerting({
-  send: createAlertSender({
-    webhookUrl: process.env.OPS_ALERT_WEBHOOK_URL,
+  send: createAlertSenderFromEnv({
     deployment: process.env.OPS_DEPLOYMENT_NAME?.trim() || 'deployment',
+    onPartialFailure: (error) =>
+      log.warn({ event: 'ops.alert_target_failed', err: error.message }, 'an alert target failed'),
   }),
 })
 let privateMaintenance: Promise<void> | undefined
@@ -81,7 +83,11 @@ const staleScanTimer = setInterval(() => {
     )
   })
   if (!scheduler.drainStatus().draining)
-    Promise.all([recoverAbandonedTasks(runningTaskIds()), recoverAnalysisTasks()]).catch((err) => {
+    Promise.all([
+      recoverAbandonedTasks(runningTaskIds()),
+      recoverAnalysisTasks(),
+      autoReconcileTasks(),
+    ]).catch((err) => {
       log.error(
         {
           event: 'worker.stale_scan_failed',
@@ -95,7 +101,14 @@ const workerHealthServer = startWorkerHealthServer({
   port: config.worker.healthPort,
   drain: () => scheduler.drain(),
   resume: () => scheduler.resume(),
-  drainStatus: () => scheduler.drainStatus(),
+  drainStatus: () => {
+    const status = scheduler.drainStatus()
+    return {
+      ...status,
+      maintenanceActive: privateMaintenance !== undefined,
+      safeToStop: status.safeToStop && privateMaintenance === undefined,
+    }
+  },
   staleAfterMs: config.worker.healthStaleAfterMs,
   lastSuccessfulPollAt: () => scheduler.lastSuccessfulPollAt(),
 })

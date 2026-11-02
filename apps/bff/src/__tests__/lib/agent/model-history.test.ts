@@ -92,6 +92,37 @@ describe('durable model history cache', () => {
     expect(await readModelHistory(identity)).toBeUndefined()
   })
 
+  it('strips leading reasoning tags left in snapshots saved before the model adapter split them', async () => {
+    const reply = messages[1] as Extract<AgentMessage, { role: 'assistant' }>
+    const tagged: AgentMessage[] = [
+      messages[0]!,
+      {
+        ...reply,
+        model: 'gpt-6-luna',
+        content: [{ type: 'text', text: '<thinking>读图</thinking>看一下' }, ...reply.content],
+      },
+      messages[2]!,
+    ]
+    await writeModelHistory(identity, tagged)
+    const restored = await readModelHistory(identity)
+    expect(restored?.[1]).toMatchObject({
+      content: [
+        { type: 'thinking', thinking: '读图' },
+        { type: 'text', text: '看一下' },
+        { type: 'toolCall', id: 'call-1' },
+      ],
+    })
+    // 没配置的模型原样回放。
+    await writeModelHistory(identity, [
+      messages[0]!,
+      { ...reply, content: [{ type: 'text', text: '<thinking>x</thinking>y' }, ...reply.content] },
+      messages[2]!,
+    ])
+    expect((await readModelHistory(identity))?.[1]).toMatchObject({
+      content: [{ type: 'text', text: '<thinking>x</thinking>y' }, { type: 'toolCall' }],
+    })
+  })
+
   it('rejects changed history, ownership/model signatures and malformed objects', async () => {
     await writeModelHistory(identity, messages)
     expect(

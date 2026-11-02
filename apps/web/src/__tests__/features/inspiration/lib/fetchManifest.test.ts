@@ -44,12 +44,16 @@ describe('fetchRemoteManifest', () => {
 
   it('throws on HTTP error', async () => {
     mockFetch(() => Promise.resolve(new Response('not found', { status: 404 })))
-    await expect(fetchRemoteManifest('https://x/manifest.json')).rejects.toThrow(/HTTP 404/)
+    await expect(fetchRemoteManifest('https://x/manifest.json')).rejects.toThrow(
+      '灵感库加载失败，请刷新重试',
+    )
   })
 
   it('throws on non-JSON body', async () => {
     mockFetch(() => Promise.resolve(new Response('<html>oops</html>', { status: 200 })))
-    await expect(fetchRemoteManifest('https://x/manifest.json')).rejects.toThrow(/非 JSON/)
+    await expect(fetchRemoteManifest('https://x/manifest.json')).rejects.toThrow(
+      '灵感库加载失败，请刷新重试',
+    )
   })
 
   it('throws on structurally invalid manifest', async () => {
@@ -96,6 +100,29 @@ describe('fetchRemoteManifest', () => {
     expect(manifest.items[0].referenceImages).toEqual([
       { url: 'https://muvloom-inspiration-assets.deepclick.com/before.png', name: '原图' },
     ])
+  })
+
+  it('keeps positive image dimensions and drops a partial pair', async () => {
+    const mixedManifest = {
+      ...goodManifest,
+      items: [
+        { ...goodManifest.items[0], thumbWidth: 800, thumbHeight: 1200, width: 1, height: 1 },
+        {
+          ...goodManifest.items[0],
+          id: 'alias',
+          width: 640,
+          height: 480,
+        },
+        { ...goodManifest.items[0], id: 'bad-size', thumbWidth: 0, thumbHeight: 10 },
+      ],
+    }
+    mockFetch(() => Promise.resolve(new Response(JSON.stringify(mixedManifest), { status: 200 })))
+    const manifest = await fetchRemoteManifest('https://x/manifest.json')
+    expect(manifest.items.map((entry) => entry.id)).toEqual(['a', 'alias', 'bad-size'])
+    expect(manifest.items[0]).toMatchObject({ thumbWidth: 800, thumbHeight: 1200 })
+    expect(manifest.items[0]).not.toHaveProperty('width')
+    expect(manifest.items[1]).toMatchObject({ thumbWidth: 640, thumbHeight: 480 })
+    expect(manifest.items[2]).not.toHaveProperty('thumbWidth')
   })
 
   it('falls back to the bundled seed when the published manifest is empty', async () => {

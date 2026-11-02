@@ -1,8 +1,9 @@
-import { formatImageRatio } from '@image-playground/shared'
+import { formatImageRatio, parseImageSize } from '@image-playground/shared'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { openWorkProject } from '../features/library/lib/openWorkProject'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useImagePreview } from '../hooks/useImagePreview'
-import { describeError, useTranslation } from '../i18n'
+import { useTranslation } from '../i18n'
 import { formatDateTime } from '../i18n/format'
 import { getActiveApiProfile, getApiProviderLabel } from '../lib/apiProfiles'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
@@ -13,10 +14,13 @@ import {
   getClipboardFailureMessage,
 } from '../lib/clipboard'
 import { loadImageOriginal } from '../lib/imageSource'
-import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
+import { ActualValueBadge, DetailParamValue, measuredSizeOf } from '../lib/paramDisplay'
+import { taskErrorText, taskRecordErrorText } from '../lib/taskError'
+import { workProjectId } from '../lib/works'
 import {
   editOutputImage,
   removeTask,
+  removeTaskOutput,
   retryTask,
   reuseConfig,
   sendTaskToCanvas,
@@ -30,6 +34,20 @@ import { Button } from './ui/button'
 import { Icon } from './ui/icon'
 import { OverflowText } from './ui/overflowTitle'
 
+/**
+ * 单张删除后「回到这条记录的详情」的凭证：发起删除时领一个号，之后打开任何详情、切换页面或前进后退
+ * 都会作废它，迟到的删除结果就不会把用户拉回已经离开的记录。
+ */
+let reopenTicket = 0
+useStore.subscribe((state, previous) => {
+  if (
+    (state.detailTaskId !== previous.detailTaskId && state.detailTaskId !== null) ||
+    state.appMode !== previous.appMode
+  )
+    reopenTicket++
+})
+if (typeof window !== 'undefined') window.addEventListener('popstate', () => reopenTicket++)
+
 export default function DetailModal() {
   const { t } = useTranslation(['task', 'common'])
   const tasks = useHistoryTasks()
@@ -39,6 +57,7 @@ export default function DetailModal() {
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const showToast = useStore((s) => s.showToast)
   const settings = useStore((s) => s.settings)
+  const platformGenerations = useStore((s) => s.platformGenerations)
 
   const [imageIndex, setImageIndex] = useState(0)
   const [imageSrcs, setImageSrcs] = useState<Record<string, string>>({})
@@ -63,6 +82,13 @@ export default function DetailModal() {
   const task = useMemo(
     () => tasks.find((t) => t.id === detailTaskId) ?? null,
     [tasks, detailTaskId],
+  )
+
+  // 对话里出的图能回到那个项目；快速生成的没有。
+  const projectId = useMemo(
+    () =>
+      task ? workProjectId(task, new Map(platformGenerations.map((row) => [row.id, row]))) : null,
+    [task, platformGenerations],
   )
 
   // Reset index when task changes
@@ -237,12 +263,40 @@ export default function DetailModal() {
     setDetailTaskId(null)
   }
 
+  // 多图记录看着哪张就删哪张（同即梦），其余几张留在这条记录里；只剩一张时就是删整条。
+  const deletesOneImage = outputLen > 1
+  const deleteLabel = deletesOneImage ? t('action.deleteImage') : t('action.deleteRecord')
   const handleDelete = () => {
+    const index = imageIndex
     setDetailTaskId(null)
     setConfirmDialog({
-      title: t('action.deleteRecord'),
-      message: t('confirm.deleteMessage'),
-      action: () => removeTask(task),
+      title: deleteLabel,
+      message: deletesOneImage
+        ? t('confirm.deleteImageMessage', { count: outputLen - 1 })
+        : t('confirm.deleteMessage'),
+      action: deletesOneImage
+        ? () => {
+            const ticket = ++reopenTicket
+            const path = window.location.pathname
+            void removeTaskOutput(task, index)
+              .then((outcome) => {
+                // 删完回到这条记录的详情接着看剩下的几张；但删除要等网络，期间用户打开过别的详情
+                // 或换过页面（凭证作废）就不抢回来，没删成或整条没了也不回。
+                if (
+                  outcome === 'kept' &&
+                  ticket === reopenTicket &&
+                  useStore.getState().detailTaskId === null &&
+                  window.location.pathname === path
+                )
+                  setDetailTaskId(task.id)
+              })
+              .catch(() =>
+                useStore
+                  .getState()
+                  .showToast(t('toast.imageDeleteFailed', { ns: 'store' }), 'error'),
+              )
+          }
+        : () => removeTask(task),
     })
   }
 
@@ -250,10 +304,28 @@ export default function DetailModal() {
     void setTaskFavorite(task, !task.isFavorite)
   }
 
+  const errorText = task.cancelled
+    ? t('common:state.cancelled')
+    : (taskRecordErrorText(task) ?? t('detail.errorUnavailable'))
+
   const handleCopyError = async () => {
-    const errorText = task.error ? describeError(task.error) : t('detail.generateFailed')
+    const diagnostics = JSON.stringify(
+      {
+        // 复制给运营排查：带存下的原文，界面上那句是按分类换过的。
+        message: (!task.cancelled && task.error?.trim()) || errorText,
+        taskId: task.id,
+        requestId: task.bffRequestId,
+        status: task.cancelled ? 'cancelled' : task.status,
+        errorType: task.errorCode ?? null,
+        provider: task.apiProvider ?? task.cloudProvider,
+        model: task.apiModel,
+        createdAt: new Date(task.createdAt).toISOString(),
+      },
+      null,
+      2,
+    )
     try {
-      await copyTextToClipboard(errorText)
+      await copyTextToClipboard(diagnostics)
       showToast(t('detail.errorCopied'), 'success')
     } catch (err) {
       showToast(getClipboardFailureMessage(t('detail.copyErrorFailed'), err), 'error')
@@ -434,7 +506,25 @@ export default function DetailModal() {
                 )}
               </>
             )}
-            {task.status === 'error' && (
+            {task.status === 'error' && task.cancelled && (
+              <div className="w-full max-w-md px-4 text-center">
+                <Icon name="close" size="lg" className="mx-auto mb-2 text-muted-foreground" />
+                <p className="text-sm leading-6 text-muted-foreground">
+                  {t('common:state.cancelled')}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  onClick={handleCopyError}
+                  className="mt-3"
+                  aria-label={t('detail.copyDiagnostics')}
+                >
+                  <Icon name="copy" />
+                </Button>
+              </div>
+            )}
+            {task.status === 'error' && !task.cancelled && (
               <div className="w-full max-w-md px-4 text-center">
                 <Icon name="error" size="lg" className="mx-auto mb-2 text-destructive" />
                 <p
@@ -445,11 +535,7 @@ export default function DetailModal() {
                     WebkitLineClamp: 4,
                   }}
                 >
-                  {blockedByContentPolicy
-                    ? t('detail.contentPolicy')
-                    : task.error
-                      ? describeError(task.error)
-                      : t('detail.generateFailed')}
+                  {blockedByContentPolicy ? t('detail.contentPolicy') : errorText}
                 </p>
                 {blockedByContentPolicy && (
                   <Button
@@ -683,6 +769,7 @@ export default function DetailModal() {
                     paramKey="size"
                     className="font-medium"
                     actualParams={currentActualParams}
+                    measuredSize={measuredSizeOf(parseImageSize(currentImageSize ?? ''))}
                   />
                 </div>
                 <div className="bg-card rounded-lg px-3 py-2">
@@ -741,6 +828,14 @@ export default function DetailModal() {
                   <span> · {t('detail.elapsed', { duration: formatDuration() })}</span>
                 )}
               </div>
+              {task.partialFailure && (
+                <p className="text-xs text-destructive mb-4">
+                  {t('detail.partialFailure', {
+                    count: task.partialFailure.failed,
+                    reason: taskErrorText(task.partialFailure.type),
+                  })}
+                </p>
+              )}
             </div>
 
             {/* 操作按钮：三个主操作带文字均分；删除 / 收藏为图标小方钮，避免一行挤爆 */}
@@ -774,14 +869,27 @@ export default function DetailModal() {
                 <Icon name="sendToCanvas" />
                 {t('action.sendToCanvas')}
               </Button>
+              {projectId && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => void openWorkProject(projectId)}
+                  className="col-span-2 w-full text-muted-foreground hover:text-foreground sm:w-9"
+                  title={t('action.openProject')}
+                  aria-label={t('action.openProject')}
+                >
+                  <Icon name="chat" />
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
                 onClick={handleDelete}
-                className="col-span-2 w-full text-muted-foreground hover:text-destructive sm:w-9"
-                title={t('action.deleteRecord')}
-                aria-label={t('action.deleteRecord')}
+                className={`${projectId ? 'col-span-1' : 'col-span-2'} w-full text-muted-foreground hover:text-destructive sm:w-9`}
+                title={deleteLabel}
+                aria-label={deleteLabel}
               >
                 <Icon name="delete" />
               </Button>
@@ -791,7 +899,7 @@ export default function DetailModal() {
                 size="icon"
                 onClick={handleToggleFavorite}
                 aria-pressed={task.isFavorite}
-                className={`col-span-2 w-full sm:w-9 ${task.isFavorite ? 'text-warning hover:text-warning' : 'text-muted-foreground hover:text-warning'}`}
+                className={`${projectId ? 'col-span-1' : 'col-span-2'} w-full sm:w-9 ${task.isFavorite ? 'text-warning hover:text-warning' : 'text-muted-foreground hover:text-warning'}`}
                 title={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
                 aria-label={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
               >
@@ -879,7 +987,7 @@ export default function DetailModal() {
                         }
                       }}
                       className="shrink-0"
-                      title={t('rawUrls.copyLink')}
+                      aria-label={t('rawUrls.copyLink')}
                     >
                       <Icon name="copy" size="xs" />
                       <span className="hidden sm:inline">{t('common:action.copy')}</span>

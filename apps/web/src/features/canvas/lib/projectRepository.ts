@@ -39,6 +39,11 @@ export interface CanvasProject {
   readonly workspaceOpened?: boolean
   readonly cover?: string
   readonly cloud?: { revision: number; nameDirty?: boolean; deleted?: boolean }
+  /**
+   * 只在内存里：云端第一次建就被项目数上限拒了（BUG-54）。本机那条记录已经删掉，
+   * 目录不再列它；当前页还开着，「重新读取」时才重新落盘再建一次。
+   */
+  readonly quotaRejected?: true
 }
 
 export function projectExperience(project: CanvasProject): 'chat' | 'canvas' {
@@ -277,7 +282,7 @@ export const projectRepository = {
       // 云端目录只有摘要，画布类型要等文档读回来才知道；在那之前这条记录先不带它。
       let result: StoredProject
       request.onsuccess = () => {
-        // 列表不能覆盖本机尚未同步的名称或文档；打开项目时再核对修订。
+        // 列表不能覆盖本机尚未同步的名称（见下）或文档；打开项目时再核对修订。
         result = request.result ?? {
           id: summary.id,
           name: summary.name,
@@ -291,6 +296,14 @@ export const projectRepository = {
           cover: summary.coverMediaId ? `aip-media:${summary.coverMediaId}` : undefined,
           cloud: { revision: summary.revision },
         }
+        // 本机没有待推的改名（`nameDirty`）时，云端那份名称就是最新的：别的标签页、别的设备
+        // 改过名，刷新目录时跟上，侧栏与页面不用等重新打开项目。未推的本机改名照旧优先。
+        if (request.result && !result.cloud?.nameDirty && result.name !== summary.name)
+          result = {
+            ...result,
+            name: summary.name,
+            customName: summary.name !== UNTITLED_PROJECT,
+          }
         if (result.cloud?.deleted)
           result = { ...result, cloud: { ...result.cloud, deleted: false } }
         if (summary.conversationId !== undefined)
@@ -423,6 +436,27 @@ export const projectRepository = {
       }
       transaction.oncomplete = () => resolve(projectView(result))
       transaction.onabort = () => reject(transaction.error ?? new Error('Project not found'))
+      transaction.onerror = () => reject(transaction.error)
+    })
+  },
+
+  /** 把内存里那份原样写回（被上限拒掉后再试一次时用）；已经有同 id 的记录就不动它。 */
+  async readd(project: CanvasProject): Promise<CanvasProject> {
+    const { quotaRejected: _rejected, kind, ...rest } = project
+    const stored: StoredProject = { ...rest, ...(kind === 'video' ? { kind } : {}) }
+    const storageKey = key(project.id)
+    const db = await openCanvasDatabase()
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction('scene', 'readwrite')
+      const store = transaction.objectStore('scene')
+      let result = stored
+      const existing = store.get(storageKey)
+      existing.onsuccess = () => {
+        if (existing.result) result = existing.result
+        else store.add(stored, storageKey)
+      }
+      transaction.oncomplete = () => resolve(projectView(result))
+      transaction.onabort = () => reject(transaction.error)
       transaction.onerror = () => reject(transaction.error)
     })
   },

@@ -2,6 +2,7 @@ import {
   type CloudProjectSummary,
   PROJECT_NAME_MAX_LENGTH,
   type ProjectKind,
+  type ProjectTotals,
 } from '@image-playground/shared'
 import { create } from 'zustand'
 import { accountRequired, promptLogin } from '../../auth/loginPrompt'
@@ -14,16 +15,17 @@ import {
   safeLocalStorage,
   scopedStorageName,
 } from '../../lib/authScope'
+import { reportRecoverableClientError } from '../../lib/errorReporting'
 import { projectActivated } from '../../lib/navigation/address'
 import type { CanvasDoc } from './lib/canvasDoc'
 import { getLoadedImage } from './lib/imageCache'
+import { adjustProjectTotals } from './lib/projectCatalog'
 import {
   cloudProjectsEnabled,
   ensureCloudProjectConversation,
   getCloudProject,
   listCloudProjects,
   PROJECT_REQUEST_TIMEOUT_MS,
-  ProjectRequestError,
 } from './lib/projectClient'
 import { type CanvasProject, projectRepository, UNTITLED_PROJECT } from './lib/projectRepository'
 import { readProjectRoute, resolveProjectRoute } from './lib/projectRoute'
@@ -37,7 +39,12 @@ interface ProjectState {
   routeError: string | null
   cloudError: string | null
   cloudLoading: boolean
+  /** 用户点「刷新项目」时 +1，没取到的封面据此重新加载；后台同步与加载更多不动它。 */
+  coverRetryRound: number
+  retryProjectCovers(): void
   cloudCursor: string | null
+  /** 服务端数的项目总数（第一页带回）；页签上的数字照它，不照本机已经拉下来的那几页。 */
+  cloudTotals: ProjectTotals | null
   cloudCatalog: Record<string, CloudProjectSummary>
   refreshCloud(more?: boolean): Promise<void>
   load(): Promise<void>
@@ -51,13 +58,25 @@ interface ProjectState {
   resolve(id: string): Promise<CanvasProject>
   update(id: string, patch: Parameters<typeof projectRepository.update>[1]): Promise<void>
   /** 目录里这一项换成新的（没有就补进去），云端摘要的名字与时间跟着走。 */
-  updateListed(project: CanvasProject): void
+  updateListed(project: CanvasProject, options?: { fromServerList?: boolean }): void
   markDeleted(ids: readonly string[]): Promise<void>
   remove(id: string): Promise<void>
+  /** 从没上过云端的项目第一次建就被项目数上限拒了：删掉本机那条，目录不列（BUG-54）。 */
+  discardRejected(id: string): Promise<void>
+  /** 被拒的那个再试一次之前，先把它落回本机。 */
+  readmitRejected(id: string): Promise<void>
   recordScene(sceneKey: string, doc: CanvasDoc): Promise<void>
 }
 
 let loading: Promise<void> | undefined
+
+/** 上次拿到的删除截止时间：下次第一页只要这之后删的，换设备没有它就全要一遍。 */
+const DELETED_THROUGH_KEY = 'image-playground.projects_deleted_through'
+function readDeletedThrough(): number | undefined {
+  const value = Number(safeLocalStorage.getItem(scopedStorageName(DELETED_THROUGH_KEY)))
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined
+}
+const catalogFailures: { isCurrent: () => boolean; recovered: () => void }[] = []
 
 /**
  * 深链接指向的云端项目在这台机器上取不到。原因是「这个部署有账号体系而访客还没登录」时，
@@ -92,17 +111,32 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
   routeError: null,
   cloudError: null,
   cloudLoading: false,
+  coverRetryRound: 0,
+  retryProjectCovers() {
+    set((state) => ({ coverRetryRound: state.coverRetryRound + 1 }))
+  },
   cloudCursor: null,
+  cloudTotals: null,
   cloudCatalog: {},
   async refreshCloud(more = false) {
     if (!cloudProjectsEnabled() || get().cloudLoading) return
     const isCurrent = accountScope()
     set({ cloudLoading: true, cloudError: null })
     try {
-      const page = await listCloudProjects(more ? (get().cloudCursor ?? undefined) : undefined)
+      const cursor = more ? get().cloudCursor : null
+      // 翻页时游标没了就是已经到底：不能退回去重拉第一页。
+      if (more && !cursor) return
+      const page = await listCloudProjects(
+        cursor ? { cursor } : { deletedSince: readDeletedThrough() },
+      )
       if (!isCurrent()) return
       await get().markDeleted(page.deletedIds ?? [])
       if (!isCurrent()) return
+      if (page.deletedThrough !== undefined)
+        safeLocalStorage.setItem(
+          scopedStorageName(DELETED_THROUGH_KEY),
+          String(page.deletedThrough),
+        )
       set((state) => ({
         cloudCatalog: {
           ...state.cloudCatalog,
@@ -112,9 +146,11 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       for (const summary of page.projects) {
         const project = await restoreCloudProject(summary)
         if (!isCurrent()) return
-        get().updateListed(project)
+        // 列表里读到的本来就在服务端总数里：翻页落下来的不能再加一遍。
+        get().updateListed(project, { fromServerList: true })
       }
-      set({ cloudCursor: page.nextCursor })
+      // 总数最后落：上面删除、恢复回写时的增减已经包含在服务端这次的数里。
+      set({ cloudCursor: page.nextCursor, ...(page.totals ? { cloudTotals: page.totals } : {}) })
     } catch {
       if (isCurrent()) set({ cloudError: i18next.t('project.cloudListFailed', { ns: 'canvas' }) })
     } finally {
@@ -124,9 +160,12 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
   async load() {
     if (get().loaded) return
     if (loading) return loading
+    const isCurrent = accountScope()
+    let stage = 'read-local'
     loading = (async () => {
       try {
         let projects = await projectRepository.list()
+        stage = 'migrate-legacy'
         for (const legacy of await projectRepository.legacyScenes()) {
           if (!projects.some((one) => one.sceneKey === legacy.sceneKey))
             projects.push(await projectRepository.create(UNTITLED_PROJECT, legacy))
@@ -140,6 +179,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         // A known project can open from IndexedDB while the cloud catalog refreshes in the
         // background. Unknown links still need the catalog before their route can be resolved.
         if (!hasCachedRoute) {
+          stage = 'refresh-cloud'
           await get().refreshCloud()
           projects = [...get().projects]
         }
@@ -147,20 +187,13 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         const conversationId = safeLocalStorage.getItem(scopedStorageName(AGENT_CONVERSATION_KEY))
         const route = readProjectRoute()
         const routeId = route ? resolveProjectRoute(route, projects) : null
+        // The catalog is usable even when a deep link is missing, forbidden or offline.
+        // Navigation resolves that project separately and owns its route error.
         if (routeId && !projects.some((one) => one.id === routeId)) {
-          if (!cloudProjectsEnabled()) throw cloudProjectUnavailable()
-          // 云端那份取不回来（链路抖、超时）不该把整个目录判死：本机项目照常列出来，
-          // 只标一句云端列表没刷上，用户还能接着用离线的那些。
-          try {
-            projects.push(
-              await restoreCloudProject(
-                await getCloudProject(routeId, AbortSignal.timeout(PROJECT_REQUEST_TIMEOUT_MS)),
-              ),
-            )
-          } catch (error) {
-            if (error instanceof ProjectRequestError && error.status === 404) throw error
-            set({ cloudError: i18next.t('project.cloudListFailed', { ns: 'canvas' }) })
-          }
+          set({ projects, loaded: true, error: null, activeId: null })
+          for (const failure of catalogFailures.splice(0))
+            if (failure.isCurrent()) failure.recovered()
+          return
         }
         const available = projects.filter((one) => !one.cloud?.deleted || one.id === routeId)
         // `/` 是首页，不是「上次那个项目」：既不恢复 remembered，也不接上次那条对话，
@@ -178,6 +211,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
           active ??= available[0]
         }
         if (!active) {
+          stage = 'create-local'
           // 首页那条不挂上次那段会话：挂上去就等于把它又拉回来了。场景键仍取未绑定会话的那把，
           // 首次发送前留下的草稿才认得出自己属于这个起手工作区。
           const bound = route ? conversationId : null
@@ -190,12 +224,25 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
                 })
           projects.push(active)
         }
+        stage = 'activate'
         set({ projects, loaded: true, error: null })
         if (readProjectRoute() === route) get().activate(active.id, true)
         if (hasCachedRoute) void get().refreshCloud()
-      } catch {
-        set({ error: i18next.t('project.loadFailed', { ns: 'canvas' }) })
-        throw new Error('Project catalog unavailable')
+        for (const failure of catalogFailures.splice(0))
+          if (failure.isCurrent()) failure.recovered()
+      } catch (cause) {
+        set({ loaded: false, error: i18next.t('project.loadFailed', { ns: 'canvas' }) })
+        const error = Object.assign(new Error('Project catalog unavailable'), { cause })
+        if (catalogFailures.length < 30)
+          catalogFailures.push({
+            isCurrent,
+            recovered: reportRecoverableClientError(error, {
+              operation: 'project.catalog',
+              stage,
+              online: navigator.onLine,
+            }),
+          })
+        throw error
       } finally {
         loading = undefined
       }
@@ -260,10 +307,25 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       }),
     )
   },
-  updateListed(project) {
+  updateListed(project, options) {
     set((state) => ({
+      cloudTotals:
+        state.cloudTotals && !options?.fromServerList
+          ? adjustProjectTotals(
+              state.cloudTotals,
+              state.projects.find((one) => one.id === project.id),
+              project,
+            )
+          : state.cloudTotals,
       projects: state.projects.some((one) => one.id === project.id)
-        ? state.projects.map((one) => (one.id === project.id ? project : one))
+        ? state.projects.map((one) =>
+            // 被上限拒掉的那个只有 readmitRejected 能放回目录，别的回写不清这个标记。
+            one.id !== project.id
+              ? one
+              : one.quotaRejected
+                ? { ...project, quotaRejected: true }
+                : project,
+          )
         : [...state.projects, project],
       cloudCatalog: state.cloudCatalog[project.id]
         ? {
@@ -303,6 +365,31 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     set((state) => ({
       projects: state.projects.filter((one) => one.id !== id),
       activeId: state.activeId === id ? null : state.activeId,
+    }))
+  },
+  async discardRejected(id) {
+    const project = get().projects.find((one) => one.id === id)
+    if (!project?.cloud || project.cloud.revision !== 0 || project.quotaRejected) return
+    await projectRepository.remove(id)
+    // 留在内存里：当前页还开着它，提示与「重新读取」都要认得它；目录与刷新后都看不到。
+    set((state) => ({
+      projects: state.projects.map((one) =>
+        one.id === id ? { ...one, quotaRejected: true } : one,
+      ),
+    }))
+    if (safeLocalStorage.getItem(scopedStorageName(CANVAS_PROJECT_KEY)) === id)
+      safeLocalStorage.removeItem(scopedStorageName(CANVAS_PROJECT_KEY))
+    // 地址也不能指着它：刷新时服务器没有这个项目，只会换来一页「找不到项目」。退回 `/`。
+    const route = readProjectRoute()
+    if (route && resolveProjectRoute(route, get().projects) === id)
+      window.history.replaceState(null, '', `/${window.location.search}${window.location.hash}`)
+  },
+  async readmitRejected(id) {
+    const project = get().projects.find((one) => one.id === id)
+    if (!project?.quotaRejected) return
+    const stored = await projectRepository.readd(project)
+    set((state) => ({
+      projects: state.projects.map((one) => (one.id === id ? stored : one)),
     }))
   },
   async recordScene(sceneKey, doc) {

@@ -3,25 +3,33 @@ import { extname, join } from 'node:path'
 import { cors } from '@elysiajs/cors'
 import { Elysia, StatusMap } from 'elysia'
 import { config } from './config'
+import { StageAuthorizationError } from './lib/agent/stage-authorizations'
 import { apiErrorHandler, isApiPath } from './lib/api-errors'
 import { appRelease, appVersion } from './lib/app-version'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
+import { REQUEST_ID_HEADER } from './lib/request-context'
 import { gzipBlob } from './lib/staticCompression'
+import { requestAuthUserId } from './lib/user-auth'
 import { createApiMetrics, isCountedPath } from './ops/api-metrics'
 import { accountRoutes } from './routes/account'
 import { agentRoutes } from './routes/agent'
+import { stageAuthorizationRoutes } from './routes/agent-stage-authorizations'
 import { userAuthRoutes } from './routes/auth'
 import { cancelRoutes } from './routes/cancel'
 import { canvasSyncRoutes } from './routes/canvasSync'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
+import { cliAccountRoutes, cliApiRoutes, cliOAuthRoutes } from './routes/cli'
 import { clientErrorRoutes } from './routes/client-errors'
 import { generationRoutes } from './routes/generations'
+import { gptPremiumRoutes } from './routes/gpt-premium'
 import { internalInspirationRoutes, publicInspirationRoutes } from './routes/inspirations'
+import { internalAgentModelRoutes } from './routes/internal-agent-models'
 import { internalDrainRoutes } from './routes/internal-drain'
 import { internalLogRoutes } from './routes/internal-logs'
+import { internalModelRoutes } from './routes/internal-models'
 import { internalOpsRoutes } from './routes/internal-ops'
 import { internalTaskReconciliationRoutes } from './routes/internal-task-reconciliation'
 import { internalUserRoutes } from './routes/internal-users'
@@ -34,6 +42,7 @@ import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
 import { submitRoutes } from './routes/submit'
 import { syncRoutes } from './routes/sync'
+import { textGenerationRoutes } from './routes/textGeneration'
 
 const corsOrigin = config.corsOrigins === '*' ? true : config.corsOriginList
 
@@ -123,7 +132,7 @@ async function serveStatic(pathname: string, request: Request): Promise<Response
   return new Response(file, { headers: baseHeaders })
 }
 
-const indexFile = STATIC_DIR ? Bun.file(join(STATIC_DIR, 'index.html')) : null
+const indexFile = STATIC_DIR ? Bun.file(join(STATIC_DIR, 'workbench.html')) : null
 let indexExists: boolean | null = null
 
 async function serveSpaFallback(): Promise<Response | null> {
@@ -138,6 +147,52 @@ async function serveSpaFallback(): Promise<Response | null> {
 /** 运维看板的接口统计。按实例累计，由 `index.ts` 每分钟写库一次。 */
 export const apiMetrics = createApiMetrics(hostname())
 const requestStartedAt = new WeakMap<Request, number>()
+
+function rejectionFields(
+  request: Request,
+  value: unknown,
+  thrown: { error?: unknown; code?: unknown },
+): { error?: string; userId?: string } {
+  // 只有出错的请求，上下文里才有 error / code。
+  const error = responseErrorCode(value) ?? thrownErrorCode(thrown),
+    userId = requestAuthUserId(request)
+  return { ...(error ? { error } : {}), ...(userId ? { userId } : {}) }
+}
+
+/** 出错的请求上下文里才有 error / code，Elysia 的类型没声明它们。 */
+interface AfterResponseContext {
+  request: Request
+  route: string
+  set: { status?: number | string }
+  responseValue: unknown
+  error?: unknown
+  code?: unknown
+}
+
+const ERROR_CODE = /^[a-z][a-z0-9_]{0,63}$/
+
+/**
+ * 被拒请求的错误码（`{ error: 'stage_authorization_scope' }` 里的那个），只认短的蛇形标识；
+ * message、额度等其余字段一律不进访问日志。Response 对象的正文已经发出去了，不再读。
+ */
+function responseErrorCode(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object' || value instanceof Response) return undefined
+  const body =
+    'response' in value && 'code' in value ? (value as { response: unknown }).response : value
+  if (!body || typeof body !== 'object' || !('error' in body)) return undefined
+  const code = (body as { error: unknown }).error
+  return typeof code === 'string' && ERROR_CODE.test(code) ? code : undefined
+}
+
+/**
+ * 路由作用域 onError 改写出来的响应体不会回到这里，只能从抛出的错误认：阶段授权拒绝用它自己的
+ * 错误码，请求体校验失败按各路由统一回的 invalid_request 记。
+ */
+function thrownErrorCode({ error, code }: { error?: unknown; code?: unknown }): string | undefined {
+  if (error instanceof StageAuthorizationError) return error.code
+  if (code === 'VALIDATION') return 'invalid_request'
+  return undefined
+}
 
 /**
  * 路由直接返回 Response 时它自己带着状态码，`set.status` 仍是默认的 200；
@@ -158,7 +213,16 @@ export const app = new Elysia()
   .onRequest(({ request }) => {
     requestStartedAt.set(request, performance.now())
   })
-  .onAfterResponse({ as: 'global' }, ({ request, route, set, responseValue }) => {
+  // 参数必须解构：Elysia 按用到的字段决定要不要提前解析请求体，整个 context 传进来会让所有路由
+  // 都被预先读掉 body（头像上传、自读 JSON 的路由会坏）。
+  .onAfterResponse({ as: 'global' }, (({
+    request,
+    route,
+    set,
+    responseValue,
+    error,
+    code,
+  }: AfterResponseContext) => {
     const startedAt = requestStartedAt.get(request)
     if (startedAt === undefined) return
     const { pathname } = new URL(request.url)
@@ -172,6 +236,8 @@ export const app = new Elysia()
       ...(route ? {} : { path: pathname.slice(0, 200) }),
       status,
       durationMs: Math.round(durationMs),
+      // 被拒的请求带上错误码和是谁，排查 409 这类问题不用再去翻别的表。
+      ...(status >= 400 ? rejectionFields(request, responseValue, { error, code }) : {}),
     }
     if (status >= 500) log.error(fields, 'API request failed')
     else if (status >= 400) log.warn(fields, 'API request rejected')
@@ -182,22 +248,28 @@ export const app = new Elysia()
       status: responseStatus(responseValue, set.status),
       durationMs: performance.now() - startedAt,
     })
-  })
+  }) as (context: object) => void)
   .use(apiErrorHandler())
-  .use(cors({ origin: corsOrigin, credentials: true }))
+  .use(cors({ origin: corsOrigin, credentials: true, exposeHeaders: [REQUEST_ID_HEADER] }))
   // `ok` is what the healthchecks and rollout read; `version` lets the deploy workflow confirm the
   // commit that is serving.
   .get('/health', () => ({ ok: true, version: appVersion(), release: appRelease() }))
   .use(userAuthRoutes)
   .use(accountRoutes)
   .use(oauthRoutes)
+  .use(cliOAuthRoutes)
+  .use(cliAccountRoutes)
+  .use(cliApiRoutes)
   .use(capabilitiesRoutes)
   .use(channelsRoutes)
   .use(submitRoutes)
   .use(statusRoutes)
+  .use(gptPremiumRoutes)
   .use(resultRoutes)
   .use(cancelRoutes)
   .use(agentRoutes)
+  .use(stageAuthorizationRoutes)
+  .use(textGenerationRoutes)
   .use(productionRoutes)
   .use(syncRoutes)
   .use(projectRoutes)
@@ -207,6 +279,8 @@ export const app = new Elysia()
   .use(publicInspirationRoutes)
   .use(clientErrorRoutes)
   .use(generationRoutes)
+  .use(internalAgentModelRoutes)
+  .use(internalModelRoutes)
   .use(internalUserRoutes)
   .use(internalTaskReconciliationRoutes)
   .use(internalOpsRoutes)
@@ -227,7 +301,11 @@ export const app = new Elysia()
   .onError(async ({ request, set }) => {
     const url = new URL(request.url)
     if (isApiPath(url.pathname)) return
-    if (!extname(url.pathname)) {
+    if (
+      /^\/(?:image|explore|assets|tools|projects|pricing|terms|privacy|device|p\/[^/]+|tools\/[^/]+)\/?$/.test(
+        url.pathname,
+      )
+    ) {
       const res = await serveSpaFallback()
       if (res) {
         set.status = 200

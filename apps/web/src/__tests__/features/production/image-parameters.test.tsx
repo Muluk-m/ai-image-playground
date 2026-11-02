@@ -15,6 +15,7 @@ vi.mock('../../../lib/authClient', () => ({ authenticatedBffFetch: request }))
 vi.mock('../../../lib/runtimeConfig', () => ({ bffBaseUrl: () => 'http://test.local' }))
 vi.mock('../../../lib/privateOverlay', () => ({
   usePrivateSubmissionGuard: () => ({ blocked: false }),
+  PrivateWebMembership: null,
 }))
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 afterEach(() => {

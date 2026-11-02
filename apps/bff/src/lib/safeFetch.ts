@@ -182,6 +182,16 @@ function pinnedUrl(url: URL, address: string): string {
   return pinned.href
 }
 
+/** Reuse the same DNS/IP validation for authenticated streaming provider requests. */
+export async function publicFetchTarget(
+  raw: string,
+): Promise<{ url: string; host: string; serverName: string }> {
+  const url = parseTarget(raw)
+  if (url.protocol !== 'https:') throw new SafeFetchError('blocked_url', 'Provider 必须使用 HTTPS')
+  const address = await pinnedAddress(url)
+  return { url: pinnedUrl(url, address), host: url.host, serverName: url.hostname }
+}
+
 export async function readCapped(
   response: Response,
   maxBytes: number,

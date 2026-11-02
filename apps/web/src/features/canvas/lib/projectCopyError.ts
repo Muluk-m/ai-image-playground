@@ -8,6 +8,7 @@ const messages = {
   unauthorized: 'projectCopy.unauthorized',
   canvas_sync_unavailable: 'projectCopy.canvas_sync_unavailable',
   account_changed: 'projectCopy.account_changed',
+  canvas_media_pending: 'projectCopy.canvas_media_pending',
 } as const
 
 /** 复制失败只按错误码取文案。不认识的码，以及账号切换以外的普通异常，都走同一句兜底。 */

@@ -1,4 +1,8 @@
-import type { TaskErrorType, TaskProgressPhase } from '@image-playground/shared'
+import type {
+  StageAuthorizationSubmission,
+  TaskErrorType,
+  TaskProgressPhase,
+} from '@image-playground/shared'
 import { requireAccount } from '../auth/loginPrompt'
 import { describeError, i18next } from '../i18n'
 import { useStore } from '../store'
@@ -9,7 +13,7 @@ import { getModelCapabilities } from './channels/profileSelectors'
 import { getPublicChannels } from './channels/publicChannels'
 import type { ClientProfile } from './channels/types'
 import { isClientCapabilityEnabled } from './clientCapabilities'
-import { resolveMediaSource } from './cloudMedia'
+import { mediaIdentity, resolveMediaSource } from './cloudMedia'
 import type { CallApiResult } from './imageApiShared'
 import {
   getPrivateSubmissionGuard,
@@ -17,7 +21,7 @@ import {
   notifyPrivateSubmissionError,
   notifyPrivateSubmissionSettled,
 } from './privateOverlay'
-import { taskErrorTypeOf } from './taskError'
+import { isTaskCancelled, taskErrorText, taskErrorTypeOf } from './taskError'
 
 /**
  * 生成任务的生命周期：门禁 → 扇出 → 幂等键 → 受理 → 队列 → 出片 / 失败 → 结算通知。
@@ -43,6 +47,8 @@ export interface GenerationFailure {
   error: unknown
   code: TaskErrorType | undefined
   text: string
+  /** 平台上被取消，不算失败。 */
+  cancelled?: true
 }
 
 /** 这次提交里的一份变体：一句**要发出去的**提示词配一组输入图。 */
@@ -60,6 +66,7 @@ export interface GenerationVariant<C> {
 
 /** 起一批生成要知道的全部。 */
 export interface GenerationSpec<C> {
+  stageAuthorization?: StageAuthorizationSubmission
   outputRetention?: 'candidate'
   settings: AppSettings
   /** 这次用的配置档案（已定模型）：门禁按它的模型计价，扇出按它的能力决定。 */
@@ -73,6 +80,7 @@ export interface GenerationSpec<C> {
 
 /** 扇出之后的一条任务：这一条发什么、带什么幂等键，`params.n` 已经折好。 */
 export interface GenerationUnit<C> {
+  stageAuthorization?: StageAuthorizationSubmission
   outputRetention?: 'candidate'
   prompt: string
   params: TaskParams
@@ -140,6 +148,8 @@ export interface GenerationReport<H> extends GenerationOutcomeReport<H, CallApiR
 /** 起一批生成时还要能开记录：`open` 同步返回句柄（画布要求占位框在第一个 await 之前出现）。 */
 export interface GenerationSink<H, C> extends GenerationReport<H> {
   open(unit: GenerationUnit<C>): H
+  /** 有就由它决定什么时候真正发出（排队限并发）；没有就立刻发。 */
+  schedule?(handle: H, send: () => Promise<void>): void
 }
 
 /**
@@ -161,8 +171,17 @@ export function admitGeneration(
   return false
 }
 
+/** 浏览器层的请求没发出去（断网、连接被拒）：fetch 抛的 TypeError，各浏览器文案不同。 */
+function isNetworkFailure(err: unknown): boolean {
+  return (
+    err instanceof TypeError &&
+    /failed to fetch|networkerror|load failed|network request failed/i.test(err.message)
+  )
+}
+
 /**
- * 失败 → 可行动的人话。内容安全拒绝有自己的出路（改写提示词），其余照抄错误本身那句。
+ * 失败 → 可行动的人话。带分类的按分类出文案，内容安全拒绝有自己的出路（改写提示词）；
+ * 没有分类的（提交被拒、断网等）用错误本身那句，那些已经是本地化文案。
  * 宿主要按码分支（工作台详情弹窗）就读 `code`，不必再认一遍文案。
  */
 export function generationFailure(err: unknown): GenerationFailure {
@@ -170,11 +189,15 @@ export function generationFailure(err: unknown): GenerationFailure {
   return {
     error: err,
     code,
-    text:
-      code === 'content_policy'
-        ? i18next.t('detail.contentPolicy', { ns: 'task' })
-        : describeError(err),
+    ...(isTaskCancelled(err) ? { cancelled: true as const } : {}),
+    text: generationFailureText(err, code),
   }
+}
+
+function generationFailureText(err: unknown, code: TaskErrorType | undefined): string {
+  if (code) return taskErrorText(code)
+  if (isNetworkFailure(err)) return i18next.t('detail.networkFailed', { ns: 'task' })
+  return describeError(err)
 }
 
 /**
@@ -210,6 +233,7 @@ export function startGeneration<H, C>(spec: GenerationSpec<C>, sink: GenerationS
     for (let index = 0; index < fanOut; index++) {
       const unit: GenerationUnit<C> = {
         outputRetention: spec.outputRetention,
+        stageAuthorization: spec.stageAuthorization,
         prompt: variant.prompt,
         params,
         inputImageDataUrls: variant.inputImageDataUrls,
@@ -220,7 +244,9 @@ export function startGeneration<H, C>(spec: GenerationSpec<C>, sink: GenerationS
       }
       const handle = sink.open(unit)
       handles.push(handle)
-      void runUnit(spec.settings, unit, handle, sink)
+      const send = () => runUnit(spec.settings, unit, handle, sink)
+      if (sink.schedule) sink.schedule(handle, send)
+      else void send()
     }
   }
   return handles
@@ -288,10 +314,17 @@ async function runUnit<H>(
     return callImageApi({
       settings,
       outputRetention: unit.outputRetention,
+      stageAuthorization: unit.stageAuthorization,
       prompt: unit.prompt,
       params: unit.params,
+      // 云媒体里的图按身份交给 BFF，由服务端读字节、按同一口径压缩；带遮罩时要像素对齐，
+      // 软遮罩降级也得在本机画标注图，所以仍取原图。
       inputImageDataUrls: await Promise.all(
-        unit.inputImageDataUrls.map((source) => resolveMediaSource(source, 'original', true)),
+        unit.inputImageDataUrls.map((source) =>
+          !unit.maskDataUrl && mediaIdentity(source)
+            ? source
+            : resolveMediaSource(source, 'original', true),
+        ),
       ),
       ...(unit.maskDataUrl ? { maskDataUrl: unit.maskDataUrl } : {}),
       clientRequestId: unit.clientRequestId,

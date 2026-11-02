@@ -9,13 +9,17 @@
     "favorite": "Add to favorites",
     "unfavorite": "Remove from favorites",
     "reuse": "Reuse config",
-    "editOutput": "Edit output",
-    "sendToCanvas": "Send to canvas",
-    "sendToCanvasTitle": "Send to canvas",
-    "deleteRecord": "Delete record"
+    "editOutput": "Inpaint",
+    "sendToCanvas": "Add to canvas",
+    "sendToCanvasTitle": "Add to canvas",
+    "deleteRecord": "Delete record",
+    "more": "More actions",
+    "deleteImage": "Delete this image",
+    "openProject": "Back to project"
   },
   "confirm": {
-    "deleteMessage": "Delete this record?"
+    "deleteMessage": "Delete this record?",
+    "deleteImageMessage": "Delete this image? The other {{count}} image(s) in this record stay."
   },
   "prompt": {
     "empty": "(no prompt)"
@@ -30,19 +34,22 @@
   },
   "card": {
     "generating": "Generating...",
+    "progress": "Generating {{percent}}%",
+    "batchQueued": "Queued",
     "phase": {
       "queued": "Queued...",
       "generating": "Generating...",
       "reconnecting": "Reconnecting...",
       "confirming": "Confirming result...",
-      "reconciling": "Awaiting verification"
+      "reconciling": "Checking the result (already submitted, no extra charge)"
     },
     "inpaint": "Inpaint",
     "transparentBackground": "Transparent"
   },
   "detail": {
-    "generateFailed": "Generation failed",
-    "contentPolicy": "This prompt didn't pass the provider's content review, so the generation was rejected. Reword it and try again — resubmitting the same prompt lands the same way.",
+    "errorUnavailable": "No specific failure reason was recorded. Copy the diagnostics to help investigate.",
+    "copyDiagnostics": "Copy diagnostics",
+    "contentPolicy": "The prompt didn't pass content review. Reword it and try again — the same prompt will get the same result.",
     "rewritePrompt": "Edit the prompt",
     "errorCopied": "Full error copied",
     "copyErrorFailed": "Could not copy the error",
@@ -66,8 +73,11 @@
     "source": "Source",
     "createdAt": "Created {{time}}",
     "elapsed": "Took {{duration}}",
+    "partialFailure_one": "{{count}} image was not generated and is not charged: {{reason}}",
+    "partialFailure_other": "{{count}} images were not generated and are not charged: {{reason}}",
     "copyAll": "Copy all",
-    "dialog": "Work details"
+    "dialog": "Work details",
+    "networkFailed": "The connection dropped and this one didn't finish. Please retry."
   },
   "rawUrls": {
     "title": "Raw image links ({{n}})",
@@ -90,9 +100,6 @@
     "dialog": "Image preview"
   },
   "grid": {
-    "expandAll": "Expand all",
-    "expandMore": "Show more creations",
-    "collapse": "Collapse",
     "openLibrary": "Open library",
     "releaseKeyHint": "Release {{key}} to scroll with the wheel, or drag to the edge to auto-scroll",
     "noMatches": "No matching records",
@@ -104,9 +111,21 @@
     "storyboardFallback": "Storyboard",
     "productShotFallback": "Product shot task",
     "doneCount": "Done {{done}}/{{total}}",
+    "cancelledCount": "{{cancelled}} cancelled",
     "failedCount": "{{failed}} failed",
     "expandToView": "Expand",
-    "resultAlt": "{{name}} result"
+    "resultAlt": "{{name}} result",
+    "batchTag": "Per image",
+    "runningCount": "{{running}} running",
+    "queuedCount": "{{queued}} queued",
+    "failedList": "Failed images",
+    "failedItem": "Image {{index}}",
+    "openItem": "Enlarge image {{index}}",
+    "itemDetail": "Details of image {{index}}",
+    "downloadItem": "Download image {{index}}",
+    "downloadAll": "Download all",
+    "itemList": "Images",
+    "deleteItem": "Delete image {{index}}"
   },
   "cloudHistory": {
     "refresh": "Refresh",

@@ -1,5 +1,7 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
+import { compileReplyScripts, type ReplyScriptAllowance } from '@image-playground/shared'
 import {
+  Fragment,
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useLayoutEffect,
@@ -8,24 +10,36 @@ import {
   useState,
 } from 'react'
 import { ErrorState } from '../../../components/assistant-ui/elements/error-state'
+import SearchField from '../../../components/patterns/SearchField'
 import SegmentedTabs from '../../../components/patterns/SegmentedTabs'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
-import { Input } from '../../../components/ui/input'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
 import ProductionResultCard from '../../production/components/ProductionResultCard'
 import type { ProductionPane } from '../../production/lib/productionContext'
-import { ACTIVE_TAB, CARD, CARD_TITLE, IDLE_TAB, JUMP_TO_LATEST, TAB } from '../agentStyles'
+import {
+  ACTIVE_TAB,
+  CARD,
+  CARD_TITLE,
+  IDLE_TAB,
+  JUMP_TO_LATEST,
+  PANEL_MAX_WIDTH_RATIO,
+  TAB,
+} from '../agentStyles'
+import { useActiveAgentSurface } from '../lib/activeAgentSurface'
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
-import { answerableClarificationId } from '../lib/panelMessages'
+import { answerableClarificationId, messagelessFailedTurns } from '../lib/panelMessages'
+import { usePlanCardState } from '../lib/planCardState'
+import { isProductionDraft } from '../lib/promptDraft'
+import { turnImageReceipt } from '../lib/turnCost'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { agentPanelPresent } from '../panelLayout'
-import { useAgentStore } from '../store'
-import type { AgentPanelMessage, AgentToolMessage } from '../types'
+import { retryUnsent, unsentRetryAvailable, useAgentStore } from '../store'
+import type { AgentPanelMessage, AgentToolMessage, AgentTurnFooter } from '../types'
 import AgentActivity from './AgentActivity'
 import AgentActivityTrail from './AgentActivityTrail'
 import AgentClarification from './AgentClarification'
@@ -33,13 +47,16 @@ import AgentComposer from './AgentComposer'
 import AgentConnectionHint from './AgentConnectionHint'
 import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentCreations from './AgentCreations'
+import AgentFollowUpChips from './AgentFollowUpChips'
+import AgentGenerationPlan from './AgentGenerationPlan'
 import AgentHistoryStatus from './AgentHistoryStatus'
+import AgentImageActionStepView from './AgentImageActionStep'
 import AgentMessageQueue from './AgentMessageQueue'
-import AgentPendingDrafts from './AgentPendingDrafts'
 import AgentReply from './AgentReply'
+import { AgentReplyImagesProvider } from './AgentReplyImage'
 import AgentSaveCard from './AgentSaveCard'
 import AgentSuggestions from './AgentSuggestions'
-import AgentToolCard from './AgentToolCard'
+import AgentToolCard, { AgentImageRun } from './AgentToolCard'
 import AgentTurnCost from './AgentTurnCost'
 import AgentUserMessage from './AgentUserMessage'
 import CanvasAgentWelcome from './CanvasAgentWelcome'
@@ -63,16 +80,38 @@ function CollapsedButton({ onOpen }: { onOpen: () => void }) {
   )
 }
 
+/** 用户原文的字符串引用没变时，沿用上次拼好的结果，流式增量不再重拼。 */
+let cachedUserParts: readonly string[] = []
+let cachedUserText = ''
+
+function stableUserReplyText(messages: readonly AgentPanelMessage[]): string {
+  const parts: string[] = []
+  for (const message of messages) {
+    if (message.kind === 'text' && message.role === 'user') parts.push(message.text)
+  }
+  if (
+    parts.length === cachedUserParts.length &&
+    parts.every((part, index) => part === cachedUserParts[index])
+  ) {
+    return cachedUserText
+  }
+  cachedUserParts = parts
+  cachedUserText = parts.join('\n')
+  return cachedUserText
+}
+
 function renderMessage(
   message: AgentPanelMessage,
   answerableId: string | null,
   skills: readonly AgentSkillSummary[],
+  replyScripts: ReplyScriptAllowance,
+  replyUserText: string,
   onViewCanvas?: (objectIds?: readonly string[]) => void,
   onPreviewResult?: (messageId: string, objectId?: string, previewSource?: string) => void,
   onPreviewProduction?: (pane?: ProductionPane) => void,
   cached = false,
 ) {
-  if (cached && message.kind === 'tool')
+  if (cached && message.kind === 'tool' && !showsImageTiles(message))
     return (
       <section className={CARD} aria-label={message.title}>
         <h3 className={CARD_TITLE}>{message.title}</h3>
@@ -118,11 +157,19 @@ function renderMessage(
       />
     )
   }
+  if (message.kind === 'imageAction') return <AgentImageActionStepView message={message} />
   if (message.kind === 'clarification') {
     return <AgentClarification message={message} answered={message.id !== answerableId} />
   }
   if (message.role === 'user') return <AgentUserMessage message={message} skills={skills} />
-  return <AgentReply text={message.text} streaming={message.streaming} />
+  return (
+    <AgentReply
+      text={message.text}
+      streaming={message.streaming}
+      allowance={replyScripts}
+      userText={replyUserText}
+    />
+  )
 }
 
 /** 连续取回的单张网图属于同一批素材，在对话里共用一条缩略图带。 */
@@ -163,6 +210,96 @@ function fetchedImageRuns(messages: readonly AgentPanelMessage[]) {
   return { starts, absorbed }
 }
 
+function isImagePlanDraft(message: AgentPanelMessage): message is AgentToolMessage {
+  return (
+    message.kind === 'tool' &&
+    message.status === 'awaiting_confirmation' &&
+    (message.toolName === 'generateImage' || message.toolName === 'editImage') &&
+    !isProductionDraft(message)
+  )
+}
+
+function isImageOutput(message: AgentPanelMessage): message is AgentToolMessage {
+  if (message.kind !== 'tool') return false
+  if (message.toolName !== 'generateImage' && message.toolName !== 'editImage') return false
+  if (message.status === 'awaiting_confirmation' || message.canvasRun || message.saveCard)
+    return false
+  if (message.status === 'failed') return false
+  return (
+    message.status === 'running' ||
+    message.status === 'submitted' ||
+    message.status === 'queued' ||
+    message.status === 'succeeded'
+  )
+}
+
+// 非类型守卫版本：取反时不能把 tool 消息收窄成 never。
+function showsImageTiles(message: AgentToolMessage): boolean {
+  return isImageOutput(message)
+}
+
+/** 同一轮里连续的同类图片消息收成一张卡或一行图。 */
+function consecutiveImageRuns(
+  messages: readonly AgentPanelMessage[],
+  accept: (message: AgentPanelMessage) => message is AgentToolMessage,
+  minLength: number,
+) {
+  const starts = new Map<number, readonly AgentToolMessage[]>()
+  const absorbed = new Set<number>()
+  for (let index = 0; index < messages.length; ) {
+    const first = messages[index]
+    if (!first || !accept(first)) {
+      index += 1
+      continue
+    }
+    const start = index
+    const run: AgentToolMessage[] = []
+    while (index < messages.length) {
+      const message = messages[index]
+      if (!message || !accept(message) || message.turnId !== first.turnId) break
+      run.push(message)
+      absorbed.add(index)
+      index += 1
+    }
+    if (run.length >= minLength) starts.set(start, run)
+    else absorbed.delete(start)
+  }
+  return { starts, absorbed }
+}
+
+/**
+ * 计划卡的 key 跟着这段计划走：沿用上一帧这段里任意一张稿已经拿到的 key，都没有才用最后一张稿的 id 新起。
+ *
+ * - 「全部生成」自上而下逐张确认：前面的稿成交离开，剩下的稿还带着原来的 key，卡片不重挂——
+ *   否则还在跑的确认循环把后面被拒（例如积分不足）的结果写进已卸下的组件，用户什么也看不见。
+ * - 计划还在拟时末尾不断追加稿：新稿跟着前面那几张的 key，卡片也不重挂，正在编辑的输入框不丢焦点和光标。
+ * - 按「本轮第几段」编号不行：同一轮里前一段计划消失后，后一段的序号会变。
+ * - 一段被拆成两段（中间一张在别处成交）时，前一段留着原 key，后一段换新的，同一帧里 key 不重复。
+ *
+ * `memo` 是上一帧「稿 id → key」，函数按这一帧重写它，只留还在计划里的稿。
+ */
+function planRunKeys(
+  starts: ReadonlyMap<number, readonly AgentToolMessage[]>,
+  memo: Map<string, string>,
+): Map<number, string> {
+  const keys = new Map<number, string>()
+  const used = new Set<string>()
+  const next = new Map<string, string>()
+  for (const [index, run] of [...starts].sort(([a], [b]) => a - b)) {
+    const inherited = run
+      .map((message) => memo.get(message.id))
+      .find((key): key is string => key !== undefined && !used.has(key))
+    let key = inherited ?? `plan:${run[run.length - 1]?.id ?? index}`
+    if (used.has(key)) key = `${key}:${index}`
+    used.add(key)
+    keys.set(index, key)
+    for (const message of run) next.set(message.id, key)
+  }
+  memo.clear()
+  for (const [id, key] of next) memo.set(id, key)
+  return keys
+}
+
 export default function AgentPanel({
   doc,
   editor,
@@ -192,9 +329,12 @@ export default function AgentPanel({
   const open = useAgentStore((state) => state.open)
   const tab = useAgentStore((state) => state.tab)
   const messages = useAgentStore((state) => state.messages)
+  const replyUserText = stableUserReplyText(messages)
+  const replyScripts = useMemo(() => compileReplyScripts(replyUserText), [replyUserText])
   const turns = useAgentStore((state) => state.turns)
-  const imageSkills = useAgentSkills('image')
-  const videoSkills = useAgentSkills('video')
+  const surface = useActiveAgentSurface()
+  const imageSkills = useAgentSkills('image', surface)
+  const videoSkills = useAgentSkills('video', surface)
   const skills = useMemo(() => [...imageSkills, ...videoSkills], [imageSkills, videoSkills])
   const error = useAgentStore((state) => state.error)
   const returnedMessagesError = useAgentStore((state) => state.returnedMessagesError)
@@ -228,6 +368,8 @@ export default function AgentPanel({
     }
   }, [dock, presentation, open])
   const followLatest = useRef(true)
+  // 计划卡 key 的上一帧记录（稿 id → key），见 planRunKeys。
+  const planKeyMemo = useRef(new Map<string, string>())
   /** 离开底部期间来了新内容：浮出「有新消息」，回到底部即收起。 */
   const [unseen, setUnseen] = useState(false)
   const [search, setSearch] = useState('')
@@ -242,10 +384,12 @@ export default function AgentPanel({
           ? message.text
           : message.kind === 'tool'
             ? `${message.title} ${message.prompt ?? ''}`
-            : message.question
+            : message.kind === 'imageAction'
+              ? t('imageAction.removeBackground')
+              : message.question
       return text.toLocaleLowerCase().includes(query)
     })
-  }, [messages, search])
+  }, [messages, search, t])
   const locateMessage = (id: string) => {
     setLocated((prev) => ({ id, seq: (prev?.seq ?? 0) + 1 }))
     requestAnimationFrame(() => {
@@ -257,6 +401,13 @@ export default function AgentPanel({
     followLatest.current = false
   }
   const conversationId = useAgentStore((state) => state.conversationId)
+  // 计划卡的勾选、确认中与停因按稿 id 记在面板上、按会话隔离：卡片随逐张提交或别处确认拆段、
+  // 换 key 重挂时状态不丢，还在跑的确认循环也写得回来；稿成交或被移除后对应状态随即丢弃。
+  const planDraftIds = useMemo(
+    () => new Set(messages.filter(isImagePlanDraft).map((message) => message.id)),
+    [messages],
+  )
+  const planCard = usePlanCardState(conversationId, planDraftIds)
   useLayoutEffect(() => {
     followLatest.current = true
     setUnseen(false)
@@ -316,7 +467,8 @@ export default function AgentPanel({
     const originWidth = handle.parentElement?.getBoundingClientRect().width || panelWidth
     const maxWidth =
       dock === 'right'
-        ? Math.min(480, (handle.closest('.studio-layout')?.clientWidth ?? window.innerWidth) * 0.42)
+        ? (handle.closest('.studio-layout')?.clientWidth ?? window.innerWidth) *
+          PANEL_MAX_WIDTH_RATIO
         : Number.POSITIVE_INFINITY
     handle.setPointerCapture(event.pointerId)
     const onMove = (move: PointerEvent) =>
@@ -341,6 +493,23 @@ export default function AgentPanel({
   // 页脚跟在本轮最后一条消息后面。重试记录自成一轮、按时间追加在对话末尾，可能夹在一轮的
   // 消息中间，所以按「这一轮的最后一条」认，而不只看下一条换没换轮。
   const lastOfTurn = new Map(messages.map((message, index) => [message.turnId, index]))
+  // 没有消息的失败轮（刷新后也要看得见）挂在前一轮之后；正在错误横幅里显示的那一轮不重复。
+  const messageless = messagelessFailedTurns(messages, turns)
+  const bannerTurnId =
+    error && typeof errorDiagnostic?.turnId === 'string' ? errorDiagnostic.turnId : undefined
+  const orphanFooters = (anchor: number) =>
+    messageless
+      .get(anchor)
+      ?.filter((footer) => footer.turnId !== bannerTurnId)
+      .map((footer) => (
+        <div
+          key={`turn:${footer.turnId}`}
+          data-agent-turn-id={footer.turnId}
+          className="studio-agent-message-block"
+        >
+          <AgentTurnCost footer={footer} />
+        </div>
+      ))
   const jobsByTurn = new Map<string, AgentToolMessage[]>()
   for (const message of messages) {
     if (message.kind !== 'tool' || !message.job) continue
@@ -348,293 +517,374 @@ export default function AgentPanel({
     jobs.push(message)
     jobsByTurn.set(message.turnId, jobs)
   }
+  // 有出图结果的轮：结果卡是本轮最后一条时由卡片带出结算行，否则页脚照常落在本轮末尾，并带上张数。
+  const renderTurnFooter = (footer: AgentTurnFooter, turnId: string) => {
+    const receipt = turnImageReceipt(messages, turnId)
+    if (receipt?.cardId) return null
+    return (
+      <AgentTurnCost
+        footer={footer}
+        jobs={jobsByTurn.get(turnId)}
+        outputCount={receipt?.outputCount}
+      />
+    )
+  }
   // 连续的过程步（读画布、看图、读技能）折成一条固定高度的活动轨，不再一步一张空卡。
   const grouping = groupPanelMessages(messages)
   const fetchedRuns = presentation === 'page' && onPreviewResult ? fetchedImageRuns(messages) : null
+  const planRuns = consecutiveImageRuns(messages, isImagePlanDraft, 1)
+  const planKeys = planRunKeys(planRuns.starts, planKeyMemo.current)
+  const imageRuns = consecutiveImageRuns(messages, isImageOutput, 2)
 
   return (
-    <div
-      ref={panelRef}
-      aria-label={t('panel.aria')}
-      data-dock={dock}
-      style={presentation === 'side' ? { width: panelWidth } : undefined}
-      className={`studio-sidebar ${presentation === 'page' ? 'studio-sidebar--page' : ''}`}
-    >
-      {presentation === 'side' && (
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={t('panel.resizeAria')}
-          title={t('panel.resizeTitle')}
-          onPointerDown={startResize}
-          className={`absolute ${dock === 'right' ? '-left-1.5' : '-right-1.5'} top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60`}
-        />
-      )}
-      {presentation === 'side' && (
-        <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
-          {dock === 'right' ? (
-            <SegmentedTabs
-              label={t('panel.aria')}
-              tabs={TABS.map((one) => ({ value: one.id, label: t(one.labelKey) }))}
-              value={tab === 'layers' ? 'layers' : 'chat'}
-              onChange={setTab}
-            />
-          ) : (
-            <div className="flex items-center gap-1.5">
-              {TABS.map((one) => (
-                <Button
-                  key={one.id}
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setTab(one.id)}
-                  className={`${TAB} h-auto font-normal ${(one.id === 'chat' ? tab !== 'layers' : tab === one.id) ? ACTIVE_TAB : IDLE_TAB}`}
-                >
-                  {t(one.labelKey)}
-                </Button>
-              ))}
-            </div>
-          )}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={t('panel.collapseAria')}
-            title={t('panel.collapseAria')}
-            className={`${dock === 'right' ? 'inline-flex' : 'hidden md:inline-flex'} h-7 w-7 shrink-0 rounded-lg text-muted-foreground`}
-            onClick={() => setOpen(false)}
-          >
-            <Icon name={dock === 'right' ? 'minimize' : 'sidebar'} />
-          </Button>
-        </div>
-      )}
+    <AgentReplyImagesProvider messages={messages} onPreview={onPreviewResult}>
+      <div
+        ref={panelRef}
+        aria-label={t('panel.aria')}
+        data-dock={dock}
+        style={presentation === 'side' ? { width: panelWidth } : undefined}
+        className={`studio-sidebar ${presentation === 'page' ? 'studio-sidebar--page' : ''}`}
+      >
+        {presentation === 'side' && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t('panel.resizeAria')}
+            title={t('panel.resizeTitle')}
+            onPointerDown={startResize}
+            className={`absolute ${dock === 'right' ? '-left-1.5' : '-right-1.5'} top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60`}
+          />
+        )}
+        {presentation === 'side' && (
+          <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
+            {dock === 'right' ? (
+              <SegmentedTabs
+                label={t('panel.aria')}
+                tabs={TABS.map((one) => ({ value: one.id, label: t(one.labelKey) }))}
+                value={tab === 'layers' ? 'layers' : 'chat'}
+                onChange={setTab}
+              />
+            ) : (
+              <div className="flex items-center gap-1.5">
+                {TABS.map((one) => (
+                  <Button
+                    key={one.id}
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setTab(one.id)}
+                    className={`${TAB} h-auto font-normal ${(one.id === 'chat' ? tab !== 'layers' : tab === one.id) ? ACTIVE_TAB : IDLE_TAB}`}
+                  >
+                    {t(one.labelKey)}
+                  </Button>
+                ))}
+              </div>
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={t('panel.collapseAria')}
+              title={t('panel.collapseAria')}
+              className={`${dock === 'right' ? 'inline-flex' : 'hidden md:inline-flex'} h-7 w-7 shrink-0 rounded-lg text-muted-foreground`}
+              onClick={() => setOpen(false)}
+            >
+              <Icon name={dock === 'right' ? 'minimize' : 'sidebar'} />
+            </Button>
+          </div>
+        )}
 
-      <AgentConnectionHint />
+        <AgentConnectionHint />
 
-      {presentation === 'page' && searchOpen && (
-        <div className="studio-conversation-search" role="dialog" aria-label={t('panel.search')}>
-          <label>
-            <Icon name="search" />
-            <Input
+        {presentation === 'page' && searchOpen && (
+          <div className="studio-conversation-search" role="dialog" aria-label={t('panel.search')}>
+            <SearchField
               autoFocus
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t('panel.search')}
-              className="h-auto rounded-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
+              aria-label={t('panel.search')}
+              className="h-8 min-w-0 max-w-none flex-1"
             />
-          </label>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={onCloseSearch}
-            aria-label={t('panel.closeSearch')}
-          >
-            <Icon name="close" />
-          </Button>
-          {search.trim() && (
-            <div className="studio-conversation-search-results" aria-live="polite">
-              {searchResults.length ? (
-                searchResults.map((message) => (
-                  <Button
-                    key={message.id}
-                    type="button"
-                    variant="ghost"
-                    onClick={() => locateMessage(message.id)}
-                    className="h-auto w-full justify-start truncate rounded-md px-2 py-2 text-left text-xs font-normal hover:bg-muted"
-                  >
-                    {message.kind === 'text'
-                      ? message.text
-                      : message.kind === 'tool'
-                        ? message.title
-                        : message.question}
-                  </Button>
-                ))
-              ) : (
-                <p>{t('panel.noSearchResults')}</p>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {tab === 'layers' ? (
-        <div className="min-h-0 flex-1 overflow-y-auto py-1">
-          <AgentCreations doc={doc} onSelect={onViewCanvas} />
-        </div>
-      ) : (
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          <div
-            ref={logRef}
-            // 全站默认禁止选中文字（画布拖拽不能拖出一片高亮）；对话记录是要被复制的，放开。
-            data-selectable-text
-            aria-label={t('panel.logAria')}
-            onScroll={(event) => {
-              const log = event.currentTarget
-              followLatest.current = log.scrollHeight - log.clientHeight - log.scrollTop <= 48
-              if (followLatest.current) setUnseen(false)
-            }}
-            className={`studio-agent-log relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-ring/70' : ''}`}
-            {...dropZoneProps}
-          >
-            <div
-              className={
-                presentation === 'page'
-                  ? 'studio-agent-log-content'
-                  : `flex shrink-0 flex-col gap-2.5 ${dock === 'right' && messages.length === 0 ? 'min-h-full' : ''}`
-              }
-            >
-              {messages.length === 0 &&
-                !historyLoading &&
-                !historyFailed &&
-                (dock === 'right' && presentation === 'side' ? (
-                  <CanvasAgentWelcome skills={skills} />
-                ) : (
-                  <div className="studio-chat-empty">
-                    <h3>{t('panel.emptyTitle')}</h3>
-                    <AgentSuggestions className="studio-suggestions" />
-                  </div>
-                ))}
-              {messages.map((message, index) => {
-                const fetchedRun = fetchedRuns?.starts.get(index)
-                if (fetchedRuns?.absorbed.has(index) && !fetchedRun) return null
-                if (fetchedRun) {
-                  const lastIndex = index + fetchedRun.length - 1
-                  const footer =
-                    lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
-                  return (
-                    <div
-                      key={`${message.id}:${historyCached}`}
-                      className="studio-agent-message-block"
-                    >
-                      <div className="studio-agent-fetched-strip">
-                        {fetchedRun.map((image) => (
-                          <div
-                            key={image.id}
-                            data-agent-message-id={image.id}
-                            className="studio-agent-fetched-strip-item"
-                          >
-                            <fieldset disabled={historyCached} className="contents">
-                              <AgentToolCard
-                                message={image}
-                                onViewCanvas={onViewCanvas}
-                                onPreviewResult={onPreviewResult}
-                                compactFetched
-                              />
-                            </fieldset>
-                          </div>
-                        ))}
-                      </div>
-                      {footer && (
-                        <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
-                      )}
-                    </div>
-                  )
-                }
-                const footer =
-                  lastOfTurn.get(message.turnId) === index ? turns[message.turnId] : null
-                const trail = grouping.trails.get(index)
-                if (grouping.absorbed.has(index) && !trail && !footer) return null
-                // 历史里可能落下一条空的助手文本。它不显示内容，也不该留下块间距。
-                if (
-                  message.kind === 'text' &&
-                  message.role === 'assistant' &&
-                  !message.streaming &&
-                  !message.text.trim() &&
-                  !trail &&
-                  !footer
-                )
-                  return null
-                return (
-                  <div
-                    key={message.kind === 'text' ? message.id : `${message.id}:${historyCached}`}
-                    data-agent-message-id={message.id}
-                    className="studio-agent-message-block"
-                  >
-                    {trail && (
-                      <AgentActivityTrail
-                        steps={trail.steps}
-                        spent={trail.spent}
-                        revealId={located?.id}
-                        revealSeq={located?.seq}
-                      />
-                    )}
-                    {!grouping.absorbed.has(index) &&
-                      renderMessage(
-                        message,
-                        answerableId,
-                        skills,
-                        onViewCanvas,
-                        onPreviewResult,
-                        onPreviewProduction,
-                        historyCached,
-                      )}
-                    {footer && (
-                      <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
-                    )}
-                  </div>
-                )
-              })}
-              <AgentActivity />
-              <AgentHistoryStatus />
-              {(error || returnedMessagesPending) && !historyFailed && (
-                <ErrorState
-                  title={t('panel.errorTitle')}
-                  detail={
-                    returnedMessagesPending
-                      ? t(`errors:agentQueue.${returnedMessagesError ?? 'fallback'}`)
-                      : (error ?? undefined)
-                  }
-                  actions={
-                    <>
-                      {returnedMessagesPending && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void useAgentStore.getState().retryReturnedMessages()}
-                        >
-                          {t('draft.retryRestore')}
-                        </Button>
-                      )}
-                      <AgentCopyDiagnostic
-                        diagnostic={
-                          errorDiagnostic ?? {
-                            conversationId: diagnosticConversationId,
-                            message: error,
-                          }
-                        }
-                      />
-                    </>
-                  }
-                />
-              )}
-            </div>
-          </div>
-          {unseen && (
             <Button
               type="button"
               variant="ghost"
-              onClick={jumpToLatest}
-              className={`${JUMP_TO_LATEST} h-auto font-normal`}
+              size="icon-sm"
+              onClick={onCloseSearch}
+              aria-label={t('panel.closeSearch')}
             >
-              <Icon name="chevronDown" />
-              {t('panel.jumpToLatest')}
+              <Icon name="close" />
             </Button>
-          )}
-        </div>
-      )}
+            {search.trim() && (
+              <div className="studio-conversation-search-results" aria-live="polite">
+                {searchResults.length ? (
+                  searchResults.map((message) => (
+                    <Button
+                      key={message.id}
+                      type="button"
+                      variant="ghost"
+                      onClick={() => locateMessage(message.id)}
+                      className="h-auto w-full justify-start truncate rounded-md px-2 py-2 text-left text-xs font-normal hover:bg-muted"
+                    >
+                      {message.kind === 'text'
+                        ? message.text
+                        : message.kind === 'tool'
+                          ? message.title
+                          : message.kind === 'imageAction'
+                            ? t('imageAction.removeBackground')
+                            : message.question}
+                    </Button>
+                  ))
+                ) : (
+                  <p>{t('panel.noSearchResults')}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
-      {tab === 'chat' && <AgentPendingDrafts />}
-      {tab === 'chat' && <AgentMessageQueue />}
-      {tab === 'chat' && (
-        <AgentComposer
-          productionMode={productionMode}
-          doc={doc}
-          editor={editor}
-          showLooks={presentation !== 'page' || messages.length === 0}
-          showCanvasReferences={presentation !== 'page'}
-        />
-      )}
-    </div>
+        {tab === 'layers' ? (
+          <div className="min-h-0 flex-1 overflow-y-auto py-1">
+            <AgentCreations doc={doc} editor={editor} onSelect={onViewCanvas} />
+          </div>
+        ) : (
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <div
+              ref={logRef}
+              // 全站默认禁止选中文字（画布拖拽不能拖出一片高亮）；对话记录是要被复制的，放开。
+              data-selectable-text
+              aria-label={t('panel.logAria')}
+              onScroll={(event) => {
+                const log = event.currentTarget
+                followLatest.current = log.scrollHeight - log.clientHeight - log.scrollTop <= 48
+                if (followLatest.current) setUnseen(false)
+              }}
+              className={`studio-agent-log relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-ring/70' : ''}`}
+              {...dropZoneProps}
+            >
+              <div
+                className={
+                  presentation === 'page'
+                    ? 'studio-agent-log-content'
+                    : `flex shrink-0 flex-col gap-2.5 ${dock === 'right' && messages.length === 0 ? 'min-h-full' : ''}`
+                }
+              >
+                {messages.length === 0 &&
+                  !historyLoading &&
+                  !historyFailed &&
+                  (dock === 'right' && presentation === 'side' ? (
+                    <CanvasAgentWelcome skills={skills} />
+                  ) : (
+                    <div className="studio-chat-empty">
+                      <h3>{t('panel.emptyTitle')}</h3>
+                      <AgentSuggestions className="studio-suggestions" />
+                    </div>
+                  ))}
+                {orphanFooters(-1)}
+                {messages.map((message, index) => (
+                  <Fragment key={`${planKeys.get(index) ?? message.id}:block`}>
+                    {(() => {
+                      const planRun = planRuns.starts.get(index)
+                      if (planRuns.absorbed.has(index) && !planRun) return null
+                      if (planRun) {
+                        const lastIndex = index + planRun.length - 1
+                        const footer =
+                          lastOfTurn.get(message.turnId) === lastIndex
+                            ? turns[message.turnId]
+                            : null
+                        return (
+                          <div
+                            key={`${planKeys.get(index) ?? message.id}:${historyCached}`}
+                            data-agent-message-id={message.id}
+                            data-agent-run-ids={planRun.map((one) => one.id).join(' ')}
+                            className="studio-agent-message-block"
+                          >
+                            <fieldset disabled={historyCached} className="contents">
+                              <AgentGenerationPlan messages={planRun} plan={planCard} />
+                            </fieldset>
+                            {footer && renderTurnFooter(footer, message.turnId)}
+                          </div>
+                        )
+                      }
+                      const imageRun = imageRuns.starts.get(index)
+                      if (imageRuns.absorbed.has(index) && !imageRun) return null
+                      if (imageRun) {
+                        const lastIndex = index + imageRun.length - 1
+                        const footer =
+                          lastOfTurn.get(message.turnId) === lastIndex
+                            ? turns[message.turnId]
+                            : null
+                        return (
+                          <div
+                            key={`${message.id}:${historyCached}`}
+                            data-agent-message-id={message.id}
+                            data-agent-run-ids={imageRun.map((one) => one.id).join(' ')}
+                            className="studio-agent-message-block"
+                          >
+                            <fieldset disabled={historyCached} className="contents">
+                              <AgentImageRun
+                                messages={imageRun}
+                                onViewCanvas={onViewCanvas}
+                                onPreviewResult={onPreviewResult}
+                                onPreviewProduction={onPreviewProduction}
+                              />
+                            </fieldset>
+                            {footer && renderTurnFooter(footer, message.turnId)}
+                          </div>
+                        )
+                      }
+                      const fetchedRun = fetchedRuns?.starts.get(index)
+                      if (fetchedRuns?.absorbed.has(index) && !fetchedRun) return null
+                      if (fetchedRun) {
+                        const lastIndex = index + fetchedRun.length - 1
+                        const footer =
+                          lastOfTurn.get(message.turnId) === lastIndex
+                            ? turns[message.turnId]
+                            : null
+                        return (
+                          <div
+                            key={`${message.id}:${historyCached}`}
+                            className="studio-agent-message-block"
+                          >
+                            <div className="studio-agent-fetched-strip">
+                              {fetchedRun.map((image) => (
+                                <div
+                                  key={image.id}
+                                  data-agent-message-id={image.id}
+                                  className="studio-agent-fetched-strip-item"
+                                >
+                                  <fieldset disabled={historyCached} className="contents">
+                                    <AgentToolCard
+                                      message={image}
+                                      onViewCanvas={onViewCanvas}
+                                      onPreviewResult={onPreviewResult}
+                                      compactFetched
+                                    />
+                                  </fieldset>
+                                </div>
+                              ))}
+                            </div>
+                            {footer && renderTurnFooter(footer, message.turnId)}
+                          </div>
+                        )
+                      }
+                      const footer =
+                        lastOfTurn.get(message.turnId) === index ? turns[message.turnId] : null
+                      const trail = grouping.trails.get(index)
+                      if (grouping.absorbed.has(index) && !trail && !footer) return null
+                      // 历史里可能落下一条空的助手文本。它不显示内容，也不该留下块间距。
+                      if (
+                        message.kind === 'text' &&
+                        message.role === 'assistant' &&
+                        !message.streaming &&
+                        !message.text.trim() &&
+                        !trail &&
+                        !footer
+                      )
+                        return null
+                      return (
+                        <div
+                          key={
+                            message.kind === 'text' ? message.id : `${message.id}:${historyCached}`
+                          }
+                          data-agent-message-id={message.id}
+                          className="studio-agent-message-block"
+                        >
+                          {trail && (
+                            <AgentActivityTrail
+                              steps={trail.steps}
+                              spent={trail.spent}
+                              revealId={located?.id}
+                              revealSeq={located?.seq}
+                            />
+                          )}
+                          {!grouping.absorbed.has(index) &&
+                            renderMessage(
+                              message,
+                              answerableId,
+                              skills,
+                              replyScripts,
+                              replyUserText,
+                              onViewCanvas,
+                              onPreviewResult,
+                              onPreviewProduction,
+                              historyCached,
+                            )}
+                          {footer && renderTurnFooter(footer, message.turnId)}
+                        </div>
+                      )
+                    })()}
+                    {orphanFooters(index)}
+                  </Fragment>
+                ))}
+                <AgentActivity />
+                <AgentHistoryStatus />
+                {presentation === 'page' && <AgentFollowUpChips />}
+                {(error || returnedMessagesPending) && !historyFailed && (
+                  <ErrorState
+                    title={
+                      returnedMessagesPending
+                        ? t(`errors:agentQueue.${returnedMessagesError ?? 'fallback'}`)
+                        : (error ?? t('panel.errorTitle'))
+                    }
+                    actions={
+                      <>
+                        {!returnedMessagesPending && unsentRetryAvailable(error) && (
+                          <Button variant="outline" size="xs" onClick={retryUnsent}>
+                            <Icon name="refresh" />
+                            {t('error.retry')}
+                          </Button>
+                        )}
+                        {returnedMessagesPending && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void useAgentStore.getState().retryReturnedMessages()}
+                          >
+                            {t('draft.retryRestore')}
+                          </Button>
+                        )}
+                        <AgentCopyDiagnostic
+                          variant="link"
+                          diagnostic={
+                            errorDiagnostic ?? {
+                              conversationId: diagnosticConversationId,
+                              message: error,
+                            }
+                          }
+                        />
+                      </>
+                    }
+                  />
+                )}
+              </div>
+            </div>
+            {unseen && (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={jumpToLatest}
+                className={`${JUMP_TO_LATEST} h-auto font-normal`}
+              >
+                <Icon name="chevronDown" />
+                {t('panel.jumpToLatest')}
+              </Button>
+            )}
+          </div>
+        )}
+
+        {tab === 'chat' && <AgentMessageQueue />}
+        {tab === 'chat' && (
+          <AgentComposer
+            productionMode={productionMode}
+            doc={doc}
+            editor={editor}
+            showLooks={presentation !== 'page' || messages.length === 0}
+            showCanvasReferences={presentation !== 'page'}
+            showFollowUpGhost={presentation !== 'page'}
+          />
+        )}
+      </div>
+    </AgentReplyImagesProvider>
   )
 }
 

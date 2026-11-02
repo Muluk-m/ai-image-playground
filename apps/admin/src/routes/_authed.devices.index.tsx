@@ -41,7 +41,7 @@ function DevicesIndex() {
   }
 
   return (
-    <Page crumbs={[{ label: '任务与设备' }]} description="从任务出发，按设备回溯">
+    <Page crumbs={[{ label: '设备' }]} description="按设备聚合生成任务与活跃状态">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">
           {q.isSuccess

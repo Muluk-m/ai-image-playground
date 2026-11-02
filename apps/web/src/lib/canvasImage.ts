@@ -1,4 +1,4 @@
-import { i18next } from '../i18n'
+import { i18next, UserFacingError } from '../i18n'
 import { resolveMediaSource } from './cloudMedia'
 import { assertUsableMaskCoverage, classifyMaskAlpha, type MaskCoverage } from './mask'
 
@@ -30,12 +30,20 @@ export function calculateFitSize(
   return { width: fit(width), height: fit(height), scale, wasResized: true }
 }
 
+export const IMAGE_DECODE_FAILED = 'image_decode_failed'
+
 export async function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   dataUrl = await resolveMediaSource(dataUrl)
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error(i18next.t('image.loadFailed', { ns: 'lib' })))
+    // 带上 code：调用方据此区分「浏览器解不出这份字节」和画布、内存等本机失败。
+    image.onerror = () =>
+      reject(
+        Object.assign(new UserFacingError(i18next.t('image.loadFailed', { ns: 'lib' })), {
+          code: IMAGE_DECODE_FAILED,
+        }),
+      )
     image.src = dataUrl
   })
 }
@@ -57,7 +65,7 @@ export async function imageDataUrlToPngBlob(dataUrl: string): Promise<Blob> {
   canvas.width = image.naturalWidth
   canvas.height = image.naturalHeight
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
+  if (!ctx) throw new UserFacingError(i18next.t('canvas.unsupported', { ns: 'lib' }))
   ctx.drawImage(image, 0, 0)
   return canvasToBlob(canvas, 'image/png')
 }
@@ -78,7 +86,7 @@ export async function canvasToBlob(
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
-        if (!blob) reject(new Error(i18next.t('image.exportFailed', { ns: 'lib' })))
+        if (!blob) reject(new UserFacingError(i18next.t('image.exportFailed', { ns: 'lib' })))
         else resolve(blob)
       },
       type,
@@ -99,14 +107,14 @@ export async function validateMaskMatchesImage(
     maskImage.naturalWidth !== sourceImage.naturalWidth ||
     maskImage.naturalHeight !== sourceImage.naturalHeight
   ) {
-    throw new Error(i18next.t('mask.sizeMismatch', { ns: 'lib' }))
+    throw new UserFacingError(i18next.t('mask.sizeMismatch', { ns: 'lib' }))
   }
 
   const canvas = document.createElement('canvas')
   canvas.width = maskImage.naturalWidth
   canvas.height = maskImage.naturalHeight
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
+  if (!ctx) throw new UserFacingError(i18next.t('canvas.unsupported', { ns: 'lib' }))
   ctx.drawImage(maskImage, 0, 0)
   const coverage = classifyMaskAlpha(ctx.getImageData(0, 0, canvas.width, canvas.height))
   assertUsableMaskCoverage(coverage)
@@ -120,14 +128,14 @@ export async function createMaskPreviewDataUrl(
 ): Promise<string> {
   const [image, mask] = await Promise.all([loadImage(imageDataUrl), loadImage(maskDataUrl)])
   if (image.naturalWidth !== mask.naturalWidth || image.naturalHeight !== mask.naturalHeight) {
-    throw new Error(i18next.t('mask.sizeMismatch', { ns: 'lib' }))
+    throw new UserFacingError(i18next.t('mask.sizeMismatch', { ns: 'lib' }))
   }
 
   const canvas = document.createElement('canvas')
   canvas.width = image.naturalWidth
   canvas.height = image.naturalHeight
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
+  if (!ctx) throw new UserFacingError(i18next.t('canvas.unsupported', { ns: 'lib' }))
 
   ctx.drawImage(image, 0, 0)
 
@@ -135,7 +143,7 @@ export async function createMaskPreviewDataUrl(
   maskCanvas.width = mask.naturalWidth
   maskCanvas.height = mask.naturalHeight
   const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true })
-  if (!maskCtx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
+  if (!maskCtx) throw new UserFacingError(i18next.t('canvas.unsupported', { ns: 'lib' }))
   maskCtx.drawImage(mask, 0, 0)
   const maskPixels = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height)
 
@@ -152,7 +160,7 @@ export async function createMaskPreviewDataUrl(
   overlayCanvas.width = canvas.width
   overlayCanvas.height = canvas.height
   const overlayCtx = overlayCanvas.getContext('2d')
-  if (!overlayCtx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
+  if (!overlayCtx) throw new UserFacingError(i18next.t('canvas.unsupported', { ns: 'lib' }))
   overlayCtx.putImageData(overlay, 0, 0)
   ctx.drawImage(overlayCanvas, 0, 0)
   const radius = Math.max(8, Math.min(canvas.width, canvas.height) * 0.014)

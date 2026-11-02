@@ -5,7 +5,6 @@ import { projectArtifactId } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { subscribeLoginPrompt } from '../../../../auth/loginPrompt'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
 import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import type { AgentRetryRefusal } from '../../../../features/agent/lib/retry'
@@ -16,10 +15,7 @@ import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { projectScene } from '../../../../features/canvas/lib/projectMedia'
 import { setChannels } from '../../../../lib/channels/channelStore'
-import {
-  notifyPrivateSubmissionError,
-  type PrivateSubmissionInput,
-} from '../../../../lib/privateOverlay'
+import { type PrivateSubmissionInput } from '../../../../lib/privateOverlay'
 
 const agent = vi.hoisted(() => ({
   send: vi.fn(),
@@ -108,7 +104,7 @@ it('失败占位按错误码显示原因与出路，不显示服务端的文字'
   expect(host.textContent).toContain('这次的参数不成立，没有提交')
   expect(host.textContent).not.toContain('服务端写的那句话')
   const button = host.querySelector('button')!
-  expect(button.textContent).toBe('让助手重新处理')
+  expect(button.textContent).toBe('让智能体重新处理')
 
   act(() => button.click())
   expect(send).toHaveBeenCalledWith(
@@ -119,7 +115,7 @@ it('失败占位按错误码显示原因与出路，不显示服务端的文字'
 it('要重试才解决得了的失败，这里只说原因', async () => {
   await failedPlaceholder('服务端写的那句话', 'upstream_error')
 
-  expect(host.textContent).toContain('生成服务出错了，这次没有出来')
+  expect(host.textContent).toContain('生成服务异常，本次未能完成')
   expect(host.querySelector('button')).toBeNull()
 })
 
@@ -164,7 +160,7 @@ it('占位所属的会话没打开时，不给「让助手重新处理」，免�
   // 切回占位所属的会话，出路就回来了。
   agent.conversationId = 'conv-1'
   act(() => root.render(<PlaceholderOverlay editor={editor} key="again" />))
-  expect(host.querySelector('button')?.textContent).toBe('让助手重新处理')
+  expect(host.querySelector('button')?.textContent).toBe('让智能体重新处理')
 })
 
 it('结果未知的失败只说原因，不给出路', async () => {
@@ -200,60 +196,11 @@ function cloudFailedPlaceholder(code: 'timeout') {
   act(() => root.render(<PlaceholderOverlay editor={editor} />))
 }
 
-/** 云端项目上提交就被拒：服务端没留位置，失败占位由本机补上。 */
-async function cloudRefusedPlaceholder(
-  code: 'insufficient_credits' | 'authentication_required' | 'model_unavailable',
-) {
-  const sink = createAgentCanvasSink(editor, undefined, {
-    enabled: () => true,
-    refresh: () => Promise.resolve(),
-  })
-  const ids = await sink.reserve({
-    count: 1,
-    messageId: 'tool-cloud',
-    conversationId: 'conv-1',
-    title: '一只橘猫',
-  })
-  sink.markFailed(ids, '服务端写的那句话', code)
-  act(() => root.render(<PlaceholderOverlay editor={editor} />))
-}
-
-it('云端项目积分不够被拒：失败占位给去充值', async () => {
-  await cloudRefusedPlaceholder('insufficient_credits')
-
-  const button = host.querySelector('button')!
-  expect(button.textContent).toBe('去充值')
-  act(() => button.click())
-  expect(notifyPrivateSubmissionError).toHaveBeenCalledWith({ insufficientCredits: true })
-})
-
-it('云端项目没登录被拒：失败占位叫出登录框', async () => {
-  await cloudRefusedPlaceholder('authentication_required')
-
-  const button = host.querySelector('button')!
-  expect(button.textContent).toBe('去登录')
-  const prompted = vi.fn()
-  const unsubscribe = subscribeLoginPrompt(prompted)
-  act(() => button.click())
-  unsubscribe()
-  // 弹登录框，不是把会话判失效——后者会把访客手上这张画布一起冲掉。
-  expect(prompted.mock.calls).toEqual([['gated-action']])
-})
-
-it('云端项目模型不可用被拒：失败占位给让助手重新处理，发回项目的会话', async () => {
-  await cloudRefusedPlaceholder('model_unavailable')
-
-  const button = host.querySelector('button')!
-  expect(button.textContent).toBe('让助手重新处理')
-  act(() => button.click())
-  expect(send).toHaveBeenCalledWith(expect.stringMatching(/^「一只橘猫」没有完成：/))
-})
-
 it('云端项目超时的失败占位只说原因', () => {
   cloudFailedPlaceholder('timeout')
 
   expect(host.querySelector('button')).toBeNull()
-  expect(host.textContent).toContain('生成超时，这次没有出来')
+  expect(host.textContent).toContain('生成超时，本次未能完成')
 })
 
 describe('生成进度', () => {
@@ -462,7 +409,7 @@ describe('单张重试', () => {
     await failedPlaceholder('服务端写的那句话', 'upstream_error')
 
     const button = host.querySelector('button')!
-    expect(button.textContent).toBe('让助手重新处理')
+    expect(button.textContent).toBe('让智能体重新处理')
     act(() => button.click())
     // 理由是真正的阻碍，不是错误码的译文：说「生成服务出错了」等于请它原样再来一次。
     expect(send).toHaveBeenCalledWith(
@@ -483,7 +430,7 @@ describe('单张重试', () => {
 
     await failedPlaceholder('服务端写的那句话', 'upstream_error')
 
-    expect(host.querySelector('button')?.textContent).toBe('让助手重新处理')
+    expect(host.querySelector('button')?.textContent).toBe('让智能体重新处理')
   })
 
   // 认不出是哪一次生成（旧失败没有参数快照、从没提交过后台任务）：既重出不了，也没法请
@@ -672,7 +619,7 @@ describe('重试排队', () => {
 
   function retryRemainingButton() {
     return [...host.querySelectorAll('button')].find((button) =>
-      button.textContent?.startsWith('重试剩下的'),
+      button.getAttribute('aria-description')?.startsWith('重试剩下的'),
     )
   }
 
@@ -685,7 +632,8 @@ describe('重试排队', () => {
     act(() => root.render(<AgentToolCard message={origin} />))
 
     const button = retryRemainingButton()!
-    expect(button.textContent).toBe('重试剩下的 2 张')
+    expect(button.getAttribute('aria-label')).toBe('重试')
+    expect(button.getAttribute('aria-description')).toBe('重试剩下的 2 张')
     act(() => button.click())
     expect(agent.retryRemaining).toHaveBeenCalledWith('tool-1')
   })

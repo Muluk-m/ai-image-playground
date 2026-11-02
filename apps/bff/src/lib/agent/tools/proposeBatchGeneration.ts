@@ -53,6 +53,11 @@ export const proposeBatchGeneration = defineAgentTool({
   }),
   call: () => ({ title: '依据分析拟定生成计划' }),
   execute: (context) => async (toolCallId, input) => {
+    if (context.experience === 'canvas')
+      throw new AgentToolError(
+        'invalid_params',
+        '节点画布中的生成必须写回目标节点，请用 updateNodes 准备提示词，再用 runNodes 发起运行。',
+      )
     if (!context.userId) throw new AgentToolError('invalid_params', '请登录后确认生成计划。')
     const current = await readAgentBatchPlan(context.userId, input.batchId, { limit: 1 })
     if (!current || current.batch.conversationId !== context.conversationId)
@@ -83,7 +88,7 @@ export const proposeBatchGeneration = defineAgentTool({
           text: '已根据真实分析保存逐项生成提示词和新报价。请用户审查范围、排除项和提示词后确认生成。',
         },
       ],
-      details: { batchId: input.batchId },
+      details: { batchId: input.batchId, batchItemKeys: input.items.map((item) => item.key) },
     }
   },
 })

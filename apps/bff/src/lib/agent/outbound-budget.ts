@@ -26,6 +26,8 @@ export interface AgentDispatchObserver {
   readonly onDispatch?: (requestBytes: number) => Promise<void>
   readonly onCancelledBeforeDispatch?: () => Promise<void>
   readonly onRejected?: (error: AgentRequestBudgetError) => Promise<void>
+  /** The SDK may finish an aborted stream before durable dispatch accounting completes. */
+  readonly onDispatchPending?: (pending: Promise<void>) => void
 }
 
 /** Serialized fetch bodies only: streams and multipart encodings must not bypass the limit. */
@@ -72,11 +74,15 @@ export function guardedAgentFetch(
       if (error instanceof AgentRequestBudgetError) await observer.onRejected?.(error)
       throw error
     }
-    await observer.onDispatch?.(requestBytes)
-    if (signal?.aborted) {
-      await observer.onCancelledBeforeDispatch?.()
-      signal.throwIfAborted()
-    }
+    const dispatch = (async () => {
+      await observer.onDispatch?.(requestBytes)
+      if (signal?.aborted) {
+        await observer.onCancelledBeforeDispatch?.()
+        signal.throwIfAborted()
+      }
+    })()
+    observer.onDispatchPending?.(dispatch)
+    await dispatch
     return fetch(input, init)
   }
 }

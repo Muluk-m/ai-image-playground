@@ -200,7 +200,7 @@ describe('inspectable read-only tools', () => {
       expect(failure.textContent).toContain('来源网站拒绝或无法提供内容，请换个公开来源')
       expect(
         Array.from(failure.querySelectorAll('button')).some(
-          (button) => button.textContent === '让助手重新处理',
+          (button) => button.textContent === '让智能体重新处理',
         ),
       ).toBe(true)
     }

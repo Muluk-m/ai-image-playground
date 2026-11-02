@@ -6,11 +6,23 @@ import {
   agentConversationTitle,
   agentHeartbeatFrame,
   agentMessageText,
+  agentModelImageCount,
+  agentModelImageMax,
   agentToolResultSummary,
   agentTurnCostTotal,
+  canvasStageRunsDirectly,
   encodeAgentFrame,
   parseAgentFrame,
 } from '../agent'
+
+describe('canvasStageRunsDirectly', () => {
+  it('defaults on unless the turn preference is explicitly off', () => {
+    expect(canvasStageRunsDirectly(undefined)).toBe(true)
+    expect(canvasStageRunsDirectly({})).toBe(true)
+    expect(canvasStageRunsDirectly({ autoSubmit: true })).toBe(true)
+    expect(canvasStageRunsDirectly({ autoSubmit: false })).toBe(false)
+  })
+})
 
 describe('agentConversationTitle', () => {
   it('collapses whitespace in the first user message', () => {
@@ -80,6 +92,65 @@ describe('confirmed generation instructions in model history', () => {
     })
     expect(summary).not.toContain(prompt)
   })
+
+  it('replays historical canvas run proposals as inert records instead of granting execution', () => {
+    const historical = JSON.parse(
+      '{"type":"toolResult","toolCallId":"old-run","toolName":"runNodes","title":"运行节点","status":"succeeded","canvasRun":{"projectId":"project","nodeIds":["old-node"],"autoRun":true}}',
+    )
+    const summary = agentToolResultSummary(historical)
+    expect(summary).toContain('旧运行建议仅供查看')
+    expect(summary).toContain('重新提出阶段授权')
+    expect(summary).not.toContain('已请求直接运行')
+  })
+
+  it('keeps the authorization lookup identity across model-history replay without claiming a submission', () => {
+    const summary = agentToolResultSummary({
+      type: 'toolResult',
+      toolCallId: 'proposal',
+      toolName: 'runNodes',
+      title: '阶段授权',
+      status: 'succeeded',
+      canvasRun: {
+        authorizationId: 'stage-lookup',
+        projectId: 'project',
+        stage: '素材',
+        nodeIds: ['seed'],
+        nodeNames: ['嫩芽'],
+        estimatedCredits: 20,
+        budgetCap: 20,
+        status: 'pending',
+      },
+    })
+    expect(summary).toContain('"authorizationId":"stage-lookup"')
+    expect(summary).toContain('"nodeIds":["seed"]')
+    expect(summary).toContain('当前状态必须查询')
+    expect(summary).toContain('范围 嫩芽')
+    expect(summary).toContain('待确认的提案')
+  })
+
+  it('tells the model a direct canvas run is already handed to the origin tab', () => {
+    const summary = agentToolResultSummary({
+      type: 'toolResult',
+      toolCallId: 'proposal',
+      toolName: 'runNodes',
+      title: '阶段授权',
+      status: 'succeeded',
+      canvasRun: {
+        authorizationId: 'stage-lookup',
+        projectId: 'project',
+        stage: '素材',
+        nodeIds: ['seed'],
+        nodeNames: ['嫩芽'],
+        estimatedCredits: 20,
+        budgetCap: 20,
+        status: 'pending',
+        direct: true,
+      },
+    })
+    expect(summary).toContain('直接出图')
+    expect(summary).toContain('不要说待确认')
+    expect(summary).not.toContain('待确认的提案')
+  })
 })
 
 describe('parseAgentFrame', () => {
@@ -124,5 +195,15 @@ describe('agentTurnCostTotal', () => {
 
   it('counts a chat-only turn', () => {
     expect(agentTurnCostTotal({ chat: 60, image: 0, video: 0 })).toBe(60)
+  })
+})
+
+describe('agentModelImageMax', () => {
+  it('Lite 单笔上限 4 张，没列出的模型照智能体总上限', () => {
+    expect(agentModelImageMax('gemini-3.1-flash-lite-image')).toBe(4)
+    expect(agentModelImageMax('gemini-nano-banana-2.1')).toBe(10)
+    expect(agentModelImageMax(undefined)).toBe(10)
+    expect(agentModelImageCount('gemini-3.1-flash-lite-image', 8)).toBe(4)
+    expect(agentModelImageCount('gemini-nano-banana-2.1', 8)).toBe(8)
   })
 })

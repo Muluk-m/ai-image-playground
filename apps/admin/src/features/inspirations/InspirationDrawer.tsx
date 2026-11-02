@@ -477,9 +477,19 @@ function InspirationEditor({
             </div>
             <AssetPicker
               label="封面"
-              hint="主站卡片用这张"
+              hint={
+                draft.thumbWidth && draft.thumbHeight
+                  ? `已记录 ${draft.thumbWidth}×${draft.thumbHeight}`
+                  : '主站卡片用这张'
+              }
               value={draft.coverKey}
               onChange={(next) => patch({ coverKey: next })}
+              onDimensions={(size) =>
+                patch({
+                  thumbWidth: size?.width ?? null,
+                  thumbHeight: size?.height ?? null,
+                })
+              }
             />
             <AssetPicker
               label="原图"

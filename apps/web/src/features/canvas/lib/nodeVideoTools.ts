@@ -37,7 +37,6 @@ export async function extractNodeVideoFrame(
     id = createNode(canvas, 'image', { x: source.x, y: source.y }, '', {
       nodes: [source],
       side: 'right',
-      size: { width: 360, height: (360 * source.height) / source.width },
     })
     const node = readCanvasDocument(canvas.doc).nodes.find((n) => n.id === id)!
     const previous = editor.doc.elements
@@ -49,7 +48,9 @@ export async function extractNodeVideoFrame(
           x: node.x,
           y: node.y,
           width: node.width,
-          height: (node.width * source.height) / source.width,
+          height: node.height,
+          naturalWidth: source.data.naturalWidth,
+          naturalHeight: source.data.naturalHeight,
         },
       ],
       { frameOf: sourceId, frame: which },

@@ -1,10 +1,11 @@
 import { type AgentCanvasRunProposal, readCanvasDocument } from '@image-playground/shared'
-import { useEffect, useRef } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
+import { getStoredChannels, subscribeChannels } from '../../../lib/channels/channelStore'
 import { useStore } from '../../../store'
 import { registerAgentNodeRun } from '../../agent/lib/nodeRunBridge'
 import { useVideoStore } from '../../video/store'
 import type { CanvasEditor } from './editor'
-import { currentNodeBatch, type NodeBatchPlan } from './nodeBatch'
+import { currentNodeBatch, runNodeBatch } from './nodeBatch'
 import type { NodeCanvasDocument } from './nodeCanvasDocument'
 
 export function useAgentNodeRun({
@@ -14,7 +15,7 @@ export function useAgentNodeRun({
   active,
   revision,
   files,
-  review,
+  syncResults,
 }: {
   canvas: NodeCanvasDocument
   editor: CanvasEditor
@@ -22,15 +23,15 @@ export function useAgentNodeRun({
   active: boolean
   revision: unknown
   files: unknown
-  review: (ids: string[], plan: NodeBatchPlan) => boolean
+  syncResults?: () => Promise<void>
 }) {
   const settings = useStore((state) => state.settings)
   const params = useStore((state) => state.params)
   const draft = useVideoStore((state) => state.draft)
-  const reviewRef = useRef(review)
-  reviewRef.current = review
+  // 模型清单刷新后重新登记：卡片与直接出图按新清单报价（视频模型被停用或恢复）。
+  const channels = useSyncExternalStore(subscribeChannels, getStoredChannels)
   useEffect(() => {
-    if (!active || !projectId) return
+    if (!active || !projectId || !syncResults) return
     const quote = (proposal: AgentCanvasRunProposal) => {
       if (proposal.projectId !== projectId) return null
       const graph = readCanvasDocument(canvas.doc)
@@ -43,12 +44,31 @@ export function useAgentNodeRun({
     }
     return registerAgentNodeRun({
       projectId,
+      syncResults,
       quote,
-      review: (proposal, signature) => {
-        const plan = quote(proposal)
-        if (!plan || plan.signature !== signature || plan.error || plan.blocked) return false
-        return reviewRef.current([...proposal.nodeIds], plan)
-      },
+      run: (proposal, plan, execution) =>
+        runNodeBatch(
+          canvas.doc,
+          editor,
+          proposal.nodeIds,
+          plan,
+          execution.signal,
+          execution.progress,
+          execution.authorizations,
+          execution.hooks,
+        ),
     })
-  }, [active, projectId, canvas, editor, revision, files, settings, params, draft])
+  }, [
+    active,
+    projectId,
+    canvas,
+    editor,
+    revision,
+    files,
+    settings,
+    params,
+    draft,
+    channels,
+    syncResults,
+  ])
 }

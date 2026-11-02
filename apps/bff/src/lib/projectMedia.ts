@@ -20,8 +20,13 @@ import { PREVIEW_RESIZE } from './agent/modelImage'
 import { isCapabilityEnabled } from './capabilities'
 import { durableMediaStore } from './durableMediaStore'
 import { log } from './logger'
-import { assertMediaImageProcessingBudget, MEDIA_UPLOAD_MAX_PIXELS } from './media-image-limits'
+import {
+  assertMediaImageProcessingBudget,
+  displayedImageSize,
+  MEDIA_UPLOAD_MAX_PIXELS,
+} from './media-image-limits'
 import { withMediaObjectLock } from './mediaObjectLock'
+import { createMediaProcessingLimiter } from './mediaProcessingLimiter'
 import { attachmentLimits } from './operator-config'
 import type { BffTransaction } from './private-overlay'
 
@@ -105,7 +110,89 @@ export async function reserveMedia(userId: string, input: UploadDescriptor) {
     ? (attachmentLimits(config.operator)?.imageBytes ??
       config.operator.quotas['sync:asset-image-bytes'])
     : config.operator.quotas['sync:asset-image-bytes']
-  return reserveOwnedMedia(userId, input, byteLimit, PREVIEW_BUDGET)
+  return reserveOwnedMedia(userId, input, byteLimit, PREVIEW_BUDGET, withOrientedSize)
+}
+
+/**
+ * #1550 之前发布的图按原始像素记宽高，EXIF 方向 5–8 的竖拍照片因此被记成横的。
+ * 不做全量回填：只在再次上传撞上这条旧记录时，拿已转正的预览核一次朝向，
+ * 不一致就把这一行的宽高对调（BUG-43）。按不变的 created_at 判断新旧：updated_at 会被别的更新前移，
+ * 拿它判断会把没核过的旧记录漏掉。核过的结论按进程缓存，之后命中直接用缓存里的宽高。
+ */
+const ORIENTED_SIZE_SINCE = Date.UTC(2026, 9, 27, 17)
+const orientationChecked = new Map<string, { width: number; height: number }>()
+async function currentReady(id: string): Promise<Media | undefined> {
+  const [current] = await db
+    .select()
+    .from(media)
+    .where(and(eq(media.id, id), eq(media.status, 'ready')))
+  return current
+}
+export async function withOrientedSize(row: Media): Promise<Media> {
+  if (
+    row.status !== 'ready' ||
+    row.created_at >= ORIENTED_SIZE_SINCE ||
+    !row.preview_key ||
+    !row.width ||
+    !row.height ||
+    row.width === row.height ||
+    !row.content_type.startsWith('image/')
+  )
+    return row
+  // 核过的：宽高和结论一致就直接用；不一致说明这份快照是纠正之前读的（或库里又变了），以库里现在的为准。
+  const known = orientationChecked.get(row.id)
+  if (known && known.width === row.width && known.height === row.height) return row
+  try {
+    if (known) return (await currentReady(row.id)) ?? row
+    const preview = await durableMediaStore().readUpTo(
+      row.preview_key,
+      (row.preview_bytes || PREVIEW_BUDGET) + 1,
+    )
+    const { width, height } = await sharp(preview).metadata()
+    // 只在核对有了结论后才记下：读取或更新临时失败的，下次命中还会再核。
+    const checked = (result: Media) => {
+      if (orientationChecked.size >= 10_000) orientationChecked.clear()
+      if (result.width && result.height)
+        orientationChecked.set(row.id, { width: result.width, height: result.height })
+      return result
+    }
+    if (!width || !height || width === height || width > height === row.width > row.height)
+      return checked(row)
+    const [fixed] = await db
+      .update(media)
+      .set({ width: row.height, height: row.width, updated_at: Date.now() })
+      .where(
+        and(
+          eq(media.id, row.id),
+          eq(media.status, 'ready'),
+          eq(media.width, row.width),
+          eq(media.height, row.height),
+        ),
+      )
+      .returning()
+    if (fixed)
+      log.info(
+        {
+          event: 'media.oriented_size_corrected',
+          mediaId: row.id,
+          width: fixed.width,
+          height: fixed.height,
+        },
+        '旧记录的宽高与转正后的朝向不一致，已对调',
+      )
+    if (fixed) return checked(fixed)
+    // 并发的另一次请求已经改过（或这行刚变了）：交回库里现在的那份，不交回旧宽高。
+    // 不再是 ready（正在删、被回收）就不记结论，照旧交回预留时的那份，与核对之前的契约一致。
+    const current = await currentReady(row.id)
+    return current ? checked(current) : row
+  } catch (error) {
+    // 核不了就照旧返回：宽高只影响展示比例，不该因此让这次上传失败。
+    log.warn(
+      { event: 'media.oriented_size_check_failed', mediaId: row.id, error: String(error) },
+      '旧记录的朝向核对失败，沿用原宽高',
+    )
+    return row
+  }
 }
 
 /** Server-owned queue output only; never grants a client an arbitrary video upload. */
@@ -118,10 +205,12 @@ async function reserveOwnedMedia(
   input: UploadDescriptor,
   byteLimit: number,
   previewBudget: number,
+  reviseReady?: (row: Media) => Promise<Media>,
 ) {
   const attachment = input.purpose === 'conversation-attachment'
   if (input.bytes > byteLimit) throw new MediaError(413, 'media_too_large')
-  return db.transaction(async (tx) => {
+  type Reserved = { ready: Media } | { result: ReturnType<typeof uploadResult> }
+  const reserved = await db.transaction(async (tx): Promise<Reserved> => {
     await lockMediaOwner(tx, userId)
     let [existing] = await tx
       .select()
@@ -153,7 +242,9 @@ async function reserveOwnedMedia(
       existing &&
       (existing.status === 'ready' || (described && existing.expires_at > now + 600_000))
     )
-      return uploadResult(existing)
+      return existing.status === 'ready' && reviseReady
+        ? { ready: existing }
+        : { result: uploadResult(existing) }
     const reserved = input.bytes + previewBudget
     const used = await mediaUsage(tx, userId, now)
     const previous =
@@ -185,8 +276,12 @@ async function reserveOwnedMedia(
             ...values,
           })
           .returning()
-    return uploadResult(row!)
+    // 签名在事务内：组装返回值失败时这次预留随事务回滚，不白占额度。
+    return { result: uploadResult(row!) }
   })
+  // 已发布的旧记录要核对朝向：存储读放在事务外，不占着这位用户的锁去等对象存储。
+  if ('result' in reserved) return reserved.result
+  return uploadResult(reviseReady ? await reviseReady(reserved.ready) : reserved.ready)
 }
 
 async function ownedMedia(userId: string, id: string, executor: Pick<typeof db, 'select'> = db) {
@@ -198,37 +293,28 @@ async function ownedMedia(userId: string, id: string, executor: Pick<typeof db, 
   return row
 }
 
-// Overlap storage I/O for two originals, while decoding at most one image at a time.
-let processing = 0
-const processingQueue: { resume: () => void; reject: () => void }[] = []
-async function withMediaProcessing<T>(work: () => Promise<T>): Promise<T> {
-  if (processing < 2) processing++
-  else {
-    if (processingQueue.length >= 8)
-      throw new MediaError(503, 'media_processing_busy', 'processing_queue_full')
-    await new Promise<void>((resolve, reject) => {
-      const entry = {
-        resume: () => {
-          clearTimeout(timer)
-          resolve()
-        },
-        reject: () => {
-          const index = processingQueue.indexOf(entry)
-          if (index >= 0) processingQueue.splice(index, 1)
-          reject(new MediaError(503, 'media_processing_busy', 'processing_queue_timeout'))
-        },
-      }
-      const timer = setTimeout(entry.reject, 10_000)
-      processingQueue.push(entry)
-    })
-  }
-  try {
-    return await work()
-  } finally {
-    const next = processingQueue.shift()
-    if (next) next.resume()
-    else processing--
-  }
+/**
+ * 确认一张图的时间几乎都花在和对象存储之间来回（读回原件、写原件和预览、核对），CPU 只在解码那一段。
+ * 每实例同时处理 4 张，让存储 I/O 重叠；解码仍一次一张（withMediaDecode）。原件要整张缓冲，
+ * 所以另按字节限额：在途原件合计不超过两张最大原件，小图 4 张并行，大图仍最多两张。
+ * 附件的单张上限不超过素材上限（attachmentLimits 取两者较小），按素材上限算即可。
+ */
+const mediaProcessing = createMediaProcessingLimiter({
+  slots: 4,
+  byteBudget: () => 2 * config.operator.quotas['sync:asset-image-bytes'],
+  queueLimit: 8,
+  queueTimeoutMs: 10_000,
+  bypassLimitMs: 5_000,
+  busy: (reason) => new MediaError(503, 'media_processing_busy', reason),
+  onInvalidBudget: (error) =>
+    log.warn(
+      { event: 'media.processing_budget_invalid', error: String(error) },
+      '确认处理的字节预算读取失败，沿用上次的合法值',
+    ),
+})
+/** 测试用：当前在途的确认数与按字节计入的总量。 */
+export function mediaProcessingUsageForTesting() {
+  return { active: mediaProcessing.active, bytes: mediaProcessing.activeBytes }
 }
 let decoding: Promise<void> = Promise.resolve()
 async function withMediaDecode<T>(work: () => Promise<T>): Promise<T> {
@@ -250,20 +336,58 @@ const CONFIRM_LOCK_WAIT_MS = 60_000
 const MAX_CONFIRMATIONS = 10
 
 export async function completeMedia(userId: string, id: string) {
+  return confirmMedia(userId, id)
+}
+
+/**
+ * `serverBytes` 只给服务端自己手里的原件（生成结果、已落 durable 的输入）用：这份字节就是预留时
+ * 算 sha256 的那份，不必先写进客户端可写的暂存区再读回来——那是两次对象存储往返。
+ * 照旧校验大小与哈希、解码出预览、写到新的服务端 key、发布前核对预留没变。
+ */
+async function confirmMedia(
+  userId: string,
+  id: string,
+  serverBytes?: Uint8Array,
+): Promise<ReturnType<typeof mediaSummary>> {
   // Authorize before joining another request's result, including ready replays.
   const existing = await ownedMedia(userId, id)
   if (existing.status === 'ready') return mediaSummary(existing)
   const key = JSON.stringify([userId, id])
   const pending = confirmations.get(key)
-  if (pending) return pending
+  // 服务端手里有原件时，别人那次确认（客户端恰好传了同一张、却没传完）失败了也不跟着失败：
+  // 那次的记录已从表里摘掉，用自己的字节再确认一次。
+  if (pending)
+    return serverBytes ? pending.catch(() => confirmMedia(userId, id, serverBytes)) : pending
   if (confirmations.size >= MAX_CONFIRMATIONS)
     throw new MediaError(503, 'media_processing_busy', 'confirmation_capacity_full')
-  const operation = processMedia(userId, id).finally(() => confirmations.delete(key))
+  const operation = processMedia(userId, id, existing.bytes, serverBytes).finally(() =>
+    confirmations.delete(key),
+  )
   confirmations.set(key, operation)
   return operation
 }
 
-async function processMedia(userId: string, id: string) {
+/**
+ * 处理期间这条预留被改了：准入时按的字节数比锁内读到的行小（排队时被重新预留改大），
+ * 或发布前发现申报（大小、类型）已不是读取时那份（重新预留只锁用户行、不拿对象锁）。
+ * 放掉处理位和这次的产物，按最新的行重新排。
+ */
+class ReservationChanged extends Error {
+  constructor(readonly bytes: number) {
+    super('reservation_changed')
+  }
+}
+
+const MAX_PROCESSING_READMISSIONS = 2
+
+async function processMedia(
+  userId: string,
+  id: string,
+  admittedBytes: number,
+  serverBytes?: Uint8Array,
+) {
+  let bytes = admittedBytes
+  let readmissions = 0
   const started = performance.now()
   let phase = 'lock_wait'
   let phaseStarted = started
@@ -283,21 +407,31 @@ async function processMedia(userId: string, id: string) {
       const available = await withMediaObjectLock(id, async () => true)
       mark(available ? 'processing_wait' : 'lock_wait')
       const result = available
-        ? await withMediaProcessing(() => {
-            mark('lock_wait')
-            return withMediaObjectLock(id, async (database) => {
-              mark('read_metadata')
-              return publishMedia(userId, id, database, mark)
+        ? await mediaProcessing
+            .run(bytes, () => {
+              mark('lock_wait')
+              return withMediaObjectLock(id, async (database) => {
+                mark('read_metadata')
+                return publishMedia(userId, id, database, mark, bytes, serverBytes)
+              })
             })
-          }).catch(async (error: unknown) => {
-            // A different instance may publish while this request waits for local capacity.
-            if (error instanceof MediaError && error.message === 'media_processing_busy') {
-              const current = await ownedMedia(userId, id)
-              if (current.status === 'ready') return mediaSummary(current)
-            }
-            throw error
-          })
+            .catch(async (error: unknown) => {
+              if (error instanceof ReservationChanged) return error
+              // A different instance may publish while this request waits for local capacity.
+              if (error instanceof MediaError && error.message === 'media_processing_busy') {
+                const current = await ownedMedia(userId, id)
+                if (current.status === 'ready') return mediaSummary(current)
+              }
+              throw error
+            })
         : undefined
+      if (result instanceof ReservationChanged) {
+        // 正常只会因为一次改正申报而重排；反复被改说明有人在不停重新预留，别无限占着确认位。
+        if (++readmissions > MAX_PROCESSING_READMISSIONS)
+          throw new MediaError(503, 'media_processing_busy', 'reservation_changing')
+        bytes = result.bytes
+        continue
+      }
       if (result) return result
       lockContended = true
       mark('lock_wait')
@@ -336,14 +470,33 @@ async function processMedia(userId: string, id: string) {
   }
 }
 
+/**
+ * 客户端直传的暂存原件是客户端可写的：一次 Range GET 读至多 bytes + 1 字节，多一个字节就知道比登记的大，
+ * 内存上界不变，也省掉先 HEAD 查大小的那次往返。
+ */
+async function readStagedOriginal(
+  store: ReturnType<typeof durableMediaStore>,
+  row: Media,
+  mark: (phase: string) => void,
+) {
+  mark('storage_read')
+  const bytes = await store.readUpTo(row.staging_key, row.bytes + 1)
+  if (bytes.length !== row.bytes) throw new MediaError(422, 'media_size_mismatch')
+  return bytes
+}
+
 async function publishMedia(
   userId: string,
   id: string,
   database: BunSQLDatabase<typeof schema>,
   mark: (phase: string) => void,
+  admittedBytes: number,
+  serverBytes?: Uint8Array,
 ) {
   const row = await ownedMedia(userId, id, database)
   if (row.status === 'ready') return mediaSummary(row)
+  // 原件要按这一行的大小整张缓冲；比准入时按的大，就不能占着这个处理位读。
+  if (row.bytes > admittedBytes) throw new ReservationChanged(row.bytes)
   if (row.status === 'deleting') throw new MediaError(409, 'media_deleting')
   if (row.expires_at <= Date.now()) throw new MediaError(409, 'media_upload_expired')
   const limits = row.attachment_managed ? attachmentLimits(config.operator) : undefined
@@ -352,28 +505,12 @@ async function publishMedia(
   let published = false
   try {
     const store = durableMediaStore()
-    mark('storage_open')
-    const source = await store.open(row.staging_key)
-    if (source.size !== row.bytes) throw new MediaError(422, 'media_size_mismatch')
-    mark('storage_read')
-    const reader = source.stream(0, row.bytes - 1).getReader()
-    const bytes = new Uint8Array(row.bytes)
-    let offset = 0
-    try {
-      while (true) {
-        const part = await reader.read()
-        if (part.done) break
-        if (offset + part.value.length > bytes.length)
-          throw new MediaError(422, 'media_size_mismatch')
-        bytes.set(part.value, offset)
-        offset += part.value.length
-      }
-    } finally {
-      await reader.cancel()
-      reader.releaseLock()
-    }
+    const bytes = serverBytes ?? (await readStagedOriginal(store, row, mark))
     mark('hash')
-    if (offset !== row.bytes || createHash('sha256').update(bytes).digest('hex') !== row.sha256)
+    if (
+      bytes.length !== row.bytes ||
+      createHash('sha256').update(bytes).digest('hex') !== row.sha256
+    )
       throw new MediaError(422, 'media_hash_mismatch')
     let metadata: Metadata
     let preview: Buffer
@@ -444,11 +581,8 @@ async function publishMedia(
       store.write(objectKey, bytes, row.content_type),
       store.write(previewKey, preview, 'image/webp'),
     ])
+    // 写入成功即可读（R2/S3 写后读强一致），不再逐个 HEAD 回读核对，省一次往返。
     for (const result of written) if (result.status === 'rejected') throw result.reason
-    mark('storage_verify')
-    const [original, thumbnail] = await Promise.all([store.open(objectKey), store.open(previewKey)])
-    if (original.size !== bytes.length || thumbnail.size !== preview.length)
-      throw new MediaError(503, 'media_not_readable')
     mark('publish')
     return await database.transaction(async (tx) => {
       await lockMediaOwner(tx, userId)
@@ -461,6 +595,13 @@ async function publishMedia(
       if (current.status === 'deleting') throw new MediaError(409, 'media_deleting')
       if (current.expires_at <= Date.now() || current.staging_key !== row.staging_key)
         throw new MediaError(409, 'media_upload_expired')
+      // 读取、校验都按 row 的申报做；这期间被重新预留改了大小或类型，就不能把这份产物发布成新申报。
+      if (
+        current.bytes !== row.bytes ||
+        current.content_type !== row.content_type ||
+        current.sha256 !== row.sha256
+      )
+        throw new ReservationChanged(current.bytes)
       const [ready] = await tx
         .update(media)
         .set({
@@ -469,8 +610,7 @@ async function publishMedia(
           preview_key: previewKey,
           preview_bytes: preview.length,
           reserved_bytes: bytes.length + preview.length,
-          width: metadata.width!,
-          height: metadata.height!,
+          ...displayedImageSize(metadata),
           updated_at: Date.now(),
         })
         .where(eq(media.id, id))
@@ -479,7 +619,7 @@ async function publishMedia(
       return mediaSummary(ready!)
     })
   } catch (error) {
-    if (error instanceof MediaError) throw error
+    if (error instanceof MediaError || error instanceof ReservationChanged) throw error
     throw new MediaError(503, 'media_storage_unavailable')
   } finally {
     if (candidatePrefix && !published) {
@@ -512,9 +652,7 @@ export async function storeMedia(userId: string, bytes: Uint8Array, contentType:
     contentType,
   })
   if (reserved.status === 'ready') return reserved
-  const row = await ownedMedia(userId, reserved.id)
-  await durableMediaStore().write(row.staging_key, bytes, contentType)
-  return completeMedia(userId, row.id)
+  return confirmMedia(userId, reserved.id, bytes)
 }
 
 /** Only explicitly managed attachments are eligible; legacy media have incomplete references. */

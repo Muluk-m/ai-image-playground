@@ -4,9 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthContextProvider } from '../../auth/AuthContext'
 import Header from '../../components/Header'
-import { type AppLocale, i18next, setLocale } from '../../i18n'
 import { initTheme, THEME_STORAGE_KEY } from '../../theme'
-import { pointer, stubPointerApis } from '../helpers/radix'
 
 // 测的是公开树自己的头像菜单；私有 overlay 接管账号区时渲染的是同一个 DisplaySettingsMenuItems。
 vi.mock('../../lib/privateOverlay', async (importOriginal) => ({
@@ -27,7 +25,6 @@ let root: Root
 beforeEach(() => {
   localStorage.clear()
   initTheme()
-  stubPointerApis()
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -51,8 +48,8 @@ afterEach(async () => {
   act(() => root.unmount())
   host.remove()
   document.body.innerHTML = ''
-  await setLocale('zh-CN')
   localStorage.clear()
+  vi.unstubAllGlobals()
 })
 
 function openAccountMenu(): void {
@@ -61,75 +58,64 @@ function openAccountMenu(): void {
   act(() => trigger.dispatchEvent(new MouseEvent('click', { bubbles: true })))
 }
 
-function displayTrigger(setting: 'locale' | 'theme'): HTMLElement {
-  const element = document.querySelector<HTMLElement>(`[data-display-setting="${setting}"]`)
-  if (!element) throw new Error(`missing ${setting} control`)
-  return element
-}
-
-/** 下拉的选项 portal 到 body 上，所以从 document 找，不从菜单里找。 */
-function choose(setting: 'locale' | 'theme', optionText: string): void {
-  act(() => {
-    displayTrigger(setting).dispatchEvent(pointer('pointerdown'))
-  })
-  const option = Array.from(document.querySelectorAll('[role="option"]')).find(
-    (node) => node.textContent?.trim() === optionText,
+function pressTheme(label: string): void {
+  const button = [...document.querySelectorAll('button')].find(
+    (node) =>
+      node.getAttribute('aria-label') === label && node.getAttribute('aria-pressed') != null,
   )
-  if (!option) throw new Error(`missing option ${optionText}`)
-  act(() => {
-    option.dispatchEvent(pointer('pointermove'))
-    option.dispatchEvent(pointer('pointerup'))
-  })
-}
-
-function whenLanguageChanged(target: AppLocale): Promise<void> {
-  // tsconfig 的 lib 是 ES2020，没有 Promise.withResolvers。
-  return new Promise((resolve) => {
-    const onChanged = (language: string): void => {
-      if (language !== target) return
-      i18next.off('languageChanged', onChanged)
-      resolve()
-    }
-    i18next.on('languageChanged', onChanged)
-  })
+  if (!button) throw new Error(`missing theme ${label}`)
+  act(() => button.dispatchEvent(new MouseEvent('click', { bubbles: true })))
 }
 
 describe('头像菜单里的显示设置', () => {
-  it('平时不占顶栏，打开头像菜单才出现，并用语言自己的文字标出当前项', () => {
+  it('不放语言行；语言只在顶栏地球，主题是三段图标开关', () => {
     expect(document.querySelector('[data-display-setting="locale"]')).toBeNull()
+    expect(host.querySelector('button[aria-label="界面语言"]')).not.toBeNull()
 
     openAccountMenu()
 
-    expect(displayTrigger('locale').textContent).toContain('中文')
-    expect(displayTrigger('theme').textContent).toContain('暗色')
-  })
-
-  it('选另一种语言写进本机，菜单留着让人看到变化', async () => {
-    openAccountMenu()
-    const changed = whenLanguageChanged('en')
-    choose('locale', 'English')
-    await act(async () => {
-      await changed
-    })
-
-    expect(localStorage.getItem('aip.locale')).toBe('en')
-    // 选项是 portal 出去的，宿主菜单的「点外面就关」必须放行，否则选择根本提交不了。
-    expect(displayTrigger('locale').textContent).toContain('English')
+    expect(document.querySelector('[data-display-setting="locale"]')).toBeNull()
+    expect(document.body.textContent).not.toContain('界面语言')
+    expect(document.body.textContent).toContain('主题')
+    expect(pressThemeLabel('暗色')?.getAttribute('aria-pressed')).toBe('true')
+    expect(pressThemeLabel('跟随系统')?.getAttribute('aria-pressed')).toBe('false')
+    expect(pressThemeLabel('亮色')?.getAttribute('aria-pressed')).toBe('false')
   })
 })
 
+function pressThemeLabel(label: string): HTMLButtonElement | undefined {
+  return [...document.querySelectorAll('button')].find(
+    (node) =>
+      node.getAttribute('aria-label') === label && node.getAttribute('aria-pressed') != null,
+  )
+}
+
 describe('头像菜单里的主题', () => {
-  it('只有手动选亮色才切换，之后能选回暗色', () => {
+  it('可以在暗色、跟随系统和亮色之间切换，选择记在本机', () => {
+    vi.stubGlobal('matchMedia', (query: string) => {
+      expect(query).toBe('(prefers-color-scheme: dark)')
+      return {
+        matches: false,
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }
+    })
     openAccountMenu()
 
-    choose('theme', '亮色')
+    pressTheme('亮色')
     expect(document.documentElement.classList.contains('dark')).toBe(false)
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')
-    expect(displayTrigger('theme').textContent).toContain('亮色')
+    expect(pressThemeLabel('亮色')?.getAttribute('aria-pressed')).toBe('true')
 
-    choose('theme', '暗色')
+    pressTheme('暗色')
     expect(document.documentElement.classList.contains('dark')).toBe(true)
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
-    expect(displayTrigger('theme').textContent).toContain('暗色')
+    expect(pressThemeLabel('暗色')?.getAttribute('aria-pressed')).toBe('true')
+
+    pressTheme('跟随系统')
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('system')
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
+    expect(pressThemeLabel('跟随系统')?.getAttribute('aria-pressed')).toBe('true')
   })
 })

@@ -2,17 +2,25 @@
  * Adapted from assistant-ui Elements `model-selector` (MIT, AgentbaseAI).
  * 只取外观与结构：沿用项目的 Radix Popover，不引入 cmdk / base-ui。
  */
-import { type KeyboardEvent, useId, useMemo, useState } from 'react'
+import type { ModelBadge, ModelLogoId, ModelTier } from '@image-playground/shared'
+import { type KeyboardEvent, useId, useMemo, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
-import { getProfileModelOptions, updateSelectedModel } from '../../lib/channels/profileSelectors'
+import { subscribeChannels } from '../../lib/channels/channelStore'
+import {
+  getProfileModelOptions,
+  updateSelectedModel,
+  usableEtaMaxSeconds,
+  usableEtaSeconds,
+} from '../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../lib/channels/publicChannels'
 import { cn } from '../../lib/utils'
 import { useStore } from '../../store'
 import { compactModelName, ModelLogo } from '../ModelIdentity'
+import Badge from '../patterns/Badge'
 import SearchField from '../patterns/SearchField'
 import { Button } from '../ui/button'
-import { Icon } from '../ui/icon'
+import { Icon, type IconName } from '../ui/icon'
 import { OverflowText, useOverflowTitle } from '../ui/overflowTitle'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { type ComposerControlSize, composerModelChipClass } from './SettingsPanel'
@@ -21,8 +29,20 @@ export interface ModelChoice {
   value: string
   model: string
   profileId: string
+  /** 该渠道给这个模型声明的图标；不写按 id 前缀给厂商图标。 */
+  logo?: ModelLogoId
   label: string
-  description: string
+  description?: string
+  /** 渠道下发的标签 token；只有 'latest' 会显示，是名字旁一枚很小的「New」。 */
+  badges?: readonly ModelBadge[]
+  /** 旧渠道兼容字段；展示分组改由 family 决定。 */
+  tier?: ModelTier
+  /** 选择器分组（GPT / Banana 等系列）；没有就排在分组后面，不带组头。 */
+  family?: 'gpt' | 'grok' | 'gemini' | 'agnes'
+  /** 典型单张耗时，显示成「约 N 秒」，一分钟以上显示成「约 N 分钟」。 */
+  etaSeconds?: number
+  /** 耗时随档位变化时的上界，有就显示成「约 N–M 秒」。 */
+  etaMaxSeconds?: number
 }
 
 /** 模型多到这个数才给搜索框。 */
@@ -35,8 +55,13 @@ export function useModelChoices() {
   const activeProfile = useMemo(() => getActiveApiProfile(settings), [settings])
   const activeView = clientProfileToApiProfile(activeProfile)
 
+  // 订阅渠道清单：清单晚到或只改了标签 / 耗时时 profiles 不一定变，不订阅就会停在旧选项上。
+  const publicChannels = useSyncExternalStore(
+    subscribeChannels,
+    getPublicChannels,
+    getPublicChannels,
+  )
   const options = useMemo(() => {
-    const publicChannels = getPublicChannels()
     return settings.profiles.flatMap((profile) => {
       const view = clientProfileToApiProfile(profile)
       return getProfileModelOptions(profile, publicChannels).map(
@@ -46,10 +71,16 @@ export function useModelChoices() {
           profileId: profile.id,
           label: compactModelName(option.id, option.label),
           description: view.name,
+          ...(option.family ? { family: option.family } : {}),
+          ...(option.tier ? { tier: option.tier } : {}),
+          ...(option.badges ? { badges: option.badges } : {}),
+          ...(option.etaSeconds !== undefined ? { etaSeconds: option.etaSeconds } : {}),
+          ...(option.etaMaxSeconds !== undefined ? { etaMaxSeconds: option.etaMaxSeconds } : {}),
+          ...(option.logo ? { logo: option.logo } : {}),
         }),
       )
     })
-  }, [settings.profiles])
+  }, [settings.profiles, publicChannels])
 
   const currentValue = `${activeProfile.id}::${activeView.model}`
   const current = options.find((option) => option.value === currentValue)
@@ -84,6 +115,69 @@ function moveOptionFocus(event: KeyboardEvent<HTMLElement>) {
   items[index === -1 && step === -1 ? items.length - 1 : next]?.focus()
 }
 
+/** GPT 系列置顶，Banana（Gemini）系列随后；其余系列按固定顺序放在后面。 */
+const FAMILY_ORDER = ['gpt', 'gemini', 'grok', 'agnes'] as const
+const FAMILY_ICON: Record<(typeof FAMILY_ORDER)[number], IconName> = {
+  gpt: 'model',
+  gemini: 'image',
+  grok: 'wand',
+  agnes: 'wand',
+}
+const FAMILY_LABEL_KEY = {
+  gpt: 'param.modelFamily.gpt',
+  gemini: 'param.modelFamily.gemini',
+  grok: 'param.modelFamily.grok',
+  agnes: 'param.modelFamily.agnes',
+} as const
+
+interface ModelGroup {
+  family?: (typeof FAMILY_ORDER)[number]
+  options: ModelChoice[]
+}
+
+/** 系列内保留渠道声明顺序，避免把运营排序变成速度排序。 */
+function groupByFamily(options: readonly ModelChoice[]): ModelGroup[] {
+  if (!options.some((option) => option.family)) return [{ options: [...options] }]
+  const groups = FAMILY_ORDER.map((family) => ({
+    family,
+    options: options.filter((option) => option.family === family),
+  })).filter((group) => group.options.length > 0)
+  const rest = options.filter((option) => !option.family)
+  return rest.length ? [...groups, { options: rest }] : groups
+}
+
+/**
+ * 名字一行（新模型在名字旁带一枚很小的 New），有预估耗时时在下一行用次要文字写「约 N 秒」。
+ * 快慢和画质交给分组表达，名字后面不挂说明标签。
+ * 写成返回元素的函数而不是组件：Button 靠静态遍历 children 判断有没有可见文字，
+ * 包一层组件它就看不见名字，会把 aria-label 当成悬停提示再显示一遍。
+ */
+function modelOptionName(
+  option: ModelChoice,
+  newLabel: string | undefined,
+  eta: string | undefined,
+) {
+  return (
+    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span title={option.label} className="min-w-0 truncate font-medium text-foreground">
+          {option.label}
+        </span>
+        {newLabel ? (
+          <Badge tone="primary" className="shrink-0 px-1">
+            {newLabel}
+          </Badge>
+        ) : null}
+      </span>
+      {eta ? (
+        <span title={eta} className="min-w-0 truncate text-label-sm text-muted-foreground">
+          {eta}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
 /** 紧凑模型列表：名称与渠道排在同一行，选中项右侧打勾。 */
 export function ModelList({
   options,
@@ -97,16 +191,37 @@ export function ModelList({
   className?: string
 }) {
   const { t } = useTranslation('composer')
+  const newLabel = (option: ModelChoice) =>
+    option.badges?.includes('latest') ? t('param.modelNew') : undefined
+  // 一分钟以上按分钟说：「约 80 秒」不如「约 1 分钟」好读，预估本来就只是量级。
+  const etaLabel = (seconds: number, maxSeconds: number | undefined) => {
+    if (maxSeconds !== undefined) {
+      // 两分钟以内按秒写范围（「约 40–100 秒」），再长才换成分钟，免得 100 秒被四舍五入成「约 2 分钟」。
+      if (maxSeconds < 120) return t('param.modelEtaRange', { min: seconds, max: maxSeconds })
+      const min = Math.max(1, Math.round(seconds / 60))
+      const max = Math.round(maxSeconds / 60)
+      if (max > min) return t('param.modelEtaRangeMinutes', { min, max })
+      return t('param.modelEtaMinutes', { minutes: max })
+    }
+    return seconds < 60
+      ? t('param.modelEta', { seconds })
+      : t('param.modelEtaMinutes', { minutes: Math.round(seconds / 60) })
+  }
   const [query, setQuery] = useState('')
   const listId = useId()
   const needle = query.trim().toLocaleLowerCase()
   const visible = needle
-    ? options.filter((option) =>
-        `${option.label} ${option.model} ${option.description}`
+    ? options.filter((option) => {
+        const familyLabel = option.family ? t(FAMILY_LABEL_KEY[option.family]) : ''
+        return [option.label, option.model, option.description ?? '', familyLabel]
+          .join(' ')
           .toLocaleLowerCase()
-          .includes(needle),
-      )
+          .includes(needle)
+      })
     : options
+  const groups = groupByFamily(visible)
+  const firstShown = groups[0]?.options[0]
+  const hasSelected = visible.some((option) => option.value === value)
   return (
     <div className={cn('flex min-h-0 flex-col gap-1', className)}>
       {options.length > SEARCH_THRESHOLD && (
@@ -126,36 +241,73 @@ export function ModelList({
         onKeyDown={moveOptionFocus}
         className="min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {visible.map((option, index) => {
-          const selected = option.value === value
-          const tabStop = selected || (index === 0 && !visible.some((o) => o.value === value))
+        {groups.map((group, groupIndex) => {
+          const headingId = `${listId}-${group.family ?? 'rest'}`
+          const rows = group.options.map((option) => {
+            const selected = option.value === value
+            const tabStop = selected || (option === firstShown && !hasSelected)
+            const eta = usableEtaSeconds(option.etaSeconds)
+            const etaText =
+              eta !== undefined
+                ? etaLabel(eta, usableEtaMaxSeconds(option.etaMaxSeconds, eta))
+                : undefined
+            const isNew = newLabel(option)
+            return (
+              <Button
+                variant="ghost"
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                tabIndex={tabStop ? 0 : -1}
+                aria-label={[
+                  option.label,
+                  ...(isNew ? [isNew] : []),
+                  ...(etaText ? [etaText] : []),
+                  ...(option.description ? [option.description] : []),
+                ].join(' · ')}
+                onClick={() => onPick(option.value)}
+                className={cn(
+                  'flex h-auto min-h-10 w-full justify-start whitespace-normal px-3 py-2 text-left text-body-sm focus-visible:bg-accent',
+                  selected && 'bg-accent',
+                )}
+              >
+                <span className="flex shrink-0">
+                  <ModelLogo model={option.model} logo={option.logo ?? null} />
+                </span>
+                {modelOptionName(option, isNew, etaText)}
+                {option.description && (
+                  <OverflowText
+                    text={option.description}
+                    className="max-w-20 truncate text-label-sm text-muted-foreground"
+                  />
+                )}
+                {selected && <Icon name="check" />}
+              </Button>
+            )
+          })
+          if (!group.family)
+            return (
+              <div key="rest" className={cn(groupIndex > 0 && 'mt-1 border-t border-border pt-1')}>
+                {rows}
+              </div>
+            )
           return (
-            <Button
-              variant="ghost"
-              key={option.value}
-              type="button"
-              role="option"
-              aria-selected={selected}
-              tabIndex={tabStop ? 0 : -1}
-              aria-label={`${option.label} · ${option.description}`}
-              onClick={() => onPick(option.value)}
-              className={cn(
-                'h-auto min-h-10 w-full justify-start whitespace-normal px-3 py-2 text-left text-body-sm focus-visible:bg-accent',
-                selected && 'bg-accent',
-              )}
+            <div
+              key={group.family}
+              role="group"
+              aria-labelledby={headingId}
+              className={cn(groupIndex > 0 && 'mt-1 border-t border-border pt-1')}
             >
-              <span className="flex shrink-0">
-                <ModelLogo model={option.model} />
-              </span>
-              <span className="min-w-0 flex-1 break-words font-medium text-foreground">
-                {option.label}
-              </span>
-              <OverflowText
-                text={option.description}
-                className="max-w-20 truncate text-label-sm text-muted-foreground"
-              />
-              {selected && <Icon name="check" />}
-            </Button>
+              <div
+                id={headingId}
+                className="flex items-center gap-1.5 px-3 pt-2 pb-1 text-label-sm font-medium text-muted-foreground"
+              >
+                <Icon name={FAMILY_ICON[group.family]} size="xs" />
+                {t(FAMILY_LABEL_KEY[group.family])}
+              </div>
+              {rows}
+            </div>
           )
         })}
         {!visible.length && (
@@ -203,7 +355,11 @@ export function ModelSelector({
           }}
         >
           <span className="flex shrink-0 items-center text-muted-foreground">
-            {!label && current ? <ModelLogo model={current.model} /> : <Icon name="model" />}
+            {!label && current ? (
+              <ModelLogo model={current.model} logo={current.logo ?? null} />
+            ) : (
+              <Icon name="model" />
+            )}
           </span>
           <span ref={name.ref} className="creation-model-name min-w-0 truncate">
             {shown}
@@ -230,7 +386,7 @@ export function ModelSelector({
             .querySelector<HTMLElement>('input, [role="option"][tabindex="0"]')
             ?.focus({ preventScroll: false })
         }}
-        className="flex max-h-[min(26rem,var(--radix-popover-content-available-height))] w-72 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl p-1 shadow-popover"
+        className="flex max-h-[min(26rem,var(--radix-popover-content-available-height))] w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl p-1 shadow-popover"
       >
         <ModelList
           options={options}

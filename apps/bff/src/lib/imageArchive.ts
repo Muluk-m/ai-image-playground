@@ -45,6 +45,17 @@ export class SourceImageFetchError extends ObjectStorageError {
   }
 }
 
+/** 输入原件转存发生在调用上游之前，重试不会重复生成；只有媒体本身不合格时不重试。 */
+export class InputPreservationError extends ObjectStorageError {
+  constructor(
+    readonly retryable: boolean,
+    options?: ErrorOptions,
+  ) {
+    super('Object storage input preservation failed', options)
+    this.name = 'InputPreservationError'
+  }
+}
+
 export function isStoredImageRef(value: unknown): value is StoredImageRef {
   if (!value || typeof value !== 'object') return false
   const ref = value as Partial<StoredImageRef>
@@ -84,24 +95,33 @@ export async function archiveInputImages(
 
 export async function hydrateInputImages(
   request: SubmitRequest | PersistedSubmitRequest,
-  options: { maxBytes?: number } = {},
+  options: {
+    maxBytes?: number
+    /** 每读出一张输入/遮罩原件就交回它的引用和刚生成的 data URL（同一个字符串，不另占内存）；视频源不报。 */
+    onObjectRead?: (ref: StoredImageRef, dataUrl: string) => void
+  } = {},
 ): Promise<HydratedSubmitRequest> {
   const {
     preserve_outside_mask: _boundary,
     masked_original_size: _originalSize,
+    masked_crop: _crop,
     ...upstreamRequest
   } = request as PersistedSubmitRequest
   const hydrated = { ...upstreamRequest } as HydratedSubmitRequest
   if (request.input_images) {
     const inputs: string[] = []
     for (const input of request.input_images) {
-      inputs.push(isStoredImageRef(input) ? await hydrateObjectRef(input, options.maxBytes) : input)
+      inputs.push(
+        isStoredImageRef(input)
+          ? await hydrateObjectRef(input, options.maxBytes, options.onObjectRead)
+          : input,
+      )
     }
     hydrated.input_images = inputs
   }
   if (request.mask) {
     hydrated.mask = isStoredImageRef(request.mask)
-      ? await hydrateObjectRef(request.mask, options.maxBytes)
+      ? await hydrateObjectRef(request.mask, options.maxBytes, options.onObjectRead)
       : request.mask
   }
   const video = request.video as PersistedVideoRequest | undefined
@@ -326,7 +346,11 @@ async function archiveGeminiOutput(
   await archiveOutputs(taskId, entries, 'image/png', transform, context)
 }
 
-async function hydrateObjectRef(ref: StoredImageRef, maxBytes?: number): Promise<string> {
+async function hydrateObjectRef(
+  ref: StoredImageRef,
+  maxBytes?: number,
+  onRead?: (ref: StoredImageRef, dataUrl: string) => void,
+): Promise<string> {
   try {
     const store = ref.store === 'durable' ? durableMediaStore() : objectStore()
     const bytes =
@@ -334,7 +358,9 @@ async function hydrateObjectRef(ref: StoredImageRef, maxBytes?: number): Promise
         ? await store.read(ref.object)
         : await readObjectWithinLimit(store, ref.object, maxBytes)
     const mime = detectMediaMime(bytes) ?? ref.mime
-    return `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`
+    const dataUrl = `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`
+    onRead?.(ref, dataUrl)
+    return dataUrl
   } catch (error) {
     if (error instanceof SafeFetchError && error.code === 'too_large') throw error
     throw new ObjectStorageError(`Object storage read failed for ${ref.object}`, { cause: error })

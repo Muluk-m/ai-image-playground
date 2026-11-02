@@ -1,3 +1,4 @@
+import './appearance.css'
 import { OAUTH_ERROR_QUERY_PARAM, type OAuthProviderView } from '@image-playground/shared'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import Overlay from '../components/patterns/Overlay'
@@ -26,87 +27,26 @@ function ProviderMark({ provider }: { provider: OAuthProviderView }) {
   return <span className="auth-provider-generic">{provider.label.slice(0, 1)}</span>
 }
 
+function AuthBrand() {
+  const { t } = useTranslation('auth')
+  return (
+    <div className="auth-wordmark">
+      <img src="/brand/muvloom-mark.svg" alt="" width={28} height={28} />
+      <span>{t('brand.name')}</span>
+    </div>
+  )
+}
 function AuthShowcase() {
   const { t } = useTranslation('auth')
   return (
-    <section className="auth-showcase">
-      <header className="auth-brand">
-        <img src="/brand/muvloom-mark.svg" alt="" width="30" height="30" />
-        <span>{t('brand.name')}</span>
-      </header>
-
-      <div className="auth-art-wall" aria-hidden>
-        <img
-          className="auth-art auth-art--portrait"
-          src="https://cms-r2.deepclick.com/image-playground/case427.jpg?w=560&q=86"
-          alt=""
-        />
-        <img
-          className="auth-art auth-art--anime"
-          src="https://cms-r2.deepclick.com/image-playground/case410.jpg?w=560&q=86"
-          alt=""
-        />
-        <img
-          className="auth-art auth-art--landscape"
-          src="https://cms-r2.deepclick.com/image-playground/case304.jpg?w=560&q=86"
-          alt=""
-        />
-        <img
-          className="auth-art auth-art--pet"
-          src="https://cms-r2.deepclick.com/image-playground-banana/19770.jpg?w=560&q=86"
-          alt=""
-        />
-        <img
-          className="auth-art auth-art--car"
-          src="https://cms-r2.deepclick.com/image-playground-banana/13399.jpg?w=560&q=86"
-          alt=""
-        />
-      </div>
-
-      <div className="auth-showcase-copy">
-        <h2>
-          {t('showcase.headlineLine1')}
-          <br />
-          {t('showcase.headlineLine2')}
-        </h2>
-        <p>{t('showcase.tagline')}</p>
-      </div>
-
-      <div className="auth-benefits">
-        <div>
-          <span className="auth-benefit-icon">
-            <Icon name="model" size="md" />
-          </span>
-          <strong>{t('showcase.benefit.model.title')}</strong>
-          <p>
-            {t('showcase.benefit.model.line1')}
-            <br />
-            {t('showcase.benefit.model.line2')}
-          </p>
-        </div>
-        <div>
-          <span className="auth-benefit-icon">
-            <Icon name="speed" size="md" />
-          </span>
-          <strong>{t('showcase.benefit.speed.title')}</strong>
-          <p>
-            {t('showcase.benefit.speed.line1')}
-            <br />
-            {t('showcase.benefit.speed.line2')}
-          </p>
-        </div>
-        <div>
-          <span className="auth-benefit-icon">
-            <Icon name="security" size="md" />
-          </span>
-          <strong>{t('showcase.benefit.security.title')}</strong>
-          <p>
-            {t('showcase.benefit.security.line1')}
-            <br />
-            {t('showcase.benefit.security.line2')}
-          </p>
-        </div>
-      </div>
+    <section className="auth-creator-art">
+      <img className="auth-creator-cover" src="/website-assets/creator-hero.webp" alt="" />
+      <AuthBrand />
+      <h2>
+        {t('showcase.headlineLine1')}
+        <br />
+        {t('showcase.headlineLine2')}
+      </h2>
     </section>
   )
 }
@@ -177,6 +117,9 @@ function registrationErrorKey(error: unknown): LoginErrorKey {
 
 interface LoginDialogProps {
   onClose: () => void
+  presentation?: 'dialog' | 'page'
+  plansHref?: string
+  onAuthenticated?: () => void
   /** 为什么弹出来：决定副标题那一句，其余流程完全一样。 */
   reason?: LoginPromptReason
 }
@@ -188,7 +131,13 @@ interface LoginDialogProps {
  * 登录成功后整页 reload：地址栏不动，重新启动时 AuthGate 会把匿名期间攒下的
  * 本地历史认领进账号，channel 与同步引擎也一并按新身份重来。
  */
-export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogProps) {
+export function LoginDialog({
+  onClose,
+  reason = 'gated-action',
+  presentation = 'dialog',
+  onAuthenticated,
+  plansHref,
+}: LoginDialogProps) {
   const { t } = useTranslation('auth')
   const { t: tError } = useTranslation('errors')
   const registrationEnabled = isClientCapabilityEnabled('accounts:self-register')
@@ -249,7 +198,8 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
     try {
       await loginUser(username, password)
       preservePendingSubmissionForLogin()
-      window.location.reload()
+      if (onAuthenticated) onAuthenticated()
+      else window.location.reload()
     } catch (err) {
       setErrorKey(loginErrorKey(err))
       setPending(false)
@@ -282,7 +232,8 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
         verification: credentials.verification,
       })
       preservePendingSubmissionForLogin()
-      window.location.reload()
+      if (onAuthenticated) onAuthenticated()
+      else window.location.reload()
     } catch (err) {
       setErrorKey(registrationErrorKey(err))
       setPending(false)
@@ -341,150 +292,162 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
       </>
     ) : null
 
-  return (
-    <Overlay onClose={onClose} tier="raised" role="none">
-      <div role="dialog" aria-modal="true" aria-label={t('dialog.label')} className="auth-dialog">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="absolute right-4 top-4 z-10 text-muted-foreground"
-          onClick={onClose}
-          aria-label={t('dialog.close')}
-        >
-          <Icon name="close" />
-        </Button>
+  const content = (
+    <div
+      role={presentation === 'dialog' ? 'dialog' : undefined}
+      aria-modal={presentation === 'dialog' ? true : undefined}
+      aria-label={t('dialog.label')}
+      className={`auth-surface ${presentation === 'page' ? 'auth-page' : 'auth-dialog'}`}
+    >
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className="absolute right-4 top-4 z-10 text-muted-foreground"
+        onClick={onClose}
+        aria-label={presentation === 'page' ? t('page.back') : t('dialog.close')}
+      >
+        <Icon name={presentation === 'page' ? 'back' : 'close'} />
+      </Button>
 
-        <AuthShowcase />
+      {presentation === 'page' ? <AuthShowcase /> : null}
 
-        <section className="auth-panel">
-          <div className="auth-panel-content" ref={panelRef}>
-            {view === 'registration' ? (
-              <RegistrationPanel
-                pending={pending}
-                error={error}
-                verificationEnabled={emailVerificationEnabled}
-                onRequestVerification={requestVerification}
-                onBack={() => {
-                  setErrorKey(null)
-                  setView('login')
-                }}
-                invitationField={invitationField}
-                onRegister={(credentials) => void submitRegistration(credentials)}
+      <section className="auth-panel">
+        <div className="auth-panel-content" ref={panelRef}>
+          <AuthBrand />
+          {view === 'registration' ? (
+            <RegistrationPanel
+              plansHref={plansHref}
+              pending={pending}
+              error={error}
+              verificationEnabled={emailVerificationEnabled}
+              onRequestVerification={requestVerification}
+              onBack={() => {
+                setErrorKey(null)
+                setView('login')
+              }}
+              invitationField={invitationField}
+              onRegister={(credentials) => void submitRegistration(credentials)}
+            >
+              {providerButtons}
+            </RegistrationPanel>
+          ) : (
+            <div className="auth-form-view auth-login">
+              <div className="mb-6">
+                <h1 className="text-xl font-semibold text-foreground" tabIndex={-1}>
+                  {t('login.title')}
+                </h1>
+                <p className="sr-only">
+                  {reason === 'session-expired'
+                    ? t('dialog.expiredSubtitle')
+                    : t('dialog.gatedSubtitle')}
+                </p>
+              </div>
+
+              {providerButtons}
+
+              <form
+                className="auth-form"
+                onSubmit={(event) => void submit(event)}
+                aria-label={t('login.formLabel')}
               >
-                {providerButtons}
-              </RegistrationPanel>
-            ) : (
-              <div className="auth-form-view auth-login">
-                <div className="mb-6">
-                  <h1 className="text-xl font-semibold text-foreground" tabIndex={-1}>
-                    {t('login.title')}
-                  </h1>
-                  <p className="mt-2 text-body-sm text-muted-foreground">
-                    {reason === 'session-expired'
-                      ? t('dialog.expiredSubtitle')
-                      : t('dialog.gatedSubtitle')}
-                  </p>
-                </div>
+                <Label className="mt-4 grid gap-2 first:mt-0">
+                  <span>{t('login.emailLabel')}</span>
+                  <Input
+                    name="username"
+                    type="text"
+                    inputMode="email"
+                    value={username}
+                    onChange={(event) => setUsername(event.currentTarget.value)}
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    disabled={pending}
+                    placeholder={t('login.emailPlaceholder')}
+                  />
+                </Label>
 
-                {providerButtons}
-
-                <form
-                  className="auth-form"
-                  onSubmit={(event) => void submit(event)}
-                  aria-label={t('login.formLabel')}
-                >
-                  <Label className="mt-4 grid gap-2 first:mt-0">
-                    <span>{t('login.emailLabel')}</span>
+                <Label className="mt-4 grid gap-2 first:mt-0">
+                  <span>{t('login.passwordLabel')}</span>
+                  <div className="relative">
                     <Input
-                      name="username"
-                      type="text"
-                      inputMode="email"
-                      value={username}
-                      onChange={(event) => setUsername(event.currentTarget.value)}
-                      autoComplete="username"
-                      autoCapitalize="none"
-                      spellCheck={false}
+                      name="password"
+                      type={showPassword ? 'text' : 'password'}
+                      className="pr-10"
+                      value={password}
+                      onChange={(event) => setPassword(event.currentTarget.value)}
+                      autoComplete="current-password"
                       disabled={pending}
-                      placeholder={t('login.emailPlaceholder')}
+                      placeholder={t('login.passwordPlaceholder')}
                     />
-                  </Label>
-
-                  <Label className="mt-4 grid gap-2 first:mt-0">
-                    <span>{t('login.passwordLabel')}</span>
-                    <div className="relative">
-                      <Input
-                        name="password"
-                        type={showPassword ? 'text' : 'password'}
-                        className="pr-10"
-                        value={password}
-                        onChange={(event) => setPassword(event.currentTarget.value)}
-                        autoComplete="current-password"
-                        disabled={pending}
-                        placeholder={t('login.passwordPlaceholder')}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className="absolute right-0.5 top-0.5 text-muted-foreground"
-                        onClick={() => setShowPassword((value) => !value)}
-                        disabled={pending}
-                        aria-label={showPassword ? t('password.hide') : t('password.show')}
-                      >
-                        <Icon name={showPassword ? 'hidden' : 'visible'} />
-                      </Button>
-                    </div>
-                  </Label>
-
-                  <div className="auth-message-slot" aria-live="polite">
-                    {error ? (
-                      <p role="alert" className="auth-error">
-                        {error}
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={pending || !username.trim() || !password}
-                  >
-                    {pending ? (
-                      <>
-                        <Icon name="loading" className="animate-spin" />
-                        {t('login.submitting')}
-                      </>
-                    ) : (
-                      t('login.submit')
-                    )}
-                  </Button>
-                </form>
-
-                <p className="mt-6 flex flex-wrap items-center justify-center gap-1 text-xs text-muted-foreground">
-                  {t('login.noAccount')}
-                  {registrationEnabled ? (
                     <Button
                       type="button"
-                      variant="link"
-                      size="xs"
-                      onClick={() => {
-                        setErrorKey(null)
-                        setView('registration')
-                      }}
+                      variant="ghost"
+                      size="icon-sm"
+                      className="absolute right-0.5 top-0.5 text-muted-foreground"
+                      onClick={() => setShowPassword((value) => !value)}
+                      disabled={pending}
+                      aria-label={showPassword ? t('password.hide') : t('password.show')}
                     >
-                      {t('login.registerLink')}
+                      <Icon name={showPassword ? 'hidden' : 'visible'} />
                     </Button>
+                  </div>
+                </Label>
+
+                <div className="auth-message-slot" aria-live="polite">
+                  {error ? (
+                    <p role="alert" className="auth-error">
+                      {error}
+                    </p>
+                  ) : null}
+                </div>
+
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={pending || !username.trim() || !password}
+                >
+                  {pending ? (
+                    <>
+                      <Icon name="loading" className="animate-spin" />
+                      {t('login.submitting')}
+                    </>
                   ) : (
-                    <span>{t('login.registrationClosed')}</span>
+                    t('login.submit')
                   )}
-                </p>
-                <AuthConsent kind="login" />
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
+                </Button>
+              </form>
+
+              <p className="mt-6 flex flex-wrap items-center justify-center gap-1 text-xs text-muted-foreground">
+                {t('login.noAccount')}
+                {registrationEnabled ? (
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="xs"
+                    onClick={() => {
+                      setErrorKey(null)
+                      setView('registration')
+                    }}
+                  >
+                    {t('login.registerLink')}
+                  </Button>
+                ) : (
+                  <span>{t('login.registrationClosed')}</span>
+                )}
+              </p>
+              <AuthConsent plansHref={plansHref} kind="login" />
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  )
+  return presentation === 'page' ? (
+    <main>{content}</main>
+  ) : (
+    <Overlay onClose={onClose} tier="raised" role="none">
+      {content}
     </Overlay>
   )
 }

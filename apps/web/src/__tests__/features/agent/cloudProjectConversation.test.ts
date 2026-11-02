@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, expect, it, vi } from 'vitest'
+import { DraftSession } from '../../../features/agent/lib/drafts'
 import { useAgentStore } from '../../../features/agent/store'
 import {
   currentCanvasWorkspace,
@@ -11,6 +12,11 @@ import { setClientStorageScope } from '../../../lib/authScope'
 import { bootstrapClientCapabilities } from '../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 import { openCanvas } from '../../helpers/activeProject'
+import {
+  canvasProtocolResponse,
+  installCanvasTestSocket,
+  projectIdFromUrl,
+} from '../../helpers/cloudNodeProtocol'
 
 const conversationId = '163f0e81-1295-4d5c-bf87-0dca82631420'
 afterEach(async () => {
@@ -26,13 +32,18 @@ it('云端项目首次发送先保存项目并使用服务端绑定的会话，�
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   const calls: string[] = []
   let saved = false
+  const created = new Map<string, Record<string, unknown>>()
+  installCanvasTestSocket()
   vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
     const url = String(input)
     const method = init?.method ?? 'GET'
     calls.push(`${method} ${url}`)
     if (url.endsWith('/capabilities'))
       return Response.json({ 'accounts:sync': true, 'agent:chat': true })
-    if (url.endsWith('/projects')) return Response.json({ projects: [], nextCursor: null })
+    const canvas = await canvasProtocolResponse(url, init)
+    if (canvas) return canvas
+    if (new URL(url).pathname.endsWith('/projects'))
+      return Response.json({ projects: [], nextCursor: null })
     if (url.endsWith('/conversation')) {
       expect(saved).toBe(true)
       return Response.json({
@@ -40,17 +51,24 @@ it('云端项目首次发送先保存项目并使用服务端绑定的会话，�
       })
     }
     if (url.includes('/projects/')) {
-      if (method === 'GET') return Response.json({ error: 'project_not_found' }, { status: 404 })
+      const id = projectIdFromUrl(url)
+      if (method === 'GET') {
+        const stored = created.get(id)
+        if (!stored) return Response.json({ error: 'project_not_found' }, { status: 404 })
+        return Response.json(stored)
+      }
       const body = JSON.parse(init!.body as string)
       saved = true
-      return Response.json({
-        id: url.split('/').pop(),
+      const stored = {
+        id,
         ...body,
         revision: body.baseRevision + 1,
         createdAt: 1,
         updatedAt: 1,
         elementCount: 0,
-      })
+      }
+      created.set(id, stored)
+      return Response.json(stored)
     }
     if (url.endsWith('/messages'))
       return Response.json({
@@ -127,12 +145,16 @@ it('重新打开项目读取另一设备绑定的会话，历史加载失败重�
   }
   const requests: string[] = []
   let failHistory = true
+  installCanvasTestSocket()
   vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
     const url = String(input)
     requests.push(`${init?.method ?? 'GET'} ${url}`)
     if (url.endsWith('/capabilities'))
       return Response.json({ 'accounts:sync': true, 'agent:chat': true })
-    if (url.endsWith('/projects')) return Response.json({ projects: [project], nextCursor: null })
+    const canvas = await canvasProtocolResponse(url, init)
+    if (canvas) return canvas
+    if (new URL(url).pathname.endsWith('/projects'))
+      return Response.json({ projects: [project], nextCursor: null })
     if (url.includes('/projects/'))
       return Response.json({ ...project, conversationId, document: { version: 1, elements: [] } })
     if (url.endsWith('/messages')) {
@@ -198,18 +220,42 @@ it('云端详情半天不回也立刻打开项目：本机那份就够开', asyn
     conversationId,
   }
   let detailAsked = false
+  const created = new Map<string, Record<string, unknown>>()
+  installCanvasTestSocket()
   vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
     const url = String(input)
     const method = init?.method ?? 'GET'
     if (url.endsWith('/capabilities'))
       return Response.json({ 'accounts:sync': true, 'agent:chat': true })
-    if (url.endsWith('/projects')) return Response.json({ projects: [project], nextCursor: null })
-    // 项目详情永不回。这正是生产上那 1.5s 的极端形态：它不该挡住切换。
-    // 只挂住读；写是保存旧画布那一路，挂住它测的就不是这件事了。
+    const canvas = await canvasProtocolResponse(url, init)
+    if (canvas) return canvas
+    if (new URL(url).pathname.endsWith('/projects'))
+      return Response.json({ projects: [project], nextCursor: null })
+    // 这个项目的详情永不回。这正是生产上那 1.5s 的极端形态：它不该挡住切换。
+    // 首页新建的项目仍要能落成空画布，挂住它测的就不是这件事了。
     if (url.includes('/projects/')) {
-      if (method !== 'GET') return Response.json({ ...project, elementCount: 0 })
-      detailAsked = true
-      return new Promise<Response>(() => {})
+      const id = projectIdFromUrl(url)
+      if (id === project.id && method === 'GET') {
+        detailAsked = true
+        return new Promise<Response>(() => {})
+      }
+      if (method === 'GET') {
+        const stored = created.get(id)
+        if (!stored) return Response.json({ error: 'project_not_found' }, { status: 404 })
+        return Response.json(stored)
+      }
+      const body = JSON.parse(String(init?.body))
+      const stored = {
+        id,
+        name: body.name,
+        revision: body.baseRevision + 1,
+        createdAt: 1,
+        updatedAt: 1,
+        elementCount: 0,
+        document: body.document,
+      }
+      created.set(id, stored)
+      return Response.json(stored)
     }
     if (url.endsWith('/messages'))
       return Response.json({ messages: [], turns: [], activeTurn: null })
@@ -338,4 +384,72 @@ it('目录接收删除墓碑后隐藏云端项目，仍保留本机内容，恢�
   await useCanvasProjectStore.getState().refreshCloud()
   state = useCanvasProjectStore.getState()
   expect(projectCatalog(state.projects, state.cloudCatalog)).toMatchObject([{ id: summary.id }])
+})
+
+it('项目数已到上限时首页发送干净收手：不挂失败卡、不改名、不再发别的请求（BUG-54）', async () => {
+  history.replaceState(null, '', '/')
+  setClientStorageScope(crypto.randomUUID())
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  const calls: string[] = []
+  installCanvasTestSocket()
+  vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
+    const url = String(input)
+    const method = init?.method ?? 'GET'
+    calls.push(`${method} ${url}`)
+    if (url.endsWith('/capabilities'))
+      return Response.json({ 'accounts:sync': true, 'agent:chat': true })
+    if (new URL(url).pathname.endsWith('/projects'))
+      return Response.json({ projects: [], nextCursor: null })
+    if (url.includes('/projects/') && method === 'PUT')
+      return Response.json({ error: 'project_quota_exceeded' }, { status: 413 })
+    return Response.json({ error: 'unexpected' }, { status: 500 })
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  useCanvasProjectStore.setState({
+    projects: [],
+    activeId: null,
+    loaded: false,
+    error: null,
+    cloudLoading: false,
+    cloudCatalog: {},
+  })
+  await openCanvas()
+  useAgentStore.setState({
+    loaded: true,
+    conversationId: null,
+    messages: [],
+    turns: {},
+    turn: 'idle',
+    stopping: false,
+    activeTurn: null,
+    error: null,
+    historyFailed: false,
+    historyLoading: false,
+  })
+  const session = new DraftSession(`quota-home:${crypto.randomUUID()}`)
+  await session.ready
+  session.update({ prompt: '第一句话', references: [] })
+  const notices: string[] = []
+  const sentBefore = calls.length
+  await useAgentStore.getState().submitDraft({
+    session,
+    snapshot: session.getSnapshot().draft,
+    mode: 'image',
+    onConsumed: () => {},
+    onNotice: (notice) => notices.push(notice),
+  })
+
+  const state = useAgentStore.getState()
+  expect(state.error).toBeNull()
+  expect(state.turn).toBe('idle')
+  expect(state.messages).toEqual([])
+  // 草稿放回输入框，但不另弹「没发出去」或「已中止」：上限提示已经在画布上。
+  expect(notices).toEqual([])
+  expect(session.getSnapshot().draft).toMatchObject({
+    prompt: '第一句话',
+    submission: expect.objectContaining({ text: '第一句话' }),
+  })
+  const after = calls.slice(sentBefore)
+  expect(after.filter((call) => call.includes('/canvas/name'))).toEqual([])
+  expect(after.filter((call) => /conversation|turns|submissions/.test(call))).toEqual([])
 })

@@ -1,6 +1,6 @@
 import type { AuthUserView } from '@image-playground/shared'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
-import { signalBootReady } from '../boot/ready'
+import { signalBootReady, signalBootStage } from '../boot/ready'
 import { Button } from '../components/ui/button'
 import { Icon } from '../components/ui/icon'
 import PricingSheet from '../features/pricing/PricingSheet'
@@ -30,6 +30,22 @@ import { SessionExpiredCard } from './SessionExpiredCard'
 const App = lazy(() => import('../App'))
 
 type Phase = 'checking' | 'ready' | 'reconnecting'
+
+/**
+ * `login=1` is a one-shot intent used by entry points that cannot open the
+ * dialog themselves (a fresh page or a logout reload). Do not consume it until
+ * the session probe has settled: a signed-in user must never see a login
+ * dialog, and an unresolved probe must not make the marketing/workspace
+ * boundary visible.
+ */
+function consumeLoginIntent(open?: () => void): void {
+  if (typeof window === 'undefined') return
+  const url = new URL(window.location.href)
+  if (url.searchParams.get('login') !== '1') return
+  url.searchParams.delete('login')
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+  open?.()
+}
 
 export function LoadingScreen() {
   const { t } = useTranslation('auth')
@@ -92,6 +108,7 @@ export function AuthGate() {
     let retryTimer: number | undefined
     const abortController = new AbortController()
     async function boot(): Promise<void> {
+      signalBootStage('account')
       try {
         setRecoveryBackend(
           !accountsLoginEnabled && localRecoveryEnabled ? runtime.bff.baseUrl : null,
@@ -100,7 +117,9 @@ export function AuthGate() {
           const id = localRecoveryEnabled ? await recoverStorageUser() : null
           if (cancelled) return
           setClientStorageScope(id)
+          signalBootStage('workspace')
           setPhase('ready')
+          consumeLoginIntent()
           return
         }
         // 没有会话不是错误：访客照样进工作台，按下需要账号的动作时再弹登录框。
@@ -118,6 +137,7 @@ export function AuthGate() {
         setClientStorageScope(currentUser?.id ?? null)
         if (!currentUser) {
           // 匿名可读：channel 清单只列出这个部署提供哪些模型，不含任何凭据。
+          signalBootStage('account-data')
           await bootstrapChannels(
             runtime.bff.enabled,
             runtime.bff.baseUrl,
@@ -129,9 +149,12 @@ export function AuthGate() {
           if (pendingSend) setLoginReason('gated-action')
           noteBrowserSession(null)
           setUser(null)
+          signalBootStage('workspace')
           setPhase('ready')
+          consumeLoginIntent(() => setLoginReason('gated-action'))
           return
         }
+        signalBootStage('account-data')
         const [adopted] = await Promise.all([
           // 必须跑在 <App/> 之前：store 是 lazy 加载的，一旦求值就读走 IndexedDB 与 persist key。
           adoptAnonymousStorage(),
@@ -143,7 +166,9 @@ export function AuthGate() {
           setAdoptedTaskCount(adopted)
           noteBrowserSession(currentUser.id)
           setUser(currentUser)
+          signalBootStage('workspace')
           setPhase('ready')
+          consumeLoginIntent()
         }
       } catch {
         if (cancelled) return
@@ -185,11 +210,24 @@ export function AuthGate() {
   useEffect(() => subscribeLoginPrompt(setLoginReason), [])
 
   const logout = useCallback(async (clearLocalData: boolean) => {
+    let signedOut = false
     try {
       await logoutUser()
-      noteBrowserSession(null)
+      signedOut = true
       if (clearLocalData) await clearScopedClientStorage()
     } finally {
+      // Keep the existing session hint when the API rejected logout: reloading
+      // must probe the server session rather than silently presenting a guest UI.
+      if (signedOut) {
+        noteBrowserSession(null)
+        // A reload is required here because several account-scoped stores are
+        // module singletons. Keep the exact workspace URL while asking the next
+        // boot to open the dialog; this prevents the old account's in-memory
+        // state from surviving an account switch.
+        const url = new URL(window.location.href)
+        url.searchParams.set('login', '1')
+        window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+      }
       window.location.reload()
     }
   }, [])

@@ -5,7 +5,7 @@ import {
 } from '@image-playground/shared'
 import type { ReactNode } from 'react'
 import Credits from '../../../components/Credits'
-import { ModelLogo } from '../../../components/ModelIdentity'
+import { compactModelName, ModelLogo } from '../../../components/ModelIdentity'
 import { Icon, type IconName } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -34,7 +34,10 @@ function VideoDetail({
 
 export function AgentVideoDetails({ video }: { video: VideoGenerationRecord }) {
   const { t } = useTranslation(['agent', 'video'])
-  const model = VIDEO_MODEL_SUPPORT[video.model]?.label ?? video.model
+  const model = compactModelName(
+    video.model,
+    VIDEO_MODEL_SUPPORT[video.model]?.label ?? video.model,
+  )
   return (
     <div
       className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground"

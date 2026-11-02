@@ -1,3 +1,4 @@
+import { type AgentSurface, DEFAULT_AGENT_SURFACE } from '@image-playground/shared'
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
@@ -87,6 +88,63 @@ async function originExperience(
     else originTurnId = payload.turnId
   }
   return 'chat'
+}
+
+/** 唤醒与续跑往回追发起消息的最多跳数；连续唤醒本身有上限（见 `consecutiveAgentWakes`），这里留足余量。 */
+const SURFACE_ORIGIN_MAX_HOPS = 16
+
+/**
+ * 这一轮的模式（Agent 或画布），决定模型拿到哪套工具与提示；与项目入口无关。
+ *
+ * 用户消息按它自己声明的；没声明（旧客户端）按 {@link DEFAULT_AGENT_SURFACE}。
+ * 唤醒与续跑沿已消费的来源追到发起它的用户消息，继承那一条的模式。画布阶段运行的唤醒一定是画布：
+ * 阶段授权只在画布模式里登记得出来，旧授权的发起消息没有声明模式也不能因此丢掉节点工具。
+ */
+export async function loadAgentSurface(
+  conversationId: string,
+  source: AgentTurnSource,
+): Promise<AgentSurface> {
+  if (source.kind === 'message') return source.message.surface ?? DEFAULT_AGENT_SURFACE
+  // 续跑一轮画布阶段运行的唤醒（服务重启后接着处理）与那轮唤醒本身一样，是画布。
+  if (source.kind === 'wake' && source.wake.stageRun) return 'canvas'
+  if (source.kind === 'resume' && source.resume.wake?.stageRun) return 'canvas'
+  let originTurnId =
+    source.kind === 'wake'
+      ? source.wake.turnId
+      : (source.resume.wake?.turnId ?? source.resume.interruptedTurnId)
+  const visited = new Set<string>()
+  // 追溯有上限：一串连续唤醒或续跑不该把一次起轮放大成几十次查询；追不到头就按默认（Agent 模式）。
+  while (!visited.has(originTurnId) && visited.size < SURFACE_ORIGIN_MAX_HOPS) {
+    visited.add(originTurnId)
+    // 同一轮可能合并取走了好几条；每跳只取一条：有用户消息就取用户消息（它直接给出答案），
+    // 否则取最新那条接着往回追。只选 payload 一列，走 `idx_agent_inbox_consumed_turn`（会话 + 消费轮次，只含已取走的），排序只在这一轮取走的那几条里做。
+    const [origin] = await db
+      .select({ payload: schema.agent_inbox.payload })
+      .from(schema.agent_inbox)
+      .where(
+        and(
+          eq(schema.agent_inbox.conversation_id, conversationId),
+          eq(schema.agent_inbox.status, 'consumed'),
+          eq(schema.agent_inbox.consumed_turn_id, originTurnId),
+        ),
+      )
+      .orderBy(
+        sql`(${schema.agent_inbox.payload} ->> 'text') is not null desc`,
+        desc(schema.agent_inbox.seq),
+      )
+      .limit(1)
+    if (!origin) break
+    const payload = origin.payload
+    // JSONB 的类型只是声明；坏掉的记录（null、标量）追不下去，按默认处理，不让整轮准备抛错。
+    if (!payload || typeof payload !== 'object') break
+    if ('text' in payload) return payload.surface ?? DEFAULT_AGENT_SURFACE
+    if ('stageRun' in payload && payload.stageRun) return 'canvas'
+    if ('interruptedTurnId' in payload) {
+      if (payload.wake?.stageRun) return 'canvas'
+      originTurnId = payload.wake?.turnId ?? payload.interruptedTurnId
+    } else originTurnId = payload.turnId
+  }
+  return DEFAULT_AGENT_SURFACE
 }
 
 /**

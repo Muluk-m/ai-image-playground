@@ -29,6 +29,13 @@ it('非图片与超大图各提示一次', () => {
   expect(useStore.getState().showToast).toHaveBeenCalledTimes(2)
 })
 
+it('keepOversized：超大的图留给输入框就地标红、拦住发送，这里不丢也不弹提示', () => {
+  const huge = image('huge.png', MAX_IMAGE_BYTES + 1)
+
+  expect(acceptImageFiles([huge], { keepOversized: true })).toEqual([huge])
+  expect(useStore.getState().showToast).not.toHaveBeenCalled()
+})
+
 it('有图留下时，非图片按个数提示跳过了几个', () => {
   const png = image('a.png', 1)
   const files = [png, new File(['x'], 'a.txt'), new File(['x'], 'b.pdf')]

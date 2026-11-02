@@ -15,8 +15,17 @@
       "trialTitle": "Free trial",
       "trialBody": "New accounts get trial credits and can start creating right away.",
       "signInUp": "Sign in / Register",
-      "help": "Help center",
+      "help": "Help & guide",
       "viewPlans": "View plans"
+    },
+    "contact": {
+      "menu": "Contact us",
+      "title": "Contact us",
+      "email": "Email",
+      "copy": "Copy",
+      "copied": "Copied",
+      "copyFailed": "Copy failed",
+      "send": "Send email"
     }
   },
   "brand": {
@@ -37,9 +46,7 @@
     "viewAll": "View all"
   },
   "logout": {
-    "title": "Sign out",
-    "clearLocalData": "Also clear the data in this browser",
-    "confirm": "Sign out"
+    "title": "Sign out"
   },
   "sync": {
     "title": "Save status",
@@ -89,7 +96,7 @@
     "subtitle": "Start with a prompt or reference image. Keep editing from there."
   },
   "createTarget": {
-    "aria": "Where this prompt goes",
+    "aria": "Choose creation mode",
     "generate": "Quick generate",
     "chat": "Smart creation",
     "canvas": "Canvas"

@@ -287,12 +287,8 @@ export default function ProductionWorkspace({
           </div>
         </aside>
       )}
-      <section className="production-conversation" aria-label={t('assistant')}>
+      <section className="production-conversation" aria-label={t('document')}>
         <header className="production-chat-header">
-          <span>
-            <Icon name="generate" />
-            {t('assistant')}
-          </span>
           <div>
             {doc && !assetsOpen && (
               <Button

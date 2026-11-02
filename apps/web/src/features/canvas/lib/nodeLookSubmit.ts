@@ -69,7 +69,7 @@ interface PreparedNodeLook {
 /**
  * 组装模板请求。素材、模型或图片没准备好就停住，调用方此时还不能新建节点。
  */
-export async function prepareNodeLook(
+async function prepareNodeLook(
   look: LookItem,
   typed: string,
   references: readonly NodeReference[],
@@ -173,7 +173,7 @@ function finishLook(look: LookItem): void {
 }
 
 /** 把已经组装好的模板请求写进这张图片节点。 */
-export function commitNodeLook(
+function commitNodeLook(
   editor: CanvasEditor,
   doc: Y.Doc,
   nodeId: string,

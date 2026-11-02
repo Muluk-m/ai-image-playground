@@ -8,10 +8,15 @@ import {
   canvasLinkAllowed,
   canvasOrigin,
   canvasResults,
+  canvasText,
+  canvasUploadClaimNextChange,
+  canvasUploadingElsewhere,
   connectCanvasNodes,
   createCanvasGroup,
   disconnectCanvasNodes,
   type ImageNodeData,
+  imagePreset,
+  imagePresetPrompt,
   moveCanvasGroups,
   moveCanvasNodes,
   type PendingGeneration,
@@ -37,11 +42,14 @@ import {
   ReactFlowProvider,
   type Rect,
   SelectionMode,
+  useStoreApi,
 } from '@xyflow/react'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { useNodeMedia } from './NodeMediaImage'
 import '@xyflow/react/dist/style.css'
+import { nodeCardSize } from '@image-playground/shared'
 import {
+  type CSSProperties,
   createContext,
   lazy,
   memo,
@@ -58,35 +66,46 @@ import type * as Y from 'yjs'
 import { ImagePreview } from '../../../components/Lightbox'
 import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
-import { Icon } from '../../../components/ui/icon'
+import { Icon, type IconName } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
-import { useTranslation } from '../../../i18n'
+import { i18next, useTranslation } from '../../../i18n'
 import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
+import { getStoredChannels, subscribeChannels } from '../../../lib/channels/channelStore'
 import { videoOutputUrl } from '../../../lib/channels/queueClient'
+import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { downloadBlob } from '../../../lib/downloadImages'
-import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
-import { MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
+import { fetchDownloadBlob } from '../../../lib/downloadRequest'
+import { reportDeliveryFailure } from '../../../lib/errorReporting'
+import {
+  collectDroppedFiles,
+  prepareAcceptedImageFiles,
+  UploadImageTooLargeError,
+} from '../../../lib/imageFiles'
+import { MAX_IMAGE_MB, MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
 import { useStore } from '../../../store'
 import { useTheme } from '../../../theme/useTheme'
 import { useActiveLook } from '../../library/lib/activeLook'
-import { checkLookSubmission } from '../../library/lib/lookSubmit'
 import { useLibraryStore } from '../../library/store'
 import type { AssetRecord } from '../../library/types'
 import PlayBadge from '../../video/components/PlayBadge'
 import { arrangementKey, arrangeNodes, type CanvasPlacement } from '../lib/arrangeNodes'
+import { useCanvasAssetsEntry } from '../lib/assetsEntry'
+import type { CanvasAssetItem } from '../lib/canvasAssets'
 import { newElementId } from '../lib/canvasDoc'
+import { useCanvasResultAssets } from '../lib/canvasResultAssets'
 import {
   type CanvasViewportBox,
   planCanvasViewport,
   withLivePositions,
 } from '../lib/canvasViewport'
 import type { CanvasEditor } from '../lib/editor'
+import { canvasExportEntries } from '../lib/exportImages'
 import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
 import { openLocalNodeCanvas } from '../lib/localNodeCanvas'
+import { transferMedia } from '../lib/mediaTransfer'
 import { assetNodeContext } from '../lib/nodeAssetGeneration'
 import { ASSET_DRAG_TYPE, insertAssetNode, saveNodeAsAsset } from '../lib/nodeAssets'
-import type { NodeBatchPlan } from '../lib/nodeBatch'
 import {
   type CreateNodeKind,
   copyNodes,
@@ -103,8 +122,16 @@ import {
   linkFromDrag,
   referenceFileIds,
 } from '../lib/nodeCanvasFlow'
-import { fillImageNode, resumeNodeGenerations, submitNodeImage } from '../lib/nodeCanvasGenerate'
-import { TEXT_CARD_HEIGHT, TEXT_CARD_WIDTH } from '../lib/nodeCanvasPlace'
+import { type NodeCanvasFocus, registerNodeCanvasFocus } from '../lib/nodeCanvasFocus'
+import {
+  fillImageNode,
+  InvalidImageFileError,
+  placeDecodedImage,
+  type ReadImageFile,
+  readImageFile,
+  resumeNodeGenerations,
+  submitNodeImage,
+} from '../lib/nodeCanvasGenerate'
 import {
   addCanvasReference,
   CanvasReferenceLimitError,
@@ -112,27 +139,32 @@ import {
   type ReferenceSlot,
   uploadCanvasReference,
 } from '../lib/nodeCanvasReferences'
-import { spreadNodeResults } from '../lib/nodeCanvasResults'
+import { insertResultNodes, spreadNodeResults } from '../lib/nodeCanvasResults'
 import { clearNodeCanvasSelection, setNodeCanvasSelection } from '../lib/nodeCanvasSelection'
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
-import { commitNodeLook, prepareNodeLook, submitNodeWithLook } from '../lib/nodeLookSubmit'
+import { createImagePresetNode } from '../lib/nodeImagePreset'
+import { submitNodeWithLook } from '../lib/nodeLookSubmit'
 import { useStoryboardGridSplitting } from '../lib/nodeStoryboardGrid'
+import { generateTextNode } from '../lib/textGeneration'
+import { useCanvasUploaderId } from '../lib/uploadSession'
 import { useAgentNodeRun } from '../lib/useAgentNodeRun'
-import { clearNodeReferenceDraft } from '../lib/useNodeReferenceDraft'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
 import { CanvasLodProvider, CanvasOverview, NodeLodCard, useCanvasLod } from './CanvasLod'
 import CanvasVideoPlayer from './CanvasVideoPlayer'
 import FilmExportStatus from './FilmExportStatus'
 import ImageNodeComposer from './ImageNodeComposer'
+import MediaTransferCard from './MediaTransferCard'
 import NodeAddMenu from './NodeAddMenu'
 import NodeAssetPicker from './NodeAssetPicker'
+import NodeAssetsPanel from './NodeAssetsPanel'
 import NodeAssetTools from './NodeAssetTools'
 import NodeBatchDialog from './NodeBatchDialog'
 import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
-import NodeComposerFrame from './NodeComposerFrame'
+import NodeConnectionLine from './NodeConnectionLine'
 import NodeFlowEdge from './NodeFlowEdge'
 import NodeGroup, { RenameGroupContext } from './NodeGroup'
+import NodeImagePresetMenu from './NodeImagePresetMenu'
 import NodePorts, { SpawnContext } from './NodePorts'
 import NodeReferenceEditor from './NodeReferenceEditor'
 import NodeResultPicker from './NodeResultPicker'
@@ -142,14 +174,17 @@ import NodeTextBody, { TextCanvasContext } from './NodeTextBody'
 import NodeTimeline, { NodeTimelineContext } from './NodeTimeline'
 import NodeVideoTools, { NodeVideoPlayheadContext } from './NodeVideoTools'
 import ScriptBriefDialog from './ScriptBriefDialog'
+import TextNodeComposer from './TextNodeComposer'
 import TimelineEditorHost from './TimelineEditor'
 import VideoNodeComposer from './VideoNodeComposer'
 
+/** 批量导入时同时解码的张数。 */
+const IMPORT_DECODE_CONCURRENCY = 4
 const NodeImageEditor = lazy(() => import('./NodeImageEditor'))
 
 type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation; group?: CanvasGroup }>
 const edgeTypes = { reference: NodeFlowEdge }
-const BLANK_IMAGE_DRAFT = '__blank-image__'
+const NODE_CAPTION_CLEARANCE = 30
 
 /** 位图仍在旧存档的 `files` 里（fileId → dataUrl）；节点只存引用。 */
 const FilesContext = createContext<Readonly<Record<string, string>>>({})
@@ -161,6 +196,19 @@ const EditNodeContext = createContext<
   ) => void
 >(() => {})
 const PreviewContext = createContext<(source: string) => void>(() => {})
+
+function nodeIconName(node: CanvasNode): IconName {
+  if ('meta' in node.data && node.data.meta?.nodeKind === 'asset') {
+    const kind = node.type === 'image' ? node.data.meta.assetKind : undefined
+    if (kind === 'person') return 'character'
+    if (kind === 'location') return 'location'
+    if (kind === 'product') return 'product'
+    if (kind === 'prop') return 'toolbox'
+    return 'layers'
+  }
+  const kind = nodeKind(node)
+  return kind === 'text' ? 'text' : kind === 'video' ? 'video' : 'image'
+}
 
 function NodeCaption({ node }: { node: CanvasNode }) {
   const { t } = useTranslation('canvas')
@@ -179,18 +227,7 @@ function NodeCaption({ node }: { node: CanvasNode }) {
   const title = 'name' in node.data ? node.data.name : undefined
   return (
     <div className="studio-node-caption text-xs text-muted-foreground">
-      <Icon
-        name={
-          'meta' in node.data && node.data.meta?.nodeKind === 'asset'
-            ? 'layers'
-            : kind === 'text'
-              ? 'text'
-              : kind === 'video'
-                ? 'video'
-                : 'image'
-        }
-        size="xs"
-      />
+      <Icon name={nodeIconName(node)} size="xs" />
       {editing ? (
         <Input
           className="nodrag nopan h-6 w-48 text-xs"
@@ -234,7 +271,6 @@ function NodeResize({ node, selected }: { node: CanvasNode; selected?: boolean }
       isVisible={selected}
       minWidth={180}
       minHeight={120}
-      keepAspectRatio={node.type !== 'text'}
       onResizeEnd={(_e, params) =>
         update(node.id, { x: params.x, y: params.y, width: params.width, height: params.height })
       }
@@ -283,9 +319,7 @@ function useDocumentSnapshot(canvas: NodeCanvasDocument): CanvasSnapshot {
 }
 
 function toFlowNode(node: CanvasNode, selected: boolean): FlowNode {
-  // 旧的短文本曾被量成两个字宽，加号会盖住正文。显示时至少给一张完整的卡。
-  const width = node.type === 'text' ? Math.max(node.width, TEXT_CARD_WIDTH) : node.width
-  const height = node.type === 'text' ? Math.max(node.height, TEXT_CARD_HEIGHT) : node.height
+  const { width, height } = nodeCardSize(node)
   return {
     id: node.id,
     type: nodeKind(node),
@@ -320,9 +354,48 @@ function nodeIdAtPoint(x: number, y: number): string | null {
   }
   return null
 }
+function pendingConnectionPath(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  bounds: DOMRect,
+): string {
+  const fromX = from.x - bounds.left
+  const fromY = from.y - bounds.top
+  const toX = to.x - bounds.left
+  const toY = to.y - bounds.top
+  const direction = toX >= fromX ? 1 : -1
+  const bend = Math.max(48, Math.abs(toX - fromX) * 0.45)
+  return `M${fromX},${fromY} C${fromX + bend * direction},${fromY} ${toX - bend * direction},${toY} ${toX},${toY}`
+}
+function PendingConnectionOverlay({
+  pending,
+  container,
+}: {
+  pending: { from: { x: number; y: number }; to: { x: number; y: number } }
+  container: { current: HTMLElement | null }
+}) {
+  const element = container.current
+  const bounds = element?.getBoundingClientRect()
+  if (!element || !bounds) return null
+  const path = pendingConnectionPath(pending.from, pending.to, bounds)
+  return (
+    // design-allow inline-svg: 拖线落到空白时的持久预览路径，不是图标。
+    <svg
+      className="studio-node-pending-connection"
+      viewBox={`0 0 ${element.clientWidth} ${element.clientHeight}`}
+      width={element.clientWidth}
+      height={element.clientHeight}
+      aria-hidden="true"
+    >
+      <path d={path} className="studio-node-pending-connection-path" />
+      <path d={path} pathLength={100} className="studio-node-pending-connection-energy" />
+    </svg>
+  )
+}
 
-function Pending({ pending }: { pending: PendingGeneration }) {
-  const { t } = useTranslation('canvas')
+function Pending({ pending, nodeId }: { pending: PendingGeneration; nodeId: string }) {
+  const run = useContext(NodeStoryboardContext)?.onRun
+  const { t } = useTranslation(['canvas', 'common'])
   const status =
     pending.type === 'generation' ? (pending.errorCode ? 'error' : 'loading') : pending.status
   const label =
@@ -333,16 +406,73 @@ function Pending({ pending }: { pending: PendingGeneration }) {
         : t('placeholder.generating')
   return (
     <div className="studio-node-pending text-sm" data-failed={status !== 'loading' || undefined}>
-      {label}
+      <div className="flex flex-col items-center gap-3">
+        <span>{label}</span>
+        {status !== 'loading' && run && (
+          <Button
+            size="sm"
+            className="nodrag nopan"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation()
+              run([nodeId])
+            }}
+          >
+            <Icon name="refresh" />
+            {t('common:action.retry')}
+          </Button>
+        )}
+      </div>
     </div>
   )
 }
 
-function Picture({ fileId, rotation }: { fileId?: string; rotation?: number }) {
+type UploadClaimData = Parameters<typeof canvasUploadingElsewhere>[0]
+
+/**
+ * 别的设备声明在传、还没过期（canvasUploadingElsewhere）。声明到点过期时没有别的改动会触发重渲染，
+ * 所以按 canvasUploadClaimNextChange 定一个时钟，到点自己再算一次。
+ */
+export function useUploadingElsewhere(data: UploadClaimData): boolean {
+  const [tick, setTick] = useState(0)
+  const device = useCanvasUploaderId()
+  const now = Date.now()
+  const next = canvasUploadClaimNextChange(data, device, now)
+  useEffect(() => {
+    if (next === undefined) return
+    // setTimeout 的延迟超过 2^31-1 毫秒会立刻触发，分段等：没到点的那次重渲染带着新的 tick 再定一次。
+    const timer = setTimeout(
+      () => setTick((tick) => tick + 1),
+      Math.min(Math.max(next - Date.now(), 0) + 1, 2 ** 31 - 1),
+    )
+    return () => clearTimeout(timer)
+  }, [next, tick])
+  return canvasUploadingElsewhere(data, device, now)
+}
+
+function Picture({
+  fileId,
+  rotation,
+  upload,
+}: {
+  fileId?: string
+  rotation?: number
+  /** 节点 data，用来判断是不是别的设备在传（useUploadingElsewhere）。 */
+  upload: UploadClaimData
+}) {
   const { t } = useTranslation('canvas')
+  const uploadingElsewhere = useUploadingElsewhere(upload)
   const files = useContext(FilesContext)
   const source = useNodeMedia(fileId ? files[fileId] : undefined)
-  if (!source) return <div className="studio-node-missing text-sm">{t('nodes.mediaMissing')}</div>
+  if (!source)
+    return (
+      <div className="studio-node-missing text-sm">
+        {/* 别的设备还在上传的图片：文档里先到的只有它的本机 fileId，原图要等那边传完。 */}
+        {fileId && uploadingElsewhere && !files[fileId]
+          ? t('nodes.mediaUploading')
+          : t('nodes.mediaMissing')}
+      </div>
+    )
   return (
     <img
       src={source}
@@ -361,21 +491,14 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
   const preview = useContext(PreviewContext)
   const files = useContext(FilesContext)
   const uploadInput = useRef<HTMLInputElement>(null)
-  const lod = useCanvasLod()
-  if (lod === 'card')
-    return (
-      <NodeLodCard
-        label={node?.type === 'image' ? node.data.name || t('nodes.addImage') : undefined}
-      />
-    )
   if (node?.type !== 'image') return null
   const { pending, fileId, rotation } = node.data
   const empty = !pending && !fileId
+  const pendingAsset = node.data.meta?.nodeKind === 'asset' && !fileId && !node.data.mediaId
   return (
     <>
       <NodePorts nodeId={node.id} />
       <NodeCaption node={node} />
-      <NodeResize node={node} selected={selected} />
       {empty && selected && (
         <div className="studio-node-upload nodrag nopan">
           <Button
@@ -406,18 +529,24 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
       <div
         className="studio-node studio-node--image"
         data-rotated={rotation ? true : undefined}
+        data-asset-pending={pendingAsset || undefined}
         onDoubleClick={(e) => {
           e.stopPropagation()
           if (fileId && files[fileId]) preview(files[fileId])
         }}
       >
+        {pendingAsset && (
+          <span className="absolute right-3 top-3 rounded-full bg-warning/15 px-2 py-1 text-xs font-medium text-warning">
+            {t('nodes.assetPending')}
+          </span>
+        )}
         {fileId ? (
-          <Picture fileId={fileId} rotation={rotation} />
+          <Picture fileId={fileId} rotation={rotation} upload={node.data} />
         ) : pending ? (
-          <Pending pending={pending} />
+          <Pending pending={pending} nodeId={node.id} />
         ) : (
           <div className="studio-node-empty">
-            <Icon name={node.data.meta?.nodeKind === 'asset' ? 'layers' : 'image'} size="lg" />
+            <Icon name={nodeIconName(node)} size="lg" />
             {node.data.meta?.nodeKind === 'asset' && (
               <div className="px-5 text-center">
                 <p className="text-sm font-medium">{node.data.name}</p>
@@ -430,7 +559,7 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
         )}
         {fileId && pending && (
           <div className="absolute inset-x-0 bottom-0 bg-background/80 py-2">
-            <Pending pending={pending} />
+            <Pending pending={pending} nodeId={node.id} />
           </div>
         )}
       </div>
@@ -438,23 +567,14 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
   )
 })
 
-const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProps<FlowNode>) {
+const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode>) {
   const { t } = useTranslation('canvas')
   const files = useContext(FilesContext)
   const [playing, setPlaying] = useState(false)
   const playheads = useContext(NodeVideoPlayheadContext)
-  const lod = useCanvasLod()
   const poster = useNodeMedia(
-    lod === 'card' || !node || !('fileId' in node.data) || !node.data.fileId
-      ? undefined
-      : files[node.data.fileId],
+    !node || !('fileId' in node.data) || !node.data.fileId ? undefined : files[node.data.fileId],
   )
-  if (lod === 'card')
-    return (
-      <NodeLodCard
-        label={node && 'name' in node.data && node.data.name ? node.data.name : t('nodes.addVideo')}
-      />
-    )
   if (!node || (node.type !== 'video' && node.type !== 'image')) return null
   const { fileId, rotation, pending } = node.data
   const video = node.type === 'video' ? node.data.video : undefined
@@ -463,10 +583,9 @@ const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProp
       <>
         <NodePorts nodeId={node.id} />
         <NodeCaption node={node} />
-        <NodeResize node={node} selected={selected} />
         <div className="studio-node studio-node--video">
           {pending ? (
-            <Pending pending={pending} />
+            <Pending pending={pending} nodeId={node.id} />
           ) : (
             <div className="studio-node-empty">
               <Icon name="video" size="lg" />
@@ -479,6 +598,7 @@ const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProp
     return (
       <>
         <NodePorts nodeId={node.id} />
+        <NodeCaption node={node} />
         <div
           className="studio-node studio-node--video nodrag nopan"
           data-rotated={rotation ? true : undefined}
@@ -503,10 +623,9 @@ const VideoNode = memo(function VideoNode({ data: { node }, selected }: NodeProp
     <>
       <NodePorts nodeId={node.id} />
       <NodeCaption node={node} />
-      <NodeResize node={node} selected={selected} />
       <div className="studio-node studio-node--video" data-rotated={rotation ? true : undefined}>
         {fileId ? (
-          <Picture fileId={fileId} rotation={rotation} />
+          <Picture fileId={fileId} rotation={rotation} upload={node.data} />
         ) : (
           <div className="studio-node-empty">
             <Icon name="video" size="lg" />
@@ -667,7 +786,10 @@ function contentBounds({ nodes, annotations }: CanvasSnapshot): Rect | null {
     maxX = Math.max(maxX, right)
     maxY = Math.max(maxY, bottom)
   }
-  for (const node of nodes) include(node.x, node.y, node.x + node.width, node.y + node.height)
+  for (const node of nodes) {
+    const { width, height } = nodeCardSize(node)
+    include(node.x, node.y, node.x + width, node.y + height)
+  }
   for (const one of annotations) {
     const bounds = annotationBounds(one)
     include(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height)
@@ -676,8 +798,12 @@ function contentBounds({ nodes, annotations }: CanvasSnapshot): Rect | null {
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 }
 
-/** 定位用文档里的盒子，不依赖当前挂上的节点。文本按显示尺寸计。 */
-function boundsOf(snapshot: CanvasSnapshot, ids?: ReadonlySet<string>): Rect | null {
+/** Use the same display geometry for navigation and culling without rewriting document data. */
+function boundsOf(
+  snapshot: CanvasSnapshot,
+  ids?: ReadonlySet<string>,
+  liveNodes?: readonly FlowNode[],
+): Rect | null {
   let minX = Number.POSITIVE_INFINITY
   let minY = Number.POSITIVE_INFINITY
   let maxX = Number.NEGATIVE_INFINITY
@@ -689,14 +815,30 @@ function boundsOf(snapshot: CanvasSnapshot, ids?: ReadonlySet<string>): Rect | n
     maxX = Math.max(maxX, x + width)
     maxY = Math.max(maxY, y + height)
   }
+  const liveById = new Map(
+    liveNodes
+      ?.filter((node) => node.data.node)
+      .map(
+        (node) =>
+          [node.id, { ...node.data.node!, x: node.position.x, y: node.position.y }] as const,
+      ),
+  )
+  const seenNodeIds = new Set<string>()
   for (const group of snapshot.groups ?? []) {
     if (!ids || ids.has(group.id)) include(group.x, group.y, group.width, group.height)
   }
   for (const node of snapshot.nodes) {
     if (ids && !ids.has(node.id)) continue
-    const width = node.type === 'text' ? Math.max(node.width, TEXT_CARD_WIDTH) : node.width
-    const height = node.type === 'text' ? Math.max(node.height, TEXT_CARD_HEIGHT) : node.height
-    include(node.x, node.y, width, height)
+    const current = liveById.get(node.id) ?? node
+    const { width, height } = nodeCardSize(current)
+    include(current.x, current.y, width, height)
+    seenNodeIds.add(node.id)
+  }
+  for (const [id, node] of liveById) {
+    if (!seenNodeIds.has(id) && (!ids || ids.has(id))) {
+      const { width, height } = nodeCardSize(node)
+      include(node.x, node.y, width, height)
+    }
   }
   for (const annotation of snapshot.annotations) {
     if (ids && !ids.has(annotation.id)) continue
@@ -707,6 +849,70 @@ function boundsOf(snapshot: CanvasSnapshot, ids?: ReadonlySet<string>): Rect | n
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 }
 
+/** Overlay footprints are measured in screen pixels; changing composer height must not hide nodes. */
+function availableCanvasArea(container: HTMLElement): Rect {
+  const flow = container.querySelector<HTMLElement>('.react-flow') ?? container
+  const flowRect = flow.getBoundingClientRect()
+  const bounds =
+    flowRect.width > 0 && flowRect.height > 0 ? flowRect : container.getBoundingClientRect()
+  const width = flow.clientWidth || container.clientWidth
+  const height = flow.clientHeight || container.clientHeight
+  let left = 16
+  let top = 16
+  let bottom = height - 16
+  const visible = (element: Element) => {
+    const rect = element.getBoundingClientRect()
+    return rect.width > 0 &&
+      rect.height > 0 &&
+      rect.right > bounds.left &&
+      rect.left < bounds.right &&
+      rect.bottom > bounds.top &&
+      rect.top < bounds.bottom
+      ? rect
+      : undefined
+  }
+  for (const element of container.querySelectorAll('.studio-node-tools')) {
+    const rect = visible(element)
+    if (!rect) continue
+    if (rect.width > rect.height) top = Math.max(top, rect.bottom - bounds.top + 16)
+    else left = Math.max(left, rect.right - bounds.left + 16)
+  }
+  for (const element of container.querySelectorAll(
+    '.studio-node-composer, .studio-node-navigation, .studio-node-chat',
+  )) {
+    const rect = visible(element)
+    if (rect) bottom = Math.min(bottom, rect.top - bounds.top - 16)
+  }
+  const shell = container.closest('.studio-shell') ?? container
+  for (const element of shell.querySelectorAll(
+    '.studio-project-viewbar, .studio-node-project-title',
+  )) {
+    const rect = visible(element)
+    if (rect) top = Math.max(top, rect.bottom - bounds.top + 16)
+  }
+  // 节点标题按屏幕尺寸画在卡片上方（.studio-node-caption 的 -30px），不在节点包围盒里。
+  top += NODE_CAPTION_CLEARANCE
+  return {
+    x: left,
+    y: top,
+    width: Math.max(1, width - left - 16),
+    height: Math.max(1, bottom - top),
+  }
+}
+
+function viewportForCanvasBounds(
+  bounds: Rect,
+  container: HTMLElement | null,
+  minZoom: number,
+  maxZoom: number,
+  padding: number,
+) {
+  if (!container?.clientWidth || !container.clientHeight) return null
+  const area = availableCanvasArea(container)
+  const viewport = getViewportForBounds(bounds, area.width, area.height, minZoom, maxZoom, padding)
+  return { ...viewport, x: viewport.x + area.x, y: viewport.y + area.y }
+}
+
 function Flow({
   canvas,
   container,
@@ -714,8 +920,10 @@ function Flow({
   active,
   onChat,
   viewKey,
+  syncResults,
 }: {
   viewKey: string
+  syncResults?: () => Promise<void>
   onChat?: () => void
   canvas: NodeCanvasDocument
   container: RefObject<HTMLDivElement | null>
@@ -730,6 +938,12 @@ function Flow({
         (project) => project.sceneKey === viewKey && project.cloud && !project.cloud.deleted,
       )?.id,
   )
+  const project = useCanvasProjectStore((state) =>
+    state.projects.find((one) => one.sceneKey === viewKey),
+  )
+  const projectName = project?.name ?? ''
+  const projectConversationId = project?.conversationId ?? null
+  const flowStore = useStoreApi()
   const snapshot = useDocumentSnapshot(canvas)
   useStoryboardGridSplitting(canvas, editor)
   const { theme } = useTheme()
@@ -746,7 +960,6 @@ function Flow({
   const [mode, setMode] = useState<'select' | 'pan'>('select')
   const [assetsOpen, setAssetsOpen] = useState(false)
   const [scriptPoint, setScriptPoint] = useState<{ x: number; y: number } | null>(null)
-  const [blankPrompt, setBlankPrompt] = useState('')
   const [addingAsset, setAddingAsset] = useState(false)
   const assetTarget = useRef<string | undefined>(undefined)
   const [referencePick, setReferencePick] = useState<{
@@ -800,16 +1013,36 @@ function Flow({
     return () => clearNodeCanvasSelection(editor, canvas)
   }, [editor, canvas])
   const [batchIds, setBatchIds] = useState<string[] | null>(null)
-  const [agentBatchPlan, setAgentBatchPlan] = useState<NodeBatchPlan>()
-  const batchOpening = useRef(false)
   const [selectedCount, setSelectedCount] = useState(0)
   const [selectedEdges, setSelectedEdges] = useState<string[]>([])
+  const [connectingFrom, setConnectingFrom] = useState<{
+    nodeId: string
+    handleType: 'source' | 'target'
+  } | null>(null)
   const connectStart = useRef<{ x: number; y: number } | null>(null)
+  const [pendingConnection, setPendingConnection] = useState<{
+    from: { x: number; y: number }
+    to: { x: number; y: number }
+  } | null>(null)
   const [fileOver, setFileOver] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [mediaToolbarSize, setMediaToolbarSize] = useState({ width: 300, height: 44 })
+  const [textGeneration, setTextGeneration] = useState<
+    Record<string, { busy: boolean; error: string | null }>
+  >({})
+  const textRequests = useMemo(() => new Map<string, AbortController>(), [canvas])
+  useEffect(
+    () => () => {
+      for (const controller of textRequests.values()) controller.abort()
+      textRequests.clear()
+    },
+    [textRequests],
+  )
   const [draggingIds, setDraggingIds] = useState<string[]>([])
   const [frame, setFrame] = useState({ x: 0, y: 0, zoom: 1, width: 0, height: 0 })
   const selectedRef = useRef<string | null>(null)
+  const focusRef = useRef<NodeCanvasFocus>(() => false)
+  const revealRef = useRef<NodeCanvasFocus>(() => false)
   const flowRef = useRef<{
     screenToFlowPosition: (point: { x: number; y: number }) => { x: number; y: number }
     setViewport: (
@@ -829,7 +1062,10 @@ function Flow({
   const placeAt = useRef({ x: 0, y: 0 })
   const fileInput = useRef<HTMLInputElement>(null)
   const fileDepth = useRef(0)
-  const closeMenu = () => setMenu(null)
+  const closeMenu = () => {
+    setMenu(null)
+    setPendingConnection(null)
+  }
   const remember = (viewport: { x: number; y: number; zoom: number }) => {
     const box = container.current
     setFrame({
@@ -865,8 +1101,7 @@ function Flow({
         id: node.id,
         x: node.x,
         y: node.y,
-        width: node.type === 'text' ? Math.max(node.width, TEXT_CARD_WIDTH) : node.width,
-        height: node.type === 'text' ? Math.max(node.height, TEXT_CARD_HEIGHT) : node.height,
+        ...nodeCardSize(node),
       })
     }
     for (const annotation of snapshot.annotations) {
@@ -898,43 +1133,73 @@ function Flow({
       ),
     [viewportPlan.painted, nodes],
   )
+  const framing = useRef<number | null>(null)
   const showFrame = (
     ids: readonly string[] | undefined,
     padding: number,
     minZoom: number,
     maxZoom: number,
     duration?: number,
+    source: CanvasSnapshot = snapshot,
   ) => {
-    const bounds = boundsOf(snapshot, ids ? new Set(ids) : undefined)
-    const width = frame.width || container.current?.clientWidth || 0
-    const height = frame.height || container.current?.clientHeight || 0
-    if (!bounds || !width || !height) return
-    flowRef.current?.setViewport(
-      getViewportForBounds(bounds, width, height, minZoom, maxZoom, padding),
-      duration ? { duration } : undefined,
-    )
+    const bounds = boundsOf(source, ids ? new Set(ids) : undefined, nodes)
+    const viewport =
+      bounds && viewportForCanvasBounds(bounds, container.current, minZoom, maxZoom, padding)
+    if (!viewport) return
+    if (framing.current !== null) {
+      clearTimeout(framing.current)
+      framing.current = null
+    }
+    flowRef.current?.setViewport(viewport, duration ? { duration } : undefined)
+    framing.current = duration
+      ? window.setTimeout(() => {
+          framing.current = null
+        }, duration + 100)
+      : null
+  }
+  const revealBounds = (bounds: Rect): boolean => {
+    const element = container.current
+    const viewport = flowRef.current?.getViewport()
+    if (!element?.clientWidth || !element.clientHeight || !viewport) return false
+    const area = availableCanvasArea(element)
+    const width = bounds.width * viewport.zoom
+    const height = bounds.height * viewport.zoom
+    const left = bounds.x * viewport.zoom + viewport.x
+    const top = bounds.y * viewport.zoom + viewport.y
+    const dx =
+      width > area.width || left < area.x
+        ? area.x - left
+        : Math.min(0, area.x + area.width - left - width)
+    const dy =
+      height > area.height || top < area.y
+        ? area.y - top
+        : Math.min(0, area.y + area.height - top - height)
+    if (dx || dy)
+      flowRef.current?.setViewport({ ...viewport, x: viewport.x + dx, y: viewport.y + dy })
+    return true
   }
   const revealNode = (target: CanvasNode) => {
-    if (frame.width && frame.height) {
-      const left = target.x * frame.zoom + frame.x
-      const top = target.y * frame.zoom + frame.y
-      const right = left + target.width * frame.zoom
-      const bottom = top + target.height * frame.zoom
-      // Reveal only the clipped part; adding a sibling should not recenter the whole canvas.
-      const dx = left < 80 ? 80 - left : Math.min(0, frame.width - 48 - right)
-      const dy =
-        top < 64
-          ? 64 - top
-          : Math.min(
-              0,
-              frame.height -
-                (target.type === 'text' ? 72 : nodeKind(target) === 'video' ? 480 : 320) -
-                bottom,
-            )
-      if (dx || dy)
-        flowRef.current?.setViewport({ zoom: frame.zoom, x: frame.x + dx, y: frame.y + dy })
-    }
+    // Selection layout must not interrupt explicit focus animations.
+    if (framing.current !== null) return
+    revealBounds({ x: target.x, y: target.y, ...nodeCardSize(target) })
   }
+  const chatVisible = Boolean(onChat)
+  useEffect(() => {
+    const element = container.current
+    if (!element || !selectedId) return
+    const reveal = () => {
+      const node = readCanvasDocument(canvas.doc).nodes.find((node) => node.id === selectedId)
+      if (node) revealNode(node)
+    }
+    const observer = new ResizeObserver(reveal)
+    observer.observe(element)
+    for (const overlay of element.querySelectorAll(
+      '.studio-node-composer, .studio-node-navigation, .studio-node-tools, .studio-node-chat',
+    ))
+      observer.observe(overlay)
+    reveal()
+    return () => observer.disconnect()
+  }, [container, canvas.doc, selectedId, chatVisible])
   const selectNode = (next: string | null) => {
     selectedRef.current = next
     selectedIds.current = next ? [next] : []
@@ -958,6 +1223,59 @@ function Flow({
       return group ? [...updated, toGroupFlowNode(group, true)] : updated
     })
   }
+  const focus = (ids: readonly string[]): boolean => {
+    const current = readCanvasDocument(canvas.doc)
+    const available = new Set([
+      ...current.nodes.map((node) => node.id),
+      ...(current.groups ?? []).map((group) => group.id),
+    ])
+    const selected = ids.filter((id) => available.has(id))
+    if (!selected.length) return false
+    // Navigate to persisted geometry, not an uncommitted arrangement preview.
+    setArrangement(null)
+    const selectedSet = new Set(selected)
+    const single = selected.length === 1 ? selected[0]! : null
+    selectedRef.current = single
+    selectedIds.current = [...selected]
+    setNodeCanvasSelection(editor, canvas, selectedIds.current)
+    setSelectedCount(selected.length)
+    setSelectedId(single)
+    setSelectedEdges([])
+    setNodes((currentNodes) => {
+      const additions = selected.flatMap((id) => {
+        if (currentNodes.some((node) => node.id === id)) return []
+        const node = current.nodes.find((one) => one.id === id)
+        if (node) return [toFlowNode(node, true)]
+        const group = current.groups?.find((one) => one.id === id)
+        return group ? [toGroupFlowNode(group, true)] : []
+      })
+      return [
+        ...currentNodes.map((node) => ({ ...node, selected: selectedSet.has(node.id) })),
+        ...additions,
+      ]
+    })
+    showFrame(selected, 0.3, 0.05, 1, 250, current)
+    return true
+  }
+  focusRef.current = focus
+  revealRef.current = (ids) => {
+    const bounds = boundsOf(readCanvasDocument(canvas.doc), new Set(ids))
+    if (!bounds) return false
+    // Keep the current zoom and prevent invalidated preview cleanup restoring an older viewport.
+    setArrangement(null)
+    if (framing.current !== null) {
+      clearTimeout(framing.current)
+      framing.current = null
+    }
+    return revealBounds(bounds)
+  }
+  useEffect(() => {
+    return registerNodeCanvasFocus(
+      editor,
+      (ids) => focusRef.current(ids),
+      (ids) => revealRef.current(ids),
+    )
+  }, [editor, canvas])
   const addAsset = async (
     asset: AssetRecord,
     imageId?: string,
@@ -988,7 +1306,7 @@ function Flow({
       setAddingAsset(false)
     }
   }
-  const selectCreatedBatch = (ids: string[]) => {
+  const selectCreatedBatch = (ids: string[], reveal = true) => {
     const chosen = new Set(ids)
     const created = readCanvasDocument(canvas.doc).nodes.filter((node) => chosen.has(node.id))
     selectNode(null)
@@ -1001,11 +1319,12 @@ function Flow({
         .map((node) => ({ ...node, selected: false })),
       ...created.map((node) => toFlowNode(node, true)),
     ])
+    if (!reveal) return
     const bounds = contentBounds({ nodes: created, edges: [], annotations: [] })
-    if (bounds && frame.width && frame.height)
-      flowRef.current?.setViewport(
-        getViewportForBounds(bounds, frame.width, frame.height, 0.1, Math.min(1, frame.zoom), 0.3),
-      )
+    const viewport =
+      bounds &&
+      viewportForCanvasBounds(bounds, container.current, 0.1, Math.min(1, frame.zoom), 0.3)
+    if (viewport) flowRef.current?.setViewport(viewport)
   }
   useAgentNodeRun({
     canvas,
@@ -1014,22 +1333,7 @@ function Flow({
     active,
     revision: snapshot,
     files,
-    review: (ids, plan) => {
-      if (batchIds || batchOpening.current) return false
-      batchOpening.current = true
-      const selected = new Set(ids)
-      for (const group of readCanvasDocument(canvas.doc).groups ?? [])
-        if (selected.has(group.id)) for (const id of group.members) selected.add(id)
-      selectNode(null)
-      selectedIds.current = [...selected]
-      setNodeCanvasSelection(editor, canvas, selectedIds.current)
-      setSelectedCount(selected.size)
-      setNodes((current) => current.map((node) => ({ ...node, selected: selected.has(node.id) })))
-      showFrame([...selected], 0.3, 0.05, 1)
-      setAgentBatchPlan(plan)
-      setBatchIds(ids)
-      return true
-    },
+    syncResults,
   })
   const center = () => {
     const rect = container.current?.getBoundingClientRect()
@@ -1039,6 +1343,43 @@ function Flow({
           y: rect.top + rect.height / 2,
         }) ?? { x: 0, y: 0 })
       : { x: 0, y: 0 }
+  }
+  // 「资产」入口在全局顶栏：画布正在显示才出现，开关状态放在共享 store 里。
+  // 对话视图里画布仍挂着但不活跃，那里已有自己的「资产库」，顶栏不能再出一个。
+  const assetsPanelOpen = useCanvasAssetsEntry((s) => s.open)
+  const setAssetsPanelOpen = useCanvasAssetsEntry((s) => s.setOpen)
+  useEffect(() => {
+    if (!active) return
+    const entry = useCanvasAssetsEntry.getState()
+    entry.setAvailable(true)
+    return () => entry.setAvailable(false)
+  }, [active])
+  const canvasResultItems = useCanvasResultAssets(editor, canvas, projectName, assetsPanelOpen)
+  // 资产弹窗里点一件或「应用到画布」：在当前画面中间建节点并选中，不挪视口；成功后弹窗自己关掉。
+  const placeAssets = async (items: readonly CanvasAssetItem[]) => {
+    try {
+      const ids = await insertResultNodes(
+        editor,
+        canvas,
+        items.map((item) => item.insert),
+        center(),
+      )
+      if (!ids.length) throw new Error('nothing placed')
+      selectCreatedBatch(ids, false)
+      return true
+    } catch {
+      useStore.getState().showToast(t('import.failed'), 'error')
+      return false
+    }
+  }
+  const downloadSelection = () => {
+    const ids = [...selectedIds.current]
+    const entries = canvasExportEntries(editor.doc, ids)
+    if (!entries.length) {
+      useStore.getState().showToast(t('batch.exportFailed'), 'error')
+      return
+    }
+    void transferMedia(entries, projectName)
   }
   const fit = () => {
     showFrame(undefined, 0.25, 0.05, 8, 250)
@@ -1060,10 +1401,8 @@ function Flow({
       ...snapshot,
       nodes: snapshot.nodes.map((node) => ({ ...node, ...placement.get(node.id) })),
     })
-    if (bounds && frame.width && frame.height)
-      flowRef.current?.setViewport(
-        getViewportForBounds(bounds, frame.width, frame.height, 0.05, 1, 0.25),
-      )
+    const viewport = bounds && viewportForCanvasBounds(bounds, container.current, 0.05, 1, 0.25)
+    if (viewport) flowRef.current?.setViewport(viewport)
   }
   const keepArrangement = () => {
     if (!arrangementActive) return
@@ -1115,7 +1454,11 @@ function Flow({
     selectNode(null)
     closeMenu()
   }
+  // 清单加载或刷新（运营停用、恢复视频模型）后重新渲染，菜单里的视频入口跟着变。
+  useSyncExternalStore(subscribeChannels, getStoredChannels)
   const canAddKind = (kind: CreateNodeKind) =>
+    // 没有可用视频模型时新建的视频节点一定跑不起来（运行时拦在「模型不可用」），菜单里就置灰。
+    !(kind === 'video' && !isVideoModeAvailable()) &&
     (menu?.anchorIds ?? []).every((id) => {
       const anchor = snapshot.nodes.find((node) => node.id === id)
       return (
@@ -1165,46 +1508,80 @@ function Flow({
     setScriptPoint(null)
     selectNode(id)
   }
-  const submitBlankImage = (temporaryReferences: string[]) => {
-    const look = useActiveLook.getState().look
-    const prompt = blankPrompt.trim()
-    if (!look && !prompt && temporaryReferences.length === 0) return
-    if (look && !checkLookSubmission(look, [], useLibraryStore.getState().assets).ok) return
-    if (look) {
-      void prepareNodeLook(look, prompt, [], files).then((prepared) => {
-        if (!prepared) return
-        const id = createNode(canvas, 'image', center(), textFill, undefined, {
-          ...(prompt ? { prompt } : {}),
-        })
-        setBlankPrompt('')
-        clearNodeReferenceDraft(canvas.doc, BLANK_IMAGE_DRAFT)
-        selectNode(id)
-        commitNodeLook(editor, canvas.doc, id, look, prepared)
-      })
-      return
+  // 当前挂着的画布；卸载或换了画布就变，进行中的导入据此放弃。
+  const liveCanvas = useRef<typeof canvas | null>(canvas)
+  useEffect(() => {
+    liveCanvas.current = canvas
+    return () => {
+      liveCanvas.current = null
     }
-    const id = createNode(canvas, 'image', center(), textFill, undefined, {
-      ...(prompt ? { prompt } : {}),
-    })
-    setBlankPrompt('')
-    clearNodeReferenceDraft(canvas.doc, BLANK_IMAGE_DRAFT)
-    selectNode(id)
-    submitNodeImage(editor, canvas.doc, id, prompt, temporaryReferences)
-  }
-  const placeFiles = (files: File[]) => {
-    const images = acceptImageFiles(files)
-    if (images.length === 0) return
-    const point = placeAt.current
-    confirmImageBatch(images.length, () => {
-      void (async () => {
-        for (const file of images) {
-          const id = createNode(canvas, 'image', point, textFill)
-          await fillImageNode(editor, canvas.doc, id, file)
-          selectNode(id)
+  }, [canvas])
+  const placeFiles = (files: File[], pinned?: { x: number; y: number }) => {
+    // 逐张解码要花时间：这期间换了项目或离开画布，就不再弹确认框、不往旧画布里写。
+    // 拖拽落点在松手时钉死；从「上传」进来的不钉，确认时再用当时的放置点。
+    const target = canvas
+    const here = () => liveCanvas.current === target
+    const failed = () => useStore.getState().showToast(t('import.failed'), 'error')
+    void prepareAcceptedImageFiles(files)
+      .then((candidates) => {
+        if (!here() || candidates.length === 0) return
+        const notInvalid = (error: unknown) => {
+          if (error instanceof InvalidImageFileError) return null
+          throw error
         }
-      })().catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
-    })
+        void (async () => {
+          // 先确认解得开再问张数、建节点：空文件、伪装成 .png 的文本不该留下一个永远「上传中」的节点，
+          // 也不该算进「确认导入 N 张」里。解好的结果留着，确认后直接用：每张只读、解一次，
+          // 确认的张数就是落到画布上的张数（单张已按大小限额过滤；这些图确认后本来就要写进画布，确认前先留着不多占）。
+          // 同时解几张，不一张接一张等，也不让一大批同时占着解码；结果按拖入顺序排回去。
+          const decoded: (ReadImageFile | null)[] = new Array(candidates.length)
+          let next = 0
+          await Promise.all(
+            Array.from(
+              { length: Math.min(IMPORT_DECODE_CONCURRENCY, candidates.length) },
+              async () => {
+                while (next < candidates.length) {
+                  const index = next++
+                  decoded[index] = await readImageFile(candidates[index]).catch(notInvalid)
+                }
+              },
+            ),
+          )
+          const invalid: string[] = []
+          const valid: { file: File; image: ReadImageFile }[] = []
+          candidates.forEach((file, index) => {
+            const image = decoded[index]
+            if (image) valid.push({ file, image })
+            else invalid.push(file.name)
+          })
+          if (!here()) return
+          if (invalid.length) showInvalidImages(invalid)
+          if (valid.length === 0) return
+          confirmImageBatch(valid.length, () => {
+            if (!here()) return
+            const point = pinned ?? placeAt.current
+            try {
+              // 都已经解过：建节点和写图同步完成，中间不让出执行权，不会留下空节点。
+              for (const { file, image } of valid) {
+                const id = createNode(canvas, 'image', point, textFill)
+                placeDecodedImage(editor, canvas.doc, id, image, file.name)
+                selectNode(id)
+              }
+            } catch {
+              failed()
+            }
+          })
+        })().catch(failed)
+      })
+      .catch(failed)
   }
+  const showInvalidImages = (names: readonly string[]) =>
+    useStore
+      .getState()
+      .showToast(
+        t('import.invalidFiles', { count: names.length, names: names.join('、') }),
+        'error',
+      )
   useEffect(() => {
     setNodes((current) => {
       const previous = new Map(current.map((one) => [one.id, one]))
@@ -1245,6 +1622,13 @@ function Flow({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!active || event.defaultPrevented) return
+      if (connectingFrom && event.key === 'Escape') {
+        event.preventDefault()
+        connectStart.current = null
+        setConnectingFrom(null)
+        flowStore.getState().cancelConnection()
+        return
+      }
       if (referencePick) {
         if (event.key === 'Escape') {
           event.preventDefault()
@@ -1319,7 +1703,7 @@ function Flow({
       const target = event.target instanceof Element ? event.target : null
       if (
         target?.closest(
-          '.react-flow__node, .react-flow__controls, .react-flow__minimap, .react-flow__handle, .studio-node-menu, .studio-node-composer, .studio-node-tools, .studio-node-navigation, .studio-node-history, textarea, input',
+          '.react-flow__node, .react-flow__controls, .react-flow__minimap, .react-flow__handle, .studio-node-menu, .studio-node-composer, .studio-node-tools, .studio-node-navigation, textarea, input',
         )
       )
         return
@@ -1364,7 +1748,7 @@ function Flow({
         return
       }
       // collectDroppedFiles 必须在这一拍同步调用：await 之后 DataTransfer.items 就空了。
-      void collectDroppedFiles(event.dataTransfer).then(({ files }) => placeFiles(files))
+      void collectDroppedFiles(event.dataTransfer).then(({ files }) => placeFiles(files, point))
     }
     el.addEventListener('dblclick', onDoubleClick, true)
     el.addEventListener('dragenter', onDragEnter)
@@ -1387,6 +1771,9 @@ function Flow({
     selected.data.node.type !== 'storyboard'
       ? selected.data.node
       : undefined
+  const textNode = selected?.data.node?.type === 'text' ? selected.data.node : undefined
+  const [textDrafts, setTextDrafts] = useState<Record<string, string>>({})
+  const textDraft = textNode ? (textDrafts[textNode.id] ?? '') : ''
   const referenceNode = selected?.data.node?.type !== 'timeline' ? selected?.data.node : undefined
   const rawReferences = referenceNode
     ? incomingReferences(snapshot.nodes, snapshot.edges, referenceNode.id)
@@ -1409,6 +1796,8 @@ function Flow({
   const roles: Record<string, string> = {}
   for (const ref of references) roles[ref.id] = meta[`role:${ref.id}`] ?? 'reference'
   const draftValue = meta.nodePrompt ?? ''
+  const preset = imagePreset(meta.nodeImagePreset)
+  const mediaToolbarHalfWidth = Math.min(mediaToolbarSize.width, Math.max(0, frame.width - 24)) / 2
   const setMeta = (patch: Record<string, string>, trackUndo = true) => {
     if (!composerNode) return
     const node = readCanvasDocument(canvas.doc).nodes.find((n) => n.id === composerNode.id)
@@ -1449,7 +1838,9 @@ function Flow({
         .showToast(
           error instanceof CanvasReferenceLimitError
             ? MAX_INPUT_IMAGES_MESSAGE
-            : t('import.failed'),
+            : error instanceof UploadImageTooLargeError
+              ? i18next.t('image.tooLarge', { ns: 'lib', count: 1, max: MAX_IMAGE_MB })
+              : t('import.failed'),
           'error',
         )
     } finally {
@@ -1499,19 +1890,87 @@ function Flow({
       ? !composerNode.data.pending.errorCode
       : composerNode.data.pending.status === 'loading'
     : false
-  const composerAt = composerNode && selected ? composerAnchor(selected, frame) : null
+  const generateSelectedText = async (model: string) => {
+    if (!textNode || textRequests.has(textNode.id)) return
+    const nodeId = textNode.id
+    const instruction = textDraft.trim()
+    if (!instruction) return
+    const originalText = textNode.data.text
+    const originalRichText = JSON.stringify(textNode.data.richText)
+    const controller = new AbortController()
+    textRequests.set(nodeId, controller)
+    setTextGeneration((current) => ({ ...current, [nodeId]: { busy: true, error: null } }))
+    try {
+      const result = await generateTextNode({
+        model,
+        instruction,
+        currentText: originalText,
+        references: references.map((reference) => ({
+          id: reference.id,
+          kind: reference.kind,
+          ...(reference.label ? { label: reference.label } : {}),
+          ...(reference.text ? { text: reference.text } : {}),
+        })),
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted) return
+      const current = readCanvasDocument(canvas.doc).nodes.find((node) => node.id === nodeId)
+      if (!current || current.type !== 'text') return
+      if (
+        current.data.text !== originalText ||
+        JSON.stringify(current.data.richText) !== originalRichText
+      ) {
+        throw new Error('text_generation_content_changed')
+      }
+      canvas.undo.stopCapturing()
+      canvas.doc.transact(() => {
+        const text = canvasText(canvas.doc, nodeId)
+        if (text) {
+          text.delete(0, text.length)
+          text.insert(0, `${result}\n`)
+        }
+        updateCanvasNode(
+          canvas.doc,
+          nodeId,
+          { data: { ...current.data, text: result, richText: undefined } },
+          canvas.origin,
+        )
+      }, canvas.origin)
+      canvas.undo.stopCapturing()
+      setTextDrafts((drafts) => ({ ...drafts, [nodeId]: '' }))
+      setTextGeneration((states) => ({ ...states, [nodeId]: { busy: false, error: null } }))
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setTextGeneration((states) => ({
+          ...states,
+          [nodeId]: {
+            busy: false,
+            error: error instanceof Error ? error.message : 'text_generation_failed',
+          },
+        }))
+      }
+    } finally {
+      textRequests.delete(nodeId)
+      setTextGeneration((states) =>
+        states[nodeId]?.busy ? { ...states, [nodeId]: { busy: false, error: null } } : states,
+      )
+    }
+  }
   const uploadInto = (id: string, file: File) => {
-    void fillImageNode(editor, canvas.doc, id, file).catch(() =>
-      useStore.getState().showToast(t('import.failed'), 'error'),
+    void fillImageNode(editor, canvas.doc, id, file).catch((error: unknown) =>
+      error instanceof InvalidImageFileError
+        ? showInvalidImages([error.fileName])
+        : useStore.getState().showToast(t('import.failed'), 'error'),
     )
   }
   const spawnBeside = (nodeId: string, side: 'left' | 'right') => {
     const node = snapshot.nodes.find((n) => n.id === nodeId)
     if (!node) return
     const ids = selectedIds.current.includes(nodeId) ? selectedIds.current : [nodeId]
+    const { width, height } = nodeCardSize(node)
     placeAt.current = {
-      x: node.x + (side === 'right' ? node.width + 32 : -32),
-      y: node.y + node.height / 2,
+      x: node.x + (side === 'right' ? width + 32 : -32),
+      y: node.y + height / 2,
     }
     const screen = flowRef.current?.flowToScreenPosition?.(placeAt.current) ?? { x: 200, y: 200 }
     setMenu({ ...screen, anchorIds: ids, side, beside: true })
@@ -1548,20 +2007,40 @@ function Flow({
       fromHandle: { type: 'source' | 'target' } | null
     },
   ) => {
+    const reset = () => {
+      connectStart.current = null
+      setConnectingFrom(null)
+    }
     const from = state.fromNode
-    if (!from) return
+    if (!from || !connectStart.current) {
+      setPendingConnection(null)
+      reset()
+      return
+    }
     const point = 'changedTouches' in event ? event.changedTouches[0] : event
-    if (!point) return
+    if (!point) {
+      setPendingConnection(null)
+      reset()
+      return
+    }
+    const targetId = nodeIdAtPoint(point.clientX, point.clientY)
     const link = linkFromDrag(
       { nodeId: from.id, handleType: state.fromHandle?.type ?? null },
-      nodeIdAtPoint(point.clientX, point.clientY),
+      targetId,
     )
-    if (link) connectCanvasNodes(canvas.doc, link, canvas.origin)
-    else if (
-      !nodeIdAtPoint(point.clientX, point.clientY) &&
+    if (link) {
+      setPendingConnection(null)
+      connectCanvasNodes(canvas.doc, link, canvas.origin)
+    } else if (
+      !targetId &&
       connectStart.current &&
       Math.hypot(point.clientX - connectStart.current.x, point.clientY - connectStart.current.y) > 8
     ) {
+      const start = connectStart.current
+      setPendingConnection({
+        from: start,
+        to: { x: point.clientX, y: point.clientY },
+      })
       placeAt.current =
         flowRef.current?.screenToFlowPosition({ x: point.clientX, y: point.clientY }) ?? center()
       setMenu({
@@ -1570,7 +2049,15 @@ function Flow({
         anchorIds: selectedIds.current.includes(from.id) ? selectedIds.current : [from.id],
         side: state.fromHandle?.type === 'target' ? 'left' : 'right',
       })
+    } else {
+      setPendingConnection(null)
     }
+    reset()
+  }
+  const cutConnection = (edgeId: string) => {
+    disconnectCanvasNodes(canvas.doc, edgeId, canvas.origin)
+    setSelectedEdges([])
+    useStore.getState().showToast(t('nodes.connectionCut'), 'success')
   }
   const overview = viewportPlan.mode === 'overview'
   const mounted = overview ? new Set(viewportPlan.mountedIds) : null
@@ -1605,31 +2092,57 @@ function Flow({
                     <SpawnContext.Provider value={spawnBeside}>
                       <CanvasLodProvider mode={viewportPlan.mode === 'card' ? 'card' : 'detail'}>
                         <ReactFlow<FlowNode>
+                          style={{ '--studio-node-zoom': frame.zoom } as CSSProperties}
                           nodes={(mounted
                             ? nodes.filter((node) => mounted.has(node.id))
                             : nodes
                           ).map((node) => {
-                            if (referencePick)
-                              return {
-                                ...node,
-                                className: pickableIds.has(node.id)
+                            const classNames = [
+                              referencePick
+                                ? pickableIds.has(node.id)
                                   ? 'studio-node-reference-eligible'
-                                  : 'studio-node-reference-disabled',
+                                  : 'studio-node-reference-disabled'
+                                : '',
+                            ]
+                            if (connectingFrom) {
+                              if (node.id === connectingFrom.nodeId) {
+                                classNames.push('studio-node-connection-source')
+                              } else if (node.data.node) {
+                                const link =
+                                  connectingFrom.handleType === 'target'
+                                    ? { source: node.id, target: connectingFrom.nodeId }
+                                    : { source: connectingFrom.nodeId, target: node.id }
+                                classNames.push(
+                                  canvasLinkAllowed(snapshot, link)
+                                    ? 'studio-node-connection-eligible'
+                                    : 'studio-node-connection-disabled',
+                                )
+                              } else {
+                                classNames.push('studio-node-connection-disabled')
                               }
+                            }
                             const position = arrangementPositions.get(node.id)
-                            return position ? { ...node, position } : node
+                            const className = classNames.filter(Boolean).join(' ') || undefined
+                            if (!position && className === node.className) return node
+                            return {
+                              ...node,
+                              ...(position ? { position } : {}),
+                              ...(className ? { className } : { className: undefined }),
+                            }
                           })}
                           className={
                             arrangementActive
                               ? 'studio-node-arranging'
                               : referencePick
                                 ? 'studio-node-reference-picking'
-                                : undefined
+                                : connectingFrom
+                                  ? 'studio-node-connecting'
+                                  : undefined
                           }
                           nodesDraggable={!arrangementActive && !referencePick}
                           nodesConnectable={!arrangementActive && !referencePick}
                           elementsSelectable={!arrangementActive && !referencePick}
-                          onlyRenderVisibleElements={!overview}
+                          onlyRenderVisibleElements={!overview && !arrangementActive}
                           edges={snapshot.edges.flatMap((edge) => {
                             if (mounted && (!mounted.has(edge.source) || !mounted.has(edge.target)))
                               return []
@@ -1642,6 +2155,10 @@ function Flow({
                                 interactionWidth: 22,
                                 hidden: !connections && !referencePick,
                                 selected: selectedEdges.includes(edge.id),
+                                data: {
+                                  cutLabel: t('nodes.cutConnection'),
+                                  onCut: () => cutConnection(edge.id),
+                                },
                                 className: highlightedEdges.has(edge.id)
                                   ? 'studio-edge-lit'
                                   : undefined,
@@ -1661,6 +2178,7 @@ function Flow({
                             if (nextId && litRef.current?.has(nextId)) return
                             setLitEdgeIds(null)
                           }}
+                          connectionLineComponent={NodeConnectionLine}
                           edgeTypes={edgeTypes}
                           nodeTypes={nodeTypes}
                           zoomOnDoubleClick={false}
@@ -1725,9 +2243,18 @@ function Flow({
                             selectNode(null)
                             setSelectedEdges([edge.id])
                           }}
-                          onConnectStart={(event) => {
+                          onConnectStart={(event, params) => {
+                            setPendingConnection(null)
                             const point = 'touches' in event ? event.touches[0] : event
                             if (point) connectStart.current = { x: point.clientX, y: point.clientY }
+                            if (params.nodeId && params.handleType) {
+                              setConnectingFrom({
+                                nodeId: params.nodeId,
+                                handleType: params.handleType,
+                              })
+                            } else {
+                              setConnectingFrom(null)
+                            }
                           }}
                           elevateNodesOnSelect={false}
                           onNodesChange={(changes: NodeChange<FlowNode>[]) =>
@@ -1777,7 +2304,8 @@ function Flow({
                             closeMenu()
                           }}
                           onConnect={(connection) => {
-                            if (!connection.source || !connection.target) return
+                            if (!connectStart.current || !connection.source || !connection.target)
+                              return
                             connectCanvasNodes(
                               canvas.doc,
                               { source: connection.source, target: connection.target },
@@ -1858,18 +2386,9 @@ function Flow({
                                 saved = value
                             } catch {}
                             if (saved) flow.setViewport(saved)
-                            else if (bounds && box?.clientWidth && box.clientHeight) {
-                              // 与旧画布一致：打开时最多按 100% 显示。
-                              flow.setViewport(
-                                getViewportForBounds(
-                                  bounds,
-                                  box.clientWidth,
-                                  box.clientHeight,
-                                  0.05,
-                                  1,
-                                  0.1,
-                                ),
-                              )
+                            else if (bounds) {
+                              const viewport = viewportForCanvasBounds(bounds, box, 0.05, 1, 0.1)
+                              if (viewport) flow.setViewport(viewport)
                             }
                             remember(flow.getViewport())
                           }}
@@ -1881,6 +2400,12 @@ function Flow({
                             <MiniMap pannable zoomable position="bottom-right" />
                           )}
                         </ReactFlow>
+                        {pendingConnection && (
+                          <PendingConnectionOverlay
+                            pending={pendingConnection}
+                            container={container}
+                          />
+                        )}
                         <CanvasOverview
                           active={overview}
                           container={container}
@@ -1904,7 +2429,6 @@ function Flow({
                         </div>
                       )}
                       <NodeCanvasToolbar
-                        active={active}
                         onCreate={(kind) => {
                           finishReferencePick()
                           addNode(kind, center())
@@ -1952,11 +2476,8 @@ function Flow({
                           editor={editor}
                           ids={batchIds}
                           snapshot={snapshot}
-                          initialPlan={agentBatchPlan}
                           onClose={() => {
                             setBatchIds(null)
-                            setAgentBatchPlan(undefined)
-                            batchOpening.current = false
                           }}
                         />
                       )}
@@ -2000,9 +2521,31 @@ function Flow({
                             label={t('nodes.duplicate')}
                             onClick={duplicate}
                           />
+                          <span className="studio-node-tool-divider" />
+                          <NodeTool
+                            icon="download"
+                            label={common('action.download')}
+                            onClick={downloadSelection}
+                          />
                           <NodeTool icon="delete" label={t('nodes.delete')} onClick={remove} />
                         </div>
                       )}
+                      {assetsPanelOpen && (
+                        <NodeAssetsPanel
+                          conversationId={projectConversationId}
+                          canvasItems={canvasResultItems}
+                          onClose={() => setAssetsPanelOpen(false)}
+                          onPlace={placeAssets}
+                          onDownload={(items) =>
+                            void transferMedia(
+                              items.map((item) => item.download),
+                              projectName,
+                            )
+                          }
+                        />
+                      )}
+                      {/* 资产弹窗开着时传输卡由弹窗那一层渲染，免得被遮罩挡住 */}
+                      {!assetsPanelOpen && <MediaTransferCard />}
                       {scriptPoint && (
                         <ScriptBriefDialog
                           onClose={() => setScriptPoint(null)}
@@ -2075,17 +2618,34 @@ function Flow({
                           ('fileId' in composerNode.data && composerNode.data.fileId)) && (
                           <div
                             className="studio-node-media-actions"
+                            ref={(node) => {
+                              if (!node) return
+                              const { width, height } = node.getBoundingClientRect()
+                              if (width && height)
+                                setMediaToolbarSize((current) =>
+                                  current.width === width && current.height === height
+                                    ? current
+                                    : { width, height },
+                                )
+                            }}
                             style={{
+                              maxWidth: Math.max(0, frame.width - 24),
                               left: Math.max(
-                                150,
+                                mediaToolbarHalfWidth + 12,
                                 Math.min(
                                   selected.position.x * frame.zoom +
                                     frame.x +
                                     ((selected.width ?? 0) * frame.zoom) / 2,
-                                  frame.width - 150,
+                                  frame.width - mediaToolbarHalfWidth - 12,
                                 ),
                               ),
-                              top: Math.max(72, selected.position.y * frame.zoom + frame.y - 78),
+                              top: Math.max(
+                                72,
+                                selected.position.y * frame.zoom +
+                                  frame.y -
+                                  mediaToolbarSize.height -
+                                  32,
+                              ),
                             }}
                           >
                             <NodeTool
@@ -2103,6 +2663,20 @@ function Flow({
                                 }
                               }}
                             />
+                            {composerNode.type === 'image' &&
+                              nodeKind(composerNode) === 'image' && (
+                                <NodeImagePresetMenu
+                                  key={`preset:${composerNode.id}`}
+                                  onSelect={(preset) => {
+                                    const id = createImagePresetNode(
+                                      canvas,
+                                      composerNode.id,
+                                      preset,
+                                    )
+                                    if (id) selectNode(id)
+                                  }}
+                                />
+                              )}
                             {composerNode.type === 'image' && (
                               <NodeTool
                                 icon="layers"
@@ -2127,15 +2701,19 @@ function Flow({
                                     ? videoOutputUrl(composerNode.data.video)
                                     : files[composerNode.data.fileId!]
                                 if (source) {
+                                  let stage: 'original' | 'fetch' | 'blob' | 'trigger' = 'original'
                                   void resolveMediaSource(source, 'original', true)
-                                    .then((url) => fetch(url, { credentials: 'include' }))
-                                    .then(async (response) => {
-                                      if (!response.ok) throw new Error('download failed')
-                                      const blob = await response.blob()
+                                    .then((url) =>
+                                      fetchDownloadBlob(url, { credentials: 'include' }, (next) => {
+                                        stage = next
+                                      }),
+                                    )
+                                    .then((blob) => {
                                       const extension =
                                         blob.type.split('/')[1]?.split(';')[0] ||
                                         (composerNode.type === 'video' ? 'mp4' : 'png')
                                       const name = composerNode.data.name || 'muvloom'
+                                      stage = 'trigger'
                                       downloadBlob(
                                         blob,
                                         /\.(png|jpe?g|webp|avif|gif|mp4|webm)$/i.test(name)
@@ -2143,9 +2721,18 @@ function Flow({
                                           : `${name}.${extension}`,
                                       )
                                     })
-                                    .catch(() =>
-                                      useStore.getState().showToast(t('import.failed'), 'error'),
-                                    )
+                                    .catch((error: unknown) => {
+                                      reportDeliveryFailure(
+                                        { operation: 'download.prepare', stage },
+                                        error,
+                                      )
+                                      useStore.getState().showToast(t('import.failed'), 'error')
+                                    })
+                                } else {
+                                  reportDeliveryFailure(
+                                    { operation: 'download.prepare', stage: 'original' },
+                                    { code: 'original_missing' },
+                                  )
                                 }
                               }}
                             />
@@ -2197,13 +2784,25 @@ function Flow({
                         accept="image/*"
                         multiple
                         hidden
-                        onChange={async (event) => {
+                        onChange={(event) => {
                           const files = [...(event.target.files ?? [])]
                           event.target.value = ''
                           const targetId = uploadReferenceTarget.current
                           uploadReferenceTarget.current = null
-                          if (targetId)
-                            for (const file of files) await uploadReference(targetId, file)
+                          if (!targetId) return
+                          void (async () => {
+                            try {
+                              const { compressUploadFiles } = await import(
+                                '../../../lib/imageFiles'
+                              )
+                              const fitted = await compressUploadFiles(
+                                files.filter((file) => file.type.startsWith('image/')),
+                              )
+                              for (const file of fitted) await uploadReference(targetId, file)
+                            } catch {
+                              useStore.getState().showToast(t('import.failed'), 'error')
+                            }
+                          })()
                         }}
                       />
                       <input
@@ -2326,34 +2925,26 @@ function Flow({
                           }}
                         />
                       )}
-                      {referenceNode?.type === 'text' && selected && (
-                        <NodeComposerFrame
-                          label={t('nodes.references')}
-                          position={composerAnchor(selected, frame)}
-                          references={[]}
+                      {textNode && selected && (
+                        <TextNodeComposer
+                          key={textNode.id}
+                          references={references}
                           files={files}
-                        >
-                          {referenceTools}
-                        </NodeComposerFrame>
-                      )}
-                      {selectedCount === 0 && !scriptPoint && (
-                        <ImageNodeComposer
-                          document={canvas.doc}
-                          nodeId={BLANK_IMAGE_DRAFT}
-                          references={[]}
-                          files={files}
-                          value={blankPrompt}
-                          busy={false}
-                          position={{
-                            left: frame.width > 0 ? frame.width / 2 : 280,
-                            top: frame.height > 0 ? frame.height - 16 : 480,
-                          }}
-                          onChange={setBlankPrompt}
-                          onSubmit={submitBlankImage}
+                          value={textDraft}
+                          tools={referenceTools}
+                          busy={textGeneration[textNode.id]?.busy}
+                          error={textGeneration[textNode.id]?.error}
+                          onChange={(value) =>
+                            setTextDrafts((drafts) => ({ ...drafts, [textNode.id]: value }))
+                          }
+                          onSubmit={(model) => void generateSelectedText(model)}
                         />
                       )}
-                      {composerNode && nodeKind(composerNode) === 'image' && composerAt && (
+                      {composerNode && nodeKind(composerNode) === 'image' && (
                         <ImageNodeComposer
+                          templates={!preset}
+                          preset={preset}
+                          onRemovePreset={() => setMeta({ nodeImagePreset: '' })}
                           resultTools={
                             <>
                               <NodeResultPicker
@@ -2391,13 +2982,12 @@ function Flow({
                           files={files}
                           value={draftValue}
                           busy={busy || addingAsset || referenceBusy}
-                          position={composerAt}
                           onChange={(value) => {
                             setMeta({ nodePrompt: value })
                           }}
                           onSubmit={(temporaryReferences) => {
                             const look = useActiveLook.getState().look
-                            if (look) {
+                            if (look && !preset) {
                               void submitNodeWithLook(
                                 editor,
                                 canvas.doc,
@@ -2409,7 +2999,9 @@ function Flow({
                               )
                               return
                             }
-                            const value = draftValue
+                            const value = preset
+                              ? imagePresetPrompt(preset, draftValue)
+                              : draftValue
                             const urls = referenceFileIds(references, files).flatMap((id) => {
                               const source = files[id]
                               return source ? [source] : []
@@ -2423,11 +3015,19 @@ function Flow({
                                 .filter(Boolean)
                                 .join('\n\n'),
                               urls,
+                              undefined,
+                              undefined,
+                              preset
+                                ? {
+                                    settings: useStore.getState().settings,
+                                    params: { ...useStore.getState().params, n: 1 },
+                                  }
+                                : undefined,
                             )
                           }}
                         />
                       )}
-                      {composerNode && nodeKind(composerNode) === 'video' && composerAt && (
+                      {composerNode && nodeKind(composerNode) === 'video' && (
                         <VideoNodeComposer
                           resultTools={
                             <NodeResultPicker
@@ -2469,7 +3069,6 @@ function Flow({
                             )
                           }
                           busy={busy || addingAsset || referenceBusy}
-                          position={composerAt}
                           onReferenceUpload={(file, slot) =>
                             uploadReference(composerNode.id, file, slot)
                           }
@@ -2488,26 +3087,7 @@ function Flow({
   )
 }
 
-/** 输入框不跟着缩放，贴在节点底边的正下方，并留在容器里面。 */
-function composerAnchor(
-  node: FlowNode,
-  frame: { x: number; y: number; zoom: number; width: number; height: number },
-): { left: number; top: number } {
-  const zoom = frame.zoom || 1
-  const width = node.width ?? 0
-  const height = node.height ?? 0
-  const center = node.position.x * zoom + frame.x + (width * zoom) / 2
-  const top = node.position.y * zoom + frame.y + height * zoom + 16
-  if (frame.width <= 0) return { left: center, top }
-  const panel = Math.min(560, Math.max(280, frame.width - 24))
-  const limit = Math.max(panel / 2 + 12, frame.width - panel / 2 - 12)
-  return {
-    left: Math.min(Math.max(center, panel / 2 + 12), limit),
-    top,
-  }
-}
-
-/** 节点画布（`canvas:nodes`）：一个项目的 `Y.Doc` 渲染成 React Flow。 */
+/** 节点画布：一个项目的 `Y.Doc` 渲染成 React Flow。 */
 export default function NodeCanvas({
   workspace,
   active,
@@ -2572,10 +3152,11 @@ export default function NodeCanvas({
             active={active}
             onChat={onChat}
             viewKey={workspace.record.key}
+            syncResults={workspace.cloud?.sync}
           />
         </ReactFlowProvider>
       ),
-    [canvas, active, workspace.editor, onChat],
+    [canvas, active, workspace.editor, workspace.cloud, onChat],
   )
   if (failed)
     return (

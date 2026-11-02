@@ -1,25 +1,36 @@
 import {
+  type GptTierInput,
+  gptImageRateMultiplier,
   isContentPolicyEmptyResult,
   isContentPolicyRejection,
+  isGptBasicRequest,
+  isModelUnavailableRejection,
   QUEUE_TIMEOUTS,
   type TaskErrorType,
 } from '@image-playground/shared'
+import { config } from '../config'
+import { cropMaskedUpstream } from '../lib/agent/masked-input'
 import { MaskedOutputError, protectMaskedOutput } from '../lib/agent/masked-output'
 import { isCapabilityEnabled } from '../lib/capabilities'
-import { describeEmptyResult, extractMeta } from '../lib/extractImages'
+import { describeEmptyResult, extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import {
   archiveGenerationOutputs,
   generationSourceCheckpoint,
+  KnownMediaBytes,
   missingGenerationOutputs,
   spoolGenerationOutputs,
 } from '../lib/generationMedia'
+import { isActiveMember } from '../lib/gpt-membership'
 import {
   archiveOutputImages,
+  fetchSourceImage,
   hydrateInputImages,
   MaskedOutputArchiveError,
   ObjectStorageError,
 } from '../lib/imageArchive'
 import { log } from '../lib/logger'
+import { knownInactiveModels, refreshInactiveModels } from '../lib/model-availability'
+import type { TaskUsage } from '../lib/private-overlay'
 import { isAbortError } from '../lib/queueProvider'
 import { isRetryableError, planNextAttempt, shouldRetryEmptyResult } from '../lib/retry'
 import {
@@ -30,6 +41,8 @@ import {
   UpstreamResultUnknownError,
   UpstreamTimeoutError,
 } from '../lib/upstream'
+import { gptDirectConfigured } from '../lib/upstream/gpt-routing'
+import { partialFailureOf } from '../lib/upstream/partial'
 import { claimTaskExecution, type TaskExecution } from './task-execution'
 
 const ARCHIVE_RETRY_BUDGET_MS = 60 * 60_000
@@ -107,7 +120,14 @@ async function executeTask(execution: TaskExecution): Promise<void> {
   let request = task.request_payload
 
   log.info(
-    { event: 'task.started', taskId: id, provider: task.provider, model: task.model },
+    {
+      event: 'task.started',
+      taskId: id,
+      userId: task.user_id,
+      provider: task.provider,
+      model: task.model,
+      idleSlot: execution.idleSlot,
+    },
     'task started',
   )
 
@@ -128,6 +148,10 @@ async function executeTask(execution: TaskExecution): Promise<void> {
   let archivePayload = task.archive_payload
   let receivedImages = false
   let protectOutput: Awaited<ReturnType<typeof protectMaskedOutput>> | undefined
+  let fallbackModel: string | undefined
+  const fallbackAt = task.submitted_at + config.upstream.vertexFallbackAfterMs
+  // 过了原模型总时限，没出的几张已经交给回落模型试过，失败就是终态，不再整单重跑。
+  const pastFallbackCap = () => fallbackModel !== undefined && Date.now() >= fallbackAt
   const stopExpiredArchive = async (cause?: unknown): Promise<boolean> => {
     if (!archivePayload) return false
     const startedAt = task.archive_retry_started_at ?? claimedAt
@@ -153,13 +177,16 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       if (!preserved) return
       request = preserved
     }
-    const hydratedRequest = await hydrateInputImages(request)
+    // 入库时直接用手里这份字节，不再回对象存储读：输入刚读来送上游，结果下面刚写进去。
+    const known = new KnownMediaBytes()
+    const hydratedRequest = await hydrateInputImages(request, { onObjectRead: known.rememberRead })
     // 老任务只有 preserve_outside_mask、没有 masked_original_size：那时不补边，交付时也不裁边。
     protectOutput = request.preserve_outside_mask
       ? await protectMaskedOutput(
           hydratedRequest.input_images?.[0] ?? '',
           hydratedRequest.mask ?? '',
           request.masked_original_size,
+          request.masked_crop,
         )
       : undefined
     if (archivePayload) {
@@ -169,6 +196,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         archivePayload,
         protectOutput,
         signal,
+        known,
       )
       if (!(await execution.saveCheckpoint(archivePayload))) return
       const missing = await missingGenerationOutputs(id, task.provider, archivePayload)
@@ -178,9 +206,11 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         archivePayload,
         request,
         missing,
+        known,
       )
       await execution.finish({
         status: missing.size ? 'failed' : 'completed',
+        ...(missing.size ? {} : deliveredUsage(archivePayload, { model: task.model, request })),
         ...(missing.size
           ? {
               errorType: 'upstream_result_unknown' as const,
@@ -193,13 +223,34 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       })
       return
     }
+    // 原模型的总时限从提交算起（含排队与之前的重试），到点没出的几张改用回落模型。
+    fallbackModel =
+      task.provider === 'gemini' ? await rateLimitFallbackModel(task.model) : undefined
     const upstreamCall: UpstreamCallParams = {
       reconciliationRequired: task.reconciliation_required,
+      taskId: id,
+      ...(gptDirectConfigured(task.model)
+        ? { gptMember: !isGptBasicRequest(request) || (await isActiveMember(task.user_id)) }
+        : {}),
+      onGptRoute: (route) => execution.recordGptRoute(route),
       provider: task.provider,
       model: task.model,
-      request: hydratedRequest,
+      // 截图模式：落库的是整张原图与选区，送上游的只是选区周围那一块。
+      request: request.masked_crop
+        ? {
+            ...hydratedRequest,
+            ...(await cropMaskedUpstream(
+              hydratedRequest,
+              request.masked_crop,
+              request.masked_original_size,
+            )),
+          }
+        : hydratedRequest,
       signal,
       resume,
+      ...(fallbackModel
+        ? { rateLimitFallbackModel: fallbackModel, rateLimitFallbackAt: fallbackAt }
+        : {}),
       onUpstreamTaskIds: (taskIds) =>
         execution.recordUpstreamTaskIds(taskIds, resume !== undefined),
       onRequestDispatched: (dispatchId) => execution.recordDispatchStarted(dispatchId),
@@ -245,7 +296,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         (await tryScheduleRetry(
           execution,
           attemptJustFailed,
-          !blocked && shouldRetryEmptyResult(task.provider, payload),
+          !blocked && !pastFallbackCap() && shouldRetryEmptyResult(task.provider, payload),
           `no_image: ${message}`,
         ))
       ) {
@@ -285,23 +336,40 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       }
     }
     const archivedPayload = cloudArchive
-      ? await spoolGenerationOutputs(id, task.provider, payload, protectOutput, signal)
+      ? await spoolGenerationOutputs(id, task.provider, payload, protectOutput, signal, known)
       : await archiveOutputImages(id, task.provider, payload, protectOutput)
     if (cloudArchive) {
       archivePayload = archivedPayload
       if (!(await execution.saveCheckpoint(archivePayload))) return
     }
     const media = cloudArchive
-      ? await archiveGenerationOutputs(task.user_id!, task.provider, archivedPayload, request)
+      ? await archiveGenerationOutputs(
+          task.user_id!,
+          task.provider,
+          archivedPayload,
+          request,
+          undefined,
+          known,
+        )
       : undefined
     await execution.finish({
       status: 'completed',
+      ...deliveredUsage(archivedPayload, { model: task.model, request }),
       media,
       resultPayload: archivedPayload,
       completedAt: now(),
     })
     log.info(
-      { event: 'task.completed', taskId: id, imageCount: meta.images.length },
+      {
+        event: 'task.completed',
+        taskId: id,
+        imageCount: meta.images.length,
+        ...(partialFailureOf(archivedPayload)
+          ? { partialFailure: partialFailureOf(archivedPayload) }
+          : {}),
+        idleSlot: execution.idleSlot,
+        elapsedMs: now() - claimedAt,
+      },
       'task completed',
     )
   } catch (err) {
@@ -353,7 +421,11 @@ async function executeTask(execution: TaskExecution): Promise<void> {
               payload: upstreamFailure.body,
             })
           ? 'content_policy'
-          : 'upstream_error'
+          : isModelUnavailableRejection({ message, payload: upstreamFailure.body })
+            ? 'model_unavailable'
+            : upstreamFailure.status === 429
+              ? 'rate_limited'
+              : 'upstream_error'
 
     const attemptJustFailed = task.attempt_count + 1
     if (
@@ -361,7 +433,12 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       (await tryScheduleRetry(
         execution,
         attemptJustFailed,
-        !(cloudArchive && receivedImages) && isRetryableError(err),
+        // 上游明说这个模型没有可用账号：原样重试还是这句，每次让用户多等几十秒（10-29 flare 事故一单等了约 50 秒），
+        // 直接失败、下架模型、退积分。
+        errorType !== 'model_unavailable' &&
+          !(cloudArchive && receivedImages) &&
+          !pastFallbackCap() &&
+          isRetryableError(err),
         message,
       ))
     ) {
@@ -395,6 +472,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         {
           event: 'task.failed',
           taskId: id,
+          idleSlot: execution.idleSlot,
           errorType,
           attempt: attemptJustFailed,
           upstreamStatus: upstreamFailure.status,
@@ -404,4 +482,43 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       )
     }
   }
+}
+
+/**
+ * 部分出图（结果里有 `partial_failure`）只按交付张数结算：冻结的是要的张数，没出的那几张随结算退回。
+ * 倍率沿用提交时的口径（GPT 直连模型按档位与画质）；高档单落到 sub2api 的降档由 finishTask 按任务行
+ * 上记的通道统一改判，这里不看。整单都出了图不带用量，结算照旧按冻结额。
+ */
+function deliveredUsage(
+  payload: unknown,
+  task: { model: string; request: GptTierInput },
+): { actualUsage?: TaskUsage } {
+  const partial = partialFailureOf(payload)
+  if (!partial) return {}
+  return {
+    actualUsage: {
+      quantity: Math.max(0, partial.requested - partial.failed),
+      unitMultiplier: gptImageRateMultiplier(task.model, task.request),
+    },
+  }
+}
+
+/** 停用清单最多这么久查一次：每单都查会让批量任务一直打 model_availability。 */
+const INACTIVE_REFRESH_MS = 30_000
+let inactiveRefresh: { at: number; done: Promise<unknown> } | undefined
+
+/**
+ * Vertex 429 回落到哪个模型：运营配置的（默认 gemini-nano-banana-2.1），`off` 关掉；
+ * 和原模型相同、或在「模型」页停用的都不回落。停用清单在 worker 进程里没有别处刷新，这里顺手查一次
+ * （最多 30 秒查一次，失败沿用上次结果）。
+ */
+async function rateLimitFallbackModel(model: string): Promise<string | undefined> {
+  const fallback = config.upstream.vertexRateLimitFallbackModel
+  if (!fallback || fallback === 'off' || fallback === model) return undefined
+  const now = Date.now()
+  if (!inactiveRefresh || now - inactiveRefresh.at >= INACTIVE_REFRESH_MS)
+    inactiveRefresh = { at: now, done: refreshInactiveModels() }
+  // 并发进来的都等同一次刷新，不会在刷新完成前拿旧清单（进程刚起时清单是空的）。
+  await inactiveRefresh.done
+  return knownInactiveModels().has(fallback) ? undefined : fallback
 }

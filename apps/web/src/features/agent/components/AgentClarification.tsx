@@ -5,9 +5,11 @@ import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
 import { CARD_CONTROL } from '../agentStyles'
-import { clarificationAnswer } from '../lib/panelMessages'
+import { confirmedMaskSource } from '../lib/maskProposal'
+import { clarificationAnswer, clarificationAnswerMessage } from '../lib/panelMessages'
 import { useAgentStore } from '../store'
 import type { AgentClarificationMessage } from '../types'
+import AgentMaskProposalCard, { AnsweredMaskProposal } from './AgentMaskProposalCard'
 
 function AnsweredClarification({
   message,
@@ -64,6 +66,11 @@ export default function AgentClarification({
   const answer = useAgentStore((state) =>
     answered ? clarificationAnswer(state.messages, message.id) : null,
   )
+  const answerReferences = useAgentStore((state) =>
+    answered && message.maskProposal
+      ? clarificationAnswerMessage(state.messages, message.id)?.references
+      : undefined,
+  )
   const [writing, setWriting] = useState(false)
   const [other, setOther] = useState('')
   const locked = answered || running
@@ -75,6 +82,29 @@ export default function AgentClarification({
     void useAgentStore.getState().send(written)
   }
 
+  if (message.maskProposal) {
+    if (answered) {
+      // 确认与否先看回答里有没有带着这张图的蒙版：回答文字按当时的界面语言存，切换语言后
+      // 前缀就对不上了；文字前缀只兜底蒙版读不到的旧记录。
+      const mask = confirmedMaskSource(answerReferences, message.maskProposal)
+      return (
+        <AnsweredMaskProposal
+          proposal={message.maskProposal}
+          confirmed={
+            mask !== null || (answer?.startsWith(t('maskProposal.answerConfirmed')) ?? false)
+          }
+          mask={mask}
+        />
+      )
+    }
+    return (
+      <AgentMaskProposalCard
+        message={message}
+        proposal={message.maskProposal}
+        answered={answered}
+      />
+    )
+  }
   if (answer !== null) return <AnsweredClarification message={message} answer={answer} />
   if (answered)
     return (

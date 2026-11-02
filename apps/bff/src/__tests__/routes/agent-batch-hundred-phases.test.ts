@@ -17,6 +17,13 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
   '../batch-execution-operator-config.json',
 )
 const billing = installRecordingTaskHooks()
+
+/** 分析行没有 ORDER BY，完成先后会换物理顺序。比对的是同一批行，不是返回顺序。 */
+function analysisRows<T extends { item_key: string; task_id: string }>(rows: readonly T[]): T[] {
+  return [...rows].sort(
+    (a, b) => a.item_key.localeCompare(b.item_key) || a.task_id.localeCompare(b.task_id),
+  )
+}
 const { db, schema, close } = await import('../../db/client')
 const { config } = await import('../../config')
 const { loadPrivateBffOverlay, _setPrivateBffOverlayForTesting } = await import(
@@ -306,8 +313,10 @@ it('keeps each phase bounded at 100 items while retaining 100 earlier paid analy
       2,
     )
     expect(
-      await db.select().from(schema.analysis_tasks).where(eq(schema.analysis_tasks.batch_id, id)),
-    ).toEqual(previous)
+      analysisRows(
+        await db.select().from(schema.analysis_tasks).where(eq(schema.analysis_tasks.batch_id, id)),
+      ),
+    ).toEqual(analysisRows(previous))
     expect(
       (
         await db

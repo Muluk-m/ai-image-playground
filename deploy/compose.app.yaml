@@ -88,6 +88,10 @@ services:
       DATABASE_POOL_MAX: "6"
       STATIC_DIR: ""
       EXECUTOR_ORIGIN: http://bff:37377
+      # The shared segmenter, when vps-deploy.sh turned it on for this edition (empty otherwise,
+      # which leaves the edit-region card on the agent's box). rollout-runtime.sh does the same.
+      AGENT_SEGMENTER_URL: ${AGENT_SEGMENTER_URL:-}
+      AGENT_SEGMENTER_NAMESPACE: ${AGENT_SEGMENTER_NAMESPACE:-}
       # Override in app.env when something other than cloudflared terminates the ingress.
       CLIENT_IP_SOURCE: ${CLIENT_IP_SOURCE:-cf-connecting-ip}
     command:
@@ -129,6 +133,8 @@ services:
       # (1 + 2), plus one so the queue poll and maintenance loop never wait behind settlements.
       # Raise it with those concurrencies.
       DATABASE_POOL_MAX: "4"
+      AGENT_SEGMENTER_URL: ${AGENT_SEGMENTER_URL:-}
+      AGENT_SEGMENTER_NAMESPACE: ${AGENT_SEGMENTER_NAMESPACE:-}
     command:
       - bun
       - run
@@ -275,6 +281,8 @@ services:
       # Disk and memory alerts go out from here, not through the BFF: a full disk is exactly when
       # the BFF and the database stop answering.
       OPS_ALERT_WEBHOOK_URL: ${OPS_ALERT_WEBHOOK_URL:-}
+      OPS_ALERT_WEBHOOK_URLS: ${OPS_ALERT_WEBHOOK_URLS:-}
+      OPS_ALERT_WEBHOOK_HEADERS: ${OPS_ALERT_WEBHOOK_HEADERS:-}
       OPS_HOST_ALERTS: ${OPS_HOST_ALERTS:-true}
       OPS_DEPLOYMENT_NAME: ${OPS_DEPLOYMENT_NAME:-${COMPOSE_PROJECT_NAME:-deployment}}
     command:
@@ -329,6 +337,8 @@ services:
       S3_KEY_PREFIX: ${S3_KEY_PREFIX:-}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?Set S3_ACCESS_KEY_ID in the application environment file}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?Set S3_SECRET_ACCESS_KEY in the application environment file}
+      # Seconds before a failed restore drill is retried at container start.
+      PG_DRILL_RETRY_AFTER_SECONDS: ${PG_DRILL_RETRY_AFTER_SECONDS:-21600}
     networks:
       - application
       - application-infra

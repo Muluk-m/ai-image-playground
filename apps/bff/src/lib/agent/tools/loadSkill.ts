@@ -10,6 +10,7 @@ import {
   agentSkillLocation,
   agentSkills,
   findAgentSkill,
+  isCanvasOnlySkill,
   readAgentSkillFile,
   resolveAgentSkill,
 } from '../skills'
@@ -53,7 +54,7 @@ export const loadSkill = defineAgentTool({
     return { title: label ? `读取技能：${label}${suffix}` : '读取技能' }
   },
   execute: (context) => async (_toolCallId, params) => {
-    const loaded = await loadSkillText(context.mode, context.userId, params)
+    const loaded = await loadSkillText(context.mode, context.userId, params, context.experience)
     return {
       content: [{ type: 'text', text: loaded.text }],
       // 面板据 `found` 决定这一行说「读取技能」还是「没找到技能」，不靠匹配上面那段文案。
@@ -73,6 +74,8 @@ export async function replayedSkillTexts(
   history: readonly AgentMessageView[],
   mode: AgentMode,
   userId: string | null,
+  /** 这一轮的模式：Agent 模式不把画布技能的正文补回去（读也读不到，见 {@link loadSkillText}）。 */
+  experience?: 'chat' | 'canvas',
 ): Promise<ReadonlyMap<string, string>> {
   const latest = new Map<string, { toolCallId: string; name: string; file?: string }>()
   for (const message of history)
@@ -91,7 +94,7 @@ export async function replayedSkillTexts(
     }
   const loaded = await Promise.all(
     [...latest.values()].map(async (one) => {
-      const { text, outcome } = await loadSkillText(mode, userId, one)
+      const { text, outcome } = await loadSkillText(mode, userId, one, experience)
       return outcome.found ? ([one.toolCallId, text] as const) : null
     }),
   )
@@ -118,9 +121,12 @@ async function loadSkillText(
   mode: AgentMode,
   userId: string | null,
   params: LoadSkillParams,
+  experience?: 'chat' | 'canvas',
 ): Promise<LoadedSkillText> {
   const name = params.name?.trim() ?? ''
-  const skill = name ? await resolveAgentSkill(mode, name, userId) : undefined
+  // 画布技能只给画布模式：Agent 模式里模型照名字硬读也读不到，与技能清单同一条规则。
+  const hidden = experience !== 'canvas' && isCanvasOnlySkill(name)
+  const skill = name && !hidden ? await resolveAgentSkill(mode, name, userId) : undefined
   const label = skillLabel(name, skill?.title)
   // 图标跟着这一轮真找到的那条技能走，与 `/` 菜单同一张白名单；没找到时不给，界面退回默认图标。
   const icon = skill ? { icon: skill.icon } : {}
@@ -130,7 +136,9 @@ async function loadSkillText(
   })
   if (!skill) {
     // 只报内置技能：用户自建的模板不该在这里被一条条念出来，那是他的东西，也念不完。
-    const known = agentSkills(mode).map((one) => one.name)
+    const known = agentSkills(mode)
+      .map((one) => one.name)
+      .filter((one) => experience === 'canvas' || !isCanvasOnlySkill(one))
     return miss(
       known.length > 0
         ? `没有名为 ${name || '(空)'} 的技能。当前可用：${known.join('、')}`

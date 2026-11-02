@@ -14,15 +14,22 @@ export const CAPABILITIES = {
   'agent:batch-plans': { defaultValue: false, clientExposed: true },
   'agent:attachments': { defaultValue: false, clientExposed: true },
   'agent:bulk-attachments': { defaultValue: false, clientExposed: true },
+  /** 批次里单独取消正在生成的一张（取消接口与卡片上的取消按钮）。默认关，按环境逐步放开。 */
+  'agent:batch-item-cancel': { defaultValue: false, clientExposed: true },
+  /**
+   * 智能体先提议修改范围（`proposeEditRegion` 范围确认卡）再按蒙版局部编辑。2026-10-27 线上
+   * 屡次报「原图尺寸超出模型支持的局部编辑范围」后整轮无图，按 Nain 要求下线：默认关，
+   * 关着时智能体不再收到这个工具、也不再把单对象修改退回去要求先圈范围，改图回到整图编辑。
+   */
+  'agent:edit-region': { defaultValue: false, clientExposed: false },
   'billing:credits': { defaultValue: false, clientExposed: true },
-  /** 节点画布（ADR 0022 / 0023）。跑通前只在测试站开；关着时画布照旧。 */
-  'canvas:nodes': { defaultValue: false, clientExposed: true },
   /**
    * 对话限时免费的运营期。开着时对话轮**真的不计费**：BFF 既不预扣也不结算
    * （`chatTurnsBilled()`），这一轮的 `cost.chat` 恒为 0；工具产生的生图 / 生视频
    * 各自独立计费，不受影响。前端据此在轮页脚标明这一轮的对话没收钱。
    */
   'billing:chat-free': { defaultValue: false, clientExposed: true },
+  'cli:api': { defaultValue: false, clientExposed: false },
   'generation:video': { defaultValue: false, clientExposed: true },
   'operator:console': { defaultValue: false, clientExposed: false },
   'quota:daily': { defaultValue: false, clientExposed: true },
@@ -33,6 +40,11 @@ export const CAPABILITIES = {
  * 不要复用这些名字表示新能力。
  */
 export const RETIRED_CAPABILITIES: readonly string[] = [
+  // 节点画布 v1 整份常开，不再由运营配置开关。旧文件里的这些键直接忽略。
+  'canvas:nodes',
+  'canvas:blank-generate',
+  'canvas:node-run',
+  'canvas:script',
   // 联网工具（搜索 / 抓网页 / 取网图 / 抓商品图）不再由能力开关控制，随部署默认在场。
   'agent:web',
   // 用户自带密钥已下线。旧运营配置里的这个开关直接忽略。
@@ -63,6 +75,15 @@ export type ClientCapabilityKey = {
 export type CapabilityValues = { readonly [Key in CapabilityKey]: boolean }
 export type ClientCapabilityManifest = { readonly [Key in ClientCapabilityKey]: boolean } & {
   readonly attachmentLimits?: AttachmentLimits
+  readonly mediaLimits?: MediaLimits
+}
+/**
+ * 普通云媒体（画布原图、按 id 引用的参考图）单张上限，与服务端预约上传时用的是同一份配置。
+ * 对话附件那条通道关着时，大图按这一档上传后按 id 发，客户端在选图时就按它拦。
+ */
+export interface MediaLimits {
+  readonly imageBytes: number
+  readonly imagePixels: number
 }
 /** Limits apply to immutable uploaded originals, independently of model preview budgets. */
 export interface AttachmentLimits {
@@ -86,6 +107,8 @@ export const QUOTAS = {
   /** Application resource guard, not a provider throughput guarantee. */
   'agent:visual-prepare-concurrency': { defaultValue: 1 },
   'agent:visual-prepare-queue': { defaultValue: 100 },
+  /** 智能体同一轮里、未声明并发上限的同模型任务最多同时跑几条；1 即一律串行。 */
+  'agent:turn-model-parallelism': { defaultValue: 1 },
   'agent:visual-max-pixels': { defaultValue: 16_777_216 },
   /** Zero keeps bulk intake closed until operators validate and configure resource budgets. */
   'agent:attachment-logical-references': { defaultValue: 0 },

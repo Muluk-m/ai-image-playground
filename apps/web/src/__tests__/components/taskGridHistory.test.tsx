@@ -77,12 +77,12 @@ afterEach(() => {
 })
 
 describe('folding a product shot job in the history', () => {
-  it('counts folded sets rather than tasks when deciding whether more works exist', async () => {
+  it('keeps a set folded on the home page without expansion controls', async () => {
     useStore.setState({
       tasks: Array.from({ length: 4 }, (_, index) => task(`task-${index}`, 'job-1', 'done')),
       platformGenerations: [],
     })
-    await act(async () => root.render(<TaskGrid hero limit={3} onExpand={vi.fn()} />))
+    await act(async () => root.render(<TaskGrid hero />))
     expect(host.querySelectorAll('[data-set-history-card]')).toHaveLength(1)
     expect(host.textContent).not.toContain('展开更多作品')
   })
@@ -96,6 +96,38 @@ describe('folding a product shot job in the history', () => {
     expect(cards[0].textContent).toContain('完成 1/2')
     expect(cards[0].textContent).toContain('失败 1')
     expect(document.querySelectorAll('.task-card-wrapper')).toHaveLength(0)
+  })
+
+  it('counts a task cancelled in the queue as cancelled, not as a failure', async () => {
+    useStore.setState({
+      tasks: [
+        task('task-1', 'job-1', 'done'),
+        { ...task('task-2', 'job-1', 'error'), cancelled: true },
+      ],
+    })
+    await act(async () => root.render(<TaskGrid />))
+
+    const card = document.querySelector('[data-set-history-card]')
+    expect(card?.textContent).toContain('已取消 1')
+    expect(card?.textContent).not.toContain('失败')
+  })
+
+  it('leaves cancelled tasks out of the failed filter', async () => {
+    const single = (id: string, status: TaskRecord['status'], cancelled?: true): TaskRecord => ({
+      ...task(id, 'unused', status),
+      origin: undefined,
+      ...(cancelled ? { cancelled } : {}),
+    })
+    useStore.setState({
+      tasks: [single('task-5', 'error'), single('task-6', 'error', true)],
+      filterStatus: 'error',
+    })
+    await act(async () => root.render(<TaskGrid />))
+
+    const ids = [...document.querySelectorAll('.task-card-wrapper')].map((node) =>
+      node.getAttribute('data-task-id'),
+    )
+    expect(ids).toEqual(['task-5'])
   })
 
   it('tags the card with each action the job ran', async () => {

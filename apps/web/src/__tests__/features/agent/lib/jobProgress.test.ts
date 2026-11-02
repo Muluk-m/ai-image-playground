@@ -52,6 +52,19 @@ describe('agentToolProgress', () => {
     ).toEqual({ phase: 'delivering', since: 10 })
   })
 
+  it('carries the account queue position while the job is still queued (BUG-17)', () => {
+    const queue = { ahead: 2, limit: 3 }
+    expect(agentToolProgress(tool(), { stage: 'submitted', submittedAt: 10, queue })).toEqual({
+      phase: 'queued',
+      since: 10,
+      queue,
+    })
+    // 开始生成之后排队位置就没有意义了，不再带着。
+    expect(
+      agentToolProgress(tool(), { stage: 'running', submittedAt: 10, queue })?.queue,
+    ).toBeUndefined()
+  })
+
   it('keeps the durable reconnecting and confirming phases from the server', () => {
     expect(
       agentToolProgress(tool(), { stage: 'submitted', submittedAt: 10, phase: 'reconnecting' }),

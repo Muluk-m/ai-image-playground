@@ -9,6 +9,10 @@
  *     声明了 `requiresSecret` 的 channel 例外，缺 secret 时整条丢弃
  *   - baseUrlRef 指向的 env 不存在 / 不是合法 https URL → 该 channel 进 warnings 并被整条丢弃。
  *     跟缺 secret 不同：没有上游地址就没有「调用上游时再失败」这一步，留着只会拼出非法 URL。
+ *   - `disabled: true` → 运营暂时下线整条 channel：照常校验 schema，但不广播、不进 `getChannels()`，
+ *     智能体与服务端选模型都看不到它，新任务提交被拒（`isModelDisabled`）；只有下线前已提交的
+ *     任务还能经 `getRoutableChannels()` 在原上游续轮询。密钥与 env 原样留着，删掉这一行
+ *     （或改成 false）发版即恢复。
  *
  * `getChannels()` 返回内部全字段（含 baseUrl / auth / 已解析 secret），仅 BFF 内部使用。
  * `getDiscoveredChannels()` 返回 sanitized 字段，可安全经 /api/channels 发给前端。
@@ -28,9 +32,22 @@ import type {
   ChannelMedia,
   ChannelModel,
   DiscoveredChannel,
+  GeminiImageSize,
+  ModelBadge,
+  ModelLogoId,
+  ModelTier,
   QueueProvider,
 } from '@image-playground/shared'
-import { CHANNEL_CAPABILITIES } from '@image-playground/shared'
+import {
+  CHANNEL_CAPABILITIES,
+  GEMINI_IMAGE_SIZES,
+  isGptDirectModel,
+  isModelEtaSeconds,
+  MODEL_BADGES,
+  MODEL_LOGOS,
+  MODEL_TIERS,
+} from '@image-playground/shared'
+import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -54,6 +71,16 @@ export interface InternalChannel {
   allowedPaths: string[]
   models: ChannelModel[]
   defaults: ChannelDefaults
+  /**
+   * 本进程内同时发往该渠道的上游请求上限（含一单多张拆出来的每一条）。BFF 私有，不进发现清单。
+   * 目前只有 gemini-queue 的 generateContent 同步请求认它，其余 kind 写了会在加载时报错。
+   */
+  maxConcurrency?: number
+  /**
+   * 按模型的同时在途上限（`models[].maxConcurrency`），写了就压过渠道级的 `maxConcurrency`、按
+   * 「渠道 + 模型」单独排队。同样 BFF 私有、只允许 gemini-queue。Vertex 实测限流按模型各算各的。
+   */
+  modelMaxConcurrency?: Readonly<Record<string, number>>
 }
 
 /** parseChannel 的产物：baseUrl 尚未解析，只有 `baseUrl` / `baseUrlRef` 二选一。 */
@@ -61,10 +88,18 @@ interface ParsedChannel extends Omit<InternalChannel, 'baseUrl'> {
   baseUrl?: string
   baseUrlRef?: string
   requiresSecret: boolean
+  disabled: boolean
 }
 
 export interface ChannelsLoadResult {
   channels: InternalChannel[]
+  /**
+   * `disabled: true` 且上游地址与 secret 都齐的 channel。不广播、不进 `getChannels()`，
+   * 只留给 `getRoutableChannels()`：下线前已经提交的任务还要在原上游续轮询。
+   */
+  disabled: InternalChannel[]
+  /** 所有 `disabled: true` channel 声明的模型（id → channel id），不管 env 齐不齐；新任务据此拒收。 */
+  disabledModels: Record<string, string>
   /** 非致命问题清单（缺 secret 等），由 startup 落日志。 */
   warnings: string[]
 }
@@ -113,6 +148,78 @@ function parseMedia(v: unknown, ctx: string): ChannelMedia | undefined {
   return v as ChannelMedia
 }
 
+/** 选择器标签：只认 shared 里登记过的 token，重复的视为配置错误。 */
+function parseBadges(v: unknown, ctx: string): ModelBadge[] | undefined {
+  if (v === undefined) return undefined
+  if (!Array.isArray(v)) throw new ChannelsLoadError(`${ctx}.badges must be an array`)
+  const seen = new Set<string>()
+  return v.map((badge) => {
+    if (typeof badge !== 'string' || !MODEL_BADGES.includes(badge as ModelBadge))
+      throw new ChannelsLoadError(
+        `${ctx}: invalid badge '${String(badge)}' (allowed: ${MODEL_BADGES.join(', ')})`,
+      )
+    if (seen.has(badge)) throw new ChannelsLoadError(`${ctx}: duplicate badge '${badge}'`)
+    seen.add(badge)
+    return badge as ModelBadge
+  })
+}
+
+function parseTier(v: unknown, ctx: string): ModelTier | undefined {
+  if (v === undefined) return undefined
+  if (typeof v !== 'string' || !MODEL_TIERS.includes(v as ModelTier))
+    throw new ChannelsLoadError(
+      `${ctx}: invalid tier '${String(v)}' (allowed: ${MODEL_TIERS.join(', ')})`,
+    )
+  return v as ModelTier
+}
+
+function parseEtaSeconds(v: unknown, ctx: string): number | undefined {
+  if (v === undefined) return undefined
+  if (!isModelEtaSeconds(v))
+    throw new ChannelsLoadError(`${ctx}.etaSeconds must be an integer between 1 and 3600`)
+  return v
+}
+
+/** 范围上界：同样 1–3600 整数，必须配着 etaSeconds 写且严格大于它，否则范围没有意义。 */
+function parseEtaMaxSeconds(
+  v: unknown,
+  etaSeconds: number | undefined,
+  ctx: string,
+): number | undefined {
+  if (v === undefined) return undefined
+  if (!isModelEtaSeconds(v))
+    throw new ChannelsLoadError(`${ctx}.etaMaxSeconds must be an integer between 1 and 3600`)
+  if (etaSeconds === undefined || v <= etaSeconds)
+    throw new ChannelsLoadError(`${ctx}.etaMaxSeconds must come with a smaller etaSeconds`)
+  return v
+}
+
+function parseLogo(v: unknown, ctx: string): ModelLogoId | undefined {
+  if (v === undefined) return undefined
+  if (typeof v !== 'string' || !MODEL_LOGOS.includes(v as ModelLogoId))
+    throw new ChannelsLoadError(
+      `${ctx}: invalid logo '${String(v)}' (allowed: ${MODEL_LOGOS.join(', ')})`,
+    )
+  return v as ModelLogoId
+}
+
+/** 分辨率档位：`GEMINI_IMAGE_SIZES` 的非空子集，不重复。 */
+function parseImageSizes(v: unknown, ctx: string): GeminiImageSize[] | undefined {
+  if (v === undefined) return undefined
+  if (!Array.isArray(v) || v.length === 0)
+    throw new ChannelsLoadError(`${ctx}.imageSizes must be a non-empty array`)
+  const seen = new Set<string>()
+  return v.map((size) => {
+    if (typeof size !== 'string' || !GEMINI_IMAGE_SIZES.includes(size as GeminiImageSize))
+      throw new ChannelsLoadError(
+        `${ctx}: invalid imageSize '${String(size)}' (allowed: ${GEMINI_IMAGE_SIZES.join(', ')})`,
+      )
+    if (seen.has(size)) throw new ChannelsLoadError(`${ctx}: duplicate imageSize '${size}'`)
+    seen.add(size)
+    return size as GeminiImageSize
+  })
+}
+
 function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
   if (!Array.isArray(v) || v.length === 0)
     throw new ChannelsLoadError(`${channelCtx}: models must be a non-empty array`)
@@ -120,11 +227,23 @@ function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
     const ctx = `${channelCtx}.models[${idx}]`
     if (!isObject(raw)) throw new ChannelsLoadError(`${ctx} must be an object`)
     const media = parseMedia(raw.media, ctx)
+    const badges = parseBadges(raw.badges, ctx)
+    const tier = parseTier(raw.tier, ctx)
+    const etaSeconds = parseEtaSeconds(raw.etaSeconds, ctx)
+    const etaMaxSeconds = parseEtaMaxSeconds(raw.etaMaxSeconds, etaSeconds, ctx)
+    const logo = parseLogo(raw.logo, ctx)
+    const imageSizes = parseImageSizes(raw.imageSizes, ctx)
     return {
       id: requireNonEmptyString(raw.id, `${ctx}.id`),
       label: requireNonEmptyString(raw.label, `${ctx}.label`),
       capabilities: parseCapabilities(raw.capabilities, ctx),
       ...(media ? { media } : {}),
+      ...(badges ? { badges } : {}),
+      ...(tier ? { tier } : {}),
+      ...(etaSeconds !== undefined ? { etaSeconds } : {}),
+      ...(etaMaxSeconds !== undefined ? { etaMaxSeconds } : {}),
+      ...(logo ? { logo } : {}),
+      ...(imageSizes ? { imageSizes } : {}),
     }
   })
 }
@@ -215,10 +334,19 @@ function parseBaseUrlSource(raw: Record<string, unknown>, ctx: string): Partial<
   return { baseUrl: normalizeBaseUrl(raw.baseUrl) }
 }
 
-function parseRequiresSecret(v: unknown, ctx: string): boolean {
+function parseOptionalFlag(v: unknown, ctx: string): boolean {
   if (v !== undefined && typeof v !== 'boolean')
-    throw new ChannelsLoadError(`${ctx}.requiresSecret must be boolean`)
+    throw new ChannelsLoadError(`${ctx} must be boolean`)
   return v === true
+}
+
+function parseMaxConcurrency(v: unknown, kind: ChannelKind, ctx: string): number | undefined {
+  if (v === undefined) return undefined
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 64)
+    throw new ChannelsLoadError(`${ctx}.maxConcurrency must be an integer between 1 and 64`)
+  if (kind !== 'gemini-queue')
+    throw new ChannelsLoadError(`${ctx}.maxConcurrency is only supported on gemini-queue channels`)
+  return v
 }
 
 function parseChannel(raw: unknown, idx: number): ParsedChannel {
@@ -234,16 +362,30 @@ function parseChannel(raw: unknown, idx: number): ParsedChannel {
   if (!isStringArray(raw.allowedPaths) || raw.allowedPaths.length === 0)
     throw new ChannelsLoadError(`${ctx}.allowedPaths must be a non-empty string[]`)
 
+  const maxConcurrency = parseMaxConcurrency(raw.maxConcurrency, raw.kind as ChannelKind, ctx)
+  const models = parseModels(raw.models, ctx)
+  const modelMaxConcurrency: Record<string, number> = {}
+  ;(raw.models as unknown[]).forEach((model, index) => {
+    const limit = parseMaxConcurrency(
+      (model as { maxConcurrency?: unknown }).maxConcurrency,
+      raw.kind as ChannelKind,
+      `${ctx}.models[${index}]`,
+    )
+    if (limit !== undefined) modelMaxConcurrency[models[index]!.id] = limit
+  })
   return {
     id: raw.id,
     kind: raw.kind as ChannelKind,
     label: requireNonEmptyString(raw.label, `${ctx}.label`),
     ...parseBaseUrlSource(raw, ctx),
-    requiresSecret: parseRequiresSecret(raw.requiresSecret, ctx),
+    requiresSecret: parseOptionalFlag(raw.requiresSecret, `${ctx}.requiresSecret`),
+    disabled: parseOptionalFlag(raw.disabled, `${ctx}.disabled`),
     auth: parseAuth(raw.auth, ctx),
     allowedPaths: raw.allowedPaths,
-    models: parseModels(raw.models, ctx),
+    models,
     defaults: parseDefaults(raw.defaults, ctx),
+    ...(maxConcurrency !== undefined ? { maxConcurrency } : {}),
+    ...(Object.keys(modelMaxConcurrency).length ? { modelMaxConcurrency } : {}),
   }
 }
 
@@ -301,12 +443,34 @@ export function parseChannelsConfig(
   const warnings: string[] = []
   const seenIds = new Set<string>()
   const channels: InternalChannel[] = []
+  const disabled: InternalChannel[] = []
+  // 无原型：模型 id 只校验非空，`constructor` 之类的键不能撞上继承属性。
+  const disabledModels: Record<string, string> = Object.create(null)
   channelsRaw.forEach((raw, idx) => {
     const ch = parseChannel(raw, idx)
     if (seenIds.has(ch.id)) throw new ChannelsLoadError(`channels[${idx}].id duplicate: '${ch.id}'`)
     seenIds.add(ch.id)
 
     const resolved = resolveBaseUrl(ch, envLookup)
+    if (ch.disabled) {
+      // 下线的 channel 合成一条 warning：新任务反正不收，env 缺失只影响下线前已提交的任务，
+      // 这一点要说清楚——那些任务会在路由时明确失败，而不是落进通用网关。
+      for (const model of ch.models)
+        if (!Object.hasOwn(disabledModels, model.id)) disabledModels[model.id] = ch.id
+      const secret = envLookup(ch.auth.secretRef)?.trim() ?? ''
+      const base = `channel '${ch.id}': disabled in channels.json; the channel will not be advertised or offered for new tasks`
+      if ('baseUrl' in resolved && secret) {
+        disabled.push(toInternal(ch, resolved.baseUrl, secret))
+        warnings.push(base)
+      } else {
+        const missing =
+          'warning' in resolved ? resolved.warning : `env '${ch.auth.secretRef}' is empty or unset`
+        warnings.push(
+          `${base}; tasks submitted before it was disabled cannot be routed and will fail (${missing})`,
+        )
+      }
+      return
+    }
     if ('warning' in resolved) {
       warnings.push(resolved.warning)
       return
@@ -325,10 +489,14 @@ export function parseChannelsConfig(
         `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; upstream calls will fail until it's provided`,
       )
     }
-    const { baseUrlRef: _ref, requiresSecret: _requiresSecret, ...rest } = ch
-    channels.push({ ...rest, baseUrl: resolved.baseUrl, auth: { ...ch.auth, secret } })
+    channels.push(toInternal(ch, resolved.baseUrl, secret))
   })
-  return { channels, warnings }
+  return { channels, disabled, disabledModels, warnings }
+}
+
+function toInternal(ch: ParsedChannel, baseUrl: string, secret: string): InternalChannel {
+  const { baseUrlRef: _ref, requiresSecret: _requiresSecret, disabled: _disabled, ...rest } = ch
+  return { ...rest, baseUrl, auth: { ...ch.auth, secret } }
 }
 
 /** 默认 channels.json 解析位置：apps/bff/channels.json（相对于本文件）。 */
@@ -350,6 +518,8 @@ export function loadChannelsFromFile(filePath: string): ChannelsLoadResult {
     if (isFileNotFoundError(err)) {
       return {
         channels: [],
+        disabled: [],
+        disabledModels: {},
         warnings: [`channels file not found: ${filePath} (BFF will serve no built-in channels)`],
       }
     }
@@ -371,16 +541,36 @@ function isFileNotFoundError(err: unknown): boolean {
 /* ────────────────────────── 模块级状态 ────────────────────────── */
 
 let loaded: InternalChannel[] = []
+let retired: InternalChannel[] = []
+let disabledModels: ReadonlyMap<string, string> = new Map()
 let discoveredCache: DiscoveredChannel[] = []
 
 export function initChannels(filePath = defaultChannelsPath()): ChannelsLoadResult {
   const result = loadChannelsFromFile(filePath)
-  setLoaded(result.channels)
+  setLoaded(result.channels, result.disabled, result.disabledModels)
   return result
 }
 
 export function getChannels(): InternalChannel[] {
   return loaded
+}
+
+/**
+ * 上游路由专用：在用的 channel 在前，下线（`disabled`）的在后。下线前已提交的任务靠它
+ * 回到原上游续轮询，而不是落进通用网关拼出一条错的请求。选模型、广播一律用 `getChannels()`。
+ */
+export function getRoutableChannels(): InternalChannel[] {
+  return retired.length ? [...loaded, ...retired] : loaded
+}
+
+/** 只在下线 channel 里声明的模型：新任务一律不收，别让它经通用网关兜底跑出去。 */
+export function isModelDisabled(model: string): boolean {
+  return disabledModels.has(model)
+}
+
+/** 下线模型所属 channel 的 id；没下线（或还挂在在用 channel 上）时 undefined。 */
+export function disabledModelChannel(model: string): string | undefined {
+  return disabledModels.get(model)
 }
 
 export function getDiscoveredChannels(): DiscoveredChannel[] {
@@ -410,15 +600,46 @@ export function modelCapabilities(model: string): readonly ChannelCapability[] |
   return undefined
 }
 
-/** 给了 id 就按 id 找，没给就取该介质的默认模型——channels 数组顺序是产品契约。 */
+/** 严格局部编辑（圈外逐像素不变）只交给这一族：声明了 `mask` 且服务端合成认得它的尺寸规则。 */
+export const STRICT_MASK_MODEL = /^gpt-image-2\.5(?:[.-]|$)/
+
+/** 能按蒙版严格局部编辑的图片模型，按 channels 顺序。 */
+export function strictMaskModels(): { provider: QueueProvider; model: string; label: string }[] {
+  const found: { provider: QueueProvider; model: string; label: string }[] = []
+  for (const channel of loaded)
+    for (const model of channel.models)
+      if (
+        (model.media ?? 'image') === 'image' &&
+        model.capabilities.includes('mask') &&
+        STRICT_MASK_MODEL.test(model.id)
+      )
+        found.push({ provider: queueProviderOf(channel.kind), model: model.id, label: model.label })
+  return found
+}
+
+/** 渠道里登记的模型名；不认识的模型就用 id。 */
+export function modelLabel(model: string): string {
+  for (const channel of loaded) {
+    const declared = channel.models.find((m) => m.id === model)
+    if (declared) return declared.label
+  }
+  return model
+}
+
+/**
+ * 给了 id 就按 id 找，没给就取该介质的默认模型——channels 数组顺序是产品契约。
+ * `skip` 里的模型当作不存在（智能体挑模型时传「模型」页停用的那些）。
+ */
 export function resolveQueueModel(
   media: ChannelMedia,
   modelId?: string,
+  skip?: ReadonlySet<string>,
 ): { provider: QueueProvider; model: string } | undefined {
   for (const channel of loaded) {
     for (const model of channel.models) {
       if ((model.media ?? 'image') !== media) continue
       if (modelId && model.id !== modelId) continue
+      if (skip?.has(model.id)) continue
       return { provider: queueProviderOf(channel.kind), model: model.id }
     }
   }
@@ -429,8 +650,38 @@ function queueProviderOf(kind: ChannelKind): QueueProvider {
   return kind === 'gemini-queue' ? 'gemini' : 'openai-compat'
 }
 
-function setLoaded(channels: InternalChannel[]): void {
+/**
+ * GPT 直连模型的 `size` 只有 OpenAI 直连兑现得了（sub2api 丢弃 size）。直连没开（口径同 config.gptDirect：
+ * GPT_DIRECT_ENABLED 且有 OPENAI_API_KEY）时不声明它：前端退回只选比例、构图写进提示词，与直连上线前一致。
+ */
+function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
+  const directOn =
+    process.env.GPT_DIRECT_ENABLED?.trim().toLowerCase() === 'true' &&
+    Boolean(process.env.OPENAI_API_KEY?.trim())
+  if (directOn || !channel.models.some((model) => isGptDirectModel(model.id))) return channel
+  return {
+    ...channel,
+    models: channel.models.map((model) =>
+      isGptDirectModel(model.id)
+        ? { ...model, capabilities: model.capabilities.filter((cap) => cap !== 'size') }
+        : model,
+    ),
+  }
+}
+
+function setLoaded(
+  rawChannels: InternalChannel[],
+  disabled: InternalChannel[] = [],
+  disabledIds: Readonly<Record<string, string>> = Object.fromEntries(
+    disabled.flatMap((c) => c.models.map((m) => [m.id, c.id])),
+  ),
+): void {
+  const channels = rawChannels.map(withDeliverableGptSize)
   loaded = channels
+  retired = disabled
+  // 同一个模型还挂在某条在用的 channel 上，就照常收。
+  const active = new Set(channels.flatMap((channel) => channel.models.map((model) => model.id)))
+  disabledModels = new Map(Object.entries(disabledIds).filter(([id]) => !active.has(id)))
   discoveredCache = channels.map(sanitizeChannel)
 }
 
@@ -439,12 +690,26 @@ function sanitizeChannel(c: InternalChannel): DiscoveredChannel {
     id: c.id,
     kind: c.kind,
     label: c.label,
-    models: c.models,
+    models: c.models.map(withCatalogCapabilities),
     defaults: c.defaults,
   }
 }
 
+/**
+ * 图片模型附上能力目录里的 family 与 image（ADR 0027，只增不删）：现有字段原样保留，
+ * 目录里没有的模型、视频模型都不加，前端旧代码不读这两个字段，行为不变。
+ */
+function withCatalogCapabilities(model: ChannelModel): ChannelModel {
+  if ((model.media ?? 'image') !== 'image') return model
+  const spec = findCatalogModel(model.id)
+  return spec ? { ...model, ...publishModelCapabilities(spec) } : model
+}
+
 /** 仅供测试：直接塞入解析好的 channels，绕过文件系统。 */
-export function _setChannelsForTesting(channels: InternalChannel[]): void {
-  setLoaded(channels)
+export function _setChannelsForTesting(
+  channels: InternalChannel[],
+  disabled: InternalChannel[] = [],
+  disabledModels?: Readonly<Record<string, string>>,
+): void {
+  setLoaded(channels, disabled, disabledModels)
 }

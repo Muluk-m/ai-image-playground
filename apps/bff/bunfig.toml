@@ -1,3 +1,7 @@
 [test]
 # 每个测试进程先把私有 overlay 钉成空实现：公开测试只跑公开迁移，真 overlay 的计费钩子会去查不存在的表。
-preload = ["./src/__tests__/helpers/publicOverlayPreload.ts"]
+# 第二个：每个用例开始前先收掉上一个用例留下的轮与收尾工作，再让测试文件清库。
+preload = [
+  "./src/__tests__/helpers/publicOverlayPreload.ts",
+  "./src/__tests__/helpers/agentBackgroundWorkPreload.ts",
+]

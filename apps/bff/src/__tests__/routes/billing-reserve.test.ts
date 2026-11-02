@@ -158,6 +158,40 @@ describe('billing reservation units', () => {
     ])
   })
 
+  it('rejects a video duration that is not one of the model tiers', async () => {
+    _setChannelsForTesting([
+      {
+        ...channels[1]!,
+        models: [{ ...channels[1]!.models[0]!, id: 'grok-imagine-video-1.5-lite' }],
+      },
+    ])
+    expect(
+      await submit('grok-imagine-video-1.5-lite', {
+        video: { duration_seconds: 1.9, aspect_ratio: '16:9', resolution: '720p' },
+      }),
+    ).toBe(400)
+    expect(reservations).toEqual([])
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(
+      await submit('grok-imagine-video-1.5-lite', {
+        video: { duration_seconds: 2, aspect_ratio: '16:9', resolution: '720p' },
+      }),
+    ).toBe(200)
+    expect(reservations).toEqual([
+      {
+        taskId: expect.any(String),
+        userId: 'billing-user',
+        model: 'grok-imagine-video-1.5-lite',
+        quantity: 2,
+        unitMultiplier: 1,
+      },
+    ])
+    const [task] = await db.select().from(schema.tasks)
+    expect(task?.request_payload).toMatchObject({
+      video: { duration_seconds: 2, resolution: '720p' },
+    })
+  })
+
   it('reserves a video task by seconds at the multiplier that model prices the resolution at', async () => {
     const status = await submit('grok-imagine-video', {
       video: { duration_seconds: 8, aspect_ratio: '16:9', resolution: '1080p' },
@@ -223,5 +257,79 @@ describe('billing reservation units', () => {
         unitMultiplier: 1,
       },
     ])
+  })
+})
+
+describe('repeated submissions', () => {
+  it('creates and charges one task when the same request arrives twice under different command ids', async () => {
+    const statuses = await Promise.all([
+      submit('gpt-image-2', { prompt: 'a double click' }),
+      submit('gpt-image-2', { prompt: 'a double click' }),
+    ])
+
+    expect(statuses.sort()).toEqual([200, 409])
+    expect(reservations).toHaveLength(1)
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+  })
+
+  it('catches a double click that carries no command id', async () => {
+    expect(await submit('gpt-image-2', { prompt: 'no id', client_request_id: undefined })).toBe(200)
+    expect(await submit('gpt-image-2', { prompt: 'no id', client_request_id: undefined })).toBe(409)
+    expect(reservations).toHaveLength(1)
+  })
+
+  it('still lets a different request through right away', async () => {
+    expect(await submit('gpt-image-2', { prompt: 'first' })).toBe(200)
+    expect(await submit('gpt-image-2', { prompt: 'second' })).toBe(200)
+    expect(reservations).toHaveLength(2)
+  })
+
+  it('lets the same request through again once the earlier task failed', async () => {
+    expect(await submit('gpt-image-2', { prompt: 'retry me' })).toBe(200)
+    await db.update(schema.tasks).set({ status: 'failed' })
+    expect(await submit('gpt-image-2', { prompt: 'retry me' })).toBe(200)
+    expect(reservations).toHaveLength(2)
+  })
+
+  it('leaves canvas candidates alone: one canvas run may hold identical nodes', async () => {
+    const body = { prompt: 'same node twice', output_retention: 'candidate' }
+    expect(await submit('gpt-image-2', body)).toBe(200)
+    expect(await submit('gpt-image-2', body)).toBe(200)
+    expect(reservations).toHaveLength(2)
+  })
+
+  it('leaves other entry points alone: a batch may hold identical items', async () => {
+    const { createQueueTask } = await import('../../lib/taskSubmission')
+    const input = {
+      provider: 'openai-compat' as const,
+      model: 'gpt-image-2',
+      request: { prompt: 'same look twice' },
+      userId: 'billing-user',
+    }
+
+    expect((await createQueueTask(input)).kind).toBe('created')
+    expect((await createQueueTask(input)).kind).toBe('created')
+    expect(reservations).toHaveLength(2)
+  })
+
+  it('refuses a blank prompt on every entry point before reserving', async () => {
+    const { createQueueTask } = await import('../../lib/taskSubmission')
+    const outcome = await createQueueTask({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: '\u200b \u0007' },
+      userId: 'billing-user',
+    })
+
+    expect(outcome.kind).toBe('invalid_prompt')
+    expect(reservations).toHaveLength(0)
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  })
+
+  it('replays the same command id instead of rejecting it', async () => {
+    const client_request_id = crypto.randomUUID()
+    expect(await submit('gpt-image-2', { prompt: 'network retry', client_request_id })).toBe(200)
+    expect(await submit('gpt-image-2', { prompt: 'network retry', client_request_id })).toBe(200)
+    expect(reservations).toHaveLength(1)
   })
 })

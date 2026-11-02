@@ -1,7 +1,7 @@
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
 import { beginLookSubmission } from '../features/library/lib/lookSubmissionOperation'
 import { i18next } from '../i18n'
-import { pathAppMode } from '../lib/appPaths'
+import { normalizePath, pathAppMode } from '../lib/appPaths'
 import { scopedStorageName } from '../lib/authScope'
 import { watchSubmissionContext } from '../lib/submissionContext'
 import { submitPrepared, useStore } from '../store'
@@ -21,6 +21,13 @@ export async function resumePendingSubmission(): Promise<void> {
   if (!isSignedIn()) return
   const pending = await takePendingSubmission()
   if (!pending) return
+  // The previous root composer now lives at /image; retain the interrupted send and its context.
+  if (
+    pending.sourcePath &&
+    ['/', '/image'].includes(normalizePath(pending.sourcePath)) &&
+    normalizePath(window.location.pathname) === '/image'
+  )
+    pending.sourcePath = window.location.pathname
   if (pending.sourcePath && !returnToSourcePath(pending.sourcePath)) return
   if (pending.kind === 'image') {
     if (pending.ownerScope && pending.ownerScope !== scopedStorageName('pending')) return

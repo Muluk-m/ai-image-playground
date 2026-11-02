@@ -4,7 +4,7 @@ import MediaImage from '../../../components/MediaImage'
 import { i18next } from '../../../i18n'
 import type { CanvasDoc, ImageEl } from '../../canvas/lib/canvasDoc'
 import type { AgentPanelMessage } from '../types'
-import { previewArtifactBitmap } from './artifactSource'
+import { displayArtifactBitmap } from './artifactSource'
 
 export interface ConversationImage {
   readonly id: string
@@ -67,7 +67,7 @@ export function ConversationImageThumbnail({ image }: { image: ConversationImage
   useEffect(() => {
     if (!visible || image.source) return
     let current = true
-    void previewArtifactBitmap(image.artifact).then((source) => {
+    void displayArtifactBitmap(image.artifact).then((source) => {
       if (current) setLoaded({ id: image.id, source })
     })
     return () => {

@@ -74,13 +74,14 @@ it.each([
   expect(nodes.map((n) => ('name' in n.data ? n.data.name : undefined))).toEqual(
     ids.map((_, i) => `Storyboard · ${i + 1}`),
   )
-  expect(nodes[0]!.y).toBeGreaterThanOrEqual(160 + 48)
+  expect(nodes[0]!.y).toBeGreaterThanOrEqual(240 + 48)
   expect(nodes[1]!.x).toBeGreaterThan(nodes[0]!.x)
   expect(nodes[1]!.y).toBe(nodes[0]!.y)
   expect(nodes[grid]!.x).toBe(nodes[0]!.x)
   expect(nodes[grid]!.y).toBeGreaterThan(nodes[0]!.y)
   expect(result.edges).toHaveLength(grid ** 2)
   for (const node of nodes) {
+    expect(node).toMatchObject({ width: 360, height: 240 })
     expect(node.data).toMatchObject({ naturalWidth: 600, naturalHeight: 300 })
     expect('fileId' in node.data && editor.doc.files[node.data.fileId!]).toMatch(
       /^data:image\/jpeg/,

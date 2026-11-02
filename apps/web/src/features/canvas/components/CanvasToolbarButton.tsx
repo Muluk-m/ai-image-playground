@@ -12,6 +12,7 @@ import { useStore } from '../../../store'
 export default function CanvasToolbarButton({
   icon,
   label,
+  description,
   compact,
   destructive,
   disabled,
@@ -20,7 +21,9 @@ export default function CanvasToolbarButton({
 }: {
   icon: ReactNode
   label: string
-  /** 只留图标，说明文字移到悬停浮层里——动作一多，带文字的条会长到压住画布。 */
+  /** 图标之外的数量、范围等必要说明。 */
+  description?: string
+  /** 只留图标；不直观的动作显示提示，避免文字把工具条撑得过长。 */
   compact?: boolean
   /** 破坏性动作在工具条上保持醒目的危险色。 */
   destructive?: boolean
@@ -33,8 +36,8 @@ export default function CanvasToolbarButton({
 }) {
   const unavailable = reason !== undefined
   return (
-    // compact 只留图标，说明放进提示；带文字的只在做不了时提示原因。
-    <Hint tooltip={compact ? (reason ?? label) : reason}>
+    // Hint 自动省略常见图标的同名提示；做不了时始终保留原因。
+    <Hint tooltip={reason ?? description ?? (compact ? label : undefined)}>
       <Button
         type="button"
         variant="ghost"
@@ -43,7 +46,7 @@ export default function CanvasToolbarButton({
         aria-label={label}
         aria-disabled={unavailable || undefined}
         // 做不了的原因读屏直接念；视觉上由提示框显示。
-        aria-description={reason}
+        aria-description={reason ?? description}
         disabled={disabled}
         onClick={(event) => {
           if (unavailable) useStore.getState().showToast(reason, 'error')

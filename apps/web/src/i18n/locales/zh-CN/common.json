@@ -3,7 +3,8 @@
   "theme": {
     "label": "主题",
     "light": "亮色",
-    "dark": "暗色"
+    "dark": "暗色",
+    "system": "跟随系统"
   },
   "locale": {
     "label": "界面语言",
@@ -28,7 +29,8 @@
   },
   "state": {
     "generating": "生成中",
-    "failed": "失败"
+    "failed": "失败",
+    "cancelled": "已取消"
   },
   "toast": {
     "copySucceeded": "复制成功",

@@ -20,7 +20,10 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('../../../../lib/api', () => ({ callImageApi: mocks.callImageApi }))
-vi.mock('../../../../lib/cloudMedia', () => ({ resolveMediaSource: async () => SOURCE }))
+vi.mock('../../../../lib/cloudMedia', () => ({
+  mediaIdentity: () => undefined,
+  resolveMediaSource: async () => SOURCE,
+}))
 vi.mock('../../../../lib/canvasImage', () => ({
   getImageDimensions: async () => ({ width: 720, height: 1280 }),
 }))

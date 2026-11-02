@@ -194,6 +194,43 @@ it('locates a running job by its placeholder and a finished one by its artifacts
   expect(focus).toHaveBeenCalledWith(['agent_image_1'])
 })
 
+it('in the conversation view jumps to the message and highlights it instead of moving the hidden canvas', () => {
+  // 对话视图：画布还挂着但看不见（BUG-19）。第二条被并进同一组出图里，只能靠组上的 id 列表找到。
+  const layout = document.createElement('div')
+  layout.className = 'studio-layout'
+  layout.dataset.projectView = 'chat'
+  const block = document.createElement('div')
+  block.dataset.agentMessageId = '1'
+  block.dataset.agentRunIds = '1 2'
+  const scrollIntoView = vi.fn()
+  block.scrollIntoView = scrollIntoView
+  layout.append(block)
+  document.body.append(layout, host)
+  vi.useFakeTimers()
+  try {
+    useAgentStore.setState({
+      messages: [
+        job('1', { status: 'succeeded', artifacts: [IMAGE] }),
+        job('2', { status: 'succeeded', artifacts: [{ ...IMAGE, artifactId: 'agent_image_2' }] }),
+      ],
+    })
+    render()
+    openInbox()
+    act(() => tabButton('已完成').click())
+    expect(rowButton('任务 2').getAttribute('aria-description')).toBe('定位到消息')
+    act(() => rowButton('任务 2').click())
+    expect(focus).not.toHaveBeenCalled()
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' })
+    expect(block.dataset.agentLocated).toBe('true')
+    act(() => vi.advanceTimersByTime(2100))
+    expect(block.dataset.agentLocated).toBeUndefined()
+  } finally {
+    vi.useRealTimers()
+    layout.remove()
+    host.remove()
+  }
+})
+
 it('falls back to the anchor object when a running job has no placeholder after a refresh', () => {
   // 本地项目刷新或换设备后，在跑的任务要等交付才重新占位。
   focusPending.mockImplementation(() => false)

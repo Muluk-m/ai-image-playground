@@ -2,6 +2,7 @@ import {
   AGENT_TURN_MAX_INLINE_REFERENCES,
   type AgentCanvasSnapshot,
   type AgentMode,
+  type AgentSurface,
   type AgentTurnParams,
   type AgentTurnReference,
 } from '@image-playground/shared'
@@ -12,6 +13,7 @@ import {
 } from '../../../lib/localAttachmentSources'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import { liveCanvasSnapshot } from '../../canvas/lib/canvasSnapshot'
+import { currentAgentSurface } from '../../canvas/lib/canvasView'
 import { nodeCanvasSelection } from '../../canvas/lib/nodeCanvasSelection'
 import { type CanvasProject, projectExperience } from '../../canvas/lib/projectRepository'
 import { canvasSceneKey } from '../../canvas/lib/workspaceKeys'
@@ -30,6 +32,11 @@ export interface TurnSubmissionSnapshot {
    * 只看快照会把画布里说的话当成对话。
    */
   readonly experience?: 'chat' | 'canvas'
+  /**
+   * 发话时的模式：画布视图里是画布模式（节点工具），其余都是 Agent 模式（只生图、改图）。
+   * 每一轮都带；补发沿用首次发话时的那个。
+   */
+  readonly surface?: AgentSurface
 }
 
 export type TurnSubmissionReplay = Omit<TurnSubmissionSnapshot, 'references'> & {
@@ -103,10 +110,17 @@ export function captureTurnSubmission(input: {
       : []
   const experience =
     input.replay?.experience ?? (input.project ? projectExperience(input.project) : undefined)
+  // 只有画布入口的项目才有画布视图；本机旧的补发记录没有模式时按此刻的视图算。
+  const surface: AgentSurface =
+    input.replay?.surface ??
+    (input.project && projectExperience(input.project) === 'canvas'
+      ? currentAgentSurface(input.project.id, 'canvas')
+      : 'agent')
   let snapshot: TurnSubmissionSnapshot = structuredClone({
     references: input.references,
     params: input.replay?.params ?? input.params,
     ...(experience ? { experience } : {}),
+    surface,
     ...(canvas ? { canvas } : {}),
     ...(canvasReferenceIds ? { canvasReferenceIds } : {}),
   })

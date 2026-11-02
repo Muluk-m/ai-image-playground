@@ -157,15 +157,40 @@ export function elementBounds(el: CanvasEl): Box {
 }
 
 /** 离屏导出用：元素 → imperative Konva 节点（与实时渲染共用同一份属性映射）。 */
+/**
+ * 图片按原始长宽比 contain 进自己的框后实际占的那块（页面坐标）。
+ *
+ * 节点画布的框不一定贴着图的比例：云端预留的 360×360 位置落下一张 16:9 的产物时，
+ * 框保持原样、图在框里 contain 显示（`.studio-node-media`）。不带旋转、量过原图尺寸的
+ * 图片才算得出来；其余返回 null，按框本身处理。
+ */
+export function containedImageBox(el: ImageEl): Box | null {
+  if (el.rotation) return null
+  const { naturalWidth, naturalHeight } = el
+  if (!naturalWidth || !naturalHeight || !(el.width > 0) || !(el.height > 0)) return null
+  const scale = Math.min(el.width / naturalWidth, el.height / naturalHeight)
+  const width = naturalWidth * scale
+  const height = naturalHeight * scale
+  return new Box(el.x + (el.width - width) / 2, el.y + (el.height - height) / 2, width, height)
+}
+
 async function buildExportNode(
   el: CanvasEl,
   files: Readonly<Record<string, string>>,
+  fit?: 'contain',
 ): Promise<Konva.Node | null> {
   switch (el.type) {
     case 'image': {
       const dataUrl = files[el.fileId]
       if (!dataUrl) return null
-      return new Konva.Image({ image: await loadImage(el.fileId, dataUrl), ...imageProps(el) })
+      const contained = fit === 'contain' ? containedImageBox(el) : null
+      return new Konva.Image({
+        image: await loadImage(el.fileId, dataUrl),
+        ...imageProps(el),
+        ...(contained
+          ? { x: contained.x, y: contained.y, width: contained.w, height: contained.h }
+          : {}),
+      })
     }
     case 'freedraw':
       return new Konva.Line(freedrawProps(el))
@@ -414,7 +439,13 @@ export class CanvasEditor {
    */
   async toImage(
     ids: string[],
-    opts: { scale?: number; bounds?: Box; background?: 'white' | 'transparent' } = {},
+    opts: {
+      scale?: number
+      bounds?: Box
+      background?: 'white' | 'transparent'
+      /** 图片按原始比例 contain 进框（与节点画布的显示一致），而不是拉伸成框的形状。 */
+      fit?: 'contain'
+    } = {},
   ): Promise<string | null> {
     const scale = opts.scale ?? 1
     const idSet = new Set(ids)
@@ -441,7 +472,9 @@ export class CanvasEditor {
             fill: '#ffffff',
           }),
         )
-      const nodes = await Promise.all(els.map((el) => buildExportNode(el, this.doc.files)))
+      const nodes = await Promise.all(
+        els.map((el) => buildExportNode(el, this.doc.files, opts.fit)),
+      )
       for (const node of nodes) {
         if (node) layer.add(node as Konva.Shape)
       }

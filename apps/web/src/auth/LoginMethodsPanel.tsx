@@ -1,11 +1,11 @@
 import {
-  isValidPassword,
   type LoginMethodsView,
   OAUTH_LINK_ERROR_QUERY_PARAM,
   OAUTH_LINK_QUERY_PARAM,
   type OAuthProviderView,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
+  passwordProblem,
 } from '@image-playground/shared'
 import { type FormEvent, useEffect, useState } from 'react'
 import Dialog from '../components/patterns/Dialog'
@@ -39,6 +39,7 @@ type PanelErrorKey =
   | 'errors:unlink.last_login_method'
   | 'errors:unlink.not_linked'
   | 'errors:unlink.fallback'
+  | 'auth:validation.passwordBlank'
   | 'auth:validation.passwordLength'
   | 'auth:validation.passwordMismatch'
 
@@ -128,8 +129,11 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
     event.preventDefault()
     if (pending || !methods) return
     setNotice(null)
-    if (!isValidPassword(newPassword)) {
-      setErrorKey('auth:validation.passwordLength')
+    const problem = passwordProblem(newPassword)
+    if (problem) {
+      setErrorKey(
+        problem === 'blank' ? 'auth:validation.passwordBlank' : 'auth:validation.passwordLength',
+      )
       return
     }
     if (newPassword !== confirmation) {
@@ -230,7 +234,6 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                   autoComplete="new-password"
                   placeholder={t('methods.newPassword')}
                   aria-label={t('methods.newPassword')}
-                  maxLength={PASSWORD_MAX_LENGTH}
                   value={newPassword}
                   onChange={(event) => setNewPassword(event.currentTarget.value)}
                   disabled={pending}
@@ -247,7 +250,6 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                   autoComplete="new-password"
                   placeholder={t('methods.confirmNewPassword')}
                   aria-label={t('methods.confirmNewPassword')}
-                  maxLength={PASSWORD_MAX_LENGTH}
                   value={confirmation}
                   onChange={(event) => setConfirmation(event.currentTarget.value)}
                   disabled={pending}

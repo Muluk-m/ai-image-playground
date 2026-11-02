@@ -149,7 +149,9 @@ describe('LoginMethodsPanel', () => {
     window.history.replaceState(null, '', '/?auth_link_error=identity_taken&keep=1')
     await render()
 
-    expect(document.body.textContent).toContain('该第三方账号已绑定到其他账户')
+    expect(document.body.textContent).toContain(
+      '该第三方账号已绑定到其他账户。请退出当前账户，直接使用 Google 登录原账户。',
+    )
     expect(window.location.search).toBe('?keep=1')
   })
 

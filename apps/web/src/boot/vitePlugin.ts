@@ -4,6 +4,8 @@ import type { IndexHtmlTransformContext } from 'vite'
 import { LOCALE_STORAGE_KEY } from '../i18n/storageKey'
 import {
   BOOT_READY_EVENT,
+  BOOT_STAGE_EVENT,
+  BOOT_STAGES,
   BUILD_META_NAME,
   DEVICE_ID_STORAGE_KEY,
   PRELOAD_RELOAD_STORAGE_KEY,
@@ -15,8 +17,14 @@ import {
 const RESOURCE_RECOVERY_TIMEOUT_MS = 20_000
 const RESOURCE_PROBE_TIMEOUT_MS = 5_000
 const RESOURCE_PROBE_INTERVAL_MS = 2_000
-/** Only consulted while the shell or a failure screen has not painted; afterwards the app owns loading. */
+/**
+ * Only consulted while the shell or a failure screen has not painted; afterwards the app owns loading.
+ * Measured from the last sign of progress (a resource finishing, a boot stage advancing), so a slow
+ * network that is still downloading keeps the splash instead of a false failure panel.
+ */
 const UNRENDERED_TIMEOUT_MS = 30_000
+/** Progress alone cannot hold the splash forever. */
+const UNRENDERED_HARD_TIMEOUT_MS = 120_000
 /** Last petal ends around 950ms. A fast shell waits out the unfurl instead of fading mid-bloom. */
 export const SPROUT_HOLD_MS = 1_000
 /** Matches `#boot[data-state="done"]`'s fade, plus a little slack when animationend does not fire. */
@@ -44,10 +52,17 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
   let rendered=false;
   let fatal=false;
   const sproutStarted=performance.now();
+  let stage='entry';
+  let stageStarted=sproutStarted;
+  let lastProgress=sproutStarted;
+  const progress=()=>{lastProgress=performance.now()};
+  let resources=null;
+  try{resources=new PerformanceObserver(list=>{if(list.getEntries().length)progress()});resources.observe({type:'resource',buffered:true})}catch{}
   let cause=null;
   let reported=false;
   let reloading=false;
   let recovery=null;
+  let timer=null;
   // Kept small: the whole report must fit the server's context limit.
   const early=[];
   const clip=(value,max)=>typeof value==='string'?value.slice(0,max):undefined;
@@ -63,7 +78,7 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
         kind:'boot',name:'BootFailure',message:failure.reason,
         url:clip(location.origin+location.pathname+location.hash,1000),
         release:build?build.content.slice(0,12):undefined,
-        context:{detail:failure.detail,rendered,elapsedMs:Math.round(performance.now()),online:navigator.onLine,errors:early},
+        context:{detail:failure.detail,stage,stageElapsedMs:Math.round(performance.now()-stageStarted),visibility:document.visibilityState,readyState:document.readyState,rendered,elapsedMs:Math.round(performance.now()),online:navigator.onLine,errors:early},
       }]});
       // The API origin lives in runtime config, which the page already preloads. Same 5 s cap as
       // the app's loadRuntimeConfig: a hung connection must not leave the report pending forever.
@@ -121,9 +136,13 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     if(reloading)return true;
     if(fatal||navigator.onLine===false)return false;
     try{
-      if(sessionStorage.getItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)})!==null)return false;
+      // One automatic reload per HTML build: a tab left open across a release must still recover
+      // when the next release deletes chunks it references. Values without a build count as none.
+      const htmlBuild=document.querySelector('meta[name=${JSON.stringify(BUILD_META_NAME)}]')?.content||'';
+      const spent=sessionStorage.getItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)});
+      if(spent!==null&&(spent.includes('|')?spent.slice(spent.indexOf('|')+1):'')===htmlBuild)return false;
       // Without persistent storage an automatic navigation could loop forever.
-      sessionStorage.setItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)},String(Date.now()));
+      sessionStorage.setItem(${JSON.stringify(PRELOAD_RELOAD_STORAGE_KEY)},Date.now()+'|'+htmlBuild);
     }catch{return false}
     refresh();
     return true;
@@ -208,14 +227,16 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     if(recovery&&typeof message==='string'&&message.startsWith(cssPrefix)){
       try{
         const url=new URL(message.slice(cssPrefix.length),location.href);
-        if(recovery.failedStyles.has(url.href)){event.preventDefault();return}
+        if(recovery.failedStyles.has(url.href))return
       }catch{}
     }
     if(!retry()){fail('preload',{message:clip(message,300)});return}
-    event.preventDefault();
+    // Cancelling Vite's event resolves its import helper to undefined, crashing React.lazy.
+    // Navigation is asynchronous: preserve the original rejection until this document unloads.
   };
   const onReady=()=>{
     rendered=true;
+    try{resources?.disconnect()}catch{}
     try{
       const current=new URL(location.href);
       if(current.searchParams.has(${JSON.stringify(RELOAD_QUERY_PARAM)})){
@@ -247,11 +268,21 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     };
     if(wait===0)reveal();else setTimeout(reveal,wait);
   };
-  const timer=setTimeout(()=>{if(!rendered)fail('timeout')},${UNRENDERED_TIMEOUT_MS});
+  const deadline=()=>{
+    if(rendered)return;
+    const now=performance.now();
+    const idle=now-lastProgress;
+    if(idle<${UNRENDERED_TIMEOUT_MS}&&now-sproutStarted<${UNRENDERED_HARD_TIMEOUT_MS}){timer=setTimeout(deadline,Math.min(${UNRENDERED_TIMEOUT_MS}-idle,${UNRENDERED_HARD_TIMEOUT_MS}-(now-sproutStarted)));return}
+    fail('timeout');
+  };
+  timer=setTimeout(deadline,${UNRENDERED_TIMEOUT_MS});
   window.addEventListener('error',onError,true);
   window.addEventListener('unhandledrejection',onRejection);
   window.addEventListener('vite:preloadError',onPreloadError);
   document.addEventListener('click',(event)=>{if(event.target instanceof Element&&event.target.closest('#boot-retry')){resetBudget();refresh()}});
+  document.addEventListener(${JSON.stringify(BOOT_STAGE_EVENT)},(event)=>{
+    if(!rendered&&${JSON.stringify(BOOT_STAGES)}.includes(event.detail)&&stage!==event.detail){stage=event.detail;stageStarted=performance.now();progress()}
+  });
   document.addEventListener('DOMContentLoaded',()=>{if(fatal)show()},{once:true});
   document.addEventListener(${JSON.stringify(BOOT_READY_EVENT)},onReady,{once:true});
 })()`

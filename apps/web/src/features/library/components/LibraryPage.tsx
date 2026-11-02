@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import DropOverlay from '../../../components/patterns/DropOverlay'
 import PageHeader from '../../../components/patterns/PageHeader'
@@ -32,10 +32,12 @@ import LookDetail from './LookDetail'
 import NewTile from './NewTile'
 import TemplateCard from './TemplateCard'
 import TemplateDetail from './TemplateDetail'
+import WorksTab from './WorksTab'
 
-const TABS: readonly LibraryTab[] = ['projects', 'assets', 'prompts', 'looks']
+const TABS: readonly LibraryTab[] = ['works', 'projects', 'assets', 'prompts', 'looks']
 
 const SEARCH_PLACEHOLDER = {
+  works: 'panel.searchWorks',
   projects: 'panel.searchProjects',
   assets: 'panel.searchAssets',
   prompts: 'panel.searchTemplates',
@@ -43,8 +45,9 @@ const SEARCH_PLACEHOLDER = {
 } as const satisfies Record<LibraryTab, string>
 
 /**
- * 「资产」入口：自己攒下的料——**项目**（画布）、**素材**（产品 / 人物的一组视角）、
- * **提示词**（存起来的一段提示词，原「模板」）与**模板**（调好的出图效果）。作品在创作页，灵感在「探索」。
+ * 「资产」入口：自己攒下的料——**作品**（快速生成与对话产出的图）、**项目**（对话 / 画布）、
+ * **素材**（产品 / 人物的一组视角）、**提示词**（存起来的一段提示词，原「模板」）与
+ * **模板**（调好的出图效果）。灵感在「探索」。
  */
 export default function LibraryPage() {
   const { t } = useTranslation('library')
@@ -61,7 +64,6 @@ export default function LibraryPage() {
   const saveLookRecord = useLibraryStore((s) => s.saveLookRecord)
   const settings = useStore((s) => s.settings)
   const skills = useAgentSkills('image')
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const [creating, setCreating] = useState<'asset' | 'look' | null>(null)
   const [assetDetail, setAssetDetail] = useState<AssetRecord | null>(null)
   const [lookDetail, setLookDetail] = useState<LookItem | null>(null)
@@ -82,9 +84,6 @@ export default function LibraryPage() {
   }
   const { dragging, dropZoneProps } = useImageDropZone(saveAssets)
   usePasteImageFiles('library', saveAssets)
-
-  const openFilePicker = () => fileInputRef.current?.click()
-
   const looks = useMemo(
     () => matchLooksByName(mergeLookItems(lookRecords, skills), searchKeyword),
     [lookRecords, skills, searchKeyword],
@@ -116,8 +115,8 @@ export default function LibraryPage() {
     )
 
   return (
-    <main className="flex min-h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px))] flex-col">
-      <PageHeader title={APP_MODE_LABELS.library}>
+    <main className="flex min-h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px)-var(--app-inset,0px)*2)] flex-col">
+      <PageHeader className="md:flex-nowrap">
         <SegmentedTabs
           tabs={TABS.map((one) => ({ value: one, label: t(`tab.${one}`) }))}
           value={tab}
@@ -125,41 +124,11 @@ export default function LibraryPage() {
           label={APP_MODE_LABELS.library}
         />
         <SearchField
-          className="ml-auto"
+          className="ml-auto w-auto shrink-0"
           value={searchKeyword}
           onChange={(event) => setSearch(event.target.value)}
           placeholder={t(SEARCH_PLACEHOLDER[tab])}
         />
-        {tab === 'assets' && (
-          <>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*"
-              className="hidden"
-              onChange={(event) => {
-                // 非图片本来就会被 importAssetFiles 丢掉，先筛一遍才问得出真正的张数。
-                const images = [...(event.target.files ?? [])].filter((file) =>
-                  file.type.startsWith('image/'),
-                )
-                event.target.value = ''
-                if (images.length === 0) return
-                confirmImageBatch(images.length, () => void importAssetFiles(images))
-              }}
-            />
-            <Button variant="outline" onClick={() => setCreating('asset')}>
-              <Icon name="add" />
-              {t('asset.new')}
-            </Button>
-            {agentReady && (
-              <Button onClick={() => handoffToAgent('/create-asset ')}>
-                <Icon name="generate" />
-                {t('asset.createWithAgent')}
-              </Button>
-            )}
-          </>
-        )}
         {tab === 'looks' && (
           <>
             <Button variant="outline" onClick={() => setCreating('look')}>
@@ -176,7 +145,9 @@ export default function LibraryPage() {
         )}
       </PageHeader>
 
-      {tab === 'projects' ? (
+      {tab === 'works' ? (
+        <WorksTab search={searchKeyword} />
+      ) : tab === 'projects' ? (
         <ProjectsTab search={searchKeyword} />
       ) : tab === 'prompts' ? (
         <div className="min-h-0 flex-1 p-6">
@@ -245,18 +216,14 @@ export default function LibraryPage() {
         // 落点包在滚动容器外面，高亮层才盖住看得见的那一屏，而不是随内容滚走。
         <div {...dropZoneProps} className="relative flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 p-6">
-            {assets.length > 0 ? (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
-                <NewTile label={t('asset.new')} onClick={() => setCreating('asset')} />
-                {assets.map((asset) => (
-                  <AssetCard key={asset.id} asset={asset} onOpen={setAssetDetail} />
-                ))}
-              </div>
-            ) : assetCount > 0 ? (
-              <NoMatch label={t('panel.noMatchAssets')} />
-            ) : (
-              <AssetsEmpty onImport={openFilePicker} />
-            )}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
+              <NewTile label={t('asset.new')} onClick={() => setCreating('asset')} />
+              {assets.map((asset) => (
+                <AssetCard key={asset.id} asset={asset} onOpen={setAssetDetail} />
+              ))}
+            </div>
+            {assets.length === 0 &&
+              (assetCount > 0 ? <NoMatch label={t('panel.noMatchAssets')} /> : <AssetsEmpty />)}
           </div>
           {dragging && <DropOverlay label={t('panel.dropToSave')} />}
         </div>

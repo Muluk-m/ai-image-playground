@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext'
 import { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 import AgentJobInbox from '../features/agent/components/AgentJobInbox'
 import { agentPanelPresent } from '../features/agent/panelLayout'
+import CanvasAssetsEntryButton from '../features/canvas/components/CanvasAssetsEntryButton'
 import { useWorkspaceViewport } from '../hooks/useMobileWorkspace'
 import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
 import { isInFloatingLayer } from '../lib/dropdown'
@@ -15,11 +16,11 @@ import {
 import { useSyncStatus } from '../lib/sync/status'
 import { isWorkbenchMode, useStore } from '../store'
 import BrandAvatar from './BrandAvatar'
+import ContactDialog from './ContactDialog'
 import DisplaySettingsMenuItems from './DisplaySettingsMenuItems'
 import GuestAccountMenu from './GuestAccountMenu'
 import HeaderMembershipChip from './HeaderMembershipChip'
 import LocaleGlobe from './LocaleGlobe'
-import LogoutDialog from './LogoutDialog'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
 
@@ -30,11 +31,12 @@ export default function Header() {
   const appMode = useStore((s) => s.appMode)
   const workbench = isWorkbenchMode(appMode)
   const [loggingOut, setLoggingOut] = useState(false)
-  const [logoutOpen, setLogoutOpen] = useState(false)
   const [loginMethodsOpen, setLoginMethodsOpen] = useState(false)
+  const [contactOpen, setContactOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const headerActionsRef = useRef<HTMLDivElement>(null)
+  const floatRef = useRef<HTMLDivElement>(null)
   const auth = useAuth()
 
   const syncPending = useSyncStatus((s) => s.enabled && (s.pending > 0 || s.status === 'error'))
@@ -55,6 +57,54 @@ export default function Header() {
       observer?.disconnect()
       document.documentElement.style.removeProperty('--studio-header-actions-width')
     }
+  }, [])
+  // 停在页顶时账号簇仍是平的。一旦页面（或从它下面滚过去的主滚动区）离开顶部，
+  // 补一层暗色磨砂底，避免浮在灵感瀑布流的图片上。
+  useEffect(() => {
+    const float = floatRef.current
+    if (!float) return
+    const under = new Set<HTMLElement>()
+    const overlaps = (el: HTMLElement) => {
+      const cluster = float.getBoundingClientRect()
+      const box = el.getBoundingClientRect()
+      return (
+        box.left < cluster.right &&
+        box.right > cluster.left &&
+        box.top < cluster.bottom &&
+        box.bottom > cluster.top
+      )
+    }
+    const apply = () => {
+      let covered = window.scrollY > 0
+      if (!covered) {
+        for (const el of under) {
+          if (el.scrollTop <= 0) {
+            under.delete(el)
+            continue
+          }
+          if (overlaps(el)) {
+            covered = true
+            break
+          }
+        }
+      }
+      float.toggleAttribute('data-scrolled', covered)
+    }
+    const onScroll = (event: Event) => {
+      const target = event.target
+      if (target === document || target === document.documentElement || target === document.body) {
+        apply()
+        return
+      }
+      if (!(target instanceof HTMLElement) || target.clientHeight < 200) return
+      if (target.closest('[role="menu"], [role="dialog"]')) return
+      if (target.scrollTop > 0) under.add(target)
+      else under.delete(target)
+      apply()
+    }
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    apply()
+    return () => document.removeEventListener('scroll', onScroll, { capture: true })
   }, [])
   // 中文品牌名后面还跟一个拉丁字标；英文里字标就是品牌名本身，没有第二段可跟。
 
@@ -86,33 +136,41 @@ export default function Header() {
     }
   }, [accountMenuOpen])
 
+  const handleLogout = () => {
+    if (loggingOut) return
+    setAccountMenuOpen(false)
+    setLoggingOut(true)
+    void auth.logout(false)
+  }
+
   const openSettings = () => {
     setAccountMenuOpen(false)
     setShowSettings(true)
+  }
+  const openContact = () => {
+    setAccountMenuOpen(false)
+    setContactOpen(true)
   }
 
   return (
     <>
       {/*
-        窄屏有一条顶栏，正文从它下面开始。首页这条栏是透明的，点阵和光晕从状态栏后面铺下来；
-        其它页保留毛玻璃和底边，滚上去时内容不透出。画布自己留白，不再加这条栏。
-        宽屏没有顶栏，账号簇浮在右上角，页头按测得的宽度让出右侧空位。
+        窄屏有一条深色顶栏，圆角内容面板从它下面留出缝。宽屏没有这条栏，
+        账号簇浮在内容面板右上角，页头按测得的宽度让出右侧空位。
       */}
-      {appMode !== 'canvas' ? (
-        <div
-          aria-hidden
-          className="studio-mobile-topbar pointer-events-none fixed inset-x-0 top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur-md md:hidden"
-          style={{ height: 'var(--mobile-topbar-height)' }}
-        />
-      ) : null}
+      <div
+        aria-hidden
+        className="studio-mobile-topbar pointer-events-none fixed inset-x-0 top-0 z-30 bg-sidebar md:hidden"
+        style={{ height: 'var(--mobile-topbar-height)' }}
+      />
       <div
         ref={headerActionsRef}
         data-no-drag-select
-        className="studio-global-account fixed right-3 z-40 flex items-center gap-3 sm:right-4"
-        style={{ top: 'calc(var(--safe-area-top) + var(--studio-account-cluster-top))' }}
+        className="studio-global-account fixed z-40 flex items-center gap-2"
       >
         {workbench && agentPanelPresent() ? <AgentJobInbox /> : null}
-        <div className="studio-header-float flex items-center gap-2">
+        <div ref={floatRef} className="studio-header-float flex items-center gap-2">
+          <CanvasAssetsEntryButton />
           {auth.user ? <PrivateWebHeaderCreditAction /> : null}
           {auth.user ? <HeaderMembershipChip /> : null}
           <LocaleGlobe />
@@ -122,7 +180,7 @@ export default function Header() {
               loggingOut={loggingOut}
               syncPending={syncPending}
               onOpenSettings={openSettings}
-              onLogout={() => setLogoutOpen(true)}
+              onLogout={handleLogout}
             />
           ) : null}
           {/* 访客也要能切主题与语言；登录后若私有 overlay 接管了账号簇，这份菜单让位。 */}
@@ -134,7 +192,7 @@ export default function Header() {
                 aria-label={auth.user ? t('header.accountMenu') : t('header.appMenu')}
                 aria-haspopup="menu"
                 aria-expanded={accountMenuOpen}
-                size="icon-sm"
+                size="icon-lg"
                 variant={auth.user ? 'default' : 'ghost'}
                 className="relative rounded-full text-muted-foreground"
               >
@@ -159,6 +217,8 @@ export default function Header() {
                     auth.login()
                   }}
                   onClose={() => setAccountMenuOpen(false)}
+                  onOpenSettings={openSettings}
+                  onOpenContact={openContact}
                 />
               ) : null}
               {accountMenuOpen && auth.user ? (
@@ -191,6 +251,16 @@ export default function Header() {
                       />
                     ) : null}
                   </Button>
+                  <Button
+                    type="button"
+                    role="menuitem"
+                    onClick={openContact}
+                    variant="ghost"
+                    className="w-full justify-start text-muted-foreground"
+                  >
+                    <Icon name="chat" />
+                    <span>{t('header.contact.menu')}</span>
+                  </Button>
                   {auth.enabled && auth.user ? (
                     <>
                       <Button
@@ -209,10 +279,7 @@ export default function Header() {
                         type="button"
                         role="menuitem"
                         disabled={loggingOut}
-                        onClick={() => {
-                          setAccountMenuOpen(false)
-                          setLogoutOpen(true)
-                        }}
+                        onClick={handleLogout}
                         variant="ghost"
                         className="w-full justify-start text-muted-foreground disabled:cursor-wait"
                       >
@@ -233,16 +300,7 @@ export default function Header() {
         </div>
       </div>
       {loginMethodsOpen && <LoginMethodsPanel onClose={() => setLoginMethodsOpen(false)} />}
-      {logoutOpen && (
-        <LogoutDialog
-          onCancel={() => setLogoutOpen(false)}
-          onConfirm={(clearLocalData) => {
-            setLogoutOpen(false)
-            setLoggingOut(true)
-            void auth.logout(clearLocalData)
-          }}
-        />
-      )}
+      {contactOpen && <ContactDialog onClose={() => setContactOpen(false)} />}
     </>
   )
 }

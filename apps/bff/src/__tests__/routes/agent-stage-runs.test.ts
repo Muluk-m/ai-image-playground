@@ -1,0 +1,1149 @@
+import { afterAll, afterEach, beforeEach, expect, it, spyOn } from 'bun:test'
+import { resolve } from 'node:path'
+import { resetTestDatabase } from '@image-playground/db/testing'
+import {
+  type AgentTurnParams,
+  canvasOrigin,
+  insertCanvasNode,
+  type StageAuthorization,
+  storyboardFingerprint,
+} from '@image-playground/shared'
+import { and, eq } from 'drizzle-orm'
+import * as Y from 'yjs'
+import {
+  type AgentCall,
+  completionStream,
+  scriptedAgentFetch,
+  TEST_IMAGE_CHANNEL,
+  toolCallCompletion,
+} from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
+import { waitFor } from '../helpers/upstreamStubs'
+
+process.env.DATABASE_URL = await resetTestDatabase('agent_stage_runs_1367')
+process.env.PORT = '0'
+process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
+process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
+process.env.UPSTREAM_OPENAI_API_KEY = ''
+process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
+process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../stage-run-operator-config.json')
+
+const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
+  '../../lib/private-overlay'
+)
+type Reservation =
+  | { kind: 'reserved'; credits: number }
+  | { kind: 'insufficient_credits'; required: number; available: number }
+let reservation: Reservation = { kind: 'reserved', credits: 0 }
+/** 任务实际结算的积分；失败任务退回时是 0。 */
+const settled = new Map<string, number>()
+_setPrivateBffOverlayForTesting({
+  ...EMPTY_PRIVATE_BFF_OVERLAY,
+  present: true,
+  taskHooks: {
+    ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
+    async quoteTask({ model, quantity, unitMultiplier }) {
+      return {
+        estimatedCredits: 6 * quantity * unitMultiplier,
+        pricing: {
+          model,
+          quantity,
+          unitMultiplier,
+          unit: 'image',
+          pricingVersion: 'fixture',
+          quotedAt: Date.now(),
+          validUntil: null,
+          baseUnitCredits: 6,
+          outputPriceRatio: 0,
+          cachedInputPriceRatio: 0,
+          inputEstimateTokens: 0,
+          outputReserveTokens: 0,
+          exemption: 'none',
+        },
+      }
+    },
+    async reserveTask() {
+      return reservation
+    },
+    async finalizeTask() {},
+    async taskCredits({ taskIds }) {
+      return Object.fromEntries(
+        taskIds.filter((id) => settled.has(id)).map((id) => [id, settled.get(id)!]),
+      )
+    },
+    async chatPricing() {
+      return null
+    },
+  },
+})
+
+// 模块要在独立库与计费边界装好之后再加载。
+const { app } = await import('../../app')
+const { setAgentFetchForTesting } = await import('../../lib/agent/model')
+const { _setChannelsForTesting } = await import('../../lib/channels')
+const { log } = await import('../../lib/logger')
+const { _resetInactiveModelsForTesting } = await import('../../lib/model-availability')
+type InternalChannel = import('../../lib/channels').InternalChannel
+
+/** 只支持文生与首帧的视频模型：参考生、首尾帧都不行。 */
+const LITE_VIDEO_CHANNEL: InternalChannel = {
+  id: 'video-gateway',
+  kind: 'openai-queue',
+  label: 'Video',
+  baseUrl: 'https://gateway.example/v1',
+  auth: { type: 'bearer', secretRef: 'VIDEO_API_KEY', secret: 'k' },
+  allowedPaths: ['videos/generations'],
+  models: [
+    {
+      id: 'grok-imagine-video-1.5-lite',
+      label: 'Lite',
+      media: 'video',
+      capabilities: ['generate'],
+    },
+  ],
+  defaults: { asyncTasks: true },
+}
+const VIDEO_PARAMS: AgentTurnParams = {
+  video: {
+    model: 'grok-imagine-video-1.5-lite',
+    durationSeconds: 5,
+    resolution: '480p',
+    aspectRatio: '16:9',
+  },
+}
+const VIDEO_NODE = [{ id: 'v', type: 'video', videoMode: 'text', prompt: '缓慢推镜' }]
+const { db, schema, close } = await import('../../db/client')
+const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
+const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+const { createNodes, runNodes } = await import('../../lib/agent/tools/nodeCanvas')
+const { createAgentImageSource } = await import('../../lib/agent/images')
+const { stageRunWakeContent } = await import('../../lib/agent/stage-runs')
+const { accessCanvasDocument } = await import('../../lib/canvasSyncStore')
+
+await silenceChatUpstream()
+
+const USER_ID = 'stage-run-owner'
+const DEVICE = 'stage-run-device'
+let cookie = ''
+let calls: AgentCall[] = []
+
+beforeEach(async () => {
+  reservation = { kind: 'reserved', credits: 0 }
+  settled.clear()
+  _setChannelsForTesting([TEST_IMAGE_CHANNEL])
+  _resetInactiveModelsForTesting()
+  await db.delete(schema.tasks)
+  await db.delete(schema.agent_conversations)
+  await db.delete(schema.user_sessions)
+  await db.delete(schema.users)
+  const now = Date.now()
+  for (const id of [USER_ID, 'stage-run-other'])
+    await db.insert(schema.users).values({
+      id,
+      username: id,
+      password_hash: 'unused',
+      status: 'active',
+      created_at: now,
+      updated_at: now,
+    })
+  cookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession(USER_ID, tx))}`
+  calls = []
+  setAgentFetchForTesting(scriptedAgentFetch(calls, [() => completionStream('这批跑完了。')]))
+})
+afterEach(() => setAgentFetchForTesting())
+afterAll(async () => {
+  _setPrivateBffOverlayForTesting()
+  await close()
+})
+
+/** 智能体在画布上建两个节点，再为给定节点提出一次阶段授权。 */
+async function proposal(
+  nodeIds = ['a', 'b'],
+  params?: AgentTurnParams,
+  stage = '素材',
+  nodes: readonly Record<string, unknown>[] = [
+    { id: 'a', type: 'image', prompt: '嫩芽' },
+    { id: 'b', type: 'image', prompt: '大树' },
+  ],
+) {
+  const conversationId = crypto.randomUUID(),
+    projectId = crypto.randomUUID(),
+    now = Date.now()
+  await db.insert(schema.agent_conversations).values({
+    id: conversationId,
+    user_id: USER_ID,
+    title: '运行回报',
+    created_at: now,
+    updated_at: now,
+  })
+  await db.insert(schema.canvas_projects).values({
+    id: projectId,
+    user_id: USER_ID,
+    conversation_id: conversationId,
+    name: '运行回报',
+    document: { version: 1, elements: [] },
+    revision: 1,
+    receipts: [],
+    element_count: 0,
+    created_at: now,
+    updated_at: now,
+  })
+  const context = {
+    mode: 'image' as const,
+    experience: 'canvas' as const,
+    conversationId,
+    turnId: 'proposal-turn',
+    deviceId: DEVICE,
+    userId: USER_ID,
+    canvas: { selectedNodeIds: [], elements: [] },
+    images: createAgentImageSource({
+      references: [],
+      history: [],
+      conversationId,
+      userId: USER_ID,
+    }),
+    autoSubmit: {
+      take: () => {
+        throw new Error('画布不占每轮配额')
+      },
+    },
+    ...(params ? { params } : {}),
+  }
+  await createNodes.create(context).execute('create', { nodes }, undefined, undefined)
+  const result = await runNodes
+    .create(context)
+    .execute('proposal', { stage, nodeIds }, undefined, undefined)
+  return { conversationId, ...result.details!.canvasRun! }
+}
+
+function request(id: string, action = '', body?: unknown, session = cookie) {
+  return app.handle(
+    new Request(`http://localhost/api/agent/stage-authorizations/${id}${action}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { cookie: session, 'content-type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }),
+  )
+}
+
+async function confirm(id: string): Promise<string> {
+  const response = await request(id, '/confirm', {})
+  expect(response.status).toBe(200)
+  return ((await response.json()) as { executionToken: string }).executionToken
+}
+
+async function stored(id: string): Promise<StageAuthorization> {
+  const [row] = await db
+    .select({ state: schema.agent_stage_authorizations.state })
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, id))
+  return row!.state
+}
+
+/** 把一次尝试记成已提交并以给定状态收场的任务，结算按 `charged` 记。 */
+async function submitted(
+  id: string,
+  attemptId: string,
+  taskId: string,
+  status: 'failed' | 'completed' | 'in_progress',
+  charged: number,
+) {
+  const state = await stored(id)
+  await db.insert(schema.tasks).values({
+    id: taskId,
+    user_id: USER_ID,
+    provider: 'openai-compat',
+    model: 'gpt-image-2.5-flare',
+    status,
+    request_payload: { device_id: DEVICE, prompt: '嫩芽', n: 1 },
+    submitted_at: Date.now(),
+  })
+  settled.set(taskId, charged)
+  const spent = state.attempts.find((attempt) => attempt.id === attemptId)!.reservedCredits
+  const spentCredits = state.spentCredits + spent
+  await db
+    .update(schema.agent_stage_authorizations)
+    .set({
+      state: {
+        ...state,
+        spentCredits,
+        status: spentCredits >= state.budgetCap ? 'exhausted' : state.status,
+        attempts: state.attempts.map((attempt) =>
+          attempt.id === attemptId
+            ? { ...attempt, spentCredits: spent, submittedQuantity: 1, taskIds: [taskId] }
+            : attempt,
+        ),
+      },
+    })
+    .where(eq(schema.agent_stage_authorizations.id, id))
+}
+
+function preflight(id: string, executionToken: string, nodeId: string, attemptId: string) {
+  return request(id, '/preflight', {
+    nodeId,
+    model: 'gpt-image-2.5-flare',
+    quantity: 1,
+    unitMultiplier: 1,
+    executionToken,
+    attemptId,
+  })
+}
+
+async function wakeRows(conversationId: string) {
+  return db
+    .select()
+    .from(schema.agent_inbox)
+    .where(
+      and(
+        eq(schema.agent_inbox.conversation_id, conversationId),
+        eq(schema.agent_inbox.kind, 'task_result'),
+      ),
+    )
+}
+
+async function settledTurn(conversationId: string) {
+  await waitFor(async () => {
+    const [row] = await db
+      .select({ state: schema.agent_executions.state })
+      .from(schema.agent_executions)
+      .where(eq(schema.agent_executions.conversation_id, conversationId))
+    return row?.state !== 'running'
+  }, 3_000)
+}
+
+it('wakes the agent once per batch with every node named and its outcome', async () => {
+  const run = await proposal()
+  const token = await confirm(run.authorizationId)
+  expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
+  await submitted(run.authorizationId, 'a-1', 'task-a', 'completed', 6)
+  const report = await request(run.authorizationId, '/report', {
+    executionToken: token,
+    deviceId: DEVICE,
+    nodes: [
+      { nodeId: 'a', outcome: 'completed' },
+      { nodeId: 'b', outcome: 'blocked', reason: 'missing_media' },
+    ],
+  })
+  expect(report.status).toBe(200)
+  expect(await report.json()).toMatchObject({
+    wake: 'queued',
+    authorization: {
+      status: 'ended',
+      run: { nodes: [{ outcome: 'completed' }, { outcome: 'blocked' }] },
+    },
+  })
+  expect(await (await request(run.authorizationId, '/wake')).json()).toEqual({ status: 'pending' })
+
+  expect(await pickUpStrandedInboxes()).toBe(1)
+  await settledTurn(run.conversationId)
+  expect(calls).toHaveLength(1)
+  const asked = JSON.stringify(calls[0]!.messages)
+  const [first, second] = run.nodeNames!
+  expect(asked).toContain(`「${first}」：已完成`)
+  expect(asked).toContain(`「${second}」：开跑前被拦下，没有提交：引用的素材没有可用的图`)
+  expect(asked).not.toContain('"a"')
+  const receipt = await (await request(run.authorizationId, '/wake')).json()
+  expect(receipt).toMatchObject({ status: 'consumed', turnId: expect.any(String) })
+
+  // 同一批再报一次：原样交回，不再唤醒。
+  const again = await request(run.authorizationId, '/report', {
+    executionToken: token,
+    nodes: [
+      { nodeId: 'a', outcome: 'completed' },
+      { nodeId: 'b', outcome: 'blocked', reason: 'missing_media' },
+    ],
+  })
+  expect(await again.json()).toMatchObject({ wake: 'duplicate' })
+  expect(await pickUpStrandedInboxes()).toBe(0)
+  expect(calls).toHaveLength(1)
+  expect(await wakeRows(run.conversationId)).toHaveLength(1)
+})
+
+it('wakes for a direct run blocked before confirmation and ends the authorization', async () => {
+  const run = await proposal(['a'])
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'missing_frame' }],
+  })
+  expect(report.status).toBe(200)
+  expect((await stored(run.authorizationId)).status).toBe('ended')
+  expect(await pickUpStrandedInboxes()).toBe(1)
+  await settledTurn(run.conversationId)
+  expect(JSON.stringify(calls[0]!.messages)).toContain('首帧或尾帧帧位为空')
+  // 被拦下的一批还没确认就没有执行凭证：确认不了，也提交不了。
+  expect((await request(run.authorizationId, '/confirm', {})).status).toBe(409)
+})
+
+it('lists the deployment models and lets a direct round fix a model-blocked batch itself', async () => {
+  const run = await proposal(['a'])
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' }],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  if (!wake) throw new Error('missing wake content')
+  expect(wake.text).toContain('当前部署实际可用的出图模型：gpt-image-2.5-flare')
+  expect(wake.text).toContain('目标应是图片节点')
+  expect(wake.text).toContain('这一轮沿用直接出图：能按上面改好的')
+  expect(wake.text).not.toContain('这一轮不要自行发起新的付费运行；')
+})
+
+it('does not self-fix a model-blocked batch that also has nodes blocked for other reasons', async () => {
+  const run = await proposal(['a', 'b'])
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [
+      { nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' },
+      { nodeId: 'b', outcome: 'blocked', reason: 'missing_media' },
+    ],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  if (!wake) throw new Error('missing wake content')
+  expect(wake.text).toContain('当前部署实际可用的出图模型')
+  expect(wake.text).not.toContain('这一轮沿用直接出图')
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+})
+
+it('still asks first after a model-blocked batch when auto-submit was off', async () => {
+  const run = await proposal(['a'], { autoSubmit: false })
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' }],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  if (!wake) throw new Error('missing wake content')
+  expect(wake.text).toContain('当前部署实际可用的出图模型')
+  expect(wake.text).not.toContain('这一轮沿用直接出图')
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+})
+
+async function blockedWake(
+  run: { conversationId: string; authorizationId: string },
+  nodeId: string,
+) {
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId, outcome: 'blocked', reason: 'model_unavailable' }],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  if (!wake) throw new Error('missing wake content')
+  return wake.text
+}
+
+it('does not self-fix a video batch once the deployment has no video model left', async () => {
+  _setChannelsForTesting([TEST_IMAGE_CHANNEL, LITE_VIDEO_CHANNEL])
+  const run = await proposal(['v'], VIDEO_PARAMS, '视频', VIDEO_NODE)
+  // 提案之后运营把视频模型全停了：页面拦在「模型不可用」，服务端此刻也没有。
+  _setChannelsForTesting([TEST_IMAGE_CHANNEL])
+  const text = await blockedWake(run, 'v')
+  expect(text).toContain('视频模型及支持的模式：无')
+  expect(text).toContain('与它的视频模式（videoMode）无关，不要改 videoMode')
+  expect(text).toContain('把它转成 image 节点')
+  expect(text).toContain('告诉他暂时没有可用的视频模型')
+  expect(text).not.toContain('这一轮沿用直接出图')
+  expect(text).toContain('这一轮不要自行发起新的付费运行；')
+})
+
+it('reruns a video batch as is when only the page model list was stale', async () => {
+  _setChannelsForTesting([TEST_IMAGE_CHANNEL, LITE_VIDEO_CHANNEL])
+  const run = await proposal(['v'], VIDEO_PARAMS, '视频', VIDEO_NODE)
+  const text = await blockedWake(run, 'v')
+  expect(text).toContain('grok-imagine-video-1.5-lite（文生（text）、首帧（first））')
+  expect(text).toContain('视频节点原样重新发起即可，不要改 videoMode')
+  expect(text).not.toContain('把它转成 image 节点')
+  expect(text).toContain('这一轮沿用直接出图：能按上面改好的')
+  expect(text).not.toContain('视频模式换成可用模型支持的')
+})
+
+it('leaves stopped models out of the models the wake lists', async () => {
+  const run = await proposal(['a'])
+  const overlay = await (await import('../../lib/private-overlay')).loadPrivateBffOverlay()
+  _setPrivateBffOverlayForTesting({
+    ...overlay,
+    taskHooks: {
+      ...overlay.taskHooks,
+      inactiveModels: async () => new Set(['gpt-image-2.5-flare']),
+    },
+  })
+  try {
+    expect(await blockedWake(run, 'a')).toContain('当前部署实际可用的出图模型：无')
+  } finally {
+    _setPrivateBffOverlayForTesting(overlay)
+  }
+})
+
+it('logs every reported node with its reason and the user', async () => {
+  const run = await proposal(['a', 'b'])
+  const logged = spyOn(log, 'info')
+  try {
+    const report = await request(run.authorizationId, '/report', {
+      deviceId: DEVICE,
+      nodes: [
+        { nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' },
+        { nodeId: 'b', outcome: 'skipped', reason: 'stopped' },
+      ],
+    })
+    expect(report.status).toBe(200)
+    const entry = logged.mock.calls
+      .map(([fields]) => fields as unknown as Record<string, unknown>)
+      .find((fields) => fields?.event === 'agent.stage.reported')
+    expect(entry).toMatchObject({
+      authorizationId: run.authorizationId,
+      userId: USER_ID,
+      nodes: [
+        { nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' },
+        { nodeId: 'b', outcome: 'skipped', reason: 'stopped' },
+      ],
+    })
+  } finally {
+    logged.mockRestore()
+  }
+})
+
+it('logs a confirmation card blocked before it ran without ending it or waking', async () => {
+  const run = await proposal(['a'], { autoSubmit: false })
+  const blocked = { nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' }] }
+  const logged = spyOn(log, 'info')
+  try {
+    const response = await request(run.authorizationId, '/blocked', blocked)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ logged: true })
+    const entry = logged.mock.calls
+      .map(([fields]) => fields as unknown as Record<string, unknown>)
+      .find((fields) => fields?.event === 'agent.stage.blocked')
+    expect(entry).toMatchObject({
+      authorizationId: run.authorizationId,
+      conversationId: run.conversationId,
+      userId: USER_ID,
+      status: 'pending',
+      nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'model_unavailable' }],
+    })
+    // 同一组拦截再报一次：不再记。
+    const again = await request(run.authorizationId, '/blocked', blocked)
+    expect(await again.json()).toEqual({ logged: false })
+    expect(
+      logged.mock.calls.filter(
+        ([fields]) =>
+          (fields as unknown as Record<string, unknown>)?.event === 'agent.stage.blocked',
+      ),
+    ).toHaveLength(1)
+  } finally {
+    logged.mockRestore()
+  }
+  expect((await stored(run.authorizationId)).status).toBe('pending')
+  expect(await wakeRows(run.conversationId)).toHaveLength(0)
+  // 不是这条授权里的节点、或者不是自己的授权：不记。
+  const stranger = await request(run.authorizationId, '/blocked', {
+    nodes: [{ nodeId: 'zzz', outcome: 'blocked', reason: 'model_unavailable' }],
+  })
+  expect(stranger.status).toBe(422)
+  const otherCookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) =>
+    createUserSession('stage-run-other', tx),
+  )}`
+  expect((await request(run.authorizationId, '/blocked', blocked, otherCookie)).status).toBe(404)
+  // 卡已经结束：不再记。
+  expect((await request(run.authorizationId, '/end', {})).status).toBe(200)
+  const ended = await request(run.authorizationId, '/blocked', {
+    nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'missing_media' }],
+  })
+  expect(ended.status).toBe(409)
+  expect(await ended.json()).toEqual({ error: 'stage_authorization_inactive' })
+})
+
+it('points a first-frame batch back to runStoryboardFrames, not runNodes', async () => {
+  const run = await proposal(['a'])
+  const state = await stored(run.authorizationId)
+  await db
+    .update(schema.agent_stage_authorizations)
+    .set({ state: { ...state, storyboard: { storyboardId: 'board', fingerprint: 'fp' } } })
+    .where(eq(schema.agent_stage_authorizations.id, run.authorizationId))
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'skipped', reason: 'stopped' }],
+  })
+  expect(report.status).toBe(200)
+  expect(await pickUpStrandedInboxes()).toBe(1)
+  await settledTurn(run.conversationId)
+  const asked = JSON.stringify(calls[0]!.messages)
+  expect(asked).toContain('再用 runStoryboardFrames（单镜重出传 shotIds） 发起新的阶段授权')
+  expect(asked).not.toContain('再用 runNodes 发起')
+})
+
+/** 唤醒轮里智能体再为节点 a 发起一次 runNodes：返回新授权与它的运行卡。 */
+async function wakeRerun(conversationId: string, previousId: string) {
+  // 线上项目第一轮就记下了画布入口；这里的提案直接调工具，没有那一轮，补记上。
+  await db
+    .update(schema.canvas_projects)
+    .set({ document: { version: 1, elements: [], experience: 'canvas' } })
+    .where(eq(schema.canvas_projects.conversation_id, conversationId))
+  setAgentFetchForTesting(
+    scriptedAgentFetch(calls, [
+      () =>
+        toolCallCompletion({
+          id: 'wake-rerun',
+          name: 'runNodes',
+          args: { stage: '素材', nodeIds: ['a'] },
+        }),
+      () => completionStream('已重新发起。'),
+    ]),
+  )
+  expect(await pickUpStrandedInboxes()).toBe(1)
+  await settledTurn(conversationId)
+  const rows = await db
+    .select({
+      id: schema.agent_stage_authorizations.id,
+      state: schema.agent_stage_authorizations.state,
+    })
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.conversation_id, conversationId))
+  const rerun = rows.find((row) => row.id !== previousId)?.state
+  if (!rerun) throw new Error('wake round did not propose a new authorization')
+  const messages = await db
+    .select({ content: schema.agent_messages.content })
+    .from(schema.agent_messages)
+    .where(eq(schema.agent_messages.conversation_id, conversationId))
+  const card = messages
+    .flatMap((message) => message.content)
+    .find((block) => block.type === 'toolResult' && block.canvasRun?.authorizationId === rerun.id)
+  if (card?.type !== 'toolResult' || !card.canvasRun) throw new Error('missing rerun card')
+  return { rerun, canvasRun: card.canvasRun }
+}
+
+const WORKBENCH = { canvasImageModel: 'workbench-image', canvasImageCount: 4 } as const
+
+it('runs a wake-round runNodes directly with the proposing turn workbench model and count', async () => {
+  const run = await proposal(['a'], WORKBENCH)
+  expect(run.direct).toBe(true)
+  expect(run.specs).toEqual([
+    { nodeId: 'a', model: 'workbench-image', quantity: 4, unitMultiplier: 1 },
+  ])
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'missing_media' }],
+  })
+  expect(report.status).toBe(200)
+  const { rerun, canvasRun } = await wakeRerun(run.conversationId, run.authorizationId)
+  expect(canvasRun.direct).toBe(true)
+  // 报价与提案那一轮一致：工作台模型、4 张，原标签页照同一份规格开跑不会判成规格已变化。
+  expect(rerun.charges).toMatchObject([
+    { nodeId: 'a', model: 'workbench-image', quantity: 4, unitMultiplier: 1 },
+  ])
+})
+
+it('keeps the confirmation card in the wake round when the proposing turn had auto-submit off', async () => {
+  const run = await proposal(['a'], { ...WORKBENCH, autoSubmit: false })
+  expect(run.direct).toBe(false)
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'skipped', reason: 'stopped' }],
+  })
+  expect(report.status).toBe(200)
+  const { rerun, canvasRun } = await wakeRerun(run.conversationId, run.authorizationId)
+  expect(canvasRun.direct).toBe(false)
+  expect(rerun.status).toBe('pending')
+  expect(rerun.charges).toMatchObject([{ model: 'workbench-image', quantity: 4 }])
+})
+
+async function addStoryboard(
+  projectId: string,
+  id = 'board',
+  lookIds: string[] = ['a'],
+  shots = [{ id: 'shot-1', description: '嫩芽破土', lookIds }],
+) {
+  await accessCanvasDocument(USER_ID, projectId, async (current) => {
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(current))
+    const vector = Y.encodeStateVector(doc)
+    insertCanvasNode(
+      doc,
+      {
+        id,
+        type: 'storyboard',
+        x: 0,
+        y: 600,
+        width: 480,
+        height: 360,
+        data: { shots },
+      },
+      canvasOrigin('system', 'fixture'),
+    )
+    const update = Y.encodeStateAsUpdate(doc, vector)
+    doc.destroy()
+    return update
+  })
+}
+
+/** 直接出图或确认卡下跑完一整批素材：唤醒轮该接着出首帧，还是先问用户。 */
+async function completedAssetWake(
+  params?: AgentTurnParams,
+  storyboards: readonly string[] = ['board'],
+  nodeIds: readonly string[] = ['a'],
+  stage = '素材',
+  lookIds: string[] = ['a'],
+  beforeWake?: (run: { authorizationId: string; projectId: string }) => Promise<void>,
+) {
+  const run = await proposal([...nodeIds], params, stage)
+  // 分镜表把 lookIds 当作人物素材引用，还没定稿。
+  for (const id of storyboards) await addStoryboard(run.projectId, id, lookIds)
+  const token = await confirm(run.authorizationId)
+  for (const id of nodeIds)
+    expect((await preflight(run.authorizationId, token, id, `${id}-1`)).status).toBe(200)
+  for (const id of nodeIds)
+    await submitted(run.authorizationId, `${id}-1`, `task-${id}`, 'completed', 6)
+  const report = await request(run.authorizationId, '/report', {
+    executionToken: token,
+    deviceId: DEVICE,
+    nodes: nodeIds.map((nodeId) => ({ nodeId, outcome: 'completed' })),
+  })
+  expect(report.status).toBe(200)
+  await beforeWake?.(run)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  if (!wake) throw new Error('missing wake content')
+  return wake
+}
+
+it('lets a direct wake round continue from a completed asset batch to the storyboard first frames', async () => {
+  const wake = await completedAssetWake()
+  expect(wake.params.autoSubmit).toBe(true)
+  expect(wake.text).toContain('它们是分镜表 board 引用的素材')
+  expect(wake.text).toContain('本轮直接调用 runStoryboardFrames（storyboardId: "board"')
+  expect(wake.text).toContain('出视频等其他阶段先向用户说明并等他同意')
+  expect(wake.text).not.toContain('这一轮不要自行发起新的付费运行；')
+})
+
+it('keeps asking before the next paid stage when auto-submit was off', async () => {
+  const wake = await completedAssetWake({ autoSubmit: false })
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
+})
+
+it('does not push an ordinary direct batch on to first frames when no draft storyboard uses it', async () => {
+  const wake = await completedAssetWake(undefined, [])
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
+})
+
+it('does not continue to first frames when the batch mixes in nodes the storyboard does not use', async () => {
+  // 分镜表只引用 a，这一批还带了不相干的 b。
+  const wake = await completedAssetWake(undefined, ['board'], ['a', 'b'])
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
+})
+
+it('does not continue to first frames after a batch that was not proposed as the asset stage', async () => {
+  const wake = await completedAssetWake(undefined, ['board'], ['a'], '节点生成')
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
+})
+
+it('does not continue to first frames while other storyboard assets still have no image', async () => {
+  // 分镜表引用 a 和 b，这一批只出了 a，b 还没有图。
+  const wake = await completedAssetWake(undefined, ['board'], ['a'], '素材', ['a', 'b'])
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
+})
+
+it('does not continue to first frames twice while a first-frame authorization for the same table is open', async () => {
+  const wake = await completedAssetWake(undefined, ['board'], ['a'], '素材', ['a'], async (run) => {
+    // 上一轮唤醒已经为这张表、这份镜头表登记了首帧授权，还没跑完。
+    const [row] = await db
+      .select()
+      .from(schema.agent_stage_authorizations)
+      .where(eq(schema.agent_stage_authorizations.id, run.authorizationId))
+    const id = crypto.randomUUID()
+    await db.insert(schema.agent_stage_authorizations).values({
+      ...row!,
+      id,
+      proposal_key: `${row!.proposal_key}:frames`,
+      execution_token_hash: null,
+      state: {
+        ...row!.state,
+        id,
+        stage: '首帧',
+        status: 'pending',
+        run: undefined,
+        storyboard: {
+          storyboardId: 'board',
+          fingerprint: storyboardFingerprint([
+            { id: 'shot-1', description: '嫩芽破土', lookIds: ['a'] },
+          ]),
+        },
+      },
+    })
+  })
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
+})
+
+/** 往测试库里塞一条这张表的首帧授权（复制素材授权的归属），用来模拟上一轮已经接过首帧。 */
+async function insertFrameAuthorization(
+  authorizationId: string,
+  status: 'pending' | 'active',
+  aged = false,
+) {
+  const [row] = await db
+    .select()
+    .from(schema.agent_stage_authorizations)
+    .where(eq(schema.agent_stage_authorizations.id, authorizationId))
+  const id = crypto.randomUUID()
+  const old = Date.now() - 31 * 60 * 1000
+  await db.insert(schema.agent_stage_authorizations).values({
+    ...row!,
+    id,
+    proposal_key: `${row!.proposal_key}:frames`,
+    execution_token_hash: null,
+    updated_at: aged ? old : Date.now(),
+    state: {
+      ...row!.state,
+      id,
+      stage: '首帧',
+      status,
+      run: undefined,
+      attempts: [],
+      audit: [
+        { kind: 'proposed', at: aged ? old : Date.now() },
+        ...(status === 'active'
+          ? [{ kind: 'confirmed' as const, at: aged ? old : Date.now() }]
+          : []),
+      ],
+      storyboard: {
+        storyboardId: 'board',
+        fingerprint: storyboardFingerprint([
+          { id: 'shot-1', description: '嫩芽破土', lookIds: ['a'] },
+        ]),
+      },
+    },
+  })
+  return id
+}
+
+it('does not let an expired active first-frame authorization block the follow-up forever', async () => {
+  let frameId = ''
+  const wake = await completedAssetWake(undefined, ['board'], ['a'], '素材', ['a'], async (run) => {
+    // 上一轮的首帧授权确认后就没人再动，早过了有效期，名义上还是 active。
+    frameId = await insertFrameAuthorization(run.authorizationId, 'active', true)
+  })
+  expect(wake.text).toContain('本轮直接调用 runStoryboardFrames（storyboardId: "board"')
+  expect((await stored(frameId)).status).toBe('expired')
+})
+
+it('does not continue to first frames for a draft storyboard that has no shots yet', async () => {
+  const run = await proposal(['a'])
+  // 空镜头表：every() 对空集合恒为真，不能因此被当成这批素材的分镜表。
+  await addStoryboard(run.projectId, 'empty-board', [], [])
+  const token = await confirm(run.authorizationId)
+  expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
+  await submitted(run.authorizationId, 'a-1', 'task-empty-a', 'completed', 6)
+  const report = await request(run.authorizationId, '/report', {
+    executionToken: token,
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'completed' }],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  expect(wake?.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake?.text).not.toContain('本轮直接调用 runStoryboardFrames')
+})
+
+it('does not guess a storyboard when several draft storyboards share the finished assets', async () => {
+  const wake = await completedAssetWake(undefined, ['board', 'board-2'])
+  expect(wake.text).toContain('这一轮不要自行发起新的付费运行；需要再跑时先向用户说明并等他同意。')
+  expect(wake.text).not.toContain('本轮直接调用 runStoryboardFrames')
+})
+
+it('falls back to confirmation for authorizations recorded before the turn settings were kept', async () => {
+  const run = await proposal(['a'], WORKBENCH)
+  const state = await stored(run.authorizationId)
+  const { turn: _dropped, ...legacy } = state
+  await db
+    .update(schema.agent_stage_authorizations)
+    .set({ state: legacy })
+    .where(eq(schema.agent_stage_authorizations.id, run.authorizationId))
+  const report = await request(run.authorizationId, '/report', {
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'skipped', reason: 'stopped' }],
+  })
+  expect(report.status).toBe(200)
+  const wake = await stageRunWakeContent(
+    run.conversationId,
+    { kind: 'user', userId: USER_ID },
+    { authorizationId: run.authorizationId, eventVersion: 1 },
+  )
+  expect(wake?.params).toEqual({ autoSubmit: false })
+})
+
+it('rejects reports that disagree with what the server recorded', async () => {
+  const run = await proposal()
+  const token = await confirm(run.authorizationId)
+  const report = (body: object) => request(run.authorizationId, '/report', body)
+  // 少报一个节点、多报一个节点。
+  expect(
+    (await report({ executionToken: token, nodes: [{ nodeId: 'a', outcome: 'skipped' }] })).status,
+  ).toBe(422)
+  // 没提交过却说已完成。
+  expect(
+    (
+      await report({
+        executionToken: token,
+        nodes: [
+          { nodeId: 'a', outcome: 'completed' },
+          { nodeId: 'b', outcome: 'skipped' },
+        ],
+      })
+    ).status,
+  ).toBe(422)
+  // 已确认的授权不带凭证或凭证不对。
+  expect(
+    (
+      await report({
+        executionToken: 'forged',
+        nodes: [
+          { nodeId: 'a', outcome: 'skipped' },
+          { nodeId: 'b', outcome: 'skipped' },
+        ],
+      })
+    ).status,
+  ).toBe(409)
+  expect(await wakeRows(run.conversationId)).toHaveLength(0)
+  expect((await request(run.authorizationId, '/wake')).status).toBe(404)
+})
+
+it('checks outcomes against the tasks the server holds, not what the browser claims', async () => {
+  const run = await proposal()
+  const token = await confirm(run.authorizationId)
+  // 「a」第一次失败退款、重试后成功；「b」提交了但失败。
+  expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
+  await submitted(run.authorizationId, 'a-1', 'task-a-1', 'failed', 0)
+  expect((await preflight(run.authorizationId, token, 'a', 'a-2')).status).toBe(200)
+  await submitted(run.authorizationId, 'a-2', 'task-a-2', 'completed', 6)
+  expect((await preflight(run.authorizationId, token, 'b', 'b-1')).status).toBe(200)
+  await submitted(run.authorizationId, 'b-1', 'task-b-1', 'failed', 6)
+  const report = (b: object, a: object = { nodeId: 'a', outcome: 'completed' }) =>
+    request(run.authorizationId, '/report', { executionToken: token, nodes: [a, b] })
+  // 任务在服务端是失败的，不能报已完成；提交过的也不能报没轮到或被拦下。
+  expect((await report({ nodeId: 'b', outcome: 'completed' })).status).toBe(422)
+  expect((await report({ nodeId: 'b', outcome: 'skipped', reason: 'stopped' })).status).toBe(422)
+  expect((await report({ nodeId: 'b', outcome: 'blocked', reason: 'missing_media' })).status).toBe(
+    422,
+  )
+  expect(await wakeRows(run.conversationId)).toHaveLength(0)
+  // 「重试过」按服务端的尝试算：浏览器给反了也照实记。
+  const accepted = await report(
+    { nodeId: 'b', outcome: 'failed', reason: 'generation_failed', retried: true },
+    { nodeId: 'a', outcome: 'completed', retried: false },
+  )
+  expect(accepted.status).toBe(200)
+  expect((await stored(run.authorizationId)).run?.nodes).toEqual([
+    { nodeId: 'a', outcome: 'completed', retried: true },
+    { nodeId: 'b', outcome: 'failed', reason: 'generation_failed' },
+  ])
+})
+
+it('marks a reported failure whose task is still running or already succeeded', async () => {
+  const run = await proposal()
+  const token = await confirm(run.authorizationId)
+  expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
+  await submitted(run.authorizationId, 'a-1', 'task-a-1', 'in_progress', 6)
+  expect((await preflight(run.authorizationId, token, 'b', 'b-1')).status).toBe(200)
+  await submitted(run.authorizationId, 'b-1', 'task-b-1', 'completed', 6)
+  const report = await request(run.authorizationId, '/report', {
+    executionToken: token,
+    deviceId: DEVICE,
+    nodes: [
+      { nodeId: 'a', outcome: 'failed', reason: 'canvas_changed' },
+      { nodeId: 'b', outcome: 'failed', reason: 'canvas_changed' },
+    ],
+  })
+  expect(report.status).toBe(200)
+  expect((await stored(run.authorizationId)).run?.nodes).toEqual([
+    { nodeId: 'a', outcome: 'failed', reason: 'canvas_changed', task: 'running' },
+    { nodeId: 'b', outcome: 'failed', reason: 'canvas_changed', task: 'completed' },
+  ])
+  expect(await pickUpStrandedInboxes()).toBe(1)
+  await settledTurn(run.conversationId)
+  const asked = JSON.stringify(calls[0]!.messages)
+  const [first, second] = run.nodeNames!
+  expect(asked).toContain(`「${first}」：已提交，任务还在生成`)
+  expect(asked).toContain(`「${second}」：已提交，任务出了结果，但没能成为节点主结果`)
+  // 不算进失败，也不给失败节点的话术。
+  expect(asked).toContain('失败 0，没等到结果 2，')
+  expect(asked).not.toContain('失败节点')
+})
+
+it('records a failed node that never created a task as blocked', async () => {
+  const run = await proposal(['a'])
+  const token = await confirm(run.authorizationId)
+  expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
+  const report = await request(run.authorizationId, '/report', {
+    executionToken: token,
+    nodes: [{ nodeId: 'a', outcome: 'failed', reason: 'authorization' }],
+  })
+  expect(report.status).toBe(200)
+  expect((await stored(run.authorizationId)).run?.nodes).toEqual([
+    { nodeId: 'a', outcome: 'blocked', reason: 'authorization' },
+  ])
+})
+
+it('refuses a report after the user ended the authorization and does not wake', async () => {
+  const run = await proposal(['a'])
+  const token = await confirm(run.authorizationId)
+  expect((await request(run.authorizationId, '/end', {})).status).toBe(200)
+  const report = await request(run.authorizationId, '/report', {
+    executionToken: token,
+    nodes: [{ nodeId: 'a', outcome: 'skipped', reason: 'stopped' }],
+  })
+  expect(report.status).toBe(409)
+  expect(await report.json()).toMatchObject({ error: 'stage_authorization_inactive' })
+  expect(await wakeRows(run.conversationId)).toHaveLength(0)
+  expect((await stored(run.authorizationId)).run).toBeUndefined()
+})
+
+it('retries a failed node once inside the budget when the failed task was refunded', async () => {
+  const run = await proposal(['a'])
+  const token = await confirm(run.authorizationId)
+  expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
+  await submitted(run.authorizationId, 'a-1', 'task-a-1', 'failed', 0)
+  expect((await stored(run.authorizationId)).status).toBe('exhausted')
+  // 失败的任务退回了积分：额度还给授权，授权内自动重试一次。
+  const retry = await preflight(run.authorizationId, token, 'a', 'a-2')
+  expect(retry.status).toBe(200)
+  const state = await stored(run.authorizationId)
+  expect(state).toMatchObject({ status: 'active', spentCredits: 0 })
+  expect(state.audit.at(-1)).toMatchObject({ kind: 'retry', nodeId: 'a' })
+  await submitted(run.authorizationId, 'a-2', 'task-a-2', 'failed', 0)
+  // 第二次失败不再重试。
+  const limit = await preflight(run.authorizationId, token, 'a', 'a-3')
+  expect(limit.status).toBe(409)
+  expect(await limit.json()).toMatchObject({ error: 'stage_authorization_retry_limit' })
+})
+
+it('stops at the budget when the failed attempt was still charged', async () => {
+  const run = await proposal(['a'])
+  const token = await confirm(run.authorizationId)
+  expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
+  await submitted(run.authorizationId, 'a-1', 'task-a-1', 'failed', 6)
+  const retry = await preflight(run.authorizationId, token, 'a', 'a-2')
+  expect(retry.status).toBe(409)
+  expect(await retry.json()).toMatchObject({ error: 'stage_authorization_budget' })
+  expect((await stored(run.authorizationId)).status).toBe('exhausted')
+})
+
+it('does not retry a node whose task is still running or succeeded', async () => {
+  const run = await proposal(['a'])
+  const token = await confirm(run.authorizationId)
+  // 预算放宽，单看「已提交」这条规则。
+  const state = await stored(run.authorizationId)
+  await db
+    .update(schema.agent_stage_authorizations)
+    .set({ state: { ...state, budgetCap: 60 } })
+    .where(eq(schema.agent_stage_authorizations.id, run.authorizationId))
+  expect((await preflight(run.authorizationId, token, 'a', 'a-1')).status).toBe(200)
+  await submitted(run.authorizationId, 'a-1', 'task-a-1', 'completed', 6)
+  const retry = await preflight(run.authorizationId, token, 'a', 'a-2')
+  expect(retry.status).toBe(409)
+  expect(await retry.json()).toMatchObject({ error: 'stage_authorization_node_already_started' })
+})
+
+it('does not wake when credits run out and says why on the run card', async () => {
+  const run = await proposal(['a'])
+  const token = await confirm(run.authorizationId)
+  reservation = { kind: 'insufficient_credits', required: 50, available: 0 }
+  await request(run.authorizationId, '/report', {
+    executionToken: token,
+    deviceId: DEVICE,
+    nodes: [{ nodeId: 'a', outcome: 'skipped', reason: 'stopped' }],
+  })
+  expect(await pickUpStrandedInboxes()).toBe(0)
+  expect(calls).toHaveLength(0)
+  expect(await (await request(run.authorizationId, '/wake')).json()).toEqual({
+    status: 'skipped',
+    reason: 'insufficient_credits',
+  })
+  expect((await stored(run.authorizationId)).run?.wakeSkipped).toBe('insufficient_credits')
+  // 充值之后也不补唤醒。
+  reservation = { kind: 'reserved', credits: 0 }
+  expect(await pickUpStrandedInboxes()).toBe(0)
+  expect(calls).toHaveLength(0)
+})
+
+it('only the owner can report or read the wake', async () => {
+  const run = await proposal(['a'])
+  const other = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('stage-run-other', tx))}`
+  const body = { nodes: [{ nodeId: 'a', outcome: 'blocked', reason: 'missing_prompt' }] }
+  expect((await request(run.authorizationId, '/report', body, other)).status).toBe(404)
+  expect((await request(run.authorizationId, '/wake', undefined, other)).status).toBe(404)
+  expect((await request(run.authorizationId, '/report', body, '')).status).toBe(401)
+})
+
+it('ends the previous account authorizations when another account logs in on this browser', async () => {
+  const run = await proposal(['a'])
+  await confirm(run.authorizationId)
+  await db
+    .update(schema.users)
+    .set({ password_hash: await Bun.password.hash('other-password', { algorithm: 'argon2id' }) })
+    .where(eq(schema.users.id, 'stage-run-other'))
+  // 同一个浏览器带着原账号的会话直接登录另一个账号，没有先登出。
+  const login = await app.handle(
+    new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      headers: {
+        cookie,
+        'content-type': 'application/json',
+        'x-forwarded-for': '10.9.0.1',
+      },
+      body: JSON.stringify({ username: 'stage-run-other', password: 'other-password' }),
+    }),
+  )
+  expect(login.status).toBe(200)
+  const state = await stored(run.authorizationId)
+  expect(state.status).toBe('ended')
+  // 收回的授权不会被当成一批运行回报，也不唤醒。
+  expect(state.run).toBeUndefined()
+  expect(await wakeRows(run.conversationId)).toHaveLength(0)
+})
+
+it('keeps authorizations when the same account logs in again', async () => {
+  const run = await proposal(['a'])
+  await confirm(run.authorizationId)
+  await db
+    .update(schema.users)
+    .set({ password_hash: await Bun.password.hash('owner-password', { algorithm: 'argon2id' }) })
+    .where(eq(schema.users.id, USER_ID))
+  const login = await app.handle(
+    new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json', 'x-forwarded-for': '10.9.0.2' },
+      body: JSON.stringify({ username: USER_ID, password: 'owner-password' }),
+    }),
+  )
+  expect(login.status).toBe(200)
+  expect((await stored(run.authorizationId)).status).toBe('active')
+})

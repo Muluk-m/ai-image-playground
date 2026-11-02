@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
+import { readCanvasDocument } from '@image-playground/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import {
@@ -15,6 +16,13 @@ import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../../../lib/authScope'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+import {
+  CanvasTestSocket,
+  canvasProtocolResponse,
+  installCanvasTestSocket,
+  projectIdFromUrl,
+  tolerateCrossRealmDigest,
+} from '../../../helpers/cloudNodeProtocol'
 import { abortNextPut, freshSceneKey, saveSceneRecord } from '../../../helpers/sceneRecord'
 
 vi.mock('../../../../features/canvas/lib/recoverCanvasTasks', () => ({
@@ -376,30 +384,51 @@ describe('画布工作区', () => {
 it('真实工作区断网自动保存，联网无需手动点击即可续传', async () => {
   setClientStorageScope(crypto.randomUUID())
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
-  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
-  const writes: unknown[] = []
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
-      const body = JSON.parse(init!.body as string)
-      writes.push(body)
+  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+  const created = new Set<string>()
+  installCanvasTestSocket()
+  vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
+    const canvas = await canvasProtocolResponse(url, init)
+    if (canvas) return canvas
+    const id = projectIdFromUrl(url)
+    const method = init?.method ?? 'GET'
+    if (method === 'GET' && !created.has(id))
+      return Response.json({ error: 'project_not_found' }, { status: 404 })
+    if (method === 'PUT') {
+      created.add(id)
+      const body = JSON.parse(String(init?.body))
       return Response.json({
-        id: project.id,
+        id,
         name: body.name,
         revision: body.baseRevision + 1,
         createdAt: 1,
         updatedAt: 2,
-        elementCount: body.document.elements.length,
+        elementCount: 0,
+        document: body.document,
       })
-    }),
-  )
+    }
+    return Response.json({
+      id,
+      name: '离线工作区',
+      revision: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      elementCount: 0,
+      document: { version: 1, elements: [] },
+    })
+  })
   await bootstrapClientCapabilities(true, 'http://bff.test')
   const project = await projectRepository.create('离线工作区', undefined, true)
   useCanvasProjectStore.setState({ projects: [project] })
   const workspace = new CanvasWorkspace(project.sceneKey)
   try {
     await workspace.ready
+    await vi.waitFor(() => expect(workspace.cloud?.getSnapshot().status).toBe('saved'))
+    online.mockReturnValue(false)
+    CanvasTestSocket.instances[CanvasTestSocket.instances.length - 1]?.close()
+    const sockets = CanvasTestSocket.instances.length
     workspace.doc.addElements([
       {
         id: 'note',
@@ -414,15 +443,24 @@ it('真实工作区断网自动保存，联网无需手动点击即可续传', a
       },
     ])
     await workspace.flush()
-    await workspace.cloud!.sync()
-    expect(writes).toHaveLength(0)
+    await expect(workspace.cloud!.sync()).rejects.toThrow('offline')
+    expect(CanvasTestSocket.instances).toHaveLength(sockets)
     online.mockReturnValue(true)
     window.dispatchEvent(new Event('online'))
     await vi.waitFor(() => expect(workspace.cloud?.getSnapshot().status).toBe('saved'), {
       timeout: 3000,
     })
-    expect(writes).toHaveLength(1)
-    expect(writes[0]).toMatchObject({ document: { elements: [{ text: '自动恢复' }] } })
+    expect(
+      readCanvasDocument(CanvasTestSocket.instances[CanvasTestSocket.instances.length - 1]!.server)
+        .nodes,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'note',
+          data: expect.objectContaining({ text: '自动恢复' }),
+        }),
+      ]),
+    )
   } finally {
     workspace.dispose()
     useCanvasProjectStore.setState({ projects: [] })
@@ -435,23 +473,22 @@ it('真实工作区断网自动保存，联网无需手动点击即可续传', a
 it('编辑之后不用手动推：防抖落盘顺手把这份文档送上去', async () => {
   setClientStorageScope(crypto.randomUUID())
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
-  const writes: unknown[] = []
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
-      const body = JSON.parse(init!.body as string)
-      writes.push(body)
-      return Response.json({
-        id: project.id,
-        name: body.name,
-        revision: body.baseRevision + 1,
-        createdAt: 1,
-        updatedAt: 2,
-        elementCount: body.document.elements.length,
-      })
-    }),
-  )
+  installCanvasTestSocket()
+  vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
+    const canvas = await canvasProtocolResponse(url, init)
+    if (canvas) return canvas
+    return Response.json({
+      id: projectIdFromUrl(url),
+      name: '自动上传',
+      revision: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      elementCount: 0,
+      document: { version: 1, elements: [] },
+    })
+  })
   await bootstrapClientCapabilities(true, 'http://bff.test')
   const project = await projectRepository.create('自动上传', undefined, true)
   useCanvasProjectStore.setState({ projects: [project] })
@@ -459,11 +496,10 @@ it('编辑之后不用手动推：防抖落盘顺手把这份文档送上去', a
   const workspace = new CanvasWorkspace(project.sceneKey)
   try {
     await workspace.ready
-    // 新项目起步那次推送先落定，后面的写入只可能来自这次编辑。
+    // 新项目起步那次同步先落定，后面的更新只可能来自这次编辑。
     await vi.waitFor(() => expect(workspace.cloud?.getSnapshot().status).toBe('saved'), {
       timeout: 3000,
     })
-    const before = writes.length
     workspace.doc.addElements([
       {
         id: 'note',
@@ -477,10 +513,23 @@ it('编辑之后不用手动推：防抖落盘顺手把这份文档送上去', a
         fill: '#000',
       },
     ])
-    // 谁都不碰 flush / requestSync / sync：推上去必须是防抖那次落盘自己带出来的。
-    // 500ms 防抖落盘 + 1000ms 排下的推送，给一倍余量。
-    await vi.waitFor(() => expect(writes).toHaveLength(before + 1), { timeout: 3000 })
-    expect(writes[before]).toMatchObject({ document: { elements: [{ text: '防抖之后自己上去' }] } })
+    // 谁都不碰 flush / requestSync / sync：编辑进了 Y.Doc 就会自己推上画布通道。
+    await vi.waitFor(
+      () =>
+        expect(
+          readCanvasDocument(
+            CanvasTestSocket.instances[CanvasTestSocket.instances.length - 1]!.server,
+          ).nodes,
+        ).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: 'note',
+              data: expect.objectContaining({ text: '防抖之后自己上去' }),
+            }),
+          ]),
+        ),
+      { timeout: 3000 },
+    )
   } finally {
     workspace.dispose()
     useCanvasProjectStore.setState({ projects: [] })
@@ -495,29 +544,32 @@ it('本机已有画布：先交给用户，补传原图在后台进行，不挡�
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   const source = 'data:image/png;base64,iVBORw0KGgoAAAAA'
   const uploads: unknown[] = []
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
-      if (url === source)
-        return new Response(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
-      if (url.endsWith('/api/media/uploads')) {
-        uploads.push(url)
-        // 大画布逐张上传要很久：这里干脆不回，加载也必须照样结束。
-        return new Promise<Response>(() => {})
-      }
-      const body = JSON.parse(init!.body as string)
-      return Response.json({
-        id: project.id,
-        name: body.name,
-        revision: body.baseRevision + 1,
-        createdAt: 1,
-        updatedAt: 2,
-        elementCount: body.document.elements.length,
-      })
-    }),
-  )
+  installCanvasTestSocket()
+  tolerateCrossRealmDigest()
+  vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
+    if (url === source)
+      return new Response(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    if (url.endsWith('/api/media/uploads')) {
+      uploads.push(url)
+      // 大画布逐张上传要很久：这里干脆不回，加载也必须照样结束。
+      return new Promise<Response>(() => {})
+    }
+    const canvas = await canvasProtocolResponse(url, init)
+    if (canvas) return canvas
+    return Response.json({
+      id: projectIdFromUrl(url),
+      name: '大画布',
+      revision: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      elementCount: 0,
+      document: { version: 1, elements: [] },
+    })
+  })
   await bootstrapClientCapabilities(true, 'http://bff.test')
+  vi.mocked(recoverCanvasTasks).mockClear()
   const project = await projectRepository.create('大画布', undefined, true)
   useCanvasProjectStore.setState({ projects: [project] })
   const first = new CanvasWorkspace(project.sceneKey)
@@ -529,18 +581,14 @@ it('本机已有画布：先交给用户，补传原图在后台进行，不挡�
       { files: { f: source } },
     )
     await first.flush()
+    await vi.waitFor(() => expect(uploads.length).toBeGreaterThan(0))
     first.dispose()
 
-    // 续跑任务要在存档开始记录编辑之后：它删掉、改掉的占位框才落得了盘。
-    const loadingWhenRecovered: boolean[] = []
-    vi.mocked(recoverCanvasTasks).mockImplementation(() => {
-      loadingWhenRecovered.push(second!.getSnapshot().loading)
-    })
     second = new CanvasWorkspace(project.sceneKey)
     await second.ready
-    expect(loadingWhenRecovered).toEqual([false])
     expect(second.getSnapshot().loading).toBe(false)
     expect(second.doc.elements.map((one) => one.id)).toEqual(['img'])
+    expect(recoverCanvasTasks).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(uploads.length).toBeGreaterThan(0), { timeout: 3000 })
   } finally {
     first.dispose()

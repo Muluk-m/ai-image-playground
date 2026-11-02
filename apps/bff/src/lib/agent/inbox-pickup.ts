@@ -5,7 +5,7 @@ import { bffDrain } from '../drain'
 import { log } from '../logger'
 import { recoverAbandonedExecution } from './events'
 import { AGENT_EXECUTION_LEASE_MS } from './execution'
-import { heldByClarification, TURN_KINDS } from './inbox'
+import { heldByClarification, heldByToolGate, TURN_KINDS } from './inbox'
 import { drainConversationInbox } from './start-turn'
 import { deliverDueAgentWakes } from './wake'
 
@@ -51,6 +51,7 @@ export async function strandedInboxConversations(limit = PICKUP_BATCH): Promise<
         eq(inbox.status, 'pending'),
         // 在等澄清答复、只剩问之前就排着的那几条：不是没人处理，是在等用户。取不到就别占名额。
         not(heldByClarification),
+        not(heldByToolGate),
         isNull(conversations.deleted_at),
         not(exists(leased)),
         // 还归旧二进制管的会话由它自己收尾；新版本不去抢（见 `forwardActiveTurn`）。

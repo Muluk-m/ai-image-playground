@@ -7,7 +7,7 @@ import type {
 } from '@image-playground/shared'
 import { AGENT_TURN_MAX_INLINE_REFERENCES, encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { PANEL_WIDTH } from '../../../features/agent/agentStyles'
+import { PANEL_MIN_WIDTH } from '../../../features/agent/agentStyles'
 import * as historyCache from '../../../features/agent/lib/conversationCache'
 import { conversationCache } from '../../../features/agent/lib/conversationCache'
 import { DraftSession } from '../../../features/agent/lib/drafts'
@@ -18,7 +18,7 @@ import {
   conversationStarted,
 } from '../../../features/agent/lib/panelMessages'
 import * as turnSubmission from '../../../features/agent/lib/turnSubmission'
-import { useAgentStore } from '../../../features/agent/store'
+import { retryUnsent, unsentRetryAvailable, useAgentStore } from '../../../features/agent/store'
 import { scopedStorageName, setClientStorageScope } from '../../../lib/authScope'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
@@ -697,6 +697,34 @@ describe('发送反馈', () => {
     expect(conversationStarted(state().messages)).toBe(false)
   })
 
+  it('没收下的那条点「重试」沿用原来的消息 id，服务端其实收下过也认得出是同一条', async () => {
+    turnResponse = () => new Response(JSON.stringify({ error: 'rate_limited' }), { status: 429 })
+    await state().send('画一只橘猫')
+    expect(unsentRetryAvailable(state().error)).toBe(true)
+
+    // 失败后用户改了思考深度：重试的仍是没发出去的那一条，参数不跟着变。
+    const before = state().thinkingDepth
+    useAgentStore.setState({ thinkingDepth: before === 'deep' ? 'fast' : 'deep' })
+    turnResponse = () => turnStream(TURN_START, TURN_END)
+    retryUnsent()
+    const turnBodies = () =>
+      fetchMock.mock.calls
+        .filter(([url, init]) => /\/turns$/.test(String(url)) && init?.method === 'POST')
+        .map(
+          ([, init]) =>
+            JSON.parse(String(init?.body)) as {
+              clientMessageId?: string
+              params?: { thinkingDepth?: string }
+            },
+        )
+    await vi.waitFor(() => expect(turnBodies()).toHaveLength(2))
+    const [first, second] = turnBodies()
+    expect(first?.clientMessageId).toEqual(expect.any(String))
+    expect(second?.clientMessageId).toBe(first?.clientMessageId)
+    expect(first?.params?.thinkingDepth).toBe(before)
+    expect(second?.params).toEqual(first?.params)
+  })
+
   it('敲下回车消息立刻上屏，turnStart 到了换成服务端的 id', async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => {
@@ -733,7 +761,7 @@ describe('面板宽度', () => {
   it('拖过的宽度夹在最窄与视口六成之间并记进 localStorage', () => {
     vi.stubGlobal('innerWidth', 1000)
     state().setPanelWidth(100)
-    expect(state().panelWidth).toBe(PANEL_WIDTH)
+    expect(state().panelWidth).toBe(PANEL_MIN_WIDTH)
     state().setPanelWidth(5000)
     expect(state().panelWidth).toBe(600)
     state().setPanelWidth(420.4)

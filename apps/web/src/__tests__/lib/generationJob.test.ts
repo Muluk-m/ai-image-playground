@@ -22,6 +22,7 @@ vi.mock('../../lib/privateOverlay', async (importOriginal) => {
 })
 
 import { setSignedIn, subscribeLoginPrompt } from '../../auth/loginPrompt'
+import { UserFacingError } from '../../i18n'
 import { DEFAULT_SETTINGS, getActiveApiProfile, normalizeSettings } from '../../lib/apiProfiles'
 import { setChannels } from '../../lib/channels/channelStore'
 import type { ChannelCapability, PublicChannel } from '../../lib/channels/types'
@@ -131,6 +132,29 @@ afterEach(async () => {
   await bootstrapClientCapabilities(false, '')
 })
 
+it('把云媒体里的参考图按身份交给 BFF，不在本机下载再内联上传', async () => {
+  const settings = builtinSettings(channelWith(['generate', 'edit']))
+  const bodies: unknown[] = []
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    if (String(input).includes('/submit')) bodies.push(JSON.parse(String(init?.body)))
+    return new Promise<Response>(() => {})
+  })
+  const media = 'aip-media:6f1c2c55-0a43-4c1b-9d4f-2f3e9c1d7a10'
+
+  startGeneration(
+    {
+      settings,
+      profile: getActiveApiProfile(settings),
+      params: { ...DEFAULT_PARAMS, n: 1 },
+      variants: [{ prompt: '换成木色背景', inputImageDataUrls: [media], context: 'a' }],
+    },
+    recordingSink().sink,
+  )
+
+  await vi.waitFor(() => expect(bodies).toHaveLength(1))
+  expect(bodies[0]).toMatchObject({ input_images: [media] })
+})
+
 describe('扇出规则只有一份', () => {
   it('模型声明了原生 n：整批交给上游一条请求', async () => {
     const settings = builtinSettings(channelWith(['generate', 'n']))
@@ -228,7 +252,7 @@ describe('受理与结算通知', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
     const { sink, failures } = recordingSink()
     sink.persisted = async () => {
-      throw new Error('IndexedDB is full')
+      throw new DOMException('IndexedDB is full', 'QuotaExceededError')
     }
 
     startGeneration(
@@ -242,7 +266,7 @@ describe('受理与结算通知', () => {
     )
     await vi.waitFor(() => expect(failures).toHaveLength(1))
 
-    expect(failures[0]!.text).toBe('IndexedDB is full')
+    expect(failures[0]!.text).toBe('浏览器存储空间不足，请清理后重试')
     expect(fetchMock).not.toHaveBeenCalled()
     expect(overlay.errored).toHaveBeenCalledTimes(1)
     expect(overlay.settled).toHaveBeenCalledTimes(1)
@@ -279,15 +303,15 @@ describe('刷新后续跑与首次提交同一套收尾', () => {
     expect(failures[0]!.text).not.toContain('safety system')
   })
 
-  it.each([
-    'No eligible Grok media accounts',
-    'Grok model channel is temporarily unavailable. Please try again later.',
-  ])('restored Grok failures show channel availability without account-pool details: %s', async (message) => {
+  it('restored model-unavailable failures ask for another model without upstream details', async () => {
     const settings = builtinSettings(channelWith(['generate']))
     stubResumeStatus({
       status: 'failed',
       submitted_at: 0,
-      error: { message, type: 'upstream_error' },
+      error: {
+        message: 'Grok model channel is temporarily unavailable. Please try again later.',
+        type: 'model_unavailable',
+      },
     })
     const { sink, failures } = recordingSink()
     await resumeGeneration(
@@ -295,8 +319,8 @@ describe('刷新后续跑与首次提交同一套收尾', () => {
       0,
       sink,
     )
-    expect(failures[0]!.text).toBe('Grok 模型渠道暂不可用，请稍后再试')
-    expect(failures[0]!.code).toBe('upstream_error')
+    expect(failures[0]!.text).toBe('该模型暂不可用，请换其他模型')
+    expect(failures[0]!.code).toBe('model_unavailable')
   })
 
   it('续跑落地也结算：出错与结束的通知都要发，否则余额停在续跑之前那一份', async () => {
@@ -335,7 +359,7 @@ describe('刷新后续跑与首次提交同一套收尾', () => {
         params: { ...DEFAULT_PARAMS },
         clientRequestId: 'request-1',
         resend: async () => {
-          throw new Error('输入图已丢失')
+          throw new UserFacingError('输入图已丢失')
         },
       },
       0,

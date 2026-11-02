@@ -6,15 +6,29 @@ import { useTranslation } from '../i18n'
  * 登录框底部：套餐入口，以及服务条款 / 隐私政策。
  * 条款在新标签打开，避免把正在填写的登录框整页换掉。
  */
-export default function AuthConsent({ kind }: { kind: 'login' | 'registration' }) {
+export default function AuthConsent({
+  kind,
+  plansHref,
+}: {
+  kind: 'login' | 'registration'
+  plansHref?: string
+}) {
   const { t } = useTranslation('auth')
   const lead = kind === 'login' ? t('consent.loginLead') : t('consent.registerLead')
   const joiner = kind === 'login' ? t('consent.loginJoiner') : t('consent.registerJoiner')
   return (
     <div className="mt-4 text-center">
-      <Button type="button" variant="link" size="xs" onClick={() => openPricingSheet()}>
-        {t('consent.viewPlans')}
-      </Button>
+      {plansHref ? (
+        <Button asChild variant="link" size="xs">
+          <a href={plansHref} target="_blank" rel="noopener">
+            {t('consent.viewPlans')}
+          </a>
+        </Button>
+      ) : (
+        <Button type="button" variant="link" size="xs" onClick={() => openPricingSheet()}>
+          {t('consent.viewPlans')}
+        </Button>
+      )}
       <p className="auth-terms">
         {lead}
         <a

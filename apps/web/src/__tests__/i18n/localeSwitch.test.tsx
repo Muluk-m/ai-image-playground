@@ -3,10 +3,10 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LoginDialog } from '../../auth/LoginDialog'
-import DisplaySettingsMenuItems from '../../components/DisplaySettingsMenuItems'
+import LocaleGlobe from '../../components/LocaleGlobe'
 import { type AppLocale, i18next, setLocale } from '../../i18n'
 import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
-import { pointer, stubPointerApis } from '../helpers/radix'
+import { stubPointerApis } from '../helpers/radix'
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
@@ -17,13 +17,11 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 let host: HTMLDivElement
 let root: Root
 
-/**
- * 语言下拉在头像菜单里（登录框自己不带显示设置）。这里直接渲染那两行，
- */
-function localeTrigger(): HTMLElement {
-  const element = document.querySelector<HTMLElement>('[data-display-setting="locale"]')
-  if (!element) throw new Error('missing locale control')
-  return element
+/** 语言只在顶栏地球（登录框自己不带显示设置）。 */
+function openGlobe(): void {
+  const trigger = document.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')
+  if (!trigger) throw new Error('missing locale globe')
+  act(() => trigger.dispatchEvent(new MouseEvent('click', { bubbles: true })))
 }
 
 function dialogText(): string {
@@ -43,17 +41,13 @@ function whenLanguageChanged(target: AppLocale): Promise<void> {
   })
 }
 
-/** 选项 portal 到 body 上，所以从 document 找。 */
 async function chooseLocale(value: AppLocale): Promise<void> {
   const changed = whenLanguageChanged(value)
-  act(() => {
-    localeTrigger().dispatchEvent(pointer('pointerdown'))
-  })
-  const option = document.querySelector(`[role="option"][data-locale="${value}"]`)
+  openGlobe()
+  const option = document.querySelector(`[role="menuitemradio"][lang="${value}"]`)
   if (!option) throw new Error(`missing option ${value}`)
   act(() => {
-    option.dispatchEvent(pointer('pointermove'))
-    option.dispatchEvent(pointer('pointerup'))
+    option.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   })
   await act(async () => {
     await changed
@@ -64,7 +58,7 @@ async function renderLoginSurface(): Promise<void> {
   await act(async () => {
     root.render(
       <>
-        <DisplaySettingsMenuItems itemClassName="" iconClassName="" />
+        <LocaleGlobe />
         <LoginDialog onClose={() => {}} />
       </>,
     )
@@ -106,7 +100,10 @@ describe('locale switching', () => {
     expect(dialogText()).toContain('By signing in you agree to our terms of service')
     expect(dialogText()).not.toContain('欢迎回来')
     expect(document.documentElement.lang).toBe('en')
-    expect(localeTrigger().textContent).toContain('English')
+    openGlobe()
+    expect(
+      document.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent,
+    ).toContain('English')
   })
 
   it('remembers the choice for the next visit', async () => {

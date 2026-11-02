@@ -1,5 +1,5 @@
 import type { AgentTurnCost } from '@image-playground/shared'
-import type { AgentToolMessage } from '../types'
+import type { AgentPanelMessage, AgentToolMessage } from '../types'
 
 /**
  * 后台生成可能在对话轮收尾后才结算（确认生成必然如此）。结果卡保存每笔实扣，
@@ -23,4 +23,34 @@ export function turnCostWithJobs(
     return Math.max(cost[media], sum)
   }
   return { ...cost, image: spent('image'), video: spent('video') }
+}
+
+/**
+ * 一轮有出图结果时，页脚写成带张数的结算行。它只能放在这一轮最后：
+ * 最后一张成功的出图卡正好是本轮最后一条，就由卡片自己带出（`cardId`）；
+ * 后面还有取消的卡或文字，就留给本轮末尾的页脚。两处张数都按本轮全部成功出图合计。
+ */
+export function turnImageReceipt(
+  messages: readonly AgentPanelMessage[],
+  turnId: string,
+): { cardId?: string; outputCount: number } | null {
+  let last = -1
+  let card = -1
+  let outputCount = 0
+  messages.forEach((message, index) => {
+    if (message.turnId !== turnId) return
+    last = index
+    if (
+      message.kind !== 'tool' ||
+      (message.toolName !== 'generateImage' && message.toolName !== 'editImage') ||
+      message.status !== 'succeeded'
+    )
+      return
+    const images = message.artifacts?.filter((artifact) => artifact.media === 'image').length ?? 0
+    if (!images) return
+    card = index
+    outputCount += images
+  })
+  if (card < 0) return null
+  return { cardId: card === last ? messages[card]?.id : undefined, outputCount }
 }

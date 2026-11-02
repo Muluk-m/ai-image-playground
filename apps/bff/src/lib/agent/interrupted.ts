@@ -183,6 +183,7 @@ async function resumePayload(
         turnId: payload.turnId,
         taskIds: [...payload.taskIds],
         ...(payload.batch ? { batch: payload.batch } : {}),
+        ...(payload.stageRun ? { stageRun: payload.stageRun } : {}),
       },
     }
   const snapshot = (await listAgentToolCalls(conversationId, turnId))[0]?.snapshot

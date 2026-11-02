@@ -1,4 +1,4 @@
-import { i18next } from '../i18n'
+import { i18next, UserFacingError } from '../i18n'
 import {
   SCOPED_LOCAL_STORAGE_KEYS,
   STORE_PERSIST_KEY,
@@ -157,7 +157,8 @@ function runTransaction<T>(
     tx.onerror = () => reject(tx.error)
     tx.onabort = () =>
       reject(
-        tx.error ?? new Error(i18next.t('storage.adoptTxAborted', { ns: 'lib', store: storeName })),
+        tx.error ??
+          new UserFacingError(i18next.t('storage.adoptTxAborted', { ns: 'lib', store: storeName })),
       )
   })
 }

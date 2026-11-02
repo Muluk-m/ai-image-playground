@@ -185,6 +185,56 @@ it('Agent 拟定两张图的固定计划，刷新恢复完整范围且不为生�
   expect(billing.reservations.some((entry) => entry.model === 'fixture-agent-model')).toBe(true)
 })
 
+it('项上的比例覆盖输入框的 gemini 比例，计划与执行按同一个比例', async () => {
+  const first = await upload('#13579b')
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  const calls: AgentCall[] = []
+  setAgentFetchForTesting(
+    scriptedAgentFetch(calls, [
+      () =>
+        toolCallCompletion({
+          id: 'batch-plan-ratio',
+          name: 'planImageBatch',
+          args: {
+            title: '方形抱枕',
+            rule: '每张 1:1',
+            items: [
+              {
+                key: 'square',
+                imageIds: ['first'],
+                prompt: '沙发上的抱枕，1:1 方形画面',
+                dependencies: [],
+                aspectRatio: '1:1',
+              },
+              {
+                key: 'inherit',
+                imageIds: ['first'],
+                prompt: '床上的抱枕',
+                dependencies: [],
+              },
+            ],
+          },
+        }),
+      () => completionStream('计划已保存。'),
+    ]),
+  )
+  const response = await request(`agent/conversations/${conversation.id}/turns`, {
+    deviceId: DEVICE,
+    text: '基于这张图做两张抱枕图，先出计划卡',
+    references: [{ imageId: 'first', mediaId: first }],
+    params: { gemini_aspect_ratio: '9:16', gemini_image_size: '1K' },
+  })
+  expect(response.status).toBe(200)
+  parseFrames(await response.text())
+  const { batches } = await (await request(`agent/conversations/${conversation.id}/batches`)).json()
+  const { items } = await (await request(`agent/batches/${batches[0].id}`)).json()
+  const [square, inherit] = items
+  expect(square.params.size).toBe('1024x1024')
+  expect(square.params.gemini_aspect_ratio).toBeUndefined()
+  expect(square.params.gemini_image_size).toBe('1K')
+  expect(inherit.params.gemini_aspect_ratio).toBe('9:16')
+})
+
 it('修改生成新版本，旧版本写入冲突，翻页保持原版本顺序和内容', async () => {
   const first = await upload('#334455')
   const second = await upload('#556677')
@@ -687,4 +737,167 @@ it('大量无关历史正文中仅按请求编号拟定计划，并采用该编�
   const page = (await (await request(`agent/batches/${batches[0].id}`)).json()) as AgentBatchPage
   expect(page.items).toHaveLength(1)
   expect(page.items[0]!.inputs).toEqual([{ imageId: 'product', mediaId: currentMedia }])
+})
+
+it('同一轮后建的完整计划让先前不完整的草稿作废，分批保存的各段互不影响（BUG-39）', async () => {
+  const fruit = (key: string) => ({ key, imageIds: [], prompt: `${key} 静物`, dependencies: [] })
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'partial-plan',
+            name: 'planImageBatch',
+            args: { title: '水果静物系列计划', rule: '共 3 张', items: [fruit('banana')] },
+          }),
+        () =>
+          toolCallCompletion({
+            id: 'other-chunk',
+            name: 'planImageBatch',
+            args: { title: '另一段', rule: '写实', items: [fruit('apple')] },
+          }),
+        () =>
+          toolCallCompletion({
+            id: 'full-plan',
+            name: 'planImageBatch',
+            args: {
+              title: '水果静物系列（完整计划）',
+              rule: '共 3 张',
+              items: [fruit('banana'), fruit('grape'), fruit('orange')],
+            },
+          }),
+        () => completionStream('计划已保存'),
+      ],
+    ),
+  )
+  const turn = await request(`agent/conversations/${conversation.id}/turns`, {
+    deviceId: DEVICE,
+    text: '香蕉、葡萄、橙子各一张静物，先出计划卡',
+  })
+  expect(turn.status).toBe(200)
+  await turn.text()
+  const rows = await db
+    .select({ id: schema.agent_batches.id, call: schema.agent_batches.tool_call_id })
+    .from(schema.agent_batches)
+    .where(eq(schema.agent_batches.conversation_id, conversation.id))
+  const byCall = new Map(rows.map((row) => [row.call, row.id]))
+  const read = async (call: string) =>
+    (await (await request(`agent/batches/${byCall.get(call)}`)).json()) as AgentBatchPage
+  expect((await read('partial-plan')).batch).toMatchObject({
+    status: 'cancelled',
+    executionEnabled: false,
+  })
+  expect((await read('other-chunk')).batch.status).toBe('draft')
+  expect((await read('full-plan')).batch).toMatchObject({ status: 'draft', itemCount: 3 })
+  const stale = await read('partial-plan')
+  const edit = await request(
+    `agent/batches/${byCall.get('partial-plan')}`,
+    { expectedVersion: 1, title: stale.batch.title, rule: stale.batch.rule, items: stale.items },
+    'PATCH',
+  )
+  expect(edit.status).toBe(409)
+})
+
+it('满 8 项的重做沿用编号时让旧草稿作废，重复编号但提示词全换的分段保留（BUG-39）', async () => {
+  const keys = Array.from({ length: 8 }, (_, index) => `k${index + 1}`)
+  const plan = (style: (key: string) => string) =>
+    keys.map((key) => ({ key, imageIds: [], prompt: style(key), dependencies: [] }))
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'chunk-a',
+            name: 'planImageBatch',
+            args: { title: '静物', rule: '写实', items: plan((key) => `${key} 静物`) },
+          }),
+        () =>
+          toolCallCompletion({
+            id: 'chunk-b',
+            name: 'planImageBatch',
+            args: { title: '油画', rule: '油画', items: plan((key) => `${key} 油画`) },
+          }),
+        () =>
+          toolCallCompletion({
+            id: 'redo-b',
+            name: 'planImageBatch',
+            args: {
+              title: '油画',
+              rule: '油画',
+              items: plan((key) => (key === 'k1' ? 'k1 油画，暖色' : `${key} 油画`)),
+            },
+          }),
+        () => completionStream('计划已保存'),
+      ],
+    ),
+  )
+  await (
+    await request(`agent/conversations/${conversation.id}/turns`, {
+      deviceId: DEVICE,
+      text: '十六张静物和油画，先出计划卡',
+    })
+  ).text()
+  const rows = await db
+    .select({ call: schema.agent_batches.tool_call_id, status: schema.agent_batches.status })
+    .from(schema.agent_batches)
+    .where(eq(schema.agent_batches.conversation_id, conversation.id))
+  expect(Object.fromEntries(rows.map((row) => [row.call, row.status]))).toEqual({
+    'chunk-a': 'draft',
+    'chunk-b': 'cancelled',
+    'redo-b': 'draft',
+  })
+})
+
+it('读取生成批次的分析时照常回执没有分析项，不报参数错误（OBS-ACC-2）', async () => {
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'generation-only',
+            name: 'planImageBatch',
+            args: {
+              title: '静物',
+              rule: '写实',
+              items: [{ key: 'pear', imageIds: [], prompt: '梨', dependencies: [] }],
+            },
+          }),
+        () => completionStream('计划已保存'),
+      ],
+    ),
+  )
+  await (
+    await request(`agent/conversations/${conversation.id}/turns`, {
+      deviceId: DEVICE,
+      text: '一张梨的静物，先出计划卡',
+    })
+  ).text()
+  const { batches } = await (await request(`agent/conversations/${conversation.id}/batches`)).json()
+  const { agentTurnTools } = await import('../../lib/agent/tools')
+  const { createAgentImageSource } = await import('../../lib/agent/images')
+  const tool = agentTurnTools({
+    mode: 'image',
+    experience: 'chat',
+    userId: 'batch-plan-owner',
+    conversationId: conversation.id,
+    turnId: 'read-generation-batch',
+    deviceId: DEVICE,
+    images: createAgentImageSource({
+      references: [],
+      history: [],
+      conversationId: conversation.id,
+      userId: 'batch-plan-owner',
+    }),
+  }).find((one) => one.name === 'readBatchAnalysis')
+  if (!tool) throw new Error('analysis read tool missing')
+  const result = await tool.execute('read-generation-batch', { batchId: batches[0].id, version: 1 })
+  const text = result.content.find((content) => content.type === 'text')
+  if (!text || text.type !== 'text') throw new Error('analysis read result missing')
+  expect(JSON.parse(text.text)).toMatchObject({ total: 0, findings: [], nextOffset: null })
 })

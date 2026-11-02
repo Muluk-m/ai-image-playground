@@ -1,0 +1,159 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it } from 'vitest'
+import { ContactPanel } from '../components/ContactModal'
+import { MarketingHome } from '../components/MarketingHome'
+import {
+  CONTACT_EMAIL,
+  caseHref,
+  libraryRows,
+  marketingCopy,
+  showcaseCases,
+  wallColumns,
+} from '../marketing'
+
+const manifest = JSON.parse(
+  readFileSync(
+    resolve(import.meta.dirname, '../../../web/public/inspiration-manifest.json'),
+    'utf8',
+  ),
+) as { items: Array<{ id: string }> }
+const ids = new Set(manifest.items.map((item) => item.id))
+
+describe('marketing v4.1', () => {
+  it('keeps the approved Chinese copy and routes the calls to action', () => {
+    const html = renderToStaticMarkup(
+      createElement(MarketingHome, { locale: 'zh-CN', start: () => {} }),
+    )
+    const text = marketingCopy['zh-CN']
+    expect(html).toContain(text.hero.line1)
+    expect(html).toContain(text.hero.line2)
+    expect(html).toContain(text.hero.note)
+    expect(html).toContain('免费开始创作')
+    expect(html).toContain('看看能做什么')
+    expect(html).toContain('一句提示词')
+    expect(html).toContain('从想法到成片')
+    expect(html).toContain('不知道写什么？')
+    expect(html).toContain('从一句话开始')
+    expect(html).toContain('href="/guide/"')
+    expect(html).toContain('href="/terms"')
+    expect(html).toContain('href="/privacy"')
+    expect(html).toContain('href="/explore"')
+    expect(html).toContain('href="/explore#inspirations/r26-01"')
+    expect(html).toContain('href="/explore#inspirations/r26-10"')
+    expect(html).toContain('href="/explore#inspirations/r26-26"')
+    expect(html).not.toContain('href="/explore#inspirations/"')
+    expect(html).toContain('src="/brand/muvloom-mark.svg"')
+    expect(html).toContain('loading="lazy"')
+  })
+
+  it('translates the English page without changing the original prompts', () => {
+    const html = renderToStaticMarkup(
+      createElement(MarketingHome, { locale: 'en', start: () => {} }),
+    )
+    expect(html).toContain('Muvloom handles the rest')
+    expect(html).toContain('Start creating free')
+    expect(html).toContain('New accounts get 2,000 credits')
+    expect(html).toContain('href="/guide/en/"')
+    expect(html).toContain(showcaseCases('en')[1]!.prompt)
+    expect(html).not.toContain('免费开始')
+  })
+
+  it('links the pricing page from the top nav and the footer', () => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      const html = renderToStaticMarkup(createElement(MarketingHome, { locale, start: () => {} }))
+      const link = `<a href="/pricing">${marketingCopy[locale].nav.pricing}</a>`
+      expect(html.indexOf(link)).toBeLessThan(html.indexOf('<header'))
+      expect(html.lastIndexOf(link)).toBeGreaterThan(html.indexOf('<footer'))
+      // 窄屏收起中间导航后，右侧还留着一个「定价」。
+      const navEnd = html.slice(html.indexOf('class="nav-end"'), html.indexOf('<header'))
+      expect(navEnd).toContain(
+        `<a class="nav-pricing" href="/pricing">${marketingCopy[locale].nav.pricing}</a>`,
+      )
+    }
+  })
+
+  it('gives the footer a #contact anchor', () => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      const html = renderToStaticMarkup(createElement(MarketingHome, { locale, start: () => {} }))
+      expect(html.indexOf('id="contact"')).toBeGreaterThan(html.indexOf('<footer'))
+    }
+  })
+
+  it('keeps feature address bars off paths a visitor could try to open', () => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      const urls = marketingCopy[locale].features.map((feature) => feature.url)
+      expect(urls.filter((url) => url === 'muvloom.online')).toHaveLength(3)
+      for (const url of urls) {
+        expect(url).not.toMatch(/\/p\//)
+        expect(url).not.toMatch(/[\u4e00-\u9fff]/)
+        expect(url).not.toMatch(/mug-glaze|serum-short/)
+      }
+    }
+  })
+
+  it('links showcase cases only when the inspiration manifest has them', () => {
+    const cases = showcaseCases('zh-CN')
+    expect(caseHref(null)).toBe('/explore')
+    expect(cases[0]?.id).toBeNull()
+    for (const item of cases.slice(1)) {
+      expect(item.id && ids.has(item.id)).toBe(true)
+      expect(caseHref(item.id)).toBe(`/explore#inspirations/${item.id}`)
+    }
+  })
+
+  it('builds the same wall and closing rows the prototype scrolls', () => {
+    const columns = wallColumns()
+    expect(columns).toHaveLength(9)
+    expect(columns[0]?.length).toBeGreaterThan(10)
+    expect(columns[0]?.slice(0, columns[0].length / 2)).toEqual(
+      columns[0]?.slice(columns[0].length / 2),
+    )
+    const rows = libraryRows()
+    expect(rows).toHaveLength(2)
+    expect(rows[0]?.some((file) => file.startsWith('g-'))).toBe(false)
+    expect(rows[0]?.length).toBe(28)
+  })
+
+  it('keeps the contact email wrappable and the nav language hit target at 44px', () => {
+    const css = readFileSync(resolve(import.meta.dirname, '../marketing.css'), 'utf8')
+    const mail = css.slice(css.indexOf('.cbox .ct span.cmail'))
+    expect(mail.startsWith('.cbox .ct span.cmail')).toBe(true)
+    expect(mail.slice(0, mail.indexOf('}'))).toContain('overflow-wrap: anywhere')
+    expect(mail.slice(0, mail.indexOf('}'))).not.toContain('ellipsis')
+    const lang = css.slice(css.indexOf('.mkt .lang::before'), css.indexOf('.mkt .brand,'))
+    expect(lang).toContain('height: 44px')
+    expect(lang).toContain('left: -7px')
+    expect(lang).not.toContain('width: 44px')
+    const close = css.slice(css.indexOf('.cbox .cx::before'), css.indexOf('.cbox .copt {'))
+    expect(close).toContain('width: 44px')
+    expect(close).toContain('height: 44px')
+  })
+
+  it('renders only email in the contact dialog and leaves WeChat empty', () => {
+    const html = renderToStaticMarkup(
+      createElement(ContactPanel, { locale: 'zh-CN', onClose: () => {} }),
+    )
+    expect(html).toContain('联系我们')
+    expect(html).not.toContain('x.com/')
+    expect(html).not.toContain('@Muluk656')
+    expect(html).toContain(CONTACT_EMAIL)
+    expect(html).toContain(`href="mailto:${CONTACT_EMAIL}"`)
+    expect(html).toContain('复制')
+    expect(html).toContain('data-slot="contact-email"')
+    expect(html).toContain('class="cmail"')
+    expect(html).toContain('class="cacts"')
+    expect(html).not.toContain('data-contact-channel="wechat"')
+    const withWechat = renderToStaticMarkup(
+      createElement(ContactPanel, {
+        locale: 'zh-CN',
+        onClose: () => {},
+        wechat: { qrSrc: '/future-wechat.webp', title: '微信', detail: '扫码' },
+      }),
+    )
+    expect(withWechat).toContain('data-contact-channel="wechat"')
+    expect(withWechat).toContain('/future-wechat.webp')
+  })
+})

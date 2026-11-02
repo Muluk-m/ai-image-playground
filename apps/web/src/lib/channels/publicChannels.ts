@@ -9,7 +9,7 @@
  * 没有 BFF（runtimeConfig.bff.enabled=false）时 store 是一份已确认的空清单。
  * BFF 暂时不可达时清单还没落地（空数组只是初始值），生成会等重试，而不是报渠道缺失。
  */
-import type { DiscoveredChannel } from '@image-playground/shared'
+import { type DiscoveredChannel, MODEL_LOGOS, type ModelLogoId } from '@image-playground/shared'
 import { getStoredChannels } from './channelStore'
 import type { PublicChannel } from './types'
 
@@ -56,4 +56,40 @@ export function modelLabel(modelId: string, channelId?: string): string {
     if (label) return label
   }
   return modelId
+}
+
+/**
+ * 只认前端打包了图标文件的 token；不认识的（新版 BFF、旧标签页）当作没声明，退回厂商图标。
+ * 浏览器不校验发现清单，所以选择器和按 id 查找都走这一道。
+ */
+export function knownModelLogo(value: unknown): ModelLogoId | undefined {
+  return MODEL_LOGOS.includes(value as ModelLogoId) ? (value as ModelLogoId) : undefined
+}
+
+// modelId → 声明的图标，按清单数组身份缓存：任务列表里一屏几十个图标共用一次扫描。
+// channelStore 只经 `setChannels` 整份替换数组、从不原地改，所以数组身份就是清单版本。
+const logoIndex = new WeakMap<readonly DiscoveredChannel[], Map<string, ModelLogoId>>()
+
+/**
+ * 不知道渠道时（任务卡、历史记录等）按模型 id 查声明的图标：图片、视频模型都认，所以读
+ * channelStore 而不是图片视图；同一 id 出现在多条渠道上时取第一条声明了图标的。
+ * 知道渠道时用 `getProfileModelOptions` 给的 `logo`。
+ */
+export function modelLogo(
+  modelId: string,
+  channels: readonly DiscoveredChannel[] = getStoredChannels(),
+): ModelLogoId | undefined {
+  if (!modelId) return undefined
+  let index = logoIndex.get(channels)
+  if (!index) {
+    index = new Map()
+    for (const channel of channels) {
+      for (const model of channel.models) {
+        const logo = knownModelLogo(model.logo)
+        if (logo && !index.has(model.id)) index.set(model.id, logo)
+      }
+    }
+    logoIndex.set(channels, index)
+  }
+  return index.get(modelId)
 }

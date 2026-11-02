@@ -1,10 +1,16 @@
-import { type AgentMessageView, agentMessageText } from '@image-playground/shared'
+import {
+  type AgentMessageView,
+  agentMessageText,
+  stripInternalRefs,
+} from '@image-playground/shared'
 import { and, desc, eq } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { askChatModel, ChatTimeoutError, isTransientChatError } from '../chatCompletion'
 import { log } from '../logger'
 import { isObject } from '../type-guards'
+import { trackAgentBackgroundWork } from './background-work'
+import { stripDisallowedScripts } from './reply-script'
 
 /**
  * 中文一句加上 Haiku 的思考会顶满旧的 180：线上 claude-haiku-5-5 以
@@ -34,6 +40,8 @@ export interface FollowUpSource {
   readonly assistantText: string
   /** 这一轮助手回复之外的近几句，按时间排，带「用户：」「助手：」。可空。 */
   readonly recentContext?: string
+  /** 会话里批次项的 key。不给模型看，也不留在建议句里（BUG-56）。 */
+  readonly hiddenKeys?: readonly string[]
 }
 
 type FollowUpAsk = (prompt: string) => Promise<unknown>
@@ -93,14 +101,16 @@ export function followUpPrompt(source: FollowUpSource): string {
     '只输出 JSON：{"lines":["..."]}',
     '规则：',
     '- 只写一句，就是用户最可能打的那一句。',
+    '- 如果对话已明确结束，或没有合理的下一句，输出 {"lines":[]}，不要硬凑建议。',
     '- 用用户的口吻、第一人称，写成可以直接发出去的话。',
-    '- 用用户上一条消息的语言写。',
+    '- 用用户上一条消息的语言写，不要夹杂其他文字。',
     '- 短。中文尽量不超过 40 个字；任何语言都不要超过 80 个字符。',
     '- 助手如果在问参数、选择或确认，就用合理的具体取值直接回答，不要反问。',
     '- 下一步很明显时，写成那条指令。',
     '- 不要写成助手的提问、建议清单或短标签。',
     '- 不要重复用户刚说的那一句。',
     '- 不要解释，不要编号。',
+    '- 用名称称呼图片和批次项，不要写内部编号、key 或 ID。',
     '',
     '最近的对话：',
     source.recentContext?.trim() || EMPTY_CONTEXT,
@@ -111,14 +121,18 @@ export function followUpPrompt(source: FollowUpSource): string {
 }
 
 /** 丢掉空句、重复、超长和用户刚说过的那句。只留第一句可用的预测。 */
-export function normalizeFollowUpLines(value: unknown, blocked = ''): readonly string[] {
+export function normalizeFollowUpLines(
+  value: unknown,
+  blocked = '',
+  hiddenKeys: readonly string[] = [],
+): readonly string[] {
   if (!isObject(value) || !Array.isArray(value.lines)) return []
-  const skip = blocked.trim()
+  const skip = stripDisallowedScripts(blocked.trim(), blocked).trim()
   const seen = new Set<string>()
   const lines: string[] = []
   for (const item of value.lines) {
     if (typeof item !== 'string') continue
-    const line = item.trim()
+    const line = stripDisallowedScripts(stripInternalRefs(item, hiddenKeys), blocked).trim()
     if (!line || line === skip || line.length > FOLLOW_UP_MAX_CHARS || seen.has(line)) continue
     seen.add(line)
     lines.push(line)
@@ -137,7 +151,18 @@ async function askFollowUpModel(prompt: string, userText: string): Promise<unkno
       // Luna can finish with plain text despite the prompt; require JSON on the wire too.
       responseFormat: 'json_object',
     },
-    (value) => (normalizeFollowUpLines(value, userText).length > 0 ? value : null),
+    (value) => {
+      if (normalizeFollowUpLines(value, userText).length > 0) return value
+      // 模型用空数组或空白句表示没有下一句；这是完成态，不是上游故障。
+      // 只接受明确的空值，不能把格式错误、超长或重复原话也当作正常弃答。
+      if (
+        isObject(value) &&
+        Array.isArray(value.lines) &&
+        value.lines.every((line) => typeof line === 'string' && !line.trim())
+      )
+        return value
+      return null
+    },
   )
 }
 
@@ -195,20 +220,26 @@ export async function suggestFollowUps(
   source: FollowUpSource,
   ask?: FollowUpAsk,
 ): Promise<readonly string[]> {
+  const keys = source.hiddenKeys ?? []
   const userText = clip(source.userText)
   if (!userText) return []
-  const assistantText = clip(source.assistantText) || EMPTY_ASSISTANT
+  // 喂给小模型之前先去掉内部标识：它看不到 key，就不会照抄进建议句。
+  const assistantText =
+    clip(stripDisallowedScripts(stripInternalRefs(source.assistantText, keys), userText)) ||
+    EMPTY_ASSISTANT
   const prompt = followUpPrompt({
     userText,
     assistantText,
-    recentContext: tailClip(source.recentContext ?? ''),
+    recentContext: tailClip(
+      stripDisallowedScripts(stripInternalRefs(source.recentContext ?? '', keys), userText),
+    ),
   })
   try {
     const value = await askFollowUps(
       ask ?? ((next: string) => askFollowUpModel(next, userText)),
       prompt,
     )
-    return normalizeFollowUpLines(value, userText)
+    return normalizeFollowUpLines(value, userText, keys)
   } catch (err) {
     log.warn({ event: 'agent.follow_ups_failed', err }, 'follow-up suggestions were not generated')
     return []
@@ -272,16 +303,15 @@ export function scheduleAgentFollowUps(
   },
   ask?: FollowUpAsk,
 ): void {
-  const write = (lines: readonly string[]) => {
-    void recordAgentFollowUps(input.conversationId, input.turnId, lines).catch((err) => {
+  const write = (lines: readonly string[]) =>
+    recordAgentFollowUps(input.conversationId, input.turnId, lines).catch((err) => {
       log.warn(
         { event: 'agent.follow_ups_failed', turnId: input.turnId, err },
         'follow-up suggestions were not stored',
       )
     })
-  }
   const draft = followUpTexts(input.messages)
-  void (async () => {
+  const run = async () => {
     // 出图完成后的复查往往只有助手的话。沿用会话里上一句用户的话，否则预测没有口吻可跟。
     let userText = draft.userText
     let recentContext = draft.recentContext ?? ''
@@ -293,7 +323,7 @@ export function scheduleAgentFollowUps(
           { event: 'agent.follow_ups_failed', turnId: input.turnId, err },
           'follow-up suggestions were not generated',
         )
-        write([])
+        await write([])
         return
       }
       if (userText) {
@@ -303,16 +333,50 @@ export function scheduleAgentFollowUps(
       }
     }
     if (!userText) {
-      write([])
+      await write([])
       return
     }
     // bun test 会把 NODE_ENV 设成 test。没注入 ask 就不问模型：别的用例把同一条 chat fetch
     // 当成自己的计数器，旁路再打一次会把次数和重试预算打乱。列保持 null，那些用例不用认识它。
     if (!ask && process.env.NODE_ENV === 'test') return
-    write(
-      await suggestFollowUps({ userText, assistantText: draft.assistantText, recentContext }, ask),
+    const hiddenKeys = await conversationBatchItemKeys(input.conversationId).catch((err) => {
+      log.warn(
+        { event: 'agent.follow_ups_keys_failed', turnId: input.turnId, err },
+        'batch item keys were not read; follow-ups keep only id cleanup',
+      )
+      return [] as readonly string[]
+    })
+    await write(
+      await suggestFollowUps(
+        { userText, assistantText: draft.assistantText, recentContext, hiddenKeys },
+        ask,
+      ),
     )
-  })()
+  }
+  // 登记成后台工作：调用方不等它，清场与测试要等它落完库（见 `background-work.ts`）。
+  trackAgentBackgroundWork(
+    run().catch((err) =>
+      log.warn(
+        { event: 'agent.follow_ups_failed', turnId: input.turnId, err },
+        'follow-up suggestions were not generated',
+      ),
+    ),
+  )
+}
+
+const FOLLOW_UP_KEY_LIMIT = 500
+
+/** 会话里所有批次（含被删掉的旧版本项）用过的 key，最多 500 个。 */
+export async function conversationBatchItemKeys(
+  conversationId: string,
+): Promise<readonly string[]> {
+  const rows = await db
+    .selectDistinct({ key: schema.agent_batch_items.key })
+    .from(schema.agent_batch_items)
+    .innerJoin(schema.agent_batches, eq(schema.agent_batches.id, schema.agent_batch_items.batch_id))
+    .where(eq(schema.agent_batches.conversation_id, conversationId))
+    .limit(FOLLOW_UP_KEY_LIMIT)
+  return rows.map((row) => row.key)
 }
 
 /** 会话里最近一句用户的话。这一轮自己没有时用它。 */

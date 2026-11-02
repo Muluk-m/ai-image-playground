@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
@@ -31,6 +31,27 @@ const QUIET: Partial<Record<ProjectSyncStatus, true>> = {
   loading: true,
 }
 
+/**
+ * 「等待保存」在画布上要持续这么久才露面。pending 是健康的中间态：本机改动已经落进 IndexedDB，
+ * 只是还在 80ms 节流、等上一次发送的回执，或在发送前把新出的图收成云媒体（多张候选图时要好几秒）。
+ * 跑节点时结果和占位一直在写，状态在 pending 与 syncing 之间来回跳，一跳就亮出「等待保存 / 重试」，
+ * 像是出了故障又自己好了。只有一直卡在 pending 才提示并给重试；真正失败走 offline、media-local
+ * 和各种 error，不受这个延迟影响。
+ */
+export const PENDING_VISIBLE_AFTER_MS = 8000
+
+/** 当前状态是否已经连续停在 pending 超过阈值；离开 pending 立即复位。 */
+function usePendingStalled(pending: boolean): boolean {
+  const [stalled, setStalled] = useState(false)
+  useEffect(() => {
+    setStalled(false)
+    if (!pending) return
+    const timer = setTimeout(() => setStalled(true), PENDING_VISIBLE_AFTER_MS)
+    return () => clearTimeout(timer)
+  }, [pending])
+  return pending && stalled
+}
+
 export default function ProjectSyncStatus({
   session,
   quiet = false,
@@ -41,6 +62,9 @@ export default function ProjectSyncStatus({
   const { t } = useTranslation(['canvas', 'errors'])
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const [resolving, setResolving] = useState(false)
+  // 图片在后台上传时 pending 是在等上传，不是卡住：只显示上传进度，不亮「等待保存 / 重试」。
+  const upload = state.upload
+  const pendingStalled = usePendingStalled(state.status === 'pending' && !upload)
   const resolve = async (choice: 'cloud' | 'copy') => {
     if (resolving) return
     setResolving(true)
@@ -56,12 +80,28 @@ export default function ProjectSyncStatus({
       setResolving(false)
     }
   }
-  if (quiet && QUIET[state.status]) return null
+  const statusHidden =
+    (state.status === 'pending' && Boolean(upload)) ||
+    (quiet && (QUIET[state.status] || (state.status === 'pending' && !pendingStalled)))
+  if (statusHidden && !upload) return null
+  const uploadLine = upload && (
+    <p className="inline-flex items-center gap-1.5">
+      <Icon name="loading" size="xs" className="animate-spin motion-reduce:animate-none" />
+      {t('sync.mediaUploading', { done: upload.done, total: upload.total })}
+    </p>
+  )
+  if (statusHidden)
+    return (
+      <div className="pointer-events-auto max-w-sm text-xs text-muted-foreground" role="status">
+        {uploadLine}
+      </div>
+    )
   return (
     <div
       className="pointer-events-auto max-w-sm text-xs text-muted-foreground"
       role={state.status.endsWith('error') || state.status === 'conflict' ? 'alert' : 'status'}
     >
+      {uploadLine}
       <p className="inline-flex items-center gap-1.5">
         {['loading', 'pending', 'syncing'].includes(state.status) && (
           <Icon name="loading" size="xs" className="animate-spin motion-reduce:animate-none" />
@@ -69,7 +109,9 @@ export default function ProjectSyncStatus({
         {t(LABEL_KEY[state.status])}
       </p>
       {state.message && <p className="mt-1">{t(state.message)}</p>}
-      {(state.status.endsWith('error') || state.status === 'pending') && (
+      {(state.status.endsWith('error') ||
+        state.status === 'pending' ||
+        state.status === 'media-local') && (
         <Button
           type="button"
           variant="link"

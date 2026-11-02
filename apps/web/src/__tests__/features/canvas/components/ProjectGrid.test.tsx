@@ -119,3 +119,56 @@ it('offers to duplicate a live cloud project and skips a local one', async () =>
     host.remove()
   }
 })
+
+it('读取项目列表时只在按钮上显示加载，卡片不跟着一起转圈（资产页反馈）', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  useCanvasProjectStore.setState({
+    projects: [untitled('chat', 'chat'), untitled('canvas', 'canvas')],
+    activeId: null,
+    cloudCatalog: {},
+    cloudLoading: true,
+    cloudError: null,
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<ProjectGrid recent />))
+    expect(host.querySelectorAll('[aria-label^="打开项目"]')).toHaveLength(2)
+    expect(host.querySelector('[role=status] .animate-spin')).toBeNull()
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+    useCanvasProjectStore.setState({ cloudLoading: false })
+  }
+})
+
+it('只有点「刷新项目」才重取失败封面，后台同步不动已显示的封面', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  useCanvasProjectStore.setState({
+    projects: [untitled('chat', 'chat')],
+    activeId: null,
+    cloudCatalog: {},
+    cloudLoading: false,
+    cloudError: null,
+    coverRetryRound: 0,
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<ProjectGrid />))
+    await act(async () => useCanvasProjectStore.getState().refreshCloud())
+    expect(useCanvasProjectStore.getState().coverRetryRound).toBe(0)
+    const refresh = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('刷新项目'),
+    ) as HTMLButtonElement | undefined
+    if (refresh) {
+      await act(async () => refresh.click())
+      expect(useCanvasProjectStore.getState().coverRetryRound).toBe(1)
+    }
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})

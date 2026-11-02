@@ -76,6 +76,7 @@ channel kind `openai-queue` / `gemini-queue` 在前端层用，到 BFF URL 就�
       "baseUrl": "https://api.openai.com/v1",  // 上游真实地址（BFF 私有）
       // 或 "baseUrlRef": "MY_UPSTREAM_BASE_URL"  // 二选一：地址也从 env 取（须 https）
       // "requiresSecret": true,                // 缺 key 就整条丢弃（直连上游用），缺省只 warn
+      // "maxConcurrency": 2,                   // 仅 gemini-queue：本进程同时在途请求上限（含多张拆出的每条）
       "auth": {
         "type": "bearer",                      // bearer | query-key
         "secretRef": "MY_OPENAI_KEY"           // 环境变量名，UPPER_SNAKE_CASE
@@ -97,7 +98,7 @@ channel kind `openai-queue` / `gemini-queue` 在前端层用，到 BFF URL 就�
    - 声明了 `requiresSecret: true` 的 channel 例外：缺 key 时**整条丢弃**，不进发现清单（`veo-video` 这类直连上游没 key 只是个必然失败的模型）
    - `baseUrlRef` 指的 env 值必须能 `new URL()` 解析出主机名，且协议为 `https:`（`localhost` / `127.0.0.1` / `::1` 允许 `http:`）——channel key 随请求一起发出，明文 http 会把它送上网络
    - 该 env 没值或不合法时同样只 warn，但该 channel **整条丢弃**：没有上游地址就拼不出请求
-4. 通过 `/api/channels` 暴露给前端时去掉 `baseUrl` / `auth` / `allowedPaths` 等私有字段
+4. 通过 `/api/channels` 暴露给前端时去掉 `baseUrl` / `auth` / `allowedPaths` / `maxConcurrency` 等私有字段
 
 ## Operator 配置与私有树
 

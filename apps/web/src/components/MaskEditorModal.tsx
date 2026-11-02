@@ -1,6 +1,6 @@
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { describeError, i18next, useTranslation } from '../i18n'
+import { describeError, i18next, UserFacingError, useTranslation } from '../i18n'
 import { canvasToBlob, loadImage } from '../lib/canvasImage'
 import { storeImage } from '../lib/db'
 import {
@@ -81,7 +81,7 @@ function firstTwoPointers(points: Map<number, Point>): [Point, Point] | null {
 
 function fillWhiteMask(canvas: HTMLCanvasElement) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) throw new Error(i18next.t('mask.canvasUnsupported', { ns: 'composer' }))
+  if (!ctx) throw new UserFacingError(i18next.t('mask.canvasUnsupported', { ns: 'composer' }))
   ctx.globalCompositeOperation = 'source-over'
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   ctx.fillStyle = '#fff'
@@ -92,11 +92,11 @@ function drawMaskImageToCanvas(maskImage: HTMLImageElement, maskCanvas: HTMLCanv
   const maskAspect = maskImage.naturalWidth / maskImage.naturalHeight
   const canvasAspect = maskCanvas.width / maskCanvas.height
   if (Math.abs(maskAspect - canvasAspect) > 0.001) {
-    throw new Error(i18next.t('mask.sizeMismatch', { ns: 'composer' }))
+    throw new UserFacingError(i18next.t('mask.sizeMismatch', { ns: 'composer' }))
   }
 
   const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true })
-  if (!maskCtx) throw new Error(i18next.t('mask.canvasUnsupported', { ns: 'composer' }))
+  if (!maskCtx) throw new UserFacingError(i18next.t('mask.canvasUnsupported', { ns: 'composer' }))
   maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height)
   maskCtx.imageSmoothingEnabled = true
   maskCtx.imageSmoothingQuality = 'high'
@@ -108,7 +108,9 @@ function blobToDataUrl(blob: Blob): Promise<string> {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result))
     reader.onerror = () =>
-      reject(reader.error ?? new Error(i18next.t('mask.exportFailed', { ns: 'composer' })))
+      reject(
+        reader.error ?? new UserFacingError(i18next.t('mask.exportFailed', { ns: 'composer' })),
+      )
     reader.readAsDataURL(blob)
   })
 }
@@ -563,7 +565,7 @@ export default function MaskEditorModal() {
         }
 
         const imageCtx = imageCanvas.getContext('2d')
-        if (!imageCtx) throw new Error(t('mask.canvasUnsupported'))
+        if (!imageCtx) throw new UserFacingError(t('mask.canvasUnsupported'))
         imageCtx.clearRect(0, 0, imageCanvas.width, imageCanvas.height)
         imageCtx.drawImage(image, 0, 0)
 
@@ -901,7 +903,7 @@ export default function MaskEditorModal() {
     try {
       setIsSaving(true)
       const ctx = canvas.getContext('2d', { willReadFrequently: true })
-      if (!ctx) throw new Error(t('mask.canvasUnsupported'))
+      if (!ctx) throw new UserFacingError(t('mask.canvasUnsupported'))
       if (!session.keepSemantics)
         assertUsableMaskCoverage(
           classifyMaskAlpha(ctx.getImageData(0, 0, canvas.width, canvas.height)),

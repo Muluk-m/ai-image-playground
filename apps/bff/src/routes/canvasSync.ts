@@ -45,7 +45,7 @@ export const canvasSyncRoutes = new Elysia({ name: 'canvas-sync' })
   .use(resolveAuthUser)
   .onBeforeHandle(({ authUser, status }) => {
     if (!authUser) return status(401, { error: 'unauthorized' })
-    if (!isCapabilityEnabled('accounts:sync') || !isCapabilityEnabled('canvas:nodes'))
+    if (!isCapabilityEnabled('accounts:sync'))
       return status(403, { error: 'canvas_sync_unavailable' })
   })
   .get(
@@ -161,7 +161,7 @@ export const canvasSyncRoutes = new Elysia({ name: 'canvas-sync' })
       )
         throw status(403, { error: 'invalid_origin' })
       if (!authUser) throw status(401, { error: 'unauthorized' })
-      if (!isCapabilityEnabled('accounts:sync') || !isCapabilityEnabled('canvas:nodes'))
+      if (!isCapabilityEnabled('accounts:sync'))
         throw status(403, { error: 'canvas_sync_unavailable' })
       try {
         await accessCanvasDocument(authUser.id, params.id)
@@ -175,12 +175,7 @@ export const canvasSyncRoutes = new Elysia({ name: 'canvas-sync' })
         authorize: async () => {
           const token = ws.data.cookie[USER_SESSION_COOKIE]?.value
           const user = await resolveUserSession(typeof token === 'string' ? token : '')
-          return (
-            !!user &&
-            user.id === ws.data.authUser!.id &&
-            isCapabilityEnabled('canvas:nodes') &&
-            isCapabilityEnabled('accounts:sync')
-          )
+          return !!user && user.id === ws.data.authUser!.id && isCapabilityEnabled('accounts:sync')
         },
         send: (bytes) => {
           if (ws.raw.readyState === 1) ws.raw.sendBinary(bytes)

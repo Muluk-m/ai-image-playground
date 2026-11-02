@@ -14,6 +14,7 @@ import settings from './settings.json'
 import shell from './shell.json'
 import store from './store.json'
 import task from './task.json'
+import textGeneration from './textGeneration.json'
 import toolbox from './toolbox.json'
 import video from './video.json'
 
@@ -39,6 +40,7 @@ export const en = {
   agent,
   inspiration,
   legal,
+  textGeneration,
   toolbox,
 }
 

@@ -21,6 +21,7 @@ const CATALOG_DIR = join(WEB_SRC, 'i18n', 'locales', 'zh-CN')
  * 拼出来的，就逐条列完整 key，免得把同级里真正没人用的 key 一起放过。
  */
 const DYNAMIC_PREFIXES = [
+  'canvas:imagePresets.',
   'common:locale.',
   'locale.',
   // features/video/lib/labels.ts：按 shared 的稳定 id（驳回码、派生模式、模型别名）拼 key。
@@ -36,6 +37,8 @@ const DYNAMIC_PREFIXES = [
   'canvas:rectEdit.handle.',
   // features/canvas/components/CanvasResizeMenu.tsx：按 RESIZE_RATIOS 里的比例拼 key。
   'canvas:resize.ratio.',
+  // components/composer/ModelSelector.tsx：按 shared 的 MODEL_BADGES 拼 key。
+  'composer:param.modelBadge.',
   // features/agent/components/SkillStarterGuide.tsx：按 shared 的 AGENT_SKILL_SCENES 拼 key。
   'agent:starters.scene.',
   // features/agent/components/AgentAssetDrawer.tsx：按媒体类型拼 `assets.${one}`。
@@ -47,6 +50,9 @@ const DYNAMIC_PREFIXES = [
   'agent:batch.representation.',
   // features/agent/components/AgentComposer.tsx：按上传状态拼 key。
   'agent:composer.upload.',
+  // AgentComposer 按选中节点类型拼 key；TextNodeComposer 按服务端错误码拼 key。
+  'agent:composer.nodeTypes.',
+  'textGeneration:errors.',
   // features/agent/components/AgentCopyDiagnostic.tsx：按诊断字段名拼 key；
   'agent:diagnostic.fields.',
   // 同一文件按复制结果拼 `error.${result}`。
@@ -118,6 +124,8 @@ const DYNAMIC_PREFIXES = [
   'production:historySource.',
   // features/legal/LegalPage.tsx：按条款小节 id 拼 `sections.${id}.title` / `.body`。
   'legal:sections.',
+  // features/inspiration：九个分类组按稳定 id 拼 `group.${id}`。
+  'inspiration:group.',
 ]
 
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/

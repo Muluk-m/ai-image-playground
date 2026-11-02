@@ -5,6 +5,7 @@ import {
   insertCanvasNode,
   moveCanvasNodes,
   readCanvasDocument,
+  stageExecutionBinding,
   updateCanvasNode,
   VIDEO_MODEL_SUPPORT,
 } from '@image-playground/shared'
@@ -14,6 +15,7 @@ import {
   buildNodeBatch,
   executeNodeBatch,
   type NodeBatchInput,
+  stageAuthorizedImageInputs,
 } from '../../../../features/canvas/lib/nodeBatch'
 import { INITIAL_VIDEO_DRAFT } from '../../../../features/video/store'
 import { useStore } from '../../../../store'
@@ -137,6 +139,62 @@ it('quotes videos from the same mode and clamped draft as the node composer', ()
     draft: { duration: 5 },
     roles: { a: 'first' },
     dependencies: ['a'],
+  })
+})
+it('ignores an incomplete video draft and narrows quality to the node mode', () => {
+  const { doc, input } = setup()
+  const support = VIDEO_MODEL_SUPPORT['grok-imagine-video']!
+  const options = [{ modelId: 'grok-imagine-video', channelId: 'test', label: 'Grok', support }]
+  const workbench = {
+    model: 'grok-imagine-video',
+    duration: 8 as const,
+    resolution: '1080p' as const,
+    aspectRatio: '16:9' as const,
+  }
+  updateCanvasNode(
+    doc,
+    'b',
+    {
+      data: {
+        meta: {
+          nodeKind: 'video',
+          nodePrompt: 'walk',
+          nodeVideoDraft: JSON.stringify({ model: 'grok-imagine-video', duration: 15 }),
+        },
+      },
+    },
+    origin,
+  )
+  const fallback = buildNodeBatch({ ...input(), videoDraft: workbench, options })
+  expect(fallback.jobs.find((job) => job.id === 'b')).toMatchObject({
+    model: 'grok-imagine-video',
+    quantity: 8,
+    unitMultiplier: 1,
+    draft: { duration: 8, resolution: '720p', aspectRatio: '16:9' },
+  })
+  updateCanvasNode(
+    doc,
+    'b',
+    {
+      data: {
+        meta: {
+          nodeKind: 'video',
+          nodePrompt: 'walk',
+          nodeVideoMode: 'text',
+          nodeVideoDraft: JSON.stringify({ ...workbench }),
+        },
+      },
+    },
+    origin,
+  )
+  expect(
+    buildNodeBatch({ ...input(), videoDraft: workbench, options }).jobs.find(
+      (job) => job.id === 'b',
+    ),
+  ).toMatchObject({
+    quantity: 8,
+    unitMultiplier: 1.6,
+    draft: { resolution: '1080p' },
   })
 })
 it('waits for the dependency result and does not recheck full-batch balance after spending part of it', async () => {
@@ -293,6 +351,45 @@ it('keeps both generating copies as video references even when their old files m
   expect(buildNodeBatch(args()).signature).toBe(before.signature)
 })
 
+it('runs a promptless asset with its description as the prompt, the same prompt the stage binding froze', () => {
+  const { doc, input } = setup()
+  updateCanvasNode(
+    doc,
+    'a',
+    {
+      data: {
+        name: '林夏',
+        meta: { nodeKind: 'asset', assetKind: 'person', assetDescription: '插画师' },
+      },
+    },
+    origin,
+  )
+  updateCanvasNode(
+    doc,
+    'b',
+    {
+      data: {
+        name: '窗台',
+        meta: { nodeKind: 'asset', assetKind: 'location', assetDescription: ' ' },
+      },
+    },
+    origin,
+  )
+  const plan = buildNodeBatch(input())
+  expect(plan.error).toBeUndefined()
+  // 没有描述的素材仍然不单独生成。
+  expect(plan.jobs.map((job) => job.id)).toEqual(['a'])
+  const snapshot = readCanvasDocument(doc)
+  const binding = stageExecutionBinding({
+    node: snapshot.nodes.find((node) => node.id === 'a')!,
+    nodes: snapshot.nodes,
+    edges: snapshot.edges,
+    authorizedIds: new Set(['a']),
+  })
+  expect(plan.jobs[0]!.prompt).toBe('林夏：插画师')
+  expect(plan.jobs[0]!.prompt).toBe(binding.prompt)
+})
+
 it('keeps a generating asset as an image input for a downstream reference video', () => {
   const { doc, input } = setup()
   updateCanvasNode(
@@ -350,4 +447,27 @@ it('quotes one image for each storyboard frame or contact sheet regardless of th
   const plan = buildNodeBatch(input())
   expect(plan.jobs.map((job) => job.quantity)).toEqual([1, 1])
   expect(plan.credits).toBe(6)
+})
+
+it('counts each in-stage image, dedupes external files, and leaves browser-only uploads out', () => {
+  const refs = [
+    { id: 'a', kind: 'image' as const, label: 'a', fileId: 'same' },
+    { id: 'b', kind: 'image' as const, label: 'b', fileId: 'same' },
+    { id: 'upload', kind: 'image' as const, label: 'upload', fileId: 'temp-upload' },
+  ]
+  const files = { same: 'data:a', 'temp-upload': 'data:upload', draft: 'data:draft' }
+  expect(stageAuthorizedImageInputs(refs, files, new Set(['a', 'b']), {})).toEqual([
+    'data:a',
+    'data:a',
+    'data:upload',
+  ])
+  expect(stageAuthorizedImageInputs(refs, files, new Set(), {})).toEqual(['data:a', 'data:upload'])
+  expect(
+    stageAuthorizedImageInputs(
+      [...refs, { id: 'draft', kind: 'image', label: 'draft', fileId: 'draft' }],
+      files,
+      new Set(['a', 'b']),
+      { draft: 'data:draft' },
+    ),
+  ).toEqual(['data:a', 'data:a', 'data:upload'])
 })

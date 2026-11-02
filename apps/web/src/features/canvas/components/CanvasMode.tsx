@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
-import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useHeldLoading } from '../../../hooks/useHeldLoading'
@@ -10,7 +9,7 @@ import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
-import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
+import { filesFromFolderInput, prepareAcceptedImageFiles } from '../../../lib/imageFiles'
 import { publishStartedProjectAddress } from '../../../lib/navigation/address'
 import { backToCurrentProject } from '../../../lib/navigation/workbenchNavigation'
 import { defaultSidebarExpanded, useStore } from '../../../store'
@@ -27,6 +26,7 @@ import { conversationStarted } from '../../agent/lib/panelMessages'
 import { agentPanelPresent } from '../../agent/panelLayout'
 import { useAgentStore } from '../../agent/store'
 import type { AgentToolMessage } from '../../agent/types'
+import { useLibraryStore } from '../../library/store'
 import ProductionWorkspace from '../../production/components/ProductionWorkspace'
 import { openProductionContent, type ProductionPane } from '../../production/lib/productionContext'
 import {
@@ -35,10 +35,11 @@ import {
   showCanvasWorkspace,
   subscribeCanvasWorkspace,
 } from '../lib/activeProject'
+import { useCanvasAssetsEntry } from '../lib/assetsEntry'
+import { clearProjectView, setProjectView as setShownProjectView } from '../lib/canvasView'
 import type { CanvasEditor } from '../lib/editor'
 import { importImageFiles } from '../lib/importImages'
 import { shouldUseNodeCanvas } from '../lib/nodeCanvasGate'
-import { cloudProjectsEnabled } from '../lib/projectClient'
 import { projectExperience } from '../lib/projectRepository'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
@@ -156,7 +157,6 @@ function CanvasLoading({
 function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const { t } = useTranslation('canvas')
   const { t: tShell } = useTranslation('shell')
-  const { t: tProduction } = useTranslation('production')
   const mobile = useMobileWorkspace()
   const panelWidth = useAgentStore((state) => state.panelWidth)
   const project = useCanvasProjectStore((state) =>
@@ -203,28 +203,32 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const focusedResult = useRef<string | null>(null)
   const { doc, editor } = workspace
   // 节点画布先只接本机项目；云端项目要等同步服务（#1149）。
-  const nodeCanvas = shouldUseNodeCanvas(project, {
-    capability: isClientCapabilityEnabled('canvas:nodes'),
-    cloudProjects: cloudProjectsEnabled(),
-  })
+  const nodeCanvas = shouldUseNodeCanvas(project)
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
   const open = useAgentStore((state) => state.open)
   const setOpen = useAgentStore((state) => state.setOpen)
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const importFiles = (files: File[]) => {
-    const images = acceptImageFiles(files)
-    if (images.length === 0) return
-    confirmImageBatch(images.length, () => {
-      void importImageFiles(editor, images, {
-        x: editor.getViewportPageBounds().midX,
-        y: editor.getViewportPageBounds().midY,
-      })
-        .then((count) => {
-          if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
+    const target = editor
+    const live = () => currentCanvasWorkspace().editor === target
+    const failed = () => useStore.getState().showToast(t('import.failed'), 'error')
+    void prepareAcceptedImageFiles(files)
+      .then((images) => {
+        if (!live() || images.length === 0) return
+        confirmImageBatch(images.length, () => {
+          if (!live()) return
+          void importImageFiles(target, images, {
+            x: target.getViewportPageBounds().midX,
+            y: target.getViewportPageBounds().midY,
+          })
+            .then((count) => {
+              if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
+            })
+            .catch(failed)
         })
-        .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
-    })
+      })
+      .catch(failed)
   }
   const hasAgent = agentPanelPresent()
   useEffect(() => {
@@ -403,6 +407,19 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   useEffect(() => {
     if (project) setProjectView(projectExperience(project))
   }, [project?.id, project?.experience])
+  // 发话时据此声明本轮模式：只有画布视图是画布模式，对话视图是 Agent 模式。
+  const shownView = nodeCanvas && projectView === 'canvas' ? 'canvas' : 'chat'
+  useEffect(() => {
+    if (!project?.id) return
+    const projectId = project.id
+    setShownProjectView(projectId, shownView)
+    // 只撤下自己写的那份，换项目时不抹掉新工作区已经写入的视图。
+    return () => clearProjectView(projectId, shownView)
+  }, [project?.id, shownView])
+  // 画布「资产」弹窗只属于画布视图：切回对话视图时一并收起，免得挂在藏起来的画布上。
+  useEffect(() => {
+    if (shownView !== 'canvas') useCanvasAssetsEntry.getState().setOpen(false)
+  }, [shownView])
   // 敲下回车就切到工作区：消息先上屏、状态行亮「发送中」，不等服务端回 turnStart。
   const started = useAgentStore((state) => conversationStarted(state.messages))
   const showWelcome =
@@ -410,14 +427,14 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   // 首页停在 `/`，起手工作区不占地址（见 projectStore.activate）。第一句话落下、
   // 或画布上真有了东西，这个工作区才成为一个「项目」，这时补一条 `/p/<项目>` 的历史。
   useEffect(() => {
-    if (showWelcome || !project) return
+    if (showWelcome || !project || project.quotaRejected) return
     publishStartedProjectAddress(project.id)
   }, [showWelcome, project])
   useEffect(() => {
     if (!hasAgent) return
     void useAgentStore.getState().load()
   }, [hasAgent, workspace])
-  const { loading, loadFailed, saveFailed } = useSyncExternalStore(
+  const { loading, loadFailed, loadErrorCode, saveFailed } = useSyncExternalStore(
     workspace.subscribe,
     workspace.getSnapshot,
   )
@@ -461,8 +478,13 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   )
   return (
     <div
-      className="studio-shell fixed bottom-0 right-0 z-30"
-      style={{ top: HEADER_OFFSET, left: 'var(--app-sidebar-width)' }}
+      className="studio-shell app-inset-panel fixed z-30"
+      style={{
+        top: 'calc(var(--safe-area-top) + var(--header-height) + var(--mobile-topbar-height) + var(--app-inset))',
+        right: 'var(--app-inset)',
+        bottom: 'calc(var(--mobile-nav-height, 0px) + var(--app-inset))',
+        left: 'calc(var(--app-sidebar-width) + var(--app-inset))',
+      }}
     >
       {loading && !loadFailed && (
         <span className="sr-only" role="status">
@@ -507,35 +529,13 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               )}
               {projectView === 'chat' && (
                 <>
-                  {productionEnabled && (
-                    <Button
-                      variant="ghost"
-                      size="default"
-                      type="button"
-                      className="studio-production-trigger"
-                      aria-label={tProduction('entry')}
-                      aria-pressed={productionOpen}
-                      onClick={() => {
-                        const next = !productionOpen
-                        setProductionOpen(next)
-                        safeLocalStorage.setItem(productionViewKey, String(next))
-                        if (next) {
-                          useAgentStore.getState().setMode('video')
-                          setSelectedResultId(null)
-                        }
-                      }}
-                    >
-                      <Icon name="storyboard" />
-                      <span>{tProduction('entry')}</span>
-                    </Button>
-                  )}
                   <Button
                     variant="ghost"
                     size="icon"
                     type="button"
                     className="studio-assets-trigger studio-search-trigger"
                     aria-label="搜索当前对话"
-                    title="搜索当前对话"
+                    autoTooltip={false}
                     onClick={() => setSearchOpen(true)}
                   >
                     <Icon name="search" />
@@ -544,12 +544,14 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     variant="ghost"
                     size="icon"
                     type="button"
-                    className="studio-assets-trigger"
+                    className="studio-assets-trigger studio-assets-trigger--labeled"
                     aria-label={t('workspace.assets')}
-                    title={t('workspace.assets')}
+                    autoTooltip={false}
                     onClick={() => setAssetDrawerOpen(true)}
                   >
                     <Icon name="folder" />
+                    {/* 只放图标时没人认得出这是看图的地方（BUG-18）。窄屏收回成图标，靠 aria-label。 */}
+                    <span className="studio-assets-trigger-label">{t('workspace.assets')}</span>
                   </Button>
                 </>
               )}
@@ -559,6 +561,17 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             className="studio-layout"
             data-production-open={productionVisible}
             data-project-view={hasAgent ? projectView : undefined}
+            data-batch-wide={
+              messages.some(
+                (message) =>
+                  message.kind === 'tool' &&
+                  (message.toolName === 'generateImage' || message.toolName === 'editImage') &&
+                  (message.artifacts?.filter((artifact) => artifact.media === 'image').length ??
+                    0) >= 4,
+              )
+                ? 'true'
+                : undefined
+            }
             data-node-canvas={nodeCanvas && projectView === 'canvas' ? 'true' : undefined}
             data-mobile-view={projectView}
             data-mobile-chat={mobileChatSheet && mobileChatOpen ? 'open' : undefined}
@@ -764,7 +777,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   type="button"
                   className="studio-open-chat"
                   onClick={() => setOpen(true)}
-                  title={t('sidebar.openChat')}
                 >
                   <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
                   {t('sidebar.openChat')}
@@ -950,16 +962,27 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       {loadFailed ? (
         <div role="alert" className="studio-canvas-status">
           <div>
-            <p>{t('loadError.message')}</p>
-            <Button
-              variant="link"
-              size="sm"
-              type="button"
-              className="mt-2"
-              onClick={workspace.retryLoad}
-            >
-              {t('loadError.retry')}
-            </Button>
+            <p>
+              {loadErrorCode === 'project_quota_exceeded'
+                ? t('projectSync.project_quota_exceeded', { ns: 'errors' })
+                : t('loadError.message')}
+            </p>
+            <div className="mt-2 flex items-center justify-center gap-4">
+              {/* 上限只拦新建：已有项目照常打开、删掉一些之后回来重新读取（BUG-54 之后的死路）。 */}
+              {loadErrorCode === 'project_quota_exceeded' ? (
+                <Button
+                  variant="link"
+                  size="sm"
+                  type="button"
+                  onClick={() => useLibraryStore.getState().openProjects()}
+                >
+                  {t('welcome.allProjects')}
+                </Button>
+              ) : null}
+              <Button variant="link" size="sm" type="button" onClick={workspace.retryLoad}>
+                {t('loadError.retry')}
+              </Button>
+            </div>
           </div>
         </div>
       ) : null}

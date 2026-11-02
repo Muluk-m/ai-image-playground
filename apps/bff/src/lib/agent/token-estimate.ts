@@ -81,6 +81,11 @@ function cjkChars(text: string): number {
   return text.match(CJK_PATTERN)?.length ?? 0
 }
 
+/** 一段文本约值多少 token 的千分之一，口径与 `estimateMessageTokens` 相同；整数便于逐段累加。 */
+export function estimateTextTokenMilli(text: string): number {
+  return text.length * 250 + cjkChars(text) * CJK_CORRECTION_PER_MILLE
+}
+
 /** 与 pi 的同名私有函数一致：序列化不了的 toolCall 参数按它的占位字符串计。 */
 function safeJsonStringify(value: unknown): string {
   try {

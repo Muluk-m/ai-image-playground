@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { webcrypto } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
-import { uploadMediaSource } from '../../lib/mediaUpload'
+import { MEDIA_UPLOAD_TIMING_FLAG, uploadMediaSource } from '../../lib/mediaUpload'
 
 const source = 'data:image/png;base64,iVBORw0KGgo='
 const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
@@ -216,4 +216,262 @@ it.each([
     }),
   ).rejects.toThrow(code)
   expect(states[states.length - 1]).toBe('failed')
+})
+
+it('logs per-stage timing and bytes for each uploaded image', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  localStorage.setItem(MEDIA_UPLOAD_TIMING_FLAG, '1')
+  const info = vi.spyOn(console, 'debug').mockImplementation(() => {})
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input === source) return new Response(bytes)
+      if (input.endsWith('/api/media/uploads'))
+        return Response.json({
+          id: 'media-t',
+          status: 'pending',
+          uploadUrl: 'https://storage.test/t',
+        })
+      if (input === 'https://storage.test/t') return new Response(null, { status: 200 })
+      if (input.endsWith('/api/media/media-t/complete'))
+        return Response.json({ id: 'media-t', status: 'ready' })
+      throw new Error(`Unexpected fetch ${input}`)
+    }),
+  )
+  try {
+    await uploadMediaSource(source, { signal: new AbortController().signal })
+    const entry = info.mock.calls.find(([label]) => label === '[media.upload]')?.[1] as {
+      outcome: string
+      mediaId: string
+      bytes: number
+      contentType: string
+      totalMs: number
+      phaseMs: Record<string, number>
+    }
+    expect(entry).toMatchObject({
+      outcome: 'uploaded',
+      mediaId: 'media-t',
+      bytes: 8,
+      contentType: 'image/png',
+    })
+    expect(Object.keys(entry.phaseMs)).toEqual([
+      'queue',
+      'read',
+      'hash',
+      'convert',
+      'reserve',
+      'put',
+      'confirm_wait',
+      'confirm',
+    ])
+    const summed = Object.values(entry.phaseMs).reduce((total, ms) => total + ms, 0)
+    expect(Math.abs(summed - entry.totalMs)).toBeLessThanOrEqual(7)
+  } finally {
+    info.mockRestore()
+    localStorage.removeItem(MEDIA_UPLOAD_TIMING_FLAG)
+  }
+})
+
+it('logs a failed upload with the stage it reached', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  localStorage.setItem(MEDIA_UPLOAD_TIMING_FLAG, '1')
+  const info = vi.spyOn(console, 'debug').mockImplementation(() => {})
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input === source) return new Response(bytes)
+      if (input.endsWith('/api/media/uploads'))
+        return Response.json({ error: 'media_quota_exceeded' }, { status: 413 })
+      throw new Error(`Unexpected fetch ${input}`)
+    }),
+  )
+  try {
+    await expect(
+      uploadMediaSource(source, { signal: new AbortController().signal }),
+    ).rejects.toThrow()
+    const entry = info.mock.calls.find(([label]) => label === '[media.upload]')?.[1] as {
+      outcome: string
+      error: string
+      phaseMs: Record<string, number>
+    }
+    expect(entry.outcome).toBe('failed')
+    expect(entry.error).toBe('media_quota_exceeded')
+    expect(Object.keys(entry.phaseMs)).toEqual(['queue', 'read', 'hash', 'convert', 'reserve'])
+  } finally {
+    info.mockRestore()
+    localStorage.removeItem(MEDIA_UPLOAD_TIMING_FLAG)
+  }
+})
+
+it('logs hash hits too, and keeps the media id when confirmation fails after the PUT', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  localStorage.setItem(MEDIA_UPLOAD_TIMING_FLAG, '1')
+  const info = vi.spyOn(console, 'debug').mockImplementation(() => {})
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input === source) return new Response(bytes)
+      if (input.endsWith('/api/media/uploads'))
+        return Response.json({
+          id: 'media-f',
+          status: 'pending',
+          uploadUrl: 'https://storage.test/f',
+        })
+      if (input === 'https://storage.test/f') return new Response(null, { status: 200 })
+      if (input.endsWith('/api/media/media-f/complete'))
+        return Response.json({ error: 'media_invalid_image' }, { status: 422 })
+      throw new Error(`Unexpected fetch ${input}`)
+    }),
+  )
+  try {
+    const sha256 = Array.from(
+      new Uint8Array(await webcrypto.subtle.digest('SHA-256', bytes)),
+      (byte) => byte.toString(16).padStart(2, '0'),
+    ).join('')
+    await uploadMediaSource(source, {
+      signal: new AbortController().signal,
+      known: { id: 'media-known', sha256 },
+    })
+    await expect(
+      uploadMediaSource(source, { signal: new AbortController().signal }),
+    ).rejects.toThrow()
+    const entries = info.mock.calls
+      .filter(([label]) => label === '[media.upload]')
+      .map(([, entry]) => entry as { outcome: string; mediaId?: string; error?: string })
+    expect(entries.map(({ outcome, mediaId, error }) => ({ outcome, mediaId, error }))).toEqual([
+      { outcome: 'known', mediaId: undefined, error: undefined },
+      { outcome: 'failed', mediaId: 'media-f', error: 'media_invalid_image' },
+    ])
+  } finally {
+    info.mockRestore()
+    localStorage.removeItem(MEDIA_UPLOAD_TIMING_FLAG)
+  }
+})
+
+it('marks a confirmation joined from another upload of the same image as confirm_shared', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  localStorage.setItem(MEDIA_UPLOAD_TIMING_FLAG, '1')
+  const info = vi.spyOn(console, 'debug').mockImplementation(() => {})
+  let finishConfirm!: () => void
+  const confirmGate = new Promise<void>((resolve) => {
+    finishConfirm = resolve
+  })
+  let puts = 0
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input === source) return new Response(bytes)
+      if (input.endsWith('/api/media/uploads'))
+        return Response.json({
+          id: 'media-s',
+          status: 'pending',
+          uploadUrl: 'https://storage.test/s',
+        })
+      if (input === 'https://storage.test/s') {
+        puts++
+        return new Response(null, { status: 200 })
+      }
+      if (input.endsWith('/api/media/media-s/complete')) {
+        await confirmGate
+        return Response.json({ id: 'media-s', status: 'ready' })
+      }
+      throw new Error(`Unexpected fetch ${input}`)
+    }),
+  )
+  try {
+    const both = [
+      uploadMediaSource(source, { signal: new AbortController().signal }),
+      uploadMediaSource(source, { signal: new AbortController().signal }),
+    ]
+    await vi.waitFor(() => expect(puts).toBe(2))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    finishConfirm()
+    await Promise.all(both)
+    const phases = info.mock.calls
+      .filter(([label]) => label === '[media.upload]')
+      .map(([, entry]) => Object.keys((entry as { phaseMs: Record<string, number> }).phaseMs))
+    expect(phases).toContainEqual(expect.arrayContaining(['confirm']))
+    expect(phases).toContainEqual(expect.arrayContaining(['confirm_shared']))
+  } finally {
+    info.mockRestore()
+    localStorage.removeItem(MEDIA_UPLOAD_TIMING_FLAG)
+  }
+})
+
+it('logs nothing unless upload timing is switched on for this browser', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input === source) return new Response(bytes)
+      if (input.endsWith('/api/media/uploads'))
+        return Response.json({ id: 'media-q', status: 'ready' })
+      throw new Error(`Unexpected fetch ${input}`)
+    }),
+  )
+  try {
+    await uploadMediaSource(source, { signal: new AbortController().signal })
+    expect(debug.mock.calls.filter(([label]) => label === '[media.upload]')).toHaveLength(0)
+  } finally {
+    debug.mockRestore()
+  }
+})
+
+it.each([
+  ['an empty file', 'data:image/png;base64,', new Uint8Array()],
+  [
+    'text renamed to .png',
+    `data:image/png;base64,${btoa('not an image')}`,
+    new TextEncoder().encode('not an image'),
+  ],
+])('reports %s as a permanent invalid image without asking the server', async (_name, input, body) => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal(
+    'Image',
+    class {
+      onerror?: () => void
+      set src(_source: string) {
+        queueMicrotask(() => this.onerror?.())
+      }
+    },
+  )
+  const fetch = vi.fn(async (url: string) => {
+    if (url === input) return new Response(body)
+    throw new Error(`Unexpected fetch ${url}`)
+  })
+  vi.stubGlobal('fetch', fetch)
+  await expect(
+    uploadMediaSource(input, { signal: new AbortController().signal }),
+  ).rejects.toMatchObject({ status: 422, code: 'media_invalid_image' })
+  expect(fetch).toHaveBeenCalledTimes(1)
+})
+
+it('keeps a PNG conversion failure retryable when the browser could decode the image', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal(
+    'Image',
+    class {
+      naturalWidth = 1
+      naturalHeight = 1
+      onload?: () => void
+      set src(_source: string) {
+        queueMicrotask(() => this.onload?.())
+      }
+    },
+  )
+  // 解码成功、但拿不到 2d 画布：不是这份字节坏了，不能报成永久的坏图。
+  const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+  const input = `data:image/png;base64,${btoa('decodable but unsniffed')}`
+  const fetch = vi.fn(async (url: string) => {
+    if (url === input) return new Response(new TextEncoder().encode('decodable but unsniffed'))
+    throw new Error(`Unexpected fetch ${url}`)
+  })
+  vi.stubGlobal('fetch', fetch)
+  const error = await uploadMediaSource(input, { signal: new AbortController().signal }).catch(
+    (e: unknown) => e,
+  )
+  expect(error).toBeInstanceOf(Error)
+  expect(error).not.toMatchObject({ code: 'media_invalid_image' })
+  context.mockRestore()
 })

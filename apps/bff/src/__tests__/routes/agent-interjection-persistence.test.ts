@@ -26,7 +26,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
-const { settleInboxHandoffsForTesting } = await import('../../lib/agent/start-turn')
+const { settleAgentBackgroundWorkForTesting } = await import('../../lib/agent/background-work')
 const { db, close } = await import('../../db/client')
 await silenceChatUpstream()
 afterAll(close)
@@ -142,7 +142,7 @@ it('插话等待的助手写入失败仍是持久化失败，不能被插话错�
     unlock()
     await holding
     await interjected
-    await settleInboxHandoffsForTesting()
+    await settleAgentBackgroundWorkForTesting()
     await db.execute(sql`DROP TRIGGER refuse_assistant_write ON agent_messages`)
     await db.execute(sql`DROP FUNCTION refuse_assistant_write()`)
     setAgentFetchForTesting()

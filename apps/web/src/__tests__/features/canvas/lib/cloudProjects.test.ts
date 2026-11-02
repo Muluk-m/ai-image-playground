@@ -1697,7 +1697,7 @@ it('另一台设备恢复服务端的失败占位并带着错误码；删除后�
   session.dispose()
 })
 
-it('提交就被拒的失败占位只留在本机：不写云端、不挡同步，换上云端新版本后仍在', async () => {
+it('云端图片拒绝不补建占位，旧云端同步仍保留其他本机任务失败', async () => {
   setClientStorageScope(crypto.randomUUID())
   const generationId = '70cf33ea-d548-4a2b-ab0b-4a10e2e444fb'
   const id = `agent_${generationId}_0`
@@ -1744,8 +1744,9 @@ it('提交就被拒的失败占位只留在本机：不写云端、不挡同步�
     '',
     'insufficient_credits',
   )
-  const refused = editor.getPlaceholders().find((one) => one.meta.agentMessageId === 'tool-refused')
-  expect(refused?.meta.agentErrorCode).toBe('insufficient_credits')
+  expect(editor.getPlaceholders().some((one) => one.meta.agentMessageId === 'tool-refused')).toBe(
+    false,
+  )
   editor.doc.addElements([
     {
       id: 'local-queue-failure',
@@ -1777,7 +1778,6 @@ it('提交就被拒的失败占位只留在本机：不写云端、不挡同步�
   }
   await session.refresh(true)
   expect(editor.getPlaceholder(id)?.meta.agentErrorCode).toBe('timeout')
-  expect(editor.getPlaceholder(refused!.id)?.meta.agentErrorCode).toBe('insufficient_credits')
   expect(editor.getPlaceholder('local-queue-failure')?.meta.taskId).toBe('task-1')
   expect(writes).toHaveLength(0)
   session.dispose()

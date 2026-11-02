@@ -13,7 +13,14 @@ export const tasksRoutes = new Elysia()
       const filters = parseGenerationTaskFilters(query)
       if ((query.from !== undefined || query.to !== undefined) && !parseTimeWindow(query))
         return status(400, { error: '无效的任务时间范围' })
-      for (const key of ['userId', 'deviceId', 'unassigned', 'status', 'model'] as const) {
+      for (const key of [
+        'userId',
+        'deviceId',
+        'unassigned',
+        'status',
+        'model',
+        'source',
+      ] as const) {
         if (query[key] !== undefined && query[key] !== filters[key])
           return status(400, { error: '无效的任务筛选条件' })
       }
@@ -35,6 +42,7 @@ export const tasksRoutes = new Elysia()
         unassigned: t.Optional(t.String()),
         status: t.Optional(t.String()),
         model: t.Optional(t.String()),
+        source: t.Optional(t.String()),
         cursor: t.Optional(t.String({ maxLength: 300 })),
       }),
     },

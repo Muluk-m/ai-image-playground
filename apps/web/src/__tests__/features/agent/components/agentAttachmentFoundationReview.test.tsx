@@ -26,6 +26,12 @@ import { setClientStorageScope } from '../../../../lib/authScope'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 import { loadRuntimeConfig } from '../../../../lib/runtimeConfig'
 import { useStore } from '../../../../store'
+import {
+  canvasProtocolResponse,
+  installCanvasTestSocket,
+  projectIdFromUrl,
+  tolerateCrossRealmDigest,
+} from '../../../helpers/cloudNodeProtocol'
 
 // JSDOM has no image rasterizer. Project sync still exercises its real upload and binding path.
 vi.mock('../../../../lib/canvasImage', async (original) => ({
@@ -39,7 +45,9 @@ const png = (index: number) =>
 
 async function setup(bulk = false) {
   vi.stubGlobal('crypto', webcrypto)
+  tolerateCrossRealmDigest()
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  installCanvasTestSocket()
   setClientStorageScope(crypto.randomUUID())
   const uploads: { sha256: string; purpose?: string }[] = []
   vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
@@ -71,17 +79,30 @@ async function setup(bulk = false) {
         leaseExpiresAt: Date.now() + 1200_000,
       })
     }
+    const canvas = await canvasProtocolResponse(url, init)
+    if (canvas) return canvas
     if (url.includes('/api/projects/') && init?.method === 'PUT') {
       const body = JSON.parse(String(init.body))
       return Response.json({
-        id: url.split('/').slice(-1)[0],
+        id: projectIdFromUrl(url),
         name: body.name,
         revision: body.baseRevision + 1,
         createdAt: 1,
         updatedAt: 2,
-        elementCount: body.document.elements.length,
+        elementCount: body.document?.elements?.length ?? 0,
+        document: body.document,
       })
     }
+    if (url.includes('/api/projects/'))
+      return Response.json({
+        id: projectIdFromUrl(url),
+        name: '图标项目',
+        revision: 1,
+        createdAt: 1,
+        updatedAt: 2,
+        elementCount: 0,
+        document: { version: 1, elements: [] },
+      })
     return Response.json([])
   })
   await loadRuntimeConfig(async () =>

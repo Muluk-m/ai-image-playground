@@ -107,15 +107,12 @@ afterAll(async () => {
 
 describe('tools share capabilities across creation modes', () => {
   it('gives old image turns both image and video tools', () => {
+    // 没声明模式按 Agent 模式算：画布工具（readCanvas、编辑画布对象等）只在明确的画布模式里出现。
     expect(toolNames('image')).toEqual([
-      'arrangeCanvas',
-      'arrangeTimeline',
-      'editCanvasObject',
       'editImage',
       'generateImage',
       'generateVideo',
       'loadSkill',
-      'readCanvas',
       'readLibrary',
       'viewImage',
       'viewVideo',
@@ -127,14 +124,10 @@ describe('tools share capabilities across creation modes', () => {
 
   it('gives a video turn the image tools too, so it can produce and fix a first frame', () => {
     expect(toolNames('video')).toEqual([
-      'arrangeCanvas',
-      'arrangeTimeline',
-      'editCanvasObject',
       'editImage',
       'generateImage',
       'generateVideo',
       'loadSkill',
-      'readCanvas',
       'readLibrary',
       'viewImage',
       'viewVideo',
@@ -152,6 +145,24 @@ describe('tools share capabilities across creation modes', () => {
     for (const line of agentToolGuidance(mode)) expect(prompt).toContain(line)
   })
 
+  // 「再次生成」：用户在新的一句话里明确要再来一张，是新的请求。「不要为同一件事调第二次」
+  // 「不自行付费重试」是管模型自己起意的，不能让它把用户的明确要求当成重试、只用文字描述变化。
+  it.each([
+    false,
+    true,
+  ])('treats an explicit regenerate as a new request (autoSubmit=%p)', (autoSubmit) => {
+    const prompt = turnInitialState([], 'image', autoSubmit, 0, {
+      userId: null,
+      looks: [],
+      experience: 'chat',
+    }).systemPrompt
+    expect(prompt).not.toContain('分别调用。不要为同一件事调第二次')
+    expect(prompt).toContain('同一次请求里不要为同一件事调第二次')
+    expect(prompt).toContain('用户在新的一句话里明确要求再次生成')
+    expect(prompt).toContain('不算重试')
+    expect(prompt).toContain('不要只用文字描述')
+  })
+
   it.each(['image', 'video'] as const)('does not assume a canvas in %s turns', (mode) => {
     for (const autoSubmit of [false, true]) {
       const prompt = turnInitialState([], mode, autoSubmit, 0, {
@@ -159,10 +170,85 @@ describe('tools share capabilities across creation modes', () => {
         looks: [],
         experience: 'chat',
       }).systemPrompt
-      expect(prompt).toContain('不要承诺结果已写入画布')
       expect(prompt).not.toContain('产物自动放入画布')
       expect(prompt).not.toContain('画布旁的助手')
     }
+  })
+
+  // Agent 模式不感知画布：工具、提示与回放的历史里都不带画布和节点；画布模式原样都在。
+  const AGENT = { userId: 'agent-user', looks: [], experience: 'chat' as const }
+  const CANVAS = { userId: 'agent-user', looks: [], experience: 'canvas' as const }
+  const CANVAS_WORDS =
+    /画布|节点|createNodes|updateNodes|connectNodes|runNodes|readCanvas|runStoryboardFrames|applyScriptPlan|阶段授权/
+
+  it.each([
+    'image',
+    'video',
+  ] as const)('assembles no canvas tools or canvas prompt in Agent mode (%s)', (mode) => {
+    const names = agentToolDeclarations(mode, AGENT).map((tool) => tool.name)
+    for (const name of [
+      'createNodes',
+      'updateNodes',
+      'connectNodes',
+      'deleteNodes',
+      'arrangeNodes',
+      'runNodes',
+      'runStoryboardFrames',
+      'applyScriptPlan',
+      'importCanvasImage',
+    ])
+      expect(names).not.toContain(name)
+    expect(names).toContain('generateImage')
+    expect(names).toContain('editImage')
+    for (const autoSubmit of [false, true]) {
+      const prompt = turnInitialState([], mode, autoSubmit, 0, AGENT).systemPrompt
+      expect(prompt.split('\n').filter((line) => CANVAS_WORDS.test(line))).toEqual([])
+    }
+  })
+
+  it('does not offer the region confirmation card when accounts:sync is off', () => {
+    // 卡片的原图和蒙版走 /api/media，没开同步时那里一律拒绝；这份运营配置没开同步。
+    const names = agentToolDeclarations('image', AGENT).map((tool) => tool.name)
+    expect(names).toContain('editImage')
+    expect(names).not.toContain('proposeEditRegion')
+    const prompt = turnInitialState([], 'image', true, 0, AGENT).systemPrompt
+    expect(prompt).not.toContain('proposeEditRegion')
+  })
+
+  it('brings the canvas tools and canvas prompt back in canvas mode', () => {
+    const names = agentToolDeclarations('image', CANVAS).map((tool) => tool.name)
+    // 节点编辑与运行还要 accounts:sync，这份运营配置没开；读画布在画布模式里总在。
+    expect(names).toContain('readCanvas')
+    expect(names).not.toContain('generateImage')
+    expect(names).not.toContain('editImage')
+    const prompt = turnInitialState([], 'image', true, 0, CANVAS).systemPrompt
+    expect(prompt).toContain('当前是节点画布')
+    expect(prompt).toContain('runNodes')
+  })
+
+  it('does not replay canvas tool results to an Agent-mode turn', () => {
+    const history = [
+      {
+        id: 'm1',
+        role: 'assistant' as const,
+        createdAt: 1,
+        content: [
+          { type: 'text' as const, text: '好的' },
+          {
+            type: 'toolResult' as const,
+            toolCallId: 'c1',
+            toolName: 'createNodes' as const,
+            status: 'done' as const,
+            title: '创建节点 img_target_grain',
+          },
+        ],
+      },
+    ] as unknown as Parameters<typeof turnInitialState>[0]
+    const agent = JSON.stringify(turnInitialState(history, 'image', true, 1, AGENT).messages)
+    expect(agent).toContain('好的')
+    expect(agent).not.toContain('img_target_grain')
+    const canvas = JSON.stringify(turnInitialState(history, 'image', true, 1, CANVAS).messages)
+    expect(canvas).toContain('img_target_grain')
   })
 
   it('still recognises tool names the current mode cannot call', () => {

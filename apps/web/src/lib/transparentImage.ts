@@ -1,4 +1,4 @@
-import { i18next } from '../i18n'
+import { i18next, UserFacingError } from '../i18n'
 import type { TaskParams } from '../types'
 import { loadImage } from './canvasImage'
 
@@ -58,7 +58,7 @@ export async function removeKeyedBackgroundFromDataUrl(
   canvas.width = image.naturalWidth
   canvas.height = image.naturalHeight
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) throw new Error(i18next.t('canvas.unsupportedTransparent', { ns: 'lib' }))
+  if (!ctx) throw new UserFacingError(i18next.t('canvas.unsupportedTransparent', { ns: 'lib' }))
 
   ctx.drawImage(image, 0, 0)
   const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height)
@@ -97,7 +97,7 @@ export function removeKeyedBackgroundFromPixels(
   keyColor: string,
 ): Uint8ClampedArray {
   if (data.length < width * height * 4)
-    throw new Error(i18next.t('transparent.pixelSizeMismatch', { ns: 'lib' }))
+    throw new UserFacingError(i18next.t('transparent.pixelSizeMismatch', { ns: 'lib' }))
   const keyRgb = getKeyColorRgb(keyColor)
   const mask = buildConnectedBackgroundMask(data, width, height, keyRgb)
 
@@ -180,7 +180,7 @@ function forEachBorderPixel(width: number, height: number, visit: (index: number
 function getKeyColorRgb(keyColor: string): Rgb {
   const rgb = KEY_COLORS[keyColor.toUpperCase()]
   if (rgb) return rgb
-  throw new Error(i18next.t('transparent.unsupportedKeyColor', { ns: 'lib', keyColor }))
+  throw new UserFacingError(i18next.t('transparent.unsupportedKeyColor', { ns: 'lib', keyColor }))
 }
 
 function colorDistance(r: number, g: number, b: number, target: Rgb): number {

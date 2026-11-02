@@ -47,6 +47,8 @@ description: 何时用：一两句话描述一条多镜头的叙事短片（故�
 
 ## 第二步：先出首帧，不要直接出片
 
+> 节点画布上不走下面的 `generateImage` 逐镜出图：分镜表用 `applyScriptPlan` 写，顺序是**先素材、后首帧**——分镜表引用的人物、地点素材先用 `runNodes`（stage 写「素材」）出图，素材批跑完被唤醒后再用 `runStoryboardFrames` 出首帧。首帧节点由 `runStoryboardFrames` 自己铺，不要用 `createNodes` 手工建；单镜重出时 `shotIds` 填分镜表镜头 id。
+
 用户确认分镜后，**逐镜用 `generateImage` 出首帧**，一镜一次调用，`n` 保持 1。
 首帧的 `prompt` 要写全：主体、场景、光线、构图、风格，以及这一镜和上一镜的一致性要求。
 

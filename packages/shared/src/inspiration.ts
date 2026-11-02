@@ -39,6 +39,12 @@ export interface InspirationItem {
   referenceImages?: InspirationReference[]
   skill?: string
   slots?: string[]
+  /** 封面图的像素宽高。缺省时前端在图片加载后自己量。 */
+  thumbWidth?: number
+  thumbHeight?: number
+  /** 旧清单别名，读入时并进 thumbWidth / thumbHeight。 */
+  width?: number
+  height?: number
 }
 
 export interface InspirationManifest {
@@ -67,6 +73,8 @@ export interface InspirationAdminItem {
   skillName: string | null
   sourceUrl: string | null
   author: string | null
+  thumbWidth?: number | null
+  thumbHeight?: number | null
   sort: number
   createdAt: number
   updatedAt: number

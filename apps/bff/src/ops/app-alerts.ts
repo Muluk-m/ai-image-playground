@@ -1,17 +1,22 @@
 import {
+  type AgentFailurePattern,
   type AlertObservation,
   type AlertState,
   evaluateAlerts,
+  OPS_THRESHOLDS,
   type OpsBackups,
   type OpsRestoreDrill,
 } from '@image-playground/shared'
 import { and, desc, eq, sql } from 'drizzle-orm'
+import { config } from '../config'
 import { db, schema } from '../db/client'
 import { log } from '../lib/logger'
 import {
   readBackups as readBackupsFromStore,
   readRestoreDrill as readRestoreDrillFromStore,
 } from '../lib/ops-backups'
+import { redactLogText } from '../lib/server-log-buffer'
+import { directBudgetCapMicroUsd, directSpentThisMonth } from '../lib/upstream/gpt-budget'
 import { selectRunnableTasks } from '../workers/runnable-tasks'
 import type { AlertSender } from './alert-sender'
 
@@ -24,14 +29,26 @@ import type { AlertSender } from './alert-sender'
 
 interface ObserveOptions {
   now: number
+  /** 这一轮取不到读数的块；调用方据此累计“失明”轮数。 */
+  onMissed?: (block: string) => void
   readBackups?: () => Promise<OpsBackups>
   readRestoreDrill?: () => Promise<OpsRestoreDrill | null>
+  /**
+   * 还在等它重新出图的模型（告警状态里的等待名单）。名单空着就不查成功记录：没出事时每轮只多一条
+   * 与原来失败计数同条件的查询。
+   */
+  watchingModels?: readonly string[]
 }
 
-async function attempt<T>(block: string, read: () => Promise<T>): Promise<T | undefined> {
+async function attempt<T>(
+  block: string,
+  read: () => Promise<T>,
+  onMissed?: (block: string) => void,
+): Promise<T | undefined> {
   try {
     return await read()
   } catch (error) {
+    onMissed?.(block)
     log.warn(
       {
         event: 'ops.alert_observe_failed',
@@ -48,102 +65,257 @@ async function attempt<T>(block: string, read: () => Promise<T>): Promise<T | un
 export async function observeApp(options: ObserveOptions): Promise<AlertObservation> {
   const readBackups = options.readBackups ?? readBackupsFromStore
   const readRestoreDrill = options.readRestoreDrill ?? readRestoreDrillFromStore
-  const [queue, backup, restoreDrill, heartbeats, api, failures] = await Promise.all([
-    attempt('queue', async () => {
-      const candidates = await Promise.all([
-        selectRunnableTasks('openai-compat', 1, options.now, {
-          excludeArchived: true,
-          orderByEligible: true,
-        }),
-        selectRunnableTasks('gemini', 1, options.now, {
-          excludeArchived: true,
-          orderByEligible: true,
-        }),
-      ])
-      const oldest = candidates
-        .flat()
-        .reduce<number | null>(
-          (current, task) =>
-            current === null ? task.eligibleSince : Math.min(current, task.eligibleSince),
-          null,
-        )
-      return { oldest_queued_wait_ms: oldest === null ? null : Math.max(0, options.now - oldest) }
-    }),
-    attempt('backup', async () => {
-      const { latest } = await readBackups()
-      return { latest_modified_at: latest?.modified_at ?? null }
-    }),
-    attempt('restoreDrill', readRestoreDrill),
-    attempt('heartbeats', async () => {
-      const [row] = await db
-        .select({ last_seen_at: schema.service_heartbeats.last_seen_at })
-        .from(schema.service_heartbeats)
-        .where(and(eq(schema.service_heartbeats.service, 'bff')))
-        .orderBy(desc(schema.service_heartbeats.last_seen_at))
-        .limit(1)
-      return { bff: row?.last_seen_at ?? null }
-    }),
-    attempt('api', async () => {
-      const rows = (await db.execute(sql`
+  const missed = options.onMissed
+  const [queue, backup, restoreDrill, heartbeats, api, failures, agentFailurePatterns, serverLogs] =
+    await Promise.all([
+      attempt(
+        'queue',
+        async () => {
+          const candidates = await Promise.all([
+            selectRunnableTasks('openai-compat', 1, options.now, {
+              excludeArchived: true,
+              orderByEligible: true,
+            }),
+            selectRunnableTasks('gemini', 1, options.now, {
+              excludeArchived: true,
+              orderByEligible: true,
+            }),
+          ])
+          const oldest = candidates
+            .flat()
+            .reduce<number | null>(
+              (current, task) =>
+                current === null ? task.eligibleSince : Math.min(current, task.eligibleSince),
+              null,
+            )
+          return {
+            oldest_queued_wait_ms: oldest === null ? null : Math.max(0, options.now - oldest),
+          }
+        },
+        missed,
+      ),
+      attempt(
+        'backup',
+        async () => {
+          const { latest } = await readBackups()
+          return { latest_modified_at: latest?.modified_at ?? null }
+        },
+        missed,
+      ),
+      attempt('restoreDrill', readRestoreDrill, missed),
+      attempt(
+        'heartbeats',
+        async () => {
+          const [row] = await db
+            .select({ last_seen_at: schema.service_heartbeats.last_seen_at })
+            .from(schema.service_heartbeats)
+            .where(and(eq(schema.service_heartbeats.service, 'bff')))
+            .orderBy(desc(schema.service_heartbeats.last_seen_at))
+            .limit(1)
+          return { bff: row?.last_seen_at ?? null }
+        },
+        missed,
+      ),
+      attempt(
+        'api',
+        async () => {
+          const rows = (await db.execute(sql`
         SELECT EXTRACT(EPOCH FROM minute) * 1000 AS minute,
           requests, client_errors, server_errors, server_error_routes
         FROM api_minutes
         WHERE minute >= to_timestamp(${options.now / 1000}) - INTERVAL '15 minutes'
           AND minute <= to_timestamp(${options.now / 1000})
       `)) as unknown as Array<{
-        minute: string
-        requests: number
-        client_errors: number
-        server_errors: number
-        server_error_routes: Record<string, number> | null
-      }>
-      const api: NonNullable<AlertObservation['api']> = {
-        requests: 0,
-        server_errors: 0,
-        errors_by_minute: {},
-        successes_by_minute: {},
-        error_routes: {},
-      }
-      for (const row of rows) {
-        const minute = Number(row.minute)
-        api.requests += Number(row.requests)
-        api.server_errors += Number(row.server_errors)
-        if (row.server_errors > 0)
-          api.errors_by_minute[minute] =
-            (api.errors_by_minute[minute] ?? 0) + Number(row.server_errors)
-        if (row.requests > row.client_errors + row.server_errors)
-          api.successes_by_minute[minute] =
-            (api.successes_by_minute[minute] ?? 0) +
-            row.requests -
-            row.client_errors -
-            row.server_errors
-        for (const [route, count] of Object.entries(row.server_error_routes ?? {}))
-          api.error_routes[route] = (api.error_routes[route] ?? 0) + count
-      }
-      return api
-    }),
-    attempt('failures', async () => {
-      const [generationRaw, agentRaw] = await Promise.all([
-        db.execute(sql`
-          SELECT COUNT(*) AS count FROM tasks
-          WHERE kind = 'queue' AND status = 'failed'
-            AND error_type IS DISTINCT FROM 'content_policy'
-            AND completed_at >= NOW() - INTERVAL '15 minutes'
-        `),
-        db.execute(sql`
+            minute: string
+            requests: number
+            client_errors: number
+            server_errors: number
+            server_error_routes: Record<string, number> | null
+          }>
+          const api: NonNullable<AlertObservation['api']> = {
+            requests: 0,
+            server_errors: 0,
+            errors_by_minute: {},
+            successes_by_minute: {},
+            error_routes: {},
+          }
+          for (const row of rows) {
+            const minute = Number(row.minute)
+            api.requests += Number(row.requests)
+            api.server_errors += Number(row.server_errors)
+            if (row.server_errors > 0)
+              api.errors_by_minute[minute] =
+                (api.errors_by_minute[minute] ?? 0) + Number(row.server_errors)
+            if (row.requests > row.client_errors + row.server_errors)
+              api.successes_by_minute[minute] =
+                (api.successes_by_minute[minute] ?? 0) +
+                row.requests -
+                row.client_errors -
+                row.server_errors
+            for (const [route, count] of Object.entries(row.server_error_routes ?? {}))
+              api.error_routes[route] = (api.error_routes[route] ?? 0) + count
+          }
+          return api
+        },
+        missed,
+      ),
+      attempt(
+        'failures',
+        async () => {
+          const watching = [...new Set(options.watchingModels ?? [])]
+          const [agentRaw, modelsRaw, successesRaw] = await Promise.all([
+            db.execute(sql`
           SELECT COUNT(*) AS count FROM agent_turns
           WHERE stop_reason = 'failed' AND created_at >= NOW() - INTERVAL '15 minutes'
         `),
-      ])
-      const generationRows = generationRaw as unknown as Array<Record<string, unknown>>
-      const agentRows = agentRaw as unknown as Array<Record<string, unknown>>
-      return {
-        generation_system: Number(generationRows[0]?.count ?? 0),
-        agent: Number(agentRows[0]?.count ?? 0),
-      }
-    }),
-  ])
-  return { queue, backup, restoreDrill, heartbeats, api, failures }
+            // 每个模型一行：失败次数，加上最近一次失败的类型、上游状态码和报错前 200 字。
+            // 系统失败总数就是各行之和，不再单独查一遍。
+            db.execute(sql`
+          WITH failed AS (
+            SELECT t.id, t.model, t.error_type, t.upstream_status, t.completed_at
+            FROM tasks t
+            WHERE t.kind = 'queue' AND t.status = 'failed'
+              AND t.error_type IS DISTINCT FROM 'content_policy'
+              AND t.completed_at >= NOW() - INTERVAL '15 minutes'
+              -- 用提交时间收窄到近 7 天（走 idx_tasks_submitted_at），不必为告警再加索引和迁移。
+              -- 任务从提交到结束远短于 7 天（上游硬超时 15 分钟、结果确认 30 分钟就告警），不会漏算。
+              AND t.submitted_at >= NOW() - INTERVAL '7 days'
+          ),
+          -- 每个模型最近一条失败，只扫一遍窗口；原文按主键回表只读这一条的完整文本
+          -- （先截断再脱敏会把截在边界上的半截密钥漏出去），不把窗口内每条原文都聚合出来。
+          latest AS (
+            SELECT DISTINCT ON (f.model) f.model, f.id, f.error_type, f.upstream_status
+            FROM failed f
+            ORDER BY f.model, f.completed_at DESC, f.id DESC
+          ),
+          counts AS (
+            SELECT f.model, COUNT(*) AS failures, MAX(f.completed_at) AS last_failed
+            FROM failed f
+            GROUP BY f.model
+          )
+          SELECT c.model,
+            c.failures,
+            l.error_type,
+            l.upstream_status,
+            COALESCE(lt.error_message, '') AS message,
+            EXTRACT(EPOCH FROM c.last_failed) * 1000 AS last_failed_at,
+            -- 只算因上游不可用被自动暂停的；运营手动停用会清掉 pause_reason，不算。
+            COALESCE(m.active = false AND m.pause_reason = 'upstream_unavailable', false) AS paused
+          FROM counts c
+          JOIN latest l ON l.model = c.model
+          JOIN tasks lt ON lt.id = l.id
+          LEFT JOIN model_availability m ON m.model = c.model
+          ORDER BY failures DESC, last_failed_at DESC
+        `),
+            // 恢复看的是「出事后这个模型有没有真的出过图」，不是失败数掉没掉。只查等待名单里的模型；
+            // 窗口相对现在：名单每轮都对一遍，成功一发生就在窗口里，多晚恢复都看得见。
+            watching.length === 0
+              ? Promise.resolve([])
+              : db.execute(sql`
+          SELECT model, EXTRACT(EPOCH FROM MAX(completed_at)) * 1000 AS last_succeeded_at
+          FROM tasks
+          WHERE kind = 'queue' AND status = 'completed'
+            AND model IN (${sql.join(
+              watching.map((model) => sql`${model}`),
+              sql`, `,
+            )})
+            AND completed_at >= NOW() - INTERVAL '24 hours'
+            AND submitted_at >= NOW() - INTERVAL '8 days'
+          GROUP BY model
+        `),
+          ])
+          const agentRows = agentRaw as unknown as Array<Record<string, unknown>>
+          const modelRows = modelsRaw as unknown as Array<Record<string, unknown>>
+          const successRows = successesRaw as unknown as Array<Record<string, unknown>>
+          return {
+            generation_system: modelRows.reduce((sum, row) => sum + Number(row.failures ?? 0), 0),
+            agent: Number(agentRows[0]?.count ?? 0),
+            generation_models: modelRows.map((row) => ({
+              model: String(row.model ?? 'unknown'),
+              failures: Number(row.failures ?? 0),
+              errorType: String(row.error_type ?? 'unknown'),
+              upstreamStatus: row.upstream_status == null ? null : Number(row.upstream_status),
+              // 报错原文会外发到值班 webhook：先按服务端日志的规则抹掉令牌、密钥和带账号的地址，再截 200 字。
+              message: redactLogText(String(row.message ?? '')).slice(0, 200),
+              lastFailedAt: Number(row.last_failed_at ?? 0),
+              paused: row.paused === true,
+            })),
+            generation_successes: Object.fromEntries(
+              successRows.map((row) => [String(row.model), Number(row.last_succeeded_at ?? 0)]),
+            ),
+          }
+        },
+        missed,
+      ),
+      attempt('agentFailurePatterns', readAgentFailurePatterns, missed),
+      attempt(
+        'serverLogs',
+        async () => {
+          const rows = (await db.execute(sql`
+            SELECT EXTRACT(EPOCH FROM at) * 1000 AS latest_at
+            FROM server_logs
+            ORDER BY at DESC, id DESC
+            LIMIT 1
+          `)) as unknown as Array<{ latest_at: string | number | null }>
+          const latest = rows[0]?.latest_at
+          return { latest_at: latest == null ? null : Number(latest) }
+        },
+        missed,
+      ),
+    ])
+  // 没开直连就不给这一块：没有预算可言，缺失也不会被当成已恢复。
+  const gptDirectBudget = config.gptDirect.enabled
+    ? await attempt(
+        'gptDirectBudget',
+        async () => ({
+          spent_micro_usd: await directSpentThisMonth(options.now),
+          cap_micro_usd: directBudgetCapMicroUsd(),
+        }),
+        missed,
+      )
+    : undefined
+  return {
+    queue,
+    backup,
+    restoreDrill,
+    heartbeats,
+    api,
+    failures,
+    agentFailurePatterns,
+    serverLogs,
+    ...(gptDirectBudget ? { gptDirectBudget } : {}),
+  }
+}
+
+/** 近 6 小时每一类失败：同一模型、错误码与上游状态码各算一类，互不挤掉。 */
+async function readAgentFailurePatterns(): Promise<AgentFailurePattern[]> {
+  const windowSeconds = OPS_THRESHOLDS.AGENT_FAILURE_PATTERN_WINDOW_MS / 1000
+  const rows = (await db.execute(sql`
+    SELECT failure->>'model' AS model,
+      failure->>'code' AS code,
+      (regexp_match(
+        failure->>'message',
+        '(^|[Rr]eturned[[:space:]]+|[Hh][Tt][Tt][Pp][[:space:]]+)([0-9]{3})([^0-9]|$)'
+      ))[2] AS status,
+      COUNT(DISTINCT turn_id) AS turns,
+      EXTRACT(EPOCH FROM MAX(created_at)) * 1000 AS last_at,
+      (array_agg(failure->>'message' ORDER BY created_at DESC))[1] AS message
+    FROM agent_turns
+    WHERE stop_reason = 'failed' AND failure IS NOT NULL
+      AND COALESCE(failure->>'code', '') <> 'content_policy'
+      AND COALESCE(failure->>'message', '') NOT ILIKE '%content_policy%'
+      AND created_at >= NOW() - ${windowSeconds} * INTERVAL '1 second'
+    GROUP BY 1, 2, 3
+    ORDER BY turns DESC, last_at DESC
+  `)) as unknown as Array<Record<string, unknown>>
+  return rows.map((row) => ({
+    model: String(row.model ?? 'unknown'),
+    code: String(row.code ?? 'unknown'),
+    upstreamStatus: row.status ? Number(row.status) : null,
+    turns: Number(row.turns ?? 0),
+    lastAt: Number(row.last_at ?? 0),
+    message: String(row.message ?? '').slice(0, 200),
+  }))
 }
 
 interface AppAlertingOptions {
@@ -159,16 +331,29 @@ interface AppAlertingOptions {
 export function createAppAlerting(options: AppAlertingOptions): (now?: number) => Promise<void> {
   let state: AlertState = {}
   let pending = false
+  const blindRounds = new Map<string, number>()
   return async (now = Date.now()) => {
     if (pending) return
     pending = true
     try {
+      const missed = new Set<string>()
       const observation = await observeApp({
         now,
         readBackups: options.readBackups,
         readRestoreDrill: options.readRestoreDrill,
+        watchingModels: Object.keys(state.generationWatch ?? {}),
+        onMissed: (block) => missed.add(block),
       })
-      const result = evaluateAlerts(observation, state, now)
+      for (const block of blindRounds.keys()) if (!missed.has(block)) blindRounds.delete(block)
+      for (const block of missed) blindRounds.set(block, (blindRounds.get(block) ?? 0) + 1)
+      const result = evaluateAlerts(
+        {
+          ...observation,
+          blindBlocks: [...blindRounds].map(([block, rounds]) => ({ block, rounds })),
+        },
+        state,
+        now,
+      )
       if (result.messages.length > 0) await options.send(result.messages)
       state = result.state
     } catch (error) {

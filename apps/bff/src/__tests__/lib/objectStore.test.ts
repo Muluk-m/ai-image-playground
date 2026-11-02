@@ -4,7 +4,9 @@ import { stubGlobalFetch } from '../helpers/upstreamStubs'
 
 process.env.DATABASE_URL ??= 'postgresql://unused:unused@127.0.0.1:5432/unused'
 const { createDurableMediaStore } = await import('../../lib/durableMediaStore')
-const { readObjectWithinLimit, S3ObjectStore } = await import('../../lib/objectStore')
+const { ObjectStoreHttpError, readObjectWithinLimit, S3ObjectStore } = await import(
+  '../../lib/objectStore'
+)
 type S3ClientLike = import('../../lib/objectStore').S3ClientLike
 
 interface ListCall {
@@ -40,10 +42,21 @@ class FakeS3Client {
     this.created.set(key, this.now)
   }
 
+  /** 设置后，所有范围读都抛这个错误，模拟网络或上游故障。 */
+  rangeFailure: Error | undefined
+
   file(key: string, span?: { begin: number; end: number }) {
     const bytes = () => {
       const stored = this.objects.get(key)
       if (!stored) throw new Error(`missing object: ${key}`)
+      if (span && this.rangeFailure) throw this.rangeFailure
+      // 和 S3/R2 一样：起点不落在对象内的 Range 请求（含零字节对象上的 bytes=0-n）返回 416，
+      // Bun 把它抛成 code 为 InvalidRange 的 S3Error。
+      if (span && span.begin >= stored.length)
+        throw Object.assign(new Error('The requested range is not satisfiable'), {
+          name: 'S3Error',
+          code: 'InvalidRange',
+        })
       return span ? stored.slice(span.begin, span.end) : stored.slice()
     }
     return {
@@ -148,6 +161,99 @@ describe('S3ObjectStore key prefix', () => {
     }
   })
 
+  it('带期限的整份读取走同一客户端签名的 GET：可取消，非 2xx 带上状态码', async () => {
+    const client = new FakeS3Client()
+    client.objects.set('paid/objects/u/m/original', new Uint8Array([9]))
+    const subject = store(client, 'paid/')
+    const controller = new AbortController()
+    const transport = spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(new Uint8Array([1, 2, 3])),
+    )
+    try {
+      expect(await subject.read('objects/u/m/original', controller.signal)).toEqual(
+        new Uint8Array([1, 2, 3]),
+      )
+      expect(transport.mock.calls[0]?.[0]).toContain(
+        'paid/objects/u/m/original?expiresIn=60&method=GET',
+      )
+      expect(transport.mock.calls[0]?.[1]).toMatchObject({ signal: controller.signal })
+
+      transport.mockResolvedValueOnce(new Response('InternalError', { status: 500 }))
+      const failed = await subject.read('objects/u/m/original', controller.signal).catch((e) => e)
+      expect(failed).toBeInstanceOf(ObjectStoreHttpError)
+      expect(failed.status).toBe(500)
+
+      // 传输层错误不能把预签名地址（凭证和签名）带进日志。
+      transport.mockImplementationOnce(
+        Object.assign(
+          (url: RequestInfo | URL) =>
+            Promise.reject(
+              Object.assign(new Error(`socket closed while fetching ${String(url)}`), {
+                code: 'ConnectionClosed',
+                path: String(url),
+              }),
+            ),
+          { preconnect: globalThis.fetch.preconnect },
+        ),
+      )
+      const reset = await subject.read('objects/u/m/original', controller.signal).catch((e) => e)
+      expect(reset.code).toBe('ConnectionClosed')
+      expect(JSON.stringify({ ...reset, message: reset.message })).not.toContain('expiresIn=60')
+      expect(reset.message).toContain('<signed-url>')
+
+      // 取消和传输错误撞在一起：信号已经取消，抛出来的却是带地址的传输错误，也要脱敏。
+      const racing = new AbortController()
+      transport.mockImplementationOnce(
+        Object.assign(
+          (url: RequestInfo | URL) => {
+            racing.abort(new Error('deadline'))
+            return Promise.reject(
+              Object.assign(new Error(`reset ${String(url)}`), { path: String(url) }),
+            )
+          },
+          { preconnect: globalThis.fetch.preconnect },
+        ),
+      )
+      const raced = await subject.read('objects/u/m/original', racing.signal).catch((e) => e)
+      expect(JSON.stringify({ ...raced, message: raced.message })).not.toContain('expiresIn=60')
+
+      // 错误码挂在 cause 上时也要带出来，上层靠它判断能不能重试。
+      transport.mockImplementationOnce(
+        Object.assign(
+          (url: RequestInfo | URL) =>
+            Promise.reject(
+              new TypeError('fetch failed', {
+                cause: Object.assign(new Error(`connect ${String(url)}`), { code: 'ECONNRESET' }),
+              }),
+            ),
+          { preconnect: globalThis.fetch.preconnect },
+        ),
+      )
+      const caused = await subject.read('objects/u/m/original', controller.signal).catch((e) => e)
+      expect(caused.code).toBe('ECONNRESET')
+      expect(caused.cause).toBeUndefined()
+
+      transport.mockImplementation(
+        Object.assign(
+          (_url: RequestInfo | URL, options?: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), {
+                once: true,
+              })
+            }),
+          { preconnect: globalThis.fetch.preconnect },
+        ),
+      )
+      const waiting = subject.read('objects/u/m/original', controller.signal)
+      controller.abort(new Error('deadline'))
+      await expect(waiting).rejects.toThrow('deadline')
+      // 不给信号时仍走原来的客户端读取。
+      expect(await subject.read('objects/u/m/original')).toEqual(new Uint8Array([9]))
+    } finally {
+      transport.mockRestore()
+    }
+  })
+
   it('uploads cancellable cache writes using a signed PUT with the same prefix and content type', async () => {
     const subject = store(new FakeS3Client(), 'paid/')
     const controller = new AbortController()
@@ -207,6 +313,64 @@ describe('S3ObjectStore key prefix', () => {
     expect(new Uint8Array(await new Response(object.stream(1, 3)).arrayBuffer())).toEqual(
       new Uint8Array([2, 3, 4]),
     )
+  })
+
+  it('readUpTo 不先查大小，一次范围读至多取 maxBytes 字节', async () => {
+    const client = new FakeS3Client()
+    const subject = store(client, 'image-playground/')
+    await subject.write('staging/a', new Uint8Array([1, 2, 3, 4, 5]), 'image/png')
+
+    // 核对「恰好 4 字节」时传 5：对象多出来的字节能被看出来，但不会多读。
+    expect(await subject.readUpTo('staging/a', 5)).toEqual(new Uint8Array([1, 2, 3, 4, 5]))
+    expect(await subject.readUpTo('staging/a', 3)).toEqual(new Uint8Array([1, 2, 3]))
+    expect(await subject.readUpTo('staging/a', 9)).toEqual(new Uint8Array([1, 2, 3, 4, 5]))
+    expect(client.statted).toHaveLength(0)
+  })
+
+  it('readUpTo 读零字节对象返回空，交给调用方判大小不符；对象缺失仍报错', async () => {
+    const client = new FakeS3Client()
+    const subject = store(client, 'image-playground/')
+    await subject.write('staging/empty', new Uint8Array(), 'image/png')
+
+    expect(await subject.readUpTo('staging/empty', 5)).toEqual(new Uint8Array())
+    await expect(subject.readUpTo('staging/missing', 5)).rejects.toThrow('missing object')
+  })
+
+  it('readUpTo 只把 416 当成零字节对象，其他读取故障即使对象为空也原样抛出', async () => {
+    const client = new FakeS3Client()
+    const subject = store(client, 'image-playground/')
+    await subject.write('staging/empty', new Uint8Array(), 'image/png')
+    client.rangeFailure = Object.assign(new Error('boom'), {
+      name: 'S3Error',
+      code: 'InternalError',
+    })
+
+    await expect(subject.readUpTo('staging/empty', 5)).rejects.toThrow('boom')
+    expect(client.statted).toHaveLength(0)
+  })
+
+  it('collectUpTo 收满上限就停止读取上游，多给的分块不进缓冲', async () => {
+    const { collectUpTo } = await import('../../lib/objectStore')
+    let pulled = 0
+    const chunks = [new Uint8Array([1, 2]), new Uint8Array([3, 4]), new Uint8Array([5, 6])]
+    let cancelled = false
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          const next = chunks[pulled++]
+          if (next) controller.enqueue(next)
+          else controller.close()
+        },
+        cancel() {
+          cancelled = true
+        },
+      },
+      { highWaterMark: 0 },
+    )
+
+    expect(await collectUpTo(stream, 3)).toEqual(new Uint8Array([1, 2, 3]))
+    expect(pulled).toBe(2)
+    expect(cancelled).toBe(true)
   })
 
   it('空前缀保持原样', async () => {

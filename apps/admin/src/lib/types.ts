@@ -4,6 +4,7 @@ export type {
   ClientErrorEventsResult,
   ClientErrorGroup,
   ClientErrorKind,
+  ClientErrorSource,
   ClientErrorsResult,
   ClientErrorTrendBucket,
   DeviceDetailResult,

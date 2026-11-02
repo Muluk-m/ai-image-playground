@@ -7,6 +7,7 @@ import { currentCanvasWorkspace } from '../features/canvas/lib/activeProject'
 import { currentCanvasProject } from '../features/canvas/projectStore'
 import { useStore } from '../store'
 import { accountScope } from './authScope'
+import { promptFromGeneration } from './platformGenerations'
 
 /** Explicit history placement targets the project selected at the click, never a later project. */
 export async function placeCloudGeneration(
@@ -27,7 +28,14 @@ export async function placeCloudGeneration(
   if (!isCurrent()) return
   if (workspace.getSnapshot().loadFailed) throw new Error('project_unavailable')
   const result = await workspace.sink.place(
-    [{ artifactId, taskId: detail.id, name: detail.prompt, dataUrl: `aip-media:${image.mediaId}` }],
+    [
+      {
+        artifactId,
+        taskId: detail.id,
+        name: promptFromGeneration(detail),
+        dataUrl: `aip-media:${image.mediaId}`,
+      },
+    ],
     { isCurrent },
   )
   if (!isCurrent()) return

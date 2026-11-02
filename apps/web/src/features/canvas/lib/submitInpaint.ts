@@ -1,4 +1,4 @@
-import { i18next } from '../../../i18n'
+import { describeError, i18next } from '../../../i18n'
 import { getActiveApiProfile } from '../../../lib/apiProfiles'
 import { modelSupportsNativeMask } from '../../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
@@ -99,7 +99,7 @@ export async function submitCanvasInpaint(
     return started
   } catch (err) {
     // 空选区与尺寸不合规都在这里收口：原样转述那句可行动的话，不糊成「生成失败」。
-    showToast(err instanceof Error ? err.message : String(err), 'error')
+    showToast(describeError(err), 'error')
     return false
   }
 }

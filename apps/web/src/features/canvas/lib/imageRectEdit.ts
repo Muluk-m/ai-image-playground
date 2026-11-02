@@ -1,4 +1,4 @@
-import { i18next } from '../../../i18n'
+import { i18next, UserFacingError } from '../../../i18n'
 import { canvasToBlob, loadImage } from '../../../lib/canvasImage'
 import { blobDataUrl } from '../../../lib/cloudMedia'
 import type { EditRect, RectEditMode } from '../rectEditStore'
@@ -84,7 +84,7 @@ function context(width: number, height: number): CanvasRenderingContext2D {
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
+  if (!ctx) throw new UserFacingError(i18next.t('canvas.unsupported', { ns: 'lib' }))
   return ctx
 }
 

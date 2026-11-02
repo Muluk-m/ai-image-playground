@@ -528,12 +528,7 @@ export default function Select({
                     <button
                       key={action.label}
                       type="button"
-                      title={
-                        action.label === t('common:action.edit') ||
-                        action.label === t('common:action.delete')
-                          ? action.label
-                          : undefined
-                      }
+                      aria-label={action.label}
                       onPointerDown={(event) => {
                         event.stopPropagation()
                       }}

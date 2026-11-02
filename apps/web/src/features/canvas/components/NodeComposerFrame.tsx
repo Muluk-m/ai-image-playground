@@ -1,14 +1,13 @@
-import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode } from 'react'
 import { CreationFrame } from '../../../components/creation/CreationFrame'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import type { NodeReference } from '../lib/nodeCanvasFlow'
 import NodeMediaImage from './NodeMediaImage'
 
-/** Positioning stays on the canvas; the composer shell belongs to the shared creation UI. */
+/** The canvas owns docking; this component only provides the shared creation shell. */
 export default function NodeComposerFrame({
   label,
-  position,
   references,
   files,
   children,
@@ -18,31 +17,14 @@ export default function NodeComposerFrame({
   standard?: boolean
   tools?: ReactNode
   label: string
-  position: { left: number; top: number }
   references: readonly NodeReference[]
   files: Readonly<Record<string, string>>
   children: ReactNode
 }) {
   const { t } = useTranslation('canvas')
-  const ref = useRef<HTMLDivElement>(null)
-  const [top, setTop] = useState(position.top)
-  useLayoutEffect(() => {
-    const panel = ref.current
-    const parent = panel?.offsetParent
-    if (!panel || !(parent instanceof HTMLElement)) return
-    const place = () =>
-      setTop(Math.max(60, Math.min(position.top, parent.clientHeight - panel.offsetHeight - 16)))
-    const observer = new ResizeObserver(place)
-    observer.observe(panel)
-    observer.observe(parent)
-    place()
-    return () => observer.disconnect()
-  }, [position.top])
   return (
     <div
-      ref={ref}
       className="studio-node-composer nodrag nopan nowheel"
-      style={{ left: position.left, top, maxHeight: 'calc(100% - 80px)', overflowY: 'auto' }}
       role="group"
       aria-label={label}
       onPointerDown={(event) => event.stopPropagation()}

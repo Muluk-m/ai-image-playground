@@ -1,8 +1,16 @@
-import type { AgentPanelMessage, AgentTextMessage, AgentTurnFooter } from '../types'
+import type { AgentToolArtifact } from '@image-playground/shared'
+import type {
+  AgentImageActionStep,
+  AgentPanelMessage,
+  AgentTextMessage,
+  AgentToolMessage,
+  AgentTurnFooter,
+} from '../types'
 import type { AgentPanelState } from './panelMessages'
 
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
+const UUID = /^[0-9a-f-]{36}$/i
 const finite = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value)
 
@@ -39,6 +47,10 @@ export function cachedPanel(value: unknown): AgentPanelState | null {
         question: raw.question,
         options: raw.options,
       })
+    } else if (raw.kind === 'imageAction') {
+      const step = cachedImageAction(raw, identity)
+      if (!step) return null
+      messages.push(step)
     } else if (raw.kind === 'tool') {
       if (typeof raw.title !== 'string' || typeof raw.toolCallId !== 'string') return null
       const status = raw.status
@@ -59,6 +71,7 @@ export function cachedPanel(value: unknown): AgentPanelState | null {
         status,
         ...(typeof raw.prompt === 'string' ? { prompt: raw.prompt } : {}),
         ...(typeof raw.message === 'string' && !raw.errorCode ? { message: raw.message } : {}),
+        ...cachedImageOutput(raw),
       })
     } else return null
   }
@@ -91,6 +104,71 @@ export function cachedPanel(value: unknown): AgentPanelState | null {
     })
   }
   return { messages, turns }
+}
+
+/** 生图结果按图块排版：没有工具名与产物 id，刷新时会先露出一张提示词卡再跳成图块。 */
+function cachedImageOutput(
+  raw: Record<string, unknown>,
+): Pick<AgentToolMessage, 'toolName' | 'artifacts' | 'delivery'> {
+  if (raw.toolName !== 'generateImage' && raw.toolName !== 'editImage') return {}
+  const artifacts: AgentToolArtifact[] = []
+  for (const artifact of Array.isArray(raw.artifacts) ? raw.artifacts : []) {
+    if (
+      !record(artifact) ||
+      artifact.media !== 'image' ||
+      typeof artifact.artifactId !== 'string' ||
+      typeof artifact.taskId !== 'string' ||
+      typeof artifact.mime !== 'string' ||
+      !finite(artifact.outputIndex)
+    )
+      continue
+    artifacts.push({
+      artifactId: artifact.artifactId,
+      media: 'image',
+      taskId: artifact.taskId,
+      outputIndex: artifact.outputIndex,
+      mime: artifact.mime,
+      ...(finite(artifact.width) ? { width: artifact.width } : {}),
+      ...(finite(artifact.height) ? { height: artifact.height } : {}),
+      ...(typeof artifact.mediaId === 'string' && UUID.test(artifact.mediaId)
+        ? { mediaId: artifact.mediaId }
+        : {}),
+    })
+  }
+  const delivery = raw.delivery
+  return {
+    toolName: raw.toolName,
+    ...(artifacts.length ? { artifacts } : {}),
+    ...(delivery === 'placed' || delivery === 'unavailable' || delivery === 'failed'
+      ? { delivery }
+      : {}),
+  }
+}
+
+function cachedImageAction(
+  raw: Record<string, unknown>,
+  identity: { id: string; turnId: string },
+): AgentImageActionStep | null {
+  if (
+    raw.action !== 'removeBackground' ||
+    (raw.status !== 'running' && raw.status !== 'succeeded' && raw.status !== 'failed') ||
+    typeof raw.sourceMessageId !== 'string' ||
+    typeof raw.artifactId !== 'string'
+  )
+    return null
+  return {
+    ...identity,
+    kind: 'imageAction',
+    action: 'removeBackground',
+    status: raw.status,
+    sourceMessageId: raw.sourceMessageId,
+    artifactId: raw.artifactId,
+    ...(typeof raw.thumbnail === 'string' ? { thumbnail: raw.thumbnail } : {}),
+    ...(typeof raw.resultSource === 'string' ? { resultSource: raw.resultSource } : {}),
+    ...(finite(raw.durationMs) ? { durationMs: raw.durationMs } : {}),
+    ...(finite(raw.credits) ? { credits: raw.credits } : {}),
+    ...(typeof raw.error === 'string' ? { error: raw.error } : {}),
+  }
 }
 
 function cachedReferences(value: unknown): NonNullable<AgentTextMessage['references']> | null {

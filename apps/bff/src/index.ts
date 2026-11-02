@@ -1,8 +1,10 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
+import { MODEL_CATALOG } from '@image-playground/shared/model-catalog'
 import { config } from './config'
 import { close as closeDb, db, schema } from './db/client'
 import { purgeOldTasks, purgeOrphanedAssetObjects, runPrivateMaintenance } from './db/maintenance'
 import { purgeOldAgentTurnEvents } from './lib/agent/events'
+import { expireStaleStageAuthorizations } from './lib/agent/stage-authorizations'
 import { canvasSyncRooms } from './lib/canvasSyncRooms'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
@@ -47,6 +49,9 @@ log.info(
 const accountsLoginEnabled = isCapabilityEnabled('accounts:login')
 const syncEnabled = isCapabilityEnabled('accounts:sync')
 const agentEnabled = isCapabilityEnabled('agent:chat')
+
+// 能力目录在导入时按 schema 校验，不合法会在这里之前就抛错，进程起不来。
+log.info({ event: 'model_catalog.loaded', count: MODEL_CATALOG.length }, 'model catalog validated')
 
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {
@@ -130,6 +135,18 @@ startPeriodicSteps(QUEUE_TIMEOUTS.PURGE_INTERVAL_MS, [
     : []),
   ...(agentEnabled
     ? [
+        {
+          event: 'periodic.expire_stage_authorizations_failed',
+          run: async () => {
+            const expired = await expireStaleStageAuthorizations()
+            if (expired > 0) {
+              log.info(
+                { event: 'periodic.expired_stage_authorizations', count: expired },
+                'expired idle stage authorizations',
+              )
+            }
+          },
+        },
         {
           event: 'periodic.purge_agent_events_failed',
           run: async () => {

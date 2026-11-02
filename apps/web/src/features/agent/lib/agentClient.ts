@@ -9,6 +9,7 @@ import type {
   AgentConfirmationResponse,
   AgentConversationView,
   AgentFrame,
+  AgentMaskPromptPoint,
   AgentMessageQueuedBody,
   AgentMessageView,
   AgentMode,
@@ -20,6 +21,7 @@ import type {
   AgentSaveCardKind,
   AgentSaveResponse,
   AgentSkillSummary,
+  AgentSurface,
   AgentToolErrorCode,
   AgentTurnAbortedBody,
   AgentTurnAlreadyRunningBody,
@@ -27,6 +29,7 @@ import type {
   AgentTurnParams,
   AgentTurnReference,
   AgentTurnSummaryView,
+  StageRunWakeReceipt,
 } from '@image-playground/shared'
 import {
   AGENT_FRAME_SEPARATOR,
@@ -411,9 +414,12 @@ async function alreadyRunningTurnId(response: Response): Promise<string | null> 
 export async function fetchAgentSkills(
   mode: AgentMode,
   fetcher: Fetcher = authenticatedBffFetch,
+  surface: AgentSurface = 'agent',
 ): Promise<AgentSkillSummary[]> {
   // 目录按登录 cookie 区分自建模板，不使用设备 ID；多余的设备头会触发跨域预检。
-  const response = await fetcher(url(`/skills?mode=${mode}`), {
+  // 画布专属技能只在画布视图的清单里。
+  const query = surface === 'canvas' ? `mode=${mode}&surface=canvas` : `mode=${mode}`
+  const response = await fetcher(url(`/skills?${query}`), {
     signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
   })
   if (!response.ok) throw await requestError(response)
@@ -436,6 +442,8 @@ export async function startTurn(
   canvas?: import('@image-playground/shared').AgentCanvasSnapshot,
   /** 发话时看到的入口；项目还没在服务端记下入口时按它判定。 */
   experience?: 'chat' | 'canvas',
+  /** 这一轮的模式：画布视图里是画布模式，其余是 Agent 模式。服务端按它给工具。 */
+  surface?: AgentSurface,
   signal?: AbortSignal,
 ): Promise<StartTurnOutcome> {
   references = await resolveReferences(references)
@@ -450,6 +458,7 @@ export async function startTurn(
     ...(params ? { params } : {}),
     ...(canvas ? { canvas } : {}),
     ...(experience ? { experience } : {}),
+    ...(surface ? { surface } : {}),
   })
   init.signal = signal
   signal?.throwIfAborted()
@@ -713,14 +722,15 @@ export async function retryToolCall(
  * 确认一张草稿卡：把用户核对过（可能改过）的提示词原样交给服务端，它照这份字提交生成任务，
  * 不再经模型改写。服务端就地改写同一条消息，返回提交之后它的样子。
  * 重复确认是幂等的：已经提交过的那条原样返回，不会出第二个任务。
+ * 确认门拦下的卡确认完之后服务端会接着那一轮起续跑（`continued`），调用方要跟进那一轮的流。
  */
-export async function confirmToolPrompt(
+export async function confirmToolCard(
   conversationId: string,
   messageId: string,
   prompt: string,
   fetcher: Fetcher = authenticatedBffFetch,
   draftRevision?: number,
-): Promise<AgentMessageView> {
+): Promise<AgentConfirmationResponse> {
   const response = await fetcher(url(`/conversations/${conversationId}/confirmations`), {
     ...jsonInit({
       deviceId: getDeviceId(),
@@ -732,8 +742,7 @@ export async function confirmToolPrompt(
   })
   if (!response.ok) throw await requestError(response)
   // 端点的响应形状由协议定死，与这个文件里其它端点一样按它读。
-  const body = (await response.json()) as AgentConfirmationResponse
-  return body.message
+  return (await response.json()) as AgentConfirmationResponse
 }
 
 /**
@@ -758,6 +767,41 @@ export async function postSave(
   if (!response.ok) throw await requestError(response)
   const body = (await response.json()) as AgentSaveResponse
   return body.message
+}
+
+export interface EditRegionRefinement {
+  /** 编辑格式的 PNG data URL（不透明保留、透明重绘），与原图同尺寸。 */
+  readonly mask: string
+  readonly provider: string
+  readonly elapsedMs: number
+}
+
+/**
+ * 范围确认卡上点一下：服务端在提议的那个区域上叠加这些点重新分割。没有分割服务时 503，
+ * 分割失败或超时 502；调用方保留当前范围，提示用户改用画笔。
+ */
+export async function refineEditRegion(
+  conversationId: string,
+  proposalId: string,
+  input: {
+    readonly region?: number
+    /** 在所有区域之外另加一块：服务端只按这些点分割，不借提议的框。 */
+    readonly area?: 'added'
+    readonly points: readonly AgentMaskPromptPoint[]
+  },
+  signal?: AbortSignal,
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<EditRegionRefinement> {
+  const timeout = AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS)
+  const response = await fetcher(
+    url(`/conversations/${conversationId}/edit-region/${encodeURIComponent(proposalId)}/segment`),
+    {
+      ...jsonInit({ deviceId: getDeviceId(), ...input }),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as EditRegionRefinement
 }
 
 /** 中止一条还在跑的重试，按原桶退回。 */
@@ -904,6 +948,18 @@ export async function fetchBatchWakeReceipt(
   return (await response.json()) as AgentBatchWakeReceipt
 }
 
+/** 画布节点运行回报的唤醒回执；还没回报时 404。 */
+export async function fetchStageRunWakeReceipt(
+  authorizationId: string,
+): Promise<StageRunWakeReceipt> {
+  const response = await authenticatedBffFetch(
+    url(`/stage-authorizations/${encodeURIComponent(authorizationId)}/wake`),
+    { signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS) },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as StageRunWakeReceipt
+}
+
 export async function fetchBatchPlan(batchId: string): Promise<AgentBatchPage> {
   const response = await authenticatedBffFetch(
     url(`/batches/${encodeURIComponent(batchId)}?limit=100`),
@@ -935,6 +991,19 @@ export async function cancelBatchPlan(
     url(`/batches/${encodeURIComponent(batchId)}/cancel`),
     {
       ...jsonInit({ expectedVersion }),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
+}
+
+/** 生成中单独撤掉一张；那一张已经结束时服务端原样返回最新页面。 */
+export async function cancelBatchItem(batchId: string, itemKey: string): Promise<AgentBatchPage> {
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemKey)}/cancel`),
+    {
+      ...jsonInit({}),
       signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
     },
   )

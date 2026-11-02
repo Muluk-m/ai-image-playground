@@ -7,7 +7,7 @@ import { discardPendingSubmission, queuePendingSubmission } from './auth/pending
 import { projectExperience } from './features/canvas/lib/projectRepository'
 import { readProjectRoute } from './features/canvas/lib/projectRoute'
 import { useCanvasProjectStore } from './features/canvas/projectStore'
-import { describeError, i18next } from './i18n'
+import { describeError, i18next, UserFacingError } from './i18n'
 import {
   type ApiProfile,
   clientProfileToApiProfile,
@@ -20,6 +20,14 @@ import {
 } from './lib/apiProfiles'
 import { pathAppMode } from './lib/appPaths'
 import { accountScope, STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
+import {
+  BATCH_GENERATE_CONCURRENCY,
+  BATCH_GENERATE_MAX,
+  batchPerImage,
+  oversizedReferenceIndexes,
+  oversizedReferenceMessage,
+  quickGenerateAdmission,
+} from './lib/batchGenerate'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { ensureChannelsLoaded } from './lib/channels/bootstrapChannels'
 import { channelsSettled, subscribeChannels } from './lib/channels/channelStore'
@@ -30,6 +38,7 @@ import { isVideoModeAvailable } from './lib/channels/videoChannels'
 import { mediaIdentity, resolveMediaSource } from './lib/cloudMedia'
 import { composerMaskSession } from './lib/composerMaskSession'
 import { compressInputImageDataUrls } from './lib/compressInputImage'
+import { createConcurrencyLimit } from './lib/concurrencyLimit'
 import {
   CURRENT_THUMBNAIL_VERSION,
   clearImages,
@@ -63,9 +72,11 @@ import { placeCloudGeneration } from './lib/placeCloudGeneration'
 import {
   cloudReuseSourceFromGeneration,
   dropPlatformGeneration,
+  dropPlatformGenerationOutput,
   isPlatformGeneration,
   loadPlatformGenerations,
   type PlatformGenerationRow,
+  promptFromGeneration,
   refreshPlatformGeneration,
   setPlatformFavorite,
   watchPlatformGeneration,
@@ -88,8 +99,14 @@ import {
   removeReference,
   replaceReferences,
 } from './lib/referenceDraft'
-import { deleteRemoteGeneration, mediaRef, readRemoteGeneration } from './lib/remoteGenerations'
+import {
+  deleteRemoteGeneration,
+  deleteRemoteGenerationOutput,
+  mediaRef,
+  readRemoteGeneration,
+} from './lib/remoteGenerations'
 import { cloudReuseSourceFromTask, reuseCloudGeneration } from './lib/reuseCloudGeneration'
+import { batchAttempts } from './lib/setHistory'
 import { watchSubmissionContext } from './lib/submissionContext'
 import { noteUserSubmittedTasks } from './lib/submittedTaskAttention'
 import { readPendingChanges, writePendingChanges } from './lib/sync/pending'
@@ -454,16 +471,14 @@ export function isWorkbenchMode(mode: AppMode): boolean {
 }
 
 /**
- * 侧栏没被手动开合时的默认。
- * 首页等入口摊开。工作台里对话也摊开，发出消息不收起；画布才收起。
- * 项目还没对上号时先收着，避免打开画布地址时宽栏闪一下。
+ * 侧栏没被手动开合时的默认：首页、对话和画布都摊开。
+ * 收起只发生在用户自己折叠，或从列表里选了沉浸式打开。
  */
 export function defaultSidebarExpanded(
-  appMode: AppMode,
-  experience: 'chat' | 'canvas' | null,
+  _appMode: AppMode,
+  _experience: 'chat' | 'canvas' | null,
 ): boolean {
-  if (!isWorkbenchMode(appMode)) return true
-  return experience === 'chat'
+  return true
 }
 
 function currentSidebarExperience(): 'chat' | 'canvas' | null {
@@ -490,7 +505,28 @@ export function getPersistedState(state: AppState) {
     libraryPanelOpened: state.libraryPanelOpened,
     assetHintShown: state.assetHintShown,
     pinnedInspirationIds: state.pinnedInspirationIds,
+    projectCreationTargets: recentCreationTargets(state.projectCreationTargets),
   }
+}
+
+type ProjectCreationTarget = 'generate' | 'chat' | 'video'
+
+/** 记住的会话创作模式上限：只留最近选过的这些，旧的让位，本地存储不随会话数增长。 */
+const CREATION_TARGETS_KEPT = 200
+
+/**
+ * 每个会话选的创作模式（Agent／图片生成／视频生成）要跨刷新、跨进出会话留住；
+ * 不然一刷新就回到 Agent，用户以为在图片生成里，发出去却走了智能体。
+ */
+function recentCreationTargets(
+  targets: Readonly<Record<string, unknown>> | undefined,
+): Record<string, ProjectCreationTarget> {
+  if (!targets || typeof targets !== 'object') return {}
+  const valid = Object.entries(targets).filter(
+    (entry): entry is [string, ProjectCreationTarget] =>
+      entry[1] === 'generate' || entry[1] === 'chat' || entry[1] === 'video',
+  )
+  return Object.fromEntries(valid.slice(-CREATION_TARGETS_KEPT))
 }
 
 /** 只有落进 IndexedDB 的遮罩才写进 localStorage，本体留空，启动时按 id 读回。 */
@@ -557,6 +593,11 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     pinnedInspirationIds: Array.isArray(persisted.pinnedInspirationIds)
       ? persisted.pinnedInspirationIds.filter((x): x is string => typeof x === 'string')
       : [],
+    // 水合前这一次会话里已经选过的模式优先，盘上的只补没选过的会话。
+    projectCreationTargets: {
+      ...recentCreationTargets(persisted.projectCreationTargets),
+      ...currentState.projectCreationTargets,
+    },
     // Navigation belongs to this session, not saved settings or another device.
     appMode: currentState.appMode,
     prompt:
@@ -644,6 +685,9 @@ interface AppState {
   >
   createTarget: 'generate' | 'chat' | 'canvas' | 'video'
   setCreateTarget: (target: 'generate' | 'chat' | 'canvas' | 'video') => void
+  /** 图片生成档：多张参考图各自用同一句提示词生成，而不是合成一次。 */
+  batchGenerate: boolean
+  setBatchGenerate: (on: boolean) => void
   /**
    * 侧栏此刻摊开还是收起。`null` 表示按入口默认：首页与对话摊开，画布收起。
    * 用户按折叠键就写成明确的开或关，换入口时回到默认。
@@ -716,14 +760,13 @@ export const useStore = create<AppState>()(
         set((s) => ({ slotValues: { ...s.slotValues, [name]: values } })),
       inputImages: [],
       attachInputImages: (images, admission) => {
-        const { prompt, inputImages, settings, showToast } = get()
-        const result = attachReferences(
-          { prompt, references: inputImages },
-          images,
-          admission ?? referenceAdmission(getActiveApiProfile(settings)),
-        )
+        const { prompt, inputImages, settings, maskDraft, showToast } = get()
+        // 没指定准入的入口（素材库、作品「用作参考」等）按快速生成输入框那一份：逐张生成放得下 50 张。
+        const base = referenceAdmission(getActiveApiProfile(settings))
+        const effective = admission ?? (maskDraft ? base : quickGenerateAdmission(base))
+        const result = attachReferences({ prompt, references: inputImages }, images, effective)
         if (!result.ok) {
-          showToast(referenceRefusalMessage(result.reason), 'error')
+          showToast(referenceRefusalMessage(result.reason, effective.limit), 'error')
           return null
         }
         set({ inputImages: [...result.draft.references] })
@@ -883,6 +926,8 @@ export const useStore = create<AppState>()(
         (readProjectRoute(globalThis.location?.pathname ?? '/') !== null ? 'canvas' : 'image'),
       setAppMode: (appMode) => set({ appMode, sidebarExpanded: null }),
       createTarget: 'generate',
+      batchGenerate: false,
+      setBatchGenerate: (batchGenerate) => set({ batchGenerate }),
       creationSelections: {},
       projectCreationTargets: {},
       setCreateTarget: (createTarget) => {
@@ -1029,6 +1074,8 @@ function genId(): string {
  */
 function isResumablePlatformTask(task: TaskRecord): boolean {
   if (task.status !== 'running') return false
+  // 还在本机排队的那张从没发出去，刷新后无从续跑，按中断处理、留给重试。
+  if (task.batchQueued) return false
   if (task.bffRequestId || task.queuePhase) return true
   return task.platformTask === true && Boolean(task.clientRequestId) && !task.customTaskId
 }
@@ -1125,23 +1172,8 @@ function isApiRequestNetworkError(err: unknown): boolean {
   return false
 }
 
-function getApiRequestNetworkErrorHint(err: unknown, task: TaskRecord): string | null {
+function getApiRequestNetworkErrorHint(err: unknown): string | null {
   if (!isApiRequestNetworkError(err)) return null
-
-  const elapsedSeconds = Math.max(0, (Date.now() - task.createdAt) / 1000)
-
-  if (elapsedSeconds <= 15) {
-    return i18next.t('networkHint.generic', { ns: 'store' })
-  }
-
-  if (elapsedSeconds >= 55 && elapsedSeconds <= 75) {
-    return i18next.t('networkHint.reverseProxy60s', { ns: 'store' })
-  }
-
-  if (elapsedSeconds >= 110 && elapsedSeconds <= 140) {
-    return i18next.t('networkHint.cdn120s', { ns: 'store' })
-  }
-
   return i18next.t('networkHint.generic', { ns: 'store' })
 }
 
@@ -1229,6 +1261,26 @@ async function resolveImageSizeParamsList(
   const fallback = await readImageSizeParamsList(images)
   return images.map((_, index) =>
     hasActualParams(preferred?.[index]) ? preferred?.[index] : fallback[index],
+  )
+}
+
+/**
+ * 孤图判断要异步读库，判断完到真删之间新任务可能已经用上同一张图：真删之前再按此刻的
+ * 任务列表和输入框同步核一遍，被用上的留着。
+ */
+function referencedNow(imageId: string): boolean {
+  const { tasks, inputImages, maskDraft } = useStore.getState()
+  if (inputImages.some((image) => image.id === imageId)) return true
+  if (maskDraft && (maskDraft.targetImageId === imageId || maskDraft.maskImageId === imageId)) {
+    return true
+  }
+  return tasks.some(
+    (task) =>
+      task.inputImageIds?.includes(imageId) ||
+      task.maskImageId === imageId ||
+      task.maskTargetImageId === imageId ||
+      task.outputImages?.includes(imageId) ||
+      task.transparentOriginalImages?.includes(imageId),
   )
 }
 
@@ -1366,6 +1418,11 @@ export interface PreparedSubmission {
   clientRequestId?: string
   /** 归属信息（套 / 镜头）；零散提交不带。 */
   origin?: TaskOrigin
+  /**
+   * 逐张生成：每张参考图各发一条任务、各出 1 张，同一句提示词；这批任务折成「我的作品」里的一组。
+   * 与遮罩、`origin` 互斥。
+   */
+  eachImage?: true
 }
 
 /**
@@ -1478,21 +1535,32 @@ export async function submitPrepared(
     return []
   }
   const admission = referenceAdmission(profile)
+  const eachImage = Boolean(input.eachImage) && !input.maskDraft && !input.mask
+  // 逐张生成时每条任务只带一张图，模型上限管不着整批；整批另按 BATCH_GENERATE_MAX 收口。
+  const referenceLimit = eachImage ? BATCH_GENERATE_MAX : admission.limit
   if (
-    input.inputImages.length > admission.limit ||
+    input.inputImages.length > referenceLimit ||
     (input.inputImages.length > 0 && !admission.acceptsReferences)
   ) {
     showToast(
-      referenceRefusalMessage(input.inputImages.length > admission.limit ? 'overflow' : 'noEdit'),
+      referenceRefusalMessage(
+        input.inputImages.length > referenceLimit ? 'overflow' : 'noEdit',
+        referenceLimit,
+      ),
       'error',
     )
+    return []
+  }
+  const oversized = oversizedReferenceIndexes(input.inputImages)
+  if (oversized.length) {
+    showToast(oversizedReferenceMessage(oversized), 'error')
     return []
   }
   if (input.maskDraft) {
     try {
       const target = orderInputImagesForMask(input.inputImages, input.maskDraft.targetImageId)[0]
       if (target.id !== input.inputImages[0]?.id)
-        throw new Error(i18next.t('task.maskImageMissing', { ns: 'store' }))
+        throw new UserFacingError(i18next.t('task.maskImageMissing', { ns: 'store' }))
       const coverage = await validateMaskMatchesImage(input.maskDraft.maskDataUrl, target.dataUrl)
       if (!current()) return []
       if (coverage === 'full') {
@@ -1516,11 +1584,17 @@ export async function submitPrepared(
       return []
     }
   }
-  const taskParams = deriveTaskParams(input.params, requestSettings, input.inputImages.length > 0)
-  if (
-    getSubmissionImageCount(trimmedPrompt, input.slotValues ?? {}, taskParams.n) > MAX_BATCH_IMAGES
-  ) {
-    showToast(i18next.t('submit.batchLimit', { ns: 'store', max: MAX_BATCH_IMAGES }), 'error')
+  const derivedParams = deriveTaskParams(
+    input.params,
+    requestSettings,
+    input.inputImages.length > 0,
+  )
+  // 逐张生成一张图只出一张：张数就是图数，数量步进不参与。
+  const taskParams = eachImage ? { ...derivedParams, n: 1 } : derivedParams
+  const imageCount = getSubmissionImageCount(trimmedPrompt, input.slotValues ?? {}, taskParams.n)
+  const batchMax = eachImage ? BATCH_GENERATE_MAX : MAX_BATCH_IMAGES
+  if ((eachImage ? imageCount * input.inputImages.length : imageCount) > batchMax) {
+    showToast(i18next.t('submit.batchLimit', { ns: 'store', max: batchMax }), 'error')
     return []
   }
   const submitView = clientProfileToApiProfile(profile)
@@ -1561,26 +1635,43 @@ export async function submitPrepared(
   }
 
   if (!current()) return []
-  const inputImageDataUrls = input.inputImages.map((img) => img.dataUrl)
+  // 一组参考图对应一条变体：合并参考是整条一组，逐张生成是每张图自成一组。
+  const referenceGroups = eachImage ? input.inputImages.map((img) => [img]) : [input.inputImages]
   const jobs = startGeneration<WorkbenchJob, WorkbenchVariant>(
     {
       settings: requestSettings,
       profile,
       params: taskParams,
       ...(input.clientRequestId ? { clientRequestId: input.clientRequestId } : {}),
-      variants: prompts.map((taskPrompt) => {
-        const transparent = taskParams.transparent_output
-          ? createTransparentOutputMeta(taskPrompt)
-          : null
-        return {
-          prompt: replaceImageMentionsForApi(
-            transparent?.effectivePrompt ?? taskPrompt,
-            inputImageDataUrls.length,
-          ),
-          inputImageDataUrls,
-          ...(maskDataUrl ? { maskDataUrl } : {}),
-          context: { prompt: taskPrompt, transparent },
-        }
+      variants: referenceGroups.flatMap((group, groupIndex) => {
+        const inputImageDataUrls = group.map((img) => img.dataUrl)
+        return prompts.map((taskPrompt, promptIndex) => {
+          const transparent = taskParams.transparent_output
+            ? createTransparentOutputMeta(taskPrompt)
+            : null
+          return {
+            prompt: replaceImageMentionsForApi(
+              transparent?.effectivePrompt ?? taskPrompt,
+              inputImageDataUrls.length,
+            ),
+            inputImageDataUrls,
+            ...(maskDataUrl ? { maskDataUrl } : {}),
+            context: {
+              prompt: taskPrompt,
+              transparent,
+              ...(eachImage
+                ? {
+                    inputImageIds: group.map((img) => img.id),
+                    // 提示词槽展开成几条时，同一张参考图的每条各占一格，不能被当成同一格的重试。
+                    shotId:
+                      prompts.length > 1
+                        ? `${groupIndex + 1}-${promptIndex + 1}`
+                        : String(groupIndex + 1),
+                  }
+                : {}),
+            },
+          }
+        })
       }),
     },
     workbenchSink({
@@ -1592,7 +1683,11 @@ export async function submitPrepared(
       maskImageId: input.mask?.imageId ?? null,
       maskTargetImageId: input.mask?.targetImageId ?? null,
       ...(maskDataUrl ? { maskDataUrl } : {}),
-      ...(input.origin ? { origin: input.origin } : {}),
+      ...(eachImage
+        ? { origin: { setId: genId(), shotId: '', kind: 'batch' as const } }
+        : input.origin
+          ? { origin: input.origin }
+          : {}),
     }),
   )
 
@@ -1603,8 +1698,8 @@ export async function submitPrepared(
  * 提交新任务：把 composer 状态组装成一次提交，校验与整幅遮罩确认都在 submitPrepared 里。
  * 这里只管 composer 自己的事：孤儿遮罩草稿兜底、归一化参数写回、成功后的收尾。
  */
-export async function submitTask() {
-  const { settings, prompt, slotValues, inputImages, maskDraft, params, showToast } =
+export async function submitTask(options: { holdClear?: Promise<unknown> } = {}) {
+  const { settings, prompt, slotValues, inputImages, maskDraft, params, batchGenerate, showToast } =
     useStore.getState()
 
   // 遮罩草稿的目标图已不在参考图条里：草稿留着也提交不了，清掉并提示重新选区。
@@ -1616,6 +1711,10 @@ export async function submitTask() {
 
   const activeProfile = getActiveApiProfile(settings)
   const requestSettings = createSettingsForApiProfile(normalizeSettings(settings), activeProfile)
+  // 与输入框同一条判断：用户选了逐张，或图多到超过模型一次能带的张数。遮罩编辑不走逐张。
+  const eachImage =
+    !maskDraft &&
+    batchPerImage(inputImages.length, batchGenerate, referenceAdmission(activeProfile).limit)
   const orderedInputImages = maskDraft
     ? orderInputImagesForMask(inputImages, maskDraft.targetImageId)
     : inputImages
@@ -1638,6 +1737,7 @@ export async function submitTask() {
         params: taskParams,
         maskDraft,
         profileId: activeProfile.id,
+        ...(eachImage ? { eachImage: true as const } : {}),
       },
       { signal: controller.signal, isCurrent: context.isCurrent },
     )
@@ -1649,6 +1749,15 @@ export async function submitTask() {
   // 新卡在输入框下方。滚不滚、高亮和焦点由作品网格在卡片挂上之后做；这里只标记「这次是用户主动发送」。
   noteUserSubmittedTasks(createdTaskIds)
 
+  // 发送按钮的转圈要先让人看见，输入框再清空。转圈期间用户又改了提示词或参考图，就不清，免得吞掉新输入。
+  if (options.holdClear) {
+    await options.holdClear
+    const now = useStore.getState()
+    const sameImages =
+      now.inputImages.length === inputImages.length &&
+      now.inputImages.every((img, i) => img.id === inputImages[i]?.id)
+    if (now.prompt !== prompt || !sameImages) return
+  }
   if (settings.clearInputAfterSubmit) {
     useStore.getState().setPrompt('')
     useStore.getState().clearInputImages()
@@ -1677,6 +1786,10 @@ interface WorkbenchSubmission {
 interface WorkbenchVariant {
   prompt: string
   transparent: TransparentOutputMeta | null
+  /** 逐张生成时这一条只带自己那张参考图；缺席即整次提交的那一组。 */
+  inputImageIds?: string[]
+  /** 逐张生成时这一条在组里的身份：那张参考图在条上的序号（从 1 起）。 */
+  shotId?: string
 }
 
 /** 一条任务行在工作台的身份。终局只认它，不必再把 task 对象带一路。 */
@@ -1700,12 +1813,12 @@ async function loadTaskInputs(
   const inputDataUrls: string[] = []
   for (const imgId of task.inputImageIds) {
     const dataUrl = await ensureImageCached(imgId)
-    if (!dataUrl) throw new Error(i18next.t('task.inputImageMissing', { ns: 'store' }))
+    if (!dataUrl) throw new UserFacingError(i18next.t('task.inputImageMissing', { ns: 'store' }))
     inputDataUrls.push(dataUrl)
   }
   if (!task.maskImageId) return { inputDataUrls }
   const maskDataUrl = await ensureImageCached(task.maskImageId)
-  if (!maskDataUrl) throw new Error(i18next.t('task.maskImageMissing', { ns: 'store' }))
+  if (!maskDataUrl) throw new UserFacingError(i18next.t('task.maskImageMissing', { ns: 'store' }))
   return { inputDataUrls, maskDataUrl }
 }
 
@@ -1758,6 +1871,7 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
           outputImages: outputIds,
           transparentOriginalImages: transparentOriginalImageIds,
           rawImageUrls: result.rawImageUrls?.length ? result.rawImageUrls : undefined,
+          partialFailure: result.partialFailure,
           actualParams,
           actualParamsByImage,
           revisedPromptByImage:
@@ -1770,12 +1884,24 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
           customRecoverable: false,
         })
 
-        useStore
-          .getState()
-          .showToast(
-            i18next.t('toast.generateDone', { ns: 'store', count: outputIds.length }),
-            'success',
+        // 逐张生成整组收尾时才报一次；单条任务照旧报这一条出了几张。
+        if (task.origin?.kind === 'batch') announceBatchSettled(task.origin.setId)
+        else if (result.partialFailure)
+          useStore.getState().showToast(
+            i18next.t('toast.generateDonePartial', {
+              ns: 'store',
+              done: outputIds.length,
+              total: result.partialFailure.requested,
+            }),
+            'info',
           )
+        else
+          useStore
+            .getState()
+            .showToast(
+              i18next.t('toast.generateDone', { ns: 'store', count: outputIds.length }),
+              'success',
+            )
         const currentMask = useStore.getState().maskDraft
         if (
           job.maskDataUrl &&
@@ -1799,7 +1925,7 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
         let errorMessage = isOwnTimeoutAbortError(failure.error)
           ? createOpenAITimeoutError(job.timeoutSeconds)
           : failure.text
-        const networkErrorHint = getApiRequestNetworkErrorHint(failure.error, latestTask)
+        const networkErrorHint = getApiRequestNetworkErrorHint(failure.error)
         if (networkErrorHint && !errorMessage.includes(IMAGE_FETCH_CORS_HINT)) {
           errorMessage += `\n${networkErrorHint}`
         }
@@ -1807,12 +1933,16 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
           status: 'error',
           error: errorMessage,
           errorCode: failure.code,
+          cancelled: failure.cancelled,
           ...getRawErrorPayload(failure.error),
           customRecoverable: false,
           finishedAt: Date.now(),
           elapsed: Date.now() - job.createdAt,
         })
-        useStore.getState().setDetailTaskId(job.taskId)
+        // 逐张生成的失败汇总在那一组的卡片上，不一条条弹详情；最后一张失败也要给整组报个数。
+        if (latestTask.origin?.kind === 'batch') announceBatchSettled(latestTask.origin.setId)
+        // 取消不是失败：卡片已显示「已取消」，不再自动弹出详情去报错。
+        else if (!failure.cancelled) useStore.getState().setDetailTaskId(job.taskId)
       } finally {
         releaseGenerationTask(job.taskId)
       }
@@ -1820,15 +1950,51 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
   }
 }
 
+/**
+ * 逐张生成的一组全部落定（每张参考图的最新一次尝试都不在跑）时报一次总数，而不是每张各报「已生成 1 张」。
+ * 全成：「生成完成，共 N 张图片」；有失败：「已生成 x/N 张」；一张没成就不报，失败看组卡片。
+ */
+function announceBatchSettled(setId: string) {
+  const attempts = batchAttempts(
+    useStore.getState().tasks.filter((t) => t.origin?.kind === 'batch' && t.origin.setId === setId),
+  )
+  if (attempts.length === 0 || attempts.some((t) => t.status === 'running')) return
+  const done = attempts.filter((t) => t.status === 'done')
+  if (done.length === 0) return
+  const { showToast } = useStore.getState()
+  if (done.length === attempts.length) {
+    const count = done.reduce((sum, t) => sum + t.outputImages.length, 0)
+    showToast(i18next.t('toast.generateDone', { ns: 'store', count }), 'success')
+    return
+  }
+  showToast(
+    i18next.t('toast.generateDonePartial', {
+      ns: 'store',
+      done: done.length,
+      total: attempts.length,
+    }),
+    'info',
+  )
+}
+
+/** 逐张生成（含其重试）共用一个限流：所有批次加起来同时最多发这么多张。 */
+const batchLimit = createConcurrencyLimit(BATCH_GENERATE_CONCURRENCY)
+
 function workbenchSink(
   submission: WorkbenchSubmission,
 ): GenerationSink<WorkbenchJob, WorkbenchVariant> {
+  const queued = submission.origin?.kind === 'batch'
   // 一批任务按发起顺序排在列表最前：后开的插在前一条之后，而不是再压到最上面。
   let inserted = 0
   return {
     ...workbenchReport(),
     open(unit) {
       const { prompt, transparent } = unit.context
+      const inputImageIds = unit.context.inputImageIds ?? submission.inputImageIds
+      const origin =
+        submission.origin && unit.context.shotId
+          ? { ...submission.origin, shotId: unit.context.shotId }
+          : submission.origin
       const task: TaskRecord = {
         id: genId(),
         prompt,
@@ -1837,12 +2003,13 @@ function workbenchSink(
         apiProfileId: submission.profile.id,
         apiProfileName: submission.view.name,
         apiModel: submission.view.model,
-        inputImageIds: submission.inputImageIds,
+        inputImageIds,
         maskTargetImageId: submission.maskTargetImageId,
         maskImageId: submission.maskImageId,
         transparentOutput: transparent?.transparentOutput,
         transparentPrompt: transparent?.effectivePrompt,
-        origin: submission.origin,
+        origin,
+        ...(queued ? { batchQueued: true as const } : {}),
         outputImages: [],
         status: 'running',
         error: null,
@@ -1862,13 +2029,29 @@ function workbenchSink(
       return {
         taskId: task.id,
         createdAt: task.createdAt,
-        inputImageIds: submission.inputImageIds,
+        inputImageIds,
         provider: submission.view.provider,
         timeoutSeconds: submission.view.timeout,
         ...(submission.maskDataUrl ? { maskDataUrl: submission.maskDataUrl } : {}),
         stored: putTask(task),
       }
     },
+    ...(queued
+      ? {
+          schedule(job: WorkbenchJob, send: () => Promise<void>) {
+            void batchLimit.run(async () => {
+              // 排队期间被删掉或中止的那张不再发。
+              const latest = useStore.getState().tasks.find((t) => t.id === job.taskId)
+              if (!latest || latest.status !== 'running') {
+                releaseGenerationTask(job.taskId)
+                return
+              }
+              updateTaskInStore(job.taskId, { batchQueued: undefined, batchStartedAt: Date.now() })
+              await send()
+            })
+          },
+        }
+      : {}),
   }
 }
 
@@ -2037,17 +2220,28 @@ export async function materializeRemoteTask(task: TaskRecord): Promise<TaskRecor
   const outputs = detail
     ? detail.outputs.map((image) => mediaRef(image.mediaId))
     : task.outputImages
+  const positions = detail
+    ? detail.outputs.map((image) => image.index)
+    : (task.outputPositions ?? task.outputImages.map((_, index) => index))
   const inputs = detail ? detail.inputs.map((image) => mediaRef(image.mediaId)) : task.inputImageIds
   const mask = detail?.mask ? mediaRef(detail.mask.mediaId) : (task.maskImageId ?? null)
-  const [outputImages, inputImageIds, maskImageId] = await Promise.all([
-    localizeRefs(outputs, 'generated'),
+  const [localizedOutputs, inputImageIds, maskImageId] = await Promise.all([
+    Promise.all(outputs.map((ref) => localizeRef(ref, 'generated'))),
     localizeRefs(inputs, 'upload'),
     mask ? localizeRef(mask, 'mask') : Promise.resolve(null),
   ])
+  // 取不到的那张丢掉时，位置号跟着丢，剩下的每张仍对得上平台原位置。
+  const kept = localizedOutputs.flatMap((id, i) =>
+    id === null ? [] : [{ id, position: positions[i] ?? i }],
+  )
+  const outputImages = kept.map((item) => item.id)
   const localized: TaskRecord = {
     ...task,
-    prompt: detail?.prompt ?? task.prompt,
+    // 平台详情里是发给上游的那一句（防改写前缀、构图指令）；本机卡要的是用户原文，
+    // 否则重试时 callImageApi 按 no_rewrite 再钉一遍前缀，卡上也重新露出机器指令。
+    prompt: detail ? promptFromGeneration(detail) : task.prompt,
     outputImages,
+    outputPositions: kept.map((item) => item.position),
     inputImageIds,
     maskImageId,
     maskTargetImageId: maskImageId ? (inputImageIds[0] ?? null) : null,
@@ -2189,6 +2383,8 @@ async function retryLocalTask(task: TaskRecord) {
       maskImageId: task.maskImageId ?? null,
       maskTargetImageId: task.maskTargetImageId ?? null,
       ...(inputs.maskDataUrl ? { maskDataUrl: inputs.maskDataUrl } : {}),
+      // 逐张生成的重试留在原来那一组里，顶替失败的那次（见 lib/setHistory）。
+      ...(task.origin?.kind === 'batch' ? { origin: task.origin } : {}),
     }),
   )
 }
@@ -2438,10 +2634,24 @@ async function placeRemoteOutputOnCanvas(task: TaskRecord, imageId?: string) {
   }
 }
 
+/**
+ * 本机跑的平台任务在平台上也有一条（`bffRequestId` 指向它，或 id 相同）。作品页对这两条只显示本机卡
+ * （`mergeHistory`），本机卡一删，平台那条就露出来——刷新后「删掉的图又回来了」。所以先删平台那条。
+ * 平台缓存里有它却删不掉时返回 false，整件事不做；缓存里还没有（没翻到那一页）就尽力删，失败不拦本机删除。
+ */
+async function deletePlatformCounterpart(task: TaskRecord): Promise<boolean> {
+  const id = task.bffRequestId ?? task.id
+  const cached = isPlatformGeneration(id)
+  if (!cached && !task.bffRequestId) return true
+  const ok = await deleteRemoteGeneration(id)
+  // 请求期间平台列表可能刚刷新进这一条：按此刻的缓存清，不用请求前的快照。
+  if (ok && isPlatformGeneration(id)) await dropPlatformGeneration(id)
+  return ok || !cached
+}
+
 /** 删除多条记录：平台那些先删平台，本机那些连带清掉孤立图片。 */
 export async function removeMultipleTasks(taskIds: string[]) {
-  const { tasks, setTasks, showToast, clearSelection, selectedTaskIds, platformGenerations } =
-    useStore.getState()
+  const { tasks, showToast, platformGenerations } = useStore.getState()
 
   if (!taskIds.length) return
 
@@ -2456,9 +2666,15 @@ export async function removeMultipleTasks(taskIds: string[]) {
     deleted += 1
   }
 
-  const toDelete = new Set(taskIds.filter((id) => owned.has(id)))
+  const toDelete = new Set<string>()
+  for (const task of tasks) {
+    if (!taskIds.includes(task.id)) continue
+    if (await deletePlatformCounterpart(task)) toDelete.add(task.id)
+  }
   deleted += toDelete.size
-  const remaining = tasks.filter((t) => !toDelete.has(t.id))
+  // 上面等了网络，期间可能有新任务进来或状态更新：从最新列表里删，别把请求前的快照写回去。
+  const { tasks: latest, setTasks } = useStore.getState()
+  const remaining = latest.filter((t) => !toDelete.has(t.id))
   // 收集所有被删除任务的关联图片
   const deletedImageIds = new Set<string>()
   for (const t of tasks) {
@@ -2477,11 +2693,12 @@ export async function removeMultipleTasks(taskIds: string[]) {
     await dbDeleteTask(id)
   }
 
-  const stillUsed = await imageIdsInUse(remaining)
+  // 删库也要等：引用按此刻的最新列表算，期间新进来的任务用到的图不能被当成孤图删掉。
+  const stillUsed = await imageIdsInUse(useStore.getState().tasks)
 
   // 删除孤立图片
   for (const imgId of deletedImageIds) {
-    if (!stillUsed.has(imgId)) {
+    if (!stillUsed.has(imgId) && !referencedNow(imgId)) {
       await deleteImage(imgId)
       imageCache.delete(imgId)
       thumbnailCache.delete(imgId)
@@ -2490,6 +2707,7 @@ export async function removeMultipleTasks(taskIds: string[]) {
 
   // 如果删除的任务在选中列表中，则移除
   const removed = new Set([...toDelete, ...platformIds])
+  const { selectedTaskIds } = useStore.getState()
   const newSelection = selectedTaskIds.filter((id) => !removed.has(id))
   if (newSelection.length !== selectedTaskIds.length) {
     useStore.getState().setSelectedTaskIds(newSelection)
@@ -2519,17 +2737,25 @@ export async function setTaskFavorite(task: TaskRecord, favorite: boolean): Prom
  * 删除单条记录。平台那条先删平台：本机丢掉不算删，刷新就回来了——删除的权威在平台。
  * 平台删不掉时整件事不做，免得列表和平台各说一套。
  */
-export async function removeTask(task: TaskRecord) {
-  const { tasks, setTasks, showToast } = useStore.getState()
+export async function removeTask(task: TaskRecord): Promise<boolean> {
+  const { showToast } = useStore.getState()
   if (task.remoteOnly) {
     if (!(await deleteRemoteGeneration(task.id))) {
       showToast(i18next.t('toast.taskDeleteFailed', { ns: 'store' }), 'error')
-      return
+      return false
     }
     await dropPlatformGeneration(task.id)
     showToast(i18next.t('toast.taskDeleted', { ns: 'store' }), 'success')
-    return
+    return true
   }
+
+  // 本机跑的平台任务在平台上也有一条：只删本机，刷新时平台列表又把它带回来。
+  if (!(await deletePlatformCounterpart(task))) {
+    showToast(i18next.t('toast.taskDeleteFailed', { ns: 'store' }), 'error')
+    return false
+  }
+  // 等过网络，期间可能有新任务进来：从最新列表里删，别把请求前的快照写回去。
+  const { tasks: latest, setTasks: setLatest } = useStore.getState()
 
   // 收集此任务关联的图片
   const taskImageIds = new Set([
@@ -2540,15 +2766,16 @@ export async function removeTask(task: TaskRecord) {
   ])
 
   // 从列表移除
-  const remaining = tasks.filter((t) => t.id !== task.id)
-  setTasks(remaining)
+  const remaining = latest.filter((t) => t.id !== task.id)
+  setLatest(remaining)
   await dbDeleteTask(task.id)
 
-  const stillUsed = await imageIdsInUse(remaining)
+  // 删库也要等：引用按此刻的最新列表算，期间新进来的任务用到的图不能被当成孤图删掉。
+  const stillUsed = await imageIdsInUse(useStore.getState().tasks)
 
   // 删除孤立图片
   for (const imgId of taskImageIds) {
-    if (!stillUsed.has(imgId)) {
+    if (!stillUsed.has(imgId) && !referencedNow(imgId)) {
       await deleteImage(imgId)
       imageCache.delete(imgId)
       thumbnailCache.delete(imgId)
@@ -2556,6 +2783,108 @@ export async function removeTask(task: TaskRecord) {
   }
 
   showToast(i18next.t('toast.taskDeleted', { ns: 'store' }), 'success')
+  return true
+}
+
+/**
+ * 多图作品只删一张（「我的作品」详情里看着哪张删哪张）。只剩一张时等于删整条记录。
+ * 和整条删除一样先删平台那张：本机丢掉不算删，刷新时平台列表会把它带回来。
+ * 平台位置号不重排，本机按 `outputPositions` 记住剩下每张对应平台上的哪一张。
+ */
+// 单张删除一次只跑一个：平台缓存的更新是「读当前 → 整份写回」，两次并发会把先删掉的那张写回来。
+let outputDeletes: Promise<unknown> = Promise.resolve()
+
+/**
+ * 删掉多图记录里的一张。返回 `kept`：删成了、记录还在；`gone`：整条都没了；`failed`：没删成。
+ * 调用方据此决定要不要回到这条记录的详情。
+ */
+export function removeTaskOutput(
+  task: TaskRecord,
+  imageIndex: number,
+): Promise<'kept' | 'gone' | 'failed'> {
+  const run = outputDeletes.then(() => removeTaskOutputNow(task, imageIndex))
+  outputDeletes = run.catch(() => undefined)
+  return run
+}
+
+async function removeTaskOutputNow(
+  task: TaskRecord,
+  imageIndex: number,
+): Promise<'kept' | 'gone' | 'failed'> {
+  const { showToast, platformGenerations } = useStore.getState()
+  const imageId = task.outputImages[imageIndex]
+  if (imageId === undefined) return 'failed'
+  if (task.outputImages.length <= 1) return (await removeTask(task)) ? 'gone' : 'failed'
+
+  const remoteId = task.bffRequestId ?? task.id
+  const row = platformGenerations.find((item) => item.id === remoteId)
+  const positions = task.outputPositions ?? task.outputImages.map((_, index) => index)
+  // 平台卡的产出是 `aip-media:` 引用，按媒体认位置；本机卡按记下的对应关系。
+  const remoteOutput =
+    task.remoteOnly && row && 'outputs' in row.record
+      ? row.record.outputs.find((image) => mediaRef(image.mediaId) === imageId)
+      : undefined
+  // 已记下的位置号优先：两张字节相同的产出共用一个媒体，按媒体只能找到第一张。
+  const position = task.remoteOnly
+    ? (task.outputPositions?.[imageIndex] ?? remoteOutput?.index)
+    : positions[imageIndex]
+  const onPlatform = task.remoteOnly || Boolean(row) || Boolean(task.bffRequestId)
+  if (onPlatform) {
+    const result =
+      position === undefined ? null : await deleteRemoteGenerationOutput(remoteId, position)
+    if (!result) {
+      showToast(i18next.t('toast.imageDeleteFailed', { ns: 'store' }), 'error')
+      return 'failed'
+    }
+    if (result.generationDeleted) {
+      if (row) await dropPlatformGeneration(remoteId)
+      if (!task.remoteOnly) return (await removeTask(task)) ? 'gone' : 'failed'
+      showToast(i18next.t('toast.imageDeleted', { ns: 'store' }), 'success')
+      return 'gone'
+    }
+    if (row && position !== undefined) await dropPlatformGenerationOutput(remoteId, position)
+  }
+  if (task.remoteOnly) {
+    showToast(i18next.t('toast.imageDeleted', { ns: 'store' }), 'success')
+    return 'kept'
+  }
+
+  // 等过网络，从最新的那条记录上删，别把请求前的快照写回去。按平台位置号找那一张：
+  // 本机图片 id 是内容哈希，同一条记录里两张一样的图 id 相同，按 id 找会删错。
+  const latest = useStore.getState().tasks.find((item) => item.id === task.id)
+  if (!latest) return 'gone'
+  const latestPositions = latest.outputPositions ?? latest.outputImages.map((_, i) => i)
+  // 平台已经删掉了这个位置，本机就按位置号去掉同一张；本机已经没有这个位置（别处先删了）就不用再动。
+  // 只有没记位置号的旧数据才按 id 找，免得删到同 id 的另一张。
+  const index =
+    position === undefined
+      ? latest.outputImages.indexOf(imageId)
+      : latestPositions.indexOf(position)
+  if (index < 0) return 'kept'
+  const without = <T>(list: readonly T[] | undefined) =>
+    list ? list.filter((_, i) => i !== index) : undefined
+  const transparentOriginal = latest.transparentOriginalImages?.[index]
+  const { [imageId]: _params, ...actualParamsByImage } = latest.actualParamsByImage ?? {}
+  const { [imageId]: _prompt, ...revisedPromptByImage } = latest.revisedPromptByImage ?? {}
+  updateTaskInStore(latest.id, {
+    outputImages: without(latest.outputImages) ?? [],
+    outputPositions: without(latestPositions),
+    ...(latest.transparentOriginalImages
+      ? { transparentOriginalImages: without(latest.transparentOriginalImages) }
+      : {}),
+    ...(latest.actualParamsByImage ? { actualParamsByImage } : {}),
+    ...(latest.revisedPromptByImage ? { revisedPromptByImage } : {}),
+  })
+
+  const stillUsed = await imageIdsInUse(useStore.getState().tasks)
+  for (const id of [imageId, transparentOriginal]) {
+    if (!id || stillUsed.has(id) || referencedNow(id)) continue
+    await deleteImage(id)
+    imageCache.delete(id)
+    thumbnailCache.delete(id)
+  }
+  showToast(i18next.t('toast.imageDeleted', { ns: 'store' }), 'success')
+  return 'kept'
 }
 
 /** 清空数据选项 */
@@ -2751,7 +3080,8 @@ export async function importData(
     const unzipped = unzipSync(new Uint8Array(buffer))
 
     const manifestBytes = unzipped['manifest.json']
-    if (!manifestBytes) throw new Error(i18next.t('error.manifestMissing', { ns: 'store' }))
+    if (!manifestBytes)
+      throw new UserFacingError(i18next.t('error.manifestMissing', { ns: 'store' }))
 
     const data: ExportData = JSON.parse(strFromU8(manifestBytes))
 
@@ -2832,7 +3162,10 @@ export async function storeImageFromFile(
   file: File,
   options: { compress?: boolean } = {},
 ): Promise<{ id: string; dataUrl: string }> {
-  const raw = await fileToDataUrl(file)
+  // 动态引入：imageFiles 会读这个 store，顶层互引会在初始化时拿到半成品。
+  const { compressUploadFiles } = await import('./lib/imageFiles')
+  const [fitted] = await compressUploadFiles([file])
+  const raw = await fileToDataUrl(fitted ?? file)
   const dataUrl = options.compress ? ((await compressInputImageDataUrls([raw]))[0] ?? raw) : raw
   const id = await storeImage(dataUrl, 'upload')
   cacheImage(id, dataUrl)
@@ -2847,7 +3180,7 @@ export async function storeImageFromUrl(
   const res = await fetcher(src)
   const blob = await res.blob()
   if (!blob.type.startsWith('image/'))
-    throw new Error(i18next.t('error.notAnImage', { ns: 'store' }))
+    throw new UserFacingError(i18next.t('error.notAnImage', { ns: 'store' }))
   const dataUrl = await blobToDataUrl(blob)
   const id = await storeImage(dataUrl, 'upload')
   cacheImage(id, dataUrl)

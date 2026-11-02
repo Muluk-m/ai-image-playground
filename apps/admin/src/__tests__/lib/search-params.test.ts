@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-
 import {
+  parseAgentPromptsSearch,
   parseDeviceDetailSearch,
   parseDevicesSearch,
   parseFullscreen,
@@ -166,4 +166,34 @@ describe('generation task time windows', () => {
       expect(() => parseGenerationTasksSearch(input)).toThrow('任务时间范围无效')
     }
   })
+})
+
+describe('parseAgentPromptsSearch', () => {
+  it('keeps defaults out of the URL and preserves task inspection state', () => {
+    expect(parseAgentPromptsSearch({})).toEqual({})
+    expect(
+      parseAgentPromptsSearch({
+        status: 'awaiting',
+        edited: 'unknown',
+        q: ' 杯子 ',
+        task: 'task-1',
+      }),
+    ).toEqual({ status: 'awaiting', edited: 'unknown', q: '杯子', task: 'task-1' })
+  })
+  it('rejects invalid ranges and ambiguous owners', () => {
+    expect(() => parseAgentPromptsSearch({ from: 1 })).toThrow()
+    expect(() => parseAgentPromptsSearch({ userId: 'u', deviceId: 'd' })).toThrow()
+    expect(() => parseAgentPromptsSearch({ edited: 'maybe' })).toThrow()
+  })
+})
+
+it('keeps task source filters and exact prompt-task links in URL state', () => {
+  expect(parseGenerationTasksSearch({ source: 'chat', task: 'task-1' })).toMatchObject({
+    source: 'chat',
+    task: 'task-1',
+  })
+  expect(parseGenerationTasksSearch({ source: 'manual' })).toEqual({ source: 'manual' })
+  expect(parseGenerationTasksSearch({ source: 'invalid' })).toEqual({})
+  expect(parseAgentPromptsSearch({ taskId: 'task-1' })).toEqual({ taskId: 'task-1' })
+  expect(() => parseAgentPromptsSearch({ taskId: '' })).toThrow()
 })

@@ -10,18 +10,33 @@ vi.mock('../../../../lib/imagePreprocessing', async () => ({
 
 import 'fake-indexeddb/auto'
 import type { AgentTurnReference } from '@image-playground/shared'
+import {
+  canvasOrigin,
+  createCanvasUndoManager,
+  deleteCanvasNode,
+  insertCanvasNode,
+  updateCanvasNode,
+} from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as Y from 'yjs'
 import AgentComposer from '../../../../features/agent/components/AgentComposer'
 import { agentDraft, DraftSession } from '../../../../features/agent/lib/drafts'
 import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
+import { registerNodeCanvasFocus } from '../../../../features/canvas/lib/nodeCanvasFocus'
+import {
+  clearNodeCanvasSelection,
+  nodeCanvasSelection,
+  setNodeCanvasSelection,
+} from '../../../../features/canvas/lib/nodeCanvasSelection'
 import { useLibraryStore } from '../../../../features/library/store'
 import { scopedStorageName } from '../../../../lib/authScope'
 import { getSelectedImageMentionLabel } from '../../../../lib/promptImageMentions'
 import { useStore } from '../../../../store'
+import { openCanvas } from '../../../helpers/activeProject'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -32,6 +47,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const resultBitmap = vi.hoisted(() => vi.fn())
 vi.mock('../../../../features/agent/lib/artifactSource', () => ({
   previewArtifactBitmap: resultBitmap,
+  displayArtifactBitmap: resultBitmap,
+  knownArtifactReferenceSource: (artifact: { mediaId?: string }, canvasSource?: string) =>
+    artifact.mediaId ? `aip-media:${artifact.mediaId}` : canvasSource,
 }))
 
 const PIXEL = 'data:image/png;base64,aGk='
@@ -189,11 +207,13 @@ function fireDrag(target: Element, type: string, files: File[]): void {
 }
 
 /** 读文件与压缩都是异步的，等它们落进引用区。 */
-async function attached(): Promise<string[]> {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 20))
+async function attached(count = 1): Promise<string[]> {
+  return vi.waitFor(async () => {
+    await act(async () => {})
+    const sources = [...host.querySelectorAll('img')].map((img) => img.getAttribute('src') ?? '')
+    expect(sources).toHaveLength(count)
+    return sources
   })
-  return [...host.querySelectorAll('img')].map((img) => img.getAttribute('src') ?? '')
 }
 
 /** 隐藏的 file input 在 jsdom 里选不到真文件，塞一份进去再派 change。 */
@@ -266,7 +286,7 @@ describe('智能体输入框', () => {
     const zone = host.querySelector('[data-image-dropzone]')!
     fireDrag(zone, 'drop', [png('1.png'), png('2.png'), png('3.png'), png('4.png')])
 
-    expect(await attached()).toHaveLength(0)
+    expect(await attached(0)).toHaveLength(0)
     const dialog = useStore.getState().confirmDialog
     if (!dialog) throw new Error('missing confirm dialog')
 
@@ -283,9 +303,9 @@ describe('智能体输入框', () => {
     const zone = host.querySelector('[data-image-dropzone]')!
     fireDrag(zone, 'drop', [png('1.png'), png('2.png'), png('3.png'), png('4.png')])
 
-    expect(await attached()).toHaveLength(0)
+    expect(await attached(0)).toHaveLength(0)
     act(() => useStore.getState().setConfirmDialog(null))
-    expect(await attached()).toHaveLength(0)
+    expect(await attached(0)).toHaveLength(0)
 
     type('先只说话')
     click('发送并拟提示词')
@@ -310,7 +330,7 @@ describe('智能体输入框', () => {
       editor().dispatchEvent(event)
     })
 
-    expect(await attached()).toHaveLength(3)
+    expect(await attached(3)).toHaveLength(3)
     expect(useStore.getState().confirmDialog).toBeNull()
   })
 
@@ -338,7 +358,7 @@ describe('智能体输入框', () => {
         expect(agentDraft(null).getSnapshot().draft.references).toHaveLength(2),
       )
     })
-    expect(await attached()).toHaveLength(2)
+    expect(await attached(2)).toHaveLength(2)
     expect(host.querySelector('img[alt="2"]')).not.toBeNull()
   })
 
@@ -800,6 +820,43 @@ describe('发送与中止共用一颗按钮', () => {
     expect(abort).not.toHaveBeenCalled()
   })
 
+  it('刚发出去时按钮在原位变成中止：连点的第二下不停掉刚发出的这一轮，过一会儿才可中止', () => {
+    vi.useFakeTimers()
+    try {
+      const abort = vi.fn(async () => {})
+      useAgentStore.setState({ abort })
+      render()
+      type('画一只猫')
+      act(() => {
+        trailing().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      expect(send).toHaveBeenCalledTimes(1)
+      act(() => {
+        useAgentStore.setState({ turn: 'running', activeTurn: { turnId: 'turn-1' } })
+      })
+
+      // 双击的第二下、或焦点停在按钮上又按一次回车：这时按钮不是可点的中止。
+      expect(trailing().getAttribute('aria-label')).not.toBe('中止')
+      expect(trailing().disabled).toBe(true)
+      act(() => {
+        trailing().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      expect(abort).not.toHaveBeenCalled()
+
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(trailing().getAttribute('aria-label')).toBe('中止')
+      expect(trailing().disabled).toBe(false)
+      act(() => {
+        trailing().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      expect(abort).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('写着字时 Esc 仍能中止，不必先清空输入框', () => {
     const abort = vi.fn(async () => {})
     useAgentStore.setState({ turn: 'running', activeTurn: { turnId: 'turn-1' }, abort })
@@ -896,16 +953,107 @@ describe('下一句幽灵文字', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('点填入按钮只把第一句放进输入框', () => {
+  it.each(['shortcut', 'text'])('点击句首快捷键或建议文字都只填入第一句（%s）', (target) => {
     showFollowUp()
     const button = host.querySelector<HTMLButtonElement>(
       'button[aria-label="把预测的下一句填进输入框"]',
     )
     expect(button?.getAttribute('type')).toBe('button')
+    const shortcut = button?.firstElementChild
+    const text = button?.lastElementChild
+    expect(shortcut?.textContent).toContain('Tab')
+    expect(text?.textContent).toBe(FIRST)
     act(() => {
-      button?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      ;(target === 'shortcut' ? shortcut : text)?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true }),
+      )
     })
     expect(editor().textContent).toBe(FIRST)
+    expect(editor().hasAttribute('data-follow-up')).toBe(false)
+    expect(agentDraft(null).getSnapshot().draft.prompt).toBe(FIRST)
     expect(send).not.toHaveBeenCalled()
   })
+})
+
+it('shows live named node references, follows multiselect and deletion, and clears across canvases', async () => {
+  const workspace = await openCanvas()
+  doc = workspace.doc
+  const graph = new Y.Doc()
+  const origin = canvasOrigin('user', 'composer-references')
+  const undo = createCanvasUndoManager(graph, origin)
+  const canvas = {
+    doc: graph,
+    origin,
+    undo,
+    destroy: async () => {
+      undo.destroy()
+      graph.destroy()
+    },
+  }
+  const focus = vi.fn(() => true)
+  const reveal = vi.fn(() => true)
+  const unregister = registerNodeCanvasFocus(workspace.editor, focus, reveal)
+  for (const [id, name] of [
+    ['script', '开场剧本'],
+    ['second', '结尾'],
+  ]) {
+    insertCanvasNode(
+      graph,
+      {
+        id: id!,
+        type: 'text',
+        x: 0,
+        y: 0,
+        width: 300,
+        height: 200,
+        data: { name: name!, text: '完整正文', fontSize: 16, fill: '#fff' },
+      },
+      origin,
+    )
+  }
+  try {
+    act(() => setNodeCanvasSelection(workspace.editor, canvas, ['script', 'second']))
+    render()
+    const chips = () => [...host.querySelectorAll('[data-node-reference-id]')]
+    expect(chips().map((chip) => chip.getAttribute('data-node-reference-id'))).toEqual([
+      'script',
+      'second',
+    ])
+    expect(chips()[0]?.textContent).toContain('文本')
+    expect(chips()[0]?.textContent).toContain('开场剧本')
+    // Context nodes share the reference row with the attachment action.
+    const referenceRow = host.querySelector('.creation-reference-stack')!
+    expect(referenceRow.contains(chips()[0]!)).toBe(true)
+    expect(referenceRow.querySelector('button[aria-label="添加参考图"]')).toBeTruthy()
+    click('定位 开场剧本')
+    click('定位 开场剧本')
+    expect(reveal.mock.calls).toEqual([[['script']], [['script']]])
+    expect(focus).not.toHaveBeenCalled()
+    expect(nodeCanvasSelection(workspace.editor)).toEqual(['script', 'second'])
+    expect(send).not.toHaveBeenCalled()
+    act(() =>
+      updateCanvasNode(
+        graph,
+        'script',
+        {
+          data: { name: '新标题', text: '完整正文', fontSize: 16, fill: '#fff' },
+        },
+        origin,
+      ),
+    )
+    expect(chips()[0]?.textContent).toContain('新标题')
+    act(() => deleteCanvasNode(graph, 'second', origin))
+    expect(chips()).toHaveLength(1)
+    act(() => setNodeCanvasSelection(workspace.editor, canvas, []))
+    expect(chips()).toHaveLength(0)
+    act(() => setNodeCanvasSelection(workspace.editor, canvas, ['script']))
+    expect(chips()).toHaveLength(1)
+    doc = new CanvasDoc()
+    render()
+    expect(chips()).toHaveLength(0)
+  } finally {
+    unregister()
+    act(() => clearNodeCanvasSelection(workspace.editor, canvas))
+    await canvas.destroy()
+  }
 })

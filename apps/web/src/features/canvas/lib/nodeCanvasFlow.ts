@@ -1,4 +1,9 @@
-import type { CanvasEdge, CanvasNode } from '@image-playground/shared'
+import {
+  type CanvasEdge,
+  type CanvasNode,
+  stageComposedPrompt,
+  stageIncomingReferences,
+} from '@image-playground/shared'
 
 /** 一条直接连进来的上游。只看这一跳，不把更前面的节点也算进来。 */
 export interface NodeReference {
@@ -16,31 +21,7 @@ export function incomingReferences(
   edges: readonly CanvasEdge[],
   targetId: string,
 ): NodeReference[] {
-  const byId = new Map(nodes.map((node) => [node.id, node]))
-  const refs: NodeReference[] = []
-  for (const edge of edges) {
-    if (edge.target !== targetId) continue
-    const node = byId.get(edge.source)
-    if (!node || node.type === 'timeline' || node.type === 'storyboard') continue
-    if (node.type === 'text') {
-      const text = node.data.text.trim()
-      refs.push({ id: node.id, kind: 'text', label: text.slice(0, 42), text })
-      continue
-    }
-    refs.push({
-      id: node.id,
-      kind: node.type === 'video' || node.data.meta?.nodeKind === 'video' ? 'video' : 'image',
-      label: node.data.name?.trim() ?? '',
-      ...(node.data.meta?.nodeKind === 'asset'
-        ? {
-            asset: true,
-            text: [node.data.name, node.data.meta.assetDescription].filter(Boolean).join('：'),
-          }
-        : {}),
-      ...(node.data.fileId ? { fileId: node.data.fileId } : {}),
-    })
-  }
-  return refs
+  return stageIncomingReferences(nodes, edges, targetId)
 }
 
 /**
@@ -108,10 +89,7 @@ export function composeNodePrompt(
   userPrompt: string,
   references: readonly NodeReference[],
 ): string {
-  const notes = references.flatMap((ref) =>
-    (ref.kind === 'text' || ref.asset) && ref.text ? [ref.text] : [],
-  )
-  return [...notes, userPrompt.trim()].filter(Boolean).join('\n')
+  return stageComposedPrompt(userPrompt, references)
 }
 
 export function referenceFileIds(

@@ -40,7 +40,7 @@ shadcn new-york 原语加 `<Icon>`。业务代码从这里取控件，不写原�
 </Button>
 ```
 
-- 纯图标按钮必须有 `aria-label`；需要悬停说明时外面包 `Hint`。
+- 纯图标按钮保留 `aria-label`；是否显示提示先按[共享规则](../../../../docs/design/icon-buttons.md)判断。上面的关闭按钮只显示图标。
 - 圆角用默认的 `rounded-md`，见 DESIGN.md「Shapes」。模型与参数 chip 选 `chip-lg` / `chip-sm` 尺寸并配 `outline`，不要在调用点再硬改高度、圆角或底色。
 - 顶栏账号簇保留移动端至少 40px 的触控区域，容器只在小于 768px 时统一设置最小宽高；
   桌面仍用 32px 控件。数据驱动的长分类名称可用 `h-auto min-h-8 whitespace-normal` 换行。
@@ -101,6 +101,6 @@ shadcn new-york 原语加 `<Icon>`。业务代码从这里取控件，不写原�
 不直接使用。悬停提示统一用 `Hint`（assistant-ui/elements/tooltip-icon-button），它在 Tooltip 原语上
 加了统一的延迟、样式，以及「打开模态时收起所有提示」的约定。
 
-已经显示文字、功能一目了然的控件不加 tooltip。纯图标按钮用 `aria-label` 作为悬停与聚焦提示；
-带文字的按钮不会因为有 `aria-label` 再弹一层。文字被裁成省略号时，用 `OverflowText` /
-`useOverflowTitle` 只在真正溢出时显示同一段完整文字，不要附上模型 id 等内部标识。
+提示内容与显示条件统一按[图标按钮与提示规则](../../../../docs/design/icon-buttons.md)，适用于自动提示和显式 `Hint` / `TooltipIconButton`。
+`Button` 已处理非直观图标的自动提示，无须再套 `Hint`。需要独立说明时使用 `Hint`，并保留按钮的无障碍名称与说明。
+文字溢出提示使用 `OverflowText` / `useOverflowTitle` 检测实际溢出。

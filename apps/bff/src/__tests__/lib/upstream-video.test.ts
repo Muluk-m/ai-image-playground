@@ -11,6 +11,7 @@ process.env.PORT = '0'
 
 const {
   callUpstream,
+  cancelUpstreamTasks,
   extractUpstreamFailure,
   setAsyncPollBackoffForTesting,
   setUpstreamFetchForTesting,
@@ -873,5 +874,53 @@ describe('Veo video upstream', () => {
     } finally {
       server.stop(true)
     }
+  })
+})
+
+describe('中止时取消上游任务（best effort）', () => {
+  it('Ark 用 DELETE 取消排队中的任务，带同一把 Bearer key', async () => {
+    const calls: Array<{ url: string; method?: string; auth?: string }> = []
+    setUpstreamFetchForTesting((async (url: string, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>
+      calls.push({ url, method: init?.method, auth: headers.authorization })
+      return new Response('{}', { status: 200 })
+    }) as unknown as TestFetch)
+
+    const results = await cancelUpstreamTasks('openai-compat', ARK_MODEL, ['task_ark_1'])
+
+    expect(results).toEqual([{ taskId: 'task_ark_1', outcome: 'cancelled', status: 200 }])
+    expect(calls).toEqual([
+      { url: `${ARK_TASKS}/task_ark_1`, method: 'DELETE', auth: 'Bearer ark-test-key' },
+    ])
+  })
+
+  it('Ark 拒绝取消（运行中任务）或网络出错时只记结果，不抛错', async () => {
+    let call = 0
+    setUpstreamFetchForTesting((async () => {
+      call += 1
+      if (call === 1) return new Response('{"error":{"code":"InvalidAction"}}', { status: 400 })
+      throw new Error('socket hang up')
+    }) as unknown as TestFetch)
+
+    const results = await cancelUpstreamTasks('openai-compat', ARK_MODEL, ['t1', 't2'])
+
+    expect(results).toEqual([
+      { taskId: 't1', outcome: 'rejected', status: 400 },
+      { taskId: 't2', outcome: 'error', error: 'socket hang up' },
+    ])
+  })
+
+  it('没有取消接口的上游（Grok / Agnes / Veo）直接返回 null，不发请求', async () => {
+    let called = false
+    setUpstreamFetchForTesting((async () => {
+      called = true
+      return new Response('{}')
+    }) as unknown as TestFetch)
+
+    expect(await cancelUpstreamTasks('openai-compat', 'grok-imagine-video', ['x'])).toBeNull()
+    expect(await cancelUpstreamTasks('openai-compat', VEO_MODEL, ['x'])).toBeNull()
+    expect(await cancelUpstreamTasks('openai-compat', 'no-such-model', ['x'])).toBeNull()
+    expect(await cancelUpstreamTasks('openai-compat', ARK_MODEL, [])).toBeNull()
+    expect(called).toBe(false)
   })
 })

@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { resetTestDatabase } from '@image-playground/db/testing'
 import type { ChannelDiscoveryResponse } from '@image-playground/shared'
 
-const TEST_DB = process.env.TEST_DATABASE_URL
-if (!TEST_DB) throw new Error('TEST_DATABASE_URL is required for PostgreSQL tests')
+// 停用清单读公开库的 model_availability，要一个迁好的库。
+const TEST_DB = await resetTestDatabase('bff_channels')
 
 process.env.PORT = '0'
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
@@ -15,6 +16,7 @@ const { _setChannelsForTesting, parseChannelsConfig } = await import('../../lib/
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
+const { _resetInactiveModelsForTesting } = await import('../../lib/model-availability')
 
 /** 装一个只回答「哪些模型停用了」的 overlay；其余钩子沿用空实现。 */
 function stopModels(answer: () => Promise<ReadonlySet<string>>): void {
@@ -80,6 +82,7 @@ async function discovered(): Promise<ChannelDiscoveryResponse['channels']> {
 describe('GET /api/channels', () => {
   beforeEach(() => {
     _setChannelsForTesting([])
+    _resetInactiveModelsForTesting()
   })
   afterEach(() => {
     _setChannelsForTesting([])

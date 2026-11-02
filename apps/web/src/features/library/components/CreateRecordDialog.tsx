@@ -5,12 +5,14 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { Textarea } from '../../../components/ui/textarea'
+import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import {
   acceptImageFiles,
-  collectDroppedFiles,
   filesFromFolderInput,
+  imageNeedsUploadCompression,
+  prepareAcceptedImageFiles,
 } from '../../../lib/imageFiles'
 import { useStore } from '../../../store'
 import type { AssetKind, LookPurpose } from '../types'
@@ -60,7 +62,6 @@ export default function CreateRecordDialog(props: Props) {
   const [purpose, setPurpose] = useState<LookPurpose>('scene')
   const [description, setDescription] = useState('')
   const [saving, setSaving] = useState(false)
-  const [dragging, setDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const isAsset = props.kind === 'asset'
@@ -73,15 +74,26 @@ export default function CreateRecordDialog(props: Props) {
    * 文件夹里解出来的图一并收下；名字还空着就用文件夹名。模板只要一张图，不收文件夹。
    * 一次进太多先问一声：按真正会收下的张数问，模板永远只收一张，所以不会被打断。
    */
+  const addBatch = useRef(0)
   const addFiles = (incoming: readonly File[], folder: string | null = null) => {
-    const images = acceptImageFiles(incoming)
-    if (images.length === 0) return
-    const accepted = isAsset ? images : images.slice(0, 1)
-    confirmImageBatch(accepted.length, () => {
-      setFiles((current) => (isAsset ? [...current, ...accepted] : accepted))
-      if (isAsset && folder) setName((current) => current || folder.slice(0, NAME_MAX))
-    })
+    const ticket = ++addBatch.current
+    const take = (images: File[]) => {
+      if (ticket !== addBatch.current || images.length === 0) return
+      const accepted = isAsset ? images : images.slice(0, 1)
+      confirmImageBatch(accepted.length, () => {
+        if (ticket !== addBatch.current) return
+        setFiles((current) => (isAsset ? [...current, ...accepted] : accepted))
+        if (isAsset && folder) setName((current) => current || folder.slice(0, NAME_MAX))
+      })
+    }
+    if (!incoming.some(imageNeedsUploadCompression)) {
+      take(acceptImageFiles(incoming))
+      return
+    }
+    void prepareAcceptedImageFiles(incoming).then(take)
   }
+
+  const { dragging, dropZoneProps } = useImageDropZone(addFiles)
 
   const submit = async () => {
     if (!canSave) return
@@ -128,7 +140,7 @@ export default function CreateRecordDialog(props: Props) {
           )}
           <Button
             type="button"
-            variant="ghost"
+            autoTooltip={false}
             size="icon-sm"
             onClick={props.onClose}
             aria-label={t('common:action.close')}
@@ -142,19 +154,7 @@ export default function CreateRecordDialog(props: Props) {
           {t(`${ns}.images`)} {!isAsset && <span className="text-destructive">*</span>}
         </span>
         <div
-          onDragEnter={(e) => {
-            e.preventDefault()
-            setDragging(true)
-          }}
-          onDragOver={(e) => e.preventDefault()}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault()
-            setDragging(false)
-            void collectDroppedFiles(e.dataTransfer).then(({ files: dropped, folder }) =>
-              addFiles(dropped, folder),
-            )
-          }}
+          {...dropZoneProps}
           className={`flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed px-6 py-8 text-center transition ${
             dragging ? 'border-primary bg-primary/5' : 'border-border bg-muted/40'
           }`}
@@ -170,7 +170,7 @@ export default function CreateRecordDialog(props: Props) {
                   />
                   <Button
                     type="button"
-                    variant="secondary"
+                    autoTooltip={false}
                     size="icon-xs"
                     onClick={() => setFiles((current) => current.filter((_, j) => j !== i))}
                     aria-label={t('common:action.delete')}

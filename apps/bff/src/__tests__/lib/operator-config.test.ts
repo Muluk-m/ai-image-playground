@@ -156,6 +156,10 @@ describe('operator config', () => {
       JSON.stringify({
         capabilities: {
           'quota:daily': true,
+          'canvas:nodes': false,
+          'canvas:blank-generate': true,
+          'canvas:node-run': false,
+          'canvas:script': true,
           'generation:storyboard': true,
           'matte:server': true,
           'remix:analyze': false,
@@ -165,6 +169,8 @@ describe('operator config', () => {
     )
     const resolved = loadOperatorConfig(retired)
     expect(resolved.capabilities['quota:daily']).toBe(true)
+    expect(evaluateCapability(resolved, 'canvas:nodes')).toBe(false)
+    expect(resolved.capabilities).not.toHaveProperty('canvas:nodes')
     expect(evaluateCapability(resolved, 'matte:server')).toBe(false)
     expect(evaluateCapability(resolved, 'generation:storyboard')).toBe(false)
     expect(resolved.capabilities).not.toHaveProperty('matte:server')
@@ -197,6 +203,37 @@ describe('operator config', () => {
     expect(() => evaluateCapability(resolved, 'unknown:capability')).not.toThrow()
     expect(evaluateCapability(resolved, 'unknown:capability')).toBe(false)
   })
+})
+
+it('ignores retired canvas flags and per-user grants left in an older file', () => {
+  const resolved = loadOperatorConfig(
+    temporaryFile(
+      JSON.stringify({
+        capabilities: {
+          'accounts:login': true,
+          'canvas:nodes': true,
+          'canvas:blank-generate': true,
+          'canvas:node-run': true,
+          'canvas:script': false,
+        },
+        capabilityUsers: {
+          'user-allowed': ['canvas:blank-generate', 'canvas:node-run', 'canvas:script'],
+        },
+      }),
+    ),
+  )
+  expect(resolved.capabilities).not.toHaveProperty('canvas:nodes')
+  expect(resolved.capabilities).not.toHaveProperty('canvas:script')
+  expect(resolved.capabilityUsers['user-allowed']).toEqual([])
+  expect(() =>
+    loadOperatorConfig(
+      temporaryFile(
+        JSON.stringify({
+          capabilityUsers: { 'user-allowed': ['accounts:login'] },
+        }),
+      ),
+    ),
+  ).toThrow('unsupported capability')
 })
 
 it('only advertises bulk attachments after explicit resource limits and dependencies are ready', () => {
@@ -243,4 +280,24 @@ it('only advertises bulk attachments after explicit resource limits and dependen
   ]) {
     expect(() => manifest({ capabilities, quotas: { ...quotas, ...invalid } })).toThrow()
   }
+})
+
+it('client manifest carries the ordinary media limit whenever cloud sync is on', () => {
+  const manifest = (value: unknown) =>
+    clientCapabilityManifest(loadOperatorConfig(temporaryFile(JSON.stringify(value))))
+  const synced = manifest({
+    capabilities: { 'accounts:login': true, 'accounts:sync': true, 'agent:attachments': false },
+    quotas: { 'sync:asset-image-bytes': 10_485_760 },
+  })
+  expect(synced['agent:attachments']).toBe(false)
+  expect(synced.mediaLimits).toEqual({ imageBytes: 10_485_760, imagePixels: 1_000_000_000 })
+  expect(
+    manifest({
+      capabilities: { 'accounts:login': true, 'accounts:sync': true },
+      quotas: { 'sync:asset-image-bytes': 200 * 1024 * 1024 },
+    }).mediaLimits?.imageBytes,
+  ).toBe(50 * 1024 * 1024)
+  expect(
+    manifest({ capabilities: { 'accounts:login': true, 'accounts:sync': false } }),
+  ).not.toHaveProperty('mediaLimits')
 })

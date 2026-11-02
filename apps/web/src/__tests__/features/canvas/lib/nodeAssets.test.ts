@@ -102,7 +102,7 @@ it('resolves image dimensions before placement and does not overlap existing car
   await insertAssetNode(editor, canvas, imageAsset, { x: 0, y: 0 })
   await insertAssetNode(editor, canvas, imageAsset, { x: 0, y: 0 })
   const [a, b] = readCanvasDocument(canvas.doc).nodes
-  expect(a?.height).toBe(180)
+  expect(a).toMatchObject({ width: 360, height: 240 })
   expect(b!.y).toBeGreaterThan(a!.y + a!.height)
   expect(a?.data).toMatchObject({
     naturalWidth: 640,

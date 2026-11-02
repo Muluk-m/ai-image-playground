@@ -29,6 +29,14 @@ it('remembers why each tool call failed, apart from the text pi keeps', () => {
   log.failed('c', new Error('意外'), false)
   expect(log.take('c', false)).toBe('unknown')
 
+  log.started('d')
+  log.failed(
+    'd',
+    Object.assign(new Error('closed'), { code: 'batch_execution_unavailable' }),
+    false,
+  )
+  expect(log.take('d', false)).toBe('service_unavailable')
+
   // 工具根本没被调起：pi 在执行前的参数校验就拦下了它。
   expect(log.take('never-ran', false)).toBe('invalid_params')
   expect(log.take('never-ran', true)).toBe('cancelled')

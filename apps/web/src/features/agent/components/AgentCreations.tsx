@@ -13,7 +13,13 @@ import { OverflowText } from '../../../components/ui/overflowTitle'
 
 import { currentLocale, i18next, useTranslation } from '../../../i18n'
 import type { CanvasDoc, CanvasEl, ImageEl, PlaceholderEl } from '../../canvas/lib/canvasDoc'
+import type { CanvasEditor } from '../../canvas/lib/editor'
 import { canvasElementCreatedAt, canvasImageName } from '../../canvas/lib/imageInfo'
+import {
+  nodeCanvasSelection,
+  nodeCanvasSelectionRevision,
+  subscribeNodeCanvasSelection,
+} from '../../canvas/lib/nodeCanvasSelection'
 import { type AgentCanvasSink, agentCanvasSink, onAgentCanvasSinkChange } from '../lib/canvasSink'
 import AgentCreationsGallery from './AgentCreationsGallery'
 
@@ -227,13 +233,23 @@ const WorkCard = memo(function WorkCard({
 
 export default function AgentCreations({
   doc,
+  editor,
   onSelect: onSelectWork,
 }: {
   doc: CanvasDoc
+  editor: CanvasEditor
   onSelect?: () => void
 }) {
   const { t, i18n } = useTranslation('agent')
-  useSyncExternalStore(doc.subscribe, () => doc.version)
+  const docRevision = useSyncExternalStore(doc.subscribe, () => doc.version)
+  const selectionRevision = useSyncExternalStore(
+    subscribeNodeCanvasSelection,
+    nodeCanvasSelectionRevision,
+  )
+  const selected = useMemo(
+    () => new Set(nodeCanvasSelection(editor) ?? doc.selection),
+    [doc.selection, docRevision, editor, selectionRevision],
+  )
   const [gallery, setGallery] = useState(false)
   // 分组标题里的兜底文案是界面文案，切语言要跟着换，所以语言也是这份缓存的入参。
   const groups = useMemo(() => groupsFor(doc.elements), [doc.elements, i18n.language])
@@ -310,7 +326,7 @@ export default function AgentCreations({
                 key={element.id}
                 element={element}
                 src={element.type === 'image' ? thumbnails.get(bitmapKey(element)) : null}
-                selected={doc.selection.has(element.id)}
+                selected={selected.has(element.id)}
                 onSelect={onSelect}
               />
             ))}
@@ -331,7 +347,7 @@ export default function AgentCreations({
                 variant="secondary"
                 size="xs"
                 className="max-w-full truncate"
-                aria-current={doc.selection.has(element.id) ? 'true' : undefined}
+                aria-current={selected.has(element.id) ? 'true' : undefined}
               >
                 {element.type === 'text'
                   ? element.text || t('creations.markText')

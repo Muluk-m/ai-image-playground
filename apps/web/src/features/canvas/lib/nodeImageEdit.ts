@@ -1,5 +1,5 @@
 import { canvasMainResult, chooseCanvasResult, readCanvasDocument } from '@image-playground/shared'
-import { i18next } from '../../../i18n'
+import { i18next, UserFacingError } from '../../../i18n'
 import { canvasToBlob, loadImage } from '../../../lib/canvasImage'
 import { blobDataUrl, resolveMediaSource } from '../../../lib/cloudMedia'
 import { prepareMaskTargetDataUrl } from '../../../lib/maskPreprocess'
@@ -30,10 +30,10 @@ export async function openNodeImageEdit(
 ): Promise<NodeImageEditSource> {
   const node = readCanvasDocument(canvas.doc).nodes.find((n) => n.id === nodeId)
   if (node?.type !== 'image' || !node.data.fileId)
-    throw new Error(i18next.t('inpaint.sourceGone', { ns: 'canvas' }))
+    throw new UserFacingError(i18next.t('inpaint.sourceGone', { ns: 'canvas' }))
   const fileId = node.data.fileId
   const source = editor.doc.files[fileId]
-  if (!source) throw new Error(i18next.t('inpaint.sourceGone', { ns: 'canvas' }))
+  if (!source) throw new UserFacingError(i18next.t('inpaint.sourceGone', { ns: 'canvas' }))
   adoptNodeResult(canvas.doc, nodeId)
   const mainId = canvasMainResult(canvas.doc, nodeId)?.id
   const image = await loadImage(await resolveMediaSource(source, 'original', true))
@@ -74,7 +74,7 @@ export function assertImageEditSource(
       (node.data.fileId !== source.fileId || editor.doc.files[source.fileId] !== source.source)) ||
     canvasMainResult(canvas.doc, source.nodeId)?.id !== source.mainId
   ) {
-    throw new Error(i18next.t('pixelEdit.sourceChanged', { ns: 'canvas' }))
+    throw new UserFacingError(i18next.t('pixelEdit.sourceChanged', { ns: 'canvas' }))
   }
 }
 
@@ -91,7 +91,7 @@ export function renderImageEditStrokes(
   if (layer.width !== width) layer.width = width
   if (layer.height !== height) layer.height = height
   const ctx = layer.getContext('2d')
-  if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
+  if (!ctx) throw new UserFacingError(i18next.t('canvas.unsupported', { ns: 'lib' }))
   ctx.clearRect(0, 0, layer.width, layer.height)
   for (const stroke of strokes)
     paintMaskStroke(ctx, element, layer, stroke, {
@@ -113,14 +113,14 @@ export async function finishNodeImageEdit(
   if (!strokes.length) return false
   if (mode === 'inpaint') {
     const refusal = inpaintRefusal(source.element, source.element, useStore.getState().settings)
-    if (refusal) throw new Error(refusal)
+    if (refusal) throw new UserFacingError(refusal)
     const prepared = await prepareMaskTargetDataUrl(
       await resolveMediaSource(source.source, 'original', true),
     )
     const maskDataUrl = await exportMaskDataUrl(source.element, prepared, strokes)
     assertImageEditSource(editor, canvas, source)
     const currentRefusal = inpaintRefusal(source.element, prepared, useStore.getState().settings)
-    if (currentRefusal) throw new Error(currentRefusal)
+    if (currentRefusal) throw new UserFacingError(currentRefusal)
     return submitNodeImage(editor, canvas.doc, source.nodeId, prompt, [prepared.dataUrl], {
       maskDataUrl,
     })
@@ -130,7 +130,7 @@ export async function finishNodeImageEdit(
   output.width = layer.width
   output.height = layer.height
   const ctx = output.getContext('2d')
-  if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
+  if (!ctx) throw new UserFacingError(i18next.t('canvas.unsupported', { ns: 'lib' }))
   ctx.drawImage(source.image, 0, 0)
   ctx.drawImage(layer, 0, 0)
   const dataUrl = await blobDataUrl(await canvasToBlob(output))

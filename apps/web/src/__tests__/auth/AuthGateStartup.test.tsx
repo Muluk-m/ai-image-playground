@@ -22,6 +22,7 @@ function markSessionHint() {
 
 beforeEach(() => {
   vi.resetModules()
+  history.replaceState(null, '', '/')
   localStorage.clear()
   sessionStorage.clear()
   clearSessionHint()
@@ -255,6 +256,22 @@ describe('anonymous startup', () => {
     const { scopedStorageName } = await import('../../lib/authScope')
     expect(scopedStorageName('image-playground')).toBe('image-playground')
     expect(document.body.querySelector('.auth-dialog')).toBeNull()
+  })
+  it('opens the login intent after anonymous boot and removes only that parameter', async () => {
+    history.replaceState(null, '', '/image?login=1&from=website#draft')
+    await bootAnonymously()
+
+    expect(document.body.querySelector('.auth-dialog')).not.toBeNull()
+    expect(window.location.href).toContain('/image?from=website#draft')
+  })
+
+  it('consumes a login intent for a signed-in user without opening a dialog', async () => {
+    markSessionHint()
+    history.replaceState(null, '', '/explore?login=1&from=website#draft')
+    await boot()
+
+    expect(document.body.querySelector('.auth-dialog')).toBeNull()
+    expect(window.location.href).toContain('/explore?from=website#draft')
   })
 
   it('opens the login dialog when a gated action asks for an account', async () => {

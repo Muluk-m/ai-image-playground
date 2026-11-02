@@ -1,11 +1,28 @@
-import type { AgentCanvasRunProposal } from '@image-playground/shared'
-import type { NodeBatchPlan } from '../../canvas/lib/nodeBatch'
+import type { AgentCanvasRunProposal, StageAuthorizationSubmission } from '@image-playground/shared'
+import type { NodeBatchHooks, NodeBatchPlan } from '../../canvas/lib/nodeBatch'
 
-/** Mounted node canvas only. Receiving/replaying a proposal never invokes review or generation. */
+interface AgentNodeBatchExecution {
+  readonly signal: AbortSignal
+  readonly progress: (completed: number, id: string) => void
+  readonly authorizations: Readonly<Record<string, StageAuthorizationSubmission>>
+  readonly hooks: NodeBatchHooks
+}
+
+/** Mounted node canvas only. Receiving/replaying a proposal never runs it by itself. */
 export interface AgentNodeRunBridge {
   readonly projectId: string
+  /** Wait for generated media and the server canvas acknowledgement before waking review. */
+  readonly syncResults?: () => Promise<void>
   quote(proposal: AgentCanvasRunProposal): NodeBatchPlan | null
-  review(proposal: AgentCanvasRunProposal, signature: string): boolean
+  /**
+   * Executes an already checked batch. Callers go through `nodeRuns`, which re-quotes the plan,
+   * matches its signature and specs, and preflights every node before calling this.
+   */
+  run(
+    proposal: AgentCanvasRunProposal,
+    plan: NodeBatchPlan,
+    execution: AgentNodeBatchExecution,
+  ): Promise<void>
 }
 let current: AgentNodeRunBridge | null = null
 const listeners = new Set<() => void>()

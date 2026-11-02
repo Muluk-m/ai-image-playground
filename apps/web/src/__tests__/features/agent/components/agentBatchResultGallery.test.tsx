@@ -1,0 +1,306 @@
+// @vitest-environment jsdom
+import 'fake-indexeddb/auto'
+import type { AgentBatchPage, AgentToolArtifact } from '@image-playground/shared'
+import { act } from 'react'
+import { createRoot } from 'react-dom/client'
+import { afterEach, expect, it, vi } from 'vitest'
+import AgentBatchResultGallery, {
+  AgentBatchRunRow,
+  BATCH_TILE_SLOW_AFTER_MS,
+} from '../../../../features/agent/components/AgentBatchResultGallery'
+import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
+import { panelMessage } from '../../../../features/agent/lib/panelMessages'
+import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+
+const displayReads = vi.hoisted(() => [] as string[])
+
+vi.mock('../../../../features/agent/lib/artifactSource', async (original) => ({
+  ...(await original<typeof import('../../../../features/agent/lib/artifactSource')>()),
+  displayArtifactBitmap: async (artifact: AgentToolArtifact) => {
+    displayReads.push(artifact.artifactId)
+    return `data:image/png;base64,display-${artifact.taskId}`
+  },
+  previewArtifactBitmap: async (artifact: AgentToolArtifact) =>
+    `data:image/png;base64,original-${artifact.taskId}`,
+}))
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+const estimate = {
+  status: 'available' as const,
+  estimatedCredits: 14,
+  estimatedChargeCredits: 14,
+  snapshots: [],
+}
+
+function finishedPage(): AgentBatchPage {
+  return {
+    batch: {
+      id: crypto.randomUUID(),
+      conversationId: 'conversation-sink',
+      originTurnId: 'turn-sink',
+      projectId: null,
+      experience: 'chat',
+      targetSnapshot: { projectId: null, projectRevision: null },
+      version: 1,
+      digest: 'b'.repeat(64),
+      title: '台盆场景图',
+      rule: '每个角度一张酒店卫浴场景图',
+      itemCount: 3,
+      status: 'closed',
+      executionEnabled: true,
+      submittedCount: 3,
+      actualCredits: 42,
+      createdAt: 1,
+      estimate: {
+        analysis: { ...estimate, estimatedCredits: 0, estimatedChargeCredits: 0 },
+        generation: estimate,
+      },
+    },
+    items: [0, 1, 2].map((ordinal) => ({
+      key: `angle-${ordinal}`,
+      ordinal,
+      kind: 'generation' as const,
+      inputs: [
+        {
+          imageId: `image-${ordinal}`,
+          mediaId: `fixture-media-${ordinal}`,
+          name: `角度${ordinal + 1}.jpg`,
+        },
+      ],
+      prompt: `角度${ordinal + 1}放进酒店卫浴`,
+      params: { provider: 'openai-compat', model: 'image-model', size: '1024x1024' },
+      dependencies: [],
+      progress: ordinal === 2 ? ('failed' as const) : ('completed' as const),
+      execution:
+        ordinal === 2
+          ? {
+              taskId: 'task-failed',
+              status: 'failed' as const,
+              attempt: 1,
+              actualCredits: 0,
+              errorCode: 'upstream_error',
+            }
+          : {
+              taskId: `task-${ordinal}`,
+              status: 'completed' as const,
+              attempt: 1,
+              actualCredits: 14,
+              artifacts: [
+                {
+                  artifactId: `artifact-${ordinal}`,
+                  media: 'image' as const,
+                  taskId: `task-${ordinal}`,
+                  outputIndex: 0,
+                  mime: 'image/png',
+                },
+              ],
+            },
+    })),
+    nextCursor: null,
+  }
+}
+
+afterEach(() => {
+  displayReads.length = 0
+  vi.unstubAllGlobals()
+  document.body.innerHTML = ''
+})
+
+it('shows finished batch outputs as images in the chat without expanding any item', async () => {
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  const page = finishedPage()
+  vi.stubGlobal('fetch', async (input: string | URL | Request) => {
+    const url = String(input)
+    if (!url.includes(`/api/agent/batches/${page.batch.id}`))
+      throw new Error(`Unexpected URL: ${url}`)
+    return Response.json(page)
+  })
+  const message = panelMessage('message-sink', 'turn-sink', 'assistant', [
+    {
+      type: 'toolResult',
+      toolName: 'planImageBatch',
+      toolCallId: 'call-sink',
+      title: '台盆场景图',
+      status: 'succeeded',
+      batchId: page.batch.id,
+    },
+  ])
+  if (message.kind !== 'tool') throw new Error('expected tool card')
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<AgentToolCard message={message} />))
+    await vi.waitFor(() =>
+      expect(
+        [...host.querySelectorAll<HTMLImageElement>('img')].filter((img) =>
+          img.src.includes('display-task-'),
+        ),
+      ).toHaveLength(2),
+    )
+    const results = [...host.querySelectorAll<HTMLImageElement>('img')].filter((img) =>
+      img.src.includes('display-task-'),
+    )
+    // Every output sits outside the collapsed per-item rows: nothing has to be opened to see it.
+    for (const img of results) expect(img.closest('details:not([open])')).toBeNull()
+    expect(results.map((img) => img.src)).toEqual([
+      'data:image/png;base64,display-task-0',
+      'data:image/png;base64,display-task-1',
+    ])
+    expect(host.querySelector('details[open]')).toBeNull()
+
+    await act(async () => results[1]!.closest('button')!.click())
+    await vi.waitFor(() =>
+      expect(
+        document.querySelector<HTMLImageElement>(
+          'img[src="data:image/png;base64,original-task-1"]',
+        ),
+      ).not.toBeNull(),
+    )
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+  }
+})
+
+it('does not fetch shown thumbnails again when a poll brings the same outputs as new objects', async () => {
+  const artifacts = (): AgentToolArtifact[] =>
+    [0, 1].map((index) => ({
+      artifactId: `poll-artifact-${index}`,
+      media: 'image',
+      taskId: `poll-task-${index}`,
+      outputIndex: 0,
+      mime: 'image/png',
+    }))
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<AgentBatchResultGallery artifacts={artifacts()} />))
+    await vi.waitFor(() => expect(host.querySelectorAll('img')).toHaveLength(2))
+    for (let poll = 0; poll < 3; poll++)
+      await act(async () => root.render(<AgentBatchResultGallery artifacts={artifacts()} />))
+    expect(host.querySelectorAll('img')).toHaveLength(2)
+    expect(displayReads.sort()).toEqual(['poll-artifact-0', 'poll-artifact-1'])
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+  }
+})
+
+it('确认后对话里一排同尺寸生成卡：各自显示状态与已用时间，久跑提示比平时慢，出图后原位换图，排队中的卡可单独取消', async () => {
+  const now = Date.now()
+  const cancelled: string[] = []
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentBatchRunRow
+          meta={{ model: { id: 'image-model', name: 'Image Model' }, tags: ['2K', '1:1'] }}
+          cancelling={new Set(['stuck'])}
+          onCancel={(key) => cancelled.push(key)}
+          tiles={[
+            {
+              key: 'done',
+              position: 1,
+              progress: 'completed',
+              execution: {
+                taskId: 'tile-task-0',
+                status: 'completed',
+                attempt: 1,
+                actualCredits: 100,
+                artifacts: [
+                  {
+                    artifactId: 'tile-artifact-0',
+                    media: 'image',
+                    taskId: 'tile-task-0',
+                    outputIndex: 0,
+                    mime: 'image/png',
+                  },
+                ],
+              },
+            },
+            {
+              key: 'running',
+              position: 2,
+              progress: 'in_flight',
+              execution: {
+                taskId: 'tile-task-1',
+                status: 'in_progress',
+                attempt: 1,
+                actualCredits: null,
+                startedAt: now - 42_000,
+              },
+            },
+            {
+              key: 'stuck',
+              position: 3,
+              progress: 'in_flight',
+              execution: {
+                taskId: 'tile-task-2',
+                status: 'in_progress',
+                attempt: 1,
+                actualCredits: null,
+                startedAt: now - BATCH_TILE_SLOW_AFTER_MS - 5_000,
+              },
+            },
+            { key: 'waiting', position: 4, progress: 'ready' },
+            {
+              key: 'queued',
+              position: 5,
+              progress: 'in_flight',
+              execution: {
+                taskId: 'tile-task-4',
+                status: 'queued',
+                attempt: 1,
+                actualCredits: null,
+              },
+            },
+          ]}
+        />,
+      ),
+    )
+    const tiles = [...host.querySelectorAll<HTMLElement>('[data-batch-tile]')]
+    expect(tiles.map((tile) => tile.dataset.batchStatus)).toEqual([
+      'completed',
+      'in_flight',
+      'in_flight',
+      'ready',
+      'in_flight',
+    ])
+    await vi.waitFor(() =>
+      expect(host.querySelector<HTMLImageElement>('[data-batch-tile="done"] img')?.src).toContain(
+        'display-tile-task-0',
+      ),
+    )
+    const running = host.querySelector('[data-batch-tile="running"]')!
+    expect(running.textContent).toMatch(/生成中0:4\d/)
+    expect(running.textContent).not.toContain('比平时慢')
+    expect(host.querySelector('[data-batch-tile="stuck"]')!.textContent).toContain('比平时慢')
+    const waiting = host.querySelector('[data-batch-tile="waiting"]')!
+    expect(waiting.textContent).toContain('待派发')
+    expect(waiting.textContent).not.toMatch(/\d:\d\d/)
+    // 头部与单次生图结果行同一套：模型 · 尺寸 · 比例 · 完成数。
+    expect(host.querySelector('.studio-agent-batch-meta')!.textContent).toBe(
+      'Image Model2K1:11/5 完成',
+    )
+    // 只有排队中的卡有取消键：已在生成的撤不下来，已出图、待派发的也没有。正在撤的那张按钮转圈并禁用。
+    expect(
+      [...host.querySelectorAll<HTMLElement>('[data-batch-cancel]')].map(
+        (button) => button.dataset.batchCancel,
+      ),
+    ).toEqual(['stuck', 'queued'])
+    const stuckCancel = host.querySelector<HTMLButtonElement>('[data-batch-cancel="stuck"]')!
+    expect(stuckCancel.disabled).toBe(true)
+    const cancel = host.querySelector<HTMLButtonElement>('[data-batch-cancel="queued"]')!
+    expect(cancel.getAttribute('aria-label')).toBe('取消第 5 张')
+    await act(async () => cancel.click())
+    expect(cancelled).toEqual(['queued'])
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+  }
+})

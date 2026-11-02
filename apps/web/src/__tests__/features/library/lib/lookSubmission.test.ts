@@ -372,6 +372,24 @@ it('resumes a template sent from /image after OAuth lands on the root address', 
   }
 })
 
+it.each([
+  '/',
+  '/image/',
+])('resumes a send from %s when the website returns login to /image', async (source) => {
+  window.history.replaceState(null, '', source)
+  try {
+    await prepareLogin()
+    window.history.replaceState(null, '', '/image')
+    setSignedIn(true)
+    setClientStorageScope('alice')
+    await resumePendingSubmission()
+    expect(useStore.getState().tasks).toHaveLength(1)
+    expect(await hasPendingSubmission()).toBe(false)
+  } finally {
+    window.history.replaceState(null, '', '/')
+  }
+})
+
 it('does not resume a template on a different composer address', async () => {
   window.history.replaceState(null, '', '/image')
   try {
