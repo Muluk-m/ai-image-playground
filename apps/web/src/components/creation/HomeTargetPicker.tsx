@@ -2,11 +2,8 @@ import { useTranslation } from '../../i18n'
 import { isVideoModeAvailable } from '../../lib/channels/videoChannels'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
 import { useStore } from '../../store'
-import { Hint } from '../assistant-ui/elements/tooltip-icon-button'
-import { Icon, type IconName } from '../ui/icon'
-import { useOverflowTitle } from '../ui/overflowTitle'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
-import './creation.css'
+import type { IconName } from '../ui/icon'
+import { CreationOptionPicker } from './CreationFrame'
 
 type Target = 'chat' | 'generate' | 'video' | 'canvas'
 
@@ -44,32 +41,18 @@ export default function HomeTargetPicker() {
     video: t('composer:studio.shortModes.video'),
     canvas: t('composer:studio.shortModes.canvas'),
   }
-  const fullName = useOverflowTitle<HTMLSpanElement>(labels[target], { whenHidden: true })
   return (
-    <Select value={target} onValueChange={(next) => setTarget(next as Target)}>
-      <Hint tooltip={fullName.title}>
-        <SelectTrigger aria-label={t('shell:createTarget.aria')} className="creation-mode-trigger">
-          <SelectValue>
-            <span className="creation-mode-value">
-              <Icon name={ICONS[target]} />
-              <span ref={fullName.ref} className="creation-mode-full">
-                {labels[target]}
-              </span>
-              <span className="creation-mode-short">{shortLabels[target]}</span>
-            </span>
-          </SelectValue>
-        </SelectTrigger>
-      </Hint>
-      <SelectContent side="bottom" align="start" sideOffset={10} className="creation-mode-menu">
-        {targets.map((one) => (
-          <SelectItem key={one} value={one} className="creation-mode-option">
-            <span className="flex items-center gap-3">
-              <Icon name={ICONS[one]} />
-              {labels[one]}
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <CreationOptionPicker
+      value={target}
+      onChange={setTarget}
+      label={t('shell:createTarget.aria')}
+      side="bottom"
+      options={targets.map((value) => ({
+        value,
+        label: labels[value],
+        shortLabel: shortLabels[value],
+        icon: ICONS[value],
+      }))}
+    />
   )
 }
