@@ -208,6 +208,44 @@ export async function unlinkOAuthProvider(provider: string): Promise<void> {
   await authJson<{ ok: true }>(`/api/auth/oauth/${provider}/link`, { method: 'DELETE' })
 }
 
+export interface CliConnectionSummary {
+  readonly id: string
+  readonly client_name: string
+  readonly created_at: number
+  readonly last_used_at: number | null
+}
+
+export async function fetchCliConnections(signal?: AbortSignal): Promise<CliConnectionSummary[]> {
+  const res = await authenticatedBffFetch(bffUrl('/api/me/cli-connections'), { signal })
+  if (!res.ok) throw await parseError(res)
+  const body = (await res.json()) as { connections?: unknown } | null
+  // 响应体不符合契约时按加载失败处理，避免账户页渲染时整页白屏。
+  const connections = body?.connections
+  if (!Array.isArray(connections) || !connections.every(isCliConnectionSummary)) {
+    throw new AuthRequestError(res.status, 'invalid_response')
+  }
+  return connections
+}
+
+function isCliConnectionSummary(value: unknown): value is CliConnectionSummary {
+  if (typeof value !== 'object' || value === null) return false
+  const row = value as Record<string, unknown>
+  return (
+    typeof row.id === 'string' &&
+    typeof row.client_name === 'string' &&
+    typeof row.created_at === 'number' &&
+    (row.last_used_at === null || typeof row.last_used_at === 'number')
+  )
+}
+
+export async function revokeCliConnection(id: string, signal?: AbortSignal): Promise<void> {
+  const res = await authenticatedBffFetch(
+    bffUrl(`/api/me/cli-connections/${encodeURIComponent(id)}`),
+    { method: 'DELETE', signal },
+  )
+  if (!res.ok) throw await parseError(res)
+}
+
 /**
  * 所有受保护 BFF 调用统一带 cookie。运行中收到 401 时通知 AuthGate 提示重新登录，
  * 避免每个 queue 调用点各自维护登录状态。

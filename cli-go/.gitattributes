@@ -1,0 +1,5 @@
+# These bytes are embedded and hashed into installed Skill identity. Keep native
+# Windows builds identical to the cross-compiled release, irrespective of autocrlf.
+internal/skill/assets/** text eol=lf
+# Release scripts must also be runnable when built from a Windows checkout.
+install/*.sh text eol=lf

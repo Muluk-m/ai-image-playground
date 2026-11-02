@@ -89,6 +89,30 @@ afterAll(async () => {
 })
 
 describe('runMigrations', () => {
+  it('upgrades deployed creation history to editable operator overrides without losing existing rows', async () => {
+    await withEmptyDatabase('operator_overrides_upgrade', async (url) => {
+      await migrateUntil(url, '0084_generation_images_soft_delete')
+      await runMigrations(url)
+      const sql = new SQL(url, { max: 1 })
+      try {
+        await sql`INSERT INTO operator_config_overrides (key, value, baseline_value, operator_id, reason, updated_at)
+          VALUES ('generation:daily-images', '7'::jsonb, '0'::jsonb, 'test-operator', 'quota verification', now())`
+        await runMigrations(url)
+        const [saved] =
+          await sql`SELECT key, value, reason FROM operator_config_overrides WHERE key = 'generation:daily-images'`
+        expect(saved).toEqual({
+          key: 'generation:daily-images',
+          value: 7,
+          reason: 'quota verification',
+        })
+        const [revision] = await sql`SELECT revision FROM operator_config_state WHERE id = 1`
+        expect(revision.revision).toBe(0)
+      } finally {
+        await sql.close()
+      }
+    })
+  }, 30_000)
+
   it('retains nullable original prompts and indexes the admin chronology', async () => {
     const [column] =
       await connection.client`SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agent_generation_drafts' AND column_name = 'drafted_prompt'`
@@ -475,10 +499,17 @@ describe('runMigrations', () => {
           await client`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`
         expect(after.slice(0, before.length)).toEqual(before)
         expect(after).toHaveLength(journal.entries.length - 2)
-        expect(migrationStamp(after.at(-1)!)).toEqual({
-          hash: await migrationFileHash('0085_task_metering_forward'),
-          created_at: '1793600000000',
-        })
+        // Only migrations newer than main's last applied one run, in journal order.
+        expect(after.slice(before.length).map(migrationStamp)).toEqual([
+          {
+            hash: await migrationFileHash('0085_task_metering_forward'),
+            created_at: '1793600000000',
+          },
+          {
+            hash: await migrationFileHash('0086_operator_config_overrides'),
+            created_at: '1793700000000',
+          },
+        ])
         const columns =
           await client`SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tasks' AND column_name = 'metering'`
         expect(columns).toEqual([{ data_type: 'jsonb', is_nullable: 'YES' }])

@@ -86,6 +86,16 @@ const bunJsonb = customType<{ data: unknown; driverData: unknown }>({
   fromDriver: (value) => value,
 })
 
+/**
+ * Override values include primitives, which Bun otherwise binds as SQL booleans/numbers. Bind the
+ * serialized JSON as text before casting so PostgreSQL stores JSON scalars, not JSON strings.
+ */
+const operatorOverrideJsonb = customType<{ data: unknown; driverData: unknown }>({
+  dataType: () => 'jsonb',
+  toDriver: (value) => sql`${JSON.stringify(value)}::text::jsonb`,
+  fromDriver: (value) => value,
+})
+
 export const users = pgTable(
   'users',
   {
@@ -323,6 +333,28 @@ export const operator_audits = pgTable(
     index('idx_operator_audits_created_at').on(t.created_at.desc()),
   ],
 )
+
+/** One validated operator override per capability/quota key. Unknown keys are tolerated on read. */
+export const operator_config_overrides = pgTable(
+  'operator_config_overrides',
+  {
+    key: text('key').primaryKey(),
+    value: operatorOverrideJsonb('value').notNull(),
+    revision: integer('revision').notNull().default(1),
+    baseline_value: operatorOverrideJsonb('baseline_value').notNull(),
+    operator_id: text('operator_id').notNull(),
+    reason: text('reason').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+  },
+  (t) => [
+    check('operator_config_overrides_revision_check', sql`${t.revision} > 0`),
+    check('operator_config_overrides_reason_check', sql`char_length(btrim(${t.reason})) > 0`),
+  ],
+)
+export const operator_config_state = pgTable('operator_config_state', {
+  id: integer('id').primaryKey(),
+  revision: integer('revision').notNull().default(0),
+})
 
 /** 系统替运营下架模型的原因；运营手动下架不写原因。 */
 export type ModelPauseReason = 'upstream_unavailable'
@@ -1273,6 +1305,7 @@ export type NewTask = typeof tasks.$inferInsert
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type UserSession = typeof user_sessions.$inferSelect
+export type OperatorConfigOverride = typeof operator_config_overrides.$inferSelect
 export type UserIdentity = typeof user_identities.$inferSelect
 export type NewUserIdentity = typeof user_identities.$inferInsert
 export type OperatorAudit = typeof operator_audits.$inferSelect

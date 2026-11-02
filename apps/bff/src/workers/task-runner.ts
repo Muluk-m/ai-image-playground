@@ -41,6 +41,7 @@ import {
   UpstreamResultUnknownError,
   UpstreamTimeoutError,
 } from '../lib/upstream'
+import { ImagePlanRequiredError } from '../lib/upstream/errors'
 import { gptDirectConfigured } from '../lib/upstream/gpt-routing'
 import { partialFailureOf } from '../lib/upstream/partial'
 import { claimTaskExecution, type TaskExecution } from './task-execution'
@@ -229,6 +230,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
     const upstreamCall: UpstreamCallParams = {
       reconciliationRequired: task.reconciliation_required,
       taskId: id,
+      strictImageRequest: request.strict_image_request,
       ...(gptDirectConfigured(task.model)
         ? { gptMember: !isGptBasicRequest(request) || (await isActiveMember(task.user_id)) }
         : {}),
@@ -411,21 +413,24 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         ? err.message
         : String(err)
     const upstreamFailure = extractUpstreamFailure(err)
-    const errorType: TaskErrorType = isStorageError
-      ? 'object_storage_error'
-      : isUnknownResult
-        ? 'upstream_result_unknown'
-        : isContentPolicyRejection({
-              status: upstreamFailure.status,
-              message,
-              payload: upstreamFailure.body,
-            })
-          ? 'content_policy'
-          : isModelUnavailableRejection({ message, payload: upstreamFailure.body })
-            ? 'model_unavailable'
-            : upstreamFailure.status === 429
-              ? 'rate_limited'
-              : 'upstream_error'
+    const errorType: TaskErrorType =
+      err instanceof ImagePlanRequiredError
+        ? 'plan_required'
+        : isStorageError
+          ? 'object_storage_error'
+          : isUnknownResult
+            ? 'upstream_result_unknown'
+            : isContentPolicyRejection({
+                  status: upstreamFailure.status,
+                  message,
+                  payload: upstreamFailure.body,
+                })
+              ? 'content_policy'
+              : isModelUnavailableRejection({ message, payload: upstreamFailure.body })
+                ? 'model_unavailable'
+                : upstreamFailure.status === 429
+                  ? 'rate_limited'
+                  : 'upstream_error'
 
     const attemptJustFailed = task.attempt_count + 1
     if (
