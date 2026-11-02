@@ -95,19 +95,13 @@ await runPeriodicSteps([
     },
   },
 ])
-void refreshOperatorConfig().catch((error) =>
+await refreshOperatorConfig().catch((error) =>
   log.error(
     { event: 'operator_config.startup_refresh_failed', error },
     'operator config refresh failed',
   ),
 )
 startPeriodicSteps(QUEUE_TIMEOUTS.PURGE_INTERVAL_MS, [
-  {
-    event: 'periodic.operator_config_failed',
-    run: async () => {
-      await refreshOperatorConfig()
-    },
-  },
   {
     event: 'periodic.purge_tasks_failed',
     run: async () => {

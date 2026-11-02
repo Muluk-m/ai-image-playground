@@ -34,11 +34,6 @@ function accountError(error: unknown): { status: number; error: string } | null 
 
 export const accountRoutes = new Elysia()
   .use(resolveAuthUser)
-  .get('/v1/me', ({ authUser, status }) => {
-    if (!isCapabilityEnabled('cli:api')) return capabilityUnavailable('cli:api')
-    if (!authUser) return status(401, { error: 'unauthorized' })
-    return { id: authUser.id, username: authUser.username }
-  })
   .get(
     '/api/avatars/:userId',
     async ({ params, status }) => {
