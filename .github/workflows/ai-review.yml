@@ -65,11 +65,13 @@ env:
   # 每个请求附带的 LLM 参数（JSON）与 ocr 评审力度；留空即 ocr / 网关默认。
   LLM_EXTRA_BODY: ''
   # 网关单次往返 10–60s（各模型都一样，见 PR 说明），medium 的第二轮评审+二次过滤会让最慢的组
-  # 串行请求翻倍、整次评审 18–30 分钟；low 只跑一轮。
-  OCR_EFFORT: low
+  # 串行请求翻倍、整次评审 18–30 分钟；low 只跑一轮。2026-10-27 起用 medium：多一轮评审换召回，
+  # 每次评审的请求数和 token 约为 low 的 2 倍（回放记录见 docs/agents/review-evals.md）。
+  OCR_EFFORT: medium
   # 单组总上限（分钟，按评审轮数折算成 --timeout），必须小于 job 的 timeout-minutes，
   # 这样慢组由 ocr 自己判超时，其余组的结果照常发出来，而不是整个 job 被取消、什么都不剩。
-  OCR_GROUP_TIMEOUT: '18'
+  # medium 两轮，每轮 15 分钟；job 上限 45 分钟，留出装 ocr 和发评论的时间。
+  OCR_GROUP_TIMEOUT: '30'
   OCR_VERSION: 1.13.3
 
 jobs:
@@ -85,7 +87,7 @@ jobs:
               && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
           || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Resolve PR context
         id: ctx
@@ -130,14 +132,17 @@ jobs:
           fetch-depth: 0
           ref: ${{ steps.ctx.outputs.head_sha }}
 
-      # 统计脚本取自可信提交：PR 事件用目标分支的 base，不执行 PR 自己改过的脚本；
+      # 统计脚本和评审约定 REVIEW.md 取自可信提交：PR 事件用目标分支的 base，不用 PR 自己改过的版本；
       # 评论触发是 main，手动测评是有写权限的人选的分支。
       - name: Checkout CI tools
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           path: .ci-tools
-          sparse-checkout: scripts/ci
+          sparse-checkout: |
+            scripts/ci/
+            /REVIEW.md
+          sparse-checkout-cone-mode: false
           persist-credentials: false
 
       - name: Setup Node.js
@@ -248,6 +253,19 @@ jobs:
           echo "stderr_path=${STDERR_PATH}" >> "$GITHUB_OUTPUT"
 
           BG="$REVIEW_GUIDANCE"
+          # 可信提交里有 REVIEW.md 就附上，用来判断什么算严重、哪些不挑、哪些文件跳过；没有就跳过。
+          # 它的「输出格式」一节（[严重|一般]）是写给人和 Codex 的，去掉，标签仍按上面的 [P0]/[P1]/[P2]，
+          # 下一步按 P 级解析和过滤。只取前 REVIEW_MAX_BYTES 字节，文件异常变大也不会挤掉内置要求或撑爆上下文。
+          REVIEW_MAX_BYTES=12000
+          if [ -f .ci-tools/REVIEW.md ]; then
+            RULES="$(awk '/^## /{skip=($0 ~ /^## 输出格式/)} !skip' .ci-tools/REVIEW.md | head -c "$REVIEW_MAX_BYTES" || true)"
+            if [ "$(wc -c < .ci-tools/REVIEW.md)" -gt "$REVIEW_MAX_BYTES" ]; then
+              echo "::warning::REVIEW.md 超过 ${REVIEW_MAX_BYTES} 字节，只附前 ${REVIEW_MAX_BYTES} 字节"
+            fi
+            BG="${BG}"$'\n\n'"以下是本仓库的评审约定（REVIEW.md，取自目标分支），用来判断严重程度和评审范围。输出格式仍按上面的 [P0]/[P1]/[P2] 标签，不要用 [严重]/[一般]：其中的「严重」写成 [P0] 或 [P1]，「一般」写成 [P2]；本 PR 之前就存在的问题不要报。"$'\n'"${RULES}"
+          else
+            echo "可信提交里没有 REVIEW.md，只用内置评审要求"
+          fi
           if [ -n "$BACKGROUND" ]; then BG="${BG}"$'\n\n'"业务背景：${BACKGROUND}"; fi
 
           # ocr 的单组上限 = --timeout × 评审轮数（low 1 / medium 2 / high 3），按轮数折算保证总上限不变。

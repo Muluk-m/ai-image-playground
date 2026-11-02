@@ -16,8 +16,13 @@ import { bffBaseUrl } from '../lib/runtimeConfig'
 export default function MediaImage({
   src,
   onResolveError,
+  urgent = false,
   ...props
-}: ImgHTMLAttributes<HTMLImageElement> & { onResolveError?: () => void }) {
+}: ImgHTMLAttributes<HTMLImageElement> & {
+  onResolveError?: () => void
+  /** 侧栏这类几张小图插在整页背景预览之前取，不跟作品网格一起排队。 */
+  urgent?: boolean
+}) {
   const scope = scopedStorageName(BASE_DB_NAME)
   const backend = bffBaseUrl()
   const [resolved, setResolved] = useState<{
@@ -64,7 +69,7 @@ export default function MediaImage({
           backend !== bffBaseUrl()
         )
           return
-        const value = await resolveMediaSource(source, 'display')
+        const value = await resolveMediaSource(source, 'display', urgent)
         if (
           current &&
           requested === generation &&
@@ -106,7 +111,7 @@ export default function MediaImage({
       unsubscribe()
       release()
     }
-  }, [src, scope, backend, onResolveError])
+  }, [src, scope, backend, onResolveError, urgent])
   const deferred =
     src && (mediaIdentity(src) || localAttachmentIdentity(src) || localAttachmentFailure(src))
   const value = deferred

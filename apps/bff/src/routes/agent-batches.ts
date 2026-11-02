@@ -4,6 +4,7 @@ import { db, schema } from '../db/client'
 import { proposeBatchAnalysis } from '../lib/agent/batch-analysis-proposal'
 import {
   batchExecutionAvailable,
+  cancelAgentBatchItem,
   confirmAgentBatch,
   controlAgentBatch,
   quoteAgentBatchRetry,
@@ -22,37 +23,34 @@ import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { badRequestOnValidation } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
 
+const batchInputReference = t.Object({
+  imageId: t.String({ minLength: 1, maxLength: 128 }),
+  mediaId: t.String({ format: 'uuid' }),
+  name: t.Optional(t.String({ maxLength: 200 })),
+  maskMediaId: t.Optional(t.String({ format: 'uuid' })),
+  editAction: t.Optional(
+    t.Union([t.Literal('inpaint'), t.Literal('erase'), t.Literal('crop'), t.Literal('outpaint')]),
+  ),
+  regions: t.Optional(
+    t.Array(
+      t.Object({
+        x: t.Number({ minimum: 0, maximum: 1 }),
+        y: t.Number({ minimum: 0, maximum: 1 }),
+        width: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
+        height: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
+      }),
+      { maxItems: 32 },
+    ),
+  ),
+})
+// 生成项可以没有输入图（纯文字生图，BUG-25）；分析项必须有图。
+const batchItemInputs = (minItems: 0 | 1) =>
+  t.Array(batchInputReference, { minItems, maxItems: 100 })
+
 const batchItemFields = {
   key: t.String({ minLength: 1, maxLength: 128 }),
   ordinal: t.Integer({ minimum: 0, maximum: 99 }),
-  inputs: t.Array(
-    t.Object({
-      imageId: t.String({ minLength: 1, maxLength: 128 }),
-      mediaId: t.String({ format: 'uuid' }),
-      name: t.Optional(t.String({ maxLength: 200 })),
-      maskMediaId: t.Optional(t.String({ format: 'uuid' })),
-      editAction: t.Optional(
-        t.Union([
-          t.Literal('inpaint'),
-          t.Literal('erase'),
-          t.Literal('crop'),
-          t.Literal('outpaint'),
-        ]),
-      ),
-      regions: t.Optional(
-        t.Array(
-          t.Object({
-            x: t.Number({ minimum: 0, maximum: 1 }),
-            y: t.Number({ minimum: 0, maximum: 1 }),
-            width: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
-            height: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
-          }),
-          { maxItems: 32 },
-        ),
-      ),
-    }),
-    { minItems: 1, maxItems: 100 },
-  ),
+  inputs: batchItemInputs(1),
   prompt: t.String({ minLength: 1, maxLength: 4000 }),
   dependencies: t.Array(t.String({ minLength: 1, maxLength: 128 }), { maxItems: 100 }),
 }
@@ -68,7 +66,12 @@ const generationParams = t.Object({
   gemini_thinking_level: t.Optional(t.String({ maxLength: 16 })),
 })
 const batchItemSchema = t.Union([
-  t.Object({ ...batchItemFields, kind: t.Literal('generation'), params: generationParams }),
+  t.Object({
+    ...batchItemFields,
+    inputs: batchItemInputs(0),
+    kind: t.Literal('generation'),
+    params: generationParams,
+  }),
   t.Object({
     ...batchItemFields,
     kind: t.Literal('analysis'),
@@ -247,6 +250,24 @@ export const agentBatchRoutes = new Elysia({ name: 'agent-batches' })
     {
       params: t.Object({ id: t.String() }),
       body: t.Object({ expectedVersion: t.Integer({ minimum: 1 }) }),
+    },
+  )
+
+  .post(
+    // 单独取消批次里正在生成的一张；其余照常。已经结束的项原样返回，不报错。
+    '/api/agent/batches/:id/items/:key/cancel',
+    async ({ params, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      if (!isCapabilityEnabled('agent:batch-item-cancel'))
+        return capabilityUnavailable('agent:batch-item-cancel')
+      await cancelAgentBatchItem(authUser.id, params.id, params.key)
+      return await readAgentBatchPlan(authUser.id, params.id)
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+        key: t.String({ minLength: 1, maxLength: 128 }),
+      }),
     },
   )
 

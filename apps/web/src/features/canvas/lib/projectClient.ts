@@ -64,8 +64,18 @@ async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
     return send()
   }
 }
-export function listCloudProjects(cursor?: string): Promise<ProjectPage> {
-  return json(cursor ? `?cursor=${encodeURIComponent(cursor)}` : '')
+/**
+ * 项目目录按最近更新倒序翻页。第一页带总数与 `deletedSince` 之后的删除；
+ * 接着翻用上一页的游标，不再重复下发删除。
+ */
+export function listCloudProjects(
+  options: { cursor?: string; deletedSince?: number } = {},
+): Promise<ProjectPage> {
+  const query = new URLSearchParams({ order: 'recent' })
+  if (options.cursor) query.set('cursor', options.cursor)
+  else if (options.deletedSince !== undefined)
+    query.set('deletedSince', String(options.deletedSince))
+  return json(`?${query}`)
 }
 export function getCloudProject(id: string, signal: AbortSignal): Promise<CloudProject> {
   return json(

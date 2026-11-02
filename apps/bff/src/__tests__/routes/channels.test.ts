@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { resetTestDatabase } from '@image-playground/db/testing'
 import type { ChannelDiscoveryResponse } from '@image-playground/shared'
 
-const TEST_DB = process.env.TEST_DATABASE_URL
-if (!TEST_DB) throw new Error('TEST_DATABASE_URL is required for PostgreSQL tests')
+// 停用清单读公开库的 model_availability，要一个迁好的库。
+const TEST_DB = await resetTestDatabase('bff_channels')
 
 process.env.PORT = '0'
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'

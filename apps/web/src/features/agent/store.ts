@@ -44,7 +44,11 @@ import {
   openProject,
   selectCanvasWorkspace,
 } from '../canvas/lib/activeProject'
-import { cloudProjectsEnabled, getCloudProject } from '../canvas/lib/projectClient'
+import {
+  cloudProjectsEnabled,
+  getCloudProject,
+  ProjectRequestError,
+} from '../canvas/lib/projectClient'
 import {
   type CanvasProject,
   projectExperience,
@@ -314,8 +318,13 @@ export interface AgentState {
      * 服务端没收下（拒收、断网、撤回）时把这句话交还给发送方自己的草稿；返回是否已落盘。
      * 首屏交接用它把话放回新项目的输入框，而不是只留在补发日志里、输入框却空着。
      */
-    onUnsent?: (submission: UnsentTurnSubmission) => Promise<boolean>,
+    onUnsent?: (submission: UnsentTurnSubmission, quiet?: boolean) => Promise<boolean>,
   ): Promise<void | 'cancelled'>
+  /**
+   * 不管输入框此刻是不是「图片生成」，这一句都交给智能体：给智能体听的请求句（如改图卡的「再次生成」）
+   * 在直出模式下会被原样当成提示词。其余同 `send`。
+   */
+  sendThroughAgent(text: string, mode?: AgentMode): Promise<void | 'cancelled'>
   submitDraft(input: DraftSubmissionInput): Promise<void>
   abort(): Promise<void>
   retryReturnedMessages(): Promise<void>
@@ -450,6 +459,9 @@ export function retryUnsent(): void {
 }
 
 let pendingSeq = 0
+
+/** `sendThroughAgent` 起轮期间为真：这一轮不按「图片生成」直出。 */
+let agentOnlyTurn = false
 const PENDING_PREFIX = 'pending_'
 
 const PANEL_WIDTH_KEY = 'image-playground.agent_panel_width'
@@ -1469,7 +1481,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
   /** 起轮这一刻的参数快照：轮跑到一半用户改了 chip，改的是下一轮，不该追改这一轮。 */
   const currentTurnParams = (mode: AgentMode) => {
     const { params, settings, createTarget } = useStore.getState()
-    const imageDirect = createTarget === 'generate' && mode !== 'video'
+    const imageDirect = createTarget === 'generate' && mode !== 'video' && !agentOnlyTurn
     const selected = clientProfileToApiProfile(getActiveApiProfile(settings)).model
     const model = imageDirect || !get().modelAuto ? selected : undefined
     return {
@@ -1717,6 +1729,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     if (
       reuseEmpty &&
       current &&
+      // 被上限拒建的那个已经不在本机目录里，不能拿来复用。
+      !current.quotaRejected &&
       projectExperience(current) === experience &&
       !current.conversationId &&
       !current.hasContent &&
@@ -2032,6 +2046,15 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       })
     },
 
+    sendThroughAgent(text, mode) {
+      // send 在第一个 await 之前就定下本轮参数，所以开关只需罩住这一次同步调用。
+      agentOnlyTurn = true
+      try {
+        return get().send(text, [], undefined, mode)
+      } finally {
+        agentOnlyTurn = false
+      }
+    },
     async send(
       text,
       references = [],
@@ -2167,6 +2190,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const settleJournal = async () => {
         if (journaled && sameAccount()) await forgetOutgoing(journaled.projectId, journaled.id)
       }
+      let quietUnsent = false
       const returnUnsent = async (withdrawn = false) => {
         if (!onUnsent && !withdrawn) return
         // 已撤回的 id 是服务端终态，再用它只会再次得到 cancelled。只有用户从草稿再发才开新 id。
@@ -2178,7 +2202,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           clarificationAnswer,
         }
         let returned: boolean
-        if (onUnsent) returned = await onUnsent(unsent)
+        if (onUnsent) returned = await onUnsent(unsent, quietUnsent)
         else {
           // 刷新补发时输入框可能尚未挂载，恢复仍归属原项目，不能把终态日志直接丢掉。
           const draft = agentDraft(conversationId, sourceProject?.id)
@@ -2321,6 +2345,18 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             }
           }
         } catch (thrown) {
+          // 项目数已到上限，项目本身没建成：画布那边已经亮出上限提示，这里干净收手——
+          // 撤下刚上屏的消息、草稿原样放回，不挂「这一轮没有跑完」，也不另弹提示（BUG-54）。
+          if (thrown instanceof ProjectRequestError && thrown.code === 'project_quota_exceeded') {
+            quietUnsent = true
+            return await cancelUnsent()
+          }
+          // 建会话这一步只在本机报「这一轮没有跑完」，服务端看不到：把真实原因记下来（BUG-45）。
+          if (!conversationId)
+            reportClientError('error', thrown, {
+              operation: 'agent.conversation.create',
+              stage: target ? 'bind' : 'create',
+            })
           if (turnDelivery.isCurrent()) failUnsent(undefined, thrown)
           await turnDelivery.settled()
           return

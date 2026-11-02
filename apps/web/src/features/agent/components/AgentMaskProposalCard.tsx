@@ -445,7 +445,10 @@ export default function AgentMaskProposalCard({
   const [touched, setTouched] = useState(false)
   const [refining, setRefining] = useState(false)
   const [editing, setEditing] = useState(false)
-  const [tool, setTool] = useState<Tool>('point')
+  // 没有服务端分割时点选必然失败，只留画笔这类本地工具。
+  const pointable = proposal.segmentation === 'server'
+  const initialTool: Tool = pointable ? 'point' : 'brush'
+  const [tool, setTool] = useState<Tool>(initialTool)
   const [pointMode, setPointMode] = useState<'include' | 'exclude'>('include')
   const [brush, setBrush] = useState(24)
   const [regions, setRegions] = useState<RegionState[]>(() =>
@@ -1078,17 +1081,19 @@ export default function AgentMaskProposalCard({
         {t('maskProposal.title')}
       </h3>
       <div className="studio-mask-proposal-toolbar" role="toolbar">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          aria-pressed={tool === 'point'}
-          disabled={locked || drawing}
-          onClick={() => setTool('point')}
-        >
-          <Icon name="select" />
-          {t('maskProposal.toolPoint')}
-        </Button>
+        {pointable && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-pressed={tool === 'point'}
+            disabled={locked || drawing}
+            onClick={() => setTool('point')}
+          >
+            <Icon name="select" />
+            {t('maskProposal.toolPoint')}
+          </Button>
+        )}
         {tool === 'point' && (
           <SegmentedTabs
             label={t('maskProposal.toolPoint')}
@@ -1399,7 +1404,7 @@ export default function AgentMaskProposalCard({
           onClick={() => {
             setEditing((value) => !value)
             if (editing && tool !== 'point' && tool !== 'brush' && tool !== 'eraser')
-              setTool('point')
+              setTool(initialTool)
           }}
         >
           <Icon name={editing ? 'close' : 'brush'} />

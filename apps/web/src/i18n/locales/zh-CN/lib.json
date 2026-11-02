@@ -18,7 +18,8 @@
     "confirmBatchTitle": "确认批量导入图片",
     "confirmBatchMessage": "即将导入 {{count}} 张图片，确认继续吗？",
     "confirmBatchAction": "确定导入 {{count}} 张图片",
-    "tooLarge_other": "{{count}} 张图片超过 {{max}}MB，已跳过"
+    "tooLarge_other": "{{count}} 张图片超过 {{max}}MB，已跳过",
+    "compressed_other": "已压缩 {{count}} 张过大的图片"
   },
   "imageFetch": {
     "corsHint": " 可点链接按钮复制结果链接，或尝试开启「返回 Base64 图片数据」避免此问题。",
@@ -57,6 +58,7 @@
     "bffStageInactive": "这次授权已结束或过期，请让智能体重新发起授权",
     "bffStageAttemptConflict": "这次提交和授权预检对不上（模型或张数变了），请重新运行",
     "bffModelUnavailable": "该模型暂不可用，请换其他模型",
+    "bffPlanRequired": "4K 需要开通会员",
     "bffInvalidRequest": "参数不符合要求，请调整后重试",
     "bffStorageUnavailable": "参考图暂时读取不了，请稍后重试",
     "bffDuplicateSubmit": "这次提交和之前的请求冲突，请重新提交"

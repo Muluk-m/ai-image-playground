@@ -95,6 +95,8 @@ async function seedBatch(id: string, outcomes: readonly ('completed' | 'failed')
                   taskId,
                   outputIndex: 0,
                   mime: 'image/png',
+                  width: 1536,
+                  height: 1024,
                 },
               ]
             : [],
@@ -149,4 +151,90 @@ it('offers only the first few results and tells the model to trust the attached 
   expect(content!.text).toContain('agent_nine-task-8_0')
   expect(content!.text).toContain(`前 ${BATCH_WAKE_REVIEW_IMAGE_MAX} 张会尽量作为图片随这一轮附上`)
   expect(content!.text).toContain('清单里没有的产物如实说明尚未查看')
+})
+
+// BUG-39：用户确认前删掉的项要告诉智能体，复核时才不会说「不在产物清单里、无法判断」。
+it('tells the model which items the user removed before confirming', async () => {
+  const itemKeys = await seedBatch('trimmed', ['completed', 'completed'])
+  const { and, eq } = await import('drizzle-orm')
+  // 版本 2 是用户删掉橙子后确认的两项；版本 1 是智能体原来的三项。
+  await db.insert(schema.agent_batch_plans).values({
+    batch_id: 'trimmed',
+    version: 2,
+    title: 'trimmed',
+    rule: 'rule',
+    digest: 'b'.repeat(64),
+    item_count: 2,
+    estimate_snapshot: { analysis: estimate, generation: estimate },
+    created_at: NOW,
+  })
+  const item = (key: string, ordinal: number, version: number) => ({
+    batch_id: 'trimmed',
+    version,
+    key,
+    ordinal,
+    kind: 'generation' as const,
+    inputs: [],
+    prompt: 'prompt',
+    params: { model: 'fixture', provider: 'openai-compat' as const },
+    dependencies: [],
+  })
+  await db
+    .insert(schema.agent_batch_items)
+    .values(itemKeys.map((key, index) => item(key, index, 2)))
+  await db
+    .update(schema.agent_batch_attempts)
+    .set({ version: 2 })
+    .where(eq(schema.agent_batch_attempts.batch_id, 'trimmed'))
+  await db.insert(schema.agent_batch_items).values(item('orange_portrait', 2, 1))
+  await db
+    .update(schema.agent_batch_plans)
+    .set({ item_count: 3 })
+    .where(
+      and(
+        eq(schema.agent_batch_plans.batch_id, 'trimmed'),
+        eq(schema.agent_batch_plans.version, 1),
+      ),
+    )
+  await db
+    .update(schema.agent_batches)
+    .set({ current_version: 2, confirmed_version: 2 })
+    .where(eq(schema.agent_batches.id, 'trimmed'))
+  const content = await batchWakeContent('trimmed', OWNER, {
+    batchId: 'trimmed',
+    version: 2,
+    eventVersion: 1,
+    itemKeys,
+  })
+  expect(content).not.toBeNull()
+  expect(content!.text).toContain('用户确认前从计划里移除了这些项')
+  expect(content!.text).toContain('orange_portrait')
+  expect(content!.text).not.toContain('item-0、')
+  // 产物写明实际像素，复核时照它说画幅，不靠看图猜（BUG-51）。
+  expect(content!.text).toMatch(/agent_\S+_0（1536×1024）/)
+
+  // 初版已经确认过（之后的是重试版或分析转生成），和初版的差集就不是用户删项。
+  await db
+    .update(schema.agent_batch_plans)
+    .set({
+      confirmation: {
+        phase: 'generation',
+        itemKeys: [...itemKeys, 'orange_portrait'],
+        requiresResume: false,
+      },
+    })
+    .where(
+      and(
+        eq(schema.agent_batch_plans.batch_id, 'trimmed'),
+        eq(schema.agent_batch_plans.version, 1),
+      ),
+    )
+  const retried = await batchWakeContent('trimmed', OWNER, {
+    batchId: 'trimmed',
+    version: 2,
+    eventVersion: 1,
+    itemKeys,
+  })
+  expect(retried).not.toBeNull()
+  expect(retried!.text).not.toContain('用户确认前从计划里移除了这些项')
 })

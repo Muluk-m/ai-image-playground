@@ -44,7 +44,7 @@ export function oversizedReferenceIndexes(
   return images.flatMap((image, index) => (dataUrlBytes(image.dataUrl) > limit ? [index] : []))
 }
 
-/** 「第 2、5 张超过 50 MB，请移除或换一张更小的图」。序号从 1 起，与条上的顺序一致。 */
+/** 「第 2、5 张超过 50 MB，请移除或换一张更小的图。」。序号从 1 起，与条上的顺序一致。 */
 export function oversizedReferenceMessage(indexes: readonly number[]): string {
   return i18next.t('batch.oversized', {
     ns: 'composer',

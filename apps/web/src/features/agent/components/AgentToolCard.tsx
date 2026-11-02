@@ -1,4 +1,9 @@
-import type { AgentToolArtifact } from '@image-playground/shared'
+import {
+  type AgentToolArtifact,
+  agentImageShape,
+  presetAspectRatio,
+  withAspectRatio,
+} from '@image-playground/shared'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { ImageGallery } from '../../../components/assistant-ui/elements/image-gallery'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
@@ -50,6 +55,7 @@ import {
   agentToolFailureText,
   runAgentToolFailureAction,
 } from '../lib/toolFailure'
+import { turnImageReceipt } from '../lib/turnCost'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
 import AgentBatchPlanCard from './AgentBatchPlanCard'
@@ -109,7 +115,11 @@ function useStatusNote(
       : t('job.cancelled')
   // 有错误码就只认码（ADR 0006）；旧记录没有码，照旧显示当时存下的那句话。
   if (message.status === 'failed')
-    return agentToolFailureText(message.errorCode) ?? message.message ?? t('tool.notFinished')
+    return (
+      agentToolFailureText(message.errorCode, message.toolName) ??
+      message.message ??
+      t('tool.notFinished')
+    )
   if (message.delivery === 'pending') return t('tool.delivering')
   // 失败要说清为什么没写入；其余只说画布上现在有没有它（切过画布、或用户删掉了）。
   if (message.delivery === 'failed') return t('tool.deliveryFailed')
@@ -332,6 +342,25 @@ function FetchedImages({
  * 本该由重试收场、这次生成却重出不了时（局部或连锁改图、模型已下线），改由智能体重新处理——
  * 否则这张卡上一个按钮都没有。
  */
+/**
+ * 「再次生成」。图片生成模式下，一张没用参考图的文生图原样再出一次：发原提示词本身，走提示词直出，
+ * 不套「请基于这组提示词再次生成…」那句请求。其他情况（Agent 模式、带参考图或改图）请智能体按原提示词
+ * 再来一次；那句请求是说给智能体听的，所以明确走智能体，免得在直出模式下被当成提示词。
+ */
+export function regenerateFromCard(
+  message: Pick<AgentToolMessage, 'toolName' | 'prompt' | 'title' | 'snapshot'>,
+  request: (prompt: string) => string,
+): Promise<void | 'cancelled'> {
+  const prompt = message.prompt?.trim()
+  const direct =
+    useStore.getState().createTarget === 'generate' &&
+    message.toolName === 'generateImage' &&
+    !message.snapshot?.imageIds?.length
+  const agent = useAgentStore.getState()
+  if (direct && prompt) return agent.send(prompt, [], undefined, 'image')
+  return agent.sendThroughAgent(request(message.prompt || message.title), 'image')
+}
+
 function FailureAction({ message }: { message: AgentToolMessage }) {
   useTranslation('agent')
   const code = message.errorCode
@@ -464,28 +493,6 @@ function RetryRecord({ message }: { message: AgentToolMessage }) {
   )
 }
 
-function gcd(left: number, right: number): number {
-  let a = Math.abs(left)
-  let b = Math.abs(right)
-  while (b) {
-    const next = a % b
-    a = b
-    b = next
-  }
-  return a || 1
-}
-
-function ratioTag(size: string | undefined, aspect: string | undefined): string | undefined {
-  if (aspect) return aspect
-  if (!size || size === 'auto') return undefined
-  const match = /^(\d+)x(\d+)$/.exec(size)
-  if (!match) return undefined
-  const width = Number(match[1])
-  const height = Number(match[2])
-  const divisor = gcd(width, height)
-  return `${width / divisor}:${height / divisor}`
-}
-
 function GeneratingTile({
   message,
   index,
@@ -552,18 +559,10 @@ function StandardAgentToolCard({
   const [selectedArtifactId, setSelectedArtifactId] = useState<string>()
   const [imageRatios, setImageRatios] = useState<Record<string, number>>({})
   const [copiedPrompt, setCopiedPrompt] = useState(false)
-  const showReceipt = useAgentStore((state) => {
-    for (let index = state.messages.length - 1; index >= 0; index -= 1) {
-      const one = state.messages[index]
-      if (!one || one.turnId !== message.turnId || one.kind !== 'tool') continue
-      if (
-        (one.toolName === 'generateImage' || one.toolName === 'editImage') &&
-        one.status === 'succeeded' &&
-        one.artifacts?.some((artifact) => artifact.media === 'image')
-      )
-        return one.id === message.id
-    }
-    return false
+  // 这张卡收尾本轮时带出结算行；张数与本轮末尾的页脚同一口径（本轮全部成功出图）。
+  const receiptCount = useAgentStore((state) => {
+    const receipt = turnImageReceipt(state.messages, message.turnId)
+    return receipt?.cardId === message.id ? receipt.outputCount : null
   })
   const turnFooter = useAgentStore((state) => state.turns?.[message.turnId])
   const turnMessages = useAgentStore((state) => state.messages)
@@ -964,11 +963,15 @@ function StandardAgentToolCard({
     const modelName = model
       ? compactModelName(model, modelLabel(model, message.snapshot?.target?.provider))
       : null
+    // 头部写这次实际提交的画幅：工具参数里的比例覆盖输入框，且只取该供应商认的字段（BUG-20）。
+    const shape = agentImageShape(
+      message.snapshot?.target?.provider,
+      withAspectRatio(params, presetAspectRatio(message.snapshot?.args.aspectRatio)),
+    )
     const tags = generatedImage
       ? [
-          params?.gemini_image_size ||
-            (params?.size && params.size !== 'auto' ? params.size : undefined),
-          ratioTag(params?.size, params?.gemini_aspect_ratio),
+          shape.imageSize ?? shape.size,
+          shape.aspectRatio,
           t('tool.batchCount', { count: tiles.length }),
           message.title,
         ].filter((tag): tag is string => Boolean(tag))
@@ -1082,14 +1085,9 @@ function StandardAgentToolCard({
                   : undefined
               }
               onRegenerate={() =>
-                void useAgentStore
-                  .getState()
-                  .send(
-                    t('tool.regenerateRequest', { prompt: message.prompt || message.title }),
-                    [],
-                    undefined,
-                    'image',
-                  )
+                void regenerateFromCard(message, (prompt) =>
+                  t('tool.regenerateRequest', { prompt }),
+                )
               }
             >
               <Button
@@ -1159,8 +1157,8 @@ function StandardAgentToolCard({
               )}
             </MessageActions>
           )}
-        {showReceipt && turnFooter && (
-          <AgentTurnCost footer={turnFooter} jobs={receiptJobs} outputCount={tiles.length} />
+        {receiptCount !== null && turnFooter && (
+          <AgentTurnCost footer={turnFooter} jobs={receiptJobs} outputCount={receiptCount} />
         )}
         {promptOpen && message.prompt && (
           <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
@@ -1459,14 +1457,7 @@ export function AgentImageRun({
               : undefined
           }
           onRegenerate={() =>
-            void useAgentStore
-              .getState()
-              .send(
-                t('tool.regenerateRequest', { prompt: lead.prompt || lead.title }),
-                [],
-                undefined,
-                'image',
-              )
+            void regenerateFromCard(lead, (prompt) => t('tool.regenerateRequest', { prompt }))
           }
         >
           <Button

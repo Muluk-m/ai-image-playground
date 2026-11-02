@@ -11,6 +11,16 @@ const MIME = {
 const PROJECT_ID = '00000000-0000-4000-8000-000000000001'
 const PATHS = ['/image', `/p/${PROJECT_ID}`]
 
+// 工具箱改版后：侧栏进 /tools 目录，点卡片进 /tools/rotate 工作台，各有自己的地址。
+// 单图预览的布局检查留在旋转编辑器分支；这里只钉目录和工作台地址。
+async function checkToolboxRoutes(page) {
+  await page.getByRole('button', { name: '工具箱', exact: true }).click()
+  await page.waitForURL((url) => url.pathname === '/tools')
+  await page.getByRole('button', { name: /^旋转与镜像\s*任意角度/ }).click()
+  await page.waitForURL((url) => url.pathname === '/tools/rotate')
+  console.log('PASS toolbox routes: /tools then /tools/rotate')
+}
+
 // Serve the built bytes with Pages' explicit route rewrites; missing chunks never become HTML.
 async function serveDist(dist) {
   const root = await realpath(dist)
@@ -61,7 +71,7 @@ async function serveDist(dist) {
   }
 }
 
-async function checkWorkspace(browser, origin, { local = false, nodeCanvas = false, exerciseNodes = false, exerciseCatalog = false, optionalStyles = [], outputDir, timeoutMs = 30000 } = {}) {
+async function checkWorkspace(browser, origin, { local = false, nodeCanvas = false, exerciseNodes = false, exerciseCatalog = false, exerciseToolbox = false, optionalStyles = [], outputDir, timeoutMs = 30000 } = {}) {
   for (const [index, path] of PATHS.entries()) {
     // Cold browser storage and module cache on each direct navigation, including the deep link.
     const context = await browser.newContext({ locale: 'zh-CN', serviceWorkers: 'block' })
@@ -454,6 +464,7 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
         await page.screenshot({ path: join(outputDir, `${label}.png`) })
       }
       console.log(`PASS ${path}${nodeCanvas ? ' (node canvas)' : ''}: workspace mounted, boot removed, no JavaScript or asset errors`)
+      if (exerciseToolbox && index === 0) await checkToolboxRoutes(page)
     } catch (error) {
       if (outputDir) {
         await mkdir(outputDir, { recursive: true })
@@ -470,15 +481,48 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
   }
 }
 
+/**
+ * 后台开了哪些登录方式，登录页就只展示哪些：密码表单、注册入口、每个第三方登录按钮都要与
+ * /api/auth/oauth/providers（和 accounts:self-register 能力）一致，关掉的不能出现。
+ * 还没下发 loginMethods 的后台按密码登录、注册都开着处理（旧契约）。
+ */
+async function expectLoginEntryMatchesPolicy(page, response, capabilities) {
+  if (!response.ok()) throw new Error(`Login policy request failed: HTTP ${response.status()}`)
+  const body = await response.json()
+  if (!Array.isArray(body?.providers)) throw new Error('Login policy has no providers list')
+  const methods = body.loginMethods ?? {password:true,registration:true}
+  if (typeof methods.password !== 'boolean' || typeof methods.registration !== 'boolean') throw new Error(`Malformed loginMethods: ${JSON.stringify(body.loginMethods)}`)
+  const providers = body.providers.filter(provider => typeof provider?.id === 'string' && typeof provider.label === 'string')
+  const registration = methods.registration && capabilities['accounts:self-register'] === true
+  if (!methods.password && !providers.length) throw new Error('Login policy enables no login method')
+
+  const form = page.getByRole('form',{name:'用户登录',exact:true})
+  const providerButtons = page.locator('[data-auth-providers] button')
+  // 先等后台开着的入口渲染出来，再断言关掉的入口不存在，避免在配置还没加载时误判。
+  if (methods.password) await form.waitFor()
+  if (providers.length) await providerButtons.first().waitFor()
+  if (!methods.password && await form.count()) throw new Error('Password form shown although password login is disabled')
+  const shown = (await providerButtons.allTextContents()).map(text => text.trim())
+  if (shown.length !== providers.length || providers.some((provider, index) => !shown[index].endsWith(provider.label))) {
+    throw new Error(`Login provider buttons ${JSON.stringify(shown)} do not match enabled providers ${JSON.stringify(providers.map(provider => provider.label))}`)
+  }
+  const registerLink = page.getByRole('button',{name:'立即注册',exact:true})
+  if (registration) await registerLink.waitFor()
+  else if (await registerLink.count()) throw new Error('Registration entry shown although registration is disabled')
+  return {password:methods.password, registration, providers:providers.map(provider => provider.id)}
+}
+
 async function checkMarketing(browser, origin, { local = false, accountsLogin = true, outputDir } = {}) {
   const context = await browser.newContext({ locale: 'zh-CN', serviceWorkers: 'block' })
   const page = await context.newPage()
   const errors = []
   let loginEnabled = accountsLogin
   let observedCapabilities = local
+  let capabilities = {'accounts:login':accountsLogin,'accounts:self-register':accountsLogin}
   if (!local) await context.route('**/api/capabilities', async route => {
     const response = await route.fetch()
-    loginEnabled = (await response.json())['accounts:login'] === true
+    capabilities = await response.json()
+    loginEnabled = capabilities['accounts:login'] === true
     observedCapabilities = true
     await route.fulfill({response})
   })
@@ -494,7 +538,7 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
     if (url.pathname === '/runtime-config.json') return route.fulfill({contentType:'application/json', body:JSON.stringify({bff:{enabled:true,baseUrl:origin}})})
     const fixtures = {
       '/api/capabilities': {'accounts:login':accountsLogin,'accounts:self-register':accountsLogin},
-      '/api/auth/oauth/providers': {providers:[]},
+      '/api/auth/oauth/providers': {providers:[],loginMethods:{password:accountsLogin,registration:accountsLogin}},
     }
     if (!accountsLogin && request.isNavigationRequest() && url.pathname === '/image') return route.fulfill({contentType:'text/html',body:'<!doctype html><html><body>Workbench destination</body></html>'})
     if (request.method() === 'GET' && Object.hasOwn(fixtures,url.pathname)) return route.fulfill({contentType:'application/json',body:JSON.stringify(fixtures[url.pathname])})
@@ -516,6 +560,10 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
     const paths = [['/guide/create/composer/','zh-CN'],['/guide/en/create/composer/','en']]
     if (loginEnabled) paths.push(['/en/','en'],['/login/','zh-CN'])
     for (const [path,lang] of paths) {
+      // 登录页按后台下发的登录方式渲染：先截下页面自己请求的那份配置，再逐项对照。
+      const loginOptions = path === '/login/'
+        ? page.waitForResponse(response => new URL(response.url()).pathname === '/api/auth/oauth/providers' && response.request().method() === 'GET')
+        : null
       const response=await page.goto(origin+path,{waitUntil:'networkidle'})
       if (!response?.ok()) throw new Error(`Static page failed: ${path}`)
       await page.locator('h1').waitFor()
@@ -525,7 +573,7 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
         await page.getByRole('heading',{name:/Describe the vision\s*Muvloom handles the rest/}).waitFor()
         if (!(await page.title()).includes('AI Image, Video and Canvas Creation')) throw new Error('English marketing title drifted')
       }
-      if (path === '/login/') await page.getByRole('form',{name:'用户登录'}).waitFor()
+      if (path === '/login/') await expectLoginEntryMatchesPolicy(page, await loginOptions, capabilities)
     }
     // 旧章节地址是跳转页：跳走时会中断它自己的脚本请求，所以单开一页检查，不计入资源失败。
     const redirect = await context.newPage()
@@ -558,7 +606,7 @@ async function main() {
     await checkMarketing(browser, server?.origin || target, {local, outputDir:process.env.PAGES_SMOKE_OUTPUT_DIR})
     if (local) await checkMarketing(browser, server.origin, {local:true,accountsLogin:false})
     await checkWorkspace(browser, server?.origin || target, {
-      local, exerciseCatalog: local, optionalStyles, timeoutMs: local ? 30000 : 60000,
+      local, exerciseCatalog: local, exerciseToolbox: local, optionalStyles, timeoutMs: local ? 30000 : 60000,
       outputDir: process.env.PAGES_SMOKE_OUTPUT_DIR,
     })
     if (local) await checkWorkspace(browser, server.origin, {
@@ -571,5 +619,5 @@ async function main() {
   }
 }
 
-module.exports = { serveDist, checkWorkspace, checkMarketing }
+module.exports = { serveDist, checkWorkspace, checkMarketing, expectLoginEntryMatchesPolicy }
 if (require.main === module) main().catch((error) => { console.error(error); process.exitCode = 1 })

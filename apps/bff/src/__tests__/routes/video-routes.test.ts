@@ -371,6 +371,16 @@ describe('video submit validation', () => {
     expect(String(json.message)).toContain('不支持续写')
   })
 
+  it('rejects a prompt made only of whitespace, control or zero-width characters', async () => {
+    const { status, json } = await submit('gpt-image-2', {
+      prompt: '\u0000\u0007\u202e\u200b \u3000\t',
+    })
+
+    expect(status).toBe(400)
+    expect(json.error).toBe('invalid_request')
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  })
+
   it('rejects video parameters sent to an image model', async () => {
     const { status, json } = await submit('gpt-image-2', {
       video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' },

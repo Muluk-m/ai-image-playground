@@ -1,4 +1,8 @@
 import { useSyncExternalStore } from 'react'
+import { i18next } from '../../../i18n'
+import { compressUploadFile, UploadImageTooLargeError } from '../../../lib/imageFiles'
+import { MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
+import { useStore } from '../../../store'
 import { fileToDataUrl } from './importImages'
 
 interface ReferenceDraft {
@@ -26,10 +30,22 @@ function createDraft() {
       if (snapshot.uploading) return
       update({ uploading: true })
       try {
-        const url = await fileToDataUrl(file)
-        const item = { id: crypto.randomUUID(), name: file.name, url }
+        const image = await compressUploadFile(file)
+        const url = await fileToDataUrl(image)
+        const item = { id: crypto.randomUUID(), name: image.name, url }
         update({ items: [...snapshot.items, item] })
         return item
+      } catch (error) {
+        if (error instanceof UploadImageTooLargeError) {
+          useStore
+            .getState()
+            .showToast(
+              i18next.t('image.tooLarge', { ns: 'lib', count: 1, max: MAX_IMAGE_MB }),
+              'error',
+            )
+          return
+        }
+        throw error
       } finally {
         update({ uploading: false })
       }

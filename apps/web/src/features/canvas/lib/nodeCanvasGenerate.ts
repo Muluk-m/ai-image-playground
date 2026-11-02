@@ -357,7 +357,10 @@ export async function readImageFile(file: File): Promise<ReadImageFile> {
   let size
   try {
     // 读不出来（文件被删、被锁）也按这一张不可用处理，不拖垮整批。
-    dataUrl = await fileToDataUrl(file)
+    // 超过 50 MB 先压；调用方已经整批压过的，这里是空操作。
+    const { compressUploadFiles } = await import('../../../lib/imageFiles')
+    const [fitted] = await compressUploadFiles([file])
+    dataUrl = await fileToDataUrl(fitted ?? file)
     size = await getImageDimensions(dataUrl)
   } catch {
     throw new InvalidImageFileError(file.name)

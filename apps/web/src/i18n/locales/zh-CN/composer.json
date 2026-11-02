@@ -36,7 +36,7 @@
     "attach": "添加参考图（最多 {{count}} 张，单张 ≤{{mb}}MB）",
     "attachImages": "添加图片",
     "attachFolder": "添加文件夹",
-    "referenceTooLarge": "第 {{index}} 张图片超过 {{maxSize}}，请换一张更小的图"
+    "referenceTooLarge": "第 {{index}} 张超过 {{maxSize}}，请移除或换一张更小的图。"
   },
   "slot": {
     "heading": "槽位 {{slot}}",
@@ -51,7 +51,8 @@
     "noModel": "暂无可用模型，请稍后再试",
     "startCanvas": "开始创作",
     "skillNeedsCanvas": "技能只能在项目中使用，切到「智能创作」或「画布创作」再发送",
-    "promptRequired": "请输入提示词后再生成"
+    "promptRequired": "请输入提示词后再生成",
+    "promptTooLong": "提示词最多 {{max}} 字，请删减后再生成"
   },
   "search": {
     "favoriteOnly": "只看收藏",
@@ -82,9 +83,11 @@
     "modelEtaRange": "约 {{min}}–{{max}} 秒",
     "modelEtaRangeMinutes": "约 {{min}}–{{max}} 分钟",
     "modelNew": "New",
-    "modelTier": {
-      "fast": "快速",
-      "quality": "高质量"
+    "modelFamily": {
+      "gpt": "GPT 系列",
+      "gemini": "Banana 系列",
+      "grok": "Grok 系列",
+      "agnes": "Agnes 系列"
     }
   },
   "size": {
@@ -94,6 +97,8 @@
     "width": "宽度 (Width)",
     "height": "高度 (Height)",
     "limitedTierHint": "当前模型不支持 1K 以上的分辨率",
+    "memberTierHint": "2K、4K 为会员专享",
+    "memberQualityHint": "高画质为会员专享",
     "clampedHint": "由于模型限制，原始分辨率已被自动规整"
   },
   "mask": {
@@ -188,6 +193,9 @@
     "start": "开始创作",
     "newProject": "新建项目",
     "references": "参考素材（{{count}}）",
+    "removeReference": "移除第 {{index}} 张图片",
+    "referenceIssue": "第 {{index}} 张图片：{{reason}}",
+    "removeUnusableReferences": "移除无法使用的图片",
     "uploadProgress": "上传中 {{ready}}/{{total}}",
     "viewAllReferences": "查看全部",
     "clearReferences": "清空参考素材",
@@ -205,7 +213,7 @@
     "selected": "已选 {{count}}/{{max}}",
     "full": "已达上限",
     "mergeLimit": "超过 {{max}} 张只能逐张生成",
-    "oversized": "第 {{index}} 张超过 {{mb}} MB，请移除或换一张更小的图",
+    "oversized": "第 {{index}} 张超过 {{mb}} MB，请移除或换一张更小的图。",
     "sendLabel": "逐张生成 {{count}} 张",
     "sendLabelCredits": "逐张生成 {{count}} 张，共 {{credits}} 积分"
   }

@@ -9,6 +9,7 @@ import {
   insertCanvasNode,
   moveCanvasNodes,
   readCanvasDocument,
+  setCanvasNodeJob,
   updateCanvasNode,
 } from '@image-playground/shared'
 import {
@@ -26,6 +27,7 @@ import * as Y from 'yjs'
 import NodeCanvas, {
   useUploadingElsewhere,
 } from '../../../../features/canvas/components/NodeCanvas'
+import { useCanvasAssetsEntry } from '../../../../features/canvas/lib/assetsEntry'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
 import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCanvasDocument'
 import type { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
@@ -627,6 +629,35 @@ it('preserves a video rotation when switching from its poster to playback', asyn
   expect(video.parentElement!.style.transform).toBe('rotate(30deg)')
   expect(video.closest('[data-rotated]')).not.toBeNull()
   expect(host.querySelector('[data-node-id="image"] .studio-node-caption')).not.toBeNull()
+})
+
+it('keeps the materials picker and moves the assets entry out of the left toolbar', async () => {
+  await render()
+  const tool = (label: string) =>
+    host.querySelector<HTMLButtonElement>(`.studio-node-tools button[aria-label="${label}"]`)
+  expect(tool('素材')).not.toBeNull()
+  expect(tool('资产')).toBeNull()
+  // 入口在全局顶栏：画布挂着时 store 标记可用，打开后整屏弹窗 portal 到 body。
+  expect(useCanvasAssetsEntry.getState().available).toBe(true)
+  expect(document.querySelector('.studio-canvas-assets-modal')).toBeNull()
+  await act(async () => useCanvasAssetsEntry.getState().setOpen(true))
+  expect(document.querySelector('.studio-canvas-assets-modal')).not.toBeNull()
+  await act(async () => useCanvasAssetsEntry.getState().setOpen(false))
+  expect(document.querySelector('.studio-canvas-assets-modal')).toBeNull()
+  act(() => root.unmount())
+  expect(useCanvasAssetsEntry.getState().available).toBe(false)
+  root = createRoot(host)
+})
+
+it('hides the top-bar assets entry while the canvas sits behind the chat view', async () => {
+  // 对话视图里画布照样挂着，但对话页已有自己的「资产库」，顶栏不能再出一个「资产」。
+  await render(false)
+  expect(useCanvasAssetsEntry.getState().available).toBe(false)
+  await render(true)
+  expect(useCanvasAssetsEntry.getState().available).toBe(true)
+  await act(async () => useCanvasAssetsEntry.getState().setOpen(true))
+  await render(false)
+  expect(useCanvasAssetsEntry.getState()).toMatchObject({ available: false, open: false })
 })
 
 it('opens an add menu on a double-click of the empty canvas', async () => {
@@ -1485,4 +1516,70 @@ it('别的设备的上传声明到点过期后，不等别的改动也会从「�
   } finally {
     vi.useRealTimers()
   }
+})
+
+it.each([
+  'image',
+  'video',
+] as const)('offers retry on a failed %s node and confirms only that node', async (kind) => {
+  for (const id of ['failed-one', 'failed-two']) {
+    insertCanvasNode(
+      canvas.doc,
+      {
+        id,
+        type: 'image',
+        x: 200,
+        y: 0,
+        width: 360,
+        height: 240,
+        data: { name: id, meta: { nodeKind: kind, nodePrompt: 'a quiet forest' } },
+      },
+      canvas.origin,
+    )
+    setCanvasNodeJob(
+      canvas.doc,
+      {
+        id: `job-${id}`,
+        nodeId: id,
+        createdAt: 1,
+        status: 'error',
+        message: 'upstream failed',
+        meta: { prompt: 'a quiet forest', clientRequestId: `job-${id}` },
+      },
+      canvas.origin,
+    )
+  }
+  await render()
+  const card = host.querySelector('[data-node-id="failed-one"]')!
+  const retry = [...card.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === '重试',
+  )
+  expect(retry).toBeDefined()
+  await act(async () => retry!.click())
+  const dialog = document.querySelector('[role="dialog"]')!
+  expect(dialog.textContent).toContain('failed-one')
+  expect(dialog.textContent).not.toContain('failed-two')
+  expect(dialog.textContent).toContain('1 个生成节点')
+  expect(mocks.submitImage).not.toHaveBeenCalled()
+})
+
+it('does not offer retry while a node is generating', async () => {
+  setCanvasNodeJob(
+    canvas.doc,
+    {
+      id: 'loading-job',
+      nodeId: 'image',
+      createdAt: 1,
+      status: 'loading',
+      message: '',
+      meta: { prompt: 'forest', clientRequestId: 'loading-job' },
+    },
+    canvas.origin,
+  )
+  await render()
+  const card = host.querySelector('[data-node-id="image"]')!
+  expect(card.textContent).toContain('生成中')
+  expect([...card.querySelectorAll('button')].some((button) => button.textContent === '重试')).toBe(
+    false,
+  )
 })

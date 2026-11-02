@@ -457,6 +457,15 @@ input[type="number"] {
   animation: overlay-in 0.2s ease-out both;
 }
 
+/* scrollbar-gutter: stable 让 fixed; inset: 0 的右缘停在视口内侧，
+   居中弹窗会相对视口中心偏左。宽屏用 100vw 把居中盒拉回整段视口；窄屏不动。 */
+@media (min-width: 768px) {
+  .overlay-center {
+    right: auto;
+    width: 100vw;
+  }
+}
+
 /* 弹窗面板：从中心弹出 */
 @keyframes modal-in {
   from { opacity: 0; transform: scale(0.95) translateY(10px); }

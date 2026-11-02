@@ -1,6 +1,7 @@
 import { accountScope, scopedStorageName } from './authScope'
 import { MediaRequestError, mediaJson } from './cloudMedia'
 import { reportDeliveryFailure } from './errorReporting'
+import { putMedia } from './mediaPut'
 import { bffBaseUrl } from './runtimeConfig'
 
 interface Upload {
@@ -153,6 +154,8 @@ export async function transferMedia(
     /** 登记拿到媒体 id 时回调，失败日志也能和服务端记录对上。 */
     onReserved?: (id: string) => void
     confirm?: (work: () => Promise<Upload>) => Promise<Upload>
+    /** 直传已发出的比例，0–1；重试时从头再报。 */
+    onProgress?: (fraction: number) => void
   },
 ): Promise<Upload> {
   const { signal, current } = options
@@ -193,14 +196,12 @@ export async function transferMedia(
         stage = 'put'
         if (!upload.uploadUrl) throw new Error('invalid_media_upload')
         options.onPhase?.('put')
-        let sent: Response
+        let sent: { ok: boolean; status: number }
         try {
-          sent = await fetch(upload.uploadUrl, {
-            method: 'PUT',
-            credentials: 'omit',
-            signal: AbortSignal.any([signal, AbortSignal.timeout(300_000)]),
-            headers: { 'content-type': contentType },
-            body,
+          // 不再设整段超时：大图慢网也一直在走；连续 60 秒没进度才算卡住，按超时重试。
+          sent = await putMedia(upload.uploadUrl, body, contentType, {
+            signal,
+            onProgress: options.onProgress,
           })
         } catch (error) {
           // Expired signatures can surface as CORS network errors in a browser.
