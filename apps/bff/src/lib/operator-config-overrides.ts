@@ -17,6 +17,9 @@ import { type ResolvedOperatorConfig, validateOperatorConfigValues } from './ope
 export type OperatorOverrideValue = boolean | number
 let invalidOverrideReasons = new Map<string, string>()
 let lastLoadedRevision = -1
+// 已成功发出告警的无效覆盖；发送失败的留待下次刷新重试，不阻塞快照发布。
+let alertedInvalidReasons = new Map<string, string>()
+let alertRetryPending = false
 let refreshInFlight: Promise<number> | undefined
 export interface OperatorOverrideView {
   readonly key: string
@@ -459,14 +462,19 @@ async function refreshOperatorConfigUnlocked(): Promise<number> {
   const base = baselineOperatorConfig()
   validateOperatorConfigValues(base, base.capabilities, base.quotas, config)
   const { effective, invalid } = resolveRows(base, snapshot.rows)
-  const previous = invalidOverrideReasons
   // Publish only after reading and validating the complete snapshot; failures retain old state.
   setEffectiveOperatorConfig(effective)
   invalidOverrideReasons = invalid
   loadedRows = snapshot.rows
   lastLoadedRevision = snapshot.revision
+  const alerted = new Map<string, string>()
+  let alertFailed = false
   for (const [key, reason] of invalid) {
-    if (reason === 'unknown_key' || previous.get(key) === reason) continue
+    if (reason === 'unknown_key') continue
+    if (alertedInvalidReasons.get(key) === reason) {
+      alerted.set(key, reason)
+      continue
+    }
     log.error(
       { event: 'operator_config.invalid_override', key, reason, revision: snapshot.revision },
       'ignoring invalid operator override; using baseline',
@@ -480,13 +488,17 @@ async function refreshOperatorConfigUnlocked(): Promise<number> {
           detail: { key, reason, revision: snapshot.revision },
         },
       ])
+      alerted.set(key, reason)
     } catch (error) {
+      alertFailed = true
       log.error(
         { event: 'operator_config.alert_failed', err: error },
         'operator config alert failed',
       )
     }
   }
+  alertedInvalidReasons = alerted
+  alertRetryPending = alertFailed
   return snapshot.revision
 }
 
@@ -506,7 +518,7 @@ export function refreshOperatorConfig(): Promise<number> {
 
 export async function refreshOperatorConfigIfChanged(): Promise<number | null> {
   const revision = await operatorConfigRevision()
-  if (revision === lastLoadedRevision) return null
+  if (revision === lastLoadedRevision && !alertRetryPending) return null
   return refreshOperatorConfig()
 }
 
