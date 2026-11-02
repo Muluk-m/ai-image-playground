@@ -72,8 +72,9 @@ async function click(label: string) {
 async function finish() {
   await act(async () => vi.advanceTimersByTimeAsync(300))
 }
-it('starts unchanged, shows original and adjusted previews, and exports PNG without compression metrics', async () => {
-  expect(host.querySelector('img[alt="原图"]')).not.toBeNull()
+it('shows only the adjusted preview and exports PNG without compression metrics', async () => {
+  expect(host.querySelector('img[alt="原图"]')).toBeNull()
+  expect(host.querySelectorAll('figure')).toHaveLength(1)
   expect(host.querySelector('canvas[aria-label="调整后"]')).not.toBeNull()
   expect(host.textContent).not.toMatch(/KB|MB|%/)
   await finish()
