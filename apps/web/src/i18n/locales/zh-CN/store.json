@@ -54,6 +54,8 @@
     "imported": "数据已成功导入",
     "importedTasks_other": "已导入 {{count}} 条记录",
     "importedConfig": "配置已成功导入",
-    "importFailed": "导入失败：{{reason}}"
+    "importFailed": "导入失败：{{reason}}",
+    "imageDeleted": "图片已删除",
+    "imageDeleteFailed": "删除失败，稍后再试"
   }
 }

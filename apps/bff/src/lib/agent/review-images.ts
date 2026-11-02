@@ -29,10 +29,36 @@ export async function prepareReviewImages(
   // 本轮附图是用户的请求本身，装不下时照旧明确报告。
   assertVisualBytes(preparedBytes)
   const byteLimit = visualByteLimit()
+  // 几张预览并行读，再按原顺序记预算。每次读取各自去拿 `agent:visual-prepare-concurrency` 名额
+  //（图源内部拿），这里不把整批包进一个名额，否则批内的读取会绕过全局的内存保护。
+  const reads = [
+    ...required.map((id, index) => ({
+      kind: 'required' as const,
+      index,
+      work: () => images.resolve(id, 'preview'),
+    })),
+    ...optional.map((id, index) => ({
+      kind: 'optional' as const,
+      index,
+      work: () => images.resolve(id, 'preview').catch(() => null),
+    })),
+  ]
+  const results = await mapSettledBounded(reads, (read) => read.work())
+  const requiredImages: Array<ResolvedAgentImage | null> = new Array(required.length).fill(null)
+  const optionalImages: Array<ResolvedAgentImage | null> = new Array(optional.length).fill(null)
+  for (const [index, read] of reads.entries()) {
+    const result = results[index]!
+    if (result.status === 'rejected') {
+      if (read.kind === 'required') throw result.reason
+      continue
+    }
+    if (read.kind === 'required') requiredImages[read.index] = result.value
+    else optionalImages[read.index] = result.value
+  }
   const reviewed: ResolvedAgentImage[] = []
   const omitted: string[] = []
-  for (const id of required) {
-    const image = await images.resolve(id, 'preview')
+  for (const [index, id] of required.entries()) {
+    const image = requiredImages[index]
     if (!image)
       throw new AgentToolError(
         'invalid_params',
@@ -47,13 +73,37 @@ export async function prepareReviewImages(
   }
   // 批次唤醒的复核图尽力附带：旧产物可能已删、几批同时完成可能超预算，跳过即可，
   // 唤醒说明让模型以图片清单为准，没附上的如实说未查看。
-  for (const id of optional) {
-    const image = await images.resolve(id, 'preview').catch(() => null)
+  for (const image of optionalImages) {
     if (!image || preparedBytes + imageBytes(image) > byteLimit) continue
     preparedBytes += imageBytes(image)
     reviewed.push(image)
   }
   return { reviewed, omitted }
+}
+
+/** 复核图同时读取的上限。 */
+export const REVIEW_READ_PARALLELISM = 4
+
+/** 按顺序返回 settled 结果的有界并发 map；失败也要等其它已启动读取结束后才向外抛。 */
+async function mapSettledBounded<T, R>(
+  items: readonly T[],
+  work: (item: T) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results = new Array<PromiseSettledResult<R>>(items.length)
+  let next = 0
+  const lane = async () => {
+    while (next < items.length) {
+      const index = next++
+      results[index] = await Promise.resolve()
+        .then(() => work(items[index]!))
+        .then(
+          (value) => ({ status: 'fulfilled' as const, value }),
+          (reason) => ({ status: 'rejected' as const, reason }),
+        )
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(REVIEW_READ_PARALLELISM, items.length) }, lane))
+  return results
 }
 
 /** 必需复核图没附上时追加给模型的说明；都附上了就是空串。 */

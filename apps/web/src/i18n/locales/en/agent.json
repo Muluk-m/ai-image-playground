@@ -722,6 +722,12 @@
     "exportDone_other": "Exported {{count}} results",
     "exportPartial": "Exported {{count}}, {{failed}} could not be fetched",
     "exportFailed": "Export failed, nothing could be fetched",
+    "details": "Plan details: name, rule and per-item prompts",
+    "tiles": "Generation progress",
+    "tileLabel": "Image {{index}}: {{status}}",
+    "tileSlow": "Slower than usual",
+    "cancelTile": "Cancel image {{index}}",
+    "editPlan": "View plan",
     "itemStatus": {
       "pending": "Pending",
       "queued": "Queued",

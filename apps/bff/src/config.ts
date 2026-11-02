@@ -18,6 +18,14 @@ const positiveIntEnv = (key: string, fallback: number): number => {
   }
   return value
 }
+/** 0 表示关闭；只接受非负整数。 */
+const nonNegativeIntEnv = (key: string, fallback: number): number => {
+  const value = Number(env(key, String(fallback)))
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${key} must be a non-negative integer`)
+  }
+  return value
+}
 const booleanEnv = (key: string, fallback: boolean): boolean => {
   const value = env(key, String(fallback)).toLowerCase()
   if (value !== 'true' && value !== 'false') throw new Error(`${key} must be true or false`)
@@ -136,6 +144,70 @@ export const config = {
     asyncImageTasks: booleanEnv('UPSTREAM_ASYNC_IMAGE_TASKS', false),
     /** GPT Image 2 的 Responses 主模型；留空保留网关原生 Images 协议。 */
     imageResponsesModel: env('UPSTREAM_IMAGE_RESPONSES_MODEL', ''),
+    /**
+     * Vertex 某张图退避用完仍 429 时改用哪个 Vertex 模型补这一张；设成 `off` 即不回落。
+     * 只对同在 Vertex 渠道、当前上架的模型生效，按原单价结算，用户不多付（2026-10-29 Lite 429 事故）。
+     */
+    vertexRateLimitFallbackModel: env(
+      'VERTEX_RATE_LIMIT_FALLBACK_MODEL',
+      'gemini-nano-banana-2.1',
+    ).trim(),
+    /**
+     * 从提交起（含排队）原模型最多占这么久，到点还没出的那几张直接改用回落模型，不再排原模型的队、
+     * 不再等它的退避；回落也失败就按部分出图交付其余。之后任务级重试也不再整单重跑。
+     * 默认 5 分钟：原模型一轮退避（30/60/120 秒）约 3.5 分钟加出图时间，5 分钟够它走完一轮；
+     * 回落模型再走一轮约 4–5 分钟，整单仍落在渠道 600 秒超时与用户可接受的等待（约 10 分钟）之内
+     * （2026-10-29 Lite 事故里一单拖过 10 分钟）。没配回落模型时不生效。
+     */
+    vertexFallbackAfterMs: positiveIntEnv('VERTEX_FALLBACK_AFTER_MS', 5 * 60 * 1000),
+  },
+  /**
+   * GPT Image 的 OpenAI 直连通道（另一条是 UPSTREAM_BASE_URL 的 sub2api）。会员默认走直连，满了或不可用
+   * 立刻切 sub2api；非会员走 sub2api，sub2api 熔断才借直连。见 lib/upstream/gpt-routing.ts。
+   * 密钥沿用 channels.json 里 openai-images 的 OPENAI_API_KEY；没打开或没配密钥时一律走 sub2api。
+   */
+  gptDirect: {
+    enabled: booleanEnv('GPT_DIRECT_ENABLED', false),
+    baseUrl: env('GPT_DIRECT_BASE_URL', 'https://api.openai.com/v1').replace(/\/+$/, ''),
+    apiKey: env('OPENAI_API_KEY', ''),
+    /** 可选：OpenAI-Organization 请求头。 */
+    organization: env('OPENAI_ORG_ID', ''),
+    /** 直连每月预算（美元）与封顶比例（%）。月按台北时间的自然月算。 */
+    monthlyBudgetUsd: positiveIntEnv('GPT_DIRECT_MONTHLY_BUDGET_USD', 200),
+    budgetPercent: positiveIntEnv('GPT_DIRECT_BUDGET_PERCENT', 100),
+    /** 每百万 token 的美元价（输入文字、输入图片、输出图片），按上游回报的 usage 折算成本。 */
+    priceInputTextPerMillion: positiveIntEnv('GPT_DIRECT_PRICE_INPUT_TEXT', 5),
+    priceInputImagePerMillion: positiveIntEnv('GPT_DIRECT_PRICE_INPUT_IMAGE', 8),
+    priceOutputPerMillion: positiveIntEnv('GPT_DIRECT_PRICE_OUTPUT', 30),
+    /** 一条路发出请求后多久没结果就换另一条路重试一次（只换一次，总时限仍是硬超时）。 */
+    attemptTimeoutMs: positiveIntEnv('GPT_DIRECT_ATTEMPT_TIMEOUT_MS', 150_000),
+    sub2apiAttemptTimeoutMs: positiveIntEnv('GPT_SUB2API_ATTEMPT_TIMEOUT_MS', 240_000),
+    /** sub2api 连续失败几次熔断、熔断多久后放一条试探。 */
+    sub2apiBreakerFailures: positiveIntEnv('GPT_SUB2API_BREAKER_FAILURES', 5),
+    sub2apiBreakerCooldownMs: positiveIntEnv('GPT_SUB2API_BREAKER_COOLDOWN_MS', 60_000),
+  },
+  /**
+   * 跨 worker 的上游调度配额（公开库 scheduler_buckets / scheduler_leases，按行锁抢）。每个环境各算各的。
+   * 目前只管 GPT Image：OpenAI 直连与 sub2api 两条通道各有各的桶。见 lib/upstream/scheduler.ts。
+   */
+  scheduler: {
+    /** 桶名前缀；几个环境共用一个库时用它隔开。 */
+    namespace: env('SCHEDULER_NAMESPACE', 'default'),
+    /** 心跳停了多久的租约算死掉、额度收回。 */
+    leaseTtlMs: positiveIntEnv('SCHEDULER_LEASE_TTL_MS', 60_000),
+    heartbeatMs: positiveIntEnv('SCHEDULER_HEARTBEAT_MS', 15_000),
+    /** 上游回 429 后这个模型的桶停发多久。 */
+    rateLimitCooldownMs: positiveIntEnv('SCHEDULER_RATE_LIMIT_COOLDOWN_MS', 60_000),
+    gpt: {
+      /** 直连每个模型每分钟最多发出的张数（Phase 0 实测 45 张/分钟未见 429，留余量取 16）。 */
+      directImagesPerMinute: positiveIntEnv('GPT_DIRECT_IPM', 16),
+      /** 直连同时在途的请求数，所有 GPT 模型合计。 */
+      directConcurrency: positiveIntEnv('GPT_DIRECT_CONCURRENCY', 8),
+      /** 直连整个组织每分钟张数，所有模型合计；0 = 不设这一层。 */
+      directOrgImagesPerMinute: nonNegativeIntEnv('GPT_DIRECT_ORG_IPM', 0),
+      /** 经 sub2api 同时在途的 GPT 请求数，本环境合计；0 = 不限。上游全局上限是 8。 */
+      sub2apiConcurrency: nonNegativeIntEnv('GPT_SUB2API_CONCURRENCY', 8),
+    },
   },
   agent: {
     /** 智能体的对话模型。没有默认值：`agent:chat` 要求运营显式配一个能跑工具循环的模型。 */

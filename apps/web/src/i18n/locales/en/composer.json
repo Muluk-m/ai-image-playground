@@ -88,9 +88,11 @@
     "modelEtaRange": "~{{min}}–{{max}}s",
     "modelEtaRangeMinutes": "~{{min}}–{{max}} min",
     "modelNew": "New",
-    "modelTier": {
-      "fast": "Fast",
-      "quality": "High quality"
+    "modelFamily": {
+      "gpt": "GPT",
+      "gemini": "Banana",
+      "grok": "Grok",
+      "agnes": "Agnes"
     }
   },
   "size": {
@@ -100,6 +102,8 @@
     "width": "Width",
     "height": "Height",
     "limitedTierHint": "This model does not support resolutions above 1K",
+    "memberTierHint": "2K and 4K are for members",
+    "memberQualityHint": "High quality is for members",
     "clampedHint": "Model limits normalized the original resolution"
   },
   "mask": {

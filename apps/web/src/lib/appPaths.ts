@@ -28,6 +28,9 @@ export const PRICING_PATH = '/pricing'
 export const TERMS_PATH = '/terms'
 export const PRIVACY_PATH = '/privacy'
 
+/** CLI 设备授权确认页（终端打印的链接落到这里）。不是工作台入口。 */
+export const CLI_DEVICE_PATH = '/device'
+
 export function normalizePath(pathname: string): string {
   return pathname.replace(/\/+$/, '') || '/'
 }
@@ -45,9 +48,18 @@ export function isPrivacyPath(pathname: string): boolean {
 }
 
 /** 整页文档：切工作台入口时不能把地址改掉。 */
+export function isCliDevicePath(pathname: string): boolean {
+  return normalizePath(pathname) === CLI_DEVICE_PATH
+}
+
 export function isStandalonePath(pathname: string): boolean {
   const path = normalizePath(pathname)
-  return path === PRICING_PATH || path === TERMS_PATH || path === PRIVACY_PATH
+  return (
+    path === PRICING_PATH ||
+    path === TERMS_PATH ||
+    path === PRIVACY_PATH ||
+    path === CLI_DEVICE_PATH
+  )
 }
 
 /** 地址属于某个入口时返回它；其余（项目地址、`/`、定价页、未知路径）返回 null。 */

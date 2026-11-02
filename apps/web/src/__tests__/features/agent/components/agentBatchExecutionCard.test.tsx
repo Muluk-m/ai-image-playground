@@ -11,6 +11,19 @@ import { setClientStorageScope } from '../../../../lib/authScope'
 import { getDeviceId } from '../../../../lib/deviceId'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
 
+// 单张取消按部署能力放开；其余能力仍走真实清单。
+const itemCancel = vi.hoisted(() => ({ enabled: false }))
+vi.mock('../../../../lib/clientCapabilities', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../lib/clientCapabilities')>()
+  return {
+    ...actual,
+    isClientCapabilityEnabled: (key: Parameters<typeof actual.isClientCapabilityEnabled>[0]) =>
+      key === 'agent:batch-item-cancel'
+        ? itemCancel.enabled
+        : actual.isClientCapabilityEnabled(key),
+  }
+})
+
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const estimate = {
@@ -1209,5 +1222,237 @@ it('plan card ratio row shows the ratio each item is submitted with, not the oth
     act(() => root.unmount())
     host.remove()
     vi.unstubAllGlobals()
+  }
+})
+
+it('确认后生成进度排在计划卡下方的对话图块里，排队中的一张可单独取消', async () => {
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  const initial = initialPage()
+  let saved: AgentBatchPage = {
+    ...initial,
+    batch: { ...initial.batch, status: 'running', submittedCount: 2 },
+    items: initial.items.map((item, ordinal) => ({
+      ...item,
+      progress: 'in_flight' as const,
+      execution: {
+        taskId: `run-task-${ordinal}`,
+        status: 'queued' as const,
+        attempt: 1,
+        actualCredits: null,
+      },
+    })),
+  }
+  const posts: string[] = []
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (init?.method === 'POST') {
+      posts.push(url.replace(/^.*\/api\/agent\/batches\/[^/]+/, ''))
+      saved = {
+        ...saved,
+        items: saved.items.map((item) =>
+          item.key === 'item-1'
+            ? {
+                ...item,
+                progress: 'cancelled' as const,
+                execution: { ...item.execution!, status: 'cancelled' as const },
+              }
+            : item,
+        ),
+      }
+    }
+    return Response.json(saved)
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  let root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(<AgentBatchPlanCard batchId={saved.batch.id} domId="run-row" />),
+    )
+    await vi.waitFor(() => expect(host.querySelector('[data-batch-run]')).not.toBeNull())
+    // 图块不在计划卡里，计划卡只留查看与修改。
+    const plan = host.querySelector('#run-row')!
+    expect(plan.querySelector('[data-batch-tiles]')).toBeNull()
+    expect(host.querySelectorAll('[data-batch-tile]')).toHaveLength(2)
+    // 能力关着：生成中的图块不出取消按钮。
+    expect(host.querySelector('[data-batch-cancel]')).toBeNull()
+    act(() => root.unmount())
+    itemCancel.enabled = true
+    root = createRoot(host)
+    await act(async () =>
+      root.render(<AgentBatchPlanCard batchId={saved.batch.id} domId="run-row" />),
+    )
+    await vi.waitFor(() =>
+      expect(host.querySelector('[data-batch-cancel="item-1"]')).not.toBeNull(),
+    )
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[data-batch-cancel="item-1"]')!.click(),
+    )
+    await vi.waitFor(() =>
+      expect(
+        host.querySelector<HTMLElement>('[data-batch-tile="item-1"]')!.dataset.batchStatus,
+      ).toBe('cancelled'),
+    )
+    expect(posts).toEqual(['/items/item-1/cancel'])
+    expect(host.querySelector<HTMLElement>('[data-batch-tile="item-0"]')!.dataset.batchStatus).toBe(
+      'in_flight',
+    )
+    expect(host.querySelector('[data-batch-cancel="item-1"]')).toBeNull()
+    expect(host.querySelector('[data-batch-cancel="item-0"]')).not.toBeNull()
+    // 「查看计划」回到计划卡并展开逐项提示词。
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('button')]
+        .find((one) => one.textContent === '查看计划')!
+        .click(),
+    )
+    expect(host.querySelector<HTMLElement>('[data-batch-details]')!.hidden).toBe(false)
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    vi.unstubAllGlobals()
+    itemCancel.enabled = false
+  }
+})
+
+it('先撤的一张成功但被后发的取消盖过、后发的又失败时，界面仍显示先撤的那张已取消', async () => {
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  itemCancel.enabled = true
+  const initial = initialPage()
+  const running: AgentBatchPage = {
+    ...initial,
+    batch: { ...initial.batch, status: 'running', submittedCount: 2 },
+    items: initial.items.map((item, ordinal) => ({
+      ...item,
+      progress: 'in_flight' as const,
+      execution: {
+        taskId: `race-task-${ordinal}`,
+        status: 'queued' as const,
+        attempt: 1,
+        actualCredits: null,
+      },
+    })),
+  }
+  const firstCancelled: AgentBatchPage = {
+    ...running,
+    items: running.items.map((item) =>
+      item.key === 'item-0'
+        ? {
+            ...item,
+            progress: 'cancelled' as const,
+            execution: { ...item.execution!, status: 'cancelled' as const },
+          }
+        : item,
+    ),
+  }
+  let saved = running
+  const gate = () => {
+    let resolve!: () => void
+    const promise = new Promise<void>((done) => {
+      resolve = done
+    })
+    return { promise, resolve }
+  }
+  const first = gate()
+  const second = gate()
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (init?.method === 'POST' && url.endsWith('/items/item-0/cancel')) {
+      await first.promise
+      saved = firstCancelled
+      return Response.json(saved)
+    }
+    if (init?.method === 'POST' && url.endsWith('/items/item-1/cancel')) {
+      await second.promise
+      return Response.json({ error: 'upstream_failed' }, { status: 500 })
+    }
+    return Response.json(saved)
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(<AgentBatchPlanCard batchId={running.batch.id} domId="race-row" />),
+    )
+    await vi.waitFor(() =>
+      expect(host.querySelector('[data-batch-cancel="item-1"]')).not.toBeNull(),
+    )
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[data-batch-cancel="item-0"]')!.click(),
+    )
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[data-batch-cancel="item-1"]')!.click(),
+    )
+    await act(async () => first.resolve())
+    await vi.waitFor(() =>
+      expect(
+        host.querySelector<HTMLElement>('[data-batch-tile="item-0"]')!.dataset.batchStatus,
+      ).toBe('cancelled'),
+    )
+    await act(async () => second.resolve())
+    await vi.waitFor(() => expect(host.textContent).toContain('没能取消，请稍后再试'))
+    expect(host.querySelector<HTMLElement>('[data-batch-tile="item-0"]')!.dataset.batchStatus).toBe(
+      'cancelled',
+    )
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    vi.unstubAllGlobals()
+    itemCancel.enabled = false
+  }
+})
+
+it('服务端没撤成（已认领、进入核对或已调用过上游）时提示没能取消', async () => {
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  itemCancel.enabled = true
+  const initial = initialPage()
+  const saved: AgentBatchPage = {
+    ...initial,
+    batch: { ...initial.batch, status: 'running', submittedCount: 2 },
+    items: initial.items.map((item, ordinal) => ({
+      ...item,
+      progress: 'in_flight' as const,
+      execution: {
+        taskId: `kept-task-${ordinal}`,
+        status: 'queued' as const,
+        attempt: 1,
+        actualCredits: null,
+      },
+    })),
+  }
+  // 取消接口照常 200，但这一张已进入核对：服务端没有撤它。
+  vi.stubGlobal('fetch', async (_input: string | URL | Request, init?: RequestInit) =>
+    Response.json(
+      init?.method === 'POST'
+        ? {
+            ...saved,
+            items: saved.items.map((item) =>
+              item.key === 'item-0'
+                ? { ...item, execution: { ...item.execution!, status: 'reconciling' as const } }
+                : item,
+            ),
+          }
+        : saved,
+    ),
+  )
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(<AgentBatchPlanCard batchId={saved.batch.id} domId="kept-row" />),
+    )
+    await vi.waitFor(() =>
+      expect(host.querySelector('[data-batch-cancel="item-0"]')).not.toBeNull(),
+    )
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[data-batch-cancel="item-0"]')!.click(),
+    )
+    await vi.waitFor(() => expect(host.textContent).toContain('没能取消，请稍后再试'))
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    vi.unstubAllGlobals()
+    itemCancel.enabled = false
   }
 })
