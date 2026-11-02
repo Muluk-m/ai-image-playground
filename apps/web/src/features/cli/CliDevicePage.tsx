@@ -37,6 +37,7 @@ export default function CliDevicePage() {
   const [draft, setDraft] = useState(code)
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   const deciding = useRef(false)
+  const request = useRef<AbortController | null>(null)
   const [attempt, setAttempt] = useState(0)
   const scopeLabels: Record<string, string> = {
     'images:read': t('cliDevice.scopes.imagesRead'),
@@ -51,9 +52,24 @@ export default function CliDevicePage() {
   }, [])
 
   useEffect(() => {
-    if (!user || !code) return
-    const controller = new AbortController()
+    const restoreCode = () => {
+      const next = codeFromAddress()
+      setCode(next)
+      setDraft(next)
+    }
+    window.addEventListener('popstate', restoreCode)
+    return () => window.removeEventListener('popstate', restoreCode)
+  }, [])
+
+  useEffect(() => {
     deciding.current = false
+    if (!user?.id || !code) {
+      request.current = null
+      setPhase({ kind: 'idle' })
+      return
+    }
+    const controller = new AbortController()
+    request.current = controller
     setPhase({ kind: 'loading' })
     // 换了授权码时旧请求可能已在路上：只让这一次的结果写状态，免得页面显示别的客户端权限。
     authenticatedBffFetch(`${bffBaseUrl()}/api/cli/device?user_code=${encodeURIComponent(code)}`, {
@@ -69,26 +85,35 @@ export default function CliDevicePage() {
         if (!controller.signal.aborted) setPhase({ kind: 'failed' })
       })
     return () => controller.abort()
-  }, [user, code, attempt])
+  }, [user?.id, code, attempt])
 
   async function decide(decision: 'approve' | 'deny') {
     // 同一帧里的连点读到的都是 pending，用 ref 保证只发出第一个决定。
-    if (deciding.current || phase.kind !== 'pending') return
+    const controller = request.current
+    if (
+      !user ||
+      deciding.current ||
+      phase.kind !== 'pending' ||
+      !controller ||
+      controller.signal.aborted
+    ) return
     deciding.current = true
     setPhase({ kind: 'loading' })
     try {
       const res = await authenticatedBffFetch(`${bffBaseUrl()}/api/cli/device`, {
         method: 'POST',
+        signal: controller.signal,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ user_code: code, decision }),
       })
+      if (controller.signal.aborted) return
       if (res.ok) setPhase({ kind: decision === 'approve' ? 'approved' : 'denied' })
       else setPhase({ kind: res.status === 404 ? 'invalid' : 'failed' })
     } catch {
-      setPhase({ kind: 'failed' })
+      if (!controller.signal.aborted) setPhase({ kind: 'failed' })
     } finally {
-      // 失败后可以重试；成功后页面已经没有可点的按钮。
-      deciding.current = false
+      // 旧请求不能解锁新授权码的提交。
+      if (!controller.signal.aborted) deciding.current = false
     }
   }
 
@@ -98,7 +123,7 @@ export default function CliDevicePage() {
     if (!next) return
     const url = new URL(window.location.href)
     url.searchParams.set('user_code', next)
-    window.history.replaceState(null, '', `${url.pathname}${url.search}`)
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
     setCode(next)
   }
 
@@ -134,7 +159,7 @@ export default function CliDevicePage() {
           </Button>
         ) : null}
 
-        {phase.kind === 'pending' ? (
+        {user && phase.kind === 'pending' ? (
           <div className="space-y-5">
             <div className="space-y-2">
               <p className="text-title-md">{phase.authorization.client_name}</p>

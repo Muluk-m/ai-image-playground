@@ -4,6 +4,7 @@ import { setSignedIn } from '../../auth/loginPrompt'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
   authenticatedBffFetch,
+  fetchCliConnections,
   fetchOAuthProviders,
   getCurrentUser,
   loginUser,
@@ -11,6 +12,7 @@ import {
   oauthLinkUrl,
   oauthStartUrl,
   registerUser,
+  revokeCliConnection,
   shouldProbeSession,
 } from '../../lib/authClient'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
@@ -285,6 +287,32 @@ describe('auth client', () => {
     expect(shouldProbeSession()).toBe(false)
   })
 
+  it('loads connected CLIs with the browser session and cancellation signal', async () => {
+    const connections = [{ id: 'connection-1', client_name: 'Muvloom CLI', created_at: 1, last_used_at: null }]
+    const fetcher = vi.fn(async () => Response.json({ connections }))
+    vi.stubGlobal('fetch', fetcher)
+    const controller = new AbortController()
+    await expect(fetchCliConnections(controller.signal)).resolves.toEqual(connections)
+    expect(fetcher).toHaveBeenCalledWith('https://bff.example.com/api/me/cli-connections', {
+      credentials: 'include', signal: controller.signal,
+    })
+  })
+
+  it('revokes exactly the selected connection without exposing credentials', async () => {
+    const fetcher = vi.fn(async () => Response.json({ ok: true }))
+    vi.stubGlobal('fetch', fetcher)
+    await expect(revokeCliConnection('connection/one')).resolves.toBeUndefined()
+    expect(fetcher).toHaveBeenCalledWith('https://bff.example.com/api/me/cli-connections/connection%2Fone', {
+      credentials: 'include', method: 'DELETE', signal: undefined,
+    })
+  })
+
+  it('preserves connection API errors for the account UI', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: 'capability_unavailable' }, { status: 404 })))
+    await expect(fetchCliConnections()).rejects.toMatchObject({ status: 404, code: 'capability_unavailable' })
+    await expect(revokeCliConnection('connection-1')).rejects.toMatchObject({ status: 404, code: 'capability_unavailable' })
+  })
+
   it('points the OAuth start route at the configured BFF origin', () => {
     vi.stubGlobal('window', { location: new URL('https://app.example.com/') })
     expect(oauthStartUrl('google')).toBe(
@@ -301,6 +329,7 @@ describe('auth client', () => {
     '/pricing?plan=pro#plans',
     '/terms#agreement',
     '/privacy#cookies',
+    '/device?user_code=BCDF-GHJK#approval',
     '/p/project-123?mode=canvas&selection=a%2Bb#node-2',
   ])('preserves workspace query and hash for OAuth start and link at %s', (target) => {
     vi.stubGlobal('window', { location: new URL(target, 'https://app.example.com') })
