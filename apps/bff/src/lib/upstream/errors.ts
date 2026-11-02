@@ -1,5 +1,15 @@
 import { isObject } from '../type-guards'
 
+/** Premium CLI parameters cannot be fulfilled; ordinary terminal failure refunds the hold. */
+export class ImagePlanRequiredError extends Error {
+  readonly retryable = false
+
+  constructor(options?: ErrorOptions) {
+    super('The requested image tier requires an available premium route', options)
+    this.name = 'ImagePlanRequiredError'
+  }
+}
+
 /**
  * 自定义错误：BFF 自己的 UPSTREAM_HARD_TIMEOUT_MS 切的（vs 上游返 4xx/5xx
  * 或 socket 异常关）。task-runner 用 instanceof 检查并统一落库为

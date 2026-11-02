@@ -76,6 +76,7 @@ describe('taskFailureCode', () => {
   it('其余分类照旧', () => {
     expect(taskFailureCode('upstream_timeout')).toBe('timeout')
     expect(taskFailureCode('upstream_no_image')).toBe('no_output')
+    expect(taskFailureCode('plan_required')).toBe('invalid_params')
     // 执行者丢了或上游结局查不到：可能已经出图计费，不能归进可重试的类。
     expect(taskFailureCode('interrupted')).toBe('result_unknown')
     expect(taskFailureCode('upstream_result_unknown')).toBe('result_unknown')

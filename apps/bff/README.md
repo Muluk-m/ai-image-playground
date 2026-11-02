@@ -55,6 +55,9 @@ BFF 同时托管 `apps/web/dist` 静态产物（`STATIC_DIR` 指向 dist 即可�
 GPT Image 2.5 的 2K、4K、`quality=high` 需要有效会员且 OpenAI 直连已配置；CLI 在预检与
 提交事务内都检查，不能使用时返回 `PLAN_REQUIRED`，不创建任务、不留积分预扣。网站队列入口
 仍保留原有降到基础档的行为。能力清单仅列出当前账号可提交的 GPT 档位和画质。
+严格约束随任务持久化：执行时直连关闭、预算耗尽、限流或并发额度不可用，以及直连明确失败时，
+不回落到忽略档位的 sub2api；任务失败返回 `PLAN_REQUIRED` 并走原有退款流程。已派发但结果
+未知的请求仍交给原有对账流程，不伪装成确定失败、不重复派发。基础档 CLI 和网站的换路行为不变。
 
 GPT 2K/4K 必须落到具体像素尺寸；省略比例或传 `aspect_ratio=auto` 时规整为 `1:1`，并在
 预检和提交响应的 `adjustments` 中明确返回 `{ field: 'ratio', from: 'auto', to: '1:1' }`。

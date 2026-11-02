@@ -168,6 +168,7 @@ function commandHash(input: CreateQueueTaskInput) {
         },
         video: input.video,
         ...(input.reconciliationRequired ? { reconciliationRequired: true } : {}),
+        ...(input.strictImageRequest ? { strictImageRequest: true } : {}),
         // 唤醒选择不是请求的一部分：同一条命令换个选择重放，仍是同一个任务。
         agent: input.agent && {
           conversationId: input.agent.conversationId,
@@ -285,6 +286,7 @@ async function adoptLegacyCommand(
         request,
         video,
         userId,
+        ...(task.request_payload.strict_image_request ? { strictImageRequest: true } : {}),
         ...(task.agent_conversation_id && task.agent_turn_id
           ? {
               agent: { conversationId: task.agent_conversation_id, turnId: task.agent_turn_id },
@@ -348,7 +350,7 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
  * 预先准备的入口（批量执行、自动提交、灵感套用）一律按基础档计价执行，见 {@link alignGptSubmission}。
  */
 export function prepareQueueTask(input: CreateQueueTaskInput) {
-  return prepareAlignedQueueTask(basicGptInput(input))
+  return prepareAlignedQueueTask(input.strictImageRequest ? input : basicGptInput(input))
 }
 
 async function prepareAlignedQueueTask(input: CreateQueueTaskInput) {
@@ -361,6 +363,9 @@ async function prepareAlignedQueueTask(input: CreateQueueTaskInput) {
       ...(input.video ? { video: input.video } : {}),
       ...masked?.facts,
     }
+    // The request body cannot opt into (or out of) the server's execution contract.
+    delete requestPayload.strict_image_request
+    if (input.strictImageRequest) requestPayload.strict_image_request = true
   } catch (error) {
     await discardArchivedInputs(id)
     if (error instanceof TypeError) {
