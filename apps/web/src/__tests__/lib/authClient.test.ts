@@ -307,6 +307,9 @@ describe('auth client', () => {
     { connections: null },
     { connections: { id: 'connection-1' } },
     null,
+    { connections: [null] },
+    { connections: [{ id: 'c1', client_name: {}, created_at: 1, last_used_at: null }] },
+    { connections: [{ id: 'c1', client_name: 'CLI', created_at: '1', last_used_at: null }] },
   ])('rejects a connection response without an array (%j)', async (body) => {
     vi.stubGlobal(
       'fetch',

@@ -219,9 +219,23 @@ export async function fetchCliConnections(signal?: AbortSignal): Promise<CliConn
   const res = await authenticatedBffFetch(bffUrl('/api/me/cli-connections'), { signal })
   if (!res.ok) throw await parseError(res)
   const body = (await res.json()) as { connections?: unknown } | null
-  // 响应体不是数组时按加载失败处理，避免账户页读取 .length 时整页白屏。
-  if (!Array.isArray(body?.connections)) throw new AuthRequestError(res.status, 'invalid_response')
-  return body.connections as CliConnectionSummary[]
+  // 响应体不符合契约时按加载失败处理，避免账户页渲染时整页白屏。
+  const connections = body?.connections
+  if (!Array.isArray(connections) || !connections.every(isCliConnectionSummary)) {
+    throw new AuthRequestError(res.status, 'invalid_response')
+  }
+  return connections
+}
+
+function isCliConnectionSummary(value: unknown): value is CliConnectionSummary {
+  if (typeof value !== 'object' || value === null) return false
+  const row = value as Record<string, unknown>
+  return (
+    typeof row.id === 'string' &&
+    typeof row.client_name === 'string' &&
+    typeof row.created_at === 'number' &&
+    (row.last_used_at === null || typeof row.last_used_at === 'number')
+  )
 }
 
 export async function revokeCliConnection(id: string, signal?: AbortSignal): Promise<void> {

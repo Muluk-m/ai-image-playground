@@ -212,6 +212,8 @@ describe('operator settings page', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '继续' }))
     await waitFor(() => expect(within(row).getByRole('button', { name: '保存' })).toBeDisabled())
+    const other = screen.getByText('每日配额').closest('tr')!
+    expect(within(other).getByRole('button', { name: '保存' })).toBeDisabled()
     resolve(state.data)
   })
 

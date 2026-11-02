@@ -250,6 +250,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   stopRetryPickup()
   while (!bffDrain.status().safeToStop) await Bun.sleep(250)
   stopHeartbeat()
+  clearInterval(apiMinutesTimer)
   clearInterval(operatorConfigTimer)
 
   try {
