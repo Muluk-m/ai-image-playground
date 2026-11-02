@@ -175,7 +175,10 @@ async function toJobs(rows: readonly JobRow[], userId: string): Promise<CliJob[]
       ...(status === 'failed'
         ? {
             error: {
-              code: row.error_type === 'plan_required' ? 'PLAN_REQUIRED' : row.error_type ?? 'unknown',
+              code:
+                row.error_type === 'plan_required'
+                  ? 'PLAN_REQUIRED'
+                  : (row.error_type ?? 'unknown'),
               message: FAILURE_MESSAGES[row.error_type ?? 'unknown'] ?? FAILURE_MESSAGES.unknown!,
             },
           }

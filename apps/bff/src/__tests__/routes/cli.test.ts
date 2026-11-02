@@ -523,33 +523,73 @@ describe('CLI GPT image pricing', () => {
 
   it.each([
     {
-      image_size: '2K', aspect_ratio: 'auto', quality: 'medium',
-      size: '2048x2048', ratio: '1:1', credits: 20, multiplier: 2,
+      image_size: '2K',
+      aspect_ratio: 'auto',
+      quality: 'medium',
+      size: '2048x2048',
+      ratio: '1:1',
+      credits: 20,
+      multiplier: 2,
     },
     {
-      image_size: '4K', aspect_ratio: 'auto', quality: 'medium',
-      size: '2880x2880', ratio: '1:1', credits: 20, multiplier: 2,
+      image_size: '4K',
+      aspect_ratio: 'auto',
+      quality: 'medium',
+      size: '2880x2880',
+      ratio: '1:1',
+      credits: 20,
+      multiplier: 2,
     },
     {
-      image_size: '4K', aspect_ratio: '16:9', quality: 'high',
-      size: '3840x2160', ratio: '16:9', credits: 80, multiplier: 8,
+      image_size: '4K',
+      aspect_ratio: '16:9',
+      quality: 'high',
+      size: '3840x2160',
+      ratio: '16:9',
+      credits: 80,
+      multiplier: 8,
     },
     {
-      image_size: '1K', aspect_ratio: '1:1', quality: 'high',
-      size: '1024x1024', ratio: '1:1', credits: 40, multiplier: 4,
+      image_size: '1K',
+      aspect_ratio: '1:1',
+      quality: 'high',
+      size: '1024x1024',
+      ratio: '1:1',
+      credits: 40,
+      multiplier: 4,
     },
     {
-      image_size: '2K', aspect_ratio: '1:1', quality: 'low',
-      size: '2048x2048', ratio: '1:1', credits: 10, multiplier: 1,
+      image_size: '2K',
+      aspect_ratio: '1:1',
+      quality: 'low',
+      size: '2048x2048',
+      ratio: '1:1',
+      credits: 10,
+      multiplier: 1,
     },
-  ])('quotes and holds the canonical member parameters %j', async ({ image_size, aspect_ratio, quality, size, ratio, credits, multiplier }) => {
+  ])('quotes and holds the canonical member parameters %j', async ({
+    image_size,
+    aspect_ratio,
+    quality,
+    size,
+    ratio,
+    credits,
+    multiplier,
+  }) => {
     const user = await createUser('gpt-member')
     billing.members.add(user.id)
     const { access_token } = await connect(user)
     const body = imageJob({
-      model: 'gpt-image-2.5-flare', image_size, aspect_ratio, quality, max_credits: credits,
+      model: 'gpt-image-2.5-flare',
+      image_size,
+      aspect_ratio,
+      quality,
+      max_credits: credits,
     })
-    const preview = await call('POST', '/v1/image-jobs/validate', { body, headers: bearer(access_token) })
+    const preview = await call('POST', '/v1/image-jobs/validate', {
+      body,
+      headers: bearer(access_token),
+    })
     expect(preview.status).toBe(200)
     expect(preview.json.data).toMatchObject({
       normalized: { image_size, aspect_ratio: ratio, quality },
@@ -575,7 +615,10 @@ describe('CLI GPT image pricing', () => {
     expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits }])
   })
 
-  it.each(['disabled', '503'] as const)('keeps premium CLI intent through worker execution when direct is %s', async (failure) => {
+  it.each([
+    'disabled',
+    '503',
+  ] as const)('keeps premium CLI intent through worker execution when direct is %s', async (failure) => {
     const user = await createUser(`gpt-executor-${failure}`)
     billing.members.add(user.id)
     const { access_token } = await connect(user)
@@ -596,7 +639,9 @@ describe('CLI GPT image pricing', () => {
 
     const job = await call('GET', `/v1/jobs/${jobId}`, { headers: bearer(access_token) })
     expect(job.json.data).toMatchObject({
-      status: 'failed', terminal: true, error: { code: 'PLAN_REQUIRED' },
+      status: 'failed',
+      terminal: true,
+      error: { code: 'PLAN_REQUIRED' },
     })
     expect(billing.settlements).toEqual([{ taskId: jobId, outcome: 'failed' }])
     expect(requests).toHaveLength(failure === 'disabled' ? 0 : 1)
@@ -614,7 +659,8 @@ describe('CLI GPT image pricing', () => {
       const denied = await call('POST', path, { body, headers: bearer(access_token) })
       expect(denied.status).toBe(402)
       expect(denied.json.error).toMatchObject({
-        code: 'MAX_CREDITS_EXCEEDED', details: { required: 20, max_credits: 0 },
+        code: 'MAX_CREDITS_EXCEEDED',
+        details: { required: 20, max_credits: 0 },
       })
     }
     expect(await db.select().from(schema.tasks)).toHaveLength(0)
@@ -622,18 +668,25 @@ describe('CLI GPT image pricing', () => {
     expect(billing.reservations).toHaveLength(0)
     expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
     const allowed = await call('POST', '/v1/image-jobs', {
-      body: { ...body, max_credits: 20 }, headers: bearer(access_token),
+      body: { ...body, max_credits: 20 },
+      headers: bearer(access_token),
     })
     expect(allowed.status).toBe(200)
     expect(await db.select().from(schema.tasks)).toHaveLength(1)
   })
 
-  it.each(['membership', 'direct route'] as const)('rechecks %s between quote and submit without downgrading', async (changed) => {
+  it.each([
+    'membership',
+    'direct route',
+  ] as const)('rechecks %s between quote and submit without downgrading', async (changed) => {
     const user = await createUser('gpt-entitlement-change')
     billing.members.add(user.id)
     const { access_token } = await connect(user)
     const body = imageJob({ model: 'gpt-image-2.5-flare', image_size: '2K' })
-    const preview = await call('POST', '/v1/image-jobs/validate', { body, headers: bearer(access_token) })
+    const preview = await call('POST', '/v1/image-jobs/validate', {
+      body,
+      headers: bearer(access_token),
+    })
     expect(preview.status).toBe(200)
     if (changed === 'membership') billing.members.delete(user.id)
     else Object.assign(config.gptDirect, { enabled: false })
@@ -653,18 +706,30 @@ describe('CLI GPT image pricing', () => {
     billing.members.add(user.id)
     const { access_token } = await connect(user)
     const body = imageJob({ model: 'gpt-image-2.5-flare', image_size: '2K', max_credits: 20 })
-    const preview = await call('POST', '/v1/image-jobs/validate', { body, headers: bearer(access_token) })
+    const preview = await call('POST', '/v1/image-jobs/validate', {
+      body,
+      headers: bearer(access_token),
+    })
     expect(preview.json.data.quote.estimated_credits).toBe(20)
     billing.quote = 15
     const repriced = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
     expect(repriced.status).toBe(402)
-    expect(repriced.json.error).toMatchObject({ code: 'MAX_CREDITS_EXCEEDED', details: { required: 30, max_credits: 20 } })
+    expect(repriced.json.error).toMatchObject({
+      code: 'MAX_CREDITS_EXCEEDED',
+      details: { required: 30, max_credits: 20 },
+    })
     expect(billing.reservations).toHaveLength(0)
     billing.quote = 10
     billing.reservePrice = 15
-    const reserveChanged = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
+    const reserveChanged = await call('POST', '/v1/image-jobs', {
+      body,
+      headers: bearer(access_token),
+    })
     expect(reserveChanged.status).toBe(402)
-    expect(reserveChanged.json.error).toMatchObject({ code: 'MAX_CREDITS_EXCEEDED', details: { required: 30, max_credits: 20 } })
+    expect(reserveChanged.json.error).toMatchObject({
+      code: 'MAX_CREDITS_EXCEEDED',
+      details: { required: 30, max_credits: 20 },
+    })
     expect(billing.reservations).toHaveLength(1)
     expect(await db.select().from(schema.tasks)).toHaveLength(0)
     expect(await db.select().from(schema.generation_commands)).toHaveLength(0)
@@ -685,7 +750,10 @@ describe('CLI GPT image pricing', () => {
       headers: bearer(access_token),
     })
     expect(denied.status).toBe(402)
-    expect(denied.json.error).toMatchObject({ code: 'MAX_CREDITS_EXCEEDED', details: { required: 10, max_credits: 0 } })
+    expect(denied.json.error).toMatchObject({
+      code: 'MAX_CREDITS_EXCEEDED',
+      details: { required: 10, max_credits: 0 },
+    })
     expect(await db.select().from(schema.tasks)).toHaveLength(0)
     expect(await db.select().from(schema.generation_commands)).toHaveLength(0)
     expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
@@ -702,7 +770,8 @@ describe('CLI GPT image pricing', () => {
     billing.quote = 50
     Object.assign(config.gptDirect, { enabled: false })
     const replay = await call('POST', '/v1/image-jobs', {
-      body: { ...body, max_credits: 0 }, headers: bearer(access_token),
+      body: { ...body, max_credits: 0 },
+      headers: bearer(access_token),
     })
     expect(replay.status).toBe(200)
     expect(replay.json.data.job.id).toBe(created.json.data.job.id)
@@ -711,7 +780,8 @@ describe('CLI GPT image pricing', () => {
     expect(billing.reservations).toHaveLength(1)
     expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits: 80 }])
     const mismatch = await call('POST', '/v1/image-jobs', {
-      body: { ...body, quality: 'low' }, headers: bearer(access_token),
+      body: { ...body, quality: 'low' },
+      headers: bearer(access_token),
     })
     expect(mismatch.status).toBe(409)
     expect(mismatch.json.error.code).toBe('IDEMPOTENCY_CONFLICT')
@@ -720,7 +790,13 @@ describe('CLI GPT image pricing', () => {
   it('keeps website non-member downgrade behavior', async () => {
     const user = await createUser('gpt-website')
     const created = await call('POST', '/v1/queue/openai-compat/gpt-image-2.5-flare/submit', {
-      body: { prompt: 'a fox', size: '3840x2160', quality: 'high', device_id: 'website-device', client_request_id: 'website-gpt-command' },
+      body: {
+        prompt: 'a fox',
+        size: '3840x2160',
+        quality: 'high',
+        device_id: 'website-device',
+        client_request_id: 'website-gpt-command',
+      },
       headers: { cookie: user.cookie },
     })
     expect(created.status).toBe(200)
@@ -734,16 +810,22 @@ describe('CLI GPT image pricing', () => {
     const { access_token } = await connect(user)
     const caps = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
     expect(caps.json.data.models[1]).toMatchObject({
-      id: 'gpt-image-2.5-flare', image_sizes: ['1K'], qualities: ['auto', 'low', 'medium'],
+      id: 'gpt-image-2.5-flare',
+      image_sizes: ['1K'],
+      qualities: ['auto', 'low', 'medium'],
     })
     billing.members.add(user.id)
     const member = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
     expect(member.json.data.models[1]).toMatchObject({
-      image_sizes: ['1K', '2K', '4K'], qualities: ['auto', 'low', 'medium', 'high'],
+      image_sizes: ['1K', '2K', '4K'],
+      qualities: ['auto', 'low', 'medium', 'high'],
     })
     Object.assign(config.gptDirect, { enabled: false })
     const disabled = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
-    expect(disabled.json.data.models[1]).toMatchObject({ image_sizes: ['1K'], qualities: ['auto', 'low', 'medium'] })
+    expect(disabled.json.data.models[1]).toMatchObject({
+      image_sizes: ['1K'],
+      qualities: ['auto', 'low', 'medium'],
+    })
   })
 })
 

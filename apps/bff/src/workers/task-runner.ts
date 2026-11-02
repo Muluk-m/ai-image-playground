@@ -413,23 +413,24 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         ? err.message
         : String(err)
     const upstreamFailure = extractUpstreamFailure(err)
-    const errorType: TaskErrorType = err instanceof ImagePlanRequiredError
-      ? 'plan_required'
-      : isStorageError
-      ? 'object_storage_error'
-      : isUnknownResult
-        ? 'upstream_result_unknown'
-        : isContentPolicyRejection({
-              status: upstreamFailure.status,
-              message,
-              payload: upstreamFailure.body,
-            })
-          ? 'content_policy'
-          : isModelUnavailableRejection({ message, payload: upstreamFailure.body })
-            ? 'model_unavailable'
-            : upstreamFailure.status === 429
-              ? 'rate_limited'
-              : 'upstream_error'
+    const errorType: TaskErrorType =
+      err instanceof ImagePlanRequiredError
+        ? 'plan_required'
+        : isStorageError
+          ? 'object_storage_error'
+          : isUnknownResult
+            ? 'upstream_result_unknown'
+            : isContentPolicyRejection({
+                  status: upstreamFailure.status,
+                  message,
+                  payload: upstreamFailure.body,
+                })
+              ? 'content_policy'
+              : isModelUnavailableRejection({ message, payload: upstreamFailure.body })
+                ? 'model_unavailable'
+                : upstreamFailure.status === 429
+                  ? 'rate_limited'
+                  : 'upstream_error'
 
     const attemptJustFailed = task.attempt_count + 1
     if (

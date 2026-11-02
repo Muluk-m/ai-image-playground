@@ -55,7 +55,9 @@ export function formatSettingValue(value: boolean | number, unit?: OperatorSetti
 
 /** Parse display units without rounding or accepting a unit from another quota. */
 export function parseSettingInput(value: string, unit?: OperatorSettingUnit): number {
-  const match = value.trim().match(/^([0-9]+(?:\.[0-9]+)?)\s*(gb|mb|bytes|分钟|分|秒|s|m|天|d|px|像素|tokens|条)?$/i)
+  const match = value
+    .trim()
+    .match(/^([0-9]+(?:\.[0-9]+)?)\s*(gb|mb|bytes|分钟|分|秒|s|m|天|d|px|像素|tokens|条)?$/i)
   if (!match) return Number.NaN
   const suffix = match[2]?.toLowerCase() ?? ''
   const multipliers: Record<string, number> = { '': 1 }
@@ -119,7 +121,11 @@ export function OperatorSettingsPage() {
     setStale(false)
     setPendingKey(row.key)
     try {
-      const snapshot = await saveOperatorSetting(row.key, { value, reason, expectedRevision: row.revision })
+      const snapshot = await saveOperatorSetting(row.key, {
+        value,
+        reason,
+        expectedRevision: row.revision,
+      })
       await client.cancelQueries({ queryKey: operatorSettingsQueryKey })
       client.setQueryData(operatorSettingsQueryKey, snapshot)
     } catch (cause) {
@@ -136,7 +142,10 @@ export function OperatorSettingsPage() {
     setStale(false)
     setPendingKey(row.key)
     try {
-      const snapshot = await clearOperatorSetting(row.key, { reason, expectedRevision: row.revision })
+      const snapshot = await clearOperatorSetting(row.key, {
+        reason,
+        expectedRevision: row.revision,
+      })
       await client.cancelQueries({ queryKey: operatorSettingsQueryKey })
       client.setQueryData(operatorSettingsQueryKey, snapshot)
     } catch (cause) {
@@ -368,11 +377,7 @@ function SettingRowView({
                   <DialogDescription>{impact}</DialogDescription>
                 </DialogHeader>
                 <DialogFooter>
-                  <Button
-                    variant="outline"
-                    onClick={() => setImpactOpen(false)}
-                    disabled={pending}
-                  >
+                  <Button variant="outline" onClick={() => setImpactOpen(false)} disabled={pending}>
                     取消
                   </Button>
                   <Button onClick={confirmImpact} disabled={pending}>

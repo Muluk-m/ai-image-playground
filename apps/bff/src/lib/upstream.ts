@@ -392,8 +392,12 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 }
 
 function requiresGptDirect(params: UpstreamCallParams): boolean {
-  return params.strictImageRequest === true && isGptDirectModel(params.model) &&
-    !params.request.video && !isGptBasicRequest(params.request)
+  return (
+    params.strictImageRequest === true &&
+    isGptDirectModel(params.model) &&
+    !params.request.video &&
+    !isGptBasicRequest(params.request)
+  )
 }
 
 /**
@@ -546,8 +550,10 @@ async function callGptDualRoute(
   const { error, state } = firstOutcome
   if (strict) {
     // Never replace an uncertain/partial result with a definitive rejection: reconciliation owns it.
-    if (error instanceof UpstreamQueueTimeoutError ||
-        (!(error instanceof UpstreamResultUnknownError) && isRouteFailure(error)))
+    if (
+      error instanceof UpstreamQueueTimeoutError ||
+      (!(error instanceof UpstreamResultUnknownError) && isRouteFailure(error))
+    )
       throw new ImagePlanRequiredError({ cause: error })
     throw error
   }

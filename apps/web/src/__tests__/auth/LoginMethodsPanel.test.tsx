@@ -49,7 +49,9 @@ async function clickButton(label: string): Promise<void> {
   })
 }
 
-async function render(user: AuthUserView | null = { id: 'user-one', username: 'creator' }): Promise<void> {
+async function render(
+  user: AuthUserView | null = { id: 'user-one', username: 'creator' },
+): Promise<void> {
   await act(async () => {
     root.render(
       <AuthContextProvider value={{ enabled: true, user, login: () => {}, logout: async () => {} }}>
@@ -287,20 +289,30 @@ describe('LoginMethodsPanel', () => {
 
   it('drops the old account connection list and ignores its delayed refresh after an account switch', async () => {
     let resolveOld!: (response: Response) => void
-    const pendingOld = new Promise<Response>((resolve) => { resolveOld = resolve })
+    const pendingOld = new Promise<Response>((resolve) => {
+      resolveOld = resolve
+    })
     let loads = 0
-    vi.stubGlobal('fetch', vi.fn(async (input: string) => {
-      if (input.includes('/api/auth/oauth/providers')) return Response.json(GOOGLE_PROVIDER)
-      if (input.includes('/api/auth/login-methods')) return Response.json({ password: true, identities: [] })
-      loads += 1
-      if (loads === 2) return pendingOld
-      return Response.json({ connections: [{
-        id: loads === 1 ? 'old-cli' : 'new-cli',
-        client_name: loads === 1 ? 'Old account CLI' : 'New account CLI',
-        created_at: 1,
-        last_used_at: null,
-      }] })
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string) => {
+        if (input.includes('/api/auth/oauth/providers')) return Response.json(GOOGLE_PROVIDER)
+        if (input.includes('/api/auth/login-methods'))
+          return Response.json({ password: true, identities: [] })
+        loads += 1
+        if (loads === 2) return pendingOld
+        return Response.json({
+          connections: [
+            {
+              id: loads === 1 ? 'old-cli' : 'new-cli',
+              client_name: loads === 1 ? 'Old account CLI' : 'New account CLI',
+              created_at: 1,
+              last_used_at: null,
+            },
+          ],
+        })
+      }),
+    )
     await render()
     expect(document.body.textContent).toContain('Old account CLI')
     const refresh = document.body.querySelector<HTMLButtonElement>('button[aria-label="刷新连接"]')
@@ -309,9 +321,20 @@ describe('LoginMethodsPanel', () => {
     await render({ id: 'user-two', username: 'another-creator' })
     expect(document.body.textContent).not.toContain('Old account CLI')
     expect(document.body.textContent).toContain('New account CLI')
-    await act(async () => resolveOld(Response.json({ connections: [{
-      id: 'old-cli', client_name: 'Old account CLI', created_at: 1, last_used_at: null,
-    }] })))
+    await act(async () =>
+      resolveOld(
+        Response.json({
+          connections: [
+            {
+              id: 'old-cli',
+              client_name: 'Old account CLI',
+              created_at: 1,
+              last_used_at: null,
+            },
+          ],
+        }),
+      ),
+    )
     expect(document.body.textContent).not.toContain('Old account CLI')
     expect(document.body.textContent).toContain('New account CLI')
     await render(null)
