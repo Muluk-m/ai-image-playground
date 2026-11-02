@@ -283,13 +283,28 @@ jobs:
           . "$PAGES_ENV_FILE"
           [ -n "${INTERNAL_PUBLIC_ORIGIN:-}" ] || { echo "No enterprise domain configured."; exit 0; }
           origin=${INTERNAL_PUBLIC_ORIGIN%/}
-          expected=$(curl -fsS --max-time 10 "${PAID_PUBLIC_ORIGIN%/}/version.json")
-          actual=$(curl -fsS --max-time 10 "$origin/version.json" || true)
-          if [ "$actual" != "$expected" ]; then
+          host=${origin#https://}
+          # The project's own custom-domain list decides whether the domain has moved here yet, so a
+          # broken or stale enterprise site after the move can never pass as "not migrated".
+          domains=$(
+            # shellcheck source=/dev/null
+            . "$PAID_CLOUDFLARE_TOKEN_FILE"
+            curl -fsS --max-time 20 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$PAID_CLOUDFLARE_ACCOUNT_ID/pages/projects/$PAID_PAGES_PROJECT" |
+              jq -er '.result.domains[]'
+          ) || { echo "::error::Could not read the custom domains of $PAID_PAGES_PROJECT."; exit 1; }
+          if ! printf '%s\n' "$domains" | grep -Fqx "$host"; then
             # Until the custom domain moves onto the paid project it is still the frozen old project.
-            echo "::warning::$origin does not serve this release yet; move its custom domain onto the paid Pages project (docs/deploy/image-release.md)."
+            echo "::warning::$host is not a custom domain of $PAID_PAGES_PROJECT yet; move it (docs/deploy/image-release.md)."
             exit 0
           fi
+          expected=$(curl -fsS --max-time 10 "${PAID_PUBLIC_ORIGIN%/}/version.json")
+          deadline=$(( $(date +%s) + 300 ))
+          until [ "$(curl -fsS --max-time 10 "$origin/version.json" 2>/dev/null || true)" = "$expected" ]; do
+            [ "$(date +%s)" -lt "$deadline" ] ||
+              { echo "::error::$origin/version.json does not match ${PAID_PUBLIC_ORIGIN%/} after 300s."; exit 1; }
+            sleep 10
+          done
           curl -fsS --max-time 10 -o /dev/null -D "$RUNNER_TEMP/enterprise-headers" "$origin/"
           grep -Eiq '^x-robots-tag:.*noindex' "$RUNNER_TEMP/enterprise-headers" ||
             { echo "::error::$origin serves the paid project without its noindex header."; exit 1; }
