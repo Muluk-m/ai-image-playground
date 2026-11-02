@@ -489,6 +489,7 @@ export function watchCanvasUploadConflicts(
   const nodes = doc.getMap<Y.Map<unknown>>('nodes')
   type Repair = {
     id: string
+    nodeKey: string | undefined
     lost: unknown[]
     winner: unknown
     data: UploadData
@@ -507,9 +508,9 @@ export function watchCanvasUploadConflicts(
       const lost = overwritten?.lost ?? []
       const winner = overwritten?.winner ?? nodes.get(id)?.get('data')
       const merged = mergeCanvasUploadConflicts(lost, winner)
-      const data =
-        preserveUploadState(previous, merged ?? winner, canvasUploadNodeKey(doc, id)) ?? merged
-      if (data) repairs.push({ id, lost, winner, data, previous })
+      const nodeKey = canvasUploadNodeKey(doc, id)
+      const data = preserveUploadState(previous, merged ?? winner, nodeKey) ?? merged
+      if (data) repairs.push({ id, nodeKey, lost, winner, data, previous })
     }
     repair(repairs)
   }
@@ -522,7 +523,7 @@ export function watchCanvasUploadConflicts(
       if (!overwritten) return
       const { lost, winner } = overwritten
       const data = mergeCanvasUploadConflicts(lost, winner)
-      if (data) repairs.push({ id, lost, winner, data })
+      if (data) repairs.push({ id, nodeKey: canvasUploadNodeKey(doc, id), lost, winner, data })
     })
     repair(repairs)
   }
@@ -532,14 +533,14 @@ export function watchCanvasUploadConflicts(
     queueMicrotask(() => {
       if (stopped) return
       doc.transact(() => {
-        for (const { id, lost, winner, data, previous } of repairs) {
+        for (const { id, nodeKey, lost, winner, data, previous } of repairs) {
+          if (canvasUploadNodeKey(doc, id) !== nodeKey) continue
           const now = nodes.get(id)?.get('data')
           if (now === undefined) continue
           // 排队期间同一调用栈里又进来别的远端写入、节点已不是赢的那一版：输掉的那一版谁都没合进去过，
           // 按现在这一版重新合；合不出来（比如上传已经收尾）就不写。
           const merged = now === winner ? data : mergeCanvasUploadConflicts(lost, now)
-          const next =
-            preserveUploadState(previous, merged ?? now, canvasUploadNodeKey(doc, id)) ?? merged
+          const next = preserveUploadState(previous, merged ?? now, nodeKey) ?? merged
           if (next) updateCanvasNode(doc, id, { data: next as never }, origin)
         }
       }, origin)
