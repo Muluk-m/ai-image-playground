@@ -298,6 +298,7 @@ export const cliApiRoutes = new Elysia()
         provider: prepared.model.provider,
         model: prepared.model.id,
         userId: cli.user.id,
+        strictImageRequest: true,
         ...(body.max_credits === undefined ? {} : { maxCredits: body.max_credits }),
         request: {
           ...submit,
