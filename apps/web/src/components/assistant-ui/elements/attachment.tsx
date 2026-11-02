@@ -46,7 +46,7 @@ export function AttachmentLoading({
       ) : (
         <Icon name="image" size="sm" className="opacity-40" />
       )}
-      {label && <span className="text-label-sm leading-3">{label}</span>}
+      {label && <span className="text-label-sm leading-3 tabular-nums">{label}</span>}
     </span>
   )
 }

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { expectCommitIgnoresSigner } from './fixtureGit'
 
 /** MAJOR.MINOR live in package.json. PATCH is the next free tag on that line. */
 const script = resolve(__dirname, '../../../../../scripts/next-release-version.sh')
@@ -11,7 +12,18 @@ let repo: string
 function git(...args: string[]) {
   const result = spawnSync(
     'git',
-    ['-c', 'user.name=test', '-c', 'user.email=test@example.com', '-C', repo, ...args],
+    [
+      '-c',
+      'user.name=test',
+      '-c',
+      'user.email=test@example.com',
+      // 夹具提交不继承本机 commit.gpgsign。SSH 签名会间歇卡住数秒到二十多秒。
+      '-c',
+      'commit.gpgsign=false',
+      '-C',
+      repo,
+      ...args,
+    ],
     { encoding: 'utf8' },
   )
   if (result.status !== 0) throw new Error(result.stderr)
@@ -28,12 +40,21 @@ function next() {
 afterEach(() => rmSync(repo, { recursive: true, force: true }))
 
 describe('next-release-version.sh', () => {
+  it('does not run a signer when the environment turns signing on', () => {
+    repo = mkdtempSync(join(tmpdir(), 'aip-release-'))
+    git('init', '-q')
+    expectCommitIgnoresSigner(() => {
+      git('commit', '-q', '--allow-empty', '-m', 'still unsigned')
+    })
+  })
+
   it('starts a new major.minor at patch 0', () => {
     repo = mkdtempSync(join(tmpdir(), 'aip-release-'))
     writeFileSync(join(repo, 'package.json'), '{"version":"0.4.0"}\n')
     git('init', '-q')
     git('commit', '-q', '--allow-empty', '-m', 'base')
     git('tag', 'v0.3.9')
+    expect(git('cat-file', '-p', 'HEAD')).not.toMatch(/^gpgsig(-sha256)? /m)
     expect(next()).toBe('0.4.0')
   })
 

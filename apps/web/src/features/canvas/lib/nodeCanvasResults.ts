@@ -4,6 +4,7 @@ import {
   type CanvasResultDisplay,
   cacheCanvasResultDisplay,
   canvasMainResult,
+  canvasNodeRegistry,
   canvasOrigin,
   canvasResults,
   chooseCanvasResult,
@@ -31,7 +32,7 @@ const system = canvasOrigin('system', 'node-result')
 const pixels = new WeakMap<Y.Doc, Map<string, string>>()
 const selections = new WeakMap<Y.Doc, Map<string, number>>()
 
-function sourceKey(source: CanvasResult['source']): string {
+export function sourceKey(source: CanvasResult['source']): string {
   if (source.type === 'file') return JSON.stringify(['file', source.fileId])
   if (source.type === 'media') return JSON.stringify(['media', source.mediaId])
   return JSON.stringify([source.type, source.taskId, source.outputIndex])
@@ -112,7 +113,8 @@ export async function recordNodeOutput(
   return result
 }
 
-async function imageSource(
+/** 一件结果此刻能显示的位图来源（data URL 或 aip-media:）；取不到抛 candidate_expired。 */
+export async function imageSource(
   editor: CanvasEditor,
   doc: Y.Doc,
   result: CanvasResult,
@@ -149,6 +151,18 @@ async function prepareResult(
   result: CanvasResult,
   video?: CanvasResultDisplay['video'],
 ): Promise<{ data: CanvasResultDisplay } | null> {
+  const projection = await prepareDisplay(editor, doc, result, video)
+  if (!projection || !mediaNode(doc, result.nodeId)) return null
+  return projection
+}
+
+/** 取到像素与尺寸；不要求节点已经存在，新建节点前先把内容准备好。 */
+async function prepareDisplay(
+  editor: CanvasEditor,
+  doc: Y.Doc,
+  result: CanvasResult,
+  video?: CanvasResultDisplay['video'],
+): Promise<{ data: CanvasResultDisplay } | null> {
   let source: string
   let display: CanvasResultDisplay = {}
   if (result.kind === 'video') {
@@ -172,8 +186,6 @@ async function prepareResult(
   const resolved = await resolveMediaSource(source, 'original', true)
   const dimensions = await getImageDimensions(resolved)
   if (doc.isDestroyed) return null
-  const node = mediaNode(doc, result.nodeId)
-  if (!node) return null
   const mediaId =
     result.display?.mediaId ?? (result.source.type === 'media' ? result.source.mediaId : undefined)
   display = {
@@ -289,6 +301,72 @@ async function spreadResults(
         connectCanvasNodes(canvas.doc, { source: edge.source, target: id }, canvas.origin)
       ids.push(id)
     }
+  }, canvas.origin)
+  canvas.undo.stopCapturing()
+  return ids
+}
+
+/** 一件要放上画布的成品：图片或视频产物，按来源取像素。 */
+export interface CanvasResultInsert {
+  readonly kind: 'image' | 'video'
+  readonly source: CanvasResult['source']
+  readonly name?: string
+  readonly video?: CanvasResultDisplay['video']
+}
+
+/** 新建节点之间的横向间距，与 createNode 贴着已有节点排时的间距一致。 */
+const INSERT_GAP = 168
+
+/**
+ * 把成品各建成一个节点，以 point 为中心横排开。全部取到像素后才落一个节点；
+ * 有一件取不到就一个都不建，一次撤销拿掉整批。
+ */
+export async function insertResultNodes(
+  editor: CanvasEditor,
+  canvas: NodeCanvasDocument,
+  items: readonly CanvasResultInsert[],
+  point: { x: number; y: number },
+): Promise<string[]> {
+  if (!items.length) return []
+  const prepared: { item: CanvasResultInsert; result: CanvasResult; data: CanvasResultDisplay }[] =
+    []
+  for (const item of items) {
+    const result: CanvasResult = {
+      id: crypto.randomUUID(),
+      nodeId: '',
+      kind: item.kind,
+      createdAt: Date.now(),
+      source: item.source,
+    }
+    const projection = await prepareDisplay(editor, canvas.doc, result, item.video)
+    if (!projection) return []
+    prepared.push({ item, result, data: projection.data })
+  }
+  if (canvas.doc.isDestroyed) return []
+  const width = canvasNodeRegistry.image.size.width
+  // 第一个按整排大致居中，其余都贴着前一个往右排：前一个已经按实际比例定了尺寸，
+  // 排成一行而不是被彼此的避让挤成台阶。
+  const first = point.x - ((prepared.length - 1) * (width + INSERT_GAP)) / 2
+  const ids: string[] = []
+  canvas.undo.stopCapturing()
+  canvas.doc.transact(() => {
+    prepared.forEach(({ item, result, data }) => {
+      const previous = ids.length ? mediaNode(canvas.doc, ids[ids.length - 1]!) : null
+      const id = previous
+        ? createNode(canvas, item.kind, point, '', { nodes: [previous], side: 'right' })
+        : createNode(canvas, item.kind, { x: first, y: point.y }, '')
+      const placed = { ...result, nodeId: id }
+      recordCanvasResult(canvas.doc, placed, system)
+      if (item.name)
+        updateCanvasNode(
+          canvas.doc,
+          id,
+          { data: { name: item.name, meta: { nodeKind: item.kind } } },
+          canvas.origin,
+        )
+      chooseCanvasResult(canvas.doc, id, placed.id, { data }, canvas.origin)
+      ids.push(id)
+    })
   }, canvas.origin)
   canvas.undo.stopCapturing()
   return ids

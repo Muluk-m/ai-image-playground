@@ -35,8 +35,10 @@ export interface ModelChoice {
   description?: string
   /** 渠道下发的标签 token；只有 'latest' 会显示，是名字旁一枚很小的「New」。 */
   badges?: readonly ModelBadge[]
-  /** 选择器分组（快速 / 高质量）；没有就排在分组后面，不带组头。 */
+  /** 旧渠道兼容字段；展示分组改由 family 决定。 */
   tier?: ModelTier
+  /** 选择器分组（GPT / Banana 等系列）；没有就排在分组后面，不带组头。 */
+  family?: 'gpt' | 'grok' | 'gemini' | 'agnes'
   /** 典型单张耗时，显示成「约 N 秒」，一分钟以上显示成「约 N 分钟」。 */
   etaSeconds?: number
   /** 耗时随档位变化时的上界，有就显示成「约 N–M 秒」。 */
@@ -69,8 +71,9 @@ export function useModelChoices() {
           profileId: profile.id,
           label: compactModelName(option.id, option.label),
           description: view.name,
-          ...(option.badges ? { badges: option.badges } : {}),
+          ...(option.family ? { family: option.family } : {}),
           ...(option.tier ? { tier: option.tier } : {}),
+          ...(option.badges ? { badges: option.badges } : {}),
           ...(option.etaSeconds !== undefined ? { etaSeconds: option.etaSeconds } : {}),
           ...(option.etaMaxSeconds !== undefined ? { etaMaxSeconds: option.etaMaxSeconds } : {}),
           ...(option.logo ? { logo: option.logo } : {}),
@@ -112,37 +115,34 @@ function moveOptionFocus(event: KeyboardEvent<HTMLElement>) {
   items[index === -1 && step === -1 ? items.length - 1 : next]?.focus()
 }
 
-/** 分组顺序与组头图标：快速组在前，组头只有一个小图标加组名，不配说明文字。 */
-const TIER_ORDER: readonly ModelTier[] = ['fast', 'quality']
-const TIER_ICON: Record<ModelTier, IconName> = { fast: 'speed', quality: 'quality' }
-const TIER_LABEL_KEY = {
-  fast: 'param.modelTier.fast',
-  quality: 'param.modelTier.quality',
-} as const satisfies Record<ModelTier, string>
+/** GPT 系列置顶，Banana（Gemini）系列随后；其余系列按固定顺序放在后面。 */
+const FAMILY_ORDER = ['gpt', 'gemini', 'grok', 'agnes'] as const
+const FAMILY_ICON: Record<(typeof FAMILY_ORDER)[number], IconName> = {
+  gpt: 'model',
+  gemini: 'image',
+  grok: 'wand',
+  agnes: 'wand',
+}
+const FAMILY_LABEL_KEY = {
+  gpt: 'param.modelFamily.gpt',
+  gemini: 'param.modelFamily.gemini',
+  grok: 'param.modelFamily.grok',
+  agnes: 'param.modelFamily.agnes',
+} as const
 
 interface ModelGroup {
-  tier?: ModelTier
+  family?: (typeof FAMILY_ORDER)[number]
   options: ModelChoice[]
 }
 
-/** 组内从快到慢；没写耗时的排在组尾，同档保持渠道顺序。 */
-function byEta(a: ModelChoice, b: ModelChoice) {
-  const left = usableEtaSeconds(a.etaSeconds)
-  const right = usableEtaSeconds(b.etaSeconds)
-  if (left === right) return 0
-  if (left === undefined) return 1
-  if (right === undefined) return -1
-  return left - right
-}
-
-/** 有任何一项带分组才分组；都不带（比如文本模型列表）就原样一组、不出组头。 */
-function groupByTier(options: readonly ModelChoice[]): ModelGroup[] {
-  if (!options.some((option) => option.tier)) return [{ options: [...options] }]
-  const groups: ModelGroup[] = TIER_ORDER.map((tier) => ({
-    tier,
-    options: options.filter((option) => option.tier === tier).sort(byEta),
+/** 系列内保留渠道声明顺序，避免把运营排序变成速度排序。 */
+function groupByFamily(options: readonly ModelChoice[]): ModelGroup[] {
+  if (!options.some((option) => option.family)) return [{ options: [...options] }]
+  const groups = FAMILY_ORDER.map((family) => ({
+    family,
+    options: options.filter((option) => option.family === family),
   })).filter((group) => group.options.length > 0)
-  const rest = options.filter((option) => !option.tier)
+  const rest = options.filter((option) => !option.family)
   return rest.length ? [...groups, { options: rest }] : groups
 }
 
@@ -211,19 +211,15 @@ export function ModelList({
   const listId = useId()
   const needle = query.trim().toLocaleLowerCase()
   const visible = needle
-    ? options.filter((option) =>
-        [
-          option.label,
-          option.model,
-          option.description ?? '',
-          option.tier ? t(TIER_LABEL_KEY[option.tier]) : '',
-        ]
+    ? options.filter((option) => {
+        const familyLabel = option.family ? t(FAMILY_LABEL_KEY[option.family]) : ''
+        return [option.label, option.model, option.description ?? '', familyLabel]
           .join(' ')
           .toLocaleLowerCase()
-          .includes(needle),
-      )
+          .includes(needle)
+      })
     : options
-  const groups = groupByTier(visible)
+  const groups = groupByFamily(visible)
   const firstShown = groups[0]?.options[0]
   const hasSelected = visible.some((option) => option.value === value)
   return (
@@ -246,7 +242,7 @@ export function ModelList({
         className="min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {groups.map((group, groupIndex) => {
-          const headingId = `${listId}-${group.tier ?? 'rest'}`
+          const headingId = `${listId}-${group.family ?? 'rest'}`
           const rows = group.options.map((option) => {
             const selected = option.value === value
             const tabStop = selected || (option === firstShown && !hasSelected)
@@ -290,7 +286,7 @@ export function ModelList({
               </Button>
             )
           })
-          if (!group.tier)
+          if (!group.family)
             return (
               <div key="rest" className={cn(groupIndex > 0 && 'mt-1 border-t border-border pt-1')}>
                 {rows}
@@ -298,7 +294,7 @@ export function ModelList({
             )
           return (
             <div
-              key={group.tier}
+              key={group.family}
               role="group"
               aria-labelledby={headingId}
               className={cn(groupIndex > 0 && 'mt-1 border-t border-border pt-1')}
@@ -307,8 +303,8 @@ export function ModelList({
                 id={headingId}
                 className="flex items-center gap-1.5 px-3 pt-2 pb-1 text-label-sm font-medium text-muted-foreground"
               >
-                <Icon name={TIER_ICON[group.tier]} size="xs" />
-                {t(TIER_LABEL_KEY[group.tier])}
+                <Icon name={FAMILY_ICON[group.family]} size="xs" />
+                {t(FAMILY_LABEL_KEY[group.family])}
               </div>
               {rows}
             </div>

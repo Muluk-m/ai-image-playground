@@ -99,6 +99,8 @@ export interface AgentBatchItemExecution {
   readonly artifacts?: readonly AgentToolArtifact[]
   readonly errorCode?: string | null
   readonly message?: string | null
+  /** 这一次执行被 worker 认领的时刻（毫秒）；只在生成中给出，前端据此显示已用时间、提示比平时慢。 */
+  readonly startedAt?: number
 }
 
 export interface AgentBatchConfirmation {

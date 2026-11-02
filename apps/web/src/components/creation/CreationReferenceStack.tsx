@@ -16,7 +16,11 @@ export function CreationReferenceStack({
   status,
   failed = false,
   uploading = false,
+  progress,
   onClear,
+  onRemoveFailed,
+  removeFailedLabel,
+  showUploadingStatus = true,
   disabled = false,
   compact = false,
   aside,
@@ -30,7 +34,14 @@ export function CreationReferenceStack({
   status?: string
   failed?: boolean
   uploading?: boolean
+  /** 上传中且知道进度时，收起的那叠上把转圈换成百分比（0–99）；不知道就继续转圈。 */
+  progress?: number
   onClear?: () => void
+  /** 有坏图时收起的那叠缩略图上常显一个 ×，点了只移除坏图。 */
+  onRemoveFailed?: () => void
+  removeFailedLabel?: string
+  /** false：上传中不显示那一行文字，只靠缩略图上的转圈（读屏照旧播报）；出错时照常显示原因。 */
+  showUploadingStatus?: boolean
   disabled?: boolean
   /** 图多时展开层按行折返、限高滚动，不排成一长条。 */
   compact?: boolean
@@ -118,7 +129,7 @@ export function CreationReferenceStack({
           )}
         </div>
       </div>
-      {status && (
+      {status && (failed || !uploading || showUploadingStatus) && (
         <div
           className="creation-reference-status"
           aria-busy={uploading || undefined}
@@ -194,11 +205,32 @@ export function CreationReferenceStack({
                     </span>
                     <span className="creation-stack-count">{failed ? '!' : count}</span>
                     {uploading && (
-                      <span className="creation-stack-upload">
-                        <Icon name="loading" className="animate-spin motion-reduce:animate-none" />
+                      <span className="creation-stack-upload" data-progress={progress}>
+                        {progress === undefined ? (
+                          <Icon
+                            name="loading"
+                            className="animate-spin motion-reduce:animate-none"
+                          />
+                        ) : (
+                          `${progress}%`
+                        )}
                       </span>
                     )}
                   </Button>
+                  {onRemoveFailed && removeFailedLabel && (
+                    <Hint tooltip={removeFailedLabel}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="creation-reference-remove"
+                        aria-label={removeFailedLabel}
+                        disabled={disabled}
+                        onClick={onRemoveFailed}
+                      >
+                        <Icon name="close" size="xs" />
+                      </Button>
+                    </Hint>
+                  )}
                   {count > 1 && !hovered && (
                     <Button
                       type="button"

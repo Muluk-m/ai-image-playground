@@ -3,6 +3,7 @@ import { memo, type ReactNode, useMemo, useState } from 'react'
 import { useTranslation } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
 import type { ClientProfile } from '../lib/channels/types'
+import { useGptPremiumLocked } from '../lib/gptPremium'
 import { getOutputImageLimitForSettings, getParamCapabilities } from '../lib/paramCompatibility'
 import {
   normalizeSizeFor,
@@ -113,14 +114,13 @@ export function ImageSettings({
   const isGemini = activeView.provider === 'gemini'
   const capabilities = getParamCapabilities(activeProfile, params.output_format)
   const tuning = isGemini && capabilities.geminiImageTuning
-  const rules: SizeRules = { ratioOnly: !capabilities.size, limitTo1K: activeView.codexCli }
+  const premium = useGptPremiumLocked(activeView.model, capabilities.size)
+  const premiumLocked = premium.locked
+  const limitTo1K = activeView.codexCli || premiumLocked
+  const rules: SizeRules = { ratioOnly: !capabilities.size, limitTo1K }
   const selection = useMemo(
-    () =>
-      readSizeSelection(params.size, {
-        ratioOnly: !capabilities.size,
-        limitTo1K: activeView.codexCli,
-      }),
-    [params.size, capabilities.size, activeView.codexCli],
+    () => readSizeSelection(params.size, { ratioOnly: !capabilities.size, limitTo1K }),
+    [params.size, capabilities.size, limitTo1K],
   )
   const countVisible = showCount && !agentManaged
   const outputs = !isGemini && !agentManaged
@@ -302,9 +302,11 @@ export function ImageSettings({
                 hint={
                   selection.kind === 'auto'
                     ? t('settings.autoSizeHint')
-                    : rules.limitTo1K
-                      ? t('size.limitedTierHint')
-                      : undefined
+                    : premium.memberOnly
+                      ? t('size.memberTierHint')
+                      : rules.limitTo1K
+                        ? t('size.limitedTierHint')
+                        : undefined
                 }
               >
                 <SettingsSegmented
@@ -355,14 +357,17 @@ export function ImageSettings({
         )}
 
         {outputs && capabilities.quality && (
-          <SettingsSection title={t('param.quality')}>
+          <SettingsSection
+            title={t('param.quality')}
+            hint={premium.memberOnly ? t('size.memberQualityHint') : undefined}
+          >
             <SettingsSegmented
               label={t('param.quality')}
               options={[
                 { value: 'auto', label: t('settings.quality.auto') },
                 { value: 'low', label: t('settings.quality.low') },
                 { value: 'medium', label: t('settings.quality.medium') },
-                { value: 'high', label: t('settings.quality.high') },
+                { value: 'high', label: t('settings.quality.high'), disabled: premiumLocked },
               ]}
               value={params.quality}
               onChange={(quality) => setParams({ quality })}

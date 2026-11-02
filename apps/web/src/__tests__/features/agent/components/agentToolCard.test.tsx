@@ -5,7 +5,10 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { subscribeLoginPrompt } from '../../../../auth/loginPrompt'
 import AgentArtifactPane from '../../../../features/agent/components/AgentArtifactPane'
-import AgentToolCard, { AgentImageRun } from '../../../../features/agent/components/AgentToolCard'
+import AgentToolCard, {
+  AgentImageRun,
+  regenerateFromCard,
+} from '../../../../features/agent/components/AgentToolCard'
 import {
   setAgentComposerAttach,
   setAgentComposerReferences,
@@ -20,6 +23,7 @@ import { useStore } from '../../../../store'
 
 const store = vi.hoisted(() => ({
   send: vi.fn(),
+  sendThroughAgent: vi.fn(),
   placeOnCanvas: vi.fn(),
   messages: [] as AgentToolMessage[],
   turns: {} as Record<string, AgentTurnFooter>,
@@ -1049,6 +1053,20 @@ describe('失败卡按错误码给出路', () => {
     }
   })
 
+  it.each([
+    'webFetch',
+    'webSearch',
+    'fetchImage',
+  ] as const)('%s 超时说成联网读取超时，不说生成超时', (toolName) => {
+    const { host, unmount } = render({ ...failed('timeout'), toolName })
+    try {
+      expect(host.textContent).toContain('联网读取超时，没拿到内容')
+      expect(host.textContent).not.toContain('生成超时')
+    } finally {
+      unmount()
+    }
+  })
+
   // 这三个码的正常出路是画布占位上的重试。认得出是哪一次生成、却重出不了时（局部或连锁改图、
   // 模型已下线）重试给不出来，不能让这张卡停在一句原因上。
   it('局部改图失败给不出重试时改为让助手重新处理，并说清重出不了什么', () => {
@@ -1384,6 +1402,71 @@ it('shows batch results without hover editing tools', async () => {
   }
 })
 
+it.each([
+  {
+    provider: 'openai-compat',
+    args: { aspectRatio: '16:9' },
+    shows: ['1280x720', '16:9'],
+    hides: ['9:16', '1K'],
+  },
+  { provider: 'gemini', args: { aspectRatio: '1:1' }, shows: ['1K', '1:1'], hides: ['9:16'] },
+  { provider: 'gemini', args: {}, shows: ['1K', '9:16'], hides: [] },
+])('result header shows the ratio this job was submitted with: %o', async ({
+  provider,
+  args,
+  shows,
+  hides,
+}) => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: async (id: string) => `data:image/png;base64,${id}`,
+  } as unknown as AgentCanvasSink)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentToolCard
+          message={{
+            kind: 'tool',
+            id: 'edit',
+            turnId: 'turn',
+            toolCallId: 'call',
+            toolName: 'editImage',
+            title: '夜景横版',
+            prompt: '扩展为横版并加满月',
+            status: 'succeeded',
+            delivery: 'placed',
+            snapshot: {
+              mode: 'image',
+              args,
+              params: { gemini_aspect_ratio: '9:16', gemini_image_size: '1K' },
+              target: { provider, model: 'test-model' },
+            },
+            artifacts: [
+              {
+                artifactId: 'night',
+                outputIndex: 0,
+                taskId: 'task',
+                media: 'image' as const,
+                mime: 'image/png',
+              },
+            ],
+          }}
+          onPreviewResult={vi.fn()}
+          onViewCanvas={vi.fn()}
+        />,
+      ),
+    )
+    const meta = host.querySelector('.studio-agent-batch-meta')?.textContent ?? ''
+    for (const tag of shows) expect(meta).toContain(tag)
+    for (const tag of hides) expect(meta).not.toContain(tag)
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
+
 describe.each([
   'image',
   'batch',
@@ -1558,5 +1641,45 @@ describe('生成结果的单层费用明细', () => {
       act(() => root.unmount())
       setAgentCanvasSink(null)
     }
+  })
+})
+
+describe('再次生成发出去的那一句', () => {
+  const request = (prompt: string) => `请基于这组提示词再次生成图片：${prompt}`
+  const card = {
+    toolName: 'generateImage' as const,
+    title: '浴缸',
+    prompt: '白色独立浴缸，晨光，极简浴室',
+  }
+  const sendThroughAgent = store.sendThroughAgent
+
+  beforeEach(() => {
+    send.mockClear()
+    sendThroughAgent.mockClear()
+  })
+
+  afterEach(() => useStore.setState({ createTarget: 'generate' }))
+
+  it('图片生成模式下没用参考图的文生图，原提示词直出，不套请求句', async () => {
+    useStore.setState({ createTarget: 'generate' })
+    await regenerateFromCard(card, request)
+    expect(send).toHaveBeenCalledWith('白色独立浴缸，晨光，极简浴室', [], undefined, 'image')
+    expect(sendThroughAgent).not.toHaveBeenCalled()
+  })
+
+  it('Agent 模式下照旧请智能体按原提示词再来一次', async () => {
+    useStore.setState({ createTarget: 'chat' })
+    await regenerateFromCard(card, request)
+    expect(sendThroughAgent).toHaveBeenCalledWith(request(card.prompt), 'image')
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('用了参考图或改图的卡，图片生成模式下也明确交给智能体，请求句不会被当成提示词直出', async () => {
+    useStore.setState({ createTarget: 'generate' })
+    const snapshot = { mode: 'image' as const, args: {}, imageIds: ['img-1'] }
+    await regenerateFromCard({ ...card, snapshot }, request)
+    await regenerateFromCard({ ...card, toolName: 'editImage' }, request)
+    expect(sendThroughAgent).toHaveBeenCalledTimes(2)
+    expect(send).not.toHaveBeenCalled()
   })
 })

@@ -69,7 +69,7 @@ import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
 import { Icon, type IconName } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
-import { useTranslation } from '../../../i18n'
+import { i18next, useTranslation } from '../../../i18n'
 import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { getStoredChannels, subscribeChannels } from '../../../lib/channels/channelStore'
 import { videoOutputUrl } from '../../../lib/channels/queueClient'
@@ -78,8 +78,12 @@ import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { downloadBlob } from '../../../lib/downloadImages'
 import { fetchDownloadBlob } from '../../../lib/downloadRequest'
 import { reportDeliveryFailure } from '../../../lib/errorReporting'
-import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
-import { MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
+import {
+  collectDroppedFiles,
+  prepareAcceptedImageFiles,
+  UploadImageTooLargeError,
+} from '../../../lib/imageFiles'
+import { MAX_IMAGE_MB, MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
 import { useStore } from '../../../store'
 import { useTheme } from '../../../theme/useTheme'
 import { useActiveLook } from '../../library/lib/activeLook'
@@ -87,15 +91,20 @@ import { useLibraryStore } from '../../library/store'
 import type { AssetRecord } from '../../library/types'
 import PlayBadge from '../../video/components/PlayBadge'
 import { arrangementKey, arrangeNodes, type CanvasPlacement } from '../lib/arrangeNodes'
+import { useCanvasAssetsEntry } from '../lib/assetsEntry'
+import type { CanvasAssetItem } from '../lib/canvasAssets'
 import { newElementId } from '../lib/canvasDoc'
+import { useCanvasResultAssets } from '../lib/canvasResultAssets'
 import {
   type CanvasViewportBox,
   planCanvasViewport,
   withLivePositions,
 } from '../lib/canvasViewport'
 import type { CanvasEditor } from '../lib/editor'
+import { canvasExportEntries } from '../lib/exportImages'
 import { ARROW_POINTER, freedrawOutline } from '../lib/konvaShapes'
 import { openLocalNodeCanvas } from '../lib/localNodeCanvas'
+import { transferMedia } from '../lib/mediaTransfer'
 import { assetNodeContext } from '../lib/nodeAssetGeneration'
 import { ASSET_DRAG_TYPE, insertAssetNode, saveNodeAsAsset } from '../lib/nodeAssets'
 import {
@@ -131,7 +140,7 @@ import {
   type ReferenceSlot,
   uploadCanvasReference,
 } from '../lib/nodeCanvasReferences'
-import { spreadNodeResults } from '../lib/nodeCanvasResults'
+import { insertResultNodes, spreadNodeResults } from '../lib/nodeCanvasResults'
 import { clearNodeCanvasSelection, setNodeCanvasSelection } from '../lib/nodeCanvasSelection'
 import { resumeNodeVideos, submitNodeVideo } from '../lib/nodeCanvasVideo'
 import { createImagePresetNode } from '../lib/nodeImagePreset'
@@ -146,8 +155,10 @@ import { CanvasLodProvider, CanvasOverview, NodeLodCard, useCanvasLod } from './
 import CanvasVideoPlayer from './CanvasVideoPlayer'
 import FilmExportStatus from './FilmExportStatus'
 import ImageNodeComposer from './ImageNodeComposer'
+import MediaTransferCard from './MediaTransferCard'
 import NodeAddMenu from './NodeAddMenu'
 import NodeAssetPicker from './NodeAssetPicker'
+import NodeAssetsPanel from './NodeAssetsPanel'
 import NodeAssetTools from './NodeAssetTools'
 import NodeBatchDialog from './NodeBatchDialog'
 import NodeCanvasToolbar, { NodeTool } from './NodeCanvasToolbar'
@@ -383,8 +394,9 @@ function PendingConnectionOverlay({
   )
 }
 
-function Pending({ pending }: { pending: PendingGeneration }) {
-  const { t } = useTranslation('canvas')
+function Pending({ pending, nodeId }: { pending: PendingGeneration; nodeId: string }) {
+  const run = useContext(NodeStoryboardContext)?.onRun
+  const { t } = useTranslation(['canvas', 'common'])
   const status =
     pending.type === 'generation' ? (pending.errorCode ? 'error' : 'loading') : pending.status
   const label =
@@ -395,7 +407,23 @@ function Pending({ pending }: { pending: PendingGeneration }) {
         : t('placeholder.generating')
   return (
     <div className="studio-node-pending text-sm" data-failed={status !== 'loading' || undefined}>
-      {label}
+      <div className="flex flex-col items-center gap-3">
+        <span>{label}</span>
+        {status !== 'loading' && run && (
+          <Button
+            size="sm"
+            className="nodrag nopan"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation()
+              run([nodeId])
+            }}
+          >
+            <Icon name="refresh" />
+            {t('common:action.retry')}
+          </Button>
+        )}
+      </div>
     </div>
   )
 }
@@ -520,7 +548,7 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
         {fileId ? (
           <Picture nodeId={node.id} fileId={fileId} rotation={rotation} upload={node.data} />
         ) : pending ? (
-          <Pending pending={pending} />
+          <Pending pending={pending} nodeId={node.id} />
         ) : (
           <div className="studio-node-empty">
             <Icon name={nodeIconName(node)} size="lg" />
@@ -536,7 +564,7 @@ const ImageNode = memo(function ImageNode({ data: { node }, selected }: NodeProp
         )}
         {fileId && pending && (
           <div className="absolute inset-x-0 bottom-0 bg-background/80 py-2">
-            <Pending pending={pending} />
+            <Pending pending={pending} nodeId={node.id} />
           </div>
         )}
       </div>
@@ -562,7 +590,7 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
         <NodeCaption node={node} />
         <div className="studio-node studio-node--video">
           {pending ? (
-            <Pending pending={pending} />
+            <Pending pending={pending} nodeId={node.id} />
           ) : (
             <div className="studio-node-empty">
               <Icon name="video" size="lg" />
@@ -915,6 +943,11 @@ function Flow({
         (project) => project.sceneKey === viewKey && project.cloud && !project.cloud.deleted,
       )?.id,
   )
+  const project = useCanvasProjectStore((state) =>
+    state.projects.find((one) => one.sceneKey === viewKey),
+  )
+  const projectName = project?.name ?? ''
+  const projectConversationId = project?.conversationId ?? null
   const flowStore = useStoreApi()
   const snapshot = useDocumentSnapshot(canvas)
   useStoryboardGridSplitting(canvas, editor)
@@ -1278,7 +1311,7 @@ function Flow({
       setAddingAsset(false)
     }
   }
-  const selectCreatedBatch = (ids: string[]) => {
+  const selectCreatedBatch = (ids: string[], reveal = true) => {
     const chosen = new Set(ids)
     const created = readCanvasDocument(canvas.doc).nodes.filter((node) => chosen.has(node.id))
     selectNode(null)
@@ -1291,6 +1324,7 @@ function Flow({
         .map((node) => ({ ...node, selected: false })),
       ...created.map((node) => toFlowNode(node, true)),
     ])
+    if (!reveal) return
     const bounds = contentBounds({ nodes: created, edges: [], annotations: [] })
     const viewport =
       bounds &&
@@ -1314,6 +1348,43 @@ function Flow({
           y: rect.top + rect.height / 2,
         }) ?? { x: 0, y: 0 })
       : { x: 0, y: 0 }
+  }
+  // 「资产」入口在全局顶栏：画布正在显示才出现，开关状态放在共享 store 里。
+  // 对话视图里画布仍挂着但不活跃，那里已有自己的「资产库」，顶栏不能再出一个。
+  const assetsPanelOpen = useCanvasAssetsEntry((s) => s.open)
+  const setAssetsPanelOpen = useCanvasAssetsEntry((s) => s.setOpen)
+  useEffect(() => {
+    if (!active) return
+    const entry = useCanvasAssetsEntry.getState()
+    entry.setAvailable(true)
+    return () => entry.setAvailable(false)
+  }, [active])
+  const canvasResultItems = useCanvasResultAssets(editor, canvas, projectName, assetsPanelOpen)
+  // 资产弹窗里点一件或「应用到画布」：在当前画面中间建节点并选中，不挪视口；成功后弹窗自己关掉。
+  const placeAssets = async (items: readonly CanvasAssetItem[]) => {
+    try {
+      const ids = await insertResultNodes(
+        editor,
+        canvas,
+        items.map((item) => item.insert),
+        center(),
+      )
+      if (!ids.length) throw new Error('nothing placed')
+      selectCreatedBatch(ids, false)
+      return true
+    } catch {
+      useStore.getState().showToast(t('import.failed'), 'error')
+      return false
+    }
+  }
+  const downloadSelection = () => {
+    const ids = [...selectedIds.current]
+    const entries = canvasExportEntries(editor.doc, ids)
+    if (!entries.length) {
+      useStore.getState().showToast(t('batch.exportFailed'), 'error')
+      return
+    }
+    void transferMedia(entries, projectName)
   }
   const fit = () => {
     showFrame(undefined, 0.25, 0.05, 8, 250)
@@ -1450,57 +1521,64 @@ function Flow({
       liveCanvas.current = null
     }
   }, [canvas])
-  const placeFiles = (files: File[]) => {
-    const candidates = acceptImageFiles(files)
-    if (candidates.length === 0) return
-    const point = placeAt.current
+  const placeFiles = (files: File[], pinned?: { x: number; y: number }) => {
     // 逐张解码要花时间：这期间换了项目或离开画布，就不再弹确认框、不往旧画布里写。
+    // 拖拽落点在松手时钉死；从「上传」进来的不钉，确认时再用当时的放置点。
     const target = canvas
     const here = () => liveCanvas.current === target
     const failed = () => useStore.getState().showToast(t('import.failed'), 'error')
-    const notInvalid = (error: unknown) => {
-      if (error instanceof InvalidImageFileError) return null
-      throw error
-    }
-    void (async () => {
-      // 先确认解得开再问张数、建节点：空文件、伪装成 .png 的文本不该留下一个永远「上传中」的节点，
-      // 也不该算进「确认导入 N 张」里。解好的结果留着，确认后直接用：每张只读、解一次，
-      // 确认的张数就是落到画布上的张数（单张已按大小限额过滤；这些图确认后本来就要写进画布，确认前先留着不多占）。
-      // 同时解几张，不一张接一张等，也不让一大批同时占着解码；结果按拖入顺序排回去。
-      const decoded: (ReadImageFile | null)[] = new Array(candidates.length)
-      let next = 0
-      await Promise.all(
-        Array.from({ length: Math.min(IMPORT_DECODE_CONCURRENCY, candidates.length) }, async () => {
-          while (next < candidates.length) {
-            const index = next++
-            decoded[index] = await readImageFile(candidates[index]).catch(notInvalid)
-          }
-        }),
-      )
-      const invalid: string[] = []
-      const valid: { file: File; image: ReadImageFile }[] = []
-      candidates.forEach((file, index) => {
-        const image = decoded[index]
-        if (image) valid.push({ file, image })
-        else invalid.push(file.name)
-      })
-      if (!here()) return
-      if (invalid.length) showInvalidImages(invalid)
-      if (valid.length === 0) return
-      confirmImageBatch(valid.length, () => {
-        if (!here()) return
-        try {
-          // 都已经解过：建节点和写图同步完成，中间不让出执行权，不会留下空节点。
-          for (const { file, image } of valid) {
-            const id = createNode(canvas, 'image', point, textFill)
-            placeDecodedImage(editor, canvas.doc, id, image, file.name)
-            selectNode(id)
-          }
-        } catch {
-          failed()
+    void prepareAcceptedImageFiles(files)
+      .then((candidates) => {
+        if (!here() || candidates.length === 0) return
+        const notInvalid = (error: unknown) => {
+          if (error instanceof InvalidImageFileError) return null
+          throw error
         }
+        void (async () => {
+          // 先确认解得开再问张数、建节点：空文件、伪装成 .png 的文本不该留下一个永远「上传中」的节点，
+          // 也不该算进「确认导入 N 张」里。解好的结果留着，确认后直接用：每张只读、解一次，
+          // 确认的张数就是落到画布上的张数（单张已按大小限额过滤；这些图确认后本来就要写进画布，确认前先留着不多占）。
+          // 同时解几张，不一张接一张等，也不让一大批同时占着解码；结果按拖入顺序排回去。
+          const decoded: (ReadImageFile | null)[] = new Array(candidates.length)
+          let next = 0
+          await Promise.all(
+            Array.from(
+              { length: Math.min(IMPORT_DECODE_CONCURRENCY, candidates.length) },
+              async () => {
+                while (next < candidates.length) {
+                  const index = next++
+                  decoded[index] = await readImageFile(candidates[index]).catch(notInvalid)
+                }
+              },
+            ),
+          )
+          const invalid: string[] = []
+          const valid: { file: File; image: ReadImageFile }[] = []
+          candidates.forEach((file, index) => {
+            const image = decoded[index]
+            if (image) valid.push({ file, image })
+            else invalid.push(file.name)
+          })
+          if (!here()) return
+          if (invalid.length) showInvalidImages(invalid)
+          if (valid.length === 0) return
+          confirmImageBatch(valid.length, () => {
+            if (!here()) return
+            const point = pinned ?? placeAt.current
+            try {
+              // 都已经解过：建节点和写图同步完成，中间不让出执行权，不会留下空节点。
+              for (const { file, image } of valid) {
+                const id = createNode(canvas, 'image', point, textFill)
+                placeDecodedImage(editor, canvas.doc, id, image, file.name)
+                selectNode(id)
+              }
+            } catch {
+              failed()
+            }
+          })
+        })().catch(failed)
       })
-    })().catch(failed)
+      .catch(failed)
   }
   const showInvalidImages = (names: readonly string[]) =>
     useStore
@@ -1675,7 +1753,7 @@ function Flow({
         return
       }
       // collectDroppedFiles 必须在这一拍同步调用：await 之后 DataTransfer.items 就空了。
-      void collectDroppedFiles(event.dataTransfer).then(({ files }) => placeFiles(files))
+      void collectDroppedFiles(event.dataTransfer).then(({ files }) => placeFiles(files, point))
     }
     el.addEventListener('dblclick', onDoubleClick, true)
     el.addEventListener('dragenter', onDragEnter)
@@ -1765,7 +1843,9 @@ function Flow({
         .showToast(
           error instanceof CanvasReferenceLimitError
             ? MAX_INPUT_IMAGES_MESSAGE
-            : t('import.failed'),
+            : error instanceof UploadImageTooLargeError
+              ? i18next.t('image.tooLarge', { ns: 'lib', count: 1, max: MAX_IMAGE_MB })
+              : t('import.failed'),
           'error',
         )
     } finally {
@@ -2446,9 +2526,31 @@ function Flow({
                             label={t('nodes.duplicate')}
                             onClick={duplicate}
                           />
+                          <span className="studio-node-tool-divider" />
+                          <NodeTool
+                            icon="download"
+                            label={common('action.download')}
+                            onClick={downloadSelection}
+                          />
                           <NodeTool icon="delete" label={t('nodes.delete')} onClick={remove} />
                         </div>
                       )}
+                      {assetsPanelOpen && (
+                        <NodeAssetsPanel
+                          conversationId={projectConversationId}
+                          canvasItems={canvasResultItems}
+                          onClose={() => setAssetsPanelOpen(false)}
+                          onPlace={placeAssets}
+                          onDownload={(items) =>
+                            void transferMedia(
+                              items.map((item) => item.download),
+                              projectName,
+                            )
+                          }
+                        />
+                      )}
+                      {/* 资产弹窗开着时传输卡由弹窗那一层渲染，免得被遮罩挡住 */}
+                      {!assetsPanelOpen && <MediaTransferCard />}
                       {scriptPoint && (
                         <ScriptBriefDialog
                           onClose={() => setScriptPoint(null)}
@@ -2687,13 +2789,25 @@ function Flow({
                         accept="image/*"
                         multiple
                         hidden
-                        onChange={async (event) => {
+                        onChange={(event) => {
                           const files = [...(event.target.files ?? [])]
                           event.target.value = ''
                           const targetId = uploadReferenceTarget.current
                           uploadReferenceTarget.current = null
-                          if (targetId)
-                            for (const file of files) await uploadReference(targetId, file)
+                          if (!targetId) return
+                          void (async () => {
+                            try {
+                              const { compressUploadFiles } = await import(
+                                '../../../lib/imageFiles'
+                              )
+                              const fitted = await compressUploadFiles(
+                                files.filter((file) => file.type.startsWith('image/')),
+                              )
+                              for (const file of fitted) await uploadReference(targetId, file)
+                            } catch {
+                              useStore.getState().showToast(t('import.failed'), 'error')
+                            }
+                          })()
                         }}
                       />
                       <input
