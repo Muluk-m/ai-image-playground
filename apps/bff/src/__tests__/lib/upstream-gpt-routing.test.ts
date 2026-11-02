@@ -29,7 +29,9 @@ const { _resetSub2apiBreakerForTesting, sub2apiBreakerOpen } = await import(
 const { _resetDirectBudgetCacheForTesting } = await import('../../lib/upstream/gpt-budget')
 const { ImagePlanRequiredError } = await import('../../lib/upstream/errors')
 const { config } = await import('../../config')
-const { gptSchedulerBuckets, tryAcquireSchedulerSlots } = await import('../../lib/upstream/scheduler')
+const { gptSchedulerBuckets, tryAcquireSchedulerSlots } = await import(
+  '../../lib/upstream/scheduler'
+)
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { db, schema } = await import('../../db/client')
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
@@ -192,14 +194,21 @@ describe('strict premium CLI routing', () => {
 
   it('rejects exhausted direct budget instead of invoking sub2api', async () => {
     await db.insert(schema.gpt_direct_usage).values({
-      id: 'strict-spent', model: MODEL, images: 1, cost_micro_usd: 999_000,
-      estimated: false, created_at: Date.now(),
+      id: 'strict-spent',
+      model: MODEL,
+      images: 1,
+      cost_micro_usd: 999_000,
+      estimated: false,
+      created_at: Date.now(),
     })
     await expect(call(premium, true, true)).rejects.toBeInstanceOf(ImagePlanRequiredError)
     expect(sent).toEqual([])
   })
 
-  it.each(['concurrency', 'rate'] as const)('rejects exhausted direct %s capacity', async (limit) => {
+  it.each([
+    'concurrency',
+    'rate',
+  ] as const)('rejects exhausted direct %s capacity', async (limit) => {
     const buckets = gptSchedulerBuckets(MODEL, 'direct')
     const images = limit === 'rate' ? config.scheduler.gpt.directImagesPerMinute : 1
     const lease = await tryAcquireSchedulerSlots(buckets, images)
@@ -216,13 +225,17 @@ describe('strict premium CLI routing', () => {
   it('rejects capacity stolen after route selection before making any upstream request', async () => {
     const held: { lease: SchedulerLease | null } = { lease: null }
     try {
-      await expect(callUpstream({
-        provider: 'openai-compat', model: MODEL, strictImageRequest: true,
-        request: { prompt: 'a cat', ...premium },
-        onGptRoute: async () => {
-          held.lease = await tryAcquireSchedulerSlots(gptSchedulerBuckets(MODEL, 'direct'), 1)
-        },
-      })).rejects.toBeInstanceOf(ImagePlanRequiredError)
+      await expect(
+        callUpstream({
+          provider: 'openai-compat',
+          model: MODEL,
+          strictImageRequest: true,
+          request: { prompt: 'a cat', ...premium },
+          onGptRoute: async () => {
+            held.lease = await tryAcquireSchedulerSlots(gptSchedulerBuckets(MODEL, 'direct'), 1)
+          },
+        }),
+      ).rejects.toBeInstanceOf(ImagePlanRequiredError)
       expect(sent).toEqual([])
     } finally {
       if (held.lease) await held.lease.release({ refund: true })
@@ -237,7 +250,9 @@ describe('strict premium CLI routing', () => {
     expect(sent.map((one) => one.route)).toEqual(['direct'])
   })
 
-  it.each([429, 503])('never fails over after a definitive direct HTTP %s failure', async (status) => {
+  it.each([
+    429, 503,
+  ])('never fails over after a definitive direct HTTP %s failure', async (status) => {
     behaviour.direct.status = status
     await expect(call(premium, true, true)).rejects.toBeInstanceOf(ImagePlanRequiredError)
     expect(sent.map((one) => one.route)).toEqual(['direct'])

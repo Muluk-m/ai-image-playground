@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import type { ReactNode } from 'react'
+
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../../lib/api-client'
 
@@ -81,7 +82,10 @@ vi.mock('../../components/Page', () => ({
   ErrorState: ({ label }: { label: string }) => <div>{label}</div>,
 }))
 vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({ setQueryData: state.setQueryData, cancelQueries: vi.fn(async () => {}) }),
+  useQueryClient: () => ({
+    setQueryData: state.setQueryData,
+    cancelQueries: vi.fn(async () => {}),
+  }),
 }))
 vi.mock('../../lib/queries', () => ({
   operatorSettingsQueryKey: ['operator-settings'],
@@ -108,9 +112,17 @@ describe('operator settings page', () => {
     expect(within(row).getByRole('button', { name: '保存' })).toBeDisabled()
     fireEvent.change(input, { target: { value: '25' } })
     fireEvent.click(within(row).getByRole('button', { name: '保存' }))
-    fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), { target: { value: 'daily quota' } })
+    fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
+      target: { value: 'daily quota' },
+    })
     fireEvent.click(screen.getByRole('button', { name: '继续' }))
-    await waitFor(() => expect(state.save).toHaveBeenCalledWith('quota:daily', { value: 25, reason: 'daily quota', expectedRevision: 3 }))
+    await waitFor(() =>
+      expect(state.save).toHaveBeenCalledWith('quota:daily', {
+        value: 25,
+        reason: 'daily quota',
+        expectedRevision: 3,
+      }),
+    )
   })
 
   it('does not expose raw transport errors', async () => {
@@ -118,7 +130,9 @@ describe('operator settings page', () => {
     render(<OperatorSettingsPage />)
     const row = screen.getByText('CLI API').closest('tr')!
     fireEvent.click(within(row).getByRole('button', { name: '保存' }))
-    fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), { target: { value: 'enable' } })
+    fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
+      target: { value: 'enable' },
+    })
     fireEvent.click(screen.getByRole('button', { name: '继续' }))
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('操作失败，请稍后重试'))
     expect(screen.queryByText('private token and upstream URL')).not.toBeInTheDocument()
@@ -146,34 +160,56 @@ describe('operator settings page', () => {
     const row = screen.getByText('免费对话').closest('tr')!
     fireEvent.click(within(row).getByRole('button', { name: '保存' }))
     expect(screen.getByRole('dialog', { name: '保存覆盖' })).toBeInTheDocument()
-    expect(within(screen.getByRole('dialog', { name: '保存覆盖' })).getByRole('button', { name: '继续' })).toBeDisabled()
-    fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), { target: { value: 'raise budget' } })
+    expect(
+      within(screen.getByRole('dialog', { name: '保存覆盖' })).getByRole('button', {
+        name: '继续',
+      }),
+    ).toBeDisabled()
+    fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
+      target: { value: 'raise budget' },
+    })
     fireEvent.click(screen.getByRole('button', { name: '继续' }))
     expect(screen.getByRole('dialog', { name: '确认成本与流量影响' })).toBeInTheDocument()
     expect(state.save).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '确认保存' }))
-    await waitFor(() => expect(state.save).toHaveBeenCalledWith('billing:chat-free', expect.objectContaining({ reason: 'raise budget', expectedRevision: 3 })))
+    await waitFor(() =>
+      expect(state.save).toHaveBeenCalledWith(
+        'billing:chat-free',
+        expect.objectContaining({ reason: 'raise budget', expectedRevision: 3 }),
+      ),
+    )
   })
 
   it('requires a reason and cost confirmation when clearing a risky override', async () => {
     render(<OperatorSettingsPage />)
     const row = screen.getByText('免费对话').closest('tr')!
     fireEvent.click(within(row).getByRole('button', { name: '清除覆盖' }))
-    fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), { target: { value: 'end incident' } })
+    fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
+      target: { value: 'end incident' },
+    })
     fireEvent.click(screen.getByRole('button', { name: '继续' }))
     expect(screen.getByRole('dialog', { name: '确认成本与流量影响' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '确认清除' }))
-    await waitFor(() => expect(state.clear).toHaveBeenCalledWith('billing:chat-free', { reason: 'end incident', expectedRevision: 3 }))
+    await waitFor(() =>
+      expect(state.clear).toHaveBeenCalledWith('billing:chat-free', {
+        reason: 'end incident',
+        expectedRevision: 3,
+      }),
+    )
   })
 
   it('disables controls while a write is pending', async () => {
     let resolve!: (value: typeof state.data) => void
-    const promise = new Promise<typeof state.data>((done) => { resolve = done })
+    const promise = new Promise<typeof state.data>((done) => {
+      resolve = done
+    })
     state.save.mockImplementationOnce(() => promise)
     render(<OperatorSettingsPage />)
     const row = screen.getByText('CLI API').closest('tr')!
     fireEvent.click(within(row).getByRole('button', { name: '保存' }))
-    fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), { target: { value: 'enable' } })
+    fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
+      target: { value: 'enable' },
+    })
     fireEvent.click(screen.getByRole('button', { name: '继续' }))
     await waitFor(() => expect(within(row).getByRole('button', { name: '保存' })).toBeDisabled())
     resolve(state.data)
@@ -184,7 +220,9 @@ describe('operator settings page', () => {
     state.save.mockRejectedValueOnce(new ApiError(409, { error: 'stale_revision' }))
     const row = screen.getByText('CLI API').closest('tr')!
     fireEvent.click(within(row).getByRole('button', { name: '保存' }))
-    fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), { target: { value: 'enable' } })
+    fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
+      target: { value: 'enable' },
+    })
     fireEvent.click(screen.getByRole('button', { name: '继续' }))
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('配置已被其他操作更新'))
     expect(screen.getByRole('button', { name: '刷新配置' })).toBeInTheDocument()
