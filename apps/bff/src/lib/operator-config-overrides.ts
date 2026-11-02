@@ -7,14 +7,15 @@ import {
   QUOTAS,
   type QuotaKey,
 } from '@image-playground/shared'
-import { and, eq, sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { baselineOperatorConfig, config, setEffectiveOperatorConfig } from '../config'
 import { db, schema } from '../db/client'
+import { type AlertSender, createAlertSenderFromEnv } from '../ops/alert-sender'
 import { log } from './logger'
 import { type ResolvedOperatorConfig, validateOperatorConfigValues } from './operator-config'
 
 export type OperatorOverrideValue = boolean | number
-const invalidOverrideReasons = new Map<string, string>()
+let invalidOverrideReasons = new Map<string, string>()
 let lastLoadedRevision = -1
 let refreshInFlight: Promise<number> | undefined
 export interface OperatorOverrideView {
@@ -55,8 +56,15 @@ function sameValue(a: unknown, b: unknown): boolean {
   return typeof a === 'number' && typeof b === 'number' ? Object.is(a, b) : a === b
 }
 
-async function rows() {
-  return db.select().from(schema.operator_config_overrides)
+type OverrideRow = typeof schema.operator_config_overrides.$inferSelect
+
+async function readSnapshot() {
+  return db.transaction(async (tx) => {
+    const [state] = await tx.select().from(schema.operator_config_state)
+      .where(eq(schema.operator_config_state.id, 1)).limit(1)
+    const rows = await tx.select().from(schema.operator_config_overrides)
+    return { rows, revision: state?.revision ?? 0 }
+  }, { isolationLevel: 'repeatable read', accessMode: 'read only' })
 }
 
 function rowView(
@@ -65,7 +73,7 @@ function rowView(
   row: typeof schema.operator_config_overrides.$inferSelect | undefined,
   key: string,
 ): OperatorOverrideView {
-  const metadata = OPERATOR_REGISTRY[key]
+  const metadata = Object.hasOwn(OPERATOR_REGISTRY, key) ? OPERATOR_REGISTRY[key] : undefined
   const baseline = valueFor(baselineBase, key)
   const effective = valueFor(effectiveBase, key)
   const invalidReason = invalidOverrideReasons.get(key)
@@ -80,18 +88,7 @@ function rowView(
     }
   }
   if (!row) return { key, kind: metadata.kind, metadata, baseline, effective, valid: true }
-  if (!sameValue(row.baseline_value, baseline)) {
-    return {
-      key,
-      kind: metadata.kind,
-      metadata,
-      baseline,
-      effective: baseline,
-      override: rowOverride(row),
-      valid: false,
-      invalidReason: 'baseline_changed',
-    }
-  }
+  const baselineChanged = !sameValue(row.baseline_value, baseline)
   if (!isValue(metadata, row.value) || invalidReason) {
     return {
       key,
@@ -109,9 +106,10 @@ function rowView(
     kind: metadata.kind,
     metadata,
     baseline,
-    effective: row.value,
+    effective,
     override: rowOverride(row),
     valid: true,
+    ...(baselineChanged ? { invalidReason: 'baseline_changed' } : {}),
   }
 }
 
@@ -159,8 +157,8 @@ function adminSetting(view: OperatorOverrideView): AdminOperatorSetting {
     min: metadata?.min,
     max: metadata?.max,
     dependencies: metadata?.dependencies ?? [],
-    baselineChanged: view.invalidReason === 'baseline_changed',
-    invalid: !view.valid && view.invalidReason !== 'baseline_changed',
+    baselineChanged: !!view.override && !sameValue(view.override.baselineValue, view.baseline),
+    invalid: !view.valid,
     invalidReason: view.invalidReason ?? null,
   }
 }
@@ -182,22 +180,18 @@ export interface OperatorSettingsResult {
 }
 
 export async function listOperatorConfig(): Promise<OperatorSettingsResult> {
+  await refreshOperatorConfig()
   const effectiveBase = config.operator
   const baselineBase = baselineOperatorConfig()
-  const allRows = await rows()
+  const allRows = loadedRows
   const byKey = new Map(allRows.map((row) => [row.key, row]))
   const views = Object.keys(OPERATOR_REGISTRY).map((key) =>
     rowView(effectiveBase, baselineBase, byKey.get(key), key),
   )
   for (const row of allRows) {
-    if (!OPERATOR_REGISTRY[row.key]) views.push(rowView(effectiveBase, baselineBase, row, row.key))
+    if (!Object.hasOwn(OPERATOR_REGISTRY, row.key)) views.push(rowView(effectiveBase, baselineBase, row, row.key))
   }
-  const [state] = await db
-    .select({ revision: schema.operator_config_state.revision })
-    .from(schema.operator_config_state)
-    .where(eq(schema.operator_config_state.id, 1))
-    .limit(1)
-  const globalRevision = state?.revision ?? 0
+  const globalRevision = lastLoadedRevision
   return {
     revision: globalRevision,
     settings: views.map((view) => ({ ...adminSetting(view), revision: globalRevision })),
@@ -224,33 +218,61 @@ export class OperatorConfigError extends Error {
 function derive(base: ResolvedOperatorConfig, key: string, value: OperatorOverrideValue) {
   const metadata = OPERATOR_REGISTRY[key]
   if (!metadata) throw new OperatorConfigError(404, 'unknown_key')
-  if (metadata.kind === 'capability' && value === true) {
-    for (const dependency of metadata.dependencies) {
-      if (!base.capabilities[dependency as CapabilityKey]) {
-        throw new OperatorConfigError(409, 'dependency_or_derived_rejected', {
-          rule: `${key} requires ${dependency}`,
-        })
-      }
-    }
-  }
   const capabilities = { ...base.capabilities }
   const quotas = { ...base.quotas }
   if (metadata.kind === 'capability') capabilities[key as CapabilityKey] = value as boolean
   else quotas[key as QuotaKey] = value as number
   try {
+    for (const [capability, enabled] of Object.entries(capabilities)) {
+      if (!enabled) continue
+      for (const dependency of OPERATOR_REGISTRY[capability]!.dependencies) {
+        if (!capabilities[dependency as CapabilityKey])
+          throw new Error(`${capability} requires ${dependency}`)
+      }
+    }
     const effective = validateOperatorConfigValues(base, capabilities, quotas)
-    if (!Object.is(valueFor(effective, key), value)) {
-      throw new OperatorConfigError(409, 'dependency_or_derived_rejected', {
-        rule: `${key} was forced off by derived configuration`,
-      })
+    for (const capability of Object.keys(capabilities) as CapabilityKey[]) {
+      if (effective.capabilities[capability] !== capabilities[capability])
+        throw new Error(`${capability} was forced off by derived configuration`)
     }
     return effective
   } catch (error) {
-    if (error instanceof OperatorConfigError) throw error
     const message = error instanceof Error ? error.message : String(error)
-    const rule = message.match(/^([^ ]+)/)?.[1] ?? 'derived_config'
-    throw new OperatorConfigError(409, 'dependency_or_derived_rejected', { rule, message })
+    throw new OperatorConfigError(409, 'dependency_or_derived_rejected', {
+      rule: message, message,
+    })
   }
+}
+
+// Apply in commit order, retrying prerequisites supplied by a later row. A failing row never
+// evicts an unrelated accepted override. This also makes direct DB repairs deterministic.
+function resolveRows(base: ResolvedOperatorConfig, rows: OverrideRow[]) {
+  let effective = base
+  const invalid = new Map<string, string>()
+  let pending = rows.filter((row) => {
+    const entry = Object.hasOwn(OPERATOR_REGISTRY, row.key) ? OPERATOR_REGISTRY[row.key] : undefined
+    const reason = !entry ? 'unknown_key' : entry.editability !== 'hot' ? 'not_hot' :
+      !isValue(entry, row.value) ? 'invalid_value' : undefined
+    if (reason) invalid.set(row.key, reason)
+    return !reason
+  }).sort((a, b) => a.revision - b.revision || a.key.localeCompare(b.key))
+  while (pending.length) {
+    const rejected: OverrideRow[] = []
+    for (const row of pending) {
+      try {
+        effective = derive(effective, row.key, row.value as OperatorOverrideValue)
+      } catch (error) {
+        if (!(error instanceof OperatorConfigError)) throw error
+        rejected.push(row)
+      }
+    }
+    if (rejected.length === pending.length) {
+      for (const row of rejected) invalid.set(row.key, 'invalid_combination')
+      break
+    }
+    pending = rejected
+  }
+  return { effective, invalid }
 }
 
 export async function setOperatorConfig(input: {
@@ -260,7 +282,7 @@ export async function setOperatorConfig(input: {
   operatorId: string
   reason: unknown
 }): Promise<OperatorOverrideView> {
-  const metadata = OPERATOR_REGISTRY[input.key]
+  const metadata = Object.hasOwn(OPERATOR_REGISTRY, input.key) ? OPERATOR_REGISTRY[input.key] : undefined
   if (!metadata) throw new OperatorConfigError(404, 'unknown_key')
   if (metadata.editability !== 'hot')
     throw new OperatorConfigError(
@@ -280,7 +302,7 @@ export async function setOperatorConfig(input: {
   const now = Date.now()
   const result = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('operator_config_overrides'))`)
-    derive(config.operator, input.key, overrideValue)
+    const base = baselineOperatorConfig()
     const [state] = await tx
       .select({ revision: schema.operator_config_state.revision })
       .from(schema.operator_config_state)
@@ -289,12 +311,11 @@ export async function setOperatorConfig(input: {
     const currentRevision = state?.revision ?? 0
     if (input.expectedRevision !== currentRevision)
       throw new OperatorConfigError(409, 'stale_revision', { currentRevision })
-    const [row] = await tx
-      .select()
-      .from(schema.operator_config_overrides)
-      .where(eq(schema.operator_config_overrides.key, input.key))
-      .limit(1)
-    const before = row?.value ?? valueFor(baselineOperatorConfig(), input.key)
+    const allRows = await tx.select().from(schema.operator_config_overrides)
+    const row = allRows.find((row) => row.key === input.key)
+    const current = resolveRows(base, allRows).effective
+    derive(current, input.key, overrideValue)
+    const before = valueFor(current, input.key)
     const revision = currentRevision + 1
     const values = {
       key: input.key,
@@ -326,9 +347,7 @@ export async function setOperatorConfig(input: {
     })
     return { revision }
   })
-  const committedRevision = result.revision
-  while ((await operatorConfigRevision()) < committedRevision) await Bun.sleep(1)
-  await refreshOperatorConfigUnlocked()
+  await refreshOperatorConfig()
   return rowView(
     config.operator,
     baselineOperatorConfig(),
@@ -351,7 +370,7 @@ export async function clearOperatorConfig(input: {
   operatorId: string
   reason: unknown
 }): Promise<void> {
-  const metadata = OPERATOR_REGISTRY[input.key]
+  const metadata = Object.hasOwn(OPERATOR_REGISTRY, input.key) ? OPERATOR_REGISTRY[input.key] : undefined
   if (!metadata) throw new OperatorConfigError(404, 'unknown_key')
   if (metadata.editability !== 'hot')
     throw new OperatorConfigError(
@@ -359,7 +378,7 @@ export async function clearOperatorConfig(input: {
       metadata.editability === 'boot' ? 'boot_time_only' : 'read_only',
     )
   const reason = normalizeReason(input.reason)
-  if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1)
+  if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0)
     throw new OperatorConfigError(400, 'revision_required')
   const now = Date.now()
   await db.transaction(async (tx) => {
@@ -372,12 +391,12 @@ export async function clearOperatorConfig(input: {
     const currentRevision = state?.revision ?? 0
     if (input.expectedRevision !== currentRevision)
       throw new OperatorConfigError(409, 'stale_revision', { currentRevision })
-    const [row] = await tx
-      .select()
-      .from(schema.operator_config_overrides)
-      .where(eq(schema.operator_config_overrides.key, input.key))
-      .limit(1)
+    const allRows = await tx.select().from(schema.operator_config_overrides)
+    const row = allRows.find((row) => row.key === input.key)
     if (!row) throw new OperatorConfigError(409, 'stale_revision', { currentRevision })
+    const base = baselineOperatorConfig()
+    const current = resolveRows(base, allRows).effective
+    derive(current, input.key, valueFor(base, input.key)!)
     await tx
       .delete(schema.operator_config_overrides)
       .where(eq(schema.operator_config_overrides.key, input.key))
@@ -400,88 +419,57 @@ export async function clearOperatorConfig(input: {
       created_at: now,
     })
   })
-  await refreshOperatorConfigUnlocked()
+  await refreshOperatorConfig()
+}
+
+let loadedRows: OverrideRow[] = []
+let alertSender: AlertSender = createAlertSenderFromEnv({
+  deployment: process.env.OPS_DEPLOYMENT_NAME?.trim() || 'deployment',
+  onPartialFailure: (error) =>
+    log.warn({ event: 'ops.alert_target_failed', err: error.message }, 'an alert target failed'),
+})
+
+export function setOperatorConfigAlertSenderForTesting(sender: AlertSender): void {
+  alertSender = sender
 }
 
 async function refreshOperatorConfigUnlocked(): Promise<number> {
-  invalidOverrideReasons.clear()
+  const snapshot = await readSnapshot()
   const base = baselineOperatorConfig()
-  const allRows = await rows()
-  const knownRows = allRows.filter((row) => {
-    const metadata = OPERATOR_REGISTRY[row.key]
-    if (!metadata || !isValue(metadata, row.value)) {
-      invalidOverrideReasons.set(row.key, 'invalid_value')
-      log.error(
-        { event: 'operator_config.invalid_override', key: row.key, revision: row.revision },
-        'ignoring invalid operator override',
-      )
-      return false
-    }
-    if (!sameValue(row.baseline_value, valueFor(base, row.key))) {
-      invalidOverrideReasons.set(row.key, 'baseline_changed')
-      log.warn(
-        { event: 'operator_config.baseline_changed', key: row.key, revision: row.revision },
-        'ignoring override from an older baseline',
-      )
-      return false
-    }
-    return true
-  })
-  const accepted = new Map(knownRows.map((row) => [row.key, row]))
-  let revision = 0
-  for (const row of allRows) revision = Math.max(revision, row.revision)
-  while (true) {
-    const capabilities = { ...base.capabilities }
-    const quotas = { ...base.quotas }
-    for (const row of accepted.values()) {
-      const metadata = OPERATOR_REGISTRY[row.key]!
-      if (metadata.kind === 'capability')
-        capabilities[row.key as CapabilityKey] = row.value as boolean
-      else quotas[row.key as QuotaKey] = row.value as number
-    }
+  validateOperatorConfigValues(base, base.capabilities, base.quotas)
+  const { effective, invalid } = resolveRows(base, snapshot.rows)
+  const previous = invalidOverrideReasons
+  // Publish only after reading and validating the complete snapshot; failures retain old state.
+  setEffectiveOperatorConfig(effective)
+  invalidOverrideReasons = invalid
+  loadedRows = snapshot.rows
+  lastLoadedRevision = snapshot.revision
+  for (const [key, reason] of invalid) {
+    if (reason === 'unknown_key' || previous.get(key) === reason) continue
+    log.error({ event: 'operator_config.invalid_override', key, reason, revision: snapshot.revision },
+      'ignoring invalid operator override; using baseline')
     try {
-      const effective = validateOperatorConfigValues(base, capabilities, quotas)
-      const forcedOff = [...accepted.values()].find(
-        (row) => valueFor(effective, row.key) !== row.value,
-      )
-      if (forcedOff) {
-        accepted.delete(forcedOff.key)
-        invalidOverrideReasons.set(forcedOff.key, 'invalid_combination')
-        log.error(
-          { event: 'operator_config.invalid_override', key: forcedOff.key },
-          'ignoring operator override forced off by derived configuration',
-        )
-        continue
-      }
-      setEffectiveOperatorConfig(effective)
-      break
+      await alertSender([{
+        rule: 'operator-config', kind: 'firing',
+        text: `运营覆盖 ${key} 无效（${reason}），已退回基线配置`,
+        detail: { key, reason, revision: snapshot.revision },
+      }])
     } catch (error) {
-      const invalid = accepted.keys().next().value as string | undefined
-      if (!invalid) {
-        log.error(
-          { event: 'operator_config.reload_failed', err: error },
-          'baseline operator configuration became invalid',
-        )
-        setEffectiveOperatorConfig(base)
-        break
-      }
-      accepted.delete(invalid)
-      invalidOverrideReasons.set(invalid, 'invalid_combination')
-      log.error(
-        { event: 'operator_config.invalid_override', key: invalid },
-        'ignoring operator override that invalidates the effective configuration',
-      )
+      log.error({ event: 'operator_config.alert_failed', err: error }, 'operator config alert failed')
     }
   }
-  lastLoadedRevision = revision
-  return revision
+  return snapshot.revision
 }
+
 export function refreshOperatorConfig(): Promise<number> {
-  if (refreshInFlight) return refreshInFlight
-  refreshInFlight = refreshOperatorConfigUnlocked().finally(() => {
-    refreshInFlight = undefined
-  })
-  return refreshInFlight
+  // Queue explicit reloads: a writer must not join a refresh begun before its commit.
+  const next = (refreshInFlight ?? Promise.resolve(0)).catch(() => 0)
+    .then(refreshOperatorConfigUnlocked)
+  refreshInFlight = next
+  void next.finally(() => {
+    if (refreshInFlight === next) refreshInFlight = undefined
+  }).catch(() => {})
+  return next
 }
 
 export async function refreshOperatorConfigIfChanged(): Promise<number | null> {

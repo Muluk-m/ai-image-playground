@@ -310,16 +310,17 @@ export function validateOperatorConfigValues(
   capabilities: CapabilityValues,
   quotas: QuotaValues,
 ): ResolvedOperatorConfig {
-  return resolveParsedConfig(
+  const resolved = resolveParsedConfig(
     {
-      capabilities,
-      quotas,
+      capabilities: parseCapabilities(capabilities, 'operator config capabilities'),
+      quotas: parseQuotas(quotas),
       capabilityUsers: base.capabilityUsers,
       channelsFile: base.channelsFile,
       presets: {},
     },
     base.file ?? '',
   )
+  return { ...base, capabilities: resolved.capabilities, quotas: resolved.quotas }
 }
 
 export function evaluateCapability(config: ResolvedOperatorConfig, key: string): boolean {

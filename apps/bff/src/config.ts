@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { databasePoolFromEnv } from '@image-playground/db'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { normalizeKeyPrefix } from './lib/objectKeyPrefix'
-import { hasCapability, loadOperatorConfig } from './lib/operator-config'
+import { hasCapability, loadOperatorConfig, validateOperatorConfigValues } from './lib/operator-config'
 
 const env = (key: string, fallback?: string): string => {
   const v = process.env[key]
@@ -42,7 +42,8 @@ if (
 let baselineOperator = loadOperatorConfig(env('OPERATOR_CONFIG_FILE', '') || null)
 let effectiveOperator = baselineOperator
 export function setEffectiveOperatorConfig(value: typeof baselineOperator): void {
-  effectiveOperator = value
+  const validated = validateOperatorConfigValues(value, value.capabilities, value.quotas)
+  effectiveOperator = { ...value, capabilities: validated.capabilities, quotas: validated.quotas }
 }
 export function baselineOperatorConfig(): typeof baselineOperator {
   return baselineOperator

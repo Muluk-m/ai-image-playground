@@ -17,7 +17,7 @@ export const internalOperatorConfigRoutes = new Elysia({
 })
   .use(requireInternalService)
   .onError({ as: 'scoped' }, ({ error, set }) => {
-    if (!(error instanceof OperatorConfigError)) throw error
+    if (!(error instanceof OperatorConfigError)) return
     set.status = error.status
     return { error: error.code, ...(error.details ? { details: error.details } : {}) }
   })
