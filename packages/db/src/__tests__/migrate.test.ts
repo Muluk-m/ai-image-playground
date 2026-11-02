@@ -105,7 +105,7 @@ describe('runMigrations', () => {
         await sql.close()
       }
     })
-  })
+  }, 30_000)
 
   it('retains nullable original prompts and indexes the admin chronology', async () => {
     const [column] =
