@@ -12,6 +12,7 @@ import Dialog from '../components/patterns/Dialog'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
+import CliConnectionsSection from '../features/cli/CliConnectionsSection'
 import { useTranslation } from '../i18n'
 import {
   AuthRequestError,
@@ -317,6 +318,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
           ) : null}
         </>
       )}
+      <CliConnectionsSection />
     </Dialog>
   )
 }
