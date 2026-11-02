@@ -302,17 +302,22 @@ describe('auth client', () => {
     })
   })
 
-  it.each([{}, { connections: null }, { connections: { id: 'connection-1' } }, null])(
-    'rejects a connection response without an array (%j)',
-    async (body) => {
-      vi.stubGlobal('fetch', vi.fn(async () => Response.json(body)))
-      await expect(fetchCliConnections()).rejects.toMatchObject({
-        name: 'AuthRequestError',
-        status: 200,
-        code: 'invalid_response',
-      })
-    },
-  )
+  it.each([
+    {},
+    { connections: null },
+    { connections: { id: 'connection-1' } },
+    null,
+  ])('rejects a connection response without an array (%j)', async (body) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(body)),
+    )
+    await expect(fetchCliConnections()).rejects.toMatchObject({
+      name: 'AuthRequestError',
+      status: 200,
+      code: 'invalid_response',
+    })
+  })
 
   it('revokes exactly the selected connection without exposing credentials', async () => {
     const fetcher = vi.fn(async () => Response.json({ ok: true }))
