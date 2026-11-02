@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto'
 import { type AgentBatchAttemptSnapshot, taskFailureCode } from '@image-playground/shared'
 import { and, asc, eq, inArray, isNull, lte, ne, or, type SQL, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
 import { lockMediaOwner } from '../projectMedia'
@@ -113,8 +112,7 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
     const outcome = queueTaskOutcome(task)
     if (!outcome || task.completed_at === null) continue
     const charge = credits[task.id]
-    const requiresBill =
-      isCapabilityEnabled('billing:credits') || reservedCredits > 0 || price?.exemption === 'none'
+    const requiresBill = reservedCredits > 0 || price?.exemption === 'none'
     if (requiresBill && (!Number.isSafeInteger(charge) || charge! < 0)) continue
     snapshots.set(task.id, {
       status: task.status,

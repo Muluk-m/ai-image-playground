@@ -23,8 +23,8 @@ Usage: scripts/pages-release.sh <internal|paid|test|admin>
 Reads $XDG_CONFIG_HOME/ai-image-playground/pages.env, whose keys are prefixed INTERNAL_, PAID_,
 TEST_, or ADMIN_ (see deploy/pages.env.example).
 
-Paid, test, and admin need ./private; internal needs it absent. The overlay is compiled in by
-mere file presence.
+All targets need ./private. The internal site uses the same overlay-enabled app as paid,
+with its own Pages configuration and search indexing disabled.
 EOF
   exit 2
 }
@@ -34,7 +34,7 @@ edition=${1:-}
 case "$edition" in
   internal)
     prefix=INTERNAL
-    bundle=public
+    bundle=private
     app=web
     deployment_name=internal-web
     search_indexing=false

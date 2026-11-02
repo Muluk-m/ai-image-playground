@@ -1,5 +1,6 @@
 /** Only fixed diagnostic vocabulary may leave the object-store boundary. */
 const SAFE_CODES = new Set([
+  'Unauthorized',
   'AccessDenied',
   'InvalidAccessKeyId',
   'SignatureDoesNotMatch',

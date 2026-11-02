@@ -28,6 +28,14 @@ BFF 同时托管 `apps/web/dist` 静态产物（`STATIC_DIR` 指向 dist 即可�
   请求的用户身份推导，因此关闭账号能力不会公开已有的用户任务。
 - **能力配置 deny by default**。`OPERATOR_CONFIG_FILE` 不存在时全部能力关闭；文件存在但
   JSON 或 schema 无效时拒绝启动。预设只在解析时展开，运行时只保留求值结果与来源。
+- **账号计量与部署能力分离**。`billing:credits` 表示部署具备积分模块；私有 overlay 可在任务事务内
+  返回账号级 metered / unmetered / denied 决策。未提供策略时保留部署原有行为；无效策略拒绝提交。
+  图片、视频、分析和文本任务保存 `metering` 快照，完成与取消按该快照决定是否结算，已有空快照
+  沿用旧结算路径。不计量任务不预扣、不结算，账号配额由独立事务 hook 消费，幂等回放不重复消费。
+  Agent 对话的不计量路径不创建用于账务的聊天任务，但保留对话轮和模型用量。
+  部署关闭计费与账号明确不计量分开处理：只有后者消费账号额度。聊天价格 hook 可接收当前事务，
+  overlay 应复用该连接，避免小连接池里嵌套获取连接。身份解绑可由私有账号策略拒绝，返回
+  `409 protected_identity`，不会删除登录身份或改变其账号归属。
 
 ## 端点
 
@@ -155,11 +163,79 @@ Biome 禁止其它公开代码静态或动态引用 `private/`。
 | `S3_ACCESS_KEY_ID` | — | Object storage access key; keep the real value outside git |
 | `S3_SECRET_ACCESS_KEY` | — | Object storage secret key; keep the real value outside git |
 | `S3_KEY_PREFIX` | `(空)` | 对象 key 前缀；bucket 与其他业务共用时用它隔离，DB 里存的 ref 不含前缀 |
-| `CORS_ALLOWED_ORIGINS` | `*` | CORS 允许的浏览器 origin，多个用逗号分隔；生产请收紧 |
+| `CORS_ALLOWED_ORIGINS` | `*` | CORS 允许的浏览器 origin，多个用逗号分隔；生产请收紧。作为 OAuth 前端 allowlist 的回退时，每项必须是 bare `http(s)` origin |
+| `AUTH_PUBLIC_ORIGIN` | `(空)` | OAuth provider 注册的主 BFF 回调 origin；配置后必须是 bare `http(s)` origin，回调为 `<origin>/api/auth/oauth/{provider}/callback` |
+| `AUTH_PUBLIC_ORIGINS` | `(空)` | 允许保持当前请求回调主机的精确 API allowlist，逗号分隔的 bare `http(s)` origins；只填写路由到同一 BFF 的可信 API origin，未匹配时仍使用主 `AUTH_PUBLIC_ORIGIN` |
+| `AUTH_FRONTEND_ORIGIN` | `(空)` | OAuth 登录完成后的默认前端 origin；必须是 bare `http(s)` origin |
+| `AUTH_FRONTEND_ORIGINS` | `(空)` | OAuth 登录回跳的精确 allowlist，逗号分隔的 bare `http(s)` origins；浏览器 start/link URL 显式携带当前 origin，Origin header 缺失时仍安全回跳 |
+| `AUTH_LOGIN_METHODS_BY_ORIGIN` | `{}` | 按精确前端 origin 配置登录入口，完整例子见下文。键必须是 frontend allowlist 中的标准 bare origin，值必须包含 boolean `password`、boolean `registration` 和 provider ID 数组；未知字段或无效值拒绝启动 |
 | `STATIC_DIR` | `(空)` | 设为 `apps/web/dist` 让 BFF 同进程托管前端 |
 | `CHANNELS_FILE` | `(空)` | 覆盖 `apps/bff/channels.json` 路径 |
 | `OPERATOR_CONFIG_FILE` | `(空)` | 仓库外 operator JSON；缺失使用关闭默认值，存在但无效则拒绝启动 |
 | `<channel secretRef>` | — | 见 channels.json 里各 channel `auth.secretRef` 字段引用的 env 名 |
+
+登录入口配置只决定该站点提供哪些登录方式，不决定用户计量、授权或已登录 session 的权限。
+未配置的 allowlisted origin 保留原有密码、邮箱注册与已启用 OAuth provider；显式 `providers: []`
+禁用该入口的所有 OAuth provider。`registration` 指邮箱/密码自助注册，不关闭已允许 OAuth
+provider 的首次登录建号；邮箱注册还要求 `password: true` 与 `accounts:self-register` 能力。
+
+`GET /api/auth/oauth/providers?frontend_origin=<origin>` 返回过滤后的 `providers` 与
+`loginMethods: { password, registration }`。浏览器 `Origin` header 优先于发现接口的 query；
+密码登录、注册、验证码及设置密码的 POST 只读 `Origin`，缺失时使用请求本身的 API origin，
+从不使用 query 选择较宽松的策略。同源反代部署应为其 API origin 配置对应入口策略。
+配置策略后，未知/畸形来源会被拒绝；OAuth 导航 start/link 仍可通过 allowlisted
+`frontend_origin` 选择入口，回调核对与 provider/state 绑定的返回 origin，并重新核对 provider
+是否允许。CLI device/token 接口及已有 session 不受此入口策略影响；用户仍可从其它允许的站点登录。
+
+### 共享 BFF 的双入口配置
+
+企业 / studio 与付费前端使用同一套启用 overlay 的应用与同一个付费 BFF，但登录入口分别配置。
+以下值仅为公开通用示例，`enterprise` 是私有 provider ID 的占位值，不会凭此自动注册 provider：
+
+```dotenv
+AUTH_PUBLIC_ORIGIN=https://paid-api.example.com
+AUTH_PUBLIC_ORIGINS=https://paid-api.example.com,https://enterprise-api.example.net
+AUTH_FRONTEND_ORIGIN=https://paid.example.com
+AUTH_FRONTEND_ORIGINS=https://paid.example.com,https://enterprise.example.net,https://studio.example.net
+CORS_ALLOWED_ORIGINS=https://paid.example.com,https://enterprise.example.net,https://studio.example.net
+AUTH_LOGIN_METHODS_BY_ORIGIN='{"https://enterprise.example.net":{"password":false,"registration":false,"providers":["enterprise"]},"https://studio.example.net":{"password":false,"registration":false,"providers":["enterprise"]},"https://paid.example.com":{"password":true,"registration":true,"providers":["google"]}}'
+```
+
+所有仍对用户开放的前端域名（包括旧域名）都应显式填写规则，否则 allowlisted 但未配置的入口
+仍保留默认登录方式。`accounts:login` 与 `accounts:self-register` 保持开启以保留付费密码注册；
+企业入口的 `registration: false` 只禁用该入口的邮箱 / 密码注册，不是关闭共享部署的注册能力。
+Google 的 client ID / secret、私有 provider 配置及真实业务值只留在仓库外配置中。
+
+发布前需要分别确认三类 allowlist，不能互相替代：
+
+1. **浏览器请求**：`CORS_ALLOWED_ORIGINS` 精确允许前端 origin，不用 `*`。
+2. **登录返回**：`AUTH_FRONTEND_ORIGINS` 包含每个入口；策略的键必须在其中。
+3. **provider 回调**：保持主 `AUTH_PUBLIC_ORIGIN`，在 `AUTH_PUBLIC_ORIGINS` 增加可信同站 API
+   别名。别名必须实际路由到共享 BFF；可信 ingress 应覆盖 forwarded host / proto，而非透传任意
+   客户端值。在 provider 管理台登记实际使用的完整回调 URL，例如
+   `https://paid-api.example.com/api/auth/oauth/google/callback` 与
+   `https://enterprise-api.example.net/api/auth/oauth/enterprise/callback`。
+   若同一 provider 从多个 API origin 发起登录，每个组合都要登记。
+   **缺少 provider 侧新回调 allowlist 是切换阻塞项**；代码配置只能校验 origin 格式，不能证明
+   管理台已允许该 URL。新别名未加入 BFF allowlist 时还会回退主回调主机，丢失原主机的 state cookie。
+
+**共享后端不等于跨站调用。** 企业前端的 Pages 配置应指向
+`https://enterprise-api.example.net`，付费前端指向 `https://paid-api.example.com`；两者最终进入
+同一 BFF。会话 cookie 是 host-only、`SameSite=Lax`：企业前端若直接请求另一注册域的付费 API，
+跨站 fetch 不会携带 cookie，即使 CORS 允许且使用 `credentials: include` 也无效。
+OAuth start、callback 和后续 API 请求应保持同一 API 主机；不同主机上的旧会话不会自动转移。
+不要用放宽 CORS、cookie Domain 或改成 `SameSite=None` 代替同站路由设计。
+
+### 企业前端与冻结的旧内部后端
+
+企业前端由 CI 发布到现有 `INTERNAL_*` Pages 目标，使用与付费前端相同的 overlay-enabled
+构建形态，但保持禁止搜索索引。仓库外的 `PAGES_ENV` 仍是 Pages 配置来源，
+`INTERNAL_BFF_BASE_URL` 指向共享 BFF 的同站 API 别名，而非旧内部后端；不要手工上传替代 CI。
+
+旧内部 BFF / worker / Admin 与其数据库、对象存储保持冻结，不因企业 Pages 发布而覆盖、
+重建或停用；`deploy/app.internal.env.example` 仅作为旧部署参考。共享 BFF 配置见
+`deploy/app.paid.env.example`。这是前端 / API 路由切换，**不代表旧内部账号、会话、任务或资产
+已经迁移**，也不应通过替换旧数据库 URL 或存储凭据来实现共享后端。
 
 ## 本地开发
 

@@ -1,7 +1,7 @@
+/** Built-in provider IDs remain discoverable for clients; private overlays may add IDs. */
 export const OAUTH_PROVIDER_IDS = ['google'] as const
 
-export type OAuthProviderId = (typeof OAUTH_PROVIDER_IDS)[number]
-
+export type OAuthProviderId = string
 /** Sanitized provider descriptor. Client secrets never leave the BFF process. */
 export interface OAuthProviderView {
   readonly id: OAuthProviderId
@@ -10,6 +10,10 @@ export interface OAuthProviderView {
 
 export interface OAuthProvidersResponse {
   readonly providers: readonly OAuthProviderView[]
+  readonly loginMethods: {
+    readonly password: boolean
+    readonly registration: boolean
+  }
 }
 
 /** Callback failures redirect to the frontend carrying this query parameter. */
@@ -30,5 +34,5 @@ export const OAUTH_LINK_QUERY_PARAM = 'auth_link'
 export const OAUTH_LINK_ERROR_QUERY_PARAM = 'auth_link_error'
 
 export function isOAuthProviderId(value: string): value is OAuthProviderId {
-  return (OAUTH_PROVIDER_IDS as readonly string[]).includes(value)
+  return /^[a-z][a-z0-9-]{0,31}$/.test(value)
 }

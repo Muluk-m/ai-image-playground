@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { databasePoolFromEnv } from '@image-playground/db'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
+import { type LoginOriginPolicy, parseLoginMethodsByOrigin } from './lib/auth-origin-config'
 import { normalizeKeyPrefix } from './lib/objectKeyPrefix'
 import { hasCapability, loadOperatorConfig } from './lib/operator-config'
 
@@ -45,11 +46,10 @@ const workerHealthStaleAfterMs = positiveIntEnv(
   'WORKER_HEALTH_STALE_AFTER_MS',
   Math.max(10_000, workerPollIntervalMs * 5),
 )
-const executionOrigin = (key: string): string => {
-  const origin = env(key, '')
-  if (!origin) return ''
+const bareOrigin = (key: string, value: string): string => {
+  if (!value) return ''
   try {
-    const url = new URL(origin)
+    const url = new URL(value)
     if (
       (url.protocol !== 'http:' && url.protocol !== 'https:') ||
       url.pathname !== '/' ||
@@ -65,9 +65,13 @@ const executionOrigin = (key: string): string => {
     throw new Error(`${key} must be a bare http(s) origin`)
   }
 }
+
+const executionOrigin = (key: string): string => bareOrigin(key, env(key, ''))
 const executorOrigin = executionOrigin('EXECUTOR_ORIGIN')
 const legacyExecutorOrigin = executionOrigin('LEGACY_EXECUTOR_ORIGIN')
 const workerStartsPaused = booleanEnv('WORKER_START_PAUSED', false)
+let loginMethodsSource: string | undefined
+let loginMethodsPolicies: readonly LoginOriginPolicy[] = []
 
 export const config = {
   port: Number(env('PORT', '37377')),
@@ -77,11 +81,48 @@ export const config = {
     },
     /** Origin the OAuth provider redirects back to. Empty means derive it from the request. */
     get publicOrigin(): string {
-      return env('AUTH_PUBLIC_ORIGIN', '').replace(/\/+$/, '')
+      return bareOrigin('AUTH_PUBLIC_ORIGIN', env('AUTH_PUBLIC_ORIGIN', ''))
     },
-    /** Origin the OAuth callback finally lands on. Empty falls back to the first CORS origin. */
+    /** Additional first-party API origins allowed to receive OAuth callback cookies. */
+    get publicOrigins(): string[] {
+      return env('AUTH_PUBLIC_ORIGINS', '')
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean)
+        .map((origin) => bareOrigin('AUTH_PUBLIC_ORIGINS', origin))
+    },
+    /** Primary frontend origin kept for backwards compatibility. */
     get frontendOrigin(): string {
-      return env('AUTH_FRONTEND_ORIGIN', '').replace(/\/+$/, '')
+      return bareOrigin('AUTH_FRONTEND_ORIGIN', env('AUTH_FRONTEND_ORIGIN', ''))
+    },
+    /** Exact OAuth redirect origins; defaults to AUTH_FRONTEND_ORIGIN then CORS origins. */
+    get frontendOrigins(): string[] {
+      const configured = env('AUTH_FRONTEND_ORIGINS', '')
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean)
+        .map((origin) => bareOrigin('AUTH_FRONTEND_ORIGINS', origin))
+      const values =
+        configured.length > 0 ? configured : [config.auth.frontendOrigin, ...config.corsOriginList]
+      return [...new Set(values.filter((origin) => origin && origin !== '*'))]
+    },
+    get loginMethodsByOrigin(): readonly LoginOriginPolicy[] {
+      const source = env('AUTH_LOGIN_METHODS_BY_ORIGIN', '{}')
+      if (source !== loginMethodsSource) {
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(source)
+        } catch {
+          throw new Error('AUTH_LOGIN_METHODS_BY_ORIGIN must be valid JSON')
+        }
+        loginMethodsPolicies = parseLoginMethodsByOrigin(parsed)
+        loginMethodsSource = source
+      }
+      const allowed = config.auth.frontendOrigins
+      if (loginMethodsPolicies.some((policy) => !allowed.includes(policy.origin))) {
+        throw new Error('AUTH_LOGIN_METHODS_BY_ORIGIN keys must be allowed frontend origins')
+      }
+      return loginMethodsPolicies
     },
   },
   oauth: {
@@ -96,6 +137,8 @@ export const config = {
     codeSecret: env('EMAIL_CODE_SECRET', ''),
   },
   assertValid(): void {
+    void config.auth.loginMethodsByOrigin
+    void config.auth.publicOrigins
     if (hasCapability(config.operator, 'accounts:login') && !config.auth.internalApiToken) {
       throw new Error('Missing env: INTERNAL_API_TOKEN')
     }
@@ -266,6 +309,7 @@ export const config = {
       .split(',')
       .map((origin) => origin.trim())
       .filter((origin) => origin && origin !== '*')
+      .map((origin) => bareOrigin('CORS_ALLOWED_ORIGINS', origin))
   },
   staticDir: env('STATIC_DIR', '') || null,
   network: {
