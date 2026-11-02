@@ -53,7 +53,7 @@ describe('audit filters', () => {
     expect(screen.getByText('设置运营覆盖')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('按配置键筛选'), { target: { value: 'cli:api' } })
     fireEvent.change(screen.getByLabelText('按对象 ID 筛选'), { target: { value: 'cli:api' } })
-    const latest = queryState.filters.at(-1)
+    const latest = queryState.filters[queryState.filters.length - 1]
     expect(latest).toMatchObject({ settingKey: 'cli:api', targetId: 'cli:api' })
     expect(screen.getByText('operator_config')).toBeInTheDocument()
   })

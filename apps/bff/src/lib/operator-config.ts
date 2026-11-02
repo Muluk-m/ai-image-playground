@@ -304,11 +304,54 @@ export function loadOperatorConfig(file: string | null): ResolvedOperatorConfig 
   }
 }
 
-/** Validate a complete effective snapshot using startup dependency and derived rules. */
+export interface OperatorRuntimePrerequisites {
+  readonly auth: { readonly internalApiToken: string }
+  readonly email: {
+    readonly resendApiKey: string
+    readonly from: string
+    readonly codeSecret: string
+  }
+  readonly agent: { readonly model: string }
+}
+
+/** Shared startup and hot-candidate checks; callers supply the actual runtime credentials. */
+export function assertOperatorRuntimePrerequisites(
+  capabilities: CapabilityValues,
+  runtime: OperatorRuntimePrerequisites,
+): void {
+  if (capabilities['accounts:login'] && !runtime.auth.internalApiToken) {
+    throw new Error('Missing env: INTERNAL_API_TOKEN')
+  }
+  if (capabilities['accounts:email-verification']) {
+    if (!capabilities['accounts:self-register']) {
+      throw new Error(
+        'accounts:email-verification requires the accounts:self-register capability',
+      )
+    }
+    if (!runtime.email.resendApiKey) throw new Error('Missing env: RESEND_API_KEY')
+    if (!runtime.email.from) throw new Error('Missing env: EMAIL_FROM')
+    if (
+      runtime.email.from.startsWith('"') ||
+      runtime.email.from.endsWith('"') ||
+      !/^(?:[^<>]+ <)?[^@\s<>]+@[^@\s<>]+>$|^[^@\s<>]+@[^@\s<>]+$/.test(runtime.email.from)
+    ) {
+      throw new Error('EMAIL_FROM must be an email or Name <email@example.com> without quotes')
+    }
+    if (runtime.email.codeSecret.length < 32) {
+      throw new Error('EMAIL_CODE_SECRET must be at least 32 characters')
+    }
+  }
+  if (capabilities['agent:chat'] && !runtime.agent.model) {
+    throw new Error('Missing env: AGENT_CHAT_MODEL (required by agent:chat)')
+  }
+}
+
+/** Validate a complete effective snapshot using startup runtime, dependency and derived rules. */
 export function validateOperatorConfigValues(
   base: ResolvedOperatorConfig,
   capabilities: CapabilityValues,
   quotas: QuotaValues,
+  runtime: OperatorRuntimePrerequisites,
 ): ResolvedOperatorConfig {
   const resolved = resolveParsedConfig(
     {
@@ -320,6 +363,7 @@ export function validateOperatorConfigValues(
     },
     base.file ?? '',
   )
+  assertOperatorRuntimePrerequisites(resolved.capabilities, runtime)
   return { ...base, capabilities: resolved.capabilities, quotas: resolved.quotas }
 }
 

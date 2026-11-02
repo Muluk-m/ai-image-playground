@@ -81,7 +81,7 @@ vi.mock('../../components/Page', () => ({
   ErrorState: ({ label }: { label: string }) => <div>{label}</div>,
 }))
 vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({ setQueryData: state.setQueryData }),
+  useQueryClient: () => ({ setQueryData: state.setQueryData, cancelQueries: vi.fn(async () => {}) }),
 }))
 vi.mock('../../lib/queries', () => ({
   operatorSettingsQueryKey: ['operator-settings'],

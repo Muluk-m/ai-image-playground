@@ -66,7 +66,7 @@ export function parseSettingInput(value: string, unit?: OperatorSettingUnit): nu
   if (unit === 'pixels') Object.assign(multipliers, { px: 1, 像素: 1 })
   if (unit === 'tokens') multipliers.tokens = 1
   if (unit === 'count') multipliers.条 = 1
-  if (!Object.hasOwn(multipliers, suffix)) return Number.NaN
+  if (!Object.prototype.hasOwnProperty.call(multipliers, suffix)) return Number.NaN
   const result = Number(match[1]) * multipliers[suffix]!
   return Number.isSafeInteger(result) ? result : Number.NaN
 }
@@ -119,10 +119,9 @@ export function OperatorSettingsPage() {
     setStale(false)
     setPendingKey(row.key)
     try {
-      client.setQueryData(
-        operatorSettingsQueryKey,
-        await saveOperatorSetting(row.key, { value, reason, expectedRevision: row.revision }),
-      )
+      const snapshot = await saveOperatorSetting(row.key, { value, reason, expectedRevision: row.revision })
+      await client.cancelQueries({ queryKey: operatorSettingsQueryKey })
+      client.setQueryData(operatorSettingsQueryKey, snapshot)
     } catch (cause) {
       const result = mutationError(cause)
       setError(result.message)
@@ -137,10 +136,9 @@ export function OperatorSettingsPage() {
     setStale(false)
     setPendingKey(row.key)
     try {
-      client.setQueryData(
-        operatorSettingsQueryKey,
-        await clearOperatorSetting(row.key, { reason, expectedRevision: row.revision }),
-      )
+      const snapshot = await clearOperatorSetting(row.key, { reason, expectedRevision: row.revision })
+      await client.cancelQueries({ queryKey: operatorSettingsQueryKey })
+      client.setQueryData(operatorSettingsQueryKey, snapshot)
     } catch (cause) {
       const result = mutationError(cause)
       setError(result.message)

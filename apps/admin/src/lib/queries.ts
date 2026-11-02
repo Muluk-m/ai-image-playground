@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { replaceEqualDeep, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import type {
   AgentPromptFilters,
   AgentPromptsResult,
@@ -209,6 +209,15 @@ export function useOperatorSettings() {
   return useQuery({
     queryKey: operatorSettingsQueryKey,
     queryFn: () => apiClient.get<OperatorSettingsResult>('/api/operator-settings'),
+    structuralSharing: (previous, incoming) => {
+      if (
+        previous && typeof previous === 'object' && 'revision' in previous &&
+        incoming && typeof incoming === 'object' && 'revision' in incoming &&
+        typeof previous.revision === 'number' && typeof incoming.revision === 'number' &&
+        previous.revision > incoming.revision
+      ) return previous
+      return replaceEqualDeep(previous, incoming)
+    },
   })
 }
 

@@ -86,6 +86,16 @@ const bunJsonb = customType<{ data: unknown; driverData: unknown }>({
   fromDriver: (value) => value,
 })
 
+/**
+ * Override values include primitives, which Bun otherwise binds as SQL booleans/numbers. Bind the
+ * serialized JSON as text before casting so PostgreSQL stores JSON scalars, not JSON strings.
+ */
+const operatorOverrideJsonb = customType<{ data: unknown; driverData: unknown }>({
+  dataType: () => 'jsonb',
+  toDriver: (value) => sql`${JSON.stringify(value)}::text::jsonb`,
+  fromDriver: (value) => value,
+})
+
 export const users = pgTable(
   'users',
   {
@@ -329,9 +339,9 @@ export const operator_config_overrides = pgTable(
   'operator_config_overrides',
   {
     key: text('key').primaryKey(),
-    value: bunJsonb('value').notNull(),
+    value: operatorOverrideJsonb('value').notNull(),
     revision: integer('revision').notNull().default(1),
-    baseline_value: bunJsonb('baseline_value').notNull(),
+    baseline_value: operatorOverrideJsonb('baseline_value').notNull(),
     operator_id: text('operator_id').notNull(),
     reason: text('reason').notNull(),
     updated_at: epochMs('updated_at').notNull(),
