@@ -125,9 +125,13 @@ describe('CliDevicePage', () => {
     await act(async () => button('登录后继续').click())
     expect(promptLogin).toHaveBeenCalledWith('gated-action')
     expect(fetcher).not.toHaveBeenCalled()
-    expect(new URL(oauthStartUrl('google')).searchParams.get('return_to')).toBe(
-      '/device?keep=1&user_code=BCDF-GHJK#approval',
-    )
+    for (const provider of ['feishu', 'google', 'enterprise-sso']) {
+      const start = new URL(oauthStartUrl(provider))
+      expect(start.pathname).toBe(`/api/auth/oauth/${provider}/start`)
+      expect(start.searchParams.get('return_to')).toBe(
+        '/device?keep=1&user_code=BCDF-GHJK#approval',
+      )
+    }
     await render(USER)
     expect(fetcher).toHaveBeenCalledWith(
       expect.stringContaining('user_code=BCDF-GHJK'),

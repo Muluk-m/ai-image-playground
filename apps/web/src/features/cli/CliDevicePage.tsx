@@ -96,7 +96,8 @@ export default function CliDevicePage() {
       phase.kind !== 'pending' ||
       !controller ||
       controller.signal.aborted
-    ) return
+    )
+      return
     deciding.current = true
     setPhase({ kind: 'loading' })
     try {
