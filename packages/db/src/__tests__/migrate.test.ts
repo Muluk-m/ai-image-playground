@@ -83,6 +83,25 @@ afterAll(async () => {
 })
 
 describe('runMigrations', () => {
+  it('upgrades deployed creation history to editable operator overrides without losing existing rows', async () => {
+    await withEmptyDatabase('operator_overrides_upgrade', async (url) => {
+      await migrateUntil(url, '0084_generation_images_soft_delete')
+      await runMigrations(url)
+      const sql = new SQL(url, { max: 1 })
+      try {
+        await sql`INSERT INTO operator_config_overrides (key, value, baseline_value, operator_id, reason, updated_at)
+          VALUES ('generation:daily-images', '7'::jsonb, '0'::jsonb, 'test-operator', 'quota verification', now())`
+        await runMigrations(url)
+        const [saved] = await sql`SELECT key, value, reason FROM operator_config_overrides WHERE key = 'generation:daily-images'`
+        expect(saved).toEqual({ key: 'generation:daily-images', value: 7, reason: 'quota verification' })
+        const [revision] = await sql`SELECT revision FROM operator_config_state WHERE id = 1`
+        expect(revision.revision).toBe(0)
+      } finally {
+        await sql.close()
+      }
+    })
+  })
+
   it('retains nullable original prompts and indexes the admin chronology', async () => {
     const [column] =
       await connection.client`SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agent_generation_drafts' AND column_name = 'drafted_prompt'`

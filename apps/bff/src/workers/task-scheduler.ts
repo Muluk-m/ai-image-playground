@@ -31,7 +31,8 @@ export class TaskScheduler {
   private readonly concurrency: Record<QueueProvider, number>
   private readonly executeTask: ExecuteTask
   private readonly executeAnalysisTask: ExecuteTask
-  private readonly analysisConcurrency: number
+  /** Undefined means read the live operator snapshot on each poll; explicit values stay fixed for tests. */
+  private readonly explicitAnalysisConcurrency: number | undefined
   private readonly analysisActive = new Map<string, Promise<void>>()
   private readonly clock: () => number
   private readonly active = new Map<QueueProvider, Map<string, Promise<void>>>(
@@ -56,9 +57,10 @@ export class TaskScheduler {
     }
     this.executeTask = options.executeTask ?? runTask
     this.executeAnalysisTask = options.executeAnalysisTask ?? runAnalysisTask
-    this.analysisConcurrency =
+    this.explicitAnalysisConcurrency = options.analysisConcurrency
+    const analysisConcurrency =
       options.analysisConcurrency ?? config.operator.quotas['agent:analysis-concurrency']
-    if (!Number.isSafeInteger(this.analysisConcurrency) || this.analysisConcurrency < 1)
+    if (!Number.isSafeInteger(analysisConcurrency) || analysisConcurrency < 1)
       throw new Error('analysis concurrency must be a positive integer')
     this.clock = options.clock ?? Date.now
   }
@@ -158,7 +160,18 @@ export class TaskScheduler {
         if (this.stopped || this.draining) return
         for (const task of selected) this.launch(provider, task.id)
       }
-      const availableAnalysis = this.analysisConcurrency - this.analysisActive.size
+      const analysisConcurrency =
+        this.explicitAnalysisConcurrency ?? config.operator.quotas['agent:analysis-concurrency']
+      if (!Number.isSafeInteger(analysisConcurrency) || analysisConcurrency < 1) {
+        log.error(
+          { event: 'worker.analysis_concurrency_invalid', value: analysisConcurrency },
+          'invalid live analysis concurrency; skipping analysis dispatch',
+        )
+      }
+      const availableAnalysis =
+        Number.isSafeInteger(analysisConcurrency) && analysisConcurrency > 0
+          ? analysisConcurrency - this.analysisActive.size
+          : 0
       if (availableAnalysis > 0 && !this.stopped && !this.draining) {
         const selected = await db
           .select({ id: schema.tasks.id })

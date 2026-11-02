@@ -30,6 +30,7 @@ import { internalAgentModelRoutes } from './routes/internal-agent-models'
 import { internalDrainRoutes } from './routes/internal-drain'
 import { internalLogRoutes } from './routes/internal-logs'
 import { internalModelRoutes } from './routes/internal-models'
+import { internalOperatorConfigRoutes } from './routes/internal-operator-config'
 import { internalOpsRoutes } from './routes/internal-ops'
 import { internalTaskReconciliationRoutes } from './routes/internal-task-reconciliation'
 import { internalUserRoutes } from './routes/internal-users'
@@ -288,6 +289,7 @@ export const app = new Elysia()
   .use(internalInspirationRoutes)
   .use(internalDrainRoutes)
   .use(internalCapabilitiesRoutes)
+  .use(internalOperatorConfigRoutes)
   .use(privateBffOverlay.routes)
   .onRequest(async ({ request, set }) => {
     const url = new URL(request.url)

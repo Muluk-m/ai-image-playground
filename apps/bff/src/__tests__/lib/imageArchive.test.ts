@@ -34,6 +34,12 @@ afterEach(() => {
   restoreFetch()
 })
 
+it('strips strict execution metadata instead of sending it to an upstream', async () => {
+  expect(await hydrateInputImages({
+    prompt: 'premium image', size: '2048x2048', strict_image_request: true,
+  })).toEqual({ prompt: 'premium image', size: '2048x2048' })
+})
+
 describe('archiveInputImages', () => {
   it('rejects an ICO file masquerading as PNG before submitting to the model', async () => {
     const ico = Buffer.from([0, 0, 1, 0, 1, 0, 32, 32, 0, 0, 0, 0])

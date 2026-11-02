@@ -208,6 +208,28 @@ export async function unlinkOAuthProvider(provider: string): Promise<void> {
   await authJson<{ ok: true }>(`/api/auth/oauth/${provider}/link`, { method: 'DELETE' })
 }
 
+export interface CliConnectionSummary {
+  readonly id: string
+  readonly client_name: string
+  readonly created_at: number
+  readonly last_used_at: number | null
+}
+
+export async function fetchCliConnections(signal?: AbortSignal): Promise<CliConnectionSummary[]> {
+  const res = await authenticatedBffFetch(bffUrl('/api/me/cli-connections'), { signal })
+  if (!res.ok) throw await parseError(res)
+  const body: { connections: CliConnectionSummary[] } = await res.json()
+  return body.connections
+}
+
+export async function revokeCliConnection(id: string, signal?: AbortSignal): Promise<void> {
+  const res = await authenticatedBffFetch(
+    bffUrl(`/api/me/cli-connections/${encodeURIComponent(id)}`),
+    { method: 'DELETE', signal },
+  )
+  if (!res.ok) throw await parseError(res)
+}
+
 /**
  * 所有受保护 BFF 调用统一带 cookie。运行中收到 401 时通知 AuthGate 提示重新登录，
  * 避免每个 queue 调用点各自维护登录状态。

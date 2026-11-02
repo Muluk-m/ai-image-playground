@@ -13,6 +13,10 @@ import { bffDrain } from './lib/drain'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
 import { startHttpServer } from './lib/httpServer'
 import { log } from './lib/logger'
+import {
+  refreshOperatorConfig,
+  refreshOperatorConfigIfChanged,
+} from './lib/operator-config-overrides'
 import { runPeriodicSteps, startPeriodicSteps } from './lib/periodic'
 import { purgeExpiredAttachmentMedia } from './lib/projectMedia'
 import { startServerLogs } from './lib/server-logs'
@@ -91,6 +95,12 @@ await runPeriodicSteps([
     },
   },
 ])
+await refreshOperatorConfig().catch((error) =>
+  log.error(
+    { event: 'operator_config.startup_refresh_failed', error },
+    'operator config refresh failed',
+  ),
+)
 startPeriodicSteps(QUEUE_TIMEOUTS.PURGE_INTERVAL_MS, [
   {
     event: 'periodic.purge_tasks_failed',
@@ -212,6 +222,14 @@ async function flushApiMinutes(all = false): Promise<void> {
   }
 }
 const apiMinutesTimer = setInterval(() => void flushApiMinutes(), 60_000)
+const operatorConfigTimer = setInterval(() => {
+  void refreshOperatorConfigIfChanged().catch((error) =>
+    log.error(
+      { event: 'operator_config.periodic_refresh_failed', error },
+      'operator config refresh failed',
+    ),
+  )
+}, 10_000)
 
 let shuttingDown = false
 
@@ -232,7 +250,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   stopRetryPickup()
   while (!bffDrain.status().safeToStop) await Bun.sleep(250)
   stopHeartbeat()
-  clearInterval(apiMinutesTimer)
+  clearInterval(operatorConfigTimer)
 
   try {
     // Close idle canvas sockets after task drain so HTTP shutdown can finish.
