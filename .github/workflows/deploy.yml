@@ -196,10 +196,8 @@ jobs:
         include:
           - edition: paid
             prefix: PAID
-            token: PAID_CLOUDFLARE_API_TOKEN
           - edition: internal
             prefix: INTERNAL
-            token: INTERNAL_CLOUDFLARE_API_TOKEN
     env:
       EDITION: ${{ matrix.edition }}
       PREFIX: ${{ matrix.prefix }}
@@ -208,7 +206,7 @@ jobs:
         env:
           PAGES_ENV: ${{ secrets.PAGES_ENV }}
           PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-          PAGES_API_TOKEN: ${{ secrets[matrix.token] }}
+          PAGES_API_TOKEN: ${{ (matrix.edition == 'paid' && secrets.PAID_CLOUDFLARE_API_TOKEN) || (matrix.edition == 'internal' && secrets.INTERNAL_CLOUDFLARE_API_TOKEN) }}
         run: |
           missing=
           for name in PAGES_ENV PRIVATE_OVERLAY_SSH_KEY PAGES_API_TOKEN; do
@@ -222,7 +220,7 @@ jobs:
       - name: Write pages.env with the target token file
         env:
           PAGES_ENV: ${{ secrets.PAGES_ENV }}
-          PAGES_API_TOKEN: ${{ secrets[matrix.token] }}
+          PAGES_API_TOKEN: ${{ (matrix.edition == 'paid' && secrets.PAID_CLOUDFLARE_API_TOKEN) || (matrix.edition == 'internal' && secrets.INTERNAL_CLOUDFLARE_API_TOKEN) }}
         run: |
           umask 077
           printf '%s\n' "$PAGES_API_TOKEN" | grep -Eqx '[A-Za-z0-9_-]+' ||
