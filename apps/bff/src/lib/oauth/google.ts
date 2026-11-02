@@ -45,6 +45,7 @@ export const googleProvider: OAuthProviderDefinition = {
       subject: requireString(profile.sub, 'identity_failed', 'sub'),
       // An unverified address must not seed an account username that looks owned.
       email: profile.email_verified === true ? optionalString(profile.email) : null,
+      emailVerified: profile.email_verified === true,
       displayName: optionalString(profile.name),
     }
   },

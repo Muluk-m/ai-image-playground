@@ -16,12 +16,13 @@ import { useTranslation } from '../i18n'
 import {
   AuthRequestError,
   fetchLoginMethods,
-  fetchOAuthProviders,
+  fetchLoginOptions,
   oauthLinkUrl,
   unlinkOAuthProvider,
   updateOwnPassword,
 } from '../lib/authClient'
 
+import { OAuthProviderMark } from './OAuthProviderMark'
 /**
  * 错误一律以 key 的形式在 state 里流转，渲染时才翻译：切语言后已经显示的报错会跟着变，
  * 且 `errors:<flow>.<code>` 的叶子名与 BFF 返回的 `error.code` 同名，对不上时一眼可见。
@@ -79,7 +80,8 @@ type PanelNotice = { readonly key: PanelNoticeKey } | { readonly linkedProvider:
 export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation(['auth', 'errors'])
   const [methods, setMethods] = useState<LoginMethodsView | null>(null)
-  const [providers, setProviders] = useState<OAuthProviderView[]>([])
+  const [providers, setProviders] = useState<readonly OAuthProviderView[]>([])
+  const [passwordEnabled, setPasswordEnabled] = useState(false)
   const [loadFailed, setLoadFailed] = useState(false)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -99,11 +101,12 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     let cancelled = false
-    void Promise.all([fetchLoginMethods(), fetchOAuthProviders()]).then(
+    void Promise.all([fetchLoginMethods(), fetchLoginOptions()]).then(
       ([loaded, available]) => {
         if (cancelled) return
         setMethods(loaded)
-        setProviders(available)
+        setProviders(available.providers)
+        setPasswordEnabled(available.loginMethods.password)
       },
       () => {
         if (!cancelled) setLoadFailed(true)
@@ -129,7 +132,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
 
   async function submitPassword(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
-    if (pending || !methods) return
+    if (pending || !methods || !passwordEnabled) return
     setNotice(null)
     const problem = passwordProblem(newPassword)
     if (problem) {
@@ -200,6 +203,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
         <p className="text-body-sm text-muted-foreground">{t('methods.loading')}</p>
       ) : (
         <>
+          {passwordEnabled ? (
           <section className="mb-6">
             <h4 className="mb-1 text-sm font-medium text-foreground">
               {methods.password ? t('methods.changePassword') : t('methods.setPassword')}
@@ -262,6 +266,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
               </Button>
             </form>
           </section>
+          ) : null}
 
           {providers.length > 0 ? (
             <section>
@@ -279,7 +284,10 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                       className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2"
                     >
                       <span className="min-w-0">
-                        <span className="block text-sm text-foreground">{provider.label}</span>
+                        <span className="flex items-center gap-2 text-sm text-foreground">
+                          <OAuthProviderMark provider={provider} />
+                          {provider.label}
+                        </span>
                         <span className="block truncate text-xs text-muted-foreground">
                           {identity
                             ? (identity.email ?? t('methods.linked'))

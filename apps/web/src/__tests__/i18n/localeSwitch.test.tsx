@@ -72,7 +72,7 @@ beforeEach(() => {
   localStorage.clear()
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => Response.json({ providers: [] })),
+    vi.fn(async () => Response.json({ providers: [], loginMethods: { password: true, registration: true } })),
   )
   host = document.createElement('div')
   document.body.appendChild(host)

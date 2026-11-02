@@ -3,6 +3,7 @@ import {
   type LoginMethodsView,
   OAUTH_SESSION_QUERY_PARAM,
   type OAuthProviderView,
+  type OAuthProvidersResponse,
   USER_SESSION_HINT_COOKIE,
 } from '@image-playground/shared'
 import { accountRequired, isSignedIn } from '../auth/loginPrompt'
@@ -12,6 +13,8 @@ import { isClientCapabilityEnabled } from './clientCapabilities'
 import { hasRememberedSignedInUser, rememberStorageUser } from './localRecovery'
 import { bffBaseUrl } from './runtimeConfig'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
+export type LoginMethodsPolicy = OAuthProvidersResponse['loginMethods']
+export type LoginOptions = OAuthProvidersResponse
 
 export class AuthRequestError extends Error {
   constructor(
@@ -111,18 +114,30 @@ export async function registerUser(
   return result.user
 }
 
-/**
- * The BFF is the authority on which providers exist, so this validates the wire shape only —
- * an id this bundle predates must still reach the login page.
- */
-export async function fetchOAuthProviders(): Promise<OAuthProviderView[]> {
-  try {
-    const body = await authJson<{ providers?: unknown }>('/api/auth/oauth/providers')
-    if (!Array.isArray(body.providers)) return []
-    return body.providers.filter((provider): provider is OAuthProviderView => {
+/** The BFF is authoritative for both provider availability and local form policy. */
+export async function fetchLoginOptions(): Promise<LoginOptions> {
+  const origin = typeof window === 'undefined' ? '' : window.location.origin
+  const query = origin ? `?frontend_origin=${encodeURIComponent(origin)}` : ''
+  const body = await authJson<{ providers?: unknown; loginMethods?: unknown }>(
+    `/api/auth/oauth/providers${query}`,
+  )
+  if (!Array.isArray(body.providers)) throw new Error('invalid_login_options')
+  const methods = body.loginMethods as Partial<LoginMethodsPolicy> | null
+  if (typeof methods?.password !== 'boolean' || typeof methods.registration !== 'boolean') {
+    throw new Error('invalid_login_options')
+  }
+  return {
+    providers: body.providers.filter((provider): provider is OAuthProviderView => {
       const view = provider as Partial<OAuthProviderView> | null
       return typeof view?.id === 'string' && typeof view.label === 'string'
-    })
+    }),
+    loginMethods: { password: methods.password, registration: methods.registration },
+  }
+}
+
+export async function fetchOAuthProviders(): Promise<readonly OAuthProviderView[]> {
+  try {
+    return (await fetchLoginOptions()).providers
   } catch {
     return []
   }
