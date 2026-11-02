@@ -293,6 +293,37 @@ describe('上传簿记与并发编辑', () => {
     self.stop()
   })
 
+  it('does not replay an old release into a recreated node with the same id and file', async () => {
+    const { doc, stop } = device(10)
+    const node = {
+      id: 'image',
+      type: 'image' as const,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 80,
+      data: { fileId: 'local-file', meta: { [CANVAS_UPLOAD_RELEASED_META]: '2000' } },
+    }
+    try {
+      insertCanvasNode(doc, node, local)
+      const replacement = { fileId: 'local-file', meta: claim }
+      doc.transact(() => {
+        doc.getMap<Y.Map<unknown>>('nodes').get('image')!.set('data', replacement)
+      }, remote)
+      doc.transact(() => {
+        doc.getMap('nodes').delete('image')
+        insertCanvasNode(doc, { ...node, data: replacement }, local)
+      }, local)
+      await Promise.resolve()
+      expect(data(doc).meta?.[CANVAS_UPLOAD_DEVICE_META]).toBe('uploader')
+      expect(data(doc).meta?.[CANVAS_UPLOAD_STARTED_META]).toBe('1000')
+      expect(data(doc).meta?.[CANVAS_UPLOAD_RELEASED_META]).toBeUndefined()
+    } finally {
+      stop()
+      doc.destroy()
+    }
+  })
+
   it('补写排队期间又进来一次远端写入时，按最新一版重新合，收成云媒体和改名都在', async () => {
     // uploader=2 的收成云媒体顶掉 editor=1 的改名；补写还没跑，又同步进来上传方随后改的提示词。
     const devices = pair(1, 2)
