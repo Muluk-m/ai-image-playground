@@ -346,8 +346,9 @@ describe('LoginMethodsPanel', () => {
 it('hides password setup and nonallowed providers under provider-only policy', async () => {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: string) =>
-      Response.json(
+    vi.fn(async (input: string) => {
+      if (input.includes('/api/me/cli-connections')) return Response.json({ connections: [] })
+      return Response.json(
         input.includes('/api/auth/oauth/providers')
           ? {
               providers: [{ id: 'enterprise', label: 'Enterprise' }],
@@ -357,8 +358,8 @@ it('hides password setup and nonallowed providers under provider-only policy', a
               password: true,
               identities: [{ provider: 'enterprise', email: 'person@example.com', linked_at: 1 }],
             },
-      ),
-    ),
+      )
+    }),
   )
   await render()
   expect(document.querySelector('form')).toBeNull()
