@@ -487,6 +487,12 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
   const errors = []
   let loginEnabled = accountsLogin
   let observedCapabilities = local
+  let loginOptions
+  page.on('response', async response => {
+    if (new URL(response.url()).pathname === '/api/auth/oauth/providers' && response.ok()) {
+      loginOptions = await response.json().catch(() => null)
+    }
+  })
   if (!local) await context.route('**/api/capabilities', async route => {
     const response = await route.fetch()
     loginEnabled = (await response.json())['accounts:login'] === true
@@ -536,7 +542,16 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
         await page.getByRole('heading',{name:/Describe the vision\s*Muvloom handles the rest/}).waitFor()
         if (!(await page.title()).includes('AI Image, Video and Canvas Creation')) throw new Error('English marketing title drifted')
       }
-      if (path === '/login/') await page.getByRole('form',{name:'用户登录'}).waitFor()
+      if (path === '/login/') {
+        if (!loginOptions || typeof loginOptions.loginMethods?.password !== 'boolean') throw new Error('Login entry did not load login policy')
+        const form = page.getByRole('form',{name:'用户登录'})
+        if (loginOptions.loginMethods.password) await form.waitFor()
+        else {
+          if (await form.count()) throw new Error('Password form exposed by provider-only entry')
+          if (!loginOptions.providers.length) throw new Error('Login entry has no available method')
+          for (const provider of loginOptions.providers) await page.locator('[data-auth-providers]').getByRole('button',{name:provider.label,exact:true}).waitFor()
+        }
+      }
     }
     // 旧章节地址是跳转页：跳走时会中断它自己的脚本请求，所以单开一页检查，不计入资源失败。
     const redirect = await context.newPage()
