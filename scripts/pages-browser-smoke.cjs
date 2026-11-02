@@ -505,7 +505,7 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
     if (url.pathname === '/runtime-config.json') return route.fulfill({contentType:'application/json', body:JSON.stringify({bff:{enabled:true,baseUrl:origin}})})
     const fixtures = {
       '/api/capabilities': {'accounts:login':accountsLogin,'accounts:self-register':accountsLogin},
-      '/api/auth/oauth/providers': {providers:[]},
+      '/api/auth/oauth/providers': {providers:[],loginMethods:{password:accountsLogin,registration:accountsLogin}},
     }
     if (!accountsLogin && request.isNavigationRequest() && url.pathname === '/image') return route.fulfill({contentType:'text/html',body:'<!doctype html><html><body>Workbench destination</body></html>'})
     if (request.method() === 'GET' && Object.hasOwn(fixtures,url.pathname)) return route.fulfill({contentType:'application/json',body:JSON.stringify(fixtures[url.pathname])})
