@@ -59,10 +59,10 @@ export const OPS_THRESHOLDS = {
    */
   HOST_RECOVERY_MARGIN_RATIO: 0.02,
   /**
-   * Hourly cloud backup, matching the sidecar health probe. The line has to clear one lost run plus
-   * the run itself: a dump takes a couple of minutes, so after a missed hour the newest file is
-   * already past 2 h by the time the next one lands, and a 2 h line fires and then resolves on its
-   * own (2026-11-01, a deploy replaced pg-backup mid-run). Two consecutive misses still cross it.
+   * Hourly cloud backup, matching the sidecar health probe. Half an hour of headroom beyond two
+   * intervals reduces the risk of a brief threshold crossing after one missed run. Whether an
+   * alert fires and resolves depends on actual completion times and when monitoring observes them;
+   * this threshold does not guarantee recovery or cover arbitrarily delayed backups.
    */
   BACKUP_MAX_AGE_MS: 2.5 * 60 * 60 * 1000,
   /**
