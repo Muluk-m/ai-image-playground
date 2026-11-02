@@ -243,18 +243,34 @@ describe('oauth start', () => {
     const authorization = new URL(start.headers.get('location') ?? '')
     const expectedRedirect = 'https://enterprise-api.example.net/api/auth/oauth/google/callback'
     expect(authorization.searchParams.get('redirect_uri')).toBe(expectedRedirect)
-    const calls = stubUpstream(googleRoutes({ sub: 'trusted-api-user', email: 'trusted@example.com', email_verified: true, name: 'Trusted' }))
+    const calls = stubUpstream(
+      googleRoutes({
+        sub: 'trusted-api-user',
+        email: 'trusted@example.com',
+        email_verified: true,
+        name: 'Trusted',
+      }),
+    )
     const cookies = ['image_playground_oauth_state', 'image_playground_oauth_return_to']
-      .map((name) => `${name}=${encodeURIComponent(readCookie(start, name) ?? '')}`).join('; ')
-    const response = await request(`/api/auth/oauth/google/callback?code=trusted-code&state=${authorization.searchParams.get('state')}`, {
-      cookie: cookies,
-      'x-forwarded-host': 'enterprise-api.example.net',
-      'x-forwarded-proto': 'https',
-    })
+      .map((name) => `${name}=${encodeURIComponent(readCookie(start, name) ?? '')}`)
+      .join('; ')
+    const response = await request(
+      `/api/auth/oauth/google/callback?code=trusted-code&state=${authorization.searchParams.get('state')}`,
+      {
+        cookie: cookies,
+        'x-forwarded-host': 'enterprise-api.example.net',
+        'x-forwarded-proto': 'https',
+      },
+    )
     expect(response.status).toBe(302)
     expect(new URLSearchParams(calls[0]?.body ?? '').get('redirect_uri')).toBe(expectedRedirect)
-    const forged = await request('/api/auth/oauth/google/start', { 'x-forwarded-host': 'evil.example.net', 'x-forwarded-proto': 'https' })
-    expect(new URL(forged.headers.get('location') ?? '').searchParams.get('redirect_uri')).toBe('https://api.example.com/api/auth/oauth/google/callback')
+    const forged = await request('/api/auth/oauth/google/start', {
+      'x-forwarded-host': 'evil.example.net',
+      'x-forwarded-proto': 'https',
+    })
+    expect(new URL(forged.headers.get('location') ?? '').searchParams.get('redirect_uri')).toBe(
+      'https://api.example.com/api/auth/oauth/google/callback',
+    )
   })
   it('returns a completed login to an explicitly supplied allowlisted frontend origin', async () => {
     enableGoogle()
