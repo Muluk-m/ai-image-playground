@@ -1,4 +1,6 @@
 import { readProjectRoute, writeProjectRoute } from '../../features/canvas/lib/projectRoute'
+import { toolPath } from '../../features/toolbox/lib/toolRoute'
+import { useToolboxStore } from '../../features/toolbox/store'
 import { APP_MODE_PATHS, isStandalonePath, type RoutedAppMode } from '../appPaths'
 
 function isRoot(pathname: string): boolean {
@@ -10,7 +12,9 @@ export function writeModeAddress(mode: RoutedAppMode | 'canvas', active: string 
   // 定价、条款、隐私不是工作台入口。别处改 appMode 不能把人从这些地址带走。
   if (isStandalonePath(pathname)) return
   if (mode !== 'canvas') {
-    const target = APP_MODE_PATHS[mode]
+    // 回到工具箱时落在刚才那件工具上：导入的图还在，接着用。
+    const target =
+      mode === 'tools' ? toolPath(useToolboxStore.getState().activeTool) : APP_MODE_PATHS[mode]
     if (pathname !== target) window.history.pushState(null, '', `${target}${search}${hash}`)
     return
   }

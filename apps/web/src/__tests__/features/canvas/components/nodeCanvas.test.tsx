@@ -27,6 +27,7 @@ import * as Y from 'yjs'
 import NodeCanvas, {
   useUploadingElsewhere,
 } from '../../../../features/canvas/components/NodeCanvas'
+import { useCanvasAssetsEntry } from '../../../../features/canvas/lib/assetsEntry'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
 import type { NodeCanvasDocument } from '../../../../features/canvas/lib/nodeCanvasDocument'
 import type { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
@@ -628,6 +629,35 @@ it('preserves a video rotation when switching from its poster to playback', asyn
   expect(video.parentElement!.style.transform).toBe('rotate(30deg)')
   expect(video.closest('[data-rotated]')).not.toBeNull()
   expect(host.querySelector('[data-node-id="image"] .studio-node-caption')).not.toBeNull()
+})
+
+it('keeps the materials picker and moves the assets entry out of the left toolbar', async () => {
+  await render()
+  const tool = (label: string) =>
+    host.querySelector<HTMLButtonElement>(`.studio-node-tools button[aria-label="${label}"]`)
+  expect(tool('素材')).not.toBeNull()
+  expect(tool('资产')).toBeNull()
+  // 入口在全局顶栏：画布挂着时 store 标记可用，打开后整屏弹窗 portal 到 body。
+  expect(useCanvasAssetsEntry.getState().available).toBe(true)
+  expect(document.querySelector('.studio-canvas-assets-modal')).toBeNull()
+  await act(async () => useCanvasAssetsEntry.getState().setOpen(true))
+  expect(document.querySelector('.studio-canvas-assets-modal')).not.toBeNull()
+  await act(async () => useCanvasAssetsEntry.getState().setOpen(false))
+  expect(document.querySelector('.studio-canvas-assets-modal')).toBeNull()
+  act(() => root.unmount())
+  expect(useCanvasAssetsEntry.getState().available).toBe(false)
+  root = createRoot(host)
+})
+
+it('hides the top-bar assets entry while the canvas sits behind the chat view', async () => {
+  // 对话视图里画布照样挂着，但对话页已有自己的「资产库」，顶栏不能再出一个「资产」。
+  await render(false)
+  expect(useCanvasAssetsEntry.getState().available).toBe(false)
+  await render(true)
+  expect(useCanvasAssetsEntry.getState().available).toBe(true)
+  await act(async () => useCanvasAssetsEntry.getState().setOpen(true))
+  await render(false)
+  expect(useCanvasAssetsEntry.getState()).toMatchObject({ available: false, open: false })
 })
 
 it('opens an add menu on a double-click of the empty canvas', async () => {

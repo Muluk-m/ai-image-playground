@@ -114,7 +114,7 @@ it('blocks stale export while adjusting, remembers each image, and resets to the
     flipV: false,
     expand: true,
   })
-  await click('清空全部')
+  await click('清空')
   expect(host.querySelector('canvas')).toBeNull()
   expect(host.textContent).toContain('选择图片')
 })

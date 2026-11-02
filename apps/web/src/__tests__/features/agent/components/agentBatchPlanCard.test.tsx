@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
 import { panelMessage } from '../../../../features/agent/lib/panelMessages'
+import { useAgentStore } from '../../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
 
 const exportedIds = vi.hoisted(() => [] as string[][])
@@ -376,6 +377,51 @@ function batchArtifact(id: string): AgentToolArtifact {
   return { artifactId: id, media: 'image', taskId: `task-${id}`, outputIndex: 0, mime: 'image/png' }
 }
 
+it('rereads a draft superseded during the turn even when its first read lands after the turn', async () => {
+  const fetchMock = vi.mocked(fetch)
+  const serve = fetchMock.getMockImplementation()!
+  let releaseFirst: (() => void) | undefined
+  let reads = 0
+  fetchMock.mockImplementation(async (input, init) => {
+    if (!init?.method || init.method === 'GET') {
+      reads++
+      if (reads === 1) {
+        const draft = Response.json(saved)
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve
+        })
+        return draft
+      }
+    }
+    return serve(input, init)
+  })
+  const store = useAgentStore.getState()
+  const previous = { conversationId: store.conversationId, turn: store.turn }
+  try {
+    act(() => useAgentStore.setState({ conversationId: 'conversation-1', turn: 'running' }))
+    const message = panelMessage('message-1', 'turn-1', 'assistant', [
+      {
+        type: 'toolResult',
+        toolName: 'planImageBatch',
+        toolCallId: 'call-1',
+        title: '商品白底图',
+        status: 'succeeded',
+        batchId: 'batch-1',
+      },
+    ])
+    if (message.kind !== 'tool') throw new Error('expected tool message')
+    await act(async () => root.render(<AgentToolCard message={message} />))
+    await vi.waitFor(() => expect(releaseFirst).toBeDefined())
+    saved = { ...saved, batch: { ...saved.batch, status: 'cancelled' } }
+    act(() => useAgentStore.setState({ turn: 'idle' }))
+    await act(async () => releaseFirst?.())
+    await vi.waitFor(() => expect(host.textContent).toContain('已取消'))
+    expect(reads).toBe(2)
+  } finally {
+    act(() => useAgentStore.setState(previous))
+  }
+})
+
 async function render() {
   const message = panelMessage('message-1', 'turn-1', 'assistant', [
     {
@@ -630,4 +676,23 @@ it('同名输入图按各自媒体身份显示不同缩略图，便于核对完�
   expect(fetched).toContain(`http://bff.test/api/media/${firstId}/access`)
   expect(fetched).toContain(`http://bff.test/api/media/${secondId}/access`)
   expect(fetched.some((url) => url.endsWith('/original'))).toBe(false)
+})
+
+it('纯文字生图的计划项没有输入图时标明文生图，仍显示报价与确认入口（BUG-25）', async () => {
+  saved = {
+    ...saved,
+    batch: { ...saved.batch, itemCount: 2, executionEnabled: true },
+    items: saved.items.slice(0, 2).map((item) => ({ ...item, inputs: [] })),
+  }
+  await render()
+  const summaries = [...host.querySelectorAll('summary')]
+  expect(summaries).toHaveLength(2)
+  for (const summary of summaries) {
+    expect(summary.textContent).toContain('纯文字生图')
+    expect(summary.querySelector('img')).toBeNull()
+  }
+  expect(host.textContent).toContain('700')
+  expect([...host.querySelectorAll('button')].some((one) => one.textContent === '确认生成')).toBe(
+    true,
+  )
 })

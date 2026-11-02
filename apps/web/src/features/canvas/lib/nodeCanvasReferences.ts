@@ -12,6 +12,7 @@ import {
 import type * as Y from 'yjs'
 import { accountScope } from '../../../lib/authScope'
 import { getImageDimensions } from '../../../lib/canvasImage'
+import { compressUploadFile } from '../../../lib/imageFiles'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import type { CanvasEditor } from './editor'
 import { fileToDataUrl } from './importImages'
@@ -138,10 +139,12 @@ export async function uploadCanvasReference(
   slot?: ReferenceSlot,
 ): Promise<string | null> {
   if (!file.type.startsWith('image/')) return null
+  // 首帧、尾帧、参考模式和图片节点的隐藏上传都进这里。先压再解码，超限的不建节点。
+  const image = await compressUploadFile(file)
   const account = accountScope()
   const targetMap = canvas.doc.getMap('nodes').get(targetId)
   if (!targetMap) return null
-  const source = await fileToDataUrl(file)
+  const source = await fileToDataUrl(image)
   const dimensions = await getImageDimensions(source)
   if (
     !account() ||
@@ -168,7 +171,7 @@ export async function uploadCanvasReference(
       {
         data: {
           fileId,
-          name: file.name,
+          name: image.name,
           naturalWidth: dimensions.width,
           naturalHeight: dimensions.height,
         },

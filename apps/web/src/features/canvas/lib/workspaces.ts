@@ -6,7 +6,7 @@ import { type CanvasCloudSession, CloudNodeProjectSession } from './cloudNodePro
 import { CanvasEditor, elementBounds } from './editor'
 import { placeImagesIntoTargets } from './placeholderShapeOps'
 import { computePlaceholderTargets } from './placement'
-import { cloudProjectsEnabled } from './projectClient'
+import { cloudProjectsEnabled, ProjectRequestError } from './projectClient'
 import { recoverCanvasTasks } from './recoverCanvasTasks'
 import { SceneRecord, type SceneRecordStatus } from './sceneRecord'
 
@@ -73,7 +73,13 @@ export class CanvasWorkspace {
         this.cloud ??= new CloudNodeProjectSession(project, this.record, (updated) =>
           useCanvasProjectStore.getState().updateListed(updated),
         )
-        await this.cloud.load(hasLocal)
+        try {
+          await this.cloud.load(hasLocal)
+        } catch (error) {
+          if (error instanceof ProjectRequestError && error.code === 'project_quota_exceeded')
+            await useCanvasProjectStore.getState().discardRejected(project.id)
+          throw error
+        }
         this.needsInitialFit = !hasLocal && this.doc.elements.length > 0
         return
       }
@@ -81,7 +87,15 @@ export class CanvasWorkspace {
     })
   }
   retryLoad = () => {
-    this.ready = this.load()
+    const rejected = useCanvasProjectStore
+      .getState()
+      .projects.find((one) => one.sceneKey === this.record.key && one.quotaRejected)
+    this.ready = rejected
+      ? useCanvasProjectStore
+          .getState()
+          .readmitRejected(rejected.id)
+          .then(() => this.load())
+      : this.load()
     void this.ready.catch(() => {})
   }
   refreshCloud() {

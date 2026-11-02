@@ -1,14 +1,20 @@
-import { requestedImageCount } from '@image-playground/shared'
+import { agentModelImageCount, requestedImageCount } from '@image-playground/shared'
 import type { AgentToolMessage } from '../types'
 import type { AgentReservation } from './canvasSink'
 
 /**
- * 这张草稿卡确认之后会出几件产物：工具写了张数用工具的，否则用用户本轮选择的张数。
+ * 这张草稿卡确认之后会出几件产物：工具写了张数用工具的，否则用用户本轮选择的张数，
+ * 再收口到这次实际出图模型的单笔上限：起跑时解析到的 `target.model`（所选模型停用时会回退到别的），
+ * 旧记录没有它时才用用户选的模型。
  * 视频一次只出一件；旧记录与坏值都按一件算，画布不会铺出一片空框。
  */
 export function agentDraftOutputCount(message: AgentToolMessage): number {
   if (message.toolName === 'generateVideo') return 1
-  return requestedImageCount(message.snapshot?.args?.n, message.snapshot?.params?.n)
+  // 与服务端 draftQueueTask 同一个收口：Lite 这类单笔有上限的模型，占位不比实际出图多（BUG-91）。
+  return agentModelImageCount(
+    message.snapshot?.target?.model ?? message.snapshot?.params?.model,
+    requestedImageCount(message.snapshot?.args?.n, message.snapshot?.params?.n),
+  )
 }
 
 /**

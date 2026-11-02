@@ -25,6 +25,7 @@ const {
   estimatedTurnInput,
   expandSkillInvocation,
   NODE_CANVAS_GENERATION_LINE,
+  systemPrompt,
   turnInitialState,
   turnInitialStateOf,
   turnModelPrompt,
@@ -171,6 +172,16 @@ function unfolded(messages: readonly AgentMessageView[]) {
     },
   }
 }
+
+describe('reply language', () => {
+  it('tells the model to follow the user message and not mix in other writing systems', () => {
+    const prompt = systemPrompt('image', false, ANONYMOUS_AUDIENCE)
+    expect(prompt).toContain('中文问就用中文，英文问就用英文')
+    expect(prompt).toContain('不要夹杂用户没用过的其他文字')
+    expect(prompt).toContain('专有名词、模型名、数字和代码保持原样')
+    expect(prompt).not.toContain('用中文回答')
+  })
+})
 
 describe('skill bodies in the replay', () => {
   it('appends the body of a skill read in an earlier turn after its one-line summary', () => {

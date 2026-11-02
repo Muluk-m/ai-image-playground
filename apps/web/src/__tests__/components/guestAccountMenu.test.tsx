@@ -29,6 +29,8 @@ afterEach(() => {
   host.remove()
 })
 
+const onOpenContact = vi.fn()
+
 function render(authEnabled: boolean): string {
   act(() =>
     root.render(
@@ -37,6 +39,7 @@ function render(authEnabled: boolean): string {
         onLogin={() => {}}
         onClose={() => {}}
         onOpenSettings={() => {}}
+        onOpenContact={onOpenContact}
       />,
     ),
   )
@@ -58,5 +61,15 @@ describe('访客菜单', () => {
     const text = render(true)
     expect(text).toContain('未登录')
     expect(text).toContain('套餐与定价')
+  })
+
+  it('「联系我们」打开联系方式', () => {
+    render(false)
+    const row = [...host.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('联系我们'),
+    )
+    expect(row).toBeTruthy()
+    act(() => row?.click())
+    expect(onOpenContact).toHaveBeenCalledTimes(1)
   })
 })

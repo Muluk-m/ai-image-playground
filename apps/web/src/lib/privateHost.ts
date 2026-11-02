@@ -14,6 +14,7 @@
 
 export { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 export { default as BrandAvatar } from '../components/BrandAvatar'
+export { default as ContactDialog } from '../components/ContactDialog'
 export { default as DisplaySettingsMenuItems } from '../components/DisplaySettingsMenuItems'
 export { DialogSurface, default as Dialog } from '../components/patterns/Dialog'
 export { default as Overlay } from '../components/patterns/Overlay'

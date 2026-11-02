@@ -5,6 +5,7 @@ import {
   readCanvasDocument,
 } from '@image-playground/shared'
 import { getImageDimensions } from '../../../lib/canvasImage'
+import { compressUploadFiles } from '../../../lib/imageFiles'
 import type { CanvasEditor } from './editor'
 import { activeNodeCanvas } from './nodeCanvasSelection'
 import { PLACEMENT_GAP } from './placement'
@@ -16,7 +17,10 @@ import { PLACEMENT_GAP } from './placement'
  */
 const MAX_SIDE = 720
 
-/** File → dataURL。画布导入与局部重绘面板的参考图上传共用，避免两处各写一份 FileReader。 */
+/**
+ * File → dataURL。只读字节，不压缩。
+ * 用户上传的压缩在各入口的 `compressUploadFiles`；切块和队列出图也走这里，不能被转码。
+ */
 export function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -39,10 +43,12 @@ export async function importImageFiles(
   const imageFiles = files.filter((f) => f.type.startsWith('image/'))
   if (imageFiles.length === 0) return 0
   const canvas = activeNodeCanvas(editor)
+  // 先整批压一次：超过 50 MB 的图共用一次提示，后面的读取不再重复压。
+  const fitted = await compressUploadFiles(imageFiles)
 
   // 逐个容错：一张损坏/解码失败的图不拖垮整批（其余照常导入）
   const results = await Promise.allSettled(
-    imageFiles.map(async (file) => {
+    fitted.map(async (file) => {
       const dataUrl = await fileToDataUrl(file)
       const { width, height } = await getImageDimensions(dataUrl)
       const scale = Math.min(1, MAX_SIDE / Math.max(width, height))

@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ToolboxHeader from '../../../../features/toolbox/components/ToolboxHeader'
+import { resizeTool } from '../../../../features/toolbox/lib/registry'
 import { useToolboxStore } from '../../../../features/toolbox/store'
 
 let host: HTMLDivElement
@@ -45,16 +46,17 @@ it('keeps import available with existing images, returns without losing them, an
   const openFolder = vi.fn()
   await act(async () =>
     root.render(
-      <ToolboxHeader title="图片尺寸调整" back onAddImages={openFiles} onAddFolder={openFolder} />,
+      <ToolboxHeader tool={resizeTool} onAddImages={openFiles} onAddFolder={openFolder} />,
     ),
   )
   expect(host.textContent).toContain('已导入 8 张')
+  expect(host.querySelector('h1[aria-current="page"]')?.textContent).toBe('尺寸调整')
   await act(async () => button('添加图片').click())
   expect(openFiles).toHaveBeenCalledOnce()
-  await act(async () => button('返回工具箱').click())
+  await act(async () => button('工具箱').click())
   expect(useToolboxStore.getState().activeTool).toBeNull()
   expect(useToolboxStore.getState().items).toHaveLength(8)
-  await act(async () => button('清空全部').click())
+  await act(async () => button('清空').click())
   expect(useToolboxStore.getState().items).toHaveLength(0)
   await act(async () => button('添加图片').click())
   expect(openFiles).toHaveBeenCalledTimes(2)
@@ -65,18 +67,12 @@ it('keeps import controls visible but protects the current export from changes w
   const openFiles = vi.fn()
   await act(async () =>
     root.render(
-      <ToolboxHeader
-        title="图片尺寸调整"
-        back
-        busy
-        onAddImages={openFiles}
-        onAddFolder={vi.fn()}
-      />,
+      <ToolboxHeader tool={resizeTool} busy onAddImages={openFiles} onAddFolder={vi.fn()} />,
     ),
   )
   expect(button('添加图片').disabled).toBe(true)
   expect(button('文件夹').disabled).toBe(true)
-  expect(button('清空全部').disabled).toBe(true)
+  expect(button('清空').disabled).toBe(true)
   await act(async () => button('添加图片').click())
   expect(openFiles).not.toHaveBeenCalled()
   expect(useToolboxStore.getState().items).toHaveLength(8)

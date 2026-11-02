@@ -249,6 +249,26 @@ it('画布轮不送对话张数，但把工作台张数单独送给阶段授权�
   useStore.setState({ createTarget: original.createTarget, params: original.params })
 })
 
+it('图片生成模式按直出发；明确交给智能体的那一句不带直出标记', async () => {
+  const original = useStore.getState()
+  useStore.setState({ createTarget: 'generate' })
+  turnResponse = () => Response.json({ error: 'invalid_selection' }, { status: 400 })
+  const turnBodies = () =>
+    fetchMock.mock.calls
+      .filter(([url]) => String(url).includes('/turns'))
+      .map(([, init]) => JSON.parse(String(init?.body)))
+  fetchMock.mockClear()
+  await useAgentStore.getState().send('白色浴缸', [], undefined, 'image')
+  expect(turnBodies().slice(-1)[0]?.params.directImage).toBe(true)
+  fetchMock.mockClear()
+  await useAgentStore.getState().sendThroughAgent('请基于这组提示词再次生成图片：白色浴缸', 'image')
+  expect(turnBodies().slice(-1)[0]?.params.directImage).toBeUndefined()
+  fetchMock.mockClear()
+  await useAgentStore.getState().send('再来一张', [], undefined, 'image')
+  expect(turnBodies().slice(-1)[0]?.params.directImage).toBe(true)
+  useStore.setState({ createTarget: original.createTarget })
+})
+
 it('发送失败后换了设置，刷新重发仍沿用原轮的完整参数', async () => {
   const original = useStore.getState().params
   useStore.setState({ params: { ...original, size: '1536x1024', quality: 'high' } })

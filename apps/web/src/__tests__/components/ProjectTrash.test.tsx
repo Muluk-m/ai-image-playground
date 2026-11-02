@@ -75,6 +75,61 @@ it('回收站展示到期日并从实际恢复入口恢复项目身份', async (
   }
 })
 
+it('项目数满额时恢复直说上限，不显示回收站操作失败（BUG-52）', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  setClientStorageScope(crypto.randomUUID())
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  const project = {
+    id: crypto.randomUUID(),
+    name: '满额时恢复',
+    revision: 2,
+    createdAt: 1,
+    updatedAt: 2,
+    elementCount: 0,
+    deletedAt: 2,
+    restoreUntil: Date.now() + 86400000,
+  }
+  vi.stubGlobal('fetch', async (input: unknown) => {
+    const url = String(input)
+    if (url.endsWith('/capabilities')) return Response.json({ 'accounts:sync': true })
+    if (url.endsWith('/restore'))
+      return Response.json({ error: 'project_quota_exceeded' }, { status: 413 })
+    return Response.json({ projects: [project], nextCursor: null })
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  useCanvasProjectStore.setState({
+    projects: [],
+    loaded: true,
+    cloudLoading: false,
+    cloudCatalog: {},
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => {
+      root.render(<ProjectTrash onBack={() => {}} onOpen={async () => {}} />)
+    })
+    await vi.waitFor(() => expect(host.textContent).toContain(project.name))
+    const restore = [...host.querySelectorAll('button')].find((one) => one.textContent === '恢复')!
+    await act(async () => {
+      restore.click()
+    })
+    await vi.waitFor(() =>
+      expect(host.querySelector('[role="alert"]')?.textContent).toBe(
+        '项目数量已到上限，删除一些项目后重试。',
+      ),
+    )
+    expect(host.textContent).toContain(project.name)
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+    await bootstrapClientCapabilities(false, '')
+    setClientStorageScope(null)
+    vi.unstubAllGlobals()
+  }
+})
+
 it('实际项目列表回收站把过期项目的本机编辑存为新身份，原接口410不会拦住打开', async () => {
   const { webcrypto } = await import('node:crypto')
   const { default: ProjectGrid } = await import('../../features/canvas/components/ProjectGrid')

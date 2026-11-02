@@ -32,6 +32,11 @@ interface VideoStyleSpec {
     mode: VideoMode,
   ): Record<string, unknown>
   result(base: string, payload: unknown, video: HydratedVideoRequest): VideoOutcome
+  /**
+   * 上游真有取消接口时给出它（`DELETE` 这个地址）。缺席即上游没有可调的取消：用户中止后上游照跑、
+   * 照计费，我们只能停止轮询（各家的依据见 ADR 0012「上游取消」）。
+   */
+  cancelUrl?(base: string, taskId: string): string
 }
 
 export const VIDEO_STYLE_SPECS: Partial<Record<ChannelRouteStyle, VideoStyleSpec>> = {
@@ -52,6 +57,8 @@ export const VIDEO_STYLE_SPECS: Partial<Record<ChannelRouteStyle, VideoStyleSpec
     protocol: ({ base }) => arkVideoProtocol(base),
     body: buildArkVideoBody,
     result: arkVideoResult,
+    // 方舟：排队中（queued）的任务可取消且不计费；运行中的不能取消，会跑完计费。
+    cancelUrl: (base, taskId) => `${arkTasksUrl(base)}/${encodeURIComponent(taskId)}`,
   },
   'veo-videos': {
     modes: ['generate'],
@@ -88,8 +95,12 @@ function agnesVideoProtocol(base: string, model: string): AsyncTaskProtocol {
   }
 }
 
+function arkTasksUrl(base: string): string {
+  return `${base}/contents/generations/tasks`
+}
+
 function arkVideoProtocol(base: string): AsyncTaskProtocol {
-  const tasks = `${base}/contents/generations/tasks`
+  const tasks = arkTasksUrl(base)
   return {
     submitUrl: tasks,
     pollUrl: (taskId) => `${tasks}/${encodeURIComponent(taskId)}`,

@@ -69,3 +69,16 @@ it('调用方自己撤了就不再补发', async () => {
   expect((failure as Error).name).toBe('AbortError')
   expect(fetchMock).toHaveBeenCalledTimes(1)
 })
+
+it('项目列表按最近更新排：第一页带上次删除同步到的时间，翻页只带游标', async () => {
+  fetchMock.mockImplementation(async () => Response.json({ projects: [], nextCursor: null }))
+
+  await listCloudProjects({ deletedSince: 1700 })
+  await listCloudProjects({ cursor: 'abc', deletedSince: 1700 })
+  await listCloudProjects()
+
+  const queries = fetchMock.mock.calls.map(([url]) => new URL(String(url)).searchParams)
+  expect(Object.fromEntries(queries[0]!)).toEqual({ order: 'recent', deletedSince: '1700' })
+  expect(Object.fromEntries(queries[1]!)).toEqual({ order: 'recent', cursor: 'abc' })
+  expect(Object.fromEntries(queries[2]!)).toEqual({ order: 'recent' })
+})
