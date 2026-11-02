@@ -17,6 +17,7 @@ import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
 import { modelLabel } from '../../../lib/channels/publicChannels'
+import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
@@ -163,6 +164,8 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const [busy, setBusy] = useState(false)
   const working = useRef(false)
   const operations = useRef(0)
+  // 每张图块最近一次取消请求的序号：各张的取消互不相干，失败只按同一张判断是否过期。
+  const itemCancels = useRef(new Map<string, number>())
   const card = useRef<HTMLElement>(null)
   const runRow = useRef<HTMLDivElement>(null)
   const [runRowMounted, setRunRowMounted] = useState(false)
@@ -380,14 +383,37 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     setCancellingItems((current) => new Set(current).add(key))
     setCancelItemFailed(false)
     const operation = ++operations.current
+    itemCancels.current.set(key, operation)
     try {
       const result = await cancelBatchItem(batchId, key)
+      // 服务端只撤还没发给上游的那张；刚被认领、进入核对或已出图的会原样返回。
+      // 只要这一张没变成已取消，就告诉用户没撤成。
+      const left = result.items.find((item) => item.key === key)?.execution?.status
+      if (
+        commands.current() &&
+        itemCancels.current.get(key) === operation &&
+        left !== undefined &&
+        left !== 'cancelled'
+      )
+        setCancelItemFailed(true)
       if (commands.current() && operation === operations.current) {
         operations.current++
         setPage(result)
+      } else if (commands.current()) {
+        // 这一张撤成功了，但期间有更新的操作：这份快照可能比界面旧，不写回，改为再读一次最新计划，
+        // 免得后发的那个操作失败时界面一直停在撤之前。
+        const reread = ++operations.current
+        const latest = await fetchBatchPlan(batchId).catch(() => null)
+        if (latest && commands.current() && reread === operations.current) {
+          operations.current++
+          setPage(latest)
+        }
       }
     } catch {
-      if (commands.current()) setCancelItemFailed(true)
+      // 失败说明这一张确实没撤掉，与页面别处是否刷新过无关；取消别的图块也不让它失效。
+      // 只有同一张后来又发了取消，旧的失败才算过期。
+      if (commands.current() && itemCancels.current.get(key) === operation)
+        setCancelItemFailed(true)
     } finally {
       setCancellingItems((current) => {
         const next = new Set(current)
@@ -1339,7 +1365,12 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           meta={runMeta}
           cancelling={cancellingItems}
           cancelFailed={cancelItemFailed}
-          onCancel={(key) => void cancelItem(key)}
+          // 单张取消按部署能力逐步放开，关着时图块不出取消按钮。
+          onCancel={
+            isClientCapabilityEnabled('agent:batch-item-cancel')
+              ? (key) => void cancelItem(key)
+              : undefined
+          }
           actions={
             <>
               <Button size="sm" variant="outline" className="text-foreground" onClick={openPlan}>

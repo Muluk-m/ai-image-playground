@@ -504,3 +504,74 @@ it('另一台设备提交、已在执行的任务按生成中显示，不停在�
     undefined,
   )
 })
+
+function pageOf(start: number, count: number, base = summary.createdAt): GenerationSummary[] {
+  return Array.from({ length: count }, (_, offset) => {
+    const index = start + offset
+    return {
+      ...summary,
+      id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      createdAt: base - index * 1000,
+    }
+  })
+}
+
+it('按游标一页 50 条往后读：上一页最后一条不被下一页的窗口吞掉，不重不漏', async () => {
+  const total = 600
+  let until = Number.POSITIVE_INFINITY
+  for (let start = 0; start < total; start += 50) {
+    const items = pageOf(start, 50)
+    await receivePlatformPage(items, { until, hasMore: start + 50 < total })
+    // 游标就是这一页最后一条；下一页的上界是它的时间，它自己不在下一页里。
+    until = items[items.length - 1]!.createdAt
+  }
+
+  const ids = useStore.getState().platformGenerations.map((row) => row.id)
+  expect(ids).toHaveLength(total)
+  expect(new Set(ids).size).toBe(total)
+  expect(ids).toEqual(pageOf(0, total).map((item) => item.id))
+  // 内存里翻到多少留多少，落盘只留最近 500 条给下次第一帧。
+  expect(await getCachedGenerations()).toHaveLength(500)
+})
+
+it('下一页窗口里本该有、却没返回的记录才算删了', async () => {
+  const first = pageOf(0, 3)
+  await receivePlatformPage(first, { hasMore: true })
+  const second = pageOf(3, 3)
+  await receivePlatformPage(second, { until: first[2]!.createdAt, hasMore: true })
+
+  // 刷新第二页时 index 4 已经被删：窗口 (index 5, index 2) 里只剩 3。
+  const { dropped } = await receivePlatformPage([second[0]!, second[2]!], {
+    until: first[2]!.createdAt,
+    hasMore: true,
+  })
+
+  expect(dropped).toEqual([second[1]!.id])
+  expect(useStore.getState().platformGenerations.map((row) => row.id)).toEqual(
+    [...first, second[0]!, second[2]!].map((item) => item.id),
+  )
+})
+
+it('合并时同一条生成只出一张卡：本机任务与平台记录按 bffRequestId 去重', async () => {
+  const items = pageOf(0, 3)
+  await receivePlatformPage(items)
+  const local: TaskRecord = {
+    id: 'local-1',
+    bffRequestId: items[1]!.id,
+    prompt: '一只猫',
+    params: { ...DEFAULT_PARAMS },
+    inputImageIds: [],
+    outputImages: ['local-image'],
+    status: 'done',
+    error: null,
+    createdAt: items[1]!.createdAt,
+    finishedAt: items[1]!.createdAt,
+    elapsed: 1,
+  }
+
+  const merged = mergeHistory([local], useStore.getState().platformGenerations)
+
+  expect(merged.map((task) => task.id).sort()).toEqual(
+    [items[0]!.id, 'local-1', items[2]!.id].sort(),
+  )
+})

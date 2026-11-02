@@ -3,6 +3,8 @@
  * 否则运营者会看到「页面是绿的，群里却在响」。
  */
 export const OPS_THRESHOLDS = {
+  /** OpenAI 直连本月花费到封顶的这个比例就告警；到 100% 直连自动停用。 */
+  GPT_DIRECT_BUDGET_ALERT_RATIO: 0.8,
   /** 最老的排队任务等待超过这个时长即视为积压。worker 每秒都在轮询，正常排队以秒计。 */
   QUEUE_WAIT_MS: 10 * 60 * 1000,
   /** 磁盘用量到这个比例就该处理了。50G 的盘上约剩 7G，与部署脚本 8G 的拒绝线基本对齐。 */
@@ -47,12 +49,22 @@ export const OPS_THRESHOLDS = {
   /** 心跳每 30 秒一次；超过这个时长没更新就当服务断了，也就是容忍连续丢 3 次。 */
   HEARTBEAT_MAX_AGE_MS: 2 * 60 * 1000,
   /**
+   * server_logs 超过这个时长没有新行就是采集管道断了（2026-10-31 旧 compose 重建丢掉 fluentd
+   * 驱动，断流九小时才被发现）。低流量部署每分钟也有宿主机采样上报等周期日志，实测最大静默约 1 分钟。
+   */
+  SERVER_LOGS_MAX_AGE_MS: 10 * 60 * 1000,
+  /**
    * 磁盘与内存报过之后，要回到告警线内侧这么多个百分点才算恢复。读数贴着告警线浮动时，
    * 没有这道余量就会每分钟交替发「告警」与「已恢复」。
    */
   HOST_RECOVERY_MARGIN_RATIO: 0.02,
-  /** Hourly cloud backup; tolerate one delayed run, matching the sidecar health probe. */
-  BACKUP_MAX_AGE_MS: 2 * 60 * 60 * 1000,
+  /**
+   * Hourly cloud backup, matching the sidecar health probe. The line has to clear one lost run plus
+   * the run itself: a dump takes a couple of minutes, so after a missed hour the newest file is
+   * already past 2 h by the time the next one lands, and a 2 h line fires and then resolves on its
+   * own (2026-11-01, a deploy replaced pg-backup mid-run). Two consecutive misses still cross it.
+   */
+  BACKUP_MAX_AGE_MS: 2.5 * 60 * 60 * 1000,
   /**
    * 备份恢复演练每周一次；超过这个时长没有新结果就是断了。比一周多留一天，
    * 给周日那一轮失手后容器重启时的补跑留出余地。

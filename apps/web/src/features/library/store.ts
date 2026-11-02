@@ -29,10 +29,10 @@ import {
 } from './types'
 
 /**
- * 资产页的四个页签。作品在创作页、灵感另一个入口，都不在里面。
+ * 资产页的五个页签。灵感在另一个入口，不在里面。
  * `prompts` 就是旧「模板」那一页，存储名与同步 kind 仍是 `templates`。
  */
-export type LibraryTab = 'projects' | 'assets' | 'prompts' | 'looks'
+export type LibraryTab = 'works' | 'projects' | 'assets' | 'prompts' | 'looks'
 
 type OnAssetSaved = (asset: AssetRecord) => void
 
@@ -129,8 +129,8 @@ export interface LibraryState {
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
   onLibraryPage: false,
-  // 先落「项目」：生成的图都在对话 / 画布里，封面一眼可见；空的「素材」页只收手动存的（BUG-18）。
-  tab: 'projects',
+  // 先落「作品」：快速生成与对话里出的图都在这一条瀑布里；空的「素材」页只收手动存的（BUG-18）。
+  tab: 'works',
   searchKeyword: '',
   assets: [],
   templates: [],

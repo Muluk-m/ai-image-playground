@@ -21,12 +21,10 @@ import { cancelRoutes } from './routes/cancel'
 import { canvasSyncRoutes } from './routes/canvasSync'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
-import { cliAuthRoutes } from './routes/cli-auth'
-import { cliImageRoutes } from './routes/cli-image'
-import { cliJobsRoutes } from './routes/cli-jobs'
-import { cliMediaRoutes } from './routes/cli-media'
+import { cliAccountRoutes, cliApiRoutes, cliOAuthRoutes } from './routes/cli'
 import { clientErrorRoutes } from './routes/client-errors'
 import { generationRoutes } from './routes/generations'
+import { gptPremiumRoutes } from './routes/gpt-premium'
 import { internalInspirationRoutes, publicInspirationRoutes } from './routes/inspirations'
 import { internalAgentModelRoutes } from './routes/internal-agent-models'
 import { internalDrainRoutes } from './routes/internal-drain'
@@ -259,14 +257,14 @@ export const app = new Elysia()
   .use(userAuthRoutes)
   .use(accountRoutes)
   .use(oauthRoutes)
-  .use(cliAuthRoutes)
-  .use(cliImageRoutes)
-  .use(cliJobsRoutes)
-  .use(cliMediaRoutes)
+  .use(cliOAuthRoutes)
+  .use(cliAccountRoutes)
+  .use(cliApiRoutes)
   .use(capabilitiesRoutes)
   .use(channelsRoutes)
   .use(submitRoutes)
   .use(statusRoutes)
+  .use(gptPremiumRoutes)
   .use(resultRoutes)
   .use(cancelRoutes)
   .use(agentRoutes)
@@ -304,7 +302,7 @@ export const app = new Elysia()
     const url = new URL(request.url)
     if (isApiPath(url.pathname)) return
     if (
-      /^\/(?:image|explore|assets|tools|projects|pricing|terms|privacy|p\/[^/]+|tools\/[^/]+)\/?$/.test(
+      /^\/(?:image|explore|assets|tools|projects|pricing|terms|privacy|device|p\/[^/]+|tools\/[^/]+)\/?$/.test(
         url.pathname,
       )
     ) {

@@ -64,6 +64,7 @@ const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { db, schema, close } = await import('../../db/client')
+const { config } = await import('../../config')
 await silenceChatUpstream()
 
 class MediaStorage extends InMemoryObjectStore {
@@ -157,7 +158,7 @@ async function upload(background: string | Buffer, requestCookie = cookie) {
   return media.id as string
 }
 
-it('生成中单独取消一张：只撤这一张、走原有取消结算，其余照常，重复点与越权都安全', async () => {
+it('排队中单独取消一张：只撤这一张、走原有取消结算，其余照常，重复点与越权都安全', async () => {
   billing.answer = { kind: 'reserved', credits: 7 }
   const mediaId = await upload('#123456')
   const { conversation } = await (
@@ -231,6 +232,19 @@ it('生成中单独取消一张：只撤这一张、走原有取消结算，其�
     updated_at: now,
   })
   const stranger = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('batch-cancel-stranger', tx))}`
+  // 能力默认关：接口整条拒绝，什么都不撤、不结算。
+  const closed = await request(`${path}/items/item-1/cancel`, {})
+  expect(closed.status).toBe(404)
+  expect(await closed.json()).toEqual({
+    error: 'capability_unavailable',
+    capability: 'agent:batch-item-cancel',
+  })
+  expect(billing.settlements).toHaveLength(0)
+  const operator = config.operator
+  config.operator = {
+    ...operator,
+    capabilities: { ...operator.capabilities, 'agent:batch-item-cancel': true },
+  }
   expect((await request(`${path}/items/item-1/cancel`, {}, 'POST', stranger)).status).toBe(404)
   expect(billing.settlements).toHaveLength(0)
 
@@ -258,4 +272,31 @@ it('生成中单独取消一张：只撤这一张、走原有取消结算，其�
   expect((await request(`${path}/items/item-1/cancel`, {})).status).toBe(200)
   expect((await request(`${path}/items/missing/cancel`, {})).status).toBe(200)
   expect(billing.settlements).toHaveLength(1)
+
+  // 重新入队但已调用过上游的不撤：结果或上游任务还在，撤了会丢。
+  await db
+    .update(schema.tasks)
+    .set({ upstream_invocation_count: 1 })
+    .where(eq(schema.tasks.id, taskOf.get('item-2')!))
+  expect((await request(`${path}/items/item-2/cancel`, {})).status).toBe(200)
+  const [requeued] = await db
+    .select({ status: schema.tasks.status })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, taskOf.get('item-2')!))
+  expect(requeued?.status).toBe('queued')
+  expect(billing.settlements).toHaveLength(1)
+
+  // 已经认领开跑的不撤：可能已发给上游，撤了也照样出图计费。
+  await db
+    .update(schema.tasks)
+    .set({ status: 'in_progress', started_at: Date.now() })
+    .where(eq(schema.tasks.id, taskOf.get('item-0')!))
+  expect((await request(`${path}/items/item-0/cancel`, {})).status).toBe(200)
+  const [started] = await db
+    .select({ status: schema.tasks.status })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, taskOf.get('item-0')!))
+  expect(started?.status).toBe('in_progress')
+  expect(billing.settlements).toHaveLength(1)
+  config.operator = operator
 }, 60000)

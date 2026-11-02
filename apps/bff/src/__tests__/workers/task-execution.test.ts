@@ -232,7 +232,7 @@ describe('认领', () => {
     for (const other of others) other?.release()
   })
 
-  it('runs up to TURN_SIBLING_PARALLELISM same-turn tasks of a model without a declared concurrency limit', async () => {
+  it('runs up to the configured same-turn parallelism for a model without a declared concurrency limit', async () => {
     const now = Date.now()
     await db.insert(schema.users).values({
       id: 'flare-user',
@@ -248,9 +248,18 @@ describe('认领', () => {
       created_at: now,
       updated_at: now,
     })
-    const { TURN_SIBLING_PARALLELISM, turnSerializedModels } = await import(
+    const { turnSerializedModels, turnSiblingParallelism } = await import(
       '../../workers/task-execution'
     )
+    const { config } = await import('../../config')
+    const operator = config.operator
+    // 不配就是原来的一律串行，合并后行为不变。
+    expect(turnSiblingParallelism()).toBe(1)
+    const parallelism = 3
+    config.operator = {
+      ...operator,
+      quotas: { ...operator.quotas, 'agent:turn-model-parallelism': parallelism },
+    }
     // gpt-image-2.5-flare 的渠道没有并发上限，Vertex 的 Flash Lite 有。
     expect(turnSerializedModels()).toContain('gemini-3.1-flash-lite-image')
     expect(turnSerializedModels('gemini')).toContain('gemini-3.1-flash-lite-image')
@@ -261,7 +270,7 @@ describe('认领', () => {
       provider: 'openai-compat' as const,
       model: 'gpt-image-2.5-flare',
     }
-    const ids = Array.from({ length: TURN_SIBLING_PARALLELISM + 2 }, (_, i) => `flare-${i}`)
+    const ids = Array.from({ length: parallelism + 2 }, (_, i) => `flare-${i}`)
     for (const id of ids) await insertQueuedTask(id, flare)
     await db.insert(schema.agent_jobs).values(
       ids.map((taskId) => ({
@@ -277,7 +286,7 @@ describe('认领', () => {
     const claims = await Promise.all(ids.map((id) => claimTaskExecution(id)))
     // 一批 5 张不再一张接一张：同轮同模型放行到上限，多出的等前面的收尾。
     const won = claims.filter((claim) => claim !== null)
-    expect(won).toHaveLength(TURN_SIBLING_PARALLELISM)
+    expect(won).toHaveLength(parallelism)
     const blocked = ids.filter((_, index) => !claims[index])
     const { selectRunnableTasks } = await import('../../workers/runnable-tasks')
     const runnable = (await selectRunnableTasks('openai-compat', 10, Date.now())).map(
@@ -291,6 +300,7 @@ describe('认领', () => {
     const next = await Promise.all(blocked.map((id) => claimTaskExecution(id)))
     expect(next.filter(Boolean)).toHaveLength(1)
     for (const handle of [...won.slice(1), ...next]) handle?.release()
+    config.operator = operator
   })
 
   it('serializes same-model tasks within an anonymous agent turn too', async () => {

@@ -14,6 +14,8 @@ export const CAPABILITIES = {
   'agent:batch-plans': { defaultValue: false, clientExposed: true },
   'agent:attachments': { defaultValue: false, clientExposed: true },
   'agent:bulk-attachments': { defaultValue: false, clientExposed: true },
+  /** 批次里单独取消正在生成的一张（取消接口与卡片上的取消按钮）。默认关，按环境逐步放开。 */
+  'agent:batch-item-cancel': { defaultValue: false, clientExposed: true },
   /**
    * 智能体先提议修改范围（`proposeEditRegion` 范围确认卡）再按蒙版局部编辑。2026-10-27 线上
    * 屡次报「原图尺寸超出模型支持的局部编辑范围」后整轮无图，按 Nain 要求下线：默认关，
@@ -105,6 +107,8 @@ export const QUOTAS = {
   /** Application resource guard, not a provider throughput guarantee. */
   'agent:visual-prepare-concurrency': { defaultValue: 1 },
   'agent:visual-prepare-queue': { defaultValue: 100 },
+  /** 智能体同一轮里、未声明并发上限的同模型任务最多同时跑几条；1 即一律串行。 */
+  'agent:turn-model-parallelism': { defaultValue: 1 },
   'agent:visual-max-pixels': { defaultValue: 16_777_216 },
   /** Zero keeps bulk intake closed until operators validate and configure resource budgets. */
   'agent:attachment-logical-references': { defaultValue: 0 },
