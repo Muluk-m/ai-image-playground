@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { replaceEqualDeep, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import type {
   AgentPromptFilters,
   AgentPromptsResult,
@@ -16,6 +16,7 @@ import type {
   ListAuditsResult,
   ListDevicesResult,
   ListUsersResult,
+  OperatorSettingsResult,
   OpsRange,
   OpsSnapshot,
   OverviewResult,
@@ -112,6 +113,7 @@ export function useOps(range: OpsRange, refetchInterval = 30_000) {
 export interface AuditFilters {
   /** 精确匹配 `operator_audits.action`；空串表示不筛。 */
   action?: string
+  settingKey?: string
   targetId?: string
 }
 
@@ -119,6 +121,7 @@ export interface AuditFilters {
 export function useAudits(filters: AuditFilters) {
   const params = new URLSearchParams()
   if (filters.action) params.set('action', filters.action)
+  if (filters.settingKey) params.set('settingKey', filters.settingKey)
   if (filters.targetId) params.set('targetId', filters.targetId)
   return useInfiniteQuery({
     queryKey: ['audits', filters],
@@ -198,4 +201,41 @@ export function useAgentPrompts(filters: AgentPromptFilters) {
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     staleTime: 0,
   })
+}
+
+export const operatorSettingsQueryKey = ['operator-settings'] as const
+
+export function useOperatorSettings() {
+  return useQuery({
+    queryKey: operatorSettingsQueryKey,
+    queryFn: () => apiClient.get<OperatorSettingsResult>('/api/operator-settings'),
+    structuralSharing: (previous, incoming) => {
+      if (
+        previous && typeof previous === 'object' && 'revision' in previous &&
+        incoming && typeof incoming === 'object' && 'revision' in incoming &&
+        typeof previous.revision === 'number' && typeof incoming.revision === 'number' &&
+        previous.revision > incoming.revision
+      ) return previous
+      return replaceEqualDeep(previous, incoming)
+    },
+  })
+}
+
+export function saveOperatorSetting(
+  key: string,
+  body: { value: boolean | number; reason: string; expectedRevision: number },
+) {
+  return apiClient.put<OperatorSettingsResult>(
+    `/api/operator-settings/${encodeURIComponent(key)}`,
+    body,
+  )
+}
+
+export function clearOperatorSetting(
+  key: string,
+  body: { reason: string; expectedRevision: number },
+) {
+  return apiClient.del<OperatorSettingsResult>(
+    `/api/operator-settings/${encodeURIComponent(key)}?${new URLSearchParams({ reason: body.reason, expectedRevision: String(body.expectedRevision) })}`,
+  )
 }

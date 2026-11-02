@@ -18,6 +18,8 @@ import {
   gptImageRateMultiplier,
   imageSizeTier,
   isBlankPrompt,
+  isGptBasicRequest,
+  isGptDirectModel,
   QUEUE_TIMEOUTS,
   stageAuthorizedVideoDuration,
   videoModelSupportOf,
@@ -43,6 +45,7 @@ import { lockMediaOwner } from './projectMedia'
 import { publicTaskErrorMessage } from './public-task-error'
 import { asQueueProvider } from './queueProvider'
 import { type QuotaConsumeResult, tryConsumeQuotaInTransaction } from './quota'
+import { gptDirectConfigured } from './upstream/gpt-routing'
 
 export interface PreparedQueueTask {
   readonly taskId: string
@@ -85,9 +88,11 @@ export interface CreateQueueTaskInput {
    * 其他入口（批量套用、智能体等）一批里本就可能有内容相同的几条，不开。
    */
   readonly dedupeRepeats?: true
+  /** CLI preserves the requested tier/quality and rejects unavailable membership tiers instead of downgrading. */
+  readonly strictImageRequest?: true
   /**
-   * 调用方给的积分上限（CLI 的 `max_credits`）。只在积分计费开着时生效，在建任务和预扣之前
-   * 按同一事务里的报价判断。它是提交的前置条件、不是请求内容，不进命令哈希。
+   * 调用方给的积分上限（CLI 的 `max_credits`）。只在积分计费开着时生效；先按事务内报价
+   * 拒绝，再以实际预扣兜底，超限时任务与预扣一并回滚。预算不是请求内容，不进命令哈希。
    */
   readonly maxCredits?: number
   /** Server-only opt-in; legacy HTTP submissions retain their existing lifecycle. */
@@ -166,6 +171,7 @@ function commandHash(input: CreateQueueTaskInput) {
         },
         video: input.video,
         ...(input.reconciliationRequired ? { reconciliationRequired: true } : {}),
+        // Strict execution is server policy, not request identity; keep existing CLI receipts replayable.
         // 唤醒选择不是请求的一部分：同一条命令换个选择重放，仍是同一个任务。
         agent: input.agent && {
           conversationId: input.agent.conversationId,
@@ -283,6 +289,7 @@ async function adoptLegacyCommand(
         request,
         video,
         userId,
+        ...(task.request_payload.strict_image_request ? { strictImageRequest: true } : {}),
         ...(task.agent_conversation_id && task.agent_turn_id
           ? {
               agent: { conversationId: task.agent_conversation_id, turnId: task.agent_turn_id },
@@ -346,7 +353,7 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
  * 预先准备的入口（批量执行、自动提交、灵感套用）一律按基础档计价执行，见 {@link alignGptSubmission}。
  */
 export function prepareQueueTask(input: CreateQueueTaskInput) {
-  return prepareAlignedQueueTask(basicGptInput(input))
+  return prepareAlignedQueueTask(input.strictImageRequest ? input : basicGptInput(input))
 }
 
 async function prepareAlignedQueueTask(input: CreateQueueTaskInput) {
@@ -359,6 +366,9 @@ async function prepareAlignedQueueTask(input: CreateQueueTaskInput) {
       ...(input.video ? { video: input.video } : {}),
       ...masked?.facts,
     }
+    // The request body cannot opt into (or out of) the server's execution contract.
+    delete requestPayload.strict_image_request
+    if (input.strictImageRequest) requestPayload.strict_image_request = true
   } catch (error) {
     await discardArchivedInputs(id)
     if (error instanceof TypeError) {
@@ -435,6 +445,27 @@ export async function premiumRequestAllowed(
   })
 }
 
+/** CLI uses the existing transactional subscription gate for every GPT premium tier, not only 4K. */
+export async function strictImageRequestAllowed(
+  tx: BffTransaction,
+  userId: string,
+  provider: QueueProvider,
+  model: string,
+  request: SubmitRequest,
+): Promise<boolean> {
+  if (isGptDirectModel(model) && !isGptBasicRequest(request)) {
+    if (!gptDirectConfigured(model)) return false
+    // All GPT premium options require the same active subscription as 4K. Older overlays without
+    // that transactional entitlement cannot authorize a strict request; never silently downgrade it.
+    if (!(await loadPrivateBffOverlay()).taskHooks.canSubmitTask) return false
+    return premiumRequestAllowed(tx, userId, model, request)
+  }
+  return (
+    !premiumTierRequested(provider, request) ||
+    (await premiumRequestAllowed(tx, userId, model, request))
+  )
+}
+
 /** GPT 直连模型收到基础档（1K、非高画质）；收法是确定的，重复收结果不变，准备时与提交时的哈希一致。 */
 function basicGptInput(input: CreateQueueTaskInput): CreateQueueTaskInput {
   if (input.video) return input
@@ -443,12 +474,12 @@ function basicGptInput(input: CreateQueueTaskInput): CreateQueueTaskInput {
 }
 
 /**
- * GPT 直连模型的 2K/4K/高画质只在创作页直接提交时开给会员（见 gpt-membership.ts），非会员静默收到基础档。
- * 智能体、阶段授权、调用方自带事务与预先准备的提交一律收到基础档：授权与报价按倍率 1 冻结，
- * 事务里也不该再去连接池查会员。
+ * GPT 直连模型的 2K/4K/高画质在网站直接提交时开给会员，非会员静默收到基础档。
+ * CLI 严格保留参数，在提交事务内重新授权；不能兑现就拒绝。其他入口仍按基础档计价执行：
+ * 智能体、阶段授权、调用方自带事务与预先准备的提交按倍率 1 冻结。
  */
 async function alignGptSubmission(input: CreateQueueTaskInput): Promise<CreateQueueTaskInput> {
-  if (input.video) return input
+  if (input.video || input.strictImageRequest) return input
   if (input.prepared || input.tx || input.agent || input.stageAuthorization)
     return basicGptInput(input)
   const request = await alignGptRequestToMembership(input.model, input.request, input.userId)
@@ -518,7 +549,19 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
     if (await modelUnavailable(tx, input.model)) {
       return { kind: 'price_unavailable' as const, model: input.model }
     }
-    if (premiumTierRequested(input.provider, input.request)) {
+    if (input.strictImageRequest) {
+      if (!input.userId) return { kind: 'authentication_required' as const }
+      if (
+        !(await strictImageRequestAllowed(
+          tx,
+          input.userId,
+          input.provider,
+          input.model,
+          input.request,
+        ))
+      )
+        return { kind: 'private_billing_denied' as const }
+    } else if (premiumTierRequested(input.provider, input.request)) {
       if (!input.userId) return { kind: 'authentication_required' as const }
       if (!(await premiumRequestAllowed(tx, input.userId, input.model, input.request)))
         return { kind: 'private_billing_denied' as const }
@@ -622,7 +665,6 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
       reservedCredits = reservation.credits
       // 报价与预扣同在这个事务里，正常应一致；预扣按自己的规则算出更多时以它为准，
       // 抛出去让整个事务回滚，任务与预扣一起撤销。
-      // 抛出去让事务回滚；外部事务由调用方持有时异常照样冒泡，由它回滚自己的事务。
       if (input.maxCredits !== undefined && reservedCredits > input.maxCredits)
         throw new MaxCreditsExceeded(reservedCredits, input.maxCredits)
     } else if (unmeteredByDecision && input.userId && taskHooks.consumeUnmeteredQuota) {
