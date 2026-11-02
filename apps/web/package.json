@@ -31,6 +31,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "fflate": "^0.8.2",
+    "heic-to": "1.6.7",
     "i18next": "^26.4.2",
     "konva": "^10.3.0",
     "lucide-react": "^0.469.0",

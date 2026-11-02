@@ -28,8 +28,8 @@ import { accessCanvasDocument, CanvasSyncError } from '../canvasSyncStore'
 import { isCapabilityEnabled } from '../capabilities'
 import { modelCapabilities, resolveQueueModel } from '../channels'
 import { log } from '../logger'
+import { meteringDecisionOrDenied } from '../metering-decision'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
-
 export class StageAuthorizationError extends Error {
   constructor(
     readonly code: string,
@@ -221,6 +221,20 @@ async function quote(
 ) {
   if (!isCapabilityEnabled('billing:credits')) return 0
   const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const decision = meteringDecisionOrDenied(
+    await hooks.meteringDecision?.({
+      tx,
+      userId,
+      model: input.model,
+      kind: 'video',
+      quantity: input.quantity,
+      unitMultiplier: input.unitMultiplier,
+    }),
+    hooks.consumeUnmeteredQuota,
+  )
+  if (decision?.kind === 'denied')
+    throw new StageAuthorizationError('stage_authorization_price_unavailable', 422)
+  if (decision?.kind === 'unmetered') return 0
   const result = await hooks.quoteTask?.({
     tx,
     userId,

@@ -549,6 +549,20 @@
       "breakpoints": true
     },
     {
+      "idx": 79,
+      "version": "7",
+      "when": 1793000000000,
+      "tag": "0079_task_metering",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1793200000000,
+      "tag": "0081_cli_device_oauth",
+      "breakpoints": true
+    },
+    {
       "idx": 82,
       "version": "7",
       "when": 1793300000000,
@@ -567,6 +581,13 @@
       "version": "7",
       "when": 1793500000000,
       "tag": "0084_generation_images_soft_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1793600000000,
+      "tag": "0085_task_metering_forward",
       "breakpoints": true
     },
     {
