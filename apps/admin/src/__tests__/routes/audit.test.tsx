@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import type { ReactNode } from 'react'
+
 import { fireEvent, render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 const queryState = vi.hoisted(() => ({
@@ -9,31 +10,40 @@ const queryState = vi.hoisted(() => ({
 
 vi.mock('../../components/Page', () => ({
   Page: ({ children, actions }: { children: ReactNode; actions?: ReactNode }) => (
-    <main><div>{actions}</div>{children}</main>
+    <main>
+      <div>{actions}</div>
+      {children}
+    </main>
   ),
   EmptyState: ({ label }: { label: string }) => <div>{label}</div>,
   ErrorState: ({ label }: { label: string }) => <div>{label}</div>,
   PendingState: ({ label }: { label: string }) => <div>{label}</div>,
 }))
 vi.mock('../../components/FuzzyTime', () => ({ FuzzyTime: () => <span>刚刚</span> }))
-vi.mock('../../components/ShortId', () => ({ ShortId: ({ value }: { value: string }) => <span>{value}</span> }))
+vi.mock('../../components/ShortId', () => ({
+  ShortId: ({ value }: { value: string }) => <span>{value}</span>,
+}))
 vi.mock('../../hooks/use-mobile', () => ({ useIsMobile: () => false }))
 vi.mock('../../lib/queries', () => ({
   useAudits: (filters: Record<string, string | undefined>) => {
     queryState.filters.push(filters)
     return {
       data: {
-        pages: [{
-          audits: [{
-            id: 'audit-1',
-            operator_id: 'operator-1',
-            action: 'operator_config.set',
-            target_type: 'operator_config',
-            target_id: 'cli:api',
-            details: { reason: 'incident' },
-            created_at: Date.now(),
-          }],
-        }],
+        pages: [
+          {
+            audits: [
+              {
+                id: 'audit-1',
+                operator_id: 'operator-1',
+                action: 'operator_config.set',
+                target_type: 'operator_config',
+                target_id: 'cli:api',
+                details: { reason: 'incident' },
+                created_at: Date.now(),
+              },
+            ],
+          },
+        ],
       },
       isPending: false,
       isError: false,
