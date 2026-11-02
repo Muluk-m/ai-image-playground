@@ -1144,6 +1144,14 @@ export const tasks = pgTable(
     status: text('status').$type<TaskStatus>().notNull(),
     reconciliation_required: boolean('reconciliation_required').notNull().default(false),
     request_payload: bunJsonb('request_payload').$type<PersistedSubmitRequest>().notNull(),
+    /** Submission-time billing mode and pricing inputs; terminal paths reuse this immutable snapshot. */
+    metering: bunJsonb('metering').$type<{
+      mode: 'credits' | 'none'
+      model: string
+      quantity: number
+      unitMultiplier: number
+      pricing?: AgentBatchPriceSnapshot
+    } | null>(),
     result_payload: bunJsonb('result_payload'),
     /** Recoverable source URLs or spooled object references; never inline original bytes. */
     archive_payload: bunJsonb('archive_payload'),
@@ -1268,6 +1276,7 @@ const {
   lease_expires_at: _leaseExpiresAt,
   reconcile_started_at: _reconcileStartedAt,
   reconcile_alerted_at: _reconcileAlertedAt,
+  metering: _metering,
   gpt_route: _gptRoute,
   ...queueTaskColumns
 } = getTableColumns(tasks)
@@ -1645,6 +1654,7 @@ export const agent_batches = pgTable(
     pause_reason: text('pause_reason').$type<
       | 'price_changed'
       | 'insufficient_credits'
+      | 'quota_exceeded'
       | 'input_limit'
       | 'upstream_auth'
       | 'model_unavailable'
@@ -1778,7 +1788,9 @@ export const agent_batch_commands = pgTable(
 export const analysis_tasks = pgTable(
   'analysis_tasks',
   {
-    task_id: text('task_id').primaryKey(),
+    task_id: text('task_id')
+      .primaryKey()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
     user_id: text('user_id').notNull(),
     device_id: text('device_id').notNull(),
     batch_id: text('batch_id').notNull(),

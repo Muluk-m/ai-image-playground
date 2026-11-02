@@ -10,7 +10,11 @@ function clipboardFiles(data: DataTransfer | null): File[] {
     .filter((file): file is File => file !== null)
 }
 
-export function usePasteImageFiles(scope: ImageInputScope, onFiles: (files: File[]) => void) {
+export function usePasteImageFiles(
+  scope: ImageInputScope,
+  onFiles: (files: File[]) => void,
+  { allowHeic = false }: { allowHeic?: boolean } = {},
+) {
   const active = useImageInputScope() === scope
   const latest = useRef(onFiles)
   latest.current = onFiles
@@ -21,7 +25,7 @@ export function usePasteImageFiles(scope: ImageInputScope, onFiles: (files: File
       const files = clipboardFiles(event.clipboardData)
       if (files.length === 0) return
       // 超限的留给入口压缩。preventDefault 必须在这次粘贴事件里同步发生。
-      const images = acceptImageFiles(files, { keepOversized: true })
+      const images = acceptImageFiles(files, { keepOversized: true, allowHeic })
       if (images.length === 0) return
       event.preventDefault()
       // 画布模式的粘贴挂在 window 上，不停传播会把同一张图收两遍。
@@ -30,5 +34,5 @@ export function usePasteImageFiles(scope: ImageInputScope, onFiles: (files: File
     }
     document.addEventListener('paste', onPaste)
     return () => document.removeEventListener('paste', onPaste)
-  }, [active])
+  }, [active, allowHeic])
 }

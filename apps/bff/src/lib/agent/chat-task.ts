@@ -58,8 +58,9 @@ export interface ReserveChatTaskInput {
 export async function chatTaskPricing(
   taskHooks: PrivateTaskHooks,
   model: string,
+  tx?: BffTransaction,
 ): Promise<ChatTaskPricing> {
-  return (await taskHooks.chatPricing(model)) ?? FALLBACK_CHAT_PRICING
+  return (await taskHooks.chatPricing(model, tx)) ?? FALLBACK_CHAT_PRICING
 }
 
 /**
@@ -141,6 +142,12 @@ async function insertChatTask(
     status: 'in_progress',
     // 会话内容不进后台，占位里只留设备号——它喂的是 device_id 那个生成列。
     request_payload: { prompt: '', device_id: input.deviceId },
+    metering: {
+      mode: 'credits',
+      model: input.model,
+      quantity: 1,
+      unitMultiplier: 1,
+    },
     submitted_at: now,
     started_at: now,
     user_id: input.userId,
@@ -229,7 +236,6 @@ export async function reserveChatTask(input: ReserveChatTaskInput): Promise<Chat
     ...reservedChatUsage(input.estimatedInputTokens, pricing),
   })
   if (reserved.kind !== 'reserved') {
-    // 余额不足的轮压根没发生过，别把这条任务行留给恢复扫描去收尸。
     await tx.delete(schema.tasks).where(eq(schema.tasks.id, turnId))
     return reserved
   }

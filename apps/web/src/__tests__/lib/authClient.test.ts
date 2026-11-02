@@ -5,6 +5,7 @@ import {
   AUTH_SESSION_EXPIRED_EVENT,
   authenticatedBffFetch,
   fetchCliConnections,
+  fetchLoginOptions,
   fetchOAuthProviders,
   getCurrentUser,
   loginUser,
@@ -330,11 +331,13 @@ describe('auth client', () => {
     })
   })
 
-  it('points the OAuth start route at the configured BFF origin', () => {
+  it('points the OAuth start route at the configured BFF origin and page origin', () => {
     vi.stubGlobal('window', { location: new URL('https://app.example.com/') })
-    expect(oauthStartUrl('google')).toBe(
-      'https://bff.example.com/api/auth/oauth/google/start?return_to=%2Fimage',
-    )
+    const url = new URL(oauthStartUrl('google'))
+    expect(url.origin).toBe('https://bff.example.com')
+    expect(url.pathname).toBe('/api/auth/oauth/google/start')
+    expect(url.searchParams.get('return_to')).toBe('/image')
+    expect(url.searchParams.get('frontend_origin')).toBe('https://app.example.com')
   })
 
   it.each([
@@ -356,10 +359,12 @@ describe('auth client', () => {
     expect(start.origin).toBe('https://bff.example.com')
     expect(start.pathname).toBe('/api/auth/oauth/google/start')
     expect(start.searchParams.get('return_to')).toBe(target)
+    expect(start.searchParams.get('frontend_origin')).toBe('https://app.example.com')
     expect(start.searchParams.get('ref')).toBe('invite +&/#?')
     expect(link.origin).toBe('https://bff.example.com')
     expect(link.pathname).toBe('/api/auth/oauth/google/link')
     expect(link.searchParams.get('return_to')).toBe(target)
+    expect(link.searchParams.get('frontend_origin')).toBe('https://app.example.com')
     expect(link.searchParams.has('ref')).toBe(false)
   })
 
@@ -396,6 +401,7 @@ describe('auth client', () => {
       'fetch',
       vi.fn(async () =>
         Response.json({
+          loginMethods: { password: true, registration: true },
           providers: [
             { id: 'google', label: 'Google' },
             { id: 'later', label: 'Later' },
@@ -411,6 +417,27 @@ describe('auth client', () => {
       { id: 'google', label: 'Google' },
       { id: 'later', label: 'Later' },
     ])
+  })
+
+  it('preserves provider-only policy and rejects absent policy instead of enabling forms', async () => {
+    vi.stubGlobal('window', { location: { origin: 'https://studio.example.com' } })
+    const options = {
+      providers: [{ id: 'enterprise', label: 'Enterprise' }],
+      loginMethods: { password: false, registration: false },
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(options)),
+    )
+    await expect(fetchLoginOptions()).resolves.toEqual(options)
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toContain(
+      'frontend_origin=https%3A%2F%2Fstudio.example.com',
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ providers: [] })),
+    )
+    await expect(fetchLoginOptions()).rejects.toThrow('invalid_login_options')
   })
 
   it('reports no providers when the endpoint fails or answers with the wrong shape', async () => {

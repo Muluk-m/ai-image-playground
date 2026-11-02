@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { AgentJobPlan } from '@image-playground/db'
 import type {
+  AgentBatchPriceSnapshot,
   PersistedSubmitRequest,
   PersistedVideoRequest,
   QueueProvider,
@@ -35,6 +36,7 @@ import { isCapabilityEnabled } from './capabilities'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
 import { alignGptRequestToMembership } from './gpt-membership'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
+import { meteringDecisionOrDenied } from './metering-decision'
 import { modelUnavailable } from './model-availability'
 import { objectStore } from './objectStore'
 import { type BffTransaction, loadPrivateBffOverlay } from './private-overlay'
@@ -82,7 +84,7 @@ export interface CreateQueueTaskInput {
    */
   readonly projectSlot?: string
   /**
-   * 创作页 HTTP 直出提交显式打开：同账号几秒内内容一样的提交当作连点挡掉。
+   * 创作页 HTTP 直出：同账号几秒内内容一样的提交当作连点挡掉。
    * 其他入口（批量套用、智能体等）一批里本就可能有内容相同的几条，不开。
    */
   readonly dedupeRepeats?: true
@@ -110,6 +112,7 @@ export type CreateQueueTaskOutcome =
   | { readonly kind: 'duplicate_submission'; readonly taskId: string }
   | { readonly kind: 'invalid_prompt' }
   | { readonly kind: 'authentication_required' }
+  | { readonly kind: 'metering_denied'; readonly reason: string }
   | { readonly kind: 'private_billing_denied' }
   | { readonly kind: 'insufficient_credits'; readonly required: number; readonly available: number }
   | {
@@ -519,6 +522,19 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
   const dailyQuotaEnabled = isCapabilityEnabled('quota:daily')
   const dailyImageQuota = config.operator.quotas['generation:daily-images']
   const submit = async (tx: BffTransaction): Promise<CreateQueueTaskOutcome> => {
+    let metering: {
+      mode: 'credits' | 'none'
+      model: string
+      quantity: number
+      unitMultiplier: number
+      pricing?: AgentBatchPriceSnapshot
+    } = {
+      mode: isCapabilityEnabled('billing:credits') ? 'credits' : 'none',
+      model: input.model,
+      quantity: pricing.quantity,
+      unitMultiplier: pricing.unitMultiplier,
+    }
+    let unmeteredByDecision = false
     const projectOutput =
       input.userId && input.agent && !input.video && isCapabilityEnabled('accounts:sync')
     if (projectOutput) await lockMediaOwner(tx, input.userId!)
@@ -550,7 +566,36 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
       if (!(await premiumRequestAllowed(tx, input.userId, input.model, input.request)))
         return { kind: 'private_billing_denied' as const }
     }
-    if (input.maxCredits !== undefined && isCapabilityEnabled('billing:credits')) {
+    if (dedupesRecentSubmission(input)) {
+      const duplicate = await findRecentDuplicate(tx, input.userId, hash)
+      if (duplicate) return { kind: 'duplicate_submission' as const, taskId: duplicate.taskId }
+    }
+    if (input.userId) {
+      const decision = meteringDecisionOrDenied(
+        await taskHooks.meteringDecision?.({
+          tx,
+          userId: input.userId,
+          model: input.model,
+          kind: input.video ? 'video' : 'image',
+          quantity: pricing.quantity,
+          unitMultiplier: pricing.unitMultiplier,
+        }),
+        taskHooks.consumeUnmeteredQuota,
+      )
+      if (decision?.kind === 'denied')
+        return { kind: 'metering_denied' as const, reason: decision.reason }
+      if (decision?.kind === 'unmetered') {
+        unmeteredByDecision = true
+        metering = { ...metering, mode: 'none' }
+      }
+      if (decision?.kind === 'metered' && isCapabilityEnabled('billing:credits'))
+        metering = {
+          ...metering,
+          mode: 'credits',
+          ...(decision.pricing ? { pricing: decision.pricing } : {}),
+        }
+    }
+    if (input.maxCredits !== undefined && metering.mode === 'credits') {
       const quote = await taskHooks.quoteTask?.({
         tx,
         userId: input.userId ?? '',
@@ -566,10 +611,6 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
           maxCredits: input.maxCredits,
         }
     }
-    if (dedupesRecentSubmission(input)) {
-      const duplicate = await findRecentDuplicate(tx, input.userId, hash)
-      if (duplicate) return { kind: 'duplicate_submission' as const, taskId: duplicate.taskId }
-    }
     const inserted = await tx
       .insert(schema.tasks)
       .values({
@@ -584,6 +625,7 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
         client_request_id: input.request.client_request_id ?? null,
         agent_conversation_id: input.agent?.conversationId ?? null,
         agent_turn_id: input.agent?.turnId ?? null,
+        metering,
       })
       .onConflictDoNothing()
       .returning({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
@@ -591,7 +633,7 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
     if (inserted.length === 0) return { kind: 'idempotency_conflict' as const }
 
     let reservedCredits = 0
-    if (isCapabilityEnabled('billing:credits')) {
+    if (metering.mode === 'credits') {
       if (!input.userId) {
         await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
         return { kind: 'authentication_required' as const }
@@ -606,6 +648,18 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
       })
       if (reservation.kind !== 'reserved') {
         await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
+        if (reservation.kind === 'access_denied')
+          return { kind: 'metering_denied' as const, reason: reservation.reason }
+        if (reservation.kind === 'quota_exceeded')
+          return {
+            kind: 'quota_exceeded' as const,
+            quota: {
+              ok: false,
+              count: reservation.used,
+              quota: reservation.quota,
+              reset_at: reservation.resetAt,
+            },
+          }
         return reservation
       }
       reservedCredits = reservation.credits
@@ -613,6 +667,27 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
       // 抛出去让整个事务回滚，任务与预扣一起撤销。
       if (input.maxCredits !== undefined && reservedCredits > input.maxCredits)
         throw new MaxCreditsExceeded(reservedCredits, input.maxCredits)
+    } else if (unmeteredByDecision && input.userId && taskHooks.consumeUnmeteredQuota) {
+      const quota = await taskHooks.consumeUnmeteredQuota({
+        tx,
+        userId: input.userId,
+        model: input.model,
+        kind: input.video ? 'video' : 'image',
+        quantity: pricing.quantity,
+        unitMultiplier: pricing.unitMultiplier,
+      })
+      if (quota.kind === 'quota_exceeded') {
+        await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
+        return {
+          kind: 'quota_exceeded' as const,
+          quota: {
+            ok: false,
+            count: quota.used,
+            quota: quota.quota,
+            reset_at: quota.resetAt,
+          },
+        }
+      }
     } else if (dailyQuotaEnabled) {
       const quota = await tryConsumeQuotaInTransaction(
         tx,

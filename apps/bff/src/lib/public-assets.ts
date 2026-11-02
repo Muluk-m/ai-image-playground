@@ -18,6 +18,7 @@ function publicAssetClient(): Bun.S3Client {
   client ??= new Bun.S3Client({
     endpoint: config.objectStore.endpoint,
     bucket: config.publicAssets.bucket,
+    region: 'auto',
     accessKeyId: config.objectStore.accessKeyId,
     secretAccessKey: config.objectStore.secretAccessKey,
   })

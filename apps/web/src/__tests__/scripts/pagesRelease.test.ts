@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { spawnSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -265,4 +266,83 @@ it('names the URL that keeps stalling', async () => {
       { requestTimeoutMs: 20, requestTries: 2 },
     ),
   ).rejects.toThrow('GET /assets/lazy-456.js failed: no response in 20ms after 2 tries')
+})
+
+it.each([
+  { edition: 'internal', prefix: 'INTERNAL', indexing: 'false' },
+  { edition: 'paid', prefix: 'PAID', indexing: 'true' },
+])('builds $edition with the overlay and its own external Pages config', async ({
+  edition,
+  prefix,
+  indexing,
+}) => {
+  const checkout = join(dist, 'checkout')
+  await mkdir(join(checkout, 'scripts/lib'), { recursive: true })
+  await mkdir(join(checkout, 'private/apps/web'), { recursive: true })
+  await mkdir(join(checkout, 'bin'))
+  for (const script of ['pages-release.sh', 'pages-deploy.sh', 'lib/deploy-common.sh']) {
+    await writeFile(
+      join(checkout, 'scripts', script),
+      await readFile(join(root, 'scripts', script)),
+      {
+        mode: 0o755,
+      },
+    )
+  }
+  await writeFile(join(checkout, 'private/apps/web/index.tsx'), 'export {}\n')
+  const captured = join(checkout, 'build-env')
+  // Stop at the real build boundary: never build, upload, or call a live origin in this test.
+  await writeFile(
+    join(checkout, 'bin/pnpm'),
+    `#!/bin/sh
+printf '%s\\n' "$*" "$PRIVATE_WEB_OVERLAY_ENTRY" "$BFF_BASE_URL" "$PUBLIC_ORIGIN" "$SEARCH_INDEXING" "$CLOUDFLARE_ACCOUNT_ID" "$CLOUDFLARE_API_TOKEN" "$EXTRA_ASSETS_DIR" > "$CAPTURED"
+exit 27
+`,
+    { mode: 0o755 },
+  )
+  const assets = join(checkout, `${edition}-assets`)
+  await mkdir(assets)
+  const token = join(checkout, 'token.env')
+  await writeFile(token, `CLOUDFLARE_API_TOKEN=${edition}-token\n`)
+  const pagesEnv = join(checkout, 'pages.env')
+  await writeFile(
+    pagesEnv,
+    [
+      `${prefix}_PAGES_PROJECT=${edition}-project`,
+      `${prefix}_BFF_BASE_URL=https://api.${edition}.example.com`,
+      `${prefix}_PUBLIC_ORIGIN=https://${edition}.example.com`,
+      `${prefix}_CLOUDFLARE_ACCOUNT_ID=${edition}-account`,
+      `${prefix}_CLOUDFLARE_TOKEN_FILE=${token}`,
+      `${prefix}_EXTRA_ASSETS_DIR=${assets}`,
+    ].join('\n'),
+  )
+  const run = spawnSync('sh', [join(checkout, 'scripts/pages-release.sh'), edition], {
+    cwd: checkout,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${join(checkout, 'bin')}:${process.env.PATH}`,
+      PAGES_ENV_FILE: pagesEnv,
+      XDG_CONFIG_HOME: join(checkout, 'config'),
+      PAGES_DEPLOY_DRY_RUN: '',
+      CAPTURED: captured,
+      EXTRA_ASSETS_DIR: '/must-not-inherit-assets',
+    },
+  })
+  expect(run.status).toBe(27)
+  expect(run.stderr).toBe('')
+  expect(run.stdout).toContain(`private web bundle to Pages project ${edition}-project`)
+  expect(await readFile(captured, 'utf8')).toBe(
+    [
+      '--filter @image-playground/web build:static-host',
+      join(checkout, 'private/apps/web/index.tsx'),
+      `https://api.${edition}.example.com`,
+      `https://${edition}.example.com`,
+      indexing,
+      `${edition}-account`,
+      `${edition}-token`,
+      assets,
+      '',
+    ].join('\n'),
+  )
 })
