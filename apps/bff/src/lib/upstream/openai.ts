@@ -40,20 +40,51 @@ export function withoutModeration(request: HydratedSubmitRequest): HydratedSubmi
 
 /**
  * 把 fan-out 的多次单图响应合并成一个 OpenAI 风格 payload。
- * 只保留 data；单次响应的顶层字段（created / usage / size / quality / output_format）丢弃，
- * 即 fan-out 结果没有 extractImages 的 actual_params。
+ * 保留 data；单次响应的其它顶层字段（created / size / quality / output_format）丢弃，
+ * 即 fan-out 结果没有 extractImages 的 actual_params。各条回报的 usage 逐项相加保留：
+ * OpenAI 直连按它折算这一单的成本（upstream/gpt-budget.ts）。
  */
 export function mergeOpenAIImageResults(
   results: readonly UpstreamCallResult[],
 ): UpstreamCallResult {
+  const usage = sumImageUsage(
+    results.map((result) => (result.payload as { usage?: unknown })?.usage),
+  )
   return {
     payload: {
       data: results.flatMap((result) => {
         const payload = result.payload as { data?: unknown[] } | null
         return Array.isArray(payload?.data) ? payload.data : []
       }),
+      ...(usage ? { usage } : {}),
     },
   }
+}
+
+interface ImageUsage {
+  input_tokens: number
+  output_tokens: number
+  input_tokens_details: { image_tokens: number; text_tokens: number }
+}
+
+/** 每条都回了 usage 才相加；缺一条就不给（交给按档位估算），免得少算。 */
+function sumImageUsage(items: readonly unknown[]): ImageUsage | undefined {
+  if (items.length === 0) return undefined
+  const total: ImageUsage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    input_tokens_details: { image_tokens: 0, text_tokens: 0 },
+  }
+  const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : 0)
+  for (const item of items) {
+    const usage = item as Partial<ImageUsage> | undefined
+    if (!usage || typeof usage.output_tokens !== 'number') return undefined
+    total.input_tokens += num(usage.input_tokens)
+    total.output_tokens += usage.output_tokens
+    total.input_tokens_details.image_tokens += num(usage.input_tokens_details?.image_tokens)
+    total.input_tokens_details.text_tokens += num(usage.input_tokens_details?.text_tokens)
+  }
+  return total
 }
 
 /**

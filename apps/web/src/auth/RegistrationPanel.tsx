@@ -1,9 +1,9 @@
 import {
   EMAIL_MAX_LENGTH,
   isValidEmailAddress,
-  isValidPassword,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
+  passwordProblem,
 } from '@image-playground/shared'
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react'
 import { Button } from '../components/ui/button'
@@ -16,6 +16,7 @@ import AuthConsent from './AuthConsent'
 type ValidationErrorKey =
   | 'validation.invalidEmail'
   | 'validation.passwordLength'
+  | 'validation.passwordBlank'
   | 'validation.passwordMismatch'
   | 'validation.invalidVerificationCode'
 
@@ -102,8 +103,11 @@ export function RegistrationPanel({
       setValidationErrorKey('validation.invalidEmail')
       return
     }
-    if (!isValidPassword(password)) {
-      setValidationErrorKey('validation.passwordLength')
+    const problem = passwordProblem(password)
+    if (problem) {
+      setValidationErrorKey(
+        problem === 'blank' ? 'validation.passwordBlank' : 'validation.passwordLength',
+      )
       return
     }
     if (password !== confirmPassword) {
@@ -133,7 +137,7 @@ export function RegistrationPanel({
         type="button"
         variant="ghost"
         size="sm"
-        className="mb-6 text-muted-foreground"
+        className="mb-6 text-muted-foreground max-sm:mb-3"
         onClick={challenge ? returnToDetails : onBack}
         disabled={pending}
       >
@@ -141,15 +145,15 @@ export function RegistrationPanel({
         {challenge ? t('registration.verification.changeEmail') : t('registration.back')}
       </Button>
 
-      <div className="mb-6">
+      <div className="mb-6 max-sm:mb-4">
         <h1 className="text-xl font-semibold text-foreground" tabIndex={-1}>
           {challenge ? t('registration.verification.title') : t('registration.title')}
         </h1>
-        <p className="mt-2 text-body-sm text-muted-foreground">
-          {challenge
-            ? t('registration.verification.subtitle', { email: email.trim() })
-            : t('registration.subtitle')}
-        </p>
+        {challenge && (
+          <p className="mt-2 text-body-sm text-muted-foreground">
+            {t('registration.verification.subtitle', { email: email.trim() })}
+          </p>
+        )}
       </div>
       {challenge ? null : children}
 
@@ -196,7 +200,10 @@ export function RegistrationPanel({
               />
             </Label>
 
-            <Label className="mt-4 grid gap-2 first:mt-0" htmlFor="registration-password">
+            <Label
+              className="mt-4 grid gap-2 first:mt-0 max-sm:mt-3"
+              htmlFor="registration-password"
+            >
               <span>{t('registration.passwordLabel')}</span>
               <div className="relative">
                 <Input
@@ -206,7 +213,6 @@ export function RegistrationPanel({
                   className="pr-10"
                   autoComplete="new-password"
                   minLength={PASSWORD_MIN_LENGTH}
-                  maxLength={PASSWORD_MAX_LENGTH}
                   value={password}
                   onChange={(event) => setPassword(event.currentTarget.value)}
                   placeholder={t('registration.passwordPlaceholder', {
@@ -230,7 +236,10 @@ export function RegistrationPanel({
               </div>
             </Label>
 
-            <Label className="mt-4 grid gap-2 first:mt-0" htmlFor="registration-confirm-password">
+            <Label
+              className="mt-4 grid gap-2 first:mt-0 max-sm:mt-3"
+              htmlFor="registration-confirm-password"
+            >
               <span>{t('registration.confirmationLabel')}</span>
               <div className="relative">
                 <Input
@@ -240,7 +249,6 @@ export function RegistrationPanel({
                   className="pr-10"
                   autoComplete="new-password"
                   minLength={PASSWORD_MIN_LENGTH}
-                  maxLength={PASSWORD_MAX_LENGTH}
                   value={confirmPassword}
                   onChange={(event) => setConfirmPassword(event.currentTarget.value)}
                   placeholder={t('registration.confirmationPlaceholder')}

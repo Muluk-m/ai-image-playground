@@ -13,7 +13,9 @@ import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { mediaIdentity } from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
-import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
+import { collectDroppedFiles, prepareAcceptedImageFiles } from '../../../lib/imageFiles'
+import { useStore } from '../../../store'
+import { currentCanvasWorkspace } from '../lib/activeProject'
 import { copySelection, duplicateSelection, pasteClipboard } from '../lib/canvasClipboard'
 import type { ArrowEl, CanvasEl, FreedrawEl, ImageEl, TextEl } from '../lib/canvasDoc'
 import { newElementId, ZOOM_MAX, ZOOM_MIN } from '../lib/canvasDoc'
@@ -306,16 +308,31 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
   // ===== 粘贴：系统剪贴板图片优先，其次画布内部剪贴板（⌘C 复制的元素） =====
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
-      const t = e.target as HTMLElement | null
+      const target = e.target as HTMLElement | null
       // 输入框里的粘贴（生成条 prompt / 文字编辑）不拦
-      if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.isContentEditable) return
-      const files = acceptImageFiles([...(e.clipboardData?.files ?? [])])
-      if (files.length > 0) {
+      if (
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable
+      )
+        return
+      const pasted = [...(e.clipboardData?.files ?? [])]
+      if (pasted.some((file) => file.type.startsWith('image/'))) {
         e.preventDefault()
         const vp = editor.getViewportPageBounds()
-        confirmImageBatch(files.length, () => {
-          void importImageFiles(editor, files, { x: vp.midX, y: vp.midY })
-        })
+        const target = editor
+        const live = () => currentCanvasWorkspace().editor === target
+        void prepareAcceptedImageFiles(pasted)
+          .then((files) => {
+            if (!live() || files.length === 0) return
+            confirmImageBatch(files.length, () => {
+              if (!live()) return
+              void importImageFiles(target, files, { x: vp.midX, y: vp.midY }).catch(() =>
+                useStore.getState().showToast(t('import.failed'), 'error'),
+              )
+            })
+          })
+          .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
         return
       }
       if (pasteClipboard(editor.doc).length > 0) e.preventDefault()
@@ -757,13 +774,20 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
           y: camera.y + (e.clientY - rect.top) / camera.zoom,
         }
         // collectDroppedFiles 必须在这一拍同步调用：await 之后 DataTransfer.items 就空了。
-        void collectDroppedFiles(e.dataTransfer).then(({ files }) => {
-          const images = acceptImageFiles(files)
-          if (images.length === 0) return
-          confirmImageBatch(images.length, () => {
-            void importImageFiles(editor, images, drop)
+        const target = editor
+        const live = () => currentCanvasWorkspace().editor === target
+        void collectDroppedFiles(e.dataTransfer)
+          .then(async ({ files }) => {
+            const images = await prepareAcceptedImageFiles(files)
+            if (!live() || images.length === 0) return
+            confirmImageBatch(images.length, () => {
+              if (!live()) return
+              void importImageFiles(target, images, drop).catch(() =>
+                useStore.getState().showToast(t('import.failed'), 'error'),
+              )
+            })
           })
-        })
+          .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
       }}
     >
       {!dragging && !panning && <SelectionInfo doc={doc} />}

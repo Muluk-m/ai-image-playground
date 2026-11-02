@@ -115,6 +115,7 @@ describe('selector metadata from an unvalidated catalog', () => {
         capabilities: ['generate'],
         badges: ['fast', 'brand-new', 'fast', 'value'] as never,
         tier: 'fast',
+        family: 'future' as never,
         logo: 'future-logo' as never,
       },
       {
@@ -132,6 +133,13 @@ describe('selector metadata from an unvalidated catalog', () => {
     setChannels([STALE])
     const [first] = getProfileModelOptions(builtinProfile('stale', 'img-a'), getPublicChannels())
     expect(first?.badges).toEqual(['fast', 'value'])
+  })
+
+  it('drops unknown family values instead of hiding the model', () => {
+    setChannels([STALE])
+    const [first] = getProfileModelOptions(builtinProfile('stale', 'img-a'), getPublicChannels())
+    expect(first).not.toHaveProperty('family')
+    expect(first?.id).toBe('img-a')
   })
 
   it('keeps a known selector group and drops one the client does not know', () => {

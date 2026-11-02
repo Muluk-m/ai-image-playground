@@ -1183,7 +1183,11 @@ export const agentRoutes = new Elysia()
       if (forwarded) return forwarded
       const stopped = await stopConversationTurn(conversation.id, params.turnId)
       if (stopped.kind === 'no_such_turn') return status(404, TURN_NOT_FOUND)
-      const aborted: AgentTurnAbortedBody = { aborted: true, returned: stopped.returned }
+      const aborted: AgentTurnAbortedBody = {
+        aborted: true,
+        returned: stopped.returned,
+        ...(stopped.cancelledTaskIds ? { cancelledTaskIds: stopped.cancelledTaskIds } : {}),
+      }
       return aborted
     },
     { params: turnParams, body: turnBody },

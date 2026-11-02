@@ -396,6 +396,8 @@ it('历史按有界页遍历，页面之间新提交不会造成重复或漏掉�
   }
   const first = await (await request('/api/generations?limit=2', deviceB)).json()
   expect(first.items).toHaveLength(2)
+  // 总数只在第一页给：资产页的计数照它显示，不用把整段历史拉下来数。
+  expect(first.totals).toEqual({ all: 5, studio: 5, agent: 0 })
   await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
     ...input,
     client_request_id: 'pagination-new-command',
@@ -405,6 +407,7 @@ it('历史按有界页遍历，页面之间新提交不会造成重复或漏掉�
   while (cursor) {
     const page = await (await request(`/api/generations?limit=2&cursor=${cursor}`, deviceB)).json()
     expect(page.items.length).toBeLessThanOrEqual(2)
+    expect(page).not.toHaveProperty('totals')
     seen.push(...page.items.map((item: { id: string }) => item.id))
     cursor = page.nextCursor
   }
@@ -461,6 +464,55 @@ it('别人的作品删不掉，没有登录也删不掉', async () => {
   expect((await remove(`/api/generations/${id}`, stranger)).status).toBe(404)
   expect((await remove(`/api/generations/${id}`, '')).status).toBe(401)
   expect((await (await request('/api/generations', deviceB)).json()).items).toHaveLength(1)
+})
+
+it('多图作品只删一张：列表封面顺延、详情不再返回那张，删到最后一张整条消失', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#33aa77' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({
+      data: [0, 1, 2].map(() => ({ b64_json: png.toString('base64') })),
+    })) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  await runTask(id)
+  const outputs = async () =>
+    (
+      (await (await request(`/api/generations/${id}`, deviceB)).json()).outputs as {
+        index: number
+      }[]
+    ).map((image) => image.index)
+  expect(await outputs()).toEqual([0, 1, 2])
+
+  expect((await remove(`/api/generations/${id}/outputs/0`, stranger)).status).toBe(404)
+  expect((await remove(`/api/generations/${id}/outputs/0`, '')).status).toBe(401)
+  const first = await remove(`/api/generations/${id}/outputs/0`, deviceA)
+  expect(first.status).toBe(200)
+  expect(await first.json()).toEqual({ generationDeleted: false })
+  expect(await outputs()).toEqual([1, 2])
+  const [item] = (await (await request('/api/generations', deviceB)).json()).items
+  expect(item.cover.index).toBe(1)
+  expect(item.outputCount).toBe(2)
+  // 同一张删两次、删不存在的位置都是 404，不会误删别的。
+  expect((await remove(`/api/generations/${id}/outputs/0`, deviceA)).status).toBe(404)
+  expect((await remove(`/api/generations/${id}/outputs/7`, deviceA)).status).toBe(404)
+  // 原图地址按原位置号仍可读（画布、对话可能还在引用）。
+  expect((await request(`/v1/queue/requests/${id}/output/2`, deviceA)).status).toBe(200)
+
+  expect(await (await remove(`/api/generations/${id}/outputs/2`, deviceA)).json()).toEqual({
+    generationDeleted: false,
+  })
+  // 删的不是封面：封面不变，张数变了，别的设备据此丢掉旧详情。
+  const [later] = (await (await request('/api/generations', deviceB)).json()).items
+  expect(later.cover.index).toBe(1)
+  expect(later.outputCount).toBe(1)
+  expect(await (await remove(`/api/generations/${id}/outputs/1`, deviceB)).json()).toEqual({
+    generationDeleted: true,
+  })
+  expect((await (await request('/api/generations', deviceA)).json()).items).toEqual([])
+  expect((await request(`/api/generations/${id}`, deviceA)).status).toBe(404)
 })
 
 it('没有项目的生成原件在临时任务清理后仍可跨设备读取', async () => {

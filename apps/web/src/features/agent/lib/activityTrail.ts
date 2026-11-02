@@ -1,4 +1,4 @@
-import type { AgentToolName } from '@image-playground/shared'
+import type { AgentToolErrorCode, AgentToolName } from '@image-playground/shared'
 import type { AgentPanelMessage, AgentToolMessage } from '../types'
 
 /**
@@ -90,14 +90,46 @@ export interface PanelGrouping {
   readonly absorbed: ReadonlySet<number>
 }
 
-/** 把连续的过程步归成一串。非过程步原样保留在它自己的位置上。 */
+/**
+ * 智能体自己已经纠正的失败：参数没通过校验（或取网图被拒）之后，同一轮里同一个工具又成功跑了一次。
+ * 这种失败没有提交、没有扣费，用户也无事可做；留着那张「这次的参数不成立」卡只会让人以为出错了，
+ * 还可能去点「让智能体重新处理」（BUG-46）。生成类的失败（上游出错、超时等）不在此列，照常显示。
+ */
+const SELF_CORRECTED_CODES: ReadonlySet<AgentToolErrorCode> = new Set<AgentToolErrorCode>([
+  'invalid_params',
+  'source_unavailable',
+])
+
+function recoveredFailures(messages: readonly AgentPanelMessage[]): ReadonlySet<number> {
+  const recovered = new Set<number>()
+  const succeeded = new Set<string>()
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!
+    if (message.kind !== 'tool' || !message.toolName) continue
+    const key = `${message.turnId}\u0000${message.toolName}`
+    if (message.status === 'succeeded') succeeded.add(key)
+    else if (
+      message.status === 'failed' &&
+      message.errorCode &&
+      SELF_CORRECTED_CODES.has(message.errorCode) &&
+      !message.job &&
+      !message.artifacts?.length &&
+      succeeded.has(key)
+    )
+      recovered.add(index)
+  }
+  return recovered
+}
+
+/** 把连续的过程步归成一串。非过程步原样保留在它自己的位置上；已自行纠正的失败不显示。 */
 export function groupPanelMessages(messages: readonly AgentPanelMessage[]): PanelGrouping {
   const trails = new Map<number, ActivityTrail>()
-  const absorbed = new Set<number>()
+  const recovered = recoveredFailures(messages)
+  const absorbed = new Set<number>(recovered)
   let index = 0
   while (index < messages.length) {
     const message = messages[index]!
-    if (!isProcessStep(message)) {
+    if (recovered.has(index) || !isProcessStep(message)) {
       index += 1
       continue
     }
@@ -105,6 +137,10 @@ export function groupPanelMessages(messages: readonly AgentPanelMessage[]): Pane
     const start = index
     while (index < messages.length) {
       const step = messages[index]
+      if (recovered.has(index)) {
+        index += 1
+        continue
+      }
       if (!step || !isProcessStep(step)) break
       steps.push(step)
       absorbed.add(index)

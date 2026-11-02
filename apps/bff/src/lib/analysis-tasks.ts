@@ -17,6 +17,7 @@ import { withVisualPreparation } from './agent/visual-resources'
 import { analysisComparison } from './analysis-comparison'
 import { isCapabilityEnabled } from './capabilities'
 import { type ChatAttempt, extractJson } from './chatCompletion'
+import { modelUnavailable } from './model-availability'
 import {
   type BffTransaction,
   loadPrivateBffOverlay,
@@ -179,6 +180,9 @@ export async function reserveAnalysisTask(
       ),
     )
   if (media.length !== mediaIds.length) throw new Error('analysis_inputs_unavailable')
+  if (await modelUnavailable(tx, prepared.model)) {
+    return { kind: 'price_unavailable' as const, model: prepared.model }
+  }
   const now = Date.now()
   await tx.insert(schema.tasks).values({
     id: input.taskId,

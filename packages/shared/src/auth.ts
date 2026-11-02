@@ -100,8 +100,15 @@ export function isValidUsername(value: string): boolean {
   )
 }
 
+/** 全是空白的密码按「空」处理：长度够也不收。超长不截断，直接判为长度不符。 */
+export function passwordProblem(value: string): 'blank' | 'length' | null {
+  if (value.trim().length === 0) return 'blank'
+  if (value.length < PASSWORD_MIN_LENGTH || value.length > PASSWORD_MAX_LENGTH) return 'length'
+  return null
+}
+
 export function isValidPassword(value: string): boolean {
-  return value.length >= PASSWORD_MIN_LENGTH && value.length <= PASSWORD_MAX_LENGTH
+  return passwordProblem(value) === null
 }
 
 /** 按 Unicode 码位计数，和 PostgreSQL 的 `char_length` 对齐。 */

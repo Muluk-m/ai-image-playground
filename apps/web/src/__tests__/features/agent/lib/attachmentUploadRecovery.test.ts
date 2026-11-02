@@ -134,3 +134,22 @@ it('re-confirms a lease that expires while the tab stays open and recovers after
   expect(remote.upload).toHaveBeenCalledTimes(3)
   release()
 })
+
+// 缩略图上的「重试」连点（BUG-41）：同一张图同时只重传一次，两次点击拿到的是同一次结果。
+it('starts one upload when retry is triggered twice before the first settles', async () => {
+  const reference = { dataUrl: 'data:image/png;base64,ZG91YmxlLXJldHJ5' }
+  local.read.mockResolvedValue(undefined)
+  remote.upload.mockRejectedValueOnce(new Error('media_timeout'))
+  const release = primeAttachmentUploads([reference])
+  await vi.waitFor(() => expect(attachmentUploadState(reference)).toBe('failed'))
+  let finish!: (value: unknown) => void
+  remote.upload.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+  const first = retryAttachmentUploads(reference)
+  const second = retryAttachmentUploads(reference)
+  await vi.waitFor(() => expect(remote.upload).toHaveBeenCalledTimes(2))
+  finish({ id: 'retried', sha256: 'hash', leaseExpiresAt: Date.now() + 3_600_000 })
+  await Promise.all([first, second])
+  expect(attachmentUploadState(reference)).toBe('ready')
+  expect(remote.upload).toHaveBeenCalledTimes(2)
+  release()
+})

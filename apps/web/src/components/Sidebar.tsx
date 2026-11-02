@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAgentJobActivity } from '../features/agent/lib/jobActivity'
 import { useAgentStore } from '../features/agent/store'
 import {
@@ -434,7 +434,10 @@ function ProjectThumb({
   conversationId?: string | null
 }) {
   const { t } = useTranslation('agent')
-  const [failed, setFailed] = useState(false)
+  // 记住是哪张封面取不到：换了封面就再试一次。
+  const [failedCover, setFailedCover] = useState<string>()
+  const fail = useCallback(() => setFailedCover(cover), [cover])
+  const failed = Boolean(cover) && failedCover === cover
   // 这段对话还有图在出 / 出完了还没回去看（BUG-16）：人在别处也能从侧栏看出来。
   const activity = useAgentJobActivity((state) =>
     conversationId ? state.activity[conversationId] : undefined,
@@ -450,20 +453,24 @@ function ProjectThumb({
     >
       <span
         data-project-thumb={spinning ? 'loading' : showCover ? 'cover' : chat ? 'chat' : 'canvas'}
-        className="grid size-7 place-items-center overflow-hidden rounded-md bg-muted text-muted-foreground"
+        className="relative grid size-7 place-items-center overflow-hidden rounded-md bg-muted text-muted-foreground"
       >
         {spinning ? (
           <Icon name="loading" size="xs" className="animate-spin text-primary" />
-        ) : showCover && cover ? (
-          <MediaImage
-            src={cover}
-            alt=""
-            className="size-full object-cover"
-            onError={() => setFailed(true)}
-          />
         ) : (
           <Icon name={chat ? 'chat' : 'canvas'} size="xs" />
         )}
+        {/* 封面压在图标上：排队取图、取不到时露出的是图标，不是一块空底色。 */}
+        {showCover && cover ? (
+          <MediaImage
+            src={cover}
+            alt=""
+            urgent
+            className="absolute inset-0 size-full object-cover"
+            onError={fail}
+            onResolveError={fail}
+          />
+        ) : null}
       </span>
       {generating ? <span className="sr-only">{t('job.done.running')}</span> : null}
       {unseen ? (

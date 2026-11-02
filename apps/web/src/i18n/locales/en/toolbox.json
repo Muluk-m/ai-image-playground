@@ -1,40 +1,44 @@
 {
   "catalog": {
-    "process": "Single & batch",
-    "compose": "Combine images"
+    "title": "Image toolbox",
+    "subtitle": "{{count}} everyday tools. Everything runs locally in your browser; images are never uploaded.",
+    "tabs": "Tool categories",
+    "all": "All",
+    "process": "Single image",
+    "compose": "Combine"
   },
   "tool": {
     "compress": {
       "name": "Compress",
-      "options": "Quality · Target size"
+      "description": "Batch compress by quality or target size"
     },
     "convert": {
       "name": "Convert",
-      "options": "JPG · PNG · WebP · AVIF"
+      "description": "Convert between JPG, PNG, WebP and AVIF"
     },
     "crop": {
       "name": "Crop",
-      "options": "Ratio · Store & social sizes"
+      "description": "Common ratios and store or social sizes"
     },
     "rotate": {
-      "name": "Rotate & flip",
-      "options": "90° · Horizontal · Vertical"
+      "name": "Rotate & mirror",
+      "description": "Any angle, horizontal or vertical flip"
     },
     "collage": {
       "name": "Collage",
-      "options": "Grid · Gap · Background"
+      "description": "Grid layouts with adjustable gap and background"
     },
     "stitch": {
       "name": "Stitch",
-      "options": "Vertical · Horizontal"
+      "description": "Join images vertically or horizontally"
     },
     "slice": {
       "name": "Grid split",
-      "options": "3×3 · 2×2 · 1×3"
+      "description": "Split one image into 3×3, 2×2 or 1×3"
     },
     "export": {
       "name": "Resize",
-      "options": "Proportional size · Scale · Format"
+      "description": "Scale proportionally or by factor, with format change"
     }
   },
   "intake": {
@@ -45,11 +49,7 @@
     "addFolder": "Folder",
     "hint": "Drop images or a folder, or paste",
     "chooseImages": "Choose images",
-    "chooseFolder": "Choose folder",
-    "clearAll": "Clear all"
-  },
-  "page": {
-    "returnToTools": "Back to toolbox"
+    "chooseFolder": "Choose folder"
   },
   "params": {
     "format": "Output format",
@@ -107,8 +107,6 @@
     }
   },
   "footer": {
-    "summary_one": "{{count}} image · {{before}} → {{after}} ({{delta}})",
-    "summary_other": "{{count}} images · {{before}} → {{after}} ({{delta}})",
     "processing": "Processing…",
     "sendToComposer": "Add to prompt box",
     "download": "Download",
@@ -122,8 +120,8 @@
   "combine": {
     "slices_one": "{{count}} tile",
     "slices_other": "{{count}} tiles",
-    "up": "Move up",
-    "down": "Move down"
+    "up": "Move earlier",
+    "down": "Move later"
   },
   "export": {
     "title": "Export",
@@ -166,5 +164,46 @@
     "invalidSize": "Enter a whole number greater than 0",
     "pendingSize": "Awaiting size",
     "unknownSize": "Calculated on export"
+  },
+  "rotation": {
+    "angle": "Exact angle",
+    "left": "90° left",
+    "right": "90° right",
+    "mirror": "Mirror",
+    "grid": "Guide grid",
+    "expand": "Keep full image",
+    "reset": "Reset adjustments",
+    "original": "Original",
+    "adjusted": "Adjusted",
+    "images": "Select image",
+    "lossless": "PNG · Lossless",
+    "export": "Export image"
+  },
+  "workbench": {
+    "tools": "Tools",
+    "count_one": "{{count}} image",
+    "count_other": "{{count}} images",
+    "compareHint": "Click an image to compare before and after",
+    "local": "Processed locally, never uploaded",
+    "settings": "{{name}} settings",
+    "addTile": "Drop or click to add",
+    "footerHint": "Processed images can go straight back to the prompt box as references."
+  },
+  "compare": {
+    "open": "Compare {{name}}",
+    "slider": "Before and after",
+    "before": "Before",
+    "after": "After"
+  },
+  "stats": {
+    "images": "Images",
+    "imagesValue_one": "{{count}}",
+    "imagesValue_other": "{{count}}",
+    "before": "Original",
+    "after": "Processed",
+    "delta": "Change",
+    "output": "Output size",
+    "size": "File size",
+    "tiles": "Tiles"
   }
 }

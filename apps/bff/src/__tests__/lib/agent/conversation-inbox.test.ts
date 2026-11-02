@@ -201,6 +201,37 @@ describe('发送', () => {
   })
 })
 
+describe('发送时开轮抛错', () => {
+  it('保存的模型配置失效：发送报错，这一条不留在队里', async () => {
+    const conversationId = await conversation()
+    await db.insert(schema.agent_model_settings).values({
+      id: 'agent',
+      // 存下来的配置后来校验不过（比如网关地址换了）：读的时候才报无效。
+      settings: {
+        providers: 'broken',
+      } as unknown as typeof schema.agent_model_settings.$inferInsert.settings,
+      revision: 1,
+      updated_at: Date.now(),
+    })
+    try {
+      await expect(
+        sendToConversationInbox(conversationId, userMessage('先画一只猫')),
+      ).rejects.toThrow('保存的模型配置无效')
+      expect(await queueIds(conversationId)).toEqual([])
+      expect(runningTurn(conversationId)).toBeUndefined()
+      expect(calls).toHaveLength(0)
+    } finally {
+      await db.delete(schema.agent_model_settings)
+    }
+
+    // 配置修好之后同一个会话照常开轮。
+    const sent = await sendToConversationInbox(conversationId, userMessage('再画一只猫'))
+    expect(sent.kind).toBe('started')
+    if (sent.kind !== 'started') throw new Error('unreachable')
+    await settled(sent.turn)
+  })
+})
+
 describe('撤回', () => {
   it('撤下排着的那一条，只通知一次；没有的那条就是没有', async () => {
     const conversationId = await conversation()

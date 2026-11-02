@@ -58,31 +58,45 @@ export function buildVertexBody(
 }
 
 /**
- * 单条 generateContent 遇到 429 时在请求内的退避（毫秒），用完还是 429 就交给任务级重试
- * （retry.ts，10 秒 / 30 秒后整单再跑）。
+ * 单条 generateContent 遇到 429 时在请求内的退避（毫秒）。用完还是 429，这一张改用回落模型
+ * （`VERTEX_RATE_LIMIT_FALLBACK_MODEL`，默认 gemini-nano-banana-2.1）补；回落也用完退避仍 429
+ * 才算失败，而且不再交给任务级重试整单重跑（见 {@link rateLimitedError}）。
  *
  * 2026-10-22 22:23–22:29 用生产同一个 key 在 global 端点实测（1K 1:1、不重试）：三个模型各自
  * 只能连着放过 2–3 条，再来的请求 0.1–0.2 秒就回 RESOURCE_EXHAUSTED；之后大约每 40–50 秒才再
  * 放过一条（Lite 每 12 秒发一条，8 条里过了 3 条）。限的是到达速率而不是在途条数，而且按模型各算各的。
  * 官方说明（Standard PayGo）：这类 429 不是固定配额，是共享资源争用，建议指数退避、把请求摊平，
- * 不要秒级扎堆。所以这里按 5 / 15 / 30 秒（±25% 抖动）退避，退避期间继续占着排队位，
- * 同一模型后面的请求跟着排队，正好起到摊平的作用。
+ * 不要秒级扎堆。2026-10-29 事故时段 12:02–12:29 实际只放行约 0.8–1.5 张/分钟，秒级退避基本
+ * 全落在同一个拥塞窗口里，所以退避拉到分钟级：默认 30 / 60 / 120 秒（±25% 抖动），可用
+ * `VERTEX_RATE_LIMIT_BACKOFF_MS`（逗号分隔毫秒数）调。退避期间继续占着排队位，同一模型后面的
+ * 请求跟着排队，正好起到摊平的作用；按到达速率的令牌桶归统一调度层做。
  */
-export const VERTEX_RATE_LIMIT_BACKOFF_MS: readonly number[] = [5_000, 15_000, 30_000]
+export const VERTEX_RATE_LIMIT_BACKOFF_MS: readonly number[] = [30_000, 60_000, 120_000]
 
-let rateLimitBackoffMs = VERTEX_RATE_LIMIT_BACKOFF_MS
+/** 解析 `VERTEX_RATE_LIMIT_BACKOFF_MS`；空则用默认值，写错直接报错，不悄悄退回默认。 */
+export function parseVertexRateLimitBackoff(raw: string | undefined): readonly number[] {
+  if (raw === undefined || raw.trim() === '') return VERTEX_RATE_LIMIT_BACKOFF_MS
+  const steps = raw.split(',').map((part) => Number(part.trim()))
+  if (steps.length === 0 || steps.some((ms) => !Number.isInteger(ms) || ms <= 0 || ms > 600_000))
+    throw new Error('VERTEX_RATE_LIMIT_BACKOFF_MS must be comma-separated integers in (0, 600000]')
+  return steps
+}
+
+const configuredBackoffMs = parseVertexRateLimitBackoff(process.env.VERTEX_RATE_LIMIT_BACKOFF_MS)
+
+let rateLimitBackoffMs = configuredBackoffMs
 
 /** 测试注入点；undefined 恢复真实退避。 */
 export function setVertexRateLimitBackoffForTesting(backoffMs?: readonly number[]): void {
-  rateLimitBackoffMs = backoffMs ?? VERTEX_RATE_LIMIT_BACKOFF_MS
+  rateLimitBackoffMs = backoffMs ?? configuredBackoffMs
 }
 
-function isRateLimited(error: unknown): boolean {
+export function isRateLimited(error: unknown): boolean {
   return (error as { upstreamStatus?: unknown } | null)?.upstreamStatus === 429
 }
 
 /**
- * 发一条 Vertex 请求，429 时按 `VERTEX_RATE_LIMIT_BACKOFF_MS` 退避重发。429 是上游没受理的明确
+ * 发一条 Vertex 请求，429 时按配置的退避（默认 `VERTEX_RATE_LIMIT_BACKOFF_MS`）重发。429 是上游没受理的明确
  * 答复，重发不会重复出图。退避用完、或退避途中任务到点，都抛出一个仍带 429 的错误
  * （任务级重试照旧接手），文案说清楚是上游限流；任务失败时冻结的积分按现有结算退回。
  */
@@ -90,22 +104,39 @@ export async function withVertexRateLimitRetry<T>(
   send: () => Promise<T>,
   signal: AbortSignal,
   isTimeout: () => boolean,
+  /** 原模型的总时限（epoch 毫秒）：下一次退避会越过它就不等了，按限流失败交给回落。 */
+  capAt?: number,
 ): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await send()
     } catch (error) {
       if (!isRateLimited(error)) throw error
-      const delay = rateLimitBackoffMs[attempt]
-      if (delay === undefined) throw rateLimitedError(error)
+      const step = rateLimitBackoffMs[attempt]
+      if (step === undefined) throw rateLimitedError(error)
+      const delay = step * (0.75 + Math.random() * 0.5)
+      if (capAt !== undefined && Date.now() + delay >= capAt) throw rateLimitedError(error)
       try {
-        await sleep(delay * (0.75 + Math.random() * 0.5), signal)
+        await sleep(delay, signal)
       } catch (abort) {
         // 到点：这条请求上游没受理过，按限流失败报，别冒充「结果未知」。用户取消照旧往外抛。
         if (isTimeout()) throw rateLimitedError(error)
         throw abort
       }
+      // 定时器可能晚醒：睡过了总时限就不再发原模型，同样交给回落。
+      if (capAt !== undefined && Date.now() >= capAt) throw rateLimitedError(error)
     }
+  }
+}
+
+/**
+ * 原模型到了总时限（`rateLimitFallbackAt`）还没轮到发：请求没发出去，这一张交给回落模型。
+ * 只在有回落模型时抛，调用方接住；不会作为任务失败往外冒。
+ */
+export class VertexTimeCapError extends Error {
+  constructor() {
+    super('原模型等待超过总时限，改用回落模型')
+    this.name = 'VertexTimeCapError'
   }
 }
 
@@ -114,37 +145,30 @@ const RATE_LIMITED_MESSAGE = '该模型当前请求太多（上游限流），�
 /**
  * 退避用完仍 429。三个 Vertex 模型共用这条文案，所以不写具体模型名。原始响应体留给失败记录
  * （errors.ts 的 extractUpstreamFailure），排障时看得到上游原话。
+ *
+ * 标成不可重试：这个模型的到达速率配额约每分钟 2 条（2026-10-29 Lite 事故），任务级重试
+ * （10s / 30s 后整单再跑）只会把同一单的 n 条请求再撞一遍限流，一单拖到 10 分钟以上，
+ * 还会和排队的单子抢配额。回落模型在单张层面已经试过了，这里直接失败、整笔退回积分。
  */
-function rateLimitedError(cause: unknown, message = RATE_LIMITED_MESSAGE): Error {
-  const err = new Error(message, { cause }) as Error & {
+function rateLimitedError(cause: unknown): Error {
+  const err = new Error(RATE_LIMITED_MESSAGE, { cause }) as Error & {
     upstreamStatus: number
     upstreamPayload?: unknown
+    retryable: boolean
   }
   err.upstreamStatus = 429
+  err.retryable = false
   const payload = (cause as { upstreamPayload?: unknown } | null)?.upstreamPayload
   if (payload !== undefined) err.upstreamPayload = payload
   return err
 }
 
 /**
- * 一单多张拆成的请求里，有的已经出图、有的退避用完仍 429 时的收口（`fanOutRequests` 的
- * `onPartialFailure`）。任务级重试会把整组 n 张重新生成，已出的图要再付一遍上游费用，还会接着
- * 撞同一个限流，所以这种情况标成不可重试：任务失败，冻结的积分按现有结算整笔退回（只有任务
- * 完成才扣费）。已出的图不交付：交付部分结果要按实交张数结算，属于计费改动，不放在这个热修里。
- * 不是 429 的失败（含用户取消）返回 undefined，照原样往外抛。
+ * 任务结果里记下「要的是哪个模型、实际有几张是回落模型出的」（`result_payload.model_fallback`）。
+ * 计费不看它：仍按提交时冻结的原模型单价结算，回落不让用户多付。
  */
-export function vertexPartialRateLimitFailure(
-  reason: unknown,
-  delivered: number,
-  requested: number,
-): Error | undefined {
-  if (!isRateLimited(reason)) return undefined
-  const err = rateLimitedError(
-    reason,
-    `该模型当前请求太多（上游限流）：本单 ${requested} 张里有 ${requested - delivered} 张自动重试仍未成功。为免整单重复生成，本单不再自动重跑，请稍后再试`,
-  ) as Error & { retryable: boolean }
-  err.retryable = false
-  return err
+export function modelFallbackRecord(requestedModel: string, model: string, images: number) {
+  return { requested_model: requestedModel, model, images }
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { readCache, writeCache } from './lib/cache'
 import { fetchManifestWithFallback, resolveRemoteManifestUrl } from './lib/fetchManifest'
 import type { InspirationGroupId } from './lib/groups'
+import { inspirationTitlesLoaded, loadInspirationTitles } from './lib/labels'
 import type { InspirationItem } from './types'
 
 const REMOTE_TTL_MS = 5 * 60 * 1000
@@ -62,6 +63,10 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
   detailFallback: null,
 
   loadRemote: async (signal) => {
+    // 英文标题表单独一个 chunk，和清单无关：还没取到就取（上次失败时这里重试），
+    // 到了以后重渲一次，英文界面里的卡片标题换成英文。取不到就一直显示原标题。
+    if (!inspirationTitlesLoaded())
+      void loadInspirationTitles().then(() => set((state) => ({ items: [...state.items] })))
     const url = resolveRemoteManifestUrl()
     if (!url) {
       set({ status: 'ready' })
@@ -75,12 +80,12 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
     if (current.status === 'loading-remote') return
     if (current.status === 'ready' && current.items.length > 0) return
 
+    set({ status: 'loading-remote' })
     const cached = readCache()
     if (cached && Date.now() - cached.storedAt < REMOTE_TTL_MS) {
       get().setRemoteItems(cached.manifest.items, cached.manifest.categories)
     }
 
-    set({ status: 'loading-remote' })
     try {
       const manifest = await fetchManifestWithFallback(url, signal)
       writeCache(manifest)

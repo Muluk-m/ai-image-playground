@@ -47,13 +47,41 @@ const waiting: Waiting[] = []
  * 要取的那几张会排在整页预览后面——2026-09-22 生产实测，刚加载完就点复用要等 21s。
  * 所以队列分两档：用户点出来的插到所有背景预览之前，背景之间仍按先来后到。
  */
-async function bounded<T>(work: () => Promise<T>, urgent = false): Promise<T> {
+/** 还在排队的回源按缓存键记着，后来的 urgent 调用复用同一请求时能把它提到前面。 */
+const queued = new Map<string, Waiting>()
+/** urgent 来时同一请求还在查本机缓存、没进队列：先记下来，入队时就按 urgent 排。 */
+const urgentIntent = new Set<string>()
+
+function enqueue(entry: Waiting): void {
+  const firstBackground = entry.urgent ? waiting.findIndex((item) => !item.urgent) : -1
+  if (firstBackground >= 0) waiting.splice(firstBackground, 0, entry)
+  else waiting.push(entry)
+}
+
+function promote(key: string): void {
+  const entry = queued.get(key)
+  if (!entry || entry.urgent) return
+  const index = waiting.indexOf(entry)
+  // 已出队、正等被唤醒的那一路不在 waiting 里了，不能 splice(-1) 误删队尾别人的请求。
+  if (index < 0) return
+  waiting.splice(index, 1)
+  entry.urgent = true
+  enqueue(entry)
+}
+
+async function bounded<T>(work: () => Promise<T>, urgent = false, key?: string): Promise<T> {
   if (active >= 2) {
     await new Promise<void>((resolve) => {
-      const entry: Waiting = { urgent, resume: resolve }
-      const firstBackground = urgent ? waiting.findIndex((item) => !item.urgent) : -1
-      if (firstBackground >= 0) waiting.splice(firstBackground, 0, entry)
-      else waiting.push(entry)
+      const entry: Waiting = {
+        urgent,
+        resume: () => {
+          // 出队即同步摘掉，避免唤醒前的微任务窗口里还能被 promote 找到。
+          if (key && queued.get(key) === entry) queued.delete(key)
+          resolve()
+        },
+      }
+      if (key) queued.set(key, entry)
+      enqueue(entry)
     })
   } else active++
   try {
@@ -175,7 +203,13 @@ export async function resolveMediaSource(
     return hit
   }
   const pending = loading.get(key)
-  if (pending) return pending
+  if (pending) {
+    if (urgent) {
+      urgentIntent.add(key)
+      promote(key)
+    }
+    return pending
+  }
   const operation = (async () => {
     const cached = bypassDiskCache.has(key)
       ? undefined
@@ -187,82 +221,87 @@ export async function resolveMediaSource(
       remember(key, data)
       return data
     }
-    return bounded(async () => {
-      assertScope()
-      const deadline = variant === 'original' ? new AbortController() : undefined
-      const timer = deadline
-        ? setTimeout(
-            () => deadline.abort(new DOMException('Media download timed out', 'TimeoutError')),
-            300_000,
-          )
-        : undefined
-      try {
-        for (let attempt = 0; attempt < 2; attempt++) {
-          let stage: 'access' | 'fetch' | 'body' = 'access'
-          try {
-            deadline?.signal.throwIfAborted()
-            const access = await mediaJson<Access>(`/${id}/access`, { signal: deadline?.signal })
-            assertScope()
-            stage = 'fetch'
-            const response = await fetch(
-              variant === 'preview' ? access.previewUrl : access.originalUrl,
-              {
-                credentials: 'omit',
-                signal: deadline?.signal ?? AbortSignal.timeout(30_000),
-              },
+    return bounded(
+      async () => {
+        assertScope()
+        const deadline = variant === 'original' ? new AbortController() : undefined
+        const timer = deadline
+          ? setTimeout(
+              () => deadline.abort(new DOMException('Media download timed out', 'TimeoutError')),
+              300_000,
             )
-            assertScope()
-            if (!response.ok) {
-              void response.body?.cancel().catch(() => {})
-              throw new MediaRequestError(response.status, 'media_download_failed')
+          : undefined
+        try {
+          for (let attempt = 0; attempt < 2; attempt++) {
+            let stage: 'access' | 'fetch' | 'body' = 'access'
+            try {
+              deadline?.signal.throwIfAborted()
+              const access = await mediaJson<Access>(`/${id}/access`, { signal: deadline?.signal })
+              assertScope()
+              stage = 'fetch'
+              const response = await fetch(
+                variant === 'preview' ? access.previewUrl : access.originalUrl,
+                {
+                  credentials: 'omit',
+                  signal: deadline?.signal ?? AbortSignal.timeout(30_000),
+                },
+              )
+              assertScope()
+              if (!response.ok) {
+                void response.body?.cancel().catch(() => {})
+                throw new MediaRequestError(response.status, 'media_download_failed')
+              }
+              stage = 'body'
+              const bytes = await response.arrayBuffer()
+              const contentType = response.headers.get('content-type') ?? 'application/octet-stream'
+              const data = await blobDataUrl(new Blob([bytes], { type: contentType }))
+              assertScope()
+              deadline?.signal.throwIfAborted()
+              remember(key, data)
+              if (
+                await persist({
+                  id: cacheId,
+                  data: bytes,
+                  contentType,
+                  bytes: bytes.byteLength,
+                  lastUsedAt: Date.now(),
+                })
+              )
+                bypassDiskCache.delete(key)
+              return data
+            } catch (error) {
+              assertScope()
+              deadline?.signal.throwIfAborted()
+              // Refresh signed URLs on expiry; original downloads also recover interrupted bodies
+              // and temporary API/storage failures, before any bytes enter the cache.
+              const expired =
+                stage === 'fetch' && error instanceof MediaRequestError && error.status === 403
+              const network =
+                error instanceof TypeError && (stage === 'fetch' || variant === 'original')
+              const transientOriginal =
+                variant === 'original' &&
+                ((error instanceof MediaRequestError &&
+                  [408, 429, 500, 502, 503, 504].includes(error.status)) ||
+                  (error instanceof DOMException &&
+                    (error.name === 'AbortError' || error.name === 'TimeoutError')))
+              if (attempt === 0 && (expired || network || transientOriginal)) continue
+              throw error
             }
-            stage = 'body'
-            const bytes = await response.arrayBuffer()
-            const contentType = response.headers.get('content-type') ?? 'application/octet-stream'
-            const data = await blobDataUrl(new Blob([bytes], { type: contentType }))
-            assertScope()
-            deadline?.signal.throwIfAborted()
-            remember(key, data)
-            if (
-              await persist({
-                id: cacheId,
-                data: bytes,
-                contentType,
-                bytes: bytes.byteLength,
-                lastUsedAt: Date.now(),
-              })
-            )
-              bypassDiskCache.delete(key)
-            return data
-          } catch (error) {
-            assertScope()
-            deadline?.signal.throwIfAborted()
-            // Refresh signed URLs on expiry; original downloads also recover interrupted bodies
-            // and temporary API/storage failures, before any bytes enter the cache.
-            const expired =
-              stage === 'fetch' && error instanceof MediaRequestError && error.status === 403
-            const network =
-              error instanceof TypeError && (stage === 'fetch' || variant === 'original')
-            const transientOriginal =
-              variant === 'original' &&
-              ((error instanceof MediaRequestError &&
-                [408, 429, 500, 502, 503, 504].includes(error.status)) ||
-                (error instanceof DOMException &&
-                  (error.name === 'AbortError' || error.name === 'TimeoutError')))
-            if (attempt === 0 && (expired || network || transientOriginal)) continue
-            throw error
           }
+          throw new Error('media_download_failed')
+        } finally {
+          clearTimeout(timer)
         }
-        throw new Error('media_download_failed')
-      } finally {
-        clearTimeout(timer)
-      }
-    }, urgent)
+      },
+      urgent || urgentIntent.has(key),
+      key,
+    )
   })()
   loading.set(key, operation)
   try {
     return await operation
   } finally {
     loading.delete(key)
+    urgentIntent.delete(key)
   }
 }

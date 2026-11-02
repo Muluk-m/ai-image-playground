@@ -57,6 +57,8 @@
     "importedTasks_one": "Imported {{count}} record",
     "importedTasks_other": "Imported {{count}} records",
     "importedConfig": "Settings imported",
-    "importFailed": "Import failed: {{reason}}"
+    "importFailed": "Import failed: {{reason}}",
+    "imageDeleted": "Image deleted",
+    "imageDeleteFailed": "Delete failed, try again later"
   }
 }

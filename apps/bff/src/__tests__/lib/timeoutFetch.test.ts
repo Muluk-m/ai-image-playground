@@ -6,11 +6,25 @@ import {
   createFetchSlot,
   startDeadline,
   withDeadline,
+  withoutRuntimeTimeout,
 } from '../../lib/timeoutFetch'
 
 class CallerError extends Error {}
 
 type StubFetch = (url: string, init?: { signal?: AbortSignal }) => Promise<{ status: number }>
+
+describe('withoutRuntimeTimeout', () => {
+  // Bun 自带的 300 秒 fetch 超时会把还在出图的上游请求切成「结果未知」，整体时长只能由 deadline 决定。
+  it('turns off the runtime fetch timeout and keeps the caller init', () => {
+    const signal = new AbortController().signal
+    expect(withoutRuntimeTimeout({ method: 'POST', signal })).toEqual({
+      method: 'POST',
+      signal,
+      timeout: false,
+    } as never)
+    expect(withoutRuntimeTimeout()).toEqual({ timeout: false } as never)
+  })
+})
 
 describe('agentOptions', () => {
   it('applies the connect timeout on its own', () => {

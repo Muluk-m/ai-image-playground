@@ -1,4 +1,8 @@
-import { type AgentTurnReference, IMAGE_DATA_URL_MAX_CHARS } from '@image-playground/shared'
+import {
+  type AgentTurnReference,
+  IMAGE_DATA_URL_MAX_CHARS,
+  type MediaLimits,
+} from '@image-playground/shared'
 import { isUserStorageScope, scopedStorageName } from '../../../lib/authScope'
 import {
   getAttachmentLimits,
@@ -9,6 +13,7 @@ import { MediaRequestError, mediaIdentity, resolveMediaSource } from '../../../l
 import { BASE_DB_NAME } from '../../../lib/db'
 import {
   hasLocalAttachmentSources,
+  localAttachmentBytes,
   localAttachmentFailure,
   localAttachmentIdentity,
   onLocalAttachmentReleased,
@@ -33,6 +38,8 @@ interface Entry {
   state: MediaUploadState
   result?: MediaUploadResult
   errorCode?: string
+  /** 直传进度，整数百分比；只在 uploading 时有意义。 */
+  progress?: number
   promise: Promise<MediaUploadResult>
   controller: AbortController
 }
@@ -175,11 +182,20 @@ export interface ReferenceImageLimit {
   readonly byId: boolean
 }
 
+/**
+ * 按 id 发的那一档单张上限。附件通道开着、但没开批量附件时服务端不下发 attachmentLimits，
+ * 附件预留按普通云媒体上限收（`reserveMedia`），这里同源回退，不落到内联请求体那道（BUG-37）。
+ */
+export function referenceMediaLimits():
+  | Pick<MediaLimits, 'imageBytes' | 'imagePixels'>
+  | undefined {
+  if (attachmentUploadsEnabled()) return getAttachmentLimits() ?? getMediaLimits()
+  return mediaFallbackEnabled() ? getMediaLimits() : undefined
+}
+
 export function referenceImageLimit(): ReferenceImageLimit {
-  const attachments = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
-  if (attachments) return { imageBytes: attachments.imageBytes, byId: true }
-  const media = mediaFallbackEnabled() ? getMediaLimits() : undefined
-  if (media) return { imageBytes: media.imageBytes, byId: true }
+  const limits = referenceMediaLimits()
+  if (limits) return { imageBytes: limits.imageBytes, byId: true }
   return { imageBytes: Math.floor((IMAGE_DATA_URL_MAX_CHARS - 64) / 4) * 3, byId: false }
 }
 
@@ -249,6 +265,65 @@ export function attachmentUploadState(reference: Uploadable): MediaUploadState |
   )
 }
 
+/**
+ * 正在直传时已发出的百分比；带遮罩时取较慢的那张。字节交完、等服务端确认（verifying）时停在 99%，
+ * 确认了才算传完。还没开始发或不在直传时为空。
+ */
+export function attachmentUploadProgress(reference: Uploadable): number | undefined {
+  const state = attachmentUploadState(reference)
+  if (state !== 'uploading' && state !== 'verifying') return undefined
+  const known = sourcesToUpload(reference).map((source) => {
+    const entry = currentEntries().get(source)
+    if (entry?.state === 'ready') return 100
+    if (entry?.state === 'verifying') return 99
+    return entry?.state === 'uploading' ? entry.progress : 0
+  })
+  if (known.some((value) => value === undefined)) return undefined
+  return Math.min(...(known as number[]))
+}
+
+/** 这张参考图按多少字节算进总进度：data URL 直接量，本机原图按选图时的大小；量不出来为空。 */
+function referenceBytes(reference: Uploadable): number | undefined {
+  let total = 0
+  for (const source of sourcesToUpload(reference)) {
+    const bytes = dataUrlBytes(source) ?? localAttachmentBytes(source)
+    if (bytes === undefined) return undefined
+    total += bytes
+  }
+  return total
+}
+
+/**
+ * 收起的那叠参考图的总进度，按字节加权：排队的算 0，在传的按已发出的比例，`batch` 里已经传完的算 100，
+ * 传失败的不计（BUG-53：只平均在传的几张，传完一张总数就往回跳）。不在 `batch` 里的已就绪图是之前那批的，不算。
+ * 没有在传的、或有一张在传却不知道进度（浏览器不报字节数）时为空，只转圈（BUG-42）。
+ */
+export function attachmentStackProgress(
+  references: readonly Uploadable[],
+  batch: ReadonlySet<string> = new Set(),
+): number | undefined {
+  const items = references.flatMap((reference) => {
+    const state = attachmentUploadState(reference)
+    if (state === 'queued') return [{ reference, progress: 0 }]
+    if (state === 'uploading' || state === 'verifying')
+      return [{ reference, progress: attachmentUploadProgress(reference) }]
+    return state === 'ready' && batch.has(reference.dataUrl) ? [{ reference, progress: 100 }] : []
+  })
+  if (items.every((item) => item.progress === 100)) return undefined
+  if (items.some((item) => item.progress === undefined)) return undefined
+  const sizes = items.map((item) => referenceBytes(item.reference))
+  const known = sizes.filter((size): size is number => size !== undefined && size > 0)
+  const fallback = known.length ? known.reduce((sum, size) => sum + size, 0) / known.length : 1
+  const weights = sizes.map((size) => (size !== undefined && size > 0 ? size : fallback))
+  const total = weights.reduce((sum, weight) => sum + weight, 0)
+  const sent = items.reduce(
+    (sum, item, index) => sum + (item.progress as number) * weights[index]!,
+    0,
+  )
+  // 还有没传完的就不报 100%。
+  return Math.min(99, Math.floor(sent / total))
+}
+
 export function attachmentUploadError(reference: Uploadable): string | undefined {
   if (blockedLocalAttachments(reference)) return 'attachment_capability_unavailable'
   if (oversizedReferenceSource(reference.dataUrl)) return REFERENCE_TOO_LARGE
@@ -310,6 +385,16 @@ function start(source: string, retry = false): Promise<MediaUploadResult> {
       onState(state) {
         if (state === 'ready' || state === 'failed') return
         entry.state = state
+        entry.progress = undefined
+        changed()
+      },
+      onProgress(fraction) {
+        // 浏览器报的是交给网络栈的字节数，不是对端收到的：小文件一下就「发完」，
+        // 实际还要等十几秒才传完。所以封顶 99%，交完之后停在 99% 等服务端确认，
+        // 既不在真正传完之前显示 100%，也不把百分比收掉只剩转圈（BUG-42）。
+        const progress = Math.min(99, Math.floor(fraction * 100))
+        if (entry.state !== 'uploading' || progress === entry.progress) return
+        entry.progress = progress
         changed()
       },
     })

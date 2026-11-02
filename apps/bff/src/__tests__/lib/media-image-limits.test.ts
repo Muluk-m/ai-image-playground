@@ -1,5 +1,5 @@
 import { expect, it } from 'bun:test'
-import { assertMediaImageProcessingBudget } from '../../lib/media-image-limits'
+import { assertMediaImageProcessingBudget, displayedImageSize } from '../../lib/media-image-limits'
 
 const png = {
   format: 'png',
@@ -35,4 +35,17 @@ it('budgets full-frame WebP buffers even without progressive scans', () => {
     assertMediaImageProcessingBudget({ ...webp, width: 10000, height: 10000 }),
   ).not.toThrow()
   expect(() => assertMediaImageProcessingBudget({ ...webp, format: 'png' })).not.toThrow()
+})
+
+it('EXIF 方向 5–8 的图按转正后的宽高记，其余照存储宽高', () => {
+  for (const orientation of [5, 6, 7, 8])
+    expect(displayedImageSize({ width: 4032, height: 3024, orientation })).toEqual({
+      width: 3024,
+      height: 4032,
+    })
+  for (const orientation of [undefined, 1, 2, 3, 4])
+    expect(displayedImageSize({ width: 4032, height: 3024, orientation })).toEqual({
+      width: 4032,
+      height: 3024,
+    })
 })
