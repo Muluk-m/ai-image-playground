@@ -128,6 +128,9 @@ it('100 logical attachments retain ordered identities through retry and history 
   const rollback = Bun.spawn(
     [
       process.execPath,
+      // `bun --eval` does not apply bunfig.toml's [test] preload to this child.
+      '--preload',
+      resolve(import.meta.dir, '../helpers/publicOverlayPreload.ts'),
       '--eval',
       String.raw`
     const input = await new Response(Bun.stdin.stream()).json()
