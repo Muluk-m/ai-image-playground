@@ -1,9 +1,13 @@
 import * as Y from 'yjs'
 import {
   CANVAS_UPLOAD_DEVICE_META,
+  CANVAS_UPLOAD_LEASE_AT_META,
+  CANVAS_UPLOAD_LEASE_FOR_META,
   CANVAS_UPLOAD_RELEASED_META,
   CANVAS_UPLOAD_STARTED_META,
   canvasUploadBookkeepingTime,
+  canvasUploadLeaseTime,
+  canvasUploadNodeKey,
   isLocalCanvasFileId,
   withoutCanvasUploadClaim,
 } from './canvas-cloud'
@@ -32,7 +36,9 @@ function isPromotionOf(promoted: UploadData, base: UploadData): boolean {
 
 const time = (value: string | undefined) => {
   const at = Number(value)
-  return value !== undefined && Number.isFinite(at) ? at : Number.NEGATIVE_INFINITY
+  return value !== undefined && Number.isSafeInteger(at) && at >= 0 && at < Number.MAX_SAFE_INTEGER
+    ? at
+    : Number.NEGATIVE_INFINITY
 }
 /** data 上最近一次上传簿记（写声明或撤销声明）的时间；都没有时为负无穷。 */
 const bookkeepingTime = (data: UploadData) => canvasUploadBookkeepingTime(data.meta)
@@ -83,22 +89,18 @@ function withBookkeeping(user: UploadData, book: UploadData): UploadData {
         ...(book.meta?.contentIdentity ? { contentIdentity: book.meta.contentIdentity } : {}),
       },
     }
-  if (!book.meta?.[CANVAS_UPLOAD_DEVICE_META])
-    return {
-      ...user,
-      meta: {
-        ...withoutCanvasUploadClaim(user.meta),
-        [CANVAS_UPLOAD_RELEASED_META]: book.meta?.[CANVAS_UPLOAD_RELEASED_META] ?? '',
-      },
-    }
-  return {
-    ...user,
-    meta: {
-      ...user.meta,
-      [CANVAS_UPLOAD_DEVICE_META]: book.meta?.[CANVAS_UPLOAD_DEVICE_META] ?? '',
-      [CANVAS_UPLOAD_STARTED_META]: book.meta?.[CANVAS_UPLOAD_STARTED_META] ?? '',
-    },
+  const meta = { ...withoutCanvasUploadClaim(user.meta) }
+  for (const key of [
+    CANVAS_UPLOAD_DEVICE_META,
+    CANVAS_UPLOAD_STARTED_META,
+    CANVAS_UPLOAD_RELEASED_META,
+    CANVAS_UPLOAD_LEASE_AT_META,
+    CANVAS_UPLOAD_LEASE_FOR_META,
+  ]) {
+    const value = book.meta?.[key]
+    if (value !== undefined) meta[key] = value
   }
+  return { ...user, meta }
 }
 
 /**
@@ -111,8 +113,70 @@ export function mergeCanvasUploadConflict(lost: unknown, winner: unknown): Uploa
   let merged: UploadData
   if (bookkeeping(winner, lost)) merged = withBookkeeping(lost, winner)
   else if (bookkeeping(lost, winner)) merged = withBookkeeping(winner, lost)
+  else if (sameClaim(lost, winner) && hasLease(lost) && !hasLease(winner))
+    merged = withLease(winner, lost)
   else return undefined
   return sameValue(merged, winner) ? undefined : merged
+}
+
+const hasLease = (data: UploadData) =>
+  data.meta?.[CANVAS_UPLOAD_LEASE_AT_META] !== undefined &&
+  data.meta?.[CANVAS_UPLOAD_LEASE_FOR_META] !== undefined
+
+function sameClaim(a: UploadData, b: UploadData): boolean {
+  return (
+    !!a.meta?.[CANVAS_UPLOAD_DEVICE_META] &&
+    !a.mediaId &&
+    !b.mediaId &&
+    a.fileId === b.fileId &&
+    a.meta[CANVAS_UPLOAD_DEVICE_META] === b.meta?.[CANVAS_UPLOAD_DEVICE_META] &&
+    a.meta[CANVAS_UPLOAD_STARTED_META] === b.meta?.[CANVAS_UPLOAD_STARTED_META] &&
+    a.meta.contentIdentity === b.meta?.contentIdentity
+  )
+}
+
+function withLease(user: UploadData, book: UploadData): UploadData {
+  return {
+    ...user,
+    meta: {
+      ...user.meta,
+      [CANVAS_UPLOAD_LEASE_AT_META]: book.meta?.[CANVAS_UPLOAD_LEASE_AT_META] ?? '',
+      [CANVAS_UPLOAD_LEASE_FOR_META]: book.meta?.[CANVAS_UPLOAD_LEASE_FOR_META] ?? '',
+    },
+  }
+}
+
+/** 旧页的补写可能是因果更晚的更新，不能只依靠“并发败方”修复。
+ * 保留已知簿记/同一声明的绝对租约，不因接收、重放或缺少规范状态而签发新租约。
+ */
+function preserveUploadState(
+  previous: unknown,
+  candidate: unknown,
+  nodeKey: string | undefined,
+): UploadData | undefined {
+  if (!isData(candidate)) return undefined
+  let next = candidate
+  if (isData(previous)) {
+    if (
+      (canvasUploadLeaseTime(previous, nodeKey) !== undefined || isReleaseOf(previous, next)) &&
+      bookkeeping(previous, next)
+    )
+      next = withBookkeeping(next, previous)
+    if (sameClaim(previous, next) && canvasUploadLeaseTime(previous, nodeKey) !== undefined)
+      next = withLease(next, previous)
+  }
+  if (next.mediaId) {
+    const meta = withoutCanvasUploadClaim(next.meta)
+    if (meta !== next.meta) next = { ...next, meta }
+  } else if (!next.meta?.[CANVAS_UPLOAD_DEVICE_META] && hasLease(next)) {
+    const {
+      [CANVAS_UPLOAD_LEASE_AT_META]: _at,
+      [CANVAS_UPLOAD_LEASE_FOR_META]: _for,
+      ...meta
+    } = next.meta!
+    next = { ...next, meta }
+  }
+  return sameValue(next, candidate) ? undefined : next
 }
 
 /** book 是在 user 这一版上做的上传簿记（收成云媒体、声明、撤销声明）。 */
@@ -141,7 +205,8 @@ function sameValue(a: unknown, b: unknown): boolean {
 
 /*
  * 判断「并发覆盖」要看 Y.Map 某个键背后的条目链（_map / Item.left / Item.origin / content），
- * Yjs 没有公开 API 能拿到被并发顶掉的那一版和它的因果关系。这些私有结构只在下面这一个函数里读，
+ * Yjs 没有公开 API 能拿到被并发顶掉的那一版和它的因果关系。这些私有结构在下面读取，
+ * canvasUploadNodeKey 另读节点的 _item.id 来绑定租约；运行时自检同时覆盖这个接缝。
  * 读之前逐个校验形状，形状不对（Yjs 升级改了内部结构）就用 console.error 报一次，再退回 Yjs 原生的取舍，
  * 不会抛错也不会误写；依赖里 yjs 锁在 ~13.6，升级小版本要先过契约测试；__tests__/canvas-upload-conflicts.test.ts 里的「Yjs 内部结构契约」用例
  * 会在升级后第一时间失败，提醒同步修改这里。
@@ -354,6 +419,7 @@ function runSelfCheck(): boolean {
       node.set('data', { v: 'base' })
       seed.getMap<Y.Map<unknown>>('nodes').set('n', node)
     })
+    if (!canvasUploadNodeKey(seed, 'n')) return false
     const base = Y.encodeStateAsUpdate(seed)
     const writer = (clientID: number, v: string) => {
       const doc = new Y.Doc()
@@ -421,7 +487,13 @@ export function watchCanvasUploadConflicts(
   isReplay: (origin: unknown) => boolean = () => false,
 ): () => void {
   const nodes = doc.getMap<Y.Map<unknown>>('nodes')
-  type Repair = { id: string; lost: unknown[]; winner: unknown; data: UploadData }
+  type Repair = {
+    id: string
+    lost: unknown[]
+    winner: unknown
+    data: UploadData
+    previous?: unknown
+  }
   let stopped = false
   const observer = (events: Y.YEvent<Y.AbstractType<unknown>>[], transaction: Y.Transaction) => {
     if (isReplay(transaction.origin) || !isRemote(transaction.origin)) return
@@ -429,11 +501,15 @@ export function watchCanvasUploadConflicts(
     for (const event of events) {
       // 不看 event.keys：本机赢时远端写入一进来就被删，data 的值没变，keys 里没有它，但事件照样触发。
       if (event.path.length !== 1) continue
+      const id = String(event.path[0])
+      const previous = event.changes.keys.get('data')?.oldValue
       const overwritten = readOverwrittenLocalData(event, isLocalClient)
-      if (!overwritten) continue
-      const { lost, winner } = overwritten
-      const data = mergeCanvasUploadConflicts(lost, winner)
-      if (data) repairs.push({ id: String(event.path[0]), lost, winner, data })
+      const lost = overwritten?.lost ?? []
+      const winner = overwritten?.winner ?? nodes.get(id)?.get('data')
+      const merged = mergeCanvasUploadConflicts(lost, winner)
+      const data =
+        preserveUploadState(previous, merged ?? winner, canvasUploadNodeKey(doc, id)) ?? merged
+      if (data) repairs.push({ id, lost, winner, data, previous })
     }
     repair(repairs)
   }
@@ -456,12 +532,14 @@ export function watchCanvasUploadConflicts(
     queueMicrotask(() => {
       if (stopped) return
       doc.transact(() => {
-        for (const { id, lost, winner, data } of repairs) {
+        for (const { id, lost, winner, data, previous } of repairs) {
           const now = nodes.get(id)?.get('data')
           if (now === undefined) continue
           // 排队期间同一调用栈里又进来别的远端写入、节点已不是赢的那一版：输掉的那一版谁都没合进去过，
           // 按现在这一版重新合；合不出来（比如上传已经收尾）就不写。
-          const next = now === winner ? data : mergeCanvasUploadConflicts(lost, now)
+          const merged = now === winner ? data : mergeCanvasUploadConflicts(lost, now)
+          const next =
+            preserveUploadState(previous, merged ?? now, canvasUploadNodeKey(doc, id)) ?? merged
           if (next) updateCanvasNode(doc, id, { data: next as never }, origin)
         }
       }, origin)
@@ -490,6 +568,12 @@ export function applyCanvasUpdateKeepingUploads(
   origin: CanvasOrigin,
 ): number {
   const nodes = doc.getMap<Y.Map<unknown>>('nodes')
+  const previous = new Map(
+    [...nodes].map(([id, node]) => [
+      id,
+      { data: node.get('data'), key: canvasUploadNodeKey(doc, id) },
+    ]),
+  )
   const repairs: { id: string; lost: unknown[]; winner: unknown; data: UploadData }[] = []
   const observer = (events: Y.YEvent<Y.AbstractType<unknown>>[], _transaction: Y.Transaction) => {
     for (const event of events) {
@@ -507,8 +591,7 @@ export function applyCanvasUpdateKeepingUploads(
   } finally {
     nodes.unobserveDeep(observer)
   }
-  if (!repairs.length) return 0
-  let repaired = 0
+  const repaired = new Set<string>()
   doc.transact(() => {
     for (const { id, lost, winner, data } of repairs) {
       const now = nodes.get(id)?.get('data')
@@ -516,8 +599,22 @@ export function applyCanvasUpdateKeepingUploads(
       const next = now === winner ? data : mergeCanvasUploadConflicts(lost, now)
       if (!next) continue
       updateCanvasNode(doc, id, { data: next as never }, origin)
-      repaired++
+      repaired.add(id)
+    }
+    for (const [id, node] of nodes) {
+      if (!(node instanceof Y.Map)) continue
+      const key = canvasUploadNodeKey(doc, id)
+      const before = previous.get(id)
+      const next = preserveUploadState(
+        before && before.key === key ? before.data : undefined,
+        node.get('data'),
+        key,
+      )
+      if (next) {
+        updateCanvasNode(doc, id, { data: next as never }, origin)
+        repaired.add(id)
+      }
     }
   }, origin)
-  return repaired
+  return repaired.size
 }

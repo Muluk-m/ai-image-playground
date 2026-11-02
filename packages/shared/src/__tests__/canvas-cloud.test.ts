@@ -6,6 +6,9 @@ import {
   canvasProjectDocument,
   canvasUploadClaimNextChange,
   canvasUploadingElsewhere,
+  canvasUploadLeaseTime,
+  canvasUploadNodeKey,
+  claimCanvasUpload,
   initializeCanvasConnectionRules,
   nextCanvasUploadStamp,
   releaseCanvasUploadClaim,
@@ -399,5 +402,60 @@ describe('canvas upload claims', () => {
     expect(nextCanvasUploadStamp(undefined, 9000)).toBe(9000)
     // 没有设备的开始时间不算声明。
     expect(nextCanvasUploadStamp({ uploadStartedAt: '5000' }, 1000)).toBe(1000)
+  })
+  it('a new claimant has a current lease without lowering the legacy bookkeeping order', () => {
+    const old = { uploadDevice: 'fast', uploadStartedAt: String(now + 60 * 60_000) }
+    const next = claimCanvasUpload({ fileId: 'photo', meta: old }, 'normal', now, 'node-instance')
+    expect(Number(next.uploadStartedAt)).toBeGreaterThan(Number(old.uploadStartedAt))
+    expect(
+      canvasUploadingElsewhere({ fileId: 'photo', meta: next }, 'observer', now, 'node-instance'),
+    ).toBe(true)
+    expect(
+      canvasUploadingElsewhere(
+        { fileId: 'photo', meta: next },
+        'observer',
+        now + CANVAS_UPLOAD_STALE_MS,
+        'node-instance',
+      ),
+    ).toBe(false)
+    expect(withoutCanvasUploadClaim(next)).toEqual({})
+  })
+  it('binds a lease to the node instance, original, uploader and exact renewal', () => {
+    const doc = new Y.Doc()
+    insertCanvasNode(
+      doc,
+      {
+        id: 'lease-node',
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        data: { fileId: 'photo' },
+      },
+      canvasOrigin('user', 'lease'),
+    )
+    const key = canvasUploadNodeKey(doc, 'lease-node')
+    const meta = claimCanvasUpload({ fileId: 'photo' }, 'uploader', now, key)
+    const data = { fileId: 'photo', meta }
+    expect(canvasUploadingElsewhere(data, 'observer', now, key)).toBe(true)
+    for (const changed of [
+      { ...data, fileId: 'different-original' },
+      { ...data, meta: { ...meta, contentIdentity: 'different-content' } },
+      { ...data, meta: { ...meta, uploadDevice: 'different-uploader' } },
+      { ...data, meta: { ...meta, uploadStartedAt: String(Number(meta.uploadStartedAt) + 1) } },
+    ])
+      expect(canvasUploadLeaseTime(changed, key)).toBeUndefined()
+    doc.getMap('nodes').delete('lease-node')
+    insertCanvasNode(
+      doc,
+      { id: 'lease-node', type: 'image', x: 0, y: 0, width: 10, height: 10, data },
+      canvasOrigin('user', 'lease'),
+    )
+    expect(canvasUploadNodeKey(doc, 'lease-node')).not.toBe(key)
+    expect(
+      canvasUploadingElsewhere(data, 'observer', now, canvasUploadNodeKey(doc, 'lease-node')),
+    ).toBe(false)
+    doc.destroy()
   })
 })
