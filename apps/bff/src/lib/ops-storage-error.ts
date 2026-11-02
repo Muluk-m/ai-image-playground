@@ -1,35 +1,35 @@
 /** Only fixed diagnostic vocabulary may leave the object-store boundary. */
-const SAFE_CODES: Record<string, true> = {
-  Unauthorized: true,
-  AccessDenied: true,
-  InvalidAccessKeyId: true,
-  SignatureDoesNotMatch: true,
-  ExpiredToken: true,
-  InvalidToken: true,
-  NoSuchBucket: true,
-  NoSuchKey: true,
-  InternalError: true,
-  ServiceUnavailable: true,
-  SlowDown: true,
-  RequestTimeout: true,
-  InvalidArgument: true,
-  InvalidRequest: true,
-  ECONNRESET: true,
-  ECONNREFUSED: true,
-  ETIMEDOUT: true,
-  ENOTFOUND: true,
-  EAI_AGAIN: true,
-  EPIPE: true,
-  ENETUNREACH: true,
-  EHOSTUNREACH: true,
-  ERR_TLS_CERT_ALTNAME_INVALID: true,
-  CERT_HAS_EXPIRED: true,
-  UNABLE_TO_VERIFY_LEAF_SIGNATURE: true,
-}
-const SAFE_REASONS: Record<string, string> = {
-  'an unexpected error has occurred': 'unexpected_error',
-  'We encountered an internal error. Please try again.': 'internal_error',
-}
+const SAFE_CODES = new Set([
+  'Unauthorized',
+  'AccessDenied',
+  'InvalidAccessKeyId',
+  'SignatureDoesNotMatch',
+  'ExpiredToken',
+  'InvalidToken',
+  'NoSuchBucket',
+  'NoSuchKey',
+  'InternalError',
+  'ServiceUnavailable',
+  'SlowDown',
+  'RequestTimeout',
+  'InvalidArgument',
+  'InvalidRequest',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'EPIPE',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+  'CERT_HAS_EXPIRED',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+])
+const SAFE_REASONS = new Map([
+  ['an unexpected error has occurred', 'unexpected_error'],
+  ['We encountered an internal error. Please try again.', 'internal_error'],
+])
 
 export type OpsStorageStage = 'initialize' | 'list' | 'read'
 
@@ -58,11 +58,11 @@ function describeFailure(error: unknown, seen = new Set<unknown>()): StorageFail
   const message = field(error, 'message')
   const cause = field(error, 'cause')
   return {
-    ...(typeof code === 'string' && SAFE_CODES[code] ? { code } : {}),
+    ...(typeof code === 'string' && SAFE_CODES.has(code) ? { code } : {}),
     ...(typeof status === 'number' ? { status } : {}),
     reason:
       typeof message === 'string'
-        ? (SAFE_REASONS[message] ?? 'details_omitted')
+        ? (SAFE_REASONS.get(message) ?? 'details_omitted')
         : 'details_omitted',
     ...(cause !== undefined && cause !== null && !seen.has(cause) && seen.size < 3
       ? { cause: describeFailure(cause, seen) }
