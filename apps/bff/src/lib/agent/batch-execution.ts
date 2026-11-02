@@ -19,7 +19,12 @@ import {
 } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
-import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
+import { meteringDecisionOrDenied } from '../metering-decision'
+import {
+  type BffTransaction,
+  loadPrivateBffOverlay,
+  nonBillingPriceSnapshot,
+} from '../private-overlay'
 import { SafeFetchError } from '../safeFetch'
 import {
   type CreateQueueTaskInput,
@@ -286,14 +291,33 @@ async function prepareItem(
     agent: { conversationId: batch.conversation_id!, turnId: batch.origin_turn_id },
   }
 }
+async function quoteGenerationTask(tx: BffTransaction, userId: string, model: string) {
+  const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const decision = meteringDecisionOrDenied(
+    await hooks.meteringDecision?.({
+      tx,
+      userId,
+      model,
+      kind: 'image',
+      quantity: 1,
+      unitMultiplier: 1,
+    }),
+    hooks.consumeUnmeteredQuota,
+  )
+  if (decision?.kind === 'denied') return null
+  if (decision?.kind === 'unmetered' || !isCapabilityEnabled('billing:credits'))
+    return {
+      estimatedCredits: 0,
+      pricing: nonBillingPriceSnapshot({ model, kind: 'image', quantity: 1, unitMultiplier: 1 }),
+    }
+  return hooks.quoteTask?.({ tx, userId, model, quantity: 1, unitMultiplier: 1 })
+}
 
 async function currentQuote(
   tx: BffTransaction,
   batch: BatchRow,
   item: AgentBatchItem,
 ): Promise<{ pricing: AgentBatchPriceSnapshot | null; credits: number }> {
-  if (item.kind === 'generation' && !isCapabilityEnabled('billing:credits'))
-    return { pricing: null, credits: 0 }
   const [plan] = await tx
     .select()
     .from(schema.agent_batch_plans)
@@ -309,7 +333,6 @@ async function currentQuote(
       ? estimate.snapshots.find((one) => one.itemKey === item.key)
       : undefined
   const hooks = (await loadPrivateBffOverlay()).taskHooks
-  // The quote hook holds the price row FOR SHARE until createQueueTask reserves in this transaction.
   const quote =
     item.kind === 'analysis'
       ? await quoteAnalysisTask(
@@ -321,16 +344,10 @@ async function currentQuote(
           },
           hooks,
         )
-      : await hooks.quoteTask?.({
-          tx,
-          userId: batch.user_id,
-          model: item.params.model,
-          quantity: 1,
-          unitMultiplier: 1,
-        })
+      : await quoteGenerationTask(tx, batch.user_id, item.params.model)
   if (
-    !expected ||
     !quote ||
+    !expected ||
     quote.pricing.pricingVersion !== expected.pricingVersion ||
     quote.estimatedCredits >
       Math.ceil(expected.baseUnitCredits * expected.quantity * expected.unitMultiplier)
@@ -551,6 +568,7 @@ async function dispatchPreparedBatch(
           })
           if (reservation.kind === 'insufficient_credits')
             throw new BatchPlanError('batch_insufficient_credits', 422)
+          if (reservation.kind === 'quota_exceeded') throw new BatchPlanError('quota_exceeded', 429)
           if (reservation.kind !== 'reserved')
             throw new BatchPlanError('batch_submission_refused', 422)
           reservedCredits = reservation.credits
@@ -559,6 +577,7 @@ async function dispatchPreparedBatch(
           const submitted = await createQueueTask({ ...input, prepared, tx })
           if (submitted.kind === 'insufficient_credits')
             throw new BatchPlanError('batch_insufficient_credits', 422)
+          if (submitted.kind === 'quota_exceeded') throw new BatchPlanError('quota_exceeded', 429)
           if (submitted.kind !== 'created')
             throw new BatchPlanError('batch_submission_refused', 422)
           taskId = submitted.taskId
@@ -585,13 +604,15 @@ async function dispatchPreparedBatch(
         (error instanceof BatchPlanError && error.code === 'batch_input_limit')
       const pauseReason = inputLimit
         ? 'input_limit'
-        : error instanceof BatchPlanError && error.code === 'batch_price_changed'
-          ? 'price_changed'
-          : error instanceof BatchPlanError && error.code === 'batch_insufficient_credits'
-            ? 'insufficient_credits'
-            : error instanceof BatchPlanError && error.code === 'batch_execution_unavailable'
-              ? 'model_unavailable'
-              : null
+        : error instanceof BatchPlanError && error.code === 'quota_exceeded'
+          ? 'quota_exceeded'
+          : error instanceof BatchPlanError && error.code === 'batch_price_changed'
+            ? 'price_changed'
+            : error instanceof BatchPlanError && error.code === 'batch_insufficient_credits'
+              ? 'insufficient_credits'
+              : error instanceof BatchPlanError && error.code === 'batch_execution_unavailable'
+                ? 'model_unavailable'
+                : null
       if (!pauseReason) throw error
       await db.transaction(async (tx) => {
         const current = await lockOwnedBatch(tx, userId, id)
@@ -769,7 +790,6 @@ export async function repriceAgentBatch(
         if (accepted.price_snapshot) snapshots[item.kind].push(accepted.price_snapshot)
         continue
       }
-      if (item.kind === 'generation' && !isCapabilityEnabled('billing:credits')) continue
       const quote =
         item.kind === 'analysis'
           ? await quoteAnalysisTask(
@@ -781,13 +801,7 @@ export async function repriceAgentBatch(
               },
               hooks,
             )
-          : await hooks.quoteTask?.({
-              tx,
-              userId,
-              model: item.params.model,
-              quantity: 1,
-              unitMultiplier: 1,
-            })
+          : await quoteGenerationTask(tx, userId, item.params.model)
       if (!quote) throw new BatchPlanError('batch_price_changed', 409)
       totals[item.kind] += quote.estimatedCredits
       charges[item.kind] += quote.pricing.exemption === 'none' ? quote.estimatedCredits : 0

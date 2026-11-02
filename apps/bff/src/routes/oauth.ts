@@ -9,6 +9,7 @@ import {
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
+import { loginOriginPolicy, loginPolicyForOrigin, providerAllowed } from '../lib/auth-origin-policy'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import {
   type EnabledOAuthProvider,
@@ -73,24 +74,47 @@ type LinkErrorCode =
   | 'identity_taken'
   | 'unauthenticated'
 
-/** Origin the provider redirects back to. Proxy headers only matter when the env is unset. */
+/** Only explicitly trusted API hosts may override the primary callback origin. */
 function bffOrigin(request: Request): string {
-  if (config.auth.publicOrigin) return config.auth.publicOrigin
   const host = (request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? '')
     .split(',')[0]
     ?.trim()
-  if (!host) return new URL(request.url).origin
   const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
-  return `${proto || new URL(request.url).protocol.replace(':', '')}://${host}`
+  const origin = host
+    ? `${proto || new URL(request.url).protocol.replace(':', '')}://${host}`
+    : new URL(request.url).origin
+  if (config.auth.publicOrigins.includes(origin)) return origin
+  return config.auth.publicOrigin || origin
 }
 
-export function frontendOrigin(request: Request): string {
-  if (config.auth.frontendOrigin) return config.auth.frontendOrigin
-  // A wildcard CORS deployment serves the SPA from the BFF itself.
-  return (config.corsOriginList[0] ?? bffOrigin(request)).replace(/\/+$/, '')
+function allowedFrontendOrigins(request: Request): string[] {
+  const origins = new Set(config.auth.frontendOrigins)
+  if (config.corsOrigins === '*') origins.add(bffOrigin(request).replace(/\/+$/, ''))
+  return [...origins]
 }
 
-function validateReturnTarget(request: Request, requested: unknown): string {
+export function frontendOrigin(request: Request, requested?: unknown): string {
+  const allowed = allowedFrontendOrigins(request)
+  if (typeof requested === 'string' && allowed.includes(requested.trim())) return requested.trim()
+  const header = request.headers.get('origin')?.trim()
+  if (header && allowed.includes(header)) return header
+  return (allowed[0] ?? bffOrigin(request)).replace(/\/+$/, '')
+}
+
+/** Navigation cannot rely on Origin being present; the allowlisted selector is state-bound. */
+function loginNavigationOrigin(request: Request, requested?: string): string | null {
+  if (config.auth.loginMethodsByOrigin.length > 0) {
+    const candidate = requested ?? request.headers.get('origin')
+    if (candidate !== null && !allowedFrontendOrigins(request).includes(candidate)) return null
+  }
+  return frontendOrigin(request, requested)
+}
+
+function validateReturnTarget(
+  request: Request,
+  requested: unknown,
+  baseOrigin = frontendOrigin(request),
+): string {
   if (
     typeof requested !== 'string' ||
     requested.length === 0 ||
@@ -106,7 +130,6 @@ function validateReturnTarget(request: Request, requested: unknown): string {
   let parsed: URL
   let origin: URL
   try {
-    const baseOrigin = frontendOrigin(request)
     parsed = new URL(requested, baseOrigin)
     origin = new URL(baseOrigin)
   } catch {
@@ -129,8 +152,13 @@ function validateReturnTarget(request: Request, requested: unknown): string {
   return target.length <= RETURN_TO_MAX_LENGTH ? target : DEFAULT_RETURN_TO
 }
 
-function encodeReturnMetadata(provider: string, state: string, target: string): string {
-  return `${provider}:${state}:${Buffer.from(target, 'utf8').toString('base64url')}`
+function encodeReturnMetadata(
+  provider: string,
+  state: string,
+  target: string,
+  origin: string,
+): string {
+  return `${provider}:${state}:${Buffer.from(origin, 'utf8').toString('base64url')}:${Buffer.from(target, 'utf8').toString('base64url')}`
 }
 
 function redirectUri(request: Request, provider: string): string {
@@ -141,8 +169,14 @@ function redirectTo(target: string): Response {
   return new Response(null, { status: 302, headers: { location: target } })
 }
 
-function successRedirect(request: Request, target: string): Response {
-  const url = new URL(target, frontendOrigin(request))
+function redirectOrigin(request: Request, origin?: string): string {
+  return origin && allowedFrontendOrigins(request).includes(origin)
+    ? origin
+    : frontendOrigin(request)
+}
+
+function successRedirect(request: Request, target: string, origin?: string): Response {
+  const url = new URL(target, redirectOrigin(request, origin))
   url.searchParams.set(OAUTH_SESSION_QUERY_PARAM, '1')
   return redirectTo(url.toString())
 }
@@ -152,8 +186,9 @@ function failureRedirect(
   target: string,
   code: CallbackErrorCode,
   referralCode?: string,
+  origin?: string,
 ): Response {
-  const url = new URL(target, frontendOrigin(request))
+  const url = new URL(target, redirectOrigin(request, origin))
   url.searchParams.set(OAUTH_ERROR_QUERY_PARAM, code)
   url.searchParams.set('login', '1')
   if (referralCode) url.searchParams.set('ref', referralCode)
@@ -165,8 +200,9 @@ function linkRedirect(
   request: Request,
   target: string,
   result: LinkErrorCode | { linked: string },
+  origin?: string,
 ): Response {
-  const url = new URL(target, frontendOrigin(request))
+  const url = new URL(target, redirectOrigin(request, origin))
   if (typeof result === 'string') url.searchParams.set(OAUTH_LINK_ERROR_QUERY_PARAM, result)
   else url.searchParams.set(OAUTH_LINK_QUERY_PARAM, result.linked)
   return redirectTo(url.toString())
@@ -220,25 +256,47 @@ function returnTargetFromMetadata(
   metadata: unknown,
   providerId: string,
   issued: ParsedState | null,
-): string {
-  if (typeof metadata !== 'string' || !issued) return DEFAULT_RETURN_TO
+): { readonly target: string; readonly origin: string } | null {
+  const fallback =
+    config.auth.loginMethodsByOrigin.length > 0
+      ? null
+      : { target: DEFAULT_RETURN_TO, origin: frontendOrigin(request) }
+  if (typeof metadata !== 'string' || !issued) return fallback
   const prefix = `${providerId}:${issued.state}:`
-  if (!metadata.startsWith(prefix)) return DEFAULT_RETURN_TO
+  if (!metadata.startsWith(prefix)) return fallback
   try {
-    const encodedTarget = metadata.slice(prefix.length)
-    const target = Buffer.from(encodedTarget, 'base64url').toString('utf8')
-    return validateReturnTarget(request, target)
+    const encoded = metadata.slice(prefix.length).split(':')
+    if (encoded.length !== 2) return fallback
+    const origin = Buffer.from(encoded[0] ?? '', 'base64url').toString('utf8')
+    const target = Buffer.from(encoded[1] ?? '', 'base64url').toString('utf8')
+    if (!allowedFrontendOrigins(request).includes(origin)) return fallback
+    return { target: validateReturnTarget(request, target, origin), origin }
   } catch {
-    return DEFAULT_RETURN_TO
+    return fallback
   }
 }
 
 export const oauthRoutes = new Elysia()
   .use(resolveAuthUser)
-  .get('/api/auth/oauth/providers', ({ status }) => {
-    if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
-    return status(200, { providers: enabledOAuthProviders() } satisfies OAuthProvidersResponse)
-  })
+  .get(
+    '/api/auth/oauth/providers',
+    ({ query, request, status }) => {
+      if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
+      const policy = loginOriginPolicy(request, query.frontend_origin)
+      if (!policy) return status(403, { error: 'forbidden_origin' })
+      return status(200, {
+        providers: enabledOAuthProviders().filter((provider) =>
+          providerAllowed(policy, provider.id),
+        ),
+        loginMethods: {
+          password: policy.password,
+          registration:
+            policy.password && policy.registration && isCapabilityEnabled('accounts:self-register'),
+        },
+      } satisfies OAuthProvidersResponse)
+    },
+    { query: t.Object({ frontend_origin: t.Optional(t.String()) }) },
+  )
   .get(
     '/api/auth/oauth/:provider/start',
     ({ cookie, params, query, request, status }) => {
@@ -248,7 +306,12 @@ export const oauthRoutes = new Elysia()
 
       const nonce = randomBytes(32).toString('base64url')
       const referralCode = query.ref?.trim()
-      const returnTarget = validateReturnTarget(request, query.return_to)
+      const origin = loginNavigationOrigin(request, query.frontend_origin)
+      if (!origin) return status(403, { error: 'forbidden_origin' })
+      if (!providerAllowed(loginPolicyForOrigin(origin), params.provider)) {
+        return status(403, { error: 'provider_unavailable' })
+      }
+      const returnTarget = validateReturnTarget(request, query.return_to, origin)
       // The complete state is compared at callback, binding attribution to the same nonce.
       const state = referralCode ? `${nonce}:${referralCode}` : nonce
       cookie[STATE_COOKIE].set({
@@ -257,7 +320,7 @@ export const oauthRoutes = new Elysia()
       })
       cookie[RETURN_TO_COOKIE].set({
         ...STATE_COOKIE_OPTIONS,
-        value: encodeReturnMetadata(resolved.definition.id, state, returnTarget),
+        value: encodeReturnMetadata(resolved.definition.id, state, returnTarget, origin),
       })
       return authorizeRedirect(request, resolved, state)
     },
@@ -266,6 +329,7 @@ export const oauthRoutes = new Elysia()
       query: t.Object({
         ref: t.Optional(t.String({ maxLength: 64 })),
         return_to: t.Optional(t.String()),
+        frontend_origin: t.Optional(t.String()),
       }),
     },
   )
@@ -278,20 +342,28 @@ export const oauthRoutes = new Elysia()
       if (!resolved) return status(404, { error: 'provider_unavailable' })
 
       const state = randomBytes(32).toString('base64url')
-      const returnTarget = validateReturnTarget(request, query.return_to)
+      const origin = loginNavigationOrigin(request, query.frontend_origin)
+      if (!origin) return status(403, { error: 'forbidden_origin' })
+      if (!providerAllowed(loginPolicyForOrigin(origin), params.provider)) {
+        return status(403, { error: 'provider_unavailable' })
+      }
+      const returnTarget = validateReturnTarget(request, query.return_to, origin)
       cookie[STATE_COOKIE].set({
         ...STATE_COOKIE_OPTIONS,
         value: `${resolved.definition.id}:link:${authUser.id}:${state}`,
       })
       cookie[RETURN_TO_COOKIE].set({
         ...STATE_COOKIE_OPTIONS,
-        value: encodeReturnMetadata(resolved.definition.id, state, returnTarget),
+        value: encodeReturnMetadata(resolved.definition.id, state, returnTarget, origin),
       })
       return authorizeRedirect(request, resolved, state)
     },
     {
       params: t.Object({ provider: t.String() }),
-      query: t.Object({ return_to: t.Optional(t.String()) }),
+      query: t.Object({
+        return_to: t.Optional(t.String()),
+        frontend_origin: t.Optional(t.String()),
+      }),
     },
   )
   .delete(
@@ -302,6 +374,7 @@ export const oauthRoutes = new Elysia()
 
       const outcome = await unlinkOAuthIdentity(authUser.id, params.provider)
       if (outcome === 'not_linked') return status(404, { error: 'not_linked' })
+      if (outcome === 'protected_identity') return status(409, { error: 'protected_identity' })
       if (outcome === 'last_login_method') return status(409, { error: 'last_login_method' })
       return { ok: true }
     },
@@ -315,7 +388,7 @@ export const oauthRoutes = new Elysia()
       if (!resolved) return status(404, { error: 'provider_unavailable' })
 
       const issued = parseState(cookie[STATE_COOKIE]?.value, resolved.definition.id)
-      const returnTarget = returnTargetFromMetadata(
+      const destination = returnTargetFromMetadata(
         request,
         cookie[RETURN_TO_COOKIE]?.value,
         resolved.definition.id,
@@ -327,21 +400,27 @@ export const oauthRoutes = new Elysia()
       if (!issued?.state || query.state !== issued.state) {
         return status(403, { error: 'state_mismatch' })
       }
+      if (!destination) return status(403, { error: 'forbidden_origin' })
+      const returnTarget = destination.target
+      const returnOrigin = destination.origin
+      if (!providerAllowed(loginPolicyForOrigin(returnOrigin), params.provider)) {
+        return status(403, { error: 'provider_unavailable' })
+      }
 
       const referralCode = issued.mode === 'login' ? issued.referralCode : undefined
       let linkingUserId: string | null = null
       if (issued.mode === 'link') {
         // 绑定只能落在发起它的那个账号上；中途换号登录不算。
         if (authUser?.id !== issued.userId) {
-          return linkRedirect(request, returnTarget, 'unauthenticated')
+          return linkRedirect(request, returnTarget, 'unauthenticated', returnOrigin)
         }
         linkingUserId = issued.userId
       }
 
       if (query.error || !query.code) {
         return linkingUserId
-          ? linkRedirect(request, returnTarget, 'access_denied')
-          : failureRedirect(request, returnTarget, 'access_denied', referralCode)
+          ? linkRedirect(request, returnTarget, 'access_denied', returnOrigin)
+          : failureRedirect(request, returnTarget, 'access_denied', referralCode, returnOrigin)
       }
 
       let identity: OAuthIdentity
@@ -355,14 +434,15 @@ export const oauthRoutes = new Elysia()
       } catch (error) {
         const code = error instanceof OAuthExchangeError ? error.code : 'exchange_failed'
         return linkingUserId
-          ? linkRedirect(request, returnTarget, code)
-          : failureRedirect(request, returnTarget, code, referralCode)
+          ? linkRedirect(request, returnTarget, code, returnOrigin)
+          : failureRedirect(request, returnTarget, code, referralCode, returnOrigin)
       }
 
       const claim = {
         provider: resolved.definition.id,
         subject: identity.subject,
         email: identity.email,
+        emailVerified: identity.emailVerified,
         displayName: identity.displayName,
       }
 
@@ -372,6 +452,7 @@ export const oauthRoutes = new Elysia()
           request,
           returnTarget,
           outcome === 'identity_taken' ? 'identity_taken' : { linked: resolved.definition.id },
+          returnOrigin,
         )
       }
 
@@ -389,17 +470,23 @@ export const oauthRoutes = new Elysia()
             error.code === 'invalid_referral_code' ||
             error.code === 'registration_reward_unavailable')
         ) {
-          return failureRedirect(request, returnTarget, error.code, referralCode)
+          return failureRedirect(request, returnTarget, error.code, referralCode, returnOrigin)
         }
         throw error
       }
       if ('registrationClosed' in result) {
-        return failureRedirect(request, returnTarget, 'registration_closed', referralCode)
+        return failureRedirect(
+          request,
+          returnTarget,
+          'registration_closed',
+          referralCode,
+          returnOrigin,
+        )
       }
 
       await reclaimSwitchedAccount(cookie[USER_SESSION_COOKIE]?.value, result.user.id)
       setUserSessionCookie(cookie, result.sessionToken)
-      return successRedirect(request, returnTarget)
+      return successRedirect(request, returnTarget, returnOrigin)
     },
     {
       params: t.Object({ provider: t.String() }),

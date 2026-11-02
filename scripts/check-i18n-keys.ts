@@ -60,6 +60,8 @@ const DYNAMIC_PREFIXES = [
   'agent:error.copyFailed',
   // features/agent/components/AgentJobProgress.tsx、canvas/lib/editProgressLabel.ts：按任务阶段拼 key。
   'agent:job.phase.',
+  // AgentToolCard、AgentNodeRunCard 按服务端唤醒跳过原因拼 key。
+  'agent:job.wakeSkipped.',
   // features/agent/components/AgentMessageQueue.tsx：按排队失败原因拼 key。
   'agent:queue.failure.',
   // features/agent/components/AgentSaveCard.tsx：按保存失败原因拼 `save.${failure}`。
