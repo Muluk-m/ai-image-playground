@@ -44,7 +44,10 @@ it('有图留下时，非图片按个数提示跳过了几个', () => {
   expect(useStore.getState().showToast).toHaveBeenCalledWith('已跳过 2 个非图片文件', 'error')
 })
 
-it.each(['', 'application/octet-stream'])('工具箱接收 MIME 为 %s 的手机照片，不放过明确的非图片', (type) => {
+it.each([
+  '',
+  'application/octet-stream',
+])('工具箱接收 MIME 为 %s 的手机照片，不放过明确的非图片', (type) => {
   const heic = new File(['heic'], 'PHOTO.HEIC', { type })
   const heif = new File(['heif'], 'photo.heif', { type })
   const text = new File(['text'], 'fake.heic', { type: 'text/plain' })
