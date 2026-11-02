@@ -998,6 +998,19 @@ export async function cancelBatchPlan(
   return (await response.json()) as AgentBatchPage
 }
 
+/** 生成中单独撤掉一张；那一张已经结束时服务端原样返回最新页面。 */
+export async function cancelBatchItem(batchId: string, itemKey: string): Promise<AgentBatchPage> {
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemKey)}/cancel`),
+    {
+      ...jsonInit({}),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
+}
+
 export type AgentBatchCommand =
   | {
       action: 'confirm' | 'resume'

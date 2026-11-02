@@ -11,9 +11,20 @@ import { ensureAgentSkills, findAgentSkill, readAgentSkillFileBytes } from '../l
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { resolveQueueModel } from '../lib/channels'
 import { deviceIdSchema } from '../lib/http'
-import { reservationFailureResponse } from '../lib/private-overlay'
+import {
+  type BffTransaction,
+  loadPrivateBffOverlay,
+  reservationFailureResponse,
+} from '../lib/private-overlay'
 import { readAssetImage } from '../lib/sync-assets'
-import { createQueueTask } from '../lib/taskSubmission'
+import {
+  type CreateQueueTaskInput,
+  type CreateQueueTaskOutcome,
+  createQueueTask,
+  discardQueueTaskPreparation,
+  type PreparedQueueTask,
+  prepareQueueTask,
+} from '../lib/taskSubmission'
 import { resolveAuthUser } from '../lib/user-auth'
 
 /** 一批最多几条素材。上限存在是为了挡住一次点掉整个素材库，不是产品刻度。 */
@@ -130,6 +141,43 @@ async function readAssets(
   return assets
 }
 
+type BatchRefusal = Exclude<CreateQueueTaskOutcome, { kind: 'created' }>
+
+/** 建到某一条被拒：抛出来让整批事务回滚，前面已经建好、预扣好的任务一并撤销。 */
+class BatchRefused extends Error {
+  constructor(readonly outcome: BatchRefusal) {
+    super(outcome.kind)
+  }
+}
+
+/**
+ * 积分不够时按整批报：要多少是整批的总价，手里有多少是这一批开始之前的余额。
+ * 单价只有私有账本知道，问不到报价就退回这一条自己的缺口。
+ */
+async function batchShortfall(
+  tx: BffTransaction,
+  userId: string,
+  model: string,
+  counts: readonly number[],
+  failedAt: number,
+  failure: Extract<BatchRefusal, { kind: 'insufficient_credits' }>,
+): Promise<BatchRefusal> {
+  const { quoteTask } = (await loadPrivateBffOverlay()).taskHooks
+  if (!quoteTask) return failure
+  const quotes: number[] = []
+  for (const quantity of counts) {
+    const quote = await quoteTask({ tx, userId, model, quantity, unitMultiplier: 1 })
+    if (!quote) return failure
+    quotes.push(quote.estimatedCredits)
+  }
+  const held = quotes.slice(0, failedAt).reduce((sum, credits) => sum + credits, 0)
+  return {
+    kind: 'insufficient_credits',
+    required: quotes.reduce((sum, credits) => sum + credits, 0),
+    available: failure.available + held,
+  }
+}
+
 function dataUrl(bytes: Uint8Array, contentType: string): string {
   const view = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   return `data:${contentType};base64,${view.toString('base64')}`
@@ -151,8 +199,9 @@ export const lookRoutes = new Elysia()
    * 用一条模板把一批素材跑一遍。素材位只有一个时每条素材各起一个任务；素材位不止一个时
    * 这一批素材按序填满那几个位，只起一个任务。
    *
-   * **先全部组装好，再开始建任务**：任一条素材凑不齐就整批拒绝，不留下半批。建任务之后才
-   * 出现的失败（积分、配额）按 `/submit` 的同一套状态码回，已经建出来的任务照常进作品流。
+   * **先全部组装好，再在一个事务里把整批建完**：任一条素材凑不齐、或积分 / 配额不够建完整批，
+   * 都整批拒绝，一个任务都不建、一分都不预扣。状态码与 `/submit` 相同；积分不够时 402 报的是
+   * 整批的总价与这一批之前的余额。
    */
   .post(
     '/api/looks/batch',
@@ -242,24 +291,62 @@ export const lookRoutes = new Elysia()
         inputs.push(resolved)
       }
 
-      const tasks: Array<{ assetIds: string[]; taskId: string }> = []
-      for (const [index, item] of assembled.entries()) {
-        const outcome = await createQueueTask({
-          provider: target.provider,
-          model: target.model,
-          request: {
-            prompt: item.prompt,
-            ...(look.size ? { size: look.size } : {}),
-            n: item.n,
-            input_images: inputs[index]!,
-            device_id: body.device_id,
-          },
-          userId: authUser.id,
-        })
-        if (outcome.kind === 'created') {
-          tasks.push({ assetIds: item.assetIds, taskId: outcome.taskId })
-          continue
+      const createInputs: CreateQueueTaskInput[] = assembled.map((item, index) => ({
+        provider: target.provider,
+        model: target.model,
+        request: {
+          prompt: item.prompt,
+          ...(look.size ? { size: look.size } : {}),
+          n: item.n,
+          input_images: inputs[index]!,
+          device_id: body.device_id,
+        },
+        userId: authUser.id,
+      }))
+      // 输入图先全部归档，再开事务：握着积分锁和连接时不去等对象存储。
+      const prepared: PreparedQueueTask[] = []
+      const discardAll = () => Promise.all(prepared.map((one) => discardQueueTaskPreparation(one)))
+      for (const input of createInputs) {
+        const preparation = await prepareQueueTask(input)
+        if (preparation.kind !== 'prepared') {
+          await discardAll()
+          return refusalResponse(preparation)
         }
+        prepared.push(preparation.prepared)
+      }
+
+      let tasks: Array<{ assetIds: string[]; taskId: string }>
+      try {
+        tasks = await db.transaction(async (tx) => {
+          const created: Array<{ assetIds: string[]; taskId: string }> = []
+          for (const [index, input] of createInputs.entries()) {
+            const outcome = await createQueueTask({ ...input, prepared: prepared[index]!, tx })
+            if (outcome.kind === 'created') {
+              created.push({ assetIds: assembled[index]!.assetIds, taskId: outcome.taskId })
+              continue
+            }
+            throw new BatchRefused(
+              outcome.kind === 'insufficient_credits'
+                ? await batchShortfall(
+                    tx,
+                    authUser.id,
+                    target.model,
+                    assembled.map((item) => item.n),
+                    index,
+                    outcome,
+                  )
+                : outcome,
+            )
+          }
+          return created
+        })
+      } catch (error) {
+        await discardAll()
+        if (error instanceof BatchRefused) return refusalResponse(error.outcome)
+        throw error
+      }
+
+      function refusalResponse(outcome: BatchRefusal) {
         if (outcome.kind === 'insufficient_credits' || outcome.kind === 'price_unavailable') {
           return reservationFailureResponse(outcome)
         }
@@ -279,6 +366,9 @@ export const lookRoutes = new Elysia()
         }
         if (outcome.kind === 'object_storage_error') {
           return status(503, { error: 'object_storage_error', message: outcome.message })
+        }
+        if (outcome.kind === 'private_billing_denied') {
+          return status(403, { error: 'plan_required', message: '4K 需要有效会员' })
         }
         return status(401, { error: 'unauthorized' })
       }

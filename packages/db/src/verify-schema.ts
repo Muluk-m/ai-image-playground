@@ -2,6 +2,12 @@ import { SQL } from 'bun'
 import journal from '../drizzle/meta/_journal.json'
 
 export const EXPECTED_TABLES = [
+  'cli_connections',
+  'cli_jobs',
+  'cli_reference_media',
+  'cli_retired_refresh_tokens',
+  'device_authorizations',
+  'oauth_clients',
   'agent_model_settings',
   'agent_stage_authorizations',
   'analysis_tasks',
@@ -44,6 +50,9 @@ export const EXPECTED_TABLES = [
   'client_errors',
   'client_error_recoveries',
   'model_availability',
+  'scheduler_buckets',
+  'scheduler_leases',
+  'gpt_direct_usage',
   'server_logs',
   'container_samples',
   'host_samples',
@@ -63,6 +72,21 @@ export const EXPECTED_TABLES = [
 ] as const
 
 export const EXPECTED_INDEXES = [
+  'cli_connections_pkey',
+  'device_authorizations_pkey',
+  'oauth_clients_pkey',
+  'idx_cli_connections_access_token_hash',
+  'idx_cli_connections_refresh_token_hash',
+  'idx_cli_connections_user_id',
+  'cli_retired_refresh_tokens_pkey',
+  'idx_cli_retired_refresh_tokens_connection',
+  'cli_jobs_pkey',
+  'idx_cli_jobs_user_created',
+  'cli_reference_media_pkey',
+  'idx_cli_reference_media_user_created',
+  'idx_device_authorizations_device_code_hash',
+  'idx_device_authorizations_user_code_hash',
+  'idx_device_authorizations_expires_at',
   'agent_model_settings_pkey',
   'agent_stage_authorizations_pkey',
   'idx_agent_stage_proposal',
@@ -199,6 +223,11 @@ export const EXPECTED_INDEXES = [
   'user_templates_user_id_id_pk',
   'users_pkey',
   'model_availability_pkey',
+  'scheduler_buckets_pkey',
+  'scheduler_leases_attempt_id_bucket_key_pk',
+  'idx_scheduler_leases_bucket_acquired',
+  'gpt_direct_usage_pkey',
+  'idx_gpt_direct_usage_created',
 ] as const
 
 export const EXPECTED_COLUMNS = [
@@ -215,7 +244,9 @@ export const EXPECTED_COLUMNS = [
   'inspiration_items.thumb_width',
   'inspiration_items.thumb_height',
   'tasks.reconcile_started_at',
+  'tasks.gpt_route',
   'tasks.reconcile_alerted_at',
+  'generation_images.deleted_at',
 ] as const
 
 /** Columns whose type matters as much as their presence: the code reads them as JSON. */

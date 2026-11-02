@@ -18,6 +18,7 @@ import UpdateBanner from './components/UpdateBanner'
 import AgentJobDoneNotice from './features/agent/components/AgentJobDoneNotice'
 import SkillStarterGuide from './features/agent/components/SkillStarterGuide'
 import CanvasMode from './features/canvas/components/CanvasMode'
+import CliDevicePage from './features/cli/CliDevicePage'
 import ImageExportDialog from './features/image-export/ImageExportDialog'
 import ExplorePage from './features/inspiration/components/ExplorePage'
 import HomeInspirationSection from './features/inspiration/components/HomeInspirationSection'
@@ -30,7 +31,7 @@ import SaveTemplateDialog from './features/library/components/SaveTemplateDialog
 import PricingPage from './features/pricing/PricingPage'
 import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
-import { isPricingPath, isPrivacyPath, isTermsPath } from './lib/appPaths'
+import { isCliDevicePath, isPricingPath, isPrivacyPath, isTermsPath } from './lib/appPaths'
 import { dragTargetIsImage } from './lib/dragTarget'
 import { installWorkbenchNavigation } from './lib/navigation/workbenchNavigation'
 import { usePathname } from './lib/pathname'
@@ -50,7 +51,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     appMode === 'image' &&
     !isPricingPath(pathname) &&
     !isTermsPath(pathname) &&
-    !isPrivacyPath(pathname)
+    !isPrivacyPath(pathname) &&
+    !isCliDevicePath(pathname)
 
   useLayoutEffect(() => {
     const root = document.documentElement
@@ -120,6 +122,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   }, [])
 
   if (isPricingPath(pathname)) return <PricingPage />
+  if (isCliDevicePath(pathname)) return <CliDevicePage />
   if (isTermsPath(pathname) || isPrivacyPath(pathname)) return <LegalPage />
 
   const page =

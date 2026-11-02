@@ -36,6 +36,21 @@ export class UpstreamTimeoutError extends UpstreamResultUnknownError {
 }
 
 /**
+ * 在 BFF 自己的排队里（跨 worker 配额、Vertex 渠道并发闸门）等到硬超时，这一条请求还没发出去。
+ * 结果是确定的「没执行」，不继承 UpstreamResultUnknownError：task-runner 按普通失败退款，
+ * 不走对账（对账要求 upstream_invocation_count > 0，未派发的任务会一直卡在 in_progress）。
+ * 排队等满整个硬超时说明额度长时间打满，不自动重试，免得重试再排一轮。
+ */
+export class UpstreamQueueTimeoutError extends Error {
+  readonly retryable = false
+
+  constructor(message = '上游排队超时：等待额度超过时限，请求未发出，积分已退回') {
+    super(message)
+    this.name = 'UpstreamQueueTimeoutError'
+  }
+}
+
+/**
  * 非 2xx 时上游响应体的截断上限，避免上游回 base64 巨长串吞内存。log preview 与
  * 落库的 tasks.upstream_body 共用同一上限，两处看到的内容一致。
  */

@@ -55,6 +55,8 @@ export interface StoredImageRef {
  *   出路：原样重试稳定复现，只有改提示词才有意义。
  * - `model_unavailable`: 上游表示这个模型当前没有可用的账号或渠道（如 Grok 账号池耗尽），
  *   换模型才有出路
+ * - `rate_limited`: 上游 429 限流，请求内退避和回落模型都用完仍未成功。只用于统计和告警，
+ *   用户看到的仍是通用的上游失败文案（不加限流或排队提示）
  * - `upstream_no_image`: 上游 HTTP 200 但解析不出图，且不是内容安全拒绝
  * - `interrupted`: BFF 重启时被打断（startup recovery 标记）
  * - `object_storage_error`: object storage read/write failed, or archiving could not fetch the
@@ -67,6 +69,7 @@ export type TaskErrorType =
   | 'upstream_error'
   | 'content_policy'
   | 'model_unavailable'
+  | 'rate_limited'
   | 'upstream_no_image'
   | 'interrupted'
   | 'object_storage_error'
@@ -170,6 +173,8 @@ export interface StatusResultMeta {
   images: ResultImageMeta[]
   actual_params?: { size?: string; quality?: string; output_format?: string }
   raw_image_urls?: string[]
+  /** 同 {@link ResultResponse.partial_failure} */
+  partial_failure?: PartialImageFailure
 }
 
 export interface StatusResponse {
@@ -224,6 +229,21 @@ export interface ResultResponse {
   /** OpenAI 的 response_format=url 时上游直接给的 http URL 列表 */
   raw_image_urls?: string[]
   error?: { message: string; type: TaskErrorType }
+  /** 一单多张里有几张没出来：任务照样 completed，`images` 是交付的那几张。 */
+  partial_failure?: PartialImageFailure
+}
+
+/**
+ * 一单多张、部分出图时记在结果里的缺口。已出的图照常交付，只按交付张数结算，没出的退回；
+ * 整单不因为其中几张失败而失败。落在 `tasks.result_payload.partial_failure`，结果接口原样带出。
+ */
+export interface PartialImageFailure {
+  /** 这一单要的张数 */
+  requested: number
+  /** 没出来的张数 */
+  failed: number
+  /** 没出来那几张的失败分类（取第一条），界面按它出文案 */
+  type: TaskErrorType
 }
 
 /**
