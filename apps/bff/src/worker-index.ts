@@ -8,6 +8,10 @@ import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
 import { log } from './lib/logger'
+import {
+  refreshOperatorConfig,
+  refreshOperatorConfigIfChanged,
+} from './lib/operator-config-overrides'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { startServerLogs } from './lib/server-logs'
 import { alertTargetsConfigured, createAlertSenderFromEnv } from './ops/alert-sender'
@@ -33,7 +37,12 @@ if (!config.worker.startPaused) {
   await recoverAbandonedTasks()
   await recoverAnalysisTasks()
 }
-
+await refreshOperatorConfig().catch((error) =>
+  log.error(
+    { event: 'operator_config.startup_refresh_failed', error },
+    'operator config refresh failed',
+  ),
+)
 const scheduler = new TaskScheduler()
 if (config.worker.startPaused) scheduler.drain()
 scheduler.start()
@@ -63,7 +72,20 @@ const checkAppAlerts = createAppAlerting({
   }),
 })
 let privateMaintenance: Promise<void> | undefined
+let operatorConfigRefresh: Promise<unknown> | undefined
 const staleScanTimer = setInterval(() => {
+  if (!operatorConfigRefresh) {
+    operatorConfigRefresh = refreshOperatorConfigIfChanged()
+      .catch((error) =>
+        log.error(
+          { event: 'operator_config.periodic_refresh_failed', error },
+          'operator config refresh failed',
+        ),
+      )
+      .finally(() => {
+        operatorConfigRefresh = undefined
+      })
+  }
   if (!scheduler.drainStatus().draining && !privateMaintenance) {
     privateMaintenance = loadPrivateBffOverlay()
       .then((overlay) => overlay.taskHooks.runWorkerMaintenance?.(Date.now()))
@@ -96,7 +118,7 @@ const staleScanTimer = setInterval(() => {
         'abandoned in-progress scan failed',
       )
     })
-}, 15_000)
+}, 10_000)
 const workerHealthServer = startWorkerHealthServer({
   port: config.worker.healthPort,
   drain: () => scheduler.drain(),

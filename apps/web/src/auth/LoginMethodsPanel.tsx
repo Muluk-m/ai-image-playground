@@ -12,6 +12,7 @@ import Dialog from '../components/patterns/Dialog'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
+import CliConnectionsSection from '../features/cli/CliConnectionsSection'
 import { useTranslation } from '../i18n'
 import {
   AuthRequestError,
@@ -21,6 +22,7 @@ import {
   unlinkOAuthProvider,
   updateOwnPassword,
 } from '../lib/authClient'
+import { useAuth } from './AuthContext'
 
 /**
  * 错误一律以 key 的形式在 state 里流转，渲染时才翻译：切语言后已经显示的报错会跟着变，
@@ -78,6 +80,7 @@ type PanelNotice = { readonly key: PanelNoticeKey } | { readonly linkedProvider:
 
 export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation(['auth', 'errors'])
+  const user = useAuth().user
   const [methods, setMethods] = useState<LoginMethodsView | null>(null)
   const [providers, setProviders] = useState<readonly OAuthProviderView[]>([])
   const [passwordEnabled, setPasswordEnabled] = useState(false)
@@ -323,6 +326,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
           ) : null}
         </>
       )}
+      {user ? <CliConnectionsSection key={user.id} /> : null}
     </Dialog>
   )
 }

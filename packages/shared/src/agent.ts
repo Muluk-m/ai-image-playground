@@ -548,6 +548,8 @@ export function taskFailureCode(errorType: TaskErrorType | null | undefined): Ag
   switch (errorType) {
     case 'upstream_timeout':
       return 'timeout'
+    case 'plan_required':
+      return 'invalid_params'
     case 'content_policy':
       return 'content_policy'
     case 'model_unavailable':

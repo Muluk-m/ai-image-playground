@@ -76,3 +76,50 @@ it('serializes a legitimate multi-image request while preserving input order', a
   expect(values).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
   expect(peak).toBe(1)
 })
+
+it('drains active preparations to a lowered quota before dispatching waiting work', async () => {
+  config.operator = {
+    ...original,
+    quotas: { ...original.quotas, 'agent:visual-prepare-concurrency': 3 },
+  }
+  const releases: (() => void)[] = []
+  const started: number[] = []
+  const entered = Array.from({ length: 5 }, () => Promise.withResolvers<void>())
+  const tasks = Array.from({ length: 5 }, (_, index) =>
+    withVisualPreparation(async () => {
+      started.push(index)
+      entered[index]!.resolve()
+      const gate = Promise.withResolvers<void>()
+      releases[index] = gate.resolve
+      await gate.promise
+    }),
+  )
+  try {
+    await Promise.all(entered.slice(0, 3).map((entry) => entry.promise))
+    expect(started).toEqual([0, 1, 2])
+    config.operator = {
+      ...config.operator,
+      quotas: { ...config.operator.quotas, 'agent:visual-prepare-concurrency': 1 },
+    }
+    releases[0]!()
+    await tasks[0]
+    expect(started).toEqual([0, 1, 2])
+    releases[1]!()
+    await tasks[1]
+    expect(started).toEqual([0, 1, 2])
+    releases[2]!()
+    await tasks[2]
+    await entered[3]!.promise
+    expect(started).toEqual([0, 1, 2, 3])
+    releases[3]!()
+    await tasks[3]
+    await entered[4]!.promise
+    expect(started).toEqual([0, 1, 2, 3, 4])
+  } finally {
+    for (let index = 0; index < tasks.length; index++) {
+      await Promise.resolve()
+      releases[index]?.()
+      await tasks[index]
+    }
+  }
+})

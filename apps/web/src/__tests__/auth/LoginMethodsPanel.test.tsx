@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import type { LoginMethodsView } from '@image-playground/shared'
+import type { AuthUserView, LoginMethodsView } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AuthContextProvider } from '../../auth/AuthContext'
 import { LoginMethodsPanel } from '../../auth/LoginMethodsPanel'
 import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
 
@@ -26,6 +27,7 @@ function stubBff(methods: LoginMethodsView, mutation?: () => Response): void {
     vi.fn(async (input: string, init?: RequestInit) => {
       if (input.includes('/api/auth/oauth/providers')) return Response.json(GOOGLE_PROVIDER)
       if (input.includes('/api/auth/login-methods')) return Response.json(methods)
+      if (input.endsWith('/api/me/cli-connections')) return Response.json({ connections: [] })
       if (init?.method) return mutation?.() ?? Response.json({ ok: true })
       return new Response('{}', { status: 404 })
     }),
@@ -47,9 +49,15 @@ async function clickButton(label: string): Promise<void> {
   })
 }
 
-async function render(): Promise<void> {
+async function render(
+  user: AuthUserView | null = { id: 'user-one', username: 'creator' },
+): Promise<void> {
   await act(async () => {
-    root.render(<LoginMethodsPanel onClose={() => {}} />)
+    root.render(
+      <AuthContextProvider value={{ enabled: true, user, login: () => {}, logout: async () => {} }}>
+        <LoginMethodsPanel onClose={() => {}} />
+      </AuthContextProvider>,
+    )
   })
 }
 
@@ -169,13 +177,194 @@ describe('LoginMethodsPanel', () => {
     expect(document.body.textContent).toContain('已绑定 Google')
     expect(window.location.search).toBe('')
   })
+
+  it('lists CLI connections in account settings and revokes only the selected session', async () => {
+    const connections = [
+      { id: 'cli-one', client_name: 'Laptop CLI', created_at: 1, last_used_at: null },
+      { id: 'cli-two', client_name: 'Desktop CLI', created_at: 2, last_used_at: 3 },
+    ]
+    const fetcher = vi.fn(async (input: string) => {
+      if (input.endsWith('/api/auth/oauth/providers')) return Response.json(GOOGLE_PROVIDER)
+      if (input.endsWith('/api/auth/login-methods'))
+        return Response.json({ password: true, identities: [] })
+      if (input.endsWith('/api/me/cli-connections')) return Response.json({ connections })
+      if (input.endsWith('/api/me/cli-connections/cli-one')) return Response.json({ ok: true })
+      throw new Error(`Unexpected request: ${input}`)
+    })
+    vi.stubGlobal('fetch', fetcher)
+    await render()
+    expect(document.body.textContent).toContain('已连接的 CLI')
+    expect(document.body.textContent).toContain('Laptop CLI')
+    expect(document.body.textContent).toContain('尚未使用')
+    expect(document.body.textContent).toContain('最近使用')
+    await clickButton('撤销连接')
+    expect(fetcher).toHaveBeenLastCalledWith(
+      'https://api.example.com/api/me/cli-connections/cli-one',
+      expect.objectContaining({ method: 'DELETE', credentials: 'include' }),
+    )
+    expect(document.body.textContent).not.toContain('Laptop CLI')
+    expect(document.body.textContent).toContain('Desktop CLI')
+    expect(document.body.textContent).toContain('已撤销连接')
+  })
+
+  it('keeps a failed revocation visible and permits retry without duplicate submits', async () => {
+    let resolveRevoke!: (response: Response) => void
+    const pending = new Promise<Response>((resolve) => {
+      resolveRevoke = resolve
+    })
+    let mutations = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string, init?: RequestInit) => {
+        if (input.includes('/api/auth/oauth/providers')) return Response.json(GOOGLE_PROVIDER)
+        if (input.includes('/api/auth/login-methods'))
+          return Response.json({ password: true, identities: [] })
+        if (init?.method === 'DELETE') {
+          mutations += 1
+          return mutations === 1 ? pending : Response.json({ ok: true })
+        }
+        return Response.json({
+          connections: [
+            { id: 'cli-one', client_name: 'Laptop CLI', created_at: 1, last_used_at: null },
+          ],
+        })
+      }),
+    )
+    await render()
+    const revoke = Array.from(document.body.querySelectorAll('button')).find(
+      (item) => item.textContent === '撤销连接',
+    )
+    if (!revoke) throw new Error('Missing revoke action')
+    await act(async () => {
+      revoke.click()
+      revoke.click()
+    })
+    expect(mutations).toBe(1)
+    expect(revoke.disabled).toBe(true)
+    await act(async () => resolveRevoke(Response.json({ error: 'unavailable' }, { status: 503 })))
+    expect(document.body.textContent).toContain('未能撤销连接，请重试。')
+    expect(document.body.textContent).toContain('Laptop CLI')
+    await clickButton('撤销连接')
+    expect(mutations).toBe(2)
+    expect(document.body.textContent).toContain('暂无已连接的 CLI')
+  })
+
+  it('retries connection loading without replacing the account settings form', async () => {
+    let loads = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string) => {
+        if (input.includes('/api/auth/oauth/providers')) return Response.json(GOOGLE_PROVIDER)
+        if (input.includes('/api/auth/login-methods'))
+          return Response.json({ password: true, identities: [] })
+        loads += 1
+        if (loads === 1) throw new TypeError('Network unavailable')
+        return Response.json({ connections: [] })
+      }),
+    )
+    await render()
+    expect(document.body.textContent).toContain('暂时无法读取连接，请重试。')
+    expect(buttonLabels()).toContain('更新密码')
+    const refresh = document.body.querySelector<HTMLButtonElement>('button[aria-label="刷新连接"]')
+    if (!refresh) throw new Error('Missing refresh action')
+    await act(async () => refresh.click())
+    expect(document.body.textContent).toContain('暂无已连接的 CLI')
+    expect(document.body.textContent).not.toContain('暂时无法读取连接，请重试。')
+  })
+
+  it('hides only the CLI section when the deployment does not offer CLI access', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string) => {
+        if (input.includes('/api/auth/oauth/providers')) return Response.json(GOOGLE_PROVIDER)
+        if (input.includes('/api/auth/login-methods'))
+          return Response.json({ password: true, identities: [] })
+        return Response.json({ error: 'capability_unavailable' }, { status: 404 })
+      }),
+    )
+    await render()
+    expect(document.body.textContent).not.toContain('已连接的 CLI')
+    expect(buttonLabels()).toContain('更新密码')
+  })
+
+  it('shows a load failure instead of crashing when the CLI list is not an array', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string) => {
+        if (input.includes('/api/auth/oauth/providers')) return Response.json(GOOGLE_PROVIDER)
+        if (input.includes('/api/auth/login-methods'))
+          return Response.json({ password: true, identities: [] })
+        return Response.json({ connections: null })
+      }),
+    )
+    await render()
+    expect(document.body.textContent).toContain('已连接的 CLI')
+    expect(document.body.textContent).toContain('暂时无法读取连接，请重试。')
+    expect(buttonLabels()).toContain('更新密码')
+  })
+
+  it('drops the old account connection list and ignores its delayed refresh after an account switch', async () => {
+    let resolveOld!: (response: Response) => void
+    const pendingOld = new Promise<Response>((resolve) => {
+      resolveOld = resolve
+    })
+    let loads = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string) => {
+        if (input.includes('/api/auth/oauth/providers')) return Response.json(GOOGLE_PROVIDER)
+        if (input.includes('/api/auth/login-methods'))
+          return Response.json({ password: true, identities: [] })
+        loads += 1
+        if (loads === 2) return pendingOld
+        return Response.json({
+          connections: [
+            {
+              id: loads === 1 ? 'old-cli' : 'new-cli',
+              client_name: loads === 1 ? 'Old account CLI' : 'New account CLI',
+              created_at: 1,
+              last_used_at: null,
+            },
+          ],
+        })
+      }),
+    )
+    await render()
+    expect(document.body.textContent).toContain('Old account CLI')
+    const refresh = document.body.querySelector<HTMLButtonElement>('button[aria-label="刷新连接"]')
+    if (!refresh) throw new Error('Missing refresh action')
+    await act(async () => refresh.click())
+    await render({ id: 'user-two', username: 'another-creator' })
+    expect(document.body.textContent).not.toContain('Old account CLI')
+    expect(document.body.textContent).toContain('New account CLI')
+    await act(async () =>
+      resolveOld(
+        Response.json({
+          connections: [
+            {
+              id: 'old-cli',
+              client_name: 'Old account CLI',
+              created_at: 1,
+              last_used_at: null,
+            },
+          ],
+        }),
+      ),
+    )
+    expect(document.body.textContent).not.toContain('Old account CLI')
+    expect(document.body.textContent).toContain('New account CLI')
+    await render(null)
+    expect(document.body.textContent).not.toContain('New account CLI')
+    expect(document.body.textContent).not.toContain('已连接的 CLI')
+  })
 })
 
 it('hides password setup and nonallowed providers under provider-only policy', async () => {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: string) =>
-      Response.json(
+    vi.fn(async (input: string) => {
+      if (input.endsWith('/api/me/cli-connections')) return Response.json({ connections: [] })
+      return Response.json(
         input.includes('/api/auth/oauth/providers')
           ? {
               providers: [{ id: 'enterprise', label: 'Enterprise' }],
@@ -185,8 +374,8 @@ it('hides password setup and nonallowed providers under provider-only policy', a
               password: true,
               identities: [{ provider: 'enterprise', email: 'person@example.com', linked_at: 1 }],
             },
-      ),
-    ),
+      )
+    }),
   )
   await render()
   expect(document.querySelector('form')).toBeNull()
