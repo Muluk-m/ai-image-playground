@@ -29,7 +29,8 @@ if ($env:MUVLOOM_VERSION) {
   # Highest stable cli-vX.Y.Z by version, not API order.
   $releases = @()
   for ($page = 1; $page -le 20; $page++) {
-    $batch = @(Invoke-RestMethod "${api}?per_page=100&page=$page" @requestOptions)
+    # Assign the response directly: @() around the cmdlet nests its JSON array as one item.
+    $batch = Invoke-RestMethod "${api}?per_page=100&page=$page" @requestOptions
     if ($batch.Count -eq 0) { break }
     $releases += $batch
   }

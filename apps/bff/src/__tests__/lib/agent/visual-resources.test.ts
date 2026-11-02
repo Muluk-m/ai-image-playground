@@ -84,16 +84,18 @@ it('drains active preparations to a lowered quota before dispatching waiting wor
   }
   const releases: (() => void)[] = []
   const started: number[] = []
+  const entered = Array.from({ length: 5 }, () => Promise.withResolvers<void>())
   const tasks = Array.from({ length: 5 }, (_, index) =>
     withVisualPreparation(async () => {
       started.push(index)
+      entered[index]!.resolve()
       const gate = Promise.withResolvers<void>()
       releases[index] = gate.resolve
       await gate.promise
     }),
   )
   try {
-    await Promise.resolve()
+    await Promise.all(entered.slice(0, 3).map((entry) => entry.promise))
     expect(started).toEqual([0, 1, 2])
     config.operator = {
       ...config.operator,
@@ -107,9 +109,11 @@ it('drains active preparations to a lowered quota before dispatching waiting wor
     expect(started).toEqual([0, 1, 2])
     releases[2]!()
     await tasks[2]
+    await entered[3]!.promise
     expect(started).toEqual([0, 1, 2, 3])
     releases[3]!()
     await tasks[3]
+    await entered[4]!.promise
     expect(started).toEqual([0, 1, 2, 3, 4])
   } finally {
     for (let index = 0; index < tasks.length; index++) {

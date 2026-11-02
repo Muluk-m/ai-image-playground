@@ -112,6 +112,23 @@ it('ignores a strict flag supplied inside a website request body', async () => {
   expect(task!.request_payload).not.toHaveProperty('strict_image_request')
 })
 
+it('replays an existing command when strict execution policy is introduced', async () => {
+  await ensureBillingUser()
+  const input = {
+    provider: 'openai-compat' as const,
+    model: 'gpt-image-2.5-flare',
+    userId: BILLING_USER,
+    request: request({ input_images: undefined, client_request_id: crypto.randomUUID() }),
+  }
+  const original = await createQueueTask(input)
+  expect(original.kind).toBe('created')
+  const replay = await createQueueTask({ ...input, strictImageRequest: true })
+  expect(replay).toEqual(original)
+  const rollbackReplay = await createQueueTask(input)
+  expect(rollbackReplay).toEqual(original)
+  expect(await db.select().from(schema.tasks)).toHaveLength(1)
+})
+
 afterAll(close)
 
 const AGENT = { conversationId: 'conversation-1', turnId: 'turn-1' } as const
