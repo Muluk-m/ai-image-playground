@@ -2,7 +2,11 @@ import { existsSync } from 'node:fs'
 import { databasePoolFromEnv } from '@image-playground/db'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { normalizeKeyPrefix } from './lib/objectKeyPrefix'
-import { hasCapability, loadOperatorConfig, validateOperatorConfigValues } from './lib/operator-config'
+import {
+  assertOperatorRuntimePrerequisites,
+  loadOperatorConfig,
+  validateOperatorConfigValues,
+} from './lib/operator-config'
 
 const env = (key: string, fallback?: string): string => {
   const v = process.env[key]
@@ -42,7 +46,7 @@ if (
 let baselineOperator = loadOperatorConfig(env('OPERATOR_CONFIG_FILE', '') || null)
 let effectiveOperator = baselineOperator
 export function setEffectiveOperatorConfig(value: typeof baselineOperator): void {
-  const validated = validateOperatorConfigValues(value, value.capabilities, value.quotas)
+  const validated = validateOperatorConfigValues(value, value.capabilities, value.quotas, config)
   effectiveOperator = { ...value, capabilities: validated.capabilities, quotas: validated.quotas }
 }
 export function baselineOperatorConfig(): typeof baselineOperator {
@@ -111,31 +115,7 @@ export const config = {
     codeSecret: env('EMAIL_CODE_SECRET', ''),
   },
   assertValid(): void {
-    if (hasCapability(config.operator, 'accounts:login') && !config.auth.internalApiToken) {
-      throw new Error('Missing env: INTERNAL_API_TOKEN')
-    }
-    if (hasCapability(config.operator, 'accounts:email-verification')) {
-      if (!hasCapability(config.operator, 'accounts:self-register')) {
-        throw new Error(
-          'accounts:email-verification requires the accounts:self-register capability',
-        )
-      }
-      if (!config.email.resendApiKey) throw new Error('Missing env: RESEND_API_KEY')
-      if (!config.email.from) throw new Error('Missing env: EMAIL_FROM')
-      if (
-        config.email.from.startsWith('"') ||
-        config.email.from.endsWith('"') ||
-        !/^(?:[^<>]+ <)?[^@\s<>]+@[^@\s<>]+>$|^[^@\s<>]+@[^@\s<>]+$/.test(config.email.from)
-      ) {
-        throw new Error('EMAIL_FROM must be an email or Name <email@example.com> without quotes')
-      }
-      if (config.email.codeSecret.length < 32) {
-        throw new Error('EMAIL_CODE_SECRET must be at least 32 characters')
-      }
-    }
-    if (hasCapability(config.operator, 'agent:chat') && !config.agent.model) {
-      throw new Error('Missing env: AGENT_CHAT_MODEL (required by agent:chat)')
-    }
+    assertOperatorRuntimePrerequisites(config.operator.capabilities, config)
     if (config.worker.healthStaleAfterMs < config.worker.pollIntervalMs * 3) {
       throw new Error('WORKER_HEALTH_STALE_AFTER_MS must be at least three poll intervals')
     }

@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import type { AlertMessage } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import type { OperatorSettingsResult as Settings } from '../../lib/operator-config-overrides'
 import { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } from '../../lib/private-overlay'
 import { waitFor } from '../helpers/upstreamStubs'
@@ -11,6 +11,7 @@ process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.OPERATOR_CONFIG_FILE = `${import.meta.dir}/../operator-overrides-config.json`
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test'
+process.env.AGENT_CHAT_MODEL = 'fixture-chat-model'
 process.env.PORT = '0'
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 
@@ -98,6 +99,27 @@ describe('operator config internal API', () => {
     expect(audits.find((row) => row.action === 'operator_config.clear')?.details).toMatchObject({ before: true, after: false, reason: 'restore baseline' })
   })
 
+  it('round-trips boolean and integer overrides and baselines as JSONB scalars on insert and update', async () => {
+    for (const { key, values, baseline, jsonType } of [
+      { key: 'cli:api', values: [true, false], baseline: false, jsonType: 'boolean' },
+      { key: 'generation:daily-images', values: [20, 12], baseline: 5, jsonType: 'number' },
+    ]) {
+      for (const value of values) {
+        const response = await save(key, value)
+        expect(response.status).toBe(200)
+        const result = await response.json() as Settings
+        expect(result.settings.find((entry) => entry.key === key)).toMatchObject({ baseline, override: value, effective: value })
+        const [stored] = await db.select({
+          value: schema.operator_config_overrides.value,
+          baseline: schema.operator_config_overrides.baseline_value,
+          valueType: sql<string>`jsonb_typeof(${schema.operator_config_overrides.value})`,
+          baselineType: sql<string>`jsonb_typeof(${schema.operator_config_overrides.baseline_value})`,
+        }).from(schema.operator_config_overrides).where(eq(schema.operator_config_overrides.key, key))
+        expect(stored).toEqual({ value, baseline, valueType: jsonType, baselineType: jsonType })
+      }
+    }
+  })
+
   it('denies boot-time and read-only writes, invalid ranges and empty reasons', async () => {
     for (const key of ['accounts:login', 'accounts:sync', 'billing:credits', 'agent:chat', 'operator:console']) {
       const response = await save(key, true, 0)
@@ -108,8 +130,12 @@ describe('operator config internal API', () => {
     const range = await save('agent:analysis-concurrency', 0, 0)
     expect(range.status).toBe(400)
     expect(await range.json()).toMatchObject({ error: 'value_out_of_range', details: { min: 1, max: 64 } })
-    expect((await request('/cli%3Aapi', { method: 'PUT', body: JSON.stringify({ value: true, reason: '', expectedRevision: 0 }) })).status).toBe(422)
-    expect((await request('/cli%3Aapi', { method: 'PUT', body: JSON.stringify({ value: true, reason: '   ', expectedRevision: 0 }) })).status).toBe(400)
+    const emptyReason = await request('/cli%3Aapi', { method: 'PUT', body: JSON.stringify({ value: true, reason: '', expectedRevision: 0 }) })
+    expect(emptyReason.status).toBe(400)
+    expect(await emptyReason.json()).toMatchObject({ error: 'invalid_request', message: expect.stringContaining('/reason:') })
+    const blankReason = await request('/cli%3Aapi', { method: 'PUT', body: JSON.stringify({ value: true, reason: '   ', expectedRevision: 0 }) })
+    expect(blankReason.status).toBe(400)
+    expect(await blankReason.json()).toEqual({ error: 'reason_required' })
   })
 
   it('keeps the prior effective snapshot when a whole-config reload fails', async () => {
@@ -234,7 +260,7 @@ describe('operator config internal API', () => {
   it('updates an existing analysis scheduler concurrency on its next poll', async () => {
     const launched: string[] = []
     const { promise: held, resolve: release } = Promise.withResolvers<void>()
-    await db.insert(schema.tasks).values([1, 2].map((index) => ({ id: `analysis-${index}`, kind: 'analysis' as const, provider: 'openai-compat' as const, model: 'fixture', status: 'queued' as const, request_payload: {}, submitted_at: index })))
+    await db.insert(schema.tasks).values([1, 2].map((index) => ({ id: `analysis-${index}`, kind: 'analysis' as const, provider: 'openai-compat' as const, model: 'fixture', status: 'queued' as const, request_payload: { prompt: 'fixture analysis' }, submitted_at: index })))
     const scheduler = new TaskScheduler({ pollIntervalMs: 10, executeAnalysisTask: async (id) => {
       launched.push(id)
       await db.update(schema.tasks).set({ status: 'in_progress' }).where(eq(schema.tasks.id, id))

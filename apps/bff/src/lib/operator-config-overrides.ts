@@ -230,7 +230,7 @@ function derive(base: ResolvedOperatorConfig, key: string, value: OperatorOverri
           throw new Error(`${capability} requires ${dependency}`)
       }
     }
-    const effective = validateOperatorConfigValues(base, capabilities, quotas)
+    const effective = validateOperatorConfigValues(base, capabilities, quotas, config)
     for (const capability of Object.keys(capabilities) as CapabilityKey[]) {
       if (effective.capabilities[capability] !== capabilities[capability])
         throw new Error(`${capability} was forced off by derived configuration`)
@@ -436,7 +436,7 @@ export function setOperatorConfigAlertSenderForTesting(sender: AlertSender): voi
 async function refreshOperatorConfigUnlocked(): Promise<number> {
   const snapshot = await readSnapshot()
   const base = baselineOperatorConfig()
-  validateOperatorConfigValues(base, base.capabilities, base.quotas)
+  validateOperatorConfigValues(base, base.capabilities, base.quotas, config)
   const { effective, invalid } = resolveRows(base, snapshot.rows)
   const previous = invalidOverrideReasons
   // Publish only after reading and validating the complete snapshot; failures retain old state.
