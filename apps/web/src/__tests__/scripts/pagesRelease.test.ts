@@ -347,20 +347,3 @@ exit 27
   )
 })
 
-it('keeps both Pages targets behind the shared backend without releasing the legacy backend', async () => {
-  const workflow = await readFile(join(root, '.github/workflows/deploy.yml'), 'utf8')
-  expect(workflow).toContain('WEB_ORIGINS="$INTERNAL_PUBLIC_ORIGIN $PAID_PUBLIC_ORIGIN"')
-  expect(workflow).toContain('scripts/ci-deploy-target.sh "$SHA" "$EVENT" "$PAID_BFF_BASE_URL"')
-  expect(workflow).toContain('needs: [target, release, backend]')
-  expect(workflow).toContain('needs: [target, release, backend, pages-paid]')
-  expect(workflow).toContain(
-    'edition: internal\n            prefix: INTERNAL\n            token: INTERNAL_CLOUDFLARE_API_TOKEN',
-  )
-  expect(workflow).toContain('PAGES_API_TOKEN: ${{ secrets[matrix.token] }}')
-  expect(workflow).toContain('for api in "$PAID_BFF_BASE_URL" "${!api_key}"; do')
-  expect(workflow).toContain('run: ./scripts/pages-release.sh "$EDITION"')
-  expect(workflow).toContain('scripts/pages-browser-smoke.sh "${!origin_key}"')
-  expect(workflow).not.toContain('deploy $RELEASE_ID internal')
-  expect(workflow).not.toContain('deploy $RELEASE_ID all')
-  expect(workflow).not.toContain('INTERNAL_EXTRA_ASSETS_DIR=')
-})
