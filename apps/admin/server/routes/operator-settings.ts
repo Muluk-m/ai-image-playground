@@ -21,7 +21,7 @@ export const operatorSettingsRoutes = new Elysia({ prefix: '/api/operator-settin
       params: keyParams,
       body: t.Object({
         value: t.Union([t.Boolean(), t.Numeric()]),
-        reason: t.String({ minLength: 1, maxLength: 2000 }),
+        reason: t.String({ minLength: 1, maxLength: 1000 }),
         expectedRevision: t.Numeric({ minimum: 0, multipleOf: 1 }),
       }),
     },
@@ -42,7 +42,7 @@ export const operatorSettingsRoutes = new Elysia({ prefix: '/api/operator-settin
     {
       params: keyParams,
       query: t.Object({
-        reason: t.String({ minLength: 1, maxLength: 2000 }),
+        reason: t.String({ minLength: 1, maxLength: 1000 }),
         expectedRevision: t.Numeric({ minimum: 0, multipleOf: 1 }),
       }),
     },

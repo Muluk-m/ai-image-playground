@@ -350,6 +350,22 @@ describe('operator config internal API', () => {
     expect(alerts.every((alert) => alert.rule === 'operator-config')).toBe(true)
   })
 
+  it('retries an invalid-override alert that failed to send on the next refresh', async () => {
+    setOperatorConfigAlertSenderForTesting(async () => {
+      throw new Error('webhook down')
+    })
+    await insertOverride('generation:daily-images', -1, 1, 5)
+    expect(await refreshOperatorConfigIfChanged()).toBe(1)
+    expect(config.operator.quotas['generation:daily-images']).toBe(5)
+    setOperatorConfigAlertSenderForTesting(async (messages) => {
+      alerts.push(...messages)
+    })
+    expect(await refreshOperatorConfigIfChanged()).toBe(1)
+    expect(alerts.map((alert) => alert.detail?.key)).toEqual(['generation:daily-images'])
+    expect(await refreshOperatorConfigIfChanged()).toBeNull()
+    expect(alerts).toHaveLength(1)
+  })
+
   it('applies direct DB updates and deletions through the shared revision refresh path', async () => {
     await insertOverride('cli:api', true, 1)
     expect((await me()).status).toBe(404)

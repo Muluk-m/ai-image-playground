@@ -302,6 +302,26 @@ describe('auth client', () => {
     })
   })
 
+  it.each([
+    {},
+    { connections: null },
+    { connections: { id: 'connection-1' } },
+    null,
+    { connections: [null] },
+    { connections: [{ id: 'c1', client_name: {}, created_at: 1, last_used_at: null }] },
+    { connections: [{ id: 'c1', client_name: 'CLI', created_at: '1', last_used_at: null }] },
+  ])('rejects a connection response without an array (%j)', async (body) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(body)),
+    )
+    await expect(fetchCliConnections()).rejects.toMatchObject({
+      name: 'AuthRequestError',
+      status: 200,
+      code: 'invalid_response',
+    })
+  })
+
   it('revokes exactly the selected connection without exposing credentials', async () => {
     const fetcher = vi.fn(async () => Response.json({ ok: true }))
     vi.stubGlobal('fetch', fetcher)
@@ -331,7 +351,7 @@ describe('auth client', () => {
     })
   })
 
-  it('points the OAuth start route at the configured BFF origin', () => {
+  it('points the OAuth start route at the configured BFF origin and page origin', () => {
     vi.stubGlobal('window', { location: new URL('https://app.example.com/') })
     const url = new URL(oauthStartUrl('google'))
     expect(url.origin).toBe('https://bff.example.com')

@@ -117,6 +117,8 @@ export function OperatorSettingsPage() {
   }, [search, settings])
 
   async function save(row: OperatorSettingRow, value: boolean | number, reason: string) {
+    // 写入共用全局版本号，同一时间只允许一个写请求。
+    if (pendingKey !== null) return
     setError(null)
     setStale(false)
     setPendingKey(row.key)
@@ -138,6 +140,7 @@ export function OperatorSettingsPage() {
   }
 
   async function clear(row: OperatorSettingRow, reason: string) {
+    if (pendingKey !== null) return
     setError(null)
     setStale(false)
     setPendingKey(row.key)
@@ -210,7 +213,7 @@ export function OperatorSettingsPage() {
                       row={row}
                       onSave={save}
                       onClear={clear}
-                      pending={pendingKey === row.key}
+                      pending={pendingKey !== null}
                     />
                   ))}
                 </tbody>
@@ -248,7 +251,8 @@ function SettingRowView({
     setReasonOpen(false)
     setImpactOpen(false)
     setAction(null)
-  }, [row.revision, row.override, row.effective])
+    // 只跟随本行服务端值；其他行保存导致的全局版本号变化不应清掉这里的草稿。
+  }, [row.override, row.effective])
 
   const submit = () => {
     const trimmed = reason.trim()
@@ -351,6 +355,7 @@ function SettingRowView({
                 <Input
                   autoFocus
                   aria-label="修改原因"
+                  maxLength={1000}
                   value={reason}
                   onChange={(event) => setReason(event.target.value)}
                   placeholder="修改原因（必填）"

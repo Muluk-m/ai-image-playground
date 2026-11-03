@@ -63,8 +63,8 @@ git push origin HEAD:test
 1. `main` 上的 `Web checks` 通过后，`.github/workflows/deploy.yml`（Deploy production）经 `workflow_run` 自动开始，同一时间只跑一单（并发组 `production-deploy`）。
 2. `target` 判定哪些部分要发（共享 paid API、内部与 paid Pages、Admin）；两站都扫描版本，落后的内部前端仍会补发。已在跑后代提交的部分不回退；`release` 打 `vMAJOR.MINOR.PATCH` 标签。
 3. **后端只发布 paid runtime。** `backend` 在 Actions 构建公开树加私有 overlay 的发布镜像，经 SSH 受限命令执行 `deploy <id> paid <run>`；`rollout-runtime.sh` 先跑兼容迁移，再做新旧两代排空切换。旧 internal 后端、容器和数据保持现状，不再参与发布或验收，不能覆盖或停止。
-4. `pages-paid` 的 `paid` / `internal` 矩阵发布两套前端：同一公开提交与 pinned overlay，独立项目、Cloudflare 账号、令牌和资源；内部站关闭索引。API 本次发布时，先等共享 paid API 与本目标第一方 API `/health` 报出新版本，再发布并跑 Chromium 验收。`admin-pages` 保留对完整 Pages 矩阵的成功 / 跳过依赖。
-   - 内部站继续使用 `INTERNAL_BFF_BASE_URL` 的第一方 hostname，外部路由切到共享 paid runtime；不能直接配置为跨站 paid API，否则 `SameSite=Lax` cookie 登录失效。切换需要预先核对受保护的登录策略、回调 allowlist、CORS 与路由，不改旧 internal 数据。
+4. `pages-paid` 只发布一个 paid Pages 项目：一个项目、多个域名（`muvloom.online`、`image.nainma.online`、企业域名 `image-playground.qiliangjia.one`）。`pages-release.sh paid` 把 `INTERNAL_PUBLIC_ORIGIN → INTERNAL_BFF_BASE_URL` 并入 `baseUrlsByOrigin`，并给企业域名加 host 级 `X-Robots-Tag: noindex`。API 本次发布时，先等共享 paid API 与企业 API hostname `/health` 报出新版本，再发布并跑 Chromium 验收；企业域名是否已迁入按 paid 项目的 Cloudflare 自定义域名列表判断：已迁入时同样验收且失败即失败，未迁入只告警。`admin-pages` 保留对 `pages-paid` 的成功 / 跳过依赖。
+   - 企业站继续使用 `INTERNAL_BFF_BASE_URL` 的第一方 hostname，不能直接配置为跨站 paid API，否则 `SameSite=Lax` cookie 登录失效。登录方式由后端 `AUTH_LOGIN_METHODS_BY_ORIGIN` 按 origin 决定（企业域名只飞书，muvloom 邮箱 + Google），前端不按域名分支。旧 internal Pages 项目与数据冻结，不再发布。
    - 只改前端时，两站允许 backend job 跳过；只改后端时，backend 直接发布 shared paid API。矩阵只读取本目标令牌，内部资源不继承 paid 资源。浏览器启动冒烟不替代真实登录与业务验收。
    - 失败后的重跑：同一发布 ID 已接收后只能按失败 job 重跑，不能重跑整单，避免同一发布目录冲突。重跑本身需 Nain 批准。
 
