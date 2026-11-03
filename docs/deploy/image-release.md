@@ -13,10 +13,10 @@
 负责人决定（2026-09-18）：会话只负责合并到 `main`，不再手动发布；部署由 [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) 完成。下文手动步骤仅作应急（CI 不可用、需发布非 main 提交时）。
 
 1. 触发：`Web checks` 在 main 的 push 上成功（`workflow_run`），或在 main 上手动 `workflow_dispatch`。main 上的 `Web checks` 先由 `prior` 核对：提交与其同仓 PR 头的代码树相同、且该 PR 头的 `Web checks` 已通过时，其余检查跳过（结论仍为 success），直接进入部署；PR 落后于 main、来自 fork 或找不到通过记录时照常全跑。并发组 `production-deploy` 不取消在跑的发布，排队只留最新一次。
-2. `target`：[`scripts/ci-deploy-target.sh`](../../scripts/ci-deploy-target.sh) 只判定 paid API、paid 站点和 Admin 是否需要发布。internal 线上版本固定保留，不再参与版本扫描、构建、发布或验收。提交不是 `origin/main` 最新、或 paid API / 站点已运行其后代提交（不回退）则整单跳过；版本读不到或副本不一致照常发布。
+2. `target`：[`scripts/ci-deploy-target.sh`](../../scripts/ci-deploy-target.sh) 判定共享 paid API、paid Pages 项目（企业域名与 muvloom 域名共用）、Admin 是否需要发布。前端只扫描 `PAID_PUBLIC_ORIGIN` 的 `/version.json`，同一项目的其他域名随之更新；旧 internal 后端与旧 internal Pages 项目保持冻结，不参与 API 版本扫描或发布。提交不是 `origin/main` 最新、或任一受管 API / 站点已运行其后代提交（不回退）则整单跳过；版本读不到或副本不一致照常发布。
 3. `release`：在同一个 `production-deploy` 并发组里根据根 `package.json` 的主次版本和已有 `vMAJOR.MINOR.*` 标签算出下一个补丁，打上 `vMAJOR.MINOR.PATCH` 并推送，避免两次发布抢同一个补丁。不把版本提交回 main。
-4. `backend`：仅在 API 树有变化时检出该提交，用 deploy key 按 `private.lock` 钉住的提交检出私有仓库到 `private/`，`GITHUB_TOKEN` 登录 GHCR，构建发布目录并经 forced command 执行 `deploy <id> paid <run_id>`，只更新 paid 后端。现有 internal 版保持不变。
-5. `pages-paid` → `admin-pages`：paid API `/health` 报 `<公开sha>+<私有sha>` 后，构建 paid 站并跑 Chromium 验收；随后按配置发布后台。生产流程不读取 `INTERNAL_CLOUDFLARE_API_TOKEN`，也不等待 internal API 或 internal Pages。失败后只能按失败 job 重跑，不能重跑整单。
+4. `backend`：仅在 API 树有变化时检出该提交，用 deploy key 按 `private.lock` 钉住的提交检出私有仓库到 `private/`，`GITHUB_TOKEN` 登录 GHCR，构建发布目录并经 forced command 执行 `deploy <id> paid <run_id>`，只更新共享 paid 后端。旧 internal 后端、容器和数据不覆盖、不停止。
+5. `pages-paid` → `admin-pages`：一个项目、多个域名。只构建、上传一次 paid Pages 项目，`muvloom.online`、`image.nainma.online` 与企业域名 `image-playground.qiliangjia.one` 都是它的自定义域名。`pages-release.sh paid` 把 `INTERNAL_PUBLIC_ORIGIN → INTERNAL_BFF_BASE_URL` 并入 `baseUrlsByOrigin`（企业站继续请求自己的第一方 API hostname），并给企业域名追加按 host 生效的 `X-Robots-Tag: noindex, nofollow`（`robots.txt` 是全项目共用的静态文件，不能按域名区分）。API 本次发布时，先等共享 paid API 与企业 API hostname `/health` 均报 `<公开sha>+<私有sha>`，再构建、上传并跑 Chromium 验收；随后检查企业域名：以 Cloudflare 上 paid 项目的自定义域名列表判断是否已迁入；已迁入时必须在 300 秒内与 paid 站 `version.json` 一致、带 noindex 头并通过 Chromium 验收，否则 job 失败；不在列表中时只给 warning。读不到域名列表也失败。前端单独发布时允许 backend job 跳过。Admin 等 `pages-paid` 成功或跳过。失败后只能按失败 job 重跑，不能重跑整单。
 6. 部署日志 `by=github-actions/run-<run_id>`；手动发布仍记 `user@host`（`DEPLOY_ACTOR` 可覆盖，写入时空白等字符换成 `-`）。
 
 ### 前端启动验收
@@ -40,9 +40,9 @@ Admin（`apps/admin`）同样带顶层 `404.html`，`_redirects` 由 `apps/admin
 | `PRIVATE_OVERLAY_SSH_KEY` | 私有仓库只读 deploy key |
 | `VPS_SSH_KEY` / `VPS_SSH_KNOWN_HOSTS` / `VPS_SSH_HOST` / `VPS_SSH_USER` | 连接 VPS 的受限 key、主机公钥、地址、用户（`ubuntu`） |
 | `PAGES_ENV` | 完整 `pages.env`；API 地址也从中读取 |
-| `PAID_CLOUDFLARE_API_TOKEN` | Pages 上传令牌，CI 写成 `$RUNNER_TEMP` 下 0600 文件，覆盖 `PAID_CLOUDFLARE_TOKEN_FILE`；internal 版已冻结，不再需要其 token。 |
+| `PAID_CLOUDFLARE_API_TOKEN` | paid Pages 账号的上传令牌，写成 `$RUNNER_TEMP` 下 0600 文件，覆盖 `PAID_CLOUDFLARE_TOKEN_FILE`。Admin 同样使用它。`INTERNAL_CLOUDFLARE_API_TOKEN` 不再被读取；保留与清理条件见「企业域名迁入付费 Pages 项目」。 |
 
-`PAID_EXTRA_ASSETS_DIR` 在 CI 改指 `private/pages-assets/`（`contact-qr.jpg`、`pay-qr.jpg`），目录缺失即失败。GHCR 推送用 workflow 的 `GITHUB_TOKEN`（`packages: write`）；包须允许本仓库 Actions 写入。任一必需 secret 为空，对应 job 首步报错退出。
+`PAID_EXTRA_ASSETS_DIR` 在 CI 改指 `private/pages-assets/`（`contact-qr.jpg`、`pay-qr.jpg`），目录缺失即失败。企业域名与 paid 站是同一份产物，`/op/` 下的这些资源在企业域名上同样可访问（本就公开）；`INTERNAL_EXTRA_ASSETS_DIR` 不再使用。所有 `EXTRA_ASSETS_DIR` 内容都会公开发布，不可放密钥。GHCR 推送用 workflow 的 `GITHUB_TOKEN`（`packages: write`）；包须允许本仓库 Actions 写入。任一必需 secret 为空，对应 job 首步报错退出。
 
 ### VPS 受限入口
 
@@ -54,16 +54,43 @@ command="/home/ubuntu/bin/aip-ci-receive",restrict ssh-ed25519 AAAA… github-ac
 
 只接受 `deploy <aip-12位hex-12位hex> <internal|paid|all> <run_id>`，其余一律拒绝（退出码 2）。stdin 的 tar 仅限相对路径的普通文件和目录（拒绝绝对路径、`..`、隐藏项、链接，上限 64 MiB），解到 `~/releases/<release-id>`；同一提交重发（手动触发）时原目录保留供回滚，改解到 `<release-id>.run-<run_id>`，解包失败会清理。然后以 `DEPLOY_ACTOR=github-actions/run-<id>` 运行包内 `vps-deploy.sh` 并透传退出码；发布失败时目录改名为 `….failed-run-<run_id>` 留作排查，可直接重跑 workflow。脚本更新后须重新安装。
 
-## 前端：两套 Pages（手动应急）
+## 前端：一个 Pages 项目、多个域名（手动应急）
 
-构建和上传可在本机执行，资源紧张时改用 macmini2；两套串行发布。仅修改前端时发布两套 Pages，无需部署 VPS 后端。
+构建和上传可在本机执行，资源紧张时改用 macmini2。仅修改前端时只发布 paid Pages 项目（及按需 Admin），无需部署 VPS 后端。
 
 | 形态 | Pages project | 网页 / API |
 | --- | --- | --- |
-| 内部版 | `ai-image-playground-internal` | `image-playground.qiliangjia.one` / `image-api.qiliangjia.one` |
 | 付费版 | `ai-image-playground` | `muvloom.online` / `api.muvloom.online` |
 | 付费旧域名 | 同一付费项目 | `image.nainma.online` / `api.nainma.online` |
+| 企业域名（不收录） | 迁入后为同一付费项目 | `image-playground.qiliangjia.one` / `image-api.qiliangjia.one` |
+| 旧内部项目（冻结，回滚保留期结束后再清理） | `ai-image-playground-internal`（内部账号） | 迁出前仍服务企业域名 |
 | 后台 | `muvloom-admin` | `admin.muvloom.online` / `admin-api.muvloom.online` |
+
+所有域名使用同一份前端产物与同一个共享 paid runtime，但各自请求第一方 API hostname：企业域名的 `INTERNAL_BFF_BASE_URL` 仍为 `https://image-api.qiliangjia.one`，由外部路由接到共享 runtime。登录方式由后端按前端 origin 决定（`AUTH_LOGIN_METHODS_BY_ORIGIN`）：企业域名只开飞书，muvloom 开邮箱密码、邮箱注册与 Google；前端不按域名分支。不要把企业域名直接指向 `https://api.muvloom.online`：跨站请求不能携带 `SameSite=Lax` 会话 cookie。路由、CORS、登录入口策略及回调 allowlist 必须在切换前由受保护服务器配置完成；本 workflow 不改服务器配置，也不覆盖或停止旧 internal 后端。入口策略来自后端按 origin 配置，不在公开源码写私有提供方细节。官网 canonical、hreflang、sitemap 与 `llms.txt` 都指向 `PAID_PUBLIC_ORIGIN`；企业域名靠 noindex 头排除收录。
+
+### 企业域名迁入付费 Pages 项目（一次性）
+
+**迁移与回滚都要 Nain 批准，并约定低峰维护窗口、失败回滚时限及执行人。合并代码不迁移域名，也不保证迁移零停机：从停用旧 DNS / 解绑旧项目开始，到新绑定、DNS 与 TLS 生效并完成验收为止，企业站可能不可用；回滚也有同样窗口。**
+
+1. **迁移前置检查。** 等 main 的 Deploy production 成功，核对共享 API、muvloom 和 Admin 的版本；确认 paid 产物的 `runtime-config.json` 已包含 `https://image-playground.qiliangjia.one → https://image-api.qiliangjia.one`，并包含企业 host 的 noindex 规则。新前端必须支持读取后端 `loginMethods`（#1659）；企业 API 仅返回飞书且禁用密码 / 注册，不代表冻结的旧前端已隐藏这些表单。旧企业站在迁入前继续提供旧版本。
+2. **备份与跨账号预检。** 记录旧 / 新 Pages 账号、项目、部署版本及 `qiliangjia.one` zone 所属账号；备份 `image-playground` 的 DNS 类型、目标、代理状态和 TTL。确认执行人能管理两边的 Pages 自定义域名及源 zone 的 DNS，旧项目与已验证部署仍可用于回滚。该域名是子域名，zone 不必迁到 paid 账号；不要套用「同账号自动创建 DNS」或直接强制代理 CNAME。跨账号时按目标 Pages 自定义域名向导核对验证记录、代理要求、CAA 和可能的 zone hold；无法确认支持与权限就停止，不先解绑旧站。
+3. **解绑旧项目。** 在维护窗口按 Cloudflare [删除自定义域名流程](https://developers.cloudflare.com/pages/configuration/custom-domains/#delete-a-custom-domain)停用旧 CNAME，再从内部账号的 `ai-image-playground-internal` 移除 `image-playground.qiliangjia.one`。此处开始计入停机窗口；不删除旧项目或部署。
+4. **先添加域名，再配 DNS。** 紧接着在付费账号的 `ai-image-playground` → Custom domains 添加 `image-playground.qiliangjia.one`，创建绑定后，再到源 zone 按向导创建 CNAME → `ai-image-playground.pages.dev` 及所需验证记录。跨账号不会由目标项目自动修改源 zone，代理状态按已确认的配置设置。不要在绑定前先把 CNAME 指向新项目，否则可能解析失败或出现 522，见 Cloudflare [自定义域名说明](https://developers.cloudflare.com/pages/configuration/custom-domains/#add-a-custom-cname-record)。等待域名 active、DNS 和 TLS 生效；不能把添加成功或固定等待几分钟当作恢复服务。
+5. **迁入验收。** 企业域名 `version.json` 必须与 `muvloom.online` 完全一致，企业站实际读取的 `runtime-config.json` 必须含上述第一方 API 映射。用 GET 检查企业首页、登录入口与业务深链最终 HTML 的 `X-Robots-Tag: noindex, nofollow`，同时确认 muvloom 未被加上 noindex。共享的 `robots.txt` 允许抓取，不能再用旧项目的 `Disallow: /` 当保护；noindex 是搜索索引指令，不是访问控制。Cloudflare [Headers 文档](https://developers.cloudflare.com/pages/configuration/headers/#attach-a-header)支持 `https://example.com/path` 绝对 URL 匹配，不限于 `pages.dev`，但仍须实测自定义域名的最终响应。浏览器确认企业登录弹窗只显示飞书、无密码 / 注册表单，并用获准测试账号实测飞书登录、回调与带 cookie 的 API 请求；muvloom 仍显示 Google、邮箱密码和注册。任一项失败，不宣称完成，按批准的回滚时限处理。
+
+**域名回滚（需批准）。** 停用指向新项目的 CNAME，从 paid 项目移除企业域名，先把它添加回旧 `ai-image-playground-internal` 项目，再恢复备份的旧 DNS（CNAME → `ai-image-playground-internal.pages.dev`，以及原代理状态 / TTL）。等待 active、DNS 与 TLS 生效，核对旧版本、索引策略及真实登录。域名回滚不回滚共享后端，也不会把旧前端升级为按 `loginMethods` 隐藏表单的新界面。
+
+**代码回滚不等于恢复发布。** revert #1661 只恢复双矩阵代码，不会自动迁回自定义域名或修复旧令牌。此前 internal Pages 发布报过 `Authentication error [code: 10000]`；恢复 internal 发布前，必须修复并验证 `INTERNAL_CLOUDFLARE_API_TOKEN` 的有效性、账号归属和 Pages 权限，否则仍会失败并阻断后续 Admin 发布。域名迁移稳定、验收记录齐全且 Nain 确认不再保留旧项目回滚路径后，才能清理旧项目与旧令牌；不要提前删除。
+
+### 内部 API hostname 切换到共享 runtime
+
+这是受保护的服务器路由变更，需按批准的切换流程执行，不由 Pages 发布或普通后端 rollout 自动修改：
+
+1. 保留内部 tunnel connector 在 `image-playground-internal_application` 网络上的连接，内部 Admin hostname 仍依赖它。只把现有内部 `cloudflared` connector 额外接入 `image-playground-paid_application`，不把旧 internal BFF、worker 或数据库接入该网络，也不停止或覆盖它们。自定义项目名时分别使用 `${INTERNAL_PROJECT}_application` / `${PAID_PROJECT}_application`，以实际 Docker 网络为准。
+2. 在现有内部 tunnel 的配置中，仅将 `image-api.qiliangjia.one` 的 upstream 从 `http://release-router:37377` 改为 `http://image-playground-paid-release-router:37377`。使用明确的 paid router 名称，避免 connector 同时加入两套网络后把通用 `release-router` 名称解析到旧 runtime；保留其余 hostname（尤其内部 Admin）的路由。
+3. 按批准流程加载 connector 配置，核对 `image-api.qiliangjia.one/health` 与 paid API 的公开 / 私有提交一致，再验内部站真实登录、回调、带 cookie 的 API 请求，以及内部 Admin 仍可访问。前端的 `INTERNAL_BFF_BASE_URL` 不变。
+
+额外 Docker 网络连接会随同一 connector 容器的 **restart** 保留，但不会自动带到 **recreate** 后的新容器。今后任何 connector 重建操作都必须先将重新附加 `image-playground-paid_application` 列为该次操作的必需步骤，并在新 connector 承接流量前完成附加与连通性核验；不能先重建后把该连接当作仍然存在。重建后仍须保留 `image-playground-internal_application` 以服务内部 Admin。普通 paid 后端发布不应重建内部 connector，本次切换也不修改 rollout 脚本。
 
 ### 付费站默认域名跳转
 
@@ -82,8 +109,8 @@ command="/home/ubuntu/bin/aip-ci-receive",restrict ssh-ed25519 AAAA… github-ac
 
 ### 手动构建与发布
 
-1. 准备两个独立、干净且依赖已按锁文件安装的检出，固定到同一已通过 main CI 的公开提交。付费检出包含已验证提交的 `private/`；内部检出不含 overlay。不要移动其他会话的 `private/` 或重写锁文件。
-2. 在执行发布的机器准备仓库外 0600 配置，格式见 `deploy/pages.env.example`。填写两套 `*_PAGES_PROJECT`、`*_BFF_BASE_URL`、`*_PUBLIC_ORIGIN`、`*_CLOUDFLARE_ACCOUNT_ID`；令牌通过 `*_CLOUDFLARE_TOKEN_FILE` 引用受保护文件，未配置时使用该机器的 Wrangler OAuth。两套账号分别验证权限。
+1. 准备独立、干净且依赖已按锁文件安装的检出，固定到同一已通过 main CI 的公开提交及 `private.lock` 对应的 `private/`。前端必须带 overlay。不要移动其他会话的 `private/` 或重写锁文件。
+2. 在执行发布的机器准备仓库外 0600 配置，格式见 `deploy/pages.env.example`。填写 `PAID_PAGES_PROJECT`、`PAID_BFF_BASE_URL`、`PAID_PUBLIC_ORIGIN`、`PAID_CLOUDFLARE_ACCOUNT_ID`，以及企业域名的 `INTERNAL_PUBLIC_ORIGIN`、`INTERNAL_BFF_BASE_URL`；令牌通过 `PAID_CLOUDFLARE_TOKEN_FILE` 引用受保护文件，未配置时使用该机器的 Wrangler OAuth。
 3. 保留付费域名映射：`PAID_BFF_BASE_URLS_BY_ORIGIN='{"https://image.nainma.online":"https://api.nainma.online"}'`，避免旧域名会话失效。保留现有 `*_EXTRA_ASSETS_DIR` 等配置；该目录内容会公开发布。
 4. 将下列路径替换为本次独立检出和已核验配置，再执行：
 
@@ -92,17 +119,15 @@ command="/home/ubuntu/bin/aip-ci-receive",restrict ssh-ed25519 AAAA… github-ac
 # 若选择远端发布，先 ssh macmini2；本机发布直接执行以下命令。
 export PATH=/opt/homebrew/bin:$PATH
 export PAGES_ENV_FILE=/absolute/protected/pages.env
-cd /absolute/internal-checkout
-./scripts/pages-release.sh internal
 cd /absolute/paid-checkout
 ./scripts/pages-release.sh paid
 ```
 
 `pages-release.sh` 自动构建、向生产分支 `main` 上传，并等待自定义域名 `version.json` 与产物一致（最长 300 秒）。不直接调用省略分支的 `pages-deploy.sh`，否则会发布到预览环境。
 
-macmini2 现有生产配置参考：`/Users/mac/services/aip-free-recovery-20260918/pages-primary-remote.env`；其中内部令牌文件可能已清理，使用前必须核验并刷新认证。`pages-remote.env` 指向旧备用 API，不能用于正常生产发布。服务容器停机不影响读取这些配置，但发布不得依赖失效令牌。本机使用本机受保护配置与凭据路径，不直接引用 macmini2 的绝对路径。
+macmini2 现有生产配置参考：`/Users/mac/services/aip-free-recovery-20260918/pages-primary-remote.env`；其中内部项目配置已不再使用，令牌使用前必须核验并刷新认证。`pages-remote.env` 指向旧备用 API，不能用于正常生产发布。服务容器停机不影响读取这些配置，但发布不得依赖失效令牌。本机使用本机受保护配置与凭据路径，不直接引用 macmini2 的绝对路径。
 
-验收三个网页域名的 `version.json`、`runtime-config.json`：公开提交一致，付费含预期私有提交，API 映射正确；再检查真实浏览器登录、原画布和前端改动。上传成功但域名校验超时时先查部署状态及缓存，不立即重复上传。默认静默更新；需要更新提示时设置对应 `*_NOTIFY_UPDATE=true`。
+验收三个网页域名的 `version.json`、`runtime-config.json`：三者为同一部署、含预期私有提交，各自第一方 API 映射正确，企业域名带 noindex 头；再检查真实浏览器登录、原画布和前端改动。上传成功但域名校验超时时先查部署状态及缓存，不立即重复上传。默认静默更新；需要更新提示时设置对应 `*_NOTIFY_UPDATE=true`。
 
 前端回滚：在独立检出恢复上一已验证公开/私有提交，使用相同生产配置重跑对应 `pages-release.sh`，按上述步骤验收。
 
@@ -210,6 +235,19 @@ GHCR 不可用时构建加 `RELEASE_TRANSPORT=archive`：不登录、不推送�
 没有 drain 接口的旧 Compose BFF 或 worker 不能证明安全退休。旧 queue 数据库 gate 也不能证明免费 Agent 对话空闲。发现这些实例时，发布保留容器与 `legacy-origin`，在迁移或创建第三代之前失败。`DEPLOY_RETIRE_LEGACY=1` 不再绕过安全证明。
 
 不得用近期无日志、空付费任务表或延长 SIGTERM 宽限代替排空证明。旧协议实例需要独立的运行证据与退休方案；普通发布不负责强制清除它。
+
+## 合并分支后的迁移历史
+
+数据库迁移仍拒绝「时间戳早于最新已应用记录、但没有应用记录」的 journal 项，不能为发布通行而补写伪造的应用记录。仅 `packages/db/src/migrate.ts` 内经过审计、固定两端 SQL SHA-256 和原始时间戳的替代关系可例外：
+
+- `0079_task_metering` → `0085_task_metering_forward`：两者添加相同的 nullable `tasks.metering jsonb`；后者增加 `IF NOT EXISTS`，保留测试库已写入的计费决策。
+- `0081_cli_device_oauth` → `0083_cli_device_oauth`：执行语句完全相同，后者仅增加说明注释；CLI 表、索引与已有授权记录不重建。
+
+替代项必须在当前 journal 中，且已用匹配 SHA-256 应用，或时间戳严格晚于数据库最新迁移、将在本次 Drizzle 事务中执行。SQL 内容或时间戳不匹配、替代项本身被跳过、其他历史缺口都阻止发布。所有待执行 SQL 与对应历史记录由同一事务提交，失败不补写原条目的历史记录；已应用的名称、时间戳、哈希均不改写。
+
+纯 main（到 `0084`，没有 `0079`/`0081`）升级只新增 `0085` 的应用记录；其历史行数自然比全新安装少两行。已执行原条目的测试库保留这些记录，再执行幂等的向前迁移。重跑通过同一替代关系确认安全，不要求两种历史的行数相等。
+
+迁移记录与哈希不是线上 schema 的完整证明；手工改表、伪造历史、已有同名但不同类型的列仍需人工核对。尤其 `IF NOT EXISTS` 不修复错误列类型。发布只向前迁移，不执行历史 down 文件；不得为回滚版本删除 metering 或 CLI 授权数据。增加新的替代关系必须逐句证明等价并更新回归测试，不能增加通用忽略开关。
 
 ## 回滚与失败处理
 

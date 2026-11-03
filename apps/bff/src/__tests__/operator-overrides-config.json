@@ -1,0 +1,18 @@
+{
+  "capabilities": {
+    "accounts:login": true,
+    "accounts:sync": true,
+    "agent:chat": true,
+    "agent:attachments": true,
+    "agent:bulk-attachments": true,
+    "quota:daily": true
+  },
+  "quotas": {
+    "sync:attachment-lease-seconds": 600,
+    "agent:attachment-logical-references": 10,
+    "agent:attachment-image-bytes": 1048576,
+    "agent:attachment-image-pixels": 1000000,
+    "agent:attachment-upload-concurrency": 2,
+    "generation:daily-images": 5
+  }
+}

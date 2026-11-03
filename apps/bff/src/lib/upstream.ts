@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer'
 import {
   buildAspectInstruction,
+  isGptBasicRequest,
   isGptDirectModel,
   QUEUE_TIMEOUTS,
   type QueueProvider,
@@ -33,6 +34,7 @@ import {
 import { acquireChannelSlot } from './upstream/concurrency'
 import {
   extractErrorMessage,
+  ImagePlanRequiredError,
   stringifyUpstreamPayload,
   UpstreamPartialResultError,
   UpstreamQueueTimeoutError,
@@ -71,6 +73,7 @@ import {
   gptSchedulerBuckets,
   type SchedulerBucket,
   type SchedulerLease,
+  tryAcquireSchedulerSlots,
   waitForSchedulerSlots,
 } from './upstream/scheduler'
 import { type ChannelRouteStyle, clientError, type UpstreamCallResult } from './upstream/shared'
@@ -292,6 +295,8 @@ export interface UpstreamCallParams {
   taskId?: string
   /** 账号是会员：GPT Image 默认走 OpenAI 直连（见 upstream/gpt-routing.ts）。 */
   gptMember?: boolean
+  /** Server-persisted CLI contract; premium GPT requests may only execute on direct. */
+  strictImageRequest?: boolean
   /** GPT Image 每条路开跑前调用（换路时再调一次）；调用方据此记下最后走的通道，结算用。 */
   onGptRoute?: (route: GptRoute) => Promise<void>
   provider: QueueProvider
@@ -369,6 +374,9 @@ const GPT_DIRECT_QUEUE_WAIT_MS = 5_000
 
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const route = resolveUpstream(params.provider, params.model)
+  // 已提交的任务沿原路续轮询，不因直连配置后来变化而放弃上游结果。
+  if (!params.resume && requiresGptDirect(params) && !gptDirectConfigured(params.model))
+    throw new ImagePlanRequiredError()
   // 已提交过的任务只在原路续轮询；只有走通用网关的 GPT 直连模型才有两条路可选。
   if (
     route.gptRoute !== 'sub2api' ||
@@ -382,6 +390,15 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     return callUpstreamVia(params, route)
   }
   return callGptDualRoute(params, route)
+}
+
+function requiresGptDirect(params: UpstreamCallParams): boolean {
+  return (
+    params.strictImageRequest === true &&
+    isGptDirectModel(params.model) &&
+    !params.request.video &&
+    !isGptBasicRequest(params.request)
+  )
 }
 
 /**
@@ -425,11 +442,13 @@ async function callGptDualRoute(
   const { model, request } = params
   const member = params.gptMember === true
   const deadlineAt = Date.now() + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
-  const first = await firstGptRoute({ model, member, request })
+  const strict = requiresGptDirect(params)
+  const first = await firstGptRoute({ model, member, request, strictImageRequest: strict })
   const other: GptRoute = first === 'direct' ? 'sub2api' : 'direct'
 
   /** 换到 other 这条路此刻是否可行：时间够、对方没熔断、直连有额度与预算。 */
   const canSwitch = async (): Promise<boolean> => {
+    if (strict) return false
     if (params.signal?.aborted) return false
     if (deadlineAt - Date.now() < GPT_FAILOVER_MIN_REMAINING_MS) return false
     if (other === 'sub2api') return !sub2apiBreakerOpen()
@@ -530,6 +549,15 @@ async function callGptDualRoute(
   if (firstOutcome.ok) return firstOutcome.result
 
   const { error, state } = firstOutcome
+  if (strict) {
+    // Never replace an uncertain/partial result with a definitive rejection: reconciliation owns it.
+    if (
+      error instanceof UpstreamQueueTimeoutError ||
+      (!(error instanceof UpstreamResultUnknownError) && isRouteFailure(error))
+    )
+      throw new ImagePlanRequiredError({ cause: error })
+    throw error
+  }
   // 非会员只在 sub2api 超时时借直连；sub2api 报错计入熔断，熔断后的新任务才整单走直连。
   const eligible =
     !params.signal?.aborted &&
@@ -659,7 +687,12 @@ async function callUpstreamVia(
     let lease: SchedulerLease | undefined
     if (counted && schedulerBuckets.length > 0) {
       try {
-        lease = await waitForSchedulerSlots(schedulerBuckets, imagesPerDispatch, deadline.signal)
+        if (requiresGptDirect(params)) {
+          lease = (await tryAcquireSchedulerSlots(schedulerBuckets, imagesPerDispatch)) ?? undefined
+          if (!lease) throw new ImagePlanRequiredError()
+        } else {
+          lease = await waitForSchedulerSlots(schedulerBuckets, imagesPerDispatch, deadline.signal)
+        }
       } catch (err) {
         // 排队时就超时：这条请求没发出去，确定未执行，不是「结果未知」。
         if (deadline.timedOut) throw queueTimeoutError()
