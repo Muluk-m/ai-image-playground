@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { eq, sql } from 'drizzle-orm'
+import type { PrivateTaskHooks } from '../../lib/private-overlay'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 const TEST_DB = await resetTestDatabase('bff_cli_routes')
@@ -13,16 +14,19 @@ process.env.DATABASE_URL = TEST_DB
 process.env.CORS_ALLOWED_ORIGINS = 'https://studio.test'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../cli-operator-config.json')
 process.env.CLIENT_IP_SOURCE = 'cf-connecting-ip'
+process.env.GPT_DIRECT_ENABLED = 'true'
+process.env.OPENAI_API_KEY = 'fixture-direct-key'
 
 // 计费能力要求 overlay 在场：替身必须在 app 求值之前装好。
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
 
-type ReservationLog = { taskId: string; model: string }
+type ReservationLog = { taskId: string; model: string; credits: number; unitMultiplier: number }
 const billing = {
   members: new Set<string>(),
   quote: 10,
+  reservePrice: undefined as number | undefined,
   reservations: [] as ReservationLog[],
   settlements: [] as { taskId: string; outcome: string }[],
 }
@@ -36,12 +40,28 @@ _setPrivateBffOverlayForTesting(
       async canSubmitTask({ userId }: { userId: string }) {
         return billing.members.has(userId)
       },
-      async quoteTask() {
-        return { estimatedCredits: billing.quote, pricing: {} as never }
+      async isActiveMember({ userId }: { userId: string }) {
+        return billing.members.has(userId)
       },
-      async reserveTask({ taskId, model }: { taskId: string; model: string }) {
-        billing.reservations.push({ taskId, model })
-        return { kind: 'reserved' as const, credits: billing.quote }
+      async quoteTask({
+        quantity,
+        unitMultiplier,
+      }: Parameters<NonNullable<PrivateTaskHooks['quoteTask']>>[0]) {
+        return { estimatedCredits: billing.quote * quantity * unitMultiplier, pricing: {} as never }
+      },
+      async reserveTask({
+        tx,
+        taskId,
+        model,
+        quantity,
+        unitMultiplier,
+      }: Parameters<PrivateTaskHooks['reserveTask']>[0]) {
+        const credits = (billing.reservePrice ?? billing.quote) * quantity * unitMultiplier
+        billing.reservations.push({ taskId, model, credits, unitMultiplier })
+        await tx.execute(
+          sql`INSERT INTO cli_test_holds (task_id, credits) VALUES (${taskId}, ${credits})`,
+        )
+        return { kind: 'reserved' as const, credits }
       },
       async finalizeTask({ taskId, outcome }: { taskId: string; outcome: string }) {
         billing.settlements.push({ taskId, outcome })
@@ -62,6 +82,10 @@ const { _setChannelsForTesting, parseChannelsConfig } = await import('../../lib/
 const { _resetInactiveModelsForTesting } = await import('../../lib/model-availability')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { hashCliSecret } = await import('../../lib/cli/auth')
+// These modules must load after the test database, environment and billing overlay are installed.
+const { runTask } = await import('../../workers/task-runner')
+const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
+const { _resetDirectBudgetCacheForTesting } = await import('../../lib/upstream/gpt-budget')
 
 const CHANNELS = parseChannelsConfig(
   {
@@ -82,10 +106,31 @@ const CHANNELS = parseChannelsConfig(
           },
         ],
       },
+      {
+        id: 'openai-images',
+        kind: 'openai-queue',
+        label: 'GPT',
+        baseUrl: 'https://openai.example.com/v1',
+        auth: { type: 'bearer', secretRef: 'GEMINI_TEST_KEY' },
+        defaults: { apiMode: 'images', timeout: 600 },
+        allowedPaths: ['images/generations', 'images/edits'],
+        models: [
+          {
+            id: 'gpt-image-2.5-flare',
+            label: 'GPT Image 2.5 Flare',
+            capabilities: ['generate', 'edit', 'size', 'quality'],
+          },
+        ],
+      },
     ],
   },
   (key) => (key === 'GEMINI_TEST_KEY' ? 'fixture-key' : undefined),
 ).channels
+
+// Test-owned ledger: transaction rollback must undo holds, not merely delete the task row.
+await db.execute(
+  sql`CREATE TABLE cli_test_holds (task_id text PRIMARY KEY, credits integer NOT NULL)`,
+)
 
 beforeEach(async () => {
   setObjectStoreForTesting(new InMemoryObjectStore())
@@ -98,8 +143,15 @@ beforeEach(async () => {
   _resetInactiveModelsForTesting()
   billing.members.clear()
   billing.quote = 10
+  billing.reservePrice = undefined
+  Object.assign(config.gptDirect, { enabled: true })
+  _resetDirectBudgetCacheForTesting()
   billing.reservations.length = 0
   billing.settlements.length = 0
+  await db.execute(sql`TRUNCATE cli_test_holds`)
+  await db.delete(schema.scheduler_leases)
+  await db.delete(schema.scheduler_buckets)
+  await db.delete(schema.gpt_direct_usage)
   await db.execute(
     sql`TRUNCATE cli_jobs, cli_reference_media, cli_retired_refresh_tokens, cli_connections, device_authorizations, generation_images, generation_records, generation_commands, tasks, media_objects, user_sessions, operator_audits, users CASCADE`,
   )
@@ -109,6 +161,7 @@ afterEach(() => {
   setObjectStoreForTesting()
   setDurableMediaStoreForTesting()
   _setChannelsForTesting([])
+  setUpstreamFetchForTesting()
 })
 
 afterAll(async () => {
@@ -443,6 +496,336 @@ describe('capabilities and dry-run', () => {
     })
     expect(unkeyed.status).toBe(400)
     expect(unkeyed.json.error.code).toBe('INVALID_REQUEST')
+  })
+})
+
+describe('CLI GPT image pricing', () => {
+  it.each([
+    { image_size: '2K' },
+    { image_size: '4K' },
+    { quality: 'high' },
+  ])('rejects non-member premium parameters %j without a task or hold', async (parameters) => {
+    const user = await createUser('gpt-nonmember')
+    const { access_token } = await connect(user)
+    for (const path of ['/v1/image-jobs/validate', '/v1/image-jobs']) {
+      const denied = await call('POST', path, {
+        body: imageJob({ model: 'gpt-image-2.5-flare', ...parameters }),
+        headers: bearer(access_token),
+      })
+      expect(denied.status).toBe(403)
+      expect(denied.json.error.code).toBe('PLAN_REQUIRED')
+    }
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await db.select().from(schema.generation_commands)).toHaveLength(0)
+    expect(billing.reservations).toHaveLength(0)
+    expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
+  })
+
+  it.each([
+    {
+      image_size: '2K',
+      aspect_ratio: 'auto',
+      quality: 'medium',
+      size: '2048x2048',
+      ratio: '1:1',
+      credits: 20,
+      multiplier: 2,
+    },
+    {
+      image_size: '4K',
+      aspect_ratio: 'auto',
+      quality: 'medium',
+      size: '2880x2880',
+      ratio: '1:1',
+      credits: 20,
+      multiplier: 2,
+    },
+    {
+      image_size: '4K',
+      aspect_ratio: '16:9',
+      quality: 'high',
+      size: '3840x2160',
+      ratio: '16:9',
+      credits: 80,
+      multiplier: 8,
+    },
+    {
+      image_size: '1K',
+      aspect_ratio: '1:1',
+      quality: 'high',
+      size: '1024x1024',
+      ratio: '1:1',
+      credits: 40,
+      multiplier: 4,
+    },
+    {
+      image_size: '2K',
+      aspect_ratio: '1:1',
+      quality: 'low',
+      size: '2048x2048',
+      ratio: '1:1',
+      credits: 10,
+      multiplier: 1,
+    },
+  ])('quotes and holds the canonical member parameters %j', async ({
+    image_size,
+    aspect_ratio,
+    quality,
+    size,
+    ratio,
+    credits,
+    multiplier,
+  }) => {
+    const user = await createUser('gpt-member')
+    billing.members.add(user.id)
+    const { access_token } = await connect(user)
+    const body = imageJob({
+      model: 'gpt-image-2.5-flare',
+      image_size,
+      aspect_ratio,
+      quality,
+      max_credits: credits,
+    })
+    const preview = await call('POST', '/v1/image-jobs/validate', {
+      body,
+      headers: bearer(access_token),
+    })
+    expect(preview.status).toBe(200)
+    expect(preview.json.data).toMatchObject({
+      normalized: { image_size, aspect_ratio: ratio, quality },
+      quote: { estimated_credits: credits },
+      creates_job: false,
+    })
+    expect(preview.json.data.adjustments).toEqual(
+      aspect_ratio === 'auto' ? [{ field: 'ratio', from: 'auto', to: '1:1' }] : [],
+    )
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
+    const created = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
+    expect(created.status).toBe(200)
+    expect(created.json.data.request_hash).toBe(preview.json.data.request_hash)
+    expect(created.json.data.adjustments).toEqual(preview.json.data.adjustments)
+    const [task] = await db.select().from(schema.tasks)
+    expect(task?.request_payload).toMatchObject({ size, quality, strict_image_request: true })
+    expect(task?.request_payload.n).toBe(1)
+    expect(task?.request_payload.image_size).toBeUndefined()
+    expect(billing.reservations).toEqual([
+      { taskId: task!.id, model: 'gpt-image-2.5-flare', credits, unitMultiplier: multiplier },
+    ])
+    expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits }])
+  })
+
+  it.each([
+    'disabled',
+    '503',
+  ] as const)('keeps premium CLI intent through worker execution when direct is %s', async (failure) => {
+    const user = await createUser(`gpt-executor-${failure}`)
+    billing.members.add(user.id)
+    const { access_token } = await connect(user)
+    const created = await call('POST', '/v1/image-jobs', {
+      body: imageJob({ model: 'gpt-image-2.5-flare', image_size: '2K' }),
+      headers: bearer(access_token),
+    })
+    expect(created.status).toBe(200)
+    const jobId = created.json.data.job.job_id as string
+    const requests: string[] = []
+    setUpstreamFetchForTesting(async (url) => {
+      requests.push(String(url))
+      return new Response(JSON.stringify({ error: { message: 'unavailable' } }), { status: 503 })
+    })
+    if (failure === 'disabled') Object.assign(config.gptDirect, { enabled: false })
+
+    await runTask(jobId)
+
+    const job = await call('GET', `/v1/jobs/${jobId}`, { headers: bearer(access_token) })
+    expect(job.json.data).toMatchObject({
+      status: 'failed',
+      terminal: true,
+      error: { code: 'PLAN_REQUIRED' },
+    })
+    expect(billing.settlements).toEqual([{ taskId: jobId, outcome: 'failed' }])
+    expect(requests).toHaveLength(failure === 'disabled' ? 0 : 1)
+    expect(requests.every((url) => new URL(url).hostname === 'api.openai.com')).toBe(true)
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, jobId))
+    expect(task).toMatchObject({ error_type: 'plan_required', next_retry_at: null })
+  })
+
+  it('rejects a zero budget and leaves the denied idempotency key reusable', async () => {
+    const user = await createUser('gpt-zero-budget')
+    billing.members.add(user.id)
+    const { access_token } = await connect(user)
+    const body = imageJob({ model: 'gpt-image-2.5-flare', image_size: '2K', max_credits: 0 })
+    for (const path of ['/v1/image-jobs/validate', '/v1/image-jobs']) {
+      const denied = await call('POST', path, { body, headers: bearer(access_token) })
+      expect(denied.status).toBe(402)
+      expect(denied.json.error).toMatchObject({
+        code: 'MAX_CREDITS_EXCEEDED',
+        details: { required: 20, max_credits: 0 },
+      })
+    }
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await db.select().from(schema.generation_commands)).toHaveLength(0)
+    expect(billing.reservations).toHaveLength(0)
+    expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
+    const allowed = await call('POST', '/v1/image-jobs', {
+      body: { ...body, max_credits: 20 },
+      headers: bearer(access_token),
+    })
+    expect(allowed.status).toBe(200)
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+  })
+
+  it.each([
+    'membership',
+    'direct route',
+  ] as const)('rechecks %s between quote and submit without downgrading', async (changed) => {
+    const user = await createUser('gpt-entitlement-change')
+    billing.members.add(user.id)
+    const { access_token } = await connect(user)
+    const body = imageJob({ model: 'gpt-image-2.5-flare', image_size: '2K' })
+    const preview = await call('POST', '/v1/image-jobs/validate', {
+      body,
+      headers: bearer(access_token),
+    })
+    expect(preview.status).toBe(200)
+    if (changed === 'membership') billing.members.delete(user.id)
+    else Object.assign(config.gptDirect, { enabled: false })
+    for (const path of ['/v1/image-jobs/validate', '/v1/image-jobs']) {
+      const denied = await call('POST', path, { body, headers: bearer(access_token) })
+      expect(denied.status).toBe(403)
+      expect(denied.json.error.code).toBe('PLAN_REQUIRED')
+    }
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await db.select().from(schema.generation_commands)).toHaveLength(0)
+    expect(billing.reservations).toHaveLength(0)
+    expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
+  })
+
+  it('rechecks the price after a quote and rolls back an actual hold above max_credits', async () => {
+    const user = await createUser('gpt-price-change')
+    billing.members.add(user.id)
+    const { access_token } = await connect(user)
+    const body = imageJob({ model: 'gpt-image-2.5-flare', image_size: '2K', max_credits: 20 })
+    const preview = await call('POST', '/v1/image-jobs/validate', {
+      body,
+      headers: bearer(access_token),
+    })
+    expect(preview.json.data.quote.estimated_credits).toBe(20)
+    billing.quote = 15
+    const repriced = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
+    expect(repriced.status).toBe(402)
+    expect(repriced.json.error).toMatchObject({
+      code: 'MAX_CREDITS_EXCEEDED',
+      details: { required: 30, max_credits: 20 },
+    })
+    expect(billing.reservations).toHaveLength(0)
+    billing.quote = 10
+    billing.reservePrice = 15
+    const reserveChanged = await call('POST', '/v1/image-jobs', {
+      body,
+      headers: bearer(access_token),
+    })
+    expect(reserveChanged.status).toBe(402)
+    expect(reserveChanged.json.error).toMatchObject({
+      code: 'MAX_CREDITS_EXCEEDED',
+      details: { required: 30, max_credits: 20 },
+    })
+    expect(billing.reservations).toHaveLength(1)
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await db.select().from(schema.generation_commands)).toHaveLength(0)
+    expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
+    billing.reservePrice = 10
+    const created = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
+    expect(created.status).toBe(200)
+    expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits: 20 }])
+  })
+
+  it('checks actual reserved credits even when both the quote and budget are zero', async () => {
+    const user = await createUser('gpt-zero-quote')
+    const { access_token } = await connect(user)
+    billing.quote = 0
+    billing.reservePrice = 10
+    const denied = await call('POST', '/v1/image-jobs', {
+      body: imageJob({ model: 'gpt-image-2.5-flare', max_credits: 0 }),
+      headers: bearer(access_token),
+    })
+    expect(denied.status).toBe(402)
+    expect(denied.json.error).toMatchObject({
+      code: 'MAX_CREDITS_EXCEEDED',
+      details: { required: 10, max_credits: 0 },
+    })
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await db.select().from(schema.generation_commands)).toHaveLength(0)
+    expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
+  })
+
+  it('replays a premium command unchanged after membership and price change', async () => {
+    const user = await createUser('gpt-replay')
+    billing.members.add(user.id)
+    const { access_token } = await connect(user)
+    const body = imageJob({ model: 'gpt-image-2.5-flare', image_size: '2K', quality: 'high' })
+    const created = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
+    expect(created.status).toBe(200)
+    billing.members.delete(user.id)
+    billing.quote = 50
+    Object.assign(config.gptDirect, { enabled: false })
+    const replay = await call('POST', '/v1/image-jobs', {
+      body: { ...body, max_credits: 0 },
+      headers: bearer(access_token),
+    })
+    expect(replay.status).toBe(200)
+    expect(replay.json.data.job.id).toBe(created.json.data.job.id)
+    expect(replay.json.data.request_hash).toBe(created.json.data.request_hash)
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(billing.reservations).toHaveLength(1)
+    expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits: 80 }])
+    const mismatch = await call('POST', '/v1/image-jobs', {
+      body: { ...body, quality: 'low' },
+      headers: bearer(access_token),
+    })
+    expect(mismatch.status).toBe(409)
+    expect(mismatch.json.error.code).toBe('IDEMPOTENCY_CONFLICT')
+  })
+
+  it('keeps website non-member downgrade behavior', async () => {
+    const user = await createUser('gpt-website')
+    const created = await call('POST', '/v1/queue/openai-compat/gpt-image-2.5-flare/submit', {
+      body: {
+        prompt: 'a fox',
+        size: '3840x2160',
+        quality: 'high',
+        device_id: 'website-device',
+        client_request_id: 'website-gpt-command',
+      },
+      headers: { cookie: user.cookie },
+    })
+    expect(created.status).toBe(200)
+    const [task] = await db.select().from(schema.tasks)
+    expect(task?.request_payload).toMatchObject({ size: '1664x928', quality: 'medium' })
+    expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits: 10 }])
+  })
+
+  it('lists only the GPT tiers and qualities the account may submit', async () => {
+    const user = await createUser('gpt-capabilities')
+    const { access_token } = await connect(user)
+    const caps = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
+    expect(caps.json.data.models[1]).toMatchObject({
+      id: 'gpt-image-2.5-flare',
+      image_sizes: ['1K'],
+      qualities: ['auto', 'low', 'medium'],
+    })
+    billing.members.add(user.id)
+    const member = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
+    expect(member.json.data.models[1]).toMatchObject({
+      image_sizes: ['1K', '2K', '4K'],
+      qualities: ['auto', 'low', 'medium', 'high'],
+    })
+    Object.assign(config.gptDirect, { enabled: false })
+    const disabled = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
+    expect(disabled.json.data.models[1]).toMatchObject({
+      image_sizes: ['1K'],
+      qualities: ['auto', 'low', 'medium'],
+    })
   })
 })
 

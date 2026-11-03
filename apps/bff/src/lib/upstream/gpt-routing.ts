@@ -1,6 +1,7 @@
 import { isGptBasicRequest, isGptDirectModel } from '@image-playground/shared'
 import { config } from '../../config'
 import { log } from '../logger'
+import { ImagePlanRequiredError } from './errors'
 import { directBudgetAllows, estimateDirectCostMicroUsd } from './gpt-budget'
 import { gptSchedulerBuckets, tryAcquireSchedulerSlots } from './scheduler'
 
@@ -76,7 +77,12 @@ export async function firstGptRoute(input: {
   model: string
   member: boolean
   request: { size?: string; quality?: string; n?: number }
+  strictImageRequest?: boolean
 }): Promise<GptRoute> {
+  if (input.strictImageRequest && !isGptBasicRequest(input.request)) {
+    if (!(await directAvailableNow(input.model, input.request))) throw new ImagePlanRequiredError()
+    return 'direct'
+  }
   const member = input.member || !isGptBasicRequest(input.request)
   if (!member && !sub2apiBreakerOpen()) return 'sub2api'
   return (await directAvailableNow(input.model, input.request)) ? 'direct' : 'sub2api'

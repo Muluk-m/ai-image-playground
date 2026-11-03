@@ -61,6 +61,7 @@ export interface StoredImageRef {
  * - `interrupted`: BFF 重启时被打断（startup recovery 标记）
  * - `object_storage_error`: object storage read/write failed, or archiving could not fetch the
  *   upstream result URL, after the retry budget was spent
+ * - `plan_required`: strict CLI premium parameters cannot be fulfilled; terminal failure, no downgrade
  * - `unknown`: 兜底（理论上不应出现）
  */
 export type TaskErrorType =
@@ -68,6 +69,7 @@ export type TaskErrorType =
   | 'upstream_result_unknown'
   | 'upstream_error'
   | 'content_policy'
+  | 'plan_required'
   | 'model_unavailable'
   | 'rate_limited'
   | 'upstream_no_image'
@@ -145,6 +147,8 @@ export type PersistedVideoRequest = VideoRequest & { source_video?: StoredImageR
 
 /** BFF-only database representation after input pixel bytes move to object storage. */
 export type PersistedSubmitRequest = Omit<SubmitRequest, 'input_images' | 'mask' | 'video'> & {
+  /** Server-only CLI contract: premium GPT parameters must never fall back to a basic route. */
+  strict_image_request?: true
   /** 服务端按请求里有没有选区单方面设置；不接受模型或客户端决定是否保护选区外像素。 */
   preserve_outside_mask?: true
   masked_original_size?: { width: number; height: number }

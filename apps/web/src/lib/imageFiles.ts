@@ -1,6 +1,7 @@
 import { i18next } from '../i18n'
 import { useStore } from '../store'
 import { fitUploadImageFile } from './fitUploadImage'
+import { isHeicFile } from './heicImage'
 import { IMAGE_PREPROCESSING } from './imagePreprocessing/policy'
 import { MAX_IMAGE_BYTES, MAX_IMAGE_MB } from './inputImageLimit'
 
@@ -71,9 +72,11 @@ export async function prepareAcceptedImageFiles(
  */
 export function acceptImageFiles(
   files: readonly File[],
-  options: { keepOversized?: boolean } = {},
+  options: { keepOversized?: boolean; allowHeic?: boolean } = {},
 ): File[] {
-  const images = files.filter((file) => file.type.startsWith('image/'))
+  const images = files.filter(
+    (file) => file.type.startsWith('image/') || (options.allowHeic && isHeicFile(file)),
+  )
   const skipped = files.length - images.length
   if (skipped > 0) {
     useStore

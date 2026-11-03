@@ -21,6 +21,7 @@ mock.module(path('db/maintenance.ts'), () => ({ purgeOldHostSamples: done, recov
 mock.module(path('lib/analysis-tasks.ts'), () => ({ recoverAnalysisTasks: done }));
 mock.module(path('lib/auto-reconcile.ts'), () => ({ autoReconcileTasks: done }));
 mock.module(path('lib/capabilities.ts'), () => ({ isCapabilityEnabled: () => false }));
+mock.module(path('lib/operator-config-overrides.ts'), () => ({ refreshOperatorConfig: async () => 0, refreshOperatorConfigIfChanged: async () => null }));
 mock.module(path('lib/channels.ts'), () => ({ initChannels: () => ({ warnings: [] }) }));
 mock.module(path('lib/heartbeat.ts'), () => ({ purgeStaleHeartbeats: done, startHeartbeat: () => noop }));
 mock.module(path('lib/logger.ts'), () => ({ log: { warn: noop, error: noop, info: noop, flush: noop } }));
@@ -56,7 +57,7 @@ mock.module(path('workers/worker-health.ts'), () => ({
 let maintenanceTick;
 const interval = globalThis.setInterval;
 globalThis.setInterval = (callback, delay, ...args) => {
-  if (delay === 15000) maintenanceTick = () => callback(...args);
+  if (delay === 10000) maintenanceTick = () => callback(...args);
   const timer = interval(noop, 1000000000);
   timer.unref();
   return timer;

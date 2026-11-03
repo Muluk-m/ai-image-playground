@@ -118,4 +118,5 @@ overlay 的受理 / 出错 / 结算通知，以及失败按错误码映射成人
   保持短小无声。截图编号圆点与同组步骤一一对应。界面文案修改时也同步指南里的 `[[标签]]`。
 - Web 构建先输出工作台，再调用官网构建并合并为 `dist`。`index.html` 是官网，`workbench.html` 是工作台。
   Pages、BFF、nginx 仅为明确的工作台路径回退到后者，缺失页面和资源必须返回 404。
-- `PUBLIC_ORIGIN` 与 `SEARCH_INDEXING` 继续由 Pages 发布脚本按版本传入，内部站/测试站禁止收录。
+- `PUBLIC_ORIGIN` 与 `SEARCH_INDEXING` 继续由 Pages 发布脚本按版本传入，测试站禁止收录；企业域名与 paid 同一项目，
+  由 `NOINDEX_ORIGINS` 追加的 host 级 `X-Robots-Tag` 禁止收录。

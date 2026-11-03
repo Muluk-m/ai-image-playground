@@ -6,8 +6,9 @@ import { useTranslation } from '../../i18n'
 import { CHECKERBOARD } from '../toolbox/components/ToolResultCard'
 import ToolShell, { AddTile } from '../toolbox/components/ToolShell'
 import { resizeTool } from '../toolbox/lib/registry'
-import { toolSource, useToolboxStore } from '../toolbox/store'
+import { useToolboxStore } from '../toolbox/store'
 import ExportForm from './ExportForm'
+import { originalBlob } from './sources'
 
 /** 尺寸调整：共用工作台，参数栏是导出表单本身（自带导出按钮，所以不显示工作台底栏）。 */
 export default function ExportTool() {
@@ -26,11 +27,8 @@ export default function ExportTool() {
           preview: item.url,
           width: item.width,
           height: item.height,
-          load: async () => {
-            const source = toolSource(item)
-            if (!source) throw new Error('Original unavailable')
-            return source.file
-          },
+          // HEIC 的 URL 是已解码的无损 PNG；普通图片的 URL 仍指向原文件。
+          load: (signal?: AbortSignal) => originalBlob(item.url, signal),
         })),
     [items],
   )
