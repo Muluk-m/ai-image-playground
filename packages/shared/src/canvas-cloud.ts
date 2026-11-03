@@ -85,6 +85,9 @@ export const CANVAS_UPLOAD_STARTED_META = 'uploadStartedAt'
  * 别的设备同时改节点时照抄来的旧声明（开始时间早于它）不会被当成新声明把它顶回去。
  */
 export const CANVAS_UPLOAD_RELEASED_META = 'uploadReleasedAt'
+/** 实际有效期与旧排序号分离；绑定节点实例、内容、设备和该次声明，旧页不能借复制元数据续期。 */
+export const CANVAS_UPLOAD_LEASE_AT_META = 'uploadLeaseAt'
+export const CANVAS_UPLOAD_LEASE_FOR_META = 'uploadLeaseFor'
 /** 超过这么久还没收成云媒体，就不再显示「上传中」而显示缺图（上传那台设备可能已离线或失败）。 */
 export const CANVAS_UPLOAD_STALE_MS = 30 * 60_000
 /** 别的设备写的开始时间最多可以比本机时钟晚这么多（设备间的时钟偏差）。 */
@@ -101,10 +104,11 @@ export function canvasUploadingElsewhere(
   data: CanvasUploadData,
   device: string,
   now: number,
+  nodeKey?: string,
 ): boolean {
   if (data.mediaId || !isLocalCanvasFileId(data.fileId)) return false
   const by = data.meta?.[CANVAS_UPLOAD_DEVICE_META]
-  const since = Number(data.meta?.[CANVAS_UPLOAD_STARTED_META])
+  const since = canvasUploadClaimTime(data, nodeKey)
   // 开始时间不能比本机时钟晚太多：容忍设备间几分钟的时钟偏差，再往后的（时钟错乱或伪造）不算在传，
   // 否则这个节点会一直被当成上传中、绕过缺图处理。
   return (
@@ -124,10 +128,11 @@ export function canvasUploadClaimNextChange(
   data: CanvasUploadData,
   device: string,
   now: number,
+  nodeKey?: string,
 ): number | undefined {
   if (data.mediaId || !isLocalCanvasFileId(data.fileId)) return undefined
   const by = data.meta?.[CANVAS_UPLOAD_DEVICE_META]
-  const since = Number(data.meta?.[CANVAS_UPLOAD_STARTED_META])
+  const since = canvasUploadClaimTime(data, nodeKey)
   if (!by || by === device || !Number.isFinite(since)) return undefined
   if (since - now > CANVAS_UPLOAD_CLOCK_SKEW_MS) return since - CANVAS_UPLOAD_CLOCK_SKEW_MS
   if (now - since < CANVAS_UPLOAD_STALE_MS) return since + CANVAS_UPLOAD_STALE_MS
@@ -143,7 +148,9 @@ export function withoutCanvasUploadClaim(
     !(
       CANVAS_UPLOAD_DEVICE_META in meta ||
       CANVAS_UPLOAD_STARTED_META in meta ||
-      CANVAS_UPLOAD_RELEASED_META in meta
+      CANVAS_UPLOAD_RELEASED_META in meta ||
+      CANVAS_UPLOAD_LEASE_AT_META in meta ||
+      CANVAS_UPLOAD_LEASE_FOR_META in meta
     )
   )
     return meta
@@ -151,6 +158,8 @@ export function withoutCanvasUploadClaim(
     [CANVAS_UPLOAD_DEVICE_META]: _device,
     [CANVAS_UPLOAD_STARTED_META]: _since,
     [CANVAS_UPLOAD_RELEASED_META]: _released,
+    [CANVAS_UPLOAD_LEASE_AT_META]: _leaseAt,
+    [CANVAS_UPLOAD_LEASE_FOR_META]: _leaseFor,
     ...rest
   } = meta
   return rest
@@ -158,7 +167,9 @@ export function withoutCanvasUploadClaim(
 
 const uploadTime = (value: string | undefined) => {
   const at = Number(value)
-  return value !== undefined && Number.isFinite(at) ? at : Number.NEGATIVE_INFINITY
+  return value !== undefined && Number.isSafeInteger(at) && at >= 0 && at < Number.MAX_SAFE_INTEGER
+    ? at
+    : Number.NEGATIVE_INFINITY
 }
 /** meta 上最近一次上传簿记（写声明或撤销声明）的时间；都没有时为负无穷。 */
 export function canvasUploadBookkeepingTime(meta: Record<string, string> | undefined): number {
@@ -178,6 +189,75 @@ export function nextCanvasUploadStamp(
 ): number {
   const previous = canvasUploadBookkeepingTime(meta)
   return Number.isFinite(previous) ? Math.max(now, Math.floor(previous) + 1) : now
+}
+
+/** 节点在 Y.Doc 中的实例身份：删掉重建同 id 的节点也不能借用旧租约。 */
+export function canvasUploadNodeKey(doc: Y.Doc, nodeId: string): string | undefined {
+  const node = doc.getMap<Y.Map<unknown>>('nodes').get(nodeId)
+  const id = node instanceof Y.Map ? node._item?.id : undefined
+  return id && Number.isSafeInteger(id.client) && Number.isSafeInteger(id.clock)
+    ? JSON.stringify([nodeId, id.client, id.clock])
+    : undefined
+}
+
+function leaseBinding(data: CanvasUploadData, nodeKey: string | undefined): string | undefined {
+  const by = data.meta?.[CANVAS_UPLOAD_DEVICE_META]
+  const stamp = uploadTime(data.meta?.[CANVAS_UPLOAD_STARTED_META])
+  if (!nodeKey || !by || !isLocalCanvasFileId(data.fileId) || !Number.isFinite(stamp))
+    return undefined
+  return JSON.stringify([
+    nodeKey,
+    data.fileId,
+    data.meta?.contentIdentity ?? data.fileId,
+    by,
+    stamp,
+  ])
+}
+
+/** 只读有效绑定的绝对租约；不按收到/重放的时间续期。 */
+export function canvasUploadLeaseTime(
+  data: CanvasUploadData,
+  nodeKey: string | undefined,
+): number | undefined {
+  const binding = leaseBinding(data, nodeKey)
+  const at = uploadTime(data.meta?.[CANVAS_UPLOAD_LEASE_AT_META])
+  return binding !== undefined &&
+    data.meta?.[CANVAS_UPLOAD_LEASE_FOR_META] === binding &&
+    Number.isFinite(at)
+    ? at
+    : undefined
+}
+
+export function canvasUploadClaimTime(data: CanvasUploadData, nodeKey?: string): number {
+  if (!data.meta?.[CANVAS_UPLOAD_DEVICE_META]) return Number.NEGATIVE_INFINITY
+  if (
+    data.meta[CANVAS_UPLOAD_LEASE_AT_META] !== undefined ||
+    data.meta[CANVAS_UPLOAD_LEASE_FOR_META] !== undefined
+  )
+    return canvasUploadLeaseTime(data, nodeKey) ?? Number.NEGATIVE_INFINITY
+  return uploadTime(data.meta[CANVAS_UPLOAD_STARTED_META])
+}
+
+/** 旧声明号继续单调增长供旧合并器排序，实际有效期使用独立、绑定的本次时钟时间。 */
+export function claimCanvasUpload(
+  data: CanvasUploadData,
+  device: string,
+  now: number,
+  nodeKey: string | undefined,
+): Record<string, string> {
+  const meta = {
+    ...withoutCanvasUploadClaim(data.meta),
+    [CANVAS_UPLOAD_DEVICE_META]: device,
+    [CANVAS_UPLOAD_STARTED_META]: String(nextCanvasUploadStamp(data.meta, now)),
+  }
+  const binding = leaseBinding({ ...data, meta }, nodeKey)
+  return binding
+    ? {
+        ...meta,
+        [CANVAS_UPLOAD_LEASE_AT_META]: String(now),
+        [CANVAS_UPLOAD_LEASE_FOR_META]: binding,
+      }
+    : meta
 }
 
 /** 上传失败停下时撤掉声明：去掉声明，记下撤销时间（见 CANVAS_UPLOAD_RELEASED_META）。 */
