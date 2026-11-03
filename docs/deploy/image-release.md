@@ -62,19 +62,25 @@ command="/home/ubuntu/bin/aip-ci-receive",restrict ssh-ed25519 AAAA… github-ac
 | --- | --- | --- |
 | 付费版 | `ai-image-playground` | `muvloom.online` / `api.muvloom.online` |
 | 付费旧域名 | 同一付费项目 | `image.nainma.online` / `api.nainma.online` |
-| 企业域名（不收录） | 同一付费项目 | `image-playground.qiliangjia.one` / `image-api.qiliangjia.one` |
-| 旧内部项目（冻结，迁出域名后可删） | `ai-image-playground-internal`（内部账号） | 无 |
+| 企业域名（不收录） | 迁入后为同一付费项目 | `image-playground.qiliangjia.one` / `image-api.qiliangjia.one` |
+| 旧内部项目（冻结，回滚保留期结束后再清理） | `ai-image-playground-internal`（内部账号） | 迁出前仍服务企业域名 |
 | 后台 | `muvloom-admin` | `admin.muvloom.online` / `admin-api.muvloom.online` |
 
 所有域名使用同一份前端产物与同一个共享 paid runtime，但各自请求第一方 API hostname：企业域名的 `INTERNAL_BFF_BASE_URL` 仍为 `https://image-api.qiliangjia.one`，由外部路由接到共享 runtime。登录方式由后端按前端 origin 决定（`AUTH_LOGIN_METHODS_BY_ORIGIN`）：企业域名只开飞书，muvloom 开邮箱密码、邮箱注册与 Google；前端不按域名分支。不要把企业域名直接指向 `https://api.muvloom.online`：跨站请求不能携带 `SameSite=Lax` 会话 cookie。路由、CORS、登录入口策略及回调 allowlist 必须在切换前由受保护服务器配置完成；本 workflow 不改服务器配置，也不覆盖或停止旧 internal 后端。入口策略来自后端按 origin 配置，不在公开源码写私有提供方细节。官网 canonical、hreflang、sitemap 与 `llms.txt` 都指向 `PAID_PUBLIC_ORIGIN`；企业域名靠 noindex 头排除收录。
 
 ### 企业域名迁入付费 Pages 项目（一次性）
 
-1. 先让包含本流程的 main 发布完成，paid 项目已带企业域名的 API 映射与 noindex 头；此时企业域名仍由旧项目服务，不受影响。
-2. 在内部 Cloudflare 账号：从 `ai-image-playground-internal` 移除自定义域名 `image-playground.qiliangjia.one`，并把 `qiliangjia.one` zone 中 `image-playground` 记录改为代理的 CNAME → `ai-image-playground.pages.dev`。
-3. 紧接着在付费账号的 `ai-image-playground` 项目添加自定义域名 `image-playground.qiliangjia.one`，等待状态变为 active（证书签发通常几分钟）。2、3 之间的间隙即停机窗口，应连续执行。
-4. 验证企业域名 `version.json` 与 `muvloom.online` 一致、`runtime-config.json` 含 `https://image-playground.qiliangjia.one → https://image-api.qiliangjia.one`、响应带 `X-Robots-Tag: noindex`，并实测飞书登录。
-5. 回滚：从付费项目移除该域名，再在内部账号把它加回 `ai-image-playground-internal`（DNS 仍为 CNAME → `ai-image-playground-internal.pages.dev`）。稳定后可删除 `INTERNAL_CLOUDFLARE_API_TOKEN` 与旧项目。
+**迁移与回滚都要 Nain 批准，并约定低峰维护窗口、失败回滚时限及执行人。合并代码不迁移域名，也不保证迁移零停机：从停用旧 DNS / 解绑旧项目开始，到新绑定、DNS 与 TLS 生效并完成验收为止，企业站可能不可用；回滚也有同样窗口。**
+
+1. **迁移前置检查。** 等 main 的 Deploy production 成功，核对共享 API、muvloom 和 Admin 的版本；确认 paid 产物的 `runtime-config.json` 已包含 `https://image-playground.qiliangjia.one → https://image-api.qiliangjia.one`，并包含企业 host 的 noindex 规则。新前端必须支持读取后端 `loginMethods`（#1659）；企业 API 仅返回飞书且禁用密码 / 注册，不代表冻结的旧前端已隐藏这些表单。旧企业站在迁入前继续提供旧版本。
+2. **备份与跨账号预检。** 记录旧 / 新 Pages 账号、项目、部署版本及 `qiliangjia.one` zone 所属账号；备份 `image-playground` 的 DNS 类型、目标、代理状态和 TTL。确认执行人能管理两边的 Pages 自定义域名及源 zone 的 DNS，旧项目与已验证部署仍可用于回滚。该域名是子域名，zone 不必迁到 paid 账号；不要套用「同账号自动创建 DNS」或直接强制代理 CNAME。跨账号时按目标 Pages 自定义域名向导核对验证记录、代理要求、CAA 和可能的 zone hold；无法确认支持与权限就停止，不先解绑旧站。
+3. **解绑旧项目。** 在维护窗口按 Cloudflare [删除自定义域名流程](https://developers.cloudflare.com/pages/configuration/custom-domains/#delete-a-custom-domain)停用旧 CNAME，再从内部账号的 `ai-image-playground-internal` 移除 `image-playground.qiliangjia.one`。此处开始计入停机窗口；不删除旧项目或部署。
+4. **先添加域名，再配 DNS。** 紧接着在付费账号的 `ai-image-playground` → Custom domains 添加 `image-playground.qiliangjia.one`，创建绑定后，再到源 zone 按向导创建 CNAME → `ai-image-playground.pages.dev` 及所需验证记录。跨账号不会由目标项目自动修改源 zone，代理状态按已确认的配置设置。不要在绑定前先把 CNAME 指向新项目，否则可能解析失败或出现 522，见 Cloudflare [自定义域名说明](https://developers.cloudflare.com/pages/configuration/custom-domains/#add-a-custom-cname-record)。等待域名 active、DNS 和 TLS 生效；不能把添加成功或固定等待几分钟当作恢复服务。
+5. **迁入验收。** 企业域名 `version.json` 必须与 `muvloom.online` 完全一致，企业站实际读取的 `runtime-config.json` 必须含上述第一方 API 映射。用 GET 检查企业首页、登录入口与业务深链最终 HTML 的 `X-Robots-Tag: noindex, nofollow`，同时确认 muvloom 未被加上 noindex。共享的 `robots.txt` 允许抓取，不能再用旧项目的 `Disallow: /` 当保护；noindex 是搜索索引指令，不是访问控制。Cloudflare [Headers 文档](https://developers.cloudflare.com/pages/configuration/headers/#attach-a-header)支持 `https://example.com/path` 绝对 URL 匹配，不限于 `pages.dev`，但仍须实测自定义域名的最终响应。浏览器确认企业登录弹窗只显示飞书、无密码 / 注册表单，并用获准测试账号实测飞书登录、回调与带 cookie 的 API 请求；muvloom 仍显示 Google、邮箱密码和注册。任一项失败，不宣称完成，按批准的回滚时限处理。
+
+**域名回滚（需批准）。** 停用指向新项目的 CNAME，从 paid 项目移除企业域名，先把它添加回旧 `ai-image-playground-internal` 项目，再恢复备份的旧 DNS（CNAME → `ai-image-playground-internal.pages.dev`，以及原代理状态 / TTL）。等待 active、DNS 与 TLS 生效，核对旧版本、索引策略及真实登录。域名回滚不回滚共享后端，也不会把旧前端升级为按 `loginMethods` 隐藏表单的新界面。
+
+**代码回滚不等于恢复发布。** revert #1661 只恢复双矩阵代码，不会自动迁回自定义域名或修复旧令牌。此前 internal Pages 发布报过 `Authentication error [code: 10000]`；恢复 internal 发布前，必须修复并验证 `INTERNAL_CLOUDFLARE_API_TOKEN` 的有效性、账号归属和 Pages 权限，否则仍会失败并阻断后续 Admin 发布。域名迁移稳定、验收记录齐全且 Nain 确认不再保留旧项目回滚路径后，才能清理旧项目与旧令牌；不要提前删除。
 
 ### 内部 API hostname 切换到共享 runtime
 
