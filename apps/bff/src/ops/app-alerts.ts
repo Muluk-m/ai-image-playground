@@ -57,7 +57,7 @@ async function attempt<T>(
         ...(error instanceof OpsStorageError
           ? { stage: error.stage, storage_error: error.storageError }
           : {}),
-        err: error instanceof Error ? error.message : String(error),
+        err: error instanceof Error ? redactLogText(error.message) : String(error),
       },
       'could not read a block for alerting; its rule is skipped this round',
     )

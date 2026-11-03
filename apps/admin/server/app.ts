@@ -13,6 +13,7 @@ import { googleAuthRoutes } from './routes/google-auth'
 import { imagesRoutes } from './routes/images'
 import { inspirationsRoutes } from './routes/inspirations'
 import { modelRoutes } from './routes/models'
+import { operatorSettingsRoutes } from './routes/operator-settings'
 import { opsRoutes } from './routes/ops'
 import { overviewRoutes } from './routes/overview'
 import { extensionRoutes, privateRoutes } from './routes/private'
@@ -42,6 +43,7 @@ const apiApp = new Elysia()
   .use(agentModelRoutes)
   .use(modelRoutes)
   .use(agentPromptsRoutes)
+  .use(operatorSettingsRoutes)
   .use(auditRoutes)
   .use(clientErrorsRoutes)
   .use(tasksRoutes)

@@ -18,6 +18,8 @@ export interface PrivateSubmissionGuard {
   blocked: boolean
   disabledReason?: string
   blockedAction?: PrivateSubmissionBlockedAction
+  /** Account metering mode; omitted by public/legacy overlays and treated as credits. */
+  metering?: 'credits' | 'none'
   /** 本次要扣的积分；overlay 缺席或没有计价目录时 undefined，界面上就不写积分。 */
   estimatedCredits?: number
   /** 可用于本次确认的总余额；整组执行按逐任务取整后的总价检查。 */
@@ -59,6 +61,8 @@ export interface PrivateMembershipSlot {
 export interface PrivateWebOverlay {
   HeaderCreditAction: ComponentType
   HeaderAccountActions: ComponentType<PrivateHeaderActionsProps>
+  /** Private-only provider marks; public login renders a generic fallback when absent. */
+  oauthProviderMarks?: Readonly<Record<string, ComponentType>>
   /** 会员等级与引导的数据源；缺 overlay 时右上角不渲染会员位。 */
   membership?: PrivateMembershipSlot
   replacesAuthActions: boolean
@@ -128,6 +132,7 @@ export const PrivateWebHeaderCreditAction = overlay.HeaderCreditAction
 export const PrivateWebHeaderAccountActions = overlay.HeaderAccountActions
 export const PrivateWebReplacesAuthActions = overlay.replacesAuthActions
 export const PrivateWebSupportsReferrals = overlay.supportsReferrals
+export const PrivateWebOAuthProviderMarks = overlay.oauthProviderMarks ?? {}
 export const PrivateWebMembership = overlay.membership ?? null
 /** 构建时带了收费 overlay；没有它，充值之类的信号没有人接。 */
 export const PrivateWebOverlayPresent = overlay !== EMPTY_OVERLAY

@@ -1,5 +1,7 @@
-# Production deployment: paid backend and Pages continue to release from main.
-# The existing internal edition is frozen and is not touched by this workflow.
+# Production deployment from main: one shared paid backend and one paid Pages project.
+# 一个项目、多个域名：the enterprise domain is a second custom domain of the paid Pages project,
+# with its own API hostname and a host-scoped noindex. The legacy internal backend, its data and
+# its old Pages project are frozen and no longer deployed.
 # Runbook, secrets and break-glass manual release: docs/deploy/image-release.md.
 name: Deploy production
 on:
@@ -63,6 +65,7 @@ jobs:
           printf '%s\n' "$PAGES_ENV" > "$RUNNER_TEMP/pages.env"
           # shellcheck source=/dev/null
           . "$RUNNER_TEMP/pages.env"
+          # The enterprise domain is served by the same Pages project, so the paid origin speaks for it.
           WEB_ORIGINS="$PAID_PUBLIC_ORIGIN" ADMIN_ORIGIN="${ADMIN_PUBLIC_ORIGIN:-}" \
             scripts/ci-deploy-target.sh "$SHA" "$EVENT" "$PAID_BFF_BASE_URL"
 
@@ -178,10 +181,10 @@ jobs:
         run: rm -f "$RUNNER_TEMP/vps-key"
 
   pages-paid:
-    name: Pages (paid)
+    name: Pages (paid project, every product domain)
     needs: [target, release, backend]
     # !cancelled(): without a status function GitHub adds an implicit success(), which is false once
-    # backend is skipped (a web-only change), so the paid site would never ship. Unlike always(), a
+    # backend is skipped (a web-only change), so the site would not ship. Unlike always(), a
     # cancelled release still stops here.
     if: >-
       !cancelled() &&
@@ -192,15 +195,16 @@ jobs:
     timeout-minutes: 45
     env:
       EDITION: paid
+      PREFIX: PAID
     steps:
       - name: Require secrets
         env:
           PAGES_ENV: ${{ secrets.PAGES_ENV }}
           PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-          PAID_CLOUDFLARE_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
+          PAGES_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
         run: |
           missing=
-          for name in PAGES_ENV PRIVATE_OVERLAY_SSH_KEY PAID_CLOUDFLARE_API_TOKEN; do
+          for name in PAGES_ENV PRIVATE_OVERLAY_SSH_KEY PAGES_API_TOKEN; do
             [ -n "$(printenv "$name")" ] || missing="$missing $name"
           done
           [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
@@ -211,20 +215,19 @@ jobs:
       - name: Write pages.env with the paid token file
         env:
           PAGES_ENV: ${{ secrets.PAGES_ENV }}
-          PAID_CLOUDFLARE_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
+          PAGES_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
         run: |
           umask 077
-          printf '%s\n' "$PAID_CLOUDFLARE_API_TOKEN" | grep -Eqx '[A-Za-z0-9_-]+' ||
-            { echo "::error::PAID_CLOUDFLARE_API_TOKEN has unexpected characters."; exit 1; }
-          printf 'CLOUDFLARE_API_TOKEN=%s\n' "$PAID_CLOUDFLARE_API_TOKEN" > "$RUNNER_TEMP/PAID-cloudflare.env"
+          printf '%s\n' "$PAGES_API_TOKEN" | grep -Eqx '[A-Za-z0-9_-]+' ||
+            { echo "::error::${PREFIX}_CLOUDFLARE_API_TOKEN has unexpected characters."; exit 1; }
+          printf 'CLOUDFLARE_API_TOKEN=%s\n' "$PAGES_API_TOKEN" > "$RUNNER_TEMP/$PREFIX-cloudflare.env"
           {
             printf '%s\n' "$PAGES_ENV"
-            echo "PAID_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/PAID-cloudflare.env"
-            echo "ADMIN_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/PAID-cloudflare.env"
+            echo "${PREFIX}_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/$PREFIX-cloudflare.env"
             echo "PAID_EXTRA_ASSETS_DIR=$GITHUB_WORKSPACE/private/pages-assets"
           } > "$RUNNER_TEMP/pages.env"
           echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
-      - name: Wait for the paid API
+      - name: Wait for the shared paid API and the enterprise API hostname
         if: needs.target.outputs.deploy_api == 'true'
         env:
           PUBLIC_SHA: ${{ needs.target.outputs.sha }}
@@ -232,13 +235,17 @@ jobs:
         run: |
           # shellcheck source=/dev/null
           . "$PAGES_ENV_FILE"
-          deadline=$(( $(date +%s) + 300 ))
-          while :; do
-            version=$(curl -fsS --max-time 10 "${PAID_BFF_BASE_URL%/}/health" 2>/dev/null |
-              sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)
-            [ "$version" = "$PUBLIC_SHA+$PRIVATE_SHA" ] && break
-            [ "$(date +%s)" -lt "$deadline" ] || { echo "::error::paid API reports '$version'"; exit 1; }
-            sleep 10
+          # The enterprise API hostname must route to the shared runtime without crossing cookie sites.
+          for api in "$PAID_BFF_BASE_URL" ${INTERNAL_BFF_BASE_URL:+"$INTERNAL_BFF_BASE_URL"}; do
+            deadline=$(( $(date +%s) + 300 ))
+            while :; do
+              version=$(curl -fsS --max-time 10 "${api%/}/health" 2>/dev/null |
+                sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)
+              [ "$version" = "$PUBLIC_SHA+$PRIVATE_SHA" ] && break
+              [ "$(date +%s)" -lt "$deadline" ] ||
+                { echo "::error::$api/health reports '$version', expected $PUBLIC_SHA+$PRIVATE_SHA"; exit 1; }
+              sleep 10
+            done
           done
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -260,16 +267,58 @@ jobs:
       - name: Require the paid site assets
         run: test -d private/pages-assets
       - run: pnpm install --frozen-lockfile
-      - name: Release the paid site
+      - name: Release the paid Pages project
         env:
           PAGES_SMOKE_OUTPUT_DIR: ${{ runner.temp }}/pages-paid-build
           APP_RELEASE: ${{ needs.release.outputs.version }}
-        run: ./scripts/pages-release.sh paid
+        run: ./scripts/pages-release.sh "$EDITION"
       - name: Verify the paid workspace in Chromium
         run: |
           # shellcheck source=/dev/null
           . "$PAGES_ENV_FILE"
           PAGES_SMOKE_OUTPUT_DIR="$RUNNER_TEMP/pages-paid-live" sh scripts/pages-browser-smoke.sh "$PAID_PUBLIC_ORIGIN"
+      - name: Check the enterprise domain on the same project
+        run: |
+          # shellcheck source=/dev/null
+          . "$PAGES_ENV_FILE"
+          [ -n "${INTERNAL_PUBLIC_ORIGIN:-}" ] || { echo "No enterprise domain configured."; exit 0; }
+          origin=${INTERNAL_PUBLIC_ORIGIN%/}
+          host=${origin#https://}
+          # The project's own custom-domain list decides whether the domain has moved here yet, so a
+          # broken or stale enterprise site after the move can never pass as "not migrated".
+          domains=$(
+            # shellcheck source=/dev/null
+            . "$PAID_CLOUDFLARE_TOKEN_FILE"
+            curl -fsS --max-time 20 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$PAID_CLOUDFLARE_ACCOUNT_ID/pages/projects/$PAID_PAGES_PROJECT" |
+              jq -er '.result.domains[]'
+          ) || { echo "::error::Could not read the custom domains of $PAID_PAGES_PROJECT."; exit 1; }
+          if ! printf '%s\n' "$domains" | grep -Fqx "$host"; then
+            # Until the custom domain moves onto the paid project it is still the frozen old project.
+            echo "::warning::$host is not a custom domain of $PAID_PAGES_PROJECT yet; move it (docs/deploy/image-release.md)."
+            exit 0
+          fi
+          expected=$(curl -fsS --max-time 10 "${PAID_PUBLIC_ORIGIN%/}/version.json")
+          deadline=$(( $(date +%s) + 300 ))
+          until [ "$(curl -fsS --max-time 10 "$origin/version.json" 2>/dev/null || true)" = "$expected" ]; do
+            [ "$(date +%s)" -lt "$deadline" ] ||
+              { echo "::error::$origin/version.json does not match ${PAID_PUBLIC_ORIGIN%/} after 300s."; exit 1; }
+            sleep 10
+          done
+          curl -fsS --max-time 10 -o /dev/null -D "$RUNNER_TEMP/enterprise-headers" "$origin/"
+          grep -Eiq '^x-robots-tag:.*noindex' "$RUNNER_TEMP/enterprise-headers" ||
+            { echo "::error::$origin serves the paid project without its noindex header."; exit 1; }
+          PAGES_SMOKE_OUTPUT_DIR="$RUNNER_TEMP/pages-paid-enterprise-live" sh scripts/pages-browser-smoke.sh "$origin"
+      - name: Save browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: production-pages-paid
+          path: |
+            ${{ runner.temp }}/pages-paid-build
+            ${{ runner.temp }}/pages-paid-live
+            ${{ runner.temp }}/pages-paid-enterprise-live
+          retention-days: 7
       - name: Remove secrets from the runner
         if: always()
         run: rm -f "$RUNNER_TEMP"/*-cloudflare.env "$RUNNER_TEMP/pages.env"

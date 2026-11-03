@@ -50,6 +50,7 @@
   },
   "unlink": {
     "last_login_method": "解绑后将无法登录，请先设置密码",
+    "protected_identity": "账号策略要求保留此登录方式，无法解绑",
     "not_linked": "该账号尚未绑定",
     "fallback": "暂时无法解绑，请稍后重试"
   },
@@ -81,7 +82,7 @@
     "unauthorized": "登录已过期，请重新登录后再复制。",
     "canvas_sync_unavailable": "当前环境不能复制项目。",
     "account_changed": "账号已经切换，请重新打开后再复制。",
-    "canvas_media_pending": "还有图片在上传，传完后再复制。",
+    "canvas_media_pending": "项目中还有未保存到云端的媒体，暂时无法复制。请完成上传、重新上传缺失的原图，或移除相应内容后再试。",
     "fallback": "复制项目失败，请重试。"
   },
   "agentTool": {
@@ -109,6 +110,7 @@
     "fallback": "计划操作失败，当前内容已保留，请重试。",
     "batch_version_conflict": "计划已有新版本，请刷新后再修改。",
     "insufficient_credits": "积分不足，批次已暂停。",
+    "quota_exceeded": "每日额度已用尽，批次已暂停。",
     "input_limit": "输入超过当前限制，批次已暂停。",
     "upstream_auth": "生成服务认证失效，批次已暂停。",
     "model_unavailable": "所选模型或通道暂不可用，批次已暂停。"

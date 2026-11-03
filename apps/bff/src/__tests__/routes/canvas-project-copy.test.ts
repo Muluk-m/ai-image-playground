@@ -410,7 +410,7 @@ it('uses a caller suffix and drops one that is not a short label', async () => {
   expect(((await rejected.json()) as { name: string }).name).toBe('窗台 副本')
 })
 
-it('还有设备在传的图片时拒绝复制，声明过期后照常复制', async () => {
+it('本机媒体未解析时拒绝复制，包括已过期的声明', async () => {
   const { accessCanvasDocument } = await import('../../lib/canvasSyncStore')
   const sourceId = crypto.randomUUID()
   const created = await fetch(`${base}/api/projects/${sourceId}`, {
@@ -452,9 +452,9 @@ it('还有设备在传的图片时拒绝复制，声明过期后照常复制', a
   const copy = () =>
     fetch(`${base}/api/projects/${sourceId}/copy`, { method: 'POST', headers: { cookie } })
 
-  // 过期的声明（上传方早已离线）不挡复制：副本里那张和原件一样按缺图处理。
+  // 声明过期不代表副本能读到原图：仍拒绝，不能复制出永久缺图的副本。
   await write(Date.now() - CANVAS_UPLOAD_STALE_MS - 1000)
-  expect((await copy()).status).toBe(200)
+  expect((await copy()).status).toBe(409)
 
   await write(Date.now())
   const before = await db
@@ -469,4 +469,239 @@ it('还有设备在传的图片时拒绝复制，声明过期后照常复制', a
     .from(schema.canvas_projects)
     .where(eq(schema.canvas_projects.user_id, 'owner'))
   expect(after[0]?.value).toBe(before[0]?.value)
+})
+
+async function pendingCopyFixture(meta: Record<string, string> | undefined) {
+  const { accessCanvasDocument } = await import('../../lib/canvasSyncStore')
+  const id = crypto.randomUUID()
+  expect(
+    (
+      await fetch(`${base}/api/projects/${id}`, {
+        method: 'PUT',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          requestId: crypto.randomUUID(),
+          baseRevision: 0,
+          name: 'Unresolved media',
+          document: { version: 1, experience: 'canvas', elements: [] },
+        }),
+      })
+    ).status,
+  ).toBe(200)
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, await accessCanvasDocument('owner', id))
+  const vector = Y.encodeStateVector(doc)
+  insertCanvasNode(
+    doc,
+    {
+      id: 'unresolved',
+      type: 'image',
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      data: { fileId: 'local-original', ...(meta ? { meta } : {}) },
+    },
+    origin,
+  )
+  await accessCanvasDocument('owner', id, Y.encodeStateAsUpdate(doc, vector))
+  doc.destroy()
+  return id
+}
+for (const claim of [
+  'future',
+  'boundary',
+  'expired',
+  'released',
+  'missing',
+  'nan',
+  'infinite',
+  'negative',
+])
+  it(`copy rejects unresolved media independent of ${claim} upload bookkeeping, without writes`, async () => {
+    const now = Date.now()
+    const metas: Record<string, Record<string, string> | undefined> = {
+      future: { uploadDevice: 'remote', uploadStartedAt: String(now + 6 * 60_000) },
+      boundary: { uploadDevice: 'remote', uploadStartedAt: String(now + 5 * 60_000 + 1) },
+      expired: { uploadDevice: 'remote', uploadStartedAt: String(now - 31 * 60_000) },
+      released: { uploadReleasedAt: String(now) },
+      missing: undefined,
+      nan: { uploadDevice: 'remote', uploadStartedAt: 'NaN' },
+      infinite: { uploadDevice: 'remote', uploadStartedAt: 'Infinity' },
+      negative: { uploadDevice: 'remote', uploadStartedAt: '-1' },
+    }
+    const source = await pendingCopyFixture(metas[claim])
+    const counts = async () => ({
+      projects: await db.select({ n: count() }).from(schema.canvas_projects),
+      documents: await db.select({ n: count() }).from(schema.canvas_documents),
+      references: await db.select({ n: count() }).from(schema.media_references),
+    })
+    const before = await counts()
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await fetch(`${base}/api/projects/${source}/copy`, {
+        method: 'POST',
+        headers: { cookie },
+      })
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({ error: 'canvas_media_pending' })
+    }
+    expect(await counts()).toEqual(before)
+    const reopened = await canvasOf(source)
+    expect(
+      readCanvasDocument(reopened).nodes.find((n) => n.id === 'unresolved')?.data,
+    ).toMatchObject({ fileId: 'local-original' })
+    reopened.destroy()
+  })
+it('copy checks unselected local candidates and permits the same provenance after cloud promotion', async () => {
+  const { accessCanvasDocument } = await import('../../lib/canvasSyncStore')
+  const source = await pendingCopyFixture(undefined)
+  const doc = await canvasOf(source)
+  try {
+    const media = crypto.randomUUID()
+    await readyMedia(media)
+    const vector = Y.encodeStateVector(doc)
+    const image = doc.getMap<Y.Map<unknown>>('nodes').get('unresolved')!
+    image.set('data', { fileId: `cloud-${media}`, mediaId: media })
+    recordCanvasResult(
+      doc,
+      {
+        id: 'unchosen-local',
+        nodeId: 'unresolved',
+        kind: 'image',
+        source: { type: 'local', taskId: 'browser-only-task', outputIndex: 0 },
+        createdAt: Date.now(),
+      },
+      origin,
+    )
+    await accessCanvasDocument('owner', source, Y.encodeStateAsUpdate(doc, vector))
+    const blocked = await fetch(`${base}/api/projects/${source}/copy`, {
+      method: 'POST',
+      headers: { cookie },
+    })
+    expect(blocked.status).toBe(409)
+    const before = Y.encodeStateVector(doc)
+    const result = canvasResults(doc).find((r) => r.id === 'unchosen-local')!
+    doc
+      .getMap('nodeResults')
+      .set(result.id, { ...result, display: { mediaId: media, fileId: `cloud-${media}` } })
+    await accessCanvasDocument('owner', source, Y.encodeStateAsUpdate(doc, before))
+    const allowed = await fetch(`${base}/api/projects/${source}/copy`, {
+      method: 'POST',
+      headers: { cookie },
+    })
+    expect(allowed.status).toBe(200)
+    const copy = await canvasOf((await allowed.json()).id)
+    expect(canvasResults(copy).find((r) => r.id === 'unchosen-local')).toMatchObject({
+      source: { type: 'local' },
+      display: { mediaId: media },
+    })
+    copy.destroy()
+  } finally {
+    doc.destroy()
+  }
+})
+it('copy requires video originals for nodes and local candidates, while retaining server queue candidates', async () => {
+  const { accessCanvasDocument } = await import('../../lib/canvasSyncStore')
+  const source = await pendingCopyFixture(undefined)
+  const doc = await canvasOf(source)
+  const poster = crypto.randomUUID(),
+    clip = crypto.randomUUID(),
+    task = crypto.randomUUID()
+  await readyMedia(poster)
+  await readyMedia(clip)
+  await db
+    .update(schema.media_objects)
+    .set({ content_type: 'video/mp4' })
+    .where(eq(schema.media_objects.id, clip))
+  await db.insert(schema.tasks).values({
+    id: task,
+    user_id: 'owner',
+    provider: 'openai-compat',
+    model: 'fixture',
+    status: 'completed',
+    request_payload: { prompt: 'fixture' },
+    submitted_at: Date.now(),
+  })
+  const copy = () =>
+    fetch(`${base}/api/projects/${source}/copy`, { method: 'POST', headers: { cookie } })
+  const flush = async (before: Uint8Array) =>
+    accessCanvasDocument('owner', source, Y.encodeStateAsUpdate(doc, before))
+  try {
+    let before = Y.encodeStateVector(doc)
+    doc
+      .getMap<Y.Map<unknown>>('nodes')
+      .get('unresolved')!
+      .set('data', { fileId: `cloud-${poster}`, mediaId: poster })
+    insertCanvasNode(
+      doc,
+      {
+        id: 'video',
+        type: 'video',
+        x: 60,
+        y: 0,
+        width: 50,
+        height: 50,
+        data: {
+          fileId: `cloud-${poster}`,
+          mediaId: poster,
+          video: { taskId: task, outputIndex: 0 },
+        },
+      },
+      origin,
+    )
+    await flush(before)
+    expect((await copy()).status).toBe(409)
+    before = Y.encodeStateVector(doc)
+    const node = readCanvasDocument(doc).nodes.find((n) => n.type === 'video')!
+    doc
+      .getMap<Y.Map<unknown>>('nodes')
+      .get('video')!
+      .set('data', { ...node.data, video: { taskId: task, outputIndex: 0, mediaId: clip } })
+    recordCanvasResult(
+      doc,
+      {
+        id: 'local-video',
+        nodeId: 'video',
+        kind: 'video',
+        source: { type: 'local', taskId: task, outputIndex: 0 },
+        display: { mediaId: poster, video: { taskId: task, outputIndex: 0 } },
+        createdAt: Date.now(),
+      },
+      origin,
+    )
+    recordCanvasResult(
+      doc,
+      {
+        id: 'queue-image',
+        nodeId: 'unresolved',
+        kind: 'image',
+        source: { type: 'queue', taskId: task, outputIndex: 0 },
+        createdAt: Date.now(),
+      },
+      origin,
+    )
+    await flush(before)
+    expect((await copy()).status).toBe(409)
+    before = Y.encodeStateVector(doc)
+    const result = canvasResults(doc).find((r) => r.id === 'local-video')!
+    doc.getMap('nodeResults').set(result.id, {
+      ...result,
+      display: { mediaId: poster, video: { taskId: task, outputIndex: 0, mediaId: clip } },
+    })
+    await flush(before)
+    const allowed = await copy()
+    expect(allowed.status).toBe(200)
+    const copied = await canvasOf((await allowed.json()).id)
+    expect(
+      canvasResults(copied)
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual(['local-video', 'queue-image'])
+    expect(
+      readCanvasDocument(copied).nodes.find((n) => n.type === 'video')?.data.video?.mediaId,
+    ).toBe(clip)
+    copied.destroy()
+  } finally {
+    doc.destroy()
+  }
 })

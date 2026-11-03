@@ -72,7 +72,8 @@ export async function withVisualPreparation<T>(
     throw error
   } finally {
     active -= 1
-    waiting.shift()?.()
+    const currentLimit = config.operator.quotas['agent:visual-prepare-concurrency']
+    while (waiting.length > 0 && active < currentLimit) waiting.shift()?.()
   }
 }
 

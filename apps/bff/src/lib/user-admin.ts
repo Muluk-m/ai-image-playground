@@ -5,6 +5,8 @@ import {
   isValidPassword,
   isValidUsername,
   type LoginMethodsView,
+  NICKNAME_MAX_LENGTH,
+  nicknameError,
   normalizeUsername,
 } from '@image-playground/shared'
 import { and, asc, eq, inArray, ne } from 'drizzle-orm'
@@ -192,6 +194,8 @@ export interface OAuthIdentityInput {
   readonly provider: string
   readonly subject: string
   readonly email: string | null
+  /** Only an explicit verified assertion can seed a login email. */
+  readonly emailVerified?: boolean
   readonly displayName: string | null
 }
 
@@ -202,7 +206,14 @@ export interface OAuthLoginResult {
 
 export type OAuthLoginOutcome = OAuthLoginResult | { readonly registrationClosed: true }
 
+function oauthNickname(displayName: string | null): string | null {
+  if (!displayName) return null
+  const nickname = Array.from(displayName.trim()).slice(0, NICKNAME_MAX_LENGTH).join('').trim()
+  return nicknameError(nickname) === null ? nickname : null
+}
+
 async function loginExistingIdentity(
+  identity: OAuthIdentityInput,
   userId: string,
   client?: SessionClient | null,
 ): Promise<OAuthLoginResult> {
@@ -212,6 +223,7 @@ async function loginExistingIdentity(
         id: schema.users.id,
         username: schema.users.username,
         status: schema.users.status,
+        nickname: schema.users.nickname,
       })
       .from(schema.users)
       .where(eq(schema.users.id, userId))
@@ -221,8 +233,25 @@ async function loginExistingIdentity(
 
     const now = Date.now()
     await tx
+      .update(schema.user_identities)
+      .set({
+        email: identity.email ? normalizeUsername(identity.email) : null,
+        display_name: identity.displayName,
+      })
+      .where(
+        and(
+          eq(schema.user_identities.provider, identity.provider),
+          eq(schema.user_identities.subject, identity.subject),
+          eq(schema.user_identities.user_id, current.id),
+        ),
+      )
+    await tx
       .update(schema.users)
-      .set({ last_login_at: now, updated_at: now })
+      .set({
+        ...(current.nickname === null ? { nickname: oauthNickname(identity.displayName) } : {}),
+        last_login_at: now,
+        updated_at: now,
+      })
       .where(eq(schema.users.id, current.id))
     return {
       user: { id: current.id, username: current.username },
@@ -263,11 +292,16 @@ export async function loginWithOAuthIdentity(
 ): Promise<OAuthLoginOutcome> {
   const email = identity.email ? normalizeUsername(identity.email) : null
   const existingUserId = await findIdentityUserId(identity)
-  if (existingUserId) return loginExistingIdentity(existingUserId, options.client)
+  if (existingUserId) return loginExistingIdentity(identity, existingUserId, options.client)
   if (!options.allowRegistration) return { registrationClosed: true }
 
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-  const candidates = await firstFreeUsernames(oauthUsernameCandidates({ ...identity, email }))
+  const candidates = await firstFreeUsernames(
+    oauthUsernameCandidates({
+      ...identity,
+      email: identity.emailVerified === true ? email : null,
+    }),
+  )
   for (const username of candidates) {
     const now = Date.now()
     const userId = randomUUID()
@@ -280,7 +314,8 @@ export async function loginWithOAuthIdentity(
             username,
             password_hash: OAUTH_ONLY_PASSWORD_HASH,
             status: 'active',
-            email_verified_at: email ? now : null,
+            email_verified_at: identity.emailVerified === true && email ? now : null,
+            nickname: oauthNickname(identity.displayName),
             created_at: now,
             updated_at: now,
             last_login_at: now,
@@ -309,6 +344,7 @@ export async function loginWithOAuthIdentity(
           userId: created.id,
           source: 'self-registration',
           referralCode: options.referralCode,
+          oauthProvider: identity.provider,
         })
         return {
           user: created,
@@ -319,7 +355,7 @@ export async function loginWithOAuthIdentity(
       if (!isUniqueViolation(error)) throw error
       // A concurrent callback for the same subject wins the identity index; join its account.
       const raced = await findIdentityUserId(identity)
-      if (raced) return loginExistingIdentity(raced, options.client)
+      if (raced) return loginExistingIdentity(identity, raced, options.client)
     }
   }
   throw new UserOperationError('username_taken')
@@ -436,7 +472,7 @@ export async function linkOAuthIdentity(
 export async function unlinkOAuthIdentity(
   userId: string,
   provider: string,
-): Promise<'unlinked' | 'not_linked' | 'last_login_method'> {
+): Promise<'unlinked' | 'not_linked' | 'last_login_method' | 'protected_identity'> {
   return db.transaction(async (tx) => {
     // 锁 users 行让并发解绑串行化，否则两个 provider 可以各自看到「还有另一个」而全被解掉。
     const [user] = await tx
@@ -447,11 +483,20 @@ export async function unlinkOAuthIdentity(
     if (!user) throw new UserOperationError('user_not_found')
 
     const identities = await tx
-      .select({ id: schema.user_identities.id, provider: schema.user_identities.provider })
+      .select({
+        id: schema.user_identities.id,
+        provider: schema.user_identities.provider,
+        subject: schema.user_identities.subject,
+      })
       .from(schema.user_identities)
       .where(eq(schema.user_identities.user_id, userId))
     const target = identities.find((row) => row.provider === provider)
     if (!target) return 'not_linked'
+    const unlinkPolicy = (await loadPrivateBffOverlay()).taskHooks.canUnlinkOAuthIdentity
+    if (unlinkPolicy) {
+      const decision = await unlinkPolicy({ tx, userId, provider, subject: target.subject })
+      if (!decision.allowed) return 'protected_identity'
+    }
     if (user.password_hash === OAUTH_ONLY_PASSWORD_HASH && identities.length === 1) {
       return 'last_login_method'
     }
