@@ -1,5 +1,6 @@
 import type { OpsBackupObject, OpsBackups, OpsRestoreDrill } from '@image-playground/shared'
 import { type ObjectEntry, objectStore } from './objectStore'
+import { observeStorage } from './ops-storage-error'
 
 /** Hourly immutable dumps and their completion checksums; legacy daily dumps remain readable. */
 const BACKUP_PREFIX = 'pg/'
@@ -16,7 +17,8 @@ function toBackup(entry: ObjectEntry | undefined): OpsBackupObject | null {
  * Retain the preceding snapshot so operators can spot an unexpected size drop.
  */
 export async function readBackups(): Promise<OpsBackups> {
-  const entries = await objectStore().listEntries(BACKUP_PREFIX)
+  const store = await observeStorage('initialize', objectStore)
+  const entries = await observeStorage('list', () => store.listEntries(BACKUP_PREFIX))
   const completed = new Set(
     entries
       .filter((entry) => entry.key.endsWith('.dump.sha256'))
@@ -48,13 +50,13 @@ function parseDrill(bytes: Uint8Array): OpsRestoreDrill | null {
  * 写结果的是演练脚本自己，读不懂说明它半路出了岔子，不能当成通过。
  */
 export async function readRestoreDrill(): Promise<OpsRestoreDrill | null> {
-  const store = objectStore()
-  const entry = (await store.listEntries(DRILL_KEY)).find(
+  const store = await observeStorage('initialize', objectStore)
+  const entry = (await observeStorage('list', () => store.listEntries(DRILL_KEY))).find(
     (candidate) => candidate.key === DRILL_KEY,
   )
   if (!entry) return null
   return (
-    parseDrill(await store.read(DRILL_KEY)) ?? {
+    parseDrill(await observeStorage('read', () => store.read(DRILL_KEY))) ?? {
       ok: false,
       finished_at: entry.lastModified,
       error: '演练结果文件无法解析',

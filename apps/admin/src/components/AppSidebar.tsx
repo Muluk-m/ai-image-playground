@@ -16,11 +16,11 @@ import {
   ScrollText,
   Settings,
   Shapes,
+  SlidersHorizontal,
   Sparkles,
   Tags,
   Users,
 } from 'lucide-react'
-
 import {
   Sidebar,
   SidebarContent,
@@ -53,7 +53,7 @@ export type NavTo =
   | '/logs'
   | '/audit'
   | '/models'
-
+  | '/operator-settings'
 export interface NavEntry {
   to: NavTo
   icon: LucideIcon
@@ -108,6 +108,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     label: '设置',
     entries: [
       { to: '/models', icon: Boxes, label: '模型' },
+      { to: '/operator-settings', icon: SlidersHorizontal, label: '能力与配额' },
       { to: '/audit', icon: BookOpen, label: '审计' },
     ],
   },

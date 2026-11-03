@@ -242,6 +242,8 @@ export const submitRoutes = new Elysia()
       if (outcome.kind === 'insufficient_credits' || outcome.kind === 'price_unavailable') {
         return reservationFailureResponse(outcome)
       }
+      if (outcome.kind === 'metering_denied')
+        return status(403, { error: 'metering_denied', reason: outcome.reason })
 
       if (outcome.kind === 'authentication_required') {
         return status(401, { error: 'unauthorized' })
