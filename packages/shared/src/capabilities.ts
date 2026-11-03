@@ -217,11 +217,13 @@ const OPERATOR_METADATA: Readonly<Record<string, Partial<OperatorRegistryEntry>>
     name: '批次来源版本数',
     description: '每个来源保留的版本数',
     unit: 'count',
+    max: 100,
   },
   'agent:batch-max-items': {
     name: '批次条目上限',
     description: '每个批次允许的最大条目数',
     unit: 'count',
+    max: 100,
   },
   'agent:batch-dispatch-window': {
     name: '批次派发窗口',
@@ -249,6 +251,7 @@ const OPERATOR_METADATA: Readonly<Record<string, Partial<OperatorRegistryEntry>>
     name: '视觉像素上限',
     description: '视觉预处理允许的最大像素数',
     unit: 'pixels',
+    min: 1,
   },
   'agent:attachment-logical-references': {
     name: '附件引用上限',
@@ -405,6 +408,7 @@ const OPERATOR_METADATA: Readonly<Record<string, Partial<OperatorRegistryEntry>>
     description: '智能体请求体大小上限',
     group: 'agent',
     unit: 'bytes',
+    min: 1,
     max: 256 * 1024 ** 2,
   },
   'quota:daily': { name: '每日额度', description: '启用每日生成额度', group: 'generation' },

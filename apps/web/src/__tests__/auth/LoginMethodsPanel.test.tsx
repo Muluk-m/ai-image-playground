@@ -287,6 +287,22 @@ describe('LoginMethodsPanel', () => {
     expect(buttonLabels()).toContain('更新密码')
   })
 
+  it('shows a load failure instead of crashing when the CLI list is not an array', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string) => {
+        if (input.includes('/api/auth/oauth/providers')) return Response.json(GOOGLE_PROVIDER)
+        if (input.includes('/api/auth/login-methods'))
+          return Response.json({ password: true, identities: [] })
+        return Response.json({ connections: null })
+      }),
+    )
+    await render()
+    expect(document.body.textContent).toContain('已连接的 CLI')
+    expect(document.body.textContent).toContain('暂时无法读取连接，请重试。')
+    expect(buttonLabels()).toContain('更新密码')
+  })
+
   it('drops the old account connection list and ignores its delayed refresh after an account switch', async () => {
     let resolveOld!: (response: Response) => void
     const pendingOld = new Promise<Response>((resolve) => {

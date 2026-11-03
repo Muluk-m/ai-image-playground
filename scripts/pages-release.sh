@@ -18,13 +18,14 @@ dist_manifest=
 
 usage() {
   cat >&2 <<'EOF'
-Usage: scripts/pages-release.sh <internal|paid|test|admin>
+Usage: scripts/pages-release.sh <paid|test|admin>
 
-Reads $XDG_CONFIG_HOME/ai-image-playground/pages.env, whose keys are prefixed INTERNAL_, PAID_,
-TEST_, or ADMIN_ (see deploy/pages.env.example).
+Reads $XDG_CONFIG_HOME/ai-image-playground/pages.env, whose keys are prefixed PAID_, TEST_,
+or ADMIN_ (see deploy/pages.env.example). INTERNAL_PUBLIC_ORIGIN / INTERNAL_BFF_BASE_URL name
+the enterprise domain that the paid Pages project also serves.
 
-All targets need ./private. The internal site uses the same overlay-enabled app as paid,
-with its own Pages configuration and search indexing disabled.
+All targets need ./private. One paid project serves both production domains: the enterprise
+domain gets its own first-party API mapping and a host-scoped noindex header.
 EOF
   exit 2
 }
@@ -32,14 +33,13 @@ EOF
 edition=${1:-}
 [ "$#" -le 1 ] || usage
 case "$edition" in
+  # The internal edition no longer has its own Pages project: the paid project serves its domain.
   internal)
-    prefix=INTERNAL
-    bundle=private
-    app=web
-    deployment_name=internal-web
-    search_indexing=false
+    echo "The internal site is served by the paid Pages project; release 'paid' instead." >&2
+    exit 2
     ;;
-  # Only the public product site is meant to show up in search results.
+  # Only the public product site is meant to show up in search results; the enterprise domain on
+  # the same project is excluded by a host-scoped header below.
   paid)
     prefix=PAID
     bundle=private
@@ -107,11 +107,42 @@ fi
 
 BFF_ENABLED=true
 BFF_BASE_URLS_BY_ORIGIN=$(edition_var "$prefix" BFF_BASE_URLS_BY_ORIGIN)
+NOINDEX_ORIGINS=
+if [ "$edition" = paid ]; then
+  # The enterprise domain is a second custom domain of the paid project. Its frontend must keep
+  # calling its own first-party API hostname (SameSite=Lax session cookies), so it joins the
+  # per-origin API map; the backend decides its login methods from the same origin.
+  enterprise_origin=$(edition_var INTERNAL PUBLIC_ORIGIN)
+  enterprise_api=$(edition_var INTERNAL BFF_BASE_URL)
+  if [ -n "$enterprise_origin$enterprise_api" ]; then
+    if [ -z "$enterprise_origin" ] || [ -z "$enterprise_api" ]; then
+      echo "INTERNAL_PUBLIC_ORIGIN and INTERNAL_BFF_BASE_URL must be set together in $pages_env." >&2
+      exit 1
+    fi
+    BFF_BASE_URLS_BY_ORIGIN=$(
+      # shellcheck disable=SC2016 # The JavaScript below reads its inputs from the environment.
+      ORIGINS="$BFF_BASE_URLS_BY_ORIGIN" SITE="$enterprise_origin" API="$enterprise_api" node -e '
+        const strip = (v) => v.replace(/\/+$/, "")
+        const map = process.env.ORIGINS ? JSON.parse(process.env.ORIGINS) : {}
+        const site = strip(process.env.SITE)
+        const api = strip(process.env.API)
+        const existing = Object.entries(map).find(([key]) => strip(key) === site)
+        if (existing && strip(existing[1]) !== api) {
+          console.error(`PAID_BFF_BASE_URLS_BY_ORIGIN maps ${site} to ${existing[1]}, not ${api}.`)
+          process.exit(1)
+        }
+        if (!existing) map[site] = api
+        process.stdout.write(JSON.stringify(map))
+      '
+    )
+    NOINDEX_ORIGINS=${enterprise_origin%/}
+  fi
+fi
 # The web build writes canonical URLs, hreflang, sitemap.xml, robots.txt and llms.txt from these two.
 PUBLIC_ORIGIN=$public_origin
 SEARCH_INDEXING=$search_indexing
 export BFF_ENABLED BFF_BASE_URL BFF_BASE_URLS_BY_ORIGIN CLOUDFLARE_ACCOUNT_ID \
-  PUBLIC_ORIGIN SEARCH_INDEXING
+  PUBLIC_ORIGIN SEARCH_INDEXING NOINDEX_ORIGINS
 unset EXTRA_ASSETS_DIR NOTIFY_UPDATE
 extra_assets_dir=$(edition_var "$prefix" EXTRA_ASSETS_DIR)
 if [ -n "$extra_assets_dir" ]; then

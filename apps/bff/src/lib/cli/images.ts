@@ -296,7 +296,7 @@ export async function imageCapabilities(userId: string) {
   const hooks = (await loadPrivateBffOverlay()).taskHooks
   return db.transaction(async (tx) => {
     const listed: CliModelCapability[] = []
-    for (const [index, model] of models.entries()) {
+    for (const model of models) {
       const caps = model.image
       const gpt = isGptDirectModel(model.id)
       const premium =
@@ -308,6 +308,8 @@ export async function imageCapabilities(userId: string) {
       const tiers = caps.tiers
         .map((tier) => tier.id)
         .filter((id) => premium || (gpt ? id === '1K' : id !== '4K'))
+      // 该账号一个档位都提交不了的模型不列出，免得被当成默认模型。
+      if (tiers.length === 0) continue
       const quote = await hooks.quoteTask?.({
         tx,
         userId,
@@ -318,7 +320,7 @@ export async function imageCapabilities(userId: string) {
       listed.push({
         id: model.id,
         label: model.label,
-        default: index === 0,
+        default: listed.length === 0,
         operations: caps.operations.filter((op) => op !== 'mask_edit'),
         aspect_ratios: [...(caps.autoRatio ? ['auto'] : []), ...caps.surfaces.direct.ratios],
         image_sizes: tiers,

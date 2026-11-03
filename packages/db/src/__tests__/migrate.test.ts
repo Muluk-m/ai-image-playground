@@ -499,6 +499,17 @@ describe('runMigrations', () => {
           await client`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`
         expect(after.slice(0, before.length)).toEqual(before)
         expect(after).toHaveLength(journal.entries.length - 2)
+        // Only migrations newer than main's last applied one run, in journal order.
+        expect(after.slice(before.length).map(migrationStamp)).toEqual([
+          {
+            hash: await migrationFileHash('0085_task_metering_forward'),
+            created_at: '1793600000000',
+          },
+          {
+            hash: await migrationFileHash('0086_operator_config_overrides'),
+            created_at: '1793700000000',
+          },
+        ])
         const columns =
           await client`SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tasks' AND column_name = 'metering'`
         expect(columns).toEqual([{ data_type: 'jsonb', is_nullable: 'YES' }])

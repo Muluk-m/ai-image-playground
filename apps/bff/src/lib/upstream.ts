@@ -374,7 +374,8 @@ const GPT_DIRECT_QUEUE_WAIT_MS = 5_000
 
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const route = resolveUpstream(params.provider, params.model)
-  if (requiresGptDirect(params) && !gptDirectConfigured(params.model))
+  // 已提交的任务沿原路续轮询，不因直连配置后来变化而放弃上游结果。
+  if (!params.resume && requiresGptDirect(params) && !gptDirectConfigured(params.model))
     throw new ImagePlanRequiredError()
   // 已提交过的任务只在原路续轮询；只有走通用网关的 GPT 直连模型才有两条路可选。
   if (
