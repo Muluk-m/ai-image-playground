@@ -35,11 +35,17 @@ function migrationStamp(row: { hash: string; created_at: string | number | bigin
   return { hash: row.hash, created_at: String(row.created_at) }
 }
 
-/** Applies journal entries through `lastTag` onto an empty database. Later files stay unread. */
-async function migrateUntil(databaseUrl: string, lastTag: string): Promise<void> {
+/** Applies a historical journal onto an empty database. Later files stay unread. */
+async function migrateUntil(
+  databaseUrl: string,
+  lastTag: string,
+  omittedTags: readonly string[] = [],
+): Promise<void> {
   const end = journal.entries.findIndex((entry) => entry.tag === lastTag)
   if (end < 0) throw new Error(`missing migration ${lastTag}`)
-  const entries = journal.entries.slice(0, end + 1)
+  const entries = journal.entries
+    .slice(0, end + 1)
+    .filter((entry) => !omittedTags.includes(entry.tag))
   const dir = await mkdtemp(join(tmpdir(), 'aip-migrate-'))
   const client = new SQL(databaseUrl, { max: 1 })
   try {
@@ -83,6 +89,30 @@ afterAll(async () => {
 })
 
 describe('runMigrations', () => {
+  it('upgrades deployed creation history to editable operator overrides without losing existing rows', async () => {
+    await withEmptyDatabase('operator_overrides_upgrade', async (url) => {
+      await migrateUntil(url, '0084_generation_images_soft_delete')
+      await runMigrations(url)
+      const sql = new SQL(url, { max: 1 })
+      try {
+        await sql`INSERT INTO operator_config_overrides (key, value, baseline_value, operator_id, reason, updated_at)
+          VALUES ('generation:daily-images', '7'::jsonb, '0'::jsonb, 'test-operator', 'quota verification', now())`
+        await runMigrations(url)
+        const [saved] =
+          await sql`SELECT key, value, reason FROM operator_config_overrides WHERE key = 'generation:daily-images'`
+        expect(saved).toEqual({
+          key: 'generation:daily-images',
+          value: 7,
+          reason: 'quota verification',
+        })
+        const [revision] = await sql`SELECT revision FROM operator_config_state WHERE id = 1`
+        expect(revision.revision).toBe(0)
+      } finally {
+        await sql.close()
+      }
+    })
+  }, 30_000)
+
   it('retains nullable original prompts and indexes the admin chronology', async () => {
     const [column] =
       await connection.client`SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agent_generation_drafts' AND column_name = 'drafted_prompt'`
@@ -439,6 +469,196 @@ describe('runMigrations', () => {
           SELECT reconcile_started_at FROM tasks WHERE id = 'upgrade-sentinel'
         `
         expect(new Date(saved.reconcile_started_at).toISOString()).toBe(kept.toISOString())
+      } finally {
+        await client.close()
+      }
+    })
+  }, 30_000)
+
+  it('upgrades the pure-main journal through 0084 without inventing historical applications', async () => {
+    await withEmptyDatabase('upgrade_main', async (url) => {
+      // origin/main has 0000–0078 (no 0013), then 0082, 0083, 0084; neither original ran.
+      await migrateUntil(url, '0084_generation_images_soft_delete', [
+        '0079_task_metering',
+        '0081_cli_device_oauth',
+      ])
+      const client = new SQL(url, { max: 1 })
+      try {
+        const before =
+          await client`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`
+        expect(before).toHaveLength(81)
+        const [missing] =
+          await client`SELECT count(*)::integer AS count FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tasks' AND column_name = 'metering'`
+        expect(missing.count).toBe(0)
+        const [oauth] = await client`SELECT created_at FROM oauth_clients WHERE id = 'muvloom-cli'`
+        await client`INSERT INTO tasks (id, provider, model, status, request_payload, submitted_at) VALUES ('main-upgrade-sentinel', 'openai-compat', 'fixture', 'queued', '{}'::jsonb, now())`
+
+        await runMigrations(url)
+
+        const after =
+          await client`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`
+        expect(after.slice(0, before.length)).toEqual(before)
+        expect(after).toHaveLength(journal.entries.length - 2)
+        // Only migrations newer than main's last applied one run, in journal order.
+        expect(after.slice(before.length).map(migrationStamp)).toEqual([
+          {
+            hash: await migrationFileHash('0085_task_metering_forward'),
+            created_at: '1793600000000',
+          },
+          {
+            hash: await migrationFileHash('0086_operator_config_overrides'),
+            created_at: '1793700000000',
+          },
+        ])
+        const columns =
+          await client`SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tasks' AND column_name = 'metering'`
+        expect(columns).toEqual([{ data_type: 'jsonb', is_nullable: 'YES' }])
+        const [saved] = await client`SELECT metering FROM tasks WHERE id = 'main-upgrade-sentinel'`
+        expect(saved.metering).toBeNull()
+        const [retained] =
+          await client`SELECT created_at FROM oauth_clients WHERE id = 'muvloom-cli'`
+        expect(retained).toEqual(oauth)
+        await runMigrations(url)
+        expect(
+          await client`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`,
+        ).toEqual(after)
+      } finally {
+        await client.close()
+      }
+    })
+  }, 30_000)
+
+  it('runs both forward equivalents when upgrading main at 0082', async () => {
+    await withEmptyDatabase('upgrade_main_0082', async (url) => {
+      await migrateUntil(url, '0082_upstream_scheduler', [
+        '0079_task_metering',
+        '0081_cli_device_oauth',
+      ])
+      const client = new SQL(url, { max: 1 })
+      try {
+        await runMigrations(url)
+        const [oauth] = await client`SELECT id FROM oauth_clients WHERE id = 'muvloom-cli'`
+        expect(oauth?.id).toBe('muvloom-cli')
+        const columns =
+          await client`SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tasks' AND column_name = 'metering'`
+        expect(columns).toEqual([{ data_type: 'jsonb' }])
+        const rows =
+          await client`SELECT created_at FROM drizzle.__drizzle_migrations ORDER BY created_at`
+        expect(rows).toHaveLength(journal.entries.length - 2)
+        expect(
+          rows.map((row: { created_at: string | number }) => String(row.created_at)),
+        ).not.toContain('1793000000000')
+        expect(
+          rows.map((row: { created_at: string | number }) => String(row.created_at)),
+        ).not.toContain('1793200000000')
+      } finally {
+        await client.close()
+      }
+    })
+  }, 30_000)
+
+  it('preserves test history and metering when originals were already applied', async () => {
+    await withEmptyDatabase('upgrade_test_0081', async (url) => {
+      await migrateUntil(url, '0081_cli_device_oauth')
+      const client = new SQL(url, { max: 1 })
+      try {
+        const before =
+          await client`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`
+        const metering = { billingMode: 'credits', rate: 17 }
+        await client`INSERT INTO tasks (id, provider, model, status, request_payload, metering, submitted_at) VALUES ('test-upgrade-sentinel', 'openai-compat', 'fixture', 'queued', '{}'::jsonb, ${metering}::jsonb, now())`
+        const [oauth] = await client`SELECT created_at FROM oauth_clients WHERE id = 'muvloom-cli'`
+        await runMigrations(url)
+        const after =
+          await client`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`
+        expect(after.slice(0, before.length)).toEqual(before)
+        expect(after).toHaveLength(journal.entries.length)
+        const [saved] = await client`SELECT metering FROM tasks WHERE id = 'test-upgrade-sentinel'`
+        expect(saved.metering).toEqual(metering)
+        const [retained] =
+          await client`SELECT created_at FROM oauth_clients WHERE id = 'muvloom-cli'`
+        expect(retained).toEqual(oauth)
+      } finally {
+        await client.close()
+      }
+    })
+  }, 30_000)
+
+  it('still rejects unrelated gaps, missing older replacements and mismatched replacement hashes', async () => {
+    await withEmptyDatabase('upgrade_main_refusals', async (url) => {
+      await migrateUntil(url, '0084_generation_images_soft_delete', [
+        '0079_task_metering',
+        '0081_cli_device_oauth',
+      ])
+      const client = new SQL(url, { max: 1 })
+      try {
+        const originalHash = await migrationFileHash('0083_cli_device_oauth')
+        await client`UPDATE drizzle.__drizzle_migrations SET hash = 'not-the-audited-sql' WHERE created_at = 1793400000000`
+        const mismatched =
+          await client`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`
+        await expect(runMigrations(url)).rejects.toThrow(
+          'Applied migration supersession hash mismatch: 0083_cli_device_oauth',
+        )
+        expect(
+          await client`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`,
+        ).toEqual(mismatched)
+        await client`UPDATE drizzle.__drizzle_migrations SET hash = ${originalHash} WHERE created_at = 1793400000000`
+
+        for (const tag of ['0083_cli_device_oauth', '0078_generation_commands_recent']) {
+          const entry = journal.entries.find((candidate) => candidate.tag === tag)!
+          const [removed] =
+            await client`DELETE FROM drizzle.__drizzle_migrations WHERE created_at = ${entry.when} RETURNING id, hash, created_at`
+          const before =
+            await client`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`
+          await expect(runMigrations(url)).rejects.toThrow(tag)
+          expect(
+            await client`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`,
+          ).toEqual(before)
+          await client`INSERT INTO drizzle.__drizzle_migrations (id, hash, created_at) VALUES (${removed.id}, ${removed.hash}, ${removed.created_at})`
+        }
+        const [missing] =
+          await client`SELECT count(*)::integer AS count FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tasks' AND column_name = 'metering'`
+        expect(missing.count).toBe(0)
+      } finally {
+        await client.close()
+      }
+    })
+  }, 30_000)
+
+  it('rolls back forward schema and history together when the catch-up migration fails', async () => {
+    await withEmptyDatabase('upgrade_main_atomic', async (url) => {
+      await migrateUntil(url, '0082_upstream_scheduler', [
+        '0079_task_metering',
+        '0081_cli_device_oauth',
+      ])
+      const client = new SQL(url, { max: 1 })
+      try {
+        const before =
+          await client`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`
+        await client.unsafe(`CREATE FUNCTION public.reject_metering_migration() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+            IF NEW.created_at = 1793600000000 THEN RAISE EXCEPTION 'metering history rejected'; END IF;
+            RETURN NEW;
+          END;
+        $$`)
+        await client.unsafe(`CREATE TRIGGER reject_metering_migration BEFORE INSERT ON drizzle.__drizzle_migrations
+          FOR EACH ROW EXECUTE FUNCTION public.reject_metering_migration()`)
+        await expect(runMigrations(url)).rejects.toThrow()
+        expect(
+          await client`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`,
+        ).toEqual(before)
+        const [oauth] = await client`SELECT to_regclass('public.oauth_clients')::text AS name`
+        expect(oauth.name).toBeNull()
+        const columns =
+          await client`SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND ((table_name = 'tasks' AND column_name = 'metering') OR (table_name = 'generation_images' AND column_name = 'deleted_at'))`
+        expect(columns).toEqual([])
+        await client.unsafe(
+          'DROP TRIGGER reject_metering_migration ON drizzle.__drizzle_migrations',
+        )
+        await client.unsafe('DROP FUNCTION public.reject_metering_migration()')
+        await runMigrations(url)
+        const [applied] =
+          await client`SELECT count(*)::integer AS count FROM drizzle.__drizzle_migrations WHERE created_at = 1793600000000`
+        expect(applied.count).toBe(1)
       } finally {
         await client.close()
       }

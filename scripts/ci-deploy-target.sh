@@ -2,11 +2,12 @@
 set -eu
 # Decides whether the deploy workflow ships <sha>. Run inside a checkout with origin/main fetched
 # and enough history to compare commits.
-#   WEB_ORIGINS="<paid origin>" ADMIN_ORIGIN=<admin origin> \
+#   WEB_ORIGINS="<paid site origin> ..." ADMIN_ORIGIN=<admin origin> \
 #     scripts/ci-deploy-target.sh <sha> <workflow_run|workflow_dispatch> <paid-api-base-url>
 #
-# Writes deploy_api, deploy_pages (paid Pages), deploy_web (paid site), deploy_admin (Admin site)
-# and deploy (true when anything ships) to $GITHUB_OUTPUT (stdout without it).
+# Writes deploy_api, deploy_pages (either Pages side), deploy_web (the one paid Pages project
+# behind every product domain),
+# deploy_admin (Admin site) and deploy (true when anything ships) to $GITHUB_OUTPUT (stdout without it).
 # A skip is not a failure:
 # - only the current tip of origin/main is deployed, so a queued older run never overtakes a newer;
 # - nothing already running a descendant of <sha> is moved back, and the other sides stay put with it;
@@ -54,7 +55,7 @@ lock_changed() {
   node scripts/lock-closure-changed.mjs "$scan_base" "$target" "$@"
 }
 
-# The paid site reads this; the Admin site reads its own list; the API image reads the last.
+# Internal and paid sites read this; Admin reads its own list; the shared API reads the last.
 # admin.muvloom.online is the Pages build of apps/admin; the API image only serves admin-api.
 # shellcheck disable=SC2329 # called through decide
 web_bundle_changed() {
@@ -169,7 +170,7 @@ api=$decision
 # shellcheck disable=SC2086 # WEB_ORIGINS is a space-separated list.
 scan site ${WEB_ORIGINS:-}
 web_current=$scan_current
-decide "paid web bundle" web_bundle_changed
+decide "web bundle (paid Pages project)" web_bundle_changed
 web=$decision
 scan site "${ADMIN_ORIGIN:-}"
 admin_current=$scan_current

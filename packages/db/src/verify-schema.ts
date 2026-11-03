@@ -2,6 +2,8 @@ import { SQL } from 'bun'
 import journal from '../drizzle/meta/_journal.json'
 
 export const EXPECTED_TABLES = [
+  'operator_config_overrides',
+  'operator_config_state',
   'cli_connections',
   'cli_jobs',
   'cli_reference_media',
@@ -72,6 +74,8 @@ export const EXPECTED_TABLES = [
 ] as const
 
 export const EXPECTED_INDEXES = [
+  'operator_config_overrides_pkey',
+  'operator_config_state_pkey',
   'cli_connections_pkey',
   'device_authorizations_pkey',
   'oauth_clients_pkey',
@@ -251,6 +255,8 @@ export const EXPECTED_COLUMNS = [
 
 /** Columns whose type matters as much as their presence: the code reads them as JSON. */
 const EXPECTED_COLUMN_TYPES: Readonly<Record<string, string>> = {
+  'operator_config_overrides.value': 'jsonb',
+  'operator_config_overrides.baseline_value': 'jsonb',
   'agent_conversations.production': 'jsonb',
 }
 

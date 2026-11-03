@@ -2,12 +2,35 @@
 # Installs the native muvloom CLI from GitHub releases, verifying its SHA-256 checksum.
 #   MUVLOOM_VERSION=0.1.0   pin a release (default: latest cli-v* release)
 #   MUVLOOM_INSTALL_DIR=... install directory (default: ~/.local/bin)
+#   MUVLOOM_DISTRIBUTION_URL=http://127.0.0.1:PORT/PATH local CI distribution only
 set -eu
 
 REPO="Muluk-m/ai-image-playground"
 INSTALL_DIR="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}"
 
 fail() { echo "muvloom install: $*" >&2; exit 1; }
+
+api="https://api.github.com/repos/$REPO/releases"
+download="https://github.com/$REPO/releases/download"
+if [ -n "${MUVLOOM_DISTRIBUTION_URL:-}" ]; then
+  # This test seam cannot redirect installs to a third-party distribution.
+  # Require a numeric port and a path; no credentials, queries or fragments.
+  printf '%s\n' "$MUVLOOM_DISTRIBUTION_URL" |
+    grep -Eq '^http://127\.0\.0\.1:[0-9]+(/[A-Za-z0-9_-]+)+$' ||
+    fail "distribution override must be a loopback URL with a port and path"
+  api="$MUVLOOM_DISTRIBUTION_URL/releases"
+  download="$MUVLOOM_DISTRIBUTION_URL"
+fi
+
+fetch() {
+  # Ignore user curl config (which may contain credentials). GitHub's public
+  # release CDN needs HTTPS redirects; loopback fixtures must never redirect.
+  if [ -n "${MUVLOOM_DISTRIBUTION_URL:-}" ]; then
+    curl -q -fsSL --max-redirs 0 --noproxy '*' "$@"
+  else
+    curl -q -fsSL --proto '=https' --proto-redir '=https' "$@"
+  fi
+}
 
 case "$(uname -s)" in
   Darwin) os=darwin ;;
@@ -37,7 +60,7 @@ else
   tags=""
   page=1
   while [ "$page" -le 20 ]; do
-    body="$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=100&page=$page")" ||
+    body="$(fetch "$api?per_page=100&page=$page")" ||
       fail "could not list releases"
     found="$(printf '%s' "$body" | grep -o '"tag_name": *"[^"]*"' || true)"
     [ -n "$found" ] || break
@@ -52,13 +75,13 @@ $found"
 fi
 
 asset="muvloom_${os}_${arch}"
-base="https://github.com/$REPO/releases/download/$tag"
+base="$download/$tag"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 echo "Downloading $asset ($tag)" >&2
-curl -fsSL -o "$tmp/$asset" "$base/$asset" || fail "download failed: $base/$asset"
-curl -fsSL -o "$tmp/checksums.txt" "$base/checksums.txt" || fail "download failed: $base/checksums.txt"
+fetch -o "$tmp/$asset" "$base/$asset" || fail "download failed: $base/$asset"
+fetch -o "$tmp/checksums.txt" "$base/checksums.txt" || fail "download failed: $base/checksums.txt"
 
 expected="$(grep " $asset\$" "$tmp/checksums.txt" | cut -d' ' -f1)"
 [ -n "$expected" ] || fail "no checksum published for $asset"

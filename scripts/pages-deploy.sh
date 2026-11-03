@@ -16,6 +16,9 @@ set -eu
 #
 # EXTRA_ASSETS_DIR=<dir> copies untracked deployment files into dist/op/ before the upload.
 #
+# NOINDEX_ORIGINS="<https origin> ..." appends a host-scoped `X-Robots-Tag: noindex` rule per
+# origin to dist/_headers, for extra custom domains of the same project that must not be indexed.
+#
 # NOTIFY_UPDATE=true makes open tabs show the update banner for this release. The default is a
 # silent release: the manifest still ships, but running tabs migrate on their next natural reload.
 # The manifest itself is written by build:static-host, not here.
@@ -110,6 +113,21 @@ if [ -n "${EXTRA_ASSETS_DIR:-}" ]; then
   mkdir -p "$dist_dir/op"
   cp -R "$EXTRA_ASSETS_DIR"/. "$dist_dir/op/"
   echo "Copied $EXTRA_ASSETS_DIR into $app dist/op/ (published at /op/<file>)."
+fi
+
+if [ -n "${NOINDEX_ORIGINS:-}" ]; then
+  [ "$app" = web ] || { echo "NOINDEX_ORIGINS is only supported by the web bundle." >&2; exit 1; }
+  # One project can serve several custom domains; robots.txt is one static file for all of them,
+  # so a domain that must stay out of search results gets a host-scoped X-Robots-Tag instead.
+  # Crawlers still fetch its pages (robots.txt allows them) and therefore see the noindex.
+  for origin in $NOINDEX_ORIGINS; do
+    case "$origin" in
+      https://*) ;;
+      *) echo "NOINDEX_ORIGINS entries must be https:// origins, got $origin." >&2; exit 1 ;;
+    esac
+    printf '\n%s/*\n  X-Robots-Tag: noindex, nofollow\n' "${origin%/}" >> "$dist_dir/_headers"
+  done
+  echo "Added host-scoped noindex headers for: $NOINDEX_ORIGINS"
 fi
 
 if [ "$app" = web ]; then

@@ -61,11 +61,11 @@ git push origin HEAD:test
 合并 `main` 就是发生产，不需要也不应该再手动发布：
 
 1. `main` 上的 `Web checks` 通过后，`.github/workflows/deploy.yml`（Deploy production）经 `workflow_run` 自动开始，同一时间只跑一单（并发组 `production-deploy`）。
-2. `target` 判定哪些部分要发（paid API、paid Pages、Admin）；已在跑后代提交的部分不回退；`release` 打 `vMAJOR.MINOR.PATCH` 标签。
-3. **生产只发布 paid。** `backend` 在 Actions 构建公开树加私有 overlay 的发布镜像，经 SSH 受限命令执行 `deploy <id> paid <run>`；`rollout-runtime.sh` 先跑兼容迁移，再做新旧两代排空切换。旧 internal 版保持现状，不再参与发布或验收。
-4. `pages-paid` 等 paid API 的 `/health` 报出新版本，发收费站并跑 Chromium 验收；随后 `admin-pages` 发后台前端。paid 发布不依赖 internal API、internal Pages 或 `INTERNAL_CLOUDFLARE_API_TOKEN`。
-   - 只改前端时，`pages-paid` 直接发布，不等待 internal gate。
-   - 只改后端时，backend 直接发布 paid API。
+2. `target` 判定哪些部分要发（共享 paid API、paid Pages 项目、Admin）；产品前端只扫描 `PAID_PUBLIC_ORIGIN`，旧 internal Pages 不再补发。已在跑后代提交的部分不回退；`release` 打 `vMAJOR.MINOR.PATCH` 标签。
+3. **后端只发布 paid runtime。** `backend` 在 Actions 构建公开树加私有 overlay 的发布镜像，经 SSH 受限命令执行 `deploy <id> paid <run>`；`rollout-runtime.sh` 先跑兼容迁移，再做新旧两代排空切换。旧 internal 后端、容器和数据保持现状，不再参与发布或验收，不能覆盖或停止。
+4. `pages-paid` 只发布一个 paid Pages 项目：一个项目、多个域名（`muvloom.online`、`image.nainma.online`、企业域名 `image-playground.qiliangjia.one`）。`pages-release.sh paid` 把 `INTERNAL_PUBLIC_ORIGIN → INTERNAL_BFF_BASE_URL` 并入 `baseUrlsByOrigin`，并给企业域名加 host 级 `X-Robots-Tag: noindex`。API 本次发布时，先等共享 paid API 与企业 API hostname `/health` 报出新版本，再发布并跑 Chromium 验收；企业域名是否已迁入按 paid 项目的 Cloudflare 自定义域名列表判断：已迁入时同样验收且失败即失败，未迁入只告警。`admin-pages` 保留对 `pages-paid` 的成功 / 跳过依赖。
+   - 企业站继续使用 `INTERNAL_BFF_BASE_URL` 的第一方 hostname，不能直接配置为跨站 paid API，否则 `SameSite=Lax` cookie 登录失效。登录方式由后端 `AUTH_LOGIN_METHODS_BY_ORIGIN` 按 origin 决定（企业域名只飞书，muvloom 邮箱 + Google），前端不按域名分支。旧 internal Pages 项目与数据冻结，不再发布。
+   - 只改前端时，`pages-paid` 允许 backend job 跳过；只改后端时，backend 直接发布 shared paid API。Pages 与 Admin 都使用 paid 令牌，不读取旧 internal 令牌。企业域名迁入前仍是冻结的旧前端，后端登录策略正确不代表旧界面会隐藏密码表单；迁移前提、停机窗口与验收见[部署手册](../deploy/image-release.md#企业域名迁入付费-pages-项目一次性)。浏览器启动冒烟不替代真实登录与业务验收。
    - 失败后的重跑：同一发布 ID 已接收后只能按失败 job 重跑，不能重跑整单，避免同一发布目录冲突。重跑本身需 Nain 批准。
 
 Agent 合并后只跟进这个 workflow 的结果，失败就看日志处理，不手动补发。手动重跑 Deploy production 或走应急手动发布要 Nain 批准。
@@ -82,12 +82,12 @@ Agent 合并后只跟进这个 workflow 的结果，失败就看日志处理，�
 发布 workflow 绿了还不算交付完成，要核对线上真的是这个提交：
 
 ```sh
-# API：version 是公开提交；收费版是 <公开sha>+<私有sha>，release 是产品版本
+# API：共享 runtime 的 version 为 <公开sha>+<私有sha>，release 是产品版本
 curl -fsS https://api.muvloom.online/health
 curl -fsS https://image-api.qiliangjia.one/health
 curl -fsS https://test-api.muvloom.online/health
 
-# 网页：version 形如 <公开短sha>[+<私有短sha>]-<构建时间>，短 sha 要和 API 的提交对上
+# 网页：迁入后企业与付费共用同一 version；迁入前企业站仍为旧版本，不能据此宣称迁移验收通过
 curl -fsS https://muvloom.online/version.json
 curl -fsS https://image-playground.qiliangjia.one/version.json
 curl -fsS https://admin.muvloom.online/version.json

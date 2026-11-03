@@ -3,6 +3,8 @@ import type { OAuthProviderId } from '@image-playground/shared'
 export interface OAuthIdentity {
   readonly subject: string
   readonly email: string | null
+  /** Explicit proof of email ownership; contact-directory email alone is not sufficient. */
+  readonly emailVerified?: boolean
   readonly displayName: string | null
 }
 

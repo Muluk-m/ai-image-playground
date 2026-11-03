@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto'
-import type { QueueProvider, SubmitRequest } from '@image-playground/shared'
+import {
+  gptImageRateMultiplier,
+  isGptDirectModel,
+  type QueueProvider,
+  type SubmitRequest,
+} from '@image-playground/shared'
 import {
   findCatalogModel,
   type ImageRequestAdjustment,
@@ -14,7 +19,7 @@ import { canonicalJson } from '../canonicalJson'
 import { getDiscoveredChannels, resolveQueueModel } from '../channels'
 import { refreshInactiveModels, withoutInactiveModels } from '../model-availability'
 import { loadPrivateBffOverlay } from '../private-overlay'
-import { premiumRequestAllowed, premiumTierRequested } from '../taskSubmission'
+import { strictImageRequestAllowed } from '../taskSubmission'
 import { CliRequestError } from './envelope'
 
 export const CLI_PROMPT_MAX_CHARS = 32_000
@@ -123,6 +128,11 @@ export function normalizeImageRequest(
       message: 'too many reference images',
       details: { max: resolved.max },
     })
+  // A pixel-addressed GPT request cannot express a premium tier with size=auto. Resolve it to
+  // square pixels once, so the normalized preview, price, command hash and stored task all agree.
+  const concreteGptRatio =
+    isGptDirectModel(model.id) && resolved.tier !== '1K' && resolved.ratio === 'auto'
+  const ratio = concreteGptRatio ? '1:1' : resolved.ratio
   const qualities: readonly string[] = caps.quality?.values ?? []
   if (body.quality && !qualities.includes(body.quality))
     throw new CliRequestError('INVALID_REQUEST', {
@@ -133,7 +143,7 @@ export function normalizeImageRequest(
   const normalized: NormalizedImageRequest = {
     prompt,
     model: model.id,
-    aspect_ratio: resolved.ratio,
+    aspect_ratio: ratio,
     image_size: resolved.tier,
     ...(quality && quality !== 'auto' ? { quality } : {}),
     reference_media_ids: references,
@@ -142,7 +152,9 @@ export function normalizeImageRequest(
   return {
     normalized,
     requestHash: createHash('sha256').update(canonicalJson(normalized)).digest('hex'),
-    adjustments: resolved.adjustments,
+    adjustments: concreteGptRatio
+      ? [...resolved.adjustments, { field: 'ratio', from: 'auto', to: ratio }]
+      : resolved.adjustments,
     model,
   }
 }
@@ -242,15 +254,20 @@ export async function previewImageRequest(
 ): Promise<CliImagePreview> {
   const hooks = (await loadPrivateBffOverlay()).taskHooks
   return db.transaction(async (tx) => {
-    const planRequired =
-      premiumTierRequested(prepared.model.provider, request) &&
-      !(await premiumRequestAllowed(tx, userId, prepared.model.id, request))
+    const planRequired = !(await strictImageRequestAllowed(
+      tx,
+      userId,
+      prepared.model.provider,
+      prepared.model.id,
+      request,
+    ))
+    if (planRequired) return { planRequired, quote: null }
     const quote = await hooks.quoteTask?.({
       tx,
       userId,
       model: prepared.model.id,
       quantity: 1,
-      unitMultiplier: 1,
+      unitMultiplier: gptImageRateMultiplier(prepared.model.id, request),
     })
     return {
       planRequired,
@@ -273,18 +290,26 @@ export interface CliModelCapability {
   readonly typical_duration_seconds: number | null
 }
 
-/** 账号相关的能力清单：价格按这个账号的价目，4K 只对能用的账号列出。 */
+/** 账号相关的能力清单：GPT 2K/4K/high 与其他模型的 4K 只对能提交的账号列出。 */
 export async function imageCapabilities(userId: string) {
   const models = await availableImageModels()
   const hooks = (await loadPrivateBffOverlay()).taskHooks
   return db.transaction(async (tx) => {
     const listed: CliModelCapability[] = []
-    for (const [index, model] of models.entries()) {
+    for (const model of models) {
       const caps = model.image
+      const gpt = isGptDirectModel(model.id)
       const premium =
-        caps.tiers.some((tier) => tier.id === '4K') &&
-        (await premiumRequestAllowed(tx, userId, model.id, { image_size: '4K' }))
-      const tiers = caps.tiers.map((tier) => tier.id).filter((id) => id !== '4K' || premium)
+        (gpt || caps.tiers.some((tier) => tier.id === '4K')) &&
+        (await strictImageRequestAllowed(tx, userId, model.provider, model.id, {
+          prompt: '',
+          ...(gpt ? { size: '2048x2048' } : { image_size: '4K' }),
+        }))
+      const tiers = caps.tiers
+        .map((tier) => tier.id)
+        .filter((id) => premium || (gpt ? id === '1K' : id !== '4K'))
+      // 该账号一个档位都提交不了的模型不列出，免得被当成默认模型。
+      if (tiers.length === 0) continue
       const quote = await hooks.quoteTask?.({
         tx,
         userId,
@@ -295,12 +320,14 @@ export async function imageCapabilities(userId: string) {
       listed.push({
         id: model.id,
         label: model.label,
-        default: index === 0,
+        default: listed.length === 0,
         operations: caps.operations.filter((op) => op !== 'mask_edit'),
         aspect_ratios: [...(caps.autoRatio ? ['auto'] : []), ...caps.surfaces.direct.ratios],
         image_sizes: tiers,
         default_image_size: tiers.includes(caps.defaultTier) ? caps.defaultTier : tiers[0]!,
-        qualities: caps.quality?.values ?? [],
+        qualities: (caps.quality?.values ?? []).filter(
+          (quality) => !gpt || premium || quality !== 'high',
+        ),
         max_reference_images: caps.references.max,
         price: quote ? { estimated_credits: quote.estimatedCredits } : null,
         typical_duration_seconds: model.etaSeconds ?? null,

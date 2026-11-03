@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import type { SchedulerLease } from '../../lib/upstream/scheduler'
 
 // GPT 两条通道：OpenAI 直连与 sub2api。fetch 换成本地桩，按 host 区分两条路，不打真实上游。
 process.env.DATABASE_URL = await resetTestDatabase('bff_upstream_gpt_routing')
@@ -13,8 +14,10 @@ process.env.GPT_SUB2API_ATTEMPT_TIMEOUT_MS = '300'
 process.env.GPT_SUB2API_BREAKER_FAILURES = '2'
 process.env.GPT_DIRECT_MONTHLY_BUDGET_USD = '1'
 process.env.SCHEDULER_NAMESPACE = 'routing-test'
+process.env.GPT_DIRECT_CONCURRENCY = '1'
 process.env.PORT = '0'
 
+// Imports below must observe this suite's database and routing environment, not the host defaults.
 const { callUpstream, setUpstreamFetchForTesting, UpstreamResultUnknownError } = await import(
   '../../lib/upstream'
 )
@@ -24,6 +27,11 @@ const { _resetSub2apiBreakerForTesting, sub2apiBreakerOpen } = await import(
   '../../lib/upstream/gpt-routing'
 )
 const { _resetDirectBudgetCacheForTesting } = await import('../../lib/upstream/gpt-budget')
+const { ImagePlanRequiredError } = await import('../../lib/upstream/errors')
+const { config } = await import('../../config')
+const { gptSchedulerBuckets, tryAcquireSchedulerSlots } = await import(
+  '../../lib/upstream/scheduler'
+)
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { db, schema } = await import('../../db/client')
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
@@ -80,12 +88,13 @@ function stub(): void {
 
 /** 每条路开跑前记下的通道（task-runner 据此写任务行，结算按最后一条判断降档）。 */
 let routes: string[] = []
-const call = (request: Record<string, unknown>, member: boolean) =>
+const call = (request: Record<string, unknown>, member: boolean, strictImageRequest = false) =>
   callUpstream({
     provider: 'openai-compat',
     model: MODEL,
     taskId: 'task-1',
     gptMember: member,
+    strictImageRequest,
     request: { prompt: 'a cat', ...request },
     onGptRoute: async (route) => {
       routes.push(route)
@@ -166,6 +175,112 @@ describe('route choice', () => {
     })
     await call({}, true)
     expect(sent.map((one) => one.route)).toEqual(['sub2api'])
+  })
+})
+
+describe('strict premium CLI routing', () => {
+  const premium = { size: '2048x2048', quality: 'medium' }
+
+  it.each([
+    { size: '2048x2048', quality: 'medium' },
+    { size: '3840x2160', quality: 'medium' },
+    { size: '1024x1024', quality: 'high' },
+  ])('refuses unavailable direct capacity without dispatching %j', async (request) => {
+    await coolDownSchedulerBuckets([`openai:direct:model:${MODEL}`], 3_600_000)
+    await expect(call(request, true, true)).rejects.toBeInstanceOf(ImagePlanRequiredError)
+    expect(sent).toEqual([])
+    expect(routes).toEqual([])
+  })
+
+  it('rejects exhausted direct budget instead of invoking sub2api', async () => {
+    await db.insert(schema.gpt_direct_usage).values({
+      id: 'strict-spent',
+      model: MODEL,
+      images: 1,
+      cost_micro_usd: 999_000,
+      estimated: false,
+      created_at: Date.now(),
+    })
+    await expect(call(premium, true, true)).rejects.toBeInstanceOf(ImagePlanRequiredError)
+    expect(sent).toEqual([])
+  })
+
+  it.each([
+    'concurrency',
+    'rate',
+  ] as const)('rejects exhausted direct %s capacity', async (limit) => {
+    const buckets = gptSchedulerBuckets(MODEL, 'direct')
+    const images = limit === 'rate' ? config.scheduler.gpt.directImagesPerMinute : 1
+    const lease = await tryAcquireSchedulerSlots(buckets, images)
+    expect(lease).not.toBeNull()
+    try {
+      if (limit === 'rate') await lease!.release()
+      await expect(call(premium, true, true)).rejects.toBeInstanceOf(ImagePlanRequiredError)
+      expect(sent).toEqual([])
+    } finally {
+      await lease!.release({ refund: true })
+    }
+  })
+
+  it('rejects capacity stolen after route selection before making any upstream request', async () => {
+    const held: { lease: SchedulerLease | null } = { lease: null }
+    try {
+      await expect(
+        callUpstream({
+          provider: 'openai-compat',
+          model: MODEL,
+          strictImageRequest: true,
+          request: { prompt: 'a cat', ...premium },
+          onGptRoute: async () => {
+            held.lease = await tryAcquireSchedulerSlots(gptSchedulerBuckets(MODEL, 'direct'), 1)
+          },
+        }),
+      ).rejects.toBeInstanceOf(ImagePlanRequiredError)
+      expect(sent).toEqual([])
+    } finally {
+      if (held.lease) await held.lease.release({ refund: true })
+    }
+  })
+
+  it('preserves direct validation errors instead of misclassifying them as a plan rejection', async () => {
+    behaviour.direct.status = 400
+    const error = await call(premium, true, true).catch((reason: unknown) => reason)
+    expect(error).not.toBeInstanceOf(ImagePlanRequiredError)
+    expect(error).toMatchObject({ upstreamStatus: 400 })
+    expect(sent.map((one) => one.route)).toEqual(['direct'])
+  })
+
+  it.each([
+    429, 503,
+  ])('never fails over after a definitive direct HTTP %s failure', async (status) => {
+    behaviour.direct.status = status
+    await expect(call(premium, true, true)).rejects.toBeInstanceOf(ImagePlanRequiredError)
+    expect(sent.map((one) => one.route)).toEqual(['direct'])
+    expect(routes).toEqual(['direct'])
+  })
+
+  it('lets strict direct requests finish beyond the failover timer without changing parameters', async () => {
+    behaviour.direct.latencyMs = 450
+    await call(premium, true, true)
+    expect(sent.map((one) => one.route)).toEqual(['direct'])
+    expect(sent[0]!.body).toMatchObject(premium)
+  })
+
+  it('preserves unknown-result semantics without a fallback request', async () => {
+    let requests = 0
+    setUpstreamFetchForTesting(async () => {
+      requests += 1
+      throw new Error('connection lost after dispatch')
+    })
+    await expect(call(premium, true, true)).rejects.toBeInstanceOf(UpstreamResultUnknownError)
+    expect(requests).toBe(1)
+    expect(routes).toEqual(['direct'])
+  })
+
+  it('keeps basic CLI requests on the existing fallback policy', async () => {
+    behaviour.direct.status = 503
+    await call({ size: '1024x1024', quality: 'medium' }, true, true)
+    expect(sent.map((one) => one.route)).toEqual(['direct', 'sub2api'])
   })
 })
 

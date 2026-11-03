@@ -61,7 +61,7 @@ export default function CanvasBatchConfirmDialog({
         <h3 className={`${PANEL_TITLE} mb-2`}>{title}</h3>
         <p className="text-xs text-muted-foreground">{t('batch.confirmBody', { count })}</p>
         <p className="mt-1 text-xs text-muted-foreground">{note}</p>
-        {guard.estimatedCredits !== undefined && (
+        {guard.metering !== 'none' && guard.estimatedCredits !== undefined && (
           <p className="mt-2 flex items-center gap-1 text-xs text-foreground">
             {t('batch.confirmCost')}
             <Credits credits={guard.estimatedCredits} />

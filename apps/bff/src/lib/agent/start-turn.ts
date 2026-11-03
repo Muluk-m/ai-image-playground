@@ -361,9 +361,12 @@ async function executeWakeTurn(
       return { kind: 'withdrawn' }
     case 'wake_limit':
       return skipWake(execution, conversationId, wake, 'wake_limit')
-    // 积分不够再起一轮：不唤醒，也不欠费。结果照常落画布，面板说明智能体没有查看。
     case 'insufficient_credits':
       return skipWake(execution, conversationId, wake, 'insufficient_credits')
+    case 'quota_exceeded':
+      return skipWake(execution, conversationId, wake, 'quota_exceeded')
+    case 'access_denied':
+      return skipWake(execution, conversationId, wake, 'access_denied')
     case 'prepared':
       return { kind: 'started', turn: await startAgentTurn(prepared.turn) }
     default:
@@ -419,10 +422,13 @@ async function executeResumeTurn(
     await execution.write((tx) => consumeAgentMessage(tx, conversationId, resume.id, turnId))
     return { kind: 'withdrawn' }
   }
-  // 用户确认时积分还够提交，到续跑时已经不够再起一轮：不当成一条发送失败悄悄记掉，而是像唤醒被
-  // 跳过那样了结——撤回这条续跑，那一轮已提交的卡记下原因，面板据此说明智能体没有接着做。
-  if (prepared.kind === 'insufficient_credits' && resume.gate)
-    return skipGateResume(execution, conversationId, resume, turnId)
+  if (
+    (prepared.kind === 'insufficient_credits' ||
+      prepared.kind === 'quota_exceeded' ||
+      prepared.kind === 'access_denied') &&
+    resume.gate
+  )
+    return skipGateResume(execution, conversationId, resume, turnId, prepared.kind)
   return startPreparedTurn(prepared, startAgentTurn)
 }
 
@@ -435,6 +441,7 @@ async function skipGateResume(
   conversationId: string,
   resume: QueuedResume,
   turnId: string,
+  reason: Extract<AgentWakeSkipReason, 'insufficient_credits' | 'quota_exceeded' | 'access_denied'>,
 ): Promise<StartConversationTurnResult> {
   await execution.write(async (tx) => {
     if (!(await skipAgentGateResume(tx, conversationId, resume.id))) return
@@ -451,7 +458,7 @@ async function skipGateResume(
       tx,
       conversationId,
       jobs.map((job) => job.taskId),
-      'insufficient_credits',
+      reason,
     )
   })
   log.info(
@@ -461,7 +468,7 @@ async function skipGateResume(
       resumeId: resume.id,
       gatedTurnId: resume.interruptedTurnId,
       turnId,
-      reason: 'insufficient_credits',
+      reason,
     },
     'tool gate resume skipped',
   )
@@ -485,12 +492,15 @@ async function startPreparedTurn(
 /** 开不了轮的原因换成界面认得的错误码，与发送时同一情形的 HTTP 错误码一致。 */
 function queuedFailureOf(failure: TurnNotStarted): AgentQueuedMessageFailure {
   switch (failure.kind) {
+    case 'quota_exceeded':
+      return 'quota_exceeded'
+    case 'access_denied':
+      return 'access_denied'
     case 'insufficient_credits':
       return 'insufficient_credits'
     case 'price_unavailable':
       return 'model_price_unavailable'
     default:
-      // 需要登录。下线中（`draining`）不会走到这里：那时什么都不动。
       return 'unauthorized'
   }
 }
