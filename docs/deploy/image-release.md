@@ -40,7 +40,7 @@ Admin（`apps/admin`）同样带顶层 `404.html`，`_redirects` 由 `apps/admin
 | `PRIVATE_OVERLAY_SSH_KEY` | 私有仓库只读 deploy key |
 | `VPS_SSH_KEY` / `VPS_SSH_KNOWN_HOSTS` / `VPS_SSH_HOST` / `VPS_SSH_USER` | 连接 VPS 的受限 key、主机公钥、地址、用户（`ubuntu`） |
 | `PAGES_ENV` | 完整 `pages.env`；API 地址也从中读取 |
-| `PAID_CLOUDFLARE_API_TOKEN` | paid Pages 账号的上传令牌，写成 `$RUNNER_TEMP` 下 0600 文件，覆盖 `PAID_CLOUDFLARE_TOKEN_FILE`。Admin 同样使用它。`INTERNAL_CLOUDFLARE_API_TOKEN` 不再被读取，企业域名迁入后可删除。 |
+| `PAID_CLOUDFLARE_API_TOKEN` | paid Pages 账号的上传令牌，写成 `$RUNNER_TEMP` 下 0600 文件，覆盖 `PAID_CLOUDFLARE_TOKEN_FILE`。Admin 同样使用它。`INTERNAL_CLOUDFLARE_API_TOKEN` 不再被读取；保留与清理条件见「企业域名迁入付费 Pages 项目」。 |
 
 `PAID_EXTRA_ASSETS_DIR` 在 CI 改指 `private/pages-assets/`（`contact-qr.jpg`、`pay-qr.jpg`），目录缺失即失败。企业域名与 paid 站是同一份产物，`/op/` 下的这些资源在企业域名上同样可访问（本就公开）；`INTERNAL_EXTRA_ASSETS_DIR` 不再使用。所有 `EXTRA_ASSETS_DIR` 内容都会公开发布，不可放密钥。GHCR 推送用 workflow 的 `GITHUB_TOKEN`（`packages: write`）；包须允许本仓库 Actions 写入。任一必需 secret 为空，对应 job 首步报错退出。
 
