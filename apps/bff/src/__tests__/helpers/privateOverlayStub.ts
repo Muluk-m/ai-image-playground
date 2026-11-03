@@ -2,12 +2,22 @@ import {
   _setPrivateBffOverlayForTesting,
   type ChatPricing,
   EMPTY_PRIVATE_BFF_OVERLAY,
+  type MeteringDecision,
+  type MeteringDecisionInput,
   type PrivateTaskHooks,
   type TaskReservationResult,
 } from '../../lib/private-overlay'
 
 export type RecordedReservation = Omit<Parameters<PrivateTaskHooks['reserveTask']>[0], 'tx'>
 export type RecordedSettlement = Omit<Parameters<PrivateTaskHooks['finalizeTask']>[0], 'tx'>
+type RecordedQuota =
+  | { readonly kind: 'consumed' }
+  | {
+      readonly kind: 'quota_exceeded'
+      readonly quota: number
+      readonly used: number
+      readonly resetAt: string
+    }
 
 export interface RecordedTaskHooks {
   readonly reservations: RecordedReservation[]
@@ -26,6 +36,19 @@ export interface RecordedTaskHooks {
   concurrencyLimit: number
   /** 按账号给保证并发与空闲并发；返回 undefined 时两者都等于 {@link concurrencyLimit}。 */
   entitlementFor: ((userId: string) => { guaranteed: number; idle: number } | undefined) | null
+  /** Direct-generation metering answer; absent preserves paid behavior. */
+  meteringDecision: ((input: MeteringDecisionInput) => Promise<MeteringDecision>) | null
+  meteringCalls: Array<Omit<MeteringDecisionInput, 'tx'>>
+  unmeteredQuota:
+    | { readonly kind: 'consumed' }
+    | {
+        readonly kind: 'quota_exceeded'
+        readonly quota: number
+        readonly used: number
+        readonly resetAt: string
+      }
+  quotaCalls: Array<Omit<MeteringDecisionInput, 'tx'>>
+  consumeQuota: ((input: MeteringDecisionInput) => Promise<RecordedQuota>) | null
   reset(): void
 }
 
@@ -45,9 +68,16 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
     creditsPerTask: 0,
     concurrencyLimit: 3,
     entitlementFor: null,
+    meteringDecision: null,
+    meteringCalls: [],
+    unmeteredQuota: { kind: 'consumed' },
+    quotaCalls: [],
+    consumeQuota: null,
     reset() {
       recorded.reservations.length = 0
       recorded.settlements.length = 0
+      recorded.meteringCalls.length = 0
+      recorded.quotaCalls.length = 0
       recorded.answer = { kind: 'reserved', credits: 0 }
       recorded.decide = null
       recorded.pricing = null
@@ -56,6 +86,9 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
       recorded.creditsPerTask = 0
       recorded.concurrencyLimit = 3
       recorded.entitlementFor = null
+      recorded.meteringDecision = null
+      recorded.unmeteredQuota = { kind: 'consumed' }
+      recorded.consumeQuota = null
     },
   }
   _setPrivateBffOverlayForTesting(
@@ -67,6 +100,19 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
         async reserveTask({ tx: _tx, ...rest }: Parameters<PrivateTaskHooks['reserveTask']>[0]) {
           recorded.reservations.push(rest)
           return recorded.decide?.(rest) ?? recorded.answer
+        },
+        async meteringDecision(input: MeteringDecisionInput): Promise<MeteringDecision> {
+          const { tx: _tx, ...rest } = input
+          recorded.meteringCalls.push(rest)
+          return (
+            recorded.meteringDecision?.(input) ??
+            ({ kind: 'metered', metering: 'credits' } satisfies MeteringDecision)
+          )
+        },
+        async consumeUnmeteredQuota(input: MeteringDecisionInput): Promise<RecordedQuota> {
+          const { tx: _tx, ...rest } = input
+          recorded.quotaCalls.push(rest)
+          return recorded.consumeQuota?.(input) ?? recorded.unmeteredQuota
         },
         async finalizeTask({ tx: _tx, ...rest }: Parameters<PrivateTaskHooks['finalizeTask']>[0]) {
           recorded.settlements.push(rest)

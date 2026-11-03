@@ -94,3 +94,16 @@
   标签页标题随语言变，静态 meta 不变。
 - 语言选择存 `localStorage` 的 `aip.locale`；没存过时按 `navigator.languages` 探测。
   切换时同步更新 `document.documentElement.lang`（`index.html` 里写死的 `zh-CN` 只是初值）。
+
+## 账户中的 CLI 连接
+
+头像菜单的「账户设置」继续使用 `auth/LoginMethodsPanel.tsx`，其中的
+`features/cli/CliConnectionsSection.tsx` 通过 `authClient` 读取
+`GET /api/me/cli-connections`，展示客户端名称、连接时间与最近使用时间，按连接 ID 调用
+`DELETE /api/me/cli-connections/:id` 撤销。请求携带现有浏览器会话，不展示或存储 CLI token。
+读取失败可刷新；撤销失败保留该行并允许重试；部署返回 `capability_unavailable` 时只隐藏此区块。
+
+`/device?user_code=…` 沿用现有登录框与 OAuth `return_to`，手动输入的授权码先写回当前地址，
+登录后仍回到同一码；浏览器前进/后退切码会取消旧请求，旧读取与旧决定都不能覆盖当前授权。
+组件回归见 `src/__tests__/features/cli/CliDevicePage.test.tsx` 与
+`src/__tests__/auth/LoginMethodsPanel.test.tsx`；客户端契约见 `src/__tests__/lib/authClient.test.ts`。

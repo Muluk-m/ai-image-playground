@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { spawnSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -265,4 +266,161 @@ it('names the URL that keeps stalling', async () => {
       { requestTimeoutMs: 20, requestTries: 2 },
     ),
   ).rejects.toThrow('GET /assets/lazy-456.js failed: no response in 20ms after 2 tries')
+})
+
+async function releaseCheckout(edition: string, pagesEnvLines: string[], stub = 'exit 27') {
+  const checkout = join(dist, 'checkout')
+  await mkdir(join(checkout, 'scripts/lib'), { recursive: true })
+  await mkdir(join(checkout, 'private/apps/web'), { recursive: true })
+  await mkdir(join(checkout, 'bin'))
+  for (const script of ['pages-release.sh', 'pages-deploy.sh', 'lib/deploy-common.sh']) {
+    await writeFile(
+      join(checkout, 'scripts', script),
+      await readFile(join(root, 'scripts', script)),
+      {
+        mode: 0o755,
+      },
+    )
+  }
+  // Stands in for the browser smoke that runs right after the dist is finalized.
+  await writeFile(join(checkout, 'scripts/pages-browser-smoke.sh'), 'exit 28\n')
+  await writeFile(join(checkout, 'private/apps/web/index.tsx'), 'export {}\n')
+  const captured = join(checkout, 'build-env')
+  // Stop at the real build boundary: never build, upload, or call a live origin in this test.
+  await writeFile(
+    join(checkout, 'bin/pnpm'),
+    `#!/bin/sh
+printf '%s\\n' "$*" "$PRIVATE_WEB_OVERLAY_ENTRY" "$BFF_BASE_URL" "$PUBLIC_ORIGIN" "$SEARCH_INDEXING" "$CLOUDFLARE_ACCOUNT_ID" "$CLOUDFLARE_API_TOKEN" "$EXTRA_ASSETS_DIR" "$BFF_BASE_URLS_BY_ORIGIN" "$NOINDEX_ORIGINS" > "$CAPTURED"
+${stub}
+`,
+    { mode: 0o755 },
+  )
+  const pagesEnv = join(checkout, 'pages.env')
+  await writeFile(pagesEnv, pagesEnvLines.join('\n'))
+  const run = spawnSync('sh', [join(checkout, 'scripts/pages-release.sh'), edition], {
+    cwd: checkout,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${join(checkout, 'bin')}:${process.env.PATH}`,
+      PAGES_ENV_FILE: pagesEnv,
+      XDG_CONFIG_HOME: join(checkout, 'config'),
+      PAGES_DEPLOY_DRY_RUN: '',
+      CAPTURED: captured,
+      EXTRA_ASSETS_DIR: '/must-not-inherit-assets',
+      BFF_BASE_URLS_BY_ORIGIN: '',
+      NOINDEX_ORIGINS: '',
+    },
+  })
+  return { checkout, captured, run }
+}
+
+const paidEnv = (checkout: string, extra: string[] = []) => [
+  'PAID_PAGES_PROJECT=paid-project',
+  'PAID_BFF_BASE_URL=https://api.paid.example.com',
+  'PAID_PUBLIC_ORIGIN=https://paid.example.com',
+  'PAID_CLOUDFLARE_ACCOUNT_ID=paid-account',
+  `PAID_CLOUDFLARE_TOKEN_FILE=${join(checkout, 'token.env')}`,
+  `PAID_EXTRA_ASSETS_DIR=${join(checkout, 'paid-assets')}`,
+  ...extra,
+]
+
+async function prepareSecrets(checkout: string) {
+  await mkdir(join(checkout, 'paid-assets'), { recursive: true })
+  await writeFile(join(checkout, 'token.env'), 'CLOUDFLARE_API_TOKEN=paid-token\n')
+}
+
+it('builds paid with the overlay and its own external Pages config', async () => {
+  const checkout = join(dist, 'checkout')
+  await mkdir(checkout, { recursive: true })
+  await prepareSecrets(checkout)
+  const { captured, run } = await releaseCheckout('paid', paidEnv(checkout))
+  expect(run.status).toBe(27)
+  expect(run.stderr).toBe('')
+  expect(run.stdout).toContain('private web bundle to Pages project paid-project')
+  expect(await readFile(captured, 'utf8')).toBe(
+    [
+      '--filter @image-playground/web build:static-host',
+      join(checkout, 'private/apps/web/index.tsx'),
+      'https://api.paid.example.com',
+      'https://paid.example.com',
+      'true',
+      'paid-account',
+      'paid-token',
+      join(checkout, 'paid-assets'),
+      '',
+      '',
+      '',
+    ].join('\n'),
+  )
+})
+
+it('serves the enterprise domain from the paid project with its own API and no indexing', async () => {
+  const checkout = join(dist, 'checkout')
+  await mkdir(checkout, { recursive: true })
+  await prepareSecrets(checkout)
+  const { captured, run } = await releaseCheckout(
+    'paid',
+    paidEnv(checkout, [
+      `PAID_BFF_BASE_URLS_BY_ORIGIN='{"https://old.example.com":"https://old-api.example.com"}'`,
+      'INTERNAL_PUBLIC_ORIGIN=https://enterprise.example.net/',
+      'INTERNAL_BFF_BASE_URL=https://enterprise-api.example.net',
+      // The retired internal project must never be the upload target.
+      'INTERNAL_PAGES_PROJECT=retired-internal-project',
+    ]),
+    `mkdir -p apps/web/dist && printf '/assets/*\\n  Cache-Control: immutable\\n' > apps/web/dist/_headers`,
+  )
+  // 28 is the stubbed browser smoke: the headers are final before the smoke and the upload.
+  expect(run.status).toBe(28)
+  expect(run.stdout).toContain('private web bundle to Pages project paid-project')
+  expect(run.stdout).not.toContain('retired-internal-project')
+  const lines = (await readFile(captured, 'utf8')).split('\n')
+  expect(lines[3]).toBe('https://paid.example.com')
+  expect(lines[4]).toBe('true')
+  expect(JSON.parse(lines[8])).toEqual({
+    'https://old.example.com': 'https://old-api.example.com',
+    'https://enterprise.example.net': 'https://enterprise-api.example.net',
+  })
+  expect(lines[9]).toBe('https://enterprise.example.net')
+  expect(await readFile(join(checkout, 'apps/web/dist/_headers'), 'utf8')).toBe(
+    '/assets/*\n  Cache-Control: immutable\n\nhttps://enterprise.example.net/*\n  X-Robots-Tag: noindex, nofollow\n',
+  )
+})
+
+it('rejects an enterprise mapping that contradicts the paid origin map', async () => {
+  const checkout = join(dist, 'checkout')
+  await mkdir(checkout, { recursive: true })
+  await prepareSecrets(checkout)
+  const { run } = await releaseCheckout(
+    'paid',
+    paidEnv(checkout, [
+      `PAID_BFF_BASE_URLS_BY_ORIGIN='{"https://enterprise.example.net":"https://api.paid.example.com"}'`,
+      'INTERNAL_PUBLIC_ORIGIN=https://enterprise.example.net',
+      'INTERNAL_BFF_BASE_URL=https://enterprise-api.example.net',
+    ]),
+  )
+  expect(run.status).toBe(1)
+  expect(run.stderr).toContain(
+    'maps https://enterprise.example.net to https://api.paid.example.com',
+  )
+})
+
+it('rejects half an enterprise domain config', async () => {
+  const checkout = join(dist, 'checkout')
+  await mkdir(checkout, { recursive: true })
+  await prepareSecrets(checkout)
+  const { run } = await releaseCheckout(
+    'paid',
+    paidEnv(checkout, ['INTERNAL_PUBLIC_ORIGIN=https://enterprise.example.net']),
+  )
+  expect(run.status).toBe(1)
+  expect(run.stderr).toContain('must be set together')
+})
+
+it('no longer releases a separate internal Pages project', async () => {
+  const checkout = join(dist, 'checkout')
+  await mkdir(checkout, { recursive: true })
+  const { run } = await releaseCheckout('internal', [])
+  expect(run.status).toBe(2)
+  expect(run.stderr).toContain('served by the paid Pages project')
 })

@@ -42,3 +42,79 @@ Model logos
 ===========
 
 See /model-logos/NOTICE.txt
+
+HEIC decoder
+============
+
+The web application distributes the browser bundle from **heic-to 1.6.7**
+(LGPL-3.0-or-later), at upstream commit
+`78345a3fcdb4a1d70d513fce2646aeff0127f7ba`. The bundle contains a statically
+compiled JavaScript (asm.js) build of **libheif 1.23.7** (LGPL-3.0-or-later), which
+uses **libde265 1.0.16** for HEVC decoding (LGPL-3.0-or-later). The decoder is
+used from the `heic-to/csp` entry point in a lazy web worker.
+
+Copyright notices from the upstream library READMEs:
+
+* heic-to: copyright attribution is made by the upstream project at
+  https://github.com/hoppergee/heic-to (Hopper Gee).
+* libheif: Copyright (c) 2017-2020 Struktur AG; Copyright (c) 2017-2026
+  Dirk Farin.
+* libde265: Copyright (c) 2013-2014 Struktur AG; Copyright (c) 2013-2024
+  Dirk Farin.
+
+The libheif and libde265 library portions are LGPL-3.0-or-later. Their source
+archives also contain MIT-licensed sample applications and wrappers; those
+samples are not linked into this browser decoder.
+
+Copyright and license texts (the complete upstream texts, including the
+incorporated GNU GPL v3 terms) are available at:
+
+* /third-party-notices/heic-to/licenses/LICENSE.heic-to.txt
+* /third-party-notices/heic-to/licenses/COPYING.libheif.txt
+* /third-party-notices/heic-to/licenses/COPYING.libde265.txt
+
+Corresponding source
+--------------------
+
+Corresponding source archives for the exact versions used by the distributed
+decoder are provided on this same host. They are unmodified upstream source
+archives and are each below the Pages single-file 25 MiB limit:
+
+* /third-party-notices/heic-to/source/heic-to-1.6.7-78345a3.tar.gz
+  SHA-256 `af478f6a0b6141879d93c9d295b46c0f70b016f97b939a08a4f3a3b498d71a83`
+* /third-party-notices/heic-to/source/libheif-1.23.7.tar.gz
+  SHA-256 `90e389caad285ca4946461d56d1c115e56bcbb5141d9038050282af91064fbc7`
+* /third-party-notices/heic-to/source/libde265-1.0.16.tar.gz
+  SHA-256 `ed12c931759c1575848832f70db5071a001ac813db4e4f568ee08aef6e234d4e`
+
+Upstream source references:
+
+* https://github.com/hoppergee/heic-to/tree/78345a3fcdb4a1d70d513fce2646aeff0127f7ba
+* https://github.com/strukturag/libheif/releases/tag/v1.23.7
+* https://github.com/strukturag/libde265/releases/tag/v1.0.16
+
+Rebuild / replacement instructions
+----------------------------------
+
+To replace or rebuild the decoder, obtain the three corresponding source
+archives above (or checkout the pinned upstream revisions), install Node.js,
+esbuild, CMake, and Emscripten, and follow `esbuild.mjs` in the heic-to source
+archive. Build libheif with its HEVC decoder dependency and reproduce the
+Emscripten settings used upstream:
+
+    LIBDE265_VERSION=1.0.16 USE_WASM=0 \
+      ../build-emscripten.sh ..
+
+For a Content Security Policy compatible build, also set
+`USE_UNSAFE_EVAL=0`. The heic-to build script then bundles the generated
+libheif module into its `csp` output. The generated replacement must preserve
+the corresponding source and license notices above, update the pinned versions,
+commit, and archive checksums here, and remain a separately replaceable worker
+bundle; do not overwrite this notice with a minified bundle's license header.
+
+The archives include the upstream build scripts and source needed to reproduce
+the generated JavaScript. libheif and libde265 also contain sample
+applications under MIT terms; those samples are not part of the shipped
+decoder, but their notices remain in each complete upstream source archive.
+
+-------------------------------------------------------------------------------

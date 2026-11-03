@@ -2,6 +2,7 @@ import {
   type AuthUserView,
   type LoginMethodsView,
   OAUTH_SESSION_QUERY_PARAM,
+  type OAuthProvidersResponse,
   type OAuthProviderView,
   USER_SESSION_HINT_COOKIE,
 } from '@image-playground/shared'
@@ -12,6 +13,8 @@ import { isClientCapabilityEnabled } from './clientCapabilities'
 import { hasRememberedSignedInUser, rememberStorageUser } from './localRecovery'
 import { bffBaseUrl } from './runtimeConfig'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
+export type LoginMethodsPolicy = OAuthProvidersResponse['loginMethods']
+export type LoginOptions = OAuthProvidersResponse
 
 export class AuthRequestError extends Error {
   constructor(
@@ -111,27 +114,39 @@ export async function registerUser(
   return result.user
 }
 
-/**
- * The BFF is the authority on which providers exist, so this validates the wire shape only —
- * an id this bundle predates must still reach the login page.
- */
-export async function fetchOAuthProviders(): Promise<OAuthProviderView[]> {
-  try {
-    const body = await authJson<{ providers?: unknown }>('/api/auth/oauth/providers')
-    if (!Array.isArray(body.providers)) return []
-    return body.providers.filter((provider): provider is OAuthProviderView => {
+/** The BFF is authoritative for both provider availability and local form policy. */
+export async function fetchLoginOptions(): Promise<LoginOptions> {
+  const origin = typeof window === 'undefined' ? '' : window.location.origin
+  const query = origin ? `?frontend_origin=${encodeURIComponent(origin)}` : ''
+  const body = await authJson<{ providers?: unknown; loginMethods?: unknown }>(
+    `/api/auth/oauth/providers${query}`,
+  )
+  if (!Array.isArray(body.providers)) throw new Error('invalid_login_options')
+  const methods = body.loginMethods as Partial<LoginMethodsPolicy> | null
+  if (typeof methods?.password !== 'boolean' || typeof methods.registration !== 'boolean') {
+    throw new Error('invalid_login_options')
+  }
+  return {
+    providers: body.providers.filter((provider): provider is OAuthProviderView => {
       const view = provider as Partial<OAuthProviderView> | null
       return typeof view?.id === 'string' && typeof view.label === 'string'
-    })
+    }),
+    loginMethods: { password: methods.password, registration: methods.registration },
+  }
+}
+
+export async function fetchOAuthProviders(): Promise<readonly OAuthProviderView[]> {
+  try {
+    return (await fetchLoginOptions()).providers
   } catch {
     return []
   }
 }
 
-/** Keep OAuth on the current workspace, never on the marketing or login entry. */
-function oauthReturnTo(): string {
-  if (typeof window === 'undefined') return APP_MODE_PATHS.image
-  const { pathname, search, hash } = window.location
+/** Keep OAuth on the current workspace, with an explicit origin for browser navigations. */
+function oauthReturnTo(): { target: string; origin: string } {
+  if (typeof window === 'undefined') return { target: APP_MODE_PATHS.image, origin: '' }
+  const { pathname, search, hash, origin } = window.location
   const path = normalizePath(pathname)
   const workspace =
     Object.values(APP_MODE_PATHS).some((entry) => entry === path) ||
@@ -139,16 +154,27 @@ function oauthReturnTo(): string {
     readProjectRoute(pathname) !== null ||
     toolRouteSlug(pathname) !== null
   const target = `${pathname}${search}${hash}`
-  return workspace && target.length <= 2048 && !/[\\\u0000-\u001f\u007f]/.test(target)
-    ? target
-    : APP_MODE_PATHS.image
+  return {
+    target:
+      workspace && target.length <= 2048 && !/[\\\u0000-\u001f\u007f]/.test(target)
+        ? target
+        : APP_MODE_PATHS.image,
+    origin,
+  }
+}
+
+function oauthQuery(): string {
+  const { target, origin } = oauthReturnTo()
+  const params = new URLSearchParams({ return_to: target })
+  if (origin) params.set('frontend_origin', origin)
+  return params.toString()
 }
 
 export function oauthStartUrl(provider: string, referralCode?: string): string {
+  const params = new URLSearchParams(oauthQuery())
   const code = referralCode?.trim()
-  return bffUrl(
-    `/api/auth/oauth/${provider}/start?return_to=${encodeURIComponent(oauthReturnTo())}${code ? `&ref=${encodeURIComponent(code)}` : ''}`,
-  )
+  if (code) params.set('ref', code)
+  return bffUrl(`/api/auth/oauth/${provider}/start?${params.toString()}`)
 }
 
 export async function logoutUser(): Promise<void> {
@@ -175,11 +201,49 @@ export async function updateOwnPassword(input: {
 }
 
 export function oauthLinkUrl(provider: string): string {
-  return bffUrl(`/api/auth/oauth/${provider}/link?return_to=${encodeURIComponent(oauthReturnTo())}`)
+  return bffUrl(`/api/auth/oauth/${provider}/link?${oauthQuery()}`)
 }
 
 export async function unlinkOAuthProvider(provider: string): Promise<void> {
   await authJson<{ ok: true }>(`/api/auth/oauth/${provider}/link`, { method: 'DELETE' })
+}
+
+export interface CliConnectionSummary {
+  readonly id: string
+  readonly client_name: string
+  readonly created_at: number
+  readonly last_used_at: number | null
+}
+
+export async function fetchCliConnections(signal?: AbortSignal): Promise<CliConnectionSummary[]> {
+  const res = await authenticatedBffFetch(bffUrl('/api/me/cli-connections'), { signal })
+  if (!res.ok) throw await parseError(res)
+  const body = (await res.json()) as { connections?: unknown } | null
+  // 响应体不符合契约时按加载失败处理，避免账户页渲染时整页白屏。
+  const connections = body?.connections
+  if (!Array.isArray(connections) || !connections.every(isCliConnectionSummary)) {
+    throw new AuthRequestError(res.status, 'invalid_response')
+  }
+  return connections
+}
+
+function isCliConnectionSummary(value: unknown): value is CliConnectionSummary {
+  if (typeof value !== 'object' || value === null) return false
+  const row = value as Record<string, unknown>
+  return (
+    typeof row.id === 'string' &&
+    typeof row.client_name === 'string' &&
+    typeof row.created_at === 'number' &&
+    (row.last_used_at === null || typeof row.last_used_at === 'number')
+  )
+}
+
+export async function revokeCliConnection(id: string, signal?: AbortSignal): Promise<void> {
+  const res = await authenticatedBffFetch(
+    bffUrl(`/api/me/cli-connections/${encodeURIComponent(id)}`),
+    { method: 'DELETE', signal },
+  )
+  if (!res.ok) throw await parseError(res)
 }
 
 /**

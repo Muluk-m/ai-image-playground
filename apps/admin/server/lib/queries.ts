@@ -1024,6 +1024,7 @@ export interface ListOperatorAuditsOptions {
   cursor?: string
   limit?: number
   action?: string
+  settingKey?: string
   targetId?: string
 }
 
@@ -1045,6 +1046,10 @@ export async function listOperatorAudits(
         OR (a.created_at = ${new Date(cursorValue.ts)} AND a.id < ${cursorValue.id}))`
     : sql``
   const actionFilter = options.action ? sql`AND a.action = ${options.action}` : sql``
+  const settingKeyFilter = options.settingKey
+    ? sql`AND a.target_type = 'operator_config'
+        AND (a.target_id = ${options.settingKey} OR a.details->>'settingKey' = ${options.settingKey})`
+    : sql``
   const targetFilter = options.targetId ? sql`AND a.target_id = ${options.targetId}` : sql``
 
   const rows = (await db.execute(sql`
@@ -1052,6 +1057,7 @@ export async function listOperatorAudits(
     FROM operator_audits a
     WHERE TRUE
       ${actionFilter}
+      ${settingKeyFilter}
       ${targetFilter}
       ${keyset}
     ORDER BY a.created_at DESC, a.id DESC

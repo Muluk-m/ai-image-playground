@@ -9,7 +9,10 @@ function carriesFiles(event: DragEvent) {
  * 把一块区域变成图片落点。停传播是必须的：工作台在 document 上另有一套全屏拖拽接管，
  * 不拦住它就会同时点亮两个落点。拖进来的文件夹递归展开，非图片丢掉并提示。
  */
-export function useImageDropZone(onFiles: (files: File[], folder: string | null) => void) {
+export function useImageDropZone(
+  onFiles: (files: File[], folder: string | null) => void,
+  options: { allowHeic?: boolean } = {},
+) {
   const [dragging, setDragging] = useState(false)
   // 拖过子元素时 dragenter / dragleave 成对乱序触发，只有计数才不会中途熄灭。
   const depth = useRef(0)
@@ -49,7 +52,7 @@ export function useImageDropZone(onFiles: (files: File[], folder: string | null)
         stop()
         void collectDroppedFiles(event.dataTransfer).then(({ files, folder }) => {
           // 超限的先留给入口压缩，这里只丢掉非图片。压完仍超限的由入口按原来的规则拒绝。
-          const images = acceptImageFiles(files, { keepOversized: true })
+          const images = acceptImageFiles(files, { keepOversized: true, ...options })
           if (images.length > 0) onFiles(images, folder)
         })
       },

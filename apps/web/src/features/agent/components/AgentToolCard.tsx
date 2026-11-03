@@ -387,13 +387,7 @@ function FailureAction({ message }: { message: AgentToolMessage }) {
 function WakeSkippedNote({ message }: { message: AgentToolMessage }) {
   const { t } = useTranslation('agent')
   if (!message.wakeSkipped) return null
-  return (
-    <p className={CARD_NOTE}>
-      {message.wakeSkipped === 'insufficient_credits'
-        ? t('job.wakeSkipped.insufficient_credits')
-        : t('job.wakeSkipped.wake_limit')}
-    </p>
-  )
+  return <p className={CARD_NOTE}>{t(`job.wakeSkipped.${message.wakeSkipped}`)}</p>
 }
 
 /** 结果卡在面板里的 DOM id：重试记录凭它跳回原失败卡。 */

@@ -625,7 +625,12 @@ export function createAgentBackgroundJobs({
         JSON.stringify([conversationId, 'stage-run', authorizationId]),
         () => fetchStageRunWakeReceipt(authorizationId),
         (receipt) => {
-          if (receipt.reason === 'insufficient_credits' || receipt.reason === 'wake_limit')
+          if (
+            receipt.reason === 'insufficient_credits' ||
+            receipt.reason === 'quota_exceeded' ||
+            receipt.reason === 'access_denied' ||
+            receipt.reason === 'wake_limit'
+          )
             noteAgentNodeRunWakeSkipped(authorizationId, receipt.reason)
         },
         // 只有开跑这批的标签页会跟这条唤醒（见 store 里的 onReported）：唤醒轮接着发起的直接出图

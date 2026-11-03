@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { pathAppMode } from '../../lib/appPaths'
+import { decodeToolboxImage } from './lib/decodeImage'
 import type { ToolId, ToolSource } from './lib/tool'
 import { toolFromPath, toolPath } from './lib/toolRoute'
 
@@ -17,7 +18,7 @@ export interface ToolboxItem {
   size: number
   width: number
   height: number
-  /** 这台浏览器解不开（多数浏览器的 HEIC）：卡片直接标出来，不参与处理。 */
+  /** 损坏或无法解码的文件直接标出来，不参与处理。 */
   decodable: boolean
 }
 
@@ -82,7 +83,11 @@ export const useToolboxStore = create<ToolboxState>()((set, get) => ({
       }
       let item: ToolboxItem
       try {
-        const bitmap = await createImageBitmap(file)
+        const { bitmap, preview } = await decodeToolboxImage(file)
+        if (preview !== file) {
+          URL.revokeObjectURL(base.url)
+          base.url = URL.createObjectURL(preview)
+        }
         bitmaps.set(id, bitmap)
         originals.set(id, file)
         item = { ...base, width: bitmap.width, height: bitmap.height, decodable: true }

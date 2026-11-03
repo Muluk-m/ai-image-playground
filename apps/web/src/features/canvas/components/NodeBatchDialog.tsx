@@ -45,7 +45,7 @@ export default function NodeBatchDialog({
     [failure, setFailure] = useState<NodeBatchError>()
   const controller = useRef<AbortController | null>(null)
   useEffect(() => () => controller.current?.abort(), [])
-  usePrivateSubmissionGuard({ model: plan.jobs[0]?.model ?? '', quantity: 1 })
+  const guard = usePrivateSubmissionGuard({ model: plan.jobs[0]?.model ?? '', quantity: 1 })
   const current = currentNodeBatch(canvas.doc, editor, ids)
   const changed = current.signature !== plan.signature
   const close = () => {
@@ -129,7 +129,7 @@ export default function NodeBatchDialog({
         completed={completed}
         active={status === 'running' ? active : undefined}
       />
-      {plan.credits !== undefined && (
+      {guard.metering !== 'none' && plan.credits !== undefined && (
         <p className="flex items-center justify-between gap-2 text-sm">
           <span>{t('nodes.estimatedCost')}</span>
           <Credits credits={plan.credits} />
