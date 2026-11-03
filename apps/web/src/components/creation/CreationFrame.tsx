@@ -2,7 +2,7 @@ import type { ComponentProps, ReactNode, Ref } from 'react'
 import { useTranslation } from '../../i18n'
 import { Hint } from '../assistant-ui/elements/tooltip-icon-button'
 import { Button } from '../ui/button'
-import { Icon } from '../ui/icon'
+import { Icon, type IconName } from '../ui/icon'
 import { useOverflowTitle } from '../ui/overflowTitle'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import type { CreationMode } from './draft'
@@ -103,8 +103,6 @@ export function CreationModePicker({
   modes?: readonly CreationMode[]
 }) {
   const { t } = useTranslation('composer')
-  const fullLabel = t(`studio.modes.${value}`)
-  const fullName = useOverflowTitle<HTMLSpanElement>(fullLabel, { whenHidden: true })
   const icons = { agent: 'chat', image: 'imageAdd', video: 'video' } as const
   const shortLabels = {
     agent: t('studio.shortModes.agent'),
@@ -112,26 +110,62 @@ export function CreationModePicker({
     video: t('studio.shortModes.video'),
   }
   return (
-    <Select value={value} onValueChange={(mode) => onChange(mode as CreationMode)}>
+    <CreationOptionPicker
+      value={value}
+      onChange={onChange}
+      label={t('studio.type')}
+      options={modes.map((mode) => ({
+        value: mode,
+        label: t(`studio.modes.${mode}`),
+        shortLabel: shortLabels[mode],
+        icon: icons[mode],
+      }))}
+    />
+  )
+}
+
+export function CreationOptionPicker<T extends string>({
+  value,
+  onChange,
+  options,
+  label,
+  side = 'top',
+}: {
+  value: T
+  onChange: (value: T) => void
+  options: readonly { value: T; label: string; shortLabel: string; icon: IconName }[]
+  label: string
+  side?: 'top' | 'bottom'
+}) {
+  const selected = options.find((option) => option.value === value) ?? options[0]
+  const fullName = useOverflowTitle<HTMLSpanElement>(selected?.label ?? '', { whenHidden: true })
+  return (
+    <Select
+      value={value}
+      onValueChange={(next) => {
+        const option = options.find((item) => item.value === next)
+        if (option) onChange(option.value)
+      }}
+    >
       <Hint tooltip={fullName.title}>
-        <SelectTrigger aria-label={t('studio.type')} className="creation-mode-trigger">
+        <SelectTrigger aria-label={label} className="creation-mode-trigger">
           <SelectValue>
             <span className="creation-mode-value">
-              <Icon name={icons[value]} />
+              {selected && <Icon name={selected.icon} />}
               <span ref={fullName.ref} className="creation-mode-full">
-                {fullLabel}
+                {selected?.label}
               </span>
-              <span className="creation-mode-short">{shortLabels[value]}</span>
+              <span className="creation-mode-short">{selected?.shortLabel}</span>
             </span>
           </SelectValue>
         </SelectTrigger>
       </Hint>
-      <SelectContent side="top" align="start" sideOffset={10} className="creation-mode-menu">
-        {modes.map((mode) => (
-          <SelectItem key={mode} value={mode} className="creation-mode-option">
+      <SelectContent side={side} align="start" sideOffset={10} className="creation-mode-menu">
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value} className="creation-mode-option">
             <span className="flex items-center gap-3">
-              <Icon name={icons[mode]} />
-              {t(`studio.modes.${mode}`)}
+              <Icon name={option.icon} />
+              {option.label}
             </span>
           </SelectItem>
         ))}

@@ -36,7 +36,6 @@
     "chats": "Chats",
     "newChat": "New chat",
     "canvases": "Canvases",
-    "allCanvases": "All",
     "newCanvas": "New canvas",
     "immersive": "Open immersive",
     "guide": "User guide",
@@ -91,13 +90,11 @@
     "canvas": "Canvas"
   },
   "hero": {
-    "titleLead": "Imagine it. ",
-    "titleAccent": "Create more.",
-    "subtitle": "Start with a prompt or reference image. Keep editing from there."
+    "title": "Describe it. Muvloom makes it.",
+    "subtitle": "The agent writes prompts and plans the batch, then delivers images and video together."
   },
   "createTarget": {
     "aria": "Choose creation mode",
-    "generate": "Quick generate",
     "chat": "Smart creation",
     "canvas": "Canvas"
   }

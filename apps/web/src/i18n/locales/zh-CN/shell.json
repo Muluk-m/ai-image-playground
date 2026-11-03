@@ -36,7 +36,6 @@
     "chats": "对话",
     "newChat": "新建对话",
     "canvases": "画布",
-    "allCanvases": "全部",
     "newCanvas": "新建画布",
     "immersive": "沉浸式打开",
     "guide": "使用指南",
@@ -86,13 +85,11 @@
     "canvas": "画布"
   },
   "hero": {
-    "titleLead": "用想象，",
-    "titleAccent": "创造更多可能",
-    "subtitle": "从文字或参考图开始，生成、成片、继续精修。"
+    "title": "说出画面，幕芽成片",
+    "subtitle": "智能体写提示词、排生成计划，图片和视频一次出齐。"
   },
   "createTarget": {
     "aria": "选择创作方式",
-    "generate": "快速生成",
     "chat": "智能创作",
     "canvas": "画布创作"
   }

@@ -82,5 +82,8 @@
   "manifest": {
     "loadFailed": "Couldn't load inspiration. Refresh and try again",
     "invalid": "The remote inspiration manifest has an invalid structure"
+  },
+  "chips": {
+    "more": "More templates"
   }
 }
