@@ -32,7 +32,7 @@ jobs:
   # It never fails: a failed read just waits for the next round.
   superseded:
     name: Stop when a newer push arrives
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
       actions: write
@@ -73,7 +73,7 @@ jobs:
   # Local `pnpm test` keeps running one package at a time; only these CI commands are parallel.
   checks:
     name: Checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -113,7 +113,7 @@ jobs:
   # in shared times out when it competes for CPU (PR #1458, first attempt).
   tests:
     name: Tests (${{ matrix.part.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -148,7 +148,7 @@ jobs:
 
   web-tests:
     name: Web tests (${{ matrix.shard }}/2)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -169,7 +169,7 @@ jobs:
     name: Paid build checks
     # Holds the overlay key; never spend it on a dispatch from another branch (checks fails those).
     if: github.ref == 'refs/heads/test'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
       private_sha: ${{ steps.overlay.outputs.commit }}
@@ -212,7 +212,7 @@ jobs:
   paid-tests:
     name: Paid overlay tests
     if: github.ref == 'refs/heads/test'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       postgres:
@@ -257,7 +257,7 @@ jobs:
   backend:
     name: Backend images and VPS rollout
     needs: [superseded, checks, tests, web-tests, paid-checks, paid-tests]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
       contents: read
@@ -345,7 +345,7 @@ jobs:
   publish:
     name: Release test.muvloom.online
     needs: [checks, backend]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Require secrets

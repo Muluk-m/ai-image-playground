@@ -276,7 +276,9 @@ acquire_deploy_lock() {
     if mkdir "$lock_dir" 2>/dev/null; then
       printf 'pid=%s\ntoken=%s\nsince=%s\nby=%s@%s\nwhat=%s\n' \
         "$$" "$(deploy_process_token "$$")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        "$(whoami)" "$(hostname)" "$lock_what" >"$lock_dir/owner"
+        "$(whoami)" "$(hostname)" "$lock_what" >"$lock_dir/owner.tmp"
+      # 先写临时文件再改名，别的部署只会看到「没有 owner」或完整的 owner，不会读到写了一半的 pid。
+      mv -f "$lock_dir/owner.tmp" "$lock_dir/owner"
       return 0
     fi
     if deploy_lock_holder_alive "$lock_dir"; then
