@@ -25,7 +25,7 @@ jobs:
   # 通过的那次，都照常全跑。
   prior:
     name: Already checked in the pull request
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       actions: read
@@ -75,7 +75,7 @@ jobs:
   lint:
     needs: prior
     if: needs.prior.outputs.verified != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -104,7 +104,7 @@ jobs:
   docker-web:
     needs: prior
     if: needs.prior.outputs.verified != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -137,7 +137,7 @@ jobs:
   typecheck:
     needs: prior
     if: needs.prior.outputs.verified != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -148,7 +148,7 @@ jobs:
   build:
     needs: prior
     if: needs.prior.outputs.verified != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -169,7 +169,7 @@ jobs:
   bff:
     needs: prior
     if: needs.prior.outputs.verified != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -215,7 +215,7 @@ jobs:
   web-test:
     needs: prior
     if: needs.prior.outputs.verified != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -242,7 +242,7 @@ jobs:
     if: >-
       needs.prior.outputs.verified != 'true' &&
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       postgres:
@@ -311,7 +311,7 @@ jobs:
     if: >-
       needs.prior.outputs.verified != 'true' &&
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       # `actions/checkout` 的 `repository` 要 `owner/repo` 形式，不是 SSH URL。
