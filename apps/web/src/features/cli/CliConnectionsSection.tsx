@@ -10,7 +10,7 @@ import {
 } from '../../lib/authClient'
 
 /** Account-only CLI sessions; the server decides whether this deployment offers CLI access. */
-export default function CliConnectionsSection() {
+export default function CliConnectionsSection({ standalone = false }: { standalone?: boolean }) {
   const { t, i18n } = useTranslation('auth')
   const [connections, setConnections] = useState<CliConnectionSummary[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'failed' | 'unavailable'>('loading')
@@ -65,7 +65,10 @@ export default function CliConnectionsSection() {
   if (state === 'unavailable') return null
 
   return (
-    <section className="mt-6 border-t border-border pt-6" aria-labelledby="cli-connections-title">
+    <section
+      className={standalone ? undefined : 'mt-6 border-t border-border pt-6'}
+      aria-labelledby="cli-connections-title"
+    >
       <div className="mb-3 flex items-center justify-between gap-3">
         <h4 id="cli-connections-title" className="text-body-sm font-medium text-foreground">
           {t('cliConnections.title')}
