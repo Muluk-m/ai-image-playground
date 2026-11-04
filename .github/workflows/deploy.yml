@@ -33,7 +33,7 @@ jobs:
        github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
@@ -73,7 +73,7 @@ jobs:
     name: Tag the release
     needs: target
     if: needs.target.outputs.deploy_api == 'true' || needs.target.outputs.deploy_pages == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: write
@@ -98,7 +98,7 @@ jobs:
     name: Backend images and VPS rollout (paid)
     needs: [target, release]
     if: needs.target.outputs.deploy_api == 'true' && needs.release.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
       contents: read
@@ -191,7 +191,7 @@ jobs:
       needs.target.outputs.deploy_web == 'true' &&
       needs.release.result == 'success' &&
       (needs.backend.result == 'success' || needs.backend.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       EDITION: paid
@@ -332,7 +332,7 @@ jobs:
       needs.release.result == 'success' &&
       (needs.backend.result == 'success' || needs.backend.result == 'skipped') &&
       (needs.pages-paid.result == 'success' || needs.pages-paid.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Require secrets
