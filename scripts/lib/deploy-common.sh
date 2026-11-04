@@ -241,9 +241,12 @@ deploy_lock_field() {
 }
 
 # deploy_lock_holder_alive <lock-dir> succeeds while the process named in the owner file may still
-# be running. An owner file that is missing or unreadable also counts as alive: the other process
+# be running. An owner file that is missing, unreadable or not fully written also counts as alive: the other process
 # is between its mkdir and its write, and that is exactly a rollout starting.
 deploy_lock_holder_alive() {
+  # what= 是最后写入的一行。没有它说明 owner 还没写完（旧版脚本直接写 owner），
+  # 这时 pid 可能是截断的，不能据此判定持有者已退出，按「还活着」处理。
+  [ -n "$(deploy_lock_field "$1/owner" what)" ] || return 0
   holder_pid=$(deploy_lock_field "$1/owner" pid)
   case "$holder_pid" in
     '' | *[!0-9]*) return 0 ;;
@@ -276,7 +279,10 @@ acquire_deploy_lock() {
     if mkdir "$lock_dir" 2>/dev/null; then
       printf 'pid=%s\ntoken=%s\nsince=%s\nby=%s@%s\nwhat=%s\n' \
         "$$" "$(deploy_process_token "$$")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        "$(whoami)" "$(hostname)" "$lock_what" >"$lock_dir/owner"
+        "$(whoami)" "$(hostname)" "$lock_what" >"$lock_dir/owner.tmp"
+      # 先写临时文件再改名：别的部署只会看到「还没有 owner」或完整的 owner，
+      # 读不到写了一半、pid 被截断的 owner，也就不会把活着的锁当成无主锁抢走。
+      mv -f "$lock_dir/owner.tmp" "$lock_dir/owner"
       return 0
     fi
     if deploy_lock_holder_alive "$lock_dir"; then
