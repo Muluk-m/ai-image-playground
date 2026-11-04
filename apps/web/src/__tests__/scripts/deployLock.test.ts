@@ -159,6 +159,17 @@ describe('acquire_deploy_lock', () => {
     expect(result.stderr).toContain(`pid=${pid}`)
   })
 
+  it('owner 只写了一半（pid 被截断、没有 what）时按活着处理，不抢', () => {
+    mkdirSync(lockDir, { recursive: true })
+    writeFileSync(ownerFile, 'pid=1\ntoken=')
+    const result = sh('acquire_deploy_lock "$1" "$2"', [
+      lockDir,
+      'editions=internal ref=origin/main',
+    ])
+    expect(result.status).not.toBe(0)
+    expect(readFileSync(ownerFile, 'utf8')).toBe('pid=1\ntoken=')
+  })
+
   it('owner 文件读不出 PID 时保守拒绝，不抢', () => {
     mkdirSync(lockDir, { recursive: true })
     const result = sh('acquire_deploy_lock "$1" "$2"', [
