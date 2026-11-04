@@ -1,9 +1,9 @@
 {
   "header": {
     "brandName": "Muvloom",
-    "nav": "Main navigation",
     "accountMenu": "Open your account",
     "appMenu": "Open the app menu",
+    "unsynced": "Changes waiting to save",
     "settings": "Settings",
     "loginMethods": "Account settings",
     "cliConnections": "CLI connections",
