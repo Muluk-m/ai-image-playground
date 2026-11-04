@@ -5,6 +5,7 @@ import { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 import AgentJobInbox from '../features/agent/components/AgentJobInbox'
 import { agentPanelPresent } from '../features/agent/panelLayout'
 import CanvasAssetsEntryButton from '../features/canvas/components/CanvasAssetsEntryButton'
+import CliConnectionsDialog from '../features/cli/CliConnectionsDialog'
 import { useWorkspaceViewport } from '../hooks/useMobileWorkspace'
 import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
 import { isInFloatingLayer } from '../lib/dropdown'
@@ -32,6 +33,7 @@ export default function Header() {
   const workbench = isWorkbenchMode(appMode)
   const [loggingOut, setLoggingOut] = useState(false)
   const [loginMethodsOpen, setLoginMethodsOpen] = useState(false)
+  const [cliConnectionsOpen, setCliConnectionsOpen] = useState(false)
   const [contactOpen, setContactOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const accountMenuRef = useRef<HTMLDivElement>(null)
@@ -278,6 +280,19 @@ export default function Header() {
                       <Button
                         type="button"
                         role="menuitem"
+                        onClick={() => {
+                          setAccountMenuOpen(false)
+                          setCliConnectionsOpen(true)
+                        }}
+                        variant="ghost"
+                        className="w-full justify-start text-muted-foreground"
+                      >
+                        <Icon name="terminal" />
+                        <span>{t('header.cliConnections')}</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        role="menuitem"
                         disabled={loggingOut}
                         onClick={handleLogout}
                         variant="ghost"
@@ -301,6 +316,7 @@ export default function Header() {
       </div>
       {loginMethodsOpen && <LoginMethodsPanel onClose={() => setLoginMethodsOpen(false)} />}
       {contactOpen && <ContactDialog onClose={() => setContactOpen(false)} />}
+      {cliConnectionsOpen && <CliConnectionsDialog onClose={() => setCliConnectionsOpen(false)} />}
     </>
   )
 }
