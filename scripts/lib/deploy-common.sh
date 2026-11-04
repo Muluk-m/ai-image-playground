@@ -277,13 +277,16 @@ acquire_deploy_lock() {
   while [ "$lock_attempt" -lt 2 ]; do
     lock_attempt=$((lock_attempt + 1))
     if mkdir "$lock_dir" 2>/dev/null; then
-      printf 'pid=%s\ntoken=%s\nsince=%s\nby=%s@%s\nwhat=%s\n' \
-        "$$" "$(deploy_process_token "$$")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        "$(whoami)" "$(hostname)" "$lock_what" >"$lock_dir/owner.tmp"
       # 先写临时文件再改名：别的部署只会看到「还没有 owner」或完整的 owner，
       # 读不到写了一半、pid 被截断的 owner，也就不会把活着的锁当成无主锁抢走。
-      mv -f "$lock_dir/owner.tmp" "$lock_dir/owner"
-      return 0
+      printf 'pid=%s\ntoken=%s\nsince=%s\nby=%s@%s\nwhat=%s\n' \
+        "$$" "$(deploy_process_token "$$")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        "$(whoami)" "$(hostname)" "$lock_what" >"$lock_dir/owner.tmp" &&
+        mv -f "$lock_dir/owner.tmp" "$lock_dir/owner" && return 0
+      # 写 owner 失败（磁盘满、IO 错误等）时不能当成已持有：放掉锁目录并报失败。
+      echo "Refusing to start: could not record the owner of $lock_dir." >&2
+      rm -rf "$lock_dir"
+      return 1
     fi
     if deploy_lock_holder_alive "$lock_dir"; then
       echo "Refusing to start: another rollout holds $lock_dir." >&2

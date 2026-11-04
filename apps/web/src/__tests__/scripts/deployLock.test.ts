@@ -161,13 +161,15 @@ describe('acquire_deploy_lock', () => {
 
   it('owner 只写了一半（pid 被截断、没有 what）时按活着处理，不抢', () => {
     mkdirSync(lockDir, { recursive: true })
-    writeFileSync(ownerFile, 'pid=1\ntoken=')
+    // 用确定已退出的 PID：旧实现会因 kill -0 失败而当成无主锁抢走。
+    const partial = `pid=${deadPid()}\ntoken=`
+    writeFileSync(ownerFile, partial)
     const result = sh('acquire_deploy_lock "$1" "$2"', [
       lockDir,
       'editions=internal ref=origin/main',
     ])
     expect(result.status).not.toBe(0)
-    expect(readFileSync(ownerFile, 'utf8')).toBe('pid=1\ntoken=')
+    expect(readFileSync(ownerFile, 'utf8')).toBe(partial)
   })
 
   it('owner 文件读不出 PID 时保守拒绝，不抢', () => {
