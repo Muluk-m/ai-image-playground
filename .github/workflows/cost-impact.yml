@@ -16,7 +16,7 @@ concurrency:
 jobs:
   detect:
     name: Cost impact detection
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -49,7 +49,7 @@ jobs:
     name: Cost impact label
     needs: detect
     if: needs.detect.outputs.sensitive != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       issues: write
