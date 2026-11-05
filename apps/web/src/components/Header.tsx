@@ -4,7 +4,7 @@ import { useAuth } from '../auth/AuthContext'
 import { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 import AgentJobInbox from '../features/agent/components/AgentJobInbox'
 import { agentPanelPresent } from '../features/agent/panelLayout'
-import { AnnouncementMenuRow } from '../features/announcements/AnnouncementEntry'
+import { AnnouncementEntry, AnnouncementMenuRow } from '../features/announcements/AnnouncementEntry'
 import CanvasAssetsEntryButton from '../features/canvas/components/CanvasAssetsEntryButton'
 import { useWorkspaceViewport } from '../hooks/useMobileWorkspace'
 import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
@@ -176,6 +176,9 @@ export default function Header() {
           <CanvasAssetsEntryButton />
           {auth.user ? <PrivateWebHeaderCreditAction /> : null}
           {auth.user ? <HeaderMembershipChip /> : null}
+          <div className="md:hidden">
+            <AnnouncementEntry compact />
+          </div>
           <LocaleGlobe />
           {auth.user ? (
             <PrivateWebHeaderAccountActions
