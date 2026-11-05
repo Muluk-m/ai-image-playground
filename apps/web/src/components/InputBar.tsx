@@ -177,7 +177,7 @@ function referenceUploadGate(references: readonly { dataUrl: string }[]) {
 }
 
 export default function InputBar({ inline = false }: { inline?: boolean } = {}) {
-  const { t, i18n } = useTranslation(['composer', 'common', 'agent'])
+  const { t, i18n } = useTranslation(['composer', 'common', 'agent', 'lib'])
   const prompt = useStore((s) => s.prompt)
   const setPrompt = useStore((s) => s.setPrompt)
   const inputImages = useStore((s) => s.inputImages)
@@ -447,7 +447,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const showPromptCount = promptLength >= promptMax * 0.8
   const gifSize = image26 && params.output_format === 'gif' ? parseImageSize(params.size) : null
   const gifNotice =
-    !toCanvas && gifSize && gifSpriteExceedsLimit(gifSize.width, gifSize.height, params.frame_count ?? 6)
+    !toCanvas &&
+    gifSize &&
+    gifSpriteExceedsLimit(gifSize.width, gifSize.height, params.frame_count ?? 6)
       ? t('lib:dispatch.gifSpriteLimit')
       : null
   const canSubmit = Boolean(
@@ -476,17 +478,19 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
   const promptMissing = promptBlank && (toCanvas || !activeLook)
   const blockedByReferences = referenceNotice ?? (uploadsBlocked ? uploadProgress : null)
-  const submitBlockedTip = gifNotice ?? (blockedByReferences
-    ? blockedByReferences
-    : promptTooLong
-      ? t('submit.promptTooLong', { max: promptMax.toLocaleString() })
-      : skillNeedsCanvas
-        ? t('submit.skillNeedsCanvas')
-        : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
-          ? (submissionGuard.disabledReason ?? t('submit.noModel'))
-          : promptMissing
-            ? t('submit.promptRequired')
-            : null)
+  const submitBlockedTip =
+    gifNotice ??
+    (blockedByReferences
+      ? blockedByReferences
+      : promptTooLong
+        ? t('submit.promptTooLong', { max: promptMax.toLocaleString() })
+        : skillNeedsCanvas
+          ? t('submit.skillNeedsCanvas')
+          : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
+            ? (submissionGuard.disabledReason ?? t('submit.noModel'))
+            : promptMissing
+              ? t('submit.promptRequired')
+              : null)
   const submit = () => {
     if (image26Unavailable || gifNotice || lookSubmitting || batchSendingRef.current) return
     if (toCanvas) {

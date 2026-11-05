@@ -96,7 +96,14 @@ it('switches to GIF and keeps the input usable', async () => {
 it('blocks a 768×16 GIF before submission and clears the warning for 12 frames', async () => {
   useStore.setState({
     prompt: 'A bouncing ball',
-    params: { ...DEFAULT_PARAMS, output_format: 'gif', size: '768x768', frame_count: 16, quality: 'medium', n: 1 },
+    params: {
+      ...DEFAULT_PARAMS,
+      output_format: 'gif',
+      size: '768x768',
+      frame_count: 16,
+      quality: 'medium',
+      n: 1,
+    },
   })
   await act(async () => root.render(<InputBar />))
   expect(host.querySelector('[role="alert"]')).not.toBeNull()
