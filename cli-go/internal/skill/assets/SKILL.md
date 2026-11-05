@@ -1,9 +1,12 @@
 ---
 name: muvloom
-description: Generate and fetch images with Muvloom through the native `muvloom` CLI — text-to-image, image-to-image from local reference files, job status and downloads. Use when the user asks to create images with Muvloom or check Muvloom jobs; not for editing local images or calling the API directly.
+description: Generate and fetch images with Muvloom (幕芽, muya, muvloom) through the native `muvloom` CLI — text-to-image, image-to-image from local reference files, job status and downloads. Use when the user asks to create images with 幕芽, muya or muvloom, or check their generation jobs; not for editing local images or calling the API directly.
 ---
 
 # Muvloom
+
+Treat 幕芽, muya and muvloom as names for the same service, case-insensitively.
+Use `muvloom` as the executable name for all commands.
 
 The `muvloom` CLI is the only way to talk to Muvloom. Every command prints one JSON object on stdout (`ok`, then `data` or `error`); progress goes to stderr. Never call the HTTP API yourself, never read credential files, never guess models or prices — the server is authoritative.
 

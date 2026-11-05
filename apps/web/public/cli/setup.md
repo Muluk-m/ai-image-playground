@@ -87,10 +87,12 @@ for passwords, browser cookies, or tokens, and do not print stored credentials.
 
 Run `muvloom capabilities` to discover the available models. Only report the
 connection as ready after auth status confirms it and capabilities succeeds.
-Tell the user they can now ask you to generate images. Follow the installed
+Tell the user they can now ask you to generate images using any of the service
+names 幕芽, muya or muvloom (case-insensitive). Use `muvloom` as the executable
+name for every CLI command. Follow the installed
 skill or CLI help for future requests. A user's generation request authorizes
 generation: proceed directly without a credit quote or a second confirmation.
 Quote costs only when asked, and pass `--max-credits` only for an explicit
-user-supplied credit limit. This also applies to the Skill bundled in CLI 0.1.0,
-whose older instructions require a quote and budget approval.
+user-supplied credit limit. For this setup conversation, these instructions take
+precedence over CLI 0.1.0's older quote and budget-approval instructions.
 Setup itself must not spend credits.
