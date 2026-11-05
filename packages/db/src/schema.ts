@@ -405,6 +405,19 @@ export const operator_config_state = pgTable('operator_config_state', {
   revision: integer('revision').notNull().default(0),
 })
 
+/**
+ * 后台保存的上游 API key。只存 AES-256-GCM 密文，不存明文、末几位或指纹。
+ * 主密钥来自环境变量；解不开时调用方回退到环境变量里的 key。
+ */
+export const upstream_api_secrets = pgTable('upstream_api_secrets', {
+  id: text('id').primaryKey(),
+  nonce: text('nonce').notNull(),
+  tag: text('tag').notNull(),
+  ciphertext: text('ciphertext').notNull(),
+  updated_at: epochMs('updated_at').notNull(),
+  updated_by: text('updated_by').notNull(),
+})
+
 /** 系统替运营下架模型的原因；运营手动下架不写原因。 */
 export type ModelPauseReason = 'upstream_unavailable'
 
