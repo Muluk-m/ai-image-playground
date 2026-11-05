@@ -36,14 +36,18 @@ export const openaiResponsesAdapter: ImageAdapter = {
     return {
       calls: Array.from({ length: count }, () => call),
       applied: {
-        ...(request.quality ? { quality: request.quality } : {}),
         ...(request.output_format ? { output_format: request.output_format } : {}),
         n: count,
       },
-      // 工具参数里仍带着 size，和现在的桥接一致；回执标明网关不会兑现它。
-      dropped: request.size
-        ? [{ param: 'size', reason: 'Responses 桥接走 sub2api，上游不兑现 size' }]
-        : [],
+      // 工具参数里仍带着 size / quality，和现在的桥接一致；回执标明网关不会兑现它们。
+      dropped: [
+        ...(request.size
+          ? [{ param: 'size', reason: 'Responses 桥接走 sub2api，上游不兑现 size' }]
+          : []),
+        ...(request.quality
+          ? [{ param: 'quality', reason: 'Responses 桥接走 sub2api，上游不兑现 quality' }]
+          : []),
+      ],
       freshBody: () => body,
     }
   },

@@ -18,6 +18,7 @@ import type {
 } from './types'
 
 const SUB2API_DROPS_SIZE = 'sub2api 不兑现 size，构图只写在提示词里'
+const SUB2API_DROPS_QUALITY = 'sub2api 不兑现 quality，不把它记成生效画质'
 
 function countOf(request: HydratedSubmitRequest, fallback: number): number {
   return Math.max(1, request.n ?? fallback ?? 1)
@@ -26,10 +27,11 @@ function countOf(request: HydratedSubmitRequest, fallback: number): number {
 function appliedScalars(
   request: HydratedSubmitRequest,
   honorsSize: boolean,
+  honorsQuality: boolean,
 ): Record<string, unknown> {
   return {
     ...(honorsSize && request.size ? { size: request.size } : {}),
-    ...(request.quality ? { quality: request.quality } : {}),
+    ...(honorsQuality && request.quality ? { quality: request.quality } : {}),
     ...(request.output_format ? { output_format: request.output_format } : {}),
     ...(request.moderation ? { moderation: request.moderation } : {}),
     n: countOf(request, 1),
@@ -47,12 +49,16 @@ function planImages(
   const count = countOf(request, req.count)
   const native = kind === 'direct' && ctx.supportsNativeN === true && !editing && count > 1
   const honorsSize = kind === 'direct'
+  const honorsQuality = kind === 'direct'
   const dropped: AdapterPlan['dropped'] = []
-  // 直连模型走 sub2api 时上游会丢掉 size。请求体仍带上 size：网关忽略它，线协议保持原样。
+  // 直连模型走 sub2api 时上游会丢掉 size 和 quality。请求体仍带上它们：网关忽略，线协议保持原样。
   if (!honorsSize && isGptDirectModel(model) && request.size) {
     dropped.push({ param: 'size', reason: SUB2API_DROPS_SIZE })
   }
-  const applied = appliedScalars(request, honorsSize)
+  if (!honorsQuality && request.quality) {
+    dropped.push({ param: 'quality', reason: SUB2API_DROPS_QUALITY })
+  }
+  const applied = appliedScalars(request, honorsSize, honorsQuality)
 
   if (editing) {
     const unit = count === 1 ? request : withoutImageCount(request)
