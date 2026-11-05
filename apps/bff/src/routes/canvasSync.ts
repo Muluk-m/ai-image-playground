@@ -1,5 +1,6 @@
 import {
   CANVAS_STATE_MAX_BYTES,
+  CANVAS_SYNC_SESSION_EXPIRED_CODE,
   canvasSyncAck,
   canvasSyncStep1,
   canvasSyncStep2,
@@ -238,7 +239,7 @@ export const canvasSyncRoutes = new Elysia({ name: 'canvas-sync' })
         .then(async () => {
           if (session.closed) return
           if (!(await session.peer.authorize())) {
-            ws.close(1008, 'unauthorized')
+            ws.close(CANVAS_SYNC_SESSION_EXPIRED_CODE, 'unauthorized')
             return
           }
           const message = readCanvasSyncMessage(bytes)

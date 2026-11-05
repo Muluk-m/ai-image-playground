@@ -1,5 +1,7 @@
 /** 登录会话 cookie 的名字。BFF 设置它，跑图脚本这类不连数据库的调用方也按它带会话。 */
 export const USER_SESSION_COOKIE = 'image_playground_session'
+/** 网页 refresh cookie。只在 `/api/auth` 下发送，脚本读不到。 */
+export const USER_REFRESH_COOKIE = 'image_playground_refresh'
 /** 非 HttpOnly、不含凭据。前端用它判断要不要请求 /api/auth/me，避免匿名访客打出 401。 */
 export const USER_SESSION_HINT_COOKIE = 'image_playground_signed_in'
 
