@@ -60,10 +60,16 @@ afterAll(async () => {
   await closeDb()
 })
 
-it('unlocks the premium GPT tiers only for a member while OpenAI direct is on', async () => {
-  expect(await premium()).toEqual({ status: 200, body: { premium: false } })
+it('opens 2K for a non-member and 4K plus high quality only for a member', async () => {
+  expect(await premium()).toEqual({
+    status: 200,
+    body: { premium: false, member: false, maxTier: '2K', highQuality: false },
+  })
   members.add(USER_ID)
-  expect(await premium()).toEqual({ status: 200, body: { premium: true } })
+  expect(await premium()).toEqual({
+    status: 200,
+    body: { premium: true, member: true, maxTier: '4K', highQuality: true },
+  })
 })
 
 it('requires a signed-in account', async () => {

@@ -1,5 +1,6 @@
 import {
   assembleLookRequest,
+  gptCeilingRateMultiplier,
   isBlankPrompt,
   type LookAssemblyAsset,
   SYNC_ID_MAX_LENGTH,
@@ -161,12 +162,13 @@ async function batchShortfall(
   counts: readonly number[],
   failedAt: number,
   failure: Extract<BatchRefusal, { kind: 'insufficient_credits' }>,
+  unitMultiplier: number,
 ): Promise<BatchRefusal> {
   const { quoteTask } = (await loadPrivateBffOverlay()).taskHooks
   if (!quoteTask) return failure
   const quotes: number[] = []
   for (const quantity of counts) {
-    const quote = await quoteTask({ tx, userId, model, quantity, unitMultiplier: 1 })
+    const quote = await quoteTask({ tx, userId, model, quantity, unitMultiplier })
     if (!quote) return failure
     quotes.push(quote.estimatedCredits)
   }
@@ -334,6 +336,7 @@ export const lookRoutes = new Elysia()
                     assembled.map((item) => item.n),
                     index,
                     outcome,
+                    gptCeilingRateMultiplier(target.model, { size: look.size }),
                   )
                 : outcome,
             )

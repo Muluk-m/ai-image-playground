@@ -22,7 +22,7 @@ function draft(id: string, n: number): AgentToolMessage {
   }
 }
 
-it('prices a Gemini draft at the requested tier and a prepared GPT draft at the basic rate', () => {
+it('prices a Gemini draft at the requested tier and a prepared GPT 2K high draft at the 2K medium rate', () => {
   const seen: { model: string; unitMultiplier?: number }[] = []
   const quote = (input: { model: string; quantity: number; unitMultiplier?: number }) => {
     seen.push({ model: input.model, unitMultiplier: input.unitMultiplier })
@@ -51,10 +51,10 @@ it('prices a Gemini draft at the requested tier and a prepared GPT draft at the 
       }),
       quote,
     ),
-  ).toBe(10)
+  ).toBe(20)
   expect(seen).toEqual([
     { model: 'gemini-nano-banana-2.1', unitMultiplier: 1.5 },
-    { model: 'gpt-image-2.5-flare', unitMultiplier: 1 },
+    { model: 'gpt-image-2.5-flare', unitMultiplier: 2 },
   ])
 })
 

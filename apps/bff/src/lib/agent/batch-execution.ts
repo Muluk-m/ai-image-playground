@@ -293,6 +293,7 @@ async function prepareItem(
     agent: { conversationId: batch.conversation_id!, turnId: batch.origin_turn_id },
   }
 }
+/** `unitMultiplier` 由调用方用 preparedImageRateMultiplier 算：执行时 GPT 收到 ≤2K、非高画质，复核价与提案、预扣同一档。 */
 async function quoteGenerationTask(
   tx: BffTransaction,
   userId: string,

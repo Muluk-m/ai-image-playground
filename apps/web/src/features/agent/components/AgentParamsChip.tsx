@@ -19,8 +19,9 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { useGptPremiumLocked } from '../../../lib/gptPremium'
 import { getParamCapabilities } from '../../../lib/paramCompatibility'
-import { readSizeSelection, sizeFor } from '../../../lib/size'
+import { readSizeSelection, type SizeTier, sizeFor } from '../../../lib/size'
 import { useStore } from '../../../store'
 import { DEFAULT_PARAMS } from '../../../types'
 import { imageCountChoices, snapImageCount } from '../lib/turnParams'
@@ -85,14 +86,22 @@ function useComposerRatio() {
   const view = clientProfileToApiProfile(active)
   const isGemini = view.provider === 'gemini'
   const capabilities = getParamCapabilities(active, params.output_format)
-  // 智能体提交的 GPT 直连模型一律按 1K 出图（授权与报价按基础档冻结），比例换算也收在 1K。
+  const premium = useGptPremiumLocked(view.model, capabilities.size)
+  // 智能体这条路的 GPT 直连收到非会员上限（≤2K），不跟创作页会员的 4K 走。Codex CLI 仍是 1K。
+  const maxTier: SizeTier = view.codexCli
+    ? '1K'
+    : isGptDirectModel(view.model)
+      ? premium.maxTier === '4K'
+        ? '2K'
+        : premium.maxTier
+      : premium.maxTier
   const rules = {
     ratioOnly: !capabilities.size,
-    limitTo1K: view.codexCli || isGptDirectModel(view.model),
+    maxTier,
   }
   const selection = useMemo(
     () => readSizeSelection(params.size, rules),
-    [params.size, rules.ratioOnly, rules.limitTo1K],
+    [params.size, rules.ratioOnly, rules.maxTier],
   )
   const ratio = isGemini
     ? (params.gemini_aspect_ratio ?? 'auto')
