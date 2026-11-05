@@ -29,17 +29,25 @@ import {
 import { resolveAuthUser } from '../lib/user-auth'
 import {
   clearUserSessionCookie,
-  createUserSession,
+  issueUserSession,
+  readAccessExpiry,
   reclaimSwitchedAccount,
+  refreshWebSessionToken,
+  resolveRefreshSessionUserId,
   resolveSessionUserId,
   revokeUserSession,
   sessionClientFromRequest,
   setUserSessionCookie,
   USER_LOGOUT_PATH,
+  USER_REFRESH_COOKIE,
   USER_SESSION_COOKIE,
 } from '../lib/user-session'
 
 // 固定的无效账号 hash 仅用于等时校验，不是凭证或 secret。
+function cookieValue(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
 const DUMMY_PASSWORD_HASH =
   '$argon2id$v=19$m=65536,t=2,p=1$TTNDEQYYmWpQHJyMtmCCcw3/ju3Jwww0SB/ACmMN53U$9VqGN+Ud4kjOI2bzudleozWu49uFGhNeWn3lZCfSAdc'
 const sourceLimiter = createRateLimiter({
@@ -75,6 +83,7 @@ export async function finishLogout(
   token: string,
   clearCookie: () => void,
   reclaim: () => Promise<void>,
+  refreshToken = '',
 ): Promise<void> {
   try {
     await reclaim()
@@ -85,7 +94,7 @@ export async function finishLogout(
     )
   } finally {
     clearCookie()
-    await revokeUserSession(token)
+    await revokeUserSession(token, refreshToken)
   }
 }
 
@@ -182,9 +191,9 @@ export const userAuthRoutes = new Elysia()
         throw error
       }
 
-      const { sessionToken, user } = registration
+      const { issued, user } = registration
       await reclaimSwitchedAccount(cookie[USER_SESSION_COOKIE]?.value, user.id)
-      setUserSessionCookie(cookie, sessionToken)
+      setUserSessionCookie(cookie, issued)
       return status(201, {
         user: accountProfileView({
           id: user.id,
@@ -270,12 +279,12 @@ export const userAuthRoutes = new Elysia()
           .set({ last_login_at: now, updated_at: now })
           .where(eq(schema.users.id, current.id))
 
-        const token = await createUserSession(
+        const issued = await issueUserSession(
           current.id,
           tx,
           sessionClientFromRequest(request, peer),
         )
-        return { token, user: accountProfileView({ ...current, updated_at: now }) }
+        return { issued, user: accountProfileView({ ...current, updated_at: now }) }
       })
       if (!authenticated) {
         sourceLimiter.recordFailure(key)
@@ -284,7 +293,7 @@ export const userAuthRoutes = new Elysia()
       }
 
       await reclaimSwitchedAccount(cookie[USER_SESSION_COOKIE]?.value, authenticated.user.id)
-      setUserSessionCookie(cookie, authenticated.token)
+      setUserSessionCookie(cookie, authenticated.issued)
       sourceLimiter.recordSuccess(key)
       accountLimiter.recordSuccess(username)
       return { user: authenticated.user }
@@ -298,22 +307,40 @@ export const userAuthRoutes = new Elysia()
   )
   .post(USER_LOGOUT_PATH, async ({ cookie }) => {
     // 登录能力关掉之后，已经发出的会话仍要能退出。清理不能被这个开关挡住。
-    const raw = cookie[USER_SESSION_COOKIE]?.value
-    const token = typeof raw === 'string' ? raw : ''
-    const userId = token ? await resolveSessionUserId(token) : null
+    const token = cookieValue(cookie[USER_SESSION_COOKIE]?.value)
+    const refreshToken = cookieValue(cookie[USER_REFRESH_COOKIE]?.value)
+    const userId = token
+      ? ((await resolveSessionUserId(token)) ?? (await resolveRefreshSessionUserId(refreshToken)))
+      : await resolveRefreshSessionUserId(refreshToken)
     await finishLogout(
       token,
       () => clearUserSessionCookie(cookie),
       async () => {
         if (userId) await endStageAuthorizationsForUser(userId)
       },
+      refreshToken,
     )
     return { ok: true }
   })
-  .get('/api/auth/me', ({ authUser, status }) => {
+  .post('/api/auth/refresh', async ({ cookie, request, server, status }) => {
+    const refresh = cookieValue(cookie[USER_REFRESH_COOKIE]?.value)
+    const access = cookieValue(cookie[USER_SESSION_COOKIE]?.value)
+    const renewed = await refreshWebSessionToken(
+      refresh,
+      access,
+      sessionClientFromRequest(request, server?.requestIP(request)?.address ?? null),
+    )
+    if (!renewed.ok) {
+      return status(renewed.error === 'refresh_raced' ? 409 : 401, { error: renewed.error })
+    }
+    setUserSessionCookie(cookie, renewed)
+    return { ok: true, access_expires_at: renewed.accessExpiresAt }
+  })
+  .get('/api/auth/me', async ({ authUser, cookie, status }) => {
     if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
     if (!authUser) return status(401, { error: 'unauthorized' })
-    return { user: authUser }
+    const accessExpiresAt = await readAccessExpiry(cookieValue(cookie[USER_SESSION_COOKIE]?.value))
+    return { user: authUser, access_expires_at: accessExpiresAt }
   })
   .get('/api/auth/login-methods', async ({ authUser, status }) => {
     if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
@@ -329,8 +356,9 @@ export const userAuthRoutes = new Elysia()
       if (passwordChangeLimiter.isLocked(authUser.id)) return status(429, { error: 'rate_limited' })
 
       const raw = cookie[USER_SESSION_COOKIE]?.value
+      let renewed: Awaited<ReturnType<typeof setOwnPassword>>
       try {
-        await setOwnPassword(authUser.id, {
+        renewed = await setOwnPassword(authUser.id, {
           currentPassword: body.current_password,
           newPassword: body.new_password,
           keepSessionToken: typeof raw === 'string' ? raw : '',
@@ -348,6 +376,7 @@ export const userAuthRoutes = new Elysia()
         throw error
       }
       passwordChangeLimiter.recordSuccess(authUser.id)
+      if (renewed) setUserSessionCookie(cookie, renewed)
       return { ok: true }
     },
     {
