@@ -9,6 +9,7 @@ import {
   getChannels,
   getDiscoveredChannels,
   getRoutableChannels,
+  initChannels,
   isModelDisabled,
   loadChannelsFromFile,
   parseChannelsConfig,
@@ -658,6 +659,42 @@ describe('shipped channels.json', () => {
     }
   })
 
+  it('keeps GPT Image 2.6 off the selector until its own switch is on', () => {
+    const savedFlag = process.env.GPT_IMAGE_26_ENABLED
+    const savedKey = process.env.OPENAI_API_KEY
+    const ids = () =>
+      getDiscoveredChannels()
+        .find((channel) => channel.id === 'openai-images')
+        ?.models.map((model) => model.id) ?? []
+    try {
+      process.env.OPENAI_API_KEY = 'openai-key'
+      delete process.env.GPT_IMAGE_26_ENABLED
+      initChannels()
+      expect(ids()).toContain('gpt-image-2.5-flare')
+      expect(ids()).not.toContain('gpt-image-2.6-flare')
+
+      process.env.GPT_IMAGE_26_ENABLED = 'true'
+      initChannels()
+      expect(ids()).toEqual([
+        'gpt-image-2.5-flare',
+        'gpt-image-2.5-sunburst',
+        'gpt-image-2.6-flare',
+        'gpt-image-2.6-sunburst',
+      ])
+      const flare = getDiscoveredChannels()
+        .find((channel) => channel.id === 'openai-images')
+        ?.models.find((model) => model.id === 'gpt-image-2.6-flare')
+      expect(flare?.badges).toEqual(['latest'])
+      expect(flare?.unavailable).toBeUndefined()
+    } finally {
+      if (savedFlag === undefined) delete process.env.GPT_IMAGE_26_ENABLED
+      else process.env.GPT_IMAGE_26_ENABLED = savedFlag
+      if (savedKey === undefined) delete process.env.OPENAI_API_KEY
+      else process.env.OPENAI_API_KEY = savedKey
+      initChannels()
+    }
+  })
+
   it('advertises both GPT Image 2.5 models with mask support, Flare first', () => {
     const result = parseChannelsConfig(shipped, (key) =>
       key === 'OPENAI_API_KEY' ? 'openai-key' : undefined,
@@ -688,6 +725,24 @@ describe('shipped channels.json', () => {
         capabilities,
         tier: 'quality',
         etaSeconds: 40,
+      },
+      {
+        id: 'gpt-image-2.6-flare',
+        label: 'GPT Image 2.6 Flare',
+        capabilities,
+        tier: 'quality',
+        badges: ['latest'],
+        etaSeconds: 7,
+        etaMaxSeconds: 32,
+      },
+      {
+        id: 'gpt-image-2.6-sunburst',
+        label: 'GPT Image 2.6 Sunburst',
+        capabilities,
+        tier: 'quality',
+        badges: ['latest'],
+        etaSeconds: 21,
+        etaMaxSeconds: 32,
       },
     ])
   })

@@ -15,10 +15,12 @@ import {
   billedStageQuantity,
   clampGptNonMemberRequest,
   DEFAULT_IMAGE_MODERATION,
+  gptImage26Rejection,
   imageRateMultiplier,
   imageSizeTier,
   isBlankPrompt,
   isGptDirectModel,
+  isGptImage26Model,
   isGptNonMemberRequest,
   isGptSub2apiDeliverable,
   QUEUE_TIMEOUTS,
@@ -47,7 +49,7 @@ import { lockMediaOwner } from './projectMedia'
 import { publicTaskErrorMessage } from './public-task-error'
 import { asQueueProvider } from './queueProvider'
 import { type QuotaConsumeResult, tryConsumeQuotaInTransaction } from './quota'
-import { gptDirectConfigured } from './upstream/gpt-routing'
+import { gptDirectConfigured, gptImage26Configured } from './upstream/gpt-routing'
 
 export interface PreparedQueueTask {
   readonly taskId: string
@@ -113,6 +115,7 @@ export type CreateQueueTaskOutcome =
   | { readonly kind: 'idempotency_mismatch' }
   | { readonly kind: 'duplicate_submission'; readonly taskId: string }
   | { readonly kind: 'invalid_prompt' }
+  | { readonly kind: 'invalid_image_request'; readonly message: string }
   | { readonly kind: 'authentication_required' }
   | { readonly kind: 'metering_denied'; readonly reason: string }
   | { readonly kind: 'private_billing_denied' }
@@ -523,6 +526,28 @@ async function alignGptSubmission(input: CreateQueueTaskInput): Promise<CreateQu
   return alignNonStrictImageInput(input, ceiling)
 }
 
+const GPT_IMAGE_26_REJECTION_MESSAGE = {
+  unavailable: 'Image 2.6 暂不可用',
+  gif_edit: '带参考图时只能出静态图',
+  svg_edit: '带参考图时只能出静态图',
+  gif_count: '动图一次只能出一张',
+  svg_count: '矢量一次只能出一张',
+  gif_frames: '动图帧数只能是 2 到 16',
+  gif_duration: '动图每帧时长无效',
+  gif_sprite: '动图尺寸乘以帧数超过 3840，请减小尺寸或帧数',
+  gif_size: '动图尺寸无效',
+} as const
+
+/** 2.6 的格式和雪碧图限制在建任务、扣积分之前拒绝。 */
+function gptImage26RequestProblem(
+  input: CreateQueueTaskInput,
+): Extract<CreateQueueTaskOutcome, { kind: 'invalid_image_request' }> | null {
+  if (!isGptImage26Model(input.model) || input.video) return null
+  const reason = gptImage26Rejection(input.model, input.request, gptImage26Configured())
+  if (!reason) return null
+  return { kind: 'invalid_image_request', message: GPT_IMAGE_26_REJECTION_MESSAGE[reason] }
+}
+
 export async function createQueueTask(raw: CreateQueueTaskInput): Promise<CreateQueueTaskOutcome> {
   const input = await alignGptSubmission(alignStageSubmission(raw))
   if (
@@ -532,6 +557,11 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
     throw new TypeError('maxCredits must be a finite, non-negative number')
   // 只有空白、控制符或零宽字符的提示词和空的一样：所有入口都不建任务，也就不预扣积分。
   if (isBlankPrompt(input.request.prompt)) return { kind: 'invalid_prompt' }
+  const image26 = gptImage26RequestProblem(input)
+  if (image26) {
+    if (input.prepared) await discardQueueTaskPreparation(input.prepared)
+    return image26
+  }
   if (input.reconciliationRequired && input.video)
     throw new TypeError('reconciliation_requires_image_task')
   const commandId = input.request.client_request_id

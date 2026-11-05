@@ -56,6 +56,8 @@ export type GenerationParameters = Pick<
   | 'image_size'
   | 'thinking_level'
   | 'n'
+  | 'frame_count'
+  | 'frame_duration_ms'
 >
 
 export interface GenerationDetail extends GenerationSummary {

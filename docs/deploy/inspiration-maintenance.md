@@ -50,7 +50,7 @@
 ## 在生产 / 测试上运行
 
 脚本只能在 VPS 的容器里跑（需要数据库）。用 `migrate` 服务，它自带迁移账号，**不要读取或拷贝任何凭据**。
-测试环境把 `image-playground-paid` 换成 `image-playground-test`。
+测试环境把 `image-playground-paid`（muvloom 项目）换成 `image-playground-test`。
 
 ```sh
 # 本机：把脚本和数据打成 bundle.tar（放在仓库外或 .gitignore 的临时目录，不要提交）

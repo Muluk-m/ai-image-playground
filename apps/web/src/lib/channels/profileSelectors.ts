@@ -149,6 +149,7 @@ export function getProfileModelOptions(
   etaSeconds?: number
   etaMaxSeconds?: number
   logo?: ModelLogoId
+  unavailable?: boolean
 }> {
   const channel = publicChannels.find((item) => item.id === profile.channelId)
   return channel
@@ -171,6 +172,7 @@ export function getProfileModelOptions(
           ...(etaSeconds !== undefined ? { etaSeconds } : {}),
           ...(etaMaxSeconds !== undefined ? { etaMaxSeconds } : {}),
           ...(logo ? { logo } : {}),
+          ...(model.unavailable ? { unavailable: true } : {}),
         }
       })
     : []

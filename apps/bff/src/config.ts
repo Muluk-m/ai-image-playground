@@ -230,6 +230,15 @@ export const config = {
     sub2apiBreakerCooldownMs: positiveIntEnv('GPT_SUB2API_BREAKER_COOLDOWN_MS', 60_000),
   },
   /**
+   * GPT Image 2.6（flare / sunburst）单独的开关，默认关。开了才走 OpenAI 直连，
+   * 用上面的 OPENAI_API_KEY，不回退 sub2api，也不换模型。SVG 必须带 svg.model，
+   * 实测 gpt-6-sol 可用，用 GPT_IMAGE_26_SVG_MODEL 换。
+   */
+  gptImage26: {
+    enabled: booleanEnv('GPT_IMAGE_26_ENABLED', false),
+    svgModel: env('GPT_IMAGE_26_SVG_MODEL', 'gpt-6-sol'),
+  },
+  /**
    * 跨 worker 的上游调度配额（公开库 scheduler_buckets / scheduler_leases，按行锁抢）。每个环境各算各的。
    * 目前只管 GPT Image：OpenAI 直连与 sub2api 两条通道各有各的桶。见 lib/upstream/scheduler.ts。
    */
