@@ -287,7 +287,9 @@ export function pickActualParams(source: unknown): Partial<TaskParams> {
   if (
     record.output_format === 'png' ||
     record.output_format === 'jpeg' ||
-    record.output_format === 'webp'
+    record.output_format === 'webp' ||
+    record.output_format === 'gif' ||
+    record.output_format === 'svg'
   ) {
     actualParams.output_format = record.output_format
   }

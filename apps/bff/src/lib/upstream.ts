@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 import {
   isGptBasicRequest,
   isGptDirectModel,
+  isGptImage26Model,
   QUEUE_TIMEOUTS,
   type QueueProvider,
 } from '@image-playground/shared'
@@ -50,6 +51,7 @@ import {
   type GptRoute,
   gptDirectApiKey,
   gptDirectConfigured,
+  gptImage26Configured,
   recordSub2apiOutcome,
   sub2apiBreakerOpen,
 } from './upstream/gpt-routing'
@@ -345,6 +347,17 @@ const GPT_FAILOVER_MIN_REMAINING_MS = 60_000
 const GPT_DIRECT_QUEUE_WAIT_MS = 5_000
 
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
+  // 2.6 只有直连这一条路。没开、没 key、上游失败、重启续跑都不换 sub2api，也不换模型。
+  if (isGptImage26Model(params.model) && !params.request.video) {
+    if (!params.resume && !gptImage26Configured())
+      throw new Error('gpt-image-2.6 direct route is not configured')
+    await params.onGptRoute?.('direct')
+    const format = params.request.output_format
+    return callUpstreamVia(params, {
+      ...directRoute(params.model),
+      supportsNativeN: format !== 'gif' && format !== 'svg',
+    })
+  }
   const route = resolveUpstream(params.provider, params.model)
   // 已提交的任务沿原路续轮询，不因直连配置后来变化而放弃上游结果。
   if (!params.resume && requiresGptDirect(params) && !gptDirectConfigured(params.model))

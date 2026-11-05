@@ -237,7 +237,11 @@ async function serveOutput(
     return Response.json({ error: `upstream_image_${upstream.status}` }, { status: 502 })
   }
   const mime = upstream.headers.get('content-type') ?? ref.mime
-  const headers: Record<string, string> = { 'content-type': mime, 'cache-control': cacheControl }
+  const headers: Record<string, string> = {
+    'content-type': mime,
+    'cache-control': cacheControl,
+    ...svgResponseHeaders(mime),
+  }
   if (isSeekable(mime)) headers['accept-ranges'] = 'bytes'
   // 定位头必须跟着 body 一起透传，否则客户端会把一段字节当成整份。
   for (const name of ['content-range', 'content-length']) {
@@ -256,13 +260,28 @@ function isSeekable(mime: string): boolean {
   return mime.startsWith('video/')
 }
 
+/** SVG 即使消毒过，也不能在我们的域名下当文档执行。img 预览仍用 inline。 */
+function svgResponseHeaders(mime: string): Record<string, string> {
+  if (!mime.startsWith('image/svg')) return {}
+  return {
+    'content-type': 'image/svg+xml; charset=utf-8',
+    'content-security-policy': "sandbox; default-src 'none'",
+    'x-content-type-options': 'nosniff',
+    'content-disposition': 'inline; filename="image.svg"',
+  }
+}
+
 function mediaResponse(
   bytes: Uint8Array<ArrayBuffer>,
   mime: string,
   cacheControl: string,
   range: string | null,
 ): Response {
-  const headers: Record<string, string> = { 'content-type': mime, 'cache-control': cacheControl }
+  const headers: Record<string, string> = {
+    'content-type': mime,
+    'cache-control': cacheControl,
+    ...svgResponseHeaders(mime),
+  }
   if (!isSeekable(mime)) return new Response(bytes, { headers })
 
   headers['accept-ranges'] = 'bytes'

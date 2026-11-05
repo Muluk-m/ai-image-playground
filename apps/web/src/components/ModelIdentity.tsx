@@ -12,6 +12,8 @@ const COMPACT_MODEL_NAMES: Readonly<Record<string, string>> = {
   'gpt-image-2': 'Image 2',
   'gpt-image-2.5-flare': 'Image 2.5 Flare',
   'gpt-image-2.5-sunburst': 'Image 2.5 Sunburst',
+  'gpt-image-2.6-flare': 'Image 2.6 Flare',
+  'gpt-image-2.6-sunburst': 'Image 2.6 Sunburst',
   'gemini-3.1-flash-image': 'Gemini 3.1 Flash',
   'gemini-3.1-flash-image-preview': 'Gemini 3.1 Preview',
   'gemini-2.5-flash-image': 'Gemini 2.5 Flash',

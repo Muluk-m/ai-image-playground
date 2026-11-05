@@ -58,8 +58,15 @@ export async function prepareExports(
     signal.throwIfAborted()
     const blob = await source.load(signal)
     signal.throwIfAborted()
-    if (source.media === 'video') {
-      files.push({ name: outputFileName(source.name, blob.type || 'video/mp4'), blob })
+    if (
+      source.media === 'video' ||
+      blob.type === 'image/gif' ||
+      blob.type.startsWith('image/svg')
+    ) {
+      files.push({
+        name: outputFileName(source.name, blob.type || 'application/octet-stream'),
+        blob,
+      })
     } else {
       const bitmap = await createImageBitmap(blob)
       try {

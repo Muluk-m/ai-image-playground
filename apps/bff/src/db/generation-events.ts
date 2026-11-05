@@ -44,7 +44,7 @@ export async function publishGenerations(tx: Transaction, taskIds: string[]) {
             WHEN status = 'completed' AND EXISTS (SELECT 1 FROM generation_images WHERE generation_id = tasks.id AND role = 'output') THEN 'ready'
             ELSE 'none' END,
           error_type, request_payload ->> 'prompt',
-          jsonb_strip_nulls(jsonb_build_object('size', request_payload -> 'size','quality', request_payload -> 'quality','output_format', request_payload -> 'output_format','output_compression', request_payload -> 'output_compression','moderation', request_payload -> 'moderation','aspect_ratio', request_payload -> 'aspect_ratio','image_size', request_payload -> 'image_size','thinking_level', request_payload -> 'thinking_level','n', request_payload -> 'n')),
+          jsonb_strip_nulls(jsonb_build_object('size', request_payload -> 'size','quality', request_payload -> 'quality','output_format', request_payload -> 'output_format','output_compression', request_payload -> 'output_compression','moderation', request_payload -> 'moderation','aspect_ratio', request_payload -> 'aspect_ratio','image_size', request_payload -> 'image_size','thinking_level', request_payload -> 'thinking_level','n', request_payload -> 'n','frame_count', request_payload -> 'frame_count','frame_duration_ms', request_payload -> 'frame_duration_ms')),
           jsonb_strip_nulls(jsonb_build_object('size', result_payload -> 'size', 'quality', result_payload -> 'quality', 'output_format', result_payload -> 'output_format')),
           submitted_at, started_at, completed_at, ${head!.sequence.toString()}::bigint,
           CASE WHEN agent_conversation_id IS NOT NULL AND agent_turn_id IS NOT NULL THEN
