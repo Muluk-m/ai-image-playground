@@ -100,6 +100,41 @@ func TestConcurrentStartsCheckAndPromptOnlyOnce(t *testing.T) {
 	}
 }
 
+func TestClockIsSampledAfterAcquiringTheCheckLock(t *testing.T) {
+	var calls atomic.Int32
+	a := checker(t, func(*http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return response(`[{"tag_name":"cli-v0.2.0"}]`, 200), nil
+	})
+	now := time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
+	entered, resume := make(chan struct{}), make(chan struct{})
+	a.Now = func() time.Time {
+		close(entered)
+		<-resume
+		return now
+	}
+	b := a
+	b.Now = func() time.Time { return now.Add(time.Second) }
+	done := make(chan Result, 1)
+	go func() { done <- a.Check(context.Background()) }()
+	<-entered
+	other := b.Check(context.Background())
+	close(resume)
+	first := <-done
+	prompts := 0
+	for _, result := range []Result{first, other} {
+		if result.ShouldPrompt {
+			prompts++
+		}
+	}
+	if calls.Load() != 1 || prompts != 1 {
+		t.Fatalf("reversed start order rechecked: calls=%d prompts=%d", calls.Load(), prompts)
+	}
+	if cached := b.Check(context.Background()); !cached.Cached || cached.ShouldPrompt || calls.Load() != 1 {
+		t.Fatalf("fresh cache was invalidated: %+v", cached)
+	}
+}
+
 func TestCheckPaginatesPastProductReleases(t *testing.T) {
 	c := checker(t, func(req *http.Request) (*http.Response, error) {
 		page, _ := strconv.Atoi(req.URL.Query().Get("page"))
