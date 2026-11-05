@@ -152,6 +152,47 @@ export const email_verification_codes = pgTable(
   ],
 )
 
+/**
+ * 一条网页登录链。access 行在 `user_sessions`，refresh 只在这里存哈希。
+ * 轮换时旧 refresh 哈希进 `user_retired_refresh_tokens`，重放整条链作废。
+ * `created_at` 是登录时间，绝对上限从它算；`refresh_expires_at` 每次刷新滑动。
+ */
+export const user_session_families = pgTable(
+  'user_session_families',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    refresh_token_hash: text('refresh_token_hash').notNull(),
+    created_at: epochMs('created_at').notNull(),
+    refreshed_at: epochMs('refreshed_at').notNull(),
+    refresh_expires_at: epochMs('refresh_expires_at').notNull(),
+    absolute_expires_at: epochMs('absolute_expires_at').notNull(),
+    revoked_at: epochMs('revoked_at'),
+    revoke_reason: text('revoke_reason'),
+    user_agent: text('user_agent'),
+    ip: text('ip'),
+  },
+  (t) => [
+    uniqueIndex('idx_user_session_families_refresh_token_hash').on(t.refresh_token_hash),
+    index('idx_user_session_families_user_id').on(t.user_id),
+  ],
+)
+
+/** 已轮换的网页 refresh 哈希。宽限期过后再次出现就作废整条链。 */
+export const user_retired_refresh_tokens = pgTable(
+  'user_retired_refresh_tokens',
+  {
+    token_hash: text('token_hash').primaryKey(),
+    family_id: text('family_id')
+      .notNull()
+      .references(() => user_session_families.id, { onDelete: 'cascade' }),
+    retired_at: epochMs('retired_at').notNull(),
+  },
+  (t) => [index('idx_user_retired_refresh_tokens_family').on(t.family_id)],
+)
+
 export const user_sessions = pgTable(
   'user_sessions',
   {
@@ -159,6 +200,13 @@ export const user_sessions = pgTable(
     user_id: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    /**
+     * 空表示部署前的旧会话：在原来的 expires_at 之前仍然有效，下次刷新再挂到链上。
+     * 删链不会级联删掉这些行。
+     */
+    family_id: text('family_id').references(() => user_session_families.id, {
+      onDelete: 'cascade',
+    }),
     created_at: epochMs('created_at').notNull(),
     expires_at: epochMs('expires_at').notNull(),
     /** 签发时的 User-Agent，之后随活动刷新。 */
@@ -171,6 +219,7 @@ export const user_sessions = pgTable(
   (t) => [
     index('idx_user_sessions_user_id').on(t.user_id),
     index('idx_user_sessions_expires_at').on(t.expires_at),
+    index('idx_user_sessions_family_id').on(t.family_id),
   ],
 )
 

@@ -1,4 +1,4 @@
-import { canvasSyncUpdate } from '@image-playground/shared'
+import { CANVAS_SYNC_SESSION_EXPIRED_CODE, canvasSyncUpdate } from '@image-playground/shared'
 import postgres from 'postgres'
 import * as Y from 'yjs'
 import { config } from '../config'
@@ -83,7 +83,7 @@ export class CanvasSyncRooms {
             while (next < peers.length) {
               const peer = peers[next++]!
               if (!(await peer.authorize())) {
-                peer.close(1008, 'unauthorized')
+                peer.close(CANVAS_SYNC_SESSION_EXPIRED_CODE, 'unauthorized')
                 this.leave(id, peer)
               }
             }
