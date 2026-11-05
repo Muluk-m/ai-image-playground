@@ -1,5 +1,6 @@
 import type { VideoRequest } from '@image-playground/shared'
 import {
+  preparedImageRateMultiplier,
   VIDEO_MODEL_SUPPORT,
   videoDurationsForResolution,
   videoRateMultiplier,
@@ -19,6 +20,7 @@ import {
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { getStoredChannels } from '../../../lib/channels/channelStore'
+import { declaredImageSizesForModel } from '../../../lib/imageCharge'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { DEFAULT_PARAMS, type TaskParams } from '../../../types'
 import type { GenerationFields } from '../lib/productionGenerationClient'
@@ -152,7 +154,17 @@ export default function ProductionGenerationEditor({
   const guard = usePrivateSubmissionGuard({
     model: fields.model,
     quantity: fields.video?.duration_seconds ?? 1,
-    unitMultiplier: fields.video ? videoRateMultiplier(fields.model, fields.video.resolution) : 1,
+    unitMultiplier: fields.video
+      ? videoRateMultiplier(fields.model, fields.video.resolution)
+      : preparedImageRateMultiplier(
+          fields.model,
+          {
+            size: fields.params?.size,
+            quality: fields.params?.quality,
+            gemini_image_size: fields.params?.gemini_image_size,
+          },
+          declaredImageSizesForModel(fields.model),
+        ),
   })
   const charging = submitLabel === undefined
   const blocked =
