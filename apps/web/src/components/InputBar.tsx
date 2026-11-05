@@ -1,7 +1,9 @@
 import {
   AGENT_USER_MESSAGE_MAX_CHARS,
+  gptImage26Credits,
   isBlankPrompt,
   isGptDirectModel,
+  isGptImage26Model,
   SYNC_PROMPT_MAX_LENGTH,
 } from '@image-playground/shared'
 import {
@@ -70,6 +72,7 @@ import {
   quickGenerateAdmission,
 } from '../lib/batchGenerate'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
+import { getPublicChannels } from '../lib/channels/publicChannels'
 import { getAttachmentLimits, isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { confirmImageBatch } from '../lib/confirmImageBatch'
 import { getSafeBoundingClientRect } from '../lib/domRect'
@@ -317,6 +320,23 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const batchTotalCredits = batchActive
     ? batchCredits(batchImageCount, perImageGuard.estimatedCredits)
     : undefined
+  const image26 = isGptImage26Model(activeView.model)
+  const image26Unavailable = useMemo(() => {
+    if (!image26) return false
+    return getPublicChannels().some((channel) =>
+      channel.models.some((model) => model.id === activeView.model && model.unavailable),
+    )
+  }, [image26, activeView.model])
+  const image26Credits = image26
+    ? gptImage26Credits({
+        size: params.size,
+        quality: params.quality,
+        output_format: params.output_format,
+        frame_count: params.frame_count,
+        mask: maskDraft,
+        input_images: batchActive ? inputImages.slice(0, 1) : inputImages,
+      }) * (batchActive ? batchImageCount : submitImageCount)
+    : undefined
   // 参考图随请求一起发，单张超限会在发出后失败：选图时就标出来、拦住发送。快速生成按归档上限；
   // 交给智能体的按这一档部署下发的单张上限（服务端配置），不让超限的图发出去再失败。
   const oversizedIndexes = useMemo(
@@ -471,7 +491,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             ? t('submit.promptRequired')
             : null
   const submit = () => {
-    if (lookSubmitting || batchSendingRef.current) return
+    if (image26Unavailable || lookSubmitting || batchSendingRef.current) return
     if (toCanvas) {
       if (canvasSubmittingRef.current) return
       // 发的就是点击这一刻的草稿：重传期间用户再改文字或附件，这次就作罢，由他重新发送。
@@ -514,21 +534,26 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     else if (apiReady) submit()
     else setShowSettings(true)
   }
-  const submitDisabled = !lookSubmitting && apiReady && (!submitReady || batchSending)
-  const submitLabel = lookSubmitting
-    ? t('common:action.cancel')
-    : toCanvas
-      ? t('submit.startCanvas')
-      : maskDraft
-        ? t('submit.maskEdit')
-        : batchActive
-          ? batchTotalCredits === undefined
-            ? t('batch.sendLabel', { count: batchImageCount })
-            : t('batch.sendLabelCredits', {
-                count: batchImageCount,
-                credits: batchTotalCredits.toLocaleString(),
-              })
-          : generateLabel
+  const submitDisabled =
+    image26Unavailable || (!lookSubmitting && apiReady && (!submitReady || batchSending))
+  const submitLabel = image26Unavailable
+    ? t('submit.unavailable')
+    : image26Credits !== undefined
+      ? t('submit.cost', { credits: image26Credits.toLocaleString() })
+      : lookSubmitting
+        ? t('common:action.cancel')
+        : toCanvas
+          ? t('submit.startCanvas')
+          : maskDraft
+            ? t('submit.maskEdit')
+            : batchActive
+              ? batchTotalCredits === undefined
+                ? t('batch.sendLabel', { count: batchImageCount })
+                : t('batch.sendLabelCredits', {
+                    count: batchImageCount,
+                    credits: batchTotalCredits.toLocaleString(),
+                  })
+              : generateLabel
   const submitTitle =
     submissionGuard.disabledReason ??
     (toCanvas
@@ -1764,7 +1789,11 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 <span className="inline-flex">
                   <CreationSend
                     autoTooltip={false}
-                    cost={batchTotalCredits?.toLocaleString()}
+                    cost={
+                      image26Credits !== undefined
+                        ? t('submit.spent', { credits: image26Credits.toLocaleString() })
+                        : batchTotalCredits?.toLocaleString()
+                    }
                     streaming={lookSubmitting}
                     busy={batchSending}
                     onClick={onSubmitClick}

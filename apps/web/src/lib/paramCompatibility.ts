@@ -1,4 +1,4 @@
-import { nearestImageSize } from '@image-playground/shared'
+import { isGptImage26Model, nearestImageSize } from '@image-playground/shared'
 import { type AppSettings, DEFAULT_PARAMS, type GeminiImageSize, type TaskParams } from '../types'
 import { clientProfileToApiProfile, getActiveApiProfile } from './apiProfiles'
 import { getModelCapabilities, getModelImageSizes } from './channels/profileSelectors'
@@ -48,7 +48,7 @@ export function getParamCapabilities(
     quality: !view.codexCli && (!modelCaps || modelCaps.has('quality')),
     size: !modelCaps || modelCaps.has('size'),
     transparentOutput: view.provider !== 'gemini' && outputFormat === 'png',
-    compression: outputFormat !== 'png',
+    compression: outputFormat === 'jpeg' || outputFormat === 'webp',
     geminiImageTuning: view.provider === 'gemini' && isGeminiSeriesModel(view.model),
     geminiImageSizes: getModelImageSizes(profile, getPublicChannels()),
   }
@@ -69,6 +69,15 @@ export function normalizeParamsForSettings(
   }
 
   const caps = getParamCapabilities(activeProfile, nextParams.output_format)
+  const model = clientProfileToApiProfile(activeProfile).model
+  if (
+    !isGptImage26Model(model) &&
+    (nextParams.output_format === 'gif' || nextParams.output_format === 'svg')
+  ) {
+    nextParams.output_format = 'png'
+    nextParams.frame_count = undefined
+    nextParams.frame_duration_ms = undefined
+  }
   // 切到不认这一档的模型（如从 2.1 的 2K 切到 Lite、本地存着旧的 512）：换成最近一档，
   // 面板、摘要和提交看到的是同一个值，和 BFF 兜底的换法一致。
   if (nextParams.gemini_image_size) {

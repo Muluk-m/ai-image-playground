@@ -24,6 +24,11 @@ export function gptDirectConfigured(model: string): boolean {
   return config.gptDirect.enabled && gptDirectApiKey() !== '' && isGptDirectModel(model)
 }
 
+/** 2.6 用自己的开关和同一把可替换的 OpenAI key。关着或没 key 时不走 sub2api。 */
+export function gptImage26Configured(): boolean {
+  return config.gptImage26.enabled && gptDirectApiKey() !== ''
+}
+
 // ---- sub2api 熔断：本进程内计数，每个环境各管各的 ----
 
 let consecutiveFailures = 0

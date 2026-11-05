@@ -37,6 +37,8 @@ const submitBodySchema = t.Object({
   size: t.Optional(t.String()),
   quality: t.Optional(t.String()),
   output_format: t.Optional(t.String()),
+  frame_count: t.Optional(t.Number({ minimum: 2, maximum: 16, multipleOf: 1 })),
+  frame_duration_ms: t.Optional(t.Number({ minimum: 20, maximum: 2000 })),
   output_compression: t.Optional(t.Number({ minimum: 0, maximum: 100 })),
   moderation: t.Optional(t.String()),
   aspect_ratio: t.Optional(t.String()),
@@ -224,6 +226,8 @@ export const submitRoutes = new Elysia()
 
       if (outcome.kind === 'invalid_prompt')
         return status(400, { error: 'invalid_request', message: '提示词不能为空' })
+      if (outcome.kind === 'invalid_image_request')
+        return status(400, { error: 'invalid_request', message: outcome.message })
 
       if (outcome.kind === 'idempotency_mismatch')
         return status(409, { error: 'idempotency_key_conflict' })

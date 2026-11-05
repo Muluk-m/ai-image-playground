@@ -115,6 +115,10 @@ export interface ChannelModel {
   /** 选择器、任务卡等处显示的模型图标；缺省按 id 前缀取厂商图标。 */
   logo?: ModelLogoId
   /**
+   * 模型在清单里，但当前直连不可用。选择器照样显示，提交会被拒绝，不能静默换成别的模型。
+   */
+  unavailable?: boolean
+  /**
    * Gemini 协议模型认的分辨率档位（`GEMINI_IMAGE_SIZES` 的子集，按实测填）。写了面板就只列这几档，
    * BFF 把绕过面板的其它档位换成最近一档再发；不写按共享档位全列、原样透传。
    */
