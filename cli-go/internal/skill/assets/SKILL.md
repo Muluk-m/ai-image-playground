@@ -14,7 +14,7 @@ Carry the user's original request through every step; setup must not lose it.
 1. **Check setup**: `muvloom auth status`.
    - Command not found → install it with [install.md](references/install.md), then run `auth status` again.
    - `state: outdated` → reinstall the latest release ([install.md](references/install.md)).
-   - `state: unauthenticated` → `muvloom auth login --no-wait`, show the user `verification_uri_complete` and `user_code`, ask them to approve in the browser, then run `muvloom auth login` (it waits for approval). Works over SSH; no port forwarding.
+   - `state: unauthenticated` → run `muvloom auth login --no-wait`, then open the returned `verification_uri_complete` in the user's browser yourself with the host's browser-opening tool (or a local desktop OS URL opener: macOS `open`, PowerShell `Start-Process`, Linux `xdg-open`). Over SSH or in a remote environment, use a browser tool on the user's computer. Once the page is open, ask the user to sign in and approve, then run `muvloom auth login` to wait for approval. Only if no suitable tool is available or opening fails, explain the limitation and provide `verification_uri_complete` and `user_code` for manual opening. No port forwarding is needed.
    - `state: unreachable` → report `error`, stop.
    - Setup never generates an image or spends credits.
 2. **Read capabilities**: `muvloom capabilities`. Pick the model, aspect ratio and image size the user asked for from this list; otherwise leave them out and the server defaults apply. 4K only appears when the account may use it.

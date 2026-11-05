@@ -2,8 +2,9 @@
 
 Install Muvloom CLI, connect the user's account, and report when it is ready.
 Detect the operating system and use the agent host named in the user's request.
-Keep the conversation in the user's language. Run the steps yourself; only ask
-the user to complete browser authorization. Do not generate images during setup.
+Keep the conversation in the user's language. Run the steps yourself, including
+opening the authorization page; the user signs in and approves the connection.
+Do not generate images during setup.
 
 ## 1. Install CLI 0.1.0
 
@@ -68,9 +69,15 @@ Run `muvloom auth status` first. If its `data.state` is `ready`, keep the existi
 connection and proceed to step 5. Otherwise:
 
 1. Run `muvloom auth login --no-wait`.
-2. Show the user the returned `verification_uri_complete` link and `user_code`.
-   Ask them to open it, sign in, and approve the connection in their browser.
-3. After they authorize, run `muvloom auth login` to finish the pending login.
+2. Open the returned `verification_uri_complete` in the user's browser yourself,
+   using the host's browser-opening tool. For a local desktop agent, an OS URL
+   opener is also suitable (`open` on macOS, `Start-Process` in PowerShell, or
+   `xdg-open` on Linux). Over SSH or in a remote environment, use a browser tool
+   on the user's computer rather than opening a browser on the remote machine.
+   Once the page is open, ask the user to sign in and approve the connection.
+   Only if no suitable tool is available or opening fails, explain that limitation
+   and provide `verification_uri_complete` and `user_code` for manual opening.
+3. Run `muvloom auth login` to wait for approval and finish the pending login.
 4. Run `muvloom auth status` and confirm `data.state` is `ready`.
 
 If the user declines, stop. If the code expires, start a new login. Do not ask
