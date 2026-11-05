@@ -1143,7 +1143,9 @@ export async function quoteBatchPlan(
   items: readonly AgentBatchItem[],
 ): Promise<AgentBatchEstimates> {
   const hooks = (await loadPrivateBffOverlay()).taskHooks
-  const member = items.some((item) => item.kind === 'generation' && item.params.gemini_image_size === '4K')
+  const member = items.some(
+    (item) => item.kind === 'generation' && item.params.gemini_image_size === '4K',
+  )
     ? await isActiveMember(userId)
     : false
   const generationQuotes = new Map<

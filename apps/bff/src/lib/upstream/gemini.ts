@@ -60,6 +60,7 @@ export function buildGeminiBody(
   const size = (imageConfig as { imageSize?: unknown }).imageSize
   if (size === undefined) return body
   const supported = nearestImageSize(size, imageSizes)
-  if (supported !== size) body.generationConfig.imageConfig = { ...imageConfig, imageSize: supported }
+  if (supported !== size)
+    body.generationConfig.imageConfig = { ...imageConfig, imageSize: supported }
   return body
 }

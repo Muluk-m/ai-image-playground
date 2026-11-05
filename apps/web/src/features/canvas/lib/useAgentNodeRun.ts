@@ -1,8 +1,8 @@
 import { type AgentCanvasRunProposal, readCanvasDocument } from '@image-playground/shared'
 import { useEffect, useSyncExternalStore } from 'react'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
-import { useGptPremiumLocked } from '../../../lib/gptPremium'
 import { getStoredChannels, subscribeChannels } from '../../../lib/channels/channelStore'
+import { useGptPremiumLocked } from '../../../lib/gptPremium'
 import { useStore } from '../../../store'
 import { registerAgentNodeRun } from '../../agent/lib/nodeRunBridge'
 import { useVideoStore } from '../../video/store'
@@ -38,7 +38,7 @@ export function useAgentNodeRun({
     if (!active || !projectId || !syncResults) return
     const quote = (proposal: AgentCanvasRunProposal) => {
       if (proposal.projectId !== projectId) return null
-      if (params.gemini_image_size === '4K' && !membership.settled) return null
+      if (!membership.settled) return null
       const graph = readCanvasDocument(canvas.doc)
       const existing = new Set([
         ...graph.nodes.map((node) => node.id),

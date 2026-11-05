@@ -327,7 +327,12 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
   }
 }
 
-export function currentNodeBatch(doc: Y.Doc, editor: CanvasEditor, ids: readonly string[], member = false) {
+export function currentNodeBatch(
+  doc: Y.Doc,
+  editor: CanvasEditor,
+  ids: readonly string[],
+  member = false,
+) {
   const { settings, params } = useStore.getState()
   return buildNodeBatch({
     snapshot: readCanvasDocument(doc),
@@ -455,7 +460,9 @@ export async function runNodeBatch(
       return currentNodeBatch(doc, editor, ids, plan.member)
     },
     submit: async (job) => {
-      const current = currentNodeBatch(doc, editor, ids, plan.member).jobs.find((one) => one.id === job.id)
+      const current = currentNodeBatch(doc, editor, ids, plan.member).jobs.find(
+        (one) => one.id === job.id,
+      )
       if (!current) throw new NodeBatchFailure('changed')
       const stage = stageAuthorizations?.[job.id]
       const files = { ...editor.doc.files, ...current.temporary }

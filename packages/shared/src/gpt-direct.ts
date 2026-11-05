@@ -147,7 +147,10 @@ export interface ImageRateRequest extends GptTierInput {
 }
 
 /** Gemini 的 4K 只给会员；队列字段优先于界面字段，与提交收口一致。 */
-export function clampGeminiNonMemberRequest<T extends ImageRateRequest>(request: T, member: boolean): T {
+export function clampGeminiNonMemberRequest<T extends ImageRateRequest>(
+  request: T,
+  member: boolean,
+): T {
   if (member || (request.image_size ?? request.gemini_image_size) !== '4K') return request
   return request.image_size !== undefined
     ? { ...request, image_size: '2K' }

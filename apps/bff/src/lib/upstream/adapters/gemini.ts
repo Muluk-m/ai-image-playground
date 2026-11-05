@@ -50,9 +50,10 @@ export const geminiAdapter: ImageAdapter = {
       : buildGeminiBody(request, ctx.imageSizes)
     const sent = imageConfigOf(body)
     const extraConfig = request.extra?.generationConfig
-    const requested = isObject(extraConfig) && isObject(extraConfig.imageConfig)
-      ? extraConfig.imageConfig.imageSize
-      : request.image_size
+    const requested =
+      isObject(extraConfig) && isObject(extraConfig.imageConfig)
+        ? extraConfig.imageConfig.imageSize
+        : request.image_size
     const dropped: DroppedParam[] = []
     // 只在请求体真的被收成另一档时记降档。
     if (typeof requested === 'string' && sent.imageSize && requested !== sent.imageSize) {

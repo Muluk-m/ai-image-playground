@@ -53,13 +53,15 @@ export function setAdminDirectKeySnapshot(
 
 export function gptDirectSwitchOn(): boolean {
   const value = process.env.GPT_DIRECT_ENABLED?.trim().toLowerCase() || 'false'
-  if (value !== 'true' && value !== 'false') throw new Error('GPT_DIRECT_ENABLED must be true or false')
+  if (value !== 'true' && value !== 'false')
+    throw new Error('GPT_DIRECT_ENABLED must be true or false')
   return value === 'true'
 }
 
 function envKeyCount(): number {
   const list = process.env.OPENAI_API_KEYS?.trim()
-  if (list) return fingerprintSecretConfigured() ? list.split(',').filter((part) => part.trim()).length : 0
+  if (list)
+    return fingerprintSecretConfigured() ? list.split(',').filter((part) => part.trim()).length : 0
   return runtimeSecret('OPENAI_API_KEY', process.env.OPENAI_API_KEY?.trim() ?? '') ? 1 : 0
 }
 
