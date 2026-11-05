@@ -521,6 +521,10 @@ describe('runMigrations', () => {
             hash: await migrationFileHash('0089_admin_filter_indexes'),
             created_at: '1794000000000',
           },
+          {
+            hash: await migrationFileHash('0090_announcements'),
+            created_at: '1794100000000',
+          },
         ])
         const columns =
           await client`SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tasks' AND column_name = 'metering'`

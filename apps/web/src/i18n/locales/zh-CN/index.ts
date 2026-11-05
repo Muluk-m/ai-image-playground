@@ -1,4 +1,5 @@
 import agent from './agent.json'
+import announcements from './announcements.json'
 import auth from './auth.json'
 import canvas from './canvas.json'
 import common from './common.json'
@@ -38,6 +39,7 @@ export const zhCN = {
   library,
   canvas,
   agent,
+  announcements,
   inspiration,
   legal,
   textGeneration,
