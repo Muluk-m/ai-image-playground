@@ -117,7 +117,6 @@ describe('ci-receive.sh', () => {
     expect(existsSync(join(releases, id))).toBe(false)
     expect(existsSync(log)).toBe(false)
   })
-
   it('rejects an archive containing deployment code before invoking the trusted runtime', () => {
     const dir = join(root, 'evil')
     mkdirSync(join(dir, 'scripts'), { recursive: true })

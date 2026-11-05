@@ -182,7 +182,7 @@ export PATH=/opt/homebrew/bin:$PATH   # 仅 macmini2
 ./scripts/build-vps-release.sh paid /Users/mac/releases/aip-<release-id>
 ```
 
-构建输入固定为 Git 提交，不含未提交文件或凭据。使用 `aip-release` builder（4 核、6 GiB、无额外 Swap、阶段并发 1）生成 `linux/amd64` 镜像；保留现有构建锁，并与其他重型任务错峰。发布包只包含 `images.tsv`、`SHA256SUMS`，archive transport 另含 `images.tar.gz`；部署代码使用 VPS 固定 runtime。当前生产只构建 `paid-<公开12位>-<私有12位>`、`backup-<公开12位>` 与 `segmenter-<版本>-<公开12位>`，不构建已冻结的 internal 镜像；脚本的 `internal`/`all` 模式保留兼容能力，使用前须单独批准。每个镜像构建后立即推送，本地标签不变。首次推送上传全部层，之后只传变更层。
+构建输入固定为 Git 提交，不含未提交文件或凭据。使用 `aip-release` builder（4 核、6 GiB、无额外 Swap、阶段并发 1）生成 `linux/amd64` 镜像；保留现有构建锁，并与其他重型任务错峰。发布目录只包含 `images.tsv`、`SHA256SUMS`，archive transport 另含 `images.tar.gz`；部署代码使用 VPS 固定 runtime。当前生产只构建 `paid-<公开12位>-<私有12位>`、`backup-<公开12位>` 与 `segmenter-<版本>-<公开12位>`，不构建已冻结的 internal 镜像；脚本的 `internal`/`all` 模式保留兼容能力，使用前须单独批准。每个镜像构建后立即推送，本地标签不变。首次推送上传全部层，之后只传变更层。
 
 3. 工作站中转发布数据包，或由 CI 通过受限 SSH 入口上传；不要再从历史发布目录执行 `scripts/vps-deploy.sh`。手工发布必须使用固定 runtime：
 
