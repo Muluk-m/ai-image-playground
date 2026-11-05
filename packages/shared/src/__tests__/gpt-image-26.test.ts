@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { isGptDirectModel } from '../gpt-direct'
+import { imageRateMultiplier, isGptDirectModel } from '../gpt-direct'
 import {
   gifSpriteExceedsLimit,
   gptImage26Credits,
@@ -87,6 +87,12 @@ describe('gpt image 2.6 credits', () => {
     expect(gptImage26Credits({ output_format: 'gif', frame_count: 12 })).toBe(980)
     expect(gptImage26Credits({ output_format: 'gif', frame_count: 16 })).toBe(980)
     expect(gptImage26Credits({ output_format: 'svg' })).toBe(610)
+  })
+
+  it('goes through imageRateMultiplier, which otherwise treats unknown models as one', () => {
+    expect(imageRateMultiplier(FLARE, { size: '1024x1024', quality: 'medium' })).toBe(3.3)
+    expect(imageRateMultiplier(FLARE, { output_format: 'svg' })).toBe(6.1)
+    expect(imageRateMultiplier(FLARE, { output_format: 'gif', frame_count: 9 })).toBe(5.5)
   })
 
   it('turns the credit into a multiplier of the 100-credit base without rounding drift', () => {

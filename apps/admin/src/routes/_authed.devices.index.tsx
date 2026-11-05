@@ -1,8 +1,10 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useState } from 'react'
 
 import { DeviceTable } from '@/components/DeviceTable'
+import { FilterBar, presetWindow } from '@/components/FilterBar'
+import { ListPagination } from '@/components/ListPagination'
 import { ErrorState, Page, PendingState } from '@/components/Page'
-import { RangeToggle } from '@/components/RangeToggle'
 import {
   Select,
   SelectContent,
@@ -12,13 +14,13 @@ import {
 } from '@/components/ui/select'
 import { useDevices } from '@/lib/queries'
 import {
+  DEFAULT_RANGE,
   DEFAULT_SORT,
   parseDevicesSearch,
   SORT_LABEL,
   SORTS,
   type SortKey,
 } from '@/lib/search-params'
-import { useRangeSearch } from '@/lib/useRangeSearch'
 
 export const Route = createFileRoute('/_authed/devices/')({
   validateSearch: parseDevicesSearch,
@@ -28,9 +30,25 @@ export const Route = createFileRoute('/_authed/devices/')({
 function DevicesIndex() {
   const search = Route.useSearch()
   const navigate = useNavigate()
-  const [range, setRange] = useRangeSearch()
+  const [clock] = useState(() => Date.now())
+  const preset =
+    search.preset ?? (search.range === '1d' ? 'today' : search.range === '30d' ? '30d' : '7d')
+  const range =
+    search.range ?? (preset === '30d' ? '30d' : preset === 'today' ? '1d' : DEFAULT_RANGE)
+  const window =
+    preset === 'custom' && search.from !== undefined
+      ? { from: search.from, to: search.to }
+      : preset === 'today'
+        ? presetWindow('today', clock)
+        : undefined
   const sort = search.sort ?? DEFAULT_SORT
-  const q = useDevices(range, sort)
+  const q = useDevices(range, sort, {
+    q: search.q,
+    page: search.page ?? 1,
+    pageSize: search.pageSize ?? 50,
+    from: window?.from,
+    to: window?.to,
+  })
 
   function setSort(next: SortKey): void {
     void navigate({
@@ -42,27 +60,67 @@ function DevicesIndex() {
 
   return (
     <Page crumbs={[{ label: '设备' }]} description="按设备聚合生成任务与活跃状态">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
-          {q.isSuccess
-            ? `共 ${q.data.devices.length} 个${q.data.truncated ? ' · 已截断到前 500 条' : ''}`
-            : null}
-        </p>
-        <div className="flex items-center gap-2">
-          <Select value={sort} onValueChange={(next) => setSort(next as SortKey)}>
-            <SelectTrigger className="h-8 w-[132px] text-xs" aria-label="排序">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SORTS.map((key) => (
-                <SelectItem key={key} value={key} className="text-xs">
-                  {SORT_LABEL[key]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <RangeToggle value={range} onChange={setRange} />
-        </div>
+      <FilterBar
+        savedViewKey="devices"
+        preset={preset}
+        from={window?.from ?? search.from}
+        to={window?.to ?? search.to}
+        onPreset={(next, span) => {
+          void navigate({
+            to: '.',
+            search: (previous) => ({
+              ...previous,
+              preset: next,
+              range: next === '30d' ? '30d' : next === '7d' ? '7d' : '1d',
+              from: next === 'custom' ? span?.from : next === 'today' ? span?.from : undefined,
+              to: next === 'custom' ? span?.to : next === 'today' ? span?.to : undefined,
+              page: 1,
+            }),
+            replace: true,
+          })
+        }}
+        search={search.q ?? ''}
+        searchPlaceholder="搜索设备 ID"
+        onSearch={(value) =>
+          void navigate({
+            to: '.',
+            search: (previous) => ({ ...(previous ?? {}), q: value || undefined, page: 1 }),
+            replace: true,
+          })
+        }
+        chips={[]}
+        definitions={[
+          {
+            key: 'sort',
+            label: '排序',
+            kind: 'single',
+            options: SORTS.map((key) => ({ value: key, label: SORT_LABEL[key] })),
+          },
+        ]}
+        values={{ sort }}
+        onChange={(_key, value) => setSort(value as SortKey)}
+        onRemove={() => setSort(DEFAULT_SORT)}
+        onClear={() =>
+          void navigate({
+            to: '.',
+            search: { range: DEFAULT_RANGE, sort: DEFAULT_SORT },
+            replace: true,
+          })
+        }
+      />
+      <div className="flex justify-end">
+        <Select value={sort} onValueChange={(next) => setSort(next as SortKey)}>
+          <SelectTrigger className="h-8 w-[132px] text-xs" aria-label="排序">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SORTS.map((key) => (
+              <SelectItem key={key} value={key} className="text-xs">
+                {SORT_LABEL[key]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {q.isPending ? (
@@ -70,7 +128,28 @@ function DevicesIndex() {
       ) : q.isError ? (
         <ErrorState label="加载失败" error={q.error} />
       ) : (
-        <DeviceTable devices={q.data.devices} range={range} />
+        <div className="overflow-hidden rounded-xl border bg-card">
+          <DeviceTable devices={q.data.devices} range={range} />
+          <ListPagination
+            page={q.data.page ?? 1}
+            pageSize={q.data.pageSize === 100 ? 100 : 50}
+            total={q.data.total ?? q.data.devices.length}
+            onPage={(page) =>
+              void navigate({
+                to: '.',
+                search: (previous) => ({ ...previous, page }),
+                replace: true,
+              })
+            }
+            onPageSize={(pageSize) =>
+              void navigate({
+                to: '.',
+                search: (previous) => ({ ...previous, pageSize, page: 1 }),
+                replace: true,
+              })
+            }
+          />
+        </div>
       )}
     </Page>
   )

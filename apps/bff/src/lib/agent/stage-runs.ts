@@ -637,6 +637,9 @@ function stageRunWakeParams(state: StageAuthorization): AgentTurnParams {
     ...(turn.model ? { model: turn.model } : {}),
     ...(turn.canvasImageModel ? { canvasImageModel: turn.canvasImageModel } : {}),
     ...(turn.canvasImageCount !== undefined ? { canvasImageCount: turn.canvasImageCount } : {}),
+    ...(turn.size ? { size: turn.size } : {}),
+    ...(turn.quality ? { quality: turn.quality } : {}),
+    ...(turn.gemini_image_size ? { gemini_image_size: turn.gemini_image_size } : {}),
     ...(turn.video ? { video: turn.video } : {}),
   }
 }

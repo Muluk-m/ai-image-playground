@@ -70,6 +70,7 @@ export type ClaimedTask = Pick<
   | 'provider'
   | 'model'
   | 'request_payload'
+  | 'metering'
   | 'user_id'
   | 'archive_payload'
   | 'archive_retry_started_at'
@@ -614,6 +615,7 @@ export async function claimTaskExecution(
         provider: schema.tasks.provider,
         model: schema.tasks.model,
         request_payload: schema.tasks.request_payload,
+        metering: schema.tasks.metering,
         user_id: schema.tasks.user_id,
         archive_payload: schema.tasks.archive_payload,
         archive_retry_started_at: schema.tasks.archive_retry_started_at,

@@ -5,6 +5,7 @@ import {
   type AgentBatchGenerationItem,
   type AgentBatchItem,
   type AgentBatchPriceSnapshot,
+  preparedImageRateMultiplier,
   QUEUE_MAX_INPUT_IMAGES,
 } from '@image-playground/shared'
 import { and, asc, eq, gt, inArray, isNotNull, isNull, or } from 'drizzle-orm'
@@ -18,6 +19,7 @@ import {
   reserveAnalysisTask,
 } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
+import { declaredImageSizes } from '../channels'
 import { log } from '../logger'
 import { meteringDecisionOrDenied } from '../metering-decision'
 import {
@@ -291,7 +293,12 @@ async function prepareItem(
     agent: { conversationId: batch.conversation_id!, turnId: batch.origin_turn_id },
   }
 }
-async function quoteGenerationTask(tx: BffTransaction, userId: string, model: string) {
+async function quoteGenerationTask(
+  tx: BffTransaction,
+  userId: string,
+  model: string,
+  unitMultiplier: number,
+) {
   const hooks = (await loadPrivateBffOverlay()).taskHooks
   const decision = meteringDecisionOrDenied(
     await hooks.meteringDecision?.({
@@ -300,7 +307,7 @@ async function quoteGenerationTask(tx: BffTransaction, userId: string, model: st
       model,
       kind: 'image',
       quantity: 1,
-      unitMultiplier: 1,
+      unitMultiplier,
     }),
     hooks.consumeUnmeteredQuota,
   )
@@ -308,9 +315,9 @@ async function quoteGenerationTask(tx: BffTransaction, userId: string, model: st
   if (decision?.kind === 'unmetered' || !isCapabilityEnabled('billing:credits'))
     return {
       estimatedCredits: 0,
-      pricing: nonBillingPriceSnapshot({ model, kind: 'image', quantity: 1, unitMultiplier: 1 }),
+      pricing: nonBillingPriceSnapshot({ model, kind: 'image', quantity: 1, unitMultiplier }),
     }
-  return hooks.quoteTask?.({ tx, userId, model, quantity: 1, unitMultiplier: 1 })
+  return hooks.quoteTask?.({ tx, userId, model, quantity: 1, unitMultiplier })
 }
 
 async function currentQuote(
@@ -344,7 +351,16 @@ async function currentQuote(
           },
           hooks,
         )
-      : await quoteGenerationTask(tx, batch.user_id, item.params.model)
+      : await quoteGenerationTask(
+          tx,
+          batch.user_id,
+          item.params.model,
+          preparedImageRateMultiplier(
+            item.params.model,
+            item.params,
+            declaredImageSizes(item.params.model),
+          ),
+        )
   if (
     !quote ||
     !expected ||
@@ -801,7 +817,16 @@ export async function repriceAgentBatch(
               },
               hooks,
             )
-          : await quoteGenerationTask(tx, userId, item.params.model)
+          : await quoteGenerationTask(
+              tx,
+              userId,
+              item.params.model,
+              preparedImageRateMultiplier(
+                item.params.model,
+                item.params,
+                declaredImageSizes(item.params.model),
+              ),
+            )
       if (!quote) throw new BatchPlanError('batch_price_changed', 409)
       totals[item.kind] += quote.estimatedCredits
       charges[item.kind] += quote.pricing.exemption === 'none' ? quote.estimatedCredits : 0
