@@ -1,6 +1,7 @@
 import { agentImageCount } from './agent'
 import type { CanvasNode } from './canvas-document'
 import { canvasNodeKind } from './canvas-registry'
+import { preparedImageRateMultiplier } from './gpt-direct'
 import {
   canonicalVideoVoice,
   clampVideoPreset,
@@ -224,11 +225,19 @@ function clampStageVideoDraft(
   }
 }
 
-/** 图片节点与画布批次共用：工作台模型、分镜单张、张数截断到 1..上限。 */
+/**
+ * 图片节点与画布批次共用：工作台模型、分镜单张、张数截断到 1..上限。
+ * 倍率与阶段授权提交一致：GPT 先收到基础档，Gemini 按请求档位。
+ */
 export function resolveStageImageExecution(input: {
   readonly model?: string | undefined
   readonly count?: number | undefined
   readonly storyboardRole?: string | undefined
+  readonly size?: string | undefined
+  readonly quality?: string | undefined
+  readonly imageSize?: string | undefined
+  /** 渠道声明的可出档。缺席则按请求档计价。 */
+  readonly supportedTiers?: readonly string[] | undefined
 }): StageExecutionSpec | undefined {
   const model = input.model?.trim() ?? ''
   if (!model) return undefined
@@ -236,7 +245,15 @@ export function resolveStageImageExecution(input: {
   return {
     model,
     quantity: single ? 1 : agentImageCount({ n: input.count }),
-    unitMultiplier: 1,
+    unitMultiplier: preparedImageRateMultiplier(
+      model,
+      {
+        size: input.size,
+        quality: input.quality,
+        image_size: input.imageSize,
+      },
+      input.supportedTiers,
+    ),
   }
 }
 
