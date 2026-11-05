@@ -16,6 +16,7 @@ import { createApiMetrics, isCountedPath } from './ops/api-metrics'
 import { accountRoutes } from './routes/account'
 import { agentRoutes } from './routes/agent'
 import { stageAuthorizationRoutes } from './routes/agent-stage-authorizations'
+import { internalAnnouncementRoutes, publicAnnouncementRoutes } from './routes/announcements'
 import { userAuthRoutes } from './routes/auth'
 import { cancelRoutes } from './routes/cancel'
 import { canvasSyncRoutes } from './routes/canvasSync'
@@ -281,6 +282,7 @@ export const app = new Elysia()
   .use(lookRoutes)
   .use(mediaRoutes)
   .use(publicInspirationRoutes)
+  .use(publicAnnouncementRoutes)
   .use(clientErrorRoutes)
   .use(generationRoutes)
   .use(internalAgentModelRoutes)
@@ -292,6 +294,7 @@ export const app = new Elysia()
   .use(internalGptDirectRoutes)
   .use(internalLogRoutes)
   .use(internalInspirationRoutes)
+  .use(internalAnnouncementRoutes)
   .use(internalDrainRoutes)
   .use(internalCapabilitiesRoutes)
   .use(internalOperatorConfigRoutes)
@@ -310,7 +313,7 @@ export const app = new Elysia()
     const url = new URL(request.url)
     if (isApiPath(url.pathname)) return
     if (
-      /^\/(?:image|explore|assets|tools|projects|pricing|terms|privacy|connect|device|p\/[^/]+|tools\/[^/]+)\/?$/.test(
+      /^\/(?:image|explore|assets|tools|projects|pricing|terms|privacy|connect|device|changelog|p\/[^/]+|tools\/[^/]+)\/?$/.test(
         url.pathname,
       )
     ) {

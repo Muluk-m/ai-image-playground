@@ -612,6 +612,86 @@ export const inspiration_publications = pgTable('inspiration_publications', {
   manifest_hash: text('manifest_hash').notNull(),
 })
 
+export type AnnouncementType = 'feature' | 'improvement' | 'notice'
+export type AnnouncementImportance = 'normal' | 'major'
+export type AnnouncementStatus = 'draft' | 'scheduled' | 'published' | 'archived'
+/**
+ * 投放对象。paid / free 还不能入库：公开树没有订阅状态，等 overlay 的 isActiveMember
+ * 能在读路径上用了再加。当前只有全部、登录、未登录。
+ */
+export type AnnouncementAudience = 'all' | 'logged_in' | 'anonymous'
+
+export const announcements = pgTable(
+  'announcements',
+  {
+    id: text('id').primaryKey(),
+    type: text('type').$type<AnnouncementType>().notNull(),
+    importance: text('importance').$type<AnnouncementImportance>().notNull().default('normal'),
+    title_zh: text('title_zh').notNull(),
+    body_zh: text('body_zh').notNull().default(''),
+    title_en: text('title_en'),
+    body_en: text('body_en'),
+    cover_key: text('cover_key'),
+    cta_label: text('cta_label'),
+    cta_url: text('cta_url'),
+    version_tag: text('version_tag'),
+    status: text('status').$type<AnnouncementStatus>().notNull().default('draft'),
+    publish_at: epochMs('publish_at'),
+    expire_at: epochMs('expire_at'),
+    audience: text('audience').$type<AnnouncementAudience>().notNull().default('all'),
+    created_by: text('created_by').notNull(),
+    updated_by: text('updated_by').notNull(),
+    created_at: epochMs('created_at').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+  },
+  (t) => [
+    index('idx_announcements_status_publish').on(t.status, t.publish_at),
+    check('announcements_type_check', sql`${t.type} IN ('feature', 'improvement', 'notice')`),
+    check('announcements_importance_check', sql`${t.importance} IN ('normal', 'major')`),
+    check(
+      'announcements_status_check',
+      sql`${t.status} IN ('draft', 'scheduled', 'published', 'archived')`,
+    ),
+    check('announcements_audience_check', sql`${t.audience} IN ('all', 'logged_in', 'anonymous')`),
+    check('announcements_title_zh_check', sql`char_length(${t.title_zh}) BETWEEN 1 AND 80`),
+    check('announcements_body_zh_check', sql`char_length(${t.body_zh}) <= 20000`),
+    check(
+      'announcements_title_en_check',
+      sql`${t.title_en} IS NULL OR char_length(${t.title_en}) BETWEEN 1 AND 80`,
+    ),
+    check(
+      'announcements_body_en_check',
+      sql`${t.body_en} IS NULL OR char_length(${t.body_en}) <= 20000`,
+    ),
+    check(
+      'announcements_cta_check',
+      sql`(${t.cta_label} IS NULL AND ${t.cta_url} IS NULL) OR (${t.cta_label} IS NOT NULL AND ${t.cta_url} IS NOT NULL AND char_length(btrim(${t.cta_label})) > 0 AND char_length(btrim(${t.cta_url})) > 0)`,
+    ),
+    check(
+      'announcements_window_check',
+      sql`${t.expire_at} IS NULL OR ${t.publish_at} IS NULL OR ${t.expire_at} > ${t.publish_at}`,
+    ),
+  ],
+)
+
+export const announcement_reads = pgTable(
+  'announcement_reads',
+  {
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    announcement_id: text('announcement_id')
+      .notNull()
+      .references(() => announcements.id, { onDelete: 'cascade' }),
+    read_at: epochMs('read_at'),
+    dismissed_at: epochMs('dismissed_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.user_id, t.announcement_id] }),
+    index('idx_announcement_reads_announcement').on(t.announcement_id),
+  ],
+)
+
 /**
  * 同步记录的通用列。删除以墓碑传播：`deleted_at` 非空的行内容列全为空，客户端读路径按它过滤。
  * `version` 是落库那一刻的每用户版本号，拉取即「取版本号大于客户端持有值的行」。

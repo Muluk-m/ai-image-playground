@@ -3,6 +3,7 @@ import {
   IMAGE_SIZE_PRESETS,
   type ImagePresetRatio,
   type ImageSizeTier,
+  imageTierMaxPixels,
   parseImageSize,
 } from '@image-playground/shared'
 
@@ -236,15 +237,21 @@ export type SizeSelection =
   /** 预设外的尺寸或比例：`ratio` 用来画形状。 */
   | { kind: 'custom'; ratio: string }
 
+const TIER_RANK: Record<SizeTier, number> = { '1K': 0, '2K': 1, '4K': 2 }
+
 export interface SizeRules {
   /** 模型只认比例，不承诺像素：分辨率档不出现。 */
   ratioOnly: boolean
-  /** Codex CLI 只到 1K。 */
-  limitTo1K: boolean
+  /** 最高可选档。Codex CLI 为 1K；非会员为 2K；会员为 4K。 */
+  maxTier: SizeTier
+}
+
+export function tierFits(tier: SizeTier, maxTier: SizeTier): boolean {
+  return TIER_RANK[tier] <= TIER_RANK[maxTier]
 }
 
 /** 只认比例或限 1K 时，上游会重新量化像素，只能按比例对上预设、按 1K 写回。 */
-const byRatio = (rules: SizeRules) => rules.ratioOnly || rules.limitTo1K
+const byRatio = (rules: SizeRules) => rules.ratioOnly || rules.maxTier === '1K'
 
 export function readSizeSelection(size: string, rules: SizeRules): SizeSelection {
   if (!size || size === 'auto') return { kind: 'auto' }
@@ -265,18 +272,28 @@ export function readSizeSelection(size: string, rules: SizeRules): SizeSelection
     if (ratio) return { kind: 'preset', ratio, tier: '1K' }
   } else {
     const preset = PRESET_BY_SIZE.get(normalizeImageSize(size))
-    if (preset) return { kind: 'preset', ...preset }
+    if (preset) {
+      return tierFits(preset.tier, rules.maxTier)
+        ? { kind: 'preset', ...preset }
+        : { kind: 'preset', ratio: preset.ratio, tier: rules.maxTier }
+    }
   }
   return { kind: 'custom', ratio: reduceRatio(pixels.width, pixels.height) }
 }
 
 export function normalizeSizeFor(size: string, rules: SizeRules) {
-  return rules.limitTo1K ? normalizeCodexCliImageSize(size) : normalizeImageSize(size)
+  if (rules.maxTier === '1K') return normalizeCodexCliImageSize(size)
+  const normalized = normalizeImageSize(size)
+  if (rules.maxTier !== '2K') return normalized
+  const parsed = parseImageSize(normalized)
+  if (!parsed || parsed.width * parsed.height <= imageTierMaxPixels('2K')) return normalized
+  return calculateImageSize('2K', `${parsed.width}:${parsed.height}`) ?? normalized
 }
 
-/** 选中一格比例或一档分辨率后要写回的尺寸。 */
+/** 选中一格比例或一档分辨率后要写回的尺寸。超过 maxTier 的档按上限写回。 */
 export function sizeFor(tier: SizeTier, ratio: string, rules: SizeRules): string | null {
-  const size = calculateImageSize(byRatio(rules) ? '1K' : tier, ratio)
+  const capped = tierFits(tier, rules.maxTier) ? tier : rules.maxTier
+  const size = calculateImageSize(byRatio(rules) ? '1K' : capped, ratio)
   return size ? normalizeSizeFor(size, rules) : null
 }
 

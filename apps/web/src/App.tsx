@@ -17,6 +17,8 @@ import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
 import AgentJobDoneNotice from './features/agent/components/AgentJobDoneNotice'
 import SkillStarterGuide from './features/agent/components/SkillStarterGuide'
+import { AnnouncementHost } from './features/announcements/AnnouncementHost'
+import ChangelogPage from './features/announcements/ChangelogPage'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import CliConnectPage from './features/cli/CliConnectPage'
 import CliDevicePage from './features/cli/CliDevicePage'
@@ -33,6 +35,7 @@ import PricingPage from './features/pricing/PricingPage'
 import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
 import {
+  isChangelogPath,
   isCliConnectPath,
   isCliDevicePath,
   isPricingPath,
@@ -60,6 +63,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     !isTermsPath(pathname) &&
     !isPrivacyPath(pathname) &&
     !isCliDevicePath(pathname) &&
+    !isChangelogPath(pathname) &&
     !isCliConnectPath(pathname)
 
   useLayoutEffect(() => {
@@ -129,6 +133,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     }
   }, [])
 
+  if (isChangelogPath(pathname)) return <ChangelogPage />
   if (isPricingPath(pathname)) return <PricingPage />
   if (isCliConnectPath(pathname)) return <CliConnectPage />
   if (isCliDevicePath(pathname)) return <CliDevicePage />
@@ -229,6 +234,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       <Toast />
       <AgentJobDoneNotice />
       <UpdateBanner />
+      <AnnouncementHost />
       <MaskEditorModal />
       <ImageContextMenu />
     </>
