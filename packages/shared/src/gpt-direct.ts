@@ -1,8 +1,8 @@
-import { imageSizeTier, parseImageSize } from './image'
+import { imageSizeTier, imageTierMaxPixels, parseImageSize } from './image'
 
 /**
  * 可以走 OpenAI 直连的 GPT Image 模型。另一条路是 sub2api：它忽略 size 与 quality，一律出约
- * 1.57MP 一档，所以 2K、4K 与高画质只有直连兑现得了，只开给会员。
+ * 1.57MP 一档。2K、4K 与高画质只有直连兑现得了。非会员可以提交到 2K、非高画质；4K 与高画质只开给会员。
  */
 export const GPT_DIRECT_MODELS = ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'] as const
 
@@ -21,32 +21,98 @@ function tierOf(input: GptTierInput) {
   return input.mask ? '1K' : imageSizeTier(input.size)
 }
 
-/** 非会员能提交的参数：1K 档、非高画质（sub2api 就出这一档）。 */
-export function isGptBasicRequest(input: GptTierInput): boolean {
+/**
+ * sub2api 能兑现的参数：1K、非高画质。选路和结算用这个。
+ * 它不再表示「非会员可以提交」——那是 {@link isGptNonMemberRequest}。
+ */
+export function isGptSub2apiDeliverable(input: GptTierInput): boolean {
   return tierOf(input) === '1K' && input.quality !== 'high'
 }
 
-const BASIC_MAX_PIXELS = 1_572_864
+/**
+ * 旧名。语义等于 {@link isGptSub2apiDeliverable}，不要拿它做会员门禁。
+ * 保留是为了已经编进私有 overlay 的调用点还能编译。
+ */
+export function isGptBasicRequest(input: GptTierInput): boolean {
+  return isGptSub2apiDeliverable(input)
+}
+
+/** 非会员能提交的参数：档位不超过 2K，且不是高画质。4K 与 high 仍要会员。 */
+export function isGptNonMemberRequest(input: GptTierInput): boolean {
+  const tier = tierOf(input)
+  return (tier === '1K' || tier === '2K') && input.quality !== 'high'
+}
+
+/** OpenAI Images 的边长与像素下限，与 model-catalog 里 pixels wire 的 maxEdge / minPixels 一致。 */
+const OPENAI_MAX_EDGE = 3840
+const OPENAI_MIN_PIXELS = 655_360
+const OPENAI_MULTIPLE = 16
+
+function floorToMultiple(value: number): number {
+  return Math.max(OPENAI_MULTIPLE, Math.floor(value / OPENAI_MULTIPLE) * OPENAI_MULTIPLE)
+}
 
 /**
- * 把参数收到非会员那一档：超过 1K 的尺寸按原比例缩到 1K 以内（宽高取 16 的倍数），高画质改 medium。
- * 不是 GPT 直连模型、或本来就在这一档的原样返回。
+ * 按原比例缩进 2K 档，宽高取 16 的倍数，并落在 OpenAI 的边长与像素限制里。
+ * 2K 的像素上限来自 image.ts 的档位表。
  */
-export function clampGptBasicRequest<T extends GptTierInput>(model: string, request: T): T {
-  if (!isGptDirectModel(model) || isGptBasicRequest(request)) return request
+function scaleSizeToNonMemberTier(width: number, height: number): string {
+  const maxPixels = imageTierMaxPixels('2K')
+  let scale = 1
+  const pixels = width * height
+  if (pixels > maxPixels) scale = Math.min(scale, Math.sqrt(maxPixels / pixels))
+  if (width > OPENAI_MAX_EDGE) scale = Math.min(scale, OPENAI_MAX_EDGE / width)
+  if (height > OPENAI_MAX_EDGE) scale = Math.min(scale, OPENAI_MAX_EDGE / height)
+  let nextWidth = floorToMultiple(width * scale)
+  let nextHeight = floorToMultiple(height * scale)
+  while (nextWidth * nextHeight > maxPixels) {
+    if (nextWidth >= nextHeight && nextWidth > OPENAI_MULTIPLE) nextWidth -= OPENAI_MULTIPLE
+    else if (nextHeight > OPENAI_MULTIPLE) nextHeight -= OPENAI_MULTIPLE
+    else break
+  }
+  if (nextWidth * nextHeight < OPENAI_MIN_PIXELS) {
+    const grow = Math.sqrt(OPENAI_MIN_PIXELS / (nextWidth * nextHeight))
+    const ceilToEdge = (value: number) =>
+      Math.min(
+        OPENAI_MAX_EDGE,
+        Math.max(OPENAI_MULTIPLE, Math.ceil((value * grow) / OPENAI_MULTIPLE) * OPENAI_MULTIPLE),
+      )
+    nextWidth = ceilToEdge(nextWidth)
+    nextHeight = ceilToEdge(nextHeight)
+    while (nextWidth * nextHeight > maxPixels) {
+      if (nextWidth >= nextHeight && nextWidth > OPENAI_MULTIPLE) nextWidth -= OPENAI_MULTIPLE
+      else if (nextHeight > OPENAI_MULTIPLE) nextHeight -= OPENAI_MULTIPLE
+      else break
+    }
+  }
+  return `${nextWidth}x${nextHeight}`
+}
+
+/**
+ * 把参数收到非会员那一档：超过 2K 的尺寸按原比例缩到 2K 以内（宽高取 16 的倍数，
+ * 边长 ≤3840、像素 ≥655,360），高画质改 medium。
+ * 不是 GPT 直连模型、或本来就在这一档的原样返回。重复收结果不变，准备时与提交时的哈希一致。
+ */
+export function clampGptNonMemberRequest<T extends GptTierInput>(model: string, request: T): T {
+  if (!isGptDirectModel(model) || isGptNonMemberRequest(request)) return request
   let size = request.size
   const parsed = size && !request.mask ? parseImageSize(size) : null
-  if (parsed && parsed.width * parsed.height > BASIC_MAX_PIXELS) {
-    const scale = Math.sqrt(BASIC_MAX_PIXELS / (parsed.width * parsed.height))
-    const floor16 = (value: number) => Math.max(16, Math.floor((value * scale) / 16) * 16)
-    size = `${floor16(parsed.width)}x${floor16(parsed.height)}`
-  }
+  if (parsed) size = scaleSizeToNonMemberTier(parsed.width, parsed.height)
   const quality = request.quality === 'high' ? 'medium' : request.quality
+  if (size === request.size && quality === request.quality) return request
   return {
     ...request,
     ...(size !== undefined ? { size } : {}),
     ...(quality !== undefined ? { quality } : {}),
   }
+}
+
+/**
+ * 旧名。现在收到非会员上限（≤2K），不再收到 1K。
+ * 保留是为了已经编进私有 overlay 的调用点还能编译。
+ */
+export function clampGptBasicRequest<T extends GptTierInput>(model: string, request: T): T {
+  return clampGptNonMemberRequest(model, request)
 }
 
 /**
@@ -65,4 +131,12 @@ export function gptImageRateMultiplier(model: string, request: GptTierInput): nu
   const { quality } = request
   const level = quality === 'low' || quality === 'high' ? quality : 'medium'
   return GPT_IMAGE_MULTIPLIERS[tierOf(request)][level]
+}
+
+/**
+ * 智能体、阶段授权、批次和模板这些入口会先收到非会员上限，再按收后的请求计价。
+ * 报价和预扣必须用这一份，不能再写死倍率 1：2K 中画质已经是 2。
+ */
+export function gptCeilingRateMultiplier(model: string, request: GptTierInput): number {
+  return gptImageRateMultiplier(model, clampGptNonMemberRequest(model, request))
 }

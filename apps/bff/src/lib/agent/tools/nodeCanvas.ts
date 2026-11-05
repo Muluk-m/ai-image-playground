@@ -542,6 +542,8 @@ function stageExecution(
         canvasImageModel?: string
         canvasImageCount?: number
         n?: number
+        size?: string
+        quality?: string
         video?: {
           model: string
           durationSeconds: number
@@ -627,6 +629,8 @@ function stageExecution(
     model: params?.canvasImageModel?.trim() || resolveAgentModel('image', params?.model)?.model,
     count: params?.canvasImageCount ?? params?.n,
     storyboardRole: meta.storyboardRole,
+    size: params?.size,
+    quality: params?.quality,
   })
   return { ...(image ? { charge: { nodeId: node.id, ...image } } : {}), binding }
 }

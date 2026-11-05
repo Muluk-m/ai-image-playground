@@ -5,6 +5,7 @@ import {
   type AgentBatchGenerationItem,
   type AgentBatchItem,
   type AgentBatchPriceSnapshot,
+  gptCeilingRateMultiplier,
   QUEUE_MAX_INPUT_IMAGES,
 } from '@image-playground/shared'
 import { and, asc, eq, gt, inArray, isNotNull, isNull, or } from 'drizzle-orm'
@@ -291,8 +292,18 @@ async function prepareItem(
     agent: { conversationId: batch.conversation_id!, turnId: batch.origin_turn_id },
   }
 }
-async function quoteGenerationTask(tx: BffTransaction, userId: string, model: string) {
+async function quoteGenerationTask(
+  tx: BffTransaction,
+  userId: string,
+  item: AgentBatchGenerationItem,
+) {
   const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const model = item.params.model
+  // 执行时 GPT 收到 ≤2K、非高画质。复核价必须和提案、以及 createQueueTask 的预扣是同一档。
+  const unitMultiplier = gptCeilingRateMultiplier(model, {
+    size: item.params.size,
+    quality: item.params.quality,
+  })
   const decision = meteringDecisionOrDenied(
     await hooks.meteringDecision?.({
       tx,
@@ -300,7 +311,7 @@ async function quoteGenerationTask(tx: BffTransaction, userId: string, model: st
       model,
       kind: 'image',
       quantity: 1,
-      unitMultiplier: 1,
+      unitMultiplier,
     }),
     hooks.consumeUnmeteredQuota,
   )
@@ -308,9 +319,9 @@ async function quoteGenerationTask(tx: BffTransaction, userId: string, model: st
   if (decision?.kind === 'unmetered' || !isCapabilityEnabled('billing:credits'))
     return {
       estimatedCredits: 0,
-      pricing: nonBillingPriceSnapshot({ model, kind: 'image', quantity: 1, unitMultiplier: 1 }),
+      pricing: nonBillingPriceSnapshot({ model, kind: 'image', quantity: 1, unitMultiplier }),
     }
-  return hooks.quoteTask?.({ tx, userId, model, quantity: 1, unitMultiplier: 1 })
+  return hooks.quoteTask?.({ tx, userId, model, quantity: 1, unitMultiplier })
 }
 
 async function currentQuote(
@@ -344,7 +355,7 @@ async function currentQuote(
           },
           hooks,
         )
-      : await quoteGenerationTask(tx, batch.user_id, item.params.model)
+      : await quoteGenerationTask(tx, batch.user_id, item)
   if (
     !quote ||
     !expected ||
@@ -801,7 +812,7 @@ export async function repriceAgentBatch(
               },
               hooks,
             )
-          : await quoteGenerationTask(tx, userId, item.params.model)
+          : await quoteGenerationTask(tx, userId, item)
       if (!quote) throw new BatchPlanError('batch_price_changed', 409)
       totals[item.kind] += quote.estimatedCredits
       charges[item.kind] += quote.pricing.exemption === 'none' ? quote.estimatedCredits : 0

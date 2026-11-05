@@ -1,6 +1,5 @@
 import {
   AGENT_USER_MESSAGE_MAX_CHARS,
-  gptImageRateMultiplier,
   isBlankPrompt,
   SYNC_PROMPT_MAX_LENGTH,
 } from '@image-playground/shared'
@@ -75,6 +74,7 @@ import { confirmImageBatch } from '../lib/confirmImageBatch'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
 import { useGptPremiumLocked } from '../lib/gptPremium'
+import { quotedGptMultiplier } from '../lib/gptQuote'
 import {
   compressUploadFiles,
   filesFromFolderInput,
@@ -291,13 +291,20 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const batchImageCount = batchActive
     ? inputImages.length * getSubmissionImageCount(prompt, slotValues, 1)
     : 0
-  // GPT 直连模型的会员档位按倍率计价；非会员（含交给智能体的）服务端收回基础档，倍率是 1。
+  // GPT 直连按实际会执行的档计价。非会员，以及交给智能体的请求，服务端收到 ≤2K、非高画质。
   const premium = useGptPremiumLocked(
     activeView.model,
     getParamCapabilities(activeProfile, params.output_format).size,
   )
-  const unitMultiplier =
-    toCanvas || premium.locked ? 1 : gptImageRateMultiplier(activeView.model, params)
+  const unitMultiplier = quotedGptMultiplier(
+    activeView.model,
+    {
+      size: params.size,
+      quality: params.quality,
+      ...(maskDraft ? { mask: true } : {}),
+    },
+    !toCanvas && premium.highQuality,
+  )
   const submissionGuard = usePrivateSubmissionGuard({
     model: activeView.model,
     quantity: batchActive ? batchImageCount : submitImageCount,

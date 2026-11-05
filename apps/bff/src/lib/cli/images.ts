@@ -20,6 +20,7 @@ import { getDiscoveredChannels, resolveQueueModel } from '../channels'
 import { refreshInactiveModels, withoutInactiveModels } from '../model-availability'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { strictImageRequestAllowed } from '../taskSubmission'
+import { gptDirectConfigured } from '../upstream/gpt-routing'
 import { CliRequestError } from './envelope'
 
 export const CLI_PROMPT_MAX_CHARS = 32_000
@@ -290,7 +291,10 @@ export interface CliModelCapability {
   readonly typical_duration_seconds: number | null
 }
 
-/** 账号相关的能力清单：GPT 2K/4K/high 与其他模型的 4K 只对能提交的账号列出。 */
+/**
+ * 账号相关的能力清单。非会员的 GPT 列到 2K、不含高画质；4K 与高画质，以及其他模型的 4K，
+ * 只对能严格提交的账号列出。直连没开时 GPT 的 2K 兑现不了，清单里也不出现。
+ */
 export async function imageCapabilities(userId: string) {
   const models = await availableImageModels()
   const hooks = (await loadPrivateBffOverlay()).taskHooks
@@ -299,15 +303,18 @@ export async function imageCapabilities(userId: string) {
     for (const model of models) {
       const caps = model.image
       const gpt = isGptDirectModel(model.id)
-      const premium =
-        (gpt || caps.tiers.some((tier) => tier.id === '4K')) &&
-        (await strictImageRequestAllowed(tx, userId, model.provider, model.id, {
-          prompt: '',
-          ...(gpt ? { size: '2048x2048' } : { image_size: '4K' }),
-        }))
+      const memberTier = await strictImageRequestAllowed(tx, userId, model.provider, model.id, {
+        prompt: '',
+        ...(gpt ? { size: '3840x2160', quality: 'high' } : { image_size: '4K' }),
+      })
+      const direct = !gpt || gptDirectConfigured(model.id)
       const tiers = caps.tiers
         .map((tier) => tier.id)
-        .filter((id) => premium || (gpt ? id === '1K' : id !== '4K'))
+        .filter((id) => {
+          if (id === '4K') return memberTier
+          if (gpt && id !== '1K') return direct
+          return true
+        })
       // 该账号一个档位都提交不了的模型不列出，免得被当成默认模型。
       if (tiers.length === 0) continue
       const quote = await hooks.quoteTask?.({
@@ -326,7 +333,7 @@ export async function imageCapabilities(userId: string) {
         image_sizes: tiers,
         default_image_size: tiers.includes(caps.defaultTier) ? caps.defaultTier : tiers[0]!,
         qualities: (caps.quality?.values ?? []).filter(
-          (quality) => !gpt || premium || quality !== 'high',
+          (quality) => !gpt || memberTier || quality !== 'high',
         ),
         max_reference_images: caps.references.max,
         price: quote ? { estimated_credits: quote.estimatedCredits } : null,

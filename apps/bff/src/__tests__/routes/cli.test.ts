@@ -501,9 +501,9 @@ describe('capabilities and dry-run', () => {
 
 describe('CLI GPT image pricing', () => {
   it.each([
-    { image_size: '2K' },
     { image_size: '4K' },
     { quality: 'high' },
+    { image_size: '2K', quality: 'high' },
   ])('rejects non-member premium parameters %j without a task or hold', async (parameters) => {
     const user = await createUser('gpt-nonmember')
     const { access_token } = await connect(user)
@@ -519,6 +519,34 @@ describe('CLI GPT image pricing', () => {
     expect(await db.select().from(schema.generation_commands)).toHaveLength(0)
     expect(billing.reservations).toHaveLength(0)
     expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
+  })
+
+  it('accepts 2K for a non-member and prices it at the 2K medium rate', async () => {
+    const user = await createUser('gpt-nonmember-2k')
+    const { access_token } = await connect(user)
+    const body = imageJob({
+      model: 'gpt-image-2.5-flare',
+      image_size: '2K',
+      aspect_ratio: '16:9',
+      quality: 'medium',
+    })
+    const preview = await call('POST', '/v1/image-jobs/validate', {
+      body,
+      headers: bearer(access_token),
+    })
+    expect(preview.status).toBe(200)
+    expect(preview.json.data.quote).toEqual({ estimated_credits: 20 })
+    const created = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
+    expect(created.status).toBe(200)
+    const [task] = await db.select().from(schema.tasks)
+    expect(task?.request_payload).toMatchObject({
+      size: '2560x1440',
+      quality: 'medium',
+      strict_image_request: true,
+    })
+    expect(billing.reservations).toEqual([
+      { taskId: task!.id, model: 'gpt-image-2.5-flare', credits: 20, unitMultiplier: 2 },
+    ])
   })
 
   it.each([
@@ -682,7 +710,10 @@ describe('CLI GPT image pricing', () => {
     const user = await createUser('gpt-entitlement-change')
     billing.members.add(user.id)
     const { access_token } = await connect(user)
-    const body = imageJob({ model: 'gpt-image-2.5-flare', image_size: '2K' })
+    const body = imageJob({
+      model: 'gpt-image-2.5-flare',
+      image_size: changed === 'membership' ? '4K' : '2K',
+    })
     const preview = await call('POST', '/v1/image-jobs/validate', {
       body,
       headers: bearer(access_token),
@@ -801,8 +832,8 @@ describe('CLI GPT image pricing', () => {
     })
     expect(created.status).toBe(200)
     const [task] = await db.select().from(schema.tasks)
-    expect(task?.request_payload).toMatchObject({ size: '1664x928', quality: 'medium' })
-    expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits: 10 }])
+    expect(task?.request_payload).toMatchObject({ size: '2720x1536', quality: 'medium' })
+    expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits: 20 }])
   })
 
   it('lists only the GPT tiers and qualities the account may submit', async () => {
@@ -811,7 +842,7 @@ describe('CLI GPT image pricing', () => {
     const caps = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
     expect(caps.json.data.models[1]).toMatchObject({
       id: 'gpt-image-2.5-flare',
-      image_sizes: ['1K'],
+      image_sizes: ['1K', '2K'],
       qualities: ['auto', 'low', 'medium'],
     })
     billing.members.add(user.id)

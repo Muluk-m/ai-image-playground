@@ -124,6 +124,16 @@ describe('智能体输入框的生成设置', () => {
     expect(trigger().getAttribute('aria-expanded')).toBe('false')
   })
 
+  it('GPT 直连换比例时保住 2K，不再收成 1K', () => {
+    useProfile('openai-queue', 'gpt-image-2.5-flare')
+    useStore.setState({ params: { ...DEFAULT_PARAMS, size: '2560x1440' } })
+    render()
+    toggle()
+
+    act(() => option('画幅', '1:1').click())
+    expect(useStore.getState().params.size).toBe('2048x2048')
+  })
+
   it('「恢复默认」回到智能比例与中等思考', () => {
     useStore.setState({ params: { ...DEFAULT_PARAMS, size: '2560x1440', quality: 'high' } })
     useAgentStore.setState({ thinkingDepth: 'deep' })
