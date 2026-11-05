@@ -1157,7 +1157,8 @@ async function callUpstreamVia(
  * fan-out 合并会丢掉 size / quality / output_format，所以把计划里的生效参数补回去。
  */
 function finishImageResult(result: UpstreamCallResult, plan: AdapterPlan): UpstreamCallResult {
-  return plan.calls.length > 1 ? stampReceipt(result, plan) : result
+  // 单次调用（含原生 n）也写回执：生效参数以计划实际发出的为准。
+  return stampReceipt(result, plan)
 }
 
 /** 轮询退避（ms），index 超出取末位。上游 202 响应的 `Retry-After` 也是 3。 */
