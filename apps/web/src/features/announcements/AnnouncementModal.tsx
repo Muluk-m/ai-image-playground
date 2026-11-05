@@ -3,11 +3,11 @@ import { useEffect, useRef } from 'react'
 import { Button } from '../../components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '../../components/ui/sheet'
 import { useTranslation } from '../../i18n'
+import { CHANGELOG_PATH } from '../../lib/appPaths'
 import { navigate } from '../../lib/pathname'
 import { AnnouncementBody } from './AnnouncementBody'
-import { FILTER_KEY } from './AnnouncementDrawer'
 import { rememberAnnouncementModalShown } from './client'
-import { setAnnouncementPanelOpen } from './panel'
+import { FILTER_KEY } from './labels'
 
 function formatWhen(ms: number | null, locale: string): string {
   if (ms == null) return ''
@@ -69,7 +69,7 @@ export function AnnouncementModal({
             className="mt-2 h-auto px-0 text-muted-foreground"
             onClick={() => {
               onClose()
-              setAnnouncementPanelOpen(true)
+              navigate(CHANGELOG_PATH)
             }}
           >
             {t('more', { count: extraUnread })}

@@ -505,9 +505,7 @@ export function AnnouncementEditor({ id }: { id: string }) {
             </p>
           </div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <p className="text-xs text-muted-foreground">
-            重要公告只弹一次。普通公告只出现在侧栏「更新」和更新记录。
-          </p>
+          <p className="text-xs text-muted-foreground">重要公告只弹一次。普通公告出现在更新页。</p>
         </form>
 
         <aside className="overflow-hidden rounded-xl border bg-card">
@@ -518,7 +516,7 @@ export function AnnouncementEditor({ id }: { id: string }) {
               value={previewMode}
               onChange={(mode) => setPreviewMode(mode as 'list' | 'modal')}
               options={[
-                { value: 'list', label: '侧栏更新列表' },
+                { value: 'list', label: '更新页' },
                 { value: 'modal', label: '弹窗' },
               ]}
             />
