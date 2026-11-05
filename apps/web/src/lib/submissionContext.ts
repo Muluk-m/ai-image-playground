@@ -1,5 +1,6 @@
 import { useStore } from '../store'
 import { accountScope } from './authScope'
+import { subscribePathname } from './pathname'
 
 export interface SubmissionContextWatch {
   isCurrent: () => boolean
@@ -29,11 +30,14 @@ export function watchSubmissionContext(
   }
   const unsubscribe = useStore.subscribe(check)
   // 只有绑定了页面路径才需要盯地址栏；其余条件都在 store 里，订阅已经覆盖。
+  // pushState 不发 popstate：同样盯住 History API 的写入，别处改地址也算离开。
+  const unsubscribePath = sourcePath ? subscribePathname(check) : undefined
   if (sourcePath) window.addEventListener('popstate', check)
   return {
     isCurrent: () => !left && matches(),
     dispose: () => {
       unsubscribe()
+      unsubscribePath?.()
       if (sourcePath) window.removeEventListener('popstate', check)
     },
   }

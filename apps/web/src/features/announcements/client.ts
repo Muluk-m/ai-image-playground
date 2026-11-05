@@ -80,19 +80,25 @@ export async function postAnnouncementReads(
   return response.ok
 }
 
+/**
+ * 标已读。永不抛错：调用方都是 `void markAnnouncementFeed(...)`。
+ * - 匿名：写本地已读记录（只有匿名用户会读它）。
+ * - 登录：服务端是唯一落点。同步失败不写本地——那份记录登录态不读，还会被之后的匿名用户当成自己的。
+ *   本会话内的已读由 panel 记着，刷新后下一次打开更新页会再标一次。
+ * - 内存列表总是更新，但只更新发起请求时的那个账号。
+ */
 export async function markAnnouncementFeed(
   ids: readonly string[],
   dismissed: boolean,
   signedIn: boolean,
 ): Promise<void> {
   if (!ids.length) return
-  // 请求发出时的账号代；回来时账号换了就不能把结果写到别人的列表上。
   const feed = currentAnnouncementFeed()
-  if (signedIn) {
-    const ok = await postAnnouncementReads(ids, dismissed)
-    if (!ok) writeLocalAnnouncementReads(ids, dismissed)
-  } else {
-    writeLocalAnnouncementReads(ids, dismissed)
+  try {
+    if (signedIn) await postAnnouncementReads(ids, dismissed)
+    else writeLocalAnnouncementReads(ids, dismissed)
+  } catch {
+    // 离线或存储不可用：保持内存里的状态，不向外抛。
   }
   applyAnnouncementRead(ids, dismissed, feed)
 }
