@@ -1,5 +1,6 @@
 import {
   APP_MODE_PATHS,
+  CHANGELOG_PATH,
   CLI_CONNECT_PATH,
   CLI_DEVICE_PATH,
   LEGACY_PROJECTS_PATH,
@@ -34,6 +35,7 @@ export function pagesRedirects(): string {
     PRIVACY_PATH,
     CLI_CONNECT_PATH,
     CLI_DEVICE_PATH,
+    CHANGELOG_PATH,
   ]
   // Pages redirects .html targets to clean URLs, even inside a 200 rewrite.
   const rules = routes.flatMap((route) => [

@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext'
 import { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 import AgentJobInbox from '../features/agent/components/AgentJobInbox'
 import { agentPanelPresent } from '../features/agent/panelLayout'
+import { AnnouncementMenuRow } from '../features/announcements/AnnouncementEntry'
 import CanvasAssetsEntryButton from '../features/canvas/components/CanvasAssetsEntryButton'
 import CliConnectionsDialog from '../features/cli/CliConnectionsDialog'
 import { useWorkspaceViewport } from '../hooks/useMobileWorkspace'
@@ -236,6 +237,7 @@ export default function Header() {
                     itemClassName="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
                     iconClassName="size-4"
                   />
+                  <AnnouncementMenuRow onOpen={() => setAccountMenuOpen(false)} />
                   <Button
                     type="button"
                     role="menuitem"

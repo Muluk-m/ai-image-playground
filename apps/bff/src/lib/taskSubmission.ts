@@ -13,13 +13,14 @@ import type {
 } from '@image-playground/shared'
 import {
   billedStageQuantity,
-  clampGptBasicRequest,
+  clampGptNonMemberRequest,
   DEFAULT_IMAGE_MODERATION,
   imageRateMultiplier,
   imageSizeTier,
   isBlankPrompt,
-  isGptBasicRequest,
   isGptDirectModel,
+  isGptNonMemberRequest,
+  isGptSub2apiDeliverable,
   QUEUE_TIMEOUTS,
   stageAuthorizedVideoDuration,
   videoModelSupportOf,
@@ -35,7 +36,7 @@ import { canonicalJson } from './canonicalJson'
 import { isCapabilityEnabled } from './capabilities'
 import { declaredImageSizes } from './channels'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
-import { alignGptRequestToMembership } from './gpt-membership'
+import { alignGptRequestToMembership, isActiveMember } from './gpt-membership'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
 import { meteringDecisionOrDenied } from './metering-decision'
 import { modelUnavailable } from './model-availability'
@@ -355,10 +356,11 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
 
 /**
  * Read, transform and archive image bytes before acquiring caller transaction locks.
- * 预先准备的入口（批量执行、自动提交、灵感套用）一律按基础档计价执行，见 {@link alignGptSubmission}。
+ * 预先准备的入口（批量执行、自动提交、灵感套用）一律收到非会员上限，见 {@link alignGptSubmission}。
  */
-export function prepareQueueTask(input: CreateQueueTaskInput) {
-  return prepareAlignedQueueTask(input.strictImageRequest ? input : basicGptInput(input))
+export async function prepareQueueTask(input: CreateQueueTaskInput) {
+  const aligned = input.strictImageRequest ? input : await alignNonStrictImageInput(input, true)
+  return prepareAlignedQueueTask(aligned)
 }
 
 async function prepareAlignedQueueTask(input: CreateQueueTaskInput) {
@@ -450,7 +452,10 @@ export async function premiumRequestAllowed(
   })
 }
 
-/** CLI uses the existing transactional subscription gate for every GPT premium tier, not only 4K. */
+/**
+ * CLI 不降级。GPT 的 2K、非高画质不要求订阅，但只有直连兑现得了，直连没开就拒绝。
+ * 4K 或高画质仍要有效订阅。Gemini 只拦 4K。
+ */
 export async function strictImageRequestAllowed(
   tx: BffTransaction,
   userId: string,
@@ -458,10 +463,10 @@ export async function strictImageRequestAllowed(
   model: string,
   request: SubmitRequest,
 ): Promise<boolean> {
-  if (isGptDirectModel(model) && !isGptBasicRequest(request)) {
+  if (isGptDirectModel(model) && !isGptSub2apiDeliverable(request)) {
     if (!gptDirectConfigured(model)) return false
-    // All GPT premium options require the same active subscription as 4K. Older overlays without
-    // that transactional entitlement cannot authorize a strict request; never silently downgrade it.
+    if (isGptNonMemberRequest(request)) return true
+    // 4K 与高画质跟网站的 4K 用同一道订阅门。没有这道钩子的旧 overlay 不能授权严格请求。
     if (!(await loadPrivateBffOverlay()).taskHooks.canSubmitTask) return false
     return premiumRequestAllowed(tx, userId, model, request)
   }
@@ -471,25 +476,51 @@ export async function strictImageRequestAllowed(
   )
 }
 
-/** GPT 直连模型收到基础档（1K、非高画质）；收法是确定的，重复收结果不变，准备时与提交时的哈希一致。 */
-function basicGptInput(input: CreateQueueTaskInput): CreateQueueTaskInput {
+/** GPT 直连模型收到非会员上限（≤2K、非高画质）。收法确定，重复收结果不变。 */
+function clampGptInput(input: CreateQueueTaskInput): CreateQueueTaskInput {
   if (input.video) return input
-  const request = clampGptBasicRequest(input.model, input.request)
+  const request = clampGptNonMemberRequest(input.model, input.request)
   return request === input.request ? input : { ...input, request }
 }
 
 /**
- * GPT 直连模型的 2K/4K/高画质在网站直接提交时开给会员，非会员静默收到基础档。
- * CLI 严格保留参数，在提交事务内重新授权；不能兑现就拒绝。其他入口仍把 GPT 收到基础档再计价
- * （倍率因此是 1）。Gemini 不收档，按请求的 image_size 取倍率；提案侧用 preparedImageRateMultiplier，
+ * 非严格入口里，非会员的 Gemini `image_size: 4K` 静默改成 2K。
+ * 会员保持 4K，后面的订阅门照旧。CLI 不走这里。
+ * Gemini 不收其余档位，按请求的 image_size 取倍率；提案侧用 preparedImageRateMultiplier，
  * 与这里之后的 pricingOf 一致。
  */
+async function downgradeGeminiForNonMember(
+  input: CreateQueueTaskInput,
+): Promise<CreateQueueTaskInput> {
+  if (input.provider !== 'gemini' || input.request.image_size !== '4K') return input
+  if (await isActiveMember(input.userId)) return input
+  return { ...input, request: { ...input.request, image_size: '2K' } }
+}
+
+/**
+ * 网站直接提交：GPT 的 4K / 高画质开给会员，非会员静默收到 ≤2K、非高画质。
+ * CLI 严格保留参数，在提交事务内重新授权；不能兑现就拒绝。
+ * 智能体、阶段授权、调用方自带事务与预先准备的提交，GPT 一律收到非会员上限
+ * （准备时与提交时用同一套收法，哈希才对得上）。Gemini 4K 只在非会员时降到 2K。
+ */
+async function alignNonStrictImageInput(
+  input: CreateQueueTaskInput,
+  ceiling: boolean,
+): Promise<CreateQueueTaskInput> {
+  if (input.video) return input
+  const gptAligned = ceiling
+    ? clampGptInput(input)
+    : await (async () => {
+        const request = await alignGptRequestToMembership(input.model, input.request, input.userId)
+        return request === input.request ? input : { ...input, request }
+      })()
+  return downgradeGeminiForNonMember(gptAligned)
+}
+
 async function alignGptSubmission(input: CreateQueueTaskInput): Promise<CreateQueueTaskInput> {
   if (input.video || input.strictImageRequest) return input
-  if (input.prepared || input.tx || input.agent || input.stageAuthorization)
-    return basicGptInput(input)
-  const request = await alignGptRequestToMembership(input.model, input.request, input.userId)
-  return request === input.request ? input : { ...input, request }
+  const ceiling = Boolean(input.prepared || input.tx || input.agent || input.stageAuthorization)
+  return alignNonStrictImageInput(input, ceiling)
 }
 
 export async function createQueueTask(raw: CreateQueueTaskInput): Promise<CreateQueueTaskOutcome> {

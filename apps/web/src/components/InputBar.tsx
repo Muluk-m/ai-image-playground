@@ -75,7 +75,7 @@ import { confirmImageBatch } from '../lib/confirmImageBatch'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
 import { useGptPremiumLocked } from '../lib/gptPremium'
-import { composerImageRate } from '../lib/imageCharge'
+import { quotedGptMultiplier } from '../lib/gptQuote'
 import {
   compressUploadFiles,
   filesFromFolderInput,
@@ -292,15 +292,17 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const batchImageCount = batchActive
     ? inputImages.length * getSubmissionImageCount(prompt, slotValues, 1)
     : 0
-  // 会员的 GPT 直连按档位与画质计价。非会员，以及交给智能体的 GPT，服务端收回基础档，倍率是 1。
-  // Gemini 按请求档位计价，交给智能体也不收回。
+  // GPT 直连按实际会执行的档计价。非会员，以及交给智能体的请求，服务端收到 ≤2K、非高画质。
+  // Gemini 按请求档位计价（渠道没开放的档收到最近的已开放档）。
   const premium = useGptPremiumLocked(
     activeView.model,
     getParamCapabilities(activeProfile, params.output_format).size,
   )
-  const requestedRate = composerImageRate(activeView.model, params)
-  const unitMultiplier =
-    isGptDirectModel(activeView.model) && (toCanvas || premium.locked) ? 1 : requestedRate
+  const unitMultiplier = quotedGptMultiplier(
+    activeView.model,
+    { ...params, ...(maskDraft ? { mask: true } : {}) },
+    !toCanvas && premium.highQuality,
+  )
   const submissionGuard = usePrivateSubmissionGuard({
     model: activeView.model,
     quantity: batchActive ? batchImageCount : submitImageCount,
