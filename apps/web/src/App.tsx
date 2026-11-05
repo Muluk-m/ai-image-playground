@@ -18,6 +18,7 @@ import UpdateBanner from './components/UpdateBanner'
 import AgentJobDoneNotice from './features/agent/components/AgentJobDoneNotice'
 import SkillStarterGuide from './features/agent/components/SkillStarterGuide'
 import CanvasMode from './features/canvas/components/CanvasMode'
+import CliConnectPage from './features/cli/CliConnectPage'
 import CliDevicePage from './features/cli/CliDevicePage'
 import ImageExportDialog from './features/image-export/ImageExportDialog'
 import ExplorePage from './features/inspiration/components/ExplorePage'
@@ -31,7 +32,13 @@ import SaveTemplateDialog from './features/library/components/SaveTemplateDialog
 import PricingPage from './features/pricing/PricingPage'
 import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
-import { isCliDevicePath, isPricingPath, isPrivacyPath, isTermsPath } from './lib/appPaths'
+import {
+  isCliConnectPath,
+  isCliDevicePath,
+  isPricingPath,
+  isPrivacyPath,
+  isTermsPath,
+} from './lib/appPaths'
 import { dragTargetIsImage } from './lib/dragTarget'
 import { installWorkbenchNavigation } from './lib/navigation/workbenchNavigation'
 import { usePathname } from './lib/pathname'
@@ -52,7 +59,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     !isPricingPath(pathname) &&
     !isTermsPath(pathname) &&
     !isPrivacyPath(pathname) &&
-    !isCliDevicePath(pathname)
+    !isCliDevicePath(pathname) &&
+    !isCliConnectPath(pathname)
 
   useLayoutEffect(() => {
     const root = document.documentElement
@@ -122,6 +130,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   }, [])
 
   if (isPricingPath(pathname)) return <PricingPage />
+  if (isCliConnectPath(pathname)) return <CliConnectPage />
   if (isCliDevicePath(pathname)) return <CliDevicePage />
   if (isTermsPath(pathname) || isPrivacyPath(pathname)) return <LegalPage />
 
