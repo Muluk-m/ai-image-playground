@@ -269,6 +269,11 @@ deploy_lock_holder_alive() {
 # the first one finished. A holder whose process is gone is taken over; there is deliberately no
 # takeover based on how long the lock has been held, because a normal rollout runs for well over
 # ten minutes and such a timer is itself a way to end up with two of them.
+#
+# A lock that a live process holds returns DEPLOY_LOCK_BUSY (75, EX_TEMPFAIL): nothing was
+# changed, the release is fine, and the same command can simply be run again once the holder
+# is done. Every other failure returns 1. Callers must pass the status through.
+DEPLOY_LOCK_BUSY=75
 acquire_deploy_lock() {
   lock_dir=$1
   lock_what=$2
@@ -289,20 +294,20 @@ acquire_deploy_lock() {
       return 1
     fi
     if deploy_lock_holder_alive "$lock_dir"; then
-      echo "Refusing to start: another rollout holds $lock_dir." >&2
+      echo "Refusing to start: another rollout holds $lock_dir. This is lock contention, not a fault in this release." >&2
       if [ -r "$lock_dir/owner" ]; then
         sed 's/^/  /' "$lock_dir/owner" >&2
       else
         echo "  (no owner file yet: the other rollout is still taking the lock)" >&2
       fi
-      echo "Wait for it to finish. If you are certain nothing is running, remove $lock_dir." >&2
-      return 1
+      echo "Nothing was changed. Run the same command again once it finishes. If you are certain nothing is running, remove $lock_dir." >&2
+      return "$DEPLOY_LOCK_BUSY"
     fi
     echo "stale lock in $lock_dir: holder pid $(deploy_lock_field "$lock_dir/owner" pid) is gone, taking it over"
     rm -rf "$lock_dir"
   done
-  echo "Refusing to start: lost the race for $lock_dir to another rollout." >&2
-  return 1
+  echo "Refusing to start: lost the race for $lock_dir to another rollout. Run the same command again once it finishes." >&2
+  return "$DEPLOY_LOCK_BUSY"
 }
 
 # release_deploy_lock <lock-dir> removes the lock only when this process is the one holding it,
@@ -314,6 +319,76 @@ release_deploy_lock() {
     rm -rf "$1"
   fi
   return 0
+}
+
+# deploy_pid_is_ancestor <pid> succeeds when <pid> is a proper ancestor of this process. Parents
+# come from /proc where it exists (Linux) and from `ps` elsewhere (macOS). If neither answers,
+# the answer is no, which callers treat as "not inherited": the safe direction.
+deploy_pid_is_ancestor() {
+  ancestor_target=$1
+  ancestor_pid=$$
+  ancestor_depth=0
+  while [ "$ancestor_depth" -lt 32 ]; do
+    ancestor_depth=$((ancestor_depth + 1))
+    ancestor_stat=${DEPLOY_PROC_ROOT:-/proc}/$ancestor_pid/stat
+    if [ -r "$ancestor_stat" ]; then
+      # Field 4 of /proc/<pid>/stat; see deploy_process_token for why the comm field is dropped.
+      ancestor_pid=$(awk '{ sub(/^.*\) /, ""); print $2 }' "$ancestor_stat")
+    else
+      ancestor_pid=$(ps -o ppid= -p "$ancestor_pid" 2>/dev/null | tr -d ' ')
+    fi
+    case "$ancestor_pid" in '' | *[!0-9]*) return 1 ;; esac
+    [ "$ancestor_pid" != "$ancestor_target" ] || return 0
+    [ "$ancestor_pid" -gt 1 ] || return 1
+  done
+  return 1
+}
+
+# export_deploy_host_lock publishes this process as the holder of the host lock to its children:
+# DEPLOY_HOST_LOCK_PID is the holder and DEPLOY_HOST_LOCK_TOKEN is the process identity recorded
+# in the owner file. Call it only after acquire_deploy_lock "$deploy_lock" succeeded.
+export_deploy_host_lock() {
+  DEPLOY_HOST_LOCK_PID=$$
+  DEPLOY_HOST_LOCK_TOKEN=$(deploy_process_token "$$")
+  export DEPLOY_HOST_LOCK_PID DEPLOY_HOST_LOCK_TOKEN
+}
+
+# deploy_host_lock_inherited <lock-dir> succeeds only when an ancestor of this process really
+# holds the lock. The two environment variables are a claim, never proof: a hand-run command can
+# copy a live holder's pid, or inherit stale values from an old shell. So the claim has to match
+# the owner file (pid and process identity), that process has to be alive with the same identity,
+# and it has to be one of this process's ancestors. Anything that cannot be verified is not
+# inherited, and the caller takes the lock the normal way.
+deploy_host_lock_inherited() {
+  case "${DEPLOY_HOST_LOCK_PID:-}" in '' | *[!0-9]*) return 1 ;; esac
+  [ "$(deploy_lock_field "$1/owner" pid)" = "$DEPLOY_HOST_LOCK_PID" ] || return 1
+  [ "${DEPLOY_HOST_LOCK_TOKEN+set}" = set ] || return 1
+  inherit_owner_token=$(deploy_lock_field "$1/owner" token)
+  [ "$DEPLOY_HOST_LOCK_TOKEN" = "$inherit_owner_token" ] || return 1
+  kill -0 "$DEPLOY_HOST_LOCK_PID" 2>/dev/null || return 1
+  inherit_live_token=$(deploy_process_token "$DEPLOY_HOST_LOCK_PID")
+  # An owner token of `-` or empty means the holder could not read one (no /proc), as in
+  # deploy_lock_holder_alive: then only the ancestor check below stands.
+  if [ -n "$inherit_live_token" ] && [ -n "$inherit_owner_token" ] && [ "$inherit_owner_token" != '-' ] &&
+    [ "$inherit_live_token" != "$inherit_owner_token" ]; then
+    return 1
+  fi
+  deploy_pid_is_ancestor "$DEPLOY_HOST_LOCK_PID"
+}
+
+# acquire_host_deploy_lock <description> takes the host deploy lock for an entry that moves
+# production, unless an ancestor (vps-deploy.sh, or app-compose.sh up|rollback) already holds it.
+# Sets host_lock_inherited=true|false. On a fresh acquisition it publishes the credential for the
+# child processes. The status is acquire_deploy_lock's: 75 means busy and nothing was changed.
+# shellcheck disable=SC2034  # host_lock_inherited is read by the sourcing script.
+acquire_host_deploy_lock() {
+  if deploy_host_lock_inherited "$deploy_lock"; then
+    host_lock_inherited=true
+    return 0
+  fi
+  host_lock_inherited=false
+  acquire_deploy_lock "$deploy_lock" "$1" || return $?
+  export_deploy_host_lock
 }
 
 # should_prune_build_cache <free-gb> <threshold-gb>

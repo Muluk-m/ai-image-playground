@@ -282,6 +282,8 @@ scripts/app-compose.sh rollback <project> <旧镜像>
 
 不手工修改 `current`、`route.json`、`activated/` 或 `legacy-origin`。route 缺失或损坏且仍有受管容器时，脚本保留实例并报告错误，不能回退到首次安装。部署锁记录进程身份，后续重跑可以回收已退出进程留下的锁；无法确定持有者的旧锁继续阻塞。
 
+**部署锁与撞锁**：测试和生产共用 VPS 上的主机锁 `deploy.lock`，`vps-deploy.sh` 与 `rollout-runtime.sh` 都要先拿到它（构建机另有独立的镜像构建锁）。`app-compose.sh up|rollback` 手工入口在动任何容器之前（包括 log-collector 和首次安装）就要拿主机锁，随后启动的 `rollout-runtime.sh` 继承它；`rollout-runtime.sh` 单独手工运行时自己拿。继承靠环境变量 `DEPLOY_HOST_LOCK_PID` 与 `DEPLOY_HOST_LOCK_TOKEN`（锁 owner 文件里的进程标识），但它们只是声明：必须与 owner 文件的 pid 和 token 一致、持有进程仍活着且标识未变、并且该进程确实是当前进程的祖先，三者缺一就不继承，按正常流程抢锁（被占用则 75）。因此手工设置同一个 pid 或沿用旧 shell 里残留的变量都绕不过锁。锁被活着的进程持有时不排队（排队的发布会在前一个结束后把生产带到另一个提交），立即以退出码 75 失败并打印持有者，什么都没改动：这是撞锁，不是版本故障。接收入口此时删除刚解开的发布目录，Deploy 工作流报「VPS deploy lock is held」，等持有者结束后重跑同一 run 即可。撞锁以外的失败仍按原流程保留 `.failed-run-<run_id>`。直接 `compose`、`docker` 命令不受锁保护，不属于支持的发布或回滚路径。
+
 运行中镜像不得删除。回滚优先使用 VPS 本地保留的镜像。本地镜像缺失时，由当前安全发布工具按已验证 digest 重新拉取，再执行回滚。GHCR 镜像清理不属于本流程。
 
 旧的 `vps-deploy.sh all [git-ref]` 不再适用，必须传数据发布目录；VPS 旧检出中的入口脚本也不再作为 CI runtime。固定 runtime 位于 `~/deploy-runtime`，更新时先保留带时间戳的备份目录。备份、恢复及旧备用启停见[灾备手册](cold-recovery.md)。

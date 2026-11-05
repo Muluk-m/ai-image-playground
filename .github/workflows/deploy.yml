@@ -172,11 +172,17 @@ jobs:
           umask 077
           printf '%s\n' "$VPS_SSH_KEY" > "$RUNNER_TEMP/vps-key"
           printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/vps-known-hosts"
+          status=0
           tar -C "$RUNNER_TEMP/$RELEASE_ID" -czf - . |
             ssh -i "$RUNNER_TEMP/vps-key" -o IdentitiesOnly=yes -o BatchMode=yes \
               -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/vps-known-hosts" \
               -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
-              "$VPS_SSH_USER@$VPS_SSH_HOST" "deploy $RELEASE_ID paid $GITHUB_RUN_ID"
+              "$VPS_SSH_USER@$VPS_SSH_HOST" "deploy $RELEASE_ID paid $GITHUB_RUN_ID" || status=$?
+          # 75: another deploy holds the host lock; nothing was changed. Not a release fault.
+          if [ "$status" -eq 75 ]; then
+            echo "::error::VPS deploy lock is held by another rollout (test and production share one host lock). Nothing was changed; re-run this workflow once that deploy finishes."
+          fi
+          exit "$status"
       - name: Remove the SSH key
         if: always()
         run: rm -f "$RUNNER_TEMP/vps-key"

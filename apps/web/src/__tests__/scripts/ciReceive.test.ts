@@ -98,6 +98,15 @@ describe('ci-receive.sh', () => {
     expect(readdirSync(releases).sort()).toEqual([id, `${id}.failed-run-7`])
   })
 
+  it('drops the release when the host deploy lock was busy, so the same run can be retried', () => {
+    const busy = receive(`deploy ${id} test 7`, releaseTar(), { TEST_DEPLOY_EXIT: '75' }, 'test')
+    expect(busy.status).toBe(75)
+    expect(busy.stderr).toContain('Deploy lock busy')
+    expect(readdirSync(releases)).toEqual([])
+    expect(receive(`deploy ${id} test 7`, releaseTar(), {}, 'test').status).toBe(0)
+    expect(readdirSync(releases)).toEqual([id])
+  })
+
   it('cleans up incomplete data before invoking the fixed runtime', () => {
     const dir = join(root, 'incomplete')
     mkdirSync(dir)
