@@ -6,6 +6,8 @@ import {
   type GenerationActor,
   type GenerationTaskFilters,
   type GenerationTasksResult,
+  type GenerationUsersOverview,
+  type OverviewActivityResult,
   type TimeWindow,
   type TodayErrorItem,
   type TodayErrorsResult,
@@ -45,11 +47,55 @@ function modelFailures(rows: Row[]): Map<string, TodayModelFailure[]> {
 }
 
 export async function getTodayOverview(now = Date.now()): Promise<TodayOverviewResult> {
-  const window = todayWindow(now)
+  return getGenerationOverview(todayWindow(now))
+}
+
+export async function getGenerationOverview(window: TimeWindow): Promise<TodayOverviewResult> {
   const from = new Date(window.from)
   const to = new Date(window.to)
-  const [actorRows, modelRows, failureRows] = await Promise.all([
+  const [overview, modelRows, failureRows] = await Promise.all([
+    getGenerationUsers(window),
     getDbHandle().db.execute(sql`
+      SELECT model,
+        COUNT(*) AS tasks,
+        COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+        COUNT(*) FILTER (WHERE status = 'failed') AS failed,
+        COALESCE(SUM(upstream_invocation_count), 0) AS upstream_invocations
+      FROM queue_tasks
+      WHERE submitted_at >= ${from} AND submitted_at <= ${to}
+      GROUP BY model
+      ORDER BY COUNT(*) DESC, model
+    `),
+    getDbHandle().db.execute(sql`
+      SELECT model,
+        COALESCE(error_type, 'unknown') AS error_type,
+        COUNT(*) AS count
+      FROM queue_tasks
+      WHERE submitted_at >= ${from} AND submitted_at <= ${to}
+        AND status = 'failed'
+      GROUP BY model, COALESCE(error_type, 'unknown')
+    `),
+  ])
+  const failuresByModel = modelFailures(failureRows as unknown as Row[])
+  return {
+    ...overview,
+    models: (modelRows as unknown as Row[]).map(
+      (row): TodayModelStat => ({
+        model: String(row.model),
+        tasks: Number(row.tasks),
+        completed: Number(row.completed),
+        failed: Number(row.failed),
+        upstream_invocations: Number(row.upstream_invocations),
+        failures: failuresByModel.get(String(row.model)) ?? [],
+      }),
+    ),
+  }
+}
+
+export async function getGenerationUsers(window: TimeWindow): Promise<GenerationUsersOverview> {
+  const from = new Date(window.from)
+  const to = new Date(window.to)
+  const actorRows = await getDbHandle().db.execute(sql`
     WITH actors AS (
       SELECT CASE WHEN t.user_id IS NOT NULL THEN 'user'
         WHEN t.device_id IS NOT NULL THEN 'device' ELSE 'unassigned' END AS kind,
@@ -76,43 +122,11 @@ export async function getTodayOverview(now = Date.now()): Promise<TodayOverviewR
     LEFT JOIN admin_user_notes n ON n.user_id = u.id
     ORDER BY a.last_submitted_at DESC, a.kind, a.actor_id
     LIMIT ${ACTOR_LIMIT}
-  `),
-    getDbHandle().db.execute(sql`
-      SELECT model,
-        COUNT(*) AS tasks,
-        COUNT(*) FILTER (WHERE status = 'completed') AS completed,
-        COUNT(*) FILTER (WHERE status = 'failed') AS failed,
-        COALESCE(SUM(upstream_invocation_count), 0) AS upstream_invocations
-      FROM queue_tasks
-      WHERE submitted_at >= ${from} AND submitted_at <= ${to}
-      GROUP BY model
-      ORDER BY COUNT(*) DESC, model
-    `),
-    getDbHandle().db.execute(sql`
-      SELECT model,
-        COALESCE(error_type, 'unknown') AS error_type,
-        COUNT(*) AS count
-      FROM queue_tasks
-      WHERE submitted_at >= ${from} AND submitted_at <= ${to}
-        AND status = 'failed'
-      GROUP BY model, COALESCE(error_type, 'unknown')
-    `),
-  ])
+  `)
   const rows = actorRows as unknown as Row[]
   const totals = rows[0] ?? {}
-  const failuresByModel = modelFailures(failureRows as unknown as Row[])
   return {
     window,
-    models: (modelRows as unknown as Row[]).map(
-      (row): TodayModelStat => ({
-        model: String(row.model),
-        tasks: Number(row.tasks),
-        completed: Number(row.completed),
-        failed: Number(row.failed),
-        upstream_invocations: Number(row.upstream_invocations),
-        failures: failuresByModel.get(String(row.model)) ?? [],
-      }),
-    ),
     summary: {
       users: Number(totals.users ?? 0),
       devices: Number(totals.devices ?? 0),
@@ -387,6 +401,69 @@ function mapGenerationTask(row: Row) {
     user_id: nullableText(row.user_id),
     device_id: nullableText(row.device_id),
     username: nullableText(row.username),
+  }
+}
+
+export async function getOverviewActivity(window: TimeWindow): Promise<OverviewActivityResult> {
+  const from = new Date(window.from)
+  const to = new Date(window.to)
+  const db = getDbHandle().db
+  const [tasks, server, client] = await Promise.all([
+    db.execute(sql`
+      ${taskSelect}
+      WHERE t.submitted_at >= ${from} AND t.submitted_at <= ${to}
+      ORDER BY t.submitted_at DESC, t.id DESC LIMIT 10
+    `),
+    db.execute(sql`
+      SELECT id, at, service, message, task_id, request_id, instance,
+        COALESCE(fields->>'stack', fields->'err'->>'stack') AS stack,
+        COUNT(*) OVER() AS total
+      FROM server_logs
+      WHERE at >= ${from} AND at <= ${to}
+        AND ${effectiveLogLevel} IN ('error', 'fatal')
+      ORDER BY at DESC, id DESC LIMIT 5
+    `),
+    db.execute(sql`
+      SELECT e.id, e.received_at AS at, e.fingerprint, e.stack, e.user_id, e.device_id, u.username,
+        CASE WHEN e.name IS NULL THEN e.message ELSE e.name || ': ' || e.message END AS message,
+        COUNT(*) OVER() AS total
+      FROM client_errors e LEFT JOIN users u ON u.id = e.user_id
+      WHERE e.received_at >= ${from} AND e.received_at <= ${to}
+      ORDER BY e.received_at DESC, e.id DESC LIMIT 5
+    `),
+  ])
+  const taskRows = tasks as unknown as Row[]
+  const serverRows = server as unknown as Row[]
+  const clientRows = client as unknown as Row[]
+  return {
+    window,
+    tasks: taskRows.map(mapGenerationTask),
+    server: {
+      total: Number(serverRows[0]?.total ?? 0),
+      entries: serverRows.map((row) => ({
+        id: String(row.id),
+        at: epoch(row.at),
+        message: String(row.message),
+        stack: nullableText(row.stack),
+        service: String(row.service),
+        task_id: nullableText(row.task_id),
+        request_id: nullableText(row.request_id),
+        instance: nullableText(row.instance),
+      })),
+    },
+    client: {
+      total: Number(clientRows[0]?.total ?? 0),
+      entries: clientRows.map((row) => ({
+        id: String(row.id),
+        at: epoch(row.at),
+        message: String(row.message),
+        stack: nullableText(row.stack),
+        fingerprint: String(row.fingerprint),
+        user_id: nullableText(row.user_id),
+        device_id: nullableText(row.device_id),
+        username: nullableText(row.username),
+      })),
+    },
   }
 }
 
