@@ -29,14 +29,6 @@ function installHistoryNotifier(): void {
 
 installHistoryNotifier()
 
-/** 订阅地址变化（History API 写入；popstate 另听）。返回取消订阅。 */
-export function subscribePathname(listener: () => void): () => void {
-  pathnameListeners.add(listener)
-  return () => {
-    pathnameListeners.delete(listener)
-  }
-}
-
 /** 当前地址。History API 写入与 popstate 都会同步。 */
 export function usePathname(): string {
   const [pathname, setPathname] = useState(() =>
