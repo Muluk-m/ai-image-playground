@@ -10,13 +10,13 @@ import { useStore } from '../../store'
 import { DEFAULT_PARAMS } from '../../types'
 import { stubPointerApis } from '../helpers/radix'
 
-vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
 vi.mock('../../features/agent/lib/useAgentSkills', () => ({ useAgentSkills: () => [] }))
 
 let host: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   vi.stubGlobal('indexedDB', new IDBFactory())
   stubPointerApis()
   setChannels([

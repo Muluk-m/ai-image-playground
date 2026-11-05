@@ -50,6 +50,13 @@ function builtinProfile(capabilities: ChannelCapability[]): ClientProfile {
 }
 
 describe('parameter compatibility', () => {
+  it('repairs a GIF frame size previously expanded by still-image normalization', () => {
+    const settings = settingsFor(useChannel('openai-queue', 'gpt-image-2.6-flare'))
+    const params = { ...DEFAULT_PARAMS, output_format: 'gif' as const, size: '816x816' }
+
+    expect(normalizeParamsForSettings(params, settings).size).toBe('768x768')
+  })
+
   it.each(['512x512', '768x768'])(
     'keeps the GIF frame size %s stable across format switching and normalization',
     (size) => {
