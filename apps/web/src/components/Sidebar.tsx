@@ -18,6 +18,8 @@ import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { GUIDE_PATHS } from '../features/guide/paths'
 import { useLibraryStore } from '../features/library/store'
 import { currentLocale, useTranslation } from '../i18n'
+import { isChangelogPath } from '../lib/appPaths'
+import { usePathname } from '../lib/pathname'
 
 import {
   APP_MODE_LABELS,
@@ -73,6 +75,7 @@ export default function Sidebar() {
   const { theme } = useTheme()
   const appMode = useStore((state) => state.appMode)
   const setAppMode = useStore((state) => state.setAppMode)
+  const onChangelog = isChangelogPath(usePathname())
   const projects = useCanvasProjectStore((state) => state.projects)
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
   const activeId = useCanvasProjectStore((state) => state.activeId)
@@ -140,7 +143,7 @@ export default function Sidebar() {
   }
 
   const item = (mode: AppMode) => {
-    const active = appMode === mode || (mode === 'image' && appMode === 'canvas')
+    const active = !onChangelog && (appMode === mode || (mode === 'image' && appMode === 'canvas'))
     return (
       <Button
         key={mode}
@@ -322,7 +325,8 @@ export default function Sidebar() {
         className="studio-mobile-nav fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-sidebar px-2 md:hidden"
       >
         {NAV_APP_MODES.map((mode) => {
-          const active = appMode === mode || (mode === 'image' && appMode === 'canvas')
+          const active =
+            !onChangelog && (appMode === mode || (mode === 'image' && appMode === 'canvas'))
           return (
             <Button
               key={mode}
