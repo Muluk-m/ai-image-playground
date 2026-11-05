@@ -39,10 +39,13 @@ Use the origin of the setup URL supplied by the user:
 | https://image-playground.qiliangjia.one | https://image-api.qiliangjia.one |
 | https://test.muvloom.online | https://test-api.muvloom.online |
 
-Set `MUVLOOM_API_URL` for every Muvloom command, including subsequent sessions.
-Use `export MUVLOOM_API_URL="<matching URL>"` on macOS / Linux, or
-`$env:MUVLOOM_API_URL = "<matching URL>"` in PowerShell. If the origin is not
-listed, ask which service to connect to instead of silently using production.
+The CLI defaults to `https://api.muvloom.online`. For that service, use the default;
+clear any conflicting `MUVLOOM_API_URL` override in the current agent session.
+Only for a non-default service, set `MUVLOOM_API_URL` for subsequent commands in
+the session: `export MUVLOOM_API_URL="<matching URL>"` on macOS / Linux, or
+`$env:MUVLOOM_API_URL = "<matching URL>"` in PowerShell. Manage this internally;
+the user does not need to configure or remember environment variables. If the
+origin is not listed, ask which service to connect to instead of guessing.
 
 ## 3. Install host instructions when supported
 
@@ -85,8 +88,10 @@ for passwords, browser cookies, or tokens, and do not print stored credentials.
 
 ## 5. Confirm readiness
 
-Run `muvloom capabilities` to discover the available models. Only report the
-connection as ready after auth status confirms it and capabilities succeeds.
+Run `muvloom capabilities` internally to verify that generation is available.
+Only report the connection as ready after auth status confirms it and capabilities
+succeeds. Keep the readiness message brief; include model lists, prices or
+environment configuration only if the user asks for them.
 Tell the user they can now ask you to generate images using any of the service
 names 幕芽, muya or muvloom (case-insensitive). Use `muvloom` as the executable
 name for every CLI command. Follow the installed
