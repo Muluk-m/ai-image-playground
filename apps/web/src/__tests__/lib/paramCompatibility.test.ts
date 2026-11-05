@@ -57,18 +57,18 @@ describe('parameter compatibility', () => {
     expect(normalizeParamsForSettings(params, settings).size).toBe('768x768')
   })
 
-  it.each(['512x512', '768x768'])(
-    'keeps the GIF frame size %s stable across format switching and normalization',
-    (size) => {
-      const settings = settingsFor(useChannel('openai-queue', 'gpt-image-2.6-flare'))
-      const { patch } = switchImageOutputFormat({ ...DEFAULT_PARAMS, size }, 'gif', null)
-      const gif = { ...DEFAULT_PARAMS, ...patch }
-      const normalized = normalizeParamsForSettings(gif, settings)
+  it.each([
+    '512x512',
+    '768x768',
+  ])('keeps the GIF frame size %s stable across format switching and normalization', (size) => {
+    const settings = settingsFor(useChannel('openai-queue', 'gpt-image-2.6-flare'))
+    const { patch } = switchImageOutputFormat({ ...DEFAULT_PARAMS, size }, 'gif', null)
+    const gif = { ...DEFAULT_PARAMS, ...patch }
+    const normalized = normalizeParamsForSettings(gif, settings)
 
-      expect(normalized.size).toBe(size)
-      expect(normalizeParamsForSettings(normalized, settings)).toEqual(normalized)
-    },
-  )
+    expect(normalized.size).toBe(size)
+    expect(normalizeParamsForSettings(normalized, settings)).toEqual(normalized)
+  })
 
   it('limits OpenAI output count to 10', () => {
     const settings = normalizeSettings(DEFAULT_SETTINGS)
