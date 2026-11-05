@@ -6,7 +6,7 @@ Keep the conversation in the user's language. Run the steps yourself, including
 opening the authorization page; the user signs in and approves the connection.
 Do not generate images during setup.
 
-## 1. Install CLI 0.1.0
+## 1. Install CLI 0.1.1
 
 Use the matching platform below. The scripts are pinned to the released source
 commit and verify the downloaded binary's SHA-256. If installation fails, report
@@ -15,14 +15,14 @@ the error; do not bypass verification.
 ### macOS / Linux
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/0ac3c6410211e2a8532022b42a3c45cc10c1f5cc/cli-go/install/install.sh | MUVLOOM_VERSION=0.1.0 sh
+curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/6e84e5b69baa975ed48106c54f94a5a33c1bdfca/cli-go/install/install.sh | MUVLOOM_VERSION=0.1.1 sh
 export PATH="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-$env:MUVLOOM_VERSION = "0.1.0"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/0ac3c6410211e2a8532022b42a3c45cc10c1f5cc/cli-go/install/install.ps1 | iex
+$env:MUVLOOM_VERSION = "0.1.1"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/6e84e5b69baa975ed48106c54f94a5a33c1bdfca/cli-go/install/install.ps1 | iex
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```
 
@@ -61,7 +61,7 @@ For Codex, run:
 muvloom skill install --host codex
 ```
 
-For WorkBuddy, 豆包工作, and other hosts, skip this step. CLI 0.1.0 only
+For WorkBuddy, 豆包工作, and other hosts, skip this step. CLI 0.1.1 only
 accepts `claude-code` and `codex` as skill hosts. Use `muvloom --help` and
 subcommand help to learn the CLI; do not invent a `--host` value or write into
 an unverified host configuration directory.
@@ -98,6 +98,4 @@ name for every CLI command. Follow the installed
 skill or CLI help for future requests. A user's generation request authorizes
 generation: proceed directly without a credit quote or a second confirmation.
 Quote costs only when asked, and pass `--max-credits` only for an explicit
-user-supplied credit limit. For this setup conversation, these instructions take
-precedence over CLI 0.1.0's older quote and budget-approval instructions.
-Setup itself must not spend credits.
+user-supplied credit limit. Setup itself must not spend credits.
