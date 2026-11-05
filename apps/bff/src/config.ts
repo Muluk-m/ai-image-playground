@@ -202,7 +202,8 @@ export const config = {
   /**
    * GPT Image 的 OpenAI 直连通道（另一条是 UPSTREAM_BASE_URL 的 sub2api）。会员默认走直连，满了或不可用
    * 立刻切 sub2api；非会员走 sub2api，sub2api 熔断才借直连。见 lib/upstream/gpt-routing.ts。
-   * 密钥沿用 channels.json 里 openai-images 的 OPENAI_API_KEY；没打开或没配密钥时一律走 sub2api。
+   * 密钥沿用 channels.json 里 openai-images 的 OPENAI_API_KEY。后台保存的密文在每次请求时优先于
+   * 这份启动快照，见 lib/upstream-secrets.ts。没打开或没配密钥时一律走 sub2api。
    */
   gptDirect: {
     enabled: booleanEnv('GPT_DIRECT_ENABLED', false),

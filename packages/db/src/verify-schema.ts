@@ -4,6 +4,7 @@ import journal from '../drizzle/meta/_journal.json'
 export const EXPECTED_TABLES = [
   'operator_config_overrides',
   'operator_config_state',
+  'upstream_api_secrets',
   'cli_connections',
   'cli_jobs',
   'cli_reference_media',
@@ -76,6 +77,7 @@ export const EXPECTED_TABLES = [
 export const EXPECTED_INDEXES = [
   'operator_config_overrides_pkey',
   'operator_config_state_pkey',
+  'upstream_api_secrets_pkey',
   'cli_connections_pkey',
   'device_authorizations_pkey',
   'oauth_clients_pkey',
