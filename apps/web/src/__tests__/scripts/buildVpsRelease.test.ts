@@ -16,8 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { expectCommitIgnoresSigner } from './fixtureGit'
 
 /**
- * 发布镜像改走私有 GHCR：构建端逐个推送镜像并把仓库 digest 记进 images.tsv，发布目录只剩脚本、
- * 清单与校验单；RELEASE_TRANSPORT=archive 仍打 images.tar.gz 兜底。这里在临时 Git 仓库里跑真实的
+ * 发布镜像改走私有 GHCR：构建端逐个推送镜像并把仓库 digest 记进 images.tsv，发布目录只剩清单与校验单；RELEASE_TRANSPORT=archive 仍打 images.tar.gz 兜底。这里在临时 Git 仓库里跑真实的
  * build-vps-release.sh，docker 是假的，只看它发出的 docker 命令、写出的文件与退出码；
  * 最后把产物交给真实的 vps-deploy.sh，确认接收端读得懂。
  */
@@ -245,20 +244,7 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     )
     expect(all.some((c) => c.startsWith('save'))).toBe(false)
     expect(all).not.toContain('login ghcr.io -u Muluk-m --password-stdin')
-    expect(readFileSync(join(out, 'scripts/check-test-isolation.sh'), 'utf8')).toBe(
-      readFileSync(join(source, 'scripts/check-test-isolation.sh'), 'utf8'),
-    )
-    expect(outputFiles()).toEqual([
-      'SHA256SUMS',
-      'deploy/compose.app.yaml',
-      'images.tsv',
-      'scripts/app-compose.sh',
-      'scripts/check-test-isolation.sh',
-      'scripts/lib/deploy-common.sh',
-      'scripts/rollout-runtime.sh',
-      'scripts/segmenter-deploy.sh',
-      'scripts/vps-deploy.sh',
-    ])
+    expect(outputFiles()).toEqual(['SHA256SUMS', 'images.tsv'])
   })
 
   it('builds only paid and its sidecars for the active production runtime', () => {
@@ -326,11 +312,11 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     expect(check.status).toBe(0)
   })
 
-  it('produces a release the receiver pulls by digest and rolls out', () => {
+  it('produces a data-only release the fixed runtime pulls by digest and rolls out', () => {
     writeFileSync(join(root, 'logged-in'), '')
     expect(build().status).toBe(0)
     rmSync(log)
-    const received = spawnSync('sh', [join(out, 'scripts/vps-deploy.sh'), 'all', out], {
+    const received = spawnSync('sh', [join(checkout, 'scripts/vps-deploy.sh'), 'all', out], {
       env,
       encoding: 'utf8',
       timeout: 20000,
@@ -407,7 +393,7 @@ describe('build-vps-release.sh, archive fallback', () => {
     )
     expect(readFileSync(join(out, 'SHA256SUMS'), 'utf8')).toMatch(/ {2}images\.tar\.gz\n/)
     rmSync(log)
-    const received = spawnSync('sh', [join(out, 'scripts/vps-deploy.sh'), 'internal', out], {
+    const received = spawnSync('sh', [join(checkout, 'scripts/vps-deploy.sh'), 'internal', out], {
       env,
       encoding: 'utf8',
       timeout: 20000,
