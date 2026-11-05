@@ -30,7 +30,7 @@ CI #4032 的 public build：安装 workspace 16、Web 构建 52、浏览器步�
 ## 验证与后续衡量
 
 - 新增 CLI 判断行为测试，覆盖路径分类、PR/push 范围、异常回退和真实 Git rename。
-- 新增 muvloom（`paid`）构建回归，确认只生成 muvloom、backup、segmenter 镜像，且保留 overlay、版本及缓存参数。
+- 新增 muvloom（`paid`）构建回归，确认 `images.tsv` 只包含 `paid`、`backup`、`segmenter` 三种 edition，且保留 overlay、版本及缓存参数。
 - 在工作分支手动跑 Web checks，执行 Biome 修复、lint、typecheck、公开/overlay 测试与构建；手动触发保留完整 CLI 矩阵。
 - PR 与合并后关注实际 job、队列等待和生产镜像构建耗时。此次 PR 本身改了 Web workflow 与判断器，CLI 会全跑；后续普通 Web/BFF 改动才体现跳过收益。
 - 暂不改浏览器运行时或并行发布拓扑。若剩余瓶颈仍是构建，再单独评估 Docker 前后端构建输入隔离和复用已验证产物，避免把后端兼容性与前端发布顺序混入本次优化。

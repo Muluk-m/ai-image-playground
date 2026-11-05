@@ -106,7 +106,7 @@ command="/home/ubuntu/bin/aip-ci-receive test",restrict ssh-ed25519 AAAA… aip-
 这是受保护的服务器路由变更，需按批准的切换流程执行，不由 Pages 发布或普通后端 rollout 自动修改：
 
 1. 保留 qlj tunnel connector 在 `image-playground-internal_application` 网络上的连接，qlj Admin hostname 仍依赖它。只把现有 qlj `cloudflared` connector 额外接入 `image-playground-paid_application`，不把旧 qlj BFF、worker 或数据库接入该网络，也不停止或覆盖它们。自定义项目名时分别使用 `${INTERNAL_PROJECT}_application` / `${PAID_PROJECT}_application`，以实际 Docker 网络为准。
-2. 在现有 qlj tunnel 的配置中，仅将 `image-api.qiliangjia.one` 的 upstream 从 `http://release-router:37377` 改为 `http://image-playground-paid-release-router:37377`。使用明确的 muvloom router 名称，避免 connector 同时加入两套网络后把通用 `release-router` 名称解析到旧 runtime；保留其余 hostname（尤其 qlj Admin）的路由。
+2. 在现有 qlj tunnel 的配置中，仅将 `image-api.qiliangjia.one` 的 upstream 从 `http://release-router:37377` 改为 `http://image-playground-paid-release-router:37377`。`image-playground-paid-release-router` 是 muvloom 侧保留的现存容器名，不改成 `image-playground-muvloom-release-router`；使用这个完整名称，避免 connector 同时加入两套网络后把通用 `release-router` 名称解析到旧 runtime。保留其余 hostname（尤其 qlj Admin）的路由。
 3. 按批准流程加载 connector 配置，核对 `image-api.qiliangjia.one/health` 与 muvloom API 的公开 / 私有提交一致，再验 qlj 站真实登录、回调、带 cookie 的 API 请求，以及 qlj Admin 仍可访问。前端的 `INTERNAL_BFF_BASE_URL` 不变。
 
 额外 Docker 网络连接会随同一 connector 容器的 **restart** 保留，但不会自动带到 **recreate** 后的新容器。今后任何 connector 重建操作都必须先将重新附加 `image-playground-paid_application` 列为该次操作的必需步骤，并在新 connector 承接流量前完成附加与连通性核验；不能先重建后把该连接当作仍然存在。重建后仍须保留 `image-playground-internal_application` 以服务 qlj Admin。普通 muvloom 后端发布不应重建 qlj connector，本次切换也不修改 rollout 脚本。
