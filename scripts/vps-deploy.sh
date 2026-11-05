@@ -156,8 +156,8 @@ $record
 EOF
   prefix=$(printf '%s' "$edition" | tr '[:lower:]' '[:upper:]')
   project=$(edition_var "$prefix" PROJECT)
-  # Each edition in SEGMENTER_EDITIONS (default: test only; adding internal/paid needs Nain's
-  # go-ahead) is attached to the shared segmenter and its executors get its address, but only
+  # SEGMENTER_EDITIONS accepts internal (qlj), paid (muvloom), and test; default: test only.
+  # Adding internal or paid needs Nain's go-ahead. Each listed edition gets the shared segmenter address, but only
   # while it is healthy. It is optional: otherwise the executors are not told about it and
   # edit-region cards fall back to the agent's box, so this warns instead of failing the release.
   # An edition that does not get it is detached, so a later rollback (which reads the attachment

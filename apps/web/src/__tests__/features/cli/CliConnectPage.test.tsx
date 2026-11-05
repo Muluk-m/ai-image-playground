@@ -5,13 +5,16 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthContextProvider } from '../../../auth/AuthContext'
 import type * as LoginPromptModule from '../../../auth/loginPrompt'
+import CliConnectionsDialog from '../../../features/cli/CliConnectionsDialog'
 import CliConnectPage from '../../../features/cli/CliConnectPage'
 import {
   CLI_RELEASE_REF,
   CLI_VERSION,
+  CONNECT_AGENTS,
   INSTALL_COMMAND,
   manualCommands,
   SESSION_PATH,
+  skillInstallCommand,
 } from '../../../features/cli/connectAgents'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
@@ -72,15 +75,50 @@ afterEach(() => {
 })
 
 describe('CliConnectPage', () => {
-  it('提示词随 Agent 变化：有 Skill 的宿主带安装 Skill 一步，其他 Agent 没有', async () => {
+  it('默认展示 WorkBuddy，插件顺序是 WorkBuddy、豆包、Claude Code、Codex、其他', async () => {
     await render()
+    const labels = Array.from(
+      host.querySelector('[aria-label="选择插件"]')?.querySelectorAll('button') ?? [],
+      (button) => button.textContent,
+    )
+    expect(labels).toEqual(['WorkBuddy', '豆包工作', 'Claude Code', 'Codex', '其他'])
+    expect(
+      Array.from(host.querySelectorAll('[aria-label="选择插件"] img'), (img) =>
+        img.getAttribute('src'),
+      ),
+    ).toEqual([
+      '/connect-agents/workbuddy.svg',
+      '/connect-agents/doubao.svg',
+      '/connect-agents/claude-code.svg',
+      '/connect-agents/codex.svg',
+    ])
+    for (const img of host.querySelectorAll('[aria-label="选择插件"] img')) {
+      expect(img.className).toContain('rounded-full')
+    }
+    expect(CONNECT_AGENTS).toEqual(['workbuddy', 'doubao', 'claude-code', 'codex', 'other'])
+    expect(host.querySelector('[aria-pressed="true"]')?.textContent).toBe('WorkBuddy')
+    expect(promptText()).toContain('WorkBuddy')
+    expect(promptText()).toContain(INSTALL_COMMAND.unix)
+    expect(promptText()).toContain('不要执行 `muvloom skill install`')
+    expect(promptText()).not.toContain('--host workbuddy')
+  })
+
+  it('提示词随插件变化：只有 Claude Code 和 Codex 带 skill install，豆包不带', async () => {
+    await render()
+    await click('豆包工作')
+    expect(promptText()).toContain('豆包工作')
+    expect(promptText()).toContain('不要执行 `muvloom skill install`')
+    expect(promptText()).not.toContain('--host doubao')
+    expect(promptText()).toContain('muvloom auth login --no-wait')
+
+    await click('Claude Code')
     expect(promptText()).toContain('muvloom skill install --host claude-code')
 
     await click('Codex')
     expect(promptText()).toContain('muvloom skill install --host codex')
     expect(promptText()).not.toContain('--host claude-code')
 
-    await click('其他 Agent')
+    await click('其他')
     expect(promptText()).not.toContain('muvloom skill install')
     expect(promptText()).toContain('muvloom auth login --no-wait')
   })
@@ -98,6 +136,7 @@ describe('CliConnectPage', () => {
 
   it('手动方式列出逐行命令，复制的是命令而不是提示词', async () => {
     await render()
+    await click('Claude Code')
     await click('我自己来')
     const shown = Array.from(host.querySelectorAll('pre > div'), (line) => line.textContent)
     expect(shown).toEqual([
@@ -148,6 +187,32 @@ describe('CliConnectPage', () => {
 
     await render(USER)
     expect(fetch).toHaveBeenCalled()
-    expect(host.textContent).toContain('暂无已连接的 CLI')
+    expect(host.textContent).toContain('暂无已连接的插件')
+  })
+
+  it('WorkBuddy 和豆包的手动命令只有安装、补 PATH 和登录', () => {
+    for (const agent of ['workbuddy', 'doubao'] as const) {
+      expect(skillInstallCommand(agent)).toBeNull()
+      for (const platform of ['unix', 'windows'] as const) {
+        expect(manualCommands(agent, platform)).toEqual([
+          INSTALL_COMMAND[platform],
+          SESSION_PATH[platform],
+          'muvloom auth login',
+        ])
+      }
+    }
+    expect(skillInstallCommand('claude-code')).toBe('muvloom skill install --host claude-code')
+    expect(skillInstallCommand('codex')).toBe('muvloom skill install --host codex')
+  })
+
+  it('旧的连接弹层不再打开，直接进入 /connect', async () => {
+    window.history.replaceState(null, '', '/image')
+    const onClose = vi.fn()
+    await act(async () => {
+      root.render(<CliConnectionsDialog onClose={onClose} />)
+    })
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(window.location.pathname).toBe('/connect')
+    expect(host.textContent).not.toContain('CLI 连接')
   })
 })

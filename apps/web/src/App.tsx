@@ -135,7 +135,6 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   }, [])
 
   if (isPricingPath(pathname)) return <PricingPage />
-  if (isCliConnectPath(pathname)) return <CliConnectPage />
   if (isCliDevicePath(pathname)) return <CliDevicePage />
   if (isTermsPath(pathname) || isPrivacyPath(pathname)) return <LegalPage />
 
@@ -206,7 +205,21 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       <div className="app-chrome min-h-dvh bg-sidebar">
         <Header />
         <Sidebar />
-        {canvasOwnsMainPane(appMode, pathname) ? (
+        {isCliConnectPath(pathname) ? (
+          <div
+            className="app-inset-panel"
+            style={{
+              marginTop: 'calc(var(--mobile-topbar-height) + var(--app-inset))',
+              marginRight: 'var(--app-inset)',
+              marginBottom: 'calc(var(--mobile-nav-height, 0px) + var(--app-inset))',
+              marginLeft: 'calc(var(--app-sidebar-width) + var(--app-inset))',
+              minHeight:
+                'calc(100dvh - var(--mobile-topbar-height) - var(--mobile-nav-height, 0px) - var(--app-inset) * 2)',
+            }}
+          >
+            <CliConnectPage />
+          </div>
+        ) : canvasOwnsMainPane(appMode, pathname) ? (
           <CanvasMode />
         ) : (
           <div

@@ -26,6 +26,24 @@
                                                        "size", "n", "moderation"],
           "tier": "quality",
           "etaSeconds": 40
+        },
+        {
+          "id": "gpt-image-2.6-flare",
+          "label": "GPT Image 2.6 Flare",
+          "capabilities": ["generate", "edit", "mask", "quality", "size", "n", "moderation"],
+          "tier": "quality",
+          "badges": ["latest"],
+          "etaSeconds": 7,
+          "etaMaxSeconds": 32
+        },
+        {
+          "id": "gpt-image-2.6-sunburst",
+          "label": "GPT Image 2.6 Sunburst",
+          "capabilities": ["generate", "edit", "mask", "quality", "size", "n", "moderation"],
+          "tier": "quality",
+          "badges": ["latest"],
+          "etaSeconds": 21,
+          "etaMaxSeconds": 32
         }
       ],
       "defaults": {
