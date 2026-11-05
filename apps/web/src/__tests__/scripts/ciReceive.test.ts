@@ -98,6 +98,25 @@ describe('ci-receive.sh', () => {
     expect(readdirSync(releases).sort()).toEqual([id, `${id}.failed-run-7`])
   })
 
+  it('cleans up incomplete data before invoking the fixed runtime', () => {
+    const dir = join(root, 'incomplete')
+    mkdirSync(dir)
+    writeFileSync(join(dir, 'images.tsv'), 'manifest\n')
+    const result = receive(`deploy ${id} paid 8`, tarOf(['-C', dir, '.']))
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('Incomplete release')
+    expect(existsSync(join(releases, id))).toBe(false)
+    expect(existsSync(log)).toBe(false)
+  })
+
+  it('cleans up the data package when the fixed runtime is absent', () => {
+    rmSync(join(home, 'deploy-runtime'), { recursive: true })
+    const result = receive(`deploy ${id} paid 8`, releaseTar())
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('Deployment runtime is not installed')
+    expect(existsSync(join(releases, id))).toBe(false)
+    expect(existsSync(log)).toBe(false)
+  })
   it('rejects an archive containing deployment code before invoking the trusted runtime', () => {
     const dir = join(root, 'evil')
     mkdirSync(join(dir, 'scripts'), { recursive: true })

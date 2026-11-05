@@ -16,8 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { expectCommitIgnoresSigner } from './fixtureGit'
 
 /**
- * 发布镜像改走私有 GHCR：构建端逐个推送镜像并把仓库 digest 记进 images.tsv，发布目录只剩脚本、
- * 清单与校验单；RELEASE_TRANSPORT=archive 仍打 images.tar.gz 兜底。这里在临时 Git 仓库里跑真实的
+ * 发布镜像改走私有 GHCR：构建端逐个推送镜像并把仓库 digest 记进 images.tsv，发布目录只剩清单与校验单；RELEASE_TRANSPORT=archive 仍打 images.tar.gz 兜底。这里在临时 Git 仓库里跑真实的
  * build-vps-release.sh，docker 是假的，只看它发出的 docker 命令、写出的文件与退出码；
  * 最后把产物交给真实的 vps-deploy.sh，确认接收端读得懂。
  */
@@ -313,11 +312,27 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     expect(check.status).toBe(0)
   })
 
-  it('produces a data-only release without deployment code', () => {
+  it('produces a data-only release the fixed runtime can pull by digest and rolls out', () => {
     writeFileSync(join(root, 'logged-in'), '')
     expect(build().status).toBe(0)
     expect(outputFiles()).toEqual(['SHA256SUMS', 'images.tsv'])
     expect(existsSync(join(out, 'scripts/vps-deploy.sh'))).toBe(false)
+    rmSync(log)
+    const received = spawnSync('sh', [join(checkout, 'scripts/vps-deploy.sh'), 'all', out], {
+      env,
+      encoding: 'utf8',
+      timeout: 20000,
+    })
+    expect(received.stderr).toBe('')
+    expect(received.status).toBe(0)
+    const all = calls()
+    expect(all).toContain(`pull ${pushed('1')}`)
+    expect(all).toContain(`pull ${pushed('2')}`)
+    expect(all).toContain(`pull ${pushed('3')}`)
+    expect(all).toContain(`segmenter up ai-image-playground:segmenter-3-${pub.slice(0, 12)} 3`)
+    expect(all).toContain(
+      `rollout image-playground-paid ai-image-playground:paid-${pub.slice(0, 12)}-${priv.slice(0, 12)}`,
+    )
   })
 
   it('logs in with the push token file through stdin before building when not logged in yet', () => {
@@ -381,6 +396,15 @@ describe('build-vps-release.sh, archive fallback', () => {
     expect(readFileSync(join(out, 'SHA256SUMS'), 'utf8')).toMatch(/ {2}images\.tar\.gz\n/)
     expect(outputFiles()).toEqual(['SHA256SUMS', 'images.tar.gz', 'images.tsv'])
     expect(existsSync(join(out, 'scripts/vps-deploy.sh'))).toBe(false)
+    rmSync(log)
+    const received = spawnSync('sh', [join(checkout, 'scripts/vps-deploy.sh'), 'internal', out], {
+      env,
+      encoding: 'utf8',
+      timeout: 20000,
+    })
+    expect(received.status).toBe(0)
+    expect(calls()).toContain(`load -i ${out}/images.tar.gz`)
+    expect(calls().some((c) => c.startsWith('pull'))).toBe(false)
   })
 
   it('rejects an unknown transport before touching Docker', () => {

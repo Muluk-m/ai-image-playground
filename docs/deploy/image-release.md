@@ -172,7 +172,7 @@ DATABASE_URL=<迁移账号> bun run apps/bff/scripts/import-inspirations.ts
 
 ## 后端：镜像构建与发布（手动应急）
 
-镜像经私有 GHCR `ghcr.io/muluk-m/ai-image-playground`（owner 必须小写）传输，VPS 按 digest 拉取，只传变更层。发布目录只含脚本、Compose、`images.tsv` 与 `SHA256SUMS`，体积很小，可经工作站中转。
+镜像经私有 GHCR `ghcr.io/muluk-m/ai-image-playground`（owner 必须小写）传输，VPS 按 digest 拉取，只传变更层。发布目录只含 `images.tsv` 与 `SHA256SUMS`，体积很小，可经工作站中转。
 
 1. 构建机：GitHub Actions `ubuntu-latest`（`GITHUB_ACTIONS=true`）或 macmini2 手动兜底；其他 Linux 拒绝构建。独立检出已通过 PR/main CI 的公开提交；paid/all 还需已验证的 `private/` Git 检出。不得占用其他会话目录。
 2. 构建到尚不存在的目录：
@@ -182,14 +182,14 @@ export PATH=/opt/homebrew/bin:$PATH   # 仅 macmini2
 ./scripts/build-vps-release.sh paid /Users/mac/releases/aip-<release-id>
 ```
 
-构建输入固定为 Git 提交，不含未提交文件或凭据。使用 `aip-release` builder（4 核、6 GiB、无额外 Swap、阶段并发 1）生成 `linux/amd64` 镜像；发布目录只包含 `images.tsv`、`SHA256SUMS`，archive transport 另含 `images.tar.gz`。部署代码不随发布包下发，由 VPS 上固定 runtime 管理。当前生产只构建 `paid-<公开12位>-<私有12位>`、`backup-<公开12位>` 与 `segmenter-<版本>-<公开12位>`；脚本的 `internal`/`all` 模式保留兼容能力，使用前须单独批准。首次推送上传全部层，之后只传变更层。
+构建输入固定为 Git 提交，不含未提交文件或凭据。使用 `aip-release` builder（4 核、6 GiB、无额外 Swap、阶段并发 1）生成 `linux/amd64` 镜像；保留现有构建锁，并与其他重型任务错峰。发布目录只包含 `images.tsv`、`SHA256SUMS`，archive transport 另含 `images.tar.gz`；部署代码使用 VPS 固定 runtime。当前生产只构建 `paid-<公开12位>-<私有12位>`、`backup-<公开12位>` 与 `segmenter-<版本>-<公开12位>`，不构建已冻结的 internal 镜像；脚本的 `internal`/`all` 模式保留兼容能力，使用前须单独批准。每个镜像构建后立即推送，本地标签不变。首次推送上传全部层，之后只传变更层。
 
 3. 工作站中转发布数据包，或由 CI 通过受限 SSH 入口上传；不要再从历史发布目录执行 `scripts/vps-deploy.sh`。手工发布必须使用固定 runtime：
 
 ```sh
 scp -r macmini2:/Users/mac/releases/aip-<release-id> /tmp/
 scp -r /tmp/aip-<release-id> tx-vps:/home/ubuntu/releases/
-ssh tx-vps '~/deploy-runtime/scripts/vps-deploy.sh paid /home/ubuntu/releases/aip-<release-id>'
+ssh tx-vps '/home/ubuntu/deploy-runtime/scripts/vps-deploy.sh paid /home/ubuntu/releases/aip-<release-id>'
 ```
 
 接收脚本持有发布锁，校验 `SHA256SUMS`（须覆盖目录内全部数据文件，多出脚本或目录即拒绝），按 digest `docker pull` 并打回本地标签，再校验本地镜像确实带着该 digest、架构、`APP_VERSION` 和原生依赖，最后执行固定 runtime 的兼容迁移与启动；保留 VPS 原有运行配置。任一镜像拉取或校验失败都不改动服务。CI 部署失败时，入口把该发布目录改名为 `<id>.failed-run-<run_id>` 留作排查，同一提交可直接重跑。
