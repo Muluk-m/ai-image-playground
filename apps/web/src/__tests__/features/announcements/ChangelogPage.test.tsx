@@ -8,7 +8,12 @@ import {
   AnnouncementMenuRow,
 } from '../../../features/announcements/AnnouncementEntry'
 import ChangelogPage from '../../../features/announcements/ChangelogPage'
-import { announcementUnreadCount, setAnnouncementFeed } from '../../../features/announcements/panel'
+import { markAnnouncementFeed } from '../../../features/announcements/client'
+import {
+  announcementUnreadCount,
+  currentAnnouncementEpoch,
+  setAnnouncementFeed,
+} from '../../../features/announcements/panel'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
 const ITEM: AnnouncementPublicItem = {
@@ -116,6 +121,17 @@ it('shows a load error when the feed cannot be read', async () => {
     await Promise.resolve()
   })
   expect(host.textContent).toContain('更新没有加载出来')
+})
+
+it('drops a list that was in flight when the open page marked those items read', async () => {
+  setAnnouncementFeed({ items: [{ ...ITEM, unread: true }], unreadCount: 1 })
+  const epoch = currentAnnouncementEpoch()
+  await markAnnouncementFeed([ITEM.id], false, false)
+  expect(announcementUnreadCount()).toBe(0)
+  expect(setAnnouncementFeed({ items: [{ ...ITEM, unread: true }], unreadCount: 1 }, epoch)).toBe(
+    false,
+  )
+  expect(announcementUnreadCount()).toBe(0)
 })
 
 it('opens the changelog page from the sidebar and account menu', async () => {

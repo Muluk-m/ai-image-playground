@@ -7,6 +7,7 @@ const EMPTY_ITEMS: AnnouncementPublicItem[] = []
 let items: AnnouncementPublicItem[] = EMPTY_ITEMS
 let unread = 0
 let status: AnnouncementFeedStatus = 'loading'
+let feedEpoch = 0
 const listeners = new Set<Listener>()
 
 export type AnnouncementFeedStatus = 'loading' | 'ready' | 'error'
@@ -27,15 +28,27 @@ export function announcementFeedStatus(): AnnouncementFeedStatus {
   return status
 }
 
-export function setAnnouncementFeed(list: AnnouncementPublicList): void {
+/** 拉取开始时记下。标已读会把更早的请求作废，避免旧列表把未读点写回来。 */
+export function currentAnnouncementEpoch(): number {
+  return feedEpoch
+}
+
+export function invalidateAnnouncementFetches(): void {
+  feedEpoch += 1
+}
+
+export function setAnnouncementFeed(list: AnnouncementPublicList, epoch = feedEpoch): boolean {
+  if (epoch !== feedEpoch) return false
   items = list.items
   unread = list.unreadCount
   status = 'ready'
   emit()
+  return true
 }
 
-/** 第一次就失败才换成错误态；已经有内容时保留上一份。 */
-export function setAnnouncementFeedError(): void {
+/** 第一次就失败才换成错误态；已经有内容时保留上一份。过期请求不改状态。 */
+export function setAnnouncementFeedError(epoch = feedEpoch): void {
+  if (epoch !== feedEpoch) return
   if (items.length === 0) status = 'error'
   emit()
 }

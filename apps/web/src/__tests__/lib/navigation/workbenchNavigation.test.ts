@@ -6,7 +6,13 @@ import { projectRepository } from '../../../features/canvas/lib/projectRepositor
 import { projectRouteSegment } from '../../../features/canvas/lib/projectRoute'
 import { useCanvasProjectStore } from '../../../features/canvas/projectStore'
 import { useLibraryStore } from '../../../features/library/store'
-import { isPricingPath, isPrivacyPath, isTermsPath, pathAppMode } from '../../../lib/appPaths'
+import {
+  canvasOwnsMainPane,
+  isPricingPath,
+  isPrivacyPath,
+  isTermsPath,
+  pathAppMode,
+} from '../../../lib/appPaths'
 import { setClientStorageScope } from '../../../lib/authScope'
 import { publishStartedProjectAddress } from '../../../lib/navigation/address'
 import {
@@ -279,6 +285,12 @@ describe('installWorkbenchNavigation', () => {
     cleanup = installWorkbenchNavigation()
     useStore.getState().setAppMode('explore')
     expect(location.pathname).toBe('/pricing')
+  })
+
+  it('gives the changelog the main pane while a canvas project is open', () => {
+    expect(canvasOwnsMainPane('canvas', '/changelog')).toBe(false)
+    expect(canvasOwnsMainPane('canvas', '/p/project')).toBe(true)
+    expect(canvasOwnsMainPane('image', '/changelog')).toBe(false)
   })
 
   it('leaves the changelog for another workbench page, and again when the current mode is reselected', () => {

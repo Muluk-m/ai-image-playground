@@ -6,7 +6,7 @@ import type {
 import { applyLocalAnnouncementReads } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../lib/authClient'
 import { bffBaseUrl } from '../../lib/runtimeConfig'
-import { applyAnnouncementRead } from './panel'
+import { applyAnnouncementRead, invalidateAnnouncementFetches } from './panel'
 
 export const ANNOUNCEMENT_READS_KEY = 'aip.announcement-reads'
 const MODAL_SESSION_KEY = 'aip.announcement-modal-shown'
@@ -86,6 +86,7 @@ export async function markAnnouncementFeed(
   signedIn: boolean,
 ): Promise<void> {
   if (!ids.length) return
+  invalidateAnnouncementFetches()
   if (signedIn) {
     const ok = await postAnnouncementReads(ids, dismissed)
     if (!ok) writeLocalAnnouncementReads(ids, dismissed)
