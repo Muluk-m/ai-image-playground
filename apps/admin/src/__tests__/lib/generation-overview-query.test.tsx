@@ -1,4 +1,9 @@
-import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  focusManager,
+  onlineManager,
+  QueryClient,
+  QueryClientProvider,
+} from '@tanstack/react-query'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -35,6 +40,7 @@ let client: QueryClient
 beforeEach(() => {
   vi.useFakeTimers()
   focusManager.setFocused(true)
+  onlineManager.setOnline(true)
   get.mockReset().mockResolvedValue(overview)
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
 })
@@ -42,6 +48,7 @@ afterEach(() => {
   cleanup()
   client.clear()
   focusManager.setFocused(undefined)
+  onlineManager.setOnline(true)
   vi.useRealTimers()
 })
 
@@ -84,6 +91,14 @@ describe('overview refresh cadence', () => {
     expect(get).toHaveBeenCalledTimes(1)
     await act(async () => {
       await vi.advanceTimersByTimeAsync(61_000)
+    })
+    expect(get).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      focusManager.setFocused(false)
+      focusManager.setFocused(true)
+      onlineManager.setOnline(false)
+      onlineManager.setOnline(true)
+      await vi.advanceTimersByTimeAsync(0)
     })
     expect(get).toHaveBeenCalledTimes(1)
     await act(async () => {

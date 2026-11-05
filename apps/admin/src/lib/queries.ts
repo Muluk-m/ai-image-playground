@@ -252,6 +252,8 @@ export function useGenerationOverview(selection: GenerationSelection) {
     },
     staleTime: 0,
     refetchInterval: generationRefreshInterval(selection),
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 }
 export function useTodayErrors() {
