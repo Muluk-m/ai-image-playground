@@ -44,6 +44,7 @@ import { executeCanvasCommand } from '../../canvasCommands'
 import { accessCanvasDocument } from '../../canvasSyncStore'
 import { isCapabilityEnabled } from '../../capabilities'
 import { declaredImageSizes } from '../../channels'
+import { isActiveMember } from '../../gpt-membership'
 import type { BffTransaction } from '../../private-overlay'
 import { agentCanvasProject } from '../node-canvas-view'
 import {
@@ -557,6 +558,7 @@ function stageExecution(
     | undefined,
   graph: { nodes: readonly CanvasNode[]; edges: readonly { source: string; target: string }[] },
   authorizedIds: ReadonlySet<string>,
+  member: boolean,
 ): { charge?: StageChargeInput; binding: StageExecutionBinding } | undefined {
   if (node.type !== 'image' && node.type !== 'video') return undefined
   const meta = node.data.meta ?? {}
@@ -637,6 +639,7 @@ function stageExecution(
     quality: params?.quality,
     imageSize: params?.gemini_image_size,
     supportedTiers: imageModel ? declaredImageSizes(imageModel) : undefined,
+    member,
   })
   return { ...(image ? { charge: { nodeId: node.id, ...image } } : {}), binding }
 }
@@ -647,13 +650,14 @@ function quoteCanvasStage(
   context: AgentToolContext,
   graph: CanvasGraph,
   nodes: readonly CanvasNode[],
+  member: boolean,
 ) {
   const billing = isCapabilityEnabled('billing:credits')
   const charges: StageChargeInput[] = []
   const bindings: StageExecutionBinding[] = []
   const authorizedIds = new Set(nodes.map((node) => node.id))
   for (const node of nodes) {
-    const quoted = stageExecution(node, context.params, graph, authorizedIds)
+    const quoted = stageExecution(node, context.params, graph, authorizedIds, member)
     if (!quoted) return invalid(`无法为节点「${stageNodeName(node)}」建立执行快照。`)
     bindings.push(quoted.binding)
     if (!quoted.charge) {
@@ -668,7 +672,7 @@ function quoteCanvasStage(
   }
   return { charges, bindings }
 }
-function stageProposalInput(
+async function stageProposalInput(
   context: AgentToolContext,
   callId: string,
   projectId: string,
@@ -676,8 +680,10 @@ function stageProposalInput(
   nodes: readonly CanvasNode[],
   stage: string,
   storyboard?: StageStoryboard,
-): StageProposalInput {
-  const { charges, bindings } = quoteCanvasStage(context, graph, nodes)
+): Promise<StageProposalInput> {
+  const member =
+    context.params?.gemini_image_size === '4K' && (await isActiveMember(context.userId))
+  const { charges, bindings } = quoteCanvasStage(context, graph, nodes, member)
   return {
     userId: context.userId ?? invalid('当前会话没有已同步的云端项目。'),
     conversationId: context.conversationId,
@@ -868,7 +874,7 @@ export const runNodes = defineAgentTool({
             ? '范围内的素材节点没有提示词，也没有素材描述，不能单独生成。请用 updateNodes 写上提示词，或改为指定图片、视频节点。'
             : '范围内没有可生成的图片或视频节点。',
         )
-      const input = stageProposalInput(
+      const input = await stageProposalInput(
         context,
         callId,
         project.id,
@@ -1138,7 +1144,15 @@ export const runStoryboardFrames = defineAgentTool({
             }
             const authorization = await proposeStageAuthorizationInTransaction(
               tx,
-              stageProposalInput(context, callId, project.id, graph, nodes, '首帧', storyboard),
+              await stageProposalInput(
+                context,
+                callId,
+                project.id,
+                graph,
+                nodes,
+                '首帧',
+                storyboard,
+              ),
             )
             proposed = { authorization, storyboard }
           } finally {

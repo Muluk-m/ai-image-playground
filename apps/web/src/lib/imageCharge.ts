@@ -26,6 +26,7 @@ export function composerImageRate(
 export function preparedComposerImageRate(
   model: string,
   request: ImageRateRequest | null | undefined,
+  member = false,
 ): number {
-  return preparedImageRateMultiplier(model, request, declaredImageSizesForModel(model))
+  return preparedImageRateMultiplier(model, request, declaredImageSizesForModel(model), member)
 }

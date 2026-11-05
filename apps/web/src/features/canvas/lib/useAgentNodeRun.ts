@@ -1,6 +1,8 @@
 import { type AgentCanvasRunProposal, readCanvasDocument } from '@image-playground/shared'
 import { useEffect, useSyncExternalStore } from 'react'
+import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { getStoredChannels, subscribeChannels } from '../../../lib/channels/channelStore'
+import { useGptPremiumLocked } from '../../../lib/gptPremium'
 import { useStore } from '../../../store'
 import { registerAgentNodeRun } from '../../agent/lib/nodeRunBridge'
 import { useVideoStore } from '../../video/store'
@@ -27,6 +29,8 @@ export function useAgentNodeRun({
 }) {
   const settings = useStore((state) => state.settings)
   const params = useStore((state) => state.params)
+  const profile = clientProfileToApiProfile(getActiveApiProfile(settings))
+  const membership = useGptPremiumLocked(profile.model, false)
   const draft = useVideoStore((state) => state.draft)
   // 模型清单刷新后重新登记：卡片与直接出图按新清单报价（视频模型被停用或恢复）。
   const channels = useSyncExternalStore(subscribeChannels, getStoredChannels)
@@ -34,13 +38,14 @@ export function useAgentNodeRun({
     if (!active || !projectId || !syncResults) return
     const quote = (proposal: AgentCanvasRunProposal) => {
       if (proposal.projectId !== projectId) return null
+      if (!membership.settled) return null
       const graph = readCanvasDocument(canvas.doc)
       const existing = new Set([
         ...graph.nodes.map((node) => node.id),
         ...(graph.groups ?? []).map((group) => group.id),
       ])
       if (!proposal.nodeIds.length || proposal.nodeIds.some((id) => !existing.has(id))) return null
-      return currentNodeBatch(canvas.doc, editor, proposal.nodeIds)
+      return currentNodeBatch(canvas.doc, editor, proposal.nodeIds, membership.member)
     }
     return registerAgentNodeRun({
       projectId,
@@ -70,5 +75,7 @@ export function useAgentNodeRun({
     draft,
     channels,
     syncResults,
+    membership.member,
+    membership.settled,
   ])
 }
