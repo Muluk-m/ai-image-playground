@@ -49,11 +49,16 @@ function releaseTar(): Buffer {
   return tarOf(['-C', dir, '.'])
 }
 
-function receive(command: string | undefined, input: Buffer = releaseTar(), extra = {}) {
+function receive(
+  command: string | undefined,
+  input: Buffer = releaseTar(),
+  extra = {},
+  scope = 'release',
+) {
   const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, CALL_LOG: log, ...extra }
   if (command === undefined) delete env.SSH_ORIGINAL_COMMAND
   else env.SSH_ORIGINAL_COMMAND = command
-  return spawnSync('sh', [script], { env, input, encoding: 'utf8', timeout: 20000 })
+  return spawnSync('sh', [script, scope], { env, input, encoding: 'utf8', timeout: 20000 })
 }
 
 beforeEach(() => {
@@ -90,6 +95,14 @@ describe('ci-receive.sh', () => {
     expect(readdirSync(releases).sort()).toEqual([id, `${id}.failed-run-7`])
   })
 
+  it('drops the release when the host deploy lock was busy, so the same run can be retried', () => {
+    const busy = receive(`deploy ${id} test 7`, releaseTar(), { TEST_DEPLOY_EXIT: '75' }, 'test')
+    expect(busy.status).toBe(75)
+    expect(busy.stderr).toContain('Deploy lock busy')
+    expect(readdirSync(releases)).toEqual([])
+    expect(receive(`deploy ${id} test 7`, releaseTar(), {}, 'test').status).toBe(0)
+    expect(readdirSync(releases)).toEqual([id])
+  })
   it.each([
     undefined,
     '',
@@ -111,6 +124,42 @@ describe('ci-receive.sh', () => {
     expect(result.stderr).toContain('Rejected')
     expect(readdirSync(releases)).toEqual([])
     expect(existsSync(log)).toBe(false)
+  })
+
+  it('lets the test key deploy only test, and the release key everything but test', () => {
+    for (const target of ['internal', 'paid', 'all', 'prod']) {
+      const refused = receive(`deploy ${id} ${target} 1`, releaseTar(), {}, 'test')
+      expect(refused.status).toBe(2)
+    }
+    expect(receive(`deploy ${id} test 1`, releaseTar(), {}, 'release').status).toBe(2)
+    expect(readdirSync(releases)).toEqual([])
+    expect(existsSync(log)).toBe(false)
+    expect(receive(`deploy ${id} test 1`, releaseTar(), {}, 'test').status).toBe(0)
+    expect(readFileSync(log, 'utf8')).toBe(`test ${releases}/${id} actor=github-actions/run-1\n`)
+  })
+
+  it.each([
+    undefined,
+    '',
+    'all',
+    'internal',
+    'paid',
+    'test ; id',
+  ])('refuses everything when the key scope is %j', (scope) => {
+    const result = spawnSync('sh', scope === undefined ? [script] : [script, scope], {
+      env: {
+        ...process.env,
+        HOME: home,
+        CALL_LOG: log,
+        SSH_ORIGINAL_COMMAND: `deploy ${id} paid 1`,
+      },
+      input: releaseTar(),
+      encoding: 'utf8',
+      timeout: 20000,
+    })
+    expect(result.status).toBe(2)
+    expect(result.stderr).toContain('no deploy scope')
+    expect(readdirSync(releases)).toEqual([])
   })
 
   it('redeploys a commit already on the host into a run-specific directory', () => {
