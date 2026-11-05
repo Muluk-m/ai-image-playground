@@ -8,18 +8,14 @@ import { Button } from '../../components/ui/button'
 import { Icon } from '../../components/ui/icon'
 import { i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
 import { copyTextToClipboard } from '../../lib/clipboardText'
-import { cn } from '../../lib/utils'
 import CliConnectionsSection from './CliConnectionsSection'
 import {
+  AGENT_SETUP_PATH,
   CONNECT_AGENTS,
   type ConnectAgentId,
   type ConnectPlatform,
-  connectPromptKey,
   detectPlatform,
-  INSTALL_COMMAND,
   manualCommands,
-  SESSION_PATH,
-  skillInstallCommand,
 } from './connectAgents'
 
 type CopyState = 'idle' | 'done' | 'failed'
@@ -130,16 +126,10 @@ export default function CliConnectPage() {
     return () => setDocumentTitleOverride(null)
   }, [])
 
-  const skill = skillInstallCommand(agent)
-  const prompt = useMemo(
-    () =>
-      t(connectPromptKey(agent), {
-        install: INSTALL_COMMAND[platform],
-        path: SESSION_PATH[platform],
-        skill: skill ?? '',
-      }),
-    [t, agent, skill, platform],
-  )
+  const prompt = t('cliConnect.prompt', {
+    agent: agent === 'other' ? t('cliConnect.currentAgent') : t(AGENT_LABEL[agent]),
+    setupUrl: new URL(AGENT_SETUP_PATH, window.location.origin).href,
+  })
   const manual = useMemo(() => manualCommands(agent, platform), [agent, platform])
 
   return (
@@ -156,48 +146,31 @@ export default function CliConnectPage() {
             aria-label={t('cliConnect.setupAria')}
             className="space-y-6 rounded-3xl border border-border bg-card p-4 md:p-6"
           >
-            <div
-              role="group"
-              aria-label={t('cliConnect.agentAria')}
-              className="flex items-start gap-2 overflow-x-auto pb-1"
-            >
-              {CONNECT_AGENTS.map((id) => {
-                const selected = agent === id
-                const icon = AGENT_ICON[id]
-                return (
-                  <Button
-                    key={id}
-                    type="button"
-                    variant="ghost"
-                    aria-pressed={selected}
-                    onClick={() => setAgent(id)}
-                    className={cn(
-                      'h-auto shrink-0 flex-col gap-2 rounded-2xl px-2 py-2 font-normal',
-                      selected ? 'text-primary hover:text-primary' : 'text-muted-foreground',
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'grid size-12 place-items-center overflow-hidden rounded-full bg-background',
-                        selected ? 'ring-2 ring-primary' : 'ring-1 ring-border',
-                      )}
-                    >
-                      {icon ? (
+            <div className="overflow-x-auto pb-1">
+              <SegmentedTabs
+                label={t('cliConnect.agentAria')}
+                value={agent}
+                onChange={setAgent}
+                tabs={CONNECT_AGENTS.map((id) => ({
+                  value: id,
+                  label: (
+                    <span className="inline-flex items-center gap-2">
+                      {AGENT_ICON[id] ? (
                         <img
-                          src={icon}
+                          src={AGENT_ICON[id]}
                           alt=""
-                          width={48}
-                          height={48}
-                          className="size-12 rounded-full object-cover"
+                          width={20}
+                          height={20}
+                          className="size-5 shrink-0 object-contain"
                         />
                       ) : (
-                        <Icon name="grid" size="lg" />
+                        <Icon name="grid" className="size-5" />
                       )}
+                      {t(AGENT_LABEL[id])}
                     </span>
-                    {t(AGENT_LABEL[id])}
-                  </Button>
-                )
-              })}
+                  ),
+                }))}
+              />
             </div>
 
             <div className="grid gap-8 md:grid-cols-2 md:gap-0 md:divide-x md:divide-border">
@@ -209,11 +182,7 @@ export default function CliConnectPage() {
                       ? 'cliConnect.step1.promptTitle'
                       : 'cliConnect.step1.manualTitle',
                   )}
-                  hint={t(
-                    mode === 'prompt'
-                      ? 'cliConnect.step1.promptHint'
-                      : 'cliConnect.step1.manualHint',
-                  )}
+                  hint={mode === 'manual' ? t('cliConnect.step1.manualHint') : undefined}
                 />
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-3">
@@ -226,15 +195,17 @@ export default function CliConnectPage() {
                         { value: 'manual', label: t('cliConnect.mode.manual') },
                       ]}
                     />
-                    <SegmentedTabs
-                      label={t('cliConnect.platformAria')}
-                      value={platform}
-                      onChange={setPlatform}
-                      tabs={[
-                        { value: 'unix', label: t('cliConnect.platform.unix') },
-                        { value: 'windows', label: t('cliConnect.platform.windows') },
-                      ]}
-                    />
+                    {mode === 'manual' ? (
+                      <SegmentedTabs
+                        label={t('cliConnect.platformAria')}
+                        value={platform}
+                        onChange={setPlatform}
+                        tabs={[
+                          { value: 'unix', label: t('cliConnect.platform.unix') },
+                          { value: 'windows', label: t('cliConnect.platform.windows') },
+                        ]}
+                      />
+                    ) : null}
                   </div>
                   <CopyButton
                     text={mode === 'prompt' ? prompt : manual.join('\n')}
@@ -244,12 +215,12 @@ export default function CliConnectPage() {
                   />
                 </div>
                 {mode === 'prompt' ? (
-                  <pre
+                  <p
                     data-slot="connect-prompt"
-                    className="overflow-auto whitespace-pre-wrap break-words rounded-xl border border-border bg-background px-4 py-3 text-body-sm leading-relaxed text-foreground"
+                    className="whitespace-pre-wrap break-words rounded-xl border border-border bg-background px-4 py-3 text-body-sm leading-relaxed text-foreground"
                   >
                     {prompt}
-                  </pre>
+                  </p>
                 ) : (
                   <CommandBlock lines={manual} />
                 )}
@@ -261,39 +232,6 @@ export default function CliConnectPage() {
                   title={t('cliConnect.step2.title')}
                   hint={t('cliConnect.step2.hint')}
                 />
-                <ol className="space-y-3 text-body-sm text-muted-foreground">
-                  <li className="flex gap-2">
-                    <Icon name="link" className="mt-0.5 size-4 shrink-0" />
-                    <span>{t('cliConnect.step2.login')}</span>
-                  </li>
-                  <li className="flex gap-2">
-                    <Icon name="security" className="mt-0.5 size-4 shrink-0" />
-                    <span>{t('cliConnect.step2.approve')}</span>
-                  </li>
-                  <li className="flex gap-2">
-                    <Icon name="check" className="mt-0.5 size-4 shrink-0" />
-                    <span>{t('cliConnect.step2.ready')}</span>
-                  </li>
-                </ol>
-                <div
-                  aria-hidden="true"
-                  className="space-y-3 rounded-2xl border border-dashed border-border bg-background/60 p-4"
-                >
-                  <p className="text-label-md text-muted-foreground">
-                    {t('cliConnect.step2.sampleLabel')}
-                  </p>
-                  <p className="font-mono text-title-lg tracking-widest text-foreground">
-                    BCDF-GHJK
-                  </p>
-                  <div className="flex gap-2">
-                    <span className="inline-flex h-8 flex-1 items-center justify-center rounded-md border border-border text-label-md text-muted-foreground">
-                      {t('cliDevice.deny')}
-                    </span>
-                    <span className="inline-flex h-8 flex-1 items-center justify-center rounded-md bg-primary text-label-md text-primary-foreground">
-                      {t('cliDevice.approve')}
-                    </span>
-                  </div>
-                </div>
               </div>
             </div>
           </section>
