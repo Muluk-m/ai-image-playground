@@ -52,14 +52,16 @@ describe('readGptPremiumBody', () => {
   })
 })
 
-it.each([true, false])('resolves Gemini membership independently of the GPT switch: %s', async (member) => {
+it.each([true, false])('reads Gemini membership with GPT off: %s', async (member) => {
   account.id = `gemini-member-${member}`
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
-    premium: false,
-    member,
-    maxTier: '2K',
-    highQuality: false,
-  }))))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ premium: false, member, maxTier: '2K', highQuality: false }),
+      ),
+    ),
+  )
   const { result } = renderHook(() => useGptPremiumLocked('gemini-nano-banana-2.1', false))
   await waitFor(() => expect(result.current.settled).toBe(true))
   expect(result.current.member).toBe(member)
