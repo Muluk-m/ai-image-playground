@@ -468,6 +468,45 @@ describe('capabilities and dry-run', () => {
     expect(billing.reservations).toHaveLength(0)
   })
 
+  it('quotes Gemini Pro by the requested tier, including 4K before the site offers it', async () => {
+    const user = await createUser('gemini-tier')
+    billing.members.add(user.id)
+    const { access_token } = await connect(user)
+    // 测试替身单价是 10。真实价目 Nano 100/150/340、Pro 150/150/270，倍率相同。
+    for (const [image_size, credits, multiplier] of [
+      ['1K', 10, 1],
+      ['2K', 10, 1],
+      ['4K', 18, 1.8],
+    ] as const) {
+      billing.reservations.length = 0
+      const preview = await call('POST', '/v1/image-jobs/validate', {
+        body: imageJob({ image_size }),
+        headers: bearer(access_token),
+      })
+      expect(preview.status).toBe(200)
+      expect(preview.json.data.normalized.image_size).toBe(image_size)
+      expect(preview.json.data.quote).toEqual({ estimated_credits: credits })
+      const created = await call('POST', '/v1/image-jobs', {
+        body: imageJob({ image_size }),
+        headers: bearer(access_token),
+      })
+      expect(created.status).toBe(200)
+      expect(billing.reservations).toEqual([
+        {
+          taskId: created.json.data.job.job_id,
+          model: 'gemini-3-pro-image',
+          credits,
+          unitMultiplier: multiplier,
+        },
+      ])
+      const [task] = await db
+        .select()
+        .from(schema.tasks)
+        .where(eq(schema.tasks.id, created.json.data.job.job_id as string))
+      expect(task?.request_payload.image_size).toBe(image_size)
+    }
+  })
+
   it('accepts 4K for an active member', async () => {
     const user = await createUser('member')
     billing.members.add(user.id)

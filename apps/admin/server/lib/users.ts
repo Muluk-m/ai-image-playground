@@ -4,6 +4,7 @@ export interface UserOperationRequest {
   method: 'POST' | 'PATCH'
   path: string
   body?: unknown
+  operatorId?: string
 }
 
 /**
@@ -24,6 +25,7 @@ export async function forwardUserOperation(request: UserOperationRequest): Promi
     method: request.method,
     headers: {
       authorization: `Bearer ${token}`,
+      ...(request.operatorId ? { 'x-admin-operator': request.operatorId } : {}),
       ...(request.body === undefined ? {} : { 'content-type': 'application/json' }),
     },
     body: request.body === undefined ? undefined : JSON.stringify(request.body),

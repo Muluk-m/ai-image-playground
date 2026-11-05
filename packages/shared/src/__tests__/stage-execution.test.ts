@@ -174,6 +174,37 @@ describe('stage execution quantity', () => {
     ).toMatchObject({ unitMultiplier: 2 })
     expect(resolveStageImageExecution({ model: '' })).toBeUndefined()
   })
+
+  it('freezes the Gemini tier rate and the clamped GPT rate so proposal and submit match', () => {
+    expect(
+      resolveStageImageExecution({
+        model: 'gemini-nano-banana-2.1',
+        count: 2,
+        imageSize: '2K',
+      }),
+    ).toEqual({ model: 'gemini-nano-banana-2.1', quantity: 2, unitMultiplier: 1.5 })
+    expect(
+      resolveStageImageExecution({
+        model: 'gemini-3-pro-image',
+        imageSize: '4K',
+      }),
+    ).toEqual({ model: 'gemini-3-pro-image', quantity: 1, unitMultiplier: 1.8 })
+    expect(
+      resolveStageImageExecution({
+        model: 'gpt-image-2.5-flare',
+        size: '2048x2048',
+        quality: 'high',
+      }),
+    ).toEqual({ model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 2 })
+    // 非会员上限 ≤2K：2K 高画质收到 2K medium，倍率 2。
+    expect(
+      resolveStageImageExecution({
+        model: 'gemini-nano-banana-2.1',
+        imageSize: '4K',
+        supportedTiers: ['1K', '2K'],
+      }),
+    ).toEqual({ model: 'gemini-nano-banana-2.1', quantity: 1, unitMultiplier: 1.5 })
+  })
 })
 
 describe('stage execution binding', () => {

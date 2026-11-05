@@ -509,6 +509,18 @@ describe('runMigrations', () => {
             hash: await migrationFileHash('0086_operator_config_overrides'),
             created_at: '1793700000000',
           },
+          {
+            hash: await migrationFileHash('0087_web_session_refresh'),
+            created_at: '1793800000000',
+          },
+          {
+            hash: await migrationFileHash('0088_upstream_api_secrets'),
+            created_at: '1793900000000',
+          },
+          {
+            hash: await migrationFileHash('0089_admin_filter_indexes'),
+            created_at: '1794000000000',
+          },
         ])
         const columns =
           await client`SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tasks' AND column_name = 'metering'`

@@ -15,7 +15,7 @@ import {
   billedStageQuantity,
   clampGptNonMemberRequest,
   DEFAULT_IMAGE_MODERATION,
-  gptImageRateMultiplier,
+  imageRateMultiplier,
   imageSizeTier,
   isBlankPrompt,
   isGptDirectModel,
@@ -34,6 +34,7 @@ import { prepareMaskedInput } from './agent/masked-input'
 import { consumeStageAuthorization } from './agent/stage-authorizations'
 import { canonicalJson } from './canonicalJson'
 import { isCapabilityEnabled } from './capabilities'
+import { declaredImageSizes } from './channels'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
 import { alignGptRequestToMembership, isActiveMember } from './gpt-membership'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
@@ -145,8 +146,12 @@ function pricingOf(input: CreateQueueTaskInput) {
   if (!input.video)
     return {
       quantity: n,
-      // GPT 直连模型按档位与画质加倍率（带遮罩的只看画质）；其它图片模型恒为 1。
-      unitMultiplier: gptImageRateMultiplier(input.model, input.request),
+      // 按即将落库的请求计价：GPT 看档位与画质，Gemini 看可出的 image_size，其余为 1。
+      unitMultiplier: imageRateMultiplier(
+        input.model,
+        input.request,
+        declaredImageSizes(input.model),
+      ),
       quotaUnits: n,
     }
   return {
@@ -481,6 +486,8 @@ function clampGptInput(input: CreateQueueTaskInput): CreateQueueTaskInput {
 /**
  * 非严格入口里，非会员的 Gemini `image_size: 4K` 静默改成 2K。
  * 会员保持 4K，后面的订阅门照旧。CLI 不走这里。
+ * Gemini 不收其余档位，按请求的 image_size 取倍率；提案侧用 preparedImageRateMultiplier，
+ * 与这里之后的 pricingOf 一致。
  */
 async function downgradeGeminiForNonMember(
   input: CreateQueueTaskInput,

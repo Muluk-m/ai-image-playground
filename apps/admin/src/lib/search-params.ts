@@ -76,12 +76,76 @@ export function parseImgKind(v: unknown): ImgKind | undefined {
 export interface DevicesSearch {
   range?: Range
   sort?: SortKey
+  q?: string
+  preset?: DatePreset
+  from?: number
+  to?: number
+  page?: number
+  pageSize?: 50 | 100
+}
+
+function parsePage(value: unknown): number | undefined {
+  const page = Number(value)
+  return Number.isInteger(page) && page >= 1 && page <= 10_000 ? page : undefined
+}
+
+function parsePageSize(value: unknown): 50 | 100 | undefined {
+  const size = Number(value)
+  return size === 50 || size === 100 ? size : undefined
 }
 
 export function parseDevicesSearch(input: Record<string, unknown>): DevicesSearch {
   const out: DevicesSearch = {}
   if (input.range !== undefined) out.range = parseRange(input.range)
   if (input.sort !== undefined) out.sort = parseSort(input.sort)
+  if (typeof input.q === 'string' && input.q.trim()) out.q = input.q.trim().slice(0, 128)
+  if (
+    input.preset === 'today' ||
+    input.preset === '7d' ||
+    input.preset === '30d' ||
+    input.preset === 'custom'
+  )
+    out.preset = input.preset
+  const page = parsePage(input.page)
+  if (page) out.page = page
+  const pageSize = parsePageSize(input.pageSize)
+  if (pageSize) out.pageSize = pageSize
+  if (input.from !== undefined || input.to !== undefined) {
+    const window = parseTimeWindow(input)
+    if (!window) throw new Error('设备时间范围无效：最多 31 天。')
+    out.from = window.from
+    out.to = window.to
+  }
+  return out
+}
+
+export type DatePreset = 'today' | '7d' | '30d' | 'custom'
+
+export interface DashboardSearch {
+  preset?: DatePreset
+  from?: number
+  to?: number
+  /** 缺省对比上一周期；`0` 只看当前窗。 */
+  compare?: '0'
+}
+
+export function parseDashboardSearch(input: Record<string, unknown>): DashboardSearch {
+  const preset =
+    input.preset === 'today' ||
+    input.preset === '7d' ||
+    input.preset === '30d' ||
+    input.preset === 'custom'
+      ? input.preset
+      : undefined
+  const out: DashboardSearch = {}
+  if (preset) out.preset = preset
+  if (input.compare === '0') out.compare = '0'
+  if (preset === 'custom') {
+    const window = parseTimeWindow(input)
+    if (!window) throw new Error('自定义范围无效：需要起止时间，且不超过 31 天。')
+    out.from = window.from
+    out.to = window.to
+  }
   return out
 }
 
@@ -103,12 +167,53 @@ export function parseOpsSearch(input: Record<string, unknown>): OpsSearch {
 
 export interface UsersSearch {
   q?: string
+  status?: 'active' | 'disabled'
+  registeredFrom?: number
+  registeredTo?: number
+  activeFrom?: number
+  activeTo?: number
+  sort?: 'activity' | 'created' | 'login'
+  dir?: 'asc' | 'desc'
+  page?: number
+  pageSize?: 50 | 100
+  preset?: DatePreset | 'all'
+}
+
+function parseEpoch(value: unknown): number | undefined {
+  if (value === undefined || value === '') return undefined
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined
 }
 
 export function parseUsersSearch(input: Record<string, unknown>): UsersSearch {
-  if (typeof input.q !== 'string') return {}
-  const q = input.q.trim().slice(0, 128)
-  return q ? { q } : {}
+  const out: UsersSearch = {}
+  if (typeof input.q === 'string') {
+    const q = input.q.trim().slice(0, 128)
+    if (q) out.q = q
+  }
+  if (input.status === 'active' || input.status === 'disabled') out.status = input.status
+  if (input.sort === 'activity' || input.sort === 'created' || input.sort === 'login')
+    out.sort = input.sort
+  if (input.dir === 'asc' || input.dir === 'desc') out.dir = input.dir
+  if (
+    input.preset === 'all' ||
+    input.preset === 'today' ||
+    input.preset === '7d' ||
+    input.preset === '30d' ||
+    input.preset === 'custom'
+  )
+    out.preset = input.preset
+  for (const key of ['registeredFrom', 'registeredTo', 'activeFrom', 'activeTo'] as const) {
+    const value = parseEpoch(input[key])
+    if (input[key] !== undefined && input[key] !== '' && value === undefined)
+      throw new Error('用户时间筛选无效')
+    if (value !== undefined) out[key] = value
+  }
+  const page = parsePage(input.page)
+  if (page) out.page = page
+  const pageSize = parsePageSize(input.pageSize)
+  if (pageSize) out.pageSize = pageSize
+  return out
 }
 
 /** 抽屉 + lightbox 的 URL 状态，设备详情与用户详情共用 */
@@ -208,11 +313,61 @@ export function clearInspirationItem<T extends { item?: string }>(
   return rest
 }
 
-export interface GenerationTasksSearch extends GenerationTaskFilters, TaskViewSearch {}
+export interface GenerationTasksSearch extends GenerationTaskFilters, TaskViewSearch {
+  preset?: DatePreset
+}
 export function parseGenerationTasksSearch(input: Record<string, unknown>): GenerationTasksSearch {
   if ((input.from !== undefined || input.to !== undefined) && !parseTimeWindow(input))
     throw new Error('任务时间范围无效：需要完整的起止时间，范围不超过 31 天，且不能在未来。')
-  return { ...parseGenerationTaskFilters(input), ...parseTaskViewSearch(input) }
+  const preset =
+    input.preset === 'today' ||
+    input.preset === '7d' ||
+    input.preset === '30d' ||
+    input.preset === 'custom'
+      ? input.preset
+      : undefined
+  return {
+    ...parseGenerationTaskFilters(input),
+    ...parseTaskViewSearch(input),
+    ...(preset ? { preset } : {}),
+  }
+}
+
+export interface AuditSearch {
+  action?: string
+  operatorId?: string
+  targetId?: string
+  settingKey?: string
+  from?: number
+  to?: number
+  preset?: DatePreset | 'all'
+}
+
+export function parseAuditSearch(input: Record<string, unknown>): AuditSearch {
+  const out: AuditSearch = {}
+  if (typeof input.action === 'string' && input.action.trim())
+    out.action = input.action.trim().slice(0, 64)
+  if (typeof input.operatorId === 'string' && input.operatorId.trim())
+    out.operatorId = input.operatorId.trim().slice(0, 320)
+  if (typeof input.targetId === 'string' && input.targetId.trim())
+    out.targetId = input.targetId.trim().slice(0, 256)
+  if (typeof input.settingKey === 'string' && input.settingKey.trim())
+    out.settingKey = input.settingKey.trim().slice(0, 128)
+  if (
+    input.preset === 'all' ||
+    input.preset === 'today' ||
+    input.preset === '7d' ||
+    input.preset === '30d' ||
+    input.preset === 'custom'
+  )
+    out.preset = input.preset
+  if (input.from !== undefined || input.to !== undefined) {
+    const window = parseTimeWindow(input)
+    if (!window) throw new Error('审计时间范围无效：最多 31 天。')
+    out.from = window.from
+    out.to = window.to
+  }
+  return out
 }
 
 export interface AgentPromptsSearch extends Partial<AgentPromptFilters>, TaskViewSearch {}

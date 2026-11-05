@@ -47,6 +47,7 @@ const WORKSPACE_PATHS = new Set([
   '/pricing',
   '/terms',
   '/privacy',
+  '/connect',
   '/device',
 ])
 
@@ -485,7 +486,7 @@ export const oauthRoutes = new Elysia()
       }
 
       await reclaimSwitchedAccount(cookie[USER_SESSION_COOKIE]?.value, result.user.id)
-      setUserSessionCookie(cookie, result.sessionToken)
+      setUserSessionCookie(cookie, result.issued)
       return successRedirect(request, returnTarget, returnOrigin)
     },
     {

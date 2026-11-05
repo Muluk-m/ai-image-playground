@@ -170,6 +170,11 @@ describe('attentionItems', () => {
       'flaky 失败率 30.0%',
       'upstream_error 失败比上期多 9 次',
     ])
+    expect(items[0]).toMatchObject({ to: '/tasks', search: { status: 'failed', model: 'flaky' } })
+    expect(items[1]).toMatchObject({
+      to: '/tasks',
+      search: { status: 'failed', errorTypes: 'upstream_error' },
+    })
   })
 
   it('says so when a source could not be read, and counts boot failures from the summary', () => {

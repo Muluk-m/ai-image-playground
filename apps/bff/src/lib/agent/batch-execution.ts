@@ -5,7 +5,7 @@ import {
   type AgentBatchGenerationItem,
   type AgentBatchItem,
   type AgentBatchPriceSnapshot,
-  gptCeilingRateMultiplier,
+  preparedImageRateMultiplier,
   QUEUE_MAX_INPUT_IMAGES,
 } from '@image-playground/shared'
 import { and, asc, eq, gt, inArray, isNotNull, isNull, or } from 'drizzle-orm'
@@ -19,6 +19,7 @@ import {
   reserveAnalysisTask,
 } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
+import { declaredImageSizes } from '../channels'
 import { log } from '../logger'
 import { meteringDecisionOrDenied } from '../metering-decision'
 import {
@@ -292,18 +293,14 @@ async function prepareItem(
     agent: { conversationId: batch.conversation_id!, turnId: batch.origin_turn_id },
   }
 }
+/** `unitMultiplier` 由调用方用 preparedImageRateMultiplier 算：执行时 GPT 收到 ≤2K、非高画质，复核价与提案、预扣同一档。 */
 async function quoteGenerationTask(
   tx: BffTransaction,
   userId: string,
-  item: AgentBatchGenerationItem,
+  model: string,
+  unitMultiplier: number,
 ) {
   const hooks = (await loadPrivateBffOverlay()).taskHooks
-  const model = item.params.model
-  // 执行时 GPT 收到 ≤2K、非高画质。复核价必须和提案、以及 createQueueTask 的预扣是同一档。
-  const unitMultiplier = gptCeilingRateMultiplier(model, {
-    size: item.params.size,
-    quality: item.params.quality,
-  })
   const decision = meteringDecisionOrDenied(
     await hooks.meteringDecision?.({
       tx,
@@ -355,7 +352,16 @@ async function currentQuote(
           },
           hooks,
         )
-      : await quoteGenerationTask(tx, batch.user_id, item)
+      : await quoteGenerationTask(
+          tx,
+          batch.user_id,
+          item.params.model,
+          preparedImageRateMultiplier(
+            item.params.model,
+            item.params,
+            declaredImageSizes(item.params.model),
+          ),
+        )
   if (
     !quote ||
     !expected ||
@@ -812,7 +818,16 @@ export async function repriceAgentBatch(
               },
               hooks,
             )
-          : await quoteGenerationTask(tx, userId, item)
+          : await quoteGenerationTask(
+              tx,
+              userId,
+              item.params.model,
+              preparedImageRateMultiplier(
+                item.params.model,
+                item.params,
+                declaredImageSizes(item.params.model),
+              ),
+            )
       if (!quote) throw new BatchPlanError('batch_price_changed', 409)
       totals[item.kind] += quote.estimatedCredits
       charges[item.kind] += quote.pricing.exemption === 'none' ? quote.estimatedCredits : 0

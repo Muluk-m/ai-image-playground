@@ -78,7 +78,10 @@ describe('discovered channels carry catalog capabilities', () => {
       family: 'gpt',
     })
     const { wire: _wire, ...expected } = findCatalogModel('gpt-image-2.5-flare')!.image
-    expect(model.image).toEqual(expected)
+    expect(model.image).toEqual({
+      ...expected,
+      tiers: expected.tiers.map((tier) => ({ ...tier, memberOnly: tier.id === '4K' })),
+    })
   })
 
   it('publishes the measured tiers and the per-surface ratios', () => {
@@ -87,6 +90,7 @@ describe('discovered channels carry catalog capabilities', () => {
     expect(flare.tiers[2]?.pixels['16:9']).toBe('3840x2160')
     const pro = modelOf('gemini-3-pro-image').image!
     expect(pro.tiers.map((tier) => tier.id)).toEqual(['1K', '2K', '4K'])
+    expect(pro.tiers.map((tier) => tier.memberOnly)).toEqual([false, false, true])
     expect(pro.surfaces.agent.ratios).toEqual(['1:1', '3:4', '9:16', '4:3', '16:9'])
     expect(pro.surfaces.direct.customSize).toBe(false)
   })

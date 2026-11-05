@@ -4,10 +4,12 @@ import {
   clampGptNonMemberRequest,
   gptCeilingRateMultiplier,
   gptImageRateMultiplier,
+  imageRateMultiplier,
   isGptBasicRequest,
   isGptDirectModel,
   isGptNonMemberRequest,
   isGptSub2apiDeliverable,
+  preparedImageRateMultiplier,
 } from '../gpt-direct'
 import { IMAGE_SIZE_PRESETS, imageSizeTier, imageTierMaxPixels, parseImageSize } from '../image'
 
@@ -73,6 +75,83 @@ describe('gptImageRateMultiplier', () => {
     expect(
       gptImageRateMultiplier('gemini-3-pro-image', { size: '3840x2160', quality: 'high' }),
     ).toBe(1)
+  })
+})
+
+describe('imageRateMultiplier', () => {
+  const NANO = 'gemini-nano-banana-2.1'
+  const PRO = 'gemini-3-pro-image'
+
+  it('treats a missing request as no tier instead of throwing', () => {
+    expect(imageRateMultiplier(NANO, undefined)).toBe(1)
+    expect(imageRateMultiplier(NANO, null, ['1K', '2K'])).toBe(1)
+    expect(imageRateMultiplier('gpt-image-2.5-flare', undefined)).toBe(1)
+    expect(preparedImageRateMultiplier('gpt-image-2.5-flare', undefined)).toBe(1)
+  })
+
+  it('keeps the GPT table, with auto and a missing size priced as 1K medium', () => {
+    expect(imageRateMultiplier(FLARE, { size: '1024x1024', quality: 'low' })).toBe(1)
+    expect(imageRateMultiplier(FLARE, { size: '1024x1024', quality: 'medium' })).toBe(1)
+    expect(imageRateMultiplier(FLARE, { size: '1024x1024', quality: 'high' })).toBe(4)
+    expect(imageRateMultiplier(FLARE, { size: '2048x2048', quality: 'low' })).toBe(1)
+    expect(imageRateMultiplier(FLARE, { size: '2048x2048', quality: 'medium' })).toBe(2)
+    expect(imageRateMultiplier(FLARE, { size: '2048x2048', quality: 'high' })).toBe(8)
+    expect(imageRateMultiplier(FLARE, { size: '3840x2160', quality: 'low' })).toBe(1)
+    expect(imageRateMultiplier(FLARE, { size: '3840x2160', quality: 'medium' })).toBe(2)
+    expect(imageRateMultiplier(FLARE, { size: '3840x2160', quality: 'high' })).toBe(8)
+    expect(imageRateMultiplier(FLARE, { size: 'auto', quality: 'auto' })).toBe(1)
+    expect(imageRateMultiplier(FLARE, {})).toBe(1)
+    expect(imageRateMultiplier('gpt-image-2.5-sunburst', { size: '2048x2048' })).toBe(2)
+  })
+
+  it('prices Nano 2.1 and Pro by the requested tier token', () => {
+    // 价目表单价 × 倍率，向上取整后：Nano 100/150/340，Pro 150/150/270。
+    for (const field of ['image_size', 'gemini_image_size'] as const) {
+      expect(imageRateMultiplier(NANO, { [field]: '1K' })).toBe(1)
+      expect(imageRateMultiplier(NANO, { [field]: '2K' })).toBe(1.5)
+      expect(imageRateMultiplier(NANO, { [field]: '4K' })).toBe(3.4)
+      expect(imageRateMultiplier(PRO, { [field]: '1K' })).toBe(1)
+      expect(imageRateMultiplier(PRO, { [field]: '2K' })).toBe(1)
+      expect(imageRateMultiplier(PRO, { [field]: '4K' })).toBe(1.8)
+    }
+    expect(imageRateMultiplier(NANO, { image_size: '2K', gemini_image_size: '4K' })).toBe(1.5)
+  })
+
+  it('bills a 4K request at the nearest declared tier until that tier is offered', () => {
+    const offered = ['1K', '2K']
+    expect(imageRateMultiplier(NANO, { image_size: '4K' }, offered)).toBe(1.5)
+    expect(imageRateMultiplier(PRO, { image_size: '4K' }, offered)).toBe(1)
+    expect(imageRateMultiplier(NANO, { image_size: '4K' }, ['1K', '2K', '4K'])).toBe(3.4)
+    expect(imageRateMultiplier(NANO, { image_size: '2K' }, offered)).toBe(1.5)
+  })
+
+  it('prices a retry from the stored request tier, not a larger delivered size', () => {
+    // size=auto 曾回 1312x1199。旧任务重试带的是落库请求，不看那张图的像素。
+    expect(imageRateMultiplier(NANO, { image_size: '2K', size: '1312x1199' })).toBe(1.5)
+    expect(imageRateMultiplier(NANO, { image_size: '1K', size: '4096x4096' })).toBe(1)
+    expect(imageRateMultiplier(PRO, { size: '4096x4096', quality: 'high' })).toBe(1)
+    expect(imageRateMultiplier(NANO, {})).toBe(1)
+    expect(imageRateMultiplier(NANO, { image_size: '512' })).toBe(1)
+    expect(imageRateMultiplier(NANO, { image_size: '8K' })).toBe(1)
+  })
+
+  it('leaves models without an enabled tier table at one, including Grok', () => {
+    expect(imageRateMultiplier('grok-imagine-image-2.0', { image_size: '2K' })).toBe(1)
+    expect(imageRateMultiplier('gemini-3.1-flash-lite-image', { image_size: '1K' })).toBe(1)
+    expect(imageRateMultiplier('workbench-image', { image_size: '4K' })).toBe(1)
+  })
+
+  it('prices prepared GPT submissions at the non-member ceiling and leaves Gemini on the request', () => {
+    // 与 clampGptNonMemberRequest 同一收口：4K 高画质收到 2K medium（倍率 2），1K 高画质收到 1K medium。
+    expect(preparedImageRateMultiplier(FLARE, { size: '3840x2160', quality: 'high' })).toBe(2)
+    expect(preparedImageRateMultiplier(FLARE, { size: '2048x2048', quality: 'medium' })).toBe(2)
+    expect(gptCeilingRateMultiplier(FLARE, { size: '3840x2160', quality: 'high' })).toBe(2)
+    expect(preparedImageRateMultiplier(FLARE, { size: '1024x1024', quality: 'high' })).toBe(1)
+    expect(preparedImageRateMultiplier(NANO, { image_size: '2K' })).toBe(1.5)
+    expect(preparedImageRateMultiplier(NANO, { image_size: '4K' })).toBe(3.4)
+    expect(preparedImageRateMultiplier(PRO, { gemini_image_size: '4K' })).toBe(1.8)
+    const once = preparedImageRateMultiplier(NANO, { image_size: '2K' })
+    expect(preparedImageRateMultiplier(NANO, { image_size: '2K' })).toBe(once)
   })
 })
 
