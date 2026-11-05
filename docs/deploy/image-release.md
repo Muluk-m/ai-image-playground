@@ -2,21 +2,39 @@
 
 前端由 Pages 托管，后端镜像经私有 GHCR 送到 VPS，VPS 仅运行预构建镜像。禁止在 VPS 安装构建依赖、编译或执行 `docker build`。
 
+## 产品命名与现存标识
+
+产品名统一为 **muvloom**（原 paid / 付费版）和 **qlj**（原 internal / 内部版）。计费状态的 `paid`、内部 API 的 `internal` 仍表示原来的业务含义。
+
+仓库内的 Pages 发布入口使用 `muvloom|test|admin`；`qlj` 提示使用共享 muvloom 项目后退出。配置示例使用 `app.muvloom.env.example` / `app.qlj.env.example` 和 `operator-config.muvloom.example.json` / `operator-config.qlj.example.json`。
+
+以下名称连接仓库外状态，本次保留；它们是现存部署契约，不是可混用的新产品名：
+
+| 现存标识 | 产品含义与单独迁移要求 |
+| --- | --- |
+| `PAID_*` / `INTERNAL_*`，`PAID_CLOUDFLARE_API_TOKEN` | 分别对应 muvloom / qlj；需一起更新 GitHub secrets、`PAGES_ENV`、工作站和 VPS 配置及读取脚本 |
+| VPS 目标 `paid` / `internal`，`images.tsv` edition，`SEGMENTER_EDITIONS` | 分别对应 muvloom / qlj；需协调 Actions 构建端、VPS 固定 receiver/runtime、回滚包与 segmenter 配置 |
+| Compose project、容器、网络、卷及 `apps/image-playground-paid` / `apps/image-playground-internal` 配置路径 | 需确认现有数据挂载、服务发现和配置路径，不能仅改默认值以免生成空卷或孤立旧服务 |
+| 镜像 tag、R2 对象前缀、Tunnel 和 Pages 项目名 | 保留现有资源；迁移前需盘点媒体引用、路由、镜像保留和回滚依赖 |
+| `OPS_DEPLOYMENT_NAME=paid` / `OPS_DEPLOYMENT_NAME=internal` | 保留与 VPS 部署日志和告警的匹配；Pages 新日志使用 `muvloom-web` / `muvloom-admin`，旧记录原样显示 |
+
+上述外部标识迁移须单独获批，记录实际资源清单、切换顺序、维护窗口和回滚步骤；本次命名统一不修改线上资源或业务数据。
+
 ## 产品版本
 
 线上版本是 `MAJOR.MINOR.PATCH`。唯一需要手改的是仓库根 `package.json` 的 `version`：只改主版本或次版本，并把补丁写成 `0`（现在是 `0.4.0`）。每次从 main 真正发出去的生产部署都会打一个标签，补丁在该 `vMAJOR.MINOR.*` 上加一。主版本或次版本和最新标签不是同一条线时，从 `.0` 重新计。标签是补丁的来源，部署不会把新版本提交回 main，以免再次触发自己。
 
-设置里的 `v…` 来自这次部署注入的 `APP_RELEASE`。本地和 PR 构建没有这个变量，显示根 `package.json` 里的 `MAJOR.MINOR.0`。`/health` 的 `version` 仍是提交号（付费版再加私有提交）；产品版本在旁边的 `release` 字段。
+设置里的 `v…` 来自这次部署注入的 `APP_RELEASE`。本地和 PR 构建没有这个变量，显示根 `package.json` 里的 `MAJOR.MINOR.0`。`/health` 的 `version` 仍是提交号（muvloom 版再加私有提交）；产品版本在旁边的 `release` 字段。
 
 ## 默认：合并 main 即部署
 
 负责人决定（2026-09-18）：会话只负责合并到 `main`，不再手动发布；部署由 [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) 完成。下文手动步骤仅作应急（CI 不可用、需发布非 main 提交时）。
 
 1. 触发：`Web checks` 在 main 的 push 上成功（`workflow_run`），或在 main 上手动 `workflow_dispatch`。main 上的 `Web checks` 先由 `prior` 核对：提交与其同仓 PR 头的代码树相同、且该 PR 头的 `Web checks` 已通过时，其余检查跳过（结论仍为 success），直接进入部署；PR 落后于 main、来自 fork 或找不到通过记录时照常全跑。并发组 `production-deploy` 不取消在跑的发布，排队只留最新一次。
-2. `target`：[`scripts/ci-deploy-target.sh`](../../scripts/ci-deploy-target.sh) 判定共享 paid API、paid Pages 项目（企业域名与 muvloom 域名共用）、Admin 是否需要发布。前端只扫描 `PAID_PUBLIC_ORIGIN` 的 `/version.json`，同一项目的其他域名随之更新；旧 internal 后端与旧 internal Pages 项目保持冻结，不参与 API 版本扫描或发布。提交不是 `origin/main` 最新、或任一受管 API / 站点已运行其后代提交（不回退）则整单跳过；版本读不到或副本不一致照常发布。
+2. `target`：[`scripts/ci-deploy-target.sh`](../../scripts/ci-deploy-target.sh) 判定共享 muvloom API、muvloom Pages 项目（企业域名与 muvloom 域名共用）、Admin 是否需要发布。前端只扫描 `PAID_PUBLIC_ORIGIN` 的 `/version.json`，同一项目的其他域名随之更新；旧 qlj 后端与旧 qlj Pages 项目保持冻结，不参与 API 版本扫描或发布。提交不是 `origin/main` 最新、或任一受管 API / 站点已运行其后代提交（不回退）则整单跳过；版本读不到或副本不一致照常发布。
 3. `release`：在同一个 `production-deploy` 并发组里根据根 `package.json` 的主次版本和已有 `vMAJOR.MINOR.*` 标签算出下一个补丁，打上 `vMAJOR.MINOR.PATCH` 并推送，避免两次发布抢同一个补丁。不把版本提交回 main。
-4. `backend`：仅在 API 树有变化时检出该提交，用 deploy key 按 `private.lock` 钉住的提交检出私有仓库到 `private/`，`GITHUB_TOKEN` 登录 GHCR，构建发布目录并经 forced command 执行 `deploy <id> paid <run_id>`，只更新共享 paid 后端。旧 internal 后端、容器和数据不覆盖、不停止。
-5. `pages-paid` → `admin-pages`：一个项目、多个域名。只构建、上传一次 paid Pages 项目，`muvloom.online`、`image.nainma.online` 与企业域名 `image-playground.qiliangjia.one` 都是它的自定义域名。`pages-release.sh paid` 把 `INTERNAL_PUBLIC_ORIGIN → INTERNAL_BFF_BASE_URL` 并入 `baseUrlsByOrigin`（企业站继续请求自己的第一方 API hostname），并给企业域名追加按 host 生效的 `X-Robots-Tag: noindex, nofollow`（`robots.txt` 是全项目共用的静态文件，不能按域名区分）。API 本次发布时，先等共享 paid API 与企业 API hostname `/health` 均报 `<公开sha>+<私有sha>`，再构建、上传并跑 Chromium 验收；随后检查企业域名：以 Cloudflare 上 paid 项目的自定义域名列表判断是否已迁入；已迁入时必须在 300 秒内与 paid 站 `version.json` 一致、带 noindex 头并通过 Chromium 验收，否则 job 失败；不在列表中时只给 warning。读不到域名列表也失败。前端单独发布时允许 backend job 跳过。Admin 等 `pages-paid` 成功或跳过。失败后只能按失败 job 重跑，不能重跑整单。
+4. `backend`：仅在 API 树有变化时检出该提交，用 deploy key 按 `private.lock` 钉住的提交检出私有仓库到 `private/`，`GITHUB_TOKEN` 登录 GHCR，构建发布目录并经 forced command 执行 `deploy <id> paid <run_id>`，只更新共享 muvloom 后端。旧 qlj 后端、容器和数据不覆盖、不停止。
+5. `pages-muvloom`（显示名 `Pages (muvloom project, every product domain)`）→ `admin-pages`：一个项目、多个域名。只构建、上传一次 muvloom Pages 项目，`muvloom.online`、`image.nainma.online` 与企业域名 `image-playground.qiliangjia.one`（qlj 域名）都是它的自定义域名。`pages-release.sh muvloom` 把 `INTERNAL_PUBLIC_ORIGIN → INTERNAL_BFF_BASE_URL` 并入 `baseUrlsByOrigin`（qlj 站继续请求自己的第一方 API hostname），并给企业域名追加按 host 生效的 `X-Robots-Tag: noindex, nofollow`（`robots.txt` 是全项目共用的静态文件，不能按域名区分）。API 本次发布时，先等共享 muvloom API 与企业 API hostname `/health` 均报 `<公开sha>+<私有sha>`，再构建、上传并跑 Chromium 验收；随后检查企业域名：以 Cloudflare 上 muvloom 项目的自定义域名列表判断是否已迁入；已迁入时必须在 300 秒内与 muvloom 站 `version.json` 一致、带 noindex 头并通过 Chromium 验收，否则 job 失败；不在列表中时只给 warning。读不到域名列表也失败。前端单独发布时允许 backend job 跳过。Admin 等 `pages-muvloom` 成功或跳过。失败后只能按失败 job 重跑，不能重跑整单。
 6. 部署日志 `by=github-actions/run-<run_id>`；手动发布仍记 `user@host`（`DEPLOY_ACTOR` 可覆盖，写入时空白等字符换成 `-`）。
 
 ### 前端启动验收
@@ -40,9 +58,9 @@ Admin（`apps/admin`）同样带顶层 `404.html`，`_redirects` 由 `apps/admin
 | `PRIVATE_OVERLAY_SSH_KEY` | 私有仓库只读 deploy key |
 | `VPS_SSH_KEY` / `VPS_SSH_KNOWN_HOSTS` / `VPS_SSH_HOST` / `VPS_SSH_USER` | 连接 VPS 的受限 key、主机公钥、地址、用户（`ubuntu`） |
 | `PAGES_ENV` | 完整 `pages.env`；API 地址也从中读取 |
-| `PAID_CLOUDFLARE_API_TOKEN` | paid Pages 账号的上传令牌，写成 `$RUNNER_TEMP` 下 0600 文件，覆盖 `PAID_CLOUDFLARE_TOKEN_FILE`。Admin 同样使用它。`INTERNAL_CLOUDFLARE_API_TOKEN` 不再被读取；保留与清理条件见「企业域名迁入付费 Pages 项目」。 |
+| `PAID_CLOUDFLARE_API_TOKEN` | muvloom Pages 账号的上传令牌，写成 `$RUNNER_TEMP` 下 0600 文件，覆盖 `PAID_CLOUDFLARE_TOKEN_FILE`。Admin 同样使用它。`INTERNAL_CLOUDFLARE_API_TOKEN` 不再被读取；保留与清理条件见「企业域名迁入 muvloom Pages 项目」。 |
 
-`PAID_EXTRA_ASSETS_DIR` 在 CI 改指 `private/pages-assets/`（`contact-qr.jpg`、`pay-qr.jpg`），目录缺失即失败。企业域名与 paid 站是同一份产物，`/op/` 下的这些资源在企业域名上同样可访问（本就公开）；`INTERNAL_EXTRA_ASSETS_DIR` 不再使用。所有 `EXTRA_ASSETS_DIR` 内容都会公开发布，不可放密钥。GHCR 推送用 workflow 的 `GITHUB_TOKEN`（`packages: write`）；包须允许本仓库 Actions 写入。任一必需 secret 为空，对应 job 首步报错退出。
+`PAID_EXTRA_ASSETS_DIR` 在 CI 改指 `private/pages-assets/`（`contact-qr.jpg`、`pay-qr.jpg`），目录缺失即失败。企业域名与 muvloom 站是同一份产物，`/op/` 下的这些资源在企业域名上同样可访问（本就公开）；`INTERNAL_EXTRA_ASSETS_DIR` 不再使用。所有 `EXTRA_ASSETS_DIR` 内容都会公开发布，不可放密钥。GHCR 推送用 workflow 的 `GITHUB_TOKEN`（`packages: write`）；包须允许本仓库 Actions 写入。任一必需 secret 为空，对应 job 首步报错退出。
 
 ### VPS 受限入口
 
@@ -57,50 +75,50 @@ command="/home/ubuntu/bin/aip-ci-receive test",restrict ssh-ed25519 AAAA… aip-
 
 ## 前端：一个 Pages 项目、多个域名（手动应急）
 
-构建和上传可在本机执行，资源紧张时改用 macmini2。仅修改前端时只发布 paid Pages 项目（及按需 Admin），无需部署 VPS 后端。
+构建和上传可在本机执行，资源紧张时改用 macmini2。仅修改前端时只发布 muvloom Pages 项目（及按需 Admin），无需部署 VPS 后端。
 
 | 形态 | Pages project | 网页 / API |
 | --- | --- | --- |
-| 付费版 | `ai-image-playground` | `muvloom.online` / `api.muvloom.online` |
-| 付费旧域名 | 同一付费项目 | `image.nainma.online` / `api.nainma.online` |
-| 企业域名（不收录） | 迁入后为同一付费项目 | `image-playground.qiliangjia.one` / `image-api.qiliangjia.one` |
-| 旧内部项目（冻结，回滚保留期结束后再清理） | `ai-image-playground-internal`（内部账号） | 迁出前仍服务企业域名 |
+| muvloom 版 | `ai-image-playground` | `muvloom.online` / `api.muvloom.online` |
+| muvloom 旧域名 | 同一 muvloom 项目 | `image.nainma.online` / `api.nainma.online` |
+| 企业域名（qlj 域名，不收录） | 迁入后为同一 muvloom 项目 | `image-playground.qiliangjia.one` / `image-api.qiliangjia.one` |
+| 旧 qlj 项目（冻结，回滚保留期结束后再清理） | `ai-image-playground-internal`（qlj 账号） | 迁出前仍服务企业域名 |
 | 后台 | `muvloom-admin` | `admin.muvloom.online` / `admin-api.muvloom.online` |
 
-所有域名使用同一份前端产物与同一个共享 paid runtime，但各自请求第一方 API hostname：企业域名的 `INTERNAL_BFF_BASE_URL` 仍为 `https://image-api.qiliangjia.one`，由外部路由接到共享 runtime。登录方式由后端按前端 origin 决定（`AUTH_LOGIN_METHODS_BY_ORIGIN`）：企业域名只开飞书，muvloom 开邮箱密码、邮箱注册与 Google；前端不按域名分支。不要把企业域名直接指向 `https://api.muvloom.online`：跨站请求不能携带 `SameSite=Lax` 会话 cookie。路由、CORS、登录入口策略及回调 allowlist 必须在切换前由受保护服务器配置完成；本 workflow 不改服务器配置，也不覆盖或停止旧 internal 后端。入口策略来自后端按 origin 配置，不在公开源码写私有提供方细节。官网 canonical、hreflang、sitemap 与 `llms.txt` 都指向 `PAID_PUBLIC_ORIGIN`；企业域名靠 noindex 头排除收录。
+所有域名使用同一份前端产物与同一个共享 muvloom runtime，但各自请求第一方 API hostname：企业域名的 `INTERNAL_BFF_BASE_URL` 仍为 `https://image-api.qiliangjia.one`，由外部路由接到共享 runtime。登录方式由后端按前端 origin 决定（`AUTH_LOGIN_METHODS_BY_ORIGIN`）：企业域名只开飞书，muvloom 开邮箱密码、邮箱注册与 Google；前端不按域名分支。不要把企业域名直接指向 `https://api.muvloom.online`：跨站请求不能携带 `SameSite=Lax` 会话 cookie。路由、CORS、登录入口策略及回调 allowlist 必须在切换前由受保护服务器配置完成；本 workflow 不改服务器配置，也不覆盖或停止旧 qlj 后端。入口策略来自后端按 origin 配置，不在公开源码写私有提供方细节。官网 canonical、hreflang、sitemap 与 `llms.txt` 都指向 `PAID_PUBLIC_ORIGIN`；企业域名靠 noindex 头排除收录。
 
-### 企业域名迁入付费 Pages 项目（一次性）
+### 企业域名迁入 muvloom Pages 项目（一次性）
 
 **迁移与回滚都要 Nain 批准，并约定低峰维护窗口、失败回滚时限及执行人。合并代码不迁移域名，也不保证迁移零停机：从停用旧 DNS / 解绑旧项目开始，到新绑定、DNS 与 TLS 生效并完成验收为止，企业站可能不可用；回滚也有同样窗口。**
 
-1. **迁移前置检查。** 等 main 的 Deploy production 成功，核对共享 API、muvloom 和 Admin 的版本；确认 paid 产物的 `runtime-config.json` 已包含 `https://image-playground.qiliangjia.one → https://image-api.qiliangjia.one`，并包含企业 host 的 noindex 规则。新前端必须支持读取后端 `loginMethods`（#1659）；企业 API 仅返回飞书且禁用密码 / 注册，不代表冻结的旧前端已隐藏这些表单。旧企业站在迁入前继续提供旧版本。
-2. **备份与跨账号预检。** 记录旧 / 新 Pages 账号、项目、部署版本及 `qiliangjia.one` zone 所属账号；备份 `image-playground` 的 DNS 类型、目标、代理状态和 TTL。确认执行人能管理两边的 Pages 自定义域名及源 zone 的 DNS，旧项目与已验证部署仍可用于回滚。该域名是子域名，zone 不必迁到 paid 账号；不要套用「同账号自动创建 DNS」或直接强制代理 CNAME。跨账号时按目标 Pages 自定义域名向导核对验证记录、代理要求、CAA 和可能的 zone hold；无法确认支持与权限就停止，不先解绑旧站。
-3. **解绑旧项目。** 在维护窗口按 Cloudflare [删除自定义域名流程](https://developers.cloudflare.com/pages/configuration/custom-domains/#delete-a-custom-domain)停用旧 CNAME，再从内部账号的 `ai-image-playground-internal` 移除 `image-playground.qiliangjia.one`。此处开始计入停机窗口；不删除旧项目或部署。
-4. **先添加域名，再配 DNS。** 紧接着在付费账号的 `ai-image-playground` → Custom domains 添加 `image-playground.qiliangjia.one`，创建绑定后，再到源 zone 按向导创建 CNAME → `ai-image-playground.pages.dev` 及所需验证记录。跨账号不会由目标项目自动修改源 zone，代理状态按已确认的配置设置。不要在绑定前先把 CNAME 指向新项目，否则可能解析失败或出现 522，见 Cloudflare [自定义域名说明](https://developers.cloudflare.com/pages/configuration/custom-domains/#add-a-custom-cname-record)。等待域名 active、DNS 和 TLS 生效；不能把添加成功或固定等待几分钟当作恢复服务。
+1. **迁移前置检查。** 等 main 的 Deploy production 成功，核对共享 API、muvloom 和 Admin 的版本；确认 muvloom 产物的 `runtime-config.json` 已包含 `https://image-playground.qiliangjia.one → https://image-api.qiliangjia.one`，并包含企业 host 的 noindex 规则。新前端必须支持读取后端 `loginMethods`（#1659）；企业 API 仅返回飞书且禁用密码 / 注册，不代表冻结的旧前端已隐藏这些表单。旧 qlj 站在迁入前继续提供旧版本。
+2. **备份与跨账号预检。** 记录旧 / 新 Pages 账号、项目、部署版本及 `qiliangjia.one` zone 所属账号；备份 `image-playground` 的 DNS 类型、目标、代理状态和 TTL。确认执行人能管理两边的 Pages 自定义域名及源 zone 的 DNS，旧项目与已验证部署仍可用于回滚。该域名是子域名，zone 不必迁到 muvloom 账号；不要套用「同账号自动创建 DNS」或直接强制代理 CNAME。跨账号时按目标 Pages 自定义域名向导核对验证记录、代理要求、CAA 和可能的 zone hold；无法确认支持与权限就停止，不先解绑旧站。
+3. **解绑旧项目。** 在维护窗口按 Cloudflare [删除自定义域名流程](https://developers.cloudflare.com/pages/configuration/custom-domains/#delete-a-custom-domain)停用旧 CNAME，再从 qlj 账号的 `ai-image-playground-internal` 移除 `image-playground.qiliangjia.one`。此处开始计入停机窗口；不删除旧项目或部署。
+4. **先添加域名，再配 DNS。** 紧接着在 muvloom 账号的 `ai-image-playground` → Custom domains 添加 `image-playground.qiliangjia.one`，创建绑定后，再到源 zone 按向导创建 CNAME → `ai-image-playground.pages.dev` 及所需验证记录。跨账号不会由目标项目自动修改源 zone，代理状态按已确认的配置设置。不要在绑定前先把 CNAME 指向新项目，否则可能解析失败或出现 522，见 Cloudflare [自定义域名说明](https://developers.cloudflare.com/pages/configuration/custom-domains/#add-a-custom-cname-record)。等待域名 active、DNS 和 TLS 生效；不能把添加成功或固定等待几分钟当作恢复服务。
 5. **迁入验收。** 企业域名 `version.json` 必须与 `muvloom.online` 完全一致，企业站实际读取的 `runtime-config.json` 必须含上述第一方 API 映射。用 GET 检查企业首页、登录入口与业务深链最终 HTML 的 `X-Robots-Tag: noindex, nofollow`，同时确认 muvloom 未被加上 noindex。共享的 `robots.txt` 允许抓取，不能再用旧项目的 `Disallow: /` 当保护；noindex 是搜索索引指令，不是访问控制。Cloudflare [Headers 文档](https://developers.cloudflare.com/pages/configuration/headers/#attach-a-header)支持 `https://example.com/path` 绝对 URL 匹配，不限于 `pages.dev`，但仍须实测自定义域名的最终响应。浏览器确认企业登录弹窗只显示飞书、无密码 / 注册表单，并用获准测试账号实测飞书登录、回调与带 cookie 的 API 请求；muvloom 仍显示 Google、邮箱密码和注册。任一项失败，不宣称完成，按批准的回滚时限处理。
 
-**域名回滚（需批准）。** 停用指向新项目的 CNAME，从 paid 项目移除企业域名，先把它添加回旧 `ai-image-playground-internal` 项目，再恢复备份的旧 DNS（CNAME → `ai-image-playground-internal.pages.dev`，以及原代理状态 / TTL）。等待 active、DNS 与 TLS 生效，核对旧版本、索引策略及真实登录。域名回滚不回滚共享后端，也不会把旧前端升级为按 `loginMethods` 隐藏表单的新界面。
+**域名回滚（需批准）。** 停用指向新项目的 CNAME，从 muvloom 项目移除企业域名，先把它添加回旧 `ai-image-playground-internal` 项目，再恢复备份的旧 DNS（CNAME → `ai-image-playground-internal.pages.dev`，以及原代理状态 / TTL）。等待 active、DNS 与 TLS 生效，核对旧版本、索引策略及真实登录。域名回滚不回滚共享后端，也不会把旧前端升级为按 `loginMethods` 隐藏表单的新界面。
 
-**代码回滚不等于恢复发布。** revert #1661 只恢复双矩阵代码，不会自动迁回自定义域名或修复旧令牌。此前 internal Pages 发布报过 `Authentication error [code: 10000]`；恢复 internal 发布前，必须修复并验证 `INTERNAL_CLOUDFLARE_API_TOKEN` 的有效性、账号归属和 Pages 权限，否则仍会失败并阻断后续 Admin 发布。域名迁移稳定、验收记录齐全且 Nain 确认不再保留旧项目回滚路径后，才能清理旧项目与旧令牌；不要提前删除。
+**代码回滚不等于恢复发布。** revert #1661 只恢复双矩阵代码，不会自动迁回自定义域名或修复旧令牌。此前 qlj Pages 发布报过 `Authentication error [code: 10000]`；恢复 qlj 发布前，必须修复并验证 `INTERNAL_CLOUDFLARE_API_TOKEN` 的有效性、账号归属和 Pages 权限，否则仍会失败并阻断后续 Admin 发布。域名迁移稳定、验收记录齐全且 Nain 确认不再保留旧项目回滚路径后，才能清理旧项目与旧令牌；不要提前删除。
 
-### 内部 API hostname 切换到共享 runtime
+### qlj API hostname 切换到共享 runtime
 
 这是受保护的服务器路由变更，需按批准的切换流程执行，不由 Pages 发布或普通后端 rollout 自动修改：
 
-1. 保留内部 tunnel connector 在 `image-playground-internal_application` 网络上的连接，内部 Admin hostname 仍依赖它。只把现有内部 `cloudflared` connector 额外接入 `image-playground-paid_application`，不把旧 internal BFF、worker 或数据库接入该网络，也不停止或覆盖它们。自定义项目名时分别使用 `${INTERNAL_PROJECT}_application` / `${PAID_PROJECT}_application`，以实际 Docker 网络为准。
-2. 在现有内部 tunnel 的配置中，仅将 `image-api.qiliangjia.one` 的 upstream 从 `http://release-router:37377` 改为 `http://image-playground-paid-release-router:37377`。使用明确的 paid router 名称，避免 connector 同时加入两套网络后把通用 `release-router` 名称解析到旧 runtime；保留其余 hostname（尤其内部 Admin）的路由。
-3. 按批准流程加载 connector 配置，核对 `image-api.qiliangjia.one/health` 与 paid API 的公开 / 私有提交一致，再验内部站真实登录、回调、带 cookie 的 API 请求，以及内部 Admin 仍可访问。前端的 `INTERNAL_BFF_BASE_URL` 不变。
+1. 保留 qlj tunnel connector 在 `image-playground-internal_application` 网络上的连接，qlj Admin hostname 仍依赖它。只把现有 qlj `cloudflared` connector 额外接入 `image-playground-paid_application`，不把旧 qlj BFF、worker 或数据库接入该网络，也不停止或覆盖它们。自定义项目名时分别使用 `${INTERNAL_PROJECT}_application` / `${PAID_PROJECT}_application`，以实际 Docker 网络为准。
+2. 在现有 qlj tunnel 的配置中，仅将 `image-api.qiliangjia.one` 的 upstream 从 `http://release-router:37377` 改为 `http://image-playground-paid-release-router:37377`。使用明确的 muvloom router 名称，避免 connector 同时加入两套网络后把通用 `release-router` 名称解析到旧 runtime；保留其余 hostname（尤其 qlj Admin）的路由。
+3. 按批准流程加载 connector 配置，核对 `image-api.qiliangjia.one/health` 与 muvloom API 的公开 / 私有提交一致，再验 qlj 站真实登录、回调、带 cookie 的 API 请求，以及 qlj Admin 仍可访问。前端的 `INTERNAL_BFF_BASE_URL` 不变。
 
-额外 Docker 网络连接会随同一 connector 容器的 **restart** 保留，但不会自动带到 **recreate** 后的新容器。今后任何 connector 重建操作都必须先将重新附加 `image-playground-paid_application` 列为该次操作的必需步骤，并在新 connector 承接流量前完成附加与连通性核验；不能先重建后把该连接当作仍然存在。重建后仍须保留 `image-playground-internal_application` 以服务内部 Admin。普通 paid 后端发布不应重建内部 connector，本次切换也不修改 rollout 脚本。
+额外 Docker 网络连接会随同一 connector 容器的 **restart** 保留，但不会自动带到 **recreate** 后的新容器。今后任何 connector 重建操作都必须先将重新附加 `image-playground-paid_application` 列为该次操作的必需步骤，并在新 connector 承接流量前完成附加与连通性核验；不能先重建后把该连接当作仍然存在。重建后仍须保留 `image-playground-internal_application` 以服务 qlj Admin。普通 muvloom 后端发布不应重建 qlj connector，本次切换也不修改 rollout 脚本。
 
-### 付费站默认域名跳转
+### muvloom 站默认域名跳转
 
-付费 Cloudflare 账号的 Bulk Redirect List `muvloom_pages_canonical` 将
+muvloom Cloudflare 账号的 Bulk Redirect List `muvloom_pages_canonical` 将
 `ai-image-playground.pages.dev/` 以 301 跳转到 `https://muvloom.online/`，由账号级
 `http_request_redirect` ruleset 的同名规则启用。开启 `subpath_matching`、
 `preserve_path_suffix`、`preserve_query_string`；`include_subdomains=false`，不影响部署预览子域名。
 
-这是账号配置，不在 Pages 构建产物中；Pages 常规发布不会覆盖它。更换付费 Pages 项目或
+这是账号配置，不在 Pages 构建产物中；Pages 常规发布不会覆盖它。更换 muvloom Pages 项目或
 `PAID_PUBLIC_ORIGIN` 时同步核对这条规则。不要给默认域名放宽 API CORS：正式域名承载现有登录会话。
 维护已有 ruleset 时只更新该规则，不覆盖账号中的其他规则；回滚时只禁用同名规则。
 
@@ -112,7 +130,7 @@ command="/home/ubuntu/bin/aip-ci-receive test",restrict ssh-ed25519 AAAA… aip-
 
 1. 准备独立、干净且依赖已按锁文件安装的检出，固定到同一已通过 main CI 的公开提交及 `private.lock` 对应的 `private/`。前端必须带 overlay。不要移动其他会话的 `private/` 或重写锁文件。
 2. 在执行发布的机器准备仓库外 0600 配置，格式见 `deploy/pages.env.example`。填写 `PAID_PAGES_PROJECT`、`PAID_BFF_BASE_URL`、`PAID_PUBLIC_ORIGIN`、`PAID_CLOUDFLARE_ACCOUNT_ID`，以及企业域名的 `INTERNAL_PUBLIC_ORIGIN`、`INTERNAL_BFF_BASE_URL`；令牌通过 `PAID_CLOUDFLARE_TOKEN_FILE` 引用受保护文件，未配置时使用该机器的 Wrangler OAuth。
-3. 保留付费域名映射：`PAID_BFF_BASE_URLS_BY_ORIGIN='{"https://image.nainma.online":"https://api.nainma.online"}'`，避免旧域名会话失效。保留现有 `*_EXTRA_ASSETS_DIR` 等配置；该目录内容会公开发布。
+3. 保留 muvloom 旧域名映射：`PAID_BFF_BASE_URLS_BY_ORIGIN='{"https://image.nainma.online":"https://api.nainma.online"}'`，避免旧域名会话失效。保留现有 `*_EXTRA_ASSETS_DIR` 等配置；该目录内容会公开发布。
 4. 将下列路径替换为本次独立检出和已核验配置，再执行：
 
 ```sh
@@ -120,13 +138,13 @@ command="/home/ubuntu/bin/aip-ci-receive test",restrict ssh-ed25519 AAAA… aip-
 # 若选择远端发布，先 ssh macmini2；本机发布直接执行以下命令。
 export PATH=/opt/homebrew/bin:$PATH
 export PAGES_ENV_FILE=/absolute/protected/pages.env
-cd /absolute/paid-checkout
-./scripts/pages-release.sh paid
+cd /absolute/muvloom-checkout
+./scripts/pages-release.sh muvloom
 ```
 
 `pages-release.sh` 自动构建、向生产分支 `main` 上传，并等待自定义域名 `version.json` 与产物一致（最长 300 秒）。不直接调用省略分支的 `pages-deploy.sh`，否则会发布到预览环境。
 
-macmini2 现有生产配置参考：`/Users/mac/services/aip-free-recovery-20260918/pages-primary-remote.env`；其中内部项目配置已不再使用，令牌使用前必须核验并刷新认证。`pages-remote.env` 指向旧备用 API，不能用于正常生产发布。服务容器停机不影响读取这些配置，但发布不得依赖失效令牌。本机使用本机受保护配置与凭据路径，不直接引用 macmini2 的绝对路径。
+macmini2 现有生产配置参考：`/Users/mac/services/aip-free-recovery-20260918/pages-primary-remote.env`；其中 qlj 项目配置已不再使用，令牌使用前必须核验并刷新认证。`pages-remote.env` 指向旧备用 API，不能用于正常生产发布。服务容器停机不影响读取这些配置，但发布不得依赖失效令牌。本机使用本机受保护配置与凭据路径，不直接引用 macmini2 的绝对路径。
 
 验收三个网页域名的 `version.json`、`runtime-config.json`：三者为同一部署、含预期私有提交，各自第一方 API 映射正确，企业域名带 noindex 头；再检查真实浏览器登录、原画布和前端改动。上传成功但域名校验超时时先查部署状态及缓存，不立即重复上传。默认静默更新；需要更新提示时设置对应 `*_NOTIFY_UPDATE=true`。
 
@@ -134,15 +152,15 @@ macmini2 现有生产配置参考：`/Users/mac/services/aip-free-recovery-20260
 
 ## 后台：前端在 Pages、API 在 VPS
 
-后台前端是 `apps/admin` 的 Vite 产物，跟付费站同一个 Cloudflare 账号、同一份 `private/` overlay，发到独立项目 `muvloom-admin`；
+后台前端是 `apps/admin` 的 Vite 产物，跟 muvloom 站同一个 Cloudflare 账号、同一份 `private/` overlay，发到独立项目 `muvloom-admin`；
 后台服务端还是 compose 里的 `admin` 容器，只出 API，经 tunnel 暴露成 `admin-api.muvloom.online`。
 两个域名同站（eTLD+1 相同），所以 `SameSite=Lax` 的 `admin_session` cookie 在 `fetch(credentials:'include')` 和 `<img>` 上都带得过去；`*.pages.dev` 预览域登不上，与主站一致。
 
-日常发布不用管它：`deploy.yml` 的 `admin-pages` job 在付费站（`pages-paid`）之后自动跑 `pages-release.sh admin`。应急手动发布：
+日常发布不用管它：`deploy.yml` 的 `admin-pages` job 在 muvloom 站（`pages-muvloom`）之后自动跑 `pages-release.sh admin`。应急手动发布：
 
 ```sh
 export PAGES_ENV_FILE=/absolute/protected/pages.env
-cd /absolute/paid-checkout   # 必须带已验证的 private/
+cd /absolute/muvloom-checkout   # 必须带已验证的 private/
 ./scripts/pages-release.sh admin
 ```
 
@@ -151,7 +169,7 @@ cd /absolute/paid-checkout   # 必须带已验证的 private/
 1. `cloudflared tunnel route dns image-playground-paid admin-api.muvloom.online`，ingress 加 `admin-api.muvloom.online → http://admin:37378`，重启 cloudflared。
 2. `app.env` 加 `ADMIN_FRONTEND_ORIGIN=https://admin.muvloom.online`、`ADMIN_CORS_ALLOWED_ORIGINS=https://admin.muvloom.online`，把 `ADMIN_PUBLIC_ORIGIN` 改成 `https://admin-api.muvloom.online`（它是 API 自己的 origin，Google 控制台的回调地址跟着改成 `https://admin-api.muvloom.online/api/auth/google/callback`），删掉 `ADMIN_DIST_DIR` 那一行。
 3. `app-compose.sh compose image-playground-paid up --detach --no-deps admin`，验 `https://admin-api.muvloom.online/health` 的 `version`。
-4. 用付费账号凭证给公开素材桶应用浏览器直传 CORS：`npx wrangler r2 bucket cors set "$PUBLIC_ASSET_BUCKET" --file deploy/r2-public-assets-cors.json`，再用 `npx wrangler r2 bucket cors list "$PUBLIC_ASSET_BUCKET"` 确认 Admin 可 `GET` / `HEAD` / `PUT`，主站、内部站与测试站只可 `GET` / `HEAD`。主站套用图生图灵感时会从浏览器读取原图，因此读权限必须覆盖主站 origin。
+4. 用 muvloom 账号凭证给公开素材桶应用浏览器直传 CORS：`npx wrangler r2 bucket cors set "$PUBLIC_ASSET_BUCKET" --file deploy/r2-public-assets-cors.json`，再用 `npx wrangler r2 bucket cors list "$PUBLIC_ASSET_BUCKET"` 确认 Admin 可 `GET` / `HEAD` / `PUT`，主站、qlj 站与测试站只可 `GET` / `HEAD`。主站套用图生图灵感时会从浏览器读取原图，因此读权限必须覆盖主站 origin。
 5. 建 Pages 项目并首发，再把 `admin.muvloom.online` 的 DNS 从 tunnel 切到 Pages，删掉 ingress 里旧的 `admin.muvloom.online` 那行。Cloudflare Access 两个域名都要覆盖。
 6. 浏览器验收：登录、任务详情里的图片（跨域带 cookie）、私有计费面板、灵感库封面上传。
 
@@ -168,13 +186,13 @@ DATABASE_URL=<迁移账号> bun run apps/bff/scripts/import-inspirations.ts
 
 ## 测试环境（test 分支）
 
-只发前端。push 到 `test` 分支由 [`.github/workflows/deploy-test.yml`](../../.github/workflows/deploy-test.yml) 发布到 https://test.muvloom.online，流程、数据范围与首次配置见[测试环境手册](test-environment.md)。原先的 `test-preview.yml`（内部版 Pages 预览别名）已删除。
+只发前端。push 到 `test` 分支由 [`.github/workflows/deploy-test.yml`](../../.github/workflows/deploy-test.yml) 发布到 https://test.muvloom.online，流程、数据范围与首次配置见[测试环境手册](test-environment.md)。原先的 `test-preview.yml`（qlj 版 Pages 预览别名）已删除。
 
 ## 后端：镜像构建与发布（手动应急）
 
 镜像经私有 GHCR `ghcr.io/muluk-m/ai-image-playground`（owner 必须小写）传输，VPS 按 digest 拉取，只传变更层。发布目录只含 `images.tsv` 与 `SHA256SUMS`，体积很小，可经工作站中转。
 
-1. 构建机：GitHub Actions `ubuntu-latest`（`GITHUB_ACTIONS=true`）或 macmini2 手动兜底；其他 Linux 拒绝构建。独立检出已通过 PR/main CI 的公开提交；paid/all 还需已验证的 `private/` Git 检出。不得占用其他会话目录。
+1. 构建机：GitHub Actions `ubuntu-latest`（`GITHUB_ACTIONS=true`）或 macmini2 手动兜底；其他 Linux 拒绝构建。独立检出已通过 PR/main CI 的公开提交；`paid`/`all` 还需已验证的 `private/` Git 检出。不得占用其他会话目录。
 2. 构建到尚不存在的目录：
 
 ```sh
@@ -182,7 +200,7 @@ export PATH=/opt/homebrew/bin:$PATH   # 仅 macmini2
 ./scripts/build-vps-release.sh paid /Users/mac/releases/aip-<release-id>
 ```
 
-构建输入固定为 Git 提交，不含未提交文件或凭据。使用 `aip-release` builder（4 核、6 GiB、无额外 Swap、阶段并发 1）生成 `linux/amd64` 镜像；保留现有构建锁，并与其他重型任务错峰。发布目录只包含 `images.tsv`、`SHA256SUMS`，archive transport 另含 `images.tar.gz`；部署代码使用 VPS 固定 runtime。当前生产只构建 `paid-<公开12位>-<私有12位>`、`backup-<公开12位>` 与 `segmenter-<版本>-<公开12位>`，不构建已冻结的 internal 镜像；脚本的 `internal`/`all` 模式保留兼容能力，使用前须单独批准。每个镜像构建后立即推送，本地标签不变。首次推送上传全部层，之后只传变更层。
+构建输入固定为 Git 提交，不含未提交文件或凭据。使用 `aip-release` builder（4 核、6 GiB、无额外 Swap、阶段并发 1）生成 `linux/amd64` 镜像；保留现有构建锁，并与其他重型任务错峰。发布目录只包含 `images.tsv`、`SHA256SUMS`，archive transport 另含 `images.tar.gz`；部署代码使用 VPS 固定 runtime。当前生产只构建 `paid-<公开12位>-<私有12位>`（muvloom 镜像）、`backup-<公开12位>` 与 `segmenter-<版本>-<公开12位>`，不构建已冻结的 qlj 镜像；脚本的 `internal`/`all` 模式保留兼容能力，使用前须单独批准。每个镜像构建后立即推送，本地标签不变。首次推送上传全部层，之后只传变更层。
 
 3. 工作站中转发布数据包，或由 CI 通过受限 SSH 入口上传；不要再从历史发布目录执行 `scripts/vps-deploy.sh`。手工发布必须使用固定 runtime：
 
@@ -196,7 +214,7 @@ ssh tx-vps '/home/ubuntu/deploy-runtime/scripts/vps-deploy.sh paid /home/ubuntu/
 
 ### `images.tsv`
 
-每行一个镜像，制表符分隔：`形态 本地标签 镜像ID 公开提交 私有提交 仓库digest`。形态为 `internal`/`paid`/`backup`；私有提交无则为 `-`；第 6 列形如 `ghcr.io/muluk-m/ai-image-playground@sha256:<64位>`，archive 发布为 `-`。只有 5 列的旧发布包仍可接收。
+每行一个镜像，制表符分隔：`形态 本地标签 镜像ID 公开提交 私有提交 仓库digest`。形态为 `internal`（qlj 版）/`paid`（muvloom 版）/`backup`；私有提交无则为 `-`；第 6 列形如 `ghcr.io/muluk-m/ai-image-playground@sha256:<64位>`，archive 发布为 `-`。只有 5 列的旧发布包仍可接收。
 
 ### 凭据
 

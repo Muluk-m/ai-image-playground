@@ -18,13 +18,14 @@ dist_manifest=
 
 usage() {
   cat >&2 <<'EOF'
-Usage: scripts/pages-release.sh <paid|test|admin>
+Usage: scripts/pages-release.sh <muvloom|test|admin>
 
-Reads $XDG_CONFIG_HOME/ai-image-playground/pages.env, whose keys are prefixed PAID_, TEST_,
-or ADMIN_ (see deploy/pages.env.example). INTERNAL_PUBLIC_ORIGIN / INTERNAL_BFF_BASE_URL name
-the enterprise domain that the paid Pages project also serves.
+Reads $XDG_CONFIG_HOME/ai-image-playground/pages.env, whose keys are prefixed PAID_ (the legacy key
+prefix of the muvloom project), TEST_, or ADMIN_ (see deploy/pages.env.example).
+INTERNAL_PUBLIC_ORIGIN / INTERNAL_BFF_BASE_URL (legacy names of the qlj keys) name the enterprise
+domain that the muvloom Pages project also serves.
 
-All targets need ./private. One paid project serves both production domains: the enterprise
+All targets need ./private. One muvloom project serves both production domains: the enterprise
 domain gets its own first-party API mapping and a host-scoped noindex header.
 EOF
   exit 2
@@ -33,21 +34,21 @@ EOF
 edition=${1:-}
 [ "$#" -le 1 ] || usage
 case "$edition" in
-  # The internal edition no longer has its own Pages project: the paid project serves its domain.
-  internal)
-    echo "The internal site is served by the paid Pages project; release 'paid' instead." >&2
+  # The qlj edition no longer has its own Pages project: the muvloom project serves its domain.
+  qlj)
+    echo "The qlj site is served by the muvloom Pages project; release 'muvloom' instead." >&2
     exit 2
     ;;
   # Only the public product site is meant to show up in search results; the enterprise domain on
   # the same project is excluded by a host-scoped header below.
-  paid)
+  muvloom)
     prefix=PAID
     bundle=private
     app=web
-    deployment_name=paid-web
+    deployment_name=muvloom-web
     search_indexing=true
     ;;
-  # The test site mirrors what ships to muvloom.online, so it is the paid shape.
+  # The test site mirrors what ships to muvloom.online, so it is the muvloom shape.
   test)
     prefix=TEST
     bundle=private
@@ -59,7 +60,7 @@ case "$edition" in
     prefix=ADMIN
     bundle=private
     app='admin'
-    deployment_name=paid-admin
+    deployment_name=muvloom-admin
     search_indexing=false
     ;;
   *) usage ;;
@@ -108,8 +109,8 @@ fi
 BFF_ENABLED=true
 BFF_BASE_URLS_BY_ORIGIN=$(edition_var "$prefix" BFF_BASE_URLS_BY_ORIGIN)
 NOINDEX_ORIGINS=
-if [ "$edition" = paid ]; then
-  # The enterprise domain is a second custom domain of the paid project. Its frontend must keep
+if [ "$edition" = muvloom ]; then
+  # The enterprise domain is a second custom domain of the muvloom project. Its frontend must keep
   # calling its own first-party API hostname (SameSite=Lax session cookies), so it joins the
   # per-origin API map; the backend decides its login methods from the same origin.
   enterprise_origin=$(edition_var INTERNAL PUBLIC_ORIGIN)

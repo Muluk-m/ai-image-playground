@@ -19,7 +19,7 @@
 ## 需要另行跟进
 
 - **Veo 3.1 Preview 已于 2026-10-22 在 Gemini API 下线**，生产配置仍列着 `veo-3.1-fast-generate-preview` / `veo-3.1-lite-generate-preview`。
-- **生产 `ark-video` 的 `ARK_BASE_URL` 主机为空**（付费版），方舟线路实际不可用，取消也就无从谈起。
+- **生产 `ark-video` 的 `ARK_BASE_URL` 主机为空**（muvloom），方舟线路实际不可用，取消也就无从谈起。
 
 ## 成本结论
 

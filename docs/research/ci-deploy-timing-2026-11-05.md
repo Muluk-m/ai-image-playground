@@ -14,8 +14,8 @@
 #4031 的失败来自 lint，不代表测试执行了 263 秒。修正后的 #4033 全绿，仍有明显排队。
 #4030 合并后同树复用已生效，只花 7 秒；无需再实现一套合并后跳过检查。
 
-生产 #884 实际依次构建 internal、paid、backup、segmenter。internal 从 04:07:10 UTC 开始到 04:09:21 推送结束，随后才构建 paid，虽然 rollout 只使用 paid。
-internal 的约 131 秒并非全部可省：其中一些依赖层会被 paid 复用。停止 internal 构建能移除其独有的前端构建与镜像导出推送，节省量以发布实测为准。
+生产 #884 实际依次构建 qlj（`internal`）、muvloom（`paid`）、backup、segmenter 镜像。qlj 镜像从 04:07:10 UTC 开始到 04:09:21 推送结束，随后才构建 muvloom 镜像，虽然 rollout 只使用 muvloom。
+qlj 镜像的约 131 秒并非全部可省：其中一些依赖层会被 muvloom 镜像复用。停止 qlj 构建能移除其独有的前端构建与镜像导出推送，节省量以发布实测为准。
 
 CI #4032 的 public build：安装 workspace 16、Web 构建 52、浏览器步骤 62。后者包括 apt 缓存校验、安装 Chromium、冒烟脚本自身回归和真实构建启动验收；不能将 62 秒全部算作下载。现有 pnpm、Go、apt 与 Docker 缓存已有命中。
 
@@ -30,7 +30,7 @@ CI #4032 的 public build：安装 workspace 16、Web 构建 52、浏览器步�
 ## 验证与后续衡量
 
 - 新增 CLI 判断行为测试，覆盖路径分类、PR/push 范围、异常回退和真实 Git rename。
-- 新增 paid 构建回归，确认只生成 paid、backup、segmenter，且保留 overlay、版本及缓存参数。
+- 新增 muvloom（`paid`）构建回归，确认只生成 muvloom、backup、segmenter 镜像，且保留 overlay、版本及缓存参数。
 - 在工作分支手动跑 Web checks，执行 Biome 修复、lint、typecheck、公开/overlay 测试与构建；手动触发保留完整 CLI 矩阵。
 - PR 与合并后关注实际 job、队列等待和生产镜像构建耗时。此次 PR 本身改了 Web workflow 与判断器，CLI 会全跑；后续普通 Web/BFF 改动才体现跳过收益。
 - 暂不改浏览器运行时或并行发布拓扑。若剩余瓶颈仍是构建，再单独评估 Docker 前后端构建输入隔离和复用已验证产物，避免把后端兼容性与前端发布顺序混入本次优化。

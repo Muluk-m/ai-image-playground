@@ -49,7 +49,7 @@ if (violations.length > 0) {
 
 /**
  * 反向：overlay 只许通过契约文件与宿主面取公开树的东西，不许深路径乱引。
- * 否则整棵公开源码树都是 overlay 的 API，公开树任何重构都可能悄悄打断收费版，
+ * 否则整棵公开源码树都是 overlay 的 API，公开树任何重构都可能悄悄打断 muvloom，
  * 而公开 CI 看不见（2026-09 的 TierBadge 事故就是这么来的）。
  *
  * 测试文件不算：overlay 的集成测试要拉起整个 BFF（app、task-runner、upstream……），那是测试基础设施

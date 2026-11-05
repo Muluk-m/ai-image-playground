@@ -156,7 +156,7 @@ $record
 EOF
   prefix=$(printf '%s' "$edition" | tr '[:lower:]' '[:upper:]')
   project=$(edition_var "$prefix" PROJECT)
-  # Each edition in SEGMENTER_EDITIONS (default: test only; adding internal/paid needs Nain's
+  # Each edition in SEGMENTER_EDITIONS (default: test only; adding qlj/internal or muvloom/paid needs Nain's
   # go-ahead) is attached to the shared segmenter and its executors get its address, but only
   # while it is healthy. It is optional: otherwise the executors are not told about it and
   # edit-region cards fall back to the agent's box, so this warns instead of failing the release.
