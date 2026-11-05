@@ -89,6 +89,9 @@ export interface DeviceRow {
 export interface ListDevicesResult {
   devices: DeviceRow[]
   truncated: boolean
+  total: number
+  page: number
+  pageSize: number
 }
 
 export type TaskSource = 'chat' | 'manual'
@@ -172,6 +175,9 @@ export interface UserKpis {
 export interface ListUsersResult {
   users: AdminUserRow[]
   truncated: boolean
+  total: number
+  page: number
+  pageSize: number
   kpis: UserKpis
 }
 
@@ -579,15 +585,41 @@ export function parseTimeWindow(
     : undefined
 }
 
+export const TASK_PAGE_SIZES = [50, 100] as const
+export type TaskPageSize = (typeof TASK_PAGE_SIZES)[number]
+
 export interface GenerationTaskFilters {
   source?: TaskSource
   userId?: string
   deviceId?: string
   unassigned?: '1'
   status?: TaskStatus
+  /** 单模型深链。与 models 同时出现时合并。 */
   model?: string
+  models?: string[]
+  providers?: string[]
+  errorTypes?: string[]
+  /** 执行耗时大于这么多秒。在提交时间窗内过滤，不单独建表达式索引。 */
+  minDurationSec?: number
+  /** 任务 ID 精确匹配，或用户名 / 提示词在时间窗内的 ILIKE。 */
+  q?: string
   from?: number
   to?: number
+  page?: number
+  pageSize?: TaskPageSize
+}
+
+function parseTokenList(value: unknown, maxItems = 20): string[] | undefined {
+  if (typeof value !== 'string') return undefined
+  const items = [
+    ...new Set(
+      value
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0 && part.length <= 128),
+    ),
+  ]
+  return items.length ? items.slice(0, maxItems) : undefined
 }
 
 export function parseGenerationTaskFilters(input: Record<string, unknown>): GenerationTaskFilters {
@@ -596,9 +628,31 @@ export function parseGenerationTaskFilters(input: Record<string, unknown>): Gene
     if (typeof input[key] === 'string' && input[key].trim().length > 0 && input[key].length <= 128)
       out[key] = input[key].trim()
   }
+  const models = parseTokenList(input.models)
+  if (models) out.models = models
+  const providers = parseTokenList(input.providers)
+  if (providers) out.providers = providers
+  const errorTypes = parseTokenList(input.errorTypes)
+  if (errorTypes) out.errorTypes = errorTypes
   if (input.source === 'chat' || input.source === 'manual') out.source = input.source
   if (input.unassigned === '1') out.unassigned = '1'
   if (TASK_STATUSES.includes(input.status as TaskStatus)) out.status = input.status as TaskStatus
+  if (typeof input.q === 'string') {
+    const q = input.q.trim()
+    if (q.length > 0 && q.length <= 200) out.q = q
+  }
+  if (input.minDurationSec !== undefined && input.minDurationSec !== '') {
+    const seconds = Number(input.minDurationSec)
+    if (Number.isInteger(seconds) && seconds >= 1 && seconds <= 86_400) out.minDurationSec = seconds
+  }
+  if (input.page !== undefined && input.page !== '') {
+    const page = Number(input.page)
+    if (Number.isInteger(page) && page >= 1 && page <= 10_000) out.page = page
+  }
+  if (input.pageSize !== undefined && input.pageSize !== '') {
+    const pageSize = Number(input.pageSize)
+    if (pageSize === 50 || pageSize === 100) out.pageSize = pageSize
+  }
   return out
 }
 
@@ -661,6 +715,9 @@ export interface GenerationTasksResult {
   window: TimeWindow
   tasks: GenerationTaskItem[]
   nextCursor: string | null
+  total?: number
+  page?: number
+  pageSize?: number
 }
 
 export type ErrorRecoveryState = 'unresolved' | 'recovered' | 'unknown'

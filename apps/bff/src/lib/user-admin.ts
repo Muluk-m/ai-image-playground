@@ -49,14 +49,26 @@ interface OperationalUser {
   last_login_at: number | null
 }
 
-function operatorAudit(action: string, targetId: string, details: Record<string, unknown>) {
+export interface OperatorActor {
+  operatorId?: string
+  reason?: string
+}
+
+function operatorAudit(
+  action: string,
+  targetId: string,
+  details: Record<string, unknown>,
+  actor?: OperatorActor,
+) {
+  const operatorId = actor?.operatorId?.trim()
+  const reason = actor?.reason?.trim()
   return {
     id: randomUUID(),
-    operator_id: 'admin',
+    operator_id: operatorId && operatorId.length <= 320 ? operatorId : 'admin',
     action,
     target_type: 'user',
     target_id: targetId,
-    details,
+    details: reason ? { ...details, reason } : details,
     created_at: Date.now(),
   }
 }
@@ -84,6 +96,7 @@ interface ProvisionUserOptions {
   referralCode?: string
   verification?: { challengeId: string; code: string }
   client?: SessionClient | null
+  actor?: OperatorActor
 }
 
 async function provisionUser(
@@ -140,7 +153,7 @@ async function provisionUser(
       if (!created) throw new Error('created user missing')
       await tx.insert(schema.operator_audits).values(
         options.source === 'operator'
-          ? operatorAudit('user.create', id, { username })
+          ? operatorAudit('user.create', id, { username }, options.actor)
           : {
               ...operatorAudit('user.register', id, { username }),
               operator_id: id,
@@ -169,8 +182,9 @@ async function provisionUser(
 export async function createUser(
   usernameInput: string,
   password: string,
+  actor?: OperatorActor,
 ): Promise<OperationalUser> {
-  return (await provisionUser(usernameInput, password, { source: 'operator' })).user
+  return (await provisionUser(usernameInput, password, { source: 'operator', actor })).user
 }
 
 export async function registerUser(
@@ -510,7 +524,11 @@ export async function unlinkOAuthIdentity(
   })
 }
 
-export async function setUserStatus(userId: string, status: string): Promise<OperationalUser> {
+export async function setUserStatus(
+  userId: string,
+  status: string,
+  actor?: OperatorActor,
+): Promise<OperationalUser> {
   if (status !== 'active' && status !== 'disabled') {
     throw new UserOperationError('invalid_status')
   }
@@ -527,14 +545,18 @@ export async function setUserStatus(userId: string, status: string): Promise<Ope
     }
     await tx
       .insert(schema.operator_audits)
-      .values(operatorAudit('user.status.update', userId, { status }))
+      .values(operatorAudit('user.status.update', userId, { status }, actor))
     return user
   })
   if (!changed) throw new UserOperationError('user_not_found')
   return changed
 }
 
-export async function setAdminUserNote(userId: string, input: string): Promise<string> {
+export async function setAdminUserNote(
+  userId: string,
+  input: string,
+  actor?: OperatorActor,
+): Promise<string> {
   const note = input.trim()
   if (note.length > ADMIN_USER_NOTE_MAX_LENGTH) throw new UserOperationError('invalid_note')
 
@@ -561,12 +583,16 @@ export async function setAdminUserNote(userId: string, input: string): Promise<s
     }
     await tx
       .insert(schema.operator_audits)
-      .values(operatorAudit('user.note.update', userId, { has_note: Boolean(note) }))
+      .values(operatorAudit('user.note.update', userId, { has_note: Boolean(note) }, actor))
   })
   return note
 }
 
-export async function resetUserPassword(userId: string, password: string): Promise<void> {
+export async function resetUserPassword(
+  userId: string,
+  password: string,
+  actor?: OperatorActor,
+): Promise<void> {
   if (!isValidPassword(password)) throw new UserOperationError('invalid_password')
   const passwordHash = await Bun.password.hash(password, { algorithm: 'argon2id' })
 
@@ -583,13 +609,15 @@ export async function resetUserPassword(userId: string, password: string): Promi
       .returning({ token_hash: schema.user_sessions.token_hash })
     await tx
       .insert(schema.operator_audits)
-      .values(operatorAudit('user.password.reset', userId, { sessions_revoked: revoked.length }))
+      .values(
+        operatorAudit('user.password.reset', userId, { sessions_revoked: revoked.length }, actor),
+      )
     return true
   })
   if (!changed) throw new UserOperationError('user_not_found')
 }
 
-export async function revokeUserSessions(userId: string): Promise<number> {
+export async function revokeUserSessions(userId: string, actor?: OperatorActor): Promise<number> {
   return db.transaction(async (tx) => {
     const [user] = await tx
       .select({ id: schema.users.id })
@@ -604,7 +632,9 @@ export async function revokeUserSessions(userId: string): Promise<number> {
       .returning({ token_hash: schema.user_sessions.token_hash })
     await tx
       .insert(schema.operator_audits)
-      .values(operatorAudit('user.sessions.revoke', userId, { sessions_revoked: revoked.length }))
+      .values(
+        operatorAudit('user.sessions.revoke', userId, { sessions_revoked: revoked.length }, actor),
+      )
     return revoked.length
   })
 }
