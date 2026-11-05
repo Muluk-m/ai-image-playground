@@ -173,13 +173,22 @@ describe('today generation overview', () => {
     expect(data.actors).toEqual([
       expect.objectContaining({ id: 'today-user', username: 'alice', tasks: 2, failed: 2 }),
     ])
-    const tasks = await request(`/api/tasks?from=${from + 1500}&to=${to}&userId=today-user&status=failed`)
+    const tasks = await request(
+      `/api/tasks?from=${from + 1500}&to=${to}&userId=today-user&status=failed`,
+    )
     expect((await tasks.json()).tasks.map((task: { id: string }) => task.id)).toEqual([
-      'today-failed-policy', 'today-failed-blank',
+      'today-failed-policy',
+      'today-failed-blank',
     ])
     for (const suffix of ['from=bad&to=1', `from=${from}&to=${from}`, `from=0&to=${to}`])
       expect((await request(`/api/overview/generation?${suffix}`)).status).toBe(400)
-    expect((await app.handle(new Request(`http://localhost/api/overview/generation?from=${from}&to=${to}`))).status).toBe(401)
+    expect(
+      (
+        await app.handle(
+          new Request(`http://localhost/api/overview/generation?from=${from}&to=${to}`),
+        )
+      ).status,
+    ).toBe(401)
   })
 
   it('uses Beijing midnight, counts generation owners rather than login activity, and assigns signed-in devices only to their user', async () => {

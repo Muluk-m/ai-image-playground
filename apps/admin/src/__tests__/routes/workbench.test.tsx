@@ -110,10 +110,43 @@ vi.mock('../../lib/api-client', () => {
       const params = new URLSearchParams(url.split('?')[1])
       return {
         window: { from: Number(params.get('from')), to: Number(params.get('to')) },
-        summary: { users: 1, devices: 1, tasks: 4, completed: 1, failed: 1, in_progress: 1, queued: 1, reconciling: 0 },
+        summary: {
+          users: 1,
+          devices: 1,
+          tasks: 4,
+          completed: 1,
+          failed: 1,
+          in_progress: 1,
+          queued: 1,
+          reconciling: 0,
+        },
         actors: [
-          { kind: 'user', id: 'user-1', username: 'alice', note: '设计师', tasks: 3, completed: 1, failed: 1, in_progress: 1, queued: 0, reconciling: 0, last_submitted_at: window.to },
-          { kind: 'device', id: 'device-1', username: null, note: null, tasks: 1, completed: 0, failed: 0, in_progress: 0, queued: 1, reconciling: 0, last_submitted_at: window.from },
+          {
+            kind: 'user',
+            id: 'user-1',
+            username: 'alice',
+            note: '设计师',
+            tasks: 3,
+            completed: 1,
+            failed: 1,
+            in_progress: 1,
+            queued: 0,
+            reconciling: 0,
+            last_submitted_at: window.to,
+          },
+          {
+            kind: 'device',
+            id: 'device-1',
+            username: null,
+            note: null,
+            tasks: 1,
+            completed: 0,
+            failed: 0,
+            in_progress: 0,
+            queued: 1,
+            reconciling: 0,
+            last_submitted_at: window.from,
+          },
         ],
         models: [],
         truncated: false,
@@ -409,11 +442,15 @@ describe('概览', () => {
     const href = new URL(failed.getAttribute('href')!, 'http://localhost')
     expect(href.searchParams.get('status')).toBe('failed')
     expect(href.searchParams.get('userId')).toBe('user-1')
-    expect(Number(href.searchParams.get('to')) - Number(href.searchParams.get('from'))).toBe(6 * 3600_000)
+    expect(Number(href.searchParams.get('to')) - Number(href.searchParams.get('from'))).toBe(
+      6 * 3600_000,
+    )
     expect(owner.closest('tr')).toHaveTextContent('alice')
     expect(screen.getByRole('link', { name: '匿名设备 device-1' })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '系统健康' })).not.toBeInTheDocument()
-    expect(requests.some((url) => url.startsWith('/api/ops') || url.startsWith('/api/client-errors'))).toBe(false)
+    expect(
+      requests.some((url) => url.startsWith('/api/ops') || url.startsWith('/api/client-errors')),
+    ).toBe(false)
   })
 
   it('shows a load failure instead of inventing generation records', async () => {
@@ -426,21 +463,39 @@ describe('概览', () => {
   it('remembers the chosen rolling range after remounting without query parameters', async () => {
     const first = renderAt('/overview')
     fireEvent.click(await screen.findByRole('button', { name: '6 小时' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: '6 小时' })).toHaveAttribute('aria-pressed', 'true'))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '6 小时' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      ),
+    )
     first.unmount()
     renderAt('/overview')
-    expect(await screen.findByRole('button', { name: '6 小时' })).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByRole('button', { name: '6 小时' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
     await screen.findByRole('link', { name: '设计师' })
-    const params = new URLSearchParams(requests.filter((url) => url.startsWith('/api/overview/generation')).at(-1)!.split('?')[1])
+    const params = new URLSearchParams(
+      requests
+        .filter((url) => url.startsWith('/api/overview/generation'))
+        .slice(-1)[0]!
+        .split('?')[1],
+    )
     expect(Number(params.get('to')) - Number(params.get('from'))).toBe(6 * 3600_000)
   })
 
   it('gives an explicit URL range precedence over the remembered range', async () => {
     localStorage.setItem('admin.overview.generation-range', JSON.stringify({ preset: '6h' }))
     renderAt('/overview?preset=1h')
-    expect(await screen.findByRole('button', { name: '最近 1 小时' })).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByRole('button', { name: '最近 1 小时' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
     await screen.findByRole('link', { name: '设计师' })
-    expect(JSON.parse(localStorage.getItem('admin.overview.generation-range')!)).toEqual({ preset: '1h' })
+    expect(JSON.parse(localStorage.getItem('admin.overview.generation-range')!)).toEqual({
+      preset: '1h',
+    })
   })
 
   it('advances rolling windows on refresh and keeps the chosen duration', async () => {
@@ -450,13 +505,20 @@ describe('概览', () => {
       renderAt('/overview?preset=1h')
       await screen.findByRole('link', { name: '设计师' })
       clock.mockReturnValue(start + 120_000)
-      fireEvent.click(screen.getAllByRole('button', { name: '刷新' }).at(-1)!)
+      fireEvent.click(screen.getAllByRole('button', { name: '刷新' }).slice(-1)[0]!)
       await waitFor(() => {
-        const params = new URLSearchParams(requests.filter((url) => url.startsWith('/api/overview/generation')).at(-1)!.split('?')[1])
+        const params = new URLSearchParams(
+          requests
+            .filter((url) => url.startsWith('/api/overview/generation'))
+            .slice(-1)[0]!
+            .split('?')[1],
+        )
         expect(Number(params.get('to'))).toBe(start + 120_000)
         expect(Number(params.get('from'))).toBe(start + 120_000 - 3600_000)
       })
-    } finally { clock.mockRestore() }
+    } finally {
+      clock.mockRestore()
+    }
   })
 
   it('keeps a custom range fixed and remembers it after leaving the page', async () => {
@@ -468,7 +530,12 @@ describe('概览', () => {
     first.unmount()
     renderAt('/overview')
     await screen.findByRole('link', { name: '设计师' })
-    const params = new URLSearchParams(requests.filter((url) => url.startsWith('/api/overview/generation')).at(-1)!.split('?')[1])
+    const params = new URLSearchParams(
+      requests
+        .filter((url) => url.startsWith('/api/overview/generation'))
+        .slice(-1)[0]!
+        .split('?')[1],
+    )
     expect(Number(params.get('from'))).toBe(from)
     expect(Number(params.get('to'))).toBe(to)
   })

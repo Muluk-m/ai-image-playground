@@ -25,7 +25,12 @@ import {
 } from '@/lib/generation-overview'
 import { useGenerationOverview } from '@/lib/queries'
 import { cn } from '@/lib/utils'
-import { type GenerationActor, type TimeWindow, type TodayOverviewResult, parseTimeWindow } from '../../contracts'
+import {
+  type GenerationActor,
+  parseTimeWindow,
+  type TimeWindow,
+  type TodayOverviewResult,
+} from '../../contracts'
 
 export const Route = createFileRoute('/_authed/overview')({
   validateSearch: parseGenerationSearch,
@@ -38,7 +43,9 @@ export const Route = createFileRoute('/_authed/overview')({
     <Page crumbs={[{ label: '概览' }]}>
       <ErrorState label="概览范围无效" error={error} />
       <Button variant="outline" asChild>
-        <Link to="/overview" search={{ preset: '24h' }}>查看最近 24 小时</Link>
+        <Link to="/overview" search={{ preset: '24h' }}>
+          查看最近 24 小时
+        </Link>
       </Button>
     </Page>
   ),
@@ -58,7 +65,11 @@ function OverviewPage() {
       description={`${formatAt(window.from)} — ${formatAt(window.to)} · 北京时间 · 每 30 秒刷新`}
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <div role="group" aria-label="生成时间范围" className="flex flex-wrap items-center rounded-md border p-0.5 text-xs">
+          <div
+            role="group"
+            aria-label="生成时间范围"
+            className="flex flex-wrap items-center rounded-md border p-0.5 text-xs"
+          >
             {GENERATION_PRESETS.map((item) => (
               <Button
                 key={item.value}
@@ -75,9 +86,16 @@ function OverviewPage() {
               variant={selection.preset === 'custom' ? 'default' : 'ghost'}
               aria-pressed={selection.preset === 'custom'}
               onClick={() => apply({ preset: 'custom', ...window })}
-            >自定义</Button>
+            >
+              自定义
+            </Button>
           </div>
-          <Button size="sm" variant="outline" disabled={query.isFetching} onClick={() => void query.refetch()}>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={query.isFetching}
+            onClick={() => void query.refetch()}
+          >
             <RefreshCw className={query.isFetching ? 'animate-spin' : undefined} />
             刷新
           </Button>
@@ -89,7 +107,11 @@ function OverviewPage() {
       ) : null}
       {query.data ? (
         <>
-          {query.isError ? <p role="status" className="text-sm text-danger">任务刷新失败，下面是上次成功读取的记录。</p> : null}
+          {query.isError ? (
+            <p role="status" className="text-sm text-danger">
+              任务刷新失败，下面是上次成功读取的记录。
+            </p>
+          ) : null}
           <GenerationUsers overview={query.data} />
         </>
       ) : query.isError ? (
@@ -103,28 +125,53 @@ function OverviewPage() {
 
 function formatAt(at: number): string {
   return new Date(at).toLocaleString('zh-CN', {
-    timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: false,
+    timeZone: 'Asia/Shanghai',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
   })
 }
 
-function CustomRange({ window, onApply }: { window: TimeWindow; onApply: (selection: GenerationSelection) => void }) {
+function CustomRange({
+  window,
+  onApply,
+}: {
+  window: TimeWindow
+  onApply: (selection: GenerationSelection) => void
+}) {
   const [start, setStart] = useState(beijingInput(window.from))
   const [end, setEnd] = useState(beijingInput(window.to))
   const [error, setError] = useState('')
   return (
-    <form className="flex flex-wrap items-center gap-2" onSubmit={(event) => {
-      event.preventDefault()
-      const next = parseTimeWindow({ from: parseBeijingInput(start), to: parseBeijingInput(end, true) })
-      if (!next) { setError('时间范围无效，最多 31 天'); return }
-      setError('')
-      onApply({ preset: 'custom', ...next })
-    }}>
+    <form
+      className="flex flex-wrap items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault()
+        const next = parseTimeWindow({
+          from: parseBeijingInput(start),
+          to: parseBeijingInput(end, true),
+        })
+        if (!next) {
+          setError('时间范围无效，最多 31 天')
+          return
+        }
+        setError('')
+        onApply({ preset: 'custom', ...next })
+      }}
+    >
       <DateTimePicker aria-label="开始时间" value={start} onChange={setStart} className="w-auto" />
       <span className="text-muted-foreground">—</span>
       <DateTimePicker aria-label="结束时间" value={end} onChange={setEnd} className="w-auto" />
-      <Button type="submit" variant="outline" size="sm">应用</Button>
-      {error ? <span role="alert" className="text-xs text-danger">{error}</span> : null}
+      <Button type="submit" variant="outline" size="sm">
+        应用
+      </Button>
+      {error ? (
+        <span role="alert" className="text-xs text-danger">
+          {error}
+        </span>
+      ) : null}
     </form>
   )
 }
@@ -231,11 +278,29 @@ function GenerationUsers({ overview }: { overview: TodayOverviewResult }) {
                       )}
                     </TableCell>
                     <TableCell className="text-xs">
-                      <Link to="/tasks" search={{ ...actorSearch(actor, window), status: 'in_progress' }} className="hover:underline">{actor.in_progress}</Link>
+                      <Link
+                        to="/tasks"
+                        search={{ ...actorSearch(actor, window), status: 'in_progress' }}
+                        className="hover:underline"
+                      >
+                        {actor.in_progress}
+                      </Link>
                       {' / '}
-                      <Link to="/tasks" search={{ ...actorSearch(actor, window), status: 'queued' }} className="hover:underline">{actor.queued}</Link>
+                      <Link
+                        to="/tasks"
+                        search={{ ...actorSearch(actor, window), status: 'queued' }}
+                        className="hover:underline"
+                      >
+                        {actor.queued}
+                      </Link>
                       {actor.reconciling ? (
-                        <Link to="/tasks" search={{ ...actorSearch(actor, window), status: 'reconciling' }} className="ml-2 text-warning hover:underline">{actor.reconciling} 待核查</Link>
+                        <Link
+                          to="/tasks"
+                          search={{ ...actorSearch(actor, window), status: 'reconciling' }}
+                          className="ml-2 text-warning hover:underline"
+                        >
+                          {actor.reconciling} 待核查
+                        </Link>
                       ) : null}
                     </TableCell>
                     <TableCell className="font-mono text-xs">
