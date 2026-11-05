@@ -4,7 +4,7 @@ import { log } from '../logger'
 import { runtimeSecret } from '../upstream-secret-cache'
 import { ImagePlanRequiredError } from './errors'
 import { estimateDirectCostMicroUsd } from './gpt-budget'
-import { configuredDirectKeys, FingerprintSecretMissingError } from './gpt-key-config'
+import { adminDirectKeys } from './gpt-key-config'
 import { selectDirectKey } from './gpt-keys'
 import { gptSchedulerBuckets, tryAcquireSchedulerSlots } from './scheduler'
 
@@ -25,14 +25,21 @@ export function gptDirectApiKey(): string {
   return runtimeSecret('OPENAI_API_KEY', config.gptDirect.apiKey)
 }
 
+/**
+ * 直连开关开着，且环境变量或后台快照里有 key。
+ * 会员档和严格 2K 用这个判断「直连开没开」，不要求指纹密钥已经配好。
+ * 指纹密钥缺失时真正发请求仍会失败关闭，见 configuredDirectKeys。
+ */
+function directKeyMaterialPresent(): boolean {
+  const admin = adminDirectKeys()
+  if (admin !== null) return admin.some((key) => key.enabled)
+  const list = process.env.OPENAI_API_KEYS?.trim()
+  if (list) return list.split(',').some((part) => part.trim() !== '')
+  return runtimeSecret('OPENAI_API_KEY', config.gptDirect.apiKey).trim() !== ''
+}
+
 export function gptDirectConfigured(model: string): boolean {
-  if (!config.gptDirect.enabled || !isGptDirectModel(model)) return false
-  try {
-    return configuredDirectKeys().length > 0
-  } catch (err) {
-    if (err instanceof FingerprintSecretMissingError) return false
-    throw err
-  }
+  return config.gptDirect.enabled && isGptDirectModel(model) && directKeyMaterialPresent()
 }
 
 /** 2.6 用自己的开关和同一把可替换的 OpenAI key。关着或没 key 时不走 sub2api。 */

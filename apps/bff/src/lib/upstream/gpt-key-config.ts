@@ -168,11 +168,29 @@ export function safeEnvDirectKeys(): DirectKey[] {
   }
 }
 
+/**
+ * 只有一把环境变量 key、又没配指纹密钥时，不派生指纹，也不把直连关掉。
+ * 多把 key 仍然必须有指纹密钥，否则 parse 会失败关闭。
+ */
+function legacySingleKey(secret: string): DirectKey {
+  const tail = secret.length >= 4 ? secret.slice(-4) : secret
+  return {
+    id: null,
+    ordinal: 1,
+    secret,
+    budgetUsd: config.gptDirect.monthlyBudgetUsd,
+    enabled: true,
+    fingerprint: 'legacy',
+    label: `legacy…${tail}`,
+  }
+}
+
 function envDirectKeys(): DirectKey[] {
   const list = process.env.OPENAI_API_KEYS?.trim()
   if (list) return parseDirectKeyList(list, process.env.OPENAI_API_KEY_BUDGETS_USD ?? '')
   const single = runtimeSecret('OPENAI_API_KEY', config.gptDirect.apiKey).trim()
   if (!single) return []
+  if (fingerprintMacSource() === 'unset') return [legacySingleKey(single)]
   return [
     {
       id: null,
