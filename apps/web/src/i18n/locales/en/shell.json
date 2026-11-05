@@ -7,8 +7,7 @@
     "unsynced": "Changes waiting to save",
     "settings": "Settings",
     "loginMethods": "Account settings",
-    "cliConnections": "CLI connections",
-    "cliConnectionsDescription": "Manage devices connected to Muvloom from the command line",
+    "cliConnections": "Plugin integrations",
     "login": "Sign in",
     "loggingOut": "Signing out",
     "guest": {
