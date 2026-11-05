@@ -1,10 +1,14 @@
 /** 后台直连面板上的一把密钥。只有指纹，没有密钥本身。 */
-export type GptDirectKeyStatus = 'available' | 'cooldown' | 'disabled' | 'budget'
+export type GptDirectKeyStatus = 'available' | 'cooldown' | 'disabled' | 'budget' | 'off'
 
 export interface GptDirectKeyView {
+  /** 后台行 id。环境变量密钥为 null，不能在这页改。 */
+  id: string | null
   ordinal: number
   fingerprint: string
   label: string
+  enabled: boolean
+  source: 'admin' | 'env'
   status: GptDirectKeyStatus
   disabled_reason: 'quota' | 'invalid' | null
   budget_micro_usd: number
@@ -35,6 +39,10 @@ export interface GptDirectAdminView {
   generated_at: number
   currency_note: 'usage'
   days: 7 | 30
+  /** 当前生效的清单来自后台还是环境变量。 */
+  source: 'admin' | 'env'
+  writable: boolean
+  disabled_reason: string | null
   keys: GptDirectKeyView[]
   total_spent_micro_usd: number
   total_budget_micro_usd: number

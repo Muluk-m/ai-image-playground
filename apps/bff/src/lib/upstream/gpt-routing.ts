@@ -1,6 +1,7 @@
 import { isGptBasicRequest, isGptDirectModel } from '@image-playground/shared'
 import { config } from '../../config'
 import { log } from '../logger'
+import { runtimeSecret } from '../upstream-secret-cache'
 import { ImagePlanRequiredError } from './errors'
 import { estimateDirectCostMicroUsd } from './gpt-budget'
 import { configuredDirectKeys } from './gpt-key-config'
@@ -16,6 +17,11 @@ import { gptSchedulerBuckets, tryAcquireSchedulerSlots } from './scheduler'
  * - 一条路发出请求后超时或明确不可用，换另一条路重试一次（见 upstream.ts 的 callUpstream）。
  */
 export type GptRoute = 'direct' | 'sub2api'
+
+/** OpenAI 直连密钥：后台记录优先于进程启动时读到的 OPENAI_API_KEY。 */
+export function gptDirectApiKey(): string {
+  return runtimeSecret('OPENAI_API_KEY', config.gptDirect.apiKey)
+}
 
 export function gptDirectConfigured(model: string): boolean {
   return config.gptDirect.enabled && configuredDirectKeys().length > 0 && isGptDirectModel(model)

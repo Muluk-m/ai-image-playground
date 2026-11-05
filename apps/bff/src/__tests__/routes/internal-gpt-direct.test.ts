@@ -58,7 +58,7 @@ describe('GET /internal/admin/gpt-direct', () => {
     expect(JSON.stringify(body)).not.toContain(SECONDARY)
 
     await markDirectKeyDisabled(
-      { ...primary, ordinal: 1, secret: PRIMARY, budgetUsd: 200 },
+      { ...primary, id: null, ordinal: 1, secret: PRIMARY, budgetUsd: 200, enabled: true },
       'invalid',
       Object.assign(new Error('Incorrect API key'), { upstreamStatus: 401 }),
     )

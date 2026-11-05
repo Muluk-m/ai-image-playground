@@ -4,8 +4,10 @@ import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { kickAppAlerts } from '../../ops/alert-kick'
 import { log } from '../logger'
+import { readMasterKey } from '../upstream-secrets'
 import { directKeySpent, directSpentThisMonth, keyBudgetCapMicroUsd } from './gpt-budget'
 import {
+  adminDirectKeys,
   configuredDirectKeys,
   type DirectKey,
   directKeySecrets,
@@ -110,7 +112,7 @@ export async function selectDirectKey(input: {
     return null
   }
   for (const key of keys) {
-    if (input.exclude?.has(key.fingerprint)) continue
+    if (input.exclude?.has(key.fingerprint) || key.enabled === false) continue
     const row = state.get(key.fingerprint)
     if (row?.disabled_reason) continue
     if (row?.cooldown_until && row.cooldown_until > now) continue
@@ -237,20 +239,32 @@ export async function restoreDirectKey(fingerprint: string, operator?: string): 
   const key = configuredDirectKeys().find((candidate) => candidate.fingerprint === fingerprint)
   if (!key) return false
   const now = Date.now()
-  await db
-    .insert(schema.gpt_direct_key_state)
-    .values({
-      fingerprint,
-      disabled_reason: null,
-      cooldown_until: null,
-      last_error: null,
-      last_error_at: null,
-      updated_at: now,
+  const operatorId = (operator?.trim() || 'admin').slice(0, 200)
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(schema.gpt_direct_key_state)
+      .values({
+        fingerprint,
+        disabled_reason: null,
+        cooldown_until: null,
+        last_error: null,
+        last_error_at: null,
+        updated_at: now,
+      })
+      .onConflictDoUpdate({
+        target: schema.gpt_direct_key_state.fingerprint,
+        set: { disabled_reason: null, cooldown_until: null, updated_at: now },
+      })
+    await tx.insert(schema.operator_audits).values({
+      id: crypto.randomUUID(),
+      operator_id: operatorId,
+      action: 'gpt_direct_key.restore',
+      target_type: 'gpt_direct_key',
+      target_id: fingerprint,
+      details: { fingerprint: key.label },
+      created_at: now,
     })
-    .onConflictDoUpdate({
-      target: schema.gpt_direct_key_state.fingerprint,
-      set: { disabled_reason: null, cooldown_until: null, updated_at: now },
-    })
+  })
   log.info(
     {
       event: 'gpt.direct_key_restored',
@@ -263,11 +277,13 @@ export async function restoreDirectKey(fingerprint: string, operator?: string): 
 }
 
 function statusOf(
+  key: { enabled: boolean },
   row: KeyStateRow | undefined,
   spent: number,
   cap: number,
   now: number,
 ): GptDirectKeyStatus {
+  if (key.enabled === false) return 'off'
   if (row?.disabled_reason) return 'disabled'
   if (spent >= cap) return 'budget'
   if (row?.cooldown_until && row.cooldown_until > now) return 'cooldown'
@@ -293,6 +309,8 @@ function recentTaipeiDays(days: number, now: number): string[] {
 }
 
 export async function directKeyPanel(days: 7 | 30, now = Date.now()): Promise<GptDirectAdminView> {
+  const { refreshGptDirectKeys } = await import('./gpt-direct-admin')
+  await refreshGptDirectKeys()
   const keys = configuredDirectKeys()
   const state = keys.length > 0 ? await loadKeyState() : new Map<string, KeyStateRow>()
   const views = []
@@ -301,10 +319,13 @@ export async function directKeyPanel(days: 7 | 30, now = Date.now()): Promise<Gp
     const cap = keyBudgetCapMicroUsd(key.budgetUsd)
     const row = state.get(key.fingerprint)
     views.push({
+      id: key.id,
       ordinal: key.ordinal,
       fingerprint: key.fingerprint,
       label: key.label,
-      status: statusOf(row, spent, cap, now),
+      enabled: key.enabled,
+      source: key.id ? ('admin' as const) : ('env' as const),
+      status: statusOf(key, row, spent, cap, now),
       disabled_reason: row?.disabled_reason ?? null,
       budget_micro_usd: cap,
       spent_micro_usd: spent,
@@ -331,10 +352,15 @@ export async function directKeyPanel(days: 7 | 30, now = Date.now()): Promise<Gp
   const byDay = new Map(
     rows.map((row) => [row.day, { cost: Number(row.cost ?? 0), images: Number(row.images ?? 0) }]),
   )
+  const master = readMasterKey()
+  const source = adminDirectKeys() === null ? 'env' : 'admin'
   return {
     generated_at: now,
     currency_note: 'usage',
     days,
+    source,
+    writable: master.ok,
+    disabled_reason: master.ok ? null : master.reason,
     keys: views,
     total_spent_micro_usd: spent,
     total_budget_micro_usd: cap,

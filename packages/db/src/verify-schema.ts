@@ -4,6 +4,7 @@ import journal from '../drizzle/meta/_journal.json'
 export const EXPECTED_TABLES = [
   'operator_config_overrides',
   'operator_config_state',
+  'upstream_api_secrets',
   'cli_connections',
   'cli_jobs',
   'cli_reference_media',
@@ -56,6 +57,7 @@ export const EXPECTED_TABLES = [
   'scheduler_leases',
   'gpt_direct_usage',
   'gpt_direct_key_state',
+  'gpt_direct_admin_keys',
   'server_logs',
   'container_samples',
   'host_samples',
@@ -79,6 +81,7 @@ export const EXPECTED_TABLES = [
 export const EXPECTED_INDEXES = [
   'operator_config_overrides_pkey',
   'operator_config_state_pkey',
+  'upstream_api_secrets_pkey',
   'cli_connections_pkey',
   'device_authorizations_pkey',
   'oauth_clients_pkey',
@@ -243,6 +246,7 @@ export const EXPECTED_INDEXES = [
   'idx_gpt_direct_usage_created',
   'idx_gpt_direct_usage_key_created',
   'gpt_direct_key_state_pkey',
+  'gpt_direct_admin_keys_pkey',
 ] as const
 
 export const EXPECTED_COLUMNS = [

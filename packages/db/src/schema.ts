@@ -405,6 +405,19 @@ export const operator_config_state = pgTable('operator_config_state', {
   revision: integer('revision').notNull().default(0),
 })
 
+/**
+ * 后台保存的上游 API key。只存 AES-256-GCM 密文，不存明文、末几位或指纹。
+ * 主密钥来自环境变量；解不开时调用方回退到环境变量里的 key。
+ */
+export const upstream_api_secrets = pgTable('upstream_api_secrets', {
+  id: text('id').primaryKey(),
+  nonce: text('nonce').notNull(),
+  tag: text('tag').notNull(),
+  ciphertext: text('ciphertext').notNull(),
+  updated_at: epochMs('updated_at').notNull(),
+  updated_by: text('updated_by').notNull(),
+})
+
 /** 系统替运营下架模型的原因；运营手动下架不写原因。 */
 export type ModelPauseReason = 'upstream_unavailable'
 
@@ -499,6 +512,29 @@ export const gpt_direct_key_state = pgTable(
       'gpt_direct_key_state_reason_check',
       sql`${t.disabled_reason} IS NULL OR ${t.disabled_reason} IN ('quota', 'invalid')`,
     ),
+  ],
+)
+
+/**
+ * 后台配置的 OpenAI 直连密钥。密文字段与 upstream_api_secrets 相同，用同一把主密钥。
+ * 没有行时直连退回环境变量。明文不进这张表。
+ */
+export const gpt_direct_admin_keys = pgTable(
+  'gpt_direct_admin_keys',
+  {
+    id: text('id').primaryKey(),
+    ordinal: integer('ordinal').notNull(),
+    budget_usd: integer('budget_usd').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    nonce: text('nonce').notNull(),
+    tag: text('tag').notNull(),
+    ciphertext: text('ciphertext').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+    updated_by: text('updated_by').notNull(),
+  },
+  (t) => [
+    check('gpt_direct_admin_keys_ordinal_check', sql`${t.ordinal} > 0`),
+    check('gpt_direct_admin_keys_budget_check', sql`${t.budget_usd} > 0`),
   ],
 )
 
