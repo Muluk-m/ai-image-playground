@@ -152,3 +152,48 @@ export function parsePayload(provider: QueueProvider, payload: unknown): ParsedU
     payload,
   }
 }
+
+const RECEIPT_MAX_ENTRIES = 16
+const RECEIPT_MAX_TEXT = 200
+
+function receiptText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length <= RECEIPT_MAX_TEXT ? value : undefined
+}
+
+function sanitizeApplied(value: unknown): Record<string, unknown> | undefined {
+  if (!isObject(value)) return undefined
+  const out: Record<string, unknown> = {}
+  for (const [key, field] of Object.entries(value).slice(0, RECEIPT_MAX_ENTRIES)) {
+    if (!/^[a-z_]{1,40}$/.test(key)) continue
+    if (typeof field === 'number' && Number.isFinite(field)) out[key] = field
+    else if (typeof field === 'boolean') out[key] = field
+    else if (receiptText(field) !== undefined) out[key] = field
+  }
+  return out
+}
+
+function sanitizeDropped(value: unknown): { param: string; reason: string }[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const out: { param: string; reason: string }[] = []
+  for (const entry of value.slice(0, RECEIPT_MAX_ENTRIES)) {
+    if (!isObject(entry)) continue
+    const param = receiptText(entry.param)
+    const reason = receiptText(entry.reason)
+    if (param && reason !== undefined) out.push({ param, reason })
+  }
+  return out
+}
+
+/** 适配器计划写上的生效参数。只保留回执形状内的字段，上游回来的同名字段不能借此注入任意内容。 */
+export function receiptFields(payload: unknown): {
+  applied?: Record<string, unknown>
+  dropped?: { param: string; reason: string }[]
+} {
+  if (!isObject(payload)) return {}
+  const applied = sanitizeApplied(payload.applied)
+  const dropped = sanitizeDropped(payload.dropped)
+  return {
+    ...(applied ? { applied } : {}),
+    ...(dropped ? { dropped } : {}),
+  }
+}
