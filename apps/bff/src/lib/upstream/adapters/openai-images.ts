@@ -47,7 +47,7 @@ function planImages(
   const request = workingRequest(req, model, { ...ctx, gptRoute: ctx.gptRoute ?? kind })
   const editing = Boolean(request.input_images?.length || request.mask)
   const count = countOf(request, req.count)
-  const native = kind === 'direct' && ctx.supportsNativeN === true && !editing && count > 1
+  const native = ctx.supportsNativeN === true && !editing && count > 1
   const honorsSize = kind === 'direct'
   const honorsQuality = kind === 'direct'
   const dropped: AdapterPlan['dropped'] = []
