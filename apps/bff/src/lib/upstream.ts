@@ -479,10 +479,11 @@ async function callDirectTryingKeys(
       throw new DirectKeysExhaustedError(lastError ?? new Error('no openai direct key'))
     const { key, reservationId } = reserved
     exclude.add(key.fingerprint)
-    const another = await selectDirectKey({ estimateMicroUsd: estimate, exclude })
     let produced = false
     let thisKeyDispatched = false
     try {
+      // 探下一把放在 try 里：它抛错时，上面刚建的预占也要走下面的释放。
+      const another = await selectDirectKey({ estimateMicroUsd: estimate, exclude })
       const result = await callUpstreamVia(
         params,
         directRoute(model, key, { skipSharedRateLimitCooldown: another !== null }),
@@ -500,7 +501,12 @@ async function callDirectTryingKeys(
         },
       )
       return { result, fingerprint: key.fingerprint, reservationId }
-    } catch (error) {
+    } catch (caught) {
+      // 取消原因可以是任意值（null、字符串）；标记要挂在对象上，所以非对象先包一层。
+      const error: unknown =
+        typeof caught === 'object' && caught !== null
+          ? caught
+          : new Error(String(caught), { cause: caught })
       Object.assign(error as object, { directKeyDispatched: thisKeyDispatched })
       if (thisKeyDispatched && (produced || upstreamStatusOf(error) === undefined)) {
         // 已经发出但结果未知，或已经出过图。预留留到 settle 的落账事务里一次转成用量。

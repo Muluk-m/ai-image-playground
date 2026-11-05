@@ -8,9 +8,8 @@ process.env.GPT_DIRECT_ENABLED = 'true'
 process.env.OPENAI_API_KEY = 'lock-key-aaaa'
 process.env.PORT = '0'
 
-const { directBudgetLockKey, recordDirectUsage, reserveDirectBudget } = await import(
-  '../../lib/upstream/gpt-budget'
-)
+const { DIRECT_HOLD_TTL_MS, directBudgetLockKey, recordDirectUsage, reserveDirectBudget } =
+  await import('../../lib/upstream/gpt-budget')
 const { fingerprintOf } = await import('../../lib/upstream/gpt-key-config')
 const { db, schema } = await import('../../db/client')
 
@@ -76,5 +75,38 @@ describe('direct budget lock', () => {
       await client`rollback`.catch(() => undefined)
       await client.close()
     }
+  })
+
+  it('lets a crashed worker hold lapse after its lease, but keeps a live one counting', async () => {
+    const start = Date.now()
+    const first = await reserveDirectBudget({
+      fingerprint,
+      includeUnattributed: false,
+      estimateMicroUsd: 5,
+      capMicroUsd: 5,
+      now: start,
+    })
+    expect(first).not.toBeNull()
+    // 还在租期内（请求可能仍在跑）：占着预算。
+    expect(
+      await reserveDirectBudget({
+        fingerprint,
+        includeUnattributed: false,
+        estimateMicroUsd: 1,
+        capMicroUsd: 5,
+        now: start + DIRECT_HOLD_TTL_MS - 1_000,
+      }),
+    ).toBeNull()
+    // 租期过了：崩溃进程的预占不再占预算，并被清掉。
+    const later = await reserveDirectBudget({
+      fingerprint,
+      includeUnattributed: false,
+      estimateMicroUsd: 5,
+      capMicroUsd: 5,
+      now: start + DIRECT_HOLD_TTL_MS + 1_000,
+    })
+    expect(later).not.toBeNull()
+    const rows = await db.select().from(schema.gpt_direct_budget_holds)
+    expect(rows.map((row) => row.id)).toEqual([later as string])
   })
 })

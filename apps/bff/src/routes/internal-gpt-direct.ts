@@ -91,7 +91,9 @@ export const internalGptDirectRoutes = new Elysia({ prefix: '/internal/admin/gpt
     }
   })
   .post('/keys/:fingerprint/restore', async ({ params, request, status }) => {
-    if (!/^[0-9a-f]{8}$/.test(params.fingerprint)) return status(400, { error: 'bad_fingerprint' })
+    // 'legacy'：没配指纹密钥、只有一把环境变量 key 时的占位指纹，见 gpt-key-config 的 legacySingleKey。
+    if (!/^(?:[0-9a-f]{8}|legacy)$/.test(params.fingerprint))
+      return status(400, { error: 'bad_fingerprint' })
     const operator = request.headers.get('x-admin-operator')?.trim() || undefined
     const restored = await restoreDirectKey(params.fingerprint, operator)
     if (!restored) return status(404, { error: 'unknown_key' })

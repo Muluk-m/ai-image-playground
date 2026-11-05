@@ -541,6 +541,7 @@ export const gpt_direct_admin_keys = pgTable(
   },
   (t) => [
     unique('gpt_direct_admin_keys_fingerprint_key').on(t.fingerprint),
+    // 迁移里这条是 DEFERRABLE INITIALLY DEFERRED（drizzle 无法表达），重排顺序时同一事务内逐行改 ordinal 靠它。
     unique('gpt_direct_admin_keys_ordinal_key').on(t.ordinal),
     check('gpt_direct_admin_keys_ordinal_check', sql`${t.ordinal} > 0`),
     check('gpt_direct_admin_keys_budget_check', sql`${t.budget_usd} > 0`),
@@ -559,6 +560,8 @@ export const gpt_direct_budget_holds = pgTable(
     month_start: epochMs('month_start').notNull(),
     micro_usd: bigint('micro_usd', { mode: 'number' }).notNull(),
     created_at: epochMs('created_at').notNull(),
+    /** 租期。进程崩溃后没人释放的预占过了这个时间就不再计入月预算。 */
+    expires_at: epochMs('expires_at').notNull(),
   },
   (t) => [index('idx_gpt_direct_budget_holds_key').on(t.fingerprint, t.month_start)],
 )

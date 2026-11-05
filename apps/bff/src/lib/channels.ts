@@ -705,8 +705,11 @@ function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
 function withGptImage26(channel: InternalChannel): InternalChannel {
   if (!channel.models.some((model) => isGptImage26Model(model.id))) return channel
   const enabled = process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true'
+  // 只配了 OPENAI_API_KEYS 或只在后台直连页配了密钥时，OPENAI_API_KEY 为空，也算有 key。
   const ready =
-    enabled && Boolean(runtimeSecret('OPENAI_API_KEY', process.env.OPENAI_API_KEY?.trim() ?? ''))
+    enabled &&
+    (Boolean(runtimeSecret('OPENAI_API_KEY', process.env.OPENAI_API_KEY?.trim() ?? '')) ||
+      gptDirectEnabledKeyCount() > 0)
   return {
     ...channel,
     models: channel.models.flatMap((model) => {

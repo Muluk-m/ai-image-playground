@@ -6,6 +6,7 @@ import {
   assertSecretMaterial,
   openSecret,
   readMasterKey,
+  refreshUpstreamSecrets,
   sealSecret,
   UpstreamSecretError,
 } from '../upstream-secrets'
@@ -59,6 +60,26 @@ export function refreshGptDirectKeys(): Promise<void> {
     () => undefined,
   )
   return run
+}
+
+/**
+ * 先刷新上游密钥，再刷新直连密钥清单：直连的环境变量那一把可能被「上游密钥」页替换，
+ * 要等替换生效后才能算指纹、探可用性。两步各自失败互不影响，任一失败最后抛出第一个错误，
+ * 由调用方记日志。
+ */
+export async function refreshUpstreamKeySources(): Promise<void> {
+  const failures: unknown[] = []
+  try {
+    await refreshUpstreamSecrets()
+  } catch (error) {
+    failures.push(error)
+  }
+  try {
+    await refreshGptDirectKeys()
+  } catch (error) {
+    failures.push(error)
+  }
+  if (failures.length > 0) throw failures[0]
 }
 
 async function publishSnapshot(admin: DirectKey[] | null): Promise<void> {
@@ -281,11 +302,12 @@ export async function updateGptDirectKey(input: {
     .from(schema.gpt_direct_admin_keys)
     .where(eq(schema.gpt_direct_admin_keys.id, input.id))
   if (!row) throw new UpstreamSecretError('unknown_key', 404, '没有这把密钥')
-  const secret = openSecret(aad(row.id), sealedRow(row))
   const now = Date.now()
   const operatorId = operatorIdOf(input.operatorId)
   await db.transaction(async (tx) => {
-    await tx
+    // 和新增、排序、删除同一把锁：并发删除时这里不能悄悄改到 0 行还写一条审计。
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('gpt-direct-admin-keys'))`)
+    const updated = await tx
       .update(schema.gpt_direct_admin_keys)
       .set({
         ...(budgetUsd !== undefined ? { budget_usd: budgetUsd } : {}),
@@ -294,13 +316,15 @@ export async function updateGptDirectKey(input: {
         updated_by: operatorId,
       })
       .where(eq(schema.gpt_direct_admin_keys.id, row.id))
+      .returning({ id: schema.gpt_direct_admin_keys.id })
+    if (updated.length === 0) throw new UpstreamSecretError('unknown_key', 404, '没有这把密钥')
     await tx.insert(schema.operator_audits).values(
       audit(
         operatorId,
         'gpt_direct_key.update',
         row.id,
         {
-          ...(secret ? { fingerprint: fingerprintOf(secret).label } : {}),
+          fingerprint: row.fingerprint,
           ...(budgetUsd !== undefined ? { budget_usd: budgetUsd } : {}),
           ...(typeof input.enabled === 'boolean' ? { enabled: input.enabled } : {}),
         },
@@ -360,28 +384,24 @@ export async function deleteGptDirectKey(input: {
     .from(schema.gpt_direct_admin_keys)
     .where(eq(schema.gpt_direct_admin_keys.id, input.id))
   if (!row) throw new UpstreamSecretError('unknown_key', 404, '没有这把密钥')
-  const secret = openSecret(aad(row.id), sealedRow(row))
-  const fingerprint = secret ? fingerprintOf(secret) : null
+  // 解不开密文（主密钥换了）也要能删，并且清掉这把的停用与冷却状态：按库里存的指纹清，不靠解密。
   const now = Date.now()
   const operatorId = operatorIdOf(input.operatorId)
   await db.transaction(async (tx) => {
-    await tx.delete(schema.gpt_direct_admin_keys).where(eq(schema.gpt_direct_admin_keys.id, row.id))
-    if (fingerprint) {
-      await tx
-        .delete(schema.gpt_direct_key_state)
-        .where(eq(schema.gpt_direct_key_state.fingerprint, fingerprint.fingerprint))
-    }
-    await tx.insert(schema.operator_audits).values(
-      audit(
-        operatorId,
-        'gpt_direct_key.delete',
-        row.id,
-        {
-          ...(fingerprint ? { fingerprint: fingerprint.label } : {}),
-        },
-        now,
-      ),
-    )
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('gpt-direct-admin-keys'))`)
+    const removed = await tx
+      .delete(schema.gpt_direct_admin_keys)
+      .where(eq(schema.gpt_direct_admin_keys.id, row.id))
+      .returning({ id: schema.gpt_direct_admin_keys.id })
+    if (removed.length === 0) throw new UpstreamSecretError('unknown_key', 404, '没有这把密钥')
+    await tx
+      .delete(schema.gpt_direct_key_state)
+      .where(eq(schema.gpt_direct_key_state.fingerprint, row.fingerprint))
+    await tx
+      .insert(schema.operator_audits)
+      .values(
+        audit(operatorId, 'gpt_direct_key.delete', row.id, { fingerprint: row.fingerprint }, now),
+      )
   })
   await refreshGptDirectKeys()
 }

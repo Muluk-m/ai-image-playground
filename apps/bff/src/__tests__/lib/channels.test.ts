@@ -659,6 +659,24 @@ describe('shipped channels.json', () => {
     }
   })
 
+  it('keeps openai-images when only OPENAI_API_KEYS is set', () => {
+    const names = ['GPT_DIRECT_ENABLED', 'INTERNAL_API_TOKEN', 'OPENAI_API_KEYS', 'OPENAI_API_KEY']
+    const saved = new Map(names.map((name) => [name, process.env[name]]))
+    process.env.GPT_DIRECT_ENABLED = 'true'
+    process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
+    process.env.OPENAI_API_KEYS = 'multi-key-aaaa,multi-key-bbbb'
+    delete process.env.OPENAI_API_KEY
+    try {
+      const result = parseChannelsConfig(shipped, () => undefined)
+      expect(result.channels.some((channel) => channel.id === 'openai-images')).toBe(true)
+    } finally {
+      for (const [name, value] of saved) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+    }
+  })
+
   it('keeps GPT Image 2.6 off the selector until its own switch is on', () => {
     const savedFlag = process.env.GPT_IMAGE_26_ENABLED
     const savedKey = process.env.OPENAI_API_KEY

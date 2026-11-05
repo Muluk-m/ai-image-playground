@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { imageSizeTier } from '@image-playground/shared'
-import { and, eq, gte, isNull, or, sql } from 'drizzle-orm'
+import { imageSizeTier, QUEUE_TIMEOUTS } from '@image-playground/shared'
+import { and, eq, gt, gte, isNull, lt, or, sql } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { log } from '../logger'
@@ -16,6 +16,11 @@ import { configuredDirectKeys } from './gpt-key-config'
 const BUDGET_TIME_ZONE = 'Asia/Taipei'
 /** 本月累计在进程里缓存这么久；封顶附近会多放几张，量级在几美分。 */
 const SPENT_CACHE_MS = 30_000
+/**
+ * 预占的租期：必须长于一次直连请求的最长存活（硬超时 + 传输余量），否则还在跑的请求会被提前放开。
+ * 只为崩溃的进程兜底：正常结束都会落账或释放。
+ */
+export const DIRECT_HOLD_TTL_MS = QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS + 15 * 60_000
 
 /** 2026-10-31 直连实测每张输出 token（flare 与 sunburst 相同），用于拿不到 usage 时估算。 */
 const OUTPUT_TOKENS_PER_IMAGE = {
@@ -152,6 +157,7 @@ async function spentSince(
         and(
           eq(schema.gpt_direct_budget_holds.fingerprint, fingerprint.value),
           eq(schema.gpt_direct_budget_holds.month_start, monthStart),
+          gt(schema.gpt_direct_budget_holds.expires_at, now),
         ),
       )
     micro += Number(held?.micro ?? 0)
@@ -212,6 +218,15 @@ export async function reserveDirectBudget(input: {
   const id = randomUUID()
   const reserved = await db.transaction(async (tx) => {
     await lockDirectBudget(tx, input.fingerprint)
+    // 崩溃进程留下的预占：过了租期就清掉，不再占这把 key 的月预算。
+    await tx
+      .delete(schema.gpt_direct_budget_holds)
+      .where(
+        and(
+          eq(schema.gpt_direct_budget_holds.fingerprint, input.fingerprint),
+          lt(schema.gpt_direct_budget_holds.expires_at, now),
+        ),
+      )
     const month = new Date(monthStart).toISOString()
     const [spentRow] = await tx.execute<{ used: string | number | null }>(sql`
       select (
@@ -229,6 +244,7 @@ export async function reserveDirectBudget(input: {
           from ${schema.gpt_direct_budget_holds}
           where ${schema.gpt_direct_budget_holds.fingerprint} = ${input.fingerprint}
             and ${schema.gpt_direct_budget_holds.month_start} = ${month}::timestamptz
+            and ${schema.gpt_direct_budget_holds.expires_at} > ${new Date(now).toISOString()}::timestamptz
         ), 0)
       )::text as used
     `)
@@ -240,6 +256,7 @@ export async function reserveDirectBudget(input: {
       month_start: monthStart,
       micro_usd: input.estimateMicroUsd,
       created_at: now,
+      expires_at: now + DIRECT_HOLD_TTL_MS,
     })
     return id
   })
@@ -319,10 +336,16 @@ export async function recordDirectUsage(input: {
       if (counts) entry.micro += cost
     }
   } catch (err) {
-    if (input.reservationId)
-      await releaseDirectReservation(input.reservationId).catch(() => undefined)
+    // 上游已经计了费而账没落成：预占留着，继续按估算占这把 key 的月预算，到租期才自然放开。
+    // 在这里释放会让这笔花费两边都不算。
     log.warn(
-      { event: 'gpt.direct_usage_record_failed', err, model: input.model, cost },
+      {
+        event: 'gpt.direct_usage_record_failed',
+        err,
+        model: input.model,
+        cost,
+        ...(input.reservationId ? { reservationId: input.reservationId, holdRetained: true } : {}),
+      },
       'direct usage record failed',
     )
   }

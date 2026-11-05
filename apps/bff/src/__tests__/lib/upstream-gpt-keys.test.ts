@@ -24,9 +24,8 @@ delete process.env.OPENAI_ADMIN_KEY
 const { callUpstream, setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { budgetMonthStart } = await import('../../lib/upstream/gpt-budget')
 const { _resetDirectBudgetCacheForTesting } = await import('../../lib/upstream/gpt-budget')
-const { _setDirectKeyAlertForTesting, directKeyPanel, restoreDirectKey } = await import(
-  '../../lib/upstream/gpt-keys'
-)
+const { _setDirectKeyAlertForTesting, directKeyPanel, disabledDirectKeys, restoreDirectKey } =
+  await import('../../lib/upstream/gpt-keys')
 const {
   configuredDirectKeys,
   FingerprintSecretMissingError,
@@ -176,6 +175,29 @@ describe('config', () => {
       expect(safeEnvDirectKeys()).toEqual([])
     } finally {
       process.env.INTERNAL_API_TOKEN = saved
+    }
+  })
+
+  it('keeps the panel open and the alert scan blind when the env key list cannot be parsed', async () => {
+    const saved = {
+      token: process.env.INTERNAL_API_TOKEN,
+      email: process.env.EMAIL_CODE_SECRET,
+      master: process.env.UPSTREAM_SECRETS_MASTER_KEY,
+    }
+    delete process.env.INTERNAL_API_TOKEN
+    delete process.env.EMAIL_CODE_SECRET
+    delete process.env.UPSTREAM_SECRETS_MASTER_KEY
+    try {
+      const panel = await directKeyPanel(7)
+      expect(panel.keys).toEqual([])
+      expect(panel.writable).toBe(false)
+      expect(panel.disabled_reason).toContain('指纹密钥')
+      // 抛错＝「没观察到」；返回空数组会被当成所有停用的密钥都已恢复。
+      await expect(disabledDirectKeys()).rejects.toBeInstanceOf(FingerprintSecretMissingError)
+    } finally {
+      process.env.INTERNAL_API_TOKEN = saved.token
+      if (saved.email !== undefined) process.env.EMAIL_CODE_SECRET = saved.email
+      if (saved.master !== undefined) process.env.UPSTREAM_SECRETS_MASTER_KEY = saved.master
     }
   })
 
