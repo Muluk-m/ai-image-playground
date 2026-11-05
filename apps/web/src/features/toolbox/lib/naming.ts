@@ -7,6 +7,8 @@ const EXTENSIONS: Record<string, string> = {
   'image/png': 'png',
   'image/webp': 'webp',
   'image/avif': 'avif',
+  'image/gif': 'gif',
+  'image/svg+xml': 'svg',
 }
 
 export function extensionFor(type: string): string {

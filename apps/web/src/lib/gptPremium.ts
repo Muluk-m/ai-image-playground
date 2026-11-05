@@ -1,4 +1,4 @@
-import { isGptDirectModel } from '@image-playground/shared'
+import { isGptDirectModel, isGptImage26Model } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { bffBaseUrl } from './runtimeConfig'
@@ -35,13 +35,16 @@ function fetchPremium(userId: string): Promise<boolean> {
 export function useGptPremiumLocked(
   model: string,
   directOn: boolean,
-): { locked: boolean; memberOnly: boolean } {
+): { locked: boolean; memberOnly: boolean; member: boolean } {
   const userId = useAuth().user?.id ?? null
   const gpt = isGptDirectModel(model)
+  // 2.6 的 2K、高画质对所有人开放；4K 仍走同一份会员查询。
+  const image26 = isGptImage26Model(model)
   const [premium, setPremium] = useState(false)
   useEffect(() => {
     setPremium(false)
-    if (!gpt || !directOn || !userId) return
+    if (!(gpt && directOn) && !image26) return
+    if (!userId) return
     let active = true
     let latest = 0
     const refresh = () => {
@@ -65,7 +68,11 @@ export function useGptPremiumLocked(
       window.removeEventListener('focus', refresh)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [gpt, directOn, userId])
+  }, [gpt, directOn, image26, userId])
   // 只有「开通会员就能用」时才提示会员专享；直连没开时会员也用不了，不拿会员说事。
-  return { locked: gpt && (!premium || !directOn), memberOnly: gpt && directOn && !premium }
+  return {
+    locked: gpt && (!premium || !directOn),
+    memberOnly: gpt && directOn && !premium,
+    member: premium,
+  }
 }

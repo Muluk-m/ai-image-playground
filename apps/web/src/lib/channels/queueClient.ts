@@ -193,16 +193,31 @@ async function submit(
   if (provider === 'openai-compat') {
     body.output_format = opts.params.output_format
     body.moderation = opts.params.moderation
-    if (opts.params.output_format !== 'png' && opts.params.output_compression != null) {
+    if (
+      (opts.params.output_format === 'jpeg' || opts.params.output_format === 'webp') &&
+      opts.params.output_compression != null
+    ) {
       body.output_compression = opts.params.output_compression
     }
+    if (opts.params.output_format === 'gif') {
+      body.frame_count = opts.params.frame_count
+      body.frame_duration_ms = opts.params.frame_duration_ms
+      body.n = 1
+    }
+    if (opts.params.output_format === 'svg') body.n = 1
   } else if (provider === 'gemini') {
     const aspectRatio = opts.params.gemini_aspect_ratio ?? nearestAspectRatio(opts.params.size)
     if (aspectRatio) body.aspect_ratio = aspectRatio
     if (opts.params.gemini_image_size) body.image_size = opts.params.gemini_image_size
     if (opts.params.gemini_thinking_level) body.thinking_level = opts.params.gemini_thinking_level
   }
-  if (opts.params.n && opts.params.n > 1) body.n = opts.params.n
+  if (
+    opts.params.output_format !== 'gif' &&
+    opts.params.output_format !== 'svg' &&
+    opts.params.n &&
+    opts.params.n > 1
+  )
+    body.n = opts.params.n
   if (opts.inputImageDataUrls.length) body.input_images = opts.inputImageDataUrls
   if (opts.outputRetention) body.output_retention = opts.outputRetention
   if (opts.stageAuthorization) body.stage_authorization = opts.stageAuthorization
@@ -495,6 +510,8 @@ const OUTPUT_FORMAT_LITERALS: Record<TaskParams['output_format'], true> = {
   png: true,
   jpeg: true,
   webp: true,
+  gif: true,
+  svg: true,
 }
 
 /**

@@ -11,6 +11,7 @@ import { durableMediaStore } from './durableMediaStore'
 import { type ObjectStore, objectStore, readObjectWithinLimit } from './objectStore'
 import { isAbortError } from './queueProvider'
 import { SafeFetchError } from './safeFetch'
+import { sanitizeSvg } from './svg-sanitize'
 
 export type OutputTransform = (bytes: Uint8Array) => Promise<{
   bytes: Uint8Array
@@ -243,9 +244,14 @@ async function archiveOutputs(
         : await fetchSourceImage(sourceUrl!, context)
       await context.validateBytes?.(source.bytes)
       const declared = typeof item[mimeKey] === 'string' ? (item[mimeKey] as string) : undefined
-      const mime = detectMediaMime(source.bytes) ?? declared ?? source.mime ?? fallbackMime
+      let bytes = source.bytes
+      let mime = detectMediaMime(bytes) ?? declared ?? source.mime ?? fallbackMime
+      if (mime === 'image/svg+xml' || fallbackMime === 'image/svg+xml') {
+        bytes = sanitizeSvg(bytes)
+        mime = 'image/svg+xml'
+      }
       const ref = { object: `${taskId}/${transform ? 'candidate' : 'out'}/${index}`, mime }
-      await writeWithRetry(ref.object, source.bytes, mime, store)
+      await writeWithRetry(ref.object, bytes, mime, store)
       if (transform) candidates.push(ref)
       else {
         item.object = ref.object
@@ -420,6 +426,8 @@ function inputImageMime(bytes: Uint8Array, declaredMime: string): string {
 function openAIOutputMime(format: string | undefined): string {
   if (format === 'jpeg' || format === 'jpg') return 'image/jpeg'
   if (format === 'webp') return 'image/webp'
+  if (format === 'gif') return 'image/gif'
+  if (format === 'svg') return 'image/svg+xml'
   return 'image/png'
 }
 
@@ -474,5 +482,9 @@ export function detectMediaMime(bytes: Uint8Array): string | undefined {
   ) {
     return 'video/mp4'
   }
+  const head = new TextDecoder('utf-8', { fatal: false })
+    .decode(bytes.subarray(0, Math.min(bytes.length, 256)))
+    .trimStart()
+  if (/^(<\?xml[\s\S]*?)?<svg[\s>]/i.test(head)) return 'image/svg+xml'
   return undefined
 }
