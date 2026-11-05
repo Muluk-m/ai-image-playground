@@ -141,11 +141,12 @@ export async function listModelAvailability(): Promise<ReadonlyMap<string, Model
   )
 }
 
-/** 运营手动上下架。恢复上架连带清掉自动暂停的记录；手动下架不写原因。 */
+/** 运营手动上下架。恢复上架连带清掉自动暂停的记录。原因写入审计详情。 */
 export async function setModelActive(input: {
   model: string
   active: boolean
   operatorId: string
+  reason?: string
 }): Promise<void> {
   const now = Date.now()
   const row = { active: input.active, pause_reason: null, paused_at: null, updated_at: now }
@@ -160,7 +161,10 @@ export async function setModelActive(input: {
       action: 'model.availability.update',
       target_type: 'model',
       target_id: input.model,
-      details: { active: input.active },
+      details: {
+        active: input.active,
+        ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+      },
       created_at: now,
     })
   })

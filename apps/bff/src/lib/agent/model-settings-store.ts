@@ -46,12 +46,18 @@ export async function agentModelSettingsView(): Promise<AgentModelSettingsView> 
 export async function saveAgentModelSettings(body: unknown, operator: string): Promise<void> {
   if (
     !isObject(body) ||
-    Object.keys(body).some((key) => !['revision', 'settings'].includes(key)) ||
+    Object.keys(body).some((key) => !['revision', 'settings', 'reason'].includes(key)) ||
     !Number.isSafeInteger(body.revision) ||
     Number(body.revision) < 0
   )
     throw new AgentSettingsError('配置版本无效')
   const settings = validateAgentModelSettings(body.settings)
+  let reason: string | undefined
+  if ('reason' in body && body.reason !== undefined) {
+    if (typeof body.reason !== 'string' || !body.reason.trim() || body.reason.trim().length > 500)
+      throw new AgentSettingsError('请填写原因')
+    reason = body.reason.trim()
+  }
   await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agent-model-settings'))`)
     const [current] = await tx
@@ -81,6 +87,7 @@ export async function saveAgentModelSettings(body: unknown, operator: string): P
         revision: next.revision,
         providerIds: settings.providers.map((provider) => provider.id),
         profiles: settings.profiles,
+        ...(reason ? { reason } : {}),
       },
     })
   })
