@@ -20,6 +20,7 @@ import { overviewRoutes } from './routes/overview'
 import { extensionRoutes, privateRoutes } from './routes/private'
 import { skillsRoutes } from './routes/skills'
 import { tasksRoutes } from './routes/tasks'
+import { upstreamSecretRoutes } from './routes/upstream-secrets'
 import { usersRoutes } from './routes/users'
 import { isApiPath, serveSpaFallback, serveStatic } from './static'
 
@@ -45,6 +46,7 @@ const apiApp = new Elysia()
   .use(modelRoutes)
   .use(agentPromptsRoutes)
   .use(operatorSettingsRoutes)
+  .use(upstreamSecretRoutes)
   .use(auditRoutes)
   .use(clientErrorsRoutes)
   .use(tasksRoutes)

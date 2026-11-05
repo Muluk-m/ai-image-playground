@@ -9,13 +9,19 @@ import {
   nicknameError,
   normalizeUsername,
 } from '@image-playground/shared'
-import { and, asc, eq, inArray, ne } from 'drizzle-orm'
+import { and, asc, eq, inArray } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { isCapabilityEnabled } from './capabilities'
 import { oauthUsernameCandidates } from './oauth/username'
 import { loadPrivateBffOverlay } from './private-overlay'
 import { consumeRegistrationVerification } from './registration-verification'
-import { createUserSession, hashSessionToken, type SessionClient } from './user-session'
+import {
+  type IssuedWebSession,
+  issueUserSession,
+  retainWebSessionAfterPasswordChange,
+  revokeAllWebSessions,
+  type SessionClient,
+} from './user-session'
 
 export type UserOperationErrorCode =
   | 'invalid_username'
@@ -90,7 +96,11 @@ async function provisionUser(
   usernameInput: string,
   password: string,
   options: ProvisionUserOptions,
-): Promise<{ user: OperationalUser; sessionToken: string | null }> {
+): Promise<{
+  user: OperationalUser
+  sessionToken: string | null
+  issued: IssuedWebSession | null
+}> {
   const username = normalizeUsername(usernameInput)
   if (!isValidUsername(username)) throw new UserOperationError('invalid_username')
   if (!isValidPassword(password)) throw new UserOperationError('invalid_password')
@@ -152,14 +162,14 @@ async function provisionUser(
         source: options.source,
         referralCode: options.referralCode,
       })
-      const sessionToken =
+      const issued =
         options.source === 'self-registration'
-          ? await createUserSession(id, tx, options.client)
+          ? await issueUserSession(id, tx, options.client)
           : null
-      return { ok: true as const, user: created, sessionToken }
+      return { ok: true as const, user: created, sessionToken: issued?.accessToken ?? null, issued }
     })
     if (!result.ok) throw new UserOperationError(result.verificationError)
-    return { user: result.user, sessionToken: result.sessionToken }
+    return { user: result.user, sessionToken: result.sessionToken, issued: result.issued }
   } catch (error) {
     if (isUniqueViolation(error)) throw new UserOperationError('username_taken')
     throw error
@@ -181,13 +191,13 @@ export async function registerUser(
     verification?: { challengeId: string; code: string }
     client?: SessionClient | null
   } = {},
-): Promise<{ user: OperationalUser; sessionToken: string }> {
+): Promise<{ user: OperationalUser; sessionToken: string; issued: IssuedWebSession }> {
   const result = await provisionUser(usernameInput, password, {
     source: 'self-registration',
     ...options,
   })
-  if (!result.sessionToken) throw new Error('registered user session missing')
-  return { user: result.user, sessionToken: result.sessionToken }
+  if (!result.sessionToken || !result.issued) throw new Error('registered user session missing')
+  return { user: result.user, sessionToken: result.sessionToken, issued: result.issued }
 }
 
 export interface OAuthIdentityInput {
@@ -202,6 +212,7 @@ export interface OAuthIdentityInput {
 export interface OAuthLoginResult {
   readonly user: { id: string; username: string }
   readonly sessionToken: string
+  readonly issued: IssuedWebSession
 }
 
 export type OAuthLoginOutcome = OAuthLoginResult | { readonly registrationClosed: true }
@@ -253,9 +264,11 @@ async function loginExistingIdentity(
         updated_at: now,
       })
       .where(eq(schema.users.id, current.id))
+    const issued = await issueUserSession(current.id, tx, client)
     return {
       user: { id: current.id, username: current.username },
-      sessionToken: await createUserSession(current.id, tx, client),
+      sessionToken: issued.accessToken,
+      issued,
     }
   })
 }
@@ -346,9 +359,11 @@ export async function loginWithOAuthIdentity(
           referralCode: options.referralCode,
           oauthProvider: identity.provider,
         })
+        const issued = await issueUserSession(created.id, tx, options.client)
         return {
           user: created,
-          sessionToken: await createUserSession(created.id, tx, options.client),
+          sessionToken: issued.accessToken,
+          issued,
         }
       })
     } catch (error) {
@@ -386,7 +401,7 @@ export async function listLoginMethods(userId: string): Promise<LoginMethodsView
 export async function setOwnPassword(
   userId: string,
   input: { currentPassword?: string; newPassword: string; keepSessionToken: string },
-): Promise<void> {
+): Promise<IssuedWebSession | null> {
   if (!isValidPassword(input.newPassword)) throw new UserOperationError('invalid_password')
 
   const [user] = await db
@@ -405,8 +420,7 @@ export async function setOwnPassword(
   }
 
   const passwordHash = await Bun.password.hash(input.newPassword, { algorithm: 'argon2id' })
-  const keptTokenHash = hashSessionToken(input.keepSessionToken)
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     const [current] = await tx
       .select({ password_hash: schema.users.password_hash })
       .from(schema.users)
@@ -422,19 +436,14 @@ export async function setOwnPassword(
       .update(schema.users)
       .set({ password_hash: passwordHash, updated_at: Date.now() })
       .where(eq(schema.users.id, userId))
-    const revoked = await tx
-      .delete(schema.user_sessions)
-      .where(
-        and(
-          eq(schema.user_sessions.user_id, userId),
-          ne(schema.user_sessions.token_hash, keptTokenHash),
-        ),
-      )
-      .returning({ token_hash: schema.user_sessions.token_hash })
+    const renewed = await retainWebSessionAfterPasswordChange(tx, userId, input.keepSessionToken)
     await tx.insert(schema.operator_audits).values({
-      ...operatorAudit('user.password.self-update', userId, { sessions_revoked: revoked.length }),
+      ...operatorAudit('user.password.self-update', userId, {
+        sessions_revoked: renewed.revoked,
+      }),
       operator_id: userId,
     })
+    return renewed.issued
   })
 }
 
@@ -523,7 +532,7 @@ export async function setUserStatus(userId: string, status: string): Promise<Ope
       .returning(operationalUserColumns)
     if (!user) return null
     if (status === 'disabled') {
-      await tx.delete(schema.user_sessions).where(eq(schema.user_sessions.user_id, userId))
+      await revokeAllWebSessions(tx, userId, 'account_disabled')
     }
     await tx
       .insert(schema.operator_audits)
@@ -577,13 +586,10 @@ export async function resetUserPassword(userId: string, password: string): Promi
       .where(eq(schema.users.id, userId))
       .returning({ id: schema.users.id })
     if (rows.length === 0) return false
-    const revoked = await tx
-      .delete(schema.user_sessions)
-      .where(eq(schema.user_sessions.user_id, userId))
-      .returning({ token_hash: schema.user_sessions.token_hash })
+    const revoked = await revokeAllWebSessions(tx, userId, 'password_reset')
     await tx
       .insert(schema.operator_audits)
-      .values(operatorAudit('user.password.reset', userId, { sessions_revoked: revoked.length }))
+      .values(operatorAudit('user.password.reset', userId, { sessions_revoked: revoked }))
     return true
   })
   if (!changed) throw new UserOperationError('user_not_found')
@@ -598,13 +604,10 @@ export async function revokeUserSessions(userId: string): Promise<number> {
       .limit(1)
       .for('update')
     if (!user) throw new UserOperationError('user_not_found')
-    const revoked = await tx
-      .delete(schema.user_sessions)
-      .where(eq(schema.user_sessions.user_id, userId))
-      .returning({ token_hash: schema.user_sessions.token_hash })
+    const revoked = await revokeAllWebSessions(tx, userId, 'sessions_revoked')
     await tx
       .insert(schema.operator_audits)
-      .values(operatorAudit('user.sessions.revoke', userId, { sessions_revoked: revoked.length }))
-    return revoked.length
+      .values(operatorAudit('user.sessions.revoke', userId, { sessions_revoked: revoked }))
+    return revoked
   })
 }

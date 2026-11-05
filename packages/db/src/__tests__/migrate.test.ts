@@ -509,10 +509,18 @@ describe('runMigrations', () => {
             hash: await migrationFileHash('0086_operator_config_overrides'),
             created_at: '1793700000000',
           },
-          // 0087（when 1793800000000）是并行后台 PR 的筛选索引。它先合并，这条 0088 必须排在它后面。
           {
-            hash: await migrationFileHash('0088_announcements'),
+            hash: await migrationFileHash('0087_web_session_refresh'),
+            created_at: '1793800000000',
+          },
+          {
+            hash: await migrationFileHash('0088_upstream_api_secrets'),
             created_at: '1793900000000',
+          },
+          // 0089（when 1794000000000）是并行后台 PR 的筛选索引。它先合并，这条 0090 必须排在它后面。
+          {
+            hash: await migrationFileHash('0090_announcements'),
+            created_at: '1794100000000',
           },
         ])
         const columns =
