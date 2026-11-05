@@ -84,6 +84,26 @@ function lastParams(adapter: (typeof adapters)[keyof typeof adapters]): TaskPara
 }
 
 describe('dispatch-layer param enforcement', () => {
+  it('rejects an oversized GIF before creating a queue request', async () => {
+    const settings = useBuiltinChannel({
+      ...QUEUE_CHANNEL,
+      models: [{ id: 'gpt-image-2.6-flare', label: 'Image 2.6', capabilities: ['generate'] }],
+    })
+    await expect(
+      callImageApi(
+        baseOpts(settings, {
+          ...DEFAULT_PARAMS,
+          output_format: 'gif',
+          size: '768x768',
+          frame_count: 16,
+          quality: 'medium',
+          n: 1,
+        }),
+      ),
+    ).rejects.toThrow()
+    expect(adapters.queue).not.toHaveBeenCalled()
+  })
+
   it.each([
     '512x512',
     '768x768',

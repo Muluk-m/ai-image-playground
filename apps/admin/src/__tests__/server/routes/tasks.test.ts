@@ -39,6 +39,32 @@ async function login() {
 }
 
 describe('GET /api/tasks/:id', () => {
+  it.each([
+    'image/gif',
+    'image/jpeg',
+    'image/webp',
+    'image/svg+xml',
+  ])('preserves archived %s metadata instead of labeling every OpenAI-compatible output PNG', async (mime) => {
+    const id = `task-mime-${mime.replaceAll('/', '-')}`
+    await writer.db.insert(writer.schema.tasks).values({
+      id,
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-flare',
+      status: 'completed',
+      request_payload: { prompt: 'animation', device_id: 'dev-T' },
+      result_payload: { data: [{ object: `${id}/out/0`, mime }] },
+      submitted_at: now,
+      completed_at: now + 1000,
+    })
+    const cookie = await login()
+    const response = await app.handle(
+      new Request(`http://localhost/api/tasks/${id}`, { headers: { cookie } }),
+    )
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.result_meta.images).toEqual([{ index: 0, mime }])
+  })
+
   it('未登录 → 401', async () => {
     const res = await app.handle(new Request('http://localhost/api/tasks/task-T1'))
     expect(res.status).toBe(401)
