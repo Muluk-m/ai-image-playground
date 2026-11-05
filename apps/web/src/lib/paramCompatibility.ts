@@ -4,6 +4,7 @@ import { clientProfileToApiProfile, getActiveApiProfile } from './apiProfiles'
 import { getModelCapabilities, getModelImageSizes } from './channels/profileSelectors'
 import { getPublicChannels } from './channels/publicChannels'
 import type { ClientProfile } from './channels/types'
+import { gifFrameSize } from './image26Format'
 import { normalizeImageSize } from './size'
 
 export const MAX_OPENAI_OUTPUT_IMAGES = 10
@@ -60,16 +61,18 @@ export function normalizeParamsForSettings(
   _options: { hasInputImages?: boolean } = {},
 ): TaskParams {
   const activeProfile = getActiveApiProfile(settings)
+  const model = clientProfileToApiProfile(activeProfile).model
+  const gif = isGptImage26Model(model) && params.output_format === 'gif'
   const outputImageLimit = getOutputImageLimitForSettings(settings)
   const nextParams: TaskParams = {
     ...params,
     moderation: DEFAULT_PARAMS.moderation,
-    size: normalizeImageSize(params.size) || DEFAULT_PARAMS.size,
+    // GIF 帧尺寸低于静态图的最小像素数，两者共用校正会和 ImageSettings 反复写回。
+    size: gif ? gifFrameSize(params.size) : normalizeImageSize(params.size) || DEFAULT_PARAMS.size,
     n: Math.min(outputImageLimit, Math.max(1, params.n || DEFAULT_PARAMS.n)),
   }
 
   const caps = getParamCapabilities(activeProfile, nextParams.output_format)
-  const model = clientProfileToApiProfile(activeProfile).model
   if (
     !isGptImage26Model(model) &&
     (nextParams.output_format === 'gif' || nextParams.output_format === 'svg')

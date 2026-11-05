@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_SETTINGS, getActiveApiProfile, normalizeSettings } from '../../lib/apiProfiles'
 import type { ChannelCapability, ClientProfile, PublicChannel } from '../../lib/channels/types'
+import { switchImageOutputFormat } from '../../lib/image26Format'
 import {
   getOutputImageLimitForSettings,
   getParamCapabilities,
@@ -49,6 +50,26 @@ function builtinProfile(capabilities: ChannelCapability[]): ClientProfile {
 }
 
 describe('parameter compatibility', () => {
+  it('repairs a GIF frame size previously expanded by still-image normalization', () => {
+    const settings = settingsFor(useChannel('openai-queue', 'gpt-image-2.6-flare'))
+    const params = { ...DEFAULT_PARAMS, output_format: 'gif' as const, size: '816x816' }
+
+    expect(normalizeParamsForSettings(params, settings).size).toBe('768x768')
+  })
+
+  it.each([
+    '512x512',
+    '768x768',
+  ])('keeps the GIF frame size %s stable across format switching and normalization', (size) => {
+    const settings = settingsFor(useChannel('openai-queue', 'gpt-image-2.6-flare'))
+    const { patch } = switchImageOutputFormat({ ...DEFAULT_PARAMS, size }, 'gif', null)
+    const gif = { ...DEFAULT_PARAMS, ...patch }
+    const normalized = normalizeParamsForSettings(gif, settings)
+
+    expect(normalized.size).toBe(size)
+    expect(normalizeParamsForSettings(normalized, settings)).toEqual(normalized)
+  })
+
   it('limits OpenAI output count to 10', () => {
     const settings = normalizeSettings(DEFAULT_SETTINGS)
 
