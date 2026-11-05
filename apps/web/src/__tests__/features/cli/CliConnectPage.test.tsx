@@ -7,7 +7,8 @@ import { AuthContextProvider } from '../../../auth/AuthContext'
 import type * as LoginPromptModule from '../../../auth/loginPrompt'
 import CliConnectPage from '../../../features/cli/CliConnectPage'
 import {
-  CLI_RELEASE_TAG,
+  CLI_RELEASE_REF,
+  CLI_VERSION,
   INSTALL_COMMAND,
   manualCommands,
   SESSION_PATH,
@@ -109,10 +110,12 @@ describe('CliConnectPage', () => {
     expect(copyText).toHaveBeenCalledExactlyOnceWith(shown.join('\n'))
   })
 
-  it('安装脚本固定在发布标签上，不跟随会移动的 main 分支', () => {
+  it('安装脚本固定在不可变提交并锁定 CLI 版本', () => {
     for (const command of Object.values(INSTALL_COMMAND)) {
-      expect(command).toContain(`/${CLI_RELEASE_TAG}/cli-go/install/`)
+      expect(command).toContain(`/${CLI_RELEASE_REF}/cli-go/install/`)
+      expect(command).toContain(CLI_VERSION)
       expect(command).not.toContain('/main/')
+      expect(command).not.toContain('cli-v')
     }
   })
 
