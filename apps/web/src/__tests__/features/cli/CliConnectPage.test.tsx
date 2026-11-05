@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
-import type { AuthUserView } from '@image-playground/shared'
+
 import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import type { AuthUserView } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -126,7 +129,9 @@ describe('CliConnectPage', () => {
     expect(host.querySelector('pre')?.textContent).toContain(INSTALL_COMMAND.windows)
     expect(host.querySelector('pre')?.textContent).not.toContain(INSTALL_COMMAND.unix)
     await click('复制命令')
-    expect(copyText).toHaveBeenCalledExactlyOnceWith(manualCommands('workbuddy', 'windows').join('\n'))
+    expect(copyText).toHaveBeenCalledExactlyOnceWith(
+      manualCommands('workbuddy', 'windows').join('\n'),
+    )
     await click('让 Agent 安装')
     expect(host.querySelector('[aria-label="选择系统"]')).toBeNull()
     expect(promptText()).not.toContain('PowerShell')
@@ -170,7 +175,10 @@ describe('CliConnectPage', () => {
   })
 
   it('Agent 指南保留经过校验的安装、PATH、宿主兼容与授权步骤', () => {
-    const guide = readFileSync(new URL('../../../../public/cli/setup.md', import.meta.url), 'utf8')
+    const guide = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli/setup.md'),
+      'utf8',
+    )
     for (const platform of ['unix', 'windows'] as const) {
       expect(guide).toContain(INSTALL_COMMAND[platform])
       expect(guide).toContain(SESSION_PATH[platform])
