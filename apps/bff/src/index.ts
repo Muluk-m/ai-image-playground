@@ -20,6 +20,7 @@ import {
 import { runPeriodicSteps, startPeriodicSteps } from './lib/periodic'
 import { purgeExpiredAttachmentMedia } from './lib/projectMedia'
 import { startServerLogs } from './lib/server-logs'
+import { refreshUpstreamSecrets, UPSTREAM_SECRET_REFRESH_MS } from './lib/upstream-secrets'
 
 const stopServerLogs = startServerLogs()
 config.assertValid()
@@ -57,6 +58,15 @@ const agentEnabled = isCapabilityEnabled('agent:chat')
 // 能力目录在导入时按 schema 校验，不合法会在这里之前就抛错，进程起不来。
 log.info({ event: 'model_catalog.loaded', count: MODEL_CATALOG.length }, 'model catalog validated')
 
+await refreshUpstreamSecrets().catch((error) =>
+  log.error(
+    {
+      event: 'upstream_secrets.startup_refresh_failed',
+      err: error instanceof Error ? error.message : 'unknown',
+    },
+    'upstream secret refresh failed',
+  ),
+)
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {
   log.warn({ event: 'channels.warning' }, warning)
@@ -230,6 +240,9 @@ const operatorConfigTimer = setInterval(() => {
     ),
   )
 }, 10_000)
+const upstreamSecretTimer = setInterval(() => {
+  void refreshUpstreamSecrets().then(() => initChannels(config.channelsFile ?? undefined))
+}, UPSTREAM_SECRET_REFRESH_MS)
 
 let shuttingDown = false
 
@@ -252,6 +265,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   stopHeartbeat()
   clearInterval(apiMinutesTimer)
   clearInterval(operatorConfigTimer)
+  clearInterval(upstreamSecretTimer)
 
   try {
     // Close idle canvas sockets after task drain so HTTP shutdown can finish.
