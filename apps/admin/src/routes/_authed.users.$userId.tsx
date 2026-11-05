@@ -3,6 +3,7 @@ import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
 import { KeyRound, LogOut, RefreshCw, ShieldCheck, ShieldOff } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
+import { DangerConfirmDialog } from '@/components/DangerConfirmDialog'
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { Kpi } from '@/components/Kpi'
 import { LazyTaskVolumeChart } from '@/components/LazyTaskVolumeChart'
@@ -44,15 +45,19 @@ function UserOperations({ user }: { user: AdminUserRow }) {
   const queryClient = useQueryClient()
   const [resetting, setResetting] = useState(false)
   const [editingNote, setEditingNote] = useState(false)
+  const [confirming, setConfirming] = useState<'status' | 'sessions' | null>(null)
   const mutation = useMutation({
-    mutationFn: (operation: 'status' | 'sessions') => {
+    mutationFn: ({ operation, reason }: { operation: 'status' | 'sessions'; reason: string }) => {
       const id = encodeURIComponent(user.id)
-      if (operation === 'sessions') return apiClient.post(`/api/users/${id}/revoke-sessions`)
+      if (operation === 'sessions')
+        return apiClient.post(`/api/users/${id}/revoke-sessions`, { reason })
       return apiClient.patch(`/api/users/${id}`, {
         status: user.status === 'active' ? 'disabled' : 'active',
+        reason,
       })
     },
     onSuccess: async () => {
+      setConfirming(null)
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['user', user.id] }),
         queryClient.invalidateQueries({ queryKey: ['users'] }),
@@ -72,9 +77,7 @@ function UserOperations({ user }: { user: AdminUserRow }) {
         variant="outline"
         size="sm"
         disabled={mutation.isPending || user.active_sessions === 0}
-        onClick={() => {
-          if (window.confirm(`撤销 ${user.username} 的全部登录会话？`)) mutation.mutate('sessions')
-        }}
+        onClick={() => setConfirming('sessions')}
       >
         <LogOut /> 撤销会话
       </Button>
@@ -82,16 +85,46 @@ function UserOperations({ user }: { user: AdminUserRow }) {
         variant={user.status === 'active' ? 'destructive' : 'outline'}
         size="sm"
         disabled={mutation.isPending}
-        onClick={() => {
-          const verb = user.status === 'active' ? '停用' : '启用'
-          if (window.confirm(`${verb}用户 ${user.username}？`)) mutation.mutate('status')
-        }}
+        onClick={() => setConfirming('status')}
       >
         {user.status === 'active' ? <ShieldOff /> : <ShieldCheck />}
         {user.status === 'active' ? '停用' : '启用'}
       </Button>
       {mutation.isError ? <span className="text-xs text-destructive">操作失败，请重试</span> : null}
       <UserFormDialog mode="reset" user={user} open={resetting} onOpenChange={setResetting} />
+      <DangerConfirmDialog
+        open={confirming !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirming(null)
+        }}
+        title={
+          confirming === 'sessions'
+            ? `撤销 ${user.username} 的会话?`
+            : user.status === 'active'
+              ? `停用 ${user.username}?`
+              : `启用 ${user.username}?`
+        }
+        impact={
+          confirming === 'sessions'
+            ? `将撤销 ${user.active_sessions} 个未过期会话，用户需要重新登录。`
+            : user.status === 'active'
+              ? '停用后不能登录，现有会话会一并撤销。'
+              : '启用后该用户可以重新登录。'
+        }
+        confirmLabel={
+          confirming === 'sessions'
+            ? '确认撤销'
+            : user.status === 'active'
+              ? '确认停用'
+              : '确认启用'
+        }
+        destructive={confirming === 'sessions' || user.status === 'active'}
+        pending={mutation.isPending}
+        onConfirm={(reason) => {
+          if (!confirming) return
+          mutation.mutate({ operation: confirming, reason })
+        }}
+      />
       <UserNoteDialog user={user} open={editingNote} onOpenChange={setEditingNote} />
     </div>
   )

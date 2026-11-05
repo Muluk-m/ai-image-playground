@@ -43,6 +43,7 @@ import * as Y from 'yjs'
 import { executeCanvasCommand } from '../../canvasCommands'
 import { accessCanvasDocument } from '../../canvasSyncStore'
 import { isCapabilityEnabled } from '../../capabilities'
+import { declaredImageSizes } from '../../channels'
 import type { BffTransaction } from '../../private-overlay'
 import { agentCanvasProject } from '../node-canvas-view'
 import {
@@ -542,6 +543,9 @@ function stageExecution(
         canvasImageModel?: string
         canvasImageCount?: number
         n?: number
+        size?: string
+        quality?: string
+        gemini_image_size?: string
         video?: {
           model: string
           durationSeconds: number
@@ -623,10 +627,16 @@ function stageExecution(
     return { charge: { nodeId: node.id, ...resolved.spec }, binding }
   }
   // 原标签页按工作台配置出图。报价必须用这一条，不能改成对话模型或渠道里的另一条。
+  const imageModel =
+    params?.canvasImageModel?.trim() || resolveAgentModel('image', params?.model)?.model
   const image = resolveStageImageExecution({
-    model: params?.canvasImageModel?.trim() || resolveAgentModel('image', params?.model)?.model,
+    model: imageModel,
     count: params?.canvasImageCount ?? params?.n,
     storyboardRole: meta.storyboardRole,
+    size: params?.size,
+    quality: params?.quality,
+    imageSize: params?.gemini_image_size,
+    supportedTiers: imageModel ? declaredImageSizes(imageModel) : undefined,
   })
   return { ...(image ? { charge: { nodeId: node.id, ...image } } : {}), binding }
 }
@@ -692,6 +702,9 @@ function stageTurn(params: AgentToolContext['params']): StageAuthorizationTurn {
     ...(model ? { model } : {}),
     ...(canvasImageModel ? { canvasImageModel } : {}),
     ...(canvasImageCount !== undefined ? { canvasImageCount } : {}),
+    ...(params?.size ? { size: params.size } : {}),
+    ...(params?.quality ? { quality: params.quality } : {}),
+    ...(params?.gemini_image_size ? { gemini_image_size: params.gemini_image_size } : {}),
     ...(params?.video ? { video: params.video } : {}),
   }
 }
