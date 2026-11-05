@@ -10,6 +10,7 @@ import {
   KeyRound,
   LogOut,
   type LucideIcon,
+  Megaphone,
   MessageSquareText,
   MonitorSmartphone,
   ReceiptText,
@@ -49,6 +50,7 @@ export type NavTo =
   | '/inspirations'
   | '/inspirations/skills'
   | '/inspirations/categories'
+  | '/announcements'
   | '/ops'
   | '/errors'
   | '/logs'
@@ -96,6 +98,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { to: '/inspirations', icon: Sparkles, label: '灵感库', exact: true },
       { to: '/inspirations/skills', icon: Shapes, label: '技能目录', exact: true },
       { to: '/inspirations/categories', icon: Tags, label: '分类', exact: true },
+      { to: '/announcements', icon: Megaphone, label: '版本公告' },
     ],
   },
   {

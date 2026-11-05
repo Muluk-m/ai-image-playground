@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import {
   APP_MODE_PATHS,
+  CHANGELOG_PATH,
   CLI_CONNECT_PATH,
   CLI_DEVICE_PATH,
   LEGACY_PROJECTS_PATH,
@@ -130,6 +131,7 @@ it('generates SPA fallbacks for every app route without a catch-all asset rewrit
     PRIVACY_PATH,
     CLI_CONNECT_PATH,
     CLI_DEVICE_PATH,
+    CHANGELOG_PATH,
   ]) {
     expect(rules).toContain(`${path} /workbench 200\n`)
     if (path !== '/assets') expect(rules).toContain(`${path}/ /workbench 200\n`)
@@ -146,7 +148,14 @@ it('整页路由在 BFF 与 nginx 的 SPA 回退里也有：新页面不能只�
   // 三套托管各写一份白名单；漏掉任何一份，那种部署下直接打开或刷新该地址就是 404。
   const bff = await readFile(join(root, 'apps/bff/src/app.ts'), 'utf8')
   const nginx = await readFile(join(root, 'deploy/nginx.conf'), 'utf8')
-  for (const path of [PRICING_PATH, TERMS_PATH, PRIVACY_PATH, CLI_CONNECT_PATH, CLI_DEVICE_PATH]) {
+  for (const path of [
+    PRICING_PATH,
+    TERMS_PATH,
+    PRIVACY_PATH,
+    CLI_CONNECT_PATH,
+    CLI_DEVICE_PATH,
+    CHANGELOG_PATH,
+  ]) {
     const name = path.slice(1)
     expect(bff, `BFF 回退缺 ${path}`).toContain(`|${name}`)
     expect(nginx, `nginx 回退缺 ${path}`).toContain(name)
