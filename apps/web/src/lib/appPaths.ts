@@ -70,6 +70,11 @@ export function isChangelogPath(pathname: string): boolean {
   return normalizePath(pathname) === CHANGELOG_PATH
 }
 
+/** 画布全屏只在不看更新时占住主区。人在项目里打开更新，主区要换成更新页。 */
+export function canvasOwnsMainPane(appMode: string, pathname: string): boolean {
+  return appMode === 'canvas' && !isChangelogPath(pathname)
+}
+
 export function isStandalonePath(pathname: string): boolean {
   const path = normalizePath(pathname)
   return (

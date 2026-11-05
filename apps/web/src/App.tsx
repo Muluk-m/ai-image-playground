@@ -35,6 +35,7 @@ import PricingPage from './features/pricing/PricingPage'
 import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
 import {
+  canvasOwnsMainPane,
   isChangelogPath,
   isCliConnectPath,
   isCliDevicePath,
@@ -205,7 +206,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       <div className="app-chrome min-h-dvh bg-sidebar">
         <Header />
         <Sidebar />
-        {appMode === 'canvas' ? (
+        {canvasOwnsMainPane(appMode, pathname) ? (
           <CanvasMode />
         ) : (
           <div

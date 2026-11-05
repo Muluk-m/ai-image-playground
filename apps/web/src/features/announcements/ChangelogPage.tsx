@@ -17,6 +17,7 @@ import {
 import {
   announcementFeedStatus,
   announcementItems,
+  currentAnnouncementEpoch,
   setAnnouncementFeed,
   setAnnouncementFeedError,
   subscribeAnnouncementPanel,
@@ -118,13 +119,14 @@ export default function ChangelogPage() {
   }, [])
 
   useEffect(() => {
+    const epoch = currentAnnouncementEpoch()
     let cancelled = false
     void fetchAnnouncements(announcementLocale(i18n.language))
       .then((list) => {
-        if (!cancelled) setAnnouncementFeed(withLocalReads(list, !user))
+        if (!cancelled) setAnnouncementFeed(withLocalReads(list, !user), epoch)
       })
       .catch(() => {
-        if (!cancelled) setAnnouncementFeedError()
+        if (!cancelled) setAnnouncementFeedError(epoch)
       })
     return () => {
       cancelled = true

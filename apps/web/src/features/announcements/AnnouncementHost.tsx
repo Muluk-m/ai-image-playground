@@ -14,6 +14,7 @@ import {
 import {
   announcementFeedStatus,
   announcementItems,
+  currentAnnouncementEpoch,
   setAnnouncementFeed,
   setAnnouncementFeedError,
   subscribeAnnouncementPanel,
@@ -34,16 +35,17 @@ export function AnnouncementHost() {
   const [modalId, setModalId] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
+    const epoch = currentAnnouncementEpoch()
     try {
       const remote = await fetchAnnouncements(announcementLocale(currentLocale()))
       const next = withLocalReads(remote, !user)
-      setAnnouncementFeed(next)
+      if (!setAnnouncementFeed(next, epoch)) return
       if (!announcementModalShownThisSession() && !isChangelogPath(window.location.pathname)) {
         const major = selectMajorAnnouncement(next.items)
         if (major) setModalId(major.id)
       }
     } catch {
-      setAnnouncementFeedError()
+      setAnnouncementFeedError(epoch)
     }
   }, [user])
 
