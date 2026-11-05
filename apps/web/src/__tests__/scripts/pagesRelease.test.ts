@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import {
   APP_MODE_PATHS,
+  CHANGELOG_PATH,
   CLI_DEVICE_PATH,
   LEGACY_PROJECTS_PATH,
   PRICING_PATH,
@@ -128,6 +129,7 @@ it('generates SPA fallbacks for every app route without a catch-all asset rewrit
     TERMS_PATH,
     PRIVACY_PATH,
     CLI_DEVICE_PATH,
+    CHANGELOG_PATH,
   ]) {
     expect(rules).toContain(`${path} /workbench 200\n`)
     if (path !== '/assets') expect(rules).toContain(`${path}/ /workbench 200\n`)
