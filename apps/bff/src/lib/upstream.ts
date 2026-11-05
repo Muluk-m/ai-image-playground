@@ -257,8 +257,16 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
   }
 }
 
-/** GPT Image 的 OpenAI 直连：原生 size / quality / n，同步返回，不走异步任务与 Responses。 */
-function directRoute(model: string, key?: DirectKey): UpstreamRoute {
+/**
+ * GPT Image 的 OpenAI 直连：原生 size / quality / n，同步返回，不走异步任务与 Responses。
+ * 还有下一把可用 key 时，429 不冷却整条模型桶，否则下一把占不到额度。
+ * 没有下一把时照旧冷却模型桶，下一单会等冷却结束，而不是立刻再打。
+ */
+function directRoute(
+  model: string,
+  key?: DirectKey,
+  options?: { skipSharedRateLimitCooldown?: boolean },
+): UpstreamRoute {
   const chosen = key ?? configuredDirectKeys()[0]
   return {
     baseUrl: config.gptDirect.baseUrl,
@@ -270,7 +278,7 @@ function directRoute(model: string, key?: DirectKey): UpstreamRoute {
     supportsNativeN: true,
     schedulerBuckets: gptSchedulerBuckets(model, 'direct'),
     gptRoute: 'direct',
-    skipSharedRateLimitCooldown: true,
+    ...(options?.skipSharedRateLimitCooldown ? { skipSharedRateLimitCooldown: true } : {}),
     ...(config.gptDirect.organization ? { organization: config.gptDirect.organization } : {}),
   }
 }
@@ -445,14 +453,19 @@ async function callDirectTryingKeys(
     if (!key) throw new DirectKeysExhaustedError(lastError ?? new Error('no openai direct key'))
     exclude.add(key.fingerprint)
     onAttempt(key.fingerprint)
+    const another = await selectDirectKey({ estimateMicroUsd: estimate, exclude })
     try {
-      const result = await callUpstreamVia(params, directRoute(model, key), {
-        ...attempt,
-        onResponse: () => {
-          responded = true
-          attempt.onResponse?.()
+      const result = await callUpstreamVia(
+        params,
+        directRoute(model, key, { skipSharedRateLimitCooldown: another !== null }),
+        {
+          ...attempt,
+          onResponse: () => {
+            responded = true
+            attempt.onResponse?.()
+          },
         },
-      })
+      )
       return { result, fingerprint: key.fingerprint }
     } catch (error) {
       if (responded) throw error

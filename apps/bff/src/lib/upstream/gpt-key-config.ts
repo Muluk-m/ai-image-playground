@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHmac } from 'node:crypto'
 import { config } from '../../config'
 import { runtimeSecret } from '../upstream-secret-cache'
 import {
@@ -16,7 +16,11 @@ export { adminDirectKeys, resetAdminDirectKeySnapshot }
  * 配了 `OPENAI_API_KEYS`（逗号分隔、有顺序）就以它为准，`OPENAI_API_KEY_BUDGETS_USD` 必须
  * 一一对应。`OPENAI_API_KEY` 仍给 channels.json 的 openai-images 当渠道密钥，不自动并进这份清单。
  *
- * 指纹是 sha256 十六进制的前 8 位，展示再带上密钥末 4 位。日志和后台只出现这个标签。
+ * 指纹是 HMAC-SHA256 的前 8 位十六进制，展示再带上密钥末 4 位。这是识别用的标签，不是口令哈希。
+ * 密钥材料用 INTERNAL_API_TOKEN，没有再用 EMAIL_CODE_SECRET，最后才用 UPSTREAM_SECRETS_MASTER_KEY。
+ * 主密钥经常后补，不能拿它当第一选择，否则补上之后指纹全变，本月花费和停用状态会对不上。
+ * 0090 尚未上线，库里没有旧的裸 sha256 指纹。换上面这把已经在用的密钥，也会让本月已记花费不再归到这把 key。
+ * 日志和后台只出现这个标签。
  */
 
 export interface DirectKey {
@@ -28,7 +32,7 @@ export interface DirectKey {
   readonly budgetUsd: number
   /** 后台停用。环境变量密钥恒为 true。 */
   readonly enabled: boolean
-  /** sha256 十六进制前 8 位。 */
+  /** HMAC-SHA256 十六进制前 8 位。 */
   readonly fingerprint: string
   /** `指纹…末4位`，可以写进日志。 */
   readonly label: string
@@ -52,8 +56,24 @@ export function noteDirectKeySnapshot(input: {
   )
 }
 
+/**
+ * 指纹用的服务端密钥。不把 API key 本身当哈希输入的唯一材料。
+ * 顺序固定：先用一直在的服务端密钥，避免后补主密钥时把已有账拆开。
+ */
+function fingerprintMacKey(): string {
+  return (
+    process.env.INTERNAL_API_TOKEN?.trim() ||
+    process.env.EMAIL_CODE_SECRET?.trim() ||
+    process.env.UPSTREAM_SECRETS_MASTER_KEY?.trim() ||
+    ''
+  )
+}
+
 export function fingerprintOf(secret: string): { fingerprint: string; label: string } {
-  const fingerprint = createHash('sha256').update(secret).digest('hex').slice(0, 8)
+  const fingerprint = createHmac('sha256', fingerprintMacKey())
+    .update(secret)
+    .digest('hex')
+    .slice(0, 8)
   const tail = secret.length >= 4 ? secret.slice(-4) : secret
   return { fingerprint, label: `${fingerprint}…${tail}` }
 }
