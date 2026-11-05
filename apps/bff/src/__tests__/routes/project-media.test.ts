@@ -1141,3 +1141,34 @@ describe('confirmation coordination', () => {
     }
   })
 })
+
+it('生成结果里的 GIF 和 SVG 能入库，预览用第一帧或栅格', async () => {
+  const { storeMedia } = await import('../../lib/projectMedia')
+  const frame = async (color: string) =>
+    sharp({ create: { width: 16, height: 16, channels: 4, background: color } })
+      .png()
+      .toBuffer()
+  const gif = await sharp([await frame('#ff0000'), await frame('#00ff00')], {
+    join: { animated: true },
+  })
+    .gif()
+    .toBuffer()
+  const storedGif = await storeMedia('media-owner', gif, 'image/gif')
+  expect(storedGif).toMatchObject({
+    contentType: 'image/gif',
+    status: 'ready',
+    width: 16,
+    height: 16,
+  })
+
+  const svg = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="24"><rect width="32" height="24" fill="#c33"/></svg>',
+  )
+  const storedSvg = await storeMedia('media-owner', svg, 'image/svg+xml')
+  expect(storedSvg).toMatchObject({
+    contentType: 'image/svg+xml',
+    status: 'ready',
+    width: 32,
+    height: 24,
+  })
+})
