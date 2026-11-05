@@ -121,12 +121,18 @@ describe('discovered channels carry catalog capabilities', () => {
 })
 
 describe('GPT size follows the OpenAI direct switch', () => {
-  const saved = { enabled: process.env.GPT_DIRECT_ENABLED, key: process.env.OPENAI_API_KEY }
+  const saved = {
+    enabled: process.env.GPT_DIRECT_ENABLED,
+    key: process.env.OPENAI_API_KEY,
+    token: process.env.INTERNAL_API_TOKEN,
+  }
   afterEach(() => {
     process.env.GPT_DIRECT_ENABLED = saved.enabled
     process.env.OPENAI_API_KEY = saved.key
+    process.env.INTERNAL_API_TOKEN = saved.token
     if (saved.enabled === undefined) delete process.env.GPT_DIRECT_ENABLED
     if (saved.key === undefined) delete process.env.OPENAI_API_KEY
+    if (saved.token === undefined) delete process.env.INTERNAL_API_TOKEN
     _setChannelsForTesting([])
   })
 
@@ -171,6 +177,7 @@ describe('GPT size follows the OpenAI direct switch', () => {
   it('declares size once direct is on with a key', () => {
     process.env.GPT_DIRECT_ENABLED = 'true'
     process.env.OPENAI_API_KEY = 'sk-real'
+    process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
     expect(flareCapabilities()['gpt-image-2.5-flare']).toEqual(['generate', 'quality', 'size', 'n'])
   })
 })

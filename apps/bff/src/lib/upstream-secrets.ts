@@ -122,7 +122,26 @@ function encrypt(key: Buffer, slotId: string, plaintext: string) {
   }
 }
 
-function decrypt(key: Buffer, slotId: string, row: SecretRow): string | null {
+export interface SealedSecret {
+  nonce: string
+  tag: string
+  ciphertext: string
+}
+
+/** 与上游密钥同一套 AES-256-GCM。`aad` 把密文绑到这一行，换行贴过去解不开。 */
+export function sealSecret(aad: string, plaintext: string): SealedSecret {
+  const master = readMasterKey()
+  if (!master.ok) throw new UpstreamSecretError(master.code, 503, master.reason)
+  return encrypt(master.key, aad, plaintext)
+}
+
+export function openSecret(aad: string, sealed: SealedSecret): string | null {
+  const master = readMasterKey()
+  if (!master.ok) return null
+  return decrypt(master.key, aad, sealed)
+}
+
+function decrypt(key: Buffer, slotId: string, row: SealedSecret): string | null {
   try {
     const nonce = Buffer.from(row.nonce, 'base64')
     const tag = Buffer.from(row.tag, 'base64')

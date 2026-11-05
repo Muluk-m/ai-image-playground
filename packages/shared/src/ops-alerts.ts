@@ -22,6 +22,7 @@ export type AlertRule =
   | 'blind'
   | 'reconciling'
   | 'gpt-budget'
+  | 'gpt-key'
   | 'operator-config'
 
 /**
@@ -62,6 +63,10 @@ export interface AlertObservation {
   agentFailurePatterns?: readonly AgentFailurePattern[] | null
   /** OpenAI 直连本月已花与封顶（微美元）。没开直连时不给。 */
   gptDirectBudget?: { spent_micro_usd: number; cap_micro_usd: number }
+  /** 当前被停用的直连密钥。没开直连时不给；开了但没有停用的给空数组，好发恢复。 */
+  gptDirectKeys?: {
+    disabled: ReadonlyArray<{ fingerprint: string; label: string; reason: 'quota' | 'invalid' }>
+  }
   /** 连续若干轮取不到读数的块，由调用方按轮次累计。 */
   blindBlocks?: ReadonlyArray<{ block: string; rounds: number }>
 }
@@ -159,10 +164,16 @@ export interface AgentPatternGroupState extends RuleState {
   upstreamStatus: number | null
 }
 
+export interface GptKeyAlertState extends RuleState {
+  label: string
+}
+
 export type AlertState = Partial<Record<Exclude<AlertRule, 'api'>, RuleState>> & {
   api?: ApiRuleState
   agentPatterns?: Record<string, AgentPatternGroupState>
   generationWatch?: Record<string, GenerationWatchEntry>
+  /** 每把直连密钥各自的停用告警，不能共用一条 gpt-key。 */
+  gptKeys?: Record<string, GptKeyAlertState>
 }
 
 export interface AlertMessage {
@@ -619,6 +630,41 @@ function evaluateApi(
   return { state, messages }
 }
 
+function evaluateGptKeys(
+  disabled: ReadonlyArray<{ fingerprint: string; label: string; reason: 'quota' | 'invalid' }>,
+  previous: Record<string, GptKeyAlertState> | undefined,
+  now: number,
+): { state: Record<string, GptKeyAlertState>; messages: AlertMessage[] } {
+  const reasonText = (reason: 'quota' | 'invalid') => (reason === 'quota' ? '额度耗尽' : '密钥失效')
+  const active = new Map(disabled.map((key) => [key.fingerprint, key]))
+  const state: Record<string, GptKeyAlertState> = {}
+  const messages: AlertMessage[] = []
+  for (const fingerprint of new Set([...Object.keys(previous ?? {}), ...active.keys()])) {
+    const key = active.get(fingerprint) ?? null
+    const prior = previous?.[fingerprint]
+    const label = key?.label ?? prior?.label ?? fingerprint
+    const stepped = stepRule(
+      'gpt-key',
+      {
+        breached: key !== null,
+        recovered: key === null,
+        sustainMs: 0,
+        firingText: key
+          ? `OpenAI 直连密钥 ${label} 已停用（${reasonText(key.reason)}）\n本单已改用下一把；全部不可用时才退回 sub2api`
+          : '',
+        resolvedText: `已恢复：OpenAI 直连密钥 ${label} 已重新启用`,
+      },
+      prior,
+      now,
+    )
+    messages.push(...stepped.messages)
+    if (stepped.state.firing || stepped.state.breachedSince !== null) {
+      state[fingerprint] = { ...stepped.state, label }
+    }
+  }
+  return { state, messages }
+}
+
 /**
  * 输入这一轮的现状、上一轮留下的状态与当前时间，输出要发的消息与新状态。
  * 调用方只管把 `state` 原样传回来；放在进程内存里即可，重启后最多重发一次。
@@ -646,6 +692,12 @@ export function evaluateAlerts(
     )
     next.agentPatterns = patterns.state
     messages.push(...patterns.messages)
+  }
+
+  if (observation.gptDirectKeys) {
+    const keys = evaluateGptKeys(observation.gptDirectKeys.disabled, state.gptKeys, now)
+    next.gptKeys = keys.state
+    messages.push(...keys.messages)
   }
 
   const failures = observation.failures

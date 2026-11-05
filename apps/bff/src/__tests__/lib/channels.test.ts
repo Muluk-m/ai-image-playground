@@ -16,6 +16,10 @@ import {
   resolveModelMedia,
   resolveQueueModel,
 } from '../../lib/channels'
+import {
+  resetAdminDirectKeySnapshot,
+  setAdminDirectKeySnapshot,
+} from '../../lib/upstream/gpt-direct-availability'
 
 const SAMPLE_CHANNEL = {
   id: 'sample-openai',
@@ -621,6 +625,58 @@ describe('parseChannelsConfig', () => {
 describe('shipped channels.json', () => {
   const shipped: unknown = JSON.parse(readFileSync(defaultChannelsPath(), 'utf8'))
 
+  it('keeps openai-images when admin keys are enabled and OPENAI_API_KEY is empty', () => {
+    const saved = {
+      enabled: process.env.GPT_DIRECT_ENABLED,
+      token: process.env.INTERNAL_API_TOKEN,
+    }
+    process.env.GPT_DIRECT_ENABLED = 'true'
+    process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
+    setAdminDirectKeySnapshot(
+      [
+        {
+          id: 'admin-1',
+          ordinal: 1,
+          secret: 'admin-secret-not-logged',
+          budgetUsd: 10,
+          enabled: true,
+          fingerprint: 'abcd1234',
+          label: 'abcd1234…cret',
+        },
+      ],
+      true,
+    )
+    try {
+      const result = parseChannelsConfig(shipped, () => undefined)
+      expect(result.channels.some((channel) => channel.id === 'openai-images')).toBe(true)
+      expect(result.warnings.join('\n')).not.toContain("channel 'openai-images'")
+    } finally {
+      resetAdminDirectKeySnapshot()
+      process.env.GPT_DIRECT_ENABLED = saved.enabled
+      process.env.INTERNAL_API_TOKEN = saved.token
+      if (saved.enabled === undefined) delete process.env.GPT_DIRECT_ENABLED
+      if (saved.token === undefined) delete process.env.INTERNAL_API_TOKEN
+    }
+  })
+
+  it('keeps openai-images when only OPENAI_API_KEYS is set', () => {
+    const names = ['GPT_DIRECT_ENABLED', 'INTERNAL_API_TOKEN', 'OPENAI_API_KEYS', 'OPENAI_API_KEY']
+    const saved = new Map(names.map((name) => [name, process.env[name]]))
+    process.env.GPT_DIRECT_ENABLED = 'true'
+    process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
+    process.env.OPENAI_API_KEYS = 'multi-key-aaaa,multi-key-bbbb'
+    delete process.env.OPENAI_API_KEY
+    try {
+      const result = parseChannelsConfig(shipped, () => undefined)
+      expect(result.channels.some((channel) => channel.id === 'openai-images')).toBe(true)
+    } finally {
+      for (const [name, value] of saved) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+    }
+  })
+
   it('keeps GPT Image 2.6 off the selector until its own switch is on', () => {
     const savedFlag = process.env.GPT_IMAGE_26_ENABLED
     const savedKey = process.env.OPENAI_API_KEY
@@ -653,6 +709,7 @@ describe('shipped channels.json', () => {
       else process.env.GPT_IMAGE_26_ENABLED = savedFlag
       if (savedKey === undefined) delete process.env.OPENAI_API_KEY
       else process.env.OPENAI_API_KEY = savedKey
+      initChannels()
     }
   })
 
