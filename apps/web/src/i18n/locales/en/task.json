@@ -35,8 +35,6 @@
   "card": {
     "generating": "Generating...",
     "progress": "Generating {{percent}}%",
-    "elapsedEta": "{{elapsed}}s elapsed · about {{eta}}s",
-    "creditHold": "{{credits}} credits (fully refunded if this fails)",
     "gifBadge": "GIF · {{count}}",
     "svgBadge": "Vector",
     "batchQueued": "Queued",

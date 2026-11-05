@@ -387,19 +387,13 @@ export function ImageSettings({
                         : undefined
                   }
                   hint={
-                    image26
-                      ? selection.kind === 'auto'
+                    premium.memberOnly
+                      ? t('size.memberTierHint')
+                      : selection.kind === 'auto'
                         ? t('settings.autoSizeHint')
-                        : !premium.member
-                          ? t('size.member4kHint')
+                        : rules.maxTier === '1K'
+                          ? t('size.limitedTierHint')
                           : undefined
-                      : premium.memberOnly
-                        ? t('size.memberTierHint')
-                        : selection.kind === 'auto'
-                          ? t('settings.autoSizeHint')
-                          : rules.maxTier === '1K'
-                            ? t('size.limitedTierHint')
-                            : undefined
                   }
                 >
                   <SettingsSegmented
@@ -453,7 +447,7 @@ export function ImageSettings({
 
         {outputs && image26 && params.output_format === 'gif' && (
           <>
-            <SettingsSection title={t('settings.framesLabel')} hint={t('settings.gifPrice')}>
+            <SettingsSection title={t('settings.framesLabel')}>
               <SettingsSegmented
                 label={t('settings.framesLabel')}
                 options={GPT_IMAGE_26_GIF_FRAMES.map((count) => ({
@@ -475,7 +469,7 @@ export function ImageSettings({
                 onChange={(frame_duration_ms) => setParams({ frame_duration_ms })}
               />
             </SettingsSection>
-            <SettingsSection title={t('settings.gifSize')} hint={t('settings.standardQuality')}>
+            <SettingsSection title={t('settings.gifSize')}>
               <SettingsSegmented
                 label={t('settings.gifSize')}
                 options={GPT_IMAGE_26_GIF_SIZES.map((size) => ({
@@ -489,11 +483,6 @@ export function ImageSettings({
               />
             </SettingsSection>
           </>
-        )}
-        {outputs && image26 && params.output_format === 'svg' && (
-          <SettingsSection title={t('param.quality')} hint={t('settings.standardQuality')}>
-            <p className="text-sm text-foreground">{t('settings.quality.medium')}</p>
-          </SettingsSection>
         )}
         {outputs &&
           capabilities.quality &&
@@ -521,10 +510,7 @@ export function ImageSettings({
             </SettingsSection>
           )}
         {outputs && (
-          <SettingsSection
-            title={t('param.format')}
-            hint={image26 && editing ? t('settings.formatLocked') : undefined}
-          >
+          <SettingsSection title={t('param.format')}>
             <SettingsSegmented
               label={t('param.format')}
               options={

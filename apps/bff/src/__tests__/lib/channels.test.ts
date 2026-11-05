@@ -693,8 +693,7 @@ describe('shipped channels.json', () => {
         capabilities,
         tier: 'quality',
         badges: ['latest'],
-        etaSeconds: 7,
-        etaMaxSeconds: 32,
+        etaSeconds: 10,
       },
       {
         id: 'gpt-image-2.6-sunburst',
@@ -702,8 +701,7 @@ describe('shipped channels.json', () => {
         capabilities,
         tier: 'quality',
         badges: ['latest'],
-        etaSeconds: 21,
-        etaMaxSeconds: 32,
+        etaSeconds: 20,
       },
     ])
   })
