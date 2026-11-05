@@ -269,6 +269,11 @@ deploy_lock_holder_alive() {
 # the first one finished. A holder whose process is gone is taken over; there is deliberately no
 # takeover based on how long the lock has been held, because a normal rollout runs for well over
 # ten minutes and such a timer is itself a way to end up with two of them.
+#
+# A lock that a live process holds returns DEPLOY_LOCK_BUSY (75, EX_TEMPFAIL): nothing was
+# changed, the release is fine, and the same command can simply be run again once the holder
+# is done. Every other failure returns 1. Callers must pass the status through.
+DEPLOY_LOCK_BUSY=75
 acquire_deploy_lock() {
   lock_dir=$1
   lock_what=$2
@@ -289,20 +294,20 @@ acquire_deploy_lock() {
       return 1
     fi
     if deploy_lock_holder_alive "$lock_dir"; then
-      echo "Refusing to start: another rollout holds $lock_dir." >&2
+      echo "Refusing to start: another rollout holds $lock_dir. This is lock contention, not a fault in this release." >&2
       if [ -r "$lock_dir/owner" ]; then
         sed 's/^/  /' "$lock_dir/owner" >&2
       else
         echo "  (no owner file yet: the other rollout is still taking the lock)" >&2
       fi
-      echo "Wait for it to finish. If you are certain nothing is running, remove $lock_dir." >&2
-      return 1
+      echo "Nothing was changed. Run the same command again once it finishes. If you are certain nothing is running, remove $lock_dir." >&2
+      return "$DEPLOY_LOCK_BUSY"
     fi
     echo "stale lock in $lock_dir: holder pid $(deploy_lock_field "$lock_dir/owner" pid) is gone, taking it over"
     rm -rf "$lock_dir"
   done
-  echo "Refusing to start: lost the race for $lock_dir to another rollout." >&2
-  return 1
+  echo "Refusing to start: lost the race for $lock_dir to another rollout. Run the same command again once it finishes." >&2
+  return "$DEPLOY_LOCK_BUSY"
 }
 
 # release_deploy_lock <lock-dir> removes the lock only when this process is the one holding it,

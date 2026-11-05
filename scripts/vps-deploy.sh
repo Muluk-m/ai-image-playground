@@ -47,6 +47,10 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 acquire_deploy_lock "$deploy_lock" "receive $target $release"
+# Tell rollout-runtime.sh (reached through app-compose.sh) that this process already holds the
+# host lock, so it does not wait on its own parent.
+DEPLOY_HOST_LOCK_PID=$$
+export DEPLOY_HOST_LOCK_PID
 (cd "$release" && sha256sum --strict -c SHA256SUMS)
 # The archive's mere presence selects `docker load`, so nothing unlisted may sit in the release.
 listed=$(sed 's/^[0-9a-f]*  //' "$release/SHA256SUMS" | LC_ALL=C sort)

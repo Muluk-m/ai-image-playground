@@ -45,7 +45,26 @@ log_forward_dir=${LOG_FORWARD_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-pl
 mkdir -p "$log_forward_dir"
 . "$repo_root/scripts/lib/deploy-common.sh"
 runtime_lock=$state_dir/lock
-acquire_deploy_lock "$runtime_lock" "runtime $project $image" || exit 1
+# Every entry that moves production takes the host deploy lock, so a hand-run `app-compose.sh
+# up|rollback` cannot overlap a CI deploy of another project (test vs production). A rollout
+# started by vps-deploy.sh inherits it (DEPLOY_HOST_LOCK_PID is that process, and must still be
+# the recorded owner); anything else has to win it. The status is passed through: 75 means the
+# host is busy and nothing was changed.
+if [ -n "${DEPLOY_HOST_LOCK_PID:-}" ] &&
+  [ "$(deploy_lock_field "$deploy_lock/owner" pid)" = "$DEPLOY_HOST_LOCK_PID" ]; then
+  host_lock_inherited=true
+else
+  host_lock_inherited=false
+  acquire_deploy_lock "$deploy_lock" "runtime $project $image" || exit $?
+fi
+acquire_deploy_lock "$runtime_lock" "runtime $project $image" || {
+  lock_status=$?
+  release_deploy_lock "$deploy_lock"
+  # Inside vps-deploy.sh a busy project lock is a failed rollout of a release that already ran
+  # earlier steps, not an untouched host: keep it a plain failure there.
+  if [ "$host_lock_inherited" = true ]; then exit 1; fi
+  exit "$lock_status"
+}
 
 network=${project}_application
 infra=${INFRA_NETWORK_NAME:-image-playground-infra}
@@ -283,6 +302,7 @@ cleanup() {
     fi
   fi
   release_deploy_lock "$runtime_lock"
+  release_deploy_lock "$deploy_lock"
   exit "$status"
 }
 trap cleanup EXIT
