@@ -84,8 +84,10 @@ fi
 mkdir "$release"
 created=1
 tar -xzf "$incoming/release.tgz" -C "$release"
+created=
 [ -f "$release/SHA256SUMS" ] && [ -f "$release/images.tsv" ] || {
   echo "Incomplete release: SHA256SUMS and images.tsv are required" >&2
+  rm -rf "$release"
   exit 1
 }
 
@@ -93,9 +95,11 @@ tar -xzf "$incoming/release.tgz" -C "$release"
 # it is not read from the uploaded archive and therefore cannot be replaced by a caller.
 runtime_root=${AIP_DEPLOY_RUNTIME_ROOT:-$HOME/deploy-runtime}
 runtime="$runtime_root/scripts/vps-deploy.sh"
-[ -x "$runtime" ] || { echo "Deployment runtime is not installed: $runtime" >&2; exit 1; }
-
-created=
+[ -x "$runtime" ] || {
+  echo "Deployment runtime is not installed: $runtime" >&2
+  rm -rf "$release"
+  exit 1
+}
 DEPLOY_ACTOR=github-actions/run-$run_id
 export DEPLOY_ACTOR
 set +e
