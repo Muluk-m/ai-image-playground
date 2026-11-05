@@ -641,6 +641,7 @@ describe('oauth callback', () => {
         avatar_url: DEFAULT_AVATAR_PATH,
         avatar_is_default: true,
       },
+      access_expires_at: expect.any(Number),
     })
   })
 
