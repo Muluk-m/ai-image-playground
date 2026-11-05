@@ -18,6 +18,7 @@ import {
 import { OpsStorageError } from '../lib/ops-storage-error'
 import { redactLogText } from '../lib/server-log-buffer'
 import { directBudgetCapMicroUsd, directSpentThisMonth } from '../lib/upstream/gpt-budget'
+import { disabledDirectKeys } from '../lib/upstream/gpt-keys'
 import { selectRunnableTasks } from '../workers/runnable-tasks'
 import type { AlertSender } from './alert-sender'
 
@@ -278,6 +279,9 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
         missed,
       )
     : undefined
+  const gptDirectKeys = config.gptDirect.enabled
+    ? await attempt('gptDirectKeys', async () => ({ disabled: await disabledDirectKeys() }), missed)
+    : undefined
   return {
     queue,
     backup,
@@ -288,6 +292,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
     agentFailurePatterns,
     serverLogs,
     ...(gptDirectBudget ? { gptDirectBudget } : {}),
+    ...(gptDirectKeys ? { gptDirectKeys } : {}),
   }
 }
 
@@ -335,31 +340,41 @@ interface AppAlertingOptions {
 export function createAppAlerting(options: AppAlertingOptions): (now?: number) => Promise<void> {
   let state: AlertState = {}
   let pending = false
+  let again = false
   const blindRounds = new Map<string, number>()
   return async (now = Date.now()) => {
-    if (pending) return
+    // 停用密钥的请求会再踢一轮。正在扫的时候踢到，等这一轮结束马上再扫，不丢这次告警。
+    if (pending) {
+      again = true
+      return
+    }
     pending = true
     try {
-      const missed = new Set<string>()
-      const observation = await observeApp({
-        now,
-        readBackups: options.readBackups,
-        readRestoreDrill: options.readRestoreDrill,
-        watchingModels: Object.keys(state.generationWatch ?? {}),
-        onMissed: (block) => missed.add(block),
-      })
-      for (const block of blindRounds.keys()) if (!missed.has(block)) blindRounds.delete(block)
-      for (const block of missed) blindRounds.set(block, (blindRounds.get(block) ?? 0) + 1)
-      const result = evaluateAlerts(
-        {
-          ...observation,
-          blindBlocks: [...blindRounds].map(([block, rounds]) => ({ block, rounds })),
-        },
-        state,
-        now,
-      )
-      if (result.messages.length > 0) await options.send(result.messages)
-      state = result.state
+      let roundNow = now
+      do {
+        again = false
+        const missed = new Set<string>()
+        const observation = await observeApp({
+          now: roundNow,
+          readBackups: options.readBackups,
+          readRestoreDrill: options.readRestoreDrill,
+          watchingModels: Object.keys(state.generationWatch ?? {}),
+          onMissed: (block) => missed.add(block),
+        })
+        for (const block of blindRounds.keys()) if (!missed.has(block)) blindRounds.delete(block)
+        for (const block of missed) blindRounds.set(block, (blindRounds.get(block) ?? 0) + 1)
+        const result = evaluateAlerts(
+          {
+            ...observation,
+            blindBlocks: [...blindRounds].map(([block, rounds]) => ({ block, rounds })),
+          },
+          state,
+          roundNow,
+        )
+        roundNow = Date.now()
+        if (result.messages.length > 0) await options.send(result.messages)
+        state = result.state
+      } while (again)
     } catch (error) {
       log.warn(
         { event: 'ops.alert_failed', err: error instanceof Error ? error.message : String(error) },

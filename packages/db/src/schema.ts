@@ -488,9 +488,82 @@ export const gpt_direct_usage = pgTable(
     output_tokens: integer('output_tokens'),
     cost_micro_usd: bigint('cost_micro_usd', { mode: 'number' }).notNull(),
     estimated: boolean('estimated').notNull(),
+    /** HMAC-SHA256 前 8 位。空的是多密钥上线前的旧行，算进当前第一把 key。 */
+    key_fingerprint: text('key_fingerprint'),
     created_at: epochMs('created_at').notNull(),
   },
-  (t) => [index('idx_gpt_direct_usage_created').on(t.created_at)],
+  (t) => [
+    index('idx_gpt_direct_usage_created').on(t.created_at),
+    index('idx_gpt_direct_usage_key_created').on(t.key_fingerprint, t.created_at),
+  ],
+)
+
+/**
+ * 一把 OpenAI 直连密钥的跨 worker 状态。不存密钥，只存指纹。
+ * `disabled_reason` 为空表示没有被停用；冷却看 `cooldown_until`。预算用满不写在这里。
+ */
+export const gpt_direct_key_state = pgTable(
+  'gpt_direct_key_state',
+  {
+    fingerprint: text('fingerprint').primaryKey(),
+    disabled_reason: text('disabled_reason').$type<'quota' | 'invalid' | null>(),
+    cooldown_until: epochMs('cooldown_until'),
+    last_error: text('last_error'),
+    last_error_at: epochMs('last_error_at'),
+    updated_at: epochMs('updated_at').notNull(),
+  },
+  (t) => [
+    check(
+      'gpt_direct_key_state_reason_check',
+      sql`${t.disabled_reason} IS NULL OR ${t.disabled_reason} IN ('quota', 'invalid')`,
+    ),
+  ],
+)
+
+/**
+ * 后台配置的 OpenAI 直连密钥。密文字段与 upstream_api_secrets 相同，用同一把主密钥。
+ * 没有行时直连退回环境变量。明文不进这张表。
+ */
+export const gpt_direct_admin_keys = pgTable(
+  'gpt_direct_admin_keys',
+  {
+    id: text('id').primaryKey(),
+    ordinal: integer('ordinal').notNull(),
+    /** HMAC-SHA256 前 8 位。不存明文。 */
+    fingerprint: text('fingerprint').notNull(),
+    budget_usd: integer('budget_usd').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    nonce: text('nonce').notNull(),
+    tag: text('tag').notNull(),
+    ciphertext: text('ciphertext').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+    updated_by: text('updated_by').notNull(),
+  },
+  (t) => [
+    unique('gpt_direct_admin_keys_fingerprint_key').on(t.fingerprint),
+    // 迁移里这条是 DEFERRABLE INITIALLY DEFERRED（drizzle 无法表达），重排顺序时同一事务内逐行改 ordinal 靠它。
+    unique('gpt_direct_admin_keys_ordinal_key').on(t.ordinal),
+    check('gpt_direct_admin_keys_ordinal_check', sql`${t.ordinal} > 0`),
+    check('gpt_direct_admin_keys_budget_check', sql`${t.budget_usd} > 0`),
+  ],
+)
+
+/**
+ * 选中一把直连 key 时预占的估算额度。请求结束要么计入 usage 并删掉，要么直接释放。
+ * 和 usage 一起算进月封顶，避免多个 worker 同时读到同一余额。
+ */
+export const gpt_direct_budget_holds = pgTable(
+  'gpt_direct_budget_holds',
+  {
+    id: text('id').primaryKey(),
+    fingerprint: text('fingerprint').notNull(),
+    month_start: epochMs('month_start').notNull(),
+    micro_usd: bigint('micro_usd', { mode: 'number' }).notNull(),
+    created_at: epochMs('created_at').notNull(),
+    /** 租期。进程崩溃后没人释放的预占过了这个时间就不再计入月预算。 */
+    expires_at: epochMs('expires_at').notNull(),
+  },
+  (t) => [index('idx_gpt_direct_budget_holds_key').on(t.fingerprint, t.month_start)],
 )
 
 export type InspirationKind = 'showcase' | 'template' | 'skill'

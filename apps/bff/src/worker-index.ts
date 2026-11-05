@@ -14,7 +14,10 @@ import {
 } from './lib/operator-config-overrides'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { startServerLogs } from './lib/server-logs'
-import { refreshUpstreamSecrets, UPSTREAM_SECRET_REFRESH_MS } from './lib/upstream-secrets'
+import { refreshUpstreamKeySources } from './lib/upstream/gpt-direct-admin'
+import { logFingerprintMacSourceOnce } from './lib/upstream/gpt-key-config'
+import { UPSTREAM_SECRET_REFRESH_MS } from './lib/upstream-secrets'
+import { registerAppAlertScan } from './ops/alert-kick'
 import { alertTargetsConfigured, createAlertSenderFromEnv } from './ops/alert-sender'
 import { createAppAlerting } from './ops/app-alerts'
 import { abortAllRunningAnalysisTasks, runningAnalysisTaskIds } from './workers/analysis-runner'
@@ -24,7 +27,8 @@ import { startWorkerHealthServer } from './workers/worker-health'
 
 const stopServerLogs = startServerLogs()
 config.assertValid()
-await refreshUpstreamSecrets().catch((error) =>
+logFingerprintMacSourceOnce()
+await refreshUpstreamKeySources().catch((error) =>
   log.error(
     {
       event: 'upstream_secrets.startup_refresh_failed',
@@ -81,6 +85,7 @@ const checkAppAlerts = createAppAlerting({
       log.warn({ event: 'ops.alert_target_failed', err: error.message }, 'an alert target failed'),
   }),
 })
+registerAppAlertScan(checkAppAlerts)
 let privateMaintenance: Promise<void> | undefined
 let operatorConfigRefresh: Promise<unknown> | undefined
 const staleScanTimer = setInterval(() => {
@@ -130,7 +135,27 @@ const staleScanTimer = setInterval(() => {
     })
 }, 10_000)
 const upstreamSecretTimer = setInterval(() => {
-  void refreshUpstreamSecrets().then(() => initChannels(config.channelsFile ?? undefined))
+  // 刷新失败只记日志，渠道清单照样重建（否则一次读库失败会让这个定时器每轮都白跑）。
+  void refreshUpstreamKeySources()
+    .catch((error) =>
+      log.error(
+        {
+          event: 'upstream_secrets.periodic_refresh_failed',
+          err: error instanceof Error ? error.message : 'unknown',
+        },
+        'upstream secret refresh failed',
+      ),
+    )
+    .then(() => initChannels(config.channelsFile ?? undefined))
+    .catch((error) =>
+      log.error(
+        {
+          event: 'channels.periodic_refresh_failed',
+          err: error instanceof Error ? error.message : 'unknown',
+        },
+        'channels refresh failed',
+      ),
+    )
 }, UPSTREAM_SECRET_REFRESH_MS)
 const workerHealthServer = startWorkerHealthServer({
   port: config.worker.healthPort,

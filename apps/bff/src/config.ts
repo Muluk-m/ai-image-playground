@@ -8,6 +8,7 @@ import {
   loadOperatorConfig,
   validateOperatorConfigValues,
 } from './lib/operator-config'
+import { configuredDirectKeys } from './lib/upstream/gpt-key-config'
 
 const env = (key: string, fallback?: string): string => {
   const v = process.env[key]
@@ -158,6 +159,9 @@ export const config = {
   assertValid(): void {
     void config.auth.loginMethodsByOrigin
     void config.auth.publicOrigins
+    // 多密钥格式不对就拒绝启动，别等到第一单才发现预算列表对不齐。
+    // 直连没打开时这些变量不会被用到，不能因此挡住启动（关着的直连静默退回 sub2api）。
+    if (config.gptDirect.enabled) configuredDirectKeys()
     assertOperatorRuntimePrerequisites(config.operator.capabilities, config)
     if (config.worker.healthStaleAfterMs < config.worker.pollIntervalMs * 3) {
       throw new Error('WORKER_HEALTH_STALE_AFTER_MS must be at least three poll intervals')
@@ -202,8 +206,9 @@ export const config = {
   /**
    * GPT Image 的 OpenAI 直连通道（另一条是 UPSTREAM_BASE_URL 的 sub2api）。会员默认走直连，满了或不可用
    * 立刻切 sub2api；非会员走 sub2api，sub2api 熔断才借直连。见 lib/upstream/gpt-routing.ts。
-   * 密钥沿用 channels.json 里 openai-images 的 OPENAI_API_KEY。后台保存的密文在每次请求时优先于
-   * 这份启动快照，见 lib/upstream-secrets.ts。没打开或没配密钥时一律走 sub2api。
+   * 后台「直连」页存了密钥就只用那些。一把都没存时，先用 OPENAI_API_KEYS，再退回
+   * OPENAI_API_KEY（含后台「上游密钥」里替换的那一把）和 GPT_DIRECT_MONTHLY_BUDGET_USD。
+   * 没打开或一把密钥都没有时一律走 sub2api。
    */
   gptDirect: {
     enabled: booleanEnv('GPT_DIRECT_ENABLED', false),

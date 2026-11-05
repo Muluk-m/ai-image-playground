@@ -844,3 +844,53 @@ describe('生成失败告警：带模型明细，出图成功才恢复', () => {
     expect(rounds.map((round) => round.map((message) => message.kind))).toEqual([['firing'], []])
   })
 })
+
+describe('直连密钥停用', () => {
+  it('names the fingerprint and resolves after the key is restored', () => {
+    const first = evaluateAlerts(
+      {
+        gptDirectKeys: {
+          disabled: [{ fingerprint: 'abcd1234', label: 'abcd1234…wxyz', reason: 'quota' }],
+        },
+      },
+      {},
+      T0,
+    )
+    expect(first.messages.map((message) => `${message.kind}:${message.rule}`)).toEqual([
+      'firing:gpt-key',
+    ])
+    expect(first.messages[0]?.text).toContain('abcd1234…wxyz')
+    expect(first.messages[0]?.text).not.toContain('sk-')
+    const resolved = evaluateAlerts({ gptDirectKeys: { disabled: [] } }, first.state, T0 + minute)
+    expect(resolved.messages.map((message) => `${message.kind}:${message.rule}`)).toEqual([
+      'resolved:gpt-key',
+    ])
+  })
+
+  it('alerts again when another key is disabled, including the last usable one', () => {
+    const first = evaluateAlerts(
+      {
+        gptDirectKeys: {
+          disabled: [{ fingerprint: 'aaaa1111', label: 'aaaa1111…aaaa', reason: 'quota' }],
+        },
+      },
+      {},
+      T0,
+    )
+    const second = evaluateAlerts(
+      {
+        gptDirectKeys: {
+          disabled: [
+            { fingerprint: 'aaaa1111', label: 'aaaa1111…aaaa', reason: 'quota' },
+            { fingerprint: 'bbbb2222', label: 'bbbb2222…bbbb', reason: 'invalid' },
+          ],
+        },
+      },
+      first.state,
+      T0 + 1000,
+    )
+    expect(second.messages.map((message) => message.text)).toEqual([
+      expect.stringContaining('bbbb2222…bbbb'),
+    ])
+  })
+})
