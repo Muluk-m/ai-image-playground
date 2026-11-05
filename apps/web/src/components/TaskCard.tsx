@@ -1,9 +1,4 @@
-import {
-  formatImageRatio,
-  gptImage26Credits,
-  gptImage26EtaSeconds,
-  isGptImage26Model,
-} from '@image-playground/shared'
+import { formatImageRatio } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import { taskExportSources } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
@@ -220,36 +215,15 @@ export default function TaskCard({
     if (generatingPhase) markGenerating(task, Date.now())
     else if (task.status !== 'running') forgetGenerating(task.id)
   }, [generatingPhase, task])
-  const image26Model = task.apiModel ?? ''
-  const image26 = isGptImage26Model(image26Model)
-  const etaSeconds = image26
-    ? gptImage26EtaSeconds(image26Model, {
-        ...task.params,
-        input_images: task.inputImageIds,
-        mask: task.maskImageId,
-      })
-    : undefined
-  const heldCredits = image26
-    ? gptImage26Credits({
-        ...task.params,
-        input_images: task.inputImageIds,
-        mask: task.maskImageId,
-      }) * Math.max(1, task.params.n || 1)
-    : undefined
   const runningLabel = task.batchQueued
     ? t('card.batchQueued')
-    : etaSeconds !== undefined && duration
-      ? t('card.elapsedEta', {
-          elapsed: Math.floor((now - (task.batchStartedAt ?? task.createdAt)) / 1000),
-          eta: etaSeconds,
-        })
-      : progressPercent != null
-        ? t('card.progress', { percent: progressPercent })
-        : task.queuePhase
-          ? t(`card.phase.${task.queuePhase}`)
-          : awaitingQueuePhase(task)
-            ? t('card.phase.queued')
-            : t('card.generating')
+    : progressPercent != null
+      ? t('card.progress', { percent: progressPercent })
+      : task.queuePhase
+        ? t(`card.phase.${task.queuePhase}`)
+        : awaitingQueuePhase(task)
+          ? t('card.phase.queued')
+          : t('card.generating')
   const swipeBgClass = showSwipeAction
     ? swipeStartedSelected
       ? 'bg-muted'
@@ -338,11 +312,6 @@ export default function TaskCard({
                 <div className="flex flex-col items-center gap-2 px-2">
                   <Icon name="loading" size="lg" className="animate-spin text-primary" />
                   <span className="text-center text-xs text-muted-foreground">{runningLabel}</span>
-                  {heldCredits !== undefined && (
-                    <span className="text-center text-label-sm text-muted-foreground">
-                      {t('card.creditHold', { credits: heldCredits.toLocaleString() })}
-                    </span>
-                  )}
                 </div>
               ))}
             {task.status === 'error' && task.cancelled && (
