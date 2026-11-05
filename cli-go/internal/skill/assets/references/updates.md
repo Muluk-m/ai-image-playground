@@ -12,7 +12,8 @@ the reply. A refusal keeps the installed version; no upgrade runs without approv
 
 After approval:
 
-1. Install the exact approved `latest_version` using [install.md](install.md).
+1. Let any active local CLI command return before replacing its executable.
+   Install the exact approved `latest_version` using [install.md](install.md).
    Set `MUVLOOM_VERSION` only for the installer invocation, and use the returned
    `install_directory` as `MUVLOOM_INSTALL_DIR` to replace the existing CLI.
 2. Check `muvloom version` and refresh the installed Skill in its original host
