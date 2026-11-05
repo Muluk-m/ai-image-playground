@@ -33,8 +33,7 @@
           "capabilities": ["generate", "edit", "mask", "quality", "size", "n", "moderation"],
           "tier": "quality",
           "badges": ["latest"],
-          "etaSeconds": 7,
-          "etaMaxSeconds": 32
+          "etaSeconds": 10
         },
         {
           "id": "gpt-image-2.6-sunburst",
@@ -42,8 +41,7 @@
           "capabilities": ["generate", "edit", "mask", "quality", "size", "n", "moderation"],
           "tier": "quality",
           "badges": ["latest"],
-          "etaSeconds": 21,
-          "etaMaxSeconds": 32
+          "etaSeconds": 20
         }
       ],
       "defaults": {

@@ -16,6 +16,7 @@ import type { TaskParams } from '../../types'
 import { normalizeApiTimeout } from '../apiProfiles'
 import { authenticatedBffFetch } from '../authClient'
 import { getDeviceId } from '../deviceId'
+import { gifFrameSize } from '../image26Format'
 import {
   assertImageInputPayloadSize,
   bytesToDataUrl,
@@ -200,11 +201,17 @@ async function submit(
       body.output_compression = opts.params.output_compression
     }
     if (opts.params.output_format === 'gif') {
+      // 帧尺寸和标准画质以动图自己的参数为准，自定义宽高失焦不能把 816 写回来。
+      body.size = gifFrameSize(opts.params.size)
+      body.quality = 'medium'
       body.frame_count = opts.params.frame_count
       body.frame_duration_ms = opts.params.frame_duration_ms
       body.n = 1
     }
-    if (opts.params.output_format === 'svg') body.n = 1
+    if (opts.params.output_format === 'svg') {
+      body.quality = 'medium'
+      body.n = 1
+    }
   } else if (provider === 'gemini') {
     const aspectRatio = opts.params.gemini_aspect_ratio ?? nearestAspectRatio(opts.params.size)
     if (aspectRatio) body.aspect_ratio = aspectRatio
