@@ -13,7 +13,10 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { useGptPremiumLocked } from '../../../lib/gptPremium'
+import { quotedGptMultiplier } from '../../../lib/gptQuote'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
+import { getParamCapabilities } from '../../../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import AgentSkillBadge from '../../agent/components/AgentSkillBadge'
@@ -71,11 +74,21 @@ export default function ImageNodeComposer({
   } = useNodeReferenceDraft(document, nodeId)
   const readyImageIds = referenceFileIds(references, files)
   const settings = useStore((state) => state.settings)
-  const count = useStore((state) => state.params.n)
+  const params = useStore((state) => state.params)
   const profile = getActiveApiProfile(settings)
+  const view = clientProfileToApiProfile(profile)
+  const premium = useGptPremiumLocked(
+    view.model,
+    getParamCapabilities(profile, params.output_format).size,
+  )
   const guard = usePrivateSubmissionGuard({
-    model: clientProfileToApiProfile(profile).model,
-    quantity: preset ? 1 : Math.max(1, count),
+    model: view.model,
+    quantity: preset ? 1 : Math.max(1, params.n),
+    unitMultiplier: quotedGptMultiplier(
+      view.model,
+      { size: params.size, quality: params.quality },
+      premium.highQuality,
+    ),
   })
   const activeLook = useActiveLook((state) => (templates ? state.look : null))
   const libraryAssets = useLibraryStore((state) => state.assets)

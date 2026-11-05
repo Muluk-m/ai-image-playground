@@ -157,6 +157,21 @@ describe('stage execution quantity', () => {
     expect(
       resolveStageImageExecution({ model: ' workbench-image ', count: 4, storyboardRole: 'frame' }),
     ).toEqual({ model: 'workbench-image', quantity: 1, unitMultiplier: 1 })
+    expect(
+      resolveStageImageExecution({
+        model: 'gpt-image-2.5-flare',
+        count: 2,
+        size: '2560x1440',
+        quality: 'medium',
+      }),
+    ).toEqual({ model: 'gpt-image-2.5-flare', quantity: 2, unitMultiplier: 2 })
+    expect(
+      resolveStageImageExecution({
+        model: 'gpt-image-2.5-flare',
+        size: '3840x2160',
+        quality: 'high',
+      }),
+    ).toMatchObject({ unitMultiplier: 2 })
     expect(resolveStageImageExecution({ model: '' })).toBeUndefined()
   })
 })

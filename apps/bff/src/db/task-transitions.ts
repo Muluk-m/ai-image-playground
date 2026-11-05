@@ -1,8 +1,8 @@
 import {
   type AgentToolErrorCode,
   type GptTierInput,
-  isGptBasicRequest,
   isGptDirectModel,
+  isGptSub2apiDeliverable,
   QUEUE_TIMEOUTS,
   type TaskErrorType,
   taskFailureCode,
@@ -201,7 +201,7 @@ export type TerminalTaskUpdate = {
 }
 
 /**
- * GPT 会员的 2K/4K/高画质落到 sub2api 只出得了基础档：按任务行记的通道把倍率改回 1，差额随结算退回。
+ * GPT 的 2K/4K/高画质落到 sub2api 只出得了 1K：按任务行记的通道把倍率改回 1，差额随结算退回。
  * 执行、归档重试、对账三条完成路径都经这里，不靠上游 payload 里的标记（会丢，也可能被伪造）。
  */
 export function gptSettledUsage(
@@ -212,7 +212,7 @@ export function gptSettledUsage(
     update.status !== 'completed' ||
     task.gptRoute !== 'sub2api' ||
     !isGptDirectModel(task.model) ||
-    isGptBasicRequest(task.request)
+    isGptSub2apiDeliverable(task.request)
   )
     return update.actualUsage
   return {

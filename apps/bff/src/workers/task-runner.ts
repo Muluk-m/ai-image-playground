@@ -3,7 +3,7 @@ import {
   gptImageRateMultiplier,
   isContentPolicyEmptyResult,
   isContentPolicyRejection,
-  isGptBasicRequest,
+  isGptSub2apiDeliverable,
   isModelUnavailableRejection,
   QUEUE_TIMEOUTS,
   type TaskErrorType,
@@ -232,7 +232,9 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       taskId: id,
       strictImageRequest: request.strict_image_request,
       ...(gptDirectConfigured(task.model)
-        ? { gptMember: !isGptBasicRequest(request) || (await isActiveMember(task.user_id)) }
+        ? {
+            gptMember: !isGptSub2apiDeliverable(request) || (await isActiveMember(task.user_id)),
+          }
         : {}),
       onGptRoute: (route) => execution.recordGptRoute(route),
       provider: task.provider,

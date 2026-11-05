@@ -1,6 +1,7 @@
 import { agentImageCount } from './agent'
 import type { CanvasNode } from './canvas-document'
 import { canvasNodeKind } from './canvas-registry'
+import { gptCeilingRateMultiplier } from './gpt-direct'
 import {
   canonicalVideoVoice,
   clampVideoPreset,
@@ -229,6 +230,9 @@ export function resolveStageImageExecution(input: {
   readonly model?: string | undefined
   readonly count?: number | undefined
   readonly storyboardRole?: string | undefined
+  readonly size?: string | undefined
+  readonly quality?: string | undefined
+  readonly mask?: unknown
 }): StageExecutionSpec | undefined {
   const model = input.model?.trim() ?? ''
   if (!model) return undefined
@@ -236,7 +240,12 @@ export function resolveStageImageExecution(input: {
   return {
     model,
     quantity: single ? 1 : agentImageCount({ n: input.count }),
-    unitMultiplier: 1,
+    // 阶段提交会把 GPT 收到 ≤2K、非高画质。授权上的倍率必须是收后的那一档。
+    unitMultiplier: gptCeilingRateMultiplier(model, {
+      size: input.size,
+      quality: input.quality,
+      mask: input.mask,
+    }),
   }
 }
 

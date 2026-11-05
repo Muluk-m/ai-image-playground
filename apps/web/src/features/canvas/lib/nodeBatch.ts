@@ -162,10 +162,13 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
       model: imageProfile.model,
       count: params.n,
       storyboardRole: meta.storyboardRole,
+      size: params.size,
+      quality: params.quality,
     })
     if (kind === 'image' && image) {
       model = image.model
       quantity = image.quantity
+      unitMultiplier = image.unitMultiplier
     }
     if (kind === 'video') {
       const config = nodeVideoConfiguration(meta, refs, input.videoDraft, input.options)
