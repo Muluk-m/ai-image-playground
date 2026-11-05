@@ -117,7 +117,10 @@ export default function NodeBatchDialog({
           {status === 'ready' && !changed && (
             <Button
               disabled={
-                !membership.settled || Boolean(plan.error) || current.blocked || !snapshot.nodes.length
+                !membership.settled ||
+                Boolean(plan.error) ||
+                current.blocked ||
+                !snapshot.nodes.length
               }
               onClick={() => void start()}
             >
