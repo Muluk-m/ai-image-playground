@@ -9,6 +9,7 @@ import {
   openaiImagesDirect,
   openaiImagesSub2api,
   openaiResponsesAdapter,
+  receiptFields,
   stampReceipt,
 } from '../../../lib/upstream/adapters'
 import type { RouteContext } from '../../../lib/upstream/adapters/types'
@@ -272,5 +273,41 @@ describe('adapter capabilities are the membership source for channel tiers', () 
     expect(gateway.nativeCount).toEqual({ generate: false, edit: false })
     expect(gateway.promptGuard).toBe('prefix')
     expect(gateway.memberTiers).toEqual(['4K'])
+  })
+})
+
+describe('single-call and fan-out receipts', () => {
+  it('records the fan-out count when the request only carries count', () => {
+    const plan = openaiImagesSub2api.plan(
+      { prompt: 'a cat', resolution: '1K', ratio: '1:1', count: 3 },
+      'gpt-image-2.5-flare',
+      guest,
+    )
+    expect(plan.calls).toHaveLength(3)
+    expect(plan.applied).toMatchObject({ n: 3 })
+  })
+
+  it('stamps a single native call and replaces upstream-supplied receipt fields', () => {
+    const stamped = stampReceipt(
+      { payload: { data: [{ b64_json: 'a' }], applied: { evil: 'x' }, dropped: ['junk'] } },
+      { calls: [], applied: { size: '1024x1024', n: 4 }, dropped: [] },
+    )
+    expect(stamped.payload).toMatchObject({ applied: { size: '1024x1024', n: 4 }, dropped: [] })
+    expect(stamped.payload).not.toHaveProperty('applied.evil')
+  })
+})
+
+describe('persisted receipt fields are shape-checked', () => {
+  it('keeps only scalar applied values and well-formed dropped entries', () => {
+    const long = 'x'.repeat(500)
+    expect(
+      receiptFields({
+        applied: { size: '1024x1024', n: 2, nested: { a: 1 }, 'Bad-Key': 'v', quality: long },
+        dropped: [{ param: 'size', reason: 'ignored' }, { param: 1 }, 'junk'],
+      }),
+    ).toEqual({
+      applied: { size: '1024x1024', n: 2 },
+      dropped: [{ param: 'size', reason: 'ignored' }],
+    })
   })
 })

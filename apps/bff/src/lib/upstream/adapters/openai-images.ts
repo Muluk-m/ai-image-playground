@@ -28,13 +28,14 @@ function appliedScalars(
   request: HydratedSubmitRequest,
   honorsSize: boolean,
   honorsQuality: boolean,
+  count: number,
 ): Record<string, unknown> {
   return {
     ...(honorsSize && request.size ? { size: request.size } : {}),
     ...(honorsQuality && request.quality ? { quality: request.quality } : {}),
     ...(request.output_format ? { output_format: request.output_format } : {}),
     ...(request.moderation ? { moderation: request.moderation } : {}),
-    n: countOf(request, 1),
+    n: count,
   }
 }
 
@@ -58,7 +59,7 @@ function planImages(
   if (!honorsQuality && request.quality) {
     dropped.push({ param: 'quality', reason: SUB2API_DROPS_QUALITY })
   }
-  const applied = appliedScalars(request, honorsSize, honorsQuality)
+  const applied = appliedScalars(request, honorsSize, honorsQuality, count)
 
   if (editing) {
     const unit = count === 1 ? request : withoutImageCount(request)
