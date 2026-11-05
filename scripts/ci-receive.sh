@@ -10,9 +10,12 @@ set -eu
 # Scope `release` accepts internal|paid|all, scope `test` accepts only test. No scope, or any
 # other word, refuses everything.
 #
-# The only accepted command is `deploy <release-id> <target> <run-id>`, with the
-# release directory as a gzipped tar on stdin (`tar -C "$out" -czf - .`). It unpacks into
-# ~/releases/<release-id>, which must not exist yet, and runs that release's vps-deploy.sh.
+# The archive is data only. Deployment code lives in the server-side runtime selected below; a
+# caller may not replace it by uploading a different shell script.
+#
+# The only accepted command is `deploy <release-id> <target> <run-id>`, with the release data as a
+# gzipped tar on stdin (`tar -C "$out" -czf - .`). It unpacks into `~/releases/<release-id>`,
+# which must not exist yet, and invokes the server-installed runtime.
 # Anything else is refused before a file is written.
 
 reject() {
@@ -68,29 +71,43 @@ limit=$((64 * 1024 * 1024))
 head -c "$((limit + 1))" >"$incoming/release.tgz"
 [ "$(wc -c <"$incoming/release.tgz")" -le "$limit" ] || { echo "Release archive exceeds $limit bytes" >&2; exit 1; }
 
-# Only plain files and directories, named ./<safe components>: no absolute paths, no `..`,
-# no hidden components, no links or devices.
+# Only plain data files are accepted: the manifest, its checksum file, and optionally an image
+# archive. In particular, an uploaded shell script or deployment directory is invalid.
 tar -tzf "$incoming/release.tgz" >"$incoming/names" || { echo "Unreadable release archive" >&2; exit 1; }
 tar -tvzf "$incoming/release.tgz" >"$incoming/listing"
-if grep -Evx '\./|(\./)?[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*/?' "$incoming/names" >/dev/null ||
+if grep -Evx '\./|\./(SHA256SUMS|images\.tsv|images\.tar\.gz)' "$incoming/names" >/dev/null ||
   grep -Ev '^[-d]' "$incoming/listing" >/dev/null; then
-  echo "Unsafe archive: only relative plain files and directories are accepted" >&2
+  echo "Unsafe archive: only SHA256SUMS, images.tsv, and optional images.tar.gz are accepted" >&2
   exit 1
 fi
 
 mkdir "$release"
 created=1
 tar -xzf "$incoming/release.tgz" -C "$release"
-[ -f "$release/scripts/vps-deploy.sh" ] || { echo "Release has no scripts/vps-deploy.sh" >&2; exit 1; }
-created=
+[ -f "$release/SHA256SUMS" ] && [ -f "$release/images.tsv" ] || {
+  echo "Incomplete release: SHA256SUMS and images.tsv are required" >&2
+  exit 1
+}
 
+# Only release data is accepted. The deployment runtime is installed out of band at this path;
+# it is not read from the uploaded archive and therefore cannot be replaced by a caller.
+runtime_root=${AIP_DEPLOY_RUNTIME_ROOT:-$HOME/deploy-runtime}
+runtime="$runtime_root/scripts/vps-deploy.sh"
+[ -x "$runtime" ] || { echo "Deployment runtime is not installed: $runtime" >&2; exit 1; }
+
+created=
 DEPLOY_ACTOR=github-actions/run-$run_id
 export DEPLOY_ACTOR
 set +e
-sh "$release/scripts/vps-deploy.sh" "$target" "$release"
+sh "$runtime" "$target" "$release"
 status=$?
 set -e
-if [ "$status" -ne 0 ]; then
+if [ "$status" -eq 75 ]; then
+  # vps-deploy.sh found the host deploy lock held and changed nothing (EX_TEMPFAIL). That is a
+  # busy host, not a failed release: drop the unpacked directory so the same run can be retried.
+  rm -rf "$release"
+  echo "Deploy lock busy; release $release_id was not applied. Retry once the running deploy finishes." >&2
+elif [ "$status" -ne 0 ]; then
   # Keep the failed release for inspection, out of the way of a retry of the same commit.
   failed=$release.failed-run-$run_id
   rm -rf "$failed"
