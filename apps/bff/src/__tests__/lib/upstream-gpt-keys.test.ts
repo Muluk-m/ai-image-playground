@@ -17,6 +17,7 @@ process.env.GPT_SUB2API_ATTEMPT_TIMEOUT_MS = '300'
 process.env.GPT_SUB2API_BREAKER_FAILURES = '5'
 process.env.SCHEDULER_NAMESPACE = 'gpt-keys'
 process.env.GPT_DIRECT_CONCURRENCY = '4'
+process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.PORT = '0'
 delete process.env.OPENAI_ADMIN_KEY
 
@@ -28,11 +29,15 @@ const { _setDirectKeyAlertForTesting, directKeyPanel, restoreDirectKey } = await
 )
 const {
   configuredDirectKeys,
+  FingerprintSecretMissingError,
   fingerprintOf,
   noteDirectKeySnapshot,
   parseDirectKeyList,
   resetAdminDirectKeySnapshot,
+  safeEnvDirectKeys,
 } = await import('../../lib/upstream/gpt-key-config')
+const { config } = await import('../../config')
+const { QUEUE_TIMEOUTS } = await import('@image-playground/shared')
 const { _resetSub2apiBreakerForTesting } = await import('../../lib/upstream/gpt-routing')
 const { _setOfficialCostsFetchForTesting } = await import('../../lib/upstream/gpt-official-costs')
 const { schedulerBucketUsage } = await import('../../lib/upstream/scheduler')
@@ -131,6 +136,7 @@ beforeEach(async () => {
   stub()
   await db.delete(schema.scheduler_leases)
   await db.delete(schema.scheduler_buckets)
+  await db.delete(schema.gpt_direct_budget_holds)
   await db.delete(schema.gpt_direct_usage)
   await db.delete(schema.gpt_direct_key_state)
 })
@@ -156,6 +162,21 @@ describe('config', () => {
     expect(primaryId.fingerprint).not.toBe(secondaryId.fingerprint)
     expect(primaryId.label).not.toContain(PRIMARY)
     expect(primaryId.label.endsWith('aaaa')).toBe(true)
+  })
+
+  it('refuses to fingerprint when no server secret is configured', () => {
+    const saved = process.env.INTERNAL_API_TOKEN
+    delete process.env.INTERNAL_API_TOKEN
+    delete process.env.EMAIL_CODE_SECRET
+    delete process.env.UPSTREAM_SECRETS_MASTER_KEY
+    try {
+      expect(() => fingerprintOf('sk-should-not-be-hashed-with-an-empty-key')).toThrow(
+        FingerprintSecretMissingError,
+      )
+      expect(safeEnvDirectKeys()).toEqual([])
+    } finally {
+      process.env.INTERNAL_API_TOKEN = saved
+    }
   })
 
   it('uses admin keys when any are stored, and otherwise keeps the env list', () => {
@@ -234,6 +255,28 @@ describe('key failover', () => {
     expect(state?.disabled_reason).toBe('quota')
     expect(state?.cooldown_until ?? null).toBeNull()
     expect(alerts[0]?.reason).toBe('quota')
+  })
+
+  it('does not bill a key that never left the queue after the previous key was rejected', async () => {
+    const imagesPerMinute = config.scheduler.gpt.directImagesPerMinute
+    const timeouts = QUEUE_TIMEOUTS as { UPSTREAM_HARD_TIMEOUT_MS: number }
+    const hardTimeout = timeouts.UPSTREAM_HARD_TIMEOUT_MS
+    config.scheduler.gpt.directImagesPerMinute = 1
+    timeouts.UPSTREAM_HARD_TIMEOUT_MS = 400
+    replies.primary = {
+      status: 401,
+      body: { error: { message: 'Incorrect API key', code: 'invalid_api_key' } },
+    }
+    try {
+      await expect(call()).rejects.toBeDefined()
+      expect(sent).toEqual(['primary'])
+      const usage = await db.select().from(schema.gpt_direct_usage)
+      expect(usage.some((row) => row.key_fingerprint === secondaryId.fingerprint)).toBe(false)
+      expect(usage).toHaveLength(0)
+    } finally {
+      config.scheduler.gpt.directImagesPerMinute = imagesPerMinute
+      timeouts.UPSTREAM_HARD_TIMEOUT_MS = hardTimeout
+    }
   })
 
   it('cools a rate-limited key without blocking the next key on the shared bucket', async () => {

@@ -9,7 +9,13 @@ import {
   sealSecret,
   UpstreamSecretError,
 } from '../upstream-secrets'
-import { type DirectKey, fingerprintOf, noteDirectKeySnapshot } from './gpt-key-config'
+import { fingerprintMacSource } from './gpt-direct-availability'
+import {
+  type DirectKey,
+  FingerprintSecretMissingError,
+  fingerprintOf,
+  noteDirectKeySnapshot,
+} from './gpt-key-config'
 import { selectDirectKey } from './gpt-keys'
 
 /**
@@ -64,6 +70,29 @@ async function publishSnapshot(admin: DirectKey[] | null): Promise<void> {
 /** 从库里重读。失败时留着上一份快照，避免一次查询失败把正在用的 key 丢掉。 */
 async function refreshGptDirectKeysOnce(ticket: number): Promise<void> {
   if (ticket !== refreshRequested) return
+  if (fingerprintMacSource() === 'unset') {
+    log.error(
+      { event: 'gpt.fingerprint_secret_missing' },
+      'direct fingerprint secret is unset; admin keys and direct routing stay unavailable',
+    )
+    try {
+      const [row] = await db
+        .select({ id: schema.gpt_direct_admin_keys.id })
+        .from(schema.gpt_direct_admin_keys)
+        .limit(1)
+      if (ticket !== refreshRequested) return
+      noteDirectKeySnapshot({ admin: row ? [] : null, deliverable: false })
+    } catch (err) {
+      log.warn(
+        {
+          event: 'gpt.direct_admin_key_refresh_failed',
+          err: err instanceof Error ? err.name : 'error',
+        },
+        'admin direct key refresh failed',
+      )
+    }
+    return
+  }
   const master = readMasterKey()
   if (!master.ok) {
     try {
@@ -179,7 +208,15 @@ export async function createGptDirectKey(input: {
 }): Promise<void> {
   const secret = assertSecretMaterial(input.apiKey)
   const budgetUsd = assertBudgetUsd(input.budgetUsd)
-  const fingerprint = fingerprintOf(secret)
+  let fingerprint: ReturnType<typeof fingerprintOf>
+  try {
+    fingerprint = fingerprintOf(secret)
+  } catch (error) {
+    if (error instanceof FingerprintSecretMissingError) {
+      throw new UpstreamSecretError('fingerprint_secret_missing', 503, error.message)
+    }
+    throw error
+  }
   const id = randomUUID()
   const sealed = sealSecret(aad(id), secret)
   const now = Date.now()

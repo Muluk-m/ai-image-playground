@@ -50,7 +50,7 @@ import {
 import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
 import { capabilitiesForModel } from './upstream/adapters'
-import { gptDirectSizeEnabled } from './upstream/gpt-direct-availability'
+import { gptDirectEnabledKeyCount, gptDirectSizeEnabled } from './upstream/gpt-direct-availability'
 import { runtimeSecret } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -480,8 +480,10 @@ export function parseChannelsConfig(
     }
 
     const secret = envLookup(ch.auth.secretRef)?.trim() ?? ''
-    if (!secret) {
+    const adminDirectKeys = ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0
+    if (!secret && !adminDirectKeys) {
       // 直连上游没有 key 就只是个必然失败的模型，宁可整条不广播；缺省的宽容留给网关部署。
+      // 后台直连页里启用的 key 也算有密钥，清掉 OPENAI_API_KEY 之后模型还留在列表里。
       if (ch.requiresSecret) {
         warnings.push(
           `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; the channel is disabled and will not be advertised`,
