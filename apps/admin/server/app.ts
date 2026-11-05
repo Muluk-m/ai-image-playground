@@ -2,6 +2,7 @@ import { extname } from 'node:path'
 import { cors } from '@elysiajs/cors'
 import { Elysia } from 'elysia'
 import { config, getAdminCapabilities } from './config'
+import { logAdminApiError } from './lib/api-error-log'
 import { appRelease, appVersion } from './lib/app-version'
 import { agentModelRoutes } from './routes/agent-models'
 import { agentPromptsRoutes } from './routes/agent-prompts'
@@ -74,10 +75,13 @@ export const app = apiApp
       return res
     }
   })
-  .onError(async ({ request, set }) => {
-    if (!STATIC_DIR) return
+  .onError(async ({ request, error, set }) => {
     const url = new URL(request.url)
-    if (isApiPath(url.pathname)) return
+    if (isApiPath(url.pathname)) {
+      logAdminApiError(request, error)
+      return
+    }
+    if (!STATIC_DIR) return
     // 仅当 pathname 没扩展名时走 SPA fallback；防止 .png / .js 404 错误页变 html
     if (!extname(url.pathname)) {
       const res = await serveSpaFallback(STATIC_DIR)
