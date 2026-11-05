@@ -1,8 +1,8 @@
-Agent marks on /connect are the color icons from lobe-icons:
+WorkBuddy mark is the circular brand asset supplied for this page
+(`workbuddy.svg`). The other host marks are the color icons from lobe-icons:
 
 https://github.com/lobehub/lobe-icons/tree/master/packages/static-svg/icons
 
-- workbuddy-color.svg
 - doubao-color.svg
 - claudecode-color.svg
 - codex-color.svg

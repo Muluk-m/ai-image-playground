@@ -1,7 +1,7 @@
 import { readProjectRoute, writeProjectRoute } from '../../features/canvas/lib/projectRoute'
 import { toolPath } from '../../features/toolbox/lib/toolRoute'
 import { useToolboxStore } from '../../features/toolbox/store'
-import { APP_MODE_PATHS, isStandalonePath, type RoutedAppMode } from '../appPaths'
+import { APP_MODE_PATHS, isCliConnectPath, isStandalonePath, type RoutedAppMode } from '../appPaths'
 
 function isRoot(pathname: string): boolean {
   return pathname.replace(/\/+$/, '') === ''
@@ -15,7 +15,11 @@ export function writeModeAddress(mode: RoutedAppMode | 'canvas', active: string 
     // 回到工具箱时落在刚才那件工具上：导入的图还在，接着用。
     const target =
       mode === 'tools' ? toolPath(useToolboxStore.getState().activeTool) : APP_MODE_PATHS[mode]
-    if (pathname !== target) window.history.pushState(null, '', `${target}${search}${hash}`)
+    if (pathname !== target) {
+      window.history.pushState(null, '', `${target}${search}${hash}`)
+      // /connect 在壳子里。离开时要通知还在听 popstate 的路由，否则主区会停在接入页。
+      if (isCliConnectPath(pathname)) window.dispatchEvent(new PopStateEvent('popstate'))
+    }
     return
   }
   // 已经在项目地址上：项目导航自己负责。
@@ -23,6 +27,7 @@ export function writeModeAddress(mode: RoutedAppMode | 'canvas', active: string 
   // 画布只从项目进；没有活动项目就退回创作地址，别把人留在一个没有归属的 `/`。
   if (active) writeProjectRoute(active, isRoot(pathname))
   else window.history.pushState(null, '', `${APP_MODE_PATHS.image}${search}${hash}`)
+  if (isCliConnectPath(pathname)) window.dispatchEvent(new PopStateEvent('popstate'))
 }
 
 /** Project activation also corrects old URLs when the active ID has not changed. */

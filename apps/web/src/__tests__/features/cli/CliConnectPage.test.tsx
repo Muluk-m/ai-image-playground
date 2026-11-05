@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthContextProvider } from '../../../auth/AuthContext'
 import type * as LoginPromptModule from '../../../auth/loginPrompt'
+import CliConnectionsDialog from '../../../features/cli/CliConnectionsDialog'
 import CliConnectPage from '../../../features/cli/CliConnectPage'
 import {
   CLI_RELEASE_REF,
@@ -80,7 +81,7 @@ describe('CliConnectPage', () => {
       host.querySelector('[aria-label="选择插件"]')?.querySelectorAll('button') ?? [],
       (button) => button.textContent,
     )
-    expect(labels).toEqual(['WorkBuddy', '豆包', 'Claude Code', 'Codex', '其他'])
+    expect(labels).toEqual(['WorkBuddy', '豆包工作', 'Claude Code', 'Codex', '其他'])
     expect(
       Array.from(host.querySelectorAll('[aria-label="选择插件"] img'), (img) =>
         img.getAttribute('src'),
@@ -91,6 +92,9 @@ describe('CliConnectPage', () => {
       '/connect-agents/claude-code.svg',
       '/connect-agents/codex.svg',
     ])
+    for (const img of host.querySelectorAll('[aria-label="选择插件"] img')) {
+      expect(img.className).toContain('rounded-full')
+    }
     expect(CONNECT_AGENTS).toEqual(['workbuddy', 'doubao', 'claude-code', 'codex', 'other'])
     expect(host.querySelector('[aria-pressed="true"]')?.textContent).toBe('WorkBuddy')
     expect(promptText()).toContain('WorkBuddy')
@@ -101,8 +105,8 @@ describe('CliConnectPage', () => {
 
   it('提示词随插件变化：只有 Claude Code 和 Codex 带 skill install，豆包不带', async () => {
     await render()
-    await click('豆包')
-    expect(promptText()).toContain('豆包')
+    await click('豆包工作')
+    expect(promptText()).toContain('豆包工作')
     expect(promptText()).toContain('不要执行 `muvloom skill install`')
     expect(promptText()).not.toContain('--host doubao')
     expect(promptText()).toContain('muvloom auth login --no-wait')
@@ -199,5 +203,16 @@ describe('CliConnectPage', () => {
     }
     expect(skillInstallCommand('claude-code')).toBe('muvloom skill install --host claude-code')
     expect(skillInstallCommand('codex')).toBe('muvloom skill install --host codex')
+  })
+
+  it('旧的连接弹层不再打开，直接进入 /connect', async () => {
+    window.history.replaceState(null, '', '/image')
+    const onClose = vi.fn()
+    await act(async () => {
+      root.render(<CliConnectionsDialog onClose={onClose} />)
+    })
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(window.location.pathname).toBe('/connect')
+    expect(host.textContent).not.toContain('CLI 连接')
   })
 })
