@@ -6,7 +6,7 @@ import type {
 import { applyLocalAnnouncementReads } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../lib/authClient'
 import { bffBaseUrl } from '../../lib/runtimeConfig'
-import { applyAnnouncementRead, invalidateAnnouncementFetches } from './panel'
+import { applyAnnouncementRead, currentAnnouncementFeed } from './panel'
 
 export const ANNOUNCEMENT_READS_KEY = 'aip.announcement-reads'
 const MODAL_SESSION_KEY = 'aip.announcement-modal-shown'
@@ -86,14 +86,15 @@ export async function markAnnouncementFeed(
   signedIn: boolean,
 ): Promise<void> {
   if (!ids.length) return
-  invalidateAnnouncementFetches()
+  // 请求发出时的账号代；回来时账号换了就不能把结果写到别人的列表上。
+  const feed = currentAnnouncementFeed()
   if (signedIn) {
     const ok = await postAnnouncementReads(ids, dismissed)
     if (!ok) writeLocalAnnouncementReads(ids, dismissed)
   } else {
     writeLocalAnnouncementReads(ids, dismissed)
   }
-  applyAnnouncementRead(ids, dismissed)
+  applyAnnouncementRead(ids, dismissed, feed)
 }
 
 export function withLocalReads(
