@@ -8,12 +8,10 @@ import { useTranslation } from '../i18n'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
   AuthRequestError,
-  accessRefreshDue,
   clearOAuthSessionLanding,
   getCurrentUser,
   logoutUser,
   noteBrowserSession,
-  refreshWebSession,
   shouldProbeSession,
 } from '../lib/authClient'
 import { setClientStorageScope, setRecoveryBackend } from '../lib/authScope'
@@ -127,8 +125,6 @@ export function AuthGate() {
         // 没有会话不是错误：访客照样进工作台，按下需要账号的动作时再弹登录框。
         // 没有页面上的提示 cookie、记住的用户，也不是 OAuth 刚回来时，不请求 /api/auth/me。
         const probeSession = shouldProbeSession()
-        const refreshed = probeSession ? await refreshWebSession() : null
-        if (cancelled) return
         const currentUser = probeSession
           ? await getCurrentUser(AbortSignal.timeout(15000)).catch((err) => {
               if (err instanceof AuthRequestError && err.status === 401) return null
@@ -136,13 +132,10 @@ export function AuthGate() {
             })
           : null
         if (cancelled) return
-        if (currentUser && accessRefreshDue()) await refreshWebSession()
-        if (cancelled) return
         if (probeSession) clearOAuthSessionLanding()
         setSignedIn(Boolean(currentUser))
         setClientStorageScope(currentUser?.id ?? null)
         if (!currentUser) {
-          if (refreshed === 'unauthorized') setSessionExpired(true)
           // 匿名可读：channel 清单只列出这个部署提供哪些模型，不含任何凭据。
           signalBootStage('account-data')
           await bootstrapChannels(
@@ -201,16 +194,6 @@ export function AuthGate() {
     runtime.bff.baseUrl,
     runtime.bff.enabled,
   ])
-
-  useEffect(() => {
-    if (!accountsLoginEnabled) return
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible' || !accessRefreshDue()) return
-      void refreshWebSession()
-    }
-    document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [accountsLoginEnabled])
 
   useEffect(() => {
     if (!accountsLoginEnabled) return
