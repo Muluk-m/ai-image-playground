@@ -48,10 +48,6 @@ type record struct {
 // Check caches attempts, including failures, for the user's local calendar day.
 // A recorded attempt survives crashes; the lock prevents concurrent checks/prompts.
 func (c Checker) Check(ctx context.Context) Result {
-	now := time.Now()
-	if c.Now != nil {
-		now = c.Now()
-	}
 	result := Result{Status: "unavailable", CurrentVersion: c.Version}
 	dir := filepath.Join(c.Dir, "updates")
 	unlock, err := (auth.Store{Dir: dir}).Lock(time.Second)
@@ -60,6 +56,10 @@ func (c Checker) Check(ctx context.Context) Result {
 		return result
 	}
 	defer unlock()
+	now := time.Now()
+	if c.Now != nil {
+		now = c.Now()
+	}
 	path := filepath.Join(dir, "check.json")
 	var saved record
 	if body, err := os.ReadFile(path); err == nil && json.Unmarshal(body, &saved) == nil &&
