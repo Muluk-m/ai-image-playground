@@ -7,8 +7,7 @@
     "unsynced": "有待保存的改动",
     "settings": "设置",
     "loginMethods": "账户设置",
-    "cliConnections": "CLI 连接",
-    "cliConnectionsDescription": "管理通过命令行连接幕芽的设备",
+    "cliConnections": "插件集成",
     "login": "登录",
     "loggingOut": "退出中",
     "guest": {
