@@ -26,11 +26,12 @@ export const tasksRoutes = new Elysia()
         'status',
         'model',
         'source',
-        'q',
       ] as const) {
-        if (query[key] !== undefined && query[key] !== '' && query[key] !== filters[key])
+        if (query[key] !== undefined && query[key] !== filters[key])
           return status(400, { error: '无效的任务筛选条件' })
       }
+      if (query.q !== undefined && query.q !== '' && query.q !== filters.q)
+        return status(400, { error: '无效的任务筛选条件' })
       for (const key of ['models', 'providers', 'errorTypes'] as const) {
         if (query[key] !== undefined && query[key] !== '' && filters[key]?.join(',') !== query[key])
           return status(400, { error: '无效的任务筛选条件' })
