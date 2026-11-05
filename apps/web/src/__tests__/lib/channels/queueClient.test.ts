@@ -167,6 +167,31 @@ describe('callQueueChannelApi submit body', () => {
     })
   })
 
+  it('先设置自定义尺寸 816，再切 GIF 选 768，提交的 size 是 768x768', async () => {
+    const { body } = await captureSubmitBody('openai-compat', {
+      size: '768x768',
+      quality: 'medium',
+      output_format: 'gif',
+      frame_count: 6,
+      frame_duration_ms: 200,
+      n: 1,
+    })
+    expect(body.size).toBe('768x768')
+    expect(body.quality).toBe('medium')
+    expect(body.output_format).toBe('gif')
+
+    vi.restoreAllMocks()
+    const stale = await captureSubmitBody('openai-compat', {
+      size: '816x816',
+      quality: 'low',
+      output_format: 'gif',
+      frame_count: 6,
+      frame_duration_ms: 200,
+    })
+    expect(stale.body.size).toBe('768x768')
+    expect(stale.body.quality).toBe('medium')
+  })
+
   it('openai-compat 的 PNG 输出不发送压缩率', async () => {
     const { body } = await captureSubmitBody('openai-compat', {
       output_format: 'png',
