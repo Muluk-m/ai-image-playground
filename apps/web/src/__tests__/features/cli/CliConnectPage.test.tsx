@@ -1,4 +1,8 @@
 // @vitest-environment jsdom
+
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { AuthUserView } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -8,6 +12,7 @@ import type * as LoginPromptModule from '../../../auth/loginPrompt'
 import CliConnectionsDialog from '../../../features/cli/CliConnectionsDialog'
 import CliConnectPage from '../../../features/cli/CliConnectPage'
 import {
+  AGENT_SETUP_PATH,
   CLI_RELEASE_REF,
   CLI_VERSION,
   CONNECT_AGENTS,
@@ -92,46 +97,44 @@ describe('CliConnectPage', () => {
       '/connect-agents/claude-code.svg',
       '/connect-agents/codex.svg',
     ])
-    for (const img of host.querySelectorAll('[aria-label="选择插件"] img')) {
-      expect(img.className).toContain('rounded-full')
-    }
     expect(CONNECT_AGENTS).toEqual(['workbuddy', 'doubao', 'claude-code', 'codex', 'other'])
     expect(host.querySelector('[aria-pressed="true"]')?.textContent).toBe('WorkBuddy')
     expect(promptText()).toContain('WorkBuddy')
-    expect(promptText()).toContain(INSTALL_COMMAND.unix)
-    expect(promptText()).toContain('不要执行 `muvloom skill install`')
-    expect(promptText()).not.toContain('--host workbuddy')
+    expect(promptText()).toContain(new URL(AGENT_SETUP_PATH, window.location.origin).href)
+    expect(promptText()).not.toContain('curl')
+    expect(host.querySelector('[aria-label="选择系统"]')).toBeNull()
   })
 
-  it('提示词随插件变化：只有 Claude Code 和 Codex 带 skill install，豆包不带', async () => {
+  it('各插件都只复制简短的接入请求和指南地址，隐藏安装细节', async () => {
     await render()
-    await click('豆包工作')
-    expect(promptText()).toContain('豆包工作')
-    expect(promptText()).toContain('不要执行 `muvloom skill install`')
-    expect(promptText()).not.toContain('--host doubao')
-    expect(promptText()).toContain('muvloom auth login --no-wait')
-
-    await click('Claude Code')
-    expect(promptText()).toContain('muvloom skill install --host claude-code')
-
-    await click('Codex')
-    expect(promptText()).toContain('muvloom skill install --host codex')
-    expect(promptText()).not.toContain('--host claude-code')
-
-    await click('其他')
-    expect(promptText()).not.toContain('muvloom skill install')
-    expect(promptText()).toContain('muvloom auth login --no-wait')
+    for (const label of ['WorkBuddy', '豆包工作', 'Claude Code', 'Codex', '其他']) {
+      await click(label)
+      expect(promptText()).toContain(label === '其他' ? '当前 Agent' : label)
+      expect(promptText().split('\n')).toHaveLength(2)
+      expect(promptText()).not.toMatch(/curl|PowerShell|PATH|muvloom auth|--host/)
+    }
   })
 
-  it('切到 Windows 后提示词换成 PowerShell 安装命令，复制的就是屏幕上这段', async () => {
+  it('复制的就是屏幕上这段简短提示词', async () => {
     await render()
-    await click('Windows')
-    expect(promptText()).toContain(INSTALL_COMMAND.windows)
-    expect(promptText()).not.toContain(INSTALL_COMMAND.unix)
-
     await click('复制提示词')
     expect(copyText).toHaveBeenCalledExactlyOnceWith(promptText())
     expect(button('已复制')).toBeTruthy()
+  })
+
+  it('只有手动安装需要选择系统，Windows 命令可见并可复制', async () => {
+    await render()
+    await click('我自己来')
+    await click('Windows')
+    expect(host.querySelector('pre')?.textContent).toContain(INSTALL_COMMAND.windows)
+    expect(host.querySelector('pre')?.textContent).not.toContain(INSTALL_COMMAND.unix)
+    await click('复制命令')
+    expect(copyText).toHaveBeenCalledExactlyOnceWith(
+      manualCommands('workbuddy', 'windows').join('\n'),
+    )
+    await click('让 Agent 安装')
+    expect(host.querySelector('[aria-label="选择系统"]')).toBeNull()
+    expect(promptText()).not.toContain('PowerShell')
   })
 
   it('手动方式列出逐行命令，复制的是命令而不是提示词', async () => {
@@ -169,7 +172,25 @@ describe('CliConnectPage', () => {
         lines.indexOf(SESSION_PATH[platform]),
       )
     }
-    expect(promptText()).toContain(SESSION_PATH.unix)
+  })
+
+  it('Agent 指南保留经过校验的安装、PATH、宿主兼容与授权步骤', () => {
+    const guide = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli/setup.md'),
+      'utf8',
+    )
+    for (const platform of ['unix', 'windows'] as const) {
+      expect(guide).toContain(INSTALL_COMMAND[platform])
+      expect(guide).toContain(SESSION_PATH[platform])
+    }
+    for (const agent of ['claude-code', 'codex'] as const) {
+      expect(guide).toContain(skillInstallCommand(agent))
+    }
+    expect(guide).toContain('muvloom auth login --no-wait')
+    expect(guide).toContain('muvloom auth status')
+    expect(guide).toContain('muvloom capabilities')
+    expect(guide).toContain('https://test-api.muvloom.online')
+    expect(guide).not.toMatch(/--host (workbuddy|doubao)/)
   })
 
   it('剪贴板被拒时提示复制失败，不假装成功', async () => {
