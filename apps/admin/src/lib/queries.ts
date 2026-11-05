@@ -1,3 +1,4 @@
+import type { GptDirectAdminView } from '@image-playground/shared'
 import { replaceEqualDeep, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import type {
   AgentPromptFilters,
@@ -28,6 +29,17 @@ import type {
 } from './types'
 
 export const ADMIN_REFRESH_EVENT = 'admin:refresh'
+
+export function useGptDirect(days: 7 | 30) {
+  return useQuery({
+    queryKey: ['gpt-direct', days],
+    queryFn: () => apiClient.get<GptDirectAdminView>(`/api/gpt-direct?days=${days}`),
+  })
+}
+
+export function restoreGptDirectKey(fingerprint: string) {
+  return apiClient.post<{ ok: true }>(`/api/gpt-direct/keys/${fingerprint}/restore`)
+}
 
 export function useDevices(range: Range, sort: SortKey) {
   return useQuery({

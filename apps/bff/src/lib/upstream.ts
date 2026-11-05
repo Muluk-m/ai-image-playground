@@ -42,7 +42,16 @@ import {
   UpstreamTimeoutError,
 } from './upstream/errors'
 import { buildGeminiBody, mergeGeminiCandidateResults } from './upstream/gemini'
-import { recordDirectUsage } from './upstream/gpt-budget'
+import { estimateDirectCostMicroUsd, recordDirectUsage } from './upstream/gpt-budget'
+import { configuredDirectKeys, type DirectKey } from './upstream/gpt-key-config'
+import {
+  classifyDirectKeyFailure,
+  DirectKeysExhaustedError,
+  markDirectKeyCooldown,
+  markDirectKeyDisabled,
+  notifyDirectKeyDisabled,
+  selectDirectKey,
+} from './upstream/gpt-keys'
 import {
   directAvailableNow,
   firstGptRoute,
@@ -134,6 +143,10 @@ interface UpstreamRoute {
   gptRoute?: GptRoute
   /** 直连可选的 OpenAI-Organization 头。 */
   organization?: string
+  /**
+   * 直连的 429 只冷却这一把 key。整条模型桶一停，下一把 key 也占不到额度。
+   */
+  skipSharedRateLimitCooldown?: boolean
 }
 
 /** 模型级上限优先，按「渠道/模型」各排各的队；没有再看渠道级上限。 */
@@ -248,10 +261,11 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
 }
 
 /** GPT Image 的 OpenAI 直连：原生 size / quality / n，同步返回，不走异步任务与 Responses。 */
-function directRoute(model: string): UpstreamRoute {
+function directRoute(model: string, key?: DirectKey): UpstreamRoute {
+  const chosen = key ?? configuredDirectKeys()[0]
   return {
     baseUrl: config.gptDirect.baseUrl,
-    key: config.gptDirect.apiKey,
+    key: chosen?.secret ?? config.gptDirect.apiKey,
     style: 'openai-images',
     forceB64Json: false,
     supportsModeration: true,
@@ -259,6 +273,7 @@ function directRoute(model: string): UpstreamRoute {
     supportsNativeN: true,
     schedulerBuckets: gptSchedulerBuckets(model, 'direct'),
     gptRoute: 'direct',
+    skipSharedRateLimitCooldown: true,
     ...(config.gptDirect.organization ? { organization: config.gptDirect.organization } : {}),
   }
 }
@@ -431,9 +446,79 @@ function isRouteFailure(error: unknown): boolean {
 }
 
 /**
+ * 直连这一路按顺序试密钥。额度耗尽、账单停了、401 或 429 立刻换下一把，不算 direct/sub2api 换路。
+ * 已经出过一张图就不再换 key，免得把出过的图再生成一遍。
+ */
+async function callDirectTryingKeys(
+  params: UpstreamCallParams,
+  model: string,
+  attempt: AttemptOptions,
+  onAttempt: (fingerprint: string) => void,
+): Promise<{ result: UpstreamCallResult; fingerprint: string }> {
+  const images = Math.max(1, params.request.n ?? 1)
+  const estimate = estimateDirectCostMicroUsd(params.request.size, params.request.quality, images)
+  const exclude = new Set<string>()
+  let lastError: unknown
+  let responded = false
+  while (!attempt.signal?.aborted && !params.signal?.aborted) {
+    const key = await selectDirectKey({ estimateMicroUsd: estimate, exclude })
+    if (!key) throw new DirectKeysExhaustedError(lastError ?? new Error('no openai direct key'))
+    exclude.add(key.fingerprint)
+    onAttempt(key.fingerprint)
+    try {
+      const result = await callUpstreamVia(params, directRoute(model, key), {
+        ...attempt,
+        onResponse: () => {
+          responded = true
+          attempt.onResponse?.()
+        },
+      })
+      return { result, fingerprint: key.fingerprint }
+    } catch (error) {
+      if (responded) throw error
+      const action = classifyDirectKeyFailure(error)
+      if (action === 'quota' || action === 'invalid') {
+        await markDirectKeyDisabled(key, action, error)
+        notifyDirectKeyDisabled(key, action)
+        lastError = error
+        log.warn(
+          {
+            event: 'gpt.direct_key_switch',
+            fingerprint: key.label,
+            action,
+            upstreamStatus: upstreamStatusOf(error),
+          },
+          'openai direct key disabled; trying the next key',
+        )
+        continue
+      }
+      if (action === 'cooldown') {
+        await markDirectKeyCooldown(key, error)
+        lastError = error
+        log.warn(
+          {
+            event: 'gpt.direct_key_switch',
+            fingerprint: key.label,
+            action: 'cooldown',
+            upstreamStatus: upstreamStatusOf(error),
+          },
+          'openai direct key cooling down; trying the next key',
+        )
+        continue
+      }
+      throw error
+    }
+  }
+  throw (
+    lastError ?? params.signal?.reason ?? new DOMException('Upstream request aborted', 'AbortError')
+  )
+}
+
+/**
  * GPT Image 两条通道（见 upstream/gpt-routing.ts）：按会员身份选第一条；第一条发出后超过单路时限没结果，
- * 或明确不可用（429、5xx、连接中断），换另一条重试一次，两路共用同一个硬截止。sub2api 异步任务一旦受理
- * 就不换路：结果交给轮询与对账，换过去可能重复出图。用户取消、部分出图、参数错不换路。
+ * 或明确不可用（429、5xx、连接中断），换另一条重试一次，两路共用同一个硬截止。同一条直连里换密钥
+ * 不算这一次。sub2api 异步任务一旦受理就不换路：结果交给轮询与对账，换过去可能重复出图。
+ * 用户取消、部分出图、参数错不换路。
  */
 async function callGptDualRoute(
   params: UpstreamCallParams,
@@ -497,19 +582,36 @@ async function callGptDualRoute(
         await params.onUpstreamTaskIds?.(taskIds)
       },
     }
+    const attemptOptions: AttemptOptions = {
+      signal: controller.signal,
+      deadlineAt,
+      onDispatched,
+      onResponse: () => {
+        state.responded = true
+      },
+    }
+    let fingerprint: string | undefined
     try {
       await params.onGptRoute?.(kind)
-      const result = await callUpstreamVia(attemptParams, gptRouteFor(kind, model, sub2api), {
-        signal: controller.signal,
-        deadlineAt,
-        onDispatched,
-        onResponse: () => {
-          state.responded = true
-        },
-      })
-      return { ok: true as const, result, state }
+      if (kind === 'direct') {
+        const invoked = await callDirectTryingKeys(attemptParams, model, attemptOptions, (next) => {
+          fingerprint = next
+        })
+        return {
+          ok: true as const,
+          result: invoked.result,
+          state,
+          fingerprint: invoked.fingerprint,
+        }
+      }
+      const result = await callUpstreamVia(
+        attemptParams,
+        gptRouteFor(kind, model, sub2api),
+        attemptOptions,
+      )
+      return { ok: true as const, result, state, fingerprint }
     } catch (error) {
-      return { ok: false as const, error, state }
+      return { ok: false as const, error, state, fingerprint }
     } finally {
       if (timer) clearTimeout(timer)
       if (queueTimer) clearTimeout(queueTimer)
@@ -535,6 +637,7 @@ async function callGptDualRoute(
       ...(request.size ? { size: request.size } : {}),
       ...(request.quality ? { quality: request.quality } : {}),
       images: Math.max(1, request.n ?? 1),
+      ...(outcome.fingerprint ? { keyFingerprint: outcome.fingerprint } : {}),
       ...(outcome.ok ? { payload: outcome.result.payload } : {}),
     })
   }
@@ -549,7 +652,11 @@ async function callGptDualRoute(
   if (firstOutcome.ok) return firstOutcome.result
 
   const { error, state } = firstOutcome
+  const exhausted = error instanceof DirectKeysExhaustedError
+  const surfaced = exhausted ? error.causeError : error
   if (strict) {
+    // 直连密钥都不可用，和高档请求借不到直连一样：不改走 sub2api。
+    if (exhausted) throw new ImagePlanRequiredError({ cause: surfaced })
     // Never replace an uncertain/partial result with a definitive rejection: reconciliation owns it.
     if (
       error instanceof UpstreamQueueTimeoutError ||
@@ -559,11 +666,12 @@ async function callGptDualRoute(
     throw error
   }
   // 非会员只在 sub2api 超时时借直连；sub2api 报错计入熔断，熔断后的新任务才整单走直连。
+  // 直连密钥换完仍不可用，才占用这一次 direct/sub2api 换路。
   const eligible =
     !params.signal?.aborted &&
     !state.asyncAccepted &&
-    (state.timedOut || (isRouteFailure(error) && (first === 'direct' || member)))
-  if (!eligible || (!state.timedOut && !(await canSwitch()))) throw error
+    (state.timedOut || exhausted || (isRouteFailure(error) && (first === 'direct' || member)))
+  if (!eligible || (!state.timedOut && !(await canSwitch()))) throw surfaced
 
   log.warn(
     {
@@ -571,8 +679,8 @@ async function callGptDualRoute(
       model,
       from: first,
       to: other,
-      reason: state.timedOut ? state.reason : 'route_failure',
-      upstreamStatus: upstreamStatusOf(error),
+      reason: state.timedOut ? state.reason : exhausted ? 'direct_keys_exhausted' : 'route_failure',
+      upstreamStatus: upstreamStatusOf(surfaced),
     },
     'gpt route failover',
   )
@@ -733,7 +841,8 @@ async function callUpstreamVia(
         if (dispatchId) dispatchIdentities.set(response, dispatchId)
         if (lease) {
           schedulerLeases.set(response, lease)
-          if (response.status === 429) await lease.rateLimited()
+          if (response.status === 429 && !route.skipSharedRateLimitCooldown)
+            await lease.rateLimited()
         }
         const requestId =
           response.headers?.get('x-request-id') ?? response.headers?.get('request-id')

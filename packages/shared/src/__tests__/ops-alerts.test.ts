@@ -844,3 +844,22 @@ describe('生成失败告警：带模型明细，出图成功才恢复', () => {
     expect(rounds.map((round) => round.map((message) => message.kind))).toEqual([['firing'], []])
   })
 })
+
+describe('直连密钥停用', () => {
+  it('names the fingerprint and resolves after the key is restored', () => {
+    const first = evaluateAlerts(
+      { gptDirectKeys: { disabled: [{ label: 'abcd1234…wxyz', reason: 'quota' }] } },
+      {},
+      T0,
+    )
+    expect(first.messages.map((message) => `${message.kind}:${message.rule}`)).toEqual([
+      'firing:gpt-key',
+    ])
+    expect(first.messages[0]?.text).toContain('abcd1234…wxyz')
+    expect(first.messages[0]?.text).not.toContain('sk-')
+    const resolved = evaluateAlerts({ gptDirectKeys: { disabled: [] } }, first.state, T0 + minute)
+    expect(resolved.messages.map((message) => `${message.kind}:${message.rule}`)).toEqual([
+      'resolved:gpt-key',
+    ])
+  })
+})

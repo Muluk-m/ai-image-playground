@@ -27,6 +27,7 @@ const { _resetSub2apiBreakerForTesting, sub2apiBreakerOpen } = await import(
   '../../lib/upstream/gpt-routing'
 )
 const { _resetDirectBudgetCacheForTesting } = await import('../../lib/upstream/gpt-budget')
+const { fingerprintOf } = await import('../../lib/upstream/gpt-key-config')
 const { ImagePlanRequiredError } = await import('../../lib/upstream/errors')
 const { config } = await import('../../config')
 const { gptSchedulerBuckets, tryAcquireSchedulerSlots } = await import(
@@ -112,6 +113,7 @@ beforeEach(async () => {
   await db.delete(schema.scheduler_leases)
   await db.delete(schema.scheduler_buckets)
   await db.delete(schema.gpt_direct_usage)
+  await db.delete(schema.gpt_direct_key_state)
 })
 
 afterEach(() => setUpstreamFetchForTesting())
@@ -144,7 +146,9 @@ describe('route choice', () => {
       output_tokens: 439,
       cost_micro_usd: 13_255,
       estimated: false,
+      key_fingerprint: fingerprintOf('direct-key').fingerprint,
     })
+    expect(JSON.stringify(usage)).not.toContain('direct-key')
   })
 
   it('sends non-members to sub2api with the ratio written into the prompt', async () => {

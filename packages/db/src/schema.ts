@@ -470,9 +470,36 @@ export const gpt_direct_usage = pgTable(
     output_tokens: integer('output_tokens'),
     cost_micro_usd: bigint('cost_micro_usd', { mode: 'number' }).notNull(),
     estimated: boolean('estimated').notNull(),
+    /** sha256 前 8 位。空的是多密钥上线前的旧行，算进当前第一把 key。 */
+    key_fingerprint: text('key_fingerprint'),
     created_at: epochMs('created_at').notNull(),
   },
-  (t) => [index('idx_gpt_direct_usage_created').on(t.created_at)],
+  (t) => [
+    index('idx_gpt_direct_usage_created').on(t.created_at),
+    index('idx_gpt_direct_usage_key_created').on(t.key_fingerprint, t.created_at),
+  ],
+)
+
+/**
+ * 一把 OpenAI 直连密钥的跨 worker 状态。不存密钥，只存指纹。
+ * `disabled_reason` 为空表示没有被停用；冷却看 `cooldown_until`。预算用满不写在这里。
+ */
+export const gpt_direct_key_state = pgTable(
+  'gpt_direct_key_state',
+  {
+    fingerprint: text('fingerprint').primaryKey(),
+    disabled_reason: text('disabled_reason').$type<'quota' | 'invalid' | null>(),
+    cooldown_until: epochMs('cooldown_until'),
+    last_error: text('last_error'),
+    last_error_at: epochMs('last_error_at'),
+    updated_at: epochMs('updated_at').notNull(),
+  },
+  (t) => [
+    check(
+      'gpt_direct_key_state_reason_check',
+      sql`${t.disabled_reason} IS NULL OR ${t.disabled_reason} IN ('quota', 'invalid')`,
+    ),
+  ],
 )
 
 export type InspirationKind = 'showcase' | 'template' | 'skill'

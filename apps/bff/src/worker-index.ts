@@ -14,6 +14,7 @@ import {
 } from './lib/operator-config-overrides'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { startServerLogs } from './lib/server-logs'
+import { registerAppAlertScan } from './ops/alert-kick'
 import { alertTargetsConfigured, createAlertSenderFromEnv } from './ops/alert-sender'
 import { createAppAlerting } from './ops/app-alerts'
 import { abortAllRunningAnalysisTasks, runningAnalysisTaskIds } from './workers/analysis-runner'
@@ -71,6 +72,7 @@ const checkAppAlerts = createAppAlerting({
       log.warn({ event: 'ops.alert_target_failed', err: error.message }, 'an alert target failed'),
   }),
 })
+registerAppAlertScan(checkAppAlerts)
 let privateMaintenance: Promise<void> | undefined
 let operatorConfigRefresh: Promise<unknown> | undefined
 const staleScanTimer = setInterval(() => {
