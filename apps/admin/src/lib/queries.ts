@@ -10,6 +10,7 @@ import type {
 } from '../../contracts'
 
 import { apiClient } from './api-client'
+import { type GenerationSelection, generationWindow } from './generation-overview'
 import type {
   ClientErrorEventsResult,
   ClientErrorsResult,
@@ -233,6 +234,18 @@ export function useTodayOverview() {
   return useQuery({
     queryKey: ['overview-today'],
     queryFn: () => apiClient.get<TodayOverviewResult>('/api/overview/today'),
+    refetchInterval: 30_000,
+  })
+}
+export function useGenerationOverview(selection: GenerationSelection) {
+  return useQuery({
+    queryKey: ['overview-generation', selection],
+    queryFn: () => {
+      const window = generationWindow(selection)
+      const params = new URLSearchParams({ from: String(window.from), to: String(window.to) })
+      return apiClient.get<TodayOverviewResult>(`/api/overview/generation?${params}`)
+    },
+    staleTime: 0,
     refetchInterval: 30_000,
   })
 }

@@ -164,6 +164,24 @@ const request = (path: string) =>
   app.handle(new Request(`http://localhost${path}`, { headers: { cookie } }))
 
 describe('today generation overview', () => {
+  it('lists generation owners and their problems for the exact selected rolling window', async () => {
+    const response = await request(`/api/overview/generation?from=${from + 1500}&to=${to}`)
+    expect(response.status).toBe(200)
+    const data = await response.json()
+    expect(data.window).toEqual({ from: from + 1500, to })
+    expect(data.summary).toMatchObject({ users: 1, devices: 0, tasks: 2, failed: 2 })
+    expect(data.actors).toEqual([
+      expect.objectContaining({ id: 'today-user', username: 'alice', tasks: 2, failed: 2 }),
+    ])
+    const tasks = await request(`/api/tasks?from=${from + 1500}&to=${to}&userId=today-user&status=failed`)
+    expect((await tasks.json()).tasks.map((task: { id: string }) => task.id)).toEqual([
+      'today-failed-policy', 'today-failed-blank',
+    ])
+    for (const suffix of ['from=bad&to=1', `from=${from}&to=${from}`, `from=0&to=${to}`])
+      expect((await request(`/api/overview/generation?${suffix}`)).status).toBe(400)
+    expect((await app.handle(new Request(`http://localhost/api/overview/generation?from=${from}&to=${to}`))).status).toBe(401)
+  })
+
   it('uses Beijing midnight, counts generation owners rather than login activity, and assigns signed-in devices only to their user', async () => {
     expect(todayWindow(Date.UTC(2026, 9, 1, 23))).toEqual({ from, to: Date.UTC(2026, 9, 1, 23) })
     expect(todayWindow(from - 1).from).toBe(from - 86400_000)

@@ -683,14 +683,14 @@ export interface TodayModelStat {
   failed: number
   /** 含重试。一个任务可以对应多次上游调用。 */
   upstream_invocations: number
-  /** 当天该模型的失败原因，按次数从高到低。没有失败时是空数组。 */
+  /** 所选范围内该模型的失败原因，按次数从高到低。没有失败时是空数组。 */
   failures: TodayModelFailure[]
 }
 
 export interface TodayOverviewResult {
   window: TimeWindow
   actors: GenerationActor[]
-  /** 当天全部队列任务按模型汇总，不受演员列表 500 条截断影响。 */
+  /** 所选范围内全部队列任务按模型汇总，不受用户列表 500 条截断影响。 */
   models: TodayModelStat[]
   truncated: boolean
   summary: {

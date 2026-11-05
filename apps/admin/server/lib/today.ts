@@ -45,7 +45,10 @@ function modelFailures(rows: Row[]): Map<string, TodayModelFailure[]> {
 }
 
 export async function getTodayOverview(now = Date.now()): Promise<TodayOverviewResult> {
-  const window = todayWindow(now)
+  return getGenerationOverview(todayWindow(now))
+}
+
+export async function getGenerationOverview(window: TimeWindow): Promise<TodayOverviewResult> {
   const from = new Date(window.from)
   const to = new Date(window.to)
   const [actorRows, modelRows, failureRows] = await Promise.all([
