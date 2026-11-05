@@ -104,8 +104,12 @@ export interface SubmitRequest {
    * 避免对 Elysia schema 编译器加 Union 验证压力 + 透传给上游本来就不做翻译。
    */
   quality?: string
-  /** OpenAI Images 使用的输出格式。 */
+  /** OpenAI Images 使用的输出格式。2.6 另接受 gif / svg。 */
   output_format?: string
+  /** GIF 帧数。只对 output_format=gif 有意义，2–16。 */
+  frame_count?: number
+  /** GIF 每帧毫秒。只对 output_format=gif 有意义。 */
+  frame_duration_ms?: number
   /** OpenAI Images 使用的输出压缩率（0-100）。 */
   output_compression?: number
   /** OpenAI Images 使用的内容审核级别；缺省使用 DEFAULT_IMAGE_MODERATION。 */

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAgentJobActivity } from '../features/agent/lib/jobActivity'
 import { useAgentStore } from '../features/agent/store'
+import { AnnouncementEntry } from '../features/announcements/AnnouncementEntry'
 import {
   catalogProjectId,
   projectCatalog,
@@ -203,6 +204,7 @@ export default function Sidebar() {
           </Button>
           {NAV_APP_MODES.map(item)}
           <div className="min-h-6 flex-1" aria-hidden="true" />
+          <AnnouncementEntry compact />
           <a
             href={GUIDE_PATHS[currentLocale()]}
             target="_blank"
@@ -300,6 +302,7 @@ export default function Sidebar() {
           </Button>
           {/* 列表短时把指南推到栏底；列表长时也和上面隔开一段，不贴着最后一条。 */}
           <div className="min-h-6 flex-1" aria-hidden="true" />
+          <AnnouncementEntry />
           {/* 指南是独立的静态页，新标签打开，工作台原地不动。 */}
           <a
             href={GUIDE_PATHS[currentLocale()]}

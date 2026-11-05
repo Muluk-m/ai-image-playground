@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
-# Receiver only: no git checkout, dependency installation or image build on production.
+# This script is installed in the server-side deployment runtime. The release directory is data
+# only: it is never treated as a source tree and cannot replace this script or its helpers.
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$repo_root/scripts/lib/deploy-common.sh"
 target=${1:-}
@@ -9,7 +10,6 @@ release=${2:-}
 case "$release" in /*) ;; *) echo "Prebuilt release required. Run build-vps-release.sh on macmini2 first." >&2; exit 2 ;; esac
 [ -f "$release/SHA256SUMS" ] || { echo "Incomplete release: no checksums" >&2; exit 1; }
 release=$(CDPATH= cd -- "$release" && pwd)
-[ "$repo_root" = "$release" ] || { echo "Run the receiver shipped inside this release directory." >&2; exit 1; }
 deploy_env=${DEPLOY_ENV_FILE:-$config_root/deploy.env}
 # shellcheck source=/dev/null
 [ ! -f "$deploy_env" ] || . "$deploy_env"
@@ -47,10 +47,9 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 acquire_deploy_lock "$deploy_lock" "receive $target $release"
-# Tell rollout-runtime.sh (reached through app-compose.sh) that this process already holds the
-# host lock, so it does not wait on its own parent.
-DEPLOY_HOST_LOCK_PID=$$
-export DEPLOY_HOST_LOCK_PID
+# Tell app-compose.sh and rollout-runtime.sh (its descendants) that this process holds the host
+# lock, so they do not wait on their own parent. They still verify the claim.
+export_deploy_host_lock
 (cd "$release" && sha256sum --strict -c SHA256SUMS)
 # The archive's mere presence selects `docker load`, so nothing unlisted may sit in the release.
 listed=$(sed 's/^[0-9a-f]*  //' "$release/SHA256SUMS" | LC_ALL=C sort)
@@ -123,7 +122,7 @@ while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_
   if [ "$edition" = segmenter ]; then
     # Loads the baked weights and runs one prompt under the production limits. Only a version
     # that is not running yet needs it; the same version is left alone below.
-    if ! "$release/scripts/segmenter-deploy.sh" current "$(segmenter_version "$image")"; then
+    if ! "$repo_root/scripts/segmenter-deploy.sh" current "$(segmenter_version "$image")"; then
       docker run --rm --network none --memory 900m --memory-swap 900m --cpus 2 "$image" \
         node server.mjs --self-test
     fi
@@ -145,7 +144,7 @@ segmenter_image=$(awk -F '\t' '$1=="segmenter" { print $2 }' "$release/images.ts
 # the new one is healthy. A failure leaves the old one in place and does not fail the release.
 # Test releases never carry it (the manifest check above refuses that) and only attach to it.
 if [ -n "$segmenter_image" ]; then
-  if "$release/scripts/segmenter-deploy.sh" up "$segmenter_image" "$(segmenter_version "$segmenter_image")"; then
+  if "$repo_root/scripts/segmenter-deploy.sh" up "$segmenter_image" "$(segmenter_version "$segmenter_image")"; then
     docker tag "$segmenter_image" ai-image-playground:segmenter
     rolled_out="$rolled_out $segmenter_image"
   else
@@ -160,8 +159,8 @@ $record
 EOF
   prefix=$(printf '%s' "$edition" | tr '[:lower:]' '[:upper:]')
   project=$(edition_var "$prefix" PROJECT)
-  # Each edition in SEGMENTER_EDITIONS (default: test only; adding internal/paid needs Nain's
-  # go-ahead) is attached to the shared segmenter and its executors get its address, but only
+  # SEGMENTER_EDITIONS accepts internal (qlj), paid (muvloom), and test; default: test only.
+  # Adding internal or paid needs Nain's go-ahead. Each listed edition gets the shared segmenter address, but only
   # while it is healthy. It is optional: otherwise the executors are not told about it and
   # edit-region cards fall back to the agent's box, so this warns instead of failing the release.
   # An edition that does not get it is detached, so a later rollback (which reads the attachment
@@ -171,19 +170,19 @@ EOF
   case " ${SEGMENTER_EDITIONS:-test} " in
     *" $edition "*)
       if [ -z "$segmenter_up" ]; then
-        if "$release/scripts/segmenter-deploy.sh" healthy; then segmenter_up=ok; else segmenter_up=failed; fi
+        if "$repo_root/scripts/segmenter-deploy.sh" healthy; then segmenter_up=ok; else segmenter_up=failed; fi
       fi
       [ "$segmenter_up" != ok ] || AGENT_SEGMENTER_URL=http://segmenter:8080
       ;;
   esac
   export AGENT_SEGMENTER_URL AGENT_SEGMENTER_NAMESPACE
-  if [ -z "$AGENT_SEGMENTER_URL" ] && ! "$release/scripts/segmenter-deploy.sh" detach "$project"; then
+  if [ -z "$AGENT_SEGMENTER_URL" ] && ! "$repo_root/scripts/segmenter-deploy.sh" detach "$project"; then
     echo "Warning: could not detach the segmenter from $project." >&2
   fi
-  APP_IMAGE=$image BACKUP_IMAGE=$backup_image "$release/scripts/app-compose.sh" up "$project"
+  APP_IMAGE=$image BACKUP_IMAGE=$backup_image "$repo_root/scripts/app-compose.sh" up "$project"
   # The app network exists only once the project is up; the executors resolve `segmenter` per
   # request, so attaching right after is soon enough, and before the first card is asked for.
-  if [ -n "$AGENT_SEGMENTER_URL" ] && ! "$release/scripts/segmenter-deploy.sh" attach "$project"; then
+  if [ -n "$AGENT_SEGMENTER_URL" ] && ! "$repo_root/scripts/segmenter-deploy.sh" attach "$project"; then
     echo "Warning: could not attach the segmenter to $project; edit-region cards fall back to the agent's box." >&2
   fi
   docker tag "$image" "$(edition_var "$prefix" IMAGE)"

@@ -40,9 +40,10 @@ export function withoutModeration(request: HydratedSubmitRequest): HydratedSubmi
 
 /**
  * 把 fan-out 的多次单图响应合并成一个 OpenAI 风格 payload。
- * 保留 data；单次响应的其它顶层字段（created / size / quality / output_format）丢弃，
- * 即 fan-out 结果没有 extractImages 的 actual_params。各条回报的 usage 逐项相加保留：
+ * `created` 这类单次字段仍丢掉；size / quality / output_format 留下第一条的回执，
+ * 否则 fan-out 之后 extractImages 读不到 actual_params。各条回报的 usage 逐项相加：
  * OpenAI 直连按它折算这一单的成本（upstream/gpt-budget.ts）。
+ * 计划里的 applied / dropped 由调用方在合并后补上。
  */
 export function mergeOpenAIImageResults(
   results: readonly UpstreamCallResult[],
@@ -50,8 +51,10 @@ export function mergeOpenAIImageResults(
   const usage = sumImageUsage(
     results.map((result) => (result.payload as { usage?: unknown })?.usage),
   )
+  const echo = echoedActualParams(results[0]?.payload)
   return {
     payload: {
+      ...echo,
       data: results.flatMap((result) => {
         const payload = result.payload as { data?: unknown[] } | null
         return Array.isArray(payload?.data) ? payload.data : []
@@ -59,6 +62,16 @@ export function mergeOpenAIImageResults(
       ...(usage ? { usage } : {}),
     },
   }
+}
+
+function echoedActualParams(payload: unknown): Record<string, string> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return {}
+  const record = payload as Record<string, unknown>
+  const out: Record<string, string> = {}
+  for (const key of ['size', 'quality', 'output_format'] as const) {
+    if (typeof record[key] === 'string') out[key] = record[key]
+  }
+  return out
 }
 
 interface ImageUsage {
@@ -122,6 +135,19 @@ export function buildOpenAIBody(
     ...(request.size ? { size: request.size } : {}),
     ...(request.quality ? { quality: request.quality } : {}),
     ...(request.output_format ? { output_format: request.output_format } : {}),
+    ...(request.output_format === 'gif'
+      ? {
+          frame_count: request.frame_count,
+          frame_duration_ms: request.frame_duration_ms,
+        }
+      : {}),
+    ...(request.output_format === 'svg'
+      ? {
+          // 不经过 config：grok 的目录测试会加载这个模块，config 在没有 DATABASE_URL 时会抛。
+          svg: { model: process.env.GPT_IMAGE_26_SVG_MODEL?.trim() || 'gpt-6-sol' },
+          n: 1,
+        }
+      : {}),
     ...(request.moderation ? { moderation: request.moderation } : {}),
     ...(request.output_compression != null
       ? { output_compression: request.output_compression }

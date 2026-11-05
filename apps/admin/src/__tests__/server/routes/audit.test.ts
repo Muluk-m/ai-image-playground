@@ -115,4 +115,23 @@ describe('GET /api/audits', () => {
     expect(third.audits[0]?.details).toEqual({ status: 'disabled' })
     expect(third.nextCursor).toBeNull()
   })
+
+  it('filters by operator and time range', async () => {
+    await writer.db.insert(writer.schema.operator_audits).values({
+      id: 'audit-ops',
+      operator_id: 'ops-1',
+      action: 'tasks.export',
+      target_type: 'generation_tasks',
+      target_id: 'export',
+      details: { rowCount: 1 },
+      created_at: older - 1000,
+    })
+    const matched = await page(
+      `?operatorId=${encodeURIComponent('ops-1')}&from=${older - 2000}&to=${older}`,
+    )
+    expect(matched.audits.map((audit) => audit.id)).toEqual(['audit-ops'])
+    const others = await page(`?operatorId=admin&from=${newest - 1}&to=${newest + 1}`)
+    expect(others.audits.every((audit) => audit.operator_id === 'admin')).toBe(true)
+    expect(others.audits.some((audit) => audit.id === 'audit-ops')).toBe(false)
+  })
 })

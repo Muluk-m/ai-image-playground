@@ -14,6 +14,7 @@ import {
 } from './lib/operator-config-overrides'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { startServerLogs } from './lib/server-logs'
+import { refreshUpstreamSecrets, UPSTREAM_SECRET_REFRESH_MS } from './lib/upstream-secrets'
 import { alertTargetsConfigured, createAlertSenderFromEnv } from './ops/alert-sender'
 import { createAppAlerting } from './ops/app-alerts'
 import { abortAllRunningAnalysisTasks, runningAnalysisTaskIds } from './workers/analysis-runner'
@@ -23,6 +24,15 @@ import { startWorkerHealthServer } from './workers/worker-health'
 
 const stopServerLogs = startServerLogs()
 config.assertValid()
+await refreshUpstreamSecrets().catch((error) =>
+  log.error(
+    {
+      event: 'upstream_secrets.startup_refresh_failed',
+      err: error instanceof Error ? error.message : 'unknown',
+    },
+    'upstream secret refresh failed',
+  ),
+)
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {
   log.warn({ event: 'channels.warning' }, warning)
@@ -119,6 +129,9 @@ const staleScanTimer = setInterval(() => {
       )
     })
 }, 10_000)
+const upstreamSecretTimer = setInterval(() => {
+  void refreshUpstreamSecrets().then(() => initChannels(config.channelsFile ?? undefined))
+}, UPSTREAM_SECRET_REFRESH_MS)
 const workerHealthServer = startWorkerHealthServer({
   port: config.worker.healthPort,
   drain: () => scheduler.drain(),
@@ -162,6 +175,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   if (activationTimer) clearInterval(activationTimer)
   stopHeartbeat()
   clearInterval(staleScanTimer)
+  clearInterval(upstreamSecretTimer)
   await workerHealthServer.stop()
   const drainTimeoutMs = config.worker.drainTimeoutMs
   log.info(

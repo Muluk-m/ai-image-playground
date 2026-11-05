@@ -119,6 +119,13 @@ describe.skipIf(!process.env.PAGES_SMOKE_RUNTIME_DIR)('Chromium startup regressi
     )
     await check()
   })
+  it('allows the startup announcements read used by the sidebar badge', async () => {
+    await writeFile(
+      join(dist, 'assets/main.js'),
+      `const response = await fetch('https://startup-api.invalid/api/announcements?locale=zh', { credentials: 'include' }); const body = await response.json(); if (response.status !== 200 || !Array.isArray(body.items) || body.unreadCount !== 0) throw new Error('Expected an empty announcement list'); ${goodScript}`,
+    )
+    await check()
+  })
   it('catches the incident: circular chunks initialize React exports too early', async () => {
     await writeFile(join(dist, 'assets/main.js'), 'import "./react.js"')
     await writeFile(

@@ -373,15 +373,25 @@ async function addRetained(f: Awaited<ReturnType<typeof fixture>>, overrides: Pa
   return name
 }
 
-/** A host deploy lock held by this (live) test process, as vps-deploy.sh would leave it. */
-async function holdHostLock(f: Awaited<ReturnType<typeof fixture>>) {
+/** A host deploy lock held by a live process (default: this test process), as vps-deploy.sh would leave it. */
+async function holdHostLock(f: Awaited<ReturnType<typeof fixture>>, pid: number = process.pid) {
   const lock = join(f.root, 'xdg', 'ai-image-playground', 'deploy.lock')
   await mkdir(lock, { recursive: true })
   await writeFile(
     join(lock, 'owner'),
-    `pid=${process.pid}\ntoken=-\nsince=2026-11-05T00:00:00Z\nby=ci@host\nwhat=receive test /releases/x\n`,
+    `pid=${pid}\ntoken=-\nsince=2026-11-05T00:00:00Z\nby=ci@host\nwhat=receive test /releases/x\n`,
   )
   return lock
+}
+
+const MUTATING = ['create', 'run', 'stop', 'rm', 'kill', 'compose', 'update']
+
+async function expectNothingChanged(f: Awaited<ReturnType<typeof fixture>>, before: FixtureState) {
+  // Read-only probes (image inspect) happen first; nothing may be created, stopped or removed,
+  // and no Compose call at all (the log collector is a Compose call too).
+  const after = await readState(f)
+  expect(after.containers).toEqual(before.containers)
+  expect(after.events.filter((event) => MUTATING.includes(event.args[0]))).toEqual([])
 }
 
 describe('host deploy lock', () => {
@@ -392,22 +402,84 @@ describe('host deploy lock', () => {
     const result = await run(f)
     expect(result.code).toBe(75)
     expect(result.stderr).toContain('lock contention')
-    // Read-only probes (image inspect) happen first; nothing may be created, stopped or removed.
-    const after = await readState(f)
-    expect(after.containers).toEqual(before.containers)
-    expect(
-      after.events.filter((event) =>
-        ['create', 'run', 'stop', 'rm', 'kill', 'compose', 'update'].includes(event.args[0]),
-      ),
-    ).toEqual([])
+    await expectNothingChanged(f, before)
+  })
+
+  it.each([
+    'rollback',
+    'up',
+  ] as const)('app-compose.sh %s takes the host lock before any container change, log collector included', async (entry) => {
+    const f = await fixture()
+    await holdHostLock(f)
+    const before = await readState(f)
+    const result = await run(f, 'old', entry)
+    expect(result.code).toBe(75)
+    expect(result.stderr).toContain('lock contention')
+    await expectNothingChanged(f, before)
   })
 
   it('lets the rollout started by the lock holder through, and leaves that lock in place', async () => {
     const f = await fixture()
     const lock = await holdHostLock(f)
-    const result = await run(f, 'new', 'rollout', { DEPLOY_HOST_LOCK_PID: String(process.pid) })
+    const result = await run(f, 'new', 'rollout', {
+      DEPLOY_HOST_LOCK_PID: String(process.pid),
+      DEPLOY_HOST_LOCK_TOKEN: '-',
+    })
     expect(result.code).toBe(0)
     expect(await Bun.file(join(lock, 'owner')).exists()).toBe(true)
+  })
+
+  it('does not let a hand-run rollout claim a live holder it is not a descendant of', async () => {
+    const f = await fixture()
+    const holder = Bun.spawn(['/bin/sleep', '60'])
+    try {
+      const lock = await holdHostLock(f, holder.pid)
+      const before = await readState(f)
+      const forged = await run(f, 'new', 'rollout', {
+        DEPLOY_HOST_LOCK_PID: String(holder.pid),
+        DEPLOY_HOST_LOCK_TOKEN: '-',
+      })
+      expect(forged.code).toBe(75)
+      await expectNothingChanged(f, before)
+      expect(await Bun.file(join(lock, 'owner')).exists()).toBe(true)
+    } finally {
+      holder.kill()
+    }
+  })
+
+  it('does not accept the holder pid without the matching owner token', async () => {
+    const f = await fixture()
+    await holdHostLock(f)
+    const before = await readState(f)
+    const claims: Record<string, string>[] = [
+      { DEPLOY_HOST_LOCK_PID: String(process.pid) },
+      { DEPLOY_HOST_LOCK_PID: String(process.pid), DEPLOY_HOST_LOCK_TOKEN: 'forged' },
+    ]
+    for (const env of claims) {
+      expect((await run(f, 'new', 'rollout', env)).code).toBe(75)
+    }
+    await expectNothingChanged(f, before)
+  })
+
+  it('ignores stale inherited credentials and takes the lock for a hand-run rollout', async () => {
+    const f = await fixture()
+    const result = await run(f, 'new', 'rollout', {
+      DEPLOY_HOST_LOCK_PID: '999999',
+      DEPLOY_HOST_LOCK_TOKEN: '-',
+    })
+    expect(result.code).toBe(0)
+    expect(
+      await Bun.file(join(f.root, 'xdg', 'ai-image-playground', 'deploy.lock', 'owner')).exists(),
+    ).toBe(false)
+  })
+
+  it('takes the host lock once in app-compose.sh and hands it to the rollout it starts', async () => {
+    const f = await fixture()
+    const result = await run(f, 'old', 'rollback')
+    expect(result.code).toBe(0)
+    expect(
+      await Bun.file(join(f.root, 'xdg', 'ai-image-playground', 'deploy.lock', 'owner')).exists(),
+    ).toBe(false)
   })
 
   it('takes the host lock for a hand-run rollout and releases it afterwards', async () => {

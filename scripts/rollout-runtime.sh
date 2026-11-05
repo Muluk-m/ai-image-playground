@@ -45,18 +45,12 @@ log_forward_dir=${LOG_FORWARD_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-pl
 mkdir -p "$log_forward_dir"
 . "$repo_root/scripts/lib/deploy-common.sh"
 runtime_lock=$state_dir/lock
-# Every entry that moves production takes the host deploy lock, so a hand-run `app-compose.sh
-# up|rollback` cannot overlap a CI deploy of another project (test vs production). A rollout
-# started by vps-deploy.sh inherits it (DEPLOY_HOST_LOCK_PID is that process, and must still be
-# the recorded owner); anything else has to win it. The status is passed through: 75 means the
-# host is busy and nothing was changed.
-if [ -n "${DEPLOY_HOST_LOCK_PID:-}" ] &&
-  [ "$(deploy_lock_field "$deploy_lock/owner" pid)" = "$DEPLOY_HOST_LOCK_PID" ]; then
-  host_lock_inherited=true
-else
-  host_lock_inherited=false
-  acquire_deploy_lock "$deploy_lock" "runtime $project $image" || exit $?
-fi
+# Every entry that moves production takes the host deploy lock, so a hand-run rollout cannot
+# overlap a CI deploy of another project (test vs production). Run from vps-deploy.sh or from
+# app-compose.sh up|rollback, an ancestor already holds it and this script inherits it, after
+# verifying the claim (see deploy_host_lock_inherited); anything else has to win it. The status
+# is passed through: 75 means the host is busy and nothing was changed.
+acquire_host_deploy_lock "runtime $project $image" || exit $?
 acquire_deploy_lock "$runtime_lock" "runtime $project $image" || {
   lock_status=$?
   release_deploy_lock "$deploy_lock"

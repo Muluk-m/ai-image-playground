@@ -29,10 +29,22 @@ import type {
 
 export const ADMIN_REFRESH_EVENT = 'admin:refresh'
 
-export function useDevices(range: Range, sort: SortKey) {
+export function useDevices(
+  range: Range,
+  sort: SortKey,
+  options: { q?: string; page?: number; pageSize?: number; from?: number; to?: number } = {},
+) {
   return useQuery({
-    queryKey: ['devices', { range, sort }],
-    queryFn: () => apiClient.get<ListDevicesResult>(`/api/devices?range=${range}&sort=${sort}`),
+    queryKey: ['devices', { range, sort, ...options }],
+    queryFn: () => {
+      const params = new URLSearchParams({ range, sort })
+      if (options.q) params.set('q', options.q)
+      if (options.page) params.set('page', String(options.page))
+      if (options.pageSize) params.set('pageSize', String(options.pageSize))
+      if (options.from !== undefined) params.set('from', String(options.from))
+      if (options.to !== undefined) params.set('to', String(options.to))
+      return apiClient.get<ListDevicesResult>(`/api/devices?${params}`)
+    },
   })
 }
 
@@ -60,13 +72,30 @@ export function useTask(taskId: string | undefined) {
   })
 }
 
-export function useUsers(search: string) {
+export interface UserListOptions {
+  status?: 'active' | 'disabled'
+  registeredFrom?: number
+  registeredTo?: number
+  activeFrom?: number
+  activeTo?: number
+  sort?: 'activity' | 'created' | 'login'
+  dir?: 'asc' | 'desc'
+  page?: number
+  pageSize?: 50 | 100
+}
+
+export function useUsers(search: string, options: UserListOptions = {}) {
   return useQuery({
-    queryKey: ['users', { search }],
-    queryFn: () =>
-      apiClient.get<ListUsersResult>(
-        `/api/users${search ? `?q=${encodeURIComponent(search)}` : ''}`,
-      ),
+    queryKey: ['users', { search, ...options }],
+    queryFn: () => {
+      const params = new URLSearchParams()
+      if (search) params.set('q', search)
+      for (const [key, value] of Object.entries(options)) {
+        if (value !== undefined) params.set(key, String(value))
+      }
+      const query = params.toString()
+      return apiClient.get<ListUsersResult>(`/api/users${query ? `?${query}` : ''}`)
+    },
   })
 }
 
@@ -94,10 +123,17 @@ export function useUserTasks(userId: string, status: string) {
   })
 }
 
-export function useOverview(range: Range) {
+export function useOverview(range: Range, window?: { from: number; to: number }) {
   return useQuery({
-    queryKey: ['overview', { range }],
-    queryFn: () => apiClient.get<OverviewResult>(`/api/overview?range=${range}`),
+    queryKey: ['overview', { range, window }],
+    queryFn: () => {
+      const params = new URLSearchParams()
+      if (window) {
+        params.set('from', String(window.from))
+        params.set('to', String(window.to))
+      } else params.set('range', range)
+      return apiClient.get<OverviewResult>(`/api/overview?${params}`)
+    },
   })
 }
 
@@ -115,6 +151,9 @@ export interface AuditFilters {
   action?: string
   settingKey?: string
   targetId?: string
+  operatorId?: string
+  from?: number
+  to?: number
 }
 
 /** 审计流按 (created_at, id) keyset 翻页，跟用户任务列表同一套游标约定。 */
@@ -123,6 +162,9 @@ export function useAudits(filters: AuditFilters) {
   if (filters.action) params.set('action', filters.action)
   if (filters.settingKey) params.set('settingKey', filters.settingKey)
   if (filters.targetId) params.set('targetId', filters.targetId)
+  if (filters.operatorId) params.set('operatorId', filters.operatorId)
+  if (filters.from !== undefined) params.set('from', String(filters.from))
+  if (filters.to !== undefined) params.set('to', String(filters.to))
   return useInfiniteQuery({
     queryKey: ['audits', filters],
     queryFn: ({ pageParam }) => {
@@ -172,18 +214,18 @@ export function useTodayErrors() {
   })
 }
 export function useGenerationTasks(filters: GenerationTaskFilters) {
-  return useInfiniteQuery({
+  return useQuery({
     queryKey: ['generation-tasks', filters],
-    queryFn: ({ pageParam }) => {
+    queryFn: () => {
       const params = new URLSearchParams()
-      for (const [key, value] of Object.entries(filters))
-        if (value !== undefined) params.set(key, String(value))
-      if (pageParam) params.set('cursor', pageParam)
+      for (const [key, value] of Object.entries(filters)) {
+        if (value === undefined) continue
+        params.set(key, Array.isArray(value) ? value.join(',') : String(value))
+      }
       return apiClient.get<GenerationTasksResult>(`/api/tasks?${params}`)
     },
-    initialPageParam: '',
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     staleTime: 0,
+    refetchInterval: 30_000,
   })
 }
 
@@ -234,6 +276,48 @@ export function saveOperatorSetting(
   return apiClient.put<OperatorSettingsResult>(
     `/api/operator-settings/${encodeURIComponent(key)}`,
     body,
+  )
+}
+
+export const upstreamSecretsQueryKey = ['upstream-secrets'] as const
+
+export interface UpstreamSecretView {
+  id: 'openai_direct' | 'gemini' | 'vertex' | 'sub2api'
+  label: string
+  configured: boolean
+  source: 'admin' | 'env' | 'unset'
+  updatedAt: number | null
+  updatedBy: string | null
+}
+
+export interface UpstreamSecretsResult {
+  writable: boolean
+  disabledReason: string | null
+  warning: string | null
+  secrets: UpstreamSecretView[]
+}
+
+export function useUpstreamSecrets() {
+  return useQuery({
+    queryKey: upstreamSecretsQueryKey,
+    queryFn: () => apiClient.get<UpstreamSecretsResult>('/api/upstream-secrets'),
+  })
+}
+
+export function replaceUpstreamSecret(id: string, apiKey: string) {
+  return apiClient.put<UpstreamSecretsResult>(`/api/upstream-secrets/${encodeURIComponent(id)}`, {
+    apiKey,
+  })
+}
+
+export function clearUpstreamSecret(id: string) {
+  return apiClient.del<UpstreamSecretsResult>(`/api/upstream-secrets/${encodeURIComponent(id)}`)
+}
+
+export function testUpstreamSecret(id: string, apiKey: string) {
+  return apiClient.post<{ ok: boolean; httpStatus: number | null }>(
+    `/api/upstream-secrets/${encodeURIComponent(id)}/test`,
+    { apiKey },
   )
 }
 

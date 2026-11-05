@@ -1,6 +1,7 @@
-import { isGptBasicRequest, isGptDirectModel } from '@image-playground/shared'
+import { isGptDirectModel, isGptSub2apiDeliverable } from '@image-playground/shared'
 import { config } from '../../config'
 import { log } from '../logger'
+import { runtimeSecret } from '../upstream-secret-cache'
 import { ImagePlanRequiredError } from './errors'
 import { directBudgetAllows, estimateDirectCostMicroUsd } from './gpt-budget'
 import { gptSchedulerBuckets, tryAcquireSchedulerSlots } from './scheduler'
@@ -8,14 +9,24 @@ import { gptSchedulerBuckets, tryAcquireSchedulerSlots } from './scheduler'
 /**
  * GPT Image 的两条通道：OpenAI 直连与 sub2api。
  *
- * - 会员默认直连；直连满了（每分钟张数、在途数、429 冷却）、超了月预算或不可用，立刻走 sub2api，不排队。
- * - 非会员默认 sub2api；sub2api 只是忙照常排队，熔断了才借直连（同样受直连额度与预算约束）。
+ * - 会员，以及 2K / 4K / 高画质（sub2api 兑现不了），默认直连；直连满了、超了月预算或不可用，立刻走 sub2api，不排队。
+ * - 非会员的 1K、非高画质默认 sub2api；sub2api 只是忙照常排队，熔断了才借直连（同样受直连额度与预算约束）。
  * - 一条路发出请求后超时或明确不可用，换另一条路重试一次（见 upstream.ts 的 callUpstream）。
  */
 export type GptRoute = 'direct' | 'sub2api'
 
+/** OpenAI 直连密钥：后台记录优先于进程启动时读到的 OPENAI_API_KEY。 */
+export function gptDirectApiKey(): string {
+  return runtimeSecret('OPENAI_API_KEY', config.gptDirect.apiKey)
+}
+
 export function gptDirectConfigured(model: string): boolean {
-  return config.gptDirect.enabled && config.gptDirect.apiKey !== '' && isGptDirectModel(model)
+  return config.gptDirect.enabled && gptDirectApiKey() !== '' && isGptDirectModel(model)
+}
+
+/** 2.6 用自己的开关和同一把可替换的 OpenAI key。关着或没 key 时不走 sub2api。 */
+export function gptImage26Configured(): boolean {
+  return config.gptImage26.enabled && gptDirectApiKey() !== ''
 }
 
 // ---- sub2api 熔断：本进程内计数，每个环境各管各的 ----
@@ -72,18 +83,21 @@ export async function directAvailableNow(
   return true
 }
 
-/** 这一单先走哪条路。高档参数只有会员提交得上来（提交时已收过），按会员处理。 */
+/**
+ * 这一单先走哪条路。2K、4K 与高画质不是 sub2api 能兑现的，一律直连优先；
+ * 直连不可用时回落 sub2api（CLI 的严格请求除外：兑现不了就拒绝，不降级）。
+ */
 export async function firstGptRoute(input: {
   model: string
   member: boolean
   request: { size?: string; quality?: string; n?: number }
   strictImageRequest?: boolean
 }): Promise<GptRoute> {
-  if (input.strictImageRequest && !isGptBasicRequest(input.request)) {
+  if (input.strictImageRequest && !isGptSub2apiDeliverable(input.request)) {
     if (!(await directAvailableNow(input.model, input.request))) throw new ImagePlanRequiredError()
     return 'direct'
   }
-  const member = input.member || !isGptBasicRequest(input.request)
+  const member = input.member || !isGptSub2apiDeliverable(input.request)
   if (!member && !sub2apiBreakerOpen()) return 'sub2api'
   return (await directAvailableNow(input.model, input.request)) ? 'direct' : 'sub2api'
 }

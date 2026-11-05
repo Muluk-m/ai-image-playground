@@ -257,6 +257,28 @@ describe('today generation overview', () => {
     expect(
       (await getGenerationTasks({ from, to, unassigned: '1' })).tasks.map((task) => task.id),
     ).toEqual(['unassigned'])
+    const paged = await getGenerationTasks({
+      from,
+      to,
+      userId: 'today-user',
+      page: 1,
+      pageSize: 50,
+    })
+    expect(paged.tasks).toHaveLength(50)
+    expect(paged.total).toBe(105)
+    expect(paged.page).toBe(1)
+    const byProvider = await getGenerationTasks({
+      from,
+      to,
+      providers: ['openai-compat'],
+      errorTypes: ['upstream_error'],
+      page: 1,
+      pageSize: 50,
+    })
+    expect(byProvider.tasks.map((task) => task.id)).toEqual(['today-failed'])
+    const byName = await getGenerationTasks({ from, to, q: 'alice', page: 1, pageSize: 50 })
+    expect(byName.total).toBeGreaterThan(0)
+    expect(byName.tasks.every((task) => task.username === 'alice')).toBe(true)
   })
 
   it('lists error and fatal server logs alongside frontend errors, excluding warnings and yesterday', async () => {

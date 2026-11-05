@@ -299,6 +299,8 @@ interface TileProps {
 
 const WorkTile = memo(function WorkTile({ task, projectId, selected, onOpen, style }: TileProps) {
   const { t } = useTranslation('library')
+  const { t: tTask } = useTranslation('task')
+  const format = task.params.output_format
   const preview = useImagePreview(task.status === 'done' ? task.outputImages?.[0] : undefined)
   const open = (event: ReactMouseEvent) => onOpen(task.id, event)
   const onKeyDown = (event: KeyboardEvent) => {
@@ -349,6 +351,16 @@ const WorkTile = memo(function WorkTile({ task, projectId, selected, onOpen, sty
             <Icon name="image" size="lg" />
           )}
         </div>
+      )}
+      {format === 'gif' && (
+        <span className="absolute bottom-1 left-1 rounded-sm bg-black/60 px-1.5 py-0.5 font-mono text-label-sm text-white">
+          {tTask('card.gifBadge', { count: task.params.frame_count ?? 6 })}
+        </span>
+      )}
+      {format === 'svg' && (
+        <span className="absolute bottom-1 left-1 rounded-sm bg-black/60 px-1.5 py-0.5 font-mono text-label-sm text-white">
+          {tTask('card.svgBadge')}
+        </span>
       )}
       {task.outputImages.length > 1 && (
         <span className="absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">

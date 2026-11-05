@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router'
+import { render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 const queryState = vi.hoisted(() => ({
-  filters: [] as Array<Record<string, string | undefined>>,
+  filters: [] as Array<Record<string, string | number | undefined>>,
 }))
 
 vi.mock('../../components/Page', () => ({
@@ -25,7 +27,9 @@ vi.mock('../../components/ShortId', () => ({
 }))
 vi.mock('../../hooks/use-mobile', () => ({ useIsMobile: () => false }))
 vi.mock('../../lib/queries', () => ({
-  useAudits: (filters: Record<string, string | undefined>) => {
+  useOps: () => ({ data: undefined, isPending: false, isError: false, isFetching: false }),
+  useUsers: () => ({ data: { users: [] } }),
+  useAudits: (filters: Record<string, string | number | undefined>) => {
     queryState.filters.push(filters)
     return {
       data: {
@@ -38,7 +42,11 @@ vi.mock('../../lib/queries', () => ({
                 action: 'operator_config.set',
                 target_type: 'operator_config',
                 target_id: 'cli:api',
-                details: { reason: 'incident' },
+                details: {
+                  before: { enabled: false },
+                  after: { enabled: true },
+                  reason: 'incident',
+                },
                 created_at: Date.now(),
               },
             ],
@@ -54,17 +62,35 @@ vi.mock('../../lib/queries', () => ({
   },
 }))
 
-import { AuditPage } from '../../routes/_authed.audit'
+const { routeTree } = await import('../../routeTree.gen')
+
+function renderAt(path: string): void {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  queryClient.setQueryData(['me'], { ok: true, accounts_login: true, accounts_sync: false })
+  const router = createRouter({
+    routeTree,
+    context: { queryClient },
+    history: createMemoryHistory({ initialEntries: [path] }),
+  })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router as never} />
+    </QueryClientProvider>,
+  )
+}
 
 describe('audit filters', () => {
-  it('filters operator config audits by key and target', () => {
+  it('reads operator, action and target filters from the URL and offers a before/after diff', async () => {
     queryState.filters.length = 0
-    render(<AuditPage />)
-    expect(screen.getByText('设置运营覆盖')).toBeInTheDocument()
-    fireEvent.change(screen.getByLabelText('按配置键筛选'), { target: { value: 'cli:api' } })
-    fireEvent.change(screen.getByLabelText('按对象 ID 筛选'), { target: { value: 'cli:api' } })
-    const latest = queryState.filters[queryState.filters.length - 1]
-    expect(latest).toMatchObject({ settingKey: 'cli:api', targetId: 'cli:api' })
-    expect(screen.getByText('operator_config')).toBeInTheDocument()
+    renderAt('/audit?operatorId=operator-1&settingKey=cli%3Aapi&targetId=cli%3Aapi')
+    expect(await screen.findByText('设置运营覆盖')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(queryState.filters[queryState.filters.length - 1]).toMatchObject({
+        operatorId: 'operator-1',
+        settingKey: 'cli:api',
+        targetId: 'cli:api',
+      })
+    })
+    expect(screen.getByRole('button', { name: '对比' })).toBeInTheDocument()
   })
 })

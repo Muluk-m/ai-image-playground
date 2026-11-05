@@ -2,10 +2,10 @@
 set -eu
 # Decides whether the deploy workflow ships <sha>. Run inside a checkout with origin/main fetched
 # and enough history to compare commits.
-#   WEB_ORIGINS="<paid site origin> ..." ADMIN_ORIGIN=<admin origin> \
-#     scripts/ci-deploy-target.sh <sha> <workflow_run|workflow_dispatch> <paid-api-base-url>
+#   WEB_ORIGINS="<muvloom site origin> ..." ADMIN_ORIGIN=<admin origin> \
+#     scripts/ci-deploy-target.sh <sha> <workflow_run|workflow_dispatch> <muvloom-api-base-url>
 #
-# Writes deploy_api, deploy_pages (either Pages side), deploy_web (the one paid Pages project
+# Writes deploy_api, deploy_pages (either Pages side), deploy_web (the one muvloom Pages project
 # behind every product domain),
 # deploy_admin (Admin site) and deploy (true when anything ships) to $GITHUB_OUTPUT (stdout without it).
 # A skip is not a failure:
@@ -55,7 +55,7 @@ lock_changed() {
   node scripts/lock-closure-changed.mjs "$scan_base" "$target" "$@"
 }
 
-# Internal and paid sites read this; Admin reads its own list; the shared API reads the last.
+# qlj and muvloom sites read this; Admin reads its own list; the shared API reads the last.
 # admin.muvloom.online is the Pages build of apps/admin; the API image only serves admin-api.
 # shellcheck disable=SC2329 # called through decide
 web_bundle_changed() {
@@ -69,8 +69,8 @@ admin_bundle_changed() {
 }
 # shellcheck disable=SC2329 # called through decide
 api_tree_changed() {
-  # The VPS runs the copies of these scripts shipped inside the release tarball. A change that
-  # does not roll out an API image never reaches the host.
+  # Build and deployment protocol changes require a new release. Deployment code itself lives
+  # in the fixed VPS runtime and must be installed separately from the data-only release.
   printf '%s\n' "$1" | grep -Eq '^(apps/bff/|apps/admin/|packages/|Dockerfile$|deploy/|pnpm-workspace\.yaml$|scripts/build-vps-release\.sh$|scripts/docker-entrypoint\.sh$|scripts/vps-deploy\.sh$|scripts/app-compose\.sh$|scripts/rollout-runtime\.sh$|scripts/check-test-isolation\.sh$|scripts/segmenter-deploy\.sh$|scripts/lib/deploy-common\.sh$)' ||
     lock_changed "$1" . apps/bff apps/admin packages/db packages/node-kit packages/shared \
       private/apps/bff private/apps/admin
@@ -170,7 +170,7 @@ api=$decision
 # shellcheck disable=SC2086 # WEB_ORIGINS is a space-separated list.
 scan site ${WEB_ORIGINS:-}
 web_current=$scan_current
-decide "web bundle (paid Pages project)" web_bundle_changed
+decide "web bundle (muvloom Pages project)" web_bundle_changed
 web=$decision
 scan site "${ADMIN_ORIGIN:-}"
 admin_current=$scan_current

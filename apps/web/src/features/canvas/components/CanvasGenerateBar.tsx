@@ -19,7 +19,10 @@ import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/videoChannels'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
+import { useGptPremiumLocked } from '../../../lib/gptPremium'
+import { quotedGptMultiplier } from '../../../lib/gptQuote'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
+import { getParamCapabilities } from '../../../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import { useComposerFillTarget } from '../../agent/lib/composerFill'
@@ -143,6 +146,11 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
   }, [signature, editor])
 
   const activeProfile = getActiveApiProfile(settings)
+  const imageView = clientProfileToApiProfile(activeProfile)
+  const imagePremium = useGptPremiumLocked(
+    imageView.model,
+    getParamCapabilities(activeProfile, params.output_format).size,
+  )
   const video = mode === 'video'
   const submissionInput = video
     ? {
@@ -151,8 +159,9 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         unitMultiplier: videoRateMultiplier(videoDraft.model, videoDraft.resolution),
       }
     : {
-        model: clientProfileToApiProfile(activeProfile).model,
+        model: imageView.model,
         quantity: Math.max(1, params.n),
+        unitMultiplier: quotedGptMultiplier(imageView.model, params, imagePremium.highQuality),
       }
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)
   // 选了两张以上、模型又带得了参考图时，选中的图都当参考图（与「选中即参考」同一个门槛、
