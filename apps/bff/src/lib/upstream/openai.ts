@@ -1,6 +1,5 @@
 import { Buffer, File } from 'node:buffer'
 import { FormData } from 'undici'
-import { config } from '../../config'
 import type { HydratedSubmitRequest } from '../imageArchive'
 import { decodeDataUrl, type UpstreamCallResult } from './shared'
 
@@ -130,7 +129,11 @@ export function buildOpenAIBody(
         }
       : {}),
     ...(request.output_format === 'svg'
-      ? { svg: { model: config.gptImage26.svgModel }, n: 1 }
+      ? {
+          // 不经过 config：grok 的目录测试会加载这个模块，config 在没有 DATABASE_URL 时会抛。
+          svg: { model: process.env.GPT_IMAGE_26_SVG_MODEL?.trim() || 'gpt-6-sol' },
+          n: 1,
+        }
       : {}),
     ...(request.moderation ? { moderation: request.moderation } : {}),
     ...(request.output_compression != null
