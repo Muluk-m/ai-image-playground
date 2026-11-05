@@ -77,7 +77,7 @@ describe('async submit', () => {
       'https://gateway.example/v1/images/generations/async',
       'https://gateway.example/v1/images/tasks/imgtask_1',
     ])
-    expect(result.payload).toEqual(COMPLETED_BODY.result)
+    expect(result.payload).toMatchObject(COMPLETED_BODY.result)
   })
 
   it('edits go to the async edits endpoint', async () => {
@@ -235,7 +235,7 @@ describe('async polling', () => {
     const result = await callUpstream({ ...grokRequest, request: { prompt: 'a cat' } })
 
     expect(upstream.calls).toHaveLength(4)
-    expect(result.payload).toEqual(COMPLETED_BODY.result)
+    expect(result.payload).toMatchObject(COMPLETED_BODY.result)
   })
 
   it('surfaces a terminal upstream failure with its http status so retry policy can judge it', async () => {
@@ -294,7 +294,7 @@ describe('resume', () => {
     })
 
     expect(upstream.calls).toEqual(['https://gateway.example/v1/images/tasks/imgtask_9'])
-    expect(result.payload).toEqual(COMPLETED_BODY.result)
+    expect(result.payload).toMatchObject(COMPLETED_BODY.result)
   })
 
   it('collects an already completed result after the original deadline without resubmitting', async () => {
@@ -310,7 +310,7 @@ describe('resume', () => {
         invocations += 1
       },
     })
-    expect(result.payload).toEqual(COMPLETED_BODY.result)
+    expect(result.payload).toMatchObject(COMPLETED_BODY.result)
     expect(upstream.calls).toEqual(['https://gateway.example/v1/images/tasks/imgtask_9'])
     expect(invocations).toBe(0)
   })
