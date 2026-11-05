@@ -15,7 +15,7 @@ import type { ClientProfile } from './channels/types'
 import { isClientCapabilityEnabled } from './clientCapabilities'
 import { mediaIdentity, resolveMediaSource } from './cloudMedia'
 import type { CallApiResult } from './imageApiShared'
-import { composerImageRate } from './imageCharge'
+import { composerImageRate, preparedComposerImageRate } from './imageCharge'
 import {
   getPrivateSubmissionGuard,
   notifyPrivateSubmissionAccepted,
@@ -226,7 +226,10 @@ export function startGeneration<H, C>(spec: GenerationSpec<C>, sink: GenerationS
     !admitGeneration(spec.profile.source, {
       model,
       quantity: quantity * spec.variants.length,
-      unitMultiplier: composerImageRate(model, spec.params),
+      // 阶段授权的任务在服务端先收到基础档再计价，门禁按同一口径，不按原始高档参数误拦。
+      unitMultiplier: spec.stageAuthorization
+        ? preparedComposerImageRate(model, spec.params)
+        : composerImageRate(model, spec.params),
     })
   )
     return []

@@ -1,4 +1,8 @@
-import { type ImageRateRequest, imageRateMultiplier } from '@image-playground/shared'
+import {
+  type ImageRateRequest,
+  imageRateMultiplier,
+  preparedImageRateMultiplier,
+} from '@image-playground/shared'
 import { getPublicChannels } from './channels/publicChannels'
 
 /** 渠道明确声明的可出档。没声明就不收档，和 BFF `declaredImageSizes` 同一口径。 */
@@ -16,4 +20,12 @@ export function composerImageRate(
   request: ImageRateRequest | null | undefined,
 ): number {
   return imageRateMultiplier(model, request, declaredImageSizesForModel(model))
+}
+
+/** 阶段授权等「先收基础档再提交」的入口：和服务端 alignGptSubmission 之后的 pricingOf 一致。 */
+export function preparedComposerImageRate(
+  model: string,
+  request: ImageRateRequest | null | undefined,
+): number {
+  return preparedImageRateMultiplier(model, request, declaredImageSizesForModel(model))
 }
