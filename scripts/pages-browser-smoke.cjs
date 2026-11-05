@@ -194,6 +194,8 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
             }],
           },
           '/api/auth/me': { error: 'unauthorized' },
+          // 侧栏未读点在工作台启动时读取，空列表即可。
+          '/api/announcements': { items: [], unreadCount: 0 },
         }
         if (Object.hasOwn(fixtures, url.pathname)) {
           if (request.method() !== 'GET') {
