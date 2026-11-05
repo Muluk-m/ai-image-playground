@@ -3,7 +3,8 @@ set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 compose_file="$repo_root/deploy/compose.app.yaml"
-config_root=${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/apps
+. "$repo_root/scripts/lib/deploy-common.sh"
+apps_root=${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/apps
 
 usage() {
   cat >&2 <<'EOF'
@@ -60,9 +61,9 @@ if [ "$command" = rollback ]; then
 fi
 
 if [ "$command" = compose ]; then
-  env_file=${APP_ENV_FILE:-$config_root/$project/app.env}
+  env_file=${APP_ENV_FILE:-$apps_root/$project/app.env}
 else
-  env_file=${1:-$config_root/$project/app.env}
+  env_file=${1:-$apps_root/$project/app.env}
   [ "$#" -le 1 ] || usage
   [ "$#" -eq 0 ] || shift
 fi
@@ -144,6 +145,18 @@ start_log_collector() {
     echo "Warning: the log collector did not start; containers keep running and logs stay in docker logs." >&2
 }
 
+# up and rollback move production, and the log collector and first install below touch containers
+# before rollout-runtime.sh runs, so the host deploy lock is taken here, before any of that. A
+# lock held by a live process stops the command with 75 and nothing changed; one held by an
+# ancestor (vps-deploy.sh) is inherited, and rollout-runtime.sh inherits ours in turn.
+take_host_lock() {
+  acquire_host_deploy_lock "app-compose $command $project" || exit $?
+  trap 'release_deploy_lock "$deploy_lock"' EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+}
+
 activate_backend_then_ingress() {
   start_log_collector
   compose up --detach --wait dependency-check bff worker admin
@@ -171,6 +184,7 @@ case "$command" in
   up)
     require_migrator_env
     require_tunnel_credentials
+    take_host_lock
     compose_bff=$(timeout 10 docker ps -a --filter "name=^/$project-bff-1$" --format '{{.Names}}') || exit 1
     if release_managed || [ -n "$compose_bff" ]; then
       rollout_image=${APP_IMAGE:-$(compose config --images | head -n 1)}
@@ -199,6 +213,7 @@ case "$command" in
   rollback)
     require_migrator_env
     require_tunnel_credentials
+    take_host_lock
     APP_IMAGE=$rollback_image
     export APP_IMAGE
     start_log_collector

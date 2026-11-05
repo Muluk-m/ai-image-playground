@@ -1,3 +1,4 @@
+import type { GptDirectAdminView } from '@image-playground/shared'
 import { replaceEqualDeep, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import type {
   AgentPromptFilters,
@@ -28,6 +29,35 @@ import type {
 } from './types'
 
 export const ADMIN_REFRESH_EVENT = 'admin:refresh'
+
+export const gptDirectQueryKey = ['gpt-direct'] as const
+
+export function useGptDirect(days: 7 | 30) {
+  return useQuery({
+    queryKey: [...gptDirectQueryKey, days],
+    queryFn: () => apiClient.get<GptDirectAdminView>(`/api/gpt-direct?days=${days}`),
+  })
+}
+
+export function createGptDirectKey(body: { apiKey: string; budgetUsd: number }) {
+  return apiClient.post<GptDirectAdminView>('/api/gpt-direct/keys', body)
+}
+
+export function updateGptDirectKey(id: string, body: { budgetUsd?: number; enabled?: boolean }) {
+  return apiClient.patch<GptDirectAdminView>(`/api/gpt-direct/keys/${id}`, body)
+}
+
+export function reorderGptDirectKeys(ids: string[], revision: number) {
+  return apiClient.post<GptDirectAdminView>('/api/gpt-direct/keys/order', { ids, revision })
+}
+
+export function deleteGptDirectKey(id: string) {
+  return apiClient.del<GptDirectAdminView>(`/api/gpt-direct/keys/${id}`)
+}
+
+export function restoreGptDirectKey(fingerprint: string) {
+  return apiClient.post<GptDirectAdminView>(`/api/gpt-direct/keys/${fingerprint}/restore`)
+}
 
 export function useDevices(
   range: Range,

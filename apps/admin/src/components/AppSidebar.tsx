@@ -6,6 +6,7 @@ import {
   Boxes,
   Bug,
   ClipboardList,
+  Gauge,
   HeartPulse,
   KeyRound,
   LogOut,
@@ -52,6 +53,7 @@ export type NavTo =
   | '/inspirations/categories'
   | '/announcements'
   | '/ops'
+  | '/gpt-direct'
   | '/errors'
   | '/logs'
   | '/audit'
@@ -106,6 +108,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     entries: [
       { to: '/logs', icon: ScrollText, label: '服务端日志' },
       { to: '/ops', icon: HeartPulse, label: '运维看板' },
+      { to: '/gpt-direct', icon: Gauge, label: '直连' },
       { to: '/errors', icon: Bug, label: '前端错误' },
     ],
   },
