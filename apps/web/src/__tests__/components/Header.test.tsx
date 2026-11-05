@@ -126,8 +126,9 @@ describe('the header', () => {
       host.querySelector<HTMLButtonElement>('[aria-label="打开个人账户"]')?.click()
     })
     click('插件集成')
-    expect(document.body.textContent).toContain('管理已连接的插件与设备')
-    await vi.waitFor(() => expect(document.body.textContent).toContain('暂无已连接的插件'))
+    expect(window.location.pathname).toBe('/connect')
+    expect(document.body.textContent).not.toContain('CLI 连接')
+    expect(document.body.textContent).not.toContain('暂无已连接的插件')
   })
 
   it('顶栏没有横栏了：账号这一簇浮在右上角，不带品牌与导航', () => {

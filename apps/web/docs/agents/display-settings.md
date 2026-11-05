@@ -97,7 +97,8 @@
 
 ## 账户中的插件集成
 
-用户看到的名称是「插件集成」（英文 Plugin integrations）。接口仍是 CLI 连接，目录仍在
+用户看到的名称是「插件集成」（英文 Plugin integrations）。账户菜单直接打开 `/connect`，
+不再弹出连接对话框。接口仍是 CLI 连接，目录仍在
 `features/cli/`。头像菜单的「账户设置」继续使用 `auth/LoginMethodsPanel.tsx`，其中的
 `features/cli/CliConnectionsSection.tsx` 通过 `authClient` 读取
 `GET /api/me/cli-connections`，展示客户端名称、连接时间与最近使用时间，按连接 ID 调用
