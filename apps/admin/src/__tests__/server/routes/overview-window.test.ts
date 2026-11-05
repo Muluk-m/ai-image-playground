@@ -75,6 +75,13 @@ await writer.db.insert(writer.schema.tasks).values([
     2,
   ),
   task('video', 'video-model', { prompt: 'clip', device_id: 'dev', n: 'svg', video: {} }, 5),
+  // 小数位过长时 numeric 会溢出。读不出有限小数就按 1 张，不要再 500。
+  task(
+    'long-decimal',
+    'gpt-image-long',
+    { prompt: 'long', device_id: 'dev', n: `1.${'2'.repeat(20)}` },
+    7,
+  ),
 ])
 await writer.db.insert(writer.schema.agent_model_calls).values([
   {
@@ -152,15 +159,16 @@ describe('overview today window', () => {
         models: Array<{ model: string }>
       }
     }
-    expect(body.pulse.current.tasks).toBe(5)
-    // 2 张、2.5 张截成 2、GIF/SVG 的 n 不是数字按 1 张，视频不算。
-    expect(body.pulse.current.images).toBe(6)
+    expect(body.pulse.current.tasks).toBe(6)
+    // 2 张、2.5 张截成 2、GIF/SVG 的 n 不是数字按 1 张，过长小数也按 1 张，视频不算。
+    expect(body.pulse.current.images).toBe(7)
     expect(body.pulse.current.active).toBe(2)
     expect(body.models).toEqual([
       expect.objectContaining({ model: 'gpt-image-2', average_multiplier: 2 }),
       expect.objectContaining({ model: 'gpt-image-2-decimal', average_multiplier: 2.5 }),
       expect.objectContaining({ model: 'gpt-image-2.6-flare', average_multiplier: 3 }),
       expect.objectContaining({ model: 'gpt-image-2.6-sunburst', average_multiplier: 2 }),
+      expect.objectContaining({ model: 'gpt-image-long', average_multiplier: 7 }),
       expect.objectContaining({ model: 'video-model', average_multiplier: 5 }),
     ])
     expect(body.agent_cache).toMatchObject({

@@ -445,7 +445,7 @@ const EMPTY_PULSE_BUCKET: Omit<OverviewPulseBucket, 'bucket_at'> = {
  */
 const requestedImageCount = sql`GREATEST(COALESCE(
   CASE
-    WHEN btrim(request_payload->>'n') ~ '^[0-9]{1,9}([.][0-9]+)?$'
+    WHEN btrim(request_payload->>'n') ~ '^[0-9]{1,9}([.][0-9]{1,6})?$'
     THEN trunc(btrim(request_payload->>'n')::numeric)::integer
     ELSE NULL
   END,
