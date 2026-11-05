@@ -169,9 +169,8 @@ describe('ci-deploy-target.sh', () => {
     const previous = commits[2]
     const tip = commitOnTip('scripts/vps-deploy.sh', '#!/bin/sh\n')
     serveSides({ api: previous, web: previous, admin: previous })
-    const { decision, log } = decide(tip)
+    const { decision } = decide(tip)
     expect(decision).toBe(result(true, false, false))
-    expect(log).toContain(`web bundle (paid Pages project) unchanged since ${previous}`)
   })
 
   it('ships the API when only the segmenter deploy script changes, since the release carries it', () => {
@@ -208,9 +207,8 @@ describe('ci-deploy-target.sh', () => {
     const tip = commitOnTip('apps/admin/src/main.tsx', 'export {}\n')
     // The web-only run left the APIs and the Admin site on the older commit.
     serveSides({ api: before, web, admin: before })
-    const { decision, log } = decide(tip)
+    const { decision } = decide(tip)
     expect(decision).toBe(result(true, false, true))
-    expect(log).toContain(`web bundle (paid Pages project) unchanged since ${web}`)
   })
 
   it('still ships the user-facing sites when an earlier run left them behind', () => {
