@@ -61,15 +61,16 @@ export function fromPlatform(req: PlatformImageRequest): HydratedSubmitRequest {
 }
 
 /**
- * 调度层传来的队列请求优先。平台请求只在直接调用 plan（快照测试）时重建。
- * GPT 通道适配是幂等的：准备阶段和这里各跑一次，提示词和画质不会叠两层。
+ * 调度层传来的队列请求已经按通道适配过，原样使用。
+ * 再跑一次直连适配会多剥一层防改写前缀。平台请求只在直接调用 plan 时重建。
  */
 export function workingRequest(
   req: PlatformImageRequest,
   model: string,
   ctx: RouteContext,
 ): HydratedSubmitRequest {
-  let request = ctx.request ?? fromPlatform(req)
+  if (ctx.request) return ctx.request
+  let request = fromPlatform(req)
   if (ctx.gptRoute) request = adaptGptRequest(ctx.gptRoute, model, request)
   if (ctx.forceB64Json) {
     request = { ...request, extra: { ...request.extra, response_format: 'b64_json' } }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { PROMPT_REWRITE_GUARD_PREFIX } from '@image-playground/shared'
 import { FormData } from 'undici'
 import { extractMeta } from '../../../lib/extractImages'
 import {
@@ -43,6 +44,17 @@ describe('image adapters plan platform requests into upstream calls', () => {
     expect(plan.applied).toMatchObject({ size: '1024x1024', quality: 'medium', n: 4 })
   })
 
+  it('does not strip a guard that the caller already left on the queue request', () => {
+    const prompt = `${PROMPT_REWRITE_GUARD_PREFIX}\na cat`
+    const plan = openaiImagesDirect.plan({ prompt: 'unused', count: 1 }, 'gpt-image-2.5-flare', {
+      ...member,
+      supportsNativeN: true,
+      gptRoute: 'direct',
+      request: { prompt, size: '1024x1024', quality: 'medium' },
+    })
+    expect(plan.calls[0]!.body).toMatchObject({ prompt, quality: 'medium', size: '1024x1024' })
+  })
+
   it('direct edit n=3 fans out into three multipart calls and does not send n', () => {
     const plan = openaiImagesDirect.plan(
       {
@@ -83,8 +95,10 @@ describe('image adapters plan platform requests into upstream calls', () => {
     )
     expect(plan.dropped).toEqual([
       { param: 'size', reason: 'sub2api 不兑现 size，构图只写在提示词里' },
+      { param: 'quality', reason: 'sub2api 不兑现 quality，不把它记成生效画质' },
     ])
     expect(plan.applied).not.toHaveProperty('size')
+    expect(plan.applied).not.toHaveProperty('quality')
     expect(plan.calls).toHaveLength(1)
     // 线协议不变：网关忽略 size，请求体里仍然带着它。
     expect(plan.calls[0]!.body).toEqual({
@@ -187,7 +201,7 @@ describe('image adapters plan platform requests into upstream calls', () => {
     expect(body.model).toBe('gpt-6-astra')
     expect(body.tools[0]).toMatchObject({ model: 'gpt-image-2', size: '1024x1024' })
     expect(body.tools[0]!.n).toBeUndefined()
-    expect(plan.dropped.map((one) => one.param)).toEqual(['size'])
+    expect(plan.dropped.map((one) => one.param)).toEqual(['size', 'quality'])
   })
 })
 
