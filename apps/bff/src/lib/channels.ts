@@ -42,6 +42,7 @@ import {
   CHANNEL_CAPABILITIES,
   GEMINI_IMAGE_SIZES,
   isGptDirectModel,
+  isGptImage26Model,
   isModelEtaSeconds,
   MODEL_BADGES,
   MODEL_LOGOS,
@@ -685,6 +686,24 @@ function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
   }
 }
 
+/**
+ * 2.6 默认不出现。开关打开但直连 key 不在时仍列出来，标成不可用，前端不能改去别的模型。
+ */
+function withGptImage26(channel: InternalChannel): InternalChannel {
+  if (!channel.models.some((model) => isGptImage26Model(model.id))) return channel
+  const enabled = process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true'
+  const ready =
+    enabled && Boolean(runtimeSecret('OPENAI_API_KEY', process.env.OPENAI_API_KEY?.trim() ?? ''))
+  return {
+    ...channel,
+    models: channel.models.flatMap((model) => {
+      if (!isGptImage26Model(model.id)) return [model]
+      if (!enabled) return []
+      return ready ? [model] : [{ ...model, unavailable: true }]
+    }),
+  }
+}
+
 function setLoaded(
   rawChannels: InternalChannel[],
   disabled: InternalChannel[] = [],
@@ -692,7 +711,7 @@ function setLoaded(
     disabled.flatMap((c) => c.models.map((m) => [m.id, c.id])),
   ),
 ): void {
-  const channels = rawChannels.map(withDeliverableGptSize)
+  const channels = rawChannels.map(withDeliverableGptSize).map(withGptImage26)
   loaded = channels
   retired = disabled
   // 同一个模型还挂在某条在用的 channel 上，就照常收。

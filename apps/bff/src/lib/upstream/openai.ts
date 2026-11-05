@@ -1,5 +1,6 @@
 import { Buffer, File } from 'node:buffer'
 import { FormData } from 'undici'
+import { config } from '../../config'
 import type { HydratedSubmitRequest } from '../imageArchive'
 import { decodeDataUrl, type UpstreamCallResult } from './shared'
 
@@ -122,6 +123,15 @@ export function buildOpenAIBody(
     ...(request.size ? { size: request.size } : {}),
     ...(request.quality ? { quality: request.quality } : {}),
     ...(request.output_format ? { output_format: request.output_format } : {}),
+    ...(request.output_format === 'gif'
+      ? {
+          frame_count: request.frame_count,
+          frame_duration_ms: request.frame_duration_ms,
+        }
+      : {}),
+    ...(request.output_format === 'svg'
+      ? { svg: { model: config.gptImage26.svgModel }, n: 1 }
+      : {}),
     ...(request.moderation ? { moderation: request.moderation } : {}),
     ...(request.output_compression != null
       ? { output_compression: request.output_compression }

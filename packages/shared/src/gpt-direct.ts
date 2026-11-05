@@ -1,3 +1,8 @@
+import {
+  type GptImage26QuoteInput,
+  gptImage26RateMultiplier,
+  isGptImage26Model,
+} from './gpt-image-26'
 import { imageSizeTier, parseImageSize } from './image'
 
 /**
@@ -11,11 +16,7 @@ export function isGptDirectModel(model: string): boolean {
 }
 
 /** 档位与计价看的参数。带遮罩的局部编辑尺寸跟着原图走、不是用户选的档位，一律按 1K 计。 */
-export interface GptTierInput {
-  size?: string
-  quality?: string
-  mask?: unknown
-}
+export type GptTierInput = GptImage26QuoteInput
 
 function tierOf(input: GptTierInput) {
   return input.mask ? '1K' : imageSizeTier(input.size)
@@ -61,6 +62,8 @@ const GPT_IMAGE_MULTIPLIERS = {
 } as const
 
 export function gptImageRateMultiplier(model: string, request: GptTierInput): number {
+  // 2.6 用绝对积分换算成「100 积分 = 1」的倍率，不走 2.5 那张 1/1/4 表。
+  if (isGptImage26Model(model)) return gptImage26RateMultiplier(request)
   if (!isGptDirectModel(model)) return 1
   const { quality } = request
   const level = quality === 'low' || quality === 'high' ? quality : 'medium'
