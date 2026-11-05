@@ -47,6 +47,7 @@ const WORKSPACE_PATHS = new Set([
   '/pricing',
   '/terms',
   '/privacy',
+  '/connect',
   '/device',
 ])
 
