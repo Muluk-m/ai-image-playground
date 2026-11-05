@@ -245,20 +245,7 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     )
     expect(all.some((c) => c.startsWith('save'))).toBe(false)
     expect(all).not.toContain('login ghcr.io -u Muluk-m --password-stdin')
-    expect(readFileSync(join(out, 'scripts/check-test-isolation.sh'), 'utf8')).toBe(
-      readFileSync(join(source, 'scripts/check-test-isolation.sh'), 'utf8'),
-    )
-    expect(outputFiles()).toEqual([
-      'SHA256SUMS',
-      'deploy/compose.app.yaml',
-      'images.tsv',
-      'scripts/app-compose.sh',
-      'scripts/check-test-isolation.sh',
-      'scripts/lib/deploy-common.sh',
-      'scripts/rollout-runtime.sh',
-      'scripts/segmenter-deploy.sh',
-      'scripts/vps-deploy.sh',
-    ])
+    expect(outputFiles()).toEqual(['SHA256SUMS', 'images.tsv'])
   })
 
   it('builds the versioned segmenter only for production releases, never for test, with a layer cache of its own', () => {
@@ -311,25 +298,11 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     expect(check.status).toBe(0)
   })
 
-  it('produces a release the receiver pulls by digest and rolls out', () => {
+  it('produces a data-only release without deployment code', () => {
     writeFileSync(join(root, 'logged-in'), '')
     expect(build().status).toBe(0)
-    rmSync(log)
-    const received = spawnSync('sh', [join(out, 'scripts/vps-deploy.sh'), 'all', out], {
-      env,
-      encoding: 'utf8',
-      timeout: 20000,
-    })
-    expect(received.stderr).toBe('')
-    expect(received.status).toBe(0)
-    const all = calls()
-    expect(all).toContain(`pull ${pushed('1')}`)
-    expect(all).toContain(`pull ${pushed('2')}`)
-    expect(all).toContain(`pull ${pushed('3')}`)
-    expect(all).toContain(`segmenter up ai-image-playground:segmenter-3-${pub.slice(0, 12)} 3`)
-    expect(all).toContain(
-      `rollout image-playground-paid ai-image-playground:paid-${pub.slice(0, 12)}-${priv.slice(0, 12)}`,
-    )
+    expect(outputFiles()).toEqual(['SHA256SUMS', 'images.tsv'])
+    expect(existsSync(join(out, 'scripts/vps-deploy.sh'))).toBe(false)
   })
 
   it('logs in with the push token file through stdin before building when not logged in yet', () => {
@@ -391,15 +364,8 @@ describe('build-vps-release.sh, archive fallback', () => {
       ].join('\n'),
     )
     expect(readFileSync(join(out, 'SHA256SUMS'), 'utf8')).toMatch(/ {2}images\.tar\.gz\n/)
-    rmSync(log)
-    const received = spawnSync('sh', [join(out, 'scripts/vps-deploy.sh'), 'internal', out], {
-      env,
-      encoding: 'utf8',
-      timeout: 20000,
-    })
-    expect(received.status).toBe(0)
-    expect(calls()).toContain(`load -i ${out}/images.tar.gz`)
-    expect(calls().some((c) => c.startsWith('pull'))).toBe(false)
+    expect(outputFiles()).toEqual(['SHA256SUMS', 'images.tar.gz', 'images.tsv'])
+    expect(existsSync(join(out, 'scripts/vps-deploy.sh'))).toBe(false)
   })
 
   it('rejects an unknown transport before touching Docker', () => {
