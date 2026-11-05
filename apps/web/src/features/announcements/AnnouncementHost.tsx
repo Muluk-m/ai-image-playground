@@ -1,92 +1,83 @@
-import type { AnnouncementPublicList } from '@image-playground/shared'
 import { selectMajorAnnouncement } from '@image-playground/shared'
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { useAuth } from '../../auth/AuthContext'
-import { currentLocale } from '../../i18n'
-import { AnnouncementDrawer } from './AnnouncementDrawer'
+import { useTranslation } from '../../i18n'
+import { isChangelogPath } from '../../lib/appPaths'
+import { usePathname } from '../../lib/pathname'
 import { AnnouncementModal } from './AnnouncementModal'
 import {
   announcementLocale,
   announcementModalShownThisSession,
   fetchAnnouncements,
-  postAnnouncementReads,
+  markAnnouncementFeed,
   withLocalReads,
-  writeLocalAnnouncementReads,
 } from './client'
 import {
-  announcementPanelOpen,
-  setAnnouncementUnreadCount,
+  announcementFeedStatus,
+  announcementItems,
+  beginAnnouncementFeed,
+  setAnnouncementFeed,
+  setAnnouncementFeedError,
   subscribeAnnouncementPanel,
 } from './panel'
 
 export function AnnouncementHost() {
   const user = useAuth().user
-  const open = useSyncExternalStore(subscribeAnnouncementPanel, announcementPanelOpen, () => false)
-  const [list, setList] = useState<AnnouncementPublicList>({ items: [], unreadCount: 0 })
-  const [error, setError] = useState(false)
+  const items = useSyncExternalStore(
+    subscribeAnnouncementPanel,
+    announcementItems,
+    announcementItems,
+  )
+  const status = useSyncExternalStore(
+    subscribeAnnouncementPanel,
+    announcementFeedStatus,
+    announcementFeedStatus,
+  )
+  const { i18n } = useTranslation('announcements')
+  const language = i18n.language
+  const onChangelog = isChangelogPath(usePathname())
   const [modalId, setModalId] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
+    const feed = beginAnnouncementFeed(user?.id ?? 'anonymous')
     try {
-      const remote = await fetchAnnouncements(announcementLocale(currentLocale()))
+      const remote = await fetchAnnouncements(announcementLocale(language))
       const next = withLocalReads(remote, !user)
-      setList(next)
-      setError(false)
-      if (!announcementModalShownThisSession() && !open) {
+      if (!setAnnouncementFeed(next, feed)) return
+      if (!announcementModalShownThisSession() && !isChangelogPath(window.location.pathname)) {
         const major = selectMajorAnnouncement(next.items)
         if (major) setModalId(major.id)
       }
     } catch {
-      setError(true)
+      setAnnouncementFeedError(feed)
     }
-  }, [open, user])
+  }, [user, language])
 
   useEffect(() => {
     void reload()
   }, [reload])
 
-  async function mark(ids: string[], dismissed: boolean) {
-    if (!ids.length) return
-    if (user) {
-      const ok = await postAnnouncementReads(ids, dismissed)
-      if (!ok) writeLocalAnnouncementReads(ids, dismissed)
-    } else {
-      writeLocalAnnouncementReads(ids, dismissed)
-    }
-    setList((current) => {
-      const items = current.items.map((item) =>
-        ids.includes(item.id)
-          ? { ...item, unread: false, dismissed: item.dismissed || dismissed }
-          : item,
-      )
-      return { items, unreadCount: items.filter((item) => item.unread).length }
-    })
-  }
-
+  const userId = user?.id
+  // 换账号时关掉上一个账号的弹窗。
   useEffect(() => {
-    setAnnouncementUnreadCount(list.unreadCount)
-  }, [list.unreadCount])
+    setModalId(null)
+  }, [userId])
 
-  const modal = list.items.find((item) => item.id === modalId) ?? null
-  const extraUnread = list.items.filter((item) => item.unread && item.id !== modal?.id).length
+  // 弹窗开着时跳到更新页：那一页就是完整列表，弹窗要收起，不能盖在页面上。
+  useEffect(() => {
+    if (onChangelog) setModalId(null)
+  }, [onChangelog])
 
-  return (
-    <>
-      <AnnouncementDrawer
-        open={open}
-        items={list.items}
-        unreadCount={list.unreadCount}
-        error={error}
-        onMark={(ids, dismissed) => void mark(ids, dismissed)}
-      />
-      {modal && !open ? (
-        <AnnouncementModal
-          item={modal}
-          extraUnread={extraUnread}
-          onSeen={(id) => void mark([id], true)}
-          onClose={() => setModalId(null)}
-        />
-      ) : null}
-    </>
-  )
+  const modal =
+    status === 'ready' && !onChangelog ? (items.find((item) => item.id === modalId) ?? null) : null
+  const extraUnread = items.filter((item) => item.unread && item.id !== modal?.id).length
+
+  return modal ? (
+    <AnnouncementModal
+      item={modal}
+      extraUnread={extraUnread}
+      onSeen={(id) => void markAnnouncementFeed([id], true, Boolean(user))}
+      onClose={() => setModalId(null)}
+    />
+  ) : null
 }

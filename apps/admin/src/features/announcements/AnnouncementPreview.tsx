@@ -45,7 +45,8 @@ export function AnnouncementPreview({
   const blocks = parseAnnouncementMarkdown(copy.body)
   const when = draft.publishAt
     ? new Intl.DateTimeFormat(locale === 'en' ? 'en' : 'zh-CN', {
-        month: 'numeric',
+        year: 'numeric',
+        month: 'long',
         day: 'numeric',
       }).format(new Date(draft.publishAt))
     : ''
@@ -59,11 +60,11 @@ export function AnnouncementPreview({
         blocks.map((block, index) => {
           if (block.type === 'list') {
             return (
-              <ul key={index} className="list-disc space-y-1 pl-4">
+              <ol key={index} className="list-decimal space-y-1 pl-4">
                 {block.items.map((item, itemIndex) => (
                   <li key={itemIndex}>{item.map((inline) => inline.text).join('')}</li>
                 ))}
-              </ul>
+              </ol>
             )
           }
           const text = block.inlines.map((inline) => inline.text).join('')
@@ -131,36 +132,40 @@ export function AnnouncementPreview({
 
   return (
     <div
-      className="min-h-[520px] p-4"
+      className="min-h-[520px] p-6"
       style={{ background: colors.background, color: colors.foreground }}
     >
-      <div
-        className="mx-auto max-w-sm overflow-hidden rounded-xl border"
-        style={{ background: colors.surface, borderColor: colors.border }}
-      >
-        <div
-          className="flex items-center justify-between border-b px-3 py-2 text-sm"
-          style={{ borderColor: colors.border }}
-        >
-          <span className="font-medium">更新</span>
-          <span className="text-xs" style={{ color: colors.muted }}>
-            全部标为已读
-          </span>
-        </div>
-        <div className="space-y-3 p-3">
-          {cover}
-          <p className="text-xs" style={{ color: colors.primary }}>
-            {TYPE_LABEL[draft.type]}
-            {meta ? ` · ${meta}` : ''}
-          </p>
-          <h3 className="text-sm font-semibold">{copy.title || '标题'}</h3>
-          {body}
-          {draft.ctaLabel ? (
-            <p className="text-sm" style={{ color: colors.primary }}>
-              {draft.ctaLabel} →
+      <div className="grid items-start gap-6">
+        <div>
+          {draft.versionTag ? (
+            <span
+              className="inline-flex h-7 items-center rounded-full border px-3 text-xs"
+              style={{ borderColor: colors.border }}
+            >
+              {draft.versionTag}
+            </span>
+          ) : (
+            <span className="text-xs" style={{ color: colors.muted }}>
+              {TYPE_LABEL[draft.type]}
+            </span>
+          )}
+          {when ? (
+            <p className="mt-3 text-xs" style={{ color: colors.muted }}>
+              {when}
             </p>
           ) : null}
+          <h3 className="mt-6 text-base font-semibold">{copy.title || '标题'}</h3>
+          <div className="mt-4">{body}</div>
+          {draft.ctaLabel ? (
+            <span
+              className="mt-6 inline-flex h-9 items-center rounded-md px-4 text-sm"
+              style={{ background: colors.surface, color: colors.foreground }}
+            >
+              {draft.ctaLabel}
+            </span>
+          ) : null}
         </div>
+        {coverUrl ? cover : null}
       </div>
     </div>
   )

@@ -3,7 +3,6 @@
   "unreadDot": "Unread updates",
   "title": "Updates",
   "unreadCount": "{{count}} unread",
-  "markAll": "Mark all as read",
   "viewAll": "View all updates",
   "empty": "No updates yet",
   "loadError": "Updates could not be loaded",

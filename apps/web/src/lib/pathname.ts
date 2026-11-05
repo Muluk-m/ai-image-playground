@@ -1,14 +1,61 @@
 import { useEffect, useState } from 'react'
 
-/** 当前地址。pushState 本身不发 popstate，调用方导航后要自己发。 */
+const pathnameListeners = new Set<() => void>()
+
+function notify(): void {
+  for (const listener of pathnameListeners) listener()
+}
+
+/**
+ * pushState / replaceState 不发 popstate，调用方各自通知又总会漏。
+ * 在 History API 出口统一包一层：任何地方改了地址，`usePathname` 都跟上。
+ */
+function installHistoryNotifier(): void {
+  if (typeof window === 'undefined') return
+  const history = window.history
+  const marked = history as History & { __pathnameNotifier?: true }
+  if (marked.__pathnameNotifier) return
+  marked.__pathnameNotifier = true
+  for (const method of ['pushState', 'replaceState'] as const) {
+    const original = history[method]
+    history[method] = function (this: History, ...args: Parameters<History['pushState']>) {
+      const before = window.location.pathname
+      const result = original.apply(this, args)
+      if (window.location.pathname !== before) notify()
+      return result
+    }
+  }
+}
+
+installHistoryNotifier()
+
+/** 订阅地址变化（History API 写入；popstate 另听）。返回取消订阅。 */
+export function subscribePathname(listener: () => void): () => void {
+  pathnameListeners.add(listener)
+  return () => {
+    pathnameListeners.delete(listener)
+  }
+}
+
+/** 当前地址。History API 写入与 popstate 都会同步。 */
 export function usePathname(): string {
   const [pathname, setPathname] = useState(() =>
     typeof window === 'undefined' ? '/' : window.location.pathname,
   )
   useEffect(() => {
-    const sync = () => setPathname(window.location.pathname)
+    const sync = () =>
+      setPathname((current) => {
+        const next = window.location.pathname
+        return current === next ? current : next
+      })
+    pathnameListeners.add(sync)
     window.addEventListener('popstate', sync)
-    return () => window.removeEventListener('popstate', sync)
+    // 渲染到订阅之间的地址变化。
+    sync()
+    return () => {
+      pathnameListeners.delete(sync)
+      window.removeEventListener('popstate', sync)
+    }
   }, [])
   return pathname
 }
