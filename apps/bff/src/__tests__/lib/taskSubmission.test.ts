@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import type { SubmitRequest } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
@@ -17,7 +17,8 @@ _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 
 // 动态引入：环境要先钉死，再让捕获配置的模块加载。
 const { close, db, schema } = await import('../../db/client')
-const { createQueueTask } = await import('../../lib/taskSubmission')
+const { config } = await import('../../config')
+const { createQueueTask, prepareQueueTask } = await import('../../lib/taskSubmission')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 
 // 原尺寸不是 16 的倍数，所以建任务时必须补边；`masked_original_size` 记的是补边前的那个。
@@ -100,6 +101,145 @@ it('denies 4K by default when the private billing hook is missing', async () => 
   _setPrivateBffOverlayForTesting({ ...EMPTY_PRIVATE_BFF_OVERLAY, present: true })
   expect((await submit4k()).kind).toBe('private_billing_denied')
   expect(await db.select().from(schema.tasks)).toHaveLength(0)
+})
+
+describe('non-member resolution ceiling', () => {
+  const direct = { ...config.gptDirect }
+
+  beforeEach(() => {
+    Object.assign(config.gptDirect, { enabled: true, apiKey: 'direct-key' })
+  })
+  afterEach(() => {
+    Object.assign(config.gptDirect, direct)
+  })
+
+  function withMember(member: boolean) {
+    _setPrivateBffOverlayForTesting({
+      ...EMPTY_PRIVATE_BFF_OVERLAY,
+      present: true,
+      taskHooks: {
+        ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
+        canSubmitTask: async () => member,
+        isActiveMember: async () => member,
+      },
+    })
+  }
+
+  async function storedRequest(outcome: Awaited<ReturnType<typeof createQueueTask>>) {
+    expect(outcome.kind).toBe('created')
+    if (outcome.kind !== 'created') throw new Error('expected a task')
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, outcome.taskId))
+    return task!.request_payload
+  }
+
+  it.each([
+    '3840x2160',
+    '2880x2880',
+    '2160x3840',
+    '3456x2304',
+  ])('downgrades a non-member website %s request to 2K and medium', async (size) => {
+    await ensureBillingUser()
+    withMember(false)
+    const payload = await storedRequest(
+      await createQueueTask({
+        provider: 'openai-compat',
+        model: 'gpt-image-2.5-flare',
+        userId: BILLING_USER,
+        request: request({ size, quality: 'high', input_images: undefined }),
+      }),
+    )
+    expect(payload.quality).toBe('medium')
+    expect(payload.size).not.toBe(size)
+    const [width, height] = payload.size!.split('x').map(Number)
+    expect(width! * height!).toBeLessThanOrEqual(4_194_304)
+    expect(width! % 16).toBe(0)
+    expect(height! % 16).toBe(0)
+  })
+
+  it('leaves a member 4K high request unchanged', async () => {
+    await ensureBillingUser()
+    withMember(true)
+    const payload = await storedRequest(
+      await createQueueTask({
+        provider: 'openai-compat',
+        model: 'gpt-image-2.5-flare',
+        userId: BILLING_USER,
+        request: request({ size: '3840x2160', quality: 'high', input_images: undefined }),
+      }),
+    )
+    expect(payload).toMatchObject({ size: '3840x2160', quality: 'high' })
+  })
+
+  it('rejects a strict non-member 4K or high request and accepts 2K', async () => {
+    await ensureBillingUser()
+    withMember(false)
+    for (const extra of [{ size: '3840x2160' }, { size: '1024x1024', quality: 'high' as const }]) {
+      const denied = await createQueueTask({
+        provider: 'openai-compat',
+        model: 'gpt-image-2.5-flare',
+        userId: BILLING_USER,
+        strictImageRequest: true,
+        request: request({ ...extra, input_images: undefined }),
+      })
+      expect(denied.kind).toBe('private_billing_denied')
+    }
+    const allowed = await storedRequest(
+      await createQueueTask({
+        provider: 'openai-compat',
+        model: 'gpt-image-2.5-flare',
+        userId: BILLING_USER,
+        strictImageRequest: true,
+        request: request({ size: '2560x1440', quality: 'medium', input_images: undefined }),
+      }),
+    )
+    expect(allowed).toMatchObject({ size: '2560x1440', quality: 'medium' })
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+  })
+
+  it('downgrades a non-member Gemini 4K submission to 2K and rejects the same request from the CLI', async () => {
+    await ensureBillingUser()
+    withMember(false)
+    const website = await storedRequest(
+      await createQueueTask({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        userId: BILLING_USER,
+        request: request({ image_size: '4K', input_images: undefined }),
+      }),
+    )
+    expect(website.image_size).toBe('2K')
+
+    const cli = await createQueueTask({
+      provider: 'gemini',
+      model: 'gemini-3-pro-image',
+      userId: BILLING_USER,
+      strictImageRequest: true,
+      request: request({ image_size: '4K', input_images: undefined }),
+    })
+    expect(cli.kind).toBe('private_billing_denied')
+  })
+
+  it('keeps a member Gemini 4K submission and matches the prepared hash', async () => {
+    await ensureBillingUser()
+    withMember(true)
+    const input = {
+      provider: 'gemini' as const,
+      model: 'gemini-3-pro-image',
+      userId: BILLING_USER,
+      request: request({ image_size: '4K', input_images: undefined }),
+    }
+    const payload = await storedRequest(await createQueueTask(input))
+    expect(payload.image_size).toBe('4K')
+
+    await db.delete(schema.tasks)
+    withMember(false)
+    const preparation = await prepareQueueTask(input)
+    expect(preparation.kind).toBe('prepared')
+    if (preparation.kind !== 'prepared') throw new Error('expected a preparation')
+    const submitted = await createQueueTask({ ...input, prepared: preparation.prepared })
+    const downgraded = await storedRequest(submitted)
+    expect(downgraded.image_size).toBe('2K')
+  })
 })
 it('ignores a strict flag supplied inside a website request body', async () => {
   const outcome = await createQueueTask({
