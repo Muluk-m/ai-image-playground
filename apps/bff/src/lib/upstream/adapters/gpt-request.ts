@@ -1,6 +1,7 @@
 import {
   buildAspectInstruction,
   isGptDirectModel,
+  isGptImage26Model,
   unshapeQueuePrompt,
 } from '@image-playground/shared'
 import type { HydratedSubmitRequest } from '../../imageArchive'
@@ -17,6 +18,25 @@ export function adaptGptRequest(
   model: string,
   request: HydratedSubmitRequest,
 ): HydratedSubmitRequest {
+  if (isGptImage26Model(model)) {
+    const prompt = unshapeQueuePrompt({
+      provider: 'openai-compat',
+      prompt: request.prompt,
+      ...(request.size ? { size: request.size } : {}),
+    })
+    const animated = request.output_format === 'gif' || request.output_format === 'svg'
+    const quality =
+      animated || !request.quality || request.quality === 'auto' ? 'medium' : request.quality
+    return {
+      ...request,
+      prompt,
+      quality,
+      ...(animated ? { n: 1, output_compression: undefined } : {}),
+      ...(request.output_format === 'gif'
+        ? { frame_duration_ms: request.frame_duration_ms ?? 200 }
+        : {}),
+    }
+  }
   if (!isGptDirectModel(model)) return request
   if (route === 'direct') {
     const prompt = unshapeQueuePrompt({
