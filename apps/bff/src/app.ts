@@ -304,7 +304,7 @@ export const app = new Elysia()
     const url = new URL(request.url)
     if (isApiPath(url.pathname)) return
     if (
-      /^\/(?:image|explore|assets|tools|projects|pricing|terms|privacy|device|p\/[^/]+|tools\/[^/]+)\/?$/.test(
+      /^\/(?:image|explore|assets|tools|projects|pricing|terms|privacy|connect|device|p\/[^/]+|tools\/[^/]+)\/?$/.test(
         url.pathname,
       )
     ) {

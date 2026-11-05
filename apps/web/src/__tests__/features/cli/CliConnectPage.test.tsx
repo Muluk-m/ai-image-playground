@@ -6,7 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthContextProvider } from '../../../auth/AuthContext'
 import type * as LoginPromptModule from '../../../auth/loginPrompt'
 import CliConnectPage from '../../../features/cli/CliConnectPage'
-import { INSTALL_COMMAND } from '../../../features/cli/connectAgents'
+import {
+  CLI_RELEASE_TAG,
+  INSTALL_COMMAND,
+  manualCommands,
+  SESSION_PATH,
+} from '../../../features/cli/connectAgents'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
 const { promptLogin, copyText } = vi.hoisted(() => ({ promptLogin: vi.fn(), copyText: vi.fn() }))
@@ -96,11 +101,33 @@ describe('CliConnectPage', () => {
     const shown = Array.from(host.querySelectorAll('pre > div'), (line) => line.textContent)
     expect(shown).toEqual([
       INSTALL_COMMAND.unix,
+      SESSION_PATH.unix,
       'muvloom skill install --host claude-code',
       'muvloom auth login',
     ])
     await click('复制命令')
     expect(copyText).toHaveBeenCalledExactlyOnceWith(shown.join('\n'))
+  })
+
+  it('安装脚本固定在发布标签上，不跟随会移动的 main 分支', () => {
+    for (const command of Object.values(INSTALL_COMMAND)) {
+      expect(command).toContain(`/${CLI_RELEASE_TAG}/cli-go/install/`)
+      expect(command).not.toContain('/main/')
+    }
+  })
+
+  it('安装之后先补本次会话的 PATH，再调用 muvloom（首次安装时安装目录不在 PATH 里）', async () => {
+    await render()
+    for (const platform of ['unix', 'windows'] as const) {
+      const lines = manualCommands('claude-code', platform)
+      expect(lines.indexOf(SESSION_PATH[platform])).toBe(
+        lines.indexOf(INSTALL_COMMAND[platform]) + 1,
+      )
+      expect(lines.findIndex((line) => line.startsWith('muvloom '))).toBeGreaterThan(
+        lines.indexOf(SESSION_PATH[platform]),
+      )
+    }
+    expect(promptText()).toContain(SESSION_PATH.unix)
   })
 
   it('剪贴板被拒时提示复制失败，不假装成功', async () => {

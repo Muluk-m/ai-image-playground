@@ -16,6 +16,7 @@ import {
   detectPlatform,
   INSTALL_COMMAND,
   manualCommands,
+  SESSION_PATH,
   skillInstallCommand,
 } from './connectAgents'
 
@@ -116,6 +117,7 @@ export default function CliConnectPage() {
     () =>
       t(skill ? 'cliConnect.prompt.withSkill' : 'cliConnect.prompt.noSkill', {
         install: INSTALL_COMMAND[platform],
+        path: SESSION_PATH[platform],
         skill: skill ?? '',
       }),
     [t, skill, platform],

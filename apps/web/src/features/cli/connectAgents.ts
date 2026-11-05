@@ -7,11 +7,27 @@
 export type ConnectAgentId = 'claude-code' | 'codex' | 'other'
 export type ConnectPlatform = 'unix' | 'windows'
 
-/** 官方安装脚本。走 GitHub release 并校验 SHA-256，见 cli-go/internal/skill/assets/references/install.md。 */
+/**
+ * 官方安装脚本，固定在 CLI 发布标签上而不是会移动的 `main`：用户复制的就是那个版本的脚本，
+ * 之后分支上的改动不会悄悄变成别人电脑上的命令。脚本再校验下载的 CLI 的 SHA-256，
+ * 见 cli-go/internal/skill/assets/references/install.md。发新版 CLI 时在这里改版本。
+ */
+export const CLI_RELEASE_TAG = 'cli-v0.1.0'
+const INSTALL_BASE = `https://raw.githubusercontent.com/Muluk-m/ai-image-playground/${CLI_RELEASE_TAG}/cli-go/install`
 export const INSTALL_COMMAND: Record<ConnectPlatform, string> = {
-  unix: 'curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/main/cli-go/install/install.sh | sh',
+  unix: `curl -fsSL ${INSTALL_BASE}/install.sh | sh`,
+  windows: `irm ${INSTALL_BASE}/install.ps1 | iex`,
+}
+
+/**
+ * 安装脚本跑在子进程里，改不了当前终端的 PATH：安装目录不在 PATH 时，紧接着的 `muvloom`
+ * 会找不到命令。unix 先把默认安装目录补进本次会话；Windows 脚本只改持久的用户 PATH，
+ * 要在本次会话里刷新才能直接用。
+ */
+export const SESSION_PATH: Record<ConnectPlatform, string> = {
+  unix: 'export PATH="$HOME/.local/bin:$PATH"',
   windows:
-    'irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/main/cli-go/install/install.ps1 | iex',
+    '$env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")',
 }
 
 /** 宿主对应的 `muvloom skill install --host`；其它 Agent 没有 Skill 目录，不装 Skill。 */
@@ -19,10 +35,15 @@ export function skillInstallCommand(agent: ConnectAgentId): string | null {
   return agent === 'other' ? null : `muvloom skill install --host ${agent}`
 }
 
-/** 手动做同样的事，终端里逐行执行。 */
+/** 手动做同样的事，终端里逐行执行。安装后立刻补会话 PATH，后面的 `muvloom` 才找得到。 */
 export function manualCommands(agent: ConnectAgentId, platform: ConnectPlatform): string[] {
   const skill = skillInstallCommand(agent)
-  return [INSTALL_COMMAND[platform], ...(skill ? [skill] : []), 'muvloom auth login']
+  return [
+    INSTALL_COMMAND[platform],
+    SESSION_PATH[platform],
+    ...(skill ? [skill] : []),
+    'muvloom auth login',
+  ]
 }
 
 /** 运行时按系统猜一个默认平台；猜不出来按类 Unix 处理。 */
