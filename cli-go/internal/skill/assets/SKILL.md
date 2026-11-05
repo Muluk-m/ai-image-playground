@@ -18,6 +18,12 @@ a credit quote or a second confirmation. Quote costs only when the user asks;
 apply a credit limit only when the user explicitly supplies one. Use sensible defaults
 for unspecified creative details; ask only for missing input that blocks the task.
 
+At each Skill startup, run `muvloom update check`. The CLI checks official stable
+releases once per local calendar day. Offer an update only when `should_prompt`
+is true; continue the original task while awaiting the user's choice. Update only
+after authorization, following [updates.md](references/updates.md). An unavailable
+check or a declined update does not block generation.
+
 1. **Check setup**: `muvloom auth status` once at the start of the task; reuse ready state until an authentication error.
    - Command not found → install it with [install.md](references/install.md), then run `auth status` again.
    - `state: outdated` → reinstall the latest release ([install.md](references/install.md)).
@@ -36,5 +42,6 @@ Flags shared by `validate` and `create`: `--model`, `--aspect-ratio`, `--image-s
 - [jobs.md](references/jobs.md) — waiting, recovering a lost submission, cancelling.
 - [errors.md](references/errors.md) — what to do for each error code (credits, membership, conflicts).
 - [install.md](references/install.md) — installing or upgrading the CLI.
+- [updates.md](references/updates.md) — daily update checks and authorized upgrades.
 
 Generated images are artifacts in the user's Muvloom history; they are not saved to the asset library unless the user does that on the website.

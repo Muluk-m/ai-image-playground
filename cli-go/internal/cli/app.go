@@ -154,6 +154,7 @@ type command struct {
 func commands() map[string]map[string]command {
 	return map[string]map[string]command{
 		"version": {"": {"version", cmdVersion}},
+		"update":  {"check": {"update check", cmdUpdateCheck}},
 		"auth": {
 			"status": {"auth status", cmdAuthStatus},
 			"login":  {"auth login [--no-wait] [--timeout SECONDS]", cmdAuthLogin},
@@ -190,8 +191,8 @@ func commands() map[string]map[string]command {
 func usage() string {
 	lines := []string{}
 	table := commands()
-	for _, group := range []string{"version", "auth", "capabilities", "images", "jobs", "media", "artifacts", "skill"} {
-		for _, sub := range []string{"", "status", "login", "logout", "validate", "create", "get", "list", "wait", "cancel", "upload", "download", "install"} {
+	for _, group := range []string{"version", "update", "auth", "capabilities", "images", "jobs", "media", "artifacts", "skill"} {
+		for _, sub := range []string{"", "check", "status", "login", "logout", "validate", "create", "get", "list", "wait", "cancel", "upload", "download", "install"} {
 			if cmd, ok := table[group][sub]; ok {
 				lines = append(lines, "muvloom "+cmd.usage)
 			}
