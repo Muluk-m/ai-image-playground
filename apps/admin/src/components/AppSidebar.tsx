@@ -7,6 +7,7 @@ import {
   Bug,
   ClipboardList,
   HeartPulse,
+  KeyRound,
   LogOut,
   type LucideIcon,
   MessageSquareText,
@@ -54,6 +55,7 @@ export type NavTo =
   | '/audit'
   | '/models'
   | '/operator-settings'
+  | '/upstream-secrets'
 export interface NavEntry {
   to: NavTo
   icon: LucideIcon
@@ -108,6 +110,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     label: '设置',
     entries: [
       { to: '/models', icon: Boxes, label: '模型' },
+      { to: '/upstream-secrets', icon: KeyRound, label: '上游密钥' },
       { to: '/operator-settings', icon: SlidersHorizontal, label: '能力与配额' },
       { to: '/audit', icon: BookOpen, label: '审计' },
     ],

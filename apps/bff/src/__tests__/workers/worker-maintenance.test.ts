@@ -16,7 +16,7 @@ const config = { assertValid: noop, worker: {
   pollIntervalMs: 1000, concurrency: { openaiCompat: 1, gemini: 1 }, drainTimeoutMs: 100
 }};
 mock.module(path('config.ts'), () => ({ config }));
-mock.module(path('db/client.ts'), () => ({ close: done }));
+mock.module(path('db/client.ts'), () => ({ close: done, db: {}, schema: {} }));
 mock.module(path('db/maintenance.ts'), () => ({ purgeOldHostSamples: done, recoverAbandonedTasks: done, recoverTasksByIds: done }));
 mock.module(path('lib/analysis-tasks.ts'), () => ({ recoverAnalysisTasks: done }));
 mock.module(path('lib/auto-reconcile.ts'), () => ({ autoReconcileTasks: done }));
