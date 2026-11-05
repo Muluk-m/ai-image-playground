@@ -18,7 +18,7 @@ import {
   normalizeSettings,
   validateClientProfile,
 } from './lib/apiProfiles'
-import { pathAppMode } from './lib/appPaths'
+import { isChangelogPath, pathAppMode } from './lib/appPaths'
 import { accountScope, STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
 import {
   BATCH_GENERATE_CONCURRENCY,
@@ -67,6 +67,7 @@ import {
 import { markHistoryReady } from './lib/historyReady'
 import { IMAGE_FETCH_CORS_HINT, bytesToDataUrl as sharedBytesToDataUrl } from './lib/imageApiShared'
 import { orderInputImagesForMask } from './lib/mask'
+import { writeModeAddress } from './lib/navigation/address'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
 import { placeCloudGeneration } from './lib/placeCloudGeneration'
 import {
@@ -924,7 +925,12 @@ export const useStore = create<AppState>()(
       appMode:
         pathAppMode(globalThis.location?.pathname ?? '/') ??
         (readProjectRoute(globalThis.location?.pathname ?? '/') !== null ? 'canvas' : 'image'),
-      setAppMode: (appMode) => set({ appMode, sidebarExpanded: null }),
+      setAppMode: (appMode) => {
+        set({ appMode, sidebarExpanded: null })
+        // 模式没变时订阅者不会改地址。人还停在更新页上再点当前入口，也要回到那个入口。
+        if (isChangelogPath(globalThis.location?.pathname ?? ''))
+          writeModeAddress(appMode, useCanvasProjectStore.getState().activeId)
+      },
       createTarget: 'generate',
       batchGenerate: false,
       setBatchGenerate: (batchGenerate) => set({ batchGenerate }),

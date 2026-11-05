@@ -1,92 +1,65 @@
-import type { AnnouncementPublicList } from '@image-playground/shared'
 import { selectMajorAnnouncement } from '@image-playground/shared'
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { currentLocale } from '../../i18n'
-import { AnnouncementDrawer } from './AnnouncementDrawer'
+import { isChangelogPath } from '../../lib/appPaths'
 import { AnnouncementModal } from './AnnouncementModal'
 import {
   announcementLocale,
   announcementModalShownThisSession,
   fetchAnnouncements,
-  postAnnouncementReads,
+  markAnnouncementFeed,
   withLocalReads,
-  writeLocalAnnouncementReads,
 } from './client'
 import {
-  announcementPanelOpen,
-  setAnnouncementUnreadCount,
+  announcementFeedStatus,
+  announcementItems,
+  setAnnouncementFeed,
+  setAnnouncementFeedError,
   subscribeAnnouncementPanel,
 } from './panel'
 
 export function AnnouncementHost() {
   const user = useAuth().user
-  const open = useSyncExternalStore(subscribeAnnouncementPanel, announcementPanelOpen, () => false)
-  const [list, setList] = useState<AnnouncementPublicList>({ items: [], unreadCount: 0 })
-  const [error, setError] = useState(false)
+  const items = useSyncExternalStore(
+    subscribeAnnouncementPanel,
+    announcementItems,
+    announcementItems,
+  )
+  const status = useSyncExternalStore(
+    subscribeAnnouncementPanel,
+    announcementFeedStatus,
+    announcementFeedStatus,
+  )
   const [modalId, setModalId] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     try {
       const remote = await fetchAnnouncements(announcementLocale(currentLocale()))
       const next = withLocalReads(remote, !user)
-      setList(next)
-      setError(false)
-      if (!announcementModalShownThisSession() && !open) {
+      setAnnouncementFeed(next)
+      if (!announcementModalShownThisSession() && !isChangelogPath(window.location.pathname)) {
         const major = selectMajorAnnouncement(next.items)
         if (major) setModalId(major.id)
       }
     } catch {
-      setError(true)
+      setAnnouncementFeedError()
     }
-  }, [open, user])
+  }, [user])
 
   useEffect(() => {
     void reload()
   }, [reload])
 
-  async function mark(ids: string[], dismissed: boolean) {
-    if (!ids.length) return
-    if (user) {
-      const ok = await postAnnouncementReads(ids, dismissed)
-      if (!ok) writeLocalAnnouncementReads(ids, dismissed)
-    } else {
-      writeLocalAnnouncementReads(ids, dismissed)
-    }
-    setList((current) => {
-      const items = current.items.map((item) =>
-        ids.includes(item.id)
-          ? { ...item, unread: false, dismissed: item.dismissed || dismissed }
-          : item,
-      )
-      return { items, unreadCount: items.filter((item) => item.unread).length }
-    })
-  }
+  const modal = status === 'ready' ? (items.find((item) => item.id === modalId) ?? null) : null
+  const extraUnread = items.filter((item) => item.unread && item.id !== modal?.id).length
 
-  useEffect(() => {
-    setAnnouncementUnreadCount(list.unreadCount)
-  }, [list.unreadCount])
-
-  const modal = list.items.find((item) => item.id === modalId) ?? null
-  const extraUnread = list.items.filter((item) => item.unread && item.id !== modal?.id).length
-
-  return (
-    <>
-      <AnnouncementDrawer
-        open={open}
-        items={list.items}
-        unreadCount={list.unreadCount}
-        error={error}
-        onMark={(ids, dismissed) => void mark(ids, dismissed)}
-      />
-      {modal && !open ? (
-        <AnnouncementModal
-          item={modal}
-          extraUnread={extraUnread}
-          onSeen={(id) => void mark([id], true)}
-          onClose={() => setModalId(null)}
-        />
-      ) : null}
-    </>
-  )
+  return modal ? (
+    <AnnouncementModal
+      item={modal}
+      extraUnread={extraUnread}
+      onSeen={(id) => void markAnnouncementFeed([id], true, Boolean(user))}
+      onClose={() => setModalId(null)}
+    />
+  ) : null
 }
