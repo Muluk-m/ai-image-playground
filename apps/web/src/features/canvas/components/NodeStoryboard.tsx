@@ -32,6 +32,7 @@ import {
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { composerImageRate } from '../../../lib/imageCharge'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import type { NodeCanvasDocument } from '../lib/nodeCanvasDocument'
@@ -131,9 +132,14 @@ function StoryboardEditor({
   }
   const [confirm, setConfirm] = useState(false)
   const settings = useStore((s) => s.settings)
+  const params = useStore((s) => s.params)
   const profile = getActiveApiProfile(settings)
   const model = clientProfileToApiProfile(profile).model
-  const guard = usePrivateSubmissionGuard({ model, quantity: node.data.shots.length })
+  const guard = usePrivateSubmissionGuard({
+    model,
+    quantity: node.data.shots.length,
+    unitMultiplier: composerImageRate(model, params),
+  })
   const shots = node.data.shots
   const fingerprint = storyboardFingerprint(shots)
   const confirmed = node.data.confirmed?.fingerprint === fingerprint

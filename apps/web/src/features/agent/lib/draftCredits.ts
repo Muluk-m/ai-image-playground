@@ -1,3 +1,5 @@
+import { preparedImageRateMultiplier } from '@image-playground/shared'
+import { declaredImageSizesForModel } from '../../../lib/imageCharge'
 import type { PrivateSubmissionInput } from '../../../lib/privateOverlay'
 import { getPrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import type { AgentToolMessage } from '../types'
@@ -12,9 +14,20 @@ export function agentDraftCreditEstimate(
   quote: (input: PrivateSubmissionInput) => number | undefined = (input) =>
     getPrivateSubmissionGuard(input).estimatedCredits,
 ): number | undefined {
+  const model = message.snapshot?.target?.model ?? ''
+  const params = message.snapshot?.params
   const estimated = quote({
-    model: message.snapshot?.target?.model ?? '',
+    model,
     quantity: agentDraftOutputCount(message),
+    unitMultiplier: preparedImageRateMultiplier(
+      model,
+      {
+        size: params?.size,
+        quality: params?.quality,
+        gemini_image_size: params?.gemini_image_size,
+      },
+      declaredImageSizesForModel(model),
+    ),
   })
   return typeof estimated === 'number' && Number.isFinite(estimated) ? estimated : undefined
 }

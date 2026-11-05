@@ -19,6 +19,7 @@ import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/videoChannels'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
+import { composerImageRate } from '../../../lib/imageCharge'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
@@ -153,6 +154,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
     : {
         model: clientProfileToApiProfile(activeProfile).model,
         quantity: Math.max(1, params.n),
+        unitMultiplier: composerImageRate(clientProfileToApiProfile(activeProfile).model, params),
       }
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)
   // 选了两张以上、模型又带得了参考图时，选中的图都当参考图（与「选中即参考」同一个门槛、
