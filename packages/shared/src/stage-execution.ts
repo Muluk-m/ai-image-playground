@@ -238,6 +238,7 @@ export function resolveStageImageExecution(input: {
   readonly imageSize?: string | undefined
   /** 渠道声明的可出档。缺席则按请求档计价。 */
   readonly supportedTiers?: readonly string[] | undefined
+  readonly mask?: unknown
 }): StageExecutionSpec | undefined {
   const model = input.model?.trim() ?? ''
   if (!model) return undefined
@@ -245,12 +246,14 @@ export function resolveStageImageExecution(input: {
   return {
     model,
     quantity: single ? 1 : agentImageCount({ n: input.count }),
+    // 阶段提交会把 GPT 收到 ≤2K、非高画质。授权上的倍率必须是收后的那一档，与提交时的 pricingOf 一致。
     unitMultiplier: preparedImageRateMultiplier(
       model,
       {
         size: input.size,
         quality: input.quality,
         image_size: input.imageSize,
+        mask: input.mask,
       },
       input.supportedTiers,
     ),

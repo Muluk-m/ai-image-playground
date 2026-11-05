@@ -1,8 +1,8 @@
 import { Buffer } from 'node:buffer'
 import {
-  isGptBasicRequest,
   isGptDirectModel,
   isGptImage26Model,
+  isGptSub2apiDeliverable,
   QUEUE_TIMEOUTS,
   type QueueProvider,
 } from '@image-playground/shared'
@@ -382,7 +382,7 @@ function requiresGptDirect(params: UpstreamCallParams): boolean {
     params.strictImageRequest === true &&
     isGptDirectModel(params.model) &&
     !params.request.video &&
-    !isGptBasicRequest(params.request)
+    !isGptSub2apiDeliverable(params.request)
   )
 }
 
