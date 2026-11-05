@@ -1,11 +1,19 @@
 /**
- * CLI 接入页里每个 Agent 宿主的接入方式。命令与目录约定来自 `cli-go`（install.sh / install.ps1 与
+ * `/connect` 上每个插件宿主的接入方式。命令来自已发布的 `cli-go`（install.sh / install.ps1 与
  * `muvloom skill install`）；这里只放展示用的配置，不重复实现安装逻辑。
- * 给 Agent 的提示词正文放在 locale（`auth:cliConnect.prompt.*`），命令作为插值传入，保证跟界面语言走。
+ * 给宿主的提示词正文放在 locale（`auth:cliConnect.prompt.*`），命令作为插值传入，保证跟界面语言走。
+ *
+ * `muvloom skill install --host` 在当前发布里只接受 `claude-code` 与 `codex`
+ * （`cli-go/internal/cli/skill.go`）。WorkBuddy 的技能目录是 `~/.workbuddy/skills/`，
+ * 豆包工作在客户端「插件·技能·伙伴」里上传技能，都没有对应的 `--host`。
+ * 这两个宿主因此只引导安装与授权，不生成 `skill install` 命令。
  */
 
-export type ConnectAgentId = 'claude-code' | 'codex' | 'other'
+export const CONNECT_AGENTS = ['workbuddy', 'doubao', 'claude-code', 'codex', 'other'] as const
+export type ConnectAgentId = (typeof CONNECT_AGENTS)[number]
 export type ConnectPlatform = 'unix' | 'windows'
+
+const SKILL_HOSTS = new Set<ConnectAgentId>(['claude-code', 'codex'])
 
 /**
  * 官方安装脚本固定到 CLI 发布对应的公开提交，而不是可移动的 `main` 或可重指向的 tag：用户复制的
@@ -30,9 +38,23 @@ export const SESSION_PATH: Record<ConnectPlatform, string> = {
     '$env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")',
 }
 
-/** 宿主对应的 `muvloom skill install --host`；其它 Agent 没有 Skill 目录，不装 Skill。 */
+/** 当前 CLI 接受的 `muvloom skill install --host`。没有对应 host 的宿主返回 null。 */
 export function skillInstallCommand(agent: ConnectAgentId): string | null {
-  return agent === 'other' ? null : `muvloom skill install --host ${agent}`
+  return SKILL_HOSTS.has(agent) ? `muvloom skill install --host ${agent}` : null
+}
+
+/** 复制给宿主的提示词。有技能安装命令的走 withSkill，WorkBuddy / 豆包各有一段不带 `--host` 的说明。 */
+export function connectPromptKey(
+  agent: ConnectAgentId,
+):
+  | 'cliConnect.prompt.withSkill'
+  | 'cliConnect.prompt.workbuddy'
+  | 'cliConnect.prompt.doubao'
+  | 'cliConnect.prompt.noSkill' {
+  if (skillInstallCommand(agent)) return 'cliConnect.prompt.withSkill'
+  if (agent === 'workbuddy') return 'cliConnect.prompt.workbuddy'
+  if (agent === 'doubao') return 'cliConnect.prompt.doubao'
+  return 'cliConnect.prompt.noSkill'
 }
 
 /** 手动做同样的事，终端里逐行执行。安装后立刻补会话 PATH，后面的 `muvloom` 才找得到。 */
