@@ -255,6 +255,13 @@ export async function releaseDirectReservation(id: string): Promise<void> {
   if (row) forgetSpent(row.fingerprint)
 }
 
+let beforeDirectUsageRecord: (() => Promise<void>) | undefined
+
+/** 测试在落账事务开始前插入观察。此时已发出请求的预留必须还在。 */
+export function _setBeforeDirectUsageRecordForTesting(hook?: () => Promise<void>): void {
+  beforeDirectUsageRecord = hook
+}
+
 /** 记一条直连请求的成本。写失败只记日志：成本记账不能让已出的图交付失败。 */
 export async function recordDirectUsage(input: {
   taskId?: string
@@ -273,6 +280,7 @@ export async function recordDirectUsage(input: {
     : estimateDirectCostMicroUsd(input.size, input.quality, input.images)
   const now = Date.now()
   try {
+    if (beforeDirectUsageRecord) await beforeDirectUsageRecord()
     await db.transaction(async (tx) => {
       if (input.keyFingerprint) await lockDirectBudget(tx, input.keyFingerprint)
       if (input.images > 0 && cost > 0) {

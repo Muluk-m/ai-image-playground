@@ -502,9 +502,10 @@ async function callDirectTryingKeys(
       return { result, fingerprint: key.fingerprint, reservationId }
     } catch (error) {
       Object.assign(error as object, { directKeyDispatched: thisKeyDispatched })
-      if (produced) {
-        // 已经交出至少一张图。再换 key 会把这些图重新生成，上游和用户都会被扣第二次。
-        // 缺口由 fan-out 的 partial_failure 退回；这里把预占交给结算，不再试下一把。
+      if (thisKeyDispatched && (produced || upstreamStatusOf(error) === undefined)) {
+        // 已经发出但结果未知，或已经出过图。预留留到 settle 的落账事务里一次转成用量。
+        // 先删掉的话，落账前这段两边都没算这笔钱，月度上限会被超。
+        // 已经出过图再换 key 还会把图重新生成一遍。
         Object.assign(error as object, { directReservationId: reservationId })
         throw error
       }
@@ -746,14 +747,21 @@ async function callGptDualRoute(
   if (secondOutcome.ok) return secondOutcome.result
   // 第一条路已发出、结果未知（被单路时限掐断或连接中断）时，两路都没成也不能当确定失败：
   // 否则任务级重试会再派发一整单。保留结果未知，交给对账或按未知失败处理。
-  const firstUnknown =
-    directKeyDispatched(error) && (state.timedOut || error instanceof UpstreamResultUnknownError)
-  if (firstUnknown && !(secondOutcome.error instanceof UpstreamResultUnknownError)) {
+  // 直连的 per-key 标记不能拿来判断 sub2api。sub2api 仍看这一路自己的 dispatched。
+  const firstSent = first === 'direct' ? directKeyDispatched(error) : state.dispatched
+  const secondSent =
+    other === 'direct' ? directKeyDispatched(secondOutcome.error) : secondOutcome.state.dispatched
+  const firstUnknown = firstSent && (state.timedOut || error instanceof UpstreamResultUnknownError)
+  const secondUnknown =
+    secondSent &&
+    (secondOutcome.state.timedOut || secondOutcome.error instanceof UpstreamResultUnknownError)
+  if (firstUnknown || secondUnknown) {
+    if (secondOutcome.error instanceof UpstreamResultUnknownError) throw secondOutcome.error
     const detail =
       secondOutcome.error instanceof Error ? secondOutcome.error.message.slice(0, 200) : '失败'
     // 不挂 cause：错误会继承 cause 的上游状态码，429/5xx 会被 task-runner 当成可重试。
     throw new UpstreamResultUnknownError(
-      `换路后仍失败（${detail}）；先发出的那一路结果未知，未重复生成`,
+      `换路后仍失败（${detail}）；已发出的一路结果未知，未重复生成`,
       { requiresReconciliation: params.reconciliationRequired === true },
     )
   }
