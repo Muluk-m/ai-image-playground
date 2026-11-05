@@ -6,6 +6,7 @@ import {
   type GenerationActor,
   type GenerationTaskFilters,
   type GenerationTasksResult,
+  type GenerationUsersOverview,
   type OverviewActivityResult,
   type TimeWindow,
   type TodayErrorItem,
@@ -52,8 +53,49 @@ export async function getTodayOverview(now = Date.now()): Promise<TodayOverviewR
 export async function getGenerationOverview(window: TimeWindow): Promise<TodayOverviewResult> {
   const from = new Date(window.from)
   const to = new Date(window.to)
-  const [actorRows, modelRows, failureRows] = await Promise.all([
+  const [overview, modelRows, failureRows] = await Promise.all([
+    getGenerationUsers(window),
     getDbHandle().db.execute(sql`
+      SELECT model,
+        COUNT(*) AS tasks,
+        COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+        COUNT(*) FILTER (WHERE status = 'failed') AS failed,
+        COALESCE(SUM(upstream_invocation_count), 0) AS upstream_invocations
+      FROM queue_tasks
+      WHERE submitted_at >= ${from} AND submitted_at <= ${to}
+      GROUP BY model
+      ORDER BY COUNT(*) DESC, model
+    `),
+    getDbHandle().db.execute(sql`
+      SELECT model,
+        COALESCE(error_type, 'unknown') AS error_type,
+        COUNT(*) AS count
+      FROM queue_tasks
+      WHERE submitted_at >= ${from} AND submitted_at <= ${to}
+        AND status = 'failed'
+      GROUP BY model, COALESCE(error_type, 'unknown')
+    `),
+  ])
+  const failuresByModel = modelFailures(failureRows as unknown as Row[])
+  return {
+    ...overview,
+    models: (modelRows as unknown as Row[]).map(
+      (row): TodayModelStat => ({
+        model: String(row.model),
+        tasks: Number(row.tasks),
+        completed: Number(row.completed),
+        failed: Number(row.failed),
+        upstream_invocations: Number(row.upstream_invocations),
+        failures: failuresByModel.get(String(row.model)) ?? [],
+      }),
+    ),
+  }
+}
+
+export async function getGenerationUsers(window: TimeWindow): Promise<GenerationUsersOverview> {
+  const from = new Date(window.from)
+  const to = new Date(window.to)
+  const actorRows = await getDbHandle().db.execute(sql`
     WITH actors AS (
       SELECT CASE WHEN t.user_id IS NOT NULL THEN 'user'
         WHEN t.device_id IS NOT NULL THEN 'device' ELSE 'unassigned' END AS kind,
@@ -80,43 +122,11 @@ export async function getGenerationOverview(window: TimeWindow): Promise<TodayOv
     LEFT JOIN admin_user_notes n ON n.user_id = u.id
     ORDER BY a.last_submitted_at DESC, a.kind, a.actor_id
     LIMIT ${ACTOR_LIMIT}
-  `),
-    getDbHandle().db.execute(sql`
-      SELECT model,
-        COUNT(*) AS tasks,
-        COUNT(*) FILTER (WHERE status = 'completed') AS completed,
-        COUNT(*) FILTER (WHERE status = 'failed') AS failed,
-        COALESCE(SUM(upstream_invocation_count), 0) AS upstream_invocations
-      FROM queue_tasks
-      WHERE submitted_at >= ${from} AND submitted_at <= ${to}
-      GROUP BY model
-      ORDER BY COUNT(*) DESC, model
-    `),
-    getDbHandle().db.execute(sql`
-      SELECT model,
-        COALESCE(error_type, 'unknown') AS error_type,
-        COUNT(*) AS count
-      FROM queue_tasks
-      WHERE submitted_at >= ${from} AND submitted_at <= ${to}
-        AND status = 'failed'
-      GROUP BY model, COALESCE(error_type, 'unknown')
-    `),
-  ])
+  `)
   const rows = actorRows as unknown as Row[]
   const totals = rows[0] ?? {}
-  const failuresByModel = modelFailures(failureRows as unknown as Row[])
   return {
     window,
-    models: (modelRows as unknown as Row[]).map(
-      (row): TodayModelStat => ({
-        model: String(row.model),
-        tasks: Number(row.tasks),
-        completed: Number(row.completed),
-        failed: Number(row.failed),
-        upstream_invocations: Number(row.upstream_invocations),
-        failures: failuresByModel.get(String(row.model)) ?? [],
-      }),
-    ),
     summary: {
       users: Number(totals.users ?? 0),
       devices: Number(totals.devices ?? 0),

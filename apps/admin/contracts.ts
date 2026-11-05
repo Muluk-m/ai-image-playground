@@ -739,7 +739,9 @@ export interface OverviewActivityResult {
   client: { total: number; entries: OverviewClientError[] }
 }
 
-export interface GenerationOverviewResult extends TodayOverviewResult {
+export type GenerationUsersOverview = Omit<TodayOverviewResult, 'models'>
+
+export interface GenerationOverviewResult extends GenerationUsersOverview {
   activity: OverviewActivityResult
 }
 

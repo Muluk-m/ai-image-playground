@@ -53,3 +53,9 @@ export function generationWindow(selection: GenerationSelection, now = Date.now(
   const hours = GENERATION_PRESETS.find((item) => item.value === selection.preset)?.hours ?? 24
   return { from: now - hours * 3600_000, to: now }
 }
+
+export function generationRefreshInterval(selection: GenerationSelection): number | false {
+  return selection.preset === '1h' || selection.preset === '6h' || selection.preset === '24h'
+    ? 30_000
+    : false
+}

@@ -19,6 +19,7 @@ import { shortId } from '@/lib/format'
 import {
   GENERATION_PRESETS,
   type GenerationSelection,
+  generationRefreshInterval,
   generationWindow,
   parseGenerationSearch,
   readGenerationSelection,
@@ -28,9 +29,9 @@ import { useGenerationOverview } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import {
   type GenerationActor,
+  type GenerationUsersOverview,
   parseTimeWindow,
   type TimeWindow,
-  type TodayOverviewResult,
 } from '../../contracts'
 
 export const Route = createFileRoute('/_authed/overview')({
@@ -63,7 +64,7 @@ function OverviewPage() {
   return (
     <Page
       crumbs={[{ label: '概览' }]}
-      description={`${formatAt(window.from)} — ${formatAt(window.to)} · 北京时间 · 每 30 秒刷新`}
+      description={`${formatAt(window.from)} — ${formatAt(window.to)} · 北京时间 · ${generationRefreshInterval(selection) ? '每 30 秒刷新' : '手动刷新'}`}
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <div
@@ -189,7 +190,7 @@ function actorSearch(actor: GenerationActor, window: TimeWindow) {
   }
 }
 
-function GenerationUsers({ overview }: { overview: TodayOverviewResult }) {
+function GenerationUsers({ overview }: { overview: GenerationUsersOverview }) {
   const { summary, window } = overview
   return (
     <>

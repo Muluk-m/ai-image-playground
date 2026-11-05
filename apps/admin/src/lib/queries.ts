@@ -11,7 +11,11 @@ import type {
 } from '../../contracts'
 
 import { apiClient } from './api-client'
-import { type GenerationSelection, generationWindow } from './generation-overview'
+import {
+  type GenerationSelection,
+  generationRefreshInterval,
+  generationWindow,
+} from './generation-overview'
 import type {
   ClientErrorEventsResult,
   ClientErrorsResult,
@@ -247,7 +251,7 @@ export function useGenerationOverview(selection: GenerationSelection) {
       return apiClient.get<GenerationOverviewResult>(`/api/overview/generation?${params}`)
     },
     staleTime: 0,
-    refetchInterval: 30_000,
+    refetchInterval: generationRefreshInterval(selection),
   })
 }
 export function useTodayErrors() {

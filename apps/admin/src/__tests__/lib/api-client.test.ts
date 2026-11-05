@@ -90,6 +90,8 @@ describe('api-client', () => {
     expect(err).toBeInstanceOf(ApiError)
     expect(err).not.toBeInstanceOf(UnauthorizedError)
     expect((err as ApiError).status).toBe(500)
+    expect(err.message).toBe('HTTP 500')
+    expect(err.message).not.toContain('boom')
     expect(clearSpy).not.toHaveBeenCalled()
     expect(navigate).not.toHaveBeenCalled()
   })
