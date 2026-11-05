@@ -95,6 +95,7 @@ export interface NodeBatchPlan {
   error?: NodeBatchError
   settings: AppSettings
   params: TaskParams
+  member?: boolean
 }
 export interface NodeBatchInput {
   snapshot: CanvasSnapshot
@@ -106,6 +107,7 @@ export interface NodeBatchInput {
   videoDraft: VideoDraft
   options: readonly VideoModelOption[]
   guard?: typeof getPrivateSubmissionGuard
+  member?: boolean
 }
 function referencesFor(snapshot: CanvasSnapshot, node: CanvasNode) {
   const meta = 'meta' in node.data ? (node.data.meta ?? {}) : {}
@@ -167,6 +169,7 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
       quality: params.quality,
       imageSize: params.gemini_image_size,
       supportedTiers: declaredImageSizesForModel(imageProfile.model),
+      member: input.member,
     })
     if (kind === 'image' && image) {
       model = image.model
@@ -320,10 +323,16 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
     error: error ?? (jobs.length ? undefined : 'empty'),
     settings: structuredClone(settings),
     params: { ...params },
+    member: input.member,
   }
 }
 
-export function currentNodeBatch(doc: Y.Doc, editor: CanvasEditor, ids: readonly string[]) {
+export function currentNodeBatch(
+  doc: Y.Doc,
+  editor: CanvasEditor,
+  ids: readonly string[],
+  member = false,
+) {
   const { settings, params } = useStore.getState()
   return buildNodeBatch({
     snapshot: readCanvasDocument(doc),
@@ -334,6 +343,7 @@ export function currentNodeBatch(doc: Y.Doc, editor: CanvasEditor, ids: readonly
     params,
     videoDraft: useVideoStore.getState().draft,
     options: videoModelOptions(),
+    member,
   })
 }
 
@@ -447,10 +457,12 @@ export async function runNodeBatch(
     current: () => {
       if (!sameAccount() || doc.isDestroyed) throw new NodeBatchFailure('cancelled')
       assertResults()
-      return currentNodeBatch(doc, editor, ids)
+      return currentNodeBatch(doc, editor, ids, plan.member)
     },
     submit: async (job) => {
-      const current = currentNodeBatch(doc, editor, ids).jobs.find((one) => one.id === job.id)
+      const current = currentNodeBatch(doc, editor, ids, plan.member).jobs.find(
+        (one) => one.id === job.id,
+      )
       if (!current) throw new NodeBatchFailure('changed')
       const stage = stageAuthorizations?.[job.id]
       const files = { ...editor.doc.files, ...current.temporary }
@@ -482,6 +494,7 @@ export async function runNodeBatch(
                 settings: plan.settings,
                 params: { ...plan.params, n: job.quantity },
                 stageAuthorization: stageAuthorizations?.[job.id],
+                member: plan.member,
               },
             )
           : submitNodeVideo(

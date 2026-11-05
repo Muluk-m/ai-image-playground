@@ -4,6 +4,8 @@ import Credits from '../../../components/Credits'
 import Dialog from '../../../components/patterns/Dialog'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
+import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { useGptPremiumLocked } from '../../../lib/gptPremium'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import { useVideoStore } from '../../video/store'
@@ -35,10 +37,14 @@ export default function NodeBatchDialog({
 }) {
   const { t } = useTranslation('canvas')
   // Subscribe to settings as well as parent document updates so a visible quote never silently changes.
-  useStore((state) => state.settings)
+  const settings = useStore((state) => state.settings)
   useStore((state) => state.params)
+  const profile = clientProfileToApiProfile(getActiveApiProfile(settings))
+  const membership = useGptPremiumLocked(profile.model, false)
   useVideoStore((state) => state.draft)
-  const [plan, setPlan] = useState(() => initialPlan ?? currentNodeBatch(canvas.doc, editor, ids))
+  const [plan, setPlan] = useState(
+    () => initialPlan ?? currentNodeBatch(canvas.doc, editor, ids, membership.member),
+  )
   const [status, setStatus] = useState<'ready' | 'running' | 'done' | 'error'>('ready')
   const [completed, setCompleted] = useState(0),
     [active, setActive] = useState(''),
@@ -46,13 +52,14 @@ export default function NodeBatchDialog({
   const controller = useRef<AbortController | null>(null)
   useEffect(() => () => controller.current?.abort(), [])
   const guard = usePrivateSubmissionGuard({ model: plan.jobs[0]?.model ?? '', quantity: 1 })
-  const current = currentNodeBatch(canvas.doc, editor, ids)
+  const current = currentNodeBatch(canvas.doc, editor, ids, membership.member)
   const changed = current.signature !== plan.signature
   const close = () => {
     controller.current?.abort()
     onClose()
   }
   const start = async () => {
+    if (!membership.settled) return
     if (controller.current || changed || plan.error || current.blocked) return
     const abort = new AbortController()
     controller.current = abort
@@ -70,7 +77,7 @@ export default function NodeBatchDialog({
   }
   const refresh = () => {
     controller.current = null
-    setPlan(currentNodeBatch(canvas.doc, editor, ids))
+    setPlan(currentNodeBatch(canvas.doc, editor, ids, membership.member))
     setFailure(undefined)
     setStatus('ready')
     setCompleted(0)
@@ -109,7 +116,9 @@ export default function NodeBatchDialog({
           </Button>
           {status === 'ready' && !changed && (
             <Button
-              disabled={Boolean(plan.error) || current.blocked || !snapshot.nodes.length}
+              disabled={
+                !membership.settled || Boolean(plan.error) || current.blocked || !snapshot.nodes.length
+              }
               onClick={() => void start()}
             >
               {t('nodeBatch.confirm')}

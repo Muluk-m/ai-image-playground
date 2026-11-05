@@ -180,4 +180,25 @@ describe('GPT size follows the OpenAI direct switch', () => {
     process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
     expect(flareCapabilities()['gpt-image-2.5-flare']).toEqual(['generate', 'quality', 'size', 'n'])
   })
+
+  it('declares size for the supported single-key setup without a fingerprint secret', () => {
+    const names = [
+      'INTERNAL_API_TOKEN',
+      'EMAIL_CODE_SECRET',
+      'UPSTREAM_SECRETS_MASTER_KEY',
+      'OPENAI_API_KEYS',
+    ]
+    const previous = new Map(names.map((name) => [name, process.env[name]]))
+    process.env.GPT_DIRECT_ENABLED = 'true'
+    process.env.OPENAI_API_KEY = 'single-key-fixture'
+    for (const name of names) delete process.env[name]
+    try {
+      expect(flareCapabilities()['gpt-image-2.5-flare']).toContain('size')
+    } finally {
+      for (const [name, value] of previous) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+    }
+  })
 })

@@ -20,6 +20,7 @@ import {
 } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
 import { declaredImageSizes } from '../channels'
+import { isActiveMember } from '../gpt-membership'
 import { log } from '../logger'
 import { meteringDecisionOrDenied } from '../metering-decision'
 import {
@@ -360,6 +361,7 @@ async function currentQuote(
             item.params.model,
             item.params,
             declaredImageSizes(item.params.model),
+            item.params.gemini_image_size === '4K' && (await isActiveMember(batch.user_id)),
           ),
         )
   if (
@@ -786,6 +788,11 @@ export async function repriceAgentBatch(
       .from(schema.agent_batch_attempts)
       .where(eq(schema.agent_batch_attempts.batch_id, id))
     const hooks = (await loadPrivateBffOverlay()).taskHooks
+    const member = items.some(
+      (item) => item.kind === 'generation' && item.params.gemini_image_size === '4K',
+    )
+      ? await isActiveMember(userId)
+      : false
     const snapshots: Record<AgentBatchItem['kind'], AgentBatchPriceSnapshot[]> = {
       analysis: [],
       generation: [],
@@ -826,6 +833,7 @@ export async function repriceAgentBatch(
                 item.params.model,
                 item.params,
                 declaredImageSizes(item.params.model),
+                member,
               ),
             )
       if (!quote) throw new BatchPlanError('batch_price_changed', 409)

@@ -1,5 +1,6 @@
+import { nearestImageSize } from '@image-playground/shared'
 import type { HydratedSubmitRequest } from '../imageArchive'
-import { DATA_URL_PATTERN, type UpstreamCallResult } from './shared'
+import { clientError, DATA_URL_PATTERN, type UpstreamCallResult } from './shared'
 
 export function mergeGeminiCandidateResults(results: UpstreamCallResult[]): UpstreamCallResult {
   return {
@@ -20,7 +21,10 @@ export function inlineDataPart(
   return m ? { inlineData: { mimeType: m[1]!, data: m[2]! } } : undefined
 }
 
-export function buildGeminiBody(request: HydratedSubmitRequest): Record<string, unknown> {
+export function buildGeminiBody(
+  request: HydratedSubmitRequest,
+  imageSizes: readonly string[] | undefined,
+): Record<string, unknown> {
   const parts: Array<Record<string, unknown>> = [{ text: request.prompt }]
   for (const dataUrl of request.input_images ?? []) {
     const part = inlineDataPart(dataUrl)
@@ -42,10 +46,21 @@ export function buildGeminiBody(request: HydratedSubmitRequest): Record<string, 
     generationConfig.thinkingConfig = { thinkingLevel: request.thinking_level }
   }
 
-  return {
+  const body = {
     contents: [{ role: 'user', parts }],
     // extra.generationConfig 放最后：调用方显式给的配置压过这里从扁平参数推导的默认值。
     generationConfig: { ...generationConfig, ...extraGenerationConfig },
     ...extraTopLevel,
   }
+  if (!imageSizes?.length) return body
+  const imageConfig = body.generationConfig.imageConfig
+  if (imageConfig === undefined) return body
+  if (imageConfig === null || typeof imageConfig !== 'object' || Array.isArray(imageConfig))
+    throw clientError('分辨率配置无效，请改用面板里的分辨率选项后重试')
+  const size = (imageConfig as { imageSize?: unknown }).imageSize
+  if (size === undefined) return body
+  const supported = nearestImageSize(size, imageSizes)
+  if (supported !== size)
+    body.generationConfig.imageConfig = { ...imageConfig, imageSize: supported }
+  return body
 }

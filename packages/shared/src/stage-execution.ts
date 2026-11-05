@@ -227,7 +227,7 @@ function clampStageVideoDraft(
 
 /**
  * 图片节点与画布批次共用：工作台模型、分镜单张、张数截断到 1..上限。
- * 倍率与阶段授权提交一致：GPT 先收到基础档，Gemini 按请求档位。
+ * 倍率与阶段授权提交一致：GPT 收到非会员上限，Gemini 按会员身份收口后计价。
  */
 export function resolveStageImageExecution(input: {
   readonly model?: string | undefined
@@ -238,6 +238,7 @@ export function resolveStageImageExecution(input: {
   readonly imageSize?: string | undefined
   /** 渠道声明的可出档。缺席则按请求档计价。 */
   readonly supportedTiers?: readonly string[] | undefined
+  readonly member?: boolean
   readonly mask?: unknown
 }): StageExecutionSpec | undefined {
   const model = input.model?.trim() ?? ''
@@ -256,6 +257,7 @@ export function resolveStageImageExecution(input: {
         mask: input.mask,
       },
       input.supportedTiers,
+      input.member,
     ),
   }
 }
