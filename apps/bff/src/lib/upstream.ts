@@ -1001,10 +1001,10 @@ async function callUpstreamVia(
           params.reconciliationRequired,
           cancelled,
         )
-        return finishImageResult(result, dispatched.plan)
+        return stampReceipt(result, dispatched.plan)
       }
       const result = await dispatch(url, dispatched.plan.calls.length, makeInit, merge)
-      return finishImageResult(result, dispatched.plan)
+      return stampReceipt(result, dispatched.plan)
     }
 
     if (provider === 'gemini') {
@@ -1137,14 +1137,6 @@ async function callUpstreamVia(
     // 没走到 parseResponse 的响应（同批别的请求先失败等）也要还在途名额，不能等心跳过期。
     await Promise.all([...outstandingLeases].map((lease) => releaseLease(lease)))
   }
-}
-
-/**
- * 单张请求不经过合并，上游 payload 原样返回。
- * fan-out 合并会丢掉 size / quality / output_format，所以把计划里的生效参数补回去。
- */
-function finishImageResult(result: UpstreamCallResult, plan: AdapterPlan): UpstreamCallResult {
-  return plan.calls.length > 1 ? stampReceipt(result, plan) : result
 }
 
 /** 轮询退避（ms），index 超出取末位。上游 202 响应的 `Retry-After` 也是 3。 */
