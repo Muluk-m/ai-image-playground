@@ -10,8 +10,10 @@ import {
 import ChangelogPage from '../../../features/announcements/ChangelogPage'
 import { markAnnouncementFeed } from '../../../features/announcements/client'
 import {
+  announcementItems,
   announcementUnreadCount,
-  currentAnnouncementEpoch,
+  beginAnnouncementFeed,
+  currentAnnouncementFeed,
   setAnnouncementFeed,
 } from '../../../features/announcements/panel'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
@@ -123,15 +125,51 @@ it('shows a load error when the feed cannot be read', async () => {
   expect(host.textContent).toContain('更新没有加载出来')
 })
 
-it('drops a list that was in flight when the open page marked those items read', async () => {
+it('keeps a list that was in flight when the open page marked those items read, and applies the read to it', async () => {
   setAnnouncementFeed({ items: [{ ...ITEM, unread: true }], unreadCount: 1 })
-  const epoch = currentAnnouncementEpoch()
+  const feed = currentAnnouncementFeed()
   await markAnnouncementFeed([ITEM.id], false, false)
   expect(announcementUnreadCount()).toBe(0)
-  expect(setAnnouncementFeed({ items: [{ ...ITEM, unread: true }], unreadCount: 1 }, epoch)).toBe(
-    false,
+  expect(setAnnouncementFeed({ items: [{ ...ITEM, unread: true }], unreadCount: 1 }, feed)).toBe(
+    true,
   )
   expect(announcementUnreadCount()).toBe(0)
+  expect(announcementItems()[0]?.unread).toBe(false)
+})
+
+it('does not apply a read that finished after the account changed', async () => {
+  beginAnnouncementFeed('account-a')
+  setAnnouncementFeed({ items: [{ ...ITEM, unread: true }], unreadCount: 1 })
+  // 这个包的 tsconfig lib 还没有 Promise.withResolvers，只能用 executor 形式。
+  let finish: (response: Response) => void = () => {}
+  const response = new Promise<Response>((resolve) => {
+    finish = resolve
+  })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => response),
+  )
+  const pending = markAnnouncementFeed([ITEM.id], false, true)
+  const stale = currentAnnouncementFeed()
+  beginAnnouncementFeed('account-b')
+  expect(setAnnouncementFeed({ items: [{ ...ITEM, unread: true }], unreadCount: 1 })).toBe(true)
+  finish(json({}))
+  await pending
+  expect(announcementItems()[0]?.unread).toBe(true)
+  expect(announcementUnreadCount()).toBe(1)
+  expect(setAnnouncementFeed({ items: [], unreadCount: 0 }, stale)).toBe(false)
+})
+
+it('replaces another account’s stale announcements instead of marking them read', async () => {
+  beginAnnouncementFeed('account-a')
+  setAnnouncementFeed({
+    items: [{ ...ITEM, id: 'stale', title: 'Stale announcement', unread: true }],
+    unreadCount: 1,
+  })
+  await renderPage()
+  expect(host.textContent).toContain('GPT Image 2.6 与 Agent 接入')
+  expect(host.textContent).not.toContain('Stale announcement')
+  expect(announcementItems().map((item) => item.id)).toEqual([ITEM.id])
 })
 
 it('opens the changelog page from the sidebar and account menu', async () => {

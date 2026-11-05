@@ -3,7 +3,6 @@
   "unreadDot": "有未读更新",
   "title": "更新",
   "unreadCount": "{{count}} 条未读",
-  "markAll": "全部标为已读",
   "viewAll": "查看全部更新记录",
   "empty": "还没有更新",
   "loadError": "更新没有加载出来",

@@ -253,7 +253,11 @@ describe('pathAppMode', () => {
 
 describe('installWorkbenchNavigation', () => {
   it('writes a history entry for each switch of the top-level pages', () => {
-    useCanvasProjectStore.setState({ activeId: 'project-1' })
+    useCanvasProjectStore.setState({
+      projects: [{ id: 'project-1' } as never],
+      activeId: 'project-1',
+      loaded: true,
+    })
     history.replaceState(null, '', `/p/${projectRouteSegment('project-1')}`)
     cleanup = installWorkbenchNavigation()
     const before = history.length
@@ -304,6 +308,33 @@ describe('installWorkbenchNavigation', () => {
     history.replaceState(null, '', '/changelog')
     useStore.getState().setAppMode('library')
     expect(location.pathname).toBe('/assets')
+  })
+
+  it('does not carry an unavailable active project from the changelog into the canvas address', () => {
+    cleanup = installWorkbenchNavigation()
+    useStore.setState({ appMode: 'image' })
+    const unavailable = (state: object) => {
+      history.replaceState(null, '', '/changelog')
+      useCanvasProjectStore.setState({ activeId: 'stale-project', ...state })
+      useStore.getState().setAppMode('canvas')
+      expect(location.pathname).toBe('/image')
+    }
+    // 项目目录还没加载，或活动项目不在当前账号的列表里，或已被删除。
+    unavailable({ projects: [{ id: 'stale-project' } as never], loaded: false })
+    unavailable({ projects: [{ id: 'other' } as never], loaded: true })
+    unavailable({
+      projects: [{ id: 'stale-project', cloud: { deleted: true } } as never],
+      loaded: true,
+    })
+
+    history.replaceState(null, '', '/changelog')
+    useCanvasProjectStore.setState({
+      projects: [{ id: 'stale-project' } as never],
+      activeId: 'stale-project',
+      loaded: true,
+    })
+    useStore.getState().setAppMode('canvas')
+    expect(location.pathname).toBe(`/p/${projectRouteSegment('stale-project')}`)
   })
 
   it('keeps the terms address when the workspace mode changes', () => {
