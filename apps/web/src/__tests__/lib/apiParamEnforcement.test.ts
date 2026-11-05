@@ -84,6 +84,28 @@ function lastParams(adapter: (typeof adapters)[keyof typeof adapters]): TaskPara
 }
 
 describe('dispatch-layer param enforcement', () => {
+  it.each([
+    '512x512',
+    '768x768',
+  ])('passes GIF frames at %s unchanged to the queue', async (size) => {
+    const settings = useBuiltinChannel({
+      ...QUEUE_CHANNEL,
+      models: [{ id: 'gpt-image-2.6-flare', label: 'Image 2.6', capabilities: ['generate'] }],
+    })
+
+    await callImageApi(
+      baseOpts(settings, {
+        ...DEFAULT_PARAMS,
+        output_format: 'gif',
+        size,
+        quality: 'medium',
+        n: 1,
+      }),
+    )
+
+    expect(lastParams(adapters.queue)).toMatchObject({ output_format: 'gif', size })
+  })
+
   it('normalizes count / transparent / size before the queue adapter', async () => {
     const settings = useBuiltinChannel(QUEUE_CHANNEL)
     const params = {
