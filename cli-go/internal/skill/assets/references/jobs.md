@@ -1,13 +1,15 @@
 # Jobs
 
 - Statuses: `queued` → `running` → `persisting` (result saved, finishing up) → `succeeded`, or `failed` / `canceled`. `terminal: true` means it will not change again.
-- `muvloom jobs wait JOB_ID --timeout 300` polls at the server's pace and returns when the job ends or the timeout passes. A timeout is not a failure (`wait_timed_out: true`); the job keeps running and can be checked again later. A job that ends as `failed` or `canceled` exits with code 4 (`JOB_FAILED` / `JOB_CANCELED`) and the job is in `error.details.job`.
-- A succeeded job lists `artifacts`; download each with `muvloom artifacts download ARTIFACT_ID --output PATH`. Download links are short-lived and fetched fresh each time; a failed download does not affect the job.
+- `muvloom jobs wait JOB_ID --timeout 300` polls at the server's pace and returns when the job ends or the timeout passes. A timeout is not a failure (`wait_timed_out: true`); the job keeps running. Continue waiting on that same job until terminal unless the user requested background submission; never create a replacement because a wait timed out. A job that ends as `failed` or `canceled` exits with code 4 (`JOB_FAILED` / `JOB_CANCELED`) and the job is in `error.details.job`.
+- A succeeded job lists `artifacts`; download each with `muvloom artifacts download ARTIFACT_ID --output PATH`. Download links are short-lived and fetched fresh each time; a failed download does not affect the job. Retry that artifact download with a fresh link; for an existing file, choose a new output name. Do not generate the image again to fix a download.
 - `actual_credits` on a finished job is what was charged. Failed and canceled jobs are refunded automatically.
 
 ## Lost submission
 
-`images create` writes the idempotency key locally before sending and retries temporary failures with the same key. If the command still fails or the session ends, recover with `muvloom jobs list --idempotency-key KEY`. Re-running `images create` with the same `--idempotency-key` and the same parameters returns the original job instead of creating a second one.
+Choose and keep the idempotency key before `images create`, and pass it as `--idempotency-key KEY`. The CLI also records it locally and retries temporary submit failures with the same key. Even a later wait or download can fail after the server accepted the image request: an error does not mean no job exists. Recover with `muvloom jobs list --idempotency-key KEY`, then wait on the existing job or download its artifacts. Re-running `images create` with that key and the same parameters returns the original job instead of creating another.
+
+If resuming an older session without its key or job ID, inspect `muvloom jobs list` for the matching model and submission time. Resume only a uniquely identifiable job; report ambiguity rather than risk a duplicate submission.
 
 ## Cancel
 
