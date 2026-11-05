@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-# Release-boundary guard: test can never inherit the paid target or production credentials.
+# Release-boundary guard: test can never inherit the muvloom target or production credentials.
 reject() { echo "Test isolation check failed: $1" >&2; exit 1; }
 mode=${1:?pages or runtime required}
 input=${2:?configuration path required}
