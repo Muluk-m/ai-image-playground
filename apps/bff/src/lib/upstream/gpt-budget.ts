@@ -1,12 +1,15 @@
 import { imageSizeTier } from '@image-playground/shared'
-import { gte, sql } from 'drizzle-orm'
+import { and, eq, gte, isNull, or, sql } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { log } from '../logger'
+import { configuredDirectKeys } from './gpt-key-config'
 
 /**
- * OpenAI 直连的月预算：每条请求按上游回报的 token 折算成本落库，本月累计加上这次的预估超过
- * 「月预算 × 封顶比例」就不再选直连（会员改走 sub2api）。月按台北时间的自然月算。
+ * OpenAI 直连的月预算：每条请求按上游回报的 token 折算成本落库，并记到具体那把 key。
+ * 一把 key 本月累计加上这次的预估超过它自己的「月预算 × 封顶比例」就换下一把。
+ * 只配一把 `OPENAI_API_KEY` 时，空指纹的旧行也算进这把，和以前的整月累计一样。
+ * 月按台北时间的自然月算。
  */
 
 const BUDGET_TIME_ZONE = 'Asia/Taipei'
@@ -86,38 +89,70 @@ export function budgetMonthStart(now: number): number {
   return Date.parse(`${year}-${month}-01T00:00:00+08:00`)
 }
 
-export function directBudgetCapMicroUsd(): number {
-  const gpt = config.gptDirect
-  return Math.floor((gpt.monthlyBudgetUsd * 1_000_000 * gpt.budgetPercent) / 100)
+export function keyBudgetCapMicroUsd(budgetUsd: number): number {
+  return Math.floor((budgetUsd * 1_000_000 * config.gptDirect.budgetPercent) / 100)
 }
 
-let spentCache: { monthStart: number; at: number; micro: number } | undefined
+/** 各把密钥的封顶之和。只配一把时就是原来的那一个封顶。 */
+export function directBudgetCapMicroUsd(): number {
+  const keys = configuredDirectKeys()
+  if (keys.length === 0) return keyBudgetCapMicroUsd(config.gptDirect.monthlyBudgetUsd)
+  return keys.reduce((sum, key) => sum + keyBudgetCapMicroUsd(key.budgetUsd), 0)
+}
+
+let spentCache = new Map<string, { monthStart: number; at: number; micro: number }>()
 
 export function _resetDirectBudgetCacheForTesting(): void {
-  spentCache = undefined
+  spentCache = new Map()
 }
 
-export async function directSpentThisMonth(now = Date.now()): Promise<number> {
-  const monthStart = budgetMonthStart(now)
-  if (spentCache && spentCache.monthStart === monthStart && now - spentCache.at < SPENT_CACHE_MS)
-    return spentCache.micro
+async function spentSince(
+  monthStart: number,
+  now: number,
+  cacheKey: string,
+  fingerprint?: { value: string; includeUnattributed: boolean },
+): Promise<number> {
+  const cached = spentCache.get(cacheKey)
+  if (cached && cached.monthStart === monthStart && now - cached.at < SPENT_CACHE_MS)
+    return cached.micro
+  const window = gte(schema.gpt_direct_usage.created_at, monthStart)
+  const where = fingerprint
+    ? and(
+        window,
+        fingerprint.includeUnattributed
+          ? or(
+              eq(schema.gpt_direct_usage.key_fingerprint, fingerprint.value),
+              isNull(schema.gpt_direct_usage.key_fingerprint),
+            )
+          : eq(schema.gpt_direct_usage.key_fingerprint, fingerprint.value),
+      )
+    : window
   const [row] = await db
     .select({ micro: sql<string | null>`sum(${schema.gpt_direct_usage.cost_micro_usd})` })
     .from(schema.gpt_direct_usage)
-    .where(gte(schema.gpt_direct_usage.created_at, monthStart))
+    .where(where)
   const micro = Number(row?.micro ?? 0)
-  spentCache = { monthStart, at: now, micro }
+  spentCache.set(cacheKey, { monthStart, at: now, micro })
   return micro
 }
 
-/** 这次请求（预估成本）发出去后本月仍不超封顶。查询失败按超了处理：宁可走 sub2api，不冒超支的险。 */
-export async function directBudgetAllows(estimateMicroUsd: number): Promise<boolean> {
-  try {
-    return (await directSpentThisMonth()) + estimateMicroUsd <= directBudgetCapMicroUsd()
-  } catch (err) {
-    log.warn({ event: 'gpt.direct_budget_read_failed', err }, 'direct budget read failed')
-    return false
-  }
+export async function directSpentThisMonth(now = Date.now()): Promise<number> {
+  return spentSince(budgetMonthStart(now), now, '*')
+}
+
+/**
+ * 一把 key 本月已花。`includeUnattributed` 把多密钥上线前没记指纹的行算进来，
+ * 只给配置里的第一把，避免旧账被丢掉或算进两把。
+ */
+export async function directKeySpent(
+  fingerprint: string,
+  includeUnattributed: boolean,
+  now = Date.now(),
+): Promise<number> {
+  return spentSince(budgetMonthStart(now), now, `${fingerprint}:${includeUnattributed ? 1 : 0}`, {
+    value: fingerprint,
+    includeUnattributed,
+  })
 }
 
 /** 记一条直连请求的成本。写失败只记日志：成本记账不能让已出的图交付失败。 */
@@ -127,6 +162,7 @@ export async function recordDirectUsage(input: {
   size?: string
   quality?: string
   images: number
+  keyFingerprint?: string
   payload?: unknown
 }): Promise<void> {
   const usage = input.payload === undefined ? null : readDirectUsage(input.payload)
@@ -146,9 +182,18 @@ export async function recordDirectUsage(input: {
       output_tokens: usage ? usage.outputTokens : null,
       cost_micro_usd: cost,
       estimated: !usage,
+      key_fingerprint: input.keyFingerprint ?? null,
       created_at: now,
     })
-    if (spentCache && spentCache.monthStart === budgetMonthStart(now)) spentCache.micro += cost
+    const monthStart = budgetMonthStart(now)
+    for (const [key, entry] of spentCache) {
+      if (entry.monthStart !== monthStart) continue
+      const counts =
+        key === '*' ||
+        (input.keyFingerprint !== undefined && key.startsWith(`${input.keyFingerprint}:`)) ||
+        (input.keyFingerprint === undefined && key.endsWith(':1'))
+      if (counts) entry.micro += cost
+    }
   } catch (err) {
     log.warn(
       { event: 'gpt.direct_usage_record_failed', err, model: input.model, cost },

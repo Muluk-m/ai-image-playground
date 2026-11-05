@@ -513,6 +513,10 @@ describe('runMigrations', () => {
             hash: await migrationFileHash('0087_web_session_refresh'),
             created_at: '1793800000000',
           },
+          {
+            hash: await migrationFileHash('0088_gpt_direct_keys'),
+            created_at: '1793900000000',
+          },
         ])
         const columns =
           await client`SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tasks' AND column_name = 'metering'`

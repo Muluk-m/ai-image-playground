@@ -77,3 +77,23 @@ BFF 拆成多个单图任务。OpenAI 组织是 Tier 1（每模型 20 张/分钟
 3. 测试环境打开：配真 `OPENAI_API_KEY`、`GPT_DIRECT_ENABLED=true`，会员与非会员各走一遍，核对会员
    2K 高画质单的实扣积分 = 单价 × 倍率。
 4. 正式站换真 key 并打开开关。开关切换后，还开着旧页面的前端会继续钉构图句，阶段授权按两种写法都认。
+
+## 多密钥（2026-11-05）
+
+直连可以按顺序配多把 OpenAI key，每把单独一个月预算。只配 `OPENAI_API_KEY` 时仍是一把，
+预算仍是 `GPT_DIRECT_MONTHLY_BUDGET_USD`，行为与本节其余部分一致。
+
+- `OPENAI_API_KEYS`：逗号分隔，顺序就是优先级。配了它，直连不再用单个 `OPENAI_API_KEY`
+  （那个变量仍是 channels.json 里 openai-images 的渠道密钥）。
+- `OPENAI_API_KEY_BUDGETS_USD`：与密钥一一对应的正整数美元预算，例如 `200,500`。条数必须相同。
+  `GPT_DIRECT_BUDGET_PERCENT` 对每一把都生效。
+- 日志和后台只显示 `sha256` 前 8 位加密钥末 4 位（`a1b2c3d4…wxyz`），不记录完整密钥。
+- 额度耗尽、账单停用、401 或密钥失效：这把写入 `gpt_direct_key_state`，所有 worker 立刻停用，
+  本单改用下一把，不算 direct/sub2api 那一次换路，并踢一轮 `gpt-key` 运维告警。后台可以按指纹恢复。
+- 429：这把冷却 `SCHEDULER_RATE_LIMIT_COOLDOWN_MS`（默认 60 秒），期间用下一把。不冷却整条模型桶，
+  否则下一把也占不到额度。
+- 本月花费达到这把自己的封顶：换下一把。预算用满不写停用标记，下个台北月花费窗口滑走就恢复。
+- 每一把都不可用，才按原来的规则退回 sub2api。
+- 每笔 `gpt_direct_usage` 带 `key_fingerprint`。上线前的空指纹行算进当前第一把，避免旧账丢失。
+- `OPENAI_ADMIN_KEY` 可选。配了之后后台再拉 OpenAI Costs API 对账；没配就隐藏。这把密钥不参与生图。
+  面板上的花费是平台按 usage 估算的，不是 OpenAI 账户余额。

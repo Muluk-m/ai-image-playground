@@ -22,6 +22,7 @@ export type AlertRule =
   | 'blind'
   | 'reconciling'
   | 'gpt-budget'
+  | 'gpt-key'
   | 'operator-config'
 
 /**
@@ -62,6 +63,8 @@ export interface AlertObservation {
   agentFailurePatterns?: readonly AgentFailurePattern[] | null
   /** OpenAI 直连本月已花与封顶（微美元）。没开直连时不给。 */
   gptDirectBudget?: { spent_micro_usd: number; cap_micro_usd: number }
+  /** 当前被停用的直连密钥（指纹标签）。没开直连时不给；开了但没有停用的给空数组，好发恢复。 */
+  gptDirectKeys?: { disabled: ReadonlyArray<{ label: string; reason: 'quota' | 'invalid' }> }
   /** 连续若干轮取不到读数的块，由调用方按轮次累计。 */
   blindBlocks?: ReadonlyArray<{ block: string; rounds: number }>
 }
@@ -282,6 +285,20 @@ function readings(
         ? `可用内存只剩 ${percent(available)}（${gb(host.mem_available_bytes)}），快要耗尽，机器随时可能卡死（立即告警线 ${percent(OPS_THRESHOLDS.MEMORY_CRITICAL_RATIO)}）`
         : `可用内存只剩 ${percent(available)}（${gb(host.mem_available_bytes)}），已持续 ${span(OPS_THRESHOLDS.MEMORY_SUSTAIN_MS)}以上（告警线 ${percent(OPS_THRESHOLDS.MEMORY_AVAILABLE_RATIO)}）`,
       resolvedText: `已恢复：可用内存 ${percent(available)}`,
+    }
+  }
+
+  const disabledKeys = observation.gptDirectKeys?.disabled
+  if (disabledKeys) {
+    const reasonText = (reason: 'quota' | 'invalid') =>
+      reason === 'quota' ? '额度耗尽' : '密钥失效'
+    out['gpt-key'] = {
+      breached: disabledKeys.length > 0,
+      sustainMs: 0,
+      firingText: `${disabledKeys
+        .map((key) => `OpenAI 直连密钥 ${key.label} 已停用（${reasonText(key.reason)}）`)
+        .join('\n')}\n本单已改用下一把；全部不可用时才退回 sub2api`,
+      resolvedText: '已恢复：停用的 OpenAI 直连密钥已重新启用',
     }
   }
 

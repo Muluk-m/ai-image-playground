@@ -652,12 +652,12 @@ function queueProviderOf(kind: ChannelKind): QueueProvider {
 
 /**
  * GPT 直连模型的 `size` 只有 OpenAI 直连兑现得了（sub2api 丢弃 size）。直连没开（口径同 config.gptDirect：
- * GPT_DIRECT_ENABLED 且有 OPENAI_API_KEY）时不声明它：前端退回只选比例、构图写进提示词，与直连上线前一致。
+ * GPT_DIRECT_ENABLED 且有 OPENAI_API_KEY 或 OPENAI_API_KEYS）时不声明它：前端退回只选比例、构图写进提示词，与直连上线前一致。
  */
 function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
   const directOn =
     process.env.GPT_DIRECT_ENABLED?.trim().toLowerCase() === 'true' &&
-    Boolean(process.env.OPENAI_API_KEY?.trim())
+    Boolean(process.env.OPENAI_API_KEY?.trim() || process.env.OPENAI_API_KEYS?.trim())
   if (directOn || !channel.models.some((model) => isGptDirectModel(model.id))) return channel
   return {
     ...channel,

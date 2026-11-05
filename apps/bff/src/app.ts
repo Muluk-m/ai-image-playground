@@ -28,6 +28,7 @@ import { gptPremiumRoutes } from './routes/gpt-premium'
 import { internalInspirationRoutes, publicInspirationRoutes } from './routes/inspirations'
 import { internalAgentModelRoutes } from './routes/internal-agent-models'
 import { internalDrainRoutes } from './routes/internal-drain'
+import { internalGptDirectRoutes } from './routes/internal-gpt-direct'
 import { internalLogRoutes } from './routes/internal-logs'
 import { internalModelRoutes } from './routes/internal-models'
 import { internalOperatorConfigRoutes } from './routes/internal-operator-config'
@@ -285,6 +286,7 @@ export const app = new Elysia()
   .use(internalUserRoutes)
   .use(internalTaskReconciliationRoutes)
   .use(internalOpsRoutes)
+  .use(internalGptDirectRoutes)
   .use(internalLogRoutes)
   .use(internalInspirationRoutes)
   .use(internalDrainRoutes)
