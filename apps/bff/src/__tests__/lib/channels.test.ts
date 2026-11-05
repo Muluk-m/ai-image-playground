@@ -15,6 +15,10 @@ import {
   resolveModelMedia,
   resolveQueueModel,
 } from '../../lib/channels'
+import {
+  resetAdminDirectKeySnapshot,
+  setAdminDirectKeySnapshot,
+} from '../../lib/upstream/gpt-direct-availability'
 
 const SAMPLE_CHANNEL = {
   id: 'sample-openai',
@@ -619,6 +623,40 @@ describe('parseChannelsConfig', () => {
 
 describe('shipped channels.json', () => {
   const shipped: unknown = JSON.parse(readFileSync(defaultChannelsPath(), 'utf8'))
+
+  it('keeps openai-images when admin keys are enabled and OPENAI_API_KEY is empty', () => {
+    const saved = {
+      enabled: process.env.GPT_DIRECT_ENABLED,
+      token: process.env.INTERNAL_API_TOKEN,
+    }
+    process.env.GPT_DIRECT_ENABLED = 'true'
+    process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
+    setAdminDirectKeySnapshot(
+      [
+        {
+          id: 'admin-1',
+          ordinal: 1,
+          secret: 'admin-secret-not-logged',
+          budgetUsd: 10,
+          enabled: true,
+          fingerprint: 'abcd1234',
+          label: 'abcd1234…cret',
+        },
+      ],
+      true,
+    )
+    try {
+      const result = parseChannelsConfig(shipped, () => undefined)
+      expect(result.channels.some((channel) => channel.id === 'openai-images')).toBe(true)
+      expect(result.warnings.join('\n')).not.toContain("channel 'openai-images'")
+    } finally {
+      resetAdminDirectKeySnapshot()
+      process.env.GPT_DIRECT_ENABLED = saved.enabled
+      process.env.INTERNAL_API_TOKEN = saved.token
+      if (saved.enabled === undefined) delete process.env.GPT_DIRECT_ENABLED
+      if (saved.token === undefined) delete process.env.INTERNAL_API_TOKEN
+    }
+  })
 
   it('advertises both GPT Image 2.5 models with mask support, Flare first', () => {
     const result = parseChannelsConfig(shipped, (key) =>

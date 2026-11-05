@@ -7,6 +7,7 @@ process.env.DATABASE_URL = await resetTestDatabase('gpt_premium_route')
 process.env.PORT = '0'
 process.env.GPT_DIRECT_ENABLED = 'true'
 process.env.OPENAI_API_KEY = 'direct-key'
+process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.OPERATOR_CONFIG_FILE = resolve(
   import.meta.dir,
   '../agent-chat-free-operator-config.json',

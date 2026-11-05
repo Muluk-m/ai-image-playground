@@ -4,7 +4,7 @@ import { log } from '../logger'
 import { runtimeSecret } from '../upstream-secret-cache'
 import { ImagePlanRequiredError } from './errors'
 import { estimateDirectCostMicroUsd } from './gpt-budget'
-import { configuredDirectKeys } from './gpt-key-config'
+import { configuredDirectKeys, FingerprintSecretMissingError } from './gpt-key-config'
 import { selectDirectKey } from './gpt-keys'
 import { gptSchedulerBuckets, tryAcquireSchedulerSlots } from './scheduler'
 
@@ -26,7 +26,13 @@ export function gptDirectApiKey(): string {
 }
 
 export function gptDirectConfigured(model: string): boolean {
-  return config.gptDirect.enabled && configuredDirectKeys().length > 0 && isGptDirectModel(model)
+  if (!config.gptDirect.enabled || !isGptDirectModel(model)) return false
+  try {
+    return configuredDirectKeys().length > 0
+  } catch (err) {
+    if (err instanceof FingerprintSecretMissingError) return false
+    throw err
+  }
 }
 
 // ---- sub2api 熔断：本进程内计数，每个环境各管各的 ----

@@ -63,6 +63,7 @@ function failureMessage(cause: unknown): string {
   if (body?.error === 'invalid_secret') return '密钥无效'
   if (body?.error === 'invalid_budget') return body.message || '月预算无效'
   if (body?.error === 'duplicate_key') return '这把密钥已经在列表里'
+  if (body?.error === 'fingerprint_secret_missing') return body.message || '未配置指纹密钥'
   if (body?.error === 'stale_revision') return '顺序已变化'
   return '操作失败'
 }
@@ -142,6 +143,11 @@ function GptDirectBoard({ view }: { view: GptDirectAdminView }) {
         />
       </div>
 
+      {view.fingerprint_mac_source === 'unset' ? (
+        <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          未配置指纹密钥，直连不可用
+        </p>
+      ) : null}
       {view.disabled_reason ? (
         <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
           {view.disabled_reason}

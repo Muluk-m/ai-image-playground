@@ -1,14 +1,15 @@
-import { createHmac } from 'node:crypto'
+import { scryptSync } from 'node:crypto'
 import { config } from '../../config'
 import { log } from '../logger'
 import { runtimeSecret } from '../upstream-secret-cache'
 import {
   adminDirectKeys,
+  fingerprintMacSource,
   resetAdminDirectKeySnapshot,
   setAdminDirectKeySnapshot,
 } from './gpt-direct-availability'
 
-export { adminDirectKeys, resetAdminDirectKeySnapshot }
+export { adminDirectKeys, fingerprintMacSource, resetAdminDirectKeySnapshot }
 
 /**
  * GPT Image 直连的密钥清单。
@@ -17,11 +18,12 @@ export { adminDirectKeys, resetAdminDirectKeySnapshot }
  * 配了 `OPENAI_API_KEYS`（逗号分隔、有顺序）就以它为准，`OPENAI_API_KEY_BUDGETS_USD` 必须
  * 一一对应。`OPENAI_API_KEY` 仍给 channels.json 的 openai-images 当渠道密钥，不自动并进这份清单。
  *
- * 指纹是 HMAC-SHA256 的前 8 位十六进制，展示再带上密钥末 4 位。这是识别用的标签，不是口令哈希。
+ * 指纹是 scrypt 派生的前 8 位十六进制，展示再带上密钥末 4 位。这是识别用的标签，不是口令存储。
  * 密钥材料用 INTERNAL_API_TOKEN，没有再用 EMAIL_CODE_SECRET，最后才用 UPSTREAM_SECRETS_MASTER_KEY。
+ * 三个都没配就拒绝派生，直连和后台 key 都不可用，绝不用空密钥。
  * 主密钥经常后补，不能拿它当第一选择，否则补上之后指纹全变，本月花费和停用状态会对不上。
- * 0090 尚未上线，库里没有旧的裸 sha256 指纹。换上面这把已经在用的密钥，也会让本月已记花费不再归到这把 key。
- * 日志和后台只出现这个标签。
+ * 0091 尚未上线，库里没有旧指纹。换上面这把已经在用的密钥，也会让本月已记花费不再归到这把 key。
+ * 日志和后台只出现这个标签。同一进程里同一把 key 只派生一次。
  */
 
 export interface DirectKey {
@@ -33,7 +35,7 @@ export interface DirectKey {
   readonly budgetUsd: number
   /** 后台停用。环境变量密钥恒为 true。 */
   readonly enabled: boolean
-  /** HMAC-SHA256 十六进制前 8 位。 */
+  /** scrypt 派生的十六进制前 8 位。 */
   readonly fingerprint: string
   /** `指纹…末4位`，可以写进日志。 */
   readonly label: string
@@ -57,21 +59,7 @@ export function noteDirectSizeDeliverable(deliverable: boolean): void {
   setAdminDirectKeySnapshot(adminDirectKeys(), deliverable)
 }
 
-const FINGERPRINT_MAC_SOURCES = [
-  'INTERNAL_API_TOKEN',
-  'EMAIL_CODE_SECRET',
-  'UPSTREAM_SECRETS_MASTER_KEY',
-] as const
-
-/** 指纹 HMAC 用的环境变量名。只暴露名字，不暴露值。 */
-export type FingerprintMacSource = (typeof FINGERPRINT_MAC_SOURCES)[number] | 'unset'
-
-export function fingerprintMacSource(): FingerprintMacSource {
-  for (const name of FINGERPRINT_MAC_SOURCES) {
-    if (process.env[name]?.trim()) return name
-  }
-  return 'unset'
-}
+export type { FingerprintMacSource } from './gpt-direct-availability'
 
 let loggedMacSource = false
 
@@ -85,22 +73,43 @@ export function logFingerprintMacSourceOnce(): void {
   )
 }
 
-/**
- * 指纹用的服务端密钥。不把 API key 本身当哈希输入的唯一材料。
- * 顺序固定：先用一直在的服务端密钥，避免后补主密钥时把已有账拆开。
- */
-function fingerprintMacKey(): string {
+/** 三个服务端密钥都没配。不能派生指纹，直连按不可用处理。 */
+export class FingerprintSecretMissingError extends Error {
+  constructor() {
+    super(
+      '未配置直连指纹密钥（INTERNAL_API_TOKEN、EMAIL_CODE_SECRET 或 UPSTREAM_SECRETS_MASTER_KEY），直连不可用',
+    )
+    this.name = 'FingerprintSecretMissingError'
+  }
+}
+
+const FINGERPRINT_SALT_PREFIX = 'gpt-direct-key-fingerprint-v1'
+/** 只在第一次见到这把 key 时做。N=2^14 是 Node scrypt 的默认成本。 */
+const fingerprintCache = new Map<string, { fingerprint: string; label: string }>()
+
+function fingerprintSecretValue(): string {
   const source = fingerprintMacSource()
-  return source === 'unset' ? '' : (process.env[source]?.trim() ?? '')
+  const value = source === 'unset' ? '' : (process.env[source]?.trim() ?? '')
+  if (!value) throw new FingerprintSecretMissingError()
+  return value
 }
 
 export function fingerprintOf(secret: string): { fingerprint: string; label: string } {
-  const fingerprint = createHmac('sha256', fingerprintMacKey())
-    .update(secret)
-    .digest('hex')
-    .slice(0, 8)
+  const serverSecret = fingerprintSecretValue()
+  const cacheKey = `${fingerprintMacSource()}\0${serverSecret}\0${secret}`
+  const cached = fingerprintCache.get(cacheKey)
+  if (cached) return cached
+  const digest = scryptSync(secret, `${FINGERPRINT_SALT_PREFIX}:${serverSecret}`, 16, {
+    N: 16384,
+    r: 8,
+    p: 1,
+    maxmem: 64 * 1024 * 1024,
+  })
+  const fingerprint = digest.subarray(0, 4).toString('hex')
   const tail = secret.length >= 4 ? secret.slice(-4) : secret
-  return { fingerprint, label: `${fingerprint}…${tail}` }
+  const result = { fingerprint, label: `${fingerprint}…${tail}` }
+  fingerprintCache.set(cacheKey, result)
+  return result
 }
 
 /** 报错和入库前把密钥换成标签。解析失败时不要调用会再抛错的清单。 */

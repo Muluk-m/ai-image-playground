@@ -433,6 +433,11 @@ function directReservationId(error: unknown): string | undefined {
   return typeof id === 'string' ? id : undefined
 }
 
+/** 抛错的那一把 key 自己有没有把请求发出去。没标过的按没发出。 */
+function directKeyDispatched(error: unknown): boolean {
+  return (error as { directKeyDispatched?: unknown } | null)?.directKeyDispatched === true
+}
+
 /** 服务端问题（换一条路可能就好）：429、5xx、连接或响应中断。参数错、审核拒绝之类换路也没用。 */
 function isRouteFailure(error: unknown): boolean {
   if (error instanceof UpstreamPartialResultError || error instanceof UpstreamQueueTimeoutError)
@@ -462,15 +467,20 @@ async function callDirectTryingKeys(
       throw new DirectKeysExhaustedError(lastError ?? new Error('no openai direct key'))
     const { key, reservationId } = reserved
     exclude.add(key.fingerprint)
-    onAttempt(key.fingerprint)
     const another = await selectDirectKey({ estimateMicroUsd: estimate, exclude })
     let produced = false
+    let thisKeyDispatched = false
     try {
       const result = await callUpstreamVia(
         params,
         directRoute(model, key, { skipSharedRateLimitCooldown: another !== null }),
         {
           ...attempt,
+          onDispatched: () => {
+            thisKeyDispatched = true
+            onAttempt(key.fingerprint)
+            attempt.onDispatched?.()
+          },
           onResponse: () => {
             produced = true
             attempt.onResponse?.()
@@ -479,6 +489,7 @@ async function callDirectTryingKeys(
       )
       return { result, fingerprint: key.fingerprint, reservationId }
     } catch (error) {
+      Object.assign(error as object, { directKeyDispatched: thisKeyDispatched })
       if (produced) {
         // 已经交出至少一张图。再换 key 会把这些图重新生成，上游和用户都会被扣第二次。
         // 缺口由 fan-out 的 partial_failure 退回；这里把预占交给结算，不再试下一把。
@@ -650,7 +661,8 @@ async function callGptDualRoute(
     // 明确的 HTTP 错误且一张图都没出，上游不计费。已经出过图再失败也不换 key，按已出的张数记。
     const reservationId = outcome.ok ? outcome.reservationId : directReservationId(outcome.error)
     const produced = outcome.state.responded
-    if (!outcome.state.dispatched) {
+    const thisKeyDispatched = outcome.ok || directKeyDispatched(outcome.error)
+    if (!thisKeyDispatched) {
       if (reservationId) await releaseDirectKeyReservation(reservationId)
       return
     }
@@ -723,7 +735,7 @@ async function callGptDualRoute(
   // 第一条路已发出、结果未知（被单路时限掐断或连接中断）时，两路都没成也不能当确定失败：
   // 否则任务级重试会再派发一整单。保留结果未知，交给对账或按未知失败处理。
   const firstUnknown =
-    state.dispatched && (state.timedOut || error instanceof UpstreamResultUnknownError)
+    directKeyDispatched(error) && (state.timedOut || error instanceof UpstreamResultUnknownError)
   if (firstUnknown && !(secondOutcome.error instanceof UpstreamResultUnknownError)) {
     const detail =
       secondOutcome.error instanceof Error ? secondOutcome.error.message.slice(0, 200) : '失败'
