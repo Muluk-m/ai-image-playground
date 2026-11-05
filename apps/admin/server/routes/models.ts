@@ -14,5 +14,10 @@ export const modelRoutes = new Elysia({ prefix: '/api/models' })
         body,
         operator: admin.operatorId,
       }),
-    { body: t.Object({ active: t.Boolean() }) },
+    {
+      body: t.Object({
+        active: t.Boolean(),
+        reason: t.Optional(t.String({ minLength: 1, maxLength: 500 })),
+      }),
+    },
   )
