@@ -187,6 +187,7 @@ describe('stage execution quantity', () => {
       resolveStageImageExecution({
         model: 'gemini-3-pro-image',
         imageSize: '4K',
+        member: true,
       }),
     ).toEqual({ model: 'gemini-3-pro-image', quantity: 1, unitMultiplier: 1.8 })
     expect(

@@ -1,4 +1,3 @@
-import { nearestImageSize } from '@image-playground/shared'
 import type { HydratedSubmitRequest } from '../imageArchive'
 import { buildGeminiBody } from './gemini'
 import { clientError } from './shared'
@@ -33,29 +32,14 @@ export function buildVertexBody(
 ): Record<string, unknown> {
   if ((request.input_images?.length ?? 0) > VERTEX_MAX_INPUT_IMAGES)
     throw clientError(`该模型最多接受 ${VERTEX_MAX_INPUT_IMAGES} 张参考图，请减少参考图后重试`)
-  const body = buildGeminiBody(request)
+  const body = buildGeminiBody(request, imageSizes)
   const generationConfig = body.generationConfig as Record<string, unknown>
   // 实测 candidateCount=2 一律 400：多张由调用方拆成单张请求发（见 upstream.ts 的 fan-out），
   // extra 里带进来的 candidateCount 只能是 1。
   const candidateCount = generationConfig.candidateCount
   if (candidateCount !== undefined && candidateCount !== 1)
     throw clientError('该模型每次请求只出一张图，多张请用「张数」设置')
-  if (!imageSizes?.length) return body
-  const imageConfig = generationConfig.imageConfig
-  if (imageConfig === undefined) return body
-  if (imageConfig === null || typeof imageConfig !== 'object' || Array.isArray(imageConfig))
-    throw clientError('分辨率配置无效，请改用面板里的分辨率选项后重试')
-  const size = (imageConfig as { imageSize?: unknown }).imageSize
-  if (size === undefined) return body
-  const supported = nearestImageSize(size, imageSizes)
-  if (supported === size) return body
-  return {
-    ...body,
-    generationConfig: {
-      ...generationConfig,
-      imageConfig: { ...imageConfig, imageSize: supported },
-    },
-  }
+  return body
 }
 
 /**

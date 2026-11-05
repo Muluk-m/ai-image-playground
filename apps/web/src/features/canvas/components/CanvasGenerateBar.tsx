@@ -161,7 +161,12 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
     : {
         model: imageView.model,
         quantity: Math.max(1, params.n),
-        unitMultiplier: quotedGptMultiplier(imageView.model, params, imagePremium.highQuality),
+        unitMultiplier: quotedGptMultiplier(
+          imageView.model,
+          params,
+          imagePremium.highQuality,
+          imagePremium.member,
+        ),
       }
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)
   // 选了两张以上、模型又带得了参考图时，选中的图都当参考图（与「选中即参考」同一个门槛、

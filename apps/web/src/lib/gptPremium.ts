@@ -75,16 +75,17 @@ function fetchPremium(userId: string): Promise<GptPremiumAccess | null> {
  * GPT 直连模型的 4K 与高画质只开给会员，2K 对非会员开放。由服务端 `/api/gpt/premium` 判定。
  * 非会员选不了 4K 和高画质，服务端也会把越档的提交收到 2K、非高画质。`directOn` 取模型是否声明了 size：
  * 服务端只在 OpenAI 直连开着时声明它，没开时分辨率行不给出档位。
- * Image 2.6 的 2K 和高画质对所有人开放，只有 4K 走这份会员查询。
+ * Image 2.6 与 Gemini 的 4K 同样由账号会员身份判定，不依赖 GPT 直连开关。
  */
 export function useGptPremiumLocked(model: string, directOn: boolean): GptPremiumAccess {
   const userId = useAuth().user?.id ?? null
   const gpt = isGptDirectModel(model)
   const image26 = isGptImage26Model(model)
+  const gemini = model.trim().toLowerCase().startsWith('gemini')
   const [access, setAccess] = useState<GptPremiumAccess | null | undefined>(undefined)
   useEffect(() => {
     setAccess(undefined)
-    if (!((gpt && directOn) || image26) || !userId) return
+    if (!((gpt && directOn) || image26 || gemini) || !userId) return
     let active = true
     let latest = 0
     const refresh = () => {
@@ -108,8 +109,8 @@ export function useGptPremiumLocked(model: string, directOn: boolean): GptPremiu
       window.removeEventListener('focus', refresh)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [gpt, directOn, image26, userId])
-  if (image26) {
+  }, [gpt, directOn, image26, gemini, userId])
+  if (image26 || gemini) {
     const member = Boolean(userId && access?.member)
     return {
       premium: member,

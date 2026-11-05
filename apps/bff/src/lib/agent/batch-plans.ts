@@ -20,6 +20,7 @@ import { db, schema } from '../../db/client'
 import { quoteAnalysisTask } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
 import { declaredImageSizes } from '../channels'
+import { isActiveMember } from '../gpt-membership'
 import { meteringDecisionOrDenied } from '../metering-decision'
 import {
   type BffTransaction,
@@ -1142,6 +1143,9 @@ export async function quoteBatchPlan(
   items: readonly AgentBatchItem[],
 ): Promise<AgentBatchEstimates> {
   const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const member = items.some((item) => item.kind === 'generation' && item.params.gemini_image_size === '4K')
+    ? await isActiveMember(userId)
+    : false
   const generationQuotes = new Map<
     string,
     Awaited<ReturnType<NonNullable<typeof hooks.quoteTask>>> | undefined
@@ -1208,6 +1212,7 @@ export async function quoteBatchPlan(
                 item.params.model,
                 item.params,
                 declaredImageSizes(item.params.model),
+                member,
               ),
             )
       if (!quote) return { status: 'unavailable' as const, reason: 'price_unavailable' as const }

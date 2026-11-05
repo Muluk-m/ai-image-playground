@@ -100,9 +100,9 @@ it('denies ended subscriptions before creating a task or hold', async () => {
 
 it('rejects a 768×16 GIF before creating a task or invoking billing', async () => {
   const enabled = config.gptImage26.enabled
-  const apiKey = config.gptDirect.apiKey
+  const apiKey = process.env.OPENAI_API_KEY
   config.gptImage26.enabled = true
-  config.gptDirect.apiKey = 'gif-test-key'
+  process.env.OPENAI_API_KEY = 'gif-test-key'
   let billingCalled = false
   _setPrivateBffOverlayForTesting({
     ...EMPTY_PRIVATE_BFF_OVERLAY,
@@ -136,7 +136,8 @@ it('rejects a 768×16 GIF before creating a task or invoking billing', async () 
     expect(await db.select().from(schema.tasks)).toEqual([])
   } finally {
     config.gptImage26.enabled = enabled
-    config.gptDirect.apiKey = apiKey
+    if (apiKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = apiKey
     _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
   }
 })
@@ -149,13 +150,17 @@ it('denies 4K by default when the private billing hook is missing', async () => 
 })
 
 describe('non-member resolution ceiling', () => {
-  const direct = { ...config.gptDirect }
+  const direct = { enabled: process.env.GPT_DIRECT_ENABLED, apiKey: process.env.OPENAI_API_KEY }
 
   beforeEach(() => {
-    Object.assign(config.gptDirect, { enabled: true, apiKey: 'direct-key' })
+    process.env.GPT_DIRECT_ENABLED = 'true'
+    process.env.OPENAI_API_KEY = 'direct-key'
   })
   afterEach(() => {
-    Object.assign(config.gptDirect, direct)
+    if (direct.enabled === undefined) delete process.env.GPT_DIRECT_ENABLED
+    else process.env.GPT_DIRECT_ENABLED = direct.enabled
+    if (direct.apiKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = direct.apiKey
   })
 
   function withMember(member: boolean) {
