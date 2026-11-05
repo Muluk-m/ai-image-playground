@@ -8,13 +8,18 @@ import {
   AnnouncementMenuRow,
 } from '../../../features/announcements/AnnouncementEntry'
 import ChangelogPage from '../../../features/announcements/ChangelogPage'
-import { markAnnouncementFeed } from '../../../features/announcements/client'
 import {
+  ANNOUNCEMENT_READS_KEY,
+  markAnnouncementFeed,
+} from '../../../features/announcements/client'
+import {
+  announcementFeedStatus,
   announcementItems,
   announcementUnreadCount,
   beginAnnouncementFeed,
   currentAnnouncementFeed,
   setAnnouncementFeed,
+  setAnnouncementFeedError,
 } from '../../../features/announcements/panel'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
@@ -127,14 +132,43 @@ it('shows a load error when the feed cannot be read', async () => {
 
 it('keeps a list that was in flight when the open page marked those items read, and applies the read to it', async () => {
   setAnnouncementFeed({ items: [{ ...ITEM, unread: true }], unreadCount: 1 })
-  const feed = currentAnnouncementFeed()
+  const load = beginAnnouncementFeed('anonymous')
   await markAnnouncementFeed([ITEM.id], false, false)
   expect(announcementUnreadCount()).toBe(0)
-  expect(setAnnouncementFeed({ items: [{ ...ITEM, unread: true }], unreadCount: 1 }, feed)).toBe(
+  expect(setAnnouncementFeed({ items: [{ ...ITEM, unread: true }], unreadCount: 1 }, load)).toBe(
     true,
   )
   expect(announcementUnreadCount()).toBe(0)
   expect(announcementItems()[0]?.unread).toBe(false)
+})
+
+it('does not let a slower, older request overwrite a newer list', () => {
+  beginAnnouncementFeed('anonymous')
+  const older = beginAnnouncementFeed('anonymous')
+  const newer = beginAnnouncementFeed('anonymous')
+  expect(
+    setAnnouncementFeed({ items: [{ ...ITEM, title: 'English' }], unreadCount: 0 }, newer),
+  ).toBe(true)
+  expect(setAnnouncementFeed({ items: [{ ...ITEM, title: '中文' }], unreadCount: 0 }, older)).toBe(
+    false,
+  )
+  expect(announcementItems()[0]?.title).toBe('English')
+  setAnnouncementFeedError(older)
+  expect(announcementFeedStatus()).toBe('ready')
+})
+
+it('never rejects when the read request fails, keeps the read in memory and out of local storage', async () => {
+  beginAnnouncementFeed('account-a')
+  setAnnouncementFeed({ items: [{ ...ITEM, unread: true }], unreadCount: 1 })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      throw new Error('offline')
+    }),
+  )
+  await expect(markAnnouncementFeed([ITEM.id], false, true)).resolves.toBeUndefined()
+  expect(announcementItems()[0]?.unread).toBe(false)
+  expect(localStorage.getItem(ANNOUNCEMENT_READS_KEY)).toBeNull()
 })
 
 it('does not apply a read that finished after the account changed', async () => {
@@ -150,7 +184,7 @@ it('does not apply a read that finished after the account changed', async () => 
     vi.fn(() => response),
   )
   const pending = markAnnouncementFeed([ITEM.id], false, true)
-  const stale = currentAnnouncementFeed()
+  const stale = beginAnnouncementFeed('account-a')
   beginAnnouncementFeed('account-b')
   expect(setAnnouncementFeed({ items: [{ ...ITEM, unread: true }], unreadCount: 1 })).toBe(true)
   finish(json({}))

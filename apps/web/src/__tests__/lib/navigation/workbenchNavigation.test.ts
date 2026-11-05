@@ -319,8 +319,7 @@ describe('installWorkbenchNavigation', () => {
       useStore.getState().setAppMode('canvas')
       expect(location.pathname).toBe('/image')
     }
-    // 项目目录还没加载，或活动项目不在当前账号的列表里，或已被删除。
-    unavailable({ projects: [{ id: 'stale-project' } as never], loaded: false })
+    // 活动项目不在当前账号的列表里，或已被删除。
     unavailable({ projects: [{ id: 'other' } as never], loaded: true })
     unavailable({
       projects: [{ id: 'stale-project', cloud: { deleted: true } } as never],
@@ -335,6 +334,31 @@ describe('installWorkbenchNavigation', () => {
     })
     useStore.getState().setAppMode('canvas')
     expect(location.pathname).toBe(`/p/${projectRouteSegment('stale-project')}`)
+  })
+
+  it('waits for the project catalog before opening the canvas from the changelog', async () => {
+    setClientStorageScope(crypto.randomUUID())
+    const project = await projectRepository.create('Destination')
+    cleanup = installWorkbenchNavigation()
+    useStore.setState({ appMode: 'image' })
+    history.replaceState(null, '', '/changelog')
+    useCanvasProjectStore.setState({ projects: [], activeId: project.id, loaded: false })
+    useStore.getState().setAppMode('canvas')
+    expect(location.pathname).toBe('/changelog')
+    await vi.waitFor(() => expect(location.pathname).toBe(`/p/${projectRouteSegment(project.id)}`))
+  })
+
+  it('drops the pending canvas navigation when the user moved elsewhere while the catalog loaded', async () => {
+    setClientStorageScope(crypto.randomUUID())
+    const project = await projectRepository.create('Destination')
+    cleanup = installWorkbenchNavigation()
+    useStore.setState({ appMode: 'image' })
+    history.replaceState(null, '', '/changelog')
+    useCanvasProjectStore.setState({ projects: [], activeId: project.id, loaded: false })
+    useStore.getState().setAppMode('canvas')
+    history.replaceState(null, '', '/assets')
+    await vi.waitFor(() => expect(useCanvasProjectStore.getState().loaded).toBe(true))
+    expect(location.pathname).toBe('/assets')
   })
 
   it('keeps the terms address when the workspace mode changes', () => {

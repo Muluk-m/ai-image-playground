@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AnnouncementHost } from '../../../features/announcements/AnnouncementHost'
 import { beginAnnouncementFeed, setAnnouncementFeed } from '../../../features/announcements/panel'
+import { i18next } from '../../../i18n'
 import { navigate } from '../../../lib/pathname'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
@@ -65,4 +66,27 @@ it('closes an open important-announcement modal when the user navigates to the c
   // 离开更新页后不会把它再弹出来。
   await act(async () => navigate('/image'))
   expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
+it('reloads the feed in the new language when the interface language changes', async () => {
+  const fetchMock = vi.fn(async (_url: string) => Response.json({ items: [], unreadCount: 0 }))
+  vi.stubGlobal('fetch', fetchMock)
+  await act(async () => {
+    root.render(<AnnouncementHost />)
+  })
+  const locales = () =>
+    fetchMock.mock.calls.map(([url]) => new URL(String(url)).searchParams.get('locale'))
+  const first = locales()[locales().length - 1]
+  const original = i18next.language
+  try {
+    await act(async () => {
+      await i18next.changeLanguage(original.startsWith('zh') ? 'en' : 'zh-CN')
+    })
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1)
+    expect(locales()[locales().length - 1]).not.toBe(first)
+  } finally {
+    await act(async () => {
+      await i18next.changeLanguage(original)
+    })
+  }
 })
