@@ -22,7 +22,7 @@ export { adaptGptRequest } from './gpt-request'
 export { grokAdapter } from './grok'
 export { openaiImagesDirect, openaiImagesSub2api } from './openai-images'
 export { openaiResponsesAdapter } from './openai-responses'
-export { stampReceipt } from './platform'
+export { receiptFields, stampReceipt } from './platform'
 export type {
   AdapterCapabilities,
   AdapterPlan,
