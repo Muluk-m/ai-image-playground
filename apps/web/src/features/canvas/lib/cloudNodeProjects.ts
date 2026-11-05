@@ -1,4 +1,5 @@
 import {
+  CANVAS_SYNC_SESSION_EXPIRED_CODE,
   CANVAS_UPLOAD_CLOCK_SKEW_MS,
   CANVAS_UPLOAD_DEVICE_META,
   CANVAS_UPLOAD_STALE_MS,
@@ -35,7 +36,7 @@ import {
 import i18next from 'i18next'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
-import { authenticatedBffFetch } from '../../../lib/authClient'
+import { authenticatedBffFetch, refreshWebSession } from '../../../lib/authClient'
 import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import { supportsCanvasPendingMedia } from '../../../lib/clientCapabilities'
 import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
@@ -131,6 +132,8 @@ export class CloudNodeProjectSession {
   private debounce: ReturnType<typeof setTimeout> | undefined
   private heartbeat: ReturnType<typeof setInterval> | undefined
   private retries = 0
+  /** 一次 4401 只刷新再连一次，避免刷新成功但服务端仍拒绝时打转。 */
+  private sessionRefreshAttempts = 0
   private serverVector: Uint8Array | undefined
   private preparing: Promise<void> = Promise.resolve()
   private localRenaming: Promise<void> = Promise.resolve()
@@ -508,6 +511,7 @@ export class CloudNodeProjectSession {
     this.status('syncing')
     socket.onopen = () => {
       if (this.socket !== socket || !this.canvas) return
+      this.sessionRefreshAttempts = 0
       socket.send(canvasSyncStep1(this.canvas.doc))
       this.heartbeat = setInterval(() => {
         if (socket.readyState === WebSocket.OPEN && this.canvas)
@@ -549,6 +553,25 @@ export class CloudNodeProjectSession {
       this.sentVersion = undefined
       clearInterval(this.heartbeat)
       if (this.controller.signal.aborted) return
+      if (event.code === CANVAS_SYNC_SESSION_EXPIRED_CODE) {
+        if (this.sessionRefreshAttempts >= 1) {
+          this.status('permission-error')
+          this.rejectWaits(new Error(event.reason))
+          return
+        }
+        this.sessionRefreshAttempts += 1
+        void refreshWebSession().then((outcome) => {
+          if (this.controller.signal.aborted || this.socket) return
+          if (outcome === 'ok' || outcome === 'raced') {
+            this.retries = 0
+            this.connect()
+            return
+          }
+          this.status('permission-error')
+          this.rejectWaits(new Error(event.reason || 'session_expired'))
+        })
+        return
+      }
       if (event.code === 1008 || event.code === 4004) {
         this.status(event.code === 4004 ? 'deleted' : 'permission-error')
         this.rejectWaits(new Error(event.reason))
