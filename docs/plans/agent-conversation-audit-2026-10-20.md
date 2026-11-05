@@ -12,7 +12,7 @@
 
 ## 背景
 
-2026-10-20 抽查了收费版生产环境（admin.muvloom.online）近 7 天（10-13 ～ 10-20）全部 Agent 会话。后台“提示词”页只能看到提示词，看不到完整上下文，因此用 paid 后台只读账号、在只读事务里直接导出了 `agent_messages`、`agent_turns`、`agent_model_calls`、`tasks`、`agent_batches`、`agent_generation_drafts`、`billing_credit_ledger` 和 `server_logs`，逐个会话核对用户原话、工具调用、任务结果与扣费。
+2026-10-20 抽查了 muvloom 生产环境（admin.muvloom.online）近 7 天（10-13 ～ 10-20）全部 Agent 会话。后台“提示词”页只能看到提示词，看不到完整上下文，因此用 muvloom 后台只读账号、在只读事务里直接导出了 `agent_messages`、`agent_turns`、`agent_model_calls`、`tasks`、`agent_batches`、`agent_generation_drafts`、`billing_credit_ledger` 和 `server_logs`，逐个会话核对用户原话、工具调用、任务结果与扣费。
 
 数据范围：21 个会话、5 个用户、196 轮，14 轮失败。真实用户主要是两个卫浴行业付费用户（下文记为用户 A = 2517906809、用户 B = 24755886），其余为站长自测。
 
