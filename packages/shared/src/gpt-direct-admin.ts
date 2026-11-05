@@ -11,6 +11,8 @@ export interface GptDirectKeyView {
   source: 'admin' | 'env'
   status: GptDirectKeyStatus
   disabled_reason: 'quota' | 'invalid' | null
+  /** 配置里的月预算（美元），没乘封顶比例。编辑时用这个，不用已经打折的封顶。 */
+  budget_usd: number
   budget_micro_usd: number
   spent_micro_usd: number
   cooldown_until: number | null
@@ -41,6 +43,10 @@ export interface GptDirectAdminView {
   days: 7 | 30
   /** 当前生效的清单来自后台还是环境变量。 */
   source: 'admin' | 'env'
+  /** 后台密钥行的最新更新时间。排序时带上，过期就拒绝。 */
+  revision: number
+  /** 指纹 HMAC 用的环境变量名，不是密钥本身。 */
+  fingerprint_mac_source: string
   writable: boolean
   disabled_reason: string | null
   keys: GptDirectKeyView[]

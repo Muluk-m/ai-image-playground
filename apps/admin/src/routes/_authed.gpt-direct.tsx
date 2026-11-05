@@ -5,7 +5,7 @@ import type {
 } from '@image-playground/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { Kpi } from '@/components/Kpi'
@@ -63,6 +63,7 @@ function failureMessage(cause: unknown): string {
   if (body?.error === 'invalid_secret') return '密钥无效'
   if (body?.error === 'invalid_budget') return body.message || '月预算无效'
   if (body?.error === 'duplicate_key') return '这把密钥已经在列表里'
+  if (body?.error === 'stale_revision') return '顺序已变化'
   return '操作失败'
 }
 
@@ -152,6 +153,7 @@ function GptDirectBoard({ view }: { view: GptDirectAdminView }) {
           <h2 className="text-base font-semibold">密钥</h2>
           <span className="text-xs text-muted-foreground">
             {view.source === 'admin' ? '后台' : '环境变量'}
+            <span className="ml-3 font-mono">{view.fingerprint_mac_source}</span>
           </span>
         </div>
         {view.source === 'env' ? (
@@ -228,7 +230,7 @@ function GptDirectBoard({ view }: { view: GptDirectAdminView }) {
                     const [moved] = ids.splice(from, 1)
                     if (!moved) return
                     ids.splice(to, 0, moved)
-                    void run(`move-${key.id}`, () => reorderGptDirectKeys(ids))
+                    void run(`move-${key.id}`, () => reorderGptDirectKeys(ids, view.revision))
                   }}
                   onToggle={() => {
                     if (!key.id) return
@@ -349,7 +351,10 @@ function KeyRow({
   onDelete: () => void
   onRestore: () => void
 }) {
-  const [budget, setBudget] = useState(String(Math.round(row.budget_micro_usd / 1_000_000)))
+  const [budget, setBudget] = useState(String(row.budget_usd))
+  useEffect(() => {
+    setBudget(String(row.budget_usd))
+  }, [row.budget_usd])
   const admin = row.source === 'admin' && row.id !== null
   return (
     <TableRow>
@@ -364,7 +369,7 @@ function KeyRow({
       </TableCell>
       <TableCell className="max-w-[240px]">
         {row.last_error ? (
-          <span className="block truncate text-xs" title={row.last_error}>
+          <span className="block truncate text-xs">
             {row.last_error} {row.last_error_at ? <FuzzyTime ts={row.last_error_at} /> : null}
           </span>
         ) : (
@@ -372,79 +377,81 @@ function KeyRow({
         )}
       </TableCell>
       <TableCell>
-        {admin ? (
-          <div className="flex flex-wrap justify-end gap-1">
-            <Input
-              type="number"
-              min={1}
-              step={1}
-              value={budget}
-              aria-label={`${row.label} 月预算`}
-              className="h-8 w-24"
-              onChange={(event) => setBudget(event.target.value)}
-            />
+        <div className="flex flex-wrap justify-end gap-1">
+          {row.status === 'disabled' ? (
             <Button
               type="button"
               size="sm"
               variant="outline"
-              disabled={!writable || pending !== null}
-              onClick={() => {
-                const budgetUsd = Number(budget)
-                if (!Number.isInteger(budgetUsd) || budgetUsd <= 0) return
-                onBudget(budgetUsd)
-              }}
+              disabled={pending !== null}
+              onClick={onRestore}
             >
-              预算
+              恢复
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!writable || pending !== null || first}
-              onClick={() => onMove(-1)}
-            >
-              上移
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!writable || pending !== null || last}
-              onClick={() => onMove(1)}
-            >
-              下移
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!writable || pending !== null}
-              onClick={onToggle}
-            >
-              {row.enabled ? '停用' : '启用'}
-            </Button>
-            {row.status === 'disabled' ? (
+          ) : null}
+          {admin ? (
+            <>
+              <Input
+                type="number"
+                min={1}
+                step={1}
+                value={budget}
+                aria-label={`${row.label} 月预算`}
+                className="h-8 w-24"
+                onChange={(event) => setBudget(event.target.value)}
+              />
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={pending !== null}
-                onClick={onRestore}
+                disabled={!writable || pending !== null}
+                onClick={() => {
+                  const budgetUsd = Number(budget)
+                  if (!Number.isInteger(budgetUsd) || budgetUsd <= 0) return
+                  onBudget(budgetUsd)
+                }}
               >
-                恢复
+                预算
               </Button>
-            ) : null}
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={!writable || pending !== null}
-              onClick={onDelete}
-            >
-              删除
-            </Button>
-          </div>
-        ) : null}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!writable || pending !== null || first}
+                onClick={() => onMove(-1)}
+              >
+                上移
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!writable || pending !== null || last}
+                onClick={() => onMove(1)}
+              >
+                下移
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!writable || pending !== null}
+                onClick={onToggle}
+              >
+                {row.enabled ? '停用' : '启用'}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={!writable || pending !== null}
+                onClick={onDelete}
+              >
+                删除
+              </Button>
+            </>
+          ) : null}
+        </div>
       </TableCell>
     </TableRow>
   )

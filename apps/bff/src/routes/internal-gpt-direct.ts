@@ -47,6 +47,7 @@ export const internalGptDirectRoutes = new Elysia({ prefix: '/internal/admin/gpt
       try {
         await reorderGptDirectKeys({
           ids: body.ids,
+          revision: body.revision,
           operatorId: request.headers.get('x-admin-operator'),
         })
         return directKeyPanel(7)
@@ -54,7 +55,7 @@ export const internalGptDirectRoutes = new Elysia({ prefix: '/internal/admin/gpt
         return reject(error, status)
       }
     },
-    { body: t.Object({ ids: t.Array(t.String()) }) },
+    { body: t.Object({ ids: t.Array(t.String()), revision: t.Numeric() }) },
   )
   .patch(
     '/keys/:id',

@@ -52,6 +52,8 @@ import {
   markDirectKeyCooldown,
   markDirectKeyDisabled,
   notifyDirectKeyDisabled,
+  releaseDirectKeyReservation,
+  reserveDirectKey,
   selectDirectKey,
 } from './upstream/gpt-keys'
 import {
@@ -74,8 +76,9 @@ import {
   mergeOpenAIImageResults,
   withoutModeration,
 } from './upstream/openai'
-import { withPartialFailure } from './upstream/partial'
+import { partialFailureOf, withPartialFailure } from './upstream/partial'
 import {
+  coolDownSchedulerBuckets,
   gptSchedulerBuckets,
   type SchedulerBucket,
   type SchedulerLease,
@@ -425,6 +428,11 @@ function upstreamStatusOf(error: unknown): number | undefined {
   return typeof status === 'number' ? status : undefined
 }
 
+function directReservationId(error: unknown): string | undefined {
+  const id = (error as { directReservationId?: unknown } | null)?.directReservationId
+  return typeof id === 'string' ? id : undefined
+}
+
 /** 服务端问题（换一条路可能就好）：429、5xx、连接或响应中断。参数错、审核拒绝之类换路也没用。 */
 function isRouteFailure(error: unknown): boolean {
   if (error instanceof UpstreamPartialResultError || error instanceof UpstreamQueueTimeoutError)
@@ -443,18 +451,20 @@ async function callDirectTryingKeys(
   model: string,
   attempt: AttemptOptions,
   onAttempt: (fingerprint: string) => void,
-): Promise<{ result: UpstreamCallResult; fingerprint: string }> {
+): Promise<{ result: UpstreamCallResult; fingerprint: string; reservationId?: string }> {
   const images = Math.max(1, params.request.n ?? 1)
   const estimate = estimateDirectCostMicroUsd(params.request.size, params.request.quality, images)
   const exclude = new Set<string>()
   let lastError: unknown
-  let responded = false
   while (!attempt.signal?.aborted && !params.signal?.aborted) {
-    const key = await selectDirectKey({ estimateMicroUsd: estimate, exclude })
-    if (!key) throw new DirectKeysExhaustedError(lastError ?? new Error('no openai direct key'))
+    const reserved = await reserveDirectKey({ estimateMicroUsd: estimate, exclude })
+    if (!reserved)
+      throw new DirectKeysExhaustedError(lastError ?? new Error('no openai direct key'))
+    const { key, reservationId } = reserved
     exclude.add(key.fingerprint)
     onAttempt(key.fingerprint)
     const another = await selectDirectKey({ estimateMicroUsd: estimate, exclude })
+    let produced = false
     try {
       const result = await callUpstreamVia(
         params,
@@ -462,14 +472,20 @@ async function callDirectTryingKeys(
         {
           ...attempt,
           onResponse: () => {
-            responded = true
+            produced = true
             attempt.onResponse?.()
           },
         },
       )
-      return { result, fingerprint: key.fingerprint }
+      return { result, fingerprint: key.fingerprint, reservationId }
     } catch (error) {
-      if (responded) throw error
+      if (produced) {
+        // 已经交出至少一张图。再换 key 会把这些图重新生成，上游和用户都会被扣第二次。
+        // 缺口由 fan-out 的 partial_failure 退回；这里把预占交给结算，不再试下一把。
+        Object.assign(error as object, { directReservationId: reservationId })
+        throw error
+      }
+      await releaseDirectKeyReservation(reservationId)
       const action = classifyDirectKeyFailure(error)
       if (action === 'quota' || action === 'invalid') {
         await markDirectKeyDisabled(key, action, error)
@@ -488,6 +504,14 @@ async function callDirectTryingKeys(
       }
       if (action === 'cooldown') {
         await markDirectKeyCooldown(key, error)
+        const still = await selectDirectKey({ estimateMicroUsd: estimate, exclude })
+        if (!still) {
+          await coolDownSchedulerBuckets(
+            gptSchedulerBuckets(model, 'direct')
+              .filter((bucket) => bucket.coolDownOnRateLimit)
+              .map((bucket) => bucket.key),
+          )
+        }
         lastError = error
         log.warn(
           {
@@ -596,6 +620,7 @@ async function callGptDualRoute(
           result: invoked.result,
           state,
           fingerprint: invoked.fingerprint,
+          reservationId: invoked.reservationId,
         }
       }
       const result = await callUpstreamVia(
@@ -622,17 +647,31 @@ async function callGptDualRoute(
       return
     }
     // 直连按张计费：出了图按回报的 usage 记；发出后结果未知（超时、中断）按档位估算，平台承担。
-    // 明确的 HTTP 错误上游不计费，不记。
-    if (!outcome.state.dispatched) return
-    if (!outcome.ok && upstreamStatusOf(outcome.error) !== undefined) return
+    // 明确的 HTTP 错误且一张图都没出，上游不计费。已经出过图再失败也不换 key，按已出的张数记。
+    const reservationId = outcome.ok ? outcome.reservationId : directReservationId(outcome.error)
+    const produced = outcome.state.responded
+    if (!outcome.state.dispatched) {
+      if (reservationId) await releaseDirectKeyReservation(reservationId)
+      return
+    }
+    if (!outcome.ok && upstreamStatusOf(outcome.error) !== undefined && !produced) {
+      if (reservationId) await releaseDirectKeyReservation(reservationId)
+      return
+    }
+    const payload = outcome.ok ? outcome.result.payload : undefined
+    const partial = payload ? partialFailureOf(payload) : undefined
+    const images = partial
+      ? Math.max(0, partial.requested - partial.failed)
+      : Math.max(1, request.n ?? 1)
     await recordDirectUsage({
       ...(params.taskId ? { taskId: params.taskId } : {}),
       model,
       ...(request.size ? { size: request.size } : {}),
       ...(request.quality ? { quality: request.quality } : {}),
-      images: Math.max(1, request.n ?? 1),
+      images,
       ...(outcome.fingerprint ? { keyFingerprint: outcome.fingerprint } : {}),
-      ...(outcome.ok ? { payload: outcome.result.payload } : {}),
+      ...(payload !== undefined ? { payload } : {}),
+      ...(reservationId ? { reservationId } : {}),
     })
   }
 

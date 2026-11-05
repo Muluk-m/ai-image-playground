@@ -15,6 +15,7 @@ import {
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { startServerLogs } from './lib/server-logs'
 import { refreshGptDirectKeys } from './lib/upstream/gpt-direct-admin'
+import { logFingerprintMacSourceOnce } from './lib/upstream/gpt-key-config'
 import { refreshUpstreamSecrets, UPSTREAM_SECRET_REFRESH_MS } from './lib/upstream-secrets'
 import { registerAppAlertScan } from './ops/alert-kick'
 import { alertTargetsConfigured, createAlertSenderFromEnv } from './ops/alert-sender'
@@ -26,6 +27,7 @@ import { startWorkerHealthServer } from './workers/worker-health'
 
 const stopServerLogs = startServerLogs()
 config.assertValid()
+logFingerprintMacSourceOnce()
 await Promise.all([refreshUpstreamSecrets(), refreshGptDirectKeys()]).catch((error) =>
   log.error(
     {

@@ -47,8 +47,8 @@ export function updateGptDirectKey(id: string, body: { budgetUsd?: number; enabl
   return apiClient.patch<GptDirectAdminView>(`/api/gpt-direct/keys/${id}`, body)
 }
 
-export function reorderGptDirectKeys(ids: string[]) {
-  return apiClient.post<GptDirectAdminView>('/api/gpt-direct/keys/order', { ids })
+export function reorderGptDirectKeys(ids: string[], revision: number) {
+  return apiClient.post<GptDirectAdminView>('/api/gpt-direct/keys/order', { ids, revision })
 }
 
 export function deleteGptDirectKey(id: string) {

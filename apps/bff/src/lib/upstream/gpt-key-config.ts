@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto'
 import { config } from '../../config'
+import { log } from '../logger'
 import { runtimeSecret } from '../upstream-secret-cache'
 import {
   adminDirectKeys,
@@ -41,18 +42,46 @@ export interface DirectKey {
 /** 刷新后的快照。`admin === null` 表示后台没有记录，退回环境变量。 */
 export function noteDirectKeySnapshot(input: {
   admin: DirectKey[] | null
-  hardDisabled: ReadonlySet<string>
+  hardDisabled?: ReadonlySet<string>
+  deliverable?: boolean
 }): void {
-  if (input.admin === null) {
-    setAdminDirectKeySnapshot(
-      null,
-      envDirectKeys().some((key) => !input.hardDisabled.has(key.fingerprint)),
-    )
-    return
+  const blocked = input.hardDisabled ?? new Set<string>()
+  const keys = input.admin ?? safeEnvDirectKeys()
+  const deliverable =
+    input.deliverable ?? keys.some((key) => key.enabled && !blocked.has(key.fingerprint))
+  setAdminDirectKeySnapshot(input.admin, deliverable)
+}
+
+/** 预算或冷却变了之后，改 size 能力，不动密钥清单。 */
+export function noteDirectSizeDeliverable(deliverable: boolean): void {
+  setAdminDirectKeySnapshot(adminDirectKeys(), deliverable)
+}
+
+const FINGERPRINT_MAC_SOURCES = [
+  'INTERNAL_API_TOKEN',
+  'EMAIL_CODE_SECRET',
+  'UPSTREAM_SECRETS_MASTER_KEY',
+] as const
+
+/** 指纹 HMAC 用的环境变量名。只暴露名字，不暴露值。 */
+export type FingerprintMacSource = (typeof FINGERPRINT_MAC_SOURCES)[number] | 'unset'
+
+export function fingerprintMacSource(): FingerprintMacSource {
+  for (const name of FINGERPRINT_MAC_SOURCES) {
+    if (process.env[name]?.trim()) return name
   }
-  setAdminDirectKeySnapshot(
-    input.admin,
-    input.admin.some((key) => key.enabled && !input.hardDisabled.has(key.fingerprint)),
+  return 'unset'
+}
+
+let loggedMacSource = false
+
+/** 启动时记一次实际用的变量名。值不进日志。 */
+export function logFingerprintMacSourceOnce(): void {
+  if (loggedMacSource) return
+  loggedMacSource = true
+  log.info(
+    { event: 'gpt.fingerprint_mac_source', source: fingerprintMacSource() },
+    'openai direct fingerprint mac source',
   )
 }
 
@@ -61,12 +90,8 @@ export function noteDirectKeySnapshot(input: {
  * 顺序固定：先用一直在的服务端密钥，避免后补主密钥时把已有账拆开。
  */
 function fingerprintMacKey(): string {
-  return (
-    process.env.INTERNAL_API_TOKEN?.trim() ||
-    process.env.EMAIL_CODE_SECRET?.trim() ||
-    process.env.UPSTREAM_SECRETS_MASTER_KEY?.trim() ||
-    ''
-  )
+  const source = fingerprintMacSource()
+  return source === 'unset' ? '' : (process.env[source]?.trim() ?? '')
 }
 
 export function fingerprintOf(secret: string): { fingerprint: string; label: string } {
@@ -122,6 +147,18 @@ export function parseDirectKeyList(rawKeys: string, rawBudgets: string): DirectK
   return keys
 }
 
+export function safeEnvDirectKeys(): DirectKey[] {
+  try {
+    return envDirectKeys()
+  } catch (err) {
+    log.warn(
+      { event: 'gpt.direct_keys_invalid', err: err instanceof Error ? err.name : 'error' },
+      'openai direct key config is invalid',
+    )
+    return []
+  }
+}
+
 function envDirectKeys(): DirectKey[] {
   const list = process.env.OPENAI_API_KEYS?.trim()
   if (list) return parseDirectKeyList(list, process.env.OPENAI_API_KEY_BUDGETS_USD ?? '')
@@ -152,11 +189,27 @@ export function configuredDirectKeys(): DirectKey[] {
 export { gptDirectSizeEnabled } from './gpt-direct-availability'
 
 export function directKeySecrets(): string[] {
-  const secrets = [process.env.OPENAI_API_KEY ?? '', process.env.OPENAI_ADMIN_KEY ?? '']
+  const secrets = [
+    process.env.OPENAI_API_KEY ?? '',
+    process.env.OPENAI_ADMIN_KEY ?? '',
+    ...(process.env.OPENAI_API_KEYS ?? '').split(','),
+  ]
   try {
     secrets.push(...configuredDirectKeys().map((key) => key.secret))
   } catch {
     // 配置不合法时也要能把已经出现在报错里的密钥抹掉。
   }
-  return secrets.filter((secret) => secret !== '')
+  return secrets.map((secret) => secret.trim()).filter((secret) => secret !== '')
+}
+
+/** 给后台看的报错：抹掉密钥、截断，不把上游原文整段放出去。 */
+export function displayDirectKeyError(text: string | null): string | null {
+  if (!text) return null
+  const scrubbed = scrubSecrets(text, directKeySecrets()).replace(
+    /sk-[A-Za-z0-9_-]{8,}/g,
+    '[redacted]',
+  )
+  const trimmed = scrubbed.trim()
+  if (!trimmed) return null
+  return trimmed.length > 80 ? `${trimmed.slice(0, 80)}…` : trimmed
 }
