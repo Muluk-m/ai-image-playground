@@ -601,7 +601,14 @@
       "idx": 87,
       "version": "7",
       "when": 1793800000000,
-      "tag": "0087_admin_filter_indexes",
+      "tag": "0087_web_session_refresh",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1793900000000,
+      "tag": "0088_admin_filter_indexes",
       "breakpoints": true
     }
   ]

@@ -119,14 +119,20 @@ describe('auth client', () => {
     })
   })
 
-  it('includes cookies on queue requests and announces an expired session', async () => {
+  it('includes cookies on queue requests and announces an expired session only after refresh fails', async () => {
     const events = new EventTarget()
     const expired = vi.fn()
     events.addEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
     vi.stubGlobal('window', events)
+    vi.stubGlobal('navigator', {})
     setSignedIn(true)
 
-    const fetchSpy = vi.fn(async () => new Response(null, { status: 401 }))
+    const fetchSpy = vi.fn(async (input: string) => {
+      if (String(input).endsWith('/api/auth/refresh')) {
+        return Response.json({ error: 'unauthorized' }, { status: 401 })
+      }
+      return new Response(null, { status: 401 })
+    })
     vi.stubGlobal('fetch', fetchSpy)
 
     await authenticatedBffFetch('/v1/queue/requests/id/status', { cache: 'no-store' })
@@ -135,7 +141,107 @@ describe('auth client', () => {
       cache: 'no-store',
       credentials: 'include',
     })
+    expect(
+      fetchSpy.mock.calls.filter(([url]) => String(url).endsWith('/api/auth/refresh')),
+    ).toHaveLength(1)
     expect(expired).toHaveBeenCalledOnce()
+  })
+
+  it('coalesces concurrent 401s into one refresh and retries without a login prompt', async () => {
+    const events = new EventTarget()
+    const expired = vi.fn()
+    events.addEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
+    vi.stubGlobal('window', events)
+    const locks: string[] = []
+    vi.stubGlobal('navigator', {
+      locks: {
+        request: async (_name: string, callback: () => Promise<unknown>) => {
+          locks.push('acquired')
+          return callback()
+        },
+      },
+    })
+    setSignedIn(true)
+    const attempts = new Map<string, number>()
+    const fetchSpy = vi.fn(async (input: string) => {
+      const url = String(input)
+      if (url.endsWith('/api/auth/refresh')) {
+        await new Promise((resolve) => setTimeout(resolve, 15))
+        return Response.json({ ok: true })
+      }
+      const seen = (attempts.get(url) ?? 0) + 1
+      attempts.set(url, seen)
+      return seen === 1 ? new Response(null, { status: 401 }) : Response.json({ ok: true })
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const responses = await Promise.all(
+      Array.from({ length: 10 }, () => authenticatedBffFetch('/api/projects')),
+    )
+
+    expect(responses.map((response) => response.status)).toEqual(
+      Array.from({ length: 10 }, () => 200),
+    )
+    expect(
+      fetchSpy.mock.calls.filter(([url]) => String(url).endsWith('/api/auth/refresh')),
+    ).toHaveLength(1)
+    expect(locks).toEqual(['acquired'])
+    expect(expired).not.toHaveBeenCalled()
+  })
+
+  it('treats a raced refresh as success and retries the original request', async () => {
+    const events = new EventTarget()
+    const expired = vi.fn()
+    events.addEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
+    vi.stubGlobal('window', events)
+    vi.stubGlobal('navigator', {})
+    setSignedIn(true)
+    let calls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string) => {
+        if (String(input).endsWith('/api/auth/refresh')) {
+          return Response.json({ error: 'refresh_raced' }, { status: 409 })
+        }
+        calls += 1
+        return calls === 1 ? new Response(null, { status: 401 }) : Response.json({ ok: true })
+      }),
+    )
+
+    const response = await authenticatedBffFetch('/api/projects')
+
+    expect(response.status).toBe(200)
+    expect(expired).not.toHaveBeenCalled()
+  })
+
+  it('refreshes once more after a raced refresh before showing the login prompt', async () => {
+    const events = new EventTarget()
+    const expired = vi.fn()
+    events.addEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
+    vi.stubGlobal('window', events)
+    vi.stubGlobal('navigator', {})
+    setSignedIn(true)
+    let refreshes = 0
+    let projectCalls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string) => {
+        if (String(input).endsWith('/api/auth/refresh')) {
+          refreshes += 1
+          return refreshes === 1
+            ? Response.json({ error: 'refresh_raced' }, { status: 409 })
+            : Response.json({ ok: true, access_expires_at: Date.now() + 7 * 24 * 60 * 60 * 1000 })
+        }
+        projectCalls += 1
+        return projectCalls < 3 ? new Response(null, { status: 401 }) : Response.json({ ok: true })
+      }),
+    )
+
+    const response = await authenticatedBffFetch('/api/projects')
+
+    expect(response.status).toBe(200)
+    expect(refreshes).toBe(2)
+    expect(expired).not.toHaveBeenCalled()
   })
 
   it('stays quiet on a 401 for a visitor who never signed in', async () => {

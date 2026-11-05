@@ -510,8 +510,12 @@ describe('runMigrations', () => {
             created_at: '1793700000000',
           },
           {
-            hash: await migrationFileHash('0087_admin_filter_indexes'),
+            hash: await migrationFileHash('0087_web_session_refresh'),
             created_at: '1793800000000',
+          },
+          {
+            hash: await migrationFileHash('0088_admin_filter_indexes'),
+            created_at: '1793900000000',
           },
         ])
         const columns =
