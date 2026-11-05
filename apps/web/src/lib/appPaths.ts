@@ -82,7 +82,6 @@ export function isStandalonePath(pathname: string): boolean {
     path === TERMS_PATH ||
     path === PRIVACY_PATH ||
     path === CLI_DEVICE_PATH ||
-    path === CLI_CONNECT_PATH ||
     path === CHANGELOG_PATH
   )
 }

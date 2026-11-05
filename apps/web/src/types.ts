@@ -42,7 +42,11 @@ export type GeminiThinkingLevel = (typeof GEMINI_THINKING_LEVELS)[number]
 export interface TaskParams {
   size: string
   quality: 'auto' | 'low' | 'medium' | 'high'
-  output_format: 'png' | 'jpeg' | 'webp'
+  output_format: 'png' | 'jpeg' | 'webp' | 'gif' | 'svg'
+  /** GIF 帧数。只在 Image 2.6 的动图格式下使用。 */
+  frame_count?: number
+  /** GIF 每帧毫秒。只在 Image 2.6 的动图格式下使用。 */
+  frame_duration_ms?: number
   output_compression: number | null
   moderation: 'auto' | 'low'
   n: number

@@ -1,4 +1,4 @@
-import { isGptDirectModel } from '@image-playground/shared'
+import { isGptDirectModel, isGptImage26Model } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { bffBaseUrl } from './runtimeConfig'
@@ -75,14 +75,16 @@ function fetchPremium(userId: string): Promise<GptPremiumAccess | null> {
  * GPT 直连模型的 4K 与高画质只开给会员，2K 对非会员开放。由服务端 `/api/gpt/premium` 判定。
  * 非会员选不了 4K 和高画质，服务端也会把越档的提交收到 2K、非高画质。`directOn` 取模型是否声明了 size：
  * 服务端只在 OpenAI 直连开着时声明它，没开时分辨率行不给出档位。
+ * Image 2.6 的 2K 和高画质对所有人开放，只有 4K 走这份会员查询。
  */
 export function useGptPremiumLocked(model: string, directOn: boolean): GptPremiumAccess {
   const userId = useAuth().user?.id ?? null
   const gpt = isGptDirectModel(model)
+  const image26 = isGptImage26Model(model)
   const [access, setAccess] = useState<GptPremiumAccess | null | undefined>(undefined)
   useEffect(() => {
     setAccess(undefined)
-    if (!gpt || !directOn || !userId) return
+    if (!((gpt && directOn) || image26) || !userId) return
     let active = true
     let latest = 0
     const refresh = () => {
@@ -106,7 +108,19 @@ export function useGptPremiumLocked(model: string, directOn: boolean): GptPremiu
       window.removeEventListener('focus', refresh)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [gpt, directOn, userId])
+  }, [gpt, directOn, image26, userId])
+  if (image26) {
+    const member = Boolean(userId && access?.member)
+    return {
+      premium: member,
+      member,
+      maxTier: member ? '4K' : '2K',
+      highQuality: true,
+      locked: false,
+      memberOnly: false,
+      settled: !userId || access != null,
+    }
+  }
   if (!gpt) {
     return {
       premium: false,

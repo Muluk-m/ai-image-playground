@@ -351,11 +351,11 @@ async function prepareSecrets(checkout: string) {
   await writeFile(join(checkout, 'token.env'), 'CLOUDFLARE_API_TOKEN=paid-token\n')
 }
 
-it('builds paid with the overlay and its own external Pages config', async () => {
+it('builds muvloom with the overlay and legacy external Pages config keys', async () => {
   const checkout = join(dist, 'checkout')
   await mkdir(checkout, { recursive: true })
   await prepareSecrets(checkout)
-  const { captured, run } = await releaseCheckout('paid', paidEnv(checkout))
+  const { captured, run } = await releaseCheckout('muvloom', paidEnv(checkout))
   expect(run.status).toBe(27)
   expect(run.stderr).toBe('')
   expect(run.stdout).toContain('private web bundle to Pages project paid-project')
@@ -376,17 +376,17 @@ it('builds paid with the overlay and its own external Pages config', async () =>
   )
 })
 
-it('serves the enterprise domain from the paid project with its own API and no indexing', async () => {
+it('serves the qlj domain from the muvloom project with its own API and no indexing', async () => {
   const checkout = join(dist, 'checkout')
   await mkdir(checkout, { recursive: true })
   await prepareSecrets(checkout)
   const { captured, run } = await releaseCheckout(
-    'paid',
+    'muvloom',
     paidEnv(checkout, [
       `PAID_BFF_BASE_URLS_BY_ORIGIN='{"https://old.example.com":"https://old-api.example.com"}'`,
       'INTERNAL_PUBLIC_ORIGIN=https://enterprise.example.net/',
       'INTERNAL_BFF_BASE_URL=https://enterprise-api.example.net',
-      // The retired internal project must never be the upload target.
+      // The retired qlj project must never be the upload target.
       'INTERNAL_PAGES_PROJECT=retired-internal-project',
     ]),
     `mkdir -p apps/web/dist && printf '/assets/*\\n  Cache-Control: immutable\\n' > apps/web/dist/_headers`,
@@ -408,12 +408,12 @@ it('serves the enterprise domain from the paid project with its own API and no i
   )
 })
 
-it('rejects an enterprise mapping that contradicts the paid origin map', async () => {
+it('rejects a qlj mapping that contradicts the muvloom origin map', async () => {
   const checkout = join(dist, 'checkout')
   await mkdir(checkout, { recursive: true })
   await prepareSecrets(checkout)
   const { run } = await releaseCheckout(
-    'paid',
+    'muvloom',
     paidEnv(checkout, [
       `PAID_BFF_BASE_URLS_BY_ORIGIN='{"https://enterprise.example.net":"https://api.paid.example.com"}'`,
       'INTERNAL_PUBLIC_ORIGIN=https://enterprise.example.net',
@@ -431,17 +431,17 @@ it('rejects half an enterprise domain config', async () => {
   await mkdir(checkout, { recursive: true })
   await prepareSecrets(checkout)
   const { run } = await releaseCheckout(
-    'paid',
+    'muvloom',
     paidEnv(checkout, ['INTERNAL_PUBLIC_ORIGIN=https://enterprise.example.net']),
   )
   expect(run.status).toBe(1)
   expect(run.stderr).toContain('must be set together')
 })
 
-it('no longer releases a separate internal Pages project', async () => {
+it('no longer releases a separate qlj Pages project', async () => {
   const checkout = join(dist, 'checkout')
   await mkdir(checkout, { recursive: true })
-  const { run } = await releaseCheckout('internal', [])
+  const { run } = await releaseCheckout('qlj', [])
   expect(run.status).toBe(2)
-  expect(run.stderr).toContain('served by the paid Pages project')
+  expect(run.stderr).toContain('served by the muvloom Pages project')
 })

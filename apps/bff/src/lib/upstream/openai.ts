@@ -135,6 +135,19 @@ export function buildOpenAIBody(
     ...(request.size ? { size: request.size } : {}),
     ...(request.quality ? { quality: request.quality } : {}),
     ...(request.output_format ? { output_format: request.output_format } : {}),
+    ...(request.output_format === 'gif'
+      ? {
+          frame_count: request.frame_count,
+          frame_duration_ms: request.frame_duration_ms,
+        }
+      : {}),
+    ...(request.output_format === 'svg'
+      ? {
+          // 不经过 config：grok 的目录测试会加载这个模块，config 在没有 DATABASE_URL 时会抛。
+          svg: { model: process.env.GPT_IMAGE_26_SVG_MODEL?.trim() || 'gpt-6-sol' },
+          n: 1,
+        }
+      : {}),
     ...(request.moderation ? { moderation: request.moderation } : {}),
     ...(request.output_compression != null
       ? { output_compression: request.output_compression }

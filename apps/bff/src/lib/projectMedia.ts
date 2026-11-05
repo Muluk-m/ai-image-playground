@@ -519,15 +519,23 @@ async function publishMedia(
       mark('decode_wait')
       const decoded = await withMediaDecode(async () => {
         mark('decode')
+        // 动图只取第一帧做预览，原件仍是完整 GIF。用户上传入口不收 gif，这里只放行生成结果。
+        const stillGif = row.content_type === 'image/gif'
         const image = sharp(bytes, {
           limitInputPixels: limits?.imagePixels ?? MEDIA_UPLOAD_MAX_PIXELS,
           failOn: 'warning',
+          ...(stillGif ? { pages: 1 } : {}),
         })
         const metadata = await image.metadata()
         observed = metadata
-        if (metadata.pages && metadata.pages > 1) throw new Error('animated_image')
-        if (`image/${metadata.format === 'jpeg' ? 'jpeg' : metadata.format}` !== row.content_type)
-          throw new Error('content_type_mismatch')
+        if (!stillGif && metadata.pages && metadata.pages > 1) throw new Error('animated_image')
+        const detected =
+          metadata.format === 'jpeg'
+            ? 'image/jpeg'
+            : metadata.format === 'svg'
+              ? 'image/svg+xml'
+              : `image/${metadata.format}`
+        if (detected !== row.content_type) throw new Error('content_type_mismatch')
         assertMediaImageProcessingBudget(metadata)
         mark('preview')
         const preview = await image

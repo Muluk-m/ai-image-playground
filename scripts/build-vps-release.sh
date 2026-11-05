@@ -74,7 +74,7 @@ build_image() {
   remote=$ghcr_repository:$2
   context=$3
   shift 3
-  # internal, paid, and test are separate workflow runs. A registry cache of the
+  # qlj (internal), muvloom (paid), and test are separate workflow runs. A registry cache of the
   # intermediate stages lets the next run reuse the public install and, when the
   # overlay matches, the private stages. The backup image uses another Dockerfile;
   # exporting it would replace this cache, so only the last application edition
