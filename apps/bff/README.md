@@ -249,9 +249,11 @@ OAuth start、callback 和后续 API 请求应保持同一 API 主机；不同�
 
 ### qlj 前端与冻结的旧 qlj 后端
 
-qlj 前端由 CI 发布到现有 `INTERNAL_*` Pages 目标，使用与 muvloom 前端相同的 overlay-enabled
-构建形态，但保持禁止搜索索引。仓库外的 `PAGES_ENV` 仍是 Pages 配置来源，
-`INTERNAL_BFF_BASE_URL` 指向共享 BFF 的同站 API 别名，而非旧 qlj 后端；不要手工上传替代 CI。
+qlj 域名迁入共享 muvloom Pages 项目后，由 CI 通过 `pages-release.sh muvloom` 随同一份 overlay-enabled
+构建产物发布，以按 host 生效的响应头禁止搜索索引；迁入前仍由冻结的旧 qlj Pages 项目服务。
+仓库外的 `PAGES_ENV` 保留 `PAID_*` 项目配置；`INTERNAL_PUBLIC_ORIGIN` / `INTERNAL_BFF_BASE_URL`
+只用于 qlj 域名的第一方 API 映射与 noindex 配置，后者指向共享 BFF 的同站 API 别名，而非旧 qlj 后端。
+域名迁入需单独批准，按[部署手册](../../docs/deploy/image-release.md#企业域名迁入-muvloom-pages-项目一次性)执行；不要手工上传替代 CI。
 
 旧 qlj BFF / worker / Admin 与其数据库、对象存储保持冻结，不因 qlj Pages 发布而覆盖、
 重建或停用；`deploy/app.qlj.env.example` 仅作为旧部署参考。共享 BFF 配置见
