@@ -22,6 +22,42 @@ function draft(id: string, n: number): AgentToolMessage {
   }
 }
 
+it('prices a Gemini draft at the requested tier and a prepared GPT draft at the basic rate', () => {
+  const seen: { model: string; unitMultiplier?: number }[] = []
+  const quote = (input: { model: string; quantity: number; unitMultiplier?: number }) => {
+    seen.push({ model: input.model, unitMultiplier: input.unitMultiplier })
+    return input.quantity * 10 * (input.unitMultiplier ?? 1)
+  }
+  const priced = (
+    id: string,
+    model: string,
+    provider: string,
+    params: NonNullable<AgentToolMessage['snapshot']>['params'],
+  ): AgentToolMessage => ({
+    ...draft(id, 1),
+    snapshot: { mode: 'image', args: { n: 1 }, target: { provider, model }, params },
+  })
+  expect(
+    agentDraftCreditEstimate(
+      priced('nano', 'gemini-nano-banana-2.1', 'gemini', { gemini_image_size: '2K' }),
+      quote,
+    ),
+  ).toBe(15)
+  expect(
+    agentDraftCreditEstimate(
+      priced('gpt', 'gpt-image-2.5-flare', 'openai-compat', {
+        size: '2048x2048',
+        quality: 'high',
+      }),
+      quote,
+    ),
+  ).toBe(10)
+  expect(seen).toEqual([
+    { model: 'gemini-nano-banana-2.1', unitMultiplier: 1.5 },
+    { model: 'gpt-image-2.5-flare', unitMultiplier: 1 },
+  ])
+})
+
 it('prices a draft from its output count and omits an unpriced group total', () => {
   const quote = (input: { quantity: number }) =>
     input.quantity > 0 ? input.quantity * 10 : undefined

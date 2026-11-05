@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import {
-  gptImageRateMultiplier,
+  imageRateMultiplier,
   isGptDirectModel,
   type QueueProvider,
   type SubmitRequest,
@@ -16,7 +16,7 @@ import { db, schema } from '../../db/client'
 import { accountConcurrencyLimit } from '../account-concurrency'
 import { shapeQueuePrompt } from '../agent/prompt-shaping'
 import { canonicalJson } from '../canonicalJson'
-import { getDiscoveredChannels, resolveQueueModel } from '../channels'
+import { declaredImageSizes, getDiscoveredChannels, resolveQueueModel } from '../channels'
 import { refreshInactiveModels, withoutInactiveModels } from '../model-availability'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { strictImageRequestAllowed } from '../taskSubmission'
@@ -268,7 +268,11 @@ export async function previewImageRequest(
       userId,
       model: prepared.model.id,
       quantity: 1,
-      unitMultiplier: gptImageRateMultiplier(prepared.model.id, request),
+      unitMultiplier: imageRateMultiplier(
+        prepared.model.id,
+        request,
+        declaredImageSizes(prepared.model.id),
+      ),
     })
     return {
       planRequired,

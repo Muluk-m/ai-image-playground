@@ -6,6 +6,7 @@ import { Button } from '../../../components/ui/button'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { composerImageRate } from '../../../lib/imageCharge'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import type { ImageEl } from '../lib/canvasDoc'
@@ -26,9 +27,12 @@ export default function CanvasEditPromptDialog({
   const { t } = useTranslation('canvas')
   const [prompt, setPrompt] = useState('')
   const settings = useStore((state) => state.settings)
+  const params = useStore((state) => state.params)
+  const model = clientProfileToApiProfile(getActiveApiProfile(settings)).model
   const guard = usePrivateSubmissionGuard({
-    model: clientProfileToApiProfile(getActiveApiProfile(settings)).model,
+    model,
     quantity: 1,
+    unitMultiplier: composerImageRate(model, params),
   })
 
   const submit = () => {

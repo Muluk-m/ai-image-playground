@@ -1,6 +1,6 @@
 import {
-  type GptTierInput,
-  gptImageRateMultiplier,
+  type ImageRateRequest,
+  imageRateMultiplier,
   isContentPolicyEmptyResult,
   isContentPolicyRejection,
   isGptSub2apiDeliverable,
@@ -211,7 +211,13 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       )
       await execution.finish({
         status: missing.size ? 'failed' : 'completed',
-        ...(missing.size ? {} : deliveredUsage(archivePayload, { model: task.model, request })),
+        ...(missing.size
+          ? {}
+          : deliveredUsage(archivePayload, {
+              model: task.model,
+              request,
+              metering: task.metering,
+            })),
         ...(missing.size
           ? {
               errorType: 'upstream_result_unknown' as const,
@@ -358,7 +364,11 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       : undefined
     await execution.finish({
       status: 'completed',
-      ...deliveredUsage(archivedPayload, { model: task.model, request }),
+      ...deliveredUsage(archivedPayload, {
+        model: task.model,
+        request,
+        metering: task.metering,
+      }),
       media,
       resultPayload: archivedPayload,
       completedAt: now(),
@@ -493,19 +503,30 @@ async function executeTask(execution: TaskExecution): Promise<void> {
 
 /**
  * 部分出图（结果里有 `partial_failure`）只按交付张数结算：冻结的是要的张数，没出的那几张随结算退回。
- * 倍率沿用提交时的口径（GPT 直连模型按档位与画质）；高档单落到 sub2api 的降档由 finishTask 按任务行
- * 上记的通道统一改判，这里不看。整单都出了图不带用量，结算照旧按冻结额。
+ * 倍率沿用提交时写进 `metering` 的那一份。在途旧任务当时按 1 预扣，不能用新表重算成更高的结算额。
+ * 没有这份快照的旧行才按原请求现算（仍不看回图像素）。
+ * 高档单落到 sub2api 的降档由 finishTask 按任务行上记的通道统一改判，这里不看。
+ * 整单都出了图不带用量，结算照旧按冻结额。旧任务重试另建任务，按落库请求重新计价。
  */
 function deliveredUsage(
   payload: unknown,
-  task: { model: string; request: GptTierInput },
+  task: {
+    model: string
+    request: ImageRateRequest
+    metering?: { unitMultiplier?: number } | null
+  },
 ): { actualUsage?: TaskUsage } {
   const partial = partialFailureOf(payload)
   if (!partial) return {}
+  const frozen = task.metering?.unitMultiplier
+  const unitMultiplier =
+    typeof frozen === 'number' && Number.isFinite(frozen) && frozen > 0
+      ? frozen
+      : imageRateMultiplier(task.model, task.request)
   return {
     actualUsage: {
       quantity: Math.max(0, partial.requested - partial.failed),
-      unitMultiplier: gptImageRateMultiplier(task.model, task.request),
+      unitMultiplier,
     },
   }
 }

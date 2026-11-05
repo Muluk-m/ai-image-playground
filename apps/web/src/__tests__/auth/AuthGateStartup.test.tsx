@@ -37,6 +37,11 @@ beforeEach(() => {
           return Response.json({ ...allCapabilitiesOff(), 'accounts:login': true })
         case '/api/auth/me':
           return Response.json({ user: { id: 'alice', username: 'alice', status: 'active' } })
+        case '/api/auth/refresh':
+          return Response.json({
+            ok: true,
+            access_expires_at: Date.now() + 7 * 24 * 60 * 60 * 1000,
+          })
         case '/api/auth/oauth/providers':
           return Response.json({
             providers: [],

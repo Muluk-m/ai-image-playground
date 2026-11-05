@@ -18,6 +18,7 @@ import type {
   TaskListItem,
   TaskStatus,
   TaskVolumeBucket,
+  TimeWindow,
   UserDetailResult,
   UserTasksResult,
   VolumeBucketUnit,
@@ -88,11 +89,34 @@ function taskStatus(value: unknown): TaskStatus {
   throw new Error(`Unknown task status: ${String(value)}`)
 }
 
-const LIST_LIMIT = 500
+export interface DeviceListOptions {
+  q?: string
+  page?: number
+  pageSize?: 50 | 100
+  from?: number
+  to?: number
+}
 
-export async function listDevices(range: Range, sort: SortKey): Promise<ListDevicesResult> {
+function ilikeContains(value: string): string {
+  return `%${value.replace(/[\\%_]/g, (char) => `\\${char}`)}%`
+}
+
+export async function listDevices(
+  range: Range,
+  sort: SortKey,
+  options: DeviceListOptions = {},
+): Promise<ListDevicesResult> {
   const { db } = getHandle()
-  const since = Date.now() - rangeMs(range)
+  const pageSize = options.pageSize === 100 ? 100 : 50
+  const page = Math.min(Math.max(options.page ?? 1, 1), 10_000)
+  const offset = (page - 1) * pageSize
+  const since = options.from !== undefined ? options.from : Date.now() - rangeMs(range)
+  const until =
+    options.to !== undefined ? sql`AND t.submitted_at <= ${new Date(options.to)}` : sql``
+  const q = options.q?.trim() ?? ''
+  const deviceFilter = q
+    ? sql`AND (t.device_id = ${q} OR t.device_id ILIKE ${ilikeContains(q)} ESCAPE '\\')`
+    : sql``
   const today = todayDate()
   const orderBy =
     sort === 'last_seen'
@@ -102,6 +126,7 @@ export async function listDevices(range: Range, sort: SortKey): Promise<ListDevi
         : sql`today_count DESC`
 
   // One aggregate query avoids N+1. PostgreSQL returns distinct models as a native array.
+  // device_id 等值走 idx_tasks_admin_device_time；子串 ILIKE 留在 submitted_at 窗口内。
   const rows = (await db.execute(sql`
     SELECT
       t.device_id AS device_id,
@@ -115,9 +140,21 @@ export async function listDevices(range: Range, sort: SortKey): Promise<ListDevi
     FROM queue_tasks t
     LEFT JOIN daily_quota q ON q.device_id = t.device_id AND q.date = ${today}
     WHERE t.submitted_at >= ${new Date(since)} AND t.device_id IS NOT NULL
+      ${until}
+      ${deviceFilter}
     GROUP BY t.device_id, q.count
     ORDER BY ${orderBy}
-    LIMIT ${LIST_LIMIT + 1}
+    LIMIT ${pageSize} OFFSET ${offset}
+  `)) as unknown as Array<Record<string, unknown>>
+  const countRows = (await db.execute(sql`
+    SELECT COUNT(*)::int AS total FROM (
+      SELECT t.device_id
+      FROM queue_tasks t
+      WHERE t.submitted_at >= ${new Date(since)} AND t.device_id IS NOT NULL
+        ${until}
+        ${deviceFilter}
+      GROUP BY t.device_id
+    ) devices
   `)) as unknown as Array<Record<string, unknown>>
 
   const list = rows.map(
@@ -132,9 +169,14 @@ export async function listDevices(range: Range, sort: SortKey): Promise<ListDevi
       today_count: Number(r.today_count),
     }),
   )
-
-  const truncated = list.length > LIST_LIMIT
-  return { devices: list.slice(0, LIST_LIMIT), truncated }
+  const total = Number(countRows[0]?.total ?? 0)
+  return {
+    devices: list,
+    total,
+    page,
+    pageSize,
+    truncated: offset + list.length < total,
+  }
 }
 
 function nullableEpochMs(value: unknown): number | null {
@@ -185,16 +227,79 @@ const ADMIN_USER_PROJECTION = sql`
 const ACTIVE_SESSION_JOIN = sql`
   LEFT JOIN LATERAL (
     SELECT COUNT(*) AS active_sessions
-    FROM user_sessions s
-    WHERE s.user_id = u.id AND s.expires_at > NOW()
+    FROM (
+      SELECT f.id
+      FROM user_session_families f
+      WHERE f.user_id = u.id
+        AND f.revoked_at IS NULL
+        AND f.refresh_expires_at > NOW()
+        AND f.absolute_expires_at > NOW()
+      UNION
+      SELECT s.token_hash
+      FROM user_sessions s
+      WHERE s.user_id = u.id
+        AND s.family_id IS NULL
+        AND s.expires_at > NOW()
+    ) active
   ) session_stats ON TRUE
 `
 
-const USER_LIST_LIMIT = 1000
+export interface UserListOptions {
+  status?: 'active' | 'disabled'
+  registeredFrom?: number
+  registeredTo?: number
+  activeFrom?: number
+  activeTo?: number
+  sort?: 'activity' | 'created' | 'login'
+  dir?: 'asc' | 'desc'
+  page?: number
+  pageSize?: 50 | 100
+}
 
-export async function listUsers(search = ''): Promise<ListUsersResult> {
+export async function listUsers(
+  search = '',
+  options: UserListOptions = {},
+): Promise<ListUsersResult> {
   const { db } = getHandle()
   const term = search.trim().toLowerCase()
+  const pageSize = options.pageSize === 100 ? 100 : 50
+  const page = Math.min(Math.max(options.page ?? 1, 1), 10_000)
+  const offset = (page - 1) * pageSize
+  const direction = options.dir === 'asc' ? sql`ASC` : sql`DESC`
+  const orderBy =
+    options.sort === 'created'
+      ? sql`u.created_at ${direction}, u.id ${direction}`
+      : options.sort === 'login'
+        ? sql`u.last_login_at ${direction} NULLS LAST, u.id ${direction}`
+        : sql`last_activity_at ${direction} NULLS LAST, u.created_at DESC, u.id DESC`
+  const filters = [
+    sql`(${term} = ''
+       OR POSITION(${term} IN LOWER(u.username)) > 0
+       OR POSITION(${term} IN LOWER(u.id)) > 0
+       OR POSITION(${term} IN LOWER(COALESCE(n.note, ''))) > 0)`,
+  ]
+  if (options.status) filters.push(sql`u.status = ${options.status}`)
+  if (options.registeredFrom !== undefined)
+    filters.push(sql`u.created_at >= ${new Date(options.registeredFrom)}`)
+  if (options.registeredTo !== undefined)
+    filters.push(sql`u.created_at <= ${new Date(options.registeredTo)}`)
+  if (options.activeFrom !== undefined)
+    filters.push(sql`(
+      u.last_login_at >= ${new Date(options.activeFrom)}
+      OR EXISTS (
+        SELECT 1 FROM queue_tasks t
+        WHERE t.user_id = u.id AND t.submitted_at >= ${new Date(options.activeFrom)}
+      )
+    )`)
+  if (options.activeTo !== undefined)
+    filters.push(sql`(
+      (u.last_login_at IS NULL OR u.last_login_at <= ${new Date(options.activeTo)})
+      AND NOT EXISTS (
+        SELECT 1 FROM queue_tasks t
+        WHERE t.user_id = u.id AND t.submitted_at > ${new Date(options.activeTo)}
+      )
+    )`)
+  const where = sql.join(filters, sql` AND `)
   const userRowsPromise = db.execute(sql`
     SELECT ${ADMIN_USER_PROJECTION}
     FROM users u
@@ -205,12 +310,15 @@ export async function listUsers(search = ''): Promise<ListUsersResult> {
       FROM queue_tasks t
       WHERE t.user_id = u.id
     ) task_stats ON TRUE
-    WHERE ${term} = ''
-       OR POSITION(${term} IN LOWER(u.username)) > 0
-       OR POSITION(${term} IN LOWER(u.id)) > 0
-       OR POSITION(${term} IN LOWER(n.note)) > 0
-    ORDER BY last_activity_at DESC NULLS LAST, u.created_at DESC, u.id DESC
-    LIMIT ${USER_LIST_LIMIT + 1}
+    WHERE ${where}
+    ORDER BY ${orderBy}
+    LIMIT ${pageSize} OFFSET ${offset}
+  `)
+  const countPromise = db.execute(sql`
+    SELECT COUNT(*)::int AS total
+    FROM users u
+    LEFT JOIN admin_user_notes n ON n.user_id = u.id
+    WHERE ${where}
   `)
   const kpiRowsPromise = db.execute(sql`
     WITH user_activity AS (
@@ -238,12 +346,21 @@ export async function listUsers(search = ''): Promise<ListUsersResult> {
     FROM recent_tasks
   `)
 
-  const [userRowsRaw, kpiRowsRaw] = await Promise.all([userRowsPromise, kpiRowsPromise])
+  const [userRowsRaw, countRowsRaw, kpiRowsRaw] = await Promise.all([
+    userRowsPromise,
+    countPromise,
+    kpiRowsPromise,
+  ])
   const userRows = userRowsRaw as unknown as Array<Record<string, unknown>>
+  const total = Number((countRowsRaw as unknown as Array<Record<string, unknown>>)[0]?.total ?? 0)
   const kpi = (kpiRowsRaw as unknown as Array<Record<string, unknown>>)[0] ?? {}
+  const users = userRows.map(mapAdminUser)
   return {
-    users: userRows.slice(0, USER_LIST_LIMIT).map(mapAdminUser),
-    truncated: userRows.length > USER_LIST_LIMIT,
+    users,
+    total,
+    page,
+    pageSize,
+    truncated: offset + users.length < total,
     kpis: {
       total_users: Number(kpi.total_users ?? 0),
       active_users_7d: Number(kpi.active_users_7d ?? 0),
@@ -330,12 +447,20 @@ async function getPulse(
   range: Range,
   bucketAts: readonly number[],
   at: Date,
+  clock?: { since: Date; previousSince: Date; unit: VolumeBucketUnit },
 ): Promise<OverviewResult['pulse']> {
   const { db } = getHandle()
-  const now = at.getTime()
-  const current = new Date(now - rangeMs(range))
-  const previous = new Date(now - 2 * rangeMs(range))
-  const { unit, start } = volumeBuckets(range, at)
+  const current = clock?.since ?? new Date(at.getTime() - rangeMs(range))
+  const previous = clock?.previousSince ?? new Date(at.getTime() - 2 * rangeMs(range))
+  const submittedCap = clock ? sql`AND submitted_at <= ${at}` : sql``
+  const createdCap = clock ? sql`AND created_at <= ${at}` : sql``
+  const unitSql = clock ? (clock.unit === 'hour' ? sql`'hour'` : sql`'day'`) : undefined
+  const { unit, start } = clock
+    ? {
+        unit: unitSql!,
+        start: sql`DATE_TRUNC(${unitSql!}, ${current}::timestamptz)`,
+      }
+    : volumeBuckets(range, at)
   // 走势的首格可能早于当前窗起点（按整点或整天对齐），取数下界取两者更早的那个。
   const floor = sql`LEAST(${previous}::timestamptz, ${start})`
   // 视频任务也走这个队列，不算出图。
@@ -344,12 +469,12 @@ async function getPulse(
   const actors = sql`
     SELECT submitted_at AS at, COALESCE(user_id, device_id) AS actor
     FROM queue_tasks
-    WHERE submitted_at >= ${floor}
+    WHERE submitted_at >= ${floor} ${submittedCap}
     UNION ALL
     SELECT t.created_at, COALESCE(c.user_id, c.device_id)
     FROM agent_turns t
     JOIN agent_conversations c ON c.id = t.conversation_id
-    WHERE t.created_at >= ${floor}
+    WHERE t.created_at >= ${floor} ${createdCap}
   `
 
   const [taskRows, actorRows, signupRows, agentRows, seriesRows] = await Promise.all([
@@ -364,7 +489,7 @@ async function getPulse(
         COALESCE(SUM(${images}) FILTER (WHERE status = 'completed' AND submitted_at >= ${current}), 0) AS images_cur,
         COALESCE(SUM(${images}) FILTER (WHERE status = 'completed' AND submitted_at < ${current}), 0) AS images_prev
       FROM queue_tasks
-      WHERE submitted_at >= ${previous}
+      WHERE submitted_at >= ${previous} ${submittedCap}
     `),
     db.execute(sql`
       SELECT
@@ -378,7 +503,7 @@ async function getPulse(
         COUNT(*) FILTER (WHERE created_at >= ${current}) AS signups_cur,
         COUNT(*) FILTER (WHERE created_at < ${current}) AS signups_prev
       FROM users
-      WHERE created_at >= ${previous}
+      WHERE created_at >= ${previous} ${createdCap}
     `),
     db.execute(sql`
       SELECT
@@ -389,7 +514,7 @@ async function getPulse(
         COUNT(*) FILTER (WHERE stop_reason = 'aborted' AND created_at >= ${current}) AS aborted_cur,
         COUNT(*) FILTER (WHERE stop_reason = 'aborted' AND created_at < ${current}) AS aborted_prev
       FROM agent_turns
-      WHERE created_at >= ${previous}
+      WHERE created_at >= ${previous} ${createdCap}
     `),
     db.execute(sql`
       WITH
@@ -397,7 +522,7 @@ async function getPulse(
           SELECT DATE_TRUNC(${unit}, submitted_at) AS bucket,
                  COUNT(*) AS tasks,
                  COALESCE(SUM(${images}) FILTER (WHERE status = 'completed'), 0) AS images
-          FROM queue_tasks WHERE submitted_at >= ${start} GROUP BY 1
+          FROM queue_tasks WHERE submitted_at >= ${start} ${submittedCap} GROUP BY 1
         ),
         actors_by AS (
           SELECT DATE_TRUNC(${unit}, at) AS bucket, COUNT(DISTINCT actor) AS active
@@ -405,14 +530,14 @@ async function getPulse(
         ),
         signups_by AS (
           SELECT DATE_TRUNC(${unit}, created_at) AS bucket, COUNT(*) AS signups
-          FROM users WHERE created_at >= ${start} GROUP BY 1
+          FROM users WHERE created_at >= ${start} ${createdCap} GROUP BY 1
         ),
         agent_by AS (
           SELECT DATE_TRUNC(${unit}, created_at) AS bucket,
                  COUNT(*) FILTER (WHERE stop_reason = 'completed') AS agent_completed,
                  COUNT(*) FILTER (WHERE stop_reason = 'failed') AS agent_failed,
                  COUNT(*) FILTER (WHERE stop_reason = 'aborted') AS agent_aborted
-          FROM agent_turns WHERE created_at >= ${start} GROUP BY 1
+          FROM agent_turns WHERE created_at >= ${start} ${createdCap} GROUP BY 1
         ),
         keys AS (
           SELECT bucket FROM tasks_by UNION SELECT bucket FROM actors_by
@@ -474,12 +599,55 @@ async function getPulse(
   }
 }
 
-export async function getOverview(range: Range): Promise<OverviewResult> {
+async function getTaskVolumeBetween(
+  since: Date,
+  at: Date,
+  unit: VolumeBucketUnit,
+): Promise<TaskVolumeBucket[]> {
+  const { db } = getHandle()
+  const bucketUnit = unit === 'hour' ? sql`'hour'` : sql`'day'`
+  const bucketStep = unit === 'hour' ? sql`INTERVAL '1 hour'` : sql`INTERVAL '1 day'`
+  const bucketStart = sql`DATE_TRUNC(${bucketUnit}, ${since}::timestamptz)`
+  const now = sql`${at}::timestamptz`
+  const rows = await db.execute(sql`
+    WITH buckets AS (
+      SELECT GENERATE_SERIES(${bucketStart}, DATE_TRUNC(${bucketUnit}, ${now}), ${bucketStep}) AS bucket
+    )
+    SELECT
+      EXTRACT(EPOCH FROM b.bucket) * 1000 AS bucket_at,
+      COUNT(t.id) AS total,
+      COUNT(t.id) FILTER (WHERE t.status = 'completed') AS completed,
+      COUNT(t.id) FILTER (WHERE t.status = 'failed') AS failed
+    FROM buckets b
+    LEFT JOIN queue_tasks t
+      ON t.submitted_at >= b.bucket
+     AND t.submitted_at < b.bucket + ${bucketStep}
+     AND t.submitted_at >= ${since}
+     AND t.submitted_at <= ${at}
+    GROUP BY b.bucket
+    ORDER BY b.bucket
+  `)
+  return (rows as unknown as Array<Record<string, unknown>>).map((row) => ({
+    bucket_at: Number(row.bucket_at),
+    total: Number(row.total),
+    completed: Number(row.completed),
+    failed: Number(row.failed),
+  }))
+}
+
+export async function getOverview(range: Range, custom?: TimeWindow): Promise<OverviewResult> {
   const { db } = getHandle()
   // 整个请求只取一次「现在」：窗口、上期与分桶都从它算，彼此对得上。
-  const at = new Date()
-  const since = new Date(at.getTime() - rangeMs(range))
-  const previousSince = new Date(at.getTime() - 2 * rangeMs(range))
+  const customSpan = custom ? custom.to - custom.from : undefined
+  const at = custom ? new Date(custom.to) : new Date()
+  const since = custom ? new Date(custom.from) : new Date(at.getTime() - rangeMs(range))
+  const previousSince = custom
+    ? new Date(custom.from - (customSpan ?? 0))
+    : new Date(at.getTime() - 2 * rangeMs(range))
+  const customUnit: VolumeBucketUnit | undefined =
+    customSpan === undefined ? undefined : customSpan <= 2 * 86_400_000 ? 'hour' : 'day'
+  const submittedCap = custom ? sql`AND submitted_at <= ${at}` : sql``
+  const startedCap = custom ? sql`AND started_at <= ${at}` : sql``
 
   const [summaryRowsRaw, volume, failureRowsRaw, modelRowsRaw, cacheRowsRaw, phaseRowsRaw] =
     await Promise.all([
@@ -499,16 +667,18 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
           ORDER BY EXTRACT(EPOCH FROM (started_at - submitted_at)) * 1000
         ) FILTER (WHERE started_at IS NOT NULL) AS queue_p50_ms
       FROM queue_tasks
-      WHERE submitted_at >= ${since}
+      WHERE submitted_at >= ${since} ${submittedCap}
     `),
-      getTaskVolume(range, undefined, at),
+      customUnit
+        ? getTaskVolumeBetween(since, at, customUnit)
+        : getTaskVolume(range, undefined, at),
       db.execute(sql`
       SELECT
         COALESCE(error_type, 'unknown') AS error_type,
         COUNT(*) FILTER (WHERE submitted_at >= ${since}) AS count,
         COUNT(*) FILTER (WHERE submitted_at < ${since}) AS previous_count
       FROM queue_tasks
-      WHERE submitted_at >= ${previousSince} AND status = 'failed'
+      WHERE submitted_at >= ${previousSince} ${submittedCap} AND status = 'failed'
       GROUP BY COALESCE(error_type, 'unknown')
       HAVING COUNT(*) FILTER (WHERE submitted_at >= ${since}) > 0
       ORDER BY count DESC, error_type
@@ -531,7 +701,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
           ORDER BY EXTRACT(EPOCH FROM (completed_at - started_at)) * 1000
         ) FILTER (WHERE status = 'completed' AND started_at IS NOT NULL) AS run_p95_ms
       FROM queue_tasks
-      WHERE submitted_at >= ${since}
+      WHERE submitted_at >= ${since} ${submittedCap}
       GROUP BY model
       ORDER BY count DESC, model
     `),
@@ -542,7 +712,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
         SUM((usage->>'inputTokens')::bigint) AS input_tokens,
         SUM(cache_read_tokens) AS cache_read_tokens
       FROM agent_model_calls
-      WHERE started_at >= ${since}
+      WHERE started_at >= ${since} ${startedCap}
         AND purpose = 'conversation'
         AND usage IS NOT NULL
         AND cache_read_tokens IS NOT NULL
@@ -568,7 +738,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
           AND COALESCE(http_dispatch_count, 1) > 0
           AND (conversation_id, turn_id) IN (
             SELECT conversation_id, turn_id FROM agent_model_calls
-            WHERE started_at >= ${since} AND purpose = 'conversation'
+            WHERE started_at >= ${since} ${startedCap} AND purpose = 'conversation'
           )
       )
       SELECT
@@ -577,7 +747,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
         SUM(input_tokens) AS input_tokens,
         SUM(cache_read_tokens) AS cache_read_tokens
       FROM ranked
-      WHERE started_at >= ${since} AND cache_read_tokens IS NOT NULL
+      WHERE started_at >= ${since} ${startedCap} AND cache_read_tokens IS NOT NULL
       GROUP BY first_call
     `),
     ])
@@ -586,6 +756,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
     range,
     volume.map((bucket) => bucket.bucket_at),
     at,
+    customUnit ? { since, previousSince, unit: customUnit } : undefined,
   )
   const summary = (summaryRowsRaw as unknown as Array<Record<string, unknown>>)[0] ?? {}
   const agentCacheModels = (cacheRowsRaw as unknown as Array<Record<string, unknown>>).map(
@@ -623,7 +794,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
     },
     pulse,
     volume,
-    volume_bucket: volumeBucketUnit(range),
+    volume_bucket: customUnit ?? volumeBucketUnit(range),
     failures: (failureRowsRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
       error_type: String(row.error_type),
       count: Number(row.count),
@@ -1026,6 +1197,9 @@ export interface ListOperatorAuditsOptions {
   action?: string
   settingKey?: string
   targetId?: string
+  operatorId?: string
+  from?: number
+  to?: number
 }
 
 /**
@@ -1051,6 +1225,11 @@ export async function listOperatorAudits(
         AND (a.target_id = ${options.settingKey} OR a.details->>'settingKey' = ${options.settingKey})`
     : sql``
   const targetFilter = options.targetId ? sql`AND a.target_id = ${options.targetId}` : sql``
+  const operatorFilter = options.operatorId ? sql`AND a.operator_id = ${options.operatorId}` : sql``
+  const fromFilter =
+    options.from !== undefined ? sql`AND a.created_at >= ${new Date(options.from)}` : sql``
+  const toFilter =
+    options.to !== undefined ? sql`AND a.created_at <= ${new Date(options.to)}` : sql``
 
   const rows = (await db.execute(sql`
     SELECT a.id, a.operator_id, a.action, a.target_type, a.target_id, a.details, a.created_at
@@ -1059,6 +1238,9 @@ export async function listOperatorAudits(
       ${actionFilter}
       ${settingKeyFilter}
       ${targetFilter}
+      ${operatorFilter}
+      ${fromFilter}
+      ${toFilter}
       ${keyset}
     ORDER BY a.created_at DESC, a.id DESC
     LIMIT ${limit + 1}

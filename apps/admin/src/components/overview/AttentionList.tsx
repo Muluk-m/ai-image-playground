@@ -5,7 +5,15 @@ import { type AttentionItem, signalSearch } from '@/lib/overview-signals'
 import type { Range } from '@/lib/search-params'
 import { cn } from '@/lib/utils'
 
-function Row({ item, range }: { item: AttentionItem; range: Range }) {
+function Row({
+  item,
+  range,
+  taskWindow,
+}: {
+  item: AttentionItem
+  range: Range
+  taskWindow?: { from: number; to: number }
+}) {
   const body = (
     <>
       <span
@@ -29,7 +37,13 @@ function Row({ item, range }: { item: AttentionItem; range: Range }) {
   return item.to ? (
     <Link
       to={item.to}
-      search={signalSearch(item.to, range) as never}
+      search={
+        {
+          ...signalSearch(item.to, range),
+          ...(item.search ?? {}),
+          ...(item.to === '/tasks' && taskWindow ? taskWindow : {}),
+        } as never
+      }
       className={cn(className, 'transition-colors hover:bg-muted')}
     >
       {body}
@@ -44,11 +58,13 @@ export function AttentionList({
   items,
   pending,
   range,
+  taskWindow,
 }: {
   items: readonly AttentionItem[]
   /** 还有来源没读完：此时列表为空不代表没事。 */
   pending: boolean
   range: Range
+  taskWindow?: { from: number; to: number }
 }) {
   if (!items.length) {
     return (
@@ -64,7 +80,7 @@ export function AttentionList({
     <ul className="grid gap-2" aria-label="需要处理">
       {items.map((item) => (
         <li key={item.key}>
-          <Row item={item} range={range} />
+          <Row item={item} range={range} taskWindow={taskWindow} />
         </li>
       ))}
     </ul>

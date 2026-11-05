@@ -129,6 +129,9 @@ async function fixture(
   turnParams?: {
     canvasImageModel?: string
     n?: number
+    size?: string
+    quality?: string
+    gemini_image_size?: string
     video?: {
       model: string
       durationSeconds: number
@@ -940,6 +943,56 @@ it('keeps the proposed spec, rejects a drifted confirmation, and expires an idle
     status: 'expired',
   })
   expect(await expireStaleStageAuthorizations()).toBe(0)
+})
+
+it('freezes the Gemini tier rate on the authorization and keeps prepared GPT at the basic rate', async () => {
+  const nano = await fixture(['a'], undefined, undefined, {
+    canvasImageModel: 'gemini-nano-banana-2.1',
+    gemini_image_size: '2K',
+  })
+  expect(nano.specs).toEqual([
+    { nodeId: 'a', model: 'gemini-nano-banana-2.1', quantity: 1, unitMultiplier: 1.5 },
+  ])
+  const stored = await (await request(nano.authorizationId)).json()
+  expect(stored.charges[0]).toMatchObject({ unitMultiplier: 1.5, credits: 9 })
+  expect(stored.turn).toMatchObject({
+    canvasImageModel: 'gemini-nano-banana-2.1',
+    gemini_image_size: '2K',
+  })
+  const { executionToken } = await (await request(nano.authorizationId, '/confirm', {})).json()
+  expect(
+    (
+      await request(nano.authorizationId, '/preflight', {
+        nodeId: 'a',
+        model: 'gemini-nano-banana-2.1',
+        quantity: 1,
+        unitMultiplier: 1,
+        executionToken,
+        attemptId: 'stale-rate',
+      })
+    ).status,
+  ).toBe(409)
+  expect(
+    (
+      await request(nano.authorizationId, '/preflight', {
+        nodeId: 'a',
+        model: 'gemini-nano-banana-2.1',
+        quantity: 1,
+        unitMultiplier: 1.5,
+        executionToken,
+        attemptId: 'tier',
+      })
+    ).status,
+  ).toBe(200)
+
+  const gpt = await fixture(['a'], undefined, undefined, {
+    canvasImageModel: 'gpt-image-2.5-flare',
+    size: '2048x2048',
+    quality: 'high',
+  })
+  expect(gpt.specs).toEqual([
+    { nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 1 },
+  ])
 })
 
 it('prices image nodes with the origin tab workbench model', async () => {

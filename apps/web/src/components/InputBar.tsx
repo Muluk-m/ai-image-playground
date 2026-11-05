@@ -1,6 +1,7 @@
 import {
   AGENT_USER_MESSAGE_MAX_CHARS,
   isBlankPrompt,
+  isGptDirectModel,
   SYNC_PROMPT_MAX_LENGTH,
 } from '@image-playground/shared'
 import {
@@ -292,17 +293,14 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     ? inputImages.length * getSubmissionImageCount(prompt, slotValues, 1)
     : 0
   // GPT 直连按实际会执行的档计价。非会员，以及交给智能体的请求，服务端收到 ≤2K、非高画质。
+  // Gemini 按请求档位计价（渠道没开放的档收到最近的已开放档）。
   const premium = useGptPremiumLocked(
     activeView.model,
     getParamCapabilities(activeProfile, params.output_format).size,
   )
   const unitMultiplier = quotedGptMultiplier(
     activeView.model,
-    {
-      size: params.size,
-      quality: params.quality,
-      ...(maskDraft ? { mask: true } : {}),
-    },
+    { ...params, ...(maskDraft ? { mask: true } : {}) },
     !toCanvas && premium.highQuality,
   )
   const submissionGuard = usePrivateSubmissionGuard({

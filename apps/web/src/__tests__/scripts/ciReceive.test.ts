@@ -14,12 +14,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-/**
- * GitHub Actions 通过一把受限 SSH key 发布：authorized_keys 里 `command="…",restrict` 把这把 key
- * 钉死在 scripts/ci-receive.sh 上。它只认 `deploy <release-id> <internal|paid|all> <run-id>`，
- * 把 stdin 的 tar 解到 ~/releases/<release-id>，再跑包里的 vps-deploy.sh。这里用假的
- * vps-deploy.sh 与真实 tar，只看退出码、落盘的文件与接收脚本收到的参数。
- */
+/** GitHub Actions uploads data only; deployment code comes from the server-installed runtime. */
 const script = resolve(__dirname, '../../../../../scripts/ci-receive.sh')
 const id = `aip-${'a'.repeat(12)}-${'b'.repeat(12)}`
 let root: string
@@ -35,34 +30,47 @@ function tarOf(args: string[]): Buffer {
   return result.stdout
 }
 
-/** A release directory as the workflow packs it: `tar -C "$out" -czf - .` */
+/** A data-only release directory as the workflow packs it: `tar -C "$out" -czf - .` */
 function releaseTar(): Buffer {
   const dir = join(root, 'src')
-  mkdirSync(join(dir, 'scripts/lib'), { recursive: true })
-  writeFileSync(
-    join(dir, 'scripts/vps-deploy.sh'),
-    '#!/bin/sh\nprintf "%s actor=%s\\n" "$*" "$DEPLOY_ACTOR" >> "$CALL_LOG"\nexit "${TEST_DEPLOY_EXIT:-0}"\n',
-  )
-  chmodSync(join(dir, 'scripts/vps-deploy.sh'), 0o755)
-  writeFileSync(join(dir, 'scripts/lib/deploy-common.sh'), '# lib\n')
+  mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'images.tsv'), 'manifest\n')
+  const checksum = spawnSync('shasum', ['-a', '256', 'images.tsv'], { cwd: dir, encoding: 'utf8' })
+  if (checksum.status !== 0) throw new Error(checksum.stderr)
+  writeFileSync(join(dir, 'SHA256SUMS'), checksum.stdout)
   return tarOf(['-C', dir, '.'])
 }
-
-function receive(command: string | undefined, input: Buffer = releaseTar(), extra = {}) {
-  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, CALL_LOG: log, ...extra }
-  if (command === undefined) delete env.SSH_ORIGINAL_COMMAND
-  else env.SSH_ORIGINAL_COMMAND = command
-  return spawnSync('sh', [script], { env, input, encoding: 'utf8', timeout: 20000 })
-}
-
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'aip-ci-receive-'))
   home = join(root, 'home')
   releases = join(home, 'releases')
   log = join(root, 'calls')
   mkdirSync(releases, { recursive: true })
+  mkdirSync(join(home, 'deploy-runtime', 'scripts'), { recursive: true })
+  writeFileSync(
+    join(home, 'deploy-runtime', 'scripts', 'vps-deploy.sh'),
+    '#!/bin/sh\nprintf "%s actor=%s\\n" "$*" "$DEPLOY_ACTOR" >> "$CALL_LOG"\nexit "${TEST_DEPLOY_EXIT:-0}"\n',
+  )
+  chmodSync(join(home, 'deploy-runtime', 'scripts', 'vps-deploy.sh'), 0o755)
 })
+
+function receive(
+  command: string | undefined,
+  input: Buffer = releaseTar(),
+  extra = {},
+  scope = 'release',
+) {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    HOME: home,
+    AIP_DEPLOY_RUNTIME_ROOT: join(home, 'deploy-runtime'),
+    CALL_LOG: log,
+    ...extra,
+  }
+  if (command === undefined) delete env.SSH_ORIGINAL_COMMAND
+  else env.SSH_ORIGINAL_COMMAND = command
+  return spawnSync('sh', [script, scope], { env, input, encoding: 'utf8', timeout: 20000 })
+}
 
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
@@ -90,6 +98,36 @@ describe('ci-receive.sh', () => {
     expect(readdirSync(releases).sort()).toEqual([id, `${id}.failed-run-7`])
   })
 
+  it('cleans up incomplete data before invoking the fixed runtime', () => {
+    const dir = join(root, 'incomplete')
+    mkdirSync(dir)
+    writeFileSync(join(dir, 'images.tsv'), 'manifest\n')
+    const result = receive(`deploy ${id} paid 8`, tarOf(['-C', dir, '.']))
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('Incomplete release')
+    expect(existsSync(join(releases, id))).toBe(false)
+    expect(existsSync(log)).toBe(false)
+  })
+
+  it('cleans up the data package when the fixed runtime is absent', () => {
+    rmSync(join(home, 'deploy-runtime'), { recursive: true })
+    const result = receive(`deploy ${id} paid 8`, releaseTar())
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('Deployment runtime is not installed')
+    expect(existsSync(join(releases, id))).toBe(false)
+    expect(existsSync(log)).toBe(false)
+  })
+
+  it('rejects an archive containing deployment code before invoking the trusted runtime', () => {
+    const dir = join(root, 'evil')
+    mkdirSync(join(dir, 'scripts'), { recursive: true })
+    writeFileSync(join(dir, 'images.tsv'), 'manifest\n')
+    writeFileSync(join(dir, 'scripts', 'vps-deploy.sh'), 'echo hacked >> "$CALL_LOG"\n')
+    const result = receive(`deploy ${id} test 8`, tarOf(['-C', dir, '.']), {}, 'test')
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('only SHA256SUMS, images.tsv')
+    expect(existsSync(log)).toBe(false)
+  })
   it.each([
     undefined,
     '',
@@ -111,6 +149,42 @@ describe('ci-receive.sh', () => {
     expect(result.stderr).toContain('Rejected')
     expect(readdirSync(releases)).toEqual([])
     expect(existsSync(log)).toBe(false)
+  })
+
+  it('lets the test key deploy only test, and the release key everything but test', () => {
+    for (const target of ['internal', 'paid', 'all', 'prod']) {
+      const refused = receive(`deploy ${id} ${target} 1`, releaseTar(), {}, 'test')
+      expect(refused.status).toBe(2)
+    }
+    expect(receive(`deploy ${id} test 1`, releaseTar(), {}, 'release').status).toBe(2)
+    expect(readdirSync(releases)).toEqual([])
+    expect(existsSync(log)).toBe(false)
+    expect(receive(`deploy ${id} test 1`, releaseTar(), {}, 'test').status).toBe(0)
+    expect(readFileSync(log, 'utf8')).toBe(`test ${releases}/${id} actor=github-actions/run-1\n`)
+  })
+
+  it.each([
+    undefined,
+    '',
+    'all',
+    'internal',
+    'paid',
+    'test ; id',
+  ])('refuses everything when the key scope is %j', (scope) => {
+    const result = spawnSync('sh', scope === undefined ? [script] : [script, scope], {
+      env: {
+        ...process.env,
+        HOME: home,
+        CALL_LOG: log,
+        SSH_ORIGINAL_COMMAND: `deploy ${id} paid 1`,
+      },
+      input: releaseTar(),
+      encoding: 'utf8',
+      timeout: 20000,
+    })
+    expect(result.status).toBe(2)
+    expect(result.stderr).toContain('no deploy scope')
+    expect(readdirSync(releases)).toEqual([])
   })
 
   it('redeploys a commit already on the host into a run-specific directory', () => {
