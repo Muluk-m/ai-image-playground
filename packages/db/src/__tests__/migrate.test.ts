@@ -509,6 +509,11 @@ describe('runMigrations', () => {
             hash: await migrationFileHash('0086_operator_config_overrides'),
             created_at: '1793700000000',
           },
+          // 0087（when 1793800000000）是并行后台 PR 的筛选索引。它先合并，这条 0088 必须排在它后面。
+          {
+            hash: await migrationFileHash('0088_announcements'),
+            created_at: '1793900000000',
+          },
         ])
         const columns =
           await client`SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tasks' AND column_name = 'metering'`

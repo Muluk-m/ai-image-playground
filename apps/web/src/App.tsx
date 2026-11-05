@@ -17,6 +17,8 @@ import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
 import AgentJobDoneNotice from './features/agent/components/AgentJobDoneNotice'
 import SkillStarterGuide from './features/agent/components/SkillStarterGuide'
+import { AnnouncementHost } from './features/announcements/AnnouncementHost'
+import ChangelogPage from './features/announcements/ChangelogPage'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import CliDevicePage from './features/cli/CliDevicePage'
 import ImageExportDialog from './features/image-export/ImageExportDialog'
@@ -31,7 +33,13 @@ import SaveTemplateDialog from './features/library/components/SaveTemplateDialog
 import PricingPage from './features/pricing/PricingPage'
 import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
-import { isCliDevicePath, isPricingPath, isPrivacyPath, isTermsPath } from './lib/appPaths'
+import {
+  isChangelogPath,
+  isCliDevicePath,
+  isPricingPath,
+  isPrivacyPath,
+  isTermsPath,
+} from './lib/appPaths'
 import { dragTargetIsImage } from './lib/dragTarget'
 import { installWorkbenchNavigation } from './lib/navigation/workbenchNavigation'
 import { usePathname } from './lib/pathname'
@@ -52,7 +60,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     !isPricingPath(pathname) &&
     !isTermsPath(pathname) &&
     !isPrivacyPath(pathname) &&
-    !isCliDevicePath(pathname)
+    !isCliDevicePath(pathname) &&
+    !isChangelogPath(pathname)
 
   useLayoutEffect(() => {
     const root = document.documentElement
@@ -121,6 +130,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     }
   }, [])
 
+  if (isChangelogPath(pathname)) return <ChangelogPage />
   if (isPricingPath(pathname)) return <PricingPage />
   if (isCliDevicePath(pathname)) return <CliDevicePage />
   if (isTermsPath(pathname) || isPrivacyPath(pathname)) return <LegalPage />
@@ -220,6 +230,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       <Toast />
       <AgentJobDoneNotice />
       <UpdateBanner />
+      <AnnouncementHost />
       <MaskEditorModal />
       <ImageContextMenu />
     </>

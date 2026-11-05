@@ -1,3 +1,4 @@
+import { AnnouncementMenuRow } from '../features/announcements/AnnouncementEntry'
 import { GUIDE_PATHS } from '../features/guide/paths'
 import { openPricingSheet } from '../features/pricing/pricingSheetState'
 import { useTranslation } from '../i18n'
@@ -74,6 +75,7 @@ export default function GuestAccountMenu({
             }}
           />
         ) : null}
+        <AnnouncementMenuRow onOpen={onClose} />
         <MenuLink
           icon="help"
           label={t('header.guest.help')}

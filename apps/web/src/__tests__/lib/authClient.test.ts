@@ -370,6 +370,7 @@ describe('auth client', () => {
     '/terms#agreement',
     '/privacy#cookies',
     '/device?user_code=BCDF-GHJK#approval',
+    '/changelog?from=drawer',
     '/p/project-123?mode=canvas&selection=a%2Bb#node-2',
   ])('preserves workspace query and hash for OAuth start and link at %s', (target) => {
     vi.stubGlobal('window', { location: new URL(target, 'https://app.example.com') })
