@@ -33,6 +33,7 @@ jobs:
       pull-requests: read
     outputs:
       verified: ${{ steps.check.outputs.verified }}
+      cli_required: ${{ steps.cli.outputs.cli_required }}
     steps:
       - id: check
         env:
@@ -65,9 +66,19 @@ jobs:
           }
           check || { verified=false; echo "::warning::Could not read the pull request history; running every check."; }
           echo "verified=$verified" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.check.outputs.verified != 'true'
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - name: Detect native CLI inputs
+        id: cli
+        if: steps.check.outputs.verified != 'true'
+        run: node scripts/ci-cli-required.mjs
   cli:
     needs: prior
-    if: needs.prior.outputs.verified != 'true'
+    if: needs.prior.outputs.verified != 'true' && needs.prior.outputs.cli_required != 'false'
     uses: ./.github/workflows/cli-checks.yml
   # 原来的 web job 把 lint、typecheck、web 构建 + 浏览器冒烟、admin 构建串在一台机器上（中位 211 秒），
   # 现在拆成三台并行：lint（含脚本自测；Docker web 阶段另见 docker-web）、typecheck（含 admin 构建，复用 tsc -b 的增量）、
@@ -96,6 +107,7 @@ jobs:
           path: ${{ runner.temp }}/biome-format.patch
           if-no-files-found: error
       - run: python3 scripts/test-cloud-test.py
+      - run: node --test scripts/__tests__/ci-cli-required.test.mjs
       - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs scripts/__tests__/test-shard.test.mjs
       - run: pnpm lint
       # Deploy and backup scripts; shellcheck ships on the hosted runner.
