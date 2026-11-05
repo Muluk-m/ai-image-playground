@@ -68,7 +68,11 @@ it('shows the preset badge and estimates one sheet without inheriting the global
   )
   expect(host.textContent).toContain('人物三视图')
   expect(host.textContent).toContain('1 张拼图')
-  expect(mocks.guard).toHaveBeenCalledWith({ model: 'image-model', quantity: 1 })
+  expect(mocks.guard).toHaveBeenCalledWith({
+    model: 'image-model',
+    quantity: 1,
+    unitMultiplier: 1,
+  })
   expect(send).not.toHaveBeenCalled()
   await act(async () => button('移除预设').click())
   expect(remove).toHaveBeenCalledOnce()
@@ -90,7 +94,11 @@ it('submits temporary references without replacing the node and removes them ind
     ),
   )
   const input = host.querySelector<HTMLInputElement>('input[type=file]')!
-  expect(mocks.guard).toHaveBeenCalledWith({ model: 'image-model', quantity: 3 })
+  expect(mocks.guard).toHaveBeenCalledWith({
+    model: 'image-model',
+    quantity: 3,
+    unitMultiplier: 1,
+  })
   expect(button('生成').disabled).toBe(true)
   await act(async () => {
     Object.defineProperty(input, 'files', {

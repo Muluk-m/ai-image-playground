@@ -2,6 +2,7 @@ import { useState, useSyncExternalStore } from 'react'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { composerImageRate } from '../../../lib/imageCharge'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import { canvasExportSources } from '../../image-export/sources'
@@ -35,6 +36,7 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
   const doc = editor.doc
   useSyncExternalStore(doc.subscribe, () => doc.version)
   const settings = useStore((state) => state.settings)
+  const params = useStore((state) => state.params)
   const project = useCanvasProjectStore((state) =>
     state.projects.find((one) => one.id === state.activeId),
   )
@@ -50,9 +52,11 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
     .map((id) => doc.getElement(id))
     .filter((el): el is ImageEl => el?.type === 'image' && !el.video)
   const exportable = exportableElements(doc, selection)
+  const batchModel = clientProfileToApiProfile(getActiveApiProfile(settings)).model
   const guard = usePrivateSubmissionGuard({
-    model: clientProfileToApiProfile(getActiveApiProfile(settings)).model,
+    model: batchModel,
     quantity: images.length,
+    unitMultiplier: composerImageRate(batchModel, params),
   })
 
   if (doc.tool !== 'select' || selection.length < 2 || doc.editingTextId) return null

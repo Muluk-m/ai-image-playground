@@ -12,13 +12,14 @@ import type {
   AnalysisIntent,
   ImagePresetRatio,
 } from '@image-playground/shared'
-import { withAspectRatio } from '@image-playground/shared'
+import { preparedImageRateMultiplier, withAspectRatio } from '@image-playground/shared'
 import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/bun-sql'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { quoteAnalysisTask } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
+import { declaredImageSizes } from '../channels'
 import { meteringDecisionOrDenied } from '../metering-decision'
 import {
   type BffTransaction,
@@ -1145,8 +1146,9 @@ export async function quoteBatchPlan(
     string,
     Awaited<ReturnType<NonNullable<typeof hooks.quoteTask>>> | undefined
   >()
-  const generationQuote = async (model: string) => {
-    if (generationQuotes.has(model)) return generationQuotes.get(model)
+  const generationQuote = async (model: string, unitMultiplier: number) => {
+    const key = `${model}\0${unitMultiplier}`
+    if (generationQuotes.has(key)) return generationQuotes.get(key)
     const decision = meteringDecisionOrDenied(
       await hooks.meteringDecision?.({
         tx,
@@ -1154,32 +1156,32 @@ export async function quoteBatchPlan(
         model,
         kind: 'image',
         quantity: 1,
-        unitMultiplier: 1,
+        unitMultiplier,
       }),
       hooks.consumeUnmeteredQuota,
     )
     if (decision?.kind === 'denied') {
-      generationQuotes.set(model, undefined)
+      generationQuotes.set(key, undefined)
       return undefined
     }
     if (decision?.kind === 'unmetered') {
       const quote = {
         estimatedCredits: 0,
-        pricing: nonBillingPriceSnapshot({ model, kind: 'image', quantity: 1, unitMultiplier: 1 }),
+        pricing: nonBillingPriceSnapshot({ model, kind: 'image', quantity: 1, unitMultiplier }),
       }
-      generationQuotes.set(model, quote)
+      generationQuotes.set(key, quote)
       return quote
     }
     if (!isCapabilityEnabled('billing:credits')) {
       const quote = {
         estimatedCredits: 0,
-        pricing: nonBillingPriceSnapshot({ model, kind: 'image', quantity: 1, unitMultiplier: 1 }),
+        pricing: nonBillingPriceSnapshot({ model, kind: 'image', quantity: 1, unitMultiplier }),
       }
-      generationQuotes.set(model, quote)
+      generationQuotes.set(key, quote)
       return quote
     }
-    const quote = await hooks.quoteTask?.({ tx, userId, model, quantity: 1, unitMultiplier: 1 })
-    generationQuotes.set(model, quote)
+    const quote = await hooks.quoteTask?.({ tx, userId, model, quantity: 1, unitMultiplier })
+    generationQuotes.set(key, quote)
     return quote
   }
   const quoteKind = async (kind: AgentBatchItem['kind']) => {
@@ -1200,7 +1202,14 @@ export async function quoteBatchPlan(
               },
               hooks,
             )
-          : await generationQuote(item.params.model)
+          : await generationQuote(
+              item.params.model,
+              preparedImageRateMultiplier(
+                item.params.model,
+                item.params,
+                declaredImageSizes(item.params.model),
+              ),
+            )
       if (!quote) return { status: 'unavailable' as const, reason: 'price_unavailable' as const }
       estimatedCredits += quote.estimatedCredits
       estimatedChargeCredits += quote.pricing.exemption === 'none' ? quote.estimatedCredits : 0

@@ -1,4 +1,5 @@
 import { imageSizeTier, parseImageSize } from './image'
+import { nearestImageSize } from './image-parameters'
 
 /**
  * 可以走 OpenAI 直连的 GPT Image 模型。另一条路是 sub2api：它忽略 size 与 quality，一律出约
@@ -65,4 +66,78 @@ export function gptImageRateMultiplier(model: string, request: GptTierInput): nu
   const { quality } = request
   const level = quality === 'low' || quality === 'high' ? quality : 'medium'
   return GPT_IMAGE_MULTIPLIERS[tierOf(request)][level]
+}
+
+/**
+ * 图片扣费看的请求。Gemini 用 `image_size`（队列）或 `gemini_image_size`（输入框 / 轮参数）；
+ * 两者都有时以队列字段为准。不读上游回图的像素：`size=auto` 曾回过比 1K 上限更大的图。
+ */
+export interface ImageRateRequest extends GptTierInput {
+  image_size?: string
+  gemini_image_size?: string
+}
+
+/**
+ * 与目录 `pricing.tierMultiplier` 相同。手写在这里，计价不跟随 Grok 等尚未启用的目录倍率。
+ * 4K 已定义，渠道尚未开放。
+ */
+const GEMINI_TIER_MULTIPLIERS = {
+  'gemini-nano-banana-2.1': { '1K': 1, '2K': 1.5, '4K': 3.4 },
+  'gemini-3-pro-image': { '1K': 1, '2K': 1, '4K': 1.8 },
+} as const
+
+const RATE_TIERS = ['1K', '2K', '4K'] as const
+type RateTier = (typeof RATE_TIERS)[number]
+
+function asRateTier(value: string | undefined): RateTier | undefined {
+  return value === '1K' || value === '2K' || value === '4K' ? value : undefined
+}
+
+/**
+ * 请求档。渠道声明了可出的档、且请求档不在其中时，收到声明里最近的一档再计价
+ * （与 Vertex 发出前的 `nearestImageSize` 同一规则）。没声明就按请求档，不看回图像素。
+ */
+function billableImageTier(
+  request: ImageRateRequest,
+  supportedTiers?: readonly string[],
+): RateTier | undefined {
+  const requested = asRateTier(request.image_size ?? request.gemini_image_size)
+  if (!requested || !supportedTiers?.length) return requested
+  const allowed = supportedTiers.filter((tier): tier is RateTier => asRateTier(tier) === tier)
+  if (!allowed.length || allowed.includes(requested)) return requested
+  return asRateTier(nearestImageSize(requested, allowed))
+}
+
+/**
+ * 每张图的积分倍率，乘在价目表单价上，再由 `ceil(单价 × 张数 × 倍率)` 取整。
+ * GPT 直连仍按档位 × 画质；Nano 2.1 / Pro 按可出的请求档；没写档位、认不出的档、以及其余模型为 1。
+ */
+export function imageRateMultiplier(
+  model: string,
+  request: ImageRateRequest | null | undefined,
+  supportedTiers?: readonly string[],
+): number {
+  // 参数还没载入（store 未初始化、测试桩缺 params）时按无档位计：倍率 1，不抛错。
+  if (!request) return 1
+  if (isGptDirectModel(model)) return gptImageRateMultiplier(model, request)
+  const table = GEMINI_TIER_MULTIPLIERS[model as keyof typeof GEMINI_TIER_MULTIPLIERS]
+  const tier = billableImageTier(request, supportedTiers)
+  if (!table || !tier) return 1
+  return table[tier]
+}
+
+/**
+ * 智能体、阶段授权、批量与预先准备的提交会先把 GPT 收到基础档（`basicGptInput` /
+ * `clampGptBasicRequest`），再计价。提案冻结的倍率必须走这里，和提交时的 `pricingOf` 一致。
+ * 网站直接提交不要用它：会员的 GPT 档位原样计价。
+ * PR-M 若改基础档收口，这里必须跟 `basicGptInput` 用同一个函数，否则授权倍率与实扣对不上。
+ * `supportedTiers` 是渠道声明的可出档；提案和提交要传同一份。
+ */
+export function preparedImageRateMultiplier(
+  model: string,
+  request: ImageRateRequest | null | undefined,
+  supportedTiers?: readonly string[],
+): number {
+  if (!request) return 1
+  return imageRateMultiplier(model, clampGptBasicRequest(model, request), supportedTiers)
 }
