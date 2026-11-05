@@ -1,5 +1,7 @@
 import type { ManagedModel, ManagedModelsView } from '@image-playground/shared'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { DangerConfirmDialog } from '@/components/DangerConfirmDialog'
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -41,12 +43,20 @@ function ModelStatus({ model }: { model: ManagedModel }) {
 
 function ModelRow({ model }: { model: ManagedModel }) {
   const client = useQueryClient()
+  const [pendingActive, setPendingActive] = useState<boolean | null>(null)
   const mutation = useMutation({
-    mutationFn: (active: boolean) =>
-      apiClient.put<ManagedModelsView>(`/api/models/${encodeURIComponent(model.id)}`, { active }),
-    onSuccess: (data) => client.setQueryData(modelsQueryKey, data),
+    mutationFn: ({ active, reason }: { active: boolean; reason: string }) =>
+      apiClient.put<ManagedModelsView>(`/api/models/${encodeURIComponent(model.id)}`, {
+        active,
+        reason,
+      }),
+    onSuccess: (data) => {
+      client.setQueryData(modelsQueryKey, data)
+      setPendingActive(null)
+    },
   })
   const paused = modelState(model) === 'paused'
+  const nextActive = pendingActive ?? model.active
   return (
     <div className="flex flex-wrap items-start gap-x-6 gap-y-3 border-b py-3 last:border-0">
       <div className="w-full min-w-0 sm:w-56">
@@ -70,7 +80,7 @@ function ModelRow({ model }: { model: ManagedModel }) {
           <Button
             variant="outline"
             disabled={mutation.isPending}
-            onClick={() => mutation.mutate(true)}
+            onClick={() => setPendingActive(true)}
           >
             恢复上架
           </Button>
@@ -79,9 +89,29 @@ function ModelRow({ model }: { model: ManagedModel }) {
             aria-label={`${model.label} 上架`}
             checked={model.active}
             disabled={mutation.isPending}
-            onCheckedChange={(checked) => mutation.mutate(checked)}
+            onCheckedChange={(checked) => setPendingActive(checked)}
           />
         )}
+        <DangerConfirmDialog
+          open={pendingActive !== null}
+          onOpenChange={(open) => {
+            if (!open) setPendingActive(null)
+          }}
+          title={`${nextActive ? '上架' : '下架'}模型 ${model.label}?`}
+          impact={
+            nextActive
+              ? `${model.label} 会重新出现在模型选择器里。进行中的任务仍按原模型走完。`
+              : `${model.label} 会从模型选择器里消失。进行中的任务仍按原模型走完，新的生成不再使用它。`
+          }
+          versionNote="会写入审计日志。如果期间有人改过配置，刷新后再确认。"
+          confirmLabel={nextActive ? '确认上架' : '确认下架'}
+          destructive={!nextActive}
+          pending={mutation.isPending}
+          onConfirm={(reason) => {
+            if (pendingActive === null) return
+            mutation.mutate({ active: pendingActive, reason })
+          }}
+        />
         {mutation.isError ? (
           <span role="alert" className="text-xs text-destructive">
             保存失败

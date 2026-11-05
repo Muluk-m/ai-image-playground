@@ -28,12 +28,19 @@ afterAll(async () => {
   await closeDb()
 })
 
-function request(path: string, method: string, body?: unknown, authenticated = true) {
+function request(
+  path: string,
+  method: string,
+  body?: unknown,
+  authenticated = true,
+  extraHeaders: Record<string, string> = {},
+) {
   return app.handle(
     new Request(`http://localhost${path}`, {
       method,
       headers: {
         ...(authenticated ? authorization : {}),
+        ...extraHeaders,
         ...(body === undefined ? {} : { 'content-type': 'application/json' }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -107,6 +114,62 @@ describe('internal user operations', () => {
       target_id: 'disable-me',
       details: { status: 'disabled' },
     })
+  })
+
+  it('records the real operator and reason when the admin forwards them', async () => {
+    const now = Date.now()
+    await db.insert(schema.users).values({
+      id: 'disable-real',
+      username: 'disable-real',
+      password_hash: 'hash',
+      status: 'active',
+      created_at: now,
+      updated_at: now,
+    })
+    const response = await request(
+      '/internal/admin/users/disable-real',
+      'PATCH',
+      { status: 'disabled', reason: '连续超时，临时停用', operatorId: 'ignored-body' },
+      true,
+      { 'x-admin-operator': 'ops@example.com' },
+    )
+    expect(response.status).toBe(200)
+    const [audit] = await db.select().from(schema.operator_audits)
+    expect(audit).toMatchObject({
+      operator_id: 'ops@example.com',
+      action: 'user.status.update',
+      target_id: 'disable-real',
+      details: { status: 'disabled', reason: '连续超时，临时停用' },
+    })
+    const missing = await request('/internal/admin/audits/', 'POST', {
+      action: 'tasks.export',
+      targetType: 'generation_tasks',
+      targetId: 'export',
+      details: { rowCount: 2 },
+    })
+    expect(missing.status).toBe(200)
+    const exportAudit = (await db.select().from(schema.operator_audits)).find(
+      (row) => row.action === 'tasks.export',
+    )
+    expect(exportAudit?.operator_id).toBe('admin')
+    const named = await request(
+      '/internal/admin/audits/',
+      'POST',
+      {
+        action: 'tasks.export',
+        targetType: 'generation_tasks',
+        targetId: 'export',
+        operatorId: 'body-operator',
+        details: { rowCount: 3 },
+      },
+      true,
+      { 'x-admin-operator': 'header-operator' },
+    )
+    expect(named.status).toBe(200)
+    const namedAudit = (await db.select().from(schema.operator_audits)).find(
+      (row) => row.action === 'tasks.export' && row.operator_id === 'header-operator',
+    )
+    expect(namedAudit?.details).toMatchObject({ rowCount: 3 })
   })
 
   it('stores, updates and clears an operator-only note', async () => {

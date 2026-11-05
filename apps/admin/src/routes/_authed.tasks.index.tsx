@@ -1,20 +1,19 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { RefreshCw } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Download } from 'lucide-react'
+import { useState } from 'react'
+import {
+  FilterBar,
+  type FilterChip,
+  type FilterDefinition,
+  type FilterPreset,
+  presetWindow,
+} from '@/components/FilterBar'
 import { LightboxDialog } from '@/components/LightboxDialog'
+import { ListPagination } from '@/components/ListPagination'
 import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
-import { SegmentedControl } from '@/components/SegmentedControl'
 import { StatusBadge } from '@/components/StatusBadge'
 import { TaskDetailSheet } from '@/components/TaskDetailSheet'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -24,9 +23,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { duration, shortId } from '@/lib/format'
-import { ADMIN_REFRESH_EVENT, useGenerationTasks } from '@/lib/queries'
+import { useGenerationTasks } from '@/lib/queries'
+import { adminApiUrl } from '@/lib/runtime-config'
 import { clearTaskView, parseGenerationTasksSearch } from '@/lib/search-params'
-import { todayWindow } from '../../contracts'
+import { cn } from '@/lib/utils'
+import { type GenerationTaskFilters, todayWindow } from '../../contracts'
 
 export const Route = createFileRoute('/_authed/tasks/')({
   validateSearch: parseGenerationTasksSearch,
@@ -42,177 +43,242 @@ export const Route = createFileRoute('/_authed/tasks/')({
     </Page>
   ),
 })
-const FILTERS = [
-  { value: 'all', label: '全部' },
-  { value: 'completed', label: '成功' },
-  { value: 'failed', label: '失败' },
-  { value: 'in_progress', label: '执行中' },
-  { value: 'queued', label: '排队' },
-  { value: 'reconciling', label: '待核查' },
-  { value: 'cancelled', label: '已取消' },
+
+const ERROR_OPTIONS = [
+  { value: 'upstream_timeout', label: '上游超时' },
+  { value: 'upstream_error', label: '上游错误' },
+  { value: 'upstream_result_unknown', label: '结果未确认' },
+  { value: 'content_policy', label: '内容审核拒绝' },
+  { value: 'model_unavailable', label: '模型不可用' },
+  { value: 'rate_limited', label: '上游限流' },
+  { value: 'unknown', label: '未分类' },
+]
+const DEFINITIONS: FilterDefinition[] = [
+  {
+    key: 'status',
+    label: '状态',
+    kind: 'single',
+    options: [
+      { value: 'failed', label: '失败' },
+      { value: 'completed', label: '成功' },
+      { value: 'in_progress', label: '执行中' },
+      { value: 'queued', label: '排队' },
+      { value: 'reconciling', label: '待核查' },
+      { value: 'cancelled', label: '已取消' },
+    ],
+  },
+  {
+    key: 'source',
+    label: '来源',
+    kind: 'single',
+    options: [
+      { value: 'chat', label: 'Chat' },
+      { value: 'manual', label: '手动' },
+    ],
+  },
+  { key: 'models', label: '模型', kind: 'multi', placeholder: '模型 ID，逗号分隔' },
+  { key: 'providers', label: '供应商', kind: 'multi', placeholder: '供应商 ID，逗号分隔' },
+  { key: 'errorTypes', label: '错误类型', kind: 'multi', options: ERROR_OPTIONS },
+  { key: 'minDurationSec', label: '耗时大于（秒）', kind: 'number', placeholder: '例如 60' },
 ]
 const time = (at: number) =>
-  new Date(at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
+  new Date(at).toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
 
 function GenerationTasksPage() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
-  const [defaultWindow, setDefaultWindow] = useState(todayWindow)
-  useEffect(() => {
-    const refresh = (event: Event) => {
-      if (search.from === undefined && search.to === undefined) {
-        // 新查询键会重置分页，侧栏无需再重拉旧时间窗。
-        event.preventDefault()
-        setDefaultWindow(todayWindow())
-      }
-    }
-    window.addEventListener(ADMIN_REFRESH_EVENT, refresh)
-    return () => window.removeEventListener(ADMIN_REFRESH_EVENT, refresh)
-  }, [search.from, search.to])
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState('')
+  // 默认「今天」的结束时间如果每次渲染都取 now，查询键会一直变，列表永远停在加载中。
+  const [clock, setClock] = useState(() => Date.now())
+  const preset = search.preset ?? (search.from === undefined ? 'today' : 'custom')
+  const window =
+    search.from !== undefined && search.to !== undefined
+      ? { from: search.from, to: search.to }
+      : preset === '7d'
+        ? presetWindow('7d', clock)
+        : preset === '30d'
+          ? presetWindow('30d', clock)
+          : todayWindow(clock)
   const {
     task: _task,
     fullscreen: _fullscreen,
     imgIdx: _imgIdx,
     imgKind: _imgKind,
+    preset: _preset,
     ...filters
   } = search
-  const taskWindow =
-    search.from !== undefined && search.to !== undefined
-      ? { from: search.from, to: search.to }
-      : defaultWindow
-  const query = useGenerationTasks({ ...filters, ...taskWindow })
-  const tasks = query.data?.pages.flatMap((page) => page.tasks) ?? []
-  const owner = search.userId
-    ? (tasks[0]?.username ?? search.userId)
-    : search.deviceId
-      ? `匿名设备 ${shortId(search.deviceId)}`
-      : search.unassigned
-        ? '未关联用户或设备'
-        : null
+  const queryFilters: GenerationTaskFilters = {
+    ...filters,
+    ...window,
+    page: search.page ?? 1,
+    pageSize: search.pageSize ?? 50,
+  }
+  const query = useGenerationTasks(queryFilters)
+  const tasks = query.data?.tasks ?? []
   const closeTask = () => {
     void navigate({ search: clearTaskView })
   }
+  function update(patch: Partial<typeof search>) {
+    void navigate({
+      search: (previous) => ({
+        ...(previous ?? {}),
+        ...patch,
+        page: typeof patch.page === 'number' ? patch.page : 1,
+      }),
+      replace: true,
+    })
+  }
+  const values: Record<string, string> = {
+    status: search.status ?? '',
+    source: search.source ?? '',
+    models: search.models?.join(',') ?? search.model ?? '',
+    providers: search.providers?.join(',') ?? '',
+    errorTypes: search.errorTypes?.join(',') ?? '',
+    minDurationSec: search.minDurationSec ? String(search.minDurationSec) : '',
+  }
+  const chips: FilterChip[] = []
+  if (search.status) chips.push({ key: 'status', label: '状态', value: search.status })
+  if (search.source) chips.push({ key: 'source', label: '来源', value: search.source })
+  if (values.models) chips.push({ key: 'models', label: '模型', value: values.models })
+  if (values.providers) chips.push({ key: 'providers', label: '供应商', value: values.providers })
+  if (values.errorTypes) chips.push({ key: 'errorTypes', label: '错误', value: values.errorTypes })
+  if (search.minDurationSec)
+    chips.push({ key: 'minDurationSec', label: '耗时', value: `> ${search.minDurationSec}s` })
+  if (search.userId) chips.push({ key: 'userId', label: '用户', value: search.userId })
+  if (search.deviceId) chips.push({ key: 'deviceId', label: '设备', value: search.deviceId })
   return (
     <>
       <Page
         crumbs={[{ label: '概览', to: '/overview' }, { label: '生成任务' }]}
-        description={`${time(taskWindow.from)} — ${time(taskWindow.to)} · 北京时间${owner ? ` · ${owner}` : ''}${search.model ? ` · ${search.model}` : ''}`}
+        description="北京时间 · 每 30 秒自动刷新"
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setDefaultWindow(todayWindow())
-                void navigate({ search: {} })
-              }}
-            >
-              今天全部任务
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={query.isFetching}
-              onClick={() => {
-                if (search.from !== undefined && search.to !== undefined) void query.refetch()
-                else setDefaultWindow(todayWindow())
-              }}
-            >
-              <RefreshCw className={query.isFetching ? 'animate-spin' : undefined} />
-              刷新
-            </Button>
-          </div>
-        }
-      >
-        <SegmentedControl
-          label="任务状态筛选"
-          options={FILTERS}
-          value={search.status ?? 'all'}
-          onChange={(status) => {
-            void navigate({
-              search: {
-                ...filters,
-                status:
-                  status === 'all' ? undefined : (status as NonNullable<typeof search.status>),
-              },
-              replace: true,
-            })
-          }}
-        />
-        <div className="flex items-center gap-3 text-xs">
-          <span>来源</span>
-          <Select
-            value={search.source ?? 'all'}
-            onValueChange={(source) => {
-              void navigate({
-                search: {
-                  ...filters,
-                  source: source === 'all' ? undefined : (source as 'chat' | 'manual'),
-                },
-                replace: true,
-              })
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={exporting}
+            onClick={() => {
+              setExportError('')
+              setExporting(true)
+              void exportCsv(queryFilters)
+                .catch(() => setExportError('导出失败'))
+                .finally(() => setExporting(false))
             }}
           >
-            <SelectTrigger aria-label="任务来源" className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部来源</SelectItem>
-              <SelectItem value="chat">Chat</SelectItem>
-              <SelectItem value="manual">手动</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+            <Download />
+            {exporting ? '导出中…' : '导出 CSV'}
+          </Button>
+        }
+      >
+        <FilterBar
+          savedViewKey="tasks"
+          preset={preset}
+          from={window.from}
+          to={window.to}
+          onPreset={(next, range) => {
+            if (next === 'all' || (next === 'custom' && !range)) return
+            update({
+              preset: next,
+              from: next === 'custom' ? range?.from : next === 'today' ? undefined : range?.from,
+              to: next === 'custom' ? range?.to : next === 'today' ? undefined : range?.to,
+            })
+          }}
+          search={search.q ?? ''}
+          searchPlaceholder="搜索任务 ID、提示词或用户名"
+          onSearch={(q) => {
+            const jump = /^tsk_[A-Za-z0-9_-]+$/.test(q) || /^[0-9a-f-]{16,}$/i.test(q)
+            update({ q: q || undefined, ...(jump ? { task: q } : {}) })
+          }}
+          chips={chips}
+          definitions={DEFINITIONS}
+          values={values}
+          onChange={(key, value) => {
+            if (key === 'models')
+              update({ models: value.split(',').filter(Boolean), model: undefined })
+            else if (key === 'providers' || key === 'errorTypes')
+              update({ [key]: value.split(',').filter(Boolean) })
+            else if (key === 'minDurationSec')
+              update({ minDurationSec: Number(value) || undefined })
+            else update({ [key]: value })
+          }}
+          onRemove={(key) =>
+            update({
+              [key]: undefined,
+              ...(key === 'models' ? { model: undefined } : {}),
+            })
+          }
+          onClear={() => void navigate({ search: {}, replace: true })}
+        />
+        {exportError ? (
+          <p role="alert" className="text-xs text-danger">
+            {exportError}
+          </p>
+        ) : null}
         {query.data ? (
-          <>
-            {query.isError ? (
-              <p role="status" className="text-sm text-danger">
-                任务刷新失败，下面是之前的记录。
-              </p>
-            ) : null}
-            <p className="text-xs text-muted-foreground">
-              已加载 {tasks.length} 条 · 从新到旧 · 点击任务查看完整明细
-            </p>
+          <div className="overflow-hidden rounded-xl border bg-card">
             {tasks.length ? (
-              <Card className="overflow-x-auto">
-                <Table className="min-w-[800px]">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>提交时间</TableHead>
-                      <TableHead>用户</TableHead>
-                      <TableHead>状态</TableHead>
-                      <TableHead>来源</TableHead>
-                      <TableHead>需求 / 模型</TableHead>
-                      <TableHead>耗时</TableHead>
-                      <TableHead>任务</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {tasks.map((task) => (
-                      <TableRow key={task.id}>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>提交时间</TableHead>
+                    <TableHead>任务</TableHead>
+                    <TableHead>用户</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead>来源</TableHead>
+                    <TableHead>需求 / 模型</TableHead>
+                    <TableHead>供应商</TableHead>
+                    <TableHead className="text-right">耗时</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tasks.map((task) => {
+                    const selected = search.task === task.id
+                    return (
+                      <TableRow
+                        key={task.id}
+                        className={cn(selected && 'bg-brand/25')}
+                        data-state={selected ? 'selected' : undefined}
+                      >
                         <TableCell className="whitespace-nowrap font-mono text-xs">
                           {time(task.submitted_at)}
                         </TableCell>
-                        <TableCell className="max-w-48 break-words text-xs">
+                        <TableCell className="font-mono text-xs">
+                          <button
+                            type="button"
+                            className="hover:underline"
+                            onClick={() => void navigate({ search: { ...search, task: task.id } })}
+                          >
+                            {shortId(task.id, 12)}
+                          </button>
+                        </TableCell>
+                        <TableCell className="max-w-40 truncate text-xs">
                           {task.username ||
                             (task.user_id
-                              ? `用户 ${shortId(task.user_id)}`
+                              ? shortId(task.user_id)
                               : task.device_id
-                                ? `匿名设备 ${shortId(task.device_id)}`
-                                : '未关联用户或设备')}
+                                ? `设备 ${shortId(task.device_id)}`
+                                : '—')}
                         </TableCell>
                         <TableCell>
                           <StatusBadge status={task.status} />
                           {task.error_type ? (
-                            <p className="mt-1 text-xs text-danger">{task.error_type}</p>
+                            <p className="mt-1 font-mono text-[11px] text-danger">
+                              {task.error_type}
+                            </p>
                           ) : null}
                         </TableCell>
-                        <TableCell>
-                          <span className="whitespace-nowrap rounded-md bg-muted px-2 py-1 text-xs">
-                            {task.source === 'chat' ? 'Chat' : '手动'}
-                          </span>
+                        <TableCell className="text-xs">
+                          {task.source === 'chat' ? 'Chat' : '手动'}
                         </TableCell>
-                        <TableCell className="max-w-96">
+                        <TableCell className="max-w-72">
                           <button
                             type="button"
                             className="line-clamp-2 text-left text-xs hover:underline"
@@ -220,53 +286,32 @@ function GenerationTasksPage() {
                           >
                             {task.prompt || '查看任务'}
                           </button>
-                          <p className="mt-1 text-xs text-muted-foreground">{task.model}</p>
+                          <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                            {task.model}
+                          </p>
                         </TableCell>
-                        <TableCell className="whitespace-nowrap font-mono text-xs">
+                        <TableCell className="font-mono text-xs">{task.provider}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">
                           {duration(task.started_at, task.completed_at)}
                         </TableCell>
-                        <TableCell>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => void navigate({ search: { ...search, task: task.id } })}
-                          >
-                            查看
-                          </Button>
-                          <Link
-                            to="/logs"
-                            search={{
-                              taskId: task.id,
-                              from: Math.max(
-                                0,
-                                task.submitted_at - 60_000,
-                                (task.completed_at ?? Date.now()) + 60_000 - 7 * 86400_000,
-                              ),
-                              to: Math.min(Date.now(), (task.completed_at ?? Date.now()) + 60_000),
-                            }}
-                            className="ml-2 whitespace-nowrap text-xs text-success hover:underline"
-                          >
-                            日志 →
-                          </Link>
-                        </TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Card>
+                    )
+                  })}
+                </TableBody>
+              </Table>
             ) : (
-              <EmptyState label="这段时间没有匹配的生成任务" />
+              <div className="p-6">
+                <EmptyState label="这段时间没有匹配的生成任务" />
+              </div>
             )}
-            {query.hasNextPage ? (
-              <Button
-                variant="outline"
-                disabled={query.isFetchingNextPage}
-                onClick={() => void query.fetchNextPage()}
-              >
-                {query.isFetchingNextPage ? '加载中…' : '加载更多任务'}
-              </Button>
-            ) : null}
-          </>
+            <ListPagination
+              page={query.data.page ?? queryFilters.page ?? 1}
+              pageSize={queryFilters.pageSize === 100 ? 100 : 50}
+              total={query.data.total ?? tasks.length}
+              onPage={(page) => update({ page })}
+              onPageSize={(pageSize) => update({ pageSize, page: 1 })}
+            />
+          </div>
         ) : query.isError ? (
           <ErrorState label="任务加载失败" error={query.error} />
         ) : (
@@ -287,4 +332,23 @@ function GenerationTasksPage() {
       />
     </>
   )
+}
+
+async function exportCsv(filters: GenerationTaskFilters) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || key === 'page' || key === 'pageSize') continue
+    params.set(key, Array.isArray(value) ? value.join(',') : String(value))
+  }
+  const response = await fetch(adminApiUrl(`/api/tasks/export?${params}`), {
+    credentials: 'include',
+  })
+  if (!response.ok) throw new Error('export failed')
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = 'generation-tasks.csv'
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
