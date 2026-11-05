@@ -61,6 +61,21 @@ function mount(selection: GenerationSelection) {
 }
 
 describe('overview refresh cadence', () => {
+  it('starts an initially paused historical query when connectivity returns', async () => {
+    onlineManager.setOnline(false)
+    const { result } = mount({ preset: '30d' })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(get).not.toHaveBeenCalled()
+    expect(result.current.fetchStatus).toBe('paused')
+    await act(async () => {
+      onlineManager.setOnline(true)
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(get).toHaveBeenCalledTimes(1)
+  })
+
   it.each([
     '1h',
     '6h',
