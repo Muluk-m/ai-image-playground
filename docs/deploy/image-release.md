@@ -178,17 +178,17 @@ DATABASE_URL=<迁移账号> bun run apps/bff/scripts/import-inspirations.ts
 
 ```sh
 export PATH=/opt/homebrew/bin:$PATH   # 仅 macmini2
-./scripts/build-vps-release.sh all /Users/mac/releases/aip-<release-id>
+./scripts/build-vps-release.sh paid /Users/mac/releases/aip-<release-id>
 ```
 
-构建输入固定为 Git 提交，不含未提交文件或凭据。使用 `aip-release` builder（4 核、6 GiB、无额外 Swap、阶段并发 1）生成 `linux/amd64` 镜像；保留现有构建锁，并与其他重型任务错峰。每个镜像构建后立即推送，远端标签 `internal-<公开12位>`、`paid-<公开12位>-<私有12位>`、`backup-<公开12位>`，本地标签不变。首次推送上传全部层，之后只传变更层。
+构建输入固定为 Git 提交，不含未提交文件或凭据。使用 `aip-release` builder（4 核、6 GiB、无额外 Swap、阶段并发 1）生成 `linux/amd64` 镜像；保留现有构建锁，并与其他重型任务错峰。当前生产只构建 `paid-<公开12位>-<私有12位>`、`backup-<公开12位>` 与 `segmenter-<版本>-<公开12位>`，不构建已冻结的 internal 镜像；脚本的 `internal`/`all` 模式保留兼容能力，使用前须单独批准。每个镜像构建后立即推送，本地标签不变。首次推送上传全部层，之后只传变更层。
 
 3. 工作站中转发布目录，再从产物内执行接收脚本：
 
 ```sh
 scp -r macmini2:/Users/mac/releases/aip-<release-id> /tmp/
 scp -r /tmp/aip-<release-id> tx-vps:/home/ubuntu/releases/
-ssh tx-vps '/home/ubuntu/releases/aip-<release-id>/scripts/vps-deploy.sh all /home/ubuntu/releases/aip-<release-id>'
+ssh tx-vps '/home/ubuntu/releases/aip-<release-id>/scripts/vps-deploy.sh paid /home/ubuntu/releases/aip-<release-id>'
 ```
 
 接收脚本持有发布锁，校验 `SHA256SUMS`（须覆盖目录内全部文件，多出未列文件即拒绝），按 digest `docker pull` 并打回本地标签，再校验本地镜像确实带着该 digest（不比镜像 ID：构建机若用 containerd 存储，ID 与 VPS 上的不可比）、架构、`APP_VERSION`、原生依赖，最后执行兼容迁移与启动；保留 VPS 原有运行配置。任一镜像拉取或校验失败都不改动服务。CI 部署失败时，入口把该发布目录改名为 `<id>.failed-run-<run_id>` 留作排查，同一提交可直接重跑。
