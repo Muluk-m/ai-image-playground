@@ -2,7 +2,13 @@
  * Adapted from assistant-ui Elements `model-selector` (MIT, AgentbaseAI).
  * 只取外观与结构：沿用项目的 Radix Popover，不引入 cmdk / base-ui。
  */
-import type { ModelBadge, ModelLogoId, ModelTier } from '@image-playground/shared'
+import {
+  gptImage26Credits,
+  isGptImage26Model,
+  type ModelBadge,
+  type ModelLogoId,
+  type ModelTier,
+} from '@image-playground/shared'
 import { type KeyboardEvent, useId, useMemo, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
@@ -43,6 +49,7 @@ export interface ModelChoice {
   etaSeconds?: number
   /** 耗时随档位变化时的上界，有就显示成「约 N–M 秒」。 */
   etaMaxSeconds?: number
+  unavailable?: boolean
 }
 
 /** 模型多到这个数才给搜索框。 */
@@ -77,6 +84,7 @@ export function useModelChoices() {
           ...(option.etaSeconds !== undefined ? { etaSeconds: option.etaSeconds } : {}),
           ...(option.etaMaxSeconds !== undefined ? { etaMaxSeconds: option.etaMaxSeconds } : {}),
           ...(option.logo ? { logo: option.logo } : {}),
+          ...(option.unavailable ? { unavailable: true } : {}),
         }),
       )
     })
@@ -86,7 +94,7 @@ export function useModelChoices() {
   const current = options.find((option) => option.value === currentValue)
   const pick = (value: string) => {
     const option = options.find((o) => o.value === value)
-    if (!option || option.value === currentValue) return
+    if (!option || option.unavailable || option.value === currentValue) return
     const publicChannels = getPublicChannels()
     const profiles = settings.profiles.map((profile) =>
       profile.id === option.profileId
@@ -247,10 +255,15 @@ export function ModelList({
             const selected = option.value === value
             const tabStop = selected || (option === firstShown && !hasSelected)
             const eta = usableEtaSeconds(option.etaSeconds)
-            const etaText =
-              eta !== undefined
-                ? etaLabel(eta, usableEtaMaxSeconds(option.etaMaxSeconds, eta))
-                : undefined
+            const etaText = option.unavailable
+              ? t('param.modelUnavailable')
+              : isGptImage26Model(option.model)
+                ? t('param.modelPrice', {
+                    credits: gptImage26Credits({ size: '1024x1024', quality: 'medium' }),
+                  })
+                : eta !== undefined
+                  ? etaLabel(eta, usableEtaMaxSeconds(option.etaMaxSeconds, eta))
+                  : undefined
             const isNew = newLabel(option)
             return (
               <Button
@@ -259,6 +272,8 @@ export function ModelList({
                 type="button"
                 role="option"
                 aria-selected={selected}
+                aria-disabled={option.unavailable || undefined}
+                disabled={option.unavailable}
                 tabIndex={tabStop ? 0 : -1}
                 aria-label={[
                   option.label,

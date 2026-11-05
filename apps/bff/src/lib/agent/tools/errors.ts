@@ -32,6 +32,7 @@ export function queueRefusalCode(kind: CreateQueueTaskOutcome['kind']): AgentToo
       return 'authentication_required'
     case 'invalid_input_image':
     case 'invalid_prompt':
+    case 'invalid_image_request':
     // 4K 需要会员：换一个更小的尺寸能成，原样重试不会。
     case 'private_billing_denied':
       return 'invalid_params'

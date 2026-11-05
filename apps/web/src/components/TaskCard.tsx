@@ -1,4 +1,9 @@
-import { formatImageRatio } from '@image-playground/shared'
+import {
+  formatImageRatio,
+  gptImage26Credits,
+  gptImage26EtaSeconds,
+  isGptImage26Model,
+} from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import { taskExportSources } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
@@ -14,6 +19,7 @@ import {
   progressStartedAt,
   typicalDurationMs,
 } from '../lib/generationProgress'
+import { loadImageOriginal } from '../lib/imageSource'
 import { ActualValueBadge, getParamDisplay, measuredSizeOf } from '../lib/paramDisplay'
 import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
@@ -49,6 +55,11 @@ export default function TaskCard({
   const { t } = useTranslation(['task', 'common'])
   const preview = useImagePreview(task.outputImages?.[0])
   const thumbSrc = preview?.url ?? ''
+  const motionFormat = task.params.output_format
+  const [playingGif, setPlayingGif] = useState<string | null>(null)
+  useEffect(() => {
+    setPlayingGif(null)
+  }, [task.outputImages])
   // 平台图只有 URL、没有宽高，此时不渲染角标，别给用户一个空壳子。
   const coverBadges =
     preview?.width && preview.height
@@ -209,15 +220,36 @@ export default function TaskCard({
     if (generatingPhase) markGenerating(task, Date.now())
     else if (task.status !== 'running') forgetGenerating(task.id)
   }, [generatingPhase, task])
+  const image26Model = task.apiModel ?? ''
+  const image26 = isGptImage26Model(image26Model)
+  const etaSeconds = image26
+    ? gptImage26EtaSeconds(image26Model, {
+        ...task.params,
+        input_images: task.inputImageIds,
+        mask: task.maskImageId,
+      })
+    : undefined
+  const heldCredits = image26
+    ? gptImage26Credits({
+        ...task.params,
+        input_images: task.inputImageIds,
+        mask: task.maskImageId,
+      }) * Math.max(1, task.params.n || 1)
+    : undefined
   const runningLabel = task.batchQueued
     ? t('card.batchQueued')
-    : progressPercent != null
-      ? t('card.progress', { percent: progressPercent })
-      : task.queuePhase
-        ? t(`card.phase.${task.queuePhase}`)
-        : awaitingQueuePhase(task)
-          ? t('card.phase.queued')
-          : t('card.generating')
+    : etaSeconds !== undefined && duration
+      ? t('card.elapsedEta', {
+          elapsed: Math.floor((now - (task.batchStartedAt ?? task.createdAt)) / 1000),
+          eta: etaSeconds,
+        })
+      : progressPercent != null
+        ? t('card.progress', { percent: progressPercent })
+        : task.queuePhase
+          ? t(`card.phase.${task.queuePhase}`)
+          : awaitingQueuePhase(task)
+            ? t('card.phase.queued')
+            : t('card.generating')
   const swipeBgClass = showSwipeAction
     ? swipeStartedSelected
       ? 'bg-muted'
@@ -303,9 +335,14 @@ export default function TaskCard({
                   className="w-24 items-center"
                 />
               ) : (
-                <div className="flex flex-col items-center gap-2">
+                <div className="flex flex-col items-center gap-2 px-2">
                   <Icon name="loading" size="lg" className="animate-spin text-primary" />
-                  <span className="text-xs text-muted-foreground">{runningLabel}</span>
+                  <span className="text-center text-xs text-muted-foreground">{runningLabel}</span>
+                  {heldCredits !== undefined && (
+                    <span className="text-center text-label-sm text-muted-foreground">
+                      {t('card.creditHold', { credits: heldCredits.toLocaleString() })}
+                    </span>
+                  )}
                 </div>
               ))}
             {task.status === 'error' && task.cancelled && (
@@ -327,12 +364,29 @@ export default function TaskCard({
             {task.status === 'done' && thumbSrc && (
               <>
                 <img
-                  src={thumbSrc}
+                  src={playingGif ?? thumbSrc}
                   data-image-id={task.outputImages[0]}
                   className="saveable-image w-full h-full object-cover"
                   loading="lazy"
                   alt=""
+                  onMouseEnter={() => {
+                    if (motionFormat !== 'gif' || !task.outputImages[0]) return
+                    void loadImageOriginal(task.outputImages[0]).then((url) => {
+                      if (url) setPlayingGif(url)
+                    })
+                  }}
+                  onMouseLeave={() => setPlayingGif(null)}
                 />
+                {motionFormat === 'gif' && (
+                  <span className="absolute bottom-1 left-1 rounded-sm bg-black/60 px-1.5 py-0.5 font-mono text-label-sm text-white">
+                    {t('card.gifBadge', { count: task.params.frame_count ?? 6 })}
+                  </span>
+                )}
+                {motionFormat === 'svg' && (
+                  <span className="absolute bottom-1 left-1 rounded-sm bg-black/60 px-1.5 py-0.5 font-mono text-label-sm text-white">
+                    {t('card.svgBadge')}
+                  </span>
+                )}
                 {task.outputImages.length > 1 && (
                   <span className="absolute bottom-1 right-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded">
                     {task.outputImages.length}

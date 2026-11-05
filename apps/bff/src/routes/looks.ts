@@ -364,6 +364,9 @@ export const lookRoutes = new Elysia()
         if (outcome.kind === 'invalid_prompt') {
           return status(400, { error: 'invalid_request', message: '提示词不能为空' })
         }
+        if (outcome.kind === 'invalid_image_request') {
+          return status(400, { error: 'invalid_request', message: outcome.message })
+        }
         if (outcome.kind === 'invalid_input_image') {
           return status(400, { error: 'invalid_input_image', message: outcome.message })
         }
