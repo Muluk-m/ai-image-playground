@@ -237,6 +237,48 @@ export function saveOperatorSetting(
   )
 }
 
+export const upstreamSecretsQueryKey = ['upstream-secrets'] as const
+
+export interface UpstreamSecretView {
+  id: 'openai_direct' | 'gemini' | 'vertex' | 'sub2api'
+  label: string
+  configured: boolean
+  source: 'admin' | 'env' | 'unset'
+  updatedAt: number | null
+  updatedBy: string | null
+}
+
+export interface UpstreamSecretsResult {
+  writable: boolean
+  disabledReason: string | null
+  warning: string | null
+  secrets: UpstreamSecretView[]
+}
+
+export function useUpstreamSecrets() {
+  return useQuery({
+    queryKey: upstreamSecretsQueryKey,
+    queryFn: () => apiClient.get<UpstreamSecretsResult>('/api/upstream-secrets'),
+  })
+}
+
+export function replaceUpstreamSecret(id: string, apiKey: string) {
+  return apiClient.put<UpstreamSecretsResult>(`/api/upstream-secrets/${encodeURIComponent(id)}`, {
+    apiKey,
+  })
+}
+
+export function clearUpstreamSecret(id: string) {
+  return apiClient.del<UpstreamSecretsResult>(`/api/upstream-secrets/${encodeURIComponent(id)}`)
+}
+
+export function testUpstreamSecret(id: string, apiKey: string) {
+  return apiClient.post<{ ok: boolean; httpStatus: number | null }>(
+    `/api/upstream-secrets/${encodeURIComponent(id)}/test`,
+    { apiKey },
+  )
+}
+
 export function clearOperatorSetting(
   key: string,
   body: { reason: string; expectedRevision: number },
