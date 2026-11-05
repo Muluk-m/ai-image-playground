@@ -284,7 +284,9 @@ export function ImageSettings({
   }
 
   const commitPixels = (width: string, height: string) => {
-    if (params.output_format === 'gif' || params.output_format === 'svg') return
+    // 切到 GIF 会卸掉自定义宽高框，失焦回调还是切之前那次渲染。以仓库里已经写上的格式为准。
+    const liveFormat = controlled ? params.output_format : useStore.getState().params.output_format
+    if (liveFormat === 'gif' || liveFormat === 'svg') return
     const w = Number.parseInt(width, 10)
     const h = Number.parseInt(height, 10)
     if (!(w > 0 && h > 0)) return
