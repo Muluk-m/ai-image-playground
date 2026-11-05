@@ -111,11 +111,10 @@ describe('image adapters plan platform requests into upstream calls', () => {
   })
 
   it('keeps native n for a non-GPT OpenAI-compatible model when the channel declares it', () => {
-    const plan = openaiImagesSub2api.plan(
-      { prompt: 'a cat', count: 3 },
-      'custom-image-model',
-      { ...guest, supportsNativeN: true },
-    )
+    const plan = openaiImagesSub2api.plan({ prompt: 'a cat', count: 3 }, 'custom-image-model', {
+      ...guest,
+      supportsNativeN: true,
+    })
     expect(plan.calls).toHaveLength(1)
     expect(plan.calls[0]).toMatchObject({ images: 3 })
     expect(plan.calls[0]!.body).toMatchObject({ model: 'custom-image-model', n: 3 })
