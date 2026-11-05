@@ -2,7 +2,7 @@
 -- 停用与冷却，gpt_direct_usage.key_fingerprint 把每笔花费记到具体那一把。
 -- 旧行的 key_fingerprint 为空，单密钥部署仍把它们算进那一把的月预算。
 -- 后台配置的直连密钥用与 upstream_api_secrets 相同的 AES-256-GCM 字段，明文不入库。
--- 回滚见 drizzle/rollback/0089_gpt_direct_keys.down.sql。
+-- 回滚见 drizzle/rollback/0090_gpt_direct_keys.down.sql。
 ALTER TABLE "gpt_direct_usage" ADD COLUMN IF NOT EXISTS "key_fingerprint" text;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_gpt_direct_usage_key_created" ON "gpt_direct_usage" USING btree ("key_fingerprint","created_at");

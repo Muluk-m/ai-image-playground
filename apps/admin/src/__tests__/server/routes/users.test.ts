@@ -8,16 +8,20 @@ const forwarded: Array<{
   path: string
   search: string
   authorization: string | null
+  operator: string | null
+  body: unknown
 }> = []
 const mockBff = Bun.serve({
   port: 0,
-  fetch(request) {
+  async fetch(request) {
     const url = new URL(request.url)
     forwarded.push({
       method: request.method,
       path: url.pathname,
       search: url.search,
       authorization: request.headers.get('authorization'),
+      operator: request.headers.get('x-admin-operator'),
+      body: request.method === 'GET' ? undefined : await request.json().catch(() => undefined),
     })
     return Response.json(
       request.method === 'POST' && url.pathname.endsWith('/users/')
@@ -252,6 +256,22 @@ describe('admin user routes', () => {
     expect(body.kpis).toMatchObject({ total_users: 2, active_users_7d: 1, submissions_24h: 2 })
     expect(body.kpis.failure_rate_24h).toBe(0.5)
     expect(body.truncated).toBe(false)
+    const paged = (await (
+      await call('/api/users?page=2&pageSize=50&sort=created&dir=asc')
+    ).json()) as {
+      users: Array<{ id: string }>
+      total: number
+      page: number
+      pageSize: number
+    }
+    expect(paged.pageSize).toBe(50)
+    expect(paged.total).toBe(2)
+    expect(paged.users).toHaveLength(0)
+    expect(paged.page).toBe(2)
+    const disabled = (await (await call('/api/users?status=disabled')).json()) as {
+      users: Array<{ id: string }>
+    }
+    expect(disabled.users.map((user) => user.id)).toEqual(['user-idle'])
     const noteMatch = (await (await call('/api/users?q=周五')).json()) as {
       users: Array<{ id: string }>
     }
@@ -350,6 +370,12 @@ describe('admin user routes', () => {
       path: '/internal/admin/users/',
       authorization: 'Bearer fixture-service-credential-alpha',
       search: '',
+      operator: 'password-admin',
+      body: {
+        username: 'New.User',
+        password: 'strong-password',
+        operatorId: 'password-admin',
+      },
     })
     const stored = await writer.db.select().from(writer.schema.users)
     expect(stored.map((user) => user.id)).not.toContain('created-by-bff')
@@ -372,6 +398,8 @@ describe('admin user routes', () => {
       path: '/internal/admin/users/user-existing/note',
       authorization: 'Bearer fixture-service-credential-alpha',
       search: '',
+      operator: 'password-admin',
+      body: { note: '新备注', operatorId: 'password-admin' },
     })
     expect(await writer.db.select().from(writer.schema.admin_user_notes)).toMatchObject([
       { user_id: 'user-existing', note: '合作方，周五跟进' },
@@ -388,6 +416,8 @@ describe('admin user routes', () => {
       path: '/internal/admin/private/billing/users',
       search: '?ids=user-existing',
       authorization: 'Bearer fixture-service-credential-alpha',
+      operator: 'password-admin',
+      body: undefined,
     })
   })
 })

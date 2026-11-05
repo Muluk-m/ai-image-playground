@@ -518,8 +518,12 @@ describe('runMigrations', () => {
             created_at: '1793900000000',
           },
           {
-            hash: await migrationFileHash('0089_gpt_direct_keys'),
+            hash: await migrationFileHash('0089_admin_filter_indexes'),
             created_at: '1794000000000',
+          },
+          {
+            hash: await migrationFileHash('0090_gpt_direct_keys'),
+            created_at: '1794100000000',
           },
         ])
         const columns =

@@ -15,7 +15,7 @@ import {
   billedStageQuantity,
   clampGptBasicRequest,
   DEFAULT_IMAGE_MODERATION,
-  gptImageRateMultiplier,
+  imageRateMultiplier,
   imageSizeTier,
   isBlankPrompt,
   isGptBasicRequest,
@@ -33,6 +33,7 @@ import { prepareMaskedInput } from './agent/masked-input'
 import { consumeStageAuthorization } from './agent/stage-authorizations'
 import { canonicalJson } from './canonicalJson'
 import { isCapabilityEnabled } from './capabilities'
+import { declaredImageSizes } from './channels'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
 import { alignGptRequestToMembership } from './gpt-membership'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
@@ -144,8 +145,12 @@ function pricingOf(input: CreateQueueTaskInput) {
   if (!input.video)
     return {
       quantity: n,
-      // GPT 直连模型按档位与画质加倍率（带遮罩的只看画质）；其它图片模型恒为 1。
-      unitMultiplier: gptImageRateMultiplier(input.model, input.request),
+      // 按即将落库的请求计价：GPT 看档位与画质，Gemini 看可出的 image_size，其余为 1。
+      unitMultiplier: imageRateMultiplier(
+        input.model,
+        input.request,
+        declaredImageSizes(input.model),
+      ),
       quotaUnits: n,
     }
   return {
@@ -475,8 +480,9 @@ function basicGptInput(input: CreateQueueTaskInput): CreateQueueTaskInput {
 
 /**
  * GPT 直连模型的 2K/4K/高画质在网站直接提交时开给会员，非会员静默收到基础档。
- * CLI 严格保留参数，在提交事务内重新授权；不能兑现就拒绝。其他入口仍按基础档计价执行：
- * 智能体、阶段授权、调用方自带事务与预先准备的提交按倍率 1 冻结。
+ * CLI 严格保留参数，在提交事务内重新授权；不能兑现就拒绝。其他入口仍把 GPT 收到基础档再计价
+ * （倍率因此是 1）。Gemini 不收档，按请求的 image_size 取倍率；提案侧用 preparedImageRateMultiplier，
+ * 与这里之后的 pricingOf 一致。
  */
 async function alignGptSubmission(input: CreateQueueTaskInput): Promise<CreateQueueTaskInput> {
   if (input.video || input.strictImageRequest) return input

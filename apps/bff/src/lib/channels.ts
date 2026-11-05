@@ -49,7 +49,8 @@ import {
 } from '@image-playground/shared'
 import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
-import { gptDirectSizeEnabled } from './upstream/gpt-key-config'
+import { capabilitiesForModel } from './upstream/adapters'
+import { gptDirectSizeEnabled } from './upstream/gpt-direct-availability'
 import { runtimeSecret } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -590,6 +591,15 @@ export function disabledModelChannel(model: string): string | undefined {
   return disabledModels.get(model)
 }
 
+/** 这个模型在发现清单里声明的可出分辨率。没声明就不收档，计价按请求档。 */
+export function declaredImageSizes(modelId: string): readonly string[] | undefined {
+  for (const channel of getDiscoveredChannels()) {
+    const model = channel.models.find((one) => one.id === modelId)
+    if (model?.imageSizes?.length) return model.imageSizes
+  }
+  return undefined
+}
+
 export function getDiscoveredChannels(): DiscoveredChannel[] {
   return discoveredCache
 }
@@ -668,19 +678,21 @@ function queueProviderOf(kind: ChannelKind): QueueProvider {
 }
 
 /**
- * GPT 直连模型的 `size` 只有 OpenAI 直连兑现得了（sub2api 丢弃 size）。直连没开（口径同 config.gptDirect：
- * GPT_DIRECT_ENABLED 且至少有一把可用直连密钥，含后台配置的）时不声明它：前端退回只选比例、构图写进提示词，与直连上线前一致。
+ * GPT 直连模型的 `size` 只有 OpenAI 直连兑现得了（sub2api 丢弃 size）。直连没开（口径同
+ * gptDirectSizeEnabled：开关打开且至少有一把可用密钥，含后台配置的）时不声明它。
  */
 function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
+  if (!channel.models.some((model) => isGptDirectModel(model.id))) return channel
   const directOn = gptDirectSizeEnabled()
-  if (directOn || !channel.models.some((model) => isGptDirectModel(model.id))) return channel
   return {
     ...channel,
-    models: channel.models.map((model) =>
-      isGptDirectModel(model.id)
-        ? { ...model, capabilities: model.capabilities.filter((cap) => cap !== 'size') }
-        : model,
-    ),
+    models: channel.models.map((model) => {
+      if (!isGptDirectModel(model.id)) return model
+      const caps = capabilitiesForModel(model.id, { member: false, directOn })
+      // 直连没开时 sub2api 适配器 honorsSize=false，前端不展示 size，整行退回「自动」。
+      if (!caps || caps.honorsSize) return model
+      return { ...model, capabilities: model.capabilities.filter((cap) => cap !== 'size') }
+    }),
   }
 }
 
@@ -717,7 +729,23 @@ function sanitizeChannel(c: InternalChannel): DiscoveredChannel {
 function withCatalogCapabilities(model: ChannelModel): ChannelModel {
   if ((model.media ?? 'image') !== 'image') return model
   const spec = findCatalogModel(model.id)
-  return spec ? { ...model, ...publishModelCapabilities(spec) } : model
+  if (!spec) return model
+  const published = publishModelCapabilities(spec)
+  const memberTiers =
+    capabilitiesForModel(model.id, { member: false, directOn: gptDirectSizeEnabled() })
+      ?.memberTiers ?? []
+  const memberOnly = new Set<string>(memberTiers)
+  return {
+    ...model,
+    ...published,
+    image: {
+      ...published.image,
+      tiers: published.image.tiers.map((tier) => ({
+        ...tier,
+        memberOnly: memberOnly.has(tier.id),
+      })),
+    },
+  }
 }
 
 /** 仅供测试：直接塞入解析好的 channels，绕过文件系统。 */

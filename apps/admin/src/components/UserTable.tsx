@@ -116,7 +116,38 @@ function SummaryValue({ summary }: { summary: PrivateAdminUserSummary | undefine
   )
 }
 
-export function UserTable({ users }: { users: AdminUserRow[] }) {
+function SortHeader({
+  label,
+  active,
+  dir,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  dir: 'asc' | 'desc'
+  onClick: () => void
+}) {
+  return (
+    <button type="button" className="inline-flex items-center gap-1" onClick={onClick}>
+      {label}
+      <span className="text-[10px] text-muted-foreground">
+        {active ? (dir === 'asc' ? '↑' : '↓') : ''}
+      </span>
+    </button>
+  )
+}
+
+export function UserTable({
+  users,
+  sort = 'activity',
+  dir = 'desc',
+  onSort,
+}: {
+  users: AdminUserRow[]
+  sort?: 'activity' | 'created' | 'login'
+  dir?: 'asc' | 'desc'
+  onSort?: (sort: 'activity' | 'created' | 'login') => void
+}) {
   const [editingNote, setEditingNote] = useState<AdminUserRow | null>(null)
   const { enabled: privateAdminOverlayEnabled, summaries } = usePrivateAdminUserSummaries(
     users.map((user) => user.id),
@@ -134,11 +165,23 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
             </TableHead>
             <TableHead className="w-[10%]">状态</TableHead>
             <TableHead className="w-[14%] text-right">任务 / 会话</TableHead>
-            <TableHead className="w-[13%] text-right">最近活动</TableHead>
+            <TableHead className="w-[13%] text-right">
+              <SortHeader
+                label="最近活动"
+                active={sort === 'activity'}
+                dir={dir}
+                onClick={() => onSort?.('activity')}
+              />
+            </TableHead>
             <TableHead
               className={`${privateAdminOverlayEnabled ? 'w-[19%]' : 'w-[25%]'} text-right`}
             >
-              注册 / 登录方式
+              <SortHeader
+                label="注册时间"
+                active={sort === 'created'}
+                dir={dir}
+                onClick={() => onSort?.('created')}
+              />
             </TableHead>
             {privateAdminOverlayEnabled ? (
               <TableHead className="w-[18%] pr-4 text-right">

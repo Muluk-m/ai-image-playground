@@ -1,6 +1,13 @@
 import { createHash } from 'node:crypto'
 import { config } from '../../config'
 import { runtimeSecret } from '../upstream-secret-cache'
+import {
+  adminDirectKeys,
+  resetAdminDirectKeySnapshot,
+  setAdminDirectKeySnapshot,
+} from './gpt-direct-availability'
+
+export { adminDirectKeys, resetAdminDirectKeySnapshot }
 
 /**
  * GPT Image 直连的密钥清单。
@@ -27,36 +34,22 @@ export interface DirectKey {
   readonly label: string
 }
 
-/**
- * null：后台没有直连密钥，用环境变量。
- * 数组：后台有记录，哪怕解不开或全停用，也不再退回环境变量。
- */
-let adminKeys: DirectKey[] | null = null
-let adminDeliverable: boolean | null = null
-
-export function resetAdminDirectKeySnapshot(): void {
-  adminKeys = null
-  adminDeliverable = null
-}
-
 /** 刷新后的快照。`admin === null` 表示后台没有记录，退回环境变量。 */
 export function noteDirectKeySnapshot(input: {
   admin: DirectKey[] | null
   hardDisabled: ReadonlySet<string>
 }): void {
   if (input.admin === null) {
-    adminKeys = null
-    adminDeliverable = envDirectKeys().some((key) => !input.hardDisabled.has(key.fingerprint))
+    setAdminDirectKeySnapshot(
+      null,
+      envDirectKeys().some((key) => !input.hardDisabled.has(key.fingerprint)),
+    )
     return
   }
-  adminKeys = input.admin
-  adminDeliverable = input.admin.some(
-    (key) => key.enabled && !input.hardDisabled.has(key.fingerprint),
+  setAdminDirectKeySnapshot(
+    input.admin,
+    input.admin.some((key) => key.enabled && !input.hardDisabled.has(key.fingerprint)),
   )
-}
-
-export function adminDirectKeys(): DirectKey[] | null {
-  return adminKeys
 }
 
 export function fingerprintOf(secret: string): { fingerprint: string; label: string } {
@@ -131,16 +124,12 @@ function envDirectKeys(): DirectKey[] {
  * OPENAI_API_KEY（含上游密钥页替换的那一把）加环境变量预算。
  */
 export function configuredDirectKeys(): DirectKey[] {
-  if (adminKeys !== null) return adminKeys
+  const admin = adminDirectKeys()
+  if (admin !== null) return admin
   return envDirectKeys()
 }
 
-/** 渠道 size 能力：直连开着，且至少有一把没被管理员停用、也没因额度或失效被停掉。 */
-export function gptDirectSizeEnabled(): boolean {
-  if (process.env.GPT_DIRECT_ENABLED?.trim().toLowerCase() !== 'true') return false
-  if (adminDeliverable !== null) return adminDeliverable
-  return envDirectKeys().length > 0
-}
+export { gptDirectSizeEnabled } from './gpt-direct-availability'
 
 export function directKeySecrets(): string[] {
   const secrets = [process.env.OPENAI_API_KEY ?? '', process.env.OPENAI_ADMIN_KEY ?? '']

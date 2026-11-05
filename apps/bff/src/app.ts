@@ -27,6 +27,7 @@ import { generationRoutes } from './routes/generations'
 import { gptPremiumRoutes } from './routes/gpt-premium'
 import { internalInspirationRoutes, publicInspirationRoutes } from './routes/inspirations'
 import { internalAgentModelRoutes } from './routes/internal-agent-models'
+import { internalAuditRoutes } from './routes/internal-audits'
 import { internalDrainRoutes } from './routes/internal-drain'
 import { internalGptDirectRoutes } from './routes/internal-gpt-direct'
 import { internalLogRoutes } from './routes/internal-logs'
@@ -285,6 +286,7 @@ export const app = new Elysia()
   .use(internalAgentModelRoutes)
   .use(internalModelRoutes)
   .use(internalUserRoutes)
+  .use(internalAuditRoutes)
   .use(internalTaskReconciliationRoutes)
   .use(internalOpsRoutes)
   .use(internalGptDirectRoutes)
@@ -308,7 +310,7 @@ export const app = new Elysia()
     const url = new URL(request.url)
     if (isApiPath(url.pathname)) return
     if (
-      /^\/(?:image|explore|assets|tools|projects|pricing|terms|privacy|device|p\/[^/]+|tools\/[^/]+)\/?$/.test(
+      /^\/(?:image|explore|assets|tools|projects|pricing|terms|privacy|connect|device|p\/[^/]+|tools\/[^/]+)\/?$/.test(
         url.pathname,
       )
     ) {

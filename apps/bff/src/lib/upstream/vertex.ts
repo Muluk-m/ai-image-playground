@@ -11,7 +11,7 @@ import { clientError } from './shared'
  * - gemini-3.1-flash-lite-image 只出 1K，带 imageSize 2K / 512 一律 400 invalid argument；
  * - gemini-nano-banana-2.1 与 gemini-3-pro-image 认 1K / 2K（及 4K），512 一律 400；
  * - 三者都认 thinkingLevel minimal / high。
- * 每个模型认哪几档写在 channels.json 的 `imageSizes`（4K 还没分档定价，暂不开放）。
+ * 每个模型认哪几档写在 channels.json 的 `imageSizes`（4K 倍率已定义，渠道仍不开放）。
  */
 
 /** Gemini 3 系图像模型单次最多 14 张参考图（官方上限）；超出时上游 400，提交前就拦下并说清楚。 */
@@ -23,8 +23,9 @@ export const VERTEX_MAX_INPUT_IMAGES = 14
  * 分辨率看的是 `buildGeminiBody` 产出的最终 `generationConfig.imageConfig.imageSize`，而不是扁平的
  * `image_size`：`extra.generationConfig` 会整段压过扁平参数推导的配置，只有最终值才是上游真正
  * 收到的。模型不认的档位（共享档位里的 512、Lite 的 2K、面板没开放的 4K、旧任务重试带的值）换成
- * 渠道声明里最近的一档（`nearestImageSize`），不让整单失败；计费按张不变，任务里记的仍是原值，
- * 这是有意的兼容取舍。显式给了却不是对象的 imageConfig 仍当无效配置拒绝。
+ * 渠道声明里最近的一档（`nearestImageSize`），不让整单失败。计费仍按任务里记下的原请求档
+ * （`imageRateMultiplier`），不按这里换成的上游档，也不按回图像素。显式给了却不是对象的
+ * imageConfig 仍当无效配置拒绝。
  */
 export function buildVertexBody(
   request: HydratedSubmitRequest,
