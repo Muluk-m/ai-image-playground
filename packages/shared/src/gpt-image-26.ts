@@ -21,10 +21,12 @@ export const GPT_IMAGE_26_GIF_FRAME_MAX = 16
 export const GPT_IMAGE_26_GIF_DURATIONS_MS = [300, 200, 100] as const
 export const GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS = 200
 export const GPT_IMAGE_26_GIF_SIZES = ['512x512', '768x768'] as const
-/** 雪碧图长边上限。1024×6 实测被拒，768×6 实测可以。 */
+/** 产品雪碧图长边限制，不代表兼容渠道已确认的上游上限。 */
 export const GPT_IMAGE_26_GIF_SPRITE_MAX_EDGE = 3840
 /** 实测能拼进雪碧图的最大单帧边。超过它时按「边长 × 帧数 > 3840」拒绝。 */
 export const GPT_IMAGE_26_GIF_MEASURED_EDGE = 768
+/** 以 768×768、12 帧成功设置为保守产品预算；3072×3072 已被拒，上游精确像素上限未知。 */
+const GIF_SPRITE_PIXEL_BUDGET = 768 * 768 * 12
 
 export const GPT_IMAGE_26_SVG_CREDITS = 610
 
@@ -68,7 +70,12 @@ export function gifSpriteExceedsLimit(width: number, height: number, frames: num
     return true
   const columns = Math.max(1, Math.ceil(Math.sqrt(frames)))
   const rows = Math.ceil(frames / columns)
-  return Math.max(columns, rows) * edge > GPT_IMAGE_26_GIF_SPRITE_MAX_EDGE
+  const spriteWidth = columns * width
+  const spriteHeight = rows * height
+  return (
+    Math.max(spriteWidth, spriteHeight) > GPT_IMAGE_26_GIF_SPRITE_MAX_EDGE ||
+    spriteWidth * spriteHeight > GIF_SPRITE_PIXEL_BUDGET
+  )
 }
 
 function roundTo10(value: number): number {
