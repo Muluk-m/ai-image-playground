@@ -8,6 +8,8 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import {
   APP_MODE_PATHS,
+  CHANGELOG_PATH,
+  CLI_CONNECT_PATH,
   CLI_DEVICE_PATH,
   LEGACY_PROJECTS_PATH,
   PRICING_PATH,
@@ -127,7 +129,9 @@ it('generates SPA fallbacks for every app route without a catch-all asset rewrit
     PRICING_PATH,
     TERMS_PATH,
     PRIVACY_PATH,
+    CLI_CONNECT_PATH,
     CLI_DEVICE_PATH,
+    CHANGELOG_PATH,
   ]) {
     expect(rules).toContain(`${path} /workbench 200\n`)
     if (path !== '/assets') expect(rules).toContain(`${path}/ /workbench 200\n`)
@@ -139,6 +143,23 @@ it('generates SPA fallbacks for every app route without a catch-all asset rewrit
   expect(rules).not.toMatch(/^\/assets\/\*/m)
   expect(rules).not.toMatch(/^\/\*/m)
   expect(await readFile(join(root, 'apps/web/public/404.html'), 'utf8')).toContain('Page not found')
+})
+it('整页路由在 BFF 与 nginx 的 SPA 回退里也有：新页面不能只在 Pages 上能刷新', async () => {
+  // 三套托管各写一份白名单；漏掉任何一份，那种部署下直接打开或刷新该地址就是 404。
+  const bff = await readFile(join(root, 'apps/bff/src/app.ts'), 'utf8')
+  const nginx = await readFile(join(root, 'deploy/nginx.conf'), 'utf8')
+  for (const path of [
+    PRICING_PATH,
+    TERMS_PATH,
+    PRIVACY_PATH,
+    CLI_CONNECT_PATH,
+    CLI_DEVICE_PATH,
+    CHANGELOG_PATH,
+  ]) {
+    const name = path.slice(1)
+    expect(bff, `BFF 回退缺 ${path}`).toContain(`|${name}`)
+    expect(nginx, `nginx 回退缺 ${path}`).toContain(name)
+  }
 })
 
 it('rejects a stale deep link even when the home page is current', async () => {
@@ -330,11 +351,11 @@ async function prepareSecrets(checkout: string) {
   await writeFile(join(checkout, 'token.env'), 'CLOUDFLARE_API_TOKEN=paid-token\n')
 }
 
-it('builds paid with the overlay and its own external Pages config', async () => {
+it('builds muvloom with the overlay and legacy external Pages config keys', async () => {
   const checkout = join(dist, 'checkout')
   await mkdir(checkout, { recursive: true })
   await prepareSecrets(checkout)
-  const { captured, run } = await releaseCheckout('paid', paidEnv(checkout))
+  const { captured, run } = await releaseCheckout('muvloom', paidEnv(checkout))
   expect(run.status).toBe(27)
   expect(run.stderr).toBe('')
   expect(run.stdout).toContain('private web bundle to Pages project paid-project')
@@ -355,17 +376,17 @@ it('builds paid with the overlay and its own external Pages config', async () =>
   )
 })
 
-it('serves the enterprise domain from the paid project with its own API and no indexing', async () => {
+it('serves the qlj domain from the muvloom project with its own API and no indexing', async () => {
   const checkout = join(dist, 'checkout')
   await mkdir(checkout, { recursive: true })
   await prepareSecrets(checkout)
   const { captured, run } = await releaseCheckout(
-    'paid',
+    'muvloom',
     paidEnv(checkout, [
       `PAID_BFF_BASE_URLS_BY_ORIGIN='{"https://old.example.com":"https://old-api.example.com"}'`,
       'INTERNAL_PUBLIC_ORIGIN=https://enterprise.example.net/',
       'INTERNAL_BFF_BASE_URL=https://enterprise-api.example.net',
-      // The retired internal project must never be the upload target.
+      // The retired qlj project must never be the upload target.
       'INTERNAL_PAGES_PROJECT=retired-internal-project',
     ]),
     `mkdir -p apps/web/dist && printf '/assets/*\\n  Cache-Control: immutable\\n' > apps/web/dist/_headers`,
@@ -387,12 +408,12 @@ it('serves the enterprise domain from the paid project with its own API and no i
   )
 })
 
-it('rejects an enterprise mapping that contradicts the paid origin map', async () => {
+it('rejects a qlj mapping that contradicts the muvloom origin map', async () => {
   const checkout = join(dist, 'checkout')
   await mkdir(checkout, { recursive: true })
   await prepareSecrets(checkout)
   const { run } = await releaseCheckout(
-    'paid',
+    'muvloom',
     paidEnv(checkout, [
       `PAID_BFF_BASE_URLS_BY_ORIGIN='{"https://enterprise.example.net":"https://api.paid.example.com"}'`,
       'INTERNAL_PUBLIC_ORIGIN=https://enterprise.example.net',
@@ -410,17 +431,17 @@ it('rejects half an enterprise domain config', async () => {
   await mkdir(checkout, { recursive: true })
   await prepareSecrets(checkout)
   const { run } = await releaseCheckout(
-    'paid',
+    'muvloom',
     paidEnv(checkout, ['INTERNAL_PUBLIC_ORIGIN=https://enterprise.example.net']),
   )
   expect(run.status).toBe(1)
   expect(run.stderr).toContain('must be set together')
 })
 
-it('no longer releases a separate internal Pages project', async () => {
+it('no longer releases a separate qlj Pages project', async () => {
   const checkout = join(dist, 'checkout')
   await mkdir(checkout, { recursive: true })
-  const { run } = await releaseCheckout('internal', [])
+  const { run } = await releaseCheckout('qlj', [])
   expect(run.status).toBe(2)
-  expect(run.stderr).toContain('served by the paid Pages project')
+  expect(run.stderr).toContain('served by the muvloom Pages project')
 })

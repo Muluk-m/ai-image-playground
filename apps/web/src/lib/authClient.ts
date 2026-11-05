@@ -8,7 +8,13 @@ import {
 } from '@image-playground/shared'
 import { accountRequired, isSignedIn } from '../auth/loginPrompt'
 import { readProjectRoute } from '../features/canvas/lib/projectRoute'
-import { APP_MODE_PATHS, isStandalonePath, normalizePath, toolRouteSlug } from './appPaths'
+import {
+  APP_MODE_PATHS,
+  isCliConnectPath,
+  isStandalonePath,
+  normalizePath,
+  toolRouteSlug,
+} from './appPaths'
 import { isClientCapabilityEnabled } from './clientCapabilities'
 import { hasRememberedSignedInUser, rememberStorageUser } from './localRecovery'
 import { bffBaseUrl } from './runtimeConfig'
@@ -55,8 +61,22 @@ async function authJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await res.json()) as T
 }
 
+const ACCESS_REFRESH_LEAD_MS = 24 * 60 * 60 * 1000
+let accessExpiresAt: number | null = null
+
+/** access 剩余不足一天时，打开页面或回到前台就先刷新，避免用到一半才 401。 */
+export function accessRefreshDue(now = Date.now()): boolean {
+  return accessExpiresAt !== null && accessExpiresAt - now <= ACCESS_REFRESH_LEAD_MS
+}
+
 export async function getCurrentUser(signal?: AbortSignal): Promise<AuthUserView> {
-  const result = await authJson<{ user: AuthUserView }>('/api/auth/me', { signal })
+  const result = await authJson<{ user: AuthUserView; access_expires_at?: unknown }>(
+    '/api/auth/me',
+    {
+      signal,
+    },
+  )
+  accessExpiresAt = typeof result.access_expires_at === 'number' ? result.access_expires_at : null
   return result.user
 }
 
@@ -151,6 +171,7 @@ function oauthReturnTo(): { target: string; origin: string } {
   const workspace =
     Object.values(APP_MODE_PATHS).some((entry) => entry === path) ||
     isStandalonePath(path) ||
+    isCliConnectPath(path) ||
     readProjectRoute(pathname) !== null ||
     toolRouteSlug(pathname) !== null
   const target = `${pathname}${search}${hash}`
@@ -247,12 +268,61 @@ export async function revokeCliConnection(id: string, signal?: AbortSignal): Pro
 }
 
 /**
- * 所有受保护 BFF 调用统一带 cookie。运行中收到 401 时通知 AuthGate 提示重新登录，
- * 避免每个 queue 调用点各自维护登录状态。
+ * 所有受保护 BFF 调用统一带 cookie。运行中收到 401 时先静默刷新再重试一次。
+ * 只有刷新明确失败才通知 AuthGate。并发刷新合并成一次；多个标签页用 navigator.locks 排队。
  *
  * 只有「本来登着」才算会话失效：未登录访客也能进工作台，他们的 401 是正常的权限边界，
  * 由动作自己在发请求前调 requireAccount() 弹登录框，这里再喊一次只会冒出第二个弹窗。
  */
+export type SessionRefreshResult = 'ok' | 'raced' | 'unauthorized' | 'failed'
+
+const SESSION_REFRESH_LOCK = 'muvloom-web-session-refresh'
+let sessionRefreshInFlight: Promise<SessionRefreshResult> | null = null
+
+async function postSessionRefresh(): Promise<SessionRefreshResult> {
+  try {
+    const response = await fetch(bffUrl('/api/auth/refresh'), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { accept: 'application/json' },
+    })
+    if (response.ok) {
+      const body = (await response.json().catch(() => null)) as {
+        access_expires_at?: unknown
+      } | null
+      if (typeof body?.access_expires_at === 'number') accessExpiresAt = body.access_expires_at
+      return 'ok'
+    }
+    if (response.status === 409) return 'raced'
+    if (response.status === 401) return 'unauthorized'
+    return 'failed'
+  } catch {
+    return 'failed'
+  }
+}
+
+/** 同一标签页共享一次刷新；锁跨标签页，避免并发轮换被当成重用。 */
+export function refreshWebSession(): Promise<SessionRefreshResult> {
+  if (sessionRefreshInFlight) return sessionRefreshInFlight
+  const run = (async () => {
+    const locks = globalThis.navigator?.locks
+    if (!locks?.request) return postSessionRefresh()
+    try {
+      return await locks.request(SESSION_REFRESH_LOCK, postSessionRefresh)
+    } catch {
+      return postSessionRefresh()
+    }
+  })()
+  sessionRefreshInFlight = run
+  void run.finally(() => {
+    if (sessionRefreshInFlight === run) sessionRefreshInFlight = null
+  })
+  return run
+}
+
+function announceSessionExpired(): void {
+  window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT))
+}
 function requestPath(input: string): string {
   try {
     return new URL(input, 'https://bff.local').pathname
@@ -268,6 +338,7 @@ const PAGE_HINT_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
  * 登录成功后在页面自己的源上留一份不含凭据的提示，并记住用户 id，刷新才会去请求 /api/auth/me。
  */
 export function noteBrowserSession(userId: string | null): void {
+  if (userId === null) accessExpiresAt = null
   // The hint is presentation-only: the server session remains the sole authority.
   // Both storage and cookies are best effort so privacy mode cannot create a redirect loop.
   rememberStorageUser(userId)
@@ -327,13 +398,30 @@ export async function authenticatedBffFetch(
     return new Response(null, { status: 401 })
   }
   const res = await fetch(input, { ...init, credentials: 'include' })
-  if (
+  const canRefresh =
     res.status === 401 &&
     isSignedIn() &&
     isClientCapabilityEnabled('accounts:login') &&
-    typeof window !== 'undefined'
-  ) {
-    window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT))
+    typeof window !== 'undefined' &&
+    !init.signal?.aborted &&
+    requestPath(input) !== '/api/auth/refresh'
+  if (!canRefresh) return res
+  const outcome = await refreshWebSession()
+  if ((outcome === 'ok' || outcome === 'raced') && !init.signal?.aborted) {
+    const retried = await fetch(input, { ...init, credentials: 'include' })
+    if (retried.status !== 401) return retried
+    // 409 不签发新令牌。胜者的 Set-Cookie 可能晚一步才进 jar，再刷新一次再决定要不要登出。
+    if (outcome === 'raced') {
+      const again = await refreshWebSession()
+      if ((again === 'ok' || again === 'raced') && !init.signal?.aborted) {
+        const second = await fetch(input, { ...init, credentials: 'include' })
+        if (second.status === 401) announceSessionExpired()
+        return second
+      }
+    }
+    announceSessionExpired()
+    return retried
   }
+  if (outcome === 'unauthorized') announceSessionExpired()
   return res
 }

@@ -74,7 +74,7 @@ build_image() {
   remote=$ghcr_repository:$2
   context=$3
   shift 3
-  # internal, paid, and test are separate workflow runs. A registry cache of the
+  # qlj (internal), muvloom (paid), and test are separate workflow runs. A registry cache of the
   # intermediate stages lets the next run reuse the public install and, when the
   # overlay matches, the private stages. The backup image uses another Dockerfile;
   # exporting it would replace this cache, so only the last application edition
@@ -104,12 +104,10 @@ build_image() {
     repo_digest=-
   fi
 }
-mkdir -p "$output/scripts/lib" "$output/deploy"
-cp "$snapshot/public/scripts/vps-deploy.sh" "$snapshot/public/scripts/app-compose.sh" \
-  "$snapshot/public/scripts/rollout-runtime.sh" "$snapshot/public/scripts/check-test-isolation.sh" \
-  "$snapshot/public/scripts/segmenter-deploy.sh" "$output/scripts/"
-cp "$snapshot/public/scripts/lib/deploy-common.sh" "$output/scripts/lib/"
-cp "$snapshot/public/deploy/compose.app.yaml" "$output/deploy/"
+mkdir -p "$output"
+# Deployment code is installed and reviewed on the VPS separately. Releases contain only data:
+# image metadata and, for archive transport, image bytes. The receiver never executes source from
+# this directory.
 : > "$output/images.tsv"
 images=
 last_edition=

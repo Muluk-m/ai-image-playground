@@ -395,7 +395,8 @@ export function promptFromGeneration(item: GenerationSummary): string {
 }
 
 function paramsFromGeneration(item: GenerationSummary): TaskParams {
-  const { size, quality, output_format, output_compression, n } = item.parameters
+  const { size, quality, output_format, output_compression, n, frame_count, frame_duration_ms } =
+    item.parameters
   const { aspect_ratio, image_size, thinking_level } = item.parameters
   return {
     ...DEFAULT_PARAMS,
@@ -406,6 +407,8 @@ function paramsFromGeneration(item: GenerationSummary): TaskParams {
     ...(output_format ? { output_format: output_format as TaskParams['output_format'] } : {}),
     ...(output_compression == null ? {} : { output_compression }),
     ...(typeof n === 'number' ? { n } : {}),
+    ...(typeof frame_count === 'number' ? { frame_count } : {}),
+    ...(typeof frame_duration_ms === 'number' ? { frame_duration_ms } : {}),
     gemini_aspect_ratio: GEMINI_ASPECT_RATIOS.find((value) => value === aspect_ratio),
     gemini_image_size: GEMINI_IMAGE_SIZES.find((value) => value === image_size),
     gemini_thinking_level: GEMINI_THINKING_LEVELS.find((value) => value === thinking_level),

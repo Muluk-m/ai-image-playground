@@ -42,6 +42,7 @@ import {
   CHANNEL_CAPABILITIES,
   GEMINI_IMAGE_SIZES,
   isGptDirectModel,
+  isGptImage26Model,
   isModelEtaSeconds,
   MODEL_BADGES,
   MODEL_LOGOS,
@@ -49,6 +50,8 @@ import {
 } from '@image-playground/shared'
 import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
+import { capabilitiesForModel } from './upstream/adapters'
+import { runtimeSecret } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
 
@@ -531,7 +534,22 @@ export function loadChannelsFromFile(filePath: string): ChannelsLoadResult {
   } catch (err) {
     throw new ChannelsLoadError(`failed to parse ${filePath}: ${(err as Error).message}`)
   }
-  return parseChannelsConfig(json, (k) => process.env[k])
+  const loaded = parseChannelsConfig(json, (k) => {
+    const fromEnv = process.env[k]?.trim() ?? ''
+    // 有没有密钥决定这条 channel 进不进清单；存进对象的仍是环境变量，请求时再盖上后台密钥。
+    // 这样清掉后台记录会回到环境变量，而不是留着上一次解析出来的后台值。
+    const value = runtimeSecret(k, fromEnv)
+    return value || undefined
+  })
+  const envSecret = (channel: InternalChannel): InternalChannel => ({
+    ...channel,
+    auth: { ...channel.auth, secret: process.env[channel.auth.secretRef]?.trim() ?? '' },
+  })
+  return {
+    ...loaded,
+    channels: loaded.channels.map(envSecret),
+    disabled: loaded.disabled.map(envSecret),
+  }
 }
 
 function isFileNotFoundError(err: unknown): boolean {
@@ -571,6 +589,15 @@ export function isModelDisabled(model: string): boolean {
 /** 下线模型所属 channel 的 id；没下线（或还挂在在用 channel 上）时 undefined。 */
 export function disabledModelChannel(model: string): string | undefined {
   return disabledModels.get(model)
+}
+
+/** 这个模型在发现清单里声明的可出分辨率。没声明就不收档，计价按请求档。 */
+export function declaredImageSizes(modelId: string): readonly string[] | undefined {
+  for (const channel of getDiscoveredChannels()) {
+    const model = channel.models.find((one) => one.id === modelId)
+    if (model?.imageSizes?.length) return model.imageSizes
+  }
+  return undefined
 }
 
 export function getDiscoveredChannels(): DiscoveredChannel[] {
@@ -654,18 +681,44 @@ function queueProviderOf(kind: ChannelKind): QueueProvider {
  * GPT 直连模型的 `size` 只有 OpenAI 直连兑现得了（sub2api 丢弃 size）。直连没开（口径同 config.gptDirect：
  * GPT_DIRECT_ENABLED 且有 OPENAI_API_KEY）时不声明它：前端退回只选比例、构图写进提示词，与直连上线前一致。
  */
-function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
-  const directOn =
+/** 口径同 config.gptDirect：开关打开且有 key，直连才兑现 size。 */
+function gptDirectOn(): boolean {
+  return (
     process.env.GPT_DIRECT_ENABLED?.trim().toLowerCase() === 'true' &&
-    Boolean(process.env.OPENAI_API_KEY?.trim())
-  if (directOn || !channel.models.some((model) => isGptDirectModel(model.id))) return channel
+    Boolean(runtimeSecret('OPENAI_API_KEY', process.env.OPENAI_API_KEY?.trim() ?? ''))
+  )
+}
+
+function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
+  if (!channel.models.some((model) => isGptDirectModel(model.id))) return channel
+  const directOn = gptDirectOn()
   return {
     ...channel,
-    models: channel.models.map((model) =>
-      isGptDirectModel(model.id)
-        ? { ...model, capabilities: model.capabilities.filter((cap) => cap !== 'size') }
-        : model,
-    ),
+    models: channel.models.map((model) => {
+      if (!isGptDirectModel(model.id)) return model
+      const caps = capabilitiesForModel(model.id, { member: false, directOn })
+      // 直连没开时 sub2api 适配器 honorsSize=false，前端不展示 size，整行退回「自动」。
+      if (!caps || caps.honorsSize) return model
+      return { ...model, capabilities: model.capabilities.filter((cap) => cap !== 'size') }
+    }),
+  }
+}
+
+/**
+ * 2.6 默认不出现。开关打开但直连 key 不在时仍列出来，标成不可用，前端不能改去别的模型。
+ */
+function withGptImage26(channel: InternalChannel): InternalChannel {
+  if (!channel.models.some((model) => isGptImage26Model(model.id))) return channel
+  const enabled = process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true'
+  const ready =
+    enabled && Boolean(runtimeSecret('OPENAI_API_KEY', process.env.OPENAI_API_KEY?.trim() ?? ''))
+  return {
+    ...channel,
+    models: channel.models.flatMap((model) => {
+      if (!isGptImage26Model(model.id)) return [model]
+      if (!enabled) return []
+      return ready ? [model] : [{ ...model, unavailable: true }]
+    }),
   }
 }
 
@@ -676,7 +729,7 @@ function setLoaded(
     disabled.flatMap((c) => c.models.map((m) => [m.id, c.id])),
   ),
 ): void {
-  const channels = rawChannels.map(withDeliverableGptSize)
+  const channels = rawChannels.map(withDeliverableGptSize).map(withGptImage26)
   loaded = channels
   retired = disabled
   // 同一个模型还挂在某条在用的 channel 上，就照常收。
@@ -702,7 +755,22 @@ function sanitizeChannel(c: InternalChannel): DiscoveredChannel {
 function withCatalogCapabilities(model: ChannelModel): ChannelModel {
   if ((model.media ?? 'image') !== 'image') return model
   const spec = findCatalogModel(model.id)
-  return spec ? { ...model, ...publishModelCapabilities(spec) } : model
+  if (!spec) return model
+  const published = publishModelCapabilities(spec)
+  const memberTiers =
+    capabilitiesForModel(model.id, { member: false, directOn: gptDirectOn() })?.memberTiers ?? []
+  const memberOnly = new Set<string>(memberTiers)
+  return {
+    ...model,
+    ...published,
+    image: {
+      ...published.image,
+      tiers: published.image.tiers.map((tier) => ({
+        ...tier,
+        memberOnly: memberOnly.has(tier.id),
+      })),
+    },
+  }
 }
 
 /** 仅供测试：直接塞入解析好的 channels，绕过文件系统。 */

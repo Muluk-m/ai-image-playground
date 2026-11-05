@@ -13,7 +13,7 @@ export const GEMINI_ASPECT_RATIOS = [
 export const GEMINI_IMAGE_SIZES = ['512', '1K', '2K'] as const
 export type GeminiImageSize = (typeof GEMINI_IMAGE_SIZES)[number]
 
-/** 分辨率档位从低到高。含面板还没开放的 4K（还没分档定价），只用来给「最近一档」排序。 */
+/** 分辨率档位从低到高。含面板还没开放的 4K（倍率已定义），只用来给「最近一档」排序。 */
 const IMAGE_SIZE_ORDER: readonly string[] = ['512', '1K', '2K', '4K']
 
 /**

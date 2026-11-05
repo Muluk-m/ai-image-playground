@@ -1,21 +1,21 @@
 # 私有 overlay 与版本模型
 
-改到 `private/`、三个 overlay 接缝或宿主面、`private.lock`、`pnpm-lock.yaml`、私有迁移，或收费/免费构建差异时读本文。根 `AGENTS.md` 只保留摘要。
+改到 `private/`、三个 overlay 接缝或宿主面、`private.lock`、`pnpm-lock.yaml`、私有迁移，或 muvloom/免费构建差异时读本文。根 `AGENTS.md` 只保留摘要。
 
 ## 版本模型与分支
 
-**服务端只有一套。** `apps/bff`、`apps/admin` 服务端、`packages/db` 同时兼容收费与免费部署：
+**服务端只有一套。** `apps/bff`、`apps/admin` 服务端、`packages/db` 同时兼容 muvloom 与免费部署：
 能力注册表 deny by default，由运营配置 `operator-config.json` 决定开哪些能力，代码不分版本。
 
-**收费与免费的区别只在前端构建参数。** 构建时带上私有 overlay 就是收费形态，不带就是免费形态：
+**muvloom 与免费的区别只在前端构建参数。** 构建时带上私有 overlay 就是 muvloom 形态，不带就是免费形态：
 
-- 生产镜像由部署 workflow 执行 `./scripts/build-vps-release.sh all <目录>` 构建（付费版带入 `private.lock` 钉住的 overlay 提交）；应急时在 macmini2 手动执行同一脚本（`internal`/`paid`/`all`）。
+- 生产镜像由部署 workflow 执行 `./scripts/build-vps-release.sh paid <目录>` 构建，带入 `private.lock` 钉住的 overlay 提交，并保留 backup 与 segmenter 镜像；已冻结的 qlj 镜像不再构建。应急时在 macmini2 手动执行同一脚本，当前生产范围同样使用 `paid`；`internal`/`all` 仅保留兼容能力，使用前须单独批准。
 
 **分支：** `main` 是唯一长期分支，所有改动开 PR 直合 main，没有其他长期分支。
 
 **形态由构建输入决定，不由分支决定：**
 
-- 收费 = `main` + 仓库根 `private/` overlay（来源 `Muluk-m/ai-image-playground-private`，clone 到 `private/`）+ 仓库外 env 文件
+- muvloom = `main` + 仓库根 `private/` overlay（来源 `Muluk-m/ai-image-playground-private`，clone 到 `private/`）+ 仓库外 env 文件
 - 免费 = `main` 不带 overlay
 
 ## 接缝与宿主面
@@ -36,7 +36,7 @@ overlay 反过来只允许通过上面三个接缝与以下**宿主面**引公�
 
 - `apps/web/src/lib/privateIcons.ts`：跨 Web / Admin 的纯展示图标与 `cn`，不加载 Web i18n、登录或配置初始化。共享徽标从此入口引用。
 
-宿主面里每一行都是对收费版的承诺。改动只能**先扩后缩**：加成员随时；改名 / 删除 / 换签名前
+宿主面里每一行都是对 muvloom 版的承诺。改动只能**先扩后缩**：加成员随时；改名 / 删除 / 换签名前
 先确认 `private.lock` 钉住的 overlay 不再引用它——公开 CI 的 `with-overlay` 作业（候选公开树 +
 钉住的 overlay 一起 lint / typecheck / build）会替你查。overlay 需要新宿主成员时，先在公开树
 加成员合进 main，再合 overlay；反过来合会让 overlay CI 红、`verified` 指针停在旧版。
@@ -64,5 +64,5 @@ lockfile 里带着 `private/apps/*` 三个 importer，这是「公开树零改�
 后续 stage 的 `pnpm install --offline` 会以 `ERR_PNPM_NO_OFFLINE_TARBALL` 失败。
 
 **任何** lockfile 重新生成都必须带着 `private/`：在没有 overlay 的 checkout 里跑 `pnpm install`
-会静默删掉这三个 importer，收费镜像与收费 Pages 的 `--frozen-lockfile` 随即以
+会静默删掉这三个 importer，muvloom 镜像与 muvloom Pages 的 `--frozen-lockfile` 随即以
 `ERR_PNPM_OUTDATED_LOCKFILE` 失败。

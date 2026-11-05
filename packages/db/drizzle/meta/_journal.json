@@ -596,6 +596,34 @@
       "when": 1793700000000,
       "tag": "0086_operator_config_overrides",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1793800000000,
+      "tag": "0087_web_session_refresh",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1793900000000,
+      "tag": "0088_upstream_api_secrets",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1794000000000,
+      "tag": "0089_admin_filter_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1794100000000,
+      "tag": "0090_announcements",
+      "breakpoints": true
     }
   ]
 }

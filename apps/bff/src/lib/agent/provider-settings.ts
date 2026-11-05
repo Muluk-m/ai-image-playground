@@ -27,6 +27,7 @@ import { config } from '../../config'
 import { resolveChatApiKey } from '../resolveApiKey'
 import { isPublicAddress } from '../safeFetch'
 import { isObject } from '../type-guards'
+import { runtimeSecret } from '../upstream-secret-cache'
 import { agentThinking } from './thinking'
 
 const apis = {
@@ -335,10 +336,13 @@ export function configuredModels(provider: AgentProviderSettings): Model<Api>[] 
   }))
 }
 
+function providerApiKey(provider: AgentProviderSettings, modelId: string): string {
+  if (!provider.secretRef) return resolveChatApiKey(modelId)
+  return runtimeSecret(provider.secretRef, process.env[provider.secretRef]?.trim() ?? '')
+}
+
 export function providerCredentialReady(provider: AgentProviderSettings): boolean {
-  return provider.secretRef
-    ? !!process.env[provider.secretRef]?.trim()
-    : !!resolveChatApiKey(provider.models[0]?.id ?? '')
+  return !!providerApiKey(provider, provider.models[0]?.id ?? '')
 }
 
 interface AgentRuntimeCore {
@@ -372,10 +376,7 @@ function bindRuntime(settings: AgentModelSettings, binding: AgentModelBinding): 
   ) {
     model.compat = { ...model.compat, supportsDeveloperRole: false }
   }
-  const apiKey = provider.secretRef
-    ? process.env[provider.secretRef]?.trim()
-    : resolveChatApiKey(model.id)
-  if (!apiKey) invalid('所选 Provider 尚未配置服务端密钥')
+  if (!providerApiKey(provider, model.id)) invalid('所选 Provider 尚未配置服务端密钥')
   const template = builtins.find((item) => item.id === provider.template)
   const models = createModels()
   models.setProvider(
@@ -385,7 +386,12 @@ function bindRuntime(settings: AgentModelSettings, binding: AgentModelBinding): 
       headers: template?.headers,
       models: [model],
       api: apis,
-      auth: { apiKey: { name: provider.name, resolve: async () => ({ auth: { apiKey } }) } },
+      auth: {
+        apiKey: {
+          name: provider.name,
+          resolve: async () => ({ auth: { apiKey: providerApiKey(provider, model.id) } }),
+        },
+      },
     }),
   )
   return {

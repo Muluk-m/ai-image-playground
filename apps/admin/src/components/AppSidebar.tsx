@@ -7,8 +7,10 @@ import {
   Bug,
   ClipboardList,
   HeartPulse,
+  KeyRound,
   LogOut,
   type LucideIcon,
+  Megaphone,
   MessageSquareText,
   MonitorSmartphone,
   ReceiptText,
@@ -48,12 +50,14 @@ export type NavTo =
   | '/inspirations'
   | '/inspirations/skills'
   | '/inspirations/categories'
+  | '/announcements'
   | '/ops'
   | '/errors'
   | '/logs'
   | '/audit'
   | '/models'
   | '/operator-settings'
+  | '/upstream-secrets'
 export interface NavEntry {
   to: NavTo
   icon: LucideIcon
@@ -94,6 +98,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { to: '/inspirations', icon: Sparkles, label: '灵感库', exact: true },
       { to: '/inspirations/skills', icon: Shapes, label: '技能目录', exact: true },
       { to: '/inspirations/categories', icon: Tags, label: '分类', exact: true },
+      { to: '/announcements', icon: Megaphone, label: '版本公告' },
     ],
   },
   {
@@ -108,6 +113,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     label: '设置',
     entries: [
       { to: '/models', icon: Boxes, label: '模型' },
+      { to: '/upstream-secrets', icon: KeyRound, label: '上游密钥' },
       { to: '/operator-settings', icon: SlidersHorizontal, label: '能力与配额' },
       { to: '/audit', icon: BookOpen, label: '审计' },
     ],

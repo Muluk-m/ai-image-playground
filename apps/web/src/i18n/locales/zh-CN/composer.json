@@ -52,7 +52,10 @@
     "startCanvas": "开始创作",
     "skillNeedsCanvas": "技能只能在项目中使用，切到「智能创作」或「画布创作」再发送",
     "promptRequired": "请输入提示词后再生成",
-    "promptTooLong": "提示词最多 {{max}} 字，请删减后再生成"
+    "promptTooLong": "提示词最多 {{max}} 字，请删减后再生成",
+    "cost": "生成，本次消耗 {{credits}} 积分",
+    "spent": "本次消耗 {{credits}} 积分",
+    "unavailable": "Image 2.6 暂不可用，不会换成其他模型"
   },
   "search": {
     "favoriteOnly": "只看收藏",
@@ -83,6 +86,8 @@
     "modelEtaRange": "约 {{min}}–{{max}} 秒",
     "modelEtaRangeMinutes": "约 {{min}}–{{max}} 分钟",
     "modelNew": "New",
+    "modelUnavailable": "暂不可用",
+    "modelPrice": "{{credits}} 积分/张",
     "modelFamily": {
       "gpt": "GPT 系列",
       "gemini": "Banana 系列",
@@ -97,7 +102,8 @@
     "width": "宽度 (Width)",
     "height": "高度 (Height)",
     "limitedTierHint": "当前模型不支持 1K 以上的分辨率",
-    "memberTierHint": "2K、4K 为会员专享",
+    "memberTierHint": "当前可用分辨率最高为 2K",
+    "member4kHint": "4K 为会员专享",
     "memberQualityHint": "高画质为会员专享",
     "clampedHint": "由于模型限制，原始分辨率已被自动规整"
   },
@@ -161,7 +167,18 @@
       "medium": "中",
       "high": "高"
     },
-    "fixedCount": "共 {{count}} 张 · 每张图出 1 张"
+    "fixedCount": "共 {{count}} 张 · 每张图出 1 张",
+    "still": "图片",
+    "gif": "动图 GIF",
+    "svg": "矢量 SVG",
+    "frames_other": "{{count}} 帧",
+    "framesLabel": "帧数",
+    "gifPrice": "≤6 帧 370 · 7–9 帧 550 · 10–16 帧 980 积分",
+    "durationLabel": "每帧时长",
+    "duration": "{{seconds}} 秒",
+    "gifSize": "尺寸",
+    "standardQuality": "画质固定为标准",
+    "formatLocked": "带参考图时只能出静态图。动图和矢量只支持文字生成，移除参考图后可用。"
   },
   "studio": {
     "type": "创作类型",

@@ -17,7 +17,10 @@ import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
 import AgentJobDoneNotice from './features/agent/components/AgentJobDoneNotice'
 import SkillStarterGuide from './features/agent/components/SkillStarterGuide'
+import { AnnouncementHost } from './features/announcements/AnnouncementHost'
+import ChangelogPage from './features/announcements/ChangelogPage'
 import CanvasMode from './features/canvas/components/CanvasMode'
+import CliConnectPage from './features/cli/CliConnectPage'
 import CliDevicePage from './features/cli/CliDevicePage'
 import ImageExportDialog from './features/image-export/ImageExportDialog'
 import ExplorePage from './features/inspiration/components/ExplorePage'
@@ -31,7 +34,14 @@ import SaveTemplateDialog from './features/library/components/SaveTemplateDialog
 import PricingPage from './features/pricing/PricingPage'
 import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
-import { isCliDevicePath, isPricingPath, isPrivacyPath, isTermsPath } from './lib/appPaths'
+import {
+  isChangelogPath,
+  isCliConnectPath,
+  isCliDevicePath,
+  isPricingPath,
+  isPrivacyPath,
+  isTermsPath,
+} from './lib/appPaths'
 import { dragTargetIsImage } from './lib/dragTarget'
 import { installWorkbenchNavigation } from './lib/navigation/workbenchNavigation'
 import { usePathname } from './lib/pathname'
@@ -52,7 +62,9 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     !isPricingPath(pathname) &&
     !isTermsPath(pathname) &&
     !isPrivacyPath(pathname) &&
-    !isCliDevicePath(pathname)
+    !isCliDevicePath(pathname) &&
+    !isChangelogPath(pathname) &&
+    !isCliConnectPath(pathname)
 
   useLayoutEffect(() => {
     const root = document.documentElement
@@ -121,6 +133,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     }
   }, [])
 
+  if (isChangelogPath(pathname)) return <ChangelogPage />
   if (isPricingPath(pathname)) return <PricingPage />
   if (isCliDevicePath(pathname)) return <CliDevicePage />
   if (isTermsPath(pathname) || isPrivacyPath(pathname)) return <LegalPage />
@@ -191,7 +204,21 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       <div className="app-chrome min-h-dvh bg-sidebar">
         <Header />
         <Sidebar />
-        {appMode === 'canvas' ? (
+        {isCliConnectPath(pathname) ? (
+          <div
+            className="app-inset-panel"
+            style={{
+              marginTop: 'calc(var(--mobile-topbar-height) + var(--app-inset))',
+              marginRight: 'var(--app-inset)',
+              marginBottom: 'calc(var(--mobile-nav-height, 0px) + var(--app-inset))',
+              marginLeft: 'calc(var(--app-sidebar-width) + var(--app-inset))',
+              minHeight:
+                'calc(100dvh - var(--mobile-topbar-height) - var(--mobile-nav-height, 0px) - var(--app-inset) * 2)',
+            }}
+          >
+            <CliConnectPage />
+          </div>
+        ) : appMode === 'canvas' ? (
           <CanvasMode />
         ) : (
           <div
@@ -220,6 +247,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       <Toast />
       <AgentJobDoneNotice />
       <UpdateBanner />
+      <AnnouncementHost />
       <MaskEditorModal />
       <ImageContextMenu />
     </>

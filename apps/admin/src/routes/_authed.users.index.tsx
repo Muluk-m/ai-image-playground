@@ -1,14 +1,15 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
-import { Plus, RefreshCw, Search } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { createFileRoute, notFound } from '@tanstack/react-router'
+import { Plus, RefreshCw } from 'lucide-react'
+import { useState } from 'react'
 
+import { FilterBar, type FilterChip, presetWindow } from '@/components/FilterBar'
 import { Kpi } from '@/components/Kpi'
+import { ListPagination } from '@/components/ListPagination'
 import { ErrorState, Page, PendingState } from '@/components/Page'
 import { UserFormDialog } from '@/components/UserFormDialog'
 import { UserTable } from '@/components/UserTable'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { useUsers } from '@/lib/queries'
 import { parseUsersSearch } from '@/lib/search-params'
 import type { ListUsersResult } from '@/lib/types'
@@ -22,9 +23,28 @@ export const Route = createFileRoute('/_authed/users/')({
 })
 
 function UsersPage() {
-  const term = Route.useSearch().q ?? ''
+  const search = Route.useSearch()
+  const term = search.q ?? ''
   const queryClient = useQueryClient()
-  const query = useUsers(term)
+  const [clock] = useState(() => Date.now())
+  const preset = search.preset ?? 'all'
+  const activeWindow =
+    preset === 'custom' && search.activeFrom !== undefined && search.activeTo !== undefined
+      ? { from: search.activeFrom, to: search.activeTo }
+      : preset === 'today' || preset === '7d' || preset === '30d'
+        ? presetWindow(preset, clock)
+        : undefined
+  const query = useUsers(term, {
+    status: search.status,
+    registeredFrom: search.registeredFrom,
+    registeredTo: search.registeredTo,
+    activeFrom: activeWindow?.from ?? search.activeFrom,
+    activeTo: activeWindow?.to ?? search.activeTo,
+    sort: search.sort,
+    dir: search.dir,
+    page: search.page ?? 1,
+    pageSize: search.pageSize ?? 50,
+  })
   const [creating, setCreating] = useState(false)
 
   return (
@@ -60,20 +80,40 @@ function UsersPage() {
       ) : query.isError ? (
         <ErrorState label="加载用户失败" error={query.error} />
       ) : (
-        <UsersContent data={query.data} term={term} />
+        <UsersContent data={query.data} />
       )}
       <UserFormDialog mode="create" open={creating} onOpenChange={setCreating} />
     </Page>
   )
 }
 
-function UsersContent({ data, term }: { data: ListUsersResult; term: string }) {
-  const navigate = useNavigate()
-  const { users, kpis, truncated } = data
-  const [draft, setDraft] = useState(term)
-
-  useEffect(() => setDraft(term), [term])
-
+function UsersContent({ data }: { data: ListUsersResult }) {
+  const search = Route.useSearch()
+  const navigate = Route.useNavigate()
+  const { users, kpis, total, page, pageSize } = data
+  const chips: FilterChip[] = []
+  if (search.status)
+    chips.push({
+      key: 'status',
+      label: '状态',
+      value: search.status === 'active' ? '正常' : '已停用',
+    })
+  if (search.registeredFrom || search.registeredTo)
+    chips.push({
+      key: 'registered',
+      label: '注册时间',
+      value: `${search.registeredFrom ?? '…'} – ${search.registeredTo ?? '…'}`,
+    })
+  function update(patch: Partial<ReturnType<typeof Route.useSearch>>) {
+    void navigate({
+      search: (previous) => ({
+        ...(previous ?? {}),
+        ...patch,
+        page: typeof patch.page === 'number' ? patch.page : 1,
+      }),
+      replace: true,
+    })
+  }
   return (
     <>
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" aria-label="用户指标">
@@ -86,43 +126,71 @@ function UsersContent({ data, term }: { data: ListUsersResult; term: string }) {
           note="失败 / 提交"
         />
       </section>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <form
-          className="flex w-full max-w-md gap-2"
-          role="search"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void navigate({
-              to: '/users',
-              search: draft.trim() ? { q: draft.trim() } : {},
-              replace: true,
+      <FilterBar
+        savedViewKey="users"
+        presets={['all', 'today', '7d', '30d', 'custom']}
+        preset={search.preset ?? 'all'}
+        from={search.activeFrom}
+        to={search.activeTo}
+        onPreset={(preset, window) =>
+          update({
+            preset,
+            activeFrom: window?.from,
+            activeTo: window?.to,
+          })
+        }
+        search={search.q ?? ''}
+        searchPlaceholder="搜索用户名、用户 ID 或备注"
+        onSearch={(q) => update({ q: q || undefined })}
+        chips={chips}
+        definitions={[
+          {
+            key: 'status',
+            label: '状态',
+            kind: 'single',
+            options: [
+              { value: 'active', label: '正常' },
+              { value: 'disabled', label: '已停用' },
+            ],
+          },
+          { key: 'registeredFrom', label: '注册起点（毫秒）', kind: 'number' },
+          { key: 'registeredTo', label: '注册终点（毫秒）', kind: 'number' },
+        ]}
+        values={{
+          status: search.status ?? '',
+          registeredFrom: search.registeredFrom ? String(search.registeredFrom) : '',
+          registeredTo: search.registeredTo ? String(search.registeredTo) : '',
+        }}
+        onChange={(key, value) => update({ [key]: key === 'status' ? value : Number(value) })}
+        onRemove={(key) =>
+          update(
+            key === 'registered'
+              ? { registeredFrom: undefined, registeredTo: undefined }
+              : { [key]: undefined },
+          )
+        }
+        onClear={() => void navigate({ search: {}, replace: true })}
+      />
+      <div className="overflow-hidden rounded-xl border bg-card">
+        <UserTable
+          users={users}
+          sort={search.sort ?? 'activity'}
+          dir={search.dir ?? 'desc'}
+          onSort={(sort) =>
+            update({
+              sort,
+              dir: search.sort === sort && search.dir !== 'asc' ? 'asc' : 'desc',
             })
-          }}
-        >
-          <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={draft}
-              onChange={(event) => setDraft(event.currentTarget.value)}
-              className="h-9 pl-9"
-              placeholder="按用户名、用户 ID 或备注搜索"
-              aria-label="搜索用户"
-            />
-          </div>
-          <Button type="submit" variant="outline">
-            查询
-          </Button>
-        </form>
-        <p className="text-xs text-muted-foreground">
-          {term
-            ? `“${term}” 匹配 ${users.length} 个用户`
-            : `共 ${users.length} 个 · 按最近活动排序`}
-          {truncated ? ' · 已截断到最新的 1000 个' : ''}
-        </p>
+          }
+        />
+        <ListPagination
+          page={page ?? 1}
+          pageSize={pageSize === 100 ? 100 : 50}
+          total={total ?? users.length}
+          onPage={(next) => update({ page: next })}
+          onPageSize={(size) => update({ pageSize: size, page: 1 })}
+        />
       </div>
-
-      <UserTable users={users} />
     </>
   )
 }

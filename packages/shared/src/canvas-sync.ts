@@ -4,6 +4,11 @@ import * as sync from 'y-protocols/sync'
 import * as Y from 'yjs'
 
 export const CANVAS_STATE_MAX_BYTES = 4 * 1024 * 1024
+/**
+ * 画布连接因网页 access 失效被关掉。客户端先刷新会话再重连。
+ * 策略拒绝仍用 1008，避免把格式错误或越权也当成可刷新的过期。
+ */
+export const CANVAS_SYNC_SESSION_EXPIRED_CODE = 4401
 /** Outer frame 0 is the standard y-websocket/y-protocols sync envelope. */
 export function canvasSyncStep1(doc: Y.Doc): Uint8Array {
   const encoder = encoding.createEncoder()

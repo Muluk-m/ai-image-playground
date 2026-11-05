@@ -24,6 +24,7 @@ import type * as Y from 'yjs'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { accountScope } from '../../../lib/authScope'
 import { type VideoModelOption, videoModelOptions } from '../../../lib/channels/videoChannels'
+import { declaredImageSizesForModel } from '../../../lib/imageCharge'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { getPrivateSubmissionGuard, type PrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
@@ -162,10 +163,15 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
       model: imageProfile.model,
       count: params.n,
       storyboardRole: meta.storyboardRole,
+      size: params.size,
+      quality: params.quality,
+      imageSize: params.gemini_image_size,
+      supportedTiers: declaredImageSizesForModel(imageProfile.model),
     })
     if (kind === 'image' && image) {
       model = image.model
       quantity = image.quantity
+      unitMultiplier = image.unitMultiplier
     }
     if (kind === 'video') {
       const config = nodeVideoConfiguration(meta, refs, input.videoDraft, input.options)

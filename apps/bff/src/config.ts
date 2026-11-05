@@ -202,7 +202,8 @@ export const config = {
   /**
    * GPT Image 的 OpenAI 直连通道（另一条是 UPSTREAM_BASE_URL 的 sub2api）。会员默认走直连，满了或不可用
    * 立刻切 sub2api；非会员走 sub2api，sub2api 熔断才借直连。见 lib/upstream/gpt-routing.ts。
-   * 密钥沿用 channels.json 里 openai-images 的 OPENAI_API_KEY；没打开或没配密钥时一律走 sub2api。
+   * 密钥沿用 channels.json 里 openai-images 的 OPENAI_API_KEY。后台保存的密文在每次请求时优先于
+   * 这份启动快照，见 lib/upstream-secrets.ts。没打开或没配密钥时一律走 sub2api。
    */
   gptDirect: {
     enabled: booleanEnv('GPT_DIRECT_ENABLED', false),
@@ -223,6 +224,15 @@ export const config = {
     /** sub2api 连续失败几次熔断、熔断多久后放一条试探。 */
     sub2apiBreakerFailures: positiveIntEnv('GPT_SUB2API_BREAKER_FAILURES', 5),
     sub2apiBreakerCooldownMs: positiveIntEnv('GPT_SUB2API_BREAKER_COOLDOWN_MS', 60_000),
+  },
+  /**
+   * GPT Image 2.6（flare / sunburst）单独的开关，默认关。开了才走 OpenAI 直连，
+   * 用上面的 OPENAI_API_KEY，不回退 sub2api，也不换模型。SVG 必须带 svg.model，
+   * 实测 gpt-6-sol 可用，用 GPT_IMAGE_26_SVG_MODEL 换。
+   */
+  gptImage26: {
+    enabled: booleanEnv('GPT_IMAGE_26_ENABLED', false),
+    svgModel: env('GPT_IMAGE_26_SVG_MODEL', 'gpt-6-sol'),
   },
   /**
    * 跨 worker 的上游调度配额（公开库 scheduler_buckets / scheduler_leases，按行锁抢）。每个环境各算各的。
