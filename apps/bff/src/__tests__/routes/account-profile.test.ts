@@ -170,7 +170,7 @@ describe('account profile', () => {
     expect(profile.avatar_url).toBe(DEFAULT_AVATAR_PATH)
 
     const me = await request('/api/auth/me', { session })
-    expect(await me.json()).toEqual({ user: profile })
+    expect(await me.json()).toEqual({ user: profile, access_expires_at: expect.any(Number) })
   })
 
   it('updates the nickname and bio, and rejects impersonation or an oversized bio', async () => {

@@ -1,6 +1,7 @@
 import { isGptBasicRequest, isGptDirectModel } from '@image-playground/shared'
 import { config } from '../../config'
 import { log } from '../logger'
+import { runtimeSecret } from '../upstream-secret-cache'
 import { ImagePlanRequiredError } from './errors'
 import { directBudgetAllows, estimateDirectCostMicroUsd } from './gpt-budget'
 import { gptSchedulerBuckets, tryAcquireSchedulerSlots } from './scheduler'
@@ -14,8 +15,13 @@ import { gptSchedulerBuckets, tryAcquireSchedulerSlots } from './scheduler'
  */
 export type GptRoute = 'direct' | 'sub2api'
 
+/** OpenAI 直连密钥：后台记录优先于进程启动时读到的 OPENAI_API_KEY。 */
+export function gptDirectApiKey(): string {
+  return runtimeSecret('OPENAI_API_KEY', config.gptDirect.apiKey)
+}
+
 export function gptDirectConfigured(model: string): boolean {
-  return config.gptDirect.enabled && config.gptDirect.apiKey !== '' && isGptDirectModel(model)
+  return config.gptDirect.enabled && gptDirectApiKey() !== '' && isGptDirectModel(model)
 }
 
 // ---- sub2api 熔断：本进程内计数，每个环境各管各的 ----

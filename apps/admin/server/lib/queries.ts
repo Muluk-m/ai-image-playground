@@ -185,8 +185,20 @@ const ADMIN_USER_PROJECTION = sql`
 const ACTIVE_SESSION_JOIN = sql`
   LEFT JOIN LATERAL (
     SELECT COUNT(*) AS active_sessions
-    FROM user_sessions s
-    WHERE s.user_id = u.id AND s.expires_at > NOW()
+    FROM (
+      SELECT f.id
+      FROM user_session_families f
+      WHERE f.user_id = u.id
+        AND f.revoked_at IS NULL
+        AND f.refresh_expires_at > NOW()
+        AND f.absolute_expires_at > NOW()
+      UNION
+      SELECT s.token_hash
+      FROM user_sessions s
+      WHERE s.user_id = u.id
+        AND s.family_id IS NULL
+        AND s.expires_at > NOW()
+    ) active
   ) session_stats ON TRUE
 `
 
