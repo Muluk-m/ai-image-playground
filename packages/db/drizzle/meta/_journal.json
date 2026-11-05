@@ -603,6 +603,13 @@
       "when": 1793800000000,
       "tag": "0087_web_session_refresh",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1793900000000,
+      "tag": "0088_upstream_api_secrets",
+      "breakpoints": true
     }
   ]
 }
