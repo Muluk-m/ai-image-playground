@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, spyOn } from 'bun:test'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -60,6 +60,32 @@ describe('admin static serving', () => {
     // body 不是 html
     const body = await res.text()
     expect(body).not.toContain('admin')
+  })
+
+  it('API 错误只把路由、信息和 stack 写进日志', async () => {
+    const spy = spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const res = await app.handle(
+        new Request('http://localhost/api/nope?token=sk-live-secret', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: 'Bearer sk-live-secret',
+            cookie: 'admin=secret-cookie',
+          },
+          body: JSON.stringify({ password: 'secret-password', apiKey: 'sk-live-secret' }),
+        }),
+      )
+      expect(res.status).toBe(404)
+      const logged = spy.mock.calls.map((call) => call.map(String).join(' ')).join('\n')
+      expect(logged).toContain('POST /api/nope')
+      expect(logged).not.toContain('secret-password')
+      expect(logged).not.toContain('sk-live-secret')
+      expect(logged).not.toContain('secret-cookie')
+      expect(logged).not.toContain('token=')
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('/health 不被静态托管覆盖', async () => {

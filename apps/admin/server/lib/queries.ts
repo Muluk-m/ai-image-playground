@@ -440,6 +440,29 @@ const EMPTY_PULSE_BUCKET: Omit<OverviewPulseBucket, 'bucket_at'> = {
 }
 
 /**
+ * 张数。`n` 缺省、是小数，或 GIF/SVG 等任务里根本不是数字时，按 1 张。
+ * 直接 `(request_payload->>'n')::integer` 遇到这些值会让整页概览 500。
+ */
+const requestedImageCount = sql`GREATEST(COALESCE(
+  CASE
+    WHEN btrim(request_payload->>'n') ~ '^[0-9]{1,9}([.][0-9]+)?$'
+    THEN trunc(btrim(request_payload->>'n')::numeric)::integer
+    ELSE NULL
+  END,
+  1), 1)`
+
+/**
+ * 模型调用上报的输入 token。整数照常累加，小数保留；非数字与科学计数跳过，不抛转换错误。
+ */
+const reportedInputTokens = sql`(
+  CASE
+    WHEN btrim(usage->>'inputTokens') ~ '^[0-9]{1,15}([.][0-9]{1,12})?$'
+    THEN btrim(usage->>'inputTokens')::numeric
+    ELSE NULL
+  END
+)`
+
+/**
  * 概览的环比与走势。当前窗与上一个同长度窗口各数一遍；走势与任务量图同一套分桶。
  * 「活跃」把账号与匿名设备一起数：两类入口都在用，只数账号会把匿名用量整块漏掉。
  */
@@ -454,6 +477,9 @@ async function getPulse(
   const previous = clock?.previousSince ?? new Date(at.getTime() - 2 * rangeMs(range))
   const submittedCap = clock ? sql`AND submitted_at <= ${at}` : sql``
   const createdCap = clock ? sql`AND created_at <= ${at}` : sql``
+  // agent_turns 与 agent_conversations 都有 created_at。今天这种 from/to 窗口补的上界
+  // 若不带表别名，空库也会 500：column reference "created_at" is ambiguous。
+  const turnCreatedCap = clock ? sql`AND t.created_at <= ${at}` : sql``
   const unitSql = clock ? (clock.unit === 'hour' ? sql`'hour'` : sql`'day'`) : undefined
   const { unit, start } = clock
     ? {
@@ -463,9 +489,9 @@ async function getPulse(
     : volumeBuckets(range, at)
   // 走势的首格可能早于当前窗起点（按整点或整天对齐），取数下界取两者更早的那个。
   const floor = sql`LEAST(${previous}::timestamptz, ${start})`
-  // 视频任务也走这个队列，不算出图。
+  // 视频任务也走这个队列，不算出图。张数读不出整数时按 1，不要让 ::integer 打垮整页。
   const images = sql`CASE WHEN request_payload->'video' IS NULL
-    THEN GREATEST(COALESCE((request_payload->>'n')::integer, 1), 1) ELSE 0 END`
+    THEN ${requestedImageCount} ELSE 0 END`
   const actors = sql`
     SELECT submitted_at AS at, COALESCE(user_id, device_id) AS actor
     FROM queue_tasks
@@ -474,7 +500,7 @@ async function getPulse(
     SELECT t.created_at, COALESCE(c.user_id, c.device_id)
     FROM agent_turns t
     JOIN agent_conversations c ON c.id = t.conversation_id
-    WHERE t.created_at >= ${floor} ${createdCap}
+    WHERE t.created_at >= ${floor} ${turnCreatedCap}
   `
 
   const [taskRows, actorRows, signupRows, agentRows, seriesRows] = await Promise.all([
@@ -690,7 +716,7 @@ export async function getOverview(range: Range, custom?: TimeWindow): Promise<Ov
         COALESCE(SUM(upstream_invocation_count), 0) AS upstream_invocations,
         AVG(
           upstream_invocation_count::double precision
-            / GREATEST(COALESCE((request_payload->>'n')::integer, 1), 1)
+            / ${requestedImageCount}
         ) FILTER (WHERE status IN ('completed', 'failed', 'cancelled')) AS average_multiplier,
         COUNT(*) FILTER (WHERE status = 'completed') AS completed,
         COUNT(*) FILTER (WHERE status = 'failed') AS failed,
@@ -709,14 +735,14 @@ export async function getOverview(range: Range, custom?: TimeWindow): Promise<Ov
       SELECT
         model,
         COUNT(*) AS calls,
-        SUM((usage->>'inputTokens')::bigint) AS input_tokens,
+        SUM(${reportedInputTokens}) AS input_tokens,
         SUM(cache_read_tokens) AS cache_read_tokens
       FROM agent_model_calls
       WHERE started_at >= ${since} ${startedCap}
         AND purpose = 'conversation'
         AND usage IS NOT NULL
         AND cache_read_tokens IS NOT NULL
-        AND (usage->>'inputTokens')::bigint > 0
+        AND ${reportedInputTokens} > 0
       GROUP BY model
       ORDER BY input_tokens DESC, model
     `),
@@ -725,7 +751,7 @@ export async function getOverview(range: Range, custom?: TimeWindow): Promise<Ov
       WITH ranked AS (
         SELECT
           started_at,
-          (usage->>'inputTokens')::bigint AS input_tokens,
+          ${reportedInputTokens} AS input_tokens,
           cache_read_tokens,
           ROW_NUMBER() OVER (
             PARTITION BY conversation_id, turn_id ORDER BY started_at, id
@@ -733,7 +759,7 @@ export async function getOverview(range: Range, custom?: TimeWindow): Promise<Ov
         FROM agent_model_calls
         WHERE purpose = 'conversation'
           AND usage IS NOT NULL
-          AND (usage->>'inputTokens')::bigint > 0
+          AND ${reportedInputTokens} > 0
           AND local_rejection IS NULL
           AND COALESCE(http_dispatch_count, 1) > 0
           AND (conversation_id, turn_id) IN (
