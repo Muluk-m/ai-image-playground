@@ -8,6 +8,7 @@ process.env.UPSTREAM_BASE_URL = 'https://sub2api.example.com'
 process.env.UPSTREAM_API_KEY = 'sub2api-key'
 process.env.GPT_DIRECT_ENABLED = 'true'
 process.env.OPENAI_API_KEY = 'direct-key'
+process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.OPENAI_ORG_ID = 'org-test'
 process.env.GPT_DIRECT_ATTEMPT_TIMEOUT_MS = '300'
 process.env.GPT_SUB2API_ATTEMPT_TIMEOUT_MS = '300'
@@ -26,7 +27,12 @@ const { coolDownSchedulerBuckets } = await import('../../lib/upstream/scheduler'
 const { _resetSub2apiBreakerForTesting, sub2apiBreakerOpen } = await import(
   '../../lib/upstream/gpt-routing'
 )
-const { _resetDirectBudgetCacheForTesting } = await import('../../lib/upstream/gpt-budget')
+const {
+  _resetDirectBudgetCacheForTesting,
+  _setBeforeDirectUsageRecordForTesting,
+  reserveDirectBudget,
+} = await import('../../lib/upstream/gpt-budget')
+const { fingerprintOf } = await import('../../lib/upstream/gpt-key-config')
 const { ImagePlanRequiredError } = await import('../../lib/upstream/errors')
 const { config } = await import('../../config')
 const { gptSchedulerBuckets, tryAcquireSchedulerSlots } = await import(
@@ -111,10 +117,16 @@ beforeEach(async () => {
   stub()
   await db.delete(schema.scheduler_leases)
   await db.delete(schema.scheduler_buckets)
+  await db.delete(schema.gpt_direct_budget_holds)
   await db.delete(schema.gpt_direct_usage)
+  await db.delete(schema.gpt_direct_key_state)
+  _setBeforeDirectUsageRecordForTesting()
 })
 
-afterEach(() => setUpstreamFetchForTesting())
+afterEach(() => {
+  setUpstreamFetchForTesting()
+  _setBeforeDirectUsageRecordForTesting()
+})
 
 describe('route choice', () => {
   it('sends members to OpenAI direct with native parameters and records the cost from usage', async () => {
@@ -144,7 +156,9 @@ describe('route choice', () => {
       output_tokens: 439,
       cost_micro_usd: 13_255,
       estimated: false,
+      key_fingerprint: fingerprintOf('direct-key').fingerprint,
     })
+    expect(JSON.stringify(usage)).not.toContain('direct-key')
   })
 
   it('sends a non-member 2K request to direct first, and falls back to sub2api when direct is down', async () => {
@@ -352,6 +366,41 @@ describe('failover', () => {
     const result = await call({ n: 2 }, false)
     expect((result.payload as { data: unknown[] }).data).toHaveLength(2)
     expect(routes).toEqual(['sub2api'])
+  })
+
+  it('keeps an unknown sub2api dispatch when the direct fallback then fails', async () => {
+    behaviour.sub2api.latencyMs = 5_000
+    behaviour.direct.status = 500
+    const error = await call({}, false).catch((err: unknown) => err)
+    expect(sent.map((one) => one.route)).toEqual(['sub2api', 'direct'])
+    expect(error).toBeInstanceOf(UpstreamResultUnknownError)
+    expect((error as { upstreamStatus?: number }).upstreamStatus).toBeUndefined()
+  })
+
+  it('keeps the direct reservation until the unknown dispatch is recorded', async () => {
+    const fingerprint = fingerprintOf('direct-key').fingerprint
+    let overlap: string | null = 'not-called'
+    _setBeforeDirectUsageRecordForTesting(async () => {
+      overlap = await reserveDirectBudget({
+        fingerprint,
+        includeUnattributed: true,
+        estimateMicroUsd: 1_000_000,
+        capMicroUsd: 1_000_000,
+      })
+    })
+    setUpstreamFetchForTesting((async (input: unknown) => {
+      const route = new URL(String(input)).hostname === 'api.openai.com' ? 'direct' : 'sub2api'
+      sent.push({ route, body: {}, headers: {} })
+      if (route === 'direct') throw new Error('connection lost after dispatch')
+      return new Response(JSON.stringify({ error: { message: 'upstream 500' } }), { status: 500 })
+    }) as unknown as TestFetch)
+    const error = await call({}, true).catch((err: unknown) => err)
+    expect(error).toBeInstanceOf(UpstreamResultUnknownError)
+    expect(overlap).toBeNull()
+    const usage = await db.select().from(schema.gpt_direct_usage)
+    expect(usage).toHaveLength(1)
+    expect(usage[0]).toMatchObject({ estimated: true, key_fingerprint: fingerprint })
+    expect(await db.select().from(schema.gpt_direct_budget_holds)).toHaveLength(0)
   })
 
   it('reports an unknown result, not a retryable error, when the first route timed out and the second fails', async () => {

@@ -3,14 +3,19 @@ import { config } from '../../config'
 import { log } from '../logger'
 import { runtimeSecret } from '../upstream-secret-cache'
 import { ImagePlanRequiredError } from './errors'
-import { directBudgetAllows, estimateDirectCostMicroUsd } from './gpt-budget'
+import { estimateDirectCostMicroUsd } from './gpt-budget'
+import { adminDirectKeys } from './gpt-key-config'
+import { selectDirectKey } from './gpt-keys'
 import { gptSchedulerBuckets, tryAcquireSchedulerSlots } from './scheduler'
 
 /**
  * GPT Image 的两条通道：OpenAI 直连与 sub2api。
  *
- * - 会员，以及 2K / 4K / 高画质（sub2api 兑现不了），默认直连；直连满了、超了月预算或不可用，立刻走 sub2api，不排队。
- * - 非会员的 1K、非高画质默认 sub2api；sub2api 只是忙照常排队，熔断了才借直连（同样受直连额度与预算约束）。
+ * - 会员，以及 2K / 4K / 高画质（sub2api 兑现不了），默认直连。直连满了（每分钟张数、在途数、
+ *   429 冷却）、每把 key 都超了自己的月预算、或都停用了，立刻走 sub2api，不排队。
+ *   多把 key 之间的切换不算这条换路。
+ * - 非会员的 1K、非高画质默认 sub2api；sub2api 只是忙照常排队，熔断了才借直连
+ *   （同样受直连额度与预算约束）。
  * - 一条路发出请求后超时或明确不可用，换另一条路重试一次（见 upstream.ts 的 callUpstream）。
  */
 export type GptRoute = 'direct' | 'sub2api'
@@ -20,8 +25,21 @@ export function gptDirectApiKey(): string {
   return runtimeSecret('OPENAI_API_KEY', config.gptDirect.apiKey)
 }
 
+/**
+ * 直连开关开着，且环境变量或后台快照里有 key。
+ * 会员档和严格 2K 用这个判断「直连开没开」，不要求指纹密钥已经配好。
+ * 指纹密钥缺失时真正发请求仍会失败关闭，见 configuredDirectKeys。
+ */
+function directKeyMaterialPresent(): boolean {
+  const admin = adminDirectKeys()
+  if (admin !== null) return admin.some((key) => key.enabled)
+  const list = process.env.OPENAI_API_KEYS?.trim()
+  if (list) return list.split(',').some((part) => part.trim() !== '')
+  return runtimeSecret('OPENAI_API_KEY', config.gptDirect.apiKey).trim() !== ''
+}
+
 export function gptDirectConfigured(model: string): boolean {
-  return config.gptDirect.enabled && gptDirectApiKey() !== '' && isGptDirectModel(model)
+  return config.gptDirect.enabled && isGptDirectModel(model) && directKeyMaterialPresent()
 }
 
 /** 2.6 用自己的开关和同一把可替换的 OpenAI key。关着或没 key 时不走 sub2api。 */
@@ -64,8 +82,8 @@ export function recordSub2apiOutcome(ok: boolean): void {
 }
 
 /**
- * 直连此刻能不能接这一单：月预算够、额度桶拿得到。只是探一下——拿到的名额立即退回，
- * 真正发请求时再按条占（窗口很短，探到与真发之间被别人抢走就排一小会儿）。
+ * 直连此刻能不能接这一单：至少有一把 key 没停用、没在冷却、本月预算还装得下，并且额度桶拿得到。
+ * 只是探一下——拿到的名额立即退回，真正发请求时再按条占（窗口很短，探到与真发之间被别人抢走就排一小会儿）。
  */
 export async function directAvailableNow(
   model: string,
@@ -73,10 +91,10 @@ export async function directAvailableNow(
 ): Promise<boolean> {
   if (!gptDirectConfigured(model)) return false
   const images = Math.max(1, request.n ?? 1)
-  if (
-    !(await directBudgetAllows(estimateDirectCostMicroUsd(request.size, request.quality, images)))
-  )
-    return false
+  const key = await selectDirectKey({
+    estimateMicroUsd: estimateDirectCostMicroUsd(request.size, request.quality, images),
+  })
+  if (!key) return false
   const lease = await tryAcquireSchedulerSlots(gptSchedulerBuckets(model, 'direct'), images)
   if (!lease) return false
   await lease.release({ refund: true })

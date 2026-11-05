@@ -43,3 +43,20 @@ describe('switchImageOutputFormat', () => {
     expect(gifFrameSize('816x816')).toBe('768x768')
   })
 })
+
+describe('switchImageOutputFormat 在静态格式之间切换', () => {
+  it('已经是静态图时，再点「图片」不会拿旧快照覆盖当前设置', () => {
+    const stale = {
+      size: '816x816',
+      quality: 'low' as const,
+      n: 3,
+      output_compression: null,
+      transparent_output: false,
+    }
+    const current = { ...DEFAULT_PARAMS, output_format: 'png' as const, size: '1024x1024', n: 1 }
+    const result = switchImageOutputFormat(current, 'png', stale)
+    expect(result.patch).not.toHaveProperty('size')
+    expect(result.patch).not.toHaveProperty('n')
+    expect(result.still).toBeNull()
+  })
+})

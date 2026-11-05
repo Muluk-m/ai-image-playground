@@ -97,7 +97,9 @@ describe('acquire_deploy_lock', () => {
     const before = readFileSync(ownerFile, 'utf8')
 
     const result = sh('acquire_deploy_lock "$1" "$2"', [lockDir, 'editions=paid ref=0d9a5cb8'])
-    expect(result.status).not.toBe(0)
+    // 75 (EX_TEMPFAIL) 区分「锁被占用、什么都没动」与真正的失败，工作流据此提示重跑。
+    expect(result.status).toBe(75)
+    expect(result.stderr).toContain('lock contention')
     expect(result.stderr).toContain(`pid=${pid}`)
     expect(result.stderr).toContain('someone@tx-vps')
     expect(result.stderr).toContain('editions=internal paid ref=39d2cf1c')

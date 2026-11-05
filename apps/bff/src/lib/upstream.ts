@@ -44,7 +44,18 @@ import {
   UpstreamTimeoutError,
 } from './upstream/errors'
 import { mergeGeminiCandidateResults } from './upstream/gemini'
-import { recordDirectUsage } from './upstream/gpt-budget'
+import { estimateDirectCostMicroUsd, recordDirectUsage } from './upstream/gpt-budget'
+import { configuredDirectKeys, type DirectKey } from './upstream/gpt-key-config'
+import {
+  classifyDirectKeyFailure,
+  DirectKeysExhaustedError,
+  markDirectKeyCooldown,
+  markDirectKeyDisabled,
+  notifyDirectKeyDisabled,
+  releaseDirectKeyReservation,
+  reserveDirectKey,
+  selectDirectKey,
+} from './upstream/gpt-keys'
 import {
   directAvailableNow,
   firstGptRoute,
@@ -66,8 +77,9 @@ import {
   mergeOpenAIImageResults,
   withoutModeration,
 } from './upstream/openai'
-import { withPartialFailure } from './upstream/partial'
+import { partialFailureOf, withPartialFailure } from './upstream/partial'
 import {
+  coolDownSchedulerBuckets,
   gptSchedulerBuckets,
   type SchedulerBucket,
   type SchedulerLease,
@@ -133,6 +145,10 @@ interface UpstreamRoute {
   gptRoute?: GptRoute
   /** 直连可选的 OpenAI-Organization 头。 */
   organization?: string
+  /**
+   * 直连的 429 只冷却这一把 key。整条模型桶一停，下一把 key 也占不到额度。
+   */
+  skipSharedRateLimitCooldown?: boolean
 }
 
 /** 模型级上限优先，按「渠道/模型」各排各的队；没有再看渠道级上限。 */
@@ -246,11 +262,20 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
   }
 }
 
-/** GPT Image 的 OpenAI 直连：原生 size / quality / n，同步返回，不走异步任务与 Responses。 */
-function directRoute(model: string): UpstreamRoute {
+/**
+ * GPT Image 的 OpenAI 直连：原生 size / quality / n，同步返回，不走异步任务与 Responses。
+ * 还有下一把可用 key 时，429 不冷却整条模型桶，否则下一把占不到额度。
+ * 没有下一把时照旧冷却模型桶，下一单会等冷却结束，而不是立刻再打。
+ */
+function directRoute(
+  model: string,
+  key?: DirectKey,
+  options?: { skipSharedRateLimitCooldown?: boolean },
+): UpstreamRoute {
+  const chosen = key ?? configuredDirectKeys()[0]
   return {
     baseUrl: config.gptDirect.baseUrl,
-    key: gptDirectApiKey(),
+    key: chosen?.secret ?? gptDirectApiKey(),
     style: 'openai-images',
     forceB64Json: false,
     supportsModeration: true,
@@ -258,6 +283,7 @@ function directRoute(model: string): UpstreamRoute {
     supportsNativeN: true,
     schedulerBuckets: gptSchedulerBuckets(model, 'direct'),
     gptRoute: 'direct',
+    ...(options?.skipSharedRateLimitCooldown ? { skipSharedRateLimitCooldown: true } : {}),
     ...(config.gptDirect.organization ? { organization: config.gptDirect.organization } : {}),
   }
 }
@@ -414,6 +440,16 @@ function upstreamStatusOf(error: unknown): number | undefined {
   return typeof status === 'number' ? status : undefined
 }
 
+function directReservationId(error: unknown): string | undefined {
+  const id = (error as { directReservationId?: unknown } | null)?.directReservationId
+  return typeof id === 'string' ? id : undefined
+}
+
+/** 抛错的那一把 key 自己有没有把请求发出去。没标过的按没发出。 */
+function directKeyDispatched(error: unknown): boolean {
+  return (error as { directKeyDispatched?: unknown } | null)?.directKeyDispatched === true
+}
+
 /** 服务端问题（换一条路可能就好）：429、5xx、连接或响应中断。参数错、审核拒绝之类换路也没用。 */
 function isRouteFailure(error: unknown): boolean {
   if (error instanceof UpstreamPartialResultError || error instanceof UpstreamQueueTimeoutError)
@@ -424,9 +460,113 @@ function isRouteFailure(error: unknown): boolean {
 }
 
 /**
+ * 直连这一路按顺序试密钥。额度耗尽、账单停了、401 或 429 立刻换下一把，不算 direct/sub2api 换路。
+ * 已经出过一张图就不再换 key，免得把出过的图再生成一遍。
+ */
+async function callDirectTryingKeys(
+  params: UpstreamCallParams,
+  model: string,
+  attempt: AttemptOptions,
+  onAttempt: (fingerprint: string) => void,
+): Promise<{ result: UpstreamCallResult; fingerprint: string; reservationId?: string }> {
+  const images = Math.max(1, params.request.n ?? 1)
+  const estimate = estimateDirectCostMicroUsd(params.request.size, params.request.quality, images)
+  const exclude = new Set<string>()
+  let lastError: unknown
+  while (!attempt.signal?.aborted && !params.signal?.aborted) {
+    const reserved = await reserveDirectKey({ estimateMicroUsd: estimate, exclude })
+    if (!reserved)
+      throw new DirectKeysExhaustedError(lastError ?? new Error('no openai direct key'))
+    const { key, reservationId } = reserved
+    exclude.add(key.fingerprint)
+    let produced = false
+    let thisKeyDispatched = false
+    try {
+      // 探下一把放在 try 里：它抛错时，上面刚建的预占也要走下面的释放。
+      const another = await selectDirectKey({ estimateMicroUsd: estimate, exclude })
+      const result = await callUpstreamVia(
+        params,
+        directRoute(model, key, { skipSharedRateLimitCooldown: another !== null }),
+        {
+          ...attempt,
+          onDispatched: () => {
+            thisKeyDispatched = true
+            onAttempt(key.fingerprint)
+            attempt.onDispatched?.()
+          },
+          onResponse: () => {
+            produced = true
+            attempt.onResponse?.()
+          },
+        },
+      )
+      return { result, fingerprint: key.fingerprint, reservationId }
+    } catch (caught) {
+      // 取消原因可以是任意值（null、字符串）；标记要挂在对象上，所以非对象先包一层。
+      const error: unknown =
+        typeof caught === 'object' && caught !== null
+          ? caught
+          : new Error(String(caught), { cause: caught })
+      Object.assign(error as object, { directKeyDispatched: thisKeyDispatched })
+      if (thisKeyDispatched && (produced || upstreamStatusOf(error) === undefined)) {
+        // 已经发出但结果未知，或已经出过图。预留留到 settle 的落账事务里一次转成用量。
+        // 先删掉的话，落账前这段两边都没算这笔钱，月度上限会被超。
+        // 已经出过图再换 key 还会把图重新生成一遍。
+        Object.assign(error as object, { directReservationId: reservationId })
+        throw error
+      }
+      await releaseDirectKeyReservation(reservationId)
+      const action = classifyDirectKeyFailure(error)
+      if (action === 'quota' || action === 'invalid') {
+        await markDirectKeyDisabled(key, action, error)
+        notifyDirectKeyDisabled(key, action)
+        lastError = error
+        log.warn(
+          {
+            event: 'gpt.direct_key_switch',
+            fingerprint: key.label,
+            action,
+            upstreamStatus: upstreamStatusOf(error),
+          },
+          'openai direct key disabled; trying the next key',
+        )
+        continue
+      }
+      if (action === 'cooldown') {
+        await markDirectKeyCooldown(key, error)
+        const still = await selectDirectKey({ estimateMicroUsd: estimate, exclude })
+        if (!still) {
+          await coolDownSchedulerBuckets(
+            gptSchedulerBuckets(model, 'direct')
+              .filter((bucket) => bucket.coolDownOnRateLimit)
+              .map((bucket) => bucket.key),
+          )
+        }
+        lastError = error
+        log.warn(
+          {
+            event: 'gpt.direct_key_switch',
+            fingerprint: key.label,
+            action: 'cooldown',
+            upstreamStatus: upstreamStatusOf(error),
+          },
+          'openai direct key cooling down; trying the next key',
+        )
+        continue
+      }
+      throw error
+    }
+  }
+  throw (
+    lastError ?? params.signal?.reason ?? new DOMException('Upstream request aborted', 'AbortError')
+  )
+}
+
+/**
  * GPT Image 两条通道（见 upstream/gpt-routing.ts）：按会员身份选第一条；第一条发出后超过单路时限没结果，
- * 或明确不可用（429、5xx、连接中断），换另一条重试一次，两路共用同一个硬截止。sub2api 异步任务一旦受理
- * 就不换路：结果交给轮询与对账，换过去可能重复出图。用户取消、部分出图、参数错不换路。
+ * 或明确不可用（429、5xx、连接中断），换另一条重试一次，两路共用同一个硬截止。同一条直连里换密钥
+ * 不算这一次。sub2api 异步任务一旦受理就不换路：结果交给轮询与对账，换过去可能重复出图。
+ * 用户取消、部分出图、参数错不换路。
  */
 async function callGptDualRoute(
   params: UpstreamCallParams,
@@ -490,19 +630,37 @@ async function callGptDualRoute(
         await params.onUpstreamTaskIds?.(taskIds)
       },
     }
+    const attemptOptions: AttemptOptions = {
+      signal: controller.signal,
+      deadlineAt,
+      onDispatched,
+      onResponse: () => {
+        state.responded = true
+      },
+    }
+    let fingerprint: string | undefined
     try {
       await params.onGptRoute?.(kind)
-      const result = await callUpstreamVia(attemptParams, gptRouteFor(kind, model, sub2api), {
-        signal: controller.signal,
-        deadlineAt,
-        onDispatched,
-        onResponse: () => {
-          state.responded = true
-        },
-      })
-      return { ok: true as const, result, state }
+      if (kind === 'direct') {
+        const invoked = await callDirectTryingKeys(attemptParams, model, attemptOptions, (next) => {
+          fingerprint = next
+        })
+        return {
+          ok: true as const,
+          result: invoked.result,
+          state,
+          fingerprint: invoked.fingerprint,
+          reservationId: invoked.reservationId,
+        }
+      }
+      const result = await callUpstreamVia(
+        attemptParams,
+        gptRouteFor(kind, model, sub2api),
+        attemptOptions,
+      )
+      return { ok: true as const, result, state, fingerprint }
     } catch (error) {
-      return { ok: false as const, error, state }
+      return { ok: false as const, error, state, fingerprint }
     } finally {
       if (timer) clearTimeout(timer)
       if (queueTimer) clearTimeout(queueTimer)
@@ -519,16 +677,32 @@ async function callGptDualRoute(
       return
     }
     // 直连按张计费：出了图按回报的 usage 记；发出后结果未知（超时、中断）按档位估算，平台承担。
-    // 明确的 HTTP 错误上游不计费，不记。
-    if (!outcome.state.dispatched) return
-    if (!outcome.ok && upstreamStatusOf(outcome.error) !== undefined) return
+    // 明确的 HTTP 错误且一张图都没出，上游不计费。已经出过图再失败也不换 key，按已出的张数记。
+    const reservationId = outcome.ok ? outcome.reservationId : directReservationId(outcome.error)
+    const produced = outcome.state.responded
+    const thisKeyDispatched = outcome.ok || directKeyDispatched(outcome.error)
+    if (!thisKeyDispatched) {
+      if (reservationId) await releaseDirectKeyReservation(reservationId)
+      return
+    }
+    if (!outcome.ok && upstreamStatusOf(outcome.error) !== undefined && !produced) {
+      if (reservationId) await releaseDirectKeyReservation(reservationId)
+      return
+    }
+    const payload = outcome.ok ? outcome.result.payload : undefined
+    const partial = payload ? partialFailureOf(payload) : undefined
+    const images = partial
+      ? Math.max(0, partial.requested - partial.failed)
+      : Math.max(1, request.n ?? 1)
     await recordDirectUsage({
       ...(params.taskId ? { taskId: params.taskId } : {}),
       model,
       ...(request.size ? { size: request.size } : {}),
       ...(request.quality ? { quality: request.quality } : {}),
-      images: Math.max(1, request.n ?? 1),
-      ...(outcome.ok ? { payload: outcome.result.payload } : {}),
+      images,
+      ...(outcome.fingerprint ? { keyFingerprint: outcome.fingerprint } : {}),
+      ...(payload !== undefined ? { payload } : {}),
+      ...(reservationId ? { reservationId } : {}),
     })
   }
 
@@ -542,7 +716,11 @@ async function callGptDualRoute(
   if (firstOutcome.ok) return firstOutcome.result
 
   const { error, state } = firstOutcome
+  const exhausted = error instanceof DirectKeysExhaustedError
+  const surfaced = exhausted ? error.causeError : error
   if (strict) {
+    // 直连密钥都不可用，和高档请求借不到直连一样：不改走 sub2api。
+    if (exhausted) throw new ImagePlanRequiredError({ cause: surfaced })
     // Never replace an uncertain/partial result with a definitive rejection: reconciliation owns it.
     if (
       error instanceof UpstreamQueueTimeoutError ||
@@ -552,11 +730,12 @@ async function callGptDualRoute(
     throw error
   }
   // 非会员只在 sub2api 超时时借直连；sub2api 报错计入熔断，熔断后的新任务才整单走直连。
+  // 直连密钥换完仍不可用，才占用这一次 direct/sub2api 换路。
   const eligible =
     !params.signal?.aborted &&
     !state.asyncAccepted &&
-    (state.timedOut || (isRouteFailure(error) && (first === 'direct' || member)))
-  if (!eligible || (!state.timedOut && !(await canSwitch()))) throw error
+    (state.timedOut || exhausted || (isRouteFailure(error) && (first === 'direct' || member)))
+  if (!eligible || (!state.timedOut && !(await canSwitch()))) throw surfaced
 
   log.warn(
     {
@@ -564,8 +743,8 @@ async function callGptDualRoute(
       model,
       from: first,
       to: other,
-      reason: state.timedOut ? state.reason : 'route_failure',
-      upstreamStatus: upstreamStatusOf(error),
+      reason: state.timedOut ? state.reason : exhausted ? 'direct_keys_exhausted' : 'route_failure',
+      upstreamStatus: upstreamStatusOf(surfaced),
     },
     'gpt route failover',
   )
@@ -574,14 +753,21 @@ async function callGptDualRoute(
   if (secondOutcome.ok) return secondOutcome.result
   // 第一条路已发出、结果未知（被单路时限掐断或连接中断）时，两路都没成也不能当确定失败：
   // 否则任务级重试会再派发一整单。保留结果未知，交给对账或按未知失败处理。
-  const firstUnknown =
-    state.dispatched && (state.timedOut || error instanceof UpstreamResultUnknownError)
-  if (firstUnknown && !(secondOutcome.error instanceof UpstreamResultUnknownError)) {
+  // 直连的 per-key 标记不能拿来判断 sub2api。sub2api 仍看这一路自己的 dispatched。
+  const firstSent = first === 'direct' ? directKeyDispatched(error) : state.dispatched
+  const secondSent =
+    other === 'direct' ? directKeyDispatched(secondOutcome.error) : secondOutcome.state.dispatched
+  const firstUnknown = firstSent && (state.timedOut || error instanceof UpstreamResultUnknownError)
+  const secondUnknown =
+    secondSent &&
+    (secondOutcome.state.timedOut || secondOutcome.error instanceof UpstreamResultUnknownError)
+  if (firstUnknown || secondUnknown) {
+    if (secondOutcome.error instanceof UpstreamResultUnknownError) throw secondOutcome.error
     const detail =
       secondOutcome.error instanceof Error ? secondOutcome.error.message.slice(0, 200) : '失败'
     // 不挂 cause：错误会继承 cause 的上游状态码，429/5xx 会被 task-runner 当成可重试。
     throw new UpstreamResultUnknownError(
-      `换路后仍失败（${detail}）；先发出的那一路结果未知，未重复生成`,
+      `换路后仍失败（${detail}）；已发出的一路结果未知，未重复生成`,
       { requiresReconciliation: params.reconciliationRequired === true },
     )
   }
@@ -727,7 +913,8 @@ async function callUpstreamVia(
         if (dispatchId) dispatchIdentities.set(response, dispatchId)
         if (lease) {
           schedulerLeases.set(response, lease)
-          if (response.status === 429) await lease.rateLimited()
+          if (response.status === 429 && !route.skipSharedRateLimitCooldown)
+            await lease.rateLimited()
         }
         const requestId =
           response.headers?.get('x-request-id') ?? response.headers?.get('request-id')

@@ -51,6 +51,7 @@ import {
 import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
 import { capabilitiesForModel } from './upstream/adapters'
+import { gptDirectEnabledKeyCount, gptDirectSizeEnabled } from './upstream/gpt-direct-availability'
 import { runtimeSecret } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -480,8 +481,10 @@ export function parseChannelsConfig(
     }
 
     const secret = envLookup(ch.auth.secretRef)?.trim() ?? ''
-    if (!secret) {
+    const adminDirectKeys = ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0
+    if (!secret && !adminDirectKeys) {
       // 直连上游没有 key 就只是个必然失败的模型，宁可整条不广播；缺省的宽容留给网关部署。
+      // 后台直连页里启用的 key 也算有密钥，清掉 OPENAI_API_KEY 之后模型还留在列表里。
       if (ch.requiresSecret) {
         warnings.push(
           `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; the channel is disabled and will not be advertised`,
@@ -678,20 +681,12 @@ function queueProviderOf(kind: ChannelKind): QueueProvider {
 }
 
 /**
- * GPT 直连模型的 `size` 只有 OpenAI 直连兑现得了（sub2api 丢弃 size）。直连没开（口径同 config.gptDirect：
- * GPT_DIRECT_ENABLED 且有 OPENAI_API_KEY）时不声明它：前端退回只选比例、构图写进提示词，与直连上线前一致。
+ * GPT 直连模型的 `size` 只有 OpenAI 直连兑现得了（sub2api 丢弃 size）。直连没开（口径同
+ * gptDirectSizeEnabled：开关打开且至少有一把可用密钥，含后台配置的）时不声明它。
  */
-/** 口径同 config.gptDirect：开关打开且有 key，直连才兑现 size。 */
-function gptDirectOn(): boolean {
-  return (
-    process.env.GPT_DIRECT_ENABLED?.trim().toLowerCase() === 'true' &&
-    Boolean(runtimeSecret('OPENAI_API_KEY', process.env.OPENAI_API_KEY?.trim() ?? ''))
-  )
-}
-
 function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
   if (!channel.models.some((model) => isGptDirectModel(model.id))) return channel
-  const directOn = gptDirectOn()
+  const directOn = gptDirectSizeEnabled()
   return {
     ...channel,
     models: channel.models.map((model) => {
@@ -710,8 +705,11 @@ function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
 function withGptImage26(channel: InternalChannel): InternalChannel {
   if (!channel.models.some((model) => isGptImage26Model(model.id))) return channel
   const enabled = process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true'
+  // 只配了 OPENAI_API_KEYS 或只在后台直连页配了密钥时，OPENAI_API_KEY 为空，也算有 key。
   const ready =
-    enabled && Boolean(runtimeSecret('OPENAI_API_KEY', process.env.OPENAI_API_KEY?.trim() ?? ''))
+    enabled &&
+    (Boolean(runtimeSecret('OPENAI_API_KEY', process.env.OPENAI_API_KEY?.trim() ?? '')) ||
+      gptDirectEnabledKeyCount() > 0)
   return {
     ...channel,
     models: channel.models.flatMap((model) => {
@@ -758,7 +756,8 @@ function withCatalogCapabilities(model: ChannelModel): ChannelModel {
   if (!spec) return model
   const published = publishModelCapabilities(spec)
   const memberTiers =
-    capabilitiesForModel(model.id, { member: false, directOn: gptDirectOn() })?.memberTiers ?? []
+    capabilitiesForModel(model.id, { member: false, directOn: gptDirectSizeEnabled() })
+      ?.memberTiers ?? []
   const memberOnly = new Set<string>(memberTiers)
   return {
     ...model,
