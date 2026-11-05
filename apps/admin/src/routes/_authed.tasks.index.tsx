@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { Download } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   FilterBar,
   type FilterChip,
@@ -23,7 +23,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { duration, shortId } from '@/lib/format'
-import { useGenerationTasks } from '@/lib/queries'
+import { ADMIN_REFRESH_EVENT, useGenerationTasks } from '@/lib/queries'
 import { adminApiUrl } from '@/lib/runtime-config'
 import { clearTaskView, parseGenerationTasksSearch } from '@/lib/search-params'
 import { cn } from '@/lib/utils'
@@ -99,8 +99,21 @@ function GenerationTasksPage() {
   const [exportError, setExportError] = useState('')
   // 默认「今天」的结束时间如果每次渲染都取 now，查询键会一直变，列表永远停在加载中。
   const [clock, setClock] = useState(() => Date.now())
+  useEffect(() => {
+    if (search.from !== undefined || search.to !== undefined) return
+    const refresh = (event: Event) => {
+      event.preventDefault()
+      setClock(Date.now())
+    }
+    const timer = window.setInterval(() => setClock(Date.now()), 30_000)
+    window.addEventListener(ADMIN_REFRESH_EVENT, refresh)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener(ADMIN_REFRESH_EVENT, refresh)
+    }
+  }, [search.from, search.to])
   const preset = search.preset ?? (search.from === undefined ? 'today' : 'custom')
-  const window =
+  const taskWindow =
     search.from !== undefined && search.to !== undefined
       ? { from: search.from, to: search.to }
       : preset === '7d'
@@ -118,7 +131,7 @@ function GenerationTasksPage() {
   } = search
   const queryFilters: GenerationTaskFilters = {
     ...filters,
-    ...window,
+    ...taskWindow,
     page: search.page ?? 1,
     pageSize: search.pageSize ?? 50,
   }
@@ -181,10 +194,14 @@ function GenerationTasksPage() {
         <FilterBar
           savedViewKey="tasks"
           preset={preset}
-          from={window.from}
-          to={window.to}
+          from={taskWindow.from}
+          to={taskWindow.to}
           onPreset={(next, range) => {
-            if (next === 'all' || (next === 'custom' && !range)) return
+            if (next === 'all') return
+            if (next === 'custom' && !range) {
+              update({ preset: 'custom', from: taskWindow.from, to: taskWindow.to })
+              return
+            }
             update({
               preset: next,
               from: next === 'custom' ? range?.from : next === 'today' ? undefined : range?.from,
