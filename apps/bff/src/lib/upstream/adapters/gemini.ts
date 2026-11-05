@@ -45,11 +45,16 @@ export const geminiAdapter: ImageAdapter = {
   },
   plan: (req, model, ctx) => {
     const request = workingRequest(req, model, ctx)
-    const body = ctx.vertex ? buildVertexBody(request, ctx.imageSizes) : buildGeminiBody(request)
+    const body = ctx.vertex
+      ? buildVertexBody(request, ctx.imageSizes)
+      : buildGeminiBody(request, ctx.imageSizes)
     const sent = imageConfigOf(body)
-    const requested = request.image_size
+    const extraConfig = request.extra?.generationConfig
+    const requested = isObject(extraConfig) && isObject(extraConfig.imageConfig)
+      ? extraConfig.imageConfig.imageSize
+      : request.image_size
     const dropped: DroppedParam[] = []
-    // 只在请求体真的被收成另一档时记降档。网关原样透传的值不算丢。
+    // 只在请求体真的被收成另一档时记降档。
     if (typeof requested === 'string' && sent.imageSize && requested !== sent.imageSize) {
       dropped.push({
         param: 'image_size',

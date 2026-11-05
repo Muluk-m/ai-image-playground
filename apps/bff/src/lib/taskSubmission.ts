@@ -13,6 +13,7 @@ import type {
 } from '@image-playground/shared'
 import {
   billedStageQuantity,
+  clampGeminiNonMemberRequest,
   clampGptNonMemberRequest,
   DEFAULT_IMAGE_MODERATION,
   gptImage26Rejection,
@@ -496,8 +497,8 @@ async function downgradeGeminiForNonMember(
   input: CreateQueueTaskInput,
 ): Promise<CreateQueueTaskInput> {
   if (input.provider !== 'gemini' || input.request.image_size !== '4K') return input
-  if (await isActiveMember(input.userId)) return input
-  return { ...input, request: { ...input.request, image_size: '2K' } }
+  const request = clampGeminiNonMemberRequest(input.request, await isActiveMember(input.userId))
+  return request === input.request ? input : { ...input, request }
 }
 
 /**
