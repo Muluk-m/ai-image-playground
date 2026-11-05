@@ -19,6 +19,7 @@ import {
   type DirectKey,
   directKeySecrets,
   displayDirectKeyError,
+  FingerprintSecretMissingError,
   fingerprintMacSource,
   noteDirectSizeDeliverable,
   scrubSecrets,
@@ -365,7 +366,22 @@ function recentTaipeiDays(days: number, now: number): string[] {
 export async function directKeyPanel(days: 7 | 30, now = Date.now()): Promise<GptDirectAdminView> {
   const { refreshGptDirectKeys } = await import('./gpt-direct-admin')
   await refreshGptDirectKeys()
-  const keys = configuredDirectKeys()
+  // 环境变量清单解析不了（格式错、缺指纹密钥）时面板照样打开，只是没有密钥可列、也不能写，
+  // 并把原因给运维看；不能让 GET 直接 500，运维连页面都进不去就没法修。
+  let keys: DirectKey[] = []
+  let configProblem: string | null = null
+  try {
+    keys = configuredDirectKeys()
+  } catch (err) {
+    configProblem =
+      err instanceof FingerprintSecretMissingError
+        ? err.message
+        : '直连密钥配置无效，详见服务端日志（gpt.direct_keys_invalid）'
+    log.warn(
+      { event: 'gpt.direct_keys_invalid', err: err instanceof Error ? err.name : 'error' },
+      'openai direct key config is invalid',
+    )
+  }
   const state = keys.length > 0 ? await loadKeyState() : new Map<string, KeyStateRow>()
   const views = []
   for (const key of keys) {
@@ -419,8 +435,8 @@ export async function directKeyPanel(days: 7 | 30, now = Date.now()): Promise<Gp
     source,
     revision: revisionRows.reduce((max, row) => Math.max(max, row.updated_at), 0),
     fingerprint_mac_source: fingerprintMacSource(),
-    writable: master.ok,
-    disabled_reason: master.ok ? null : master.reason,
+    writable: master.ok && configProblem === null,
+    disabled_reason: configProblem ?? (master.ok ? null : master.reason),
     keys: views,
     total_spent_micro_usd: spent,
     total_budget_micro_usd: cap,
@@ -438,13 +454,9 @@ export async function directKeyPanel(days: 7 | 30, now = Date.now()): Promise<Gp
 export async function disabledDirectKeys(): Promise<
   Array<{ fingerprint: string; label: string; reason: 'quota' | 'invalid' }>
 > {
-  let labels: Map<string, string>
-  try {
-    labels = new Map(configuredDirectKeys().map((key) => [key.fingerprint, key.label]))
-  } catch (err) {
-    log.warn({ event: 'gpt.direct_keys_invalid', err }, 'openai direct key config is invalid')
-    return []
-  }
+  // 配置解析失败就让它抛：告警层把抛错当成「这一块没观察到」，保持原状态；
+  // 返回空数组会被当成「一把都没停用」，把还停着的密钥误报成已恢复。
+  const labels = new Map(configuredDirectKeys().map((key) => [key.fingerprint, key.label]))
   const rows = await db
     .select({
       fingerprint: schema.gpt_direct_key_state.fingerprint,

@@ -2,6 +2,7 @@
 -- 停用与冷却，gpt_direct_usage.key_fingerprint 把每笔花费记到具体那一把。
 -- 旧行的 key_fingerprint 为空，单密钥部署仍把它们算进那一把的月预算。
 -- 后台配置的直连密钥用与 upstream_api_secrets 相同的 AES-256-GCM 字段，明文不入库。
+-- gpt_direct_budget_holds.expires_at：预占的租期。进程在请求中途崩掉时没人释放预占，过期后不再计入月预算并在下次预占时清掉。
 -- 回滚见 drizzle/rollback/0091_gpt_direct_keys.down.sql。
 ALTER TABLE "gpt_direct_usage" ADD COLUMN IF NOT EXISTS "key_fingerprint" text;
 --> statement-breakpoint
@@ -39,7 +40,8 @@ CREATE TABLE IF NOT EXISTS "gpt_direct_budget_holds" (
 	"fingerprint" text NOT NULL,
 	"month_start" timestamp with time zone NOT NULL,
 	"micro_usd" bigint NOT NULL,
-	"created_at" timestamp with time zone NOT NULL
+	"created_at" timestamp with time zone NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL
 );
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_gpt_direct_budget_holds_key" ON "gpt_direct_budget_holds" USING btree ("fingerprint","month_start");

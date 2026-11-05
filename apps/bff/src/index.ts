@@ -20,9 +20,9 @@ import {
 import { runPeriodicSteps, startPeriodicSteps } from './lib/periodic'
 import { purgeExpiredAttachmentMedia } from './lib/projectMedia'
 import { startServerLogs } from './lib/server-logs'
-import { refreshGptDirectKeys } from './lib/upstream/gpt-direct-admin'
+import { refreshUpstreamKeySources } from './lib/upstream/gpt-direct-admin'
 import { logFingerprintMacSourceOnce } from './lib/upstream/gpt-key-config'
-import { refreshUpstreamSecrets, UPSTREAM_SECRET_REFRESH_MS } from './lib/upstream-secrets'
+import { UPSTREAM_SECRET_REFRESH_MS } from './lib/upstream-secrets'
 
 const stopServerLogs = startServerLogs()
 config.assertValid()
@@ -61,7 +61,7 @@ const agentEnabled = isCapabilityEnabled('agent:chat')
 log.info({ event: 'model_catalog.loaded', count: MODEL_CATALOG.length }, 'model catalog validated')
 
 logFingerprintMacSourceOnce()
-await Promise.all([refreshUpstreamSecrets(), refreshGptDirectKeys()]).catch((error) =>
+await refreshUpstreamKeySources().catch((error) =>
   log.error(
     {
       event: 'upstream_secrets.startup_refresh_failed',
@@ -244,9 +244,27 @@ const operatorConfigTimer = setInterval(() => {
   )
 }, 10_000)
 const upstreamSecretTimer = setInterval(() => {
-  void Promise.all([refreshUpstreamSecrets(), refreshGptDirectKeys()]).then(() =>
-    initChannels(config.channelsFile ?? undefined),
-  )
+  // 刷新失败只记日志，渠道清单照样重建（否则一次读库失败会让这个定时器每轮都白跑）。
+  void refreshUpstreamKeySources()
+    .catch((error) =>
+      log.error(
+        {
+          event: 'upstream_secrets.periodic_refresh_failed',
+          err: error instanceof Error ? error.message : 'unknown',
+        },
+        'upstream secret refresh failed',
+      ),
+    )
+    .then(() => initChannels(config.channelsFile ?? undefined))
+    .catch((error) =>
+      log.error(
+        {
+          event: 'channels.periodic_refresh_failed',
+          err: error instanceof Error ? error.message : 'unknown',
+        },
+        'channels refresh failed',
+      ),
+    )
 }, UPSTREAM_SECRET_REFRESH_MS)
 
 let shuttingDown = false

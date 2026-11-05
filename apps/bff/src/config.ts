@@ -160,7 +160,8 @@ export const config = {
     void config.auth.loginMethodsByOrigin
     void config.auth.publicOrigins
     // 多密钥格式不对就拒绝启动，别等到第一单才发现预算列表对不齐。
-    configuredDirectKeys()
+    // 直连没打开时这些变量不会被用到，不能因此挡住启动（关着的直连静默退回 sub2api）。
+    if (config.gptDirect.enabled) configuredDirectKeys()
     assertOperatorRuntimePrerequisites(config.operator.capabilities, config)
     if (config.worker.healthStaleAfterMs < config.worker.pollIntervalMs * 3) {
       throw new Error('WORKER_HEALTH_STALE_AFTER_MS must be at least three poll intervals')
