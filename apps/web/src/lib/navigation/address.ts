@@ -3,6 +3,7 @@ import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { toolPath } from '../../features/toolbox/lib/toolRoute'
 import { useToolboxStore } from '../../features/toolbox/store'
 import { APP_MODE_PATHS, isChangelogPath, isStandalonePath, type RoutedAppMode } from '../appPaths'
+import { getPathnameRevision } from '../pathname'
 
 function isRoot(pathname: string): boolean {
   return pathname.replace(/\/+$/, '') === ''
@@ -37,10 +38,10 @@ export function writeModeAddress(
   if (usableProject(active)) writeProjectRoute(active, isRoot(pathname))
   else if (active && !useCanvasProjectStore.getState().loaded && !retried) {
     // 目录还在加载：活动项目可能是有效的，等加载完再决定，而不是直接把这次点击丢给创作页。
-    // 加载期间人又去了别处（地址变了）就放弃这次导航。
-    const from = pathname
+    // 离开后再返回原路径也不能恢复旧导航。
+    const revision = getPathnameRevision()
     const settle = () => {
-      if (window.location.pathname !== from) return
+      if (getPathnameRevision() !== revision) return
       writeModeAddress('canvas', useCanvasProjectStore.getState().activeId, true)
     }
     void useCanvasProjectStore.getState().load().then(settle, settle)
