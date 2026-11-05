@@ -3,6 +3,7 @@ import { replaceEqualDeep, useInfiniteQuery, useQuery } from '@tanstack/react-qu
 import type {
   AgentPromptFilters,
   AgentPromptsResult,
+  GenerationOverviewResult,
   GenerationTaskFilters,
   GenerationTasksResult,
   TodayErrorsResult,
@@ -10,6 +11,11 @@ import type {
 } from '../../contracts'
 
 import { apiClient } from './api-client'
+import {
+  type GenerationSelection,
+  generationRefreshInterval,
+  generationWindow,
+} from './generation-overview'
 import type {
   ClientErrorEventsResult,
   ClientErrorsResult,
@@ -234,6 +240,20 @@ export function useTodayOverview() {
     queryKey: ['overview-today'],
     queryFn: () => apiClient.get<TodayOverviewResult>('/api/overview/today'),
     refetchInterval: 30_000,
+  })
+}
+export function useGenerationOverview(selection: GenerationSelection) {
+  return useQuery({
+    queryKey: ['overview-generation', selection],
+    queryFn: () => {
+      const window = generationWindow(selection)
+      const params = new URLSearchParams({ from: String(window.from), to: String(window.to) })
+      return apiClient.get<GenerationOverviewResult>(`/api/overview/generation?${params}`)
+    },
+    staleTime: 0,
+    refetchInterval: generationRefreshInterval(selection),
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 }
 export function useTodayErrors() {

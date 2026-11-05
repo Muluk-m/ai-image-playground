@@ -105,77 +105,101 @@ vi.mock('../../lib/api-client', () => {
             ]
           : [],
       }
-    if (url.startsWith('/api/overview')) {
-      if (session.failToday) throw new Error('today unavailable')
+    if (url.startsWith('/api/overview/generation')) {
+      if (session.failToday) throw new Error('generation unavailable')
+      const params = new URLSearchParams(url.split('?')[1])
+      const selectedWindow = { from: Number(params.get('from')), to: Number(params.get('to')) }
       return {
+        window: selectedWindow,
         summary: {
-          total: 32,
-          completed: 21,
-          failed: 11,
-          success_rate: 21 / 32,
-          p50_duration_ms: 1000,
-          p95_duration_ms: 5000,
-          upstream_invocations: 43,
-          queue_p50_ms: 100,
+          users: 1,
+          devices: 1,
+          tasks: 4,
+          completed: 1,
+          failed: 1,
+          in_progress: 1,
+          queued: 1,
+          reconciling: 0,
         },
-        volume: [],
-        volume_bucket: 'day',
-        failures: [{ error_type: 'upstream_error', count: 12, previous_count: 3 }],
-        pulse: {
-          current: {
-            tasks: 32,
-            completed: 21,
-            failed: 11,
-            images: 20,
-            active: 4,
-            signups: 1,
-            agent_turns: 2,
-            agent_failed: 0,
-            agent_aborted: 0,
-          },
-          previous: {
-            tasks: 10,
-            completed: 9,
-            failed: 1,
-            images: 8,
-            active: 2,
-            signups: 0,
-            agent_turns: 1,
-            agent_failed: 0,
-            agent_aborted: 0,
-          },
-          series: [],
-        },
-        agent_cache: {
-          calls: 0,
-          input_tokens: 0,
-          cache_read_tokens: 0,
-          first_call: { calls: 0, input_tokens: 0, cache_read_tokens: 0 },
-          continuation: { calls: 0, input_tokens: 0, cache_read_tokens: 0 },
-          models: [],
-        },
-        models: [
+        actors: [
           {
-            model: 'gpt-image-2',
-            count: 30,
-            upstream_invocations: 40,
-            average_multiplier: 1,
-            completed: 20,
-            failed: 10,
-            queue_p50_ms: null,
-            run_p95_ms: 100_000,
-          },
-          {
-            model: 'doubao-seedream',
-            count: 2,
-            upstream_invocations: 3,
-            average_multiplier: 1,
+            kind: 'user',
+            id: 'user-1',
+            username: 'alice',
+            note: '设计师',
+            tasks: 3,
             completed: 1,
             failed: 1,
-            queue_p50_ms: null,
-            run_p95_ms: null,
+            in_progress: 1,
+            queued: 0,
+            reconciling: 0,
+            last_submitted_at: window.to,
+          },
+          {
+            kind: 'device',
+            id: 'device-1',
+            username: null,
+            note: null,
+            tasks: 1,
+            completed: 0,
+            failed: 0,
+            in_progress: 0,
+            queued: 1,
+            reconciling: 0,
+            last_submitted_at: window.from,
           },
         ],
+        models: [],
+        truncated: false,
+        activity: {
+          window: selectedWindow,
+          tasks: [
+            {
+              id: 'overview-task',
+              user_id: 'user-1',
+              device_id: null,
+              username: 'alice',
+              provider: 'openai-compat',
+              model: 'gpt-image-2',
+              status: 'failed',
+              submitted_at: selectedWindow.to - 100,
+              started_at: null,
+              completed_at: null,
+              error_type: 'upstream_timeout',
+              prompt: '概览任务详情',
+            },
+          ],
+          server: {
+            total: 1,
+            entries: [
+              {
+                id: 'overview-server-error',
+                at: selectedWindow.to - 100,
+                message: '生成上游超时',
+                stack: 'server stack',
+                service: 'worker',
+                task_id: 'overview-task',
+                request_id: 'overview-request',
+                instance: 'worker-1',
+              },
+            ],
+          },
+          client: {
+            total: 1,
+            entries: [
+              {
+                id: 'overview-client-error',
+                at: selectedWindow.to - 100,
+                message: '画布加载异常',
+                stack: 'client stack',
+                fingerprint: 'aaaaaaaaaaaaaaaa',
+                username: 'alice',
+                user_id: 'user-1',
+                device_id: 'device-1',
+              },
+            ],
+          },
+        },
       }
     }
     if (url.startsWith('/api/client-errors/')) {
@@ -336,14 +360,14 @@ vi.mock('../../lib/api-client', () => {
 
 const { routeTree } = await import('../../routeTree.gen')
 
-function renderAt(path: string): void {
+function renderAt(path: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const router = createRouter({
     routeTree,
     context: { queryClient },
     history: createMemoryHistory({ initialEntries: [path] }),
   })
-  render(
+  return render(
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router as never} />
     </QueryClientProvider>,
@@ -364,6 +388,7 @@ beforeEach(() => {
   session.completedAt = undefined
   session.accountsLogin = true
   session.accountsSync = true
+  localStorage.clear()
   document.cookie = 'sidebar_state=; path=/; max-age=0'
 })
 
@@ -460,27 +485,139 @@ describe('sync footprint', () => {
 })
 
 describe('概览', () => {
-  it('links a high-failure model into the pre-filtered task list', async () => {
-    renderAt('/overview')
-    const model = await screen.findByRole('link', { name: 'gpt-image-2' })
-    expect(model.getAttribute('href')).toMatch(/model=gpt-image-2/)
-    expect(model.getAttribute('href')).toMatch(/status=failed/)
-    expect(model.closest('tr')).toHaveTextContent('33.3%')
-    expect(screen.getByRole('region', { name: '系统健康' })).toBeInTheDocument()
-    expect(screen.getByText('需要关注')).toBeInTheDocument()
+  it('opens frontend error details and links backend errors and recent tasks to their exact context', async () => {
+    renderAt('/overview?preset=6h')
+    const recent = await screen.findByRole('link', { name: '概览任务详情' })
+    const taskUrl = new URL(recent.getAttribute('href')!, 'http://localhost')
+    expect(taskUrl.searchParams.get('task')).toBe('overview-task')
+    expect(Number(taskUrl.searchParams.get('to')) - Number(taskUrl.searchParams.get('from'))).toBe(
+      6 * 3600_000,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /画布加载异常/ }))
+    expect(await screen.findByRole('heading', { name: '前端错误详情' })).toBeInTheDocument()
+    expect(screen.getByText(/client stack/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    fireEvent.click(screen.getByRole('button', { name: /生成上游超时/ }))
+    expect(await screen.findByRole('heading', { name: '后端错误详情' })).toBeInTheDocument()
+    const log = new URL(
+      screen.getByRole('link', { name: '相关日志 →' }).getAttribute('href')!,
+      'http://localhost',
+    )
+    expect(log.searchParams.get('requestId')).toBe('overview-request')
+    expect(
+      Number(log.searchParams.get('to')) - Number(log.searchParams.get('from')),
+    ).toBeLessThanOrEqual(120_000)
+    expect(screen.getByRole('link', { name: '关联任务 →' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('task=overview-task'),
+    )
   })
 
-  it('shows the overview error without inventing a task list', async () => {
+  it('shows generation users and links each problem into tasks with the same owner and time range', async () => {
+    renderAt('/overview?preset=6h')
+    const owner = await screen.findByRole('link', { name: '设计师' })
+    const failed = screen.getByRole('link', { name: '设计师的失败任务' })
+    const href = new URL(failed.getAttribute('href')!, 'http://localhost')
+    expect(href.searchParams.get('status')).toBe('failed')
+    expect(href.searchParams.get('userId')).toBe('user-1')
+    expect(Number(href.searchParams.get('to')) - Number(href.searchParams.get('from'))).toBe(
+      6 * 3600_000,
+    )
+    expect(owner.closest('tr')).toHaveTextContent('alice')
+    expect(screen.getByRole('link', { name: '匿名设备 device-1' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '系统健康' })).not.toBeInTheDocument()
+    expect(
+      requests.some(
+        (url) => url.startsWith('/api/overview?') || url.startsWith('/api/client-errors'),
+      ),
+    ).toBe(false)
+  })
+
+  it('shows a load failure instead of inventing generation records', async () => {
     session.failToday = true
     renderAt('/overview')
-    expect(await screen.findByText(/概览加载失败/)).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'gpt-image-2' })).not.toBeInTheDocument()
+    expect(await screen.findByText(/生成记录加载失败/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '设计师' })).not.toBeInTheDocument()
   })
 
-  it('keeps missing health data visibly unknown', async () => {
+  it('remembers the chosen rolling range after remounting without query parameters', async () => {
+    const first = renderAt('/overview')
+    fireEvent.click(await screen.findByRole('button', { name: '6 小时' }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '6 小时' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      ),
+    )
+    first.unmount()
     renderAt('/overview')
-    const health = within(await screen.findByRole('region', { name: '系统健康' }))
-    expect(await health.findByRole('link', { name: /队列/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '6 小时' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await screen.findByRole('link', { name: '设计师' })
+    const params = new URLSearchParams(
+      requests
+        .filter((url) => url.startsWith('/api/overview/generation'))
+        .slice(-1)[0]!
+        .split('?')[1],
+    )
+    expect(Number(params.get('to')) - Number(params.get('from'))).toBe(6 * 3600_000)
+  })
+
+  it('gives an explicit URL range precedence over the remembered range', async () => {
+    localStorage.setItem('admin.overview.generation-range', JSON.stringify({ preset: '6h' }))
+    renderAt('/overview?preset=1h')
+    expect(await screen.findByRole('button', { name: '最近 1 小时' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await screen.findByRole('link', { name: '设计师' })
+    expect(JSON.parse(localStorage.getItem('admin.overview.generation-range')!)).toEqual({
+      preset: '1h',
+    })
+  })
+
+  it('advances rolling windows on refresh and keeps the chosen duration', async () => {
+    const start = Date.now()
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start)
+    try {
+      renderAt('/overview?preset=1h')
+      await screen.findByRole('link', { name: '设计师' })
+      clock.mockReturnValue(start + 120_000)
+      fireEvent.click(screen.getAllByRole('button', { name: '刷新' }).slice(-1)[0]!)
+      await waitFor(() => {
+        const params = new URLSearchParams(
+          requests
+            .filter((url) => url.startsWith('/api/overview/generation'))
+            .slice(-1)[0]!
+            .split('?')[1],
+        )
+        expect(Number(params.get('to'))).toBe(start + 120_000)
+        expect(Number(params.get('from'))).toBe(start + 120_000 - 3600_000)
+      })
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
+  it('keeps a custom range fixed and remembers it after leaving the page', async () => {
+    const to = Date.now() - 3600_000
+    const from = to - 6 * 3600_000
+    const first = renderAt(`/overview?preset=custom&from=${from}&to=${to}`)
+    await screen.findByRole('link', { name: '设计师' })
+    expect(screen.getByRole('button', { name: '自定义' })).toHaveAttribute('aria-pressed', 'true')
+    first.unmount()
+    renderAt('/overview')
+    await screen.findByRole('link', { name: '设计师' })
+    const params = new URLSearchParams(
+      requests
+        .filter((url) => url.startsWith('/api/overview/generation'))
+        .slice(-1)[0]!
+        .split('?')[1],
+    )
+    expect(Number(params.get('from'))).toBe(from)
+    expect(Number(params.get('to'))).toBe(to)
   })
 })
 
