@@ -24,4 +24,31 @@ describe('logAdminApiError', () => {
       spy.mockRestore()
     }
   })
+
+  it('logs only the code when the message is the request body', () => {
+    const spy = spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const error = new Error(
+        JSON.stringify({
+          type: 'validation',
+          on: 'body',
+          found: { password: 'super-secret-password' },
+        }),
+      )
+      Object.assign(error, { code: 'VALIDATION' })
+      logAdminApiError(
+        new Request('http://localhost/api/login', {
+          method: 'POST',
+          body: JSON.stringify({ password: 'super-secret-password' }),
+        }),
+        error,
+      )
+      const logged = spy.mock.calls.map((call) => call.map(String).join(' ')).join('\n')
+      expect(logged).toContain('POST /api/login failed: VALIDATION')
+      expect(logged).not.toContain('super-secret-password')
+      expect(logged).not.toContain('found')
+    } finally {
+      spy.mockRestore()
+    }
+  })
 })
