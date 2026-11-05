@@ -348,7 +348,10 @@ describe('installWorkbenchNavigation', () => {
     await vi.waitFor(() => expect(location.pathname).toBe(`/p/${projectRouteSegment(project.id)}`))
   })
 
-  it('drops the pending canvas navigation when the user moved elsewhere while the catalog loaded', async () => {
+  it.each([
+    false,
+    true,
+  ])('drops pending canvas navigation after leaving (return: %s)', async (returnToPage) => {
     setClientStorageScope(crypto.randomUUID())
     const project = await projectRepository.create('Destination')
     cleanup = installWorkbenchNavigation()
@@ -357,8 +360,9 @@ describe('installWorkbenchNavigation', () => {
     useCanvasProjectStore.setState({ projects: [], activeId: project.id, loaded: false })
     useStore.getState().setAppMode('canvas')
     history.replaceState(null, '', '/assets')
+    if (returnToPage) history.replaceState(null, '', '/changelog')
     await vi.waitFor(() => expect(useCanvasProjectStore.getState().loaded).toBe(true))
-    expect(location.pathname).toBe('/assets')
+    expect(location.pathname).toBe(returnToPage ? '/changelog' : '/assets')
   })
 
   it('keeps the terms address when the workspace mode changes', () => {
