@@ -294,23 +294,40 @@ describe('non-member resolution ceiling', () => {
   it.each([
     { member: false, tier: '2K', multiplier: 1.5 },
     { member: true, tier: '4K', multiplier: 3.4 },
-  ])('quotes the Gemini tier actually submitted for member=$member', async ({ member, tier, multiplier }) => {
+  ])('quotes the Gemini tier actually submitted for member=$member', async ({
+    member,
+    tier,
+    multiplier,
+  }) => {
     await ensureBillingUser()
     withMember(member)
-    const estimate = await db.transaction((tx) => quoteBatchPlan(tx, BILLING_USER, [{
-      key: 'image', ordinal: 0, kind: 'generation', prompt: 'a cup', inputs: [], dependencies: [],
-      params: { model: 'gemini-nano-banana-2.1', provider: 'gemini', gemini_image_size: '4K' },
-    }]))
+    const estimate = await db.transaction((tx) =>
+      quoteBatchPlan(tx, BILLING_USER, [
+        {
+          key: 'image',
+          ordinal: 0,
+          kind: 'generation',
+          prompt: 'a cup',
+          inputs: [],
+          dependencies: [],
+          params: { model: 'gemini-nano-banana-2.1', provider: 'gemini', gemini_image_size: '4K' },
+        },
+      ]),
+    )
     expect(estimate.generation.status).toBe('available')
     if (estimate.generation.status !== 'available') throw new Error('expected a quote')
     expect(estimate.generation.snapshots[0]!.unitMultiplier).toBe(multiplier)
     const input = {
-      provider: 'gemini' as const, model: 'gemini-nano-banana-2.1', userId: BILLING_USER,
+      provider: 'gemini' as const,
+      model: 'gemini-nano-banana-2.1',
+      userId: BILLING_USER,
       request: { prompt: 'a cup', image_size: '4K' as const },
     }
     const preparation = await prepareQueueTask(input)
     if (preparation.kind !== 'prepared') throw new Error('expected a preparation')
-    const payload = await storedRequest(await createQueueTask({ ...input, prepared: preparation.prepared }))
+    const payload = await storedRequest(
+      await createQueueTask({ ...input, prepared: preparation.prepared }),
+    )
     expect(payload.image_size).toBe(tier)
   })
 })

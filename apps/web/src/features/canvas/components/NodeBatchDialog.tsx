@@ -38,11 +38,13 @@ export default function NodeBatchDialog({
   const { t } = useTranslation('canvas')
   // Subscribe to settings as well as parent document updates so a visible quote never silently changes.
   const settings = useStore((state) => state.settings)
-  const params = useStore((state) => state.params)
+  useStore((state) => state.params)
   const profile = clientProfileToApiProfile(getActiveApiProfile(settings))
   const membership = useGptPremiumLocked(profile.model, false)
   useVideoStore((state) => state.draft)
-  const [plan, setPlan] = useState(() => initialPlan ?? currentNodeBatch(canvas.doc, editor, ids, membership.member))
+  const [plan, setPlan] = useState(
+    () => initialPlan ?? currentNodeBatch(canvas.doc, editor, ids, membership.member),
+  )
   const [status, setStatus] = useState<'ready' | 'running' | 'done' | 'error'>('ready')
   const [completed, setCompleted] = useState(0),
     [active, setActive] = useState(''),
@@ -57,7 +59,7 @@ export default function NodeBatchDialog({
     onClose()
   }
   const start = async () => {
-    if (params.gemini_image_size === '4K' && !membership.settled) return
+    if (!membership.settled) return
     if (controller.current || changed || plan.error || current.blocked) return
     const abort = new AbortController()
     controller.current = abort
@@ -114,7 +116,9 @@ export default function NodeBatchDialog({
           </Button>
           {status === 'ready' && !changed && (
             <Button
-              disabled={Boolean(plan.error) || current.blocked || !snapshot.nodes.length}
+              disabled={
+                !membership.settled || Boolean(plan.error) || current.blocked || !snapshot.nodes.length
+              }
               onClick={() => void start()}
             >
               {t('nodeBatch.confirm')}

@@ -67,12 +67,14 @@ it('prices a draft from its output count and omits an unpriced group total', () 
 })
 
 it('quotes Gemini 4K drafts at the tier the account can submit', () => {
-  const message = draft('gemini-4k', 2)
-  message.snapshot = {
-    mode: 'image',
-    args: { n: 2 },
-    target: { provider: 'gemini', model: 'gemini-nano-banana-2.1' },
-    params: { gemini_image_size: '4K' },
+  const message: AgentToolMessage = {
+    ...draft('gemini-4k', 2),
+    snapshot: {
+      mode: 'image',
+      args: { n: 2 },
+      target: { provider: 'gemini', model: 'gemini-nano-banana-2.1' },
+      params: { gemini_image_size: '4K' },
+    },
   }
   const quote = (input: { quantity: number; unitMultiplier?: number }) =>
     input.quantity * 10 * (input.unitMultiplier ?? 1)

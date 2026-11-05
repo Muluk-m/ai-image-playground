@@ -1,5 +1,15 @@
-import { describe, expect, it } from 'vitest'
-import { readGptPremiumBody } from '../../lib/gptPremium'
+import { cleanup, renderHook, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { readGptPremiumBody, useGptPremiumLocked } from '../../lib/gptPremium'
+
+const account = vi.hoisted(() => ({ id: 'gemini-member' }))
+vi.mock('../../auth/AuthContext', () => ({ useAuth: () => ({ user: account }) }))
+vi.mock('../../lib/runtimeConfig', () => ({ bffBaseUrl: () => '' }))
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 describe('readGptPremiumBody', () => {
   it('reads the member tier and high-quality flags', () => {
@@ -40,4 +50,18 @@ describe('readGptPremiumBody', () => {
       highQuality: false,
     })
   })
+})
+
+it.each([true, false])('resolves Gemini membership independently of the GPT switch: %s', async (member) => {
+  account.id = `gemini-member-${member}`
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    premium: false,
+    member,
+    maxTier: '2K',
+    highQuality: false,
+  }))))
+  const { result } = renderHook(() => useGptPremiumLocked('gemini-nano-banana-2.1', false))
+  await waitFor(() => expect(result.current.settled).toBe(true))
+  expect(result.current.member).toBe(member)
+  expect(result.current.maxTier).toBe(member ? '4K' : '2K')
 })

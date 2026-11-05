@@ -182,7 +182,12 @@ describe('GPT size follows the OpenAI direct switch', () => {
   })
 
   it('declares size for the supported single-key setup without a fingerprint secret', () => {
-    const names = ['INTERNAL_API_TOKEN', 'EMAIL_CODE_SECRET', 'UPSTREAM_SECRETS_MASTER_KEY', 'OPENAI_API_KEYS']
+    const names = [
+      'INTERNAL_API_TOKEN',
+      'EMAIL_CODE_SECRET',
+      'UPSTREAM_SECRETS_MASTER_KEY',
+      'OPENAI_API_KEYS',
+    ]
     const previous = new Map(names.map((name) => [name, process.env[name]]))
     process.env.GPT_DIRECT_ENABLED = 'true'
     process.env.OPENAI_API_KEY = 'single-key-fixture'

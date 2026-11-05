@@ -681,7 +681,8 @@ async function stageProposalInput(
   stage: string,
   storyboard?: StageStoryboard,
 ): Promise<StageProposalInput> {
-  const member = context.params?.gemini_image_size === '4K' && await isActiveMember(context.userId)
+  const member =
+    context.params?.gemini_image_size === '4K' && (await isActiveMember(context.userId))
   const { charges, bindings } = quoteCanvasStage(context, graph, nodes, member)
   return {
     userId: context.userId ?? invalid('当前会话没有已同步的云端项目。'),
@@ -1143,7 +1144,15 @@ export const runStoryboardFrames = defineAgentTool({
             }
             const authorization = await proposeStageAuthorizationInTransaction(
               tx,
-              await stageProposalInput(context, callId, project.id, graph, nodes, '首帧', storyboard),
+              await stageProposalInput(
+                context,
+                callId,
+                project.id,
+                graph,
+                nodes,
+                '首帧',
+                storyboard,
+              ),
             )
             proposed = { authorization, storyboard }
           } finally {
