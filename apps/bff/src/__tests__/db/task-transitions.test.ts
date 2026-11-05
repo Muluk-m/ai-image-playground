@@ -316,6 +316,14 @@ describe('gptSettledUsage', () => {
         { model: 'gpt-image-2.5-flare', request: premium, gptRoute: 'sub2api' },
       ),
     ).toEqual({ quantity: 1, unitMultiplier: 1 })
+    // 非会员的 2K 不是 sub2api 能兑现的档：落到 sub2api 同样按倍率 1 退差价。
+    expect(
+      gptSettledUsage(completed, {
+        model: 'gpt-image-2.5-flare',
+        request: { size: '2048x2048', quality: 'medium', n: 1 },
+        gptRoute: 'sub2api',
+      }),
+    ).toEqual({ quantity: 1, unitMultiplier: 1 })
   })
 
   it('keeps the frozen settlement when the order ran direct, was basic, failed or is another model', () => {

@@ -1164,7 +1164,7 @@ export async function quoteBatchPlan(
       generationQuotes.set(key, undefined)
       return undefined
     }
-    if (decision?.kind === 'unmetered') {
+    if (decision?.kind === 'unmetered' || !isCapabilityEnabled('billing:credits')) {
       const quote = {
         estimatedCredits: 0,
         pricing: nonBillingPriceSnapshot({ model, kind: 'image', quantity: 1, unitMultiplier }),

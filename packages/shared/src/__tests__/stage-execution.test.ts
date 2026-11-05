@@ -157,6 +157,21 @@ describe('stage execution quantity', () => {
     expect(
       resolveStageImageExecution({ model: ' workbench-image ', count: 4, storyboardRole: 'frame' }),
     ).toEqual({ model: 'workbench-image', quantity: 1, unitMultiplier: 1 })
+    expect(
+      resolveStageImageExecution({
+        model: 'gpt-image-2.5-flare',
+        count: 2,
+        size: '2560x1440',
+        quality: 'medium',
+      }),
+    ).toEqual({ model: 'gpt-image-2.5-flare', quantity: 2, unitMultiplier: 2 })
+    expect(
+      resolveStageImageExecution({
+        model: 'gpt-image-2.5-flare',
+        size: '3840x2160',
+        quality: 'high',
+      }),
+    ).toMatchObject({ unitMultiplier: 2 })
     expect(resolveStageImageExecution({ model: '' })).toBeUndefined()
   })
 
@@ -180,7 +195,8 @@ describe('stage execution quantity', () => {
         size: '2048x2048',
         quality: 'high',
       }),
-    ).toEqual({ model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 1 })
+    ).toEqual({ model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 2 })
+    // 非会员上限 ≤2K：2K 高画质收到 2K medium，倍率 2。
     expect(
       resolveStageImageExecution({
         model: 'gemini-nano-banana-2.1',
