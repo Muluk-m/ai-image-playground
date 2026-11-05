@@ -25,12 +25,17 @@ describe('gif sprite limit', () => {
     expect(gifSpriteExceedsLimit(768, 768, 6)).toBe(false)
   })
 
-  it('accepts the product sizes through 16 frames', () => {
-    for (const edge of [512, 768]) {
-      for (const frames of [4, 6, 9, 12, 16]) {
-        expect(gifSpriteExceedsLimit(edge, edge, frames)).toBe(false)
-      }
+  it('accepts 768×12 and 512×16, but rejects a fourth 768px sprite row', () => {
+    expect(gifSpriteExceedsLimit(768, 768, 12)).toBe(false)
+    expect(gifSpriteExceedsLimit(512, 512, 16)).toBe(false)
+    for (const frames of [13, 14, 15, 16]) {
+      expect(gifSpriteExceedsLimit(768, 768, frames)).toBe(true)
     }
+  })
+
+  it('counts empty sprite cells and both frame dimensions in the pixel budget', () => {
+    expect(gifSpriteExceedsLimit(736, 736, 13)).toBe(true)
+    expect(gifSpriteExceedsLimit(768, 512, 16)).toBe(false)
   })
 })
 
@@ -119,6 +124,8 @@ describe('gpt image 2.6 rejection', () => {
     expect(gptImage26Rejection(FLARE, { size: '1024x1024' }, false)).toBe('unavailable')
     expect(gptImage26Rejection(FLARE, gif, true)).toBe(null)
     expect(gptImage26Rejection(FLARE, { ...gif, size: '1024x1024' }, true)).toBe('gif_sprite')
+    expect(gptImage26Rejection(FLARE, { ...gif, frame_count: 16 }, true)).toBe('gif_sprite')
+    expect(gptImage26Rejection(FLARE, { ...gif, frame_count: 12 }, true)).toBe(null)
     expect(gptImage26Rejection(FLARE, { ...gif, frame_count: 64 }, true)).toBe('gif_frames')
     expect(gptImage26Rejection(FLARE, { ...gif, n: 2 }, true)).toBe('gif_count')
     expect(gptImage26Rejection(FLARE, { ...gif, input_images: ['a'] }, true)).toBe('gif_edit')

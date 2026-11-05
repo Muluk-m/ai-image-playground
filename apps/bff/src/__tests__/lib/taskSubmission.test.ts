@@ -96,6 +96,49 @@ it('denies ended subscriptions before creating a task or hold', async () => {
   expect(await db.select().from(schema.tasks)).toHaveLength(0)
 })
 
+it('rejects a 768×16 GIF before creating a task or invoking billing', async () => {
+  const enabled = config.gptImage26.enabled
+  const apiKey = config.gptDirect.apiKey
+  config.gptImage26.enabled = true
+  config.gptDirect.apiKey = 'gif-test-key'
+  let billingCalled = false
+  _setPrivateBffOverlayForTesting({
+    ...EMPTY_PRIVATE_BFF_OVERLAY,
+    present: true,
+    taskHooks: {
+      ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
+      canSubmitTask: async () => {
+        billingCalled = true
+        return true
+      },
+    },
+  })
+  try {
+    const result = await createQueueTask({
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-flare',
+      userId: null,
+      request: {
+        prompt: 'A bouncing ball',
+        device_id: 'gif-limit',
+        output_format: 'gif',
+        size: '768x768',
+        frame_count: 16,
+        frame_duration_ms: 300,
+        quality: 'medium',
+        n: 1,
+      },
+    })
+    expect(result.kind).toBe('invalid_image_request')
+    expect(billingCalled).toBe(false)
+    expect(await db.select().from(schema.tasks)).toEqual([])
+  } finally {
+    config.gptImage26.enabled = enabled
+    config.gptDirect.apiKey = apiKey
+    _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
+  }
+})
+
 it('denies 4K by default when the private billing hook is missing', async () => {
   await ensureBillingUser()
   _setPrivateBffOverlayForTesting({ ...EMPTY_PRIVATE_BFF_OVERLAY, present: true })

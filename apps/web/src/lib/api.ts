@@ -1,4 +1,10 @@
-import { applyPromptRewriteGuard, buildAspectInstruction } from '@image-playground/shared'
+import {
+  applyPromptRewriteGuard,
+  buildAspectInstruction,
+  gifSpriteExceedsLimit,
+  isGptImage26Model,
+  parseImageSize,
+} from '@image-playground/shared'
 import { i18next, UserFacingError } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from './apiProfiles'
 import { createMaskPreviewDataUrl } from './canvasImage'
@@ -84,6 +90,15 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   opts = prepared.opts
   const { profile } = prepared
   const channel = requireDispatchChannel(profile.channelId)
+  if (
+    isGptImage26Model(clientProfileToApiProfile(profile).model) &&
+    opts.params.output_format === 'gif'
+  ) {
+    const size = parseImageSize(opts.params.size)
+    if (!size || gifSpriteExceedsLimit(size.width, size.height, opts.params.frame_count ?? 6)) {
+      throw new UserFacingError(i18next.t('dispatch.gifSpriteLimit', { ns: 'lib' }))
+    }
+  }
 
   // 不支持原生 mask 的模型：把遮罩降级成「原图 + 高亮标注图 + prompt 指令」。
   // n>1 时上层已 fan-out 成多条 task，各自合成同一张标注图（输入相同、开销可接受），
