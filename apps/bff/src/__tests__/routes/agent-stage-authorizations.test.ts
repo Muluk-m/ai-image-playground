@@ -945,7 +945,7 @@ it('keeps the proposed spec, rejects a drifted confirmation, and expires an idle
   expect(await expireStaleStageAuthorizations()).toBe(0)
 })
 
-it('freezes the Gemini tier rate on the authorization and keeps prepared GPT at the basic rate', async () => {
+it('freezes the Gemini tier rate on the authorization and prices prepared GPT 2K high at the 2K medium rate', async () => {
   const nano = await fixture(['a'], undefined, undefined, {
     canvasImageModel: 'gemini-nano-banana-2.1',
     gemini_image_size: '2K',
@@ -991,7 +991,7 @@ it('freezes the Gemini tier rate on the authorization and keeps prepared GPT at 
     quality: 'high',
   })
   expect(gpt.specs).toEqual([
-    { nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 1 },
+    { nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 2 },
   ])
 })
 
