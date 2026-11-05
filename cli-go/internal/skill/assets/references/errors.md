@@ -7,7 +7,7 @@
 | `AUTH_DENIED` | User denied in the browser | Stop unless the user wants to retry |
 | `PLAN_REQUIRED` | The request (e.g. 4K) needs an active membership | Offer a smaller image size, or tell the user membership is required |
 | `INSUFFICIENT_CREDITS` | Not enough credits; `details.required`, `details.available` | Tell the user; do not retry |
-| `MAX_CREDITS_EXCEEDED` | Quote above `--max-credits`; `details.required` | Ask the user before raising the limit |
+| `MAX_CREDITS_EXCEEDED` | Quote above `--max-credits`; `details.required` | Report that the user's explicit credit limit was exceeded and stop; keep the limit |
 | `IDEMPOTENCY_CONFLICT` | Key reused with different parameters | Use a new key for a different request |
 | `INVALID_REQUEST` | Bad prompt, model, ratio, size, quality or reference | Read `message`/`details.available`, fix, retry |
 | `MODEL_UNAVAILABLE` | Model temporarily switched off | Pick another model from `capabilities` |
