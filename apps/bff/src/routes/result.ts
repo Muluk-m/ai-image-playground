@@ -179,6 +179,16 @@ async function serveOutput(
       )
     if (image?.key) {
       try {
+        // 图片整份读回。按对象大小做 Range 时，SVG 的 stat 会报成 1 字节，下载只剩一个 `<`，
+        // sandbox 响应头也加不上。视频才需要 Range。
+        if (!isSeekable(image.mime)) {
+          return mediaResponse(
+            await durableMediaStore().read(image.key),
+            image.mime,
+            'private, no-store',
+            null,
+          )
+        }
         return rangeStreamResponse(
           await durableMediaStore().open(image.key),
           image.mime,
