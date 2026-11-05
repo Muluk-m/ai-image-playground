@@ -193,7 +193,7 @@ describe('LoginMethodsPanel', () => {
     })
     vi.stubGlobal('fetch', fetcher)
     await render()
-    expect(document.body.textContent).toContain('已连接的 CLI')
+    expect(document.body.textContent).toContain('已连接的插件')
     expect(document.body.textContent).toContain('Laptop CLI')
     expect(document.body.textContent).toContain('尚未使用')
     expect(document.body.textContent).toContain('最近使用')
@@ -246,7 +246,7 @@ describe('LoginMethodsPanel', () => {
     expect(document.body.textContent).toContain('Laptop CLI')
     await clickButton('撤销连接')
     expect(mutations).toBe(2)
-    expect(document.body.textContent).toContain('暂无已连接的 CLI')
+    expect(document.body.textContent).toContain('暂无已连接的插件')
   })
 
   it('retries connection loading without replacing the account settings form', async () => {
@@ -268,7 +268,7 @@ describe('LoginMethodsPanel', () => {
     const refresh = document.body.querySelector<HTMLButtonElement>('button[aria-label="刷新连接"]')
     if (!refresh) throw new Error('Missing refresh action')
     await act(async () => refresh.click())
-    expect(document.body.textContent).toContain('暂无已连接的 CLI')
+    expect(document.body.textContent).toContain('暂无已连接的插件')
     expect(document.body.textContent).not.toContain('暂时无法读取连接，请重试。')
   })
 
@@ -283,7 +283,7 @@ describe('LoginMethodsPanel', () => {
       }),
     )
     await render()
-    expect(document.body.textContent).not.toContain('已连接的 CLI')
+    expect(document.body.textContent).not.toContain('已连接的插件')
     expect(buttonLabels()).toContain('更新密码')
   })
 
@@ -298,7 +298,7 @@ describe('LoginMethodsPanel', () => {
       }),
     )
     await render()
-    expect(document.body.textContent).toContain('已连接的 CLI')
+    expect(document.body.textContent).toContain('已连接的插件')
     expect(document.body.textContent).toContain('暂时无法读取连接，请重试。')
     expect(buttonLabels()).toContain('更新密码')
   })
@@ -355,7 +355,7 @@ describe('LoginMethodsPanel', () => {
     expect(document.body.textContent).toContain('New account CLI')
     await render(null)
     expect(document.body.textContent).not.toContain('New account CLI')
-    expect(document.body.textContent).not.toContain('已连接的 CLI')
+    expect(document.body.textContent).not.toContain('已连接的插件')
   })
 })
 

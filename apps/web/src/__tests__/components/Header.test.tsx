@@ -115,7 +115,7 @@ describe('the header', () => {
     expect(host.querySelector('button')?.textContent).not.toBe('登录')
   })
 
-  it('exposes CLI connections as a first-class account action', async () => {
+  it('exposes plugin integrations as a first-class account action', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => Response.json({ connections: [] })),
@@ -125,9 +125,9 @@ describe('the header', () => {
     act(() => {
       host.querySelector<HTMLButtonElement>('[aria-label="打开个人账户"]')?.click()
     })
-    click('CLI 连接')
-    expect(document.body.textContent).toContain('管理通过命令行连接幕芽的设备')
-    await vi.waitFor(() => expect(document.body.textContent).toContain('暂无已连接的 CLI'))
+    click('插件集成')
+    expect(document.body.textContent).toContain('管理已连接的插件与设备')
+    await vi.waitFor(() => expect(document.body.textContent).toContain('暂无已连接的插件'))
   })
 
   it('顶栏没有横栏了：账号这一簇浮在右上角，不带品牌与导航', () => {
