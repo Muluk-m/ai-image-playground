@@ -23,7 +23,7 @@
 ## 发布链路
 
 1. 检出触发提交，确认不落后 main，执行公开 lint / typecheck / 完整测试与构建。
-2. 读取该提交的 `private.lock`，检查带 overlay 的 lint / typecheck；公开版与收费版生产构建都需通过 Chromium 首页/项目深链接启动检查，再由 Actions 构建 `test` 镜像并推 GHCR。
+2. 读取该提交的 `private.lock`，检查带 overlay 的 lint / typecheck；公开版与 muvloom 生产构建都需通过 Chromium 首页/项目深链接启动检查，再由 Actions 构建 `test` 镜像并推 GHCR。
 3. SSH receiver 接受 `deploy <release-id> test <run-id>`，digest 校验后只向 `image-playground-test` 发布。复用迁移、依赖检查、不可变运行时和排空协议；VPS 不构建。
 4. API `/health` 返回公开 SHA + overlay SHA 后，才构建同一对提交的测试前端；最终 `dist` 通过浏览器启动检查后才上传，上传后再验证测试域名的首页与项目深链接。
 5. 核验线上 `version.json`、TLS、CORS、登录、授权媒体与一次真实生成。
