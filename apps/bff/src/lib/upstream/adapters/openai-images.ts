@@ -62,10 +62,13 @@ function planImages(
 
   if (editing) {
     const unit = count === 1 ? request : withoutImageCount(request)
+    // multipart 体按需构造：派发走 freshBody，这里不预先解码 count 份参考图占着内存。
     const makeCall = (): UpstreamCall => ({
       method: 'POST',
       path: '/images/edits',
-      body: buildOpenAIEditFormData(model, unit),
+      get body() {
+        return buildOpenAIEditFormData(model, unit)
+      },
       multipart: true,
       images: 1,
     })
