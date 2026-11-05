@@ -94,7 +94,10 @@ describe('admin direct keys', () => {
     ).json()
     const ids = second.keys.map((key: { id: string }) => key.id)
     const reordered = await (
-      await request('/internal/admin/gpt-direct/keys/order', 'POST', { ids: [ids[1], ids[0]] })
+      await request('/internal/admin/gpt-direct/keys/order', 'POST', {
+        ids: [ids[1], ids[0]],
+        revision: second.revision,
+      })
     ).json()
     expect(reordered.keys.map((key: { label: string }) => key.label.slice(-4))).toEqual([
       'eeee',

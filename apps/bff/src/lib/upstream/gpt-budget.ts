@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { imageSizeTier } from '@image-playground/shared'
 import { and, eq, gte, isNull, or, sql } from 'drizzle-orm'
 import { config } from '../../config'
@@ -106,14 +107,25 @@ export function _resetDirectBudgetCacheForTesting(): void {
   spentCache = new Map()
 }
 
+function forgetSpent(fingerprint?: string): void {
+  if (!fingerprint) {
+    spentCache.clear()
+    return
+  }
+  for (const key of [...spentCache.keys()]) {
+    if (key === '*' || key.startsWith(`${fingerprint}:`)) spentCache.delete(key)
+  }
+}
+
 async function spentSince(
   monthStart: number,
   now: number,
   cacheKey: string,
   fingerprint?: { value: string; includeUnattributed: boolean },
+  fresh = false,
 ): Promise<number> {
   const cached = spentCache.get(cacheKey)
-  if (cached && cached.monthStart === monthStart && now - cached.at < SPENT_CACHE_MS)
+  if (!fresh && cached && cached.monthStart === monthStart && now - cached.at < SPENT_CACHE_MS)
     return cached.micro
   const window = gte(schema.gpt_direct_usage.created_at, monthStart)
   const where = fingerprint
@@ -131,7 +143,19 @@ async function spentSince(
     .select({ micro: sql<string | null>`sum(${schema.gpt_direct_usage.cost_micro_usd})` })
     .from(schema.gpt_direct_usage)
     .where(where)
-  const micro = Number(row?.micro ?? 0)
+  let micro = Number(row?.micro ?? 0)
+  if (fingerprint) {
+    const [held] = await db
+      .select({ micro: sql<string | null>`sum(${schema.gpt_direct_budget_holds.micro_usd})` })
+      .from(schema.gpt_direct_budget_holds)
+      .where(
+        and(
+          eq(schema.gpt_direct_budget_holds.fingerprint, fingerprint.value),
+          eq(schema.gpt_direct_budget_holds.month_start, monthStart),
+        ),
+      )
+    micro += Number(held?.micro ?? 0)
+  }
   spentCache.set(cacheKey, { monthStart, at: now, micro })
   return micro
 }
@@ -148,11 +172,78 @@ export async function directKeySpent(
   fingerprint: string,
   includeUnattributed: boolean,
   now = Date.now(),
+  fresh = false,
 ): Promise<number> {
-  return spentSince(budgetMonthStart(now), now, `${fingerprint}:${includeUnattributed ? 1 : 0}`, {
-    value: fingerprint,
-    includeUnattributed,
+  return spentSince(
+    budgetMonthStart(now),
+    now,
+    `${fingerprint}:${includeUnattributed ? 1 : 0}`,
+    { value: fingerprint, includeUnattributed },
+    fresh,
+  )
+}
+
+/**
+ * 在共享库里预占这次估算。别的 worker 要等这把锁，读到的余额含未完成的预占。
+ * 装不下就返回 null，调用方换下一把。
+ */
+export async function reserveDirectBudget(input: {
+  fingerprint: string
+  includeUnattributed: boolean
+  estimateMicroUsd: number
+  capMicroUsd: number
+  now?: number
+}): Promise<string | null> {
+  const now = input.now ?? Date.now()
+  const monthStart = budgetMonthStart(now)
+  const id = randomUUID()
+  const reserved = await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${`gpt-direct-budget:${input.fingerprint}`}))`,
+    )
+    const usageWhere = and(
+      gte(schema.gpt_direct_usage.created_at, monthStart),
+      input.includeUnattributed
+        ? or(
+            eq(schema.gpt_direct_usage.key_fingerprint, input.fingerprint),
+            isNull(schema.gpt_direct_usage.key_fingerprint),
+          )
+        : eq(schema.gpt_direct_usage.key_fingerprint, input.fingerprint),
+    )
+    const [spentRow] = await tx
+      .select({ micro: sql<string | null>`sum(${schema.gpt_direct_usage.cost_micro_usd})` })
+      .from(schema.gpt_direct_usage)
+      .where(usageWhere)
+    const [heldRow] = await tx
+      .select({ micro: sql<string | null>`sum(${schema.gpt_direct_budget_holds.micro_usd})` })
+      .from(schema.gpt_direct_budget_holds)
+      .where(
+        and(
+          eq(schema.gpt_direct_budget_holds.fingerprint, input.fingerprint),
+          eq(schema.gpt_direct_budget_holds.month_start, monthStart),
+        ),
+      )
+    const used = Number(spentRow?.micro ?? 0) + Number(heldRow?.micro ?? 0)
+    if (used + input.estimateMicroUsd > input.capMicroUsd) return null
+    await tx.insert(schema.gpt_direct_budget_holds).values({
+      id,
+      fingerprint: input.fingerprint,
+      month_start: monthStart,
+      micro_usd: input.estimateMicroUsd,
+      created_at: now,
+    })
+    return id
   })
+  forgetSpent(input.fingerprint)
+  return reserved
+}
+
+export async function releaseDirectReservation(id: string): Promise<void> {
+  const [row] = await db
+    .delete(schema.gpt_direct_budget_holds)
+    .where(eq(schema.gpt_direct_budget_holds.id, id))
+    .returning({ fingerprint: schema.gpt_direct_budget_holds.fingerprint })
+  if (row) forgetSpent(row.fingerprint)
 }
 
 /** 记一条直连请求的成本。写失败只记日志：成本记账不能让已出的图交付失败。 */
@@ -164,6 +255,8 @@ export async function recordDirectUsage(input: {
   images: number
   keyFingerprint?: string
   payload?: unknown
+  /** 预占还在时，和记账放进同一个事务，避免预占和实扣叠在一起。 */
+  reservationId?: string
 }): Promise<void> {
   const usage = input.payload === undefined ? null : readDirectUsage(input.payload)
   const cost = usage
@@ -171,20 +264,33 @@ export async function recordDirectUsage(input: {
     : estimateDirectCostMicroUsd(input.size, input.quality, input.images)
   const now = Date.now()
   try {
-    await db.insert(schema.gpt_direct_usage).values({
-      id: crypto.randomUUID(),
-      task_id: input.taskId ?? null,
-      model: input.model,
-      size: input.size ?? null,
-      quality: input.quality ?? null,
-      images: input.images,
-      input_tokens: usage ? usage.inputTextTokens + usage.inputImageTokens : null,
-      output_tokens: usage ? usage.outputTokens : null,
-      cost_micro_usd: cost,
-      estimated: !usage,
-      key_fingerprint: input.keyFingerprint ?? null,
-      created_at: now,
+    await db.transaction(async (tx) => {
+      if (input.images > 0 && cost > 0) {
+        await tx.insert(schema.gpt_direct_usage).values({
+          id: randomUUID(),
+          task_id: input.taskId ?? null,
+          model: input.model,
+          size: input.size ?? null,
+          quality: input.quality ?? null,
+          images: input.images,
+          input_tokens: usage ? usage.inputTextTokens + usage.inputImageTokens : null,
+          output_tokens: usage ? usage.outputTokens : null,
+          cost_micro_usd: cost,
+          estimated: !usage,
+          key_fingerprint: input.keyFingerprint ?? null,
+          created_at: now,
+        })
+      }
+      if (input.reservationId) {
+        await tx
+          .delete(schema.gpt_direct_budget_holds)
+          .where(eq(schema.gpt_direct_budget_holds.id, input.reservationId))
+      }
     })
+    if (input.reservationId) {
+      forgetSpent(input.keyFingerprint)
+      return
+    }
     const monthStart = budgetMonthStart(now)
     for (const [key, entry] of spentCache) {
       if (entry.monthStart !== monthStart) continue
@@ -195,6 +301,8 @@ export async function recordDirectUsage(input: {
       if (counts) entry.micro += cost
     }
   } catch (err) {
+    if (input.reservationId)
+      await releaseDirectReservation(input.reservationId).catch(() => undefined)
     log.warn(
       { event: 'gpt.direct_usage_record_failed', err, model: input.model, cost },
       'direct usage record failed',

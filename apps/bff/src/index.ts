@@ -21,6 +21,7 @@ import { runPeriodicSteps, startPeriodicSteps } from './lib/periodic'
 import { purgeExpiredAttachmentMedia } from './lib/projectMedia'
 import { startServerLogs } from './lib/server-logs'
 import { refreshGptDirectKeys } from './lib/upstream/gpt-direct-admin'
+import { logFingerprintMacSourceOnce } from './lib/upstream/gpt-key-config'
 import { refreshUpstreamSecrets, UPSTREAM_SECRET_REFRESH_MS } from './lib/upstream-secrets'
 
 const stopServerLogs = startServerLogs()
@@ -59,6 +60,7 @@ const agentEnabled = isCapabilityEnabled('agent:chat')
 // 能力目录在导入时按 schema 校验，不合法会在这里之前就抛错，进程起不来。
 log.info({ event: 'model_catalog.loaded', count: MODEL_CATALOG.length }, 'model catalog validated')
 
+logFingerprintMacSourceOnce()
 await Promise.all([refreshUpstreamSecrets(), refreshGptDirectKeys()]).catch((error) =>
   log.error(
     {

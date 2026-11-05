@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS "gpt_direct_key_state" (
 CREATE TABLE IF NOT EXISTS "gpt_direct_admin_keys" (
 	"id" text PRIMARY KEY NOT NULL,
 	"ordinal" integer NOT NULL,
+	"fingerprint" text NOT NULL,
 	"budget_usd" integer NOT NULL,
 	"enabled" boolean DEFAULT true NOT NULL,
 	"nonce" text NOT NULL,
@@ -28,5 +29,17 @@ CREATE TABLE IF NOT EXISTS "gpt_direct_admin_keys" (
 	"updated_at" timestamp with time zone NOT NULL,
 	"updated_by" text NOT NULL,
 	CONSTRAINT "gpt_direct_admin_keys_ordinal_check" CHECK ("ordinal" > 0),
-	CONSTRAINT "gpt_direct_admin_keys_budget_check" CHECK ("budget_usd" > 0)
+	CONSTRAINT "gpt_direct_admin_keys_budget_check" CHECK ("budget_usd" > 0),
+	CONSTRAINT "gpt_direct_admin_keys_fingerprint_key" UNIQUE ("fingerprint"),
+	CONSTRAINT "gpt_direct_admin_keys_ordinal_key" UNIQUE ("ordinal") DEFERRABLE INITIALLY DEFERRED
 );
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "gpt_direct_budget_holds" (
+	"id" text PRIMARY KEY NOT NULL,
+	"fingerprint" text NOT NULL,
+	"month_start" timestamp with time zone NOT NULL,
+	"micro_usd" bigint NOT NULL,
+	"created_at" timestamp with time zone NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_gpt_direct_budget_holds_key" ON "gpt_direct_budget_holds" USING btree ("fingerprint","month_start");

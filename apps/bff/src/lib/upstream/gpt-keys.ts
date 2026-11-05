@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { GptDirectAdminView, GptDirectKeyStatus } from '@image-playground/shared'
 import { gte, sql } from 'drizzle-orm'
 import { config } from '../../config'
@@ -5,12 +6,21 @@ import { db, schema } from '../../db/client'
 import { kickAppAlerts } from '../../ops/alert-kick'
 import { log } from '../logger'
 import { readMasterKey } from '../upstream-secrets'
-import { directKeySpent, directSpentThisMonth, keyBudgetCapMicroUsd } from './gpt-budget'
+import {
+  directKeySpent,
+  directSpentThisMonth,
+  keyBudgetCapMicroUsd,
+  releaseDirectReservation,
+  reserveDirectBudget,
+} from './gpt-budget'
 import {
   adminDirectKeys,
   configuredDirectKeys,
   type DirectKey,
   directKeySecrets,
+  displayDirectKeyError,
+  fingerprintMacSource,
+  noteDirectSizeDeliverable,
   scrubSecrets,
 } from './gpt-key-config'
 import { readOfficialDirectCosts } from './gpt-official-costs'
@@ -79,8 +89,9 @@ export function classifyDirectKeyFailure(error: unknown): DirectKeyFailure | nul
 function publicError(error: unknown): string {
   const { message, code, status } = errorText(error)
   return (
-    scrubSecrets(message || code || `HTTP ${status ?? ''}`, directKeySecrets()) ||
-    'upstream rejected the key'
+    displayDirectKeyError(
+      scrubSecrets(message || code || `HTTP ${status ?? ''}`, directKeySecrets()),
+    ) || 'upstream rejected the key'
   )
 }
 
@@ -89,12 +100,12 @@ async function loadKeyState(): Promise<Map<string, KeyStateRow>> {
   return new Map(rows.map((row) => [row.fingerprint, row]))
 }
 
-/** 按配置顺序挑第一把还能用的 key。读状态或预算失败就一张都不用，退回 sub2api。 */
-export async function selectDirectKey(input: {
+async function walkDirectKeys(input: {
   estimateMicroUsd: number
   exclude?: ReadonlySet<string>
   now?: number
-}): Promise<DirectKey | null> {
+  reserve?: boolean
+}): Promise<{ key: DirectKey; reservationId: string | null } | null> {
   const now = input.now ?? Date.now()
   let keys: DirectKey[]
   try {
@@ -103,7 +114,10 @@ export async function selectDirectKey(input: {
     log.warn({ event: 'gpt.direct_keys_invalid', err }, 'openai direct key config is invalid')
     return null
   }
-  if (keys.length === 0) return null
+  if (keys.length === 0) {
+    if (!input.exclude?.size) noteDirectSizeDeliverable(false)
+    return null
+  }
   let state: Map<string, KeyStateRow>
   try {
     state = await loadKeyState()
@@ -116,9 +130,22 @@ export async function selectDirectKey(input: {
     const row = state.get(key.fingerprint)
     if (row?.disabled_reason) continue
     if (row?.cooldown_until && row.cooldown_until > now) continue
+    const cap = keyBudgetCapMicroUsd(key.budgetUsd)
     try {
-      const spent = await directKeySpent(key.fingerprint, key.ordinal === 1, now)
-      if (spent + input.estimateMicroUsd > keyBudgetCapMicroUsd(key.budgetUsd)) continue
+      if (input.reserve) {
+        const reservationId = await reserveDirectBudget({
+          fingerprint: key.fingerprint,
+          includeUnattributed: key.ordinal === 1,
+          estimateMicroUsd: input.estimateMicroUsd,
+          capMicroUsd: cap,
+          now,
+        })
+        if (!reservationId) continue
+        if (!input.exclude?.size) noteDirectSizeDeliverable(true)
+        return { key, reservationId }
+      }
+      const spent = await directKeySpent(key.fingerprint, key.ordinal === 1, now, true)
+      if (spent + input.estimateMicroUsd > cap) continue
     } catch (err) {
       log.warn(
         { event: 'gpt.direct_budget_read_failed', err, fingerprint: key.label },
@@ -126,9 +153,36 @@ export async function selectDirectKey(input: {
       )
       return null
     }
-    return key
+    if (!input.exclude?.size) noteDirectSizeDeliverable(true)
+    return { key, reservationId: null }
   }
+  if (!input.exclude?.size) noteDirectSizeDeliverable(false)
   return null
+}
+
+/** 按配置顺序挑第一把还能用的 key。读状态或预算失败就一张都不用，退回 sub2api。 */
+export async function selectDirectKey(input: {
+  estimateMicroUsd: number
+  exclude?: ReadonlySet<string>
+  now?: number
+}): Promise<DirectKey | null> {
+  const picked = await walkDirectKeys(input)
+  return picked?.key ?? null
+}
+
+/** 选中并预占估算额度。调用方必须记账或释放。 */
+export async function reserveDirectKey(input: {
+  estimateMicroUsd: number
+  exclude?: ReadonlySet<string>
+  now?: number
+}): Promise<{ key: DirectKey; reservationId: string } | null> {
+  const picked = await walkDirectKeys({ ...input, reserve: true })
+  if (!picked?.reservationId) return null
+  return { key: picked.key, reservationId: picked.reservationId }
+}
+
+export async function releaseDirectKeyReservation(id: string): Promise<void> {
+  await releaseDirectReservation(id)
 }
 
 async function writeKeyState(
@@ -256,7 +310,7 @@ export async function restoreDirectKey(fingerprint: string, operator?: string): 
         set: { disabled_reason: null, cooldown_until: null, updated_at: now },
       })
     await tx.insert(schema.operator_audits).values({
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       operator_id: operatorId,
       action: 'gpt_direct_key.restore',
       target_type: 'gpt_direct_key',
@@ -327,10 +381,11 @@ export async function directKeyPanel(days: 7 | 30, now = Date.now()): Promise<Gp
       source: key.id ? ('admin' as const) : ('env' as const),
       status: statusOf(key, row, spent, cap, now),
       disabled_reason: row?.disabled_reason ?? null,
+      budget_usd: key.budgetUsd,
       budget_micro_usd: cap,
       spent_micro_usd: spent,
       cooldown_until: row?.cooldown_until ?? null,
-      last_error: row?.last_error ?? null,
+      last_error: displayDirectKeyError(row?.last_error ?? null),
       last_error_at: row?.last_error_at ?? null,
     })
   }
@@ -354,11 +409,16 @@ export async function directKeyPanel(days: 7 | 30, now = Date.now()): Promise<Gp
   )
   const master = readMasterKey()
   const source = adminDirectKeys() === null ? 'env' : 'admin'
+  const revisionRows = await db
+    .select({ updated_at: schema.gpt_direct_admin_keys.updated_at })
+    .from(schema.gpt_direct_admin_keys)
   return {
     generated_at: now,
     currency_note: 'usage',
     days,
     source,
+    revision: revisionRows.reduce((max, row) => Math.max(max, row.updated_at), 0),
+    fingerprint_mac_source: fingerprintMacSource(),
     writable: master.ok,
     disabled_reason: master.ok ? null : master.reason,
     keys: views,
@@ -376,18 +436,26 @@ export async function directKeyPanel(days: 7 | 30, now = Date.now()): Promise<Gp
 
 /** 告警轮询用：当前仍停用的密钥。标签来自配置，库里只有指纹。 */
 export async function disabledDirectKeys(): Promise<
-  Array<{ label: string; reason: 'quota' | 'invalid' }>
+  Array<{ fingerprint: string; label: string; reason: 'quota' | 'invalid' }>
 > {
-  const labels = new Map(configuredDirectKeys().map((key) => [key.fingerprint, key.label]))
+  let labels: Map<string, string>
+  try {
+    labels = new Map(configuredDirectKeys().map((key) => [key.fingerprint, key.label]))
+  } catch (err) {
+    log.warn({ event: 'gpt.direct_keys_invalid', err }, 'openai direct key config is invalid')
+    return []
+  }
   const rows = await db
     .select({
       fingerprint: schema.gpt_direct_key_state.fingerprint,
       disabled_reason: schema.gpt_direct_key_state.disabled_reason,
     })
     .from(schema.gpt_direct_key_state)
-  return rows.flatMap((row) =>
-    row.disabled_reason === 'quota' || row.disabled_reason === 'invalid'
-      ? [{ label: labels.get(row.fingerprint) ?? row.fingerprint, reason: row.disabled_reason }]
-      : [],
-  )
+  return rows.flatMap((row) => {
+    const label = labels.get(row.fingerprint)
+    if (!label) return []
+    return row.disabled_reason === 'quota' || row.disabled_reason === 'invalid'
+      ? [{ fingerprint: row.fingerprint, label, reason: row.disabled_reason }]
+      : []
+  })
 }

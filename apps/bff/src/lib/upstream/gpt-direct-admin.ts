@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { asc, eq } from 'drizzle-orm'
+import { asc, eq, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { log } from '../logger'
 import {
@@ -9,13 +9,8 @@ import {
   sealSecret,
   UpstreamSecretError,
 } from '../upstream-secrets'
-import {
-  adminDirectKeys,
-  type DirectKey,
-  fingerprintOf,
-  noteDirectKeySnapshot,
-  resetAdminDirectKeySnapshot,
-} from './gpt-key-config'
+import { type DirectKey, fingerprintOf, noteDirectKeySnapshot } from './gpt-key-config'
+import { selectDirectKey } from './gpt-keys'
 
 /**
  * 后台「直连」页的密钥。加密、主密钥和刷新节奏与 upstream-secrets 相同，
@@ -43,21 +38,59 @@ function sealedRow(row: { nonce: string; tag: string; ciphertext: string }) {
   return { nonce: row.nonce, tag: row.tag, ciphertext: row.ciphertext }
 }
 
-async function hardDisabledFingerprints(): Promise<Set<string>> {
-  const states = await db
-    .select({
-      fingerprint: schema.gpt_direct_key_state.fingerprint,
-      disabled_reason: schema.gpt_direct_key_state.disabled_reason,
-    })
-    .from(schema.gpt_direct_key_state)
-  return new Set(states.flatMap((row) => (row.disabled_reason ? [row.fingerprint] : [])))
+let refreshRequested = 0
+let refreshChain: Promise<void> = Promise.resolve()
+
+/** 串行刷新。读到一半又有更新时，旧结果不写回快照。 */
+export function refreshGptDirectKeys(): Promise<void> {
+  const ticket = ++refreshRequested
+  const run = refreshChain.then(
+    () => refreshGptDirectKeysOnce(ticket),
+    () => refreshGptDirectKeysOnce(ticket),
+  )
+  refreshChain = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
+async function publishSnapshot(admin: DirectKey[] | null): Promise<void> {
+  noteDirectKeySnapshot({ admin, deliverable: false })
+  const probe = await selectDirectKey({ estimateMicroUsd: 1 })
+  if (probe) noteDirectKeySnapshot({ admin, deliverable: true })
 }
 
 /** 从库里重读。失败时留着上一份快照，避免一次查询失败把正在用的 key 丢掉。 */
-export async function refreshGptDirectKeys(): Promise<void> {
+async function refreshGptDirectKeysOnce(ticket: number): Promise<void> {
+  if (ticket !== refreshRequested) return
   const master = readMasterKey()
   if (!master.ok) {
-    resetAdminDirectKeySnapshot()
+    try {
+      const [row] = await db
+        .select({ id: schema.gpt_direct_admin_keys.id })
+        .from(schema.gpt_direct_admin_keys)
+        .limit(1)
+      if (ticket !== refreshRequested) return
+      if (row) {
+        log.warn(
+          { event: 'gpt.direct_admin_key_unavailable', reason: master.code },
+          'admin direct keys exist but the master key cannot open them',
+        )
+        noteDirectKeySnapshot({ admin: [], deliverable: false })
+        return
+      }
+      noteDirectKeySnapshot({ admin: null, deliverable: false })
+      await selectDirectKey({ estimateMicroUsd: 1 })
+    } catch (err) {
+      log.warn(
+        {
+          event: 'gpt.direct_admin_key_refresh_failed',
+          err: err instanceof Error ? err.name : 'error',
+        },
+        'admin direct key refresh failed',
+      )
+    }
     return
   }
   try {
@@ -65,9 +98,10 @@ export async function refreshGptDirectKeys(): Promise<void> {
       .select()
       .from(schema.gpt_direct_admin_keys)
       .orderBy(asc(schema.gpt_direct_admin_keys.ordinal))
-    const hardDisabled = await hardDisabledFingerprints()
+    if (ticket !== refreshRequested) return
     if (rows.length === 0) {
-      noteDirectKeySnapshot({ admin: null, hardDisabled })
+      noteDirectKeySnapshot({ admin: null, deliverable: false })
+      await selectDirectKey({ estimateMicroUsd: 1 })
       return
     }
     const keys: DirectKey[] = []
@@ -78,13 +112,18 @@ export async function refreshGptDirectKeys(): Promise<void> {
         ignored += 1
         continue
       }
+      const fingerprint = fingerprintOf(secret)
+      if (fingerprint.fingerprint !== row.fingerprint) {
+        ignored += 1
+        continue
+      }
       keys.push({
         id: row.id,
         ordinal: row.ordinal,
         secret,
         budgetUsd: row.budget_usd,
         enabled: row.enabled,
-        ...fingerprintOf(secret),
+        ...fingerprint,
       })
     }
     if (ignored > 0) {
@@ -93,7 +132,12 @@ export async function refreshGptDirectKeys(): Promise<void> {
         'some admin direct keys could not be decrypted',
       )
     }
-    noteDirectKeySnapshot({ admin: keys, hardDisabled })
+    if (ticket !== refreshRequested) return
+    if (keys.length === 0) {
+      noteDirectKeySnapshot({ admin: [], deliverable: false })
+      return
+    }
+    await publishSnapshot(keys)
   } catch (err) {
     log.warn(
       {
@@ -103,11 +147,6 @@ export async function refreshGptDirectKeys(): Promise<void> {
       'admin direct key refresh failed',
     )
   }
-}
-
-async function decryptedAdminKeys(): Promise<DirectKey[]> {
-  await refreshGptDirectKeys()
-  return adminDirectKeys() ?? []
 }
 
 function audit(
@@ -128,6 +167,11 @@ function audit(
   }
 }
 
+function uniqueViolation(error: unknown): boolean {
+  const errno = (error as { cause?: { errno?: unknown } } | null)?.cause?.errno
+  return String(errno ?? '') === '23505' || String(error).includes('23505')
+}
+
 export async function createGptDirectKey(input: {
   apiKey: unknown
   budgetUsd: unknown
@@ -135,40 +179,50 @@ export async function createGptDirectKey(input: {
 }): Promise<void> {
   const secret = assertSecretMaterial(input.apiKey)
   const budgetUsd = assertBudgetUsd(input.budgetUsd)
-  const existing = await decryptedAdminKeys()
   const fingerprint = fingerprintOf(secret)
-  if (existing.some((key) => key.fingerprint === fingerprint.fingerprint)) {
-    throw new UpstreamSecretError('duplicate_key', 409, '这把密钥已经在列表里')
-  }
   const id = randomUUID()
   const sealed = sealSecret(aad(id), secret)
   const now = Date.now()
   const operatorId = operatorIdOf(input.operatorId)
-  const ordinal = existing.reduce((max, key) => Math.max(max, key.ordinal), 0) + 1
-  await db.transaction(async (tx) => {
-    await tx.insert(schema.gpt_direct_admin_keys).values({
-      id,
-      ordinal,
-      budget_usd: budgetUsd,
-      enabled: true,
-      ...sealed,
-      updated_at: now,
-      updated_by: operatorId,
-    })
-    await tx.insert(schema.operator_audits).values(
-      audit(
-        operatorId,
-        'gpt_direct_key.create',
+  try {
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('gpt-direct-admin-keys'))`)
+      const [maxRow] = await tx
+        .select({
+          value: sql<number>`coalesce(max(${schema.gpt_direct_admin_keys.ordinal}), 0)`,
+        })
+        .from(schema.gpt_direct_admin_keys)
+      const ordinal = Number(maxRow?.value ?? 0) + 1
+      await tx.insert(schema.gpt_direct_admin_keys).values({
         id,
-        {
-          fingerprint: fingerprint.label,
-          ordinal,
-          budget_usd: budgetUsd,
-        },
-        now,
-      ),
-    )
-  })
+        ordinal,
+        fingerprint: fingerprint.fingerprint,
+        budget_usd: budgetUsd,
+        enabled: true,
+        ...sealed,
+        updated_at: now,
+        updated_by: operatorId,
+      })
+      await tx.insert(schema.operator_audits).values(
+        audit(
+          operatorId,
+          'gpt_direct_key.create',
+          id,
+          {
+            fingerprint: fingerprint.label,
+            ordinal,
+            budget_usd: budgetUsd,
+          },
+          now,
+        ),
+      )
+    })
+  } catch (error) {
+    if (uniqueViolation(error)) {
+      throw new UpstreamSecretError('duplicate_key', 409, '这把密钥已经在列表里')
+    }
+    throw error
+  }
   await refreshGptDirectKeys()
 }
 
@@ -222,22 +276,31 @@ export async function updateGptDirectKey(input: {
 
 export async function reorderGptDirectKeys(input: {
   ids: readonly string[]
+  revision: number
   operatorId: string | null
 }): Promise<void> {
-  const rows = await db
-    .select({ id: schema.gpt_direct_admin_keys.id })
-    .from(schema.gpt_direct_admin_keys)
-  const known = new Set(rows.map((row) => row.id))
-  if (
-    input.ids.length !== known.size ||
-    input.ids.some((id) => !known.has(id)) ||
-    new Set(input.ids).size !== input.ids.length
-  ) {
-    throw new UpstreamSecretError('invalid_order', 400, '顺序不完整')
-  }
   const now = Date.now()
   const operatorId = operatorIdOf(input.operatorId)
   await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('gpt-direct-admin-keys'))`)
+    const rows = await tx
+      .select({
+        id: schema.gpt_direct_admin_keys.id,
+        updated_at: schema.gpt_direct_admin_keys.updated_at,
+      })
+      .from(schema.gpt_direct_admin_keys)
+    const revision = rows.reduce((max, row) => Math.max(max, row.updated_at), 0)
+    if (revision !== input.revision) {
+      throw new UpstreamSecretError('stale_revision', 409, '顺序已变化')
+    }
+    const known = new Set(rows.map((row) => row.id))
+    if (
+      input.ids.length !== known.size ||
+      input.ids.some((id) => !known.has(id)) ||
+      new Set(input.ids).size !== input.ids.length
+    ) {
+      throw new UpstreamSecretError('invalid_order', 400, '顺序不完整')
+    }
     for (const [index, id] of input.ids.entries()) {
       await tx
         .update(schema.gpt_direct_admin_keys)

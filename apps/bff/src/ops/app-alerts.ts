@@ -350,11 +350,12 @@ export function createAppAlerting(options: AppAlertingOptions): (now?: number) =
     }
     pending = true
     try {
+      let roundNow = now
       do {
         again = false
         const missed = new Set<string>()
         const observation = await observeApp({
-          now,
+          now: roundNow,
           readBackups: options.readBackups,
           readRestoreDrill: options.readRestoreDrill,
           watchingModels: Object.keys(state.generationWatch ?? {}),
@@ -368,8 +369,9 @@ export function createAppAlerting(options: AppAlertingOptions): (now?: number) =
             blindBlocks: [...blindRounds].map(([block, rounds]) => ({ block, rounds })),
           },
           state,
-          now,
+          roundNow,
         )
+        roundNow = Date.now()
         if (result.messages.length > 0) await options.send(result.messages)
         state = result.state
       } while (again)

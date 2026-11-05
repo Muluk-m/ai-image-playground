@@ -529,6 +529,8 @@ export const gpt_direct_admin_keys = pgTable(
   {
     id: text('id').primaryKey(),
     ordinal: integer('ordinal').notNull(),
+    /** HMAC-SHA256 前 8 位。不存明文。 */
+    fingerprint: text('fingerprint').notNull(),
     budget_usd: integer('budget_usd').notNull(),
     enabled: boolean('enabled').notNull().default(true),
     nonce: text('nonce').notNull(),
@@ -538,9 +540,27 @@ export const gpt_direct_admin_keys = pgTable(
     updated_by: text('updated_by').notNull(),
   },
   (t) => [
+    unique('gpt_direct_admin_keys_fingerprint_key').on(t.fingerprint),
+    unique('gpt_direct_admin_keys_ordinal_key').on(t.ordinal),
     check('gpt_direct_admin_keys_ordinal_check', sql`${t.ordinal} > 0`),
     check('gpt_direct_admin_keys_budget_check', sql`${t.budget_usd} > 0`),
   ],
+)
+
+/**
+ * 选中一把直连 key 时预占的估算额度。请求结束要么计入 usage 并删掉，要么直接释放。
+ * 和 usage 一起算进月封顶，避免多个 worker 同时读到同一余额。
+ */
+export const gpt_direct_budget_holds = pgTable(
+  'gpt_direct_budget_holds',
+  {
+    id: text('id').primaryKey(),
+    fingerprint: text('fingerprint').notNull(),
+    month_start: epochMs('month_start').notNull(),
+    micro_usd: bigint('micro_usd', { mode: 'number' }).notNull(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [index('idx_gpt_direct_budget_holds_key').on(t.fingerprint, t.month_start)],
 )
 
 export type InspirationKind = 'showcase' | 'template' | 'skill'
