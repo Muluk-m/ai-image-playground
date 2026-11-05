@@ -261,6 +261,21 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     ])
   })
 
+  it('builds only paid and its sidecars for the active production runtime', () => {
+    writeFileSync(join(root, 'logged-in'), '')
+    const result = build('paid')
+    expect(result.status, result.stderr).toBe(0)
+    const rows = readFileSync(join(out, 'images.tsv'), 'utf8').trim().split('\n')
+    expect(rows.map((row) => row.split('\t')[0])).toEqual(['paid', 'backup', 'segmenter'])
+    const builds = calls().filter((call) => call.startsWith('buildx build'))
+    expect(builds).toHaveLength(3)
+    expect(builds.some((call) => call.includes(':internal-'))).toBe(false)
+    const paid = builds.find((call) => call.includes(`name=${repoName}:paid-`))
+    expect(paid).toContain('--build-arg PRIVATE_OVERLAY_PRESENT=true')
+    expect(paid).toContain(`--build-arg APP_VERSION=${pub}+${priv}`)
+    expect(paid).toContain(`--cache-to type=registry,ref=${repoName}:buildcache,mode=max`)
+  })
+
   it('builds the versioned segmenter only for production releases, never for test, with a layer cache of its own', () => {
     writeFileSync(join(root, 'logged-in'), '')
     expect(build('test').status).toBe(0)
