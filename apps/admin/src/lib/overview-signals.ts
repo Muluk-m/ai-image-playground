@@ -10,7 +10,7 @@ import type { Range } from '@/lib/search-params'
 import type { ClientErrorsResult, OpsSnapshot, OverviewResult } from '@/lib/types'
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'unknown'
-export type SignalLink = '/ops' | '/errors'
+export type SignalLink = '/ops' | '/errors' | '/tasks'
 
 export interface HealthTile {
   key: string
@@ -28,6 +28,7 @@ export interface AttentionItem {
   title: string
   detail?: string
   to?: SignalLink
+  search?: Record<string, string | number>
 }
 
 /**
@@ -358,6 +359,8 @@ export function attentionItems(input: SignalInput): AttentionItem[] {
       tone: 'warn',
       title: `${model.model} 失败率 ${percent(rate)}`,
       detail: `全站 ${percent(overall)} · ${model.failed} / ${terminal} 个任务失败`,
+      to: '/tasks',
+      search: { status: 'failed', model: model.model },
     })
   }
 
@@ -369,6 +372,8 @@ export function attentionItems(input: SignalInput): AttentionItem[] {
       tone: 'warn',
       title: `${failure.error_type} 失败比上期多 ${failure.count - failure.previous_count} 次`,
       detail: `本期 ${failure.count} 次 · 上期 ${failure.previous_count} 次`,
+      to: '/tasks',
+      search: { status: 'failed', errorTypes: failure.error_type },
     })
   }
 

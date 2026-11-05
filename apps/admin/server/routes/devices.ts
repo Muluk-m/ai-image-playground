@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia'
-import { parseRange, parseSort } from '../../contracts'
+import { parseRange, parseSort, parseTimeWindow } from '../../contracts'
 import { requireAuth } from '../lib/middleware'
 import { getDeviceDetail, listDevices } from '../lib/queries'
 
@@ -7,15 +7,37 @@ export const devicesRoutes = new Elysia()
   .use(requireAuth)
   .get(
     '/api/devices',
-    async ({ query }) => {
+    async ({ query, status }) => {
       const range = parseRange(query.range)
       const sort = parseSort(query.sort)
-      return await listDevices(range, sort)
+      const window =
+        query.from !== undefined || query.to !== undefined ? parseTimeWindow(query) : undefined
+      if ((query.from !== undefined || query.to !== undefined) && !window)
+        return status(400, { error: '无效的设备时间范围' })
+      const page = query.page === undefined ? undefined : Number(query.page)
+      const pageSize = query.pageSize === undefined ? undefined : Number(query.pageSize)
+      if (
+        (query.page !== undefined && (!Number.isInteger(page) || page! < 1)) ||
+        (query.pageSize !== undefined && pageSize !== 50 && pageSize !== 100)
+      )
+        return status(400, { error: '无效的分页' })
+      return await listDevices(range, sort, {
+        q: query.q?.trim() || undefined,
+        page,
+        pageSize: pageSize === 100 ? 100 : pageSize === 50 ? 50 : undefined,
+        from: window?.from,
+        to: window?.to,
+      })
     },
     {
       query: t.Object({
         range: t.Optional(t.String()),
         sort: t.Optional(t.String()),
+        q: t.Optional(t.String({ maxLength: 128 })),
+        from: t.Optional(t.String()),
+        to: t.Optional(t.String()),
+        page: t.Optional(t.String()),
+        pageSize: t.Optional(t.String()),
       }),
     },
   )
