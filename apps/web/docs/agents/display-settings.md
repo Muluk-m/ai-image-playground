@@ -95,9 +95,10 @@
 - 语言选择存 `localStorage` 的 `aip.locale`；没存过时按 `navigator.languages` 探测。
   切换时同步更新 `document.documentElement.lang`（`index.html` 里写死的 `zh-CN` 只是初值）。
 
-## 账户中的 CLI 连接
+## 账户中的插件集成
 
-头像菜单的「账户设置」继续使用 `auth/LoginMethodsPanel.tsx`，其中的
+用户看到的名称是「插件集成」（英文 Plugin integrations）。接口仍是 CLI 连接，目录仍在
+`features/cli/`。头像菜单的「账户设置」继续使用 `auth/LoginMethodsPanel.tsx`，其中的
 `features/cli/CliConnectionsSection.tsx` 通过 `authClient` 读取
 `GET /api/me/cli-connections`，展示客户端名称、连接时间与最近使用时间，按连接 ID 调用
 `DELETE /api/me/cli-connections/:id` 撤销。请求携带现有浏览器会话，不展示或存储 CLI token。

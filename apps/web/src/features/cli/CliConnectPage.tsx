@@ -9,10 +9,13 @@ import { Icon } from '../../components/ui/icon'
 import { i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
 import { copyTextToClipboard } from '../../lib/clipboardText'
 import { navigate } from '../../lib/pathname'
+import { cn } from '../../lib/utils'
 import CliConnectionsSection from './CliConnectionsSection'
 import {
+  CONNECT_AGENTS,
   type ConnectAgentId,
   type ConnectPlatform,
+  connectPromptKey,
   detectPlatform,
   INSTALL_COMMAND,
   manualCommands,
@@ -22,6 +25,22 @@ import {
 
 type CopyState = 'idle' | 'done' | 'failed'
 type Mode = 'prompt' | 'manual'
+
+const AGENT_LABEL = {
+  workbuddy: 'cliConnect.agent.workbuddy',
+  doubao: 'cliConnect.agent.doubao',
+  'claude-code': 'cliConnect.agent.claude-code',
+  codex: 'cliConnect.agent.codex',
+  other: 'cliConnect.agent.other',
+} as const satisfies Record<ConnectAgentId, `cliConnect.agent.${ConnectAgentId}`>
+
+/** 品牌标记来自 lobe-icons（MIT），见 public/connect-agents/NOTICE.txt。其他没有品牌标记。 */
+const AGENT_ICON: Partial<Record<ConnectAgentId, string>> = {
+  workbuddy: '/connect-agents/workbuddy.svg',
+  doubao: '/connect-agents/doubao.svg',
+  'claude-code': '/connect-agents/claude-code.svg',
+  codex: '/connect-agents/codex.svg',
+}
 
 /** 复制按钮：点一次出一次反馈，1.6 秒后复位。 */
 function useCopy() {
@@ -95,13 +114,13 @@ function CommandBlock({ lines }: { lines: string[] }) {
 }
 
 /**
- * CLI 接入页：选一个 Agent，复制一段话发给它，它装 CLI、装 Skill、发起授权；回到这里看已连接设备。
+ * 插件接入页：选一个宿主，复制一段话发给它，或自己执行安装与授权；回到这里看已连接设备。
  * 全程不替用户操作终端，也不读取任何凭据——授权仍走 `/device` 设备码页。
  */
 export default function CliConnectPage() {
   const { t } = useTranslation('auth')
   const user = useAuth().user
-  const [agent, setAgent] = useState<ConnectAgentId>('claude-code')
+  const [agent, setAgent] = useState<ConnectAgentId>('workbuddy')
   const [mode, setMode] = useState<Mode>('prompt')
   const [platform, setPlatform] = useState<ConnectPlatform>(() =>
     detectPlatform(typeof navigator === 'undefined' ? '' : navigator.userAgent),
@@ -115,12 +134,12 @@ export default function CliConnectPage() {
   const skill = skillInstallCommand(agent)
   const prompt = useMemo(
     () =>
-      t(skill ? 'cliConnect.prompt.withSkill' : 'cliConnect.prompt.noSkill', {
+      t(connectPromptKey(agent), {
         install: INSTALL_COMMAND[platform],
         path: SESSION_PATH[platform],
         skill: skill ?? '',
       }),
-    [t, skill, platform],
+    [t, agent, skill, platform],
   )
   const manual = useMemo(() => manualCommands(agent, platform), [agent, platform])
 
@@ -151,30 +170,41 @@ export default function CliConnectPage() {
           aria-label={t('cliConnect.setupAria')}
           className="space-y-6 rounded-3xl border border-border bg-card p-4 md:p-6"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <SegmentedTabs
-              label={t('cliConnect.agentAria')}
-              value={agent}
-              onChange={setAgent}
-              tabs={[
-                { value: 'claude-code', label: t('cliConnect.agent.claude-code') },
-                { value: 'codex', label: t('cliConnect.agent.codex') },
-                { value: 'other', label: t('cliConnect.agent.other') },
-              ]}
-            />
-            <SegmentedTabs
-              label={t('cliConnect.modeAria')}
-              value={mode}
-              onChange={setMode}
-              tabs={[
-                { value: 'prompt', label: t('cliConnect.mode.prompt') },
-                { value: 'manual', label: t('cliConnect.mode.manual') },
-              ]}
-            />
+          <div
+            role="group"
+            aria-label={t('cliConnect.agentAria')}
+            className="flex flex-wrap justify-center gap-2"
+          >
+            {CONNECT_AGENTS.map((id) => {
+              const selected = agent === id
+              const icon = AGENT_ICON[id]
+              return (
+                <Button
+                  key={id}
+                  type="button"
+                  variant="ghost"
+                  aria-pressed={selected}
+                  onClick={() => setAgent(id)}
+                  className={cn(
+                    'h-auto min-w-16 flex-col gap-1.5 rounded-2xl px-2 py-2 font-normal',
+                    selected
+                      ? 'bg-primary/15 text-primary hover:bg-primary/15 hover:text-primary'
+                      : 'text-muted-foreground',
+                  )}
+                >
+                  {icon ? (
+                    <img src={icon} alt="" width={36} height={36} className="size-9" />
+                  ) : (
+                    <Icon name="grid" size="lg" />
+                  )}
+                  {t(AGENT_LABEL[id])}
+                </Button>
+              )
+            })}
           </div>
 
-          <div className="grid gap-8 md:grid-cols-2 md:gap-0 md:divide-x md:divide-border">
-            <div className="space-y-4 md:pr-6">
+          <div className="space-y-8">
+            <div className="space-y-4">
               <StepHeading
                 index={1}
                 title={t(
@@ -186,16 +216,27 @@ export default function CliConnectPage() {
                   mode === 'prompt' ? 'cliConnect.step1.promptHint' : 'cliConnect.step1.manualHint',
                 )}
               />
-              <div className="flex items-center justify-between gap-3">
-                <SegmentedTabs
-                  label={t('cliConnect.platformAria')}
-                  value={platform}
-                  onChange={setPlatform}
-                  tabs={[
-                    { value: 'unix', label: t('cliConnect.platform.unix') },
-                    { value: 'windows', label: t('cliConnect.platform.windows') },
-                  ]}
-                />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <SegmentedTabs
+                    label={t('cliConnect.modeAria')}
+                    value={mode}
+                    onChange={setMode}
+                    tabs={[
+                      { value: 'prompt', label: t('cliConnect.mode.prompt') },
+                      { value: 'manual', label: t('cliConnect.mode.manual') },
+                    ]}
+                  />
+                  <SegmentedTabs
+                    label={t('cliConnect.platformAria')}
+                    value={platform}
+                    onChange={setPlatform}
+                    tabs={[
+                      { value: 'unix', label: t('cliConnect.platform.unix') },
+                      { value: 'windows', label: t('cliConnect.platform.windows') },
+                    ]}
+                  />
+                </div>
                 <CopyButton
                   text={mode === 'prompt' ? prompt : manual.join('\n')}
                   label={t(mode === 'prompt' ? 'cliConnect.copyPrompt' : 'cliConnect.copyCommands')}
@@ -213,7 +254,7 @@ export default function CliConnectPage() {
               )}
             </div>
 
-            <div className="space-y-4 md:pl-6">
+            <div className="space-y-4">
               <StepHeading
                 index={2}
                 title={t('cliConnect.step2.title')}
