@@ -348,7 +348,10 @@ describe('installWorkbenchNavigation', () => {
     await vi.waitFor(() => expect(location.pathname).toBe(`/p/${projectRouteSegment(project.id)}`))
   })
 
-  it.each([false, true])('drops pending canvas navigation after leaving (return: %s)', async (returnToPage) => {
+  it.each([
+    false,
+    true,
+  ])('drops pending canvas navigation after leaving (return: %s)', async (returnToPage) => {
     setClientStorageScope(crypto.randomUUID())
     const project = await projectRepository.create('Destination')
     cleanup = installWorkbenchNavigation()
