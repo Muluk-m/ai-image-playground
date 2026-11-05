@@ -5,10 +5,11 @@ All commands print exactly one JSON line on stdout: `{"schema_version":1,"ok":tr
 | Command | Purpose |
 | --- | --- |
 | `muvloom version` | CLI version and platform |
+| `muvloom update check` | Daily cached stable-release check; `should_prompt` controls offering an authorized upgrade |
 | `muvloom auth status` | `state`: ready / unauthenticated / outdated / unreachable; account, credits, membership, installed Skill |
 | `muvloom auth login [--no-wait] [--timeout S]` | Browser device login; `--no-wait` prints the link and returns |
 | `muvloom auth logout` | Revoke this CLI connection and forget it |
-| `muvloom capabilities` | Models, aspect ratios, image sizes, qualities, price per image, limits for this account |
+| `muvloom capabilities` | Models, aspect ratios, image sizes, qualities, base-price estimates, limits for this account |
 | `muvloom images validate --prompt T [flags]` | Optional request validation or a cost quote when the user asks; creates nothing |
 | `muvloom images create --prompt T [flags] [--max-credits N] [--idempotency-key K] [--wait S] [--download DIR]` | Submit one image |
 | `muvloom jobs get ID` / `jobs wait ID [--timeout S]` / `jobs cancel ID` | One job |
@@ -18,6 +19,11 @@ All commands print exactly one JSON line on stdout: `{"schema_version":1,"ok":tr
 | `muvloom skill install --host claude-code\|codex [--scope user\|project]` / `skill status` | This Skill |
 
 IDs: `job_id` is a generation task, `artifact_id` a generated image, `media_id` an uploaded reference image. They are not interchangeable.
+
+Capability prices are live backend base-unit prices (multiplier 1), not a final
+quote for every resolution or quality. When the user asks what a specific request
+will cost, use `images validate` with those exact flags; its quote includes the
+request's size/quality multiplier. Keep pricing internal unless the user asks.
 
 ## Exit codes
 
