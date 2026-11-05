@@ -21,6 +21,7 @@ import type { BffTransaction } from './private-overlay'
 import { lockMediaOwner, MediaError, storeMedia } from './projectMedia'
 import { isObject } from './type-guards'
 import { UpstreamResultUnknownError } from './upstream'
+import { receiptFields } from './upstream/adapters/platform'
 import { partialFailureField } from './upstream/partial'
 
 let transfers = 0
@@ -201,18 +202,6 @@ export function generationSourceCheckpoint(id: string, provider: QueueProvider, 
     ...(fallback ? { model_fallback: fallback } : {}),
     ...carried,
     ...receipt,
-  }
-}
-
-/** 适配器计划写上的生效参数。形状不对就当上游没有这个字段。 */
-function receiptFields(payload: unknown): {
-  applied?: Record<string, unknown>
-  dropped?: unknown[]
-} {
-  if (!isObject(payload)) return {}
-  return {
-    ...(isObject(payload.applied) ? { applied: payload.applied } : {}),
-    ...(Array.isArray(payload.dropped) ? { dropped: payload.dropped } : {}),
   }
 }
 
