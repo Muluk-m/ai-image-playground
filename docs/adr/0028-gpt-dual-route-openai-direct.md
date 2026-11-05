@@ -97,3 +97,6 @@ BFF 拆成多个单图任务。OpenAI 组织是 Tier 1（每模型 20 张/分钟
 - 每笔 `gpt_direct_usage` 带 `key_fingerprint`。上线前的空指纹行算进当前第一把，避免旧账丢失。
 - `OPENAI_ADMIN_KEY` 可选。配了之后后台再拉 OpenAI Costs API 对账；没配就隐藏。这把密钥不参与生图。
   面板上的花费是平台按 usage 估算的，不是 OpenAI 账户余额。
+- 后台「直连」页可以增删、改预算、排序、停用和恢复。密文用 `UPSTREAM_SECRETS_MASTER_KEY` 做
+  AES-256-GCM，和上游密钥替换同一套，明文不回显。后台有记录就只走这些；没有记录才退回环境变量。
+  worker 约每 2 秒重读，不用重启。

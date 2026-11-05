@@ -30,15 +30,33 @@ import type {
 
 export const ADMIN_REFRESH_EVENT = 'admin:refresh'
 
+export const gptDirectQueryKey = ['gpt-direct'] as const
+
 export function useGptDirect(days: 7 | 30) {
   return useQuery({
-    queryKey: ['gpt-direct', days],
+    queryKey: [...gptDirectQueryKey, days],
     queryFn: () => apiClient.get<GptDirectAdminView>(`/api/gpt-direct?days=${days}`),
   })
 }
 
+export function createGptDirectKey(body: { apiKey: string; budgetUsd: number }) {
+  return apiClient.post<GptDirectAdminView>('/api/gpt-direct/keys', body)
+}
+
+export function updateGptDirectKey(id: string, body: { budgetUsd?: number; enabled?: boolean }) {
+  return apiClient.patch<GptDirectAdminView>(`/api/gpt-direct/keys/${id}`, body)
+}
+
+export function reorderGptDirectKeys(ids: string[]) {
+  return apiClient.post<GptDirectAdminView>('/api/gpt-direct/keys/order', { ids })
+}
+
+export function deleteGptDirectKey(id: string) {
+  return apiClient.del<GptDirectAdminView>(`/api/gpt-direct/keys/${id}`)
+}
+
 export function restoreGptDirectKey(fingerprint: string) {
-  return apiClient.post<{ ok: true }>(`/api/gpt-direct/keys/${fingerprint}/restore`)
+  return apiClient.post<GptDirectAdminView>(`/api/gpt-direct/keys/${fingerprint}/restore`)
 }
 
 export function useDevices(range: Range, sort: SortKey) {
@@ -246,6 +264,48 @@ export function saveOperatorSetting(
   return apiClient.put<OperatorSettingsResult>(
     `/api/operator-settings/${encodeURIComponent(key)}`,
     body,
+  )
+}
+
+export const upstreamSecretsQueryKey = ['upstream-secrets'] as const
+
+export interface UpstreamSecretView {
+  id: 'openai_direct' | 'gemini' | 'vertex' | 'sub2api'
+  label: string
+  configured: boolean
+  source: 'admin' | 'env' | 'unset'
+  updatedAt: number | null
+  updatedBy: string | null
+}
+
+export interface UpstreamSecretsResult {
+  writable: boolean
+  disabledReason: string | null
+  warning: string | null
+  secrets: UpstreamSecretView[]
+}
+
+export function useUpstreamSecrets() {
+  return useQuery({
+    queryKey: upstreamSecretsQueryKey,
+    queryFn: () => apiClient.get<UpstreamSecretsResult>('/api/upstream-secrets'),
+  })
+}
+
+export function replaceUpstreamSecret(id: string, apiKey: string) {
+  return apiClient.put<UpstreamSecretsResult>(`/api/upstream-secrets/${encodeURIComponent(id)}`, {
+    apiKey,
+  })
+}
+
+export function clearUpstreamSecret(id: string) {
+  return apiClient.del<UpstreamSecretsResult>(`/api/upstream-secrets/${encodeURIComponent(id)}`)
+}
+
+export function testUpstreamSecret(id: string, apiKey: string) {
+  return apiClient.post<{ ok: boolean; httpStatus: number | null }>(
+    `/api/upstream-secrets/${encodeURIComponent(id)}/test`,
+    { apiKey },
   )
 }
 

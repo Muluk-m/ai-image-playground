@@ -26,7 +26,13 @@ const { _resetDirectBudgetCacheForTesting } = await import('../../lib/upstream/g
 const { _setDirectKeyAlertForTesting, directKeyPanel, restoreDirectKey } = await import(
   '../../lib/upstream/gpt-keys'
 )
-const { fingerprintOf, parseDirectKeyList } = await import('../../lib/upstream/gpt-key-config')
+const {
+  configuredDirectKeys,
+  fingerprintOf,
+  noteDirectKeySnapshot,
+  parseDirectKeyList,
+  resetAdminDirectKeySnapshot,
+} = await import('../../lib/upstream/gpt-key-config')
 const { _resetSub2apiBreakerForTesting } = await import('../../lib/upstream/gpt-routing')
 const { _setOfficialCostsFetchForTesting } = await import('../../lib/upstream/gpt-official-costs')
 const { schedulerBucketUsage } = await import('../../lib/upstream/scheduler')
@@ -103,6 +109,7 @@ let routes: string[] = []
 
 beforeEach(async () => {
   _setChannelsForTesting([])
+  resetAdminDirectKeySnapshot()
   _resetSub2apiBreakerForTesting()
   _resetDirectBudgetCacheForTesting()
   _setOfficialCostsFetchForTesting()
@@ -149,6 +156,30 @@ describe('config', () => {
     expect(primaryId.fingerprint).not.toBe(secondaryId.fingerprint)
     expect(primaryId.label).not.toContain(PRIMARY)
     expect(primaryId.label.endsWith('aaaa')).toBe(true)
+  })
+
+  it('uses admin keys when any are stored, and otherwise keeps the env list', () => {
+    const adminSecret = 'admin-key-cccc'
+    const admin = fingerprintOf(adminSecret)
+    noteDirectKeySnapshot({
+      admin: [
+        {
+          id: 'row-1',
+          ordinal: 1,
+          secret: adminSecret,
+          budgetUsd: 50,
+          enabled: true,
+          ...admin,
+        },
+      ],
+      hardDisabled: new Set(),
+    })
+    expect(configuredDirectKeys().map((key) => key.fingerprint)).toEqual([admin.fingerprint])
+    resetAdminDirectKeySnapshot()
+    expect(configuredDirectKeys()[0]?.fingerprint).toBe(primaryId.fingerprint)
+    expect(JSON.stringify(configuredDirectKeys().map((key) => key.label))).not.toContain(
+      adminSecret,
+    )
   })
 })
 

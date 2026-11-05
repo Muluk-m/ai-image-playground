@@ -49,6 +49,8 @@ import {
 } from '@image-playground/shared'
 import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
+import { gptDirectSizeEnabled } from './upstream/gpt-key-config'
+import { runtimeSecret } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
 
@@ -531,7 +533,22 @@ export function loadChannelsFromFile(filePath: string): ChannelsLoadResult {
   } catch (err) {
     throw new ChannelsLoadError(`failed to parse ${filePath}: ${(err as Error).message}`)
   }
-  return parseChannelsConfig(json, (k) => process.env[k])
+  const loaded = parseChannelsConfig(json, (k) => {
+    const fromEnv = process.env[k]?.trim() ?? ''
+    // 有没有密钥决定这条 channel 进不进清单；存进对象的仍是环境变量，请求时再盖上后台密钥。
+    // 这样清掉后台记录会回到环境变量，而不是留着上一次解析出来的后台值。
+    const value = runtimeSecret(k, fromEnv)
+    return value || undefined
+  })
+  const envSecret = (channel: InternalChannel): InternalChannel => ({
+    ...channel,
+    auth: { ...channel.auth, secret: process.env[channel.auth.secretRef]?.trim() ?? '' },
+  })
+  return {
+    ...loaded,
+    channels: loaded.channels.map(envSecret),
+    disabled: loaded.disabled.map(envSecret),
+  }
 }
 
 function isFileNotFoundError(err: unknown): boolean {
@@ -652,12 +669,10 @@ function queueProviderOf(kind: ChannelKind): QueueProvider {
 
 /**
  * GPT 直连模型的 `size` 只有 OpenAI 直连兑现得了（sub2api 丢弃 size）。直连没开（口径同 config.gptDirect：
- * GPT_DIRECT_ENABLED 且有 OPENAI_API_KEY 或 OPENAI_API_KEYS）时不声明它：前端退回只选比例、构图写进提示词，与直连上线前一致。
+ * GPT_DIRECT_ENABLED 且至少有一把可用直连密钥，含后台配置的）时不声明它：前端退回只选比例、构图写进提示词，与直连上线前一致。
  */
 function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
-  const directOn =
-    process.env.GPT_DIRECT_ENABLED?.trim().toLowerCase() === 'true' &&
-    Boolean(process.env.OPENAI_API_KEY?.trim() || process.env.OPENAI_API_KEYS?.trim())
+  const directOn = gptDirectSizeEnabled()
   if (directOn || !channel.models.some((model) => isGptDirectModel(model.id))) return channel
   return {
     ...channel,

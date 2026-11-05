@@ -205,8 +205,8 @@ export const config = {
   /**
    * GPT Image 的 OpenAI 直连通道（另一条是 UPSTREAM_BASE_URL 的 sub2api）。会员默认走直连，满了或不可用
    * 立刻切 sub2api；非会员走 sub2api，sub2api 熔断才借直连。见 lib/upstream/gpt-routing.ts。
-   * 只配 OPENAI_API_KEY 时就是一把，月预算用下面的 GPT_DIRECT_MONTHLY_BUDGET_USD。
-   * OPENAI_API_KEYS 配了就按顺序用那几把，每把的预算在 OPENAI_API_KEY_BUDGETS_USD。
+   * 后台「直连」页存了密钥就只用那些。一把都没存时，先用 OPENAI_API_KEYS，再退回
+   * OPENAI_API_KEY（含后台「上游密钥」里替换的那一把）和 GPT_DIRECT_MONTHLY_BUDGET_USD。
    * 没打开或一把密钥都没有时一律走 sub2api。
    */
   gptDirect: {

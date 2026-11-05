@@ -56,6 +56,7 @@ import {
   directAvailableNow,
   firstGptRoute,
   type GptRoute,
+  gptDirectApiKey,
   gptDirectConfigured,
   recordSub2apiOutcome,
   sub2apiBreakerOpen,
@@ -94,6 +95,7 @@ import {
   withVertexRateLimitRetry,
 } from './upstream/vertex'
 import { VIDEO_MIME, VIDEO_STYLE_SPECS } from './upstream/video'
+import { runtimeSecret } from './upstream-secret-cache'
 
 /*
  * 把排队任务发给上游：按 channel 路由、硬超时、计费回调、fan-out、异步任务的提交与恢复。
@@ -226,7 +228,7 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
     if (!declared) continue
     return {
       baseUrl: channel.baseUrl,
-      key: channel.auth.secret,
+      key: runtimeSecret(channel.auth.secretRef, channel.auth.secret),
       style,
       forceB64Json: provider === 'openai-compat' && channel.defaults.responseFormatB64Json === true,
       supportsModeration: declared.capabilities.includes('moderation'),
@@ -265,7 +267,7 @@ function directRoute(model: string, key?: DirectKey): UpstreamRoute {
   const chosen = key ?? configuredDirectKeys()[0]
   return {
     baseUrl: config.gptDirect.baseUrl,
-    key: chosen?.secret ?? config.gptDirect.apiKey,
+    key: chosen?.secret ?? gptDirectApiKey(),
     style: 'openai-images',
     forceB64Json: false,
     supportsModeration: true,
@@ -420,6 +422,14 @@ function requiresGptDirect(params: UpstreamCallParams): boolean {
  * 测试用：跳过选路，直接走 OpenAI 直连这一条（调度器配额、429 冷却照常生效）。
  * `nativeN: false` 模拟逐张 fan-out 的路径（直连的图生图不接受 n，就是这样发的）。
  */
+export function _resolveUpstreamForTesting(provider: QueueProvider, model: string): UpstreamRoute {
+  return resolveUpstream(provider, model)
+}
+
+export function _gptDirectRouteForTesting(model: string): UpstreamRoute {
+  return directRoute(model)
+}
+
 export function _callUpstreamDirectForTesting(
   params: UpstreamCallParams,
   { nativeN = true }: { nativeN?: boolean } = {},
