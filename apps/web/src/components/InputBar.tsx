@@ -1,8 +1,10 @@
 import {
   AGENT_USER_MESSAGE_MAX_CHARS,
+  gifSpriteExceedsLimit,
   isBlankPrompt,
   isGptDirectModel,
   isGptImage26Model,
+  parseImageSize,
   SYNC_PROMPT_MAX_LENGTH,
 } from '@image-playground/shared'
 import {
@@ -443,10 +445,16 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     : prompt.length
   const promptTooLong = promptLength > promptMax
   const showPromptCount = promptLength >= promptMax * 0.8
+  const gifSize = image26 && params.output_format === 'gif' ? parseImageSize(params.size) : null
+  const gifNotice =
+    !toCanvas && gifSize && gifSpriteExceedsLimit(gifSize.width, gifSize.height, params.frame_count ?? 6)
+      ? t('lib:dispatch.gifSpriteLimit')
+      : null
   const canSubmit = Boolean(
     (!promptBlank || activeLook) &&
       hasSubmitApiConfig &&
       !submissionGuard.blocked &&
+      !gifNotice &&
       (lookCheck?.ok ?? true) &&
       oversizedIndexes.length === 0 &&
       failedIndexes.length === 0 &&
@@ -468,7 +476,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
   const promptMissing = promptBlank && (toCanvas || !activeLook)
   const blockedByReferences = referenceNotice ?? (uploadsBlocked ? uploadProgress : null)
-  const submitBlockedTip = blockedByReferences
+  const submitBlockedTip = gifNotice ?? (blockedByReferences
     ? blockedByReferences
     : promptTooLong
       ? t('submit.promptTooLong', { max: promptMax.toLocaleString() })
@@ -478,9 +486,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           ? (submissionGuard.disabledReason ?? t('submit.noModel'))
           : promptMissing
             ? t('submit.promptRequired')
-            : null
+            : null)
   const submit = () => {
-    if (image26Unavailable || lookSubmitting || batchSendingRef.current) return
+    if (image26Unavailable || gifNotice || lookSubmitting || batchSendingRef.current) return
     if (toCanvas) {
       if (canvasSubmittingRef.current) return
       // 发的就是点击这一刻的草稿：重传期间用户再改文字或附件，这次就作罢，由他重新发送。
@@ -1742,9 +1750,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             mode={inline ? <HomeTargetPicker /> : undefined}
             status={
               // 参考区展开时原因句已在参考图上方，输入框下不再重复一遍。
-              referenceNotice && !(referencesExpanded && inputImages.length > 0) ? (
+              gifNotice || (referenceNotice && !(referencesExpanded && inputImages.length > 0)) ? (
                 <span role="alert" className="text-xs leading-snug text-destructive">
-                  {referenceNotice}
+                  {gifNotice ?? referenceNotice}
                 </span>
               ) : (
                 <>

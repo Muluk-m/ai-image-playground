@@ -64,6 +64,7 @@
     "bffDuplicateSubmit": "这次提交和之前的请求冲突，请重新提交"
   },
   "dispatch": {
+    "gifSpriteLimit": "动图拼图超出当前尺寸限制，请改为 768 × 768、最多 12 帧，或 512 × 512、最多 16 帧",
     "channelNotFound": "找不到所选模型，请换其他模型",
     "channelsUnavailable": "平台渠道暂时连不上，正在重试",
     "unsupportedModel": "当前模型暂不支持，请换其他模型",
