@@ -1,7 +1,7 @@
 import type { InspirationAdminItem } from '@image-playground/shared'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { Boxes, Search, Sparkles, User } from 'lucide-react'
+import { Boxes, MonitorSmartphone, Search, Sparkles, User } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { NAV_GROUPS, type NavTo } from '@/components/AppSidebar'
@@ -16,9 +16,23 @@ type PaletteItem =
   | { kind: 'module'; id: string; label: string; hint: string; to: NavTo }
   | { kind: 'user'; id: string; label: string; hint: string }
   | { kind: 'inspiration'; id: string; label: string; hint: string }
+  | { kind: 'task'; id: string; label: string; hint: string }
+  | { kind: 'device'; id: string; label: string; hint: string }
 
-const KIND_ICON = { module: Boxes, user: User, inspiration: Sparkles }
-const KIND_LABEL = { module: '模块', user: '用户', inspiration: '灵感' }
+const KIND_ICON = {
+  module: Boxes,
+  user: User,
+  inspiration: Sparkles,
+  task: Search,
+  device: MonitorSmartphone,
+}
+const KIND_LABEL = {
+  module: '模块',
+  user: '用户',
+  inspiration: '灵感',
+  task: '任务',
+  device: '设备',
+}
 const INSPIRATION_STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
   published: '已发布',
@@ -110,13 +124,19 @@ function PaletteBody({ onDone }: { onDone: () => void }) {
     const matchedModules = needle
       ? modules.filter((item) => item.label.toLowerCase().includes(needle))
       : modules
+    const direct = directJumps(term)
     const matchedInspirations = (inspirations.data ?? []).slice(0, REMOTE_LIMIT).map((item) => ({
       kind: 'inspiration' as const,
       id: item.id,
       label: item.title,
       hint: INSPIRATION_STATUS_LABEL[item.status] ?? item.status,
     }))
-    return [...matchedModules, ...(canSearchUsers ? userItems : []), ...matchedInspirations]
+    return [
+      ...direct,
+      ...matchedModules,
+      ...(canSearchUsers ? userItems : []),
+      ...matchedInspirations,
+    ]
   }, [canSearchUsers, inspirations.data, modules, term, userItems])
 
   const activeIndex = Math.min(active, Math.max(items.length - 1, 0))
@@ -133,6 +153,14 @@ function PaletteBody({ onDone }: { onDone: () => void }) {
     }
     if (item.kind === 'user') {
       void navigate({ to: '/users/$userId', params: { userId: item.id } })
+      return
+    }
+    if (item.kind === 'task') {
+      void navigate({ to: '/tasks', search: { task: item.id } })
+      return
+    }
+    if (item.kind === 'device') {
+      void navigate({ to: '/devices/$deviceId', params: { deviceId: item.id } })
       return
     }
     void navigate({ to: '/inspirations', search: { item: item.id } })
@@ -171,7 +199,7 @@ function PaletteBody({ onDone }: { onDone: () => void }) {
             setActive(0)
           }}
           onKeyDown={onKeyDown}
-          placeholder="搜索模块、用户或灵感条目…"
+          placeholder="搜索模块、用户、任务 ID、设备 ID 或灵感条目…"
           aria-label="全局搜索"
           className="h-12 border-0 px-0 text-sm shadow-none focus-visible:ring-0"
         />
@@ -215,6 +243,15 @@ function PaletteBody({ onDone }: { onDone: () => void }) {
       </div>
     </>
   )
+}
+
+function directJumps(term: string): PaletteItem[] {
+  if (!/^[A-Za-z0-9_-]{6,128}$/.test(term)) return []
+  const task = /^tsk_/.test(term) || /^[0-9a-f-]{16,}$/i.test(term)
+  return [
+    ...(task ? [{ kind: 'task' as const, id: term, label: term, hint: '打开任务' }] : []),
+    { kind: 'device' as const, id: term, label: term, hint: '打开设备' },
+  ]
 }
 
 /**

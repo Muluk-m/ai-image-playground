@@ -9,7 +9,7 @@
 
 **收费与免费的区别只在前端构建参数。** 构建时带上私有 overlay 就是收费形态，不带就是免费形态：
 
-- 生产镜像由部署 workflow 执行 `./scripts/build-vps-release.sh all <目录>` 构建（付费版带入 `private.lock` 钉住的 overlay 提交）；应急时在 macmini2 手动执行同一脚本（`internal`/`paid`/`all`）。
+- 生产镜像由部署 workflow 执行 `./scripts/build-vps-release.sh paid <目录>` 构建，带入 `private.lock` 钉住的 overlay 提交，并保留 backup 与 segmenter 镜像；已冻结的 internal 镜像不再构建。应急时在 macmini2 手动执行同一脚本，当前生产范围同样使用 `paid`；`internal`/`all` 仅保留兼容能力，使用前须单独批准。
 
 **分支：** `main` 是唯一长期分支，所有改动开 PR 直合 main，没有其他长期分支。
 

@@ -1,8 +1,8 @@
 import {
   AGENT_USER_MESSAGE_MAX_CHARS,
   gptImage26Credits,
-  gptImageRateMultiplier,
   isBlankPrompt,
+  isGptDirectModel,
   isGptImage26Model,
   SYNC_PROMPT_MAX_LENGTH,
 } from '@image-playground/shared'
@@ -78,6 +78,7 @@ import { confirmImageBatch } from '../lib/confirmImageBatch'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
 import { useGptPremiumLocked } from '../lib/gptPremium'
+import { composerImageRate } from '../lib/imageCharge'
 import {
   compressUploadFiles,
   filesFromFolderInput,
@@ -294,13 +295,15 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const batchImageCount = batchActive
     ? inputImages.length * getSubmissionImageCount(prompt, slotValues, 1)
     : 0
-  // GPT 直连模型的会员档位按倍率计价；非会员（含交给智能体的）服务端收回基础档，倍率是 1。
+  // 会员的 GPT 直连按档位与画质计价。非会员，以及交给智能体的 GPT，服务端收回基础档，倍率是 1。
+  // Gemini 按请求档位计价，交给智能体也不收回。
   const premium = useGptPremiumLocked(
     activeView.model,
     getParamCapabilities(activeProfile, params.output_format).size,
   )
+  const requestedRate = composerImageRate(activeView.model, params)
   const unitMultiplier =
-    toCanvas || premium.locked ? 1 : gptImageRateMultiplier(activeView.model, params)
+    isGptDirectModel(activeView.model) && (toCanvas || premium.locked) ? 1 : requestedRate
   const submissionGuard = usePrivateSubmissionGuard({
     model: activeView.model,
     quantity: batchActive ? batchImageCount : submitImageCount,

@@ -56,9 +56,16 @@ export const internalModelRoutes = new Elysia({ prefix: '/internal/admin/models'
       await setModelActive({
         model: params.model,
         active: body.active,
-        operatorId: request.headers.get('x-admin-operator') || 'admin',
+        operatorId: request.headers.get('x-admin-operator') || body.operatorId || 'admin',
+        reason: body.reason,
       })
       return managedModels()
     },
-    { body: t.Object({ active: t.Boolean() }) },
+    {
+      body: t.Object({
+        active: t.Boolean(),
+        reason: t.Optional(t.String({ minLength: 1, maxLength: 500 })),
+        operatorId: t.Optional(t.String({ minLength: 1, maxLength: 320 })),
+      }),
+    },
   )
