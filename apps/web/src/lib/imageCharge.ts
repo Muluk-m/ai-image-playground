@@ -11,6 +11,9 @@ export function declaredImageSizesForModel(model: string): readonly string[] | u
 }
 
 /** 输入框、画布门禁和草稿估价共用：按请求档，渠道没开放的档收到最近的已开放档。 */
-export function composerImageRate(model: string, request: ImageRateRequest): number {
+export function composerImageRate(
+  model: string,
+  request: ImageRateRequest | null | undefined,
+): number {
   return imageRateMultiplier(model, request, declaredImageSizesForModel(model))
 }

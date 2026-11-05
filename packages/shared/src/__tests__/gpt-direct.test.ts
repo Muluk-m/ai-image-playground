@@ -61,6 +61,13 @@ describe('imageRateMultiplier', () => {
   const NANO = 'gemini-nano-banana-2.1'
   const PRO = 'gemini-3-pro-image'
 
+  it('treats a missing request as no tier instead of throwing', () => {
+    expect(imageRateMultiplier(NANO, undefined)).toBe(1)
+    expect(imageRateMultiplier(NANO, null, ['1K', '2K'])).toBe(1)
+    expect(imageRateMultiplier('gpt-image-2.5-flare', undefined)).toBe(1)
+    expect(preparedImageRateMultiplier('gpt-image-2.5-flare', undefined)).toBe(1)
+  })
+
   it('keeps the GPT table, with auto and a missing size priced as 1K medium', () => {
     expect(imageRateMultiplier(FLARE, { size: '1024x1024', quality: 'low' })).toBe(1)
     expect(imageRateMultiplier(FLARE, { size: '1024x1024', quality: 'medium' })).toBe(1)

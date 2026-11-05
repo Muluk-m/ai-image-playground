@@ -114,9 +114,11 @@ function billableImageTier(
  */
 export function imageRateMultiplier(
   model: string,
-  request: ImageRateRequest,
+  request: ImageRateRequest | null | undefined,
   supportedTiers?: readonly string[],
 ): number {
+  // 参数还没载入（store 未初始化、测试桩缺 params）时按无档位计：倍率 1，不抛错。
+  if (!request) return 1
   if (isGptDirectModel(model)) return gptImageRateMultiplier(model, request)
   const table = GEMINI_TIER_MULTIPLIERS[model as keyof typeof GEMINI_TIER_MULTIPLIERS]
   const tier = billableImageTier(request, supportedTiers)
@@ -133,8 +135,9 @@ export function imageRateMultiplier(
  */
 export function preparedImageRateMultiplier(
   model: string,
-  request: ImageRateRequest,
+  request: ImageRateRequest | null | undefined,
   supportedTiers?: readonly string[],
 ): number {
+  if (!request) return 1
   return imageRateMultiplier(model, clampGptBasicRequest(model, request), supportedTiers)
 }
