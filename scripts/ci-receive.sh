@@ -1,19 +1,28 @@
 #!/bin/sh
 set -eu
-# SSH forced command for the GitHub Actions deploy key on the production VPS. Installed as
-# ~/bin/aip-ci-receive and bound to the key in ~/.ssh/authorized_keys:
+# SSH forced command for the GitHub Actions deploy keys on the production VPS. Installed as
+# ~/bin/aip-ci-receive and bound to each key in ~/.ssh/authorized_keys with a fixed scope; the
+# caller cannot choose it, so a key can only deploy the targets its scope names:
 #
-#   command="/home/ubuntu/bin/aip-ci-receive",restrict ssh-ed25519 AAAA… github-actions-deploy
+#   command="/home/ubuntu/bin/aip-ci-receive release",restrict ssh-ed25519 AAAA… production
+#   command="/home/ubuntu/bin/aip-ci-receive test",restrict ssh-ed25519 AAAA… test
 #
-# The only accepted command is `deploy <release-id> <internal|paid|test|all> <run-id>`, with the
+# Scope `release` accepts internal|paid|all, scope `test` accepts only test. No scope, or any
+# other word, refuses everything.
+#
+# The only accepted command is `deploy <release-id> <target> <run-id>`, with the
 # release directory as a gzipped tar on stdin (`tar -C "$out" -czf - .`). It unpacks into
 # ~/releases/<release-id>, which must not exist yet, and runs that release's vps-deploy.sh.
 # Anything else is refused before a file is written.
 
 reject() {
-  echo "Rejected: expected 'deploy <aip-<12 hex>-<12 hex>> <internal|paid|test|all> <run-id>'" >&2
+  echo "Rejected: expected 'deploy <aip-<12 hex>-<12 hex>> <target> <run-id>' with a target this key may deploy" >&2
   exit 2
 }
+
+# The scope comes from the forced command in authorized_keys, never from the caller.
+scope=${1:-}
+case "$scope" in release | test) ;; *) echo "Rejected: this key has no deploy scope" >&2; exit 2 ;; esac
 
 # Word-split without globbing; IFS splitting also means no word can hold a newline.
 set -f
@@ -25,7 +34,7 @@ release_id=$2
 target=$3
 run_id=$4
 printf '%s\n' "$release_id" | grep -Eqx 'aip-[0-9a-f]{12}-[0-9a-f]{12}' || reject
-case "$target" in internal | paid | test | all) ;; *) reject ;; esac
+case "$scope:$target" in release:internal | release:paid | release:all | test:test) ;; *) reject ;; esac
 printf '%s\n' "$run_id" | grep -Eqx '[0-9]{1,20}' || reject
 
 releases_root=${HOME:?HOME must be set}/releases
