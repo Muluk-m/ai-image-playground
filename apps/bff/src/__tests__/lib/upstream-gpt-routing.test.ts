@@ -147,6 +147,17 @@ describe('route choice', () => {
     })
   })
 
+  it('sends a non-member 2K request to direct first, and falls back to sub2api when direct is down', async () => {
+    await call({ size: '2048x2048', quality: 'medium' }, false)
+    expect(sent.map((one) => one.route)).toEqual(['direct'])
+    expect(sent[0]!.body).toMatchObject({ size: '2048x2048', quality: 'medium' })
+
+    sent = []
+    await coolDownSchedulerBuckets([`openai:direct:model:${MODEL}`], 3_600_000)
+    await call({ size: '2560x1440', quality: 'low' }, false)
+    expect(sent.map((one) => one.route)).toEqual(['sub2api'])
+  })
+
   it('sends non-members to sub2api with the ratio written into the prompt', async () => {
     await call({ size: '1280x720' }, false)
     expect(sent.map((one) => one.route)).toEqual(['sub2api'])

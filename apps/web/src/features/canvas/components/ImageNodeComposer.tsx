@@ -14,7 +14,7 @@ import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { useGptPremiumLocked } from '../../../lib/gptPremium'
-import { composerImageRate } from '../../../lib/imageCharge'
+import { quotedGptMultiplier } from '../../../lib/gptQuote'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { getParamCapabilities } from '../../../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -75,17 +75,16 @@ export default function ImageNodeComposer({
   const readyImageIds = referenceFileIds(references, files)
   const settings = useStore((state) => state.settings)
   const params = useStore((state) => state.params)
-  const count = params.n
   const profile = getActiveApiProfile(settings)
-  const model = clientProfileToApiProfile(profile).model
+  const view = clientProfileToApiProfile(profile)
   const premium = useGptPremiumLocked(
-    model,
+    view.model,
     getParamCapabilities(profile, params.output_format).size,
   )
   const guard = usePrivateSubmissionGuard({
-    model,
-    quantity: preset ? 1 : Math.max(1, count),
-    unitMultiplier: premium.locked ? 1 : composerImageRate(model, params),
+    model: view.model,
+    quantity: preset ? 1 : Math.max(1, params.n),
+    unitMultiplier: quotedGptMultiplier(view.model, params, premium.highQuality),
   })
   const activeLook = useActiveLook((state) => (templates ? state.look : null))
   const libraryAssets = useLibraryStore((state) => state.assets)

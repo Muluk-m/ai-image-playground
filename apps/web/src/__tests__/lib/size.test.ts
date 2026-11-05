@@ -89,7 +89,7 @@ describe('size ratio helpers', () => {
   })
 })
 
-const OPEN = { ratioOnly: false, limitTo1K: false }
+const OPEN = { ratioOnly: false, maxTier: '4K' as const }
 
 describe('生成设置里尺寸对应哪一格', () => {
   it('auto 落在「智能」', () => {
@@ -115,7 +115,7 @@ describe('生成设置里尺寸对应哪一格', () => {
   })
 
   it('只认比例的模型按比例匹配，存的比例本身也能回显', () => {
-    const ratioOnly = { ratioOnly: true, limitTo1K: false }
+    const ratioOnly = { ratioOnly: true, maxTier: '4K' as const }
     expect(readSizeSelection('2560x1440', ratioOnly)).toMatchObject({
       kind: 'preset',
       ratio: '16:9',
@@ -129,7 +129,7 @@ describe('生成设置里尺寸对应哪一格', () => {
   })
 
   it('Codex CLI 被上游重新量化的尺寸仍按比例认回预设', () => {
-    const codex = { ratioOnly: false, limitTo1K: true }
+    const codex = { ratioOnly: false, maxTier: '1K' as const }
     expect(readSizeSelection('941x1672', codex)).toMatchObject({ kind: 'preset', ratio: '9:16' })
   })
 })
@@ -141,7 +141,24 @@ describe('选格写回的尺寸', () => {
   })
 
   it('只认比例或限 1K 时一律按 1K 算', () => {
-    expect(sizeFor('4K', '16:9', { ratioOnly: true, limitTo1K: false })).toBe('1280x720')
-    expect(sizeFor('2K', '1:1', { ratioOnly: false, limitTo1K: true })).toBe('1024x1024')
+    expect(sizeFor('4K', '16:9', { ratioOnly: true, maxTier: '4K' })).toBe('1280x720')
+    expect(sizeFor('2K', '1:1', { ratioOnly: false, maxTier: '1K' })).toBe('1024x1024')
+  })
+
+  it('非会员上限 2K：4K 预设回显成 2K，选 4K 也写回 2K', () => {
+    const nonMember = { ratioOnly: false, maxTier: '2K' as const }
+    expect(readSizeSelection('3840x2160', nonMember)).toEqual({
+      kind: 'preset',
+      ratio: '16:9',
+      tier: '2K',
+    })
+    expect(readSizeSelection('2560x1440', nonMember)).toEqual({
+      kind: 'preset',
+      ratio: '16:9',
+      tier: '2K',
+    })
+    expect(sizeFor('4K', '1:1', nonMember)).toBe('2048x2048')
+    expect(sizeFor('2K', '16:9', nonMember)).toBe('2560x1440')
+    expect(sizeFor('1K', '16:9', nonMember)).toBe('1280x720')
   })
 })
