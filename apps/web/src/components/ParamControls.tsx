@@ -7,7 +7,7 @@ import {
   nearestImageSize,
   parseImageSize,
 } from '@image-playground/shared'
-import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
 import type { ClientProfile } from '../lib/channels/types'
@@ -135,9 +135,12 @@ export function ImageSettings({
   const image26 = isGptImage26Model(activeView.model)
   const stillImage = useRef<StillImageSettings | null>(null)
   const specialFormat = params.output_format === 'gif' || params.output_format === 'svg'
-  // 失焦回调可能是切格式之前那次渲染留下的，受控模式靠这个 ref 读到最新格式。
+  // 失焦回调可能是切格式之前那次渲染留下的，受控模式靠这个 ref 读到最新格式：
+  // 提交后同步，用户切格式时立即写入（卸载输入框的失焦可能先于下一次提交）。
   const latestControlledFormat = useRef(params.output_format)
-  latestControlledFormat.current = params.output_format
+  useLayoutEffect(() => {
+    latestControlledFormat.current = params.output_format
+  }, [params.output_format])
   const referenceCount = useStore((s) => (controlled ? 0 : s.inputImages.length))
   const hasMask = useStore((s) => (controlled ? false : Boolean(s.maskDraft)))
   const editing = referenceCount > 0 || hasMask
@@ -282,6 +285,7 @@ export function ImageSettings({
     }
     setCustomOpen(false)
     setClamped(false)
+    stillImage.current = null
     setParams(patch)
     extra?.reset()
   }
@@ -579,6 +583,8 @@ export function ImageSettings({
               onChange={(format) => {
                 const next = switchImageOutputFormat(params, format, stillImage.current)
                 stillImage.current = next.still
+                if (next.patch.output_format)
+                  latestControlledFormat.current = next.patch.output_format
                 setParams(next.patch)
               }}
             />

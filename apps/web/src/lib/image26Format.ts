@@ -76,7 +76,7 @@ export function switchImageOutputFormat(
       output_format: format,
       frame_count: undefined,
       frame_duration_ms: undefined,
-      ...(still ?? {}),
+      ...(special ? (still ?? {}) : {}),
       ...(format === 'png' ? { output_compression: null } : { transparent_output: false }),
     },
   }
