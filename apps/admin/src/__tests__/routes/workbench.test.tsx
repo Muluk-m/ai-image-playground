@@ -108,8 +108,9 @@ vi.mock('../../lib/api-client', () => {
     if (url.startsWith('/api/overview/generation')) {
       if (session.failToday) throw new Error('generation unavailable')
       const params = new URLSearchParams(url.split('?')[1])
+      const selectedWindow = { from: Number(params.get('from')), to: Number(params.get('to')) }
       return {
-        window: { from: Number(params.get('from')), to: Number(params.get('to')) },
+        window: selectedWindow,
         summary: {
           users: 1,
           devices: 1,
@@ -150,6 +151,55 @@ vi.mock('../../lib/api-client', () => {
         ],
         models: [],
         truncated: false,
+        activity: {
+          window: selectedWindow,
+          tasks: [
+            {
+              id: 'overview-task',
+              user_id: 'user-1',
+              device_id: null,
+              username: 'alice',
+              provider: 'openai-compat',
+              model: 'gpt-image-2',
+              status: 'failed',
+              submitted_at: selectedWindow.to - 100,
+              started_at: null,
+              completed_at: null,
+              error_type: 'upstream_timeout',
+              prompt: '概览任务详情',
+            },
+          ],
+          server: {
+            total: 1,
+            entries: [
+              {
+                id: 'overview-server-error',
+                at: selectedWindow.to - 100,
+                message: '生成上游超时',
+                stack: 'server stack',
+                service: 'worker',
+                task_id: 'overview-task',
+                request_id: 'overview-request',
+                instance: 'worker-1',
+              },
+            ],
+          },
+          client: {
+            total: 1,
+            entries: [
+              {
+                id: 'overview-client-error',
+                at: selectedWindow.to - 100,
+                message: '画布加载异常',
+                stack: 'client stack',
+                fingerprint: 'aaaaaaaaaaaaaaaa',
+                username: 'alice',
+                user_id: 'user-1',
+                device_id: 'device-1',
+              },
+            ],
+          },
+        },
       }
     }
     if (url.startsWith('/api/client-errors/')) {
@@ -435,6 +485,34 @@ describe('sync footprint', () => {
 })
 
 describe('概览', () => {
+  it('opens frontend error details and links backend errors and recent tasks to their exact context', async () => {
+    renderAt('/overview?preset=6h')
+    const recent = await screen.findByRole('link', { name: '概览任务详情' })
+    const taskUrl = new URL(recent.getAttribute('href')!, 'http://localhost')
+    expect(taskUrl.searchParams.get('task')).toBe('overview-task')
+    expect(Number(taskUrl.searchParams.get('to')) - Number(taskUrl.searchParams.get('from'))).toBe(
+      6 * 3600_000,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /画布加载异常/ }))
+    expect(await screen.findByRole('heading', { name: '前端错误详情' })).toBeInTheDocument()
+    expect(screen.getByText(/client stack/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    fireEvent.click(screen.getByRole('button', { name: /生成上游超时/ }))
+    expect(await screen.findByRole('heading', { name: '后端错误详情' })).toBeInTheDocument()
+    const log = new URL(
+      screen.getByRole('link', { name: '相关日志 →' }).getAttribute('href')!,
+      'http://localhost',
+    )
+    expect(log.searchParams.get('requestId')).toBe('overview-request')
+    expect(
+      Number(log.searchParams.get('to')) - Number(log.searchParams.get('from')),
+    ).toBeLessThanOrEqual(120_000)
+    expect(screen.getByRole('link', { name: '关联任务 →' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('task=overview-task'),
+    )
+  })
+
   it('shows generation users and links each problem into tasks with the same owner and time range', async () => {
     renderAt('/overview?preset=6h')
     const owner = await screen.findByRole('link', { name: '设计师' })

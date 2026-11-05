@@ -3,6 +3,7 @@ import { replaceEqualDeep, useInfiniteQuery, useQuery } from '@tanstack/react-qu
 import type {
   AgentPromptFilters,
   AgentPromptsResult,
+  GenerationOverviewResult,
   GenerationTaskFilters,
   GenerationTasksResult,
   TodayErrorsResult,
@@ -243,7 +244,7 @@ export function useGenerationOverview(selection: GenerationSelection) {
     queryFn: () => {
       const window = generationWindow(selection)
       const params = new URLSearchParams({ from: String(window.from), to: String(window.to) })
-      return apiClient.get<TodayOverviewResult>(`/api/overview/generation?${params}`)
+      return apiClient.get<GenerationOverviewResult>(`/api/overview/generation?${params}`)
     },
     staleTime: 0,
     refetchInterval: 30_000,

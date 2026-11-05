@@ -3,6 +3,7 @@ import { RefreshCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { DateTimePicker } from '@/components/DateTimePicker'
 import { beijingInput, parseBeijingInput } from '@/components/FilterBar'
+import { OverviewActivity } from '@/components/overview/OverviewActivity'
 import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -113,6 +114,7 @@ function OverviewPage() {
             </p>
           ) : null}
           <GenerationUsers overview={query.data} />
+          <OverviewActivity key={JSON.stringify(selection)} data={query.data.activity} />
         </>
       ) : query.isError ? (
         <ErrorState label="生成记录加载失败" error={query.error} />

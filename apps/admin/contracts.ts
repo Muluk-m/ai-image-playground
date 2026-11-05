@@ -711,6 +711,38 @@ export interface GenerationTaskItem extends TaskListItem {
   username: string | null
 }
 
+export interface OverviewErrorItem {
+  id: string
+  at: number
+  message: string
+  stack: string | null
+}
+
+export interface OverviewServerError extends OverviewErrorItem {
+  service: string
+  task_id: string | null
+  request_id: string | null
+  instance: string | null
+}
+
+export interface OverviewClientError extends OverviewErrorItem {
+  fingerprint: string
+  username: string | null
+  user_id: string | null
+  device_id: string | null
+}
+
+export interface OverviewActivityResult {
+  window: TimeWindow
+  tasks: GenerationTaskItem[]
+  server: { total: number; entries: OverviewServerError[] }
+  client: { total: number; entries: OverviewClientError[] }
+}
+
+export interface GenerationOverviewResult extends TodayOverviewResult {
+  activity: OverviewActivityResult
+}
+
 export interface GenerationTasksResult {
   window: TimeWindow
   tasks: GenerationTaskItem[]

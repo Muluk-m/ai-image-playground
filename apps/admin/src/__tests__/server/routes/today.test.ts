@@ -164,12 +164,57 @@ const request = (path: string) =>
   app.handle(new Request(`http://localhost${path}`, { headers: { cookie } }))
 
 describe('today generation overview', () => {
+  it('counts all errors before limiting preview rows and excludes both sides of the selected window', async () => {
+    const start = from + 6 * 86400_000
+    const end = start + 3600_000
+    await writer.db.insert(writer.schema.client_errors).values(
+      Array.from({ length: 9 }, (_, i) => ({
+        id: `activity-client-${i}`,
+        fingerprint: 'cccccccccccccccc',
+        kind: 'error' as const,
+        message: 'client failure',
+        received_at: i === 0 ? start - 1 : i === 8 ? end + 1 : start + i,
+      })),
+    )
+    await writer.db.insert(writer.schema.server_logs).values(
+      Array.from({ length: 9 }, (_, i) => ({
+        ...log,
+        id: `activity-server-${i}`,
+        level: 'error' as const,
+        at: i === 0 ? start - 1 : i === 8 ? end + 1 : start + i,
+      })),
+    )
+    const response = await request(`/api/overview/generation?from=${start}&to=${end}`)
+    expect(response.status).toBe(200)
+    const data = await response.json()
+    expect(data.activity.client.total).toBe(7)
+    expect(data.activity.server.total).toBe(7)
+    expect(data.activity.client.entries).toHaveLength(5)
+    expect(data.activity.server.entries).toHaveLength(5)
+    expect(data.activity.client.entries.map((entry: { id: string }) => entry.id)).toEqual(
+      [7, 6, 5, 4, 3].map((i) => `activity-client-${i}`),
+    )
+    expect(data.activity.server.entries.map((entry: { id: string }) => entry.id)).toEqual(
+      [7, 6, 5, 4, 3].map((i) => `activity-server-${i}`),
+    )
+    expect(data.activity.tasks).toEqual([])
+  })
+
   it('lists generation owners and their problems for the exact selected rolling window', async () => {
     const response = await request(`/api/overview/generation?from=${from + 1500}&to=${to}`)
     expect(response.status).toBe(200)
     const data = await response.json()
     expect(data.window).toEqual({ from: from + 1500, to })
     expect(data.summary).toMatchObject({ users: 1, devices: 0, tasks: 2, failed: 2 })
+    expect(data.activity.window).toEqual(data.window)
+    expect(data.activity.tasks.map((task: { id: string }) => task.id)).toEqual([
+      'today-failed-policy',
+      'today-failed-blank',
+    ])
+    expect(data.activity.server.total).toBe(3)
+    expect(data.activity.client.total).toBe(1)
+    expect(JSON.stringify(data.activity)).not.toContain('sensitive-base64')
+
     expect(data.actors).toEqual([
       expect.objectContaining({ id: 'today-user', username: 'alice', tasks: 2, failed: 2 }),
     ])

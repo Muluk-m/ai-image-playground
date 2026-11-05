@@ -2,7 +2,12 @@ import { Elysia, t } from 'elysia'
 import { parseRange, parseTimeWindow } from '../../contracts'
 import { requireAuth } from '../lib/middleware'
 import { getOverview } from '../lib/queries'
-import { getGenerationOverview, getTodayErrors, getTodayOverview } from '../lib/today'
+import {
+  getGenerationOverview,
+  getOverviewActivity,
+  getTodayErrors,
+  getTodayOverview,
+} from '../lib/today'
 
 export const overviewRoutes = new Elysia()
   .use(requireAuth)
@@ -30,7 +35,9 @@ export const overviewRoutes = new Elysia()
     ({ query, status }) => {
       const window = parseTimeWindow(query)
       if (!window) return status(400, { error: '无效的生成时间范围' })
-      return getGenerationOverview(window)
+      return Promise.all([getGenerationOverview(window), getOverviewActivity(window)]).then(
+        ([overview, activity]) => ({ ...overview, activity }),
+      )
     },
     { query: t.Object({ from: t.String(), to: t.String() }) },
   )
