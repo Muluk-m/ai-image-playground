@@ -15,6 +15,7 @@ import type { ClientProfile } from './channels/types'
 import { isClientCapabilityEnabled } from './clientCapabilities'
 import { mediaIdentity, resolveMediaSource } from './cloudMedia'
 import type { CallApiResult } from './imageApiShared'
+import { composerImageRate } from './imageCharge'
 import {
   getPrivateSubmissionGuard,
   notifyPrivateSubmissionAccepted,
@@ -220,8 +221,14 @@ export function startGeneration<H, C>(spec: GenerationSpec<C>, sink: GenerationS
   if (spec.variants.length === 0) return []
   const quantity = Math.max(1, spec.params.n)
   const model = clientProfileToApiProfile(spec.profile).model
-  // 门禁按整批的量判，否则积分不够时会先发一半再报错。
-  if (!admitGeneration(spec.profile.source, { model, quantity: quantity * spec.variants.length }))
+  // 门禁按整批的量判，否则积分不够时会先发一半再报错。倍率与提交时的 imageRateMultiplier 一致。
+  if (
+    !admitGeneration(spec.profile.source, {
+      model,
+      quantity: quantity * spec.variants.length,
+      unitMultiplier: composerImageRate(model, spec.params),
+    })
+  )
     return []
 
   const fanOut = fanOutOf(spec.profile, spec.params)
