@@ -1125,7 +1125,7 @@ async function callUpstreamVia(
         // 单张请求（n=1）不经过 merge：回落出的那张也要记下实际模型。
         (request.n ?? 1) <= 1 && fallback && fallbackImages > 0 ? merge([merged]) : merged,
       )
-      return finishImageResult(result, dispatched.plan)
+      return stampReceipt(result, dispatched.plan)
     }
     throw new Error(`Unsupported provider: ${provider satisfies never}`)
   } catch (err) {
