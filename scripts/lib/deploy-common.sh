@@ -321,15 +321,22 @@ release_deploy_lock() {
   return 0
 }
 
-# deploy_pid_is_ancestor <pid> succeeds when <pid> is a proper ancestor of this process. Without
-# a working `ps` the answer is no, which callers treat as "not inherited": the safe direction.
+# deploy_pid_is_ancestor <pid> succeeds when <pid> is a proper ancestor of this process. Parents
+# come from /proc where it exists (Linux) and from `ps` elsewhere (macOS). If neither answers,
+# the answer is no, which callers treat as "not inherited": the safe direction.
 deploy_pid_is_ancestor() {
   ancestor_target=$1
   ancestor_pid=$$
   ancestor_depth=0
   while [ "$ancestor_depth" -lt 32 ]; do
     ancestor_depth=$((ancestor_depth + 1))
-    ancestor_pid=$(ps -o ppid= -p "$ancestor_pid" 2>/dev/null | tr -d ' ')
+    ancestor_stat=${DEPLOY_PROC_ROOT:-/proc}/$ancestor_pid/stat
+    if [ -r "$ancestor_stat" ]; then
+      # Field 4 of /proc/<pid>/stat; see deploy_process_token for why the comm field is dropped.
+      ancestor_pid=$(awk '{ sub(/^.*\) /, ""); print $2 }' "$ancestor_stat")
+    else
+      ancestor_pid=$(ps -o ppid= -p "$ancestor_pid" 2>/dev/null | tr -d ' ')
+    fi
     case "$ancestor_pid" in '' | *[!0-9]*) return 1 ;; esac
     [ "$ancestor_pid" != "$ancestor_target" ] || return 0
     [ "$ancestor_pid" -gt 1 ] || return 1
@@ -360,7 +367,10 @@ deploy_host_lock_inherited() {
   [ "$DEPLOY_HOST_LOCK_TOKEN" = "$inherit_owner_token" ] || return 1
   kill -0 "$DEPLOY_HOST_LOCK_PID" 2>/dev/null || return 1
   inherit_live_token=$(deploy_process_token "$DEPLOY_HOST_LOCK_PID")
-  if [ -n "$inherit_live_token" ] && [ "$inherit_live_token" != "$inherit_owner_token" ]; then
+  # An owner token of `-` or empty means the holder could not read one (no /proc), as in
+  # deploy_lock_holder_alive: then only the ancestor check below stands.
+  if [ -n "$inherit_live_token" ] && [ -n "$inherit_owner_token" ] && [ "$inherit_owner_token" != '-' ] &&
+    [ "$inherit_live_token" != "$inherit_owner_token" ]; then
     return 1
   fi
   deploy_pid_is_ancestor "$DEPLOY_HOST_LOCK_PID"
@@ -370,6 +380,7 @@ deploy_host_lock_inherited() {
 # production, unless an ancestor (vps-deploy.sh, or app-compose.sh up|rollback) already holds it.
 # Sets host_lock_inherited=true|false. On a fresh acquisition it publishes the credential for the
 # child processes. The status is acquire_deploy_lock's: 75 means busy and nothing was changed.
+# shellcheck disable=SC2034  # host_lock_inherited is read by the sourcing script.
 acquire_host_deploy_lock() {
   if deploy_host_lock_inherited "$deploy_lock"; then
     host_lock_inherited=true
