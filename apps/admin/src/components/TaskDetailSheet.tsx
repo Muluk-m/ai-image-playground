@@ -34,15 +34,20 @@ export function TaskDetailSheet({ taskId, onOpenChange }: TaskDetailSheetProps) 
 
 function TaskDrawerTabs({ taskId }: { taskId: string }) {
   const task = useTask(taskId)
+  const logTo = task.data
+    ? Math.min(Date.now() + 60_000, (task.data.completed_at ?? task.data.submitted_at) + 60_000)
+    : null
+  const logFrom =
+    task.data && logTo !== null
+      ? Math.max(0, task.data.submitted_at - 60_000, logTo - 7 * 86_400_000)
+      : null
   const logs = useQuery({
-    queryKey: ['task-logs', taskId],
-    queryFn: () => {
-      const to = Date.now()
-      const from = to - 7 * 86_400_000
-      return apiClient.get<ServerLogsResult>(
-        `/api/ops/logs?taskId=${encodeURIComponent(taskId)}&from=${from}&to=${to}`,
-      )
-    },
+    queryKey: ['task-logs', taskId, logFrom, logTo],
+    enabled: logFrom !== null && logTo !== null,
+    queryFn: () =>
+      apiClient.get<ServerLogsResult>(
+        `/api/ops/logs?taskId=${encodeURIComponent(taskId)}&from=${logFrom}&to=${logTo}`,
+      ),
   })
   const audits = useAudits({ targetId: taskId })
   const auditRows = audits.data?.pages.flatMap((page) => page.audits) ?? []

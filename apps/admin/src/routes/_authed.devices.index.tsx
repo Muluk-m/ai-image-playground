@@ -131,9 +131,9 @@ function DevicesIndex() {
         <div className="overflow-hidden rounded-xl border bg-card">
           <DeviceTable devices={q.data.devices} range={range} />
           <ListPagination
-            page={q.data.page}
+            page={q.data.page ?? 1}
             pageSize={q.data.pageSize === 100 ? 100 : 50}
-            total={q.data.total}
+            total={q.data.total ?? q.data.devices.length}
             onPage={(page) =>
               void navigate({
                 to: '.',

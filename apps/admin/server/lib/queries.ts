@@ -440,6 +440,8 @@ async function getPulse(
   const { db } = getHandle()
   const current = clock?.since ?? new Date(at.getTime() - rangeMs(range))
   const previous = clock?.previousSince ?? new Date(at.getTime() - 2 * rangeMs(range))
+  const submittedCap = clock ? sql`AND submitted_at <= ${at}` : sql``
+  const createdCap = clock ? sql`AND created_at <= ${at}` : sql``
   const unitSql = clock ? (clock.unit === 'hour' ? sql`'hour'` : sql`'day'`) : undefined
   const { unit, start } = clock
     ? {
@@ -455,12 +457,12 @@ async function getPulse(
   const actors = sql`
     SELECT submitted_at AS at, COALESCE(user_id, device_id) AS actor
     FROM queue_tasks
-    WHERE submitted_at >= ${floor}
+    WHERE submitted_at >= ${floor} ${submittedCap}
     UNION ALL
     SELECT t.created_at, COALESCE(c.user_id, c.device_id)
     FROM agent_turns t
     JOIN agent_conversations c ON c.id = t.conversation_id
-    WHERE t.created_at >= ${floor}
+    WHERE t.created_at >= ${floor} ${createdCap}
   `
 
   const [taskRows, actorRows, signupRows, agentRows, seriesRows] = await Promise.all([
@@ -475,7 +477,7 @@ async function getPulse(
         COALESCE(SUM(${images}) FILTER (WHERE status = 'completed' AND submitted_at >= ${current}), 0) AS images_cur,
         COALESCE(SUM(${images}) FILTER (WHERE status = 'completed' AND submitted_at < ${current}), 0) AS images_prev
       FROM queue_tasks
-      WHERE submitted_at >= ${previous}
+      WHERE submitted_at >= ${previous} ${submittedCap}
     `),
     db.execute(sql`
       SELECT
@@ -489,7 +491,7 @@ async function getPulse(
         COUNT(*) FILTER (WHERE created_at >= ${current}) AS signups_cur,
         COUNT(*) FILTER (WHERE created_at < ${current}) AS signups_prev
       FROM users
-      WHERE created_at >= ${previous}
+      WHERE created_at >= ${previous} ${createdCap}
     `),
     db.execute(sql`
       SELECT
@@ -500,7 +502,7 @@ async function getPulse(
         COUNT(*) FILTER (WHERE stop_reason = 'aborted' AND created_at >= ${current}) AS aborted_cur,
         COUNT(*) FILTER (WHERE stop_reason = 'aborted' AND created_at < ${current}) AS aborted_prev
       FROM agent_turns
-      WHERE created_at >= ${previous}
+      WHERE created_at >= ${previous} ${createdCap}
     `),
     db.execute(sql`
       WITH
@@ -508,7 +510,7 @@ async function getPulse(
           SELECT DATE_TRUNC(${unit}, submitted_at) AS bucket,
                  COUNT(*) AS tasks,
                  COALESCE(SUM(${images}) FILTER (WHERE status = 'completed'), 0) AS images
-          FROM queue_tasks WHERE submitted_at >= ${start} GROUP BY 1
+          FROM queue_tasks WHERE submitted_at >= ${start} ${submittedCap} GROUP BY 1
         ),
         actors_by AS (
           SELECT DATE_TRUNC(${unit}, at) AS bucket, COUNT(DISTINCT actor) AS active
@@ -516,14 +518,14 @@ async function getPulse(
         ),
         signups_by AS (
           SELECT DATE_TRUNC(${unit}, created_at) AS bucket, COUNT(*) AS signups
-          FROM users WHERE created_at >= ${start} GROUP BY 1
+          FROM users WHERE created_at >= ${start} ${createdCap} GROUP BY 1
         ),
         agent_by AS (
           SELECT DATE_TRUNC(${unit}, created_at) AS bucket,
                  COUNT(*) FILTER (WHERE stop_reason = 'completed') AS agent_completed,
                  COUNT(*) FILTER (WHERE stop_reason = 'failed') AS agent_failed,
                  COUNT(*) FILTER (WHERE stop_reason = 'aborted') AS agent_aborted
-          FROM agent_turns WHERE created_at >= ${start} GROUP BY 1
+          FROM agent_turns WHERE created_at >= ${start} ${createdCap} GROUP BY 1
         ),
         keys AS (
           SELECT bucket FROM tasks_by UNION SELECT bucket FROM actors_by
@@ -608,6 +610,8 @@ async function getTaskVolumeBetween(
     LEFT JOIN queue_tasks t
       ON t.submitted_at >= b.bucket
      AND t.submitted_at < b.bucket + ${bucketStep}
+     AND t.submitted_at >= ${since}
+     AND t.submitted_at <= ${at}
     GROUP BY b.bucket
     ORDER BY b.bucket
   `)
@@ -630,6 +634,8 @@ export async function getOverview(range: Range, custom?: TimeWindow): Promise<Ov
     : new Date(at.getTime() - 2 * rangeMs(range))
   const customUnit: VolumeBucketUnit | undefined =
     customSpan === undefined ? undefined : customSpan <= 2 * 86_400_000 ? 'hour' : 'day'
+  const submittedCap = custom ? sql`AND submitted_at <= ${at}` : sql``
+  const startedCap = custom ? sql`AND started_at <= ${at}` : sql``
 
   const [summaryRowsRaw, volume, failureRowsRaw, modelRowsRaw, cacheRowsRaw, phaseRowsRaw] =
     await Promise.all([
@@ -649,7 +655,7 @@ export async function getOverview(range: Range, custom?: TimeWindow): Promise<Ov
           ORDER BY EXTRACT(EPOCH FROM (started_at - submitted_at)) * 1000
         ) FILTER (WHERE started_at IS NOT NULL) AS queue_p50_ms
       FROM queue_tasks
-      WHERE submitted_at >= ${since}
+      WHERE submitted_at >= ${since} ${submittedCap}
     `),
       customUnit
         ? getTaskVolumeBetween(since, at, customUnit)
@@ -660,7 +666,7 @@ export async function getOverview(range: Range, custom?: TimeWindow): Promise<Ov
         COUNT(*) FILTER (WHERE submitted_at >= ${since}) AS count,
         COUNT(*) FILTER (WHERE submitted_at < ${since}) AS previous_count
       FROM queue_tasks
-      WHERE submitted_at >= ${previousSince} AND status = 'failed'
+      WHERE submitted_at >= ${previousSince} ${submittedCap} AND status = 'failed'
       GROUP BY COALESCE(error_type, 'unknown')
       HAVING COUNT(*) FILTER (WHERE submitted_at >= ${since}) > 0
       ORDER BY count DESC, error_type
@@ -683,7 +689,7 @@ export async function getOverview(range: Range, custom?: TimeWindow): Promise<Ov
           ORDER BY EXTRACT(EPOCH FROM (completed_at - started_at)) * 1000
         ) FILTER (WHERE status = 'completed' AND started_at IS NOT NULL) AS run_p95_ms
       FROM queue_tasks
-      WHERE submitted_at >= ${since}
+      WHERE submitted_at >= ${since} ${submittedCap}
       GROUP BY model
       ORDER BY count DESC, model
     `),
@@ -694,7 +700,7 @@ export async function getOverview(range: Range, custom?: TimeWindow): Promise<Ov
         SUM((usage->>'inputTokens')::bigint) AS input_tokens,
         SUM(cache_read_tokens) AS cache_read_tokens
       FROM agent_model_calls
-      WHERE started_at >= ${since}
+      WHERE started_at >= ${since} ${startedCap}
         AND purpose = 'conversation'
         AND usage IS NOT NULL
         AND cache_read_tokens IS NOT NULL
@@ -720,7 +726,7 @@ export async function getOverview(range: Range, custom?: TimeWindow): Promise<Ov
           AND COALESCE(http_dispatch_count, 1) > 0
           AND (conversation_id, turn_id) IN (
             SELECT conversation_id, turn_id FROM agent_model_calls
-            WHERE started_at >= ${since} AND purpose = 'conversation'
+            WHERE started_at >= ${since} ${startedCap} AND purpose = 'conversation'
           )
       )
       SELECT
@@ -729,7 +735,7 @@ export async function getOverview(range: Range, custom?: TimeWindow): Promise<Ov
         SUM(input_tokens) AS input_tokens,
         SUM(cache_read_tokens) AS cache_read_tokens
       FROM ranked
-      WHERE started_at >= ${since} AND cache_read_tokens IS NOT NULL
+      WHERE started_at >= ${since} ${startedCap} AND cache_read_tokens IS NOT NULL
       GROUP BY first_call
     `),
     ])

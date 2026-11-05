@@ -184,9 +184,9 @@ function UsersContent({ data }: { data: ListUsersResult }) {
           }
         />
         <ListPagination
-          page={page}
+          page={page ?? 1}
           pageSize={pageSize === 100 ? 100 : 50}
-          total={total}
+          total={total ?? users.length}
           onPage={(next) => update({ page: next })}
           onPageSize={(size) => update({ pageSize: size, page: 1 })}
         />
