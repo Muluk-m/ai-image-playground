@@ -312,9 +312,11 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     expect(check.status).toBe(0)
   })
 
-  it('produces a data-only release the fixed runtime pulls by digest and rolls out', () => {
+  it('produces a data-only release the fixed runtime can pull by digest and rolls out', () => {
     writeFileSync(join(root, 'logged-in'), '')
     expect(build().status).toBe(0)
+    expect(outputFiles()).toEqual(['SHA256SUMS', 'images.tsv'])
+    expect(existsSync(join(out, 'scripts/vps-deploy.sh'))).toBe(false)
     rmSync(log)
     const received = spawnSync('sh', [join(checkout, 'scripts/vps-deploy.sh'), 'all', out], {
       env,
@@ -392,6 +394,8 @@ describe('build-vps-release.sh, archive fallback', () => {
       ].join('\n'),
     )
     expect(readFileSync(join(out, 'SHA256SUMS'), 'utf8')).toMatch(/ {2}images\.tar\.gz\n/)
+    expect(outputFiles()).toEqual(['SHA256SUMS', 'images.tar.gz', 'images.tsv'])
+    expect(existsSync(join(out, 'scripts/vps-deploy.sh'))).toBe(false)
     rmSync(log)
     const received = spawnSync('sh', [join(checkout, 'scripts/vps-deploy.sh'), 'internal', out], {
       env,
