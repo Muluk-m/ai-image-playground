@@ -1,12 +1,17 @@
 import type { QueueProvider } from '@image-playground/shared'
 import { config } from '../config'
+import { runtimeSecret } from './upstream-secret-cache'
 
-/** Pick the upstream API key for a given provider kind, falling back to the generic key. */
+/**
+ * 网关密钥。后台记录只替换通用的 UPSTREAM_API_KEY。
+ * 供应商专用环境变量仍优先，和部署说明一致。
+ */
 export function resolveApiKey(kind: QueueProvider): string {
   const { apiKey, openaiApiKey, geminiApiKey } = config.upstream
-  if (kind === 'openai-compat') return openaiApiKey || apiKey
-  if (kind === 'gemini') return geminiApiKey || apiKey
-  return apiKey
+  const generic = runtimeSecret('UPSTREAM_API_KEY', apiKey)
+  if (kind === 'openai-compat') return openaiApiKey || generic
+  if (kind === 'gemini') return geminiApiKey || generic
+  return generic
 }
 
 /** Chat, summary and search calls prefer the Claude credential when configured. */

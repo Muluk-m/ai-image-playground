@@ -514,8 +514,12 @@ describe('runMigrations', () => {
             created_at: '1793800000000',
           },
           {
-            hash: await migrationFileHash('0088_admin_filter_indexes'),
+            hash: await migrationFileHash('0088_upstream_api_secrets'),
             created_at: '1793900000000',
+          },
+          {
+            hash: await migrationFileHash('0089_admin_filter_indexes'),
+            created_at: '1794000000000',
           },
         ])
         const columns =
