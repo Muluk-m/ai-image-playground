@@ -8,7 +8,6 @@
     "settings": "设置",
     "loginMethods": "账户设置",
     "cliConnections": "插件集成",
-    "cliConnectionsDescription": "管理已连接的插件与设备",
     "login": "登录",
     "loggingOut": "退出中",
     "guest": {

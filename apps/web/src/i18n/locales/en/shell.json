@@ -8,7 +8,6 @@
     "settings": "Settings",
     "loginMethods": "Account settings",
     "cliConnections": "Plugin integrations",
-    "cliConnectionsDescription": "Manage connected plugins and devices",
     "login": "Sign in",
     "loggingOut": "Signing out",
     "guest": {
