@@ -1,6 +1,6 @@
 # 一套代码，两版部署：隔离方案调研
 
-> 研究问题：本仓库是 **MIT 开源** 项目，一套代码要同时支撑 **收费版（经营站）** 与 **非收费版（个人 / 自部署）**，
+> 研究问题：本仓库是 **MIT 开源** 项目，一套代码要同时支撑 **muvloom 版（经营站）** 与 **非 muvloom 版（个人 / 自部署）**，
 > 目前只靠 `AUTH_ENABLED` + `runtime-config.json` 一个开关区分，长期不够用。
 > 追加约束：属于「我这一版」的私有运营配置（内置 channel、品牌、私有内容、密钥引用）必须放在**不提交到远程仓库**的配置文件里。
 >
@@ -15,7 +15,7 @@
 
 | 关注点 | 问题 | 机制 | 产物层面 |
 |---|---|---|---|
-| **(i) 私有代码在不在** | 收费版独有的模块是否存在于这份产物里 | 目录 / workspace 包的**存在性**（可选 import + 构建期 overlay） | 真删 |
+| **(i) 私有代码在不在** | muvloom 版独有的模块是否存在于这份产物里 | 目录 / workspace 包的**存在性**（可选 import + 构建期 overlay） | 真删 |
 | **(ii) 能力是否开启** | 这个部署是否有 `accounts:login` / `channels:builtin` / `quota:daily` | `packages/shared` 里一张 **capability registry**，服务端求值 | 运行时 |
 | **(iii) UI 该不该渲染** | 前端要不要画登录页 / 内置 channel 分组 | BFF 下发的**只读能力清单**（客户端可见子集） | 纯 UX |
 
@@ -28,8 +28,8 @@
 公开树只认一个入口（`privateOverlay.tsx` 的 `import.meta.glob` + 运行时契约校验）。
 这条约束本身是好的，坏在两点，都踩过：
 
-- **收费版独有的概念不许往公开树塞。** overlay 曾把 `TierBadge`、`PrivateMembership`、
-  `PrivateAdminUserSummary.tier` 当成公开树的东西来引；补在公开树就是收费版的死代码，
+- **muvloom 版独有的概念不许往公开树塞。** overlay 曾把 `TierBadge`、`PrivateMembership`、
+  `PrivateAdminUserSummary.tier` 当成公开树的东西来引；补在公开树就是 muvloom 版的死代码，
   违反上表第 (i) 条。判据很简单：公开树里有没有人**消费**它。没有就留在 overlay。
 - **生产部署取 overlay 的 `verified` 分支，不是 `main`。** 那个指针只在 overlay 自己的
   CI（公开树 main + 那份 overlay 一起 lint / typecheck / test / build）全绿之后才前移。
@@ -39,11 +39,11 @@
 
 **边界要画两个方向（2026-09-22 追记）**。上面那条只守了"公开树不引 private"；反方向一直没守，
 overlay 曾深路径引了公开树 20 多个模块（`components/Overlay`、`i18n`、admin 的 `ui/*`……），
-等于整棵公开源码树都是它的 API，公开树任何重构都可能悄悄打断收费版，而公开 CI 全绿。现在：
+等于整棵公开源码树都是它的 API，公开树任何重构都可能悄悄打断 muvloom 版，而公开 CI 全绿。现在：
 
 - overlay 只许经三个接缝 + 三个宿主面（`private-host.ts` / `privateHost.ts`）引公开树，
   `check-private-boundary.ts` 反向扫描 `private/` 强制；
-- 公开 CI 的 `with-overlay` 作业把候选公开树和 `verified` overlay 放在一起构建——收费版是公开
+- 公开 CI 的 `with-overlay` 作业把候选公开树和 `verified` overlay 放在一起构建——muvloom 版是公开
   main 最重要的消费者，得在公开 PR 里有一票；它执行的就是"先扩后缩"：宿主面成员只有在
   `verified` overlay 不再引用之后才能删。
 
@@ -155,7 +155,7 @@ else:
 ```
 
 Bun/Elysia 的等价物就是 `await import('./private/index.ts').catch(() => null)`。
-好处：**忘了设 env 不会把付费能力泄给免费版**，因为默认就是「模块不在」。
+好处：**忘了设 env 不会把 muvloom 能力泄给免费版**，因为默认就是「模块不在」。
 
 **(C) n8n 的单向 import 规则** — 九个项目里**唯一**机器强制的边界，全文约 35 行：
 
@@ -175,7 +175,7 @@ return { ImportDeclaration(node) {
 
 ---
 
-## 3. 构建期能不能把付费代码「真删掉」
+## 3. 构建期能不能把 muvloom 代码「真删掉」
 
 这决定了「隔离」是真的还是自我安慰。逐机制给结论。
 
@@ -203,7 +203,7 @@ Vite 6 的 `define` 就是 esbuild 的 `define`（<https://v6.vite.dev/config/sh
 
 **② `import.meta.env.VITE_X` 永远是字符串，`"false"` 是真值。**
 Vite 文档明说布尔 env 解析出来是字符串，要自己转型（<https://vite.dev/guide/env-and-mode>）。
-写 `if (import.meta.env.VITE_PAID)` 会把付费代码发到**免费版**。必须 `=== 'true'`。
+写 `if (import.meta.env.VITE_PAID)` 会把 muvloom 代码发到**免费版**。必须 `=== 'true'`。
 另外替换是拼写敏感的：`import.meta.env['X']`、解构、动态 key 都会让 DCE 失效。
 
 **③ Rollup 默认假设每个模块都有副作用，所以「副作用 import 注册插件」这种写法删不掉。**
@@ -219,11 +219,11 @@ Vite 文档明说布尔 env 解析出来是字符串，要自己转型（<https:
 - **Node `exports` 条件是「改选哪个文件」，不是「删文件」**；而且 key 顺序有意义、自定义条件默认被忽略：
   「Within the `"exports"` object, **key order is significant**」/「Condition strings other than … **are ignored by default**」，需 `node --conditions=x`。
   <https://nodejs.org/api/packages.html#conditional-exports>
-  陷阱：把 `default` 放在自定义条件前面，付费分支就永远不可达且无报错。
+  陷阱：把 `default` 放在自定义条件前面，muvloom 分支就永远不可达且无报错。
 - **TS `customConditions` 只影响类型检查**，且只在 `node16`/`nodenext`/`bundler` 下合法
   （<https://www.typescriptlang.org/tsconfig/#customConditions>）。本仓库 `tsconfig.base.json:5` 已是 `bundler`，可直接用。
   `paths`「does not change how import paths are emitted by `tsc`」（<https://www.typescriptlang.org/tsconfig/#paths>）。
-- **Bun 侧今天无从谈起**：`apps/bff` 没有 build step。要谈「免费镜像里没有付费服务端代码」，
+- **Bun 侧今天无从谈起**：`apps/bff` 没有 build step。要谈「免费镜像里没有 muvloom 服务端代码」，
   先得引入 `bun build`，或者干脆在 `Dockerfile` 的 `COPY` 层面排除 —— 这是**打包问题，不是 bundler 问题**。
 - **`bun build --env inline` 会把整个 `process.env` 烤进产物**（<https://bun.com/docs/bundler#env>），与私有配置约束正面冲突，禁用。
 
@@ -319,7 +319,7 @@ operator 就是仓库作者，签发方和验证方之间没有对手。真要�
 
 | 方案 | 机制 | 有出处的代价 | 判断 |
 |---|---|---|---|
-| **A. 一个镜像 + env**（现状） | entrypoint 模板化 `runtime-config.json` | 符合 12-Factor：config 在 release 阶段与 build 结合，不进 build。代价是免费产物里**含有**付费代码，`AUTH_ENABLED` 是纯运行时边界，没有产物层兜底 | **保留为底座** |
+| **A. 一个镜像 + env**（现状） | entrypoint 模板化 `runtime-config.json` | 符合 12-Factor：config 在 release 阶段与 build 结合，不进 build。代价是免费产物里**含有** muvloom 代码，`AUTH_ENABLED` 是纯运行时边界，没有产物层兜底 | **保留为底座** |
 | **B. 一个 Dockerfile 出两个镜像**（`--target` / bake） | `docker build --target`；`docker-bake.hcl` 的 `target`/`tags`/`inherits`/`matrix` | 增量成本近乎为零 —— 本仓库 `Dockerfile:50` 已经在用 `--target admin-runtime`。代价：各自 cache key、各自 push；bake 多文件合并时 `tags`/`target` 是**后者覆盖**（`labels`/`args` 才是合并） | **最高杠杆的一步** |
 | **C. 两个分支** | 长期存活的 `paid` 分支 | 没有任何一手厂商案例支持；GitLab 评估的三个方案全是单仓库。继承两仓库的全部痛苦，还少了独立 issue tracker | **否决** |
 | **D. 两个仓库** | 私有 fork | 见下方 GitLab 实测曲线 | **否决** |
@@ -377,7 +377,7 @@ GitLab 一手结论是「同一个 schema，免费版多几张空表」：
 > 「Transactions involving multiple attached databases are atomic, **assuming that the main database is not ":memory:" and the journal_mode is not WAL**. If … the journal_mode is WAL, then transactions continue to be atomic within each individual database file.」
 > — <https://www.sqlite.org/lang_attach.html>
 
-即：`tasks` 在主库、`daily_quota` 在付费库时，**跨库提交不是原子的**，崩溃可能只落一半。
+即：`tasks` 在主库、`daily_quota` 在 muvloom 库时，**跨库提交不是原子的**，崩溃可能只落一半。
 同页还有一个静默坑：同名表未加 schema 前缀时，解析到**最近最少 attach**的那个库。
 
 ### Tier 1 静态托管（各家字段名，已核对）
@@ -395,7 +395,7 @@ GitLab 一手结论是「同一个 schema，免费版多几张空表」：
   <https://developers.cloudflare.com/workers/wrangler/environments/>
 
 **结论**：Tier 1 静态部署**在结构上就装不下机密**（Vite：`VITE_*` 会被编进 bundle）。
-所以收费版里带密钥的那部分，天然属于 Docker/BFF 这一层。
+所以 muvloom 版里带密钥的那部分，天然属于 Docker/BFF 这一层。
 
 ---
 
@@ -445,7 +445,7 @@ GitLab 一手结论是「同一个 schema，免费版多几张空表」：
 Web 侧同理：`docker-entrypoint.sh` 现在从 env 模板化写 `dist/runtime-config.json`（Grafana 风格），
 再加一句「若 `/etc/<app>/runtime-config.json` 存在则覆盖」，operator 就只改一个文件而不是十来个 env。
 
-### 6.3 CI 怎么构建收费版产物（gitignored 文件在 CI 里不存在）
+### 6.3 CI 怎么构建 muvloom 版产物（gitignored 文件在 CI 里不存在）
 
 四种，按爆炸半径升序：
 
@@ -459,7 +459,7 @@ Web 侧同理：`docker-entrypoint.sh` 现在从 env 模板化写 `dist/runtime-
    代价：公开仓库里的密文是**永久**的，将来密钥泄露会追溯性暴露全部历史值。<https://getsops.io/docs/> · <https://github.com/FiloSottile/age>
 3. **checkout 一个私有 overlay 仓库**：`actions/checkout` 带 `repository:` + `token: ${{ secrets.OPS_REPO_PAT }}` + `path: ops`。
    比 submodule 好，因为**公开仓库里不会出现 `.gitmodules`**，私有仓库地址不外泄，也没有 detached HEAD。
-4. **压根不在公开 CI 里构建收费版**（Sentry 模型）：operator 自己机器上 `docker build .`，
+4. **压根不在公开 CI 里构建 muvloom 版产物**（Sentry 模型）：operator 自己机器上 `docker build .`，
    本地目录 build context **包含** gitignored 文件（只有 `.dockerignore` 会过滤）。
    注意 `docker build https://github.com/…` 这种远程 Git context 是浅克隆，文件根本不存在。
    <https://docs.docker.com/build/concepts/context/>
@@ -484,7 +484,7 @@ Web 侧同理：`docker-entrypoint.sh` 现在从 env 模板化写 `dist/runtime-
 
 1. 任何非 `VITE_` 前缀的开关（`EDITION`、`AUTH_ENABLED`）**不进构建 hash**。
    Framework Inference 只自动覆盖 `VITE_*`。
-   → `EDITION=paid turbo build` 之后 `EDITION=free turbo build` = **缓存命中，把付费产物当免费版发出去**。
+   → `EDITION=paid turbo build` 之后 `EDITION=free turbo build` = **缓存命中，把 muvloom 产物当免费版发出去**。
 2. 声明了 `inputs` 就等于**放弃了 `.gitignore` 感知**（官方：「Using the `inputs` key opts you out of `turbo`'s default behavior of considering `.gitignore`」），改私有配置不会 miss cache。
 3. `envMode` 默认 `strict` **救不了**，因为本应用会优雅降级 —— 官方原话：
    > 「While Strict Mode makes it much more likely for your task to fail …, **it doesn't guarantee task failure. If your application is able to gracefully handle a missing environment variable, you could still successfully complete tasks and get unintended cache hits.**」
@@ -517,7 +517,7 @@ Loose 模式的官方示例几乎就是本场景的剧本：
   源码注释还要求「The behavior needs to be synchronised with `config/helpers/is_ee_env.js`」——
   **同一个判据在两种语言里手工维护两份**。前后端各有一个 gate 的仓库都会继承这个问题。
 - **fail-open 还是 fail-closed 要逐点决定**。Metabase 在函数上逐个写 `:feature :none ;; fail CLOSED`；
-  n8n 是 `?? false`（fail closed）。选错一处就是静默送出付费能力，或静默宕掉功能。
+  n8n 是 `?? false`（fail closed）。选错一处就是静默送出 muvloom 能力，或静默宕掉功能。
 - **公开仓库的 push protection 默认是关的**。免费公开仓自动获得的是 *secret scanning* 与 **user-level** push protection；
   **repository-level** push protection「Is disabled by default」且需要付费的 GitHub Secret Protection。
   所以真正的闸门要靠本地 `gitleaks` pre-commit + CI 里的 `gitleaks dir` + `git check-ignore -q` 断言。
@@ -546,12 +546,12 @@ Loose 模式的官方示例几乎就是本场景的剧本：
    `OPERATOR_CONFIG_FILE` 指向仓库外路径；`.gitignore` + `.dockerignore` + CI `git check-ignore -q` 三重保险。
 8. **（可选，需要产物级隔离时）** Dockerfile 加一个 `paid-runtime` stage，或起 `docker-bake.hcl` 出两个 tag。
    注意：这一步会把 config 拉进 build 阶段，与 12-Factor 相悖；
-   Mattermost 的做法（**同一个镜像 + 不同 `.env`**）更干净，只有在需要「零挂载即可独立部署的付费产物」时才用 `--target`。
+   Mattermost 的做法（**同一个镜像 + 不同 `.env`**）更干净，只有在需要「零挂载即可独立部署的 muvloom 产物」时才用 `--target`。
 9. **（可选）** 抄 n8n 的单向 import 规则，防止边界腐烂。
 
 关于版本切换的清洁度：**优先用「模块存在性」而不是 env**（PostHog / Grafana 模型）。
 `await import('./private/index.ts').catch(() => null)` 的失败模式是「退回免费版」，
-而 `AUTH_ENABLED` 的失败模式是「忘了设 → 付费能力裸奔」。这两个默认值的差别，就是长期能不能省心的差别。
+而 `AUTH_ENABLED` 的失败模式是「忘了设 → muvloom 能力裸奔」。这两个默认值的差别，就是长期能不能省心的差别。
 
 ---
 

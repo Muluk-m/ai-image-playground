@@ -46,7 +46,7 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -u
-          gates='(Checks|Tests \(|Web tests \(|Paid build checks|Paid overlay tests)'
+          gates='(Checks|Tests \(|Web tests \(|Muvloom build checks|Muvloom overlay tests)'
           while :; do
             sleep 20
             jobs=$(gh api "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs?per_page=100" \
@@ -67,8 +67,8 @@ jobs:
 
   # The gate before the rollout is five jobs running side by side, the same split web.yml uses:
   # public lint/build/startup (checks), the database-backed suites (tests, two runners), the web
-  # vitest (web-tests, two shards), the paid build with the pinned overlay (paid-checks) and the
-  # overlay's own tests (paid-tests). The rollout job used to rerun the paid half itself after
+  # vitest (web-tests, two shards), the muvloom build with the pinned overlay (muvloom-checks) and the
+  # overlay's own tests (muvloom-tests). The rollout job used to rerun the overlay half itself after
   # Checks had finished; it now waits for all five instead.
   # Local `pnpm test` keeps running one package at a time; only these CI commands are parallel.
   checks:
@@ -165,8 +165,8 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm test --env-mode=loose --filter=@image-playground/web -- --shard=${{ matrix.shard }}/2
 
-  paid-checks:
-    name: Paid build checks
+  muvloom-checks:
+    name: Muvloom build checks
     # Holds the overlay key; never spend it on a dispatch from another branch (checks fails those).
     if: github.ref == 'refs/heads/test'
     runs-on: ubuntu-24.04
@@ -204,13 +204,13 @@ jobs:
           BFF_BASE_URL: https://startup-api.invalid
       - uses: ./.github/actions/pages-browser
         with:
-          label: test-startup-paid
+          label: test-startup-muvloom
 
   # The overlay's own tests (billing hooks and the rest of private/apps), the same command as
   # web.yml's with-overlay job. That job runs in another workflow, so the rollout could not wait
   # for it; this gate makes Deploy test wait for the same suites at the same pinned overlay.
-  paid-tests:
-    name: Paid overlay tests
+  muvloom-tests:
+    name: Muvloom overlay tests
     if: github.ref == 'refs/heads/test'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -256,7 +256,7 @@ jobs:
 
   backend:
     name: Backend images and VPS rollout
-    needs: [superseded, checks, tests, web-tests, paid-checks, paid-tests]
+    needs: [superseded, checks, tests, web-tests, muvloom-checks, muvloom-tests]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
@@ -295,18 +295,18 @@ jobs:
           ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
           path: private
           persist-credentials: false
-      # Paid lint, typecheck, build and browser startup ran in paid-checks, and the overlay tests in
-      # paid-tests, against this same
+      # Overlay lint, typecheck, build and browser startup ran in muvloom-checks, and the overlay tests in
+      # muvloom-tests, against this same
       # overlay commit (checked below); the image build itself only needs git and Docker, as in
       # deploy.yml.
-      - name: Require the overlay the paid checks used
+      - name: Require the overlay the muvloom checks used
         env:
-          CHECKED: ${{ needs.paid-checks.outputs.private_sha }}
-          TESTED: ${{ needs.paid-tests.outputs.private_sha }}
+          CHECKED: ${{ needs.muvloom-checks.outputs.private_sha }}
+          TESTED: ${{ needs.muvloom-tests.outputs.private_sha }}
           ACTUAL: ${{ steps.overlay.outputs.commit }}
         run: |
           [ -n "$CHECKED" ] && [ "$CHECKED" = "$ACTUAL" ] && [ "$TESTED" = "$ACTUAL" ] ||
-            { echo "::error::Overlay $ACTUAL is not the commit paid-checks ($CHECKED) and paid-tests ($TESTED) verified."; exit 1; }
+            { echo "::error::Overlay $ACTUAL is not the commit muvloom-checks ($CHECKED) and muvloom-tests ($TESTED) verified."; exit 1; }
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
@@ -366,7 +366,7 @@ jobs:
       - name: Write pages.env with the CI token file
         env:
           PAGES_ENV: ${{ secrets.PAGES_ENV }}
-          # The test project lives in the same Cloudflare account as the paid site.
+          # The test project lives in the same Cloudflare account as the muvloom site.
           PAID_CLOUDFLARE_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
         run: |
           umask 077
@@ -376,7 +376,7 @@ jobs:
           printf 'CLOUDFLARE_API_TOKEN=%s\n' "$PAID_CLOUDFLARE_API_TOKEN" \
             > "$RUNNER_TEMP/TEST-cloudflare.env"
           # Later assignments win when the file is sourced: they replace workstation paths, and
-          # they drop the operator assets and the update prompt the paid site releases with.
+          # they drop the operator assets and the update prompt the muvloom site releases with.
           {
             printf '%s\n' "$PAGES_ENV"
             echo "TEST_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/TEST-cloudflare.env"
