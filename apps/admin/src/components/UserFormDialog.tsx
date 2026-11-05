@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
+import { DangerConfirmDialog } from '@/components/DangerConfirmDialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -39,6 +40,7 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -48,13 +50,14 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
   }, [open])
 
   const mutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (reason?: string) => {
       if (mode === 'create') {
         return apiClient.post('/api/users', { username, password })
       }
       if (!user) throw new Error('missing user')
       return apiClient.post(`/api/users/${encodeURIComponent(user.id)}/reset-password`, {
         password,
+        reason,
       })
     },
     onSuccess: async () => {
@@ -83,7 +86,11 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
           onSubmit={(event) => {
             event.preventDefault()
             setError(null)
-            mutation.mutate()
+            if (mode === 'reset') {
+              setConfirming(true)
+              return
+            }
+            mutation.mutate(undefined)
           }}
         >
           {mode === 'create' ? (
@@ -152,6 +159,17 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
           </DialogFooter>
         </form>
       </DialogContent>
+      {mode === 'reset' && user ? (
+        <DangerConfirmDialog
+          open={confirming}
+          onOpenChange={setConfirming}
+          title={`重置 ${user.username} 的密码?`}
+          impact="保存后该用户的所有现有登录会话会立即失效。"
+          confirmLabel="确认重置"
+          pending={mutation.isPending}
+          onConfirm={(reason) => mutation.mutate(reason)}
+        />
+      ) : null}
     </Dialog>
   )
 }

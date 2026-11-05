@@ -1,18 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 
+import { FilterBar, type FilterChip, presetWindow } from '@/components/FilterBar'
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
 import { ShortId } from '@/components/ShortId'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   Table,
   TableBody,
@@ -23,9 +17,18 @@ import {
 } from '@/components/ui/table'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useAudits } from '@/lib/queries'
+import { parseAuditSearch } from '@/lib/search-params'
 import type { OperatorAuditRow } from '@/lib/types'
 
-export const Route = createFileRoute('/_authed/audit')({ component: AuditPage })
+export const Route = createFileRoute('/_authed/audit')({
+  validateSearch: parseAuditSearch,
+  component: AuditPage,
+  errorComponent: ({ error }) => (
+    <Page crumbs={[{ label: '审计' }]}>
+      <ErrorState label="审计筛选无效" error={error} />
+    </Page>
+  ),
+})
 
 /**
  * 筛选下拉里列的是后端当前会写的动作（apps/bff/src/lib/user-admin.ts、lib/inspirations.ts）。
@@ -54,62 +57,90 @@ const ACTION_LABEL: Record<string, string> = {
   'operator_config.clear': '清除运营覆盖',
 }
 
-const ALL_ACTIONS = 'all'
 /** 未登记中文名的动作直接显示原始 action，避免用「—」伪装成漏数据。 */
 function actionTitle(action: string): string {
   return ACTION_LABEL[action] ?? action
 }
 
 export function AuditPage() {
-  const [action, setAction] = useState(ALL_ACTIONS)
-  const [settingKey, setSettingKey] = useState('')
-  const [targetId, setTargetId] = useState('')
+  const search = Route.useSearch()
+  const navigate = Route.useNavigate()
+  const [clock] = useState(() => Date.now())
+  const preset = search.preset ?? 'all'
+  const window =
+    preset === 'custom' && search.from !== undefined && search.to !== undefined
+      ? { from: search.from, to: search.to }
+      : preset === 'today' || preset === '7d' || preset === '30d'
+        ? presetWindow(preset, clock)
+        : undefined
   const isMobile = useIsMobile()
   const query = useAudits({
-    action: action === ALL_ACTIONS ? undefined : action,
-    settingKey: settingKey.trim() || undefined,
-    targetId: targetId.trim() || undefined,
+    action: search.action,
+    settingKey: search.settingKey,
+    targetId: search.targetId,
+    operatorId: search.operatorId,
+    from: window?.from,
+    to: window?.to,
   })
   const audits = query.data?.pages.flatMap((page) => page.audits) ?? []
 
   return (
-    <Page
-      crumbs={[{ label: '审计' }]}
-      description="运营者执行过的写操作，只读"
-      actions={
-        <div className="flex items-center gap-2">
-          <Input
-            value={settingKey}
-            onChange={(event) => setSettingKey(event.target.value)}
-            className="h-8 w-[180px] text-xs"
-            placeholder="配置键"
-            aria-label="按配置键筛选"
-          />
-          <Input
-            value={targetId}
-            onChange={(event) => setTargetId(event.target.value)}
-            className="h-8 w-[180px] text-xs"
-            placeholder="对象 ID"
-            aria-label="按对象 ID 筛选"
-          />
-          <Select value={action} onValueChange={setAction}>
-            <SelectTrigger className="h-8 w-[180px] text-xs" aria-label="按动作筛选">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_ACTIONS} className="text-xs">
-                全部动作
-              </SelectItem>
-              {Object.entries(ACTION_LABEL).map(([value, label]) => (
-                <SelectItem key={value} value={value} className="text-xs">
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      }
-    >
+    <Page crumbs={[{ label: '审计' }]} description="运营者执行过的写操作，只读">
+      <FilterBar
+        savedViewKey="audit"
+        presets={['all', 'today', '7d', '30d', 'custom']}
+        preset={preset}
+        from={window?.from}
+        to={window?.to}
+        onPreset={(next, span) =>
+          void navigate({
+            search: (previous) => ({
+              ...(previous ?? {}),
+              preset: next,
+              from: span?.from,
+              to: span?.to,
+            }),
+            replace: true,
+          })
+        }
+        search={search.operatorId ?? ''}
+        searchPlaceholder="操作者 ID"
+        onSearch={(operatorId) =>
+          void navigate({
+            search: (previous) => ({ ...(previous ?? {}), operatorId: operatorId || undefined }),
+            replace: true,
+          })
+        }
+        chips={auditChips(search)}
+        definitions={[
+          {
+            key: 'action',
+            label: '动作',
+            kind: 'single',
+            options: Object.entries(ACTION_LABEL).map(([value, label]) => ({ value, label })),
+          },
+          { key: 'targetId', label: '对象 ID', kind: 'text' },
+          { key: 'settingKey', label: '配置键', kind: 'text' },
+        ]}
+        values={{
+          action: search.action ?? '',
+          targetId: search.targetId ?? '',
+          settingKey: search.settingKey ?? '',
+        }}
+        onChange={(key, value) =>
+          void navigate({
+            search: (previous) => ({ ...(previous ?? {}), [key]: value || undefined }),
+            replace: true,
+          })
+        }
+        onRemove={(key) =>
+          void navigate({
+            search: (previous) => ({ ...(previous ?? {}), [key]: undefined }),
+            replace: true,
+          })
+        }
+        onClear={() => void navigate({ search: {}, replace: true })}
+      />
       {query.isPending ? (
         <PendingState label="加载审计记录" />
       ) : query.isError ? (
@@ -163,6 +194,7 @@ export function AuditPage() {
                         <span className="block max-w-[420px] truncate font-mono text-[11px] text-muted-foreground">
                           {detailText(audit.details)}
                         </span>
+                        <AuditDiff details={audit.details} />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -231,8 +263,80 @@ function AuditCard({ audit }: { audit: OperatorAuditRow }) {
       </dl>
       <p className="mt-3 break-words rounded-md bg-muted/40 p-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
         {detailText(audit.details)}
+        <AuditDiff details={audit.details} />
       </p>
     </article>
+  )
+}
+
+function auditChips(search: {
+  action?: string
+  targetId?: string
+  settingKey?: string
+}): FilterChip[] {
+  const chips: FilterChip[] = []
+  if (search.action) chips.push({ key: 'action', label: '动作', value: actionTitle(search.action) })
+  if (search.targetId) chips.push({ key: 'targetId', label: '对象', value: search.targetId })
+  if (search.settingKey)
+    chips.push({ key: 'settingKey', label: '配置键', value: search.settingKey })
+  return chips
+}
+
+function AuditDiff({ details }: { details: Record<string, unknown> }) {
+  const [open, setOpen] = useState(false)
+  if (!('before' in details) || !('after' in details)) return null
+  const before = details.before
+  const after = details.after
+  const keys =
+    before && after && typeof before === 'object' && typeof after === 'object'
+      ? [...new Set([...Object.keys(before), ...Object.keys(after)])]
+      : []
+  return (
+    <>
+      <button type="button" className="mt-1 text-xs underline" onClick={() => setOpen(true)}>
+        对比
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>变更对比</DialogTitle>
+          </DialogHeader>
+          {keys.length ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>字段</TableHead>
+                  <TableHead>之前</TableHead>
+                  <TableHead>之后</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {keys.map((key) => (
+                  <TableRow key={key}>
+                    <TableCell className="font-mono text-xs">{key}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {JSON.stringify((before as Record<string, unknown>)[key] ?? null)}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {JSON.stringify((after as Record<string, unknown>)[key] ?? null)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              <pre className="overflow-auto rounded-md bg-muted p-3 text-xs">
+                {JSON.stringify(before, null, 2)}
+              </pre>
+              <pre className="overflow-auto rounded-md bg-muted p-3 text-xs">
+                {JSON.stringify(after, null, 2)}
+              </pre>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

@@ -7,6 +7,7 @@ import {
 } from '../../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
+import { composerImageRate } from '../../../lib/imageCharge'
 import { getPrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { calculateImageSize } from '../../../lib/size'
 import { useStore } from '../../../store'
@@ -33,9 +34,11 @@ const OUTPAINT_DEFAULT_INSTRUCTION =
   '不要改动原有区域，也不要添加与原图无关的新主体。'
 
 function submissionBlocked(settings: AppSettings): string | null {
+  const model = clientProfileToApiProfile(getActiveApiProfile(settings)).model
   const guard = getPrivateSubmissionGuard({
-    model: clientProfileToApiProfile(getActiveApiProfile(settings)).model,
+    model,
     quantity: 1,
+    unitMultiplier: composerImageRate(model, useStore.getState().params),
   })
   if (!guard.blocked) return null
   return guard.disabledReason ?? i18next.t('submit.blocked', { ns: 'canvas' })

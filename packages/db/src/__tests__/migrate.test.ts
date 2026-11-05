@@ -517,7 +517,10 @@ describe('runMigrations', () => {
             hash: await migrationFileHash('0088_upstream_api_secrets'),
             created_at: '1793900000000',
           },
-          // 0089（when 1794000000000）是并行后台 PR 的筛选索引。它先合并，这条 0090 必须排在它后面。
+          {
+            hash: await migrationFileHash('0089_admin_filter_indexes'),
+            created_at: '1794000000000',
+          },
           {
             hash: await migrationFileHash('0090_announcements'),
             created_at: '1794100000000',
