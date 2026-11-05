@@ -1194,7 +1194,13 @@ function extractImagesMeta(
   if (provider === 'openai-compat') {
     const data = (payload as { data?: unknown[] }).data
     if (!Array.isArray(data)) return []
-    return data.map((_d, i) => ({ index: i, mime: 'image/png' }))
+    return data.map((item, index) => ({
+      index,
+      mime:
+        item && typeof item === 'object' && 'mime' in item && typeof item.mime === 'string'
+          ? item.mime
+          : 'image/png',
+    }))
   }
   if (provider === 'gemini') {
     const candidates = (payload as { candidates?: unknown[] }).candidates

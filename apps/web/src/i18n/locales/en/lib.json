@@ -67,6 +67,7 @@
     "bffDuplicateSubmit": "This conflicts with an earlier request. Submit again"
   },
   "dispatch": {
+    "gifSpriteLimit": "The GIF sprite exceeds the current size limit. Use 768 × 768 with up to 12 frames, or 512 × 512 with up to 16 frames.",
     "channelNotFound": "The selected model wasn't found. Pick another model",
     "channelsUnavailable": "Platform channels are temporarily unreachable. Retrying.",
     "unsupportedModel": "This model isn't supported. Pick another model",

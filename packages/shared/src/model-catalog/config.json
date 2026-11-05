@@ -444,7 +444,7 @@
         "tiers": {
           "source": "probe",
           "at": "2026-11-05",
-          "note": "OpenAI 直连实测。只走直连，不回退 sub2api 或其他模型。GIF 只支持 generations，帧边 512/768，雪碧图长边须 ≤3840。SVG 只支持 generations，n=1，并带 svg.model。"
+          "note": "使用配置的 OpenAI 兼容图片渠道，不回退 sub2api 或其他模型。GIF 只支持 generations，帧边 512/768；产品拼图长边限制 3840，保守像素预算 7077888（768×768、12 帧成功；16 帧的 3072×3072 被拒，上游精确上限未知）。SVG 只支持 generations，n=1，并带 svg.model。"
         },
         "ratios": {
           "source": "code",
@@ -601,7 +601,7 @@
         "tiers": {
           "source": "probe",
           "at": "2026-11-05",
-          "note": "OpenAI 直连实测。只走直连，不回退 sub2api 或其他模型。GIF 只支持 generations，帧边 512/768，雪碧图长边须 ≤3840。SVG 只支持 generations，n=1，并带 svg.model。"
+          "note": "使用配置的 OpenAI 兼容图片渠道，不回退 sub2api 或其他模型。GIF 只支持 generations，帧边 512/768；产品拼图长边限制 3840，保守像素预算 7077888（依据 Flare 的 768×768、12 帧成功设置，非已确认的上游精确上限）。SVG 只支持 generations，n=1，并带 svg.model。"
         },
         "ratios": {
           "source": "code",
