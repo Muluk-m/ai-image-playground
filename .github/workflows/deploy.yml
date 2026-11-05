@@ -149,7 +149,8 @@ jobs:
           APP_RELEASE: ${{ needs.release.outputs.version }}
         run: |
           release_id="aip-$(printf %.12s "$PUBLIC_SHA")-$(printf %.12s "$PRIVATE_SHA")"
-          ./scripts/build-vps-release.sh all "$RUNNER_TEMP/$release_id"
+          # The legacy internal runtime is frozen; only paid is rolled out below.
+          ./scripts/build-vps-release.sh paid "$RUNNER_TEMP/$release_id"
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
       - name: Keep the release for the paid rollout
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

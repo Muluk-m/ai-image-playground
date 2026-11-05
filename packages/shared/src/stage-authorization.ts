@@ -57,6 +57,10 @@ export interface StageAuthorizationTurn {
   readonly model?: string
   readonly canvasImageModel?: string
   readonly canvasImageCount?: number
+  /** 提案时工作台的出图档。唤醒轮照此重报，和原标签页提交的倍率一致。 */
+  readonly size?: string
+  readonly quality?: string
+  readonly gemini_image_size?: string
   readonly video?: AgentTurnParams['video']
 }
 export interface StageAuthorization {

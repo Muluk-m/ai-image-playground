@@ -24,7 +24,6 @@ const epoch = (value: unknown) =>
   value instanceof Date ? value.getTime() : Date.parse(String(value))
 const nullableText = (value: unknown) => (value == null ? null : String(value))
 const ACTOR_LIMIT = 500
-const PAGE_SIZE = 100
 
 function modelFailures(rows: Row[]): Map<string, TodayModelFailure[]> {
   const grouped = new Map<string, TodayModelFailure[]>()
@@ -285,14 +284,35 @@ export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResul
 
 export class TaskQueryError extends Error {}
 
-export async function getGenerationTasks(
-  filters: GenerationTaskFilters,
-  cursor?: string,
-): Promise<GenerationTasksResult> {
-  const window: TimeWindow =
-    filters.from !== undefined && filters.to !== undefined
-      ? { from: filters.from, to: filters.to }
-      : todayWindow()
+const CURSOR_PAGE_SIZE = 100
+const EXPORT_CAP = 10_000
+
+/** 提示词不建 trigram。调用方必须先用 submitted_at 窗口把扫描圈住，再对这段文本做 ILIKE。 */
+const promptText = sql`COALESCE(t.request_payload->>'prompt', (
+  SELECT string_agg(part #>> '{}', E'\\n' ORDER BY position)
+  FROM jsonb_array_elements(jsonb_path_query_array(t.request_payload, '$.contents[*].parts[*].text'))
+    WITH ORDINALITY AS texts(part, position)
+  WHERE jsonb_typeof(part) = 'string' AND part #>> '{}' <> ''
+), '')`
+
+function ilikeContains(value: string): string {
+  return `%${value.replace(/[\\%_]/g, (char) => `\\${char}`)}%`
+}
+
+function sqlTextIn(column: ReturnType<typeof sql>, values: readonly string[]) {
+  return sql`${column} IN (${sql.join(
+    values.map((value) => sql`${value}`),
+    sql`, `,
+  )})`
+}
+
+function taskWindow(filters: GenerationTaskFilters): TimeWindow {
+  return filters.from !== undefined && filters.to !== undefined
+    ? { from: filters.from, to: filters.to }
+    : todayWindow()
+}
+
+function taskConditions(filters: GenerationTaskFilters, window: TimeWindow, cursor?: string) {
   const conditions = [
     sql`t.submitted_at >= ${new Date(window.from)} AND t.submitted_at <= ${new Date(window.to)}`,
   ]
@@ -307,7 +327,34 @@ export async function getGenerationTasks(
         ? sql`t.agent_conversation_id IS NOT NULL`
         : sql`t.agent_conversation_id IS NULL`,
     )
-  if (filters.model) conditions.push(sql`t.model = ${filters.model}`)
+  const models = [
+    ...new Set([...(filters.model ? [filters.model] : []), ...(filters.models ?? [])]),
+  ]
+  if (models.length === 1) conditions.push(sql`t.model = ${models[0]}`)
+  else if (models.length > 1) conditions.push(sqlTextIn(sql`t.model`, models))
+  if (filters.providers?.length === 1) conditions.push(sql`t.provider = ${filters.providers[0]}`)
+  else if (filters.providers && filters.providers.length > 1)
+    conditions.push(sqlTextIn(sql`t.provider`, filters.providers))
+  if (filters.errorTypes?.length) {
+    const known = filters.errorTypes.filter((value) => value !== 'unknown')
+    const unknown = filters.errorTypes.includes('unknown')
+    const parts = []
+    if (known.length === 1) parts.push(sql`t.error_type = ${known[0]}`)
+    else if (known.length > 1) parts.push(sqlTextIn(sql`t.error_type`, known))
+    if (unknown) parts.push(sql`t.error_type IS NULL`)
+    if (parts.length === 1) conditions.push(parts[0]!)
+    else if (parts.length > 1) conditions.push(sql`(${sql.join(parts, sql` OR `)})`)
+  }
+  if (filters.minDurationSec)
+    conditions.push(
+      sql`t.started_at IS NOT NULL AND t.completed_at IS NOT NULL AND EXTRACT(EPOCH FROM (t.completed_at - t.started_at)) > ${filters.minDurationSec}`,
+    )
+  if (filters.q) {
+    const pattern = ilikeContains(filters.q)
+    conditions.push(
+      sql`(t.id = ${filters.q} OR u.username ILIKE ${pattern} ESCAPE '\\' OR ${promptText} ILIKE ${pattern} ESCAPE '\\')`,
+    )
+  }
   if (cursor) {
     const separator = cursor.indexOf('_')
     const at = Number(cursor.slice(0, separator))
@@ -323,30 +370,137 @@ export async function getGenerationTasks(
       throw new TaskQueryError('无效的任务游标')
     conditions.push(sql`(t.submitted_at, t.id) < (${new Date(at)}, ${id})`)
   }
-  const rows = (await getDbHandle().db.execute(sql`
-    SELECT t.id, t.provider, t.model, t.status, t.submitted_at, t.started_at, t.completed_at,
-      t.error_type, t.upstream_status, t.attempt_count, t.upstream_invocation_count,
-      COALESCE(t.request_payload->>'prompt', (
-        SELECT string_agg(part #>> '{}', E'\\n' ORDER BY position)
-        FROM jsonb_array_elements(jsonb_path_query_array(t.request_payload, '$.contents[*].parts[*].text'))
-          WITH ORDINALITY AS texts(part, position)
-        WHERE jsonb_typeof(part) = 'string' AND part #>> '{}' <> ''
-      ), '') AS prompt,
-      t.user_id, t.device_id, t.agent_conversation_id, u.username
-    FROM queue_tasks t LEFT JOIN users u ON u.id = t.user_id
-    WHERE ${sql.join(conditions, sql` AND `)}
-    ORDER BY t.submitted_at DESC, t.id DESC LIMIT ${PAGE_SIZE + 1}
-  `)) as unknown as Row[]
-  const tasks = rows.slice(0, PAGE_SIZE).map((row) => ({
+  return conditions
+}
+
+const taskSelect = sql`
+  SELECT t.id, t.provider, t.model, t.status, t.submitted_at, t.started_at, t.completed_at,
+    t.error_type, t.upstream_status, t.attempt_count, t.upstream_invocation_count,
+    ${promptText} AS prompt,
+    t.user_id, t.device_id, t.agent_conversation_id, u.username
+  FROM queue_tasks t LEFT JOIN users u ON u.id = t.user_id
+`
+
+function mapGenerationTask(row: Row) {
+  return {
     ...mapTaskListItem(row),
     user_id: nullableText(row.user_id),
     device_id: nullableText(row.device_id),
     username: nullableText(row.username),
-  }))
+  }
+}
+
+export async function getGenerationTasks(
+  filters: GenerationTaskFilters,
+  cursor?: string,
+): Promise<GenerationTasksResult> {
+  const window = taskWindow(filters)
+  const paged = filters.page !== undefined
+  const pageSize = filters.pageSize ?? (paged ? 50 : CURSOR_PAGE_SIZE)
+  const page = filters.page ?? 1
+  const conditions = taskConditions(filters, window, paged ? undefined : cursor)
+  const where = sql.join(conditions, sql` AND `)
+  const db = getDbHandle().db
+  if (paged) {
+    const offset = (page - 1) * pageSize
+    const [rows, countRows] = await Promise.all([
+      db.execute(sql`
+        ${taskSelect}
+        WHERE ${where}
+        ORDER BY t.submitted_at DESC, t.id DESC
+        LIMIT ${pageSize} OFFSET ${offset}
+      `) as Promise<unknown> as Promise<Row[]>,
+      db.execute(sql`
+        SELECT COUNT(*)::int AS total
+        FROM queue_tasks t LEFT JOIN users u ON u.id = t.user_id
+        WHERE ${where}
+      `) as Promise<unknown> as Promise<Row[]>,
+    ])
+    const total = Number(countRows[0]?.total ?? 0)
+    const tasks = rows.map(mapGenerationTask)
+    const last = tasks[tasks.length - 1]
+    return {
+      window,
+      tasks,
+      total,
+      page,
+      pageSize,
+      nextCursor: offset + tasks.length < total && last ? `${last.submitted_at}_${last.id}` : null,
+    }
+  }
+  const rows = (await db.execute(sql`
+    ${taskSelect}
+    WHERE ${where}
+    ORDER BY t.submitted_at DESC, t.id DESC LIMIT ${CURSOR_PAGE_SIZE + 1}
+  `)) as unknown as Row[]
+  const tasks = rows.slice(0, CURSOR_PAGE_SIZE).map(mapGenerationTask)
   const last = tasks[tasks.length - 1]
   return {
     window,
     tasks,
-    nextCursor: rows.length > PAGE_SIZE && last ? `${last.submitted_at}_${last.id}` : null,
+    nextCursor: rows.length > CURSOR_PAGE_SIZE && last ? `${last.submitted_at}_${last.id}` : null,
   }
+}
+
+export async function exportGenerationTasks(filters: GenerationTaskFilters): Promise<{
+  window: TimeWindow
+  tasks: ReturnType<typeof mapGenerationTask>[]
+  truncated: boolean
+}> {
+  const window = taskWindow(filters)
+  const rows = (await getDbHandle().db.execute(sql`
+    ${taskSelect}
+    WHERE ${sql.join(taskConditions(filters, window), sql` AND `)}
+    ORDER BY t.submitted_at DESC, t.id DESC
+    LIMIT ${EXPORT_CAP + 1}
+  `)) as unknown as Row[]
+  return {
+    window,
+    tasks: rows.slice(0, EXPORT_CAP).map(mapGenerationTask),
+    truncated: rows.length > EXPORT_CAP,
+  }
+}
+
+export function generationTasksCsv(
+  tasks: ReadonlyArray<ReturnType<typeof mapGenerationTask>>,
+): string {
+  const header = [
+    'id',
+    'submitted_at',
+    'username',
+    'user_id',
+    'status',
+    'error_type',
+    'source',
+    'provider',
+    'model',
+    'duration_seconds',
+    'prompt',
+  ]
+  const cell = (value: string) => {
+    const safe = /^[=+\-@]/.test(value) ? `'${value}` : value
+    return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe
+  }
+  const lines = tasks.map((task) => {
+    const duration =
+      task.started_at != null && task.completed_at != null
+        ? ((task.completed_at - task.started_at) / 1000).toFixed(3)
+        : ''
+    return [
+      task.id,
+      new Date(task.submitted_at).toISOString(),
+      task.username ?? '',
+      task.user_id ?? '',
+      task.status,
+      task.error_type ?? '',
+      task.source,
+      task.provider,
+      task.model,
+      duration,
+      task.prompt,
+    ]
+      .map((value) => cell(value))
+      .join(',')
+  })
+  return `\uFEFF${[header.join(','), ...lines].join('\n')}\n`
 }

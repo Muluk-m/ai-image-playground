@@ -589,6 +589,15 @@ export function disabledModelChannel(model: string): string | undefined {
   return disabledModels.get(model)
 }
 
+/** 这个模型在发现清单里声明的可出分辨率。没声明就不收档，计价按请求档。 */
+export function declaredImageSizes(modelId: string): readonly string[] | undefined {
+  for (const channel of getDiscoveredChannels()) {
+    const model = channel.models.find((one) => one.id === modelId)
+    if (model?.imageSizes?.length) return model.imageSizes
+  }
+  return undefined
+}
+
 export function getDiscoveredChannels(): DiscoveredChannel[] {
   return discoveredCache
 }

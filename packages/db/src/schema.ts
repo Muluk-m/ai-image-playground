@@ -116,6 +116,10 @@ export const users = pgTable(
   },
   (t) => [
     uniqueIndex('idx_users_username').on(t.username),
+    index('idx_users_status_created').on(t.status, t.created_at.desc(), t.id.desc()),
+    index('idx_users_last_login')
+      .on(t.last_login_at.desc(), t.id.desc())
+      .where(sql`${t.last_login_at} IS NOT NULL`),
     check('users_status_check', sql`${t.status} IN ('active', 'disabled')`),
     check(
       'users_nickname_check',
@@ -380,6 +384,7 @@ export const operator_audits = pgTable(
   (t) => [
     index('idx_operator_audits_target').on(t.target_type, t.target_id, t.created_at.desc()),
     index('idx_operator_audits_created_at').on(t.created_at.desc()),
+    index('idx_operator_audits_operator_time').on(t.operator_id, t.created_at.desc(), t.id.desc()),
   ],
 )
 
@@ -1390,6 +1395,19 @@ export const tasks = pgTable(
       t.status,
       t.model,
     ),
+    // 后台任务列表在 31 天窗口里按模型、供应商、状态、错误类型筛选。前缀是等值列，时间在后面。
+    index('idx_tasks_model_submitted')
+      .on(t.model, t.submitted_at.desc(), t.id.desc())
+      .where(sql`${t.kind} = 'queue'`),
+    index('idx_tasks_provider_submitted')
+      .on(t.provider, t.submitted_at.desc(), t.id.desc())
+      .where(sql`${t.kind} = 'queue'`),
+    index('idx_tasks_status_submitted')
+      .on(t.status, t.submitted_at.desc(), t.id.desc())
+      .where(sql`${t.kind} = 'queue'`),
+    index('idx_tasks_error_submitted')
+      .on(t.error_type, t.submitted_at.desc(), t.id.desc())
+      .where(sql`${t.kind} = 'queue' AND ${t.error_type} IS NOT NULL`),
   ],
 )
 

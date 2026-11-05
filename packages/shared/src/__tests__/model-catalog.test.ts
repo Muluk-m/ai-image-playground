@@ -113,9 +113,9 @@ describe('model catalog config', () => {
     expect(findCatalogModel('gemini-3.1-flash-lite-image')?.pricing.tierMultiplier).toBeUndefined()
   })
 
-  it('GPT sends native pixel sizes in 1K / 2K / 4K, priced by gptImageRateMultiplier instead of tier pricing', () => {
+  it('GPT sends native pixel sizes in 1K / 2K / 4K, priced by imageRateMultiplier instead of tier pricing', () => {
     // 直连认原生 size；sub2api 那一侧的构图句由 BFF 发送前补（upstream.ts adaptGptRequest）。
-    // 价格同时取决于档位与画质，只按档位的 tierMultiplier 表达不了，见 gpt-direct.ts。
+    // 价格同时取决于档位与画质，只按档位的 tierMultiplier 表达不了，见 imageRateMultiplier。
     for (const id of ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst']) {
       expect(caps(id).ratioVia).toEqual(['param'])
       expect(caps(id).wire).toMatchObject({ kind: 'pixels', maxEdge: 3840, maxAspect: 3 })

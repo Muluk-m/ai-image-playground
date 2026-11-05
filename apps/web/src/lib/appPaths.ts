@@ -31,6 +31,9 @@ export const PRIVACY_PATH = '/privacy'
 /** CLI 设备授权确认页（终端打印的链接落到这里）。不是工作台入口。 */
 export const CLI_DEVICE_PATH = '/device'
 
+/** CLI 接入页：安装、连接账户、管理已连接设备。不是工作台入口。 */
+export const CLI_CONNECT_PATH = '/connect'
+
 /** 已发布的版本公告。不是工作台入口。 */
 export const CHANGELOG_PATH = '/changelog'
 
@@ -50,6 +53,11 @@ export function isPrivacyPath(pathname: string): boolean {
   return normalizePath(pathname) === PRIVACY_PATH
 }
 
+/** CLI 接入整页。 */
+export function isCliConnectPath(pathname: string): boolean {
+  return normalizePath(pathname) === CLI_CONNECT_PATH
+}
+
 /** 整页文档：切工作台入口时不能把地址改掉。 */
 export function isCliDevicePath(pathname: string): boolean {
   return normalizePath(pathname) === CLI_DEVICE_PATH
@@ -66,6 +74,7 @@ export function isStandalonePath(pathname: string): boolean {
     path === TERMS_PATH ||
     path === PRIVACY_PATH ||
     path === CLI_DEVICE_PATH ||
+    path === CLI_CONNECT_PATH ||
     path === CHANGELOG_PATH
   )
 }

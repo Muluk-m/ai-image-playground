@@ -20,6 +20,7 @@ import SkillStarterGuide from './features/agent/components/SkillStarterGuide'
 import { AnnouncementHost } from './features/announcements/AnnouncementHost'
 import ChangelogPage from './features/announcements/ChangelogPage'
 import CanvasMode from './features/canvas/components/CanvasMode'
+import CliConnectPage from './features/cli/CliConnectPage'
 import CliDevicePage from './features/cli/CliDevicePage'
 import ImageExportDialog from './features/image-export/ImageExportDialog'
 import ExplorePage from './features/inspiration/components/ExplorePage'
@@ -35,6 +36,7 @@ import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
 import {
   isChangelogPath,
+  isCliConnectPath,
   isCliDevicePath,
   isPricingPath,
   isPrivacyPath,
@@ -61,7 +63,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     !isTermsPath(pathname) &&
     !isPrivacyPath(pathname) &&
     !isCliDevicePath(pathname) &&
-    !isChangelogPath(pathname)
+    !isChangelogPath(pathname) &&
+    !isCliConnectPath(pathname)
 
   useLayoutEffect(() => {
     const root = document.documentElement
@@ -132,6 +135,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
 
   if (isChangelogPath(pathname)) return <ChangelogPage />
   if (isPricingPath(pathname)) return <PricingPage />
+  if (isCliConnectPath(pathname)) return <CliConnectPage />
   if (isCliDevicePath(pathname)) return <CliDevicePage />
   if (isTermsPath(pathname) || isPrivacyPath(pathname)) return <LegalPage />
 

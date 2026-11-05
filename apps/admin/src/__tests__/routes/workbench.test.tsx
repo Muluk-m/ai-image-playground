@@ -23,56 +23,6 @@ const patch = vi.hoisted(() => vi.fn(async () => ({ note: '合作方' })))
 
 vi.mock('../../lib/api-client', () => {
   const window = { from: Date.now() - 1000, to: Date.now() }
-  const overview = {
-    window,
-    truncated: false,
-    summary: {
-      users: 1,
-      devices: 0,
-      tasks: 3,
-      completed: 2,
-      failed: 1,
-      queued: 0,
-      in_progress: 0,
-      reconciling: 0,
-    },
-    actors: [
-      {
-        kind: 'user',
-        id: 'user-1',
-        username: 'alice',
-        note: '设计师',
-        tasks: 3,
-        completed: 2,
-        failed: 1,
-        queued: 0,
-        in_progress: 0,
-        reconciling: 0,
-        last_submitted_at: Date.now(),
-      },
-    ],
-    models: [
-      {
-        model: 'gpt-image-2',
-        tasks: 30,
-        completed: 20,
-        failed: 10,
-        upstream_invocations: 40,
-        failures: [
-          { error_type: 'upstream_error', count: 8 },
-          { error_type: 'content_policy', count: 2 },
-        ],
-      },
-      {
-        model: 'doubao-seedream',
-        tasks: 2,
-        completed: 1,
-        failed: 1,
-        upstream_invocations: 3,
-        failures: [{ error_type: 'upstream_timeout', count: 1 }],
-      },
-    ],
-  }
   const user = {
     id: 'user-1',
     username: 'alice',
@@ -157,7 +107,76 @@ vi.mock('../../lib/api-client', () => {
       }
     if (url.startsWith('/api/overview')) {
       if (session.failToday) throw new Error('today unavailable')
-      return overview
+      return {
+        summary: {
+          total: 32,
+          completed: 21,
+          failed: 11,
+          success_rate: 21 / 32,
+          p50_duration_ms: 1000,
+          p95_duration_ms: 5000,
+          upstream_invocations: 43,
+          queue_p50_ms: 100,
+        },
+        volume: [],
+        volume_bucket: 'day',
+        failures: [{ error_type: 'upstream_error', count: 12, previous_count: 3 }],
+        pulse: {
+          current: {
+            tasks: 32,
+            completed: 21,
+            failed: 11,
+            images: 20,
+            active: 4,
+            signups: 1,
+            agent_turns: 2,
+            agent_failed: 0,
+            agent_aborted: 0,
+          },
+          previous: {
+            tasks: 10,
+            completed: 9,
+            failed: 1,
+            images: 8,
+            active: 2,
+            signups: 0,
+            agent_turns: 1,
+            agent_failed: 0,
+            agent_aborted: 0,
+          },
+          series: [],
+        },
+        agent_cache: {
+          calls: 0,
+          input_tokens: 0,
+          cache_read_tokens: 0,
+          first_call: { calls: 0, input_tokens: 0, cache_read_tokens: 0 },
+          continuation: { calls: 0, input_tokens: 0, cache_read_tokens: 0 },
+          models: [],
+        },
+        models: [
+          {
+            model: 'gpt-image-2',
+            count: 30,
+            upstream_invocations: 40,
+            average_multiplier: 1,
+            completed: 20,
+            failed: 10,
+            queue_p50_ms: null,
+            run_p95_ms: 100_000,
+          },
+          {
+            model: 'doubao-seedream',
+            count: 2,
+            upstream_invocations: 3,
+            average_multiplier: 1,
+            completed: 1,
+            failed: 1,
+            queue_p50_ms: null,
+            run_p95_ms: null,
+          },
+        ],
+      }
     }
     if (url.startsWith('/api/client-errors/')) {
       return {
@@ -205,6 +224,43 @@ vi.mock('../../lib/api-client', () => {
             last_release: null,
           },
         ],
+      }
+    }
+    if (url.startsWith('/api/ops/logs')) {
+      return {
+        entries: [],
+        nextCursor: null,
+        summary: { total: 0, errors: 0, warnings: 0 },
+        groups: [],
+        trend: [],
+        bucket_ms: 60_000,
+        collectors: [],
+      }
+    }
+    if (url.startsWith('/api/audits')) return { audits: [], nextCursor: null }
+    if (url.startsWith('/api/tasks/')) {
+      return {
+        id: 'task-1',
+        user_id: 'user-1',
+        device_id: 'device-1',
+        username: 'alice',
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        status: 'failed',
+        source: 'manual',
+        submitted_at: session.taskAt ?? Date.now(),
+        started_at: session.taskAt ?? Date.now(),
+        completed_at: session.completedAt ?? null,
+        error_type: 'upstream_error',
+        upstream_status: 500,
+        prompt: '商品主图',
+        attempt_count: 1,
+        upstream_invocation_count: 1,
+        request_payload: { prompt: '商品主图', n: 1 },
+        result_meta: { images: [] },
+        error_message: 'upstream',
+        upstream_body: null,
+        next_retry_at: null,
       }
     }
     if (url.startsWith('/api/tasks?'))
@@ -365,7 +421,7 @@ describe('sidebar navigation', () => {
 
   it('keeps 刷新 and 退出登录 in the sidebar footer', async () => {
     renderAt('/overview')
-    expect(await screen.findByRole('button', { name: '刷新' })).toBeInTheDocument()
+    expect(await screen.findAllByRole('button', { name: '刷新' })).not.toHaveLength(0)
     expect(screen.getByRole('button', { name: '退出登录' })).toBeInTheDocument()
   })
 
@@ -403,205 +459,46 @@ describe('sync footprint', () => {
   })
 })
 
-describe('今日概览', () => {
-  it('defaults to outstanding errors and keeps recovered history behind its own filter with evidence', async () => {
-    session.recoveryScenario = true
+describe('概览', () => {
+  it('links a high-failure model into the pre-filtered task list', async () => {
     renderAt('/overview')
-    expect(await screen.findByRole('button', { name: '未恢复 0 条' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
-    expect(screen.getByText('当前范围没有确认未恢复的错误')).toBeInTheDocument()
-    expect(screen.queryByText('rpc: connection closed')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '已恢复 12 条' }))
-    expect(screen.getByText('rpc: connection closed')).toBeInTheDocument()
-    expect(screen.getByText(/同一隧道连接已重新注册成功/)).toHaveTextContent('恢复于')
-    const link = screen.getByRole('link', { name: '恢复记录 →' })
-    expect(link.getAttribute('href')).toContain('instance=tunnel-1')
-    expect(screen.getByText('cloudflared')).toHaveClass('text-success')
-    fireEvent.click(screen.getByRole('button', { name: '待确认 0 条' }))
-    expect(screen.queryByText('rpc: connection closed')).not.toBeInTheDocument()
+    const model = await screen.findByRole('link', { name: 'gpt-image-2' })
+    expect(model.getAttribute('href')).toMatch(/model=gpt-image-2/)
+    expect(model.getAttribute('href')).toMatch(/status=failed/)
+    expect(model.closest('tr')).toHaveTextContent('33.3%')
+    expect(screen.getByRole('region', { name: '系统健康' })).toBeInTheDocument()
+    expect(screen.getByText('需要关注')).toBeInTheDocument()
   })
 
-  it('keeps legacy API errors unknown instead of inferring recovery from an empty recent window', async () => {
-    session.showError = true
-    renderAt('/overview')
-    expect(await screen.findByRole('button', { name: '待确认 24 条' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
-    expect(screen.getByRole('button', { name: '已恢复 0 条' })).toBeInTheDocument()
-    expect(screen.getByText('暂无可关联的恢复证据')).toBeInTheDocument()
-  })
-
-  it('shows generation users and links to their exact daily tasks instead of unrelated statistics', async () => {
-    renderAt('/overview')
-    expect(await screen.findByText('今天谁在生成')).toBeInTheDocument()
-    const user = await screen.findByRole('link', { name: '设计师' })
-    expect(user.getAttribute('href')).toMatch(/userId=user-1/)
-    expect(user.getAttribute('href')).toMatch(/from=/)
-    expect(user.getAttribute('href')).toMatch(/to=/)
-    expect(screen.getByRole('link', { name: '设计师的失败任务' }).getAttribute('href')).toMatch(
-      /status=failed/,
-    )
-    const models = within(screen.getByRole('table', { name: '今天按模型' }))
-    const large = models.getByRole('link', { name: 'gpt-image-2的失败任务' })
-    expect(large.getAttribute('href')).toMatch(/model=gpt-image-2/)
-    expect(large.getAttribute('href')).toMatch(/status=failed/)
-    expect(large.closest('tr')).toHaveTextContent('33.3%')
-    expect(large.closest('tr')?.textContent).toContain('40')
-    expect(models.getByText('33.3%').className).toContain('text-danger')
-    expect(models.queryByText('上游错误')).not.toBeInTheDocument()
-    fireEvent.click(models.getByRole('button', { name: '展开gpt-image-2的失败原因' }))
-    const reasons = models.getByRole('list', { name: 'gpt-image-2的失败原因' })
-    expect(reasons).toHaveTextContent('上游错误')
-    expect(reasons).toHaveTextContent('upstream_error')
-    expect(reasons).toHaveTextContent('8')
-    expect(reasons).toHaveTextContent('内容审核拒绝')
-    expect(reasons).toHaveTextContent('2')
-    expect(models.queryByText('上游超时')).not.toBeInTheDocument()
-    fireEvent.click(models.getByRole('button', { name: '收起gpt-image-2的失败原因' }))
-    expect(models.queryByText('上游错误')).not.toBeInTheDocument()
-    const small = models.getByText('doubao-seedream').closest('tr')!
-    expect(within(small).getByText('50.0%').className).not.toContain('text-danger')
-    expect(screen.queryByText('Agent 输入缓存')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('时间范围')).not.toBeInTheDocument()
-  })
-
-  it('opens the same user and time window in the task list', async () => {
-    renderAt('/overview')
-    fireEvent.click(await screen.findByRole('link', { name: '设计师的失败任务' }))
-    expect(await screen.findByRole('button', { name: '商品主图' })).toBeInTheDocument()
-    const url = requests.find((url) => url.startsWith('/api/tasks?'))!
-    const params = new URLSearchParams(url.split('?')[1])
-    expect(params.get('userId')).toBe('user-1')
-    expect(params.get('status')).toBe('failed')
-    expect(params.has('from')).toBe(true)
-    expect(params.has('to')).toBe(true)
-  })
-
-  it('still shows errors and health when the daily task query fails', async () => {
+  it('shows the overview error without inventing a task list', async () => {
     session.failToday = true
     renderAt('/overview')
-    expect(await screen.findByText(/今日任务加载失败/)).toBeInTheDocument()
-    expect(await screen.findByText('今天没有采集到错误日志')).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '服务健康' })).toBeInTheDocument()
+    expect(await screen.findByText(/概览加载失败/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'gpt-image-2' })).not.toBeInTheDocument()
   })
 
-  it('shows the full error and indented stack in a scrollable terminal without per-frame cards', async () => {
-    session.showError = true
+  it('keeps missing health data visibly unknown', async () => {
     renderAt('/overview')
-    const terminal = await screen.findByRole('log', { name: '今日错误终端' })
-    const output = terminal.querySelector('pre')!
-    expect(output.textContent).toBe(
-      '上游请求失败\n    at callProvider (worker.ts:42)\n    at run (queue.ts:12)',
-    )
-    expect(terminal.querySelector('details')).toBeNull()
-    expect(output.className).toContain('whitespace-pre')
-    expect(within(terminal).getByRole('link', { name: '相关日志 →' })).toBeInTheDocument()
-  })
-
-  it('distinguishes historical errors from recent additions and displays the route and concrete cause', async () => {
-    session.showError = true
-    renderAt('/overview')
-    const today = await screen.findByRole('button', { name: '今日累计 24 条' })
-    expect(today).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('POST /api/media/:id/complete')).toBeInTheDocument()
-    expect(screen.getByText('HTTP 503')).toBeInTheDocument()
-    expect(screen.getByText(/等待同一图片的其他处理请求超时/)).toBeInTheDocument()
-    expect(screen.getByText('错误码：media_processing_busy')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '最近 15 分钟新增 0 条' }))
-    expect(screen.getByText('最近 15 分钟没有新增错误日志')).toBeInTheDocument()
-    expect(screen.queryByText('POST /api/media/:id/complete')).not.toBeInTheDocument()
-    const params = new URLSearchParams(
-      screen.getByRole('link', { name: '服务端日志 →' }).getAttribute('href')!.split('?')[1],
-    )
-    expect(Number(params.get('to')) - Number(params.get('from'))).toBe(900_000)
-    fireEvent.click(today)
-    expect(screen.getByText('POST /api/media/:id/complete')).toBeInTheDocument()
-  })
-
-  it('falls back to today if a refresh no longer provides the recent statistics', async () => {
-    session.showError = true
-    renderAt('/overview')
-    fireEvent.click(await screen.findByRole('button', { name: '最近 15 分钟新增 0 条' }))
-    expect(screen.getByText('最近 15 分钟没有新增错误日志')).toBeInTheDocument()
-    session.recentAvailable = false
-    fireEvent.click(screen.getByRole('button', { name: '刷新' }))
-    expect(await screen.findByRole('button', { name: '最近 15 分钟新增 暂不可用' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '今日累计 24 条' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
-    expect(screen.queryByText('最近 15 分钟没有新增错误日志')).not.toBeInTheDocument()
-    expect(screen.getByText('POST /api/media/:id/complete')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '服务端日志 →' }).getAttribute('href')).toContain(
-      'from=',
-    )
-  })
-
-  it.each([
-    '__proto__',
-    'toString',
-  ])('renders unknown error code %s as text without inherited-object translations', async (code) => {
-    session.showError = true
-    session.errorCode = code
-    session.errorReason = null
-    renderAt('/overview')
-    expect(await screen.findByText(`错误码：${code}`)).toBeInTheDocument()
-    expect(screen.getByText('未记录具体错误原因，可查看相关日志。')).toBeInTheDocument()
-  })
-
-  it('opens plain terminal errors with same-container context instead of filtering out their stack', async () => {
-    session.showError = true
-    session.errorRequest = false
-    renderAt('/overview')
-    const link = await screen.findByRole('link', { name: '相关日志 →' })
-    const params = new URLSearchParams(link.getAttribute('href')!.split('?')[1])
-    expect(params.get('instance')).toBe('worker-1')
-    expect(params.has('group')).toBe(false)
-    expect(Number(params.get('to')) - Number(params.get('from'))).toBeLessThanOrEqual(120_000)
-  })
-
-  it('keeps missing health data visibly unknown and shows the daily error list independently', async () => {
-    renderAt('/overview')
-    const health = within(await screen.findByRole('region', { name: '服务健康' }))
-    expect(await health.findByRole('link', { name: /队列：未知/ })).toBeInTheDocument()
-    expect(await screen.findByText('今天没有采集到错误日志')).toBeInTheDocument()
+    const health = within(await screen.findByRole('region', { name: '系统健康' }))
+    expect(await health.findByRole('link', { name: /队列/ })).toBeInTheDocument()
   })
 })
 
 describe('generation task drill-down', () => {
-  it('advances the default today window on refresh, including after filtering status', async () => {
+  it('advances the default today window on refresh while keeping the status filter', async () => {
     const start = Date.now()
     const clock = vi.spyOn(Date, 'now').mockReturnValue(start)
     try {
-      renderAt('/tasks')
+      renderAt('/tasks?status=failed')
       await screen.findByRole('button', { name: '商品主图' })
-      expect(screen.getByText(/· 北京时间$/)).toBeInTheDocument()
-      fireEvent.click(screen.getByRole('radio', { name: '失败' }))
-      await waitFor(() => expect(requests.some((url) => url.includes('status=failed'))).toBe(true))
-      await waitFor(() =>
-        expect(screen.getAllByRole('button', { name: '刷新' }).slice(-1)[0]).not.toBeDisabled(),
-      )
       clock.mockReturnValue(start + 120_000)
-      fireEvent.click(screen.getAllByRole('button', { name: '刷新' }).slice(-1)[0]!)
+      fireEvent.click(screen.getByRole('button', { name: '刷新' }))
       await waitFor(() => {
         const url = requests.filter((url) => url.startsWith('/api/tasks?')).slice(-1)[0]!
         const params = new URLSearchParams(url.split('?')[1])
         expect(Number(params.get('to'))).toBe(start + 120_000)
         expect(params.get('status')).toBe('failed')
       })
-      clock.mockReturnValue(start + 240_000)
-      const beforeGlobalRefresh = requests.filter((url) => url.startsWith('/api/tasks?')).length
-      fireEvent.click(screen.getAllByRole('button', { name: '刷新' })[0]!)
-      await waitFor(() => {
-        const url = requests.filter((url) => url.startsWith('/api/tasks?')).slice(-1)[0]!
-        expect(Number(new URLSearchParams(url.split('?')[1]).get('to'))).toBe(start + 240_000)
-      })
-      expect(requests.filter((url) => url.startsWith('/api/tasks?'))).toHaveLength(
-        beforeGlobalRefresh + 1,
-      )
     } finally {
       clock.mockRestore()
     }
@@ -632,28 +529,21 @@ describe('generation task drill-down', () => {
     expect(params.get('userId')).toBe('user-1')
   })
 
-  it('anchors a task log link to that task rather than the end of a long list window', async () => {
+  it('loads server logs for the opened task inside that task window', async () => {
     const to = Date.now(),
       at = to - 20 * 86400_000
     session.taskAt = at
     session.completedAt = at + 30_000
     renderAt(`/tasks?from=${at - 3600_000}&to=${to}`)
-    const link = await screen.findByRole('link', { name: '日志 →' })
-    const params = new URLSearchParams(link.getAttribute('href')!.split('?')[1])
+    fireEvent.click(await screen.findByRole('button', { name: '商品主图' }))
+    await waitFor(() => expect(requests.some((url) => url.startsWith('/api/ops/logs?'))).toBe(true))
+    const params = new URLSearchParams(
+      requests.find((url) => url.startsWith('/api/ops/logs?'))!.split('?')[1],
+    )
     expect(params.get('taskId')).toBe('task-1')
     expect(Number(params.get('from'))).toBeLessThanOrEqual(at)
     expect(Number(params.get('to'))).toBeGreaterThanOrEqual(session.completedAt)
     expect(Number(params.get('to')) - Number(params.get('from'))).toBeLessThanOrEqual(7 * 86400_000)
-  })
-
-  it('opens all events in the same request without retaining the error group filter', async () => {
-    session.showError = true
-    renderAt('/overview')
-    await screen.findByRole('log', { name: '今日错误终端' })
-    const link = screen.getByRole('link', { name: '相关日志 →' })
-    const params = new URLSearchParams(link.getAttribute('href')!.split('?')[1])
-    expect(params.get('requestId')).toBe('request-1')
-    expect(params.has('group')).toBe(false)
   })
 })
 

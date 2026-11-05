@@ -46,13 +46,14 @@ Admin（`apps/admin`）同样带顶层 `404.html`，`_redirects` 由 `apps/admin
 
 ### VPS 受限入口
 
-[`scripts/ci-receive.sh`](../../scripts/ci-receive.sh) 安装为 `/home/ubuntu/bin/aip-ci-receive`（0755），`~/.ssh/authorized_keys` 一行：
+[`scripts/ci-receive.sh`](../../scripts/ci-receive.sh) 安装为 `/home/ubuntu/bin/aip-ci-receive`（0755）。`~/.ssh/authorized_keys` 里生产与测试各一把 key，权限范围写在 forced command 的参数里，调用方不能改：
 
 ```text
-command="/home/ubuntu/bin/aip-ci-receive",restrict ssh-ed25519 AAAA… github-actions-deploy
+command="/home/ubuntu/bin/aip-ci-receive release",restrict ssh-ed25519 AAAA… aip-ci-deploy@github-actions
+command="/home/ubuntu/bin/aip-ci-receive test",restrict ssh-ed25519 AAAA… aip-ci-deploy-test@github-actions
 ```
 
-只接受 `deploy <aip-12位hex-12位hex> <internal|paid|all> <run_id>`，其余一律拒绝（退出码 2）。stdin 的 tar 仅限相对路径的普通文件和目录（拒绝绝对路径、`..`、隐藏项、链接，上限 64 MiB），解到 `~/releases/<release-id>`；同一提交重发（手动触发）时原目录保留供回滚，改解到 `<release-id>.run-<run_id>`，解包失败会清理。然后以 `DEPLOY_ACTOR=github-actions/run-<id>` 运行包内 `vps-deploy.sh` 并透传退出码；发布失败时目录改名为 `….failed-run-<run_id>` 留作排查，可直接重跑 workflow。脚本更新后须重新安装。
+生产 key（secret `VPS_SSH_KEY`）范围 `release`，只接受 `deploy <aip-12位hex-12位hex> <internal|paid|all> <run_id>`；测试 key（secret `VPS_SSH_KEY_TEST`，仅 `deploy-test.yml` 使用）范围 `test`，只接受目标 `test`。没有范围参数或范围不认识时拒绝一切；其余一律拒绝（退出码 2）。注意这只固定了「调用方选目标」这一层：接收器仍会运行包内的 `vps-deploy.sh`，持有测试 key 的人能让主机执行自己打包的脚本，真正的隔离还要把部署脚本固定在服务器上（见 #1275）。stdin 的 tar 仅限相对路径的普通文件和目录（拒绝绝对路径、`..`、隐藏项、链接，上限 64 MiB），解到 `~/releases/<release-id>`；同一提交重发（手动触发）时原目录保留供回滚，改解到 `<release-id>.run-<run_id>`，解包失败会清理。然后以 `DEPLOY_ACTOR=github-actions/run-<id>` 运行包内 `vps-deploy.sh` 并透传退出码；发布失败时目录改名为 `….failed-run-<run_id>` 留作排查，可直接重跑 workflow。脚本更新后须重新安装。
 
 ## 前端：一个 Pages 项目、多个域名（手动应急）
 
@@ -178,17 +179,17 @@ DATABASE_URL=<迁移账号> bun run apps/bff/scripts/import-inspirations.ts
 
 ```sh
 export PATH=/opt/homebrew/bin:$PATH   # 仅 macmini2
-./scripts/build-vps-release.sh all /Users/mac/releases/aip-<release-id>
+./scripts/build-vps-release.sh paid /Users/mac/releases/aip-<release-id>
 ```
 
-构建输入固定为 Git 提交，不含未提交文件或凭据。使用 `aip-release` builder（4 核、6 GiB、无额外 Swap、阶段并发 1）生成 `linux/amd64` 镜像；保留现有构建锁，并与其他重型任务错峰。每个镜像构建后立即推送，远端标签 `internal-<公开12位>`、`paid-<公开12位>-<私有12位>`、`backup-<公开12位>`，本地标签不变。首次推送上传全部层，之后只传变更层。
+构建输入固定为 Git 提交，不含未提交文件或凭据。使用 `aip-release` builder（4 核、6 GiB、无额外 Swap、阶段并发 1）生成 `linux/amd64` 镜像；保留现有构建锁，并与其他重型任务错峰。当前生产只构建 `paid-<公开12位>-<私有12位>`、`backup-<公开12位>` 与 `segmenter-<版本>-<公开12位>`，不构建已冻结的 internal 镜像；脚本的 `internal`/`all` 模式保留兼容能力，使用前须单独批准。每个镜像构建后立即推送，本地标签不变。首次推送上传全部层，之后只传变更层。
 
 3. 工作站中转发布目录，再从产物内执行接收脚本：
 
 ```sh
 scp -r macmini2:/Users/mac/releases/aip-<release-id> /tmp/
 scp -r /tmp/aip-<release-id> tx-vps:/home/ubuntu/releases/
-ssh tx-vps '/home/ubuntu/releases/aip-<release-id>/scripts/vps-deploy.sh all /home/ubuntu/releases/aip-<release-id>'
+ssh tx-vps '/home/ubuntu/releases/aip-<release-id>/scripts/vps-deploy.sh paid /home/ubuntu/releases/aip-<release-id>'
 ```
 
 接收脚本持有发布锁，校验 `SHA256SUMS`（须覆盖目录内全部文件，多出未列文件即拒绝），按 digest `docker pull` 并打回本地标签，再校验本地镜像确实带着该 digest（不比镜像 ID：构建机若用 containerd 存储，ID 与 VPS 上的不可比）、架构、`APP_VERSION`、原生依赖，最后执行兼容迁移与启动；保留 VPS 原有运行配置。任一镜像拉取或校验失败都不改动服务。CI 部署失败时，入口把该发布目录改名为 `<id>.failed-run-<run_id>` 留作排查，同一提交可直接重跑。

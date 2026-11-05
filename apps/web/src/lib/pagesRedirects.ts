@@ -1,6 +1,7 @@
 import {
   APP_MODE_PATHS,
   CHANGELOG_PATH,
+  CLI_CONNECT_PATH,
   CLI_DEVICE_PATH,
   LEGACY_PROJECTS_PATH,
   PRICING_PATH,
@@ -32,6 +33,7 @@ export function pagesRedirects(): string {
     PRICING_PATH,
     TERMS_PATH,
     PRIVACY_PATH,
+    CLI_CONNECT_PATH,
     CLI_DEVICE_PATH,
     CHANGELOG_PATH,
   ]
