@@ -1,4 +1,4 @@
--- OpenAI 直连多密钥。密钥本身不入库：gpt_direct_key_state 只存 sha256 前 8 位指纹上的
+-- OpenAI 直连多密钥。密钥本身不入库：gpt_direct_key_state 只存 HMAC-SHA256 前 8 位指纹上的
 -- 停用与冷却，gpt_direct_usage.key_fingerprint 把每笔花费记到具体那一把。
 -- 旧行的 key_fingerprint 为空，单密钥部署仍把它们算进那一把的月预算。
 -- 后台配置的直连密钥用与 upstream_api_secrets 相同的 AES-256-GCM 字段，明文不入库。

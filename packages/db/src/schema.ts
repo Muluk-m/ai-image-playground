@@ -488,7 +488,7 @@ export const gpt_direct_usage = pgTable(
     output_tokens: integer('output_tokens'),
     cost_micro_usd: bigint('cost_micro_usd', { mode: 'number' }).notNull(),
     estimated: boolean('estimated').notNull(),
-    /** sha256 前 8 位。空的是多密钥上线前的旧行，算进当前第一把 key。 */
+    /** HMAC-SHA256 前 8 位。空的是多密钥上线前的旧行，算进当前第一把 key。 */
     key_fingerprint: text('key_fingerprint'),
     created_at: epochMs('created_at').notNull(),
   },
