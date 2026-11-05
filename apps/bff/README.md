@@ -57,6 +57,14 @@ BFF 同时托管 `apps/web/dist` 静态产物（`STATIC_DIR` 指向 dist 即可�
 
 请求 / 响应 schema 见 [`packages/shared/src/queue-protocol.ts`](../../packages/shared/src/queue-protocol.ts) 和 [`packages/shared/src/channel-discovery.ts`](../../packages/shared/src/channel-discovery.ts)。
 
+### 图片能力与提案估价
+
+GPT 渠道能力、会员门禁与实际选路共用启用密钥判断，读取相同的直连开关和密钥来源；
+声明支持直连不代表当前预算或并发可用，这些限制仍在派发时检查。
+Gemini 的 Vertex 和普通网关请求都按渠道开放档位规整，未开放的 4K 不会原样透传。
+批量、阶段授权、模板和自动提交的提案估价使用提交时相同的会员收口：非会员的 Gemini 4K
+先降到 2K，再按渠道可用档位取倍率。会员身份独立于 GPT 直连开关，前端取得身份后才估价或确认。
+
 ### CLI 图片预检与提交
 
 `POST /v1/image-jobs/validate` 与 `POST /v1/image-jobs` 共用参数规整与 GPT 档位倍率。
