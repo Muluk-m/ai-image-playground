@@ -49,6 +49,7 @@ const WORKSPACE_PATHS = new Set([
   '/privacy',
   '/connect',
   '/device',
+  '/changelog',
 ])
 
 const STATE_COOKIE_OPTIONS = {

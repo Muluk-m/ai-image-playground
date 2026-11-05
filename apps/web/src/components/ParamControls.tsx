@@ -2,6 +2,7 @@ import {
   GPT_IMAGE_26_GIF_DURATIONS_MS,
   GPT_IMAGE_26_GIF_FRAMES,
   GPT_IMAGE_26_GIF_SIZES,
+  imageSizeTier,
   isGptImage26Model,
   nearestImageSize,
   parseImageSize,
@@ -18,8 +19,10 @@ import {
   readSizeSelection,
   SIZE_TIERS,
   type SizeRules,
+  type SizeTier,
   sizeFor,
   sizeRatioLabel,
+  tierFits,
 } from '../lib/size'
 import { useStore } from '../store'
 import {
@@ -128,13 +131,50 @@ export function ImageSettings({
   const hasMask = useStore((s) => (controlled ? false : Boolean(s.maskDraft)))
   const editing = referenceCount > 0 || hasMask
   const premium = useGptPremiumLocked(activeView.model, capabilities.size)
-  const premiumLocked = premium.locked
-  const limitTo1K = activeView.codexCli || premiumLocked
-  const rules: SizeRules = { ratioOnly: !capabilities.size, limitTo1K }
-  const selection = useMemo(
-    () => readSizeSelection(params.size, { ratioOnly: !capabilities.size, limitTo1K }),
-    [params.size, capabilities.size, limitTo1K],
+  // 2.6 自己锁 4K，不走非会员 2K 上限；其它 GPT 跟会员档位走。
+  const maxTier: SizeTier = activeView.codexCli ? '1K' : image26 ? '4K' : premium.maxTier
+  const rules = useMemo<SizeRules>(
+    () => ({ ratioOnly: !capabilities.size, maxTier }),
+    [capabilities.size, maxTier],
   )
+  const selection = useMemo(
+    () => readSizeSelection(params.size, { ratioOnly: !capabilities.size, maxTier }),
+    [params.size, capabilities.size, maxTier],
+  )
+  // 已存的 4K / 高画质在非会员这里改成服务端会执行的那一档，避免界面写着 2K、发出去却是另一组像素。
+  // 会员查询还没回来时不改，免得把会员的 4K 收掉。
+  useEffect(() => {
+    // 2.6 的 2K、高画质对所有人开放，4K 只是锁住，不把已存参数收成 2K。
+    if (image26 || !premium.settled || activeView.codexCli || !capabilities.size) return
+    const patch: Partial<TaskParams> = {}
+    if (params.quality === 'high' && !premium.highQuality) patch.quality = 'medium'
+    if (maxTier === '4K') {
+      if (patch.quality !== undefined) setParams(patch)
+      return
+    }
+    if (selection.kind === 'preset') {
+      if (!tierFits(imageSizeTier(params.size), maxTier)) {
+        const next = sizeFor(maxTier, selection.ratio, rules)
+        if (next && next !== params.size) patch.size = next
+      }
+    } else if (selection.kind === 'custom') {
+      const next = normalizeSizeFor(params.size, rules)
+      if (next !== params.size) patch.size = next
+    }
+    if (patch.size !== undefined || patch.quality !== undefined) setParams(patch)
+  }, [
+    image26,
+    premium.settled,
+    premium.highQuality,
+    activeView.codexCli,
+    capabilities.size,
+    maxTier,
+    params.size,
+    params.quality,
+    selection,
+    rules,
+    setParams,
+  ])
   const countVisible = showCount && !agentManaged
   const outputs = !isGemini && !agentManaged
   const transparentVisible =
@@ -239,6 +279,11 @@ export function ImageSettings({
   // 卡片关着时不调用：分组只在打开时构建。
   const renderSections = () => {
     const pixels = parseImageSize(params.size)
+    const tierSize =
+      selection.kind === 'preset' && capabilities.size
+        ? sizeFor(selection.tier, selection.ratio, rules)
+        : null
+    const tierPixels = tierSize ? parseImageSize(tierSize) : pixels
     // 从「智能」进自定义时先给一个 1:1 的起点，改一边就能提交出完整尺寸。
     const draftPixels = pixels ?? { width: 1024, height: 1024 }
     const outputImageLimit = getOutputImageLimitForSettings(settings)
@@ -332,15 +377,27 @@ export function ImageSettings({
             : capabilities.size && (
                 <SettingsSection
                   title={t('param.resolution')}
-                  value={pixels ? `${pixels.width} × ${pixels.height}` : undefined}
+                  value={
+                    image26
+                      ? pixels
+                        ? `${pixels.width} × ${pixels.height}`
+                        : undefined
+                      : tierPixels
+                        ? `${tierPixels.width} × ${tierPixels.height}`
+                        : undefined
+                  }
                   hint={
-                    selection.kind === 'auto'
-                      ? t('settings.autoSizeHint')
+                    image26
+                      ? selection.kind === 'auto'
+                        ? t('settings.autoSizeHint')
+                        : !premium.member
+                          ? t('size.member4kHint')
+                          : undefined
                       : premium.memberOnly
                         ? t('size.memberTierHint')
-                        : image26 && !premium.member
-                          ? t('size.member4kHint')
-                          : rules.limitTo1K
+                        : selection.kind === 'auto'
+                          ? t('settings.autoSizeHint')
+                          : rules.maxTier === '1K'
                             ? t('size.limitedTierHint')
                             : undefined
                   }
@@ -350,10 +407,9 @@ export function ImageSettings({
                     options={SIZE_TIERS.map((tier) => ({
                       value: tier,
                       label: tier,
-                      disabled:
-                        selection.kind === 'auto' ||
-                        (rules.limitTo1K && tier !== '1K') ||
-                        (image26 && tier === '4K' && !premium.member),
+                      disabled: image26
+                        ? selection.kind === 'auto' || (tier === '4K' && !premium.member)
+                        : selection.kind === 'auto' || !tierFits(tier, rules.maxTier),
                     }))}
                     value={selection.kind === 'preset' && !customOpen ? selection.tier : null}
                     onChange={(tier) => {
@@ -453,7 +509,11 @@ export function ImageSettings({
                   { value: 'auto', label: t('settings.quality.auto') },
                   { value: 'low', label: t('settings.quality.low') },
                   { value: 'medium', label: t('settings.quality.medium') },
-                  { value: 'high', label: t('settings.quality.high'), disabled: premiumLocked },
+                  {
+                    value: 'high',
+                    label: t('settings.quality.high'),
+                    disabled: !premium.highQuality,
+                  },
                 ]}
                 value={params.quality}
                 onChange={(quality) => setParams({ quality })}

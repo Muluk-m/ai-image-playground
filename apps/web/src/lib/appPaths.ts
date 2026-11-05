@@ -34,6 +34,9 @@ export const CLI_DEVICE_PATH = '/device'
 /** CLI 接入页：安装、连接账户、管理已连接设备。不是工作台入口。 */
 export const CLI_CONNECT_PATH = '/connect'
 
+/** 已发布的版本公告。不是工作台入口。 */
+export const CHANGELOG_PATH = '/changelog'
+
 export function normalizePath(pathname: string): string {
   return pathname.replace(/\/+$/, '') || '/'
 }
@@ -60,6 +63,10 @@ export function isCliDevicePath(pathname: string): boolean {
   return normalizePath(pathname) === CLI_DEVICE_PATH
 }
 
+export function isChangelogPath(pathname: string): boolean {
+  return normalizePath(pathname) === CHANGELOG_PATH
+}
+
 export function isStandalonePath(pathname: string): boolean {
   const path = normalizePath(pathname)
   return (
@@ -67,7 +74,8 @@ export function isStandalonePath(pathname: string): boolean {
     path === TERMS_PATH ||
     path === PRIVACY_PATH ||
     path === CLI_DEVICE_PATH ||
-    path === CLI_CONNECT_PATH
+    path === CLI_CONNECT_PATH ||
+    path === CHANGELOG_PATH
   )
 }
 

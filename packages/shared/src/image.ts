@@ -60,10 +60,20 @@ export const IMAGE_SIZE_PRESETS: Record<ImageSizeTier, Record<ImagePresetRatio, 
   },
 }
 
-const TIER_MAX_PIXELS: ReadonlyArray<readonly [ImageSizeTier, number]> = [
+const TIER_MAX_PIXELS: ReadonlyArray<readonly ['1K' | '2K', number]> = [
   ['1K', 1_572_864],
   ['2K', 4_194_304],
 ]
+
+/**
+ * 1K / 2K 档含得下的最大像素。超过 2K 的算 4K，4K 没有单独的像素上限。
+ * 非会员收档必须用这里的数，不要在调用方再写一遍。
+ */
+export function imageTierMaxPixels(tier: '1K' | '2K'): number {
+  const cap = TIER_MAX_PIXELS.find(([name]) => name === tier)
+  if (!cap) throw new Error(`unknown image tier cap: ${tier}`)
+  return cap[1]
+}
 
 /** 尺寸串所在的清晰度档位；`auto` 或认不出时按 1K。 */
 export function imageSizeTier(size: string | undefined): ImageSizeTier {
