@@ -281,6 +281,19 @@ describe('installWorkbenchNavigation', () => {
     expect(location.pathname).toBe('/pricing')
   })
 
+  it('leaves the changelog for another workbench page, and again when the current mode is reselected', () => {
+    history.replaceState(null, '', '/changelog')
+    useStore.setState({ appMode: 'image' })
+    cleanup = installWorkbenchNavigation()
+    expect(location.pathname).toBe('/changelog')
+    useStore.getState().setAppMode('library')
+    expect(location.pathname).toBe('/assets')
+
+    history.replaceState(null, '', '/changelog')
+    useStore.getState().setAppMode('library')
+    expect(location.pathname).toBe('/assets')
+  })
+
   it('keeps the terms address when the workspace mode changes', () => {
     history.replaceState(null, '', '/terms')
     cleanup = installWorkbenchNavigation()

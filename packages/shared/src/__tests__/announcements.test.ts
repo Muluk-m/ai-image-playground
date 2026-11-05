@@ -175,4 +175,15 @@ describe('reads and markdown', () => {
       ],
     })
   })
+
+  it('treats numbered lines as list items and drops the source numbers', () => {
+    const blocks = parseAnnouncementMarkdown('1. 粗剪\n2. 字幕\n\n不是列表')
+    expect(blocks).toMatchObject([
+      {
+        type: 'list',
+        items: [[{ type: 'text', text: '粗剪' }], [{ type: 'text', text: '字幕' }]],
+      },
+      { type: 'paragraph', inlines: [{ type: 'text', text: '不是列表' }] },
+    ])
+  })
 })

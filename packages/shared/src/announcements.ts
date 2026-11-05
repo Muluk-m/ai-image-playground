@@ -331,6 +331,9 @@ function parseInlines(source: string): AnnouncementInline[] {
   return inlines.filter((inline) => inline.type !== 'text' || inline.text.length > 0)
 }
 
+/** `-` / `*` 与 `1.` `1)` 都是列表。序号只负责分段，页上再统一编号。 */
+const LIST_LINE = /^\s*(?:[-*]|\d+[.)])\s+/
+
 /** 公告正文只用到标题、段落、列表、加粗和站内链接。 */
 export function parseAnnouncementMarkdown(source: string): AnnouncementBlock[] {
   const blocks: AnnouncementBlock[] = []
@@ -348,10 +351,10 @@ export function parseAnnouncementMarkdown(source: string): AnnouncementBlock[] {
       index += 1
       continue
     }
-    if (/^\s*[-*]\s+/.test(line)) {
+    if (LIST_LINE.test(line)) {
       const items: AnnouncementInline[][] = []
-      while (index < lines.length && /^\s*[-*]\s+/.test(lines[index] ?? '')) {
-        items.push(parseInlines((lines[index] ?? '').replace(/^\s*[-*]\s+/, '')))
+      while (index < lines.length && LIST_LINE.test(lines[index] ?? '')) {
+        items.push(parseInlines((lines[index] ?? '').replace(LIST_LINE, '')))
         index += 1
       }
       blocks.push({ type: 'list', items })
@@ -361,7 +364,7 @@ export function parseAnnouncementMarkdown(source: string): AnnouncementBlock[] {
     while (
       index < lines.length &&
       (lines[index] ?? '').trim() &&
-      !/^\s*[-*]\s+/.test(lines[index] ?? '') &&
+      !LIST_LINE.test(lines[index] ?? '') &&
       !/^#{1,3}\s+/.test((lines[index] ?? '').trim())
     ) {
       paragraph.push((lines[index] ?? '').trim())

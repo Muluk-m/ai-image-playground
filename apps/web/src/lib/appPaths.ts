@@ -34,7 +34,10 @@ export const CLI_DEVICE_PATH = '/device'
 /** CLI 接入页：安装、连接账户、管理已连接设备。不是工作台入口。 */
 export const CLI_CONNECT_PATH = '/connect'
 
-/** 已发布的版本公告。不是工作台入口。 */
+/**
+ * 版本公告。挂在工作台主区，侧栏「更新」进来，不是四个主入口之一。
+ * 仍算独立地址：登录回跳留在这一页，但选侧栏入口会离开它。
+ */
 export const CHANGELOG_PATH = '/changelog'
 
 export function normalizePath(pathname: string): string {
