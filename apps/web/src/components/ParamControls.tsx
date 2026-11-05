@@ -7,11 +7,16 @@ import {
   nearestImageSize,
   parseImageSize,
 } from '@image-playground/shared'
-import { memo, type ReactNode, useEffect, useMemo, useState } from 'react'
+import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
 import type { ClientProfile } from '../lib/channels/types'
 import { useGptPremiumLocked } from '../lib/gptPremium'
+import {
+  gifFrameSize,
+  type StillImageSettings,
+  switchImageOutputFormat,
+} from '../lib/image26Format'
 import { getOutputImageLimitForSettings, getParamCapabilities } from '../lib/paramCompatibility'
 import {
   normalizeSizeFor,
@@ -42,6 +47,7 @@ import {
   SettingsSegmented,
   SettingsToggle,
 } from './composer/SettingsPanel'
+import Badge from './patterns/Badge'
 import { Icon } from './ui/icon'
 
 /** 某条提交路径做不到的参数。开关直接不出现——显示了却不生效，比没有这个开关更糟。 */
@@ -127,6 +133,14 @@ export function ImageSettings({
   const capabilities = getParamCapabilities(activeProfile, params.output_format)
   const tuning = isGemini && capabilities.geminiImageTuning
   const image26 = isGptImage26Model(activeView.model)
+  const stillImage = useRef<StillImageSettings | null>(null)
+  const specialFormat = params.output_format === 'gif' || params.output_format === 'svg'
+  // 失焦回调可能是切格式之前那次渲染留下的，受控模式靠这个 ref 读到最新格式：
+  // 提交后同步，用户切格式时立即写入（卸载输入框的失焦可能先于下一次提交）。
+  const latestControlledFormat = useRef(params.output_format)
+  useLayoutEffect(() => {
+    latestControlledFormat.current = params.output_format
+  }, [params.output_format])
   const referenceCount = useStore((s) => (controlled ? 0 : s.inputImages.length))
   const hasMask = useStore((s) => (controlled ? false : Boolean(s.maskDraft)))
   const editing = referenceCount > 0 || hasMask
@@ -193,6 +207,13 @@ export function ImageSettings({
       frame_duration_ms: undefined,
     })
   }, [editing, params.output_format, setParams])
+  // 自定义宽高失焦可能发生在格式已经切走之后，把 816 写回动图。帧尺寸只认 512 / 768。
+  useEffect(() => {
+    if (!image26 || params.output_format !== 'gif') return
+    const size = gifFrameSize(params.size)
+    if (params.size === size && params.quality === 'medium' && params.n === 1) return
+    setParams({ size, quality: 'medium', n: 1 })
+  }, [image26, params.output_format, params.size, params.quality, params.n, setParams])
   const customActive = !isGemini && (selection.kind === 'custom' || customOpen)
   /** 选预设会退出自定义；自定义宽高的提交留在自定义里，免得填完一边输入框就没了。 */
   const applySize = (next: string, { custom = false, wasClamped = false } = {}) => {
@@ -264,11 +285,18 @@ export function ImageSettings({
     }
     setCustomOpen(false)
     setClamped(false)
+    stillImage.current = null
     setParams(patch)
     extra?.reset()
   }
 
   const commitPixels = (width: string, height: string) => {
+    // 切到 GIF 会卸掉自定义宽高框，失焦回调还是切之前那次渲染。以最新写上的格式为准：
+    // 全局模式读仓库，受控模式读每次渲染都更新的 ref（闭包里的 params 是旧的）。
+    const liveFormat = controlled
+      ? latestControlledFormat.current
+      : useStore.getState().params.output_format
+    if (liveFormat === 'gif' || liveFormat === 'svg') return
     const w = Number.parseInt(width, 10)
     const h = Number.parseInt(height, 10)
     if (!(w > 0 && h > 0)) return
@@ -314,7 +342,7 @@ export function ImageSettings({
 
     return (
       <>
-        {params.output_format !== 'gif' && (
+        {!specialFormat && (
           <SettingsSection
             title={t('param.aspectRatio')}
             hint={customActive ? customHint : undefined}
@@ -362,7 +390,7 @@ export function ImageSettings({
           </SettingsSection>
         )}
 
-        {params.output_format !== 'gif' &&
+        {!specialFormat &&
           (isGemini
             ? tuning && (
                 <SettingsSection title={t('param.resolution')}>
@@ -387,19 +415,13 @@ export function ImageSettings({
                         : undefined
                   }
                   hint={
-                    image26
-                      ? selection.kind === 'auto'
+                    premium.memberOnly
+                      ? t('size.memberTierHint')
+                      : selection.kind === 'auto'
                         ? t('settings.autoSizeHint')
-                        : !premium.member
-                          ? t('size.member4kHint')
+                        : rules.maxTier === '1K'
+                          ? t('size.limitedTierHint')
                           : undefined
-                      : premium.memberOnly
-                        ? t('size.memberTierHint')
-                        : selection.kind === 'auto'
-                          ? t('settings.autoSizeHint')
-                          : rules.maxTier === '1K'
-                            ? t('size.limitedTierHint')
-                            : undefined
                   }
                 >
                   <SettingsSegmented
@@ -453,7 +475,7 @@ export function ImageSettings({
 
         {outputs && image26 && params.output_format === 'gif' && (
           <>
-            <SettingsSection title={t('settings.framesLabel')} hint={t('settings.gifPrice')}>
+            <SettingsSection title={t('settings.framesLabel')}>
               <SettingsSegmented
                 label={t('settings.framesLabel')}
                 options={GPT_IMAGE_26_GIF_FRAMES.map((count) => ({
@@ -475,7 +497,7 @@ export function ImageSettings({
                 onChange={(frame_duration_ms) => setParams({ frame_duration_ms })}
               />
             </SettingsSection>
-            <SettingsSection title={t('settings.gifSize')} hint={t('settings.standardQuality')}>
+            <SettingsSection title={t('settings.gifSize')}>
               <SettingsSegmented
                 label={t('settings.gifSize')}
                 options={GPT_IMAGE_26_GIF_SIZES.map((size) => ({
@@ -489,11 +511,6 @@ export function ImageSettings({
               />
             </SettingsSection>
           </>
-        )}
-        {outputs && image26 && params.output_format === 'svg' && (
-          <SettingsSection title={t('param.quality')} hint={t('settings.standardQuality')}>
-            <p className="text-sm text-foreground">{t('settings.quality.medium')}</p>
-          </SettingsSection>
         )}
         {outputs &&
           capabilities.quality &&
@@ -521,10 +538,7 @@ export function ImageSettings({
             </SettingsSection>
           )}
         {outputs && (
-          <SettingsSection
-            title={t('param.format')}
-            hint={image26 && editing ? t('settings.formatLocked') : undefined}
-          >
+          <SettingsSection title={t('param.format')}>
             <SettingsSegmented
               label={t('param.format')}
               options={
@@ -533,12 +547,26 @@ export function ImageSettings({
                       { value: 'png' as const, label: t('settings.still') },
                       {
                         value: 'gif' as const,
-                        label: t('settings.gif'),
+                        label: (
+                          <span className="inline-flex items-center justify-center gap-1">
+                            {t('settings.gif')}
+                            <Badge tone="primary" className="shrink-0 px-1">
+                              {t('param.modelNew')}
+                            </Badge>
+                          </span>
+                        ),
                         disabled: editing,
                       },
                       {
                         value: 'svg' as const,
-                        label: t('settings.svg'),
+                        label: (
+                          <span className="inline-flex items-center justify-center gap-1">
+                            {t('settings.svg')}
+                            <Badge tone="primary" className="shrink-0 px-1">
+                              {t('param.modelNew')}
+                            </Badge>
+                          </span>
+                        ),
                         disabled: editing,
                       },
                     ]
@@ -553,42 +581,11 @@ export function ImageSettings({
                   : params.output_format
               }
               onChange={(format) => {
-                if (format === 'gif') {
-                  setParams({
-                    output_format: 'gif',
-                    quality: 'medium',
-                    n: 1,
-                    frame_count: params.frame_count ?? 6,
-                    frame_duration_ms: params.frame_duration_ms ?? 200,
-                    size:
-                      params.size === '512x512' || params.size === '768x768'
-                        ? params.size
-                        : '768x768',
-                    output_compression: null,
-                    transparent_output: false,
-                  })
-                  return
-                }
-                if (format === 'svg') {
-                  setParams({
-                    output_format: 'svg',
-                    quality: 'medium',
-                    n: 1,
-                    frame_count: undefined,
-                    frame_duration_ms: undefined,
-                    output_compression: null,
-                    transparent_output: false,
-                  })
-                  return
-                }
-                setParams({
-                  output_format: format,
-                  frame_count: undefined,
-                  frame_duration_ms: undefined,
-                  ...(format === 'png'
-                    ? { output_compression: null }
-                    : { transparent_output: false }),
-                })
+                const next = switchImageOutputFormat(params, format, stillImage.current)
+                stillImage.current = next.still
+                if (next.patch.output_format)
+                  latestControlledFormat.current = next.patch.output_format
+                setParams(next.patch)
               }}
             />
           </SettingsSection>

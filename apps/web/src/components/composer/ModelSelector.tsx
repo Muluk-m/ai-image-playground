@@ -2,13 +2,7 @@
  * Adapted from assistant-ui Elements `model-selector` (MIT, AgentbaseAI).
  * 只取外观与结构：沿用项目的 Radix Popover，不引入 cmdk / base-ui。
  */
-import {
-  gptImage26Credits,
-  isGptImage26Model,
-  type ModelBadge,
-  type ModelLogoId,
-  type ModelTier,
-} from '@image-playground/shared'
+import { type ModelBadge, type ModelLogoId, type ModelTier } from '@image-playground/shared'
 import { type KeyboardEvent, useId, useMemo, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
@@ -22,6 +16,7 @@ import {
 import { getPublicChannels } from '../../lib/channels/publicChannels'
 import { cn } from '../../lib/utils'
 import { useStore } from '../../store'
+import { GeminiLogo, OpenAILogo } from '../assistant-ui/elements/logos'
 import { compactModelName, ModelLogo } from '../ModelIdentity'
 import Badge from '../patterns/Badge'
 import SearchField from '../patterns/SearchField'
@@ -131,6 +126,13 @@ const FAMILY_ICON: Record<(typeof FAMILY_ORDER)[number], IconName> = {
   grok: 'wand',
   agnes: 'wand',
 }
+/** 分组标题用厂商标识，尺寸与图标的 xs 档（14px）一致。OpenAI 跟标题色，Gemini 用官方渐变。 */
+function FamilyMark({ family }: { family: (typeof FAMILY_ORDER)[number] }) {
+  if (family === 'gpt') return <OpenAILogo className="size-3.5 shrink-0" />
+  if (family === 'gemini') return <GeminiLogo className="size-3.5 shrink-0" />
+  return <Icon name={FAMILY_ICON[family]} size="xs" />
+}
+
 const FAMILY_LABEL_KEY = {
   gpt: 'param.modelFamily.gpt',
   gemini: 'param.modelFamily.gemini',
@@ -257,13 +259,9 @@ export function ModelList({
             const eta = usableEtaSeconds(option.etaSeconds)
             const etaText = option.unavailable
               ? t('param.modelUnavailable')
-              : isGptImage26Model(option.model)
-                ? t('param.modelPrice', {
-                    credits: gptImage26Credits({ size: '1024x1024', quality: 'medium' }),
-                  })
-                : eta !== undefined
-                  ? etaLabel(eta, usableEtaMaxSeconds(option.etaMaxSeconds, eta))
-                  : undefined
+              : eta !== undefined
+                ? etaLabel(eta, usableEtaMaxSeconds(option.etaMaxSeconds, eta))
+                : undefined
             const isNew = newLabel(option)
             return (
               <Button
@@ -283,21 +281,21 @@ export function ModelList({
                 ].join(' · ')}
                 onClick={() => onPick(option.value)}
                 className={cn(
-                  'flex h-auto min-h-10 w-full justify-start whitespace-normal px-3 py-2 text-left text-body-sm focus-visible:bg-accent',
+                  'flex h-auto min-h-10 w-full items-start justify-start whitespace-normal px-3 py-2 text-left text-body-sm focus-visible:bg-accent',
                   selected && 'bg-accent',
                 )}
               >
-                <span className="flex shrink-0">
+                <span className="mt-0.5 flex shrink-0">
                   <ModelLogo model={option.model} logo={option.logo ?? null} />
                 </span>
                 {modelOptionName(option, isNew, etaText)}
                 {option.description && (
                   <OverflowText
                     text={option.description}
-                    className="max-w-20 truncate text-label-sm text-muted-foreground"
+                    className="mt-0.5 max-w-20 shrink-0 truncate text-label-sm text-muted-foreground"
                   />
                 )}
-                {selected && <Icon name="check" />}
+                {selected && <Icon name="check" className="mt-0.5" />}
               </Button>
             )
           })
@@ -318,7 +316,7 @@ export function ModelList({
                 id={headingId}
                 className="flex items-center gap-1.5 px-3 pt-2 pb-1 text-label-sm font-medium text-muted-foreground"
               >
-                <Icon name={FAMILY_ICON[group.family]} size="xs" />
+                <FamilyMark family={group.family} />
                 {t(FAMILY_LABEL_KEY[group.family])}
               </div>
               {rows}
