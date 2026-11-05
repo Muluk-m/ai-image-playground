@@ -1,7 +1,7 @@
 /**
  * `/connect` 上每个插件宿主的接入方式。命令来自已发布的 `cli-go`（install.sh / install.ps1 与
  * `muvloom skill install`）；这里只放展示用的配置，不重复实现安装逻辑。
- * 给宿主的提示词正文放在 locale（`auth:cliConnect.prompt.*`），命令作为插值传入，保证跟界面语言走。
+ * 安装细节放在 public/cli/setup.md，页面只展示可复制的短提示词。
  *
  * `muvloom skill install --host` 在当前发布里只接受 `claude-code` 与 `codex`
  * （`cli-go/internal/cli/skill.go`）。WorkBuddy 的技能目录是 `~/.workbuddy/skills/`，
@@ -12,6 +12,7 @@
 export const CONNECT_AGENTS = ['workbuddy', 'doubao', 'claude-code', 'codex', 'other'] as const
 export type ConnectAgentId = (typeof CONNECT_AGENTS)[number]
 export type ConnectPlatform = 'unix' | 'windows'
+export const AGENT_SETUP_PATH = '/cli/setup.md'
 
 const SKILL_HOSTS = new Set<ConnectAgentId>(['claude-code', 'codex'])
 
@@ -41,20 +42,6 @@ export const SESSION_PATH: Record<ConnectPlatform, string> = {
 /** 当前 CLI 接受的 `muvloom skill install --host`。没有对应 host 的宿主返回 null。 */
 export function skillInstallCommand(agent: ConnectAgentId): string | null {
   return SKILL_HOSTS.has(agent) ? `muvloom skill install --host ${agent}` : null
-}
-
-/** 复制给宿主的提示词。有技能安装命令的走 withSkill，WorkBuddy / 豆包各有一段不带 `--host` 的说明。 */
-export function connectPromptKey(
-  agent: ConnectAgentId,
-):
-  | 'cliConnect.prompt.withSkill'
-  | 'cliConnect.prompt.workbuddy'
-  | 'cliConnect.prompt.doubao'
-  | 'cliConnect.prompt.noSkill' {
-  if (skillInstallCommand(agent)) return 'cliConnect.prompt.withSkill'
-  if (agent === 'workbuddy') return 'cliConnect.prompt.workbuddy'
-  if (agent === 'doubao') return 'cliConnect.prompt.doubao'
-  return 'cliConnect.prompt.noSkill'
 }
 
 /** 手动做同样的事，终端里逐行执行。安装后立刻补会话 PATH，后面的 `muvloom` 才找得到。 */
