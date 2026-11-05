@@ -534,7 +534,7 @@ const GPT_IMAGE_26_REJECTION_MESSAGE = {
   svg_count: '矢量一次只能出一张',
   gif_frames: '动图帧数只能是 2 到 16',
   gif_duration: '动图每帧时长无效',
-  gif_sprite: '动图尺寸乘以帧数超过 3840，请减小尺寸或帧数',
+  gif_sprite: '动图拼图超出当前尺寸限制，请改为 768 × 768、最多 12 帧，或 512 × 512、最多 16 帧',
   gif_size: '动图尺寸无效',
 } as const
 

@@ -92,3 +92,18 @@ it('switches to GIF and keeps the input usable', async () => {
   expect(host.querySelector('[contenteditable]')).not.toBeNull()
   expect(useStore.getState().params).toMatchObject({ output_format: 'gif', size: '768x768' })
 })
+
+it('blocks a 768×16 GIF before submission and clears the warning for 12 frames', async () => {
+  useStore.setState({
+    prompt: 'A bouncing ball',
+    params: { ...DEFAULT_PARAMS, output_format: 'gif', size: '768x768', frame_count: 16, quality: 'medium', n: 1 },
+  })
+  await act(async () => root.render(<InputBar />))
+  expect(host.querySelector('[role="alert"]')).not.toBeNull()
+  expect(host.querySelector<HTMLButtonElement>('button[aria-label="生成"]')?.disabled).toBe(true)
+  expect(useStore.getState().params.frame_count).toBe(16)
+
+  await act(async () => useStore.getState().setParams({ frame_count: 12 }))
+  expect(host.querySelector('[role="alert"]')).toBeNull()
+  expect(host.querySelector<HTMLButtonElement>('button[aria-label="生成"]')?.disabled).toBe(false)
+})
