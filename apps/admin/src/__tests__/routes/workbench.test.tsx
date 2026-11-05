@@ -449,7 +449,9 @@ describe('概览', () => {
     expect(screen.getByRole('link', { name: '匿名设备 device-1' })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '系统健康' })).not.toBeInTheDocument()
     expect(
-      requests.some((url) => url.startsWith('/api/overview?') || url.startsWith('/api/client-errors')),
+      requests.some(
+        (url) => url.startsWith('/api/overview?') || url.startsWith('/api/client-errors'),
+      ),
     ).toBe(false)
   })
 
