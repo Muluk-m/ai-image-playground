@@ -49,8 +49,8 @@ import {
 } from '@image-playground/shared'
 import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
-import { runtimeSecret } from './upstream-secret-cache'
 import { capabilitiesForModel } from './upstream/adapters'
+import { runtimeSecret } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
 
