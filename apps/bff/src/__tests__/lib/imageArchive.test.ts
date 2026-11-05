@@ -78,8 +78,13 @@ describe('archiveOutputImages openai-compat', () => {
   it('archives readable GIF bytes as GIF even when the upstream declares PNG', async () => {
     const gif = await sharp({
       create: { width: 2, height: 2, channels: 4, background: '#ff0000' },
-    }).gif().toBuffer()
-    const payload = { output_format: 'png', data: [{ b64_json: gif.toString('base64'), mime: 'image/png' }] }
+    })
+      .gif()
+      .toBuffer()
+    const payload = {
+      output_format: 'png',
+      data: [{ b64_json: gif.toString('base64'), mime: 'image/png' }],
+    }
     const archived = await archiveOutputImages('task-gif', 'openai-compat', payload)
     expect(archived.data).toEqual([{ object: 'task-gif/out/0', mime: 'image/gif' }])
     const stored = store.objects.get('task-gif/out/0')!

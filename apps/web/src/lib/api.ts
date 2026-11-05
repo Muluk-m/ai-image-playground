@@ -90,7 +90,10 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   opts = prepared.opts
   const { profile } = prepared
   const channel = requireDispatchChannel(profile.channelId)
-  if (isGptImage26Model(clientProfileToApiProfile(profile).model) && opts.params.output_format === 'gif') {
+  if (
+    isGptImage26Model(clientProfileToApiProfile(profile).model) &&
+    opts.params.output_format === 'gif'
+  ) {
     const size = parseImageSize(opts.params.size)
     if (!size || gifSpriteExceedsLimit(size.width, size.height, opts.params.frame_count ?? 6)) {
       throw new UserFacingError(i18next.t('dispatch.gifSpriteLimit', { ns: 'lib' }))

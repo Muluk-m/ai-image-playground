@@ -89,9 +89,18 @@ describe('dispatch-layer param enforcement', () => {
       ...QUEUE_CHANNEL,
       models: [{ id: 'gpt-image-2.6-flare', label: 'Image 2.6', capabilities: ['generate'] }],
     })
-    await expect(callImageApi(baseOpts(settings, {
-      ...DEFAULT_PARAMS, output_format: 'gif', size: '768x768', frame_count: 16, quality: 'medium', n: 1,
-    }))).rejects.toThrow()
+    await expect(
+      callImageApi(
+        baseOpts(settings, {
+          ...DEFAULT_PARAMS,
+          output_format: 'gif',
+          size: '768x768',
+          frame_count: 16,
+          quality: 'medium',
+          n: 1,
+        }),
+      ),
+    ).rejects.toThrow()
     expect(adapters.queue).not.toHaveBeenCalled()
   })
 
