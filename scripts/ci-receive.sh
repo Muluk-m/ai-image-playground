@@ -81,7 +81,12 @@ set +e
 sh "$release/scripts/vps-deploy.sh" "$target" "$release"
 status=$?
 set -e
-if [ "$status" -ne 0 ]; then
+if [ "$status" -eq 75 ]; then
+  # vps-deploy.sh found the host deploy lock held and changed nothing (EX_TEMPFAIL). That is a
+  # busy host, not a failed release: drop the unpacked directory so the same run can be retried.
+  rm -rf "$release"
+  echo "Deploy lock busy; release $release_id was not applied. Retry once the running deploy finishes." >&2
+elif [ "$status" -ne 0 ]; then
   # Keep the failed release for inspection, out of the way of a retry of the same commit.
   failed=$release.failed-run-$run_id
   rm -rf "$failed"

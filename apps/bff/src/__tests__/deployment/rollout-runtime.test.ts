@@ -315,6 +315,7 @@ async function run(
   f: Awaited<ReturnType<typeof fixture>>,
   image = 'new',
   entry: 'rollout' | 'up' | 'down' | 'rollback' = 'rollout',
+  extraEnv: Record<string, string> = {},
 ) {
   const args =
     entry === 'rollout'
@@ -332,6 +333,7 @@ async function run(
       DEPLOY_DRAIN_DEADLINE_SECONDS: '0',
       DEPLOY_RETIRE_LEGACY: '1',
       FIXTURE_STATE: f.statePath,
+      ...extraEnv,
     },
     stdout: 'pipe',
     stderr: 'pipe',
@@ -370,6 +372,53 @@ async function addRetained(f: Awaited<ReturnType<typeof fixture>>, overrides: Pa
   })
   return name
 }
+
+/** A host deploy lock held by this (live) test process, as vps-deploy.sh would leave it. */
+async function holdHostLock(f: Awaited<ReturnType<typeof fixture>>) {
+  const lock = join(f.root, 'xdg', 'ai-image-playground', 'deploy.lock')
+  await mkdir(lock, { recursive: true })
+  await writeFile(
+    join(lock, 'owner'),
+    `pid=${process.pid}\ntoken=-\nsince=2026-11-05T00:00:00Z\nby=ci@host\nwhat=receive test /releases/x\n`,
+  )
+  return lock
+}
+
+describe('host deploy lock', () => {
+  it('refuses a hand-run rollout while another deploy holds the host lock, changing nothing', async () => {
+    const f = await fixture()
+    await holdHostLock(f)
+    const before = await readState(f)
+    const result = await run(f)
+    expect(result.code).toBe(75)
+    expect(result.stderr).toContain('lock contention')
+    // Read-only probes (image inspect) happen first; nothing may be created, stopped or removed.
+    const after = await readState(f)
+    expect(after.containers).toEqual(before.containers)
+    expect(
+      after.events.filter((event) =>
+        ['create', 'run', 'stop', 'rm', 'kill', 'compose', 'update'].includes(event.args[0]),
+      ),
+    ).toEqual([])
+  })
+
+  it('lets the rollout started by the lock holder through, and leaves that lock in place', async () => {
+    const f = await fixture()
+    const lock = await holdHostLock(f)
+    const result = await run(f, 'new', 'rollout', { DEPLOY_HOST_LOCK_PID: String(process.pid) })
+    expect(result.code).toBe(0)
+    expect(await Bun.file(join(lock, 'owner')).exists()).toBe(true)
+  })
+
+  it('takes the host lock for a hand-run rollout and releases it afterwards', async () => {
+    const f = await fixture()
+    const result = await run(f)
+    expect(result.code).toBe(0)
+    expect(
+      await Bun.file(join(f.root, 'xdg', 'ai-image-playground', 'deploy.lock', 'owner')).exists(),
+    ).toBe(false)
+  })
+})
 
 describe('executor-preserving rollout', () => {
   it('retires idle executors only after disabling restart and validating the drain', async () => {
