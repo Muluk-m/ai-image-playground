@@ -1,21 +1,16 @@
 import { Buffer } from 'node:buffer'
 import {
-  buildAspectInstruction,
   isGptBasicRequest,
   isGptDirectModel,
   QUEUE_TIMEOUTS,
   type QueueProvider,
-  unshapeQueuePrompt,
 } from '@image-playground/shared'
+import { FormData } from 'undici'
 import { config } from '../config'
 import { disabledModelChannel, getRoutableChannels, type InternalChannel } from './channels'
 import type { HydratedSubmitRequest } from './imageArchive'
 import { log } from './logger'
-import {
-  buildImageResponsesBody,
-  ImageResponsesError,
-  readImageResponses,
-} from './openaiImageResponses'
+import { ImageResponsesError, readImageResponses } from './openaiImageResponses'
 import { resolveApiKey } from './resolveApiKey'
 import {
   createDispatcher,
@@ -24,6 +19,12 @@ import {
   type UndiciFetchInit,
   type UndiciFetchInput,
 } from './timeoutFetch'
+import {
+  type AdapterPlan,
+  adaptGptRequest,
+  planDispatchedImage,
+  stampReceipt,
+} from './upstream/adapters'
 import {
   type AsyncTaskProtocol,
   asyncTaskFailure,
@@ -41,7 +42,7 @@ import {
   UpstreamResultUnknownError,
   UpstreamTimeoutError,
 } from './upstream/errors'
-import { buildGeminiBody, mergeGeminiCandidateResults } from './upstream/gemini'
+import { mergeGeminiCandidateResults } from './upstream/gemini'
 import { recordDirectUsage } from './upstream/gpt-budget'
 import {
   directAvailableNow,
@@ -53,20 +54,14 @@ import {
   sub2apiBreakerOpen,
 } from './upstream/gpt-routing'
 import {
-  buildGrokEditBody,
-  buildGrokImagine2Body,
   isGrokImagine2,
   normalizeGrokEditInputs,
   normalizeGrokImagine2EditInputs,
 } from './upstream/grok'
 import {
-  buildAgnesGenerationsBody,
-  buildOpenAIBody,
-  buildOpenAIEditFormData,
   isGptImageModel,
   mergeOpenAIDataResults,
   mergeOpenAIImageResults,
-  withoutImageCount,
   withoutModeration,
 } from './upstream/openai'
 import { withPartialFailure } from './upstream/partial'
@@ -263,31 +258,6 @@ function directRoute(model: string): UpstreamRoute {
     gptRoute: 'direct',
     ...(config.gptDirect.organization ? { organization: config.gptDirect.organization } : {}),
   }
-}
-
-/**
- * 同一单按通道改参数。sub2api（Codex 图片路径）丢弃 size 与 quality，只认提示词里写明的构图，
- * 所以补上构图句；直连认原生参数，把提交时钉上的机器指令（防改写前缀、构图句）剥掉，auto 画质
- * 改发 medium（auto 可能出高画质，成本没有上限，计价也按 medium）。
- */
-function adaptGptRequest(
-  route: GptRoute,
-  model: string,
-  request: HydratedSubmitRequest,
-): HydratedSubmitRequest {
-  if (!isGptDirectModel(model)) return request
-  if (route === 'direct') {
-    const prompt = unshapeQueuePrompt({
-      provider: 'openai-compat',
-      prompt: request.prompt,
-      ...(request.size ? { size: request.size } : {}),
-    })
-    const quality = !request.quality || request.quality === 'auto' ? 'medium' : request.quality
-    return { ...request, prompt, quality }
-  }
-  const instruction = request.size ? buildAspectInstruction(request.size) : null
-  if (!instruction || request.prompt.endsWith(instruction)) return request
-  return { ...request, prompt: `${request.prompt}\n\n${instruction}` }
 }
 
 export interface UpstreamCallParams {
@@ -682,7 +652,8 @@ async function callUpstreamVia(
   const queueTimeoutError = () => new UpstreamQueueTimeoutError()
   // 跨 worker 配额：每条计数的上游请求先占额度再发，响应读完（parseResponse）才还在途名额。
   // 原生 n 一条请求出 n 张，按 n 张扣；fan-out 每条按 1 张扣。
-  const imagesPerDispatch = useNativeN ? requestedImageCount : 1
+  // 计划出来之后按「一条调用计几张」改写。闭包在真正 fetch 时才读它。
+  let imagesPerDispatch = useNativeN ? requestedImageCount : 1
   const schedulerLeases = new WeakMap<UpstreamResponse, SchedulerLease>()
   const outstandingLeases = new Set<SchedulerLease>()
   const releaseLease = async (lease: SchedulerLease, refund = false) => {
@@ -956,102 +927,84 @@ async function callUpstreamVia(
         }
       }
 
+      // 参考图拼图要在计划之前做完：适配器的 plan 是同步的，接触表合成不是。
+      let imageRequest = request
       if (
+        style === 'grok-openai-images' &&
+        (imageRequest.input_images?.length || imageRequest.mask)
+      ) {
+        imageRequest = isGrokImagine2(model)
+          ? normalizeGrokImagine2EditInputs(imageRequest)
+          : await normalizeGrokEditInputs(imageRequest, deadline.signal)
+      }
+      const useImageResponses =
         !useNativeN &&
         style === 'openai-images' &&
         gptRoute !== 'direct' &&
         isGptImageModel(model) &&
-        config.upstream.imageResponsesModel &&
+        Boolean(config.upstream.imageResponsesModel) &&
         resumeIds.length === 0
-      ) {
-        const body = JSON.stringify(
-          buildImageResponsesBody(config.upstream.imageResponsesModel, model, request),
-        )
-        const headers = {
-          'content-type': 'application/json',
-          accept: 'text/event-stream',
-          ...authHeader,
+      const dispatched = planDispatchedImage({
+        provider,
+        model,
+        request: imageRequest,
+        style,
+        ...(gptRoute ? { gptRoute } : {}),
+        supportsNativeN,
+        supportsModeration,
+        forceB64Json,
+        ...(imageSizes ? { imageSizes } : {}),
+        ...(config.upstream.imageResponsesModel
+          ? { imageResponsesModel: config.upstream.imageResponsesModel }
+          : {}),
+        useImageResponses,
+        member: params.gptMember === true,
+        directOn: gptDirectConfigured(model),
+      })
+      if (!dispatched || dispatched.plan.calls.length === 0) {
+        throw new Error(`no image adapter for ${style}`)
+      }
+      const firstCall = dispatched.plan.calls[0]!
+      imagesPerDispatch = dispatched.plan.calls.length === 1 ? firstCall.images : 1
+      const url = `${base}${firstCall.path}`
+      const makeInit = (): UpstreamFetchInit => {
+        const body = dispatched.plan.freshBody ? dispatched.plan.freshBody() : firstCall.body
+        if (dispatched.adapter.protocol === 'openai-responses') {
+          return {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              accept: 'text/event-stream',
+              ...authHeader,
+            },
+            body: JSON.stringify(body),
+          }
         }
-        return await fanOutRequests(
-          request.n,
-          async () =>
-            parseResponse(
-              await performFetch(`${base}/responses`, { method: 'POST', headers, body }),
-              true,
-            ),
+        if (firstCall.multipart) {
+          if (!(body instanceof FormData))
+            throw new Error('multipart image call is missing form data')
+          return { method: 'POST', headers: authHeader, body }
+        }
+        return {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...authHeader },
+          body: JSON.stringify(body),
+        }
+      }
+      const merge =
+        dispatched.adapter.protocol === 'agnes' ? mergeOpenAIDataResults : mergeOpenAIImageResults
+      if (dispatched.adapter.protocol === 'openai-responses') {
+        const result = await fanOutRequests(
+          dispatched.plan.calls.length,
+          async () => parseResponse(await performFetch(url, makeInit()), true),
           mergeOpenAIImageResults,
           params.reconciliationRequired,
           cancelled,
         )
+        return finishImageResult(result, dispatched.plan)
       }
-
-      // Agnes 风格上游：没有 images/edits 端点，图生图与文生图
-      // 共用 images/generations JSON，输入图放 extra_body.image（data URI / URL）。
-      // 实测注意：文档"Important Notes"声称的 top-level image 数组会被上游**静默忽略**
-      // （跑成纯文生图），必须放 extra_body；n 同样被忽略，这里学 gemini 分支 fan-out。
-      if (style === 'agnes-generations-json') {
-        if (request.mask) {
-          throw clientError('该模型不支持遮罩编辑（上游无 mask 能力），请换 GPT 模型或去掉遮罩')
-        }
-        const body = JSON.stringify(buildAgnesGenerationsBody(model, request))
-        const headers = { 'content-type': 'application/json', ...authHeader }
-        return await dispatch(
-          `${base}/images/generations`,
-          Math.max(1, request.n ?? 1),
-          () => ({ method: 'POST', headers, body }),
-          mergeOpenAIDataResults,
-        )
-      }
-
-      // 有参考图 / 有遮罩 → images/edits；generations 是纯文生图，
-      // 塞 input_images 字段上游会忽略（用户感知"AI 不参考附件"）。
-      if (request.input_images?.length || request.mask) {
-        // Grok 1.0 多张参考图先合成 contact sheet；2.0 原生多图，跳过拼图。
-        let editRequest = request
-        if (style === 'grok-openai-images') {
-          editRequest = isGrokImagine2(model)
-            ? normalizeGrokImagine2EditInputs(request)
-            : await normalizeGrokEditInputs(request, deadline.signal)
-        }
-        const n = Math.max(1, editRequest.n ?? 1)
-        const unitRequest = n === 1 ? editRequest : withoutImageCount(editRequest)
-        // Grok edits 必须 application/json：改回 multipart 会被 sub2api 转换丢掉
-        // response_format，上游退回 URL 结果，归档取图一律 403。
-        // FormData 会被请求消费掉，所以只有 JSON 体能在 fan-out 之间复用。
-        const grokBody =
-          style === 'grok-openai-images'
-            ? JSON.stringify(buildGrokEditBody(model, unitRequest))
-            : null
-        const makeInit = (): UpstreamFetchInit =>
-          grokBody !== null
-            ? {
-                method: 'POST',
-                headers: { 'content-type': 'application/json', ...authHeader },
-                body: grokBody,
-              }
-            : {
-                method: 'POST',
-                headers: authHeader,
-                body: buildOpenAIEditFormData(model, unitRequest),
-              }
-        return await dispatch(`${base}/images/edits`, n, makeInit, mergeOpenAIImageResults)
-      }
-
-      const headers = { 'content-type': 'application/json', ...authHeader }
-      const n = Math.max(1, request.n ?? 1)
-      // 原生 n 是一次上游生成请求；否则沿用兼容网关的单图 fan-out。
-      const unitRequest = useNativeN || n === 1 ? request : withoutImageCount(request)
-      const body = JSON.stringify(
-        style === 'grok-openai-images' && isGrokImagine2(model)
-          ? buildGrokImagine2Body(model, unitRequest)
-          : buildOpenAIBody(model, unitRequest),
-      )
-      return await dispatch(
-        `${base}/images/generations`,
-        useNativeN ? 1 : n,
-        () => ({ method: 'POST', headers, body }),
-        mergeOpenAIImageResults,
-      )
+      const result = await dispatch(url, dispatched.plan.calls.length, makeInit, merge)
+      return finishImageResult(result, dispatched.plan)
     }
 
     if (provider === 'gemini') {
@@ -1062,9 +1015,21 @@ async function callUpstreamVia(
         'content-type': 'application/json',
         ...(key ? { [vertex ? 'x-goog-api-key' : 'x-api-key']: key } : {}),
       }
-      const body = JSON.stringify(
-        vertex ? buildVertexBody(request, imageSizes) : buildGeminiBody(request),
-      )
+      const dispatched = planDispatchedImage({
+        provider,
+        model,
+        request,
+        style,
+        supportsNativeN,
+        supportsModeration,
+        forceB64Json,
+        ...(imageSizes ? { imageSizes } : {}),
+        useImageResponses: false,
+        member: params.gptMember === true,
+        directOn: gptDirectConfigured(model),
+      })
+      if (!dispatched?.plan.calls[0]) throw new Error(`no image adapter for ${model}`)
+      const body = JSON.stringify(dispatched.plan.freshBody?.() ?? dispatched.plan.calls[0].body)
 
       // Gemini image generation 不支持 candidateCount>1（"Only one candidate is
       // supported for audio or image response"），n>1 时本层 fan-out 成 N 条单张请求
@@ -1128,7 +1093,7 @@ async function callUpstreamVia(
           },
         }
       }
-      return await fanOutRequests(
+      const result = await fanOutRequests(
         request.n,
         async () => {
           try {
@@ -1156,10 +1121,11 @@ async function callUpstreamVia(
         (results) => merge(results),
         params.reconciliationRequired,
         cancelled,
-      ).then((result) =>
+      ).then((merged) =>
         // 单张请求（n=1）不经过 merge：回落出的那张也要记下实际模型。
-        (request.n ?? 1) <= 1 && fallback && fallbackImages > 0 ? merge([result]) : result,
+        (request.n ?? 1) <= 1 && fallback && fallbackImages > 0 ? merge([merged]) : merged,
       )
+      return finishImageResult(result, dispatched.plan)
     }
     throw new Error(`Unsupported provider: ${provider satisfies never}`)
   } catch (err) {
@@ -1171,6 +1137,14 @@ async function callUpstreamVia(
     // 没走到 parseResponse 的响应（同批别的请求先失败等）也要还在途名额，不能等心跳过期。
     await Promise.all([...outstandingLeases].map((lease) => releaseLease(lease)))
   }
+}
+
+/**
+ * 单张请求不经过合并，上游 payload 原样返回。
+ * fan-out 合并会丢掉 size / quality / output_format，所以把计划里的生效参数补回去。
+ */
+function finishImageResult(result: UpstreamCallResult, plan: AdapterPlan): UpstreamCallResult {
+  return plan.calls.length > 1 ? stampReceipt(result, plan) : result
 }
 
 /** 轮询退避（ms），index 超出取末位。上游 202 响应的 `Retry-After` 也是 3。 */
