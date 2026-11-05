@@ -46,13 +46,14 @@ Admin（`apps/admin`）同样带顶层 `404.html`，`_redirects` 由 `apps/admin
 
 ### VPS 受限入口
 
-[`scripts/ci-receive.sh`](../../scripts/ci-receive.sh) 安装为 `/home/ubuntu/bin/aip-ci-receive`（0755），`~/.ssh/authorized_keys` 一行：
+[`scripts/ci-receive.sh`](../../scripts/ci-receive.sh) 安装为 `/home/ubuntu/bin/aip-ci-receive`（0755）。`~/.ssh/authorized_keys` 里生产与测试各一把 key，权限范围写在 forced command 的参数里，调用方不能改：
 
 ```text
-command="/home/ubuntu/bin/aip-ci-receive",restrict ssh-ed25519 AAAA… github-actions-deploy
+command="/home/ubuntu/bin/aip-ci-receive release",restrict ssh-ed25519 AAAA… aip-ci-deploy@github-actions
+command="/home/ubuntu/bin/aip-ci-receive test",restrict ssh-ed25519 AAAA… aip-ci-deploy-test@github-actions
 ```
 
-只接受 `deploy <aip-12位hex-12位hex> <internal|paid|all> <run_id>`，其余一律拒绝（退出码 2）。stdin 的 tar 仅限相对路径的普通文件和目录（拒绝绝对路径、`..`、隐藏项、链接，上限 64 MiB），解到 `~/releases/<release-id>`；同一提交重发（手动触发）时原目录保留供回滚，改解到 `<release-id>.run-<run_id>`，解包失败会清理。然后以 `DEPLOY_ACTOR=github-actions/run-<id>` 运行包内 `vps-deploy.sh` 并透传退出码；发布失败时目录改名为 `….failed-run-<run_id>` 留作排查，可直接重跑 workflow。脚本更新后须重新安装。
+生产 key（secret `VPS_SSH_KEY`）范围 `release`，只接受 `deploy <aip-12位hex-12位hex> <internal|paid|all> <run_id>`；测试 key（secret `VPS_SSH_KEY_TEST`，仅 `deploy-test.yml` 使用）范围 `test`，只接受目标 `test`。没有范围参数或范围不认识时拒绝一切；其余一律拒绝（退出码 2）。注意这只固定了「调用方选目标」这一层：接收器仍会运行包内的 `vps-deploy.sh`，持有测试 key 的人能让主机执行自己打包的脚本，真正的隔离还要把部署脚本固定在服务器上（见 #1275）。stdin 的 tar 仅限相对路径的普通文件和目录（拒绝绝对路径、`..`、隐藏项、链接，上限 64 MiB），解到 `~/releases/<release-id>`；同一提交重发（手动触发）时原目录保留供回滚，改解到 `<release-id>.run-<run_id>`，解包失败会清理。然后以 `DEPLOY_ACTOR=github-actions/run-<id>` 运行包内 `vps-deploy.sh` 并透传退出码；发布失败时目录改名为 `….failed-run-<run_id>` 留作排查，可直接重跑 workflow。脚本更新后须重新安装。
 
 ## 前端：一个 Pages 项目、多个域名（手动应急）
 
