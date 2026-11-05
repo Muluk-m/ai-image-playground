@@ -1,0 +1,22 @@
+{
+  "entry": "更新",
+  "unreadDot": "有未读更新",
+  "title": "更新",
+  "unreadCount": "{{count}} 条未读",
+  "markAll": "全部标为已读",
+  "viewAll": "查看全部更新记录",
+  "empty": "还没有更新",
+  "loadError": "更新没有加载出来",
+  "later": "稍后再看",
+  "more": "还有 {{count}} 条更新",
+  "changelogTitle": "更新记录",
+  "documentTitle": "更新记录",
+  "back": "返回创作",
+  "close": "关闭",
+  "filters": {
+    "all": "全部",
+    "feature": "新功能",
+    "improvement": "优化",
+    "notice": "公告"
+  }
+}
