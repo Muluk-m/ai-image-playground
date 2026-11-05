@@ -29,6 +29,13 @@ describe('sanitizeSvg', () => {
     expect(cleaned).toContain('<path')
   })
 
+  it('strips a script tag that was split around another script tag', () => {
+    const dirty = `<svg xmlns="http://www.w3.org/2000/svg"><scr<script>alert(1)</script>ipt>alert(2)</script><path d="M0 0"/></svg>`
+    const cleaned = decode(sanitizeSvg(encode(dirty)))
+    expect(cleaned.toLowerCase()).not.toContain('script')
+    expect(cleaned).toContain('<path')
+  })
+
   it('rejects a payload that is not an svg document', () => {
     expect(() => sanitizeSvg(encode('<html><script>alert(1)</script></html>'))).toThrow(
       'svg_not_document',
