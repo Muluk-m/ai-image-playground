@@ -478,18 +478,36 @@ it('counts each in-stage image, dedupes external files, and leaves browser-only 
 it.each([
   { member: false, submittedTier: '2K', rate: 1.5 },
   { member: true, submittedTier: '4K', rate: 3.4 },
-])('keeps the manual Gemini batch quote and submission guard aligned: %j', ({ member, submittedTier, rate }) => {
+])('keeps the manual Gemini batch quote and submission guard aligned: %j', ({
+  member,
+  submittedTier,
+  rate,
+}) => {
   const { doc, input } = setup()
   const model = 'gemini-nano-banana-2.1'
-  setChannels([{
-    id: 'gemini-batch', kind: 'gemini-queue', label: 'Gemini',
-    models: [{ id: model, label: model, capabilities: ['generate'], imageSizes: ['1K', '2K', '4K'] }],
-    defaults: { apiMode: 'images', timeout: 600 },
-  }])
+  // Model the JSON capability response when the server enables the future 4K tier.
+  setChannels(JSON.parse(JSON.stringify([
+    {
+      id: 'gemini-batch',
+      kind: 'gemini-queue',
+      label: 'Gemini',
+      models: [
+        { id: model, label: model, capabilities: ['generate'], imageSizes: ['1K', '2K', '4K'] },
+      ],
+      defaults: { apiMode: 'images', timeout: 600 },
+    },
+  ])))
   try {
     const settings = normalizeSettings({
       ...DEFAULT_SETTINGS,
-      profiles: [{ id: 'gemini-batch', source: 'builtin-edge', channelId: 'gemini-batch', selectedModelId: model }],
+      profiles: [
+        {
+          id: 'gemini-batch',
+          source: 'builtin-edge',
+          channelId: 'gemini-batch',
+          selectedModelId: model,
+        },
+      ],
       activeProfileId: 'gemini-batch',
     })
     // Exercise persisted input beyond the tiers currently exposed by the editor.
