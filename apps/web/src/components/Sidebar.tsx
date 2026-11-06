@@ -178,7 +178,7 @@ export default function Sidebar() {
         autoTooltip={showRail && !mobile}
         className={`${
           mobile
-            ? 'h-auto min-w-0 flex-1 flex-col gap-0.5 py-2 text-label-sm font-normal hover:bg-transparent [&_svg]:size-5'
+            ? 'h-auto min-w-0 flex-1 flex-col gap-0.5 px-0 py-2 text-label-sm font-normal hover:bg-transparent [&_svg]:size-5'
             : showRail
               ? 'size-10 shrink-0 rounded-xl p-0 [&_svg]:size-5'
               : ITEM
@@ -376,7 +376,7 @@ export default function Sidebar() {
               variant="ghost"
               onClick={() => setAppMode(mode)}
               aria-pressed={active}
-              className={`h-auto flex-1 flex-col gap-0.5 py-2 text-label-sm font-normal hover:bg-transparent [&_svg]:size-5 ${
+              className={`h-auto min-w-0 flex-1 flex-col gap-0.5 px-1 py-2 text-label-sm font-normal hover:bg-transparent [&_svg]:size-5 ${
                 active ? 'text-primary hover:text-primary' : 'text-muted-foreground'
               }`}
             >
