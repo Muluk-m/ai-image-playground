@@ -235,17 +235,17 @@ export default function CliConnectPage() {
                 <StepHeading
                   index={2}
                   title={t(
-                    agent === 'workbuddy'
+                    agent === 'workbuddy' && mode === 'manual'
                       ? 'cliConnect.workbuddySkill.title'
                       : 'cliConnect.step2.title',
                   )}
                   hint={t(
-                    agent === 'workbuddy'
+                    agent === 'workbuddy' && mode === 'manual'
                       ? 'cliConnect.workbuddySkill.hint'
                       : 'cliConnect.step2.hint',
                   )}
                 />
-                {agent === 'workbuddy' ? (
+                {agent === 'workbuddy' && mode === 'manual' ? (
                   <Button asChild variant="outline" size="sm">
                     <a href={WORKBUDDY_SKILL_PATH} download>
                       {t('cliConnect.workbuddySkill.download')}
