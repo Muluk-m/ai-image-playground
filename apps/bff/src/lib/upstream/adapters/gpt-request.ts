@@ -1,33 +1,35 @@
 import {
+  applyPromptRewriteGuard,
   buildAspectInstruction,
   isGptDirectModel,
   unshapeQueuePrompt,
 } from '@image-playground/shared'
 import type { HydratedSubmitRequest } from '../../imageArchive'
 
-/**
- * 同一单按通道改参数。sub2api（Codex 图片路径）丢弃 size 与 quality，只认提示词里写明的构图，
- * 所以补上构图句；直连认原生参数，把提交时钉上的机器指令（防改写前缀、构图句）剥掉，auto 画质
- * 改发 medium（auto 可能出高画质，成本没有上限，计价也按 medium）。
- *
- * 只跑一次。直连会剥掉一层防改写前缀；再跑一次会把用户原文里自带的前缀也剥掉。
- */
+/** 每次实际选路后从原始请求适配，换路时不沿用上一条路加过的机器指令。 */
 export function adaptGptRequest(
   route: 'direct' | 'sub2api',
   model: string,
   request: HydratedSubmitRequest,
 ): HydratedSubmitRequest {
-  if (!isGptDirectModel(model)) return request
   if (route === 'direct') {
     const prompt = unshapeQueuePrompt({
       provider: 'openai-compat',
       prompt: request.prompt,
-      ...(request.size ? { size: request.size } : {}),
+      size: request.size,
+      stripRewriteGuard: request.no_rewrite === undefined,
     })
-    const quality = !request.quality || request.quality === 'auto' ? 'medium' : request.quality
-    return { ...request, prompt, quality }
+    // 2.5 的 auto 仍按 medium 控制成本；2.6 沿用自己的画质契约。
+    const quality =
+      isGptDirectModel(model) && (!request.quality || request.quality === 'auto')
+        ? 'medium'
+        : request.quality
+    return { ...request, prompt, ...(quality ? { quality } : {}) }
   }
-  const instruction = request.size ? buildAspectInstruction(request.size) : null
-  if (!instruction || request.prompt.endsWith(instruction)) return request
-  return { ...request, prompt: `${request.prompt}\n\n${instruction}` }
+  let prompt = request.prompt
+  // 旧客户端已经带过前缀；新客户端用参数表达意图，用户原文里同样的文字也不吞掉。
+  if (request.no_rewrite === true) prompt = applyPromptRewriteGuard(prompt)
+  const instruction = isGptDirectModel(model) && request.size ? buildAspectInstruction(request.size) : null
+  if (instruction && !prompt.endsWith(instruction)) prompt = `${prompt}\n\n${instruction}`
+  return { ...request, prompt }
 }

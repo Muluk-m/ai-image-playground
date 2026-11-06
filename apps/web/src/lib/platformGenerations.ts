@@ -390,6 +390,7 @@ export function promptFromGeneration(item: GenerationSummary): string {
   return unshapeQueuePrompt({
     provider: item.provider === 'gemini' ? 'gemini' : 'openai-compat',
     prompt: item.prompt,
+    stripRewriteGuard: item.parameters.no_rewrite === undefined,
     size: sized ? undefined : item.parameters.size,
   })
 }
@@ -401,7 +402,8 @@ function paramsFromGeneration(item: GenerationSummary): TaskParams {
   return {
     ...DEFAULT_PARAMS,
     no_rewrite:
-      item.provider !== 'gemini' && item.prompt.startsWith(`${PROMPT_REWRITE_GUARD_PREFIX}\n`),
+      item.provider !== 'gemini' &&
+      (item.parameters.no_rewrite ?? item.prompt.startsWith(`${PROMPT_REWRITE_GUARD_PREFIX}\n`)),
     ...(size ? { size } : {}),
     ...(quality ? { quality: quality as TaskParams['quality'] } : {}),
     ...(output_format ? { output_format: output_format as TaskParams['output_format'] } : {}),
