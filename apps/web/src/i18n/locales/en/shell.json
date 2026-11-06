@@ -33,6 +33,7 @@
     "home": "Home"
   },
   "nav": {
+    "plugins": "Plugins",
     "collapse": "Collapse sidebar",
     "chats": "Chats",
     "newChat": "New chat",
