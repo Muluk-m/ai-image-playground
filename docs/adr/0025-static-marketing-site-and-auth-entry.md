@@ -18,8 +18,9 @@ projects and the main deployment workflow, with no new SSR service.
 The website owns `/`, `/en/`, `/login/`, `/en/login/`, bilingual creation pages and existing
 `/guide/**` addresses. Guide source content and anchors survive; React components replace the old
 HTML-template renderer. SEO uses per-page metadata, canonical/hreflang, visible FAQ/procedure
-structured data, robots, sitemap and llms.txt. Internal/test builds disable indexing. Authentication
-and workbench URLs are not indexable marketing pages.
+structured data, robots, sitemap and llms.txt. Test builds disable indexing; the enterprise origin
+shares the production build with host-specific noindex headers. Authentication and workbench URLs
+are not indexable marketing pages.
 
 Anonymous visitors see the website. Start buttons open the shared login form, without accepting or
 submitting a sample prompt. Successful authentication goes to `/image`; authenticated visitors to

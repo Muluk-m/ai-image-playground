@@ -191,7 +191,7 @@ prune_dangling_images() {
 
 # reclaim_deploy_disk <current-release-directory> [protected-tags] [keep]
 #
-# Runs before the free-space check and again after rollout. All four editions share this disk;
+# Runs before the free-space check and again after rollout. Production, test and their sidecars share this disk;
 # a test receive used to leave backup images and release archives for the next production
 # deploy, and a full disk is exactly when that deploy is refused. Protected tags are the images
 # this release is about to use and the ones just rolled out. Containers still running are
@@ -203,7 +203,6 @@ reclaim_deploy_disk() {
   running=$(docker ps --format '{{.Image}}' | sort -u | tr '\n' ' ')
   protected="${2:-} $running"
   for alias in \
-    ai-image-playground:vps-main \
     ai-image-playground:paid \
     ai-image-playground:test \
     ai-image-playground:backup \

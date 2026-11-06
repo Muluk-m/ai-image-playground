@@ -493,8 +493,7 @@ export function ServerLogsBlock({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">全部部署</SelectItem>
-                <SelectItem value="paid">付费</SelectItem>
-                <SelectItem value="internal">内部</SelectItem>
+                <SelectItem value="paid">生产</SelectItem>
                 <SelectItem value="test">测试</SelectItem>
               </SelectContent>
             </Select>

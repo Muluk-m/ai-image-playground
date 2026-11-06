@@ -28,7 +28,7 @@ export function parseServerLogSearch(input: Record<string, unknown>): ServerLogS
     Object.prototype.hasOwnProperty.call(LOG_RANGES, input.range)
   )
     out.range = input.range as keyof typeof LOG_RANGES
-  if (['paid', 'internal', 'test'].includes(String(input.deployment)))
+  if (['paid', 'test'].includes(String(input.deployment)))
     out.deployment = input.deployment as ServerLogFilters['deployment']
   if (input.stream === 'stdout' || input.stream === 'stderr') out.stream = input.stream
   if (SERVER_LOG_SERVICES.includes(input.service as never))
@@ -92,8 +92,8 @@ export function parseLogExpression(input: string): Partial<ServerLogFilters> {
       throw new Error('日志级别无效')
     if (key === 'stream' && value !== 'stdout' && value !== 'stderr')
       throw new Error('输出流须为 stdout 或 stderr')
-    if (key === 'deployment' && !['paid', 'internal', 'test'].includes(value))
-      throw new Error('部署须为 paid、internal 或 test')
+    if (key === 'deployment' && !['paid', 'test'].includes(value))
+      throw new Error('部署须为 paid 或 test')
     Object.assign(filters, { [key]: value })
   }
   const q = text.join(' ')
