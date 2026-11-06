@@ -88,6 +88,24 @@ describe('POST /api/logout', () => {
     expect(clearHeader).toContain('admin_session=')
     expect(/(Max-Age=0|Expires=)/i.test(clearHeader)).toBe(true)
   })
+
+  it('clears cookies even when the access cookie has expired', async () => {
+    const loginRes = await post(
+      '/api/login',
+      { password: 'test-pass-1234' },
+      undefined,
+      '10.0.0.11',
+    )
+    const cookies = loginRes.headers
+      .getSetCookie()
+      .map((value) => value.split(';')[0])
+      .join('; ')
+    const logoutRes = await post('/api/logout', undefined, cookies, '10.0.0.11')
+    expect(logoutRes.status).toBe(200)
+    expect(
+      logoutRes.headers.getSetCookie().some((value) => value.startsWith('admin_refresh=')),
+    ).toBe(true)
+  })
 })
 
 describe('GET /api/me', () => {
@@ -105,5 +123,33 @@ describe('GET /api/me', () => {
 
     const usersRes = await get('/api/users', sessionCookie, '10.0.0.6')
     expect(usersRes.status).toBe(404)
+  })
+})
+
+describe('POST /api/auth/refresh', () => {
+  it('accepts the refresh cookie without an access cookie and issues both cookies again', async () => {
+    const loginRes = await post('/api/login', { password: 'test-pass-1234' }, undefined, '10.0.0.9')
+    const setCookies = loginRes.headers.getSetCookie()
+    const refreshCookie = setCookies.find((value) => value.startsWith('admin_refresh='))
+    expect(refreshCookie).toBeTruthy()
+
+    const refreshRes = await post(
+      '/api/auth/refresh',
+      undefined,
+      refreshCookie?.split(';')[0],
+      '10.0.0.9',
+    )
+    expect(refreshRes.status).toBe(200)
+    expect(
+      refreshRes.headers.getSetCookie().some((value) => value.startsWith('admin_session=')),
+    ).toBe(true)
+    expect(
+      refreshRes.headers.getSetCookie().some((value) => value.startsWith('admin_refresh=')),
+    ).toBe(true)
+  })
+
+  it('rejects a missing refresh cookie', async () => {
+    const refreshRes = await post('/api/auth/refresh', undefined, undefined, '10.0.0.10')
+    expect(refreshRes.status).toBe(401)
   })
 })
