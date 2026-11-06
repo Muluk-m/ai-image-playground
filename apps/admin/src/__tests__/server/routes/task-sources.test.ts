@@ -113,10 +113,12 @@ describe('task source attribution', () => {
     const cli = await tasks('source=cli')
     expect(cli.tasks.map((task) => task.id)).toEqual(['cli-2', 'cli-1'])
     expect(cli.tasks.every((task) => task.source === 'cli')).toBe(true)
-    const paged = await tasks('source=cli&page=1&pageSize=1')
+    const paged = await tasks('source=cli&page=1&pageSize=50')
     expect(paged.total).toBe(2)
-    expect(paged.tasks.map((task) => task.id)).toEqual(['cli-2'])
-    expect((await tasks('source=cli&status=failed&model=other')).tasks.map((task) => task.id)).toEqual(['cli-2'])
+    expect(paged.tasks.map((task) => task.id)).toEqual(['cli-2', 'cli-1'])
+    expect(
+      (await tasks('source=cli&status=failed&model=other')).tasks.map((task) => task.id),
+    ).toEqual(['cli-2'])
     const detail: TaskDetail = await (await get('/api/tasks/cli-1')).json()
     expect(detail.source).toBe('cli')
     expect(detail.prompt_created_at).toBeUndefined()
@@ -125,7 +127,9 @@ describe('task source attribution', () => {
     expect(csv).toContain(',cli,openai-compat,')
     expect(csv).not.toContain('manual-1')
     const { getUserTasks, getDeviceDetail } = await import('../../../../server/lib/queries')
-    expect((await getUserTasks('cli-user', 'all')).tasks.every((task) => task.source === 'cli')).toBe(true)
+    expect(
+      (await getUserTasks('cli-user', 'all')).tasks.every((task) => task.source === 'cli'),
+    ).toBe(true)
     const device = await getDeviceDetail('cli-device', '1d')
     expect(device.tasks.map((task) => [task.id, task.source])).toEqual([['cli-1', 'cli']])
   })

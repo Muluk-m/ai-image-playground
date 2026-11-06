@@ -1,7 +1,5 @@
-import { TASK_SOURCE_LABELS } from '../../contracts'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { ImageOff } from 'lucide-react'
-
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { ErrorState, PendingState } from '@/components/Page'
 import { ShortId } from '@/components/ShortId'
@@ -13,6 +11,7 @@ import { useTask } from '@/lib/queries'
 import { countInputImages, extractPrompt } from '@/lib/request-helpers'
 import { adminApiUrl } from '@/lib/runtime-config'
 import type { TaskDetail } from '@/lib/types'
+import { TASK_SOURCE_LABELS } from '../../contracts'
 
 interface TaskDetailViewProps {
   taskId: string

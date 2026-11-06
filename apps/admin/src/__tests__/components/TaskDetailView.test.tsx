@@ -130,7 +130,9 @@ it.each([
       <TaskDetailView taskId={task.id} />
     </TooltipProvider>,
   )
-  expect(screen.getByText(source === 'chat' ? 'Chat' : source === 'cli' ? 'CLI' : '手动')).toBeInTheDocument()
+  expect(
+    screen.getByText(source === 'chat' ? 'Chat' : source === 'cli' ? 'CLI' : '手动'),
+  ).toBeInTheDocument()
   const link = screen.queryByRole('link', { name: '在提示词页查看' })
   if (source !== 'chat') {
     expect(link).not.toBeInTheDocument()

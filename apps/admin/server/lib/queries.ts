@@ -26,8 +26,7 @@ import type {
 
 export type { Range, SortKey } from '../../contracts'
 
-import { and, asc, eq, sql } from 'drizzle-orm'
-import { getViewConfig } from 'drizzle-orm/pg-core'
+import { and, asc, eq, getViewSelectedFields, sql } from 'drizzle-orm'
 import { getDbHandle as getHandle } from './db'
 import { taskSourceSql } from './task-source'
 
@@ -1075,7 +1074,7 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
   const { db, schema } = getHandle()
   const rows = await db
     .select({
-      ...getViewConfig(schema.queue_tasks).selectedFields,
+      ...getViewSelectedFields(schema.queue_tasks),
       source: taskSourceSql(schema.queue_tasks.id, schema.queue_tasks.agent_conversation_id),
     })
     .from(schema.queue_tasks)
