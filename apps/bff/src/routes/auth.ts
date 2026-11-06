@@ -1,10 +1,12 @@
 import {
   EMAIL_MAX_LENGTH,
+  isSessionRefreshRequestKey,
   isValidEmailAddress,
   isValidPassword,
   isValidUsername,
   normalizeUsername,
   PASSWORD_MAX_LENGTH,
+  SESSION_REFRESH_REQUEST_HEADER,
   USERNAME_MAX_LENGTH,
 } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
@@ -376,16 +378,21 @@ export const userAuthRoutes = new Elysia()
     )
     return { ok: true }
   })
-  .post('/api/auth/refresh', async ({ cookie, request, server, status }) => {
+  .post('/api/auth/refresh', async ({ cookie, request, server, status, set }) => {
+    set.headers['cache-control'] = 'no-store'
+    const requestKey = request.headers.get(SESSION_REFRESH_REQUEST_HEADER)
+    if (requestKey !== null && !isSessionRefreshRequestKey(requestKey))
+      return status(400, { error: 'invalid_refresh_request' })
     const refresh = cookieValue(cookie[USER_REFRESH_COOKIE]?.value)
     const access = cookieValue(cookie[USER_SESSION_COOKIE]?.value)
     const renewed = await refreshWebSessionToken(
       refresh,
       access,
       sessionClientFromRequest(request, server?.requestIP(request)?.address ?? null),
+      requestKey,
     )
     if (!renewed.ok) {
-      return status(renewed.error === 'refresh_raced' ? 409 : 401, { error: renewed.error })
+      return status(renewed.error === 'unauthorized' ? 401 : 409, { error: renewed.error })
     }
     setUserSessionCookie(cookie, renewed)
     return { ok: true, access_expires_at: renewed.accessExpiresAt }

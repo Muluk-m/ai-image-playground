@@ -4,6 +4,8 @@ import {
   OAUTH_SESSION_QUERY_PARAM,
   type OAuthProvidersResponse,
   type OAuthProviderView,
+  SESSION_REFRESH_REQUEST_HEADER,
+  type SessionRefreshRequestKey,
   USER_SESSION_HINT_COOKIE,
 } from '@image-playground/shared'
 import { accountRequired, isSignedIn } from '../auth/loginPrompt'
@@ -18,6 +20,11 @@ import {
 import { isClientCapabilityEnabled } from './clientCapabilities'
 import { hasRememberedSignedInUser, rememberStorageUser } from './localRecovery'
 import { bffBaseUrl } from './runtimeConfig'
+import {
+  acquireRefreshAttempt,
+  clearRefreshJournal,
+  completeRefreshAttempt,
+} from './sessionRefreshJournal'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
 export type LoginMethodsPolicy = OAuthProvidersResponse['loginMethods']
 export type LoginOptions = OAuthProvidersResponse
@@ -112,6 +119,7 @@ export async function loginUser(username: string, password: string): Promise<Aut
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ username, password }),
   })
+  await clearRefreshJournal(bffBaseUrl()).catch(() => {})
   noteBrowserSession(result.user.id)
   return result.user
 }
@@ -156,6 +164,7 @@ export async function registerUser(
       verification_code: options.verification?.code,
     }),
   })
+  await clearRefreshJournal(bffBaseUrl()).catch(() => {})
   noteBrowserSession(result.user.id)
   return result.user
 }
@@ -226,6 +235,7 @@ export function oauthStartUrl(provider: string, referralCode?: string): string {
 
 export async function logoutUser(): Promise<void> {
   await authJson<{ ok: true }>('/api/auth/logout', { method: 'POST' })
+  await clearRefreshJournal(bffBaseUrl()).catch(() => {})
   noteBrowserSession(null)
 }
 
@@ -321,18 +331,49 @@ export type SessionRefreshResult = 'ok' | 'raced' | 'unauthorized' | 'failed'
 const SESSION_REFRESH_LOCK = 'muvloom-web-session-refresh'
 let sessionRefreshInFlight: Promise<SessionRefreshResult> | null = null
 
-async function postSessionRefresh(): Promise<SessionRefreshResult> {
+async function postSessionRefresh(): Promise<SessionRefreshResult | 'superseded'> {
+  const scope = bffBaseUrl()
   try {
-    const response = await fetch(bffUrl('/api/auth/refresh'), {
-      method: 'POST',
-      credentials: 'include',
-      headers: { accept: 'application/json' },
-    })
+    const attempt = await acquireRefreshAttempt(scope)
+    const send = (key: SessionRefreshRequestKey) =>
+      fetch(`${scope}/api/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { accept: 'application/json', [SESSION_REFRESH_REQUEST_HEADER]: key },
+        signal: AbortSignal.timeout(15_000),
+      })
+    let key = attempt.requestKey
+    let response = await send(key)
+    if (response.status === 409) {
+      const body: unknown = await response.clone().json()
+      if (
+        typeof body === 'object' &&
+        body !== null &&
+        'error' in body &&
+        body.error === 'refresh_request_completed'
+      ) {
+        await completeRefreshAttempt(scope, attempt.requestKey)
+        return 'superseded'
+      }
+    }
+    if ((response.status === 401 || response.status === 409) && attempt.previousKey) {
+      key = attempt.previousKey
+      const recovered = await send(key)
+      if (recovered.status !== 401 || response.status !== 409) response = recovered
+    }
+    if (bffBaseUrl() !== scope) return 'failed'
     if (response.ok) {
-      const body = (await response.json().catch(() => null)) as {
-        access_expires_at?: unknown
-      } | null
-      if (typeof body?.access_expires_at === 'number') accessExpiresAt = body.access_expires_at
+      const body: unknown = await response.json()
+      if (typeof body !== 'object' || body === null || !('ok' in body) || body.ok !== true)
+        return 'failed'
+      const expiry =
+        'access_expires_at' in body && typeof body.access_expires_at === 'number'
+          ? body.access_expires_at
+          : null
+      // If a completed operation repaired a late Cookie, complete the current pending slot too.
+      await completeRefreshAttempt(scope, attempt.requestKey, key)
+      if (bffBaseUrl() !== scope) return 'failed'
+      accessExpiresAt = expiry
       writeSessionRotatedAt(Date.now())
       return 'ok'
     }
@@ -340,8 +381,19 @@ async function postSessionRefresh(): Promise<SessionRefreshResult> {
     if (response.status === 401) return 'unauthorized'
     return 'failed'
   } catch {
+    // Keep the committed request key across reloads, including a lost JSON response body.
     return 'failed'
   }
+}
+
+async function restoreAndRefreshSession(): Promise<SessionRefreshResult> {
+  let result = await postSessionRefresh()
+  // The backend authenticated the current Cookie but this key belongs to a completed operation.
+  // Persist a fresh operation identity before attempting another rotation.
+  if (result === 'superseded') result = await postSessionRefresh()
+  if (result === 'ok' && accessExpiresAt !== null && accessExpiresAt <= Date.now())
+    result = await postSessionRefresh()
+  return result === 'superseded' ? 'failed' : result
 }
 
 /** 同一标签页共享一次刷新；锁跨标签页，避免并发轮换被当成重用。 */
@@ -349,11 +401,11 @@ export function refreshWebSession(): Promise<SessionRefreshResult> {
   if (sessionRefreshInFlight) return sessionRefreshInFlight
   const run = (async () => {
     const locks = globalThis.navigator?.locks
-    if (!locks?.request) return postSessionRefresh()
+    if (!locks?.request) return restoreAndRefreshSession()
     try {
-      return await locks.request(SESSION_REFRESH_LOCK, postSessionRefresh)
+      return await locks.request(SESSION_REFRESH_LOCK, restoreAndRefreshSession)
     } catch {
-      return postSessionRefresh()
+      return restoreAndRefreshSession()
     }
   })()
   sessionRefreshInFlight = run

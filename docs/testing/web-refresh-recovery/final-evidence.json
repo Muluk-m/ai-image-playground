@@ -1,0 +1,28 @@
+{
+  "frontendVersion": "cf51d53+25eb688-20261106T165836Z",
+  "waitAfterDroppedResponseMs": 39903,
+  "committedResponseDiscarded": true,
+  "oldCookiesRetained": true,
+  "cookieWriteRolledBackForFault": true,
+  "sameRequestKeyAcrossReload": true,
+  "sameUserAfterRecovery": true,
+  "accountVisible": true,
+  "authResponses": [
+    {
+      "path": "/api/auth/me",
+      "status": 401
+    },
+    {
+      "path": "/api/auth/refresh",
+      "status": 204
+    },
+    {
+      "path": "/api/auth/refresh",
+      "status": 200
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200
+    }
+  ]
+}
