@@ -11,13 +11,13 @@ import { copyTextToClipboard } from '../../lib/clipboardText'
 import CliConnectionsSection from './CliConnectionsSection'
 import {
   AGENT_SETUP_PATH,
-  WORKBUDDY_SETUP_PATH,
-  WORKBUDDY_SKILL_PATH,
   CONNECT_AGENTS,
   type ConnectAgentId,
   type ConnectPlatform,
   detectPlatform,
   manualCommands,
+  WORKBUDDY_SETUP_PATH,
+  WORKBUDDY_SKILL_PATH,
 } from './connectAgents'
 
 type CopyState = 'idle' | 'done' | 'failed'
@@ -235,10 +235,14 @@ export default function CliConnectPage() {
                 <StepHeading
                   index={2}
                   title={t(
-                    agent === 'workbuddy' ? 'cliConnect.workbuddySkill.title' : 'cliConnect.step2.title',
+                    agent === 'workbuddy'
+                      ? 'cliConnect.workbuddySkill.title'
+                      : 'cliConnect.step2.title',
                   )}
                   hint={t(
-                    agent === 'workbuddy' ? 'cliConnect.workbuddySkill.hint' : 'cliConnect.step2.hint',
+                    agent === 'workbuddy'
+                      ? 'cliConnect.workbuddySkill.hint'
+                      : 'cliConnect.step2.hint',
                   )}
                 />
                 {agent === 'workbuddy' ? (

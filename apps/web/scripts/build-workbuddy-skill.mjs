@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { zipSync } from 'fflate'
@@ -16,7 +16,8 @@ export function createWorkBuddySkillZip() {
       if (relative === 'agents') continue
       if (entry.isSymbolicLink()) throw new Error(`Skill source contains a symlink: ${relative}`)
       if (entry.isDirectory()) collect(join(directory, entry.name), relative)
-      else if (entry.isFile()) files[`muvloom/${relative}`] = readFileSync(join(directory, entry.name))
+      else if (entry.isFile())
+        files[`muvloom/${relative}`] = readFileSync(join(directory, entry.name))
     }
   }
   collect(sourceRoot)
@@ -31,10 +32,12 @@ export function createWorkBuddySkillZip() {
     'version: 1.0.0',
     'author: Muvloom',
   ].join('\n')
-  const body = source.slice(end + 5).replace(
-    '## Flow',
-    '## WorkBuddy\n\nFor installation, account connection or local permission errors, first follow [WorkBuddy setup](references/workbuddy.md). When it asks you to wait for the user, end the turn before continuing.\n\n## Flow',
-  )
+  const body = source
+    .slice(end + 5)
+    .replace(
+      '## Flow',
+      '## WorkBuddy\n\nFor installation, account connection or local permission errors, first follow [WorkBuddy setup](references/workbuddy.md). When it asks you to wait for the user, end the turn before continuing.\n\n## Flow',
+    )
   files['muvloom/SKILL.md'] = Buffer.from(`${source.slice(0, end)}\n${metadata}\n---\n${body}`)
   files['muvloom/references/workbuddy.md'] = readFileSync(
     resolve(webRoot, 'workbuddy-skill/workbuddy.md'),

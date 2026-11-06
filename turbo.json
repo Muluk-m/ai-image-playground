@@ -3,7 +3,7 @@
   "ui": "stream",
   // 包内 inputs 看不到仓库根，而 Bun 会在启动时自动加载根 .env —— 它能影响构建却
   // 不进任何 task 的哈希。放这里补上。
-  "globalDependencies": [".env*", "apps/website/**"],
+  "globalDependencies": [".env*", "apps/website/**", "cli-go/internal/skill/assets/**"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
