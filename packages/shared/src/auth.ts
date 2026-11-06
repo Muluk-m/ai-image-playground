@@ -1,8 +1,13 @@
 /** Random operation identity persisted before rotating web session cookies. */
 export const SESSION_REFRESH_REQUEST_HEADER = 'x-session-refresh-request'
-export type SessionRefreshRequestKey = string & { readonly __sessionRefreshRequestKey: unique symbol }
+export type SessionRefreshRequestKey = string & {
+  readonly __sessionRefreshRequestKey: unique symbol
+}
 export function isSessionRefreshRequestKey(value: unknown): value is SessionRefreshRequestKey {
-  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  return (
+    typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  )
 }
 
 /** 登录会话 cookie 的名字。BFF 设置它，跑图脚本这类不连数据库的调用方也按它带会话。 */

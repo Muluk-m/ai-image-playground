@@ -189,27 +189,45 @@ describe('web session refresh', () => {
     const session = await register('lost-rotation-response@example.com')
     const requestKey = '7cbcb24c-5b41-40a1-9c35-3e909f907b79'
     const input = {
-      method: 'POST', access: session.access, refresh: session.refresh, requestKey,
+      method: 'POST',
+      access: session.access,
+      refresh: session.refresh,
+      requestKey,
     }
     const discarded = await request('/api/auth/refresh', input)
     expect(discarded.status).toBe(200)
-    await db.update(schema.user_retired_refresh_tokens)
+    await db
+      .update(schema.user_retired_refresh_tokens)
       .set({ retired_at: Date.now() - 60_000 })
       .where(eq(schema.user_retired_refresh_tokens.token_hash, hashSessionToken(session.refresh)))
     const retried = await request('/api/auth/refresh', input)
     expect(retried.status).toBe(200)
-    expect(readCookie(retried, USER_REFRESH_COOKIE)).toBe(readCookie(discarded, USER_REFRESH_COOKIE))
-    expect(readCookie(retried, USER_SESSION_COOKIE)).toBe(readCookie(discarded, USER_SESSION_COOKIE))
-    expect((await request('/api/auth/me', { access: readCookie(retried, USER_SESSION_COOKIE) })).status).toBe(200)
+    expect(readCookie(retried, USER_REFRESH_COOKIE)).toBe(
+      readCookie(discarded, USER_REFRESH_COOKIE),
+    )
+    expect(readCookie(retried, USER_SESSION_COOKIE)).toBe(
+      readCookie(discarded, USER_SESSION_COOKIE),
+    )
+    expect(
+      (await request('/api/auth/me', { access: readCookie(retried, USER_SESSION_COOKIE) })).status,
+    ).toBe(200)
   })
 
   it('does not rotate again if cookies arrived but acknowledgement was lost', async () => {
     const session = await register('lost-body@example.com')
     const requestKey = '0fa4bc51-c6fe-4c89-b598-31f065ead81f'
-    const first = await request('/api/auth/refresh', { method: 'POST', refresh: session.refresh, requestKey })
+    const first = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: session.refresh,
+      requestKey,
+    })
     const nextRefresh = readCookie(first, USER_REFRESH_COOKIE)
     const nextAccess = readCookie(first, USER_SESSION_COOKIE)
-    const again = await request('/api/auth/refresh', { method: 'POST', refresh: nextRefresh, requestKey })
+    const again = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: nextRefresh,
+      requestKey,
+    })
     expect(again.status).toBe(200)
     expect(readCookie(again, USER_REFRESH_COOKIE)).toBe(nextRefresh)
     expect(readCookie(again, USER_SESSION_COOKIE)).toBe(nextAccess)
@@ -219,42 +237,77 @@ describe('web session refresh', () => {
   it('recovers refresh with the original expired access lifetime after access cleanup', async () => {
     const session = await register('expired-recovery@example.com')
     const requestKey = '818099e9-4d87-44fc-b3a4-05183da6c8a4'
-    const first = await request('/api/auth/refresh', { method: 'POST', refresh: session.refresh, requestKey })
+    const first = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: session.refresh,
+      requestKey,
+    })
     const nextRefresh = readCookie(first, USER_REFRESH_COOKIE)!
-    const [family] = await db.select().from(schema.user_session_families)
+    const [family] = await db
+      .select()
+      .from(schema.user_session_families)
       .where(eq(schema.user_session_families.refresh_token_hash, hashSessionToken(nextRefresh)))
-    await db.update(schema.user_session_families).set({ refreshed_at: Date.now() - 8 * DAY_MS })
+    await db
+      .update(schema.user_session_families)
+      .set({ refreshed_at: Date.now() - 8 * DAY_MS })
       .where(eq(schema.user_session_families.id, family!.id))
     await db.delete(schema.user_sessions).where(eq(schema.user_sessions.family_id, family!.id))
-    const recovered = await request('/api/auth/refresh', { method: 'POST', refresh: session.refresh, requestKey })
+    const recovered = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: session.refresh,
+      requestKey,
+    })
     expect(recovered.status).toBe(200)
     expect(readCookie(recovered, USER_REFRESH_COOKIE)).toBe(nextRefresh)
     expect(Number(cookieAttribute(recovered, USER_SESSION_COOKIE, 'Max-Age'))).toBe(0)
-    const renewed = await request('/api/auth/refresh', { method: 'POST', refresh: nextRefresh,
-      requestKey: '675339f8-cd14-4176-8b7f-239f102b501a' })
+    const renewed = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: nextRefresh,
+      requestKey: '675339f8-cd14-4176-8b7f-239f102b501a',
+    })
     expect(renewed.status).toBe(200)
-    expect((await request('/api/auth/me', { access: readCookie(renewed, USER_SESSION_COOKIE) })).status).toBe(200)
+    expect(
+      (await request('/api/auth/me', { access: readCookie(renewed, USER_SESSION_COOKIE) })).status,
+    ).toBe(200)
   })
 
   it('rejects a wrong proof, preserves the healthy family, and refuses exact recovery after logout', async () => {
     const session = await register('proof-security@example.com')
-    const input = { method: 'POST', refresh: session.refresh, requestKey: '65e35692-9c32-45b6-8db2-b9ebc084818d' }
+    const input = {
+      method: 'POST',
+      refresh: session.refresh,
+      requestKey: '65e35692-9c32-45b6-8db2-b9ebc084818d',
+    }
     const first = await request('/api/auth/refresh', input)
     const access = readCookie(first, USER_SESSION_COOKIE)
-    await db.update(schema.user_retired_refresh_tokens).set({ retired_at: Date.now() - 60_000 })
+    await db
+      .update(schema.user_retired_refresh_tokens)
+      .set({ retired_at: Date.now() - 60_000 })
       .where(eq(schema.user_retired_refresh_tokens.token_hash, hashSessionToken(session.refresh)))
-    const wrong = await request('/api/auth/refresh', { ...input, requestKey: '2b9f78c6-974b-45cc-b3af-a9759ad4335c' })
+    const wrong = await request('/api/auth/refresh', {
+      ...input,
+      requestKey: '2b9f78c6-974b-45cc-b3af-a9759ad4335c',
+    })
     expect(wrong.status).toBe(401)
     expect((await request('/api/auth/me', { access })).status).toBe(200)
-    await request('/api/auth/logout', { method: 'POST', refresh: readCookie(first, USER_REFRESH_COOKIE), access })
+    await request('/api/auth/logout', {
+      method: 'POST',
+      refresh: readCookie(first, USER_REFRESH_COOKIE),
+      access,
+    })
     expect((await request('/api/auth/refresh', input)).status).toBe(401)
   })
 
   it('converges concurrent retries on the identical pair and does not slide their expiry', async () => {
     const session = await register('concurrent-proof@example.com')
-    const input = { method: 'POST', refresh: session.refresh, requestKey: 'f4708019-049a-48b2-a0c5-4eb007ee341e' }
+    const input = {
+      method: 'POST',
+      refresh: session.refresh,
+      requestKey: 'f4708019-049a-48b2-a0c5-4eb007ee341e',
+    }
     const [first, second] = await Promise.all([
-      request('/api/auth/refresh', input), request('/api/auth/refresh', input),
+      request('/api/auth/refresh', input),
+      request('/api/auth/refresh', input),
     ])
     expect([first.status, second.status]).toEqual([200, 200])
     expect(readCookie(second, USER_REFRESH_COOKIE)).toBe(readCookie(first, USER_REFRESH_COOKIE))
@@ -264,17 +317,51 @@ describe('web session refresh', () => {
 
   it('cannot recover a disabled account, including after the account is re-enabled', async () => {
     const session = await register('disabled-proof@example.com')
-    const input = { method: 'POST', refresh: session.refresh, requestKey: 'd8650ab9-40c0-435d-8537-bc56ab1d44ad' }
+    const input = {
+      method: 'POST',
+      refresh: session.refresh,
+      requestKey: 'd8650ab9-40c0-435d-8537-bc56ab1d44ad',
+    }
     await request('/api/auth/refresh', input)
-    await db.update(schema.users).set({ status: 'disabled' }).where(eq(schema.users.id, session.userId))
+    await db
+      .update(schema.users)
+      .set({ status: 'disabled' })
+      .where(eq(schema.users.id, session.userId))
     expect((await request('/api/auth/refresh', input)).status).toBe(401)
-    await db.update(schema.users).set({ status: 'active' }).where(eq(schema.users.id, session.userId))
+    await db
+      .update(schema.users)
+      .set({ status: 'active' })
+      .where(eq(schema.users.id, session.userId))
     expect((await request('/api/auth/refresh', input)).status).toBe(401)
+  })
+
+  it('does not execute a completed request key again against a newer cookie generation', async () => {
+    const session = await register('paused-tab@example.com')
+    const key1 = '3b999810-7feb-4f91-988d-7006d8b78932'
+    const key2 = '4d1b085f-38c8-4b3d-9b36-f650b9324735'
+    const first = await request('/api/auth/refresh', { method: 'POST', refresh: session.refresh, requestKey: key1 })
+    const second = await request('/api/auth/refresh', { method: 'POST', refresh: readCookie(first, USER_REFRESH_COOKIE), requestKey: key2 })
+    const secondRefresh = readCookie(second, USER_REFRESH_COOKIE)
+    const stale = await request('/api/auth/refresh', { method: 'POST', refresh: secondRefresh, requestKey: key1 })
+    expect(stale.status).toBe(409)
+    expect(stale.headers.getSetCookie()).toHaveLength(0)
+    expect((await request('/api/auth/me', { access: readCookie(second, USER_SESSION_COOKIE) })).status).toBe(200)
+    const retry = await request('/api/auth/refresh', { method: 'POST', refresh: readCookie(first, USER_REFRESH_COOKIE), requestKey: key2 })
+    expect(retry.status).toBe(200)
+    expect(readCookie(retry, USER_REFRESH_COOKIE)).toBe(secondRefresh)
   })
 
   it('validates the refresh proof before changing session state', async () => {
     const session = await register('invalid-proof@example.com')
-    expect((await request('/api/auth/refresh', { method: 'POST', refresh: session.refresh, requestKey: 'not-a-key' })).status).toBe(400)
+    expect(
+      (
+        await request('/api/auth/refresh', {
+          method: 'POST',
+          refresh: session.refresh,
+          requestKey: 'not-a-key',
+        })
+      ).status,
+    ).toBe(400)
     expect((await request('/api/auth/me', { access: session.access })).status).toBe(200)
   })
 

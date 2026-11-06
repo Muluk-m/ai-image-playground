@@ -1,7 +1,4 @@
-import {
-  isSessionRefreshRequestKey,
-  type SessionRefreshRequestKey,
-} from '@image-playground/shared'
+import { isSessionRefreshRequestKey, type SessionRefreshRequestKey } from '@image-playground/shared'
 
 const DATABASE = 'image-playground:session-refresh'
 const STORE = 'requests'
@@ -14,11 +11,15 @@ function parseJournal(value: unknown): Journal {
   if (typeof value !== 'object' || value === null) return { pending: null, completed: null }
   return {
     pending: 'pending' in value && isSessionRefreshRequestKey(value.pending) ? value.pending : null,
-    completed: 'completed' in value && isSessionRefreshRequestKey(value.completed) ? value.completed : null,
+    completed:
+      'completed' in value && isSessionRefreshRequestKey(value.completed) ? value.completed : null,
   }
 }
 
-async function change<T>(scope: string, update: (record: Journal) => { record: Journal; result: T }): Promise<T> {
+async function change<T>(
+  scope: string,
+  update: (record: Journal) => { record: Journal; result: T },
+): Promise<T> {
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(DATABASE, 1)
     request.onupgradeneeded = () => request.result.createObjectStore(STORE)
@@ -40,8 +41,14 @@ async function change<T>(scope: string, update: (record: Journal) => { record: J
         tx.abort()
       }
     }
-    tx.oncomplete = () => { db.close(); resolve(result) }
-    tx.onerror = tx.onabort = () => { db.close(); reject(tx.error ?? new Error('refresh_journal_unavailable')) }
+    tx.oncomplete = () => {
+      db.close()
+      resolve(result)
+    }
+    tx.onerror = tx.onabort = () => {
+      db.close()
+      reject(tx.error ?? new Error('refresh_journal_unavailable'))
+    }
   })
 }
 
@@ -59,7 +66,11 @@ export function acquireRefreshAttempt(scope: string): Promise<{
   })
 }
 
-export function completeRefreshAttempt(scope: string, key: SessionRefreshRequestKey, completedKey = key): Promise<void> {
+export function completeRefreshAttempt(
+  scope: string,
+  key: SessionRefreshRequestKey,
+  completedKey = key,
+): Promise<void> {
   return change(scope, (record) => ({
     // An old completion must never erase another tab's newer pending request.
     record: record.pending === key ? { pending: null, completed: completedKey } : record,

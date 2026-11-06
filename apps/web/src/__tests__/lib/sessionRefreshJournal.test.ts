@@ -1,15 +1,23 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { acquireRefreshAttempt, completeRefreshAttempt, clearRefreshJournal } from '../../lib/sessionRefreshJournal'
+import {
+  acquireRefreshAttempt,
+  clearRefreshJournal,
+  completeRefreshAttempt,
+} from '../../lib/sessionRefreshJournal'
 
 describe('durable web refresh identity', () => {
   beforeEach(() => vi.stubGlobal('indexedDB', new IDBFactory()))
   afterEach(() => vi.unstubAllGlobals())
 
   it('atomically shares one pending identity across independent tabs without Web Locks', async () => {
-    const attempts = await Promise.all(Array.from({ length: 8 }, () => acquireRefreshAttempt('https://api.example.com')))
+    const attempts = await Promise.all(
+      Array.from({ length: 8 }, () => acquireRefreshAttempt('https://api.example.com')),
+    )
     expect(new Set(attempts.map((attempt) => attempt.requestKey)).size).toBe(1)
-    expect((await acquireRefreshAttempt('https://other.example.com')).requestKey).not.toBe(attempts[0]?.requestKey)
+    expect((await acquireRefreshAttempt('https://other.example.com')).requestKey).not.toBe(
+      attempts[0]?.requestKey,
+    )
   })
 
   it('never lets an old completion delete a newer pending operation', async () => {

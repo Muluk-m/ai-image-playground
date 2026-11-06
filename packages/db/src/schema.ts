@@ -193,8 +193,12 @@ export const user_retired_refresh_tokens = pgTable(
       .notNull()
       .references(() => user_session_families.id, { onDelete: 'cascade' }),
     retired_at: epochMs('retired_at').notNull(),
+    request_key_hash: text('request_key_hash'),
   },
-  (t) => [index('idx_user_retired_refresh_tokens_family').on(t.family_id)],
+  (t) => [
+    index('idx_user_retired_refresh_tokens_family').on(t.family_id),
+    uniqueIndex('idx_user_retired_refresh_request').on(t.family_id, t.request_key_hash),
+  ],
 )
 
 export const user_sessions = pgTable(
