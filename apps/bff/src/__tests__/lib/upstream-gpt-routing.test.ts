@@ -162,19 +162,19 @@ describe('route choice', () => {
     expect(JSON.stringify(usage)).not.toContain('direct-key')
   })
 
-  it.each(['gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'])(
-    'removes a legacy guard from the actual %s direct request',
-    async (model) => {
-      await callUpstream({
-        provider: 'openai-compat',
-        model,
-        request: { prompt: `${PROMPT_REWRITE_GUARD_PREFIX}\na cat`, quality: 'high' },
-      })
-      expect(sent).toHaveLength(1)
-      expect(sent[0]!.route).toBe('direct')
-      expect(sent[0]!.body).toMatchObject({ prompt: 'a cat', quality: 'high', model })
-    },
-  )
+  it.each([
+    'gpt-image-2.6-flare',
+    'gpt-image-2.6-sunburst',
+  ])('removes a legacy guard from the actual %s direct request', async (model) => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model,
+      request: { prompt: `${PROMPT_REWRITE_GUARD_PREFIX}\na cat`, quality: 'high' },
+    })
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.route).toBe('direct')
+    expect(sent[0]!.body).toMatchObject({ prompt: 'a cat', quality: 'high', model })
+  })
 
   it('adds the guard only to the selected gateway when requested', async () => {
     await call({ no_rewrite: true }, false)
@@ -340,7 +340,8 @@ describe('failover', () => {
     await call({ no_rewrite: true }, true)
     expect(sent.map((one) => one.route)).toEqual(['direct', 'sub2api'])
     expect(sent.map((one) => one.body.prompt)).toEqual([
-      'a cat', `${PROMPT_REWRITE_GUARD_PREFIX}\na cat`,
+      'a cat',
+      `${PROMPT_REWRITE_GUARD_PREFIX}\na cat`,
     ])
     expect(routes).toEqual(['direct', 'sub2api'])
     expect(routes.at(-1)).toBe('sub2api')
@@ -361,7 +362,8 @@ describe('failover', () => {
     await call({ no_rewrite: true }, false)
     expect(sent.map((one) => one.route)).toEqual(['sub2api', 'direct'])
     expect(sent.map((one) => one.body.prompt)).toEqual([
-      `${PROMPT_REWRITE_GUARD_PREFIX}\na cat`, 'a cat',
+      `${PROMPT_REWRITE_GUARD_PREFIX}\na cat`,
+      'a cat',
     ])
     expect(routes.at(-1)).toBe('direct')
   })

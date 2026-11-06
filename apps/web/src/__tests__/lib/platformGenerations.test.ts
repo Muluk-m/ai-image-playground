@@ -576,9 +576,16 @@ it('合并时同一条生成只出一张卡：本机任务与平台记录按 bff
   )
 })
 
-it.each([true, false])('restores explicit no_rewrite=%s without treating literal user text as an injected guard', (no_rewrite) => {
+it.each([
+  true,
+  false,
+])('restores explicit no_rewrite=%s without treating literal user text as an injected guard', (no_rewrite) => {
   const prompt = `${PROMPT_REWRITE_GUARD_PREFIX}\nuser-authored text`
-  const task = taskFromGeneration({ ...summary, prompt, parameters: { ...summary.parameters, no_rewrite } })
+  const task = taskFromGeneration({
+    ...summary,
+    prompt,
+    parameters: { ...summary.parameters, no_rewrite },
+  })
   expect(task.prompt).toBe(prompt)
   expect(task.params.no_rewrite).toBe(no_rewrite)
 })
