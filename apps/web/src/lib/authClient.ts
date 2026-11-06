@@ -69,6 +69,32 @@ export function accessRefreshDue(now = Date.now()): boolean {
   return accessExpiresAt !== null && accessExpiresAt - now <= ACCESS_REFRESH_LEAD_MS
 }
 
+const SESSION_ROTATED_AT_KEY = 'image-playground.session-rotated-at'
+const SESSION_ROTATION_INTERVAL_MS = 24 * 60 * 60 * 1000
+
+function writeSessionRotatedAt(value: number | null): void {
+  try {
+    if (value === null) localStorage.removeItem(SESSION_ROTATED_AT_KEY)
+    else localStorage.setItem(SESSION_ROTATED_AT_KEY, String(value))
+  } catch {
+    // Storage can be blocked; rotation then simply happens on every boot as before.
+  }
+}
+
+/**
+ * 启动时是否该主动轮换一次 refresh：本浏览器一天内没轮换过才轮换。
+ * 没有记录（含 11-05 前尚无 refresh 链的旧会话）照常轮换一次，借此完成升级；
+ * 之后不再每次打开页面都轮换，降低轮换响应丢失后被判复用而整链作废的机会。
+ */
+export function sessionRotationDue(now = Date.now()): boolean {
+  try {
+    const last = Number(localStorage.getItem(SESSION_ROTATED_AT_KEY))
+    return !Number.isFinite(last) || last <= 0 || now - last >= SESSION_ROTATION_INTERVAL_MS
+  } catch {
+    return true
+  }
+}
+
 export async function getCurrentUser(signal?: AbortSignal): Promise<AuthUserView> {
   const result = await authJson<{ user: AuthUserView; access_expires_at?: unknown }>(
     '/api/auth/me',
@@ -291,6 +317,7 @@ async function postSessionRefresh(): Promise<SessionRefreshResult> {
         access_expires_at?: unknown
       } | null
       if (typeof body?.access_expires_at === 'number') accessExpiresAt = body.access_expires_at
+      writeSessionRotatedAt(Date.now())
       return 'ok'
     }
     if (response.status === 409) return 'raced'
@@ -338,7 +365,10 @@ const PAGE_HINT_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
  * 登录成功后在页面自己的源上留一份不含凭据的提示，并记住用户 id，刷新才会去请求 /api/auth/me。
  */
 export function noteBrowserSession(userId: string | null): void {
-  if (userId === null) accessExpiresAt = null
+  if (userId === null) {
+    accessExpiresAt = null
+    writeSessionRotatedAt(null)
+  }
   // The hint is presentation-only: the server session remains the sole authority.
   // Both storage and cookies are best effort so privacy mode cannot create a redirect loop.
   rememberStorageUser(userId)
