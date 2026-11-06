@@ -32,7 +32,7 @@ export function OpsBlockCard<T>({
       role="region"
       aria-label={title}
       className={cn(
-        'overflow-hidden bg-card shadow-sm',
+        'overflow-hidden bg-card',
         issues.length > 0 && 'border-danger/60',
         !block.ok && 'border-dashed',
         className,

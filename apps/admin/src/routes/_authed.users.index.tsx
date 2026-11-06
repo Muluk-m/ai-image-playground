@@ -68,7 +68,7 @@ function UsersPage() {
             <RefreshCw className={query.isFetching ? 'animate-spin' : undefined} />
             {query.isFetching ? '刷新中…' : '刷新'}
           </Button>
-          <Button size="sm" onClick={() => setCreating(true)}>
+          <Button size="sm" variant="brand" onClick={() => setCreating(true)}>
             <Plus />
             创建用户
           </Button>

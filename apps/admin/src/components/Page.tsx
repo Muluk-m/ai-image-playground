@@ -58,7 +58,7 @@ export function Page({ crumbs, title, description, actions, children }: PageProp
 
         <div className="mt-2 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
           <div className="min-w-0">
-            <h1 className="truncate text-xl font-semibold tracking-tight">{heading}</h1>
+            <h1 className="truncate text-lg font-semibold tracking-tight">{heading}</h1>
             {description ? (
               <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground sm:truncate">
                 {description}

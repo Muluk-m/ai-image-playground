@@ -77,6 +77,7 @@ function InspirationsPage() {
         actions={
           <Button
             size="sm"
+            variant="brand"
             disabled={!categories.data?.length}
             title={categories.data?.length ? undefined : '先在「分类」里建一个分类'}
             onClick={() => setCreating(true)}
