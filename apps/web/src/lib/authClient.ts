@@ -247,6 +247,22 @@ export async function updateOwnPassword(input: {
   })
 }
 
+export async function requestPasswordReset(email: string): Promise<void> {
+  await authJson<{ ok: true }>('/api/auth/password-reset/request', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+}
+
+export async function confirmPasswordReset(token: string, password: string): Promise<void> {
+  await authJson<{ ok: true }>('/api/auth/password-reset/confirm', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token, password }),
+  })
+}
+
 export function oauthLinkUrl(provider: string): string {
   return bffUrl(`/api/auth/oauth/${provider}/link?${oauthQuery()}`)
 }

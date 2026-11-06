@@ -631,6 +631,13 @@
       "when": 1794200000000,
       "tag": "0091_gpt_direct_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1794300000000,
+      "tag": "0092_password_reset_tokens",
+      "breakpoints": true
     }
   ]
 }

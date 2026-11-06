@@ -57,6 +57,7 @@ export default function SiteAuth({
         if (page === 'home' || page === 'login' || open) location.replace('/image')
         return
       }
+      const hasResetToken = new URLSearchParams(location.search).has('reset_token')
       if (shouldProbeSession()) {
         const user = await getCurrentUser(AbortSignal.timeout(15000)).catch((error) => {
           if (error instanceof AuthRequestError && error.status === 401) return null
@@ -64,14 +65,19 @@ export default function SiteAuth({
         })
         if (!active) return
         noteBrowserSession(user?.id ?? null)
-        if (user && (page === 'home' || page === 'login' || open)) {
+        if (user && !hasResetToken && (page === 'home' || page === 'login' || open)) {
           location.replace('/image')
           return
         }
       }
       const pending = await hasPendingSubmission().catch(() => false)
       if (active) {
-        if (pending || new URLSearchParams(location.search).has(OAUTH_ERROR_QUERY_PARAM)) onOpen()
+        if (
+          pending ||
+          hasResetToken ||
+          new URLSearchParams(location.search).has(OAUTH_ERROR_QUERY_PARAM)
+        )
+          onOpen()
         setStatus('ready')
       }
     }
