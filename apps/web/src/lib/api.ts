@@ -1,5 +1,4 @@
 import {
-  applyPromptRewriteGuard,
   buildAspectInstruction,
   gifSpriteExceedsLimit,
   isGptImage26Model,
@@ -105,12 +104,6 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   // 不做跨 task 缓存以避免缓存生命周期复杂度。
   if (opts.maskDataUrl && !modelSupportsNativeMask(profile, getPublicChannels())) {
     opts = await applySoftMaskFallback(opts)
-  }
-
-  // 防改写：与 soft mask 同样在分发层一次性改写 prompt，下游 adapter / BFF 无需感知。
-  // Gemini 没有 prompt rewriting 概念（UI 也不展示该开关），不注入。
-  if (opts.params.no_rewrite && clientProfileToApiProfile(profile).provider !== 'gemini') {
-    opts = { ...opts, prompt: applyPromptRewriteGuard(opts.prompt) }
   }
 
   // sub2api 中继的 Codex 图片路径会丢弃 `size`，但模型会服从 prompt 中明确的构图；

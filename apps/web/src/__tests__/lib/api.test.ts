@@ -187,7 +187,7 @@ describe('callImageApi', () => {
     expect(body.prompt).toBe('a red cat')
   })
 
-  it('places the composition after the prompt-rewrite guard', async () => {
+  it('keeps composition separate from the prompt-rewrite option', async () => {
     const channel: PublicChannel = {
       id: 'test-no-size-guard',
       kind: 'openai-queue',
@@ -210,12 +210,12 @@ describe('callImageApi', () => {
     )!
     const body = JSON.parse(String((submitCall[1] as RequestInit).body))
     expect(body.prompt).toBe(
-      'Use the following text as the complete prompt. Do not rewrite it:\na red cat\n\n' +
+      'a red cat\n\n' +
         'Composition: a tall 9:16 vertical frame, portrait orientation.',
     )
   })
 
-  it('builtin-edge openai-compat with codexCli adds prompt guard by default and drops quality (queue submit body)', async () => {
+  it('passes the default rewrite option separately and drops codex quality', async () => {
     const channel: PublicChannel = {
       id: 'test-codex',
       kind: 'openai-queue',
@@ -238,9 +238,8 @@ describe('callImageApi', () => {
       String(url).endsWith('/submit'),
     )!
     const body = JSON.parse(String((submitCall[1] as RequestInit).body))
-    expect(body.prompt).toBe(
-      'Use the following text as the complete prompt. Do not rewrite it:\na red cat',
-    )
+    expect(body.prompt).toBe('a red cat')
+    expect(body.no_rewrite).toBe(true)
     expect(body).not.toHaveProperty('quality')
   })
 
@@ -268,6 +267,7 @@ describe('callImageApi', () => {
     )!
     const body = JSON.parse(String((submitCall[1] as RequestInit).body))
     expect(body.prompt).toBe('a red cat')
+    expect(body.no_rewrite).toBe(false)
     expect(body.quality).toBe('high')
   })
 
@@ -298,7 +298,7 @@ describe('callImageApi', () => {
     expect(body).not.toHaveProperty('quality')
   })
 
-  it('params.no_rewrite=true adds prompt guard on plain builtin-edge channel, quality untouched', async () => {
+  it('params.no_rewrite=true keeps the prompt raw and quality untouched', async () => {
     const channel: PublicChannel = {
       id: 'test-plain',
       kind: 'openai-queue',
@@ -321,9 +321,8 @@ describe('callImageApi', () => {
       String(url).endsWith('/submit'),
     )!
     const body = JSON.parse(String((submitCall[1] as RequestInit).body))
-    expect(body.prompt).toBe(
-      'Use the following text as the complete prompt. Do not rewrite it:\na red cat',
-    )
+    expect(body.prompt).toBe('a red cat')
+    expect(body.no_rewrite).toBe(true)
     expect(body.quality).toBe('high')
   })
 

@@ -188,6 +188,7 @@ export function toSubmitRequest(prepared: PreparedImageRequest): SubmitRequest {
   const tier = model.image.tiers.find((one) => one.id === normalized.image_size)
   const pixels = ratio === 'auto' ? undefined : tier?.pixels[ratio as keyof typeof tier.pixels]
   const request: SubmitRequest = {
+    no_rewrite: model.provider !== 'gemini',
     prompt: shapeQueuePrompt({
       provider: model.provider,
       model: model.id,
