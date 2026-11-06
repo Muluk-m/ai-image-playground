@@ -469,12 +469,14 @@ export function prepareStoryboardVideos(
         {
           data: {
             clips: chunk.map((elementId, index) => {
-              const previous = existing?.type === 'timeline' ? existing.data.clips[index] : undefined
+              const previous =
+                existing?.type === 'timeline' ? existing.data.clips[index] : undefined
               // Only untouched full-length slots follow a changed generation duration.
               if (
                 previous &&
                 (previous.in !== 0 || previous.out !== previousDurations.get(elementId))
-              ) return previous
+              )
+                return previous
               return { elementId, in: 0, out: durations.get(elementId)! }
             }),
           },
