@@ -31,9 +31,10 @@ export async function loadRuntimeConfig(fetcher: Fetcher = fetch): Promise<Runti
     signal: AbortSignal.timeout(RUNTIME_CONFIG_TIMEOUT_MS),
   })
   if (!res.ok && res.status !== 404) throw new Error(`runtime_config_http_${res.status}`)
+  const body = res.ok ? await res.text() : ''
   try {
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    cached = parseRuntimeConfig(await res.json())
+    cached = parseRuntimeConfig(JSON.parse(body))
     const origin = globalThis.location?.origin
     const scopedBaseUrl = origin && cached.bff.baseUrlsByOrigin?.[origin]
     if (scopedBaseUrl) cached = { ...cached, bff: { ...cached.bff, baseUrl: scopedBaseUrl } }
