@@ -18,6 +18,7 @@ import { PROJECT_META_VALUE_MAX_CHARS, PROJECT_TIMELINE_MAX_CLIPS } from './proj
 import {
   canonicalVideoVoice,
   clampVideoPreset,
+  narrowVideoModelSupport,
   type VideoAspectRatio,
   type VideoDuration,
   type VideoModelSupport,
@@ -363,7 +364,30 @@ export function prepareStoryboardVideos(
     )
   )
     throw new StoryboardFlowError('framesMissing')
-  board.data.shots.forEach((shot) => shotPrompt(shot, true))
+  const voices = option.support.voices
+    ? (draft.voices ?? [])
+        .map((voice) => canonicalVideoVoice(voice))
+        .filter((voice): voice is NonNullable<typeof voice> => voice !== null)
+        .filter((voice, index, all) => all.indexOf(voice) === index)
+        .slice(0, option.support.voices.max)
+    : []
+  const support = narrowVideoModelSupport(option.support, 'first', Boolean(voices.length))
+  // Resolve every prompt before mutating: even a duration suffix can exceed the metadata limit.
+  const prepared = board.data.shots.map((shot) => {
+    const videoDraft: StoryboardVideoDraft = {
+      ...draft,
+      model: option.modelId,
+      ...clampVideoPreset(support, {
+        ...draft,
+        duration: Math.ceil(shot.durationSeconds ?? draft.duration),
+      }),
+      ...(voices.length ? { voices } : { voices: undefined }),
+    }
+    const prompt = `${shotPrompt(shot, true)}\nDuration: ${videoDraft.duration} seconds`
+    if (prompt.length > PROJECT_META_VALUE_MAX_CHARS)
+      throw new StoryboardFlowError('promptTooLong')
+    return { videoDraft, prompt }
+  })
   const videoIds: string[] = [],
     timelineIds: string[] = []
   const durations = new Map<string, number>()
@@ -374,22 +398,7 @@ export function prepareStoryboardVideos(
       const videoId = existing?.id ?? createNode(canvas, 'video', [frame])
       const node = readCanvasDocument(canvas.doc).nodes.find((node) => node.id === videoId)!
       if (node.type !== 'image' && node.type !== 'video') continue
-      const voices = option.support.voices
-        ? (draft.voices ?? [])
-            .map((voice) => canonicalVideoVoice(voice))
-            .filter((voice): voice is NonNullable<typeof voice> => voice !== null)
-            .filter((voice, index, all) => all.indexOf(voice) === index)
-            .slice(0, option.support.voices.max)
-        : []
-      const videoDraft: StoryboardVideoDraft = {
-        ...draft,
-        model: option.modelId,
-        ...clampVideoPreset(option.support, {
-          ...draft,
-          duration: shot.durationSeconds ?? draft.duration,
-        }),
-        ...(voices.length ? { voices } : { voices: undefined }),
-      }
+      const { videoDraft, prompt } = prepared[index]!
       patchStoryboardMedia(
         canvas.doc,
         videoId,
@@ -404,7 +413,7 @@ export function prepareStoryboardVideos(
             nodeVideoMode: 'first',
             videoFirstFrame: frame.id,
             nodeVideoDraft: JSON.stringify(videoDraft),
-            nodePrompt: shotPrompt(shot, true),
+            nodePrompt: prompt,
           },
         },
         canvas.origin,
@@ -449,21 +458,20 @@ export function prepareStoryboardVideos(
         )
       for (const source of chunk)
         connectCanvasNodes(canvas.doc, { source, target: timelineId }, canvas.origin)
-      if (!existing)
-        updateCanvasNode(
-          canvas.doc,
-          timelineId,
-          {
-            data: {
-              clips: chunk.map((elementId) => ({
-                elementId,
-                in: 0,
-                out: durations.get(elementId)!,
-              })),
-            },
+      updateCanvasNode(
+        canvas.doc,
+        timelineId,
+        {
+          data: {
+            clips: chunk.map((elementId) => ({
+              elementId,
+              in: 0,
+              out: durations.get(elementId)!,
+            })),
           },
-          canvas.origin,
-        )
+        },
+        canvas.origin,
+      )
       timelineIds.push(timelineId)
     }
   }, canvas.origin)
