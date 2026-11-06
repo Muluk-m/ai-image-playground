@@ -20,6 +20,7 @@ import { getDbHandle } from './db'
 import { errorRecoveryJoins, tunnelRecoveryEvents } from './error-recovery'
 import { mapTaskListItem } from './queries'
 import { effectiveLogLevel } from './server-logs'
+import { taskSourceSql } from './task-source'
 
 type Row = Record<string, unknown>
 const epoch = (value: unknown) =>
@@ -337,9 +338,7 @@ function taskConditions(filters: GenerationTaskFilters, window: TimeWindow, curs
   if (filters.status) conditions.push(sql`t.status = ${filters.status}`)
   if (filters.source)
     conditions.push(
-      filters.source === 'chat'
-        ? sql`t.agent_conversation_id IS NOT NULL`
-        : sql`t.agent_conversation_id IS NULL`,
+      sql`${taskSourceSql(sql`t.id`, sql`t.agent_conversation_id`)} = ${filters.source}`,
     )
   const models = [
     ...new Set([...(filters.model ? [filters.model] : []), ...(filters.models ?? [])]),
@@ -391,7 +390,8 @@ const taskSelect = sql`
   SELECT t.id, t.provider, t.model, t.status, t.submitted_at, t.started_at, t.completed_at,
     t.error_type, t.upstream_status, t.attempt_count, t.upstream_invocation_count,
     ${promptText} AS prompt,
-    t.user_id, t.device_id, t.agent_conversation_id, u.username
+    t.user_id, t.device_id, t.agent_conversation_id, u.username,
+    ${taskSourceSql(sql`t.id`, sql`t.agent_conversation_id`)} AS source
   FROM queue_tasks t LEFT JOIN users u ON u.id = t.user_id
 `
 

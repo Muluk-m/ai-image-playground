@@ -193,6 +193,7 @@ it('keeps task source filters and exact prompt-task links in URL state', () => {
     task: 'task-1',
   })
   expect(parseGenerationTasksSearch({ source: 'manual' })).toEqual({ source: 'manual' })
+  expect(parseGenerationTasksSearch({ source: 'cli' })).toEqual({ source: 'cli' })
   expect(parseGenerationTasksSearch({ source: 'invalid' })).toEqual({})
   expect(parseAgentPromptsSearch({ taskId: 'task-1' })).toEqual({ taskId: 'task-1' })
   expect(() => parseAgentPromptsSearch({ taskId: '' })).toThrow()
