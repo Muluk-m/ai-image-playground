@@ -130,7 +130,11 @@ describe('task source attribution', () => {
     const { exportGenerationTasks, generationTasksCsv } = await import(
       '../../../../server/lib/today'
     )
-    const exported = await exportGenerationTasks({ from: now - 10000, to: now + 500, source: 'cli' })
+    const exported = await exportGenerationTasks({
+      from: now - 10000,
+      to: now + 500,
+      source: 'cli',
+    })
     const csv = generationTasksCsv(exported.tasks)
     expect(csv).toContain('cli-1,')
     expect(csv).toContain(',cli,openai-compat,')
