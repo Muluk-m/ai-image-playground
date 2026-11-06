@@ -13,6 +13,9 @@ inputs:
   test-runner:
     description: Exercise the smoke runner's failure cases
     default: 'false'
+  smoke:
+    description: Run the smoke after seeding the package cache; false only prepares apt for a script that runs Chromium itself
+    default: 'true'
 runs:
   using: composite
   steps:
@@ -74,10 +77,11 @@ runs:
         done
         echo "Seeded $seeded verified cached packages; dropped $dropped."
     - name: Check browser regression cases
-      if: inputs.test-runner == 'true'
+      if: inputs.smoke == 'true' && inputs.test-runner == 'true'
       shell: bash
       run: sh scripts/pages-browser-smoke.sh --test
     - name: Verify startup
+      if: inputs.smoke == 'true'
       shell: bash
       env:
         TARGET: ${{ inputs.target }}
@@ -97,7 +101,7 @@ runs:
       run: |
         find /var/cache/apt/archives -maxdepth 1 -name '*.deb' -exec cp -n {} "$DEBS"/ \; 2>/dev/null || true
     - name: Save browser evidence
-      if: always()
+      if: always() && inputs.smoke == 'true'
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: ${{ inputs.label }}
