@@ -72,6 +72,25 @@ describe('api-client', () => {
     expect(navigate).toHaveBeenCalledWith({ to: '/login' })
   })
 
+  it('refreshes once after an expired access token and retries the original request', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(401, { error: 'unauthorized' }))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true, access_expires_at: 123 }))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true, value: 42 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(apiClient.get<{ ok: boolean; value: number }>('/api/me')).resolves.toEqual({
+      ok: true,
+      value: 42,
+    })
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/me',
+      '/api/auth/refresh',
+      '/api/me',
+    ])
+  })
+
   it('can delegate 401 handling to the caller without clearing or navigating', async () => {
     vi.stubGlobal(
       'fetch',

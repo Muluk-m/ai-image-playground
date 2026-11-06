@@ -9,11 +9,13 @@ import { Label } from '../components/ui/label'
 import { useTranslation } from '../i18n'
 import {
   AuthRequestError,
+  confirmPasswordReset,
   fetchLoginOptions,
   type LoginOptions,
   loginUser,
   oauthStartUrl,
   registerUser,
+  requestPasswordReset,
   requestRegistrationVerification,
 } from '../lib/authClient'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
@@ -71,11 +73,23 @@ type LoginErrorKey =
   | 'registration.email_verification_required'
   | 'registration.invalid_email_verification'
   | 'registration.email_verification_expired'
+  | 'recovery.invalid_password'
+  | 'recovery.invalid_password_reset'
+  | 'recovery.email_delivery_failed'
 
 function loginErrorKey(error: unknown): LoginErrorKey {
   if (error instanceof AuthRequestError) {
     if (error.code === 'invalid_credentials') return 'login.invalid_credentials'
     if (error.code === 'rate_limited') return 'login.rate_limited'
+  }
+  return 'login.fallback'
+}
+
+function recoveryErrorKey(error: unknown): LoginErrorKey {
+  if (error instanceof AuthRequestError) {
+    if (error.code === 'invalid_password') return 'recovery.invalid_password'
+    if (error.code === 'invalid_password_reset') return 'recovery.invalid_password_reset'
+    if (error.code === 'email_delivery_failed') return 'recovery.email_delivery_failed'
   }
   return 'login.fallback'
 }
@@ -172,7 +186,11 @@ export function LoginDialog({
   const [showPassword, setShowPassword] = useState(false)
   const [pending, setPending] = useState(false)
   const [errorKey, setErrorKey] = useState<LoginErrorKey | null>(null)
-  const [view, setView] = useState<'login' | 'registration'>('login')
+  const [view, setView] = useState<'login' | 'registration' | 'recovery'>('login')
+  const [recoverySent, setRecoverySent] = useState(false)
+  const [resetToken, setResetToken] = useState<string | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [resetComplete, setResetComplete] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
   const previousView = useRef(view)
   useEffect(() => {
@@ -182,7 +200,11 @@ export function LoginDialog({
     }
   }, [view])
   const providers = options?.providers ?? []
-  const error = errorKey ? tError(errorKey) : null
+  const error = errorKey
+    ? errorKey.startsWith('recovery.')
+      ? (t as unknown as (key: string) => string)(errorKey)
+      : (tError as unknown as (key: string) => string)(errorKey)
+    : null
 
   useEffect(() => {
     let cancelled = false
@@ -210,6 +232,14 @@ export function LoginDialog({
   }, [])
 
   useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get('reset_token')
+    if (token) {
+      setResetToken(token)
+      setView('recovery')
+    }
+  }, [])
+
+  useEffect(() => {
     const url = new URL(window.location.href)
     const code = url.searchParams.get(OAUTH_ERROR_QUERY_PARAM)
     if (!code) return
@@ -233,6 +263,37 @@ export function LoginDialog({
       else window.location.reload()
     } catch (err) {
       setErrorKey(loginErrorKey(err))
+      setPending(false)
+    }
+  }
+
+  async function submitRecovery(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault()
+    if (resetToken) {
+      if (!newPassword || pending) return
+      setPending(true)
+      setErrorKey(null)
+      try {
+        await confirmPasswordReset(resetToken, newPassword)
+        setResetComplete(true)
+        setResetToken(null)
+        window.history.replaceState(null, '', window.location.pathname)
+      } catch (err) {
+        setErrorKey(recoveryErrorKey(err))
+      } finally {
+        setPending(false)
+      }
+      return
+    }
+    if (!username.trim() || pending) return
+    setPending(true)
+    setErrorKey(null)
+    try {
+      await requestPasswordReset(username)
+      setRecoverySent(true)
+    } catch (err) {
+      setErrorKey(recoveryErrorKey(err))
+    } finally {
       setPending(false)
     }
   }
@@ -366,6 +427,59 @@ export function LoginDialog({
             >
               {providerButtons}
             </RegistrationPanel>
+          ) : view === 'recovery' ? (
+            <div className="auth-form-view auth-login">
+              <h1 className="text-xl font-semibold text-foreground" tabIndex={-1}>
+                {t('recovery.title')}
+              </h1>
+              {resetComplete ? (
+                <p className="mt-4 text-sm text-muted-foreground">{t('recovery.complete')}</p>
+              ) : recoverySent ? (
+                <p className="mt-4 text-sm text-muted-foreground">{t('recovery.sent')}</p>
+              ) : (
+                <form className="auth-form" onSubmit={(event) => void submitRecovery(event)}>
+                  <Label className="mt-4 grid gap-2">
+                    <span>{resetToken ? t('recovery.newPassword') : t('login.emailLabel')}</span>
+                    <Input
+                      type={resetToken ? 'password' : 'email'}
+                      value={resetToken ? newPassword : username}
+                      onChange={(event) =>
+                        resetToken
+                          ? setNewPassword(event.currentTarget.value)
+                          : setUsername(event.currentTarget.value)
+                      }
+                      autoComplete={resetToken ? 'new-password' : 'email'}
+                    />
+                  </Label>
+                  {error ? (
+                    <p role="alert" className="auth-error">
+                      {error}
+                    </p>
+                  ) : null}
+                  <Button
+                    type="submit"
+                    className="mt-4 w-full"
+                    disabled={pending || !(resetToken ? newPassword : username).trim()}
+                  >
+                    {pending ? t('recovery.submitting') : t('recovery.submit')}
+                  </Button>
+                </form>
+              )}
+              <Button
+                type="button"
+                variant="link"
+                size="xs"
+                onClick={() => {
+                  setView('login')
+                  setRecoverySent(false)
+                  setResetToken(null)
+                  setNewPassword('')
+                  setErrorKey(null)
+                }}
+              >
+                {t('recovery.back')}
+              </Button>
+            </div>
           ) : (
             <div className="auth-form-view auth-login">
               <div className="mb-6">
@@ -462,6 +576,20 @@ export function LoginDialog({
                       t('login.submit')
                     )}
                   </Button>
+                  {emailVerificationEnabled ? (
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="xs"
+                      className="self-center"
+                      onClick={() => {
+                        setView('recovery')
+                        setErrorKey(null)
+                      }}
+                    >
+                      {t('login.forgotPassword')}
+                    </Button>
+                  ) : null}
                 </form>
               ) : null}
 

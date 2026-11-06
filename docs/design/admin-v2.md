@@ -10,7 +10,7 @@
 
 ## 1. 现状（改之前的事实）
 
-- `apps/admin` 一个 Bun/Elysia 进程（:37378）同源托管 `/api/*` 与 Vite 产物（`server/app.ts:41-64`、`server/static.ts`）。鉴权是 HMAC cookie `admin_session`（7 天、HttpOnly、Secure、`SameSite=Lax`、不带 Domain，`server/lib/session.ts:28-33`）。DB 角色 SELECT-only，所有写操作代理到 BFF `/internal/admin/*`（`Authorization: Bearer INTERNAL_API_TOKEN`）。
+- `apps/admin` 一个 Bun/Elysia 进程（:37378）同源托管 `/api/*` 与 Vite 产物（`server/app.ts:41-64`、`server/static.ts`）。鉴权是 HMAC `admin_session` access cookie（15 分钟）加签名 `admin_refresh` refresh cookie（30 天滑动、90 天绝对上限；HttpOnly、Secure、`SameSite=Lax`、不带 Domain）。过期 access 由前端单飞调用 `POST /api/auth/refresh` 后重试原请求；refresh 是无状态签名令牌，当前不支持服务端逐个撤销或重放检测。DB 角色 SELECT-only，所有写操作代理到 BFF `/internal/admin/*`（`Authorization: Bearer INTERNAL_API_TOKEN`）。
 - 前端 TanStack Router 文件路由 + TanStack Query + shadcn；`api-client.ts` 只发相对路径 `/api/...`，`<img src="/api/tasks/…">` 同样同源（`components/TaskDetailView.tsx:155,216`）。Google 登录回调与登录后跳转都是相对路径（`server/routes/google-auth.ts`）。
 - 生产入口只有 cloudflared tunnel：`admin.muvloom.online → http://admin:37378`（`deploy/cloudflared/config.yml.example:17-22`）。没有 nginx 挡在 admin 前面，compose 不发布宿主端口。
 - 私有 overlay `private/apps/admin` 通过 `import.meta.glob` 接缝提供 OverviewPanel / UserDetailPanel / SettingsPanel 与 `/billing/settings` 路由；写操作走 `/api/private/*` → BFF `/internal/admin/private/*`。
