@@ -295,7 +295,7 @@ describe('non-member resolution ceiling', () => {
       generationConfig: { imageConfig: { imageSize: '2K', aspectRatio: '16:9' } },
     })
   })
-  it('checks membership before closing a Gemini 4K request to the channel tier', async () => {
+  it('checks membership before normalizing a Gemini 4K request', async () => {
     await ensureBillingUser()
     let lookedUp = false
     withMember(true, () => {
@@ -314,8 +314,8 @@ describe('non-member resolution ceiling', () => {
       }),
     )
     expect(lookedUp).toBe(true)
-    expect(payload.image_size).toBe('2K')
-    expect(payload.extra).toMatchObject({ generationConfig: { imageConfig: { imageSize: '2K' } } })
+    expect(payload.image_size).toBe('4K')
+    expect(payload.extra).toMatchObject({ generationConfig: { imageConfig: { imageSize: '4K' } } })
   })
 
   it('keeps a member Gemini 4K submission and matches the prepared hash', async () => {
