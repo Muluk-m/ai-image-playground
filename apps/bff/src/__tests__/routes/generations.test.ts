@@ -146,6 +146,23 @@ it('另一设备能发现新图片任务，其他用户不能读取', async () =
   expect(await (await request('/api/generations', stranger)).json()).toMatchObject({ items: [] })
 })
 
+it.each([true, false])('replays old and new prompt representations as one command with no_rewrite=%s', async (no_rewrite) => {
+  const prefix = 'Use the following text as the complete prompt. Do not rewrite it:\n'
+  const legacy = { ...input, prompt: no_rewrite ? prefix + input.prompt : input.prompt }
+  const modern = { ...input, no_rewrite }
+  const original = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, legacy)
+  expect(original.status).toBe(200)
+  const { request_id } = await original.json()
+  const replay = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, modern)
+  expect(replay.status).toBe(200)
+  expect(await replay.json()).toMatchObject({ request_id })
+  const changed = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, {
+    ...modern, no_rewrite: !no_rewrite,
+  })
+  expect(changed.status).toBe(409)
+  expect((await (await request('/api/generations', deviceB)).json()).items).toHaveLength(1)
+})
+
 it('丢失响应后重试返回原任务，换参数不能复用同一命令', async () => {
   const original = await (
     await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
