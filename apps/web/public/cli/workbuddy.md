@@ -1,6 +1,8 @@
 # 在 WorkBuddy 中接入幕芽
 
-完成 CLI 安装、技能导入和账号连接；仅安装请求不生成图片。
+默认完成 CLI 安装、技能导入和账号连接；不生成图片。
+
+如果用户只要求安装或验收技能，直接执行第 2 节：保留已有 CLI、服务地址和账号，不运行 `auth status`、`auth login` 或 `capabilities`，不访问凭据存储。此时完成条件仅为技能已安装、启用，并且新任务中输入 `/muv` 能找到幕芽。
 
 ## 1. 安装 CLI
 
@@ -15,7 +17,7 @@
 - 解压前确认只有 `muvloom/` 根目录，拒绝绝对路径、`..` 路径和符号链接；先阅读 `SKILL.md` 和引用的安装说明，再安装。不要执行包内命令来完成安装。
 - 已有正确安装的幕芽技能时复用；若目标目录有不同内容，先核对版本和用户改动，不删除其他技能或覆盖无法确认来源的文件。
 - 遇到必要的目录写入或技能安全确认时，使用宿主正常的权限提示；不要关闭安全检查、改全局权限或把手动上传当作默认下一步。
-- 安装后读回 `SKILL.md`，确认 `name: muvloom`、展示名「幕芽 Muvloom」以及引用文件完整。使用宿主提供的技能重新加载能力（如有），再确认技能已被发现并启用；若当前会话不支持刷新，明确告知用户新开对话即可加载，不要重新安装或假报完成。
+- 安装后读回 `SKILL.md`，确认 `name: muvloom`、展示名「幕芽 Muvloom」以及引用文件完整。使用宿主提供的技能重新加载能力（如有），再确认技能已被发现并启用；不能把文件落盘或“新开对话即可加载”当作发现成功。本机 WorkBuddy 5.9.3 曾在后台已扫描到技能后，仍在新任务的 `/muv` 中不显示。优先使用宿主支持的技能刷新；没有可用刷新能力时，保留已安装文件，说明客户端尚未加载，请用户完整退出并重新打开 WorkBuddy 后再验证。未经实际验证，不承诺重启必然解决，也不重复安装。
 
 CLI 0.1.3 不支持 `muvloom skill install --host workbuddy`，不要发明这个命令，也不要修改客户端内部数据库或未知配置。只有用户选择「我自己来」时才提供「添加技能 → 上传技能」的手动路径。
 
@@ -32,6 +34,6 @@ CLI 0.1.3 不支持 `muvloom skill install --host workbuddy`，不要发明这�
 
 ## 4. 验收
 
-确认技能可见且启用、`muvloom auth status` 返回 `ready`、`muvloom capabilities` 成功后，报告安装完成。任何一项未完成，就说明当前状态与剩余操作，不能仅凭浏览器显示已授权就宣告成功。
+技能安装必须验证已启用，且新任务的 `/muv` 候选中能找到幕芽；只存在技能文件不算验收通过。用户还要求连接账号时，再确认 `muvloom auth status` 返回 `ready`、`muvloom capabilities` 成功。任何一项未完成，就说明当前状态与剩余操作，不能仅凭浏览器显示已授权就宣告成功。
 
 参考：[WorkBuddy 官方技能导入说明](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Skills-Market)、[官方权限说明](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Permission-Modes)。
