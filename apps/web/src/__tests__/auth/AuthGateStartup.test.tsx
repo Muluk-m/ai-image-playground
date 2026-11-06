@@ -338,3 +338,78 @@ describe('anonymous startup', () => {
     expect(document.body.querySelector('.auth-dialog')).not.toBeNull()
   })
 })
+
+describe('session refresh on startup', () => {
+  const ROTATED_AT = 'image-playground.session-rotated-at'
+
+  function count(path: string): number {
+    return vi
+      .mocked(fetch)
+      .mock.calls.filter(
+        ([url]) => new URL(String(url), 'https://bff.example.com').pathname === path,
+      ).length
+  }
+
+  function stubAuth(handle: (path: string) => Response | undefined): void {
+    const fetchMock = vi.mocked(fetch)
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (...args) => {
+      const path = new URL(String(args[0]), 'https://bff.example.com').pathname
+      return handle(path) ?? original(...args)
+    })
+  }
+
+  it('keeps a valid access session without rotating when it rotated recently', async () => {
+    markSessionHint()
+    localStorage.setItem(ROTATED_AT, String(Date.now()))
+    await boot()
+    expect(count('/api/auth/me')).toBeGreaterThan(0)
+    expect(count('/api/auth/refresh')).toBe(0)
+  })
+
+  it('rotates once for a session with no rotation record, such as a pre-chain legacy login', async () => {
+    markSessionHint()
+    await boot()
+    expect(count('/api/auth/refresh')).toBe(1)
+    expect(Number(localStorage.getItem(ROTATED_AT))).toBeGreaterThan(0)
+  })
+
+  it('rotates only after the access session is rejected, then signs the user in', async () => {
+    markSessionHint()
+    localStorage.setItem(ROTATED_AT, String(Date.now()))
+    let accessValid = false
+    stubAuth((path) => {
+      if (path === '/api/auth/me' && !accessValid)
+        return Response.json({ error: 'unauthorized' }, { status: 401 })
+      if (path === '/api/auth/refresh') accessValid = true
+      return undefined
+    })
+    await boot()
+    expect(count('/api/auth/refresh')).toBe(1)
+    expect(host.textContent ?? '').not.toContain('登录状态已失效')
+  })
+
+  it('offers a re-login when both access and refresh are rejected', async () => {
+    markSessionHint()
+    stubAuth((path) =>
+      path === '/api/auth/me' || path === '/api/auth/refresh'
+        ? Response.json({ error: 'unauthorized' }, { status: 401 })
+        : undefined,
+    )
+    await boot()
+    expect(count('/api/auth/refresh')).toBe(1)
+    expect(host.textContent ?? '').toContain('登录状态已失效')
+  })
+
+  it('does not report an expired session when refresh fails for a transient reason', async () => {
+    markSessionHint()
+    stubAuth((path) => {
+      if (path === '/api/auth/me') return Response.json({ error: 'unauthorized' }, { status: 401 })
+      if (path === '/api/auth/refresh')
+        return Response.json({ error: 'bad_gateway' }, { status: 502 })
+      return undefined
+    })
+    await boot()
+    expect(host.textContent ?? '').not.toContain('登录状态已失效')
+  })
+})
