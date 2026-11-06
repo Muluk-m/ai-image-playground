@@ -570,10 +570,11 @@ async function downgradeGeminiForNonMember(
   input: CreateQueueTaskInput,
 ): Promise<CreateQueueTaskInput> {
   if (input.provider !== 'gemini') return input
-  const normalized = normalizeGeminiImageSize(input.model, input.request)
-  const member =
-    effectiveGeminiImageSize(normalized) === '4K' ? await isActiveMember(input.userId) : false
-  const request = clampGeminiNonMemberRequest(normalized, member)
+  const canonical = canonicalizeGeminiImageSize(input.request)
+  const requested = effectiveGeminiImageSize(canonical)
+  const member = requested === '4K' ? await isActiveMember(input.userId) : false
+  const membershipAligned = clampGeminiNonMemberRequest(canonical, member)
+  const request = normalizeGeminiImageSize(input.model, membershipAligned)
   const finalSize = request.image_size ?? effectiveGeminiImageSize(request)
   const finalRequest =
     finalSize && effectiveGeminiImageSize(request) !== finalSize
