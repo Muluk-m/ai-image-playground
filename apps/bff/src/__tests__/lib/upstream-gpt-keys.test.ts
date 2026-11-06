@@ -12,8 +12,9 @@ process.env.OPENAI_API_KEY = ''
 process.env.OPENAI_API_KEYS = `${PRIMARY},${SECONDARY}`
 process.env.OPENAI_API_KEY_BUDGETS_USD = '1,5'
 process.env.GPT_DIRECT_MONTHLY_BUDGET_USD = '200'
-process.env.GPT_DIRECT_ATTEMPT_TIMEOUT_MS = '300'
-process.env.GPT_SUB2API_ATTEMPT_TIMEOUT_MS = '300'
+// 密钥切换包含真实数据库操作；超时行为由下面的独立队列用例控制。
+process.env.GPT_DIRECT_ATTEMPT_TIMEOUT_MS = '5000'
+process.env.GPT_SUB2API_ATTEMPT_TIMEOUT_MS = '5000'
 process.env.GPT_SUB2API_BREAKER_FAILURES = '5'
 process.env.SCHEDULER_NAMESPACE = 'gpt-keys'
 process.env.GPT_DIRECT_CONCURRENCY = '4'
