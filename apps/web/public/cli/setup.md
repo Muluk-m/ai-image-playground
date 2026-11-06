@@ -88,14 +88,29 @@ for passwords, browser cookies, or tokens, and do not print stored credentials.
 
 ## 5. Confirm readiness
 
-Run `muvloom capabilities` internally to verify that generation is available.
-Only report the connection as ready after auth status confirms it and capabilities
-succeeds. Keep the readiness message brief; include model lists, prices or
-environment configuration only if the user asks for them.
-Tell the user they can now ask you to generate images using any of the service
-names 幕芽, muya or muvloom (case-insensitive). Use `muvloom` as the executable
-name for every CLI command. Follow the installed
-skill or CLI help for future requests. A user's generation request authorizes
+Run `muvloom capabilities` to verify that generation is available. Only report
+the connection as ready after auth status confirms it and capabilities succeeds.
+Briefly list this account's available model labels from that response and mark
+`default_model`; use IDs if labels are missing or ambiguous. Do not hard-code the
+model list or include prices or environment configuration unless asked.
+
+Show the invocation for the user's host:
+
+| Host | Invocation and example |
+| --- | --- |
+| Codex desktop | Type `/` and select the Muvloom Skill if listed, or use `$muvloom 用这张商品照片制作一套电商图` |
+| Codex CLI / IDE | `/skills` → Muvloom, or `$muvloom 生成一张小猫表情包` |
+| Claude Code | `/muvloom 生成一张小猫表情包` |
+| Other hosts | `用幕芽生成一张小猫表情包` |
+
+Explain that the user can name any available model in the request, or omit it to
+use the displayed default. Natural-language requests using 幕芽, muya or muvloom
+also work in supported hosts. If the installed Skill is not visible yet, refresh
+the host's skill list or reopen the session; do not invent an unregistered slash
+alias. These are chat prompts, not terminal commands: use `muvloom` as the
+executable name for every CLI command.
+
+Follow the installed skill or CLI help for future requests. A user's generation request authorizes
 generation: proceed directly without a credit quote or a second confirmation.
 Quote costs only when asked, and pass `--max-credits` only for an explicit
 user-supplied credit limit. Setup itself must not spend credits.
