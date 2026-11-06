@@ -106,7 +106,9 @@ it.each([
   blocked,
 }) => {
   const savedParams = useStore.getState().params
-  useStore.setState({ params: { ...savedParams, gemini_image_size: tier } })
+  // Persisted drafts can carry tiers that the current editor does not expose.
+  const params = JSON.parse(JSON.stringify({ ...savedParams, gemini_image_size: tier }))
+  useStore.setState({ params })
   mocks.tiers = open4K ? ['1K', '2K', '4K'] : ['1K', '2K']
   mocks.run.mockClear()
   const doc = new Y.Doc()
@@ -132,7 +134,9 @@ it.each([
           ids={['a']}
           snapshot={{
             ...readCanvasDocument(doc),
-            nodes: [{ id: 'a', type: 'image', z: 0, x: 0, y: 0, width: 100, height: 100, data: {} }],
+            nodes: [
+              { id: 'a', type: 'image', z: 0, x: 0, y: 0, width: 100, height: 100, data: {} },
+            ],
           }}
           onClose={() => {}}
         />,
