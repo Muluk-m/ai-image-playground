@@ -316,18 +316,25 @@ describe('auth client', () => {
   it('uses the completed proof to recover a late cookie inside the 409 grace period', async () => {
     vi.stubGlobal('navigator', {})
     let completedKey: string | null = null
-    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
-      completedKey = new Headers(init?.headers).get('x-session-refresh-request')
-      return Response.json({ ok: true })
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        completedKey = new Headers(init?.headers).get('x-session-refresh-request')
+        return Response.json({ ok: true })
+      }),
+    )
     expect(await refreshWebSession()).toBe('ok')
     const keys: (string | null)[] = []
-    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
-      const key = new Headers(init?.headers).get('x-session-refresh-request')
-      keys.push(key)
-      return key === completedKey ? Response.json({ ok: true })
-        : Response.json({ error: 'refresh_raced' }, { status: 409 })
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const key = new Headers(init?.headers).get('x-session-refresh-request')
+        keys.push(key)
+        return key === completedKey
+          ? Response.json({ ok: true })
+          : Response.json({ error: 'refresh_raced' }, { status: 409 })
+      }),
+    )
     expect(await refreshWebSession()).toBe('ok')
     expect(keys).toHaveLength(2)
     expect(keys[1]).toBe(completedKey)
@@ -336,11 +343,15 @@ describe('auth client', () => {
   it('retires a consumed pending identity and saves a new one before rotating the valid current cookie', async () => {
     vi.stubGlobal('navigator', {})
     const keys: (string | null)[] = []
-    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
-      keys.push(new Headers(init?.headers).get('x-session-refresh-request'))
-      return keys.length === 1 ? Response.json({ error: 'refresh_request_completed' }, { status: 409 })
-        : Response.json({ ok: true })
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        keys.push(new Headers(init?.headers).get('x-session-refresh-request'))
+        return keys.length === 1
+          ? Response.json({ error: 'refresh_request_completed' }, { status: 409 })
+          : Response.json({ ok: true })
+      }),
+    )
     expect(await refreshWebSession()).toBe('ok')
     expect(keys).toHaveLength(2)
     expect(keys[1]).not.toBe(keys[0])
