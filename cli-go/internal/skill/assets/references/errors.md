@@ -2,7 +2,8 @@
 
 | `error.code` | Meaning | Action |
 | --- | --- | --- |
-| `AUTH_REQUIRED`, `UNAUTHENTICATED`, `AUTH_EXPIRED` | No valid CLI connection | Run the login flow from SKILL.md |
+| `AUTH_REQUIRED`, `UNAUTHENTICATED` | No valid CLI connection, or login code invalid/already used | Check `auth status` after a permission interruption; keep a ready connection, otherwise follow the login flow in SKILL.md |
+| `AUTH_EXPIRED` | The server reports the login code expired | Start a new login flow |
 | `AUTH_PENDING` | Browser approval not done yet | Keep waiting with `muvloom auth login`; ask the user to sign in and approve only if they have not yet been told |
 | `AUTH_DENIED` | User denied in the browser | Stop unless the user wants to retry |
 | `PLAN_REQUIRED` | The request (e.g. 4K) needs an active membership | Offer a smaller image size, or tell the user membership is required |
