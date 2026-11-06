@@ -280,7 +280,9 @@ it('preserves trimmed clips while untouched slots follow a new video duration', 
   ]
   updateCanvasNode(doc, result.timelineIds[0]!, { data: { clips } }, origin)
   prepareStoryboardVideos(doc, 'board', draft, model, { origin })
-  expect(readCanvasDocument(doc).nodes.find((node) => node.id === result.timelineIds[0])).toMatchObject({
+  expect(
+    readCanvasDocument(doc).nodes.find((node) => node.id === result.timelineIds[0]),
+  ).toMatchObject({
     data: { clips },
   })
   prepareStoryboardVideos(
@@ -290,7 +292,9 @@ it('preserves trimmed clips while untouched slots follow a new video duration', 
     { ...model, support: { ...model.support, durations: [8] } },
     { origin },
   )
-  expect(readCanvasDocument(doc).nodes.find((node) => node.id === result.timelineIds[0])).toMatchObject({
+  expect(
+    readCanvasDocument(doc).nodes.find((node) => node.id === result.timelineIds[0]),
+  ).toMatchObject({
     data: { clips: [clips[0], { elementId: result.videoIds[1], in: 0, out: 8 }] },
   })
 })
