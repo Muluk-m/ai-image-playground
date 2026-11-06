@@ -163,14 +163,17 @@ describe('non-member resolution ceiling', () => {
     else process.env.OPENAI_API_KEY = direct.apiKey
   })
 
-  function withMember(member: boolean) {
+  function withMember(member: boolean, onLookup?: () => void) {
     _setPrivateBffOverlayForTesting({
       ...EMPTY_PRIVATE_BFF_OVERLAY,
       present: true,
       taskHooks: {
         ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
         canSubmitTask: async () => member,
-        isActiveMember: async () => member,
+        isActiveMember: async () => {
+          onLookup?.()
+          return member
+        },
       },
     })
   }
@@ -291,6 +294,28 @@ describe('non-member resolution ceiling', () => {
     expect(payload.extra).toMatchObject({
       generationConfig: { imageConfig: { imageSize: '2K', aspectRatio: '16:9' } },
     })
+  })
+  it('checks membership before closing a Gemini 4K request to the channel tier', async () => {
+    await ensureBillingUser()
+    let lookedUp = false
+    withMember(true, () => {
+      lookedUp = true
+    })
+    const payload = await storedRequest(
+      await createQueueTask({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        userId: BILLING_USER,
+        request: request({
+          image_size: '1K',
+          input_images: undefined,
+          extra: { generationConfig: { imageConfig: { imageSize: '4K' } } },
+        }),
+      }),
+    )
+    expect(lookedUp).toBe(true)
+    expect(payload.image_size).toBe('2K')
+    expect(payload.extra).toMatchObject({ generationConfig: { imageConfig: { imageSize: '2K' } } })
   })
 
   it('keeps a member Gemini 4K submission and matches the prepared hash', async () => {
