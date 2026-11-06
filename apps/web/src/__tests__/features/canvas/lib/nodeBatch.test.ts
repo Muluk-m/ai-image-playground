@@ -486,17 +486,21 @@ it.each([
   const { doc, input } = setup()
   const model = 'gemini-nano-banana-2.1'
   // Model the JSON capability response when the server enables the future 4K tier.
-  setChannels(JSON.parse(JSON.stringify([
-    {
-      id: 'gemini-batch',
-      kind: 'gemini-queue',
-      label: 'Gemini',
-      models: [
-        { id: model, label: model, capabilities: ['generate'], imageSizes: ['1K', '2K', '4K'] },
-      ],
-      defaults: { apiMode: 'images', timeout: 600 },
-    },
-  ])))
+  setChannels(
+    JSON.parse(
+      JSON.stringify([
+        {
+          id: 'gemini-batch',
+          kind: 'gemini-queue',
+          label: 'Gemini',
+          models: [
+            { id: model, label: model, capabilities: ['generate'], imageSizes: ['1K', '2K', '4K'] },
+          ],
+          defaults: { apiMode: 'images', timeout: 600 },
+        },
+      ]),
+    ),
+  )
   try {
     const settings = normalizeSettings({
       ...DEFAULT_SETTINGS,
