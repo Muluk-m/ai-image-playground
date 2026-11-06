@@ -38,6 +38,7 @@ import {
   importCanvasImage,
   runNodes,
   runStoryboardFrames,
+  runStoryboardVideos,
   updateNodes,
 } from './nodeCanvas'
 import { planImageBatch } from './planImageBatch'
@@ -102,6 +103,7 @@ const TOOLS: readonly AgentToolSpec[] = [
   arrangeNodes,
   runNodes,
   runStoryboardFrames,
+  runStoryboardVideos,
   applyScriptPlan,
   importCanvasImage,
   generateVideo,
@@ -134,6 +136,7 @@ const CANVAS_TOOLS = new Set<AgentToolName>([
   'arrangeNodes',
   'runNodes',
   'runStoryboardFrames',
+  'runStoryboardVideos',
   'applyScriptPlan',
   'importCanvasImage',
   'editCanvasObject',

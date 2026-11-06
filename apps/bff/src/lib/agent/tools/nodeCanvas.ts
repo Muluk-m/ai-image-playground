@@ -9,6 +9,7 @@ import {
   canvasNodeSourceData,
   canvasStageRunsDirectly,
   chooseCanvasResult,
+  clampVideoPreset,
   connectCanvasNodes,
   deleteCanvasNode,
   insertCanvasNode,
@@ -17,6 +18,7 @@ import {
   moveCanvasNodes,
   parseCompleteStageVideoDraft,
   prepareStoryboardFrames,
+  prepareStoryboardVideos,
   readCanvasDocument,
   recordCanvasResult,
   replaceStoryboardShots,
@@ -124,7 +126,7 @@ const available = (_mode: unknown, audience?: AgentToolAudience) =>
     audience?.userId && audience.experience === 'canvas' && isCapabilityEnabled('accounts:sync'),
   )
 const guidance =
-  '分镜表的首帧不要用这些工具手工搭，用 runStoryboardFrames。修改前用 readCanvas 读取需要的节点。一次调用会原子保存并可整体撤销，不运行生成、不计费。视频节点必须明确给出 videoMode，不能依引用数量推断。出图和改图（包括参考一张图修改另一张）都用 image 节点，只有用户明确要视频才建 video 节点。用户在对话里附的图要接进节点时，用 createNodes 的 imageId 建素材节点再 connectNodes，不要让用户自己把图拖进画布或选中节点。'
+  '分镜表的首帧和视频不要用这些工具手工搭，分别用 runStoryboardFrames 和 runStoryboardVideos。修改前用 readCanvas 读取需要的节点。一次调用会原子保存并可整体撤销，不运行生成、不计费。视频节点必须明确给出 videoMode，不能依引用数量推断。出图和改图（包括参考一张图修改另一张）都用 image 节点，只有用户明确要视频才建 video 节点。用户在对话里附的图要接进节点时，用 createNodes 的 imageId 建素材节点再 connectNodes，不要让用户自己把图拖进画布或选中节点。'
 const invalid = (message: string): never => {
   throw new AgentToolError('invalid_params', message)
 }
@@ -801,7 +803,7 @@ export const runNodes = defineAgentTool({
   available,
   onError: 'continue',
   guidance:
-    '为画布节点生成图片或视频都用 runNodes。先 readCanvas 确认节点名称与范围。是否立即开跑由这一轮请求里的用户直接出图偏好决定，工具参数改不了。回执会写明是待确认还是已交给原标签页开跑。只有查到 taskIds 才能说已提交，有真实结果才能说已完成。画布不使用出图模式每轮自动提交额度。',
+    '为普通画布节点生成图片或视频用 runNodes；分镜表首帧与整表视频阶段分别用 runStoryboardFrames、runStoryboardVideos。先 readCanvas 确认节点名称与范围。是否立即开跑由这一轮请求里的用户直接出图偏好决定，工具参数改不了。回执会写明是待确认还是已交给原标签页开跑。只有查到 taskIds 才能说已提交，有真实结果才能说已完成。画布不使用出图模式每轮自动提交额度。',
   description:
     '为当前云端画布的一组可生成图片或视频节点登记持久化阶段授权。预算由服务端按节点模型、数量和倍率计算，estimatedCredits 不决定上限。有提示词的素材按普通出图授权；没写提示词但有素材描述的图片素材按「素材名：描述」出图；两者都没有的素材不会单独授权。直接出图时原标签页立即开跑；用户关掉直接出图时才等确认卡。提供 authorizationId 时只查询真实授权状态、已用额度与任务记录，不重新提交。范围外或预算不足必须重新提案。',
   parameters: Type.Object({
@@ -1163,6 +1165,113 @@ export const runStoryboardFrames = defineAgentTool({
     )
     if (!proposed) return invalid('首帧阶段授权没有登记，请重新读取画布后再试。')
     return canvasStageResult(context, project.id, proposed.authorization, proposed.storyboard)
+  },
+})
+
+export const runStoryboardVideos = defineAgentTool({
+  name: 'runStoryboardVideos',
+  label: '视频阶段',
+  modes,
+  available: (mode, audience) => available(mode, audience) && agentVideoAvailable(),
+  onError: 'continue',
+  guidance:
+    '用户同意分镜表出视频后，用本工具发起视频阶段，不要手工搭视频节点或时间线。先用 readCanvas 确认分镜表与首帧；每镜首帧必须齐备且未过期。视频模式固定为首帧，每镜时长按模型能力约束。沿用本轮直接出图偏好，关闭时等待确认卡；只有真实任务才算已提交，真实结果才算已完成。完成后沿用阶段运行回报汇报，缺镜留在时间线原位，不要压掉。',
+  description:
+    '复用分镜表制作流程，为已定稿分镜表的每镜铺视频节点并绑定该镜首帧，按镜号建立保留空位的时间线，同时登记持久化视频阶段授权。使用当前视频模型与工作台参数，镜头时长优先。缺失或过期首帧整次拒绝；铺节点与授权原子保存，同一调用重放不重复授权或生成。确认后由现有节点运行器执行。',
+  parameters: Type.Object({ storyboardId: id }),
+  call: () => ({ title: '视频阶段' }),
+  execute: (context) => async (callId, params) => {
+    if (!available(context.mode, context)) invalid('当前会话没有可用的云端节点画布。')
+    const project = await agentCanvasProject(context)
+    if (!project || !context.userId) return invalid('当前会话没有已同步的云端项目。')
+    const userId = context.userId
+    await context.assertExecution?.()
+    let targets: string[] = []
+    let authorization: StageAuthorization | undefined
+    await proposing(() =>
+      executeCanvasCommand(
+        userId,
+        project.id,
+        { turnId: context.turnId, toolCallId: callId, label: '铺视频与时间线', args: params },
+        (doc, origin) => {
+          if (!agentVideoAvailable()) noVideoModel()
+          const model = agentVideoModel(context.params?.video?.model)
+          if (!model) return noVideoModel()
+          const board = getNode(doc, params.storyboardId)
+          if (board.type !== 'storyboard') invalid(`节点不是分镜表：${params.storyboardId}`)
+          const video = context.params?.video
+          const preset = clampVideoPreset(model.support, {
+            duration: video?.durationSeconds,
+            resolution: video?.resolution,
+            aspectRatio: video?.aspectRatio,
+          })
+          try {
+            targets = prepareStoryboardVideos(
+              doc,
+              params.storyboardId,
+              {
+                model: model.target.model,
+                ...preset,
+                ...(video?.voiceIds?.length ? { voices: [...video.voiceIds] } : {}),
+              },
+              { modelId: model.target.model, support: model.support },
+              {
+                origin,
+                names: FRAME_NAMES,
+              },
+            ).videoIds
+          } catch (error) {
+            if (!(error instanceof StoryboardFlowError)) throw error
+            const messages = {
+              finalizeFirst:
+                '分镜表尚未定稿或镜头表已改过，请先用 runStoryboardFrames 完成当前镜头表的首帧阶段。',
+              noFirstFrameModel: '当前视频模型不支持首帧模式，请选择支持首帧的视频模型后重试。',
+              framesMissing:
+                '分镜表首帧缺失或已过期，请先用 runStoryboardFrames 补齐当前镜头表的首帧。没有铺视频、时间线或登记授权。',
+              promptTooLong: '视频提示词过长，请先精简镜头描述或对白并重新生成首帧。',
+              missingAssets: '分镜表引用的素材缺图，请先完成素材与首帧阶段。',
+            }
+            invalid(messages[error.code])
+          }
+        },
+        async (tx, state, replay) => {
+          if (replay) {
+            const prior = await readStageProposal(
+              userId,
+              context.conversationId,
+              `${context.turnId}:${callId}`,
+              tx,
+            )
+            if (
+              !prior ||
+              prior.projectId !== project.id ||
+              prior.stage !== '视频' ||
+              prior.storyboard
+            )
+              throw new StageAuthorizationError('stage_authorization_conflict')
+            authorization = prior
+            return
+          }
+          const saved = new Y.Doc()
+          try {
+            Y.applyUpdate(saved, state)
+            const graph = readCanvasDocument(saved)
+            const nodes = targets.map(
+              (target) =>
+                graph.nodes.find((node) => node.id === target) ?? invalid('视频节点没有保存下来。'),
+            )
+            authorization = await proposeStageAuthorizationInTransaction(
+              tx,
+              await stageProposalInput(context, callId, project.id, graph, nodes, '视频'),
+            )
+          } finally {
+            saved.destroy()
+          }
+        },
+      ),
+    )
+    if (!authorization) return invalid('视频阶段授权没有登记，请重新读取画布后再试。')
+    return canvasStageResult(context, project.id, authorization)
   },
 })
 

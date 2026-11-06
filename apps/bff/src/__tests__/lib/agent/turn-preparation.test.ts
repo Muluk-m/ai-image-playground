@@ -1018,7 +1018,7 @@ describe('原生模型历史缓存', () => {
 
 describe('per-turn mode decides tools, prompt and context', () => {
   const CANVAS_WORDS =
-    /画布|节点|createNodes|updateNodes|connectNodes|runNodes|readCanvas|runStoryboardFrames|applyScriptPlan|阶段授权/
+    /画布|节点|createNodes|updateNodes|connectNodes|runNodes|readCanvas|runStoryboardFrames|runStoryboardVideos|applyScriptPlan|阶段授权/
   const CANVAS_TOOL_NAMES = [
     'readCanvas',
     'createNodes',
@@ -1028,6 +1028,7 @@ describe('per-turn mode decides tools, prompt and context', () => {
     'arrangeNodes',
     'runNodes',
     'runStoryboardFrames',
+    'runStoryboardVideos',
     'applyScriptPlan',
     'importCanvasImage',
     'editCanvasObject',

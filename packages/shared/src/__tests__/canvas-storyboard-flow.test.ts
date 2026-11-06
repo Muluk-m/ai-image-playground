@@ -254,7 +254,7 @@ it('binds each first-frame slot and assets, constrains shot durations by capabil
     expect(canvasMainResult(doc, id)).toBeUndefined()
   }
   expect(videos[2]).toMatchObject({
-    data: { meta: { nodePrompt: 'Scene 3\nCamera: wide\nDialogue: Hello' } },
+    data: { meta: { nodePrompt: 'Scene 3\nCamera: wide\nDialogue: Hello\nDuration: 3 seconds' } },
   })
   expect(snapshot.nodes.find((node) => node.id === result.timelineIds[0])).toMatchObject({
     type: 'timeline',
