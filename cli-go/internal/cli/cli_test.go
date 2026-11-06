@@ -20,18 +20,20 @@ import (
 
 // fakeServer is a minimal Muvloom API: device flow, rotating tokens, jobs and downloads.
 type fakeServer struct {
-	t            *testing.T
-	mu           sync.Mutex
-	server       *httptest.Server
-	polls        int
-	approveAfter int
-	access       string
-	refresh      string
-	refreshCalls int
-	jobPolls     int
-	submissions  map[string]string // idempotency key -> request body
-	failSubmits  int
-	failJob      bool
+	t              *testing.T
+	mu             sync.Mutex
+	server         *httptest.Server
+	polls          int
+	approveAfter   int
+	access         string
+	refresh        string
+	refreshCalls   int
+	jobPolls       int
+	submissions    map[string]string // idempotency key -> request body
+	failSubmits    int
+	failJob        bool
+	deviceError    string
+	deviceRedeemed bool
 }
 
 const secretDeviceCode = "device-secret-value"
@@ -40,6 +42,9 @@ func newFakeServer(t *testing.T) *fakeServer {
 	f := &fakeServer{t: t, approveAfter: 2, access: "access-1", refresh: "refresh-1", submissions: map[string]string{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/oauth/device_authorization", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.deviceRedeemed = false
+		f.mu.Unlock()
 		writeJSON(w, 200, map[string]any{
 			"device_code": secretDeviceCode, "user_code": "BCDF-GHJK",
 			"verification_uri": f.server.URL + "/device", "verification_uri_complete": f.server.URL + "/device?user_code=BCDF-GHJK",
@@ -53,6 +58,14 @@ func newFakeServer(t *testing.T) *fakeServer {
 		switch r.Form.Get("grant_type") {
 		case "urn:ietf:params:oauth:grant-type:device_code":
 			f.polls++
+			if f.deviceError != "" {
+				writeJSON(w, 400, map[string]string{"error": f.deviceError})
+				return
+			}
+			if f.deviceRedeemed {
+				writeJSON(w, 400, map[string]string{"error": "invalid_grant"})
+				return
+			}
 			if f.polls == 1 {
 				writeJSON(w, 400, map[string]string{"error": "slow_down"})
 				return
@@ -61,6 +74,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 				writeJSON(w, 400, map[string]string{"error": "authorization_pending"})
 				return
 			}
+			f.deviceRedeemed = true
 			writeJSON(w, 200, f.tokens())
 		case "refresh_token":
 			f.refreshCalls++
@@ -374,5 +388,109 @@ func TestSkillInstallRefusesAProjectWithoutRoot(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(app.Home, ".agents", "skills", "muvloom", "SKILL.md")); err != nil {
 		t.Fatalf("SKILL.md not installed: %v", err)
+	}
+}
+
+func TestLoginReplayAfterCleanupInterruptionReusesSavedCredentials(t *testing.T) {
+	for _, expired := range []bool{false, true} {
+		t.Run(map[bool]string{false: "unexpired", true: "expired"}[expired], func(t *testing.T) {
+			f := newFakeServer(t)
+			app := newApp(t, f, t.TempDir())
+			execute(t, app, "auth", "login", "--no-wait")
+			pending, err := app.Store.LoadPending()
+			if err != nil {
+				t.Fatal(err)
+			}
+			login(t, app)
+			// Restore the cleanup that a host interrupted, then replay the command.
+			if expired {
+				pending.ExpiresAt = time.Now().Add(-time.Minute)
+			}
+			if err := app.Store.SavePending(pending); err != nil {
+				t.Fatal(err)
+			}
+			f.mu.Lock()
+			polls := f.polls
+			f.mu.Unlock()
+			r := execute(t, app, "auth", "login")
+			if r.code != ExitOK || r.out["data"].(map[string]any)["state"] != "ready" {
+				t.Fatalf("replay = %d %s", r.code, r.stdout)
+			}
+			if _, ok := r.out["data"].(map[string]any)["pending_login"]; ok {
+				t.Fatal("completed login shown as pending")
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.polls != polls {
+				t.Fatal("replay redeemed an already consumed device code")
+			}
+			assertNoSecrets(t, r, secretDeviceCode, "access-1", "refresh-1")
+		})
+	}
+}
+
+func TestCredentialSaveFailurePreservesPendingLogin(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	execute(t, app, "auth", "login", "--no-wait")
+	path := filepath.Join(app.Store.Dir, "credentials.json")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "block"), []byte("block"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := execute(t, app, "auth", "login")
+	if r.out["error"].(map[string]any)["code"] != "INTERNAL_ERROR" {
+		t.Fatalf("login = %s", r.stdout)
+	}
+	if _, err := app.Store.LoadPending(); err != nil {
+		t.Fatalf("pending login lost before save: %v", err)
+	}
+	assertNoSecrets(t, r, secretDeviceCode, "access-1", "refresh-1")
+}
+
+func TestDeviceGrantErrorsDistinguishConsumedFromExpired(t *testing.T) {
+	for _, tc := range []struct{ oauth, code string }{{"invalid_grant", "AUTH_REQUIRED"}, {"expired_token", "AUTH_EXPIRED"}} {
+		t.Run(tc.oauth, func(t *testing.T) {
+			f := newFakeServer(t)
+			f.deviceError = tc.oauth
+			app := newApp(t, f, t.TempDir())
+			r := execute(t, app, "auth", "login")
+			if r.code != ExitAuth || r.out["error"].(map[string]any)["code"] != tc.code {
+				t.Fatalf("login = %d %s", r.code, r.stdout)
+			}
+			assertNoSecrets(t, r, secretDeviceCode, "access-1", "refresh-1")
+		})
+	}
+}
+
+func TestPendingLoginDoesNotReuseUnrelatedCredentials(t *testing.T) {
+	for _, otherAPI := range []bool{false, true} {
+		t.Run(map[bool]string{false: "different-code", true: "different-api"}[otherAPI], func(t *testing.T) {
+			f := newFakeServer(t)
+			app := newApp(t, f, t.TempDir())
+			login(t, app)
+			creds, err := app.Store.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if otherAPI {
+				creds.BaseURL = "https://other.test"
+			} else {
+				creds.LoginDeviceCodeHash = deviceCodeHash("unrelated")
+			}
+			if err := app.Store.Save(creds); err != nil {
+				t.Fatal(err)
+			}
+			execute(t, app, "auth", "login", "--no-wait")
+			f.mu.Lock()
+			f.deviceError = "authorization_pending"
+			f.mu.Unlock()
+			r := execute(t, app, "auth", "login", "--timeout", "0")
+			if r.code != ExitAuth || r.out["error"].(map[string]any)["code"] != "AUTH_PENDING" {
+				t.Fatalf("unrelated login reused: %s", r.stdout)
+			}
+		})
 	}
 }
