@@ -92,7 +92,22 @@ describe('loadRuntimeConfig', () => {
     expect(getRuntimeConfig()).toEqual(VALID_CONFIG)
   })
 
-  it.each([403, 429, 500, 502, 503, 504])('rejects HTTP %i so startup can offer a retry', async (status) => {
+  it('propagates connection loss while reading a successful response body', async () => {
+    await loadRuntimeConfig(mockFetch(200, VALID_CONFIG))
+    const response = new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.error(new DOMException('The operation was aborted', 'AbortError'))
+        },
+      }),
+    )
+    await expect(loadRuntimeConfig(async () => response)).rejects.toThrow('aborted')
+    expect(getRuntimeConfig()).toEqual(VALID_CONFIG)
+  })
+
+  it.each([
+    403, 429, 500, 502, 503, 504,
+  ])('rejects HTTP %i so startup can offer a retry', async (status) => {
     await expect(loadRuntimeConfig(mockFetch(status, ''))).rejects.toThrow(
       `runtime_config_http_${status}`,
     )
@@ -100,8 +115,8 @@ describe('loadRuntimeConfig', () => {
 
   it('propagates request timeouts without silently disabling login', async () => {
     const fetcher = vi.fn(async () => {
-        throw new DOMException('The operation timed out', 'TimeoutError')
-      })
+      throw new DOMException('The operation timed out', 'TimeoutError')
+    })
     await expect(loadRuntimeConfig(fetcher)).rejects.toThrow('timed out')
   })
 
