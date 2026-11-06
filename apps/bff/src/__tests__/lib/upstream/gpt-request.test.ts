@@ -58,14 +58,18 @@ describe('route-specific prompt rewrite guard', () => {
     expect(request.prompt).toBe(original)
   })
 
-  it.each(['png', 'gif', 'svg'])('keeps %s direct wire prompts clean', (output_format) => {
+  it.each([
+    'png',
+    'gif',
+    'svg',
+  ])('keeps %s direct wire prompts clean without changing quality', (output_format) => {
     const model = 'gpt-image-2.6-flare'
     const request = adaptGptRequest('direct', model, {
       prompt: guard + original,
       output_format,
       quality: 'auto',
     })
-    expect(buildOpenAIBody(model, request).prompt).toBe(original)
+    expect(buildOpenAIBody(model, request)).toMatchObject({ prompt: original, quality: 'auto' })
     expect(buildOpenAIEditFormData(model, request).get('prompt')).toBe(original)
   })
 })
