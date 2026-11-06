@@ -8,6 +8,7 @@ import {
   loadOperatorConfig,
   validateOperatorConfigValues,
 } from './lib/operator-config'
+import { gptDirectSwitchOn } from './lib/upstream/gpt-direct-availability'
 import { configuredDirectKeys } from './lib/upstream/gpt-key-config'
 
 const env = (key: string, fallback?: string): string => {
@@ -211,9 +212,13 @@ export const config = {
    * 没打开或一把密钥都没有时一律走 sub2api。
    */
   gptDirect: {
-    enabled: booleanEnv('GPT_DIRECT_ENABLED', false),
+    get enabled() {
+      return gptDirectSwitchOn()
+    },
     baseUrl: env('GPT_DIRECT_BASE_URL', 'https://api.openai.com/v1').replace(/\/+$/, ''),
-    apiKey: env('OPENAI_API_KEY', ''),
+    get apiKey() {
+      return env('OPENAI_API_KEY', '')
+    },
     /** 可选：OpenAI-Organization 请求头。 */
     organization: env('OPENAI_ORG_ID', ''),
     /** 直连每月预算（美元）与封顶比例（%）。月按台北时间的自然月算。 */

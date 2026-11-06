@@ -20,6 +20,8 @@ const { close, db, schema } = await import('../../db/client')
 const { config } = await import('../../config')
 const { createQueueTask, prepareQueueTask } = await import('../../lib/taskSubmission')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
+// 数据库测试的模块加载边界：静态 import 会在上面的独立 DATABASE_URL 与 overlay 注入前捕获单例。
+const { quoteBatchPlan } = await import('../../lib/agent/batch-plans')
 
 // 原尺寸不是 16 的倍数，所以建任务时必须补边；`masked_original_size` 记的是补边前的那个。
 const WIDTH = 1001
@@ -98,9 +100,9 @@ it('denies ended subscriptions before creating a task or hold', async () => {
 
 it('rejects a 768×16 GIF before creating a task or invoking billing', async () => {
   const enabled = config.gptImage26.enabled
-  const apiKey = config.gptDirect.apiKey
+  const apiKey = process.env.OPENAI_API_KEY
   config.gptImage26.enabled = true
-  config.gptDirect.apiKey = 'gif-test-key'
+  process.env.OPENAI_API_KEY = 'gif-test-key'
   let billingCalled = false
   _setPrivateBffOverlayForTesting({
     ...EMPTY_PRIVATE_BFF_OVERLAY,
@@ -134,7 +136,8 @@ it('rejects a 768×16 GIF before creating a task or invoking billing', async () 
     expect(await db.select().from(schema.tasks)).toEqual([])
   } finally {
     config.gptImage26.enabled = enabled
-    config.gptDirect.apiKey = apiKey
+    if (apiKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = apiKey
     _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
   }
 })
@@ -147,13 +150,17 @@ it('denies 4K by default when the private billing hook is missing', async () => 
 })
 
 describe('non-member resolution ceiling', () => {
-  const direct = { ...config.gptDirect }
+  const direct = { enabled: process.env.GPT_DIRECT_ENABLED, apiKey: process.env.OPENAI_API_KEY }
 
   beforeEach(() => {
-    Object.assign(config.gptDirect, { enabled: true, apiKey: 'direct-key' })
+    process.env.GPT_DIRECT_ENABLED = 'true'
+    process.env.OPENAI_API_KEY = 'direct-key'
   })
   afterEach(() => {
-    Object.assign(config.gptDirect, direct)
+    if (direct.enabled === undefined) delete process.env.GPT_DIRECT_ENABLED
+    else process.env.GPT_DIRECT_ENABLED = direct.enabled
+    if (direct.apiKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = direct.apiKey
   })
 
   function withMember(member: boolean) {
@@ -282,6 +289,46 @@ describe('non-member resolution ceiling', () => {
     const submitted = await createQueueTask({ ...input, prepared: preparation.prepared })
     const downgraded = await storedRequest(submitted)
     expect(downgraded.image_size).toBe('2K')
+  })
+
+  it.each([
+    { member: false, tier: '2K', multiplier: 1.5 },
+    { member: true, tier: '4K', multiplier: 3.4 },
+  ])('quotes the Gemini tier actually submitted for member=$member', async ({
+    member,
+    tier,
+    multiplier,
+  }) => {
+    await ensureBillingUser()
+    withMember(member)
+    const estimate = await db.transaction((tx) =>
+      quoteBatchPlan(tx, BILLING_USER, [
+        {
+          key: 'image',
+          ordinal: 0,
+          kind: 'generation',
+          prompt: 'a cup',
+          inputs: [],
+          dependencies: [],
+          params: { model: 'gemini-nano-banana-2.1', provider: 'gemini', gemini_image_size: '4K' },
+        },
+      ]),
+    )
+    expect(estimate.generation.status).toBe('available')
+    if (estimate.generation.status !== 'available') throw new Error('expected a quote')
+    expect(estimate.generation.snapshots[0]!.unitMultiplier).toBe(multiplier)
+    const input = {
+      provider: 'gemini' as const,
+      model: 'gemini-nano-banana-2.1',
+      userId: BILLING_USER,
+      request: { prompt: 'a cup', image_size: '4K' as const },
+    }
+    const preparation = await prepareQueueTask(input)
+    if (preparation.kind !== 'prepared') throw new Error('expected a preparation')
+    const payload = await storedRequest(
+      await createQueueTask({ ...input, prepared: preparation.prepared }),
+    )
+    expect(payload.image_size).toBe(tier)
   })
 })
 it('ignores a strict flag supplied inside a website request body', async () => {
