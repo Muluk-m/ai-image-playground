@@ -92,7 +92,9 @@ describe('loadRuntimeConfig', () => {
     expect(getRuntimeConfig()).toEqual(VALID_CONFIG)
   })
 
-  it.each([403, 429, 500, 502, 503, 504])('rejects HTTP %i so startup can offer a retry', async (status) => {
+  it.each([
+    403, 429, 500, 502, 503, 504,
+  ])('rejects HTTP %i so startup can offer a retry', async (status) => {
     await expect(loadRuntimeConfig(mockFetch(status, ''))).rejects.toThrow(
       `runtime_config_http_${status}`,
     )
@@ -100,8 +102,8 @@ describe('loadRuntimeConfig', () => {
 
   it('propagates request timeouts without silently disabling login', async () => {
     const fetcher = vi.fn(async () => {
-        throw new DOMException('The operation timed out', 'TimeoutError')
-      })
+      throw new DOMException('The operation timed out', 'TimeoutError')
+    })
     await expect(loadRuntimeConfig(fetcher)).rejects.toThrow('timed out')
   })
 
