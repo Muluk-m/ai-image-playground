@@ -16,6 +16,8 @@ import {
   type ConnectPlatform,
   detectPlatform,
   manualCommands,
+  WORKBUDDY_SETUP_PATH,
+  WORKBUDDY_SKILL_PATH,
 } from './connectAgents'
 
 type CopyState = 'idle' | 'done' | 'failed'
@@ -126,9 +128,12 @@ export default function CliConnectPage() {
     return () => setDocumentTitleOverride(null)
   }, [])
 
-  const prompt = t('cliConnect.prompt', {
+  const prompt = t(agent === 'workbuddy' ? 'cliConnect.workbuddyPrompt' : 'cliConnect.prompt', {
     agent: agent === 'other' ? t('cliConnect.currentAgent') : t(AGENT_LABEL[agent]),
-    setupUrl: new URL(AGENT_SETUP_PATH, window.location.origin).href,
+    setupUrl: new URL(
+      agent === 'workbuddy' ? WORKBUDDY_SETUP_PATH : AGENT_SETUP_PATH,
+      window.location.origin,
+    ).href,
   })
   const manual = useMemo(() => manualCommands(agent, platform), [agent, platform])
 
@@ -229,9 +234,24 @@ export default function CliConnectPage() {
               <div className="space-y-4 md:pl-6">
                 <StepHeading
                   index={2}
-                  title={t('cliConnect.step2.title')}
-                  hint={t('cliConnect.step2.hint')}
+                  title={t(
+                    agent === 'workbuddy'
+                      ? 'cliConnect.workbuddySkill.title'
+                      : 'cliConnect.step2.title',
+                  )}
+                  hint={t(
+                    agent === 'workbuddy'
+                      ? 'cliConnect.workbuddySkill.hint'
+                      : 'cliConnect.step2.hint',
+                  )}
                 />
+                {agent === 'workbuddy' ? (
+                  <Button asChild variant="outline" size="sm">
+                    <a href={WORKBUDDY_SKILL_PATH} download>
+                      {t('cliConnect.workbuddySkill.download')}
+                    </a>
+                  </Button>
+                ) : null}
               </div>
             </div>
           </section>
