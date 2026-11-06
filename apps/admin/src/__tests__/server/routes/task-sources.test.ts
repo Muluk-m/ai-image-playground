@@ -50,7 +50,7 @@ await writer.db.insert(writer.schema.tasks).values([
   { ...base, id: 'cli-2', user_id: 'cli-user', status: 'failed', model: 'other' },
   { ...base, id: 'manual-2', status: 'queued', model: 'other' },
   { ...base, id: 'hidden-chat-call', kind: 'chat', agent_conversation_id: 'conversation' },
-])
+] satisfies (typeof writer.schema.tasks.$inferInsert)[])
 await writer.db.insert(writer.schema.cli_jobs).values([
   { task_id: 'cli-1', user_id: 'cli-user', connection_id: null, created_at: now },
   { task_id: 'cli-2', user_id: 'cli-user', connection_id: null, created_at: now },
@@ -122,7 +122,9 @@ describe('task source attribution', () => {
     const detail: TaskDetail = await (await get('/api/tasks/cli-1')).json()
     expect(detail.source).toBe('cli')
     expect(detail.prompt_created_at).toBeUndefined()
-    const csv = await (await get(`/api/tasks/export?${range}&source=cli`)).text()
+    const { exportGenerationTasks, generationTasksCsv } = await import('../../../../server/lib/today')
+    const exported = await exportGenerationTasks({ from: now - 10000, to: now + 500, source: 'cli' })
+    const csv = generationTasksCsv(exported.tasks)
     expect(csv).toContain('cli-1,')
     expect(csv).toContain(',cli,openai-compat,')
     expect(csv).not.toContain('manual-1')
