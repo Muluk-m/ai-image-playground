@@ -268,6 +268,30 @@ describe('non-member resolution ceiling', () => {
     })
     expect(cli.kind).toBe('private_billing_denied')
   })
+  it('canonicalizes a Gemini extra image size before membership alignment', async () => {
+    await ensureBillingUser()
+    withMember(false)
+    const payload = await storedRequest(
+      await createQueueTask({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        userId: BILLING_USER,
+        request: request({
+          image_size: '1K',
+          input_images: undefined,
+          extra: {
+            generationConfig: {
+              imageConfig: { imageSize: '4K', aspectRatio: '16:9' },
+            },
+          },
+        }),
+      }),
+    )
+    expect(payload.image_size).toBe('2K')
+    expect(payload.extra).toMatchObject({
+      generationConfig: { imageConfig: { imageSize: '2K', aspectRatio: '16:9' } },
+    })
+  })
 
   it('keeps a member Gemini 4K submission and matches the prepared hash', async () => {
     await ensureBillingUser()
