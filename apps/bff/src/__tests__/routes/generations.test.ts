@@ -167,6 +167,20 @@ it.each([
   expect((await (await request('/api/generations', deviceB)).json()).items).toHaveLength(1)
 })
 
+it('does not merge modern user text with a different rewrite option into the same command', async () => {
+  const original = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    no_rewrite: true,
+  })
+  expect(original.status).toBe(200)
+  const changed = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, {
+    ...input,
+    prompt: `Use the following text as the complete prompt. Do not rewrite it:\n${input.prompt}`,
+    no_rewrite: false,
+  })
+  expect(changed.status).toBe(409)
+})
+
 it('丢失响应后重试返回原任务，换参数不能复用同一命令', async () => {
   const original = await (
     await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
