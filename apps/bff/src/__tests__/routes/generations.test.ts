@@ -109,9 +109,13 @@ const input = {
   device_id: 'generation-device-a',
   client_request_id: 'generation-command-1',
 }
-it.each([true, false])('persists the raw prompt and no_rewrite=%s through queue and history', async (no_rewrite) => {
+it.each([
+  true,
+  false,
+])('persists the raw prompt and no_rewrite=%s through queue and history', async (no_rewrite) => {
   const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
-    ...input, no_rewrite,
+    ...input,
+    no_rewrite,
   })
   expect(submitted.status).toBe(200)
   const { request_id } = await submitted.json()

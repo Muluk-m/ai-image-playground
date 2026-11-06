@@ -16,7 +16,7 @@ export function adaptGptRequest(
     const prompt = unshapeQueuePrompt({
       provider: 'openai-compat',
       prompt: request.prompt,
-      size: request.size,
+      size: isGptDirectModel(model) ? request.size : undefined,
       stripRewriteGuard: request.no_rewrite === undefined,
     })
     // 2.5 的 auto 仍按 medium 控制成本；2.6 沿用自己的画质契约。
@@ -29,7 +29,8 @@ export function adaptGptRequest(
   let prompt = request.prompt
   // 旧客户端已经带过前缀；新客户端用参数表达意图，用户原文里同样的文字也不吞掉。
   if (request.no_rewrite === true) prompt = applyPromptRewriteGuard(prompt)
-  const instruction = isGptDirectModel(model) && request.size ? buildAspectInstruction(request.size) : null
+  const instruction =
+    isGptDirectModel(model) && request.size ? buildAspectInstruction(request.size) : null
   if (instruction && !prompt.endsWith(instruction)) prompt = `${prompt}\n\n${instruction}`
   return { ...request, prompt }
 }

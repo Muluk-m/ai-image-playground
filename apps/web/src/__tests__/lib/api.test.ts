@@ -210,8 +210,7 @@ describe('callImageApi', () => {
     )!
     const body = JSON.parse(String((submitCall[1] as RequestInit).body))
     expect(body.prompt).toBe(
-      'a red cat\n\n' +
-        'Composition: a tall 9:16 vertical frame, portrait orientation.',
+      'a red cat\n\n' + 'Composition: a tall 9:16 vertical frame, portrait orientation.',
     )
   })
 
