@@ -11,6 +11,7 @@ import journal from '../../drizzle/meta/_journal.json'
 import { createDb } from '../client'
 import { runMigrations } from '../migrate'
 import { resetTestDatabase } from '../testing'
+import { verifySchema } from '../verify-schema'
 
 interface ColumnMetadata {
   column_name: string
@@ -479,6 +480,7 @@ describe('runMigrations', () => {
     await withEmptyDatabase('refresh_identity_production', async (url) => {
       await migrateUntil(url, journal.entries.find((entry) => entry.when === 1794300000000)!.tag)
       await runMigrations(url)
+      await expect(verifySchema(url)).resolves.toMatchObject({ migrations: journal.entries.length - 1 })
       const client = new SQL(url, { max: 1 })
       try {
         const rows =
