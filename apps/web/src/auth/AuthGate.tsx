@@ -127,15 +127,22 @@ export function AuthGate() {
         // 没有会话不是错误：访客照样进工作台，按下需要账号的动作时再弹登录框。
         // 没有页面上的提示 cookie、记住的用户，也不是 OAuth 刚回来时，不请求 /api/auth/me。
         const probeSession = shouldProbeSession()
-        const refreshed = probeSession ? await refreshWebSession() : null
+        const readCurrentUser = () =>
+          getCurrentUser(AbortSignal.timeout(15000)).catch((err) => {
+            if (err instanceof AuthRequestError && err.status === 401) return null
+            throw err
+          })
+        // 先用现有 access 认人，只有它失效时才轮换 refresh。每次打开页面都轮换的话，
+        // 轮换响应一旦没落进 cookie（重载、断网），下次带旧 refresh 会被判成复用而整链作废。
+        let currentUser = probeSession ? await readCurrentUser() : null
         if (cancelled) return
-        const currentUser = probeSession
-          ? await getCurrentUser(AbortSignal.timeout(15000)).catch((err) => {
-              if (err instanceof AuthRequestError && err.status === 401) return null
-              throw err
-            })
-          : null
-        if (cancelled) return
+        let refreshed: Awaited<ReturnType<typeof refreshWebSession>> | null = null
+        if (probeSession && !currentUser) {
+          refreshed = await refreshWebSession()
+          if (cancelled) return
+          if (refreshed === 'ok' || refreshed === 'raced') currentUser = await readCurrentUser()
+          if (cancelled) return
+        }
         if (currentUser && accessRefreshDue()) await refreshWebSession()
         if (cancelled) return
         if (probeSession) clearOAuthSessionLanding()
