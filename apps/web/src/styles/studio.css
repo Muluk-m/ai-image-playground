@@ -454,10 +454,11 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 }
 
 .studio-home-intro { padding-top: 48px; }
-/* 问候语和模式切换之间留出提示条的高度，居中提示才不会压住标题或输入区。 */
-.studio-home-create { max-width: 768px; margin-inline: auto; padding-top: 5rem; }
+/* 标题、说明和输入框按首页主流程连续排列；不再为已移除的提示条预留大段空白。 */
+.studio-home-create { max-width: 768px; margin-inline: auto; padding-top: 32px; }
 .studio-home-create .creation-body .creation-prompt { min-height: 96px; }
 @media (max-width: 767px) {
+  .studio-home-create { padding-top: 24px; }
   .studio-home-create .creation-body .creation-prompt { min-height: 84px; }
   /* 顶栏已经让出安全区和一行图标。这里只留一点呼吸，不再把安全区再加一遍。 */
   html[data-home='true'] {
