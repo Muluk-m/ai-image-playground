@@ -316,6 +316,10 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
 .studio-global-account {
   align-items: center;
 }
+/* 入口各自遮住下方图片；不把整组控件再包成一个胶囊。 */
+:where(.studio-header-float > button, .studio-header-float > div > button) {
+  background-color: hsl(var(--background));
+}
 @media (min-width: 768px) {
   .studio-header-float > button:not(.studio-canvas-assets-entry) {
     height: 28px;
@@ -332,7 +336,8 @@ body:has(.studio-project-pill) .app-floating-mark { display: none; }
   }
   .studio-header-float { top: var(--workspace-viewport-top, 0px); }
   .studio-header-float > button,
-  .studio-header-float > div > button {
+  .studio-header-float > div > button,
+  .studio-agent-job-inbox > button {
     height: 40px;
     min-width: 40px;
     min-height: 40px;
