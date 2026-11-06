@@ -2,6 +2,7 @@ import {
   EMAIL_MAX_LENGTH,
   isSessionRefreshRequestKey,
   isValidEmailAddress,
+  isValidPassword,
   isValidUsername,
   normalizeUsername,
   PASSWORD_MAX_LENGTH,
@@ -17,6 +18,7 @@ import { passwordEntryAllowed, registrationEntryAllowed } from '../lib/auth-orig
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { clientAddress } from '../lib/http'
 import { log } from '../lib/logger'
+import { requestPasswordReset, resetPassword } from '../lib/password-reset'
 import { createRateLimiter, createWindowLimiter } from '../lib/rate-limit'
 import {
   issueRegistrationVerification,
@@ -108,6 +110,58 @@ const passwordChangeLimiter = createRateLimiter({
 })
 
 export const userAuthRoutes = new Elysia()
+  .post(
+    '/api/auth/password-reset/request',
+    async ({ body, request, server, status }) => {
+      if (
+        !isCapabilityEnabled('accounts:login') ||
+        !isCapabilityEnabled('accounts:email-verification')
+      ) {
+        return capabilityUnavailable('accounts:email-verification')
+      }
+      if (!passwordEntryAllowed(request)) return status(403, { error: 'login_method_unavailable' })
+      const email = normalizeUsername(body.email)
+      if (!isValidEmailAddress(email)) return status(400, { error: 'invalid_username' })
+      const key = clientAddress(request, server?.requestIP(request)?.address ?? null)
+      if (verificationSourceLimiter.over(key, 5) || verificationEmailLimiter.over(email, 3)) {
+        return status(429, { error: 'rate_limited' })
+      }
+      try {
+        await requestPasswordReset(email)
+      } catch {
+        return status(503, { error: 'email_delivery_failed' })
+      }
+      return { ok: true }
+    },
+    { body: t.Object({ email: t.String({ minLength: 1, maxLength: EMAIL_MAX_LENGTH }) }) },
+  )
+  .post(
+    '/api/auth/password-reset/confirm',
+    async ({ body, status }) => {
+      if (
+        !isCapabilityEnabled('accounts:login') ||
+        !isCapabilityEnabled('accounts:email-verification')
+      ) {
+        return capabilityUnavailable('accounts:email-verification')
+      }
+      if (!isValidPassword(body.password)) return status(400, { error: 'invalid_password' })
+      try {
+        await resetPassword(body.token, body.password)
+      } catch (error) {
+        if (error instanceof Error && error.message === 'invalid_password_reset') {
+          return status(400, { error: 'invalid_password_reset' })
+        }
+        throw error
+      }
+      return { ok: true }
+    },
+    {
+      body: t.Object({
+        token: t.String({ minLength: 1, maxLength: 256 }),
+        password: t.String({ minLength: 1, maxLength: PASSWORD_MAX_LENGTH }),
+      }),
+    },
+  )
   .use(resolveAuthUser)
   .post(
     '/api/auth/register/verification',
