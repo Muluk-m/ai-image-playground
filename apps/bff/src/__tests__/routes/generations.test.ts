@@ -146,7 +146,10 @@ it('另一设备能发现新图片任务，其他用户不能读取', async () =
   expect(await (await request('/api/generations', stranger)).json()).toMatchObject({ items: [] })
 })
 
-it.each([true, false])('replays old and new prompt representations as one command with no_rewrite=%s', async (no_rewrite) => {
+it.each([
+  true,
+  false,
+])('replays old and new prompt representations as one command with no_rewrite=%s', async (no_rewrite) => {
   const prefix = 'Use the following text as the complete prompt. Do not rewrite it:\n'
   const legacy = { ...input, prompt: no_rewrite ? prefix + input.prompt : input.prompt }
   const modern = { ...input, no_rewrite }
@@ -157,7 +160,8 @@ it.each([true, false])('replays old and new prompt representations as one comman
   expect(replay.status).toBe(200)
   expect(await replay.json()).toMatchObject({ request_id })
   const changed = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, {
-    ...modern, no_rewrite: !no_rewrite,
+    ...modern,
+    no_rewrite: !no_rewrite,
   })
   expect(changed.status).toBe(409)
   expect((await (await request('/api/generations', deviceB)).json()).items).toHaveLength(1)
