@@ -1,7 +1,7 @@
 # 在一个部署里打开智能体
 
 `agent:chat` deny by default，13 张实施票合并后它仍然是关的。这份文档是把它打开的可重复步骤，
-2026-09-14 首次在 tx-vps 的 `image-playground-paid`（muvloom 项目）与 `image-playground-internal`（qlj 项目）上按此执行。
+历史首次执行记录：2026-09-14 在 tx-vps 的 `image-playground-paid`（muvloom 项目）与 `image-playground-internal`（当时的 qlj 项目）上执行。当前只维护 muvloom 生产（`paid`）与隔离测试（`test`）；企业域名共用生产后端，不单独启用能力。
 
 改的全是部署侧的配置，**不改代码、不重新构建镜像**。只要镜像里已经有智能体代码（合并于 PR #345 之前），
 照此走一遍即可。
@@ -145,12 +145,12 @@ supported」，是确定性错误因而不重试，三次就把熔断器打开�
 
 `agent:turn-model-parallelism` 控制智能体同一轮里、同一模型最多同时跑几条生成，默认 1（一律串行）。
 channels.json 声明了并发上限的模型（如 Vertex 的三个）不受它影响，始终一次一条；账号并发和 worker
-并发照旧在后面把关。按测试环境 → qlj 站 → muvloom 站逐个放开，例如 `"agent:turn-model-parallelism": 3`；
+并发照旧在后面把关。先在测试环境验收，再在共享 muvloom 生产后端放开，例如 `"agent:turn-model-parallelism": 3`；
 放开后看上游 429 与重试有没有变多，出问题改回 1 再 `app-compose.sh up` 即可，不用回滚发版。
 旧版本不认识这个键会拒绝启动，**只能在包含它的版本上线之后再写进配置**。
 它管不到账号并发。muvloom 版（加载私有计费层）里，账号并发取套餐的 `max_concurrent_tasks`，没有订阅时是 1，
 同一时间只跑一张，配多大都看不到并行，只有套餐并发上限大于 1 的会员才会受益；在测试环境验证并行时要用这类账号。
-免费部署没有计费层，账号并发按默认值 3，不受订阅影响。
+不带私有计费层的公开树自部署按默认账号并发 3，不受订阅影响；这不是当前企业域名的独立部署形态。
 
 ### 联网工具没有开关
 
@@ -288,9 +288,9 @@ console.log(await o.taskHooks.chatPricing("<对话模型>"));
 1. **服务端留一版兼容**：新形式为主，旧形式继续接受，下一版再拆。多数情况下这是单行改动，
    优先选它——开着的标签页不会坏，回滚也不用前后端协调。
 2. **带更新提示发布**：在 `pages.env` 里给这一版打开
-   `INTERNAL_NOTIFY_UPDATE=true` / `PAID_NOTIFY_UPDATE=true`（直接跑 `scripts/pages-deploy.sh`
-   时是 `NOTIFY_UPDATE=true`），开着的标签页立刻看到更新提示。顺序是**先发服务端再发前端**，
-   这中间旧前端已经在被拒了，窗口越短越好；发完把这两个键改回注释掉，免得下一次静默发布
+   `PAID_NOTIFY_UPDATE=true`（测试为 `TEST_NOTIFY_UPDATE=true`；直接跑 `scripts/pages-deploy.sh`
+   时是 `NOTIFY_UPDATE=true`），共享生产 Pages 的所有域名会收到同一更新提示。顺序是**先发服务端再发前端**，
+   这中间旧前端已经在被拒了，窗口越短越好；发完把相应键改回注释掉，免得下一次静默发布
    变成每次都弹提示。
 
 默认的静默发布只适用于向后兼容的改动。前端这边 `openConversation` 现在只在 404 / 403 时忘掉

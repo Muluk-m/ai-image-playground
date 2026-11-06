@@ -10,11 +10,11 @@
 
 ## 部署与灾备
 
-- **生产：Pages + VPS，合并 main 即由 GitHub Actions（`.github/workflows/deploy.yml`）部署：镜像在 Actions 构建、经私有 GHCR 按 digest 拉到 VPS；只更新共享 muvloom 后端，再按需发布一个多域名 muvloom Pages 项目和 Admin（见[发布手册](docs/agents/release.md)「三」）。旧 qlj 后端与 Pages 项目冻结，企业域名迁入需单独批准。会话只合并到 main，不手动发布；手动发布（macmini2 构建）仅作应急。** VPS 只接收镜像，不安装构建依赖或编译。公开提交通过 PR/main CI，私有 overlay 固定到已验证提交；使用独立检出、既有构建锁和发布锁。
-- 前端单项目多域名、企业域名迁移、后端发布、排空、回滚与验收按[部署手册](docs/deploy/image-release.md)。不得强停在途执行器；迁移须兼容新旧版本。验收 API、登录和业务数据后才报告完成。
+- **生产：Pages + VPS，合并 main 即由 GitHub Actions（`.github/workflows/deploy.yml`）部署：镜像在 Actions 构建、经私有 GHCR 按 digest 拉到 VPS；只更新共享 muvloom 后端，再按需发布一个多域名 muvloom Pages 项目和 Admin（见[发布手册](docs/agents/release.md)「三」）。企业域名与 muvloom 共用前后端，登录方式按 origin 决定。会话只合并到 main，不手动发布；手动发布（macmini2 构建）仅作应急。** VPS 只接收镜像，不安装构建依赖或编译。公开提交通过 PR/main CI，私有 overlay 固定到已验证提交；使用独立检出、既有构建锁和发布锁。
+- 前端单项目多域名、后端发布、排空、回滚与验收按[部署手册](docs/deploy/image-release.md)。不得强停在途执行器；迁移须兼容新旧版本。验收 API、登录和业务数据后才报告完成。
 - **改迁移编号前先查两个库已经跑过哪些迁移。** 重新编号、改名或调整 `packages/db/drizzle` 的顺序之前，先确认测试库和生产库的 `drizzle.__drizzle_migrations` 已应用到哪一条，与 `meta/_journal.json` 的 `when` 对照：drizzle 按时间戳判断哪些还没跑，已应用的迁移被改号或挪位，会被跳过或重复执行（2026-10-27 测试环境发布因此中断过）。生产库不能自己查（见[生产只读排查](docs/agents/prod-readonly.md)），请 Nain 查或看发布日志里的迁移输出；已在任一库应用过的迁移不改号，新加一条。带迁移的 PR 按时间戳先后合并：`runMigrations` 发现时间戳不晚于库中最新一条却没跑过的迁移会直接报错、中止发布，不再被 drizzle 静默跳过；真遇到时，核实后手工执行报出的迁移，再按它的 sha256 与 journal `when` 补一行 `drizzle.__drizzle_migrations`。
 - **测试环境**：推 `test` 分支由 `.github/workflows/deploy-test.yml` 先发布独立测试后端（`image-playground-test`，独立数据库与 R2 桶），再发布 https://test.muvloom.online；前端固定连 `https://test-api.muvloom.online`，不读写生产数据。前后端使用同一公开提交与 `private.lock` 钉住的 overlay。test 落后 main 会直接失败，把 main 合进 test 再推；别在 `test` 上直接改代码。细节见[测试环境手册](docs/deploy/test-environment.md)。
-- 前端发布只用 `scripts/pages-release.sh muvloom|test|admin`（qlj 域名与 muvloom 同属 muvloom 项目，一个项目、多个域名）；各目标的 Pages 项目与域名写在仓库外的 `pages.env`（默认 `$XDG_CONFIG_HOME/ai-image-playground/pages.env`，可用 `PAGES_ENV_FILE` 覆盖）。现存 `PAID_*` / `INTERNAL_*` 配置键与 VPS 目标名保留，映射和迁移边界见[部署手册](docs/deploy/image-release.md#产品命名与现存标识)。不要直接调底层 `scripts/pages-deploy.sh`——漏掉分支参数曾把未合并分支发到生产。
+- 前端发布只用 `scripts/pages-release.sh muvloom|test|admin`（企业域名与 muvloom 同属 muvloom 项目，一个项目、多个域名）；各目标的 Pages 项目与域名写在仓库外的 `pages.env`（默认 `$XDG_CONFIG_HOME/ai-image-playground/pages.env`，可用 `PAGES_ENV_FILE` 覆盖）。现存 `PAID_*` 配置键和 VPS `paid` 目标连接共享生产资源；企业域名使用 `ENTERPRISE_PUBLIC_ORIGIN` / `ENTERPRISE_BFF_BASE_URL`，配置切换与固定 runtime 更新见[部署手册](docs/deploy/image-release.md#产品与现存标识)。不要直接调底层 `scripts/pages-deploy.sh`——漏掉分支参数曾把未合并分支发到生产。
 - 灵感库（探索页素材流）批量下架、新增、回滚与验收按[灵感库维护手册](docs/deploy/inspiration-maintenance.md)；灵感图只传 `cms-r2.deepclick.com`。
 - **Agent 发布按[发布手册](docs/agents/release.md)**：合并前检查、`test` 只用 fetch 加快进推送、生产与私有 overlay 发布、上线核对和回滚。生产发布（功能或行为变更）、回滚、迁移、私有仓合并要 Nain 批准，表格见该手册。查生产问题默认只读，能做和禁止的操作见[生产只读排查](docs/agents/prod-readonly.md)。
 - 灾备采用[R2 按需冷恢复](docs/deploy/cold-recovery.md)；macmini2 旧备用已停止。固定 API 切换和跨机器单写者保护尚未上线，恢复演练或同库发布排空都不算完整灾备。

@@ -1,22 +1,21 @@
 # 私有 overlay 与版本模型
 
-改到 `private/`、三个 overlay 接缝或宿主面、`private.lock`、`pnpm-lock.yaml`、私有迁移，或 muvloom/免费构建差异时读本文。根 `AGENTS.md` 只保留摘要。
+改到 `private/`、三个 overlay 接缝或宿主面、`private.lock`、`pnpm-lock.yaml`、私有迁移，或公开树与带 overlay 构建差异时读本文。根 `AGENTS.md` 只保留摘要。
 
 ## 版本模型与分支
 
-**服务端只有一套。** `apps/bff`、`apps/admin` 服务端、`packages/db` 同时兼容 muvloom 与免费部署：
-能力注册表 deny by default，由运营配置 `operator-config.json` 决定开哪些能力，代码不分版本。
+**生产服务端只有一套 muvloom runtime。** `apps/bff`、`apps/admin` 服务端、`packages/db` 的能力注册表 deny by default，由运营配置 `operator-config.json` 决定开哪些能力。企业域名使用同一套后端，以 origin 配置登录策略。
 
-**muvloom 与免费的区别只在前端构建参数。** 构建时带上私有 overlay 就是 muvloom 形态，不带就是免费形态：
+**overlay 是构建输入。** 生产与独立测试均带私有 overlay；公开树仍须在没有 overlay 时独立通过检查和构建，供开源、自部署与 CI 使用，不代表第二个受管生产部署。
 
-- 生产镜像由部署 workflow 执行 `./scripts/build-vps-release.sh paid <目录>` 构建，带入 `private.lock` 钉住的 overlay 提交，并保留 backup 与 segmenter 镜像；已冻结的 qlj 镜像不再构建。应急时在 macmini2 手动执行同一脚本，当前生产范围同样使用 `paid`；`internal`/`all` 仅保留兼容能力，使用前须单独批准。
+- 生产 workflow 执行 `./scripts/build-vps-release.sh paid <目录>`，带入 `private.lock` 钉住的 overlay 提交，并保留 backup 与 segmenter 镜像；应急时在 macmini2 执行同一脚本。后端只支持 `paid`（生产）和 `test`（隔离测试）两个目标；测试包不携带 segmenter。
 
-**分支：** `main` 是唯一长期分支，所有改动开 PR 直合 main，没有其他长期分支。
+**分支：** `main` 是唯一长期开发分支，所有改动开 PR 直合 main。`test` 是独立发布分支，只承接待验收提交，不回流开发分支。
 
-**形态由构建输入决定，不由分支决定：**
+**构建输入与部署环境：**
 
-- muvloom = `main` + 仓库根 `private/` overlay（来源 `Muluk-m/ai-image-playground-private`，clone 到 `private/`）+ 仓库外 env 文件
-- 免费 = `main` 不带 overlay
+- muvloom 生产与测试 = 同组公开提交 + 仓库根 `private/` overlay（来源 `Muluk-m/ai-image-playground-private`，提交由 `private.lock` 固定）+ 各自仓库外 env 文件与数据资源。
+- 公开树构建 = 不带 overlay 的开源 / 自部署产物与 CI 检查，不是企业域名的独立版本。
 
 ## 接缝与宿主面
 

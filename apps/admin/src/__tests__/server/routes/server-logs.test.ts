@@ -158,6 +158,7 @@ describe('authenticated server log explorer', () => {
     expect(result.entries.every((entry) => entry.level === 'error')).toBe(true)
     expect((await request('&stream=bad')).status).toBe(400)
     expect((await request('&deployment=bad')).status).toBe(400)
+    expect((await request('&deployment=internal')).status).toBe(400)
   })
   it('reads at most 50 neighbors on each side from the selected container', async () => {
     const url = 'http://localhost/api/ops/logs/context?id=entry-050'

@@ -51,7 +51,7 @@ flowchart LR
 - **VPS 手工步骤**（一次性，按顺序）：`cloudflared tunnel route dns image-playground-paid admin-api.muvloom.online` → ingress 加行 → `docker restart image-playground-paid-cloudflared-1` → `app.env` 加 `ADMIN_FRONTEND_ORIGIN` / `ADMIN_CORS_ALLOWED_ORIGINS`，改 `ADMIN_PUBLIC_ORIGIN`，清空 `ADMIN_DIST_DIR` → `app-compose.sh compose image-playground-paid up --detach --no-deps admin` → 验证 `https://admin-api.muvloom.online/health` → Pages 项目建好并首发 → DNS 把 `admin.muvloom.online` 切到 Pages，删 ingress 旧行 → 浏览器验证登录、任务图片、私有计费面板。Cloudflare Access 两个域名都要覆盖。
 - **回滚**：DNS 切回 tunnel + 恢复 ingress 行，并删除 `app.env` 里的 `ADMIN_DIST_DIR`（不能留空，让镜像内 `/app/apps/admin/dist` 默认值生效）；镜像保留一版带 dist 的 admin 到切换验证完成。
 
-qlj 版（`image-playground-internal`）的后台域名不在仓库里，本轮只拆 muvloom 版；脚本按 edition 参数化，qlj 版随时可加。
+当前只维护 muvloom 生产后台，企业网页 origin 共用 muvloom 后端；隔离测试环境不因此新增第二个生产后台。现行发布与恢复流程见[部署手册](../deploy/image-release.md)。
 
 ## 3. 后台 v2 信息架构
 

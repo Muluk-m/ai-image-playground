@@ -249,25 +249,22 @@ Google 的 client ID / secret、私有 provider 配置及真实业务值只留�
    **缺少 provider 侧新回调 allowlist 是切换阻塞项**；代码配置只能校验 origin 格式，不能证明
    管理台已允许该 URL。新别名未加入 BFF allowlist 时还会回退主回调主机，丢失原主机的 state cookie。
 
-**共享后端不等于跨站调用。** qlj 前端的 Pages 配置应指向
+**共享后端不等于跨站调用。** 企业前端的 Pages 配置应指向
 `https://enterprise-api.example.net`，muvloom 前端指向 `https://muvloom-api.example.com`；两者最终进入
-同一 BFF。会话 cookie 是 host-only、`SameSite=Lax`：qlj 前端若直接请求另一注册域的 muvloom API，
+同一 BFF。会话 cookie 是 host-only、`SameSite=Lax`：企业前端若直接请求另一注册域的 muvloom API，
 跨站 fetch 不会携带 cookie，即使 CORS 允许且使用 `credentials: include` 也无效。
 OAuth start、callback 和后续 API 请求应保持同一 API 主机；不同主机上的旧会话不会自动转移。
 不要用放宽 CORS、cookie Domain 或改成 `SameSite=None` 代替同站路由设计。
 
-### qlj 前端与冻结的旧 qlj 后端
+### 企业域名与共享部署
 
-qlj 域名迁入共享 muvloom Pages 项目后，由 CI 通过 `pages-release.sh muvloom` 随同一份 overlay-enabled
-构建产物发布，以按 host 生效的响应头禁止搜索索引；迁入前仍由冻结的旧 qlj Pages 项目服务。
-仓库外的 `PAGES_ENV` 保留 `PAID_*` 项目配置；`INTERNAL_PUBLIC_ORIGIN` / `INTERNAL_BFF_BASE_URL`
-只用于 qlj 域名的第一方 API 映射与 noindex 配置，后者指向共享 BFF 的同站 API 别名，而非旧 qlj 后端。
-域名迁入需单独批准，按[部署手册](../../docs/deploy/image-release.md#企业域名迁入-muvloom-pages-项目一次性)执行；不要手工上传替代 CI。
-
-旧 qlj BFF / worker / Admin 与其数据库、对象存储保持冻结，不因 qlj Pages 发布而覆盖、
-重建或停用；`deploy/app.qlj.env.example` 仅作为旧部署参考。共享 BFF 配置见
-`deploy/app.muvloom.env.example`。这是前端 / API 路由切换，**不代表旧 qlj 账号、会话、任务或资产
-已经迁移**，也不应通过替换旧数据库 URL 或存储凭据来实现共享后端。
+企业域名与 muvloom 共用 Pages 项目和后端，由 CI 通过 `pages-release.sh muvloom` 发布同一份
+overlay-enabled 构建产物；企业域名使用按 host 生效的 noindex 响应头。
+仓库外 `PAGES_ENV` 的 `PAID_*` 配置共享项目，`ENTERPRISE_PUBLIC_ORIGIN` /
+`ENTERPRISE_BFF_BASE_URL` 配置企业域名的第一方 API 映射；切换配置键与固定 runtime 的要求见
+[部署手册](../../docs/deploy/image-release.md#仓库外更新前提)。后端配置见
+`deploy/app.muvloom.env.example`。域名路由与历史账号、会话、任务、资产的数据迁移分别验收，
+不能通过替换数据库 URL 或存储凭据来迁移业务数据。
 ## 本地开发
 
 ```bash

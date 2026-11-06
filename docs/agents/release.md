@@ -61,11 +61,11 @@ git push origin HEAD:test
 合并 `main` 就是发生产，不需要也不应该再手动发布：
 
 1. `main` 上的 `Web checks` 通过后，`.github/workflows/deploy.yml`（Deploy production）经 `workflow_run` 自动开始，同一时间只跑一单（并发组 `production-deploy`）。
-2. `target` 判定哪些部分要发（共享 muvloom API、muvloom Pages 项目、Admin）；产品前端只扫描 `PAID_PUBLIC_ORIGIN`，旧 qlj Pages 不再补发。已在跑后代提交的部分不回退；`release` 打 `vMAJOR.MINOR.PATCH` 标签。
-3. **后端只构建和发布 muvloom runtime。** `backend` 在 Actions 用 `build-vps-release.sh paid` 构建公开树加私有 overlay 的发布镜像，以及 backup、segmenter 配套镜像，经 SSH 受限命令执行 `deploy <id> paid <run>`；`rollout-runtime.sh` 先跑兼容迁移，再做新旧两代排空切换。旧 qlj 镜像不再构建；旧后端、容器和数据保持现状，不再参与发布或验收，不能覆盖或停止。
-4. `pages-muvloom`（显示名 `Pages (muvloom project, every product domain)`）只发布一个 muvloom Pages 项目：一个项目、多个域名（`muvloom.online`、`image.nainma.online`、企业域名 `image-playground.qiliangjia.one`）。`pages-release.sh muvloom` 把 `INTERNAL_PUBLIC_ORIGIN → INTERNAL_BFF_BASE_URL` 并入 `baseUrlsByOrigin`，并给企业域名加 host 级 `X-Robots-Tag: noindex`。API 本次发布时，先等共享 muvloom API 与企业 API hostname `/health` 报出新版本，再发布并跑 Chromium 验收；企业域名是否已迁入按 muvloom 项目的 Cloudflare 自定义域名列表判断：已迁入时同样验收且失败即失败，未迁入只告警。`admin-pages` 保留对 `pages-muvloom` 的成功 / 跳过依赖。
-   - 企业站继续使用 `INTERNAL_BFF_BASE_URL` 的第一方 hostname，不能直接配置为跨站 muvloom API，否则 `SameSite=Lax` cookie 登录失效。登录方式由后端 `AUTH_LOGIN_METHODS_BY_ORIGIN` 按 origin 决定（企业域名只飞书，muvloom 邮箱 + Google），前端不按域名分支。旧 qlj Pages 项目与数据冻结，不再发布。
-   - 只改前端时，`pages-muvloom` 允许 backend job 跳过；只改后端时，backend 直接发布 shared muvloom API。Pages 与 Admin 都使用 muvloom 令牌，不读取旧 qlj 令牌。企业域名迁入前仍是冻结的旧前端，后端登录策略正确不代表旧界面会隐藏密码表单；迁移前提、停机窗口与验收见[部署手册](../deploy/image-release.md#企业域名迁入-muvloom-pages-项目一次性)。浏览器启动冒烟不替代真实登录与业务验收。
+2. `target` 判定哪些部分要发（共享 muvloom API、muvloom Pages 项目、Admin）；产品前端扫描 `PAID_PUBLIC_ORIGIN`，同一项目的全部产品域名随之更新。已在跑后代提交的部分不回退；`release` 打 `vMAJOR.MINOR.PATCH` 标签。
+3. **后端只构建和发布 muvloom runtime。** `backend` 在 Actions 用 `build-vps-release.sh paid` 构建公开树加私有 overlay 的发布镜像，以及 backup、segmenter 配套镜像，经 SSH 受限命令执行 `deploy <id> paid <run>`；`rollout-runtime.sh` 先跑兼容迁移，再做新旧两代排空切换。生产目标只有 `paid`，隔离测试目标为 `test`。
+4. `pages-muvloom`（显示名 `Pages (muvloom project, every product domain)`）只发布一个 muvloom Pages 项目：一个项目、多个域名（`muvloom.online`、`image.nainma.online`、企业域名 `image-playground.qiliangjia.one`）。`pages-release.sh muvloom` 把 `ENTERPRISE_PUBLIC_ORIGIN → ENTERPRISE_BFF_BASE_URL` 并入 `baseUrlsByOrigin`，并给企业域名加 host 级 `X-Robots-Tag: noindex`。API 本次发布时，先等共享 muvloom API 与企业 API hostname `/health` 报出新版本，再发布并跑 Chromium 验收；企业域名在 muvloom 项目的 Cloudflare 自定义域名列表中时同样验收且失败即失败，未绑定只告警，不能据此宣称企业站已交付。`admin-pages` 保留对 `pages-muvloom` 的成功 / 跳过依赖。
+   - 企业站使用 `ENTERPRISE_BFF_BASE_URL` 的第一方 hostname，不能直接配置为跨站 muvloom API，否则 `SameSite=Lax` cookie 登录失效。登录方式由后端 `AUTH_LOGIN_METHODS_BY_ORIGIN` 按 origin 决定（企业域名只飞书，muvloom 邮箱 + Google），前端不按域名分支。
+   - 只改前端时，`pages-muvloom` 允许 backend job 跳过；只改后端时，backend 直接发布共享 muvloom API。Pages 与 Admin 都使用 muvloom 令牌。GitHub `PAGES_ENV`、仓库外 `pages.env` 的企业键名，以及 VPS 固定 receiver/runtime 必须配套更新，见[部署手册](../deploy/image-release.md#仓库外更新前提)。域名与 API 别名的维护及真实登录验收见[企业域名与 API 别名](../deploy/image-release.md#企业域名与-api-别名)。浏览器启动冒烟不替代真实登录与业务验收。
    - 失败后的重跑：同一发布 ID 已接收后只能按失败 job 重跑，不能重跑整单，避免同一发布目录冲突。重跑本身需 Nain 批准。
 
 Agent 合并后只跟进这个 workflow 的结果，失败就看日志处理，不手动补发。手动重跑 Deploy production 或走应急手动发布要 Nain 批准。
@@ -87,7 +87,7 @@ curl -fsS https://api.muvloom.online/health
 curl -fsS https://image-api.qiliangjia.one/health
 curl -fsS https://test-api.muvloom.online/health
 
-# 网页：迁入后企业与 muvloom 共用同一 version；迁入前企业站仍为旧版本，不能据此宣称迁移验收通过
+# 网页：企业与 muvloom 共用同一 version；版本相同不替代登录与业务验收
 curl -fsS https://muvloom.online/version.json
 curl -fsS https://image-playground.qiliangjia.one/version.json
 curl -fsS https://admin.muvloom.online/version.json
@@ -137,4 +137,4 @@ curl -fsS https://test.muvloom.online/version.json
   ```
 
   `app.env` 是 compose 的 `env_file`，改完要重建（`./scripts/app-compose.sh up <project>`），`restart` 不会重读；重建也要 Nain 批准。恢复就把备份拷回去再重建。完整步骤见[智能体上线手册](../deploy/agent-rollout.md)第二节与回滚一节。
-- **segmenter 全局只有一个实例** `image-playground-segmenter`，qlj 版、muvloom 版、测试环境共用。只有生产发布会 `up` 它；测试发布只 `attach`，从不构建、启动或替换。不要为某个环境单独起一份，也不要手动 `up`、`rollback`、`detach`。见 `scripts/segmenter-deploy.sh` 开头的说明和 [deploy/segmenter/README.md](../../deploy/segmenter/README.md)。
+- **segmenter 全局只有一个实例** `image-playground-segmenter`，muvloom 生产与测试环境共用。`SEGMENTER_EDITIONS` 仅支持 `paid` / `test`。只有生产发布会 `up` 它；测试发布只 `attach`，从不构建、启动或替换。不要为某个环境单独起一份，也不要手动 `up`、`rollback`、`detach`。见 `scripts/segmenter-deploy.sh` 开头的说明和 [deploy/segmenter/README.md](../../deploy/segmenter/README.md)。
