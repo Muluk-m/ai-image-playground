@@ -92,6 +92,19 @@ describe('loadRuntimeConfig', () => {
     expect(getRuntimeConfig()).toEqual(VALID_CONFIG)
   })
 
+  it('propagates connection loss while reading a successful response body', async () => {
+    await loadRuntimeConfig(mockFetch(200, VALID_CONFIG))
+    const response = new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.error(new DOMException('The operation was aborted', 'AbortError'))
+        },
+      }),
+    )
+    await expect(loadRuntimeConfig(async () => response)).rejects.toThrow('aborted')
+    expect(getRuntimeConfig()).toEqual(VALID_CONFIG)
+  })
+
   it.each([
     403, 429, 500, 502, 503, 504,
   ])('rejects HTTP %i so startup can offer a retry', async (status) => {
