@@ -50,9 +50,8 @@ case "$mode" in
     }
     validate "$input/app.env" app.env
     validate "$input/migrate.env" migrate.env
-    for production in image-playground-paid image-playground-internal; do
-      validate "$(dirname "$input")/$production/app.env" "$production app.env"
-    done
+    production_env=$(dirname "$input")/image-playground-paid/app.env
+    validate "$production_env" 'production app.env'
     for name in APP_DATABASE_URL ADMIN_DATABASE_URL; do
       setting=$(value "$input/app.env" "$name")
       case "$name:$setting" in
@@ -73,11 +72,7 @@ case "$mode" in
       setting=$(value "$input/app.env" "$name")
       [ -n "$setting" ] || reject "$name is missing"
       case "$setting" in *replace-* ) reject "$name is a placeholder" ;; esac
-      for production in image-playground-paid image-playground-internal; do
-        source_file=$(dirname "$input")/$production/app.env
-        [ -r "$source_file" ] || reject 'production configuration must be readable for isolation comparison'
-        [ "$setting" != "$(value "$source_file" "$name")" ] || reject "$name reuses a production credential"
-      done
+      [ "$setting" != "$(value "$production_env" "$name")" ] || reject "$name reuses a production credential"
     done
     ;;
   *) reject 'unknown check mode' ;;

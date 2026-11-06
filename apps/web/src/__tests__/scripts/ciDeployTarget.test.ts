@@ -6,12 +6,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 /**
  * 部署 workflow 的第一步：只发布 origin/main 的最新提交，且永不回退到线上已有提交的祖先。
- * 每一边各自和自己线上的提交比：共享 paid API 读 /health，内部站、收费站与 Admin 站读 /version.json。
+ * 每一边各自和自己线上的提交比：共享 muvloom API 读 /health，muvloom Pages 项目与 Admin 站读 /version.json。
  * 这里用真实 git 历史与假 curl，只看写进 GITHUB_OUTPUT 的决定。
  */
 const script = resolve(__dirname, '../../../../../scripts/ci-deploy-target.sh')
 const paidApi = 'https://api.example.net'
-const internalSite = 'https://image.example.com'
+const enterpriseSite = 'https://enterprise.example.com'
 const paidSite = 'https://paid.example.net'
 const adminSite = 'https://admin.example.net'
 const overlay = 'f'.repeat(40)
@@ -50,7 +50,7 @@ function serve(bodies: Record<string, string>) {
 }
 
 const health = (version: string) => JSON.stringify({ ok: true, version })
-/** Both production sites carry the public commit, private overlay, and build time. */
+/** Production sites carry the public commit, private overlay, and build time. */
 const manifest = (commit: string, withOverlay = false) =>
   JSON.stringify({
     version: `${commit.slice(0, 7)}${withOverlay ? `+${overlay.slice(0, 7)}` : ''}-20261017T090303Z`,
@@ -61,7 +61,6 @@ const manifest = (commit: string, withOverlay = false) =>
 function serveSides({ api, web, admin }: { api: string; web: string; admin: string }) {
   serve({
     [`${paidApi}/health`]: health(`${api}+${overlay}`),
-    [`${internalSite}/version.json`]: manifest(web, true),
     [`${paidSite}/version.json`]: manifest(web, true),
     [`${adminSite}/version.json`]: manifest(admin, true),
   })
@@ -72,7 +71,7 @@ const result = (api: boolean, web: boolean, admin: boolean) =>
 const nothing = result(false, false, false)
 const everything = result(true, true, true)
 
-function decide(target: string, event = 'workflow_run') {
+function decide(target: string, event = 'workflow_run', webOrigins = `${paidSite}/`) {
   const output = join(root, 'output')
   writeFileSync(output, '')
   const run = spawnSync('sh', [script, target, event, `${paidApi}/`], {
@@ -80,7 +79,7 @@ function decide(target: string, event = 'workflow_run') {
     env: {
       ...env,
       GITHUB_OUTPUT: output,
-      WEB_ORIGINS: `${internalSite} ${paidSite}/`,
+      WEB_ORIGINS: webOrigins,
       ADMIN_ORIGIN: adminSite,
     },
     encoding: 'utf8',
@@ -165,7 +164,7 @@ describe('ci-deploy-target.sh', () => {
     expect(log).toContain(`admin bundle (Admin site) unchanged since ${previous}`)
   })
 
-  it('ships the API when the release receiver changes, so the VPS actually runs the new copy', () => {
+  it('ships the API when the VPS deployment protocol changes', () => {
     const previous = commits[2]
     const tip = commitOnTip('scripts/vps-deploy.sh', '#!/bin/sh\n')
     serveSides({ api: previous, web: previous, admin: previous })
@@ -173,7 +172,7 @@ describe('ci-deploy-target.sh', () => {
     expect(decision).toBe(result(true, false, false))
   })
 
-  it('ships the API when only the segmenter deploy script changes, since the release carries it', () => {
+  it('ships the API when the segmenter deployment protocol changes', () => {
     const previous = commits[2]
     const tip = commitOnTip('scripts/segmenter-deploy.sh', '#!/bin/sh\n')
     serveSides({ api: previous, web: previous, admin: previous })
@@ -233,11 +232,11 @@ describe('ci-deploy-target.sh', () => {
     const tip = commitOnTip('apps/bff/src/index.ts', 'export {}\n')
     serve({
       [`${paidApi}/health`]: health(`${previous}+${overlay}`),
-      [`${internalSite}/version.json`]: manifest(previous),
+      [`${enterpriseSite}/version.json`]: manifest(previous),
       [`${paidSite}/version.json`]: manifest(commits[1], true),
       [`${adminSite}/version.json`]: JSON.stringify({ notify: false }),
     })
-    const { decision, log } = decide(tip)
+    const { decision, log } = decide(tip, 'workflow_run', `${enterpriseSite} ${paidSite}/`)
     expect(decision).toBe(everything)
     expect(log).toContain(
       `::warning::${paidSite} runs ${commits[1]} while another copy runs ${previous}`,
@@ -253,22 +252,17 @@ describe('ci-deploy-target.sh', () => {
     expect(log).toContain(`::warning::${paidApi} reports no commit version`)
   })
 
-  it('releases a stale internal frontend when paid and Admin already serve the target', () => {
+  it('releases the web bundle when a configured copy is stale and the other sides are current', () => {
     const previous = commits[2]
     const tip = commitOnTip('apps/web/src/main.tsx', 'export {}\n')
     serve({
       [`${paidApi}/health`]: health(`${tip}+${overlay}`),
-      [`${internalSite}/version.json`]: manifest(previous),
+      [`${enterpriseSite}/version.json`]: manifest(previous),
       [`${paidSite}/version.json`]: manifest(tip, true),
       [`${adminSite}/version.json`]: manifest(tip, true),
     })
-    expect(decide(tip).decision).toBe(result(false, true, false))
-  })
-
-  it('does not consult the frozen internal backend when every managed target is current', () => {
-    serveSides({ api: commits[2], web: commits[2], admin: commits[2] })
-    const { decision, log } = decide(commits[2])
-    expect(decision).toBe(nothing)
-    expect(log).not.toContain('image-api.example.com')
+    expect(decide(tip, 'workflow_run', `${enterpriseSite} ${paidSite}/`).decision).toBe(
+      result(false, true, false),
+    )
   })
 })

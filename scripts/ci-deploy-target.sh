@@ -55,7 +55,7 @@ lock_changed() {
   node scripts/lock-closure-changed.mjs "$scan_base" "$target" "$@"
 }
 
-# qlj and muvloom sites read this; Admin reads its own list; the shared API reads the last.
+# The shared muvloom Pages project reads this; Admin reads its own list; the API reads the last.
 # admin.muvloom.online is the Pages build of apps/admin; the API image only serves admin-api.
 # shellcheck disable=SC2329 # called through decide
 web_bundle_changed() {
