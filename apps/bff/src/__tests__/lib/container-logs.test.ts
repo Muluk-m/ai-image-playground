@@ -82,6 +82,7 @@ describe('container log records', () => {
     ).toBe('warn')
     expect(level('2026-10-08T03:01:40Z INF Registered tunnel connection', 'stderr')).toBe('info')
     expect(level('[ops] snapshot built in 41ms')).toBe('info')
+    expect(level('WARN [admin] GET /api/error failed: NOT_FOUND', 'stderr')).toBe('warn')
     expect(level('something odd happened', 'stderr')).toBe('warn')
     expect(level('    at callProvider (queue/run.ts:214)', 'stderr')).toBe('warn')
     expect(level('    at Logger.error (/app/error.ts:12:3)', 'stderr')).toBe('warn')
