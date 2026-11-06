@@ -59,7 +59,22 @@ async function start(): Promise<void> {
   // Capabilities and channel discovery share one startup round trip. The channel request can return
   // 401 before login; AuthGate retries it after establishing an authenticated session.
   signalBootStage('runtime-config')
-  const runtime = await loadRuntimeConfig()
+  let runtime: Awaited<ReturnType<typeof loadRuntimeConfig>>
+  try {
+    runtime = await loadRuntimeConfig()
+  } catch {
+    initTheme()
+    const [auth] = await gateModules
+    await localeReady
+    createRoot(document.getElementById('root')!).render(
+      <auth.ProblemScreen
+        title={i18next.t('status.unavailableTitle', { ns: 'auth' })}
+        description={i18next.t('status.unavailableDescription', { ns: 'auth' })}
+        retry={() => window.location.reload()}
+      />,
+    )
+    return
+  }
   configureErrorReporting(runtime.bff.enabled ? runtime.bff.baseUrl : null)
   // 首帧的明暗已由 index.html 里的内联脚本定好；这里接手后续变化。
   initTheme()
