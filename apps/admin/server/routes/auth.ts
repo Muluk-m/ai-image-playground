@@ -1,9 +1,15 @@
 import { timingSafeEqual } from 'node:crypto'
 import { Elysia, t } from 'elysia'
 import { config, getAdminCapabilities } from '../config'
+import { REFRESH_COOKIE_NAME } from '../lib/constants'
 import { clientKey, loginLimiter } from '../lib/login-rate-limit'
 import { requireAuth } from '../lib/middleware'
-import { clearSessionCookie, setSessionCookie } from '../lib/session'
+import {
+  clearSessionCookie,
+  refreshAdminSession,
+  setSessionCookie,
+  setSessionCookies,
+} from '../lib/session'
 
 function eqPassword(a: string, b: string): boolean {
   const ab = Buffer.from(a)
@@ -45,11 +51,22 @@ export const authRoutes = new Elysia()
     google_login: config.google.enabled,
     password_login: !config.google.enabled,
   }))
-  .use(requireAuth)
+  .post('/api/auth/refresh', ({ cookie, set }) => {
+    const refresh = cookie[REFRESH_COOKIE_NAME]?.value
+    const renewed = refreshAdminSession(typeof refresh === 'string' ? refresh : '')
+    if (!renewed) {
+      clearSessionCookie(cookie)
+      set.status = 401
+      return { error: 'unauthorized' }
+    }
+    setSessionCookies(cookie, renewed)
+    return { ok: true, access_expires_at: renewed.accessExpiresAt }
+  })
   .post('/api/logout', ({ cookie }) => {
     clearSessionCookie(cookie)
     return { ok: true }
   })
+  .use(requireAuth)
   .get('/api/me', () => ({
     accounts_login: getAdminCapabilities().accountsLogin,
     accounts_sync: getAdminCapabilities().accountsSync,
