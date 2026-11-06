@@ -13,8 +13,6 @@ import CliConnectionsDialog from '../../../features/cli/CliConnectionsDialog'
 import CliConnectPage from '../../../features/cli/CliConnectPage'
 import {
   AGENT_SETUP_PATH,
-  WORKBUDDY_SETUP_PATH,
-  WORKBUDDY_SKILL_PATH,
   CLI_RELEASE_REF,
   CLI_VERSION,
   CONNECT_AGENTS,
@@ -22,6 +20,8 @@ import {
   manualCommands,
   SESSION_PATH,
   skillInstallCommand,
+  WORKBUDDY_SETUP_PATH,
+  WORKBUDDY_SKILL_PATH,
 } from '../../../features/cli/connectAgents'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 

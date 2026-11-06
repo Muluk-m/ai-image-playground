@@ -84,3 +84,5 @@ apps/bff/skills/*/*/verification
 !cli-go/internal/skill/
 !cli-go/internal/skill/assets/
 !cli-go/internal/skill/assets/**
+!apps/web/workbuddy-skill/
+!apps/web/workbuddy-skill/**
