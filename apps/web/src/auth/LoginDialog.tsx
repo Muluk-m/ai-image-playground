@@ -485,7 +485,11 @@ export function LoginDialog({
                   )}
                 </p>
               ) : null}
-              <AuthConsent plansHref={plansHref} kind="login" />
+              <AuthConsent
+                plansHref={plansHref}
+                kind="login"
+                showPlans={passwordEnabled || registrationEnabled}
+              />
             </div>
           )}
         </div>
