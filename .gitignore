@@ -38,3 +38,6 @@ apps/bff/.verification-runs/
 
 # TanStack Start generated cache
 .tanstack/
+
+# Generated from the canonical CLI Skill during Web builds.
+apps/web/public/cli/muvloom-workbuddy.zip
