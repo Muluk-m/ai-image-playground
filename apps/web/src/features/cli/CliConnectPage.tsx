@@ -251,7 +251,7 @@ export default function CliConnectPage() {
                   t('cliConnect.capabilities.reference.title'),
                   t('cliConnect.capabilities.reference.body'),
                 ],
-                [t('cliConnect.capabilities.quote.title'), t('cliConnect.capabilities.quote.body')],
+                [t('cliConnect.capabilities.jobs.title'), t('cliConnect.capabilities.jobs.body')],
               ].map(([title, body]) => (
                 <li key={title} className="space-y-1 rounded-2xl border border-border bg-card p-4">
                   <p className="text-title-sm">{title}</p>
