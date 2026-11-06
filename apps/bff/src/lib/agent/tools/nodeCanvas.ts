@@ -1174,66 +1174,88 @@ export const runStoryboardVideos = defineAgentTool({
     await context.assertExecution?.()
     let targets: string[] = []
     let authorization: StageAuthorization | undefined
-    await proposing(() => executeCanvasCommand(
-      userId,
-      project.id,
-      { turnId: context.turnId, toolCallId: callId, label: '铺视频与时间线', args: params },
-      (doc, origin) => {
-        if (!agentVideoAvailable()) noVideoModel()
-        const model = agentVideoModel(context.params?.video?.model)
-        if (!model) return noVideoModel()
-        const board = getNode(doc, params.storyboardId)
-        if (board.type !== 'storyboard') invalid(`节点不是分镜表：${params.storyboardId}`)
-        const video = context.params?.video
-        const preset = clampVideoPreset(model.support, {
-          duration: video?.durationSeconds,
-          resolution: video?.resolution,
-          aspectRatio: video?.aspectRatio,
-        })
-        try {
-          targets = prepareStoryboardVideos(doc, params.storyboardId, {
-            model: model.target.model,
-            ...preset,
-            ...(video?.voiceIds?.length ? { voices: [...video.voiceIds] } : {}),
-          }, { modelId: model.target.model, support: model.support }, {
-            origin,
-            names: FRAME_NAMES,
-          }).videoIds
-        } catch (error) {
-          if (!(error instanceof StoryboardFlowError)) throw error
-          const messages = {
-            finalizeFirst: '分镜表尚未定稿或镜头表已改过，请先用 runStoryboardFrames 完成当前镜头表的首帧阶段。',
-            noFirstFrameModel: '当前视频模型不支持首帧模式，请选择支持首帧的视频模型后重试。',
-            framesMissing: '分镜表首帧缺失或已过期，请先用 runStoryboardFrames 补齐当前镜头表的首帧。没有铺视频、时间线或登记授权。',
-            promptTooLong: '视频提示词过长，请先精简镜头描述或对白并重新生成首帧。',
-            missingAssets: '分镜表引用的素材缺图，请先完成素材与首帧阶段。',
+    await proposing(() =>
+      executeCanvasCommand(
+        userId,
+        project.id,
+        { turnId: context.turnId, toolCallId: callId, label: '铺视频与时间线', args: params },
+        (doc, origin) => {
+          if (!agentVideoAvailable()) noVideoModel()
+          const model = agentVideoModel(context.params?.video?.model)
+          if (!model) return noVideoModel()
+          const board = getNode(doc, params.storyboardId)
+          if (board.type !== 'storyboard') invalid(`节点不是分镜表：${params.storyboardId}`)
+          const video = context.params?.video
+          const preset = clampVideoPreset(model.support, {
+            duration: video?.durationSeconds,
+            resolution: video?.resolution,
+            aspectRatio: video?.aspectRatio,
+          })
+          try {
+            targets = prepareStoryboardVideos(
+              doc,
+              params.storyboardId,
+              {
+                model: model.target.model,
+                ...preset,
+                ...(video?.voiceIds?.length ? { voices: [...video.voiceIds] } : {}),
+              },
+              { modelId: model.target.model, support: model.support },
+              {
+                origin,
+                names: FRAME_NAMES,
+              },
+            ).videoIds
+          } catch (error) {
+            if (!(error instanceof StoryboardFlowError)) throw error
+            const messages = {
+              finalizeFirst:
+                '分镜表尚未定稿或镜头表已改过，请先用 runStoryboardFrames 完成当前镜头表的首帧阶段。',
+              noFirstFrameModel: '当前视频模型不支持首帧模式，请选择支持首帧的视频模型后重试。',
+              framesMissing:
+                '分镜表首帧缺失或已过期，请先用 runStoryboardFrames 补齐当前镜头表的首帧。没有铺视频、时间线或登记授权。',
+              promptTooLong: '视频提示词过长，请先精简镜头描述或对白并重新生成首帧。',
+              missingAssets: '分镜表引用的素材缺图，请先完成素材与首帧阶段。',
+            }
+            invalid(messages[error.code])
           }
-          invalid(messages[error.code])
-        }
-      },
-      async (tx, state, replay) => {
-        if (replay) {
-          const prior = await readStageProposal(userId, context.conversationId, `${context.turnId}:${callId}`, tx)
-          if (!prior || prior.projectId !== project.id || prior.stage !== '视频' || prior.storyboard)
-            throw new StageAuthorizationError('stage_authorization_conflict')
-          authorization = prior
-          return
-        }
-        const saved = new Y.Doc()
-        try {
-          Y.applyUpdate(saved, state)
-          const graph = readCanvasDocument(saved)
-          const nodes = targets.map((target) =>
-            graph.nodes.find((node) => node.id === target) ?? invalid('视频节点没有保存下来。'),
-          )
-          authorization = await proposeStageAuthorizationInTransaction(tx,
-            stageProposalInput(context, callId, project.id, graph, nodes, '视频'),
-          )
-        } finally {
-          saved.destroy()
-        }
-      },
-    ))
+        },
+        async (tx, state, replay) => {
+          if (replay) {
+            const prior = await readStageProposal(
+              userId,
+              context.conversationId,
+              `${context.turnId}:${callId}`,
+              tx,
+            )
+            if (
+              !prior ||
+              prior.projectId !== project.id ||
+              prior.stage !== '视频' ||
+              prior.storyboard
+            )
+              throw new StageAuthorizationError('stage_authorization_conflict')
+            authorization = prior
+            return
+          }
+          const saved = new Y.Doc()
+          try {
+            Y.applyUpdate(saved, state)
+            const graph = readCanvasDocument(saved)
+            const nodes = targets.map(
+              (target) =>
+                graph.nodes.find((node) => node.id === target) ?? invalid('视频节点没有保存下来。'),
+            )
+            authorization = await proposeStageAuthorizationInTransaction(
+              tx,
+              stageProposalInput(context, callId, project.id, graph, nodes, '视频'),
+            )
+          } finally {
+            saved.destroy()
+          }
+        },
+      ),
+    )
     if (!authorization) return invalid('视频阶段授权没有登记，请重新读取画布后再试。')
     return canvasStageResult(context, project.id, authorization)
   },

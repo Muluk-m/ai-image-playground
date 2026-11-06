@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
+  type AgentCanvasRunProposal,
   canvasInputFingerprint,
   canvasMainResult,
   canvasNodeSourceData,
@@ -1289,14 +1290,18 @@ async function videoStoryboardFixture(readyFrames = 2) {
         const mediaId = sheet.data.mediaId!
         const resultId = `result-${frame.id}`
         const origin = canvasOrigin('system', 'fixture')
-        recordCanvasResult(doc, {
-          id: resultId,
-          nodeId: frame.id,
-          kind: 'image',
-          source: { type: 'media', mediaId },
-          inputFingerprint: canvasInputFingerprint(doc, frame.id),
-          createdAt: 1,
-        }, origin)
+        recordCanvasResult(
+          doc,
+          {
+            id: resultId,
+            nodeId: frame.id,
+            kind: 'image',
+            source: { type: 'media', mediaId },
+            inputFingerprint: canvasInputFingerprint(doc, frame.id),
+            createdAt: 1,
+          },
+          origin,
+        )
         chooseCanvasResult(doc, frame.id, resultId, { data: { mediaId } }, origin)
       }
       return Y.encodeStateAsUpdate(doc, vector)
@@ -1317,34 +1322,49 @@ async function videoStoryboardFixture(readyFrames = 2) {
     },
   }
   const videos = (callId = 'videos') =>
-    runStoryboardVideos.create(context).execute(callId, { storyboardId: 'board' }, undefined, undefined)
+    runStoryboardVideos
+      .create(context)
+      .execute(callId, { storyboardId: 'board' }, undefined, undefined)
   return { ...fixed, context, videos }
 }
 
 it('prepares an authorized video stage with first-frame slots and ordered empty timeline positions', async () => {
   const { videos, graph, projectId } = await videoStoryboardFixture()
   const tasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
-  const proposal = (await videos()).details!.canvasRun!
+  const proposal: AgentCanvasRunProposal = (await videos()).details!.canvasRun!
+  if (!proposal.authorizationId) throw new Error('missing video authorization')
   expect(proposal).toMatchObject({ stage: '视频', status: 'pending', direct: false })
   const document = await graph()
   const nodes = proposal.nodeIds.map((id) => document.nodes.find((node) => node.id === id)!)
   expect(nodes).toHaveLength(2)
   for (const [index, node] of nodes.entries()) {
     const frame = document.nodes.find(
-      (one) => one.type === 'image' && one.data.meta?.storyboardRole === 'frame' &&
+      (one) =>
+        one.type === 'image' &&
+        one.data.meta?.storyboardRole === 'frame' &&
         one.data.meta.storyboardShotId === `shot-${index + 1}`,
     )!
     const duration = index === 0 ? 4 : 6
-    expect(node).toMatchObject({ data: { meta: {
-      nodeKind: 'video', nodeVideoMode: 'first', videoFirstFrame: frame.id,
-      storyboardShotId: `shot-${index + 1}`,
-    } } })
+    expect(node).toMatchObject({
+      data: {
+        meta: {
+          nodeKind: 'video',
+          nodeVideoMode: 'first',
+          videoFirstFrame: frame.id,
+          storyboardShotId: `shot-${index + 1}`,
+        },
+      },
+    })
     if (node.type !== 'image' && node.type !== 'video') throw new Error('missing video')
     expect(JSON.parse(node.data.meta!.nodeVideoDraft!)).toMatchObject({ duration })
     expect(node.data.meta!.nodePrompt).toContain(`Duration: ${duration} seconds`)
     expect(node.x).toBeGreaterThanOrEqual(frame.x + frame.width)
-    expect(document.edges).toContainEqual(expect.objectContaining({ source: frame.id, target: node.id }))
-    expect(document.edges).toContainEqual(expect.objectContaining({ source: 'sill', target: node.id }))
+    expect(document.edges).toContainEqual(
+      expect.objectContaining({ source: frame.id, target: node.id }),
+    )
+    expect(document.edges).toContainEqual(
+      expect.objectContaining({ source: 'sill', target: node.id }),
+    )
     expect(proposal.specs?.[index]?.quantity).toBe(duration)
   }
   const timelines = document.nodes.filter((node) => node.type === 'timeline')
@@ -1358,18 +1378,27 @@ it('prepares an authorized video stage with first-frame slots and ordered empty 
     Y.applyUpdate(doc, await accessCanvasDocument(userId, projectId))
     const origin = canvasOrigin('system', 'video-result')
     const video = { taskId: 'completed-second-shot', outputIndex: 0 }
-    recordCanvasResult(doc, {
-      id: 'second-video', nodeId: nodes[1]!.id, kind: 'video',
-      source: { type: 'queue', ...video }, createdAt: 2,
-      inputFingerprint: canvasInputFingerprint(doc, nodes[1]!.id),
-    }, origin)
+    recordCanvasResult(
+      doc,
+      {
+        id: 'second-video',
+        nodeId: nodes[1]!.id,
+        kind: 'video',
+        source: { type: 'queue', ...video },
+        createdAt: 2,
+        inputFingerprint: canvasInputFingerprint(doc, nodes[1]!.id),
+      },
+      origin,
+    )
     chooseCanvasResult(doc, nodes[1]!.id, 'second-video', { data: { video } }, origin)
     const finished = readCanvasDocument(doc)
     const timeline = finished.nodes.find((node) => node.type === 'timeline')!
     if (timeline.type !== 'timeline') throw new Error('missing timeline')
     expect(timeline.data.clips).toEqual(timelines[0]!.data.clips)
-    expect(timeline.data.clips.map((clip) => canvasMainResult(doc, clip.elementId)?.id))
-      .toEqual([undefined, 'second-video'])
+    expect(timeline.data.clips.map((clip) => canvasMainResult(doc, clip.elementId)?.id)).toEqual([
+      undefined,
+      'second-video',
+    ])
     const second = finished.nodes.find((node) => node.id === nodes[1]!.id)!
     expect(second.data).toMatchObject({ video })
   } finally {
@@ -1384,8 +1413,13 @@ it('prepares an authorized video stage with first-frame slots and ordered empty 
   expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual(tasks)
 })
 
-it.each(['missing', 'stale'] as const)('rejects %s first frames without partial video layout or authorization', async (condition) => {
-  const { videos, graph, run, stageRows } = await videoStoryboardFixture(condition === 'missing' ? 1 : 2)
+it.each([
+  'missing',
+  'stale',
+] as const)('rejects %s first frames without partial video layout or authorization', async (condition) => {
+  const { videos, graph, run, stageRows } = await videoStoryboardFixture(
+    condition === 'missing' ? 1 : 2,
+  )
   if (condition === 'stale') {
     const frame = (await graph()).nodes.find(
       (node) => node.type === 'image' && node.data.meta?.storyboardRole === 'frame',
@@ -1418,9 +1452,11 @@ it('replays the original video authorization after a frame becomes stale without
   expect(await graph()).toEqual(before)
   expect(await stageRows()).toBe(rows)
   expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual(tasks)
-  await expect(runStoryboardVideos.create(context).execute(
-    'videos', { storyboardId: 'other-board' }, undefined, undefined,
-  )).rejects.toThrow('canvas_command_conflict')
+  await expect(
+    runStoryboardVideos
+      .create(context)
+      .execute('videos', { storyboardId: 'other-board' }, undefined, undefined),
+  ).rejects.toThrow('canvas_command_conflict')
 })
 
 it('rolls video layout and timeline back when the persistent proposal conflicts', async () => {
@@ -1438,18 +1474,25 @@ it('uses model-constrained durations in the video prompt, quote and reused timel
   const first = (await videos()).details!.canvasRun!
   const timelineId = (await graph()).nodes.find((node) => node.type === 'timeline')!.id
   _setChannelsForTesting([FULL])
-  const proposal = await runStoryboardVideos.create({
-    ...context,
-    params: { ...context.params, video: { ...context.params.video, model: 'grok-imagine-video' } },
-  }).execute('constrained-videos', { storyboardId: 'board' }, undefined, undefined)
-  expect(proposal.details!.canvasRun!.nodeIds).toEqual(first.nodeIds)
-  expect(proposal.details!.canvasRun!.specs?.map((spec) => spec.quantity)).toEqual([5, 5])
+  const proposal = await runStoryboardVideos
+    .create({
+      ...context,
+      params: {
+        ...context.params,
+        video: { ...context.params.video, model: 'grok-imagine-video' },
+      },
+    })
+    .execute('constrained-videos', { storyboardId: 'board' }, undefined, undefined)
+  const prepared: AgentCanvasRunProposal = proposal.details!.canvasRun!
+  expect(prepared.nodeIds).toEqual(first.nodeIds)
+  expect(prepared.specs?.map((spec) => spec.quantity)).toEqual([5, 5])
   const document = await graph()
   for (const id of first.nodeIds) {
     const node = document.nodes.find((node) => node.id === id)!
     if (node.type !== 'image' && node.type !== 'video') throw new Error('missing video')
     expect(JSON.parse(node.data.meta!.nodeVideoDraft!)).toMatchObject({
-      model: 'grok-imagine-video', duration: 5,
+      model: 'grok-imagine-video',
+      duration: 5,
     })
     expect(node.data.meta!.nodePrompt).toContain('Duration: 5 seconds')
   }

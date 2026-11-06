@@ -384,8 +384,7 @@ export function prepareStoryboardVideos(
       ...(voices.length ? { voices } : { voices: undefined }),
     }
     const prompt = `${shotPrompt(shot, true)}\nDuration: ${videoDraft.duration} seconds`
-    if (prompt.length > PROJECT_META_VALUE_MAX_CHARS)
-      throw new StoryboardFlowError('promptTooLong')
+    if (prompt.length > PROJECT_META_VALUE_MAX_CHARS) throw new StoryboardFlowError('promptTooLong')
     return { videoDraft, prompt }
   })
   const videoIds: string[] = [],
