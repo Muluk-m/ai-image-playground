@@ -297,7 +297,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     ? inputImages.length * getSubmissionImageCount(prompt, slotValues, 1)
     : 0
   // GPT 直连按实际会执行的档计价。非会员，以及交给智能体的请求，服务端收到 ≤2K、非高画质。
-  // Gemini 按请求档位计价（渠道没开放的档收到最近的已开放档）。
+  // Gemini 先按会员身份收口，再按渠道开放档位计价。
   const premium = useGptPremiumLocked(
     activeView.model,
     getParamCapabilities(activeProfile, params.output_format).size,
@@ -306,6 +306,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     activeView.model,
     { ...params, ...(maskDraft ? { mask: true } : {}) },
     !toCanvas && premium.highQuality,
+    premium.member,
   )
   const submissionGuard = usePrivateSubmissionGuard({
     model: activeView.model,

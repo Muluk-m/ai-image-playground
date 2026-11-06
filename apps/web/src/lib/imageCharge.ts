@@ -26,6 +26,19 @@ export function composerImageRate(
 export function preparedComposerImageRate(
   model: string,
   request: ImageRateRequest | null | undefined,
+  member = false,
 ): number {
-  return preparedImageRateMultiplier(model, request, declaredImageSizesForModel(model))
+  return preparedImageRateMultiplier(model, request, declaredImageSizesForModel(model), member)
+}
+
+/** 基础档和渠道已收口的档位不必等待会员查询。 */
+export function preparedComposerNeedsMembership(
+  model: string,
+  request: ImageRateRequest | null | undefined,
+): boolean {
+  const tiers = declaredImageSizesForModel(model)
+  return (
+    preparedImageRateMultiplier(model, request, tiers, false) !==
+    preparedImageRateMultiplier(model, request, tiers, true)
+  )
 }

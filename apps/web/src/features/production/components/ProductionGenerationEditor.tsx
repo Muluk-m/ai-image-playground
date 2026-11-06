@@ -20,6 +20,7 @@ import {
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { getStoredChannels } from '../../../lib/channels/channelStore'
+import { useGptPremiumLocked } from '../../../lib/gptPremium'
 import { declaredImageSizesForModel } from '../../../lib/imageCharge'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { DEFAULT_PARAMS, type TaskParams } from '../../../types'
@@ -151,6 +152,7 @@ export default function ProductionGenerationEditor({
   const duplicateFrame =
     fields.references.filter((item) => item.usage === 'first-frame').length > 1 ||
     fields.references.filter((item) => item.usage === 'last-frame').length > 1
+  const membership = useGptPremiumLocked(fields.model, true)
   const guard = usePrivateSubmissionGuard({
     model: fields.model,
     quantity: fields.video?.duration_seconds ?? 1,
@@ -164,6 +166,7 @@ export default function ProductionGenerationEditor({
             gemini_image_size: fields.params?.gemini_image_size,
           },
           declaredImageSizesForModel(fields.model),
+          membership.member,
         ),
   })
   const charging = submitLabel === undefined

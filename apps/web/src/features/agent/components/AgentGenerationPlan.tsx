@@ -3,6 +3,8 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
+import { useGptPremiumLocked } from '../../../lib/gptPremium'
+import { preparedComposerNeedsMembership } from '../../../lib/imageCharge'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { agentPlanCreditTotal } from '../lib/draftCredits'
 import { agentDraftStillDrafting } from '../lib/draftingTurn'
@@ -47,7 +49,18 @@ export default function AgentGenerationPlan({
   const error = stoppedAt ? plan.stops.get(stoppedAt.id) : undefined
   const selected = messages.filter((message) => !skipped.has(message.id))
   const count = selected.reduce((sum, message) => sum + agentDraftOutputCount(message), 0)
-  const credits = agentPlanCreditTotal(selected)
+  const membership = useGptPremiumLocked('gemini', false)
+  const membershipPending =
+    !membership.settled &&
+    selected.some((message) =>
+      preparedComposerNeedsMembership(
+        message.snapshot?.target?.model ?? '',
+        message.snapshot?.params,
+      ),
+    )
+  const credits = membershipPending
+    ? undefined
+    : agentPlanCreditTotal(selected, undefined, membership.member)
   // 这里只取账户总余额（availableCredits 与传入的模型、数量无关，hook 签名需要才传首张的）；
   // 整组需求是上面按每张稿各自模型与产出数逐张估价求和的 credits，两者相比。
   // 这个 hook 也让余额变化（充值、别处扣费）时卡片跟着重算。

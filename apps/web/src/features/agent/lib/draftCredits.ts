@@ -13,6 +13,7 @@ export function agentDraftCreditEstimate(
   message: AgentToolMessage,
   quote: (input: PrivateSubmissionInput) => number | undefined = (input) =>
     getPrivateSubmissionGuard(input).estimatedCredits,
+  member = false,
 ): number | undefined {
   const model = message.snapshot?.target?.model ?? ''
   const params = message.snapshot?.params
@@ -27,6 +28,7 @@ export function agentDraftCreditEstimate(
         gemini_image_size: params?.gemini_image_size,
       },
       declaredImageSizesForModel(model),
+      member,
     ),
   })
   return typeof estimated === 'number' && Number.isFinite(estimated) ? estimated : undefined
@@ -36,13 +38,12 @@ export function agentDraftCreditEstimate(
 export function agentPlanCreditTotal(
   messages: readonly AgentToolMessage[],
   quote?: (input: PrivateSubmissionInput) => number | undefined,
+  member = false,
 ): number | undefined {
   if (!messages.length) return undefined
   let total = 0
   for (const message of messages) {
-    const estimated = quote
-      ? agentDraftCreditEstimate(message, quote)
-      : agentDraftCreditEstimate(message)
+    const estimated = agentDraftCreditEstimate(message, quote, member)
     if (estimated === undefined) return undefined
     total += estimated
   }

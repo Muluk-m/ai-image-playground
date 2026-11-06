@@ -141,17 +141,18 @@ describe('imageRateMultiplier', () => {
     expect(imageRateMultiplier('workbench-image', { image_size: '4K' })).toBe(1)
   })
 
-  it('prices prepared GPT submissions at the non-member ceiling and leaves Gemini on the request', () => {
+  it('prices prepared requests at the effective GPT ceiling and Gemini membership tier', () => {
     // 与 clampGptNonMemberRequest 同一收口：4K 高画质收到 2K medium（倍率 2），1K 高画质收到 1K medium。
     expect(preparedImageRateMultiplier(FLARE, { size: '3840x2160', quality: 'high' })).toBe(2)
     expect(preparedImageRateMultiplier(FLARE, { size: '2048x2048', quality: 'medium' })).toBe(2)
     expect(gptCeilingRateMultiplier(FLARE, { size: '3840x2160', quality: 'high' })).toBe(2)
     expect(preparedImageRateMultiplier(FLARE, { size: '1024x1024', quality: 'high' })).toBe(1)
     expect(preparedImageRateMultiplier(NANO, { image_size: '2K' })).toBe(1.5)
-    expect(preparedImageRateMultiplier(NANO, { image_size: '4K' })).toBe(3.4)
-    expect(preparedImageRateMultiplier(PRO, { gemini_image_size: '4K' })).toBe(1.8)
-    const once = preparedImageRateMultiplier(NANO, { image_size: '2K' })
-    expect(preparedImageRateMultiplier(NANO, { image_size: '2K' })).toBe(once)
+    expect(preparedImageRateMultiplier(NANO, { image_size: '4K' })).toBe(1.5)
+    expect(preparedImageRateMultiplier(PRO, { gemini_image_size: '4K' })).toBe(1)
+    expect(preparedImageRateMultiplier(NANO, { image_size: '4K' }, undefined, true)).toBe(3.4)
+    expect(preparedImageRateMultiplier(PRO, { gemini_image_size: '4K' }, undefined, true)).toBe(1.8)
+    expect(preparedImageRateMultiplier(NANO, { image_size: '4K' }, ['1K', '2K'], true)).toBe(1.5)
   })
 })
 

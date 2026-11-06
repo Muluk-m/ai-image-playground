@@ -7,6 +7,7 @@ import {
   canvasNodeJobs,
   canvasNodeKind,
   canvasResults,
+  clampGeminiNonMemberRequest,
   orderStageReferences,
   readCanvasDocument,
   resolveStageImageExecution,
@@ -95,6 +96,7 @@ export interface NodeBatchPlan {
   error?: NodeBatchError
   settings: AppSettings
   params: TaskParams
+  member?: boolean
 }
 export interface NodeBatchInput {
   snapshot: CanvasSnapshot
@@ -106,6 +108,7 @@ export interface NodeBatchInput {
   videoDraft: VideoDraft
   options: readonly VideoModelOption[]
   guard?: typeof getPrivateSubmissionGuard
+  member?: boolean
 }
 function referencesFor(snapshot: CanvasSnapshot, node: CanvasNode) {
   const meta = 'meta' in node.data ? (node.data.meta ?? {}) : {}
@@ -117,6 +120,7 @@ function referencesFor(snapshot: CanvasSnapshot, node: CanvasNode) {
 /** Select generators only; text, imported media, assets and timelines remain their inputs. */
 export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
   const { snapshot, settings, params } = input
+  const imageProfile = clientProfileToApiProfile(getActiveApiProfile(settings))
   const selected = new Set(input.ids)
   for (const group of snapshot.groups ?? [])
     if (selected.has(group.id)) for (const id of group.members) selected.add(id)
@@ -152,7 +156,6 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
       })),
     ]
     const kind = canvasNodeKind(node) === 'video' ? 'video' : 'image'
-    const imageProfile = clientProfileToApiProfile(getActiveApiProfile(settings))
     let activeRefs = refs,
       roles: Record<string, string> = {},
       draft: VideoDraft | undefined,
@@ -167,6 +170,7 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
       quality: params.quality,
       imageSize: params.gemini_image_size,
       supportedTiers: declaredImageSizesForModel(imageProfile.model),
+      member: input.member,
     })
     if (kind === 'image' && image) {
       model = image.model
@@ -319,11 +323,20 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
     blockedReason: guards.find((guard) => guard.blocked)?.disabledReason,
     error: error ?? (jobs.length ? undefined : 'empty'),
     settings: structuredClone(settings),
-    params: { ...params },
+    params:
+      imageProfile.provider === 'gemini'
+        ? clampGeminiNonMemberRequest({ ...params }, input.member ?? false)
+        : { ...params },
+    member: input.member,
   }
 }
 
-export function currentNodeBatch(doc: Y.Doc, editor: CanvasEditor, ids: readonly string[]) {
+export function currentNodeBatch(
+  doc: Y.Doc,
+  editor: CanvasEditor,
+  ids: readonly string[],
+  member = false,
+) {
   const { settings, params } = useStore.getState()
   return buildNodeBatch({
     snapshot: readCanvasDocument(doc),
@@ -334,6 +347,7 @@ export function currentNodeBatch(doc: Y.Doc, editor: CanvasEditor, ids: readonly
     params,
     videoDraft: useVideoStore.getState().draft,
     options: videoModelOptions(),
+    member,
   })
 }
 
@@ -447,10 +461,12 @@ export async function runNodeBatch(
     current: () => {
       if (!sameAccount() || doc.isDestroyed) throw new NodeBatchFailure('cancelled')
       assertResults()
-      return currentNodeBatch(doc, editor, ids)
+      return currentNodeBatch(doc, editor, ids, plan.member)
     },
     submit: async (job) => {
-      const current = currentNodeBatch(doc, editor, ids).jobs.find((one) => one.id === job.id)
+      const current = currentNodeBatch(doc, editor, ids, plan.member).jobs.find(
+        (one) => one.id === job.id,
+      )
       if (!current) throw new NodeBatchFailure('changed')
       const stage = stageAuthorizations?.[job.id]
       const files = { ...editor.doc.files, ...current.temporary }
@@ -482,6 +498,7 @@ export async function runNodeBatch(
                 settings: plan.settings,
                 params: { ...plan.params, n: job.quantity },
                 stageAuthorization: stageAuthorizations?.[job.id],
+                member: plan.member,
               },
             )
           : submitNodeVideo(
