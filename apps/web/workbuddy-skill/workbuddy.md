@@ -8,13 +8,13 @@
 
 还未安装时，从幕芽插件接入页面下载 `muvloom-workbuddy.zip`，通过「添加技能 → 上传技能」导入。自建技能包不能假装已在技能市场上架。需要用户完成导入时，给出包的位置与这一步操作，然后结束当前回合等待确认。
 
-CLI 安装和服务地址选择按接入页面的安装指南执行。CLI 0.1.3 的 `skill install --host` 只支持 Claude Code 和 Codex；WorkBuddy 使用上传导入流程。
+每次接入都按当前接入指南页面的域名，为本次会话选择该页面对应的 API；这一步也适用于已经安装 CLI 的情况。CLI 安装和服务地址选择按接入页面的安装指南执行。CLI 0.1.3 的 `skill install --host` 只支持 Claude Code 和 Codex；WorkBuddy 使用上传导入流程。
 
 ## 连接账号
 
 所有认证命令使用 WorkBuddy 的前台、可交互执行方式；Bash 的 `run_in_background` 保持关闭，让需要的权限确认可以显示给用户。前台执行仍可能受权限保护，不保证免于确认。
 
-1. 先运行 `muvloom auth status`。`state: ready` 时直接验证 `muvloom capabilities`，保留已有连接。
+1. 先运行 `muvloom auth status`。确认 `api_url` 对应本次接入的服务，`state: ready` 时直接验证 `muvloom capabilities`，保留已有连接。
 2. 未登录时，前台运行 `muvloom auth login --no-wait`，打开返回的 `verification_uri_complete`，告诉用户在页面完成授权。**立即结束这一回合等待用户确认**，让用户有操作窗口。
 3. 用户确认后，先再次运行 `muvloom auth status`。已经 `ready` 就完成；否则前台运行 `muvloom auth login --timeout 15` 收尾，再检查状态。
 4. `AUTH_PENDING` 只表示仍在等待。保留原流程，提示用户完成页面确认后再继续；不要循环等待或反复申请新码。
