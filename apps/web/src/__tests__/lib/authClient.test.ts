@@ -1,4 +1,5 @@
 import { BAKED_DEFAULTS } from '@image-playground/shared'
+import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setSignedIn } from '../../auth/loginPrompt'
 import {
@@ -12,6 +13,7 @@ import {
   logoutUser,
   oauthLinkUrl,
   oauthStartUrl,
+  refreshWebSession,
   registerUser,
   revokeCliConnection,
   shouldProbeSession,
@@ -45,6 +47,7 @@ describe('auth client', () => {
     )
     await bootstrapClientCapabilities(true, 'https://bff.example.com')
     vi.unstubAllGlobals()
+    vi.stubGlobal('indexedDB', new IDBFactory())
     setSignedIn(false)
   })
 
@@ -242,6 +245,116 @@ describe('auth client', () => {
     expect(response.status).toBe(200)
     expect(refreshes).toBe(2)
     expect(expired).not.toHaveBeenCalled()
+  })
+
+  it('keeps a durable request identity after a lost response, including across module reload', async () => {
+    vi.stubGlobal('navigator', {})
+    let firstKey: string | null = null
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      const key = new Headers(init?.headers).get('x-session-refresh-request')
+      if (!firstKey) {
+        firstKey = key
+        throw new TypeError('response lost')
+      }
+      expect(key).toBe(firstKey)
+      return Response.json({ ok: true, access_expires_at: Date.now() + 60_000 })
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+    expect(await refreshWebSession()).toBe('failed')
+    vi.resetModules()
+    const config = await import('../../lib/runtimeConfig')
+    config._setRuntimeConfigForTesting({
+      bff: { enabled: true, baseUrl: 'https://bff.example.com' },
+    })
+    const reloaded = await import('../../lib/authClient')
+    expect(await reloaded.refreshWebSession()).toBe('ok')
+    expect(firstKey).toMatch(/^[0-9a-f-]{36}$/)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the same request key if response cookies arrived but the JSON body was interrupted', async () => {
+    vi.stubGlobal('navigator', {})
+    const keys: (string | null)[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        keys.push(new Headers(init?.headers).get('x-session-refresh-request'))
+        if (keys.length === 1)
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.error(new Error('body lost'))
+              },
+            }),
+          )
+        return Response.json({ ok: true })
+      }),
+    )
+    expect(await refreshWebSession()).toBe('failed')
+    expect(await refreshWebSession()).toBe('ok')
+    expect(keys[1]).toBe(keys[0])
+  })
+
+  it('renews once after recovering an original response whose access already expired', async () => {
+    vi.stubGlobal('navigator', {})
+    const keys: (string | null)[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        keys.push(new Headers(init?.headers).get('x-session-refresh-request'))
+        return Response.json({
+          ok: true,
+          access_expires_at: Date.now() + (keys.length === 1 ? -1_000 : 60_000),
+        })
+      }),
+    )
+    expect(await refreshWebSession()).toBe('ok')
+    expect(keys).toHaveLength(2)
+    expect(keys[1]).not.toBe(keys[0])
+  })
+
+  it('uses the completed proof to recover a late cookie inside the 409 grace period', async () => {
+    vi.stubGlobal('navigator', {})
+    let completedKey: string | null = null
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        completedKey = new Headers(init?.headers).get('x-session-refresh-request')
+        return Response.json({ ok: true })
+      }),
+    )
+    expect(await refreshWebSession()).toBe('ok')
+    const keys: (string | null)[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const key = new Headers(init?.headers).get('x-session-refresh-request')
+        keys.push(key)
+        return key === completedKey
+          ? Response.json({ ok: true })
+          : Response.json({ error: 'refresh_raced' }, { status: 409 })
+      }),
+    )
+    expect(await refreshWebSession()).toBe('ok')
+    expect(keys).toHaveLength(2)
+    expect(keys[1]).toBe(completedKey)
+  })
+
+  it('retires a consumed pending identity and saves a new one before rotating the valid current cookie', async () => {
+    vi.stubGlobal('navigator', {})
+    const keys: (string | null)[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        keys.push(new Headers(init?.headers).get('x-session-refresh-request'))
+        return keys.length === 1
+          ? Response.json({ error: 'refresh_request_completed' }, { status: 409 })
+          : Response.json({ ok: true })
+      }),
+    )
+    expect(await refreshWebSession()).toBe('ok')
+    expect(keys).toHaveLength(2)
+    expect(keys[1]).not.toBe(keys[0])
   })
 
   it('stays quiet on a 401 for a visitor who never signed in', async () => {
