@@ -109,6 +109,22 @@ const input = {
   device_id: 'generation-device-a',
   client_request_id: 'generation-command-1',
 }
+it.each([
+  true,
+  false,
+])('persists the raw prompt and no_rewrite=%s through queue and history', async (no_rewrite) => {
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    no_rewrite,
+  })
+  expect(submitted.status).toBe(200)
+  const { request_id } = await submitted.json()
+  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, request_id))
+  expect(task!.request_payload).toMatchObject({ prompt: input.prompt, no_rewrite })
+  const detail = await request(`/api/generations/${request_id}`, deviceB)
+  expect(await detail.json()).toMatchObject({ prompt: input.prompt, parameters: { no_rewrite } })
+})
+
 it('另一设备能发现新图片任务，其他用户不能读取', async () => {
   const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
   expect(submitted.status).toBe(200)

@@ -872,14 +872,7 @@ describe('生成前确认', () => {
     expect(await storage.listPrefix(`${draft!.id}/`)).toEqual([])
   })
 
-  /**
-   * 同一个内置模型、同一句提示词、同一组 chip 参数，走创作页和走智能体发给上游的必须是同一份。
-   *
-   * 期望值是创作页那条路的逐字输出：防改写 guard 前缀与构图指令由 `apps/web/src/lib/api.ts`
-   * 的分发层钉上（这个模型没声明 `size` 能力，所以两段都有），`moderation` 由
-   * `lib/channels/queueClient.ts` 无条件带上。哪一边漏掉一段，这里就红——两边出图质感对不上
-   * 的根因正是这些看不见的差异。
-   */
+  /** 网站与智能体保存相同的原文、构图和防改写选项，派发时才按路线变换。 */
   it('确认后发给上游的提示词与审核强度，与创作页逐字相同', async () => {
     const calls: AgentCall[] = []
     draftingTurn(calls, 'generateImage', { prompt: GREEN_DRAFT })
@@ -894,7 +887,8 @@ describe('生成前确认', () => {
     expect(status).toBe(200)
     const [row] = await generationTasks(conversationId)
     expect(row!.request_payload).toMatchObject({
-      prompt: `Use the following text as the complete prompt. Do not rewrite it:\n${WHITE_PROMPT}\n\nComposition: a tall 2:3 vertical frame, portrait orientation.`,
+      no_rewrite: true,
+      prompt: `${WHITE_PROMPT}\n\nComposition: a tall 2:3 vertical frame, portrait orientation.`,
       size: '1024x1536',
       moderation: 'low',
     })
