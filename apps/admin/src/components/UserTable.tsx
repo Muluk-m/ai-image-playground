@@ -156,7 +156,7 @@ export function UserTable({
   if (!users.length) return <EmptyState label="没有匹配的用户" />
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-xl border bg-card/70 shadow-sm">
+    <div className="min-w-0 overflow-hidden rounded-xl border bg-card/70">
       <Table className={`${tableWidth} table-fixed`}>
         <TableHeader className="bg-muted/40">
           <TableRow className="hover:bg-transparent">
