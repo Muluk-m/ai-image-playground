@@ -4,6 +4,7 @@ import type {
   AgentToolName,
 } from '@image-playground/shared'
 import type { AgentPanelMessage, AgentToolMessage } from '../types'
+import type { AgentNodeInboxEntry } from './nodeRunInbox'
 
 /**
  * 一次生成走到哪一步。结果卡与画布占位共用这一份：两处读同一张卡、同一个起点，
@@ -119,11 +120,13 @@ export function toolMessageForPlaceholder(
   return null
 }
 
+export type AgentJobInboxEntry = AgentToolMessage | AgentNodeInboxEntry
+
 export interface AgentJobInbox {
-  /** 还没结束的：后台任务在跑的，和重试队列里排着、还没提交的。按提交先后。 */
-  readonly running: readonly AgentToolMessage[]
-  /** 已经结束的：成功、失败与取消的都在。 */
-  readonly finished: readonly AgentToolMessage[]
+  /** 当前会话排队或运行中的后台任务和授权节点。按提交先后。 */
+  readonly running: readonly AgentJobInboxEntry[]
+  /** 已经结束或被拦下的任务与节点。 */
+  readonly finished: readonly AgentJobInboxEntry[]
   /** 结束里成功的那几个；进度条里走满的一段是它。 */
   readonly completed: number
   /** 结束里没成的那几个：失败与取消。 */
@@ -137,12 +140,15 @@ export interface AgentJobInbox {
  * 还没提交、手上没有任务 id，可它确实在等着跑。只认 `submitted` 会把它算进已结束，顶上于是说
  * 「0 个进行中」，而用户刚放进去的几个还在排队。
  */
-export function agentJobInbox(messages: readonly AgentPanelMessage[]): AgentJobInbox {
-  const running: AgentToolMessage[] = []
-  const finished: AgentToolMessage[] = []
+export function agentJobInbox(
+  messages: readonly AgentPanelMessage[],
+  nodes: readonly AgentNodeInboxEntry[] = [],
+): AgentJobInbox {
+  const running: AgentJobInboxEntry[] = []
+  const finished: AgentJobInboxEntry[] = []
   let completed = 0
   for (const message of messages) {
-    if (message.kind !== 'tool') continue
+    if (message.kind !== 'tool' || message.canvasRun) continue
     // 提交过后台任务的，加上重试队列里排着、还没拿到任务 id 的那张。
     if (message.job === undefined && message.status !== 'queued') continue
     if (agentJobUnsettled(message)) running.push(message)
@@ -150,6 +156,16 @@ export function agentJobInbox(messages: readonly AgentPanelMessage[]): AgentJobI
       finished.push(message)
       completed += 1
     } else finished.push(message)
+  }
+  const seen = new Set<string>()
+  for (const node of nodes) {
+    if (seen.has(node.id)) continue
+    seen.add(node.id)
+    if (node.status === 'pending' || node.status === 'running') running.push(node)
+    else {
+      finished.push(node)
+      if (node.status === 'completed') completed += 1
+    }
   }
   return { running, finished, completed, failed: finished.length - completed }
 }
