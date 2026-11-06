@@ -3,6 +3,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { getStoredChannels, subscribeChannels } from '../../../lib/channels/channelStore'
 import { useGptPremiumLocked } from '../../../lib/gptPremium'
+import { preparedComposerNeedsMembership } from '../../../lib/imageCharge'
 import { useStore } from '../../../store'
 import { registerAgentNodeRun } from '../../agent/lib/nodeRunBridge'
 import { useVideoStore } from '../../video/store'
@@ -38,14 +39,20 @@ export function useAgentNodeRun({
     if (!active || !projectId || !syncResults) return
     const quote = (proposal: AgentCanvasRunProposal) => {
       if (proposal.projectId !== projectId) return null
-      if (!membership.settled) return null
       const graph = readCanvasDocument(canvas.doc)
       const existing = new Set([
         ...graph.nodes.map((node) => node.id),
         ...(graph.groups ?? []).map((group) => group.id),
       ])
       if (!proposal.nodeIds.length || proposal.nodeIds.some((id) => !existing.has(id))) return null
-      return currentNodeBatch(canvas.doc, editor, proposal.nodeIds, membership.member)
+      const plan = currentNodeBatch(canvas.doc, editor, proposal.nodeIds, membership.member)
+      if (
+        !membership.settled &&
+        plan.jobs.some((job) => job.kind === 'image') &&
+        preparedComposerNeedsMembership(profile.model, params)
+      )
+        return null
+      return plan
     }
     return registerAgentNodeRun({
       projectId,
@@ -75,6 +82,7 @@ export function useAgentNodeRun({
     draft,
     channels,
     syncResults,
+    profile.model,
     membership.member,
     membership.settled,
   ])

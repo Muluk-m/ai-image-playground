@@ -6,6 +6,7 @@ import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { useGptPremiumLocked } from '../../../lib/gptPremium'
+import { preparedComposerNeedsMembership } from '../../../lib/imageCharge'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import { useVideoStore } from '../../video/store'
@@ -38,7 +39,7 @@ export default function NodeBatchDialog({
   const { t } = useTranslation('canvas')
   // Subscribe to settings as well as parent document updates so a visible quote never silently changes.
   const settings = useStore((state) => state.settings)
-  useStore((state) => state.params)
+  const params = useStore((state) => state.params)
   const profile = clientProfileToApiProfile(getActiveApiProfile(settings))
   const membership = useGptPremiumLocked(profile.model, false)
   useVideoStore((state) => state.draft)
@@ -53,13 +54,17 @@ export default function NodeBatchDialog({
   useEffect(() => () => controller.current?.abort(), [])
   const guard = usePrivateSubmissionGuard({ model: plan.jobs[0]?.model ?? '', quantity: 1 })
   const current = currentNodeBatch(canvas.doc, editor, ids, membership.member)
+  const membershipPending =
+    !membership.settled &&
+    current.jobs.some((job) => job.kind === 'image') &&
+    preparedComposerNeedsMembership(profile.model, params)
   const changed = current.signature !== plan.signature
   const close = () => {
     controller.current?.abort()
     onClose()
   }
   const start = async () => {
-    if (!membership.settled) return
+    if (membershipPending) return
     if (controller.current || changed || plan.error || current.blocked) return
     const abort = new AbortController()
     controller.current = abort
@@ -117,7 +122,7 @@ export default function NodeBatchDialog({
           {status === 'ready' && !changed && (
             <Button
               disabled={
-                !membership.settled ||
+                membershipPending ||
                 Boolean(plan.error) ||
                 current.blocked ||
                 !snapshot.nodes.length
