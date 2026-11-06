@@ -37,7 +37,75 @@ const migrationSupersessions = [
       hash: '5fab338d4ba4304f9e1eef7fb719ba24cdec3b4b65fe6fbc6fbddce1b760fe16',
     },
   },
+  {
+    // Production applied 0092 while test already had 0093; preserve both histories.
+    original: {
+      tag: '0093_web_refresh_request_identity',
+      when: 1794250000000,
+      hash: 'd79f09af25d3d383a7572a9ec51ebf4d402bc6f196a17e1e279e243bfc6b20bb',
+    },
+    forward: {
+      tag: '0094_web_refresh_request_identity_forward',
+      when: 1794400000000,
+      hash: '917a58d6295a69c998309b722040b8a5f02f27719a0f4eb734fb67be93ce12be',
+    },
+  },
 ] as const
+
+interface MigrationHistoryRow {
+  readonly hash: string
+  readonly created_at: string | number
+}
+
+type Supersession = (typeof migrationSupersessions)[number]
+
+async function verifiedSupersessionApplied(
+  supersession: Supersession,
+  entries: readonly { tag: string; when: number }[],
+  rows: readonly MigrationHistoryRow[],
+): Promise<boolean> {
+  const { original, forward } = supersession
+  const entry = entries.find((candidate) => candidate.tag === original.tag)
+  const replacement = entries.find((candidate) => candidate.tag === forward.tag)
+  if (
+    entry?.when !== original.when ||
+    replacement?.when !== forward.when ||
+    forward.when <= original.when
+  ) {
+    throw new Error(`Invalid migration supersession: ${original.tag} -> ${forward.tag}`)
+  }
+  for (const migration of [original, forward]) {
+    const sql = await Bun.file(join(migrationsFolder, `${migration.tag}.sql`)).text()
+    if (createHash('sha256').update(sql).digest('hex') !== migration.hash) {
+      throw new Error(`Migration supersession SQL hash mismatch: ${migration.tag}`)
+    }
+  }
+  const recorded = rows.filter((row) => Number(row.created_at) === forward.when)
+  if (recorded.some((row) => row.hash !== forward.hash)) {
+    throw new Error(`Applied migration supersession hash mismatch: ${forward.tag}`)
+  }
+  return recorded.length > 0
+}
+
+/** Only an applied, hash-verified forward equivalent can replace a missing history row. */
+export async function countVerifiedSupersededMigrations(
+  rows: readonly MigrationHistoryRow[],
+): Promise<number> {
+  const applied = new Set(rows.map((row) => Number(row.created_at)))
+  const journal: { entries: { tag: string; when: number }[] } = await Bun.file(
+    join(migrationsFolder, 'meta/_journal.json'),
+  ).json()
+  let count = 0
+  for (const supersession of migrationSupersessions) {
+    if (
+      !applied.has(supersession.original.when) &&
+      (await verifiedSupersessionApplied(supersession, journal.entries, rows))
+    ) {
+      count++
+    }
+  }
+  return count
+}
 
 /** Apply committed PostgreSQL migrations and release the migration connection. */
 export async function runMigrations(databaseUrl: string): Promise<void> {
@@ -77,28 +145,10 @@ async function assertNoSkippedMigrations(client: SQL): Promise<void> {
     if (entry.when > newest || applied.has(entry.when)) continue
     const supersession = migrationSupersessions.find(({ original }) => original.tag === entry.tag)
     if (supersession) {
-      const { original, forward } = supersession
-      const replacement = journal.entries.find((candidate) => candidate.tag === forward.tag)
-      const recorded = rows.filter((row) => Number(row.created_at) === forward.when)
-      if (
-        entry.when !== original.when ||
-        replacement?.when !== forward.when ||
-        forward.when <= original.when
-      ) {
-        throw new Error(`Invalid migration supersession: ${original.tag} -> ${forward.tag}`)
-      }
-      for (const migration of [original, forward]) {
-        const sql = await Bun.file(join(migrationsFolder, `${migration.tag}.sql`)).text()
-        if (createHash('sha256').update(sql).digest('hex') !== migration.hash) {
-          throw new Error(`Migration supersession SQL hash mismatch: ${migration.tag}`)
-        }
-      }
-      if (recorded.length && recorded.some((row) => row.hash !== forward.hash)) {
-        throw new Error(`Applied migration supersession hash mismatch: ${forward.tag}`)
-      }
+      const appliedForward = await verifiedSupersessionApplied(supersession, journal.entries, rows)
       // Future SQL and its history row commit together in migrate(); an older missing
       // replacement is not runnable and must still fail the ordinary skipped-entry guard.
-      if (recorded.length || forward.when > newest) continue
+      if (appliedForward || supersession.forward.when > newest) continue
     }
     skipped.push(entry.tag)
   }

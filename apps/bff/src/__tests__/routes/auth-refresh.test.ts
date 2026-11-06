@@ -62,6 +62,7 @@ function request(
     body?: unknown
     ip?: string
     authorization?: string
+    requestKey?: string
   } = {},
 ): Promise<Response> {
   const cookies = [
@@ -74,6 +75,7 @@ function request(
   if (cookies.length > 0) headers.cookie = cookies.join('; ')
   if (init.body !== undefined) headers['content-type'] = 'application/json'
   if (init.authorization) headers.authorization = init.authorization
+  if (init.requestKey) headers['x-session-refresh-request'] = init.requestKey
   return app.handle(
     new Request(`https://api.example.com${path}`, {
       method: init.method ?? 'GET',
@@ -183,6 +185,248 @@ describe('web session refresh', () => {
     expect(replay.status).toBe(200)
   })
 
+  it('recovers the same rotation after its response was lost beyond the reuse grace period', async () => {
+    const session = await register('lost-rotation-response@example.com')
+    const requestKey = '7cbcb24c-5b41-40a1-9c35-3e909f907b79'
+    const input = {
+      method: 'POST',
+      access: session.access,
+      refresh: session.refresh,
+      requestKey,
+    }
+    const discarded = await request('/api/auth/refresh', input)
+    expect(discarded.status).toBe(200)
+    await db
+      .update(schema.user_retired_refresh_tokens)
+      .set({ retired_at: Date.now() - 60_000 })
+      .where(eq(schema.user_retired_refresh_tokens.token_hash, hashSessionToken(session.refresh)))
+    const retried = await request('/api/auth/refresh', input)
+    expect(retried.status).toBe(200)
+    expect(readCookie(retried, USER_REFRESH_COOKIE)).toBe(
+      readCookie(discarded, USER_REFRESH_COOKIE),
+    )
+    expect(readCookie(retried, USER_SESSION_COOKIE)).toBe(
+      readCookie(discarded, USER_SESSION_COOKIE),
+    )
+    expect(
+      (await request('/api/auth/me', { access: readCookie(retried, USER_SESSION_COOKIE) })).status,
+    ).toBe(200)
+  })
+
+  it('does not rotate again if cookies arrived but acknowledgement was lost', async () => {
+    const session = await register('lost-body@example.com')
+    const requestKey = '0fa4bc51-c6fe-4c89-b598-31f065ead81f'
+    const first = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: session.refresh,
+      requestKey,
+    })
+    const nextRefresh = readCookie(first, USER_REFRESH_COOKIE)
+    const nextAccess = readCookie(first, USER_SESSION_COOKIE)
+    const again = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: nextRefresh,
+      requestKey,
+    })
+    expect(again.status).toBe(200)
+    expect(readCookie(again, USER_REFRESH_COOKIE)).toBe(nextRefresh)
+    expect(readCookie(again, USER_SESSION_COOKIE)).toBe(nextAccess)
+    expect(await again.json()).toEqual(await first.json())
+  })
+
+  it('recovers refresh with the original expired access lifetime after access cleanup', async () => {
+    const session = await register('expired-recovery@example.com')
+    const requestKey = '818099e9-4d87-44fc-b3a4-05183da6c8a4'
+    const first = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: session.refresh,
+      requestKey,
+    })
+    const nextRefresh = readCookie(first, USER_REFRESH_COOKIE)!
+    const [family] = await db
+      .select()
+      .from(schema.user_session_families)
+      .where(eq(schema.user_session_families.refresh_token_hash, hashSessionToken(nextRefresh)))
+    await db
+      .update(schema.user_session_families)
+      .set({ refreshed_at: Date.now() - 8 * DAY_MS })
+      .where(eq(schema.user_session_families.id, family!.id))
+    await db.delete(schema.user_sessions).where(eq(schema.user_sessions.family_id, family!.id))
+    const recovered = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: session.refresh,
+      requestKey,
+    })
+    expect(recovered.status).toBe(200)
+    expect(readCookie(recovered, USER_REFRESH_COOKIE)).toBe(nextRefresh)
+    expect(Number(cookieAttribute(recovered, USER_SESSION_COOKIE, 'Max-Age'))).toBe(0)
+    const renewed = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: nextRefresh,
+      requestKey: '675339f8-cd14-4176-8b7f-239f102b501a',
+    })
+    expect(renewed.status).toBe(200)
+    expect(
+      (await request('/api/auth/me', { access: readCookie(renewed, USER_SESSION_COOKIE) })).status,
+    ).toBe(200)
+  })
+
+  it('rejects a wrong proof, preserves the healthy family, and refuses exact recovery after logout', async () => {
+    const session = await register('proof-security@example.com')
+    const input = {
+      method: 'POST',
+      refresh: session.refresh,
+      requestKey: '65e35692-9c32-45b6-8db2-b9ebc084818d',
+    }
+    const first = await request('/api/auth/refresh', input)
+    const access = readCookie(first, USER_SESSION_COOKIE)
+    await db
+      .update(schema.user_retired_refresh_tokens)
+      .set({ retired_at: Date.now() - 60_000 })
+      .where(eq(schema.user_retired_refresh_tokens.token_hash, hashSessionToken(session.refresh)))
+    const wrong = await request('/api/auth/refresh', {
+      ...input,
+      requestKey: '2b9f78c6-974b-45cc-b3af-a9759ad4335c',
+    })
+    expect(wrong.status).toBe(401)
+    expect((await request('/api/auth/me', { access })).status).toBe(200)
+    await request('/api/auth/logout', {
+      method: 'POST',
+      refresh: readCookie(first, USER_REFRESH_COOKIE),
+      access,
+    })
+    expect((await request('/api/auth/refresh', input)).status).toBe(401)
+  })
+
+  it('converges concurrent retries on the identical pair and does not slide their expiry', async () => {
+    const session = await register('concurrent-proof@example.com')
+    const input = {
+      method: 'POST',
+      refresh: session.refresh,
+      requestKey: 'f4708019-049a-48b2-a0c5-4eb007ee341e',
+    }
+    const [first, second] = await Promise.all([
+      request('/api/auth/refresh', input),
+      request('/api/auth/refresh', input),
+    ])
+    expect([first.status, second.status]).toEqual([200, 200])
+    expect(readCookie(second, USER_REFRESH_COOKIE)).toBe(readCookie(first, USER_REFRESH_COOKIE))
+    expect(readCookie(second, USER_SESSION_COOKIE)).toBe(readCookie(first, USER_SESSION_COOKIE))
+    expect(await second.json()).toEqual(await first.json())
+  })
+
+  it('cannot recover a disabled account, including after the account is re-enabled', async () => {
+    const session = await register('disabled-proof@example.com')
+    const input = {
+      method: 'POST',
+      refresh: session.refresh,
+      requestKey: 'd8650ab9-40c0-435d-8537-bc56ab1d44ad',
+    }
+    await request('/api/auth/refresh', input)
+    await db
+      .update(schema.users)
+      .set({ status: 'disabled' })
+      .where(eq(schema.users.id, session.userId))
+    expect((await request('/api/auth/refresh', input)).status).toBe(401)
+    await db
+      .update(schema.users)
+      .set({ status: 'active' })
+      .where(eq(schema.users.id, session.userId))
+    expect((await request('/api/auth/refresh', input)).status).toBe(401)
+  })
+
+  it('does not execute a completed request key again against a newer cookie generation', async () => {
+    const session = await register('paused-tab@example.com')
+    const key1 = '3b999810-7feb-4f91-988d-7006d8b78932'
+    const key2 = '4d1b085f-38c8-4b3d-9b36-f650b9324735'
+    const first = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: session.refresh,
+      requestKey: key1,
+    })
+    const second = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: readCookie(first, USER_REFRESH_COOKIE),
+      requestKey: key2,
+    })
+    const secondRefresh = readCookie(second, USER_REFRESH_COOKIE)
+    const stale = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: secondRefresh,
+      requestKey: key1,
+    })
+    expect(stale.status).toBe(409)
+    expect(await stale.json()).toEqual({ error: 'refresh_request_completed' })
+    expect(stale.headers.getSetCookie()).toHaveLength(0)
+    expect(
+      (await request('/api/auth/me', { access: readCookie(second, USER_SESSION_COOKIE) })).status,
+    ).toBe(200)
+    const retry = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: readCookie(first, USER_REFRESH_COOKIE),
+      requestKey: key2,
+    })
+    expect(retry.status).toBe(200)
+    expect(readCookie(retry, USER_REFRESH_COOKIE)).toBe(secondRefresh)
+  })
+
+  it('allows a fresh operation after a lost acknowledgement followed by a password change', async () => {
+    const session = await register('password-pending-proof@example.com')
+    const requestKey = '2f27ce57-722f-49b6-a69a-e6ff501d30be'
+    const rotated = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: session.refresh,
+      requestKey,
+    })
+    const access = readCookie(rotated, USER_SESSION_COOKIE)
+    const changed = await request('/api/auth/password', {
+      method: 'POST',
+      access,
+      refresh: readCookie(rotated, USER_REFRESH_COOKIE),
+      body: { current_password: PASSWORD, new_password: 'a-new-password' },
+    })
+    expect(changed.status).toBe(200)
+    const refresh = readCookie(changed, USER_REFRESH_COOKIE)
+    const stale = await request('/api/auth/refresh', {
+      method: 'POST',
+      access,
+      refresh,
+      requestKey,
+    })
+    expect(stale.status).toBe(409)
+    expect(await stale.json()).toEqual({ error: 'refresh_request_completed' })
+    const renewed = await request('/api/auth/refresh', {
+      method: 'POST',
+      access,
+      refresh,
+      requestKey: 'a6cd9503-52f4-462f-9f0c-5098b4c437c9',
+    })
+    expect(renewed.status).toBe(200)
+    expect(
+      (await request('/api/auth/me', { access: readCookie(renewed, USER_SESSION_COOKIE) })).status,
+    ).toBe(200)
+    const old = await request('/api/auth/refresh', {
+      method: 'POST',
+      refresh: session.refresh,
+      requestKey,
+    })
+    expect(old.headers.getSetCookie()).toHaveLength(0)
+  })
+
+  it('validates the refresh proof before changing session state', async () => {
+    const session = await register('invalid-proof@example.com')
+    expect(
+      (
+        await request('/api/auth/refresh', {
+          method: 'POST',
+          refresh: session.refresh,
+          requestKey: 'not-a-key',
+        })
+      ).status,
+    ).toBe(400)
+    expect((await request('/api/auth/me', { access: session.access })).status).toBe(200)
+  })
+
   it('treats a retired refresh inside the grace window as a race and keeps the family', async () => {
     const session = await register('grace@example.com')
     const rotated = await refresh(session.access, session.refresh)
@@ -202,7 +446,7 @@ describe('web session refresh', () => {
     expect(family?.revoked_at).toBeNull()
   })
 
-  it('revokes the whole family when a retired refresh is reused after the grace window', async () => {
+  it('rejects an unproven retired refresh without revoking a healthy family', async () => {
     const session = await register('reuse@example.com')
     const rotated = await refresh(session.access, session.refresh)
     const nextAccess = readCookie(rotated, USER_SESSION_COOKIE)!
@@ -223,10 +467,10 @@ describe('web session refresh', () => {
       log.warn = original
     }
     expect(warnings).toContainEqual(
-      expect.objectContaining({ event: 'auth.refresh.reuse_detected', userId: session.userId }),
+      expect.objectContaining({ event: 'auth.refresh.retired_rejected' }),
     )
-    expect((await request('/api/auth/me', { access: nextAccess })).status).toBe(401)
-    expect((await refresh(null, readCookie(rotated, USER_REFRESH_COOKIE))).status).toBe(401)
+    expect((await request('/api/auth/me', { access: nextAccess })).status).toBe(200)
+    expect((await refresh(null, readCookie(rotated, USER_REFRESH_COOKIE))).status).toBe(200)
   })
 
   it('slides the refresh window forward and stops at the absolute cap', async () => {
@@ -417,11 +661,11 @@ describe('web session refresh', () => {
       log.warn = original
     }
     expect(warnings).toContainEqual(
-      expect.objectContaining({ event: 'auth.refresh.reuse_detected' }),
+      expect.objectContaining({ event: 'auth.refresh.retired_rejected' }),
     )
     expect(
       (await request('/api/auth/me', { access: readCookie(again, USER_SESSION_COOKIE) })).status,
-    ).toBe(401)
+    ).toBe(200)
   })
 })
 

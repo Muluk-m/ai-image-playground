@@ -176,7 +176,7 @@ export const password_reset_tokens = pgTable(
 
 /**
  * 一条网页登录链。access 行在 `user_sessions`，refresh 只在这里存哈希。
- * 轮换时旧 refresh 哈希进 `user_retired_refresh_tokens`，重放整条链作废。
+ * 轮换时旧 refresh 哈希进 `user_retired_refresh_tokens`，用于拒绝旧凭据和确认幂等重试。
  * `created_at` 是登录时间，绝对上限从它算；`refresh_expires_at` 每次刷新滑动。
  */
 export const user_session_families = pgTable(
@@ -202,7 +202,7 @@ export const user_session_families = pgTable(
   ],
 )
 
-/** 已轮换的网页 refresh 哈希。宽限期过后再次出现就作废整条链。 */
+/** 已轮换的网页 refresh 哈希。精确幂等请求可恢复当前结果，其余旧凭据拒绝认证。 */
 export const user_retired_refresh_tokens = pgTable(
   'user_retired_refresh_tokens',
   {
@@ -211,8 +211,12 @@ export const user_retired_refresh_tokens = pgTable(
       .notNull()
       .references(() => user_session_families.id, { onDelete: 'cascade' }),
     retired_at: epochMs('retired_at').notNull(),
+    request_key_hash: text('request_key_hash'),
   },
-  (t) => [index('idx_user_retired_refresh_tokens_family').on(t.family_id)],
+  (t) => [
+    index('idx_user_retired_refresh_tokens_family').on(t.family_id),
+    uniqueIndex('idx_user_retired_refresh_request').on(t.family_id, t.request_key_hash),
+  ],
 )
 
 export const user_sessions = pgTable(

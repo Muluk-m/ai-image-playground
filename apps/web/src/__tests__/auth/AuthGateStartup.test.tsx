@@ -3,6 +3,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { BOOT_STAGE_EVENT } from '../../boot/constants'
 import { allCapabilitiesOff } from '../fixtures/capabilities'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -117,6 +118,11 @@ async function boot(expectReady = true) {
   await loadRuntimeConfig()
   preloadChannels(true, 'https://bff.example.com')
   await bootstrapClientCapabilities(true, 'https://bff.example.com')
+  let accountDataStarted = false
+  const onStage = (event: Event) => {
+    if ('detail' in event && event.detail === 'account-data') accountDataStarted = true
+  }
+  document.addEventListener(BOOT_STAGE_EVENT, onStage)
   await act(async () =>
     root.render(
       <StrictMode>
@@ -125,7 +131,15 @@ async function boot(expectReady = true) {
     ),
   )
   await act(async () => vi.dynamicImportSettled())
-  if (expectReady) expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
+  try {
+    await vi.waitFor(async () => {
+      await act(async () => {})
+      if (expectReady) expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
+      else expect(accountDataStarted).toBe(true)
+    })
+  } finally {
+    document.removeEventListener(BOOT_STAGE_EVENT, onStage)
+  }
 }
 
 function coachDismissed(): string | null | undefined {
