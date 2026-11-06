@@ -14,6 +14,7 @@ import {
   logoutUser,
   noteBrowserSession,
   refreshWebSession,
+  sessionRotationDue,
   shouldProbeSession,
 } from '../lib/authClient'
 import { setClientStorageScope, setRecoveryBackend } from '../lib/authScope'
@@ -132,8 +133,9 @@ export function AuthGate() {
             if (err instanceof AuthRequestError && err.status === 401) return null
             throw err
           })
-        // 先用现有 access 认人，只有它失效时才轮换 refresh。每次打开页面都轮换的话，
-        // 轮换响应一旦没落进 cookie（重载、断网），下次带旧 refresh 会被判成复用而整链作废。
+        // 先用现有 access 认人：失效时才立刻轮换，有效时一天最多主动轮换一次（见 sessionRotationDue）。
+        // 每次打开页面都轮换的话，轮换响应一旦没落进 cookie（重载、断网），下次带旧 refresh
+        // 会被判成复用而整链作废。
         let currentUser = probeSession ? await readCurrentUser() : null
         if (cancelled) return
         let refreshed: Awaited<ReturnType<typeof refreshWebSession>> | null = null
@@ -143,7 +145,8 @@ export function AuthGate() {
           if (refreshed === 'ok' || refreshed === 'raced') currentUser = await readCurrentUser()
           if (cancelled) return
         }
-        if (currentUser && accessRefreshDue()) await refreshWebSession()
+        if (currentUser && !refreshed && (accessRefreshDue() || sessionRotationDue()))
+          await refreshWebSession()
         if (cancelled) return
         if (probeSession) clearOAuthSessionLanding()
         setSignedIn(Boolean(currentUser))
