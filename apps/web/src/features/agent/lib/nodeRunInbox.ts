@@ -17,7 +17,6 @@ export interface AgentNodeInboxEntry {
   readonly status: StageRunOutcome | 'pending' | 'running' | 'ended' | 'expired' | 'exhausted'
   readonly reason?: StageRunReason
   readonly error?: NodeBatchError
-  readonly blockedReason?: string
   readonly readFailed?: boolean
   readonly pendingLabel:
     | 'nodeRun.status.pending'
@@ -44,10 +43,10 @@ export function nodeRunInboxEntries(
   if (!proposal?.authorizationId || proposal.projectId !== scope.projectId) return []
   const { run, plan, authorization } = snapshot
   if (
-    authorization &&
-    (authorization.id !== proposal.authorizationId ||
-      authorization.projectId !== scope.projectId ||
-      authorization.conversationId !== scope.conversationId)
+    !authorization ||
+    authorization.id !== proposal.authorizationId ||
+    authorization.projectId !== scope.projectId ||
+    authorization.conversationId !== scope.conversationId
   )
     return []
   const reports = authorization?.run?.nodes ?? run?.report?.nodes ?? run?.outcomes ?? []
@@ -71,7 +70,6 @@ export function nodeRunInboxEntries(
     let status: AgentNodeInboxEntry['status'] = 'pending'
     let reason = report?.reason
     let error: NodeBatchError | undefined
-    let blockedReason: string | undefined
     if (report) {
       status = 'task' in report && report.task === 'running' ? 'running' : report.outcome
       if (status === 'running') reason = undefined
@@ -104,7 +102,6 @@ export function nodeRunInboxEntries(
       status = 'blocked'
       reason = job?.blocked
       error = plan.error
-      blockedReason = plan.blockedReason
     }
     return {
       kind: 'node-run',
@@ -119,7 +116,6 @@ export function nodeRunInboxEntries(
       status,
       reason,
       error,
-      blockedReason,
       readFailed: snapshot.readFailed,
       pendingLabel,
       seconds: run?.status === 'countdown' ? run.remaining : undefined,
