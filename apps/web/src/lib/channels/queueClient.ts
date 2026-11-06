@@ -180,8 +180,7 @@ async function submit(
   codexCli: boolean,
   clientRequestId: string | undefined,
 ): Promise<string> {
-  // codex CLI 模式：quality 字段丢弃（codex 网关会拒绝）。防改写 guard 前缀已在
-  // callImageApi 分发层统一应用，这里拿到的 prompt 是最终值；BFF 透传到上游。
+  // 防改写只传意图，由 BFF 在选定网关后添加；codex CLI 模式仍不传 quality。
   const body: Record<string, unknown> = {
     prompt: opts.prompt,
     device_id: getDeviceId(),
@@ -192,6 +191,7 @@ async function submit(
 
   // 协议族决定上游 body 里哪些字段要带。改这里要同时看参数卡片，避免界面有开关、请求里没有。
   if (provider === 'openai-compat') {
+    body.no_rewrite = opts.params.no_rewrite
     body.output_format = opts.params.output_format
     body.moderation = opts.params.moderation
     if (

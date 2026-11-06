@@ -97,7 +97,12 @@ export async function submitAgentGeneration(input: AutoSubmitInput): Promise<Aut
   const createInput: CreateQueueTaskInput = {
     provider: input.provider,
     model: input.model,
-    request: { ...input.request, prompt, client_request_id: commandIdOf(input) },
+    request: {
+      ...input.request,
+      prompt,
+      ...(input.media === 'image' ? { no_rewrite: input.provider !== 'gemini' } : {}),
+      client_request_id: commandIdOf(input),
+    },
     ...(input.video ? { video: input.video } : {}),
     userId: input.userId,
     agent: {

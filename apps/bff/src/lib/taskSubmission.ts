@@ -12,6 +12,7 @@ import type {
   TaskStatus,
 } from '@image-playground/shared'
 import {
+  applyPromptRewriteGuard,
   billedStageQuantity,
   clampGeminiNonMemberRequest,
   clampGptNonMemberRequest,
@@ -251,6 +252,7 @@ async function replayCommand(
   userId: string,
   commandId: string,
   hash: string,
+  legacyHash?: string,
 ) {
   const [receipt] = await database
     .select()
@@ -262,7 +264,21 @@ async function replayCommand(
       ),
     )
   if (!receipt) return null
-  return receipt.request_hash === hash
+  let matches = receipt.request_hash === hash
+  if (!matches && legacyHash && receipt.request_hash === legacyHash) {
+    // 只兼容尚未保存选项的旧任务；两份新版原文/开关不同的请求不能碰撞。
+    const [legacy] = await database
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(
+        and(
+          eq(schema.tasks.id, receipt.task_id),
+          sql`${schema.tasks.request_payload} -> 'no_rewrite' IS NULL`,
+        ),
+      )
+    matches = !!legacy
+  }
+  return matches
     ? { kind: 'created' as const, taskId: receipt.task_id, submittedAt: receipt.submitted_at }
     : { kind: 'idempotency_mismatch' as const }
 }
@@ -271,12 +287,13 @@ async function adoptLegacyCommand(
   userId: string,
   commandId: string,
   hash: string,
+  legacyHash?: string,
 ): Promise<CreateQueueTaskOutcome | null> {
   return db.transaction(async (tx) => {
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify(['generation-command', userId, commandId])}, 0))`,
     )
-    const replay = await replayCommand(tx, userId, commandId, hash)
+    const replay = await replayCommand(tx, userId, commandId, hash, legacyHash)
     if (replay) return replay
     const [task] = await tx
       .select()
@@ -317,7 +334,8 @@ async function adoptLegacyCommand(
       task_id: task.id,
       submitted_at: task.submitted_at,
     })
-    return originalHash === hash
+    return originalHash === hash ||
+      (task.request_payload.no_rewrite === undefined && originalHash === legacyHash)
       ? { kind: 'created', taskId: task.id, submittedAt: task.submitted_at }
       : { kind: 'idempotency_mismatch' }
   })
@@ -567,13 +585,27 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
     throw new TypeError('reconciliation_requires_image_task')
   const commandId = input.request.client_request_id
   const hash = commandHash(input)
+  let legacyHash: string | undefined
+  if (input.request.no_rewrite !== undefined) {
+    const { no_rewrite, ...request } = input.request
+    legacyHash = commandHash({
+      ...input,
+      request: {
+        ...request,
+        prompt:
+          no_rewrite && !input.video && input.provider !== 'gemini'
+            ? applyPromptRewriteGuard(request.prompt)
+            : request.prompt,
+      },
+    })
+  }
   // 外部事务在场时不走历史命令认领：它自己要开一个事务，握着连接的调用方会因此卡在连接池上。
   // 确认生成用的是新建的命令 id，没有历史任务可认领。
   if (input.userId && commandId) {
-    const replay = await replayCommand(input.tx ?? db, input.userId, commandId, hash)
+    const replay = await replayCommand(input.tx ?? db, input.userId, commandId, hash, legacyHash)
     if (replay) return replay
     if (!input.tx) {
-      const legacy = await adoptLegacyCommand(input.userId, commandId, hash)
+      const legacy = await adoptLegacyCommand(input.userId, commandId, hash, legacyHash)
       if (legacy) return legacy
     }
   }
@@ -611,7 +643,7 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
       await tx.execute(
         sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify(['generation-command', input.userId, commandId])}, 0))`,
       )
-      const replay = await replayCommand(tx, input.userId, commandId, hash)
+      const replay = await replayCommand(tx, input.userId, commandId, hash, legacyHash)
       if (replay) return replay
     }
     if (await modelUnavailable(tx, input.model)) {
@@ -855,7 +887,7 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
   if (!input.prepared && (outcome.kind !== 'created' || outcome.taskId !== id))
     await discardArchivedInputs(id)
   if (outcome.kind === 'idempotency_conflict' && input.userId && commandId && !input.tx) {
-    return (await adoptLegacyCommand(input.userId, commandId, hash)) ?? outcome
+    return (await adoptLegacyCommand(input.userId, commandId, hash, legacyHash)) ?? outcome
   }
   return outcome
 }

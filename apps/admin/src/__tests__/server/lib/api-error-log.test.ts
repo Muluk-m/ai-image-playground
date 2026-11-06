@@ -1,7 +1,51 @@
 import { describe, expect, it, spyOn } from 'bun:test'
+import { Elysia } from 'elysia'
 import { logAdminApiError } from '../../../../server/lib/api-error-log'
 
 describe('logAdminApiError', () => {
+  it('keeps missing routes as 404 and records one warning without an error stack', async () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {})
+    const error = spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const app = new Elysia().onError(({ request, error }) => {
+        logAdminApiError(request, error)
+      })
+      const response = await app.handle(
+        new Request('http://localhost/api/missing-route?token=private-token', {
+          method: 'POST',
+          headers: {
+            authorization: 'Bearer private-token',
+            cookie: 'admin=private-cookie',
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ password: 'private-password' }),
+        }),
+      )
+      expect(response.status).toBe(404)
+      expect(await response.text()).toBe('NOT_FOUND')
+      expect(warn.mock.calls).toEqual([['WARN [admin] POST /api/missing-route failed: NOT_FOUND']])
+      expect(error).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+      error.mockRestore()
+    }
+  })
+
+  it('keeps an internal error named NOT_FOUND at error level', () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {})
+    const error = spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      logAdminApiError(new Request('http://localhost/api/overview'), new Error('NOT_FOUND'))
+      expect(warn).not.toHaveBeenCalled()
+      expect(error).toHaveBeenCalledTimes(1)
+      expect(String(error.mock.calls[0]?.[0])).toContain('GET /api/overview failed: NOT_FOUND')
+      expect(String(error.mock.calls[0]?.[0])).toContain('api-error-log.test.ts')
+    } finally {
+      warn.mockRestore()
+      error.mockRestore()
+    }
+  })
+
   it('records the route, message, and stack, and leaves the body and secrets out', () => {
     const spy = spyOn(console, 'error').mockImplementation(() => {})
     try {

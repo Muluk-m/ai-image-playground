@@ -279,6 +279,7 @@ async function prepareItem(
     request: {
       ...params,
       n: 1,
+      no_rewrite: item.params.provider !== 'gemini',
       prompt: shapeQueuePrompt({
         provider: item.params.provider,
         model: item.params.model,

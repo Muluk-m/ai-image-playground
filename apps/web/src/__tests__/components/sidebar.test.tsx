@@ -3,12 +3,14 @@ import 'fake-indexeddb/auto'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { AuthContextProvider } from '../../auth/AuthContext'
 import Sidebar from '../../components/Sidebar'
 import { useAgentJobActivity } from '../../features/agent/lib/jobActivity'
 import { type CanvasProject, projectRepository } from '../../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { useLibraryStore } from '../../features/library/store'
 import { installWorkbenchNavigation } from '../../lib/navigation/workbenchNavigation'
+import { navigate } from '../../lib/pathname'
 import { useStore } from '../../store'
 
 const media = vi.hoisted(() => ({
@@ -40,7 +42,13 @@ beforeEach(async () => {
   document.body.append(host)
   root = createRoot(host)
   await act(async () => {
-    root.render(<Sidebar />)
+    root.render(
+      <AuthContextProvider
+        value={{ enabled: true, user: null, login: () => {}, logout: async () => {} }}
+      >
+        <Sidebar />
+      </AuthContextProvider>,
+    )
     await useCanvasProjectStore.getState().load()
   })
 })
@@ -48,6 +56,7 @@ beforeEach(async () => {
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  window.history.replaceState(null, '', '/')
 })
 
 function entry(label: string): HTMLButtonElement {
@@ -316,4 +325,45 @@ it('shows a catalog failure with a working retry instead of leaking an unhandled
   } finally {
     read.mockRestore()
   }
+})
+
+it('插件集成位于工具箱之后并带 NEW，桌面和窄屏都能直接打开', () => {
+  const navs = [...host.querySelectorAll('nav')]
+  for (const nav of navs) {
+    const plugin = nav.querySelector<HTMLButtonElement>('[aria-label="插件集成"]')
+    expect(plugin).not.toBeNull()
+    expect(plugin?.textContent).toContain('NEW')
+    expect(plugin?.previousElementSibling?.textContent).toBe('工具箱')
+    act(() => plugin?.click())
+    expect(window.location.pathname).toBe('/connect')
+    expect(plugin?.getAttribute('aria-current')).toBe('page')
+    expect(nav.querySelector('[aria-pressed="true"]')).toBeNull()
+    act(() => navigate('/image'))
+  }
+})
+
+it('从插件页点原来的当前入口也会离开，后退时恢复插件选中态', () => {
+  const stop = installWorkbenchNavigation()
+  try {
+    act(() => entry('插件集成').click())
+    act(() => entry('创作').click())
+    expect(window.location.pathname).toBe('/image')
+    expect(entry('创作').getAttribute('aria-pressed')).toBe('true')
+    act(() => {
+      window.history.replaceState(null, '', '/connect')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(entry('插件集成').getAttribute('aria-current')).toBe('page')
+    act(() => useStore.setState({ appMode: 'library', sidebarExpanded: false }))
+    expect(entry('插件集成')).toBeDefined()
+    act(() => entry('插件集成').click())
+    expect(window.location.pathname).toBe('/connect')
+  } finally {
+    stop()
+  }
+})
+
+it('未开启账号体系时不展示插件入口', () => {
+  act(() => root.render(<Sidebar />))
+  expect(host.querySelector('[aria-label="插件集成"]')).toBeNull()
 })

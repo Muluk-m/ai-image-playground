@@ -86,6 +86,12 @@ connection and proceed to step 5. Otherwise:
 If the user declines, stop. If the code expires, start a new login. Do not ask
 for passwords, browser cookies, or tokens, and do not print stored credentials.
 
+If the host interrupts login for a permission approval or replays the command, run
+`muvloom auth status` before starting another login. A `ready` state means the
+connection succeeded. Do not describe an invalid or already-used code as expired,
+or repeatedly open new authorization pages after the user has approved. Never
+disable the host's file or credential protection.
+
 ## 5. Confirm readiness
 
 Run `muvloom capabilities` to verify that generation is available. Only report

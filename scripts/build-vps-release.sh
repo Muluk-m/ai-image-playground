@@ -13,7 +13,7 @@ if [ "$(uname -s)" != Darwin ] && [ "${GITHUB_ACTIONS:-}" != true ]; then
   exit 1
 fi
 target=${1:-}
-case "$target" in internal) editions=internal ;; paid) editions=paid ;; test) editions='test' ;; all) editions='internal paid' ;; *) echo "Usage: $0 internal|paid|test|all /absolute/output-directory" >&2; exit 2 ;; esac
+case "$target" in paid|test) ;; *) echo "Usage: $0 paid|test /absolute/output-directory" >&2; exit 2 ;; esac
 transport=${RELEASE_TRANSPORT:-registry}
 case "$transport" in registry|archive) ;; *) echo "RELEASE_TRANSPORT must be registry or archive, not $transport" >&2; exit 2 ;; esac
 output=${2:?An unused absolute output directory is required}
@@ -21,11 +21,8 @@ case "$output" in /*) ;; *) exit 2 ;; esac
 [ ! -e "$output" ] || { echo "Output already exists: $output" >&2; exit 1; }
 [ -z "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ] || { echo "Commit tracked source changes before building." >&2; exit 1; }
 public_sha=$(git -C "$repo_root" rev-parse HEAD)
-private_sha=-
-case "$target" in paid|test|all)
-  [ -z "$(git -C "$repo_root/private" status --porcelain --untracked-files=no)" ] || { echo "Commit private source changes before building." >&2; exit 1; }
-  private_sha=$(git -C "$repo_root/private" rev-parse HEAD)
-;; esac
+[ -z "$(git -C "$repo_root/private" status --porcelain --untracked-files=no)" ] || { echo "Commit private source changes before building." >&2; exit 1; }
+private_sha=$(git -C "$repo_root/private" rev-parse HEAD)
 build_lock=$config_root/image-build.lock
 snapshot=
 cleanup() {
@@ -47,10 +44,8 @@ snapshot=$(mktemp -d)
 mkdir "$snapshot/public" "$snapshot/private"
 git -C "$repo_root" archive "$public_sha" > "$snapshot/public.tar"
 tar -xf "$snapshot/public.tar" -C "$snapshot/public"
-if [ "$private_sha" != - ]; then
-  git -C "$repo_root/private" archive "$private_sha" > "$snapshot/private.tar"
-  tar -xf "$snapshot/private.tar" -C "$snapshot/private"
-fi
+git -C "$repo_root/private" archive "$private_sha" > "$snapshot/private.tar"
+tar -xf "$snapshot/private.tar" -C "$snapshot/private"
 # A dedicated builder limits both the whole compiler budget and concurrent Dockerfile stages.
 builder=aip-release
 if ! docker buildx inspect "$builder" >/dev/null 2>&1; then
@@ -74,11 +69,8 @@ build_image() {
   remote=$ghcr_repository:$2
   context=$3
   shift 3
-  # qlj (internal), muvloom (paid), and test are separate workflow runs. A registry cache of the
-  # intermediate stages lets the next run reuse the public install and, when the
-  # overlay matches, the private stages. The backup image uses another Dockerfile;
-  # exporting it would replace this cache, so only the last application edition
-  # writes it. Archive transport has no registry credentials.
+  # Production and test reuse public and pinned-overlay build stages through the registry cache.
+  # The backup image uses another Dockerfile and must not replace the application cache.
   if [ "$transport" = registry ]; then
     set -- --cache-from "type=registry,ref=${ghcr_repository}:buildcache" "$@"
     if [ "${export_build_cache:-0}" = 1 ]; then
@@ -109,32 +101,16 @@ mkdir -p "$output"
 # image metadata and, for archive transport, image bytes. The receiver never executes source from
 # this directory.
 : > "$output/images.tsv"
-images=
-last_edition=
-for edition in $editions; do
-  last_edition=$edition
-done
-for edition in $editions; do
-  version=$public_sha
-  image=ai-image-playground:vps-main-$(printf %.12s "$public_sha")
-  registry_tag=internal-$(printf %.12s "$public_sha")
-  export_build_cache=0
-  if [ "$edition" = "$last_edition" ]; then
-    export_build_cache=1
-  fi
-  set --
-  if [ "$edition" = paid ] || [ "$edition" = test ]; then
-    version=$public_sha+$private_sha
-    image=ai-image-playground:$edition-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha")
-    registry_tag=$edition-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha")
-    set -- --build-context "private-overlay=$snapshot/private" --build-arg PRIVATE_OVERLAY_PRESENT=true
-  fi
-  build_image "$image" "$registry_tag" "$snapshot/public" \
-    --build-arg "APP_VERSION=$version" --build-arg "APP_RELEASE=${APP_RELEASE:-}" "$@"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$edition" "$image" "$image_id" "$public_sha" "$private_sha" \
-    "$repo_digest" >> "$output/images.tsv"
-  images="$images $image"
-done
+version=$public_sha+$private_sha
+image=ai-image-playground:$target-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha")
+registry_tag=$target-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha")
+export_build_cache=1
+build_image "$image" "$registry_tag" "$snapshot/public" \
+  --build-context "private-overlay=$snapshot/private" --build-arg PRIVATE_OVERLAY_PRESENT=true \
+  --build-arg "APP_VERSION=$version" --build-arg "APP_RELEASE=${APP_RELEASE:-}"
+printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$target" "$image" "$image_id" "$public_sha" "$private_sha" \
+  "$repo_digest" >> "$output/images.tsv"
+images="$image"
 # The backup sidecar is also prebuilt; production Compose has no build context.
 # Do not export its layers into the application build cache.
 export_build_cache=0

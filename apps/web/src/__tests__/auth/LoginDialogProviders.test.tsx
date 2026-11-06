@@ -76,6 +76,7 @@ describe('LoginDialog third-party providers', () => {
 
     expect(providerButtons().map((button) => button.textContent)).toEqual(['GGoogle'])
     expect(dialogText()).toContain('或使用邮箱登录')
+    expect(dialogText()).toContain('查看套餐')
   })
 
   it('hides the whole block when the deployment enables no provider', async () => {
@@ -159,6 +160,7 @@ it('never flashes local forms while policy loads or when discovery fails', async
   await render()
   expect(document.querySelector('form')).toBeNull()
   expect(document.querySelector('.auth-divider')).toBeNull()
+  expect(dialogText()).not.toContain('查看套餐')
   await act(async () => reject(new Error('offline')))
   expect(document.querySelector('form')).toBeNull()
   expect(document.querySelector('[role="alert"]')).not.toBeNull()
@@ -190,6 +192,9 @@ it('renders only the allowed provider and private mark even with a referral', as
   expect(document.querySelector('input')).toBeNull()
   expect(document.querySelector('.auth-divider')).toBeNull()
   expect(dialogText()).not.toContain('立即注册')
+  expect(dialogText()).not.toContain('查看套餐')
+  expect(document.querySelector('.auth-terms a[href="/terms"]')).not.toBeNull()
+  expect(document.querySelector('.auth-terms a[href="/privacy"]')).not.toBeNull()
   expect(dialogText()).not.toContain('Google')
   expect(document.querySelector('[role="alert"]')).not.toBeNull()
   expect(vi.mocked(fetch).mock.calls[0]?.[0]).toContain('frontend_origin=')

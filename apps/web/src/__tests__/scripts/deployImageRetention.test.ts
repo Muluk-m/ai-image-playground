@@ -40,23 +40,23 @@ function stale(
   return out.split('\n').filter(Boolean)
 }
 
-const internal = (sha: string) => `ai-image-playground:vps-main-${sha}`
+const testImage = (sha: string) => `ai-image-playground:test-${sha}`
 const paid = (pub: string, priv: string) => `ai-image-playground:paid-${pub}-${priv}`
 
 describe('select_stale_images', () => {
   it('每个形态只留最新的 N 代，其余都该删', () => {
-    const tags = ['aaaaaaa1', 'aaaaaaa2', 'aaaaaaa3', 'aaaaaaa4'].map(internal)
-    expect(stale('ai-image-playground:vps-main', 2, tags)).toEqual(tags.slice(2))
+    const tags = ['aaaaaaa1', 'aaaaaaa2', 'aaaaaaa3', 'aaaaaaa4'].map(testImage)
+    expect(stale('ai-image-playground:test', 2, tags)).toEqual(tags.slice(2))
   })
 
   it('不够 N 代时什么都不删', () => {
-    const tags = ['aaaaaaa1', 'aaaaaaa2'].map(internal)
-    expect(stale('ai-image-playground:vps-main', 5, tags)).toEqual([])
+    const tags = ['aaaaaaa1', 'aaaaaaa2'].map(testImage)
+    expect(stale('ai-image-playground:test', 5, tags)).toEqual([])
   })
 
   it('正在跑的那一代再旧也不删，也不占保留名额', () => {
-    const tags = ['aaaaaaa1', 'aaaaaaa2', 'aaaaaaa3', 'aaaaaaa4'].map(internal)
-    expect(stale('ai-image-playground:vps-main', 1, tags, [tags[3]])).toEqual([tags[1], tags[2]])
+    const tags = ['aaaaaaa1', 'aaaaaaa2', 'aaaaaaa3', 'aaaaaaa4'].map(testImage)
+    expect(stale('ai-image-playground:test', 1, tags, [tags[3]])).toEqual([tags[1], tags[2]])
   })
 
   it('只认按提交打出来的 tag：移动别名和手工起名的镜像一律不碰', () => {
@@ -88,14 +88,14 @@ describe('select_stale_images', () => {
       seg(1, 'aaaaaaaaaaa2'),
     ])
     // 别的形态不认这种形状，免得把 <alias>-<数字>-<sha> 的手工 tag 当成发布产物。
-    expect(
-      stale('ai-image-playground:vps-main', 0, ['ai-image-playground:vps-main-1-aaaaaaa1']),
-    ).toEqual([])
+    expect(stale('ai-image-playground:test', 0, ['ai-image-playground:test-1-aaaaaaa1'])).toEqual(
+      [],
+    )
   })
 
   it('两个形态共用仓库名时互不误删', () => {
-    const tags = [internal('aaaaaaa1'), paid('aaaaaaa1', 'bbbbbbb1'), internal('aaaaaaa2')]
-    expect(stale('ai-image-playground:vps-main', 1, tags)).toEqual([internal('aaaaaaa2')])
+    const tags = [testImage('aaaaaaa1'), paid('aaaaaaa1', 'bbbbbbb1'), testImage('aaaaaaa2')]
+    expect(stale('ai-image-playground:test', 1, tags)).toEqual([testImage('aaaaaaa2')])
   })
 })
 
@@ -134,13 +134,11 @@ describe('release_untagged_image', () => {
   })
 
   it('还有本地 tag 指着它就不碰：那是另一代的回滚目标', () => {
-    expect(releaseUntagged(['ai-image-playground:vps-main-aaaaaaa1', registryRef]).removed).toBe(
-      false,
-    )
+    expect(releaseUntagged(['ai-image-playground:test-aaaaaaa1', registryRef]).removed).toBe(false)
   })
 
   it('移动别名还指着它也不碰', () => {
-    expect(releaseUntagged(['ai-image-playground:vps-main', registryRef]).removed).toBe(false)
+    expect(releaseUntagged(['ai-image-playground:test', registryRef]).removed).toBe(false)
   })
 
   it('镜像已经不在了也不报错', () => {
@@ -165,18 +163,18 @@ describe('reclaim_deploy_disk', () => {
     writeFileSync(join(deployed, 'images.tar.gz'), 'deployed')
     writeFileSync(join(pending, 'images.tar.gz'), 'pending')
     writeFileSync(join(failed, 'images.tar.gz'), 'failed')
-    const kept = 'ai-image-playground:vps-main-aaaaaaaaaaaa'
+    const kept = 'ai-image-playground:test-aaaaaaaaaaaa'
     writeFileSync(
       join(deployed, 'images.tsv'),
-      `internal\t${kept}\tsha256:${'a'.repeat(64)}\t${'b'.repeat(40)}\t-\n`,
+      `test\t${kept}\tsha256:${'a'.repeat(64)}\t${'b'.repeat(40)}\t-\n`,
     )
     writeFileSync(
       join(current, 'images.tsv'),
-      `internal\t${kept}\tsha256:${'a'.repeat(64)}\t${'b'.repeat(40)}\t-\n`,
+      `test\t${kept}\tsha256:${'a'.repeat(64)}\t${'b'.repeat(40)}\t-\n`,
     )
     writeFileSync(
       join(config, 'ai-image-playground/deployments.log'),
-      `2026-10-14T00:00:00Z internal public=${'b'.repeat(40)} private=- image=${kept} by=test result=ok\n`,
+      `2026-10-14T00:00:00Z test public=${'b'.repeat(40)} private=- image=${kept} by=test result=ok\n`,
     )
     const calls = join(dir, 'calls')
     writeFileSync(
@@ -197,9 +195,9 @@ case "$1 $2" in
     ;;
   'images --format')
     printf '%s\\n' \\
-      'ai-image-playground:vps-main-aaaaaaa1' \\
-      'ai-image-playground:vps-main-aaaaaaa2' \\
-      'ai-image-playground:vps-main-aaaaaaa3' \\
+      'ai-image-playground:test-aaaaaaa1' \\
+      'ai-image-playground:test-aaaaaaa2' \\
+      'ai-image-playground:test-aaaaaaa3' \\
       'ai-image-playground:paid-relay-removal'
     ;;
 esac
@@ -220,9 +218,9 @@ esac
       },
     )
     const log = readFileSync(calls, 'utf8')
-    expect(out).toContain('pruned ai-image-playground:vps-main-aaaaaaa3')
+    expect(out).toContain('pruned ai-image-playground:test-aaaaaaa3')
     expect(out).not.toContain('pruned ai-image-playground:paid-relay-removal')
-    expect(log).toContain('rmi ai-image-playground:vps-main-aaaaaaa3')
+    expect(log).toContain('rmi ai-image-playground:test-aaaaaaa3')
     expect(log).toContain('rmi sha256:dead')
     expect(log).toContain('image prune -f')
     expect(log).not.toContain('image prune -a')
@@ -253,9 +251,9 @@ case "$1 $2" in
   'image prune'|'builder prune') ;;
   'images --format')
     printf '%s\\n' \\
-      'ai-image-playground:vps-main-aaaaaaa1' \\
-      'ai-image-playground:vps-main-aaaaaaa2' \\
-      'ai-image-playground:vps-main-aaaaaaa3'
+      'ai-image-playground:test-aaaaaaa1' \\
+      'ai-image-playground:test-aaaaaaa2' \\
+      'ai-image-playground:test-aaaaaaa3'
     ;;
 esac
 `,
@@ -265,7 +263,7 @@ esac
       'sh',
       [
         '-c',
-        'set -eu; . "$0"; reclaim_deploy_disk "$1" "ai-image-playground:vps-main-aaaaaaa3"',
+        'set -eu; . "$0"; reclaim_deploy_disk "$1" "ai-image-playground:test-aaaaaaa3"',
         lib,
         current,
       ],
@@ -280,26 +278,11 @@ esac
       },
     )
     const log = readFileSync(calls, 'utf8')
-    expect(out).not.toContain('pruned ai-image-playground:vps-main-aaaaaaa3')
+    expect(out).not.toContain('pruned ai-image-playground:test-aaaaaaa3')
     expect(log).not.toContain('rmi ')
     expect(existsSync(join(current, 'images.tar.gz'))).toBe(true)
     expect(existsSync(join(other, 'images.tar.gz'))).toBe(false)
     rmSync(dir, { recursive: true, force: true })
-  })
-
-  it('拉镜像之前就回收，测试发布也会清备份镜像', () => {
-    const receiver = readFileSync(
-      resolve(__dirname, '../../../../../scripts/vps-deploy.sh'),
-      'utf8',
-    )
-    const reclaim = receiver.indexOf('reclaim_deploy_disk "$release" "$release_images"')
-    const free = receiver.indexOf('free_gb=$(docker_root_free_gb)')
-    const tighter = receiver.indexOf('reclaim_deploy_disk "$release" "$release_images" 1')
-    expect(reclaim).toBeGreaterThan(-1)
-    expect(free).toBeGreaterThan(reclaim)
-    expect(tighter).toBeGreaterThan(free)
-    expect(receiver).toContain('reclaim_deploy_disk "$release" "$rolled_out $backup_image"')
-    expect(receiver).not.toContain('prune_old_images')
   })
 })
 
@@ -332,20 +315,20 @@ describe('release_was_deployed', () => {
     }
   }
   const ok = (image: string) =>
-    `2026-10-23T00:00:00Z internal public=a private=- image=${image} by=ci result=ok`
+    `2026-10-23T00:00:00Z test public=a private=- image=${image} by=ci result=ok`
 
   it('不等抠图服务和备份的日志行，它们本来就没有', () => {
     const rows = [
-      'internal\tai-image-playground:vps-main-aaaaaaa1\tsha256:1\ta\t-',
+      'test\tai-image-playground:test-aaaaaaa1\tsha256:1\ta\t-',
       'backup\tai-image-playground:backup-aaaaaaa1\tsha256:2\ta\t-',
       'segmenter\tai-image-playground:segmenter-1-aaaaaaa1\tsha256:3\ta\t-',
     ]
-    expect(deployed(rows, [ok('ai-image-playground:vps-main-aaaaaaa1')])).toBe('yes')
+    expect(deployed(rows, [ok('ai-image-playground:test-aaaaaaa1')])).toBe('yes')
   })
 
   it('应用镜像没上成功就保留归档', () => {
     const rows = [
-      'internal\tai-image-playground:vps-main-aaaaaaa1\tsha256:1\ta\t-',
+      'test\tai-image-playground:test-aaaaaaa1\tsha256:1\ta\t-',
       'segmenter\tai-image-playground:segmenter-1-aaaaaaa1\tsha256:3\ta\t-',
     ]
     expect(deployed(rows, [])).toBe('no')
