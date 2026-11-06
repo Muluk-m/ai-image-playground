@@ -146,6 +146,17 @@ export interface ImageRateRequest extends GptTierInput {
   gemini_image_size?: string
 }
 
+/** Gemini 的 4K 只给会员；队列字段优先于界面字段，与提交收口一致。 */
+export function clampGeminiNonMemberRequest<T extends ImageRateRequest>(
+  request: T,
+  member: boolean,
+): T {
+  if (member || (request.image_size ?? request.gemini_image_size) !== '4K') return request
+  return request.image_size !== undefined
+    ? { ...request, image_size: '2K' }
+    : { ...request, gemini_image_size: '2K' }
+}
+
 /**
  * 与目录 `pricing.tierMultiplier` 相同。手写在这里，计价不跟随 Grok 等尚未启用的目录倍率。
  * 4K 已定义，渠道尚未开放。
@@ -203,14 +214,20 @@ export function imageRateMultiplier(
  * `pricingOf` 一致；两边用同一个收口函数，授权倍率与实扣才对得上。
  * 网站直接提交不要用它：会员的 GPT 档位原样计价。
  * `supportedTiers` 是渠道声明的可出档；提案和提交要传同一份。
+ * Gemini 的 4K 在非会员时收到 2K，`member` 必须来自当前账号权益。
  */
 export function preparedImageRateMultiplier(
   model: string,
   request: ImageRateRequest | null | undefined,
   supportedTiers?: readonly string[],
+  member = false,
 ): number {
   if (!request) return 1
-  return imageRateMultiplier(model, clampGptNonMemberRequest(model, request), supportedTiers)
+  return imageRateMultiplier(
+    model,
+    clampGeminiNonMemberRequest(clampGptNonMemberRequest(model, request), member),
+    supportedTiers,
+  )
 }
 
 /** 旧名，等于不带渠道档位的 {@link preparedImageRateMultiplier}。 */

@@ -25,7 +25,7 @@ const ENV_KEYS = [
 afterEach(() => {
   for (const key of ENV_KEYS) delete process.env[key]
   process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
-  config.gptDirect.enabled = false
+  process.env.GPT_DIRECT_ENABLED = 'false'
 })
 
 describe('config.assertValid with OpenAI direct keys', () => {
@@ -38,7 +38,7 @@ describe('config.assertValid with OpenAI direct keys', () => {
   })
 
   it('still rejects a malformed key list when direct is on', () => {
-    config.gptDirect.enabled = true
+    process.env.GPT_DIRECT_ENABLED = 'true'
     process.env.OPENAI_API_KEYS = 'sk-a,sk-b'
     process.env.OPENAI_API_KEY_BUDGETS_USD = 'nope'
     expect(() => config.assertValid()).toThrow()

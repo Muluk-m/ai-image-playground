@@ -84,7 +84,7 @@ export default function ImageNodeComposer({
   const guard = usePrivateSubmissionGuard({
     model: view.model,
     quantity: preset ? 1 : Math.max(1, params.n),
-    unitMultiplier: quotedGptMultiplier(view.model, params, premium.highQuality),
+    unitMultiplier: quotedGptMultiplier(view.model, params, premium.highQuality, premium.member),
   })
   const activeLook = useActiveLook((state) => (templates ? state.look : null))
   const libraryAssets = useLibraryStore((state) => state.assets)
