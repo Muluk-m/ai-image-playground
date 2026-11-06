@@ -84,9 +84,25 @@ describe('loadRuntimeConfig', () => {
     expect(result).toEqual(BAKED_DEFAULTS)
   })
 
-  it('falls back to BAKED_DEFAULTS on network rejection', async () => {
-    const result = await loadRuntimeConfig(mockFetch(0, null, { rejectWith: new Error('network') }))
-    expect(result).toEqual(BAKED_DEFAULTS)
+  it('does not disable login when the configuration request loses its connection', async () => {
+    await loadRuntimeConfig(mockFetch(200, VALID_CONFIG))
+    await expect(
+      loadRuntimeConfig(mockFetch(0, null, { rejectWith: new TypeError('network') })),
+    ).rejects.toThrow('network')
+    expect(getRuntimeConfig()).toEqual(VALID_CONFIG)
+  })
+
+  it.each([403, 429, 500, 502, 503, 504])('rejects HTTP %i so startup can offer a retry', async (status) => {
+    await expect(loadRuntimeConfig(mockFetch(status, ''))).rejects.toThrow(
+      `runtime_config_http_${status}`,
+    )
+  })
+
+  it('propagates request timeouts without silently disabling login', async () => {
+    const fetcher = vi.fn(async () => {
+        throw new DOMException('The operation timed out', 'TimeoutError')
+      })
+    await expect(loadRuntimeConfig(fetcher)).rejects.toThrow('timed out')
   })
 
   it('strips trailing slash from bff.baseUrl', async () => {
