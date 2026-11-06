@@ -27,8 +27,8 @@ function codeFromAddress(): string {
 }
 
 /**
- * CLI 设备授权确认页（RFC 8628）。终端打印的链接带着授权码落到这里；没登录先走网站登录，
- * 登录框关掉后仍停在这一页。批准或拒绝只改这一个授权码，结果由终端轮询取走。
+ * CLI 设备授权确认页（RFC 8628）。客户端打开的链接带着授权码落到这里；没登录先走网站登录，
+ * 登录框关掉后仍停在这一页。批准或拒绝只改这一个授权码，结果由授权客户端轮询取走。
  */
 export default function CliDevicePage() {
   const { t } = useTranslation('auth')
@@ -39,6 +39,7 @@ export default function CliDevicePage() {
   const deciding = useRef(false)
   const request = useRef<AbortController | null>(null)
   const [attempt, setAttempt] = useState(0)
+  const [closeBlocked, setCloseBlocked] = useState(false)
   const scopeLabels: Record<string, string> = {
     'images:read': t('cliDevice.scopes.imagesRead'),
     'images:write': t('cliDevice.scopes.imagesWrite'),
@@ -63,6 +64,7 @@ export default function CliDevicePage() {
 
   useEffect(() => {
     deciding.current = false
+    setCloseBlocked(false)
     if (!user?.id || !code) {
       request.current = null
       setPhase({ kind: 'idle' })
@@ -192,9 +194,26 @@ export default function CliDevicePage() {
           </p>
         ) : null}
         {phase.kind === 'approved' ? (
-          <p className="text-title-md" role="status">
-            {t('cliDevice.approved')}
-          </p>
+          <div className="space-y-3">
+            <p className="text-title-md" role="status">
+              {t('cliDevice.approved')}
+            </p>
+            <Button
+              type="button"
+              className="w-full"
+              onClick={() => {
+                window.close()
+                if (!window.closed) setCloseBlocked(true)
+              }}
+            >
+              {t('cliDevice.return')}
+            </Button>
+            {closeBlocked ? (
+              <p className="text-body-sm text-muted-foreground" aria-live="polite">
+                {t('cliDevice.closeManually')}
+              </p>
+            ) : null}
+          </div>
         ) : null}
         {phase.kind === 'denied' ? (
           <p className="text-title-md" role="status">
