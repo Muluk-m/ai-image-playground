@@ -1262,7 +1262,7 @@ export const runStoryboardVideos = defineAgentTool({
             )
             authorization = await proposeStageAuthorizationInTransaction(
               tx,
-              stageProposalInput(context, callId, project.id, graph, nodes, '视频'),
+              await stageProposalInput(context, callId, project.id, graph, nodes, '视频'),
             )
           } finally {
             saved.destroy()
