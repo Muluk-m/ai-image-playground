@@ -96,6 +96,8 @@ export const QUEUE_PROMPT_MAX_CHARS = 32_000
  */
 export interface SubmitRequest {
   prompt: string
+  /** 仅请求需要的网关添加防改写指令；直连始终使用原文，不把此字段发给供应商。 */
+  no_rewrite?: boolean
   /** Canvas candidates expire with the queue unless explicitly adopted as project media. */
   output_retention?: 'candidate'
   size?: string

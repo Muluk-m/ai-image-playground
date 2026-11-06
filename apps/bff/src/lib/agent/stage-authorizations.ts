@@ -868,7 +868,7 @@ export interface StagePromptShaping {
 
 /**
  * 创作页分发层（`callImageApi`）从授权冻结的原文能拼出的全部 prompt：原文本身；非 Gemini 且
- * 开着 no_rewrite 时前面加防改写 guard；模型声明过能力且其中没有 `size` 时，末尾再按本次请求
+ * 旧页面开着 no_rewrite 时前面加防改写 guard（新页面只传选项）；模型没有 `size` 能力时，末尾按请求
  * 的 size 加构图指令。条件和 web 的 `getParamCapabilities().size`、BFF 的 `shapeQueuePrompt`
  * 一致（没声明能力的模型按支持 size 处理，不加后缀）。
  */

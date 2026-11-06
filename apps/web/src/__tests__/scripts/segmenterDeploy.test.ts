@@ -139,7 +139,7 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 describe('segmenter-deploy.sh (one shared, versioned container)', () => {
-  const apps = ['image-playground-internal_application', 'image-playground-test_application']
+  const apps = ['image-playground-paid_application', 'image-playground-test_application']
 
   it('leaves the running segmenter alone when it already runs that version', () => {
     seed({ [shared]: container({ networks: [shared, ...apps], version: '3' }) })

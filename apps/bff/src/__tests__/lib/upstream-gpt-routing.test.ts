@@ -7,6 +7,7 @@ process.env.DATABASE_URL = await resetTestDatabase('bff_upstream_gpt_routing')
 process.env.UPSTREAM_BASE_URL = 'https://sub2api.example.com'
 process.env.UPSTREAM_API_KEY = 'sub2api-key'
 process.env.GPT_DIRECT_ENABLED = 'true'
+process.env.GPT_IMAGE_26_ENABLED = 'true'
 process.env.OPENAI_API_KEY = 'direct-key'
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.OPENAI_ORG_ID = 'org-test'
@@ -161,6 +162,30 @@ describe('route choice', () => {
     expect(JSON.stringify(usage)).not.toContain('direct-key')
   })
 
+  it.each([
+    'gpt-image-2.6-flare',
+    'gpt-image-2.6-sunburst',
+  ])('removes a legacy guard from the actual %s direct request', async (model) => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model,
+      request: { prompt: `${PROMPT_REWRITE_GUARD_PREFIX}\na cat`, quality: 'high' },
+    })
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.route).toBe('direct')
+    expect(sent[0]!.body).toMatchObject({ prompt: 'a cat', quality: 'high', model })
+  })
+
+  it('adds the guard only to the selected gateway when requested', async () => {
+    await call({ no_rewrite: true }, false)
+    expect(sent[0]!.body.prompt).toBe(`${PROMPT_REWRITE_GUARD_PREFIX}\na cat`)
+    expect(sent[0]!.body).not.toHaveProperty('no_rewrite')
+    sent = []
+    await call({ no_rewrite: true }, true)
+    expect(sent[0]!.body.prompt).toBe('a cat')
+    expect(sent[0]!.body).not.toHaveProperty('no_rewrite')
+  })
+
   it('sends a non-member 2K request to direct first, and falls back to sub2api when direct is down', async () => {
     await call({ size: '2048x2048', quality: 'medium' }, false)
     expect(sent.map((one) => one.route)).toEqual(['direct'])
@@ -312,8 +337,12 @@ describe('strict premium CLI routing', () => {
 describe('failover', () => {
   it('retries a member on sub2api once when direct answers 5xx, without recording direct cost', async () => {
     behaviour.direct.status = 503
-    await call({}, true)
+    await call({ no_rewrite: true }, true)
     expect(sent.map((one) => one.route)).toEqual(['direct', 'sub2api'])
+    expect(sent.map((one) => one.body.prompt)).toEqual([
+      'a cat',
+      `${PROMPT_REWRITE_GUARD_PREFIX}\na cat`,
+    ])
     expect(routes).toEqual(['direct', 'sub2api'])
     expect(routes.at(-1)).toBe('sub2api')
     expect(await db.select().from(schema.gpt_direct_usage)).toHaveLength(0)
@@ -330,8 +359,12 @@ describe('failover', () => {
 
   it('lets a non-member borrow direct when sub2api runs past the attempt timeout', async () => {
     behaviour.sub2api.latencyMs = 5_000
-    await call({}, false)
+    await call({ no_rewrite: true }, false)
     expect(sent.map((one) => one.route)).toEqual(['sub2api', 'direct'])
+    expect(sent.map((one) => one.body.prompt)).toEqual([
+      `${PROMPT_REWRITE_GUARD_PREFIX}\na cat`,
+      'a cat',
+    ])
     expect(routes.at(-1)).toBe('direct')
   })
 

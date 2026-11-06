@@ -7,8 +7,7 @@
           "https://test.muvloom.online",
           "https://image.nainma.online",
           "https://image-playground.qiliangjia.one",
-          "https://ai-image-playground.pages.dev",
-          "https://ai-image-playground-internal.pages.dev"
+          "https://ai-image-playground.pages.dev"
         ],
         "methods": ["GET", "HEAD", "PUT"],
         "headers": ["Content-Type", "Range"]

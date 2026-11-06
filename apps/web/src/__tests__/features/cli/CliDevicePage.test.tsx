@@ -66,7 +66,7 @@ afterEach(() => {
 
 describe('CliDevicePage', () => {
   it.each([
-    ['授权', 'approve', '已授权，回到终端继续。'],
+    ['授权', 'approve', '已授权。'],
     ['拒绝', 'deny', '已拒绝这次连接。'],
   ])('sends the explicit %s decision with the displayed code', async (label, decision, outcome) => {
     const fetcher = vi.fn(async (_input: string, init?: RequestInit) =>
@@ -88,6 +88,28 @@ describe('CliDevicePage', () => {
     expect(host.querySelector('[role="status"]')?.textContent).toBe(outcome)
   })
 
+  it('returns only after clicking and explains when the browser keeps the tab open', async () => {
+    const close = vi.spyOn(window, 'close').mockImplementation(() => {})
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_input: string, init?: RequestInit) =>
+          Response.json(init?.method === 'POST' ? { ok: true } : AUTHORIZATION),
+        ),
+      )
+      await render()
+      await act(async () => button('授权').click())
+      expect(host.querySelector('[role="status"]')?.textContent).toBe('已授权。')
+      expect(close).not.toHaveBeenCalled()
+      await act(async () => button('返回').click())
+      expect(close).toHaveBeenCalledTimes(1)
+      expect(host.textContent).toContain('请关闭此页面，回到发起授权的应用继续。')
+      expect(host.textContent).not.toContain('终端')
+    } finally {
+      close.mockRestore()
+    }
+  })
+
   it('sends only the first decision when both buttons are clicked in the same frame', async () => {
     const pending = deferred()
     const fetcher = vi.fn((_input: string, init?: RequestInit) =>
@@ -104,7 +126,7 @@ describe('CliDevicePage', () => {
     })
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
     await act(async () => pending.resolve(Response.json({ ok: true })))
-    expect(host.textContent).toContain('已授权，回到终端继续。')
+    expect(host.textContent).toContain('已授权。')
   })
 
   it('preserves an entered code and hash through the existing login and OAuth path', async () => {
@@ -209,7 +231,7 @@ describe('CliDevicePage', () => {
       old.resolve(Response.json(stage === 'lookup' ? AUTHORIZATION : { ok: true })),
     )
     expect(host.textContent).toContain('New CLI')
-    expect(host.textContent).not.toContain('已授权，回到终端继续。')
+    expect(host.textContent).not.toContain('已授权。')
     expect(button('授权')).toBeDefined()
   })
 
@@ -225,7 +247,7 @@ describe('CliDevicePage', () => {
     await act(async () => button('授权').click())
     await render(null)
     await act(async () => old.resolve(Response.json({ ok: true })))
-    expect(host.textContent).not.toContain('已授权，回到终端继续。')
+    expect(host.textContent).not.toContain('已授权。')
     expect(button('登录后继续')).toBeDefined()
   })
 })

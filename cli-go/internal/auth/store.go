@@ -24,11 +24,12 @@ const (
 var ErrNotFound = errors.New("no stored credentials")
 
 type Credentials struct {
-	AccessToken      string    `json:"access_token"`
-	RefreshToken     string    `json:"refresh_token"`
-	AccessExpiresAt  time.Time `json:"access_expires_at"`
-	RefreshExpiresAt time.Time `json:"refresh_expires_at"`
-	BaseURL          string    `json:"base_url"`
+	AccessToken         string    `json:"access_token"`
+	RefreshToken        string    `json:"refresh_token"`
+	AccessExpiresAt     time.Time `json:"access_expires_at"`
+	RefreshExpiresAt    time.Time `json:"refresh_expires_at"`
+	BaseURL             string    `json:"base_url"`
+	LoginDeviceCodeHash string    `json:"login_device_code_hash,omitempty"`
 }
 
 // PendingLogin is a device authorization that has been started but not yet approved.
@@ -180,6 +181,11 @@ func readJSON(path string, out any) error {
 }
 
 func removeIfExists(path string) error {
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -196,7 +202,12 @@ func WriteFileAtomic(path string, data []byte) error {
 		return err
 	}
 	name := tmp.Name()
-	defer os.Remove(name)
+	renamed := false
+	defer func() {
+		if !renamed {
+			_ = os.Remove(name)
+		}
+	}()
 	if err := tmp.Chmod(0o600); err != nil && runtime.GOOS != "windows" {
 		tmp.Close()
 		return err
@@ -212,7 +223,11 @@ func WriteFileAtomic(path string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(name, path)
+	if err := os.Rename(name, path); err != nil {
+		return err
+	}
+	renamed = true
+	return nil
 }
 
 // lockStaleAfter must exceed the longest refresh (request timeout plus saving), so a

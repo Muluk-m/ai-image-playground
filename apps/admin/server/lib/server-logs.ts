@@ -35,7 +35,7 @@ export function parseLogQuery(query: Record<string, unknown>, now = Date.now()) 
   const filters: ServerLogFilters = { from, to }
   for (const key of ['deployment', 'stream'] as const) {
     if (query[key] === undefined || query[key] === '') continue
-    const allowed = key === 'stream' ? ['stdout', 'stderr'] : ['paid', 'internal', 'test']
+    const allowed = key === 'stream' ? ['stdout', 'stderr'] : ['paid', 'test']
     if (!allowed.includes(query[key] as string)) throw new LogQueryError('无效的部署或输出流')
     Object.assign(filters, { [key]: query[key] })
   }
