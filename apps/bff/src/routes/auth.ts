@@ -1,5 +1,7 @@
 import {
   EMAIL_MAX_LENGTH,
+  isSessionRefreshRequestKey,
+  SESSION_REFRESH_REQUEST_HEADER,
   isValidEmailAddress,
   isValidUsername,
   normalizeUsername,
@@ -323,12 +325,16 @@ export const userAuthRoutes = new Elysia()
     return { ok: true }
   })
   .post('/api/auth/refresh', async ({ cookie, request, server, status }) => {
+    const requestKey = request.headers.get(SESSION_REFRESH_REQUEST_HEADER)
+    if (requestKey !== null && !isSessionRefreshRequestKey(requestKey))
+      return status(400, { error: 'invalid_refresh_request' })
     const refresh = cookieValue(cookie[USER_REFRESH_COOKIE]?.value)
     const access = cookieValue(cookie[USER_SESSION_COOKIE]?.value)
     const renewed = await refreshWebSessionToken(
       refresh,
       access,
       sessionClientFromRequest(request, server?.requestIP(request)?.address ?? null),
+      requestKey,
     )
     if (!renewed.ok) {
       return status(renewed.error === 'refresh_raced' ? 409 : 401, { error: renewed.error })
