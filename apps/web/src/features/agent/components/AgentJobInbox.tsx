@@ -174,7 +174,6 @@ function InboxGroup({
       <Button
         type="button"
         variant="ghost"
-        size="sm"
         aria-expanded={open}
         disabled={messages.length === 0}
         onClick={() => setOpen((value) => !value)}
@@ -272,6 +271,7 @@ export default function AgentJobInbox() {
       <Button
         type="button"
         variant="ghost"
+        size="sm"
         aria-expanded={open}
         aria-label={label}
         onClick={() => {
