@@ -500,7 +500,7 @@ describe('runMigrations', () => {
         expect(after.slice(0, before.length)).toEqual(before)
         expect(after).toHaveLength(journal.entries.length - 2)
         // Only migrations newer than main's last applied one run, in journal order.
-        expect(after.slice(before.length).map(migrationStamp)).toEqual([
+        const expectedForwardMigrations = [
           {
             hash: await migrationFileHash('0085_task_metering_forward'),
             created_at: '1793600000000',
@@ -529,7 +529,14 @@ describe('runMigrations', () => {
             hash: await migrationFileHash('0091_gpt_direct_keys'),
             created_at: '1794200000000',
           },
-        ])
+        ]
+        const lastJournalEntry = journal.entries.at(-1)
+        if (!lastJournalEntry) throw new Error('migration journal is empty')
+        expectedForwardMigrations.push({
+          hash: await migrationFileHash(lastJournalEntry.tag),
+          created_at: String(lastJournalEntry.when),
+        })
+        expect(after.slice(before.length).map(migrationStamp)).toEqual(expectedForwardMigrations)
         const columns =
           await client`SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tasks' AND column_name = 'metering'`
         expect(columns).toEqual([{ data_type: 'jsonb', is_nullable: 'YES' }])
