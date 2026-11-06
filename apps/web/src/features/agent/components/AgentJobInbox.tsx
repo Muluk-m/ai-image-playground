@@ -271,13 +271,14 @@ export default function AgentJobInbox() {
       <Button
         type="button"
         variant="ghost"
+        size="sm"
         aria-expanded={open}
         aria-label={label}
         onClick={() => {
           setOpen((value) => !value)
           setTab(inbox.running.length > 0 ? 'running' : 'finished')
         }}
-        className={`h-10 w-auto gap-1.5 rounded-full bg-transparent px-2.5 text-label-sm font-normal leading-none shadow-none ${INK} hover:bg-muted`}
+        className={`w-auto gap-1.5 rounded-full bg-background px-2.5 text-label-sm font-normal leading-none shadow-none ${INK} hover:bg-muted`}
       >
         <Icon name="list" />
         <span>{t('job.inbox.title')}</span>
