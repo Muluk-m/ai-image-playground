@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"io"
@@ -100,6 +102,7 @@ func (a *App) refresh(ctx context.Context, rejected string) (string, error) {
 		return "", err
 	}
 	next := a.credentialsFrom(tokens)
+	next.LoginDeviceCodeHash = creds.LoginDeviceCodeHash
 	if err := a.Store.Save(next); err != nil {
 		return "", fail("INTERNAL_ERROR", "Could not store refreshed credentials: %v", err)
 	}
@@ -118,6 +121,19 @@ type account struct {
 	MinCLIVersion string   `json:"min_cli_version"`
 }
 
+func completedLogin(a *App, pending auth.PendingLogin) bool {
+	creds, err := a.Store.Load()
+	if err != nil || creds.BaseURL != a.APIURL || pending.BaseURL != a.APIURL || creds.RefreshToken == "" {
+		return false
+	}
+	return pending.DeviceCode != "" && creds.LoginDeviceCodeHash == deviceCodeHash(pending.DeviceCode)
+}
+
+func deviceCodeHash(code string) string {
+	sum := sha256.Sum256([]byte(code))
+	return hex.EncodeToString(sum[:])
+}
+
 // cmdAuthStatus is the cheap first call an agent makes: it never fails on a missing
 // login or an unreachable server, it reports the state instead.
 func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
@@ -133,7 +149,7 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 		"credential_store": a.Store.Backend(),
 		"skills":           skills,
 	}
-	if pending, err := a.Store.LoadPending(); err == nil && time.Now().Before(pending.ExpiresAt) {
+	if pending, err := a.Store.LoadPending(); err == nil && time.Now().Before(pending.ExpiresAt) && !completedLogin(a, pending) {
 		status["pending_login"] = map[string]any{
 			"user_code":                 pending.UserCode,
 			"verification_uri_complete": pending.VerificationURIComplete,
@@ -193,6 +209,11 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 		return nil, err
 	}
 	pending, err := a.Store.LoadPending()
+	// A host may replay the whole command after blocking cleanup. Never redeem a
+	// consumed code when its credentials were already saved, even after code expiry.
+	if err == nil && completedLogin(a, pending) {
+		return cmdAuthStatus(ctx, a, nil)
+	}
 	if err != nil || time.Now().After(pending.ExpiresAt) || pending.BaseURL != a.APIURL {
 		var device deviceAuthorization
 		if err := a.anonymousClient().PostForm(ctx, "/v1/oauth/device_authorization",
@@ -231,10 +252,12 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 			"device_code": {pending.DeviceCode},
 		}, &tokens)
 		if err == nil {
-			_ = a.Store.ClearPending()
-			if err := a.Store.Save(a.credentialsFrom(tokens)); err != nil {
+			creds := a.credentialsFrom(tokens)
+			creds.LoginDeviceCodeHash = deviceCodeHash(pending.DeviceCode)
+			if err := a.Store.Save(creds); err != nil {
 				return nil, fail("INTERNAL_ERROR", "Could not store credentials: %v", err)
 			}
+			_ = a.Store.ClearPending()
 			a.progress("Signed in.")
 			return cmdAuthStatus(ctx, a, nil)
 		}
@@ -251,7 +274,10 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 			case "access_denied":
 				_ = a.Store.ClearPending()
 				return nil, fail("AUTH_DENIED", "The connection was denied in the browser")
-			case "expired_token", "invalid_grant":
+			case "invalid_grant":
+				_ = a.Store.ClearPending()
+				return nil, fail("AUTH_REQUIRED", "The login code is invalid or already used; check `muvloom auth status` before starting a new login")
+			case "expired_token":
 				_ = a.Store.ClearPending()
 				return nil, fail("AUTH_EXPIRED", "The login code expired; run `muvloom auth login` again")
 			default:

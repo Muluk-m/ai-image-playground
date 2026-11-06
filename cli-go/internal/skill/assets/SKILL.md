@@ -38,6 +38,12 @@ check or a declined update does not block generation.
 
 Flags shared by `validate` and `create`: `--model`, `--aspect-ratio`, `--image-size`, `--quality`, `--ref <file-or-media_id>` (repeatable; local files upload automatically), `--prompt-file`.
 
+If the host interrupts login for a permission approval or replays the command, run
+`muvloom auth status` before starting another login. A `ready` state means the
+connection succeeded. Do not describe an invalid or already-used code as expired,
+or repeatedly open new authorization pages after the user has approved. Never
+disable the host's file or credential protection.
+
 ## References
 
 - [cli.md](references/cli.md) — every command and exit code.
