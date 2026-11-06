@@ -33,7 +33,7 @@ export interface ServerLogEntry {
 export interface ServerLogFilters {
   from: number
   to: number
-  deployment?: 'paid' | 'internal' | 'test'
+  deployment?: 'paid' | 'test'
   stream?: 'stdout' | 'stderr'
   service?: ServerLogService
   level?: ServerLogLevel

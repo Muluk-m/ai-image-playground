@@ -376,7 +376,7 @@ it('builds muvloom with the overlay and legacy external Pages config keys', asyn
   )
 })
 
-it('serves the qlj domain from the muvloom project with its own API and no indexing', async () => {
+it('serves the enterprise domain from the muvloom project with its own API and no indexing', async () => {
   const checkout = join(dist, 'checkout')
   await mkdir(checkout, { recursive: true })
   await prepareSecrets(checkout)
@@ -384,17 +384,14 @@ it('serves the qlj domain from the muvloom project with its own API and no index
     'muvloom',
     paidEnv(checkout, [
       `PAID_BFF_BASE_URLS_BY_ORIGIN='{"https://old.example.com":"https://old-api.example.com"}'`,
-      'INTERNAL_PUBLIC_ORIGIN=https://enterprise.example.net/',
-      'INTERNAL_BFF_BASE_URL=https://enterprise-api.example.net',
-      // The retired qlj project must never be the upload target.
-      'INTERNAL_PAGES_PROJECT=retired-internal-project',
+      'ENTERPRISE_PUBLIC_ORIGIN=https://enterprise.example.net/',
+      'ENTERPRISE_BFF_BASE_URL=https://enterprise-api.example.net',
     ]),
     `mkdir -p apps/web/dist && printf '/assets/*\\n  Cache-Control: immutable\\n' > apps/web/dist/_headers`,
   )
   // 28 is the stubbed browser smoke: the headers are final before the smoke and the upload.
   expect(run.status).toBe(28)
   expect(run.stdout).toContain('private web bundle to Pages project paid-project')
-  expect(run.stdout).not.toContain('retired-internal-project')
   const lines = (await readFile(captured, 'utf8')).split('\n')
   expect(lines[3]).toBe('https://paid.example.com')
   expect(lines[4]).toBe('true')
@@ -408,7 +405,7 @@ it('serves the qlj domain from the muvloom project with its own API and no index
   )
 })
 
-it('rejects a qlj mapping that contradicts the muvloom origin map', async () => {
+it('rejects an enterprise mapping that contradicts the muvloom origin map', async () => {
   const checkout = join(dist, 'checkout')
   await mkdir(checkout, { recursive: true })
   await prepareSecrets(checkout)
@@ -416,8 +413,8 @@ it('rejects a qlj mapping that contradicts the muvloom origin map', async () => 
     'muvloom',
     paidEnv(checkout, [
       `PAID_BFF_BASE_URLS_BY_ORIGIN='{"https://enterprise.example.net":"https://api.paid.example.com"}'`,
-      'INTERNAL_PUBLIC_ORIGIN=https://enterprise.example.net',
-      'INTERNAL_BFF_BASE_URL=https://enterprise-api.example.net',
+      'ENTERPRISE_PUBLIC_ORIGIN=https://enterprise.example.net',
+      'ENTERPRISE_BFF_BASE_URL=https://enterprise-api.example.net',
     ]),
   )
   expect(run.status).toBe(1)
@@ -432,16 +429,16 @@ it('rejects half an enterprise domain config', async () => {
   await prepareSecrets(checkout)
   const { run } = await releaseCheckout(
     'muvloom',
-    paidEnv(checkout, ['INTERNAL_PUBLIC_ORIGIN=https://enterprise.example.net']),
+    paidEnv(checkout, ['ENTERPRISE_PUBLIC_ORIGIN=https://enterprise.example.net']),
   )
   expect(run.status).toBe(1)
   expect(run.stderr).toContain('must be set together')
 })
 
-it('no longer releases a separate qlj Pages project', async () => {
+it('rejects an unknown Pages release target with usage', async () => {
   const checkout = join(dist, 'checkout')
   await mkdir(checkout, { recursive: true })
-  const { run } = await releaseCheckout('qlj', [])
+  const { run } = await releaseCheckout('unknown', [])
   expect(run.status).toBe(2)
-  expect(run.stderr).toContain('served by the muvloom Pages project')
+  expect(run.stderr).toContain('Usage: scripts/pages-release.sh <muvloom|test|admin>')
 })

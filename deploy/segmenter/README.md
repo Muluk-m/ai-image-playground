@@ -54,9 +54,9 @@ an app release:
   It also removes a leftover `image-playground-segmenter-test`/`-prod` container from the
   short-lived per-environment layout once it no longer serves any app network, and then its own
   internal network of the same name once nothing is attached to it. Running it again is a no-op.
-- `scripts/vps-deploy.sh`: every edition listed in `SEGMENTER_EDITIONS` (deploy.env, default
-  `test`) is attached after its rollout while the shared container is healthy, and its BFF and
-  worker get `AGENT_SEGMENTER_URL=http://segmenter:8080` plus `AGENT_SEGMENTER_NAMESPACE=<project>`.
+- `scripts/vps-deploy.sh`: environments listed in `SEGMENTER_EDITIONS` (deploy.env, only `paid`
+  for production and `test` for isolation; default `test`) are attached after rollout while healthy,
+  and their BFF and worker get `AGENT_SEGMENTER_URL=http://segmenter:8080` plus `AGENT_SEGMENTER_NAMESPACE=<project>`.
   Test releases only ever attach; they never start, restart or replace it. An edition that does
   not get it (not listed, or the shared container is not serving) is detached instead, so
   "attached to `<project>_application`" always means "this edition uses the segmenter".
@@ -71,8 +71,8 @@ an app release:
   line for the segmenter (there is none).
 - The service scopes cached embeddings by the request's namespace (`<project>`), so one
   environment never reuses another's, even for the same media ID. The service holds no other state and no secrets.
-- Turning it on for production editions (needs Nain's go-ahead): set
-  `SEGMENTER_EDITIONS="internal paid test"` in deploy.env.
+- Turning it on for production (needs Nain's go-ahead): set
+  `SEGMENTER_EDITIONS="paid test"` in deploy.env.
 
 Without `AGENT_SEGMENTER_URL`, or when the call fails or takes longer than 3 s, the edit-region
 card falls back to the agent's box.
