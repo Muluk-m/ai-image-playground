@@ -62,6 +62,7 @@ function request(
     body?: unknown
     ip?: string
     authorization?: string
+    requestKey?: string
   } = {},
 ): Promise<Response> {
   const cookies = [
@@ -74,6 +75,7 @@ function request(
   if (cookies.length > 0) headers.cookie = cookies.join('; ')
   if (init.body !== undefined) headers['content-type'] = 'application/json'
   if (init.authorization) headers.authorization = init.authorization
+  if (init.requestKey) headers['x-session-refresh-request'] = init.requestKey
   return app.handle(
     new Request(`https://api.example.com${path}`, {
       method: init.method ?? 'GET',
@@ -181,6 +183,24 @@ describe('web session refresh', () => {
     expect(retired).toBeDefined()
     const replay = await refresh(null, nextRefresh)
     expect(replay.status).toBe(200)
+  })
+
+  it('recovers the same rotation after its response was lost beyond the reuse grace period', async () => {
+    const session = await register('lost-rotation-response@example.com')
+    const requestKey = '7cbcb24c-5b41-40a1-9c35-3e909f907b79'
+    const input = {
+      method: 'POST', access: session.access, refresh: session.refresh, requestKey,
+    }
+    const discarded = await request('/api/auth/refresh', input)
+    expect(discarded.status).toBe(200)
+    await db.update(schema.user_retired_refresh_tokens)
+      .set({ retired_at: Date.now() - 60_000 })
+      .where(eq(schema.user_retired_refresh_tokens.token_hash, hashSessionToken(session.refresh)))
+    const retried = await request('/api/auth/refresh', input)
+    expect(retried.status).toBe(200)
+    expect(readCookie(retried, USER_REFRESH_COOKIE)).toBe(readCookie(discarded, USER_REFRESH_COOKIE))
+    expect(readCookie(retried, USER_SESSION_COOKIE)).toBe(readCookie(discarded, USER_SESSION_COOKIE))
+    expect((await request('/api/auth/me', { access: readCookie(retried, USER_SESSION_COOKIE) })).status).toBe(200)
   })
 
   it('treats a retired refresh inside the grace window as a race and keeps the family', async () => {
