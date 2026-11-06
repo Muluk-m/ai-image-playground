@@ -95,9 +95,10 @@
 - 语言选择存 `localStorage` 的 `aip.locale`；没存过时按 `navigator.languages` 探测。
   切换时同步更新 `document.documentElement.lang`（`index.html` 里写死的 `zh-CN` 只是初值）。
 
-## 账户中的插件集成
+## 主导航中的插件集成
 
-用户看到的名称是「插件集成」（英文 Plugin integrations）。账户菜单直接打开 `/connect`，
+用户看到的名称是「插件集成」（英文 Plugin integrations）。左侧主导航「工具箱」下方的入口直接打开 `/connect`，带 `NEW` 标签；窄屏在底部导航显示「插件」。
+公开版与私有版的账户菜单不再重复此入口，
 不再弹出连接对话框。接口仍是 CLI 连接，目录仍在
 `features/cli/`。头像菜单的「账户设置」继续使用 `auth/LoginMethodsPanel.tsx`，其中的
 `features/cli/CliConnectionsSection.tsx` 通过 `authClient` 读取

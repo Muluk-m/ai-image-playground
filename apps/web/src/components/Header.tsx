@@ -8,9 +8,7 @@ import { AnnouncementEntry, AnnouncementMenuRow } from '../features/announcement
 import CanvasAssetsEntryButton from '../features/canvas/components/CanvasAssetsEntryButton'
 import { useWorkspaceViewport } from '../hooks/useMobileWorkspace'
 import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
-import { CLI_CONNECT_PATH } from '../lib/appPaths'
 import { isInFloatingLayer } from '../lib/dropdown'
-import { navigate } from '../lib/pathname'
 import {
   PrivateWebHeaderAccountActions,
   PrivateWebHeaderCreditAction,
@@ -281,19 +279,6 @@ export default function Header() {
                         className="w-full justify-start text-muted-foreground"
                       >
                         {t('header.loginMethods')}
-                      </Button>
-                      <Button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setAccountMenuOpen(false)
-                          navigate(CLI_CONNECT_PATH)
-                        }}
-                        variant="ghost"
-                        className="w-full justify-start text-muted-foreground"
-                      >
-                        <Icon name="layers" />
-                        <span>{t('header.cliConnections')}</span>
                       </Button>
                       <Button
                         type="button"
