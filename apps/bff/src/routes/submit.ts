@@ -25,6 +25,7 @@ const DATA_URL_PATTERN = '^data:[^;,]+;base64,'
 
 const submitBodySchema = t.Object({
   prompt: t.String({ minLength: 1, maxLength: QUEUE_PROMPT_MAX_CHARS }),
+  no_rewrite: t.Optional(t.Boolean()),
   output_retention: t.Optional(t.Literal('candidate')),
   stage_authorization: t.Optional(
     t.Object({

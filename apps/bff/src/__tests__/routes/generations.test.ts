@@ -109,6 +109,22 @@ const input = {
   device_id: 'generation-device-a',
   client_request_id: 'generation-command-1',
 }
+it.each([
+  true,
+  false,
+])('persists the raw prompt and no_rewrite=%s through queue and history', async (no_rewrite) => {
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    no_rewrite,
+  })
+  expect(submitted.status).toBe(200)
+  const { request_id } = await submitted.json()
+  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, request_id))
+  expect(task!.request_payload).toMatchObject({ prompt: input.prompt, no_rewrite })
+  const detail = await request(`/api/generations/${request_id}`, deviceB)
+  expect(await detail.json()).toMatchObject({ prompt: input.prompt, parameters: { no_rewrite } })
+})
+
 it('另一设备能发现新图片任务，其他用户不能读取', async () => {
   const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
   expect(submitted.status).toBe(200)
@@ -128,6 +144,41 @@ it('另一设备能发现新图片任务，其他用户不能读取', async () =
   })
   expect((await request(`/api/generations/${task.request_id}`, stranger)).status).toBe(404)
   expect(await (await request('/api/generations', stranger)).json()).toMatchObject({ items: [] })
+})
+
+it.each([
+  true,
+  false,
+])('replays old and new prompt representations as one command with no_rewrite=%s', async (no_rewrite) => {
+  const prefix = 'Use the following text as the complete prompt. Do not rewrite it:\n'
+  const legacy = { ...input, prompt: no_rewrite ? prefix + input.prompt : input.prompt }
+  const modern = { ...input, no_rewrite }
+  const original = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, legacy)
+  expect(original.status).toBe(200)
+  const { request_id } = await original.json()
+  const replay = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, modern)
+  expect(replay.status).toBe(200)
+  expect(await replay.json()).toMatchObject({ request_id })
+  const changed = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, {
+    ...modern,
+    no_rewrite: !no_rewrite,
+  })
+  expect(changed.status).toBe(409)
+  expect((await (await request('/api/generations', deviceB)).json()).items).toHaveLength(1)
+})
+
+it('does not merge modern user text with a different rewrite option into the same command', async () => {
+  const original = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    no_rewrite: true,
+  })
+  expect(original.status).toBe(200)
+  const changed = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, {
+    ...input,
+    prompt: `Use the following text as the complete prompt. Do not rewrite it:\n${input.prompt}`,
+    no_rewrite: false,
+  })
+  expect(changed.status).toBe(409)
 })
 
 it('丢失响应后重试返回原任务，换参数不能复用同一命令', async () => {
