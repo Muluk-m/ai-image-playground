@@ -15,14 +15,14 @@ the error; do not bypass verification.
 ### macOS / Linux
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/6e84e5b69baa975ed48106c54f94a5a33c1bdfca/cli-go/install/install.sh | MUVLOOM_VERSION=0.1.3 sh
+curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/ac156ba55e3f6238120a5b7629ff4d61c03f81ff/cli-go/install/install.sh | MUVLOOM_VERSION=0.1.3 sh
 export PATH="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-$env:MUVLOOM_VERSION = "0.1.3"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/6e84e5b69baa975ed48106c54f94a5a33c1bdfca/cli-go/install/install.ps1 | iex
+$env:MUVLOOM_VERSION = "0.1.3"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/ac156ba55e3f6238120a5b7629ff4d61c03f81ff/cli-go/install/install.ps1 | iex
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```
 
