@@ -12,6 +12,7 @@ import type {
   TaskStatus,
 } from '@image-playground/shared'
 import {
+  applyPromptRewriteGuard,
   billedStageQuantity,
   clampGeminiNonMemberRequest,
   clampGptNonMemberRequest,
@@ -166,7 +167,7 @@ function pricingOf(input: CreateQueueTaskInput) {
 }
 
 function commandHash(input: CreateQueueTaskInput) {
-  const { device_id: _device, client_request_id: _command, ...request } = input.request
+  const { device_id: _device, client_request_id: _command, no_rewrite, ...request } = input.request
   return createHash('sha256')
     .update(
       canonicalJson({
@@ -174,6 +175,11 @@ function commandHash(input: CreateQueueTaskInput) {
         model: input.model,
         request: {
           ...request,
+          // 沿用旧版带前缀的请求指纹，刷新升级后重试仍命中同一任务；实际 payload 保留原文。
+          prompt:
+            no_rewrite && !input.video && input.provider !== 'gemini'
+              ? applyPromptRewriteGuard(request.prompt)
+              : request.prompt,
           n: request.n ?? 1,
           ...(!input.video && input.provider === 'openai-compat'
             ? { moderation: request.moderation ?? DEFAULT_IMAGE_MODERATION }
