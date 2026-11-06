@@ -58,11 +58,7 @@ describe('route-specific prompt rewrite guard', () => {
     expect(request.prompt).toBe(original)
   })
 
-  it.each([
-    'png',
-    'gif',
-    'svg',
-  ])('keeps %s direct wire prompts clean', (output_format) => {
+  it.each(['png', 'gif', 'svg'])('keeps %s direct wire prompts clean', (output_format) => {
     const model = 'gpt-image-2.6-flare'
     const request = adaptGptRequest('direct', model, {
       prompt: guard + original,
