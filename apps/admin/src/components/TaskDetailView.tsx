@@ -1,6 +1,5 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import { ImageOff } from 'lucide-react'
-
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { ErrorState, PendingState } from '@/components/Page'
 import { ShortId } from '@/components/ShortId'
@@ -12,6 +11,7 @@ import { useTask } from '@/lib/queries'
 import { countInputImages, extractPrompt } from '@/lib/request-helpers'
 import { adminApiUrl } from '@/lib/runtime-config'
 import type { TaskDetail } from '@/lib/types'
+import { TASK_SOURCE_LABELS } from '../../contracts'
 
 interface TaskDetailViewProps {
   taskId: string
@@ -52,7 +52,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
         <ShortId value={task.id} len={12} className="text-sm" />
         <StatusBadge status={task.status} />
         <span className="rounded-md bg-muted px-2 py-1 text-xs">
-          {task.source === 'chat' ? 'Chat' : '手动'}
+          {TASK_SOURCE_LABELS[task.source]}
         </span>
         {task.kind === 'analysis' ? <span className="text-xs font-medium">图片分析</span> : null}
         <span className="text-xs text-muted-foreground">

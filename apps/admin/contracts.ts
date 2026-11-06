@@ -94,7 +94,13 @@ export interface ListDevicesResult {
   pageSize: number
 }
 
-export type TaskSource = 'chat' | 'manual'
+export type TaskSource = 'chat' | 'cli' | 'manual'
+
+export const TASK_SOURCE_LABELS: Record<TaskSource, string> = {
+  chat: 'Chat',
+  cli: 'CLI',
+  manual: '手动',
+}
 
 export interface TaskListItem {
   source: TaskSource
@@ -634,7 +640,8 @@ export function parseGenerationTaskFilters(input: Record<string, unknown>): Gene
   if (providers) out.providers = providers
   const errorTypes = parseTokenList(input.errorTypes)
   if (errorTypes) out.errorTypes = errorTypes
-  if (input.source === 'chat' || input.source === 'manual') out.source = input.source
+  if (input.source === 'chat' || input.source === 'cli' || input.source === 'manual')
+    out.source = input.source
   if (input.unassigned === '1') out.unassigned = '1'
   if (TASK_STATUSES.includes(input.status as TaskStatus)) out.status = input.status as TaskStatus
   if (typeof input.q === 'string') {
