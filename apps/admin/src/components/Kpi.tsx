@@ -21,7 +21,7 @@ const TONE_CLASS: Record<NonNullable<KpiProps['tone']>, string> = {
 export function Kpi({ label, value, note, variant = 'card', tone = 'default' }: KpiProps) {
   const body = (
     <>
-      <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+      <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
         {label}
       </p>
       <p

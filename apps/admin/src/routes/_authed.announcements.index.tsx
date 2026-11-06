@@ -148,7 +148,7 @@ function AnnouncementsPage() {
           <Button
             type="button"
             size="sm"
-            className="bg-brand text-brand-foreground hover:bg-brand-hover"
+            variant="brand"
             onClick={() => void navigate({ to: '/announcements/$id', params: { id: 'new' } })}
           >
             <Plus />
