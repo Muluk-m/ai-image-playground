@@ -79,7 +79,9 @@ describe('ci-receive.sh', () => {
     const result = receive(`deploy ${id} paid 12345`)
     expect(result.status).toBe(0)
     expect(readFileSync(join(releases, id, 'images.tsv'), 'utf8')).toBe('manifest\n')
-    expect(readFileSync(log, 'utf8')).toBe(`paid ${releases}/${id} actor=github-actions/run-12345\n`)
+    expect(readFileSync(log, 'utf8')).toBe(
+      `paid ${releases}/${id} actor=github-actions/run-12345\n`,
+    )
     expect(readdirSync(releases)).toEqual([id])
   })
 

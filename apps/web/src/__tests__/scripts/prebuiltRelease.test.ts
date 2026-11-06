@@ -213,8 +213,16 @@ describe('prebuilt VPS receiver', () => {
     expect(() => readFileSync(log)).toThrow()
   })
 
-  it('rejects a production manifest passed to the test target before Docker', () => {
-    const result = run('test')
+  it('rejects a test manifest passed to production before Docker', () => {
+    writeFileSync(
+      join(release, 'images.tsv'),
+      readFileSync(join(release, 'images.tsv'), 'utf8').replace(
+        /^paid\tai-image-playground:paid-/,
+        'test\tai-image-playground:test-',
+      ),
+    )
+    checksums()
+    const result = run()
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('Invalid image manifest')
     expect(() => readFileSync(log)).toThrow()

@@ -79,10 +79,7 @@ function fakeProc(pid: number, starttime: string): string {
 
 describe('acquire_deploy_lock', () => {
   it('抢到锁后 owner 文件记下 PID、发起人和这次部署的目标', () => {
-    const result = sh('acquire_deploy_lock "$1" "$2"', [
-      lockDir,
-      'edition=paid ref=origin/main',
-    ])
+    const result = sh('acquire_deploy_lock "$1" "$2"', [lockDir, 'edition=paid ref=origin/main'])
     expect(result.status).toBe(0)
     const owner = readFileSync(ownerFile, 'utf8')
     expect(owner).toMatch(/^pid=\d+$/m)
@@ -109,10 +106,7 @@ describe('acquire_deploy_lock', () => {
 
   it('持有者进程已经不在了就说明一句并接管', () => {
     writeOwner({ pid: String(deadPid()) })
-    const result = sh('acquire_deploy_lock "$1" "$2"', [
-      lockDir,
-      'edition=paid ref=origin/main',
-    ])
+    const result = sh('acquire_deploy_lock "$1" "$2"', [lockDir, 'edition=paid ref=origin/main'])
     expect(result.status).toBe(0)
     expect(result.stdout + result.stderr).toMatch(/stale/i)
     expect(readFileSync(ownerFile, 'utf8')).toContain('what=edition=paid ref=origin/main')
@@ -121,13 +115,9 @@ describe('acquire_deploy_lock', () => {
   it('PID 被复用时不误判成活着的持有者（Linux 的 /proc starttime 分支）', () => {
     const pid = livePid()
     writeOwner({ pid: String(pid), token: '111' })
-    const result = sh(
-      'acquire_deploy_lock "$1" "$2"',
-      [lockDir, 'edition=paid ref=origin/main'],
-      {
-        DEPLOY_PROC_ROOT: fakeProc(pid, '999'),
-      },
-    )
+    const result = sh('acquire_deploy_lock "$1" "$2"', [lockDir, 'edition=paid ref=origin/main'], {
+      DEPLOY_PROC_ROOT: fakeProc(pid, '999'),
+    })
     expect(result.status).toBe(0)
     const owner = readFileSync(ownerFile, 'utf8')
     expect(owner).not.toContain(`pid=${pid}`)
@@ -137,26 +127,18 @@ describe('acquire_deploy_lock', () => {
   it('starttime 对得上就是同一个进程，照样拒绝', () => {
     const pid = livePid()
     writeOwner({ pid: String(pid), token: '999' })
-    const result = sh(
-      'acquire_deploy_lock "$1" "$2"',
-      [lockDir, 'edition=paid ref=origin/main'],
-      {
-        DEPLOY_PROC_ROOT: fakeProc(pid, '999'),
-      },
-    )
+    const result = sh('acquire_deploy_lock "$1" "$2"', [lockDir, 'edition=paid ref=origin/main'], {
+      DEPLOY_PROC_ROOT: fakeProc(pid, '999'),
+    })
     expect(result.status).not.toBe(0)
   })
 
   it('没有 /proc 的平台（macOS）退回到只看 kill -0，活着就拒绝', () => {
     const pid = livePid()
     writeOwner({ pid: String(pid), token: '111' })
-    const result = sh(
-      'acquire_deploy_lock "$1" "$2"',
-      [lockDir, 'edition=paid ref=origin/main'],
-      {
-        DEPLOY_PROC_ROOT: join(root, 'no-proc-here'),
-      },
-    )
+    const result = sh('acquire_deploy_lock "$1" "$2"', [lockDir, 'edition=paid ref=origin/main'], {
+      DEPLOY_PROC_ROOT: join(root, 'no-proc-here'),
+    })
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain(`pid=${pid}`)
   })
@@ -166,20 +148,14 @@ describe('acquire_deploy_lock', () => {
     // 用确定已退出的 PID：旧实现会因 kill -0 失败而当成无主锁抢走。
     const partial = `pid=${deadPid()}\ntoken=`
     writeFileSync(ownerFile, partial)
-    const result = sh('acquire_deploy_lock "$1" "$2"', [
-      lockDir,
-      'edition=paid ref=origin/main',
-    ])
+    const result = sh('acquire_deploy_lock "$1" "$2"', [lockDir, 'edition=paid ref=origin/main'])
     expect(result.status).not.toBe(0)
     expect(readFileSync(ownerFile, 'utf8')).toBe(partial)
   })
 
   it('owner 文件读不出 PID 时保守拒绝，不抢', () => {
     mkdirSync(lockDir, { recursive: true })
-    const result = sh('acquire_deploy_lock "$1" "$2"', [
-      lockDir,
-      'edition=paid ref=origin/main',
-    ])
+    const result = sh('acquire_deploy_lock "$1" "$2"', [lockDir, 'edition=paid ref=origin/main'])
     expect(result.status).not.toBe(0)
   })
 })

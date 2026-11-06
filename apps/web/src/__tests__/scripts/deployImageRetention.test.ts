@@ -88,9 +88,9 @@ describe('select_stale_images', () => {
       seg(1, 'aaaaaaaaaaa2'),
     ])
     // 别的形态不认这种形状，免得把 <alias>-<数字>-<sha> 的手工 tag 当成发布产物。
-    expect(
-      stale('ai-image-playground:test', 0, ['ai-image-playground:test-1-aaaaaaa1']),
-    ).toEqual([])
+    expect(stale('ai-image-playground:test', 0, ['ai-image-playground:test-1-aaaaaaa1'])).toEqual(
+      [],
+    )
   })
 
   it('两个形态共用仓库名时互不误删', () => {
@@ -134,9 +134,7 @@ describe('release_untagged_image', () => {
   })
 
   it('还有本地 tag 指着它就不碰：那是另一代的回滚目标', () => {
-    expect(releaseUntagged(['ai-image-playground:test-aaaaaaa1', registryRef]).removed).toBe(
-      false,
-    )
+    expect(releaseUntagged(['ai-image-playground:test-aaaaaaa1', registryRef]).removed).toBe(false)
   })
 
   it('移动别名还指着它也不碰', () => {
@@ -286,7 +284,6 @@ esac
     expect(existsSync(join(other, 'images.tar.gz'))).toBe(false)
     rmSync(dir, { recursive: true, force: true })
   })
-
 })
 
 /**
