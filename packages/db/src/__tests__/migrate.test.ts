@@ -483,7 +483,11 @@ describe('runMigrations', () => {
       try {
         const rows =
           await client`SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`
-        expect(rows.some((row: { created_at: string | number }) => Number(row.created_at) === 1794250000000)).toBe(false)
+        expect(
+          rows.some(
+            (row: { created_at: string | number }) => Number(row.created_at) === 1794250000000,
+          ),
+        ).toBe(false)
         expect(rows.at(-1)).toMatchObject({
           hash: await migrationFileHash('0094_web_refresh_request_identity_forward'),
           created_at: '1794400000000',
@@ -508,7 +512,11 @@ describe('runMigrations', () => {
         const rows =
           await client`SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`
         expect(rows).toHaveLength(journal.entries.length)
-        expect(rows.filter((row: { created_at: string | number }) => Number(row.created_at) === 1794250000000)).toHaveLength(1)
+        expect(
+          rows.filter(
+            (row: { created_at: string | number }) => Number(row.created_at) === 1794250000000,
+          ),
+        ).toHaveLength(1)
         await runMigrations(url)
       } finally {
         await client.close()
