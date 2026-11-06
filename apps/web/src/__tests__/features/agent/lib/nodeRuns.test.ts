@@ -279,6 +279,22 @@ it('shares one polling loop across subscribers and restarts after a manual retry
   expect(requests).toHaveLength(7)
 })
 
+it('keeps the card and inbox on one authorization reader when the proposal changes', async () => {
+  const { view: card } = observe('proposal-change', false)
+  await flush()
+  const next = { ...proposal, authorizationId: 'next-authorization' }
+  authorization = { ...authorization, id: next.authorizationId }
+  const inbox = createAgentNodeRunView('proposal-change', next)
+  disposals.push(inbox.subscribe(() => {}))
+  card.updateProposal(next)
+  await flush()
+  expect(card.getSnapshot().authorization?.id).toBe(next.authorizationId)
+  expect(inbox.getSnapshot().authorization?.id).toBe(next.authorizationId)
+  expect(requests.filter((action) => action === next.authorizationId)).toHaveLength(1)
+  await vi.advanceTimersByTimeAsync(3000)
+  expect(requests.filter((action) => action === next.authorizationId)).toHaveLength(2)
+})
+
 it('ignores run-table changes that belong to other cards', async () => {
   keys.push('idle')
   const view = createAgentNodeRunView('idle', { ...proposal, authorizationId: undefined })

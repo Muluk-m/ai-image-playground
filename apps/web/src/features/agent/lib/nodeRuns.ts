@@ -56,6 +56,8 @@ interface RunBase {
   readonly credits?: number
   readonly authorization?: StageAuthorization
   readonly report?: AgentNodeRunReport
+  /** 已收到的逐节点结局；completed 计数也包含跳过的节点，不能拿它推断成功。 */
+  readonly outcomes?: readonly StageRunNodeReport[]
 }
 export type AgentNodeRun = RunBase &
   (
@@ -408,6 +410,7 @@ export function noteAgentNodeRunBlocked(
 }
 
 function quoteAgentNodeRun(proposal: AgentCanvasRunProposal, bridge = agentNodeRunBridge()) {
+  if (bridge?.projectId !== proposal.projectId) return null
   const plan = bridge?.quote(proposal)
   if (!plan) return plan
   // 临时上传不在服务端快照里。确认前就停住并提示，不能拖到提交才因张数对不上失败。
@@ -624,11 +627,21 @@ export function startAgentNodeRun(
             active = id
           }
           if (!control.signal.aborted && live())
-            publish(key, { ...base, authorization, status: 'running', completed, active: id })
+            publish(key, {
+              ...base,
+              authorization,
+              status: 'running',
+              completed,
+              active: id,
+              outcomes: [...outcomes.values()],
+            })
         },
         confirmed.executionToken,
         (report) => {
           outcomes.set(report.nodeId, report)
+          const run = runs.get(key)
+          if (live() && run?.status === 'running')
+            publish(key, { ...run, outcomes: [...outcomes.values()] })
         },
         live,
       )
@@ -723,8 +736,44 @@ export interface AgentNodeRunSnapshot {
   readonly wakeSkipped?: NonNullable<StageRunRecord['wakeSkipped']>
 }
 
+export interface AgentNodeRunView {
+  getSnapshot(): AgentNodeRunSnapshot
+  updateProposal(proposal: AgentCanvasRunProposal): void
+  subscribe(observer: () => void): () => void
+  start(): boolean
+  stop(): void
+  retryRead(): void
+}
+const sharedViews = new Map<string, { view: AgentNodeRunView; current: () => boolean }>()
+
+/** 只在订阅时登记共享视图，丢弃的 React render 不持有全局资源。 */
+export function createAgentNodeRunView(
+  key: string,
+  proposal: AgentCanvasRunProposal,
+): AgentNodeRunView {
+  const sameAccount = accountScope()
+  const existing = sharedViews.get(key)
+  let view = existing?.current() ? existing.view : buildAgentNodeRunView(key, proposal)
+  return {
+    getSnapshot: () => view.getSnapshot(),
+    updateProposal: (next) => {
+      proposal = next
+      view.updateProposal(next)
+    },
+    subscribe: (observer) => {
+      const shared = sharedViews.get(key)
+      if (sameAccount() && shared?.current()) view = shared.view
+      view.updateProposal(proposal)
+      return view.subscribe(observer)
+    },
+    start: () => view.start(),
+    stop: () => view.stop(),
+    retryRead: () => view.retryRead(),
+  }
+}
+
 /** 运行卡的视图：只观察运行。释放视图不会停止执行，持有视图也不代表拿到运行权。 */
-export function createAgentNodeRunView(key: string, initialProposal: AgentCanvasRunProposal) {
+function buildAgentNodeRunView(key: string, initialProposal: AgentCanvasRunProposal) {
   let proposal = initialProposal
   const sameAccount = accountScope()
   const observers = new Set<() => void>()
@@ -793,7 +842,13 @@ export function createAgentNodeRunView(key: string, initialProposal: AgentCanvas
   const read = () => {
     stopReading()
     const id = proposal.authorizationId
-    if (!id || proposal.direct || !observers.size || !sameAccount()) return
+    if (
+      !id ||
+      (proposal.direct && (origins.has(key) || runs.has(key))) ||
+      !observers.size ||
+      !sameAccount()
+    )
+      return
     const generation = readGeneration
     const current = () => observers.size > 0 && generation === readGeneration && sameAccount()
     let failures = 0
@@ -818,12 +873,14 @@ export function createAgentNodeRunView(key: string, initialProposal: AgentCanvas
     }
     void refresh()
   }
-  return {
+  const view: AgentNodeRunView = {
     getSnapshot: () => snapshot,
     updateProposal: (next: AgentCanvasRunProposal) => {
       if (proposal === next) return
-      const restartRead =
-        proposal.authorizationId !== next.authorizationId || proposal.direct !== next.direct
+      const identityChanged =
+        proposal.authorizationId !== next.authorizationId || proposal.projectId !== next.projectId
+      const restartRead = identityChanged || proposal.direct !== next.direct
+      if (identityChanged) settled = undefined
       proposal = next
       if (restartRead) {
         stopReading()
@@ -835,6 +892,11 @@ export function createAgentNodeRunView(key: string, initialProposal: AgentCanvas
     },
     subscribe: (observer: () => void) => {
       observers.add(observer)
+      if (sameAccount())
+        sharedViews.set(key, {
+          view,
+          current: sameAccount,
+        })
       if (observers.size === 1) {
         const unwatch = watchAgentNodeRun(key)
         const unsubscribeRuns = subscribeAgentNodeRuns(runsChanged)
@@ -854,6 +916,7 @@ export function createAgentNodeRunView(key: string, initialProposal: AgentCanvas
         if (!observers.size) {
           disconnect?.()
           disconnect = undefined
+          if (sharedViews.get(key)?.view === view) sharedViews.delete(key)
         }
       }
     },
@@ -863,6 +926,7 @@ export function createAgentNodeRunView(key: string, initialProposal: AgentCanvas
     },
     retryRead: read,
   }
+  return view
 }
 
 function isTerminalRun(run: AgentNodeRun) {

@@ -1,12 +1,34 @@
 // @vitest-environment jsdom
-import type { AgentBackgroundJobProgress, AgentToolArtifact } from '@image-playground/shared'
+import type {
+  AgentCanvasRunProposal,
+  AgentToolArtifact,
+  StageAuthorization,
+} from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentJobInbox from '../../../../features/agent/components/AgentJobInbox'
 import { type AgentCanvasSink, setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
+import { registerAgentNodeRun } from '../../../../features/agent/lib/nodeRunBridge'
+import {
+  createAgentNodeRunView,
+  forgetAgentNodeRun,
+  registerAgentNodeRunOrigin,
+  startAgentNodeRun,
+} from '../../../../features/agent/lib/nodeRuns'
+import { stageAuthorizationClient } from '../../../../features/agent/lib/stageAuthorizationClient'
 import { useAgentStore } from '../../../../features/agent/store'
-import type { AgentPanelMessage, AgentToolMessage } from '../../../../features/agent/types'
+import type { AgentToolMessage } from '../../../../features/agent/types'
+import {
+  executeNodeBatch,
+  NodeBatchFailure,
+  type NodeBatchJob,
+  type NodeBatchPlan,
+} from '../../../../features/canvas/lib/nodeBatch'
+import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
+import { useStore } from '../../../../store'
+
+vi.mock('../../../../lib/channels/bootstrapChannels', () => ({ refreshChannels: async () => {} }))
 
 /** 取消走 store 的那个动作；这里只要看见它被叫到，真去取消是后台任务 module 的事。 */
 const cancelJob = vi.fn(async (_messageId: string) => {})
@@ -38,9 +60,18 @@ const focus = vi.fn()
 const focusPending = vi.fn(() => true)
 let host: HTMLDivElement
 let root: ReturnType<typeof createRoot>
+let disposals: (() => void)[]
 
 beforeEach(() => {
-  useAgentStore.setState({ messages: [], jobProgress: {}, toolStartedAt: {}, cancelJob })
+  useAgentStore.setState({
+    messages: [],
+    conversationId: 'inbox-conversation',
+    jobProgress: {},
+    toolStartedAt: {},
+    cancelJob,
+  })
+  useCanvasProjectStore.setState({ activeId: 'inbox-project' })
+  disposals = []
   cancelJob.mockClear()
   focus.mockClear()
   focusPending.mockClear()
@@ -53,6 +84,10 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   setAgentCanvasSink(null)
+  for (const dispose of disposals) dispose()
+  forgetAgentNodeRun('node-proposal')
+  vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 function render() {
@@ -270,4 +305,250 @@ it('cancels a single running job from its row', async () => {
   expect(cancels).toHaveLength(1)
   await act(async () => cancels[0]!.click())
   expect(cancelJob).toHaveBeenCalledWith('1')
+})
+
+function nodeFixture() {
+  vi.useFakeTimers()
+  const proposal: AgentCanvasRunProposal = {
+    projectId: 'inbox-project',
+    authorizationId: 'inbox-authorization',
+    nodeIds: ['a', 'b', 'c'],
+    nodeNames: ['节点 A', '节点 B', '节点 C'],
+    status: 'pending',
+    stage: '素材',
+  }
+  let authorization: StageAuthorization = {
+    id: 'inbox-authorization',
+    conversationId: 'inbox-conversation',
+    projectId: 'inbox-project',
+    stage: '素材',
+    nodeIds: proposal.nodeIds,
+    nodeNames: proposal.nodeNames!,
+    estimatedCredits: 3,
+    budgetCap: 3,
+    spentCredits: 0,
+    status: 'pending',
+    attempts: [],
+    audit: [],
+  }
+  const plan: NodeBatchPlan = {
+    signature: 'inbox-plan',
+    settings: useStore.getState().settings,
+    params: useStore.getState().params,
+    jobs: proposal.nodeIds.map((id, index) => ({
+      id,
+      label: proposal.nodeNames![index]!,
+      kind: 'image',
+      model: 'fixture',
+      quantity: 1,
+      prompt: id,
+      refs: [],
+      roles: {},
+      temporary: {},
+      dependencies: id === 'b' ? ['a'] : [],
+    })),
+  }
+  const read = vi
+    .spyOn(stageAuthorizationClient, 'read')
+    .mockImplementation(async () => authorization)
+  vi.spyOn(stageAuthorizationClient, 'confirm').mockImplementation(async () => {
+    authorization = { ...authorization, status: 'active', audit: [{ kind: 'confirmed', at: 1 }] }
+    return { authorization, executionToken: 'test-execution' }
+  })
+  vi.spyOn(stageAuthorizationClient, 'preflight').mockImplementation(async () => authorization)
+  vi.spyOn(stageAuthorizationClient, 'end').mockImplementation(async () => {
+    authorization = { ...authorization, status: 'ended' }
+    return authorization
+  })
+  vi.spyOn(stageAuthorizationClient, 'blocked').mockResolvedValue({ logged: true })
+  vi.spyOn(stageAuthorizationClient, 'report').mockImplementation(async (_id, input) => {
+    authorization = {
+      ...authorization,
+      status: 'ended',
+      run: { reportedAt: Date.now(), nodes: input.nodes },
+    }
+    return { authorization, wake: 'queued' }
+  })
+  const submit = vi.fn(async (_job: NodeBatchJob) => {})
+  disposals.push(
+    registerAgentNodeRun({
+      projectId: proposal.projectId,
+      quote: () => plan,
+      run: (_proposal, captured, execution) =>
+        executeNodeBatch(captured, {
+          ...execution.hooks,
+          signal: execution.signal,
+          progress: execution.progress,
+          current: () => plan,
+          submit,
+        }),
+    }),
+  )
+  registerAgentNodeRunOrigin('node-proposal')
+  const message = job('node-proposal', {
+    title: '运行节点',
+    status: 'succeeded',
+    job: undefined,
+    canvasRun: proposal,
+  })
+  useAgentStore.setState({ messages: [message, job('background', {})] })
+  return { proposal, plan, submit, read, message, authorization }
+}
+
+it('tracks individual node outcomes beside background jobs through partial failure and completion', async () => {
+  const { proposal, submit, read } = nodeFixture()
+  let finish!: () => void
+  // apps/web 的 TypeScript lib 目标尚不包含 Promise.withResolvers。
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  submit.mockImplementation(async (node) => {
+    if (node.id === 'a') throw new NodeBatchFailure('failed')
+    await pending
+  })
+  // 与对话中的运行卡同时挂载，仍共用一个授权观察者。
+  const card = createAgentNodeRunView('node-proposal', proposal)
+  disposals.push(card.subscribe(() => {}))
+  render()
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0)
+  })
+  openInbox()
+  expect(host.querySelector('button[aria-expanded]')?.textContent).toContain('0/4')
+  expect(rowButton('节点 A').textContent).toContain('待确认')
+  expect(read).toHaveBeenCalledTimes(1)
+
+  await act(async () => {
+    startAgentNodeRun('node-proposal', proposal, 0)
+    await vi.advanceTimersByTimeAsync(0)
+  })
+  expect(host.querySelector('button[aria-expanded]')?.getAttribute('aria-label')).toBe(
+    '2 个进行中 · 0 个已完成 · 2 个没有完成',
+  )
+  expect(rowButton('节点 C').textContent).toContain('生成中')
+  expect(rowButton('任务 background')).toBeDefined()
+  act(() => tabButton('已完成').click())
+  expect(rowButton('节点 A').textContent).toContain('请检查失败节点')
+  expect(rowButton('节点 B').textContent).toContain('未运行')
+
+  await act(async () => {
+    finish()
+    await vi.advanceTimersByTimeAsync(0)
+  })
+  expect(host.querySelector('button[aria-expanded]')?.textContent).toContain('3/4')
+  expect(host.querySelector('button[aria-expanded]')?.getAttribute('aria-label')).toBe(
+    '1 个进行中 · 1 个已完成 · 2 个没有完成',
+  )
+  expect(rowButton('节点 C').textContent).toContain('已完成')
+  expect(host.querySelectorAll('li')).toHaveLength(3)
+})
+
+it('shows safe preflight reasons and clears other projects and conversations from the inbox', async () => {
+  const { plan, message } = nodeFixture()
+  plan.error = 'prompt'
+  plan.jobs[0]!.blocked = 'missing_prompt'
+  render()
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0)
+  })
+  openInbox()
+  act(() => tabButton('已完成').click())
+  expect(rowButton('节点 A').textContent).toContain('被拦下')
+  expect(rowButton('节点 A').textContent).toContain('请先填写每个生成节点的提示词')
+
+  act(() => useCanvasProjectStore.setState({ activeId: 'other-project' }))
+  expect(host.textContent).not.toContain('节点 A')
+  expect(host.querySelector('button[aria-expanded]')?.textContent).toContain('0/1')
+  await act(async () => {
+    useCanvasProjectStore.setState({ activeId: 'inbox-project' })
+    useAgentStore.setState({ conversationId: 'other-conversation', messages: [message] })
+    await vi.advanceTimersByTimeAsync(0)
+  })
+  expect(host.textContent).toBe('')
+  act(() => useAgentStore.setState({ messages: [] }))
+  expect(host.textContent).toBe('')
+})
+
+it('restores direct-run reports and counts each authorized node once, excluding the proposal tool', async () => {
+  const { message, proposal, read, authorization } = nodeFixture()
+  forgetAgentNodeRun(message.id)
+  read.mockResolvedValue({
+    ...authorization,
+    status: 'ended',
+    run: {
+      reportedAt: 1,
+      nodes: [
+        { nodeId: 'a', outcome: 'completed' },
+        { nodeId: 'b', outcome: 'failed', reason: 'budget_exceeded' },
+        { nodeId: 'c', outcome: 'blocked', reason: 'missing_frame' },
+      ],
+    },
+  })
+  const direct = { ...message, canvasRun: { ...proposal, direct: true } }
+  useAgentStore.setState({
+    messages: [direct, { ...direct, id: 'duplicate-proposal' }, job('background', {})],
+  })
+  render()
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0)
+  })
+  openInbox()
+  expect(host.querySelector('button[aria-expanded]')?.textContent).toContain('3/4')
+  expect(host.querySelector('button[aria-expanded]')?.getAttribute('aria-label')).toBe(
+    '1 个进行中 · 1 个已完成 · 2 个没有完成',
+  )
+  act(() => tabButton('已完成').click())
+  expect(host.querySelectorAll('li')).toHaveLength(3)
+  expect(rowButton('节点 B').textContent).toContain('超出了这次授权的预算')
+  expect(rowButton('节点 C').textContent).toContain('部分参考尚未就绪')
+})
+
+it('never treats an ended authorization or a succeeded proposal as successful node output', async () => {
+  const { read, authorization } = nodeFixture()
+  read.mockResolvedValue({ ...authorization, status: 'ended' })
+  render()
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0)
+  })
+  openInbox()
+  expect(host.querySelector('button[aria-expanded]')?.getAttribute('aria-label')).toBe(
+    '1 个进行中 · 0 个已完成 · 3 个没有完成',
+  )
+  act(() => tabButton('已完成').click())
+  expect(rowButton('节点 A').textContent).toContain('授权已结束')
+})
+
+it('hides unverified authorization rows while switching conversations', async () => {
+  const { read, authorization } = nodeFixture()
+  let finish!: (value: StageAuthorization) => void
+  read.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  render()
+  openInbox()
+  expect(host.textContent).not.toContain('节点 A')
+  act(() => useAgentStore.setState({ conversationId: 'other-conversation' }))
+  expect(host.textContent).not.toContain('节点 A')
+  await act(async () => {
+    finish(authorization)
+    await vi.advanceTimersByTimeAsync(0)
+  })
+  expect(host.textContent).not.toContain('节点 A')
+})
+
+it('does not expose arbitrary guard diagnostics in blocked node rows', async () => {
+  const { plan } = nodeFixture()
+  plan.blocked = true
+  plan.blockedReason = 'internal upstream credential diagnostic'
+  render()
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0)
+  })
+  openInbox()
+  act(() => tabButton('已完成').click())
+  expect(rowButton('节点 A').textContent).toContain('被拦下')
+  expect(host.textContent).not.toContain(plan.blockedReason)
 })
