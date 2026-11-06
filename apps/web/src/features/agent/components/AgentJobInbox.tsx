@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
+import { useCanvasProjectStore } from '../../canvas/projectStore'
 import { CARD_NOTE, INK, INK_3, LIST_ROW } from '../agentStyles'
 import { agentCanvasSink } from '../lib/canvasSink'
-import { agentJobInbox, agentToolProgress } from '../lib/jobProgress'
+import { agentJobInbox, type AgentJobInboxEntry, agentToolProgress } from '../lib/jobProgress'
+import {
+  type AgentNodeInboxEntry,
+  createAgentNodeInbox,
+  NODE_RUN_REASON_LABELS,
+} from '../lib/nodeRunInbox'
 import { agentChatViewRoot, revealAgentMessage } from '../lib/revealMessage'
 import { agentToolFailureText } from '../lib/toolFailure'
 import { useAgentStore } from '../store'
@@ -73,7 +79,7 @@ function InboxProgress({
   )
 }
 
-function InboxRow({ message, onLocate }: { message: AgentToolMessage; onLocate: () => void }) {
+function JobInboxRow({ message, onLocate }: { message: AgentToolMessage; onLocate: () => void }) {
   const { t } = useTranslation('agent')
   const outcome = useOutcomeText(message)
   return (
@@ -96,6 +102,56 @@ function InboxRow({ message, onLocate }: { message: AgentToolMessage; onLocate: 
   )
 }
 
+function NodeInboxRow({ message, onLocate }: { message: AgentNodeInboxEntry; onLocate: () => void }) {
+  const { t } = useTranslation(['agent', 'canvas'])
+  const status = message.status
+  const outcome = message.readFailed
+    ? t('nodeRun.readFailed')
+    : status === 'completed'
+      ? t('job.inbox.succeeded')
+      : status === 'running'
+        ? t(message.submitted ? 'nodeRun.submitted' : 'canvas:nodeBatch.running')
+        : status === 'pending'
+          ? t(message.pendingLabel, { seconds: message.seconds ?? 0 })
+          : status === 'ended' || status === 'expired' || status === 'exhausted'
+            ? t(`nodeRun.status.${status}`)
+            : t(`canvas:nodeBatch.outcome.${status}`)
+  const reason = message.reason
+    ? t(NODE_RUN_REASON_LABELS[message.reason])
+    : message.error
+      ? t(`canvas:nodeBatch.${message.error}`)
+      : message.blockedReason
+  return (
+    <li className="flex items-center gap-2">
+      <Button
+        type="button"
+        variant="ghost"
+        title={agentChatViewRoot() ? t('job.inbox.locateMessage') : t('job.inbox.locate')}
+        className={`${LIST_ROW} h-auto min-w-0 flex-1 flex-col items-start gap-0.5 font-normal`}
+        onClick={() => {
+          const chat = agentChatViewRoot()
+          const sink = agentCanvasSink()
+          if (chat || !sink) revealAgentMessage(message.message.id, chat ?? undefined)
+          else sink.focus([message.nodeId])
+          onLocate()
+        }}
+      >
+        <span className={`w-full truncate ${INK}`}>{message.title}</span>
+        <span className={CARD_NOTE}>{outcome}</span>
+        {reason && <span className={`${CARD_NOTE} whitespace-normal text-left`}>{reason}</span>}
+      </Button>
+    </li>
+  )
+}
+
+function InboxRow({ message, onLocate }: { message: AgentJobInboxEntry; onLocate: () => void }) {
+  return message.kind === 'node-run' ? (
+    <NodeInboxRow message={message} onLocate={onLocate} />
+  ) : (
+    <JobInboxRow message={message} onLocate={onLocate} />
+  )
+}
+
 /** 一组任务：标题带个数，点标题收起展开。空组也留着，让人看见「排队中（0）」。 */
 function InboxGroup({
   label,
@@ -103,7 +159,7 @@ function InboxGroup({
   onLocate,
 }: {
   label: string
-  messages: readonly AgentToolMessage[]
+  messages: readonly AgentJobInboxEntry[]
   onLocate: () => void
 }) {
   const [open, setOpen] = useState(true)
@@ -146,7 +202,14 @@ export default function AgentJobInbox() {
   const { t } = useTranslation('agent')
   const messages = useAgentStore((state) => state.messages)
   const jobProgress = useAgentStore((state) => state.jobProgress)
-  const inbox = useMemo(() => agentJobInbox(messages), [messages])
+  const conversationId = useAgentStore((state) => state.conversationId)
+  const projectId = useCanvasProjectStore((state) => state.activeId)
+  const nodeView = useMemo(
+    () => createAgentNodeInbox(messages, { conversationId, projectId }),
+    [messages, conversationId, projectId],
+  )
+  const nodes = useSyncExternalStore(nodeView.subscribe, nodeView.getSnapshot)
+  const inbox = useMemo(() => agentJobInbox(messages, nodes), [messages, nodes])
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<'running' | 'finished'>('running')
   const host = useRef<HTMLDivElement>(null)
@@ -167,9 +230,14 @@ export default function AgentJobInbox() {
   }, [open])
   // 在跑的分两拨：上游真在画的是处理中，还等在队列里（本机重试队列或服务端排队）的是排队中。
   const { processing, queued } = useMemo(() => {
-    const processing: AgentToolMessage[] = []
-    const queued: AgentToolMessage[] = []
+    const processing: AgentJobInboxEntry[] = []
+    const queued: AgentJobInboxEntry[] = []
     for (const message of inbox.running) {
+      if (message.kind === 'node-run') {
+        if (message.status === 'running') processing.push(message)
+        else queued.push(message)
+        continue
+      }
       const phase = agentToolProgress(message, jobProgress[message.id])?.phase
       if (phase === undefined || phase === 'submitted' || phase === 'queued') queued.push(message)
       else processing.push(message)
