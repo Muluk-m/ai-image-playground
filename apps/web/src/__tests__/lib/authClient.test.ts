@@ -333,6 +333,19 @@ describe('auth client', () => {
     expect(keys[1]).toBe(completedKey)
   })
 
+  it('retires a consumed pending identity and saves a new one before rotating the valid current cookie', async () => {
+    vi.stubGlobal('navigator', {})
+    const keys: (string | null)[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      keys.push(new Headers(init?.headers).get('x-session-refresh-request'))
+      return keys.length === 1 ? Response.json({ error: 'refresh_request_completed' }, { status: 409 })
+        : Response.json({ ok: true })
+    }))
+    expect(await refreshWebSession()).toBe('ok')
+    expect(keys).toHaveLength(2)
+    expect(keys[1]).not.toBe(keys[0])
+  })
+
   it('stays quiet on a 401 for a visitor who never signed in', async () => {
     const events = new EventTarget()
     const expired = vi.fn()

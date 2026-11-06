@@ -576,7 +576,7 @@ export async function retainWebSessionAfterPasswordChange(
 
 export type WebSessionRefreshResult =
   | ({ readonly ok: true } & IssuedWebSession)
-  | { readonly ok: false; readonly error: 'unauthorized' | 'refresh_raced' }
+  | { readonly ok: false; readonly error: 'unauthorized' | 'refresh_raced' | 'refresh_request_completed' }
 
 /**
  * 用 refresh cookie 轮换一对令牌。没有 refresh、但旧 access 仍有效时，升级成一条新链。
@@ -878,7 +878,7 @@ async function rotatePresentedRefresh(
         .where(and(eq(schema.user_retired_refresh_tokens.family_id, family.id),
           eq(schema.user_retired_refresh_tokens.request_key_hash, requestMarker(requestKey))))
         .limit(1)
-      if (used) return { kind: 'done', result: { ok: false, error: 'refresh_raced' } }
+      if (used) return { kind: 'done', result: { ok: false, error: 'refresh_request_completed' } }
     }
     const issued = await rotateFamily(
       tx,

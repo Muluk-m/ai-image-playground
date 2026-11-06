@@ -344,11 +344,32 @@ describe('web session refresh', () => {
     const secondRefresh = readCookie(second, USER_REFRESH_COOKIE)
     const stale = await request('/api/auth/refresh', { method: 'POST', refresh: secondRefresh, requestKey: key1 })
     expect(stale.status).toBe(409)
+    expect(await stale.json()).toEqual({ error: 'refresh_request_completed' })
     expect(stale.headers.getSetCookie()).toHaveLength(0)
     expect((await request('/api/auth/me', { access: readCookie(second, USER_SESSION_COOKIE) })).status).toBe(200)
     const retry = await request('/api/auth/refresh', { method: 'POST', refresh: readCookie(first, USER_REFRESH_COOKIE), requestKey: key2 })
     expect(retry.status).toBe(200)
     expect(readCookie(retry, USER_REFRESH_COOKIE)).toBe(secondRefresh)
+  })
+
+  it('allows a fresh operation after a lost acknowledgement followed by a password change', async () => {
+    const session = await register('password-pending-proof@example.com')
+    const requestKey = '2f27ce57-722f-49b6-a69a-e6ff501d30be'
+    const rotated = await request('/api/auth/refresh', { method: 'POST', refresh: session.refresh, requestKey })
+    const access = readCookie(rotated, USER_SESSION_COOKIE)
+    const changed = await request('/api/auth/password', { method: 'POST', access,
+      refresh: readCookie(rotated, USER_REFRESH_COOKIE), body: { current_password: PASSWORD, new_password: 'a-new-password' } })
+    expect(changed.status).toBe(200)
+    const refresh = readCookie(changed, USER_REFRESH_COOKIE)
+    const stale = await request('/api/auth/refresh', { method: 'POST', access, refresh, requestKey })
+    expect(stale.status).toBe(409)
+    expect(await stale.json()).toEqual({ error: 'refresh_request_completed' })
+    const renewed = await request('/api/auth/refresh', { method: 'POST', access, refresh,
+      requestKey: 'a6cd9503-52f4-462f-9f0c-5098b4c437c9' })
+    expect(renewed.status).toBe(200)
+    expect((await request('/api/auth/me', { access: readCookie(renewed, USER_SESSION_COOKIE) })).status).toBe(200)
+    const old = await request('/api/auth/refresh', { method: 'POST', refresh: session.refresh, requestKey })
+    expect(old.headers.getSetCookie()).toHaveLength(0)
   })
 
   it('validates the refresh proof before changing session state', async () => {
