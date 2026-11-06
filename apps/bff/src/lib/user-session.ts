@@ -591,13 +591,7 @@ export async function refreshWebSessionToken(
   const now = Date.now()
   const outcome = await db.transaction(async (tx) => {
     if (!refreshToken) return upgradeLegacySession(tx, accessToken, client ?? null, now, requestKey)
-    const rotated = await rotatePresentedRefresh(
-      tx,
-      refreshToken,
-      client ?? null,
-      now,
-      requestKey,
-    )
+    const rotated = await rotatePresentedRefresh(tx, refreshToken, client ?? null, now, requestKey)
     if (rotated.kind !== 'missing') return rotated
     return {
       kind: 'done' as const,
@@ -670,7 +664,8 @@ async function insertFamily(
 ): Promise<IssuedWebSession> {
   const familyId = randomUUID()
   const refreshToken = input.rotation
-    ? successorRefresh(input.rotation.token, input.rotation.key, familyId) : newToken()
+    ? successorRefresh(input.rotation.token, input.rotation.key, familyId)
+    : newToken()
   const accessToken = input.rotation ? successorAccess(refreshToken, familyId) : newToken()
   const accessExpiresAt = cappedExpiry(input.now, USER_ACCESS_TTL_MS, input.absoluteExpiresAt)
   const refreshExpiresAt = cappedExpiry(input.now, USER_REFRESH_TTL_MS, input.absoluteExpiresAt)
@@ -690,6 +685,7 @@ async function insertFamily(
   if (input.retiringHash) {
     await tx.insert(schema.user_retired_refresh_tokens).values({
       token_hash: input.retiringHash,
+      request_key_hash: input.rotation ? requestMarker(input.rotation.key) : null,
       family_id: familyId,
       retired_at: input.now,
     })
@@ -735,7 +731,11 @@ function replayPair(
   return {
     refreshToken,
     accessToken: successorAccess(refreshToken, family.id),
-    accessExpiresAt: cappedExpiry(family.refreshed_at, USER_ACCESS_TTL_MS, family.absolute_expires_at),
+    accessExpiresAt: cappedExpiry(
+      family.refreshed_at,
+      USER_ACCESS_TTL_MS,
+      family.absolute_expires_at,
+    ),
     refreshExpiresAt: family.refresh_expires_at,
   }
 }
@@ -748,30 +748,46 @@ async function replayRetired(
   now: number,
 ): Promise<RotateOutcome> {
   const family = retired.family
-  const [user] = await tx.select({ status: schema.users.status }).from(schema.users)
-    .where(eq(schema.users.id, family.user_id)).limit(1)
+  const [user] = await tx
+    .select({ status: schema.users.status })
+    .from(schema.users)
+    .where(eq(schema.users.id, family.user_id))
+    .limit(1)
   if (user?.status !== 'active' && family.revoked_at === null) {
     await revokeFamilies(tx, family.user_id, 'account_disabled', null, family.id)
     await tx.delete(schema.user_sessions).where(eq(schema.user_sessions.family_id, family.id))
   }
-  if (family.revoked_at !== null || family.refresh_expires_at <= now ||
-    family.absolute_expires_at <= now || user?.status !== 'active')
+  if (
+    family.revoked_at !== null ||
+    family.refresh_expires_at <= now ||
+    family.absolute_expires_at <= now ||
+    user?.status !== 'active'
+  )
     return { kind: 'done', result: { ok: false, error: 'unauthorized' } }
   if (key) {
     const successor = successorRefresh(token, key, family.id)
     const hash = hashSessionToken(successor)
     if (hash === family.refresh_token_hash)
       return { kind: 'done', result: { ok: true, ...replayPair(family, successor) } }
-    const [previous] = await tx.select({ familyId: schema.user_retired_refresh_tokens.family_id })
+    const [previous] = await tx
+      .select({ familyId: schema.user_retired_refresh_tokens.family_id })
       .from(schema.user_retired_refresh_tokens)
-      .where(and(eq(schema.user_retired_refresh_tokens.token_hash, hash),
-        eq(schema.user_retired_refresh_tokens.family_id, family.id))).limit(1)
+      .where(
+        and(
+          eq(schema.user_retired_refresh_tokens.token_hash, hash),
+          eq(schema.user_retired_refresh_tokens.family_id, family.id),
+        ),
+      )
+      .limit(1)
     if (previous) return { kind: 'done', result: { ok: false, error: 'refresh_raced' } }
   }
   if (now - retired.retiredAt <= REFRESH_REUSE_GRACE_MS)
     return { kind: 'done', result: { ok: false, error: 'refresh_raced' } }
   // A stale bearer is not proof of theft; rejecting it must not revoke another valid client.
-  log.warn({ event: 'auth.refresh.retired_rejected', familyId: family.id }, 'retired refresh rejected')
+  log.warn(
+    { event: 'auth.refresh.retired_rejected', familyId: family.id },
+    'retired refresh rejected',
+  )
   return { kind: 'done', result: { ok: false, error: 'unauthorized' } }
 }
 
@@ -782,12 +798,15 @@ async function rotateFamily(
   now: number,
   rotation?: { token: string; key: SessionRefreshRequestKey },
 ): Promise<IssuedWebSession> {
-  const refreshToken = rotation ? successorRefresh(rotation.token, rotation.key, family.id) : newToken()
+  const refreshToken = rotation
+    ? successorRefresh(rotation.token, rotation.key, family.id)
+    : newToken()
   const accessToken = rotation ? successorAccess(refreshToken, family.id) : newToken()
   const accessExpiresAt = cappedExpiry(now, USER_ACCESS_TTL_MS, family.absolute_expires_at)
   const refreshExpiresAt = cappedExpiry(now, USER_REFRESH_TTL_MS, family.absolute_expires_at)
   await tx.insert(schema.user_retired_refresh_tokens).values({
     token_hash: family.refresh_token_hash,
+    request_key_hash: rotation ? requestMarker(rotation.key) : null,
     family_id: family.id,
     retired_at: now,
   })
@@ -853,8 +872,21 @@ async function rotatePresentedRefresh(
     }
     if (requestKey && refreshToken.startsWith(`r1.${requestMarker(requestKey)}.`))
       return { kind: 'done', result: { ok: true, ...replayPair(family, refreshToken) } }
-    const issued = await rotateFamily(tx, family, client, now,
-      requestKey ? { token: refreshToken, key: requestKey } : undefined)
+    if (requestKey) {
+      const [used] = await tx.select({ hash: schema.user_retired_refresh_tokens.token_hash })
+        .from(schema.user_retired_refresh_tokens)
+        .where(and(eq(schema.user_retired_refresh_tokens.family_id, family.id),
+          eq(schema.user_retired_refresh_tokens.request_key_hash, requestMarker(requestKey))))
+        .limit(1)
+      if (used) return { kind: 'done', result: { ok: false, error: 'refresh_raced' } }
+    }
+    const issued = await rotateFamily(
+      tx,
+      family,
+      client,
+      now,
+      requestKey ? { token: refreshToken, key: requestKey } : undefined,
+    )
     return { kind: 'done', result: { ok: true, ...issued } }
   }
 

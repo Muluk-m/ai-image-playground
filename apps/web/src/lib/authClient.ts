@@ -1,11 +1,11 @@
 import {
   type AuthUserView,
-  SESSION_REFRESH_REQUEST_HEADER,
-  type SessionRefreshRequestKey,
   type LoginMethodsView,
   OAUTH_SESSION_QUERY_PARAM,
   type OAuthProvidersResponse,
   type OAuthProviderView,
+  SESSION_REFRESH_REQUEST_HEADER,
+  type SessionRefreshRequestKey,
   USER_SESSION_HINT_COOKIE,
 } from '@image-playground/shared'
 import { accountRequired, isSignedIn } from '../auth/loginPrompt'
@@ -20,7 +20,11 @@ import {
 import { isClientCapabilityEnabled } from './clientCapabilities'
 import { hasRememberedSignedInUser, rememberStorageUser } from './localRecovery'
 import { bffBaseUrl } from './runtimeConfig'
-import { acquireRefreshAttempt, completeRefreshAttempt, clearRefreshJournal } from './sessionRefreshJournal'
+import {
+  acquireRefreshAttempt,
+  clearRefreshJournal,
+  completeRefreshAttempt,
+} from './sessionRefreshJournal'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
 export type LoginMethodsPolicy = OAuthProvidersResponse['loginMethods']
 export type LoginOptions = OAuthProvidersResponse
@@ -315,25 +319,29 @@ async function postSessionRefresh(): Promise<SessionRefreshResult> {
   const scope = bffBaseUrl()
   try {
     const attempt = await acquireRefreshAttempt(scope)
-    const send = (key: SessionRefreshRequestKey) => fetch(`${scope}/api/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { accept: 'application/json', [SESSION_REFRESH_REQUEST_HEADER]: key },
-      signal: AbortSignal.timeout(15_000),
-    })
+    const send = (key: SessionRefreshRequestKey) =>
+      fetch(`${scope}/api/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { accept: 'application/json', [SESSION_REFRESH_REQUEST_HEADER]: key },
+        signal: AbortSignal.timeout(15_000),
+      })
     let key = attempt.requestKey
     let response = await send(key)
-    if (response.status === 401 && attempt.previousKey) {
+    if ((response.status === 401 || response.status === 409) && attempt.previousKey) {
       key = attempt.previousKey
-      response = await send(key)
+      const recovered = await send(key)
+      if (recovered.status !== 401 || response.status !== 409) response = recovered
     }
     if (bffBaseUrl() !== scope) return 'failed'
     if (response.ok) {
       const body: unknown = await response.json()
       if (typeof body !== 'object' || body === null || !('ok' in body) || body.ok !== true)
         return 'failed'
-      const expiry = 'access_expires_at' in body && typeof body.access_expires_at === 'number'
-        ? body.access_expires_at : null
+      const expiry =
+        'access_expires_at' in body && typeof body.access_expires_at === 'number'
+          ? body.access_expires_at
+          : null
       // If a completed operation repaired a late Cookie, complete the current pending slot too.
       await completeRefreshAttempt(scope, attempt.requestKey, key)
       if (bffBaseUrl() !== scope) return 'failed'
