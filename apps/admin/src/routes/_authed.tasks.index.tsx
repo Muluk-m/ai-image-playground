@@ -27,7 +27,7 @@ import { ADMIN_REFRESH_EVENT, useGenerationTasks } from '@/lib/queries'
 import { adminApiUrl } from '@/lib/runtime-config'
 import { clearTaskView, parseGenerationTasksSearch } from '@/lib/search-params'
 import { cn } from '@/lib/utils'
-import { type GenerationTaskFilters, todayWindow } from '../../contracts'
+import { type GenerationTaskFilters, TASK_SOURCE_LABELS, todayWindow } from '../../contracts'
 
 export const Route = createFileRoute('/_authed/tasks/')({
   validateSearch: parseGenerationTasksSearch,
@@ -73,6 +73,7 @@ const DEFINITIONS: FilterDefinition[] = [
     kind: 'single',
     options: [
       { value: 'chat', label: 'Chat' },
+      { value: 'cli', label: 'CLI' },
       { value: 'manual', label: '手动' },
     ],
   },
@@ -292,9 +293,7 @@ function GenerationTasksPage() {
                             </p>
                           ) : null}
                         </TableCell>
-                        <TableCell className="text-xs">
-                          {task.source === 'chat' ? 'Chat' : '手动'}
-                        </TableCell>
+                        <TableCell className="text-xs">{TASK_SOURCE_LABELS[task.source]}</TableCell>
                         <TableCell className="max-w-72">
                           <button
                             type="button"

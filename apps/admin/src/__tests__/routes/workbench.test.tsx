@@ -299,6 +299,7 @@ vi.mock('../../lib/api-client', () => {
             provider: 'openai-compat',
             model: 'gpt-image-2',
             status: 'failed',
+            source: 'cli',
             submitted_at: session.taskAt ?? Date.now(),
             started_at: null,
             completed_at: session.completedAt ?? null,
@@ -622,6 +623,14 @@ describe('概览', () => {
 })
 
 describe('generation task drill-down', () => {
+  it('shows CLI attribution in the task list and preserves the source filter', async () => {
+    renderAt('/tasks?source=cli')
+    const prompt = await screen.findByRole('button', { name: '商品主图' })
+    expect(within(prompt.closest('tr')!).getByText('CLI')).toBeInTheDocument()
+    const url = requests.find((url) => url.startsWith('/api/tasks?'))!
+    expect(new URLSearchParams(url.split('?')[1]).get('source')).toBe('cli')
+  })
+
   it('advances the default today window on refresh while keeping the status filter', async () => {
     const start = Date.now()
     const clock = vi.spyOn(Date, 'now').mockReturnValue(start)

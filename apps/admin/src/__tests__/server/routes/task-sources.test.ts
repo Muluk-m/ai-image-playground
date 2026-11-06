@@ -24,6 +24,13 @@ const base = {
   submitted_at: now,
   request_payload: { prompt: '杯子', device_id: 'device' } as never,
 }
+await writer.db.insert(writer.schema.users).values({
+  id: 'cli-user',
+  username: 'cli-source-test@example.test',
+  password_hash: 'test-hash',
+  created_at: now,
+  updated_at: now,
+})
 await writer.db.insert(writer.schema.tasks).values([
   ...Array.from({ length: 101 }, (_, i) => ({
     ...base,
@@ -39,8 +46,19 @@ await writer.db.insert(writer.schema.tasks).values([
     agent_turn_id: 'turn',
   },
   { ...base, id: 'manual-1' },
+  {
+    ...base,
+    id: 'cli-1',
+    user_id: 'cli-user',
+    request_payload: { prompt: '杯子', device_id: 'cli-device' },
+  },
+  { ...base, id: 'cli-2', user_id: 'cli-user', status: 'failed', model: 'other' },
   { ...base, id: 'manual-2', status: 'queued', model: 'other' },
   { ...base, id: 'hidden-chat-call', kind: 'chat', agent_conversation_id: 'conversation' },
+] satisfies (typeof writer.schema.tasks.$inferInsert)[])
+await writer.db.insert(writer.schema.cli_jobs).values([
+  { task_id: 'cli-1', user_id: 'cli-user', connection_id: null, created_at: now },
+  { task_id: 'cli-2', user_id: 'cli-user', connection_id: null, created_at: now },
 ])
 await writer.db.insert(writer.schema.agent_generation_drafts).values({
   id: 'old-draft',
@@ -95,6 +113,38 @@ describe('task source attribution', () => {
     expect((await tasks('source=manual&status=queued')).tasks.map((x) => x.id)).toEqual([
       'manual-2',
     ])
+  })
+  it('attributes existing CLI records after connection removal in lists, details and exports', async () => {
+    const cli = await tasks('source=cli')
+    expect(cli.tasks.map((task) => task.id)).toEqual(['cli-2', 'cli-1'])
+    expect(cli.tasks.every((task) => task.source === 'cli')).toBe(true)
+    const paged = await tasks('source=cli&page=1&pageSize=50')
+    expect(paged.total).toBe(2)
+    expect(paged.tasks.map((task) => task.id)).toEqual(['cli-2', 'cli-1'])
+    expect(
+      (await tasks('source=cli&status=failed&model=other')).tasks.map((task) => task.id),
+    ).toEqual(['cli-2'])
+    const detail: TaskDetail = await (await get('/api/tasks/cli-1')).json()
+    expect(detail.source).toBe('cli')
+    expect(detail.prompt_created_at).toBeUndefined()
+    const { exportGenerationTasks, generationTasksCsv } = await import(
+      '../../../../server/lib/today'
+    )
+    const exported = await exportGenerationTasks({
+      from: now - 10000,
+      to: now + 500,
+      source: 'cli',
+    })
+    const csv = generationTasksCsv(exported.tasks)
+    expect(csv).toContain('cli-1,')
+    expect(csv).toContain(',cli,openai-compat,')
+    expect(csv).not.toContain('manual-1')
+    const { getUserTasks, getDeviceDetail } = await import('../../../../server/lib/queries')
+    expect(
+      (await getUserTasks('cli-user', 'all')).tasks.every((task) => task.source === 'cli'),
+    ).toBe(true)
+    const device = await getDeviceDetail('cli-device', '1d')
+    expect(device.tasks.map((task) => [task.id, task.source])).toEqual([['cli-1', 'cli']])
   })
   it('keeps the original draft timestamp for delayed confirmation and supports an exact prompt link', async () => {
     const detail: TaskDetail = await (await get('/api/tasks/delayed')).json()
