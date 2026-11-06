@@ -1,7 +1,8 @@
 /**
  * 运行时配置加载。Boot 时 fetch `/runtime-config.json` 一次：
  *   - 200 + parseRuntimeConfig 成功 → 用 fetched config
- *   - 任何错误（404 / parse 失败 / schema 不匹配 / 网络错误）→ 退到 BAKED_DEFAULTS
+ *   - 文件不存在 / parse 失败 / schema 不匹配 → 退到 BAKED_DEFAULTS
+ *   - 网络错误 / 超时 / 服务异常 → 抛错，由启动页提供重试
  *
  * BAKED_DEFAULTS 的 `bff.enabled=false` 意味着默认不连接 BFF、没有平台渠道；
  * operator 部署 BFF 时必须显式写一份 `runtime-config.json` 把 `bff.enabled` 打开。
@@ -20,16 +21,17 @@ const RUNTIME_CONFIG_PATH = '/runtime-config.json'
 /**
  * main.tsx 在 render 之前 top-level await 这个函数，所以它必须保证会结束：
  * 卡住的连接（tunnel / 代理挂起、不返回也不断开）会让 React 永远不 mount，
- * 用户看到的是永久白屏。超时后退到 BAKED_DEFAULTS，页面仍能挂上，只是没有平台渠道。
+ * 用户看到的是永久白屏。超时交给启动页重试，不能把连接失败当作运营关闭 BFF。
  */
 const RUNTIME_CONFIG_TIMEOUT_MS = 5000
 
 export async function loadRuntimeConfig(fetcher: Fetcher = fetch): Promise<RuntimeConfig> {
+  const res = await fetcher(RUNTIME_CONFIG_PATH, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(RUNTIME_CONFIG_TIMEOUT_MS),
+  })
+  if (!res.ok && res.status !== 404) throw new Error(`runtime_config_http_${res.status}`)
   try {
-    const res = await fetcher(RUNTIME_CONFIG_PATH, {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(RUNTIME_CONFIG_TIMEOUT_MS),
-    })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     cached = parseRuntimeConfig(await res.json())
     const origin = globalThis.location?.origin
