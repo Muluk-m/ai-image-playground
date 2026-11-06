@@ -274,11 +274,19 @@ jobs:
       - name: Require the muvloom site assets
         run: test -d private/pages-assets
       - run: pnpm install --frozen-lockfile
+      # pages-release.sh 里的启动冒烟会 `playwright install --with-deps`，从 Azure apt 镜像下 21 MB 字体包；
+      # 镜像慢时（run 42160603842 是 43 kB/s）单这一步 8 分钟，占本作业的四分之三。这里用与 Checks 相同的
+      # deb 缓存先给 apt 预置，脚本本身不变。
+      - uses: ./.github/actions/pages-browser
+        with:
+          smoke: 'false'
       - name: Release the muvloom Pages project
         env:
           PAGES_SMOKE_OUTPUT_DIR: ${{ runner.temp }}/pages-muvloom-build
           APP_RELEASE: ${{ needs.release.outputs.version }}
         run: ./scripts/pages-release.sh "$EDITION"
+      - name: Keep the downloaded Chromium packages for the cache
+        run: find /var/cache/apt/archives -maxdepth 1 -name '*.deb' -exec cp -n {} "$RUNNER_TEMP/pages-browser-debs"/ \; 2>/dev/null || true
       - name: Verify the muvloom workspace in Chromium
         run: |
           # shellcheck source=/dev/null
