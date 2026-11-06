@@ -242,8 +242,7 @@ export async function confirmAgentGeneration(
           return { kind: 'refused', code: 'invalid_params' }
       }
 
-      // 发给上游的那一句在这里才成形：创作页在分发层加的防改写 guard 与构图指令，这条路
-      // 以前一段都不加。卡上展示、用户编辑的仍是不带机器指令的原句，所以变换只发生在提交这一刻。
+      // 构图句只在提交时补；防改写保留为参数，等实际选路后再添加。
       const upstreamPrompt =
         draft.media === 'image'
           ? shapeQueuePrompt({
@@ -270,6 +269,7 @@ export async function confirmAgentGeneration(
         request: {
           ...prepared.request,
           prompt: upstreamPrompt,
+          ...(draft.media === 'image' ? { no_rewrite: draft.provider !== 'gemini' } : {}),
           device_id: input.deviceId,
           client_request_id: draft.id,
         },
@@ -615,6 +615,7 @@ async function taskOfCommand(
     prompt: unshapeQueuePrompt({
       provider: draft.provider,
       prompt: task.request.prompt,
+      stripRewriteGuard: task.request.no_rewrite === undefined,
       size: draft.request.size,
     }),
   }

@@ -47,6 +47,7 @@ export interface GenerationImage {
 
 export type GenerationParameters = Pick<
   SubmitRequest,
+  | 'no_rewrite'
   | 'size'
   | 'quality'
   | 'output_format'
