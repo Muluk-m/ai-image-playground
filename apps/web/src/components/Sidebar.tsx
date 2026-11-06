@@ -148,7 +148,8 @@ export default function Sidebar() {
   }
 
   const item = (mode: AppMode) => {
-    const active = !onAuxiliaryPage && (appMode === mode || (mode === 'image' && appMode === 'canvas'))
+    const active =
+      !onAuxiliaryPage && (appMode === mode || (mode === 'image' && appMode === 'canvas'))
     return (
       <Button
         key={mode}
@@ -166,36 +167,39 @@ export default function Sidebar() {
     )
   }
 
-  const pluginEntry = (mobile = false) => accountsEnabled ? (
-    <Button
-      type="button"
-      variant="ghost"
-      onClick={() => navigate(CLI_CONNECT_PATH)}
-      aria-label={t('header.cliConnections')}
-      aria-current={onConnect ? 'page' : undefined}
-      autoTooltip={showRail && !mobile}
-      className={`${
-        mobile
-          ? 'h-auto min-w-0 flex-1 flex-col gap-0.5 py-2 text-label-sm font-normal hover:bg-transparent [&_svg]:size-5'
-          : showRail
-            ? 'size-10 shrink-0 rounded-xl p-0 [&_svg]:size-5'
-            : ITEM
-      } ${onConnect ? ACTIVE_ITEM : IDLE_ITEM}`}
-    >
-      <span className="inline-flex items-center gap-1">
-        <Icon name="terminal" filled={onConnect} />
-        {mobile && <Badge tone="primary">NEW</Badge>}
-      </span>
-      {mobile ? (
-        t('nav.plugins')
-      ) : !showRail ? (
-        <>
-          <span>{t('header.cliConnections')}</span>
-          <Badge tone="primary" className="ml-auto">NEW</Badge>
-        </>
-      ) : null}
-    </Button>
-  ) : null
+  const pluginEntry = (mobile = false) =>
+    accountsEnabled ? (
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={() => navigate(CLI_CONNECT_PATH)}
+        aria-label={t('header.cliConnections')}
+        aria-current={onConnect ? 'page' : undefined}
+        autoTooltip={showRail && !mobile}
+        className={`${
+          mobile
+            ? 'h-auto min-w-0 flex-1 flex-col gap-0.5 py-2 text-label-sm font-normal hover:bg-transparent [&_svg]:size-5'
+            : showRail
+              ? 'size-10 shrink-0 rounded-xl p-0 [&_svg]:size-5'
+              : ITEM
+        } ${onConnect ? ACTIVE_ITEM : IDLE_ITEM}`}
+      >
+        <span className="inline-flex items-center gap-1">
+          <Icon name="terminal" filled={onConnect} />
+          {mobile && <Badge tone="primary">NEW</Badge>}
+        </span>
+        {mobile ? (
+          t('nav.plugins')
+        ) : !showRail ? (
+          <>
+            <span>{t('header.cliConnections')}</span>
+            <Badge tone="primary" className="ml-auto">
+              NEW
+            </Badge>
+          </>
+        ) : null}
+      </Button>
+    ) : null
 
   const wordmark =
     theme === 'light' ? '/brand/muvloom-wordmark-light.svg' : '/brand/muvloom-wordmark-dark.svg'
