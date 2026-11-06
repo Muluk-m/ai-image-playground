@@ -242,7 +242,7 @@ describe('runMigrations', () => {
   it('refuses to migrate when an older journal entry was never applied', async () => {
     await runMigrations(databaseUrl)
     // Two PRs merged out of order look like this: a newer stamp applied, an older one missing.
-    const middle = journal.entries.at(-2)!
+    const middle = journal.entries.find((entry) => entry.when === 1794300000000)!
     const [row] = await connection.client.unsafe<{ hash: string; created_at: string }[]>(
       `DELETE FROM drizzle.__drizzle_migrations WHERE created_at = ${middle.when} RETURNING hash, created_at`,
     )
@@ -475,6 +475,44 @@ describe('runMigrations', () => {
     })
   }, 30_000)
 
+  it('upgrades production with password reset but without the earlier refresh migration', async () => {
+    await withEmptyDatabase('refresh_identity_production', async (url) => {
+      await migrateUntil(url, journal.entries.find((entry) => entry.when === 1794300000000)!.tag)
+      await runMigrations(url)
+      const client = new SQL(url, { max: 1 })
+      try {
+        const rows = await client`SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`
+        expect(rows.some((row) => Number(row.created_at) === 1794250000000)).toBe(false)
+        expect(rows.at(-1)).toMatchObject({
+          hash: await migrationFileHash('0094_web_refresh_request_identity_forward'),
+          created_at: '1794400000000',
+        })
+        const [column] = await client`SELECT is_nullable FROM information_schema.columns WHERE table_name = 'user_retired_refresh_tokens' AND column_name = 'request_key_hash'`
+        expect(column.is_nullable).toBe('YES')
+        await runMigrations(url)
+      } finally {
+        await client.close()
+      }
+    })
+  }, 30_000)
+
+  it('upgrades test with the original refresh migration and no password reset migration', async () => {
+    await withEmptyDatabase('refresh_identity_test', async (url) => {
+      const passwordReset = journal.entries.find((entry) => entry.when === 1794300000000)!
+      await migrateUntil(url, '0093_web_refresh_request_identity', [passwordReset.tag])
+      await runMigrations(url)
+      const client = new SQL(url, { max: 1 })
+      try {
+        const rows = await client`SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`
+        expect(rows).toHaveLength(journal.entries.length)
+        expect(rows.filter((row) => Number(row.created_at) === 1794250000000)).toHaveLength(1)
+        await runMigrations(url)
+      } finally {
+        await client.close()
+      }
+    })
+  }, 30_000)
+
   it('upgrades the pure-main journal through 0084 without inventing historical applications', async () => {
     await withEmptyDatabase('upgrade_main', async (url) => {
       // origin/main has 0000–0078 (no 0013), then 0082, 0083, 0084; neither original ran.
@@ -500,7 +538,7 @@ describe('runMigrations', () => {
         expect(after.slice(0, before.length)).toEqual(before)
         expect(after).toHaveLength(journal.entries.length - 2)
         // Only migrations newer than main's last applied one run, in journal order.
-        expect(after.slice(before.length).map(migrationStamp)).toEqual([
+        const expectedForwardMigrations = [
           {
             hash: await migrationFileHash('0085_task_metering_forward'),
             created_at: '1793600000000',
@@ -529,11 +567,14 @@ describe('runMigrations', () => {
             hash: await migrationFileHash('0091_gpt_direct_keys'),
             created_at: '1794200000000',
           },
-          {
-            hash: await migrationFileHash('0093_web_refresh_request_identity'),
-            created_at: '1794250000000',
-          },
-        ])
+        ]
+        for (const entry of journal.entries.filter((entry) => entry.when > 1794200000000)) {
+          expectedForwardMigrations.push({
+            hash: await migrationFileHash(entry.tag),
+            created_at: String(entry.when),
+          })
+        }
+        expect(after.slice(before.length).map(migrationStamp)).toEqual(expectedForwardMigrations)
         const columns =
           await client`SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tasks' AND column_name = 'metering'`
         expect(columns).toEqual([{ data_type: 'jsonb', is_nullable: 'YES' }])

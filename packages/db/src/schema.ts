@@ -156,6 +156,24 @@ export const email_verification_codes = pgTable(
   ],
 )
 
+export const password_reset_tokens = pgTable(
+  'password_reset_tokens',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    token_hash: text('token_hash').notNull(),
+    created_at: epochMs('created_at').notNull(),
+    expires_at: epochMs('expires_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_password_reset_tokens_hash').on(t.token_hash),
+    index('idx_password_reset_tokens_user').on(t.user_id),
+    index('idx_password_reset_tokens_expires_at').on(t.expires_at),
+  ],
+)
+
 /**
  * 一条网页登录链。access 行在 `user_sessions`，refresh 只在这里存哈希。
  * 轮换时旧 refresh 哈希进 `user_retired_refresh_tokens`，用于拒绝旧凭据和确认幂等重试。

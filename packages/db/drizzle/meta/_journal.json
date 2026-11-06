@@ -635,8 +635,22 @@
     {
       "idx": 92,
       "version": "7",
+      "when": 1794300000000,
+      "tag": "0092_password_reset_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
       "when": 1794250000000,
       "tag": "0093_web_refresh_request_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1794400000000,
+      "tag": "0094_web_refresh_request_identity_forward",
       "breakpoints": true
     }
   ]

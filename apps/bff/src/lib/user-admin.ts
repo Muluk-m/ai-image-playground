@@ -13,6 +13,7 @@ import { and, asc, eq, inArray } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { isCapabilityEnabled } from './capabilities'
 import { oauthUsernameCandidates } from './oauth/username'
+import { revokePasswordResetTokens } from './password-reset'
 import { loadPrivateBffOverlay } from './private-overlay'
 import { consumeRegistrationVerification } from './registration-verification'
 import {
@@ -38,6 +39,7 @@ export type UserOperationErrorCode =
   | 'email_verification_required'
   | 'invalid_email_verification'
   | 'email_verification_expired'
+  | 'invalid_password_reset'
 
 export class UserOperationError extends Error {
   constructor(readonly code: UserOperationErrorCode) {
@@ -450,6 +452,7 @@ export async function setOwnPassword(
       .update(schema.users)
       .set({ password_hash: passwordHash, updated_at: Date.now() })
       .where(eq(schema.users.id, userId))
+    await revokePasswordResetTokens(tx, userId)
     const renewed = await retainWebSessionAfterPasswordChange(tx, userId, input.keepSessionToken)
     await tx.insert(schema.operator_audits).values({
       ...operatorAudit('user.password.self-update', userId, {
@@ -613,6 +616,7 @@ export async function resetUserPassword(
       .returning({ id: schema.users.id })
     if (rows.length === 0) return false
     const revoked = await revokeAllWebSessions(tx, userId, 'password_reset')
+    await revokePasswordResetTokens(tx, userId)
     await tx
       .insert(schema.operator_audits)
       .values(operatorAudit('user.password.reset', userId, { sessions_revoked: revoked }, actor))
