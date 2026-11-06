@@ -9,8 +9,8 @@ import { useAgentJobActivity } from '../../features/agent/lib/jobActivity'
 import { type CanvasProject, projectRepository } from '../../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { useLibraryStore } from '../../features/library/store'
-import { navigate } from '../../lib/pathname'
 import { installWorkbenchNavigation } from '../../lib/navigation/workbenchNavigation'
+import { navigate } from '../../lib/pathname'
 import { useStore } from '../../store'
 
 const media = vi.hoisted(() => ({
@@ -43,7 +43,9 @@ beforeEach(async () => {
   root = createRoot(host)
   await act(async () => {
     root.render(
-      <AuthContextProvider value={{ enabled: true, user: null, login: () => {}, logout: async () => {} }}>
+      <AuthContextProvider
+        value={{ enabled: true, user: null, login: () => {}, logout: async () => {} }}
+      >
         <Sidebar />
       </AuthContextProvider>,
     )
