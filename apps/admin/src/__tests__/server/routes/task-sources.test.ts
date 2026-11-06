@@ -46,7 +46,12 @@ await writer.db.insert(writer.schema.tasks).values([
     agent_turn_id: 'turn',
   },
   { ...base, id: 'manual-1' },
-  { ...base, id: 'cli-1', user_id: 'cli-user', device_id: 'cli-device' },
+  {
+    ...base,
+    id: 'cli-1',
+    user_id: 'cli-user',
+    request_payload: { prompt: '杯子', device_id: 'cli-device' },
+  },
   { ...base, id: 'cli-2', user_id: 'cli-user', status: 'failed', model: 'other' },
   { ...base, id: 'manual-2', status: 'queued', model: 'other' },
   { ...base, id: 'hidden-chat-call', kind: 'chat', agent_conversation_id: 'conversation' },
@@ -122,7 +127,9 @@ describe('task source attribution', () => {
     const detail: TaskDetail = await (await get('/api/tasks/cli-1')).json()
     expect(detail.source).toBe('cli')
     expect(detail.prompt_created_at).toBeUndefined()
-    const { exportGenerationTasks, generationTasksCsv } = await import('../../../../server/lib/today')
+    const { exportGenerationTasks, generationTasksCsv } = await import(
+      '../../../../server/lib/today'
+    )
     const exported = await exportGenerationTasks({ from: now - 10000, to: now + 500, source: 'cli' })
     const csv = generationTasksCsv(exported.tasks)
     expect(csv).toContain('cli-1,')
