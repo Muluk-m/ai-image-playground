@@ -574,9 +574,9 @@ async function downgradeGeminiForNonMember(
   const member =
     effectiveGeminiImageSize(normalized) === '4K' ? await isActiveMember(input.userId) : false
   const request = clampGeminiNonMemberRequest(normalized, member)
-  const finalSize = effectiveGeminiImageSize(request)
+  const finalSize = request.image_size ?? effectiveGeminiImageSize(request)
   const finalRequest =
-    finalSize && request.image_size !== finalSize
+    finalSize && effectiveGeminiImageSize(request) !== finalSize
       ? withGeminiImageSize(request, finalSize)
       : request
   return finalRequest === input.request ? input : { ...input, request: finalRequest }
