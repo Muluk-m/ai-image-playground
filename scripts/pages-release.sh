@@ -22,8 +22,8 @@ Usage: scripts/pages-release.sh <muvloom|test|admin>
 
 Reads $XDG_CONFIG_HOME/ai-image-playground/pages.env, whose keys are prefixed PAID_ (the legacy key
 prefix of the muvloom project), TEST_, or ADMIN_ (see deploy/pages.env.example).
-INTERNAL_PUBLIC_ORIGIN / INTERNAL_BFF_BASE_URL (legacy names of the qlj keys) name the enterprise
-domain that the muvloom Pages project also serves.
+ENTERPRISE_PUBLIC_ORIGIN / ENTERPRISE_BFF_BASE_URL name the enterprise domain that the muvloom
+Pages project also serves.
 
 All targets need ./private. One muvloom project serves both production domains: the enterprise
 domain gets its own first-party API mapping and a host-scoped noindex header.
@@ -34,11 +34,6 @@ EOF
 edition=${1:-}
 [ "$#" -le 1 ] || usage
 case "$edition" in
-  # The qlj edition no longer has its own Pages project: the muvloom project serves its domain.
-  qlj)
-    echo "The qlj site is served by the muvloom Pages project; release 'muvloom' instead." >&2
-    exit 2
-    ;;
   # Only the public product site is meant to show up in search results; the enterprise domain on
   # the same project is excluded by a host-scoped header below.
   muvloom)
@@ -113,11 +108,11 @@ if [ "$edition" = muvloom ]; then
   # The enterprise domain is a second custom domain of the muvloom project. Its frontend must keep
   # calling its own first-party API hostname (SameSite=Lax session cookies), so it joins the
   # per-origin API map; the backend decides its login methods from the same origin.
-  enterprise_origin=$(edition_var INTERNAL PUBLIC_ORIGIN)
-  enterprise_api=$(edition_var INTERNAL BFF_BASE_URL)
+  enterprise_origin=$(edition_var ENTERPRISE PUBLIC_ORIGIN)
+  enterprise_api=$(edition_var ENTERPRISE BFF_BASE_URL)
   if [ -n "$enterprise_origin$enterprise_api" ]; then
     if [ -z "$enterprise_origin" ] || [ -z "$enterprise_api" ]; then
-      echo "INTERNAL_PUBLIC_ORIGIN and INTERNAL_BFF_BASE_URL must be set together in $pages_env." >&2
+      echo "ENTERPRISE_PUBLIC_ORIGIN and ENTERPRISE_BFF_BASE_URL must be set together in $pages_env." >&2
       exit 1
     fi
     BFF_BASE_URLS_BY_ORIGIN=$(

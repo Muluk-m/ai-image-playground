@@ -28,7 +28,7 @@
 4. API `/health` 返回公开 SHA + overlay SHA 后，才构建同一对提交的测试前端；最终 `dist` 通过浏览器启动检查后才上传，上传后再验证测试域名的首页与项目深链接。
 5. 核验线上 `version.json`、TLS、CORS、登录、授权媒体与一次真实生成。
 
-GitHub 使用已有 VPS、Cloudflare 和 overlay secrets。CI 在读取 `PAGES_ENV` 后固定覆盖测试 API 为 `https://test-api.muvloom.online` 并清空 origin override，无需重写共享生产 secret。本机 `pages.env` 的 `TEST_BFF_BASE_URL` 也必须使用该地址。测试发布使用单独的 SSH key（secret `VPS_SSH_KEY_TEST`），在 VPS 上绑定 `aip-ci-receive test`，只能发布 `test` 目标；生产 key 绑定 `aip-ci-receive release`，不能发布 `test`。接收器必须先更新为带范围参数的版本，见[部署手册](image-release.md)「VPS 受限入口」。
+GitHub 使用已有 VPS、Cloudflare 和 overlay secrets。CI 在读取 `PAGES_ENV` 后固定覆盖测试 API 为 `https://test-api.muvloom.online` 并清空 origin override，无需重写共享生产 secret 的 API 地址。共享 `PAGES_ENV` 与仓库外 `pages.env` 中的企业配置须使用 `ENTERPRISE_PUBLIC_ORIGIN` / `ENTERPRISE_BFF_BASE_URL`；旧键没有 fallback，更新前提见[部署手册](image-release.md#仓库外更新前提)。本机 `TEST_BFF_BASE_URL` 也必须使用测试 API 地址。测试使用单独 SSH key（secret `VPS_SSH_KEY_TEST`），在 VPS 绑定 `aip-ci-receive test`，只能发布 `test`；生产 key 绑定 `aip-ci-receive release`，只能发布 `paid`。安装的 receiver 与完整固定 runtime 必须配套更新，仓库代码更新不会替换 VPS 副本。
 
 ## 首次配置
 
@@ -46,6 +46,6 @@ GitHub 使用已有 VPS、Cloudflare 和 overlay secrets。CI 在读取 `PAGES_E
 
 ## 首次准备状态（2026-10-01）
 
-已在现有账号/主机创建测试 R2 桶、限定桶权限的凭据、独立 Tunnel/DNS、空数据库与三类角色，配置文件放在上述仓库外目录。实测测试桶写入/读取/删除成功，对生产桶访问返回 `AccessDenied`；测试 app/migrator 对两个生产库业务表的读写授权计数均为 0。共享 PostgreSQL 的默认 CONNECT 不等于业务表授权，未修改生产 ACL。
+已在现有账号/主机创建测试 R2 桶、限定桶权限的凭据、独立 Tunnel/DNS、空数据库与三类角色，配置文件放在上述仓库外目录。当时实测测试桶写入/读取/删除成功，对生产桶访问返回 `AccessDenied`；测试 app/migrator 对当时两个生产库业务表的读写授权计数均为 0。此为 2026-10-01 历史隔离证据，不证明后续配置持续不变。共享 PostgreSQL 的默认 CONNECT 不等于业务表授权，未修改生产 ACL。
 
 这只是基础设施准备记录：尚未据此宣称测试 BFF 上线、登录/生成验收或回滚通过。首次代码发布须跟随本次集成提交 CI，最后在测试站补齐完整验收记录。

@@ -21,7 +21,7 @@ async function release(root: string, name: string, images: string[]): Promise<st
   await writeFile(join(dir, 'images.tar.gz'), 'archive')
   await writeFile(join(dir, 'scripts/vps-deploy.sh'), '#!/bin/sh\n')
   const lines = images.map(
-    (image, i) => `${i === 0 ? 'internal' : 'paid'}\t${image}\tsha256:x\ta\t-`,
+    (image, i) => `${i === 0 ? 'test' : 'paid'}\t${image}\tsha256:x\ta\t-`,
   )
   lines.push(`backup\tai-image-playground:backup-${name}\tsha256:y\ta\t-`)
   await writeFile(join(dir, 'images.tsv'), `${lines.join('\n')}\n`)
@@ -47,21 +47,21 @@ describe('prune_old_releases', () => {
     await mkdir(join(xdg, 'ai-image-playground'), { recursive: true })
 
     const deployed = await release(root, 'aip-old', [
-      'ai-image-playground:vps-main-old',
+      'ai-image-playground:test-old',
       'ai-image-playground:paid-old',
     ])
-    const failed = await release(root, 'aip-failed', ['ai-image-playground:vps-main-bad'])
-    const incoming = await release(root, 'aip-incoming', ['ai-image-playground:vps-main-next'])
-    const current = await release(root, 'aip-current', ['ai-image-playground:vps-main-now'])
+    const failed = await release(root, 'aip-failed', ['ai-image-playground:test-bad'])
+    const incoming = await release(root, 'aip-incoming', ['ai-image-playground:test-next'])
+    const current = await release(root, 'aip-current', ['ai-image-playground:test-now'])
     await writeFile(join(root, 'releases', 'aip-old.transport.tar'), 'tar')
     await writeFile(join(root, 'releases', 'aip-incoming.transport.tar'), 'tar')
     await writeFile(
       join(xdg, 'ai-image-playground', 'deployments.log'),
       [
-        logLine('ai-image-playground:vps-main-old', 'ok'),
+        logLine('ai-image-playground:test-old', 'ok'),
         logLine('ai-image-playground:paid-old', 'ok'),
-        logLine('ai-image-playground:vps-main-bad', 'failed'),
-        logLine('ai-image-playground:vps-main-now', 'ok'),
+        logLine('ai-image-playground:test-bad', 'failed'),
+        logLine('ai-image-playground:test-now', 'ok'),
         '',
       ].join('\n'),
     )
@@ -96,13 +96,13 @@ describe('prune_old_releases', () => {
     const xdg = join(root, 'xdg')
     await mkdir(join(xdg, 'ai-image-playground'), { recursive: true })
     const half = await release(root, 'aip-half', [
-      'ai-image-playground:vps-main-h',
+      'ai-image-playground:test-h',
       'ai-image-playground:paid-h',
     ])
-    const current = await release(root, 'aip-current', ['ai-image-playground:vps-main-now'])
+    const current = await release(root, 'aip-current', ['ai-image-playground:test-now'])
     await writeFile(
       join(xdg, 'ai-image-playground', 'deployments.log'),
-      `${logLine('ai-image-playground:vps-main-h', 'ok')}\n`,
+      `${logLine('ai-image-playground:test-h', 'ok')}\n`,
     )
 
     const proc = Bun.spawn(['sh', '-c', `. "${common}" && prune_old_releases "${current}"`], {

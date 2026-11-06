@@ -76,10 +76,10 @@ afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 describe('ci-receive.sh', () => {
   it('unpacks the release and runs its receiver as the GitHub Actions run', () => {
-    const result = receive(`deploy ${id} all 12345`)
+    const result = receive(`deploy ${id} paid 12345`)
     expect(result.status).toBe(0)
     expect(readFileSync(join(releases, id, 'images.tsv'), 'utf8')).toBe('manifest\n')
-    expect(readFileSync(log, 'utf8')).toBe(`all ${releases}/${id} actor=github-actions/run-12345\n`)
+    expect(readFileSync(log, 'utf8')).toBe(`paid ${releases}/${id} actor=github-actions/run-12345\n`)
     expect(readdirSync(releases)).toEqual([id])
   })
 
@@ -90,11 +90,11 @@ describe('ci-receive.sh', () => {
   })
 
   it('moves a failed release aside so the same commit can be retried', () => {
-    expect(receive(`deploy ${id} all 7`, releaseTar(), { TEST_DEPLOY_EXIT: '1' }).status).toBe(1)
+    expect(receive(`deploy ${id} paid 7`, releaseTar(), { TEST_DEPLOY_EXIT: '1' }).status).toBe(1)
     const kept = readdirSync(releases)
     expect(kept).toHaveLength(1)
     expect(kept[0]).toMatch(new RegExp(`^${id}\\.failed-run-7$`))
-    expect(receive(`deploy ${id} all 8`).status).toBe(0)
+    expect(receive(`deploy ${id} paid 8`).status).toBe(0)
     expect(readdirSync(releases).sort()).toEqual([id, `${id}.failed-run-7`])
   })
 
@@ -140,16 +140,16 @@ describe('ci-receive.sh', () => {
     undefined,
     '',
     'deploy',
-    `deploy ${id} all`,
-    `deploy ${id} all 1 extra`,
+    `deploy ${id} paid`,
+    `deploy ${id} paid 1 extra`,
     `deploy ${id} prod 1`,
-    `deploy ${id} all 1x`,
-    `deploy ${id} all 1;id`,
-    `deploy ../${id} all 1`,
-    `deploy aip-${'a'.repeat(12)}-${'b'.repeat(11)} all 1`,
-    `deploy aip-${'A'.repeat(12)}-${'b'.repeat(12)} all 1`,
-    'deploy aip-* all 1',
-    `rollback ${id} all 1`,
+    `deploy ${id} paid 1x`,
+    `deploy ${id} paid 1;id`,
+    `deploy ../${id} paid 1`,
+    `deploy aip-${'a'.repeat(12)}-${'b'.repeat(11)} paid 1`,
+    `deploy aip-${'A'.repeat(12)}-${'b'.repeat(12)} paid 1`,
+    'deploy aip-* paid 1',
+    `rollback ${id} paid 1`,
     'sh -c id',
   ])('rejects %j without touching the releases directory', (command) => {
     const result = receive(command)
@@ -159,7 +159,7 @@ describe('ci-receive.sh', () => {
     expect(existsSync(log)).toBe(false)
   })
 
-  it('lets the test key deploy only test, and the release key everything but test', () => {
+  it('lets the test key deploy only test, and the release key deploy only paid', () => {
     for (const target of ['internal', 'paid', 'all', 'prod']) {
       const refused = receive(`deploy ${id} ${target} 1`, releaseTar(), {}, 'test')
       expect(refused.status).toBe(2)
@@ -169,6 +169,12 @@ describe('ci-receive.sh', () => {
     expect(existsSync(log)).toBe(false)
     expect(receive(`deploy ${id} test 1`, releaseTar(), {}, 'test').status).toBe(0)
     expect(readFileSync(log, 'utf8')).toBe(`test ${releases}/${id} actor=github-actions/run-1\n`)
+  })
+
+  it.each(['internal', 'all'])('refuses retired target %s even with the release key', (target) => {
+    expect(receive(`deploy ${id} ${target} 1`).status).toBe(2)
+    expect(readdirSync(releases)).toEqual([])
+    expect(existsSync(log)).toBe(false)
   })
 
   it.each([
@@ -198,19 +204,19 @@ describe('ci-receive.sh', () => {
   it('redeploys a commit already on the host into a run-specific directory', () => {
     mkdirSync(join(releases, id))
     writeFileSync(join(releases, id, 'marker'), 'kept')
-    const result = receive(`deploy ${id} all 42`)
+    const result = receive(`deploy ${id} paid 42`)
     expect(result.status).toBe(0)
     expect(readdirSync(join(releases, id))).toEqual(['marker'])
     expect(readFileSync(join(releases, `${id}.run-42`, 'images.tsv'), 'utf8')).toBe('manifest\n')
     expect(readFileSync(log, 'utf8')).toBe(
-      `all ${releases}/${id}.run-42 actor=github-actions/run-42\n`,
+      `paid ${releases}/${id}.run-42 actor=github-actions/run-42\n`,
     )
   })
 
   it('refuses when even the run-specific directory already exists', () => {
     mkdirSync(join(releases, id))
     mkdirSync(join(releases, `${id}.run-42`))
-    const result = receive(`deploy ${id} all 42`)
+    const result = receive(`deploy ${id} paid 42`)
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('already exists')
     expect(existsSync(log)).toBe(false)
@@ -220,7 +226,7 @@ describe('ci-receive.sh', () => {
     const inner = join(root, 'inner')
     mkdirSync(inner)
     writeFileSync(join(root, 'outside.txt'), 'escape')
-    const result = receive(`deploy ${id} all 1`, tarOf(['-P', '-C', inner, '../outside.txt']))
+    const result = receive(`deploy ${id} paid 1`, tarOf(['-P', '-C', inner, '../outside.txt']))
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('Unsafe archive')
     expect(existsSync(join(home, 'outside.txt'))).toBe(false)
@@ -230,7 +236,7 @@ describe('ci-receive.sh', () => {
 
   it('rejects an archive with absolute paths', () => {
     writeFileSync(join(root, 'absolute.txt'), 'absolute')
-    const result = receive(`deploy ${id} all 1`, tarOf(['-P', join(root, 'absolute.txt')]))
+    const result = receive(`deploy ${id} paid 1`, tarOf(['-P', join(root, 'absolute.txt')]))
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('Unsafe archive')
     expect(readdirSync(releases)).toEqual([])
@@ -241,14 +247,14 @@ describe('ci-receive.sh', () => {
     const dir = join(root, 'linked')
     mkdirSync(dir)
     symlinkSync('/etc', join(dir, 'etc'))
-    const result = receive(`deploy ${id} all 1`, tarOf(['-C', dir, '.']))
+    const result = receive(`deploy ${id} paid 1`, tarOf(['-C', dir, '.']))
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('Unsafe archive')
     expect(readdirSync(releases)).toEqual([])
   })
 
   it('leaves nothing behind when stdin is not an archive', () => {
-    const result = receive(`deploy ${id} all 1`, Buffer.from('not a tarball'))
+    const result = receive(`deploy ${id} paid 1`, Buffer.from('not a tarball'))
     expect(result.status).toBe(1)
     expect(readdirSync(releases)).toEqual([])
     expect(existsSync(log)).toBe(false)

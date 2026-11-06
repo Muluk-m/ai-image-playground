@@ -47,7 +47,7 @@ case "$1" in
     case "$output" in *push=true*)
       [ -f "$TEST_ROOT/logged-in" ] || { echo 'denied: not logged in' >&2; exit 1; }
       [ "\${TEST_PUSH_EXIT:-0}" = 0 ] || { echo 'unexpected status 503' >&2; exit 1; }
-      case "$output" in *:internal-*) d=1 ;; *:paid-*) d=2 ;; *) d=3 ;; esac
+      case "$output" in *:paid-*) d=2 ;; *) d=3 ;; esac
       printf '{"containerimage.config.digest":"%s","containerimage.digest":"sha256:%s"}\n' \
         '${imageId}' "$(printf '%064d' 0 | tr 0 "$d")" > "$meta" ;;
     esac ;;
@@ -66,10 +66,10 @@ case "$1" in
     case "$5" in
       '{{.Id}}') echo '${imageId}' ;;
       '{{range .RepoDigests}}{{println .}}{{end}}')
-        case "$3" in *:vps-main-*) d=1 ;; *:paid-*) d=2 ;; *) d=3 ;; esac
+        case "$3" in *:paid-*) d=2 ;; *) d=3 ;; esac
         echo "${repoName}@sha256:$(printf '%064d' 0 | tr 0 "$d")" ;;
       '{{.Os}}/{{.Architecture}}') echo linux/amd64 ;;
-      *) case "$3" in *:paid-*) echo "APP_VERSION=$TEST_PUB+$TEST_PRIV" ;; *) echo "APP_VERSION=$TEST_PUB" ;; esac ;;
+      *) case "$3" in *:paid-*|*:test-*) echo "APP_VERSION=$TEST_PUB+$TEST_PRIV" ;; *) echo "APP_VERSION=$TEST_PUB" ;; esac ;;
     esac ;;
   info) echo / ;;
   builder) [ "$2" = prune ] && exit 0; exit 91 ;;
@@ -105,7 +105,7 @@ function write(path: string, content: string, mode = 0o644) {
   chmodSync(path, mode)
 }
 
-function build(target = 'all') {
+function build(target = 'paid') {
   return spawnSync('sh', [join(checkout, 'scripts/build-vps-release.sh'), target, out], {
     env,
     encoding: 'utf8',
@@ -210,7 +210,6 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     const q = priv.slice(0, 12)
     const all = calls()
     for (const remote of [
-      `${repoName}:internal-${p}`,
       `${repoName}:paid-${p}-${q}`,
       `${repoName}:backup-${p}`,
     ]) {
@@ -222,8 +221,7 @@ describe('build-vps-release.sh, registry transport (default)', () => {
       )
       expect(build).toContain('--provenance=false --sbom=false')
       expect(build).not.toContain('--load')
-      // Shared stages are reused across workflows. Only the last application
-      // edition writes the cache; the backup Dockerfile must not replace it.
+      // Shared stages are reused across workflows; only the application writes this cache.
       expect(build).toContain(`--cache-from type=registry,ref=${repoName}:buildcache`)
       if (remote === `${repoName}:paid-${p}-${q}`) {
         expect(build).toContain(`--cache-to type=registry,ref=${repoName}:buildcache,mode=max`)
@@ -235,7 +233,6 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     expect(all.some((c) => /^(tag|push|image inspect) /.test(c))).toBe(false)
     expect(readFileSync(join(out, 'images.tsv'), 'utf8')).toBe(
       [
-        `internal\tai-image-playground:vps-main-${p}\t${imageId}\t${pub}\t${priv}\t${pushed('1')}`,
         `paid\tai-image-playground:paid-${p}-${q}\t${imageId}\t${pub}\t${priv}\t${pushed('2')}`,
         `backup\tai-image-playground:backup-${p}\t${imageId}\t${pub}\t-\t${pushed('3')}`,
         `segmenter\tai-image-playground:segmenter-3-${p}\t${imageId}\t${pub}\t-\t${pushed('3')}`,
@@ -255,7 +252,6 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     expect(rows.map((row) => row.split('\t')[0])).toEqual(['paid', 'backup', 'segmenter'])
     const builds = calls().filter((call) => call.startsWith('buildx build'))
     expect(builds).toHaveLength(3)
-    expect(builds.some((call) => call.includes(':internal-'))).toBe(false)
     const paid = builds.find((call) => call.includes(`name=${repoName}:paid-`))
     expect(paid).toContain('--build-arg PRIVATE_OVERLAY_PRESENT=true')
     expect(paid).toContain(`--build-arg APP_VERSION=${pub}+${priv}`)
@@ -269,7 +265,7 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     expect(readFileSync(join(out, 'images.tsv'), 'utf8')).not.toContain('segmenter')
     rmSync(out, { recursive: true })
     rmSync(log)
-    const result = build('internal')
+    const result = build('paid')
     expect(result.status, result.stderr).toBe(0)
     const p = pub.slice(0, 12)
     const segmenter = calls().find(
@@ -292,9 +288,16 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     writeFileSync(join(root, 'logged-in'), '')
     writeFileSync(join(checkout, 'deploy/segmenter/VERSION'), 'latest\n')
     git(checkout, 'commit', '-qam', 'bad version')
-    const result = build('internal')
+    const result = build('paid')
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain('deploy/segmenter/VERSION must be a whole number')
+  })
+
+  it.each(['internal', 'all'])('rejects retired target %s before building', (target) => {
+    const result = build(target)
+    expect(result.status).toBe(2)
+    expect(calls()).toEqual([])
+    expect(existsSync(out)).toBe(false)
   })
 
   it('checksums every file in the release, images.tsv included', () => {
@@ -318,7 +321,7 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     expect(outputFiles()).toEqual(['SHA256SUMS', 'images.tsv'])
     expect(existsSync(join(out, 'scripts/vps-deploy.sh'))).toBe(false)
     rmSync(log)
-    const received = spawnSync('sh', [join(checkout, 'scripts/vps-deploy.sh'), 'all', out], {
+    const received = spawnSync('sh', [join(checkout, 'scripts/vps-deploy.sh'), 'paid', out], {
       env,
       encoding: 'utf8',
       timeout: 20000,
@@ -326,7 +329,6 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     expect(received.stderr).toBe('')
     expect(received.status).toBe(0)
     const all = calls()
-    expect(all).toContain(`pull ${pushed('1')}`)
     expect(all).toContain(`pull ${pushed('2')}`)
     expect(all).toContain(`pull ${pushed('3')}`)
     expect(all).toContain(`segmenter up ai-image-playground:segmenter-3-${pub.slice(0, 12)} 3`)
@@ -377,17 +379,18 @@ describe('build-vps-release.sh, registry transport (default)', () => {
 describe('build-vps-release.sh, archive fallback', () => {
   it('saves images.tar.gz without logging in or pushing, and records no digests', () => {
     env.RELEASE_TRANSPORT = 'archive'
-    const result = build('internal')
+    const result = build('paid')
     expect(result.status, result.stderr).toBe(0)
     const p = pub.slice(0, 12)
+    const q = priv.slice(0, 12)
     const all = calls()
     expect(all).toContain(
-      `save -o ${out}/images.tar ai-image-playground:vps-main-${p} ai-image-playground:backup-${p} ai-image-playground:segmenter-3-${p}`,
+      `save -o ${out}/images.tar ai-image-playground:paid-${p}-${q} ai-image-playground:backup-${p} ai-image-playground:segmenter-3-${p}`,
     )
     expect(all.some((c) => /^(login|push)/.test(c) || c.includes(repoName))).toBe(false)
     expect(readFileSync(join(out, 'images.tsv'), 'utf8')).toBe(
       [
-        `internal\tai-image-playground:vps-main-${p}\t${imageId}\t${pub}\t-\t-`,
+        `paid\tai-image-playground:paid-${p}-${q}\t${imageId}\t${pub}\t${priv}\t-`,
         `backup\tai-image-playground:backup-${p}\t${imageId}\t${pub}\t-\t-`,
         `segmenter\tai-image-playground:segmenter-3-${p}\t${imageId}\t${pub}\t-\t-`,
         '',
@@ -397,7 +400,7 @@ describe('build-vps-release.sh, archive fallback', () => {
     expect(outputFiles()).toEqual(['SHA256SUMS', 'images.tar.gz', 'images.tsv'])
     expect(existsSync(join(out, 'scripts/vps-deploy.sh'))).toBe(false)
     rmSync(log)
-    const received = spawnSync('sh', [join(checkout, 'scripts/vps-deploy.sh'), 'internal', out], {
+    const received = spawnSync('sh', [join(checkout, 'scripts/vps-deploy.sh'), 'paid', out], {
       env,
       encoding: 'utf8',
       timeout: 20000,

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 /**
  * 2026-09-18 凌晨两个会话相隔 52 秒，在生产 VPS 的同一个检出目录里各自跑起了
- * `scripts/vps-deploy.sh all`，目标提交还不一样：两套镜像同时构建，主机过载，两个 API 一起 530。
+ * `scripts/vps-deploy.sh paid`，目标提交还不一样：两套镜像同时构建，主机过载，两个 API 一起 530。
  * 互斥锁就是拦这件事的，锁的原语是 `mkdir` 原子建目录（macOS 没有 flock(1)）。
  * 真正的 docker 与 git 步骤在 vps-deploy.sh 里，这里只钉 deploy-common.sh 里那几个函数的行为。
  */
@@ -54,7 +54,7 @@ function writeOwner(fields: Record<string, string>) {
     token: '-',
     since: '2026-09-18T00:33:12Z',
     by: 'someone@tx-vps',
-    what: 'editions=internal paid ref=39d2cf1c',
+    what: 'edition=paid ref=39d2cf1c',
     ...fields,
   }
   writeFileSync(
@@ -81,14 +81,14 @@ describe('acquire_deploy_lock', () => {
   it('抢到锁后 owner 文件记下 PID、发起人和这次部署的目标', () => {
     const result = sh('acquire_deploy_lock "$1" "$2"', [
       lockDir,
-      'editions=internal paid ref=origin/main',
+      'edition=paid ref=origin/main',
     ])
     expect(result.status).toBe(0)
     const owner = readFileSync(ownerFile, 'utf8')
     expect(owner).toMatch(/^pid=\d+$/m)
     expect(owner).toMatch(/^since=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/m)
     expect(owner).toMatch(/^by=\S+@\S+$/m)
-    expect(owner).toMatch(/^what=editions=internal paid ref=origin\/main$/m)
+    expect(owner).toMatch(/^what=edition=paid ref=origin\/main$/m)
   })
 
   it('锁被活着的进程持有时立刻失败，并把持有者原样打给 stderr', () => {
@@ -102,7 +102,7 @@ describe('acquire_deploy_lock', () => {
     expect(result.stderr).toContain('lock contention')
     expect(result.stderr).toContain(`pid=${pid}`)
     expect(result.stderr).toContain('someone@tx-vps')
-    expect(result.stderr).toContain('editions=internal paid ref=39d2cf1c')
+    expect(result.stderr).toContain('edition=paid ref=39d2cf1c')
     // 第二个会话不许把第一个的 owner 覆盖掉。
     expect(readFileSync(ownerFile, 'utf8')).toBe(before)
   })
@@ -111,11 +111,11 @@ describe('acquire_deploy_lock', () => {
     writeOwner({ pid: String(deadPid()) })
     const result = sh('acquire_deploy_lock "$1" "$2"', [
       lockDir,
-      'editions=internal ref=origin/main',
+      'edition=paid ref=origin/main',
     ])
     expect(result.status).toBe(0)
     expect(result.stdout + result.stderr).toMatch(/stale/i)
-    expect(readFileSync(ownerFile, 'utf8')).toContain('what=editions=internal ref=origin/main')
+    expect(readFileSync(ownerFile, 'utf8')).toContain('what=edition=paid ref=origin/main')
   })
 
   it('PID 被复用时不误判成活着的持有者（Linux 的 /proc starttime 分支）', () => {
@@ -123,7 +123,7 @@ describe('acquire_deploy_lock', () => {
     writeOwner({ pid: String(pid), token: '111' })
     const result = sh(
       'acquire_deploy_lock "$1" "$2"',
-      [lockDir, 'editions=internal ref=origin/main'],
+      [lockDir, 'edition=paid ref=origin/main'],
       {
         DEPLOY_PROC_ROOT: fakeProc(pid, '999'),
       },
@@ -131,7 +131,7 @@ describe('acquire_deploy_lock', () => {
     expect(result.status).toBe(0)
     const owner = readFileSync(ownerFile, 'utf8')
     expect(owner).not.toContain(`pid=${pid}`)
-    expect(owner).toContain('what=editions=internal ref=origin/main')
+    expect(owner).toContain('what=edition=paid ref=origin/main')
   })
 
   it('starttime 对得上就是同一个进程，照样拒绝', () => {
@@ -139,7 +139,7 @@ describe('acquire_deploy_lock', () => {
     writeOwner({ pid: String(pid), token: '999' })
     const result = sh(
       'acquire_deploy_lock "$1" "$2"',
-      [lockDir, 'editions=internal ref=origin/main'],
+      [lockDir, 'edition=paid ref=origin/main'],
       {
         DEPLOY_PROC_ROOT: fakeProc(pid, '999'),
       },
@@ -152,7 +152,7 @@ describe('acquire_deploy_lock', () => {
     writeOwner({ pid: String(pid), token: '111' })
     const result = sh(
       'acquire_deploy_lock "$1" "$2"',
-      [lockDir, 'editions=internal ref=origin/main'],
+      [lockDir, 'edition=paid ref=origin/main'],
       {
         DEPLOY_PROC_ROOT: join(root, 'no-proc-here'),
       },
@@ -168,7 +168,7 @@ describe('acquire_deploy_lock', () => {
     writeFileSync(ownerFile, partial)
     const result = sh('acquire_deploy_lock "$1" "$2"', [
       lockDir,
-      'editions=internal ref=origin/main',
+      'edition=paid ref=origin/main',
     ])
     expect(result.status).not.toBe(0)
     expect(readFileSync(ownerFile, 'utf8')).toBe(partial)
@@ -178,7 +178,7 @@ describe('acquire_deploy_lock', () => {
     mkdirSync(lockDir, { recursive: true })
     const result = sh('acquire_deploy_lock "$1" "$2"', [
       lockDir,
-      'editions=internal ref=origin/main',
+      'edition=paid ref=origin/main',
     ])
     expect(result.status).not.toBe(0)
   })
