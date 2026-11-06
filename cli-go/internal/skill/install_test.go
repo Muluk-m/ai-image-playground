@@ -22,7 +22,7 @@ func TestInstallUserHostsAndMetadata(t *testing.T) {
 		if result.Path != root || result.Version != BundleVersion || result.FileHash == "" {
 			t.Fatalf("unexpected result: %+v", result)
 		}
-		for _, name := range []string{"SKILL.md", "agents/openai.yaml", "references/cli.md", "references/install.md", "references/jobs.md", "references/errors.md", ".muvloom-skill.json"} {
+		for _, name := range []string{"SKILL.md", "agents/openai.yaml", "references/cli.md", "references/install.md", "references/jobs.md", "references/errors.md", "references/getting-started.md", "references/image-sets.md", "references/animation.md", ".muvloom-skill.json"} {
 			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(name))); err != nil {
 				t.Fatalf("%s missing %s: %v", host, name, err)
 			}
