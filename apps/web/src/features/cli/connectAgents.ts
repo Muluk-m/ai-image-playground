@@ -6,7 +6,7 @@
  * `muvloom skill install --host` 在当前发布里只接受 `claude-code` 与 `codex`
  * （`cli-go/internal/cli/skill.go`）。WorkBuddy 的技能目录是 `~/.workbuddy/skills/`，
  * 豆包工作在客户端「插件·技能·伙伴」里上传技能，都没有对应的 `--host`。
- * 这些宿主的技能导入由对应客户端处理，不生成 `skill install` 命令。
+ * WorkBuddy 按专用指南在对话中安装技能；不生成未经 CLI 支持的 `skill install` 命令。
  */
 
 export const CONNECT_AGENTS = ['workbuddy', 'doubao', 'claude-code', 'codex', 'other'] as const

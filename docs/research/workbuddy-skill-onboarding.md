@@ -4,7 +4,7 @@
 
 ## 官方支持的安装方式
 
-- [技能使用说明](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Skills-Market)：自建包通过「添加技能 → 上传技能」导入；对话查找安装针对技能市场，不能据此宣称未上架技能已安装。导入后要在已安装列表确认启用。
+- [技能使用说明](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Skills-Market)：「查找技能」针对技能市场；「上传技能」是手动导入路径，不能把这两点误解为只允许 UI 安装。
 - [技能包结构](https://open.workbuddy.cn/docs/skill)：ZIP 内为技能目录，根文件 `SKILL.md`；补充资料放 `references/`。WorkBuddy 还定义了展示名、双语介绍、版本和作者字段。
 - [权限说明](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Permission-Modes)：默认权限以工作空间为边界，写入敏感路径、文件替换与删除可能需要确认。前台执行不等于自动免于权限保护；完全访问会影响全部任务，不作为幕芽接入要求。
 
@@ -16,6 +16,8 @@ CLI 0.1.3 的 `skill install --host` 只接受 `claude-code`、`codex`。旧指�
 
 继续使用原生 CLI。Web 构建从现有 CLI Skill 源生成 WorkBuddy ZIP，补充其官方元数据和针对实际故障的接入说明；不维护第二份生图工作流，也不添加未经支持的 CLI host 参数。
 
-WorkBuddy 页面使用专用指南和技能包下载入口。完成条件为技能可见且启用、CLI ready、capabilities 成功。认证在可交互前台执行，发码后交回用户操作；写入失败先处理必要权限，状态已 ready 时保留连接。Agent 不手工操作凭据、不修改全局保护。
+[官方自定义技能案例](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Practice-Cases/Practice-Eight) 明确支持在对话中创建技能，执行后在已安装中查看。当前客户端也已从用户级 `~/.workbuddy/skills/` 发现其他技能；对话安装本地包还须本次实机验证。
+
+WorkBuddy 页面使用专用提示词和指南，由 WorkBuddy 在对话中下载并安装技能到用户技能目录；下载按钮和上传步骤仅保留在「我自己来」方式。完成条件为技能可见且启用、CLI ready、capabilities 成功。认证在可交互前台执行，发码后交回用户操作；写入失败先处理必要权限，状态已 ready 时保留连接。Agent 不手工操作凭据、不修改全局保护。
 
 依据实际日志，本机后台认证曾在最终凭据 rename 时被拒绝；后续前台确认后 CLI 0.1.3 已 ready。早先有服务端签发记录的三次失败不能归因为「无人确认导致过期」。

@@ -61,8 +61,8 @@ For Codex, run:
 muvloom skill install --host codex
 ```
 
-For WorkBuddy, follow [the WorkBuddy guide](workbuddy.md) to import the official
-skill ZIP and connect the account. Confirm that the skill appears in WorkBuddy
+For WorkBuddy, follow [the WorkBuddy guide](workbuddy.md) to install the official
+skill from the conversation and connect the account. Confirm that the skill appears in WorkBuddy
 before reporting setup complete.
 
 For 豆包工作 and other hosts, skip this step. CLI 0.1.3 only
