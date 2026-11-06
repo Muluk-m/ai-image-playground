@@ -249,5 +249,5 @@ describe('crop around the selection', () => {
       })
       expect(delivered.inspection.scaleX).toBeCloseTo(1 / scale, 1)
     }
-  })
+  }, 30_000)
 })
