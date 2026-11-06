@@ -517,3 +517,38 @@ it('never treats an ended authorization or a succeeded proposal as successful no
   act(() => tabButton('已完成').click())
   expect(rowButton('节点 A').textContent).toContain('授权已结束')
 })
+
+it('hides unverified authorization rows while switching conversations', async () => {
+  const { read, authorization } = nodeFixture()
+  let finish!: (value: StageAuthorization) => void
+  read.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  render()
+  openInbox()
+  expect(host.textContent).not.toContain('节点 A')
+  act(() => useAgentStore.setState({ conversationId: 'other-conversation' }))
+  expect(host.textContent).not.toContain('节点 A')
+  await act(async () => {
+    finish(authorization)
+    await vi.advanceTimersByTimeAsync(0)
+  })
+  expect(host.textContent).not.toContain('节点 A')
+})
+
+it('does not expose arbitrary guard diagnostics in blocked node rows', async () => {
+  const { plan } = nodeFixture()
+  plan.blocked = true
+  plan.blockedReason = 'internal upstream credential diagnostic'
+  render()
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0)
+  })
+  openInbox()
+  act(() => tabButton('已完成').click())
+  expect(rowButton('节点 A').textContent).toContain('被拦下')
+  expect(host.textContent).not.toContain(plan.blockedReason)
+})
