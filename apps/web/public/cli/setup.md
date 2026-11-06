@@ -6,7 +6,7 @@ Keep the conversation in the user's language. Run the steps yourself, including
 opening the authorization page; the user signs in and approves the connection.
 Do not generate images during setup.
 
-## 1. Install CLI 0.1.2
+## 1. Install CLI 0.1.3
 
 Use the matching platform below. The scripts are pinned to the released source
 commit and verify the downloaded binary's SHA-256. If installation fails, report
@@ -15,14 +15,14 @@ the error; do not bypass verification.
 ### macOS / Linux
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/336ca811b0c768fb4a1362b2003fc289fbc71362/cli-go/install/install.sh | MUVLOOM_VERSION=0.1.2 sh
+curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/ac156ba55e3f6238120a5b7629ff4d61c03f81ff/cli-go/install/install.sh | MUVLOOM_VERSION=0.1.3 sh
 export PATH="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-$env:MUVLOOM_VERSION = "0.1.2"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/336ca811b0c768fb4a1362b2003fc289fbc71362/cli-go/install/install.ps1 | iex
+$env:MUVLOOM_VERSION = "0.1.3"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/ac156ba55e3f6238120a5b7629ff4d61c03f81ff/cli-go/install/install.ps1 | iex
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```
 
@@ -61,7 +61,7 @@ For Codex, run:
 muvloom skill install --host codex
 ```
 
-For WorkBuddy, 豆包工作, and other hosts, skip this step. CLI 0.1.2 only
+For WorkBuddy, 豆包工作, and other hosts, skip this step. CLI 0.1.3 only
 accepts `claude-code` and `codex` as skill hosts. Use `muvloom --help` and
 subcommand help to learn the CLI; do not invent a `--host` value or write into
 an unverified host configuration directory.
