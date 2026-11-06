@@ -14,6 +14,10 @@ function errorCode(error: unknown): string | undefined {
 export function logAdminApiError(request: Request, error: unknown): void {
   const pathname = new URL(request.url).pathname
   const code = errorCode(error)
+  if (code === 'NOT_FOUND') {
+    console.warn(`WARN [admin] ${request.method} ${pathname} failed: ${code}`)
+    return
+  }
   if (code && BODY_ERROR_CODES.has(code)) {
     console.error(`[admin] ${request.method} ${pathname} failed: ${code}`)
     return

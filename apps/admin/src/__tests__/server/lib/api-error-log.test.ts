@@ -23,7 +23,7 @@ describe('logAdminApiError', () => {
       )
       expect(response.status).toBe(404)
       expect(await response.text()).toBe('NOT_FOUND')
-      expect(warn.mock.calls).toEqual([['[admin] POST /api/missing-route failed: NOT_FOUND']])
+      expect(warn.mock.calls).toEqual([['WARN [admin] POST /api/missing-route failed: NOT_FOUND']])
       expect(error).not.toHaveBeenCalled()
     } finally {
       warn.mockRestore()
