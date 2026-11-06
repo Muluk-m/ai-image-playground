@@ -56,10 +56,7 @@ export function ReasonDialog({
           </Button>
           <Button
             type="button"
-            variant={destructive ? 'destructive' : 'default'}
-            className={
-              destructive ? undefined : 'bg-brand text-brand-foreground hover:bg-brand-hover'
-            }
+            variant={destructive ? 'destructive' : 'brand'}
             disabled={!reason.trim() || pending}
             onClick={() => onConfirm(reason.trim())}
           >
