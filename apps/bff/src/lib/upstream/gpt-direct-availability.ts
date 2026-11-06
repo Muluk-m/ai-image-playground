@@ -51,15 +51,17 @@ export function setAdminDirectKeySnapshot(
   adminEnabledCount = keys === null ? null : keys.filter((key) => key.enabled).length
 }
 
-function directSwitchOn(): boolean {
-  return (
-    process.env.GPT_DIRECT_ENABLED?.trim().toLowerCase() === 'true' && fingerprintSecretConfigured()
-  )
+export function gptDirectSwitchOn(): boolean {
+  const value = process.env.GPT_DIRECT_ENABLED?.trim().toLowerCase() || 'false'
+  if (value !== 'true' && value !== 'false')
+    throw new Error('GPT_DIRECT_ENABLED must be true or false')
+  return value === 'true'
 }
 
 function envKeyCount(): number {
   const list = process.env.OPENAI_API_KEYS?.trim()
-  if (list) return list.split(',').filter((part) => part.trim()).length
+  if (list)
+    return fingerprintSecretConfigured() ? list.split(',').filter((part) => part.trim()).length : 0
   return runtimeSecret('OPENAI_API_KEY', process.env.OPENAI_API_KEY?.trim() ?? '') ? 1 : 0
 }
 
@@ -68,14 +70,13 @@ function envKeyCount(): number {
  * 没刷新过才看环境变量。不连数据库。
  */
 export function gptDirectEnabledKeyCount(): number {
-  if (!directSwitchOn()) return 0
+  if (!gptDirectSwitchOn()) return 0
   if (adminEnabledCount !== null) return adminEnabledCount
   return envKeyCount()
 }
 
 /** 开关打开，且至少有一把此刻还能用的直连密钥（含后台配置的）。 */
 export function gptDirectSizeEnabled(): boolean {
-  if (!directSwitchOn()) return false
-  if (adminDeliverable !== null) return adminDeliverable
-  return envKeyCount() > 0
+  if (gptDirectEnabledKeyCount() === 0) return false
+  return adminDeliverable ?? true
 }

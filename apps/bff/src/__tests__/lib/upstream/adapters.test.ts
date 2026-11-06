@@ -146,6 +146,39 @@ describe('image adapters plan platform requests into upstream calls', () => {
     expect(geminiAdapter.capabilities('gemini-3-pro-image', member).memberTiers).toEqual(['4K'])
   })
 
+  it('Gemini gateway respects channel tiers', () => {
+    const plan = geminiAdapter.plan(
+      { prompt: 'a cup', resolution: '4K', ratio: '16:9', count: 1 },
+      'gemini-3-pro-image',
+      { ...member, vertex: false, imageSizes: ['1K', '2K'] },
+    )
+    expect(plan.calls[0]!.body).toMatchObject({
+      generationConfig: { imageConfig: { aspectRatio: '16:9', imageSize: '2K' } },
+    })
+    expect(plan.applied).toMatchObject({ image_size: '2K' })
+    expect(plan.dropped).toEqual([{ param: 'image_size', reason: '模型未开放 4K，已降到 2K' }])
+  })
+
+  it('normalizes the effective Gemini extra imageConfig on a gateway', () => {
+    const plan = geminiAdapter.plan(
+      { prompt: 'a cup', resolution: '1K', ratio: '1:1', count: 1 },
+      'gemini-3-pro-image',
+      {
+        ...member,
+        imageSizes: ['1K'],
+        request: {
+          prompt: 'a cup',
+          image_size: '1K',
+          extra: { generationConfig: { imageConfig: { imageSize: '4K', aspectRatio: '16:9' } } },
+        },
+      },
+    )
+    expect(plan.calls[0]!.body).toMatchObject({
+      generationConfig: { imageConfig: { imageSize: '1K', aspectRatio: '16:9' } },
+    })
+    expect(plan.applied).toMatchObject({ image_size: '1K', aspect_ratio: '16:9' })
+  })
+
   it('grok 2.0 maps a 16:9 size into aspect_ratio and fans out count', () => {
     const plan = grokAdapter.plan(
       { prompt: 'a cat', resolution: '1K', ratio: '16:9', count: 2, quality: 'low' },

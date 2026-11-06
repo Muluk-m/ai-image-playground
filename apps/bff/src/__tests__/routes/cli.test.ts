@@ -144,7 +144,7 @@ beforeEach(async () => {
   billing.members.clear()
   billing.quote = 10
   billing.reservePrice = undefined
-  Object.assign(config.gptDirect, { enabled: true })
+  process.env.GPT_DIRECT_ENABLED = 'true'
   _resetDirectBudgetCacheForTesting()
   billing.reservations.length = 0
   billing.settlements.length = 0
@@ -700,7 +700,7 @@ describe('CLI GPT image pricing', () => {
       requests.push(String(url))
       return new Response(JSON.stringify({ error: { message: 'unavailable' } }), { status: 503 })
     })
-    if (failure === 'disabled') Object.assign(config.gptDirect, { enabled: false })
+    if (failure === 'disabled') process.env.GPT_DIRECT_ENABLED = 'false'
 
     await runTask(jobId)
 
@@ -759,7 +759,7 @@ describe('CLI GPT image pricing', () => {
     })
     expect(preview.status).toBe(200)
     if (changed === 'membership') billing.members.delete(user.id)
-    else Object.assign(config.gptDirect, { enabled: false })
+    else process.env.GPT_DIRECT_ENABLED = 'false'
     for (const path of ['/v1/image-jobs/validate', '/v1/image-jobs']) {
       const denied = await call('POST', path, { body, headers: bearer(access_token) })
       expect(denied.status).toBe(403)
@@ -838,7 +838,7 @@ describe('CLI GPT image pricing', () => {
     expect(created.status).toBe(200)
     billing.members.delete(user.id)
     billing.quote = 50
-    Object.assign(config.gptDirect, { enabled: false })
+    process.env.GPT_DIRECT_ENABLED = 'false'
     const replay = await call('POST', '/v1/image-jobs', {
       body: { ...body, max_credits: 0 },
       headers: bearer(access_token),
@@ -890,7 +890,7 @@ describe('CLI GPT image pricing', () => {
       image_sizes: ['1K', '2K', '4K'],
       qualities: ['auto', 'low', 'medium', 'high'],
     })
-    Object.assign(config.gptDirect, { enabled: false })
+    process.env.GPT_DIRECT_ENABLED = 'false'
     const disabled = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
     expect(disabled.json.data.models[1]).toMatchObject({
       image_sizes: ['1K'],

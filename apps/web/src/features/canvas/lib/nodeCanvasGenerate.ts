@@ -281,6 +281,7 @@ export function submitNodeImage(
     settings: AppSettings
     params: TaskParams
     stageAuthorization?: StageAuthorizationSubmission
+    member?: boolean
   },
 ): boolean {
   const node = imageNode(doc, nodeId)
@@ -304,6 +305,7 @@ export function submitNodeImage(
       settings,
       outputRetention: 'candidate',
       stageAuthorization: configuration?.stageAuthorization,
+      member: configuration?.member,
       profile,
       params,
       variants: [

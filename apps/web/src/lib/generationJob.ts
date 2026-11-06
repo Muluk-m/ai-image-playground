@@ -68,6 +68,7 @@ export interface GenerationVariant<C> {
 /** 起一批生成要知道的全部。 */
 export interface GenerationSpec<C> {
   stageAuthorization?: StageAuthorizationSubmission
+  member?: boolean
   outputRetention?: 'candidate'
   settings: AppSettings
   /** 这次用的配置档案（已定模型）：门禁按它的模型计价，扇出按它的能力决定。 */
@@ -228,7 +229,7 @@ export function startGeneration<H, C>(spec: GenerationSpec<C>, sink: GenerationS
       quantity: quantity * spec.variants.length,
       // 阶段授权的任务在服务端先收到基础档再计价，门禁按同一口径，不按原始高档参数误拦。
       unitMultiplier: spec.stageAuthorization
-        ? preparedComposerImageRate(model, spec.params)
+        ? preparedComposerImageRate(model, spec.params, spec.member)
         : composerImageRate(model, spec.params),
     })
   )
