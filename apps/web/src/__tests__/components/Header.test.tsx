@@ -115,20 +115,12 @@ describe('the header', () => {
     expect(host.querySelector('button')?.textContent).not.toBe('登录')
   })
 
-  it('exposes plugin integrations as a first-class account action', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json({ connections: [] })),
-    )
-    const logout = vi.fn(async () => {})
-    renderLoggedIn(logout)
+  it('keeps plugin integrations in the main navigation instead of the account menu', () => {
+    renderLoggedIn(vi.fn(async () => {}))
     act(() => {
       host.querySelector<HTMLButtonElement>('[aria-label="打开个人账户"]')?.click()
     })
-    click('插件集成')
-    expect(window.location.pathname).toBe('/connect')
-    expect(document.body.textContent).not.toContain('CLI 连接')
-    expect(document.body.textContent).not.toContain('暂无已连接的插件')
+    expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('插件集成')
   })
 
   it('顶栏没有横栏了：账号这一簇浮在右上角，不带品牌与导航', () => {
