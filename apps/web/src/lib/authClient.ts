@@ -315,7 +315,7 @@ export type SessionRefreshResult = 'ok' | 'raced' | 'unauthorized' | 'failed'
 const SESSION_REFRESH_LOCK = 'muvloom-web-session-refresh'
 let sessionRefreshInFlight: Promise<SessionRefreshResult> | null = null
 
-async function postSessionRefresh(): Promise<SessionRefreshResult> {
+async function postSessionRefresh(): Promise<SessionRefreshResult | 'superseded'> {
   const scope = bffBaseUrl()
   try {
     const attempt = await acquireRefreshAttempt(scope)
@@ -328,6 +328,13 @@ async function postSessionRefresh(): Promise<SessionRefreshResult> {
       })
     let key = attempt.requestKey
     let response = await send(key)
+    if (response.status === 409) {
+      const body: unknown = await response.clone().json()
+      if (typeof body === 'object' && body !== null && 'error' in body && body.error === 'refresh_request_completed') {
+        await completeRefreshAttempt(scope, attempt.requestKey)
+        return 'superseded'
+      }
+    }
     if ((response.status === 401 || response.status === 409) && attempt.previousKey) {
       key = attempt.previousKey
       const recovered = await send(key)
@@ -359,12 +366,13 @@ async function postSessionRefresh(): Promise<SessionRefreshResult> {
 }
 
 async function restoreAndRefreshSession(): Promise<SessionRefreshResult> {
-  const result = await postSessionRefresh()
-  // Recovering an old response does not extend its original access lifetime. The restored
-  // refresh Cookie can immediately perform one new, ordinary rotation if access expired.
+  let result = await postSessionRefresh()
+  // The backend authenticated the current Cookie but this key belongs to a completed operation.
+  // Persist a fresh operation identity before attempting another rotation.
+  if (result === 'superseded') result = await postSessionRefresh()
   if (result === 'ok' && accessExpiresAt !== null && accessExpiresAt <= Date.now())
-    return postSessionRefresh()
-  return result
+    result = await postSessionRefresh()
+  return result === 'superseded' ? 'failed' : result
 }
 
 /** 同一标签页共享一次刷新；锁跨标签页，避免并发轮换被当成重用。 */
