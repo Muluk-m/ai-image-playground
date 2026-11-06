@@ -9,26 +9,30 @@ import { useTranslation } from '../i18n'
 export default function AuthConsent({
   kind,
   plansHref,
+  showPlans = true,
 }: {
   kind: 'login' | 'registration'
   plansHref?: string
+  showPlans?: boolean
 }) {
   const { t } = useTranslation('auth')
   const lead = kind === 'login' ? t('consent.loginLead') : t('consent.registerLead')
   const joiner = kind === 'login' ? t('consent.loginJoiner') : t('consent.registerJoiner')
   return (
     <div className="mt-4 text-center">
-      {plansHref ? (
-        <Button asChild variant="link" size="xs">
-          <a href={plansHref} target="_blank" rel="noopener">
+      {showPlans ? (
+        plansHref ? (
+          <Button asChild variant="link" size="xs">
+            <a href={plansHref} target="_blank" rel="noopener">
+              {t('consent.viewPlans')}
+            </a>
+          </Button>
+        ) : (
+          <Button type="button" variant="link" size="xs" onClick={() => openPricingSheet()}>
             {t('consent.viewPlans')}
-          </a>
-        </Button>
-      ) : (
-        <Button type="button" variant="link" size="xs" onClick={() => openPricingSheet()}>
-          {t('consent.viewPlans')}
-        </Button>
-      )}
+          </Button>
+        )
+      ) : null}
       <p className="auth-terms">
         {lead}
         <a
