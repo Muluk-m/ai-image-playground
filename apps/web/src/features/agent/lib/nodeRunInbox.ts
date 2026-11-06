@@ -88,7 +88,11 @@ export function nodeRunInboxEntries(
       status = 'ended'
     } else if (run) {
       status = 'pending'
-    } else if (stageStatus === 'ended' || stageStatus === 'expired' || stageStatus === 'exhausted') {
+    } else if (
+      stageStatus === 'ended' ||
+      stageStatus === 'expired' ||
+      stageStatus === 'exhausted'
+    ) {
       status = stageStatus
     } else if (
       authorization?.attempts.some(

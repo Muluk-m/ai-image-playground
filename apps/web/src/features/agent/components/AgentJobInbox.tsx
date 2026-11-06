@@ -6,7 +6,7 @@ import { useTranslation } from '../../../i18n'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
 import { CARD_NOTE, INK, INK_3, LIST_ROW } from '../agentStyles'
 import { agentCanvasSink } from '../lib/canvasSink'
-import { agentJobInbox, type AgentJobInboxEntry, agentToolProgress } from '../lib/jobProgress'
+import { type AgentJobInboxEntry, agentJobInbox, agentToolProgress } from '../lib/jobProgress'
 import {
   type AgentNodeInboxEntry,
   createAgentNodeInbox,
@@ -102,7 +102,13 @@ function JobInboxRow({ message, onLocate }: { message: AgentToolMessage; onLocat
   )
 }
 
-function NodeInboxRow({ message, onLocate }: { message: AgentNodeInboxEntry; onLocate: () => void }) {
+function NodeInboxRow({
+  message,
+  onLocate,
+}: {
+  message: AgentNodeInboxEntry
+  onLocate: () => void
+}) {
   const { t } = useTranslation(['agent', 'canvas'])
   const status = message.status
   const outcome = message.readFailed
