@@ -7,6 +7,7 @@ import {
   canvasNodeJobs,
   canvasNodeKind,
   canvasResults,
+  clampGeminiNonMemberRequest,
   orderStageReferences,
   readCanvasDocument,
   resolveStageImageExecution,
@@ -119,6 +120,7 @@ function referencesFor(snapshot: CanvasSnapshot, node: CanvasNode) {
 /** Select generators only; text, imported media, assets and timelines remain their inputs. */
 export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
   const { snapshot, settings, params } = input
+  const imageProfile = clientProfileToApiProfile(getActiveApiProfile(settings))
   const selected = new Set(input.ids)
   for (const group of snapshot.groups ?? [])
     if (selected.has(group.id)) for (const id of group.members) selected.add(id)
@@ -154,7 +156,6 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
       })),
     ]
     const kind = canvasNodeKind(node) === 'video' ? 'video' : 'image'
-    const imageProfile = clientProfileToApiProfile(getActiveApiProfile(settings))
     let activeRefs = refs,
       roles: Record<string, string> = {},
       draft: VideoDraft | undefined,
@@ -322,7 +323,10 @@ export function buildNodeBatch(input: NodeBatchInput): NodeBatchPlan {
     blockedReason: guards.find((guard) => guard.blocked)?.disabledReason,
     error: error ?? (jobs.length ? undefined : 'empty'),
     settings: structuredClone(settings),
-    params: { ...params },
+    params:
+      imageProfile.provider === 'gemini'
+        ? clampGeminiNonMemberRequest({ ...params }, input.member ?? false)
+        : { ...params },
     member: input.member,
   }
 }
