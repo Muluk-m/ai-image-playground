@@ -149,45 +149,39 @@ if [ -n "$segmenter_image" ]; then
     echo "Warning: the new segmenter did not start; the running one was kept." >&2
   fi
 fi
-segmenter_up=
-for edition in "$target"; do
-  record=$(awk -F '\t' -v e="$edition" '$1==e' "$release/images.tsv")
-  IFS="$(printf '\t')" read -r current_edition image expected_id public_sha private_sha repo_digest <<EOF
+record=$(awk -F '\t' -v e="$target" '$1==e' "$release/images.tsv")
+IFS="$(printf '\t')" read -r current_edition image expected_id public_sha private_sha repo_digest <<EOF
 $record
 EOF
-  prefix=$(printf '%s' "$edition" | tr '[:lower:]' '[:upper:]')
-  project=$(edition_var "$prefix" PROJECT)
-  # SEGMENTER_EDITIONS accepts paid (production) and test; default: test only.
-  # Enabling production requires Nain's approval. Each listed target gets the shared address
-  # while it is healthy. It is optional: otherwise the executors are not told about it and
-  # edit-region cards fall back to the agent's box, so this warns instead of failing the release.
-  # An edition that does not get it is detached, so a later rollback (which reads the attachment
-  # back, see rollout-runtime.sh) agrees with this release.
-  AGENT_SEGMENTER_URL=
-  AGENT_SEGMENTER_NAMESPACE=$project
-  case " ${SEGMENTER_EDITIONS:-test} " in
-    *" $edition "*)
-      if [ -z "$segmenter_up" ]; then
-        if "$repo_root/scripts/segmenter-deploy.sh" healthy; then segmenter_up=ok; else segmenter_up=failed; fi
-      fi
-      [ "$segmenter_up" != ok ] || AGENT_SEGMENTER_URL=http://segmenter:8080
-      ;;
-  esac
-  export AGENT_SEGMENTER_URL AGENT_SEGMENTER_NAMESPACE
-  if [ -z "$AGENT_SEGMENTER_URL" ] && ! "$repo_root/scripts/segmenter-deploy.sh" detach "$project"; then
-    echo "Warning: could not detach the segmenter from $project." >&2
-  fi
-  APP_IMAGE=$image BACKUP_IMAGE=$backup_image "$repo_root/scripts/app-compose.sh" up "$project"
-  # The app network exists only once the project is up; the executors resolve `segmenter` per
-  # request, so attaching right after is soon enough, and before the first card is asked for.
-  if [ -n "$AGENT_SEGMENTER_URL" ] && ! "$repo_root/scripts/segmenter-deploy.sh" attach "$project"; then
-    echo "Warning: could not attach the segmenter to $project; edit-region cards fall back to the agent's box." >&2
-  fi
-  docker tag "$image" "$(edition_var "$prefix" IMAGE)"
-  append_deploy_log "$edition" "$image" ok
-  current_edition=
-  rolled_out="$rolled_out $image"
-done
+prefix=$(printf '%s' "$target" | tr '[:lower:]' '[:upper:]')
+project=$(edition_var "$prefix" PROJECT)
+# SEGMENTER_EDITIONS accepts paid (production) and test; default: test only.
+# Enabling production requires Nain's approval. The target gets the shared address only
+# while healthy; otherwise edit-region cards fall back to the agent's box.
+# Detach when unavailable so a later rollback reads the same attachment state.
+AGENT_SEGMENTER_URL=
+AGENT_SEGMENTER_NAMESPACE=$project
+case " ${SEGMENTER_EDITIONS:-test} " in
+  *" $target "*)
+    if "$repo_root/scripts/segmenter-deploy.sh" healthy; then
+      AGENT_SEGMENTER_URL=http://segmenter:8080
+    fi
+    ;;
+esac
+export AGENT_SEGMENTER_URL AGENT_SEGMENTER_NAMESPACE
+if [ -z "$AGENT_SEGMENTER_URL" ] && ! "$repo_root/scripts/segmenter-deploy.sh" detach "$project"; then
+  echo "Warning: could not detach the segmenter from $project." >&2
+fi
+APP_IMAGE=$image BACKUP_IMAGE=$backup_image "$repo_root/scripts/app-compose.sh" up "$project"
+# The app network exists only once the project is up; the executors resolve `segmenter` per
+# request, so attaching right after is soon enough, and before the first card is asked for.
+if [ -n "$AGENT_SEGMENTER_URL" ] && ! "$repo_root/scripts/segmenter-deploy.sh" attach "$project"; then
+  echo "Warning: could not attach the segmenter to $project; edit-region cards fall back to the agent's box." >&2
+fi
+docker tag "$image" "$(edition_var "$prefix" IMAGE)"
+append_deploy_log "$target" "$image" ok
+current_edition=
+rolled_out="$rolled_out $image"
 # The moving backup alias is what a hand rollback of the sidecar looks up. Test receives do
 # not own that alias; production does. Either way the commit-qualified backup tag is pruned
 # with the other editions below, including backups a test receive pulled and used to leave.
