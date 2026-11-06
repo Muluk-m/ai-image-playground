@@ -18,7 +18,7 @@ import {
   normalizeSettings,
   validateClientProfile,
 } from './lib/apiProfiles'
-import { isChangelogPath, pathAppMode } from './lib/appPaths'
+import { isChangelogPath, isCliConnectPath, pathAppMode } from './lib/appPaths'
 import { accountScope, STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
 import {
   BATCH_GENERATE_CONCURRENCY,
@@ -927,8 +927,9 @@ export const useStore = create<AppState>()(
         (readProjectRoute(globalThis.location?.pathname ?? '/') !== null ? 'canvas' : 'image'),
       setAppMode: (appMode) => {
         set({ appMode, sidebarExpanded: null })
-        // 模式没变时订阅者不会改地址。人还停在更新页上再点当前入口，也要回到那个入口。
-        if (isChangelogPath(globalThis.location?.pathname ?? ''))
+        // 模式没变时订阅者不会改地址；从辅助页点当前入口也要回到工作区。
+        const pathname = globalThis.location?.pathname ?? ''
+        if (isChangelogPath(pathname) || isCliConnectPath(pathname))
           writeModeAddress(appMode, useCanvasProjectStore.getState().activeId)
       },
       createTarget: 'generate',
