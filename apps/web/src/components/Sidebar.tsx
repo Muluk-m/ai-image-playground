@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useAuth } from '../auth/AuthContext'
 import { useAgentJobActivity } from '../features/agent/lib/jobActivity'
 import { useAgentStore } from '../features/agent/store'
 import { AnnouncementEntry } from '../features/announcements/AnnouncementEntry'
@@ -18,8 +19,8 @@ import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { GUIDE_PATHS } from '../features/guide/paths'
 import { useLibraryStore } from '../features/library/store'
 import { currentLocale, useTranslation } from '../i18n'
-import { isChangelogPath } from '../lib/appPaths'
-import { usePathname } from '../lib/pathname'
+import { CLI_CONNECT_PATH, isChangelogPath, isCliConnectPath } from '../lib/appPaths'
+import { navigate, usePathname } from '../lib/pathname'
 
 import {
   APP_MODE_LABELS,
@@ -30,6 +31,7 @@ import {
 } from '../store'
 import { useTheme } from '../theme/useTheme'
 import MediaImage from './MediaImage'
+import Badge from './patterns/Badge'
 import { Button } from './ui/button'
 import { Icon, type IconName } from './ui/icon'
 
@@ -56,6 +58,7 @@ const SIDEBAR_RAIL_WIDTH = '64px'
  */
 export default function Sidebar() {
   const { t } = useTranslation('shell')
+  const { enabled: accountsEnabled } = useAuth()
   const { t: tCanvas } = useTranslation('canvas')
   const { t: tLibrary } = useTranslation('library')
   const projectError = useCanvasProjectStore((state) => state.error)
@@ -75,7 +78,9 @@ export default function Sidebar() {
   const { theme } = useTheme()
   const appMode = useStore((state) => state.appMode)
   const setAppMode = useStore((state) => state.setAppMode)
-  const onChangelog = isChangelogPath(usePathname())
+  const pathname = usePathname()
+  const onConnect = isCliConnectPath(pathname)
+  const onAuxiliaryPage = isChangelogPath(pathname) || onConnect
   const projects = useCanvasProjectStore((state) => state.projects)
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
   const activeId = useCanvasProjectStore((state) => state.activeId)
@@ -143,7 +148,8 @@ export default function Sidebar() {
   }
 
   const item = (mode: AppMode) => {
-    const active = !onChangelog && (appMode === mode || (mode === 'image' && appMode === 'canvas'))
+    const active =
+      !onAuxiliaryPage && (appMode === mode || (mode === 'image' && appMode === 'canvas'))
     return (
       <Button
         key={mode}
@@ -160,6 +166,40 @@ export default function Sidebar() {
       </Button>
     )
   }
+
+  const pluginEntry = (mobile = false) =>
+    accountsEnabled ? (
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={() => navigate(CLI_CONNECT_PATH)}
+        aria-label={t('header.cliConnections')}
+        aria-current={onConnect ? 'page' : undefined}
+        autoTooltip={showRail && !mobile}
+        className={`${
+          mobile
+            ? 'h-auto min-w-0 flex-1 flex-col gap-0.5 py-2 text-label-sm font-normal hover:bg-transparent [&_svg]:size-5'
+            : showRail
+              ? 'size-10 shrink-0 rounded-xl p-0 [&_svg]:size-5'
+              : ITEM
+        } ${onConnect ? ACTIVE_ITEM : IDLE_ITEM}`}
+      >
+        <span className="inline-flex items-center gap-1">
+          <Icon name="terminal" filled={onConnect} />
+          {mobile && <Badge tone="primary">NEW</Badge>}
+        </span>
+        {mobile ? (
+          t('nav.plugins')
+        ) : !showRail ? (
+          <>
+            <span>{t('header.cliConnections')}</span>
+            <Badge tone="primary" className="ml-auto">
+              NEW
+            </Badge>
+          </>
+        ) : null}
+      </Button>
+    ) : null
 
   const wordmark =
     theme === 'light' ? '/brand/muvloom-wordmark-light.svg' : '/brand/muvloom-wordmark-dark.svg'
@@ -206,6 +246,7 @@ export default function Sidebar() {
             />
           </Button>
           {NAV_APP_MODES.map(item)}
+          {pluginEntry()}
           <div className="min-h-6 flex-1" aria-hidden="true" />
           <AnnouncementEntry compact />
           <a
@@ -251,6 +292,7 @@ export default function Sidebar() {
             </Button>
           </div>
           {NAV_APP_MODES.map(item)}
+          {pluginEntry()}
           {projectError ? (
             <div role="alert" className="px-3 py-2 text-body-sm text-muted-foreground">
               <p>{tCanvas('project.loadFailed')}</p>
@@ -319,14 +361,14 @@ export default function Sidebar() {
         </nav>
       ) : null}
 
-      {/* 窄屏没有侧栏的位置：同样四个入口塌成底部标签条。 */}
+      {/* 窄屏没有侧栏的位置：主入口塌成底部标签条。 */}
       <nav
         aria-label={t('header.nav')}
         className="studio-mobile-nav fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-sidebar px-2 md:hidden"
       >
         {NAV_APP_MODES.map((mode) => {
           const active =
-            !onChangelog && (appMode === mode || (mode === 'image' && appMode === 'canvas'))
+            !onAuxiliaryPage && (appMode === mode || (mode === 'image' && appMode === 'canvas'))
           return (
             <Button
               key={mode}
@@ -343,6 +385,7 @@ export default function Sidebar() {
             </Button>
           )
         })}
+        {pluginEntry(true)}
       </nav>
     </>
   )

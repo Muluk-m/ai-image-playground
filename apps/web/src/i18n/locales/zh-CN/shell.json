@@ -33,6 +33,7 @@
     "home": "主页"
   },
   "nav": {
+    "plugins": "插件",
     "collapse": "收起侧栏",
     "chats": "对话",
     "newChat": "新建对话",
