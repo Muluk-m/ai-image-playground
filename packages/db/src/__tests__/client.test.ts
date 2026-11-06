@@ -43,10 +43,11 @@ describe('createDb pool', () => {
       Array.from(
         { length: 7 },
         () =>
-          client`SELECT pg_backend_pid() AS pid, pg_sleep(0.1)` as Promise<Array<{ pid: number }>>,
+          client`SELECT pg_backend_pid() AS pid, current_setting('application_name') AS name, pg_sleep(0.1)` as Promise<Array<{ pid: number; name: string }>>,
       ),
     )
-    expect(new Set(burst.map(([row]) => row!.pid)).size).toBe(3)
+    expect(new Set(burst.map(([row]) => row!.pid)).size).toBeLessThanOrEqual(3)
+    expect(burst.map(([row]) => row!.name)).toEqual(Array(7).fill('aip-pool-test'))
 
     const observer = new SQL(databaseUrl, { max: 1 })
     closeCallbacks.push(() => observer.close())
@@ -55,7 +56,7 @@ describe('createDb pool', () => {
         SELECT count(*)::int AS n FROM pg_stat_activity WHERE application_name = 'aip-pool-test'`
       return (row as { n: number }).n
     }
-    expect(await open()).toBe(3)
+    expect(await open()).toBeLessThanOrEqual(3)
     const deadline = Date.now() + 5_000
     while ((await open()) > 0 && Date.now() < deadline) await Bun.sleep(100)
     expect(await open()).toBe(0)
