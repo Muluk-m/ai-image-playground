@@ -20,9 +20,7 @@ async function release(root: string, name: string, images: string[]): Promise<st
   await mkdir(join(dir, 'scripts'), { recursive: true })
   await writeFile(join(dir, 'images.tar.gz'), 'archive')
   await writeFile(join(dir, 'scripts/vps-deploy.sh'), '#!/bin/sh\n')
-  const lines = images.map(
-    (image, i) => `${i === 0 ? 'test' : 'paid'}\t${image}\tsha256:x\ta\t-`,
-  )
+  const lines = images.map((image, i) => `${i === 0 ? 'test' : 'paid'}\t${image}\tsha256:x\ta\t-`)
   lines.push(`backup\tai-image-playground:backup-${name}\tsha256:y\ta\t-`)
   await writeFile(join(dir, 'images.tsv'), `${lines.join('\n')}\n`)
   return dir

@@ -209,10 +209,7 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     const p = pub.slice(0, 12)
     const q = priv.slice(0, 12)
     const all = calls()
-    for (const remote of [
-      `${repoName}:paid-${p}-${q}`,
-      `${repoName}:backup-${p}`,
-    ]) {
+    for (const remote of [`${repoName}:paid-${p}-${q}`, `${repoName}:backup-${p}`]) {
       // One Docker v2 manifest per image, so the digest the VPS pulls names exactly this image.
       const build = all.find(
         (c) =>

@@ -27,6 +27,7 @@ describe('field search', () => {
     })
     expect(() => parseLogExpression('level:unknown')).toThrow('日志级别无效')
     expect(() => parseLogExpression('stream:unknown')).toThrow()
+    expect(() => parseLogExpression('deployment:internal')).toThrow()
     expect(() => parseLogExpression('x'.repeat(401))).toThrow('关键词不能超过 400 个字符')
     expect(() => parseLogExpression('service:bff ' + 'x'.repeat(401))).toThrow()
   })
@@ -83,6 +84,7 @@ describe('shareable server log queries', () => {
     expect(parseServerLogSearch({ from: to + 1000, to })).toEqual({})
     expect(parseServerLogSearch({ from: 0 })).toEqual({})
     expect(parseServerLogSearch({ range: 'toString' })).toEqual({})
+    expect(parseServerLogSearch({ deployment: 'internal' })).toEqual({})
     expect(parseServerLogSearch({ range: '24h', q: '  decode failed  ' })).toEqual({
       range: '24h',
       q: 'decode failed',
