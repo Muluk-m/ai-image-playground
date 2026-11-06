@@ -43,7 +43,9 @@ describe('createDb pool', () => {
       Array.from(
         { length: 7 },
         () =>
-          client`SELECT pg_backend_pid() AS pid, current_setting('application_name') AS name, pg_sleep(0.1)` as Promise<Array<{ pid: number; name: string }>>,
+          client`SELECT pg_backend_pid() AS pid, current_setting('application_name') AS name, pg_sleep(0.1)` as Promise<
+            Array<{ pid: number; name: string }>
+          >,
       ),
     )
     expect(new Set(burst.map(([row]) => row!.pid)).size).toBeLessThanOrEqual(3)
