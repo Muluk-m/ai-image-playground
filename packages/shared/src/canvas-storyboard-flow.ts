@@ -15,6 +15,7 @@ import { canvasInputFingerprint, canvasMainResult, canvasResultIsStale } from '.
 import { storyboardFingerprint } from './canvas-storyboard'
 import { PRODUCTION_SHOTS_MAX, type ProductionShot } from './production-storyboard'
 import { PROJECT_META_VALUE_MAX_CHARS, PROJECT_TIMELINE_MAX_CLIPS } from './project-protocol'
+import { parseCompleteStageVideoDraft } from './stage-execution'
 import {
   canonicalVideoVoice,
   clampVideoPreset,
@@ -390,6 +391,7 @@ export function prepareStoryboardVideos(
   const videoIds: string[] = [],
     timelineIds: string[] = []
   const durations = new Map<string, number>()
+  const previousDurations = new Map<string, number>()
   canvas.doc.transact(() => {
     for (const [index, shot] of board.data.shots.entries()) {
       const frame = frames[index]!,
@@ -397,6 +399,10 @@ export function prepareStoryboardVideos(
       const videoId = existing?.id ?? createNode(canvas, 'video', [frame])
       const node = readCanvasDocument(canvas.doc).nodes.find((node) => node.id === videoId)!
       if (node.type !== 'image' && node.type !== 'video') continue
+      if (node.data.meta?.nodeVideoDraft) {
+        const previous = parseCompleteStageVideoDraft(node.data.meta.nodeVideoDraft)
+        if (previous) previousDurations.set(videoId, previous.duration)
+      }
       const { videoDraft, prompt } = prepared[index]!
       patchStoryboardMedia(
         canvas.doc,
@@ -462,11 +468,15 @@ export function prepareStoryboardVideos(
         timelineId,
         {
           data: {
-            clips: chunk.map((elementId) => ({
-              elementId,
-              in: 0,
-              out: durations.get(elementId)!,
-            })),
+            clips: chunk.map((elementId, index) => {
+              const previous = existing?.type === 'timeline' ? existing.data.clips[index] : undefined
+              // Only untouched full-length slots follow a changed generation duration.
+              if (
+                previous &&
+                (previous.in !== 0 || previous.out !== previousDurations.get(elementId))
+              ) return previous
+              return { elementId, in: 0, out: durations.get(elementId)! }
+            }),
           },
         },
         canvas.origin,

@@ -269,6 +269,32 @@ it('binds each first-frame slot and assets, constrains shot durations by capabil
   expect(prepareStoryboardVideos(doc, 'board', draft, capability, { origin })).toEqual(result)
 })
 
+it('preserves trimmed clips while untouched slots follow a new video duration', () => {
+  const { doc, origin } = setup(2)
+  const frames = prepareStoryboardFrames(doc, 'board', 'individual', { origin })
+  frames.frameIds.forEach((id) => output(doc, id, origin))
+  const result = prepareStoryboardVideos(doc, 'board', draft, model, { origin })
+  const clips = [
+    { elementId: result.videoIds[0]!, in: 1, out: 3 },
+    { elementId: result.videoIds[1]!, in: 0, out: 5 },
+  ]
+  updateCanvasNode(doc, result.timelineIds[0]!, { data: { clips } }, origin)
+  prepareStoryboardVideos(doc, 'board', draft, model, { origin })
+  expect(readCanvasDocument(doc).nodes.find((node) => node.id === result.timelineIds[0])).toMatchObject({
+    data: { clips },
+  })
+  prepareStoryboardVideos(
+    doc,
+    'board',
+    draft,
+    { ...model, support: { ...model.support, durations: [8] } },
+    { origin },
+  )
+  expect(readCanvasDocument(doc).nodes.find((node) => node.id === result.timelineIds[0])).toMatchObject({
+    data: { clips: [clips[0], { elementId: result.videoIds[1], in: 0, out: 8 }] },
+  })
+})
+
 it('prepares cloud-backed assets and frames without browser-local file IDs', () => {
   const { doc, origin } = setup(1)
   for (const id of ['person', 'place'])
