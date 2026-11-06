@@ -1,3 +1,4 @@
+import { TASK_SOURCE_LABELS } from '../../contracts'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { Download } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -73,6 +74,7 @@ const DEFINITIONS: FilterDefinition[] = [
     kind: 'single',
     options: [
       { value: 'chat', label: 'Chat' },
+      { value: 'cli', label: 'CLI' },
       { value: 'manual', label: '手动' },
     ],
   },
@@ -293,7 +295,7 @@ function GenerationTasksPage() {
                           ) : null}
                         </TableCell>
                         <TableCell className="text-xs">
-                          {task.source === 'chat' ? 'Chat' : '手动'}
+                          {TASK_SOURCE_LABELS[task.source]}
                         </TableCell>
                         <TableCell className="max-w-72">
                           <button
