@@ -338,3 +338,49 @@ describe('anonymous startup', () => {
     expect(document.body.querySelector('.auth-dialog')).not.toBeNull()
   })
 })
+
+describe('session refresh on startup', () => {
+  function authCalls(): string[] {
+    return vi
+      .mocked(fetch)
+      .mock.calls.map(([url]) => new URL(String(url), 'https://bff.example.com').pathname)
+      .filter((path) => path === '/api/auth/me' || path === '/api/auth/refresh')
+  }
+
+  it('keeps a valid access session without rotating the refresh token', async () => {
+    markSessionHint()
+    await boot()
+    expect(authCalls()).toEqual(['/api/auth/me'])
+  })
+
+  it('rotates the refresh token only after the access session is rejected', async () => {
+    markSessionHint()
+    let accessValid = false
+    const fetchMock = vi.mocked(fetch)
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (...args) => {
+      const path = new URL(String(args[0]), 'https://bff.example.com').pathname
+      if (path === '/api/auth/me' && !accessValid)
+        return Response.json({ error: 'unauthorized' }, { status: 401 })
+      if (path === '/api/auth/refresh') accessValid = true
+      return original(...args)
+    })
+    await boot()
+    expect(authCalls()).toEqual(['/api/auth/me', '/api/auth/refresh', '/api/auth/me'])
+  })
+
+  it('offers a re-login when both access and refresh are rejected', async () => {
+    markSessionHint()
+    const fetchMock = vi.mocked(fetch)
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (...args) => {
+      const path = new URL(String(args[0]), 'https://bff.example.com').pathname
+      if (path === '/api/auth/me' || path === '/api/auth/refresh')
+        return Response.json({ error: 'unauthorized' }, { status: 401 })
+      return original(...args)
+    })
+    await boot()
+    expect(authCalls()).toEqual(['/api/auth/me', '/api/auth/refresh'])
+    expect(host.textContent ?? '').toContain('登录状态已失效')
+  })
+})
