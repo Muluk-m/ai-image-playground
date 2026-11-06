@@ -265,6 +265,7 @@ overlay-enabled 构建产物；企业域名使用按 host 生效的 noindex 响�
 [部署手册](../../docs/deploy/image-release.md#仓库外更新前提)。后端配置见
 `deploy/app.muvloom.env.example`。域名路由与历史账号、会话、任务、资产的数据迁移分别验收，
 不能通过替换数据库 URL 或存储凭据来迁移业务数据。
+
 ## 本地开发
 
 ```bash

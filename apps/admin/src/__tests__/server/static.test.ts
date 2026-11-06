@@ -62,8 +62,9 @@ describe('admin static serving', () => {
     expect(body).not.toContain('admin')
   })
 
-  it('API 错误只把路由、信息和 stack 写进日志', async () => {
-    const spy = spyOn(console, 'error').mockImplementation(() => {})
+  it('API 路由不存在只写单行 WARN，不记录堆栈和秘密', async () => {
+    const spy = spyOn(console, 'warn').mockImplementation(() => {})
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {})
     try {
       const res = await app.handle(
         new Request('http://localhost/api/nope?token=sk-live-secret', {
@@ -78,13 +79,16 @@ describe('admin static serving', () => {
       )
       expect(res.status).toBe(404)
       const logged = spy.mock.calls.map((call) => call.map(String).join(' ')).join('\n')
-      expect(logged).toContain('POST /api/nope')
+      expect(logged).toBe('WARN [admin] POST /api/nope failed: NOT_FOUND')
+      expect(spy).toHaveBeenCalledTimes(1)
+      expect(errorSpy).not.toHaveBeenCalled()
       expect(logged).not.toContain('secret-password')
       expect(logged).not.toContain('sk-live-secret')
       expect(logged).not.toContain('secret-cookie')
       expect(logged).not.toContain('token=')
     } finally {
       spy.mockRestore()
+      errorSpy.mockRestore()
     }
   })
 
