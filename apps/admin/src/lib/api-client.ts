@@ -2,7 +2,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import type { AnyRouter } from '@tanstack/react-router'
 import { adminApiUrl } from './runtime-config'
 
-// admin api client: 同源 fetch，自动带 cookie（HttpOnly session）。
+// admin api client: 同源 fetch，自动带 access/refresh HttpOnly cookies。
 // - 200 → 解 JSON 返回
 // - 401 → 默认清 query cache + navigate /login，throw UnauthorizedError
 // - 登录态探测可关闭全局跳转，由 route 自己决定如何处理 401
@@ -44,10 +44,50 @@ export function _resetApiClientRefsForTest(): void {
 
 interface RequestOptions {
   redirectOnUnauthorized?: boolean
+  refreshOnUnauthorized?: boolean
 }
 
-async function handleResponse<T>(res: Response, options?: RequestOptions): Promise<T> {
+let refreshPromise: Promise<boolean> | null = null
+
+async function refreshAdminSession(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = Promise.resolve(
+      fetch(adminApiUrl('/api/auth/refresh'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { accept: 'application/json' },
+      }),
+    )
+      .then((res) => Boolean(res?.ok))
+      .catch(() => false)
+      .finally(() => {
+        refreshPromise = null
+      })
+  }
+  return refreshPromise
+}
+
+function mayRefreshRequest(url: string): boolean {
+  const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin
+  return !['/api/login', '/api/logout', '/api/auth/methods', '/api/auth/refresh'].includes(
+    new URL(url, origin).pathname,
+  )
+}
+
+async function handleResponse<T>(
+  res: Response,
+  options: RequestOptions | undefined,
+  retry: () => Promise<T>,
+  requestUrl: string,
+): Promise<T> {
   if (res.status === 401) {
+    if (
+      options?.refreshOnUnauthorized !== false &&
+      mayRefreshRequest(requestUrl) &&
+      (await refreshAdminSession())
+    ) {
+      return retry()
+    }
     const body = await safeParseJson(res)
     if (options?.redirectOnUnauthorized !== false) {
       _queryClient?.clear()
@@ -81,6 +121,18 @@ async function sendJson<T>(
   body?: unknown,
   options?: RequestOptions,
 ): Promise<T> {
+  const request = () =>
+    fetch(adminApiUrl(url), {
+      method,
+      credentials: 'include',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }).then((res) =>
+      handleResponse<T>(res, { ...options, refreshOnUnauthorized: false }, request, url),
+    )
   const res = await fetch(adminApiUrl(url), {
     method,
     credentials: 'include',
@@ -90,17 +142,25 @@ async function sendJson<T>(
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  return handleResponse<T>(res, options)
+  return handleResponse<T>(res, options, request, url)
 }
 
 export const apiClient = {
   async get<T>(url: string, options?: RequestOptions): Promise<T> {
+    const request = () =>
+      fetch(adminApiUrl(url), {
+        method: 'GET',
+        credentials: 'include',
+        headers: { accept: 'application/json' },
+      }).then((res) =>
+        handleResponse<T>(res, { ...options, refreshOnUnauthorized: false }, request, url),
+      )
     const res = await fetch(adminApiUrl(url), {
       method: 'GET',
       credentials: 'include',
       headers: { accept: 'application/json' },
     })
-    return handleResponse<T>(res, options)
+    return handleResponse<T>(res, options, request, url)
   },
   post<T>(url: string, body?: unknown, options?: RequestOptions): Promise<T> {
     return sendJson('POST', url, body, options)
@@ -113,11 +173,19 @@ export const apiClient = {
   },
   // DELETE 不带 body：删除目标一律写在路径里，发 body 只会多一层没人用的 schema 分支。
   async del<T>(url: string, options?: RequestOptions): Promise<T> {
+    const request = () =>
+      fetch(adminApiUrl(url), {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { accept: 'application/json' },
+      }).then((res) =>
+        handleResponse<T>(res, { ...options, refreshOnUnauthorized: false }, request, url),
+      )
     const res = await fetch(adminApiUrl(url), {
       method: 'DELETE',
       credentials: 'include',
       headers: { accept: 'application/json' },
     })
-    return handleResponse<T>(res, options)
+    return handleResponse<T>(res, options, request, url)
   },
 }
