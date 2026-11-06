@@ -330,7 +330,12 @@ async function postSessionRefresh(): Promise<SessionRefreshResult | 'superseded'
     let response = await send(key)
     if (response.status === 409) {
       const body: unknown = await response.clone().json()
-      if (typeof body === 'object' && body !== null && 'error' in body && body.error === 'refresh_request_completed') {
+      if (
+        typeof body === 'object' &&
+        body !== null &&
+        'error' in body &&
+        body.error === 'refresh_request_completed'
+      ) {
         await completeRefreshAttempt(scope, attempt.requestKey)
         return 'superseded'
       }
