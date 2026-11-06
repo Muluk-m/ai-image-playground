@@ -21,7 +21,7 @@ python3 $R exec tx-vps -- docker logs --since 30m --tail 500 <容器名>
 python3 $R exec tx-vps -- sh -lc 'docker logs --since 1h <容器名> 2>&1 | grep -i error | tail -50'
 ```
 
-容器名先用 `docker ps` 查，不要猜。BFF 和 worker 带发布代号，形如 `image-playground-paid-r<时间>-<编号>-bff` / `-worker`，每次发布都会变；其余是 `<project>-admin-1`、`<project>-log-collector-1`、`<project>-release-router`、`<project>-cloudflared-1`，PostgreSQL 是共享的 `image-playground-infra-postgres-1`，segmenter 是 `image-playground-segmenter`。`<project>` 是 `image-playground-paid`（muvloom 项目）、`image-playground-internal`（旧 qlj 项目）或 `image-playground-test`。
+容器名先用 `docker ps` 查，不要猜。BFF 和 worker 带发布代号，形如 `image-playground-paid-r<时间>-<编号>-bff` / `-worker`，每次发布都会变；其余是 `<project>-admin-1`、`<project>-log-collector-1`、`<project>-release-router`、`<project>-cloudflared-1`，PostgreSQL 是共享的 `image-playground-infra-postgres-1`，segmenter 是 `image-playground-segmenter`。当前受管 `<project>` 为 `image-playground-paid`（muvloom 生产）或 `image-playground-test`；企业 API 别名使用同一个生产 runtime。
 
 带管道、重定向的命令包在 `sh -lc '...'` 里。输出里如果出现 key、token、Cookie 或用户原文，转述时打码，不原样贴出。
 

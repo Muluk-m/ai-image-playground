@@ -1,7 +1,6 @@
 # Production deployment from main: one shared muvloom backend and one muvloom Pages project.
-# 一个项目、多个域名：the qlj domain is a second custom domain of the muvloom Pages project,
-# with its own API hostname and a host-scoped noindex. The legacy qlj backend, its data and
-# its old Pages project are frozen and no longer deployed.
+# 一个项目、多个域名：the enterprise domain is a second custom domain of the muvloom Pages project,
+# with its own API hostname and a host-scoped noindex.
 # Runbook, secrets and break-glass manual release: docs/deploy/image-release.md.
 name: Deploy production
 on:
@@ -65,7 +64,7 @@ jobs:
           printf '%s\n' "$PAGES_ENV" > "$RUNNER_TEMP/pages.env"
           # shellcheck source=/dev/null
           . "$RUNNER_TEMP/pages.env"
-          # The qlj domain is served by the same Pages project, so the muvloom origin speaks for it.
+          # The enterprise domain is served by the same Pages project, so the muvloom origin speaks for it.
           WEB_ORIGINS="$PAID_PUBLIC_ORIGIN" ADMIN_ORIGIN="${ADMIN_PUBLIC_ORIGIN:-}" \
             scripts/ci-deploy-target.sh "$SHA" "$EVENT" "$PAID_BFF_BASE_URL"
 
@@ -149,7 +148,7 @@ jobs:
           APP_RELEASE: ${{ needs.release.outputs.version }}
         run: |
           release_id="aip-$(printf %.12s "$PUBLIC_SHA")-$(printf %.12s "$PRIVATE_SHA")"
-          # The legacy qlj runtime is frozen; muvloom uses the installed VPS target name paid.
+          # muvloom uses the installed VPS target name paid.
           ./scripts/build-vps-release.sh paid "$RUNNER_TEMP/$release_id"
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
       - name: Keep the release for the muvloom rollout
@@ -234,7 +233,7 @@ jobs:
             echo "PAID_EXTRA_ASSETS_DIR=$GITHUB_WORKSPACE/private/pages-assets"
           } > "$RUNNER_TEMP/pages.env"
           echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
-      - name: Wait for the shared muvloom API and the qlj API hostname
+      - name: Wait for the shared muvloom API and the enterprise API hostname
         if: needs.target.outputs.deploy_api == 'true'
         env:
           PUBLIC_SHA: ${{ needs.target.outputs.sha }}
@@ -243,7 +242,7 @@ jobs:
           # shellcheck source=/dev/null
           . "$PAGES_ENV_FILE"
           # The enterprise API hostname must route to the shared runtime without crossing cookie sites.
-          for api in "$PAID_BFF_BASE_URL" ${INTERNAL_BFF_BASE_URL:+"$INTERNAL_BFF_BASE_URL"}; do
+          for api in "$PAID_BFF_BASE_URL" ${ENTERPRISE_BFF_BASE_URL:+"$ENTERPRISE_BFF_BASE_URL"}; do
             deadline=$(( $(date +%s) + 300 ))
             while :; do
               version=$(curl -fsS --max-time 10 "${api%/}/health" 2>/dev/null |
@@ -292,12 +291,12 @@ jobs:
           # shellcheck source=/dev/null
           . "$PAGES_ENV_FILE"
           PAGES_SMOKE_OUTPUT_DIR="$RUNNER_TEMP/pages-muvloom-live" sh scripts/pages-browser-smoke.sh "$PAID_PUBLIC_ORIGIN"
-      - name: Check the qlj domain on the same project
+      - name: Check the enterprise domain on the same project
         run: |
           # shellcheck source=/dev/null
           . "$PAGES_ENV_FILE"
-          [ -n "${INTERNAL_PUBLIC_ORIGIN:-}" ] || { echo "No enterprise domain configured."; exit 0; }
-          origin=${INTERNAL_PUBLIC_ORIGIN%/}
+          [ -n "${ENTERPRISE_PUBLIC_ORIGIN:-}" ] || { echo "No enterprise domain configured."; exit 0; }
+          origin=${ENTERPRISE_PUBLIC_ORIGIN%/}
           host=${origin#https://}
           # The project's own custom-domain list decides whether the domain has moved here yet, so a
           # broken or stale enterprise site after the move can never pass as "not migrated".
@@ -309,7 +308,7 @@ jobs:
               jq -er '.result.domains[]'
           ) || { echo "::error::Could not read the custom domains of $PAID_PAGES_PROJECT."; exit 1; }
           if ! printf '%s\n' "$domains" | grep -Fqx "$host"; then
-            # Until the custom domain moves onto the muvloom project it is still the frozen old project.
+            # Check the alias after it has been attached to the shared project.
             echo "::warning::$host is not a custom domain of $PAID_PAGES_PROJECT yet; move it (docs/deploy/image-release.md)."
             exit 0
           fi
@@ -323,7 +322,7 @@ jobs:
           curl -fsS --max-time 10 -o /dev/null -D "$RUNNER_TEMP/enterprise-headers" "$origin/"
           grep -Eiq '^x-robots-tag:.*noindex' "$RUNNER_TEMP/enterprise-headers" ||
             { echo "::error::$origin serves the muvloom project without its noindex header."; exit 1; }
-          PAGES_SMOKE_OUTPUT_DIR="$RUNNER_TEMP/pages-muvloom-qlj-live" sh scripts/pages-browser-smoke.sh "$origin"
+          PAGES_SMOKE_OUTPUT_DIR="$RUNNER_TEMP/pages-muvloom-enterprise-live" sh scripts/pages-browser-smoke.sh "$origin"
       - name: Save browser evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -332,7 +331,7 @@ jobs:
           path: |
             ${{ runner.temp }}/pages-muvloom-build
             ${{ runner.temp }}/pages-muvloom-live
-            ${{ runner.temp }}/pages-muvloom-qlj-live
+            ${{ runner.temp }}/pages-muvloom-enterprise-live
           retention-days: 7
       - name: Remove secrets from the runner
         if: always()

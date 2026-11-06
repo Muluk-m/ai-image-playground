@@ -63,7 +63,7 @@ export const config = {
   staticDir: env('ADMIN_DIST_DIR', ''),
   /** 运维看板读部署记录的文件；compose 把宿主机上的部署日志只读挂到这里。 */
   opsDeploymentsLog: env('OPS_DEPLOYMENTS_LOG', ''),
-  /** 这套部署在部署日志里的名字（paid、internal）。 */
+  /** 这套部署在部署日志里的名字：paid（生产）或 test。 */
   opsDeploymentName: env('OPS_DEPLOYMENT_NAME', ''),
 }
 export interface ResolvedAdminCapabilities {

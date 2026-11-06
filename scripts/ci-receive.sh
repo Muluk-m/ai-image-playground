@@ -7,7 +7,7 @@ set -eu
 #   command="/home/ubuntu/bin/aip-ci-receive release",restrict ssh-ed25519 AAAA… production
 #   command="/home/ubuntu/bin/aip-ci-receive test",restrict ssh-ed25519 AAAA… test
 #
-# Scope `release` accepts internal|paid|all, scope `test` accepts only test. No scope, or any
+# Scope `release` accepts only paid, scope `test` accepts only test. No scope, or any
 # other word, refuses everything.
 #
 # The archive is data only. Deployment code lives in the server-side runtime selected below; a
@@ -37,7 +37,7 @@ release_id=$2
 target=$3
 run_id=$4
 printf '%s\n' "$release_id" | grep -Eqx 'aip-[0-9a-f]{12}-[0-9a-f]{12}' || reject
-case "$scope:$target" in release:internal | release:paid | release:all | test:test) ;; *) reject ;; esac
+case "$scope:$target" in release:paid | test:test) ;; *) reject ;; esac
 printf '%s\n' "$run_id" | grep -Eqx '[0-9]{1,20}' || reject
 
 releases_root=${HOME:?HOME must be set}/releases

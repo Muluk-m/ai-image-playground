@@ -126,5 +126,6 @@ clear status and destructive-action hierarchy.
 
 All new database fields are nullable or introduced in new tables. Existing task
 and device quota data migrate in place. The current device-based daily quota
-continues to apply in both deployments until the account quota feature is
-implemented.
+continues to apply where enabled until the account quota feature is implemented.
+Managed production uses one shared muvloom backend for public and enterprise origins, with an
+isolated test environment; there is no separate enterprise release target.

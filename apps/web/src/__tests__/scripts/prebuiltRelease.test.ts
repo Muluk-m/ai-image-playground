@@ -25,7 +25,6 @@ const repo = 'ghcr.io/muluk-m/ai-image-playground'
 const digest = (d: string) => `${repo}@sha256:${d.repeat(64)}`
 const short = sha.slice(0, 12)
 const registryManifest = [
-  `internal\tai-image-playground:vps-main-${short}\t${imageId}\t${sha}\t${sha}\t${digest('1')}`,
   `paid\tai-image-playground:paid-${short}-${short}\t${imageId}\t${sha}\t${sha}\t${digest('2')}`,
   `backup\tai-image-playground:backup-${short}\t${imageId}\t${sha}\t-\t${digest('3')}`,
 ]
@@ -55,7 +54,7 @@ function checksums() {
       .join('\n') + '\n',
   )
 }
-function run(target = 'all') {
+function run(target = 'paid') {
   return spawnSync('sh', [join(release, 'scripts/vps-deploy.sh'), target, release], {
     env,
     encoding: 'utf8',
@@ -102,7 +101,7 @@ esac
   writeFileSync(join(release, 'images.tar.gz'), 'fake image archive')
   writeFileSync(
     join(release, 'images.tsv'),
-    `internal\tai-image-playground:vps-main-${sha.slice(0, 12)}\t${imageId}\t${sha}\t${sha}\npaid\tai-image-playground:paid-${sha.slice(0, 12)}-${sha.slice(0, 12)}\t${imageId}\t${sha}\t${sha}\nbackup\tai-image-playground:backup-${sha.slice(0, 12)}\t${imageId}\t${sha}\t-\n`,
+    `paid\tai-image-playground:paid-${sha.slice(0, 12)}-${sha.slice(0, 12)}\t${imageId}\t${sha}\t${sha}\nbackup\tai-image-playground:backup-${sha.slice(0, 12)}\t${imageId}\t${sha}\t-\n`,
   )
   const docker = `#!/bin/sh
 printf '%s\\n' "$*" >> "$CALL_LOG"
@@ -122,7 +121,6 @@ case "$1 $2" in
       '{{range .RepoDigests}}{{println .}}{{end}}')
         if [ -n "\${TEST_REPO_DIGESTS+x}" ]; then echo "\$TEST_REPO_DIGESTS"; else
           case "$3" in
-            *:vps-main-*) echo '${digest('1')}' ;;
             *:paid-*) echo '${digest('2')}' ;;
             *) echo '${digest('3')}' ;;
           esac
@@ -209,6 +207,26 @@ describe('prebuilt VPS receiver', () => {
     expect(run().status).not.toBe(0)
     expect(() => readFileSync(log)).toThrow()
   })
+
+  it.each(['internal', 'all'])('rejects retired target %s before Docker', (target) => {
+    expect(run(target).status).toBe(2)
+    expect(() => readFileSync(log)).toThrow()
+  })
+
+  it('rejects a test manifest passed to production before Docker', () => {
+    writeFileSync(
+      join(release, 'images.tsv'),
+      readFileSync(join(release, 'images.tsv'), 'utf8').replace(
+        /^paid\tai-image-playground:paid-/,
+        'test\tai-image-playground:test-',
+      ),
+    )
+    checksums()
+    const result = run()
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('Invalid image manifest')
+    expect(() => readFileSync(log)).toThrow()
+  })
 })
 
 describe('registry release receiver', () => {
@@ -223,7 +241,6 @@ describe('registry release receiver', () => {
     env.DEPLOY_ACTOR = 'github-actions/run-12345'
     expect(run().status).toBe(0)
     expect(deployLog()).toEqual([
-      `internal public=${sha} private=${sha} image=ai-image-playground:vps-main-${short} by=github-actions/run-12345 result=ok`,
       `paid public=${sha} private=${sha} image=ai-image-playground:paid-${short}-${short} by=github-actions/run-12345 result=ok`,
     ])
   })
@@ -243,7 +260,6 @@ describe('registry release receiver', () => {
     expect(result.status).toBe(0)
     const calls = readFileSync(log, 'utf8').split('\n')
     for (const [d, image] of [
-      ['1', `ai-image-playground:vps-main-${short}`],
       ['2', `ai-image-playground:paid-${short}-${short}`],
       ['3', `ai-image-playground:backup-${short}`],
     ]) {
@@ -271,7 +287,7 @@ describe('registry release receiver', () => {
     expect(result.status).toBe(0)
     const calls = readFileSync(log, 'utf8').split('\n')
     expect(calls.indexOf('login ghcr.io -u Muluk-m --password-stdin')).toBeLessThan(
-      calls.indexOf(pulled('1')),
+      calls.indexOf(pulled('2')),
     )
     expect(readFileSync(join(root, 'login-stdin'), 'utf8')).toBe(`${token}\n`)
     expect(`${result.stdout}${result.stderr}${calls.join('\n')}`).not.toContain(token)
@@ -355,7 +371,6 @@ describe('receivers with the shared segmenter', () => {
     writeFileSync(
       join(release, 'images.tsv'),
       `${[
-        `internal\tai-image-playground:vps-main-${short}\t${imageId}\t${sha}\t${sha}`,
         `paid\tai-image-playground:paid-${short}-${short}\t${imageId}\t${sha}\t${sha}`,
         ...rows,
       ].join('\n')}\n`,
@@ -420,9 +435,8 @@ describe('receivers with the shared segmenter', () => {
     expect(test).toBeLessThan(up)
     expect(up).toBeLessThan(calls.findIndex((c) => c.startsWith('rollout ')))
     expect(calls).toContain(`tag ${segmenterImage} ai-image-playground:segmenter`)
-    // Production editions stay off it unless SEGMENTER_EDITIONS lists them.
+    // Production stays off it unless SEGMENTER_EDITIONS includes paid.
     expect(calls.join('\n')).not.toMatch(/segmenter (attach|healthy)|segmenter=/)
-    expect(calls).toContain('segmenter detach image-playground-internal')
     expect(calls).toContain('segmenter detach image-playground-paid')
   })
 
@@ -443,7 +457,7 @@ describe('receivers with the shared segmenter', () => {
     expect(result.stderr).toContain('the running one was kept')
     const calls = readFileSync(log, 'utf8').split('\n')
     expect(calls).not.toContain(`tag ${segmenterImage} ai-image-playground:segmenter`)
-    expect(calls.filter((c) => c.startsWith('rollout '))).toHaveLength(2)
+    expect(calls.filter((c) => c.startsWith('rollout '))).toHaveLength(1)
   })
 
   it('does not roll anything when the segmenter self-test fails', () => {
@@ -453,19 +467,18 @@ describe('receivers with the shared segmenter', () => {
     expect(readFileSync(log, 'utf8')).not.toMatch(/rollout|segmenter up/)
   })
 
-  it('attaches the production editions listed in SEGMENTER_EDITIONS to the same shared container', () => {
+  it('attaches production when SEGMENTER_EDITIONS includes paid', () => {
     productionRelease([backupRow])
-    env.SEGMENTER_EDITIONS = 'internal paid test'
+    env.SEGMENTER_EDITIONS = 'paid test'
     env.TEST_SEGMENTER_HEALTHY_EXIT = '0'
     expect(run().status).toBe(0)
     const calls = readFileSync(log, 'utf8').split('\n')
     expect(calls.filter((c) => c === 'segmenter healthy')).toHaveLength(1)
     expect(calls.join('\n')).not.toContain('segmenter up')
-    expect(calls).toContain('segmenter attach image-playground-internal')
     expect(calls).toContain('segmenter attach image-playground-paid')
     expect(calls.join('\n')).not.toContain('segmenter detach')
     expect(calls).toContain(
-      `rollout image-playground-internal ai-image-playground:vps-main-${short} segmenter=http://segmenter:8080`,
+      `rollout image-playground-paid ai-image-playground:paid-${short}-${short} segmenter=http://segmenter:8080`,
     )
   })
 })

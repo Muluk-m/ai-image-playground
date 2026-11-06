@@ -87,19 +87,18 @@ describe('test backend configuration', () => {
       'MIGRATOR_DATABASE_URL=postgresql://aip_test_migrator:owner@postgres:5432/aip_test',
     )
     writeFileSync(join(target, 'operator-config.json'), '{}')
-    for (const name of ['image-playground-paid', 'image-playground-internal']) {
-      mkdirSync(join(dir, name), { recursive: true })
-      writeFileSync(
-        join(dir, name, 'app.env'),
-        [
-          'EMAIL_FROM=Muvloom <login@example.com>',
-          ...secrets.map((key) => `${key}=production-secret`),
-          options.productionExtra ?? '',
-        ]
-          .filter(Boolean)
-          .join('\n'),
-      )
-    }
+    const production = join(dir, 'image-playground-paid')
+    mkdirSync(production, { recursive: true })
+    writeFileSync(
+      join(production, 'app.env'),
+      [
+        'EMAIL_FROM=Muvloom <login@example.com>',
+        ...secrets.map((key) => `${key}=production-secret`),
+        options.productionExtra ?? '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    )
     return spawnSync('sh', [guard, 'runtime', target], { encoding: 'utf8', timeout: 5000 })
   }
 

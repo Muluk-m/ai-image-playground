@@ -5,7 +5,7 @@ set -eu
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$repo_root/scripts/lib/deploy-common.sh"
 target=${1:-}
-case "$target" in internal) editions=internal ;; paid) editions=paid ;; test) editions='test' ;; all) editions='internal paid' ;; *) echo "Usage: $0 internal|paid|test|all /absolute/release-directory" >&2; exit 2 ;; esac
+case "$target" in paid|test) ;; *) echo "Usage: $0 paid|test /absolute/release-directory" >&2; exit 2 ;; esac
 release=${2:-}
 case "$release" in /*) ;; *) echo "Prebuilt release required. Run build-vps-release.sh on macmini2 first." >&2; exit 2 ;; esac
 [ -f "$release/SHA256SUMS" ] || { echo "Incomplete release: no checksums" >&2; exit 1; }
@@ -13,8 +13,6 @@ release=$(CDPATH= cd -- "$release" && pwd)
 deploy_env=${DEPLOY_ENV_FILE:-$config_root/deploy.env}
 # shellcheck source=/dev/null
 [ ! -f "$deploy_env" ] || . "$deploy_env"
-INTERNAL_PROJECT=${INTERNAL_PROJECT:-image-playground-internal}
-INTERNAL_IMAGE=${INTERNAL_IMAGE:-ai-image-playground:vps-main}
 PAID_PROJECT=${PAID_PROJECT:-image-playground-paid}
 PAID_IMAGE=${PAID_IMAGE:-ai-image-playground:paid}
 TEST_PROJECT='image-playground-test'
@@ -55,20 +53,20 @@ export_deploy_host_lock
 listed=$(sed 's/^[0-9a-f]*  //' "$release/SHA256SUMS" | LC_ALL=C sort)
 present=$(cd "$release" && find . -type f ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort)
 [ "$listed" = "$present" ] || { echo "Release files not covered by SHA256SUMS" >&2; exit 1; }
-# Require exactly one record per requested edition and only inert, well-formed fields. The sixth
-# column, the registry digest, is `-` or absent in archive releases.
+# Require the requested application and backup, plus an optional production segmenter.
+# The sixth column is the registry digest, or `-`/absent for archive releases.
 awk -F '\t' -v repo="$ghcr_repository@sha256:" -v target="$target" '
-  target == "test" && $1 != "test" && $1 != "backup" { exit 1 }
-  $1 == "test" && $2 !~ /^ai-image-playground:test-/ { exit 1 }
+  $1 != target && $1 != "backup" && !(target == "paid" && $1 == "segmenter") { exit 1 }
+  $1 == target && $2 !~ "^ai-image-playground:" target "-" { exit 1 }
   $1 == "segmenter" && ($2 !~ /^ai-image-playground:segmenter-[0-9]+-[0-9a-f]+$/ || $5 != "-") { exit 1 }
-  (NF != 5 && NF != 6) || $1 !~ /^(internal|paid|test|backup|segmenter)$/ || seen[$1]++ { exit 1 }
+  (NF != 5 && NF != 6) || seen[$1]++ { exit 1 }
   NF == 6 && $6 != "-" && (index($6, repo) != 1 || substr($6, length(repo) + 1) !~ /^[0-9a-f]+$/ || length($6) != length(repo) + 64) { exit 1 }
-  $2 !~ /^ai-image-playground:(vps-main|paid|test|backup|segmenter)-[0-9a-f-]+$/ { exit 1 }
+  $2 !~ /^ai-image-playground:(paid|test|backup|segmenter)-[0-9a-f-]+$/ { exit 1 }
   $3 !~ /^sha256:[0-9a-f]+$/ || length($3) != 71 { exit 1 }
   $4 !~ /^[0-9a-f]+$/ || length($4) != 40 { exit 1 }
   $5 != "-" && ($5 !~ /^[0-9a-f]+$/ || length($5) != 40) { exit 1 }
 ' "$release/images.tsv" || { echo "Invalid image manifest" >&2; exit 1; }
-for edition in $editions backup; do
+for edition in "$target" backup; do
   [ "$(awk -F '\t' -v e="$edition" '$1==e { n++ } END { print n+0 }' "$release/images.tsv")" = 1 ] || { echo "Missing $edition image" >&2; exit 1; }
 done
 # Free anything past the retention window before refusing the pull. Tags in this release stay:
@@ -151,45 +149,39 @@ if [ -n "$segmenter_image" ]; then
     echo "Warning: the new segmenter did not start; the running one was kept." >&2
   fi
 fi
-segmenter_up=
-for edition in $editions; do
-  record=$(awk -F '\t' -v e="$edition" '$1==e' "$release/images.tsv")
-  IFS="$(printf '\t')" read -r current_edition image expected_id public_sha private_sha repo_digest <<EOF
+record=$(awk -F '\t' -v e="$target" '$1==e' "$release/images.tsv")
+IFS="$(printf '\t')" read -r current_edition image expected_id public_sha private_sha repo_digest <<EOF
 $record
 EOF
-  prefix=$(printf '%s' "$edition" | tr '[:lower:]' '[:upper:]')
-  project=$(edition_var "$prefix" PROJECT)
-  # SEGMENTER_EDITIONS accepts internal (qlj), paid (muvloom), and test; default: test only.
-  # Adding internal or paid needs Nain's go-ahead. Each listed edition gets the shared segmenter address, but only
-  # while it is healthy. It is optional: otherwise the executors are not told about it and
-  # edit-region cards fall back to the agent's box, so this warns instead of failing the release.
-  # An edition that does not get it is detached, so a later rollback (which reads the attachment
-  # back, see rollout-runtime.sh) agrees with this release.
-  AGENT_SEGMENTER_URL=
-  AGENT_SEGMENTER_NAMESPACE=$project
-  case " ${SEGMENTER_EDITIONS:-test} " in
-    *" $edition "*)
-      if [ -z "$segmenter_up" ]; then
-        if "$repo_root/scripts/segmenter-deploy.sh" healthy; then segmenter_up=ok; else segmenter_up=failed; fi
-      fi
-      [ "$segmenter_up" != ok ] || AGENT_SEGMENTER_URL=http://segmenter:8080
-      ;;
-  esac
-  export AGENT_SEGMENTER_URL AGENT_SEGMENTER_NAMESPACE
-  if [ -z "$AGENT_SEGMENTER_URL" ] && ! "$repo_root/scripts/segmenter-deploy.sh" detach "$project"; then
-    echo "Warning: could not detach the segmenter from $project." >&2
-  fi
-  APP_IMAGE=$image BACKUP_IMAGE=$backup_image "$repo_root/scripts/app-compose.sh" up "$project"
-  # The app network exists only once the project is up; the executors resolve `segmenter` per
-  # request, so attaching right after is soon enough, and before the first card is asked for.
-  if [ -n "$AGENT_SEGMENTER_URL" ] && ! "$repo_root/scripts/segmenter-deploy.sh" attach "$project"; then
-    echo "Warning: could not attach the segmenter to $project; edit-region cards fall back to the agent's box." >&2
-  fi
-  docker tag "$image" "$(edition_var "$prefix" IMAGE)"
-  append_deploy_log "$edition" "$image" ok
-  current_edition=
-  rolled_out="$rolled_out $image"
-done
+prefix=$(printf '%s' "$target" | tr '[:lower:]' '[:upper:]')
+project=$(edition_var "$prefix" PROJECT)
+# SEGMENTER_EDITIONS accepts paid (production) and test; default: test only.
+# Enabling production requires Nain's approval. The target gets the shared address only
+# while healthy; otherwise edit-region cards fall back to the agent's box.
+# Detach when unavailable so a later rollback reads the same attachment state.
+AGENT_SEGMENTER_URL=
+AGENT_SEGMENTER_NAMESPACE=$project
+case " ${SEGMENTER_EDITIONS:-test} " in
+  *" $target "*)
+    if "$repo_root/scripts/segmenter-deploy.sh" healthy; then
+      AGENT_SEGMENTER_URL=http://segmenter:8080
+    fi
+    ;;
+esac
+export AGENT_SEGMENTER_URL AGENT_SEGMENTER_NAMESPACE
+if [ -z "$AGENT_SEGMENTER_URL" ] && ! "$repo_root/scripts/segmenter-deploy.sh" detach "$project"; then
+  echo "Warning: could not detach the segmenter from $project." >&2
+fi
+APP_IMAGE=$image BACKUP_IMAGE=$backup_image "$repo_root/scripts/app-compose.sh" up "$project"
+# The app network exists only once the project is up; the executors resolve `segmenter` per
+# request, so attaching right after is soon enough, and before the first card is asked for.
+if [ -n "$AGENT_SEGMENTER_URL" ] && ! "$repo_root/scripts/segmenter-deploy.sh" attach "$project"; then
+  echo "Warning: could not attach the segmenter to $project; edit-region cards fall back to the agent's box." >&2
+fi
+docker tag "$image" "$(edition_var "$prefix" IMAGE)"
+append_deploy_log "$target" "$image" ok
+current_edition=
+rolled_out="$rolled_out $image"
 # The moving backup alias is what a hand rollback of the sidecar looks up. Test receives do
 # not own that alias; production does. Either way the commit-qualified backup tag is pruned
 # with the other editions below, including backups a test receive pulled and used to leave.
