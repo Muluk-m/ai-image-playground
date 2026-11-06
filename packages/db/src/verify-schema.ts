@@ -1,5 +1,6 @@
 import { SQL } from 'bun'
 import journal from '../drizzle/meta/_journal.json'
+import { countVerifiedSupersededMigrations } from './migrate'
 
 export const EXPECTED_TABLES = [
   'operator_config_overrides',
@@ -334,8 +335,8 @@ export async function verifySchema(databaseUrl: string): Promise<SchemaVerificat
       `,
     ])
     const migrationRows = migrationTableRows[0]?.relation
-      ? await client<{ count: number }[]>`
-          SELECT COUNT(*)::int AS count
+      ? await client<{ hash: string; created_at: string | number }[]>`
+          SELECT hash, created_at
           FROM drizzle.__drizzle_migrations
         `
       : []
@@ -348,14 +349,16 @@ export async function verifySchema(databaseUrl: string): Promise<SchemaVerificat
     )
     const missingTables = EXPECTED_TABLES.filter((name) => !tables.has(name))
     const missingIndexes = EXPECTED_INDEXES.filter((name) => !indexes.has(name))
-    const migrationCount = Number(migrationRows[0]?.count ?? 0)
+    const migrationCount = migrationRows.length
+    const expectedMigrationCount =
+      EXPECTED_MIGRATION_COUNT - (await countVerifiedSupersededMigrations(migrationRows))
     const failures = [
       missingColumns.length ? `missing columns: ${missingColumns.join(', ')}` : '',
       ...mistypedColumns.map(([name, type]) => `${name} must be ${type}`),
       missingTables.length ? `missing tables: ${missingTables.join(', ')}` : '',
       missingIndexes.length ? `missing indexes: ${missingIndexes.join(', ')}` : '',
-      migrationCount < EXPECTED_MIGRATION_COUNT
-        ? `migration count ${migrationCount} is below ${EXPECTED_MIGRATION_COUNT}`
+      migrationCount < expectedMigrationCount
+        ? `migration count ${migrationCount} is below ${expectedMigrationCount}`
         : '',
     ].filter(Boolean)
     if (failures.length) throw new Error(`Schema verification failed: ${failures.join('; ')}`)

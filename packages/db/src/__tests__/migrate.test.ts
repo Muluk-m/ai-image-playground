@@ -480,7 +480,9 @@ describe('runMigrations', () => {
     await withEmptyDatabase('refresh_identity_production', async (url) => {
       await migrateUntil(url, journal.entries.find((entry) => entry.when === 1794300000000)!.tag)
       await runMigrations(url)
-      await expect(verifySchema(url)).resolves.toMatchObject({ migrations: journal.entries.length - 1 })
+      await expect(verifySchema(url)).resolves.toMatchObject({
+        migrations: journal.entries.length - 1,
+      })
       const client = new SQL(url, { max: 1 })
       try {
         const rows =
