@@ -179,7 +179,7 @@ describe('tools share capabilities across creation modes', () => {
   const AGENT = { userId: 'agent-user', looks: [], experience: 'chat' as const }
   const CANVAS = { userId: 'agent-user', looks: [], experience: 'canvas' as const }
   const CANVAS_WORDS =
-    /画布|节点|createNodes|updateNodes|connectNodes|runNodes|readCanvas|runStoryboardFrames|applyScriptPlan|阶段授权/
+    /画布|节点|createNodes|updateNodes|connectNodes|runNodes|readCanvas|runStoryboardFrames|runStoryboardVideos|applyScriptPlan|阶段授权/
 
   it.each([
     'image',
@@ -194,6 +194,7 @@ describe('tools share capabilities across creation modes', () => {
       'arrangeNodes',
       'runNodes',
       'runStoryboardFrames',
+      'runStoryboardVideos',
       'applyScriptPlan',
       'importCanvasImage',
     ])

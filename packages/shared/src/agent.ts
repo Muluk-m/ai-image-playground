@@ -75,6 +75,7 @@ export type AgentToolName =
   | 'applyScriptPlan'
   | 'importCanvasImage'
   | 'runStoryboardFrames'
+  | 'runStoryboardVideos'
   | 'generateVideo'
   | 'loadSkill'
   | 'arrangeTimeline'
