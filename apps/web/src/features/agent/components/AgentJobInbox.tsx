@@ -126,7 +126,7 @@ function NodeInboxRow({
     ? t(NODE_RUN_REASON_LABELS[message.reason])
     : message.error
       ? t(`canvas:nodeBatch.${message.error}`)
-      : message.blockedReason
+      : undefined
   return (
     <li className="flex items-center gap-2">
       <Button
