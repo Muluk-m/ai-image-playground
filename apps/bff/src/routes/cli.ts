@@ -279,6 +279,11 @@ const imageRequestFields = {
   reference_media_ids: t.Optional(t.Array(t.String({ format: 'uuid' }), { maxItems: 16 })),
   count: t.Optional(t.Literal(1)),
   max_credits: t.Optional(t.Integer({ minimum: 0, maximum: 1_000_000_000 })),
+  // 模型直出的动图与矢量图；取值与限制由 normalizeImageRequest 按网站规则校验。
+  output_format: t.Optional(t.String({ minLength: 1, maxLength: 16 })),
+  frame_count: t.Optional(t.Integer({ minimum: 0, maximum: 1000 })),
+  frame_duration_ms: t.Optional(t.Integer({ minimum: 0, maximum: 100_000 })),
+  frame_size: t.Optional(t.String({ minLength: 1, maxLength: 16 })),
 }
 const idempotencyKey = t.String({ minLength: 8, maxLength: 64, pattern: '^[A-Za-z0-9_.:-]+$' })
 const idParams = t.Object({ id: t.String({ minLength: 1, maxLength: 128 }) })
