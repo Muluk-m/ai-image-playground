@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -504,4 +505,82 @@ func TestTheLockExcludesAnotherProcess(t *testing.T) {
 		t.Fatalf("the lock was not released with its holder: %v", err)
 	}
 	unlock()
+}
+
+type userKeychain struct {
+	entries map[string]string
+	err     error
+}
+
+func (k *userKeychain) Get(_, user string) (string, error) {
+	if k.err != nil {
+		return "", k.err
+	}
+	if v, ok := k.entries[user]; ok {
+		return v, nil
+	}
+	return "", keyring.ErrNotFound
+}
+func (k *userKeychain) Set(_, user, secret string) error {
+	if k.err != nil {
+		return k.err
+	}
+	k.entries[user] = secret
+	return nil
+}
+func (k *userKeychain) Delete(_, user string) error {
+	if k.err != nil {
+		return k.err
+	}
+	delete(k.entries, user)
+	return nil
+}
+
+func TestPreflightLeavesStoredCredentialsAsTheyWere(t *testing.T) {
+	t.Run("file", func(t *testing.T) {
+		store := Store{Dir: t.TempDir()}
+		if err := store.Preflight(); err != nil {
+			t.Fatalf("preflight on an empty directory: %v", err)
+		}
+		if _, err := store.Load(); err != ErrNotFound {
+			t.Fatalf("preflight left something that reads as credentials: %v", err)
+		}
+		saved := Credentials{AccessToken: "a", RefreshToken: "r", BaseURL: "https://api.example"}
+		if err := store.Save(saved); err != nil {
+			t.Fatal(err)
+		}
+		before, _ := os.ReadFile(store.credentialsFile())
+		if err := store.Preflight(); err != nil {
+			t.Fatalf("preflight with stored credentials: %v", err)
+		}
+		after, _ := os.ReadFile(store.credentialsFile())
+		if !bytes.Equal(before, after) {
+			t.Fatal("preflight changed the stored credentials")
+		}
+	})
+	t.Run("keychain", func(t *testing.T) {
+		kc := &userKeychain{entries: map[string]string{}}
+		store := Store{Dir: t.TempDir(), UseKeyring: true, Keychain: kc}
+		if err := store.Save(Credentials{RefreshToken: "r"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Preflight(); err != nil {
+			t.Fatalf("preflight: %v", err)
+		}
+		if len(kc.entries) != 1 || kc.entries[keyringUser] == "" {
+			t.Fatalf("keychain after preflight = %v", kc.entries)
+		}
+		if fileHasContent(store.credentialsFile()) {
+			t.Fatal("a working keychain must not be probed through the file")
+		}
+	})
+	t.Run("unwritable", func(t *testing.T) {
+		store := Store{Dir: t.TempDir(), UseKeyring: true, Keychain: &userKeychain{entries: map[string]string{}, err: errors.New("locked")}}
+		if err := os.Mkdir(store.credentialsFile(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Preflight(); err == nil {
+			t.Fatal("preflight passed although neither the keychain nor the file can be written")
+		}
+	})
 }
