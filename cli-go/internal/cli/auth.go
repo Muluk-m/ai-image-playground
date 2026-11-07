@@ -73,9 +73,13 @@ func (a *App) apiClient() (*client.HTTPClient, error) {
 // rotated it, the stored access token differs from the rejected one and is reused, so
 // the old refresh token is never presented twice (a replay revokes the connection).
 func (a *App) refresh(ctx context.Context, rejected string) (string, error) {
-	unlock, err := a.Store.Lock(45 * time.Second)
+	wait := a.RefreshLockWait
+	if wait <= 0 {
+		wait = 45 * time.Second
+	}
+	unlock, err := a.Store.Lock(wait)
 	if err != nil {
-		return "", err
+		return "", fail("TEMPORARILY_UNAVAILABLE", "Another muvloom process is refreshing the connection; retry shortly")
 	}
 	defer unlock()
 	creds, err := a.loadCredentials()
@@ -97,6 +101,13 @@ func (a *App) refresh(ctx context.Context, rejected string) (string, error) {
 	if errors.As(err, &oauthErr) && oauthErr.Code == "invalid_grant" {
 		_ = a.Store.Clear()
 		return "", fail("AUTH_REQUIRED", "The CLI connection expired or was revoked; run `muvloom auth login`")
+	}
+	if errors.As(err, &oauthErr) {
+		// The connection is intact: only the service is busy or misbehaving.
+		if oauthErr.Status == http.StatusTooManyRequests {
+			return "", fail("RATE_LIMITED", "Too many refresh attempts; wait a minute and retry")
+		}
+		return "", fail("TEMPORARILY_UNAVAILABLE", "The service could not refresh the connection (%s); retry shortly", oauthErr.Code)
 	}
 	if err != nil {
 		return "", err
