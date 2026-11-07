@@ -278,6 +278,8 @@ export async function decideDeviceAuthorization(
   code: string,
   userId: string,
   decision: 'approved' | 'denied',
+  /** 确认页会把浏览器带回本机：只有 CLI 在本机打开的页面才这么说，手输授权码的不会。 */
+  loopback = false,
 ): Promise<DeviceDecision> {
   const normalized = normalizeUserCode(code)
   if (!normalized) return { ok: false }
@@ -289,7 +291,7 @@ export async function decideDeviceAuthorization(
       status: decision,
       user_id: userId,
       // 只有登记了回调地址的授权才发授权码；没登记的照旧等 CLI 轮询。
-      ...(decision === 'approved'
+      ...(decision === 'approved' && loopback
         ? {
             authorization_code_hash: sql`CASE WHEN ${schema.device_authorizations.redirect_uri} IS NOT NULL THEN ${hashCliSecret(authorizationCode)}::text END`,
             authorization_code_expires_at: sql`CASE WHEN ${schema.device_authorizations.redirect_uri} IS NOT NULL THEN ${new Date(now + AUTHORIZATION_CODE_TTL_MS).toISOString()}::timestamptz END`,
@@ -440,7 +442,14 @@ export async function exchangeDeviceCode(
         : { ok: false, error: 'invalid_grant' }
     if (row.expires_at <= now) return { ok: false, error: 'expired_token' }
     if (row.status === 'denied') return { ok: false, error: 'access_denied' }
-    if (row.status === 'pending') {
+    // 确认页正带着授权码回本机：回调优先，设备码在授权码有效期内仍按等待处理，否则 CLI
+    // 轮询先拿到令牌退出，浏览器回到的就是已经关掉的端口。授权码过期没人用，轮询照常兜底。
+    const handingBack =
+      row.status === 'approved' &&
+      row.authorization_code_hash !== null &&
+      row.authorization_code_expires_at !== null &&
+      row.authorization_code_expires_at > now
+    if (row.status === 'pending' || handingBack) {
       const tooSoon =
         row.last_polled_at !== null && now - row.last_polled_at < row.interval_seconds * 1000
       await tx

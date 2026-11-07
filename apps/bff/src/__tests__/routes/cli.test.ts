@@ -456,7 +456,7 @@ function exchangeCode(
 
 async function approveLoopback(user: { cookie: string }, userCode: string) {
   const res = await call('POST', '/api/cli/device', {
-    body: { user_code: userCode, decision: 'approve' },
+    body: { user_code: userCode, decision: 'approve', loopback: true },
     headers: { cookie: user.cookie },
   })
   expect(res.status).toBe(200)
@@ -537,14 +537,31 @@ describe('loopback sign-in', () => {
     })
   })
 
-  it('keeps device polling working when the redirect never arrives', async () => {
+  it('lets the callback finish first, and device polling take over once the code lapses', async () => {
     const user = await createUser('loopback-fallback')
     const { challenge } = pkcePair()
     const device = (await startLoopback(challenge)).json
     await approveLoopback(user, device.user_code)
-    await db.update(schema.device_authorizations).set({ last_polled_at: null })
+    // 浏览器正带着授权码回本机：设备码不能抢先完成，否则 CLI 退出、浏览器回到关掉的端口。
+    expect((await pollToken(device.device_code)).json).toEqual({ error: 'authorization_pending' })
+    await db
+      .update(schema.device_authorizations)
+      .set({ authorization_code_expires_at: Date.now() - 1, last_polled_at: null })
     const issued = await pollToken(device.device_code)
     expect(issued.status).toBe(200)
+  })
+
+  it('completes by polling at once when the approval page will not hand back a code', async () => {
+    const user = await createUser('loopback-elsewhere')
+    const { challenge } = pkcePair()
+    const device = (await startLoopback(challenge)).json
+    // 在另一台设备上手输授权码：页面不跳回本机，也就不发授权码。
+    const res = await call('POST', '/api/cli/device', {
+      body: { user_code: device.user_code, decision: 'approve' },
+      headers: { cookie: user.cookie },
+    })
+    expect(res.json).toEqual({ ok: true })
+    expect((await pollToken(device.device_code)).status).toBe(200)
   })
 
   it('sends an enterprise API host to the enterprise approval page', async () => {
