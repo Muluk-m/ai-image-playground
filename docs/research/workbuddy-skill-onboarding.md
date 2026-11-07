@@ -26,6 +26,20 @@ WorkBuddy 页面使用专用提示词和指南，由 WorkBuddy 在对话中下�
 
 用户从 WorkBuddy 对话发起安装；执行记录确认下载、检查和安装完成，安装目录的 10 个文件与测试站 ZIP 逐字节一致。但新任务输入 `/muv` 仍无匹配，不能将文件落盘或新开对话当作技能加载成功。
 
-只读检查客户端技能列表缓存，已有 `muvloom`，来源 `userSettings`，`disable` 和 `disableModelInvocation` 均为 false。daemon 扫描日志的用户技能数从 3 增到 4；因此包缺失和被禁用不是本次已观察到的原因。客户端有跨会话的技能列表与版本缓存，下一步验证完整重开客户端后的发现结果，尚未据此宣称根因或恢复已验证。
+只读检查客户端技能列表缓存，已有 `muvloom`，来源 `userSettings`，`disable` 和 `disableModelInvocation` 均为 false。daemon 扫描日志的用户技能数从 3 增到 4；因此包缺失和被禁用不是本次已观察到的原因。客户端有跨会话的技能列表与版本缓存，本地扫描与输入框发现也使用不同路径，不能仅凭扫描结果判断界面已加载。
+
+用户完整退出并重新打开客户端后确认候选已出现。随后在 WorkBuddy 5.9.3 新任务、办公模式、默认权限下实测：输入 `/muv` 出现唯一 `muvloom` 候选，点击后成为输入框中的技能标签。没有发送任务、重新授权、生成图片或修改权限。恢复步骤已验证，具体哪一层缓存未刷新未通过运行时追踪单独定位；不能将重开客户端泛化为所有版本的保证。
 
 本次仅安装技能，WorkBuddy 却额外执行账号状态检查并触发凭据目录询问。已拒绝该多余步骤；指南现在显式区分仅技能请求与完整账号接入，状态检查失败也不得推断原账号未登录。
+
+## 验收证据
+
+测试站界面截图来自 `test.muvloom.online`，版本 `4d6cab1+25eb688-20261106T155144Z`；后续文档版 `ce409ad+25eb688-20261106T172029Z` 发布成功，已读回核对指南和 ZIP 内引用。账号为独立测试账号，截图不含凭据或个人账号信息。
+
+- [默认对话安装入口](workbuddy-skill-evidence/test-default.png)：仅提供复制提示词。
+- [手动安装入口](workbuddy-skill-evidence/test-manual.png)：用户选择「我自己来」后才展示 ZIP 下载。
+- [390 × 844 窄屏](workbuddy-skill-evidence/test-mobile.png)：浅色响应式模拟。
+- [WorkBuddy `/muv` 候选](workbuddy-skill-evidence/workbuddy-slash-found.png)：实际对话安装后，重开客户端可发现。
+- [点击候选后的技能标签](workbuddy-skill-evidence/workbuddy-skill-selected.png)：可选择，未发送任务。
+
+本次验收范围为对话安装和技能发现，不把它当作新增账号授权或生成验收。认证实现未改动，已连接账号保持原状。
