@@ -32,7 +32,7 @@ request's size/quality multiplier. Keep pricing internal unless the user asks.
 | 0 | Success | Read `data` |
 | 2 | Invalid command or request | Fix the flags or ask the user for the missing input |
 | 3 | Not signed in / login pending, denied or expired | Run the login flow |
-| 4 | Rejected (membership, not found, conflict, model unavailable, file exists, service mismatch) or the waited job failed / was canceled | Explain to the user; see errors.md |
+| 4 | Rejected (membership, not found, conflict, model unavailable, file exists, service mismatch, credential store unwritable) or the waited job failed / was canceled | Explain to the user; see errors.md |
 | 5 | Credits (insufficient, or above `--max-credits`) | Report insufficient credits or the exceeded user-supplied limit; stop |
 | 6 | Temporary (network, rate limit, server busy) | Retry later with the same idempotency key |
 | 7 | CLI too old | Upgrade with install.md |

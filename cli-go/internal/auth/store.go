@@ -28,6 +28,8 @@ import (
 const (
 	keyringService = "muvloom-cli"
 	keyringUser    = "default"
+	// keyringProbeUser is a throwaway entry Preflight writes; it never holds a secret.
+	keyringProbeUser = "write-check"
 )
 
 // ErrNotFound means no credentials are stored.
@@ -59,6 +61,10 @@ type Credentials struct {
 	RefreshExpiresAt    time.Time `json:"refresh_expires_at"`
 	BaseURL             string    `json:"base_url"`
 	LoginDeviceCodeHash string    `json:"login_device_code_hash,omitempty"`
+	// RefreshRequestID is saved before a refresh is sent and cleared with the tokens it
+	// returns. A retry after a lost response carries it, and the server answers with the
+	// same tokens instead of treating the old refresh token as copied.
+	RefreshRequestID string `json:"refresh_request_id,omitempty"`
 }
 
 // PendingLogin is a device authorization that has been started but not yet approved.
@@ -69,6 +75,12 @@ type PendingLogin struct {
 	ExpiresAt               time.Time `json:"expires_at"`
 	IntervalSeconds         int       `json:"interval_seconds"`
 	BaseURL                 string    `json:"base_url"`
+	// RequestID goes with every redemption of the device code, so a redemption whose
+	// tokens never reached the credential store can be repeated for the same tokens.
+	RequestID string `json:"request_id,omitempty"`
+	// Redeemed records that the server already issued tokens for this code. The next login
+	// redeems it again with RequestID, even after the code itself expired.
+	Redeemed bool `json:"redeemed,omitempty"`
 }
 
 type Store struct {
@@ -325,6 +337,7 @@ func (s Store) Clear() error {
 	return s.locked(func() error {
 		var keyringErr error
 		if s.UseKeyring || s.ClearKeyring {
+			_ = s.keychain().Delete(keyringService, keyringProbeUser)
 			if err := s.keychain().Delete(keyringService, keyringUser); err != nil && !errors.Is(err, keyring.ErrNotFound) {
 				// An unavailable keychain is only a problem if it still holds our entry.
 				if _, getErr := s.keychain().Get(keyringService, keyringUser); getErr == nil {
@@ -334,6 +347,32 @@ func (s Store) Clear() error {
 		}
 		return errors.Join(keyringErr, truncateIfExists(s.credentialsFile()), truncateIfExists(s.pendingFile()), truncateIfExists(s.serviceFile()))
 	})
+}
+
+// Preflight checks, before a login redeems its one-time device code, that Save will be able to
+// store what comes back: the keychain takes an entry, or the credential file can be written,
+// updated and emptied in place. It writes no secret and leaves stored credentials as they were.
+func (s Store) Preflight() error {
+	return s.locked(func() error {
+		if s.UseKeyring {
+			kc := s.keychain()
+			if err := kc.Set(keyringService, keyringProbeUser, "ok"); err == nil {
+				_ = kc.Delete(keyringService, keyringProbeUser)
+				return nil
+			}
+		}
+		return probeFile(s.credentialsFile())
+	})
+}
+
+func probeFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	// Rewriting the record with its own bytes is the in-place write a save makes; an empty or
+	// missing file is opened for writing and left empty, so nothing ever reads as stored.
+	return WriteFileInPlace(path, data)
 }
 
 func (s Store) LoadPending() (PendingLogin, error) {
