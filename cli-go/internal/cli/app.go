@@ -47,6 +47,7 @@ const (
 
 var exitByCode = map[string]int{
 	"INVALID_REQUEST":         ExitInvalid,
+	"SERVICE_MISMATCH":        ExitRejected,
 	"USAGE":                   ExitInvalid,
 	"UNAUTHENTICATED":         ExitAuth,
 	"AUTH_REQUIRED":           ExitAuth,
@@ -89,12 +90,27 @@ func fail(code, format string, args ...any) *Failure {
 	return &Failure{Code: code, Message: fmt.Sprintf(format, args...)}
 }
 
+// Where the effective service address came from, reported by `auth status`.
+const (
+	sourceEnvironment = "environment"
+	sourceConnection  = "connection"
+	sourcePending     = "pending_login"
+	sourceDefault     = "default"
+)
+
 type App struct {
+	// APIURL is the explicit override (MUVLOOM_API_URL). When empty, Run resolves it from
+	// the stored connection and then the built-in default.
 	APIURL string
-	Store  auth.Store
-	Out    io.Writer
-	Err    io.Writer
-	HTTP   *http.Client
+	// apiURLSource records how APIURL was resolved for this invocation.
+	apiURLSource string
+	// storeErr is why the stored connection could not be read when the service was resolved.
+	// An unreadable connection hides which service the user signed in to.
+	storeErr error
+	Store    auth.Store
+	Out      io.Writer
+	Err      io.Writer
+	HTTP     *http.Client
 	// RefreshLockWait bounds the wait for another process that is refreshing the token.
 	// Zero means the default.
 	RefreshLockWait time.Duration
@@ -107,7 +123,7 @@ type App struct {
 
 func New(out, errOut io.Writer) *App {
 	return &App{
-		APIURL: envOr("MUVLOOM_API_URL", DefaultAPIURL),
+		APIURL: envOr("MUVLOOM_API_URL", ""),
 		Store:  auth.Default(),
 		Out:    out,
 		Err:    errOut,
@@ -160,7 +176,7 @@ func commands() map[string]map[string]command {
 		"update":  {"check": {"update check", cmdUpdateCheck}},
 		"auth": {
 			"status": {"auth status", cmdAuthStatus},
-			"login":  {"auth login [--no-wait] [--timeout SECONDS]", cmdAuthLogin},
+			"login":  {"auth login [--no-wait] [--timeout SECONDS] [--switch-service]", cmdAuthLogin},
 			"logout": {"auth logout", cmdAuthLogout},
 		},
 		"capabilities": {"": {"capabilities", cmdCapabilities}},
@@ -228,11 +244,69 @@ func (a *App) Run(args []string) int {
 		}
 		rest = rest[1:]
 	}
+	if skipsService[args[0]] {
+		if a.APIURL == "" {
+			a.APIURL, a.apiURLSource = DefaultAPIURL, sourceDefault
+		}
+	} else {
+		a.resolveAPIURL(args[0] == "auth" && len(args) > 1 && args[1] == "login")
+	}
 	if err := validateAPIURL(a.APIURL); err != nil {
 		return a.render(nil, err)
 	}
 	data, err := cmd.run(ctx, a, rest)
 	return a.render(data, err)
+}
+
+// skipsService lists the command groups that never talk to the service. They must not
+// touch the credential store, so they cannot trip a keychain prompt just to print a version.
+// Every other command resolves the service first, so a new group fails safe.
+var skipsService = map[string]bool{"version": true, "update": true, "skill": true}
+
+// resolveAPIURL picks the service for this invocation: an explicit MUVLOOM_API_URL, else the
+// service the stored connection was issued by, else the default. A new agent session has no
+// environment variable, and must not be taken for signed out because of that.
+//
+// resumingLogin is true for `auth login`: a login started earlier (possibly a deliberate
+// switch to another service) is finished against the service it was started for. Other commands
+// keep using the working connection while the switch is pending.
+func (a *App) resolveAPIURL(resumingLogin bool) {
+	if a.APIURL != "" {
+		a.apiURLSource = sourceEnvironment
+		return
+	}
+	if resumingLogin {
+		if pending, err := a.Store.LoadPending(); err == nil && pending.BaseURL != "" && time.Now().Before(pending.ExpiresAt) {
+			a.APIURL, a.apiURLSource = strings.TrimRight(pending.BaseURL, "/"), sourcePending
+			return
+		}
+	}
+	creds, loadErr := a.Store.Load()
+	if loadErr == nil && creds.RefreshToken != "" && creds.BaseURL != "" {
+		a.APIURL, a.apiURLSource = strings.TrimRight(creds.BaseURL, "/"), sourceConnection
+		return
+	}
+	// The secret may be unreadable while the connection still exists: its service is kept
+	// apart from it.
+	if service, err := a.Store.LoadService(); err == nil {
+		a.APIURL, a.apiURLSource = strings.TrimRight(service, "/"), sourceConnection
+		return
+	}
+	// A login started with `--no-wait` belongs to the service it was started for, even when
+	// the next session no longer has the variable that chose it.
+	if pending, err := a.Store.LoadPending(); err == nil && pending.BaseURL != "" && time.Now().Before(pending.ExpiresAt) {
+		a.APIURL, a.apiURLSource = strings.TrimRight(pending.BaseURL, "/"), sourcePending
+		return
+	}
+	if loadErr != nil && !errors.Is(loadErr, auth.ErrNotFound) {
+		a.storeErr = loadErr
+	}
+	a.APIURL, a.apiURLSource = DefaultAPIURL, sourceDefault
+}
+
+// sameService compares service addresses without caring about a trailing slash.
+func sameService(a, b string) bool {
+	return strings.TrimRight(a, "/") == strings.TrimRight(b, "/")
 }
 
 type outputError struct {

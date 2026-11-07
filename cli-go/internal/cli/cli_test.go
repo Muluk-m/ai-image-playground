@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -500,15 +501,281 @@ func TestPendingLoginDoesNotReuseUnrelatedCredentials(t *testing.T) {
 			if err := app.Store.Save(creds); err != nil {
 				t.Fatal(err)
 			}
-			execute(t, app, "auth", "login", "--no-wait")
+			execute(t, app, "auth", "login", "--switch-service", "--no-wait")
 			f.mu.Lock()
 			f.deviceError = "authorization_pending"
 			f.mu.Unlock()
-			r := execute(t, app, "auth", "login", "--timeout", "0")
+			r := execute(t, app, "auth", "login", "--switch-service", "--timeout", "0")
 			if r.code != ExitAuth || r.out["error"].(map[string]any)["code"] != "AUTH_PENDING" {
 				t.Fatalf("unrelated login reused: %s", r.stdout)
 			}
 		})
+	}
+}
+
+// A new agent session has no MUVLOOM_API_URL; the connection already knows its service.
+func TestServiceFollowsTheStoredConnectionWithoutAnOverride(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	login(t, newApp(t, f, dir))
+
+	fresh := newApp(t, f, dir)
+	fresh.APIURL = ""
+	r := execute(t, fresh, "auth", "status")
+	data := r.out["data"].(map[string]any)
+	if r.code != ExitOK || data["state"] != "ready" {
+		t.Fatalf("status = %d %s", r.code, r.stdout)
+	}
+	if data["api_url"] != f.server.URL || data["api_url_source"] != "connection" {
+		t.Fatalf("service = %v (%v), want the stored connection", data["api_url"], data["api_url_source"])
+	}
+	if r := execute(t, fresh, "jobs", "get", "job-1"); r.code != ExitOK {
+		t.Fatalf("a command without an override = %d %s", r.code, r.stdout)
+	}
+}
+
+func TestServiceDefaultsWhenNothingIsStoredAndNothingIsSet(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	app.APIURL = ""
+	r := execute(t, app, "auth", "status")
+	data := r.out["data"].(map[string]any)
+	if data["state"] != "unauthenticated" || data["api_url"] != DefaultAPIURL || data["api_url_source"] != "default" {
+		t.Fatalf("status = %s", r.stdout)
+	}
+}
+
+func TestExplicitOverrideConflictingWithTheConnectionReportsAMismatch(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	login(t, newApp(t, f, dir))
+
+	other := newApp(t, f, dir)
+	other.APIURL = "https://other.example"
+	r := execute(t, other, "auth", "status")
+	data := r.out["data"].(map[string]any)
+	if r.code != ExitOK || data["state"] != "service_mismatch" {
+		t.Fatalf("status = %d %s", r.code, r.stdout)
+	}
+	if data["api_url"] != "https://other.example" || data["api_url_source"] != "environment" || data["connection_api_url"] != f.server.URL {
+		t.Fatalf("mismatch details = %s", r.stdout)
+	}
+	// The connection is neither used against the wrong service nor dropped.
+	if r := execute(t, other, "jobs", "get", "job-1"); r.code != ExitRejected || r.out["error"].(map[string]any)["code"] != "SERVICE_MISMATCH" {
+		t.Fatalf("a command under a mismatch = %d %s", r.code, r.stdout)
+	}
+	if _, err := other.Store.Load(); err != nil {
+		t.Fatalf("the stored connection was removed: %v", err)
+	}
+}
+
+func TestLoginRefusesToReplaceAConnectionOnAnotherServiceUnlessAsked(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	creds, err := app.Store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	creds.BaseURL = "https://old.example" // the connection belongs to another service
+	if err := app.Store.Save(creds); err != nil {
+		t.Fatal(err)
+	}
+
+	r := execute(t, app, "auth", "login", "--no-wait")
+	if r.code != ExitRejected || r.out["error"].(map[string]any)["code"] != "SERVICE_MISMATCH" {
+		t.Fatalf("login under a mismatch = %d %s", r.code, r.stdout)
+	}
+	if _, err := app.Store.LoadPending(); err != auth.ErrNotFound {
+		t.Fatalf("a login was started anyway: %v", err)
+	}
+
+	// The user can still move to the other service on purpose.
+	r = execute(t, app, "auth", "login", "--switch-service", "--no-wait")
+	if r.code != ExitOK || r.out["data"].(map[string]any)["state"] != "pending" {
+		t.Fatalf("--switch-service = %d %s", r.code, r.stdout)
+	}
+	login(t, app)
+	if got, _ := app.Store.Load(); got.BaseURL != f.server.URL {
+		t.Fatalf("connection service after switching = %q", got.BaseURL)
+	}
+}
+
+// The real entry point, with no MUVLOOM_API_URL: commands that never talk to the service
+// must not depend on a service address.
+func TestCommandsThatSkipTheServiceWorkWithoutAnAPIURL(t *testing.T) {
+	t.Setenv("MUVLOOM_API_URL", "")
+	t.Setenv("MUVLOOM_CONFIG_DIR", t.TempDir())
+	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "file")
+	for _, args := range [][]string{{"version"}, {"skill", "status"}} {
+		var stdout, stderr bytes.Buffer
+		app := New(&stdout, &stderr)
+		app.Home, app.CWD = t.TempDir(), t.TempDir()
+		if code := app.Run(args); code != ExitOK {
+			t.Fatalf("muvloom %s = %d %s", strings.Join(args, " "), code, stdout.String())
+		}
+	}
+}
+
+// An unreadable store hides which service the user signed in to. Guessing the default would
+// send an enterprise user to a sign-in page they cannot use.
+func TestLoginDoesNotGuessTheServiceWhenTheStoredConnectionIsUnreadable(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "credentials.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := newApp(t, f, dir)
+	app.APIURL = ""
+	r := execute(t, app, "auth", "login", "--no-wait")
+	if r.code == ExitOK || !strings.Contains(r.stdout, "could not be read") {
+		t.Fatalf("login with an unreadable store = %d %s", r.code, r.stdout)
+	}
+	if _, err := app.Store.LoadPending(); err != auth.ErrNotFound {
+		t.Fatalf("a login was started against a guessed service: %v", err)
+	}
+
+	// An explicit service is a deliberate choice, so signing in again is fine.
+	chosen := newApp(t, f, dir)
+	if r := execute(t, chosen, "auth", "login", "--no-wait"); r.code != ExitOK {
+		t.Fatalf("login with an explicit service = %d %s", r.code, r.stdout)
+	}
+}
+
+func TestATrailingSlashOnTheStoredServiceIsNotAMismatch(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	creds, _ := app.Store.Load()
+	creds.BaseURL += "/"
+	if err := app.Store.Save(creds); err != nil {
+		t.Fatal(err)
+	}
+	if r := execute(t, app, "auth", "status"); r.out["data"].(map[string]any)["state"] != "ready" {
+		t.Fatalf("status = %s", r.stdout)
+	}
+}
+
+// guardNetwork lets an app reach only the fake server, so a test that fails by choosing the
+// wrong service cannot touch a real one.
+func guardNetwork(app *App, f *fakeServer) {
+	host := strings.TrimPrefix(f.server.URL, "http://")
+	app.HTTP = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != host {
+			return nil, &net.DNSError{Err: "blocked by the test: " + r.URL.Host, Name: r.URL.Host}
+		}
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// `login --no-wait` with the service chosen once, then a new session without the variable.
+func TestAPendingLoginKeepsItsServiceAcrossSessions(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	first := newApp(t, f, dir)
+	if r := execute(t, first, "auth", "login", "--no-wait"); r.code != ExitOK {
+		t.Fatalf("no-wait = %d %s", r.code, r.stdout)
+	}
+
+	next := newApp(t, f, dir)
+	next.APIURL = ""
+	guardNetwork(next, f)
+	r := execute(t, next, "auth", "login")
+	data, _ := r.out["data"].(map[string]any)
+	if r.code != ExitOK || data["state"] != "ready" || data["api_url"] != f.server.URL || data["api_url_source"] != "pending_login" {
+		t.Fatalf("resumed login = %d %s", r.code, r.stdout)
+	}
+}
+
+// The keychain may refuse a read while the connection still exists. The service address holds
+// no secret and is kept apart, so an unreadable secret never makes the CLI guess the service.
+func TestTheServiceIsKnownEvenWhenTheStoredSecretCannotBeRead(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	login(t, newApp(t, f, dir))
+	if err := os.WriteFile(filepath.Join(dir, "credentials.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	app := newApp(t, f, dir)
+	app.APIURL = ""
+	guardNetwork(app, f)
+	status := execute(t, app, "auth", "status")
+	data := status.out["data"].(map[string]any)
+	if data["api_url"] != f.server.URL || data["api_url_source"] != "connection" || data["state"] != "unauthenticated" {
+		t.Fatalf("status = %s", status.stdout)
+	}
+	if r := execute(t, app, "auth", "login", "--no-wait"); r.code != ExitOK {
+		t.Fatalf("login for the known service = %d %s", r.code, r.stdout)
+	}
+	if pending, err := app.Store.LoadPending(); err != nil || pending.BaseURL != f.server.URL {
+		t.Fatalf("pending login service = %q (%v)", pending.BaseURL, err)
+	}
+
+	// Signing out forgets the service as well.
+	_ = execute(t, newApp(t, f, dir), "auth", "logout")
+	gone := newApp(t, f, dir)
+	gone.APIURL = ""
+	if r := execute(t, gone, "auth", "status"); r.out["data"].(map[string]any)["api_url_source"] != "default" {
+		t.Fatalf("service kept after logout: %s", r.stdout)
+	}
+}
+
+// The store's own failure text can carry local paths; the answer must stay generic.
+func TestUnreadableStoreMessageDoesNotEchoTheStoreError(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "credentials.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := newApp(t, f, dir)
+	app.APIURL = ""
+	guardNetwork(app, f)
+	r := execute(t, app, "auth", "login", "--no-wait")
+	if r.code == ExitOK || strings.Contains(r.stdout, "credentials.json") || strings.Contains(r.stdout, dir) {
+		t.Fatalf("refusal = %d %s", r.code, r.stdout)
+	}
+}
+
+// Switching service takes two sessions: start it, then finish it without the variable. Only the
+// login resumes the switch; every other command keeps using the working connection meanwhile.
+func TestAnOngoingServiceSwitchIsResumedByLoginOnly(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	creds, _ := app.Store.Load()
+	creds.BaseURL = "https://old.example" // the working connection belongs to another service
+	if err := app.Store.Save(creds); err != nil {
+		t.Fatal(err)
+	}
+	if r := execute(t, app, "auth", "login", "--switch-service", "--no-wait"); r.code != ExitOK {
+		t.Fatalf("start of the switch = %d %s", r.code, r.stdout)
+	}
+
+	other := newApp(t, f, dir)
+	other.APIURL = ""
+	guardNetwork(other, f)
+	if r := execute(t, other, "auth", "status"); r.out["data"].(map[string]any)["api_url_source"] != "connection" {
+		t.Fatalf("a command other than login left the working connection: %s", r.stdout)
+	}
+
+	next := newApp(t, f, dir)
+	next.APIURL = ""
+	guardNetwork(next, f)
+	r := execute(t, next, "auth", "login")
+	data, _ := r.out["data"].(map[string]any)
+	if r.code != ExitOK || data["state"] != "ready" || data["api_url"] != f.server.URL || data["api_url_source"] != "pending_login" {
+		t.Fatalf("the switch was not resumed = %d %s", r.code, r.stdout)
+	}
+	if got, _ := next.Store.Load(); got.BaseURL != f.server.URL {
+		t.Fatalf("connection service after the switch = %q", got.BaseURL)
 	}
 }
 
