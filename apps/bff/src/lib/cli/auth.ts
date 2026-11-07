@@ -318,7 +318,8 @@ export async function decideDeviceAuthorization(
     targetId: changed.id,
     details: { client_id: changed.clientId, loopback: changed.redirectUri !== null },
   })
-  if (decision !== 'approved' || !changed.redirectUri) return { ok: true, redirectTo: null }
+  if (decision !== 'approved' || !loopback || !changed.redirectUri)
+    return { ok: true, redirectTo: null }
   const target = new URL(changed.redirectUri)
   target.searchParams.set('code', authorizationCode)
   return { ok: true, redirectTo: target.toString() }
