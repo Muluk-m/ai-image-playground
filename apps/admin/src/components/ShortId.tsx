@@ -61,7 +61,7 @@ export function ShortId({ value, len = 8, className, compact = false, copy = tru
       </TooltipTrigger>
       <TooltipContent>
         <span className="font-mono text-xs">
-          {copied ? '已复制' : '复制'}：{value}
+          {copy ? `${copied ? '已复制' : '复制'}：${value}` : `完整 ID：${value}`}
         </span>
       </TooltipContent>
     </Tooltip>

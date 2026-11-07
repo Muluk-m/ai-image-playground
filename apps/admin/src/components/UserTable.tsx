@@ -234,7 +234,17 @@ export function UserTable({
                 备注：{user.note}
               </button>
             ) : (
-              <span className="mt-3 block text-xs text-muted-foreground">未添加备注</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                title="移动端添加备注"
+                aria-label={`${user.username}：移动端添加备注`}
+                className="mt-2 text-muted-foreground"
+                onClick={() => setEditingNote(user)}
+              >
+                <MessageSquarePlus />
+              </Button>
             )}
           </article>
         ))}

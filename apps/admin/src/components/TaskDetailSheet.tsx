@@ -71,7 +71,7 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
             type="button"
             role="tab"
             aria-selected={current === tab.id}
-            aria-controls={`task-panel-${tab.id}`}
+            aria-controls="task-panel"
             className={cn(
               'h-9 border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               current === tab.id
@@ -85,7 +85,7 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
         ))}
       </div>
       <div
-        id={`task-panel-${current}`}
+        id="task-panel"
         role="tabpanel"
         aria-labelledby={`task-tab-${current}`}
         tabIndex={0}
