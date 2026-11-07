@@ -547,9 +547,11 @@ function canonicalizeGeminiImageSize(request: SubmitRequest): SubmitRequest {
   const generationConfig = request.extra?.generationConfig
   if (!isObject(generationConfig) || !isObject(generationConfig.imageConfig)) return request
   const imageSize = generationConfig.imageConfig.imageSize
-  return typeof imageSize === 'string' && request.image_size !== imageSize
-    ? withGeminiImageSize(request, imageSize)
-    : request
+  if (typeof imageSize === 'string')
+    return request.image_size !== imageSize ? withGeminiImageSize(request, imageSize) : request
+  // extra.imageConfig 会整个替换扁平参数推导出的 imageConfig；不带 imageSize 时上游就丢了扁平档位，
+  // 计价却仍按扁平档位。把扁平档位写进 extra，让上游发出的就是计价的那一档。
+  return request.image_size ? withGeminiImageSize(request, request.image_size) : request
 }
 
 function normalizeGeminiImageSize(model: string, request: SubmitRequest): SubmitRequest {
