@@ -17,8 +17,8 @@ release_dir=$1
 target=$2
 run_id=$3
 case "$target" in
-  paid) other=test ;;
-  test) other=paid ;;
+  paid) other='test' ;;
+  test) other='paid' ;;
   *)
     echo "unknown target: $target" >&2
     exit 2
