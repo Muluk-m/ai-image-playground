@@ -137,7 +137,7 @@ function StoryboardEditor({
   const params = useStore((s) => s.params)
   const profile = getActiveApiProfile(settings)
   const view = clientProfileToApiProfile(profile)
-  const directAvailable = getParamCapabilities(profile, params.output_format).size
+  const directAvailable = getParamCapabilities(profile, params?.output_format ?? 'png').size
   const premium = useGptPremiumLocked(view.model, directAvailable)
   const model = view.model
   const guard = usePrivateSubmissionGuard({
