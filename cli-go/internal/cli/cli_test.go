@@ -50,6 +50,10 @@ type fakeServer struct {
 	deviceAuthCalls   int
 	// onRedeem runs after the server issued tokens for the device code, before it answers.
 	onRedeem func()
+	// ignoreRequestID behaves like a service that predates request identities.
+	ignoreRequestID bool
+	// expiredOnce answers the next refresh with an access token that has no lifetime left.
+	expiredOnce bool
 }
 
 const secretDeviceCode = "device-secret-value"
@@ -81,7 +85,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 				return
 			}
 			if f.deviceRedeemed {
-				if id := r.Form.Get("request_id"); id != "" && id == f.redeemedWith {
+				if id := r.Form.Get("request_id"); id != "" && id == f.redeemedWith && !f.ignoreRequestID {
 					writeJSON(w, 200, f.tokens())
 					return
 				}
@@ -132,6 +136,13 @@ func newFakeServer(t *testing.T) *fakeServer {
 			f.retiredRefresh, f.lastRefreshID = f.refresh, id
 			f.access = "access-" + f.refresh
 			f.refresh = f.refresh + "-next"
+			if f.expiredOnce {
+				f.expiredOnce = false
+				tokens := f.tokens()
+				tokens["expires_in"] = 0
+				writeJSON(w, 200, tokens)
+				return
+			}
 			if f.refreshMode == "lose" {
 				if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
 					_ = conn.Close()
@@ -1279,5 +1290,103 @@ func TestVersionFlagsAreAliasesOfTheVersionCommand(t *testing.T) {
 	}
 	if r := execute(t, app, "jobs", "-v"); r.code == ExitOK {
 		t.Fatalf("`jobs -v` was accepted: %s", r.stdout)
+	}
+}
+
+// A refresh whose identity cannot be stored first is never sent: the refresh token would be
+// spent with nothing to repeat it by.
+func TestARefreshThatCannotBeRepeatedIsNotSent(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("file permissions are not enforced here")
+	}
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	f.mu.Lock()
+	f.access = "rotated-elsewhere"
+	f.mu.Unlock()
+	path := filepath.Join(app.Store.Dir, "credentials.json")
+	if err := os.Chmod(path, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	r := execute(t, app, "jobs", "get", "job-1")
+	if r.code != ExitRejected || r.out["error"].(map[string]any)["code"] != "CREDENTIAL_STORE_UNWRITABLE" {
+		t.Fatalf("refresh with an unwritable store = %d %s", r.code, r.stdout)
+	}
+	if f.refreshCalls != 0 {
+		t.Fatalf("sent a refresh it could not repeat: %d", f.refreshCalls)
+	}
+}
+
+func TestARecoveredExpiredAccessTokenIsRotatedAgain(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	f.mu.Lock()
+	f.access, f.expiredOnce = "rotated-elsewhere", true
+	f.mu.Unlock()
+	if r := execute(t, app, "jobs", "get", "job-1"); r.code != ExitOK {
+		t.Fatalf("command = %d %s", r.code, r.stdout)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.refreshCalls != 2 || f.refreshRequestIDs[0] == f.refreshRequestIDs[1] {
+		t.Fatalf("refreshes = %d %q", f.refreshCalls, f.refreshRequestIDs)
+	}
+	creds, _ := app.Store.Load()
+	if creds.RefreshToken != "refresh-1-next-next" || creds.RefreshRequestID != "" || !time.Now().Before(creds.AccessExpiresAt) {
+		t.Fatalf("stored = %+v", creds)
+	}
+}
+
+// Against a service that predates request identities, a redeemed code cannot be repeated: the
+// next login says so and a fresh login works.
+func TestAFailedSaveAgainstAnOlderServiceAsksForANewApproval(t *testing.T) {
+	f := newFakeServer(t)
+	f.ignoreRequestID = true
+	app := newApp(t, f, t.TempDir())
+	creds := filepath.Join(app.Store.Dir, "credentials.json")
+	f.onRedeem = func() {
+		_ = os.Remove(creds)
+		_ = os.Mkdir(creds, 0o700)
+		_ = os.WriteFile(filepath.Join(creds, "block"), []byte("block"), 0o600)
+	}
+	execute(t, app, "auth", "login")
+	f.mu.Lock()
+	f.onRedeem = nil
+	f.mu.Unlock()
+	if err := os.RemoveAll(creds); err != nil {
+		t.Fatal(err)
+	}
+	if status := execute(t, app, "auth", "status"); status.out["data"].(map[string]any)["pending_login"] == nil {
+		t.Fatalf("status hides the recoverable login: %s", status.stdout)
+	}
+	r := execute(t, app, "auth", "login")
+	if r.code != ExitAuth || r.out["error"].(map[string]any)["code"] != "AUTH_REQUIRED" {
+		t.Fatalf("second login = %d %s", r.code, r.stdout)
+	}
+	login(t, app)
+}
+
+func TestARedeemedLoginPastItsCodeLifetimeStillChecksTheService(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	other := newFakeServer(t)
+	pending := auth.PendingLogin{
+		DeviceCode: "other-code", UserCode: "BCDF-GHJK", ExpiresAt: time.Now().Add(-time.Minute),
+		IntervalSeconds: 1, BaseURL: other.server.URL, RequestID: "11111111-1111-4111-8111-111111111111", Redeemed: true,
+	}
+	if err := app.Store.SavePending(pending); err != nil {
+		t.Fatal(err)
+	}
+	app.APIURL = other.server.URL
+	r := execute(t, app, "auth", "login")
+	if r.out["error"].(map[string]any)["code"] != "SERVICE_MISMATCH" {
+		t.Fatalf("login = %s", r.stdout)
+	}
+	if other.polls != 0 {
+		t.Fatal("redeemed a login for another service without being asked")
 	}
 }

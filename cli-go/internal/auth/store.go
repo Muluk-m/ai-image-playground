@@ -337,6 +337,7 @@ func (s Store) Clear() error {
 	return s.locked(func() error {
 		var keyringErr error
 		if s.UseKeyring || s.ClearKeyring {
+			_ = s.keychain().Delete(keyringService, keyringProbeUser)
 			if err := s.keychain().Delete(keyringService, keyringUser); err != nil && !errors.Is(err, keyring.ErrNotFound) {
 				// An unavailable keychain is only a problem if it still holds our entry.
 				if _, getErr := s.keychain().Get(keyringService, keyringUser); getErr == nil {
@@ -369,17 +370,9 @@ func probeFile(path string) error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if len(bytes.TrimSpace(data)) > 0 {
-		// Rewriting the record with its own bytes is the in-place write a save makes.
-		return WriteFileInPlace(path, data)
-	}
-	if err := WriteFileInPlace(path, []byte("{}")); err != nil {
-		return err
-	}
-	if err := WriteFileInPlace(path, []byte(`{"write_check":true}`)); err != nil {
-		return err
-	}
-	return truncateIfExists(path)
+	// Rewriting the record with its own bytes is the in-place write a save makes; an empty or
+	// missing file is opened for writing and left empty, so nothing ever reads as stored.
+	return WriteFileInPlace(path, data)
 }
 
 func (s Store) LoadPending() (PendingLogin, error) {
