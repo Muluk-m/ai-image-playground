@@ -20,6 +20,8 @@ import {
   manualCommands,
   SESSION_PATH,
   skillInstallCommand,
+  WORKBUDDY_SETUP_PATH,
+  WORKBUDDY_SKILL_PATH,
 } from '../../../features/cli/connectAgents'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
@@ -100,9 +102,22 @@ describe('CliConnectPage', () => {
     expect(CONNECT_AGENTS).toEqual(['workbuddy', 'doubao', 'claude-code', 'codex', 'other'])
     expect(host.querySelector('[aria-pressed="true"]')?.textContent).toBe('WorkBuddy')
     expect(promptText()).toContain('WorkBuddy')
-    expect(promptText()).toContain(new URL(AGENT_SETUP_PATH, window.location.origin).href)
+    expect(promptText()).toContain(new URL(WORKBUDDY_SETUP_PATH, window.location.origin).href)
     expect(promptText()).not.toContain('curl')
     expect(host.querySelector('[aria-label="选择系统"]')).toBeNull()
+  })
+
+  it('WorkBuddy 对话安装使用专用指南，技能下载只出现在手动方式', async () => {
+    await render()
+    expect(host.querySelector(`a[href="${WORKBUDDY_SKILL_PATH}"]`)).toBeNull()
+    expect(promptText()).toContain(new URL(WORKBUDDY_SETUP_PATH, window.location.origin).href)
+    await click('我自己来')
+    expect(host.querySelector(`a[href="${WORKBUDDY_SKILL_PATH}"][download]`)).not.toBeNull()
+    await click('让 Agent 安装')
+    expect(host.querySelector(`a[href="${WORKBUDDY_SKILL_PATH}"]`)).toBeNull()
+    await click('Codex')
+    expect(host.querySelector(`a[href="${WORKBUDDY_SKILL_PATH}"]`)).toBeNull()
+    expect(promptText()).toContain(new URL(AGENT_SETUP_PATH, window.location.origin).href)
   })
 
   it('各插件都只复制简短的接入请求和指南地址，隐藏安装细节', async () => {

@@ -61,7 +61,11 @@ For Codex, run:
 muvloom skill install --host codex
 ```
 
-For WorkBuddy, 豆包工作, and other hosts, skip this step. CLI 0.1.3 only
+For WorkBuddy, follow [the WorkBuddy guide](workbuddy.md) to install the official
+skill from the conversation and connect the account. Confirm that the skill appears in WorkBuddy
+before reporting setup complete.
+
+For 豆包工作 and other hosts, skip this step. CLI 0.1.3 only
 accepts `claude-code` and `codex` as skill hosts. Use `muvloom --help` and
 subcommand help to learn the CLI; do not invent a `--host` value or write into
 an unverified host configuration directory.
