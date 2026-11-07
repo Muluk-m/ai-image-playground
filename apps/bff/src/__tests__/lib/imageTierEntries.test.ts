@@ -9,16 +9,16 @@ import {
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 /**
- * 特征测试：钉住「提交入口 × 模型系列 × 会员」现在实际落库的请求与拒绝结果。
- * 图片档位策略 module 重构（resolveImageTier）期间这张表不能变；改动它就是行为变更。
+ * 特征测试：钉住「提交入口 × 模型系列 × 会员」落库的请求与拒绝结果，以及 `metering.tier` 快照。
+ * 图片档位策略重构（resolveImageTier）期间这张表不能变；改动它就是行为变更。
  *
- * 入口取自 createQueueTask / prepareQueueTask 现有字段：
- * - web-direct：不带任何标记
- * - cli-strict：strictImageRequest
- * - tx：调用方自带事务（目前只有确认生成，且它同时带 agent）
- * - prepared：先 prepareQueueTask 再在事务里提交（自动提交、批次执行、灵感套用）
+ * `Entry` 是测试里的提交形态，对应 createQueueTask 的 `entry`：
+ * - web-direct：网站直接提交
+ * - cli-strict：CLI（strictImageRequest）
+ * - tx：调用方自带事务（确认生成），entry 为 agent
+ * - prepared：先 prepareQueueTask 再在事务里提交（批次执行、自动提交、灵感套用），entry 为 batch
  * 智能体与阶段授权入口走同一条 ceiling 分支，由 chat-task / agent-stage-authorizations 测试覆盖。
- * 本文件是 resolveImageTier 落地前的过渡脚手架：落地后这张表并入该 module 的测试，届时删除本文件。
+ * 与 taskSubmission.test.ts 的 `non-member resolution ceiling` 有部分重叠，这里独立钉住全矩阵。
  */
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
@@ -197,7 +197,7 @@ describe('metering.tier snapshot', () => {
     withMember(true)
     expect(await tierOf(await submitVia('web-direct', baseInput('gpt')))).toEqual({
       entry: 'web-direct',
-      member: true,
+      memberApplied: true,
       requires: { membership: true, directRoute: false },
     })
   })
@@ -206,7 +206,7 @@ describe('metering.tier snapshot', () => {
     withMember(false)
     expect(await tierOf(await submitVia('web-direct', baseInput('gpt')))).toEqual({
       entry: 'web-direct',
-      member: false,
+      memberApplied: false,
       requires: { membership: false, directRoute: false },
     })
   })
@@ -215,7 +215,7 @@ describe('metering.tier snapshot', () => {
     withMember(true)
     expect(await tierOf(await submitVia('prepared', baseInput('gpt')))).toEqual({
       entry: 'batch',
-      member: false,
+      memberApplied: false,
       requires: { membership: false, directRoute: false },
     })
   })
@@ -224,7 +224,7 @@ describe('metering.tier snapshot', () => {
     withMember(true)
     expect(await tierOf(await submitVia('cli-strict', baseInput('gpt')))).toEqual({
       entry: 'cli-strict',
-      member: false,
+      memberApplied: false,
       requires: { membership: true, directRoute: true },
     })
   })

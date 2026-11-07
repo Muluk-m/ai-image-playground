@@ -61,7 +61,11 @@ export interface ImageTierDecision<T extends ImageRateRequest> {
 /** 落库到 `tasks.metering.tier` 的快照；旧任务行没有它。 */
 export interface ImageTierSnapshot {
   readonly entry: ImageTierEntry
-  readonly member: boolean
+  /**
+   * 决策用到的会员位。只有会员与否会改变结果时才查询；没查询就是 false，
+   * 不代表账号不是会员，不要拿它做对账、退差价或运营统计。
+   */
+  readonly memberApplied: boolean
   readonly requires: ImageTierRequires
 }
 

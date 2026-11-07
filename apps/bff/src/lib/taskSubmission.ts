@@ -584,7 +584,7 @@ function tierSnapshot(
   member: boolean,
   decision: ImageTierDecision<SubmitRequest>,
 ): ImageTierSnapshot {
-  return { entry, member, requires: decision.requires }
+  return { entry, memberApplied: member, requires: decision.requires }
 }
 
 /**
@@ -622,9 +622,10 @@ async function alignImageTier(input: CreateQueueTaskInput): Promise<{
     member,
   }).effectiveRequest
   if (gemini && input.entry !== 'cli-strict') request = shapeGeminiAligned(input.model, request)
-  const decision = resolveImageTier({ ...base, request, member })
-  const final = decision.effectiveRequest
-  return { input: final === input.request ? input : { ...input, request: final }, decision, member }
+  // 对整理后的最终请求只取 requires 与倍率：会员位拉满，避免再收一次口把 Gemini 降回 2K，
+  // 而 extra.imageConfig 与渠道取最近档的结果仍是 4K，落库、计价与上游发出的档位就错位了。
+  const decision = resolveImageTier({ ...base, request, member: true })
+  return { input: request === input.request ? input : { ...input, request }, decision, member }
 }
 
 const GPT_IMAGE_26_REJECTION_MESSAGE = {
