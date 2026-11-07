@@ -13,8 +13,9 @@ moves, how, and that it loops). Optional flags come from the model's `gif` entry
 
 - `--frames N`: `frame_count.min`–`frame_count.max` (default `frame_count.default`);
   smoother motion needs more frames, and more frames cost more.
-- `--frame-duration-ms MS`: time per frame; `frame_durations_ms` lists the usual
-  choices (shorter is faster motion).
+- `--frame-duration-ms MS`: time per frame within `frame_duration_ms` (min, max,
+  step); `suggested_frame_durations_ms` lists the usual choices (shorter is faster
+  motion).
 - `--frame-size WxH`: one of `frame_sizes`. `max_frames_by_size` caps the frames
   for each size; pick a smaller size when the user needs more frames.
 
