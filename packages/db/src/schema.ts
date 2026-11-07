@@ -30,6 +30,7 @@ import type {
   GenerationParameters,
   GenerationSource,
   GenerationSummary,
+  ImageTierSnapshot,
   PersistedSubmitRequest,
   ProductionGenerationBinding,
   ProductionGenerationReference,
@@ -1393,6 +1394,8 @@ export const tasks = pgTable(
       quantity: number
       unitMultiplier: number
       pricing?: AgentBatchPriceSnapshot
+      /** 提交时定下的档位决定；2026-11 之前的任务行没有。 */
+      tier?: ImageTierSnapshot
     } | null>(),
     result_payload: bunJsonb('result_payload'),
     /** Recoverable source URLs or spooled object references; never inline original bytes. */

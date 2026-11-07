@@ -84,6 +84,7 @@ it('接受智能体图片任务时持久预留原项目的产物身份，无浏�
   const original = await project()
   const turnId = crypto.randomUUID()
   const submitted = await createQueueTask({
+    entry: 'agent',
     provider: 'openai-compat',
     model: 'gpt-image-2',
     request: { prompt: '产品图', device_id: 'archive-device', n: 2 },
@@ -106,6 +107,7 @@ it('接受智能体图片任务时持久预留原项目的产物身份，无浏�
 it('无浏览器连接也向原项目交付，保留用户移动和其他编辑，重放不重复生成或放置', async () => {
   const original = await project()
   const submitted = await createQueueTask({
+    entry: 'agent',
     provider: 'openai-compat',
     model: 'gpt-image-2',
     request: { prompt: '产品图', device_id: 'archive-device' },
@@ -190,6 +192,7 @@ it('不能把其他项目的生成占位复制为本项目的可交付目标', a
   const original = await project(),
     other = await project()
   const submitted = await createQueueTask({
+    entry: 'agent',
     provider: 'openai-compat',
     model: 'gpt-image-2',
     request: { prompt: '产品图', device_id: 'archive-device' },
@@ -212,6 +215,7 @@ it('不能把其他项目的生成占位复制为本项目的可交付目标', a
 it('删除的预留对象不复活，成功原件仍保存在创作记录', async () => {
   const original = await project()
   const submitted = await createQueueTask({
+    entry: 'agent',
     provider: 'openai-compat',
     model: 'gpt-image-2',
     request: { prompt: '产品图', device_id: 'archive-device' },
@@ -254,6 +258,7 @@ it('删除的预留对象不复活，成功原件仍保存在创作记录', asyn
 it('项目交付事务失败后只重试保存，保留成功原件，恢复不会再次调用模型', async () => {
   const original = await project()
   const submitted = await createQueueTask({
+    entry: 'agent',
     provider: 'openai-compat',
     model: 'gpt-image-2',
     request: { prompt: '产品图', device_id: 'archive-device' },
@@ -303,6 +308,7 @@ it('项目交付事务失败后只重试保存，保留成功原件，恢复不�
 it('取消生成会清除服务端占位，另一个设备不会永远显示生成中', async () => {
   const original = await project()
   const submitted = await createQueueTask({
+    entry: 'agent',
     provider: 'openai-compat',
     model: 'gpt-image-2',
     request: { prompt: '取消图', device_id: 'archive-device' },
@@ -326,6 +332,7 @@ it('取消生成会清除服务端占位，另一个设备不会永远显示生�
 it('最新修订上的旧撤销内容也不能复活已经删除的生成占位', async () => {
   const original = await project()
   const submitted = await createQueueTask({
+    entry: 'agent',
     provider: 'openai-compat',
     model: 'gpt-image-2',
     request: { prompt: '不可复活', device_id: 'archive-device' },
@@ -356,6 +363,7 @@ it('最新修订上的旧撤销内容也不能复活已经删除的生成占位'
 
 async function submitToProject(projectConversationId: string, n = 1) {
   const submitted = await createQueueTask({
+    entry: 'agent',
     provider: 'openai-compat',
     model: 'gpt-image-2',
     request: { prompt: '会失败的图', device_id: 'archive-device', n },
@@ -512,6 +520,7 @@ it('单张重试接替原来的失败占位：同一位置、同一层级，其�
   expect(saved.status).toBe(200)
 
   const retried = await createQueueTask({
+    entry: 'agent',
     provider: 'openai-compat',
     model: 'gpt-image-2',
     request: { prompt: '会失败的图', device_id: 'archive-device', n: 1 },
@@ -542,6 +551,7 @@ it('要接替的位置不是失败占位时照常另找位置', async () => {
   const running = await submitToProject(original.conversationId)
   const reserved = await (await request(`/${original.id}`)).json()
   const retried = await createQueueTask({
+    entry: 'agent',
     provider: 'openai-compat',
     model: 'gpt-image-2',
     request: { prompt: '会失败的图', device_id: 'archive-device', n: 1 },
@@ -567,6 +577,7 @@ it('migrated cloud canvas receives Agent reservations and results without overwr
   const doc = new Y.Doc()
   Y.applyUpdate(doc, await accessCanvasDocument('archive-owner', original.id))
   const submitted = await createQueueTask({
+    entry: 'agent',
     provider: 'openai-compat',
     model: 'gpt-image-2',
     request: { prompt: '云画布产品图', device_id: 'archive-device' },

@@ -294,6 +294,7 @@ export const lookRoutes = new Elysia()
       }
 
       const createInputs: CreateQueueTaskInput[] = assembled.map((item, index) => ({
+        entry: 'look',
         provider: target.provider,
         model: target.model,
         request: {

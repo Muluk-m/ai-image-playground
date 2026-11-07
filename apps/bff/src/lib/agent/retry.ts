@@ -285,6 +285,7 @@ async function submitRetryTask(
   }
   const deviceId = input.deviceId ?? persisted.device_id
   const submitted = await createQueueTask({
+    entry: 'agent',
     provider: plan.target.provider,
     model: plan.target.model,
     request: { ...request, n: 1, ...(deviceId ? { device_id: deviceId } : {}) },
