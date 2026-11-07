@@ -3,8 +3,11 @@
 After `auth status` is ready and `capabilities` succeeds, briefly tell the user the
 connection is ready. List all models returned by this account's current
 `capabilities`: show their labels and mark `default_model`. Use IDs when labels
-are missing or ambiguous. Do not hard-code a model catalog, infer model strengths,
-or include prices unless asked. Reuse the capabilities response from setup.
+are missing or ambiguous. For each model, mention what it can output beyond regular
+images, from its `output_formats` (for example "can also make animated GIFs and SVG
+vectors directly"). Do not hard-code a model catalog, invent strengths that the
+response does not show, or include prices unless asked. Reuse the capabilities
+response from setup.
 
 Show the invocation appropriate to the host where the Skill was installed:
 
@@ -13,6 +16,7 @@ Show the invocation appropriate to the host where the Skill was installed:
 | Codex desktop | Type `/` and select the Muvloom Skill if listed; `$muvloom` is an explicit invocation | `$muvloom 用这张商品照片制作一套电商图` |
 | Codex CLI / IDE | Run `/skills` and select Muvloom, or type `$muvloom` | `$muvloom 用指定的可用模型生成一张小猫表情包` |
 | Claude Code | Use `/muvloom` | `/muvloom 用这张商品照片制作一套电商图` |
+| Any host, when a model lists `gif` | Ask for an animation by name | `用幕芽做一个小猫挥手的 GIF 动图` |
 | Other hosts without an installed Skill | Use natural language | `用幕芽生成一张小猫表情包` |
 
 Also explain that natural-language requests using 幕芽, muya or muvloom can select
