@@ -659,6 +659,13 @@
       "when": 1794500000000,
       "tag": "0095_cli_refresh_request_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1794600000000,
+      "tag": "0096_cli_loopback_authorization",
+      "breakpoints": true
     }
   ]
 }

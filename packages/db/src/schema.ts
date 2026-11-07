@@ -299,9 +299,15 @@ export const device_authorizations = pgTable(
     interval_seconds: integer('interval_seconds').notNull(),
     last_polled_at: epochMs('last_polled_at'),
     created_at: epochMs('created_at').notNull(),
+    /** Loopback sign-in: where the approval page sends the one-time code, and its PKCE challenge. */
+    redirect_uri: text('redirect_uri'),
+    code_challenge: text('code_challenge'),
+    authorization_code_hash: text('authorization_code_hash'),
+    authorization_code_expires_at: epochMs('authorization_code_expires_at'),
   },
   (t) => [
     uniqueIndex('idx_device_authorizations_device_code_hash').on(t.device_code_hash),
+    uniqueIndex('idx_device_authorizations_authorization_code_hash').on(t.authorization_code_hash),
     uniqueIndex('idx_device_authorizations_user_code_hash').on(t.user_code_hash),
     index('idx_device_authorizations_expires_at').on(t.expires_at),
     check(

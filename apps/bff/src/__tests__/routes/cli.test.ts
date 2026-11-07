@@ -11,7 +11,8 @@ process.env.PORT = '0'
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test'
 process.env.DATABASE_URL = TEST_DB
-process.env.CORS_ALLOWED_ORIGINS = 'https://studio.test'
+process.env.CORS_ALLOWED_ORIGINS = 'https://studio.test,https://enterprise.example'
+process.env.AUTH_PUBLIC_ORIGINS = 'https://api.enterprise.example'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../cli-operator-config.json')
 process.env.CLIENT_IP_SOURCE = 'cf-connecting-ip'
 process.env.GPT_DIRECT_ENABLED = 'true'
@@ -414,6 +415,198 @@ describe('device authorization', () => {
     const device = await startDevice()
     await db.update(schema.device_authorizations).set({ expires_at: Date.now() - 1 })
     expect((await pollToken(device.device_code)).json).toEqual({ error: 'expired_token' })
+  })
+})
+
+function pkcePair() {
+  const verifier = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url')
+  const challenge = new Bun.CryptoHasher('sha256').update(verifier).digest('base64url')
+  return { verifier, challenge }
+}
+
+const LOOPBACK = 'http://127.0.0.1:53682/callback'
+
+async function startLoopback(challenge: string, redirectUri = LOOPBACK) {
+  return call('POST', '/v1/oauth/device_authorization', {
+    form: {
+      client_id: 'muvloom-cli',
+      redirect_uri: redirectUri,
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+    },
+  })
+}
+
+function exchangeCode(
+  code: string,
+  verifier: string,
+  options: { redirectUri?: string; requestId?: string } = {},
+) {
+  return call('POST', '/v1/oauth/token', {
+    form: {
+      client_id: 'muvloom-cli',
+      grant_type: 'authorization_code',
+      code,
+      code_verifier: verifier,
+      redirect_uri: options.redirectUri ?? LOOPBACK,
+      ...(options.requestId ? { request_id: options.requestId } : {}),
+    },
+  })
+}
+
+async function approveLoopback(user: { cookie: string }, userCode: string) {
+  const res = await call('POST', '/api/cli/device', {
+    body: { user_code: userCode, decision: 'approve', loopback: true },
+    headers: { cookie: user.cookie },
+  })
+  expect(res.status).toBe(200)
+  const target = new URL(res.json.redirect_to)
+  expect(`${target.origin}${target.pathname}`).toBe(LOOPBACK)
+  return target.searchParams.get('code')!
+}
+
+describe('loopback sign-in', () => {
+  it('hands the approval page a one-time code that only the PKCE verifier redeems', async () => {
+    const user = await createUser('loopback-owner')
+    const { verifier, challenge } = pkcePair()
+    const device = (await startLoopback(challenge)).json
+    const code = await approveLoopback(user, device.user_code)
+
+    expect((await exchangeCode(code, pkcePair().verifier)).json).toEqual({
+      error: 'invalid_grant',
+    })
+    expect(
+      (await exchangeCode(code, verifier, { redirectUri: 'http://127.0.0.1:1/callback' })).json,
+    ).toEqual({ error: 'invalid_grant' })
+
+    const issued = await exchangeCode(code, verifier)
+    expect(issued.status).toBe(200)
+    expect(
+      (await call('GET', '/v1/me', { headers: bearer(issued.json.access_token) })).status,
+    ).toBe(200)
+    // 一次性：同一授权码不能再换，设备码那条路也随之用掉。
+    expect((await exchangeCode(code, verifier)).json).toEqual({ error: 'invalid_grant' })
+    expect((await pollToken(device.device_code)).json).toEqual({ error: 'invalid_grant' })
+    expect(JSON.stringify(await db.select().from(schema.device_authorizations))).not.toContain(code)
+  })
+
+  it('refuses expired codes and non-loopback redirects', async () => {
+    const user = await createUser('loopback-expiry')
+    const { verifier, challenge } = pkcePair()
+    const device = (await startLoopback(challenge)).json
+    const code = await approveLoopback(user, device.user_code)
+    await db
+      .update(schema.device_authorizations)
+      .set({ authorization_code_expires_at: Date.now() - 1 })
+    expect((await exchangeCode(code, verifier)).json).toEqual({ error: 'invalid_grant' })
+
+    for (const redirect of [
+      'http://localhost:53682/callback',
+      'https://127.0.0.1:53682/callback',
+      'http://127.0.0.1/callback',
+      'http://127.0.0.1:53682/other',
+      'http://127.0.0.1:53682/callback?next=x',
+      'http://evil.example:53682/callback',
+    ]) {
+      const res = await startLoopback(challenge, redirect)
+      expect(res.status).toBe(400)
+      expect(res.json).toEqual({ error: 'invalid_request' })
+    }
+    expect(
+      (
+        await call('POST', '/v1/oauth/device_authorization', {
+          form: { client_id: 'muvloom-cli', redirect_uri: LOOPBACK, code_challenge: challenge },
+        })
+      ).json,
+    ).toEqual({ error: 'invalid_request' })
+  })
+
+  it('replays the same tokens for a retried code exchange with the same request id', async () => {
+    const user = await createUser('loopback-retry')
+    const { verifier, challenge } = pkcePair()
+    const device = (await startLoopback(challenge)).json
+    const code = await approveLoopback(user, device.user_code)
+    const requestId = crypto.randomUUID()
+    const first = await exchangeCode(code, verifier, { requestId })
+    const retried = await exchangeCode(code, verifier, { requestId })
+    expect(retried.status).toBe(200)
+    expect(retried.json.refresh_token).toBe(first.json.refresh_token)
+    expect(await db.select().from(schema.cli_connections)).toHaveLength(1)
+    expect((await exchangeCode(code, verifier, { requestId: crypto.randomUUID() })).json).toEqual({
+      error: 'invalid_grant',
+    })
+  })
+
+  it('lets the callback finish first, and device polling take over once the code lapses', async () => {
+    const user = await createUser('loopback-fallback')
+    const { challenge } = pkcePair()
+    const device = (await startLoopback(challenge)).json
+    await approveLoopback(user, device.user_code)
+    // 浏览器正带着授权码回本机：设备码不能抢先完成，否则 CLI 退出、浏览器回到关掉的端口。
+    expect((await pollToken(device.device_code)).json).toEqual({ error: 'authorization_pending' })
+    // 三十秒内没回来，多半回不到本机：轮询接手，授权码仍在有效期内。
+    await db.update(schema.device_authorizations).set({
+      authorization_code_expires_at: Date.now() + 2 * 60 * 1000 - 31_000,
+      last_polled_at: null,
+    })
+    const issued = await pollToken(device.device_code)
+    expect(issued.status).toBe(200)
+  })
+
+  it('still lets polling finish a login approved just before the device code expired', async () => {
+    const user = await createUser('loopback-late')
+    const { challenge } = pkcePair()
+    const device = (await startLoopback(challenge)).json
+    await approveLoopback(user, device.user_code)
+    await db.update(schema.device_authorizations).set({
+      expires_at: Date.now() - 1_000,
+      authorization_code_expires_at: Date.now() + 2 * 60 * 1000 - 31_000,
+      last_polled_at: null,
+    })
+    expect((await pollToken(device.device_code)).status).toBe(200)
+  })
+
+  it('completes by polling at once when the approval page will not hand back a code', async () => {
+    const user = await createUser('loopback-elsewhere')
+    const { challenge } = pkcePair()
+    const device = (await startLoopback(challenge)).json
+    // 在另一台设备上手输授权码：页面不跳回本机，也就不发授权码。
+    const res = await call('POST', '/api/cli/device', {
+      body: { user_code: device.user_code, decision: 'approve' },
+      headers: { cookie: user.cookie },
+    })
+    expect(res.json).toEqual({ ok: true })
+    expect((await pollToken(device.device_code)).status).toBe(200)
+  })
+
+  it('sends an enterprise API host to the enterprise approval page', async () => {
+    const res = await call('POST', '/v1/oauth/device_authorization', {
+      form: { client_id: 'muvloom-cli' },
+      headers: { 'x-forwarded-host': 'api.enterprise.example', 'x-forwarded-proto': 'https' },
+    })
+    expect(res.json.verification_uri).toBe('https://enterprise.example/device')
+    expect((await startDevice()).verification_uri_complete).toStartWith(
+      'https://studio.test/device?user_code=',
+    )
+  })
+
+  it('does not hand out a code for a denial or a device-only login', async () => {
+    const user = await createUser('loopback-deny')
+    const { challenge } = pkcePair()
+    const device = (await startLoopback(challenge)).json
+    const denied = await call('POST', '/api/cli/device', {
+      body: { user_code: device.user_code, decision: 'deny' },
+      headers: { cookie: user.cookie },
+    })
+    expect(denied.json).toEqual({ ok: true })
+    const plain = await startDevice()
+    const approved = await call('POST', '/api/cli/device', {
+      body: { user_code: plain.user_code, decision: 'approve' },
+      headers: { cookie: user.cookie },
+    })
+    expect(approved.json).toEqual({ ok: true })
+    const rows = await db.select().from(schema.device_authorizations)
+    expect(rows.every((row) => row.authorization_code_hash === null)).toBe(true)
   })
 })
 

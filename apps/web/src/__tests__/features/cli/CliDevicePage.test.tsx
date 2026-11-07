@@ -9,7 +9,11 @@ import CliDevicePage from '../../../features/cli/CliDevicePage'
 import { oauthStartUrl } from '../../../lib/authClient'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
-const { promptLogin } = vi.hoisted(() => ({ promptLogin: vi.fn() }))
+const { promptLogin, leaveTo } = vi.hoisted(() => ({ promptLogin: vi.fn(), leaveTo: vi.fn() }))
+vi.mock('../../../features/cli/loopbackRedirect', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../features/cli/loopbackRedirect')>()),
+  leaveTo,
+}))
 vi.mock('../../../auth/loginPrompt', async (importOriginal) => ({
   ...(await importOriginal<typeof LoginPromptModule>()),
   promptLogin,
@@ -56,6 +60,7 @@ beforeEach(() => {
   document.body.appendChild(host)
   root = createRoot(host)
   promptLogin.mockClear()
+  leaveTo.mockClear()
 })
 
 afterEach(() => {
@@ -86,6 +91,80 @@ describe('CliDevicePage', () => {
       }),
     )
     expect(host.querySelector('[role="status"]')?.textContent).toBe(outcome)
+  })
+
+  it('sends the browser back to the CLI that opened it, with its state', async () => {
+    const state = 'cli-state-0123456789abcdef'
+    window.history.replaceState(null, '', `/device?user_code=BCDF-GHJK&state=${state}`)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: string, init?: RequestInit) =>
+        Response.json(
+          init?.method === 'POST'
+            ? { ok: true, redirect_to: 'http://127.0.0.1:53682/callback?code=one-time' }
+            : AUTHORIZATION,
+        ),
+      ),
+    )
+    await render()
+    await act(async () => button('授权').click())
+    expect(vi.mocked(fetch)).toHaveBeenLastCalledWith(
+      'https://api.example.com/api/cli/device',
+      expect.objectContaining({
+        body: JSON.stringify({ user_code: 'BCDF-GHJK', decision: 'approve', loopback: true }),
+      }),
+    )
+    expect(leaveTo).toHaveBeenCalledWith(
+      `http://127.0.0.1:53682/callback?code=one-time&state=${state}`,
+    )
+    expect(host.textContent).toContain('正在处理…')
+  })
+
+  it.each([
+    [
+      'without a state, as when the code was typed on another device',
+      '',
+      'http://127.0.0.1:53682/callback?code=c',
+    ],
+    [
+      'to anywhere but a loopback callback',
+      '&state=cli-state-0123456789abcdef',
+      'https://evil.example/callback?code=c',
+    ],
+  ])('does not redirect %s', async (_name, query, redirectTo) => {
+    window.history.replaceState(null, '', `/device?user_code=BCDF-GHJK${query}`)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: string, init?: RequestInit) =>
+        Response.json(
+          init?.method === 'POST' ? { ok: true, redirect_to: redirectTo } : AUTHORIZATION,
+        ),
+      ),
+    )
+    await render()
+    await act(async () => button('授权').click())
+    expect(leaveTo).not.toHaveBeenCalled()
+    expect(host.querySelector('[role="status"]')?.textContent).toBe('已授权。')
+  })
+
+  it('says when the CLI could not finish, without offering to authorize again', async () => {
+    window.history.replaceState(null, '', '/device?status=failed')
+    vi.stubGlobal('fetch', vi.fn())
+    await render()
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe(
+      '连接没有完成，请回到原来的应用查看。',
+    )
+    expect(host.querySelectorAll('button')).toHaveLength(0)
+  })
+
+  it('shows that the CLI finished connecting', async () => {
+    window.history.replaceState(null, '', '/device?status=connected')
+    const fetcher = vi.fn()
+    vi.stubGlobal('fetch', fetcher)
+    await render()
+    expect(host.querySelector('[role="status"]')?.textContent).toBe('已连接，可以回到原来的应用。')
+    expect(host.querySelector('input')).toBeNull()
+    expect(fetcher).not.toHaveBeenCalled()
   })
 
   it('returns only after clicking and explains when the browser keeps the tab open', async () => {
