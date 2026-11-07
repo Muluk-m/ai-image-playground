@@ -95,6 +95,9 @@ type App struct {
 	Out    io.Writer
 	Err    io.Writer
 	HTTP   *http.Client
+	// RefreshLockWait bounds the wait for another process that is refreshing the token.
+	// Zero means the default.
+	RefreshLockWait time.Duration
 	// Home and CWD override the Skill install roots in tests.
 	Home string
 	CWD  string
