@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'bun:test'
+import type { ImageRateRequest } from '../gpt-direct'
 import { type ImageTierEntry, resolveImageTier } from '../image-tier'
 
 const GPT = { model: 'gpt-image-2.5-flare', provider: 'openai-compat' } as const
 const GEMINI = { model: 'gemini-3-pro-image', provider: 'gemini' } as const
 
-const GPT_4K_HIGH = { prompt: 'p', size: '3840x2160', quality: 'high' as const }
-const GEMINI_4K = { prompt: 'p', image_size: '4K' }
+const GPT_4K_HIGH: ImageRateRequest = { prompt: 'p', size: '3840x2160', quality: 'high' }
+const GEMINI_4K: ImageRateRequest = { prompt: 'p', image_size: '4K' }
 
 const CEILING_ENTRIES: readonly ImageTierEntry[] = ['agent', 'stage', 'batch', 'look']
 
