@@ -133,15 +133,97 @@ func TestTheLockFileStaysAndIsReusable(t *testing.T) {
 
 func TestALockHeldByADeadProcessDoesNotBlock(t *testing.T) {
 	store := Store{Dir: t.TempDir()}
-	// The operating system drops a lock with its process; a leftover file means nothing.
-	if err := os.WriteFile(filepath.Join(store.Dir, "credentials.lock"), []byte("pid-that-died"), 0o600); err != nil {
+	// The operating system drops a lock with its process; the new format leaves nothing behind.
+	path := filepath.Join(store.Dir, "credentials.lock")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	unlock, err := store.Lock(200 * time.Millisecond)
 	if err != nil {
-		t.Fatalf("a leftover lock file blocked: %v", err)
+		t.Fatalf("an empty leftover lock file blocked: %v", err)
 	}
 	unlock()
+}
+
+// Version 0.1.3 and earlier took the lock by creating the file with an owner marker in it,
+// held no system lock, and deleted the file when done. During an upgrade both versions may run.
+func legacyLock(t *testing.T, dir string, age time.Duration) string {
+	t.Helper()
+	path := filepath.Join(dir, "credentials.lock")
+	if err := os.WriteFile(path, []byte("4242-1700000000000000000"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-age)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestALockTakenByAnOlderVersionIsWaitedFor(t *testing.T) {
+	store := Store{Dir: t.TempDir()}
+	legacyLock(t, store.Dir, time.Second)
+	// Two processes presenting the same refresh token would get the connection revoked.
+	if _, err := store.Lock(200 * time.Millisecond); err != ErrLockTimeout {
+		t.Fatalf("the lock of a running older version was taken: %v", err)
+	}
+}
+
+func TestTheLockIsTakenOnceTheOlderVersionHasLetGoOfIt(t *testing.T) {
+	store := Store{Dir: t.TempDir()}
+	path := legacyLock(t, store.Dir, time.Second)
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		_ = os.Remove(path) // what the older version does when it is done
+	}()
+	unlock, err := store.Lock(3 * time.Second)
+	if err != nil {
+		t.Fatalf("the lock was not taken after the older version let go: %v", err)
+	}
+	defer unlock()
+	// What we hold is the file at the path, not an orphan that nobody else can see.
+	held, err := store.Lock(100 * time.Millisecond)
+	if err != ErrLockTimeout {
+		unlockHeld := held
+		if unlockHeld != nil {
+			unlockHeld()
+		}
+		t.Fatalf("a second taker got the lock too: %v", err)
+	}
+}
+
+func TestAStaleLockFromAnOlderVersionIsTakenOver(t *testing.T) {
+	store := Store{Dir: t.TempDir()}
+	path := legacyLock(t, store.Dir, 10*time.Minute) // its owner died long ago
+	unlock, err := store.Lock(time.Second)
+	if err != nil {
+		t.Fatalf("a stale older lock blocked: %v", err)
+	}
+	unlock()
+	if info, _ := os.Stat(path); info.Size() != 0 {
+		t.Fatalf("the old owner marker was left in the lock file")
+	}
+}
+
+// An older version treats a lock file untouched for five minutes as dead and deletes it.
+func TestTakingTheLockFreshensItsTimestamp(t *testing.T) {
+	store := Store{Dir: t.TempDir()}
+	path := filepath.Join(store.Dir, "credentials.lock")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := store.Lock(time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	if info, _ := os.Stat(path); time.Since(info.ModTime()) > time.Minute {
+		t.Fatalf("the held lock looks stale to an older version: %v old", time.Since(info.ModTime()))
+	}
 }
 
 func TestLockTimeoutIsDistinctFromStorageFailure(t *testing.T) {

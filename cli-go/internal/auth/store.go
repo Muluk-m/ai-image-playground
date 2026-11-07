@@ -440,37 +440,89 @@ func Reason(err error) string {
 	}
 }
 
+// legacyLockStaleAfter is how long an older version (0.1.3 and earlier) waited before it
+// treated a lock file it did not own as left by a dead process.
+const legacyLockStaleAfter = 5 * time.Minute
+
 // Lock serializes credential refresh across concurrent CLI processes, so two processes never
 // present the same refresh token (a replay would revoke the connection). It is an operating
 // system lock on a file that stays in place: the system drops it when its holder dies, so a
 // crash leaves nothing to clean up, and nothing is created or deleted per refresh.
+//
+// Older versions took this lock by creating the file with an owner marker in it, holding no
+// system lock, and deleting the file when done. While an upgrade is rolling out both versions
+// may refresh at the same moment, so the older protocol is honoured: a lock file with a fresh
+// owner marker is somebody else's lock and is waited for, and a stale one is taken over.
 func (s Store) Lock(timeout time.Duration) (func(), error) {
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(s.lockFile(), os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return nil, err
-	}
+	path := s.lockFile()
 	deadline := time.Now().Add(timeout)
 	for {
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		if heldByOlderVersion(file) {
+			file.Close()
+			if time.Now().After(deadline) {
+				return nil, ErrLockTimeout
+			}
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
 		acquired, err := tryLock(file)
 		if err != nil {
 			file.Close()
 			return nil, err
 		}
 		if acquired {
+			// An older version deletes its lock file when it is done. What we hold must still
+			// be the file at the path, or another process would lock a different file.
+			if !stillAtPath(file, path) {
+				_ = unlock(file)
+				file.Close()
+				continue
+			}
+			// An older version deletes a lock file nobody touched for five minutes.
+			now := time.Now()
+			_ = os.Chtimes(path, now, now)
 			return func() {
 				_ = unlock(file)
 				_ = file.Close()
 			}, nil
 		}
+		file.Close()
 		if time.Now().After(deadline) {
-			file.Close()
 			return nil, ErrLockTimeout
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// heldByOlderVersion reports an older version's live lock: a lock file carrying an owner
+// marker, which this version never writes, that was touched recently. A stale marker is
+// cleared so it is not mistaken for a holder again.
+func heldByOlderVersion(file *os.File) bool {
+	info, err := file.Stat()
+	if err != nil || info.Size() == 0 {
+		return false
+	}
+	if time.Since(info.ModTime()) > legacyLockStaleAfter {
+		_ = file.Truncate(0)
+		return false
+	}
+	return true
+}
+
+func stillAtPath(file *os.File, path string) bool {
+	held, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	current, err := os.Stat(path)
+	return err == nil && os.SameFile(held, current)
 }
 
 // locked runs a write of state files under a short lock of its own, so two processes writing
