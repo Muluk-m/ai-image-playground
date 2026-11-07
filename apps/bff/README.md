@@ -80,6 +80,13 @@ GPT 2K/4K 必须落到具体像素尺寸；省略比例或传 `aspect_ratio=auto
 预检和提交响应的 `adjustments` 中明确返回 `{ field: 'ratio', from: 'auto', to: '1:1' }`。
 明确指定的受支持比例保持不变。预检的 `normalized`、`request_hash` 与提交使用的参数一致。
 
+GPT Image 2.6 可直出 GIF 与 SVG：请求带 `output_format: 'gif' | 'svg'`（`png` 与 `image` 表示常规图片，
+不进规整结果）。GIF 另收 `frame_count`、`frame_duration_ms`、`frame_size`，不收 `image_size`、
+`aspect_ratio`、`quality`，规整结果里也不出现这两个字段；SVG 不收 `quality`。默认值与网站共用
+（`GPT_IMAGE_26_GIF_DEFAULT_*`），校验复用 `gptImage26Rejection`，不合法请求在预检与提交里都在建任务、
+预扣之前返回 `INVALID_REQUEST`。能力清单按模型给出 `output_formats`，2.6 另列 `gif` / `svg` 的限制与报价；
+直连未配好时只列 `image`。
+
 `max_credits` 是预算前置条件，不是命令身份：0 表示不允许预扣任何积分。提交重新读取报价，
 再以同一事务中实际预扣的积分数兜底；实际预扣超过上限时整个事务回滚（包括任务与预扣），
 返回 `MAX_CREDITS_EXCEEDED`。拒绝不消耗幂等键；已成功提交的同键同参数请求仍返回原任务，
