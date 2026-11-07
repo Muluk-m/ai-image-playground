@@ -94,6 +94,7 @@ func fail(code, format string, args ...any) *Failure {
 const (
 	sourceEnvironment = "environment"
 	sourceConnection  = "connection"
+	sourcePending     = "pending_login"
 	sourceDefault     = "default"
 )
 
@@ -267,13 +268,25 @@ func (a *App) resolveAPIURL() {
 		a.apiURLSource = sourceEnvironment
 		return
 	}
-	creds, err := a.Store.Load()
-	if err == nil && creds.RefreshToken != "" && creds.BaseURL != "" {
+	creds, loadErr := a.Store.Load()
+	if loadErr == nil && creds.RefreshToken != "" && creds.BaseURL != "" {
 		a.APIURL, a.apiURLSource = strings.TrimRight(creds.BaseURL, "/"), sourceConnection
 		return
 	}
-	if err != nil && !errors.Is(err, auth.ErrNotFound) {
-		a.storeErr = err
+	// The secret may be unreadable while the connection still exists: its service is kept
+	// apart from it.
+	if service, err := a.Store.LoadService(); err == nil {
+		a.APIURL, a.apiURLSource = strings.TrimRight(service, "/"), sourceConnection
+		return
+	}
+	// A login started with `--no-wait` belongs to the service it was started for, even when
+	// the next session no longer has the variable that chose it.
+	if pending, err := a.Store.LoadPending(); err == nil && pending.BaseURL != "" && time.Now().Before(pending.ExpiresAt) {
+		a.APIURL, a.apiURLSource = strings.TrimRight(pending.BaseURL, "/"), sourcePending
+		return
+	}
+	if loadErr != nil && !errors.Is(loadErr, auth.ErrNotFound) {
+		a.storeErr = loadErr
 	}
 	a.APIURL, a.apiURLSource = DefaultAPIURL, sourceDefault
 }
