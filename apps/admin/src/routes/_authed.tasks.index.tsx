@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { Download } from 'lucide-react'
 import { useEffect, useState } from 'react'
+
 import {
   FilterBar,
   type FilterChip,
@@ -8,9 +9,11 @@ import {
   type FilterPreset,
   presetWindow,
 } from '@/components/FilterBar'
+import { FuzzyTime } from '@/components/FuzzyTime'
 import { LightboxDialog } from '@/components/LightboxDialog'
 import { ListPagination } from '@/components/ListPagination'
 import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
+import { ShortId } from '@/components/ShortId'
 import { StatusBadge } from '@/components/StatusBadge'
 import { TaskDetailSheet } from '@/components/TaskDetailSheet'
 import { Button } from '@/components/ui/button'
@@ -243,78 +246,146 @@ function GenerationTasksPage() {
         {query.data ? (
           <div className="overflow-hidden rounded-xl border bg-card">
             {tasks.length ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>提交时间</TableHead>
-                    <TableHead>任务</TableHead>
-                    <TableHead>用户</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>来源</TableHead>
-                    <TableHead>需求 / 模型</TableHead>
-                    <TableHead>供应商</TableHead>
-                    <TableHead className="text-right">耗时</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+              <>
+                <div className="grid gap-2 md:hidden">
                   {tasks.map((task) => {
                     const selected = search.task === task.id
                     return (
-                      <TableRow
+                      <article
                         key={task.id}
-                        className={cn(selected && 'bg-brand/25')}
-                        data-state={selected ? 'selected' : undefined}
+                        className={cn(
+                          'rounded-lg border p-3 transition-colors hover:bg-muted/40',
+                          selected && 'border-brand bg-brand/10',
+                        )}
                       >
-                        <TableCell className="whitespace-nowrap font-mono text-xs">
-                          {time(task.submitted_at)}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          <button
-                            type="button"
-                            className="hover:underline"
-                            onClick={() => void navigate({ search: { ...search, task: task.id } })}
-                          >
-                            {shortId(task.id, 12)}
-                          </button>
-                        </TableCell>
-                        <TableCell className="max-w-40 truncate text-xs">
-                          {task.username ||
-                            (task.user_id
-                              ? shortId(task.user_id)
-                              : task.device_id
-                                ? `设备 ${shortId(task.device_id)}`
-                                : '—')}
-                        </TableCell>
-                        <TableCell>
-                          <StatusBadge status={task.status} />
-                          {task.error_type ? (
-                            <p className="mt-1 font-mono text-[11px] text-danger">
-                              {task.error_type}
-                            </p>
-                          ) : null}
-                        </TableCell>
-                        <TableCell className="text-xs">{TASK_SOURCE_LABELS[task.source]}</TableCell>
-                        <TableCell className="max-w-72">
-                          <button
-                            type="button"
-                            className="line-clamp-2 text-left text-xs hover:underline"
-                            onClick={() => void navigate({ search: { ...search, task: task.id } })}
-                          >
-                            {task.prompt || '查看任务'}
-                          </button>
-                          <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                            {task.model}
+                        <button
+                          type="button"
+                          className="w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          onClick={() => void navigate({ search: { ...search, task: task.id } })}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="flex min-w-0 items-center gap-2">
+                              <StatusBadge status={task.status} />
+                              <span className="truncate text-sm font-medium">
+                                {task.username ??
+                                  (task.user_id ? shortId(task.user_id, 10) : '匿名设备')}
+                              </span>
+                            </span>
+                            <FuzzyTime ts={task.submitted_at} />
+                          </div>
+                          <p className="mt-2 line-clamp-2 text-sm">
+                            {task.prompt || '查看任务详情'}
                           </p>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">{task.provider}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">
-                          {duration(task.started_at, task.completed_at)}
-                        </TableCell>
-                      </TableRow>
+                          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                            <span className="font-mono">{task.model}</span>
+                            <span>
+                              {TASK_SOURCE_LABELS[task.source]} · {task.provider}
+                            </span>
+                            <span className="font-mono">
+                              {duration(task.started_at, task.completed_at)}
+                            </span>
+                          </div>
+                          {task.error_type ? (
+                            <p className="mt-2 font-mono text-xs text-danger">{task.error_type}</p>
+                          ) : null}
+                        </button>
+                        <div className="mt-2">
+                          <ShortId value={task.id} len={10} />
+                        </div>
+                      </article>
                     )
                   })}
-                </TableBody>
-              </Table>
+                </div>
+                <div className="hidden overflow-x-auto md:block">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>提交时间</TableHead>
+                        <TableHead>任务</TableHead>
+                        <TableHead>用户</TableHead>
+                        <TableHead>状态</TableHead>
+                        <TableHead>需求 / 模型</TableHead>
+                        <TableHead>来源 / 供应商</TableHead>
+                        <TableHead className="text-right">耗时</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {tasks.map((task) => {
+                        const selected = search.task === task.id
+                        return (
+                          <TableRow
+                            key={task.id}
+                            className={cn(selected && 'bg-brand/25')}
+                            data-state={selected ? 'selected' : undefined}
+                          >
+                            <TableCell className="whitespace-nowrap font-mono text-xs">
+                              {time(task.submitted_at)}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  className="min-h-9 rounded px-1 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  onClick={() =>
+                                    void navigate({ search: { ...search, task: task.id } })
+                                  }
+                                >
+                                  <ShortId value={task.id} len={10} copy={false} />
+                                </button>
+                                <ShortId value={task.id} compact />
+                              </div>
+                            </TableCell>
+                            <TableCell className="max-w-40 truncate text-xs">
+                              {task.username ? (
+                                task.username
+                              ) : task.user_id ? (
+                                <ShortId value={task.user_id} len={10} />
+                              ) : task.device_id ? (
+                                <span className="inline-flex items-center gap-1">
+                                  设备 <ShortId value={task.device_id} len={8} />
+                                </span>
+                              ) : (
+                                '—'
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <StatusBadge status={task.status} />
+                              {task.error_type ? (
+                                <p className="mt-1 font-mono text-[11px] text-danger">
+                                  {task.error_type}
+                                </p>
+                              ) : null}
+                            </TableCell>
+                            <TableCell className="max-w-72">
+                              <button
+                                type="button"
+                                className="line-clamp-2 text-left text-xs hover:underline"
+                                onClick={() =>
+                                  void navigate({ search: { ...search, task: task.id } })
+                                }
+                              >
+                                {task.prompt || '查看任务'}
+                              </button>
+                              <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+                                {task.model}
+                              </p>
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              <span className="block">{TASK_SOURCE_LABELS[task.source]}</span>
+                              <span className="mt-1 block truncate font-mono text-[11px] text-muted-foreground">
+                                {task.provider}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs">
+                              {duration(task.started_at, task.completed_at)}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
             ) : (
               <div className="p-6">
                 <EmptyState label="这段时间没有匹配的生成任务" />

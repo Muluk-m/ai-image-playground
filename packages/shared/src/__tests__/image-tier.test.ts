@@ -105,6 +105,17 @@ describe('resolveImageTier · rate multiplier', () => {
     })
     expect(result.rateMultiplier).toBe(1)
   })
+  it('marks GPT Image 2.6 4K as membership-required even when its 2K and 4K rates match', () => {
+    const result = resolveImageTier({
+      model: 'gpt-image-2.6-flare',
+      provider: 'openai-compat',
+      request: { size: '3840x2160' },
+      entry: 'agent',
+      member: false,
+      directAvailable: true,
+    })
+    expect(result.requires.membership).toBe(true)
+  })
 })
 
 describe('resolveImageTier · requires', () => {

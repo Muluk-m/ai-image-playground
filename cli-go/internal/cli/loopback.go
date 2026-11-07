@@ -80,9 +80,11 @@ func (a *App) openBrowser(target string) error {
 func (a *App) startLoopback(pending *auth.PendingLogin) (net.Listener, error) {
 	addr := "127.0.0.1:0"
 	if pending.RedirectURI != "" {
+		// The record may have been edited: listen only on a loopback callback, never elsewhere.
 		parsed, err := url.Parse(pending.RedirectURI)
-		if err != nil {
-			return nil, err
+		if err != nil || parsed.Scheme != "http" || parsed.Path != "/callback" || parsed.Port() == "" ||
+			(parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "::1") {
+			return nil, errors.New("stored callback is not a loopback address")
 		}
 		addr = parsed.Host
 	}
@@ -190,13 +192,14 @@ func (a *App) redeemAuthorizationCode(ctx context.Context, pending auth.PendingL
 }
 
 // redeem finishes with whatever the login holds: the callback's one-time code when one arrived,
-// otherwise the device code. Whenever the service turns the code down, for whatever reason, the
-// device code decides.
+// otherwise the device code. When the service refuses the code, the device code decides.
 func (a *App) redeem(ctx context.Context, pending auth.PendingLogin) (tokenResponse, error) {
 	if pending.AuthorizationCode != "" && pending.CodeVerifier != "" {
 		tokens, err := a.redeemAuthorizationCode(ctx, pending)
 		var oauthErr *client.OAuthError
-		if err == nil || !errors.As(err, &oauthErr) {
+		// Only a refusal hands over to the device code. A busy service is asked again with the
+		// same code: once the code is redeemed, the device code can no longer repeat its tokens.
+		if err == nil || !errors.As(err, &oauthErr) || oauthErr.Code != "invalid_grant" {
 			return tokens, err
 		}
 	}

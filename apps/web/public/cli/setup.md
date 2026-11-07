@@ -11,13 +11,13 @@ When this guide points to another guide in the same folder (for example
 replaced, keeping this page's `?v=` query. That value changes whenever the guides
 change, so a cached older copy is never used.
 
-## 1. Install CLI 0.1.4
+## 1. Install CLI 0.1.5
 
 Run `muvloom version` first. If the command is missing, or `data.version` is lower
-than 0.1.4, install 0.1.4 with the commands below: the installer replaces the
+than 0.1.5, install 0.1.5 with the commands below: the installer replaces the
 existing CLI in place and keeps the user's sign-in. An older CLI must not be reused,
 because it lacks fixes this guide relies on. Skip this step only when the installed
-version is already 0.1.4 or newer.
+version is already 0.1.5 or newer.
 
 Use the matching platform below. The scripts are pinned to the released source
 commit and verify the downloaded binary's SHA-256. If installation fails, report
@@ -26,14 +26,14 @@ the error; do not bypass verification.
 ### macOS / Linux
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/7033a6f79bb679f0cf7baf565ffe491b801f4a3d/cli-go/install/install.sh | MUVLOOM_VERSION=0.1.4 sh
+curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/dd19ad6fd9ef3679994095a2723a2ef17ccf3c70/cli-go/install/install.sh | MUVLOOM_VERSION=0.1.5 sh
 export PATH="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-$env:MUVLOOM_VERSION = "0.1.4"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/7033a6f79bb679f0cf7baf565ffe491b801f4a3d/cli-go/install/install.ps1 | iex
+$env:MUVLOOM_VERSION = "0.1.5"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/dd19ad6fd9ef3679994095a2723a2ef17ccf3c70/cli-go/install/install.ps1 | iex
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```
 
@@ -80,7 +80,7 @@ For WorkBuddy, follow [the WorkBuddy guide](workbuddy.md) to install the officia
 skill from the conversation and connect the account. Confirm that the skill appears in WorkBuddy
 before reporting setup complete.
 
-For 豆包工作 and other hosts, skip this step. CLI 0.1.4 only
+For 豆包工作 and other hosts, skip this step. CLI 0.1.5 only
 accepts `claude-code` and `codex` as skill hosts. Use `muvloom --help` and
 subcommand help to learn the CLI; do not invent a `--host` value or write into
 an unverified host configuration directory.
@@ -94,28 +94,27 @@ points at a different service than the one this machine is signed in to
 use the existing connection, or run `muvloom auth login --switch-service` only if
 the user wants the service named by this page. Otherwise:
 
-1. Run `muvloom auth login --no-wait` to get the authorization link.
-2. Open the returned `verification_uri_complete` in the user's browser yourself,
-   using the host's browser-opening tool. For a local desktop agent, an OS URL
-   opener is also suitable (`open` on macOS, `Start-Process` in PowerShell, or
-   `xdg-open` on Linux). Over SSH or in a remote environment, use a browser tool
-   on the user's computer rather than opening a browser on the remote machine.
-   In the same reply, tell the user the page is open and that they only need to
-   sign in and approve: you will wait here and continue automatically, so they do
-   not need to reply. Only if no suitable tool is available or opening fails,
-   explain that limitation and provide `verification_uri_complete` and
-   `user_code` for manual opening.
-3. Wait in the foreground and do not end your turn: run
-   `muvloom auth login --timeout 60`. If it returns `AUTH_PENDING`, the user has
-   not approved yet: run it again, and keep going until it returns `state: ready`,
-   `AUTH_DENIED` or `AUTH_EXPIRED` (the code lasts 20 minutes). Do not re-open the
-   page or re-prompt the user while waiting.
+1. In one reply, tell the user an approval page is opening in their browser and
+   that they only need to sign in and approve: you will continue on your own, so
+   they do not need to reply.
+2. Run `muvloom auth login` in the foreground with the host's longest command
+   timeout, and do not end your turn. It opens the approval page itself, waits,
+   and returns `state: ready` as soon as the user approves (the browser comes
+   back to the CLI; the code lasts 20 minutes). It prints the link only when no
+   browser can be opened.
+3. `AUTH_PENDING`, or a command the host cut off, means the user has not
+   approved yet: run `muvloom auth login` again. It resumes the same login and
+   does not open another page. Stop on `AUTH_DENIED`; start over only on
+   `AUTH_EXPIRED`. Do not re-prompt the user while waiting.
 4. Run `muvloom auth status` and confirm `data.state` is `ready`.
 
-If the host keeps interrupting the wait (the command is killed on a timeout, or
-replayed after a permission approval) twice in a row, fall back: ask the user to
-reply once they have approved, then run `muvloom auth login --timeout 15` to
-finish.
+Over SSH or in a remote environment, do not open a browser on the remote machine:
+set `MUVLOOM_NO_BROWSER=1`, run `muvloom auth login --no-wait`, open the returned
+`verification_uri_complete` with a browser tool on the user's computer, then run
+`muvloom auth login` to wait. If the host keeps interrupting the wait (killed on a
+timeout, or replayed after a permission approval) twice in a row, fall back: ask
+the user to reply once they have approved, then run
+`muvloom auth login --timeout 15` to finish.
 
 If the user declines (`AUTH_DENIED`), stop. If the code expires (`AUTH_EXPIRED`),
 start a new login. Do not ask for passwords, browser cookies, or tokens, and do

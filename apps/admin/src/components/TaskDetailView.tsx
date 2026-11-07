@@ -6,7 +6,7 @@ import { ShortId } from '@/components/ShortId'
 import { StatusBadge } from '@/components/StatusBadge'
 import { TaskReconciliation } from '@/components/TaskReconciliation'
 import { Button } from '@/components/ui/button'
-import { duration, isoTime } from '@/lib/format'
+import { duration, isoTime, shortId } from '@/lib/format'
 import { useTask } from '@/lib/queries'
 import { countInputImages, extractPrompt } from '@/lib/request-helpers'
 import { adminApiUrl } from '@/lib/runtime-config'
@@ -79,11 +79,9 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
       ) : null}
       {task.status === 'reconciling' ? <TaskReconciliation taskId={task.id} /> : null}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Request */}
         <section className="min-w-0 rounded-md border bg-card p-3 sm:p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Request
-          </h3>
+          <h3 className="mb-3 text-sm font-semibold">请求参数</h3>
+
           <dl className="space-y-2 text-xs">
             <KV label="provider" value={task.provider} mono />
             <KV label="model" value={task.model} mono />
@@ -97,31 +95,29 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
             ) : null}
             {task.user_id ? (
               <div className="grid min-w-0 grid-cols-[88px_minmax(0,1fr)] gap-3 sm:grid-cols-[110px_1fr]">
-                <dt className="text-muted-foreground">user_id</dt>
-                <dd>
+                <dt className="text-muted-foreground">用户</dt>
+                <dd className="flex min-w-0 items-center gap-2">
                   <Button
                     type="button"
                     variant="link"
-                    className="h-auto justify-start whitespace-normal break-all p-0 text-left font-mono underline-offset-2"
+                    className="h-auto min-w-0 justify-start p-0 text-left font-mono underline-offset-2"
                     onClick={() =>
-                      void navigate({
-                        to: '/users/$userId',
-                        params: { userId: task.user_id! },
-                      })
+                      void navigate({ to: '/users/$userId', params: { userId: task.user_id! } })
                     }
                   >
-                    {task.user_id}
+                    {shortId(task.user_id, 10)}
                   </Button>
+                  <ShortId value={task.user_id} compact />
                 </dd>
               </div>
             ) : task.device_id ? (
               <div className="grid min-w-0 grid-cols-[88px_minmax(0,1fr)] gap-3 sm:grid-cols-[110px_1fr]">
-                <dt className="text-muted-foreground">device_id</dt>
-                <dd>
+                <dt className="text-muted-foreground">设备</dt>
+                <dd className="flex min-w-0 items-center gap-2">
                   <Button
                     type="button"
                     variant="link"
-                    className="h-auto justify-start whitespace-normal break-all p-0 text-left font-mono underline-offset-2"
+                    className="h-auto min-w-0 justify-start p-0 text-left font-mono underline-offset-2"
                     onClick={() =>
                       void navigate({
                         to: '/devices/$deviceId',
@@ -129,8 +125,9 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
                       })
                     }
                   >
-                    {task.device_id}
+                    {shortId(task.device_id, 10)}
                   </Button>
+                  <ShortId value={task.device_id} compact />
                 </dd>
               </div>
             ) : null}
@@ -150,10 +147,9 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
           </dl>
 
           <div className="mt-4">
-            <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Prompt
-            </div>
-            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-3 font-mono text-xs">
+            <div className="mb-1 text-sm font-semibold">提示词</div>
+
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-3 font-mono text-xs leading-5">
               {extractPrompt(req) || '(空)'}
             </pre>
           </div>
@@ -195,9 +191,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
 
         {/* Result */}
         <section className="min-w-0 rounded-md border bg-card p-3 sm:p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            {task.analysis ? '图片分析结果' : 'Result'}
-          </h3>
+          <h3 className="mb-3 text-sm font-semibold">{task.analysis ? '图片分析结果' : '结果'}</h3>
           {task.analysis ? (
             <AnalysisResult analysis={task.analysis} error={task.error_message} />
           ) : task.error_message ? (

@@ -14,6 +14,8 @@
 | 1 | #1745：用 16 个用例钉住「提交入口 × 模型系列 × 会员」的现有行为（`imageTierEntries.test.ts`） | 已合并 |
 | 2 | #1748：新增 `resolveImageTier`；BFF 提交路径合并为 `alignImageTier`；入口显式传 `entry`；`tasks.metering.tier` 记录 `entry`、`memberApplied`、`requires` | 已合并（`d999c5d47`），生产已上线 |
 | 4a | #1754：前端报价函数改走 `resolveImageTier`，与旧实现逐项等价，不改价格 | 已合并（`6911fec3e`），前端已上线 |
+| 4b | 修正非会员画布/直接报价：报价传入真实会员位与 GPT 直连可用位；2.6 4K 保留会员门禁 | 已实现，待 Nain 确认后合并 |
+| 5 | Gemini 档位倍率从 ADR-0027 能力目录读取，并钉住各模型/档位倍率 | 已实现 |
 
 #1748 的测试环境证据（已写进 PR）：
 
@@ -35,28 +37,28 @@
 
 ## 剩下要做的
 
-### 第 4 步：前端报价改读 `resolveImageTier`（4a 已完成，剩 4b）
+### 第 4 步：前端报价改读 `resolveImageTier`（4a、4b 已完成）
 
 涉及：`apps/web/src/lib/{gptPremium,imageCharge,gptQuote}.ts`，以及调用方 `InputBar`、`CanvasGenerateBar`、`CanvasBatchBar`、`NodeStoryboard`、`ImageNodeComposer`、`CanvasEditPromptDialog`、`canvasImageEdits`、`generationJob`。
 
-做法：
+4b 的收口：
 
-1. 前端每个报价入口映射到和提交一致的 `entry`（输入框 → `web-direct`，画布批量 / 分镜 → 对应的 `batch` / `stage` 等），会员身份来自 `/api/gpt/premium`，用 `resolveImageTier(...).rateMultiplier` 报价。
-2. 删掉 `quotedGptMultiplier` / `composerImageRate` 里各自的收口逻辑。
-3. 表格测试断言：同一组输入，前端报价倍率 = BFF 提交 `metering.unitMultiplier`。
+1. 直接提交与画布报价都走 `resolveImageTier`，调用方传 `/api/gpt/premium` 的 `member`，GPT 直连可用性来自渠道 `size` 能力。
+2. 非会员 Gemini 4K 按实际收口后的 2K 报价；会员保留 4K 报价。
+3. `preparedComposerNeedsMembership` 按 `requires.membership` 与 4K 权益判断，不以倍率差异代替会员门禁，因此覆盖 Image 2.6 的 2K/4K 同价场景。
+4. `imageCharge.test.ts` 与 shared tier 测试覆盖上述边界及直接报价的会员矩阵。
 
-注意：评审标记了疑似 bug「画布非会员按 4K 报价」。修它会改变用户看到的价格，属于行为变更，合并前要 Nain 确认。建议拆两个 PR：
-
-- 4a（已完成，#1754）：报价改走 `resolveImageTier`，保持现有报价不变；`imageCharge.test.ts` 里已用一条测试钉住「画布非会员 Gemini 4K 按会员档报价」，4b 修正时同步改断言。
-- 4b：修正不一致的报价（行为变更，Nain 确认）。
+行为变更属于 4b，合并前要 Nain 确认。
 
 ### 第 5 步：`GEMINI_TIER_MULTIPLIERS` 收回能力目录
 
-`packages/shared/src/gpt-direct.ts:164` 手抄了一份 Gemini 档位倍率，和 ADR-0027「单一来源」冲突。改为从能力目录读取。应当无行为变化，但动到计价，测试要钉住每个模型、每个档位的倍率不变。
+`packages/shared/src/gpt-direct.ts` 不再手抄 Gemini 倍率，改为读取 `findCatalogModel(model)?.pricing.tierMultiplier`；仅对目录中 `family: 'gemini'` 的模型生效，Grok 与未知模型仍回退 1。
+
+shared `gpt-direct.test.ts` 以字面值钉住 Nano 2.1 的 `1/1.5/3.4`、Pro 的 `1/1/1.8` 及 Grok 的 1。
 
 ### 收尾：删过渡脚手架
 
-`apps/bff/src/__tests__/lib/imageTierEntries.test.ts` 是第 1 步留下的过渡测试。确认 `packages/shared/src/__tests__/image-tier.test.ts` 已覆盖全部矩阵后删除。
+`apps/bff/src/__tests__/lib/imageTierEntries.test.ts` 保留：它验证 BFF 入口映射、会员门禁、最终请求落库与 `metering.tier` 快照；shared resolver 测试不能替代这些事务边界。
 
 ## 已知问题（不在本条线内修）
 
@@ -82,7 +84,7 @@ AI 评审在 #1748 上提的 3 条 P1，都是重构前就有的行为，已记�
 
 1. ~~开 issue：上面 3 条既有问题~~（已开 #1752）。
 2. ~~第 4a 步~~（已完成，#1754）。
-3. 第 4b 步（修正报价不一致，Nain 确认）。
-4. 第 5 步（Gemini 倍率收回目录）。
-5. 删过渡测试。
+3. ~~第 4b 步~~（代码已实现，待 Nain 确认后合并）。
+4. ~~第 5 步~~（已完成）。
+5. ~~删过渡测试~~（保留，原因见上）。
 6. 下一条线：候选 6（选路 router），把 worker 与结算里的 `isGptSub2apiDeliverable` 和运行时会员查询一起收进去。

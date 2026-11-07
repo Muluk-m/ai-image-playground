@@ -44,10 +44,14 @@ describe('WorkBuddy Skill package', () => {
   it('tells the agent to wait for the approval in the foreground instead of handing the turn back', () => {
     const files = unzipSync(createWorkBuddySkillZip())
     const guide = strFromU8(files['muvloom/references/workbuddy.md'])
-    expect(guide).toContain('muvloom auth login --no-wait')
-    expect(guide).toContain('muvloom auth login --timeout 60')
+    expect(guide).toContain('前台运行 `muvloom auth login`')
+    expect(guide).not.toContain('muvloom auth login --timeout 60')
+    expect(guide).toContain('不会再打开新页面')
     expect(guide).toContain('AUTH_PENDING')
     expect(guide).toContain('不需要回复我')
+    const skill = strFromU8(files['muvloom/SKILL.md'])
+    expect(skill).toContain('keep the turn open')
+    expect(skill).not.toContain('end the turn before continuing')
     expect(guide).not.toContain('立即结束这一回合')
     expect(guide).not.toContain('不要循环等待')
     // The old behaviour stays as the fallback when the host keeps interrupting the wait.

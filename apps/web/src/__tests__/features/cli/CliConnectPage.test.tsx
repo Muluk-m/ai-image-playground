@@ -146,12 +146,16 @@ describe('CliConnectPage', () => {
       ['setup.md', setup],
       ['workbuddy.md', workbuddy],
     ] as const) {
-      expect(text, name).toContain('muvloom auth login --timeout 60')
+      expect(text, name).not.toContain('muvloom auth login --timeout 60')
       expect(text, name).toContain('AUTH_PENDING')
     }
     expect(workbuddy).not.toContain('立即结束本回合')
     expect(setup).not.toContain('ask the user to sign in and approve the connection.\n   Only if')
     expect(setup.replace(/\s+/g, ' ')).toContain('do not end your turn')
+    // 前台一条命令：CLI 自己打开授权页，用户授权后自动结束，不再先发码再等待。
+    expect(setup.replace(/\s+/g, ' ')).toContain('It opens the approval page itself')
+    expect(setup).not.toContain('Run `muvloom auth login --no-wait` to get the authorization link')
+    expect(workbuddy).toContain('它自己打开授权页')
   })
 
   // 机器已连着测试或企业服务时打开生产页面：不显式指定服务，CLI 会沿用已存连接，接入静默"成功"在错误环境上。
