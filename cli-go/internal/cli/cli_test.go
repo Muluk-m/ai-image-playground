@@ -1420,3 +1420,25 @@ func TestAnExpiredUnapprovedLoginStartsANewOne(t *testing.T) {
 		t.Fatalf("the new login reused the old identity")
 	}
 }
+
+func TestABusyServiceKeepsARecoverableLogin(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	execute(t, app, "auth", "login", "--no-wait")
+	pending, _ := app.Store.LoadPending()
+	pending.ExpiresAt = time.Now().Add(-time.Minute)
+	if err := app.Store.SavePending(pending); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.deviceError = "temporarily_unavailable"
+	f.mu.Unlock()
+	r := execute(t, app, "auth", "login")
+	if r.code != ExitTemporary || r.out["error"].(map[string]any)["code"] != "TEMPORARILY_UNAVAILABLE" {
+		t.Fatalf("login = %d %s", r.code, r.stdout)
+	}
+	kept, _ := app.Store.LoadPending()
+	if kept.RequestID != pending.RequestID || kept.DeviceCode != pending.DeviceCode || f.deviceAuthCalls != 1 {
+		t.Fatalf("the recoverable login was replaced: %d authorizations", f.deviceAuthCalls)
+	}
+}

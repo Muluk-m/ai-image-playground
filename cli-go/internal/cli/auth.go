@@ -359,8 +359,17 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 		if !errors.As(err, &oauthErr) {
 			return nil, err
 		}
-		// The service cannot repeat it (never redeemed, or no longer): start a new login.
-		resuming = false
+		switch oauthErr.Code {
+		case "expired_token", "invalid_grant", "access_denied", "authorization_pending":
+			// The service cannot repeat it (never redeemed, or no longer): start a new login.
+			resuming = false
+		default:
+			// Busy or rate limited: keep the request identity for the next attempt.
+			if oauthErr.Status == http.StatusTooManyRequests {
+				return nil, fail("RATE_LIMITED", "Too many login attempts; wait a minute and retry")
+			}
+			return nil, fail("TEMPORARILY_UNAVAILABLE", "The service could not finish the login (%s); run `muvloom auth login` again shortly", oauthErr.Code)
+		}
 	}
 	if !resuming {
 		var device deviceAuthorization
