@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
 import {
   GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS,
+  GPT_IMAGE_26_GIF_DEFAULT_FRAMES,
+  GPT_IMAGE_26_GIF_DEFAULT_SIZE,
   GPT_IMAGE_26_GIF_DURATIONS_MS,
   GPT_IMAGE_26_GIF_FRAME_MAX,
   GPT_IMAGE_26_GIF_FRAME_MIN,
@@ -30,7 +32,7 @@ import { declaredImageSizes, getDiscoveredChannels, resolveQueueModel } from '..
 import { refreshInactiveModels, withoutInactiveModels } from '../model-availability'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { strictImageRequestAllowed } from '../taskSubmission'
-import { gptDirectConfigured } from '../upstream/gpt-routing'
+import { gptDirectConfigured, gptImage26Configured } from '../upstream/gpt-routing'
 import { CliRequestError } from './envelope'
 
 export const CLI_PROMPT_MAX_CHARS = 32_000
@@ -84,12 +86,16 @@ export async function availableImageModels(): Promise<CliImageModel[]> {
 /** 普通图片之外，能直接出的格式。`image` 表示模型的常规图片输出。 */
 export type CliOutputFormat = 'image' | 'gif' | 'svg'
 
-const GIF_DEFAULT_FRAMES = 6
-const GIF_DEFAULT_SIZE = '768x768'
+const GIF_DEFAULT_FRAMES = GPT_IMAGE_26_GIF_DEFAULT_FRAMES
+const GIF_DEFAULT_SIZE = GPT_IMAGE_26_GIF_DEFAULT_SIZE
+const OUTPUT_FORMAT_VALUES = ['image', 'png', 'gif', 'svg'] as const
 
-/** 与网站一致：只有 GPT Image 2.6 能直出 GIF / SVG，规则见 `gpt-image-26.ts`。 */
+/**
+ * 与网站一致：只有 GPT Image 2.6 能直出 GIF / SVG，规则见 `gpt-image-26.ts`。2.6 没配好直连时
+ * 一张都出不了，也就不列 GIF / SVG。
+ */
 export function outputFormatsFor(model: string): readonly CliOutputFormat[] {
-  return isGptImage26Model(model) ? ['image', 'gif', 'svg'] : ['image']
+  return isGptImage26Model(model) && gptImage26Configured() ? ['image', 'gif', 'svg'] : ['image']
 }
 
 export interface CliImageRequestBody {
@@ -108,8 +114,9 @@ export interface CliImageRequestBody {
 export interface NormalizedImageRequest {
   readonly prompt: string
   readonly model: string
-  readonly aspect_ratio: string
-  readonly image_size: string
+  /** GIF 没有比例与档位：尺寸由 frame_size 决定，这两个字段省略。 */
+  readonly aspect_ratio?: string
+  readonly image_size?: string
   readonly quality?: string
   readonly reference_media_ids: readonly string[]
   readonly count: 1
@@ -128,8 +135,7 @@ const OUTPUT_REJECTION: Record<GptImage26Rejection, string> = {
   svg_count: 'svg output makes one image per request',
   gif_frames: `frame_count must be an integer from ${GPT_IMAGE_26_GIF_FRAME_MIN} to ${GPT_IMAGE_26_GIF_FRAME_MAX}`,
   gif_duration: 'frame_duration_ms must be a multiple of 10 from 20 to 2000',
-  gif_sprite:
-    'too many frames for this frame_size: use 768x768 with at most 12 frames, or 512x512 with at most 16',
+  gif_sprite: `too many frames for this frame_size: ${GPT_IMAGE_26_GIF_SIZES.map((size) => `${size} allows at most ${maxFramesFor(size)}`).join(', ')}`,
   gif_size: `frame_size must be one of ${GPT_IMAGE_26_GIF_SIZES.join(', ')}`,
 }
 
@@ -142,7 +148,13 @@ function outputFormatFields(
   NormalizedImageRequest,
   'output_format' | 'frame_count' | 'frame_duration_ms' | 'frame_size'
 > {
-  const format = body.output_format ?? 'image'
+  // png 是常规图片的同义写法：与省略、image 一样不进规整结果，哈希不变。
+  const requested = body.output_format ?? 'image'
+  if (!(OUTPUT_FORMAT_VALUES as readonly string[]).includes(requested))
+    throw new CliRequestError('INVALID_REQUEST', {
+      message: `output_format must be one of image, gif, svg`,
+    })
+  const format = requested === 'png' ? 'image' : requested
   const available = outputFormatsFor(model.id)
   if (!(available as readonly string[]).includes(format))
     throw new CliRequestError('INVALID_REQUEST', {
@@ -193,7 +205,7 @@ function outputFormatFields(
               : undefined,
           }),
     },
-    true,
+    gptImage26Configured(),
   )
   if (reason)
     throw new CliRequestError('INVALID_REQUEST', {
@@ -254,7 +266,10 @@ export function normalizeImageRequest(
   // A pixel-addressed GPT request cannot express a premium tier with size=auto. Resolve it to
   // square pixels once, so the normalized preview, price, command hash and stored task all agree.
   const concreteGptRatio =
-    isGptDirectModel(model.id) && resolved.tier !== '1K' && resolved.ratio === 'auto'
+    (isGptDirectModel(model.id) || isGptImage26Model(model.id)) &&
+    resolved.tier !== '1K' &&
+    resolved.ratio === 'auto' &&
+    output.output_format !== 'gif'
   const ratio = concreteGptRatio ? '1:1' : resolved.ratio
   const qualities: readonly string[] = caps.quality?.values ?? []
   if (!output.output_format && body.quality && !qualities.includes(body.quality))
@@ -269,8 +284,7 @@ export function normalizeImageRequest(
   const normalized: NormalizedImageRequest = {
     prompt,
     model: model.id,
-    aspect_ratio: output.output_format === 'gif' ? '1:1' : ratio,
-    image_size: output.output_format === 'gif' ? '1K' : resolved.tier,
+    ...(output.output_format === 'gif' ? {} : { aspect_ratio: ratio, image_size: resolved.tier }),
     ...(quality && quality !== 'auto' ? { quality } : {}),
     reference_media_ids: references,
     count: 1,
@@ -310,7 +324,7 @@ function alignResolutionQuality(
 /** 规整后的请求 → 队列请求字段，与网站 `queueClient.submit` 的分支保持同一套写法。 */
 export function toSubmitRequest(prepared: PreparedImageRequest): SubmitRequest {
   const { normalized, model } = prepared
-  const ratio = normalized.aspect_ratio
+  const ratio = normalized.aspect_ratio ?? 'auto'
   const tier = model.image.tiers.find((one) => one.id === normalized.image_size)
   const pixels = ratio === 'auto' ? undefined : tier?.pixels[ratio as keyof typeof tier.pixels]
   const request: SubmitRequest = {
@@ -325,7 +339,8 @@ export function toSubmitRequest(prepared: PreparedImageRequest): SubmitRequest {
   }
   if (model.provider === 'gemini') {
     if (ratio !== 'auto') request.aspect_ratio = ratio
-    request.image_size = normalized.image_size as SubmitRequest['image_size']
+    if (normalized.image_size)
+      request.image_size = normalized.image_size as SubmitRequest['image_size']
   } else {
     if (pixels) request.size = pixels
     if (normalized.quality) request.quality = normalized.quality as SubmitRequest['quality']

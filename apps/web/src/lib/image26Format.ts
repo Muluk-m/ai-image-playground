@@ -1,3 +1,7 @@
+import {
+  GPT_IMAGE_26_GIF_DEFAULT_FRAMES,
+  GPT_IMAGE_26_GIF_DEFAULT_SIZE,
+} from '@image-playground/shared'
 import type { TaskParams } from '../types'
 
 /** 动图只有这两档帧尺寸。其它尺寸（包括自定义 816x816）不能发给上游。 */
@@ -16,7 +20,7 @@ export function isGifFrameSize(size: string | undefined): size is GifFrameSize {
 
 /** 已经是帧尺寸就保留，否则用 768。界面上没点过尺寸档时也按这一档提交。 */
 export function gifFrameSize(size: string | undefined): GifFrameSize {
-  return isGifFrameSize(size) ? size : '768x768'
+  return isGifFrameSize(size) ? size : (GPT_IMAGE_26_GIF_DEFAULT_SIZE as GifFrameSize)
 }
 
 function snapshotStill(params: TaskParams): StillImageSettings {
@@ -46,7 +50,7 @@ export function switchImageOutputFormat(
         output_format: 'gif',
         quality: 'medium',
         n: 1,
-        frame_count: params.frame_count ?? 6,
+        frame_count: params.frame_count ?? GPT_IMAGE_26_GIF_DEFAULT_FRAMES,
         frame_duration_ms: params.frame_duration_ms ?? 200,
         size: gifFrameSize(params.size),
         output_compression: null,
