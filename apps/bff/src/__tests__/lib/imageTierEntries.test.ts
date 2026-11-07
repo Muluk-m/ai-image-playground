@@ -15,9 +15,10 @@ import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
  * 入口取自 createQueueTask / prepareQueueTask 现有字段：
  * - web-direct：不带任何标记
  * - cli-strict：strictImageRequest
- * - tx：调用方自带事务（确认生成、批次、灵感套用）
- * - prepared：先 prepareQueueTask 再提交（自动提交、批次执行）
+ * - tx：调用方自带事务（目前只有确认生成，且它同时带 agent）
+ * - prepared：先 prepareQueueTask 再在事务里提交（自动提交、批次执行、灵感套用）
  * 智能体与阶段授权入口走同一条 ceiling 分支，由 chat-task / agent-stage-authorizations 测试覆盖。
+ * 本文件是 resolveImageTier 落地前的过渡脚手架：落地后这张表并入该 module 的测试，届时删除本文件。
  */
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
@@ -34,12 +35,17 @@ type Input = Parameters<typeof createQueueTask>[0]
 type Entry = 'web-direct' | 'cli-strict' | 'tx' | 'prepared'
 
 const USER = 'tier-entry-user'
-const direct = { enabled: process.env.GPT_DIRECT_ENABLED, apiKey: process.env.OPENAI_API_KEY }
+const direct = {
+  enabled: process.env.GPT_DIRECT_ENABLED,
+  apiKey: process.env.OPENAI_API_KEY,
+  apiKeys: process.env.OPENAI_API_KEYS,
+}
 
 beforeEach(async () => {
   setObjectStoreForTesting(new InMemoryObjectStore())
   process.env.GPT_DIRECT_ENABLED = 'true'
   process.env.OPENAI_API_KEY = 'direct-key'
+  delete process.env.OPENAI_API_KEYS
   await db.delete(schema.tasks)
   await db
     .insert(schema.users)
@@ -59,6 +65,8 @@ afterEach(() => {
   else process.env.GPT_DIRECT_ENABLED = direct.enabled
   if (direct.apiKey === undefined) delete process.env.OPENAI_API_KEY
   else process.env.OPENAI_API_KEY = direct.apiKey
+  if (direct.apiKeys === undefined) delete process.env.OPENAI_API_KEYS
+  else process.env.OPENAI_API_KEYS = direct.apiKeys
 })
 afterAll(async () => {
   await close()
